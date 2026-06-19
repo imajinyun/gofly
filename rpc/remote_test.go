@@ -114,6 +114,9 @@ func TestFramedTransportBinaryFrames(t *testing.T) {
 
 func TestBinaryFrameCodecRejectsMalformedFrames(t *testing.T) {
 	codec := BinaryFrameCodec{}
+	if (JSONFrameCodec{}).Name() != "json" || codec.Name() != "binary" {
+		t.Fatalf("codec names = %q/%q, want json/binary", (JSONFrameCodec{}).Name(), codec.Name())
+	}
 	if _, err := codec.Unmarshal([]byte{2}); err == nil {
 		t.Fatal("unsupported version error is nil")
 	}
@@ -134,6 +137,17 @@ func TestBinaryFrameCodecRejectsOverflowLengths(t *testing.T) {
 }
 
 func TestFramedTransportFrameLimitsAndCancellation(t *testing.T) {
+	t.Run("nil options fall back to defaults", func(t *testing.T) {
+		clientConn, serverConn := net.Pipe()
+		defer clientConn.Close()
+		defer serverConn.Close()
+
+		transport := NewFramedTransport(clientConn, WithPayloadCodec(nil), WithFrameCodec(nil), WithMaxFrameBytes(-1))
+		if transport.payload.Name() != "identity" || transport.frame.Name() != "json" || transport.maxFrame != DefaultMaxFrameBytes {
+			t.Fatalf("transport defaults = payload %q frame %q max %d", transport.payload.Name(), transport.frame.Name(), transport.maxFrame)
+		}
+	})
+
 	t.Run("send rejects oversized encoded frame", func(t *testing.T) {
 		clientConn, serverConn := net.Pipe()
 		defer clientConn.Close()
@@ -222,6 +236,56 @@ func TestServeFramedMiddlewareAndErrorEnvelope(t *testing.T) {
 	case <-done:
 	case <-time.After(time.Second):
 		t.Fatal("ServeFramed did not stop after context cancellation and close")
+	}
+}
+
+func TestServeFramedNilHandlerAndTransportNilReceivers(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	defer clientConn.Close()
+	defer serverConn.Close()
+
+	if err := ServeFramed(context.Background(), NewFramedTransport(serverConn), nil); err == nil {
+		t.Fatal("ServeFramed nil handler succeeded, want error")
+	}
+	var transport *FramedTransport
+	if err := transport.Close(); err != nil {
+		t.Fatalf("nil transport Close error = %v, want nil", err)
+	}
+	if stats := transport.Snapshot(); stats != (TransportStats{}) {
+		t.Fatalf("nil transport stats = %#v, want zero", stats)
+	}
+}
+
+func TestDialFramedSuccessAndError(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	accepted := make(chan net.Conn, 1)
+	go func() {
+		conn, err := listener.Accept()
+		if err == nil {
+			accepted <- conn
+		}
+		close(accepted)
+	}()
+
+	transport, err := DialFramed(context.Background(), "tcp", listener.Addr().String(), time.Second)
+	if err != nil {
+		t.Fatalf("DialFramed success: %v", err)
+	}
+	defer transport.Close()
+	if conn := <-accepted; conn != nil {
+		defer conn.Close()
+	} else {
+		t.Fatal("listener did not accept DialFramed connection")
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := DialFramed(ctx, "tcp", listener.Addr().String(), time.Second); !errors.Is(err, context.Canceled) {
+		t.Fatalf("DialFramed canceled error = %v, want context.Canceled", err)
 	}
 }
 

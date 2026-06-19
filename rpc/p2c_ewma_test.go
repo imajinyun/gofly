@@ -112,3 +112,37 @@ func TestP2CEWMABalancerEmptyEndpoints(t *testing.T) {
 		t.Fatal("expected error for empty endpoints")
 	}
 }
+
+func TestP2CEWMAOptionsAndReportBoundaries(t *testing.T) {
+	b := NewP2CEWMABalancer(WithEWMADecay(42*time.Millisecond), nil)
+	if b.decay != 42*time.Millisecond {
+		t.Fatalf("decay = %v, want 42ms", b.decay)
+	}
+	WithEWMADecay(-time.Second)(b)
+	if b.decay != 42*time.Millisecond {
+		t.Fatalf("decay after negative option = %v, want unchanged 42ms", b.decay)
+	}
+
+	b.Report(context.Background(), " ", nil)
+	b.Report(context.Background(), "unknown", nil)
+	if len(b.endpoints) != 0 {
+		t.Fatalf("endpoints after ignored reports = %#v, want none", b.endpoints)
+	}
+
+	now := time.Unix(10, 0)
+	b.now = func() time.Time { return now }
+	b.markPickLocked("http://a", now)
+	now = now.Add(-time.Second)
+	b.Report(context.Background(), "http://a/", nil)
+	stat := b.endpoints["http://a"]
+	if stat == nil || stat.inflight != 0 || stat.lag != 0 || len(stat.pending) != 0 {
+		t.Fatalf("stat after negative-latency report = %#v, want released zero-latency stat", stat)
+	}
+
+	if got := trimEndpoint(" http://a/ "); got != "http://a" {
+		t.Fatalf("trimEndpoint = %q, want http://a", got)
+	}
+	if got := trimEndpoint(" "); got != "" {
+		t.Fatalf("trimEndpoint blank = %q, want empty", got)
+	}
+}

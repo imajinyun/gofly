@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 )
 
 func TestConsistentHashBalancerStableByContextKey(t *testing.T) {
@@ -85,5 +86,62 @@ func TestHashKeyFromContextNil(t *testing.T) {
 	var nilCtx context.Context
 	if got := HashKeyFromContext(nilCtx); got != "" {
 		t.Fatalf("HashKeyFromContext(nil) = %q, want empty", got)
+	}
+}
+
+func TestConsistentHashBalancerFixedKeyAndNilContext(t *testing.T) {
+	ctx := ContextWithHashKey(nil, "tenant-a")
+	if got := HashKeyFromContext(ctx); got != "tenant-a" {
+		t.Fatalf("hash key = %q, want tenant-a", got)
+	}
+
+	balancer := NewConsistentHashBalancer(WithConsistentHashReplicas(-1), WithConsistentHashKey("tenant-fixed"))
+	endpoints := []string{" http://a/ ", "http://b", "http://c"}
+	first, err := balancer.Pick(context.Background(), endpoints)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 10; i++ {
+		got, err := balancer.Pick(context.Background(), endpoints)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != first {
+			t.Fatalf("pick %d = %q, want fixed-key endpoint %q", i, got, first)
+		}
+	}
+}
+
+func TestBalancerNormalizationHelpers(t *testing.T) {
+	endpoints := normalizeEndpoints([]string{" http://a/ ", "http://a", "", " http://b// "})
+	if len(endpoints) != 2 || endpoints[0] != "http://a" || endpoints[1] != "http://b" {
+		t.Fatalf("endpoints = %#v, want trimmed unique endpoints", endpoints)
+	}
+	weights := normalizeWeights(map[string]int{" http://a/ ": 2, "http://b": 0, " ": 10})
+	if len(weights) != 1 || weights["http://a"] != 2 {
+		t.Fatalf("weights = %#v, want only positive normalized endpoint weight", weights)
+	}
+}
+
+func TestHealthBalancerRecoversEjectedEndpointAfterDuration(t *testing.T) {
+	b := NewHealthBalancer(WithHealthFailureThreshold(1), WithHealthEjectionDuration(time.Hour))
+	endpoints := []string{"bad", "good"}
+	b.Report(context.Background(), "bad", NewError(CodeUnavailable, "down"))
+	if got, err := b.Pick(context.Background(), endpoints); err != nil || got != "good" {
+		t.Fatalf("pick while ejected = %q/%v, want good", got, err)
+	}
+	b.mu.Lock()
+	b.endpoints["bad"].ejectedAt = time.Now().Add(-time.Hour)
+	b.mu.Unlock()
+	seen := map[string]bool{}
+	for i := 0; i < 4; i++ {
+		got, err := b.Pick(context.Background(), endpoints)
+		if err != nil {
+			t.Fatal(err)
+		}
+		seen[got] = true
+	}
+	if !seen["bad"] {
+		t.Fatalf("seen endpoints after recovery = %#v, want bad endpoint recovered", seen)
 	}
 }

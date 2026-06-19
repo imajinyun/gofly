@@ -59,3 +59,44 @@ func TestExecuteHandlerGenDefaultPath(t *testing.T) {
 		t.Fatalf("generated handler = %s", data)
 	}
 }
+
+func TestMergeListsBoundaries_BitsUT(t *testing.T) {
+	tests := []struct {
+		name string
+		a    []string
+		b    []string
+		want []string
+	}{
+		{
+			name: "preserve order and deduplicate across lists",
+			a:    []string{" rpc ", "api", "rpc", ""},
+			b:    []string{"api", " model ", "", "rpc-compat"},
+			want: []string{"rpc", "api", "model", "rpc-compat"},
+		},
+		{
+			name: "empty inputs",
+			a:    nil,
+			b:    []string{" ", ""},
+			want: []string{},
+		},
+		{
+			name: "first occurrence wins",
+			a:    []string{"trace", "auth"},
+			b:    []string{"auth", "trace", "cors"},
+			want: []string{"trace", "auth", "cors"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := mergeLists(tt.a, tt.b)
+			if len(got) != len(tt.want) {
+				t.Fatalf("mergeLists() = %#v, want %#v", got, tt.want)
+			}
+			for i := range tt.want {
+				if got[i] != tt.want[i] {
+					t.Fatalf("mergeLists()[%d] = %q, want %q; full=%#v", i, got[i], tt.want[i], got)
+				}
+			}
+		})
+	}
+}

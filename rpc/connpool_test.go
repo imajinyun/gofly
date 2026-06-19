@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -148,6 +149,34 @@ func TestConnPoolPutAndDiscardNilAreNoops(t *testing.T) {
 	}
 	if got := closed.Load(); got != 0 {
 		t.Fatalf("closed after nil operations = %d, want 0", got)
+	}
+}
+
+func TestConnPoolDefaultAndNilDialerBoundaries_BitsUT(t *testing.T) {
+	pool := NewConnPoolWithDialer(nil, ConnPoolConfig{MaxIdle: -1, MaxActive: -1, WaitInterval: -time.Second})
+	if pool.conf.MaxIdle != DefaultConnPoolConfig().MaxIdle || pool.conf.MaxActive != DefaultConnPoolConfig().MaxActive {
+		t.Fatalf("normalized pool config = %#v, want defaults for non-positive limits", pool.conf)
+	}
+	if pool.conf.WaitInterval != DefaultConnPoolConfig().WaitInterval {
+		t.Fatalf("WaitInterval = %v, want default %v", pool.conf.WaitInterval, DefaultConnPoolConfig().WaitInterval)
+	}
+	if _, err := pool.Get(context.Background()); err == nil || !errors.Is(err, context.Canceled) && !strings.Contains(err.Error(), "dialer is nil") {
+		t.Fatalf("nil dialer Get error = %v, want wrapped nil dialer error", err)
+	}
+	if err := (*ConnPool)(nil).Close(); err != nil {
+		t.Fatalf("nil pool Close = %v, want nil", err)
+	}
+}
+
+func TestHTTPServerGovernanceSnapshotBoundaries_BitsUT(t *testing.T) {
+	server := NewServer(WithServerAdaptiveBreaker(nil))
+	snapshot := server.Governance()
+	if len(snapshot.Components) != 1 {
+		t.Fatalf("Governance components = %#v, want one adaptive breaker", snapshot.Components)
+	}
+	component := snapshot.Components[0]
+	if component.Name != "adaptive-breaker" || component.Kind != "adaptive_breaker" || component.Target != "server" {
+		t.Fatalf("Governance component = %#v, want adaptive-breaker server component", component)
 	}
 }
 

@@ -191,6 +191,49 @@ func TestContextErrorWritesCoreErrorResponse(t *testing.T) {
 	}
 }
 
+func TestContextQueryValidateAndRequestIDBoundaries_BitsUT(t *testing.T) {
+	type queryRequest struct {
+		Page int    `query:"page" validate:"min=1"`
+		Name string `query:"name" validate:"required"`
+	}
+
+	var captured queryRequest
+	s := MustNewServer(Config{})
+	s.AddRoute(Route{Method: http.MethodGet, Path: "/query", Handler: func(ctx *Context) {
+		if got := ctx.RequestID(); got != "rid-bits" {
+			t.Fatalf("RequestID() = %q, want rid-bits", got)
+		}
+		if err := ctx.BindQuery(&captured); err != nil {
+			ctx.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		if err := ctx.Validate(&captured); err != nil {
+			ctx.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		ctx.JSON(http.StatusOK, captured)
+	}}, WithRequestID())
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/query?page=2&name=orders", nil)
+	req.Header.Set(RequestIDHeader, "rid-bits")
+	s.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if captured.Page != 2 || captured.Name != "orders" {
+		t.Fatalf("captured query = %#v, want page/name", captured)
+	}
+
+	missing := httptest.NewRecorder()
+	missingReq := httptest.NewRequest(http.MethodGet, "/query?page=0", nil)
+	missingReq.Header.Set(RequestIDHeader, "rid-bits")
+	s.Handler().ServeHTTP(missing, missingReq)
+	if missing.Code != http.StatusBadRequest {
+		t.Fatalf("validation status = %d, want %d", missing.Code, http.StatusBadRequest)
+	}
+}
+
 func TestRecoverMiddleware(t *testing.T) {
 	s := MustNewServer(Config{})
 	s.Use(RecoverMiddleware())
@@ -1641,6 +1684,142 @@ func TestConfiguredMaxBodyBytesUsesMiddlewareConfig(t *testing.T) {
 	s.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/limited-body", strings.NewReader("too large")))
 	if rec.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusRequestEntityTooLarge)
+	}
+}
+
+func TestSignatureAuthMiddlewareRestoresBodyAndRejectsInvalidSignature_BitsUT(t *testing.T) {
+	secret := []byte("bits-secret")
+	now := time.Unix(1700000000, 0)
+	body := []byte(`{"name":"gofly"}`)
+	s := MustNewServer(Config{DisableDefaultMiddlewares: true})
+	s.Use(SignatureAuthMiddleware(auth.SignatureOptions{Secret: secret, MaxAge: time.Minute, Now: func() time.Time { return now }}))
+	s.AddRoute(Route{Method: http.MethodPost, Path: "/signed", Handler: func(ctx *Context) {
+		data, err := io.ReadAll(ctx.Request.Body)
+		if err != nil {
+			t.Fatalf("read restored body: %v", err)
+		}
+		ctx.JSON(http.StatusOK, map[string]string{"body": string(data)})
+	}})
+
+	req := httptest.NewRequest(http.MethodPost, "/signed?debug=true", strings.NewReader(string(body)))
+	req.Header.Set(auth.TimestampHeader, "1700000000")
+	req.Header.Set(auth.SignatureHeader, auth.SignRequest(http.MethodPost, "/signed?debug=true", body, now.Unix(), secret))
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("valid signature status = %d, want %d, body = %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var got map[string]string
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got["body"] != string(body) {
+		t.Fatalf("restored body = %q, want %q", got["body"], body)
+	}
+
+	bad := httptest.NewRecorder()
+	badReq := httptest.NewRequest(http.MethodPost, "/signed?debug=true", strings.NewReader(string(body)))
+	badReq.Header.Set(auth.TimestampHeader, "1700000000")
+	badReq.Header.Set(auth.SignatureHeader, "sha256=bad")
+	s.Handler().ServeHTTP(bad, badReq)
+	if bad.Code != http.StatusUnauthorized {
+		t.Fatalf("bad signature status = %d, want %d", bad.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestBreakerMiddlewareOpensAfterServerErrors_BitsUT(t *testing.T) {
+	s := MustNewServer(Config{DisableDefaultMiddlewares: true})
+	s.Use(BreakerMiddleware())
+	s.AddRoute(Route{Method: http.MethodGet, Path: "/unstable", Handler: func(ctx *Context) {
+		http.Error(ctx.Response, "failed", http.StatusInternalServerError)
+	}})
+
+	for i := 0; i < 3; i++ {
+		rec := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/unstable", nil))
+		if rec.Code != http.StatusInternalServerError {
+			t.Fatalf("failure %d status = %d, want %d", i+1, rec.Code, http.StatusInternalServerError)
+		}
+	}
+
+	open := httptest.NewRecorder()
+	s.Handler().ServeHTTP(open, httptest.NewRequest(http.MethodGet, "/unstable", nil))
+	if open.Code != http.StatusServiceUnavailable {
+		t.Fatalf("open breaker status = %d, want %d", open.Code, http.StatusServiceUnavailable)
+	}
+}
+
+func TestServerTimeoutAndMapCloneHelpers_BitsUT(t *testing.T) {
+	s := MustNewServer(Config{Timeout: 5 * time.Second, Middlewares: MiddlewaresConfig{
+		TimeoutConfig: TimeoutConfig{ReadHeaderTimeout: 250 * time.Millisecond},
+	}})
+	if got := s.readHeaderTimeout(); got != 250*time.Millisecond {
+		t.Fatalf("readHeaderTimeout override = %v, want 250ms", got)
+	}
+	s.conf.Middlewares.TimeoutConfig.ReadHeaderTimeout = 0
+	if got := s.readHeaderTimeout(); got != 5*time.Second {
+		t.Fatalf("readHeaderTimeout fallback = %v, want server timeout", got)
+	}
+
+	if got := (Config{}).addr(); got != "0.0.0.0:8080" {
+		t.Fatalf("default addr = %q, want 0.0.0.0:8080", got)
+	}
+	if got := (Config{Host: "127.0.0.1", Port: 9090}).addr(); got != "127.0.0.1:9090" {
+		t.Fatalf("custom addr = %q, want 127.0.0.1:9090", got)
+	}
+	if fmtInt(42) != "42" {
+		t.Fatalf("fmtInt(42) = %q, want 42", fmtInt(42))
+	}
+
+	if got := cloneStringMap(nil); got != nil {
+		t.Fatalf("cloneStringMap(nil) = %#v, want nil", got)
+	}
+	src := map[string]string{"token": "secret"}
+	clone := cloneStringMap(src)
+	clone["token"] = "redacted"
+	if src["token"] != "secret" {
+		t.Fatalf("clone mutation leaked to source: src=%#v clone=%#v", src, clone)
+	}
+}
+
+func TestZeroCoverageWrapperHelpers_BitsUT(t *testing.T) {
+	called := false
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusAccepted)
+	})
+	for name, mw := range map[string]Middleware{
+		"trace":        TraceMiddleware("orders"),
+		"log":          LogMiddleware(),
+		"log-sampler":  LogMiddlewareWithSampler(nil),
+		"trim-strings": TrimStringsMiddleware(),
+	} {
+		t.Run(name, func(t *testing.T) {
+			called = false
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodPost, "/wrapper?q=%20ok%20", strings.NewReader(` {"name":" gofly "} `))
+			req.Header.Set("Content-Type", "application/json")
+			mw(handler).ServeHTTP(rec, req)
+			if !called || rec.Code != http.StatusAccepted {
+				t.Fatalf("wrapper %s called/status = %v/%d, want true/%d", name, called, rec.Code, http.StatusAccepted)
+			}
+		})
+	}
+
+	rec := httptest.NewRecorder()
+	sw := newStatusResponseWriter(rec)
+	sw.Flush()
+	if err := sw.Push("/asset.js", nil); err != http.ErrNotSupported {
+		t.Fatalf("statusResponseWriter.Push unsupported error = %v, want %v", err, http.ErrNotSupported)
+	}
+
+	wsOpts := webSocketOptions{}
+	WithWebSocketReadTimeout(2 * time.Second)(&wsOpts)
+	WithWebSocketWriteTimeout(3 * time.Second)(&wsOpts)
+	WithWebSocketReadTimeout(0)(&wsOpts)
+	WithWebSocketWriteTimeout(-time.Second)(&wsOpts)
+	if wsOpts.readTimeout != 2*time.Second || wsOpts.writeTimeout != 3*time.Second {
+		t.Fatalf("websocket timeouts = %v/%v, want 2s/3s", wsOpts.readTimeout, wsOpts.writeTimeout)
 	}
 }
 

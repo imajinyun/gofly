@@ -12,6 +12,7 @@ import (
 
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
+	"github.com/gofly/gofly/core/auth"
 	"github.com/gofly/gofly/core/breaker"
 	coregovernance "github.com/gofly/gofly/core/governance"
 	"github.com/gofly/gofly/core/limit"
@@ -89,6 +90,78 @@ func TestRPCErrorHelpers(t *testing.T) {
 	}
 	if !isRetryable(plainErr) {
 		t.Fatal("isRetryable(plain error) = false, want true because plain errors map to internal")
+	}
+}
+
+func TestRPCTimeoutMiddlewareContracts(t *testing.T) {
+	fast := TimeoutMiddleware(0)(func(ctx context.Context, req any) (any, error) {
+		return "ok", nil
+	})
+	got, err := fast(context.Background(), "req")
+	if err != nil || got != "ok" {
+		t.Fatalf("TimeoutMiddleware(0) response = %v err=%v, want ok nil", got, err)
+	}
+
+	slow := TimeoutMiddleware(time.Millisecond)(func(ctx context.Context, req any) (any, error) {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	})
+	got, err = slow(context.Background(), "req")
+	if got != nil || CodeOf(err) != CodeDeadlineExceeded {
+		t.Fatalf("timeout response = %v err=%v code=%s, want nil deadline_exceeded", got, err, CodeOf(err))
+	}
+}
+
+func TestRPCRequestIDMiddlewareAddsAndPreservesID(t *testing.T) {
+	var generated string
+	mw := RequestIDMiddleware()(func(ctx context.Context, req any) (any, error) {
+		generated = metadata.RequestIDFromContext(ctx)
+		return "ok", nil
+	})
+	if _, err := mw(context.Background(), "req"); err != nil {
+		t.Fatalf("RequestIDMiddleware generated call: %v", err)
+	}
+	if generated == "" {
+		t.Fatal("RequestIDMiddleware did not generate request id")
+	}
+
+	var preserved string
+	mw = RequestIDMiddleware()(func(ctx context.Context, req any) (any, error) {
+		preserved = metadata.RequestIDFromContext(ctx)
+		return "ok", nil
+	})
+	ctx := metadata.Append(context.Background(), metadata.RequestIDKey, "rid-existing")
+	if _, err := mw(ctx, "req"); err != nil {
+		t.Fatalf("RequestIDMiddleware preserved call: %v", err)
+	}
+	if preserved != "rid-existing" {
+		t.Fatalf("request id = %q, want rid-existing", preserved)
+	}
+}
+
+func TestRPCServerAuthMiddlewareContracts(t *testing.T) {
+	mw := ServerAuthMiddleware(auth.StaticTokenValidator("secret", "rpc-user"))(func(ctx context.Context, req any) (any, error) {
+		return auth.SubjectFromContext(ctx), nil
+	})
+
+	if _, err := mw(context.Background(), "req"); CodeOf(err) != CodeUnauthenticated {
+		t.Fatalf("missing credentials error = %v code=%s, want unauthenticated", err, CodeOf(err))
+	}
+	badCtx := metadata.Append(context.Background(), auth.MetadataKey, auth.BearerValue("wrong"))
+	if _, err := mw(badCtx, "req"); CodeOf(err) != CodeUnauthenticated {
+		t.Fatalf("invalid credentials error = %v code=%s, want unauthenticated", err, CodeOf(err))
+	}
+	goodCtx := metadata.Append(context.Background(), auth.AuthorizationHeader, auth.BearerValue("secret"))
+	got, err := mw(goodCtx, "req")
+	if err != nil || got != "rpc-user" {
+		t.Fatalf("authorized response = %v err=%v, want rpc-user nil", got, err)
+	}
+
+	nilValidator := ServerAuthMiddleware(nil)(func(ctx context.Context, req any) (any, error) {
+		return "unreachable", nil
+	})
+	if _, err := nilValidator(goodCtx, "req"); CodeOf(err) != CodeInternal {
+		t.Fatalf("nil validator error = %v code=%s, want internal", err, CodeOf(err))
 	}
 }
 

@@ -1181,6 +1181,69 @@ func TestGovernanceSuiteUsesSeparateTimeoutConfig(t *testing.T) {
 	}
 }
 
+func TestRPCDefaultGovernanceAndObservabilitySuite(t *testing.T) {
+	conf := DefaultGovernanceConfig(25 * time.Millisecond)
+	if !conf.Recover || !conf.RequestID || !conf.Trace || !conf.Log || !conf.Metrics || conf.Timeout != 25*time.Millisecond {
+		t.Fatalf("DefaultGovernanceConfig = %#v, want recover/request-id/trace/log/metrics and timeout", conf)
+	}
+
+	suite := ObservabilitySuite("orders", 10*time.Millisecond)
+	server := suite.ServerOptions()
+	client := suite.ClientOptions()
+	if len(server) != 9 {
+		t.Fatalf("observability server options = %d, want unary and stream recover/trace/timeout/metrics/log", len(server))
+	}
+	if len(client) != 8 {
+		t.Fatalf("observability client options = %d, want unary and stream trace/timeout/metrics/log", len(client))
+	}
+}
+
+func TestRPCBasicSuiteReturnsDefensiveCopies(t *testing.T) {
+	suite := BasicSuite{
+		Server: []ServerOption{WithServerAdminToken("secret")},
+		Client: []ClientOption{WithRetry(2)},
+	}
+	serverOptions := suite.ServerOptions()
+	client := suite.ClientOptions()
+	serverOptions[0] = WithServerAdminToken("mutated")
+	client[0] = WithRetry(9)
+
+	server := NewServer(WithServerSuite(suite))
+	if server.opts.adminToken != "secret" {
+		t.Fatalf("server admin token = %q, want secret", server.opts.adminToken)
+	}
+
+	rpcClient, err := NewClient("http://127.0.0.1:1", WithClientSuite(suite))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rpcClient.opts.retry != 2 {
+		t.Fatalf("client retry = %d, want 2", rpcClient.opts.retry)
+	}
+}
+
+func TestRPCGovernanceOptionAliasesAndOverrides(t *testing.T) {
+	rules := governance.NewRuleSet(governance.Rule{Name: "alias"})
+	server := NewServer(WithServerGovernanceRuleSet(rules), WithServerReadHeaderTimeout(time.Second), WithServerReadHeaderTimeout(0))
+	if server.opts.rules != rules {
+		t.Fatal("WithServerGovernanceRuleSet should set server rules")
+	}
+	if server.opts.readHeaderTimeout != time.Second {
+		t.Fatalf("read header timeout = %v, want %v", server.opts.readHeaderTimeout, time.Second)
+	}
+
+	rpcClient, err := NewClient("http://127.0.0.1:1", WithClientGovernanceRuleSet(rules), WithClientSingleflight())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rpcClient.opts.rules != rules {
+		t.Fatal("WithClientGovernanceRuleSet should set client rules")
+	}
+	if rpcClient.opts.singleflight == nil {
+		t.Fatal("WithClientSingleflight should initialize singleflight group")
+	}
+}
+
 func TestRegistryTTLAndWatch(t *testing.T) {
 	registry := NewRegistry()
 	ctx, cancel := context.WithCancel(context.Background())

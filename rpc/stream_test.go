@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gofly/gofly/core/auth"
 	coregovernance "github.com/gofly/gofly/core/governance"
 	"github.com/gofly/gofly/core/metadata"
 )
@@ -255,6 +256,103 @@ func TestRPCClientStreamMiddlewareChain(t *testing.T) {
 	}
 	if resp.Message != "client:stream" {
 		t.Fatalf("response = %q, want client:stream", resp.Message)
+	}
+}
+
+func newMiddlewareTestStream(t *testing.T) *Stream {
+	t.Helper()
+	client, server := net.Pipe()
+	t.Cleanup(func() { _ = server.Close() })
+	rw := bufio.NewReadWriter(bufio.NewReader(client), bufio.NewWriter(client))
+	return newStream(client, rw, JSONCodec{})
+}
+
+func TestRPCStreamRequestIDMiddlewareAddsAndPreservesID(t *testing.T) {
+	stream := newMiddlewareTestStream(t)
+	defer stream.Close()
+
+	var generated string
+	mw := StreamRequestIDMiddleware()(func(ctx context.Context, stream *Stream) error {
+		generated = metadata.RequestIDFromContext(ctx)
+		return nil
+	})
+	if err := mw(context.Background(), stream); err != nil {
+		t.Fatalf("StreamRequestIDMiddleware generated call: %v", err)
+	}
+	if generated == "" {
+		t.Fatal("StreamRequestIDMiddleware did not generate request id")
+	}
+
+	var preserved string
+	mw = StreamRequestIDMiddleware()(func(ctx context.Context, stream *Stream) error {
+		preserved = metadata.RequestIDFromContext(ctx)
+		return nil
+	})
+	ctx := metadata.Append(context.Background(), metadata.RequestIDKey, "rid-stream-existing")
+	if err := mw(ctx, stream); err != nil {
+		t.Fatalf("StreamRequestIDMiddleware preserved call: %v", err)
+	}
+	if preserved != "rid-stream-existing" {
+		t.Fatalf("request id = %q, want rid-stream-existing", preserved)
+	}
+}
+
+func TestRPCClientStreamMaxConcurrencyReleasesOnClose(t *testing.T) {
+	var opened int
+	mw := ClientStreamMaxConcurrencyMiddleware(1)(func(ctx context.Context, method string) (*Stream, error) {
+		opened++
+		return newMiddlewareTestStream(t), nil
+	})
+
+	first, err := mw(context.Background(), "chat/Echo")
+	if err != nil {
+		t.Fatalf("first stream: %v", err)
+	}
+	if _, err := mw(context.Background(), "chat/Echo"); CodeOf(err) != CodeUnavailable {
+		_ = first.Close()
+		t.Fatalf("second stream error = %v code=%s, want unavailable", err, CodeOf(err))
+	}
+	if err := first.Close(); err != nil {
+		t.Fatalf("close first stream: %v", err)
+	}
+	third, err := mw(context.Background(), "chat/Echo")
+	if err != nil {
+		t.Fatalf("third stream after close: %v", err)
+	}
+	defer third.Close()
+	if opened != 2 {
+		t.Fatalf("opened streams = %d, want 2", opened)
+	}
+}
+
+func TestRPCClientStreamBearerTokenMiddlewareAddsMetadata(t *testing.T) {
+	var token string
+	mw := ClientStreamBearerTokenMiddleware("secret")(func(ctx context.Context, method string) (*Stream, error) {
+		md, _ := metadata.FromContext(ctx)
+		token = md.Get(auth.MetadataKey)
+		return nil, nil
+	})
+	if _, err := mw(context.Background(), "chat/Echo"); err != nil {
+		t.Fatalf("ClientStreamBearerTokenMiddleware: %v", err)
+	}
+	if token != auth.BearerValue("secret") {
+		t.Fatalf("metadata token = %q, want bearer secret", token)
+	}
+
+	called := false
+	empty := ClientStreamBearerTokenMiddleware("")(func(ctx context.Context, method string) (*Stream, error) {
+		called = true
+		md, _ := metadata.FromContext(ctx)
+		if md.Get(auth.MetadataKey) != "" {
+			t.Fatalf("empty token metadata = %#v, want no auth token", md)
+		}
+		return nil, nil
+	})
+	if _, err := empty(context.Background(), "chat/Echo"); err != nil {
+		t.Fatalf("empty ClientStreamBearerTokenMiddleware: %v", err)
+	}
+	if !called {
+		t.Fatal("empty token middleware did not call next")
 	}
 }
 

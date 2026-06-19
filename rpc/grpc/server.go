@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/gofly/gofly/core/governance"
-	"github.com/gofly/gofly/core/metrics"
+	"github.com/gofly/gofly/core/observability/metrics"
 	"github.com/gofly/gofly/core/security"
 
 	stdgrpc "google.golang.org/grpc"

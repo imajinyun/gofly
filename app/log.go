@@ -13,7 +13,7 @@ import (
 	"os"
 	"strings"
 
-	coretrace "github.com/gofly/gofly/core/trace"
+	coretrace "github.com/gofly/gofly/core/observability/trace"
 )
 
 // LogConfig configures the slog logger used by the gofly runtime.

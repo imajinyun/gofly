@@ -18,7 +18,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.38.0"
 
-	"github.com/gofly/gofly/core/metrics"
+	"github.com/gofly/gofly/core/observability/metrics"
 )
 
 // Protocol selects the OTLP transport.
@@ -172,7 +172,7 @@ func newExporter(ctx context.Context, cfg Config) (sdkmetric.Exporter, error) {
 }
 
 func registerCallbacks(provider *sdkmetric.MeterProvider, registry *metrics.Registry) error {
-	meter := provider.Meter("github.com/gofly/gofly/core/metrics")
+	meter := provider.Meter("github.com/gofly/gofly/core/observability/metrics")
 	requests, err := meter.Int64ObservableCounter("gofly_requests_total",
 		otelmetric.WithDescription("Total number of handled requests."))
 	if err != nil {

@@ -22,9 +22,9 @@ import (
 	coreerrors "github.com/gofly/gofly/core/errors"
 	"github.com/gofly/gofly/core/governance"
 	"github.com/gofly/gofly/core/limit"
-	"github.com/gofly/gofly/core/metrics"
+	"github.com/gofly/gofly/core/observability/metrics"
 	"github.com/gofly/gofly/core/security"
-	"github.com/gofly/gofly/core/trace"
+	"github.com/gofly/gofly/core/observability/trace"
 )
 
 // Option configures a Server.

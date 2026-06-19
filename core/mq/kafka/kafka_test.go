@@ -9,7 +9,7 @@ import (
 	kafkago "github.com/segmentio/kafka-go"
 
 	"github.com/gofly/gofly/core/mq"
-	"github.com/gofly/gofly/core/trace"
+	"github.com/gofly/gofly/core/observability/trace"
 )
 
 func TestNewValidationAndDefaults(t *testing.T) {

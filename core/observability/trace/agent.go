@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/gofly/gofly/core/trace/exporter"
+	"github.com/gofly/gofly/core/observability/trace/exporter"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"

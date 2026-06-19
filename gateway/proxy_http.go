@@ -13,7 +13,7 @@ import (
 	"strings"
 
 	"github.com/gofly/gofly/core/breaker"
-	"github.com/gofly/gofly/core/trace"
+	"github.com/gofly/gofly/core/observability/trace"
 )
 
 // proxyOnce executes a single proxy attempt for the matched route.

@@ -10,7 +10,7 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
-	"github.com/gofly/gofly/core/metrics"
+	"github.com/gofly/gofly/core/observability/metrics"
 )
 
 func TestStartRequiresEndpoint(t *testing.T) {

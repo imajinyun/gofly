@@ -9,7 +9,7 @@ import (
 
 	coregovernance "github.com/gofly/gofly/core/governance"
 	coreproc "github.com/gofly/gofly/core/proc"
-	coretrace "github.com/gofly/gofly/core/trace"
+	coretrace "github.com/gofly/gofly/core/observability/trace"
 	"github.com/gofly/gofly/rest"
 	"github.com/gofly/gofly/rpc"
 )

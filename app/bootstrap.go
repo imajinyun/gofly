@@ -13,10 +13,10 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/gofly/gofly/core/metrics"
-	metricsotel "github.com/gofly/gofly/core/metrics/otel"
+	"github.com/gofly/gofly/core/observability/metrics"
+	metricsotel "github.com/gofly/gofly/core/observability/metrics/otel"
 	coreproc "github.com/gofly/gofly/core/proc"
-	coretrace "github.com/gofly/gofly/core/trace"
+	coretrace "github.com/gofly/gofly/core/observability/trace"
 )
 
 // Config describes the wiring Bootstrap performs. All fields are optional;

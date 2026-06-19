@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/gofly/gofly/core/metadata"
-	"github.com/gofly/gofly/core/metrics"
-	"github.com/gofly/gofly/core/trace"
+	"github.com/gofly/gofly/core/observability/metrics"
+	"github.com/gofly/gofly/core/observability/trace"
 )
 
 // Config configures the Observer.

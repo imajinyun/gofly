@@ -17,7 +17,7 @@ import (
 	"github.com/gofly/gofly/core/discovery"
 	"github.com/gofly/gofly/core/governance"
 	"github.com/gofly/gofly/core/metadata"
-	"github.com/gofly/gofly/core/trace"
+	"github.com/gofly/gofly/core/observability/trace"
 	"github.com/gofly/gofly/rpc/endpoint"
 )
 

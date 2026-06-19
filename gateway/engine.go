@@ -14,7 +14,7 @@ import (
 
 	"github.com/gofly/gofly/core/breaker"
 	"github.com/gofly/gofly/core/observability"
-	"github.com/gofly/gofly/core/trace"
+	"github.com/gofly/gofly/core/observability/trace"
 )
 
 // ServeHTTP matches the request against configured routes, applies governance

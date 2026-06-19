@@ -22,7 +22,7 @@ import (
 	"github.com/gofly/gofly/core/discovery"
 	"github.com/gofly/gofly/core/governance"
 	"github.com/gofly/gofly/core/limit"
-	"github.com/gofly/gofly/core/metrics"
+	"github.com/gofly/gofly/core/observability/metrics"
 	"github.com/gofly/gofly/rpc"
 )
 

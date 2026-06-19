@@ -14,7 +14,7 @@ import (
 	"time"
 
 	core "github.com/gofly/gofly/core"
-	"github.com/gofly/gofly/core/trace"
+	"github.com/gofly/gofly/core/observability/trace"
 )
 
 // Broker-level errors returned by all implementations.

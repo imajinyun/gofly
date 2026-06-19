@@ -35,6 +35,51 @@ func TestServer_AddRoute(t *testing.T) {
 	}
 }
 
+func TestRouterGroupAddsPrefixMiddlewareAndOptions(t *testing.T) {
+	var calls []string
+	middleware := func(name string) Middleware {
+		return func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls = append(calls, name)
+				next.ServeHTTP(w, r)
+			})
+		}
+	}
+
+	s := MustNewServer(Config{DisableDefaultMiddlewares: true})
+	group := s.Group("api", middleware("group"))
+	group.Use(middleware("used"))
+	group.With(WithPrefix("/v1"))
+	group.AddRoute(Route{Method: http.MethodGet, Path: "users", Handler: func(ctx *Context) {
+		calls = append(calls, "handler")
+		ctx.String(http.StatusOK, "ok")
+	}, Middlewares: []Middleware{middleware("route")}})
+	group.AddRoutes([]Route{{Method: http.MethodGet, Path: "/teams", Handler: func(ctx *Context) {
+		ctx.String(http.StatusOK, "teams")
+	}}})
+
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/api/users", nil))
+	if rec.Code != http.StatusOK || rec.Body.String() != "ok" {
+		t.Fatalf("group route response = %d %q, want 200 ok", rec.Code, rec.Body.String())
+	}
+	wantCalls := []string{"group", "used", "route", "handler"}
+	if len(calls) != len(wantCalls) {
+		t.Fatalf("middleware calls = %v, want %v", calls, wantCalls)
+	}
+	for i := range wantCalls {
+		if calls[i] != wantCalls[i] {
+			t.Fatalf("middleware calls = %v, want %v", calls, wantCalls)
+		}
+	}
+
+	teams := httptest.NewRecorder()
+	s.Handler().ServeHTTP(teams, httptest.NewRequest(http.MethodGet, "/v1/api/teams", nil))
+	if teams.Code != http.StatusOK || teams.Body.String() != "teams" {
+		t.Fatalf("group AddRoutes response = %d %q, want 200 teams", teams.Code, teams.Body.String())
+	}
+}
+
 func TestNewServerAppliesProductionSafeMiddlewareDefaults(t *testing.T) {
 	s := MustNewServer(Config{Name: "orders"})
 

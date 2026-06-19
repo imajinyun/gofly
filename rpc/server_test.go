@@ -3,6 +3,7 @@ package rpc
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -43,6 +44,51 @@ func TestHTTPServerServeHTTP(t *testing.T) {
 	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestRPCErrorHelpers(t *testing.T) {
+	plainErr := errors.New("plain failure")
+	if got := messageOf(nil); got != "" {
+		t.Fatalf("messageOf(nil) = %q, want empty", got)
+	}
+	if got := messageOf(NewError(CodeNotFound, "missing user")); got != "missing user" {
+		t.Fatalf("messageOf(rpc error) = %q, want missing user", got)
+	}
+	if got := messageOf(plainErr); got != "plain failure" {
+		t.Fatalf("messageOf(plain error) = %q, want plain failure", got)
+	}
+
+	statusCases := []struct {
+		name string
+		code Code
+		want int
+	}{
+		{name: "ok", code: CodeOK, want: http.StatusOK},
+		{name: "invalid argument", code: CodeInvalidArgument, want: http.StatusBadRequest},
+		{name: "not found", code: CodeNotFound, want: http.StatusNotFound},
+		{name: "unavailable", code: CodeUnavailable, want: http.StatusServiceUnavailable},
+		{name: "unknown code", code: Code("unknown-test-code"), want: http.StatusInternalServerError},
+	}
+	for _, tt := range statusCases {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := httpStatusFromCode(tt.code); got != tt.want {
+				t.Fatalf("httpStatusFromCode(%q) = %d, want %d", tt.code, got, tt.want)
+			}
+		})
+	}
+
+	if isRetryable(nil) {
+		t.Fatal("isRetryable(nil) = true, want false")
+	}
+	if !isRetryable(NewError(CodeUnavailable, "temporary outage")) {
+		t.Fatal("isRetryable(unavailable) = false, want true")
+	}
+	if isRetryable(NewError(CodeInvalidArgument, "bad request")) {
+		t.Fatal("isRetryable(invalid argument) = true, want false")
+	}
+	if !isRetryable(plainErr) {
+		t.Fatal("isRetryable(plain error) = false, want true because plain errors map to internal")
 	}
 }
 

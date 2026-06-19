@@ -81,3 +81,55 @@ func TestHedgingMiddlewareContextCancellation(t *testing.T) {
 		t.Fatalf("error = %v, want DeadlineExceeded", err)
 	}
 }
+
+func TestHedgingMiddlewareFunctionUsesCloneForBackup(t *testing.T) {
+	type request struct {
+		Value string
+	}
+
+	seen := make(chan string, 2)
+	var calls atomic.Int64
+	ep := HedgingMiddleware(HedgeConfig{
+		Delay:     time.Hour,
+		MaxHedges: 1,
+		Clone: func(req any) any {
+			cloned := *req.(*request)
+			cloned.Value = "cloned"
+			return &cloned
+		},
+	})(func(ctx context.Context, req any) (any, error) {
+		seen <- req.(*request).Value
+		if calls.Add(1) == 1 {
+			return nil, errors.New("primary failed")
+		}
+		return req.(*request).Value, nil
+	})
+
+	got, err := ep(context.Background(), &request{Value: "original"})
+	if err != nil || got != "cloned" {
+		t.Fatalf("response = %v err=%v, want cloned nil", got, err)
+	}
+	if first, second := <-seen, <-seen; first != "original" || second != "cloned" {
+		t.Fatalf("seen requests = [%q %q], want [original cloned]", first, second)
+	}
+}
+
+func TestHedgingMiddlewareReturnsLastErrorWhenAllAttemptsFail(t *testing.T) {
+	firstErr := errors.New("first failed")
+	secondErr := errors.New("second failed")
+	var calls atomic.Int64
+	ep := HedgingMiddleware(HedgeConfig{Delay: time.Hour, MaxHedges: 1})(func(ctx context.Context, req any) (any, error) {
+		if calls.Add(1) == 1 {
+			return nil, firstErr
+		}
+		return nil, secondErr
+	})
+
+	got, err := ep(context.Background(), "req")
+	if got != nil || !errors.Is(err, secondErr) {
+		t.Fatalf("response = %v err=%v, want nil secondErr", got, err)
+	}
+	if calls.Load() != 2 {
+		t.Fatalf("calls = %d, want primary plus one hedge", calls.Load())
+	}
+}

@@ -86,3 +86,31 @@ func TestOpenAPIPathParamNamesNormalizesCatchAll(t *testing.T) {
 		t.Fatalf("pathParamNames path catch-all = %v, want empty", got)
 	}
 }
+
+func TestOpenAPISchemaHelpers(t *testing.T) {
+	integer := IntegerSchema()
+	if integer.Type != "integer" || integer.Format != "int64" {
+		t.Fatalf("IntegerSchema() = %+v, want integer int64", integer)
+	}
+
+	number := NumberSchema()
+	if number.Type != "number" || number.Format != "double" {
+		t.Fatalf("NumberSchema() = %+v, want number double", number)
+	}
+
+	item := Schema{Type: "object", Properties: map[string]Schema{"id": {Type: "string"}}, Required: []string{"id"}}
+	array := ArraySchema(item)
+	if array.Type != "array" || array.Items == nil || array.Items.Properties["id"].Type != "string" || array.Items.Required[0] != "id" {
+		t.Fatalf("ArraySchema() = %+v, want cloned object item schema", array)
+	}
+	item.Properties["id"] = Schema{Type: "mutated"}
+	item.Required[0] = "mutated"
+	if array.Items.Properties["id"].Type != "string" || array.Items.Required[0] != "id" {
+		t.Fatalf("ArraySchema item = %+v, want defensive clone", array.Items)
+	}
+
+	ref := RefSchema("#/components/schemas/User")
+	if ref.Ref != "#/components/schemas/User" || ref.Type != "" {
+		t.Fatalf("RefSchema() = %+v, want ref-only schema", ref)
+	}
+}

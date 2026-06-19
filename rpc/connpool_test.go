@@ -136,6 +136,63 @@ func TestConnPoolDiscardAndClose(t *testing.T) {
 	}
 }
 
+func TestConnPoolPutAndDiscardNilAreNoops(t *testing.T) {
+	pool, cleanup, _, closed := newTestConnPool(ConnPoolConfig{MaxIdle: 1, MaxActive: 1})
+	defer cleanup()
+
+	if err := pool.Put(nil); err != nil {
+		t.Fatalf("Put(nil) error = %v, want nil", err)
+	}
+	if err := pool.Discard(nil); err != nil {
+		t.Fatalf("Discard(nil) error = %v, want nil", err)
+	}
+	if got := closed.Load(); got != 0 {
+		t.Fatalf("closed after nil operations = %d, want 0", got)
+	}
+}
+
+func TestConnPoolPutReturnsConnectionToPool(t *testing.T) {
+	pool, cleanup, _, _ := newTestConnPool(ConnPoolConfig{MaxIdle: 1, MaxActive: 1})
+	defer cleanup()
+
+	conn, err := pool.Get(context.Background())
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if err := pool.Put(conn); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	if stats := pool.Snapshot(); stats.Idle != 1 || stats.Active != 1 {
+		t.Fatalf("stats after Put = %#v, want one idle active connection", stats)
+	}
+	reused, err := pool.Get(context.Background())
+	if err != nil {
+		t.Fatalf("Get reused: %v", err)
+	}
+	if reused != conn {
+		t.Fatalf("reused conn = %p, want %p", reused, conn)
+	}
+	_ = reused.Close()
+}
+
+func TestPooledConnTransport(t *testing.T) {
+	var nilConn *PooledConn
+	if got := nilConn.Transport(); got != nil {
+		t.Fatalf("nil PooledConn Transport() = %v, want nil", got)
+	}
+
+	pool, cleanup, _, _ := newTestConnPool(ConnPoolConfig{MaxIdle: 1, MaxActive: 1})
+	defer cleanup()
+	conn, err := pool.Get(context.Background())
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	defer conn.Close()
+	if got := conn.Transport(); got == nil {
+		t.Fatal("PooledConn.Transport() = nil, want transport")
+	}
+}
+
 func newTestConnPool(conf ConnPoolConfig) (*ConnPool, func(), *atomic.Int64, *atomic.Int64) {
 	var mu sync.Mutex
 	var servers []net.Conn

@@ -40,6 +40,69 @@ func TestContextBindRequest(t *testing.T) {
 	}
 }
 
+func TestBindPathAndHeader(t *testing.T) {
+	type pathRequest struct {
+		ID int `path:"id" validate:"min=1"`
+	}
+	type headerRequest struct {
+		Token string `header:"X-Token" validate:"required"`
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/users/42", nil)
+	req.SetPathValue("id", "42")
+	req.Header.Set("X-Token", "secret")
+
+	var pathGot pathRequest
+	if err := BindPath(req, &pathGot); err != nil {
+		t.Fatalf("BindPath returned error: %v", err)
+	}
+	var headerGot headerRequest
+	if err := BindHeader(req, &headerGot); err != nil {
+		t.Fatalf("BindHeader returned error: %v", err)
+	}
+	if pathGot.ID != 42 || headerGot.Token != "secret" {
+		t.Fatalf("bound request = path %+v header %+v, want id 42 and token secret", pathGot, headerGot)
+	}
+}
+
+func TestContextBindPathAndHeader(t *testing.T) {
+	type pathRequest struct {
+		ID int `path:"id" validate:"min=1"`
+	}
+	type headerRequest struct {
+		Token string `header:"X-Token" validate:"required"`
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/users/7", nil)
+	req.SetPathValue("id", "7")
+	req.Header.Set("X-Token", "ctx-token")
+	ctx := &Context{Request: req, Response: httptest.NewRecorder()}
+
+	var pathGot pathRequest
+	if err := ctx.BindPath(&pathGot); err != nil {
+		t.Fatalf("Context.BindPath returned error: %v", err)
+	}
+	var headerGot headerRequest
+	if err := ctx.BindHeader(&headerGot); err != nil {
+		t.Fatalf("Context.BindHeader returned error: %v", err)
+	}
+	if pathGot.ID != 7 || headerGot.Token != "ctx-token" {
+		t.Fatalf("bound context request = path %+v header %+v, want id 7 and token ctx-token", pathGot, headerGot)
+	}
+}
+
+func TestValidationErrorError(t *testing.T) {
+	if got := (*ValidationError)(nil).Error(); got != "" {
+		t.Fatalf("nil ValidationError Error() = %q, want empty", got)
+	}
+	if got := (&ValidationError{Text: "custom"}).Error(); got != "custom" {
+		t.Fatalf("custom ValidationError Error() = %q, want custom", got)
+	}
+	if got := (&ValidationError{Field: "age", Rule: "min=18"}).Error(); got != "field age failed min=18 validation" {
+		t.Fatalf("ValidationError Error() = %q, want field age failed min=18 validation", got)
+	}
+}
+
 func TestValidateRejectsRequiredAndRange(t *testing.T) {
 	type request struct {
 		Name string `validate:"required"`

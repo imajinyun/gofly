@@ -1,0 +1,9 @@
+* @gofly/maintainers
+
+/cmd/gofly/ @gofly/maintainers
+/app/ @gofly/maintainers
+/rest/ @gofly/maintainers
+/rpc/ @gofly/maintainers
+/gateway/ @gofly/maintainers
+/core/governance/ @gofly/maintainers
+/.github/ @gofly/maintainers

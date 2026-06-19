@@ -1,0 +1,12 @@
+type PingReq {
+  Name string
+}
+
+type PingResp {
+  Message string
+}
+
+service demo {
+  @handler Ping
+  get /api/v1/ping (PingReq) returns (PingResp)
+}

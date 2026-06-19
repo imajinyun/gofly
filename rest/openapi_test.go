@@ -1,0 +1,88 @@
+package rest
+
+import (
+	"encoding/json"
+	"net/http"
+	"testing"
+)
+
+func TestServerOpenAPIExportsRegisteredRoutes(t *testing.T) {
+	s := MustNewServer(Config{Name: "orders"})
+	s.AddRoute(Route{
+		Method:      http.MethodPost,
+		Path:        "/orders/{id}",
+		Summary:     "Create order",
+		Description: "Creates an order with a path id.",
+		OperationID: "createOrder",
+		Tags:        []string{"orders"},
+		Parameters: []Parameter{{
+			Name:        "trace",
+			In:          "query",
+			Description: "trace switch",
+			Schema:      BooleanSchema(),
+		}},
+		RequestBody: JSONBodySchema(Schema{Type: "object", Properties: map[string]Schema{"name": {Type: "string"}}, Required: []string{"name"}}, true),
+		Responses: map[string]Response{
+			"201": JSONResponse("Created", Schema{Type: "object", Properties: map[string]Schema{"id": {Type: "string"}}, Required: []string{"id"}}),
+		},
+		Handler: func(ctx *Context) { ctx.String(http.StatusOK, "ok") },
+	}, WithPrefix("/api/v1"))
+
+	routes := s.Routes()
+	if len(routes) != 1 || routes[0].Path != "/api/v1/orders/{id}" || routes[0].Method != http.MethodPost {
+		t.Fatalf("routes = %+v, want prefixed POST route", routes)
+	}
+	routes[0].Tags[0] = "mutated"
+	if s.Routes()[0].Tags[0] != "orders" {
+		t.Fatal("Routes should return defensive copies of tags")
+	}
+
+	doc := s.OpenAPI(OpenAPIInfo{Version: "1.0.0"})
+	if doc.OpenAPI != "3.0.3" || doc.Info.Title != "orders" || doc.Info.Version != "1.0.0" {
+		t.Fatalf("openapi info = %+v", doc)
+	}
+	op := doc.Paths["/api/v1/orders/{id}"]["post"]
+	if op.Summary != "Create order" || op.OperationID != "createOrder" || len(op.Tags) != 1 || op.Tags[0] != "orders" {
+		t.Fatalf("operation = %+v, want exported route metadata", op)
+	}
+	if len(op.Parameters) != 2 || op.Parameters[0].Name != "trace" || op.Parameters[1].Name != "id" || !op.Parameters[1].Required {
+		t.Fatalf("parameters = %+v, want query trace and path id", op.Parameters)
+	}
+	if op.RequestBody == nil || !op.RequestBody.Required || op.RequestBody.Content["application/json"].Schema.Properties["name"].Type != "string" {
+		t.Fatalf("request body = %+v, want required json body schema", op.RequestBody)
+	}
+	if op.Responses["201"].Description != "Created" || op.Responses["201"].Content["application/json"].Schema.Properties["id"].Type != "string" {
+		t.Fatalf("responses = %+v, want documented 201 response", op.Responses)
+	}
+	routes[0].Parameters[0].Schema.Type = "mutated"
+	if s.Routes()[0].Parameters[0].Schema.Type != "boolean" {
+		t.Fatal("Routes should return defensive copies of parameters")
+	}
+	if _, err := json.Marshal(doc); err != nil {
+		t.Fatalf("marshal openapi doc: %v", err)
+	}
+}
+
+func TestNilServerOpenAPI(t *testing.T) {
+	var s *Server
+	doc := s.OpenAPI(OpenAPIInfo{})
+	if doc.Info.Title != "gofly service" || doc.Info.Version != "0.0.0" || len(doc.Paths) != 0 {
+		t.Fatalf("nil server openapi = %+v, want default empty document", doc)
+	}
+}
+
+func TestOpenAPIPathParamNamesNormalizesCatchAll(t *testing.T) {
+	got := pathParamNames("/files/{file...}/meta/{id}")
+	want := []string{"file", "id"}
+	if len(got) != len(want) {
+		t.Fatalf("pathParamNames catch-all = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("pathParamNames catch-all = %v, want %v", got, want)
+		}
+	}
+	if got := pathParamNames("/{path...}"); len(got) != 0 {
+		t.Fatalf("pathParamNames path catch-all = %v, want empty", got)
+	}
+}

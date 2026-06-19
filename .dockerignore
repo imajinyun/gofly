@@ -1,0 +1,45 @@
+# Build artifacts
+/bin/
+/bin/*
+/out/
+/dist/
+/gofly
+/restserver
+*.out
+
+# Go workspace
+/vendor/
+go.work.sum
+
+# Test and coverage
+coverage.out
+coverage.txt
+*.test
+*.prof
+bench/current.txt
+.tmp-test/
+
+# Editor / OS
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Git
+.git
+.gitignore
+.gitattributes
+
+# CI / local config
+.github/
+.goreleaser*.yml
+.goreleaser*.yaml
+*.local.yaml
+*.local.yml
+
+# Docs (small text anyway, but no need in the image)
+docs/
+
+# Logs
+*.log

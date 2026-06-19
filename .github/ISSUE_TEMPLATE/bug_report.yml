@@ -1,0 +1,60 @@
+name: Bug report
+description: Report a reproducible gofly bug.
+title: "bug: "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve gofly. Please provide a minimal reproduction so maintainers can verify the issue quickly.
+  - type: input
+    id: version
+    attributes:
+      label: gofly version
+      description: Run `gofly version` or provide the module version.
+      placeholder: v0.0.0
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - REST
+        - RPC
+        - Gateway
+        - CLI/generator
+        - Model/storage/cache
+        - MQ/outbox/saga
+        - CI/release/docs
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Include commands, inputs, generated files, and relevant config.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include logs, panic stack traces, or test output.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Go version, OS/arch, container/runtime, external dependencies.
+      render: shell

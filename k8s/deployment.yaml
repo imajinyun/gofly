@@ -1,0 +1,109 @@
+# Example Kubernetes manifests for a gofly-backed service.
+#
+#  - Service exposes port 8080 for the main API and 8081 for diagnostics.
+#  - Deployment runs a single replica with liveness/readiness/startup probes
+#    pointing at the three /-style endpoints registered by the rest server.
+#  - preStop hook gives in-flight requests 30s to drain before SIGTERM.
+#
+# Apply with:
+#   kubectl apply -f k8s/deployment.yaml
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: gofly-app
+  labels:
+    app.kubernetes.io/name: gofly-app
+spec:
+  selector:
+    app.kubernetes.io/name: gofly-app
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+    - name: metrics
+      port: 8081
+      targetPort: 8081
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gofly-app
+  labels:
+    app.kubernetes.io/name: gofly-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: gofly-app
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: gofly-app
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8081"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: default
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        fsGroup: 65534
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: gofly-app
+          image: gofly:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: metrics
+              containerPort: 8081
+          env:
+            - name: GOMAXPROCS
+              value: "2"
+            - name: LOG_FORMAT
+              value: json
+            - name: LOG_LEVEL
+              value: info
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 6
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /startupz
+              port: 8080
+            initialDelaySeconds: 2
+            periodSeconds: 2
+            failureThreshold: 30
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 30"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "2"
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]

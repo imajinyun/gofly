@@ -1,0 +1,432 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+    tags: ["v*.*.*"]
+  pull_request:
+  schedule:
+    - cron: "17 20 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    name: build & test (go ${{ matrix.go }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        go: ["1.26", "stable"]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version: ${{ matrix.go }}
+          check-latest: true
+          cache: true
+
+      - name: CI build/test/tidy gates
+        run: make ci-fast
+
+      - name: Coverage gate
+        if: matrix.go == '1.26'
+        run: make cover-check
+
+      - name: Upload coverage artifacts
+        if: matrix.go == '1.26' && always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: coverage-go-${{ matrix.go }}
+          path: |
+            coverage.out
+            coverage.txt
+          if-no-files-found: ignore
+
+      - name: Build CLI with ldflags
+        run: |
+          make build
+          ./bin/gofly version
+
+  lint:
+    name: golangci-lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: go.mod
+          check-latest: true
+          cache: true
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@55c2c1448f86e01eaae002a5a3a9624417608d84
+        with:
+          version: v2.12.2
+
+  platform-smoke:
+    name: platform smoke (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version: "stable"
+          check-latest: true
+          cache: true
+
+      - name: Build CLI
+        run: go build ./cmd/gofly
+
+      - name: Smoke test core packages
+        run: go test -count=1 ./app ./rest ./rpc ./gateway ./cache
+
+  security:
+    name: security (govulncheck + gosec)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: go.mod
+          check-latest: true
+          cache: true
+
+      - name: govulncheck — Go vulnerability scan
+        run: make security
+
+  supply-chain:
+    name: supply-chain lint + OSV
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: go.mod
+          check-latest: true
+          cache: true
+
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends shellcheck
+
+      - name: Workflow, shell, and OSV checks
+        run: make supply-chain
+
+  codeql:
+    name: CodeQL security analysis
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@411bbbe57033eedfc1a82d68c01345aa96c737d7
+        with:
+          languages: go
+          config-file: ./.github/codeql/codeql-config.yml
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@411bbbe57033eedfc1a82d68c01345aa96c737d7
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@411bbbe57033eedfc1a82d68c01345aa96c737d7
+
+  dependency-review:
+    name: dependency review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Review dependency changes
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294
+        with:
+          fail-on-severity: high
+
+  contract-check:
+    name: contract / api+rpc (check + breaking)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: go.mod
+          check-latest: true
+          cache: true
+
+      - name: Build gofly CLI
+        run: go build -o /tmp/gofly ./cmd/gofly
+
+      - name: Create demo contracts
+        run: |
+          mkdir -p /tmp/contract
+          cat > /tmp/contract/v1.api <<'EOF'
+          type User {
+            ID   int
+            Name string
+          }
+          service UserService {
+            @handler getUser
+            GET /users/{id} (User) returns (User)
+          }
+          EOF
+          cp /tmp/contract/v1.api /tmp/contract/v1-same.api
+          cat > /tmp/contract/v2-break.api <<'EOF'
+          type User {
+            ID   int
+          }
+          service UserService {
+            @handler getUser
+            POST /users/{id} (User) returns (User)
+          }
+          EOF
+          cat > /tmp/contract/demo.proto <<'EOF'
+          syntax = "proto3";
+          package demo;
+          message User {
+            int64 id = 1;
+            string name = 2;
+          }
+          service UserService {
+            rpc GetUser(User) returns (User);
+          }
+          EOF
+
+      - name: api check — schema validity
+        run: /tmp/gofly api check --file /tmp/contract/v1.api
+
+      - name: api diff — info only (non-blocking)
+        run: /tmp/gofly api diff --base /tmp/contract/v1.api --target /tmp/contract/v2-break.api || true
+
+      - name: api breaking — no-change case (must succeed)
+        run: /tmp/gofly api breaking --base /tmp/contract/v1.api --target /tmp/contract/v1-same.api
+
+      - name: api breaking — with-change case (must fail)
+        id: break_case
+        run: |
+          set +e
+          /tmp/gofly api breaking --base /tmp/contract/v1.api --target /tmp/contract/v2-break.api
+          rc=$?
+          set -e
+          if [ $rc -eq 0 ]; then
+            echo "expected non-zero exit for breaking changes, got 0"
+            exit 1
+          fi
+          echo "breaking changes correctly detected (rc=$rc)"
+
+      - name: rpc check — proto validity (best-effort; skip on unimplemented)
+        run: /tmp/gofly rpc check --file /tmp/contract/demo.proto || true
+
+  governance:
+    name: governance gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: go.mod
+          check-latest: true
+          cache: true
+
+      - name: 10-round architecture and quality governance
+        env:
+          GOVERNANCE_ISOLATE_GOMODCACHE: ${{ github.event_name == 'schedule' && 'true' || 'false' }}
+        run: make governance-10-rounds
+
+  bench-fuzz:
+    name: bench + fuzz smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: go.mod
+          check-latest: true
+          cache: true
+
+      - name: Build examples
+        run: go build ./examples/...
+
+      - name: Vet examples
+        run: go vet ./examples/...
+
+      - name: Benchmark baseline smoke
+        run: bash bin/scripts/benchstat.sh --smoke
+
+      - name: Upload benchmark artifacts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: benchmark-smoke
+          path: bench/current.txt
+          if-no-files-found: error
+
+      - name: Fuzz smoke — api parser
+        run: go test -run=Fuzz -fuzz=FuzzParseAPI -fuzztime=20s ./cmd/gofly/internal/generator/
+
+      - name: Fuzz smoke — proto parser
+        run: go test -run=Fuzz -fuzz=FuzzParseProto -fuzztime=20s ./cmd/gofly/internal/generator/
+
+      - name: Fuzz smoke — rest binding (json)
+        run: go test -run=Fuzz -fuzz=FuzzBindJSON -fuzztime=20s ./rest/
+
+      - name: Fuzz smoke — rest binding (query)
+        run: go test -run=Fuzz -fuzz=FuzzBindQuery -fuzztime=20s ./rest/
+
+  integration:
+    name: integration tests (${{ matrix.area }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - area: storage-mysql-postgres
+            packages: ./core/storage/
+          - area: config-consul-nacos-etcd
+            packages: ./core/config/... ./core/discovery/...
+          - area: mq-brokers
+            packages: ./core/mq/...
+          - area: gateway-transcode
+            packages: ./gateway/
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: go.mod
+          check-latest: true
+          cache: true
+
+      - name: Run Docker-backed integration tests
+        run: go test -tags=integration -count=1 ${{ matrix.packages }}
+
+  docker:
+    name: docker build + trivy
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
+
+      - name: Build Docker image
+        run: docker buildx build --load -t gofly:${{ github.sha }} .
+
+      - name: Trivy image scan
+        uses: aquasecurity/trivy-action@dc5a429b52fcf669ce959baa2c2dd26090d2a6c4
+        with:
+          image-ref: gofly:${{ github.sha }}
+          format: sarif
+          output: trivy-results.sarif
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+
+      - name: Upload Trivy scan results
+        if: always()
+        uses: github/codeql-action/upload-sarif@411bbbe57033eedfc1a82d68c01345aa96c737d7
+        with:
+          sarif_file: trivy-results.sarif
+
+  scorecard:
+    name: OSSF Scorecard
+    if: github.event_name == 'schedule' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+      id-token: write
+    steps:
+      - name: Scorecard analysis
+        uses: ossf/scorecard-action@f2ea147fec3c2f0d459703eba7405b5e9bcd8c8f
+        with:
+          results_format: sarif
+          results_file: scorecard-results.sarif
+          publish_results: true
+
+      - name: Upload Scorecard SARIF
+        uses: github/codeql-action/upload-sarif@411bbbe57033eedfc1a82d68c01345aa96c737d7
+        with:
+          sarif_file: scorecard-results.sarif
+
+  release:
+    name: release (tagged)
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build-test, platform-smoke, lint, security, supply-chain, codeql, contract-check, governance, bench-fuzz, integration, docker, scorecard]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: go.mod
+          check-latest: true
+          cache: true
+
+      - name: Install GoReleaser
+        uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a
+        with:
+          distribution: goreleaser
+          version: v2.16.0
+          args: --version
+          install-only: true
+
+      - name: Install Syft for release SBOMs
+        run: go install github.com/anchore/syft/cmd/syft@v1.40.0
+
+      - name: Run GoReleaser
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: goreleaser release --clean
+
+      - name: Attest release checksums
+        uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661
+        with:
+          subject-path: dist/checksums.txt

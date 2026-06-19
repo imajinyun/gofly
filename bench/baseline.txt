@@ -1,0 +1,46 @@
+BenchmarkServerRouteDispatch-14        	  146032	      8286 ns/op	    7448 B/op	      89 allocs/op
+BenchmarkServerRouteDispatch-14        	  149446	      7776 ns/op	    7448 B/op	      89 allocs/op
+BenchmarkServerRouteDispatch-14        	  154113	      8536 ns/op	    7448 B/op	      89 allocs/op
+BenchmarkServerRouteDispatch-14        	  151280	      8401 ns/op	    7448 B/op	      89 allocs/op
+BenchmarkServerRouteDispatch-14        	  141264	      7994 ns/op	    7448 B/op	      89 allocs/op
+BenchmarkServerRouteDispatchJSON-14    	  146568	      8186 ns/op	    7913 B/op	      95 allocs/op
+BenchmarkServerRouteDispatchJSON-14    	  144054	      8279 ns/op	    7913 B/op	      95 allocs/op
+BenchmarkServerRouteDispatchJSON-14    	  145551	      8236 ns/op	    7913 B/op	      95 allocs/op
+BenchmarkServerRouteDispatchJSON-14    	  148579	      8404 ns/op	    7913 B/op	      95 allocs/op
+BenchmarkServerRouteDispatchJSON-14    	  146317	      8222 ns/op	    7913 B/op	      95 allocs/op
+PASS
+ok  	github.com/gofly/gofly/rest	12.466s
+BenchmarkBreakerDoSuccess-14        	32866694	        35.93 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBreakerDoSuccess-14        	33350548	        36.07 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBreakerDoSuccess-14        	33675189	        36.07 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBreakerDoSuccess-14        	33143944	        36.19 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBreakerDoSuccess-14        	34054428	        35.88 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBreakerAllowParallel-14    	 9078841	       129.8 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBreakerAllowParallel-14    	 9121428	       130.8 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBreakerAllowParallel-14    	 9238971	       131.1 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBreakerAllowParallel-14    	 9156003	       129.8 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBreakerAllowParallel-14    	 9216297	       131.6 ns/op	       0 B/op	       0 allocs/op
+BenchmarkAdaptiveBreakerDo-14       	34849276	        34.95 ns/op	       0 B/op	       0 allocs/op
+BenchmarkAdaptiveBreakerDo-14       	34480570	        34.89 ns/op	       0 B/op	       0 allocs/op
+BenchmarkAdaptiveBreakerDo-14       	34727036	        35.03 ns/op	       0 B/op	       0 allocs/op
+BenchmarkAdaptiveBreakerDo-14       	33810633	        34.85 ns/op	       0 B/op	       0 allocs/op
+BenchmarkAdaptiveBreakerDo-14       	34633326	        35.04 ns/op	       0 B/op	       0 allocs/op
+PASS
+ok  	github.com/gofly/gofly/core/breaker	18.749s
+BenchmarkTokenLimiterAllow-14            	26456824	        44.52 ns/op	       0 B/op	       0 allocs/op
+BenchmarkTokenLimiterAllow-14            	27344194	        44.48 ns/op	       0 B/op	       0 allocs/op
+BenchmarkTokenLimiterAllow-14            	26892865	        45.06 ns/op	       0 B/op	       0 allocs/op
+BenchmarkTokenLimiterAllow-14            	26435211	        44.73 ns/op	       0 B/op	       0 allocs/op
+BenchmarkTokenLimiterAllow-14            	27407454	        44.65 ns/op	       0 B/op	       0 allocs/op
+BenchmarkTokenLimiterAllowParallel-14    	 7834076	       152.3 ns/op	       0 B/op	       0 allocs/op
+BenchmarkTokenLimiterAllowParallel-14    	 7950698	       153.0 ns/op	       0 B/op	       0 allocs/op
+BenchmarkTokenLimiterAllowParallel-14    	 7927604	       151.8 ns/op	       0 B/op	       0 allocs/op
+BenchmarkTokenLimiterAllowParallel-14    	 7818603	       152.4 ns/op	       0 B/op	       0 allocs/op
+BenchmarkTokenLimiterAllowParallel-14    	 7849819	       153.4 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSlidingWindowAllow-14           	21957544	        81.30 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSlidingWindowAllow-14           	22158430	        80.64 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSlidingWindowAllow-14           	22757083	        80.18 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSlidingWindowAllow-14           	21923062	        81.47 ns/op	       0 B/op	       0 allocs/op
+BenchmarkSlidingWindowAllow-14           	22521112	        80.79 ns/op	       0 B/op	       0 allocs/op
+PASS
+ok  	github.com/gofly/gofly/core/limit	21.846s

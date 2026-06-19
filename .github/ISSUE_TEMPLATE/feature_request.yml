@@ -1,0 +1,48 @@
+name: Feature request
+description: Propose a capability or governance improvement.
+title: "feat: "
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template for new framework capabilities, generator enhancements, operational governance, or ecosystem integrations.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - REST
+        - RPC
+        - Gateway
+        - CLI/generator
+        - Model/storage/cache
+        - MQ/outbox/saga
+        - Observability/governance
+        - CI/release/docs
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What user or production pain does this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: Describe the API, CLI, config, or runtime behavior you want.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: textarea
+    id: compatibility
+    attributes:
+      label: Compatibility notes
+      description: Public API, generated code, config, or migration concerns.

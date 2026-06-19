@@ -1,0 +1,100 @@
+# .goreleaser.yml — release automation for the gofly CLI.
+#
+# Trigger locally (snapshot, no publish):
+#   make release-snapshot
+# Trigger via CI on a tag:
+#   git tag -a v0.2.0 -m "Release v0.2.0"
+#   git push origin v0.2.0
+#
+version: 2
+
+project_name: gofly
+
+env:
+  - CGO_ENABLED=0
+  - GOTOOLCHAIN=local
+
+before:
+  hooks:
+    - sh bin/scripts/check-mod-tidy.sh
+
+builds:
+  - id: gofly-cli
+    main: ./cmd/gofly
+    binary: gofly
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    goarm: []
+    ignore:
+      - goos: windows
+        goarch: arm64
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X 'github.com/gofly/gofly/cmd/gofly/internal/command.Version={{ .Version }}'
+      - -X 'github.com/gofly/gofly/cmd/gofly/internal/command.Commit={{ .Commit }}'
+      - -X 'github.com/gofly/gofly/cmd/gofly/internal/command.BuiltAt={{ .Date }}'
+
+archives:
+  - id: default
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Version }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+    files:
+      - LICENSE*
+      - README*
+      - CHANGELOG*
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+sboms:
+  - id: archive-sbom
+    artifacts: archive
+    documents:
+      - "${artifact}.spdx.json"
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next.{{ .ShortCommit }}"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^chore:"
+      - "^test:"
+      - "^ci:"
+      - "Merge branch"
+      - "Merge pull request"
+  groups:
+    - title: Features
+      regexp: "^(feat|feature)\\(?.+\\)?!?:"
+      order: 0
+    - title: Fixes
+      regexp: "^fix\\(?.+\\)?!?:"
+      order: 1
+    - title: Breaking
+      regexp: "^.*!:"
+      order: 2
+    - title: Others
+      order: 999
+
+release:
+  github:
+    owner: gofly
+    name: gofly
+  draft: false
+  prerelease: auto
+
+# Optional: brew / scoop taps can be plugged in later.

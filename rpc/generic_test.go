@@ -227,6 +227,64 @@ func TestGenericJSONPayloadHelpers(t *testing.T) {
 	}
 }
 
+func TestGenericMethodBoundaries_BitsUT(t *testing.T) {
+	nilHandler := GenericMethod("Echo", nil)
+	raw := json.RawMessage(`{"name":"gofly"}`)
+	if _, err := nilHandler.Handler(context.Background(), &raw); err == nil || !strings.Contains(err.Error(), "handler is nil") {
+		t.Fatalf("nil generic handler error = %v, want handler is nil", err)
+	}
+
+	called := false
+	method := GenericMethod("Echo", func(ctx context.Context, got json.RawMessage) (any, error) {
+		called = true
+		got[0] = '['
+		return string(got), nil
+	})
+	resp, err := method.Handler(context.Background(), &raw)
+	if err != nil {
+		t.Fatalf("generic handler: %v", err)
+	}
+	if !called || resp.(string) != `["name":"gofly"}` {
+		t.Fatalf("generic response = %#v called=%v, want cloned payload passed to handler", resp, called)
+	}
+	if string(raw) != `{"name":"gofly"}` {
+		t.Fatalf("source raw payload mutated to %s, want defensive copy", raw)
+	}
+	if _, err := method.Handler(context.Background(), raw); err == nil || !strings.Contains(err.Error(), "unexpected type") {
+		t.Fatalf("non-pointer raw error = %v, want unexpected type", err)
+	}
+	if _, err := method.Handler(context.Background(), (*json.RawMessage)(nil)); err == nil || !strings.Contains(err.Error(), "unexpected type") {
+		t.Fatalf("nil raw pointer error = %v, want unexpected type", err)
+	}
+}
+
+func TestGenericPathAndJSONErrorBoundaries_BitsUT(t *testing.T) {
+	path, err := MethodPath(" /svc/ ", " /Call/ ")
+	if err != nil {
+		t.Fatalf("MethodPath: %v", err)
+	}
+	if path != "svc/Call" {
+		t.Fatalf("path = %q, want svc/Call", path)
+	}
+	if got := canonicalRPCName(" /svc/Call/ "); got != "svc/Call" {
+		t.Fatalf("canonical name = %q, want svc/Call", got)
+	}
+	if _, err := DecodeJSONPayload[helloReq](json.RawMessage(`{"name":`)); err == nil || !strings.Contains(err.Error(), "unmarshal generic json payload") {
+		t.Fatalf("DecodeJSONPayload invalid error = %v, want wrapped unmarshal error", err)
+	}
+	var decoded *helloReq
+	decoded, err = DecodeJSONPayload[*helloReq](nil)
+	if err != nil {
+		t.Fatalf("DecodeJSONPayload nil payload: %v", err)
+	}
+	if decoded != nil {
+		t.Fatalf("decoded nil payload = %#v, want nil pointer from JSON null", decoded)
+	}
+	if _, err := EncodeJSONPayload(func() {}); err == nil || !strings.Contains(err.Error(), "marshal generic json payload") {
+		t.Fatalf("EncodeJSONPayload unsupported error = %v, want wrapped marshal error", err)
+	}
+}
+
 func TestServiceDescHelpers(t *testing.T) {
 	desc := ServiceDesc{Name: "greeter.v1.Greeter", Methods: []MethodDesc{{
 		Name:       "SayHello",

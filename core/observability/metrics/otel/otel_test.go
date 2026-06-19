@@ -233,6 +233,36 @@ func TestObserveOptionSorting(t *testing.T) {
 	}
 }
 
+func TestRegisterCallbacksExportsCoreMetrics_BitsUT(t *testing.T) {
+	registry := metrics.NewRegistry()
+	registry.IncInFlight()
+	registry.Observe("users.list", 200, 5*time.Millisecond)
+	registry.Observe("users.list", 500, 9*time.Millisecond)
+
+	reader := sdkmetric.NewManualReader()
+	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	if err := registerCallbacks(provider, registry); err != nil {
+		t.Fatalf("registerCallbacks: %v", err)
+	}
+	var rm metricdata.ResourceMetrics
+	if err := reader.Collect(context.Background(), &rm); err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	for _, name := range []string{
+		"gofly_requests_total",
+		"gofly_errors_total",
+		"gofly_inflight_requests",
+		"gofly_runtime_goroutines",
+		"gofly_runtime_heap_alloc_bytes",
+		"gofly_route_requests_total",
+		"gofly_route_errors_total",
+	} {
+		if !collectedMetric(rm, name) {
+			t.Fatalf("core metric %q was not collected", name)
+		}
+	}
+}
+
 func TestCloseWithNilDeadline(t *testing.T) {
 	// Start a minimal exporter so we have a real provider.
 	registry := metrics.NewRegistry()

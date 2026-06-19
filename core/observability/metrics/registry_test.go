@@ -72,6 +72,46 @@ func TestRegistryWritePrometheusWriterError_BitsUT(t *testing.T) {
 	}
 }
 
+func TestRegistryObserveUnknownRouteAndInFlightFloor_BitsUT(t *testing.T) {
+	reg := NewRegistry()
+	reg.DecInFlight()
+	reg.IncInFlight()
+	reg.DecInFlight()
+	reg.Observe("", 503, 11*time.Millisecond)
+
+	snapshot := reg.Snapshot()
+	if snapshot.InFlight != 0 || snapshot.Requests != 1 || snapshot.Errors != 1 || snapshot.Statuses[503] != 1 {
+		t.Fatalf("snapshot counters = %#v, want in-flight floor and one 503 error", snapshot)
+	}
+	unknown := snapshot.Routes["unknown"]
+	if unknown.Requests != 1 || unknown.Errors != 1 || unknown.AvgDuration != 11*time.Millisecond || unknown.MaxDuration != 11*time.Millisecond {
+		t.Fatalf("unknown route = %#v, want recorded 503 latency", unknown)
+	}
+}
+
+func TestRegistryPrometheusOrderingAndEscaping_BitsUT(t *testing.T) {
+	reg := NewRegistry()
+	reg.Observe("route\n\"quoted\"\\slash", 201, 6*time.Millisecond)
+	reg.Observe("alpha", 404, time.Millisecond)
+
+	var buf bytes.Buffer
+	if err := reg.WritePrometheus(&buf); err != nil {
+		t.Fatalf("WritePrometheus: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, `gofly_route_requests_total{route="route\n\"quoted\"\\slash"} 1`) {
+		t.Fatalf("escaped route label missing:\n%s", out)
+	}
+	idx201 := strings.Index(out, `gofly_request_status_total{status="201"}`)
+	idx404 := strings.Index(out, `gofly_request_status_total{status="404"}`)
+	if idx201 < 0 || idx404 < 0 || idx201 > idx404 {
+		t.Fatalf("status output ordering invalid: idx201=%d idx404=%d\n%s", idx201, idx404, out)
+	}
+	if got := bucketSeconds("not-a-duration"); got != 0 {
+		t.Fatalf("bucketSeconds invalid = %f, want 0", got)
+	}
+}
+
 func TestRegisterPrometheusCollectors(t *testing.T) {
 	reg := NewRegistry()
 	reg.Observe("GET /ping", 200, time.Millisecond)

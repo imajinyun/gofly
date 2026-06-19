@@ -147,3 +147,41 @@ func TestRegisterGaugeAndHistogram(t *testing.T) {
 		t.Fatalf("package histogram missing:\n%s", out)
 	}
 }
+
+func TestCustomMetricLabelDefaultsAndEscaping_BitsUT(t *testing.T) {
+	reg := NewRegistry()
+	reg.Counter("escaped_total", "Escaped labels.", "path", "status").Add(1, "line\n\"quoted\"\\slash")
+
+	var buf bytes.Buffer
+	if err := reg.WritePrometheus(&buf); err != nil {
+		t.Fatalf("write prometheus: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, `escaped_total{path="line\n\"quoted\"\\slash",status=""} 1`) {
+		t.Fatalf("escaped/default labels missing:\n%s", out)
+	}
+	snapshot := reg.Snapshot().Customs["escaped_total"]
+	if len(snapshot.Series) != 1 || snapshot.Series[0].Labels["status"] != "" {
+		t.Fatalf("snapshot labels = %#v, want missing label defaulted to empty string", snapshot.Series)
+	}
+}
+
+func TestCustomHistogramDefaultAndSortedBuckets_BitsUT(t *testing.T) {
+	reg := NewRegistry()
+	h := reg.Histogram("sorted_seconds", "Sorted buckets.", []float64{1, 0.1, 0.5})
+	h.Observe(0.2)
+	snapshot := reg.Snapshot().Customs["sorted_seconds"]
+	if len(snapshot.Buckets) != 3 || snapshot.Buckets[0] != 0.1 || snapshot.Buckets[1] != 0.5 || snapshot.Buckets[2] != 1 {
+		t.Fatalf("buckets = %#v, want sorted ascending", snapshot.Buckets)
+	}
+	if snapshot.Series[0].Labels != nil {
+		t.Fatalf("labels = %#v, want nil for unlabeled series", snapshot.Series[0].Labels)
+	}
+
+	defaulted := reg.Histogram("default_seconds", "Default buckets.", nil)
+	defaulted.Observe(0.001)
+	defaultSnapshot := reg.Snapshot().Customs["default_seconds"]
+	if len(defaultSnapshot.Buckets) != len(DefaultHistogramBuckets) {
+		t.Fatalf("default buckets = %#v, want %d buckets", defaultSnapshot.Buckets, len(DefaultHistogramBuckets))
+	}
+}

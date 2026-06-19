@@ -145,3 +145,74 @@ func TestHealthBalancerRecoversEjectedEndpointAfterDuration(t *testing.T) {
 		t.Fatalf("seen endpoints after recovery = %#v, want bad endpoint recovered", seen)
 	}
 }
+
+func TestRoundRobinBalancerBoundaries_BitsUT(t *testing.T) {
+	b := &RoundRobinBalancer{}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := b.Pick(ctx, []string{"a"}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Pick canceled error = %v, want context.Canceled", err)
+	}
+	if _, err := b.Pick(context.Background(), []string{" ", "//"}); err == nil {
+		t.Fatal("Pick with empty normalized endpoints succeeded, want error")
+	}
+	first, err := b.Pick(context.Background(), []string{" a/ ", "a", "b/"})
+	if err != nil {
+		t.Fatalf("Pick normalized endpoints: %v", err)
+	}
+	second, err := b.Pick(context.Background(), []string{" a/ ", "a", "b/"})
+	if err != nil {
+		t.Fatalf("Pick normalized endpoints second: %v", err)
+	}
+	if first != "a" || second != "b" {
+		t.Fatalf("round-robin picks = %q/%q, want normalized a/b", first, second)
+	}
+}
+
+func TestWeightedRoundRobinBalancerDefaultsAndCancellation_BitsUT(t *testing.T) {
+	b := NewWeightedRoundRobinBalancer(map[string]int{" a/ ": 2, "b": -1, " ": 3})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := b.Pick(ctx, []string{"a"}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Pick canceled error = %v, want context.Canceled", err)
+	}
+	counts := map[string]int{}
+	for i := 0; i < 3; i++ {
+		got, err := b.Pick(context.Background(), []string{"a", "b"})
+		if err != nil {
+			t.Fatalf("Pick weighted endpoint: %v", err)
+		}
+		counts[got]++
+	}
+	if counts["a"] != 2 || counts["b"] != 1 {
+		t.Fatalf("weighted counts = %#v, want a=2 b=1 with default weight for invalid b", counts)
+	}
+	var nilWeights *WeightedRoundRobinBalancer
+	if got := nilWeights.weightOf("missing"); got != 1 {
+		t.Fatalf("nil weightOf = %d, want default 1", got)
+	}
+}
+
+func TestP2CBalancerReportAndSingleEndpoint_BitsUT(t *testing.T) {
+	b := NewP2CBalancer()
+	got, err := b.Pick(context.Background(), []string{" only/ "})
+	if err != nil {
+		t.Fatalf("Pick single endpoint: %v", err)
+	}
+	if got != "only" {
+		t.Fatalf("single endpoint = %q, want normalized only", got)
+	}
+	if b.active["only"] != 1 {
+		t.Fatalf("active map = %#v, want one active request", b.active)
+	}
+	b.Report(context.Background(), " only/ ", nil)
+	if len(b.active) != 0 {
+		t.Fatalf("active after report = %#v, want empty", b.active)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	b.Report(ctx, "only", nil)
+	if len(b.active) != 0 {
+		t.Fatalf("active after canceled report = %#v, want unchanged empty map", b.active)
+	}
+}

@@ -948,6 +948,27 @@ func TestHTTPServerAdminWithoutTokenAllowsOnlyLocal(t *testing.T) {
 	}
 }
 
+func TestServerStateNameBoundaries_BitsUT(t *testing.T) {
+	tests := []struct {
+		name  string
+		state int32
+		want  string
+	}{
+		{name: "starting", state: serverStateStarting, want: "starting"},
+		{name: "running", state: serverStateRunning, want: "running"},
+		{name: "stopping", state: serverStateStopping, want: "stopping"},
+		{name: "stopped", state: serverStateStopped, want: "stopped"},
+		{name: "unknown", state: 999, want: "unknown"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := serverStateName(tt.state); got != tt.want {
+				t.Fatalf("serverStateName(%d) = %q, want %q", tt.state, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestHTTPServerTraceMiddlewarePropagatesMetadata(t *testing.T) {
 	const parent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
 	s := NewServer(WithServerMiddleware(TraceMiddleware("greeter.server")))

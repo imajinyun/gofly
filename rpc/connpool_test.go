@@ -168,6 +168,17 @@ func TestConnPoolDefaultAndNilDialerBoundaries_BitsUT(t *testing.T) {
 	}
 }
 
+func TestNewConnPoolConfiguresDefaultDialer_BitsUT(t *testing.T) {
+	pool := NewConnPool("tcp", "127.0.0.1:1", ConnPoolConfig{DialTimeout: time.Millisecond})
+	defer pool.Close()
+	if pool == nil || pool.dial == nil {
+		t.Fatal("NewConnPool returned nil pool or dialer")
+	}
+	if pool.conf.DialTimeout != time.Millisecond {
+		t.Fatalf("DialTimeout = %v, want 1ms", pool.conf.DialTimeout)
+	}
+}
+
 func TestHTTPServerGovernanceSnapshotBoundaries_BitsUT(t *testing.T) {
 	server := NewServer(WithServerAdaptiveBreaker(nil))
 	snapshot := server.Governance()
@@ -219,6 +230,77 @@ func TestPooledConnTransport(t *testing.T) {
 	defer conn.Close()
 	if got := conn.Transport(); got == nil {
 		t.Fatal("PooledConn.Transport() = nil, want transport")
+	}
+}
+
+func TestConnPoolDialFailureReleasesActiveSlot_BitsUT(t *testing.T) {
+	wantErr := errors.New("dial failed")
+	pool := NewConnPoolWithDialer(func(context.Context) (net.Conn, error) {
+		return nil, wantErr
+	}, ConnPoolConfig{MaxActive: 1})
+
+	if _, err := pool.Get(context.Background()); err == nil || !strings.Contains(err.Error(), wantErr.Error()) {
+		t.Fatalf("Get dial error = %v, want wrapped dial failure", err)
+	}
+	if stats := pool.Snapshot(); stats.Active != 0 || stats.Created != 0 {
+		t.Fatalf("stats after dial failure = %#v, want active released and no created connection", stats)
+	}
+}
+
+func TestConnPoolExpiredIdleIsClosedAndRedialed_BitsUT(t *testing.T) {
+	pool, cleanup, created, closed := newTestConnPool(ConnPoolConfig{MaxIdle: 1, MaxActive: 1, IdleTimeout: time.Minute})
+	defer cleanup()
+
+	conn, err := pool.Get(context.Background())
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if err := conn.Close(); err != nil {
+		t.Fatalf("Close to idle: %v", err)
+	}
+	pool.mu.Lock()
+	conn.lastUsed = time.Now().Add(-2 * time.Minute)
+	pool.mu.Unlock()
+
+	replacement, err := pool.Get(context.Background())
+	if err != nil {
+		t.Fatalf("Get replacement: %v", err)
+	}
+	if replacement == conn {
+		t.Fatal("Get returned expired idle connection, want redialed replacement")
+	}
+	if got := created.Load(); got != 2 {
+		t.Fatalf("created = %d, want 2", got)
+	}
+	if got := closed.Load(); got != 1 {
+		t.Fatalf("closed expired = %d, want 1", got)
+	}
+	_ = replacement.Close()
+}
+
+func TestConnPoolMaxIdleAndNilSnapshot_BitsUT(t *testing.T) {
+	pool, cleanup, _, closed := newTestConnPool(ConnPoolConfig{MaxIdle: 1, MaxActive: 2})
+	defer cleanup()
+
+	first, err := pool.Get(context.Background())
+	if err != nil {
+		t.Fatalf("first Get: %v", err)
+	}
+	second, err := pool.Get(context.Background())
+	if err != nil {
+		t.Fatalf("second Get: %v", err)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatalf("first Close: %v", err)
+	}
+	if err := second.Close(); err != nil {
+		t.Fatalf("second Close: %v", err)
+	}
+	if got := closed.Load(); got != 1 {
+		t.Fatalf("closed due to max idle = %d, want 1", got)
+	}
+	if stats := (*ConnPool)(nil).Snapshot(); stats != (ConnPoolStats{}) {
+		t.Fatalf("nil Snapshot = %#v, want zero stats", stats)
 	}
 }
 

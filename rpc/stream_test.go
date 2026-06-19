@@ -2,19 +2,26 @@ package rpc
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/gofly/gofly/core/auth"
+	corebreaker "github.com/gofly/gofly/core/breaker"
 	coregovernance "github.com/gofly/gofly/core/governance"
 	"github.com/gofly/gofly/core/metadata"
+	"github.com/gofly/gofly/core/observability/metrics"
+	"github.com/gofly/gofly/core/observability/trace"
+	"github.com/gofly/gofly/rpc/endpoint"
 )
 
 func TestRPCStreamEcho(t *testing.T) {
@@ -297,6 +304,169 @@ func TestRPCStreamRequestIDMiddlewareAddsAndPreservesID(t *testing.T) {
 	}
 }
 
+func TestRPCStreamMetadataHeaderBoundaries_BitsUT(t *testing.T) {
+	var buf bytes.Buffer
+	rw := bufio.NewReadWriter(bufio.NewReader(&buf), bufio.NewWriter(&buf))
+	ctx := metadata.Append(context.Background(), "x-tenant", "beta", "Host", "ignored", "Upgrade", "ignored")
+	if err := writeStreamMetadataHeaders(rw, ctx); err != nil {
+		t.Fatalf("writeStreamMetadataHeaders error = %v", err)
+	}
+	if err := rw.Flush(); err != nil {
+		t.Fatalf("flush metadata headers: %v", err)
+	}
+	written := buf.String()
+	if !strings.Contains(written, "x-tenant: beta\r\n") {
+		t.Fatalf("metadata headers = %q, want x-tenant", written)
+	}
+	if strings.Contains(strings.ToLower(written), "host:") || strings.Contains(strings.ToLower(written), "upgrade:") {
+		t.Fatalf("metadata headers = %q, want reserved headers skipped", written)
+	}
+
+	badKey := metadata.Append(context.Background(), "bad key", "value")
+	if err := writeStreamMetadataHeaders(bufio.NewReadWriter(bufio.NewReader(&bytes.Buffer{}), bufio.NewWriter(io.Discard)), badKey); CodeOf(err) != CodeInvalidArgument {
+		t.Fatalf("bad key error = %v, want invalid_argument", err)
+	}
+	badValue := metadata.Append(context.Background(), "x-tenant", "bad\r\nvalue")
+	if err := writeStreamMetadataHeaders(bufio.NewReadWriter(bufio.NewReader(&bytes.Buffer{}), bufio.NewWriter(io.Discard)), badValue); CodeOf(err) != CodeInvalidArgument {
+		t.Fatalf("bad value error = %v, want invalid_argument", err)
+	}
+
+	md := streamMetadataFromHeader(http.Header{"X-Tenant": {"beta"}, "Connection": {"Upgrade"}})
+	if md.Get("X-Tenant") != "beta" || md.Get("x-tenant") != "beta" {
+		t.Fatalf("streamMetadataFromHeader = %#v, want canonical and lowercase keys", md)
+	}
+	if onlyReserved := streamMetadataFromHeader(http.Header{"Host": {"example.com"}}); onlyReserved != nil {
+		t.Fatalf("reserved-only metadata = %#v, want nil", onlyReserved)
+	}
+
+	for _, key := range []string{"x-tenant", "traceparent", "x_test"} {
+		if !validStreamHeaderKey(key) {
+			t.Fatalf("validStreamHeaderKey(%q) = false, want true", key)
+		}
+	}
+	for _, key := range []string{"", "bad key", "bad:key"} {
+		if validStreamHeaderKey(key) {
+			t.Fatalf("validStreamHeaderKey(%q) = true, want false", key)
+		}
+	}
+}
+
+func TestRPCStreamPureFrameAndCloseBoundaries_BitsUT(t *testing.T) {
+	var nilStream *Stream
+	if err := nilStream.Send(helloReq{Name: "gofly"}); !errors.Is(err, ErrStreamClosed) {
+		t.Fatalf("nil Send error = %v, want ErrStreamClosed", err)
+	}
+	if err := nilStream.Close(); err != nil {
+		t.Fatalf("nil Close error = %v, want nil", err)
+	}
+
+	client, server := net.Pipe()
+	clientStream := newStream(client, bufio.NewReadWriter(bufio.NewReader(client), bufio.NewWriter(client)), nil)
+	serverStream := newStream(server, bufio.NewReadWriter(bufio.NewReader(server), bufio.NewWriter(server)), JSONCodec{})
+	defer clientStream.Close()
+	defer serverStream.Close()
+	if clientStream.codec.Name() != "json" {
+		t.Fatalf("default stream codec = %q, want json", clientStream.codec.Name())
+	}
+	go func() { _ = clientStream.SendError("", "boom") }()
+	if err := serverStream.Recv(&helloResp{}); CodeOf(err) != CodeInternal {
+		t.Fatalf("Recv SendError error = %v, want internal", err)
+	}
+
+	zeroClient, zeroServer := net.Pipe()
+	zeroStream := newStream(zeroClient, bufio.NewReadWriter(bufio.NewReader(zeroClient), bufio.NewWriter(zeroClient)), JSONCodec{})
+	defer zeroStream.Close()
+	defer zeroServer.Close()
+	go func() {
+		var header [4]byte
+		_, _ = zeroServer.Write(header[:])
+	}()
+	if err := zeroStream.Recv(&helloReq{}); err == nil || !strings.Contains(err.Error(), "invalid rpc stream frame size") {
+		t.Fatalf("zero frame Recv error = %v, want invalid frame size", err)
+	}
+
+	hookStream := newMiddlewareTestStream(t)
+	runs := 0
+	hookStream.onClose(func() { runs++ })
+	if err := hookStream.Close(); err != nil {
+		t.Fatalf("hook stream close error = %v", err)
+	}
+	if err := hookStream.Close(); err != nil {
+		t.Fatalf("hook stream close twice error = %v", err)
+	}
+	hookStream.onClose(func() { runs++ })
+	if runs != 2 {
+		t.Fatalf("close hook runs = %d, want once before close and immediately after close", runs)
+	}
+}
+
+func TestRPCStreamEnvelopeErrorBoundaries_BitsUT(t *testing.T) {
+	marshalStream := newStream(newNoopConn(), bufio.NewReadWriter(bufio.NewReader(&bytes.Buffer{}), bufio.NewWriter(io.Discard)), errCodec{})
+	if err := marshalStream.Send(helloReq{Name: "gofly"}); err == nil || !strings.Contains(err.Error(), "marshal stream message") {
+		t.Fatalf("Send marshal error = %v, want wrapped marshal error", err)
+	}
+
+	invalidClient, invalidServer := net.Pipe()
+	invalidStream := newStream(invalidClient, bufio.NewReadWriter(bufio.NewReader(invalidClient), bufio.NewWriter(invalidClient)), JSONCodec{})
+	defer invalidStream.Close()
+	defer invalidServer.Close()
+	go func() {
+		payload := []byte("{")
+		var header [4]byte
+		binary.BigEndian.PutUint32(header[:], uint32(len(payload)))
+		_, _ = invalidServer.Write(header[:])
+		_, _ = invalidServer.Write(payload)
+	}()
+	if err := invalidStream.Recv(&helloReq{}); err == nil || !strings.Contains(err.Error(), "unexpected end") {
+		t.Fatalf("Recv invalid JSON error = %v, want JSON decode error", err)
+	}
+
+	deadlineErr := errors.New("deadline failed")
+	writeDeadlineStream := newStream(deadlineErrConn{Conn: newNoopConn(), writeErr: deadlineErr}, bufio.NewReadWriter(bufio.NewReader(&bytes.Buffer{}), bufio.NewWriter(io.Discard)), JSONCodec{})
+	writeDeadlineStream.writeTimeout = time.Millisecond
+	if err := writeDeadlineStream.writeEnvelope(streamEnvelope{Code: CodeOK}); !errors.Is(err, deadlineErr) {
+		t.Fatalf("writeEnvelope deadline error = %v, want %v", err, deadlineErr)
+	}
+
+	readDeadlineStream := newStream(deadlineErrConn{Conn: newNoopConn(), readErr: deadlineErr}, bufio.NewReadWriter(bufio.NewReader(&bytes.Buffer{}), bufio.NewWriter(io.Discard)), JSONCodec{})
+	readDeadlineStream.readTimeout = time.Millisecond
+	if _, err := readDeadlineStream.readEnvelope(); !errors.Is(err, deadlineErr) {
+		t.Fatalf("readEnvelope deadline error = %v, want %v", err, deadlineErr)
+	}
+
+	if got := normalizeStreamTimeout(timeoutNetError{}, "read"); CodeOf(got) != CodeDeadlineExceeded {
+		t.Fatalf("normalizeStreamTimeout timeout = %v, want deadline_exceeded", got)
+	}
+	plainErr := errors.New("plain")
+	if got := normalizeStreamTimeout(plainErr, "read"); !errors.Is(got, plainErr) {
+		t.Fatalf("normalizeStreamTimeout plain = %v, want original non-rpc error", got)
+	}
+}
+
+func TestRPCStreamContextAndWaitBoundaries_BitsUT(t *testing.T) {
+	if err := streamContextError(nil); err != nil {
+		t.Fatalf("nil context error = %v, want nil", err)
+	}
+	if err := streamContextError(context.Background()); err != nil {
+		t.Fatalf("background context error = %v, want nil", err)
+	}
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := streamContextError(canceled); err != nil && CodeOf(err) != CodeCanceled {
+		t.Fatalf("canceled stream context error = %v, want nil or canceled", err)
+	}
+	deadline, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancel()
+	if err := streamContextError(deadline); err != nil && CodeOf(err) != CodeDeadlineExceeded {
+		t.Fatalf("deadline stream context error = %v, want nil or deadline_exceeded", err)
+	}
+
+	waitStreamHandler(make(chan error), 0)
+	done := make(chan error, 1)
+	done <- nil
+	waitStreamHandler(done, time.Second)
+}
+
 func TestRPCClientStreamMaxConcurrencyReleasesOnClose(t *testing.T) {
 	var opened int
 	mw := ClientStreamMaxConcurrencyMiddleware(1)(func(ctx context.Context, method string) (*Stream, error) {
@@ -322,6 +492,23 @@ func TestRPCClientStreamMaxConcurrencyReleasesOnClose(t *testing.T) {
 	defer third.Close()
 	if opened != 2 {
 		t.Fatalf("opened streams = %d, want 2", opened)
+	}
+}
+
+func TestRPCClientStreamMaxConcurrencyReleasesOnNextError_BitsUT(t *testing.T) {
+	opened := 0
+	mw := ClientStreamMaxConcurrencyMiddleware(1)(func(context.Context, string) (*Stream, error) {
+		opened++
+		return nil, errors.New("open failed")
+	})
+	if _, err := mw(context.Background(), "chat/Echo"); err == nil {
+		t.Fatal("first stream open succeeded, want error")
+	}
+	if _, err := mw(context.Background(), "chat/Echo"); err == nil {
+		t.Fatal("second stream open succeeded, want error after released slot")
+	}
+	if opened != 2 {
+		t.Fatalf("opened = %d, want 2", opened)
 	}
 }
 
@@ -354,6 +541,202 @@ func TestRPCClientStreamBearerTokenMiddlewareAddsMetadata(t *testing.T) {
 	if !called {
 		t.Fatal("empty token middleware did not call next")
 	}
+}
+
+func TestRPCStreamObservabilityMiddlewareBoundaries_BitsUT(t *testing.T) {
+	stream := newMiddlewareTestStream(t)
+	defer stream.Close()
+
+	traceParent := "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+	traceCtx := metadata.Append(context.Background(), trace.TraceParentHeader, traceParent)
+	serverTraceCalled := false
+	serverTrace := StreamTraceMiddleware("orders")(func(ctx context.Context, stream *Stream) error {
+		serverTraceCalled = true
+		if sc, ok := trace.FromContext(ctx); !ok || sc.TraceID != "4bf92f3577b34da6a3ce929d0e0e4736" {
+			t.Fatalf("server stream trace context = %#v ok=%v", sc, ok)
+		}
+		return nil
+	})
+	if err := serverTrace(traceCtx, stream); err != nil {
+		t.Fatalf("StreamTraceMiddleware error = %v", err)
+	}
+	if !serverTraceCalled {
+		t.Fatal("StreamTraceMiddleware did not call next")
+	}
+
+	clientTraceCalled := false
+	clientTrace := ClientStreamTraceMiddlewareWithSampler("orders", trace.NeverSampler())(func(ctx context.Context, method string) (*Stream, error) {
+		clientTraceCalled = true
+		if method != "orders/Watch" {
+			t.Fatalf("method = %q, want orders/Watch", method)
+		}
+		if sc, ok := trace.FromContext(ctx); !ok || sc.TraceID == "" || sc.Sampled {
+			t.Fatalf("client stream trace context = %#v ok=%v, want unsampled trace", sc, ok)
+		}
+		return newMiddlewareTestStream(t), nil
+	})
+	clientStream, err := clientTrace(context.Background(), "orders/Watch")
+	if err != nil {
+		t.Fatalf("ClientStreamTraceMiddleware error = %v", err)
+	}
+	defer clientStream.Close()
+	if !clientTraceCalled {
+		t.Fatal("ClientStreamTraceMiddleware did not call next")
+	}
+
+	reg := metrics.NewRegistry()
+	serverMetrics := StreamMetricsMiddleware("", reg)(func(context.Context, *Stream) error { return NewError(CodeInvalidArgument, "bad") })
+	if err := serverMetrics(context.Background(), stream); CodeOf(err) != CodeInvalidArgument {
+		t.Fatalf("StreamMetricsMiddleware error = %v, want invalid_argument", err)
+	}
+	if snap := reg.Snapshot(); snap.Requests != 1 || snap.Statuses[http.StatusBadRequest] != 1 || snap.Errors != 0 || snap.InFlight != 0 {
+		t.Fatalf("stream metrics snapshot = %#v, want one completed invalid-argument stream", snap)
+	}
+
+	clientReg := metrics.NewRegistry()
+	clientMetrics := ClientStreamMetricsMiddleware("client-stream", clientReg)(func(context.Context, string) (*Stream, error) {
+		return newMiddlewareTestStream(t), nil
+	})
+	metricStream, err := clientMetrics(context.Background(), "orders/Watch")
+	if err != nil {
+		t.Fatalf("ClientStreamMetricsMiddleware error = %v", err)
+	}
+	if snap := clientReg.Snapshot(); snap.InFlight != 1 {
+		t.Fatalf("client metrics in-flight before close = %d, want 1", snap.InFlight)
+	}
+	if err := metricStream.Close(); err != nil {
+		t.Fatalf("metric stream close error = %v", err)
+	}
+	if snap := clientReg.Snapshot(); snap.Requests != 1 || snap.InFlight != 0 {
+		t.Fatalf("client metrics snapshot after close = %#v, want one completed stream", snap)
+	}
+
+	if err := StreamLoggingMiddleware("")(func(context.Context, *Stream) error { return nil })(context.Background(), stream); err != nil {
+		t.Fatalf("StreamLoggingMiddleware error = %v", err)
+	}
+	loggingStream, err := ClientStreamLoggingMiddleware("")(func(context.Context, string) (*Stream, error) { return newMiddlewareTestStream(t), nil })(context.Background(), "orders/Watch")
+	if err != nil {
+		t.Fatalf("ClientStreamLoggingMiddleware error = %v", err)
+	}
+	if err := loggingStream.Close(); err != nil {
+		t.Fatalf("logging stream close error = %v", err)
+	}
+}
+
+func TestRPCClientStreamRequestIDAndBreakerBoundaries_BitsUT(t *testing.T) {
+	var generated string
+	mw := ClientStreamRequestIDMiddleware()(func(ctx context.Context, method string) (*Stream, error) {
+		generated = metadata.RequestIDFromContext(ctx)
+		return nil, nil
+	})
+	if _, err := mw(context.Background(), "orders/Watch"); err != nil {
+		t.Fatalf("ClientStreamRequestIDMiddleware generated error = %v", err)
+	}
+	if generated == "" {
+		t.Fatal("ClientStreamRequestIDMiddleware did not generate request id")
+	}
+
+	var preserved string
+	mw = ClientStreamRequestIDMiddleware()(func(ctx context.Context, method string) (*Stream, error) {
+		preserved = metadata.RequestIDFromContext(ctx)
+		return nil, nil
+	})
+	ctx := metadata.Append(context.Background(), metadata.RequestIDKey, "rid-client-stream")
+	if _, err := mw(ctx, "orders/Watch"); err != nil {
+		t.Fatalf("ClientStreamRequestIDMiddleware preserve error = %v", err)
+	}
+	if preserved != "rid-client-stream" {
+		t.Fatalf("preserved request id = %q, want rid-client-stream", preserved)
+	}
+
+	nilBreakerCalled := false
+	nilBreaker := ClientStreamBreakerMiddleware(nil)(func(context.Context, string) (*Stream, error) {
+		nilBreakerCalled = true
+		return nil, errors.New("upstream")
+	})
+	if _, err := nilBreaker(context.Background(), "orders/Watch"); err == nil || !nilBreakerCalled {
+		t.Fatalf("nil breaker err=%v called=%v, want delegated upstream error", err, nilBreakerCalled)
+	}
+
+	brk := corebreaker.New(corebreaker.WithFailureThreshold(1), corebreaker.WithOpenTimeout(time.Hour))
+	guarded := ClientStreamBreakerMiddleware(brk)(func(context.Context, string) (*Stream, error) {
+		return nil, errors.New("first failure")
+	})
+	if _, err := guarded(context.Background(), "orders/Watch"); err == nil {
+		t.Fatal("first guarded stream succeeded, want failure")
+	}
+	if _, err := guarded(context.Background(), "orders/Watch"); CodeOf(err) != CodeUnavailable {
+		t.Fatalf("open breaker stream error = %v, want unavailable", err)
+	}
+}
+
+func TestRPCUnaryAndClientStreamMiddlewareBoundaries_BitsUT(t *testing.T) {
+	ctx, _ := trace.Start(context.Background(), "")
+	unaryOK := endpoint.Endpoint(func(context.Context, any) (any, error) { return "ok", nil })
+	if resp, err := LoggingMiddleware("")(unaryOK)(ctx, "req"); err != nil || resp != "ok" {
+		t.Fatalf("LoggingMiddleware success resp=%v err=%v, want ok nil", resp, err)
+	}
+	unaryErr := errors.New("unary failed")
+	if _, err := LoggingMiddlewareWithSampler("orders", trace.AlwaysSampler())(func(context.Context, any) (any, error) { return "partial", unaryErr })(ctx, "req"); !errors.Is(err, unaryErr) {
+		t.Fatalf("LoggingMiddleware error = %v, want %v", err, unaryErr)
+	}
+
+	reg := metrics.NewRegistry()
+	if _, err := MetricsMiddleware("orders", reg)(func(context.Context, any) (any, error) { return nil, NewError(CodeInternal, "boom") })(ctx, nil); CodeOf(err) != CodeInternal {
+		t.Fatalf("MetricsMiddleware error = %v, want internal", err)
+	}
+	if snap := reg.Snapshot(); snap.Requests != 1 || snap.Errors != 1 || snap.InFlight != 0 {
+		t.Fatalf("metrics snapshot = %#v, want one failed completed unary call", snap)
+	}
+
+	limited := AdaptiveLimitMiddleware(nil)(unaryOK)
+	if resp, err := limited(context.Background(), "req"); err != nil || resp != "ok" {
+		t.Fatalf("AdaptiveLimitMiddleware success resp=%v err=%v", resp, err)
+	}
+	adaptiveBreaker := AdaptiveBreakerMiddleware(nil)
+	if _, err := adaptiveBreaker(func(context.Context, any) (any, error) { return nil, errors.New("fail") })(context.Background(), nil); err == nil {
+		t.Fatal("AdaptiveBreakerMiddleware failure path returned nil")
+	}
+	if resp, err := adaptiveBreaker(unaryOK)(context.Background(), nil); err != nil || resp != "ok" {
+		t.Fatalf("AdaptiveBreakerMiddleware success resp=%v err=%v", resp, err)
+	}
+
+	clientReg := metrics.NewRegistry()
+	clientMetricsErr := ClientStreamMetricsMiddleware("client", clientReg)(func(context.Context, string) (*Stream, error) {
+		return nil, NewError(CodeUnavailable, "dial failed")
+	})
+	if _, err := clientMetricsErr(context.Background(), "orders/Watch"); CodeOf(err) != CodeUnavailable {
+		t.Fatalf("ClientStreamMetricsMiddleware error = %v, want unavailable", err)
+	}
+	if snap := clientReg.Snapshot(); snap.Requests != 1 || snap.Errors != 1 || snap.InFlight != 0 {
+		t.Fatalf("client metrics snapshot = %#v, want one failed completed client stream", snap)
+	}
+
+	clientLogErr := errors.New("open failed")
+	if _, err := ClientStreamLoggingMiddlewareWithSampler("client", trace.AlwaysSampler())(func(context.Context, string) (*Stream, error) { return nil, clientLogErr })(ctx, "orders/Watch"); !errors.Is(err, clientLogErr) {
+		t.Fatalf("ClientStreamLoggingMiddleware error = %v, want %v", err, clientLogErr)
+	}
+	adaptiveLimitErr := ClientStreamAdaptiveLimitMiddleware(nil)(func(context.Context, string) (*Stream, error) { return nil, clientLogErr })
+	if _, err := adaptiveLimitErr(context.Background(), "orders/Watch"); !errors.Is(err, clientLogErr) {
+		t.Fatalf("ClientStreamAdaptiveLimitMiddleware error = %v, want %v", err, clientLogErr)
+	}
+	adaptiveLimitOK := ClientStreamAdaptiveLimitMiddleware(nil)(func(context.Context, string) (*Stream, error) { return newMiddlewareTestStream(t), nil })
+	limitStream, err := adaptiveLimitOK(context.Background(), "orders/Watch")
+	if err != nil {
+		t.Fatalf("ClientStreamAdaptiveLimitMiddleware success: %v", err)
+	}
+	_ = limitStream.Close()
+
+	adaptiveStreamBreakerErr := ClientStreamAdaptiveBreakerMiddleware(corebreaker.NewAdaptive())(func(context.Context, string) (*Stream, error) { return nil, clientLogErr })
+	if _, err := adaptiveStreamBreakerErr(context.Background(), "orders/Watch"); !errors.Is(err, clientLogErr) {
+		t.Fatalf("ClientStreamAdaptiveBreakerMiddleware error = %v, want %v", err, clientLogErr)
+	}
+	adaptiveStreamBreakerOK := ClientStreamAdaptiveBreakerMiddleware(nil)(func(context.Context, string) (*Stream, error) { return newMiddlewareTestStream(t), nil })
+	breakerStream, err := adaptiveStreamBreakerOK(context.Background(), "orders/Watch")
+	if err != nil {
+		t.Fatalf("ClientStreamAdaptiveBreakerMiddleware success: %v", err)
+	}
+	_ = breakerStream.Close()
 }
 
 func TestRPCClientStreamMiddlewareSuiteAuth(t *testing.T) {
@@ -763,3 +1146,44 @@ func (c namedJSONCodec) Name() string { return c.name }
 func (namedJSONCodec) Marshal(v any) ([]byte, error) { return json.Marshal(v) }
 
 func (namedJSONCodec) Unmarshal(data []byte, v any) error { return json.Unmarshal(data, v) }
+
+type errCodec struct{}
+
+func (errCodec) Name() string { return "err" }
+
+func (errCodec) Marshal(any) ([]byte, error) { return nil, errors.New("marshal failed") }
+
+func (errCodec) Unmarshal([]byte, any) error { return nil }
+
+type timeoutNetError struct{}
+
+func (timeoutNetError) Error() string   { return "timeout" }
+func (timeoutNetError) Timeout() bool   { return true }
+func (timeoutNetError) Temporary() bool { return true }
+
+type deadlineErrConn struct {
+	net.Conn
+	readErr  error
+	writeErr error
+}
+
+func (c deadlineErrConn) SetReadDeadline(time.Time) error  { return c.readErr }
+func (c deadlineErrConn) SetWriteDeadline(time.Time) error { return c.writeErr }
+
+type noopConn struct{}
+
+func newNoopConn() noopConn { return noopConn{} }
+
+func (noopConn) Read([]byte) (int, error)         { return 0, io.EOF }
+func (noopConn) Write(p []byte) (int, error)      { return len(p), nil }
+func (noopConn) Close() error                     { return nil }
+func (noopConn) LocalAddr() net.Addr              { return noopAddr("local") }
+func (noopConn) RemoteAddr() net.Addr             { return noopAddr("remote") }
+func (noopConn) SetDeadline(time.Time) error      { return nil }
+func (noopConn) SetReadDeadline(time.Time) error  { return nil }
+func (noopConn) SetWriteDeadline(time.Time) error { return nil }
+
+type noopAddr string
+
+func (a noopAddr) Network() string { return string(a) }
+func (a noopAddr) String() string  { return string(a) }

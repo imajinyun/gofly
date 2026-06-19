@@ -73,6 +73,31 @@ func TestOAuth2RejectsBadSecretAndScope(t *testing.T) {
 	}
 }
 
+func TestOAuth2ErrorStringAndServerDefaults_BitsUT(t *testing.T) {
+	if got := (&OAuth2Error{Code: "invalid_client"}).Error(); got != "invalid_client" {
+		t.Fatalf("OAuth2Error without description = %q, want invalid_client", got)
+	}
+	if got := (&OAuth2Error{Code: "invalid_scope", Description: "scope not permitted"}).Error(); got != "invalid_scope: scope not permitted" {
+		t.Fatalf("OAuth2Error with description = %q, want code and description", got)
+	}
+	kr, err := NewJWTKeyring(SigningKey{KID: "k1", Secret: []byte("oauth-secret")})
+	if err != nil {
+		t.Fatalf("NewJWTKeyring returned error: %v", err)
+	}
+	srv, err := NewOAuth2Server(OAuth2Config{Keyring: kr})
+	if err != nil {
+		t.Fatalf("NewOAuth2Server returned error: %v", err)
+	}
+	if srv.conf.TTL != time.Hour || srv.conf.Now == nil || srv.conf.Clients == nil {
+		t.Fatalf("server defaults = ttl %s now nil=%v clients nil=%v", srv.conf.TTL, srv.conf.Now == nil, srv.conf.Clients == nil)
+	}
+	if _, err := srv.Issue("missing", "x", nil); err == nil {
+		t.Fatal("Issue missing client succeeded, want invalid_client")
+	} else if oerr, ok := err.(*OAuth2Error); !ok || oerr.Code != "invalid_client" {
+		t.Fatalf("Issue missing client error = %v, want invalid_client", err)
+	}
+}
+
 func TestOAuth2TokenHandlerFormCredentials(t *testing.T) {
 	now := time.Unix(1000, 0)
 	srv := newTestOAuth2Server(t, now)
@@ -150,6 +175,24 @@ func TestOAuth2TokenHandlerErrors(t *testing.T) {
 	srv.TokenHandler().ServeHTTP(badRec, badReq)
 	if badRec.Code != http.StatusUnauthorized {
 		t.Fatalf("bad creds status = %d, want 401", badRec.Code)
+	}
+
+	malformedReq := httptest.NewRequest(http.MethodPost, "/oauth/token", strings.NewReader("%"))
+	malformedReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	malformedRec := httptest.NewRecorder()
+	srv.TokenHandler().ServeHTTP(malformedRec, malformedReq)
+	if malformedRec.Code != http.StatusBadRequest {
+		t.Fatalf("malformed form status = %d, want 400", malformedRec.Code)
+	}
+	if got := malformedRec.Header().Get("Cache-Control"); got != "no-store" {
+		t.Fatalf("malformed Cache-Control = %q, want no-store", got)
+	}
+	var malformedErr OAuth2Error
+	if err := json.Unmarshal(malformedRec.Body.Bytes(), &malformedErr); err != nil {
+		t.Fatalf("decode malformed error: %v", err)
+	}
+	if malformedErr.Code != "invalid_request" {
+		t.Fatalf("malformed error code = %q, want invalid_request", malformedErr.Code)
 	}
 }
 

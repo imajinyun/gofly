@@ -410,6 +410,21 @@ func TestSQLStoreTransactHonorsCanceledContextAndRecordsStats(t *testing.T) {
 	}
 }
 
+func TestSQLStoreTransactRollsBackOnCallbackError_BitsUT(t *testing.T) {
+	store := NewSQLStore(fakeDB(t))
+	boom := errors.New("boom")
+	err := store.Transact(context.Background(), nil, func(context.Context, *sql.Tx) error {
+		return boom
+	})
+	if !errors.Is(err, boom) {
+		t.Fatalf("Transact callback error = %v, want boom", err)
+	}
+	snapshot := store.Snapshot().Operations["transaction"]
+	if snapshot.Requests != 1 || snapshot.Errors != 1 {
+		t.Fatalf("transaction stats = %#v, want one failed transaction", snapshot)
+	}
+}
+
 func TestSQLStoreQueryOneAndQueryAllAndQueryRows(t *testing.T) {
 	store := NewSQLStore(fakeDB(t))
 	// fake driver returns no rows, so Scan returns sql.ErrNoRows — that is a valid QueryOne outcome.
@@ -465,6 +480,30 @@ func TestOpenValidationAndPoolConfig(t *testing.T) {
 		t.Fatalf("Open empty driver = %v, want driver error", err)
 	}
 	ApplyPoolConfig(nil, PoolConfig{MaxOpenConns: 10})
+	_ = fakeDB(t)
+	store, err := Open(context.Background(), Config{
+		Driver:        fakeDriverName,
+		DSN:           "",
+		Ping:          time.Second,
+		QueryTimeout:  50 * time.Millisecond,
+		SlowThreshold: time.Nanosecond,
+		Pool: PoolConfig{
+			MaxOpenConns:    7,
+			MaxIdleConns:    3,
+			ConnMaxLifetime: time.Minute,
+			ConnMaxIdleTime: time.Second,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Open fake driver error = %v", err)
+	}
+	defer store.Close()
+	if store.DB() == nil || store.queryTimeout != 50*time.Millisecond || store.slowThreshold != time.Nanosecond {
+		t.Fatalf("opened store = %#v, want configured DB store", store)
+	}
+	if got := store.DB().Stats().MaxOpenConnections; got != 7 {
+		t.Fatalf("MaxOpenConnections = %d, want 7", got)
+	}
 }
 
 func TestWithAdaptiveAndStoreBreaker(t *testing.T) {

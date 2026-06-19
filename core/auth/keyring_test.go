@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -73,6 +74,34 @@ func TestKeyringRejectsRemovingActive(t *testing.T) {
 	kr, _ := NewJWTKeyring(SigningKey{KID: "k1", Secret: []byte("s")})
 	if err := kr.Remove("k1"); err == nil {
 		t.Fatal("removing active key should error")
+	}
+}
+
+func TestKeyringAddAndKIDsBoundaries_BitsUT(t *testing.T) {
+	kr, err := NewJWTKeyring(SigningKey{KID: "k1", Secret: []byte("secret-one")})
+	if err != nil {
+		t.Fatalf("NewJWTKeyring returned error: %v", err)
+	}
+	if err := kr.Add(SigningKey{KID: "bad"}); !errors.Is(err, ErrMissingCredentials) {
+		t.Fatalf("Add invalid key error = %v, want ErrMissingCredentials", err)
+	}
+	if err := kr.Add(SigningKey{KID: "k2", Secret: []byte("secret-two")}); err != nil {
+		t.Fatalf("Add returned error: %v", err)
+	}
+	if got, want := kr.KIDs(), []string{"k1", "k2"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("KIDs = %#v, want %#v", got, want)
+	}
+	now := time.Unix(1000, 0)
+	token, err := SignJWTWithKID(JWTClaims{Subject: "bob", ExpiresAt: now.Add(time.Hour).Unix()}, "k2", []byte("secret-two"))
+	if err != nil {
+		t.Fatalf("SignJWTWithKID returned error: %v", err)
+	}
+	claims, err := kr.Verify(token, JWTOptions{Now: func() time.Time { return now }})
+	if err != nil {
+		t.Fatalf("Verify k2 token returned error: %v", err)
+	}
+	if claims.Subject != "bob" {
+		t.Fatalf("subject = %q, want bob", claims.Subject)
 	}
 }
 

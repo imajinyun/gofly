@@ -215,8 +215,47 @@ func TestShardTable(t *testing.T) {
 
 func TestClusterNilGuards(t *testing.T) {
 	var nilCluster *Cluster
+	if nilCluster.Primary() != nil {
+		t.Fatal("nil Primary should return nil")
+	}
+	if nilCluster.Replica() != nil {
+		t.Fatal("nil Replica should return nil")
+	}
+	if nilCluster.For(RolePrimary) != nil {
+		t.Fatal("nil For should return nil")
+	}
+	if nilCluster.ForQuery("SELECT 1") != nil {
+		t.Fatal("nil ForQuery should return nil")
+	}
 	if err := nilCluster.Close(); err != nil {
 		t.Fatalf("nil Close = %v, want nil", err)
+	}
+}
+
+func TestShardedClusterIndexNormalizationAndClose_BitsUT(t *testing.T) {
+	s0, _ := NewCluster(NewSQLStore(nil))
+	s1, _ := NewCluster(NewSQLStore(nil))
+	cases := []struct {
+		name     string
+		strategy ShardStrategy
+		want     *Cluster
+	}{
+		{name: "negative", strategy: func(string, int) int { return -1 }, want: s1},
+		{name: "oversized", strategy: func(string, int) int { return 3 }, want: s1},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			sharded, err := NewShardedCluster(tt.strategy, s0, s1)
+			if err != nil {
+				t.Fatalf("NewShardedCluster error = %v", err)
+			}
+			if got := sharded.ShardFor("key"); got != tt.want {
+				t.Fatalf("ShardFor = %p, want %p", got, tt.want)
+			}
+			if err := sharded.Close(); err != nil {
+				t.Fatalf("Close error = %v", err)
+			}
+		})
 	}
 }
 

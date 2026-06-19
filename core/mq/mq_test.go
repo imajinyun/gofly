@@ -600,6 +600,143 @@ func TestMQAdaptiveBreakerFromPolicy(t *testing.T) {
 	}
 }
 
+func TestTraceInjectExtractBoundaries_BitsUT(t *testing.T) {
+	msg := Message{}
+	InjectTrace(context.Background(), &msg)
+	if msg.Headers != nil {
+		t.Fatalf("InjectTrace without span headers = %#v, want nil", msg.Headers)
+	}
+
+	ctx, sc := trace.Start(context.Background(), "")
+	InjectTrace(ctx, &msg)
+	parent := msg.Headers[traceHeaderKey]
+	if parent == "" {
+		t.Fatal("InjectTrace did not write traceparent")
+	}
+	extracted := ExtractTrace(context.Background(), msg)
+	extractedSC, ok := trace.FromContext(extracted)
+	if !ok || extractedSC.TraceID != sc.TraceID || extractedSC.SpanID == sc.SpanID {
+		t.Fatalf("ExtractTrace span = %#v ok=%v, want child of trace %s", extractedSC, ok, sc.TraceID)
+	}
+
+	base := context.WithValue(context.Background(), struct{}{}, "unchanged")
+	if got := ExtractTrace(base, Message{}); got != base {
+		t.Fatal("ExtractTrace without header should return original context")
+	}
+}
+
+func TestGovernanceBrokerPureBoundaryBranches_BitsUT(t *testing.T) {
+	if _, err := NewGovernanceBroker(nil); err == nil {
+		t.Fatal("NewGovernanceBroker should reject nil broker")
+	}
+
+	noSnapshot, err := NewGovernanceBroker(&governanceFakeBroker{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats := noSnapshot.Snapshot(); stats.Published != 0 || stats.Topics != nil {
+		t.Fatalf("snapshot without snapshotter = %+v, want zero", stats)
+	}
+
+	if _, err := noSnapshot.Subscribe(context.Background(), "orders", "workers", nil); err == nil {
+		t.Fatal("Subscribe should reject nil handler")
+	}
+	noSnapshot.opts.registry = nil
+	noSnapshot.record(mqMethodPublish, "orders", "", time.Millisecond, nil)
+
+	policy := governance.BreakerPolicy{Enabled: true, OpenTimeout: time.Millisecond, Window: time.Second, Buckets: 2, MinRequests: 1, FailureRatio: 0.5}
+	first := noSnapshot.ruleBreaker("orders", policy)
+	second := noSnapshot.ruleBreaker("orders", policy)
+	if first == nil || first != second {
+		t.Fatalf("ruleBreaker cache = %p/%p, want same non-nil breaker", first, second)
+	}
+	third := noSnapshot.ruleBreaker("orders", governance.BreakerPolicy{Enabled: true, MinRequests: 2})
+	if third == nil || third == first {
+		t.Fatalf("ruleBreaker changed policy = %p, want fresh breaker distinct from %p", third, first)
+	}
+	if (*GovernanceBroker)(nil).ruleBreaker("orders", policy) != nil {
+		t.Fatal("nil broker ruleBreaker should return nil")
+	}
+}
+
+func TestMQStatusAndRuntimeKeyBoundaries_BitsUT(t *testing.T) {
+	statusTests := []struct {
+		name string
+		err  error
+		want int
+	}{
+		{name: "nil", err: nil, want: 200},
+		{name: "deadline", err: context.DeadlineExceeded, want: 504},
+		{name: "canceled", err: context.Canceled, want: 499},
+		{name: "invalid-topic", err: ErrInvalidTopic, want: 400},
+		{name: "invalid-group", err: ErrInvalidGroup, want: 400},
+		{name: "overloaded", err: ErrOverloaded, want: 429},
+		{name: "breaker-open", err: breaker.ErrOpen, want: 503},
+		{name: "closed", err: ErrClosed, want: 503},
+		{name: "unknown", err: errors.New("boom"), want: 500},
+	}
+	for _, tt := range statusTests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := mqStatus(tt.err); got != tt.want {
+				t.Fatalf("mqStatus(%v) = %d, want %d", tt.err, got, tt.want)
+			}
+		})
+	}
+
+	keyTests := []struct {
+		name     string
+		decision governance.Decision
+		method   string
+		topic    string
+		group    string
+		want     string
+	}{
+		{name: "rule-key", decision: governance.Decision{RuleKey: "rk", RuleName: "rn"}, method: "PUBLISH", topic: "orders", want: "rk"},
+		{name: "rule-name", decision: governance.Decision{RuleName: "rn"}, method: "PUBLISH", topic: "orders", want: "name:rn"},
+		{name: "topic", method: "PUBLISH", topic: "orders", want: "PUBLISH:orders"},
+		{name: "topic-group", method: "CONSUME", topic: "orders", group: "workers", want: "CONSUME:orders:workers"},
+	}
+	for _, tt := range keyTests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := mqGovernanceRuntimeKey(tt.decision, tt.method, tt.topic, tt.group); got != tt.want {
+				t.Fatalf("runtime key = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGovernanceBrokerRunTimeoutBreakerAndRetryBoundaries_BitsUT(t *testing.T) {
+	broker, err := NewGovernanceBroker(&governanceFakeBroker{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := broker.run(context.Background(), "rate", governance.Policy{RateLimit: governance.RateLimitPolicy{Rate: 1, Burst: 1}}, mqMethodPublish, "orders", "", func(context.Context) error { return nil }); err != nil {
+		t.Fatalf("first rate-limited run = %v", err)
+	}
+	if err := broker.run(context.Background(), "rate", governance.Policy{RateLimit: governance.RateLimitPolicy{Rate: 1, Burst: 1}}, mqMethodPublish, "orders", "", func(context.Context) error { return nil }); !errors.Is(err, ErrOverloaded) {
+		t.Fatalf("second rate-limited run = %v, want ErrOverloaded", err)
+	}
+
+	if err := broker.run(context.Background(), "timeout", governance.Policy{Timeout: time.Nanosecond}, mqMethodPublish, "orders", "", func(ctx context.Context) error {
+		<-ctx.Done()
+		return nil
+	}); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("timeout run = %v, want DeadlineExceeded", err)
+	}
+
+	var attempts atomic.Int64
+	err = broker.run(context.Background(), "retry", governance.Policy{Retry: governance.RetryPolicy{Attempts: 2}}, mqMethodPublish, "orders", "", func(context.Context) error {
+		if attempts.Add(1) == 1 {
+			return errors.New("temporary")
+		}
+		return nil
+	})
+	if err != nil || attempts.Load() != 2 {
+		t.Fatalf("retry run err=%v attempts=%d, want success after two attempts", err, attempts.Load())
+	}
+}
+
 func BenchmarkMemoryBrokerPublish(b *testing.B) {
 	broker := NewMemoryBroker()
 	ctx := context.Background()

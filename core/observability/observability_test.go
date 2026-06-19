@@ -148,6 +148,25 @@ func TestObserveHandlerJSONDisabled(t *testing.T) {
 	}
 }
 
+func TestObserveHandlerPprofBoundary_BitsUT(t *testing.T) {
+	enabled := NewObserve(ObserverConfig{Service: "svc", Pprof: true})
+	rec := httptest.NewRecorder()
+	enabled.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/pprof/", nil))
+	if rec.Code == http.StatusNotFound {
+		t.Fatalf("pprof enabled status = %d, want registered handler", rec.Code)
+	}
+	if body := rec.Body.String(); !strings.Contains(body, "profiles") && !strings.Contains(body, "goroutine") {
+		t.Fatalf("pprof body = %q, want pprof index", body)
+	}
+
+	disabled := NewObserve(ObserverConfig{Service: "svc", Pprof: false})
+	disabledRec := httptest.NewRecorder()
+	disabled.Handler().ServeHTTP(disabledRec, httptest.NewRequest(http.MethodGet, "/pprof/", nil))
+	if disabledRec.Code != http.StatusNotFound {
+		t.Fatalf("pprof disabled status = %d, want 404", disabledRec.Code)
+	}
+}
+
 func TestSamplingHandlerWithAttrsAndGroup(t *testing.T) {
 	var buf bytes.Buffer
 	base := slog.NewTextHandler(&buf, nil)
@@ -177,6 +196,22 @@ func TestNewLoggerRotateFallback(t *testing.T) {
 	logger := newLogger(cfg)
 	if logger == nil {
 		t.Fatal("expected non-nil logger")
+	}
+}
+
+func TestNewLoggerJSONSetGlobalBoundary_BitsUT(t *testing.T) {
+	old := slog.Default()
+	t.Cleanup(func() { slog.SetDefault(old) })
+	var buf bytes.Buffer
+	logger := newLogger(&LoggerConfig{JSON: true, SetGlobal: true, Output: &buf})
+	if logger == nil {
+		t.Fatal("newLogger returned nil")
+	}
+	slog.SetDefault(logger)
+	slog.Info("global-test")
+	out := buf.String()
+	if !strings.Contains(out, `"msg":"global-test"`) {
+		t.Fatalf("json logger output = %q, want global-test msg", out)
 	}
 }
 
@@ -255,5 +290,33 @@ func TestRotateWriterRotatesAndPrunesBackups(t *testing.T) {
 	}
 	if backups != 1 {
 		t.Fatalf("backup count = %d, want 1", backups)
+	}
+}
+
+func TestRotateWriterPrunesBackupsByAge_BitsUT(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "app.log")
+	stale := filepath.Join(dir, "app.log.2000-01-01T00-00-00.000")
+	keep := filepath.Join(dir, "not-a-backup")
+	if err := os.WriteFile(stale, []byte("old"), 0o600); err != nil {
+		t.Fatalf("write stale backup: %v", err)
+	}
+	oldTime := time.Now().Add(-48 * time.Hour)
+	if err := os.Chtimes(stale, oldTime, oldTime); err != nil {
+		t.Fatalf("chtimes stale backup: %v", err)
+	}
+	if err := os.WriteFile(keep, []byte("keep"), 0o600); err != nil {
+		t.Fatalf("write non-backup: %v", err)
+	}
+	if err := os.Mkdir(filepath.Join(dir, "app.log.dir"), 0o700); err != nil {
+		t.Fatalf("mkdir backup-like dir: %v", err)
+	}
+	rw := &rotateWriter{cfg: &RotateConfig{Filename: path, MaxAgeDays: 1, MaxBackups: 10}}
+	rw.pruneBackups()
+	if _, err := os.Stat(stale); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("stale backup stat error = %v, want not exist", err)
+	}
+	if _, err := os.Stat(keep); err != nil {
+		t.Fatalf("non-backup file stat error = %v", err)
 	}
 }

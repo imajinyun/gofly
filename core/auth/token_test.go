@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -110,5 +111,54 @@ func TestRequestSignature(t *testing.T) {
 	req.Header.Set(SignatureHeader, "sha256=bad")
 	if err := VerifyRequestSignature(req, body, SignatureOptions{Secret: secret, Now: func() time.Time { return timestamp }}); !errors.Is(err, ErrInvalidCredentials) {
 		t.Fatalf("bad signature error = %v, want ErrInvalidCredentials", err)
+	}
+}
+
+func TestVerifyRequestSignatureBoundaries_BitsUT(t *testing.T) {
+	secret := []byte("secret")
+	body := []byte(`{"name":"gofly"}`)
+	now := time.Unix(1000, 0)
+	newReq := func() *httptest.ResponseRecorder { return httptest.NewRecorder() }
+	_ = newReq // keep httptest import anchored for nearby request helpers
+
+	tests := []struct {
+		name      string
+		secret    []byte
+		timestamp string
+		signature string
+		want      error
+	}{
+		{name: "empty secret", timestamp: "1000", signature: "sha256=bad", want: ErrMissingCredentials},
+		{name: "missing headers", secret: secret, want: ErrMissingCredentials},
+		{name: "bad timestamp", secret: secret, timestamp: "not-int", signature: "sha256=bad", want: ErrInvalidCredentials},
+		{name: "expired", secret: secret, timestamp: "900", signature: SignRequest("POST", "/users", body, 900, secret), want: ErrExpiredToken},
+		{name: "future", secret: secret, timestamp: "1100", signature: SignRequest("POST", "/users", body, 1100, secret), want: ErrExpiredToken},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest("POST", "/users", nil)
+			if tt.timestamp != "" {
+				req.Header.Set(TimestampHeader, tt.timestamp)
+			}
+			if tt.signature != "" {
+				req.Header.Set(SignatureHeader, tt.signature)
+			}
+			secretForCase := tt.secret
+			if secretForCase == nil && tt.name != "empty secret" {
+				secretForCase = secret
+			}
+			err := VerifyRequestSignature(req, body, SignatureOptions{Secret: secretForCase, MaxAge: time.Minute, Now: func() time.Time { return now }})
+			if !errors.Is(err, tt.want) {
+				t.Fatalf("VerifyRequestSignature error = %v, want %v", err, tt.want)
+			}
+		})
+	}
+
+	validTimestamp := now.Unix()
+	req := httptest.NewRequest("POST", "/users", nil)
+	req.Header.Set(TimestampHeader, strconv.FormatInt(validTimestamp, 10))
+	req.Header.Set(SignatureHeader, SignRequest("POST", "/users", body, validTimestamp, secret))
+	if err := VerifyRequestSignature(req, body, SignatureOptions{Secret: secret, MaxAge: time.Minute, Now: func() time.Time { return now }}); err != nil {
+		t.Fatalf("VerifyRequestSignature valid request error = %v", err)
 	}
 }

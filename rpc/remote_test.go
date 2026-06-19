@@ -136,6 +136,89 @@ func TestBinaryFrameCodecRejectsOverflowLengths(t *testing.T) {
 	}
 }
 
+func TestFrameCodecAndPayloadBoundaryErrors_BitsUT(t *testing.T) {
+	if _, err := (JSONFrameCodec{}).Unmarshal([]byte("{")); err == nil {
+		t.Fatal("JSONFrameCodec.Unmarshal invalid JSON succeeded, want error")
+	}
+	if _, err := (GzipPayloadCodec{}).Decode([]byte("not-gzip")); err == nil {
+		t.Fatal("GzipPayloadCodec.Decode invalid payload succeeded, want error")
+	}
+
+	binaryCodec := BinaryFrameCodec{}
+	encoded, err := binaryCodec.Marshal(Message{Service: "svc", Method: "M", Codec: "identity", Payload: []byte("body"), Meta: metadata.MD{"k": "v"}, Code: CodeOK})
+	if err != nil {
+		t.Fatalf("BinaryFrameCodec.Marshal: %v", err)
+	}
+	if _, err := binaryCodec.Unmarshal(append(encoded, 0)); err == nil {
+		t.Fatal("BinaryFrameCodec.Unmarshal trailing bytes succeeded, want error")
+	}
+	if _, err := binaryCodec.Unmarshal([]byte{1}); err == nil {
+		t.Fatal("BinaryFrameCodec.Unmarshal truncated service succeeded, want error")
+	}
+
+	var b bytes.Buffer
+	writeFrameBytes(&b, []byte("ok"))
+	if got, err := readFrameString(bytes.NewReader(b.Bytes())); err != nil || got != "ok" {
+		t.Fatalf("readFrameString = %q, %v; want ok nil", got, err)
+	}
+}
+
+func TestFramedTransportPureErrorBoundaries_BitsUT(t *testing.T) {
+	encodeErr := errors.New("encode failed")
+	if err := NewFramedTransport(newNoopConn(), WithPayloadCodec(errPayloadCodec{name: "bad", encodeErr: encodeErr})).Send(context.Background(), Message{Payload: []byte("body")}); !errors.Is(err, encodeErr) {
+		t.Fatalf("Send encode error = %v, want %v", err, encodeErr)
+	}
+	marshalErr := errors.New("marshal failed")
+	if err := NewFramedTransport(newNoopConn(), WithFrameCodec(errFrameCodec{marshalErr: marshalErr})).Send(context.Background(), Message{Payload: []byte("body")}); !errors.Is(err, marshalErr) {
+		t.Fatalf("Send frame marshal error = %v, want %v", err, marshalErr)
+	}
+
+	bodyClient, bodyServer := net.Pipe()
+	bodyTransport := NewFramedTransport(bodyServer)
+	go func() {
+		var header [4]byte
+		binary.BigEndian.PutUint32(header[:], 5)
+		_, _ = bodyClient.Write(header[:])
+		_, _ = bodyClient.Write([]byte("12"))
+		_ = bodyClient.Close()
+	}()
+	if _, err := bodyTransport.Receive(context.Background()); err == nil {
+		t.Fatal("Receive truncated frame body succeeded, want error")
+	}
+	_ = bodyTransport.Close()
+
+	unmarshalClient, unmarshalServer := net.Pipe()
+	unmarshalTransport := NewFramedTransport(unmarshalServer, WithFrameCodec(errFrameCodec{unmarshalErr: errors.New("unmarshal failed")}))
+	go func() {
+		payload := []byte("frame")
+		var header [4]byte
+		binary.BigEndian.PutUint32(header[:], uint32(len(payload)))
+		_, _ = unmarshalClient.Write(header[:])
+		_, _ = unmarshalClient.Write(payload)
+		_ = unmarshalClient.Close()
+	}()
+	if _, err := unmarshalTransport.Receive(context.Background()); err == nil {
+		t.Fatal("Receive frame unmarshal error returned nil")
+	}
+	_ = unmarshalTransport.Close()
+
+	decodeClient, decodeServer := net.Pipe()
+	decodeErr := errors.New("decode failed")
+	decodeTransport := NewFramedTransport(decodeServer, WithPayloadCodec(errPayloadCodec{name: "bad", decodeErr: decodeErr}))
+	go func() {
+		data, _ := (JSONFrameCodec{}).Marshal(Message{Codec: "bad", Payload: []byte("encoded")})
+		var header [4]byte
+		binary.BigEndian.PutUint32(header[:], uint32(len(data)))
+		_, _ = decodeClient.Write(header[:])
+		_, _ = decodeClient.Write(data)
+		_ = decodeClient.Close()
+	}()
+	if _, err := decodeTransport.Receive(context.Background()); !errors.Is(err, decodeErr) {
+		t.Fatalf("Receive payload decode error = %v, want %v", err, decodeErr)
+	}
+	_ = decodeTransport.Close()
+}
+
 func TestFramedTransportFrameLimitsAndCancellation(t *testing.T) {
 	t.Run("nil options fall back to defaults", func(t *testing.T) {
 		clientConn, serverConn := net.Pipe()
@@ -353,6 +436,45 @@ func receiveAsync(t *FramedTransport) <-chan receivedMessage {
 		ch <- receivedMessage{msg: msg, err: err}
 	}()
 	return ch
+}
+
+type errPayloadCodec struct {
+	name      string
+	encodeErr error
+	decodeErr error
+}
+
+func (c errPayloadCodec) Name() string { return c.name }
+func (c errPayloadCodec) Encode(data []byte) ([]byte, error) {
+	if c.encodeErr != nil {
+		return nil, c.encodeErr
+	}
+	return data, nil
+}
+func (c errPayloadCodec) Decode(data []byte) ([]byte, error) {
+	if c.decodeErr != nil {
+		return nil, c.decodeErr
+	}
+	return data, nil
+}
+
+type errFrameCodec struct {
+	marshalErr   error
+	unmarshalErr error
+}
+
+func (errFrameCodec) Name() string { return "err-frame" }
+func (c errFrameCodec) Marshal(Message) ([]byte, error) {
+	if c.marshalErr != nil {
+		return nil, c.marshalErr
+	}
+	return []byte("frame"), nil
+}
+func (c errFrameCodec) Unmarshal([]byte) (Message, error) {
+	if c.unmarshalErr != nil {
+		return Message{}, c.unmarshalErr
+	}
+	return Message{}, nil
 }
 
 func BenchmarkFrameCodecRoundTrip(b *testing.B) {

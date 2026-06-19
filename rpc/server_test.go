@@ -213,6 +213,98 @@ func TestHTTPServerServiceNamesAreDeterministic(t *testing.T) {
 	}
 }
 
+type fakeLifecycleRegistrar struct {
+	registerCalls   []string
+	deregisterCalls []string
+	registerErr     error
+	withOptions     bool
+	ttl             time.Duration
+}
+
+func (f *fakeLifecycleRegistrar) RegisterService(_ context.Context, service string, endpoint string) error {
+	f.registerCalls = append(f.registerCalls, service+"@"+endpoint)
+	return f.registerErr
+}
+
+func (f *fakeLifecycleRegistrar) DeregisterService(_ context.Context, service string, endpoint string) error {
+	f.deregisterCalls = append(f.deregisterCalls, service+"@"+endpoint)
+	return nil
+}
+
+func (f *fakeLifecycleRegistrar) RegisterServiceWithOptions(ctx context.Context, service string, endpoint string, opts ...RegisterOption) error {
+	f.withOptions = true
+	var ro registerOptions
+	for _, opt := range opts {
+		opt(&ro)
+	}
+	f.ttl = ro.ttl
+	return f.RegisterService(ctx, service, endpoint)
+}
+
+func TestHTTPServerRegistryLifecycleBoundaries_BitsUT(t *testing.T) {
+	registrar := &fakeLifecycleRegistrar{}
+	s := NewServer(WithRegistry(registrar, "", ""), WithRegistryTTL(time.Minute), WithRegistryRefreshInterval(time.Millisecond))
+	for _, service := range []string{"zeta", "alpha"} {
+		if err := s.RegisterService(ServiceDesc{Name: service, Methods: []MethodDesc{{Name: "Ping", NewRequest: func() any { return new(helloReq) }, Handler: func(context.Context, any) (any, error) { return helloResp{}, nil }}}}, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.register(context.Background(), "127.0.0.1:9000/"); err != nil {
+		t.Fatalf("register error = %v", err)
+	}
+	want := []string{"alpha@http://127.0.0.1:9000", "zeta@http://127.0.0.1:9000"}
+	if len(registrar.registerCalls) != len(want) || registrar.registerCalls[0] != want[0] || registrar.registerCalls[1] != want[1] {
+		t.Fatalf("register calls = %#v, want %#v", registrar.registerCalls, want)
+	}
+	if !registrar.withOptions || registrar.ttl != time.Minute {
+		t.Fatalf("register options used=%v ttl=%s, want ttl %s", registrar.withOptions, registrar.ttl, time.Minute)
+	}
+	if s.opts.advertiseEndpoint != "http://127.0.0.1:9000" {
+		t.Fatalf("advertise endpoint = %q, want defaulted listener endpoint", s.opts.advertiseEndpoint)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	s.startRegistryKeepalive(ctx)
+	deadline := time.After(time.Second)
+	for len(registrar.registerCalls) <= len(want) {
+		select {
+		case <-deadline:
+			cancel()
+			t.Fatalf("timed out waiting for keepalive register, calls=%#v", registrar.registerCalls)
+		default:
+			time.Sleep(time.Millisecond)
+		}
+	}
+	cancel()
+
+	s.deregister(context.Background())
+	if len(registrar.deregisterCalls) != len(want) || registrar.deregisterCalls[0] != want[0] || registrar.deregisterCalls[1] != want[1] {
+		t.Fatalf("deregister calls = %#v, want %#v", registrar.deregisterCalls, want)
+	}
+}
+
+func TestHTTPServerStopTimeoutAndRegisterError_BitsUT(t *testing.T) {
+	if got := NewServer().readHeaderTimeout(); got != 3*time.Second {
+		t.Fatalf("default readHeaderTimeout = %s, want 3s", got)
+	}
+	if got := NewServer(WithServerReadHeaderTimeout(123 * time.Millisecond)).readHeaderTimeout(); got != 123*time.Millisecond {
+		t.Fatalf("custom readHeaderTimeout = %s, want 123ms", got)
+	}
+	s := NewServer()
+	if err := s.Stop(context.Background()); err != nil {
+		t.Fatalf("Stop before Run error = %v", err)
+	}
+
+	registrar := &fakeLifecycleRegistrar{registerErr: errors.New("boom")}
+	failing := NewServer(WithRegistry(registrar, "", ""))
+	if err := failing.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{Name: "Ping", NewRequest: func() any { return new(helloReq) }, Handler: func(context.Context, any) (any, error) { return helloResp{}, nil }}}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := failing.register(context.Background(), "127.0.0.1:9000"); err == nil || !strings.Contains(err.Error(), "register rpc service greeter") || !strings.Contains(err.Error(), "boom") {
+		t.Fatalf("register error = %v, want service wrapping", err)
+	}
+}
+
 func TestServerGovernanceManagerOverridesExplicitRuleSet(t *testing.T) {
 	stale := coregovernance.NewRuleSet(coregovernance.Rule{Name: "stale", Transport: coregovernance.TransportRPC, Service: "greeter"})
 	manager, err := coregovernance.NewManager(coregovernance.Config{Rules: []coregovernance.Rule{{Name: "live", Transport: coregovernance.TransportRPC, Service: "greeter"}}})

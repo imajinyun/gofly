@@ -57,13 +57,69 @@ func TestKafkaMessageRoundTrip(t *testing.T) {
 	published := time.Unix(100, 200)
 	msg := mq.Message{ID: "id-1", Key: "k", Body: []byte("body"), Attempts: 3, PublishedAt: published, Headers: map[string]string{"trace": "abc"}}
 	km := toKafkaMessage(msg)
-	km.Time = published
 	got := fromKafkaMessage(km)
-	if got.ID != msg.ID || got.Key != msg.Key || string(got.Body) != string(msg.Body) || !got.PublishedAt.Equal(published) {
+	if got.ID != msg.ID || got.Key != msg.Key || string(got.Body) != string(msg.Body) || got.Attempts != msg.Attempts || !got.PublishedAt.Equal(published) {
 		t.Fatalf("fromKafkaMessage = %#v, want core fields from %#v", got, msg)
 	}
 	if got.Headers["trace"] != "abc" {
 		t.Fatalf("headers = %#v, want trace header", got.Headers)
+	}
+}
+
+func TestKafkaMessageEnvelopeHeaderBoundaries_BitsUT(t *testing.T) {
+	published := time.Unix(123, 456)
+	msg := mq.Message{ID: "id-1", Key: "key-1", Body: []byte("payload"), Attempts: 7, PublishedAt: published, Headers: map[string]string{"trace": "abc"}}
+	km := toKafkaMessage(msg)
+
+	headers := make(map[string]string, len(km.Headers))
+	for _, header := range km.Headers {
+		headers[header.Key] = string(header.Value)
+	}
+	if string(km.Key) != msg.Key || string(km.Value) != string(msg.Body) {
+		t.Fatalf("kafka message key/value = %q/%q, want %q/%q", string(km.Key), string(km.Value), msg.Key, string(msg.Body))
+	}
+	if headers["mq-id"] != msg.ID || headers["mq-attempts"] != "7" || headers["mq-ts"] != published.Format(time.RFC3339Nano) || headers["h-trace"] != "abc" {
+		t.Fatalf("headers = %#v, want envelope and user headers", headers)
+	}
+
+	withoutTimestamp := toKafkaMessage(mq.Message{ID: "id-2", Body: []byte("payload")})
+	for _, header := range withoutTimestamp.Headers {
+		if header.Key == "mq-ts" {
+			t.Fatal("zero PublishedAt should not emit mq-ts header")
+		}
+	}
+}
+
+func TestKafkaMessageDecodeIgnoresMalformedEnvelopeHeaders_BitsUT(t *testing.T) {
+	messageTime := time.Unix(10, 20)
+	got := fromKafkaMessage(kafkago.Message{
+		Key:   []byte("key-1"),
+		Value: []byte("payload"),
+		Time:  messageTime,
+		Headers: []kafkago.Header{
+			{Key: "mq-id", Value: []byte("id-1")},
+			{Key: "mq-attempts", Value: []byte("not-an-int")},
+			{Key: "mq-ts", Value: []byte("not-a-time")},
+			{Key: "h-trace", Value: []byte("abc")},
+			{Key: "h-", Value: []byte("empty-name")},
+			{Key: "other", Value: []byte("ignored")},
+		},
+	})
+
+	if got.ID != "id-1" || got.Key != "key-1" || string(got.Body) != "payload" {
+		t.Fatalf("decoded message = %#v, want core fields", got)
+	}
+	if got.Attempts != 0 {
+		t.Fatalf("malformed attempts decoded to %d, want 0", got.Attempts)
+	}
+	if !got.PublishedAt.Equal(messageTime) {
+		t.Fatalf("malformed mq-ts PublishedAt = %s, want fallback %s", got.PublishedAt, messageTime)
+	}
+	if got.Headers["trace"] != "abc" {
+		t.Fatalf("headers = %#v, want trace header", got.Headers)
+	}
+	if _, ok := got.Headers[""]; ok {
+		t.Fatalf("headers = %#v, want malformed h- header ignored", got.Headers)
 	}
 }
 

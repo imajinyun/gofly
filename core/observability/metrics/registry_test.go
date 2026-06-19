@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"bytes"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -56,6 +57,18 @@ func TestRegistryWritePrometheus(t *testing.T) {
 	}
 	if !strings.Contains(out, "gofly_runtime_goroutines") {
 		t.Fatalf("prometheus output missing runtime metrics: %s", out)
+	}
+}
+
+type errWriter struct{ err error }
+
+func (w errWriter) Write([]byte) (int, error) { return 0, w.err }
+
+func TestRegistryWritePrometheusWriterError_BitsUT(t *testing.T) {
+	reg := NewRegistry()
+	wantErr := errors.New("write failed")
+	if err := reg.WritePrometheus(errWriter{err: wantErr}); !errors.Is(err, wantErr) {
+		t.Fatalf("WritePrometheus error = %v, want %v", err, wantErr)
 	}
 }
 

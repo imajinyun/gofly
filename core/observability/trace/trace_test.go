@@ -106,6 +106,27 @@ func TestOTelSpanContextConversion(t *testing.T) {
 	}
 }
 
+func TestToOTelRejectsInvalidSpanContext_BitsUT(t *testing.T) {
+	tests := []struct {
+		name string
+		sc   SpanContext
+	}{
+		{name: "bad trace id", sc: SpanContext{TraceID: "bad", SpanID: "00f067aa0ba902b7"}},
+		{name: "bad span id", sc: SpanContext{TraceID: "4bf92f3577b34da6a3ce929d0e0e4736", SpanID: "bad"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			otelSC, ok := ToOTel(tt.sc)
+			if ok {
+				t.Fatalf("ToOTel(%#v) ok = true, want false", tt.sc)
+			}
+			if otelSC.IsValid() {
+				t.Fatalf("ToOTel(%#v) returned valid span context", tt.sc)
+			}
+		})
+	}
+}
+
 func TestStartAgentDisabledAndShutdownNoop(t *testing.T) {
 	var nilCtx context.Context
 	agent, err := StartAgent(nilCtx, AgentConfig{Enabled: false})

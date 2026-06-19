@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -43,6 +44,45 @@ func TestEncodeDecodeRoundTrip(t *testing.T) {
 	fallback := decode(redis.StreamEntry{ID: "entry-2", Fields: map[string]string{fieldBody: "payload"}})
 	if fallback.ID != "entry-2" {
 		t.Fatalf("fallback ID = %q, want entry-2", fallback.ID)
+	}
+}
+
+func TestEncodeDecodeBoundaryFields_BitsUT(t *testing.T) {
+	fields := encode(mq.Message{ID: "id-1", Body: []byte("payload")})
+	if fields[fieldID] != "id-1" || fields[fieldBody] != "payload" || fields[fieldAttempts] != "0" {
+		t.Fatalf("encoded fields = %#v, want required envelope fields", fields)
+	}
+	if _, ok := fields[fieldKey]; ok {
+		t.Fatalf("encoded fields = %#v, want empty key omitted", fields)
+	}
+	if _, ok := fields[fieldPublishedAt]; ok {
+		t.Fatalf("encoded fields = %#v, want zero timestamp omitted", fields)
+	}
+	for key := range fields {
+		if strings.HasPrefix(key, headerPrefix) {
+			t.Fatalf("encoded fields = %#v, want no user headers for nil Headers", fields)
+		}
+	}
+
+	got := decode(redis.StreamEntry{ID: "1-0", Fields: map[string]string{
+		fieldAttempts:    "not-an-int",
+		fieldPublishedAt: "not-a-nano",
+		fieldBody:        "payload",
+		"h:trace":        "abc",
+		"h:":             "empty-name",
+		"other":          "ignored",
+	}})
+	if got.ID != "1-0" || string(got.Body) != "payload" {
+		t.Fatalf("decoded malformed fields = %#v, want fallback id and body", got)
+	}
+	if got.Attempts != 0 || !got.PublishedAt.IsZero() {
+		t.Fatalf("decoded malformed fields attempts/time = %d/%s, want zero values", got.Attempts, got.PublishedAt)
+	}
+	if got.Headers["trace"] != "abc" {
+		t.Fatalf("decoded headers = %#v, want trace header", got.Headers)
+	}
+	if _, ok := got.Headers[""]; ok {
+		t.Fatalf("decoded headers = %#v, want malformed h: ignored", got.Headers)
 	}
 }
 
@@ -92,6 +132,30 @@ func TestPublishValidationClosedAndXAdd(t *testing.T) {
 	}
 }
 
+func TestPublishNilContextAndXAddError_BitsUT(t *testing.T) {
+	client := &fakeRedisStreamClient{}
+	broker, err := New(client, Options{MaxLen: 256})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var nilCtx context.Context
+	if err := broker.Publish(nilCtx, mq.Message{Topic: "orders", ID: "id-1"}); err != nil {
+		t.Fatalf("Publish nil ctx error = %v", err)
+	}
+	if client.xaddSawNilCtx {
+		t.Fatal("Publish passed nil context to XAdd")
+	}
+	if client.xaddStream != "orders" || client.xaddMaxLen != 256 || client.xaddFields[fieldID] != "id-1" {
+		t.Fatalf("XAdd call = stream %q maxLen %d fields %#v", client.xaddStream, client.xaddMaxLen, client.xaddFields)
+	}
+
+	wantErr := errors.New("xadd failed")
+	client.xaddErr = wantErr
+	if err := broker.Publish(context.Background(), mq.Message{Topic: "orders", ID: "id-2"}); !errors.Is(err, wantErr) {
+		t.Fatalf("Publish XAdd error = %v, want %v", err, wantErr)
+	}
+}
+
 func TestSubscribeValidationAndGroupCreate(t *testing.T) {
 	client := &fakeRedisStreamClient{}
 	broker, err := New(client, Options{Consumer: "consumer-1", ReadCount: 1, BlockInterval: time.Millisecond})
@@ -115,8 +179,58 @@ func TestSubscribeValidationAndGroupCreate(t *testing.T) {
 	if client.groupStream != "orders" || client.groupName != "g" || client.groupStart != "$" || !client.groupMkStream {
 		t.Fatalf("XGroupCreate call = %q/%q/%q/%v", client.groupStream, client.groupName, client.groupStart, client.groupMkStream)
 	}
+	if rsSub, ok := sub.(*subscription); !ok || rsSub.topic != "orders" || rsSub.group != "g" || rsSub.consumer != "consumer-1" || rsSub.handler == nil {
+		t.Fatalf("subscription = %#v, want configured redis stream subscription", sub)
+	}
+	if len(broker.subs) != 1 {
+		t.Fatalf("broker subs = %d, want 1", len(broker.subs))
+	}
 	if err := sub.Stop(context.Background()); err != nil {
 		t.Fatalf("Stop error = %v", err)
+	}
+}
+
+func TestSubscribeClosedGeneratedConsumerAndGroupError_BitsUT(t *testing.T) {
+	closedClient := &fakeRedisStreamClient{}
+	closedBroker, err := New(closedClient, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := closedBroker.Close(context.Background()); err != nil {
+		t.Fatalf("Close error = %v", err)
+	}
+	if _, err := closedBroker.Subscribe(context.Background(), "orders", "workers", func(context.Context, mq.Message) error { return nil }); !errors.Is(err, mq.ErrClosed) {
+		t.Fatalf("Subscribe closed error = %v, want ErrClosed", err)
+	}
+	if closedClient.groupStream != "" || closedClient.groupName != "" {
+		t.Fatalf("closed Subscribe created group %q/%q, want no call", closedClient.groupStream, closedClient.groupName)
+	}
+
+	wantErr := errors.New("BUSYGROUP")
+	groupClient := &fakeRedisStreamClient{groupErr: wantErr}
+	groupBroker, err := New(groupClient, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := groupBroker.Subscribe(context.Background(), "orders", "workers", func(context.Context, mq.Message) error { return nil }); !errors.Is(err, wantErr) || !strings.Contains(err.Error(), "redisstream: create group") {
+		t.Fatalf("Subscribe group error = %v, want wrapped BUSYGROUP", err)
+	}
+
+	generatedClient := &fakeRedisStreamClient{}
+	generatedBroker, err := New(generatedClient, Options{BlockInterval: time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sub, err := generatedBroker.Subscribe(context.Background(), "orders", "workers", func(context.Context, mq.Message) error { return nil })
+	if err != nil {
+		t.Fatalf("Subscribe generated consumer error = %v", err)
+	}
+	rsSub := sub.(*subscription)
+	if !strings.HasPrefix(rsSub.consumer, "workers-") || rsSub.consumer == "workers-" {
+		t.Fatalf("generated consumer = %q, want workers-*", rsSub.consumer)
+	}
+	if err := sub.Stop(context.Background()); err != nil {
+		t.Fatalf("Stop generated subscription error = %v", err)
 	}
 }
 
@@ -171,18 +285,72 @@ func TestSubscriptionProcessSkipsAckWhenDeadLetterFails(t *testing.T) {
 	}
 }
 
+func TestSubscriptionProcessSuccessAndCancellationBoundaries_BitsUT(t *testing.T) {
+	client := &fakeRedisStreamClient{xackErr: errors.New("ack failed")}
+	broker, err := New(client, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var seen mq.Message
+	sub := &subscription{
+		broker: broker,
+		topic:  "orders",
+		group:  "workers",
+		cfg:    mq.BuildSubscriptionConfig("orders", mq.WithMaxAttempts(0)),
+		ctx:    context.Background(),
+		handler: func(_ context.Context, msg mq.Message) error {
+			seen = msg
+			return nil
+		},
+	}
+	sub.process(redis.StreamEntry{ID: "1-0", Fields: map[string]string{fieldID: "msg-1", fieldBody: "payload"}})
+	if seen.Topic != "orders" || seen.ID != "msg-1" || seen.Attempts != 1 || string(seen.Body) != "payload" {
+		t.Fatalf("handler saw %#v, want decoded message with attempts floor", seen)
+	}
+	if client.xackCalls != 1 || client.xackStream != "orders" || client.xackGroup != "workers" || !reflect.DeepEqual(client.xackIDs, []string{"1-0"}) {
+		t.Fatalf("XAck = calls %d stream %q group %q ids %#v", client.xackCalls, client.xackStream, client.xackGroup, client.xackIDs)
+	}
+	if client.xaddStream != "" {
+		t.Fatalf("success path XAdd stream = %q, want no DLQ", client.xaddStream)
+	}
+
+	canceledClient := &fakeRedisStreamClient{}
+	canceledBroker, err := New(canceledClient, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	canceledSub := &subscription{
+		broker: canceledBroker,
+		topic:  "orders",
+		group:  "workers",
+		cfg:    mq.BuildSubscriptionConfig("orders", mq.WithMaxAttempts(3), mq.WithDeadLetterTopic("orders.dlq")),
+		ctx:    ctx,
+		handler: func(context.Context, mq.Message) error {
+			cancel()
+			return errors.New("stopping")
+		},
+	}
+	canceledSub.process(redis.StreamEntry{ID: "1-1", Fields: map[string]string{fieldBody: "payload"}})
+	if canceledClient.xackCalls != 0 || canceledClient.xaddStream != "" {
+		t.Fatalf("canceled process xack=%d xadd=%q, want no ack or DLQ", canceledClient.xackCalls, canceledClient.xaddStream)
+	}
+}
+
 type fakeRedisStreamClient struct {
 	mu sync.Mutex
 
-	xaddStream string
-	xaddMaxLen int64
-	xaddFields map[string]string
-	xaddErr    error
+	xaddStream    string
+	xaddMaxLen    int64
+	xaddFields    map[string]string
+	xaddErr       error
+	xaddSawNilCtx bool
 
 	groupStream   string
 	groupName     string
 	groupStart    string
 	groupMkStream bool
+	groupErr      error
 
 	xackCalls  int
 	xackStream string
@@ -194,6 +362,7 @@ type fakeRedisStreamClient struct {
 func (f *fakeRedisStreamClient) XAdd(ctx context.Context, stream string, maxLen int64, fields map[string]string) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.xaddSawNilCtx = ctx == nil
 	f.xaddStream = stream
 	f.xaddMaxLen = maxLen
 	f.xaddFields = fields
@@ -210,6 +379,9 @@ func (f *fakeRedisStreamClient) XGroupCreate(ctx context.Context, stream, group,
 	f.groupName = group
 	f.groupStart = start
 	f.groupMkStream = mkStream
+	if f.groupErr != nil {
+		return f.groupErr
+	}
 	return nil
 }
 

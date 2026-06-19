@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"sync"
 	"time"
 
@@ -335,6 +336,14 @@ func fromKafkaMessage(km kafkago.Message) mq.Message {
 		switch {
 		case h.Key == "mq-id":
 			msg.ID = string(h.Value)
+		case h.Key == "mq-attempts":
+			if attempts, err := strconv.Atoi(string(h.Value)); err == nil {
+				msg.Attempts = attempts
+			}
+		case h.Key == "mq-ts":
+			if publishedAt, err := time.Parse(time.RFC3339Nano, string(h.Value)); err == nil {
+				msg.PublishedAt = publishedAt
+			}
 		case len(h.Key) > 2 && h.Key[:2] == "h-":
 			if msg.Headers == nil {
 				msg.Headers = make(map[string]string)

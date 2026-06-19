@@ -3,6 +3,7 @@ package exporter
 import (
 	"context"
 	"testing"
+	"time"
 )
 
 func TestNewOTLPValidation(t *testing.T) {
@@ -15,8 +16,11 @@ func TestNewOTLPValidation(t *testing.T) {
 }
 
 func TestOTLPConfigTimeoutDefault(t *testing.T) {
-	if got := (OTLPConfig{}).timeout(); got <= 0 {
-		t.Fatalf("default timeout = %v, want positive", got)
+	if got := (OTLPConfig{}).timeout(); got != 10*time.Second {
+		t.Fatalf("default timeout = %v, want 10s", got)
+	}
+	if got := (OTLPConfig{Timeout: 3 * time.Second}).timeout(); got != 3*time.Second {
+		t.Fatalf("custom timeout = %v, want 3s", got)
 	}
 }
 

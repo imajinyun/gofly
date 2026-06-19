@@ -35,6 +35,14 @@ curl -XPOST localhost:8080/users -d '{"name":"ada"}'
 
 ## 3. Minimal REST server
 
+Create a fresh module, then copy the example into `main.go`:
+
+```sh
+mkdir hello-rest && cd hello-rest
+go mod init github.com/me/hello-rest
+go get github.com/gofly/gofly@latest
+```
+
 ```go
 package main
 
@@ -76,9 +84,23 @@ Useful URLs after startup:
 - `http://localhost:8080/openapi.json` — OpenAPI contract
 - `http://localhost:8080/docs` — Swagger UI
 
+Run it with:
+
+```sh
+go run .
+```
+
 ---
 
 ## 4. Minimal RPC server
+
+Create another module, then copy the example into `main.go`:
+
+```sh
+mkdir hello-rpc && cd hello-rpc
+go mod init github.com/me/hello-rpc
+go get github.com/gofly/gofly@latest
+```
 
 ```go
 package main
@@ -119,6 +141,14 @@ func main() {
 	app.RunService(context.Background(), conf, server)
 }
 ```
+
+Run it with:
+
+```sh
+go run .
+```
+
+The server listens on `:8081`.
 
 ---
 

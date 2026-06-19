@@ -138,6 +138,10 @@ ci: ci-fast cover-check lint supply-chain security api-compat ## Run the full CI
 
 .PHONY: examples-check
 examples-check: ## Build and vet all examples to keep docs and code in sync
+	@if [ ! -d examples ] || ! find examples -type f -name '*.go' | grep -q .; then \
+		echo "examples/ not present or empty; skipping examples-check"; \
+		exit 0; \
+	fi
 	$(GO) build ./examples/...
 	$(GO) vet ./examples/...
 

@@ -11,10 +11,10 @@ import (
 
 	"github.com/gofly/gofly/core/breaker"
 	coreerrors "github.com/gofly/gofly/core/errors"
-	"github.com/gofly/gofly/core/observability/metrics"
 	"github.com/gofly/gofly/core/observability"
-	coreretry "github.com/gofly/gofly/core/retry"
+	"github.com/gofly/gofly/core/observability/metrics"
 	coretrace "github.com/gofly/gofly/core/observability/trace"
+	coreretry "github.com/gofly/gofly/core/retry"
 
 	stdgrpc "google.golang.org/grpc"
 	"google.golang.org/grpc/codes"

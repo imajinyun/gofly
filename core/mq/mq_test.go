@@ -11,8 +11,8 @@ import (
 	"github.com/gofly/gofly/core/governance"
 	"github.com/gofly/gofly/core/metadata"
 	"github.com/gofly/gofly/core/observability/metrics"
-	"github.com/gofly/gofly/core/retry"
 	"github.com/gofly/gofly/core/observability/trace"
+	"github.com/gofly/gofly/core/retry"
 )
 
 func TestMemoryBrokerPublishConsumeAck(t *testing.T) {

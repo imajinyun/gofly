@@ -16,15 +16,15 @@ import (
 	"sync/atomic"
 	"time"
 
-	controladmin "github.com/gofly/gofly/ops/admin"
 	"github.com/gofly/gofly/core/auth"
 	"github.com/gofly/gofly/core/breaker"
 	coreerrors "github.com/gofly/gofly/core/errors"
 	"github.com/gofly/gofly/core/governance"
 	"github.com/gofly/gofly/core/limit"
 	"github.com/gofly/gofly/core/observability/metrics"
-	"github.com/gofly/gofly/core/security"
 	"github.com/gofly/gofly/core/observability/trace"
+	"github.com/gofly/gofly/core/security"
+	controladmin "github.com/gofly/gofly/ops/admin"
 )
 
 // Option configures a Server.

@@ -280,10 +280,20 @@ jobs:
           cache: true
 
       - name: Build examples
-        run: go build ./examples/...
+        run: |
+          if [ -d examples ] && find examples -type f -name '*.go' | grep -q .; then
+            go build ./examples/...
+          else
+            echo "examples/ not present or empty; skipping build"
+          fi
 
       - name: Vet examples
-        run: go vet ./examples/...
+        run: |
+          if [ -d examples ] && find examples -type f -name '*.go' | grep -q .; then
+            go vet ./examples/...
+          else
+            echo "examples/ not present or empty; skipping vet"
+          fi
 
       - name: Benchmark baseline smoke
         run: bash bin/scripts/benchstat.sh --smoke

@@ -41,7 +41,7 @@ cd hello && go run .
 | `gofly new api\|rpc <name> --module <m>` | 创建 REST 或 RPC 项目 |
 | `gofly api gen --file <s.api> --dir <d>` | 从 `.api` IDL 生成 REST 代码 |
 | `gofly rpc gen --file <s.proto> --out <d>` | 从 `.proto` 文件生成 RPC 代码 |
-| `gofly model gen --ddl <schema.sql> --dir <d>` | 从 DDL 生成数据模型 |
+| `gofly gen model --ddl <schema.sql> --dir <d>` | 从 DDL 生成数据模型 |
 | `gofly api diff\|breaking` | 对比 API 契约并检测破坏性变更 |
 | `gofly rpc check\|breaking` | 校验 RPC 契约并检测破坏性变更 |
 | `gofly release check --strict` | 执行发布前检查 |

@@ -35,6 +35,14 @@ curl -XPOST localhost:8080/users -d '{"name":"ada"}'
 
 ## 3. 最小 REST 服务
 
+创建一个新模块，然后把示例复制到 `main.go`：
+
+```sh
+mkdir hello-rest && cd hello-rest
+go mod init github.com/me/hello-rest
+go get github.com/gofly/gofly@latest
+```
+
 ```go
 package main
 
@@ -76,9 +84,23 @@ func main() {
 - `http://localhost:8080/openapi.json` — OpenAPI 契约
 - `http://localhost:8080/docs` — Swagger UI
 
+运行方式：
+
+```sh
+go run .
+```
+
 ---
 
 ## 4. 最小 RPC 服务
+
+再创建一个新模块，然后把示例复制到 `main.go`：
+
+```sh
+mkdir hello-rpc && cd hello-rpc
+go mod init github.com/me/hello-rpc
+go get github.com/gofly/gofly@latest
+```
 
 ```go
 package main
@@ -119,6 +141,14 @@ func main() {
 	app.RunService(context.Background(), conf, server)
 }
 ```
+
+运行方式：
+
+```sh
+go run .
+```
+
+服务监听在 `:8081`。
 
 ---
 

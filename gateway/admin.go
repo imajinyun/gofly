@@ -8,8 +8,8 @@ import (
 	"log/slog"
 	"net/http"
 
-	controladmin "github.com/gofly/gofly/ops/admin"
 	"github.com/gofly/gofly/core/governance"
+	controladmin "github.com/gofly/gofly/ops/admin"
 	"github.com/gofly/gofly/rest"
 )
 

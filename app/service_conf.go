@@ -8,8 +8,8 @@ import (
 	"time"
 
 	coregovernance "github.com/gofly/gofly/core/governance"
-	coreproc "github.com/gofly/gofly/core/proc"
 	coretrace "github.com/gofly/gofly/core/observability/trace"
+	coreproc "github.com/gofly/gofly/core/proc"
 	"github.com/gofly/gofly/rest"
 	"github.com/gofly/gofly/rpc"
 )

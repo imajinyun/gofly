@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	controladmin "github.com/gofly/gofly/ops/admin"
 	"github.com/gofly/gofly/core/governance"
+	controladmin "github.com/gofly/gofly/ops/admin"
 )
 
 const maxDescriptorCompatibilityBytes = 1 << 20

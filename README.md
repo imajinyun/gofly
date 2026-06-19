@@ -41,7 +41,7 @@ cd hello && go run .
 | `gofly new api\|rpc <name> --module <m>` | Create a REST or RPC project |
 | `gofly api gen --file <s.api> --dir <d>` | Generate REST code from a `.api` IDL |
 | `gofly rpc gen --file <s.proto> --out <d>` | Generate RPC code from a `.proto` file |
-| `gofly model gen --ddl <schema.sql> --dir <d>` | Generate data models from DDL |
+| `gofly gen model --ddl <schema.sql> --dir <d>` | Generate data models from DDL |
 | `gofly api diff\|breaking` | Compare API contracts and detect breaking changes |
 | `gofly rpc check\|breaking` | Validate RPC contracts and detect breaking changes |
 | `gofly release check --strict` | Run release readiness checks |

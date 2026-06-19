@@ -12,8 +12,8 @@ import (
 	"github.com/gofly/gofly/core/breaker"
 	coreerrors "github.com/gofly/gofly/core/errors"
 	"github.com/gofly/gofly/core/governance"
-	coreretry "github.com/gofly/gofly/core/retry"
 	coretrace "github.com/gofly/gofly/core/observability/trace"
+	coreretry "github.com/gofly/gofly/core/retry"
 
 	oteltrace "go.opentelemetry.io/otel/trace"
 	stdgrpc "google.golang.org/grpc"

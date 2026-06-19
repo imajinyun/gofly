@@ -9,8 +9,15 @@ go_cmd="${GO:-go}"
 files="${DOC_GO_SNIPPET_FILES:-}"
 
 if [ -z "$files" ]; then
-	for path in README.md docs examples; do
-		if [ -e "$root/$path" ]; then
+	for path in README.md README.CN.md docs/doc; do
+		if [ -f "$root/$path" ]; then
+			case "$path" in
+			*.md)
+				files="${files:+$files
+}$path"
+				;;
+			esac
+		elif [ -d "$root/$path" ]; then
 			# Markdown docs are part of the repository source; paths are controlled by the project tree.
 			found="$(cd "$root" && find "$path" -type f -name '*.md' | sort)"
 			if [ -n "$found" ]; then

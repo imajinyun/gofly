@@ -15,8 +15,8 @@ import (
 
 	"github.com/gofly/gofly/core/observability/metrics"
 	metricsotel "github.com/gofly/gofly/core/observability/metrics/otel"
-	coreproc "github.com/gofly/gofly/core/proc"
 	coretrace "github.com/gofly/gofly/core/observability/trace"
+	coreproc "github.com/gofly/gofly/core/proc"
 )
 
 // Config describes the wiring Bootstrap performs. All fields are optional;

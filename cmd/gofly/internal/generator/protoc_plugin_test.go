@@ -154,6 +154,25 @@ func TestGenerateProtocPluginResponseSanitizesModuleComment(t *testing.T) {
 	}
 }
 
+func TestProtocPluginOptionParsingBoundaries(t *testing.T) {
+	truthy := []string{"1", "t", "true", "y", "yes", " TRUE "}
+	for _, raw := range truthy {
+		t.Run("truthy "+raw, func(t *testing.T) {
+			if !parseProtocBool(raw) {
+				t.Fatalf("parseProtocBool(%q) = false, want true", raw)
+			}
+		})
+	}
+	falsy := []string{"", "0", "false", "no", "anything"}
+	for _, raw := range falsy {
+		t.Run("falsy "+raw, func(t *testing.T) {
+			if parseProtocBool(raw) {
+				t.Fatalf("parseProtocBool(%q) = true, want false", raw)
+			}
+		})
+	}
+}
+
 func TestProtocLocalGoType(t *testing.T) {
 	file := &descriptorpb.FileDescriptorProto{Package: proto.String("demo.hello")}
 	tests := []struct {

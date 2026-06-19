@@ -306,6 +306,413 @@ func TestApplyEnvOverlay(t *testing.T) {
 	}
 }
 
+func TestTemplateAndKubeHelperBoundaries(t *testing.T) {
+	tests := []struct {
+		name string
+		kind string
+		want string
+	}{
+		{name: "blank defaults deployment", kind: " ", want: "orders.yaml"},
+		{name: "deployment", kind: "deployment", want: "orders.yaml"},
+		{name: "deploy alias", kind: "deploy", want: "orders.yaml"},
+		{name: "svc alias", kind: "svc", want: "orders-service.yaml"},
+		{name: "ing alias", kind: "ing", want: "orders-ingress.yaml"},
+		{name: "configmap alias", kind: "cm", want: "orders-configmap.yaml"},
+		{name: "job", kind: "job", want: "orders-job.yaml"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := kubeOutputName("orders", tt.kind); got != tt.want {
+				t.Fatalf("kubeOutputName(%q) = %q, want %q", tt.kind, got, tt.want)
+			}
+		})
+	}
+
+	if got, err := resolveNamedTemplates("", "", "", []string{"missing.tpl"}, "fallback"); err != nil || got != "fallback" {
+		t.Fatalf("resolveNamedTemplates fallback = %q/%v, want fallback/nil", got, err)
+	}
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "api.tpl"), []byte("api-template"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := resolveNamedTemplates(dir, "", "", []string{" ", "api.tpl"}, "fallback")
+	if err != nil || got != "api-template" {
+		t.Fatalf("resolveNamedTemplates file = %q/%v, want api-template/nil", got, err)
+	}
+
+	badDir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(badDir, "bad.tpl"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := resolveNamedTemplates(badDir, "", "", []string{"bad.tpl"}, "fallback"); err == nil {
+		t.Fatal("resolveNamedTemplates directory candidate succeeded, want read error")
+	}
+
+	cleanDir := filepath.Join(t.TempDir(), "templates")
+	if err := os.MkdirAll(cleanDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cleanDir, "api.tpl"), []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := CleanTemplates(TemplateOptions{Dir: cleanDir}); err != nil {
+		t.Fatalf("CleanTemplates: %v", err)
+	}
+	if _, err := os.Stat(cleanDir); !os.IsNotExist(err) {
+		t.Fatalf("cleaned template dir stat err = %v, want not exist", err)
+	}
+
+	files := ListTemplates(TemplateOptions{Dir: "/tmp/templates"})
+	if len(files) != 9 || files[0].Path == "" || !strings.HasPrefix(files[0].Path, "/tmp/templates") {
+		t.Fatalf("ListTemplates = %#v, want fixed template paths", files)
+	}
+}
+
+func TestTemplateSyncFilesystemBoundaries(t *testing.T) {
+	root := t.TempDir()
+	src := filepath.Join(root, "src")
+	if err := os.MkdirAll(filepath.Join(src, "nested"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "nested", "api.tpl"), []byte("api"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(src, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, ".git", "ignored"), []byte("ignored"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := copyDir(src, filepath.Join(src, "child")); err == nil {
+		t.Fatal("copyDir destination inside source succeeded, want error")
+	}
+	if err := copyDir(src, src); err != nil {
+		t.Fatalf("copyDir same path = %v, want nil", err)
+	}
+
+	dst := filepath.Join(root, "dst")
+	if err := copyDir(src, dst); err != nil {
+		t.Fatalf("copyDir: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(dst, "nested", "api.tpl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "api" {
+		t.Fatalf("copied file = %q, want api", data)
+	}
+	if _, err := os.Stat(filepath.Join(dst, ".git", "ignored")); !os.IsNotExist(err) {
+		t.Fatalf("hidden dir file stat = %v, want not exist", err)
+	}
+
+	link := filepath.Join(src, "nested", "link.tpl")
+	if err := os.Symlink(filepath.Join(src, "nested", "api.tpl"), link); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+	if err := copyDir(src, filepath.Join(root, "symlink-dst")); err == nil {
+		t.Fatal("copyDir with symlink source succeeded, want error")
+	}
+	if err := os.Remove(link); err != nil {
+		t.Fatal(err)
+	}
+
+	copyDst := filepath.Join(root, "copy", "out.tpl")
+	if err := copyFile(filepath.Join(src, "nested", "api.tpl"), copyDst); err != nil {
+		t.Fatalf("copyFile: %v", err)
+	}
+	if got, err := os.ReadFile(copyDst); err != nil || string(got) != "api" {
+		t.Fatalf("copyFile output = %q/%v, want api/nil", got, err)
+	}
+	if err := copyFile(filepath.Join(src, "nested", "api.tpl"), filepath.Join(src, "nested", "api.tpl")); err != nil {
+		t.Fatalf("copyFile same path = %v, want nil", err)
+	}
+
+	if !samePath(src, src) {
+		t.Fatal("samePath self = false, want true")
+	}
+	if !childPath(src, filepath.Join(src, "nested")) {
+		t.Fatal("childPath child = false, want true")
+	}
+	if childPath(src, src) {
+		t.Fatal("childPath self = true, want false")
+	}
+	if childPath(src, filepath.Join(root, "sibling")) {
+		t.Fatal("childPath sibling = true, want false")
+	}
+	if err := validateTemplateSyncDir(" "); err == nil {
+		t.Fatal("validateTemplateSyncDir blank succeeded, want error")
+	}
+}
+
+func TestGenerateNewServiceVariantsBoundaries(t *testing.T) {
+	if err := GenerateAPINew(APINewOptions{Module: "example.com/app"}); err == nil {
+		t.Fatal("GenerateAPINew without name succeeded, want error")
+	}
+	if err := GenerateAPINew(APINewOptions{Name: "api"}); err == nil {
+		t.Fatal("GenerateAPINew without module succeeded, want error")
+	}
+	if err := GenerateRPCNew(RPCNewOptions{Module: "example.com/app"}); err == nil {
+		t.Fatal("GenerateRPCNew without name succeeded, want error")
+	}
+	if err := GenerateRPCNew(RPCNewOptions{Name: "rpc"}); err == nil {
+		t.Fatal("GenerateRPCNew without module succeeded, want error")
+	}
+
+	apiDir := filepath.Join(t.TempDir(), "api")
+	if err := GenerateAPINew(APINewOptions{Name: "orders", Module: "example.com/orders", Dir: apiDir, SkipAPISpec: true}); err != nil {
+		t.Fatalf("GenerateAPINew skip api spec: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(apiDir, "orders.api")); !os.IsNotExist(err) {
+		t.Fatalf("skipped api spec stat = %v, want not exist", err)
+	}
+	if _, err := os.Stat(filepath.Join(apiDir, "go.mod")); err != nil {
+		t.Fatalf("GenerateAPINew did not create service go.mod: %v", err)
+	}
+
+	rpcDir := filepath.Join(t.TempDir(), "rpc")
+	if err := GenerateRPCNew(RPCNewOptions{Name: "Greeter", Module: "example.com/greeter", Dir: rpcDir}); err != nil {
+		t.Fatalf("GenerateRPCNew: %v", err)
+	}
+	protoData, err := os.ReadFile(filepath.Join(rpcDir, "Greeter.proto"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(protoData), "package greeter;") || strings.Contains(string(protoData), "package greeter.v1;") {
+		t.Fatalf("generated rpc proto package not normalized:\n%s", protoData)
+	}
+}
+
+func TestGenerateMigrationBoundaries(t *testing.T) {
+	if err := GenerateMigration(MigrationOptions{Name: " "}); err == nil {
+		t.Fatal("GenerateMigration blank name succeeded, want error")
+	}
+
+	dir := t.TempDir()
+	when := time.Date(2026, 6, 19, 12, 30, 45, 0, time.UTC)
+	if err := GenerateMigration(MigrationOptions{Name: " Create-User Table!! ", Dir: dir, Time: when}); err != nil {
+		t.Fatalf("GenerateMigration: %v", err)
+	}
+	base := filepath.Join(dir, "20260619123045_create_user_table")
+	for _, suffix := range []string{".up.sql", ".down.sql"} {
+		data, err := os.ReadFile(base + suffix)
+		if err != nil {
+			t.Fatalf("read migration %s: %v", suffix, err)
+		}
+		if len(data) == 0 {
+			t.Fatalf("migration %s is empty", suffix)
+		}
+	}
+	if got := migrationName(" !!! "); got != "migration" {
+		t.Fatalf("migrationName punctuation = %q, want migration", got)
+	}
+}
+
+func TestGenerateHandlerAndMiddlewareBoundaries(t *testing.T) {
+	if err := GenerateHandler(HandlerOptions{Name: "", Module: "example.com/app", Dir: t.TempDir()}); err == nil {
+		t.Fatal("GenerateHandler blank name succeeded, want error")
+	}
+	if err := GenerateHandler(HandlerOptions{Name: "ListUsers", Module: "example.com/app", Dir: t.TempDir(), Path: "../escape"}); err == nil {
+		t.Fatal("GenerateHandler path traversal succeeded, want error")
+	}
+	if err := GenerateHandler(HandlerOptions{Name: "ListUsers", Dir: t.TempDir()}); err == nil || !strings.Contains(err.Error(), "read go.mod") {
+		t.Fatalf("GenerateHandler missing module error = %v, want go.mod read error", err)
+	}
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/orders\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := GenerateHandler(HandlerOptions{Name: "ListUsers", Dir: dir, Path: "v1/admin"}); err != nil {
+		t.Fatalf("GenerateHandler inferred module: %v", err)
+	}
+	handlerPath := filepath.Join(dir, "internal", "api", "v1", "admin", "list_users.go")
+	handlerData, err := os.ReadFile(handlerPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"package admin", `"example.com/orders/internal/svc"`, "func ListUsersHandler", `"message": "ListUsers"`} {
+		if !strings.Contains(string(handlerData), want) {
+			t.Fatalf("generated handler missing %q:\n%s", want, handlerData)
+		}
+	}
+
+	if got := handlerPackageName(""); got != "api" {
+		t.Fatalf("handlerPackageName blank = %q, want api", got)
+	}
+	if got := handlerPackageName(filepath.Join("v1", "admin-api")); got != "adminapi" {
+		t.Fatalf("handlerPackageName nested = %q, want adminapi", got)
+	}
+	if got, err := cleanHandlerSubdir("."); err != nil || got != "" {
+		t.Fatalf("cleanHandlerSubdir dot = %q/%v, want empty/nil", got, err)
+	}
+
+	if err := GenerateMiddleware(MiddlewareOptions{Names: []string{" ", ""}, Dir: t.TempDir()}); err == nil {
+		t.Fatal("GenerateMiddleware blank names succeeded, want error")
+	}
+	middlewareDir := t.TempDir()
+	if err := GenerateMiddleware(MiddlewareOptions{Names: []string{"trace-id", "trace_id", "Audit.Log"}, Dir: middlewareDir}); err != nil {
+		t.Fatalf("GenerateMiddleware: %v", err)
+	}
+	for _, rel := range []string{
+		filepath.Join("internal", "middleware", "trace_id.go"),
+		filepath.Join("internal", "middleware", "audit_log.go"),
+	} {
+		if _, err := os.Stat(filepath.Join(middlewareDir, rel)); err != nil {
+			t.Fatalf("expected middleware file %s: %v", rel, err)
+		}
+	}
+	if entries, err := os.ReadDir(filepath.Join(middlewareDir, "internal", "middleware")); err != nil || len(entries) != 2 {
+		t.Fatalf("middleware entries = %d/%v, want two deduplicated files", len(entries), err)
+	}
+}
+
+func TestSyncTemplateRemoteLocalBoundaries(t *testing.T) {
+	if err := SyncTemplateRemote(TemplateOptions{Dir: t.TempDir(), Remote: " "}); err != nil {
+		t.Fatalf("SyncTemplateRemote empty remote = %v, want nil", err)
+	}
+
+	root := t.TempDir()
+	remote := filepath.Join(root, "remote")
+	payload := filepath.Join(remote, "templates")
+	if err := os.MkdirAll(payload, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(payload, "api.tpl"), []byte("from-remote"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(root, "templates")
+	if err := os.WriteFile(dir, []byte("not-a-dir"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := SyncTemplateRemote(TemplateOptions{Dir: dir, Remote: "file://" + remote}); err != nil {
+		t.Fatalf("SyncTemplateRemote local payload: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "api.tpl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "from-remote" {
+		t.Fatalf("synced template = %q, want from-remote", data)
+	}
+
+	fileRemote := filepath.Join(root, "remote-file")
+	if err := os.WriteFile(fileRemote, []byte("not-dir"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := SyncTemplateRemote(TemplateOptions{Dir: filepath.Join(root, "out"), Remote: "file://" + fileRemote}); err == nil || !strings.Contains(err.Error(), "not a directory") {
+		t.Fatalf("SyncTemplateRemote file remote error = %v, want not a directory", err)
+	}
+
+	link := filepath.Join(root, "template-link")
+	if err := os.Symlink(filepath.Join(root, "elsewhere"), link); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+	if err := SyncTemplateRemote(TemplateOptions{Dir: link, Remote: remote}); err == nil || !strings.Contains(err.Error(), "must not be a symlink") {
+		t.Fatalf("SyncTemplateRemote symlink dir error = %v, want symlink rejection", err)
+	}
+}
+
+func TestHandlerCompleterBoundaries(t *testing.T) {
+	if _, err := CompleteHandlersFromIDL(HandlerCompleteOptions{IDLFile: ""}); err == nil {
+		t.Fatal("CompleteHandlersFromIDL blank idl succeeded, want error")
+	}
+
+	dir := t.TempDir()
+	apiPath := filepath.Join(dir, "users.api")
+	api := `type LoginReq {
+  Username string
+}
+type LoginResp {
+  Token string
+}
+service user-api {
+  @handler login
+  post /login (LoginReq) returns (LoginResp)
+  get /health returns (LoginResp)
+}
+`
+	if err := os.WriteFile(apiPath, []byte(api), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	methods := methodsFromIDLDocument(IDLDocument{Services: []IDLService{{
+		Name: "user-api",
+		Methods: []IDLMethod{
+			{Name: "ListUsers", Handler: "list", HTTPMethod: "get", HTTPPath: "/users"},
+			{Name: "", Handler: ""},
+		},
+	}}})
+	if len(methods) != 1 || methods[0].Name != "list" || !strings.Contains(methods[0].Body, "GET /users") {
+		t.Fatalf("methodsFromIDLDocument = %#v, want handler-backed method", methods)
+	}
+
+	file := filepath.Join(dir, "handler.go")
+	completer := NewHandlerCompleter(file, "h", "handler", []string{"context"})
+	existing, err := completer.ExistingMethods()
+	if err != nil || existing != nil {
+		t.Fatalf("ExistingMethods missing file = %#v/%v, want nil/nil", existing, err)
+	}
+	count, err := completer.Complete([]Method{
+		{Name: "login", Comment: "Login handles user login.\nSecond line.", Body: "\t_ = context.Background()\n"},
+		{Name: "", Body: "\tpanic(\"skip\")\n"},
+	})
+	if err != nil || count != 1 {
+		t.Fatalf("Complete create = %d/%v, want one method", count, err)
+	}
+	data, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"package handler", `"context"`, "// Login handles user login.", "// Second line.", "func (h *H) Login()"} {
+		if !strings.Contains(string(data), want) {
+			t.Fatalf("created handler file missing %q:\n%s", want, data)
+		}
+	}
+	existing, err = completer.ExistingMethods()
+	if err != nil || strings.Join(existing, ",") != "Login" {
+		t.Fatalf("ExistingMethods = %#v/%v, want Login", existing, err)
+	}
+	count, err = completer.Complete([]Method{
+		{Name: "Login", Body: "\tpanic(\"duplicate\")\n"},
+		{Name: "health", Signature: "func (h *H) Health(ctx context.Context) error {\n", Body: "\treturn nil\n"},
+	})
+	if err != nil || count != 1 {
+		t.Fatalf("Complete append = %d/%v, want one new method", count, err)
+	}
+	data, err = os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(string(data), "func (h *H) Login()") != 1 || !strings.Contains(string(data), "func (h *H) Health(ctx context.Context) error") {
+		t.Fatalf("appended handler methods not deduplicated/appended:\n%s", data)
+	}
+
+	completedFile := filepath.Join(dir, "from_idl.go")
+	count, err = CompleteHandlersFromIDL(HandlerCompleteOptions{IDLFile: apiPath, File: completedFile, Receiver: "handler", Package: "handler"})
+	if err != nil || count != 2 {
+		t.Fatalf("CompleteHandlersFromIDL = %d/%v, want two generated methods", count, err)
+	}
+	completedData, err := os.ReadFile(completedFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(completedData), "func (handler *Handler) Login()") || !strings.Contains(string(completedData), "func (handler *Handler) GetHealth()") {
+		t.Fatalf("CompleteHandlersFromIDL output missing generated methods:\n%s", completedData)
+	}
+
+	if got := ExtractMethodSignature("func (h *Handler) Ping() error {\n\treturn nil\n}"); got != "func (h *Handler) Ping() error" {
+		t.Fatalf("ExtractMethodSignature = %q, want method signature", got)
+	}
+	if got := ExtractMethodSignature("var notFunc = true"); got != "" {
+		t.Fatalf("ExtractMethodSignature invalid = %q, want empty", got)
+	}
+	block := RenderMethodBlock("ping", "\treturn\n", "Ping handles health.")
+	if !strings.Contains(block, "// Ping handles health.") || !strings.Contains(block, "func Ping()") {
+		t.Fatalf("RenderMethodBlock = %q, want comment and exported function", block)
+	}
+}
+
 func TestGenerateServiceMinimalStyle(t *testing.T) {
 	dir := t.TempDir()
 	if err := GenerateService(ServiceOptions{Name: "hello", Module: "example.com/hello", Dir: dir, Style: ServiceStyleMinimal}); err != nil {

@@ -90,6 +90,257 @@ func TestPluginResponseWriteFilesAllowsRelativePaths(t *testing.T) {
 	}
 }
 
+func TestPluginArgumentAndCacheHelpersBoundaries(t *testing.T) {
+	path, args := splitPluginArgs("  ")
+	if path != "" || args != nil {
+		t.Fatalf("blank splitPluginArgs = %q/%#v, want empty/nil", path, args)
+	}
+
+	path, args = splitPluginArgs("plugin --service users  --verbose")
+	if path != "plugin" || len(args) != 3 || args[0] != "--service" || args[1] != "users" || args[2] != "--verbose" {
+		t.Fatalf("splitPluginArgs = %q/%#v, want normalized args", path, args)
+	}
+
+	if _, err := parseRemotePluginSpec("missing-version"); err == nil {
+		t.Fatal("parseRemotePluginSpec without version succeeded, want error")
+	}
+	if _, err := parseRemotePluginSpec("repo@../main"); err == nil {
+		t.Fatal("parseRemotePluginSpec path-like version succeeded, want error")
+	}
+	parsedSpec, err := parseRemotePluginSpec("https://example.com/plugin@v1.2.3")
+	if err != nil {
+		t.Fatalf("parseRemotePluginSpec valid: %v", err)
+	}
+	if parsedSpec.remote != "https://example.com/plugin" || parsedSpec.version != "v1.2.3" || parsedSpec.hash == "" {
+		t.Fatalf("remote spec = %#v, want normalized remote/version/hash", parsedSpec)
+	}
+
+	root := t.TempDir()
+	cache := filepath.Join(root, "plugins", "hash")
+	if err := prepareRemotePluginCacheDir(cache); err != nil {
+		t.Fatalf("prepareRemotePluginCacheDir create: %v", err)
+	}
+	if err := prepareRemotePluginCacheDir(cache); err != nil {
+		t.Fatalf("prepareRemotePluginCacheDir existing dir: %v", err)
+	}
+
+	fileCache := filepath.Join(root, "plugins", "file-cache")
+	if err := os.WriteFile(fileCache, []byte("not-dir"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := prepareRemotePluginCacheDir(fileCache); err == nil {
+		t.Fatal("prepareRemotePluginCacheDir existing file succeeded, want error")
+	}
+
+	parsed, err := url.Parse("https://example.com/a path/plugin?.bin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	name := pluginCacheFilename(parsed)
+	if strings.Contains(name, " ") || !strings.Contains(name, "plugin") {
+		t.Fatalf("pluginCacheFilename = %q, want sanitized plugin filename", name)
+	}
+}
+
+func TestRemotePluginDownloadBoundaries(t *testing.T) {
+	tmp := t.TempDir()
+
+	insecureFile, err := os.Create(filepath.Join(tmp, "insecure"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer insecureFile.Close()
+	insecure := remotePluginSpec{remote: "http://example.com/plugin", version: "v1", hash: "hash"}
+	if err := downloadRemotePluginPayload(insecureFile, insecure); err == nil || !strings.Contains(err.Error(), "insecure URL scheme") {
+		t.Fatalf("downloadRemotePluginPayload insecure err = %v, want insecure URL error", err)
+	}
+
+	okServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("plugin-binary"))
+	}))
+	defer okServer.Close()
+
+	okFile, err := os.Create(filepath.Join(tmp, "ok-plugin"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer okFile.Close()
+	if err := downloadRemotePluginPayload(okFile, remotePluginSpec{remote: okServer.URL + "/plugin", version: "v1", hash: "ok"}); err != nil {
+		t.Fatalf("downloadRemotePluginPayload local server: %v", err)
+	}
+	data, err := os.ReadFile(okFile.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "plugin-binary" {
+		t.Fatalf("downloaded payload = %q, want plugin-binary", data)
+	}
+
+	badServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "nope", http.StatusTeapot)
+	}))
+	defer badServer.Close()
+
+	badFile, err := os.Create(filepath.Join(tmp, "bad-plugin"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer badFile.Close()
+	if err := downloadRemotePluginPayload(badFile, remotePluginSpec{remote: badServer.URL, version: "v1", hash: "bad"}); err == nil || !strings.Contains(err.Error(), "status 418") {
+		t.Fatalf("downloadRemotePluginPayload status err = %v, want status 418", err)
+	}
+
+	oversizedServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(strings.Repeat("x", maxDownloadedPluginBytes+1)))
+	}))
+	defer oversizedServer.Close()
+
+	oversizedFile, err := os.Create(filepath.Join(tmp, "oversized-plugin"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer oversizedFile.Close()
+	if err := downloadRemotePluginPayload(oversizedFile, remotePluginSpec{remote: oversizedServer.URL, version: "v1", hash: "large"}); err == nil || !strings.Contains(err.Error(), "binary exceeds") {
+		t.Fatalf("downloadRemotePluginPayload oversized err = %v, want size error", err)
+	}
+
+	if _, err := urlpkgParse("not-a-url"); err == nil {
+		t.Fatal("urlpkgParse missing scheme/host succeeded, want error")
+	}
+	parsed, err := urlpkgParse(okServer.URL + "/plugin")
+	if err != nil {
+		t.Fatalf("urlpkgParse local server URL: %v", err)
+	}
+	if !isLocalPluginURL(parsed) {
+		t.Fatalf("isLocalPluginURL(%q) = false, want true", parsed.String())
+	}
+
+	src := filepath.Join(tmp, "source-plugin")
+	if err := os.WriteFile(src, []byte("local-plugin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	copyDst, err := os.Create(filepath.Join(tmp, "copy-plugin"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer copyDst.Close()
+	if err := copyFileToPluginCache(copyDst, src, remotePluginSpec{remote: "file://" + src, version: "v1", hash: "copy"}); err != nil {
+		t.Fatalf("copyFileToPluginCache: %v", err)
+	}
+	copied, err := os.ReadFile(copyDst.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(copied) != "local-plugin" {
+		t.Fatalf("copied plugin = %q, want local-plugin", copied)
+	}
+
+	missingDst, err := os.Create(filepath.Join(tmp, "missing-copy"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer missingDst.Close()
+	if err := copyFileToPluginCache(missingDst, filepath.Join(tmp, "missing"), remotePluginSpec{remote: "missing", version: "v1", hash: "missing"}); err == nil {
+		t.Fatal("copyFileToPluginCache missing source succeeded, want error")
+	}
+}
+
+func TestPluginSortingAndDigestHelpers(t *testing.T) {
+	plugins := []InstalledPlugin{
+		{Remote: "z", Version: "v2"},
+		{Remote: "a", Version: "v2"},
+		{Remote: "a", Version: "v1"},
+	}
+	sortInstalledPlugins(plugins)
+	gotOrder := []string{plugins[0].Remote + "@" + plugins[0].Version, plugins[1].Remote + "@" + plugins[1].Version, plugins[2].Remote + "@" + plugins[2].Version}
+	wantOrder := []string{"a@v1", "a@v2", "z@v2"}
+	if strings.Join(gotOrder, ",") != strings.Join(wantOrder, ",") {
+		t.Fatalf("sortInstalledPlugins = %v, want %v", gotOrder, wantOrder)
+	}
+
+	values := []string{"b", "a", "c"}
+	sortStrings(values)
+	if strings.Join(values, ",") != "a,b,c" {
+		t.Fatalf("sortStrings = %v, want a,b,c", values)
+	}
+
+	path := filepath.Join(t.TempDir(), "plugin")
+	if err := os.WriteFile(path, []byte("digest-me"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := fileSHA256(path)
+	if err != nil {
+		t.Fatalf("fileSHA256: %v", err)
+	}
+	wantBytes := sha256.Sum256([]byte("digest-me"))
+	want := hex.EncodeToString(wantBytes[:])
+	if got != want {
+		t.Fatalf("fileSHA256 = %q, want %q", got, want)
+	}
+	if _, err := fileSHA256(filepath.Join(filepath.Dir(path), "missing")); err == nil {
+		t.Fatal("fileSHA256 missing file succeeded, want error")
+	}
+}
+
+func TestResolveGoPluginPathsBoundaries(t *testing.T) {
+	if _, err := ResolveGoPluginPaths(" "); err == nil {
+		t.Fatal("ResolveGoPluginPaths blank root succeeded, want error")
+	}
+
+	dir := t.TempDir()
+	nonExecutable := filepath.Join(dir, "plain-plugin")
+	if err := os.WriteFile(nonExecutable, []byte("plain"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ResolveGoPluginPaths(nonExecutable); err == nil || !strings.Contains(err.Error(), "not executable") {
+		t.Fatalf("ResolveGoPluginPaths non-executable file error = %v, want not executable", err)
+	}
+
+	executable := filepath.Join(dir, "single-plugin")
+	if err := os.WriteFile(executable, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	paths, err := ResolveGoPluginPaths(executable)
+	if err != nil {
+		t.Fatalf("ResolveGoPluginPaths executable file: %v", err)
+	}
+	if len(paths) != 1 || paths[0] != executable {
+		t.Fatalf("ResolveGoPluginPaths file = %#v, want %q", paths, executable)
+	}
+
+	nested := filepath.Join(dir, "plugins", "nested")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"z-plugin", "a-plugin"} {
+		if err := os.WriteFile(filepath.Join(nested, name), []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(nested, "readme.txt"), []byte("docs"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(nested, "a-plugin"), filepath.Join(nested, "linked-plugin")); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+	paths, err = ResolveGoPluginPaths(filepath.Join(dir, "plugins"))
+	if err != nil {
+		t.Fatalf("ResolveGoPluginPaths directory: %v", err)
+	}
+	want := []string{filepath.Join(nested, "a-plugin"), filepath.Join(nested, "z-plugin")}
+	if strings.Join(paths, ",") != strings.Join(want, ",") {
+		t.Fatalf("ResolveGoPluginPaths directory = %#v, want %#v", paths, want)
+	}
+
+	emptyDir := filepath.Join(dir, "empty")
+	if err := os.Mkdir(emptyDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ResolveGoPluginPaths(emptyDir); err == nil || !strings.Contains(err.Error(), "contains no executable plugins") {
+		t.Fatalf("ResolveGoPluginPaths empty dir error = %v, want no executable plugins", err)
+	}
+}
+
 func TestPluginResponseApplyPatchesRejectsEscapingPaths(t *testing.T) {
 	dir := t.TempDir()
 	outsideDir := t.TempDir()

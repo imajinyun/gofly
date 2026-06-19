@@ -224,6 +224,183 @@ func TestParseProto(t *testing.T) {
 	}
 }
 
+func TestAPIAnnotationParsingBoundaries(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		want []string
+	}{
+		{name: "blank", raw: " ", want: nil},
+		{name: "comma separated", raw: "auth, trace", want: []string{"auth", "trace"}},
+		{name: "semicolon separated", raw: "auth;trace", want: []string{"auth", "trace"}},
+		{name: "skip empty parts", raw: "auth,, ; trace ; ", want: []string{"auth", "trace"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := splitAPIAnnotationList(tt.raw)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("splitAPIAnnotationList(%q) = %#v, want %#v", tt.raw, got, tt.want)
+			}
+		})
+	}
+
+	values := parseAPIAnnotationValues(`group: admin prefix=/v1 jwt: "required" middleware:'auth' ignored`)
+	if values["group"] != "admin" ||
+		values["prefix"] != "/v1" ||
+		values["jwt"] != "required" ||
+		values["middleware"] != "auth" {
+		t.Fatalf("parseAPIAnnotationValues = %#v, want parsed annotation values", values)
+	}
+}
+
+func TestProtoCodegenTypeAndPackageBoundaries(t *testing.T) {
+	typeTests := []struct {
+		protoType string
+		want      string
+	}{
+		{protoType: "string", want: "string"},
+		{protoType: "bytes", want: "[]byte"},
+		{protoType: "repeated int64", want: "[]int64"},
+		{protoType: "map<string, int32>", want: "map[string]int32"},
+		{protoType: ".demo.v1.User", want: "*User"},
+	}
+	for _, tt := range typeTests {
+		t.Run(tt.protoType, func(t *testing.T) {
+			if got := protoGoType(tt.protoType); got != tt.want {
+				t.Fatalf("protoGoType(%q) = %q, want %q", tt.protoType, got, tt.want)
+			}
+		})
+	}
+
+	packageTests := []struct {
+		name string
+		doc  IDLDocument
+		want string
+	}{
+		{name: "go package semicolon", doc: IDLDocument{GoPackage: "example.com/app/api;apipb"}, want: "apipb"},
+		{name: "go package path", doc: IDLDocument{GoPackage: "example.com/app/user-pb"}, want: "user_pb"},
+		{name: "proto package", doc: IDLDocument{Package: "order.v1"}, want: "orderv1"},
+		{name: "default", doc: IDLDocument{}, want: "pb"},
+	}
+	for _, tt := range packageTests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := inferGoPackageName(tt.doc); got != tt.want {
+				t.Fatalf("inferGoPackageName = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestFormatAPIDiffMarkdownBoundaries(t *testing.T) {
+	empty := string(formatAPIDiffMarkdown(APIDiffResult{}))
+	if !strings.Contains(empty, "# API Diff") || !strings.Contains(empty, "No API changes.") {
+		t.Fatalf("empty markdown diff = %q, want no-change document", empty)
+	}
+
+	diff := APIDiffResult{
+		AddedRoutes:   []APIRouteInfo{{Method: "get", Path: "/users", Response: "UserResp"}},
+		RemovedRoutes: []APIRouteInfo{{Method: "delete", Path: "/users/{id}", Request: "DeleteReq", Response: "DeleteResp"}},
+		ChangedRoutes: []APIRouteChange{{
+			Key:    "GET /users",
+			Base:   APIRouteInfo{Service: "user-api", Method: "get", Path: "/users", Handler: "list", Response: "OldResp"},
+			Target: APIRouteInfo{Service: "user-api", Method: "get", Path: "/users", Handler: "listUsers", Response: "UserResp"},
+		}},
+		AddedTypes:   []IDLMessage{{Name: "User", Fields: []IDLField{{Name: "Name", Type: "string"}}}},
+		RemovedTypes: []IDLMessage{{Name: "Legacy", Fields: []IDLField{{Name: "ID", Type: "int64"}}}},
+		ChangedTypes: []APITypeDiffChange{{
+			Name:   "User",
+			Base:   IDLMessage{Name: "User", Fields: []IDLField{{Name: "Name", Type: "string"}}},
+			Target: IDLMessage{Name: "User", Fields: []IDLField{{Name: "Name", Type: "string"}, {Name: "Email", Type: "string"}}},
+		}},
+	}
+	out := string(formatAPIDiffMarkdown(diff))
+	for _, want := range []string{
+		"## Added routes",
+		"| get | `/users` | `-` | `UserResp` |",
+		"## Removed routes",
+		"| delete | `/users/{id}` | `DeleteReq` | `DeleteResp` |",
+		"## Changed routes",
+		"GET /users",
+		"## Added types",
+		"`User`",
+		"## Removed types",
+		"`Legacy`",
+		"## Changed types",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("markdown diff missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestWriteRESTFilesBoundaries(t *testing.T) {
+	if err := writeRESTFiles(IDLDocument{}, APIOptions{Dir: t.TempDir(), Package: "api"}); err == nil {
+		t.Fatal("writeRESTFiles without service succeeded, want error")
+	}
+
+	doc := IDLDocument{
+		Messages: []IDLMessage{
+			{Name: "ListUsersReq", Fields: []IDLField{{Name: "Page", Type: "int32"}}},
+			{Name: "ListUsersResp", Fields: []IDLField{{Name: "Names", Type: "[]string"}}},
+		},
+		Services: []IDLService{{
+			Name: "user-api",
+			Methods: []IDLMethod{{
+				Name:       "ListUsers",
+				Request:    "ListUsersReq",
+				Response:   "ListUsersResp",
+				HTTPMethod: "post",
+				HTTPPath:   "/users/list",
+			}},
+		}},
+	}
+	dir := t.TempDir()
+	if err := writeRESTFiles(doc, APIOptions{Dir: dir, Package: "api", RPCPackage: "example.com/orders/rpcpb", Test: true, TypeGroup: true}); err != nil {
+		t.Fatalf("writeRESTFiles with rpc gateway: %v", err)
+	}
+	base := filepath.Join(dir, "v1")
+	for _, rel := range []string{
+		"types_list_users_req.go",
+		"types_list_users_resp.go",
+		"converters.go",
+		filepath.Join("user_api", "types.go"),
+		filepath.Join("user_api", "service.go"),
+		filepath.Join("user_api", "gateway.go"),
+		filepath.Join("user_api", "list_users.go"),
+		filepath.Join("user_api", "list_users_gateway.go"),
+		filepath.Join("user_api", "routes.go"),
+		filepath.Join("user_api", "routes_test.go"),
+	} {
+		if _, err := os.Stat(filepath.Join(base, rel)); err != nil {
+			t.Fatalf("expected REST generated file %s: %v", rel, err)
+		}
+	}
+
+	routeData, err := os.ReadFile(filepath.Join(base, "user_api", "list_users.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`http.MethodPost`, `Path: "/users/list"`, "ctx.BindRequest(&req)", "impl.ListUsers"} {
+		if !strings.Contains(string(routeData), want) {
+			t.Fatalf("REST method file missing %q:\n%s", want, routeData)
+		}
+	}
+	routesData, err := os.ReadFile(filepath.Join(base, "user_api", "routes.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(routesData), "RegisterUserApiGatewayRoutes") || !strings.Contains(string(routesData), "NewUserApiGateway") {
+		t.Fatalf("routes.go missing gateway route registration:\n%s", routesData)
+	}
+	convertersData, err := os.ReadFile(filepath.Join(base, "converters.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(convertersData), "func toRPCListUsersReq") || !strings.Contains(string(convertersData), "rpcpb.ListUsersResp") {
+		t.Fatalf("converters.go missing rpc converters:\n%s", convertersData)
+	}
+}
+
 func TestParseProtoIgnoresCommonDeclarations(t *testing.T) {
 	doc, err := ParseProto(`syntax = "proto3";
 package demo.v1;

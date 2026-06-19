@@ -401,6 +401,175 @@ func TestWriteRESTFilesBoundaries(t *testing.T) {
 	}
 }
 
+func TestProtoBreakingDescriptorBoundaries(t *testing.T) {
+	if _, err := DetectProtoChanges(ProtoBreakingOptions{}); err == nil || !strings.Contains(err.Error(), "base and target proto files are required") {
+		t.Fatalf("DetectProtoChanges missing paths error = %v, want required paths", err)
+	}
+
+	dir := t.TempDir()
+	missing := filepath.Join(dir, "missing.proto")
+	targetPath := filepath.Join(dir, "target.proto")
+	if err := os.WriteFile(targetPath, []byte(`syntax = "proto3";
+package demo.v1;
+message PingReq { string name = 1; }
+message PingResp { string message = 1; }
+service Greeter { rpc Ping(PingReq) returns (PingResp); }
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := DetectProtoDescriptorChanges(ProtoBreakingOptions{Base: missing, Target: targetPath}); err == nil || !strings.Contains(err.Error(), "read base proto") {
+		t.Fatalf("DetectProtoDescriptorChanges missing base error = %v, want read base proto", err)
+	}
+	basePath := filepath.Join(dir, "base.proto")
+	baseProto := `syntax = "proto3";
+package demo.v1;
+message PingReq { string name = 1; }
+message PingResp { string message = 1; }
+message PongResp { string message = 1; }
+service Greeter { rpc Ping(PingReq) returns (PingResp); }
+service Removed { rpc Gone(PingReq) returns (PingResp); }
+service Streams {
+  rpc Upload(stream PingReq) returns (PingResp);
+  rpc Watch(PingReq) returns (stream PingResp);
+  rpc Chat(stream PingReq) returns (stream PingResp);
+}
+`
+	if err := os.WriteFile(basePath, []byte(baseProto), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := DetectProtoDescriptorChanges(ProtoBreakingOptions{Base: basePath, Target: missing}); err == nil || !strings.Contains(err.Error(), "read target proto") {
+		t.Fatalf("DetectProtoDescriptorChanges missing target error = %v, want read target proto", err)
+	}
+	targetProto := `syntax = "proto3";
+package demo.v1;
+message PingReq { string name = 1; }
+message PingResp { string message = 1; }
+message PongResp { string message = 1; }
+service Greeter { rpc Ping(PingReq) returns (PongResp); }
+service Added { rpc Record(PingReq) returns (PongResp); }
+`
+	if err := os.WriteFile(targetPath, []byte(targetProto), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	descriptorReport, err := DetectProtoDescriptorChanges(ProtoBreakingOptions{Base: basePath, Target: targetPath})
+	if err != nil {
+		t.Fatalf("DetectProtoDescriptorChanges: %v", err)
+	}
+	if descriptorReport.Breaking == 0 || len(descriptorReport.Changes) == 0 {
+		t.Fatalf("descriptor report = %#v, want breaking changes", descriptorReport)
+	}
+	var sawAddedService, sawRemovedService, sawSignature bool
+	for _, change := range descriptorReport.Changes {
+		if change.Category == rpc.DescriptorChangeService && change.Severity == rpc.DescriptorChangeInfo && strings.Contains(change.Subject, "Added") {
+			sawAddedService = true
+		}
+		if change.Category == rpc.DescriptorChangeService && change.Severity == rpc.DescriptorChangeBreaking && strings.Contains(change.Subject, "Removed") {
+			sawRemovedService = true
+		}
+		if change.Category == rpc.DescriptorChangeSignature && change.Severity == rpc.DescriptorChangeBreaking && strings.Contains(change.Subject, "response") {
+			sawSignature = true
+		}
+	}
+	if !sawAddedService || !sawRemovedService || !sawSignature {
+		t.Fatalf("descriptor changes missing expected added/removed/signature entries: %#v", descriptorReport.Changes)
+	}
+
+	breakingReport, err := DetectProtoChanges(ProtoBreakingOptions{Base: basePath, Target: targetPath})
+	if err != nil {
+		t.Fatalf("DetectProtoChanges: %v", err)
+	}
+	if !breakingReport.HasBreaking() || breakingReport.IsEmpty() {
+		t.Fatalf("breaking report = %#v, want non-empty breaking report", breakingReport)
+	}
+
+	streamTests := []struct {
+		name   string
+		method IDLMethod
+		want   rpc.StreamMode
+	}{
+		{name: "unary", method: IDLMethod{}, want: rpc.StreamModeUnary},
+		{name: "client", method: IDLMethod{ClientStream: true}, want: rpc.StreamModeClientStream},
+		{name: "server", method: IDLMethod{ServerStream: true}, want: rpc.StreamModeServerStream},
+		{name: "bidi", method: IDLMethod{ClientStream: true, ServerStream: true}, want: rpc.StreamModeBidiStream},
+	}
+	for _, tt := range streamTests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := protoStreamMode(tt.method); got != tt.want {
+				t.Fatalf("protoStreamMode(%s) = %q, want %q", tt.name, got, tt.want)
+			}
+		})
+	}
+
+	mapped := descriptorCompatibilityToBreakingReport(rpc.DescriptorCompatibilityReport{Changes: []rpc.DescriptorChange{
+		{Category: rpc.DescriptorChangeMethod, Severity: rpc.DescriptorChangeBreaking, Subject: "svc/m", Description: "method removed"},
+		{Category: rpc.DescriptorChangeStream, Severity: rpc.DescriptorChangeWarning, Subject: "svc/s", Description: "stream changed"},
+		{Category: rpc.DescriptorChangeVersion, Severity: rpc.DescriptorChangeInfo, Subject: "svc", Description: "version changed"},
+		{Category: rpc.DescriptorChangeTimeout, Severity: rpc.DescriptorChangeInfo, Subject: "svc/m", Description: "timeout changed"},
+		{Category: rpc.DescriptorChangeCodec, Severity: "custom", Subject: "svc/m", Description: "codec changed"},
+	}})
+	if mapped.Breaking != 1 || mapped.Warnings != 1 || len(mapped.Changes) != 5 {
+		t.Fatalf("mapped descriptor report = %#v, want one breaking and one warning", mapped)
+	}
+	wantCategories := []ChangeCategory{CategoryMethod, CategoryStream, CategoryService, CategorySignature, CategoryService}
+	wantSeverities := []ChangeSeverity{SeverityBreaking, SeverityWarning, SeverityInfo, SeverityInfo, SeverityInfo}
+	for i := range mapped.Changes {
+		if mapped.Changes[i].Category != wantCategories[i] || mapped.Changes[i].Severity != wantSeverities[i] {
+			t.Fatalf("mapped change[%d] = %#v, want category %q severity %q", i, mapped.Changes[i], wantCategories[i], wantSeverities[i])
+		}
+	}
+}
+
+func TestGenerateGRPCFromProtoBoundaries(t *testing.T) {
+	if err := GenerateGRPCFromProto(GRPCOptions{}); err == nil || !strings.Contains(err.Error(), "proto file is required") {
+		t.Fatalf("GenerateGRPCFromProto missing file error = %v, want proto file required", err)
+	}
+	dir := t.TempDir()
+	missing := filepath.Join(dir, "missing.proto")
+	if err := GenerateGRPCFromProto(GRPCOptions{ProtoFile: missing, Dir: dir}); err == nil || !strings.Contains(err.Error(), "read proto file") {
+		t.Fatalf("GenerateGRPCFromProto missing proto error = %v, want read proto file", err)
+	}
+	noService := filepath.Join(dir, "empty.proto")
+	if err := os.WriteFile(noService, []byte(`syntax = "proto3";
+package demo.v1;
+message PingReq { string name = 1; }
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := GenerateGRPCFromProto(GRPCOptions{ProtoFile: noService, Dir: dir}); err == nil || !strings.Contains(err.Error(), "proto service is required") {
+		t.Fatalf("GenerateGRPCFromProto no service error = %v, want service required", err)
+	}
+	protoPath := filepath.Join(dir, "greeter.proto")
+	protoContent := `syntax = "proto3";
+package demo.v1;
+option go_package = "example.com/demo/v1;demov1";
+message PingReq { string name = 1; }
+message PingResp { string message = 1; }
+service Greeter { rpc Ping(PingReq) returns (PingResp); }
+`
+	if err := os.WriteFile(protoPath, []byte(protoContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := GenerateGRPCFromProto(GRPCOptions{ProtoFile: protoPath, Dir: dir}); err != nil {
+		t.Fatalf("GenerateGRPCFromProto: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "greeter.grpc.gofly.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"package demov1",
+		"func NewGreeterGRPCServer",
+		"flygrpc.RecoveryUnaryServerInterceptor(nil)",
+		"RegisterGreeterServer(server.GRPCServer(), impl)",
+		"func DialGreeter(ctx context.Context, target string",
+		"return NewGreeterClient(conn.Conn()), conn, nil",
+	} {
+		if !strings.Contains(string(data), want) {
+			t.Fatalf("generated grpc binding missing %q:\n%s", want, data)
+		}
+	}
+}
+
 func TestParseProtoIgnoresCommonDeclarations(t *testing.T) {
 	doc, err := ParseProto(`syntax = "proto3";
 package demo.v1;

@@ -341,6 +341,49 @@ func TestResolveGoPluginPathsBoundaries(t *testing.T) {
 	}
 }
 
+func TestPluginSymlinkParentBoundaries(t *testing.T) {
+	root := t.TempDir()
+	if err := rejectPluginSymlinkParent(root, filepath.Join("missing", "plugin.txt")); err != nil {
+		t.Fatalf("rejectPluginSymlinkParent missing parent = %v, want nil", err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "safe"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := rejectPluginSymlinkParent(root, filepath.Join("safe", "plugin.txt")); err != nil {
+		t.Fatalf("rejectPluginSymlinkParent safe parent = %v, want nil", err)
+	}
+
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(root, "link")); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+	if err := rejectPluginSymlinkParent(root, filepath.Join("link", "plugin.txt")); err == nil || !strings.Contains(err.Error(), "traverses symlink") {
+		t.Fatalf("rejectPluginSymlinkParent symlink error = %v, want traverses symlink", err)
+	}
+	if err := rejectSymlinkParent(root, filepath.Join("link", "nested", "plugin.txt"), "template"); err == nil || !strings.Contains(err.Error(), "template path") {
+		t.Fatalf("rejectSymlinkParent label error = %v, want labelled symlink error", err)
+	}
+
+	missingTarget := filepath.Join(root, "new-plugin")
+	if err := rejectExistingSymlinkTarget(missingTarget, "plugin"); err != nil {
+		t.Fatalf("rejectExistingSymlinkTarget missing target = %v, want nil", err)
+	}
+	targetLink := filepath.Join(root, "target-link")
+	if err := os.Symlink(outside, targetLink); err != nil {
+		t.Skipf("target symlink unsupported: %v", err)
+	}
+	if err := rejectExistingSymlinkTarget(targetLink, "plugin"); err == nil || !strings.Contains(err.Error(), "is a symlink") {
+		t.Fatalf("rejectExistingSymlinkTarget symlink error = %v, want symlink target rejection", err)
+	}
+	regular := filepath.Join(root, "regular-plugin")
+	if err := os.WriteFile(regular, []byte("ok"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := rejectExistingSymlinkTarget(regular, "plugin"); err != nil {
+		t.Fatalf("rejectExistingSymlinkTarget regular target = %v, want nil", err)
+	}
+}
+
 func TestPluginResponseApplyPatchesRejectsEscapingPaths(t *testing.T) {
 	dir := t.TempDir()
 	outsideDir := t.TempDir()

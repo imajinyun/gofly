@@ -207,6 +207,44 @@ func TestProtocLocalGoType(t *testing.T) {
 	}
 }
 
+func TestProtocPluginPackageNameBoundaries(t *testing.T) {
+	tests := []struct {
+		name string
+		file *descriptorpb.FileDescriptorProto
+		want string
+	}{
+		{name: "go package semicolon", file: &descriptorpb.FileDescriptorProto{Options: &descriptorpb.FileOptions{GoPackage: proto.String("example.com/demo;demopb")}}, want: "demopb"},
+		{name: "go package path", file: &descriptorpb.FileDescriptorProto{Options: &descriptorpb.FileOptions{GoPackage: proto.String("example.com/demo/user-pb")}}, want: "user_pb"},
+		{name: "go package raw", file: &descriptorpb.FileDescriptorProto{Options: &descriptorpb.FileOptions{GoPackage: proto.String("123 bad-pkg")}}, want: "_23_bad_pkg"},
+		{name: "proto package", file: &descriptorpb.FileDescriptorProto{Package: proto.String("demo.v1")}, want: "v1"},
+		{name: "default", file: &descriptorpb.FileDescriptorProto{}, want: "proto"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := goPackageName(tt.file); got != tt.want {
+				t.Fatalf("goPackageName = %q, want %q", got, tt.want)
+			}
+		})
+	}
+
+	serviceTests := []struct {
+		name string
+		file *descriptorpb.FileDescriptorProto
+		svc  *descriptorpb.ServiceDescriptorProto
+		want string
+	}{
+		{name: "without package", file: &descriptorpb.FileDescriptorProto{}, svc: &descriptorpb.ServiceDescriptorProto{Name: proto.String("Greeter")}, want: "Greeter"},
+		{name: "with package", file: &descriptorpb.FileDescriptorProto{Package: proto.String("demo.v1")}, svc: &descriptorpb.ServiceDescriptorProto{Name: proto.String("Greeter")}, want: "demo.v1.Greeter"},
+	}
+	for _, tt := range serviceTests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := protocServiceFullName(tt.file, tt.svc); got != tt.want {
+				t.Fatalf("protocServiceFullName = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestGenerateProtocPluginResponseGeneratedCodeCompiles(t *testing.T) {
 	repoRoot := repositoryRoot(t)
 	dir := t.TempDir()

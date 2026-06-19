@@ -34,6 +34,23 @@ func TestNewValidation(t *testing.T) {
 	}
 }
 
+func TestNewConstructsSourceWithClientConfig(t *testing.T) {
+	src, err := New(Config{
+		Servers: []ServerConfig{{IPAddr: "127.0.0.1", Port: 8848}},
+		Group:   "prod",
+		DataID:  "cfg/app.yaml",
+	})
+	if err != nil {
+		t.Fatalf("New valid config error = %v", err)
+	}
+	if src == nil || src.client == nil {
+		t.Fatalf("New valid config source = %#v, want source with client", src)
+	}
+	if src.group != "prod" || src.dataID != "cfg/app.yaml" {
+		t.Fatalf("source group/dataID = %q/%q, want prod/cfg/app.yaml", src.group, src.dataID)
+	}
+}
+
 func TestNewWithClientValidationAndDefaults(t *testing.T) {
 	if _, err := NewWithClient(nil, "", "cfg"); err == nil || !strings.Contains(err.Error(), "client is nil") {
 		t.Fatalf("NewWithClient(nil) error = %v, want client is nil", err)
@@ -191,6 +208,35 @@ func TestWatchOnChangeNil(t *testing.T) {
 	}
 }
 
+func TestWatchCancelListenErrorStillReturnsContextError(t *testing.T) {
+	client := &fakeConfigClient{listenReady: make(chan struct{}), cancelErr: errors.New("cancel failed")}
+	src, err := NewWithClient(client, "app", "cfg")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- src.Watch(ctx, func(v config.RemoteValue) {}) }()
+
+	select {
+	case <-client.listenReady:
+	case <-time.After(time.Second):
+		cancel()
+		t.Fatal("listener was not registered")
+	}
+	cancel()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("Watch error = %v, want context.Canceled despite cancel-listen failure", err)
+	}
+	client.mu.Lock()
+	cancelled := client.cancelled
+	client.mu.Unlock()
+	if !cancelled {
+		t.Fatal("CancelListenConfig was not called")
+	}
+}
+
 func TestWatchNilContextListenError(t *testing.T) {
 	client := &fakeConfigClient{listenErr: errors.New("listen failed")}
 	src, err := NewWithClient(client, "app", "cfg")
@@ -211,6 +257,7 @@ type fakeConfigClient struct {
 	onChange    func(namespace, group, dataID, data string)
 	cancelled   bool
 	listenErr   error
+	cancelErr   error
 	getErr      error
 }
 
@@ -235,7 +282,7 @@ func (f *fakeConfigClient) CancelListenConfig(param vo.ConfigParam) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.cancelled = true
-	return nil
+	return f.cancelErr
 }
 
 func (f *fakeConfigClient) SearchConfig(param vo.SearchConfigParam) (*model.ConfigPage, error) {

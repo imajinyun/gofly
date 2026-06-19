@@ -105,3 +105,40 @@ func TestRedisModelCacheInvalidateDeletesKey(t *testing.T) {
 		t.Fatalf("deleted keys = %v, want orders:A1", client.deleted)
 	}
 }
+
+func TestRedisModelCacheWithCustomKey(t *testing.T) {
+	client := newFakeRedisModelClient()
+	c := NewRedisModel(func(ctx context.Context, id int64) (string, error) {
+		return "value", nil
+	}, client,
+		WithRedisModelNotFound[string, int64](errRedisMiss),
+		WithRedisModelKey[string, int64](func(id int64) string { return "custom-key" }),
+	)
+
+	if err := c.Set(context.Background(), 42, "value"); err != nil {
+		t.Fatalf("Set returned error: %v", err)
+	}
+	if _, ok := client.values["custom-key"]; !ok {
+		t.Fatalf("redis values = %#v, want custom-key", client.values)
+	}
+	if _, ok := client.values["42"]; ok {
+		t.Fatalf("default key 42 was set despite custom key: %#v", client.values)
+	}
+}
+
+func TestRedisModelCacheIgnoresNilCustomKey(t *testing.T) {
+	client := newFakeRedisModelClient()
+	c := NewRedisModel(func(ctx context.Context, id int64) (string, error) {
+		return "value", nil
+	}, client,
+		WithRedisModelNotFound[string, int64](errRedisMiss),
+		WithRedisModelKey[string, int64](nil),
+	)
+
+	if err := c.Set(context.Background(), 42, "value"); err != nil {
+		t.Fatalf("Set returned error: %v", err)
+	}
+	if _, ok := client.values["42"]; !ok {
+		t.Fatalf("redis values = %#v, want default key 42", client.values)
+	}
+}

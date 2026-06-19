@@ -218,6 +218,34 @@ func TestWhereBuilderBuildsParameterizedQuery(t *testing.T) {
 	}
 }
 
+func TestWhereBuilderComparisonPredicates(t *testing.T) {
+	where := NewWhere().
+		Ne("state", "deleted").
+		Gt("score", 10).
+		Gte("created_at", 20).
+		Lt("retry_count", 5).
+		Lte("updated_at", 30).
+		Like("email", "%@example.com")
+
+	query, args, err := SelectWhere("users", []string{"id"}, where, DialectPostgres)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "SELECT id FROM users WHERE state != $1 AND score > $2 AND created_at >= $3 AND retry_count < $4 AND updated_at <= $5 AND email LIKE $6"
+	if query != want {
+		t.Fatalf("query = %q, want %q", query, want)
+	}
+	wantArgs := []any{"deleted", 10, 20, 5, 30, "%@example.com"}
+	if len(args) != len(wantArgs) {
+		t.Fatalf("args = %#v, want %#v", args, wantArgs)
+	}
+	for i, want := range wantArgs {
+		if args[i] != want {
+			t.Fatalf("args[%d] = %#v, want %#v; args=%#v", i, args[i], want, args)
+		}
+	}
+}
+
 func TestWhereBuilderNullPredicates(t *testing.T) {
 	query, args, err := SelectWhere(
 		"users",

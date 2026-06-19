@@ -7,7 +7,7 @@
 *.dll
 *.so
 *.dylib
-gofly
+/gofly
 
 # Test binary, built with `go test -c`
 *.test

@@ -31,3 +31,14 @@ func TestValidateProductionProfileConfigAllowsTokenProtectedProfile(t *testing.T
 		t.Fatalf("ValidateProductionProfileConfig() = %v, want nil", err)
 	}
 }
+
+func TestValidateProductionConfigDelegatesProfileValidation(t *testing.T) {
+	if err := ValidateProductionConfig(Config{Profile: ProfileConfig{Enabled: false}}); err != nil {
+		t.Fatalf("ValidateProductionConfig(disabled profile) = %v, want nil", err)
+	}
+
+	err := ValidateProductionConfig(Config{Profile: ProfileConfig{Enabled: true, AllowRemote: true}})
+	if err == nil || !strings.Contains(err.Error(), "production profile server") {
+		t.Fatalf("ValidateProductionConfig(unsafe profile) = %v, want production profile error", err)
+	}
+}

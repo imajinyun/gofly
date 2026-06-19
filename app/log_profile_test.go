@@ -179,3 +179,15 @@ func TestProfileServerExtraHandlerSharesSecurity(t *testing.T) {
 		t.Fatalf("extra handler with token status = %d body %q, want 200 ok", allowed.Code, allowed.Body.String())
 	}
 }
+
+func TestProfileServerShutdownHandlesNilAndInitializedServer(t *testing.T) {
+	var nilServer *ProfileServer
+	if err := nilServer.Shutdown(context.Background()); err != nil {
+		t.Fatalf("nil ProfileServer Shutdown() = %v, want nil", err)
+	}
+
+	server := NewProfileServer(ProfileConfig{Enabled: true})
+	if err := server.Shutdown(nil); err != nil {
+		t.Fatalf("initialized ProfileServer Shutdown(nil) = %v, want nil", err)
+	}
+}

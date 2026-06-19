@@ -27,9 +27,13 @@ bench/current.txt
 # Temporary test caches (GOCACHE/GOTMPDIR)
 .tmp-test/
 
-# Dependency directories (remove the comment below to include it)
-docs/
+# Generated docs and long-form examples
+docs/*
+!docs/doc/
+!docs/doc/*.md
 examples/
+
+# Dependency directories (remove the comment below to include it)
 vendor/
 AGENTS.md
 report.html

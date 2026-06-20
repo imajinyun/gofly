@@ -9,6 +9,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -683,7 +684,7 @@ func isCompletionHelpSubcommand(command string) bool {
 }
 
 func isAIHelpSubcommand(command string) bool {
-	return command == "manifest" || command == "plan" || command == "complete" || command == "stream" || command == "doctor"
+	return command == "manifest" || command == "plan" || command == "new" || command == "complete" || command == "stream" || command == "doctor"
 }
 
 func isCompleteHandlerShell(command string) bool {
@@ -962,9 +963,13 @@ func commandHelpFor(command string) commandHelp {
 	case "doctor":
 		return commandHelp{Name: "doctor", Short: "Diagnose local environment and toolchain readiness.", Usage: "gofly doctor [--json]", Flags: []string{"--json  print report as JSON"}, Examples: []string{"gofly doctor", "gofly doctor --json"}}
 	case "ai":
-		return commandHelp{Name: "ai", Short: "Emit machine-readable metadata and governed LLM calls for AI agents.", Usage: "gofly ai manifest [--format json|text] [--json] | gofly ai complete --prompt <text> [flags]", Commands: []helpCommand{{Name: "manifest", Short: "print command schemas, side effects and output contract"}, {Name: "complete", Short: "run a governed no-op completion for integration testing"}, {Name: "doctor", Short: "run AI subsystem self-diagnostics"}}, Examples: []string{"gofly ai manifest --format json", "gofly --output json ai manifest", "gofly ai complete --prompt 'summarize this' --max-total-tokens 128 --json", "gofly ai doctor --json"}}
+		return commandHelp{Name: "ai", Short: "Emit machine-readable metadata and governed LLM calls for AI agents.", Usage: "gofly ai manifest [--format json|text] [--json] | gofly ai plan --prompt <text> [flags] | gofly ai new --prompt <text> [--apply] [flags] | gofly ai complete --prompt <text> [flags]", Commands: []helpCommand{{Name: "manifest", Short: "print command schemas, side effects and output contract"}, {Name: "plan", Short: "plan an AI-first project scaffold without writing files"}, {Name: "new", Short: "plan or apply an AI-first project scaffold"}, {Name: "complete", Short: "run a governed no-op completion for integration testing"}, {Name: "doctor", Short: "run AI subsystem self-diagnostics"}}, Examples: []string{"gofly ai manifest --format json", "gofly --output json ai manifest", "gofly ai plan 'create a rag service' --json", "gofly ai new 'create a rest api' --name hello --module example.com/hello --dir hello --apply", "gofly ai complete --prompt 'summarize this' --max-total-tokens 128 --json", "gofly ai doctor --json"}}
 	case "ai manifest":
 		return commandHelp{Name: "ai manifest", Short: "Print the gofly AI tool manifest.", Usage: "gofly ai manifest [--format json|text] [--json]", Flags: []string{"--format <format>  output format: json|text (default json)", "--json             output JSON envelope"}, Examples: []string{"gofly ai manifest --format json", "gofly tools manifest --json"}}
+	case "ai plan":
+		return commandHelp{Name: "ai plan", Short: "Plan an AI-first project scaffold without writing files.", Usage: "gofly ai plan --prompt <requirement> [--kind service|rpc|worker|cli|ai-agent|rag|gateway] [--name <name>] [--module <module>] [--dir <dir>] [--format text|json] [--json]", Flags: []string{"--prompt <text>       natural language requirement, also accepted as positional text", "--kind <kind>         optional project kind hint", "--name <name>         project or service name", "--module <module>     Go module path", "--dir <dir>           output directory", "--format <format>     output format: text|json", "--json                output JSON envelope"}, Examples: []string{"gofly ai plan 'create a rag service with redis vector store' --json", "gofly ai plan --prompt 'create a gateway' --kind gateway --name edge --module example.com/edge --dir edge"}}
+	case "ai new":
+		return commandHelp{Name: "ai new", Short: "Plan or apply an AI-first project scaffold.", Usage: "gofly ai new --prompt <requirement> [--template <id>] [--kind <kind>] --name <name> --module <module> --dir <dir> [--dry-run|--plan|--apply] [--format text|json] [--json]", Flags: []string{"--prompt <text>       natural language requirement, also accepted as positional text", "--template <id>       explicit template id from `gofly template list`", "--kind <kind>         optional project kind hint", "--name <name>         project or service name", "--module <module>     Go module path", "--dir <dir>           output directory", "--dry-run, --plan     print plan without writing files (default)", "--apply               write scaffold files using the selected built-in generator", "--format <format>     output format: text|json", "--json                output JSON envelope"}, Examples: []string{"gofly ai new 'create a rest api' --name hello --module example.com/hello --dir hello --dry-run --json", "gofly ai new --template go-rpc-grpc --name greeter --module example.com/greeter --dir greeter --apply"}}
 	case "ai complete":
 		return commandHelp{Name: "ai complete", Short: "Execute a governed no-op LLM completion for deterministic AI tool integration tests.", Usage: "gofly ai complete --prompt <text> [--config .gofly/config.json] [--provider noop] [--model <model>] [--max-input-tokens <n>] [--max-output-tokens <n>] [--max-total-tokens <n>] [--rate-limit <n>] [--timeout <duration>] [--dry-run|--plan] [--format text|json] [--json]", Flags: []string{"--prompt <text>          prompt text, also accepted as positional text", "--config <file>          gofly config file with llm defaults", "--dir <dir>              service root for .gofly/config.json", "--provider <provider>    provider mode; only noop is built in", "--model <model>          model label for audit and output", "--max-input-tokens <n>   input token budget", "--max-output-tokens <n>  output token budget", "--max-total-tokens <n>   total token budget", "--rate-limit <n>         calls per second; zero disables rate limiting", "--rate-burst <n>         rate limit burst; zero uses rate-limit", "--timeout <duration>     provider call timeout", "--dry-run, --plan        print governance plan without invoking provider", "--format <format>        output format: text|json", "--json                   output JSON envelope"}, Examples: []string{"gofly ai complete --prompt 'hello' --config .gofly/config.json --json", "GOFLY_LLM_MODEL=local gofly ai complete 'email user@example.com' --dry-run --format json"}}
 	case "ai doctor":
@@ -2212,6 +2217,8 @@ func aiCommand(args []string) error {
 		return aiManifestCommand(rest)
 	case "plan":
 		return aiPlanCommand(rest)
+	case "new":
+		return aiNewCommand(rest)
 	case "complete":
 		return aiCompleteCommand(rest)
 	case "stream":
@@ -2219,7 +2226,7 @@ func aiCommand(args []string) error {
 	case "doctor":
 		return aiDoctorCommand(rest)
 	default:
-		return fmt.Errorf("%w: expected `gofly ai manifest|plan|complete|stream|doctor`", errUsage)
+		return fmt.Errorf("%w: expected `gofly ai manifest|plan|new|complete|stream|doctor`", errUsage)
 	}
 }
 
@@ -2235,6 +2242,17 @@ type aiProjectPlan struct {
 	Verify            []string                  `json:"verify"`
 	Warnings          []string                  `json:"warnings,omitempty"`
 	NextActions       []string                  `json:"nextActions"`
+}
+
+type aiProjectApplyResult struct {
+	Plan              aiProjectPlan `json:"plan"`
+	Applied           bool          `json:"applied"`
+	OutputDir         string        `json:"outputDir"`
+	ExecutedCommand   string        `json:"executedCommand"`
+	Verify            []string      `json:"verify"`
+	Warnings          []string      `json:"warnings,omitempty"`
+	NextActions       []string      `json:"nextActions"`
+	MutatesFilesystem bool          `json:"mutatesFilesystem"`
 }
 
 func aiPlanCommand(args []string) error {
@@ -2280,8 +2298,100 @@ func aiPlanCommand(args []string) error {
 	return nil
 }
 
+func aiNewCommand(args []string) error {
+	fs := flag.NewFlagSet("ai new", flag.ContinueOnError)
+	prompt := fs.String("prompt", "", "natural language project requirement")
+	kind := fs.String("kind", "", "optional project kind hint, such as service, rpc, worker, cli, ai-agent, rag or gateway")
+	templateID := fs.String("template", "", "explicit project template id; run `gofly template list --json` to inspect choices")
+	name := fs.String("name", "", "project or service name")
+	module := fs.String("module", "", "Go module path")
+	dir := fs.String("dir", "", "output directory")
+	formatName := fs.String("format", outputText, "output format: text or json")
+	jsonOutput := fs.Bool("json", false, "output JSON envelope")
+	dryRun := fs.Bool("dry-run", true, "print the scaffold plan without writing files")
+	plan := fs.Bool("plan", false, "alias for --dry-run")
+	apply := fs.Bool("apply", false, "apply the planned scaffold and write files")
+	remaining, err := parseInterspersedFlags(fs, args)
+	if err != nil {
+		return err
+	}
+	if *prompt == "" && len(remaining) > 0 {
+		*prompt = strings.Join(remaining, " ")
+	} else if len(remaining) > 0 {
+		return fmt.Errorf("%w: ai new accepts either --prompt or positional prompt text, not both", errUsage)
+	}
+	if strings.TrimSpace(*prompt) == "" && strings.TrimSpace(*templateID) == "" {
+		return fmt.Errorf("%w: --prompt, positional prompt text, or --template is required for `gofly ai new`", errUsage)
+	}
+	format := strings.ToLower(strings.TrimSpace(*formatName))
+	if format == "" {
+		format = outputText
+	}
+	if format != outputText && format != outputJSON {
+		return fmt.Errorf("%w: unsupported --format %q", errUsage, *formatName)
+	}
+	if *apply && (*dryRun || *plan) && !flagWasProvided(fs, "dry-run") && !flagWasProvided(fs, "plan") {
+		*dryRun = false
+	}
+	if *apply && (*dryRun || *plan) {
+		return fmt.Errorf("%w: --apply cannot be combined with --dry-run or --plan", errUsage)
+	}
+	projectPlan, err := buildAIProjectNewPlan(*prompt, *kind, *templateID, *name, *module, *dir, !*apply || *dryRun || *plan)
+	if err != nil {
+		return err
+	}
+	if !*apply {
+		if *jsonOutput || outputMode() == outputJSON || format == outputJSON {
+			return printJSONEnvelope("ai.new", projectPlan)
+		}
+		printAIProjectPlanText(projectPlan)
+		return nil
+	}
+	result, err := applyAIProjectPlan(projectPlan)
+	if err != nil {
+		return err
+	}
+	if *jsonOutput || outputMode() == outputJSON || format == outputJSON {
+		return printJSONEnvelope("ai.new", result)
+	}
+	cliOutputfIf("applied template=%s kind=%s output=%s\n", result.Plan.Template.ID, result.Plan.ProjectType, result.OutputDir)
+	cliOutputfIf("command=%s\n", result.ExecutedCommand)
+	for _, warning := range result.Warnings {
+		cliOutputfIf("warning: %s\n", warning)
+	}
+	for _, next := range result.NextActions {
+		cliOutputfIf("next: %s\n", next)
+	}
+	return nil
+}
+
 func buildAIProjectPlan(prompt, kind, name, module, dir string, dryRun bool) aiProjectPlan {
 	tmpl := generator.RecommendProjectTemplate(prompt, kind)
+	return buildAIProjectPlanFromTemplate(prompt, tmpl, name, module, dir, dryRun)
+}
+
+func buildAIProjectNewPlan(prompt, kind, templateID, name, module, dir string, dryRun bool) (aiProjectPlan, error) {
+	var tmpl generator.ProjectTemplate
+	if strings.TrimSpace(templateID) != "" {
+		var ok bool
+		tmpl, ok = generator.GetProjectTemplate(templateID)
+		if !ok {
+			return aiProjectPlan{}, fmt.Errorf("%w: unknown project template %q", errUsage, templateID)
+		}
+	} else {
+		tmpl = generator.RecommendProjectTemplate(prompt, kind)
+	}
+	if err := validateAIProjectTemplateCommand(tmpl); err != nil {
+		return aiProjectPlan{}, err
+	}
+	projectPlan := buildAIProjectPlanFromTemplate(prompt, tmpl, name, module, dir, dryRun)
+	if err := validateAIProjectApplyInputs(projectPlan); err != nil {
+		return aiProjectPlan{}, err
+	}
+	return projectPlan, nil
+}
+
+func buildAIProjectPlanFromTemplate(prompt string, tmpl generator.ProjectTemplate, name, module, dir string, dryRun bool) aiProjectPlan {
 	command := materializeTemplateCommand(tmpl.Command, name, module, dir)
 	warnings := []string{
 		"ai plan uses deterministic local template matching and does not call an external LLM provider",
@@ -2299,6 +2409,191 @@ func buildAIProjectPlan(prompt, kind, name, module, dir string, dryRun bool) aiP
 		Verify:            append([]string(nil), tmpl.Verify...),
 		Warnings:          warnings,
 		NextActions:       []string{"inspect the selected template with `gofly template inspect " + tmpl.ID + " --json`", "run the proposed scaffold command with --dry-run", "run generated project verification commands after applying the scaffold"},
+	}
+}
+
+func validateAIProjectTemplateCommand(tmpl generator.ProjectTemplate) error {
+	fields := strings.Fields(tmpl.Command)
+	if len(fields) < 3 || fields[0] != "gofly" {
+		return fmt.Errorf("%w: template %q has unsupported command %q", errUsage, tmpl.ID, tmpl.Command)
+	}
+	for _, field := range fields {
+		if containsShellMetachar(field) {
+			return fmt.Errorf("%w: template %q command %q contains unsupported shell metacharacter", errUsage, tmpl.ID, tmpl.Command)
+		}
+	}
+	switch strings.Join(fields[:3], " ") {
+	case "gofly new api", "gofly new rpc", "gofly gen gateway":
+		return nil
+	default:
+		return fmt.Errorf("%w: template %q command %q is not supported by `gofly ai new`", errUsage, tmpl.ID, tmpl.Command)
+	}
+}
+
+func containsShellMetachar(value string) bool {
+	return strings.ContainsAny(value, ";&|$`")
+}
+
+func validateAIProjectApplyInputs(plan aiProjectPlan) error {
+	if strings.TrimSpace(plan.Template.ID) == "" {
+		return fmt.Errorf("%w: project template is required", errUsage)
+	}
+	name, module, dir := aiProjectPlanValues(plan)
+	if strings.TrimSpace(name) == "" {
+		return fmt.Errorf("%w: name is required", errUsage)
+	}
+	if strings.TrimSpace(module) == "" {
+		return fmt.Errorf("%w: module is required", errUsage)
+	}
+	if strings.TrimSpace(dir) == "" {
+		return fmt.Errorf("%w: dir is required", errUsage)
+	}
+	return nil
+}
+
+func applyAIProjectPlan(plan aiProjectPlan) (aiProjectApplyResult, error) {
+	if err := validateAIProjectApplyInputs(plan); err != nil {
+		return aiProjectApplyResult{}, err
+	}
+	_, _, dir := aiProjectPlanValues(plan)
+	commandArgs, err := aiProjectApplyArgs(plan)
+	if err != nil {
+		return aiProjectApplyResult{}, err
+	}
+	if len(commandArgs) == 0 {
+		return aiProjectApplyResult{}, fmt.Errorf("%w: no scaffold command generated", errUsage)
+	}
+	if err := withCommandIO(IOStreams{In: nil, Out: io.Discard, Err: currentErr()}, outputText, verbosityQuiet, func() error {
+		return runAIProjectApplyCommand(commandArgs)
+	}); err != nil {
+		return aiProjectApplyResult{}, err
+	}
+	warnings := append([]string(nil), plan.Warnings...)
+	warnings = append(warnings, "ai new --apply writes scaffold files using built-in local generators only; generated verification commands are reported but not executed")
+	return aiProjectApplyResult{
+		Plan:              plan,
+		Applied:           true,
+		OutputDir:         dir,
+		ExecutedCommand:   "gofly " + strings.Join(commandArgs, " "),
+		Verify:            append([]string(nil), plan.Verify...),
+		Warnings:          warnings,
+		NextActions:       []string{"cd " + dir, "run: " + strings.Join(plan.Verify, " && ")},
+		MutatesFilesystem: true,
+	}, nil
+}
+
+func runAIProjectApplyCommand(args []string) error {
+	if len(args) < 2 {
+		return fmt.Errorf("%w: scaffold command is incomplete", errUsage)
+	}
+	switch {
+	case args[0] == "new" && args[1] == "api":
+		return apiNewCommand(args[2:])
+	case args[0] == "new" && args[1] == "rpc":
+		return rpcNewCommand(args[2:])
+	case args[0] == "gen" && args[1] == "gateway":
+		return gatewayGenCommand(args[2:])
+	default:
+		return fmt.Errorf("%w: unsupported scaffold command `gofly %s`", errUsage, strings.Join(args, " "))
+	}
+}
+
+func aiProjectPlanValues(plan aiProjectPlan) (name, module, dir string) {
+	fields := strings.Fields(plan.Command)
+	if len(fields) > 3 && fields[0] == "gofly" && !strings.HasPrefix(fields[3], "-") {
+		name = fields[3]
+	}
+	if v := templateInputValue(plan.Command, "--name"); v != "" {
+		name = v
+	}
+	return name, templateInputValue(plan.Command, "--module"), templateInputValue(plan.Command, "--dir")
+}
+
+func aiProjectApplyArgs(plan aiProjectPlan) ([]string, error) {
+	name, module, dir := aiProjectPlanValues(plan)
+	fields := strings.Fields(plan.Template.Command)
+	if len(fields) < 3 || fields[0] != "gofly" {
+		return nil, fmt.Errorf("%w: unsupported scaffold command %q", errUsage, plan.Template.Command)
+	}
+	args := make([]string, 0, len(fields)-1)
+	for _, field := range fields[1:] {
+		switch field {
+		case "<name>":
+			args = append(args, name)
+		case "<module>":
+			args = append(args, module)
+		case "<dir>":
+			args = append(args, dir)
+		default:
+			args = append(args, field)
+		}
+	}
+	args = stripCommandFlags(args, "--dry-run", "--plan", "--json")
+	return args, nil
+}
+
+func stripCommandFlags(args []string, names ...string) []string {
+	remove := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		remove[name] = struct{}{}
+	}
+	out := make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		name, hasInlineValue := splitFlagName(arg)
+		if _, ok := remove[name]; ok {
+			if !hasInlineValue && i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+				i++
+			}
+			continue
+		}
+		out = append(out, arg)
+	}
+	return out
+}
+
+func splitFlagName(arg string) (string, bool) {
+	if !strings.HasPrefix(arg, "-") {
+		return arg, false
+	}
+	name, _, ok := strings.Cut(arg, "=")
+	if ok {
+		return name, true
+	}
+	return arg, false
+}
+
+func templateInputValue(command, flagName string) string {
+	fields := strings.Fields(command)
+	for i := 0; i < len(fields); i++ {
+		field := fields[i]
+		if field == flagName && i+1 < len(fields) {
+			return fields[i+1]
+		}
+		prefix := flagName + "="
+		if strings.HasPrefix(field, prefix) {
+			return strings.TrimPrefix(field, prefix)
+		}
+	}
+	return ""
+}
+
+func flagWasProvided(fs *flag.FlagSet, name string) bool {
+	found := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == name {
+			found = true
+		}
+	})
+	return found
+}
+
+func printAIProjectPlanText(projectPlan aiProjectPlan) {
+	cliOutputfIf("template=%s kind=%s risk=%s\n", projectPlan.Template.ID, projectPlan.ProjectType, projectPlan.RiskLevel)
+	cliOutputfIf("features=%s\n", strings.Join(projectPlan.Features, ","))
+	cliOutputfIf("command=%s\n", projectPlan.Command)
+	for _, warning := range projectPlan.Warnings {
+		cliOutputfIf("warning: %s\n", warning)
 	}
 }
 
@@ -3091,6 +3386,16 @@ func buildAIToolManifest() aiToolManifest {
 			"module": stringProperty("Go module path used in the proposed command."),
 			"dir":    stringProperty("Output directory used in the proposed command."),
 		}, []string{outputText, outputJSON}, []string{"none; planning only"}, "read", true, false, []string{"gofly ai plan 'create a rag service with redis vector store' --json"}),
+		manifestCommand("ai new", nil, "Plan or apply an AI-first project scaffold from natural language using the built-in project template catalog and local scaffold generators.", "gofly ai new --prompt <requirement> [--template <id>] [--kind service|rpc|worker|cli|ai-agent|rag|gateway] --name <name> --module <module> --dir <dir> [--dry-run|--plan|--apply] [--format text|json] [--json]", map[string]aiInputProperty{
+			"prompt":   stringProperty("Natural language project requirement."),
+			"template": stringProperty("Explicit project template id, for example go-rag-service."),
+			"kind":     stringProperty("Optional project kind hint, such as service, rpc, worker, cli, ai-agent, rag or gateway."),
+			"name":     stringProperty("Project or service name."),
+			"module":   stringProperty("Go module path."),
+			"dir":      stringProperty("Output directory."),
+			"dryRun":   boolProperty("Print the selected scaffold plan without writing files."),
+			"apply":    boolProperty("Apply the planned scaffold with built-in generators."),
+		}, []string{outputText, outputJSON}, []string{"creates scaffold files under --dir when --apply is set"}, "medium", true, true, []string{"gofly ai new 'create a rest api' --name hello --module example.com/hello --dir hello --dry-run --json", "gofly ai new --template go-rpc-grpc --name greeter --module example.com/greeter --dir greeter --apply"}),
 		manifestCommand("ai complete", nil, "Execute a governed completion through the provider registry with config/env/flag layering, token budget, redaction and audit controls. Use --stream as a compatible entry point for the ai stream event contract.", "gofly ai complete --prompt <text> [--stream] [--config .gofly/config.json] [--provider noop] [--model <model>] [--max-input-tokens <n>] [--max-output-tokens <n>] [--max-total-tokens <n>] [--rate-limit <n>] [--timeout <duration>] [--allow-failover|--failover] [--dry-run|--plan] [--format text|json] [--json]", map[string]aiInputProperty{
 			"prompt":          stringProperty("Prompt text. It is redacted before provider calls and never included in plan output."),
 			"config":          stringProperty("gofly config file. llm defaults are read before GOFLY_LLM_* env vars and CLI flags."),

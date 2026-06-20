@@ -4783,7 +4783,7 @@ func TestExecuteShellCompletionCoverage(t *testing.T) {
 		"complete:handler) commands=\"bash zsh fish powershell pwsh\"",
 		"kube) commands=\"deploy deployment service svc ingress ing configmap cm job\"",
 		"config) commands=\"init show get set clean\"",
-		"ai|tools) commands=\"manifest complete stream doctor\"",
+		"ai|tools) commands=\"manifest plan new complete stream doctor\"",
 	} {
 		if !strings.Contains(completeBash, want) {
 			t.Fatalf("complete bash missing %q:\n%s", want, completeBash)
@@ -4807,7 +4807,7 @@ func TestExecuteShellCompletionCoverage(t *testing.T) {
 		"plugin) commands=\"list ls install uninstall remove rm run\"",
 		"rpc:template|rpc:tpl) commands=\"init list ls clean update revert\"",
 		"completion) commands=\"bash zsh fish powershell pwsh\"",
-		"ai|tools) commands=\"manifest complete stream doctor\"",
+		"ai|tools) commands=\"manifest plan new complete stream doctor\"",
 		"complete:handler) commands=\"bash zsh fish powershell pwsh\"",
 	} {
 		if !strings.Contains(completionBash, want) {
@@ -4830,8 +4830,8 @@ func TestExecuteShellCompletionCoverage(t *testing.T) {
 		`__fish_seen_subcommand_from plugin' -a "list\tList plugins`,
 		`__fish_seen_subcommand_from model; and __fish_seen_subcommand_from postgres' -a "ddl\tGenerate from DDL`,
 		`__fish_seen_subcommand_from completion' -a "bash\tBash completion`,
-		`__fish_seen_subcommand_from ai' -a "manifest\tPrint AI tool manifest\ncomplete\tRun governed noop completion\nstream\tRun governed streaming completion\ndoctor\tRun AI subsystem diagnostics"`,
-		`__fish_seen_subcommand_from tools' -a "manifest\tPrint AI tool manifest alias\ncomplete\tRun governed noop completion alias\nstream\tRun governed streaming completion alias\ndoctor\tRun AI subsystem diagnostics alias"`,
+		`__fish_seen_subcommand_from ai' -a "manifest\tPrint AI tool manifest\nplan\tPlan AI-first project scaffold\nnew\tPlan or apply AI-first project scaffold\ncomplete\tRun governed noop completion\nstream\tRun governed streaming completion\ndoctor\tRun AI subsystem diagnostics"`,
+		`__fish_seen_subcommand_from tools' -a "manifest\tPrint AI tool manifest alias\nplan\tPlan AI-first project scaffold alias\nnew\tPlan or apply AI-first project scaffold alias\ncomplete\tRun governed noop completion alias\nstream\tRun governed streaming completion alias\ndoctor\tRun AI subsystem diagnostics alias"`,
 		`__fish_seen_subcommand_from complete; and __fish_seen_subcommand_from handler' -a "bash\tBash completion`,
 	} {
 		if !strings.Contains(completionFish, want) {
@@ -4852,7 +4852,7 @@ func TestExecuteShellCompletionCoverage(t *testing.T) {
 		"routes:print routes",
 		"plugin) commands=('list:list plugins' 'ls:list plugins' 'install:install remote plugin' 'uninstall:uninstall remote plugin' 'remove:uninstall remote plugin' 'rm:uninstall remote plugin' 'run:run plugin')",
 		"completion) commands=('bash:bash completion' 'zsh:zsh completion' 'fish:fish completion' 'powershell:powershell completion' 'pwsh:powershell completion alias')",
-		"ai|tools) commands=('manifest:print AI tool manifest' 'complete:run governed noop completion' 'stream:run governed streaming completion' 'doctor:run AI subsystem diagnostics')",
+		"ai|tools) commands=('manifest:print AI tool manifest' 'plan:plan AI-first project scaffold' 'new:plan or apply AI-first project scaffold' 'complete:run governed noop completion' 'stream:run governed streaming completion' 'doctor:run AI subsystem diagnostics')",
 		"rpc:template|rpc:tpl) commands=('init:write templates'",
 		"complete:handler) commands=('bash:bash completion' 'zsh:zsh completion' 'fish:fish completion' 'powershell:powershell completion' 'pwsh:powershell completion alias')",
 	} {
@@ -4874,8 +4874,8 @@ func TestExecuteShellCompletionCoverage(t *testing.T) {
 		`"api" { $commands = @("new", "go", "gen", "check", "validate", "breaking", "break", "format", "fmt", "doc", "docs", "swagger", "client", "ts", "typescript", "js", "javascript", "dart", "java", "kotlin", "kt", "types", "route", "routes", "import", "diff", "plugin", "middleware") }`,
 		`"plugin" { $commands = @("list", "ls", "install", "uninstall", "remove", "rm", "run") }`,
 		`"completion" { $commands = @("bash", "zsh", "fish", "powershell", "pwsh") }`,
-		`"ai" { $commands = @("manifest", "complete", "stream", "doctor") }`,
-		`"tools" { $commands = @("manifest", "complete", "stream", "doctor") }`,
+		`"ai" { $commands = @("manifest", "plan", "new", "complete", "stream", "doctor") }`,
+		`"tools" { $commands = @("manifest", "plan", "new", "complete", "stream", "doctor") }`,
 		`"rpc:template" { $commands = @("init", "list", "ls", "clean", "update", "revert") }`,
 		`"rpc:tpl" { $commands = @("init", "list", "ls", "clean", "update", "revert") }`,
 		`"complete:handler" { $commands = @("bash", "zsh", "fish", "powershell", "pwsh") }`,
@@ -4925,7 +4925,7 @@ func TestGenerateCompletionGoldenCommandSets(t *testing.T) {
 			golden: []string{
 				`commands="version new gen generate handler rpc api model docker kube template quickstart migrate migration env bug upgrade config feature plugin completion complete release doctor example examples ai tools"`,
 				`plugin) commands="list ls install uninstall remove rm run" ;;`,
-				`ai|tools) commands="manifest complete stream doctor" ;;`,
+				`ai|tools) commands="manifest plan new complete stream doctor" ;;`,
 				`completion) commands="bash zsh fish powershell pwsh" ;;`,
 			},
 		},
@@ -4935,7 +4935,7 @@ func TestGenerateCompletionGoldenCommandSets(t *testing.T) {
 			golden: []string{
 				`'plugin:list, install or run gofly plugins'`,
 				`plugin) commands=('list:list plugins' 'ls:list plugins' 'install:install remote plugin' 'uninstall:uninstall remote plugin' 'remove:uninstall remote plugin' 'rm:uninstall remote plugin' 'run:run plugin') ;;`,
-				`ai|tools) commands=('manifest:print AI tool manifest' 'complete:run governed noop completion' 'stream:run governed streaming completion' 'doctor:run AI subsystem diagnostics') ;;`,
+				`ai|tools) commands=('manifest:print AI tool manifest' 'plan:plan AI-first project scaffold' 'new:plan or apply AI-first project scaffold' 'complete:run governed noop completion' 'stream:run governed streaming completion' 'doctor:run AI subsystem diagnostics') ;;`,
 				`completion) commands=('bash:bash completion' 'zsh:zsh completion' 'fish:fish completion' 'powershell:powershell completion' 'pwsh:powershell completion alias') ;;`,
 			},
 		},
@@ -4947,7 +4947,7 @@ func TestGenerateCompletionGoldenCommandSets(t *testing.T) {
 				`ai\tEmit AI tool manifest`,
 				`tools\tEmit AI tool manifest alias`,
 				`complete -c gofly -n '__fish_seen_subcommand_from plugin' -a "list\tList plugins`,
-				`complete -c gofly -n '__fish_seen_subcommand_from ai' -a "manifest\tPrint AI tool manifest\ncomplete\tRun governed noop completion\nstream\tRun governed streaming completion\ndoctor\tRun AI subsystem diagnostics"`,
+				`complete -c gofly -n '__fish_seen_subcommand_from ai' -a "manifest\tPrint AI tool manifest\nplan\tPlan AI-first project scaffold\nnew\tPlan or apply AI-first project scaffold\ncomplete\tRun governed noop completion\nstream\tRun governed streaming completion\ndoctor\tRun AI subsystem diagnostics"`,
 				`complete -c gofly -n '__fish_seen_subcommand_from completion' -a "bash\tBash completion`,
 			},
 		},
@@ -4957,7 +4957,7 @@ func TestGenerateCompletionGoldenCommandSets(t *testing.T) {
 			golden: []string{
 				`$commands = @("version", "new", "gen", "generate", "handler", "rpc", "api", "model", "docker", "kube", "template", "quickstart", "migrate", "migration", "env", "bug", "upgrade", "config", "feature", "plugin", "completion", "complete", "release", "doctor", "example", "examples", "ai", "tools")`,
 				`"plugin" { $commands = @("list", "ls", "install", "uninstall", "remove", "rm", "run") }`,
-				`"ai" { $commands = @("manifest", "complete", "stream", "doctor") }`,
+				`"ai" { $commands = @("manifest", "plan", "new", "complete", "stream", "doctor") }`,
 				`"completion" { $commands = @("bash", "zsh", "fish", "powershell", "pwsh") }`,
 			},
 		},

@@ -25,6 +25,7 @@ func TestIsAIHelpSubcommand(t *testing.T) {
 	}{
 		{name: "manifest", command: "manifest", want: true},
 		{name: "plan", command: "plan", want: true},
+		{name: "new", command: "new", want: true},
 		{name: "complete", command: "complete", want: true},
 		{name: "stream", command: "stream", want: true},
 		{name: "doctor", command: "doctor", want: true},
@@ -756,6 +757,258 @@ func TestAIPlanSelectsTemplateAndMaterializesCommand(t *testing.T) {
 	}
 }
 
+func TestAINewPlansAndAppliesSelectedTemplate(t *testing.T) {
+	t.Run("dry-run json plan does not write files", func(t *testing.T) {
+		outDir := filepath.Join(t.TempDir(), "kb")
+		var stdout bytes.Buffer
+		args := []string{"ai", "new", "需要一个 RAG 服务，使用 embedding 和 redis vector store", "--name", "kb", "--module", "example.com/kb", "--dir", outDir, "--json"}
+		if err := ExecuteWithIO(args, IOStreams{Out: &stdout}); err != nil {
+			t.Fatalf("ai new dry-run: %v", err)
+		}
+		var envelope struct {
+			OK      bool   `json:"ok"`
+			Command string `json:"command"`
+			Data    struct {
+				ProjectType       string   `json:"projectType"`
+				Command           string   `json:"command"`
+				DryRun            bool     `json:"dryRun"`
+				MutatesFilesystem bool     `json:"mutatesFilesystem"`
+				Warnings          []string `json:"warnings"`
+				Template          struct {
+					ID string `json:"id"`
+				} `json:"template"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+			t.Fatalf("ai new dry-run JSON: %v\n%s", err, stdout.String())
+		}
+		if !envelope.OK || envelope.Command != "ai.new" || envelope.Data.Template.ID != "go-rag-service" || envelope.Data.ProjectType != "rag" {
+			t.Fatalf("ai new dry-run envelope = %+v, want rag plan", envelope)
+		}
+		if !envelope.Data.DryRun || envelope.Data.MutatesFilesystem {
+			t.Fatalf("ai new dry-run mutation flags = %+v, want dry-run without filesystem mutation", envelope.Data)
+		}
+		if !strings.Contains(envelope.Data.Command, outDir) || len(envelope.Data.Warnings) == 0 {
+			t.Fatalf("ai new dry-run command/warnings = %+v", envelope.Data)
+		}
+		if _, err := os.Stat(filepath.Join(outDir, "go.mod")); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("ai new dry-run wrote go.mod or returned unexpected stat error: %v", err)
+		}
+	})
+
+	t.Run("apply writes scaffold and reports result", func(t *testing.T) {
+		outDir := filepath.Join(t.TempDir(), "hello")
+		var stdout bytes.Buffer
+		args := []string{"ai", "new", "--template", "go-rest-minimal", "--name", "hello", "--module", "example.com/hello", "--dir", outDir, "--apply", "--json"}
+		if err := ExecuteWithIO(args, IOStreams{Out: &stdout}); err != nil {
+			t.Fatalf("ai new apply: %v", err)
+		}
+		var envelope struct {
+			OK      bool   `json:"ok"`
+			Command string `json:"command"`
+			Data    struct {
+				Applied           bool     `json:"applied"`
+				OutputDir         string   `json:"outputDir"`
+				ExecutedCommand   string   `json:"executedCommand"`
+				MutatesFilesystem bool     `json:"mutatesFilesystem"`
+				Verify            []string `json:"verify"`
+				Plan              struct {
+					DryRun            bool `json:"dryRun"`
+					MutatesFilesystem bool `json:"mutatesFilesystem"`
+					Template          struct {
+						ID string `json:"id"`
+					} `json:"template"`
+				} `json:"plan"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+			t.Fatalf("ai new apply JSON: %v\n%s", err, stdout.String())
+		}
+		if !envelope.OK || envelope.Command != "ai.new" || !envelope.Data.Applied || !envelope.Data.MutatesFilesystem || envelope.Data.OutputDir != outDir {
+			t.Fatalf("ai new apply envelope = %+v, want applied result", envelope)
+		}
+		if envelope.Data.Plan.DryRun || !envelope.Data.Plan.MutatesFilesystem || envelope.Data.Plan.Template.ID != "go-rest-minimal" {
+			t.Fatalf("ai new apply plan = %+v, want mutating go-rest-minimal plan", envelope.Data.Plan)
+		}
+		if !strings.Contains(envelope.Data.ExecutedCommand, "gofly new api hello") || len(envelope.Data.Verify) == 0 {
+			t.Fatalf("ai new apply command/verify = %+v", envelope.Data)
+		}
+		if _, err := os.Stat(filepath.Join(outDir, "go.mod")); err != nil {
+			t.Fatalf("ai new apply did not write go.mod: %v", err)
+		}
+	})
+}
+
+func TestAINewFlagValidationBoundaries_BitsUT(t *testing.T) {
+	baseArgs := []string{"ai", "new", "--template", "go-rest-minimal", "--name", "hello", "--module", "example.com/hello", "--dir", filepath.Join(t.TempDir(), "hello")}
+	tests := []struct {
+		name    string
+		args    []string
+		wantErr string
+	}{
+		{
+			name:    "apply rejects explicit dry run",
+			args:    append(append([]string{}, baseArgs...), "--apply", "--dry-run"),
+			wantErr: "--apply cannot be combined",
+		},
+		{
+			name:    "apply rejects plan alias",
+			args:    append(append([]string{}, baseArgs...), "--apply", "--plan"),
+			wantErr: "--apply cannot be combined",
+		},
+		{
+			name:    "prompt flag rejects positional prompt",
+			args:    []string{"ai", "new", "positional", "--prompt", "flag", "--name", "hello", "--module", "example.com/hello", "--dir", filepath.Join(t.TempDir(), "dupe")},
+			wantErr: "either --prompt or positional prompt",
+		},
+		{
+			name:    "requires prompt or template",
+			args:    []string{"ai", "new", "--name", "hello", "--module", "example.com/hello", "--dir", filepath.Join(t.TempDir(), "missing")},
+			wantErr: "--prompt, positional prompt text, or --template is required",
+		},
+		{
+			name:    "rejects unsupported format",
+			args:    append(append([]string{}, baseArgs...), "--format", "yaml"),
+			wantErr: "unsupported --format",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ExecuteWithIO(tt.args, IOStreams{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}})
+			if !errors.Is(err, errUsage) || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("ExecuteWithIO(%v) error = %v, want errUsage containing %q", tt.args, err, tt.wantErr)
+			}
+		})
+	}
+
+	t.Run("template without prompt is accepted for dry-run", func(t *testing.T) {
+		var stdout bytes.Buffer
+		args := append(append([]string{}, baseArgs...), "--format", "json")
+		if err := ExecuteWithIO(args, IOStreams{Out: &stdout}); err != nil {
+			t.Fatalf("ai new template dry-run: %v", err)
+		}
+		var envelope struct {
+			Command string `json:"command"`
+			Data    struct {
+				DryRun bool `json:"dryRun"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+			t.Fatalf("ai new template dry-run JSON: %v\n%s", err, stdout.String())
+		}
+		if envelope.Command != "ai.new" || !envelope.Data.DryRun {
+			t.Fatalf("ai new template dry-run envelope = %+v", envelope)
+		}
+	})
+
+	t.Run("apply accepts dry-run false", func(t *testing.T) {
+		outDir := filepath.Join(t.TempDir(), "apply-false")
+		var stdout bytes.Buffer
+		args := []string{"ai", "new", "--template", "go-rest-minimal", "--name", "hello", "--module", "example.com/hello", "--dir", outDir, "--apply", "--dry-run=false", "--json"}
+		if err := ExecuteWithIO(args, IOStreams{Out: &stdout}); err != nil {
+			t.Fatalf("ai new apply --dry-run=false: %v", err)
+		}
+		if _, err := os.Stat(filepath.Join(outDir, "go.mod")); err != nil {
+			t.Fatalf("ai new apply --dry-run=false did not write go.mod: %v", err)
+		}
+	})
+}
+
+func TestAINewTextHelpAndManifestContract_BitsUT(t *testing.T) {
+	t.Run("text dry-run prints plan", func(t *testing.T) {
+		var stdout bytes.Buffer
+		args := []string{"ai", "new", "create a cli", "--kind", "cli", "--name", "tool", "--module", "example.com/tool", "--dir", "tool", "--format", "text"}
+		if err := ExecuteWithIO(args, IOStreams{Out: &stdout}); err != nil {
+			t.Fatalf("ai new text dry-run: %v", err)
+		}
+		got := stdout.String()
+		if !strings.Contains(got, "template=go-cli-cobra") || !strings.Contains(got, "command=gofly new api tool") || !strings.Contains(got, "warning:") {
+			t.Fatalf("ai new text dry-run output = %s", got)
+		}
+	})
+
+	t.Run("help includes ai new contract", func(t *testing.T) {
+		aiHelp := commandUsage("ai")
+		newHelp := commandUsage("ai new")
+		for _, want := range []string{"ai new", "--apply", "--dry-run", "--template"} {
+			if !strings.Contains(aiHelp+newHelp, want) {
+				t.Fatalf("ai help output missing %q\nai help:\n%s\nai new help:\n%s", want, aiHelp, newHelp)
+			}
+		}
+	})
+
+	t.Run("manifest exposes mutating ai new", func(t *testing.T) {
+		manifest := buildAIToolManifest()
+		for _, cmd := range manifest.Commands {
+			if cmd.Name != "ai new" {
+				continue
+			}
+			if !cmd.SupportsDryRun || !cmd.MutatesFilesystem || cmd.RiskLevel != "medium" || cmd.InputSchema.Properties["apply"].Type != "boolean" {
+				t.Fatalf("ai new manifest command = %+v, want dry-run mutating medium command", cmd)
+			}
+			return
+		}
+		t.Fatal("ai new not found in AI tool manifest")
+	})
+}
+
+func TestAIProjectApplyHelperErrorAndTextBranches_BitsUT(t *testing.T) {
+	t.Run("text apply reports command and next actions", func(t *testing.T) {
+		outDir := filepath.Join(t.TempDir(), "text-apply")
+		var stdout bytes.Buffer
+		args := []string{"ai", "new", "--template", "go-rest-minimal", "--name", "hello", "--module", "example.com/hello", "--dir", outDir, "--apply"}
+		if err := ExecuteWithIO(args, IOStreams{Out: &stdout}); err != nil {
+			t.Fatalf("ai new text apply: %v", err)
+		}
+		got := stdout.String()
+		for _, want := range []string{"applied template=go-rest-minimal", "command=gofly new api hello", "warning:", "next: cd " + outDir} {
+			if !strings.Contains(got, want) {
+				t.Fatalf("ai new text apply output missing %q:\n%s", want, got)
+			}
+		}
+	})
+
+	t.Run("apply input validation reports missing fields", func(t *testing.T) {
+		base := aiProjectPlan{Template: generator.ProjectTemplate{ID: "go-rest-minimal", Command: "gofly new api <name> --module <module> --dir <dir>"}}
+		tests := []struct {
+			name string
+			plan aiProjectPlan
+			want string
+		}{
+			{name: "missing template", plan: aiProjectPlan{Command: "gofly new api hello --module example.com/hello --dir hello"}, want: "project template is required"},
+			{name: "missing name", plan: aiProjectPlan{Template: base.Template, Command: "gofly new api --module example.com/hello --dir hello"}, want: "name is required"},
+			{name: "missing module", plan: aiProjectPlan{Template: base.Template, Command: "gofly new api hello --dir hello"}, want: "module is required"},
+			{name: "missing dir", plan: aiProjectPlan{Template: base.Template, Command: "gofly new api hello --module example.com/hello"}, want: "dir is required"},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				err := validateAIProjectApplyInputs(tt.plan)
+				if !errors.Is(err, errUsage) || !strings.Contains(err.Error(), tt.want) {
+					t.Fatalf("validateAIProjectApplyInputs error = %v, want %q", err, tt.want)
+				}
+			})
+		}
+	})
+
+	t.Run("apply command dispatch rejects incomplete and unsupported commands", func(t *testing.T) {
+		for _, args := range [][]string{{"new"}, {"plugin", "run", "tool"}} {
+			if err := runAIProjectApplyCommand(args); !errors.Is(err, errUsage) {
+				t.Fatalf("runAIProjectApplyCommand(%v) error = %v, want errUsage", args, err)
+			}
+		}
+	})
+
+	t.Run("apply plan propagates unsupported command errors", func(t *testing.T) {
+		plan := aiProjectPlan{
+			Template: generator.ProjectTemplate{ID: "unsupported", Command: "gofly plugin run <name> --module <module> --dir <dir>"},
+			Command:  "gofly plugin run hello --module example.com/hello --dir hello",
+		}
+		if _, err := applyAIProjectPlan(plan); !errors.Is(err, errUsage) || !strings.Contains(err.Error(), "unsupported scaffold command") {
+			t.Fatalf("applyAIProjectPlan unsupported error = %v", err)
+		}
+	})
+}
+
 func TestAIPlanAndTemplateCatalogHelperBoundaries_BitsUT(t *testing.T) {
 	templates := generator.ListProjectTemplates()
 	if len(templates) == 0 {
@@ -784,6 +1037,32 @@ func TestAIPlanAndTemplateCatalogHelperBoundaries_BitsUT(t *testing.T) {
 	plan := buildAIProjectPlan("create a gateway", "gateway", "edge", "example.com/edge", "edge-dir", false)
 	if !plan.MutatesFilesystem || plan.DryRun || plan.ProjectType != "gateway" || !strings.Contains(plan.Command, "edge-dir") {
 		t.Fatalf("buildAIProjectPlan mutating gateway = %#v", plan)
+	}
+	if _, err := buildAIProjectNewPlan("", "", "missing-template", "edge", "example.com/edge", "edge", true); !errors.Is(err, errUsage) {
+		t.Fatal("buildAIProjectNewPlan should reject unknown template id")
+	}
+	unsafeCommands := []generator.ProjectTemplate{
+		{ID: "shell", Command: "bash -c rm"},
+		{ID: "short", Command: "gofly new"},
+		{ID: "unsupported", Command: "gofly plugin run tool"},
+		{ID: "metachar", Command: "gofly new api <name> ; rm"},
+	}
+	for _, tmpl := range unsafeCommands {
+		if err := validateAIProjectTemplateCommand(tmpl); !errors.Is(err, errUsage) {
+			t.Fatalf("validateAIProjectTemplateCommand(%+v) error = %v, want errUsage", tmpl, err)
+		}
+	}
+	if args, err := aiProjectApplyArgs(plan); err != nil || strings.Join(args, " ") != "gen gateway edge --module example.com/edge --dir edge-dir" {
+		t.Fatalf("aiProjectApplyArgs gateway = %v, %v", args, err)
+	}
+	if got := stripCommandFlags([]string{"new", "api", "hello", "--dry-run", "--json=false", "--module", "example.com/hello"}, "--dry-run", "--json"); strings.Join(got, " ") != "new api hello --module example.com/hello" {
+		t.Fatalf("stripCommandFlags = %q", strings.Join(got, " "))
+	}
+	if got := stripCommandFlags([]string{"new", "api", "hello", "--dry-run", "false", "--plan", "false", "--module=example.com/hello"}, "--dry-run", "--plan"); strings.Join(got, " ") != "new api hello --module=example.com/hello" {
+		t.Fatalf("stripCommandFlags bool values = %q", strings.Join(got, " "))
+	}
+	if got := templateInputValue("gofly new api hello --module=example.com/hello --dir out", "--module"); got != "example.com/hello" {
+		t.Fatalf("templateInputValue inline module = %q", got)
 	}
 
 	filtered := filterProjectTemplates(generator.ListProjectTemplates(), "vector-store", "")

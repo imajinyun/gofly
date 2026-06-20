@@ -958,7 +958,7 @@ _gofly_completion() {
     plugin) commands="list ls install uninstall remove rm run" ;;
     completion) commands="bash zsh fish powershell pwsh" ;;
     complete) commands="handler" ;;
-    ai|tools) commands="manifest complete stream doctor" ;;
+    ai|tools) commands="manifest plan new complete stream doctor" ;;
   esac
   case "$cmd:$sub" in
     rpc:template|rpc:tpl) commands="init list ls clean update revert" ;;
@@ -1018,7 +1018,7 @@ _gofly() {
     plugin) commands=('list:list plugins' 'ls:list plugins' 'install:install remote plugin' 'uninstall:uninstall remote plugin' 'remove:uninstall remote plugin' 'rm:uninstall remote plugin' 'run:run plugin') ;;
     completion) commands=('bash:bash completion' 'zsh:zsh completion' 'fish:fish completion' 'powershell:powershell completion' 'pwsh:powershell completion alias') ;;
     complete) commands=('handler:emit shell completion scripts') ;;
-    ai|tools) commands=('manifest:print AI tool manifest' 'complete:run governed noop completion' 'stream:run governed streaming completion' 'doctor:run AI subsystem diagnostics') ;;
+    ai|tools) commands=('manifest:print AI tool manifest' 'plan:plan AI-first project scaffold' 'new:plan or apply AI-first project scaffold' 'complete:run governed noop completion' 'stream:run governed streaming completion' 'doctor:run AI subsystem diagnostics') ;;
   esac
   case "$words[2]:$words[3]" in
     rpc:template|rpc:tpl) commands=('init:write templates' 'list:list templates' 'ls:list templates' 'clean:remove templates' 'update:refresh templates' 'revert:restore templates') ;;
@@ -1046,8 +1046,8 @@ complete -c gofly -n '__fish_seen_subcommand_from feature' -a "list\tList availa
 complete -c gofly -n '__fish_seen_subcommand_from plugin' -a "list\tList plugins\nls\tList plugins alias\ninstall\tInstall remote plugin\nuninstall\tUninstall plugin\nremove\tUninstall plugin alias\nrm\tUninstall plugin alias\nrun\tRun plugin"
 complete -c gofly -n '__fish_seen_subcommand_from completion' -a "bash\tBash completion\nzsh\tZsh completion\nfish\tFish completion\npowershell\tPowerShell completion\npwsh\tPowerShell completion alias"
 complete -c gofly -n '__fish_seen_subcommand_from complete' -a "handler\tEmit completion scripts"
-complete -c gofly -n '__fish_seen_subcommand_from ai' -a "manifest\tPrint AI tool manifest\ncomplete\tRun governed noop completion\nstream\tRun governed streaming completion\ndoctor\tRun AI subsystem diagnostics"
-complete -c gofly -n '__fish_seen_subcommand_from tools' -a "manifest\tPrint AI tool manifest alias\ncomplete\tRun governed noop completion alias\nstream\tRun governed streaming completion alias\ndoctor\tRun AI subsystem diagnostics alias"
+complete -c gofly -n '__fish_seen_subcommand_from ai' -a "manifest\tPrint AI tool manifest\nplan\tPlan AI-first project scaffold\nnew\tPlan or apply AI-first project scaffold\ncomplete\tRun governed noop completion\nstream\tRun governed streaming completion\ndoctor\tRun AI subsystem diagnostics"
+complete -c gofly -n '__fish_seen_subcommand_from tools' -a "manifest\tPrint AI tool manifest alias\nplan\tPlan AI-first project scaffold alias\nnew\tPlan or apply AI-first project scaffold alias\ncomplete\tRun governed noop completion alias\nstream\tRun governed streaming completion alias\ndoctor\tRun AI subsystem diagnostics alias"
 complete -c gofly -n '__fish_seen_subcommand_from rpc; and __fish_seen_subcommand_from template' -a "init\tWrite default templates\nlist\tList templates\nls\tList templates alias\nclean\tRemove templates\nupdate\tRefresh templates\nrevert\tRestore default templates"
 complete -c gofly -n '__fish_seen_subcommand_from rpc; and __fish_seen_subcommand_from tpl' -a "init\tWrite default templates\nlist\tList templates\nls\tList templates alias\nclean\tRemove templates\nupdate\tRefresh templates\nrevert\tRestore default templates"
 complete -c gofly -n '__fish_seen_subcommand_from model; and __fish_seen_subcommand_from mysql' -a "ddl\tGenerate from DDL\ndatasource\tGenerate from datasource"
@@ -1079,8 +1079,8 @@ complete -c gofly -n '__fish_seen_subcommand_from complete; and __fish_seen_subc
     "plugin" { $commands = @("list", "ls", "install", "uninstall", "remove", "rm", "run") }
     "completion" { $commands = @("bash", "zsh", "fish", "powershell", "pwsh") }
     "complete" { $commands = @("handler") }
-    "ai" { $commands = @("manifest", "complete", "stream", "doctor") }
-    "tools" { $commands = @("manifest", "complete", "stream", "doctor") }
+    "ai" { $commands = @("manifest", "plan", "new", "complete", "stream", "doctor") }
+    "tools" { $commands = @("manifest", "plan", "new", "complete", "stream", "doctor") }
   }
   switch ("$($cmd):$sub") {
     "rpc:template" { $commands = @("init", "list", "ls", "clean", "update", "revert") }

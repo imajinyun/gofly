@@ -276,18 +276,18 @@ func TestRPCAndOpenAPIHelperBoundaries_BitsUT(t *testing.T) {
 		})
 	}
 	typeTests := map[string]string{
-		" string ":             "string",
-		"binary":               "string",
-		"bool":                 "bool",
-		"i8":                   "int32",
-		"i16":                  "int32",
-		"i32":                  "int32",
-		"i64":                  "int64",
-		"double":               "double",
-		"void":                 "Empty",
-		"list<i64>":            "repeated int64",
-		"list<user.Profile>":   "repeated Profile",
-		"custom_type":          "CustomType",
+		" string ":           "string",
+		"binary":             "string",
+		"bool":               "bool",
+		"i8":                 "int32",
+		"i16":                "int32",
+		"i32":                "int32",
+		"i64":                "int64",
+		"double":             "double",
+		"void":               "Empty",
+		"list<i64>":          "repeated int64",
+		"list<user.Profile>": "repeated Profile",
+		"custom_type":        "CustomType",
 	}
 	for input, want := range typeTests {
 		t.Run("type/"+input, func(t *testing.T) {
@@ -3085,10 +3085,10 @@ func TestGenerateMigrationAndCompletionScripts(t *testing.T) {
 		shell string
 		want  []string
 	}{
-		{shell: "bash", want: []string{`commands="version new gen generate handler rpc api model docker kube template quickstart migrate migration env bug upgrade config feature plugin completion complete release doctor example examples ai tools"`, `plugin) commands="list ls install uninstall remove rm run"`, `ai|tools) commands="manifest complete stream doctor"`}},
-		{shell: "zsh", want: []string{`'plugin:list, install or run gofly plugins'`, `plugin) commands=('list:list plugins'`, `ai|tools) commands=('manifest:print AI tool manifest' 'complete:run governed noop completion' 'stream:run governed streaming completion' 'doctor:run AI subsystem diagnostics')`}},
-		{shell: "fish", want: []string{`complete -c gofly -n '__fish_seen_subcommand_from plugin' -a "list\tList plugins`, `complete -c gofly -n '__fish_seen_subcommand_from ai' -a "manifest\tPrint AI tool manifest\ncomplete\tRun governed noop completion\nstream\tRun governed streaming completion\ndoctor\tRun AI subsystem diagnostics"`}},
-		{shell: "powershell", want: []string{`"plugin" { $commands = @("list", "ls", "install", "uninstall", "remove", "rm", "run") }`, `"ai" { $commands = @("manifest", "complete", "stream", "doctor") }`}},
+		{shell: "bash", want: []string{`commands="version new gen generate handler rpc api model docker kube template quickstart migrate migration env bug upgrade config feature plugin completion complete release doctor example examples ai tools"`, `plugin) commands="list ls install uninstall remove rm run"`, `ai|tools) commands="manifest plan new complete stream doctor"`}},
+		{shell: "zsh", want: []string{`'plugin:list, install or run gofly plugins'`, `plugin) commands=('list:list plugins'`, `ai|tools) commands=('manifest:print AI tool manifest' 'plan:plan AI-first project scaffold' 'new:plan or apply AI-first project scaffold' 'complete:run governed noop completion' 'stream:run governed streaming completion' 'doctor:run AI subsystem diagnostics')`}},
+		{shell: "fish", want: []string{`complete -c gofly -n '__fish_seen_subcommand_from plugin' -a "list\tList plugins`, `complete -c gofly -n '__fish_seen_subcommand_from ai' -a "manifest\tPrint AI tool manifest\nplan\tPlan AI-first project scaffold\nnew\tPlan or apply AI-first project scaffold\ncomplete\tRun governed noop completion\nstream\tRun governed streaming completion\ndoctor\tRun AI subsystem diagnostics"`}},
+		{shell: "powershell", want: []string{`"plugin" { $commands = @("list", "ls", "install", "uninstall", "remove", "rm", "run") }`, `"ai" { $commands = @("manifest", "plan", "new", "complete", "stream", "doctor") }`}},
 		{shell: "pwsh", want: []string{`Register-ArgumentCompleter -Native -CommandName gofly`}},
 	} {
 		t.Run(tt.shell, func(t *testing.T) {

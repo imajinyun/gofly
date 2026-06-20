@@ -2,6 +2,7 @@ package di
 
 import (
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -145,6 +146,38 @@ func TestProviderError(t *testing.T) {
 	_ = Provide(c, func(*Container) (*repo, error) { return nil, sentinel })
 	if _, err := Resolve[*repo](c); !errors.Is(err, sentinel) {
 		t.Fatalf("err = %v, want sentinel", err)
+	}
+}
+
+type failingCloser struct{ err error }
+
+func (c *failingCloser) Close() error { return c.err }
+
+func TestContainerBoundaryErrors_BitsUT(t *testing.T) {
+	c := New()
+	if err := Provide[*repo](c, nil); err == nil || !strings.Contains(err.Error(), "provider is nil") {
+		t.Fatalf("Provide nil error = %v, want provider nil", err)
+	}
+	if err := c.Close(); err != nil {
+		t.Fatalf("Close empty: %v", err)
+	}
+	if err := c.Close(); err != nil {
+		t.Fatalf("Close twice: %v", err)
+	}
+	if err := Provide(c, func(*Container) (*repo, error) { return &repo{}, nil }); !errors.Is(err, ErrClosed) {
+		t.Fatalf("Provide closed error = %v, want ErrClosed", err)
+	}
+
+	c = New()
+	closeErr := errors.New("close failed")
+	if err := Provide(c, func(*Container) (*failingCloser, error) { return &failingCloser{err: closeErr}, nil }); err != nil {
+		t.Fatalf("Provide failingCloser: %v", err)
+	}
+	if _, err := Resolve[*failingCloser](c); err != nil {
+		t.Fatalf("Resolve failingCloser: %v", err)
+	}
+	if err := c.Close(); !errors.Is(err, closeErr) {
+		t.Fatalf("Close failingCloser error = %v, want closeErr", err)
 	}
 }
 

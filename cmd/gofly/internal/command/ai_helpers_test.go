@@ -1,13 +1,16 @@
 package command
 
 import (
+	"bytes"
 	"errors"
+	"flag"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gofly/gofly/cmd/gofly/internal/generator"
 	"github.com/gofly/gofly/core/llm"
@@ -89,6 +92,274 @@ func TestCommandHelpSubcommandBoundaries_BitsUT(t *testing.T) {
 	}
 	if !isModelDriverHelpSubcommand("mysql", "ddl") || !isModelDriverHelpSubcommand("pg", "datasource") || isModelDriverHelpSubcommand("sqlite", "ddl") {
 		t.Fatal("model driver help subcommand boundaries mismatch")
+	}
+}
+
+func TestNewServicePlanAndFlagParsingBoundaries_BitsUT(t *testing.T) {
+	invalidConfigs := []struct {
+		name string
+		cfg  *generator.Config
+		want string
+	}{
+		{name: "nil", cfg: nil, want: "service config is required"},
+		{name: "missing name", cfg: &generator.Config{Module: "example.com/orders"}, want: "name is required"},
+		{name: "missing module", cfg: &generator.Config{ServiceName: "orders"}, want: "module is required"},
+		{name: "bad style", cfg: &generator.Config{ServiceName: "orders", Module: "example.com/orders", Style: "unknown"}, want: "unknown service style"},
+	}
+	for _, tt := range invalidConfigs {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateNewServicePlanInputs(tt.cfg)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("validateNewServicePlanInputs() error = %v, want %q", err, tt.want)
+			}
+		})
+	}
+	valid := &generator.Config{ServiceName: "orders", Module: "example.com/orders", Style: generator.ServiceStyleProduction, Features: []string{"http"}, TemplateDir: "tpl", TemplateRemote: "https://example.test/tpl"}
+	if err := validateNewServicePlanInputs(valid); err != nil {
+		t.Fatalf("validateNewServicePlanInputs(valid) = %v", err)
+	}
+	plan := buildNewServicePlan("new api", "out", ".gofly/config.json", valid, []string{"audit", "trace"}, true, true)
+	if plan.Command != "new api" || !plan.DryRun || !plan.MutatesFilesystem || len(plan.Actions) != 4 || len(plan.Warnings) != 2 || plan.Inputs["features"] != "http" || plan.Inputs["plugins"] != "audit,trace" {
+		t.Fatalf("buildNewServicePlan = %#v, want full dry-run plan", plan)
+	}
+
+	fs := flag.NewFlagSet("test", flag.ContinueOnError)
+	name := fs.String("name", "", "")
+	dryRun := fs.Bool("dry-run", false, "")
+	count := fs.Int("count", 0, "")
+	positionals, err := parseInterspersedFlags(fs, []string{"orders", "--name", "api", "--dry-run", "tail", "--count=3", "--", "--literal"})
+	if err != nil {
+		t.Fatalf("parseInterspersedFlags: %v", err)
+	}
+	if *name != "api" || !*dryRun || *count != 3 || strings.Join(positionals, ",") != "orders,tail,--literal" {
+		t.Fatalf("parsed flags name=%q dry=%t count=%d positionals=%v", *name, *dryRun, *count, positionals)
+	}
+	if got := flagName("--name=value"); got != "name" {
+		t.Fatalf("flagName = %q, want name", got)
+	}
+	if name, rest := splitLeadingName([]string{"svc", "--flag"}); name != "svc" || len(rest) != 1 || rest[0] != "--flag" {
+		t.Fatalf("splitLeadingName = %q %v, want svc and flag", name, rest)
+	}
+	if name, rest := splitLeadingName([]string{"--flag"}); name != "" || len(rest) != 1 {
+		t.Fatalf("splitLeadingName flag = %q %v, want unchanged flag args", name, rest)
+	}
+}
+
+func TestCommandIOAndAIDoctorBoundaries_BitsUT(t *testing.T) {
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	verbose := true
+	quiet := false
+	if got := resolveVerbosity(&verbose, nil, nil, nil); got != verbosityVerbose {
+		t.Fatalf("resolveVerbosity verbose = %d, want verbose", got)
+	}
+	if got := resolveVerbosity(nil, nil, &quiet, nil); got != verbosityNormal {
+		t.Fatalf("resolveVerbosity false quiet = %d, want normal", got)
+	}
+	if got := normalizeOutputMode("xml"); got != "xml" {
+		t.Fatalf("normalizeOutputMode custom = %q, want passthrough", got)
+	}
+	err := withCommandIO(IOStreams{Out: &out, Err: &errOut}, outputJSON, verbosityVerbose, func() error {
+		cliOutputIf("visible")
+		verboseOutputf("debug %d", 1)
+		if OutputMode() != outputJSON || currentOut() != &out || currentErr() != &errOut {
+			t.Fatalf("command IO state not applied")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("withCommandIO error = %v", err)
+	}
+	if out.String() != "visible" || errOut.String() != "debug 1" {
+		t.Fatalf("captured out=%q err=%q, want visible/debug", out.String(), errOut.String())
+	}
+	_ = withCommandIO(IOStreams{Out: &out}, outputText, verbosityQuiet, func() error {
+		before := out.Len()
+		cliOutputIf("quiet")
+		cliOutputfIf("quiet")
+		cliOutputlnIf("quiet")
+		if out.Len() != before {
+			t.Fatalf("quiet mode wrote %q", out.String()[before:])
+		}
+		return nil
+	})
+
+	t.Setenv("GOFLY_LLM_CACHE_TTL", "30s")
+	t.Setenv("GOFLY_LLM_CACHE_MAX_SIZE", "8")
+	cache := checkAIDoctorCache()
+	if cache.Status != "ok" || !strings.Contains(cache.Message, "GOFLY_LLM_CACHE_TTL=30s") || !strings.Contains(cache.Message, "GOFLY_LLM_CACHE_MAX_SIZE=8") {
+		t.Fatalf("checkAIDoctorCache = %#v, want env-backed ok status", cache)
+	}
+
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".gofly"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, generator.DefaultConfigFile), []byte(`{"llm":{"provider":"noop","model":"noop"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+	config := checkAIDoctorConfig()
+	if config.Status != "ok" || !strings.Contains(config.Message, "noop") {
+		t.Fatalf("checkAIDoctorConfig = %#v, want workdir config", config)
+	}
+}
+
+func TestAIExecutionFailoverAndPlanHelpers_BitsUT(t *testing.T) {
+	ctx, cancel := aiExecutionContext(aiCompleteConfig{})
+	cancel()
+	if err := ctx.Err(); err != nil {
+		t.Fatalf("aiExecutionContext without timeout ctx err = %v, want nil", err)
+	}
+	ctx, cancel = aiExecutionContext(aiCompleteConfig{Timeout: time.Nanosecond})
+	defer cancel()
+	select {
+	case <-ctx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for aiExecutionContext deadline")
+	}
+
+	retryable := errors.Join(errors.New("wrapped"), llm.ErrRateLimited)
+	if !shouldAttemptManualFailover(aiCompleteConfig{AllowFailover: true, FailoverProviders: []string{"backup"}}, 0, retryable) {
+		t.Fatal("shouldAttemptManualFailover rejected retryable primary failure")
+	}
+	if shouldAttemptManualFailover(aiCompleteConfig{AllowFailover: true, FailoverProviders: []string{"backup"}}, 1, retryable) || shouldAttemptManualFailover(aiCompleteConfig{AllowFailover: false, FailoverProviders: []string{"backup"}}, 0, retryable) || shouldAttemptManualFailover(aiCompleteConfig{AllowFailover: true}, 0, retryable) || shouldAttemptManualFailover(aiCompleteConfig{AllowFailover: true, FailoverProviders: []string{"backup"}}, 0, errors.New("fatal")) {
+		t.Fatal("shouldAttemptManualFailover accepted non-primary, disabled, missing backup, or non-retryable failure")
+	}
+	if got := failoverFrom(0, "primary"); got != "" {
+		t.Fatalf("failoverFrom primary = %q, want empty", got)
+	}
+	if got := failoverFrom(1, "primary"); got != "primary" {
+		t.Fatalf("failoverFrom backup = %q, want primary", got)
+	}
+	key1 := aiFailoverIdempotencyKey("prompt", aiCompleteConfig{Provider: "noop", Model: "a", MaxInputTokens: 1})
+	key2 := aiFailoverIdempotencyKey("prompt", aiCompleteConfig{Provider: "noop", Model: "b", MaxInputTokens: 1})
+	if !strings.HasPrefix(key1, "gofly-ai-") || key1 == key2 {
+		t.Fatalf("aiFailoverIdempotencyKey key1=%q key2=%q, want stable prefix and model-sensitive hash", key1, key2)
+	}
+	metadata := aiAttemptMetadata("ai complete", 1, "primary", "backup", key1, true)
+	if metadata["provider_attempt"] != "2" || metadata["manual_failover"] != "true" || metadata["failover_from"] != "primary" || metadata["failover_to"] != "backup" || metadata["idempotency_key"] != key1 {
+		t.Fatalf("aiAttemptMetadata failover = %#v", metadata)
+	}
+	metadata = aiAttemptMetadata("ai complete", 0, "primary", "primary", key1, false)
+	if _, ok := metadata["manual_failover_allowed"]; ok || metadata["provider_attempt"] != "1" {
+		t.Fatalf("aiAttemptMetadata primary = %#v", metadata)
+	}
+
+	resp := &jsonError{NextActions: []string{"existing"}}
+	addProviderFailoverNextActions(resp)
+	addProviderFailoverNextActions(resp)
+	if len(resp.NextActions) != 4 || resp.NextActions[0] != "existing" {
+		t.Fatalf("failover next actions = %#v, want deduplicated additions", resp.NextActions)
+	}
+	addProviderFailoverNextActions(nil)
+	if got := appendMissingStrings([]string{"a"}, "", "a", "b"); strings.Join(got, ",") != "a,b" {
+		t.Fatalf("appendMissingStrings = %v, want a,b", got)
+	}
+	if commandName(nil) != "root" || commandName([]string{"ai"}) != "ai" || commandName([]string{"ai", "stream", "ignored"}) != "ai.stream" {
+		t.Fatal("commandName boundary mismatch")
+	}
+}
+
+func TestAIStreamPlanJSONBoundary_BitsUT(t *testing.T) {
+	var out bytes.Buffer
+	err := withCommandIO(IOStreams{Out: &out}, outputJSON, verbosityNormal, func() error {
+		return printAIStreamPlanFor("ai.stream", "ai stream", aiCompleteConfig{
+			Provider:           "noop",
+			Model:              "noop",
+			ConfigPath:         ".gofly/config.json",
+			MaxInputTokens:     10,
+			MaxOutputTokens:    3,
+			MaxTotalTokens:     13,
+			RateLimitPerSecond: 2,
+			RateLimitBurst:     4,
+			Timeout:            time.Second,
+			AllowFailover:      true,
+			FailoverProviders:  []string{"noop", "missing"},
+		}, 5, true)
+	})
+	if err != nil {
+		t.Fatalf("printAIStreamPlanFor: %v", err)
+	}
+	planOutput := out.String()
+	for _, want := range []string{"ai stream", "estimatedInputTokens", "plan-provider-failover", "GOFLY_LLM_FAILOVER_PROVIDERS", "missing"} {
+		if !strings.Contains(planOutput, want) {
+			t.Fatalf("stream plan output missing %q:\n%s", want, planOutput)
+		}
+	}
+}
+
+func TestRootControlVersionAndHelpBoundaries_BitsUT(t *testing.T) {
+	output, verbosity, remaining, err := parseGlobalControls([]string{"--output=json", "-v", "version"})
+	if err != nil || output != outputJSON || verbosity != verbosityVerbose || strings.Join(remaining, ",") != "version" {
+		t.Fatalf("parseGlobalControls json verbose = output=%q verbosity=%d remaining=%v err=%v", output, verbosity, remaining, err)
+	}
+	output, verbosity, remaining, err = parseGlobalControls([]string{"--output", "text", "--quiet", "doctor"})
+	if err != nil || output != outputText || verbosity != verbosityQuiet || strings.Join(remaining, ",") != "doctor" {
+		t.Fatalf("parseGlobalControls text quiet = output=%q verbosity=%d remaining=%v err=%v", output, verbosity, remaining, err)
+	}
+	for _, args := range [][]string{{"--output"}, {"--output", "xml"}, {"--output=xml"}} {
+		if _, _, _, err := parseGlobalControls(args); err == nil {
+			t.Fatalf("parseGlobalControls(%v) succeeded, want error", args)
+		}
+	}
+	if output, remaining, err := parseGlobalOutput([]string{"--output=json", "version"}); err != nil || output != outputJSON || len(remaining) != 1 || remaining[0] != "version" {
+		t.Fatalf("parseGlobalOutput = output=%q remaining=%v err=%v", output, remaining, err)
+	}
+
+	if topic, ok := commandHelpTopic("api", []string{"help", "go", "--format"}); !ok || topic != "api go" {
+		t.Fatalf("commandHelpTopic help = %q %t, want api go", topic, ok)
+	}
+	if topic, ok := commandHelpTopic("api", []string{"go", "--api", "svc.api", "--help"}); !ok || topic != "api go" {
+		t.Fatalf("commandHelpTopic trailing = %q %t, want api go", topic, ok)
+	}
+	if got := leadingHelpTopicArgs([]string{"go", "", "ignored"}); len(got) != 1 || got[0] != "go" {
+		t.Fatalf("leadingHelpTopicArgs = %v, want [go]", got)
+	}
+	if got := joinHelpTopic("api", nil); got != "api" {
+		t.Fatalf("joinHelpTopic no parts = %q, want api", got)
+	}
+	if got := normalizeGoctlStyleFlags(nil); got != nil {
+		t.Fatalf("normalizeGoctlStyleFlags(nil) = %v, want nil", got)
+	}
+
+	var errOut bytes.Buffer
+	err = withCommandIO(IOStreams{Err: &errOut}, outputText, verbosityNormal, func() error {
+		warnNoopFlag("cmd", "legacy", "")
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("withCommandIO warnNoopFlag: %v", err)
+	}
+	if !strings.Contains(errOut.String(), "accepted for compatibility") {
+		t.Fatalf("warnNoopFlag output = %q, want default reason", errOut.String())
+	}
+
+	var out bytes.Buffer
+	err = withCommandIO(IOStreams{Out: &out}, outputJSON, verbosityNormal, func() error {
+		return versionCommand(nil)
+	})
+	if err != nil {
+		t.Fatalf("versionCommand json: %v", err)
+	}
+	if !strings.Contains(out.String(), `"command"`) || !strings.Contains(out.String(), `"version"`) || !strings.Contains(out.String(), `"tool"`) || !strings.Contains(out.String(), `"gofly"`) {
+		t.Fatalf("versionCommand json output = %s", out.String())
+	}
+	if err := versionCommand([]string{"extra"}); err == nil {
+		t.Fatal("versionCommand positional succeeded, want usage error")
+	}
+
+	var execOut bytes.Buffer
+	err = ExecuteWithIO([]string{"--output=json", "unknown"}, IOStreams{Out: &execOut})
+	if err == nil || !strings.Contains(execOut.String(), `"command"`) || !strings.Contains(execOut.String(), `"unknown"`) || !strings.Contains(execOut.String(), `"USAGE_ERROR"`) {
+		t.Fatalf("ExecuteWithIO unknown err=%v out=%s, want JSON error envelope", err, execOut.String())
 	}
 }
 

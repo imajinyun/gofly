@@ -33,6 +33,61 @@ func TestTokenBudgetReserveAndSnapshot(t *testing.T) {
 	}
 }
 
+func TestTokenEstimationBudgetAndLimiterBoundaries_BitsUT(t *testing.T) {
+	if got := EstimateTokens("   "); got != 0 {
+		t.Fatalf("EstimateTokens(blank) = %d, want 0", got)
+	}
+	if got := EstimateTokens("你好世界a"); got != 2 {
+		t.Fatalf("EstimateTokens(unicode) = %d, want 2", got)
+	}
+	req := Request{
+		Prompt:         "12345678",
+		Messages:       []Message{{Role: "system", Content: "1234"}},
+		MaxInputTokens: 2,
+	}
+	if got := requestInputTokens(req); got != 2 {
+		t.Fatalf("requestInputTokens capped = %d, want 2", got)
+	}
+	if got := embedInputTokens(EmbedRequest{Inputs: []string{"abcd", ""}}); got != 1 {
+		t.Fatalf("embedInputTokens = %d, want 1", got)
+	}
+
+	usage, err := ((*TokenBudget)(nil)).Reserve(-1, 2)
+	if err != nil || usage.InputTokens != 0 || usage.OutputTokens != 2 || usage.TotalTokens != 2 {
+		t.Fatalf("nil budget Reserve = %+v err=%v, want normalized unlimited usage", usage, err)
+	}
+	if snapshot := ((*TokenBudget)(nil)).Snapshot(); snapshot != (BudgetSnapshot{}) {
+		t.Fatalf("nil budget Snapshot = %+v, want zero", snapshot)
+	}
+	if got := remaining(0, 10); got != 0 {
+		t.Fatalf("remaining unlimited = %d, want 0", got)
+	}
+	if got := remaining(3, 10); got != 0 {
+		t.Fatalf("remaining exhausted = %d, want 0", got)
+	}
+
+	if _, err := NewTokenBudget(0, 1, 0).Reserve(0, 2); !errors.Is(err, ErrBudgetExceeded) {
+		t.Fatalf("output budget error = %v, want ErrBudgetExceeded", err)
+	}
+	if _, err := NewTokenBudget(0, 0, 1).Reserve(1, 1); !errors.Is(err, ErrBudgetExceeded) {
+		t.Fatalf("total budget error = %v, want ErrBudgetExceeded", err)
+	}
+
+	if err := ((*RateLimiter)(nil)).Wait(context.Background()); err != nil {
+		t.Fatalf("nil RateLimiter.Wait error = %v, want nil", err)
+	}
+	limiter := NewRateLimiter(1, 1)
+	limiter.check = time.Millisecond
+	if !limiter.Allow() {
+		t.Fatal("precondition failed: first Allow = false")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := limiter.Wait(ctx); !errors.Is(err, ErrRateLimited) || !strings.Contains(err.Error(), context.Canceled.Error()) {
+		t.Fatalf("RateLimiter.Wait canceled error = %v, want ErrRateLimited with context cancellation text", err)
+	}
+}
+
 func TestRateLimiterAllow(t *testing.T) {
 	limiter := NewRateLimiter(1, 1)
 	if !limiter.Allow() {

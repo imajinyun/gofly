@@ -323,6 +323,127 @@ func TestValidateIdentifierRejectsUnsafeInput(t *testing.T) {
 	}
 }
 
+func TestSQLBuilderErrorBoundaries_BitsUT(t *testing.T) {
+	errorCases := []struct {
+		name string
+		fn   func() error
+	}{
+		{name: "join invalid", fn: func() error { _, err := JoinIdentifiers([]string{"id", "bad-name"}); return err }},
+		{name: "select bad id", fn: func() error { _, err := SelectByID("users", []string{"id"}, "bad-name", DialectQuestion); return err }},
+		{name: "select bad column", fn: func() error { _, err := SelectByID("users", []string{"bad-name"}, "id", DialectQuestion); return err }},
+		{name: "insert bad table", fn: func() error { _, err := Insert("bad-table", []string{"id"}, DialectQuestion); return err }},
+		{name: "insert empty columns", fn: func() error { _, err := Insert("users", nil, DialectQuestion); return err }},
+		{name: "batch bad table", fn: func() error { _, err := BatchInsert("bad-table", []string{"id"}, 1, DialectQuestion); return err }},
+		{name: "batch empty columns", fn: func() error { _, err := BatchInsert("users", nil, 1, DialectQuestion); return err }},
+		{name: "upsert insert error", fn: func() error {
+			_, err := Upsert("bad-table", []string{"id"}, []string{"id"}, []string{"name"}, DialectQuestion)
+			return err
+		}},
+		{name: "upsert no conflict", fn: func() error {
+			_, err := Upsert("users", []string{"id"}, nil, []string{"name"}, DialectQuestion)
+			return err
+		}},
+		{name: "upsert no updates", fn: func() error {
+			_, err := Upsert("users", []string{"id"}, []string{"id"}, nil, DialectQuestion)
+			return err
+		}},
+		{name: "upsert bad update", fn: func() error {
+			_, err := Upsert("users", []string{"id"}, []string{"id"}, []string{"bad-name"}, DialectQuestion)
+			return err
+		}},
+		{name: "update bad table", fn: func() error { _, err := UpdateByID("bad-table", []string{"name"}, "id", DialectQuestion); return err }},
+		{name: "update empty columns", fn: func() error { _, err := UpdateByID("users", nil, "id", DialectQuestion); return err }},
+		{name: "update bad id", fn: func() error { _, err := UpdateByID("users", []string{"name"}, "bad-name", DialectQuestion); return err }},
+		{name: "update bad column", fn: func() error { _, err := UpdateByID("users", []string{"bad-name"}, "id", DialectQuestion); return err }},
+		{name: "delete bad table", fn: func() error { _, err := DeleteByID("bad-table", "id", DialectQuestion); return err }},
+		{name: "delete bad id", fn: func() error { _, err := DeleteByID("users", "bad-name", DialectQuestion); return err }},
+		{name: "page bad table", fn: func() error { _, err := SelectPage("bad-table", []string{"id"}, "id", DialectQuestion); return err }},
+		{name: "page bad order", fn: func() error { _, err := SelectPage("users", []string{"id"}, "bad-name", DialectQuestion); return err }},
+		{name: "page bad column", fn: func() error { _, err := SelectPage("users", []string{"bad-name"}, "id", DialectQuestion); return err }},
+		{name: "count bad table", fn: func() error { _, _, err := CountWhere("bad-table", nil, DialectQuestion); return err }},
+		{name: "select for update bad table", fn: func() error {
+			_, err := SelectForUpdate("bad-table", []string{"id"}, "id", DialectQuestion, false)
+			return err
+		}},
+		{name: "select for update empty columns", fn: func() error { _, err := SelectForUpdate("users", nil, "id", DialectQuestion, false); return err }},
+		{name: "select for update bad where", fn: func() error {
+			_, err := SelectForUpdate("users", []string{"id"}, "bad-name", DialectQuestion, false)
+			return err
+		}},
+		{name: "select for update bad column", fn: func() error {
+			_, err := SelectForUpdate("users", []string{"bad-name"}, "id", DialectQuestion, false)
+			return err
+		}},
+		{name: "count all bad table", fn: func() error { _, err := CountAll("bad-table"); return err }},
+	}
+	for _, tt := range errorCases {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := tt.fn(); err == nil {
+				t.Fatal("builder succeeded, want error")
+			}
+		})
+	}
+}
+
+func TestSelectForUpdateAndCountAllBoundaries_BitsUT(t *testing.T) {
+	query, err := SelectForUpdate("jobs", []string{"id", "state"}, "id", DialectPostgres, true)
+	if err != nil {
+		t.Fatalf("SelectForUpdate postgres skip locked error = %v", err)
+	}
+	want := "SELECT id, state FROM jobs WHERE id = $1 FOR UPDATE SKIP LOCKED"
+	if query != want {
+		t.Fatalf("SelectForUpdate postgres = %q, want %q", query, want)
+	}
+
+	query, err = SelectForUpdate("jobs", []string{"id"}, "id", DialectMySQL, false)
+	if err != nil {
+		t.Fatalf("SelectForUpdate mysql error = %v", err)
+	}
+	want = "SELECT id FROM jobs WHERE id = ? FOR UPDATE"
+	if query != want {
+		t.Fatalf("SelectForUpdate mysql = %q, want %q", query, want)
+	}
+
+	query, err = CountAll("jobs")
+	if err != nil {
+		t.Fatalf("CountAll error = %v", err)
+	}
+	if query != "SELECT COUNT(*) FROM jobs" {
+		t.Fatalf("CountAll = %q", query)
+	}
+}
+
+func TestWhereBuilderInternalBoundaries_BitsUT(t *testing.T) {
+	if clause, args, err := ((*Where)(nil)).Build(DialectPostgres, 0); err != nil || clause != "" || args != nil {
+		t.Fatalf("nil Where Build = %q %#v %v, want zero", clause, args, err)
+	}
+	query, args, err := SelectWhere("users", []string{"id"}, ((*Where)(nil)).IsNull("deleted_at").OrderBy(" ").Limit(0).Offset(0), DialectPostgres)
+	if err != nil {
+		t.Fatalf("nil receiver where helpers: %v", err)
+	}
+	if query != "SELECT id FROM users WHERE deleted_at IS NULL" || len(args) != 0 {
+		t.Fatalf("query=%q args=%#v, want null predicate without blank order/limit/offset", query, args)
+	}
+
+	errorCases := []struct {
+		name  string
+		where *Where
+	}{
+		{name: "invalid clause column", where: &Where{clauses: []whereClause{{column: "bad-name", op: "=", args: []any{1}}}}},
+		{name: "between wrong args", where: &Where{clauses: []whereClause{{column: "age", op: "BETWEEN", args: []any{1}}}}},
+		{name: "null with args", where: &Where{clauses: []whereClause{{column: "deleted_at", op: "IS NULL", args: []any{1}}}}},
+		{name: "default missing arg", where: &Where{clauses: []whereClause{{column: "id", op: "="}}}},
+		{name: "invalid order column", where: &Where{orders: []orderClause{{column: "bad-name"}}}},
+	}
+	for _, tt := range errorCases {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, _, err := tt.where.Build(DialectQuestion, 0); err == nil {
+				t.Fatal("Where.Build succeeded, want error")
+			}
+		})
+	}
+}
+
 func TestNilSQLStore(t *testing.T) {
 	var store *SQLStore
 	if err := store.Close(); err != nil {

@@ -1,6 +1,10 @@
 package generator
 
-import "testing"
+import (
+	"bytes"
+	"strings"
+	"testing"
+)
 
 func TestModelHelperBoundaries_BitsUT(t *testing.T) {
 	table := SQLTable{
@@ -73,6 +77,74 @@ func TestModelHelperBoundaries_BitsUT(t *testing.T) {
 				t.Fatalf("singularize(%q) = %q, want %q", tt.name, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestModelCodegenAdvancedRepoBoundaries_BitsUT(t *testing.T) {
+	table := SQLTable{
+		Name:             "users",
+		PrimaryKey:       "id",
+		SoftDeleteColumn: "deleted_at",
+		Columns: []SQLColumn{
+			{Name: "id", Type: "bigint", PrimaryKey: true},
+			{Name: "email", Type: "varchar(128)", Unique: true},
+			{Name: "name", Type: "varchar(64)"},
+			{Name: "version", Type: "int"},
+			{Name: "deleted_at", Type: "datetime", Nullable: true},
+		},
+	}
+
+	version, ok := versionColumn(table)
+	if !ok || version.Name != "version" {
+		t.Fatalf("versionColumn = %#v %t, want version", version, ok)
+	}
+	if _, ok := versionColumn(SQLTable{Columns: table.Columns[:3]}); ok {
+		t.Fatal("versionColumn without version = true, want false")
+	}
+	if got := softDeleteValueExpr(table); got != "time.Now().UTC()" {
+		t.Fatalf("softDeleteValueExpr(datetime) = %q, want time.Now().UTC()", got)
+	}
+	intSoftDelete := table
+	intSoftDelete.SoftDeleteColumn = "deleted_at_unix"
+	intSoftDelete.Columns = append([]SQLColumn(nil), table.Columns...)
+	intSoftDelete.Columns[len(intSoftDelete.Columns)-1] = SQLColumn{Name: "deleted_at_unix", Type: "bigint"}
+	if got := softDeleteValueExpr(intSoftDelete); got != "time.Now().Unix()" {
+		t.Fatalf("softDeleteValueExpr(bigint) = %q, want unix timestamp", got)
+	}
+
+	var sql bytes.Buffer
+	writeSQLOptimisticLock(&sql, table, "User", "UserRepo")
+	sqlOut := sql.String()
+	for _, want := range []string{"UpdateWithVersion", "expectedVersion+1", "deleted_at IS NULL", "storage.ErrNotFound"} {
+		if !strings.Contains(sqlOut, want) {
+			t.Fatalf("writeSQLOptimisticLock output missing %q:\n%s", want, sqlOut)
+		}
+	}
+	var noVersion bytes.Buffer
+	writeSQLOptimisticLock(&noVersion, SQLTable{PrimaryKey: "id", Columns: table.Columns[:3]}, "User", "UserRepo")
+	if noVersion.Len() != 0 {
+		t.Fatalf("writeSQLOptimisticLock without version wrote %q", noVersion.String())
+	}
+
+	var gorm bytes.Buffer
+	writeAdvancedGORMRepoMethods(&gorm, table, "User", "UserRepo")
+	gormOut := gorm.String()
+	for _, want := range []string{"FindByEmail", "InsertMany", "UpdateFields", "UpdateWithVersion", "ListAfter", "deleted_at IS NULL", `"version": expectedVersion + 1`} {
+		if !strings.Contains(gormOut, want) {
+			t.Fatalf("writeAdvancedGORMRepoMethods output missing %q:\n%s", want, gormOut)
+		}
+	}
+	var gormNoVersion bytes.Buffer
+	writeAdvancedGORMRepoMethods(&gormNoVersion, SQLTable{PrimaryKey: "id", Columns: table.Columns[:3]}, "User", "UserRepo")
+	if strings.Contains(gormNoVersion.String(), "UpdateWithVersion") {
+		t.Fatalf("writeAdvancedGORMRepoMethods without version emitted optimistic lock:\n%s", gormNoVersion.String())
+	}
+}
+
+func TestWriteModelFilesEmptyTablesBoundary_BitsUT(t *testing.T) {
+	err := writeModelFiles(nil, t.TempDir(), "model", "example.com/orders", ServiceStyleBasic, false)
+	if err == nil || !strings.Contains(err.Error(), "model table is required") {
+		t.Fatalf("writeModelFiles(nil) error = %v, want model table required", err)
 	}
 }
 

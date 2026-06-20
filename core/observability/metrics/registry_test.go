@@ -3,6 +3,7 @@ package metrics
 import (
 	"bytes"
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -64,11 +65,64 @@ type errWriter struct{ err error }
 
 func (w errWriter) Write([]byte) (int, error) { return 0, w.err }
 
+type failAfterWriter struct {
+	failOn int
+	writes int
+	err    error
+}
+
+func (w *failAfterWriter) Write(p []byte) (int, error) {
+	w.writes++
+	if w.writes == w.failOn {
+		return 0, w.err
+	}
+	return len(p), nil
+}
+
 func TestRegistryWritePrometheusWriterError_BitsUT(t *testing.T) {
 	reg := NewRegistry()
 	wantErr := errors.New("write failed")
 	if err := reg.WritePrometheus(errWriter{err: wantErr}); !errors.Is(err, wantErr) {
 		t.Fatalf("WritePrometheus error = %v, want %v", err, wantErr)
+	}
+}
+
+func TestRegistryWritePrometheusErrorBoundaries_BitsUT(t *testing.T) {
+	reg := NewRegistry()
+	reg.IncInFlight()
+	reg.Observe("zeta", 503, 11*time.Millisecond)
+	reg.Observe("alpha", 201, time.Millisecond)
+	reg.Counter("custom_counter_total", "Custom counter.", "status").Add(2, "ok")
+	reg.Gauge("custom_gauge", "Custom gauge.", "queue").Set(7, "emails")
+	reg.Histogram("custom_histogram", "Custom histogram.", []float64{0.1, 0.5}, "op").Observe(0.2, "load")
+
+	var ok bytes.Buffer
+	if err := reg.WritePrometheus(&ok); err != nil {
+		t.Fatalf("WritePrometheus rich registry: %v", err)
+	}
+	out := ok.String()
+	for _, needle := range []string{
+		`gofly_request_status_total{status="201"} 1`,
+		`gofly_request_status_total{status="503"} 1`,
+		`gofly_route_duration_seconds_bucket{route="alpha",le="+Inf"} 1`,
+		`custom_counter_total{status="ok"} 2`,
+		`custom_gauge{queue="emails"} 7`,
+		`custom_histogram_bucket{op="load",le="0.5"} 1`,
+		`custom_histogram_count{op="load"} 1`,
+	} {
+		if !strings.Contains(out, needle) {
+			t.Fatalf("prometheus output missing %q:\n%s", needle, out)
+		}
+	}
+
+	wantErr := errors.New("write boundary failed")
+	for failOn := 1; failOn <= 50; failOn++ {
+		t.Run(strconv.Itoa(failOn), func(t *testing.T) {
+			writer := &failAfterWriter{failOn: failOn, err: wantErr}
+			if err := reg.WritePrometheus(writer); !errors.Is(err, wantErr) {
+				t.Fatalf("WritePrometheus failOn=%d error = %v, want write boundary error", failOn, err)
+			}
+		})
 	}
 }
 

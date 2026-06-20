@@ -398,6 +398,20 @@ type fakeBloom struct {
 func (f *fakeBloom) ContainsString(string) bool { return f.contains }
 func (f *fakeBloom) AddString(string)           {}
 
+type failAfterWriter struct {
+	failOn int
+	writes int
+	err    error
+}
+
+func (w *failAfterWriter) Write(p []byte) (int, error) {
+	w.writes++
+	if w.writes == w.failOn {
+		return 0, w.err
+	}
+	return len(p), nil
+}
+
 func TestCacheDeleteAndNilGuards(t *testing.T) {
 	var nilCache *Cache[string]
 	if nilCache.Delete("k") {
@@ -449,6 +463,39 @@ func TestCachePrometheusNilCache(t *testing.T) {
 	var nilCache *Cache[string]
 	if err := nilCache.WritePrometheus(io.Discard); err != nil {
 		t.Fatalf("nil WritePrometheus error = %v", err)
+	}
+}
+
+func TestCacheWritePrometheusBoundaries_BitsUT(t *testing.T) {
+	c := New[string](WithName[string]("api\\cache\nquoted\"name"))
+	c.Set("k", "v")
+	c.recordMiss()
+	c.recordLoad()
+	c.recordLoadError()
+	c.recordBloomReject()
+
+	var b strings.Builder
+	if err := c.WritePrometheus(&b); err != nil {
+		t.Fatalf("WritePrometheus: %v", err)
+	}
+	out := b.String()
+	if !strings.Contains(out, `name="api\\cache\nquoted\"name"`) {
+		t.Fatalf("prometheus label was not escaped correctly: %s", out)
+	}
+	for _, event := range []string{"bloom_rejects", "deletes", "evictions", "hits", "load_errors", "loads", "misses", "negatives", "refreshes", "stale_hits"} {
+		if !strings.Contains(out, `event="`+event+`"`) {
+			t.Fatalf("missing event %q in prometheus output: %s", event, out)
+		}
+	}
+
+	writeErr := errors.New("write failed")
+	for _, failOn := range []int{1, 2, 3, 4, 5, 6} {
+		t.Run(strconv.Itoa(failOn), func(t *testing.T) {
+			writer := &failAfterWriter{failOn: failOn, err: writeErr}
+			if err := c.WritePrometheus(writer); !errors.Is(err, writeErr) {
+				t.Fatalf("WritePrometheus failOn=%d error = %v, want writeErr", failOn, err)
+			}
+		})
 	}
 }
 
@@ -544,5 +591,22 @@ func TestCacheFirstLoader(t *testing.T) {
 	var nilLoader Loader[string]
 	if l := firstLoader(nilLoader, nil); l != nil {
 		t.Fatal("firstLoader with all nil should return nil")
+	}
+}
+
+func TestCacheDeadlinesOverrideAndZeroTTL_BitsUT(t *testing.T) {
+	c := New[string](WithDefaultTTL[string](time.Hour), WithStaleWhileRevalidate[string](time.Minute))
+	expiresAt, staleUntil := c.deadlines(25 * time.Millisecond)
+	remaining := time.Until(expiresAt)
+	if remaining <= 0 || remaining > time.Second {
+		t.Fatalf("override deadline remaining = %s, want short positive duration", remaining)
+	}
+	if staleUntil.Sub(expiresAt) != time.Minute {
+		t.Fatalf("stale window = %s, want 1m", staleUntil.Sub(expiresAt))
+	}
+
+	expiresAt, _ = c.deadlines(0)
+	if remaining := time.Until(expiresAt); remaining < 59*time.Minute {
+		t.Fatalf("zero ttl should fall back to default ttl, remaining=%s", remaining)
 	}
 }

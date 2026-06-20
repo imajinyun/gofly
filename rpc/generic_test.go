@@ -662,6 +662,111 @@ func TestCompareDescriptorsChangeOrderIsDeterministic(t *testing.T) {
 	}
 }
 
+func TestCompareDescriptorsBoundaryBranches_BitsUT(t *testing.T) {
+	base := Descriptor{
+		Name:    "greeter.v1.Greeter",
+		Version: "v1",
+		Methods: []MethodDescriptor{
+			{
+				Name:     "Changed",
+				Request:  "Req",
+				Response: "Resp",
+				Codec:    "json",
+				HTTP:     &HTTPBinding{Method: http.MethodPost, Path: "/v1/changed", Body: "*", ResponseBody: "resp"},
+				Timeout:  time.Second,
+			},
+			{Name: "AddedTypes"},
+		},
+		Streams: []StreamDescriptor{
+			{Name: "ModeChanged", Message: "Event", Codec: "proto", Mode: StreamModeBidiStream, Timeout: 2 * time.Second},
+			{Name: "AddedStreamMetadata"},
+		},
+	}
+	target := Descriptor{
+		Name:    "greeter.v1.GreeterV2",
+		Version: "v2",
+		Methods: []MethodDescriptor{
+			{
+				Name:     "Changed",
+				Response: "RespV2",
+				HTTP:     &HTTPBinding{Path: "/v2/changed", Body: "request"},
+				Timeout:  3 * time.Second,
+			},
+			{Name: "AddedTypes", Request: "AddedReq", Response: "AddedResp", Codec: "thrift", HTTP: &HTTPBinding{Method: http.MethodGet, Path: "/v1/added"}},
+		},
+		Streams: []StreamDescriptor{
+			{Name: "ModeChanged", Message: "Event", Timeout: time.Second},
+			{Name: "AddedStreamMetadata", Message: "AddedEvent", Codec: "json", Mode: StreamModeServerStream},
+		},
+	}
+
+	report := CompareDescriptors(base, target)
+	assertDescriptorChange(t, report, DescriptorChangeService, DescriptorChangeBreaking, "greeter.v1.Greeter")
+	assertDescriptorChange(t, report, DescriptorChangeVersion, DescriptorChangeInfo, "greeter.v1.Greeter")
+	assertDescriptorChange(t, report, DescriptorChangeSignature, DescriptorChangeBreaking, "greeter.v1.Greeter/Changed request")
+	assertDescriptorChange(t, report, DescriptorChangeSignature, DescriptorChangeBreaking, "greeter.v1.Greeter/Changed response")
+	assertDescriptorChange(t, report, DescriptorChangeCodec, DescriptorChangeBreaking, "greeter.v1.Greeter/Changed codec")
+	assertDescriptorChange(t, report, DescriptorChangeBinding, DescriptorChangeBreaking, "greeter.v1.Greeter/Changed http method")
+	assertDescriptorChange(t, report, DescriptorChangeBinding, DescriptorChangeBreaking, "greeter.v1.Greeter/Changed http path")
+	assertDescriptorChange(t, report, DescriptorChangeBinding, DescriptorChangeBreaking, "greeter.v1.Greeter/Changed http body")
+	assertDescriptorChange(t, report, DescriptorChangeBinding, DescriptorChangeBreaking, "greeter.v1.Greeter/Changed http response body")
+	assertDescriptorChange(t, report, DescriptorChangeTimeout, DescriptorChangeInfo, "greeter.v1.Greeter/Changed")
+	assertDescriptorChange(t, report, DescriptorChangeSignature, DescriptorChangeInfo, "greeter.v1.Greeter/AddedTypes request")
+	assertDescriptorChange(t, report, DescriptorChangeSignature, DescriptorChangeInfo, "greeter.v1.Greeter/AddedTypes response")
+	assertDescriptorChange(t, report, DescriptorChangeCodec, DescriptorChangeInfo, "greeter.v1.Greeter/AddedTypes codec")
+	assertDescriptorChange(t, report, DescriptorChangeBinding, DescriptorChangeInfo, "greeter.v1.Greeter/AddedTypes http method")
+	assertDescriptorChange(t, report, DescriptorChangeBinding, DescriptorChangeInfo, "greeter.v1.Greeter/AddedTypes http path")
+	assertDescriptorChange(t, report, DescriptorChangeCodec, DescriptorChangeBreaking, "greeter.v1.Greeter/ModeChanged codec")
+	assertDescriptorChange(t, report, DescriptorChangeBinding, DescriptorChangeBreaking, "greeter.v1.Greeter/ModeChanged mode")
+	assertDescriptorChange(t, report, DescriptorChangeSignature, DescriptorChangeInfo, "greeter.v1.Greeter/AddedStreamMetadata message")
+}
+
+func TestDescriptorStreamModeMetadataBoundaries_BitsUT(t *testing.T) {
+	tests := []struct {
+		name     string
+		explicit StreamMode
+		metadata map[string]string
+		want     StreamMode
+	}{
+		{name: "explicit wins", explicit: StreamModeClientStream, metadata: map[string]string{"stream.mode": string(StreamModeBidiStream)}, want: StreamModeClientStream},
+		{name: "empty metadata", metadata: nil, want: ""},
+		{name: "stream mode metadata", metadata: map[string]string{"stream.mode": " server_stream "}, want: StreamModeServerStream},
+		{name: "client and server flags", metadata: map[string]string{"clientStream": "true", "serverStream": "TRUE"}, want: StreamModeBidiStream},
+		{name: "client flag", metadata: map[string]string{"clientStream": " true "}, want: StreamModeClientStream},
+		{name: "server flag", metadata: map[string]string{"serverStream": " true "}, want: StreamModeServerStream},
+		{name: "flags absent defaults unary", metadata: map[string]string{"clientStream": "false", "serverStream": "false"}, want: StreamModeUnary},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := descriptorStreamMode(tt.explicit, tt.metadata); got != tt.want {
+				t.Fatalf("descriptorStreamMode() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestServiceDescMustPathPanics_BitsUT(t *testing.T) {
+	desc := ServiceDesc{Name: "greeter", Methods: []MethodDesc{{Name: "SayHello", NewRequest: func() any { return new(helloReq) }}}, Streams: []StreamDesc{{Name: "Chat", NewMessage: func() any { return new(helloReq) }}}}
+	if got := desc.MustMethodPath("SayHello"); got != "greeter/SayHello" {
+		t.Fatalf("MustMethodPath = %q, want greeter/SayHello", got)
+	}
+	if got := desc.MustStreamPath("Chat"); got != "greeter/Chat" {
+		t.Fatalf("MustStreamPath = %q, want greeter/Chat", got)
+	}
+
+	assertPanic := func(name string, fn func()) {
+		t.Helper()
+		defer func() {
+			if recover() == nil {
+				t.Fatalf("%s did not panic", name)
+			}
+		}()
+		fn()
+	}
+	assertPanic("missing method", func() { _ = desc.MustMethodPath("Missing") })
+	assertPanic("missing stream", func() { _ = desc.MustStreamPath("Missing") })
+}
+
 func assertDescriptorChange(t *testing.T, report DescriptorCompatibilityReport, category DescriptorChangeCategory, severity DescriptorChangeSeverity, subject string) {
 	t.Helper()
 	for _, change := range report.Changes {

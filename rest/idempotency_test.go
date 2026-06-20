@@ -1,6 +1,8 @@
 package rest
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -152,5 +154,71 @@ func TestIdempotencyMiddlewareBodyLimitAndNoKeyBypass(t *testing.T) {
 	s.Handler().ServeHTTP(tooLargeRec, tooLarge)
 	if tooLargeRec.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("too-large status = %d, want 413", tooLargeRec.Code)
+	}
+}
+
+func TestIdempotencyHelpersBoundaries_BitsUT(t *testing.T) {
+	noBodyReq := httptest.NewRequest(http.MethodPost, "/orders", nil)
+	noBodyReq.Body = nil
+	body, err := readIdempotencyBody(noBodyReq, 4)
+	if err != nil || body != nil {
+		t.Fatalf("readIdempotencyBody nil body = %#v, %v; want nil, nil", body, err)
+	}
+
+	tooLargeReq := httptest.NewRequest(http.MethodPost, "/orders", strings.NewReader("12345"))
+	if _, err := readIdempotencyBody(tooLargeReq, 4); err != errIdempotencyBodyTooLarge {
+		t.Fatalf("readIdempotencyBody too large error = %v, want errIdempotencyBodyTooLarge", err)
+	}
+
+	rec := newCaptureResponseWriter()
+	rec.Header().Set("X-Test", "first")
+	rec.WriteHeader(http.StatusCreated)
+	rec.WriteHeader(http.StatusAccepted)
+	n, err := rec.Write([]byte("created"))
+	if err != nil || n != len("created") {
+		t.Fatalf("capture Write = %d, %v", n, err)
+	}
+	if rec.status != http.StatusCreated || rec.body.String() != "created" || rec.Header().Get("X-Test") != "first" {
+		t.Fatalf("capture recorder = status %d body %q header %q", rec.status, rec.body.String(), rec.Header().Get("X-Test"))
+	}
+
+	rec2 := newCaptureResponseWriter()
+	if _, err := rec2.Write([]byte("ok")); err != nil {
+		t.Fatalf("capture Write without status: %v", err)
+	}
+	if rec2.status != http.StatusOK {
+		t.Fatalf("capture Write default status = %d, want 200", rec2.status)
+	}
+}
+
+func TestKVIdempotencyStoreCompleteBoundaries_BitsUT(t *testing.T) {
+	store := kv.NewMemoryStore()
+	idem := NewKVIdempotencyStore(store)
+	ctx := context.Background()
+
+	if err := idem.Complete(ctx, "missing", "fp", StoredResponse{}, false, time.Minute); err != nil {
+		t.Fatalf("Complete missing non-keep = %v, want nil", err)
+	}
+	resp := StoredResponse{Status: http.StatusCreated, Header: http.Header{"X-Test": []string{"ok"}}, Body: []byte("created")}
+	if err := idem.Complete(ctx, "key", "fp", resp, true, time.Minute); err != nil {
+		t.Fatalf("Complete keep = %v", err)
+	}
+	data, err := store.Get(ctx, "key")
+	if err != nil {
+		t.Fatalf("stored response Get = %v", err)
+	}
+	var record idempotencyRecord
+	if err := json.Unmarshal(data, &record); err != nil {
+		t.Fatalf("stored response JSON = %v", err)
+	}
+	if !record.Ready || record.Fingerprint != "fp" || record.Status != http.StatusCreated || string(record.Body) != "created" || record.Header.Get("X-Test") != "ok" {
+		t.Fatalf("stored record = %#v, want ready created response", record)
+	}
+
+	if err := idem.Complete(ctx, "key", "fp", resp, false, time.Minute); err != nil {
+		t.Fatalf("Complete delete = %v", err)
+	}
+	if _, err := store.Get(ctx, "key"); err != kv.ErrNotFound {
+		t.Fatalf("deleted response Get error = %v, want kv.ErrNotFound", err)
 	}
 }

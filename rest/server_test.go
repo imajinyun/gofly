@@ -36,6 +36,32 @@ func TestServer_AddRoute(t *testing.T) {
 	}
 }
 
+func TestMetricsHandlerJSONBoundary_BitsUT(t *testing.T) {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	handler := MetricsHandler(metrics.NewRegistry())
+	handler(&Context{Response: rec, Request: req})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("MetricsHandler status = %d, want 200", rec.Code)
+	}
+	if got := rec.Header().Get("Content-Type"); got != "application/json; charset=utf-8" {
+		t.Fatalf("MetricsHandler content type = %q", got)
+	}
+	var snapshot map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &snapshot); err != nil {
+		t.Fatalf("MetricsHandler JSON decode = %v; body=%q", err, rec.Body.String())
+	}
+	if len(snapshot) == 0 {
+		t.Fatal("MetricsHandler snapshot should not be empty")
+	}
+
+	defaultRec := httptest.NewRecorder()
+	MetricsHandler(nil)(&Context{Response: defaultRec, Request: req})
+	if defaultRec.Code != http.StatusOK || !strings.Contains(defaultRec.Header().Get("Content-Type"), "application/json") {
+		t.Fatalf("MetricsHandler nil registry = status %d content-type %q", defaultRec.Code, defaultRec.Header().Get("Content-Type"))
+	}
+}
+
 func TestServerStateNameAndRouteTagsBoundaries_BitsUT(t *testing.T) {
 	stateTests := []struct {
 		name  string

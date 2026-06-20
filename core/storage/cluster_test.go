@@ -259,6 +259,93 @@ func TestShardedClusterIndexNormalizationAndClose_BitsUT(t *testing.T) {
 	}
 }
 
+func TestIsReadOnlyCTEBoundaries_BitsUT(t *testing.T) {
+	tests := []struct {
+		name  string
+		query string
+		want  bool
+	}{
+		{
+			name:  "nested read only cte",
+			query: "WITH outer_cte AS (SELECT * FROM (SELECT id FROM users) nested) SELECT * FROM outer_cte",
+			want:  true,
+		},
+		{
+			name:  "keyword embedded in identifier does not mark write",
+			query: "WITH updater AS (SELECT last_update FROM audit_log) SELECT * FROM updater",
+			want:  true,
+		},
+		{
+			name:  "delete in second cte marks write",
+			query: "WITH first AS (SELECT 1), second AS (DELETE FROM jobs WHERE id = 1 RETURNING id) SELECT * FROM second",
+			want:  false,
+		},
+		{
+			name:  "merge separated by punctuation marks write",
+			query: "WITH changed AS (MERGE INTO jobs USING incoming ON jobs.id = incoming.id) SELECT 1",
+			want:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsReadOnly(tt.query); got != tt.want {
+				t.Fatalf("IsReadOnly(%q) = %v, want %v", tt.query, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestShardedClusterNilAndIterationBoundaries_BitsUT(t *testing.T) {
+	var nilSharded *ShardedCluster
+	if nilSharded.Count() != 0 {
+		t.Fatal("nil Count should return 0")
+	}
+	if nilSharded.IndexFor("key") != 0 {
+		t.Fatal("nil IndexFor should return 0")
+	}
+	if nilSharded.ShardFor("key") != nil {
+		t.Fatal("nil ShardFor should return nil")
+	}
+	if nilSharded.Shard(0) != nil {
+		t.Fatal("nil Shard should return nil")
+	}
+	if err := nilSharded.Each(func(int, *Cluster) error { return errors.New("unexpected") }); err != nil {
+		t.Fatalf("nil Each = %v, want nil", err)
+	}
+	if err := nilSharded.Close(); err != nil {
+		t.Fatalf("nil Close = %v, want nil", err)
+	}
+
+	s0, _ := NewCluster(NewSQLStore(nil))
+	s1, _ := NewCluster(NewSQLStore(nil))
+	sharded, err := NewShardedCluster(func(string, int) int { return 0 }, s0, s1)
+	if err != nil {
+		t.Fatalf("NewShardedCluster error = %v", err)
+	}
+	stop := errors.New("stop")
+	visited := 0
+	err = sharded.Each(func(idx int, cluster *Cluster) error {
+		visited++
+		if idx != 0 || cluster != s0 {
+			t.Fatalf("first Each callback idx=%d cluster=%p, want idx=0 cluster=%p", idx, cluster, s0)
+		}
+		return stop
+	})
+	if !errors.Is(err, stop) {
+		t.Fatalf("Each error = %v, want stop", err)
+	}
+	if visited != 1 {
+		t.Fatalf("Each visited %d shards, want stop after first", visited)
+	}
+}
+
+func TestShardTableIndexInvalidBaseBoundary_BitsUT(t *testing.T) {
+	if _, err := ShardTableIndex("orders;drop", 0); !errors.Is(err, ErrInvalidIdentifier) {
+		t.Fatalf("ShardTableIndex invalid base error = %v, want ErrInvalidIdentifier", err)
+	}
+}
+
 func TestShardedClusterNilGuards(t *testing.T) {
 	var nilSharded *ShardedCluster
 	if nilSharded.Count() != 0 {

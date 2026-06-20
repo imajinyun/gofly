@@ -763,3 +763,130 @@ func TestValidatePolicyBreakerAndCanaryEdgeCases(t *testing.T) {
 		t.Fatal("validatePolicy Inf canary ratio should error")
 	}
 }
+
+func TestValidatePolicyNegativeBoundaries_BitsUT(t *testing.T) {
+	tests := []struct {
+		name   string
+		policy Policy
+		want   string
+	}{
+		{name: "timeout", policy: Policy{Timeout: -time.Second}, want: "timeout"},
+		{name: "max body bytes", policy: Policy{MaxBodyBytes: -1}, want: "max body bytes"},
+		{name: "retry attempts", policy: Policy{Retry: RetryPolicy{Attempts: -1}}, want: "retry attempts"},
+		{name: "retry backoff", policy: Policy{Retry: RetryPolicy{Backoff: -time.Second}}, want: "retry backoff"},
+		{name: "retry low status", policy: Policy{Retry: RetryPolicy{Statuses: []int{99}}}, want: "outside HTTP status range"},
+		{name: "retry high status", policy: Policy{Retry: RetryPolicy{Statuses: []int{600}}}, want: "outside HTTP status range"},
+		{name: "breaker open timeout", policy: Policy{Breaker: BreakerPolicy{OpenTimeout: -time.Second}}, want: "breaker open timeout"},
+		{name: "breaker window", policy: Policy{Breaker: BreakerPolicy{Window: -time.Second}}, want: "breaker window"},
+		{name: "breaker buckets", policy: Policy{Breaker: BreakerPolicy{Buckets: -1}}, want: "breaker buckets"},
+		{name: "breaker min requests", policy: Policy{Breaker: BreakerPolicy{MinRequests: -1}}, want: "breaker min requests"},
+		{name: "breaker ratio below", policy: Policy{Breaker: BreakerPolicy{FailureRatio: -0.1}}, want: "breaker failure ratio"},
+		{name: "breaker ratio above", policy: Policy{Breaker: BreakerPolicy{FailureRatio: 1.1}}, want: "breaker failure ratio"},
+		{name: "rate limit rate", policy: Policy{RateLimit: RateLimitPolicy{Rate: -1}}, want: "rate limit rate"},
+		{name: "rate limit burst", policy: Policy{RateLimit: RateLimitPolicy{Burst: -1}}, want: "rate limit burst"},
+		{name: "concurrency", policy: Policy{Concurrency: ConcurrencyPolicy{Limit: -1}}, want: "concurrency limit"},
+		{name: "canary ratio below", policy: Policy{Canary: CanaryPolicy{Ratio: -0.1}}, want: "canary ratio"},
+		{name: "canary ratio above", policy: Policy{Canary: CanaryPolicy{Ratio: 1.1}}, want: "canary ratio"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validatePolicy(tt.policy)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("validatePolicy() error = %v, want containing %q", err, tt.want)
+			}
+		})
+	}
+	if err := validatePolicy(Policy{Retry: RetryPolicy{Statuses: []int{100, 599}}, Breaker: BreakerPolicy{FailureRatio: 1}, Canary: CanaryPolicy{Ratio: 1}}); err != nil {
+		t.Fatalf("validatePolicy valid boundary error = %v", err)
+	}
+}
+
+func TestParseAdminEventFilterBoundaries_BitsUT(t *testing.T) {
+	filter, err := parseAdminEventFilter(nil)
+	if err != nil || filter != (eventFilter{}) {
+		t.Fatalf("nil parseAdminEventFilter = %#v err=%v, want zero nil", filter, err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/events?action=%20Replace%20&source=cli&success=true&since=1&minVersion=2&limit=3", nil)
+	filter, err = parseAdminEventFilter(req)
+	if err != nil {
+		t.Fatalf("parseAdminEventFilter valid: %v", err)
+	}
+	if filter.Action != "replace" || filter.Source != "cli" || !filter.SuccessSet || !filter.Success || !filter.MinVersionSet || filter.MinVersion != 2 || !filter.LimitSet || filter.Limit != 3 {
+		t.Fatalf("filter = %#v, want normalized fields", filter)
+	}
+
+	failedAliases := []string{"failed=true", "failure=true", "success=false"}
+	for _, query := range failedAliases {
+		t.Run(query, func(t *testing.T) {
+			filter, err := parseAdminEventFilter(httptest.NewRequest(http.MethodGet, "/events?"+query, nil))
+			if err != nil || !filter.SuccessSet || filter.Success {
+				t.Fatalf("filter for %s = %#v err=%v, want failed", query, filter, err)
+			}
+		})
+	}
+
+	errorQueries := []string{
+		"success=maybe",
+		"failed=maybe",
+		"failure=maybe",
+		"success=true&failed=true",
+		"since=-1",
+		"since=nan",
+		"minVersion=-1",
+		"minVersion=nan",
+		"limit=-1",
+		"limit=nan",
+	}
+	for _, query := range errorQueries {
+		t.Run(query, func(t *testing.T) {
+			if _, err := parseAdminEventFilter(httptest.NewRequest(http.MethodGet, "/events?"+query, nil)); err == nil {
+				t.Fatalf("parseAdminEventFilter(%q) succeeded, want error", query)
+			}
+		})
+	}
+}
+
+func TestParseRollbackRequestBoundaries_BitsUT(t *testing.T) {
+	if _, err := parseRollbackRequest(nil); err == nil {
+		t.Fatal("parseRollbackRequest(nil) succeeded, want error")
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/rollback?version=7&expectedVersion=3&requireSafe=true&force=1", nil)
+	rollback, err := parseRollbackRequest(req)
+	if err != nil {
+		t.Fatalf("parseRollbackRequest query: %v", err)
+	}
+	if rollback.Version != 7 || rollback.ExpectedVersion == nil || *rollback.ExpectedVersion != 3 || !rollback.RequireSafe || !rollback.Force {
+		t.Fatalf("rollback query = %#v, want query fields", rollback)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/rollback?requireSafe=1&force=on", strings.NewReader(`{"version":5,"expectedVersion":4}`))
+	rollback, err = parseRollbackRequest(req)
+	if err != nil {
+		t.Fatalf("parseRollbackRequest body: %v", err)
+	}
+	if rollback.Version != 5 || rollback.ExpectedVersion == nil || *rollback.ExpectedVersion != 4 || !rollback.RequireSafe || !rollback.Force {
+		t.Fatalf("rollback body = %#v, want body plus query bool overrides", rollback)
+	}
+
+	errorCases := []struct {
+		name string
+		req  *http.Request
+	}{
+		{name: "bad expected query", req: httptest.NewRequest(http.MethodPost, "/rollback?expectedVersion=-1", strings.NewReader(`{"version":1}`))},
+		{name: "bad require safe", req: httptest.NewRequest(http.MethodPost, "/rollback?requireSafe=maybe", strings.NewReader(`{"version":1}`))},
+		{name: "bad force", req: httptest.NewRequest(http.MethodPost, "/rollback?force=maybe", strings.NewReader(`{"version":1}`))},
+		{name: "bad query version", req: httptest.NewRequest(http.MethodPost, "/rollback?version=0", nil)},
+		{name: "bad json", req: httptest.NewRequest(http.MethodPost, "/rollback", strings.NewReader(`{`))},
+		{name: "missing body version", req: httptest.NewRequest(http.MethodPost, "/rollback", strings.NewReader(`{"version":0}`))},
+		{name: "negative body expected", req: httptest.NewRequest(http.MethodPost, "/rollback", strings.NewReader(`{"version":1,"expectedVersion":-1}`))},
+	}
+	for _, tt := range errorCases {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, err := parseRollbackRequest(tt.req); err == nil {
+				t.Fatal("parseRollbackRequest succeeded, want error")
+			}
+		})
+	}
+}

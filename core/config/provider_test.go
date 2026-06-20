@@ -175,6 +175,12 @@ func TestEnvProviderLoadBranches(t *testing.T) {
 	if got.Name != "ok" {
 		t.Fatalf("name = %q, want ok", got.Name)
 	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := provider3.Load(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Load canceled error = %v, want context.Canceled", err)
+	}
 }
 
 func TestCompositeProviderAllFailAndNoProviders(t *testing.T) {
@@ -196,6 +202,36 @@ func TestCompositeProviderAllFailAndNoProviders(t *testing.T) {
 	if _, err := empty.Load(context.Background()); err == nil {
 		t.Fatal("expected error for empty composite")
 	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := composite.Load(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Load canceled error = %v, want context.Canceled", err)
+	}
+
+	filtered := NewCompositeProvider[testConfig](nil, StaticProvider[testConfig]{Value: testConfig{Name: "static"}}, nil)
+	if len(filtered.Providers) != 1 {
+		t.Fatalf("filtered providers = %d, want 1", len(filtered.Providers))
+	}
+}
+
+func TestFileProviderAndMustLoadErrorBoundaries_BitsUT(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	provider := NewFileProvider[testConfig](filepath.Join(t.TempDir(), "missing.json"))
+	if _, err := provider.Load(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("FileProvider.Load canceled error = %v, want context.Canceled", err)
+	}
+	if _, err := provider.Load(context.Background()); err == nil {
+		t.Fatal("FileProvider.Load missing file succeeded, want error")
+	}
+
+	defer func() {
+		if recovered := recover(); recovered == nil {
+			t.Fatal("MustLoad missing provider did not panic")
+		}
+	}()
+	_ = MustLoad[testConfig](provider)
 }
 
 func TestFileProviderWatchSkipsInvalidUpdate(t *testing.T) {

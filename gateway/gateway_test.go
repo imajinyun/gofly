@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -26,6 +27,20 @@ import (
 	"github.com/gofly/gofly/rest"
 	"github.com/gofly/gofly/rpc"
 )
+
+type failAfterWriter struct {
+	failOn int
+	writes int
+	err    error
+}
+
+func (w *failAfterWriter) Write(p []byte) (int, error) {
+	w.writes++
+	if w.writes == w.failOn {
+		return 0, w.err
+	}
+	return len(p), nil
+}
 
 func TestGatewayReverseProxyRewritesPathAndHeaders(t *testing.T) {
 	var gotPath string
@@ -202,6 +217,50 @@ func TestGatewaySnapshotAndPrometheusBoundaries_BitsUT(t *testing.T) {
 	}
 	if got := (&Gateway{timeout: 2 * time.Second}).snapshotResolveTimeout(); got != 500*time.Millisecond {
 		t.Fatalf("long snapshot timeout = %v, want capped 500ms", got)
+	}
+}
+
+func TestGatewayWritePrometheusErrorBoundaries_BitsUT(t *testing.T) {
+	stats := NewStats()
+	stats.Observe("GET /alpha", http.StatusOK, time.Millisecond)
+	stats.Observe("POST /zeta", http.StatusBadGateway, 3*time.Millisecond)
+	stats.IncRetry("POST /zeta", 2)
+	stats.IncShadow("POST /zeta")
+	stats.IncShadowDropped("POST /zeta")
+	stats.IncEjection("POST /zeta")
+
+	var ok bytes.Buffer
+	if err := stats.WritePrometheus(&ok); err != nil {
+		t.Fatalf("WritePrometheus: %v", err)
+	}
+	out := ok.String()
+	for _, needle := range []string{
+		`gofly_gateway_route_requests_total{route="GET /alpha"} 1`,
+		`gofly_gateway_route_requests_total{route="POST /zeta"} 1`,
+		`gofly_gateway_route_errors_total{route="POST /zeta"} 1`,
+		`gofly_gateway_route_retries_total{route="POST /zeta"} 2`,
+		`gofly_gateway_route_shadow_total{route="POST /zeta"} 1`,
+		`gofly_gateway_route_shadow_dropped_total{route="POST /zeta"} 1`,
+		`gofly_gateway_route_ejections_total{route="POST /zeta"} 1`,
+		`gofly_gateway_route_status_total{route="POST /zeta",status="502"} 1`,
+		`gofly_gateway_route_duration_seconds_count{route="POST /zeta"} 1`,
+	} {
+		if !strings.Contains(out, needle) {
+			t.Fatalf("prometheus output missing %q:\n%s", needle, out)
+		}
+	}
+	if strings.Index(out, `route="GET /alpha"`) > strings.Index(out, `route="POST /zeta"`) {
+		t.Fatalf("route metrics are not sorted:\n%s", out)
+	}
+
+	wantErr := errors.New("gateway prometheus write failed")
+	for failOn := 1; failOn <= 30; failOn++ {
+		t.Run(strconv.Itoa(failOn), func(t *testing.T) {
+			writer := &failAfterWriter{failOn: failOn, err: wantErr}
+			if err := stats.WritePrometheus(writer); !errors.Is(err, wantErr) {
+				t.Fatalf("WritePrometheus failOn=%d error = %v, want write error", failOn, err)
+			}
+		})
 	}
 }
 

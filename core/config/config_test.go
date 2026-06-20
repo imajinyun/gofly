@@ -77,6 +77,72 @@ burst = 120
 	}
 }
 
+func TestSimpleTOMLParserBoundaries_BitsUT(t *testing.T) {
+	t.Run("comments strings arrays and dotted paths", func(t *testing.T) {
+		got, err := parseSimpleTOML([]byte(`
+title = "hello # not a comment" # trailing comment
+enabled = true
+ratio = 1.5
+ports = [80, 443, "admin"]
+[service.http]
+name = "api"
+`))
+		if err != nil {
+			t.Fatalf("parseSimpleTOML() error = %v", err)
+		}
+		if got["title"] != "hello # not a comment" || got["enabled"] != true || got["ratio"] != 1.5 {
+			t.Fatalf("root values = %#v, want title/enabled/ratio", got)
+		}
+		ports, ok := got["ports"].([]any)
+		if !ok || len(ports) != 3 || ports[0] != int64(80) || ports[2] != "admin" {
+			t.Fatalf("ports = %#v, want parsed array", got["ports"])
+		}
+		service, ok := got["service"].(map[string]any)
+		if !ok {
+			t.Fatalf("service = %#v, want nested map", got["service"])
+		}
+		httpSection, ok := service["http"].(map[string]any)
+		if !ok || httpSection["name"] != "api" {
+			t.Fatalf("service.http = %#v, want name api", service["http"])
+		}
+	})
+
+	if got := stripTOMLComment(`name = "value with \"#\" inside" # outside`); got != `name = "value with \"#\" inside" ` {
+		t.Fatalf("stripTOMLComment escaped string = %q", got)
+	}
+
+	invalid := []struct {
+		name string
+		data string
+	}{
+		{name: "empty section", data: `[]`},
+		{name: "missing equals", data: `name`},
+		{name: "empty key", data: `. = 1`},
+		{name: "empty value", data: `name = `},
+		{name: "unsupported value", data: `name = bare`},
+		{name: "bad array item", data: `items = [1, bare]`},
+		{name: "duplicate key", data: "name = 1\nname = 2"},
+		{name: "scalar conflict", data: "service = 1\n[service.http]\nname = \"api\""},
+	}
+	for _, tt := range invalid {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, err := parseSimpleTOML([]byte(tt.data)); err == nil {
+				t.Fatalf("parseSimpleTOML(%q) succeeded, want error", tt.data)
+			}
+		})
+	}
+}
+
+func TestDecodeTOMLStrictRejectsUnknownField_BitsUT(t *testing.T) {
+	var got testConfig
+	err := decodeConfig("app.toml", []byte(`name = "api"
+extra = true
+`), &got, loadOptions{strict: true})
+	if err == nil || !strings.Contains(err.Error(), "unknown field") {
+		t.Fatalf("decodeConfig strict TOML error = %v, want unknown field", err)
+	}
+}
+
 func TestLoadReadsExplicitConfigPath(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "operator-config.json")

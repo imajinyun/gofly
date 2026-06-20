@@ -7,6 +7,7 @@ import (
 	"crypto/sha1"
 	"encoding/base64"
 	"encoding/binary"
+	"errors"
 	"io"
 	"math"
 	"net"
@@ -102,6 +103,124 @@ func TestWebSocketReadFrameRejectsOverflowLength(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "exceeds maximum size") {
 		t.Fatalf("readFrame overflow length error = %v, want size rejection", err)
 	}
+}
+
+func TestWebSocketReadFrameBoundaries_BitsUT(t *testing.T) {
+	tests := []struct {
+		name        string
+		messageType int
+		payload     []byte
+	}{
+		{name: "small", messageType: WebSocketTextMessage, payload: []byte("hello")},
+		{name: "uint16 length", messageType: WebSocketBinaryMessage, payload: bytes.Repeat([]byte("a"), 126)},
+		{name: "uint64 length", messageType: WebSocketTextMessage, payload: bytes.Repeat([]byte("b"), 66000)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			frame := maskedClientFrame(tt.messageType, tt.payload)
+			conn := &WebSocketConn{rw: bufio.NewReadWriter(bufio.NewReader(bytes.NewReader(frame)), bufio.NewWriter(io.Discard)), maxMessageBytes: int64(len(tt.payload) + 1)}
+			messageType, payload, err := conn.readFrame()
+			if err != nil {
+				t.Fatalf("readFrame error = %v", err)
+			}
+			if messageType != tt.messageType || !bytes.Equal(payload, tt.payload) {
+				t.Fatalf("readFrame = type %d len %d, want type %d len %d", messageType, len(payload), tt.messageType, len(tt.payload))
+			}
+		})
+	}
+}
+
+func TestWebSocketReadFrameRejectsInvalidAndTruncatedFrames_BitsUT(t *testing.T) {
+	tests := []struct {
+		name  string
+		frame []byte
+		max   int64
+		want  string
+	}{
+		{name: "truncated header", frame: []byte{0x81}, max: 2, want: "EOF"},
+		{name: "fragmented frame", frame: []byte{WebSocketTextMessage, 0x80, 1, 2, 3, 4}, max: 2, want: "invalid websocket frame flags"},
+		{name: "unmasked frame", frame: []byte{0x80 | WebSocketTextMessage, 0}, max: 2, want: "invalid websocket frame flags"},
+		{name: "truncated uint16 length", frame: []byte{0x80 | WebSocketTextMessage, 0x80 | 126, 0}, max: 2, want: "EOF"},
+		{name: "truncated uint64 length", frame: []byte{0x80 | WebSocketTextMessage, 0x80 | 127, 0, 0}, max: 2, want: "EOF"},
+		{name: "max message disabled", frame: maskedClientFrame(WebSocketTextMessage, []byte("x")), max: 0, want: "exceeds maximum size"},
+		{name: "truncated mask", frame: []byte{0x80 | WebSocketTextMessage, 0x80 | 1, 1, 2}, max: 2, want: "EOF"},
+		{name: "truncated payload", frame: []byte{0x80 | WebSocketTextMessage, 0x80 | 3, 1, 2, 3, 4, 'a'}, max: 4, want: "EOF"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			conn := &WebSocketConn{rw: bufio.NewReadWriter(bufio.NewReader(bytes.NewReader(tt.frame)), bufio.NewWriter(io.Discard)), maxMessageBytes: tt.max}
+			_, _, err := conn.readFrame()
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("readFrame error = %v, want containing %q", err, tt.want)
+			}
+		})
+	}
+}
+
+type failingWebSocketWriter struct {
+	err error
+}
+
+func (w failingWebSocketWriter) Write([]byte) (int, error) { return 0, w.err }
+
+func TestWriteWebSocketFrameBoundaries_BitsUT(t *testing.T) {
+	tests := []struct {
+		name    string
+		payload []byte
+		prefix  []byte
+	}{
+		{name: "small", payload: []byte("hello"), prefix: []byte{0x80 | WebSocketTextMessage, 5}},
+		{name: "uint16 length", payload: bytes.Repeat([]byte("a"), 126), prefix: []byte{0x80 | WebSocketTextMessage, 126, 0, 126}},
+		{name: "uint64 length", payload: bytes.Repeat([]byte("b"), 66000), prefix: []byte{0x80 | WebSocketTextMessage, 127, 0, 0, 0, 0, 0, 1, 1, 208}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var out bytes.Buffer
+			rw := bufio.NewReadWriter(bufio.NewReader(bytes.NewReader(nil)), bufio.NewWriter(&out))
+			if err := writeWebSocketFrame(rw, WebSocketTextMessage, tt.payload); err != nil {
+				t.Fatalf("writeWebSocketFrame error = %v", err)
+			}
+			got := out.Bytes()
+			if !bytes.HasPrefix(got, tt.prefix) || !bytes.Equal(got[len(got)-len(tt.payload):], tt.payload) {
+				t.Fatalf("frame prefix/payload mismatch: prefix=%v len=%d", got[:min(len(got), len(tt.prefix))], len(got))
+			}
+		})
+	}
+
+	if err := writeWebSocketFrame(bufio.NewReadWriter(bufio.NewReader(bytes.NewReader(nil)), bufio.NewWriter(io.Discard)), math.MaxUint8+1, nil); err == nil {
+		t.Fatal("writeWebSocketFrame accepted invalid message type")
+	}
+	wantErr := errors.New("flush failed")
+	err := writeWebSocketFrame(bufio.NewReadWriter(bufio.NewReader(bytes.NewReader(nil)), bufio.NewWriterSize(failingWebSocketWriter{err: wantErr}, 1)), WebSocketTextMessage, []byte("x"))
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("writeWebSocketFrame writer error = %v, want flush error", err)
+	}
+}
+
+func maskedClientFrame(messageType int, payload []byte) []byte {
+	var frame bytes.Buffer
+	frame.WriteByte(0x80 | byte(messageType))
+	length := len(payload)
+	switch {
+	case length < 126:
+		frame.WriteByte(0x80 | byte(length))
+	case length <= 65535:
+		frame.WriteByte(0x80 | 126)
+		var buf [2]byte
+		binary.BigEndian.PutUint16(buf[:], uint16(length))
+		frame.Write(buf[:])
+	default:
+		frame.WriteByte(0x80 | 127)
+		var buf [8]byte
+		binary.BigEndian.PutUint64(buf[:], uint64(length))
+		frame.Write(buf[:])
+	}
+	mask := [4]byte{1, 2, 3, 4}
+	frame.Write(mask[:])
+	for i, b := range payload {
+		frame.WriteByte(b ^ mask[i%4])
+	}
+	return frame.Bytes()
 }
 
 func dialWebSocket(t *testing.T, serverURL, path string) (net.Conn, *bufio.ReadWriter) {

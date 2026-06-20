@@ -23,7 +23,7 @@ func GenerateGateway(opts GatewayOptions) error {
 	if opts.Dir == "" {
 		opts.Dir = filepath.Join(".", opts.Name)
 	}
-	data := map[string]string{"Name": opts.Name, "Module": opts.Module}
+	data := map[string]string{"Name": opts.Name, "Module": opts.Module, "ReplaceBlock": frameworkReplaceBlock("")}
 	files := map[string]string{
 		"go.mod": gatewayGoModTemplate,
 		filepath.Join("cmd", opts.Name, "main.go"):       gatewayMainTemplate,
@@ -55,6 +55,7 @@ const gatewayGoModTemplate = `module {{.Module}}
 go 1.26
 
 require github.com/gofly/gofly v0.0.0
+{{.ReplaceBlock}}
 `
 
 const gatewayMainTemplate = `package main

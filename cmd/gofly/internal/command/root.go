@@ -969,7 +969,7 @@ func commandHelpFor(command string) commandHelp {
 	case "ai plan":
 		return commandHelp{Name: "ai plan", Short: "Plan an AI-first project scaffold without writing files.", Usage: "gofly ai plan --prompt <requirement> [--kind service|rpc|worker|cli|ai-agent|rag|gateway] [--name <name>] [--module <module>] [--dir <dir>] [--format text|json] [--json]", Flags: []string{"--prompt <text>       natural language requirement, also accepted as positional text", "--kind <kind>         optional project kind hint", "--name <name>         project or service name", "--module <module>     Go module path", "--dir <dir>           output directory", "--format <format>     output format: text|json", "--json                output JSON envelope"}, Examples: []string{"gofly ai plan 'create a rag service with redis vector store' --json", "gofly ai plan --prompt 'create a gateway' --kind gateway --name edge --module example.com/edge --dir edge"}}
 	case "ai new":
-		return commandHelp{Name: "ai new", Short: "Plan or apply an AI-first project scaffold.", Usage: "gofly ai new --prompt <requirement> [--template <id>] [--kind <kind>] --name <name> --module <module> --dir <dir> [--dry-run|--plan|--apply] [--format text|json] [--json]", Flags: []string{"--prompt <text>       natural language requirement, also accepted as positional text", "--template <id>       explicit template id from `gofly template list`", "--kind <kind>         optional project kind hint", "--name <name>         project or service name", "--module <module>     Go module path", "--dir <dir>           output directory", "--dry-run, --plan     print plan without writing files (default)", "--apply               write scaffold files using the selected built-in generator", "--format <format>     output format: text|json", "--json                output JSON envelope"}, Examples: []string{"gofly ai new 'create a rest api' --name hello --module example.com/hello --dir hello --dry-run --json", "gofly ai new --template go-rpc-grpc --name greeter --module example.com/greeter --dir greeter --apply"}}
+		return commandHelp{Name: "ai new", Short: "Plan or apply an AI-first project scaffold.", Usage: "gofly ai new --prompt <requirement> [--template <id>] [--kind <kind>] --name <name> --module <module> --dir <dir> [--dry-run|--plan|--apply] [--verify] [--format text|json] [--json]", Flags: []string{"--prompt <text>       natural language requirement, also accepted as positional text", "--template <id>       explicit template id from `gofly template list`", "--kind <kind>         optional project kind hint", "--name <name>         project or service name", "--module <module>     Go module path", "--dir <dir>           output directory", "--dry-run, --plan     print plan without writing files (default)", "--apply               write scaffold files using the selected built-in generator", "--verify              run supported post-generation checks after --apply", "--verify-timeout <d>  timeout per verification command (default 2m)", "--format <format>     output format: text|json", "--json                output JSON envelope"}, Examples: []string{"gofly ai new 'create a rest api' --name hello --module example.com/hello --dir hello --dry-run --json", "gofly ai new --template go-rpc-grpc --name greeter --module example.com/greeter --dir greeter --apply --verify"}}
 	case "ai complete":
 		return commandHelp{Name: "ai complete", Short: "Execute a governed no-op LLM completion for deterministic AI tool integration tests.", Usage: "gofly ai complete --prompt <text> [--config .gofly/config.json] [--provider noop] [--model <model>] [--max-input-tokens <n>] [--max-output-tokens <n>] [--max-total-tokens <n>] [--rate-limit <n>] [--timeout <duration>] [--dry-run|--plan] [--format text|json] [--json]", Flags: []string{"--prompt <text>          prompt text, also accepted as positional text", "--config <file>          gofly config file with llm defaults", "--dir <dir>              service root for .gofly/config.json", "--provider <provider>    provider mode; only noop is built in", "--model <model>          model label for audit and output", "--max-input-tokens <n>   input token budget", "--max-output-tokens <n>  output token budget", "--max-total-tokens <n>   total token budget", "--rate-limit <n>         calls per second; zero disables rate limiting", "--rate-burst <n>         rate limit burst; zero uses rate-limit", "--timeout <duration>     provider call timeout", "--dry-run, --plan        print governance plan without invoking provider", "--format <format>        output format: text|json", "--json                   output JSON envelope"}, Examples: []string{"gofly ai complete --prompt 'hello' --config .gofly/config.json --json", "GOFLY_LLM_MODEL=local gofly ai complete 'email user@example.com' --dry-run --format json"}}
 	case "ai doctor":
@@ -2245,14 +2245,33 @@ type aiProjectPlan struct {
 }
 
 type aiProjectApplyResult struct {
-	Plan              aiProjectPlan `json:"plan"`
-	Applied           bool          `json:"applied"`
-	OutputDir         string        `json:"outputDir"`
-	ExecutedCommand   string        `json:"executedCommand"`
-	Verify            []string      `json:"verify"`
-	Warnings          []string      `json:"warnings,omitempty"`
-	NextActions       []string      `json:"nextActions"`
-	MutatesFilesystem bool          `json:"mutatesFilesystem"`
+	Plan              aiProjectPlan                    `json:"plan"`
+	Applied           bool                             `json:"applied"`
+	OutputDir         string                           `json:"outputDir"`
+	ExecutedCommand   string                           `json:"executedCommand"`
+	GeneratedFeatures []generator.ProjectFeatureResult `json:"generatedFeatures,omitempty"`
+	Dependencies      []string                         `json:"dependencies,omitempty"`
+	ConfigHints       []generator.ConfigHint           `json:"configHints,omitempty"`
+	FeatureVerify     []string                         `json:"featureVerify,omitempty"`
+	Verify            []string                         `json:"verify"`
+	VerifyRan         bool                             `json:"verifyRan"`
+	VerifyPassed      bool                             `json:"verifyPassed"`
+	Verification      []aiProjectVerificationResult    `json:"verification,omitempty"`
+	Warnings          []string                         `json:"warnings,omitempty"`
+	NextActions       []string                         `json:"nextActions"`
+	MutatesFilesystem bool                             `json:"mutatesFilesystem"`
+}
+
+type aiProjectVerificationResult struct {
+	Command string `json:"command"`
+	Status  string `json:"status"`
+	Output  string `json:"output,omitempty"`
+	Error   string `json:"error,omitempty"`
+}
+
+type aiProjectApplyOptions struct {
+	Verify        bool
+	VerifyTimeout time.Duration
 }
 
 func aiPlanCommand(args []string) error {
@@ -2311,6 +2330,8 @@ func aiNewCommand(args []string) error {
 	dryRun := fs.Bool("dry-run", true, "print the scaffold plan without writing files")
 	plan := fs.Bool("plan", false, "alias for --dry-run")
 	apply := fs.Bool("apply", false, "apply the planned scaffold and write files")
+	verify := fs.Bool("verify", false, "run supported post-generation verification commands after --apply")
+	verifyTimeoutText := fs.String("verify-timeout", "2m", "timeout for each verification command")
 	remaining, err := parseInterspersedFlags(fs, args)
 	if err != nil {
 		return err
@@ -2336,6 +2357,10 @@ func aiNewCommand(args []string) error {
 	if *apply && (*dryRun || *plan) {
 		return fmt.Errorf("%w: --apply cannot be combined with --dry-run or --plan", errUsage)
 	}
+	verifyTimeout, err := time.ParseDuration(strings.TrimSpace(*verifyTimeoutText))
+	if err != nil || verifyTimeout <= 0 {
+		return fmt.Errorf("%w: --verify-timeout must be a positive duration", errUsage)
+	}
 	projectPlan, err := buildAIProjectNewPlan(*prompt, *kind, *templateID, *name, *module, *dir, !*apply || *dryRun || *plan)
 	if err != nil {
 		return err
@@ -2347,7 +2372,7 @@ func aiNewCommand(args []string) error {
 		printAIProjectPlanText(projectPlan)
 		return nil
 	}
-	result, err := applyAIProjectPlan(projectPlan)
+	result, err := applyAIProjectPlan(projectPlan, aiProjectApplyOptions{Verify: *verify, VerifyTimeout: verifyTimeout})
 	if err != nil {
 		return err
 	}
@@ -2356,6 +2381,26 @@ func aiNewCommand(args []string) error {
 	}
 	cliOutputfIf("applied template=%s kind=%s output=%s\n", result.Plan.Template.ID, result.Plan.ProjectType, result.OutputDir)
 	cliOutputfIf("command=%s\n", result.ExecutedCommand)
+	if len(result.GeneratedFeatures) > 0 {
+		for _, feature := range result.GeneratedFeatures {
+			cliOutputfIf("feature=%s files=%s\n", feature.Plugin, strings.Join(feature.Files, ","))
+			if len(feature.Dependencies) > 0 {
+				cliOutputfIf("  dependencies=%s\n", strings.Join(feature.Dependencies, ","))
+			}
+			for _, hint := range feature.ConfigHints {
+				cliOutputfIf("  configHint=%s description=%q example=%q\n", hint.Key, hint.Description, hint.Example)
+			}
+			if len(feature.VerifyCommands) > 0 {
+				cliOutputfIf("  verify=%s\n", strings.Join(feature.VerifyCommands, ","))
+			}
+		}
+	}
+	if result.VerifyRan {
+		cliOutputfIf("verify=%t\n", result.VerifyPassed)
+		for _, check := range result.Verification {
+			cliOutputfIf("  - %s: %s\n", check.Command, check.Status)
+		}
+	}
 	for _, warning := range result.Warnings {
 		cliOutputfIf("warning: %s\n", warning)
 	}
@@ -2448,14 +2493,26 @@ func validateAIProjectApplyInputs(plan aiProjectPlan) error {
 	if strings.TrimSpace(dir) == "" {
 		return fmt.Errorf("%w: dir is required", errUsage)
 	}
+	if containsParentTraversalPath(dir) {
+		return fmt.Errorf("%w: project directory must not contain parent traversal", errUsage)
+	}
 	return nil
 }
 
-func applyAIProjectPlan(plan aiProjectPlan) (aiProjectApplyResult, error) {
+func containsParentTraversalPath(path string) bool {
+	for _, part := range strings.FieldsFunc(path, func(r rune) bool { return r == '/' || r == '\\' }) {
+		if part == ".." {
+			return true
+		}
+	}
+	return false
+}
+
+func applyAIProjectPlan(plan aiProjectPlan, opts aiProjectApplyOptions) (aiProjectApplyResult, error) {
 	if err := validateAIProjectApplyInputs(plan); err != nil {
 		return aiProjectApplyResult{}, err
 	}
-	_, _, dir := aiProjectPlanValues(plan)
+	name, module, dir := aiProjectPlanValues(plan)
 	commandArgs, err := aiProjectApplyArgs(plan)
 	if err != nil {
 		return aiProjectApplyResult{}, err
@@ -2468,18 +2525,198 @@ func applyAIProjectPlan(plan aiProjectPlan) (aiProjectApplyResult, error) {
 	}); err != nil {
 		return aiProjectApplyResult{}, err
 	}
+	generatedFeatures, err := generator.ApplyProjectFeaturePlugins(generator.ProjectFeatureOptions{
+		Dir:      dir,
+		Name:     name,
+		Module:   module,
+		Features: plan.Features,
+	})
+	if err != nil {
+		return aiProjectApplyResult{}, err
+	}
+	featureDependencies, featureConfigHints, featureVerify := aggregateProjectFeatureContract(generatedFeatures)
+	verifyCommands := appendUniqueStrings(append([]string(nil), plan.Verify...), featureVerify...)
 	warnings := append([]string(nil), plan.Warnings...)
-	warnings = append(warnings, "ai new --apply writes scaffold files using built-in local generators only; generated verification commands are reported but not executed")
+	warnings = append(warnings, "ai new --apply writes scaffold files using built-in local generators only")
+	verification := []aiProjectVerificationResult(nil)
+	verifyPassed := false
+	if opts.Verify {
+		var err error
+		verification, verifyPassed, err = runAIProjectVerification(dir, verifyCommands, opts.VerifyTimeout)
+		if err != nil {
+			return aiProjectApplyResult{}, err
+		}
+	} else {
+		warnings = append(warnings, "generated verification commands are reported but not executed; pass --verify to run supported checks")
+	}
 	return aiProjectApplyResult{
 		Plan:              plan,
 		Applied:           true,
 		OutputDir:         dir,
 		ExecutedCommand:   "gofly " + strings.Join(commandArgs, " "),
-		Verify:            append([]string(nil), plan.Verify...),
+		GeneratedFeatures: generatedFeatures,
+		Dependencies:      featureDependencies,
+		ConfigHints:       featureConfigHints,
+		FeatureVerify:     featureVerify,
+		Verify:            verifyCommands,
+		VerifyRan:         opts.Verify,
+		VerifyPassed:      verifyPassed,
+		Verification:      verification,
 		Warnings:          warnings,
-		NextActions:       []string{"cd " + dir, "run: " + strings.Join(plan.Verify, " && ")},
+		NextActions: aiProjectApplyNextActions(
+			dir,
+			verifyCommands,
+			featureDependencies,
+			featureConfigHints,
+			opts.Verify,
+			verifyPassed,
+		),
 		MutatesFilesystem: true,
 	}, nil
+}
+
+func aggregateProjectFeatureContract(features []generator.ProjectFeatureResult) ([]string, []generator.ConfigHint, []string) {
+	dependencies := []string{}
+	configHints := []generator.ConfigHint{}
+	verifyCommands := []string{}
+	seenConfigHints := map[string]struct{}{}
+	for _, feature := range features {
+		dependencies = appendUniqueStrings(dependencies, feature.Dependencies...)
+		verifyCommands = appendUniqueStrings(verifyCommands, feature.VerifyCommands...)
+		for _, hint := range feature.ConfigHints {
+			key := strings.ToLower(strings.TrimSpace(hint.Key))
+			if key == "" {
+				continue
+			}
+			if _, ok := seenConfigHints[key]; ok {
+				continue
+			}
+			seenConfigHints[key] = struct{}{}
+			configHints = append(configHints, hint)
+		}
+	}
+	return dependencies, configHints, verifyCommands
+}
+
+func appendUniqueStrings(values []string, more ...string) []string {
+	seen := make(map[string]struct{}, len(values)+len(more))
+	unique := make([]string, 0, len(values)+len(more))
+	for _, value := range append(values, more...) {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		key := strings.ToLower(value)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		unique = append(unique, value)
+	}
+	return unique
+}
+
+func aiProjectApplyNextActions(
+	dir string,
+	verify []string,
+	dependencies []string,
+	configHints []generator.ConfigHint,
+	verifyRan bool,
+	verifyPassed bool,
+) []string {
+	next := []string{"cd " + dir}
+	if len(dependencies) > 0 {
+		next = append(next, "review feature dependencies: go get "+strings.Join(dependencies, " "))
+	}
+	for _, hint := range configHints {
+		action := "configure " + hint.Key + ": " + hint.Description
+		if hint.Example != "" {
+			action += " (example: " + hint.Example + ")"
+		}
+		next = append(next, action)
+	}
+	if len(verify) == 0 {
+		return next
+	}
+	if !verifyRan {
+		return append(next, "run: "+strings.Join(verify, " && "))
+	}
+	if verifyPassed {
+		return append(next, "review generated files and commit when ready")
+	}
+	return append(next, "fix failed verification output, then rerun: "+strings.Join(verify, " && "))
+}
+
+func runAIProjectVerification(dir string, verify []string, timeout time.Duration) ([]aiProjectVerificationResult, bool, error) {
+	if timeout <= 0 {
+		return nil, false, fmt.Errorf("%w: verification timeout must be positive", errUsage)
+	}
+	results := make([]aiProjectVerificationResult, 0, len(verify))
+	passed := true
+	for _, command := range verify {
+		command = strings.TrimSpace(command)
+		if command == "" {
+			continue
+		}
+		result := runAIProjectVerificationCommand(dir, command, timeout)
+		if result.Status == "failed" {
+			passed = false
+		}
+		results = append(results, result)
+	}
+	return results, passed, nil
+}
+
+func runAIProjectVerificationCommand(dir, command string, timeout time.Duration) aiProjectVerificationResult {
+	name, args, ok := aiProjectVerificationCommandArgs(command)
+	if !ok {
+		return aiProjectVerificationResult{Command: command, Status: "skipped", Error: "unsupported verification command"}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	// #nosec G204 -- verification commands are selected from aiProjectVerificationCommandArgs allow-list and never executed through a shell.
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	result := aiProjectVerificationResult{Command: command, Status: "passed", Output: truncateVerificationOutput(string(out))}
+	if ctx.Err() == context.DeadlineExceeded {
+		result.Status = "failed"
+		result.Error = "verification command timed out"
+		return result
+	}
+	if err != nil {
+		result.Status = "failed"
+		result.Error = err.Error()
+	}
+	return result
+}
+
+func aiProjectVerificationCommandArgs(command string) (string, []string, bool) {
+	fields := strings.Fields(command)
+	if len(fields) == 0 {
+		return "", nil, false
+	}
+	switch strings.Join(fields, " ") {
+	case "gofmt":
+		return "go", []string{"fmt", "./..."}, true
+	case "go test ./...":
+		return "go", []string{"test", "./..."}, true
+	case "go mod tidy":
+		return "go", []string{"mod", "tidy"}, true
+	case "go vet ./...":
+		return "go", []string{"vet", "./..."}, true
+	default:
+		return "", nil, false
+	}
+}
+
+func truncateVerificationOutput(output string) string {
+	const maxVerificationOutputBytes = 4096
+	output = strings.TrimSpace(output)
+	if len(output) <= maxVerificationOutputBytes {
+		return output
+	}
+	return output[:maxVerificationOutputBytes] + "\n... truncated ..."
 }
 
 func runAIProjectApplyCommand(args []string) error {
@@ -3386,7 +3623,7 @@ func buildAIToolManifest() aiToolManifest {
 			"module": stringProperty("Go module path used in the proposed command."),
 			"dir":    stringProperty("Output directory used in the proposed command."),
 		}, []string{outputText, outputJSON}, []string{"none; planning only"}, "read", true, false, []string{"gofly ai plan 'create a rag service with redis vector store' --json"}),
-		manifestCommand("ai new", nil, "Plan or apply an AI-first project scaffold from natural language using the built-in project template catalog and local scaffold generators.", "gofly ai new --prompt <requirement> [--template <id>] [--kind service|rpc|worker|cli|ai-agent|rag|gateway] --name <name> --module <module> --dir <dir> [--dry-run|--plan|--apply] [--format text|json] [--json]", map[string]aiInputProperty{
+		manifestCommand("ai new", nil, "Plan or apply an AI-first project scaffold from natural language using the built-in project template catalog and local scaffold generators.", "gofly ai new --prompt <requirement> [--template <id>] [--kind service|rpc|worker|cli|ai-agent|rag|gateway] --name <name> --module <module> --dir <dir> [--dry-run|--plan|--apply] [--verify] [--format text|json] [--json]", map[string]aiInputProperty{
 			"prompt":   stringProperty("Natural language project requirement."),
 			"template": stringProperty("Explicit project template id, for example go-rag-service."),
 			"kind":     stringProperty("Optional project kind hint, such as service, rpc, worker, cli, ai-agent, rag or gateway."),
@@ -3395,7 +3632,8 @@ func buildAIToolManifest() aiToolManifest {
 			"dir":      stringProperty("Output directory."),
 			"dryRun":   boolProperty("Print the selected scaffold plan without writing files."),
 			"apply":    boolProperty("Apply the planned scaffold with built-in generators."),
-		}, []string{outputText, outputJSON}, []string{"creates scaffold files under --dir when --apply is set"}, "medium", true, true, []string{"gofly ai new 'create a rest api' --name hello --module example.com/hello --dir hello --dry-run --json", "gofly ai new --template go-rpc-grpc --name greeter --module example.com/greeter --dir greeter --apply"}),
+			"verify":   boolProperty("Run supported post-generation checks after --apply."),
+		}, []string{outputText, outputJSON}, []string{"creates scaffold files under --dir when --apply is set", "may run local Go verification commands under --dir when --verify is set"}, "medium", true, true, []string{"gofly ai new 'create a rest api' --name hello --module example.com/hello --dir hello --dry-run --json", "gofly ai new --template go-rpc-grpc --name greeter --module example.com/greeter --dir greeter --apply --verify"}),
 		manifestCommand("ai complete", nil, "Execute a governed completion through the provider registry with config/env/flag layering, token budget, redaction and audit controls. Use --stream as a compatible entry point for the ai stream event contract.", "gofly ai complete --prompt <text> [--stream] [--config .gofly/config.json] [--provider noop] [--model <model>] [--max-input-tokens <n>] [--max-output-tokens <n>] [--max-total-tokens <n>] [--rate-limit <n>] [--timeout <duration>] [--allow-failover|--failover] [--dry-run|--plan] [--format text|json] [--json]", map[string]aiInputProperty{
 			"prompt":          stringProperty("Prompt text. It is redacted before provider calls and never included in plan output."),
 			"config":          stringProperty("gofly config file. llm defaults are read before GOFLY_LLM_* env vars and CLI flags."),

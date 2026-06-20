@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -807,12 +808,23 @@ func TestAINewPlansAndAppliesSelectedTemplate(t *testing.T) {
 			OK      bool   `json:"ok"`
 			Command string `json:"command"`
 			Data    struct {
-				Applied           bool     `json:"applied"`
-				OutputDir         string   `json:"outputDir"`
-				ExecutedCommand   string   `json:"executedCommand"`
-				MutatesFilesystem bool     `json:"mutatesFilesystem"`
-				Verify            []string `json:"verify"`
-				Plan              struct {
+				Applied           bool   `json:"applied"`
+				OutputDir         string `json:"outputDir"`
+				ExecutedCommand   string `json:"executedCommand"`
+				MutatesFilesystem bool   `json:"mutatesFilesystem"`
+				GeneratedFeatures []struct {
+					Plugin         string   `json:"plugin"`
+					Files          []string `json:"files"`
+					VerifyCommands []string `json:"verifyCommands"`
+				} `json:"generatedFeatures"`
+				ConfigHints []struct {
+					Key string `json:"key"`
+				} `json:"configHints"`
+				FeatureVerify []string `json:"featureVerify"`
+				Verify        []string `json:"verify"`
+				VerifyRan     bool     `json:"verifyRan"`
+				VerifyPassed  bool     `json:"verifyPassed"`
+				Plan          struct {
 					DryRun            bool `json:"dryRun"`
 					MutatesFilesystem bool `json:"mutatesFilesystem"`
 					Template          struct {
@@ -833,9 +845,67 @@ func TestAINewPlansAndAppliesSelectedTemplate(t *testing.T) {
 		if !strings.Contains(envelope.Data.ExecutedCommand, "gofly new api hello") || len(envelope.Data.Verify) == 0 {
 			t.Fatalf("ai new apply command/verify = %+v", envelope.Data)
 		}
+		if len(envelope.Data.GeneratedFeatures) == 0 || envelope.Data.GeneratedFeatures[0].Plugin != "observability" {
+			t.Fatalf("ai new apply generatedFeatures = %+v, want observability plugin", envelope.Data.GeneratedFeatures)
+		}
+		if got := strings.Join(envelope.Data.FeatureVerify, ","); got != "go vet ./...,go test ./..." {
+			t.Fatalf("ai new apply featureVerify = %q, want feature-specific verification declarations", got)
+		}
+		if got := strings.Join(envelope.Data.Verify, ","); got != "gofmt,go mod tidy,go test ./...,go vet ./..." {
+			t.Fatalf("ai new apply verify = %q, want template and feature verify commands", got)
+		}
+		if len(envelope.Data.ConfigHints) == 0 || envelope.Data.ConfigHints[0].Key != "LOG_LEVEL" {
+			t.Fatalf("ai new apply configHints = %+v, want LOG_LEVEL", envelope.Data.ConfigHints)
+		}
+		if envelope.Data.VerifyRan || envelope.Data.VerifyPassed {
+			t.Fatalf("ai new apply without --verify verify flags = %+v, want false", envelope.Data)
+		}
 		if _, err := os.Stat(filepath.Join(outDir, "go.mod")); err != nil {
 			t.Fatalf("ai new apply did not write go.mod: %v", err)
 		}
+		if _, err := os.Stat(filepath.Join(outDir, "docs", "openapi.yaml")); err != nil {
+			t.Fatalf("ai new apply did not write openapi feature file: %v", err)
+		}
+	})
+
+	t.Run("apply verify compiles generated rest project", func(t *testing.T) {
+		outDir := filepath.Join(t.TempDir(), "verify-rest")
+		withFrameworkPath(t, func() {
+			var stdout bytes.Buffer
+			args := []string{"ai", "new", "--template", "go-rest-minimal", "--name", "hello", "--module", "example.com/hello", "--dir", outDir, "--apply", "--verify", "--verify-timeout", "2m", "--json"}
+			if err := ExecuteWithIO(args, IOStreams{Out: &stdout}); err != nil {
+				t.Fatalf("ai new apply --verify: %v", err)
+			}
+			var envelope struct {
+				OK   bool `json:"ok"`
+				Data struct {
+					VerifyRan    bool `json:"verifyRan"`
+					VerifyPassed bool `json:"verifyPassed"`
+					Verification []struct {
+						Command string `json:"command"`
+						Status  string `json:"status"`
+						Output  string `json:"output"`
+						Error   string `json:"error"`
+					} `json:"verification"`
+				} `json:"data"`
+			}
+			if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+				t.Fatalf("ai new apply verify JSON: %v\n%s", err, stdout.String())
+			}
+			if !envelope.OK || !envelope.Data.VerifyRan || !envelope.Data.VerifyPassed {
+				t.Fatalf("ai new apply verify envelope = %+v\n%s", envelope, stdout.String())
+			}
+			gotCommands := make([]string, 0, len(envelope.Data.Verification))
+			for _, check := range envelope.Data.Verification {
+				gotCommands = append(gotCommands, check.Command+":"+check.Status)
+				if check.Status != "passed" {
+					t.Fatalf("verification check failed: %+v\n%s", check, stdout.String())
+				}
+			}
+			if strings.Join(gotCommands, ",") != "gofmt:passed,go mod tidy:passed,go test ./...:passed,go vet ./...:passed" {
+				t.Fatalf("verification commands = %v, want gofmt/go mod tidy/go test/go vet passed", gotCommands)
+			}
+		})
 	})
 }
 
@@ -870,6 +940,11 @@ func TestAINewFlagValidationBoundaries_BitsUT(t *testing.T) {
 			name:    "rejects unsupported format",
 			args:    append(append([]string{}, baseArgs...), "--format", "yaml"),
 			wantErr: "unsupported --format",
+		},
+		{
+			name:    "rejects invalid verify timeout",
+			args:    append(append([]string{}, baseArgs...), "--verify-timeout", "0s"),
+			wantErr: "--verify-timeout must be a positive duration",
 		},
 	}
 	for _, tt := range tests {
@@ -914,6 +989,87 @@ func TestAINewFlagValidationBoundaries_BitsUT(t *testing.T) {
 	})
 }
 
+func TestAINewFeatureLibrary_BitsUT(t *testing.T) {
+	t.Run("apply rag reports and writes concrete feature plugins", func(t *testing.T) {
+		outDir := filepath.Join(t.TempDir(), "rag")
+		var stdout bytes.Buffer
+		args := []string{"ai", "new", "--template", "go-rag-service", "--name", "rag", "--module", "example.com/rag", "--dir", outDir, "--apply", "--json"}
+		if err := ExecuteWithIO(args, IOStreams{Out: &stdout}); err != nil {
+			t.Fatalf("ai new rag apply: %v", err)
+		}
+		var envelope struct {
+			Data struct {
+				GeneratedFeatures []struct {
+					Plugin         string   `json:"plugin"`
+					Tags           []string `json:"tags"`
+					Files          []string `json:"files"`
+					VerifyCommands []string `json:"verifyCommands"`
+				} `json:"generatedFeatures"`
+				ConfigHints []struct {
+					Key         string `json:"key"`
+					Description string `json:"description"`
+					Example     string `json:"example"`
+				} `json:"configHints"`
+				FeatureVerify []string `json:"featureVerify"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+			t.Fatalf("ai new rag JSON: %v\n%s", err, stdout.String())
+		}
+		plugins := make([]string, 0, len(envelope.Data.GeneratedFeatures))
+		for _, feature := range envelope.Data.GeneratedFeatures {
+			plugins = append(plugins, feature.Plugin)
+		}
+		if got := strings.Join(plugins, ","); got != "observability,rag-agent" {
+			t.Fatalf("generated feature plugins = %q, want observability,rag-agent", got)
+		}
+		if got := strings.Join(envelope.Data.FeatureVerify, ","); got != "go vet ./...,go test ./..." {
+			t.Fatalf("rag feature verify = %q, want deduplicated feature checks", got)
+		}
+		configKeys := make([]string, 0, len(envelope.Data.ConfigHints))
+		for _, hint := range envelope.Data.ConfigHints {
+			configKeys = append(configKeys, hint.Key)
+		}
+		if got := strings.Join(configKeys, ","); got != "LOG_LEVEL,OTEL_EXPORTER_OTLP_ENDPOINT,LLM_PROVIDER,VECTOR_STORE" {
+			t.Fatalf("rag config hints = %q, want observability and RAG hints", got)
+		}
+		for _, rel := range []string{
+			filepath.Join("internal", "ai", "rag.go"),
+			filepath.Join("internal", "observability", "observability.go"),
+		} {
+			if _, err := os.Stat(filepath.Join(outDir, rel)); err != nil {
+				t.Fatalf("ai new rag did not write %s: %v", rel, err)
+			}
+		}
+	})
+
+	t.Run("text apply reports generated features", func(t *testing.T) {
+		outDir := filepath.Join(t.TempDir(), "postgres")
+		var stdout bytes.Buffer
+		args := []string{"ai", "new", "--template", "go-rest-clean-postgres", "--name", "orders", "--module", "example.com/orders", "--dir", outDir, "--apply"}
+		if err := ExecuteWithIO(args, IOStreams{Out: &stdout}); err != nil {
+			t.Fatalf("ai new postgres text apply: %v", err)
+		}
+		got := stdout.String()
+		for _, want := range []string{
+			"feature=ci-docker",
+			"feature=observability",
+			"feature=openapi",
+			"feature=postgres-repository",
+			"dependencies=github.com/jackc/pgx/v5@latest",
+			"configHint=DATABASE_URL",
+			"verify=go vet ./...",
+		} {
+			if !strings.Contains(got, want) {
+				t.Fatalf("ai new postgres text output missing %q:\n%s", want, got)
+			}
+		}
+		if _, err := os.Stat(filepath.Join(outDir, "internal", "repository", "postgres.go")); err != nil {
+			t.Fatalf("ai new postgres did not write repository feature: %v", err)
+		}
+	})
+}
+
 func TestAINewTextHelpAndManifestContract_BitsUT(t *testing.T) {
 	t.Run("text dry-run prints plan", func(t *testing.T) {
 		var stdout bytes.Buffer
@@ -930,7 +1086,7 @@ func TestAINewTextHelpAndManifestContract_BitsUT(t *testing.T) {
 	t.Run("help includes ai new contract", func(t *testing.T) {
 		aiHelp := commandUsage("ai")
 		newHelp := commandUsage("ai new")
-		for _, want := range []string{"ai new", "--apply", "--dry-run", "--template"} {
+		for _, want := range []string{"ai new", "--apply", "--dry-run", "--template", "--verify"} {
 			if !strings.Contains(aiHelp+newHelp, want) {
 				t.Fatalf("ai help output missing %q\nai help:\n%s\nai new help:\n%s", want, aiHelp, newHelp)
 			}
@@ -943,7 +1099,7 @@ func TestAINewTextHelpAndManifestContract_BitsUT(t *testing.T) {
 			if cmd.Name != "ai new" {
 				continue
 			}
-			if !cmd.SupportsDryRun || !cmd.MutatesFilesystem || cmd.RiskLevel != "medium" || cmd.InputSchema.Properties["apply"].Type != "boolean" {
+			if !cmd.SupportsDryRun || !cmd.MutatesFilesystem || cmd.RiskLevel != "medium" || cmd.InputSchema.Properties["apply"].Type != "boolean" || cmd.InputSchema.Properties["verify"].Type != "boolean" {
 				t.Fatalf("ai new manifest command = %+v, want dry-run mutating medium command", cmd)
 			}
 			return
@@ -1003,8 +1159,154 @@ func TestAIProjectApplyHelperErrorAndTextBranches_BitsUT(t *testing.T) {
 			Template: generator.ProjectTemplate{ID: "unsupported", Command: "gofly plugin run <name> --module <module> --dir <dir>"},
 			Command:  "gofly plugin run hello --module example.com/hello --dir hello",
 		}
-		if _, err := applyAIProjectPlan(plan); !errors.Is(err, errUsage) || !strings.Contains(err.Error(), "unsupported scaffold command") {
+		if _, err := applyAIProjectPlan(plan, aiProjectApplyOptions{}); !errors.Is(err, errUsage) || !strings.Contains(err.Error(), "unsupported scaffold command") {
 			t.Fatalf("applyAIProjectPlan unsupported error = %v", err)
+		}
+	})
+}
+
+func TestAIProjectApplyVerificationScaffoldBoundaries_BitsUT(t *testing.T) {
+	t.Run("apply verify compiles rpc and gateway templates", func(t *testing.T) {
+		withFrameworkPath(t, func() {
+			for _, tt := range []struct {
+				name     string
+				template string
+			}{
+				{name: "greeter", template: "go-rpc-grpc"},
+				{name: "edge", template: "go-gateway"},
+			} {
+				t.Run(tt.template, func(t *testing.T) {
+					outDir := filepath.Join(t.TempDir(), tt.name)
+					var stdout bytes.Buffer
+					args := []string{"ai", "new", "--template", tt.template, "--name", tt.name, "--module", "example.com/" + tt.name, "--dir", outDir, "--apply", "--verify", "--verify-timeout", "2m", "--json"}
+					if err := ExecuteWithIO(args, IOStreams{Out: &stdout}); err != nil {
+						t.Fatalf("ai new %s --verify: %v", tt.template, err)
+					}
+					var envelope struct {
+						Data struct {
+							VerifyRan    bool `json:"verifyRan"`
+							VerifyPassed bool `json:"verifyPassed"`
+							Verification []struct {
+								Command string `json:"command"`
+								Status  string `json:"status"`
+							} `json:"verification"`
+						} `json:"data"`
+					}
+					if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+						t.Fatalf("ai new %s JSON: %v\n%s", tt.template, err, stdout.String())
+					}
+					if !envelope.Data.VerifyRan || !envelope.Data.VerifyPassed || len(envelope.Data.Verification) != 4 {
+						t.Fatalf("ai new %s verification = %+v\n%s", tt.template, envelope.Data, stdout.String())
+					}
+					for _, check := range envelope.Data.Verification {
+						if check.Status != "passed" {
+							t.Fatalf("ai new %s verification check = %+v\n%s", tt.template, check, stdout.String())
+						}
+					}
+				})
+			}
+		})
+	})
+
+	t.Run("apply rejects traversal output directories", func(t *testing.T) {
+		parent := t.TempDir()
+		outDir := parent + string(filepath.Separator) + "project" + string(filepath.Separator) + ".." + string(filepath.Separator) + "escape"
+		var stdout bytes.Buffer
+		err := ExecuteWithIO([]string{"ai", "new", "--template", "go-rest-minimal", "--name", "hello", "--module", "example.com/hello", "--dir", outDir, "--apply", "--json"}, IOStreams{Out: &stdout, Err: &bytes.Buffer{}})
+		if err == nil || !strings.Contains(err.Error(), "project directory must not contain parent traversal") {
+			t.Fatalf("ai new traversal error = %v, want traversal rejection", err)
+		}
+		if _, statErr := os.Stat(filepath.Join(parent, "escape", "go.mod")); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("ai new traversal wrote outside intended directory or stat failed: %v", statErr)
+		}
+	})
+
+	t.Run("verification output is truncated before JSON reporting", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/bad\n\ngo 1.26\n"), 0o644); err != nil {
+			t.Fatalf("write go.mod: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "bad_test.go"), []byte("package bad\nimport \"testing\"\nfunc TestHuge(t *testing.T) { t.Fatal(\""+strings.Repeat("x", 6000)+"\") }\n"), 0o644); err != nil {
+			t.Fatalf("write bad_test.go: %v", err)
+		}
+		result := runAIProjectVerificationCommand(dir, "go test ./...", 30*time.Second)
+		if result.Status != "failed" || len(result.Output) >= 6000 || !strings.Contains(result.Output, "truncated") {
+			t.Fatalf("verification truncation result = status:%s len:%d error:%q", result.Status, len(result.Output), result.Error)
+		}
+	})
+}
+
+func withFrameworkPath(t *testing.T, fn func()) {
+	t.Helper()
+	t.Setenv("GOFLY_FRAMEWORK_PATH", commandRepositoryRoot(t))
+	fn()
+}
+
+func commandRepositoryRoot(t *testing.T) string {
+	t.Helper()
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("locate repository root: runtime caller unavailable")
+	}
+	root := filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", "..", ".."))
+	data, err := os.ReadFile(filepath.Join(root, "go.mod"))
+	if err != nil {
+		t.Fatalf("read framework go.mod: %v", err)
+	}
+	if !strings.Contains(string(data), "module github.com/gofly/gofly") {
+		t.Fatalf("framework root %s has unexpected go.mod:\n%s", root, data)
+	}
+	return root
+}
+
+func TestAIProjectVerificationHelpers_BitsUT(t *testing.T) {
+	t.Run("runs supported checks and skips unsupported checks", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/verify\n\ngo 1.26\n"), 0o644); err != nil {
+			t.Fatalf("write go.mod: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\nfunc main( ){}\n"), 0o644); err != nil {
+			t.Fatalf("write main.go: %v", err)
+		}
+		results, passed, err := runAIProjectVerification(dir, []string{"gofmt", "gofly ai doctor --json"}, 5*time.Second)
+		if err != nil {
+			t.Fatalf("runAIProjectVerification: %v", err)
+		}
+		if !passed || len(results) != 2 || results[0].Status != "passed" || results[1].Status != "skipped" {
+			t.Fatalf("verification results = %+v passed=%v, want passed+skipped", results, passed)
+		}
+	})
+
+	t.Run("reports failing supported checks", func(t *testing.T) {
+		results, passed, err := runAIProjectVerification(t.TempDir(), []string{"go test ./..."}, 5*time.Second)
+		if err != nil {
+			t.Fatalf("runAIProjectVerification failed check: %v", err)
+		}
+		if passed || len(results) != 1 || results[0].Status != "failed" || results[0].Error == "" {
+			t.Fatalf("verification failure results = %+v passed=%v, want failed result", results, passed)
+		}
+	})
+
+	t.Run("rejects invalid timeout", func(t *testing.T) {
+		if _, _, err := runAIProjectVerification(t.TempDir(), []string{"gofmt"}, 0); !errors.Is(err, errUsage) {
+			t.Fatalf("runAIProjectVerification invalid timeout error = %v, want errUsage", err)
+		}
+	})
+
+	t.Run("maps allowlisted commands", func(t *testing.T) {
+		name, args, ok := aiProjectVerificationCommandArgs("go mod tidy")
+		if !ok || name != "go" || strings.Join(args, " ") != "mod tidy" {
+			t.Fatalf("aiProjectVerificationCommandArgs go mod tidy = %q %v %v", name, args, ok)
+		}
+		if _, _, ok := aiProjectVerificationCommandArgs("rm -rf ."); ok {
+			t.Fatal("aiProjectVerificationCommandArgs accepted unsupported command")
+		}
+	})
+
+	t.Run("truncates large verification output", func(t *testing.T) {
+		got := truncateVerificationOutput(strings.Repeat("x", 5000))
+		if len(got) >= 5000 || !strings.Contains(got, "truncated") {
+			t.Fatalf("truncateVerificationOutput length=%d suffix=%q", len(got), got[len(got)-20:])
 		}
 	})
 }

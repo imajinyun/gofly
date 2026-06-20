@@ -167,6 +167,62 @@ func TestGeneratedArtifactsCompileInTemporaryModules(t *testing.T) {
 	}
 }
 
+func TestRPCAndOpenAPIHelperBoundaries_BitsUT(t *testing.T) {
+	requestTests := []struct {
+		name       string
+		methodName string
+		params     string
+		want       string
+	}{
+		{name: "empty params", methodName: "say_hello", params: "", want: "SayHelloRequest"},
+		{name: "typed param", methodName: "ignored", params: "1: UserReq req", want: "UserReq"},
+		{name: "namespaced param", methodName: "ignored", params: "1: user.UserReq req", want: "UserReq"},
+	}
+	for _, tt := range requestTests {
+		t.Run("request/"+tt.name, func(t *testing.T) {
+			if got := thriftMethodRequest(tt.methodName, tt.params); got != tt.want {
+				t.Fatalf("thriftMethodRequest(%q, %q) = %q, want %q", tt.methodName, tt.params, got, tt.want)
+			}
+		})
+	}
+	typeTests := map[string]string{
+		" string ":             "string",
+		"binary":               "string",
+		"bool":                 "bool",
+		"i8":                   "int32",
+		"i16":                  "int32",
+		"i32":                  "int32",
+		"i64":                  "int64",
+		"double":               "double",
+		"void":                 "Empty",
+		"list<i64>":            "repeated int64",
+		"list<user.Profile>":   "repeated Profile",
+		"custom_type":          "CustomType",
+	}
+	for input, want := range typeTests {
+		t.Run("type/"+input, func(t *testing.T) {
+			if got := thriftTypeToProto(input); got != want {
+				t.Fatalf("thriftTypeToProto(%q) = %q, want %q", input, got, want)
+			}
+		})
+	}
+
+	var item openAPIPathItem
+	data := []byte(`{"parameters":[{"name":"id","in":"path"}],"get":{"operationId":"listUsers"},"x-vendor":{"ignored":true}}`)
+	if err := json.Unmarshal(data, &item); err != nil {
+		t.Fatalf("UnmarshalJSON path item: %v", err)
+	}
+	if _, ok := item["get"]; !ok || len(item[openAPIPathParametersKey].Parameters) != 1 {
+		t.Fatalf("path item = %#v, want get operation and path parameters", item)
+	}
+	if err := json.Unmarshal([]byte(`{"parameters":{}}`), &item); err == nil || !strings.Contains(err.Error(), "parse openapi path parameters") {
+		t.Fatalf("invalid path parameters error = %v, want wrapped parse error", err)
+	}
+	if err := json.Unmarshal([]byte(`{"get":[]}`), &item); err == nil || !strings.Contains(err.Error(), "parse openapi get operation") {
+		t.Fatalf("invalid operation error = %v, want wrapped parse error", err)
+	}
+}
+
 func writeGeneratedModule(t *testing.T, dir string, module string) {
 	t.Helper()
 	goMod := fmt.Sprintf("module %s\n\ngo 1.26\n\nrequire github.com/gofly/gofly v0.0.0\n", module)

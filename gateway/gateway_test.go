@@ -115,6 +115,96 @@ func TestGatewayGovernanceSuiteProvidesRules(t *testing.T) {
 	}
 }
 
+func TestApplyGovernancePolicyBoundaries_BitsUT(t *testing.T) {
+	route := Route{
+		Name:      "orders",
+		Headers:   map[string]string{"X-Original": "true"},
+		Timeout:   time.Second,
+		Canary:    []CanaryRoute{{Target: "http://stable"}},
+		RateLimit: RateLimitConfig{Rate: 1, Burst: 1},
+	}
+	policy := governance.Policy{
+		Timeout:      2 * time.Second,
+		MaxBodyBytes: 1024,
+		Retry:        governance.RetryPolicy{Attempts: 3, Backoff: time.Millisecond, Statuses: []int{http.StatusBadGateway}, Methods: []string{http.MethodPost}},
+		Breaker:      governance.BreakerPolicy{Enabled: true, OpenTimeout: time.Second, Window: time.Minute, Buckets: 4, MinRequests: 5, FailureRatio: 0.5},
+		RateLimit:    governance.RateLimitPolicy{Rate: 9, Burst: 2},
+		Concurrency:  governance.ConcurrencyPolicy{Limit: 7},
+		Headers:      map[string]string{"X-Policy": "on"},
+		Canary:       governance.CanaryPolicy{Target: "http://canary", Ratio: 0.25, Headers: map[string]string{"X-Canary": "true"}, MatchHeaders: map[string]string{"X-Bucket": "beta"}},
+	}
+
+	governed := applyGovernancePolicy(route, policy)
+	if governed.Timeout != 2*time.Second || governed.MaxBodyBytes != 1024 || governed.Retry.Attempts != 3 || governed.Retry.Statuses[0] != http.StatusBadGateway {
+		t.Fatalf("governed retry/timeout = %#v, want policy applied", governed)
+	}
+	if !governed.Breaker.Enabled || governed.RateLimit.Rate != 9 || governed.Concurrency.Limit != 7 {
+		t.Fatalf("governed limits = %#v, want breaker/rate/concurrency applied", governed)
+	}
+	if governed.Headers["X-Original"] != "true" || governed.Headers["X-Policy"] != "on" {
+		t.Fatalf("governed headers = %#v, want original and policy headers", governed.Headers)
+	}
+	governed.Headers["X-Original"] = "mutated"
+	if route.Headers["X-Original"] != "true" {
+		t.Fatalf("source headers mutated to %#v, want defensive copy", route.Headers)
+	}
+	if len(governed.Canary) != 2 || governed.Canary[1].Target != "http://canary" || governed.Canary[1].Headers["X-Canary"] != "true" || governed.Canary[1].MatchHeaders["X-Bucket"] != "beta" {
+		t.Fatalf("governed canary = %#v, want existing plus policy canary", governed.Canary)
+	}
+	policy.Canary.Headers["X-Canary"] = "mutated"
+	if governed.Canary[1].Headers["X-Canary"] != "true" {
+		t.Fatalf("canary headers mutated through source policy: %#v", governed.Canary[1].Headers)
+	}
+}
+
+func TestGatewaySnapshotAndPrometheusBoundaries_BitsUT(t *testing.T) {
+	if err := (*Stats)(nil).WritePrometheus(&bytes.Buffer{}); err != nil {
+		t.Fatalf("nil Stats WritePrometheus error = %v, want nil", err)
+	}
+	stats := NewStats()
+	stats.Observe("GET /route\n\"quoted\"\\slash", http.StatusServiceUnavailable, 3*time.Millisecond)
+	stats.Observe("GET /route\n\"quoted\"\\slash", http.StatusOK, time.Millisecond)
+	stats.IncRetry("GET /route\n\"quoted\"\\slash", 1)
+	stats.IncShadow("GET /route\n\"quoted\"\\slash")
+	stats.IncShadowDropped("GET /route\n\"quoted\"\\slash")
+	stats.IncEjection("GET /route\n\"quoted\"\\slash")
+
+	var buf bytes.Buffer
+	if err := stats.WritePrometheus(&buf); err != nil {
+		t.Fatalf("WritePrometheus: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, `gofly_gateway_route_requests_total{route="GET /route\n\"quoted\"\\slash"} 2`) {
+		t.Fatalf("escaped request metric missing:\n%s", out)
+	}
+	idx200 := strings.Index(out, `status="200"`)
+	idx503 := strings.Index(out, `status="503"`)
+	if idx200 < 0 || idx503 < 0 || idx200 > idx503 {
+		t.Fatalf("status metrics ordering invalid: idx200=%d idx503=%d\n%s", idx200, idx503, out)
+	}
+	if routeLabel(RouteSnapshot{Name: "named", Method: http.MethodGet, PathPrefix: "/ignored"}) != "named" {
+		t.Fatal("routeLabel with name did not prefer name")
+	}
+	if routeLabel(RouteSnapshot{Method: http.MethodPost, PathPrefix: "/orders"}) != "POST /orders" {
+		t.Fatal("routeLabel with method/path did not include method")
+	}
+	if routeLabel(RouteSnapshot{PathPrefix: "/orders"}) != "/orders" {
+		t.Fatal("routeLabel path fallback mismatch")
+	}
+	if got := prometheusLabel("line\n\"quoted\"\\slash"); got != `line\n\"quoted\"\\slash` {
+		t.Fatalf("prometheusLabel = %q, want escaped label", got)
+	}
+	if got := ((*Gateway)(nil)).snapshotResolveTimeout(); got != 500*time.Millisecond {
+		t.Fatalf("nil snapshot timeout = %v, want 500ms", got)
+	}
+	if got := (&Gateway{timeout: 100 * time.Millisecond}).snapshotResolveTimeout(); got != 100*time.Millisecond {
+		t.Fatalf("short snapshot timeout = %v, want 100ms", got)
+	}
+	if got := (&Gateway{timeout: 2 * time.Second}).snapshotResolveTimeout(); got != 500*time.Millisecond {
+		t.Fatalf("long snapshot timeout = %v, want capped 500ms", got)
+	}
+}
+
 func TestGatewayGovernanceManagerOverridesLaterSuite(t *testing.T) {
 	manager, err := governance.NewManager(governance.Config{Rules: []governance.Rule{{
 		Name:      "live",

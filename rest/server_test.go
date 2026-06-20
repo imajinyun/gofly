@@ -22,6 +22,7 @@ import (
 	"github.com/gofly/gofly/core/metadata"
 	"github.com/gofly/gofly/core/observability/metrics"
 	"github.com/gofly/gofly/core/observability/trace"
+	controladmin "github.com/gofly/gofly/ops/admin"
 )
 
 func TestServer_AddRoute(t *testing.T) {
@@ -32,6 +33,93 @@ func TestServer_AddRoute(t *testing.T) {
 	s.Handler().ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+}
+
+func TestServerStateNameAndRouteTagsBoundaries_BitsUT(t *testing.T) {
+	stateTests := []struct {
+		name  string
+		state int32
+		want  string
+	}{
+		{name: "initialized", state: serverStateInitialized, want: "initialized"},
+		{name: "starting", state: serverStateStarting, want: "starting"},
+		{name: "running", state: serverStateRunning, want: "running"},
+		{name: "stopping", state: serverStateStopping, want: "stopping"},
+		{name: "stopped", state: serverStateStopped, want: "stopped"},
+		{name: "unknown", state: 99, want: "unknown"},
+	}
+	for _, tt := range stateTests {
+		t.Run("state/"+tt.name, func(t *testing.T) {
+			if got := serverStateName(tt.state); got != tt.want {
+				t.Fatalf("serverStateName(%d) = %q, want %q", tt.state, got, tt.want)
+			}
+		})
+	}
+
+	if got := routeTags(nil); got != nil {
+		t.Fatalf("routeTags(nil) = %#v, want nil", got)
+	}
+	got := routeTags([]string{"", "orders", "orders", "admin"})
+	if len(got) != 2 || got["orders"] != "true" || got["admin"] != "true" {
+		t.Fatalf("routeTags filtered map = %#v, want orders/admin only", got)
+	}
+}
+
+func TestServerOptionAndLifecycleBoundaries_BitsUT(t *testing.T) {
+	var auditEvents []string
+	sink := controladmin.AuditSink(func(_ context.Context, event controladmin.AuditEvent) {
+		auditEvents = append(auditEvents, event.Path)
+	})
+	s, err := NewServer(Config{Host: "127.0.0.1", Port: -1}, WithAdminAuditSink(sink))
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	if s.adminAudit == nil {
+		t.Fatal("WithAdminAuditSink did not install sink")
+	}
+	s.adminAudit(context.Background(), controladmin.AuditEvent{Path: "/test"})
+	if len(auditEvents) != 1 || auditEvents[0] != "/test" {
+		t.Fatalf("audit events = %#v, want test event", auditEvents)
+	}
+	if err := s.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown before Start: %v", err)
+	}
+	if state := s.State().State; state != "stopped" {
+		t.Fatalf("state after shutdown without server = %q, want stopped", state)
+	}
+	if err := s.Start(); err == nil {
+		t.Fatal("Start with invalid port succeeded, want listen error")
+	}
+}
+
+func TestServerRouteOptionAndOpenAPIBoundaries_BitsUT(t *testing.T) {
+	var opts routeOptions
+	WithAdaptiveRateLimit(AdaptiveLimitConfig{TargetLatency: time.Second})(&opts)
+	if opts.adaptive == nil || !opts.adaptive.enabled || opts.adaptive.config.TargetLatency != time.Second {
+		t.Fatalf("adaptive opts = %#v, want enabled config", opts.adaptive)
+	}
+	WithoutAdaptiveRateLimit()(&opts)
+	if opts.adaptive == nil || opts.adaptive.enabled {
+		t.Fatalf("without adaptive opts = %#v, want disabled marker", opts.adaptive)
+	}
+	trimJSON := true
+	WithTrimStringsConfig(TrimStringsConfig{JSON: &trimJSON})(&opts)
+	if opts.trimStrings == nil || !*opts.trimStrings || opts.trimConfig.JSON == nil || !*opts.trimConfig.JSON {
+		t.Fatalf("trim opts = %#v/%#v, want enabled config", opts.trimStrings, opts.trimConfig)
+	}
+
+	s := MustNewServer(Config{DisableDefaultMiddlewares: true})
+	s.AddOpenAPIRoutes(OpenAPIInfo{Title: "demo", Version: "v1"})
+	jsonRec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(jsonRec, httptest.NewRequest(http.MethodGet, "/openapi.json", nil))
+	if jsonRec.Code != http.StatusOK || !strings.Contains(jsonRec.Body.String(), `"title":"demo"`) {
+		t.Fatalf("openapi route = %d %s, want demo json", jsonRec.Code, jsonRec.Body.String())
+	}
+	docsRec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(docsRec, httptest.NewRequest(http.MethodGet, "/docs", nil))
+	if docsRec.Code != http.StatusOK || !strings.Contains(docsRec.Body.String(), "SwaggerUIBundle") {
+		t.Fatalf("docs route = %d body length %d, want swagger html", docsRec.Code, docsRec.Body.Len())
 	}
 }
 

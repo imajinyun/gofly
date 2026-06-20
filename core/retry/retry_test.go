@@ -27,6 +27,53 @@ func TestDoHonorsRetryBudget(t *testing.T) {
 	}
 }
 
+func TestDoPolicyBoundaryCases_BitsUT(t *testing.T) {
+	boom := errors.New("boom")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	calls := 0
+	if err := Do(ctx, Policy{Attempts: 3}, func() error {
+		calls++
+		return nil
+	}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled Do error = %v, want context.Canceled", err)
+	}
+	if calls != 0 {
+		t.Fatalf("canceled Do calls = %d, want 0", calls)
+	}
+
+	calls = 0
+	if err := Do(context.Background(), Policy{Attempts: 0}, func() error {
+		calls++
+		return boom
+	}); !errors.Is(err, boom) {
+		t.Fatalf("default attempts error = %v, want boom", err)
+	}
+	if calls != 1 {
+		t.Fatalf("default attempts calls = %d, want 1", calls)
+	}
+
+	calls = 0
+	if err := Do(context.Background(), Policy{Attempts: 5, Budget: MaxRetriesBudget{MaxRetries: -1}}, func() error {
+		calls++
+		return boom
+	}); !errors.Is(err, boom) {
+		t.Fatalf("negative budget error = %v, want boom", err)
+	}
+	if calls != 1 {
+		t.Fatalf("negative budget calls = %d, want 1", calls)
+	}
+
+	calls = 0
+	if err := Do(context.Background(), Policy{Attempts: 5}, func() error {
+		calls++
+		return nil
+	}); err != nil || calls != 1 {
+		t.Fatalf("success Do err=%v calls=%d, want nil/1", err, calls)
+	}
+}
+
 func TestDoStopsWhenShouldRetryRejectsError(t *testing.T) {
 	boom := errors.New("boom")
 	calls := 0
@@ -91,6 +138,32 @@ func TestBackoffBoundaryCases(t *testing.T) {
 	}
 	if got := JitterBackoff(nil, 0.5)(1); got != 0 {
 		t.Fatalf("JitterBackoff nil next = %v, want 0", got)
+	}
+}
+
+func TestBackoffHelpersBoundaries_BitsUT(t *testing.T) {
+	if got := FixedBackoff(7 * time.Millisecond)(99); got != 7*time.Millisecond {
+		t.Fatalf("FixedBackoff = %v, want 7ms", got)
+	}
+	if got := ExponentialBackoff(time.Millisecond, 0)(63); got != 0 {
+		t.Fatalf("ExponentialBackoff overflow without cap = %v, want 0", got)
+	}
+	if got := ExponentialBackoff(time.Millisecond, 2*time.Millisecond)(4); got != 2*time.Millisecond {
+		t.Fatalf("ExponentialBackoff cap = %v, want 2ms", got)
+	}
+	if got := JitterBackoff(FixedBackoff(time.Millisecond), -0.1)(1); got != time.Millisecond {
+		t.Fatalf("negative jitter = %v, want original delay", got)
+	}
+	for i := 0; i < 20; i++ {
+		if got := JitterBackoff(FixedBackoff(time.Millisecond), 2)(1); got < 0 || got > 2*time.Millisecond {
+			t.Fatalf("clamped jitter = %v, want [0,2ms]", got)
+		}
+	}
+	if got := nextDelay(func(attempt int) time.Duration { return time.Duration(attempt) * time.Millisecond }, time.Hour, 3); got != 3*time.Millisecond {
+		t.Fatalf("nextDelay func = %v, want 3ms", got)
+	}
+	if got := nextDelay(nil, 4*time.Millisecond, 3); got != 4*time.Millisecond {
+		t.Fatalf("nextDelay fallback = %v, want 4ms", got)
 	}
 }
 

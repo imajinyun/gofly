@@ -96,6 +96,47 @@ func TestTraceHandlerWithAttrsAndGroup(t *testing.T) {
 	}
 }
 
+func TestReadRequestedLevelBoundaries_BitsUT(t *testing.T) {
+	tests := []struct {
+		name        string
+		req         *http.Request
+		want        string
+		wantErrPart string
+	}{
+		{name: "query trims", req: httptest.NewRequest(http.MethodPut, "/loglevel?level=%20debug%20", nil), want: "debug"},
+		{name: "json body trims", req: func() *http.Request {
+			req := httptest.NewRequest(http.MethodPut, "/loglevel", strings.NewReader(`{"level":" warn "}`))
+			req.Header.Set("Content-Type", "application/json; charset=utf-8")
+			return req
+		}(), want: "warn"},
+		{name: "form value", req: func() *http.Request {
+			req := httptest.NewRequest(http.MethodPut, "/loglevel", strings.NewReader("level=error"))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			return req
+		}(), want: "error"},
+		{name: "invalid json", req: func() *http.Request {
+			req := httptest.NewRequest(http.MethodPut, "/loglevel", strings.NewReader(`{"level":`))
+			req.Header.Set("Content-Type", "application/json")
+			return req
+		}(), wantErrPart: "decode level body"},
+		{name: "missing", req: httptest.NewRequest(http.MethodPut, "/loglevel", nil), wantErrPart: "level is required"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := readRequestedLevel(tt.req)
+			if tt.wantErrPart != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErrPart) {
+					t.Fatalf("readRequestedLevel error = %v, want containing %q", err, tt.wantErrPart)
+				}
+				return
+			}
+			if err != nil || got != tt.want {
+				t.Fatalf("readRequestedLevel = %q, %v; want %q, nil", got, err, tt.want)
+			}
+		})
+	}
+}
+
 func TestParseLogLevel(t *testing.T) {
 	tests := []struct {
 		input string

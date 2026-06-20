@@ -157,6 +157,40 @@ func TestProfileServerCustomPrefixAndDisabledStart(t *testing.T) {
 	}
 }
 
+func TestProfileServerStartBoundaries_BitsUT(t *testing.T) {
+	if err := ((*ProfileServer)(nil)).Start(); err != nil {
+		t.Fatalf("nil ProfileServer Start error = %v, want nil", err)
+	}
+	server := NewProfileServer(ProfileConfig{Enabled: true, Addr: "127.0.0.1:0"})
+	done := make(chan error, 1)
+	go func() { done <- server.Start() }()
+	t.Cleanup(func() { _ = server.Shutdown(context.Background()) })
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Start on ephemeral addr returned early with %v", err)
+		}
+	case <-time.After(50 * time.Millisecond):
+		// Server is listening; Shutdown below should make Start return nil via http.ErrServerClosed.
+	}
+	if err := server.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown running profile server: %v", err)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Start after Shutdown error = %v, want nil", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("profile Start did not stop after Shutdown")
+	}
+
+	invalid := NewProfileServer(ProfileConfig{Enabled: true, Addr: "127.0.0.1:bad-port"})
+	if err := invalid.Start(); err == nil {
+		t.Fatal("Start invalid address succeeded, want listen error")
+	}
+}
+
 func TestProfileServerExtraHandlerSharesSecurity(t *testing.T) {
 	server := NewProfileServer(
 		ProfileConfig{Enabled: true, AllowRemote: true, Token: "secret"},

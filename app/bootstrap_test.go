@@ -42,6 +42,22 @@ func TestBootstrapDefaultsServiceName(t *testing.T) {
 	}
 }
 
+func TestBootstrapRuntimeNilAccessorsAndShutdownContext_BitsUT(t *testing.T) {
+	var runtimeState *BootstrapRuntime
+	if runtimeState.Logger() != nil || runtimeState.LogLevel() != nil || runtimeState.MetricsRegistry() != nil {
+		t.Fatal("nil BootstrapRuntime accessors should return nil")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	shutdownCtx := shutdownContext(ctx)
+	if shutdownCtx.Err() != nil {
+		t.Fatalf("shutdownContext inherited cancellation: %v", shutdownCtx.Err())
+	}
+	if got := shutdownContext(nil); got == nil || got.Err() != nil {
+		t.Fatalf("shutdownContext(nil) = %#v, want live background context", got)
+	}
+}
+
 func TestBootstrapWiresTraceAgent(t *testing.T) {
 	shutdown, err := Bootstrap(context.Background(), Config{
 		ServiceName: "test-trace",

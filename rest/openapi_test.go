@@ -71,6 +71,37 @@ func TestNilServerOpenAPI(t *testing.T) {
 	}
 }
 
+func TestCloneHeadersDefensiveCopy_BitsUT(t *testing.T) {
+	if got := cloneHeaders(nil); got != nil {
+		t.Fatalf("cloneHeaders(nil) = %#v, want nil", got)
+	}
+	if got := cloneHeaders(map[string]Header{}); got != nil {
+		t.Fatalf("cloneHeaders(empty) = %#v, want nil", got)
+	}
+
+	source := map[string]Header{
+		"X-Trace": {
+			Description: "trace id",
+			Schema: &Schema{
+				Type:       "string",
+				Properties: map[string]Schema{"nested": {Type: "integer"}},
+				Required:   []string{"nested"},
+			},
+		},
+	}
+	cloned := cloneHeaders(source)
+	if cloned["X-Trace"].Schema == source["X-Trace"].Schema {
+		t.Fatal("cloneHeaders reused schema pointer, want defensive copy")
+	}
+	source["X-Trace"].Schema.Type = "mutated"
+	source["X-Trace"].Schema.Properties["nested"] = Schema{Type: "mutated"}
+	source["X-Trace"].Schema.Required[0] = "mutated"
+	gotSchema := cloned["X-Trace"].Schema
+	if gotSchema.Type != "string" || gotSchema.Properties["nested"].Type != "integer" || gotSchema.Required[0] != "nested" {
+		t.Fatalf("cloned schema = %#v, want unaffected deep copy", gotSchema)
+	}
+}
+
 func TestOpenAPIPathParamNamesNormalizesCatchAll(t *testing.T) {
 	got := pathParamNames("/files/{file...}/meta/{id}")
 	want := []string{"file", "id"}

@@ -59,6 +59,58 @@ func TestRedactorRedactsSecretsAndPII(t *testing.T) {
 	}
 }
 
+func TestGovernedProviderRedactEmbedRequestAndErrorClass_BitsUT(t *testing.T) {
+	req := EmbedRequest{
+		Inputs:   []string{"email alice@example.com token=secret", "password=hunter2"},
+		Metadata: map[string]string{"credential": "api_key=secret-key", "safe": "value"},
+	}
+	redacted := NewGovernedProvider(NoOpProvider{}).redactEmbedRequest(req)
+	for _, leaked := range []string{"alice@example.com", "secret", "hunter2", "secret-key"} {
+		if strings.Contains(strings.Join(redacted.Inputs, " "), leaked) || strings.Contains(redacted.Metadata["credential"], leaked) {
+			t.Fatalf("redactEmbedRequest leaked %q in %#v", leaked, redacted)
+		}
+	}
+	if redacted.Metadata["safe"] != "value" {
+		t.Fatalf("safe metadata = %q, want preserved", redacted.Metadata["safe"])
+	}
+	if !strings.Contains(req.Inputs[0], "[REDACTED_EMAIL]") || req.Metadata["credential"] != "api_key=secret-key" {
+		t.Fatalf("source request = %#v, want input slice redacted in place and metadata source preserved", req)
+	}
+	if got := ((*GovernedProvider)(nil)).redactEmbedRequest(req); got.Inputs[0] != req.Inputs[0] || got.Metadata["credential"] != req.Metadata["credential"] {
+		t.Fatalf("nil provider redaction = %#v, want unchanged request", got)
+	}
+	if got := NewGovernedProvider(NoOpProvider{}, WithRequestRedaction(false)).redactEmbedRequest(req); got.Inputs[0] != req.Inputs[0] || got.Metadata["credential"] != req.Metadata["credential"] {
+		t.Fatalf("disabled redaction = %#v, want unchanged request", got)
+	}
+
+	tests := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{name: "nil", err: nil, want: ""},
+		{name: "http auth", err: &ProviderHTTPError{Provider: "test", StatusCode: http.StatusUnauthorized}, want: "auth"},
+		{name: "http rate limit", err: &ProviderHTTPError{Provider: "test", StatusCode: http.StatusTooManyRequests}, want: "rate_limit"},
+		{name: "http server", err: &ProviderHTTPError{Provider: "test", StatusCode: http.StatusBadGateway}, want: "server"},
+		{name: "budget", err: ErrBudgetExceeded, want: "budget"},
+		{name: "response too large", err: ErrProviderResponseTooLarge, want: "response_too_large"},
+		{name: "endpoint rejected", err: ErrProviderEndpointRejected, want: "endpoint_rejected"},
+		{name: "provider config", err: ErrProviderConfigInvalid, want: "provider_config"},
+		{name: "capability", err: ErrProviderCapabilityUnsupported, want: "capability"},
+		{name: "provider request", err: ErrProviderRequestFailed, want: "provider_request"},
+		{name: "canceled", err: context.Canceled, want: "canceled"},
+		{name: "deadline", err: context.DeadlineExceeded, want: "deadline"},
+		{name: "unknown", err: errors.New("boom"), want: "unknown"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := errorClass(tt.err); got != tt.want {
+				t.Fatalf("errorClass(%v) = %q, want %q", tt.err, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestNoOpProviderIsDeterministic(t *testing.T) {
 	provider := NoOpProvider{}
 	resp, err := provider.Complete(context.Background(), Request{Prompt: "hello world"})

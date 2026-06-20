@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -37,6 +38,58 @@ func TestContextBindRequest(t *testing.T) {
 	}
 	if rec.Body.String() != "gofly" {
 		t.Fatalf("body = %q, want gofly", rec.Body.String())
+	}
+}
+
+func TestBindingScalarAndNumericBoundaries_BitsUT(t *testing.T) {
+	type sample struct {
+		Name    string
+		Enabled bool
+		Count   int8
+		Total   uint16
+		Ratio   float32
+		Tags    []int
+		Nested  *int
+	}
+	var got sample
+	value := reflect.ValueOf(&got).Elem()
+	if err := setFieldValue(value.FieldByName("Name"), []string{"first", "last"}); err != nil {
+		t.Fatalf("set name: %v", err)
+	}
+	if err := setFieldValue(value.FieldByName("Enabled"), []string{"true"}); err != nil {
+		t.Fatalf("set enabled: %v", err)
+	}
+	if err := setFieldValue(value.FieldByName("Count"), []string{"7"}); err != nil {
+		t.Fatalf("set count: %v", err)
+	}
+	if err := setFieldValue(value.FieldByName("Total"), []string{"42"}); err != nil {
+		t.Fatalf("set total: %v", err)
+	}
+	if err := setFieldValue(value.FieldByName("Ratio"), []string{"1.5"}); err != nil {
+		t.Fatalf("set ratio: %v", err)
+	}
+	if err := setFieldValue(value.FieldByName("Tags"), []string{"1", "2"}); err != nil {
+		t.Fatalf("set tags: %v", err)
+	}
+	if err := setFieldValue(value.FieldByName("Nested"), []string{"9"}); err != nil {
+		t.Fatalf("set nested pointer: %v", err)
+	}
+	if got.Name != "last" || !got.Enabled || got.Count != 7 || got.Total != 42 || got.Ratio != 1.5 || len(got.Tags) != 2 || got.Tags[1] != 2 || got.Nested == nil || *got.Nested != 9 {
+		t.Fatalf("bound scalar sample = %+v, want all scalar/slice/pointer fields set", got)
+	}
+	if err := setFieldValue(value.FieldByName("Count"), []string{"128"}); err == nil {
+		t.Fatal("int8 overflow succeeded, want parse error")
+	}
+	if err := setScalar(value, "unsupported"); err == nil || !strings.Contains(err.Error(), "unsupported kind") {
+		t.Fatalf("setScalar struct error = %v, want unsupported kind", err)
+	}
+
+	var nilInt *int
+	if fieldValue(reflect.ValueOf(nilInt)) != nil || numericValue(reflect.ValueOf(nilInt)) != 0 {
+		t.Fatal("nil pointer fieldValue/numericValue should return nil and 0")
+	}
+	if numericValue(reflect.ValueOf([]string{"a", "b"})) != 2 || numericValue(reflect.ValueOf(map[string]int{"x": 1})) != 1 || numericValue(reflect.ValueOf("abc")) != 3 {
+		t.Fatal("numericValue should return len for slice/map/string")
 	}
 }
 

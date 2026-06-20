@@ -14,6 +14,7 @@ import (
 
 	coreerrors "github.com/gofly/gofly/core/errors"
 	"github.com/gofly/gofly/core/governance"
+	coreretry "github.com/gofly/gofly/core/retry"
 )
 
 func TestRESTClientGovernanceRuleRuntimeRateLimit(t *testing.T) {
@@ -117,6 +118,42 @@ func TestRESTClientGovernanceManagerOverridesLaterSuite(t *testing.T) {
 	}
 	if string(body) != "live" {
 		t.Fatalf("response body = %q, want manager rule", body)
+	}
+}
+
+func TestRESTClientRetryAndStatusBoundaries_BitsUT(t *testing.T) {
+	statusErr := restStatusError{status: http.StatusBadGateway, method: http.MethodPost, url: "http://example.test/orders"}
+	if got := statusErr.Error(); !strings.Contains(got, "POST") || !strings.Contains(got, "502") || !strings.Contains(got, "http://example.test/orders") {
+		t.Fatalf("restStatusError.Error() = %q, want method/url/status", got)
+	}
+	policy := coreretry.Policy{Attempts: 3, Backoff: time.Second}
+	client := MustNewClient("http://example.test", WithClientRetry(policy))
+	if client.opts.retryPolicy.Attempts != 3 || client.opts.retryPolicy.Backoff != time.Second {
+		t.Fatalf("retry policy = %#v, want explicit policy preserved", client.opts.retryPolicy)
+	}
+
+	tests := []struct {
+		name   string
+		status int
+		method string
+		policy governance.RetryPolicy
+		want   bool
+	}{
+		{name: "default 408", status: http.StatusRequestTimeout, method: http.MethodGet, want: true},
+		{name: "default 429", status: http.StatusTooManyRequests, method: http.MethodGet, want: true},
+		{name: "default 503", status: http.StatusServiceUnavailable, method: http.MethodGet, want: true},
+		{name: "default 404", status: http.StatusNotFound, method: http.MethodGet, want: false},
+		{name: "explicit status match", status: http.StatusTeapot, method: http.MethodPost, policy: governance.RetryPolicy{Statuses: []int{http.StatusTeapot}}, want: true},
+		{name: "explicit status miss", status: http.StatusBadGateway, method: http.MethodPost, policy: governance.RetryPolicy{Statuses: []int{http.StatusTeapot}}, want: false},
+		{name: "method rejected", status: http.StatusServiceUnavailable, method: http.MethodPost, policy: governance.RetryPolicy{Methods: []string{http.MethodGet}}, want: false},
+		{name: "method case insensitive", status: http.StatusServiceUnavailable, method: http.MethodPost, policy: governance.RetryPolicy{Methods: []string{"post"}}, want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := shouldRetryStatus(tt.status, tt.method, tt.policy); got != tt.want {
+				t.Fatalf("shouldRetryStatus(%d, %q, %#v) = %v, want %v", tt.status, tt.method, tt.policy, got, tt.want)
+			}
+		})
 	}
 }
 

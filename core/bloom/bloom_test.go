@@ -19,6 +19,37 @@ func TestFilterNoFalseNegatives(t *testing.T) {
 	}
 }
 
+func TestOptimalParamsAndDistributedStatsBoundaries_BitsUT(t *testing.T) {
+	tests := []struct {
+		name string
+		n    uint64
+		p    float64
+	}{
+		{name: "zero capacity defaults", n: 0, p: 0.01},
+		{name: "zero false positive defaults", n: 10, p: 0},
+		{name: "negative false positive defaults", n: 10, p: -0.1},
+		{name: "one false positive defaults", n: 10, p: 1},
+		{name: "normal input", n: 100, p: 0.001},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bits, hashes := optimalParams(tt.n, tt.p)
+			if bits == 0 || hashes <= 0 {
+				t.Fatalf("optimalParams(%d, %f) = bits=%d hashes=%d, want positive sizing", tt.n, tt.p, bits, hashes)
+			}
+		})
+	}
+
+	if stats := ((*DistributedFilter)(nil)).Stats(); stats != (Stats{}) {
+		t.Fatalf("nil distributed stats = %#v, want zero", stats)
+	}
+	distributed := NewDistributed(newFakeBitStore(), "users", 128, 0.01)
+	stats := distributed.Stats()
+	if stats.Bits == 0 || stats.Hashes <= 0 || stats.Added != 0 {
+		t.Fatalf("distributed stats = %#v, want sizing without local added counter", stats)
+	}
+}
+
 func TestFilterFalsePositiveRateBounded(t *testing.T) {
 	const n = 2000
 	f := New(n, 0.01)

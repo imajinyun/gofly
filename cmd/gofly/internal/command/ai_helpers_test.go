@@ -2,6 +2,7 @@ package command
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"flag"
 	"net/http"
@@ -23,7 +24,9 @@ func TestIsAIHelpSubcommand(t *testing.T) {
 		want    bool
 	}{
 		{name: "manifest", command: "manifest", want: true},
+		{name: "plan", command: "plan", want: true},
 		{name: "complete", command: "complete", want: true},
+		{name: "stream", command: "stream", want: true},
 		{name: "doctor", command: "doctor", want: true},
 		{name: "ask is not supported", command: "ask", want: false},
 		{name: "empty", command: "", want: false},
@@ -363,6 +366,124 @@ func TestRootControlVersionAndHelpBoundaries_BitsUT(t *testing.T) {
 	}
 }
 
+func TestDoctorExampleAndRootHelperBoundaries_BitsUT(t *testing.T) {
+	if got := checkGoModule(); got.Status != "ok" {
+		t.Fatalf("checkGoModule default = %#v, want ok", got)
+	}
+	t.Setenv("GO111MODULE", "off")
+	if got := checkGoModule(); got.Status != "fail" || !strings.Contains(got.Message, "GO111MODULE=off") {
+		t.Fatalf("checkGoModule off = %#v, want fail", got)
+	}
+	t.Setenv("GO111MODULE", "")
+
+	if got := checkGOPATH(); got.Name != "GOPATH" || got.Status == "" {
+		t.Fatalf("checkGOPATH = %#v, want named status", got)
+	}
+	missingPath := filepath.Join(t.TempDir(), "missing-bin")
+	t.Setenv("PATH", missingPath)
+	if got := checkTools(); got.Status != "fail" || !strings.Contains(got.Message, "go") || !strings.Contains(got.Message, "git") {
+		t.Fatalf("checkTools missing PATH = %#v, want missing go/git", got)
+	}
+	if got := checkGit(); got.Status != "fail" || !strings.Contains(got.Message, "not found") {
+		t.Fatalf("checkGit missing PATH = %#v, want fail", got)
+	}
+	if got := checkProtoc(); got.Status != "warn" || !strings.Contains(got.Message, "not found") {
+		t.Fatalf("checkProtoc missing PATH = %#v, want warn", got)
+	}
+
+	t.Setenv("TMPDIR", filepath.Join(t.TempDir(), "missing-tmp"))
+	if got := checkWritePermission(); got.Status != "fail" || !strings.Contains(got.Message, "cannot write") {
+		t.Fatalf("checkWritePermission missing temp = %#v, want fail", got)
+	}
+
+	report := runDoctor()
+	if len(report.Checks) != 7 || report.Summary == "" || report.Version == "" || report.Go == "" || report.OS == "" || report.Arch == "" {
+		t.Fatalf("runDoctor report = %#v, want complete diagnostic report", report)
+	}
+
+	if err := exampleCommand(nil); !errors.Is(err, errUsage) {
+		t.Fatalf("exampleCommand nil error = %v, want errUsage", err)
+	}
+	if err := exampleRunCommand(nil); !errors.Is(err, errUsage) || !strings.Contains(err.Error(), "example name") {
+		t.Fatalf("exampleRunCommand nil error = %v, want name usage", err)
+	}
+	if err := exampleRunCommand([]string{"missing-example"}); !errors.Is(err, errUsage) || !strings.Contains(err.Error(), "unknown example") {
+		t.Fatalf("exampleRunCommand unknown error = %v, want unknown usage", err)
+	}
+
+	var out bytes.Buffer
+	if err := withCommandIO(IOStreams{Out: &out}, outputText, verbosityNormal, func() error {
+		return exampleListCommand([]string{"--json"})
+	}); err != nil {
+		t.Fatalf("exampleListCommand json: %v", err)
+	}
+	if !strings.Contains(out.String(), "gateway-discovery-rpc") || !strings.Contains(out.String(), "restserver") {
+		t.Fatalf("example list JSON missing built-in examples: %s", out.String())
+	}
+
+	src := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(src, "nested"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "main.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "nested", "README.txt"), []byte("nested"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dst := filepath.Join(t.TempDir(), "copy")
+	if err := copyExampleDir(src, dst); err != nil {
+		t.Fatalf("copyExampleDir nested: %v", err)
+	}
+	if got, err := os.ReadFile(filepath.Join(dst, "nested", "README.txt")); err != nil || string(got) != "nested" {
+		t.Fatalf("copied nested file = %q, %v", string(got), err)
+	}
+	if err := copyExampleDir(filepath.Join(src, "missing"), filepath.Join(t.TempDir(), "out")); err == nil {
+		t.Fatal("copyExampleDir missing source succeeded, want error")
+	}
+
+	parsed := parseKeyValueCSV(" env = prod ,empty=,flag,=ignored, team = core ")
+	if len(parsed) != 4 || parsed["env"] != "prod" || parsed["empty"] != "" || parsed["flag"] != "" || parsed["team"] != "core" {
+		t.Fatalf("parseKeyValueCSV = %#v", parsed)
+	}
+	filterCases := []struct {
+		name     string
+		template string
+		category string
+		filter   string
+		want     bool
+	}{
+		{name: "api category", template: "api-handler.tpl", category: "api", want: true},
+		{name: "kubernetes alias", template: "kube-deploy.tpl", category: "kubernetes", want: true},
+		{name: "name without extension", template: "model.tpl", filter: "model", want: true},
+		{name: "name mismatch", template: "rpc-client.tpl", filter: "api", want: false},
+		{name: "substring category", template: "custom-worker.tpl", category: "worker", want: true},
+	}
+	for _, tt := range filterCases {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := templateFilterMatch(tt.template, tt.category, tt.filter); got != tt.want {
+				t.Fatalf("templateFilterMatch(%q,%q,%q) = %v, want %v", tt.template, tt.category, tt.filter, got, tt.want)
+			}
+		})
+	}
+
+	if inferTopLevelRisk("doctor") != "read" || inferTopLevelRisk("plugin") != "high" || inferTopLevelRisk("new") != "medium" || inferTopLevelRisk("unknown") != "medium" {
+		t.Fatal("inferTopLevelRisk boundary mismatch")
+	}
+	if topLevelMayMutate("doctor") || !topLevelMayMutate("plugin") || !topLevelMayMutate("unknown") {
+		t.Fatal("topLevelMayMutate boundary mismatch")
+	}
+	out.Reset()
+	if err := withCommandIO(IOStreams{Out: &out}, outputText, verbosityNormal, func() error {
+		if err := printJSONLine(map[string]string{"b": "2", "a": "1"}); err != nil {
+			return err
+		}
+		return printJSONLine(make(chan int))
+	}); err == nil || !strings.Contains(err.Error(), "marshal json line") || !strings.Contains(out.String(), `"a":"1"`) {
+		t.Fatalf("printJSONLine mixed result err=%v out=%q, want first line and marshal error", err, out.String())
+	}
+}
+
 func TestLooksLikeShellScriptBoundaries_BitsUT(t *testing.T) {
 	dir := t.TempDir()
 	if looksLikeShellScript("") || looksLikeShellScript(filepath.Join(dir, "missing")) || looksLikeShellScript(dir) {
@@ -480,6 +601,520 @@ func TestAIDoctorNextActionsBoundaries_BitsUT(t *testing.T) {
 	}
 	if got := aiDoctorNextActions(aiDoctorItem{Name: "unknown", Status: "ok"}); got != nil {
 		t.Fatalf("unknown next actions = %#v, want nil", got)
+	}
+}
+
+func TestAIDoctorConfigAndLoadOverlayBoundaries_BitsUT(t *testing.T) {
+	workDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(workDir, ".gofly"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workDir, generator.DefaultConfigFile), []byte("{"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(workDir)
+
+	homeAsFile := filepath.Join(t.TempDir(), "home-file")
+	if err := os.WriteFile(homeAsFile, []byte("not a directory"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", homeAsFile)
+	if got := checkAIDoctorConfig(); got.Status != "info" || !strings.Contains(got.Message, "no "+generator.DefaultConfigFile) {
+		t.Fatalf("checkAIDoctorConfig invalid workdir/home = %#v, want info", got)
+	}
+
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	homeConfig := generator.DefaultConfig("home", "example.com/home")
+	homeConfig.LLM = &generator.LLMConfig{Provider: "openai", Model: "gpt-home", MaxTotalTokens: 42}
+	if err := generator.SaveConfig(filepath.Join(homeDir, generator.DefaultConfigFile), homeConfig); err != nil {
+		t.Fatal(err)
+	}
+	if got := checkAIDoctorConfig(); got.Status != "ok" || !strings.Contains(got.Message, homeDir) || !strings.Contains(got.Message, "gpt-home") {
+		t.Fatalf("checkAIDoctorConfig home config = %#v, want ok home config", got)
+	}
+
+	workConfig := generator.DefaultConfig("work", "example.com/work")
+	workConfig.LLM = &generator.LLMConfig{Provider: "noop", Model: "work-model"}
+	if err := generator.SaveConfig(filepath.Join(workDir, generator.DefaultConfigFile), workConfig); err != nil {
+		t.Fatal(err)
+	}
+	if got := checkAIDoctorConfig(); got.Status != "ok" || !strings.Contains(got.Message, generator.DefaultConfigFile) || !strings.Contains(got.Message, "work-model") {
+		t.Fatalf("checkAIDoctorConfig workdir config = %#v, want ok workdir config", got)
+	}
+
+	baseConfig := generator.DefaultConfig("base", "example.com/base")
+	baseConfig.RPC.Plugins = []string{"base-rpc"}
+	baseConfig.API.Plugins = []string{"base-api"}
+	baseConfig.Features = []string{"base-feature"}
+	configPath := filepath.Join(t.TempDir(), generator.DefaultConfigFile)
+	if err := generator.SaveConfig(configPath, baseConfig); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GOFLY_SERVICE_NAME", "env-service")
+	t.Setenv("GOFLY_MODULE", "example.com/env")
+	t.Setenv("GOFLY_FEATURES", "env-a, env-b")
+	cfg, resolved, err := loadAndOverlay(configPath, "ignored-dir", "cli-service", "example.com/cli", "production", "./tpl", "https://example.test/tpl.git", "main", "cli-a,cli-b", "audit,trace", "rpc")
+	if err != nil {
+		t.Fatalf("loadAndOverlay rpc: %v", err)
+	}
+	if resolved != configPath || cfg.ServiceName != "cli-service" || cfg.Module != "example.com/cli" || cfg.Style != "production" || cfg.TemplateDir != "./tpl" || cfg.TemplateRemote == "" || cfg.TemplateBranch != "main" {
+		t.Fatalf("loadAndOverlay resolved=%q cfg=%#v, want CLI overlays to win", resolved, cfg)
+	}
+	if strings.Join(cfg.Features, ",") != "env-a,env-b,cli-a,cli-b" || strings.Join(cfg.RPC.Plugins, ",") != "base-rpc,audit,trace" {
+		t.Fatalf("loadAndOverlay features/plugins = %#v/%#v, want merged CLI overlays", cfg.Features, cfg.RPC.Plugins)
+	}
+
+	cfg, _, err = loadAndOverlay(configPath, "", "", "", "", "", "", "", "", "cache", "api")
+	if err != nil {
+		t.Fatalf("loadAndOverlay api: %v", err)
+	}
+	if strings.Join(cfg.API.Plugins, ",") != "base-api,cache" {
+		t.Fatalf("loadAndOverlay api plugins = %#v, want base-api,cache", cfg.API.Plugins)
+	}
+	if _, _, err := loadAndOverlay(filepath.Join(t.TempDir(), "bad", "config.json"), "", "", "", "", "", "", "", "", "", "rpc"); err != nil {
+		t.Fatalf("missing config should load defaults, got %v", err)
+	}
+}
+
+func TestTemplateCatalogCommandsExposeJSON(t *testing.T) {
+	t.Run("list filters project templates", func(t *testing.T) {
+		var stdout bytes.Buffer
+		if err := ExecuteWithIO([]string{"template", "list", "--category", "rag", "--json"}, IOStreams{Out: &stdout}); err != nil {
+			t.Fatalf("template list: %v", err)
+		}
+		var envelope struct {
+			OK      bool   `json:"ok"`
+			Command string `json:"command"`
+			Data    []struct {
+				ID       string   `json:"id"`
+				Features []string `json:"features"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+			t.Fatalf("template list JSON: %v\n%s", err, stdout.String())
+		}
+		if !envelope.OK || envelope.Command != "template.list" || len(envelope.Data) != 1 || envelope.Data[0].ID != "go-rag-service" {
+			t.Fatalf("template list envelope = %+v, want go-rag-service only", envelope)
+		}
+	})
+
+	t.Run("inspect returns template metadata", func(t *testing.T) {
+		var stdout bytes.Buffer
+		if err := ExecuteWithIO([]string{"template", "inspect", "go-ai-agent", "--json"}, IOStreams{Out: &stdout}); err != nil {
+			t.Fatalf("template inspect: %v", err)
+		}
+		var envelope struct {
+			OK   bool `json:"ok"`
+			Data struct {
+				ID      string   `json:"id"`
+				Kind    string   `json:"kind"`
+				Command string   `json:"command"`
+				Verify  []string `json:"verify"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+			t.Fatalf("template inspect JSON: %v\n%s", err, stdout.String())
+		}
+		if !envelope.OK || envelope.Data.ID != "go-ai-agent" || envelope.Data.Kind != "ai-agent" || !strings.Contains(envelope.Data.Command, "gofly new api") || len(envelope.Data.Verify) == 0 {
+			t.Fatalf("template inspect envelope = %+v", envelope)
+		}
+	})
+}
+
+func TestAIPlanSelectsTemplateAndMaterializesCommand(t *testing.T) {
+	var stdout bytes.Buffer
+	args := []string{"ai", "plan", "需要一个 RAG 服务，使用 embedding 和 redis vector store", "--name", "kb", "--module", "example.com/kb", "--json"}
+	if err := ExecuteWithIO(args, IOStreams{Out: &stdout}); err != nil {
+		t.Fatalf("ai plan: %v", err)
+	}
+	var envelope struct {
+		OK      bool   `json:"ok"`
+		Command string `json:"command"`
+		Data    struct {
+			ProjectType       string `json:"projectType"`
+			Command           string `json:"command"`
+			DryRun            bool   `json:"dryRun"`
+			MutatesFilesystem bool   `json:"mutatesFilesystem"`
+			Template          struct {
+				ID string `json:"id"`
+			} `json:"template"`
+			Features []string `json:"features"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+		t.Fatalf("ai plan JSON: %v\n%s", err, stdout.String())
+	}
+	if !envelope.OK || envelope.Command != "ai.plan" || envelope.Data.Template.ID != "go-rag-service" || envelope.Data.ProjectType != "rag" {
+		t.Fatalf("ai plan envelope = %+v, want rag plan", envelope)
+	}
+	if !envelope.Data.DryRun || envelope.Data.MutatesFilesystem {
+		t.Fatalf("ai plan should be dry-run only by default: %+v", envelope.Data)
+	}
+	if !strings.Contains(envelope.Data.Command, "example.com/kb") || !strings.Contains(envelope.Data.Command, "--dir kb") {
+		t.Fatalf("ai plan command = %q, want materialized module and dir", envelope.Data.Command)
+	}
+}
+
+func TestAIPlanAndTemplateCatalogHelperBoundaries_BitsUT(t *testing.T) {
+	templates := generator.ListProjectTemplates()
+	if len(templates) == 0 {
+		t.Fatal("ListProjectTemplates returned no templates")
+	}
+	firstID := templates[0].ID
+	templates[0].ID = "mutated"
+	if again := generator.ListProjectTemplates(); again[0].ID != firstID {
+		t.Fatalf("ListProjectTemplates leaked mutation: got %q want %q", again[0].ID, firstID)
+	}
+	if _, ok := generator.GetProjectTemplate("  GO-RAG-SERVICE  "); !ok {
+		t.Fatal("GetProjectTemplate should find case-insensitive trimmed id")
+	}
+	if _, ok := generator.GetProjectTemplate("missing-template"); ok {
+		t.Fatal("GetProjectTemplate found unknown template")
+	}
+	if got := generator.RecommendProjectTemplate("build a retrieval augmented generation service with vector store", "").ID; got != "go-rag-service" {
+		t.Fatalf("RecommendProjectTemplate rag id = %q, want go-rag-service", got)
+	}
+	if got := generator.RecommendProjectTemplate("anything", "gateway").Kind; got != "gateway" {
+		t.Fatalf("RecommendProjectTemplate kind = %q, want gateway", got)
+	}
+	if got := materializeTemplateCommand("cmd <name> <module> <dir>", "", "", ""); got != "cmd demo example.com/demo demo" {
+		t.Fatalf("materializeTemplateCommand defaults = %q", got)
+	}
+	plan := buildAIProjectPlan("create a gateway", "gateway", "edge", "example.com/edge", "edge-dir", false)
+	if !plan.MutatesFilesystem || plan.DryRun || plan.ProjectType != "gateway" || !strings.Contains(plan.Command, "edge-dir") {
+		t.Fatalf("buildAIProjectPlan mutating gateway = %#v", plan)
+	}
+
+	filtered := filterProjectTemplates(generator.ListProjectTemplates(), "vector-store", "")
+	if len(filtered) == 0 {
+		t.Fatal("filterProjectTemplates vector-store returned no templates")
+	}
+	if templateCatalogFilterMatch(generator.ProjectTemplate{ID: "x", Name: "X", Kind: "service"}, "missing", "nope") {
+		t.Fatal("templateCatalogFilterMatch accepted non-matching category/name")
+	}
+
+	var out bytes.Buffer
+	if err := withCommandIO(IOStreams{Out: &out}, outputText, verbosityNormal, func() error {
+		return aiPlanCommand([]string{"--prompt", "create a cli", "--kind", "cli", "--name", "tool"})
+	}); err != nil {
+		t.Fatalf("aiPlanCommand text returned error: %v", err)
+	}
+	if got := out.String(); !strings.Contains(got, "template=go-cli-cobra") || !strings.Contains(got, "command=") {
+		t.Fatalf("aiPlanCommand text output = %s", got)
+	}
+
+	usageCases := [][]string{
+		{},
+		{"--prompt", "one", "extra positional"},
+		{"--prompt", "one", "--format", "xml"},
+	}
+	for _, args := range usageCases {
+		if err := aiPlanCommand(args); !errors.Is(err, errUsage) {
+			t.Fatalf("aiPlanCommand(%v) error = %v, want errUsage", args, err)
+		}
+	}
+}
+
+func TestTemplateCatalogTextAndUsageBranches_BitsUT(t *testing.T) {
+	var out bytes.Buffer
+	if err := withCommandIO(IOStreams{Out: &out}, outputText, verbosityNormal, func() error {
+		return templateCommand([]string{"list", "--category", "rag", "--name", "rag"})
+	}); err != nil {
+		t.Fatalf("template list text returned error: %v", err)
+	}
+	if got := out.String(); !strings.Contains(got, "go-rag-service") {
+		t.Fatalf("template list text output = %s", got)
+	}
+
+	out.Reset()
+	if err := withCommandIO(IOStreams{Out: &out}, outputText, verbosityNormal, func() error {
+		return templateCommand([]string{"inspect", "go-rag-service"})
+	}); err != nil {
+		t.Fatalf("template inspect text returned error: %v", err)
+	}
+	if got := out.String(); !strings.Contains(got, "id: go-rag-service") || !strings.Contains(got, "features:") {
+		t.Fatalf("template inspect text output = %s", got)
+	}
+
+	for _, args := range [][]string{{}, {"inspect"}, {"inspect", "missing-template"}, {"unknown"}} {
+		if err := templateCommand(args); !errors.Is(err, errUsage) {
+			t.Fatalf("templateCommand(%v) error = %v, want errUsage", args, err)
+		}
+	}
+}
+
+func TestCommandCLIHelperBoundaries_BitsUT(t *testing.T) {
+	if err := completeCommand(nil); !errors.Is(err, errUsage) || !strings.Contains(err.Error(), "complete handler") {
+		t.Fatalf("completeCommand nil error = %v, want usage", err)
+	}
+	if err := completeCommand([]string{"wrong"}); !errors.Is(err, errUsage) || !strings.Contains(err.Error(), "complete handler") {
+		t.Fatalf("completeCommand wrong subcommand error = %v, want usage", err)
+	}
+	if err := completeCommand([]string{"handler"}); !errors.Is(err, errUsage) || !strings.Contains(err.Error(), completionShellUsage) {
+		t.Fatalf("completeCommand missing shell error = %v, want shell usage", err)
+	}
+	if err := completeCommand([]string{"handler", "bash", "zsh"}); !errors.Is(err, errUsage) || !strings.Contains(err.Error(), "exactly one") {
+		t.Fatalf("completeCommand too many shells error = %v, want exactly one", err)
+	}
+	if err := completeCommand([]string{"handler", "unknown"}); !errors.Is(err, errUsage) || !strings.Contains(err.Error(), "unknown") {
+		t.Fatalf("completeCommand unknown shell error = %v, want usage", err)
+	}
+	var out bytes.Buffer
+	if err := withCommandIO(IOStreams{Out: &out}, outputText, verbosityNormal, func() error {
+		return completeCommand([]string{"handler", "bash"})
+	}); err != nil {
+		t.Fatalf("completeCommand bash: %v", err)
+	}
+	if !strings.Contains(out.String(), "gofly") || !strings.Contains(out.String(), "complete") {
+		t.Fatalf("completeCommand bash output = %q, want completion script", out.String())
+	}
+
+	configDir := t.TempDir()
+	out.Reset()
+	if err := withCommandIO(IOStreams{Out: &out}, outputText, verbosityNormal, func() error {
+		return configCommand([]string{"init", "--dir", configDir, "--name", "orders", "--module", "example.com/orders", "--style", "minimal", "--dry-run"})
+	}); err != nil {
+		t.Fatalf("config init dry-run: %v", err)
+	}
+	if !strings.Contains(out.String(), "config.init") || !strings.Contains(out.String(), "write-config") {
+		t.Fatalf("config init dry-run output = %q, want plan", out.String())
+	}
+	if _, err := os.Stat(filepath.Join(configDir, generator.DefaultConfigFile)); !os.IsNotExist(err) {
+		t.Fatalf("config init dry-run stat error = %v, want no config file", err)
+	}
+	if err := configCommand([]string{"init", "--dir", configDir, "--name", "orders", "--module", "example.com/orders"}); err != nil {
+		t.Fatalf("config init: %v", err)
+	}
+	out.Reset()
+	if err := withCommandIO(IOStreams{Out: &out}, outputText, verbosityNormal, func() error {
+		return configCommand([]string{"get", "--dir", configDir, "service-name"})
+	}); err != nil {
+		t.Fatalf("config get positional key: %v", err)
+	}
+	if strings.TrimSpace(out.String()) != "orders" {
+		t.Fatalf("config get service-name = %q, want orders", out.String())
+	}
+	if err := configCommand([]string{"set", "--dir", configDir, "features", ""}); err != nil {
+		t.Fatalf("config set empty features via positional value: %v", err)
+	}
+	out.Reset()
+	if err := withCommandIO(IOStreams{Out: &out}, outputText, verbosityNormal, func() error {
+		return configCommand([]string{"clean", "--dir", configDir, "--plan"})
+	}); err != nil {
+		t.Fatalf("config clean plan: %v", err)
+	}
+	if !strings.Contains(out.String(), "config.clean") || !strings.Contains(out.String(), "remove-config") {
+		t.Fatalf("config clean plan output = %q, want remove plan", out.String())
+	}
+	if err := releaseCommand(nil); !errors.Is(err, errUsage) || !strings.Contains(err.Error(), "gofly release check") {
+		t.Fatalf("releaseCommand nil error = %v, want release usage", err)
+	}
+}
+
+func TestRootUtilityCommandsGenerateArtifactsAndReports_BitsUT(t *testing.T) {
+	dir := t.TempDir()
+	var out bytes.Buffer
+
+	dockerfile := filepath.Join(dir, "Dockerfile")
+	if err := dockerCommand([]string{"orders", "--output", dockerfile, "--go", "./cmd/orders", "--exe", "orders", "--version", "1.26", "--base", "scratch", "--port", "8080", "--tz", "UTC"}); err != nil {
+		t.Fatalf("dockerCommand: %v", err)
+	}
+	if data, err := os.ReadFile(dockerfile); err != nil || !strings.Contains(string(data), "FROM golang:1.26") || !strings.Contains(string(data), "EXPOSE 8080") {
+		t.Fatalf("Dockerfile = %q, %v; want generated docker metadata", string(data), err)
+	}
+
+	kubeOut := filepath.Join(dir, "kube.yaml")
+	if err := kubeCommand([]string{"configmap", "orders", "--output", kubeOut, "--namespace", "prod", "--data", "A=1,B=two"}); err != nil {
+		t.Fatalf("kubeCommand configmap: %v", err)
+	}
+	if data, err := os.ReadFile(kubeOut); err != nil || !strings.Contains(string(data), "kind: ConfigMap") || !strings.Contains(string(data), "A: \"1\"") {
+		t.Fatalf("kube configmap = %q, %v; want generated configmap", string(data), err)
+	}
+
+	migrationDir := filepath.Join(dir, "migrations")
+	if err := migrateCommand([]string{"create", "create_orders", "--dir", migrationDir}); err != nil {
+		t.Fatalf("migrateCommand create: %v", err)
+	}
+	matches, err := filepath.Glob(filepath.Join(migrationDir, "*_create_orders.up.sql"))
+	if err != nil || len(matches) != 1 {
+		t.Fatalf("migration files = %v, %v; want one up migration", matches, err)
+	}
+
+	key := "GOFLY_BITS_UT_ENV_COMMAND"
+	t.Setenv(key, "")
+	out.Reset()
+	if err := withCommandIO(IOStreams{Out: &out}, outputText, verbosityNormal, func() error {
+		return envCommand([]string{"--write", key + "=first", "--verbose", "--json"})
+	}); err != nil {
+		t.Fatalf("envCommand write json: %v", err)
+	}
+	if got := os.Getenv(key); got != "first" || !strings.Contains(out.String(), "GOFLY_VERSION") {
+		t.Fatalf("envCommand got env=%q output=%q, want json env info", got, out.String())
+	}
+	if err := envCommand([]string{"--write", key + "=second"}); !errors.Is(err, errUsage) || !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("envCommand overwrite error = %v, want usage", err)
+	}
+	if err := envCommand([]string{"--write", key + "=second", "--force"}); err != nil {
+		t.Fatalf("envCommand force overwrite: %v", err)
+	}
+
+	out.Reset()
+	if err := withCommandIO(IOStreams{Out: &out}, outputText, verbosityNormal, func() error {
+		return bugCommand([]string{"--json"})
+	}); err != nil {
+		t.Fatalf("bugCommand json: %v", err)
+	}
+	if !strings.Contains(out.String(), `"tool": "gofly"`) || !strings.Contains(out.String(), `"checks"`) {
+		t.Fatalf("bugCommand output = %q, want bug report json", out.String())
+	}
+
+	out.Reset()
+	if err := withCommandIO(IOStreams{Out: &out}, outputText, verbosityNormal, func() error {
+		return upgradeCommand([]string{"--json", "--version", "v9.9.9", "--module", "example.com/gofly"})
+	}); err != nil {
+		t.Fatalf("upgradeCommand json plan: %v", err)
+	}
+	if !strings.Contains(out.String(), `"target": "example.com/gofly@v9.9.9"`) || !strings.Contains(out.String(), `"execute": false`) {
+		t.Fatalf("upgradeCommand output = %q, want upgrade plan", out.String())
+	}
+	if err := upgradeCommand([]string{"unexpected"}); !errors.Is(err, errUsage) || !strings.Contains(err.Error(), "does not accept positional") {
+		t.Fatalf("upgradeCommand positional error = %v, want usage", err)
+	}
+}
+
+func TestIDLCommandHelperBoundaries_BitsUT(t *testing.T) {
+	if err := rpcDepsCommand(nil); !errors.Is(err, errUsage) || !strings.Contains(err.Error(), "idl file is required") {
+		t.Fatalf("rpcDepsCommand nil error = %v, want idl usage", err)
+	}
+	dir := t.TempDir()
+	protoPath := filepath.Join(dir, "greeter.proto")
+	proto := `syntax = "proto3";
+package demo;
+import "google/protobuf/timestamp.proto";
+message HelloReq { string name = 1; }
+message HelloResp { string message = 1; }
+service Greeter { rpc SayHello (HelloReq) returns (HelloResp); }
+`
+	if err := os.WriteFile(protoPath, []byte(proto), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := withCommandIO(IOStreams{Out: &out}, outputText, verbosityNormal, func() error {
+		return rpcDepsCommand([]string{protoPath})
+	}); err != nil {
+		t.Fatalf("rpcDepsCommand text: %v", err)
+	}
+	if !strings.Contains(out.String(), "google/protobuf/timestamp.proto") {
+		t.Fatalf("rpcDepsCommand text output = %q, want import", out.String())
+	}
+	out.Reset()
+	if err := withCommandIO(IOStreams{Out: &out}, outputText, verbosityNormal, func() error {
+		return rpcDepsCommand([]string{"--file", protoPath, "--format", "json"})
+	}); err != nil {
+		t.Fatalf("rpcDepsCommand json: %v", err)
+	}
+	if !strings.Contains(out.String(), "google/protobuf/timestamp.proto") || !strings.Contains(out.String(), `"services": 1`) {
+		t.Fatalf("rpcDepsCommand json output = %q, want import and service count", out.String())
+	}
+	if err := rpcDepsCommand([]string{"--file", protoPath, "--format", "yaml"}); !errors.Is(err, errUsage) || !strings.Contains(err.Error(), "unsupported rpc deps format") {
+		t.Fatalf("rpcDepsCommand unsupported format error = %v, want usage", err)
+	}
+
+	apiPath := filepath.Join(dir, "user.api")
+	api := `type PingResp {
+Message string
+}
+service user-api {
+  @handler ping
+  get /ping returns (PingResp)
+}
+`
+	if err := os.WriteFile(apiPath, []byte(api), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := withCommandIO(IOStreams{Out: &out}, outputText, verbosityNormal, func() error {
+		return apiFormatCommand([]string{apiPath, "--write=false"})
+	}); err != nil {
+		t.Fatalf("apiFormatCommand stdout: %v", err)
+	}
+	if !strings.Contains(out.String(), "service user-api") || !strings.Contains(out.String(), "@handler Ping") {
+		t.Fatalf("apiFormatCommand output = %q, want formatted api", out.String())
+	}
+	outFile := filepath.Join(dir, "formatted", "user.api")
+	if err := apiFormatCommand([]string{"--file", apiPath, "--output", outFile}); err != nil {
+		t.Fatalf("apiFormatCommand output file: %v", err)
+	}
+	if data, err := os.ReadFile(outFile); err != nil || !strings.Contains(string(data), "service user-api") {
+		t.Fatalf("formatted api file = %q, %v; want service", string(data), err)
+	}
+
+	if err := handlerCompleteCommand(nil); !errors.Is(err, errUsage) || !strings.Contains(err.Error(), "--file is required") {
+		t.Fatalf("handlerCompleteCommand nil error = %v, want file usage", err)
+	}
+	handlerPath := filepath.Join(dir, "handler.go")
+	out.Reset()
+	if err := withCommandIO(IOStreams{Out: &out}, outputText, verbosityNormal, func() error {
+		return handlerCompleteCommand([]string{"--file", handlerPath, "--package", "handler", "--receiver", "h", "--method", "ping", "--comment", "Ping handles ping.", "--body", "\t// done"})
+	}); err != nil {
+		t.Fatalf("handlerCompleteCommand create: %v", err)
+	}
+	data, err := os.ReadFile(handlerPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "func (h *H) Ping()") || !strings.Contains(out.String(), "added 1 method") {
+		t.Fatalf("handlerCompleteCommand create output=%q file=%s, want generated method", out.String(), string(data))
+	}
+	out.Reset()
+	if err := withCommandIO(IOStreams{Out: &out}, outputText, verbosityNormal, func() error {
+		return handlerCompleteCommand([]string{"--file", handlerPath, "--receiver", "h", "Ping"})
+	}); err != nil {
+		t.Fatalf("handlerCompleteCommand existing: %v", err)
+	}
+	if !strings.Contains(out.String(), "nothing to do") {
+		t.Fatalf("handlerCompleteCommand existing output = %q, want nothing to do", out.String())
+	}
+
+	if err := runPostPlugins("", generator.PluginRequest{Dir: dir}); err != nil {
+		t.Fatalf("runPostPlugins empty: %v", err)
+	}
+	if err := runPostPlugins(" , ", generator.PluginRequest{Dir: dir}); err != nil {
+		t.Fatalf("runPostPlugins empty CSV: %v", err)
+	}
+	target := filepath.Join(dir, "target.txt")
+	if err := os.WriteFile(target, []byte("before\nanchor\nafter\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	pluginPath := filepath.Join(dir, "post-plugin.sh")
+	plugin := `#!/bin/sh
+printf '%s' '{"version":"1","message":"post ok","files":[{"path":"generated.txt","content":"generated"}],"patches":[{"path":"target.txt","insertAfter":"anchor","patch":"inserted"}]}'
+`
+	if err := os.WriteFile(pluginPath, []byte(plugin), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var errOut bytes.Buffer
+	if err := withCommandIO(IOStreams{Err: &errOut}, outputText, verbosityNormal, func() error {
+		return runPostPlugins(pluginPath, generator.PluginRequest{Dir: dir, Input: map[string]string{"api": apiPath}})
+	}); err != nil {
+		t.Fatalf("runPostPlugins success: %v", err)
+	}
+	if data, err := os.ReadFile(filepath.Join(dir, "generated.txt")); err != nil || string(data) != "generated" {
+		t.Fatalf("runPostPlugins generated file = %q, %v", string(data), err)
+	}
+	if data, err := os.ReadFile(target); err != nil || !strings.Contains(string(data), "anchor\ninserted") {
+		t.Fatalf("runPostPlugins patched file = %q, %v", string(data), err)
+	}
+	if !strings.Contains(errOut.String(), "post ok") {
+		t.Fatalf("runPostPlugins stderr = %q, want plugin message", errOut.String())
+	}
+	badPlugin := filepath.Join(dir, "bad-plugin.sh")
+	if err := os.WriteFile(badPlugin, []byte("#!/bin/sh\nprintf '%s' '{\"version\":\"bad\"}'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := runPostPlugins(badPlugin, generator.PluginRequest{Dir: dir}); err == nil || !strings.Contains(err.Error(), "run plugin") || !strings.Contains(err.Error(), "incompatible") {
+		t.Fatalf("runPostPlugins incompatible error = %v, want wrapped incompatible plugin error", err)
 	}
 }
 

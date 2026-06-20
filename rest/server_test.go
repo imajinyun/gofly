@@ -1937,6 +1937,51 @@ func TestZeroCoverageWrapperHelpers_BitsUT(t *testing.T) {
 	}
 }
 
+func TestHealthAndErrorResponseBoundaryBranches_BitsUT(t *testing.T) {
+	s := MustNewServer(Config{})
+	s.AddHealthCheck("", func(context.Context) error { return nil })
+	s.AddHealthCheck("nil", nil)
+	s.AddReadyCheck("", func(context.Context) error { return nil })
+	s.AddReadyCheck("nil", nil)
+	if len(s.health) != 0 || len(s.ready) != 0 {
+		t.Fatalf("invalid checks registered: health=%d ready=%d", len(s.health), len(s.ready))
+	}
+	calledHealth := false
+	calledReady := false
+	s.AddHealthCheck("live", func(context.Context) error { calledHealth = true; return nil })
+	s.AddReadyCheck("ready", func(context.Context) error { calledReady = true; return nil })
+	if len(s.health) != 1 || len(s.ready) != 1 {
+		t.Fatalf("valid checks not registered: health=%d ready=%d", len(s.health), len(s.ready))
+	}
+	if err := s.runCheck(context.Background(), func(context.Context) error { return nil }); err != nil {
+		t.Fatalf("runCheck without timeout returned error: %v", err)
+	}
+	if report := s.runChecks(context.Background(), s.health); report.Status != "ok" || !calledHealth {
+		t.Fatalf("health report = %+v called=%v, want ok and called", report, calledHealth)
+	}
+	if report := s.runChecks(context.Background(), s.ready); report.Status != "ok" || !calledReady {
+		t.Fatalf("ready report = %+v called=%v, want ok and called", report, calledReady)
+	}
+
+	rec := httptest.NewRecorder()
+	writeError(rec, 599, "", "")
+	if rec.Code != 599 {
+		t.Fatalf("writeError status = %d, want 599", rec.Code)
+	}
+	var got ErrorResponse
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Code != coreerrors.CodeInternal || got.Text != string(coreerrors.CodeInternal) || got.Status != 599 {
+		t.Fatalf("writeError fallback response = %+v, want internal code text fallback", got)
+	}
+
+	sw := newStatusResponseWriter(httptest.NewRecorder())
+	if _, _, err := sw.Hijack(); err == nil || !strings.Contains(err.Error(), "does not support hijacking") {
+		t.Fatalf("Hijack unsupported error = %v, want unsupported hijacking", err)
+	}
+}
+
 func TestTrimStringsConfigCanDisableBodyTrim(t *testing.T) {
 	disabled := false
 	s := MustNewServer(Config{Middlewares: MiddlewaresConfig{

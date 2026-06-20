@@ -3,6 +3,7 @@ package gateway
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -40,6 +41,81 @@ func (w *failAfterWriter) Write(p []byte) (int, error) {
 		return 0, w.err
 	}
 	return len(p), nil
+}
+
+type gatewayRoundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f gatewayRoundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
+
+type errorReadCloser struct{ err error }
+
+func (r errorReadCloser) Read([]byte) (int, error) { return 0, r.err }
+
+func (r errorReadCloser) Close() error { return nil }
+
+type bitsUTBalancer struct{}
+
+func (bitsUTBalancer) Pick(context.Context, []string) (string, error) { return "picked", nil }
+
+type bitsUTDiscoveryResolver struct{}
+
+func (bitsUTDiscoveryResolver) Resolve(context.Context, string, ...discovery.ResolveOption) ([]discovery.Instance, error) {
+	return []discovery.Instance{{Endpoint: "http://127.0.0.1:1", Status: discovery.StatusHealthy}}, nil
+}
+
+func (bitsUTDiscoveryResolver) Watch(context.Context, string, ...discovery.ResolveOption) (<-chan discovery.Event, error) {
+	return make(chan discovery.Event), nil
+}
+
+func TestGatewayOptionBoundaryBranches_BitsUT(t *testing.T) {
+	routes := []Route{{PathPrefix: "/api", Targets: []string{"http://127.0.0.1:1"}}}
+	g, err := New(routes,
+		WithBalancer(nil),
+		WithResolvers(nil),
+		WithResolvers(map[string]rpc.Resolver{"": rpc.ResolverFunc(func(context.Context) ([]string, error) { return nil, nil }), "nil": nil}),
+		WithDiscoveryResolvers(nil),
+		WithDiscoveryResolvers(map[string]discovery.Resolver{"": bitsUTDiscoveryResolver{}, "nil": nil}),
+		WithShadowPool(0, -1),
+	)
+	if err != nil {
+		t.Fatalf("New gateway with empty options returned error: %v", err)
+	}
+	firstGateway := g
+	t.Cleanup(func() { _ = firstGateway.Close() })
+	if g.balancer == nil {
+		t.Fatal("gateway balancer is nil after default initialization")
+	}
+	if len(g.resolvers) != 0 {
+		t.Fatalf("invalid resolvers were registered: %#v", g.resolvers)
+	}
+	if g.shadowPool == nil {
+		t.Fatal("WithShadowPool default branch did not allocate shadow pool")
+	}
+
+	resolver := rpc.ResolverFunc(func(context.Context) ([]string, error) { return []string{"http://127.0.0.1:2"}, nil })
+	g, err = New(routes,
+		WithBalancer(bitsUTBalancer{}),
+		WithResolvers(map[string]rpc.Resolver{"orders": resolver}),
+		WithDiscoveryResolvers(map[string]discovery.Resolver{"catalog": bitsUTDiscoveryResolver{}}),
+	)
+	if err != nil {
+		t.Fatalf("New gateway with resolvers returned error: %v", err)
+	}
+	secondGateway := g
+	t.Cleanup(func() { _ = secondGateway.Close() })
+	if _, ok := g.balancer.(bitsUTBalancer); !ok {
+		t.Fatalf("gateway balancer = %T, want bitsUTBalancer", g.balancer)
+	}
+	if len(g.resolvers) != 2 || g.resolvers["orders"] == nil || g.resolvers["catalog"] == nil {
+		t.Fatalf("registered resolvers = %#v, want orders and catalog", g.resolvers)
+	}
+	endpoints, err := g.resolvers["catalog"].Resolve(context.Background())
+	if err != nil {
+		t.Fatalf("catalog discovery resolver returned error: %v", err)
+	}
+	if len(endpoints) != 1 || endpoints[0] != "http://127.0.0.1:1" {
+		t.Fatalf("catalog endpoints = %#v, want discovery endpoint", endpoints)
+	}
 }
 
 func TestGatewayReverseProxyRewritesPathAndHeaders(t *testing.T) {
@@ -1463,6 +1539,93 @@ func (f *fakeGenericClient) CallRaw(ctx context.Context, method string, request 
 		return nil, nil, f.err
 	}
 	return append(json.RawMessage(nil), f.payload...), metadata.MD{"trace": "abc"}, nil
+}
+
+func TestGatewayPureProxyAndTranscodeBranches_BitsUT(t *testing.T) {
+	if (*Gateway)(nil).Routes() != nil || (*Gateway)(nil).Descriptors() != nil {
+		t.Fatal("nil gateway snapshots should return nil")
+	}
+	if err := (*Gateway)(nil).RegisterDescriptor(rpc.Descriptor{Name: "svc"}); err == nil || !strings.Contains(err.Error(), "gateway is nil") {
+		t.Fatalf("nil RegisterDescriptor error = %v, want gateway is nil", err)
+	}
+	if err := (*Gateway)(nil).AddRoute(Route{}); !errors.Is(err, ErrRouteRequired) {
+		t.Fatalf("nil AddRoute error = %v, want ErrRouteRequired", err)
+	}
+	if err := (*Gateway)(nil).UpdateRoute(Route{}); !errors.Is(err, ErrRouteRequired) {
+		t.Fatalf("nil UpdateRoute error = %v, want ErrRouteRequired", err)
+	}
+	if err := (*Gateway)(nil).UpsertRoute(Route{}); !errors.Is(err, ErrRouteRequired) {
+		t.Fatalf("nil UpsertRoute error = %v, want ErrRouteRequired", err)
+	}
+	if (*Gateway)(nil).RemoveRoute(http.MethodGet, "/") {
+		t.Fatal("nil RemoveRoute returned true, want false")
+	}
+
+	if _, err := buildTargetURL("::::", Route{}, &url.URL{Path: "/api"}); err == nil || !strings.Contains(err.Error(), "parse endpoint") {
+		t.Fatalf("buildTargetURL parse error = %v, want parse endpoint", err)
+	}
+	if _, err := buildTargetURL("upstream", Route{}, &url.URL{Path: "/api"}); err == nil || !strings.Contains(err.Error(), "scheme and host") {
+		t.Fatalf("buildTargetURL missing scheme error = %v, want scheme and host", err)
+	}
+	if got := rewritePath(Route{PathPrefix: "/", UpstreamPrefix: "/v1"}, "/users"); got != "/v1/users" {
+		t.Fatalf("rewritePath root upstream = %q, want /v1/users", got)
+	}
+	if got := rewritePath(Route{PathPrefix: "/api"}, "/api"); got != "/" {
+		t.Fatalf("rewritePath empty suffix = %q, want /", got)
+	}
+	if got := rewritePath(Route{PathPrefix: "/api", UpstreamPrefix: "/v2"}, "/other"); got != "/other" {
+		t.Fatalf("rewritePath no match = %q, want /other", got)
+	}
+
+	target, err := buildTargetURL("https://upstream/base", Route{PathPrefix: "/api", UpstreamPrefix: "/v2"}, &url.URL{Path: "/api/users", RawQuery: "q=1"})
+	if err != nil {
+		t.Fatalf("buildTargetURL valid: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "https://gateway/api/users", strings.NewReader("body"))
+	req.Host = "gateway.example"
+	req.RemoteAddr = "192.0.2.10:1234"
+	req.TLS = &tls.ConnectionState{}
+	req.Header.Set(HeaderForwardedFor, "198.51.100.1")
+	cloned, err := cloneProxyRequest(req, target, Route{Name: "route", Service: "svc", PreserveHost: true, Headers: map[string]string{"X-Set": "yes"}}, []byte("payload"))
+	if err != nil {
+		t.Fatalf("cloneProxyRequest: %v", err)
+	}
+	if cloned.Host != "gateway.example" || cloned.Header.Get(HeaderForwardedProto) != "https" || cloned.Header.Get(HeaderGatewayRoute) != "route" || cloned.Header.Get("X-Set") != "yes" {
+		t.Fatalf("cloned request host/header = host=%q headers=%v", cloned.Host, cloned.Header)
+	}
+	if got := cloned.Header.Get(HeaderForwardedFor); got != "198.51.100.1, 192.0.2.10" {
+		t.Fatalf("forwarded-for = %q, want appended client IP", got)
+	}
+
+	transportErr := errors.New("transport down")
+	g := &Gateway{client: &http.Client{Transport: gatewayRoundTripFunc(func(*http.Request) (*http.Response, error) { return nil, transportErr })}}
+	if _, err := g.proxyHTTPOnce(httptest.NewRequest(http.MethodGet, "/api", nil), Route{PathPrefix: "/api"}, "http://upstream", nil, nil); !errors.Is(err, transportErr) {
+		t.Fatalf("proxyHTTPOnce transport error = %v, want transport down", err)
+	}
+	readErr := errors.New("read body")
+	g.client = &http.Client{Transport: gatewayRoundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: errorReadCloser{err: readErr}}, nil
+	})}
+	result, err := g.proxyHTTPOnce(httptest.NewRequest(http.MethodGet, "/api", nil), Route{PathPrefix: "/api"}, "http://upstream", nil, nil)
+	if !errors.Is(err, readErr) || !errors.Is(result.Err, readErr) {
+		t.Fatalf("proxyHTTPOnce read error result=%+v err=%v, want read body", result, err)
+	}
+
+	retryable := rpc.NewError(rpc.CodeUnavailable, "unavailable")
+	fake := &fakeGenericClient{err: retryable}
+	g = &Gateway{transcoders: map[string]rpc.GenericClient{"http://upstream": fake}}
+	result, err = g.transcodeOnce(httptest.NewRequest(http.MethodPost, "/api/Get", nil), Route{PathPrefix: "/api", Transcode: TranscodeConfig{Enabled: true, Service: "svc"}}, "http://upstream", nil, nil)
+	if !errors.Is(err, retryable) || !errors.Is(result.Err, retryable) || result.Status != http.StatusServiceUnavailable {
+		t.Fatalf("transcode retryable result=%+v err=%v, want propagated unavailable", result, err)
+	}
+
+	g = &Gateway{transcoderFactory: func(string, Route) (rpc.GenericClient, error) { return nil, errors.New("factory failed") }}
+	if _, err := g.transcodeOnce(httptest.NewRequest(http.MethodPost, "/api/Get", nil), Route{PathPrefix: "/api", Transcode: TranscodeConfig{Enabled: true, Service: "svc"}}, "http://new", nil, nil); err == nil || !strings.Contains(err.Error(), "factory failed") {
+		t.Fatalf("transcode factory error = %v, want factory failed", err)
+	}
+	if _, err := g.transcodeOnce(httptest.NewRequest(http.MethodPost, "/api/Get", nil), Route{PathPrefix: "/api", Transcode: TranscodeConfig{Enabled: true, DescriptorMethod: "Get"}}, "http://new", nil, nil); err == nil || !strings.Contains(err.Error(), "descriptor is required") {
+		t.Fatalf("transcode descriptor config error = %v, want descriptor required", err)
+	}
 }
 
 func TestGatewayTranscodeRESTToRPC(t *testing.T) {

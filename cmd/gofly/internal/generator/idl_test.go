@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"go/parser"
+	"go/token"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -42,6 +44,94 @@ service GreeterService {
   rpc SayHello(SayHelloRequest) returns (SayHelloResponse);
 }
 `
+
+func TestPrintASTRendersParsedNode_BitsUT(t *testing.T) {
+	fset := token.NewFileSet()
+	node, err := parser.ParseFile(fset, "handler.go", "package handler\n\nfunc Ping() { println(\"pong\") }\n", 0)
+	if err != nil {
+		t.Fatalf("ParseFile: %v", err)
+	}
+
+	out := printAST(fset, node)
+	for _, want := range []string{"package handler", "func Ping()", `println("pong")`} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("printAST output missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestRPCToolingParserAndLintErrorBoundaries_BitsUT(t *testing.T) {
+	if _, err := ReadRPCIDL(""); err == nil || !strings.Contains(err.Error(), "idl file is required") {
+		t.Fatalf("ReadRPCIDL blank error = %v, want idl file required", err)
+	}
+	if _, err := ReadRPCIDL(filepath.Join(t.TempDir(), "missing.proto")); err == nil || !strings.Contains(err.Error(), "read idl file") {
+		t.Fatalf("ReadRPCIDL missing error = %v, want read idl file", err)
+	}
+
+	parseCases := []struct {
+		name string
+		body string
+		want string
+	}{
+		{name: "invalid field", body: "struct User {\nnot-a-field\n}", want: "invalid field"},
+		{name: "invalid method", body: "service Greeter {\nnot-a-method\n}", want: "invalid service method"},
+		{name: "unclosed struct", body: "struct User {\n1: string name\n", want: "struct User is not closed"},
+		{name: "unclosed service", body: "service Greeter {\nvoid Ping()\n", want: "service Greeter is not closed"},
+		{name: "empty", body: "namespace java com.example", want: "no struct or service found"},
+	}
+	for _, tt := range parseCases {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, err := ParseThrift(tt.body); err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("ParseThrift error = %v, want %q", err, tt.want)
+			}
+		})
+	}
+	doc, err := ParseThrift(`namespace java com.example
+include "common.thrift"
+struct User {
+  1: string name
+}
+service Greeter {
+  User Get(1: string id)
+}`)
+	if err != nil {
+		t.Fatalf("ParseThrift namespace: %v", err)
+	}
+	if doc.Package != "com.example" || doc.GoPackage != "" || strings.Join(doc.Imports, ",") != "common.thrift" {
+		t.Fatalf("thrift doc = %#v, want java package fallback and import", doc)
+	}
+
+	lintCases := []struct {
+		name string
+		doc  IDLDocument
+		want string
+	}{
+		{name: "no service", doc: IDLDocument{Messages: []IDLMessage{{Name: "Req"}}}, want: "service is required"},
+		{name: "empty message", doc: IDLDocument{Services: []IDLService{{Name: "S", Methods: []IDLMethod{{Name: "M", Request: "Req", Response: "Resp"}}}}, Messages: []IDLMessage{{Name: " "}}}, want: "message name"},
+		{name: "no methods", doc: IDLDocument{Services: []IDLService{{Name: "S"}}, Messages: []IDLMessage{{Name: "Req"}}}, want: "method is required"},
+		{name: "missing request response", doc: IDLDocument{Services: []IDLService{{Name: "S", Methods: []IDLMethod{{Name: "M"}}}}, Messages: []IDLMessage{{Name: "Req"}}}, want: "request and response"},
+		{name: "unknown request", doc: IDLDocument{Kind: "proto", Services: []IDLService{{Name: "S", Methods: []IDLMethod{{Name: "M", Request: "Missing", Response: "Resp"}}}}, Messages: []IDLMessage{{Name: "Resp"}}}, want: "request message Missing not found"},
+		{name: "unknown response", doc: IDLDocument{Kind: "proto", Services: []IDLService{{Name: "S", Methods: []IDLMethod{{Name: "M", Request: "Req", Response: "Missing"}}}}, Messages: []IDLMessage{{Name: "Req"}}}, want: "response message Missing not found"},
+	}
+	for _, tt := range lintCases {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := LintRPCIDL(tt.doc); err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("LintRPCIDL error = %v, want %q", err, tt.want)
+			}
+		})
+	}
+
+	badProto := filepath.Join(t.TempDir(), "bad.proto")
+	if err := os.WriteFile(badProto, []byte("syntax = \"proto3\";\nservice S { rpc M (Missing) returns (Resp); }"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := GenerateRPCClient(RPCScaffoldOptions{IDLFile: badProto, Dir: t.TempDir()}); err == nil || !strings.Contains(err.Error(), "request message Missing not found") {
+		t.Fatalf("GenerateRPCClient lint error = %v, want missing request", err)
+	}
+	if err := GenerateRPCServer(RPCScaffoldOptions{}); err == nil || !strings.Contains(err.Error(), "idl file is required") {
+		t.Fatalf("GenerateRPCServer missing idl error = %v, want idl required", err)
+	}
+}
 
 const testAPI = `type LoginReq {
     Username string ` + "`json:\"username\"`" + `

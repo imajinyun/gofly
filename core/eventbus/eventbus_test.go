@@ -75,6 +75,9 @@ func TestPublishRecoversPanic(t *testing.T) {
 	if pe.Value != "boom" {
 		t.Fatalf("want panic value boom, got %v", pe.Value)
 	}
+	if got := pe.Error(); got != "eventbus: handler panicked: boom" {
+		t.Fatalf("PanicError.Error() = %q, want panic detail", got)
+	}
 	if !called {
 		t.Fatal("subsequent handler should still run after panic")
 	}
@@ -234,6 +237,31 @@ func TestTypedTopicIsolation(t *testing.T) {
 	Publish(context.Background(), bus, orderEvent{ID: 1})
 	if calls != 1 {
 		t.Fatalf("want 1 call for matching type, got %d", calls)
+	}
+}
+
+func TestTypedPublishAsyncDeliversMatchingType_BitsUT(t *testing.T) {
+	bus := New()
+	defer bus.Close()
+
+	delivered := make(chan orderEvent, 1)
+	if _, err := Subscribe(bus, func(_ context.Context, event orderEvent) error {
+		delivered <- event
+		return nil
+	}); err != nil {
+		t.Fatalf("typed subscribe: %v", err)
+	}
+	if err := PublishAsync(context.Background(), bus, orderEvent{ID: 99}); err != nil {
+		t.Fatalf("typed publish async: %v", err)
+	}
+
+	select {
+	case got := <-delivered:
+		if got.ID != 99 {
+			t.Fatalf("typed async event = %#v, want ID 99", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for typed async event")
 	}
 }
 

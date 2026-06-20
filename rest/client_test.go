@@ -15,6 +15,7 @@ import (
 	coreerrors "github.com/gofly/gofly/core/errors"
 	"github.com/gofly/gofly/core/governance"
 	coreretry "github.com/gofly/gofly/core/retry"
+	"github.com/gofly/gofly/core/security"
 )
 
 func TestRESTClientGovernanceRuleRuntimeRateLimit(t *testing.T) {
@@ -387,6 +388,142 @@ func TestRESTClientNormalizeContextError(t *testing.T) {
 	}
 }
 
+func TestRESTClientConstructionAndRequestBoundaries_BitsUT(t *testing.T) {
+	if _, err := NewClient(""); err == nil || !strings.Contains(err.Error(), "base url is required") {
+		t.Fatalf("NewClient blank base error = %v, want base url required", err)
+	}
+	if _, err := NewClient("http://example.test", nil, WithClientTimeout(0)); err != nil {
+		t.Fatalf("NewClient with nil option returned error: %v", err)
+	}
+	if _, err := NewClient("http://example.test", WithClientTLS(security.TLSConfig{CAFile: "/definitely/missing/ca.pem"})); err == nil || !strings.Contains(err.Error(), "configure rest tls") {
+		t.Fatalf("NewClient TLS error = %v, want configure rest tls", err)
+	}
+
+	func() {
+		defer func() {
+			if recovered := recover(); recovered == nil {
+				t.Fatal("MustNewClient blank base did not panic")
+			}
+		}()
+		_ = MustNewClient("")
+	}()
+
+	var nilClient *Client
+	if _, err := nilClient.NewRequest(nil, http.MethodGet, "/orders", nil); err == nil || !strings.Contains(err.Error(), "rest client is nil") {
+		t.Fatalf("nil client NewRequest error = %v, want nil client", err)
+	}
+	if _, err := nilClient.Do(httptest.NewRequest(http.MethodGet, "/", nil)); err == nil || !strings.Contains(err.Error(), "rest client is nil") {
+		t.Fatalf("nil client Do error = %v, want nil client", err)
+	}
+	client := MustNewClient("http://api.example.test/base/")
+	if _, err := client.Do(nil); err == nil || !strings.Contains(err.Error(), "rest request is nil") {
+		t.Fatalf("nil request Do error = %v, want nil request", err)
+	}
+	req, err := client.NewRequest(nil, http.MethodGet, "/orders", nil)
+	if err != nil {
+		t.Fatalf("NewRequest relative path returned error: %v", err)
+	}
+	if got := req.URL.String(); got != "http://api.example.test/base/orders" {
+		t.Fatalf("relative NewRequest URL = %q, want base joined path", got)
+	}
+	absReq, err := client.NewRequest(context.Background(), http.MethodGet, "https://other.example.test/ping", nil)
+	if err != nil {
+		t.Fatalf("NewRequest absolute path returned error: %v", err)
+	}
+	if got := absReq.URL.String(); got != "https://other.example.test/ping" {
+		t.Fatalf("absolute NewRequest URL = %q, want unchanged absolute URL", got)
+	}
+	if _, err := client.NewRequest(context.Background(), http.MethodGet, "http://%zz", nil); err == nil || !strings.Contains(err.Error(), "create rest request") {
+		t.Fatalf("NewRequest bad URL error = %v, want create rest request", err)
+	}
+	if _, err := client.Get(context.Background(), "http://%zz"); err == nil || !strings.Contains(err.Error(), "create rest request") {
+		t.Fatalf("Get bad URL error = %v, want create rest request", err)
+	}
+}
+
+func TestRESTClientPostSetsContentType_BitsUT(t *testing.T) {
+	transport := &captureHeaderRoundTripper{}
+	client := MustNewClient("http://example.test", WithClientHTTPClient(&http.Client{Transport: transport}))
+	resp, err := client.Post(context.Background(), "/orders", "application/json", strings.NewReader(`{}`))
+	if err != nil {
+		t.Fatalf("Post returned error: %v", err)
+	}
+	closeResponseBody(resp)
+	if got := transport.contentType.Load(); got != "application/json" {
+		t.Fatalf("captured content type = %q, want application/json", got)
+	}
+}
+
+func TestRESTClientPrepareRequestCanaryAndRetryHelpers_BitsUT(t *testing.T) {
+	client := MustNewClient("http://example.test")
+	req, err := http.NewRequest(http.MethodPost, "http://example.test/orders", strings.NewReader("body"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("X-Original", "keep")
+	req.GetBody = func() (io.ReadCloser, error) { return nil, errors.New("reset boom") }
+	_, err = client.prepareRequest(context.Background(), req, governance.Policy{}, governance.Request{})
+	if err == nil || !strings.Contains(err.Error(), "reset request body") {
+		t.Fatalf("prepareRequest GetBody error = %v, want reset request body", err)
+	}
+
+	req.GetBody = func() (io.ReadCloser, error) { return io.NopCloser(strings.NewReader("replayed")), nil }
+	policy := governance.Policy{
+		Headers:  map[string]string{"X-Policy": "v1"},
+		Metadata: map[string]string{"X-Meta": "m1"},
+		Canary: governance.CanaryPolicy{
+			Ratio:   1,
+			Service: "orders-canary",
+			Headers: map[string]string{"X-Canary-Extra": "yes"},
+		},
+	}
+	attemptReq, err := client.prepareRequest(context.Background(), req, policy, governance.Request{Transport: governance.TransportREST, Service: "orders", Method: http.MethodPost, Path: "/orders"})
+	if err != nil {
+		t.Fatalf("prepareRequest returned error: %v", err)
+	}
+	if attemptReq == req {
+		t.Fatal("prepareRequest returned original request, want cloned request")
+	}
+	for key, want := range map[string]string{
+		"X-Original":                   "keep",
+		"X-Policy":                     "v1",
+		"X-Meta":                       "m1",
+		governance.HeaderCanary:        "true",
+		governance.HeaderCanaryService: "orders-canary",
+		"X-Canary-Extra":               "yes",
+	} {
+		if got := attemptReq.Header.Get(key); got != want {
+			t.Fatalf("prepared header %s = %q, want %q", key, got, want)
+		}
+	}
+	data, err := io.ReadAll(attemptReq.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "replayed" {
+		t.Fatalf("prepared body = %q, want replayed", data)
+	}
+
+	if got := canaryHeaders(governance.CanaryPolicy{}, governance.Request{}); got != nil {
+		t.Fatalf("canaryHeaders without match = %#v, want nil", got)
+	}
+	if !requestMayRetry(http.MethodPut, governance.RetryPolicy{}) || requestMayRetry(http.MethodPut, governance.RetryPolicy{Methods: []string{http.MethodGet}}) {
+		t.Fatal("requestMayRetry method filtering returned unexpected result")
+	}
+	if defaultRESTRetryable(nil) || defaultRESTRetryable(context.Canceled) || defaultRESTRetryable(context.DeadlineExceeded) {
+		t.Fatal("defaultRESTRetryable should reject nil/canceled/deadline errors")
+	}
+	if normalizeClientContextError(nil, errors.New("plain")).Error() != "plain" {
+		t.Fatal("normalizeClientContextError nil ctx should preserve original error")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Nanosecond)
+	defer cancel()
+	<-ctx.Done()
+	if err := normalizeClientContextError(ctx, errors.New("deadline")); coreerrors.CodeOf(err) != coreerrors.CodeDeadlineExceeded {
+		t.Fatalf("deadline normalize code = %s, want %s", coreerrors.CodeOf(err), coreerrors.CodeDeadlineExceeded)
+	}
+}
+
 type trackingReadCloser struct {
 	closed atomic.Bool
 }
@@ -415,4 +552,13 @@ func (t *sequenceRoundTripper) RoundTrip(req *http.Request) (*http.Response, err
 	resp := t.responses[call]
 	resp.Request = req
 	return resp, nil
+}
+
+type captureHeaderRoundTripper struct {
+	contentType atomic.Value
+}
+
+func (t *captureHeaderRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	t.contentType.Store(req.Header.Get("Content-Type"))
+	return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(http.NoBody), Request: req}, nil
 }

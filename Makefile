@@ -23,7 +23,7 @@ GOSEC_FLAGS ?= -quiet -exclude-generated -exclude-dir=testdata -exclude-dir=vend
 
 # Minimum total line coverage (percent). COVERAGE_RATCHET prevents regression once raised.
 COVERAGE_THRESHOLD ?= 60
-COVERAGE_RATCHET ?= 89
+COVERAGE_RATCHET ?= 90
 
 # Build metadata injected via -ldflags.
 PKG_ROOT   := github.com/gofly/gofly/cmd/gofly/internal/command

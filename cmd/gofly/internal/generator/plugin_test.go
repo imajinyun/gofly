@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 type bitsUTInternalPlugin struct{ name string }
@@ -864,6 +865,70 @@ func TestPluginRunnerRejectsProtocolVersionMismatch(t *testing.T) {
 	_, err := NewPluginRunner().Run(plugin, PluginRequest{Command: "api"})
 	if err == nil || !strings.Contains(err.Error(), "protocol version 999") || !strings.Contains(err.Error(), "incompatible") {
 		t.Fatalf("PluginRunner.Run version error = %v, want incompatible version", err)
+	}
+}
+
+func TestPluginRunnerExternalExecutionBranches_BitsUT(t *testing.T) {
+	dir := t.TempDir()
+	plugin := filepath.Join(dir, "plugin")
+	script := `#!/bin/sh
+case "$1" in
+  --plain)
+    printf 'plain output'
+    ;;
+  --empty)
+    exit 0
+    ;;
+  --fail)
+    printf 'boom stderr' >&2
+    exit 7
+    ;;
+  --sleep)
+    sleep 1
+    printf '%s' '{"version":"1"}'
+    ;;
+  *)
+    printf '{"version":"1","message":"%s:%s"}' "$1" "$2"
+    ;;
+esac
+`
+	if err := os.WriteFile(plugin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	runner := &PluginRunner{Timeout: 0}
+	resp, err := runner.Run(plugin+" --one two", PluginRequest{Command: "service", Service: "hello"})
+	if err != nil {
+		t.Fatalf("PluginRunner.Run json plugin: %v", err)
+	}
+	if resp.Version != pluginVersion || resp.Message != "--one:two" {
+		t.Fatalf("json plugin response = %+v, want parsed version and argv message", resp)
+	}
+
+	resp, err = runner.Run(plugin+" --plain", PluginRequest{Command: "service"})
+	if err != nil {
+		t.Fatalf("PluginRunner.Run plain plugin: %v", err)
+	}
+	if len(resp.Files) != 1 || resp.Files[0].Content != "plain output" {
+		t.Fatalf("plain plugin response = %+v, want fallback file content", resp)
+	}
+
+	resp, err = runner.Run(plugin+" --empty", PluginRequest{Command: "service"})
+	if err != nil {
+		t.Fatalf("PluginRunner.Run empty plugin: %v", err)
+	}
+	if resp.Version != "" || resp.Message != "" || resp.Error != "" || len(resp.Files) != 0 || len(resp.Patches) != 0 {
+		t.Fatalf("empty plugin response = %+v, want zero response", resp)
+	}
+
+	if _, err := runner.Run("   ", PluginRequest{}); err == nil || !strings.Contains(err.Error(), "empty plugin") {
+		t.Fatalf("PluginRunner.Run empty name error = %v, want empty plugin", err)
+	}
+	if _, err := runner.Run(plugin+" --fail", PluginRequest{}); err == nil || !strings.Contains(err.Error(), "boom stderr") {
+		t.Fatalf("PluginRunner.Run failing plugin error = %v, want stderr", err)
+	}
+	if _, err := (&PluginRunner{Timeout: time.Millisecond}).Run(plugin+" --sleep", PluginRequest{}); err == nil || !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("PluginRunner.Run timeout error = %v, want timed out", err)
 	}
 }
 

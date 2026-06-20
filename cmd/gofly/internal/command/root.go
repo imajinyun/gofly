@@ -683,7 +683,7 @@ func isCompletionHelpSubcommand(command string) bool {
 }
 
 func isAIHelpSubcommand(command string) bool {
-	return command == "manifest" || command == "complete" || command == "doctor"
+	return command == "manifest" || command == "plan" || command == "complete" || command == "stream" || command == "doctor"
 }
 
 func isCompleteHandlerShell(command string) bool {
@@ -1313,7 +1313,7 @@ func templateCommand(args []string) error {
 		return nil
 	}
 	if len(args) == 0 {
-		return fmt.Errorf("%w: expected `gofly template init|list|clean|update|revert`", errUsage)
+		return fmt.Errorf("%w: expected `gofly template init|list|inspect|clean|update|revert`", errUsage)
 	}
 	subcommand := args[0]
 	fs := flag.NewFlagSet("template "+subcommand, flag.ContinueOnError)
@@ -1325,7 +1325,9 @@ func templateCommand(args []string) error {
 	c := fs.String("c", "", "template category filter")
 	name := fs.String("name", "", "template name filter")
 	n := fs.String("n", "", "template name filter")
-	_, err := parseInterspersedFlags(fs, args[1:])
+	formatName := fs.String("format", "text", "output format: text or json")
+	jsonOutput := fs.Bool("json", false, "output JSON")
+	remaining, err := parseInterspersedFlags(fs, args[1:])
 	if err != nil {
 		return err
 	}
@@ -1338,6 +1340,10 @@ func templateCommand(args []string) error {
 	if *name == "" {
 		*name = *n
 	}
+	if *name == "" && len(remaining) > 0 {
+		*name = remaining[0]
+	}
+	useJSON := *jsonOutput || strings.EqualFold(strings.TrimSpace(*formatName), outputJSON)
 	opts := generator.TemplateOptions{Dir: *dir, Remote: *remote, Branch: *branch, StrictRemote: true}
 	switch subcommand {
 	case "init", "update":
@@ -1351,12 +1357,33 @@ func templateCommand(args []string) error {
 		}
 		return generator.GenerateTemplateInit(generator.TemplateOptions{Dir: *dir})
 	case "list", "ls":
+		catalog := filterProjectTemplates(generator.ListProjectTemplates(), *category, *name)
+		if useJSON {
+			return printJSONEnvelope("template.list", catalog)
+		}
+		for _, tmpl := range catalog {
+			cliOutputf("%s\t%s\t%s\t%s\n", tmpl.ID, tmpl.Kind, tmpl.Architecture, tmpl.Description)
+		}
 		for _, file := range generator.ListTemplates(opts) {
 			if !templateFilterMatch(file.Name, *category, *name) {
 				continue
 			}
 			cliOutputf("%s\t%s\n", file.Name, file.Path)
 		}
+		return nil
+	case "inspect", "show", "describe":
+		if *name == "" {
+			return fmt.Errorf("%w: template id is required for `gofly template inspect`", errUsage)
+		}
+		tmpl, ok := generator.GetProjectTemplate(*name)
+		if !ok {
+			return fmt.Errorf("%w: unknown project template %q", errUsage, *name)
+		}
+		if useJSON {
+			return printJSONEnvelope("template.inspect", tmpl)
+		}
+		cliOutputf("id: %s\nname: %s\nkind: %s\narchitecture: %s\nrisk: %s\ncommand: %s\n", tmpl.ID, tmpl.Name, tmpl.Kind, tmpl.Architecture, tmpl.RiskLevel, tmpl.Command)
+		cliOutputf("features: %s\n", strings.Join(tmpl.Features, ","))
 		return nil
 	case "clean":
 		if *category != "" || *name != "" {
@@ -1372,8 +1399,38 @@ func templateCommand(args []string) error {
 		}
 		return generator.CleanTemplates(opts)
 	default:
-		return fmt.Errorf("%w: expected `gofly template init|list|clean|update|revert`", errUsage)
+		return fmt.Errorf("%w: expected `gofly template init|list|inspect|clean|update|revert`", errUsage)
 	}
+}
+
+func filterProjectTemplates(templates []generator.ProjectTemplate, category, name string) []generator.ProjectTemplate {
+	out := make([]generator.ProjectTemplate, 0, len(templates))
+	for _, tmpl := range templates {
+		if templateCatalogFilterMatch(tmpl, category, name) {
+			out = append(out, tmpl)
+		}
+	}
+	return out
+}
+
+func templateCatalogFilterMatch(tmpl generator.ProjectTemplate, category, name string) bool {
+	category = strings.ToLower(strings.TrimSpace(category))
+	name = strings.ToLower(strings.TrimSpace(name))
+	if name != "" && strings.ToLower(tmpl.ID) != name && !strings.Contains(strings.ToLower(tmpl.Name), name) {
+		return false
+	}
+	if category == "" {
+		return true
+	}
+	if strings.EqualFold(tmpl.Kind, category) || strings.EqualFold(tmpl.Language, category) || strings.EqualFold(tmpl.Architecture, category) {
+		return true
+	}
+	for _, feature := range tmpl.Features {
+		if strings.EqualFold(feature, category) {
+			return true
+		}
+	}
+	return strings.Contains(strings.ToLower(tmpl.ID), category)
 }
 
 func templateFilterMatch(templateName, category, name string) bool {
@@ -2153,6 +2210,8 @@ func aiCommand(args []string) error {
 	switch sub {
 	case "manifest":
 		return aiManifestCommand(rest)
+	case "plan":
+		return aiPlanCommand(rest)
 	case "complete":
 		return aiCompleteCommand(rest)
 	case "stream":
@@ -2160,8 +2219,104 @@ func aiCommand(args []string) error {
 	case "doctor":
 		return aiDoctorCommand(rest)
 	default:
-		return fmt.Errorf("%w: expected `gofly ai manifest|complete|stream|doctor`", errUsage)
+		return fmt.Errorf("%w: expected `gofly ai manifest|plan|complete|stream|doctor`", errUsage)
 	}
+}
+
+type aiProjectPlan struct {
+	Prompt            string                    `json:"prompt"`
+	ProjectType       string                    `json:"projectType"`
+	Template          generator.ProjectTemplate `json:"template"`
+	Features          []string                  `json:"features"`
+	Command           string                    `json:"command"`
+	RiskLevel         string                    `json:"riskLevel"`
+	MutatesFilesystem bool                      `json:"mutatesFilesystem"`
+	DryRun            bool                      `json:"dryRun"`
+	Verify            []string                  `json:"verify"`
+	Warnings          []string                  `json:"warnings,omitempty"`
+	NextActions       []string                  `json:"nextActions"`
+}
+
+func aiPlanCommand(args []string) error {
+	fs := flag.NewFlagSet("ai plan", flag.ContinueOnError)
+	prompt := fs.String("prompt", "", "natural language project requirement")
+	kind := fs.String("kind", "", "optional project kind hint, such as service, rpc, worker, cli, ai-agent, rag or gateway")
+	name := fs.String("name", "", "project or service name used in the generated command")
+	module := fs.String("module", "", "Go module path used in the generated command")
+	dir := fs.String("dir", "", "output directory used in the generated command")
+	formatName := fs.String("format", outputText, "output format: text or json")
+	jsonOutput := fs.Bool("json", false, "output JSON envelope")
+	dryRun := fs.Bool("dry-run", true, "plan only without writing files")
+	plan := fs.Bool("plan", true, "alias for --dry-run")
+	remaining, err := parseInterspersedFlags(fs, args)
+	if err != nil {
+		return err
+	}
+	if *prompt == "" && len(remaining) > 0 {
+		*prompt = strings.Join(remaining, " ")
+	} else if len(remaining) > 0 {
+		return fmt.Errorf("%w: ai plan accepts either --prompt or positional prompt text, not both", errUsage)
+	}
+	if strings.TrimSpace(*prompt) == "" {
+		return fmt.Errorf("%w: --prompt or positional prompt text is required for `gofly ai plan`", errUsage)
+	}
+	format := strings.ToLower(strings.TrimSpace(*formatName))
+	if format == "" {
+		format = outputText
+	}
+	if format != outputText && format != outputJSON {
+		return fmt.Errorf("%w: unsupported --format %q", errUsage, *formatName)
+	}
+	projectPlan := buildAIProjectPlan(*prompt, *kind, *name, *module, *dir, *dryRun || *plan)
+	if *jsonOutput || outputMode() == outputJSON || format == outputJSON {
+		return printJSONEnvelope("ai.plan", projectPlan)
+	}
+	cliOutputfIf("template=%s kind=%s risk=%s\n", projectPlan.Template.ID, projectPlan.ProjectType, projectPlan.RiskLevel)
+	cliOutputfIf("features=%s\n", strings.Join(projectPlan.Features, ","))
+	cliOutputfIf("command=%s\n", projectPlan.Command)
+	for _, warning := range projectPlan.Warnings {
+		cliOutputfIf("warning: %s\n", warning)
+	}
+	return nil
+}
+
+func buildAIProjectPlan(prompt, kind, name, module, dir string, dryRun bool) aiProjectPlan {
+	tmpl := generator.RecommendProjectTemplate(prompt, kind)
+	command := materializeTemplateCommand(tmpl.Command, name, module, dir)
+	warnings := []string{
+		"ai plan uses deterministic local template matching and does not call an external LLM provider",
+		"rerun the proposed command with --dry-run first before applying filesystem mutations",
+	}
+	return aiProjectPlan{
+		Prompt:            strings.TrimSpace(prompt),
+		ProjectType:       tmpl.Kind,
+		Template:          tmpl,
+		Features:          append([]string(nil), tmpl.Features...),
+		Command:           command,
+		RiskLevel:         tmpl.RiskLevel,
+		MutatesFilesystem: !dryRun,
+		DryRun:            dryRun,
+		Verify:            append([]string(nil), tmpl.Verify...),
+		Warnings:          warnings,
+		NextActions:       []string{"inspect the selected template with `gofly template inspect " + tmpl.ID + " --json`", "run the proposed scaffold command with --dry-run", "run generated project verification commands after applying the scaffold"},
+	}
+}
+
+func materializeTemplateCommand(command, name, module, dir string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = "demo"
+	}
+	module = strings.TrimSpace(module)
+	if module == "" {
+		module = "example.com/" + name
+	}
+	dir = strings.TrimSpace(dir)
+	if dir == "" {
+		dir = name
+	}
+	replacer := strings.NewReplacer("<name>", name, "<module>", module, "<dir>", dir)
+	return replacer.Replace(command)
 }
 
 func aiCompleteCommand(args []string) error {
@@ -2929,6 +3084,13 @@ func aiManifestCommand(args []string) error {
 func buildAIToolManifest() aiToolManifest {
 	commands := []aiToolCommand{
 		manifestCommand("ai manifest", []string{"tools manifest"}, "Print command schemas, side effects, risk levels and JSON output contract.", "gofly ai manifest [--format json|text] [--json]", nil, []string{outputJSON, outputText}, []string{"none"}, "read", true, false, []string{"gofly ai manifest --format json"}),
+		manifestCommand("ai plan", nil, "Plan an AI-first project scaffold from natural language using the built-in project template catalog. This command is deterministic and does not write files.", "gofly ai plan --prompt <requirement> [--kind service|rpc|worker|cli|ai-agent|rag|gateway] [--name <name>] [--module <module>] [--dir <dir>] [--format text|json] [--json]", map[string]aiInputProperty{
+			"prompt": stringProperty("Natural language project requirement."),
+			"kind":   stringProperty("Optional project kind hint, such as service, rpc, worker, cli, ai-agent, rag or gateway."),
+			"name":   stringProperty("Project or service name used in the proposed command."),
+			"module": stringProperty("Go module path used in the proposed command."),
+			"dir":    stringProperty("Output directory used in the proposed command."),
+		}, []string{outputText, outputJSON}, []string{"none; planning only"}, "read", true, false, []string{"gofly ai plan 'create a rag service with redis vector store' --json"}),
 		manifestCommand("ai complete", nil, "Execute a governed completion through the provider registry with config/env/flag layering, token budget, redaction and audit controls. Use --stream as a compatible entry point for the ai stream event contract.", "gofly ai complete --prompt <text> [--stream] [--config .gofly/config.json] [--provider noop] [--model <model>] [--max-input-tokens <n>] [--max-output-tokens <n>] [--max-total-tokens <n>] [--rate-limit <n>] [--timeout <duration>] [--allow-failover|--failover] [--dry-run|--plan] [--format text|json] [--json]", map[string]aiInputProperty{
 			"prompt":          stringProperty("Prompt text. It is redacted before provider calls and never included in plan output."),
 			"config":          stringProperty("gofly config file. llm defaults are read before GOFLY_LLM_* env vars and CLI flags."),
@@ -2971,6 +3133,8 @@ func buildAIToolManifest() aiToolManifest {
 			"dir":     stringProperty("Service root directory used for path rendering."),
 			"style":   enumStringProperty("Scaffold style.", "minimal", "basic", "production"),
 		}, []string{outputText, outputJSON}, []string{"none; preview only"}, "read", true, false, []string{"gofly feature run ecosystem-compat --name hello --module example.com/hello --dir . --format json"}),
+		manifestCommand("template list", []string{"template ls"}, "List built-in AI-first project templates and legacy file templates.", "gofly template list [--category <filter>] [--name <filter>] [--format text|json] [--json]", map[string]aiInputProperty{"category": stringProperty("Optional template category, kind, architecture, language or feature filter."), "name": stringProperty("Optional template id/name filter.")}, []string{outputText, outputJSON}, []string{"none"}, "read", true, false, []string{"gofly template list --json"}),
+		manifestCommand("template inspect", []string{"template show", "template describe"}, "Inspect one AI-first project template from the catalog.", "gofly template inspect <template-id> [--format text|json] [--json]", map[string]aiInputProperty{"name": stringProperty("Project template id, for example go-rag-service.")}, []string{outputText, outputJSON}, []string{"none"}, "read", true, false, []string{"gofly template inspect go-rag-service --json"}),
 		manifestCommand("new api", []string{"api new"}, "Create an API service scaffold.", "gofly new api <name> --module <module> [--dir <dir>] [--style minimal|basic|production] [--dry-run|--plan]", serviceScaffoldProperties(), []string{outputText, outputJSON}, []string{"creates or overwrites files under --dir"}, "medium", true, true, []string{"gofly new api hello --module example.com/hello --dir hello --dry-run"}),
 		manifestCommand("new rpc", []string{"rpc new"}, "Create an RPC service scaffold.", "gofly new rpc <name> --module <module> [--dir <dir>] [--style minimal|basic|production] [--dry-run|--plan]", serviceScaffoldProperties(), []string{outputText, outputJSON}, []string{"creates or overwrites files under --dir"}, "medium", true, true, []string{"gofly new rpc greeter --module example.com/greeter --dir greeter --dry-run"}),
 		manifestCommand("api check", []string{"api validate"}, "Validate an .api file.", "gofly api check --api <service.api>", fileInputProperties("api"), []string{outputText}, []string{"reads API definition file"}, "read", true, false, []string{"gofly api check --api user.api"}),

@@ -1,6 +1,7 @@
 package command
 
 import (
+	"bytes"
 	"io"
 	"os"
 	"path/filepath"
@@ -103,6 +104,139 @@ service UserService { @handler getUser POST /users/{id} (User) returns (User) }`
 	}
 	if !strings.Contains(out, "api-breaking") {
 		t.Fatalf("expected api-breaking in output, got:\n%s", out)
+	}
+}
+
+func TestReleaseCheckCommandJSONAndChangelogBlocker_BitsUT(t *testing.T) {
+	t.Setenv("API_BASE_REF", "definitely-missing-release-base-ref")
+	dir := t.TempDir()
+	changelog := filepath.Join(dir, "CHANGELOG.md")
+	if err := os.WriteFile(changelog, []byte("# Changelog\n\nUnreleased notes only.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	if err := withCommandIO(IOStreams{Out: &out}, outputText, verbosityNormal, func() error {
+		return releaseCheckCommand([]string{"--changelog", changelog, "--json"})
+	}); err != nil {
+		t.Fatalf("releaseCheckCommand json pass: %v", err)
+	}
+	if !strings.Contains(out.String(), `"summary"`) || !strings.Contains(out.String(), "PASS") || !strings.Contains(out.String(), "go-api-compat") || !strings.Contains(out.String(), "go-mod-tidy") {
+		t.Fatalf("releaseCheckCommand json output = %s, want pass report", out.String())
+	}
+	if err := os.WriteFile(changelog, []byte("# Changelog\n\n## v9.9.9\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	err := withCommandIO(IOStreams{Out: &out}, outputText, verbosityNormal, func() error {
+		return releaseCheckCommand([]string{"--changelog", changelog, "--json"})
+	})
+	if err == nil || !strings.Contains(err.Error(), "release check failed") {
+		t.Fatalf("releaseCheckCommand changelog blocker error = %v, want release check failed", err)
+	}
+	if !strings.Contains(out.String(), `"changelog-version"`) || !strings.Contains(out.String(), `"BLOCKED:`) || !strings.Contains(out.String(), `9.9.9`) {
+		t.Fatalf("releaseCheckCommand blocker json output = %s, want changelog blocker", out.String())
+	}
+}
+
+func TestReleaseCheckCommandAPIAndRPCPassAndErrorBranches_BitsUT(t *testing.T) {
+	t.Setenv("API_BASE_REF", "definitely-missing-release-base-ref")
+	dir := t.TempDir()
+	changelog := filepath.Join(dir, "CHANGELOG.md")
+	if err := os.WriteFile(changelog, []byte("# Changelog\n\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	baseAPI := filepath.Join(dir, "base.api")
+	targetAPI := filepath.Join(dir, "target.api")
+	if err := os.WriteFile(baseAPI, []byte(`type PingResp {
+  Message string
+}
+service ping-api {
+  @handler ping
+  get /ping returns (PingResp)
+}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(targetAPI, []byte(`type PingResp {
+  Message string
+}
+type PongResp {
+  Message string
+}
+service ping-api {
+  @handler ping
+  get /ping returns (PingResp)
+  @handler pong
+  get /pong returns (PongResp)
+}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	baseProto := filepath.Join(dir, "base.proto")
+	targetProto := filepath.Join(dir, "target.proto")
+	if err := os.WriteFile(baseProto, []byte(`syntax = "proto3";
+package demo;
+message PingReq { string name = 1; }
+message PingResp { string message = 1; }
+service Greeter { rpc Ping (PingReq) returns (PingResp); }
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(targetProto, []byte(`syntax = "proto3";
+package demo;
+message PingReq { string name = 1; }
+message PingResp { string message = 1; }
+message PongReq { string name = 1; }
+message PongResp { string message = 1; }
+service Greeter {
+  rpc Ping (PingReq) returns (PingResp);
+  rpc Pong (PongReq) returns (PongResp);
+}
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	if err := withCommandIO(IOStreams{Out: &out}, outputText, verbosityNormal, func() error {
+		return releaseCheckCommand([]string{"--api-base", baseAPI, "--api-target", targetAPI, "--rpc-base", baseProto, "--rpc-target", targetProto, "--changelog", changelog})
+	}); err != nil {
+		t.Fatalf("releaseCheckCommand added API/RPC pass: %v\n%s", err, out.String())
+	}
+	if !strings.Contains(out.String(), "PASS") || !strings.Contains(out.String(), "api-breaking") || !strings.Contains(out.String(), "rpc-breaking") || !strings.Contains(out.String(), "go-mod-tidy") {
+		t.Fatalf("release output = %s, want pass report with api/rpc/tidy", out.String())
+	}
+
+	removedProto := filepath.Join(dir, "removed.proto")
+	if err := os.WriteFile(removedProto, []byte(`syntax = "proto3";
+package demo;
+message PingReq { string name = 1; }
+message PingResp { string message = 1; }
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	err := withCommandIO(IOStreams{Out: &out}, outputText, verbosityNormal, func() error {
+		return releaseCheckCommand([]string{"--rpc-base", baseProto, "--rpc-target", removedProto, "--changelog", changelog})
+	})
+	if err == nil || !strings.Contains(err.Error(), "release check failed") {
+		t.Fatalf("releaseCheckCommand rpc breaking error = %v, want release check failed", err)
+	}
+	if !strings.Contains(out.String(), "RPC breaking") || !strings.Contains(out.String(), "Blocking:") || !strings.Contains(out.String(), "[BLOCKER]") {
+		t.Fatalf("rpc breaking release output = %s, want rpc blocker report", out.String())
+	}
+
+	badProto := filepath.Join(dir, "bad.proto")
+	if err := os.WriteFile(badProto, []byte("syntax = \"proto3\"; service"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	err = withCommandIO(IOStreams{Out: &out}, outputText, verbosityNormal, func() error {
+		return releaseCheckCommand([]string{"--rpc-base", baseProto, "--rpc-target", badProto, "--changelog", changelog})
+	})
+	if err == nil || !strings.Contains(err.Error(), "release check failed") {
+		t.Fatalf("releaseCheckCommand bad rpc error = %v, want release check failed", err)
+	}
+	if !strings.Contains(out.String(), "rpc breaking check error") && !strings.Contains(out.String(), "rpc-breaking") {
+		t.Fatalf("bad rpc release output = %s, want rpc error branch", out.String())
 	}
 }
 

@@ -93,6 +93,164 @@ func TestBindingScalarAndNumericBoundaries_BitsUT(t *testing.T) {
 	}
 }
 
+func TestBindingTargetValidationAndJSONErrors_BitsUT(t *testing.T) {
+	t.Run("invalid bind targets", func(t *testing.T) {
+		if err := BindQuery(httptest.NewRequest(http.MethodGet, "/", nil), nil); err == nil || !strings.Contains(err.Error(), "bind target is nil") {
+			t.Fatalf("BindQuery nil target error = %v, want nil target", err)
+		}
+		var nilStruct *struct{ Name string }
+		if err := Validate(nilStruct); err == nil || !strings.Contains(err.Error(), "non-nil pointer") {
+			t.Fatalf("Validate nil pointer error = %v, want non-nil pointer", err)
+		}
+		if err := BindHeader(httptest.NewRequest(http.MethodGet, "/", nil), struct{}{}); err == nil || !strings.Contains(err.Error(), "non-nil pointer") {
+			t.Fatalf("BindHeader non-pointer error = %v, want pointer error", err)
+		}
+		var scalar int
+		if err := Validate(&scalar); err == nil || !strings.Contains(err.Error(), "must point to a struct") {
+			t.Fatalf("Validate scalar pointer error = %v, want struct pointer", err)
+		}
+	})
+
+	t.Run("json decode and validate", func(t *testing.T) {
+		type payload struct {
+			Name string `json:"name" validate:"required"`
+		}
+		var got payload
+		req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"name":"gofly","extra":true}`))
+		if err := BindJSON(req, &got); err == nil || !strings.Contains(err.Error(), "decode json body") || !strings.Contains(err.Error(), "unknown field") {
+			t.Fatalf("BindJSON unknown field error = %v, want decode json unknown field", err)
+		}
+
+		req = httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{}`))
+		got = payload{}
+		if err := BindJSON(req, &got); err == nil || !strings.Contains(err.Error(), "required") {
+			t.Fatalf("BindJSON validation error = %v, want required validation", err)
+		}
+	})
+}
+
+func TestBindValuesEmbeddedPointerSliceAndParseBranches_BitsUT(t *testing.T) {
+	type Embedded struct {
+		Trace string `query:"trace"`
+	}
+	type request struct {
+		Embedded
+		Ignored       string    `query:"-"`
+		EmptyName     string    `query:",omitempty"`
+		FormFallback  string    `form:"fallback"`
+		Flag          *bool     `query:"flag"`
+		Scores        []uint8   `query:"score"`
+		Ratios        []float64 `query:"ratio"`
+		unsupportedCh chan int  `query:"hidden"`
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/?trace=abc&Ignored=set&fallback=form&flag=true&score=7&score=8&ratio=1.25&ratio=2.5&hidden=1", nil)
+	var got request
+	if err := BindQuery(req, &got); err != nil {
+		t.Fatalf("BindQuery embedded request returned error: %v", err)
+	}
+	if got.Trace != "abc" || got.FormFallback != "form" || got.Flag == nil || *got.Flag != true || len(got.Scores) != 2 || got.Scores[1] != 8 || len(got.Ratios) != 2 || got.Ratios[0] != 1.25 {
+		t.Fatalf("BindQuery embedded request = %+v, want embedded/form/pointer/slices bound", got)
+	}
+	if got.Ignored != "" || got.EmptyName != "" {
+		t.Fatalf("ignored fields were bound: ignored=%q empty=%q", got.Ignored, got.EmptyName)
+	}
+
+	parseCases := []struct {
+		name   string
+		target any
+		url    string
+		want   string
+	}{
+		{
+			name: "bool parse",
+			target: &struct {
+				Flag bool `query:"flag"`
+			}{},
+			url:  "/?flag=not-bool",
+			want: "bind query field Flag",
+		},
+		{
+			name: "uint parse",
+			target: &struct {
+				Scores []uint8 `query:"score"`
+			}{},
+			url:  "/?score=300",
+			want: "bind query field Scores",
+		},
+		{
+			name: "float parse",
+			target: &struct {
+				Ratio float32 `query:"ratio"`
+			}{},
+			url:  "/?ratio=not-float",
+			want: "bind query field Ratio",
+		},
+		{
+			name: "unsupported exported kind",
+			target: &struct {
+				Ch chan int `query:"ch"`
+			}{},
+			url:  "/?ch=1",
+			want: "unsupported kind chan",
+		},
+	}
+	for _, tt := range parseCases {
+		t.Run(tt.name, func(t *testing.T) {
+			err := BindQuery(httptest.NewRequest(http.MethodGet, tt.url, nil), tt.target)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("BindQuery error = %v, want substring %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestBindRequestSourceOrderingAndMethodBodyBranches_BitsUT(t *testing.T) {
+	type request struct {
+		ID    int    `path:"id" validate:"min=1"`
+		Name  string `json:"name" query:"name" validate:"required"`
+		Role  string `header:"X-Role" validate:"oneof=admin user"`
+		Debug bool   `query:"debug"`
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/users/11?name=query&debug=true", strings.NewReader(`{invalid-json`))
+	req.SetPathValue("id", "11")
+	req.Header.Set("X-Role", "admin")
+	var got request
+	if err := BindRequest(req, &got); err != nil {
+		t.Fatalf("BindRequest GET with body returned error: %v", err)
+	}
+	if got.ID != 11 || got.Name != "query" || got.Role != "admin" || !got.Debug {
+		t.Fatalf("BindRequest GET = %+v, want path/query/header and skipped body", got)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/users/12?name=query&debug=false", strings.NewReader(`{"name":"json"}`))
+	req.SetPathValue("id", "12")
+	req.Header.Set("X-Role", "user")
+	got = request{}
+	if err := BindRequest(req, &got); err != nil {
+		t.Fatalf("BindRequest POST returned error: %v", err)
+	}
+	if got.ID != 12 || got.Name != "query" || got.Role != "user" || got.Debug {
+		t.Fatalf("BindRequest POST = %+v, want later query binding to override json name", got)
+	}
+
+	req = httptest.NewRequest(http.MethodDelete, "/users/13?name=delete", strings.NewReader(`{invalid-json`))
+	req.SetPathValue("id", "13")
+	req.Header.Set("X-Role", "admin")
+	got = request{}
+	if err := BindRequest(req, &got); err != nil {
+		t.Fatalf("BindRequest DELETE with body returned error: %v", err)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/users/14?name=post", strings.NewReader(`{invalid-json`))
+	req.SetPathValue("id", "14")
+	req.Header.Set("X-Role", "admin")
+	if err := BindRequest(req, &got); err == nil || !strings.Contains(err.Error(), "decode json body") {
+		t.Fatalf("BindRequest POST invalid body error = %v, want decode json body", err)
+	}
+}
+
 func TestBindPathAndHeader(t *testing.T) {
 	type pathRequest struct {
 		ID int `path:"id" validate:"min=1"`

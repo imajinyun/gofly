@@ -36,6 +36,10 @@ jobs:
       - name: CI build/test/tidy gates
         run: make ci-fast
 
+      - name: Generated project verification matrix
+        if: matrix.go == '1.26'
+        run: make test-generated-matrix
+
       - name: Coverage gate
         if: matrix.go == '1.26'
         run: make cover-check
@@ -264,6 +268,7 @@ jobs:
       - name: 10-round architecture and quality governance
         env:
           GOVERNANCE_ISOLATE_GOMODCACHE: ${{ github.event_name == 'schedule' && 'true' || 'false' }}
+          GOVERNANCE_SKIP_GENERATED_MATRIX: "true"
         run: make governance-10-rounds
 
   bench-fuzz:

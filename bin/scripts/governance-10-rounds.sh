@@ -101,6 +101,10 @@ print(f"AI governance pipeline: {len(gp)} stages OK")
 '
 }
 
+round_generated_project_matrix_tests() {
+	"$go_cmd" test $testflags ./cmd/gofly/internal/command -run 'TestAINewGeneratedProjectVerificationMatrix_BitsUT'
+}
+
 round_coverage_check() {
 	COVERAGE_THRESHOLD="$coverage_threshold" COVERAGE_RATCHET="$coverage_ratchet" COVERAGE_PROFILE="$tmp/coverage.out" COVERAGE_TMPDIR="$tmp/coverage-tmp" PKGS="$pkgs" TESTFLAGS="$testflags" sh "$root/bin/scripts/coverage-check.sh"
 }
@@ -156,6 +160,7 @@ printf 'GOVULNCHECK_SCAN=%s\n' "$govulncheck_scan"
 printf 'GOSEC_FLAGS=%s\n' "$gosec_flags"
 printf 'COVERAGE_THRESHOLD=%s\n' "$coverage_threshold"
 printf 'COVERAGE_RATCHET=%s\n' "$coverage_ratchet"
+printf 'GOVERNANCE_SKIP_GENERATED_MATRIX=%s\n' "${GOVERNANCE_SKIP_GENERATED_MATRIX:-false}"
 
 run_round 1 "baseline and module graph" round_baseline
 run_round 2 "format check" round_format_check
@@ -174,6 +179,13 @@ run_round 8 "runtime cache bypass tests" round_runtime_cache_bypass_tests
 assert_go_tests_match ./cmd/gofly/internal/generator 'TestPluginRunnerDownloadPlugin(DoesNotReuseLocalCache|IgnoresUserCache|UsesUniqueTempFile)' 3
 run_round 9 "plugin no-local-cache tests" round_plugin_no_local_cache_tests
 run_round 10 "AI governance pipeline manifest check" round_ai_manifest_check
-run_round 11 "docs, coverage, security, and final package listing" round_final_convergence
+if [ "${GOVERNANCE_SKIP_GENERATED_MATRIX:-false}" = "true" ]; then
+	printf '\n== Round 11: generated project verification matrix ==\n'
+	printf 'skipped because GOVERNANCE_SKIP_GENERATED_MATRIX=true; CI must run make test-generated-matrix separately\n'
+else
+	assert_go_tests_match ./cmd/gofly/internal/command 'TestAINewGeneratedProjectVerificationMatrix_BitsUT' 1
+	run_round 11 "generated project verification matrix" round_generated_project_matrix_tests
+fi
+run_round 12 "docs, coverage, security, and final package listing" round_final_convergence
 
 printf '\nGovernance workflow completed successfully.\n'

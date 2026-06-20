@@ -85,6 +85,10 @@ test: ## Run all unit tests with the race detector
 test-short: ## Run fast unit tests (no race)
 	$(GO) test $(TESTFLAGS) -short $(PKGS)
 
+.PHONY: test-generated-matrix
+test-generated-matrix: ## Verify all generated AI project templates end-to-end
+	GOFLY_FRAMEWORK_PATH=$(CURDIR) $(GO) test $(TESTFLAGS) ./cmd/gofly/internal/command -run 'TestAINewGeneratedProjectVerificationMatrix_BitsUT'
+
 .PHONY: bench
 bench: ## Run benchmarks (exclude unit tests)
 	$(GO) test -run='^$$' -bench=. -benchmem $(PKGS)
@@ -134,7 +138,7 @@ check: fmt-check vet test ## Run the core local verification suite
 ci-fast: fmt-check vet build examples-check docs-check test tidy ## Run the default CI build/test/tidy gates
 
 .PHONY: ci
-ci: ci-fast cover-check lint supply-chain security api-compat ## Run the full CI verification suite
+ci: ci-fast test-generated-matrix cover-check lint supply-chain security api-compat ## Run the full CI verification suite
 
 .PHONY: examples-check
 examples-check: ## Build and vet all examples to keep docs and code in sync

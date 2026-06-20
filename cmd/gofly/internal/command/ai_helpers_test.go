@@ -1127,6 +1127,15 @@ func TestAINewTextHelpAndManifestContract_BitsUT(t *testing.T) {
 		if !strings.Contains(library.DependencyPolicy, "not automatically added") {
 			t.Fatalf("feature library dependency policy = %q, want explicit dependency review boundary", library.DependencyPolicy)
 		}
+		if library.TemplateVerification.CatalogField != "verifyE2EValidated" || library.TemplateVerification.MatrixTarget != "make test-generated-matrix" || !library.TemplateVerification.CIRequired || !library.TemplateVerification.ZeroSkipRequired {
+			t.Fatalf("feature library template verification contract = %+v", library.TemplateVerification)
+		}
+		validated := strings.Join(library.TemplateVerification.ValidatedTemplates, ",")
+		for _, want := range []string{"go-rest-minimal", "go-gateway", "go-ai-agent"} {
+			if !strings.Contains(validated, want) {
+				t.Fatalf("feature library validated templates missing %q: %s", want, validated)
+			}
+		}
 		plugins := make([]string, 0, len(library.Plugins))
 		for _, plugin := range library.Plugins {
 			plugins = append(plugins, plugin.Name)
@@ -1334,36 +1343,75 @@ func TestAIProjectFeatureAggregationBoundaries_BitsUT(t *testing.T) {
 func TestAINewGeneratedProjectVerificationMatrix_BitsUT(t *testing.T) {
 	withFrameworkPath(t, func() {
 		for _, tt := range []struct {
-			name                 string
-			template             string
-			wantVerify           []string
-			wantFiles            []string
-			wantGeneratedFeature string
+			name                  string
+			template              string
+			wantVerify            []string
+			wantFiles             []string
+			wantGeneratedFeatures []string
 		}{
 			{
-				name:                 "orders",
-				template:             "go-rest-clean-postgres",
-				wantVerify:           []string{"gofmt", "go mod tidy", "go test ./...", "go vet ./..."},
-				wantFiles:            []string{"go.mod", filepath.Join("cmd", "orders", "main.go"), filepath.Join("internal", "repository", "postgres.go"), filepath.Join("migrations", "000001_init.sql")},
-				wantGeneratedFeature: "postgres-repository",
+				name:                  "hello",
+				template:              "go-rest-minimal",
+				wantVerify:            []string{"gofmt", "go mod tidy", "go test ./...", "go vet ./..."},
+				wantFiles:             []string{"go.mod", filepath.Join("cmd", "hello", "main.go"), filepath.Join("docs", "openapi.yaml"), filepath.Join("internal", "observability", "observability.go")},
+				wantGeneratedFeatures: []string{"observability", "openapi"},
 			},
 			{
-				name:                 "rag",
-				template:             "go-rag-service",
-				wantVerify:           []string{"gofmt", "go mod tidy", "go test ./...", "go vet ./..."},
-				wantFiles:            []string{"go.mod", filepath.Join("cmd", "rag", "main.go"), filepath.Join("internal", "ai", "rag.go"), filepath.Join("internal", "observability", "observability.go")},
-				wantGeneratedFeature: "rag-agent",
+				name:                  "orders",
+				template:              "go-rest-clean-postgres",
+				wantVerify:            []string{"gofmt", "go mod tidy", "go test ./...", "go vet ./..."},
+				wantFiles:             []string{"go.mod", filepath.Join("cmd", "orders", "main.go"), filepath.Join("internal", "repository", "postgres.go"), filepath.Join("migrations", "000001_init.sql")},
+				wantGeneratedFeatures: []string{"ci-docker", "observability", "openapi", "postgres-repository"},
 			},
 			{
-				name:                 "agent",
-				template:             "go-ai-agent",
-				wantVerify:           []string{"gofmt", "go mod tidy", "go test ./...", "gofly ai doctor --json", "go vet ./..."},
-				wantFiles:            []string{"go.mod", filepath.Join("cmd", "agent", "main.go"), filepath.Join("internal", "ai", "rag.go"), filepath.Join("internal", "observability", "observability.go")},
-				wantGeneratedFeature: "rag-agent",
+				name:                  "greeter",
+				template:              "go-rpc-grpc",
+				wantVerify:            []string{"gofmt", "go mod tidy", "go test ./...", "go vet ./..."},
+				wantFiles:             []string{"go.mod", filepath.Join("cmd", "greeter", "main.go"), filepath.Join("internal", "observability", "observability.go"), "Dockerfile"},
+				wantGeneratedFeatures: []string{"ci-docker", "observability"},
+			},
+			{
+				name:                  "worker",
+				template:              "go-worker-mq",
+				wantVerify:            []string{"gofmt", "go mod tidy", "go test ./...", "go vet ./..."},
+				wantFiles:             []string{"go.mod", filepath.Join("cmd", "worker", "main.go"), filepath.Join("internal", "observability", "observability.go"), filepath.Join("internal", "worker", "worker.go")},
+				wantGeneratedFeatures: []string{"observability", "queue-worker"},
+			},
+			{
+				name:                  "tool",
+				template:              "go-cli-cobra",
+				wantVerify:            []string{"gofmt", "go mod tidy", "go test ./..."},
+				wantFiles:             []string{"go.mod", filepath.Join("cmd", "tool", "main.go"), filepath.Join("internal", "config", "config.go"), filepath.Join("internal", "service", "ping.go")},
+				wantGeneratedFeatures: nil,
+			},
+			{
+				name:                  "edge",
+				template:              "go-gateway",
+				wantVerify:            []string{"gofmt", "go mod tidy", "go test ./...", "go vet ./..."},
+				wantFiles:             []string{"go.mod", filepath.Join("cmd", "edge", "main.go"), filepath.Join("internal", "routes", "routes.go"), filepath.Join("internal", "observability", "observability.go")},
+				wantGeneratedFeatures: []string{"observability"},
+			},
+			{
+				name:                  "rag",
+				template:              "go-rag-service",
+				wantVerify:            []string{"gofmt", "go mod tidy", "go test ./...", "go vet ./..."},
+				wantFiles:             []string{"go.mod", filepath.Join("cmd", "rag", "main.go"), filepath.Join("internal", "ai", "rag.go"), filepath.Join("internal", "observability", "observability.go")},
+				wantGeneratedFeatures: []string{"observability", "rag-agent"},
+			},
+			{
+				name:                  "agent",
+				template:              "go-ai-agent",
+				wantVerify:            []string{"gofmt", "go mod tidy", "go test ./...", "gofly ai doctor --json", "go vet ./..."},
+				wantFiles:             []string{"go.mod", filepath.Join("cmd", "agent", "main.go"), filepath.Join("internal", "ai", "rag.go"), filepath.Join("internal", "observability", "observability.go")},
+				wantGeneratedFeatures: []string{"observability", "rag-agent"},
 			},
 		} {
 			t.Run(tt.template, func(t *testing.T) {
 				outDir := filepath.Join(t.TempDir(), tt.name)
+				tmpl, ok := generator.GetProjectTemplate(tt.template)
+				if !ok {
+					t.Fatalf("project template %q not found", tt.template)
+				}
 				var stdout bytes.Buffer
 				args := []string{"ai", "new", "--template", tt.template, "--name", tt.name, "--module", "example.com/" + tt.name, "--dir", outDir, "--apply", "--verify", "--verify-timeout", "2m", "--json"}
 				if err := ExecuteWithIO(args, IOStreams{Out: &stdout}); err != nil {
@@ -1397,7 +1445,7 @@ func TestAINewGeneratedProjectVerificationMatrix_BitsUT(t *testing.T) {
 				verification := make([]string, 0, len(envelope.Data.Verification))
 				for _, check := range envelope.Data.Verification {
 					verification = append(verification, check.Command)
-					if check.Status != "passed" && check.Status != "skipped" {
+					if check.Status != "passed" {
 						t.Fatalf("ai new %s verification check = %+v\n%s", tt.template, check, stdout.String())
 					}
 				}
@@ -1408,12 +1456,18 @@ func TestAINewGeneratedProjectVerificationMatrix_BitsUT(t *testing.T) {
 				for _, feature := range envelope.Data.GeneratedFeatures {
 					plugins = append(plugins, feature.Plugin)
 				}
-				if !commandContainsString(plugins, tt.wantGeneratedFeature) {
-					t.Fatalf("ai new %s generated features = %v, want %s", tt.template, plugins, tt.wantGeneratedFeature)
+				if got := strings.Join(plugins, ","); got != strings.Join(tt.wantGeneratedFeatures, ",") {
+					t.Fatalf("ai new %s generated features = %q, want %q", tt.template, got, strings.Join(tt.wantGeneratedFeatures, ","))
 				}
 				for _, file := range tt.wantFiles {
 					if _, err := os.Stat(filepath.Join(outDir, file)); err != nil {
 						t.Fatalf("ai new %s missing generated file %s: %v", tt.template, file, err)
+					}
+				}
+				for _, file := range tmpl.Files {
+					file = strings.ReplaceAll(file, "<name>", tt.name)
+					if _, err := os.Stat(filepath.Join(outDir, filepath.FromSlash(file))); err != nil {
+						t.Fatalf("ai new %s catalog declared file %s was not generated: %v", tt.template, file, err)
 					}
 				}
 			})
@@ -1557,6 +1611,18 @@ func commandRepositoryRoot(t *testing.T) string {
 }
 
 func TestAIProjectVerificationHelpers_BitsUT(t *testing.T) {
+	t.Run("all template verify commands are supported", func(t *testing.T) {
+		withFrameworkPath(t, func() {
+			for _, tmpl := range generator.ListProjectTemplates() {
+				for _, command := range tmpl.Verify {
+					if _, _, ok := aiProjectVerificationCommandArgs(command); !ok {
+						t.Fatalf("template %s verify command %q is not supported by ai project verification", tmpl.ID, command)
+					}
+				}
+			}
+		})
+	})
+
 	t.Run("runs supported checks and skips unsupported checks", func(t *testing.T) {
 		dir := t.TempDir()
 		if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/verify\n\ngo 1.26\n"), 0o644); err != nil {
@@ -1565,7 +1631,7 @@ func TestAIProjectVerificationHelpers_BitsUT(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\nfunc main( ){}\n"), 0o644); err != nil {
 			t.Fatalf("write main.go: %v", err)
 		}
-		results, passed, err := runAIProjectVerification(dir, []string{"gofmt", "gofly ai doctor --json"}, 5*time.Second)
+		results, passed, err := runAIProjectVerification(dir, []string{"gofmt", "gofly plugin run unsupported"}, 5*time.Second)
 		if err != nil {
 			t.Fatalf("runAIProjectVerification: %v", err)
 		}
@@ -1595,6 +1661,12 @@ func TestAIProjectVerificationHelpers_BitsUT(t *testing.T) {
 		if !ok || name != "go" || strings.Join(args, " ") != "mod tidy" {
 			t.Fatalf("aiProjectVerificationCommandArgs go mod tidy = %q %v %v", name, args, ok)
 		}
+		withFrameworkPath(t, func() {
+			name, args, ok := aiProjectVerificationCommandArgs("gofly ai doctor --json")
+			if !ok || name != "go" || len(args) != 5 || args[0] != "run" || args[2] != "ai" || args[3] != "doctor" || args[4] != "--json" {
+				t.Fatalf("aiProjectVerificationCommandArgs ai doctor = %q %v %v", name, args, ok)
+			}
+		})
 		if _, _, ok := aiProjectVerificationCommandArgs("rm -rf ."); ok {
 			t.Fatal("aiProjectVerificationCommandArgs accepted unsupported command")
 		}
@@ -1612,6 +1684,11 @@ func TestAIPlanAndTemplateCatalogHelperBoundaries_BitsUT(t *testing.T) {
 	templates := generator.ListProjectTemplates()
 	if len(templates) == 0 {
 		t.Fatal("ListProjectTemplates returned no templates")
+	}
+	for _, tmpl := range templates {
+		if !tmpl.VerifyE2EValidated {
+			t.Fatalf("template %s verifyE2EValidated=false, want generated project matrix contract coverage", tmpl.ID)
+		}
 	}
 	firstID := templates[0].ID
 	templates[0].ID = "mutated"

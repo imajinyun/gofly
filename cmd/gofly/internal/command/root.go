@@ -1973,13 +1973,23 @@ type aiLLMGovernance struct {
 }
 
 type aiFeatureLibraryManifest struct {
-	Mode                string                                   `json:"mode"`
-	Deterministic       bool                                     `json:"deterministic"`
-	AppliesUnderDirOnly bool                                     `json:"appliesUnderDirOnly"`
-	DependencyPolicy    string                                   `json:"dependencyPolicy"`
-	VerifyAllowlist     []string                                 `json:"verifyAllowlist"`
-	ResultFields        []string                                 `json:"resultFields"`
-	Plugins             []generator.ProjectFeaturePluginContract `json:"plugins"`
+	Mode                 string                                   `json:"mode"`
+	Deterministic        bool                                     `json:"deterministic"`
+	AppliesUnderDirOnly  bool                                     `json:"appliesUnderDirOnly"`
+	DependencyPolicy     string                                   `json:"dependencyPolicy"`
+	VerifyAllowlist      []string                                 `json:"verifyAllowlist"`
+	TemplateVerification aiTemplateVerificationContract           `json:"templateVerification"`
+	ResultFields         []string                                 `json:"resultFields"`
+	Plugins              []generator.ProjectFeaturePluginContract `json:"plugins"`
+}
+
+type aiTemplateVerificationContract struct {
+	CatalogField       string   `json:"catalogField"`
+	MatrixTarget       string   `json:"matrixTarget"`
+	GovernanceRound    string   `json:"governanceRound"`
+	CIRequired         bool     `json:"ciRequired"`
+	ZeroSkipRequired   bool     `json:"zeroSkipRequired"`
+	ValidatedTemplates []string `json:"validatedTemplates"`
 }
 
 type aiTokenBudgetPolicy struct {
@@ -2688,6 +2698,11 @@ func runAIProjectVerificationCommand(dir, command string, timeout time.Duration)
 	// #nosec G204 -- verification commands are selected from aiProjectVerificationCommandArgs allow-list and never executed through a shell.
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
+	if command == "gofly ai doctor --json" {
+		if frameworkPath := strings.TrimSpace(os.Getenv("GOFLY_FRAMEWORK_PATH")); frameworkPath != "" {
+			cmd.Dir = frameworkPath
+		}
+	}
 	out, err := cmd.CombinedOutput()
 	result := aiProjectVerificationResult{Command: command, Status: "passed", Output: truncateVerificationOutput(string(out))}
 	if ctx.Err() == context.DeadlineExceeded {
@@ -2716,6 +2731,11 @@ func aiProjectVerificationCommandArgs(command string) (string, []string, bool) {
 		return "go", []string{"mod", "tidy"}, true
 	case "go vet ./...":
 		return "go", []string{"vet", "./..."}, true
+	case "gofly ai doctor --json":
+		if frameworkPath := strings.TrimSpace(os.Getenv("GOFLY_FRAMEWORK_PATH")); frameworkPath != "" {
+			return "go", []string{"run", "./cmd/gofly", "ai", "doctor", "--json"}, true
+		}
+		return "gofly", []string{"ai", "doctor", "--json"}, true
 	default:
 		return "", nil, false
 	}
@@ -3762,13 +3782,32 @@ func buildAIToolManifest() aiToolManifest {
 
 func buildAIFeatureLibraryManifest() aiFeatureLibraryManifest {
 	return aiFeatureLibraryManifest{
-		Mode:                "deterministic built-in project feature plugins selected from project template feature tags",
-		Deterministic:       true,
-		AppliesUnderDirOnly: true,
-		DependencyPolicy:    "feature dependencies are reported in ai new apply results and nextActions for explicit review; they are not automatically added to the root module or generated go.mod",
-		VerifyAllowlist:     generator.ProjectFeatureVerifyAllowlist(),
-		ResultFields:        []string{"generatedFeatures", "dependencies", "configHints", "featureVerify", "verify", "nextActions"},
-		Plugins:             generator.ListProjectFeaturePluginContracts(),
+		Mode:                 "deterministic built-in project feature plugins selected from project template feature tags",
+		Deterministic:        true,
+		AppliesUnderDirOnly:  true,
+		DependencyPolicy:     "feature dependencies are reported in ai new apply results and nextActions for explicit review; they are not automatically added to the root module or generated go.mod",
+		VerifyAllowlist:      generator.ProjectFeatureVerifyAllowlist(),
+		TemplateVerification: buildAITemplateVerificationContract(),
+		ResultFields:         []string{"generatedFeatures", "dependencies", "configHints", "featureVerify", "verify", "nextActions"},
+		Plugins:              generator.ListProjectFeaturePluginContracts(),
+	}
+}
+
+func buildAITemplateVerificationContract() aiTemplateVerificationContract {
+	templates := generator.ListProjectTemplates()
+	validated := make([]string, 0, len(templates))
+	for _, tmpl := range templates {
+		if tmpl.VerifyE2EValidated {
+			validated = append(validated, tmpl.ID)
+		}
+	}
+	return aiTemplateVerificationContract{
+		CatalogField:       "verifyE2EValidated",
+		MatrixTarget:       "make test-generated-matrix",
+		GovernanceRound:    "generated project verification matrix",
+		CIRequired:         true,
+		ZeroSkipRequired:   true,
+		ValidatedTemplates: validated,
 	}
 }
 

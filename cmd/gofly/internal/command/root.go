@@ -3766,7 +3766,7 @@ func buildAIFeatureLibraryManifest() aiFeatureLibraryManifest {
 		Deterministic:       true,
 		AppliesUnderDirOnly: true,
 		DependencyPolicy:    "feature dependencies are reported in ai new apply results and nextActions for explicit review; they are not automatically added to the root module or generated go.mod",
-		VerifyAllowlist:     []string{"gofmt", "go fmt ./...", "go mod tidy", "go test ./...", "go vet ./..."},
+		VerifyAllowlist:     generator.ProjectFeatureVerifyAllowlist(),
 		ResultFields:        []string{"generatedFeatures", "dependencies", "configHints", "featureVerify", "verify", "nextActions"},
 		Plugins:             generator.ListProjectFeaturePluginContracts(),
 	}

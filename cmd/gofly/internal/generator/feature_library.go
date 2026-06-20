@@ -152,8 +152,17 @@ func validateProjectFeaturePath(path string) error {
 	if strings.TrimSpace(path) == "" || filepath.IsAbs(path) {
 		return fmt.Errorf("feature file path %q must be relative", path)
 	}
-	clean := filepath.Clean(path)
-	if clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) || strings.Contains(clean, string(filepath.Separator)+".."+string(filepath.Separator)) {
+	if strings.Contains(path, ":") {
+		return fmt.Errorf("feature file path %q must be relative", path)
+	}
+	clean := filepath.Clean(filepath.FromSlash(strings.ReplaceAll(path, `\`, "/")))
+	parts := strings.FieldsFunc(clean, func(r rune) bool { return r == '/' || r == '\\' })
+	for _, part := range parts {
+		if part == ".." {
+			return fmt.Errorf("feature file path %q escapes output directory", path)
+		}
+	}
+	if clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
 		return fmt.Errorf("feature file path %q escapes output directory", path)
 	}
 	return nil
@@ -187,7 +196,48 @@ func isSafeProjectFeatureDependency(dependency string) bool {
 		return false
 	}
 	module, version, ok := strings.Cut(dependency, "@")
-	return ok && strings.TrimSpace(module) != "" && strings.TrimSpace(version) != ""
+	if !ok || strings.Contains(version, "@") {
+		return false
+	}
+	return isSafeProjectFeatureModulePath(module) && isSafeProjectFeatureModuleVersion(version)
+}
+
+func isSafeProjectFeatureModulePath(module string) bool {
+	module = strings.TrimSpace(module)
+	if module == "" || strings.Contains(module, "://") || strings.HasPrefix(module, "-") {
+		return false
+	}
+	for _, r := range module {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			continue
+		}
+		switch r {
+		case '.', '_', '-', '/', '~':
+			continue
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func isSafeProjectFeatureModuleVersion(version string) bool {
+	version = strings.TrimSpace(version)
+	if version == "" || strings.HasPrefix(version, "-") {
+		return false
+	}
+	for _, r := range version {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			continue
+		}
+		switch r {
+		case '.', '_', '-', '+', '~':
+			continue
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func isSafeProjectFeatureConfigHint(hint ConfigHint) bool {
@@ -205,12 +255,19 @@ func isSafeProjectFeatureConfigHint(hint ConfigHint) bool {
 }
 
 func isAllowedProjectFeatureVerifyCommand(command string) bool {
-	switch strings.TrimSpace(command) {
-	case "gofmt", "go fmt ./...", "go mod tidy", "go test ./...", "go vet ./...":
-		return true
-	default:
-		return false
+	for _, allowed := range ProjectFeatureVerifyAllowlist() {
+		if strings.TrimSpace(command) == allowed {
+			return true
+		}
 	}
+	return false
+}
+
+// ProjectFeatureVerifyAllowlist returns the verification commands that built-in
+// feature plugin contracts may declare. The command package maps this same set
+// to argument vectors before running checks, never through a shell.
+func ProjectFeatureVerifyAllowlist() []string {
+	return []string{"gofmt", "go fmt ./...", "go mod tidy", "go test ./...", "go vet ./..."}
 }
 
 // ListProjectFeaturePlugins returns the built-in feature library in stable name

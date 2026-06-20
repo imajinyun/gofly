@@ -1331,6 +1331,96 @@ func TestAIProjectFeatureAggregationBoundaries_BitsUT(t *testing.T) {
 	}
 }
 
+func TestAINewGeneratedProjectVerificationMatrix_BitsUT(t *testing.T) {
+	withFrameworkPath(t, func() {
+		for _, tt := range []struct {
+			name                 string
+			template             string
+			wantVerify           []string
+			wantFiles            []string
+			wantGeneratedFeature string
+		}{
+			{
+				name:                 "orders",
+				template:             "go-rest-clean-postgres",
+				wantVerify:           []string{"gofmt", "go mod tidy", "go test ./...", "go vet ./..."},
+				wantFiles:            []string{"go.mod", filepath.Join("cmd", "orders", "main.go"), filepath.Join("internal", "repository", "postgres.go"), filepath.Join("migrations", "000001_init.sql")},
+				wantGeneratedFeature: "postgres-repository",
+			},
+			{
+				name:                 "rag",
+				template:             "go-rag-service",
+				wantVerify:           []string{"gofmt", "go mod tidy", "go test ./...", "go vet ./..."},
+				wantFiles:            []string{"go.mod", filepath.Join("cmd", "rag", "main.go"), filepath.Join("internal", "ai", "rag.go"), filepath.Join("internal", "observability", "observability.go")},
+				wantGeneratedFeature: "rag-agent",
+			},
+			{
+				name:                 "agent",
+				template:             "go-ai-agent",
+				wantVerify:           []string{"gofmt", "go mod tidy", "go test ./...", "gofly ai doctor --json", "go vet ./..."},
+				wantFiles:            []string{"go.mod", filepath.Join("cmd", "agent", "main.go"), filepath.Join("internal", "ai", "rag.go"), filepath.Join("internal", "observability", "observability.go")},
+				wantGeneratedFeature: "rag-agent",
+			},
+		} {
+			t.Run(tt.template, func(t *testing.T) {
+				outDir := filepath.Join(t.TempDir(), tt.name)
+				var stdout bytes.Buffer
+				args := []string{"ai", "new", "--template", tt.template, "--name", tt.name, "--module", "example.com/" + tt.name, "--dir", outDir, "--apply", "--verify", "--verify-timeout", "2m", "--json"}
+				if err := ExecuteWithIO(args, IOStreams{Out: &stdout}); err != nil {
+					t.Fatalf("ai new %s --verify: %v\n%s", tt.template, err, stdout.String())
+				}
+				var envelope struct {
+					Data struct {
+						VerifyRan         bool     `json:"verifyRan"`
+						VerifyPassed      bool     `json:"verifyPassed"`
+						Verify            []string `json:"verify"`
+						GeneratedFeatures []struct {
+							Plugin string `json:"plugin"`
+						} `json:"generatedFeatures"`
+						Verification []struct {
+							Command string `json:"command"`
+							Status  string `json:"status"`
+							Output  string `json:"output"`
+							Error   string `json:"error"`
+						} `json:"verification"`
+					} `json:"data"`
+				}
+				if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+					t.Fatalf("ai new %s JSON: %v\n%s", tt.template, err, stdout.String())
+				}
+				if !envelope.Data.VerifyRan || !envelope.Data.VerifyPassed {
+					t.Fatalf("ai new %s verification flags = ran:%v passed:%v\n%s", tt.template, envelope.Data.VerifyRan, envelope.Data.VerifyPassed, stdout.String())
+				}
+				if got := strings.Join(envelope.Data.Verify, ","); got != strings.Join(tt.wantVerify, ",") {
+					t.Fatalf("ai new %s verify commands = %q, want %q", tt.template, got, strings.Join(tt.wantVerify, ","))
+				}
+				verification := make([]string, 0, len(envelope.Data.Verification))
+				for _, check := range envelope.Data.Verification {
+					verification = append(verification, check.Command)
+					if check.Status != "passed" && check.Status != "skipped" {
+						t.Fatalf("ai new %s verification check = %+v\n%s", tt.template, check, stdout.String())
+					}
+				}
+				if got := strings.Join(verification, ","); got != strings.Join(tt.wantVerify, ",") {
+					t.Fatalf("ai new %s executed verification = %q, want %q", tt.template, got, strings.Join(tt.wantVerify, ","))
+				}
+				plugins := make([]string, 0, len(envelope.Data.GeneratedFeatures))
+				for _, feature := range envelope.Data.GeneratedFeatures {
+					plugins = append(plugins, feature.Plugin)
+				}
+				if !commandContainsString(plugins, tt.wantGeneratedFeature) {
+					t.Fatalf("ai new %s generated features = %v, want %s", tt.template, plugins, tt.wantGeneratedFeature)
+				}
+				for _, file := range tt.wantFiles {
+					if _, err := os.Stat(filepath.Join(outDir, file)); err != nil {
+						t.Fatalf("ai new %s missing generated file %s: %v", tt.template, file, err)
+					}
+				}
+			})
+		}
+	})
+}
+
 func applyAINewAndSnapshot(t *testing.T, outDir string) map[string]string {
 	t.Helper()
 	var stdout bytes.Buffer

@@ -150,8 +150,16 @@ func TestProjectFeatureLibraryContractGovernance(t *testing.T) {
 			{name: "parent traversal path", mutate: func(p *projectFeaturePlugin) {
 				p.files = map[string]string{filepath.Join("..", "owned.go"): "package bad"}
 			}, want: "escapes output directory"},
+			{name: "windows parent traversal path", mutate: func(p *projectFeaturePlugin) {
+				p.files = map[string]string{`..\owned.go`: "package bad"}
+			}, want: "escapes output directory"},
+			{name: "windows drive path", mutate: func(p *projectFeaturePlugin) {
+				p.files = map[string]string{`C:\tmp\owned.go`: "package bad"}
+			}, want: "must be relative"},
 			{name: "dependency without version", mutate: func(p *projectFeaturePlugin) { p.dependencies = []string{"github.com/example/pkg"} }, want: "unsafe dependency"},
 			{name: "dependency with shell metacharacter", mutate: func(p *projectFeaturePlugin) { p.dependencies = []string{"github.com/example/pkg@latest;rm"} }, want: "unsafe dependency"},
+			{name: "dependency with extra version separator", mutate: func(p *projectFeaturePlugin) { p.dependencies = []string{"github.com/example/pkg@latest@evil"} }, want: "unsafe dependency"},
+			{name: "dependency with URL scheme", mutate: func(p *projectFeaturePlugin) { p.dependencies = []string{"https://example.com/pkg@latest"} }, want: "unsafe dependency"},
 			{name: "invalid config key", mutate: func(p *projectFeaturePlugin) {
 				p.configHints = []ConfigHint{{Key: "jwt-secret", Description: "secret"}}
 			}, want: "unsafe config hint"},

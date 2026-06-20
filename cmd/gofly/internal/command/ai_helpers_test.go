@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -1106,6 +1107,34 @@ func TestAINewTextHelpAndManifestContract_BitsUT(t *testing.T) {
 		}
 		t.Fatal("ai new not found in AI tool manifest")
 	})
+
+	t.Run("manifest exposes governed feature library contract", func(t *testing.T) {
+		manifest := buildAIToolManifest()
+		library := manifest.FeatureLibrary
+		if !library.Deterministic || !library.AppliesUnderDirOnly || len(library.Plugins) == 0 {
+			t.Fatalf("feature library manifest = %+v, want deterministic under-dir plugin contracts", library)
+		}
+		for _, want := range []string{"generatedFeatures", "dependencies", "configHints", "featureVerify", "nextActions"} {
+			if !commandContainsString(library.ResultFields, want) {
+				t.Fatalf("feature library result fields missing %q: %+v", want, library.ResultFields)
+			}
+		}
+		for _, want := range []string{"go test ./...", "go vet ./...", "go mod tidy"} {
+			if !commandContainsString(library.VerifyAllowlist, want) {
+				t.Fatalf("feature library verify allowlist missing %q: %+v", want, library.VerifyAllowlist)
+			}
+		}
+		if !strings.Contains(library.DependencyPolicy, "not automatically added") {
+			t.Fatalf("feature library dependency policy = %q, want explicit dependency review boundary", library.DependencyPolicy)
+		}
+		plugins := make([]string, 0, len(library.Plugins))
+		for _, plugin := range library.Plugins {
+			plugins = append(plugins, plugin.Name)
+		}
+		if got := strings.Join(plugins, ","); !strings.Contains(got, "postgres-repository") || !strings.Contains(got, "redis-cache") || plugins[0] != "auth-jwt" {
+			t.Fatalf("feature library plugins = %q, want stable built-in feature contracts", got)
+		}
+	})
 }
 
 func TestAIProjectApplyHelperErrorAndTextBranches_BitsUT(t *testing.T) {
@@ -1121,6 +1150,87 @@ func TestAIProjectApplyHelperErrorAndTextBranches_BitsUT(t *testing.T) {
 			if !strings.Contains(got, want) {
 				t.Fatalf("ai new text apply output missing %q:\n%s", want, got)
 			}
+		}
+	})
+
+	t.Run("text apply reports feature governance contract", func(t *testing.T) {
+		outDir := filepath.Join(t.TempDir(), "text-contract")
+		var stdout bytes.Buffer
+		args := []string{"ai", "new", "--template", "go-rest-clean-postgres", "--name", "orders", "--module", "example.com/orders", "--dir", outDir, "--apply"}
+		if err := ExecuteWithIO(args, IOStreams{Out: &stdout}); err != nil {
+			t.Fatalf("ai new text contract apply: %v", err)
+		}
+		got := stdout.String()
+		for _, want := range []string{
+			"feature=postgres-repository",
+			"dependencies=github.com/jackc/pgx/v5@latest",
+			"configHint=DATABASE_URL",
+			"verify=go test ./...",
+			"next: review feature dependencies: go get github.com/jackc/pgx/v5@latest",
+			"next: configure DATABASE_URL:",
+		} {
+			if !strings.Contains(got, want) {
+				t.Fatalf("ai new text apply output missing %q:\n%s", want, got)
+			}
+		}
+	})
+
+	t.Run("json apply reports aggregated feature governance fields", func(t *testing.T) {
+		outDir := filepath.Join(t.TempDir(), "json-contract")
+		var stdout bytes.Buffer
+		args := []string{"ai", "new", "--template", "go-rest-clean-postgres", "--name", "orders", "--module", "example.com/orders", "--dir", outDir, "--apply", "--json"}
+		if err := ExecuteWithIO(args, IOStreams{Out: &stdout}); err != nil {
+			t.Fatalf("ai new json contract apply: %v", err)
+		}
+		var envelope struct {
+			Data struct {
+				Dependencies  []string `json:"dependencies"`
+				FeatureVerify []string `json:"featureVerify"`
+				ConfigHints   []struct {
+					Key string `json:"key"`
+				} `json:"configHints"`
+				GeneratedFeatures []struct {
+					Plugin       string   `json:"plugin"`
+					Dependencies []string `json:"dependencies"`
+				} `json:"generatedFeatures"`
+				NextActions []string `json:"nextActions"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+			t.Fatalf("ai new json contract output is not valid JSON: %v\n%s", err, stdout.String())
+		}
+		if got := strings.Join(envelope.Data.Dependencies, ","); got != "github.com/jackc/pgx/v5@latest" {
+			t.Fatalf("ai new dependencies = %q, want pgx declaration", got)
+		}
+		if got := strings.Join(envelope.Data.FeatureVerify, ","); got != "go test ./...,go vet ./..." {
+			t.Fatalf("ai new feature verify = %q, want deduplicated feature verification", got)
+		}
+		configKeys := make([]string, 0, len(envelope.Data.ConfigHints))
+		for _, hint := range envelope.Data.ConfigHints {
+			configKeys = append(configKeys, hint.Key)
+		}
+		if got := strings.Join(configKeys, ","); got != "LOG_LEVEL,OTEL_EXPORTER_OTLP_ENDPOINT,DATABASE_URL" {
+			t.Fatalf("ai new config hints = %q, want observability and postgres hints", got)
+		}
+		plugins := make([]string, 0, len(envelope.Data.GeneratedFeatures))
+		for _, feature := range envelope.Data.GeneratedFeatures {
+			plugins = append(plugins, feature.Plugin)
+			if feature.Plugin == "postgres-repository" && strings.Join(feature.Dependencies, ",") != "github.com/jackc/pgx/v5@latest" {
+				t.Fatalf("postgres feature dependencies = %+v, want pgx declaration", feature.Dependencies)
+			}
+		}
+		if got := strings.Join(plugins, ","); got != "ci-docker,observability,openapi,postgres-repository" {
+			t.Fatalf("ai new generated features = %q, want stable feature plugin order", got)
+		}
+		if !commandContainsString(envelope.Data.NextActions, "review feature dependencies: go get github.com/jackc/pgx/v5@latest") {
+			t.Fatalf("ai new next actions = %+v, want dependency review guidance", envelope.Data.NextActions)
+		}
+		goMod, err := os.ReadFile(filepath.Join(outDir, "go.mod"))
+		if err != nil {
+			t.Fatalf("read generated go.mod: %v", err)
+		}
+		if strings.Contains(string(goMod), "github.com/jackc/pgx") {
+			t.Fatalf("generated go.mod unexpectedly auto-added feature dependency; dependencies must be reported for explicit review:\n%s", goMod)
 		}
 	})
 
@@ -1163,6 +1273,103 @@ func TestAIProjectApplyHelperErrorAndTextBranches_BitsUT(t *testing.T) {
 			t.Fatalf("applyAIProjectPlan unsupported error = %v", err)
 		}
 	})
+}
+
+func TestAINewGeneratedArtifactsAreDeterministicAndIdempotent_BitsUT(t *testing.T) {
+	firstDir := filepath.Join(t.TempDir(), "first")
+	secondDir := filepath.Join(t.TempDir(), "second")
+	first := applyAINewAndSnapshot(t, firstDir)
+	second := applyAINewAndSnapshot(t, secondDir)
+	if !reflect.DeepEqual(first, second) {
+		t.Fatalf("ai new generated artifacts are not deterministic:\nfirst=%+v\nsecond=%+v", first, second)
+	}
+
+	reapplied := applyAINewAndSnapshot(t, firstDir)
+	if !reflect.DeepEqual(first, reapplied) {
+		t.Fatalf("ai new generated artifacts are not idempotent:\nfirst=%+v\nreapplied=%+v", first, reapplied)
+	}
+}
+
+func TestAIProjectFeatureAggregationBoundaries_BitsUT(t *testing.T) {
+	features := []generator.ProjectFeatureResult{
+		{
+			Plugin:         "one",
+			Dependencies:   []string{" github.com/example/one@v1.0.0 ", "github.com/example/two@latest"},
+			VerifyCommands: []string{"go test ./...", "go vet ./..."},
+			ConfigHints: []generator.ConfigHint{
+				{Key: "DATABASE_URL", Description: "database DSN", Example: "postgres://localhost/db"},
+				{Key: "", Description: "ignored"},
+			},
+		},
+		{
+			Plugin:         "two",
+			Dependencies:   []string{"github.com/example/ONE@v1.0.0", "", "github.com/example/three@latest"},
+			VerifyCommands: []string{"GO TEST ./...", "", "go mod tidy"},
+			ConfigHints: []generator.ConfigHint{
+				{Key: "database_url", Description: "duplicate should be ignored"},
+				{Key: "REDIS_ADDR", Description: "redis address"},
+			},
+		},
+	}
+	deps, hints, verify := aggregateProjectFeatureContract(features)
+	if got := strings.Join(deps, ","); got != "github.com/example/one@v1.0.0,github.com/example/two@latest,github.com/example/three@latest" {
+		t.Fatalf("aggregate dependencies = %q, want trimmed case-insensitive unique order", got)
+	}
+	if got := strings.Join(verify, ","); got != "go test ./...,go vet ./...,go mod tidy" {
+		t.Fatalf("aggregate verify = %q, want trimmed case-insensitive unique order", got)
+	}
+	if len(hints) != 2 || hints[0].Key != "DATABASE_URL" || hints[1].Key != "REDIS_ADDR" {
+		t.Fatalf("aggregate config hints = %+v, want non-empty case-insensitive unique hints", hints)
+	}
+
+	if next := aiProjectApplyNextActions("/tmp/out", nil, nil, nil, false, false); strings.Join(next, ",") != "cd /tmp/out" {
+		t.Fatalf("next actions without verify = %+v, want only cd", next)
+	}
+	failedNext := aiProjectApplyNextActions("/tmp/out", []string{"go test ./..."}, nil, nil, true, false)
+	if !commandContainsString(failedNext, "fix failed verification output, then rerun: go test ./...") {
+		t.Fatalf("failed verify next actions = %+v, want rerun guidance", failedNext)
+	}
+}
+
+func applyAINewAndSnapshot(t *testing.T, outDir string) map[string]string {
+	t.Helper()
+	var stdout bytes.Buffer
+	args := []string{"ai", "new", "--template", "go-rest-clean-postgres", "--name", "orders", "--module", "example.com/orders", "--dir", outDir, "--apply", "--json"}
+	if err := ExecuteWithIO(args, IOStreams{Out: &stdout}); err != nil {
+		t.Fatalf("ai new deterministic apply: %v", err)
+	}
+	var envelope struct {
+		Data struct {
+			GeneratedFeatures []struct {
+				Files []string `json:"files"`
+			} `json:"generatedFeatures"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+		t.Fatalf("ai new deterministic JSON: %v\n%s", err, stdout.String())
+	}
+	files := []string{
+		"go.mod",
+		filepath.Join("cmd", "orders", "main.go"),
+		"Dockerfile",
+		filepath.Join(".github", "workflows", "ci.yml"),
+		filepath.Join("internal", "routes", "routes.go"),
+		filepath.Join("internal", "config", "config.go"),
+	}
+	for _, feature := range envelope.Data.GeneratedFeatures {
+		for _, file := range feature.Files {
+			files = append(files, filepath.FromSlash(file))
+		}
+	}
+	snapshot := map[string]string{}
+	for _, file := range appendUniqueStrings(nil, files...) {
+		data, err := os.ReadFile(filepath.Join(outDir, file))
+		if err != nil {
+			t.Fatalf("read generated artifact %s: %v", file, err)
+		}
+		snapshot[filepath.ToSlash(file)] = string(data)
+	}
+	return snapshot
 }
 
 func TestAIProjectApplyVerificationScaffoldBoundaries_BitsUT(t *testing.T) {

@@ -619,7 +619,8 @@ func TestTraceInjectExtractBoundaries_BitsUT(t *testing.T) {
 		t.Fatalf("ExtractTrace span = %#v ok=%v, want child of trace %s", extractedSC, ok, sc.TraceID)
 	}
 
-	base := context.WithValue(context.Background(), struct{}{}, "unchanged")
+	type traceTestContextKey struct{}
+	base := context.WithValue(context.Background(), traceTestContextKey{}, "unchanged")
 	if got := ExtractTrace(base, Message{}); got != base {
 		t.Fatal("ExtractTrace without header should return original context")
 	}

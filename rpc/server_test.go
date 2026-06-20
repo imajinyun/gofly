@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -214,6 +215,7 @@ func TestHTTPServerServiceNamesAreDeterministic(t *testing.T) {
 }
 
 type fakeLifecycleRegistrar struct {
+	mu              sync.Mutex
 	registerCalls   []string
 	deregisterCalls []string
 	registerErr     error
@@ -222,23 +224,35 @@ type fakeLifecycleRegistrar struct {
 }
 
 func (f *fakeLifecycleRegistrar) RegisterService(_ context.Context, service string, endpoint string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.registerCalls = append(f.registerCalls, service+"@"+endpoint)
 	return f.registerErr
 }
 
 func (f *fakeLifecycleRegistrar) DeregisterService(_ context.Context, service string, endpoint string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.deregisterCalls = append(f.deregisterCalls, service+"@"+endpoint)
 	return nil
 }
 
 func (f *fakeLifecycleRegistrar) RegisterServiceWithOptions(ctx context.Context, service string, endpoint string, opts ...RegisterOption) error {
-	f.withOptions = true
 	var ro registerOptions
 	for _, opt := range opts {
 		opt(&ro)
 	}
+	f.mu.Lock()
+	f.withOptions = true
 	f.ttl = ro.ttl
+	f.mu.Unlock()
 	return f.RegisterService(ctx, service, endpoint)
+}
+
+func (f *fakeLifecycleRegistrar) snapshot() ([]string, []string, bool, time.Duration) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.registerCalls...), append([]string(nil), f.deregisterCalls...), f.withOptions, f.ttl
 }
 
 func TestHTTPServerRegistryLifecycleBoundaries_BitsUT(t *testing.T) {
@@ -253,11 +267,12 @@ func TestHTTPServerRegistryLifecycleBoundaries_BitsUT(t *testing.T) {
 		t.Fatalf("register error = %v", err)
 	}
 	want := []string{"alpha@http://127.0.0.1:9000", "zeta@http://127.0.0.1:9000"}
-	if len(registrar.registerCalls) != len(want) || registrar.registerCalls[0] != want[0] || registrar.registerCalls[1] != want[1] {
-		t.Fatalf("register calls = %#v, want %#v", registrar.registerCalls, want)
+	registerCalls, _, withOptions, ttl := registrar.snapshot()
+	if len(registerCalls) != len(want) || registerCalls[0] != want[0] || registerCalls[1] != want[1] {
+		t.Fatalf("register calls = %#v, want %#v", registerCalls, want)
 	}
-	if !registrar.withOptions || registrar.ttl != time.Minute {
-		t.Fatalf("register options used=%v ttl=%s, want ttl %s", registrar.withOptions, registrar.ttl, time.Minute)
+	if !withOptions || ttl != time.Minute {
+		t.Fatalf("register options used=%v ttl=%s, want ttl %s", withOptions, ttl, time.Minute)
 	}
 	if s.opts.advertiseEndpoint != "http://127.0.0.1:9000" {
 		t.Fatalf("advertise endpoint = %q, want defaulted listener endpoint", s.opts.advertiseEndpoint)
@@ -266,11 +281,15 @@ func TestHTTPServerRegistryLifecycleBoundaries_BitsUT(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	s.startRegistryKeepalive(ctx)
 	deadline := time.After(time.Second)
-	for len(registrar.registerCalls) <= len(want) {
+	for {
+		registerCalls, _, _, _ = registrar.snapshot()
+		if len(registerCalls) > len(want) {
+			break
+		}
 		select {
 		case <-deadline:
 			cancel()
-			t.Fatalf("timed out waiting for keepalive register, calls=%#v", registrar.registerCalls)
+			t.Fatalf("timed out waiting for keepalive register, calls=%#v", registerCalls)
 		default:
 			time.Sleep(time.Millisecond)
 		}
@@ -278,8 +297,9 @@ func TestHTTPServerRegistryLifecycleBoundaries_BitsUT(t *testing.T) {
 	cancel()
 
 	s.deregister(context.Background())
-	if len(registrar.deregisterCalls) != len(want) || registrar.deregisterCalls[0] != want[0] || registrar.deregisterCalls[1] != want[1] {
-		t.Fatalf("deregister calls = %#v, want %#v", registrar.deregisterCalls, want)
+	_, deregisterCalls, _, _ := registrar.snapshot()
+	if len(deregisterCalls) != len(want) || deregisterCalls[0] != want[0] || deregisterCalls[1] != want[1] {
+		t.Fatalf("deregister calls = %#v, want %#v", deregisterCalls, want)
 	}
 }
 

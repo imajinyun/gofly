@@ -90,7 +90,8 @@ func TestHashKeyFromContextNil(t *testing.T) {
 }
 
 func TestConsistentHashBalancerFixedKeyAndNilContext(t *testing.T) {
-	ctx := ContextWithHashKey(nil, "tenant-a")
+	var nilCtx context.Context
+	ctx := ContextWithHashKey(nilCtx, "tenant-a")
 	if got := HashKeyFromContext(ctx); got != "tenant-a" {
 		t.Fatalf("hash key = %q, want tenant-a", got)
 	}

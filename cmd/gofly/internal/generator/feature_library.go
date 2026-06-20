@@ -38,6 +38,16 @@ type ProjectFeatureResult struct {
 	VerifyCommands []string     `json:"verifyCommands,omitempty"`
 }
 
+// ProjectFeaturePluginContract reports the governance contract of a built-in
+// feature plugin without writing files. It is intended for manifests and tests.
+type ProjectFeaturePluginContract struct {
+	Name           string       `json:"name"`
+	Tags           []string     `json:"tags"`
+	Dependencies   []string     `json:"dependencies,omitempty"`
+	ConfigHints    []ConfigHint `json:"configHints,omitempty"`
+	VerifyCommands []string     `json:"verifyCommands,omitempty"`
+}
+
 // ConfigHint describes one configuration value a generated feature expects or
 // commonly needs when it is wired into a real service.
 type ConfigHint struct {
@@ -62,6 +72,9 @@ func (p projectFeaturePlugin) Tags() []string { return append([]string(nil), p.t
 func (p projectFeaturePlugin) Generate(opts ProjectFeatureOptions) (ProjectFeatureResult, error) {
 	if strings.TrimSpace(opts.Dir) == "" {
 		return ProjectFeatureResult{}, fmt.Errorf("feature plugin %s: output directory is required", p.name)
+	}
+	if err := validateProjectFeaturePluginContract(p); err != nil {
+		return ProjectFeatureResult{}, err
 	}
 	data := map[string]string{
 		"Name":       opts.Name,
@@ -102,12 +115,132 @@ func cloneConfigHints(hints []ConfigHint) []ConfigHint {
 	return append([]ConfigHint(nil), hints...)
 }
 
+func validateProjectFeaturePluginContract(p projectFeaturePlugin) error {
+	if strings.TrimSpace(p.name) == "" {
+		return fmt.Errorf("feature plugin contract: name is required")
+	}
+	if len(p.tags) == 0 {
+		return fmt.Errorf("feature plugin %s contract: at least one tag is required", p.name)
+	}
+	for path := range p.files {
+		if err := validateProjectFeaturePath(path); err != nil {
+			return fmt.Errorf("feature plugin %s contract: %w", p.name, err)
+		}
+		if err := validateProjectFeatureTemplateContent(p.files[path]); err != nil {
+			return fmt.Errorf("feature plugin %s contract: %s: %w", p.name, path, err)
+		}
+	}
+	for _, dependency := range p.dependencies {
+		if !isSafeProjectFeatureDependency(dependency) {
+			return fmt.Errorf("feature plugin %s contract: unsafe dependency declaration %q", p.name, dependency)
+		}
+	}
+	for _, hint := range p.configHints {
+		if !isSafeProjectFeatureConfigHint(hint) {
+			return fmt.Errorf("feature plugin %s contract: unsafe config hint %+v", p.name, hint)
+		}
+	}
+	for _, command := range p.verifyCommands {
+		if !isAllowedProjectFeatureVerifyCommand(command) {
+			return fmt.Errorf("feature plugin %s contract: unsupported verify command %q", p.name, command)
+		}
+	}
+	return nil
+}
+
+func validateProjectFeaturePath(path string) error {
+	if strings.TrimSpace(path) == "" || filepath.IsAbs(path) {
+		return fmt.Errorf("feature file path %q must be relative", path)
+	}
+	clean := filepath.Clean(path)
+	if clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) || strings.Contains(clean, string(filepath.Separator)+".."+string(filepath.Separator)) {
+		return fmt.Errorf("feature file path %q escapes output directory", path)
+	}
+	return nil
+}
+
+func validateProjectFeatureTemplateContent(content string) error {
+	lower := strings.ToLower(content)
+	for _, forbidden := range []string{
+		"super-secret",
+		"api_key=",
+		"apikey=",
+		"password=",
+		"secret=",
+		"private key",
+		"curl ",
+		"wget ",
+		"| sh",
+		"| bash",
+		"chmod 777",
+	} {
+		if strings.Contains(lower, forbidden) {
+			return fmt.Errorf("feature template contains forbidden security-sensitive content %q", forbidden)
+		}
+	}
+	return nil
+}
+
+func isSafeProjectFeatureDependency(dependency string) bool {
+	dependency = strings.TrimSpace(dependency)
+	if dependency == "" || strings.ContainsAny(dependency, " \t\n\r;&|$`<>") {
+		return false
+	}
+	module, version, ok := strings.Cut(dependency, "@")
+	return ok && strings.TrimSpace(module) != "" && strings.TrimSpace(version) != ""
+}
+
+func isSafeProjectFeatureConfigHint(hint ConfigHint) bool {
+	key := strings.TrimSpace(hint.Key)
+	if key == "" || strings.TrimSpace(hint.Description) == "" {
+		return false
+	}
+	for _, r := range key {
+		if (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' {
+			continue
+		}
+		return false
+	}
+	return !strings.ContainsAny(hint.Example, "\n\r")
+}
+
+func isAllowedProjectFeatureVerifyCommand(command string) bool {
+	switch strings.TrimSpace(command) {
+	case "gofmt", "go fmt ./...", "go mod tidy", "go test ./...", "go vet ./...":
+		return true
+	default:
+		return false
+	}
+}
+
 // ListProjectFeaturePlugins returns the built-in feature library in stable name
 // order. The returned plugins are immutable value objects.
 func ListProjectFeaturePlugins() []FeaturePlugin {
 	plugins := builtInProjectFeaturePlugins()
 	sort.SliceStable(plugins, func(i, j int) bool { return plugins[i].Name() < plugins[j].Name() })
 	return plugins
+}
+
+// ListProjectFeaturePluginContracts returns stable, JSON-safe governance
+// metadata for the built-in feature library.
+func ListProjectFeaturePluginContracts() []ProjectFeaturePluginContract {
+	plugins := builtInProjectFeaturePlugins()
+	sort.SliceStable(plugins, func(i, j int) bool { return plugins[i].Name() < plugins[j].Name() })
+	contracts := make([]ProjectFeaturePluginContract, 0, len(plugins))
+	for _, plugin := range plugins {
+		p, ok := plugin.(projectFeaturePlugin)
+		if !ok {
+			continue
+		}
+		contracts = append(contracts, ProjectFeaturePluginContract{
+			Name:           p.name,
+			Tags:           p.Tags(),
+			Dependencies:   append([]string(nil), p.dependencies...),
+			ConfigHints:    cloneConfigHints(p.configHints),
+			VerifyCommands: append([]string(nil), p.verifyCommands...),
+		})
+	}
+	return contracts
 }
 
 // ApplyProjectFeaturePlugins applies every built-in feature plugin whose tags

@@ -409,7 +409,8 @@ func TestRESTClientConstructionAndRequestBoundaries_BitsUT(t *testing.T) {
 	}()
 
 	var nilClient *Client
-	if _, err := nilClient.NewRequest(nil, http.MethodGet, "/orders", nil); err == nil || !strings.Contains(err.Error(), "rest client is nil") {
+	var nilCtx context.Context
+	if _, err := nilClient.NewRequest(nilCtx, http.MethodGet, "/orders", nil); err == nil || !strings.Contains(err.Error(), "rest client is nil") {
 		t.Fatalf("nil client NewRequest error = %v, want nil client", err)
 	}
 	if _, err := nilClient.Do(httptest.NewRequest(http.MethodGet, "/", nil)); err == nil || !strings.Contains(err.Error(), "rest client is nil") {
@@ -419,7 +420,7 @@ func TestRESTClientConstructionAndRequestBoundaries_BitsUT(t *testing.T) {
 	if _, err := client.Do(nil); err == nil || !strings.Contains(err.Error(), "rest request is nil") {
 		t.Fatalf("nil request Do error = %v, want nil request", err)
 	}
-	req, err := client.NewRequest(nil, http.MethodGet, "/orders", nil)
+	req, err := client.NewRequest(nilCtx, http.MethodGet, "/orders", nil)
 	if err != nil {
 		t.Fatalf("NewRequest relative path returned error: %v", err)
 	}
@@ -513,7 +514,8 @@ func TestRESTClientPrepareRequestCanaryAndRetryHelpers_BitsUT(t *testing.T) {
 	if defaultRESTRetryable(nil) || defaultRESTRetryable(context.Canceled) || defaultRESTRetryable(context.DeadlineExceeded) {
 		t.Fatal("defaultRESTRetryable should reject nil/canceled/deadline errors")
 	}
-	if normalizeClientContextError(nil, errors.New("plain")).Error() != "plain" {
+	var nilCtx context.Context
+	if normalizeClientContextError(nilCtx, errors.New("plain")).Error() != "plain" {
 		t.Fatal("normalizeClientContextError nil ctx should preserve original error")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Nanosecond)

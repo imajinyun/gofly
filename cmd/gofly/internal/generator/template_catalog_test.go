@@ -3,6 +3,7 @@ package generator
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -118,4 +119,118 @@ func TestProjectFeatureLibraryRejectsUnsafeOutput(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "output directory is required") {
 		t.Fatalf("ApplyProjectFeaturePlugins empty dir error = %v, want output directory error", err)
 	}
+}
+
+func TestProjectFeatureLibraryContractGovernance(t *testing.T) {
+	t.Run("built-ins declare safe contracts", func(t *testing.T) {
+		plugins := builtInProjectFeaturePlugins()
+		if len(plugins) == 0 {
+			t.Fatal("builtInProjectFeaturePlugins returned no plugins")
+		}
+		for _, plugin := range plugins {
+			p, ok := plugin.(projectFeaturePlugin)
+			if !ok {
+				t.Fatalf("built-in plugin %T is not a projectFeaturePlugin", plugin)
+			}
+			if err := validateProjectFeaturePluginContract(p); err != nil {
+				t.Fatalf("built-in feature plugin %s contract is invalid: %v", p.name, err)
+			}
+		}
+	})
+
+	t.Run("rejects unsafe dependency config verify and path contracts", func(t *testing.T) {
+		tests := []struct {
+			name   string
+			mutate func(*projectFeaturePlugin)
+			want   string
+		}{
+			{name: "absolute path", mutate: func(p *projectFeaturePlugin) {
+				p.files = map[string]string{filepath.Join(string(filepath.Separator), "tmp", "owned.go"): "package bad"}
+			}, want: "must be relative"},
+			{name: "parent traversal path", mutate: func(p *projectFeaturePlugin) {
+				p.files = map[string]string{filepath.Join("..", "owned.go"): "package bad"}
+			}, want: "escapes output directory"},
+			{name: "dependency without version", mutate: func(p *projectFeaturePlugin) { p.dependencies = []string{"github.com/example/pkg"} }, want: "unsafe dependency"},
+			{name: "dependency with shell metacharacter", mutate: func(p *projectFeaturePlugin) { p.dependencies = []string{"github.com/example/pkg@latest;rm"} }, want: "unsafe dependency"},
+			{name: "invalid config key", mutate: func(p *projectFeaturePlugin) {
+				p.configHints = []ConfigHint{{Key: "jwt-secret", Description: "secret"}}
+			}, want: "unsafe config hint"},
+			{name: "empty config description", mutate: func(p *projectFeaturePlugin) { p.configHints = []ConfigHint{{Key: "JWT_SECRET"}} }, want: "unsafe config hint"},
+			{name: "unsupported verify command", mutate: func(p *projectFeaturePlugin) { p.verifyCommands = []string{"sh -c go test ./..."} }, want: "unsupported verify command"},
+			{name: "hardcoded secret template", mutate: func(p *projectFeaturePlugin) {
+				p.files = map[string]string{filepath.Join("internal", "bad", "bad.go"): "package bad\nconst password=\"super-secret\""}
+			}, want: "forbidden security-sensitive content"},
+			{name: "network pipe template", mutate: func(p *projectFeaturePlugin) {
+				p.files = map[string]string{"Dockerfile": "FROM scratch\nRUN curl https://example.invalid/install.sh | sh"}
+			}, want: "forbidden security-sensitive content"},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				plugin := projectFeaturePlugin{
+					name:           "contract-test",
+					tags:           []string{"contract-test"},
+					files:          map[string]string{filepath.Join("internal", "contract", "contract.go"): "package contract"},
+					dependencies:   []string{"github.com/example/pkg@latest"},
+					configHints:    []ConfigHint{{Key: "CONTRACT_TEST", Description: "contract test value"}},
+					verifyCommands: []string{"go test ./..."},
+				}
+				tt.mutate(&plugin)
+				err := validateProjectFeaturePluginContract(plugin)
+				if err == nil || !strings.Contains(err.Error(), tt.want) {
+					t.Fatalf("validateProjectFeaturePluginContract error = %v, want containing %q", err, tt.want)
+				}
+			})
+		}
+	})
+}
+
+func TestProjectFeatureLibraryIsDeterministicAndIdempotent(t *testing.T) {
+	features := []string{"redis", "rag", "postgres", "observability"}
+	firstDir := filepath.Join(t.TempDir(), "first")
+	secondDir := filepath.Join(t.TempDir(), "second")
+
+	first, err := ApplyProjectFeaturePlugins(ProjectFeatureOptions{Dir: firstDir, Name: "kb", Module: "example.com/kb", Features: features})
+	if err != nil {
+		t.Fatalf("first ApplyProjectFeaturePlugins: %v", err)
+	}
+	second, err := ApplyProjectFeaturePlugins(ProjectFeatureOptions{Dir: secondDir, Name: "kb", Module: "example.com/kb", Features: features})
+	if err != nil {
+		t.Fatalf("second ApplyProjectFeaturePlugins: %v", err)
+	}
+	if !reflect.DeepEqual(first, second) {
+		t.Fatalf("feature results are not deterministic:\nfirst=%+v\nsecond=%+v", first, second)
+	}
+
+	firstSnapshot := projectFeatureFileSnapshot(t, firstDir, first)
+	secondSnapshot := projectFeatureFileSnapshot(t, secondDir, second)
+	if !reflect.DeepEqual(firstSnapshot, secondSnapshot) {
+		t.Fatalf("feature file snapshots are not deterministic:\nfirst=%+v\nsecond=%+v", firstSnapshot, secondSnapshot)
+	}
+
+	reapplied, err := ApplyProjectFeaturePlugins(ProjectFeatureOptions{Dir: firstDir, Name: "kb", Module: "example.com/kb", Features: features})
+	if err != nil {
+		t.Fatalf("reapply ApplyProjectFeaturePlugins: %v", err)
+	}
+	if !reflect.DeepEqual(first, reapplied) {
+		t.Fatalf("feature results are not idempotent:\nfirst=%+v\nreapplied=%+v", first, reapplied)
+	}
+	reappliedSnapshot := projectFeatureFileSnapshot(t, firstDir, reapplied)
+	if !reflect.DeepEqual(firstSnapshot, reappliedSnapshot) {
+		t.Fatalf("feature file snapshot changed after reapply:\nfirst=%+v\nreapplied=%+v", firstSnapshot, reappliedSnapshot)
+	}
+}
+
+func projectFeatureFileSnapshot(t *testing.T, dir string, results []ProjectFeatureResult) map[string]string {
+	t.Helper()
+	snapshot := map[string]string{}
+	for _, result := range results {
+		for _, file := range result.Files {
+			data, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(file)))
+			if err != nil {
+				t.Fatalf("read generated feature file %s: %v", file, err)
+			}
+			snapshot[file] = string(data)
+		}
+	}
+	return snapshot
 }

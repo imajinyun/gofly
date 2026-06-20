@@ -221,7 +221,8 @@ func TestProfileServerShutdownHandlesNilAndInitializedServer(t *testing.T) {
 	}
 
 	server := NewProfileServer(ProfileConfig{Enabled: true})
-	if err := server.Shutdown(nil); err != nil {
+	var nilCtx context.Context
+	if err := server.Shutdown(nilCtx); err != nil {
 		t.Fatalf("initialized ProfileServer Shutdown(nil) = %v, want nil", err)
 	}
 }

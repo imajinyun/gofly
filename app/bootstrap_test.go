@@ -53,7 +53,8 @@ func TestBootstrapRuntimeNilAccessorsAndShutdownContext_BitsUT(t *testing.T) {
 	if shutdownCtx.Err() != nil {
 		t.Fatalf("shutdownContext inherited cancellation: %v", shutdownCtx.Err())
 	}
-	if got := shutdownContext(nil); got == nil || got.Err() != nil {
+	var nilCtx context.Context
+	if got := shutdownContext(nilCtx); got == nil || got.Err() != nil {
 		t.Fatalf("shutdownContext(nil) = %#v, want live background context", got)
 	}
 }

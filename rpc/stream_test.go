@@ -444,7 +444,8 @@ func TestRPCStreamEnvelopeErrorBoundaries_BitsUT(t *testing.T) {
 }
 
 func TestRPCStreamContextAndWaitBoundaries_BitsUT(t *testing.T) {
-	if err := streamContextError(nil); err != nil {
+	var nilCtx context.Context
+	if err := streamContextError(nilCtx); err != nil {
 		t.Fatalf("nil context error = %v, want nil", err)
 	}
 	if err := streamContextError(context.Background()); err != nil {

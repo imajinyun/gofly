@@ -1933,14 +1933,15 @@ func commandName(args []string) string {
 const aiToolManifestSchemaVersion = "gofly.ai.tool-manifest.v1"
 
 type aiToolManifest struct {
-	SchemaVersion string          `json:"schemaVersion"`
-	Tool          string          `json:"tool"`
-	Version       string          `json:"version"`
-	Description   string          `json:"description"`
-	Invocation    string          `json:"invocation"`
-	Output        aiOutputSchema  `json:"output"`
-	LLMGovernance aiLLMGovernance `json:"llmGovernance"`
-	Commands      []aiToolCommand `json:"commands"`
+	SchemaVersion  string                   `json:"schemaVersion"`
+	Tool           string                   `json:"tool"`
+	Version        string                   `json:"version"`
+	Description    string                   `json:"description"`
+	Invocation     string                   `json:"invocation"`
+	Output         aiOutputSchema           `json:"output"`
+	LLMGovernance  aiLLMGovernance          `json:"llmGovernance"`
+	FeatureLibrary aiFeatureLibraryManifest `json:"featureLibrary"`
+	Commands       []aiToolCommand          `json:"commands"`
 }
 
 type aiOutputSchema struct {
@@ -1969,6 +1970,16 @@ type aiLLMGovernance struct {
 	TelemetryFields        []string                 `json:"telemetryFields"`
 	DefaultMode            string                   `json:"defaultMode"`
 	Providers              []llm.ProviderSpec       `json:"providers"`
+}
+
+type aiFeatureLibraryManifest struct {
+	Mode                string                                   `json:"mode"`
+	Deterministic       bool                                     `json:"deterministic"`
+	AppliesUnderDirOnly bool                                     `json:"appliesUnderDirOnly"`
+	DependencyPolicy    string                                   `json:"dependencyPolicy"`
+	VerifyAllowlist     []string                                 `json:"verifyAllowlist"`
+	ResultFields        []string                                 `json:"resultFields"`
+	Plugins             []generator.ProjectFeaturePluginContract `json:"plugins"`
 }
 
 type aiTokenBudgetPolicy struct {
@@ -3744,7 +3755,20 @@ func buildAIToolManifest() aiToolManifest {
 			DefaultMode:          "redact prompts and metadata before provider calls; never audit raw prompts or completions",
 			Providers:            registry.Specs(),
 		},
-		Commands: commands,
+		FeatureLibrary: buildAIFeatureLibraryManifest(),
+		Commands:       commands,
+	}
+}
+
+func buildAIFeatureLibraryManifest() aiFeatureLibraryManifest {
+	return aiFeatureLibraryManifest{
+		Mode:                "deterministic built-in project feature plugins selected from project template feature tags",
+		Deterministic:       true,
+		AppliesUnderDirOnly: true,
+		DependencyPolicy:    "feature dependencies are reported in ai new apply results and nextActions for explicit review; they are not automatically added to the root module or generated go.mod",
+		VerifyAllowlist:     []string{"gofmt", "go fmt ./...", "go mod tidy", "go test ./...", "go vet ./..."},
+		ResultFields:        []string{"generatedFeatures", "dependencies", "configHints", "featureVerify", "verify", "nextActions"},
+		Plugins:             generator.ListProjectFeaturePluginContracts(),
 	}
 }
 

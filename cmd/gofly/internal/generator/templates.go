@@ -528,6 +528,7 @@ import (
 
 	"github.com/gofly/gofly/app"
 	"github.com/gofly/gofly/core/controlplane"
+	"github.com/gofly/gofly/core/discovery"
 	"github.com/gofly/gofly/core/governance"
 	"github.com/gofly/gofly/rest"
 )
@@ -536,6 +537,7 @@ type Config struct {
 	Environment string ` + "`json:\"environment\"`" + `
 	Service app.ServiceConf ` + "`json:\"service\"`" + `
 	Scaffold ScaffoldConfig ` + "`json:\"scaffold,omitempty\"`" + `
+	Discovery DiscoveryConfig ` + "`json:\"discovery,omitempty\"`" + `
 	OpenAPI OpenAPIConfig ` + "`json:\"openapi,omitempty\"`" + `
 	Rest    rest.Config       ` + "`json:\"rest\"`" + `
 	Admin   AdminConfig       ` + "`json:\"admin\"`" + `
@@ -546,6 +548,18 @@ type Config struct {
 
 type ScaffoldConfig struct {
 	Features []string ` + "`json:\"features,omitempty\"`" + `
+}
+
+type DiscoveryConfig struct {
+	Provider    string   ` + "`json:\"provider,omitempty\"`" + `
+	Address     string   ` + "`json:\"address,omitempty\"`" + `
+	Endpoints   []string ` + "`json:\"endpoints,omitempty\"`" + `
+	Prefix      string   ` + "`json:\"prefix,omitempty\"`" + `
+	TTL         string   ` + "`json:\"ttl,omitempty\"`" + `
+	DialTimeout string   ` + "`json:\"dialTimeout,omitempty\"`" + `
+	TokenEnv    string   ` + "`json:\"tokenEnv,omitempty\"`" + `
+	UsernameEnv string   ` + "`json:\"usernameEnv,omitempty\"`" + `
+	PasswordEnv string   ` + "`json:\"passwordEnv,omitempty\"`" + `
 }
 
 type OpenAPIConfig struct {
@@ -659,9 +673,17 @@ func (c Config) ControlPlaneContributor() ControlPlaneContributor {
 }
 
 func (c Config) ControlPlaneSnapshot(ctx context.Context) (controlplane.Snapshot, error) {
+	return c.ControlPlaneSnapshotWithDiscovery(ctx, nil)
+}
+
+func (c Config) ControlPlaneSnapshotWithDiscovery(ctx context.Context, registry controlplane.DiscoverySnapshotSource) (controlplane.Snapshot, error) {
+	contributors := []controlplane.SnapshotContributor{c.ControlPlaneContributor()}
+	if registry != nil {
+		contributors = append(contributors, controlplane.DiscoveryContributor{Registry: registry})
+	}
 	provider := controlplane.CompositeProvider{
 		Name:         "generated-project",
-		Contributors: []controlplane.SnapshotContributor{c.ControlPlaneContributor()},
+		Contributors: contributors,
 	}
 	return provider.Load(ctx)
 }
@@ -690,6 +712,9 @@ func (c ControlPlaneContributor) ContributeSnapshot(ctx context.Context, snapsho
 		return err
 	}
 	if err := addGeneratedControlPlaneConfig("scaffold", cfg.Scaffold); err != nil {
+		return err
+	}
+	if err := addGeneratedControlPlaneConfig("discovery", cfg.Discovery.Sanitized()); err != nil {
 		return err
 	}
 	if err := addGeneratedControlPlaneConfig("openapi", cfg.OpenAPIInfo()); err != nil {
@@ -731,9 +756,74 @@ func (c ControlPlaneContributor) ContributeSnapshot(ctx context.Context, snapsho
 	snapshot.Metadata["generated.project"] = "available"
 	snapshot.Metadata["generated.project.service"] = service.Name
 	snapshot.Metadata["generated.project.features"] = strings.Join(cfg.EffectiveScaffoldFeatures(), ",")
-	snapshot.Metadata["generated.project.runtime"] = "service,rest,rpc,governance"
+	snapshot.Metadata["generated.project.runtime"] = "service,rest,rpc,governance,discovery"
 	snapshot.Metadata["generated.project.contract"] = "scaffold,runtime-policy,ai-manifest"
 	return nil
+}
+
+func (c DiscoveryConfig) ProviderName() string {
+	provider := strings.ToLower(strings.TrimSpace(c.Provider))
+	if provider == "" {
+		return "memory"
+	}
+	return provider
+}
+
+func (c DiscoveryConfig) RegistryTTL() time.Duration {
+	return parseDiscoveryDuration(c.TTL, 15*time.Second)
+}
+
+func (c DiscoveryConfig) DialTimeoutDuration() time.Duration {
+	return parseDiscoveryDuration(c.DialTimeout, 5*time.Second)
+}
+
+func (c DiscoveryConfig) RegisterOptions() []discovery.RegisterOption {
+	ttl := c.RegistryTTL()
+	if ttl <= 0 {
+		return nil
+	}
+	return []discovery.RegisterOption{discovery.WithTTL(ttl)}
+}
+
+func (c DiscoveryConfig) Sanitized() DiscoveryConfig {
+	c.TokenEnv = strings.TrimSpace(c.TokenEnv)
+	c.UsernameEnv = strings.TrimSpace(c.UsernameEnv)
+	c.PasswordEnv = strings.TrimSpace(c.PasswordEnv)
+	return c
+}
+
+func ValidateDiscoveryConfig(c DiscoveryConfig) error {
+	switch c.ProviderName() {
+	case "memory", "consul", "etcdv3":
+	default:
+		return fmt.Errorf("unsupported discovery provider %q", c.Provider)
+	}
+	if c.TTL != "" {
+		if _, err := time.ParseDuration(c.TTL); err != nil {
+			return fmt.Errorf("discovery ttl: %w", err)
+		}
+	}
+	if c.DialTimeout != "" {
+		if _, err := time.ParseDuration(c.DialTimeout); err != nil {
+			return fmt.Errorf("discovery dial timeout: %w", err)
+		}
+	}
+	if c.ProviderName() == "etcdv3" && len(c.Endpoints) == 0 && strings.TrimSpace(c.Address) == "" {
+		return errors.New("discovery endpoints are required for etcdv3")
+	}
+	return nil
+}
+
+func parseDiscoveryDuration(value string, fallback time.Duration) time.Duration {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return fallback
+	}
+	duration, err := time.ParseDuration(value)
+	if err != nil || duration <= 0 {
+		return fallback
+	}
+	return duration
 }
 
 func (c Config) OpenAPIEnabled() bool {
@@ -820,6 +910,7 @@ var registeredScaffoldFeatures = map[string]bool{
 func Validate(c Config) error {
 	if err := errors.Join(
 		ValidateScaffoldFeatures(c.Scaffold.Features),
+		ValidateDiscoveryConfig(c.Discovery),
 		ValidateOpenAPIConfig(c),
 	); err != nil {
 		return err

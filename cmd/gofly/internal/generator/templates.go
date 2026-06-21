@@ -676,10 +676,10 @@ func (c Config) ControlPlaneSnapshot(ctx context.Context) (controlplane.Snapshot
 	return c.ControlPlaneSnapshotWithDiscovery(ctx, nil)
 }
 
-func (c Config) ControlPlaneSnapshotWithDiscovery(ctx context.Context, registry controlplane.DiscoverySnapshotSource) (controlplane.Snapshot, error) {
+func (c Config) ControlPlaneSnapshotWithDiscovery(ctx context.Context, registry any) (controlplane.Snapshot, error) {
 	contributors := []controlplane.SnapshotContributor{c.ControlPlaneContributor()}
-	if registry != nil {
-		contributors = append(contributors, controlplane.DiscoveryContributor{Registry: registry})
+	if source, ok := registry.(controlplane.DiscoverySnapshotSource); ok {
+		contributors = append(contributors, controlplane.DiscoveryContributor{Registry: source})
 	}
 	provider := controlplane.CompositeProvider{
 		Name:         "generated-project",

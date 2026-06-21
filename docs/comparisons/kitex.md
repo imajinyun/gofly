@@ -20,6 +20,23 @@ Kitex is a high-performance RPC framework. gofly does not try to replace special
 4. Add benchmark rows before and after migration using `make bench-stat`.
 5. Keep Kitex as an optional benchmark extension if your repo already has generated Kitex fixtures.
 
+## Demo path
+
+Use the RPC demo for lightweight RPC behavior and the benchmark matrix for performance evidence:
+
+```sh
+cd examples/rpcserver
+go test ./...
+go run .
+```
+
+From the repository root, compare RPC behavior with:
+
+```sh
+BENCH_PATTERN=BenchmarkRPCUnary make bench-stat
+make bench-trend
+```
+
 ## Recommendation
 
 Use gofly and Kitex together when Kitex owns latency-critical internal RPC and gofly owns generated service scaffolding, REST ingress, governance, and control-plane transparency.

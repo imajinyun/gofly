@@ -1,0 +1,11 @@
+services:
+  production-orders:
+    build:
+      context: ../..
+      dockerfile: examples/production-orders/Dockerfile
+    ports:
+      - "18090:8090"
+      - "18091:8091"
+      - "18092:8092"
+    environment:
+      GOFLY_CACHE_DISABLED: "true"

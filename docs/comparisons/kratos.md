@@ -21,6 +21,18 @@ Kratos is a cloud-native application framework. gofly is more opinionated around
 4. Move service discovery configuration into gofly discovery config.
 5. Verify observability and admin endpoints before release.
 
+## Demo path
+
+Use the multi-service microshop demo to map app lifecycle, gateway, and control-plane visibility:
+
+```sh
+cd examples/microshop
+go test ./...
+go run . describe
+```
+
+Use `examples/production-orders` when you need a single-service migration with messaging and saga behavior.
+
 ## When gofly fits
 
 Choose gofly when generated delivery, CLI governance, control-plane snapshots, and framework-provided smoke tests matter more than preserving Kratos application structure.

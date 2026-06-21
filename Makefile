@@ -109,6 +109,10 @@ bench-compare: ## Compare bench/current.txt against bench/baseline.txt using ben
 bench-trend: ## Write bench/summary.md with raw results and optional benchstat comparison
 	bash $(SCRIPTS_DIR)/benchstat.sh --trend
 
+.PHONY: bench-matrix
+bench-matrix: ## Write the public REST/RPC/Gateway/Governance benchmark matrix
+	bash $(SCRIPTS_DIR)/benchstat.sh --matrix
+
 .PHONY: cover
 cover: ## Run tests and write a coverage profile
 	$(GO) test $(TESTFLAGS) -covermode=atomic -coverprofile=coverage.out $(PKGS)
@@ -154,12 +158,16 @@ examples-check: ## Build and vet all examples to keep docs and code in sync
 		echo "examples/ not present or empty; skipping examples-check"; \
 		exit 0; \
 	fi
-	$(GO) build ./examples/...
-	$(GO) vet ./examples/...
+	@for mod in examples/*/go.mod; do \
+		dir=$$(dirname $$mod); \
+		out=$$(mktemp -d); \
+		trap 'rm -rf $$out' EXIT; \
+		echo "checking $$dir"; \
+		(cd $$dir && $(GO) build -o $$out/$$(basename $$dir) ./... && $(GO) vet ./...); \
+	done
 
 .PHONY: examples-smoke
 examples-smoke: ## Run runnable example smoke tests and machine-readable output checks
-	$(GO) test $(TESTFLAGS) ./examples/...
 	sh $(SCRIPTS_DIR)/examples-smoke.sh
 
 .PHONY: docs-check

@@ -29,23 +29,31 @@ bench/current.txt
 
 # Generated docs and long-form examples
 docs/*
-docs/superpowers/
-docs/case-studies/
-docs/releases/
 !docs/index.md
 !docs/getting-started/
 !docs/getting-started/*.md
+!docs/tutorials/
+!docs/tutorials/*.md
+!docs/how-to/
+!docs/how-to/*.md
+!docs/reference/
+!docs/reference/*.md
+!docs/explanation/
+!docs/explanation/*.md
 !docs/concepts/
 !docs/concepts/*.md
 !docs/guides/
 !docs/guides/*.md
 !docs/comparisons/
 !docs/comparisons/*.md
+!docs/case-studies/
+!docs/case-studies/*.md
 !docs/operations/
 !docs/operations/*.md
+!docs/releases/
+!docs/releases/*.md
 !docs/doc/
 !docs/doc/*.md
-examples/*
 
 # Dependency directories (remove the comment below to include it)
 vendor/

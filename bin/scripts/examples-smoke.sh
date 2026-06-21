@@ -5,10 +5,26 @@ GO_CMD="${GO:-go}"
 workdir="$(mktemp -d)"
 trap 'rm -rf "$workdir"' EXIT
 
-"$GO_CMD" test -count=1 ./examples/...
-"$GO_CMD" build ./examples/...
-"$GO_CMD" run ./examples/microshop describe >"$workdir/microshop-topology.json"
-"$GO_CMD" run ./examples/ai-governed-service expected >"$workdir/ai-governed-contract.json"
+missing_mods=""
+for example in examples/*; do
+	if [ -d "$example" ] && find "$example" -maxdepth 1 -name '*.go' | grep -q . && [ ! -f "$example/go.mod" ]; then
+		missing_mods="${missing_mods}${example}\n"
+	fi
+done
+
+if [ -n "$missing_mods" ]; then
+	printf 'examples missing standalone go.mod files:\n%b' "$missing_mods" >&2
+	exit 1
+fi
+
+for mod in examples/*/go.mod; do
+	dir="$(dirname "$mod")"
+	(cd "$dir" && "$GO_CMD" test -count=1 ./...)
+	(cd "$dir" && "$GO_CMD" build -o "$workdir/$(basename "$dir")" ./...)
+done
+
+(cd examples/microshop && "$GO_CMD" run . describe) >"$workdir/microshop-topology.json"
+(cd examples/ai-governed-service && "$GO_CMD" run . expected) >"$workdir/ai-governed-contract.json"
 
 python3 - "$workdir" <<'PY'
 import json

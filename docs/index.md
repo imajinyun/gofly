@@ -6,10 +6,18 @@ Start with the golden path, then use the module guides when you wire production 
 
 ## Getting started
 
+- [From zero to production](tutorials/zero-to-production.md) — build a production-shaped service with contracts, governance, control-plane state, examples, and release gates.
 - [Quickstart](getting-started/quickstart.md) — run the golden-path production service.
 - [Installation](getting-started/installation.md) — install `gofly`, verify toolchain requirements, and choose local or CI usage.
 - [First service](getting-started/first-service.md) — understand the generated project layout and commands.
 - [Stable releases](releases/stable.md) — install and verify binary, Docker, checksum, and SBOM artifacts.
+
+## Documentation model
+
+- Tutorial: [From zero to production](tutorials/zero-to-production.md)
+- How-to: [Use standalone examples](how-to/standalone-examples.md)
+- Reference: [Stable API surface](reference/api-surface.md), [Compatibility policy](reference/compatibility.md), [Benchmark matrix](reference/benchmark-matrix.md)
+- Explanation: [Adoption model](explanation/adoption-model.md)
 
 ## Concepts
 

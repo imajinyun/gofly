@@ -20,6 +20,18 @@ go-zero and gofly both value generated services. gofly keeps the generated-servi
 4. Replace hard-coded upstream addresses with discovery config.
 5. Run `go test ./...` and verify `/admin/control-plane`.
 
+## Demo path
+
+Use the production orders example as the closest generated-service shape:
+
+```sh
+cd examples/production-orders
+go test ./...
+go run .
+```
+
+The example shows REST, RPC, discovery, retry, breaker, outbox, saga, and admin surfaces in one module.
+
 ## What changes most
 
 - gofly expects runtime metadata to be visible to operators.

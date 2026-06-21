@@ -1,0 +1,31 @@
+services:
+  gateway:
+    build:
+      context: ../..
+      dockerfile: examples/microshop/Dockerfile
+    command: ["gateway"]
+    ports: ["18100:8100"]
+  users:
+    build:
+      context: ../..
+      dockerfile: examples/microshop/Dockerfile
+    command: ["users"]
+    ports: ["18101:8101"]
+  orders:
+    build:
+      context: ../..
+      dockerfile: examples/microshop/Dockerfile
+    command: ["orders"]
+    ports: ["18102:8102"]
+  inventory:
+    build:
+      context: ../..
+      dockerfile: examples/microshop/Dockerfile
+    command: ["inventory"]
+    ports: ["18103:8103"]
+  payment:
+    build:
+      context: ../..
+      dockerfile: examples/microshop/Dockerfile
+    command: ["payment"]
+    ports: ["18104:8104"]

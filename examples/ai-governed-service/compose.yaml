@@ -1,0 +1,7 @@
+services:
+  ai-governed-service:
+    build:
+      context: ../..
+      dockerfile: examples/ai-governed-service/Dockerfile
+    ports:
+      - "18200:8200"

@@ -20,6 +20,18 @@ Gin is a focused HTTP router. gofly adds code generation, runtime governance, RP
 4. Move cross-cutting behavior into middleware or `etc/governance.json`.
 5. Add OpenAPI metadata to routes and verify `/openapi.json`.
 
+## Demo path
+
+Start with the standalone REST demo:
+
+```sh
+cd examples/restserver
+go test ./...
+go run .
+```
+
+Then follow [Moving a Gin-style Service into Gofly](../case-studies/migrate-from-gin.md) for a deeper migration path.
+
 ## Example
 
 Gin:

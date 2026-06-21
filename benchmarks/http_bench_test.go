@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/cloudwego/hertz/pkg/app"
@@ -119,10 +120,7 @@ func BenchmarkHTTPOpenAPI(b *testing.B) {
 }
 
 func BenchmarkHTTPGovernance(b *testing.B) {
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = io.WriteString(w, "hello")
-	}))
-	defer upstream.Close()
+	client := &http.Client{Transport: staticRoundTripper{}}
 
 	rules := governance.NewRuleSet(governance.Rule{
 		Name:      "orders-rest",
@@ -139,8 +137,8 @@ func BenchmarkHTTPGovernance(b *testing.B) {
 		name   string
 		client *rest.Client
 	}{
-		{name: "disabled", client: rest.MustNewClient(upstream.URL, rest.WithClientService("orders"))},
-		{name: "enabled", client: rest.MustNewClient(upstream.URL, rest.WithClientService("orders"), rest.WithClientGovernanceRuleSet(rules))},
+		{name: "disabled", client: rest.MustNewClient("http://benchmark.local", rest.WithClientService("orders"), rest.WithClientHTTPClient(client))},
+		{name: "enabled", client: rest.MustNewClient("http://benchmark.local", rest.WithClientService("orders"), rest.WithClientHTTPClient(client), rest.WithClientGovernanceRuleSet(rules))},
 	} {
 		b.Run(candidate.name, func(b *testing.B) {
 			b.ReportAllocs()
@@ -153,6 +151,19 @@ func BenchmarkHTTPGovernance(b *testing.B) {
 			}
 		})
 	}
+}
+
+type staticRoundTripper struct{}
+
+func (staticRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	return &http.Response{
+		StatusCode:    http.StatusOK,
+		Status:        "200 OK",
+		Header:        make(http.Header),
+		Body:          io.NopCloser(strings.NewReader("hello")),
+		ContentLength: int64(len("hello")),
+		Request:       req,
+	}, nil
 }
 
 func benchHTTPHandler(b *testing.B, handler http.Handler, method, target string, body []byte) {

@@ -1,3 +1,29 @@
+# Benchmark evidence
+
+This file is the committed public baseline for the benchmark matrix. It is intended for release notes, regression triage, and external reproduction.
+
+## Environment
+
+```text
+goos: darwin
+goarch: arm64
+go: go version go1.26.4 darwin/arm64
+cpu: Apple M4 Pro
+```
+
+## Reproduce
+
+```sh
+BENCH_COUNT=5 BENCH_PKGS="./benchmarks/" BENCH_PATTERN="Benchmark" make bench-baseline
+```
+
+## Matrix
+
+See [Benchmark matrix](matrix.md) for the scenario list, comparison candidates, and trust signals.
+
+## Raw baseline
+
+```text
 goos: darwin
 goarch: arm64
 pkg: github.com/gofly/gofly/benchmarks
@@ -174,3 +200,4 @@ BenchmarkRPCUnary/grpc_go-14                	   88897	     13462 ns/op	    8738 
 BenchmarkRPCUnary/grpc_go-14                	   90126	     13690 ns/op	    8723 B/op	     147 allocs/op
 PASS
 ok  	github.com/gofly/gofly/benchmarks	204.811s
+```

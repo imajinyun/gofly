@@ -101,6 +101,18 @@ bench-smoke: ## Run one benchmark iteration for PR smoke checks
 bench-stat: ## Run benchmark baseline and save to bench/current.txt
 	bash $(SCRIPTS_DIR)/benchstat.sh
 
+.PHONY: bench-baseline
+bench-baseline: ## Refresh tracked benchmark baseline and evidence artifacts
+	bash $(SCRIPTS_DIR)/benchstat.sh --baseline
+
+.PHONY: bench-evidence
+bench-evidence: ## Write benchmark evidence from bench/baseline.txt
+	bash $(SCRIPTS_DIR)/benchstat.sh --evidence
+
+.PHONY: bench-evidence-check
+bench-evidence-check: ## Validate tracked benchmark baseline, matrix, and evidence
+	bash $(SCRIPTS_DIR)/benchstat.sh --check-evidence
+
 .PHONY: bench-compare
 bench-compare: ## Compare bench/current.txt against bench/baseline.txt using benchstat
 	bash $(SCRIPTS_DIR)/benchstat.sh --compare

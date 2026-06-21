@@ -10,6 +10,12 @@ make bench-matrix
 
 This writes `bench/matrix.md` from `bin/scripts/benchstat.sh`. The generated file is a release artifact and does not need to be committed after every local run.
 
+The committed public baseline and environment evidence live in `bench/evidence.md` and are validated by:
+
+```sh
+make bench-evidence-check
+```
+
 ## Run the benchmark suite
 
 ```sh
@@ -41,5 +47,6 @@ BENCH_PATTERN=BenchmarkRPCUnary make bench-stat
 Every release that changes REST, RPC, gateway, governance, OpenAPI, or code generation hot paths should attach:
 
 1. raw output from `make bench-stat`;
-2. `bench/summary.md` from `make bench-trend`;
-3. significant `benchstat` rows in release notes when a baseline exists.
+2. `bench/evidence.md` from `make bench-baseline` when publishing a new public baseline;
+3. `bench/summary.md` from `make bench-trend`;
+4. significant `benchstat` rows in release notes when a baseline exists.

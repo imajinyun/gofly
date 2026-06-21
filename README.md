@@ -2,7 +2,9 @@
 
 **English** | [简体中文](README.CN.md)
 
-`gofly` is a Go microservice toolkit that combines a `goctl`-style code-generation CLI with production-ready runtime packages for REST, RPC, gateways, observability, resilience, and governance.
+`gofly` is an **AI-native Go microservice framework** for teams that want more than an HTTP router: **codegen + runtime governance + control-plane** in one Go-native toolkit.
+
+It is designed for platform, backend, and AI-agent-assisted engineering teams who need to generate services quickly, run them with production defaults, and keep runtime behavior observable and governable after deployment.
 
 - 📦 **Module:** `github.com/gofly/gofly`
 - 🧭 **Go:** 1.26+
@@ -10,17 +12,39 @@
 
 ---
 
-## ✨ Why gofly?
+## ✨ What gofly solves
 
-- 🛠️ **Generate faster** — scaffold REST/RPC services, handlers, gateways, models, Dockerfiles, and Kubernetes manifests.
-- 🌐 **Build services** — use ready-to-wire REST, RPC, gateway, cache, MQ, config, discovery, and app lifecycle packages.
-- 📊 **Observe by default** — logs, metrics, tracing, health probes, profiling, and admin endpoints are first-class citizens.
-- 🛡️ **Ship safely** — rate limiting, circuit breaking, retries, auth helpers, security middleware, and governance rules are built in.
-- ✅ **Keep quality high** — lint, vet, race tests, coverage gates, API compatibility checks, security scans, and release checks.
+- 🛠️ **Start from contracts, not boilerplate** — scaffold REST/RPC services, handlers, gateways, models, Dockerfiles, Kubernetes manifests, and compatibility adapters from CLI commands and IDLs.
+- 🌐 **Run with batteries included** — wire REST, RPC, gateway, cache, MQ, config, discovery, lifecycle, and admin diagnostics without assembling every package by hand.
+- 🛡️ **Govern behavior at runtime** — ship rate limiting, retries, circuit breaking, auth helpers, runtime policy snapshots, and governance rules as first-class service capabilities.
+- 🧭 **Expose a control-plane surface** — make descriptors, generated contracts, service discovery state, runtime policies, and diagnostics queryable by operators and AI agents.
+- 🤖 **Keep AI agents grounded** — provide machine-readable CLI output, manifest data, contract diffing, and governance checks so agents can generate, inspect, and safely change services.
 
----
+## 🧩 Capability map
 
-## ⚡ Quickstart
+```text
+                 ┌──────────────────────────────┐
+                 │          AI agent             │
+                 │ plan / generate / inspect /   │
+                 │ contract diff / release check │
+                 └───────────────┬──────────────┘
+                                 │ machine-readable CLI + manifests
+┌────────────────┐     ┌─────────▼─────────┐     ┌────────────────────┐
+│  CLI / codegen │────▶│      runtime      │────▶│    control-plane    │
+│ quickstart     │     │ REST / RPC / MQ   │     │ descriptors /       │
+│ api/rpc/model  │     │ discovery / app   │     │ snapshots / admin   │
+│ diff/breaking  │     │ observability     │     │ diagnostics         │
+└────────────────┘     └─────────┬─────────┘     └────────────────────┘
+                                 │
+                       ┌─────────▼─────────┐
+                       │    governance     │
+                       │ retry / breaker / │
+                       │ rate-limit /      │
+                       │ policies / checks │
+                       └───────────────────┘
+```
+
+## ⚡ 5-minute start
 
 ```sh
 go install github.com/gofly/gofly/cmd/gofly@latest
@@ -28,6 +52,8 @@ go install github.com/gofly/gofly/cmd/gofly@latest
 gofly quickstart hello --module github.com/me/hello --dir hello
 cd hello && go run .
 ```
+
+This matches the CLI contract: `quickstart <name> --module <module> [--dir <dir>] [--style minimal|basic|production]`.
 
 📖 Need runnable examples or full code snippets? See [Quickstart Examples](docs/doc/quickstart.md).
 
@@ -48,6 +74,23 @@ cd hello && go run .
 | `gofly env\|doctor\|version\|completion` | Diagnostics and developer tooling |
 
 Run `gofly help` for the full command list.
+
+---
+
+## 🆚 How gofly compares
+
+| Compared with | gofly position |
+| --- | --- |
+| **Gin** | Gin is a focused HTTP router/framework. gofly includes REST serving, but its main value is the surrounding microservice system: code generation, RPC, discovery, governance, observability, and control-plane diagnostics. |
+| **go-zero** | go-zero is the closest inspiration for IDL-first service generation. gofly keeps the codegen ergonomics, then adds stronger runtime governance, contract diffing, generated control-plane snapshots, and AI-agent-friendly workflows. |
+| **Kratos** | Kratos provides a mature cloud-native application framework. gofly is more opinionated around generated services, governance gates, compatibility checks, and exposing machine-readable runtime state for operators and agents. |
+| **Kitex** | Kitex is a high-performance RPC framework. gofly can generate and run RPC services, but it optimizes for end-to-end microservice delivery—codegen, runtime policy, discovery, admin endpoints, and contract safety—rather than pure RPC throughput alone. |
+
+## 🚫 What gofly is not trying to replace
+
+- **Not an MVC full-stack replacement for Beego.** gofly focuses on microservice codegen, runtime governance, and control-plane surfaces, not a batteries-included MVC web application stack.
+- **Not a short-term pure-RPC performance fight with Kitex.** gofly values RPC compatibility and service delivery workflows, while specialized RPC frameworks remain the right benchmark for maximum transport performance.
+- **Not a replacement for simple stdlib services.** If `net/http` plus a few handlers is enough, keep it simple; gofly is for services that need generated structure, contracts, governance, observability, and operational metadata.
 
 ---
 

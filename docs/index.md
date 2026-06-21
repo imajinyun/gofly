@@ -9,6 +9,7 @@ Start with the golden path, then use the module guides when you wire production 
 - [Quickstart](getting-started/quickstart.md) — run the golden-path production service.
 - [Installation](getting-started/installation.md) — install `gofly`, verify toolchain requirements, and choose local or CI usage.
 - [First service](getting-started/first-service.md) — understand the generated project layout and commands.
+- [Stable releases](releases/stable.md) — install and verify binary, Docker, checksum, and SBOM artifacts.
 
 ## Concepts
 
@@ -38,6 +39,12 @@ Start with the golden path, then use the module guides when you wire production 
 - [go-zero migration](comparisons/go-zero.md)
 - [Kratos migration](comparisons/kratos.md)
 - [Kitex migration](comparisons/kitex.md)
+
+## Case studies
+
+- [Build a governed orders service](case-studies/build-orders-service.md)
+- [Detect AI control-plane drift](case-studies/ai-control-plane-drift.md)
+- [Move a Gin-style service into gofly](case-studies/migrate-from-gin.md)
 
 ## Operations
 

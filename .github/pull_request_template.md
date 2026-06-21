@@ -16,6 +16,8 @@
 - [ ] `go test -race ./...`
 - [ ] `golangci-lint run ./...`
 - [ ] `go test -tags=integration -count=1 ./...`
+- [ ] `make examples-smoke` when examples or docs links changed
+- [ ] `make docs-link-check` when Markdown links changed
 - [ ] Benchmarks or fuzz tests updated when behavior/performance changed
 
 ## Compatibility

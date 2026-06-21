@@ -143,7 +143,7 @@ tidy: ## Tidy and verify go.mod / go.sum
 check: fmt-check vet test ## Run the core local verification suite
 
 .PHONY: ci-fast
-ci-fast: fmt-check vet build examples-check docs-check test tidy ## Run the default CI build/test/tidy gates
+ci-fast: fmt-check vet build examples-check examples-smoke docs-check test tidy ## Run the default CI build/test/tidy gates
 
 .PHONY: ci
 ci: ci-fast test-generated-matrix cover-check lint supply-chain security api-compat ## Run the full CI verification suite
@@ -157,10 +157,19 @@ examples-check: ## Build and vet all examples to keep docs and code in sync
 	$(GO) build ./examples/...
 	$(GO) vet ./examples/...
 
+.PHONY: examples-smoke
+examples-smoke: ## Run runnable example smoke tests and machine-readable output checks
+	$(GO) test $(TESTFLAGS) ./examples/...
+	sh $(SCRIPTS_DIR)/examples-smoke.sh
+
 .PHONY: docs-check
-docs-check: ## Compile Go code blocks in Markdown docs
+docs-check: docs-link-check ## Compile Go code blocks in Markdown docs
 	$(GO) env GOMOD >/dev/null
 	sh $(SCRIPTS_DIR)/check-doc-go-snippets.sh
+
+.PHONY: docs-link-check
+docs-link-check: ## Validate local Markdown links in docs, examples, and root README files
+	sh $(SCRIPTS_DIR)/check-doc-links.sh
 
 .PHONY: version
 version: ## Print build metadata that would be embedded

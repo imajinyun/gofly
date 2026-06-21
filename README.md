@@ -73,7 +73,7 @@ curl http://127.0.0.1:8080/healthz
 curl http://127.0.0.1:9090/admin/control-plane
 ```
 
-📖 Need runnable examples or full code snippets? See [Quickstart Examples](docs/doc/quickstart.md).
+📖 Need runnable examples or full code snippets? See [Quickstart Examples](docs/doc/quickstart.md) and the [Examples Catalog](examples/README.md).
 
 ---
 
@@ -122,6 +122,9 @@ Run `gofly help` for the full command list.
 | 🧭 Concepts | [docs/concepts/architecture.md](docs/concepts/architecture.md) |
 | 🌐 REST / RPC / Gateway guides | [docs/guides/rest.md](docs/guides/rest.md), [docs/guides/rpc.md](docs/guides/rpc.md), [docs/guides/gateway.md](docs/guides/gateway.md) |
 | ⚙️ Production operations | [docs/operations/production-checklist.md](docs/operations/production-checklist.md) |
+| 📦 Stable releases | [docs/releases/stable.md](docs/releases/stable.md) |
+| 🧪 Runnable examples | [examples/README.md](examples/README.md) |
+| 📚 Case studies | [orders service](docs/case-studies/build-orders-service.md), [AI drift](docs/case-studies/ai-control-plane-drift.md), [Gin migration](docs/case-studies/migrate-from-gin.md) |
 | 🔁 Migration guides | [docs/comparisons/gin.md](docs/comparisons/gin.md), [docs/comparisons/go-zero.md](docs/comparisons/go-zero.md), [docs/comparisons/kratos.md](docs/comparisons/kratos.md), [docs/comparisons/kitex.md](docs/comparisons/kitex.md) |
 | 🧪 Local development | [Development](#-development) |
 

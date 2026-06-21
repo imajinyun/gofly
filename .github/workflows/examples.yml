@@ -1,0 +1,38 @@
+name: Examples
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    paths:
+      - "examples/**"
+      - "docs/**"
+      - "bin/scripts/examples-smoke.sh"
+      - "bin/scripts/check-doc-links.sh"
+      - "Makefile"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  examples-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: go.mod
+          check-latest: true
+          cache: true
+
+      - name: Build and smoke examples
+        run: make examples-smoke
+
+      - name: Validate local documentation links
+        run: make docs-link-check

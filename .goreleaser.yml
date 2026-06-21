@@ -64,6 +64,57 @@ sboms:
     documents:
       - "${artifact}.spdx.json"
 
+dockers:
+  - image_templates:
+      - "ghcr.io/gofly/gofly:{{ .Version }}-amd64"
+      - "ghcr.io/gofly/gofly:latest-amd64"
+    dockerfile: Dockerfile
+    use: buildx
+    goos: linux
+    goarch: amd64
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--build-arg=VERSION={{ .Version }}"
+      - "--build-arg=COMMIT={{ .Commit }}"
+      - "--build-arg=BUILT_AT={{ .Date }}"
+  - image_templates:
+      - "ghcr.io/gofly/gofly:{{ .Version }}-arm64"
+      - "ghcr.io/gofly/gofly:latest-arm64"
+    dockerfile: Dockerfile
+    use: buildx
+    goos: linux
+    goarch: arm64
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--build-arg=VERSION={{ .Version }}"
+      - "--build-arg=COMMIT={{ .Commit }}"
+      - "--build-arg=BUILT_AT={{ .Date }}"
+
+docker_manifests:
+  - name_template: "ghcr.io/gofly/gofly:{{ .Version }}"
+    image_templates:
+      - "ghcr.io/gofly/gofly:{{ .Version }}-amd64"
+      - "ghcr.io/gofly/gofly:{{ .Version }}-arm64"
+  - name_template: "ghcr.io/gofly/gofly:latest"
+    image_templates:
+      - "ghcr.io/gofly/gofly:latest-amd64"
+      - "ghcr.io/gofly/gofly:latest-arm64"
+
+brews:
+  - name: gofly
+    repository:
+      owner: gofly
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    directory: Formula
+    homepage: "https://github.com/gofly/gofly"
+    description: "AI-native Go microservice framework and code-generation CLI"
+    license: "MIT"
+    test: |
+      system "#{bin}/gofly", "version"
+    install: |
+      bin.install "gofly"
+
 snapshot:
   version_template: "{{ incpatch .Version }}-next.{{ .ShortCommit }}"
 
@@ -99,5 +150,3 @@ release:
     name: gofly
   draft: false
   prerelease: auto
-
-# Optional: brew / scoop taps can be plugged in later.

@@ -193,7 +193,11 @@ func writeService(b *bytes.Buffer, doc IDLDocument, svc IDLService, opts RPCCode
 		methodName := exportName(method.Name)
 		requestName := exportName(method.Request)
 		responseName := exportName(method.Response)
-		fprintf(b, "\t\t{Name: %q, NewRequest: func() any { return new(%s) }, Request: %q, Response: %q},\n", methodName, requestName, requestName, responseName)
+		fprintf(b, "\t\t{Name: %q, NewRequest: func() any { return new(%s) }, Request: %q, Response: %q", methodName, requestName, requestName, responseName)
+		if strings.TrimSpace(method.HTTPMethod) != "" || strings.TrimSpace(method.HTTPPath) != "" {
+			fprintf(b, ", HTTP: rpc.HTTPBinding{Method: %q, Path: %q}", strings.ToUpper(strings.TrimSpace(method.HTTPMethod)), strings.TrimSpace(method.HTTPPath))
+		}
+		fprintf(b, "},\n")
 	}
 	if hasUnaryMethods(svc) {
 		fprintf(b, "\t}")

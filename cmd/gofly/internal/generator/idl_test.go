@@ -370,6 +370,59 @@ func TestParseProto(t *testing.T) {
 	}
 }
 
+func TestParseProtoHTTPTranscodingOption(t *testing.T) {
+	doc, err := ParseProto(`syntax = "proto3";
+package greeter.v1;
+import "google/api/annotations.proto";
+message SayHelloRequest { string name = 1; }
+message SayHelloResponse { string message = 1; }
+service Greeter {
+  rpc SayHello(SayHelloRequest) returns (SayHelloResponse) {
+    option (google.api.http) = {
+      get: "/v1/hello/{name}"
+    };
+  }
+}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	method := doc.Services[0].Methods[0]
+	if method.HTTPMethod != "GET" || method.HTTPPath != "/v1/hello/{name}" {
+		t.Fatalf("http binding = %s %s, want GET /v1/hello/{name}", method.HTTPMethod, method.HTTPPath)
+	}
+}
+
+func TestGenerateProtoDocOpenAPI(t *testing.T) {
+	dir := t.TempDir()
+	protoPath := filepath.Join(dir, "greeter.proto")
+	if err := os.WriteFile(protoPath, []byte(`syntax = "proto3";
+package greeter.v1;
+message SayHelloRequest { string name = 1; }
+message SayHelloResponse { string message = 1; }
+service Greeter {
+  rpc SayHello(SayHelloRequest) returns (SayHelloResponse) {
+    option (google.api.http) = {
+      get: "/v1/hello/{name}"
+    };
+  }
+}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(dir, "openapi.json")
+	if err := GenerateProtoDoc(ProtoDocOptions{ProtoFile: protoPath, Output: out, Format: "openapi"}); err != nil {
+		t.Fatalf("GenerateProtoDoc: %v", err)
+	}
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"openapi": "3.0.3"`, `"/v1/hello/{name}"`, `"get"`, `"SayHelloRequest"`, `"SayHelloResponse"`} {
+		if !strings.Contains(string(data), want) {
+			t.Fatalf("proto OpenAPI missing %q:\n%s", want, data)
+		}
+	}
+}
+
 func TestAPIAnnotationParsingBoundaries(t *testing.T) {
 	tests := []struct {
 		name string

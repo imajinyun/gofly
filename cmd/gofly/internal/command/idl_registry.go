@@ -9,6 +9,7 @@ var rpcCommands = newCommandRegistry(
 	commandSpec{Name: "lint", Run: rpcLintCommand},
 	commandSpec{Name: "deps", Run: rpcDepsCommand},
 	commandSpec{Name: "check", Run: rpcCheckCommand},
+	commandSpec{Name: "doc", Aliases: []string{"docs", "swagger", "openapi"}, Run: rpcDocCommand},
 	commandSpec{Name: "breaking", Aliases: []string{"break"}, Run: rpcBreakingCommand},
 	commandSpec{Name: "descriptor", Run: rpcDescriptorCommand},
 	commandSpec{Name: "gen", Run: rpcGenCommand},

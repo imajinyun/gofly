@@ -43,6 +43,13 @@ type APIDocOptions struct {
 	Format  string
 }
 
+type ProtoDocOptions struct {
+	ProtoFile string
+	Dir       string
+	Output    string
+	Format    string
+}
+
 type APIClientOptions struct {
 	APIFile  string
 	Dir      string
@@ -623,6 +630,73 @@ func GenerateAPIDoc(opts APIDocOptions) error {
 		return fmt.Errorf("write api doc: %w", err)
 	}
 	return nil
+}
+
+func GenerateProtoDoc(opts ProtoDocOptions) error {
+	if opts.ProtoFile == "" {
+		return errors.New("proto file is required")
+	}
+	content, err := os.ReadFile(opts.ProtoFile)
+	if err != nil {
+		return fmt.Errorf("read proto file: %w", err)
+	}
+	doc, err := ParseProto(string(content))
+	if err != nil {
+		return err
+	}
+	doc = protoDocWithTranscodingDefaults(doc)
+	format := strings.ToLower(strings.TrimSpace(opts.Format))
+	if format == "" {
+		format = "openapi"
+	}
+	var data []byte
+	switch format {
+	case "openapi", "openapi3", "oas3", "swagger", "json":
+		data, err = generateAPIOpenAPI(doc)
+		if err != nil {
+			return err
+		}
+	case "yaml", "yml", "openapi-yaml", "swagger-yaml":
+		data, err = generateAPIOpenAPIYAML(doc)
+		if err != nil {
+			return err
+		}
+	case "md", "markdown":
+		data = generateAPIMarkdown(doc)
+	default:
+		return fmt.Errorf("unsupported proto doc format %q", opts.Format)
+	}
+	output := opts.Output
+	if output == "" {
+		if opts.Dir == "" {
+			opts.Dir = "."
+		}
+		name := strings.TrimSuffix(filepath.Base(opts.ProtoFile), filepath.Ext(opts.ProtoFile))
+		output = filepath.Join(opts.Dir, name+apiDocExt(format))
+	}
+	if err := writeGeneratedFile(output, data); err != nil {
+		return fmt.Errorf("write proto doc: %w", err)
+	}
+	return nil
+}
+
+func protoDocWithTranscodingDefaults(doc IDLDocument) IDLDocument {
+	for svcIndex := range doc.Services {
+		serviceName := serviceFullName(doc, doc.Services[svcIndex].Name)
+		for methodIndex := range doc.Services[svcIndex].Methods {
+			method := &doc.Services[svcIndex].Methods[methodIndex]
+			if method.ClientStream || method.ServerStream {
+				continue
+			}
+			if strings.TrimSpace(method.HTTPMethod) == "" {
+				method.HTTPMethod = "POST"
+			}
+			if strings.TrimSpace(method.HTTPPath) == "" {
+				method.HTTPPath = "/" + serviceName + "/" + method.Name
+			}
+		}
+	}
+	return doc
 }
 
 func apiDocExt(format string) string {

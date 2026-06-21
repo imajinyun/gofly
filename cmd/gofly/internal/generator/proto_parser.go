@@ -17,7 +17,8 @@ var (
 	protoServiceRE   = regexp.MustCompile(`^service\s+([A-Za-z_][A-Za-z0-9_]*)\s*\{`)
 	protoFieldRE     = regexp.MustCompile(`^((?:optional|repeated)\s+)?([A-Za-z_][A-Za-z0-9_.<>]*(?:<\s*[A-Za-z_][A-Za-z0-9_.]*\s*,\s*[A-Za-z_][A-Za-z0-9_.]*\s*>)?)\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([0-9]+)\s*(?:\[[^\]]+\])?\s*;`)
 	protoEnumValueRE = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(-?[0-9]+)\s*(?:\[[^\]]+\])?\s*;`)
-	protoRPCRE       = regexp.MustCompile(`^rpc\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*(stream\s+)?([A-Za-z_][A-Za-z0-9_.]*)\s*\)\s*returns\s*\(\s*(stream\s+)?([A-Za-z_][A-Za-z0-9_.]*)\s*\)\s*;`)
+	protoRPCRE       = regexp.MustCompile(`^rpc\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*(stream\s+)?([A-Za-z_][A-Za-z0-9_.]*)\s*\)\s*returns\s*\(\s*(stream\s+)?([A-Za-z_][A-Za-z0-9_.]*)\s*\)\s*(?:;|\{)?$`)
+	protoHTTPRuleRE  = regexp.MustCompile(`^(get|post|put|patch|delete)\s*:\s*"([^"]+)"`)
 	protoBlockRE     = regexp.MustCompile(`(?s)/\*.*?\*/`)
 )
 
@@ -81,17 +82,26 @@ func ParseProto(content string) (IDLDocument, error) {
 				currentService = nil
 				continue
 			}
+			if line == ";" {
+				continue
+			}
 			match := protoRPCRE.FindStringSubmatch(line)
 			if match == nil {
 				return IDLDocument{}, fmt.Errorf("parse proto line %d: invalid rpc method", lineNo)
 			}
-			currentService.Methods = append(currentService.Methods, IDLMethod{
+			method := IDLMethod{
 				Name:         match[1],
 				ClientStream: strings.TrimSpace(match[2]) == "stream",
 				Request:      lastIdent(match[3]),
 				ServerStream: strings.TrimSpace(match[4]) == "stream",
 				Response:     lastIdent(match[5]),
-			})
+			}
+			if !strings.HasSuffix(line, ";") {
+				if err := readProtoRPCOptions(scanner, &lineNo, &method, strings.HasSuffix(line, "{")); err != nil {
+					return IDLDocument{}, err
+				}
+			}
+			currentService.Methods = append(currentService.Methods, method)
 			continue
 		}
 		if match := protoImportRE.FindStringSubmatch(line); match != nil {
@@ -140,6 +150,49 @@ func ParseProto(content string) (IDLDocument, error) {
 	return doc, nil
 }
 
+func readProtoRPCOptions(scanner *bufio.Scanner, lineNo *int, method *IDLMethod, opened bool) error {
+	depth := 0
+	started := false
+	if opened {
+		depth = 1
+		started = true
+	}
+	for scanner.Scan() {
+		*lineNo = *lineNo + 1
+		line := strings.TrimSpace(stripLineComment(scanner.Text()))
+		if line == "" {
+			continue
+		}
+		if line == "{" || strings.HasSuffix(line, "{") {
+			depth++
+			started = true
+		}
+		if match := protoHTTPRuleRE.FindStringSubmatch(line); match != nil {
+			method.HTTPMethod = strings.ToUpper(match[1])
+			method.HTTPPath = match[2]
+		}
+		if strings.HasSuffix(line, "{") {
+			continue
+		}
+		if line == "}" || line == "};" {
+			if depth > 0 {
+				depth--
+			}
+			if started && depth == 0 {
+				return nil
+			}
+			continue
+		}
+		if !started {
+			return fmt.Errorf("parse proto line %d: rpc method options must start with block", *lineNo)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("scan proto rpc options: %w", err)
+	}
+	return fmt.Errorf("parse proto: rpc method %s option block is not closed", method.Name)
+}
+
 func isIgnorableProtoMessageLine(line string) bool {
 	line = strings.TrimSpace(line)
 	return strings.HasPrefix(line, "option ") ||
@@ -156,7 +209,28 @@ func isIgnorableProtoTopLevelLine(line string) bool {
 
 func expandProtoInlineBlocks(s string) string {
 	var b strings.Builder
+	inString := false
+	escaped := false
 	for _, r := range s {
+		if escaped {
+			b.WriteRune(r)
+			escaped = false
+			continue
+		}
+		if r == '\\' && inString {
+			b.WriteRune(r)
+			escaped = true
+			continue
+		}
+		if r == '"' {
+			b.WriteRune(r)
+			inString = !inString
+			continue
+		}
+		if inString {
+			b.WriteRune(r)
+			continue
+		}
 		switch r {
 		case '{':
 			b.WriteRune(r)

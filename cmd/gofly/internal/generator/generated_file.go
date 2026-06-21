@@ -25,7 +25,7 @@ func writeGeneratedFile(path string, data []byte) error {
 	if err := rejectExistingSymlinkTarget(path, "generated file"); err != nil {
 		return err
 	}
-	// #nosec G306 -- generated source/configuration files are intentionally readable within the generated project.
+	// #nosec G306 G703 -- caller-provided generated file paths are validated by generator entrypoints; generated source/configuration files are intentionally readable within the generated project.
 	if err := os.WriteFile(path, data, 0o644); err != nil {
 		return fmt.Errorf("write generated file %s: %w", path, err)
 	}

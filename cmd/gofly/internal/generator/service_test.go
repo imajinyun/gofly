@@ -162,6 +162,11 @@ func TestGenerateService(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	for _, want := range []string{`"name": "rpc-sayhello"`, `"method": "SAYHELLO"`, `"canary"`, `"concurrency"`, `"name": "mq-default"`, `"transport": "mq"`} {
+		if !strings.Contains(string(governanceData), want) {
+			t.Fatalf("governance.json missing %q:\n%s", want, governanceData)
+		}
+	}
 	if !strings.Contains(string(governanceData), `"name": "mq-default"`) || !strings.Contains(string(governanceData), `"transport": "mq"`) {
 		t.Fatalf("governance.json missing mq rule:\n%s", governanceData)
 	}

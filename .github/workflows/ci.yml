@@ -223,6 +223,17 @@ jobs:
             rpc GetUser(User) returns (User);
           }
           EOF
+          cp /tmp/contract/demo.proto /tmp/contract/demo-same.proto
+          cat > /tmp/contract/demo-break.proto <<'EOF'
+          syntax = "proto3";
+          package demo;
+          message User {
+            int64 id = 1;
+          }
+          service UserService {
+            rpc GetAccount(User) returns (User);
+          }
+          EOF
 
       - name: api check — schema validity
         run: /tmp/gofly api check --file /tmp/contract/v1.api
@@ -246,8 +257,28 @@ jobs:
           fi
           echo "breaking changes correctly detected (rc=$rc)"
 
-      - name: rpc check — proto validity (best-effort; skip on unimplemented)
-        run: /tmp/gofly rpc check --file /tmp/contract/demo.proto || true
+      - name: rpc check — proto validity
+        run: /tmp/gofly rpc check --file /tmp/contract/demo.proto
+
+      - name: rpc doc — OpenAPI from proto transcoding
+        run: |
+          /tmp/gofly rpc doc --file /tmp/contract/demo.proto --output /tmp/contract/demo-openapi.json --format openapi
+          test -s /tmp/contract/demo-openapi.json
+
+      - name: rpc breaking — no-change case (must succeed)
+        run: /tmp/gofly rpc breaking --base /tmp/contract/demo.proto --target /tmp/contract/demo-same.proto
+
+      - name: rpc breaking — with-change case (must fail)
+        run: |
+          set +e
+          /tmp/gofly rpc breaking --base /tmp/contract/demo.proto --target /tmp/contract/demo-break.proto
+          rc=$?
+          set -e
+          if [ $rc -eq 0 ]; then
+            echo "expected non-zero exit for rpc breaking changes, got 0"
+            exit 1
+          fi
+          echo "rpc breaking changes correctly detected (rc=$rc)"
 
   governance:
     name: governance gates

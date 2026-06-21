@@ -4375,6 +4375,37 @@ service Greeter {
 	}
 }
 
+func TestExecuteRPCDocGeneratesOpenAPIFromProto(t *testing.T) {
+	dir := t.TempDir()
+	protoPath := filepath.Join(dir, "greeter.proto")
+	if err := os.WriteFile(protoPath, []byte(`syntax = "proto3";
+package greeter.v1;
+message HelloReq { string name = 1; }
+message HelloResp { string message = 1; }
+service Greeter {
+  rpc Hello(HelloReq) returns (HelloResp) {
+    option (google.api.http) = {
+      get: "/v1/hello/{name}"
+    };
+  }
+}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outPath := filepath.Join(dir, "greeter-openapi.json")
+	if err := Execute([]string{"rpc", "doc", "--file", protoPath, "--output", outPath, "--format", "openapi"}); err != nil {
+		t.Fatalf("rpc doc: %v", err)
+	}
+	data, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"openapi": "3.0.3"`, `"/v1/hello/{name}"`, `"get"`, `"HelloReq"`, `"HelloResp"`} {
+		if !strings.Contains(string(data), want) {
+			t.Fatalf("rpc doc output missing %q:\n%s", want, data)
+		}
+	}
+}
+
 func TestExecuteRPCDescriptorCommand(t *testing.T) {
 	dir := t.TempDir()
 	basePath := filepath.Join(dir, "base.json")
@@ -5000,7 +5031,7 @@ func TestExecuteShellCompletionCoverage(t *testing.T) {
 		"gen) commands=\"handler rpc api rest middleware model gateway\"",
 		"generate) commands=\"handler rpc api rest middleware model gateway\"",
 		"api) commands=\"new go gen check validate breaking break format fmt doc docs swagger client ts typescript js javascript dart java kotlin kt types route routes import diff plugin middleware\"",
-		"rpc) commands=\"new idl inspect thrift thrift2proto client server middleware lint deps gen protoc check breaking descriptor plugin template tpl\"",
+		"rpc) commands=\"new idl inspect thrift thrift2proto client server middleware lint deps gen protoc check doc docs swagger openapi breaking descriptor plugin template tpl\"",
 		"rpc:template|rpc:tpl) commands=\"init list ls clean update revert\"",
 		"model:mysql|model:pg|model:postgres|model:postgresql) commands=\"ddl datasource\"",
 		"complete:handler) commands=\"bash zsh fish powershell pwsh\"",
@@ -5025,7 +5056,7 @@ func TestExecuteShellCompletionCoverage(t *testing.T) {
 	}
 	for _, want := range []string{
 		"case \"$cmd\" in",
-		"rpc) commands=\"new idl inspect thrift thrift2proto client server middleware lint deps gen protoc check breaking descriptor plugin template tpl\"",
+		"rpc) commands=\"new idl inspect thrift thrift2proto client server middleware lint deps gen protoc check doc docs swagger openapi breaking descriptor plugin template tpl\"",
 		"api) commands=\"new go gen check validate breaking break format fmt doc docs swagger client ts typescript js javascript dart java kotlin kt types route routes import diff plugin middleware\"",
 		"plugin) commands=\"list ls install uninstall remove rm run\"",
 		"rpc:template|rpc:tpl) commands=\"init list ls clean update revert\"",
@@ -5070,7 +5101,7 @@ func TestExecuteShellCompletionCoverage(t *testing.T) {
 	for _, want := range []string{
 		"case \"$words[2]:$words[3]\" in",
 		"gen|generate) commands=('handler:generate REST handler'",
-		"rpc) commands=('new:create RPC service' 'idl:inspect IDL metadata' 'inspect:inspect IDL metadata alias' 'thrift:convert thrift to proto skeleton' 'thrift2proto:convert thrift alias' 'client:generate RPC client wrapper' 'server:generate RPC server stubs' 'middleware:generate gRPC middleware' 'lint:lint IDL contract' 'deps:list IDL imports' 'gen:generate RPC code' 'protoc:run protoc plugins' 'check:validate proto' 'breaking:compare compatibility' 'descriptor:compare runtime descriptors' 'plugin:run RPC plugin' 'template:manage templates' 'tpl:manage templates alias')",
+		"rpc) commands=('new:create RPC service' 'idl:inspect IDL metadata' 'inspect:inspect IDL metadata alias' 'thrift:convert thrift to proto skeleton' 'thrift2proto:convert thrift alias' 'client:generate RPC client wrapper' 'server:generate RPC server stubs' 'middleware:generate gRPC middleware' 'lint:lint IDL contract' 'deps:list IDL imports' 'gen:generate RPC code' 'protoc:run protoc plugins' 'check:validate proto' 'doc:generate OpenAPI docs' 'docs:generate OpenAPI docs alias' 'swagger:generate OpenAPI docs alias' 'openapi:generate OpenAPI docs alias' 'breaking:compare compatibility' 'descriptor:compare runtime descriptors' 'plugin:run RPC plugin' 'template:manage templates' 'tpl:manage templates alias')",
 		"typescript:generate TypeScript client",
 		"routes:print routes",
 		"plugin) commands=('list:list plugins' 'ls:list plugins' 'install:install remote plugin' 'uninstall:uninstall remote plugin' 'remove:uninstall remote plugin' 'rm:uninstall remote plugin' 'run:run plugin')",
@@ -5093,7 +5124,7 @@ func TestExecuteShellCompletionCoverage(t *testing.T) {
 		`"config"`,
 		`"complete"`,
 		`"generate"`,
-		`"rpc" { $commands = @("new", "idl", "inspect", "thrift", "thrift2proto", "client", "server", "middleware", "lint", "deps", "gen", "protoc", "check", "breaking", "descriptor", "plugin", "template", "tpl") }`,
+		`"rpc" { $commands = @("new", "idl", "inspect", "thrift", "thrift2proto", "client", "server", "middleware", "lint", "deps", "gen", "protoc", "check", "doc", "docs", "swagger", "openapi", "breaking", "descriptor", "plugin", "template", "tpl") }`,
 		`"api" { $commands = @("new", "go", "gen", "check", "validate", "breaking", "break", "format", "fmt", "doc", "docs", "swagger", "client", "ts", "typescript", "js", "javascript", "dart", "java", "kotlin", "kt", "types", "route", "routes", "import", "diff", "plugin", "middleware") }`,
 		`"plugin" { $commands = @("list", "ls", "install", "uninstall", "remove", "rm", "run") }`,
 		`"completion" { $commands = @("bash", "zsh", "fish", "powershell", "pwsh") }`,

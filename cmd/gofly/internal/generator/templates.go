@@ -241,6 +241,7 @@ const configTemplate = `{
     "rules": [
       {"name": "rest-default", "transport": "rest", "service": "{{.Name}}", "policy": {"timeout": 3000000000}},
       {"name": "rpc-default", "transport": "rpc", "service": "greeter", "policy": {"timeout": 3000000000, "retry": {"attempts": 2, "backoff": 100000000}}},
+      {"name": "rpc-sayhello", "transport": "rpc", "service": "greeter", "method": "SAYHELLO", "policy": {"timeout": 2000000000, "retry": {"attempts": 2, "backoff": 100000000}, "breaker": {"enabled": true, "failureRatio": 0.5, "minRequests": 20}, "rateLimit": {"rate": 100, "burst": 100}, "concurrency": {"limit": 64}, "canary": {"ratio": 0.05, "headers": {"x-gofly-canary": "true"}}}},
       {"name": "mq-default", "transport": "mq", "service": "{{.Name}}", "policy": {"timeout": 3000000000, "retry": {"attempts": 2, "backoff": 100000000}, "breaker": {"enabled": true, "failureRatio": 0.5, "minRequests": 20}}},
       {"name": "gateway-default", "transport": "gateway", "service": "{{.Name}}", "policy": {"retry": {"attempts": 2, "backoff": 100000000}, "breaker": {"enabled": true, "failureRatio": 0.5, "minRequests": 20}}}
     ]
@@ -277,6 +278,7 @@ const minimalConfigTemplate = `{
 const governanceTemplate = `[
   {"name": "rest-default", "transport": "rest", "service": "{{.Name}}", "policy": {"timeout": 3000000000}},
   {"name": "rpc-default", "transport": "rpc", "service": "greeter", "policy": {"timeout": 3000000000, "retry": {"attempts": 2, "backoff": 100000000}}},
+  {"name": "rpc-sayhello", "transport": "rpc", "service": "greeter", "method": "SAYHELLO", "policy": {"timeout": 2000000000, "retry": {"attempts": 2, "backoff": 100000000}, "breaker": {"enabled": true, "failureRatio": 0.5, "minRequests": 20}, "rateLimit": {"rate": 100, "burst": 100}, "concurrency": {"limit": 64}, "canary": {"ratio": 0.05, "headers": {"x-gofly-canary": "true"}}}},
   {"name": "mq-default", "transport": "mq", "service": "{{.Name}}", "policy": {"timeout": 3000000000, "retry": {"attempts": 2, "backoff": 100000000}, "breaker": {"enabled": true, "failureRatio": 0.5, "minRequests": 20}}},
   {"name": "gateway-default", "transport": "gateway", "service": "{{.Name}}", "policy": {"retry": {"attempts": 2, "backoff": 100000000}, "breaker": {"enabled": true, "failureRatio": 0.5, "minRequests": 20}}}
 ]

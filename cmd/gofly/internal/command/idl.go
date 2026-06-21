@@ -591,6 +591,41 @@ func rpcCheckCommand(args []string) error {
 	return nil
 }
 
+func rpcDocCommand(args []string) error {
+	leadingFile, args := splitLeadingName(args)
+	fs := flag.NewFlagSet("rpc doc", flag.ContinueOnError)
+	file := fs.String("file", "", "proto source file")
+	src := fs.String("src", "", "proto source file")
+	dir := fs.String("dir", ".", "output directory")
+	output := fs.String("output", "", "output file")
+	o := fs.String("o", "", "output file")
+	filename := fs.String("filename", "", "output filename")
+	yamlOut := fs.Bool("yaml", false, "write OpenAPI as yaml")
+	jsonOut := fs.Bool("json", false, "write OpenAPI as json")
+	format := fs.String("format", "openapi", "doc format: openapi/json, yaml, or markdown")
+	remaining, err := parseInterspersedFlags(fs, args)
+	if err != nil {
+		return err
+	}
+	resolveIDLFile(file, src, leadingFile, remaining)
+	if *file == "" {
+		return fmt.Errorf("%w: proto file is required", errUsage)
+	}
+	if *output == "" {
+		*output = *o
+	}
+	if *yamlOut {
+		*format = "yaml"
+	}
+	if *jsonOut {
+		*format = "openapi"
+	}
+	if *output == "" && *filename != "" {
+		*output = filepath.Join(*dir, *filename)
+	}
+	return generator.GenerateProtoDoc(generator.ProtoDocOptions{ProtoFile: *file, Dir: *dir, Output: *output, Format: *format})
+}
+
 func apiCommand(args []string) error {
 	if printCommandHelp("api", args) {
 		return nil

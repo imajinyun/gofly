@@ -165,7 +165,7 @@ ci-fast: fmt-check vet build examples-check examples-smoke docs-check test tidy 
 ci: ci-fast test-generated-matrix cover-check lint supply-chain security api-compat ## Run the full CI verification suite
 
 .PHONY: examples-check
-examples-check: ## Build and vet all examples to keep docs and code in sync
+examples-check: examples-copyable-check ## Build and vet all examples to keep docs and code in sync
 	@if [ ! -d examples ] || ! find examples -type f -name '*.go' | grep -q .; then \
 		echo "examples/ not present or empty; skipping examples-check"; \
 		exit 0; \
@@ -177,6 +177,10 @@ examples-check: ## Build and vet all examples to keep docs and code in sync
 		echo "checking $$dir"; \
 		(cd $$dir && $(GO) build -o $$out/$$(basename $$dir) ./... && $(GO) vet ./...); \
 	done
+
+.PHONY: examples-copyable-check
+examples-copyable-check: ## Copy each standalone example outside the repo and verify it builds
+	sh $(SCRIPTS_DIR)/check-examples-copyable.sh
 
 .PHONY: examples-smoke
 examples-smoke: ## Run runnable example smoke tests and machine-readable output checks

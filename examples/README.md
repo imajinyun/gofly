@@ -4,7 +4,7 @@ This directory contains runnable examples for the major gofly runtime paths. Eac
 
 ## Standalone module contract
 
-Every example directory that contains Go source must include its own `go.mod`. This keeps examples copyable and prevents example-only dependencies from leaking into the root module. CI enforces this with `make examples-smoke`.
+Every example directory that contains Go source must include its own `go.mod`. This keeps examples copyable and prevents example-only dependencies from leaking into the root module. Example-specific `README.md` files are used when an example needs standalone operational guidance, while the matrix below remains the shared index for the full examples set. CI enforces the copy-out contract with `make examples-copyable-check` and `make examples-smoke`.
 
 When copying an example out of the repository:
 
@@ -14,6 +14,12 @@ cd /tmp/restserver-demo
 go mod edit -dropreplace github.com/gofly/gofly
 go get github.com/gofly/gofly@latest
 go test ./...
+```
+
+Validate the copy-out contract for every example:
+
+```bash
+make examples-copyable-check
 ```
 
 ## Matrix
@@ -38,16 +44,16 @@ go test ./...
 
 ## End-to-End Commands
 
-Build every example:
+Build every example module:
 
 ```bash
-go build ./examples/...
+make examples-check
 ```
 
-Vet every example:
+Smoke test runnable example contracts:
 
 ```bash
-go vet ./examples/...
+make examples-smoke
 ```
 
 Run the REST example:

@@ -149,7 +149,152 @@ func reportProtoDescriptorChanges(base, target IDLDocument) rpc.DescriptorCompat
 			mergeRPCDescriptorReport(&report, rpc.CompareDescriptors(rpc.Descriptor{Name: targetDescriptor.Name}, targetDescriptor))
 		}
 	}
+	mergeRPCDescriptorReport(&report, protoWireDescriptorChanges(base, target))
 	return report
+}
+
+func protoWireDescriptorChanges(base, target IDLDocument) rpc.DescriptorCompatibilityReport {
+	var report rpc.DescriptorCompatibilityReport
+	baseTypes := typeMap(base.Messages)
+	targetTypes := typeMap(target.Messages)
+	for _, name := range sortedIDLMessageKeys(baseTypes) {
+		baseMessage := baseTypes[name]
+		targetMessage, ok := targetTypes[name]
+		if !ok {
+			addRPCDescriptorChange(&report, rpc.DescriptorChangeType, rpc.DescriptorChangeBreaking,
+				"message "+name, "message was removed")
+			continue
+		}
+		addProtoFieldDescriptorChanges(&report, name, baseMessage.Fields, targetMessage.Fields)
+	}
+	for _, name := range sortedIDLMessageKeys(targetTypes) {
+		if _, ok := baseTypes[name]; !ok {
+			addRPCDescriptorChange(&report, rpc.DescriptorChangeType, rpc.DescriptorChangeInfo,
+				"message "+name, "message was added")
+		}
+	}
+
+	baseEnums := enumMap(base.Enums)
+	targetEnums := enumMap(target.Enums)
+	for _, name := range sortedIDLEnumKeys(baseEnums) {
+		baseEnum := baseEnums[name]
+		targetEnum, ok := targetEnums[name]
+		if !ok {
+			addRPCDescriptorChange(&report, rpc.DescriptorChangeEnum, rpc.DescriptorChangeBreaking,
+				"enum "+name, "enum was removed")
+			continue
+		}
+		addProtoEnumDescriptorChanges(&report, name, baseEnum.Values, targetEnum.Values)
+	}
+	for _, name := range sortedIDLEnumKeys(targetEnums) {
+		if _, ok := baseEnums[name]; !ok {
+			addRPCDescriptorChange(&report, rpc.DescriptorChangeEnum, rpc.DescriptorChangeInfo,
+				"enum "+name, "enum was added")
+		}
+	}
+	return report
+}
+
+func addProtoFieldDescriptorChanges(report *rpc.DescriptorCompatibilityReport, messageName string, base, target []IDLField) {
+	baseByName := make(map[string]IDLField, len(base))
+	baseByNumber := make(map[int]IDLField, len(base))
+	for _, field := range base {
+		baseByName[field.Name] = field
+		if field.Number > 0 {
+			baseByNumber[field.Number] = field
+		}
+	}
+	targetByName := make(map[string]IDLField, len(target))
+	targetByNumber := make(map[int]IDLField, len(target))
+	for _, field := range target {
+		targetByName[field.Name] = field
+		if field.Number > 0 {
+			targetByNumber[field.Number] = field
+		}
+	}
+
+	for _, name := range sortedIDLFieldKeys(baseByName) {
+		baseField := baseByName[name]
+		targetField, ok := targetByName[name]
+		if !ok {
+			addRPCDescriptorChange(report, rpc.DescriptorChangeField, rpc.DescriptorChangeBreaking,
+				fmt.Sprintf("%s.%s", messageName, name), "field was removed")
+			continue
+		}
+		if baseField.Type != targetField.Type {
+			addRPCDescriptorChange(report, rpc.DescriptorChangeField, rpc.DescriptorChangeBreaking,
+				fmt.Sprintf("%s.%s", messageName, name),
+				fmt.Sprintf("field type changed from %s to %s", baseField.Type, targetField.Type))
+		}
+		if baseField.Number > 0 && targetField.Number > 0 && baseField.Number != targetField.Number {
+			addRPCDescriptorChange(report, rpc.DescriptorChangeField, rpc.DescriptorChangeBreaking,
+				fmt.Sprintf("%s.%s", messageName, name),
+				fmt.Sprintf("field number changed from %d to %d", baseField.Number, targetField.Number))
+		}
+	}
+	for _, name := range sortedIDLFieldKeys(targetByName) {
+		if _, ok := baseByName[name]; !ok {
+			field := targetByName[name]
+			addRPCDescriptorChange(report, rpc.DescriptorChangeField, rpc.DescriptorChangeInfo,
+				fmt.Sprintf("%s.%s", messageName, name), fmt.Sprintf("field was added with number %d", field.Number))
+		}
+	}
+	for _, number := range sortedIDLFieldNumbers(baseByNumber) {
+		baseField := baseByNumber[number]
+		targetField, ok := targetByNumber[number]
+		if !ok || baseField.Name == targetField.Name {
+			continue
+		}
+		addRPCDescriptorChange(report, rpc.DescriptorChangeField, rpc.DescriptorChangeBreaking,
+			fmt.Sprintf("%s.%d", messageName, number),
+			fmt.Sprintf("field number reused from %s to %s", baseField.Name, targetField.Name))
+	}
+}
+
+func addProtoEnumDescriptorChanges(report *rpc.DescriptorCompatibilityReport, enumName string, base, target []IDLEnumValue) {
+	baseByName := make(map[string]IDLEnumValue, len(base))
+	baseByNumber := make(map[int]IDLEnumValue, len(base))
+	for _, value := range base {
+		baseByName[value.Name] = value
+		baseByNumber[value.Number] = value
+	}
+	targetByName := make(map[string]IDLEnumValue, len(target))
+	targetByNumber := make(map[int]IDLEnumValue, len(target))
+	for _, value := range target {
+		targetByName[value.Name] = value
+		targetByNumber[value.Number] = value
+	}
+	for _, name := range sortedIDLEnumValueKeys(baseByName) {
+		baseValue := baseByName[name]
+		targetValue, ok := targetByName[name]
+		if !ok {
+			addRPCDescriptorChange(report, rpc.DescriptorChangeEnum, rpc.DescriptorChangeBreaking,
+				fmt.Sprintf("%s.%s", enumName, name), "enum value was removed")
+			continue
+		}
+		if baseValue.Number != targetValue.Number {
+			addRPCDescriptorChange(report, rpc.DescriptorChangeEnum, rpc.DescriptorChangeBreaking,
+				fmt.Sprintf("%s.%s", enumName, name),
+				fmt.Sprintf("enum value number changed from %d to %d", baseValue.Number, targetValue.Number))
+		}
+	}
+	for _, name := range sortedIDLEnumValueKeys(targetByName) {
+		if _, ok := baseByName[name]; !ok {
+			value := targetByName[name]
+			addRPCDescriptorChange(report, rpc.DescriptorChangeEnum, rpc.DescriptorChangeInfo,
+				fmt.Sprintf("%s.%s", enumName, name), fmt.Sprintf("enum value was added with number %d", value.Number))
+		}
+	}
+	for _, number := range sortedIDLEnumValueNumbers(baseByNumber) {
+		baseValue := baseByNumber[number]
+		targetValue, ok := targetByNumber[number]
+		if !ok || baseValue.Name == targetValue.Name {
+			continue
+		}
+		addRPCDescriptorChange(report, rpc.DescriptorChangeEnum, rpc.DescriptorChangeBreaking,
+			fmt.Sprintf("%s.%d", enumName, number),
+			fmt.Sprintf("enum value number reused from %s to %s", baseValue.Name, targetValue.Name))
+	}
 }
 
 func protoRuntimeDescriptorMap(doc IDLDocument) map[string]rpc.Descriptor {
@@ -257,6 +402,12 @@ func descriptorCategoryToChangeCategory(category rpc.DescriptorChangeCategory) C
 		return CategoryMethod
 	case rpc.DescriptorChangeStream:
 		return CategoryStream
+	case rpc.DescriptorChangeType:
+		return CategoryType
+	case rpc.DescriptorChangeField:
+		return CategoryField
+	case rpc.DescriptorChangeEnum:
+		return CategoryEnum
 	case rpc.DescriptorChangeSignature:
 		return CategorySignature
 	case rpc.DescriptorChangeVersion:
@@ -554,4 +705,58 @@ func methodMap(methods []IDLMethod) map[string]IDLMethod {
 		out[exportName(m.Name)] = m
 	}
 	return out
+}
+
+func sortedIDLMessageKeys(messages map[string]IDLMessage) []string {
+	names := make([]string, 0, len(messages))
+	for name := range messages {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+func sortedIDLEnumKeys(enums map[string]IDLEnum) []string {
+	names := make([]string, 0, len(enums))
+	for name := range enums {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+func sortedIDLFieldKeys(fields map[string]IDLField) []string {
+	names := make([]string, 0, len(fields))
+	for name := range fields {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+func sortedIDLFieldNumbers(fields map[int]IDLField) []int {
+	numbers := make([]int, 0, len(fields))
+	for number := range fields {
+		numbers = append(numbers, number)
+	}
+	sort.Ints(numbers)
+	return numbers
+}
+
+func sortedIDLEnumValueKeys(values map[string]IDLEnumValue) []string {
+	names := make([]string, 0, len(values))
+	for name := range values {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+func sortedIDLEnumValueNumbers(values map[int]IDLEnumValue) []int {
+	numbers := make([]int, 0, len(values))
+	for number := range values {
+		numbers = append(numbers, number)
+	}
+	sort.Ints(numbers)
+	return numbers
 }

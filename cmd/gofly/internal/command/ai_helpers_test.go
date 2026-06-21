@@ -6,12 +6,14 @@ import (
 	"errors"
 	"flag"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -1408,6 +1410,57 @@ func TestAINewTextHelpAndManifestContract_BitsUT(t *testing.T) {
 		}
 	})
 
+	t.Run("ai control-plane reads runtime source URL", func(t *testing.T) {
+		wantSnapshot := controlplane.Snapshot{
+			Version: controlplane.DefaultSnapshotVersion,
+			Metadata: map[string]string{
+				"rest.runtime": "available",
+			},
+			Configs: map[string]json.RawMessage{
+				"rest.runtime": []byte(`{"service":"orders","address":"127.0.0.1:8080","adminEnabled":true}`),
+			},
+		}.WithChecksum()
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet || r.URL.Path != "/admin/control-plane" {
+				t.Fatalf("runtime source request = %s %s", r.Method, r.URL.Path)
+			}
+			if got := r.Header.Get("Authorization"); got != "Bearer runtime-token" {
+				t.Fatalf("runtime source authorization = %q, want bearer token", got)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			if err := json.NewEncoder(w).Encode(wantSnapshot); err != nil {
+				t.Fatalf("encode runtime source snapshot: %v", err)
+			}
+		}))
+		defer server.Close()
+
+		var stdout bytes.Buffer
+		args := []string{"ai", "control-plane", "--source", server.URL + "/admin/control-plane", "--admin-token", "runtime-token", "--json"}
+		if err := ExecuteWithIO(args, IOStreams{Out: &stdout}); err != nil {
+			t.Fatalf("ai control-plane --source: %v", err)
+		}
+		var envelope struct {
+			Data struct {
+				Source         string                              `json:"source"`
+				Snapshot       controlplane.Snapshot               `json:"snapshot"`
+				Diff           controlplane.SnapshotDiff           `json:"diff"`
+				ConsumerAction controlplane.SnapshotConsumerAction `json:"consumerAction"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+			t.Fatalf("decode ai control-plane source output: %v\n%s", err, stdout.String())
+		}
+		if envelope.Data.Source != server.URL+"/admin/control-plane" || envelope.Data.Snapshot.Checksum != wantSnapshot.Checksum {
+			t.Fatalf("runtime source envelope = %+v, want source URL and runtime checksum", envelope.Data)
+		}
+		if envelope.Data.Snapshot.Metadata["rest.runtime"] != "available" || !json.Valid(envelope.Data.Snapshot.Configs["rest.runtime"]) {
+			t.Fatalf("runtime source snapshot = %+v, want REST runtime contract", envelope.Data.Snapshot)
+		}
+		if envelope.Data.Diff.ChangeType != "initial-snapshot" || envelope.Data.ConsumerAction.Action != "load-baseline" {
+			t.Fatalf("runtime source diff/action = %+v/%+v, want initial baseline", envelope.Data.Diff, envelope.Data.ConsumerAction)
+		}
+	})
+
 	t.Run("ai control-plane rejects ambiguous baseline flags", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "previous-control-plane.json")
 		if err := os.WriteFile(path, []byte(`{"version":"gofly-control-plane.v1"}`), 0o600); err != nil {
@@ -1462,6 +1515,47 @@ func TestAINewTextHelpAndManifestContract_BitsUT(t *testing.T) {
 		}
 		if envelope.Data.Error != "" || !strings.Contains(envelope.Data.SecretBoundary, "secret values") {
 			t.Fatalf("ai control-plane watch error/boundary = %q/%q", envelope.Data.Error, envelope.Data.SecretBoundary)
+		}
+	})
+
+	t.Run("ai control-plane watch reads runtime source URL", func(t *testing.T) {
+		callCount := 0
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			callCount++
+			snapshot := controlplane.Snapshot{
+				Version: controlplane.DefaultSnapshotVersion,
+				Metadata: map[string]string{
+					"rest.runtime": "available",
+					"call":         strconv.Itoa(callCount),
+				},
+			}.WithChecksum()
+			if err := json.NewEncoder(w).Encode(snapshot); err != nil {
+				t.Fatalf("encode runtime watch snapshot: %v", err)
+			}
+		}))
+		defer server.Close()
+
+		var stdout bytes.Buffer
+		args := []string{"ai", "control-plane", "--source", server.URL, "--watch", "--max-events", "1", "--timeout", "2s", "--json"}
+		if err := ExecuteWithIO(args, IOStreams{Out: &stdout}); err != nil {
+			t.Fatalf("ai control-plane --source --watch: %v", err)
+		}
+		lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
+		if len(lines) != 1 {
+			t.Fatalf("ai control-plane source watch output lines = %d, want 1\n%s", len(lines), stdout.String())
+		}
+		var envelope struct {
+			Data struct {
+				Source   string                    `json:"source"`
+				Snapshot controlplane.Snapshot     `json:"snapshot"`
+				Diff     controlplane.SnapshotDiff `json:"diff"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal([]byte(lines[0]), &envelope); err != nil {
+			t.Fatalf("decode ai control-plane source watch output: %v\n%s", err, stdout.String())
+		}
+		if envelope.Data.Source != server.URL || envelope.Data.Snapshot.Metadata["rest.runtime"] != "available" || envelope.Data.Diff.ChangeType != "mixed-change" {
+			t.Fatalf("source watch envelope = %+v, want runtime source mixed initial event", envelope.Data)
 		}
 	})
 

@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -964,7 +966,7 @@ func commandHelpFor(command string) commandHelp {
 	case "doctor":
 		return commandHelp{Name: "doctor", Short: "Diagnose local environment and toolchain readiness.", Usage: "gofly doctor [--json]", Flags: []string{"--json  print report as JSON"}, Examples: []string{"gofly doctor", "gofly doctor --json"}}
 	case "ai":
-		return commandHelp{Name: "ai", Short: "Emit machine-readable metadata and governed LLM calls for AI agents.", Usage: "gofly ai manifest [--format json|text] [--schema jsonschema] [--json] | gofly ai control-plane [--format json|text] [--schema jsonschema] [--from-checksum <sha256>|--from-snapshot <file>] [--watch --max-events <n>] [--json] | gofly ai plan --prompt <text> [flags] | gofly ai new --prompt <text> [--apply] [flags] | gofly ai complete --prompt <text> [flags] | gofly ai stream --prompt <text> [flags]", Commands: []helpCommand{{Name: "manifest", Short: "print command schemas, side effects and output contract"}, {Name: "control-plane", Short: "print or watch the deterministic AI control-plane snapshot"}, {Name: "plan", Short: "plan an AI-first project scaffold without writing files"}, {Name: "new", Short: "plan or apply an AI-first project scaffold"}, {Name: "complete", Short: "run a governed no-op completion for integration testing"}, {Name: "stream", Short: "emit governed streaming completion events"}, {Name: "doctor", Short: "run AI subsystem self-diagnostics"}}, Examples: []string{"gofly ai manifest --format json", "gofly ai manifest --schema jsonschema", "gofly ai control-plane --schema jsonschema", "gofly ai control-plane --json", "gofly ai control-plane --from-checksum <sha256> --json", "gofly ai control-plane --from-snapshot previous-control-plane.json --json", "gofly ai control-plane --watch --max-events 1 --json", "gofly --output json ai manifest", "gofly ai plan 'create a rag service' --json", "gofly ai new 'create a rest api' --name hello --module example.com/hello --dir hello --apply", "gofly ai complete --prompt 'summarize this' --max-total-tokens 128 --json", "gofly ai stream --prompt 'summarize this' --json", "gofly ai doctor --json"}}
+		return commandHelp{Name: "ai", Short: "Emit machine-readable metadata and governed LLM calls for AI agents.", Usage: "gofly ai manifest [--format json|text] [--schema jsonschema] [--json] | gofly ai control-plane [--format json|text] [--schema jsonschema] [--source <url>] [--admin-token <token>] [--from-checksum <sha256>|--from-snapshot <file>] [--watch --max-events <n>] [--json] | gofly ai plan --prompt <text> [flags] | gofly ai new --prompt <text> [--apply] [flags] | gofly ai complete --prompt <text> [flags] | gofly ai stream --prompt <text> [flags]", Commands: []helpCommand{{Name: "manifest", Short: "print command schemas, side effects and output contract"}, {Name: "control-plane", Short: "print or watch the deterministic AI control-plane snapshot"}, {Name: "plan", Short: "plan an AI-first project scaffold without writing files"}, {Name: "new", Short: "plan or apply an AI-first project scaffold"}, {Name: "complete", Short: "run a governed no-op completion for integration testing"}, {Name: "stream", Short: "emit governed streaming completion events"}, {Name: "doctor", Short: "run AI subsystem self-diagnostics"}}, Examples: []string{"gofly ai manifest --format json", "gofly ai manifest --schema jsonschema", "gofly ai control-plane --schema jsonschema", "gofly ai control-plane --json", "gofly ai control-plane --source http://127.0.0.1:8080/admin/control-plane --json", "gofly ai control-plane --from-checksum <sha256> --json", "gofly ai control-plane --from-snapshot previous-control-plane.json --json", "gofly ai control-plane --watch --max-events 1 --json", "gofly --output json ai manifest", "gofly ai plan 'create a rag service' --json", "gofly ai new 'create a rest api' --name hello --module example.com/hello --dir hello --apply", "gofly ai complete --prompt 'summarize this' --max-total-tokens 128 --json", "gofly ai stream --prompt 'summarize this' --json", "gofly ai doctor --json"}}
 	case "ai manifest":
 		return commandHelp{Name: "ai manifest", Short: "Print the gofly AI tool manifest.", Usage: "gofly ai manifest [--format json|text] [--schema jsonschema] [--json]", Flags: []string{"--format <format>  output format: json|text (default json)", "--schema <schema>  output manifest JSON Schema: jsonschema", "--json             output JSON envelope"}, Examples: []string{"gofly ai manifest --format json", "gofly ai manifest --schema jsonschema", "gofly tools manifest --json"}}
 	case "ai plan":
@@ -978,7 +980,7 @@ func commandHelpFor(command string) commandHelp {
 	case "ai doctor":
 		return commandHelp{Name: "ai doctor", Short: "Run AI subsystem self-diagnostics.", Usage: "gofly ai doctor [--json]", Flags: []string{"--json  print diagnostic report as JSON"}, Examples: []string{"gofly ai doctor", "gofly ai doctor --json"}}
 	case "ai control-plane":
-		return commandHelp{Name: "ai control-plane", Short: "Print or watch the deterministic AI control-plane snapshot.", Usage: "gofly ai control-plane [--format text|json] [--json] [--schema jsonschema] [--from-checksum <sha256>|--from-snapshot <file>] [--watch --max-events <n> --timeout <duration>]", Flags: []string{"--format <format>       output format: text|json", "--json                  output JSON envelope", "--schema <schema>      output control-plane JSON Schema: jsonschema", "--from-checksum <sha>   compare current snapshot checksum with a previous checksum", "--from-snapshot <file>  compare current snapshot with a previous control-plane snapshot JSON file", "--watch                 emit bounded snapshot watch events", "--max-events <n>        maximum watch events to emit (default 1)", "--timeout <duration>    watch timeout boundary (default 2s)"}, Examples: []string{"gofly ai control-plane", "gofly ai control-plane --json", "gofly ai control-plane --schema jsonschema", "gofly ai control-plane --from-checksum <sha256> --json", "gofly ai control-plane --from-snapshot previous-control-plane.json --json", "gofly ai control-plane --watch --max-events 1 --json"}}
+		return commandHelp{Name: "ai control-plane", Short: "Print or watch the deterministic AI control-plane snapshot.", Usage: "gofly ai control-plane [--format text|json] [--json] [--schema jsonschema] [--source <url>] [--admin-token <token>] [--from-checksum <sha256>|--from-snapshot <file>] [--watch --max-events <n> --timeout <duration>]", Flags: []string{"--format <format>       output format: text|json", "--json                  output JSON envelope", "--schema <schema>       output control-plane JSON Schema: jsonschema", "--source <url>          runtime REST admin /control-plane URL", "--admin-token <token>   bearer token for --source; defaults to GOFLY_CONTROL_PLANE_TOKEN", "--from-checksum <sha>   compare current snapshot checksum with a previous checksum", "--from-snapshot <file>  compare current snapshot with a previous control-plane snapshot JSON file", "--watch                 emit bounded snapshot watch events", "--max-events <n>        maximum watch events to emit (default 1)", "--timeout <duration>    watch timeout boundary (default 2s)"}, Examples: []string{"gofly ai control-plane", "gofly ai control-plane --json", "gofly ai control-plane --schema jsonschema", "gofly ai control-plane --source http://127.0.0.1:8080/admin/control-plane --json", "gofly ai control-plane --from-checksum <sha256> --json", "gofly ai control-plane --from-snapshot previous-control-plane.json --json", "gofly ai control-plane --watch --max-events 1 --json"}}
 	case "example", "examples":
 		return commandHelp{Name: "example", Short: "List or run built-in examples.", Usage: "gofly example list | gofly example run <name> [--dir <dir>]", Commands: []helpCommand{{Name: "list", Short: "list built-in examples"}, {Name: "run", Short: "copy and run a built-in example"}}, Flags: []string{"--dir <dir>  output directory for example run"}, Examples: []string{"gofly example list", "gofly example run observability", "gofly example run restserver --dir ./demo"}}
 	case "example list", "examples list":
@@ -2275,6 +2277,13 @@ type aiControlPlaneBaseline struct {
 	Checksum    string
 	Snapshot    controlplane.Snapshot
 	HasSnapshot bool
+}
+
+type httpControlPlaneProvider struct {
+	URL           string
+	Token         string
+	Client        *http.Client
+	WatchInterval time.Duration
 }
 
 func aiCommand(args []string) error {
@@ -3768,6 +3777,8 @@ func aiControlPlaneCommand(args []string) error {
 	watch := fs.Bool("watch", false, "emit bounded snapshot watch events")
 	maxEvents := fs.Int("max-events", 1, "maximum watch events to emit")
 	timeoutName := fs.String("timeout", "2s", "watch timeout boundary")
+	source := fs.String("source", "", "runtime control-plane snapshot URL, for example http://127.0.0.1:8080/admin/control-plane")
+	adminToken := fs.String("admin-token", "", "bearer token for --source runtime admin endpoint; defaults to GOFLY_CONTROL_PLANE_TOKEN")
 	fromChecksum := fs.String("from-checksum", "", "compare current snapshot checksum with a previous checksum")
 	fromSnapshot := fs.String("from-snapshot", "", "compare current snapshot with a previous control-plane snapshot JSON file")
 	remaining, err := parseInterspersedFlags(fs, args)
@@ -3796,7 +3807,10 @@ func aiControlPlaneCommand(args []string) error {
 		return err
 	}
 	manifest := buildAIControlPlaneManifest()
-	provider := controlplane.StaticProvider{Name: "ai-manifest", Snapshot: defaultAIControlPlaneSnapshot()}
+	provider, err := newAIControlPlaneProvider(strings.TrimSpace(*source), strings.TrimSpace(*adminToken))
+	if err != nil {
+		return err
+	}
 	jsonMode := *jsonOutput || outputMode() == outputJSON || format == outputJSON
 	if *watch {
 		return runAIControlPlaneWatch(provider, manifest, baseline, *maxEvents, *timeoutName, jsonMode)
@@ -3806,7 +3820,7 @@ func aiControlPlaneCommand(args []string) error {
 		return err
 	}
 	result := aiControlPlaneSnapshotResult{
-		Source:         provider.Source(),
+		Source:         aiControlPlaneProviderSource(provider),
 		Snapshot:       snapshot,
 		Diff:           baseline.Diff(snapshot),
 		AgentGuidance:  manifest.AgentGuidance,
@@ -3863,7 +3877,123 @@ func (b aiControlPlaneBaseline) Diff(snapshot controlplane.Snapshot) controlplan
 	return controlplane.DiffSnapshotChecksum(b.Checksum, snapshot)
 }
 
-func runAIControlPlaneWatch(provider controlplane.StaticProvider, manifest aiControlPlaneManifest, baseline aiControlPlaneBaseline, maxEvents int, timeoutValue string, jsonMode bool) error {
+func newAIControlPlaneProvider(source, token string) (controlplane.Provider, error) {
+	if source == "" {
+		return controlplane.StaticProvider{Name: "ai-manifest", Snapshot: defaultAIControlPlaneSnapshot()}, nil
+	}
+	parsed, err := url.Parse(source)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return nil, fmt.Errorf("%w: --source must be an absolute http(s) URL", errUsage)
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return nil, fmt.Errorf("%w: --source supports only http and https URLs", errUsage)
+	}
+	if token == "" {
+		token = os.Getenv("GOFLY_CONTROL_PLANE_TOKEN")
+	}
+	return httpControlPlaneProvider{
+		URL:   parsed.String(),
+		Token: token,
+		Client: &http.Client{
+			Timeout: 5 * time.Second,
+		},
+		WatchInterval: time.Second,
+	}, nil
+}
+
+func aiControlPlaneProviderSource(provider controlplane.Provider) string {
+	if sourceProvider, ok := provider.(controlplane.ProviderSource); ok {
+		return sourceProvider.Source()
+	}
+	return "control-plane"
+}
+
+func (p httpControlPlaneProvider) Source() string {
+	return p.URL
+}
+
+func (p httpControlPlaneProvider) Load(ctx context.Context) (controlplane.Snapshot, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return controlplane.Snapshot{}, err
+	}
+	client := p.Client
+	if client == nil {
+		client = http.DefaultClient
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.URL, nil)
+	if err != nil {
+		return controlplane.Snapshot{}, fmt.Errorf("create control-plane source request: %w", err)
+	}
+	req.Header.Set("Accept", "application/json")
+	if p.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+p.Token)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return controlplane.Snapshot{}, fmt.Errorf("fetch control-plane source %s: %w", p.URL, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return controlplane.Snapshot{}, fmt.Errorf("fetch control-plane source %s: status %d", p.URL, resp.StatusCode)
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return controlplane.Snapshot{}, fmt.Errorf("read control-plane source %s: %w", p.URL, err)
+	}
+	snapshot, err := controlplane.DecodeSnapshotJSON(data)
+	if err != nil {
+		return controlplane.Snapshot{}, fmt.Errorf("decode control-plane source %s: %w", p.URL, err)
+	}
+	return snapshot.WithChecksum(), nil
+}
+
+func (p httpControlPlaneProvider) Watch(ctx context.Context) (<-chan controlplane.SnapshotEvent, error) {
+	if ctx == nil {
+		return nil, errors.New("control-plane source watch context is nil")
+	}
+	interval := p.WatchInterval
+	if interval <= 0 {
+		interval = time.Second
+	}
+	out := make(chan controlplane.SnapshotEvent, 1)
+	go func() {
+		defer close(out)
+		emit := func() bool {
+			snapshot, err := p.Load(ctx)
+			event := controlplane.SnapshotEvent{Snapshot: snapshot, Source: p.Source()}
+			if err != nil {
+				event = controlplane.SnapshotEvent{Source: p.Source(), Error: err.Error()}
+			}
+			select {
+			case out <- event:
+				return true
+			case <-ctx.Done():
+				return false
+			}
+		}
+		if !emit() {
+			return
+		}
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if !emit() {
+					return
+				}
+			}
+		}
+	}()
+	return out, nil
+}
+
+func runAIControlPlaneWatch(provider controlplane.Provider, manifest aiControlPlaneManifest, baseline aiControlPlaneBaseline, maxEvents int, timeoutValue string, jsonMode bool) error {
 	if maxEvents <= 0 {
 		return fmt.Errorf("%w: --max-events must be positive", errUsage)
 	}
@@ -3873,6 +4003,7 @@ func runAIControlPlaneWatch(provider controlplane.StaticProvider, manifest aiCon
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
+	providerSource := aiControlPlaneProviderSource(provider)
 	events, err := provider.Watch(ctx)
 	if err != nil {
 		return err
@@ -3888,7 +4019,7 @@ func runAIControlPlaneWatch(provider controlplane.StaticProvider, manifest aiCon
 				return nil
 			}
 			if event.Source == "" {
-				event.Source = provider.Source()
+				event.Source = providerSource
 			}
 			diff := controlplane.DiffSnapshots(previous, event.Snapshot)
 			if !hasPreviousSnapshot && previousChecksum != "" {
@@ -3930,16 +4061,18 @@ func buildAIToolManifest() aiToolManifest {
 			"schema": enumStringProperty("Optional manifest schema output.", "jsonschema"),
 			"json":   boolProperty("Print JSON envelope."),
 		}, []string{outputJSON, outputText}, []string{"none"}, "read", true, false, []string{"gofly ai manifest --format json", "gofly ai manifest --schema jsonschema"}),
-		manifestCommand("ai control-plane", nil, "Print or watch the deterministic AI control-plane snapshot with stable checksum, source and safe agent guidance.", "gofly ai control-plane [--format text|json] [--json] [--schema jsonschema] [--from-checksum <sha256>|--from-snapshot <file>] [--watch --max-events <n> --timeout <duration>]", map[string]aiInputProperty{
+		manifestCommand("ai control-plane", nil, "Print or watch the deterministic AI control-plane snapshot with stable checksum, source and safe agent guidance.", "gofly ai control-plane [--format text|json] [--json] [--schema jsonschema] [--source <url>] [--admin-token <token>] [--from-checksum <sha256>|--from-snapshot <file>] [--watch --max-events <n> --timeout <duration>]", map[string]aiInputProperty{
 			"format":        enumStringProperty("Output format.", outputText, outputJSON),
 			"json":          boolProperty("Print JSON envelope."),
 			"schema":        enumStringProperty("Optional control-plane output schema.", "jsonschema"),
+			"source":        stringProperty("Optional runtime REST admin /control-plane URL used instead of the built-in AI manifest snapshot."),
+			"admin-token":   stringProperty("Optional bearer token for --source runtime admin endpoint; GOFLY_CONTROL_PLANE_TOKEN is used when omitted."),
 			"from-checksum": stringProperty("Previous snapshot checksum used to compute a lightweight changed/unchanged diff."),
 			"from-snapshot": stringProperty("Previous control-plane snapshot JSON file used to compute semantic changedFields."),
 			"watch":         boolProperty("Emit bounded snapshot watch events."),
 			"max-events":    intProperty("Maximum watch events to emit."),
 			"timeout":       stringProperty("Watch timeout boundary as a Go duration, for example 2s."),
-		}, []string{outputText, outputJSON, "ndjson"}, []string{"none; reads built-in static control-plane metadata and optional previous snapshot file, and may open a bounded watch stream"}, "read", true, false, []string{"gofly ai control-plane --json", "gofly ai control-plane --schema jsonschema", "gofly ai control-plane --from-snapshot previous-control-plane.json --json", "gofly ai control-plane --watch --max-events 1 --json"}),
+		}, []string{outputText, outputJSON, "ndjson"}, []string{"none; reads built-in static control-plane metadata or an explicit runtime admin URL, optional previous snapshot file, and may open a bounded watch stream"}, "read", true, false, []string{"gofly ai control-plane --json", "gofly ai control-plane --schema jsonschema", "gofly ai control-plane --source http://127.0.0.1:8080/admin/control-plane --json", "gofly ai control-plane --from-snapshot previous-control-plane.json --json", "gofly ai control-plane --watch --max-events 1 --json"}),
 		manifestCommand("ai plan", nil, "Plan an AI-first project scaffold from natural language using the built-in project template catalog. This command is deterministic and does not write files.", "gofly ai plan --prompt <requirement> [--kind service|rpc|worker|cli|ai-agent|rag|gateway] [--name <name>] [--module <module>] [--dir <dir>] [--format text|json] [--json]", map[string]aiInputProperty{
 			"prompt": stringProperty("Natural language project requirement."),
 			"kind":   stringProperty("Optional project kind hint, such as service, rpc, worker, cli, ai-agent, rag or gateway."),

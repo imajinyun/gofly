@@ -31,6 +31,7 @@ type Config struct {
 	RPC            *RPCConfig        `json:"rpc,omitempty"`
 	API            *APIConfig        `json:"api,omitempty"`
 	Model          *ModelConfig      `json:"model,omitempty"`
+	Discovery      *DiscoveryConfig  `json:"discovery,omitempty"`
 	LLM            *LLMConfig        `json:"llm,omitempty"`
 	Extra          map[string]string `json:"extra,omitempty"`
 	GoVersion      string            `json:"goVersion,omitempty"`
@@ -60,6 +61,21 @@ type ModelConfig struct {
 	Strict        bool              `json:"strict,omitempty"`
 	IgnoreColumns []string          `json:"ignoreColumns,omitempty"`
 	TypesMap      map[string]string `json:"typesMap,omitempty"`
+}
+
+// DiscoveryConfig stores service discovery defaults for generated services.
+// Secret material is referenced by environment variable names instead of being
+// persisted in the gofly config file.
+type DiscoveryConfig struct {
+	Provider      string   `json:"provider,omitempty"`
+	Address       string   `json:"address,omitempty"`
+	Endpoints     []string `json:"endpoints,omitempty"`
+	Prefix        string   `json:"prefix,omitempty"`
+	TTL           string   `json:"ttl,omitempty"`
+	DialTimeout   string   `json:"dialTimeout,omitempty"`
+	TokenEnv      string   `json:"tokenEnv,omitempty"`
+	UsernameEnv   string   `json:"usernameEnv,omitempty"`
+	PasswordEnv   string   `json:"passwordEnv,omitempty"`
 }
 
 // LLMConfig stores defaults for governed LLM CLI calls. It intentionally does
@@ -133,6 +149,46 @@ func ApplyEnvOverlay(cfg *Config) {
 			cfg.RPC = &RPCConfig{}
 		}
 		cfg.RPC.Profile = v
+	}
+	applyDiscoveryEnvOverlay(cfg)
+}
+
+func applyDiscoveryEnvOverlay(cfg *Config) {
+	if cfg == nil {
+		return
+	}
+	ensure := func() *DiscoveryConfig {
+		if cfg.Discovery == nil {
+			cfg.Discovery = &DiscoveryConfig{}
+		}
+		return cfg.Discovery
+	}
+	if v := os.Getenv("GOFLY_DISCOVERY"); v != "" {
+		ensure().Provider = v
+	}
+	if v := os.Getenv("GOFLY_DISCOVERY_ADDRESS"); v != "" {
+		ensure().Address = v
+	}
+	if v := os.Getenv("GOFLY_DISCOVERY_ENDPOINTS"); v != "" {
+		ensure().Endpoints = splitEnvList(v)
+	}
+	if v := os.Getenv("GOFLY_DISCOVERY_PREFIX"); v != "" {
+		ensure().Prefix = v
+	}
+	if v := os.Getenv("GOFLY_DISCOVERY_TTL"); v != "" {
+		ensure().TTL = v
+	}
+	if v := os.Getenv("GOFLY_DISCOVERY_DIAL_TIMEOUT"); v != "" {
+		ensure().DialTimeout = v
+	}
+	if v := os.Getenv("GOFLY_DISCOVERY_TOKEN_ENV"); v != "" {
+		ensure().TokenEnv = v
+	}
+	if v := os.Getenv("GOFLY_DISCOVERY_USERNAME_ENV"); v != "" {
+		ensure().UsernameEnv = v
+	}
+	if v := os.Getenv("GOFLY_DISCOVERY_PASSWORD_ENV"); v != "" {
+		ensure().PasswordEnv = v
 	}
 }
 
@@ -243,6 +299,13 @@ func (c *Config) ApplyOverlayWithTemplateSource(name, module, style, templateDir
 	if c.LLM != nil {
 		llm := *c.LLM
 		out.LLM = &llm
+	}
+	if c.Discovery != nil {
+		discovery := *c.Discovery
+		if len(discovery.Endpoints) > 0 {
+			discovery.Endpoints = append([]string(nil), discovery.Endpoints...)
+		}
+		out.Discovery = &discovery
 	}
 	if name != "" {
 		out.ServiceName = name
@@ -366,6 +429,15 @@ func (c *Config) String() string {
 			model.TypesMap = copySortedMap(model.TypesMap)
 		}
 		sorted.Model = &model
+	}
+	if c.Discovery != nil {
+		discovery := *c.Discovery
+		if len(discovery.Endpoints) > 0 {
+			endpoints := append([]string(nil), discovery.Endpoints...)
+			sort.Strings(endpoints)
+			discovery.Endpoints = endpoints
+		}
+		sorted.Discovery = &discovery
 	}
 	if c.LLM != nil {
 		llm := *c.LLM

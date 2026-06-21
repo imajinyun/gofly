@@ -569,8 +569,10 @@ service Greeter { rpc Ping(PingReq) returns (PingResp); }
 	basePath := filepath.Join(dir, "base.proto")
 	baseProto := `syntax = "proto3";
 package demo.v1;
-message PingReq { string name = 1; }
+enum Status { STATUS_UNKNOWN = 0; STATUS_ACTIVE = 1; STATUS_DISABLED = 2; }
+message PingReq { string name = 1; int64 legacy_id = 2; string stable = 3; Status status = 4; }
 message PingResp { string message = 1; }
+message RemovedWire { string id = 1; }
 message PongResp { string message = 1; }
 service Greeter { rpc Ping(PingReq) returns (PingResp); }
 service Removed { rpc Gone(PingReq) returns (PingResp); }
@@ -588,8 +590,11 @@ service Streams {
 	}
 	targetProto := `syntax = "proto3";
 package demo.v1;
-message PingReq { string name = 1; }
-message PingResp { string message = 1; }
+enum Status { STATUS_UNKNOWN = 0; STATUS_ACTIVE = 11; STATUS_LOCKED = 2; STATUS_PENDING = 3; }
+enum AddedStatus { ADDED_STATUS_UNKNOWN = 0; }
+message PingReq { int64 name = 1; string stable = 5; string alias = 2; string added = 6; Status status = 4; }
+message PingResp { string message = 1; string extra = 2; }
+message AddedWire { string id = 1; }
 message PongResp { string message = 1; }
 service Greeter { rpc Ping(PingReq) returns (PongResp); }
 service Added { rpc Record(PingReq) returns (PongResp); }
@@ -604,7 +609,7 @@ service Added { rpc Record(PingReq) returns (PongResp); }
 	if descriptorReport.Breaking == 0 || len(descriptorReport.Changes) == 0 {
 		t.Fatalf("descriptor report = %#v, want breaking changes", descriptorReport)
 	}
-	var sawAddedService, sawRemovedService, sawSignature bool
+	var sawAddedService, sawRemovedService, sawSignature, sawFieldType, sawFieldNumber, sawFieldReuse, sawAddedField, sawRemovedMessage, sawAddedMessage, sawEnumNumber, sawEnumReuse, sawAddedEnumValue bool
 	for _, change := range descriptorReport.Changes {
 		if change.Category == rpc.DescriptorChangeService && change.Severity == rpc.DescriptorChangeInfo && strings.Contains(change.Subject, "Added") {
 			sawAddedService = true
@@ -615,8 +620,35 @@ service Added { rpc Record(PingReq) returns (PongResp); }
 		if change.Category == rpc.DescriptorChangeSignature && change.Severity == rpc.DescriptorChangeBreaking && strings.Contains(change.Subject, "response") {
 			sawSignature = true
 		}
+		if change.Category == rpc.DescriptorChangeField && change.Severity == rpc.DescriptorChangeBreaking && change.Subject == "PingReq.name" && strings.Contains(change.Description, "type changed") {
+			sawFieldType = true
+		}
+		if change.Category == rpc.DescriptorChangeField && change.Severity == rpc.DescriptorChangeBreaking && change.Subject == "PingReq.stable" && strings.Contains(change.Description, "number changed") {
+			sawFieldNumber = true
+		}
+		if change.Category == rpc.DescriptorChangeField && change.Severity == rpc.DescriptorChangeBreaking && change.Subject == "PingReq.2" && strings.Contains(change.Description, "reused") {
+			sawFieldReuse = true
+		}
+		if change.Category == rpc.DescriptorChangeField && change.Severity == rpc.DescriptorChangeInfo && change.Subject == "PingReq.added" {
+			sawAddedField = true
+		}
+		if change.Category == rpc.DescriptorChangeType && change.Severity == rpc.DescriptorChangeBreaking && change.Subject == "message RemovedWire" {
+			sawRemovedMessage = true
+		}
+		if change.Category == rpc.DescriptorChangeType && change.Severity == rpc.DescriptorChangeInfo && change.Subject == "message AddedWire" {
+			sawAddedMessage = true
+		}
+		if change.Category == rpc.DescriptorChangeEnum && change.Severity == rpc.DescriptorChangeBreaking && change.Subject == "Status.STATUS_ACTIVE" && strings.Contains(change.Description, "number changed") {
+			sawEnumNumber = true
+		}
+		if change.Category == rpc.DescriptorChangeEnum && change.Severity == rpc.DescriptorChangeBreaking && change.Subject == "Status.2" && strings.Contains(change.Description, "reused") {
+			sawEnumReuse = true
+		}
+		if change.Category == rpc.DescriptorChangeEnum && change.Severity == rpc.DescriptorChangeInfo && change.Subject == "Status.STATUS_PENDING" {
+			sawAddedEnumValue = true
+		}
 	}
-	if !sawAddedService || !sawRemovedService || !sawSignature {
+	if !sawAddedService || !sawRemovedService || !sawSignature || !sawFieldType || !sawFieldNumber || !sawFieldReuse || !sawAddedField || !sawRemovedMessage || !sawAddedMessage || !sawEnumNumber || !sawEnumReuse || !sawAddedEnumValue {
 		t.Fatalf("descriptor changes missing expected added/removed/signature entries: %#v", descriptorReport.Changes)
 	}
 
@@ -626,6 +658,18 @@ service Added { rpc Record(PingReq) returns (PongResp); }
 	}
 	if !breakingReport.HasBreaking() || breakingReport.IsEmpty() {
 		t.Fatalf("breaking report = %#v, want non-empty breaking report", breakingReport)
+	}
+	var sawBreakingField, sawInfoEnum bool
+	for _, change := range breakingReport.Changes {
+		if change.Category == CategoryField && change.Severity == SeverityBreaking && change.Subject == "PingReq.name" {
+			sawBreakingField = true
+		}
+		if change.Category == CategoryEnum && change.Severity == SeverityInfo && change.Subject == "Status.STATUS_PENDING" {
+			sawInfoEnum = true
+		}
+	}
+	if !sawBreakingField || !sawInfoEnum {
+		t.Fatalf("breaking report missing wire contract field/enum changes: %#v", breakingReport.Changes)
 	}
 
 	streamTests := []struct {
@@ -649,15 +693,18 @@ service Added { rpc Record(PingReq) returns (PongResp); }
 	mapped := descriptorCompatibilityToBreakingReport(rpc.DescriptorCompatibilityReport{Changes: []rpc.DescriptorChange{
 		{Category: rpc.DescriptorChangeMethod, Severity: rpc.DescriptorChangeBreaking, Subject: "svc/m", Description: "method removed"},
 		{Category: rpc.DescriptorChangeStream, Severity: rpc.DescriptorChangeWarning, Subject: "svc/s", Description: "stream changed"},
+		{Category: rpc.DescriptorChangeType, Severity: rpc.DescriptorChangeBreaking, Subject: "type", Description: "type removed"},
+		{Category: rpc.DescriptorChangeField, Severity: rpc.DescriptorChangeBreaking, Subject: "type.field", Description: "field removed"},
+		{Category: rpc.DescriptorChangeEnum, Severity: rpc.DescriptorChangeInfo, Subject: "enum.value", Description: "enum added"},
 		{Category: rpc.DescriptorChangeVersion, Severity: rpc.DescriptorChangeInfo, Subject: "svc", Description: "version changed"},
 		{Category: rpc.DescriptorChangeTimeout, Severity: rpc.DescriptorChangeInfo, Subject: "svc/m", Description: "timeout changed"},
 		{Category: rpc.DescriptorChangeCodec, Severity: "custom", Subject: "svc/m", Description: "codec changed"},
 	}})
-	if mapped.Breaking != 1 || mapped.Warnings != 1 || len(mapped.Changes) != 5 {
-		t.Fatalf("mapped descriptor report = %#v, want one breaking and one warning", mapped)
+	if mapped.Breaking != 3 || mapped.Warnings != 1 || len(mapped.Changes) != 8 {
+		t.Fatalf("mapped descriptor report = %#v, want three breaking and one warning", mapped)
 	}
-	wantCategories := []ChangeCategory{CategoryMethod, CategoryStream, CategoryService, CategorySignature, CategoryService}
-	wantSeverities := []ChangeSeverity{SeverityBreaking, SeverityWarning, SeverityInfo, SeverityInfo, SeverityInfo}
+	wantCategories := []ChangeCategory{CategoryMethod, CategoryStream, CategoryType, CategoryField, CategoryEnum, CategoryService, CategorySignature, CategoryService}
+	wantSeverities := []ChangeSeverity{SeverityBreaking, SeverityWarning, SeverityBreaking, SeverityBreaking, SeverityInfo, SeverityInfo, SeverityInfo, SeverityInfo}
 	for i := range mapped.Changes {
 		if mapped.Changes[i].Category != wantCategories[i] || mapped.Changes[i].Severity != wantSeverities[i] {
 			t.Fatalf("mapped change[%d] = %#v, want category %q severity %q", i, mapped.Changes[i], wantCategories[i], wantSeverities[i])

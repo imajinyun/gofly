@@ -4369,7 +4369,7 @@ service Greeter {
 			t.Fatalf("rpc breaking error = %v, want ErrBreakingChanges", err)
 		}
 	})
-	if !strings.Contains(out, "Descriptor compatibility: 1 breaking") || !strings.Contains(out, "greeter.v1.Greeter/Hello response") || !strings.Contains(out, "greeter.v1.Greeter/Health") {
+	if !strings.Contains(out, "Descriptor compatibility: 2 breaking") || !strings.Contains(out, "greeter.v1.Greeter/Hello response") || !strings.Contains(out, "greeter.v1.Greeter/Health") || !strings.Contains(out, "message HelloResp") {
 		t.Fatalf("rpc breaking descriptor output = %s", out)
 	}
 }

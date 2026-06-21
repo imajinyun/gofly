@@ -1,6 +1,7 @@
 package rest
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	stderrors "errors"
@@ -556,6 +557,73 @@ func TestAdminRoutes(t *testing.T) {
 	}
 	if strings.Contains(string(snapshot.Configs["rest.runtime"]), "secret") {
 		t.Fatalf("rest.runtime config leaked admin token: %s", snapshot.Configs["rest.runtime"])
+	}
+}
+
+func TestControlPlaneRuntimeSnapshotGoldenContractAndSemanticDiff(t *testing.T) {
+	rules := governance.NewRuleSet()
+	rules.Replace(governance.Rule{
+		Name:      "orders-policy",
+		Transport: governance.TransportREST,
+		Service:   "orders",
+		Method:    http.MethodGet,
+		Path:      "/orders",
+		Policy:    governance.Policy{Timeout: 2 * time.Second, RateLimit: governance.RateLimitPolicy{Rate: 1, Burst: 1}},
+	})
+	s := MustNewServer(
+		Config{
+			Name:  "orders",
+			Host:  "127.0.0.1",
+			Port:  8088,
+			Admin: AdminConfig{Enabled: true, PathPrefix: "/admin", Token: "secret"},
+		},
+		WithGovernanceRuleSet(rules),
+	)
+	s.AddRoute(Route{Method: http.MethodGet, Path: "/orders", Handler: func(ctx *Context) { ctx.String(http.StatusOK, "ok") }})
+	s.Handler().ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/orders", nil))
+
+	snapshot, err := s.ControlPlaneSnapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var runtimeSnapshot ControlPlaneRuntimeSnapshot
+	if err := json.Unmarshal(snapshot.Configs["rest.runtime"], &runtimeSnapshot); err != nil {
+		t.Fatalf("decode rest.runtime: %v", err)
+	}
+	if runtimeSnapshot.Service != "orders" || runtimeSnapshot.Address != "127.0.0.1:8088" || runtimeSnapshot.AdminPrefix != "/admin" || !runtimeSnapshot.AdminEnabled {
+		t.Fatalf("runtime snapshot = %#v, want stable service/address/admin contract", runtimeSnapshot)
+	}
+	if runtimeSnapshot.Config.Admin.Token != "" || bytes.Contains(snapshot.Configs["rest.runtime"], []byte("secret")) {
+		t.Fatalf("runtime snapshot leaked admin token: %s", snapshot.Configs["rest.runtime"])
+	}
+	if !hasRouteSpec(runtimeSnapshot.Routes, http.MethodGet, "/orders") || !hasRouteSpec(runtimeSnapshot.Routes, http.MethodGet, "/admin/control-plane") {
+		t.Fatalf("runtime routes = %#v, want business and control-plane routes", runtimeSnapshot.Routes)
+	}
+	var cache GovernanceRuntimeCacheSnapshot
+	if err := json.Unmarshal(snapshot.Configs["rest.governance.runtime"], &cache); err != nil {
+		t.Fatalf("decode rest.governance.runtime: %v", err)
+	}
+	if cache.RateLimiters != 1 || len(cache.Keys) != 1 || cache.Keys[0] != "rate:name:orders-policy" {
+		t.Fatalf("governance runtime cache = %#v, want stable rate limiter cache contract", cache)
+	}
+
+	metadataOnly := snapshot
+	metadataOnly.Metadata = map[string]string{
+		"rest.runtime":            "planned",
+		"rest.governance.runtime": "available",
+	}
+	diff := controlplane.DiffSnapshots(metadataOnly, snapshot)
+	if !diff.Changed || diff.ChangeType != "metadata-change" || strings.Join(diff.ChangedFields, ",") != "metadata" {
+		t.Fatalf("metadata diff = %#v, want metadata-only semantic diff", diff)
+	}
+	configChanged := snapshot
+	configChanged.Configs = map[string]json.RawMessage{
+		"rest.runtime":            append(json.RawMessage(nil), snapshot.Configs["rest.runtime"]...),
+		"rest.governance.runtime": []byte(`{"rateLimiters":2}`),
+	}
+	diff = controlplane.DiffSnapshots(snapshot, configChanged)
+	if !diff.Changed || diff.ChangeType != "config-change" || strings.Join(diff.ChangedFields, ",") != "configs" {
+		t.Fatalf("config diff = %#v, want config-only semantic diff", diff)
 	}
 }
 

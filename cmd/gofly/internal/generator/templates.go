@@ -17,6 +17,7 @@ import (
 
 	"github.com/gofly/gofly/app"
 	"github.com/gofly/gofly/core/config"
+	"github.com/gofly/gofly/core/controlplane"
 	"github.com/gofly/gofly/core/governance"
 	"github.com/gofly/gofly/core/proc"
 	"github.com/gofly/gofly/rest"
@@ -24,6 +25,7 @@ import (
 
 	appadmin "{{.Module}}/internal/admin"
 	appconfig "{{.Module}}/internal/config"
+	appdiscovery "{{.Module}}/internal/discovery"
 	appmq "{{.Module}}/internal/mq"
 	apprpc "{{.Module}}/internal/rpc"
 	"{{.Module}}/internal/routes"
@@ -68,10 +70,17 @@ func main() {
 	if c.OpenAPIEnabled() {
 		httpServer.AddOpenAPIRoutes(c.OpenAPIInfo())
 	}
-	registry := rpc.NewRegistry()
+	registry, closeRegistry, err := appdiscovery.NewRegistry(ctx, c.Discovery)
+	if err != nil {
+		slog.Error("setup discovery", "error", err)
+		return
+	}
+	defer func() { _ = closeRegistry(context.Background()) }()
+	registrar := rpc.NewDiscoveryRegistrar(registry, c.Discovery.RegisterOptions()...)
 	rpcOptions := append(serviceConf.RPCServerOptions(),
 		rpc.WithAddress(c.RPC.Addr),
-		rpc.WithRegistry(registry, "greeter", c.RPC.Advertise),
+		rpc.WithRegistry(registrar, "greeter", c.RPC.Advertise),
+		rpc.WithRegistryTTL(c.Discovery.RegistryTTL()),
 		rpc.WithServerGovernanceManager(governanceManager),
 	)
 	rpcServer := rpc.NewServer(rpcOptions...)
@@ -81,7 +90,9 @@ func main() {
 	}
 	servers := []app.Server{httpServer, rpcServer}
 	if c.Admin.Enabled {
-		servers = append(servers, appadmin.NewServer(c.Admin.Addr, c.Admin.PathPrefix, rpcServer, appadmin.WithControlPlaneSnapshot(c.ControlPlaneSnapshot)))
+		servers = append(servers, appadmin.NewServer(c.Admin.Addr, c.Admin.PathPrefix, rpcServer, appadmin.WithControlPlaneSnapshot(func(ctx context.Context) (controlplane.Snapshot, error) {
+			return c.ControlPlaneSnapshotWithDiscovery(ctx, registry)
+		})))
 	}
 	governanceManager.StartAsync(ctx, func(err error) { slog.Warn("governance manager stopped", "error", err) })
 	go func() {

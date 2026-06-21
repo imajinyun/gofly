@@ -222,10 +222,109 @@ assert action["action"]=="full-reconcile", "watch mixed change should map to ful
 assert action["requiresFullReconcile"] is True, "watch mixed change should require full reconcile"
 print("AI control-plane watch event OK")
 '
+	runtime_snapshot="$tmp/runtime-control-plane.json"
+	python3 - "$runtime_snapshot" <<'PY'
+import json,sys
+snapshot={
+    "version":"gofly-control-plane.v1",
+    "metadata":{"rest.runtime":"available","rest.governance.runtime":"available"},
+    "configs":{"rest.runtime":{"service":"runtime","address":"127.0.0.1:8080"}}
+}
+with open(sys.argv[1], "w", encoding="utf-8") as f:
+    json.dump(snapshot, f)
+PY
+	python3 -m http.server 0 --bind 127.0.0.1 --directory "$tmp" >"$tmp/control-plane-http.log" 2>&1 &
+	cp_pid="$!"
+	python3 - "$tmp/control-plane-http.log" >"$tmp/control-plane-http-port" <<'PY'
+import re,sys,time
+log=sys.argv[1]
+for _ in range(50):
+    try:
+        text=open(log, encoding="utf-8").read()
+    except FileNotFoundError:
+        text=""
+    match=re.search(r"port (\d+)", text)
+    if match:
+        print(match.group(1))
+        raise SystemExit(0)
+    time.sleep(0.1)
+raise SystemExit("http server did not report a port")
+PY
+	cp_port="$(cat "$tmp/control-plane-http-port")"
+	"$go_cmd" run ./cmd/gofly ai control-plane --source "http://127.0.0.1:$cp_port/runtime-control-plane.json" --watch --max-events 1 --timeout 2s --json 2>/dev/null | python3 -c '
+import json,sys
+lines=[line for line in sys.stdin.read().splitlines() if line.strip()]
+assert len(lines)==1, "expected 1 runtime control-plane event, got %d" % (len(lines),)
+d=json.loads(lines[0])
+data=d["data"]
+assert data["source"].startswith("http://127.0.0.1:"), "unexpected runtime source %r" % (data["source"],)
+assert data["snapshot"]["metadata"]["rest.runtime"]=="available", "runtime source missing REST metadata"
+assert data["snapshot"]["checksum"], "runtime source checksum should be non-empty"
+print("AI runtime control-plane source watch OK")
+'
+	kill "$cp_pid" 2>/dev/null || true
+	wait "$cp_pid" 2>/dev/null || true
 }
 
 round_generated_project_matrix_tests() {
 	"$go_cmd" test $testflags ./cmd/gofly/internal/command -run 'TestAINewGeneratedProjectVerificationMatrix_BitsUT'
+}
+
+round_generated_project_control_plane_smoke() {
+	project="$tmp/control-plane-smoke"
+	"$go_cmd" run ./cmd/gofly ai new --template go-rest-minimal --name smoke --module example.com/smoke --dir "$project" --apply --json >/dev/null
+	port="$(python3 -c 'import socket
+s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')"
+	python3 - "$project/etc/smoke.json" "$port" <<'PY'
+import json,sys
+path,port=sys.argv[1],int(sys.argv[2])
+with open(path, encoding="utf-8") as f:
+    data=json.load(f)
+data.setdefault("rest", {})["host"]="127.0.0.1"
+data["rest"]["port"]=port
+data["rest"]["admin"]={"enabled": True, "pathPrefix": "/admin", "token": "smoke-token"}
+data.setdefault("service", {}).setdefault("trace", {}).pop("sampler", None)
+with open(path, "w", encoding="utf-8") as f:
+    json.dump(data, f)
+PY
+	(
+		cd "$project"
+		"$go_cmd" mod edit -replace github.com/gofly/gofly="$root"
+		"$go_cmd" mod tidy
+	)
+	(
+		cd "$project"
+		"$go_cmd" run ./cmd/smoke
+	) >"$tmp/control-plane-smoke.log" 2>&1 &
+	pid="$!"
+	cleanup_smoke() {
+		kill "$pid" 2>/dev/null || true
+		wait "$pid" 2>/dev/null || true
+	}
+	trap 'cleanup_smoke; chmod -R u+w "$tmp" 2>/dev/null || true; rm -rf "$tmp"' EXIT INT TERM
+	python3 - "$port" <<'PY'
+import json,sys,time,urllib.request
+url=f"http://127.0.0.1:{sys.argv[1]}/admin/control-plane"
+last=None
+for _ in range(60):
+    try:
+        req=urllib.request.Request(url, headers={"Authorization":"Bearer smoke-token"})
+        with urllib.request.urlopen(req, timeout=1) as resp:
+            data=json.load(resp)
+        assert data["version"]=="gofly-control-plane.v1", data
+        assert data["checksum"], data
+        assert data["metadata"]["rest.runtime"]=="available", data
+        assert data["metadata"]["rest.governance.runtime"]=="available", data
+        assert "rest.runtime" in data["configs"], data
+        print("Generated project REST admin control-plane smoke OK")
+        raise SystemExit(0)
+    except Exception as exc:
+        last=exc
+        time.sleep(1)
+raise SystemExit(f"control-plane smoke failed: {last}")
+PY
+	cleanup_smoke
+	trap 'chmod -R u+w "$tmp" 2>/dev/null || true; rm -rf "$tmp"' EXIT INT TERM
 }
 
 round_coverage_check() {
@@ -284,6 +383,7 @@ printf 'GOSEC_FLAGS=%s\n' "$gosec_flags"
 printf 'COVERAGE_THRESHOLD=%s\n' "$coverage_threshold"
 printf 'COVERAGE_RATCHET=%s\n' "$coverage_ratchet"
 printf 'GOVERNANCE_SKIP_GENERATED_MATRIX=%s\n' "${GOVERNANCE_SKIP_GENERATED_MATRIX:-false}"
+printf 'GOVERNANCE_SKIP_GENERATED_CONTROL_PLANE_SMOKE=%s\n' "${GOVERNANCE_SKIP_GENERATED_CONTROL_PLANE_SMOKE:-false}"
 
 run_round 1 "baseline and module graph" round_baseline
 run_round 2 "format check" round_format_check
@@ -308,7 +408,13 @@ if [ "${GOVERNANCE_SKIP_GENERATED_MATRIX:-false}" = "true" ]; then
 else
 	assert_go_tests_match ./cmd/gofly/internal/command 'TestAINewGeneratedProjectVerificationMatrix_BitsUT' 1
 	run_round 11 "generated project verification matrix" round_generated_project_matrix_tests
+	if [ "${GOVERNANCE_SKIP_GENERATED_CONTROL_PLANE_SMOKE:-false}" = "true" ]; then
+		printf '\n== Round 12: generated project runtime control-plane smoke ==\n'
+		printf 'skipped because GOVERNANCE_SKIP_GENERATED_CONTROL_PLANE_SMOKE=true\n'
+	else
+		run_round 12 "generated project runtime control-plane smoke" round_generated_project_control_plane_smoke
+	fi
 fi
-run_round 12 "docs, coverage, security, and final package listing" round_final_convergence
+run_round 13 "docs, coverage, security, and final package listing" round_final_convergence
 
 printf '\nGovernance workflow completed successfully.\n'

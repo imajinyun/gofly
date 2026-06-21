@@ -20,6 +20,22 @@ Gin is a focused HTTP router. gofly adds code generation, runtime governance, RP
 4. Move cross-cutting behavior into middleware or `etc/governance.json`.
 5. Add OpenAPI metadata to routes and verify `/openapi.json`.
 
+## Validation gates
+
+Run these before merging the migration branch:
+
+```sh
+make examples-copyable-check
+make docs-check
+go test ./...
+```
+
+For route-level parity, replay sampled requests against the old Gin route and the new gofly route, then compare status codes, JSON field names, and error bodies.
+
+## Rollback plan
+
+Keep the Gin route registered until the gofly route has passed canary traffic. Roll back by sending traffic to the old Gin route; do not delete old middleware until governance policy and metrics have equivalent coverage.
+
 ## Demo path
 
 Start with the standalone REST demo:

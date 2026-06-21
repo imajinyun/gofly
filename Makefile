@@ -187,13 +187,17 @@ examples-smoke: ## Run runnable example smoke tests and machine-readable output 
 	sh $(SCRIPTS_DIR)/examples-smoke.sh
 
 .PHONY: docs-check
-docs-check: docs-link-check docs-taxonomy-check contract-docs-check ## Compile Go code blocks in Markdown docs
+docs-check: docs-link-check docs-taxonomy-check migration-docs-check contract-docs-check ## Compile Go code blocks in Markdown docs
 	$(GO) env GOMOD >/dev/null
 	sh $(SCRIPTS_DIR)/check-doc-go-snippets.sh
 
 .PHONY: docs-taxonomy-check
 docs-taxonomy-check: ## Validate Tutorial / How-to / Reference / Explanation navigation
 	sh $(SCRIPTS_DIR)/check-doc-taxonomy.sh
+
+.PHONY: migration-docs-check
+migration-docs-check: ## Validate case studies and migration guide structure
+	sh $(SCRIPTS_DIR)/check-migration-docs.sh
 
 .PHONY: contract-docs-check
 contract-docs-check: ## Validate stable CLI JSON and control-plane contract docs

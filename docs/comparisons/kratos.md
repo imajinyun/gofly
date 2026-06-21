@@ -21,6 +21,22 @@ Kratos is a cloud-native application framework. gofly is more opinionated around
 4. Move service discovery configuration into gofly discovery config.
 5. Verify observability and admin endpoints before release.
 
+## Validation gates
+
+Run these for each migrated service boundary:
+
+```sh
+make examples-copyable-check
+make docs-check
+go test ./...
+```
+
+For multi-service migrations, also capture the gateway or service topology output and compare it with the expected dependency graph.
+
+## Rollback plan
+
+Keep Kratos app wiring intact until gofly owns the same lifecycle hooks, health checks, and discovery registration. Roll back by restoring the previous deployment target and keeping shared domain services unchanged.
+
 ## Demo path
 
 Use the multi-service microshop demo to map app lifecycle, gateway, and control-plane visibility:

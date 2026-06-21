@@ -20,6 +20,23 @@ go-zero and gofly both value generated services. gofly keeps the generated-servi
 4. Replace hard-coded upstream addresses with discovery config.
 5. Run `go test ./...` and verify `/admin/control-plane`.
 
+## Validation gates
+
+Run these before switching traffic:
+
+```sh
+make examples-copyable-check
+make docs-check
+go test ./...
+gofly release check --strict
+```
+
+Compare `.api`-derived routes with generated OpenAPI output, then capture `/admin/control-plane` from staging to confirm governance and discovery state.
+
+## Rollback plan
+
+Keep the go-zero service and gofly service addressable through discovery during the first rollout. Roll back by pointing discovery or gateway routing to the go-zero endpoint while preserving request and response schemas.
+
 ## Demo path
 
 Use the production orders example as the closest generated-service shape:

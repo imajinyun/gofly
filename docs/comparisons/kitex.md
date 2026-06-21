@@ -20,6 +20,23 @@ Kitex is a high-performance RPC framework. gofly does not try to replace special
 4. Add benchmark rows before and after migration using `make bench-stat`.
 5. Keep Kitex as an optional benchmark extension if your repo already has generated Kitex fixtures.
 
+## Validation gates
+
+Run these before moving any latency-sensitive method:
+
+```sh
+make examples-copyable-check
+make docs-check
+BENCH_PATTERN=BenchmarkRPCUnary make bench-stat
+make bench-evidence-check
+```
+
+Do not migrate a hot RPC path unless benchmark and production telemetry show that the governance and control-plane benefits justify the overhead.
+
+## Rollback plan
+
+Keep Kitex as the serving path for latency-critical methods until gofly RPC or gRPC behavior matches contract, error, and latency expectations. Roll back by routing the method back to Kitex and retaining gofly for REST ingress, governance, or non-hot-path services.
+
 ## Demo path
 
 Use the RPC demo for lightweight RPC behavior and the benchmark matrix for performance evidence:

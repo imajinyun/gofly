@@ -69,6 +69,8 @@ This makes the documentation path executable instead of a loose set of pages.
 - [Kratos migration](comparisons/kratos.md)
 - [Kitex migration](comparisons/kitex.md)
 
+Each migration guide includes mapping, validation gates, and rollback criteria so teams can move one route or service boundary at a time.
+
 ## Case studies
 
 - [Build a governed orders service](case-studies/build-orders-service.md)

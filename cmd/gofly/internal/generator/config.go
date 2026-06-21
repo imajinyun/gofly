@@ -41,6 +41,7 @@ type Config struct {
 // RPCConfig 为 RPC 生成保存默认参数。
 type RPCConfig struct {
 	Transport string   `json:"transport,omitempty"`
+	Profile   string   `json:"profile,omitempty"`
 	Includes  []string `json:"includes,omitempty"`
 	Plugins   []string `json:"plugins,omitempty"`
 	Standard  bool     `json:"standard,omitempty"`
@@ -84,7 +85,7 @@ func DefaultConfig(service, module string) *Config {
 		Features:     DefaultConfigFeatures(),
 		Dependencies: map[string]string{},
 		Extra:        map[string]string{},
-		RPC:          &RPCConfig{Transport: "grpc"},
+		RPC:          &RPCConfig{Transport: "grpc", Profile: string(ProfileGoflyAI)},
 		API:          &APIConfig{},
 		Model:        &ModelConfig{TypesMap: map[string]string{}},
 		LLM:          &LLMConfig{Provider: "noop", Model: "noop"},
@@ -127,6 +128,12 @@ func ApplyEnvOverlay(cfg *Config) {
 	if v := os.Getenv("GOFLY_SERVICE_NAME"); v != "" {
 		cfg.ServiceName = v
 	}
+	if v := os.Getenv("GOFLY_RPC_PROFILE"); v != "" {
+		if cfg.RPC == nil {
+			cfg.RPC = &RPCConfig{}
+		}
+		cfg.RPC.Profile = v
+	}
 }
 
 func splitEnvList(value string) []string {
@@ -168,7 +175,10 @@ func LoadConfig(path string) (*Config, error) {
 		cfg.Extra = map[string]string{}
 	}
 	if cfg.RPC == nil {
-		cfg.RPC = &RPCConfig{Transport: "grpc"}
+		cfg.RPC = &RPCConfig{Transport: "grpc", Profile: string(ProfileGoflyAI)}
+	}
+	if cfg.RPC.Profile == "" {
+		cfg.RPC.Profile = string(ProfileGoflyAI)
 	}
 	if cfg.API == nil {
 		cfg.API = &APIConfig{}

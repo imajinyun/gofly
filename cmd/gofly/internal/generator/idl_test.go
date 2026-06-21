@@ -3828,7 +3828,7 @@ func TestValidIdentifier(t *testing.T) {
 
 func TestDefaultConfigAndLoadConfig(t *testing.T) {
 	cfg := DefaultConfig("svc", "example.com/svc")
-	if cfg.ServiceName != "svc" || cfg.Module != "example.com/svc" {
+	if cfg.ServiceName != "svc" || cfg.Module != "example.com/svc" || cfg.RPC == nil || cfg.RPC.Profile != string(ProfileGoflyAI) {
 		t.Fatalf("DefaultConfig = %+v", cfg)
 	}
 	features := DefaultConfigFeatures()
@@ -3872,6 +3872,9 @@ func TestDefaultConfigAndLoadConfig(t *testing.T) {
 	}
 	if cfg4.ServiceName != "x" {
 		t.Fatalf("LoadConfig good = %+v", cfg4)
+	}
+	if cfg4.RPC == nil || cfg4.RPC.Profile != string(ProfileGoflyAI) {
+		t.Fatalf("LoadConfig default rpc profile = %+v, want gofly-ai", cfg4.RPC)
 	}
 
 	if cfg4.String() == "" {

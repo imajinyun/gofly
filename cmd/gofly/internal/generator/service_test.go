@@ -294,6 +294,7 @@ func TestApplyEnvOverlay(t *testing.T) {
 	t.Setenv("GOFLY_TEMPLATE_REMOTE", "https://example.com/templates.git")
 	t.Setenv("GOFLY_TEMPLATE_BRANCH", "main")
 	t.Setenv("GOFLY_FEATURES", " http-compat, ,rpc-compat ")
+	t.Setenv("GOFLY_RPC_PROFILE", string(ProfileKitexCompatible))
 
 	cfg := &Config{
 		ServiceName:    "filesvc",
@@ -314,6 +315,9 @@ func TestApplyEnvOverlay(t *testing.T) {
 	}
 	if strings.Join(cfg.Features, ",") != "http-compat,rpc-compat" {
 		t.Fatalf("features overlay = %v, want http-compat,rpc-compat", cfg.Features)
+	}
+	if cfg.RPC == nil || cfg.RPC.Profile != string(ProfileKitexCompatible) {
+		t.Fatalf("rpc profile overlay = %#v, want kitex-compatible", cfg.RPC)
 	}
 }
 
@@ -493,6 +497,22 @@ func TestGenerateNewServiceVariantsBoundaries(t *testing.T) {
 	if !strings.Contains(string(protoData), "package greeter;") || strings.Contains(string(protoData), "package greeter.v1;") {
 		t.Fatalf("generated rpc proto package not normalized:\n%s", protoData)
 	}
+
+	kitexDir := filepath.Join(t.TempDir(), "kitex-rpc")
+	if err := GenerateRPCNew(RPCNewOptions{Name: "Greeter", Module: "example.com/greeter", Dir: kitexDir, Profile: string(ProfileKitexCompatible)}); err != nil {
+		t.Fatalf("GenerateRPCNew kitex-compatible: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(kitexDir, "internal", "compat", "kitex", "adapter.go")); err != nil {
+		t.Fatalf("GenerateRPCNew kitex-compatible adapter: %v", err)
+	}
+	kitexProtoData, err := os.ReadFile(filepath.Join(kitexDir, "Greeter.proto"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(kitexProtoData), "package greeter;") || strings.Contains(string(kitexProtoData), "package greeter.v1;") {
+		t.Fatalf("generated kitex-compatible rpc proto package not normalized:\n%s", kitexProtoData)
+	}
+	assertGeneratedProjectCompiles(t, kitexDir)
 }
 
 func TestGenerateMigrationBoundaries(t *testing.T) {
@@ -1635,6 +1655,40 @@ func TestGenerateServiceScaffoldGoZeroCompatibleLayeredOutput(t *testing.T) {
 		}
 	}
 
+	assertGeneratedProjectCompiles(t, dir)
+}
+
+func TestGenerateServiceScaffoldKitexCompatibleAdapter(t *testing.T) {
+	dir := t.TempDir()
+	if err := GenerateServiceScaffold(ServiceScaffoldOptions{
+		Name:    "greeter",
+		Module:  "example.com/greeter",
+		Dir:     dir,
+		Style:   ServiceStyleMinimal,
+		Profile: string(ProfileKitexCompatible),
+		Kind:    "rpc",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	adapterPath := filepath.Join(dir, "internal", "compat", "kitex", "adapter.go")
+	adapterData, err := os.ReadFile(adapterPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"package kitex",
+		"type Endpoint func(context.Context, any) (any, error)",
+		"func Method(name string, newRequest func() any, endpoint Endpoint, opts ...MethodOption) rpc.MethodDesc",
+		"func Service(name string, methods ...rpc.MethodDesc) rpc.ServiceDesc",
+	} {
+		if !strings.Contains(string(adapterData), want) {
+			t.Fatalf("kitex-compatible adapter missing %q:\n%s", want, adapterData)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "greeter.proto")); err != nil {
+		t.Fatalf("kitex-compatible rpc scaffold should include proto contract: %v", err)
+	}
 	assertGeneratedProjectCompiles(t, dir)
 }
 

@@ -178,7 +178,7 @@ func TestExecuteNestedColoredHelp(t *testing.T) {
 		{
 			name: "rpc gen trailing help",
 			args: []string{"rpc", "gen", "--help"},
-			want: []string{"Generate gofly/gRPC service code", "\x1b[95mrpc gen --src", "--timeout <duration>"},
+			want: []string{"Generate gofly/gRPC service code", "\x1b[95mrpc gen --src", "--profile <profile>", "--timeout <duration>"},
 		},
 		{
 			name: "rpc check positional file before help",
@@ -802,6 +802,33 @@ func TestExecuteRPCGenWithGoflyTransportSupportsStreamingAndOptions(t *testing.T
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("generated gofly streaming/options code missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestExecuteRPCGenWithKitexCompatibleProfileEnablesGovernanceHelpers(t *testing.T) {
+	dir := t.TempDir()
+	protoPath := filepath.Join(dir, "chat.proto")
+	if err := os.WriteFile(protoPath, []byte(commandStreamingProto), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outDir := filepath.Join(dir, "out")
+	if err := Execute([]string{"rpc", "gen", "--file", protoPath, "--dir", outDir, "--package", "chatv1", "--transport", "gofly", "--profile", "kitex-compatible"}); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(outDir, "chat.gofly.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := string(data)
+	for _, want := range []string{
+		"func ChatInterceptorChain(middlewares ...endpoint.Middleware) endpoint.Middleware",
+		"func WithChatKitexInterceptors(interceptors ...rpc.KitexInterceptor) ChatServerOption",
+		"func ChatKitexEndpointChain(middlewares ...rpc.KitexMiddleware) rpc.KitexMiddleware",
+		"func ChatObservabilityInterceptor(name string) rpc.KitexInterceptor",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("generated kitex-compatible gofly code missing %q:\n%s", want, out)
 		}
 	}
 }
@@ -3324,6 +3351,46 @@ func TestExecuteRPCNew(t *testing.T) {
 	}
 }
 
+func TestExecuteRPCNewWithKitexCompatibleProfile(t *testing.T) {
+	dir := t.TempDir()
+	if err := Execute([]string{"rpc", "new", "greeter", "--module", "example.com/greeter", "--dir", dir, "--profile", "kitex-compatible"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "internal", "compat", "kitex", "adapter.go")); err != nil {
+		t.Fatalf("expected kitex-compatible adapter: %v", err)
+	}
+	cfg, err := generator.LoadConfig(filepath.Join(dir, generator.DefaultConfigFile))
+	if err != nil {
+		t.Fatalf("load generated config: %v", err)
+	}
+	if cfg.RPC == nil || cfg.RPC.Profile != string(generator.ProfileKitexCompatible) {
+		t.Fatalf("generated rpc profile = %#v, want kitex-compatible", cfg.RPC)
+	}
+}
+
+func TestExecuteRPCNewUsesConfigProfileDefault(t *testing.T) {
+	dir := t.TempDir()
+	cfg := generator.DefaultConfig("greeter", "example.com/greeter")
+	cfg.RPC.Profile = string(generator.ProfileKitexCompatible)
+	if err := generator.SaveConfig(filepath.Join(dir, generator.DefaultConfigFile), cfg); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+
+	if err := Execute([]string{"rpc", "new", "--config", filepath.Join(dir, generator.DefaultConfigFile), "--dir", dir}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "internal", "compat", "kitex", "adapter.go")); err != nil {
+		t.Fatalf("expected kitex-compatible adapter from config profile: %v", err)
+	}
+	got, err := generator.LoadConfig(filepath.Join(dir, generator.DefaultConfigFile))
+	if err != nil {
+		t.Fatalf("reload config: %v", err)
+	}
+	if got.RPC == nil || got.RPC.Profile != string(generator.ProfileKitexCompatible) {
+		t.Fatalf("persisted rpc profile = %#v, want kitex-compatible", got.RPC)
+	}
+}
+
 func TestExecuteRPCNewAcceptsGoctlReservedFlags(t *testing.T) {
 	dir := t.TempDir()
 	if err := Execute([]string{
@@ -5815,7 +5882,7 @@ func TestGetConfigFieldAllKeys(t *testing.T) {
 		TemplateDir: "/tmpl",
 		GoVersion:   "1.22",
 		Features:    []string{"a", "b"},
-		RPC:         &generator.RPCConfig{Plugins: []string{"p1"}, Transport: "grpc"},
+		RPC:         &generator.RPCConfig{Plugins: []string{"p1"}, Transport: "grpc", Profile: string(generator.ProfileKitexCompatible)},
 		API:         &generator.APIConfig{Plugins: []string{"p2"}},
 		Model: &generator.ModelConfig{
 			Style:         "gorm",
@@ -5846,6 +5913,8 @@ func TestGetConfigFieldAllKeys(t *testing.T) {
 		{"rpc-plugins", "p1"},
 		{"rpc.transport", "grpc"},
 		{"rpc-transport", "grpc"},
+		{"rpc.profile", string(generator.ProfileKitexCompatible)},
+		{"rpc-profile", string(generator.ProfileKitexCompatible)},
 		{"api.plugins", "p2"},
 		{"api-plugins", "p2"},
 		{"model.style", "gorm"},
@@ -5874,6 +5943,9 @@ func TestGetConfigFieldNilSubstructs(t *testing.T) {
 	cfg := &generator.Config{ServiceName: "svc"}
 	if got := getConfigField(cfg, "rpc.plugins"); got != "" {
 		t.Fatalf("nil rpc.plugins = %q, want empty", got)
+	}
+	if got := getConfigField(cfg, "rpc.profile"); got != "" {
+		t.Fatalf("nil rpc.profile = %q, want empty", got)
 	}
 	if got := getConfigField(cfg, "api.plugins"); got != "" {
 		t.Fatalf("nil api.plugins = %q, want empty", got)
@@ -5945,6 +6017,13 @@ func TestSetConfigFieldAllKeys(t *testing.T) {
 	}
 	if cfg.RPC.Transport != "grpc" {
 		t.Fatalf("RPC.Transport = %q", cfg.RPC.Transport)
+	}
+
+	if err := setConfigField(cfg, "rpc.profile", string(generator.ProfileKitexCompatible)); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.RPC.Profile != string(generator.ProfileKitexCompatible) {
+		t.Fatalf("RPC.Profile = %q", cfg.RPC.Profile)
 	}
 
 	if err := setConfigField(cfg, "api.plugins", "p3"); err != nil {

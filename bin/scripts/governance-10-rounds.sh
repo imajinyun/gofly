@@ -140,7 +140,13 @@ assert cp["schemaId"]=="https://gofly.dev/schemas/ai-control-plane.schema.json",
 assert cp["schemaCommand"]=="gofly ai control-plane --schema jsonschema", "unexpected control-plane schema command %r" % (cp,)
 assert cp["schemaChecksum"]==sys.argv[1], "manifest schema checksum should match schema output"
 assert "generated project control-plane contributors for scaffold contract, sanitized runtime config and governance policy snapshots" in cp["capabilities"], "manifest missing generated project control-plane capability"
+assert "native REST admin control-plane endpoint with pluggable runtime contributors and sanitized REST runtime snapshots" in cp["capabilities"], "manifest missing native REST control-plane capability"
+assert "control-plane contributor for REST governance runtime cache counts across rate limiters, concurrency limiters and breakers" in cp["capabilities"], "manifest missing REST governance runtime cache capability"
+assert "ai new --apply --verify runs generated project control-plane snapshot assertions when the scaffold exposes a snapshot contract test" in cp["capabilities"], "manifest missing generated project control-plane verify capability"
 assert cp["defaultMetadata"]["generated.project.contract"]=="available", "manifest missing generated project default metadata"
+assert cp["defaultMetadata"]["generated.project.verify.controlplane"]=="available", "manifest missing generated project verify metadata"
+assert cp["defaultMetadata"]["rest.runtime"]=="available", "manifest missing REST runtime metadata"
+assert cp["defaultMetadata"]["rest.governance.runtime"]=="available", "manifest missing REST governance runtime metadata"
 print("AI control-plane schema checksum OK")
 ' "$control_plane_schema_checksum"
 	"$go_cmd" run ./cmd/gofly ai control-plane --json 2>/dev/null | python3 -c '
@@ -154,6 +160,9 @@ assert data["source"]=="ai-manifest", "unexpected control-plane source %r" % (da
 assert snapshot["version"]=="gofly-control-plane.v1", "unexpected snapshot version %r" % (snapshot["version"],)
 assert snapshot["checksum"], "snapshot checksum should be non-empty"
 assert snapshot["metadata"]["generated.project.contract"]=="available", "snapshot missing generated project contract metadata"
+assert snapshot["metadata"]["generated.project.verify.controlplane"]=="available", "snapshot missing generated project verify metadata"
+assert snapshot["metadata"]["rest.runtime"]=="available", "snapshot missing REST runtime metadata"
+assert snapshot["metadata"]["rest.governance.runtime"]=="available", "snapshot missing REST governance runtime metadata"
 assert data["diff"]["changeType"]=="initial-snapshot", "unexpected snapshot diff %r" % (data["diff"],)
 action=data["consumerAction"]
 assert action["changeType"]=="initial-snapshot", "unexpected snapshot consumer change type %r" % (action,)

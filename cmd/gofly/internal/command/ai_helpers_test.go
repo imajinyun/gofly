@@ -906,8 +906,8 @@ func TestAINewPlansAndAppliesSelectedTemplate(t *testing.T) {
 					t.Fatalf("verification check failed: %+v\n%s", check, stdout.String())
 				}
 			}
-			if strings.Join(gotCommands, ",") != "gofmt:passed,go mod tidy:passed,go test ./...:passed,go vet ./...:passed" {
-				t.Fatalf("verification commands = %v, want gofmt/go mod tidy/go test/go vet passed", gotCommands)
+			if strings.Join(gotCommands, ",") != "gofmt:passed,go mod tidy:passed,go test ./...:passed,go vet ./...:passed,control-plane snapshot:passed" {
+				t.Fatalf("verification commands = %v, want gofmt/go mod tidy/go test/go vet/control-plane snapshot passed", gotCommands)
 			}
 		})
 	})
@@ -1169,8 +1169,17 @@ func TestAINewTextHelpAndManifestContract_BitsUT(t *testing.T) {
 		if !commandContainsString(controlPlane.Capabilities, "control-plane contributor for rpc policy runtime state, cache counts and enforcement capabilities") {
 			t.Fatalf("control plane capabilities = %+v, want rpc policy runtime contributor", controlPlane.Capabilities)
 		}
+		if !commandContainsString(controlPlane.Capabilities, "native REST admin control-plane endpoint with pluggable runtime contributors and sanitized REST runtime snapshots") {
+			t.Fatalf("control plane capabilities = %+v, want native REST admin control-plane contributor", controlPlane.Capabilities)
+		}
+		if !commandContainsString(controlPlane.Capabilities, "control-plane contributor for REST governance runtime cache counts across rate limiters, concurrency limiters and breakers") {
+			t.Fatalf("control plane capabilities = %+v, want REST governance runtime cache contributor", controlPlane.Capabilities)
+		}
 		if !commandContainsString(controlPlane.Capabilities, "generated project control-plane contributors for scaffold contract, sanitized runtime config and governance policy snapshots") || controlPlane.DefaultMetadata["generated.project.contract"] != "available" {
 			t.Fatalf("control plane capabilities/metadata = %+v/%+v, want generated project control-plane contract", controlPlane.Capabilities, controlPlane.DefaultMetadata)
+		}
+		if !commandContainsString(controlPlane.Capabilities, "ai new --apply --verify runs generated project control-plane snapshot assertions when the scaffold exposes a snapshot contract test") || controlPlane.DefaultMetadata["generated.project.verify.controlplane"] != "available" || controlPlane.DefaultMetadata["rest.runtime"] != "available" || controlPlane.DefaultMetadata["rest.governance.runtime"] != "available" {
+			t.Fatalf("control plane capabilities/metadata = %+v/%+v, want REST runtime and generated verify control-plane metadata", controlPlane.Capabilities, controlPlane.DefaultMetadata)
 		}
 		if len(controlPlane.ConsumerActions) == 0 {
 			t.Fatalf("control plane manifest missing consumer actions: %+v", controlPlane)
@@ -1670,35 +1679,35 @@ func TestAINewGeneratedProjectVerificationMatrix_BitsUT(t *testing.T) {
 			{
 				name:                  "hello",
 				template:              "go-rest-minimal",
-				wantVerify:            []string{"gofmt", "go mod tidy", "go test ./...", "go vet ./..."},
+				wantVerify:            []string{"gofmt", "go mod tidy", "go test ./...", "go vet ./...", "control-plane snapshot"},
 				wantFiles:             []string{"go.mod", filepath.Join("cmd", "hello", "main.go"), filepath.Join("docs", "openapi.yaml"), filepath.Join("internal", "observability", "observability.go")},
 				wantGeneratedFeatures: []string{"observability", "openapi"},
 			},
 			{
 				name:                  "orders",
 				template:              "go-rest-clean-postgres",
-				wantVerify:            []string{"gofmt", "go mod tidy", "go test ./...", "go vet ./..."},
+				wantVerify:            []string{"gofmt", "go mod tidy", "go test ./...", "go vet ./...", "control-plane snapshot"},
 				wantFiles:             []string{"go.mod", filepath.Join("cmd", "orders", "main.go"), filepath.Join("internal", "repository", "postgres.go"), filepath.Join("migrations", "000001_init.sql")},
 				wantGeneratedFeatures: []string{"ci-docker", "observability", "openapi", "postgres-repository"},
 			},
 			{
 				name:                  "greeter",
 				template:              "go-rpc-grpc",
-				wantVerify:            []string{"gofmt", "go mod tidy", "go test ./...", "go vet ./..."},
+				wantVerify:            []string{"gofmt", "go mod tidy", "go test ./...", "go vet ./...", "control-plane snapshot"},
 				wantFiles:             []string{"go.mod", filepath.Join("cmd", "greeter", "main.go"), filepath.Join("internal", "observability", "observability.go"), "Dockerfile"},
 				wantGeneratedFeatures: []string{"ci-docker", "observability"},
 			},
 			{
 				name:                  "worker",
 				template:              "go-worker-mq",
-				wantVerify:            []string{"gofmt", "go mod tidy", "go test ./...", "go vet ./..."},
+				wantVerify:            []string{"gofmt", "go mod tidy", "go test ./...", "go vet ./...", "control-plane snapshot"},
 				wantFiles:             []string{"go.mod", filepath.Join("cmd", "worker", "main.go"), filepath.Join("internal", "observability", "observability.go"), filepath.Join("internal", "worker", "worker.go")},
 				wantGeneratedFeatures: []string{"observability", "queue-worker"},
 			},
 			{
 				name:                  "tool",
 				template:              "go-cli-cobra",
-				wantVerify:            []string{"gofmt", "go mod tidy", "go test ./..."},
+				wantVerify:            []string{"gofmt", "go mod tidy", "go test ./...", "control-plane snapshot"},
 				wantFiles:             []string{"go.mod", filepath.Join("cmd", "tool", "main.go"), filepath.Join("internal", "config", "config.go"), filepath.Join("internal", "service", "ping.go")},
 				wantGeneratedFeatures: nil,
 			},
@@ -1712,14 +1721,14 @@ func TestAINewGeneratedProjectVerificationMatrix_BitsUT(t *testing.T) {
 			{
 				name:                  "rag",
 				template:              "go-rag-service",
-				wantVerify:            []string{"gofmt", "go mod tidy", "go test ./...", "go vet ./..."},
+				wantVerify:            []string{"gofmt", "go mod tidy", "go test ./...", "go vet ./...", "control-plane snapshot"},
 				wantFiles:             []string{"go.mod", filepath.Join("cmd", "rag", "main.go"), filepath.Join("internal", "ai", "rag.go"), filepath.Join("internal", "observability", "observability.go")},
 				wantGeneratedFeatures: []string{"observability", "rag-agent"},
 			},
 			{
 				name:                  "agent",
 				template:              "go-ai-agent",
-				wantVerify:            []string{"gofmt", "go mod tidy", "go test ./...", "gofly ai doctor --json", "go vet ./..."},
+				wantVerify:            []string{"gofmt", "go mod tidy", "go test ./...", "gofly ai doctor --json", "go vet ./...", "control-plane snapshot"},
 				wantFiles:             []string{"go.mod", filepath.Join("cmd", "agent", "main.go"), filepath.Join("internal", "ai", "rag.go"), filepath.Join("internal", "observability", "observability.go")},
 				wantGeneratedFeatures: []string{"observability", "rag-agent"},
 			},
@@ -1757,8 +1766,12 @@ func TestAINewGeneratedProjectVerificationMatrix_BitsUT(t *testing.T) {
 				if !envelope.Data.VerifyRan || !envelope.Data.VerifyPassed {
 					t.Fatalf("ai new %s verification flags = ran:%v passed:%v\n%s", tt.template, envelope.Data.VerifyRan, envelope.Data.VerifyPassed, stdout.String())
 				}
-				if got := strings.Join(envelope.Data.Verify, ","); got != strings.Join(tt.wantVerify, ",") {
-					t.Fatalf("ai new %s verify commands = %q, want %q", tt.template, got, strings.Join(tt.wantVerify, ","))
+				declaredVerify := tt.wantVerify
+				if len(declaredVerify) > 0 && declaredVerify[len(declaredVerify)-1] == "control-plane snapshot" {
+					declaredVerify = declaredVerify[:len(declaredVerify)-1]
+				}
+				if got := strings.Join(envelope.Data.Verify, ","); got != strings.Join(declaredVerify, ",") {
+					t.Fatalf("ai new %s verify commands = %q, want %q", tt.template, got, strings.Join(declaredVerify, ","))
 				}
 				verification := make([]string, 0, len(envelope.Data.Verification))
 				for _, check := range envelope.Data.Verification {
@@ -1838,11 +1851,12 @@ func TestAIProjectApplyVerificationScaffoldBoundaries_BitsUT(t *testing.T) {
 	t.Run("apply verify compiles rpc and gateway templates", func(t *testing.T) {
 		withFrameworkPath(t, func() {
 			for _, tt := range []struct {
-				name     string
-				template string
+				name             string
+				template         string
+				wantVerification int
 			}{
-				{name: "greeter", template: "go-rpc-grpc"},
-				{name: "edge", template: "go-gateway"},
+				{name: "greeter", template: "go-rpc-grpc", wantVerification: 5},
+				{name: "edge", template: "go-gateway", wantVerification: 4},
 			} {
 				t.Run(tt.template, func(t *testing.T) {
 					outDir := filepath.Join(t.TempDir(), tt.name)
@@ -1864,7 +1878,7 @@ func TestAIProjectApplyVerificationScaffoldBoundaries_BitsUT(t *testing.T) {
 					if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
 						t.Fatalf("ai new %s JSON: %v\n%s", tt.template, err, stdout.String())
 					}
-					if !envelope.Data.VerifyRan || !envelope.Data.VerifyPassed || len(envelope.Data.Verification) != 4 {
+					if !envelope.Data.VerifyRan || !envelope.Data.VerifyPassed || len(envelope.Data.Verification) != tt.wantVerification {
 						t.Fatalf("ai new %s verification = %+v\n%s", tt.template, envelope.Data, stdout.String())
 					}
 					for _, check := range envelope.Data.Verification {

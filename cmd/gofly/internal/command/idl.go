@@ -260,6 +260,8 @@ func rpcGenCommand(args []string) error {
 	dir := fs.String("dir", ".", "output directory")
 	out := fs.String("out", "", "output directory")
 	pkg := fs.String("package", "", "generated Go package name")
+	profile := fs.String("profile", "", "generation profile: gofly-ai, gozero-compatible, or kitex-compatible")
+	profileAlias := fs.String("generation-profile", "", "alias for --profile")
 	transport := fs.String("transport", "grpc", "RPC transport to generate: grpc, gofly, or both")
 	standard := fs.Bool("standard", false, "also run standard protoc Go and gRPC plugins")
 	pluginArg := fs.String("plugin", "", "additional plugin executable (comma-separated) to run after generation")
@@ -288,6 +290,9 @@ func rpcGenCommand(args []string) error {
 	if *file == "" {
 		*file = leadingFile
 	}
+	if *profile == "" {
+		*profile = *profileAlias
+	}
 	fillNameFromArgs(file, remaining)
 	if *out != "" {
 		*dir = *out
@@ -299,7 +304,7 @@ func rpcGenCommand(args []string) error {
 		return fmt.Errorf("%w: --timeout must be greater than zero", errUsage)
 	}
 	var genErr error
-	rpcOpts := generator.RPCOptions{ProtoFile: *file, Dir: *dir, Package: *pkg, NoClient: !*client, Multiple: multiple, WithMiddleware: *withMiddleware, WithRecovery: *withRecovery, WithValidator: *withValidator}
+	rpcOpts := generator.RPCOptions{ProtoFile: *file, Dir: *dir, Package: *pkg, Profile: *profile, NoClient: !*client, Multiple: multiple, WithMiddleware: *withMiddleware, WithRecovery: *withRecovery, WithValidator: *withValidator}
 	switch *transport {
 	case "", "grpc", "standard":
 		genErr = generator.GenerateGRPCFromProto(generator.GRPCOptions{ProtoFile: *file, Dir: *dir, Package: *pkg})

@@ -765,7 +765,7 @@ func commandHelpFor(command string) commandHelp {
 	case "gen middleware":
 		return commandHelp{Name: "gen middleware", Short: "Generate middleware skeletons by name or from an API file.", Usage: "gofly gen middleware <name> --dir <service-dir> | gofly gen middleware --api <service.api> --dir <service-dir>", Flags: []string{"-api, --api, --file <file>  API definition file", "--dir <dir>                   service root directory"}, Examples: []string{"gofly gen middleware auth --dir .", "gofly gen middleware -api user.api -dir ."}}
 	case "rpc gen":
-		return commandHelp{Name: "rpc gen", Short: "Generate gofly/gRPC service code from a protobuf file.", Usage: "gofly rpc gen --src <service.proto> --out <dir> [flags]", Flags: []string{"--src, --file <file>           protobuf source file", "--out, --dir <dir>             output directory", "--package <pkg>                generated package name", "--transport grpc|gofly|both    transport targets", "--with-middleware              generate middleware/interceptor chain helpers", "--with-recovery                generate recovery option helpers", "--with-validator               generate validator and biz error helpers", "--standard                     also run standard protoc plugins", "--timeout <duration>           maximum protoc execution time with --standard", "--style go_zero                scaffold style option", "--home, --remote, --branch     template source options"}, Examples: []string{"gofly rpc gen -src greeter.proto -out . -style go_zero", "gofly rpc gen greeter.proto --out rpc --transport gofly --with-middleware --with-recovery --with-validator"}}
+		return commandHelp{Name: "rpc gen", Short: "Generate gofly/gRPC service code from a protobuf file.", Usage: "gofly rpc gen --src <service.proto> --out <dir> [flags]", Flags: []string{"--src, --file <file>           protobuf source file", "--out, --dir <dir>             output directory", "--package <pkg>                generated package name", "--profile <profile>            generation profile: gofly-ai|gozero-compatible|kitex-compatible", "--transport grpc|gofly|both    transport targets", "--with-middleware              generate middleware/interceptor chain helpers", "--with-recovery                generate recovery option helpers", "--with-validator               generate validator and biz error helpers", "--standard                     also run standard protoc plugins", "--timeout <duration>           maximum protoc execution time with --standard", "--style go_zero                scaffold style option", "--home, --remote, --branch     template source options"}, Examples: []string{"gofly rpc gen -src greeter.proto -out . -style go_zero", "gofly rpc gen greeter.proto --out rpc --transport gofly --profile kitex-compatible"}}
 	case "rpc idl":
 		return commandHelp{Name: "rpc idl", Short: "Inspect proto or thrift IDL metadata.", Usage: "gofly rpc idl --file <service.proto|service.thrift> [--format text|json]", Flags: []string{"--file, --src <file>       proto or thrift IDL file", "--format text|json        output format"}, Examples: []string{"gofly rpc idl greeter.proto --format json", "gofly rpc idl --file greeter.thrift"}}
 	case "rpc thrift":
@@ -781,7 +781,7 @@ func commandHelpFor(command string) commandHelp {
 	case "rpc deps":
 		return commandHelp{Name: "rpc deps", Short: "List proto imports or thrift includes.", Usage: "gofly rpc deps --file <service.proto|service.thrift> [--format text|json]", Flags: []string{"--file, --src <file>       proto or thrift IDL file", "--format text|json        output format"}, Examples: []string{"gofly rpc deps greeter.proto", "gofly rpc deps greeter.thrift --format json"}}
 	case "gen rpc":
-		return commandHelp{Name: "gen rpc", Short: "Generate gofly/gRPC service code from a protobuf file.", Usage: "gofly gen rpc --src <service.proto> --out <dir> [flags]", Flags: []string{"--src, --file <file>           protobuf source file", "--out, --dir <dir>             output directory", "--package <pkg>                generated package name", "--transport grpc|gofly|both    transport targets", "--with-middleware              generate middleware/interceptor chain helpers", "--with-recovery                generate recovery option helpers", "--with-validator               generate validator and biz error helpers", "--standard                     also run standard protoc plugins", "--timeout <duration>           maximum protoc execution time with --standard", "--style go_zero                scaffold style option", "--home, --remote, --branch     template source options"}, Examples: []string{"gofly gen rpc -src greeter.proto -out . -style go_zero", "gofly gen rpc greeter.proto --out rpc --transport gofly --with-middleware --with-recovery --with-validator"}}
+		return commandHelp{Name: "gen rpc", Short: "Generate gofly/gRPC service code from a protobuf file.", Usage: "gofly gen rpc --src <service.proto> --out <dir> [flags]", Flags: []string{"--src, --file <file>           protobuf source file", "--out, --dir <dir>             output directory", "--package <pkg>                generated package name", "--profile <profile>            generation profile: gofly-ai|gozero-compatible|kitex-compatible", "--transport grpc|gofly|both    transport targets", "--with-middleware              generate middleware/interceptor chain helpers", "--with-recovery                generate recovery option helpers", "--with-validator               generate validator and biz error helpers", "--standard                     also run standard protoc plugins", "--timeout <duration>           maximum protoc execution time with --standard", "--style go_zero                scaffold style option", "--home, --remote, --branch     template source options"}, Examples: []string{"gofly gen rpc -src greeter.proto -out . -style go_zero", "gofly gen rpc greeter.proto --out rpc --transport gofly --profile kitex-compatible"}}
 	case "rpc protoc":
 		return commandHelp{Name: "rpc protoc", Short: "Run standard protoc Go plugins.", Usage: "gofly rpc protoc <service.proto> [--I <paths>] [--go_out <dir>] [--go-grpc_out <dir>]", Flags: []string{"--src, --file <file>    protobuf source file", "--dir <dir>             output directory", "--I, --proto_path       include paths", "--go_out <dir>          protoc-gen-go output", "--go-grpc_out <dir>     protoc-gen-go-grpc output", "--zrpc_out <dir>        service output directory", "--extra <args>          extra protoc arguments", "--timeout <duration>    maximum protoc execution time"}, Examples: []string{"gofly rpc protoc greeter.proto -I . --go_out . --go-grpc_out ."}}
 	case "rpc check":
@@ -795,7 +795,7 @@ func commandHelpFor(command string) commandHelp {
 	case "rpc template":
 		return commandHelp{Name: "rpc template", Short: "Generate starter proto templates or manage local/remote templates.", Usage: "gofly rpc template [-o <file>] [--name <name>] [--home <dir>] [--remote <repo|dir>] [--branch <branch>]", Flags: []string{"-o, --output <file>  write starter .proto template", "--name <name>       service name used by template", "--home <dir>        template directory for starter template", "--remote <repo|dir> remote git repository or local template directory", "--branch <branch>   remote git branch", "init|list|clean|update|revert manage template directory"}, Examples: []string{"gofly rpc template -o greeter.proto --name Greeter", "gofly rpc template -o greeter.proto --remote ./company-templates", "gofly rpc template init --home .gofly/templates"}}
 	case "rpc new", "new rpc":
-		return commandHelp{Name: command, Short: "Create an RPC service scaffold.", Usage: "gofly " + command + " <name> --module <module> [flags]", Flags: []string{"--name <name>                  RPC service name", "--module <module>              Go module path", "--dir <dir>                    output directory", "--style minimal|basic|production", "--home, --remote, --branch     template source options", "--client, --go_opt, --go-grpc_opt accepted scaffold options"}, Examples: []string{"gofly new rpc greeter --module example.com/greeter --style go_zero", "gofly rpc new greeter --module example.com/greeter --dir greeter"}}
+		return commandHelp{Name: command, Short: "Create an RPC service scaffold.", Usage: "gofly " + command + " <name> --module <module> [flags]", Flags: []string{"--name <name>                  RPC service name", "--module <module>              Go module path", "--dir <dir>                    output directory", "--style minimal|basic|production", "--profile <profile>            generation profile: gofly-ai|gozero-compatible|kitex-compatible", "--home, --remote, --branch     template source options", "--client, --go_opt, --go-grpc_opt accepted scaffold options"}, Examples: []string{"gofly new rpc greeter --module example.com/greeter --style go_zero", "gofly rpc new greeter --module example.com/greeter --dir greeter --profile kitex-compatible"}}
 	case "model gen", "model mysql ddl", "model pg ddl":
 		return commandHelp{Name: command, Short: "Generate SQL model code from DDL.", Usage: "gofly " + command + " --ddl <schema.sql> [<dir>] [flags]", Flags: []string{"--ddl, --src, -s <file>        SQL DDL file", "--dir, -d <dir>                output directory", "--package <pkg>                generated package name", "--module <module>              module import path", "--table, --tables, -t <tables> table filter", "--style go_zero|gorm           model style", "--cache, -c                    cache option", "--home, --remote, --branch     template source options"}, Examples: []string{"gofly model gen -ddl schema.sql ./internal --style gorm", "gofly model mysql ddl -src schema.sql -dir . -style go_zero"}}
 	case "gen model":
@@ -2622,6 +2622,13 @@ func applyAIProjectPlan(plan aiProjectPlan, opts aiProjectApplyOptions) (aiProje
 		if err != nil {
 			return aiProjectApplyResult{}, err
 		}
+		controlPlaneResult := runAIProjectControlPlaneSnapshotAssertion(dir, opts.VerifyTimeout)
+		if controlPlaneResult.Status != "skipped" {
+			if controlPlaneResult.Status == "failed" {
+				verifyPassed = false
+			}
+			verification = append(verification, controlPlaneResult)
+		}
 	} else {
 		warnings = append(warnings, "generated verification commands are reported but not executed; pass --verify to run supported checks")
 	}
@@ -2741,6 +2748,49 @@ func runAIProjectVerification(dir string, verify []string, timeout time.Duration
 		results = append(results, result)
 	}
 	return results, passed, nil
+}
+
+func runAIProjectControlPlaneSnapshotAssertion(dir string, timeout time.Duration) aiProjectVerificationResult {
+	const command = "control-plane snapshot"
+	if timeout <= 0 {
+		return aiProjectVerificationResult{Command: command, Status: "failed", Error: "verification timeout must be positive"}
+	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return aiProjectVerificationResult{Command: command, Status: "failed", Error: err.Error()}
+	}
+	defer func() { _ = root.Close() }()
+	testFile, err := root.Open(filepath.Join("internal", "config", "config_test.go"))
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return aiProjectVerificationResult{Command: command, Status: "skipped", Error: "generated project does not expose a control-plane snapshot contract test"}
+		}
+		return aiProjectVerificationResult{Command: command, Status: "failed", Error: err.Error()}
+	}
+	data, err := io.ReadAll(testFile)
+	_ = testFile.Close()
+	if err != nil {
+		return aiProjectVerificationResult{Command: command, Status: "failed", Error: err.Error()}
+	}
+	if !strings.Contains(string(data), "TestControlPlaneSnapshotExposesGeneratedContract") {
+		return aiProjectVerificationResult{Command: command, Status: "skipped", Error: "generated project does not expose a control-plane snapshot contract test"}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "go", "test", "./internal/config", "-run", "TestControlPlaneSnapshotExposesGeneratedContract", "-count=1")
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	result := aiProjectVerificationResult{Command: command, Status: "passed", Output: truncateVerificationOutput(string(out))}
+	if ctx.Err() == context.DeadlineExceeded {
+		result.Status = "failed"
+		result.Error = "control-plane snapshot assertion timed out"
+		return result
+	}
+	if err != nil {
+		result.Status = "failed"
+		result.Error = err.Error()
+	}
+	return result
 }
 
 func runAIProjectVerificationCommand(dir, command string, timeout time.Duration) aiProjectVerificationResult {
@@ -3952,8 +4002,8 @@ func buildAIToolManifest() aiToolManifest {
 		}, []string{outputText, outputJSON}, []string{"none; preview only"}, "read", true, false, []string{"gofly feature run ecosystem-compat --name hello --module example.com/hello --dir . --format json"}),
 		manifestCommand("template list", []string{"template ls"}, "List built-in AI-first project templates and legacy file templates.", "gofly template list [--category <filter>] [--name <filter>] [--format text|json] [--json]", map[string]aiInputProperty{"category": stringProperty("Optional template category, kind, architecture, language or feature filter."), "name": stringProperty("Optional template id/name filter.")}, []string{outputText, outputJSON}, []string{"none"}, "read", true, false, []string{"gofly template list --json"}),
 		manifestCommand("template inspect", []string{"template show", "template describe"}, "Inspect one AI-first project template from the catalog.", "gofly template inspect <template-id> [--format text|json] [--json]", map[string]aiInputProperty{"name": stringProperty("Project template id, for example go-rag-service.")}, []string{outputText, outputJSON}, []string{"none"}, "read", true, false, []string{"gofly template inspect go-rag-service --json"}),
-		manifestCommand("new api", []string{"api new"}, "Create an API service scaffold.", "gofly new api <name> --module <module> [--dir <dir>] [--style minimal|basic|production] [--dry-run|--plan]", serviceScaffoldProperties(), []string{outputText, outputJSON}, []string{"creates or overwrites files under --dir"}, "medium", true, true, []string{"gofly new api hello --module example.com/hello --dir hello --dry-run"}),
-		manifestCommand("new rpc", []string{"rpc new"}, "Create an RPC service scaffold.", "gofly new rpc <name> --module <module> [--dir <dir>] [--style minimal|basic|production] [--dry-run|--plan]", serviceScaffoldProperties(), []string{outputText, outputJSON}, []string{"creates or overwrites files under --dir"}, "medium", true, true, []string{"gofly new rpc greeter --module example.com/greeter --dir greeter --dry-run"}),
+		manifestCommand("new api", []string{"api new"}, "Create an API service scaffold.", "gofly new api <name> --module <module> [--dir <dir>] [--style minimal|basic|production] [--dry-run|--plan]", apiServiceScaffoldProperties(), []string{outputText, outputJSON}, []string{"creates or overwrites files under --dir"}, "medium", true, true, []string{"gofly new api hello --module example.com/hello --dir hello --dry-run"}),
+		manifestCommand("new rpc", []string{"rpc new"}, "Create an RPC service scaffold.", "gofly new rpc <name> --module <module> [--dir <dir>] [--style minimal|basic|production] [--profile gofly-ai|gozero-compatible|kitex-compatible] [--dry-run|--plan]", rpcServiceScaffoldProperties(), []string{outputText, outputJSON}, []string{"creates or overwrites files under --dir"}, "medium", true, true, []string{"gofly new rpc greeter --module example.com/greeter --dir greeter --profile kitex-compatible --dry-run"}),
 		manifestCommand("api check", []string{"api validate"}, "Validate an .api file.", "gofly api check --api <service.api>", fileInputProperties("api"), []string{outputText}, []string{"reads API definition file"}, "read", true, false, []string{"gofly api check --api user.api"}),
 		manifestCommand("api diff", nil, "Compare two .api files for route/type changes.", "gofly api diff --base <old.api> --target <new.api> [--format text|markdown|json]", map[string]aiInputProperty{"base": stringProperty("Old API file."), "target": stringProperty("New API file."), "format": enumStringProperty("Output format.", outputText, "markdown", outputJSON)}, []string{outputText, "markdown", outputJSON}, []string{"reads API definition files"}, "read", true, false, []string{"gofly api diff old.api new.api --format json"}),
 		manifestCommand("rpc check", nil, "Validate protobuf syntax and generator support.", "gofly rpc check --src <service.proto>", fileInputProperties("src"), []string{outputText}, []string{"reads protobuf file"}, "read", true, false, []string{"gofly rpc check --src greeter.proto"}),
@@ -4068,7 +4118,10 @@ func buildAIControlPlaneManifest() aiControlPlaneManifest {
 			"runtime adapters for discovery snapshots, governance rule sets, raw JSON configs and capability metadata",
 			"rpc policy runtime enforcement for client timeout, retry backoff with context cancellation, circuit breaker gates, balancer selection, load shedding, fallback and hedging",
 			"control-plane contributor for rpc policy runtime state, cache counts and enforcement capabilities",
+			"native REST admin control-plane endpoint with pluggable runtime contributors and sanitized REST runtime snapshots",
+			"control-plane contributor for REST governance runtime cache counts across rate limiters, concurrency limiters and breakers",
 			"generated project control-plane contributors for scaffold contract, sanitized runtime config and governance policy snapshots",
+			"ai new --apply --verify runs generated project control-plane snapshot assertions when the scaffold exposes a snapshot contract test",
 			"watch stream with context cancellation",
 			"deduplicated snapshot events by checksum while preserving error events",
 			"semantic diff classification mapped to stable consumer action policy",
@@ -4093,14 +4146,17 @@ func defaultAIControlPlaneSnapshot() controlplane.Snapshot {
 	return controlplane.Snapshot{
 		Version: controlplane.DefaultSnapshotVersion,
 		Metadata: map[string]string{
-			"config":                          "available",
-			"controlplane.provider.composite": "available",
-			"discovery":                       "available",
-			"governance":                      "available",
-			"gateway":                         "planned",
-			"llm":                             "available",
-			"tool":                            "available",
-			"generated.project.contract":      "available",
+			"config":                                "available",
+			"controlplane.provider.composite":       "available",
+			"discovery":                             "available",
+			"governance":                            "available",
+			"gateway":                               "planned",
+			"rest.runtime":                          "available",
+			"rest.governance.runtime":               "available",
+			"llm":                                   "available",
+			"tool":                                  "available",
+			"generated.project.contract":            "available",
+			"generated.project.verify.controlplane": "available",
 		},
 	}
 }
@@ -4699,7 +4755,7 @@ func manifestCommand(name string, aliases []string, description, usage string, p
 	}
 }
 
-func serviceScaffoldProperties() map[string]aiInputProperty {
+func apiServiceScaffoldProperties() map[string]aiInputProperty {
 	return map[string]aiInputProperty{
 		"name":   stringProperty("Service name."),
 		"module": stringProperty("Go module path."),
@@ -4707,6 +4763,12 @@ func serviceScaffoldProperties() map[string]aiInputProperty {
 		"style":  enumStringProperty("Scaffold style.", "minimal", "basic", "production"),
 		"dryRun": boolProperty("Print a plan without writing scaffold files, config, or plugin output."),
 	}
+}
+
+func rpcServiceScaffoldProperties() map[string]aiInputProperty {
+	props := apiServiceScaffoldProperties()
+	props["profile"] = enumStringProperty("Generation profile.", "gofly-ai", "gozero-compatible", "kitex-compatible")
+	return props
 }
 
 func fileInputProperties(name string) map[string]aiInputProperty {
@@ -5301,6 +5363,11 @@ func getConfigField(cfg *generator.Config, key string) string {
 			return cfg.RPC.Transport
 		}
 		return ""
+	case "rpc.profile", "rpc-profile", "profile":
+		if cfg.RPC != nil {
+			return cfg.RPC.Profile
+		}
+		return ""
 	case "api.plugins", "api-plugins":
 		if cfg.API != nil {
 			return strings.Join(cfg.API.Plugins, ",")
@@ -5414,6 +5481,11 @@ func setConfigField(cfg *generator.Config, key, value string) error {
 			cfg.RPC = &generator.RPCConfig{}
 		}
 		cfg.RPC.Transport = value
+	case "rpc.profile", "rpc-profile", "profile":
+		if cfg.RPC == nil {
+			cfg.RPC = &generator.RPCConfig{}
+		}
+		cfg.RPC.Profile = value
 	case "api.plugins", "api-plugins":
 		if cfg.API == nil {
 			cfg.API = &generator.APIConfig{}

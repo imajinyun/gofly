@@ -14,6 +14,7 @@ type RPCOptions struct {
 	ProtoFile      string
 	Dir            string
 	Package        string
+	Profile        string
 	NoClient       bool
 	Multiple       bool
 	WithMiddleware bool
@@ -22,6 +23,7 @@ type RPCOptions struct {
 }
 
 type RPCCodeOptions struct {
+	Profile        GenerationProfile
 	NoClient       bool
 	WithMiddleware bool
 	WithRecovery   bool
@@ -43,11 +45,15 @@ func GenerateRPCFromProto(opts RPCOptions) error {
 	if err != nil {
 		return err
 	}
+	codeOpts, err := rpcCodeOptionsFromRPCOptions(opts)
+	if err != nil {
+		return err
+	}
 	if opts.Multiple {
 		for _, svc := range doc.Services {
 			serviceDoc := doc
 			serviceDoc.Services = []IDLService{svc}
-			code, err := GenerateRPCCodeWithOptions(serviceDoc, opts.Package, rpcCodeOptionsFromRPCOptions(opts))
+			code, err := GenerateRPCCodeWithOptions(serviceDoc, opts.Package, codeOpts)
 			if err != nil {
 				return err
 			}
@@ -59,7 +65,7 @@ func GenerateRPCFromProto(opts RPCOptions) error {
 		}
 		return nil
 	}
-	code, err := GenerateRPCCodeWithOptions(doc, opts.Package, rpcCodeOptionsFromRPCOptions(opts))
+	code, err := GenerateRPCCodeWithOptions(doc, opts.Package, codeOpts)
 	if err != nil {
 		return err
 	}
@@ -75,18 +81,30 @@ func GenerateRPCCode(doc IDLDocument, packageName string) ([]byte, error) {
 	return GenerateRPCCodeWithOptions(doc, packageName, RPCCodeOptions{})
 }
 
-func rpcCodeOptionsFromRPCOptions(opts RPCOptions) RPCCodeOptions {
-	return RPCCodeOptions{
+func rpcCodeOptionsFromRPCOptions(opts RPCOptions) (RPCCodeOptions, error) {
+	profile, err := normalizeGenerationProfile(opts.Profile)
+	if err != nil {
+		return RPCCodeOptions{}, err
+	}
+	codeOpts := RPCCodeOptions{
+		Profile:        profile,
 		NoClient:       opts.NoClient,
 		WithMiddleware: opts.WithMiddleware,
 		WithRecovery:   opts.WithRecovery,
 		WithValidator:  opts.WithValidator,
 	}
+	if profile == ProfileKitexCompatible {
+		codeOpts.WithMiddleware = true
+	}
+	return codeOpts, nil
 }
 
 func GenerateRPCCodeWithOptions(doc IDLDocument, packageName string, opts RPCCodeOptions) ([]byte, error) {
 	if len(doc.Services) == 0 {
 		return nil, errors.New("proto service is required")
+	}
+	if opts.Profile == ProfileKitexCompatible {
+		opts.WithMiddleware = true
 	}
 	if packageName == "" {
 		packageName = inferGoPackageName(doc)

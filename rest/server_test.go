@@ -16,6 +16,7 @@ import (
 
 	"github.com/gofly/gofly/core/auth"
 	"github.com/gofly/gofly/core/breaker"
+	"github.com/gofly/gofly/core/controlplane"
 	coreerrors "github.com/gofly/gofly/core/errors"
 	"github.com/gofly/gofly/core/governance"
 	"github.com/gofly/gofly/core/limit"
@@ -447,7 +448,10 @@ func TestHealthAndReadyChecks(t *testing.T) {
 }
 
 func TestAdminRoutes(t *testing.T) {
-	s := MustNewServer(Config{Name: "hello", Admin: AdminConfig{Enabled: true, PathPrefix: "/admin", Pprof: true, Token: "secret"}})
+	s := MustNewServer(
+		Config{Name: "hello", Admin: AdminConfig{Enabled: true, PathPrefix: "/admin", Pprof: true, Token: "secret"}},
+		WithControlPlaneContributors(controlplane.MetadataContributor{Metadata: map[string]string{"custom.controlplane": "available"}}),
+	)
 	s.AddRoute(Route{Method: http.MethodGet, Path: "/guarded", Handler: func(ctx *Context) { ctx.String(http.StatusOK, "ok") }}, WithBreaker())
 
 	handler := adminAuthHandler(s.Handler(), "secret")
@@ -505,7 +509,7 @@ func TestAdminRoutes(t *testing.T) {
 	if err := json.NewDecoder(routesRec.Body).Decode(&routes); err != nil {
 		t.Fatal(err)
 	}
-	if !hasRouteSpec(routes, http.MethodGet, "/guarded") || !hasRouteSpec(routes, http.MethodGet, "/admin/diagnostics") {
+	if !hasRouteSpec(routes, http.MethodGet, "/guarded") || !hasRouteSpec(routes, http.MethodGet, "/admin/diagnostics") || !hasRouteSpec(routes, http.MethodGet, "/admin/control-plane") {
 		t.Fatalf("routes = %#v, want guarded and diagnostics routes", routes)
 	}
 
@@ -533,6 +537,25 @@ func TestAdminRoutes(t *testing.T) {
 	}
 	if diagnostics.Config.Name != "hello" || diagnostics.State.Service != "hello" || diagnostics.Health.Status != "ok" || len(diagnostics.Routes) == 0 {
 		t.Fatalf("diagnostics = %#v, want full admin diagnosis", diagnostics)
+	}
+
+	controlPlaneRec := httptest.NewRecorder()
+	handler.ServeHTTP(controlPlaneRec, httptest.NewRequest(http.MethodGet, "/admin/control-plane", nil))
+	if controlPlaneRec.Code != http.StatusOK {
+		t.Fatalf("control-plane status = %d body = %q", controlPlaneRec.Code, controlPlaneRec.Body.String())
+	}
+	var snapshot controlplane.Snapshot
+	if err := json.NewDecoder(controlPlaneRec.Body).Decode(&snapshot); err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Version != controlplane.DefaultSnapshotVersion || snapshot.Checksum == "" || snapshot.Metadata["rest.runtime"] != "available" || snapshot.Metadata["custom.controlplane"] != "available" {
+		t.Fatalf("control-plane snapshot = %#v, want REST runtime metadata and checksum", snapshot)
+	}
+	if !json.Valid(snapshot.Configs["rest.runtime"]) || !json.Valid(snapshot.Configs["rest.governance.runtime"]) {
+		t.Fatalf("control-plane configs = %#v, want valid REST runtime config blobs", snapshot.Configs)
+	}
+	if strings.Contains(string(snapshot.Configs["rest.runtime"]), "secret") {
+		t.Fatalf("rest.runtime config leaked admin token: %s", snapshot.Configs["rest.runtime"])
 	}
 }
 
@@ -911,6 +934,10 @@ func TestServerGovernanceRuleSetEnforcesResiliencePolicy(t *testing.T) {
 		if second.Code != http.StatusTooManyRequests {
 			t.Fatalf("second status = %d, want %d", second.Code, http.StatusTooManyRequests)
 		}
+		cache := s.GovernanceRuntimeCache()
+		if cache.RateLimiters != 1 || cache.ConcurrencyLimiters != 0 || cache.Breakers != 0 || len(cache.Keys) != 1 || cache.Keys[0] != "rate:name:rest-rate" {
+			t.Fatalf("governance runtime cache = %#v, want one rate limiter cache", cache)
+		}
 	})
 
 	t.Run("concurrency", func(t *testing.T) {
@@ -948,6 +975,10 @@ func TestServerGovernanceRuleSetEnforcesResiliencePolicy(t *testing.T) {
 		if first.Code != http.StatusOK {
 			t.Fatalf("first status = %d, want %d", first.Code, http.StatusOK)
 		}
+		cache := s.GovernanceRuntimeCache()
+		if cache.RateLimiters != 0 || cache.ConcurrencyLimiters != 1 || cache.Breakers != 0 || len(cache.Keys) != 1 || cache.Keys[0] != "concurrency:name:rest-concurrency" {
+			t.Fatalf("governance runtime cache = %#v, want one concurrency limiter cache", cache)
+		}
 	})
 
 	t.Run("breaker", func(t *testing.T) {
@@ -980,6 +1011,10 @@ func TestServerGovernanceRuleSetEnforcesResiliencePolicy(t *testing.T) {
 		s.Handler().ServeHTTP(blocked, httptest.NewRequest(http.MethodGet, "/flaky", nil))
 		if blocked.Code != http.StatusServiceUnavailable {
 			t.Fatalf("blocked status = %d, want %d", blocked.Code, http.StatusServiceUnavailable)
+		}
+		cache := s.GovernanceRuntimeCache()
+		if cache.RateLimiters != 0 || cache.ConcurrencyLimiters != 0 || cache.Breakers != 1 || len(cache.Keys) != 1 || cache.Keys[0] != "breaker:name:rest-breaker" {
+			t.Fatalf("governance runtime cache = %#v, want one breaker cache", cache)
 		}
 	})
 }

@@ -329,6 +329,35 @@ func TestBuildServiceScaffoldIRGoZeroProfileUsesLayeredArtifacts(t *testing.T) {
 	}
 }
 
+func TestBuildServiceScaffoldIRKitexProfileIncludesCompatibilityAdapter(t *testing.T) {
+	ir, err := buildServiceScaffoldIR(ServiceScaffoldOptions{
+		Name:    "orders",
+		Module:  "example.com/orders",
+		Dir:     t.TempDir(),
+		Style:   ServiceStyleMinimal,
+		Profile: string(ProfileKitexCompatible),
+		Kind:    "rpc",
+	})
+	if err != nil {
+		t.Fatalf("buildServiceScaffoldIR: %v", err)
+	}
+	rel := filepath.Join("internal", "compat", "kitex", "adapter.go")
+	data, ok := ir.Files[rel]
+	if !ok {
+		t.Fatalf("kitex profile missing compatibility adapter %s in %#v", rel, ir.Files)
+	}
+	for _, want := range []string{
+		"package kitex",
+		"type Endpoint func(context.Context, any) (any, error)",
+		"func Method(name string, newRequest func() any, endpoint Endpoint, opts ...MethodOption) rpc.MethodDesc",
+		"func Service(name string, methods ...rpc.MethodDesc) rpc.ServiceDesc",
+	} {
+		if !strings.Contains(data, want) {
+			t.Fatalf("kitex compatibility adapter missing %q:\n%s", want, data)
+		}
+	}
+}
+
 func hasServiceRuntimeFeature(features []serviceScaffoldRuntimeFeature, name string) bool {
 	for _, feature := range features {
 		if feature.Name == name {

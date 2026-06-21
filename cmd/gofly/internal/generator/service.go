@@ -143,6 +143,7 @@ type RPCNewOptions struct {
 	Name          string
 	Module        string
 	Dir           string
+	Profile       string
 	FrameworkPath string
 }
 
@@ -220,14 +221,28 @@ func GenerateRPCNew(opts RPCNewOptions) error {
 	if opts.Dir == "" {
 		opts.Dir = filepath.Join(".", opts.Name)
 	}
-	if err := GenerateService(ServiceOptions{
-		Name:          opts.Name,
-		Module:        opts.Module,
-		Dir:           opts.Dir,
-		Style:         ServiceStyleProduction,
-		FrameworkPath: opts.FrameworkPath,
-	}); err != nil {
-		return err
+	if strings.TrimSpace(opts.Profile) != "" {
+		if err := GenerateServiceScaffold(ServiceScaffoldOptions{
+			Name:          opts.Name,
+			Module:        opts.Module,
+			Dir:           opts.Dir,
+			Style:         ServiceStyleProduction,
+			Profile:       opts.Profile,
+			FrameworkPath: opts.FrameworkPath,
+			Kind:          "rpc",
+		}); err != nil {
+			return err
+		}
+	} else {
+		if err := GenerateService(ServiceOptions{
+			Name:          opts.Name,
+			Module:        opts.Module,
+			Dir:           opts.Dir,
+			Style:         ServiceStyleProduction,
+			FrameworkPath: opts.FrameworkPath,
+		}); err != nil {
+			return err
+		}
 	}
 	return writeRenderedFile(
 		filepath.Join(opts.Dir, opts.Name+".proto"),
@@ -1146,6 +1161,7 @@ func serviceFilesForProfile(style, name string, profile GenerationProfile) map[s
 			files["Dockerfile"] = dockerfileTemplate
 			files["Makefile"] = makefileTemplate
 		}
+		addKitexProfileFiles(files, profile)
 		return files
 	}
 	files[filepath.Join("etc", "governance.json")] = governanceTemplate
@@ -1158,7 +1174,15 @@ func serviceFilesForProfile(style, name string, profile GenerationProfile) map[s
 	files["Dockerfile"] = dockerfileTemplate
 	files["Makefile"] = makefileTemplate
 	files[filepath.Join(".github", "workflows", "ci.yml")] = ciWorkflowTemplate
+	addKitexProfileFiles(files, profile)
 	return files
+}
+
+func addKitexProfileFiles(files map[string]string, profile GenerationProfile) {
+	if profile != ProfileKitexCompatible {
+		return
+	}
+	files[filepath.Join("internal", "compat", "kitex", "adapter.go")] = kitexCompatibilityTemplate
 }
 
 func goZeroServiceFiles(style, name string) map[string]string {

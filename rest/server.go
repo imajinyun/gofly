@@ -6,10 +6,12 @@ package rest
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/http/pprof"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -18,6 +20,7 @@ import (
 
 	"github.com/gofly/gofly/core/auth"
 	"github.com/gofly/gofly/core/breaker"
+	"github.com/gofly/gofly/core/controlplane"
 	coreerrors "github.com/gofly/gofly/core/errors"
 	"github.com/gofly/gofly/core/governance"
 	"github.com/gofly/gofly/core/limit"
@@ -32,21 +35,22 @@ type Option func(*Server)
 
 // Server is a configurable HTTP server with middleware, governance, and admin support.
 type Server struct {
-	conf        Config
-	mux         *http.ServeMux
-	middlewares []Middleware
-	routes      []RouteSpec
-	httpServer  *http.Server
-	health      map[string]CheckFunc
-	ready       map[string]CheckFunc
-	state       atomic.Int32
-	stateSince  atomic.Int64
-	governance  *governance.Registry
-	rules       *governance.RuleSet
-	manager     *governance.Manager
-	ruleRuntime *ruleRuntime
-	cpuReader   func() int
-	adminAudit  controladmin.AuditSink
+	conf         Config
+	mux          *http.ServeMux
+	middlewares  []Middleware
+	routes       []RouteSpec
+	httpServer   *http.Server
+	health       map[string]CheckFunc
+	ready        map[string]CheckFunc
+	state        atomic.Int32
+	stateSince   atomic.Int64
+	governance   *governance.Registry
+	rules        *governance.RuleSet
+	manager      *governance.Manager
+	ruleRuntime  *ruleRuntime
+	contributors []controlplane.SnapshotContributor
+	cpuReader    func() int
+	adminAudit   controladmin.AuditSink
 }
 
 type ruleRuntime struct {
@@ -171,6 +175,18 @@ func WithGovernanceSuite(suite *governance.Suite) Option {
 		}
 		if suite != nil {
 			s.rules = governance.MergeRuleSets(s.rules, suite.RuleSet())
+		}
+	}
+}
+
+// WithControlPlaneContributors attaches additional contributors to the native
+// REST admin control-plane snapshot.
+func WithControlPlaneContributors(contributors ...controlplane.SnapshotContributor) Option {
+	return func(s *Server) {
+		for _, contributor := range contributors {
+			if contributor != nil {
+				s.contributors = append(s.contributors, contributor)
+			}
 		}
 	}
 }
@@ -479,6 +495,14 @@ func (s *Server) AddAdminRoutes(c AdminConfig) {
 	s.AddRoute(Route{Method: http.MethodGet, Path: "/diagnostics", Handler: func(ctx *Context) {
 		ctx.JSON(http.StatusOK, s.Diagnostics(ctx.Request.Context()))
 	}}, opts...)
+	s.AddRoute(Route{Method: http.MethodGet, Path: "/control-plane", Handler: func(ctx *Context) {
+		snapshot, err := s.ControlPlaneSnapshot(ctx.Request.Context())
+		if err != nil {
+			writeError(ctx.Response, http.StatusInternalServerError, coreerrors.CodeInternal, err.Error())
+			return
+		}
+		ctx.JSON(http.StatusOK, snapshot)
+	}}, opts...)
 	if c.Pprof {
 		s.AddRoute(Route{Method: http.MethodGet, Path: "/pprof/", Handler: func(ctx *Context) {
 			pprof.Index(ctx.Response, ctx.Request)
@@ -653,6 +677,161 @@ type GovernanceSnapshot struct {
 	RuleStats  []governance.RuleStats         `json:"ruleStats,omitempty"`
 	RuleStatus governance.RuleSetStatus       `json:"ruleStatus,omitempty"`
 	RuleEvents []governance.RuleSetEvent      `json:"ruleEvents,omitempty"`
+}
+
+// ControlPlaneRuntimeSnapshot captures REST server runtime state for control-plane consumers.
+type ControlPlaneRuntimeSnapshot struct {
+	Service      string            `json:"service,omitempty"`
+	Address      string            `json:"address"`
+	State        string            `json:"state"`
+	StateSince   time.Time         `json:"stateSince"`
+	Config       Config            `json:"config"`
+	Routes       []RouteSpec       `json:"routes"`
+	AdminEnabled bool              `json:"adminEnabled"`
+	AdminPrefix  string            `json:"adminPrefix,omitempty"`
+	Middlewares  MiddlewaresConfig `json:"middlewares"`
+}
+
+// GovernanceRuntimeCacheSnapshot captures lazy REST governance runtime cache state.
+type GovernanceRuntimeCacheSnapshot struct {
+	RateLimiters        int      `json:"rateLimiters"`
+	ConcurrencyLimiters int      `json:"concurrencyLimiters"`
+	Breakers            int      `json:"breakers"`
+	Keys                []string `json:"keys,omitempty"`
+}
+
+// RuntimeControlPlaneContributor contributes REST runtime state to a control-plane snapshot.
+type RuntimeControlPlaneContributor struct {
+	Server *Server
+}
+
+// GovernanceRuntimeControlPlaneContributor contributes REST governance runtime caches to a control-plane snapshot.
+type GovernanceRuntimeControlPlaneContributor struct {
+	Server *Server
+}
+
+// ControlPlaneRuntime returns a sanitized REST runtime snapshot.
+func (s *Server) ControlPlaneRuntime() ControlPlaneRuntimeSnapshot {
+	state := s.State()
+	return ControlPlaneRuntimeSnapshot{
+		Service:      state.Service,
+		Address:      state.Address,
+		State:        state.State,
+		StateSince:   state.Since,
+		Config:       s.sanitizedConfig(),
+		Routes:       s.Routes(),
+		AdminEnabled: s.conf.Admin.Enabled,
+		AdminPrefix:  cleanPrefix(s.conf.Admin.PathPrefix),
+		Middlewares:  s.conf.Middlewares,
+	}
+}
+
+// GovernanceRuntimeCache returns counts and keys for lazily created governance runtime caches.
+func (s *Server) GovernanceRuntimeCache() GovernanceRuntimeCacheSnapshot {
+	if s == nil || s.ruleRuntime == nil {
+		return GovernanceRuntimeCacheSnapshot{}
+	}
+	s.ruleRuntime.mu.Lock()
+	defer s.ruleRuntime.mu.Unlock()
+	keys := make([]string, 0, len(s.ruleRuntime.rateLimits)+len(s.ruleRuntime.concurrency)+len(s.ruleRuntime.breakers))
+	for key := range s.ruleRuntime.rateLimits {
+		keys = append(keys, "rate:"+key)
+	}
+	for key := range s.ruleRuntime.concurrency {
+		keys = append(keys, "concurrency:"+key)
+	}
+	for key := range s.ruleRuntime.breakers {
+		keys = append(keys, "breaker:"+key)
+	}
+	sort.Strings(keys)
+	return GovernanceRuntimeCacheSnapshot{
+		RateLimiters:        len(s.ruleRuntime.rateLimits),
+		ConcurrencyLimiters: len(s.ruleRuntime.concurrency),
+		Breakers:            len(s.ruleRuntime.breakers),
+		Keys:                keys,
+	}
+}
+
+// ControlPlaneSnapshot returns a versioned control-plane snapshot for the REST server.
+func (s *Server) ControlPlaneSnapshot(ctx context.Context) (controlplane.Snapshot, error) {
+	provider := controlplane.CompositeProvider{
+		Name:         "rest-server",
+		Contributors: s.controlPlaneContributors(),
+	}
+	return provider.Load(ctx)
+}
+
+func (s *Server) controlPlaneContributors() []controlplane.SnapshotContributor {
+	contributors := []controlplane.SnapshotContributor{
+		controlplane.MetadataContributor{Metadata: map[string]string{
+			"rest.runtime":            "available",
+			"rest.governance.runtime": "available",
+		}},
+		RuntimeControlPlaneContributor{Server: s},
+		GovernanceRuntimeControlPlaneContributor{Server: s},
+	}
+	if s != nil && s.rules != nil {
+		contributors = append(contributors, controlplane.GovernanceContributor{Rules: s.rules})
+	}
+	if s != nil && len(s.contributors) > 0 {
+		contributors = append(contributors, s.contributors...)
+	}
+	return contributors
+}
+
+func (c RuntimeControlPlaneContributor) ContributeSnapshot(ctx context.Context, snapshot *controlplane.Snapshot) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if snapshot == nil || c.Server == nil {
+		return nil
+	}
+	runtime := c.Server.ControlPlaneRuntime()
+	if err := addControlPlaneConfig(snapshot, "rest.runtime", runtime); err != nil {
+		return err
+	}
+	if runtime.Service != "" {
+		snapshot.Services = append(snapshot.Services, controlplane.ServiceSnapshot{
+			Name: runtime.Service,
+			Endpoints: []controlplane.EndpointSnapshot{{
+				Address:  runtime.Address,
+				Metadata: map[string]string{"transport": "rest", "source": "runtime"},
+			}},
+			Metadata: map[string]string{"source": "rest-server"},
+		})
+	}
+	return nil
+}
+
+func (c GovernanceRuntimeControlPlaneContributor) ContributeSnapshot(ctx context.Context, snapshot *controlplane.Snapshot) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if snapshot == nil || c.Server == nil {
+		return nil
+	}
+	return addControlPlaneConfig(snapshot, "rest.governance.runtime", c.Server.GovernanceRuntimeCache())
+}
+
+func addControlPlaneConfig(snapshot *controlplane.Snapshot, name string, value any) error {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return fmt.Errorf("marshal control-plane config %s: %w", name, err)
+	}
+	if snapshot.Configs == nil {
+		snapshot.Configs = make(map[string]json.RawMessage)
+	}
+	snapshot.Configs[name] = data
+	return nil
+}
+
+func (s *Server) sanitizedConfig() Config {
+	if s == nil {
+		return Config{}
+	}
+	conf := s.conf
+	conf.Admin.Token = ""
+	return conf
 }
 
 // Governance returns a snapshot of middleware config and governance state.

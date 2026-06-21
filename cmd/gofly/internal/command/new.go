@@ -131,6 +131,8 @@ func rpcNewCommand(args []string) error {
 	module := fs.String("module", "", "go module path")
 	dir := fs.String("dir", "", "output directory")
 	style := fs.String("style", "", "rpc scaffold style: minimal, basic, or production")
+	profile := fs.String("profile", "", "generation profile: gofly-ai, gozero-compatible, or kitex-compatible")
+	profileAlias := fs.String("generation-profile", "", "alias for --profile")
 	configPath := fs.String("config", "", "gofly config file path")
 	templateDir := fs.String("template-dir", "", "override templates from this directory")
 	home := fs.String("home", "", "template home directory")
@@ -176,6 +178,9 @@ func rpcNewCommand(args []string) error {
 	if *templateDir == "" {
 		*templateDir = *home
 	}
+	if *profile == "" {
+		*profile = *profileAlias
+	}
 	if *dir == "" && *name != "" {
 		*dir = *name
 	}
@@ -197,6 +202,14 @@ func rpcNewCommand(args []string) error {
 		*dir = cfg.ServiceName
 	}
 	plugins := pluginListFromConfig(cfg, "rpc")
+	resolvedProfile := strings.TrimSpace(*profile)
+	if resolvedProfile == "" && cfg.RPC != nil {
+		resolvedProfile = strings.TrimSpace(cfg.RPC.Profile)
+	}
+	if cfg.RPC == nil {
+		cfg.RPC = &generator.RPCConfig{}
+	}
+	cfg.RPC.Profile = resolvedProfile
 	if *dryRun || *plan {
 		if err := validateNewServicePlanInputs(cfg); err != nil {
 			return err
@@ -211,6 +224,7 @@ func rpcNewCommand(args []string) error {
 		TemplateDir:    cfg.TemplateDir,
 		TemplateRemote: cfg.TemplateRemote,
 		TemplateBranch: cfg.TemplateBranch,
+		Profile:        resolvedProfile,
 		Features:       cfg.Features,
 		Plugins:        plugins,
 		Kind:           "rpc",
@@ -321,6 +335,9 @@ func buildNewServicePlan(command, dir, configPath string, cfg *generator.Config,
 		}
 		if cfg.TemplateRemote != "" {
 			inputs["templateRemote"] = cfg.TemplateRemote
+		}
+		if cfg.RPC != nil && cfg.RPC.Profile != "" {
+			inputs["profile"] = cfg.RPC.Profile
 		}
 	}
 	if len(plugins) > 0 {

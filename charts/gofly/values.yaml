@@ -1,0 +1,42 @@
+replicaCount: 2
+
+image:
+  repository: gofly
+  tag: latest
+  pullPolicy: IfNotPresent
+
+serviceAccount:
+  name: default
+
+service:
+  type: ClusterIP
+  httpPort: 8080
+  metricsPort: 8081
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: "2"
+    memory: 512Mi
+
+probes:
+  livenessPath: /healthz
+  readinessPath: /readyz
+  startupPath: /startupz
+
+serviceMonitor:
+  enabled: true
+  interval: 30s
+  scrapeTimeout: 10s
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

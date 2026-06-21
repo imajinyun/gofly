@@ -6,5 +6,5 @@ import "fmt"
 
 func main() {
 	fmt.Println("k8s example: configure rpc.KubernetesResolver with service account token, namespace, service, port name, and watch interval")
-	fmt.Println("manifest checklist: Deployment, Service, readinessProbe, RBAC get/list endpoints, ConfigMap for gofly service config")
+	fmt.Println("manifest checklist: Deployment, Service, readinessProbe, startupProbe, ServiceMonitor, HPA, PodDisruptionBudget, Helm chart, Kustomize overlay, RBAC get/list endpoints, ConfigMap for gofly service config")
 }

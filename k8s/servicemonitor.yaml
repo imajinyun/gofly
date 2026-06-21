@@ -1,0 +1,15 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: gofly-app
+  labels:
+    app.kubernetes.io/name: gofly-app
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: gofly-app
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s

@@ -16,6 +16,26 @@ See:
 
 - `examples/k8s`
 - `k8s/deployment.yaml`
+- `k8s/kustomization.yaml`
+- `k8s/servicemonitor.yaml`
+- `k8s/hpa.yaml`
+- `k8s/pdb.yaml`
+- `charts/gofly`
+
+Direct YAML users can apply the static assets:
+
+```sh
+kubectl apply -k k8s
+```
+
+Helm users can render or install the starter chart:
+
+```sh
+helm template gofly charts/gofly
+helm install gofly charts/gofly
+```
+
+The starter assets include liveness, readiness, and startup probes, Prometheus scrape annotations, optional ServiceMonitor support, HPA, and PodDisruptionBudget.
 
 ## Production configuration checklist
 

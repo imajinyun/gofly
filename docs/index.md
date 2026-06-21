@@ -26,6 +26,7 @@ Start with the golden path, then use the module guides when you wire production 
 - Tutorial: [From zero to production](tutorials/zero-to-production.md)
 - How-to: [Use standalone examples](how-to/standalone-examples.md)
 - Reference: [Stable API surface](reference/api-surface.md), [Compatibility policy](reference/compatibility.md), [CLI JSON contracts](reference/cli-json-contracts.md), [Control-plane contracts](reference/control-plane-contracts.md), [Benchmark matrix](reference/benchmark-matrix.md)
+- Growth: [P1 growth roadmap](reference/p1-growth-roadmap.md)
 - Explanation: [Adoption model](explanation/adoption-model.md)
 
 ## Definition of done
@@ -61,6 +62,7 @@ This makes the documentation path executable instead of a loose set of pages.
 - [Model generation](guides/model.md)
 - [Extensions](guides/extensions.md)
 - [Deployment](guides/deployment.md)
+- [P1 growth roadmap](reference/p1-growth-roadmap.md)
 
 ## Comparisons and migrations
 

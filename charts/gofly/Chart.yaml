@@ -1,0 +1,6 @@
+apiVersion: v2
+name: gofly
+description: Production-shaped Kubernetes chart for a gofly service.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

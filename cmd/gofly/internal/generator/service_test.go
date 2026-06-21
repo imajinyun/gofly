@@ -26,6 +26,7 @@ func TestGenerateService(t *testing.T) {
 		filepath.Join(".github", "workflows", "ci.yml"),
 		filepath.Join("cmd", "hello", "main.go"),
 		filepath.Join("internal", "config", "config_test.go"),
+		filepath.Join("internal", "config", "discovery_test.go"),
 		filepath.Join("internal", "routes", "routes.go"),
 		filepath.Join("internal", "api", "v1", "ping", "ping.go"),
 		filepath.Join("internal", "middleware", "trim.go"),
@@ -245,6 +246,7 @@ func TestGenerateService(t *testing.T) {
 		`addGeneratedControlPlaneConfig("discovery", cfg.Discovery.Sanitized())`,
 		"func (c DiscoveryConfig) ProviderName() string",
 		"func (c DiscoveryConfig) RegistryTTL() time.Duration",
+		"func (c DiscoveryConfig) ResolvedEndpoints() []string",
 		"func (c DiscoveryConfig) RegisterOptions() []discovery.RegisterOption",
 		"func ValidateDiscoveryConfig(c DiscoveryConfig) error",
 		`"generated.project.contract"`,
@@ -275,7 +277,7 @@ func TestGenerateService(t *testing.T) {
 		`case "memory":`,
 		`case "consul":`,
 		`case "etcdv3":`,
-		"func discoveryEndpoints(cfg appconfig.DiscoveryConfig) []string",
+		"Endpoints:   cfg.ResolvedEndpoints()",
 	} {
 		if !strings.Contains(string(discoveryData), want) {
 			t.Fatalf("registry.go missing %q:\n%s", want, discoveryData)
@@ -295,6 +297,23 @@ func TestGenerateService(t *testing.T) {
 	} {
 		if !strings.Contains(string(configTestData), want) {
 			t.Fatalf("config_test.go missing %q:\n%s", want, configTestData)
+		}
+	}
+	discoveryConfigTestData, err := os.ReadFile(filepath.Join(dir, "internal", "config", "discovery_test.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"func TestDiscoveryConfigDefaultsValidationAndSnapshot(t *testing.T)",
+		"func TestControlPlaneSnapshotWithDiscoveryIncludesRegistryAndSanitizesDiscovery(t *testing.T)",
+		`DiscoveryConfig{Address: " 127.0.0.1:2379, ,127.0.0.2:2379 "}).ResolvedEndpoints()`,
+		"discovery.NewMemoryRegistry()",
+		"cfg.ControlPlaneSnapshotWithDiscovery(context.Background(), registry)",
+		`json.Unmarshal(snapshot.Configs["generated.discovery"], &discoveryConfig)`,
+		`discoveryConfig.TokenEnv != "CONSUL_HTTP_TOKEN"`,
+	} {
+		if !strings.Contains(string(discoveryConfigTestData), want) {
+			t.Fatalf("discovery_test.go missing %q:\n%s", want, discoveryConfigTestData)
 		}
 	}
 	brokerData, err := os.ReadFile(filepath.Join(dir, "internal", "mq", "broker.go"))

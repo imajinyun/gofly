@@ -1167,6 +1167,7 @@ func serviceFilesForProfile(style, name string, profile GenerationProfile) map[s
 	files[filepath.Join("etc", "governance.json")] = governanceTemplate
 	files[filepath.Join("internal", "admin", "admin.go")] = adminServerTemplate
 	files[filepath.Join("internal", "admin", "admin_test.go")] = adminServerTestTemplate
+	files[filepath.Join("internal", "config", "discovery_test.go")] = configDiscoveryTestTemplate
 	files[filepath.Join("internal", "discovery", "registry.go")] = discoveryRegistryTemplate
 	files[filepath.Join("internal", "mq", "broker.go")] = mqBrokerTemplate
 	files[filepath.Join("internal", "rpc", "greeter.go")] = greeterTemplate

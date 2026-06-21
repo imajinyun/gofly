@@ -101,7 +101,7 @@ func TestGenerateService(t *testing.T) {
 		"httpServer.AddOpenAPIRoutes(c.OpenAPIInfo())",
 		"rpc.WithServerGovernanceManager(governanceManager)",
 		"servers := []app.Server{httpServer, rpcServer}",
-		"appadmin.NewServer(c.Admin.Addr, c.Admin.PathPrefix, rpcServer)",
+		"appadmin.NewServer(c.Admin.Addr, c.Admin.PathPrefix, rpcServer, appadmin.WithControlPlaneSnapshot(c.ControlPlaneSnapshot))",
 		"svc.NewServiceContext(c, mqBroker)",
 		"config.Watch[appconfig.Config](ctx, configPath",
 	} {
@@ -162,8 +162,12 @@ func TestGenerateService(t *testing.T) {
 	}
 	for _, want := range []string{
 		"package admin",
+		`"github.com/gofly/gofly/core/controlplane"`,
 		`"net/http/pprof"`,
 		`prefix+"/metrics"`,
+		`prefix+"/control-plane"`,
+		"func WithControlPlaneSnapshot(snapshot func(context.Context) (controlplane.Snapshot, error)) Option",
+		"func (s *Server) serveControlPlane",
 		`prefix+"/debug/pprof/goroutine"`,
 		`prefix+"/rpc/admin/"`,
 		"s.rpcServer.ServeHTTP(w, r)",
@@ -220,10 +224,15 @@ func TestGenerateService(t *testing.T) {
 		"Service     app.ServiceConf",
 		"Scaffold    ScaffoldConfig",
 		"OpenAPI     OpenAPIConfig",
+		`"github.com/gofly/gofly/core/controlplane"`,
 		"func ConfigPaths(name string) []string",
 		"func ResolveConfigPath(name string) string",
 		`paths := []string{"config.yaml", "config.yml", "config.toml", "config.json"}`,
 		"func (c Config) ServiceConf() app.ServiceConf",
+		"func (c Config) ControlPlaneContributor() ControlPlaneContributor",
+		"func (c Config) ControlPlaneSnapshot(ctx context.Context) (controlplane.Snapshot, error)",
+		"func (c ControlPlaneContributor) ContributeSnapshot(ctx context.Context, snapshot *controlplane.Snapshot) error",
+		`"generated.project.contract"`,
 		"func (c Config) OpenAPIEnabled() bool",
 		"func (c Config) OpenAPIInfo() rest.OpenAPIInfo",
 		"func ValidateOpenAPIConfig(c Config) error",
@@ -245,7 +254,9 @@ func TestGenerateService(t *testing.T) {
 	}
 	for _, want := range []string{
 		"func TestOpenAPIConfigDefaultsAndOverrides(t *testing.T)",
+		"func TestControlPlaneSnapshotExposesGeneratedContract(t *testing.T)",
 		"OpenAPI should be enabled by default",
+		`"generated.project.contract"`,
 		"ValidateOpenAPIConfig(defaultConfig)",
 		"OpenAPIConfig{Enabled: boolPtr(false)}",
 	} {
@@ -777,6 +788,10 @@ func TestGenerateServiceMinimalStyle(t *testing.T) {
 	for _, want := range []string{
 		"Scaffold    ScaffoldConfig",
 		"OpenAPI     OpenAPIConfig",
+		`"github.com/gofly/gofly/core/controlplane"`,
+		"func (c Config) ControlPlaneSnapshot(ctx context.Context) (controlplane.Snapshot, error)",
+		"func (c ControlPlaneContributor) ContributeSnapshot(ctx context.Context, snapshot *controlplane.Snapshot) error",
+		`"generated.project.runtime"] = "service,rest"`,
 		"func (c Config) OpenAPIEnabled() bool",
 		"func (c Config) OpenAPIInfo() rest.OpenAPIInfo",
 		"func ValidateOpenAPIConfig(c Config) error",
@@ -794,6 +809,7 @@ func TestGenerateServiceMinimalStyle(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(configTestData), "func TestOpenAPIConfigDefaultsAndOverrides(t *testing.T)") ||
+		!strings.Contains(string(configTestData), "func TestControlPlaneSnapshotExposesGeneratedContract(t *testing.T)") ||
 		!strings.Contains(string(configTestData), "ValidateOpenAPIConfig(defaultConfig)") {
 		t.Fatalf("minimal config_test.go missing OpenAPI helper tests:\n%s", configTestData)
 	}
@@ -1506,6 +1522,119 @@ func TestGenerateServiceScaffoldEcosystemCompatibilityFeature(t *testing.T) {
 			t.Fatalf("kitex adapter missing %q:\n%s", want, kitexData)
 		}
 	}
+	assertGeneratedProjectCompiles(t, dir)
+}
+
+func TestGenerateServiceScaffoldGoZeroCompatibleLayeredOutput(t *testing.T) {
+	dir := t.TempDir()
+	if err := GenerateServiceScaffold(ServiceScaffoldOptions{
+		Name:        "hello",
+		Module:      "example.com/hello",
+		Dir:         dir,
+		Style:       ServiceStyleMinimal,
+		Profile:     string(ProfileGoZeroCompatible),
+		SkipAPISpec: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, rel := range []string{
+		filepath.Join("cmd", "hello", "main.go"),
+		filepath.Join("internal", "handler", "routes.go"),
+		filepath.Join("internal", "handler", "pinghandler.go"),
+		filepath.Join("internal", "logic", "pinglogic.go"),
+		filepath.Join("internal", "svc", "servicecontext.go"),
+		filepath.Join("internal", "types", "types.go"),
+	} {
+		if _, err := os.Stat(filepath.Join(dir, rel)); err != nil {
+			t.Fatalf("expected gozero-compatible generated file %s: %v", rel, err)
+		}
+	}
+	for _, rel := range []string{
+		filepath.Join("internal", "routes", "routes.go"),
+		filepath.Join("internal", "api", "v1", "ping", "ping.go"),
+		filepath.Join("internal", "service", "ping.go"),
+	} {
+		if _, err := os.Stat(filepath.Join(dir, rel)); err == nil {
+			t.Fatalf("unexpected legacy scaffold file %s", rel)
+		}
+	}
+
+	handlerData, err := os.ReadFile(filepath.Join(dir, "internal", "handler", "pinghandler.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"package handler",
+		`"example.com/hello/internal/logic"`,
+		`"example.com/hello/internal/types"`,
+		"ctx.BindQuery(&req)",
+		"logic.NewPingLogic(ctx.Request.Context(), svcCtx).Ping(&req)",
+	} {
+		if !strings.Contains(string(handlerData), want) {
+			t.Fatalf("pinghandler.go missing %q:\n%s", want, handlerData)
+		}
+	}
+
+	logicData, err := os.ReadFile(filepath.Join(dir, "internal", "logic", "pinglogic.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"package logic",
+		"type PingLogic struct",
+		"func NewPingLogic(ctx context.Context, svcCtx *svc.ServiceContext) *PingLogic",
+		`return &types.PingResp{Message: "hello " + name}, nil`,
+	} {
+		if !strings.Contains(string(logicData), want) {
+			t.Fatalf("pinglogic.go missing %q:\n%s", want, logicData)
+		}
+	}
+
+	typesData, err := os.ReadFile(filepath.Join(dir, "internal", "types", "types.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"package types",
+		"type PingReq struct",
+		"type PingResp struct",
+		`json:"name,optional" form:"name,optional"`,
+	} {
+		if !strings.Contains(string(typesData), want) {
+			t.Fatalf("types.go missing %q:\n%s", want, typesData)
+		}
+	}
+
+	routesData, err := os.ReadFile(filepath.Join(dir, "internal", "handler", "routes.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"package handler",
+		"func RegisterHandlers(server *rest.Server, svcCtx *svc.ServiceContext)",
+		`Path: "/ping"`,
+		`rest.WithPrefix("/api/v1")`,
+	} {
+		if !strings.Contains(string(routesData), want) {
+			t.Fatalf("routes.go missing %q:\n%s", want, routesData)
+		}
+	}
+
+	mainData, err := os.ReadFile(filepath.Join(dir, "cmd", "hello", "main.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`"example.com/hello/internal/handler"`,
+		"handler.RegisterHandlers(httpServer, svcCtx)",
+		"svc.NewServiceContext(c)",
+	} {
+		if !strings.Contains(string(mainData), want) {
+			t.Fatalf("main.go missing %q:\n%s", want, mainData)
+		}
+	}
+
 	assertGeneratedProjectCompiles(t, dir)
 }
 

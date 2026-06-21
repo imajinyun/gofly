@@ -3,6 +3,7 @@ package rpc
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -126,12 +127,55 @@ func TestRPCClientInternalHelpersHardeningContracts(t *testing.T) {
 
 	c.opts.resolver = NewStaticResolver(" http://endpoint/ ")
 	c.opts.balancer = nil
-	target, err := c.pickTarget(context.Background())
+	target, _, err := c.pickTarget(context.Background(), RPCBalancerPolicy{}, "")
 	if err != nil {
 		t.Fatalf("pickTarget default balancer: %v", err)
 	}
 	if target != "http://endpoint" {
 		t.Fatalf("target = %q, want trimmed endpoint", target)
+	}
+}
+
+func TestRPCPolicyValidateAndGovernanceMapping(t *testing.T) {
+	policy := RPCPolicyFromGovernance(governance.Policy{
+		Timeout:  2 * time.Second,
+		Retry:    governance.RetryPolicy{Attempts: 3, Backoff: time.Millisecond},
+		Breaker:  governance.BreakerPolicy{Enabled: true, OpenTimeout: time.Second},
+		Metadata: map[string]string{"tenant": "alpha"},
+		Headers:  map[string]string{"X-Gofly": "on"},
+	})
+	if err := policy.Validate(); err != nil {
+		t.Fatalf("Validate mapped policy: %v", err)
+	}
+	policy.Metadata["tenant"] = "mutated"
+	policy.Headers["X-Gofly"] = "off"
+	mappedAgain := RPCPolicyFromGovernance(governance.Policy{
+		Metadata: map[string]string{"tenant": "alpha"},
+		Headers:  map[string]string{"X-Gofly": "on"},
+	})
+	if mappedAgain.Metadata["tenant"] != "alpha" || mappedAgain.Headers["X-Gofly"] != "on" {
+		t.Fatalf("mapped policy was not defensively copied: %#v", mappedAgain)
+	}
+
+	tests := []struct {
+		name   string
+		policy RPCPolicy
+		want   string
+	}{
+		{name: "negative timeout", policy: RPCPolicy{Timeout: -time.Second}, want: "timeout"},
+		{name: "negative retry", policy: RPCPolicy{Retry: governance.RetryPolicy{Attempts: -1}}, want: "retry attempts"},
+		{name: "single hedge attempt", policy: RPCPolicy{Hedge: RPCHedgePolicy{Enabled: true, Attempts: 1}}, want: "hedge attempts"},
+		{name: "fallback missing target", policy: RPCPolicy{Fallback: RPCFallbackPolicy{Enabled: true}}, want: "fallback target"},
+		{name: "unknown balancer", policy: RPCPolicy{Balancer: RPCBalancerPolicy{Name: "least_request"}}, want: "unsupported"},
+		{name: "negative balancer weight", policy: RPCPolicy{Balancer: RPCBalancerPolicy{Name: RPCBalancerWeightedRoundRobin, Weights: map[string]int{"a": -1}}}, want: "non-negative"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.policy.Validate()
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("Validate err = %v, want containing %q", err, tt.want)
+			}
+		})
 	}
 }
 

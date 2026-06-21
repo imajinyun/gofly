@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/gofly/gofly/core/auth"
 	"github.com/gofly/gofly/core/breaker"
+	"github.com/gofly/gofly/core/controlplane"
 	"github.com/gofly/gofly/core/discovery"
 	"github.com/gofly/gofly/core/governance"
 	"github.com/gofly/gofly/core/metadata"
@@ -816,6 +818,459 @@ func TestHTTPClientGovernanceRuleRuntimeTimeout(t *testing.T) {
 	case <-started:
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for handler to start")
+	}
+}
+
+func TestHTTPClientRPCPolicyRuntimeTimeout(t *testing.T) {
+	started := make(chan struct{})
+	s := NewServer()
+	if err := s.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{
+		Name:       "SlowPolicy",
+		NewRequest: func() any { return new(helloReq) },
+		Handler: func(ctx context.Context, req any) (any, error) {
+			select {
+			case <-started:
+			default:
+				close(started)
+			}
+			<-ctx.Done()
+			return nil, ctx.Err()
+		},
+	}}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(s)
+	defer ts.Close()
+	c, err := NewClient(ts.URL,
+		WithTimeout(time.Second),
+		WithRPCPolicy(RPCPolicy{Timeout: 20 * time.Millisecond}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var resp helloResp
+	err = c.Call(context.Background(), "greeter/SlowPolicy", helloReq{Name: "gofly"}, &resp)
+	var rpcErr *Error
+	if !errors.As(err, &rpcErr) || rpcErr.Code != CodeDeadlineExceeded {
+		t.Fatalf("error = %v, want deadline exceeded rpc error", err)
+	}
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for handler to start")
+	}
+}
+
+func TestHTTPClientRPCPolicyRuntimeRetryAndCancel(t *testing.T) {
+	t.Run("policy retry overrides client default", func(t *testing.T) {
+		var calls atomic.Int64
+		s := NewServer()
+		if err := s.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{
+			Name:       "RetryPolicy",
+			NewRequest: func() any { return new(helloReq) },
+			Handler: func(ctx context.Context, req any) (any, error) {
+				if calls.Add(1) == 1 {
+					return nil, NewError(CodeUnavailable, "try again")
+				}
+				return helloResp{Message: "ok"}, nil
+			},
+		}}}, nil); err != nil {
+			t.Fatal(err)
+		}
+		ts := httptest.NewServer(s)
+		defer ts.Close()
+		c, err := NewClient(ts.URL,
+			WithRetry(1),
+			WithRPCPolicy(RPCPolicy{Retry: governance.RetryPolicy{Attempts: 2, Backoff: time.Millisecond}}),
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		var resp helloResp
+		if err := c.Call(context.Background(), "greeter/RetryPolicy", helloReq{Name: "gofly"}, &resp); err != nil {
+			t.Fatalf("Call: %v", err)
+		}
+		if resp.Message != "ok" || calls.Load() != 2 {
+			t.Fatalf("response/calls = %#v/%d, want retry success after two attempts", resp, calls.Load())
+		}
+	})
+
+	t.Run("retry backoff observes context cancellation", func(t *testing.T) {
+		var calls atomic.Int64
+		s := NewServer()
+		if err := s.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{
+			Name:       "CancelRetryPolicy",
+			NewRequest: func() any { return new(helloReq) },
+			Handler: func(ctx context.Context, req any) (any, error) {
+				calls.Add(1)
+				return nil, NewError(CodeUnavailable, "try again")
+			},
+		}}}, nil); err != nil {
+			t.Fatal(err)
+		}
+		ts := httptest.NewServer(s)
+		defer ts.Close()
+		c, err := NewClient(ts.URL,
+			WithRPCPolicy(RPCPolicy{Retry: governance.RetryPolicy{Attempts: 3, Backoff: 100 * time.Millisecond}}),
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		time.AfterFunc(10*time.Millisecond, cancel)
+		var resp helloResp
+		err = c.Call(ctx, "greeter/CancelRetryPolicy", helloReq{Name: "gofly"}, &resp)
+		var rpcErr *Error
+		if !errors.As(err, &rpcErr) || rpcErr.Code != CodeCanceled {
+			t.Fatalf("error = %v, want canceled rpc error", err)
+		}
+		if calls.Load() != 1 {
+			t.Fatalf("server calls = %d, want no retry after context cancellation", calls.Load())
+		}
+	})
+}
+
+func TestHTTPClientRPCPolicyRuntimeBreaker(t *testing.T) {
+	var calls atomic.Int64
+	s := NewServer()
+	if err := s.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{
+		Name:       "BreakerPolicy",
+		NewRequest: func() any { return new(helloReq) },
+		Handler: func(ctx context.Context, req any) (any, error) {
+			calls.Add(1)
+			return nil, NewError(CodeInternal, "boom")
+		},
+	}}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(s)
+	defer ts.Close()
+	c, err := NewClient(ts.URL,
+		WithRetry(1),
+		WithRPCPolicy(RPCPolicy{Breaker: governance.BreakerPolicy{Enabled: true, MinRequests: 1, FailureRatio: 0.1, OpenTimeout: time.Second}}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var resp helloResp
+	for i := 1; i <= 2; i++ {
+		err = c.Call(context.Background(), "greeter/BreakerPolicy", helloReq{Name: "gofly"}, &resp)
+		var rpcErr *Error
+		if !errors.As(err, &rpcErr) || rpcErr.Code != CodeInternal {
+			t.Fatalf("call %d error = %v, want internal rpc error", i, err)
+		}
+	}
+	err = c.Call(context.Background(), "greeter/BreakerPolicy", helloReq{Name: "gofly"}, &resp)
+	var rpcErr *Error
+	if !errors.As(err, &rpcErr) || rpcErr.Code != CodeUnavailable {
+		t.Fatalf("third error = %v, want unavailable rpc error", err)
+	}
+	if calls.Load() != 2 {
+		t.Fatalf("server calls = %d, want 2 before breaker opens", calls.Load())
+	}
+}
+
+func TestHTTPClientRPCPolicyRuntimeWeightedBalancer(t *testing.T) {
+	serverA := NewServer()
+	if err := serverA.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{
+		Name:       "BalancePolicy",
+		NewRequest: func() any { return new(helloReq) },
+		Handler: func(ctx context.Context, req any) (any, error) {
+			return helloResp{Message: "a"}, nil
+		},
+	}}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	tsA := httptest.NewServer(serverA)
+	defer tsA.Close()
+
+	serverB := NewServer()
+	if err := serverB.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{
+		Name:       "BalancePolicy",
+		NewRequest: func() any { return new(helloReq) },
+		Handler: func(ctx context.Context, req any) (any, error) {
+			return helloResp{Message: "b"}, nil
+		},
+	}}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	tsB := httptest.NewServer(serverB)
+	defer tsB.Close()
+
+	c, err := NewClient(tsA.URL,
+		WithResolver(NewStaticResolver(tsA.URL, tsB.URL)),
+		WithRPCPolicy(RPCPolicy{Balancer: RPCBalancerPolicy{
+			Name:    RPCBalancerWeightedRoundRobin,
+			Weights: map[string]int{tsA.URL: 1, tsB.URL: 3},
+		}}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	counts := map[string]int{}
+	for i := 0; i < 4; i++ {
+		var resp helloResp
+		if err := c.Call(context.Background(), "greeter/BalancePolicy", helloReq{Name: "gofly"}, &resp); err != nil {
+			t.Fatalf("Call %d: %v", i, err)
+		}
+		counts[resp.Message]++
+	}
+	if counts["a"] != 1 || counts["b"] != 3 {
+		t.Fatalf("counts = %v, want weighted policy a=1 b=3", counts)
+	}
+}
+
+func TestHTTPClientRPCPolicyRuntimeLoadShedder(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	s := NewServer()
+	if err := s.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{
+		Name:       "LoadShedPolicy",
+		NewRequest: func() any { return new(helloReq) },
+		Handler: func(ctx context.Context, req any) (any, error) {
+			select {
+			case <-started:
+			default:
+				close(started)
+			}
+			select {
+			case <-release:
+				return helloResp{Message: "ok"}, nil
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		},
+	}}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(s)
+	defer ts.Close()
+	c, err := NewClient(ts.URL,
+		WithRPCPolicy(RPCPolicy{LoadShedder: RPCLoadShedderPolicy{Enabled: true, MaxConcurrency: 1}}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	firstErr := make(chan error, 1)
+	go func() {
+		var resp helloResp
+		firstErr <- c.Call(context.Background(), "greeter/LoadShedPolicy", helloReq{Name: "first"}, &resp)
+	}()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for first call")
+	}
+	var resp helloResp
+	err = c.Call(context.Background(), "greeter/LoadShedPolicy", helloReq{Name: "second"}, &resp)
+	var rpcErr *Error
+	if !errors.As(err, &rpcErr) || rpcErr.Code != CodeResourceExhausted {
+		t.Fatalf("second error = %v, want resource exhausted load shedding error", err)
+	}
+	close(release)
+	if err := <-firstErr; err != nil {
+		t.Fatalf("first call: %v", err)
+	}
+}
+
+func TestHTTPClientRPCPolicyRuntimeFallback(t *testing.T) {
+	var fallbackCalls atomic.Int64
+	failing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"code":"unavailable","error":"down"}`))
+	}))
+	defer failing.Close()
+
+	fallback := NewServer()
+	if err := fallback.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{
+		Name:       "FallbackPolicy",
+		NewRequest: func() any { return new(helloReq) },
+		Handler: func(ctx context.Context, req any) (any, error) {
+			fallbackCalls.Add(1)
+			return helloResp{Message: "fallback"}, nil
+		},
+	}}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	fallbackServer := httptest.NewServer(fallback)
+	defer fallbackServer.Close()
+	c, err := NewClient(failing.URL,
+		WithRetry(1),
+		WithRPCPolicy(RPCPolicy{Fallback: RPCFallbackPolicy{Enabled: true, Target: fallbackServer.URL}}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var resp helloResp
+	if err := c.Call(context.Background(), "greeter/FallbackPolicy", helloReq{Name: "gofly"}, &resp); err != nil {
+		t.Fatalf("Call: %v", err)
+	}
+	if resp.Message != "fallback" || fallbackCalls.Load() != 1 {
+		t.Fatalf("fallback response/calls = %#v/%d, want fallback success", resp, fallbackCalls.Load())
+	}
+}
+
+func TestHTTPClientRPCPolicyRuntimeHedge(t *testing.T) {
+	var calls atomic.Int64
+	s := NewServer()
+	if err := s.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{
+		Name:       "HedgePolicy",
+		NewRequest: func() any { return new(helloReq) },
+		Handler: func(ctx context.Context, req any) (any, error) {
+			if calls.Add(1) == 1 {
+				select {
+				case <-time.After(100 * time.Millisecond):
+					return helloResp{Message: "primary"}, nil
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				}
+			}
+			return helloResp{Message: "hedge"}, nil
+		},
+	}}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(s)
+	defer ts.Close()
+	c, err := NewClient(ts.URL,
+		WithRPCPolicy(RPCPolicy{Hedge: RPCHedgePolicy{Enabled: true, Delay: 5 * time.Millisecond, Attempts: 2}}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var resp helloResp
+	if err := c.Call(context.Background(), "greeter/HedgePolicy", helloReq{Name: "gofly"}, &resp); err != nil {
+		t.Fatalf("Call: %v", err)
+	}
+	if resp.Message != "hedge" || calls.Load() < 2 {
+		t.Fatalf("hedge response/calls = %#v/%d, want hedged response", resp, calls.Load())
+	}
+}
+
+func TestHTTPClientRPCPolicyRuntimeSnapshotContributor(t *testing.T) {
+	policy := RPCPolicy{
+		Timeout: 50 * time.Millisecond,
+		Retry:   governance.RetryPolicy{Attempts: 3, Backoff: time.Millisecond},
+		Breaker: governance.BreakerPolicy{Enabled: true, MinRequests: 1, FailureRatio: 0.1, OpenTimeout: time.Second},
+		Balancer: RPCBalancerPolicy{
+			Name:    RPCBalancerWeightedRoundRobin,
+			Weights: map[string]int{"http://a": 1, "http://b": 2},
+		},
+		LoadShedder: RPCLoadShedderPolicy{Enabled: true, MaxConcurrency: 2},
+		Fallback:    RPCFallbackPolicy{Enabled: true, Target: "http://fallback"},
+		Hedge:       RPCHedgePolicy{Enabled: true, Delay: time.Millisecond, Attempts: 2},
+	}
+	c, err := NewClient("http://a", WithRPCPolicy(policy), WithResolver(NewStaticResolver("http://a", "http://b")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = c.ruleBalancer("unit", policy.Balancer)
+	_ = c.ruleLoadShedderLimiter("unit", policy.LoadShedder)
+	_ = c.ruleBreaker("unit", policy.Breaker)
+
+	runtimeSnapshot := c.PolicyRuntimeSnapshot()
+	if !runtimeSnapshot.State.TimeoutEnforced || runtimeSnapshot.State.EffectiveTimeout != 50*time.Millisecond {
+		t.Fatalf("timeout state = %+v, want enforced 50ms", runtimeSnapshot.State)
+	}
+	if runtimeSnapshot.State.RetryAttempts != 3 || runtimeSnapshot.State.RetryBackoff != time.Millisecond {
+		t.Fatalf("retry state = %+v, want attempts/backoff from policy", runtimeSnapshot.State)
+	}
+	if !runtimeSnapshot.State.BreakerEnabled || runtimeSnapshot.State.Balancer != RPCBalancerWeightedRoundRobin || !runtimeSnapshot.State.LoadShedderEnabled || runtimeSnapshot.State.LoadShedderLimit != 2 {
+		t.Fatalf("runtime state = %+v, want breaker, balancer and load shedder", runtimeSnapshot.State)
+	}
+	if !runtimeSnapshot.State.FallbackEnabled || runtimeSnapshot.State.FallbackTarget != "http://fallback" || !runtimeSnapshot.State.HedgeEnabled || runtimeSnapshot.State.HedgeAttempts != 2 {
+		t.Fatalf("fallback/hedge state = %+v, want enabled", runtimeSnapshot.State)
+	}
+	if runtimeSnapshot.Cache.Balancers != 1 || runtimeSnapshot.Cache.Breakers != 1 || runtimeSnapshot.Cache.ConcurrencyLimiters != 1 {
+		t.Fatalf("runtime cache = %+v, want balancer, breaker and load shedder limiter", runtimeSnapshot.Cache)
+	}
+
+	provider := controlplane.CompositeProvider{Contributors: []controlplane.SnapshotContributor{
+		RPCPolicyRuntimeContributor{Name: "primary", Client: c},
+	}}
+	snapshot, err := provider.Load(context.Background())
+	if err != nil {
+		t.Fatalf("Load controlplane snapshot: %v", err)
+	}
+	if snapshot.Metadata["rpc.policy.runtime"] != "available" || snapshot.Metadata["rpc.policy.runtime.enforcement"] == "" {
+		t.Fatalf("snapshot metadata = %+v, want rpc policy runtime metadata", snapshot.Metadata)
+	}
+	raw := snapshot.Configs["rpc.policy.runtime.primary"]
+	if !json.Valid(raw) {
+		t.Fatalf("rpc runtime config is not valid JSON: %s", raw)
+	}
+	var decoded RPCPolicyRuntimeSnapshot
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatalf("decode rpc runtime config: %v", err)
+	}
+	if decoded.State.Balancer != RPCBalancerWeightedRoundRobin || !decoded.State.ExplicitPolicyBound || !slices.Contains(decoded.Capabilities, "dynamic_policy") || !slices.Contains(decoded.Capabilities, "kitex_interceptor") {
+		t.Fatalf("decoded runtime snapshot = %+v, want policy runtime capability state", decoded)
+	}
+}
+
+func TestHTTPClientDynamicRPCPolicyProviderOverridesRuntime(t *testing.T) {
+	started := make(chan struct{})
+	s := NewServer()
+	if err := s.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{
+		Name:       "DynamicPolicy",
+		NewRequest: func() any { return new(helloReq) },
+		Handler: func(ctx context.Context, req any) (any, error) {
+			select {
+			case <-started:
+			default:
+				close(started)
+			}
+			<-ctx.Done()
+			return nil, ctx.Err()
+		},
+	}}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(s)
+	defer ts.Close()
+
+	var providerCalls atomic.Int64
+	c, err := NewClient(ts.URL,
+		WithTimeout(time.Second),
+		WithRPCPolicy(RPCPolicy{Timeout: 500 * time.Millisecond}),
+		WithDynamicRPCPolicy(RPCPolicyProviderFunc(func(ctx context.Context, req governance.Request) (RPCPolicy, error) {
+			providerCalls.Add(1)
+			if req.Service != "greeter" || req.Method != "DynamicPolicy" {
+				t.Fatalf("governance request = %+v, want greeter/DynamicPolicy", req)
+			}
+			return RPCPolicy{Timeout: 20 * time.Millisecond}, nil
+		})),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var resp helloResp
+	err = c.Call(context.Background(), "greeter/DynamicPolicy", helloReq{Name: "gofly"}, &resp)
+	var rpcErr *Error
+	if !errors.As(err, &rpcErr) || rpcErr.Code != CodeDeadlineExceeded {
+		t.Fatalf("error = %v, want deadline exceeded from dynamic policy", err)
+	}
+	if providerCalls.Load() != 1 {
+		t.Fatalf("dynamic provider calls = %d, want 1", providerCalls.Load())
+	}
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for handler to start")
+	}
+	snapshot := c.PolicyRuntimeSnapshot()
+	if !snapshot.State.DynamicPolicyBound || !snapshot.State.ExplicitPolicyBound {
+		t.Fatalf("runtime state = %+v, want dynamic and explicit policy bound", snapshot.State)
 	}
 }
 

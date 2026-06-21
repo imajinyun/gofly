@@ -10,12 +10,14 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/gofly/gofly/cmd/gofly/internal/generator"
+	"github.com/gofly/gofly/core/controlplane"
 	"github.com/gofly/gofly/core/llm"
 )
 
@@ -31,6 +33,7 @@ func TestIsAIHelpSubcommand(t *testing.T) {
 		{name: "complete", command: "complete", want: true},
 		{name: "stream", command: "stream", want: true},
 		{name: "doctor", command: "doctor", want: true},
+		{name: "control-plane", command: "control-plane", want: true},
 		{name: "ask is not supported", command: "ask", want: false},
 		{name: "empty", command: "", want: false},
 	}
@@ -1087,10 +1090,42 @@ func TestAINewTextHelpAndManifestContract_BitsUT(t *testing.T) {
 	t.Run("help includes ai new contract", func(t *testing.T) {
 		aiHelp := commandUsage("ai")
 		newHelp := commandUsage("ai new")
-		for _, want := range []string{"ai new", "--apply", "--dry-run", "--template", "--verify"} {
-			if !strings.Contains(aiHelp+newHelp, want) {
-				t.Fatalf("ai help output missing %q\nai help:\n%s\nai new help:\n%s", want, aiHelp, newHelp)
+		streamHelp := commandUsage("ai stream")
+		manifestHelp := commandUsage("ai manifest")
+		controlPlaneHelp := commandUsage("ai control-plane")
+		for _, want := range []string{"ai new", "ai stream", "ai control-plane", "--apply", "--dry-run", "--template", "--verify", "--schema jsonschema", "--allow-failover", "--from-checksum", "--from-snapshot", "--watch", "--max-events"} {
+			if !strings.Contains(aiHelp+newHelp+streamHelp+manifestHelp+controlPlaneHelp, want) {
+				t.Fatalf("ai help output missing %q\nai help:\n%s\nai new help:\n%s\nai stream help:\n%s\nai manifest help:\n%s\nai control-plane help:\n%s", want, aiHelp, newHelp, streamHelp, manifestHelp, controlPlaneHelp)
 			}
+		}
+	})
+
+	t.Run("AI manifest commands have help and flag parity", func(t *testing.T) {
+		manifest := buildAIToolManifest()
+		longFlagPattern := regexp.MustCompile(`--[a-zA-Z0-9-]+`)
+		for _, cmd := range manifest.Commands {
+			if !strings.HasPrefix(cmd.Name, "ai ") {
+				continue
+			}
+			t.Run(strings.ReplaceAll(cmd.Name, " ", "_"), func(t *testing.T) {
+				help := commandUsage(cmd.Name)
+				if strings.Contains(help, "gofly command help.") {
+					t.Fatalf("%s uses fallback help instead of a dedicated AI help contract:\n%s", cmd.Name, help)
+				}
+				if !strings.Contains(help, cmd.Name) {
+					t.Fatalf("%s help does not name the command:\n%s", cmd.Name, help)
+				}
+				seenFlags := map[string]bool{}
+				for _, flagName := range longFlagPattern.FindAllString(cmd.Usage, -1) {
+					if seenFlags[flagName] {
+						continue
+					}
+					seenFlags[flagName] = true
+					if !strings.Contains(help, flagName) {
+						t.Fatalf("%s manifest usage flag %s missing from help\nusage: %s\nhelp:\n%s", cmd.Name, flagName, cmd.Usage, help)
+					}
+				}
+			})
 		}
 	})
 
@@ -1110,6 +1145,43 @@ func TestAINewTextHelpAndManifestContract_BitsUT(t *testing.T) {
 
 	t.Run("manifest exposes governed feature library contract", func(t *testing.T) {
 		manifest := buildAIToolManifest()
+		controlPlane := manifest.ControlPlane
+		if controlPlane.Package != "github.com/gofly/gofly/core/controlplane" || controlPlane.SnapshotVersion != "gofly-control-plane.v1" || controlPlane.SnapshotChecksum == "" {
+			t.Fatalf("control plane manifest = %+v, want package, version and stable checksum", controlPlane)
+		}
+		if controlPlane.SchemaID != aiControlPlaneSchemaID || controlPlane.SchemaCommand != "gofly ai control-plane --schema jsonschema" || controlPlane.SchemaChecksum == "" || controlPlane.SchemaChecksum != aiControlPlaneJSONSchemaChecksum() {
+			t.Fatalf("control plane schema contract = %+v, want schema id, command and stable checksum", controlPlane)
+		}
+		for _, want := range []string{"version", "checksum", "services", "configs", "policies", "metadata"} {
+			if !commandContainsString(controlPlane.SnapshotFields, want) {
+				t.Fatalf("control plane snapshot fields missing %q: %+v", want, controlPlane.SnapshotFields)
+			}
+		}
+		if !strings.Contains(controlPlane.SecretBoundary, "secret values") || !commandContainsString(controlPlane.ProviderContract, "Load(context.Context) (Snapshot, error)") {
+			t.Fatalf("control plane boundaries = %+v", controlPlane)
+		}
+		if !commandContainsString(controlPlane.Capabilities, "consumer action dispatcher for runtime config planner, routing model, governance gates and capability cache refresh hooks") {
+			t.Fatalf("control plane capabilities = %+v, want runtime consumer dispatcher", controlPlane.Capabilities)
+		}
+		if !commandContainsString(controlPlane.Capabilities, "rpc policy runtime enforcement for client timeout, retry backoff with context cancellation, circuit breaker gates, balancer selection, load shedding, fallback and hedging") {
+			t.Fatalf("control plane capabilities = %+v, want rpc policy runtime enforcement", controlPlane.Capabilities)
+		}
+		if !commandContainsString(controlPlane.Capabilities, "control-plane contributor for rpc policy runtime state, cache counts and enforcement capabilities") {
+			t.Fatalf("control plane capabilities = %+v, want rpc policy runtime contributor", controlPlane.Capabilities)
+		}
+		if !commandContainsString(controlPlane.Capabilities, "generated project control-plane contributors for scaffold contract, sanitized runtime config and governance policy snapshots") || controlPlane.DefaultMetadata["generated.project.contract"] != "available" {
+			t.Fatalf("control plane capabilities/metadata = %+v/%+v, want generated project control-plane contract", controlPlane.Capabilities, controlPlane.DefaultMetadata)
+		}
+		if len(controlPlane.ConsumerActions) == 0 {
+			t.Fatalf("control plane manifest missing consumer actions: %+v", controlPlane)
+		}
+		consumerActions := map[string]controlplane.SnapshotConsumerAction{}
+		for _, action := range controlPlane.ConsumerActions {
+			consumerActions[action.ChangeType] = action
+		}
+		if consumerActions["none"].Action != "skip" || consumerActions["policy-change"].Action != "reload-governance-gates" || !consumerActions["mixed-change"].RequiresFullReconcile {
+			t.Fatalf("control plane consumer actions = %+v", controlPlane.ConsumerActions)
+		}
 		library := manifest.FeatureLibrary
 		if !library.Deterministic || !library.AppliesUnderDirOnly || len(library.Plugins) == 0 {
 			t.Fatalf("feature library manifest = %+v, want deterministic under-dir plugin contracts", library)
@@ -1142,6 +1214,252 @@ func TestAINewTextHelpAndManifestContract_BitsUT(t *testing.T) {
 		}
 		if got := strings.Join(plugins, ","); !strings.Contains(got, "postgres-repository") || !strings.Contains(got, "redis-cache") || plugins[0] != "auth-jwt" {
 			t.Fatalf("feature library plugins = %q, want stable built-in feature contracts", got)
+		}
+	})
+
+	t.Run("manifest exposes AI command output contracts", func(t *testing.T) {
+		manifest := buildAIToolManifest()
+		contracts := map[string]*aiOutputContract{}
+		for _, cmd := range manifest.Commands {
+			if strings.HasPrefix(cmd.Name, "ai ") {
+				contracts[cmd.Name] = cmd.OutputContract
+			}
+		}
+		for _, name := range []string{"ai manifest", "ai control-plane", "ai plan", "ai new", "ai complete", "ai stream", "ai doctor"} {
+			contract := contracts[name]
+			if contract == nil || contract.Mode == "" || !commandContainsString(contract.Envelope, "ok") || len(contract.EventFields) == 0 {
+				t.Fatalf("%s output contract = %+v", name, contract)
+			}
+		}
+		if contracts["ai manifest"].Semantics["schema"] == "" || contracts["ai control-plane"].Semantics["schema"] == "" || contracts["ai control-plane"].Semantics["determinism"] == "" || contracts["ai control-plane"].Semantics["diff"] == "" || contracts["ai control-plane"].Semantics["consumerAction"] == "" || contracts["ai new"].Semantics["verification"] == "" || contracts["ai doctor"].Semantics["secrets"] == "" {
+			t.Fatalf("AI output contract semantics = manifest:%+v control-plane:%+v new:%+v doctor:%+v", contracts["ai manifest"], contracts["ai control-plane"], contracts["ai new"], contracts["ai doctor"])
+		}
+	})
+
+	t.Run("ai manifest emits JSON schema contract", func(t *testing.T) {
+		var stdout bytes.Buffer
+		if err := ExecuteWithIO([]string{"ai", "manifest", "--schema", "jsonschema"}, IOStreams{Out: &stdout}); err != nil {
+			t.Fatalf("ai manifest schema: %v", err)
+		}
+		var envelope struct {
+			OK      bool   `json:"ok"`
+			Command string `json:"command"`
+			Data    struct {
+				Schema         string         `json:"$schema"`
+				ID             string         `json:"$id"`
+				Title          string         `json:"title"`
+				SchemaChecksum string         `json:"xSchemaChecksum"`
+				Properties     map[string]any `json:"properties"`
+				Required       []string       `json:"required"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+			t.Fatalf("ai manifest schema output is not valid JSON: %v\n%s", err, stdout.String())
+		}
+		if !envelope.OK || envelope.Command != "ai.manifest.schema" || envelope.Data.Schema != "https://json-schema.org/draft/2020-12/schema" || envelope.Data.Title != "gofly AI tool manifest" {
+			t.Fatalf("ai manifest schema envelope = %+v", envelope)
+		}
+		for _, want := range []string{"schemaVersion", "commands", "controlPlane", "llmGovernance", "featureLibrary"} {
+			if _, ok := envelope.Data.Properties[want]; !ok {
+				t.Fatalf("ai manifest schema missing property %q: %+v", want, envelope.Data.Properties)
+			}
+		}
+	})
+
+	t.Run("ai control-plane emits JSON schema contract", func(t *testing.T) {
+		var stdout bytes.Buffer
+		if err := ExecuteWithIO([]string{"ai", "control-plane", "--schema", "jsonschema"}, IOStreams{Out: &stdout}); err != nil {
+			t.Fatalf("ai control-plane schema: %v", err)
+		}
+		var envelope struct {
+			OK      bool   `json:"ok"`
+			Command string `json:"command"`
+			Data    struct {
+				Schema         string         `json:"$schema"`
+				ID             string         `json:"$id"`
+				Title          string         `json:"title"`
+				SchemaChecksum string         `json:"xSchemaChecksum"`
+				Properties     map[string]any `json:"properties"`
+				Required       []string       `json:"required"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+			t.Fatalf("ai control-plane schema output is not valid JSON: %v\n%s", err, stdout.String())
+		}
+		if !envelope.OK || envelope.Command != "ai.control_plane.schema" || envelope.Data.Schema != "https://json-schema.org/draft/2020-12/schema" || envelope.Data.ID != aiControlPlaneSchemaID || envelope.Data.Title != "gofly AI control-plane contract" || envelope.Data.SchemaChecksum != aiControlPlaneJSONSchemaChecksum() {
+			t.Fatalf("ai control-plane schema envelope = %+v", envelope)
+		}
+		for _, want := range []string{"snapshot", "diff", "consumerAction", "snapshotResult", "watchEvent"} {
+			if _, ok := envelope.Data.Properties[want]; !ok {
+				t.Fatalf("ai control-plane schema missing property %q: %+v", want, envelope.Data.Properties)
+			}
+		}
+	})
+
+	t.Run("ai control-plane emits deterministic JSON snapshot", func(t *testing.T) {
+		var stdout bytes.Buffer
+		if err := ExecuteWithIO([]string{"ai", "control-plane", "--json"}, IOStreams{Out: &stdout}); err != nil {
+			t.Fatalf("ai control-plane --json: %v", err)
+		}
+		var envelope struct {
+			OK      bool   `json:"ok"`
+			Command string `json:"command"`
+			Data    struct {
+				Source         string                              `json:"source"`
+				Snapshot       controlplane.Snapshot               `json:"snapshot"`
+				Diff           controlplane.SnapshotDiff           `json:"diff"`
+				ConsumerAction controlplane.SnapshotConsumerAction `json:"consumerAction"`
+				AgentGuidance  []string                            `json:"agentGuidance"`
+				SecretBoundary string                              `json:"secretBoundary"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+			t.Fatalf("decode ai control-plane output: %v\n%s", err, stdout.String())
+		}
+		if !envelope.OK || envelope.Command != "ai.control_plane" || envelope.Data.Source != "ai-manifest" {
+			t.Fatalf("ai control-plane envelope = %+v", envelope)
+		}
+		if envelope.Data.Snapshot.Version != "gofly-control-plane.v1" || envelope.Data.Snapshot.Checksum == "" {
+			t.Fatalf("ai control-plane snapshot = %+v, want version and checksum", envelope.Data.Snapshot)
+		}
+		if !envelope.Data.Diff.Changed || envelope.Data.Diff.ChangeType != "initial-snapshot" || envelope.Data.Diff.ToChecksum != envelope.Data.Snapshot.Checksum {
+			t.Fatalf("ai control-plane diff = %+v, want initial snapshot diff", envelope.Data.Diff)
+		}
+		if envelope.Data.ConsumerAction.Action != "load-baseline" || !envelope.Data.ConsumerAction.RequiresFullReconcile || !commandContainsString(envelope.Data.ConsumerAction.Scopes, "policy") {
+			t.Fatalf("ai control-plane consumer action = %+v, want load-baseline policy", envelope.Data.ConsumerAction)
+		}
+		if len(envelope.Data.AgentGuidance) == 0 || !strings.Contains(envelope.Data.SecretBoundary, "secret values") {
+			t.Fatalf("ai control-plane guidance/boundary = %+v/%q", envelope.Data.AgentGuidance, envelope.Data.SecretBoundary)
+		}
+	})
+
+	t.Run("ai control-plane compares from checksum", func(t *testing.T) {
+		checksum := defaultAIControlPlaneSnapshot().StableChecksum()
+		var stdout bytes.Buffer
+		args := []string{"ai", "control-plane", "--from-checksum", checksum, "--json"}
+		if err := ExecuteWithIO(args, IOStreams{Out: &stdout}); err != nil {
+			t.Fatalf("ai control-plane --from-checksum: %v", err)
+		}
+		var envelope struct {
+			Data struct {
+				Snapshot       controlplane.Snapshot               `json:"snapshot"`
+				Diff           controlplane.SnapshotDiff           `json:"diff"`
+				ConsumerAction controlplane.SnapshotConsumerAction `json:"consumerAction"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+			t.Fatalf("decode ai control-plane diff output: %v\n%s", err, stdout.String())
+		}
+		if envelope.Data.Diff.Changed || envelope.Data.Diff.ChangeType != "none" || envelope.Data.Diff.FromChecksum != checksum || envelope.Data.Diff.ToChecksum != envelope.Data.Snapshot.Checksum {
+			t.Fatalf("ai control-plane checksum diff = %+v", envelope.Data.Diff)
+		}
+		if envelope.Data.ConsumerAction.Action != "skip" || envelope.Data.ConsumerAction.RequiresFullReconcile {
+			t.Fatalf("ai control-plane checksum consumer action = %+v, want skip", envelope.Data.ConsumerAction)
+		}
+	})
+
+	t.Run("ai control-plane compares from snapshot file semantically", func(t *testing.T) {
+		previous := defaultAIControlPlaneSnapshot()
+		previous.Metadata = map[string]string{
+			"config":     "available",
+			"discovery":  "available",
+			"governance": "available",
+			"gateway":    "planned",
+			"llm":        "planned",
+			"tool":       "available",
+		}
+		data, err := json.Marshal(previous.WithChecksum())
+		if err != nil {
+			t.Fatalf("marshal previous snapshot: %v", err)
+		}
+		path := filepath.Join(t.TempDir(), "previous-control-plane.json")
+		if err := os.WriteFile(path, data, 0o600); err != nil {
+			t.Fatalf("write previous snapshot: %v", err)
+		}
+
+		var stdout bytes.Buffer
+		args := []string{"ai", "control-plane", "--from-snapshot", path, "--json"}
+		if err := ExecuteWithIO(args, IOStreams{Out: &stdout}); err != nil {
+			t.Fatalf("ai control-plane --from-snapshot: %v", err)
+		}
+		var envelope struct {
+			Data struct {
+				Diff           controlplane.SnapshotDiff           `json:"diff"`
+				ConsumerAction controlplane.SnapshotConsumerAction `json:"consumerAction"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+			t.Fatalf("decode ai control-plane snapshot diff output: %v\n%s", err, stdout.String())
+		}
+		if !envelope.Data.Diff.Changed || envelope.Data.Diff.ChangeType != "metadata-change" || !commandContainsString(envelope.Data.Diff.ChangedFields, "metadata") {
+			t.Fatalf("ai control-plane snapshot diff = %+v, want metadata-change", envelope.Data.Diff)
+		}
+		if envelope.Data.ConsumerAction.Action != "refresh-capability-cache" || envelope.Data.ConsumerAction.RequiresFullReconcile {
+			t.Fatalf("ai control-plane snapshot consumer action = %+v, want capability refresh", envelope.Data.ConsumerAction)
+		}
+	})
+
+	t.Run("ai control-plane rejects ambiguous baseline flags", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "previous-control-plane.json")
+		if err := os.WriteFile(path, []byte(`{"version":"gofly-control-plane.v1"}`), 0o600); err != nil {
+			t.Fatalf("write previous snapshot: %v", err)
+		}
+		err := ExecuteWithIO([]string{"ai", "control-plane", "--from-checksum", "old", "--from-snapshot", path, "--json"}, IOStreams{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}})
+		if err == nil || !strings.Contains(err.Error(), "mutually exclusive") {
+			t.Fatalf("ai control-plane ambiguous baseline error = %v", err)
+		}
+	})
+
+	t.Run("ai control-plane watch emits bounded JSON events", func(t *testing.T) {
+		var stdout bytes.Buffer
+		args := []string{"ai", "control-plane", "--watch", "--max-events", "1", "--timeout", "2s", "--json"}
+		if err := ExecuteWithIO(args, IOStreams{Out: &stdout}); err != nil {
+			t.Fatalf("ai control-plane watch --json: %v", err)
+		}
+		lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
+		if len(lines) != 1 {
+			t.Fatalf("ai control-plane watch output lines = %d, want 1\n%s", len(lines), stdout.String())
+		}
+		var envelope struct {
+			OK      bool   `json:"ok"`
+			Command string `json:"command"`
+			Data    struct {
+				Index          int                                 `json:"index"`
+				Source         string                              `json:"source"`
+				Snapshot       controlplane.Snapshot               `json:"snapshot"`
+				Diff           controlplane.SnapshotDiff           `json:"diff"`
+				ConsumerAction controlplane.SnapshotConsumerAction `json:"consumerAction"`
+				Error          string                              `json:"error"`
+				SecretBoundary string                              `json:"secretBoundary"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal([]byte(lines[0]), &envelope); err != nil {
+			t.Fatalf("decode ai control-plane watch output: %v\n%s", err, stdout.String())
+		}
+		if !envelope.OK || envelope.Command != "ai.control_plane.event" {
+			t.Fatalf("ai control-plane watch envelope = %+v", envelope)
+		}
+		if envelope.Data.Index != 0 || envelope.Data.Source != "ai-manifest" {
+			t.Fatalf("ai control-plane watch index/source = %+v", envelope.Data)
+		}
+		if envelope.Data.Snapshot.Checksum == "" || envelope.Data.Snapshot.Version != "gofly-control-plane.v1" {
+			t.Fatalf("ai control-plane watch snapshot = %+v", envelope.Data.Snapshot)
+		}
+		if !envelope.Data.Diff.Changed || envelope.Data.Diff.ChangeType != "mixed-change" || envelope.Data.Diff.ToChecksum != envelope.Data.Snapshot.Checksum {
+			t.Fatalf("ai control-plane watch diff = %+v", envelope.Data.Diff)
+		}
+		if envelope.Data.ConsumerAction.Action != "full-reconcile" || !envelope.Data.ConsumerAction.RequiresFullReconcile || !commandContainsString(envelope.Data.ConsumerAction.Scopes, "metadata") {
+			t.Fatalf("ai control-plane watch consumer action = %+v, want full reconcile", envelope.Data.ConsumerAction)
+		}
+		if envelope.Data.Error != "" || !strings.Contains(envelope.Data.SecretBoundary, "secret values") {
+			t.Fatalf("ai control-plane watch error/boundary = %q/%q", envelope.Data.Error, envelope.Data.SecretBoundary)
+		}
+	})
+
+	t.Run("ai control-plane watch rejects non-positive max-events", func(t *testing.T) {
+		err := ExecuteWithIO([]string{"ai", "control-plane", "--watch", "--max-events", "0", "--json"}, IOStreams{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}})
+		if err == nil || !strings.Contains(err.Error(), "--max-events must be positive") {
+			t.Fatalf("ai control-plane watch max-events error = %v", err)
 		}
 	})
 }

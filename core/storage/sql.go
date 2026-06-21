@@ -53,6 +53,26 @@ type SQLStore struct {
 	stats         *StoreStats
 }
 
+type Executor interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}
+
+type Querier interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
+
+type Tx interface {
+	Executor
+	Querier
+	Commit() error
+	Rollback() error
+}
+
+type TxRunner interface {
+	Transact(context.Context, *sql.TxOptions, TxFunc) error
+}
+
 type TxFunc func(ctx context.Context, tx *sql.Tx) error
 
 type StoreOption func(*SQLStore)
@@ -270,28 +290,39 @@ func (s *SQLStore) Transact(ctx context.Context, opts *sql.TxOptions, fn TxFunc)
 		return errors.New("transaction function is required")
 	}
 	if err := s.run(ctx, "transaction", func(callCtx context.Context) error {
-		tx, err := s.db.BeginTx(callCtx, opts)
-		if err != nil {
-			return fmt.Errorf("begin transaction: %w", err)
-		}
-		defer func() {
-			if p := recover(); p != nil {
-				_ = tx.Rollback()
-				panic(p)
-			}
-		}()
-		if err := fn(callCtx, tx); err != nil {
-			if rbErr := tx.Rollback(); rbErr != nil {
-				return errors.Join(err, fmt.Errorf("rollback transaction: %w", rbErr))
-			}
-			return err
-		}
-		if err := tx.Commit(); err != nil {
-			return fmt.Errorf("commit transaction: %w", err)
-		}
-		return nil
+		return WithTx(callCtx, s.db, opts, fn)
 	}); err != nil {
 		return fmt.Errorf("transaction sql: %w", err)
+	}
+	return nil
+}
+
+func WithTx(ctx context.Context, db *sql.DB, opts *sql.TxOptions, fn TxFunc) error {
+	if db == nil {
+		return errors.New("sql db is nil")
+	}
+	if fn == nil {
+		return errors.New("transaction function is required")
+	}
+	ctx = core.Context(ctx)
+	tx, err := db.BeginTx(ctx, opts)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer func() {
+		if p := recover(); p != nil {
+			_ = tx.Rollback()
+			panic(p)
+		}
+	}()
+	if err := fn(ctx, tx); err != nil {
+		if rbErr := tx.Rollback(); rbErr != nil {
+			return errors.Join(err, fmt.Errorf("rollback transaction: %w", rbErr))
+		}
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit transaction: %w", err)
 	}
 	return nil
 }
@@ -370,10 +401,50 @@ const (
 	DialectQuestion Dialect = "question"
 	DialectPostgres Dialect = "postgres"
 	DialectMySQL    Dialect = "mysql"
+	DialectSQLite   Dialect = "sqlite"
 )
 
+// SQLDialect is the portable SQL rendering contract used by storage builders
+// and generated repositories. Dialect itself implements this interface; the
+// interface is provided for callers that want to accept custom dialect renderers
+// without depending on concrete string constants.
+type SQLDialect interface {
+	Placeholder(n int) string
+	QuoteIdent(name string) (string, error)
+	LimitOffset(limit int, offset int, start int) (string, []any, error)
+}
+
+// NormalizeDialect maps common driver aliases to gofly's stable dialect names.
+// Unknown values are kept unchanged so older callers that relied on question
+// placeholders continue to work through Placeholder.
+func NormalizeDialect(dialect Dialect) Dialect {
+	switch Dialect(strings.ToLower(strings.TrimSpace(string(dialect)))) {
+	case "", DialectQuestion:
+		return DialectQuestion
+	case "pg", "pgsql", "postgresql", DialectPostgres:
+		return DialectPostgres
+	case "mariadb", DialectMySQL:
+		return DialectMySQL
+	case "sqlite3", DialectSQLite:
+		return DialectSQLite
+	default:
+		return dialect
+	}
+}
+
+func (d Dialect) Placeholder(n int) string { return Placeholder(d, n) }
+
+func (d Dialect) QuoteIdent(name string) (string, error) { return QuoteIdent(d, name) }
+
+func (d Dialect) LimitOffset(limit int, offset int, start int) (string, []any, error) {
+	return LimitOffset(d, limit, offset, start)
+}
+
 func Placeholder(dialect Dialect, n int) string {
-	if dialect == DialectPostgres {
+	if n <= 0 {
+		n = 1
+	}
+	if NormalizeDialect(dialect) == DialectPostgres {
 		return fmt.Sprintf("$%d", n)
 	}
 	return "?"
@@ -385,6 +456,59 @@ func Placeholders(dialect Dialect, n int) string {
 		parts = append(parts, Placeholder(dialect, i))
 	}
 	return strings.Join(parts, ", ")
+}
+
+func QuoteIdent(dialect Dialect, name string) (string, error) {
+	segments := strings.Split(name, ".")
+	quoted := make([]string, 0, len(segments))
+	for _, segment := range segments {
+		if err := ValidateIdentifier(segment); err != nil {
+			return "", err
+		}
+		quote := `"`
+		if NormalizeDialect(dialect) == DialectMySQL {
+			quote = "`"
+		}
+		quoted = append(quoted, quote+segment+quote)
+	}
+	return strings.Join(quoted, "."), nil
+}
+
+func JoinQuotedIdentifiers(dialect Dialect, names []string) (string, error) {
+	parts := make([]string, 0, len(names))
+	for _, name := range names {
+		quoted, err := QuoteIdent(dialect, name)
+		if err != nil {
+			return "", err
+		}
+		parts = append(parts, quoted)
+	}
+	return strings.Join(parts, ", "), nil
+}
+
+func LimitOffset(dialect Dialect, limit int, offset int, start int) (string, []any, error) {
+	if limit < 0 {
+		return "", nil, errors.New("limit must not be negative")
+	}
+	if offset < 0 {
+		return "", nil, errors.New("offset must not be negative")
+	}
+	if start <= 0 {
+		start = 1
+	}
+	if limit == 0 {
+		if offset > 0 {
+			return "", nil, errors.New("limit is required when offset is set")
+		}
+		return "", nil, nil
+	}
+	clause := " LIMIT " + Placeholder(dialect, start)
+	args := []any{limit}
+	if offset > 0 {
+		clause += " OFFSET " + Placeholder(dialect, start+1)
+		args = append(args, offset)
+	}
+	return clause, args, nil
 }
 
 var identifierRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
@@ -485,14 +609,14 @@ func Upsert(table string, columns []string, conflictColumns []string, updateColu
 		if err := ValidateIdentifier(column); err != nil {
 			return "", err
 		}
-		switch dialect {
-		case DialectPostgres:
+		switch NormalizeDialect(dialect) {
+		case DialectPostgres, DialectSQLite:
 			updates = append(updates, fmt.Sprintf("%s = EXCLUDED.%s", column, column))
 		default:
 			updates = append(updates, fmt.Sprintf("%s = VALUES(%s)", column, column))
 		}
 	}
-	if dialect == DialectPostgres {
+	if normalized := NormalizeDialect(dialect); normalized == DialectPostgres || normalized == DialectSQLite {
 		return fmt.Sprintf("%s ON CONFLICT (%s) DO UPDATE SET %s", insertQuery, conflict, strings.Join(updates, ", ")), nil
 	}
 	return fmt.Sprintf("%s ON DUPLICATE KEY UPDATE %s", insertQuery, strings.Join(updates, ", ")), nil
@@ -542,7 +666,11 @@ func SelectPage(table string, columns []string, orderBy string, dialect Dialect)
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("SELECT %s FROM %s ORDER BY %s LIMIT %s OFFSET %s", joined, table, orderBy, Placeholder(dialect, 1), Placeholder(dialect, 2)), nil
+	pagination, _, err := LimitOffset(dialect, 1, 1, 1)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("SELECT %s FROM %s ORDER BY %s%s", joined, table, orderBy, pagination), nil
 }
 
 func SelectForUpdate(table string, columns []string, whereColumn string, dialect Dialect, skipLocked bool) (string, error) {
@@ -751,17 +879,20 @@ func (w *Where) Build(dialect Dialect, start int) (string, []any, error) {
 			b.WriteString(strings.Join(orders, ", "))
 		}
 	}
+	pagination, paginationArgs, err := LimitOffset(dialect, 0, 0, placeholder)
+	if err != nil {
+		return "", nil, err
+	}
 	if w.hasLimit {
-		b.WriteString(" LIMIT ")
-		b.WriteString(Placeholder(dialect, placeholder))
-		placeholder++
-		args = append(args, w.limit)
+		pagination, paginationArgs, err = LimitOffset(dialect, w.limit, w.offset, placeholder)
+		if err != nil {
+			return "", nil, err
+		}
+	} else if w.offset > 0 {
+		return "", nil, errors.New("limit is required when offset is set")
 	}
-	if w.offset > 0 {
-		b.WriteString(" OFFSET ")
-		b.WriteString(Placeholder(dialect, placeholder))
-		args = append(args, w.offset)
-	}
+	b.WriteString(pagination)
+	args = append(args, paginationArgs...)
 	return b.String(), args, nil
 }
 

@@ -217,6 +217,10 @@ func TestBuildServiceScaffoldIRValidation(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for invalid style")
 	}
+	_, err = buildServiceScaffoldIR(ServiceScaffoldOptions{Name: "hello", Module: "example.com/hello", Profile: "bogus"})
+	if err == nil || !strings.Contains(err.Error(), "unknown generation profile") {
+		t.Fatalf("invalid profile err = %v, want unknown profile", err)
+	}
 }
 
 func TestBuildServiceScaffoldIRNormalizesInputs(t *testing.T) {
@@ -234,12 +238,113 @@ func TestBuildServiceScaffoldIRNormalizesInputs(t *testing.T) {
 	if ir.Style != ServiceStyleMinimal || ir.Data["Name"] != "hello" || ir.Data["Module"] != "example.com/hello" {
 		t.Fatalf("IR metadata = %#v, want normalized style/data", ir)
 	}
+	if ir.Profile != ProfileGoflyAI {
+		t.Fatalf("IR profile = %q, want default %q", ir.Profile, ProfileGoflyAI)
+	}
 	if _, ok := ir.Files["hello.api"]; !ok {
 		t.Fatalf("IR files missing API spec: %#v", ir.Files)
 	}
 	if ir.Files["extra.txt"] != "{{.Name}}" {
 		t.Fatalf("IR files missing extra file: %#v", ir.Files)
 	}
+}
+
+func TestBuildServiceScaffoldIRProfilesDeclareStableManifest(t *testing.T) {
+	tests := []struct {
+		name        string
+		profile     string
+		kind        string
+		wantProfile GenerationProfile
+		wantFeature string
+		wantKind    string
+	}{
+		{name: "default ai api", kind: "api", wantProfile: ProfileGoflyAI, wantFeature: "ai-governance", wantKind: "api-contract"},
+		{name: "gozero api", profile: string(ProfileGoZeroCompatible), kind: "api", wantProfile: ProfileGoZeroCompatible, wantFeature: "goctl-layout", wantKind: "api-contract"},
+		{name: "kitex rpc", profile: string(ProfileKitexCompatible), kind: "rpc", wantProfile: ProfileKitexCompatible, wantFeature: "idl-runtime-contract", wantKind: "proto-contract"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ir, err := buildServiceScaffoldIR(ServiceScaffoldOptions{
+				Name:    "orders",
+				Module:  "example.com/orders",
+				Dir:     t.TempDir(),
+				Profile: tt.profile,
+				Kind:    tt.kind,
+			})
+			if err != nil {
+				t.Fatalf("buildServiceScaffoldIR: %v", err)
+			}
+			if ir.Profile != tt.wantProfile {
+				t.Fatalf("profile = %q, want %q", ir.Profile, tt.wantProfile)
+			}
+			if !hasServiceRuntimeFeature(ir.RuntimeFeatures, tt.wantFeature) {
+				t.Fatalf("runtime features = %#v, want %q", ir.RuntimeFeatures, tt.wantFeature)
+			}
+			if !hasServiceRuntimeFeature(ir.RuntimeFeatures, "control-plane-snapshot") {
+				t.Fatalf("runtime features = %#v, want generated control-plane snapshot contract", ir.RuntimeFeatures)
+			}
+			if !hasServiceArtifactKind(ir.Artifacts, tt.wantKind) {
+				t.Fatalf("artifacts = %#v, want kind %q", ir.Artifacts, tt.wantKind)
+			}
+			for i := 1; i < len(ir.Artifacts); i++ {
+				if ir.Artifacts[i-1].Path > ir.Artifacts[i].Path {
+					t.Fatalf("artifacts are not stable sorted: %#v", ir.Artifacts)
+				}
+			}
+		})
+	}
+}
+
+func TestBuildServiceScaffoldIRGoZeroProfileUsesLayeredArtifacts(t *testing.T) {
+	ir, err := buildServiceScaffoldIR(ServiceScaffoldOptions{
+		Name:    "orders",
+		Module:  "example.com/orders",
+		Dir:     t.TempDir(),
+		Style:   ServiceStyleMinimal,
+		Profile: string(ProfileGoZeroCompatible),
+		Kind:    "api",
+	})
+	if err != nil {
+		t.Fatalf("buildServiceScaffoldIR: %v", err)
+	}
+	for _, rel := range []string{
+		filepath.Join("internal", "handler", "routes.go"),
+		filepath.Join("internal", "handler", "pinghandler.go"),
+		filepath.Join("internal", "logic", "pinglogic.go"),
+		filepath.Join("internal", "svc", "servicecontext.go"),
+		filepath.Join("internal", "types", "types.go"),
+	} {
+		if _, ok := ir.Files[rel]; !ok {
+			t.Fatalf("gozero profile missing layered file %s in %#v", rel, ir.Files)
+		}
+	}
+	for _, legacy := range []string{
+		filepath.Join("internal", "routes", "routes.go"),
+		filepath.Join("internal", "api", "v1", "ping", "ping.go"),
+		filepath.Join("internal", "service", "ping.go"),
+	} {
+		if _, ok := ir.Files[legacy]; ok {
+			t.Fatalf("gozero profile should not include legacy file %s", legacy)
+		}
+	}
+}
+
+func hasServiceRuntimeFeature(features []serviceScaffoldRuntimeFeature, name string) bool {
+	for _, feature := range features {
+		if feature.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func hasServiceArtifactKind(artifacts []serviceScaffoldArtifact, kind string) bool {
+	for _, artifact := range artifacts {
+		if artifact.Kind == kind {
+			return true
+		}
+	}
+	return false
 }
 
 func TestServiceFilesystemSinkRunPluginsEmpty(t *testing.T) {

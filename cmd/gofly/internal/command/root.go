@@ -23,6 +23,7 @@ import (
 	"github.com/gofly/gofly/cmd/gofly/internal/generator"
 	"github.com/gofly/gofly/cmd/gofly/internal/spinner"
 	"github.com/gofly/gofly/core/breaker"
+	"github.com/gofly/gofly/core/controlplane"
 	"github.com/gofly/gofly/core/llm"
 )
 
@@ -684,7 +685,7 @@ func isCompletionHelpSubcommand(command string) bool {
 }
 
 func isAIHelpSubcommand(command string) bool {
-	return command == "manifest" || command == "plan" || command == "new" || command == "complete" || command == "stream" || command == "doctor"
+	return command == "manifest" || command == "plan" || command == "new" || command == "complete" || command == "stream" || command == "doctor" || command == "control-plane"
 }
 
 func isCompleteHandlerShell(command string) bool {
@@ -963,17 +964,21 @@ func commandHelpFor(command string) commandHelp {
 	case "doctor":
 		return commandHelp{Name: "doctor", Short: "Diagnose local environment and toolchain readiness.", Usage: "gofly doctor [--json]", Flags: []string{"--json  print report as JSON"}, Examples: []string{"gofly doctor", "gofly doctor --json"}}
 	case "ai":
-		return commandHelp{Name: "ai", Short: "Emit machine-readable metadata and governed LLM calls for AI agents.", Usage: "gofly ai manifest [--format json|text] [--json] | gofly ai plan --prompt <text> [flags] | gofly ai new --prompt <text> [--apply] [flags] | gofly ai complete --prompt <text> [flags]", Commands: []helpCommand{{Name: "manifest", Short: "print command schemas, side effects and output contract"}, {Name: "plan", Short: "plan an AI-first project scaffold without writing files"}, {Name: "new", Short: "plan or apply an AI-first project scaffold"}, {Name: "complete", Short: "run a governed no-op completion for integration testing"}, {Name: "doctor", Short: "run AI subsystem self-diagnostics"}}, Examples: []string{"gofly ai manifest --format json", "gofly --output json ai manifest", "gofly ai plan 'create a rag service' --json", "gofly ai new 'create a rest api' --name hello --module example.com/hello --dir hello --apply", "gofly ai complete --prompt 'summarize this' --max-total-tokens 128 --json", "gofly ai doctor --json"}}
+		return commandHelp{Name: "ai", Short: "Emit machine-readable metadata and governed LLM calls for AI agents.", Usage: "gofly ai manifest [--format json|text] [--schema jsonschema] [--json] | gofly ai control-plane [--format json|text] [--schema jsonschema] [--from-checksum <sha256>|--from-snapshot <file>] [--watch --max-events <n>] [--json] | gofly ai plan --prompt <text> [flags] | gofly ai new --prompt <text> [--apply] [flags] | gofly ai complete --prompt <text> [flags] | gofly ai stream --prompt <text> [flags]", Commands: []helpCommand{{Name: "manifest", Short: "print command schemas, side effects and output contract"}, {Name: "control-plane", Short: "print or watch the deterministic AI control-plane snapshot"}, {Name: "plan", Short: "plan an AI-first project scaffold without writing files"}, {Name: "new", Short: "plan or apply an AI-first project scaffold"}, {Name: "complete", Short: "run a governed no-op completion for integration testing"}, {Name: "stream", Short: "emit governed streaming completion events"}, {Name: "doctor", Short: "run AI subsystem self-diagnostics"}}, Examples: []string{"gofly ai manifest --format json", "gofly ai manifest --schema jsonschema", "gofly ai control-plane --schema jsonschema", "gofly ai control-plane --json", "gofly ai control-plane --from-checksum <sha256> --json", "gofly ai control-plane --from-snapshot previous-control-plane.json --json", "gofly ai control-plane --watch --max-events 1 --json", "gofly --output json ai manifest", "gofly ai plan 'create a rag service' --json", "gofly ai new 'create a rest api' --name hello --module example.com/hello --dir hello --apply", "gofly ai complete --prompt 'summarize this' --max-total-tokens 128 --json", "gofly ai stream --prompt 'summarize this' --json", "gofly ai doctor --json"}}
 	case "ai manifest":
-		return commandHelp{Name: "ai manifest", Short: "Print the gofly AI tool manifest.", Usage: "gofly ai manifest [--format json|text] [--json]", Flags: []string{"--format <format>  output format: json|text (default json)", "--json             output JSON envelope"}, Examples: []string{"gofly ai manifest --format json", "gofly tools manifest --json"}}
+		return commandHelp{Name: "ai manifest", Short: "Print the gofly AI tool manifest.", Usage: "gofly ai manifest [--format json|text] [--schema jsonschema] [--json]", Flags: []string{"--format <format>  output format: json|text (default json)", "--schema <schema>  output manifest JSON Schema: jsonschema", "--json             output JSON envelope"}, Examples: []string{"gofly ai manifest --format json", "gofly ai manifest --schema jsonschema", "gofly tools manifest --json"}}
 	case "ai plan":
 		return commandHelp{Name: "ai plan", Short: "Plan an AI-first project scaffold without writing files.", Usage: "gofly ai plan --prompt <requirement> [--kind service|rpc|worker|cli|ai-agent|rag|gateway] [--name <name>] [--module <module>] [--dir <dir>] [--format text|json] [--json]", Flags: []string{"--prompt <text>       natural language requirement, also accepted as positional text", "--kind <kind>         optional project kind hint", "--name <name>         project or service name", "--module <module>     Go module path", "--dir <dir>           output directory", "--format <format>     output format: text|json", "--json                output JSON envelope"}, Examples: []string{"gofly ai plan 'create a rag service with redis vector store' --json", "gofly ai plan --prompt 'create a gateway' --kind gateway --name edge --module example.com/edge --dir edge"}}
 	case "ai new":
 		return commandHelp{Name: "ai new", Short: "Plan or apply an AI-first project scaffold.", Usage: "gofly ai new --prompt <requirement> [--template <id>] [--kind <kind>] --name <name> --module <module> --dir <dir> [--dry-run|--plan|--apply] [--verify] [--format text|json] [--json]", Flags: []string{"--prompt <text>       natural language requirement, also accepted as positional text", "--template <id>       explicit template id from `gofly template list`", "--kind <kind>         optional project kind hint", "--name <name>         project or service name", "--module <module>     Go module path", "--dir <dir>           output directory", "--dry-run, --plan     print plan without writing files (default)", "--apply               write scaffold files using the selected built-in generator", "--verify              run supported post-generation checks after --apply", "--verify-timeout <d>  timeout per verification command (default 2m)", "--format <format>     output format: text|json", "--json                output JSON envelope"}, Examples: []string{"gofly ai new 'create a rest api' --name hello --module example.com/hello --dir hello --dry-run --json", "gofly ai new --template go-rpc-grpc --name greeter --module example.com/greeter --dir greeter --apply --verify"}}
 	case "ai complete":
-		return commandHelp{Name: "ai complete", Short: "Execute a governed no-op LLM completion for deterministic AI tool integration tests.", Usage: "gofly ai complete --prompt <text> [--config .gofly/config.json] [--provider noop] [--model <model>] [--max-input-tokens <n>] [--max-output-tokens <n>] [--max-total-tokens <n>] [--rate-limit <n>] [--timeout <duration>] [--dry-run|--plan] [--format text|json] [--json]", Flags: []string{"--prompt <text>          prompt text, also accepted as positional text", "--config <file>          gofly config file with llm defaults", "--dir <dir>              service root for .gofly/config.json", "--provider <provider>    provider mode; only noop is built in", "--model <model>          model label for audit and output", "--max-input-tokens <n>   input token budget", "--max-output-tokens <n>  output token budget", "--max-total-tokens <n>   total token budget", "--rate-limit <n>         calls per second; zero disables rate limiting", "--rate-burst <n>         rate limit burst; zero uses rate-limit", "--timeout <duration>     provider call timeout", "--dry-run, --plan        print governance plan without invoking provider", "--format <format>        output format: text|json", "--json                   output JSON envelope"}, Examples: []string{"gofly ai complete --prompt 'hello' --config .gofly/config.json --json", "GOFLY_LLM_MODEL=local gofly ai complete 'email user@example.com' --dry-run --format json"}}
+		return commandHelp{Name: "ai complete", Short: "Execute a governed no-op LLM completion for deterministic AI tool integration tests.", Usage: "gofly ai complete --prompt <text> [--stream] [--config .gofly/config.json] [--provider noop] [--model <model>] [--max-input-tokens <n>] [--max-output-tokens <n>] [--max-total-tokens <n>] [--rate-limit <n>] [--timeout <duration>] [--allow-failover|--failover] [--dry-run|--plan] [--format text|json] [--json]", Flags: []string{"--prompt <text>          prompt text, also accepted as positional text", "--stream                 emit governed stream events", "--config <file>          gofly config file with llm defaults", "--dir <dir>              service root for .gofly/config.json", "--provider <provider>    provider mode; only noop is built in", "--model <model>          model label for audit and output", "--max-input-tokens <n>   input token budget", "--max-output-tokens <n>  output token budget", "--max-total-tokens <n>   total token budget", "--rate-limit <n>         calls per second; zero disables rate limiting", "--rate-burst <n>         rate limit burst; zero uses rate-limit", "--timeout <duration>     provider call timeout", "--allow-failover         manually retry retryable failures against configured fallback providers", "--failover               alias for --allow-failover", "--dry-run, --plan        print governance plan without invoking provider", "--format <format>        output format: text|json", "--json                   output JSON envelope"}, Examples: []string{"gofly ai complete --prompt 'hello' --config .gofly/config.json --json", "GOFLY_LLM_MODEL=local gofly ai complete 'email user@example.com' --dry-run --format json"}}
+	case "ai stream":
+		return commandHelp{Name: "ai stream", Short: "Execute a governed streaming completion and emit text deltas or JSON event envelopes.", Usage: "gofly ai stream --prompt <text> [--config .gofly/config.json] [--provider noop|openai-compatible] [--model <model>] [--max-input-tokens <n>] [--max-output-tokens <n>] [--max-total-tokens <n>] [--rate-limit <n>] [--timeout <duration>] [--allow-failover|--failover] [--dry-run|--plan] [--format text|json] [--json]", Flags: []string{"--prompt <text>          prompt text, also accepted as positional text", "--config <file>          gofly config file with llm defaults", "--dir <dir>              service root for .gofly/config.json", "--provider <provider>    provider mode: noop|openai-compatible", "--model <model>          model label for audit and output", "--max-input-tokens <n>   input token budget", "--max-output-tokens <n>  output token budget", "--max-total-tokens <n>   total token budget", "--rate-limit <n>         calls per second; zero disables rate limiting", "--rate-burst <n>         rate limit burst; zero uses rate-limit", "--timeout <duration>     provider call timeout", "--allow-failover         manually retry retryable start failures before emitting any event", "--failover               alias for --allow-failover", "--dry-run, --plan        print governance plan without invoking provider", "--format <format>        output format: text|json", "--json                   output newline-delimited JSON envelopes"}, Examples: []string{"gofly ai stream --prompt 'hello' --provider noop --json", "gofly ai stream 'email user@example.com' --dry-run --format json"}}
 	case "ai doctor":
 		return commandHelp{Name: "ai doctor", Short: "Run AI subsystem self-diagnostics.", Usage: "gofly ai doctor [--json]", Flags: []string{"--json  print diagnostic report as JSON"}, Examples: []string{"gofly ai doctor", "gofly ai doctor --json"}}
+	case "ai control-plane":
+		return commandHelp{Name: "ai control-plane", Short: "Print or watch the deterministic AI control-plane snapshot.", Usage: "gofly ai control-plane [--format text|json] [--json] [--schema jsonschema] [--from-checksum <sha256>|--from-snapshot <file>] [--watch --max-events <n> --timeout <duration>]", Flags: []string{"--format <format>       output format: text|json", "--json                  output JSON envelope", "--schema <schema>      output control-plane JSON Schema: jsonschema", "--from-checksum <sha>   compare current snapshot checksum with a previous checksum", "--from-snapshot <file>  compare current snapshot with a previous control-plane snapshot JSON file", "--watch                 emit bounded snapshot watch events", "--max-events <n>        maximum watch events to emit (default 1)", "--timeout <duration>    watch timeout boundary (default 2s)"}, Examples: []string{"gofly ai control-plane", "gofly ai control-plane --json", "gofly ai control-plane --schema jsonschema", "gofly ai control-plane --from-checksum <sha256> --json", "gofly ai control-plane --from-snapshot previous-control-plane.json --json", "gofly ai control-plane --watch --max-events 1 --json"}}
 	case "example", "examples":
 		return commandHelp{Name: "example", Short: "List or run built-in examples.", Usage: "gofly example list | gofly example run <name> [--dir <dir>]", Commands: []helpCommand{{Name: "list", Short: "list built-in examples"}, {Name: "run", Short: "copy and run a built-in example"}}, Flags: []string{"--dir <dir>  output directory for example run"}, Examples: []string{"gofly example list", "gofly example run observability", "gofly example run restserver --dir ./demo"}}
 	case "example list", "examples list":
@@ -1930,7 +1935,10 @@ func commandName(args []string) string {
 	return args[0] + "." + args[1]
 }
 
-const aiToolManifestSchemaVersion = "gofly.ai.tool-manifest.v1"
+const (
+	aiToolManifestSchemaVersion = "gofly.ai.tool-manifest.v1"
+	aiControlPlaneSchemaID      = "https://gofly.dev/schemas/ai-control-plane.schema.json"
+)
 
 type aiToolManifest struct {
 	SchemaVersion  string                   `json:"schemaVersion"`
@@ -1939,6 +1947,7 @@ type aiToolManifest struct {
 	Description    string                   `json:"description"`
 	Invocation     string                   `json:"invocation"`
 	Output         aiOutputSchema           `json:"output"`
+	ControlPlane   aiControlPlaneManifest   `json:"controlPlane"`
 	LLMGovernance  aiLLMGovernance          `json:"llmGovernance"`
 	FeatureLibrary aiFeatureLibraryManifest `json:"featureLibrary"`
 	Commands       []aiToolCommand          `json:"commands"`
@@ -1948,6 +1957,25 @@ type aiOutputSchema struct {
 	Mode        string   `json:"mode"`
 	Envelope    []string `json:"envelope"`
 	ErrorFields []string `json:"errorFields"`
+}
+
+type aiControlPlaneManifest struct {
+	Package          string                                `json:"package"`
+	Purpose          string                                `json:"purpose"`
+	SnapshotVersion  string                                `json:"snapshotVersion"`
+	SnapshotChecksum string                                `json:"snapshotChecksum"`
+	SchemaID         string                                `json:"schemaId"`
+	SchemaCommand    string                                `json:"schemaCommand"`
+	SchemaChecksum   string                                `json:"schemaChecksum"`
+	ProviderContract []string                              `json:"providerContract"`
+	SnapshotFields   []string                              `json:"snapshotFields"`
+	EventFields      []string                              `json:"eventFields"`
+	Capabilities     []string                              `json:"capabilities"`
+	ConsumerActions  []controlplane.SnapshotConsumerAction `json:"consumerActions"`
+	Determinism      string                                `json:"determinism"`
+	SecretBoundary   string                                `json:"secretBoundary"`
+	AgentGuidance    []string                              `json:"agentGuidance"`
+	DefaultMetadata  map[string]string                     `json:"defaultMetadata,omitempty"`
 }
 
 type aiLLMGovernance struct {
@@ -2224,6 +2252,31 @@ type aiCompleteConfig struct {
 	ConfigPath         string
 }
 
+type aiControlPlaneSnapshotResult struct {
+	Source         string                              `json:"source"`
+	Snapshot       controlplane.Snapshot               `json:"snapshot"`
+	Diff           controlplane.SnapshotDiff           `json:"diff,omitempty"`
+	ConsumerAction controlplane.SnapshotConsumerAction `json:"consumerAction"`
+	AgentGuidance  []string                            `json:"agentGuidance"`
+	SecretBoundary string                              `json:"secretBoundary"`
+}
+
+type aiControlPlaneWatchEventResult struct {
+	Index          int                                 `json:"index"`
+	Source         string                              `json:"source,omitempty"`
+	Snapshot       controlplane.Snapshot               `json:"snapshot,omitempty"`
+	Diff           controlplane.SnapshotDiff           `json:"diff,omitempty"`
+	ConsumerAction controlplane.SnapshotConsumerAction `json:"consumerAction"`
+	Error          string                              `json:"error,omitempty"`
+	SecretBoundary string                              `json:"secretBoundary,omitempty"`
+}
+
+type aiControlPlaneBaseline struct {
+	Checksum    string
+	Snapshot    controlplane.Snapshot
+	HasSnapshot bool
+}
+
 func aiCommand(args []string) error {
 	if printCommandHelp("ai", args) {
 		return nil
@@ -2246,8 +2299,10 @@ func aiCommand(args []string) error {
 		return aiStreamCommand(rest)
 	case "doctor":
 		return aiDoctorCommand(rest)
+	case "control-plane":
+		return aiControlPlaneCommand(rest)
 	default:
-		return fmt.Errorf("%w: expected `gofly ai manifest|plan|new|complete|stream|doctor`", errUsage)
+		return fmt.Errorf("%w: expected `gofly ai manifest|control-plane|plan|new|complete|stream|doctor`", errUsage)
 	}
 }
 
@@ -3618,6 +3673,7 @@ func aiProviderPlanDescription(spec llm.ProviderSpec) string {
 func aiManifestCommand(args []string) error {
 	fs := flag.NewFlagSet("ai manifest", flag.ContinueOnError)
 	formatName := fs.String("format", outputJSON, "output format: json or text")
+	schemaName := fs.String("schema", "", "output manifest schema: jsonschema")
 	jsonOutput := fs.Bool("json", false, "output JSON envelope")
 	remaining, err := parseInterspersedFlags(fs, args)
 	if err != nil {
@@ -3633,6 +3689,13 @@ func aiManifestCommand(args []string) error {
 	if format != outputJSON && format != outputText {
 		return fmt.Errorf("%w: unsupported --format %q", errUsage, *formatName)
 	}
+	schema := strings.ToLower(strings.TrimSpace(*schemaName))
+	if schema != "" {
+		if schema != "jsonschema" {
+			return fmt.Errorf("%w: unsupported --schema %q", errUsage, *schemaName)
+		}
+		return printJSONEnvelope("ai.manifest.schema", buildAIToolManifestJSONSchema())
+	}
 	manifest := buildAIToolManifest()
 	if *jsonOutput || outputMode() == outputJSON || format == outputJSON {
 		return printJSONEnvelope("ai.manifest", manifest)
@@ -3644,9 +3707,189 @@ func aiManifestCommand(args []string) error {
 	return nil
 }
 
+func aiControlPlaneCommand(args []string) error {
+	if printCommandHelp("ai control-plane", args) {
+		return nil
+	}
+	fs := flag.NewFlagSet("ai control-plane", flag.ContinueOnError)
+	formatName := fs.String("format", outputText, "output format: text or json")
+	jsonOutput := fs.Bool("json", false, "output JSON envelope")
+	schemaName := fs.String("schema", "", "output control-plane schema: jsonschema")
+	watch := fs.Bool("watch", false, "emit bounded snapshot watch events")
+	maxEvents := fs.Int("max-events", 1, "maximum watch events to emit")
+	timeoutName := fs.String("timeout", "2s", "watch timeout boundary")
+	fromChecksum := fs.String("from-checksum", "", "compare current snapshot checksum with a previous checksum")
+	fromSnapshot := fs.String("from-snapshot", "", "compare current snapshot with a previous control-plane snapshot JSON file")
+	remaining, err := parseInterspersedFlags(fs, args)
+	if err != nil {
+		return err
+	}
+	if len(remaining) > 0 {
+		return fmt.Errorf("%w: ai control-plane does not accept positional arguments: %s", errUsage, strings.Join(remaining, " "))
+	}
+	format := strings.ToLower(strings.TrimSpace(*formatName))
+	if format == "" {
+		format = outputText
+	}
+	if format != outputText && format != outputJSON {
+		return fmt.Errorf("%w: unsupported --format %q", errUsage, *formatName)
+	}
+	schema := strings.ToLower(strings.TrimSpace(*schemaName))
+	if schema != "" {
+		if schema != "jsonschema" {
+			return fmt.Errorf("%w: unsupported --schema %q", errUsage, *schemaName)
+		}
+		return printJSONEnvelope("ai.control_plane.schema", buildAIControlPlaneJSONSchema())
+	}
+	baseline, err := loadAIControlPlaneBaseline(strings.TrimSpace(*fromChecksum), strings.TrimSpace(*fromSnapshot))
+	if err != nil {
+		return err
+	}
+	manifest := buildAIControlPlaneManifest()
+	provider := controlplane.StaticProvider{Name: "ai-manifest", Snapshot: defaultAIControlPlaneSnapshot()}
+	jsonMode := *jsonOutput || outputMode() == outputJSON || format == outputJSON
+	if *watch {
+		return runAIControlPlaneWatch(provider, manifest, baseline, *maxEvents, *timeoutName, jsonMode)
+	}
+	snapshot, err := provider.Load(context.Background())
+	if err != nil {
+		return err
+	}
+	result := aiControlPlaneSnapshotResult{
+		Source:         provider.Source(),
+		Snapshot:       snapshot,
+		Diff:           baseline.Diff(snapshot),
+		AgentGuidance:  manifest.AgentGuidance,
+		SecretBoundary: manifest.SecretBoundary,
+	}
+	result.ConsumerAction = controlplane.ConsumerActionForDiff(result.Diff)
+	if jsonMode {
+		return printJSONEnvelope("ai.control_plane", result)
+	}
+	cliOutputfIf("gofly AI control-plane snapshot\n")
+	cliOutputfIf("source=%s version=%s checksum=%s\n", result.Source, result.Snapshot.Version, result.Snapshot.Checksum)
+	if result.Diff.FromChecksum != "" {
+		cliOutputfIf("diff changed=%t changeType=%s from=%s to=%s\n", result.Diff.Changed, result.Diff.ChangeType, result.Diff.FromChecksum, result.Diff.ToChecksum)
+	}
+	cliOutputfIf("consumerAction=%s fullReconcile=%t\n", result.ConsumerAction.Action, result.ConsumerAction.RequiresFullReconcile)
+	metadataKeys := make([]string, 0, len(result.Snapshot.Metadata))
+	for key := range result.Snapshot.Metadata {
+		metadataKeys = append(metadataKeys, key)
+	}
+	sort.Strings(metadataKeys)
+	for _, key := range metadataKeys {
+		value := result.Snapshot.Metadata[key]
+		cliOutputfIf("metadata.%s=%s\n", key, value)
+	}
+	for _, next := range result.AgentGuidance {
+		cliOutputfIf("next: %s\n", next)
+	}
+	return nil
+}
+
+func loadAIControlPlaneBaseline(fromChecksum, fromSnapshotPath string) (aiControlPlaneBaseline, error) {
+	if fromChecksum != "" && fromSnapshotPath != "" {
+		return aiControlPlaneBaseline{}, fmt.Errorf("%w: --from-checksum and --from-snapshot are mutually exclusive", errUsage)
+	}
+	if fromSnapshotPath == "" {
+		return aiControlPlaneBaseline{Checksum: fromChecksum}, nil
+	}
+	// #nosec G304 -- --from-snapshot reads an explicit local baseline file selected by the CLI caller.
+	data, err := os.ReadFile(fromSnapshotPath)
+	if err != nil {
+		return aiControlPlaneBaseline{}, fmt.Errorf("read --from-snapshot %q: %w", fromSnapshotPath, err)
+	}
+	snapshot, err := controlplane.DecodeSnapshotJSON(data)
+	if err != nil {
+		return aiControlPlaneBaseline{}, fmt.Errorf("parse --from-snapshot %q: %w", fromSnapshotPath, err)
+	}
+	return aiControlPlaneBaseline{Checksum: snapshot.Checksum, Snapshot: snapshot, HasSnapshot: true}, nil
+}
+
+func (b aiControlPlaneBaseline) Diff(snapshot controlplane.Snapshot) controlplane.SnapshotDiff {
+	if b.HasSnapshot {
+		return controlplane.DiffSnapshots(b.Snapshot, snapshot)
+	}
+	return controlplane.DiffSnapshotChecksum(b.Checksum, snapshot)
+}
+
+func runAIControlPlaneWatch(provider controlplane.StaticProvider, manifest aiControlPlaneManifest, baseline aiControlPlaneBaseline, maxEvents int, timeoutValue string, jsonMode bool) error {
+	if maxEvents <= 0 {
+		return fmt.Errorf("%w: --max-events must be positive", errUsage)
+	}
+	timeout, err := time.ParseDuration(strings.TrimSpace(timeoutValue))
+	if err != nil || timeout <= 0 {
+		return fmt.Errorf("%w: --timeout must be a positive duration", errUsage)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	events, err := provider.Watch(ctx)
+	if err != nil {
+		return err
+	}
+	deduped := controlplane.DeduplicateSnapshotEvents(ctx, events)
+	previous := baseline.Snapshot
+	previousChecksum := baseline.Checksum
+	hasPreviousSnapshot := baseline.HasSnapshot
+	for index := 0; index < maxEvents; {
+		select {
+		case event, ok := <-deduped:
+			if !ok {
+				return nil
+			}
+			if event.Source == "" {
+				event.Source = provider.Source()
+			}
+			diff := controlplane.DiffSnapshots(previous, event.Snapshot)
+			if !hasPreviousSnapshot && previousChecksum != "" {
+				diff = controlplane.DiffSnapshotChecksum(previousChecksum, event.Snapshot)
+			}
+			result := aiControlPlaneWatchEventResult{
+				Index:          index,
+				Source:         event.Source,
+				Snapshot:       event.Snapshot,
+				Diff:           diff,
+				ConsumerAction: controlplane.ConsumerActionForDiff(diff),
+				Error:          event.Error,
+				SecretBoundary: manifest.SecretBoundary,
+			}
+			if jsonMode {
+				if err := printJSONLine(jsonEnvelope{OK: true, Command: "ai.control_plane.event", Version: Version, Data: result}); err != nil {
+					return err
+				}
+			} else if result.Error != "" {
+				cliOutputfIf("event=%d source=%s error=%s\n", result.Index, result.Source, result.Error)
+			} else {
+				cliOutputfIf("event=%d source=%s version=%s checksum=%s action=%s\n", result.Index, result.Source, result.Snapshot.Version, result.Snapshot.Checksum, result.ConsumerAction.Action)
+			}
+			previous = event.Snapshot
+			previousChecksum = event.Snapshot.WithChecksum().Checksum
+			hasPreviousSnapshot = true
+			index++
+		case <-ctx.Done():
+			return nil
+		}
+	}
+	return nil
+}
+
 func buildAIToolManifest() aiToolManifest {
 	commands := []aiToolCommand{
-		manifestCommand("ai manifest", []string{"tools manifest"}, "Print command schemas, side effects, risk levels and JSON output contract.", "gofly ai manifest [--format json|text] [--json]", nil, []string{outputJSON, outputText}, []string{"none"}, "read", true, false, []string{"gofly ai manifest --format json"}),
+		manifestCommand("ai manifest", []string{"tools manifest"}, "Print command schemas, side effects, risk levels and JSON output contract.", "gofly ai manifest [--format json|text] [--schema jsonschema] [--json]", map[string]aiInputProperty{
+			"format": enumStringProperty("Output format.", outputJSON, outputText),
+			"schema": enumStringProperty("Optional manifest schema output.", "jsonschema"),
+			"json":   boolProperty("Print JSON envelope."),
+		}, []string{outputJSON, outputText}, []string{"none"}, "read", true, false, []string{"gofly ai manifest --format json", "gofly ai manifest --schema jsonschema"}),
+		manifestCommand("ai control-plane", nil, "Print or watch the deterministic AI control-plane snapshot with stable checksum, source and safe agent guidance.", "gofly ai control-plane [--format text|json] [--json] [--schema jsonschema] [--from-checksum <sha256>|--from-snapshot <file>] [--watch --max-events <n> --timeout <duration>]", map[string]aiInputProperty{
+			"format":        enumStringProperty("Output format.", outputText, outputJSON),
+			"json":          boolProperty("Print JSON envelope."),
+			"schema":        enumStringProperty("Optional control-plane output schema.", "jsonschema"),
+			"from-checksum": stringProperty("Previous snapshot checksum used to compute a lightweight changed/unchanged diff."),
+			"from-snapshot": stringProperty("Previous control-plane snapshot JSON file used to compute semantic changedFields."),
+			"watch":         boolProperty("Emit bounded snapshot watch events."),
+			"max-events":    intProperty("Maximum watch events to emit."),
+			"timeout":       stringProperty("Watch timeout boundary as a Go duration, for example 2s."),
+		}, []string{outputText, outputJSON, "ndjson"}, []string{"none; reads built-in static control-plane metadata and optional previous snapshot file, and may open a bounded watch stream"}, "read", true, false, []string{"gofly ai control-plane --json", "gofly ai control-plane --schema jsonschema", "gofly ai control-plane --from-snapshot previous-control-plane.json --json", "gofly ai control-plane --watch --max-events 1 --json"}),
 		manifestCommand("ai plan", nil, "Plan an AI-first project scaffold from natural language using the built-in project template catalog. This command is deterministic and does not write files.", "gofly ai plan --prompt <requirement> [--kind service|rpc|worker|cli|ai-agent|rag|gateway] [--name <name>] [--module <module>] [--dir <dir>] [--format text|json] [--json]", map[string]aiInputProperty{
 			"prompt": stringProperty("Natural language project requirement."),
 			"kind":   stringProperty("Optional project kind hint, such as service, rpc, worker, cli, ai-agent, rag or gateway."),
@@ -3721,11 +3964,21 @@ func buildAIToolManifest() aiToolManifest {
 		manifestCommand("config clean", nil, "Remove .gofly/config.json if it exists.", "gofly config clean --dir <service-dir> [--dry-run|--plan]", map[string]aiInputProperty{"dir": stringProperty("Service root directory."), "dryRun": boolProperty("Print a plan without removing config.")}, []string{outputText, outputJSON}, []string{"removes .gofly/config.json under --dir"}, "medium", true, true, []string{"gofly config clean --dir . --dry-run"}),
 	}
 	for i := range commands {
-		if commands[i].Name == "ai stream" {
-			commands[i].OutputContract = aiStreamOutputContract("ai.stream")
-		}
-		if commands[i].Name == "ai complete" {
+		switch commands[i].Name {
+		case "ai manifest":
+			commands[i].OutputContract = aiManifestOutputContract()
+		case "ai control-plane":
+			commands[i].OutputContract = aiControlPlaneOutputContract()
+		case "ai plan":
+			commands[i].OutputContract = aiProjectPlanOutputContract()
+		case "ai new":
+			commands[i].OutputContract = aiProjectApplyOutputContract()
+		case "ai complete":
 			commands[i].OutputContract = aiCompleteOutputContract()
+		case "ai stream":
+			commands[i].OutputContract = aiStreamOutputContract("ai.stream")
+		case "ai doctor":
+			commands[i].OutputContract = aiDoctorOutputContract()
 		}
 	}
 
@@ -3745,6 +3998,7 @@ func buildAIToolManifest() aiToolManifest {
 			Envelope:    []string{"ok", "command", "version", "data", "error", "diagnostics", "warnings", "nextActions"},
 			ErrorFields: []string{"code", "message", "retryable", "remediation", "details"},
 		},
+		ControlPlane: buildAIControlPlaneManifest(),
 		LLMGovernance: aiLLMGovernance{
 			Package:                "github.com/gofly/gofly/core/llm",
 			Capabilities:           []string{"provider abstraction", "provider registry", "capability manifest", "provider plugin manifest contract", "model-level capability negotiation", "environment-only secret resolver", "token budget", "rate limiting", "prompt and metadata redaction", "structured audit logging", "stream event size limits", "no-op provider", "response caching", "cost-aware token accounting", "low-cardinality observability", "governance pipeline"},
@@ -3790,6 +4044,64 @@ func buildAIFeatureLibraryManifest() aiFeatureLibraryManifest {
 		TemplateVerification: buildAITemplateVerificationContract(),
 		ResultFields:         []string{"generatedFeatures", "dependencies", "configHints", "featureVerify", "verify", "nextActions"},
 		Plugins:              generator.ListProjectFeaturePluginContracts(),
+	}
+}
+
+func buildAIControlPlaneManifest() aiControlPlaneManifest {
+	snapshot := defaultAIControlPlaneSnapshot().WithChecksum()
+	return aiControlPlaneManifest{
+		Package:          "github.com/gofly/gofly/core/controlplane",
+		Purpose:          "versioned control-plane snapshots for AI agents to reason about runtime config, service discovery, governance policy, gateway routing, LLM and tool capabilities before acting",
+		SnapshotVersion:  snapshot.Version,
+		SnapshotChecksum: snapshot.Checksum,
+		SchemaID:         aiControlPlaneSchemaID,
+		SchemaCommand:    "gofly ai control-plane --schema jsonschema",
+		SchemaChecksum:   aiControlPlaneJSONSchemaChecksum(),
+		ProviderContract: []string{"Load(context.Context) (Snapshot, error)", "Watch(context.Context) (<-chan SnapshotEvent, error)", "Source() string when implemented"},
+		SnapshotFields:   []string{"version", "checksum", "services", "configs", "policies", "updatedAt", "metadata"},
+		EventFields:      []string{"snapshot", "source", "diff", "consumerAction", "error"},
+		Capabilities: []string{
+			"stable checksum independent of service ordering and updatedAt",
+			"previous snapshot JSON decoding from raw snapshot, snapshot wrapper or ai control-plane envelope",
+			"static provider for deterministic tests and local tools",
+			"composite runtime provider for config, service discovery, governance policy and capability contributors",
+			"runtime adapters for discovery snapshots, governance rule sets, raw JSON configs and capability metadata",
+			"rpc policy runtime enforcement for client timeout, retry backoff with context cancellation, circuit breaker gates, balancer selection, load shedding, fallback and hedging",
+			"control-plane contributor for rpc policy runtime state, cache counts and enforcement capabilities",
+			"generated project control-plane contributors for scaffold contract, sanitized runtime config and governance policy snapshots",
+			"watch stream with context cancellation",
+			"deduplicated snapshot events by checksum while preserving error events",
+			"semantic diff classification mapped to stable consumer action policy",
+			"consumer action dispatcher for runtime config planner, routing model, governance gates and capability cache refresh hooks",
+		},
+		ConsumerActions: controlplane.DefaultConsumerActions(),
+		Determinism:     "StableChecksum canonicalizes services/endpoints/configs/metadata and excludes updatedAt so agents can detect semantic changes instead of timestamp churn",
+		SecretBoundary:  "snapshots expose config metadata and raw JSON config blobs only from explicit providers; secret values must stay in environment-only resolvers and must not be copied into metadata",
+		AgentGuidance: []string{
+			"load one snapshot before mutating generated project configuration",
+			"for generated projects, compare generated.* config blobs with scaffold artifacts and governance rules before rewriting code or policy files",
+			"compare checksum before applying repeated governance or routing actions",
+			"use consumerAction.action and consumerAction.scopes to narrow cache invalidation or choose full reconciliation",
+			"treat SnapshotEvent.error as non-cacheable and actionable even when checksum is unchanged",
+			"do not infer secret values from config metadata or provider names",
+		},
+		DefaultMetadata: snapshot.Metadata,
+	}
+}
+
+func defaultAIControlPlaneSnapshot() controlplane.Snapshot {
+	return controlplane.Snapshot{
+		Version: controlplane.DefaultSnapshotVersion,
+		Metadata: map[string]string{
+			"config":                          "available",
+			"controlplane.provider.composite": "available",
+			"discovery":                       "available",
+			"governance":                      "available",
+			"gateway":                         "planned",
+			"llm":                             "available",
+			"tool":                            "available",
+			"generated.project.contract":      "available",
+		},
 	}
 }
 
@@ -4043,6 +4355,204 @@ func rootCommandManifestEntries() []commandSpec {
 	}
 }
 
+func aiManifestOutputContract() *aiOutputContract {
+	return &aiOutputContract{
+		Mode:     "single JSON envelope by default; text summary only when --format text is explicitly requested",
+		Envelope: []string{"ok", "command", "version", "data", "error", "diagnostics", "warnings", "nextActions"},
+		EventFields: []string{
+			"schemaVersion", "tool", "version", "description", "invocation", "output", "controlPlane", "llmGovernance", "featureLibrary", "commands",
+		},
+		Semantics: map[string]string{
+			"command": "ai.manifest",
+			"schema":  "--schema jsonschema emits the JSON Schema contract for the manifest envelope data",
+			"secrets": "provider secret values are never included; only secret environment variable names and resolution policy are exposed",
+		},
+	}
+}
+
+func aiControlPlaneOutputContract() *aiOutputContract {
+	return &aiOutputContract{
+		Mode:     "single JSON envelope when --json, --output json or --format json is used; newline-delimited JSON envelopes when --watch is used with JSON output; deterministic text snapshot otherwise",
+		Envelope: []string{"ok", "command", "version", "data", "error", "diagnostics", "warnings", "nextActions"},
+		EventFields: []string{
+			"source", "snapshot", "diff", "consumerAction", "agentGuidance", "secretBoundary", "index", "error",
+			"snapshot.version", "snapshot.checksum", "snapshot.services", "snapshot.configs", "snapshot.policies", "snapshot.metadata",
+			"diff.fromChecksum", "diff.toChecksum", "diff.changed", "diff.changeType", "diff.changedFields",
+			"consumerAction.changeType", "consumerAction.action", "consumerAction.reason", "consumerAction.scopes", "consumerAction.requiresFullReconcile", "consumerAction.nextActions",
+		},
+		Semantics: map[string]string{
+			"command":        "ai.control_plane",
+			"watchCommand":   "ai.control_plane.event",
+			"schema":         "--schema jsonschema emits the JSON Schema contract for snapshot, diff, consumerAction and watch event data",
+			"watch":          "--watch emits a bounded event stream terminated by --max-events or --timeout; each JSON line is independently parseable",
+			"diff":           "diff reports checksum equality for --from-checksum and semantic changedFields when both snapshots are available via --from-snapshot",
+			"baseline":       "--from-snapshot accepts a raw Snapshot JSON object, a {snapshot:...} wrapper or a previous ai.control_plane envelope with data.snapshot; --from-checksum and --from-snapshot are mutually exclusive",
+			"consumerAction": "consumerAction maps diff.changeType to a stable agent policy such as skip, load-baseline, refresh-routing-model, reload-governance-gates or full-reconcile",
+			"determinism":    "snapshot checksum is stable across ordering and timestamp changes and excludes secret values",
+			"secrets":        "control-plane output exposes capability metadata and secret boundaries only; secret values are never printed",
+		},
+	}
+}
+
+func buildAIControlPlaneJSONSchema() map[string]any {
+	schema := buildAIControlPlaneJSONSchemaData()
+	schema["xSchemaChecksum"] = stableJSONChecksum(schema)
+	return schema
+}
+
+func aiControlPlaneJSONSchemaChecksum() string {
+	return stableJSONChecksum(buildAIControlPlaneJSONSchemaData())
+}
+
+func stableJSONChecksum(value any) string {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(data)
+	return fmt.Sprintf("%x", sum[:])
+}
+
+func buildAIControlPlaneJSONSchemaData() map[string]any {
+	stringArraySchema := map[string]any{"type": "array", "items": map[string]any{"type": "string"}}
+	stringMapSchema := map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"}}
+	rawConfigMapSchema := map[string]any{"type": "object", "additionalProperties": true}
+	endpointSchema := map[string]any{
+		"type":                 "object",
+		"required":             []string{"address"},
+		"additionalProperties": false,
+		"properties": map[string]any{
+			"address":  map[string]any{"type": "string"},
+			"weight":   map[string]any{"type": "integer"},
+			"zone":     map[string]any{"type": "string"},
+			"metadata": stringMapSchema,
+		},
+	}
+	serviceSchema := map[string]any{
+		"type":                 "object",
+		"required":             []string{"name"},
+		"additionalProperties": false,
+		"properties": map[string]any{
+			"name":      map[string]any{"type": "string"},
+			"endpoints": map[string]any{"type": "array", "items": endpointSchema},
+			"metadata":  stringMapSchema,
+		},
+	}
+	policySchema := map[string]any{"type": "object", "additionalProperties": true}
+	snapshotSchema := map[string]any{
+		"type":                 "object",
+		"required":             []string{"version", "checksum"},
+		"additionalProperties": false,
+		"properties": map[string]any{
+			"version":   map[string]any{"type": "string"},
+			"checksum":  map[string]any{"type": "string"},
+			"services":  map[string]any{"type": "array", "items": serviceSchema},
+			"configs":   rawConfigMapSchema,
+			"policies":  map[string]any{"type": "array", "items": policySchema},
+			"updatedAt": map[string]any{"type": "string", "format": "date-time"},
+			"metadata":  stringMapSchema,
+		},
+	}
+	diffSchema := map[string]any{
+		"type":                 "object",
+		"required":             []string{"changed", "changeType"},
+		"additionalProperties": false,
+		"properties": map[string]any{
+			"fromChecksum":  map[string]any{"type": "string"},
+			"toChecksum":    map[string]any{"type": "string"},
+			"changed":       map[string]any{"type": "boolean"},
+			"changeType":    map[string]any{"type": "string", "enum": []string{"none", "initial-snapshot", "checksum-mismatch", "version-change", "service-discovery-change", "config-change", "policy-change", "metadata-change", "mixed-change", "checksum-change"}},
+			"changedFields": stringArraySchema,
+		},
+	}
+	consumerActionSchema := map[string]any{
+		"type":                 "object",
+		"required":             []string{"changeType", "action", "reason", "requiresFullReconcile"},
+		"additionalProperties": false,
+		"properties": map[string]any{
+			"changeType":            map[string]any{"type": "string"},
+			"action":                map[string]any{"type": "string", "enum": []string{"skip", "load-baseline", "inspect-snapshot", "refresh-config-planner", "refresh-routing-model", "reload-governance-gates", "refresh-capability-cache", "full-reconcile"}},
+			"reason":                map[string]any{"type": "string"},
+			"scopes":                stringArraySchema,
+			"requiresFullReconcile": map[string]any{"type": "boolean"},
+			"nextActions":           stringArraySchema,
+		},
+	}
+	snapshotResultSchema := map[string]any{
+		"type":                 "object",
+		"required":             []string{"source", "snapshot", "diff", "consumerAction", "agentGuidance", "secretBoundary"},
+		"additionalProperties": false,
+		"properties": map[string]any{
+			"source":         map[string]any{"type": "string"},
+			"snapshot":       snapshotSchema,
+			"diff":           diffSchema,
+			"consumerAction": consumerActionSchema,
+			"agentGuidance":  stringArraySchema,
+			"secretBoundary": map[string]any{"type": "string"},
+		},
+	}
+	watchEventSchema := map[string]any{
+		"type":                 "object",
+		"required":             []string{"index", "diff", "consumerAction"},
+		"additionalProperties": false,
+		"properties": map[string]any{
+			"index":          map[string]any{"type": "integer", "minimum": 0},
+			"source":         map[string]any{"type": "string"},
+			"snapshot":       snapshotSchema,
+			"diff":           diffSchema,
+			"consumerAction": consumerActionSchema,
+			"error":          map[string]any{"type": "string"},
+			"secretBoundary": map[string]any{"type": "string"},
+		},
+	}
+	return map[string]any{
+		"$schema":              "https://json-schema.org/draft/2020-12/schema",
+		"$id":                  aiControlPlaneSchemaID,
+		"title":                "gofly AI control-plane contract",
+		"type":                 "object",
+		"required":             []string{"snapshot", "diff", "consumerAction", "snapshotResult", "watchEvent"},
+		"additionalProperties": false,
+		"properties": map[string]any{
+			"snapshot":       snapshotSchema,
+			"diff":           diffSchema,
+			"consumerAction": consumerActionSchema,
+			"snapshotResult": snapshotResultSchema,
+			"watchEvent":     watchEventSchema,
+		},
+	}
+}
+
+func aiProjectPlanOutputContract() *aiOutputContract {
+	return &aiOutputContract{
+		Mode:     "single JSON envelope when --json, --output json or --format json is used; deterministic text plan otherwise",
+		Envelope: []string{"ok", "command", "version", "data", "error", "diagnostics", "warnings", "nextActions"},
+		EventFields: []string{
+			"prompt", "projectType", "template", "features", "command", "riskLevel", "mutatesFilesystem", "dryRun", "verify", "warnings", "nextActions",
+		},
+		Semantics: map[string]string{
+			"command":            "ai.plan",
+			"determinism":        "uses deterministic local template matching and does not call an external LLM provider",
+			"filesystemMutation": "never writes files; mutatesFilesystem is always false and dryRun is always true",
+		},
+	}
+}
+
+func aiProjectApplyOutputContract() *aiOutputContract {
+	return &aiOutputContract{
+		Mode:     "single JSON envelope when --json, --output json or --format json is used; deterministic text plan/apply summary otherwise",
+		Envelope: []string{"ok", "command", "version", "data", "error", "diagnostics", "warnings", "nextActions"},
+		EventFields: []string{
+			"plan", "applied", "outputDir", "executedCommand", "generatedFeatures", "dependencies", "configHints", "featureVerify", "verify", "verifyRan", "verifyPassed", "verification", "warnings", "nextActions", "mutatesFilesystem",
+		},
+		Semantics: map[string]string{
+			"command":            "ai.new",
+			"dryRunDefault":      "prints the selected scaffold plan without writing files unless --apply is set or --dry-run=false is explicitly used",
+			"filesystemMutation": "writes scaffold files only under the validated --dir boundary when apply mode is enabled",
+			"verification":       "--verify runs allowlisted local commands under --dir and reports every command result",
+		},
+	}
+}
+
 func aiCompleteOutputContract() *aiOutputContract {
 	return &aiOutputContract{
 		Mode:        "single JSON envelope for normal completion; newline-delimited JSON envelopes when --stream is set with JSON output",
@@ -4069,6 +4579,106 @@ func aiStreamOutputContract(command string) *aiOutputContract {
 			"done":    "true only on stream termination events emitted by the provider/governance layer",
 			"usage":   "token usage snapshot when the provider emits usage; omitted or zero-valued otherwise",
 			"error":   "stream errors are emitted as a final error envelope in JSON stream mode before command failure when possible",
+		},
+	}
+}
+
+func aiDoctorOutputContract() *aiOutputContract {
+	return &aiOutputContract{
+		Mode:     "single JSON envelope when --json or --output json is used; human-readable diagnostic report otherwise",
+		Envelope: []string{"ok", "command", "version", "data", "error", "diagnostics", "warnings", "nextActions"},
+		EventFields: []string{
+			"version", "providers", "envVars", "secrets", "failover", "config", "cache", "telemetry", "cost", "summary",
+		},
+		Semantics: map[string]string{
+			"command": "ai.doctor",
+			"secrets": "reports secret presence and remediation without printing secret values",
+			"status":  "diagnostic item status is one of ok, warn, fail or info; severity is present for actionable warnings/failures",
+		},
+	}
+}
+
+func buildAIToolManifestJSONSchema() map[string]any {
+	stringArraySchema := map[string]any{"type": "array", "items": map[string]any{"type": "string"}}
+	propertySchema := map[string]any{
+		"type":                 "object",
+		"required":             []string{"type", "description"},
+		"additionalProperties": false,
+		"properties": map[string]any{
+			"type":        map[string]any{"type": "string"},
+			"description": map[string]any{"type": "string"},
+			"enum":        stringArraySchema,
+		},
+	}
+	outputContractSchema := map[string]any{
+		"type":                 "object",
+		"required":             []string{"mode", "envelope"},
+		"additionalProperties": false,
+		"properties": map[string]any{
+			"mode":        map[string]any{"type": "string"},
+			"envelope":    stringArraySchema,
+			"eventFields": stringArraySchema,
+			"semantics":   map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"}},
+		},
+	}
+	return map[string]any{
+		"$schema":              "https://json-schema.org/draft/2020-12/schema",
+		"$id":                  "https://gofly.dev/schemas/ai-tool-manifest.schema.json",
+		"title":                "gofly AI tool manifest",
+		"type":                 "object",
+		"required":             []string{"schemaVersion", "tool", "version", "description", "invocation", "output", "controlPlane", "llmGovernance", "featureLibrary", "commands"},
+		"additionalProperties": false,
+		"properties": map[string]any{
+			"schemaVersion": map[string]any{"type": "string", "const": aiToolManifestSchemaVersion},
+			"tool":          map[string]any{"type": "string", "const": "gofly"},
+			"version":       map[string]any{"type": "string"},
+			"description":   map[string]any{"type": "string"},
+			"invocation":    map[string]any{"type": "string"},
+			"output": map[string]any{
+				"type":                 "object",
+				"required":             []string{"mode", "envelope", "errorFields"},
+				"additionalProperties": false,
+				"properties": map[string]any{
+					"mode":        map[string]any{"type": "string"},
+					"envelope":    stringArraySchema,
+					"errorFields": stringArraySchema,
+				},
+			},
+			"controlPlane":   map[string]any{"type": "object", "additionalProperties": true},
+			"llmGovernance":  map[string]any{"type": "object", "additionalProperties": true},
+			"featureLibrary": map[string]any{"type": "object", "additionalProperties": true},
+			"commands": map[string]any{
+				"type": "array",
+				"items": map[string]any{
+					"type":                 "object",
+					"required":             []string{"name", "description", "usage", "inputSchema", "outputFormats", "sideEffects", "riskLevel", "supportsDryRun", "mutatesFilesystem"},
+					"additionalProperties": false,
+					"properties": map[string]any{
+						"name":        map[string]any{"type": "string"},
+						"aliases":     stringArraySchema,
+						"description": map[string]any{"type": "string"},
+						"usage":       map[string]any{"type": "string"},
+						"inputSchema": map[string]any{
+							"type":                 "object",
+							"required":             []string{"type", "additionalProperties"},
+							"additionalProperties": false,
+							"properties": map[string]any{
+								"type":                 map[string]any{"type": "string", "const": "object"},
+								"properties":           map[string]any{"type": "object", "additionalProperties": propertySchema},
+								"required":             stringArraySchema,
+								"additionalProperties": map[string]any{"type": "boolean"},
+							},
+						},
+						"outputContract":    outputContractSchema,
+						"outputFormats":     stringArraySchema,
+						"sideEffects":       stringArraySchema,
+						"riskLevel":         map[string]any{"type": "string", "enum": []string{"read", "low", "medium", "high"}},
+						"supportsDryRun":    map[string]any{"type": "boolean"},
+						"mutatesFilesystem": map[string]any{"type": "boolean"},
+						"examples":          stringArraySchema,
+					},
+				},
+			},
 		},
 	}
 }

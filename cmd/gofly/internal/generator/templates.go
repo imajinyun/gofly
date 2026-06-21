@@ -81,7 +81,7 @@ func main() {
 	}
 	servers := []app.Server{httpServer, rpcServer}
 	if c.Admin.Enabled {
-		servers = append(servers, appadmin.NewServer(c.Admin.Addr, c.Admin.PathPrefix, rpcServer))
+		servers = append(servers, appadmin.NewServer(c.Admin.Addr, c.Admin.PathPrefix, rpcServer, appadmin.WithControlPlaneSnapshot(c.ControlPlaneSnapshot)))
 	}
 	governanceManager.StartAsync(ctx, func(err error) { slog.Warn("governance manager stopped", "error", err) })
 	go func() {
@@ -135,6 +135,52 @@ func main() {
 	restConf := serviceConf.RESTConfig(c.Rest)
 	httpServer := rest.MustNewServer(restConf)
 	routes.RegisterRoutes(httpServer, svcCtx)
+	if c.OpenAPIEnabled() {
+		httpServer.AddOpenAPIRoutes(c.OpenAPIInfo())
+	}
+	slog.Info("{{.Name}} starting", "rest_host", restConf.Host, "rest_port", restConf.Port)
+	if err := app.Run(ctx, []app.Server{httpServer}, serviceConf.RunOptions()...); err != nil {
+		slog.Error("{{.Name}} stopped", "error", err)
+	}
+}
+`
+
+const goZeroMainTemplate = `package main
+
+import (
+	"context"
+	"log/slog"
+
+	"github.com/gofly/gofly/app"
+	"github.com/gofly/gofly/core/config"
+	"github.com/gofly/gofly/core/proc"
+	"github.com/gofly/gofly/rest"
+
+	appconfig "{{.Module}}/internal/config"
+	"{{.Module}}/internal/handler"
+	"{{.Module}}/internal/svc"
+)
+
+func main() {
+	var c appconfig.Config
+	configPath := appconfig.ResolveConfigPath("{{.Name}}")
+	if err := config.Load(configPath, &c, config.WithEnvExpansion(), config.WithStrictFields(), config.WithLoadValidator(appconfig.Validate)); err != nil {
+		slog.Error("load config", "error", err)
+		return
+	}
+	ctx, stop := proc.SignalContext(context.Background())
+	defer stop()
+	serviceConf := c.ServiceConf()
+	shutdown, err := app.Bootstrap(ctx, serviceConf.BootstrapConfig("{{.Name}}"))
+	if err != nil {
+		slog.Error("bootstrap", "error", err)
+		return
+	}
+	defer func() { _ = shutdown.Shutdown(context.Background()) }()
+	svcCtx := svc.NewServiceContext(c)
+	restConf := serviceConf.RESTConfig(c.Rest)
+	httpServer := rest.MustNewServer(restConf)
+	handler.RegisterHandlers(httpServer, svcCtx)
 	if c.OpenAPIEnabled() {
 		httpServer.AddOpenAPIRoutes(c.OpenAPIInfo())
 	}
@@ -228,11 +274,13 @@ const adminServerTemplate = `package admin
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/pprof"
 	"strings"
 	"time"
 
+	"github.com/gofly/gofly/core/controlplane"
 	"github.com/gofly/gofly/core/observability/metrics"
 	"github.com/gofly/gofly/rpc"
 )
@@ -240,19 +288,34 @@ import (
 const defaultAddr = "127.0.0.1:9090"
 
 type Server struct {
-	addr       string
-	pathPrefix string
-	rpcServer  *rpc.HTTPServer
-	server     *http.Server
+	addr                 string
+	pathPrefix           string
+	rpcServer            *rpc.HTTPServer
+	controlPlaneSnapshot func(context.Context) (controlplane.Snapshot, error)
+	server               *http.Server
 }
 
-func NewServer(addr string, pathPrefix string, rpcServer *rpc.HTTPServer) *Server {
+type Option func(*Server)
+
+func WithControlPlaneSnapshot(snapshot func(context.Context) (controlplane.Snapshot, error)) Option {
+	return func(s *Server) {
+		s.controlPlaneSnapshot = snapshot
+	}
+}
+
+func NewServer(addr string, pathPrefix string, rpcServer *rpc.HTTPServer, opts ...Option) *Server {
 	addr = strings.TrimSpace(addr)
 	if addr == "" {
 		addr = defaultAddr
 	}
 	pathPrefix = strings.TrimRight(strings.TrimSpace(pathPrefix), "/")
-	return &Server{addr: addr, pathPrefix: pathPrefix, rpcServer: rpcServer}
+	s := &Server{addr: addr, pathPrefix: pathPrefix, rpcServer: rpcServer}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(s)
+		}
+	}
+	return s
 }
 
 func (s *Server) Start() error {
@@ -285,6 +348,7 @@ func (s *Server) mount(mux *http.ServeMux, prefix string) {
 		_, _ = w.Write([]byte("ok"))
 	})
 	mux.HandleFunc(prefix+"/metrics", s.serveMetrics)
+	mux.HandleFunc(prefix+"/control-plane", s.serveControlPlane)
 	mux.HandleFunc(prefix+"/debug/pprof/", pprof.Index)
 	mux.HandleFunc(prefix+"/debug/pprof/cmdline", pprof.Cmdline)
 	mux.HandleFunc(prefix+"/debug/pprof/profile", pprof.Profile)
@@ -301,6 +365,20 @@ func (s *Server) mount(mux *http.ServeMux, prefix string) {
 func (s *Server) serveMetrics(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 	_ = metrics.Default.WritePrometheus(w)
+}
+
+func (s *Server) serveControlPlane(w http.ResponseWriter, r *http.Request) {
+	if s.controlPlaneSnapshot == nil {
+		http.Error(w, "control-plane snapshot is not configured", http.StatusServiceUnavailable)
+		return
+	}
+	snapshot, err := s.controlPlaneSnapshot(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(snapshot)
 }
 
 func (s *Server) serveRPCAdmin(prefix string) http.HandlerFunc {
@@ -321,12 +399,14 @@ func (s *Server) serveRPCAdmin(prefix string) http.HandlerFunc {
 const adminServerTestTemplate = `package admin
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/gofly/gofly/core/controlplane"
 	"github.com/gofly/gofly/rpc"
 	appconfig "{{.Module}}/internal/config"
 	apprpc "{{.Module}}/internal/rpc"
@@ -338,7 +418,9 @@ func TestAdminDiagnostics(t *testing.T) {
 	if err := rpcServer.RegisterService(apprpc.GreeterService(svc.NewServiceContext(appconfig.Config{})), nil); err != nil {
 		t.Fatal(err)
 	}
-	adminServer := NewServer("", "/admin", rpcServer)
+	adminServer := NewServer("", "/admin", rpcServer, WithControlPlaneSnapshot(func(ctx context.Context) (controlplane.Snapshot, error) {
+		return appconfig.Config{}.ControlPlaneSnapshot(ctx)
+	}))
 	handler := adminServer.Handler()
 
 	metricsRec := httptest.NewRecorder()
@@ -351,6 +433,19 @@ func TestAdminDiagnostics(t *testing.T) {
 	handler.ServeHTTP(pprofRec, httptest.NewRequest(http.MethodGet, "/debug/pprof/goroutine?debug=1", nil))
 	if pprofRec.Code != http.StatusOK || !strings.Contains(pprofRec.Body.String(), "goroutine") {
 		t.Fatalf("goroutine pprof response = %d %q", pprofRec.Code, pprofRec.Body.String())
+	}
+
+	controlPlaneRec := httptest.NewRecorder()
+	handler.ServeHTTP(controlPlaneRec, httptest.NewRequest(http.MethodGet, "/admin/control-plane", nil))
+	if controlPlaneRec.Code != http.StatusOK {
+		t.Fatalf("control-plane status = %d body=%q", controlPlaneRec.Code, controlPlaneRec.Body.String())
+	}
+	var snapshot controlplane.Snapshot
+	if err := json.NewDecoder(controlPlaneRec.Body).Decode(&snapshot); err != nil {
+		t.Fatalf("decode control-plane snapshot: %v", err)
+	}
+	if snapshot.Metadata["generated.project"] != "available" {
+		t.Fatalf("control-plane snapshot metadata = %#v, want generated project marker", snapshot.Metadata)
 	}
 
 	descRec := httptest.NewRecorder()
@@ -409,6 +504,8 @@ const modelTemplateInitTemplate = `CREATE TABLE users (
 const configGoTemplate = `package config
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -418,6 +515,7 @@ import (
 	"time"
 
 	"github.com/gofly/gofly/app"
+	"github.com/gofly/gofly/core/controlplane"
 	"github.com/gofly/gofly/core/governance"
 	"github.com/gofly/gofly/rest"
 )
@@ -540,6 +638,92 @@ func (c Config) ServiceConf() app.ServiceConf {
 	return service.WithDefaults(c.Rest.Name)
 }
 
+type ControlPlaneContributor struct {
+	Config Config
+}
+
+func (c Config) ControlPlaneContributor() ControlPlaneContributor {
+	return ControlPlaneContributor{Config: c}
+}
+
+func (c Config) ControlPlaneSnapshot(ctx context.Context) (controlplane.Snapshot, error) {
+	provider := controlplane.CompositeProvider{
+		Name:         "generated-project",
+		Contributors: []controlplane.SnapshotContributor{c.ControlPlaneContributor()},
+	}
+	return provider.Load(ctx)
+}
+
+func (c ControlPlaneContributor) ContributeSnapshot(ctx context.Context, snapshot *controlplane.Snapshot) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if snapshot == nil {
+		return nil
+	}
+	cfg := c.Config
+	service := cfg.ServiceConf()
+	addGeneratedControlPlaneConfig := func(name string, value any) error {
+		data, err := json.Marshal(value)
+		if err != nil {
+			return fmt.Errorf("marshal generated control-plane config %s: %w", name, err)
+		}
+		if snapshot.Configs == nil {
+			snapshot.Configs = make(map[string]json.RawMessage)
+		}
+		snapshot.Configs["generated."+name] = data
+		return nil
+	}
+	if err := addGeneratedControlPlaneConfig("service", service); err != nil {
+		return err
+	}
+	if err := addGeneratedControlPlaneConfig("scaffold", cfg.Scaffold); err != nil {
+		return err
+	}
+	if err := addGeneratedControlPlaneConfig("openapi", cfg.OpenAPIInfo()); err != nil {
+		return err
+	}
+	restConfig := cfg.Rest
+	restConfig.Admin.Token = ""
+	if err := addGeneratedControlPlaneConfig("rest", restConfig); err != nil {
+		return err
+	}
+	if err := addGeneratedControlPlaneConfig("rpc", cfg.RPC); err != nil {
+		return err
+	}
+	if err := addGeneratedControlPlaneConfig("admin", struct {
+		Enabled    bool   ` + "`json:\"enabled\"`" + `
+		Addr       string ` + "`json:\"addr\"`" + `
+		PathPrefix string ` + "`json:\"pathPrefix\"`" + `
+	}{Enabled: cfg.Admin.Enabled, Addr: cfg.Admin.Addr, PathPrefix: cfg.Admin.PathPrefix}); err != nil {
+		return err
+	}
+	snapshot.Policies = append(snapshot.Policies, cfg.Governance.Rules...)
+	serviceSnapshot := controlplane.ServiceSnapshot{Name: service.Name, Metadata: map[string]string{"source": "generated-project"}}
+	if cfg.Rest.Port > 0 {
+		host := strings.TrimSpace(cfg.Rest.Host)
+		if host == "" || host == "0.0.0.0" {
+			host = "127.0.0.1"
+		}
+		serviceSnapshot.Endpoints = append(serviceSnapshot.Endpoints, controlplane.EndpointSnapshot{Address: fmt.Sprintf("http://%s:%d", host, cfg.Rest.Port), Metadata: map[string]string{"transport": "rest"}})
+	}
+	if strings.TrimSpace(cfg.RPC.Advertise) != "" {
+		snapshot.Services = append(snapshot.Services, controlplane.ServiceSnapshot{Name: "greeter", Endpoints: []controlplane.EndpointSnapshot{{Address: strings.TrimSpace(cfg.RPC.Advertise), Metadata: map[string]string{"transport": "rpc"}}}, Metadata: map[string]string{"source": "generated-project"}})
+	}
+	if len(serviceSnapshot.Endpoints) > 0 {
+		snapshot.Services = append(snapshot.Services, serviceSnapshot)
+	}
+	if snapshot.Metadata == nil {
+		snapshot.Metadata = make(map[string]string)
+	}
+	snapshot.Metadata["generated.project"] = "available"
+	snapshot.Metadata["generated.project.service"] = service.Name
+	snapshot.Metadata["generated.project.features"] = strings.Join(cfg.EffectiveScaffoldFeatures(), ",")
+	snapshot.Metadata["generated.project.runtime"] = "service,rest,rpc,governance"
+	snapshot.Metadata["generated.project.contract"] = "scaffold,runtime-policy,ai-manifest"
+	return nil
+}
+
 func (c Config) OpenAPIEnabled() bool {
 	return c.OpenAPI.Enabled == nil || *c.OpenAPI.Enabled
 }
@@ -651,9 +835,14 @@ func isProduction(environment string) bool {
 const configTestTemplate = `package config
 
 import (
+	"context"
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/gofly/gofly/app"
+	"github.com/gofly/gofly/core/controlplane"
+	"github.com/gofly/gofly/rest"
 )
 
 func TestOpenAPIConfigDefaultsAndOverrides(t *testing.T) {
@@ -681,6 +870,34 @@ func TestOpenAPIConfigDefaultsAndOverrides(t *testing.T) {
 	info := custom.OpenAPIInfo()
 	if info.Title != "custom API" || info.Version != "v2" || info.Description != "generated" {
 		t.Fatalf("custom OpenAPI info = %#v", info)
+	}
+}
+
+func TestControlPlaneSnapshotExposesGeneratedContract(t *testing.T) {
+	cfg := Config{
+		Environment: "development",
+		Service:     serviceConfFixture("hello"),
+		Scaffold:    ScaffoldConfig{Features: []string{"ecosystem-compat"}},
+		Rest:        rest.Config{Name: "hello", Host: "127.0.0.1", Port: 8080},
+	}
+	snapshot, err := cfg.ControlPlaneSnapshot(context.Background())
+	if err != nil {
+		t.Fatalf("ControlPlaneSnapshot: %v", err)
+	}
+	if snapshot.Version != controlplane.DefaultSnapshotVersion || snapshot.Checksum == "" {
+		t.Fatalf("snapshot version/checksum = %q/%q, want default version and stable checksum", snapshot.Version, snapshot.Checksum)
+	}
+	if snapshot.Metadata["generated.project"] != "available" || snapshot.Metadata["generated.project.contract"] != "scaffold,runtime-policy,ai-manifest" {
+		t.Fatalf("snapshot metadata = %#v, want generated project contract markers", snapshot.Metadata)
+	}
+	if !json.Valid(snapshot.Configs["generated.rest"]) || !json.Valid(snapshot.Configs["generated.service"]) || !json.Valid(snapshot.Configs["generated.scaffold"]) {
+		t.Fatalf("snapshot configs = %#v, want valid generated config blobs", snapshot.Configs)
+	}
+	if string(snapshot.Configs["generated.rest"]) == "" || strings.Contains(string(snapshot.Configs["generated.rest"]), "change-me-admin-token") {
+		t.Fatalf("generated.rest config = %s, want sanitized runtime policy without admin token", snapshot.Configs["generated.rest"])
+	}
+	if len(snapshot.Services) != 1 || snapshot.Services[0].Name != "hello" || len(snapshot.Services[0].Endpoints) != 1 || snapshot.Services[0].Endpoints[0].Metadata["transport"] != "rest" {
+		t.Fatalf("snapshot services = %#v, want generated rest endpoint", snapshot.Services)
 	}
 }
 
@@ -792,6 +1009,8 @@ func (b brokerWithCleanup) Close(ctx context.Context) error {
 const minimalConfigGoTemplate = `package config
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -800,6 +1019,7 @@ import (
 	"strings"
 
 	"github.com/gofly/gofly/app"
+	"github.com/gofly/gofly/core/controlplane"
 	"github.com/gofly/gofly/rest"
 )
 
@@ -857,6 +1077,74 @@ func (c Config) ServiceConf() app.ServiceConf {
 		service.Environment = c.Environment
 	}
 	return service.WithDefaults(c.Rest.Name)
+}
+
+type ControlPlaneContributor struct {
+	Config Config
+}
+
+func (c Config) ControlPlaneContributor() ControlPlaneContributor {
+	return ControlPlaneContributor{Config: c}
+}
+
+func (c Config) ControlPlaneSnapshot(ctx context.Context) (controlplane.Snapshot, error) {
+	provider := controlplane.CompositeProvider{
+		Name:         "generated-project",
+		Contributors: []controlplane.SnapshotContributor{c.ControlPlaneContributor()},
+	}
+	return provider.Load(ctx)
+}
+
+func (c ControlPlaneContributor) ContributeSnapshot(ctx context.Context, snapshot *controlplane.Snapshot) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if snapshot == nil {
+		return nil
+	}
+	cfg := c.Config
+	service := cfg.ServiceConf()
+	addGeneratedControlPlaneConfig := func(name string, value any) error {
+		data, err := json.Marshal(value)
+		if err != nil {
+			return fmt.Errorf("marshal generated control-plane config %s: %w", name, err)
+		}
+		if snapshot.Configs == nil {
+			snapshot.Configs = make(map[string]json.RawMessage)
+		}
+		snapshot.Configs["generated."+name] = data
+		return nil
+	}
+	if err := addGeneratedControlPlaneConfig("service", service); err != nil {
+		return err
+	}
+	if err := addGeneratedControlPlaneConfig("scaffold", cfg.Scaffold); err != nil {
+		return err
+	}
+	if err := addGeneratedControlPlaneConfig("openapi", cfg.OpenAPIInfo()); err != nil {
+		return err
+	}
+	restConfig := cfg.Rest
+	restConfig.Admin.Token = ""
+	if err := addGeneratedControlPlaneConfig("rest", restConfig); err != nil {
+		return err
+	}
+	if cfg.Rest.Port > 0 {
+		host := strings.TrimSpace(cfg.Rest.Host)
+		if host == "" || host == "0.0.0.0" {
+			host = "127.0.0.1"
+		}
+		snapshot.Services = append(snapshot.Services, controlplane.ServiceSnapshot{Name: service.Name, Endpoints: []controlplane.EndpointSnapshot{{Address: fmt.Sprintf("http://%s:%d", host, cfg.Rest.Port), Metadata: map[string]string{"transport": "rest"}}}, Metadata: map[string]string{"source": "generated-project"}})
+	}
+	if snapshot.Metadata == nil {
+		snapshot.Metadata = make(map[string]string)
+	}
+	snapshot.Metadata["generated.project"] = "available"
+	snapshot.Metadata["generated.project.service"] = service.Name
+	snapshot.Metadata["generated.project.features"] = strings.Join(cfg.EffectiveScaffoldFeatures(), ",")
+	snapshot.Metadata["generated.project.runtime"] = "service,rest"
+	snapshot.Metadata["generated.project.contract"] = "scaffold,runtime-policy,ai-manifest"
+	return nil
 }
 
 func (c Config) OpenAPIEnabled() bool {
@@ -1164,6 +1452,120 @@ func (s *ServiceContext) CurrentConfig() config.Config {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.Config
+}
+`
+
+const goZeroSvcTemplate = `package svc
+
+import (
+	"sync"
+
+	"{{.Module}}/internal/config"
+)
+
+type ServiceContext struct {
+	mu     sync.RWMutex
+	Config config.Config
+}
+
+func NewServiceContext(c config.Config) *ServiceContext {
+	return &ServiceContext{Config: c}
+}
+
+func (s *ServiceContext) UpdateConfig(c config.Config) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Config = c
+}
+
+func (s *ServiceContext) CurrentConfig() config.Config {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.Config
+}
+`
+
+const goZeroTypesTemplate = `package types
+
+type PingReq struct {
+	Name string ` + "`json:\"name,optional\" form:\"name,optional\"`" + `
+}
+
+type PingResp struct {
+	Message string ` + "`json:\"message\"`" + `
+}
+`
+
+const goZeroPingLogicTemplate = `package logic
+
+import (
+	"context"
+	"strings"
+
+	"{{.Module}}/internal/svc"
+	"{{.Module}}/internal/types"
+)
+
+type PingLogic struct {
+	ctx    context.Context
+	svcCtx *svc.ServiceContext
+}
+
+func NewPingLogic(ctx context.Context, svcCtx *svc.ServiceContext) *PingLogic {
+	return &PingLogic{ctx: ctx, svcCtx: svcCtx}
+}
+
+func (l *PingLogic) Ping(req *types.PingReq) (*types.PingResp, error) {
+	name := "world"
+	if req != nil && strings.TrimSpace(req.Name) != "" {
+		name = strings.TrimSpace(req.Name)
+	}
+	return &types.PingResp{Message: "hello " + name}, nil
+}
+`
+
+const goZeroPingHandlerTemplate = `package handler
+
+import (
+	"net/http"
+
+	"github.com/gofly/gofly/rest"
+
+	"{{.Module}}/internal/logic"
+	"{{.Module}}/internal/svc"
+	"{{.Module}}/internal/types"
+)
+
+func PingHandler(svcCtx *svc.ServiceContext) rest.HandlerFunc {
+	return func(ctx *rest.Context) {
+		var req types.PingReq
+		if err := ctx.BindQuery(&req); err != nil {
+			ctx.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		resp, err := logic.NewPingLogic(ctx.Request.Context(), svcCtx).Ping(&req)
+		if err != nil {
+			ctx.Error(err)
+			return
+		}
+		ctx.JSON(http.StatusOK, resp)
+	}
+}
+`
+
+const goZeroRoutesTemplate = `package handler
+
+import (
+	"net/http"
+
+	"github.com/gofly/gofly/rest"
+	"{{.Module}}/internal/svc"
+)
+
+func RegisterHandlers(server *rest.Server, svcCtx *svc.ServiceContext) {
+	server.AddRoutes([]rest.Route{
+		{Method: http.MethodGet, Path: "/ping", Handler: PingHandler(svcCtx)},
+	}, rest.WithPrefix("/api/v1"))
 }
 `
 

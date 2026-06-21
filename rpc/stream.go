@@ -244,7 +244,7 @@ func (c *HTTPClient) openStream(ctx context.Context, method string) (*Stream, er
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	target, err := c.pickTarget(ctx)
+	target, _, err := c.pickTarget(ctx, RPCBalancerPolicy{}, "")
 	if err != nil {
 		return nil, NewError(CodeUnavailable, err.Error())
 	}

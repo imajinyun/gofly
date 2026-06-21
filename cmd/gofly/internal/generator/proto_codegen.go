@@ -345,6 +345,15 @@ func writeRPCServerOptionScaffold(b *bytes.Buffer, svc IDLService, opts RPCCodeO
 		fprintf(b, "func %sInterceptorChain(middlewares ...endpoint.Middleware) endpoint.Middleware {\n", serviceName)
 		fprintf(b, "\treturn endpoint.Chain(middlewares...)\n")
 		fprintf(b, "}\n\n")
+		fprintf(b, "func With%sKitexInterceptors(interceptors ...rpc.KitexInterceptor) %sServerOption {\n", serviceName, serviceName)
+		fprintf(b, "\treturn func(o *%sServerOptions) {\n\t\to.Middlewares = append(o.Middlewares, rpc.KitexInterceptorMiddleware(interceptors...))\n\t}\n", serviceName)
+		fprintf(b, "}\n\n")
+		fprintf(b, "func %sKitexEndpointChain(middlewares ...rpc.KitexMiddleware) rpc.KitexMiddleware {\n", serviceName)
+		fprintf(b, "\treturn rpc.KitexEndpointChain(middlewares...)\n")
+		fprintf(b, "}\n\n")
+		fprintf(b, "func %sObservabilityInterceptor(name string) rpc.KitexInterceptor {\n", serviceName)
+		fprintf(b, "\treturn rpc.KitexObservabilityInterceptor(name, nil, nil)\n")
+		fprintf(b, "}\n\n")
 	}
 	if opts.WithRecovery {
 		fprintf(b, "func With%sRecovery() %sServerOption {\n", serviceName, serviceName)

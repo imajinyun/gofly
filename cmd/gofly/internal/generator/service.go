@@ -29,6 +29,7 @@ type ServiceScaffoldOptions struct {
 	Module               string
 	Dir                  string
 	Style                string
+	Profile              string
 	TemplateDir          string
 	TemplateRemote       string
 	TemplateBranch       string
@@ -1114,6 +1115,14 @@ func normalizeServiceStyle(style string) (string, error) {
 }
 
 func serviceFiles(style, name string) map[string]string {
+	return serviceFilesForProfile(style, name, ProfileGoflyAI)
+}
+
+func serviceFilesForProfile(style, name string, profile GenerationProfile) map[string]string {
+	if profile == ProfileGoZeroCompatible {
+		return goZeroServiceFiles(style, name)
+	}
+
 	files := map[string]string{
 		"go.mod":                                                  goModTemplate,
 		filepath.Join("cmd", name, "main.go"):                     mainTemplate,
@@ -1152,12 +1161,48 @@ func serviceFiles(style, name string) map[string]string {
 	return files
 }
 
+func goZeroServiceFiles(style, name string) map[string]string {
+	files := map[string]string{
+		"go.mod":                                                goModTemplate,
+		filepath.Join("cmd", name, "main.go"):                   goZeroMainTemplate,
+		filepath.Join("etc", name+".json"):                      minimalConfigTemplate,
+		filepath.Join("internal", "config", "config.go"):        minimalConfigGoTemplate,
+		filepath.Join("internal", "config", "config_test.go"):   configTestTemplate,
+		filepath.Join("internal", "svc", "servicecontext.go"):   goZeroSvcTemplate,
+		filepath.Join("internal", "types", "types.go"):          goZeroTypesTemplate,
+		filepath.Join("internal", "logic", "pinglogic.go"):      goZeroPingLogicTemplate,
+		filepath.Join("internal", "handler", "pinghandler.go"):  goZeroPingHandlerTemplate,
+		filepath.Join("internal", "handler", "routes.go"):       goZeroRoutesTemplate,
+		filepath.Join("internal", "middleware", "trim.go"):      trimMiddlewareTemplate,
+		filepath.Join("internal", "middleware", "trim_test.go"): trimMiddlewareTestTemplate,
+	}
+	if style == ServiceStyleBasic {
+		files["Dockerfile"] = dockerfileTemplate
+		files["Makefile"] = makefileTemplate
+	}
+	return files
+}
+
 func cleanupLegacyServiceFiles(dir string) error {
+	return cleanupLegacyServiceFilesForProfile(dir, ProfileGoflyAI)
+}
+
+func cleanupLegacyServiceFilesForProfile(dir string, profile GenerationProfile) error {
 	legacyFiles := []string{
-		filepath.Join("internal", "handler", "routes.go"),
 		filepath.Join("internal", "handler", "routes_test.go"),
 		filepath.Join("internal", "handler", "ping.go"),
 		filepath.Join("internal", "handler", "ping_handler.go"),
+	}
+	if profile == ProfileGoZeroCompatible {
+		legacyFiles = append(legacyFiles, filepath.Join("internal", "svc", "service_context.go"))
+	} else {
+		legacyFiles = append(legacyFiles,
+			filepath.Join("internal", "handler", "routes.go"),
+			filepath.Join("internal", "handler", "pinghandler.go"),
+			filepath.Join("internal", "logic", "pinglogic.go"),
+			filepath.Join("internal", "svc", "servicecontext.go"),
+			filepath.Join("internal", "types", "types.go"),
+		)
 	}
 	for _, rel := range legacyFiles {
 		path := filepath.Join(dir, rel)
@@ -1165,10 +1210,7 @@ func cleanupLegacyServiceFiles(dir string) error {
 			return fmt.Errorf("remove legacy generated file %s: %w", path, err)
 		}
 	}
-	legacyDirs := []string{
-		filepath.Join("internal", "logic"),
-		filepath.Join("internal", "handler"),
-	}
+	legacyDirs := legacyServiceDirs(profile)
 	for _, rel := range legacyDirs {
 		path := filepath.Join(dir, rel)
 		if err := os.RemoveAll(path); err != nil {
@@ -1176,6 +1218,23 @@ func cleanupLegacyServiceFiles(dir string) error {
 		}
 	}
 	return nil
+}
+
+func legacyServiceDirs(profile GenerationProfile) []string {
+	switch profile {
+	case ProfileGoZeroCompatible:
+		return []string{
+			filepath.Join("internal", "routes"),
+			filepath.Join("internal", "api"),
+			filepath.Join("internal", "service"),
+		}
+	default:
+		return []string{
+			filepath.Join("internal", "logic"),
+			filepath.Join("internal", "handler"),
+			filepath.Join("internal", "types"),
+		}
+	}
 }
 
 func frameworkReplaceBlock(path string) string {
@@ -1361,7 +1420,7 @@ func GenerateServiceScaffold(opts ServiceScaffoldOptions) error {
 	if err != nil {
 		return err
 	}
-	if err := cleanupLegacyServiceFiles(ir.Dir); err != nil {
+	if err := cleanupLegacyServiceFilesForProfile(ir.Dir, ir.Profile); err != nil {
 		return err
 	}
 

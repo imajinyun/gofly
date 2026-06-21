@@ -99,6 +99,120 @@ expected=["request-redaction","rate-limit","token-budget","response-cache","circ
 assert stages==expected, f"pipeline mismatch:\n  expected={expected}\n  got     ={stages}"
 print(f"AI governance pipeline: {len(gp)} stages OK")
 '
+	"$go_cmd" run ./cmd/gofly ai manifest --schema jsonschema 2>/dev/null | python3 -c '
+import json,sys
+d=json.load(sys.stdin)
+assert d["ok"] is True, "schema envelope should be ok"
+assert d["command"]=="ai.manifest.schema", "unexpected command %r" % (d["command"],)
+schema=d["data"]
+assert schema["$schema"]=="https://json-schema.org/draft/2020-12/schema", "unexpected JSON Schema dialect"
+props=schema["properties"]
+for name in ["schemaVersion","commands","controlPlane","llmGovernance","featureLibrary"]:
+    assert name in props, f"schema missing property {name}"
+command_props=props["commands"]["items"]["properties"]
+for name in ["inputSchema","outputContract","sideEffects","riskLevel","supportsDryRun","mutatesFilesystem"]:
+    assert name in command_props, f"command schema missing property {name}"
+print("AI manifest JSON Schema OK")
+'
+	"$go_cmd" run ./cmd/gofly ai control-plane --schema jsonschema 2>/dev/null | python3 -c '
+import json,sys
+d=json.load(sys.stdin)
+assert d["ok"] is True, "control-plane schema envelope should be ok"
+assert d["command"]=="ai.control_plane.schema", "unexpected command %r" % (d["command"],)
+schema=d["data"]
+assert schema["$schema"]=="https://json-schema.org/draft/2020-12/schema", "unexpected control-plane JSON Schema dialect"
+assert schema["$id"]=="https://gofly.dev/schemas/ai-control-plane.schema.json", "unexpected control-plane schema id"
+assert schema["xSchemaChecksum"], "control-plane schema checksum should be non-empty"
+props=schema["properties"]
+for name in ["snapshot","diff","consumerAction","snapshotResult","watchEvent"]:
+    assert name in props, f"control-plane schema missing property {name}"
+action_props=props["consumerAction"]["properties"]
+for name in ["changeType","action","reason","requiresFullReconcile","nextActions"]:
+    assert name in action_props, f"consumer action schema missing property {name}"
+print("AI control-plane JSON Schema OK")
+'
+	control_plane_schema_checksum="$($go_cmd run ./cmd/gofly ai control-plane --schema jsonschema 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin)["data"]["xSchemaChecksum"])')"
+	"$go_cmd" run ./cmd/gofly ai manifest --json 2>/dev/null | python3 -c '
+import json,sys
+d=json.load(sys.stdin)
+cp=d["data"]["controlPlane"]
+assert cp["schemaId"]=="https://gofly.dev/schemas/ai-control-plane.schema.json", "unexpected control-plane manifest schema id %r" % (cp,)
+assert cp["schemaCommand"]=="gofly ai control-plane --schema jsonschema", "unexpected control-plane schema command %r" % (cp,)
+assert cp["schemaChecksum"]==sys.argv[1], "manifest schema checksum should match schema output"
+assert "generated project control-plane contributors for scaffold contract, sanitized runtime config and governance policy snapshots" in cp["capabilities"], "manifest missing generated project control-plane capability"
+assert cp["defaultMetadata"]["generated.project.contract"]=="available", "manifest missing generated project default metadata"
+print("AI control-plane schema checksum OK")
+' "$control_plane_schema_checksum"
+	"$go_cmd" run ./cmd/gofly ai control-plane --json 2>/dev/null | python3 -c '
+import json,sys
+d=json.load(sys.stdin)
+assert d["ok"] is True, "control-plane envelope should be ok"
+assert d["command"]=="ai.control_plane", "unexpected command %r" % (d["command"],)
+data=d["data"]
+snapshot=data["snapshot"]
+assert data["source"]=="ai-manifest", "unexpected control-plane source %r" % (data["source"],)
+assert snapshot["version"]=="gofly-control-plane.v1", "unexpected snapshot version %r" % (snapshot["version"],)
+assert snapshot["checksum"], "snapshot checksum should be non-empty"
+assert snapshot["metadata"]["generated.project.contract"]=="available", "snapshot missing generated project contract metadata"
+assert data["diff"]["changeType"]=="initial-snapshot", "unexpected snapshot diff %r" % (data["diff"],)
+action=data["consumerAction"]
+assert action["changeType"]=="initial-snapshot", "unexpected snapshot consumer change type %r" % (action,)
+assert action["action"]=="load-baseline", "unexpected snapshot consumer action %r" % (action,)
+assert action["requiresFullReconcile"] is True, "initial snapshot should require full reconciliation"
+assert "secret values" in data["secretBoundary"], "secret boundary should forbid secret values"
+print("AI control-plane snapshot OK")
+'
+	checksum="$($go_cmd run ./cmd/gofly ai control-plane --json 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin)["data"]["snapshot"]["checksum"])')"
+	"$go_cmd" run ./cmd/gofly ai control-plane --from-checksum "$checksum" --json 2>/dev/null | python3 -c '
+import json,sys
+d=json.load(sys.stdin)
+diff=d["data"]["diff"]
+assert diff["changed"] is False, "matching checksum should be unchanged"
+assert diff["changeType"]=="none", "unexpected checksum diff %r" % (diff,)
+action=d["data"]["consumerAction"]
+assert action["action"]=="skip", "unchanged checksum should map to skip action: %r" % (action,)
+assert action["requiresFullReconcile"] is False, "unchanged checksum should not require reconciliation"
+print("AI control-plane checksum diff OK")
+'
+	previous_snapshot="$tmp/previous-control-plane.json"
+	"$go_cmd" run ./cmd/gofly ai control-plane --json 2>/dev/null | python3 -c '
+import json,sys
+d=json.load(sys.stdin)
+snapshot=d["data"]["snapshot"]
+snapshot.setdefault("metadata", {})["llm"]="planned"
+with open(sys.argv[1], "w", encoding="utf-8") as f:
+    json.dump(snapshot, f)
+' "$previous_snapshot"
+	"$go_cmd" run ./cmd/gofly ai control-plane --from-snapshot "$previous_snapshot" --json 2>/dev/null | python3 -c '
+import json,sys
+d=json.load(sys.stdin)
+diff=d["data"]["diff"]
+assert diff["changed"] is True, "previous snapshot should produce a semantic diff"
+assert diff["changeType"]=="metadata-change", "unexpected semantic snapshot diff %r" % (diff,)
+assert "metadata" in diff["changedFields"], "semantic diff should include metadata: %r" % (diff,)
+action=d["data"]["consumerAction"]
+assert action["action"]=="refresh-capability-cache", "metadata change should refresh capability cache: %r" % (action,)
+assert action["requiresFullReconcile"] is False, "metadata-only change should not require full reconcile"
+print("AI control-plane semantic snapshot diff OK")
+'
+	"$go_cmd" run ./cmd/gofly ai control-plane --watch --max-events 1 --timeout 2s --json 2>/dev/null | python3 -c '
+import json,sys
+lines=[line for line in sys.stdin.read().splitlines() if line.strip()]
+assert len(lines)==1, "expected 1 control-plane event, got %d" % (len(lines),)
+d=json.loads(lines[0])
+assert d["ok"] is True, "control-plane event envelope should be ok"
+assert d["command"]=="ai.control_plane.event", "unexpected command %r" % (d["command"],)
+data=d["data"]
+assert data["index"]==0, "unexpected event index %r" % (data["index"],)
+assert data["source"]=="ai-manifest", "unexpected control-plane event source %r" % (data["source"],)
+assert data["snapshot"]["checksum"], "event snapshot checksum should be non-empty"
+assert data["diff"]["changed"] is True, "initial watch event should be changed"
+assert data["diff"]["changedFields"], "initial watch event should include changed fields"
+action=data["consumerAction"]
+assert action["action"]=="full-reconcile", "watch mixed change should map to full reconcile: %r" % (action,)
+assert action["requiresFullReconcile"] is True, "watch mixed change should require full reconcile"
+print("AI control-plane watch event OK")
+'
 }
 
 round_generated_project_matrix_tests() {

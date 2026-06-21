@@ -74,7 +74,11 @@ type cachedBreaker struct {
 
 // NewServer creates a Server from Config and options.
 func NewServer(c Config, opts ...Option) (*Server, error) {
-	c = applyConfigDefaults(c)
+	var err error
+	c, err = applyConfigDefaults(c)
+	if err != nil {
+		return nil, err
+	}
 	if c.Timeout == 0 {
 		c.Timeout = 3 * time.Second
 	}
@@ -92,9 +96,23 @@ func NewServer(c Config, opts ...Option) (*Server, error) {
 	return s, nil
 }
 
-func applyConfigDefaults(c Config) Config {
+func applyConfigDefaults(c Config) (Config, error) {
+	preset := strings.ToLower(strings.TrimSpace(c.Preset))
+	if preset == "" {
+		preset = PresetProduction
+	}
+	c.Preset = preset
+	if preset != PresetDevelopment && preset != PresetProduction && preset != PresetCustom {
+		return Config{}, fmt.Errorf("unknown rest preset %q", c.Preset)
+	}
 	if c.DisableDefaultMiddlewares {
-		return c
+		return c, nil
+	}
+	if preset == PresetCustom {
+		if c.MaxBodyBytes == 0 && c.Middlewares.MaxBodyBytesConfig.Limit == 0 {
+			c.MaxBodyBytes = defaultMaxBodyBytes
+		}
+		return c, nil
 	}
 	c.Middlewares.Recover = true
 	c.Middlewares.Trace = true
@@ -106,10 +124,10 @@ func applyConfigDefaults(c Config) Config {
 	if c.MaxBodyBytes == 0 && c.Middlewares.MaxBodyBytesConfig.Limit == 0 {
 		c.MaxBodyBytes = defaultMaxBodyBytes
 	}
-	if c.Middlewares.SecurityHeaders == nil {
+	if preset == PresetProduction && c.Middlewares.SecurityHeaders == nil {
 		c.Middlewares.SecurityHeaders = &SecurityHeadersConfig{}
 	}
-	return c
+	return c, nil
 }
 
 // MustNewServer is like NewServer but panics on error.

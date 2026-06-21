@@ -25,6 +25,19 @@ type ClientOption func(*clientOptions)
 
 type SingleflightKeyFunc func(ctx context.Context, method string, request any) (string, error)
 
+type RPCPolicyProvider interface {
+	RPCPolicy(context.Context, governance.Request) (RPCPolicy, error)
+}
+
+type RPCPolicyProviderFunc func(context.Context, governance.Request) (RPCPolicy, error)
+
+func (f RPCPolicyProviderFunc) RPCPolicy(ctx context.Context, req governance.Request) (RPCPolicy, error) {
+	if f == nil {
+		return RPCPolicy{}, nil
+	}
+	return f(ctx, req)
+}
+
 type Suite interface {
 	ServerOptions() []ServerOption
 	ClientOptions() []ClientOption
@@ -66,6 +79,8 @@ type clientOptions struct {
 	singleflightKey   SingleflightKeyFunc
 	manager           *governance.Manager
 	rules             *governance.RuleSet
+	rpcPolicy         *RPCPolicy
+	rpcPolicyProvider RPCPolicyProvider
 	governanceTags    map[string]string
 	tls               *security.TLSConfig
 }
@@ -358,6 +373,19 @@ func WithRetry(attempts int) ClientOption {
 
 func WithRetryPolicy(policy retry.Policy) ClientOption {
 	return func(o *clientOptions) { o.retryPolicy = policy }
+}
+
+func WithRPCPolicy(policy RPCPolicy) ClientOption {
+	return func(o *clientOptions) {
+		cloned := cloneRPCPolicy(policy)
+		o.rpcPolicy = &cloned
+	}
+}
+
+func WithDynamicRPCPolicy(provider RPCPolicyProvider) ClientOption {
+	return func(o *clientOptions) {
+		o.rpcPolicyProvider = provider
+	}
 }
 
 func WithBreaker(brk *breaker.Breaker) ClientOption {

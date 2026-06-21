@@ -197,8 +197,14 @@ func TestRouterGroupAddsPrefixMiddlewareAndOptions(t *testing.T) {
 func TestNewServerAppliesProductionSafeMiddlewareDefaults(t *testing.T) {
 	s := MustNewServer(Config{Name: "orders"})
 
+	if s.conf.Preset != PresetProduction {
+		t.Fatalf("default preset = %q, want %q", s.conf.Preset, PresetProduction)
+	}
 	if !s.conf.Middlewares.Recover || !s.conf.Middlewares.Log || !s.conf.Middlewares.Metrics || !s.conf.Middlewares.Health || !s.conf.Middlewares.RequestID || !s.conf.Middlewares.Timeout {
 		t.Fatalf("default middlewares = %#v, want recover/log/metrics/health/request-id/timeout enabled", s.conf.Middlewares)
+	}
+	if s.conf.Middlewares.SecurityHeaders == nil {
+		t.Fatalf("production preset should install security headers")
 	}
 	if s.conf.MaxBodyBytes != defaultMaxBodyBytes {
 		t.Fatalf("MaxBodyBytes = %d, want %d", s.conf.MaxBodyBytes, defaultMaxBodyBytes)
@@ -208,6 +214,39 @@ func TestNewServerAppliesProductionSafeMiddlewareDefaults(t *testing.T) {
 	s.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("default health status = %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	s.AddRoute(Route{Method: http.MethodGet, Path: "/headers", Handler: func(ctx *Context) { ctx.String(http.StatusOK, "ok") }})
+	headers := httptest.NewRecorder()
+	s.Handler().ServeHTTP(headers, httptest.NewRequest(http.MethodGet, "/headers", nil))
+	if got := headers.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Fatalf("production security header = %q, want nosniff", got)
+	}
+}
+
+func TestNewServerDevelopmentPresetKeepsLowFrictionDefaults(t *testing.T) {
+	s := MustNewServer(Config{Preset: PresetDevelopment})
+	if s.conf.Preset != PresetDevelopment {
+		t.Fatalf("preset = %q, want development", s.conf.Preset)
+	}
+	if !s.conf.Middlewares.Recover || !s.conf.Middlewares.Log || !s.conf.Middlewares.Metrics || !s.conf.Middlewares.Health || !s.conf.Middlewares.RequestID || !s.conf.Middlewares.Timeout {
+		t.Fatalf("development middlewares = %#v, want core developer defaults", s.conf.Middlewares)
+	}
+	if s.conf.Middlewares.SecurityHeaders != nil {
+		t.Fatalf("development preset security headers = %#v, want nil unless explicitly configured", s.conf.Middlewares.SecurityHeaders)
+	}
+	s.AddRoute(Route{Method: http.MethodGet, Path: "/headers", Handler: func(ctx *Context) { ctx.String(http.StatusOK, "ok") }})
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/headers", nil))
+	if got := rec.Header().Get("X-Content-Type-Options"); got != "" {
+		t.Fatalf("development security header = %q, want empty", got)
+	}
+}
+
+func TestNewServerRejectsUnknownPreset(t *testing.T) {
+	_, err := NewServer(Config{Preset: "unsafe-prod"})
+	if err == nil || !strings.Contains(err.Error(), "unknown rest preset") {
+		t.Fatalf("NewServer unknown preset err = %v, want unknown preset", err)
 	}
 }
 

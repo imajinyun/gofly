@@ -67,6 +67,11 @@ func NewClient(target string, opts ...ClientOption) (*HTTPClient, error) {
 	for _, opt := range opts {
 		opt(&o)
 	}
+	if o.rpcPolicy != nil {
+		if err := o.rpcPolicy.Validate(); err != nil {
+			return nil, fmt.Errorf("configure rpc policy: %w", err)
+		}
+	}
 	if o.resolver == nil {
 		o.resolver = NewStaticResolver(target)
 	}
@@ -141,6 +146,17 @@ func (c *HTTPClient) doCall(ctx context.Context, method string, request any) (*c
 	governanceReq := c.rpcGovernanceRequest(ctx, method)
 	decision := c.governanceDecision(ctx, governanceReq)
 	policy := decision.Policy
+	rpcPolicy := c.effectiveRPCPolicy(policy)
+	if c.opts.rpcPolicyProvider != nil {
+		dynamicPolicy, err := c.opts.rpcPolicyProvider.RPCPolicy(ctx, governanceReq)
+		if err != nil {
+			return nil, fmt.Errorf("resolve dynamic rpc policy: %w", err)
+		}
+		rpcPolicy = mergeRPCPolicy(rpcPolicy, dynamicPolicy)
+	}
+	if err := rpcPolicy.Validate(); err != nil {
+		return nil, fmt.Errorf("apply rpc policy: %w", err)
+	}
 	runtimeKey := governanceRuntimeKey(decision, method)
 	if limiter := c.ruleRateLimiter(runtimeKey, policy.RateLimit); limiter != nil && !limiter.Allow() {
 		return nil, NewError(CodeResourceExhausted, "too many requests")
@@ -151,31 +167,52 @@ func (c *HTTPClient) doCall(ctx context.Context, method string, request any) (*c
 		}
 		defer limiter.Release()
 	}
+	if limiter := c.ruleLoadShedderLimiter(runtimeKey, rpcPolicy.LoadShedder); limiter != nil {
+		if !limiter.TryAcquire() {
+			return nil, NewError(CodeResourceExhausted, "rpc load shedder rejected request")
+		}
+		defer limiter.Release()
+	}
 	ctx = applyGovernanceMetadata(ctx, canaryMetadata(policy.Canary, governanceReq))
-	ctx = applyGovernanceMetadata(ctx, policy.Metadata)
+	ctx = applyGovernanceMetadata(ctx, rpcPolicy.Metadata)
+	ctx = applyGovernanceMetadata(ctx, rpcPolicy.Headers)
 	timeout := c.opts.timeout
-	if policy.Timeout > 0 {
-		timeout = policy.Timeout
+	if rpcPolicy.Timeout > 0 {
+		timeout = rpcPolicy.Timeout
 	}
 	if timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, timeout)
 		defer cancel()
 	}
-	if c.opts.singleflight != nil {
-		key, err := c.singleflightKey(ctx, method, request)
-		if err != nil {
-			return nil, err
+	execute := endpoint.Endpoint(func(ctx context.Context, req any) (any, error) {
+		if c.opts.singleflight != nil {
+			key, err := c.singleflightKey(ctx, method, req)
+			if err != nil {
+				return nil, err
+			}
+			result, _, err := c.opts.singleflight.Do(ctx, key, func(ctx context.Context) (*callResult, error) {
+				return c.doCallOnce(ctx, method, req, rpcPolicy, runtimeKey)
+			})
+			return cloneCallResult(result), err
 		}
-		result, _, err := c.opts.singleflight.Do(ctx, key, func(ctx context.Context) (*callResult, error) {
-			return c.doCallOnce(ctx, method, request, policy, runtimeKey)
-		})
-		return cloneCallResult(result), err
+		return c.doCallOnce(ctx, method, req, rpcPolicy, runtimeKey)
+	})
+	if rpcPolicy.Hedge.Enabled {
+		execute = endpoint.HedgingMiddleware(hedgeConfigFromRPCPolicy(rpcPolicy.Hedge))(execute)
 	}
-	return c.doCallOnce(ctx, method, request, policy, runtimeKey)
+	result, err := execute(ctx, request)
+	if err != nil {
+		return nil, err
+	}
+	call, ok := result.(*callResult)
+	if !ok || call == nil {
+		return nil, fmt.Errorf("unexpected rpc call result %T", result)
+	}
+	return call, nil
 }
 
-func (c *HTTPClient) doCallOnce(ctx context.Context, method string, request any, policy governance.Policy, runtimeKey string) (*callResult, error) {
+func (c *HTTPClient) doCallOnce(ctx context.Context, method string, request any, policy RPCPolicy, runtimeKey string) (*callResult, error) {
 	var result *callResult
 	call := func() error {
 		if c.opts.adaptive != nil {
@@ -183,7 +220,7 @@ func (c *HTTPClient) doCallOnce(ctx context.Context, method string, request any,
 				return err
 			}
 			var err error
-			result, err = c.post(ctx, method, request)
+			result, err = c.postWithPolicy(ctx, method, request, policy)
 			if isRetryable(err) {
 				c.opts.adaptive.MarkFailure()
 			} else {
@@ -194,12 +231,12 @@ func (c *HTTPClient) doCallOnce(ctx context.Context, method string, request any,
 		if c.opts.breaker != nil {
 			return c.opts.breaker.Do(ctx, func() error {
 				var err error
-				result, err = c.post(ctx, method, request)
+				result, err = c.postWithPolicy(ctx, method, request, policy)
 				return err
 			})
 		}
 		var err error
-		result, err = c.post(ctx, method, request)
+		result, err = c.postWithPolicy(ctx, method, request, policy)
 		return err
 	}
 	fn := func() error {
@@ -239,6 +276,13 @@ func (c *HTTPClient) doCallOnce(ctx context.Context, method string, request any,
 		return nil, NewError(CodeUnavailable, err.Error())
 	}
 	return result, err
+}
+
+func (c *HTTPClient) effectiveRPCPolicy(policy governance.Policy) RPCPolicy {
+	if c == nil || c.opts.rpcPolicy == nil {
+		return RPCPolicyFromGovernance(policy)
+	}
+	return mergeRPCPolicy(*c.opts.rpcPolicy, RPCPolicyFromGovernance(policy))
 }
 
 func (c *HTTPClient) governanceDecision(ctx context.Context, req governance.Request) governance.Decision {
@@ -317,6 +361,20 @@ func (c *HTTPClient) ruleConcurrencyLimiter(key string, policy governance.Concur
 	return limiter
 }
 
+func (c *HTTPClient) ruleLoadShedderLimiter(key string, policy RPCLoadShedderPolicy) *limit.ConcurrencyLimiter {
+	if c == nil || c.runtime == nil || !policy.Enabled {
+		return nil
+	}
+	limitValue := policy.MaxConcurrency
+	if limitValue <= 0 {
+		limitValue = policy.MaxInflight
+	}
+	if limitValue <= 0 {
+		return nil
+	}
+	return c.ruleConcurrencyLimiter(key+":rpc-policy-load-shedder", governance.ConcurrencyPolicy{Limit: limitValue})
+}
+
 func (c *HTTPClient) ruleBreaker(key string, policy governance.BreakerPolicy) *breaker.AdaptiveBreaker {
 	if c == nil || c.runtime == nil || !policy.Enabled {
 		return nil
@@ -330,6 +388,56 @@ func (c *HTTPClient) ruleBreaker(key string, policy governance.BreakerPolicy) *b
 	brk := adaptiveBreakerFromPolicy(policy)
 	c.runtime.breakers[key] = &cachedBreaker{policy: policy, breaker: brk}
 	return brk
+}
+
+func (c *HTTPClient) ruleBalancer(key string, policy RPCBalancerPolicy) Balancer {
+	if c == nil || c.runtime == nil || strings.TrimSpace(policy.Name) == "" {
+		return nil
+	}
+	signature := rpcBalancerPolicySignature(policy)
+	cacheKey := key + ":rpc-policy-balancer"
+	c.runtime.mu.Lock()
+	defer c.runtime.mu.Unlock()
+	cached := c.runtime.balancers[cacheKey]
+	if cached != nil && cached.signature == signature {
+		return cached.balancer
+	}
+	balancer := newRPCPolicyBalancer(policy)
+	c.runtime.balancers[cacheKey] = &cachedPolicyBalancer{signature: signature, balancer: balancer}
+	return balancer
+}
+
+func newRPCPolicyBalancer(policy RPCBalancerPolicy) Balancer {
+	switch strings.TrimSpace(policy.Name) {
+	case RPCBalancerWeightedRoundRobin:
+		return NewWeightedRoundRobinBalancer(policy.Weights)
+	case RPCBalancerP2C:
+		return NewP2CBalancer()
+	case RPCBalancerConsistentHash:
+		return NewConsistentHashBalancer(WithConsistentHashKey(policy.Key))
+	case RPCBalancerHealth:
+		return NewHealthBalancer()
+	case RPCBalancerRoundRobin:
+		fallthrough
+	default:
+		return &RoundRobinBalancer{}
+	}
+}
+
+func rpcBalancerPolicySignature(policy RPCBalancerPolicy) string {
+	data, err := json.Marshal(policy)
+	if err != nil {
+		return policy.Name
+	}
+	return string(data)
+}
+
+func hedgeConfigFromRPCPolicy(policy RPCHedgePolicy) endpoint.HedgeConfig {
+	maxHedges := 1
+	if policy.Attempts > 1 {
+		maxHedges = policy.Attempts - 1
+	}
+	return endpoint.HedgeConfig{Delay: policy.Delay, MaxHedges: maxHedges}
 }
 
 func applyGovernanceMetadata(ctx context.Context, values map[string]string) context.Context {
@@ -355,12 +463,24 @@ func splitRPCMethod(method string) (string, string) {
 	return service, rpcMethod
 }
 
-func (c *HTTPClient) post(ctx context.Context, method string, request any) (result *callResult, err error) {
-	target, err := c.pickTarget(ctx)
+func (c *HTTPClient) postWithPolicy(ctx context.Context, method string, request any, policy RPCPolicy) (*callResult, error) {
+	result, err := c.post(ctx, method, request, policy.Balancer, "")
+	if err == nil || !policy.Fallback.Enabled || ctx.Err() != nil {
+		return result, err
+	}
+	fallbackMethod := strings.TrimSpace(policy.Fallback.Method)
+	if fallbackMethod == "" {
+		fallbackMethod = method
+	}
+	return c.post(ctx, fallbackMethod, request, RPCBalancerPolicy{}, policy.Fallback.Target)
+}
+
+func (c *HTTPClient) post(ctx context.Context, method string, request any, policy RPCBalancerPolicy, fixedTarget string) (result *callResult, err error) {
+	target, balancer, err := c.pickTarget(ctx, policy, fixedTarget)
 	if err != nil {
 		return nil, NewError(CodeUnavailable, err.Error())
 	}
-	defer c.reportEndpoint(ctx, target, &err)
+	defer c.reportEndpointWithBalancer(ctx, balancer, target, &err)
 	payload, err := c.opts.codec.Marshal(request)
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
@@ -448,7 +568,11 @@ func cloneCallResult(result *callResult) *callResult {
 }
 
 func (c *HTTPClient) reportEndpoint(ctx context.Context, target string, err *error) {
-	reporter, ok := c.opts.balancer.(EndpointReporter)
+	c.reportEndpointWithBalancer(ctx, c.opts.balancer, target, err)
+}
+
+func (c *HTTPClient) reportEndpointWithBalancer(ctx context.Context, balancer Balancer, target string, err *error) {
+	reporter, ok := balancer.(EndpointReporter)
 	if !ok {
 		return
 	}
@@ -459,18 +583,41 @@ func (c *HTTPClient) reportEndpoint(ctx context.Context, target string, err *err
 	reporter.Report(ctx, target, *err)
 }
 
-func (c *HTTPClient) pickTarget(ctx context.Context) (string, error) {
+func (c *HTTPClient) pickTarget(ctx context.Context, policy RPCBalancerPolicy, fixedTarget string) (string, Balancer, error) {
+	fixedTarget = strings.TrimRight(strings.TrimSpace(fixedTarget), "/")
+	if fixedTarget != "" {
+		return fixedTarget, nil, nil
+	}
 	endpoints, err := c.opts.resolver.Resolve(ctx)
 	if err != nil {
-		return "", fmt.Errorf("resolve rpc target: %w", err)
+		return "", nil, fmt.Errorf("resolve rpc target: %w", err)
 	}
 	balancer := c.opts.balancer
+	if policyBalancer := c.ruleBalancer("client", policy); policyBalancer != nil {
+		balancer = policyBalancer
+	}
 	if balancer == nil {
 		balancer = &RoundRobinBalancer{}
 	}
+	if strings.TrimSpace(policy.Key) != "" && strings.TrimSpace(policy.Name) == RPCBalancerConsistentHash {
+		ctx = ContextWithHashKey(ctx, rpcPolicyHashKey(ctx, policy.Key))
+	}
 	target, err := balancer.Pick(ctx, endpoints)
 	if err != nil {
-		return "", fmt.Errorf("pick rpc target: %w", err)
+		return "", balancer, fmt.Errorf("pick rpc target: %w", err)
 	}
-	return strings.TrimRight(target, "/"), nil
+	return strings.TrimRight(target, "/"), balancer, nil
+}
+
+func rpcPolicyHashKey(ctx context.Context, key string) string {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return ""
+	}
+	if md, ok := metadata.FromContext(ctx); ok {
+		if value := md.Get(key); value != "" {
+			return value
+		}
+	}
+	return key
 }

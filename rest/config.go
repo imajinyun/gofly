@@ -11,12 +11,22 @@ import (
 
 const defaultMaxBodyBytes int64 = 1 << 20 // 1 MiB
 
+const (
+	PresetDevelopment = "development"
+	PresetProduction  = "production"
+	PresetCustom      = "custom"
+)
+
 // Config configures a REST server.
 //
 // Zero values produce sensible defaults: the server binds to 0.0.0.0:8080
 // with a 3-second per-request timeout and all built-in middlewares enabled
 // (recover, trace, log, timeout, metrics, health, request-id).
 type Config struct {
+	// Preset selects a built-in middleware profile. Empty defaults to
+	// production for backwards-compatible safe defaults.
+	Preset string `json:"preset,omitempty"`
+
 	// Name is the logical service name used for metrics, traces, admin
 	// dashboard labels, and as a default route prefix. Required.
 	Name string `json:"name"`

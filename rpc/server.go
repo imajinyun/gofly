@@ -44,6 +44,7 @@ type ruleRuntime struct {
 	rateLimits  map[string]*cachedRateLimiter
 	concurrency map[string]*cachedConcurrencyLimiter
 	breakers    map[string]*cachedBreaker
+	balancers   map[string]*cachedPolicyBalancer
 }
 
 type cachedRateLimiter struct {
@@ -60,6 +61,11 @@ type cachedConcurrencyLimiter struct {
 type cachedBreaker struct {
 	policy  governance.BreakerPolicy
 	breaker *breaker.AdaptiveBreaker
+}
+
+type cachedPolicyBalancer struct {
+	signature string
+	balancer  Balancer
 }
 
 // NewServer creates an HTTPServer with the given options.
@@ -502,6 +508,7 @@ func newRuleRuntime() *ruleRuntime {
 		rateLimits:  make(map[string]*cachedRateLimiter),
 		concurrency: make(map[string]*cachedConcurrencyLimiter),
 		breakers:    make(map[string]*cachedBreaker),
+		balancers:   make(map[string]*cachedPolicyBalancer),
 	}
 }
 

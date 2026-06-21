@@ -105,6 +105,94 @@ func TestSQLBuilders(t *testing.T) {
 	}
 }
 
+func TestDialectNormalizationAndPlaceholderContracts(t *testing.T) {
+	tests := []struct {
+		name        string
+		in          Dialect
+		want        Dialect
+		placeholder string
+	}{
+		{name: "empty defaults to question", in: "", want: DialectQuestion, placeholder: "?"},
+		{name: "postgres alias", in: "postgresql", want: DialectPostgres, placeholder: "$2"},
+		{name: "mysql alias", in: "mariadb", want: DialectMySQL, placeholder: "?"},
+		{name: "sqlite alias", in: "sqlite3", want: DialectSQLite, placeholder: "?"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := NormalizeDialect(tt.in); got != tt.want {
+				t.Fatalf("NormalizeDialect(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+			if got := Placeholder(tt.in, 2); got != tt.placeholder {
+				t.Fatalf("Placeholder(%q, 2) = %q, want %q", tt.in, got, tt.placeholder)
+			}
+		})
+	}
+}
+
+func TestDialectQuoteIdentAndJoinQuotedIdentifiers(t *testing.T) {
+	postgresQuoted, err := QuoteIdent(DialectPostgres, "public.users")
+	if err != nil {
+		t.Fatalf("QuoteIdent postgres returned error: %v", err)
+	}
+	if postgresQuoted != `"public"."users"` {
+		t.Fatalf("postgres quoted = %q", postgresQuoted)
+	}
+
+	mysqlJoined, err := JoinQuotedIdentifiers(DialectMySQL, []string{"users", "created_at"})
+	if err != nil {
+		t.Fatalf("JoinQuotedIdentifiers mysql returned error: %v", err)
+	}
+	if mysqlJoined != "`users`, `created_at`" {
+		t.Fatalf("mysql joined = %q", mysqlJoined)
+	}
+
+	if _, err := QuoteIdent(DialectSQLite, "users;drop"); !errors.Is(err, ErrInvalidIdentifier) {
+		t.Fatalf("QuoteIdent unsafe error = %v, want ErrInvalidIdentifier", err)
+	}
+}
+
+func TestDialectLimitOffsetContracts(t *testing.T) {
+	query, args, err := LimitOffset(DialectPostgres, 10, 20, 3)
+	if err != nil {
+		t.Fatalf("LimitOffset postgres returned error: %v", err)
+	}
+	if query != " LIMIT $3 OFFSET $4" {
+		t.Fatalf("postgres clause = %q", query)
+	}
+	if len(args) != 2 || args[0] != 10 || args[1] != 20 {
+		t.Fatalf("postgres args = %#v, want [10 20]", args)
+	}
+
+	query, args, err = LimitOffset(DialectSQLite, 5, 0, 1)
+	if err != nil {
+		t.Fatalf("LimitOffset sqlite returned error: %v", err)
+	}
+	if query != " LIMIT ?" {
+		t.Fatalf("sqlite clause = %q", query)
+	}
+	if len(args) != 1 || args[0] != 5 {
+		t.Fatalf("sqlite args = %#v, want [5]", args)
+	}
+
+	errorCases := []struct {
+		name   string
+		limit  int
+		offset int
+	}{
+		{name: "negative limit", limit: -1},
+		{name: "negative offset", limit: 1, offset: -1},
+		{name: "offset without limit", limit: 0, offset: 1},
+	}
+	for _, tt := range errorCases {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, _, err := LimitOffset(DialectQuestion, tt.limit, tt.offset, 1); err == nil {
+				t.Fatalf("LimitOffset(%d,%d) succeeded, want error", tt.limit, tt.offset)
+			}
+		})
+	}
+}
+
 func TestSQLMutationAndPageBuilders(t *testing.T) {
 	updateQuery, err := UpdateByID("users", []string{"name", "age"}, "id", DialectPostgres)
 	if err != nil {
@@ -128,6 +216,14 @@ func TestSQLMutationAndPageBuilders(t *testing.T) {
 	}
 	if pageQuery != "SELECT id, name FROM users ORDER BY id LIMIT ? OFFSET ?" {
 		t.Fatalf("page query = %q", pageQuery)
+	}
+
+	sqlitePageQuery, err := SelectPage("users", []string{"id", "name"}, "id", DialectSQLite)
+	if err != nil {
+		t.Fatalf("SelectPage sqlite returned error: %v", err)
+	}
+	if sqlitePageQuery != "SELECT id, name FROM users ORDER BY id LIMIT ? OFFSET ?" {
+		t.Fatalf("sqlite page query = %q", sqlitePageQuery)
 	}
 
 	countQuery, err := CountAll("users")
@@ -309,6 +405,13 @@ func TestWhereBuilderEmptyInMatchesNothing(t *testing.T) {
 	}
 	if query != "SELECT COUNT(*) FROM orders WHERE 1 = 0" || len(args) != 0 {
 		t.Fatalf("query=%q args=%#v, want empty IN false predicate", query, args)
+	}
+}
+
+func TestWhereBuilderRejectsOffsetWithoutLimit(t *testing.T) {
+	_, _, err := SelectWhere("orders", []string{"id"}, NewWhere().Offset(10), DialectSQLite)
+	if err == nil || !strings.Contains(err.Error(), "limit is required") {
+		t.Fatalf("SelectWhere offset without limit error = %v, want limit required", err)
 	}
 }
 
@@ -544,6 +647,46 @@ func TestSQLStoreTransactRollsBackOnCallbackError_BitsUT(t *testing.T) {
 	if snapshot.Requests != 1 || snapshot.Errors != 1 {
 		t.Fatalf("transaction stats = %#v, want one failed transaction", snapshot)
 	}
+}
+
+func TestWithTxContracts(t *testing.T) {
+	db := fakeDB(t)
+	called := false
+	if err := WithTx(context.Background(), db, nil, func(ctx context.Context, tx *sql.Tx) error {
+		called = true
+		if ctx == nil || tx == nil {
+			t.Fatalf("WithTx callback ctx/tx = %#v/%#v, want non-nil", ctx, tx)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("WithTx success: %v", err)
+	}
+	if !called {
+		t.Fatal("WithTx did not call callback")
+	}
+
+	boom := errors.New("boom")
+	if err := WithTx(context.Background(), db, nil, func(context.Context, *sql.Tx) error { return boom }); !errors.Is(err, boom) {
+		t.Fatalf("WithTx callback error = %v, want boom", err)
+	}
+	if err := WithTx(context.Background(), nil, nil, func(context.Context, *sql.Tx) error { return nil }); err == nil || !strings.Contains(err.Error(), "nil") {
+		t.Fatalf("WithTx nil db err = %v, want nil db error", err)
+	}
+	if err := WithTx(context.Background(), db, nil, nil); err == nil || !strings.Contains(err.Error(), "transaction function") {
+		t.Fatalf("WithTx nil callback err = %v, want callback error", err)
+	}
+}
+
+func TestWithTxRollsBackAndRepanics(t *testing.T) {
+	db := fakeDB(t)
+	defer func() {
+		if got := recover(); got != "panic in tx" {
+			t.Fatalf("recover = %#v, want panic in tx", got)
+		}
+	}()
+	_ = WithTx(context.Background(), db, nil, func(context.Context, *sql.Tx) error {
+		panic("panic in tx")
+	})
 }
 
 func TestSQLStoreQueryOneAndQueryAllAndQueryRows(t *testing.T) {

@@ -1173,6 +1173,7 @@ func serviceFilesForProfile(style, name string, profile GenerationProfile) map[s
 	files[filepath.Join("internal", "rpc", "greeter.go")] = greeterTemplate
 	files[filepath.Join("internal", "rpc", "greeter_client_test.go")] = greeterClientTestTemplate
 	files[filepath.Join("internal", "rpc", "greeter_test.go")] = greeterTestTemplate
+	files[filepath.Join("internal", "smoke", "service_smoke_test.go")] = smokeTestTemplate
 	files["Dockerfile"] = dockerfileTemplate
 	files["Makefile"] = makefileTemplate
 	files[filepath.Join(".github", "workflows", "ci.yml")] = ciWorkflowTemplate

@@ -305,10 +305,11 @@ func usage() string {
 
 Usage:
   version - Print version metadata.
-  new - Scaffold new API or RPC services.
-    new api <name> --module <module> [--dir <dir>] [--style minimal|basic|production] [--api-spec] [--home <template-dir>]
-    new api <name> --module <module> [--dir <dir>] [--config .gofly/config.json] [--template-dir <dir>] [--feature http-compat|rpc-compat|ecosystem-compat] [--rpc-plugin <plugin>]
-    new rpc <name> --module <module> [--dir <dir>] [--config .gofly/config.json] [--template-dir <dir>] [--feature <names>] [--rpc-plugin <plugin>]
+  new - Scaffold new production, API, or RPC services.
+    new service <name> --style production --module <module> [--dir <dir>]
+  new api <name> --module <module> [--dir <dir>] [--style minimal|basic|production] [--api-spec] [--home <template-dir>]
+  new api <name> --module <module> [--dir <dir>] [--config .gofly/config.json] [--template-dir <dir>] [--feature http-compat|rpc-compat|ecosystem-compat] [--rpc-plugin <plugin>]
+  new rpc <name> --module <module> [--dir <dir>] [--config .gofly/config.json] [--template-dir <dir>] [--feature <names>] [--rpc-plugin <plugin>]
   rpc - Generate and validate RPC services.
     rpc new <name> --module <module> [--dir <dir>]
     rpc idl --file <service.proto|service.thrift> [--format text|json]
@@ -505,7 +506,7 @@ func trimHelpTopicPositionals(parts []string) []string {
 			return parts[:2]
 		}
 	case "new":
-		if parts[1] == "api" || parts[1] == "rpc" {
+		if parts[1] == "service" || parts[1] == "api" || parts[1] == "rpc" {
 			return parts[:2]
 		}
 	case "model":
@@ -756,6 +757,8 @@ func commandHelpFor(command string) commandHelp {
 		return commandHelp{Name: "api breaking", Short: "Detect breaking changes between two .api files.", Usage: "gofly api breaking --base <old.api> --target <new.api>", Flags: []string{"--base <file>      old API file", "--target <file>    new API file"}, Examples: []string{"gofly api breaking old.api new.api"}}
 	case "api types":
 		return commandHelp{Name: "api types", Short: "Generate Go DTO types from an .api file.", Usage: "gofly api types --api <service.api> --dir <dir> [--package <pkg>]", Flags: []string{"-api, --api, --file <file>  API definition file", "--dir <dir>                   output directory", "--package <pkg>               generated package name"}, Examples: []string{"gofly api types -api user.api -dir internal/types -package types"}}
+	case "new service":
+		return commandHelp{Name: "new service", Short: "Create the golden-path production service scaffold.", Usage: "gofly new service <name> --module <module> [--dir <dir>] [flags]", Flags: []string{"--name <name>                  service name", "--module <module>              Go module path", "--dir <dir>                    output directory", "--style production             defaults to production", "--discovery memory|consul|etcdv3", "--discovery-address <addr>      discovery address", "--discovery-endpoints <list>    discovery endpoints", "--home, --remote, --branch      template source options", "--feature <names>               feature names to enable", "--plugin <paths>                plugin executables"}, Examples: []string{"gofly new service orders --style production --module example.com/orders", "gofly new service orders --module example.com/orders --discovery memory --dir orders"}}
 	case "api new", "new api":
 		return commandHelp{Name: command, Short: "Create an API service scaffold.", Usage: "gofly " + command + " <name> --module <module> [flags]", Flags: []string{"--name <name>                  API service name", "--module <module>              Go module path", "--dir <dir>                    output directory", "--style minimal|basic|production", "--home, --remote, --branch     template source options", "--client, --idea, --go_opt     accepted scaffold options"}, Examples: []string{"gofly new api hello --module example.com/hello --style go_zero", "gofly api new hello --module example.com/hello --dir hello"}}
 	case "api client", "api ts", "api js", "api dart", "api java", "api kotlin":
@@ -883,10 +886,10 @@ func commandHelpFor(command string) commandHelp {
 	case "new":
 		return commandHelp{
 			Name:     "new",
-			Short:    "Create API or RPC service scaffolds.",
-			Usage:    "gofly new api|rpc <name> --module <module> [flags]",
-			Commands: []helpCommand{{Name: "api", Short: "create API service"}, {Name: "rpc", Short: "create RPC service"}},
-			Examples: []string{"gofly new api hello -module example.com/hello -dir hello", "gofly new rpc greeter -module example.com/greeter -style go_zero"},
+			Short:    "Create production, API, or RPC service scaffolds.",
+			Usage:    "gofly new service|api|rpc <name> --module <module> [flags]",
+			Commands: []helpCommand{{Name: "service", Short: "create golden-path production service"}, {Name: "api", Short: "create API service"}, {Name: "rpc", Short: "create RPC service"}},
+			Examples: []string{"gofly new service orders --style production --module example.com/orders", "gofly new api hello -module example.com/hello -dir hello", "gofly new rpc greeter -module example.com/greeter -style go_zero"},
 		}
 	case "gen":
 		return commandHelp{
@@ -940,9 +943,11 @@ func commandHelpFor(command string) commandHelp {
 	case "feature run":
 		return commandHelp{Name: "feature run", Short: "Preview generated files for one or more scaffold features.", Usage: "gofly feature run <feature-name> [features...] --name <service> --module <module> --dir <dir> [--style <style>] [--format text|json]", Flags: []string{"--name <name>       service name", "--module <path>     Go module path", "--dir <dir>         service directory", "--style <style>     scaffold style", "--feature <names>   feature names, comma-separated", "--features <names>  alias for --feature", "--format <format>   output format: text|json", "--json              output JSON"}, Examples: []string{"gofly feature run ecosystem-compat --name hello --module example.com/hello --dir .", "gofly feature run http-compat rpc-compat --name hello --module example.com/hello", "gofly feature run --features http-compat,rpc-compat --format json --name hello --module example.com/hello"}}
 	case "plugin":
-		return commandHelp{Name: "plugin", Short: "List, install and run gofly generation plugins.", Usage: "gofly plugin list | gofly plugin install --remote <repo>@<version> | gofly plugin run <plugin> [flags]", Commands: []helpCommand{{Name: "list", Short: "list built-in and cached plugins"}, {Name: "install", Short: "download a version-pinned remote plugin"}, {Name: "uninstall", Short: "remove a version-pinned cached plugin"}, {Name: "run", Short: "run a built-in, cached or external plugin"}}, Examples: []string{"gofly plugin list --json", "gofly plugin install --remote https://example.com/gofly-plugin@v1.2.3 --json", "gofly plugin run --remote https://example.com/gofly-plugin@v1.2.3 --name hello --module example.com/hello --dir . --json", "gofly plugin run --go-plugin ./plugins --name hello --module example.com/hello --dir ."}}
+		return commandHelp{Name: "plugin", Short: "List, search, install and run gofly generation plugins.", Usage: "gofly plugin list | gofly plugin search --registry <url-or-path> [query] | gofly plugin install --remote <repo>@<version> | gofly plugin run <plugin> [flags]", Commands: []helpCommand{{Name: "list", Short: "list built-in and cached plugins"}, {Name: "search", Short: "search a plugin registry index"}, {Name: "install", Short: "download a version-pinned remote plugin"}, {Name: "uninstall", Short: "remove a version-pinned cached plugin"}, {Name: "run", Short: "run a built-in, cached or external plugin"}}, Examples: []string{"gofly plugin list --json", "gofly plugin search --registry ./plugins.json redis --json", "gofly plugin install --remote https://example.com/gofly-plugin@v1.2.3 --json", "gofly plugin run --remote https://example.com/gofly-plugin@v1.2.3 --name hello --module example.com/hello --dir . --json", "gofly plugin run --go-plugin ./plugins --name hello --module example.com/hello --dir ."}}
 	case "plugin list":
 		return commandHelp{Name: "plugin list", Short: "List built-in generation plugins and cached generation plugins.", Usage: "gofly plugin list [--format text|json] [--json]", Flags: []string{"--format <format>  output format: text|json", "--json             output JSON"}, Examples: []string{"gofly plugin list", "gofly plugin list --json"}}
+	case "plugin search":
+		return commandHelp{Name: "plugin search", Short: "Search a plugin registry index without installing plugins.", Usage: "gofly plugin search --registry <url-or-path> [query] [--format text|json] [--json]", Flags: []string{"--registry <url-or-path>  registry JSON URL or path", "--query <query>           search query, also accepted as positional", "--format <format>         output format: text|json", "--json                    output JSON"}, Examples: []string{"gofly plugin search --registry ./plugins.json", "gofly plugin search --registry https://example.com/gofly-plugins.json redis --json"}}
 	case "plugin install":
 		return commandHelp{Name: "plugin install", Short: "Install a version-pinned remote generation plugin into ~/.cache/gofly/plugins/<hash>.", Usage: "gofly plugin install --remote <repo-or-url>@<version> [--json]", Flags: []string{"--remote <repo>@<version>  version-pinned plugin URL, file:// path, file path or executable directory", "--json                    output JSON with binary digest metadata"}, Examples: []string{"gofly plugin install --remote https://example.com/gofly-plugin@v1.2.3", "gofly plugin install --remote ./plugins/my-plugin@dev --json"}}
 	case "plugin uninstall":
@@ -2553,7 +2558,7 @@ func validateAIProjectTemplateCommand(tmpl generator.ProjectTemplate) error {
 		}
 	}
 	switch strings.Join(fields[:3], " ") {
-	case "gofly new api", "gofly new rpc", "gofly gen gateway":
+	case "gofly new service", "gofly new api", "gofly new rpc", "gofly gen gateway":
 		return nil
 	default:
 		return fmt.Errorf("%w: template %q command %q is not supported by `gofly ai new`", errUsage, tmpl.ID, tmpl.Command)
@@ -2869,6 +2874,8 @@ func runAIProjectApplyCommand(args []string) error {
 		return fmt.Errorf("%w: scaffold command is incomplete", errUsage)
 	}
 	switch {
+	case args[0] == "new" && args[1] == "service":
+		return serviceNewCommand(args[2:])
 	case args[0] == "new" && args[1] == "api":
 		return apiNewCommand(args[2:])
 	case args[0] == "new" && args[1] == "rpc":
@@ -4135,6 +4142,7 @@ func buildAIToolManifest() aiToolManifest {
 		}, []string{outputText, outputJSON}, []string{"none; preview only"}, "read", true, false, []string{"gofly feature run ecosystem-compat --name hello --module example.com/hello --dir . --format json"}),
 		manifestCommand("template list", []string{"template ls"}, "List built-in AI-first project templates and legacy file templates.", "gofly template list [--category <filter>] [--name <filter>] [--format text|json] [--json]", map[string]aiInputProperty{"category": stringProperty("Optional template category, kind, architecture, language or feature filter."), "name": stringProperty("Optional template id/name filter.")}, []string{outputText, outputJSON}, []string{"none"}, "read", true, false, []string{"gofly template list --json"}),
 		manifestCommand("template inspect", []string{"template show", "template describe"}, "Inspect one AI-first project template from the catalog.", "gofly template inspect <template-id> [--format text|json] [--json]", map[string]aiInputProperty{"name": stringProperty("Project template id, for example go-rag-service.")}, []string{outputText, outputJSON}, []string{"none"}, "read", true, false, []string{"gofly template inspect go-rag-service --json"}),
+		manifestCommand("new service", nil, "Create the golden-path production service scaffold with REST, RPC, OpenAPI, governance, admin control-plane and discovery.", "gofly new service <name> --module <module> [--dir <dir>] [--style production] [--dry-run|--plan]", apiServiceScaffoldProperties(), []string{outputText, outputJSON}, []string{"creates or overwrites files under --dir"}, "medium", true, true, []string{"gofly new service orders --module example.com/orders --dir orders --dry-run"}),
 		manifestCommand("new api", []string{"api new"}, "Create an API service scaffold.", "gofly new api <name> --module <module> [--dir <dir>] [--style minimal|basic|production] [--dry-run|--plan]", apiServiceScaffoldProperties(), []string{outputText, outputJSON}, []string{"creates or overwrites files under --dir"}, "medium", true, true, []string{"gofly new api hello --module example.com/hello --dir hello --dry-run"}),
 		manifestCommand("new rpc", []string{"rpc new"}, "Create an RPC service scaffold.", "gofly new rpc <name> --module <module> [--dir <dir>] [--style minimal|basic|production] [--profile gofly-ai|gozero-compatible|kitex-compatible] [--dry-run|--plan]", rpcServiceScaffoldProperties(), []string{outputText, outputJSON}, []string{"creates or overwrites files under --dir"}, "medium", true, true, []string{"gofly new rpc greeter --module example.com/greeter --dir greeter --profile kitex-compatible --dry-run"}),
 		manifestCommand("api check", []string{"api validate"}, "Validate an .api file.", "gofly api check --api <service.api>", fileInputProperties("api"), []string{outputText}, []string{"reads API definition file"}, "read", true, false, []string{"gofly api check --api user.api"}),
@@ -4518,7 +4526,7 @@ func buildAIGovernancePipeline() []aiPipelineStage {
 func rootCommandManifestEntries() []commandSpec {
 	return []commandSpec{
 		{Name: "version", Short: "Print version metadata."},
-		{Name: "new", Short: "Scaffold new API or RPC services."},
+		{Name: "new", Short: "Scaffold new production, API, or RPC services."},
 		{Name: "gen", Aliases: []string{"generate"}, Short: "Run unified code generators."},
 		{Name: "handler", Short: "Generate or complete API handlers."},
 		{Name: "rpc", Short: "Generate and validate RPC services."},
@@ -5215,6 +5223,12 @@ type pluginListOutput struct {
 	Installed []generator.InstalledPlugin `json:"installed"`
 }
 
+type pluginRegistrySearchOutput struct {
+	Registry string                          `json:"registry"`
+	Query    string                          `json:"query,omitempty"`
+	Plugins  []generator.PluginRegistryEntry `json:"plugins"`
+}
+
 type pluginRunOutput struct {
 	Plugins []pluginRunResult `json:"plugins"`
 }
@@ -5256,13 +5270,13 @@ func buildFeatureRunPreview(names []string, files map[string]string, data map[st
 	return preview
 }
 
-// pluginCommand 暴露 `gofly plugin list|install|uninstall|run`。
+// pluginCommand 暴露 `gofly plugin list|search|install|uninstall|run`。
 func pluginCommand(args []string) error {
 	if printCommandHelp("plugin", args) {
 		return nil
 	}
 	if len(args) == 0 {
-		return fmt.Errorf("%w: expected `gofly plugin list|install|uninstall|run`", errUsage)
+		return fmt.Errorf("%w: expected `gofly plugin list|search|install|uninstall|run`", errUsage)
 	}
 	sub := args[0]
 	rest := args[1:]
@@ -5291,6 +5305,36 @@ func pluginCommand(args []string) error {
 		}
 		for _, p := range installed {
 			cliOutputf("cached\t%s@%s\t%s\tsha256:%s\n", p.Remote, p.Version, p.Binary, p.BinaryDigest)
+		}
+		return nil
+	case "search":
+		fs := flag.NewFlagSet("plugin search", flag.ContinueOnError)
+		registry := fs.String("registry", "", "plugin registry JSON URL or path")
+		query := fs.String("query", "", "search query")
+		formatName := fs.String("format", "text", "output format: text or json")
+		jsonOutput := fs.Bool("json", false, "output JSON")
+		remaining, err := parseInterspersedFlags(fs, rest)
+		if err != nil {
+			return err
+		}
+		fillNameFromArgs(query, remaining)
+		if *registry == "" {
+			return fmt.Errorf("%w: --registry <url-or-path> is required for `gofly plugin search`", errUsage)
+		}
+		index, err := generator.LoadPluginRegistryIndex(*registry)
+		if err != nil {
+			return err
+		}
+		matches := generator.FilterPluginRegistryEntries(index.Plugins, *query)
+		if *jsonOutput || strings.EqualFold(strings.TrimSpace(*formatName), "json") {
+			return printJSON(pluginRegistrySearchOutput{Registry: *registry, Query: *query, Plugins: matches})
+		}
+		if len(matches) == 0 {
+			cliOutputln("(no plugins matched)")
+			return nil
+		}
+		for _, plugin := range matches {
+			cliOutputf("%s@%s\t%s\t%s\n", plugin.Name, plugin.Version, plugin.Remote, plugin.Description)
 		}
 		return nil
 	case "install":
@@ -5436,7 +5480,7 @@ func pluginCommand(args []string) error {
 		}
 		return nil
 	default:
-		return fmt.Errorf("%w: expected `gofly plugin list|install|uninstall|run`", errUsage)
+		return fmt.Errorf("%w: expected `gofly plugin list|search|install|uninstall|run`", errUsage)
 	}
 }
 

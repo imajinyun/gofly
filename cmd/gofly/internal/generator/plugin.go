@@ -36,6 +36,17 @@ const (
 	EnvPluginMode = "GOFLY_PLUGIN_MODE"
 	// EnvPluginArgs 存放插件调用参数（JSON）。
 	EnvPluginArgs = "GOFLY_PLUGIN_ARGS"
+	// PluginProtocolVersion is the current stable external generator plugin protocol.
+	PluginProtocolVersion = pluginVersion
+)
+
+const (
+	// PluginCapabilityGenerateFile allows a plugin to return relative file writes.
+	PluginCapabilityGenerateFile = "generate:file"
+	// PluginCapabilityPatchFile allows a plugin to return anchored file patches.
+	PluginCapabilityPatchFile = "generate:patch"
+	// PluginPermissionWriteRelative declares that a plugin only writes host-validated relative paths.
+	PluginPermissionWriteRelative = "filesystem:write-relative"
 )
 
 // PluginRequest 描述 gofly 发给插件的请求。
@@ -51,6 +62,18 @@ type PluginRequest struct {
 	IDL       []byte            `json:"idl,omitempty"`
 	IDLFormat string            `json:"idlFormat,omitempty"` // "proto", "api", "openapi"
 	Config    *Config           `json:"config,omitempty"`
+	DryRun    bool              `json:"dryRun,omitempty"`
+}
+
+// PluginManifest declares an external generator plugin's compatibility,
+// capabilities, and security posture before it is executed for generation.
+type PluginManifest struct {
+	Name               string   `json:"name"`
+	Version            string   `json:"version"`
+	CompatibleVersions []string `json:"compatibleVersions"`
+	Capabilities       []string `json:"capabilities,omitempty"`
+	Permissions        []string `json:"permissions,omitempty"`
+	RequiresDryRun     bool     `json:"requiresDryRun,omitempty"`
 }
 
 // PluginFile 描述插件希望写入的文件。
@@ -68,21 +91,39 @@ type PluginPatch struct {
 
 // PluginResponse 是插件返回的结果。
 type PluginResponse struct {
-	Version string        `json:"version,omitempty"`
-	Files   []PluginFile  `json:"files,omitempty"`
-	Patches []PluginPatch `json:"patches,omitempty"`
-	Message string        `json:"message,omitempty"`
-	Error   string        `json:"error,omitempty"`
+	Version  string          `json:"version,omitempty"`
+	Manifest *PluginManifest `json:"manifest,omitempty"`
+	Files    []PluginFile    `json:"files,omitempty"`
+	Patches  []PluginPatch   `json:"patches,omitempty"`
+	Message  string          `json:"message,omitempty"`
+	Error    string          `json:"error,omitempty"`
 }
 
 // InstalledPlugin describes a plugin cached by `gofly plugin install`.
 type InstalledPlugin struct {
-	Remote       string `json:"remote"`
-	Version      string `json:"version"`
-	Hash         string `json:"hash"`
-	Binary       string `json:"binary"`
-	BinaryDigest string `json:"binary_digest"`
-	Installed    string `json:"installed"`
+	Remote       string          `json:"remote"`
+	Version      string          `json:"version"`
+	Hash         string          `json:"hash"`
+	Binary       string          `json:"binary"`
+	BinaryDigest string          `json:"binary_digest"`
+	Installed    string          `json:"installed"`
+	Manifest     *PluginManifest `json:"manifest,omitempty"`
+}
+
+// PluginRegistryEntry describes one discoverable plugin in a registry index.
+type PluginRegistryEntry struct {
+	Name        string         `json:"name"`
+	Remote      string         `json:"remote"`
+	Version     string         `json:"version"`
+	Description string         `json:"description,omitempty"`
+	Tags        []string       `json:"tags,omitempty"`
+	Manifest    PluginManifest `json:"manifest"`
+}
+
+// PluginRegistryIndex is a JSON registry document consumed by `gofly plugin search`.
+type PluginRegistryIndex struct {
+	Version string                `json:"version"`
+	Plugins []PluginRegistryEntry `json:"plugins"`
 }
 
 // Plugin 是 gofly 内部插件接口。
@@ -152,9 +193,7 @@ func (r *PluginRunner) Run(plugin string, req PluginRequest) (PluginResponse, er
 	defer cancel()
 	// #nosec G204 -- plugin execution is an explicit CLI feature; binary is resolved via registry/path/remote cache and arguments are passed without a shell.
 	cmd := exec.CommandContext(ctx, bin, extraArgs...)
-	cmd.Env = append(os.Environ(),
-		EnvPluginMode+"=1",
-		EnvPluginArgs+"="+string(payload))
+	cmd.Env = pluginEnvironment(string(payload))
 	cmd.Stdin = bytes.NewReader(payload)
 	stdout := newLimitedPluginBuffer("stdout", maxPluginOutputBytes)
 	stderr := newLimitedPluginBuffer("stderr", maxPluginErrorBytes)
@@ -189,10 +228,107 @@ func validatePluginResponse(plugin string, resp PluginResponse) (PluginResponse,
 	if resp.Version != "" && resp.Version != pluginVersion {
 		return PluginResponse{}, fmt.Errorf("plugin %s protocol version %s is incompatible with gofly plugin protocol %s", plugin, resp.Version, pluginVersion)
 	}
+	if resp.Manifest != nil {
+		if err := ValidatePluginManifest(*resp.Manifest); err != nil {
+			return PluginResponse{}, fmt.Errorf("plugin %s manifest: %w", plugin, err)
+		}
+	}
 	if msg := strings.TrimSpace(resp.Error); msg != "" {
 		return PluginResponse{}, fmt.Errorf("plugin %s returned error: %s", plugin, msg)
 	}
+	for _, f := range resp.Files {
+		if f.Path == "" {
+			continue
+		}
+		if err := validatePluginOutputPath(f.Path); err != nil {
+			return PluginResponse{}, fmt.Errorf("plugin %s file: %w", plugin, err)
+		}
+	}
+	for _, p := range resp.Patches {
+		if p.Path == "" {
+			continue
+		}
+		if err := validatePluginOutputPath(p.Path); err != nil {
+			return PluginResponse{}, fmt.Errorf("plugin %s patch: %w", plugin, err)
+		}
+	}
 	return resp, nil
+}
+
+// ValidatePluginManifest checks a plugin manifest before the host trusts its
+// declared capabilities. It performs compatibility negotiation and rejects
+// unknown capability or permission strings so manifests remain auditable.
+func ValidatePluginManifest(manifest PluginManifest) error {
+	if strings.TrimSpace(manifest.Name) == "" {
+		return errors.New("name is required")
+	}
+	if strings.TrimSpace(manifest.Version) == "" {
+		return fmt.Errorf("plugin %s version is required", manifest.Name)
+	}
+	if _, ok := NegotiatePluginProtocol(manifest.CompatibleVersions); !ok {
+		return fmt.Errorf("plugin %s is incompatible with gofly plugin protocol %s", manifest.Name, pluginVersion)
+	}
+	if len(manifest.Capabilities) == 0 {
+		return fmt.Errorf("plugin %s must declare at least one capability", manifest.Name)
+	}
+	for _, capability := range manifest.Capabilities {
+		switch strings.TrimSpace(capability) {
+		case PluginCapabilityGenerateFile, PluginCapabilityPatchFile:
+		default:
+			return fmt.Errorf("plugin %s declares unsupported capability %q", manifest.Name, capability)
+		}
+	}
+	for _, permission := range manifest.Permissions {
+		switch strings.TrimSpace(permission) {
+		case PluginPermissionWriteRelative:
+		default:
+			return fmt.Errorf("plugin %s declares unsupported permission %q", manifest.Name, permission)
+		}
+	}
+	return nil
+}
+
+// NegotiatePluginProtocol returns the first host-supported protocol version
+// from a plugin's compatibility list.
+func NegotiatePluginProtocol(versions []string) (string, bool) {
+	for _, version := range versions {
+		if strings.TrimSpace(version) == pluginVersion {
+			return pluginVersion, true
+		}
+	}
+	return "", false
+}
+
+func validatePluginOutputPath(name string) error {
+	if strings.TrimSpace(name) == "" || filepath.IsAbs(name) {
+		return fmt.Errorf("path %q must be relative", name)
+	}
+	if strings.Contains(name, ":") {
+		return fmt.Errorf("path %q must be relative", name)
+	}
+	cleanName := filepath.Clean(filepath.FromSlash(strings.ReplaceAll(name, `\`, "/")))
+	if cleanName == "." || cleanName == ".." || strings.HasPrefix(cleanName, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("path %q escapes output directory", name)
+	}
+	for _, part := range strings.FieldsFunc(cleanName, func(r rune) bool { return r == '/' || r == '\\' }) {
+		if part == ".." {
+			return fmt.Errorf("path %q escapes output directory", name)
+		}
+	}
+	return nil
+}
+
+func pluginEnvironment(payload string) []string {
+	env := []string{
+		EnvPluginMode + "=1",
+		EnvPluginArgs + "=" + payload,
+	}
+	for _, key := range []string{"PATH", "HOME", "USERPROFILE", "TMPDIR", "TEMP", "TMP"} {
+		if value, ok := os.LookupEnv(key); ok {
+			env = append(env, key+"="+value)
+		}
+	}
+	return env
 }
 
 type limitedPluginBuffer struct {
@@ -597,6 +733,130 @@ func ListInstalledPlugins() ([]InstalledPlugin, error) {
 	}
 	sortInstalledPlugins(out)
 	return out, nil
+}
+
+// LoadPluginRegistryIndex loads and validates a JSON plugin registry from an
+// HTTPS URL, localhost HTTP URL, or local filesystem path.
+func LoadPluginRegistryIndex(location string) (PluginRegistryIndex, error) {
+	location = strings.TrimSpace(location)
+	if location == "" {
+		return PluginRegistryIndex{}, errors.New("plugin registry location is required")
+	}
+	var data []byte
+	if isPluginURL(location) {
+		parsed, err := urlpkgParse(location)
+		if err != nil {
+			return PluginRegistryIndex{}, err
+		}
+		if parsed.Scheme != "https" && !isLocalPluginURL(parsed) {
+			return PluginRegistryIndex{}, fmt.Errorf("plugin registry: insecure URL scheme %q", parsed.Scheme)
+		}
+		client := &http.Client{Timeout: 10 * time.Second}
+		resp, err := client.Get(location)
+		if err != nil {
+			return PluginRegistryIndex{}, fmt.Errorf("read plugin registry %s: %w", location, err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			return PluginRegistryIndex{}, fmt.Errorf("read plugin registry %s: status %d", location, resp.StatusCode)
+		}
+		data, err = io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		if err != nil {
+			return PluginRegistryIndex{}, fmt.Errorf("read plugin registry %s: %w", location, err)
+		}
+	} else {
+		// #nosec G304 -- registry path is an explicit operator-selected JSON index.
+		var err error
+		data, err = os.ReadFile(location)
+		if err != nil {
+			return PluginRegistryIndex{}, fmt.Errorf("read plugin registry %s: %w", location, err)
+		}
+	}
+	var index PluginRegistryIndex
+	if err := json.Unmarshal(data, &index); err != nil {
+		return PluginRegistryIndex{}, fmt.Errorf("decode plugin registry %s: %w", location, err)
+	}
+	if err := ValidatePluginRegistryIndex(index); err != nil {
+		return PluginRegistryIndex{}, err
+	}
+	SortPluginRegistryEntries(index.Plugins)
+	return index, nil
+}
+
+// ValidatePluginRegistryIndex checks registry entry manifests and remote specs.
+func ValidatePluginRegistryIndex(index PluginRegistryIndex) error {
+	if strings.TrimSpace(index.Version) == "" {
+		return errors.New("plugin registry version is required")
+	}
+	seen := map[string]struct{}{}
+	for _, entry := range index.Plugins {
+		name := strings.TrimSpace(entry.Name)
+		if name == "" {
+			return errors.New("plugin registry entry name is required")
+		}
+		if _, ok := seen[name]; ok {
+			return fmt.Errorf("plugin registry entry %s is duplicated", name)
+		}
+		seen[name] = struct{}{}
+		if strings.TrimSpace(entry.Remote) == "" || strings.TrimSpace(entry.Version) == "" {
+			return fmt.Errorf("plugin registry entry %s requires remote and version", name)
+		}
+		if _, err := parseRemotePluginSpec(entry.Remote + "@" + entry.Version); err != nil {
+			return fmt.Errorf("plugin registry entry %s remote: %w", name, err)
+		}
+		manifest := entry.Manifest
+		if strings.TrimSpace(manifest.Name) == "" {
+			manifest.Name = name
+		}
+		if err := ValidatePluginManifest(manifest); err != nil {
+			return fmt.Errorf("plugin registry entry %s manifest: %w", name, err)
+		}
+	}
+	return nil
+}
+
+// FilterPluginRegistryEntries returns registry entries whose name, description,
+// tag, remote, or manifest capability contains query.
+func FilterPluginRegistryEntries(entries []PluginRegistryEntry, query string) []PluginRegistryEntry {
+	query = strings.ToLower(strings.TrimSpace(query))
+	if query == "" {
+		out := append([]PluginRegistryEntry(nil), entries...)
+		SortPluginRegistryEntries(out)
+		return out
+	}
+	out := make([]PluginRegistryEntry, 0, len(entries))
+	for _, entry := range entries {
+		if pluginRegistryEntryMatches(entry, query) {
+			out = append(out, entry)
+		}
+	}
+	SortPluginRegistryEntries(out)
+	return out
+}
+
+// SortPluginRegistryEntries sorts registry entries by name and version.
+func SortPluginRegistryEntries(entries []PluginRegistryEntry) {
+	for i := 1; i < len(entries); i++ {
+		for j := i; j > 0 && pluginRegistryEntryKey(entries[j-1]) > pluginRegistryEntryKey(entries[j]); j-- {
+			entries[j-1], entries[j] = entries[j], entries[j-1]
+		}
+	}
+}
+
+func pluginRegistryEntryMatches(entry PluginRegistryEntry, query string) bool {
+	fields := []string{entry.Name, entry.Description, entry.Remote, entry.Version, entry.Manifest.Name, entry.Manifest.Version}
+	fields = append(fields, entry.Tags...)
+	fields = append(fields, entry.Manifest.Capabilities...)
+	for _, field := range fields {
+		if strings.Contains(strings.ToLower(field), query) {
+			return true
+		}
+	}
+	return false
+}
+
+func pluginRegistryEntryKey(entry PluginRegistryEntry) string {
+	return entry.Name + "@" + entry.Version
 }
 
 func ResolveGoPluginPaths(root string) ([]string, error) {

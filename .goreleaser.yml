@@ -84,9 +84,12 @@ changelog:
     - title: Fixes
       regexp: "^fix\\(?.+\\)?!?:"
       order: 1
+    - title: Performance
+      regexp: "^perf\\(?.+\\)?!?:"
+      order: 2
     - title: Breaking
       regexp: "^.*!:"
-      order: 2
+      order: 3
     - title: Others
       order: 999
 

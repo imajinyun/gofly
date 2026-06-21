@@ -93,7 +93,7 @@ func TestExecuteColoredHelp(t *testing.T) {
 		t.Fatalf("root help should contain command-family colors:\n%s", rootOut)
 	}
 	for _, want := range []string{
-		"\n  \x1b[96mnew - Scaffold new API or RPC services.\x1b[0m\n    \x1b[96mnew api <name>",
+		"\n  \x1b[96mnew - Scaffold new production, API, or RPC services.\x1b[0m\n    \x1b[96mnew service <name>",
 		"\n  \x1b[91mgen - Run unified code generators.\x1b[0m\n    \x1b[91mgen handler --name",
 		"\n  \x1b[92mapi - Generate and manage API definition files.\x1b[0m\n    \x1b[92mapi format --file",
 		"\n  \x1b[94mcomplete - Emit legacy completion scripts.\x1b[0m\n    \x1b[94mcomplete handler bash|zsh|fish|powershell|pwsh",
@@ -186,6 +186,16 @@ func TestExecuteNestedColoredHelp(t *testing.T) {
 			want: []string{"Validate protobuf syntax", "\x1b[95mrpc check --src"},
 		},
 		{
+			name: "new service nested help",
+			args: []string{"new", "service", "--help"},
+			want: []string{"Create the golden-path production service scaffold", "\x1b[96mnew service <name>"},
+		},
+		{
+			name: "new service positional name before help",
+			args: []string{"new", "service", "orders", "--help"},
+			want: []string{"Create the golden-path production service scaffold", "\x1b[96mnew service <name>"},
+		},
+		{
 			name: "new api nested help",
 			args: []string{"new", "api", "--help"},
 			want: []string{"Create an API service scaffold", "\x1b[96mnew api <name>"},
@@ -244,6 +254,11 @@ func TestExecuteNestedColoredHelp(t *testing.T) {
 			name: "plugin list alias help",
 			args: []string{"plugin", "ls", "-h"},
 			want: []string{"List built-in generation plugins", "\x1b[95mplugin list"},
+		},
+		{
+			name: "plugin search help",
+			args: []string{"plugin", "search", "--help"},
+			want: []string{"Search a plugin registry", "\x1b[95mplugin search"},
 		},
 		{
 			name: "plugin run positional before help",
@@ -2215,7 +2230,7 @@ func TestExecuteAIManifestJSONEnvelope(t *testing.T) {
 			}
 		}{RiskLevel: command.RiskLevel, SupportsDryRun: command.SupportsDryRun, MutatesFilesystem: command.MutatesFilesystem, OutputFormats: command.OutputFormats, OutputContract: command.OutputContract}
 	}
-	for _, want := range []string{"ai complete", "ai manifest", "ai stream", "feature run", "new api", "plugin run", "version"} {
+	for _, want := range []string{"ai complete", "ai manifest", "ai stream", "feature run", "new service", "new api", "plugin run", "version"} {
 		if _, ok := commands[want]; !ok {
 			t.Fatalf("ai manifest commands missing %q: %+v", want, commands)
 		}
@@ -2235,7 +2250,7 @@ func TestExecuteAIManifestJSONEnvelope(t *testing.T) {
 	if commands["plugin run"].RiskLevel != "high" || !commands["plugin run"].MutatesFilesystem {
 		t.Fatalf("plugin run manifest should expose high-risk filesystem mutation: %+v", commands["plugin run"])
 	}
-	for _, name := range []string{"new api", "new rpc", "plugin run", "config set"} {
+	for _, name := range []string{"new service", "new api", "new rpc", "plugin run", "config set"} {
 		if !commands[name].SupportsDryRun {
 			t.Fatalf("%s manifest should advertise dry-run support: %+v", name, commands[name])
 		}
@@ -3381,10 +3396,30 @@ func TestExecuteNewAPIProductionReplacesNewServiceChoice(t *testing.T) {
 	}
 }
 
-func TestExecuteNewServiceIsRemoved(t *testing.T) {
-	err := Execute([]string{"new", "service", "hello", "--module", "example.com/hello", "--dir", t.TempDir()})
-	if err == nil || !strings.Contains(err.Error(), "gofly new api|rpc") {
-		t.Fatalf("error = %v, want new service removed", err)
+func TestExecuteNewServiceGoldenPath(t *testing.T) {
+	dir := t.TempDir()
+	if err := Execute([]string{"new", "service", "orders", "--module", "example.com/orders", "--dir", dir}); err != nil {
+		t.Fatal(err)
+	}
+	for _, rel := range []string{
+		"go.mod",
+		"Dockerfile",
+		filepath.Join(".github", "workflows", "ci.yml"),
+		filepath.Join("cmd", "orders", "main.go"),
+		filepath.Join("etc", "governance.json"),
+		filepath.Join("internal", "admin", "admin.go"),
+		filepath.Join("internal", "config", "config_test.go"),
+		filepath.Join("internal", "config", "discovery_test.go"),
+		filepath.Join("internal", "discovery", "registry.go"),
+		filepath.Join("internal", "rpc", "greeter.go"),
+		filepath.Join("internal", "smoke", "service_smoke_test.go"),
+	} {
+		if _, err := os.Stat(filepath.Join(dir, rel)); err != nil {
+			t.Fatalf("new service should generate golden-path file %s: %v", rel, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "orders.api")); err == nil {
+		t.Fatal("new service should not generate API-only IDL file by default")
 	}
 }
 
@@ -4682,6 +4717,73 @@ printf '%s' '{"version":"1","files":[{"path":"remote.txt","content":"remote-ok"}
 	}
 	if uninstalled.Remote != remote || uninstalled.Path == "" {
 		t.Fatalf("plugin uninstall --json = %+v, want remote and cache path", uninstalled)
+	}
+}
+
+func TestExecutePluginSearchRegistry(t *testing.T) {
+	dir := t.TempDir()
+	registry := filepath.Join(dir, "plugins.json")
+	data := `{
+  "version": "v1",
+  "plugins": [
+    {
+      "name": "redis-cache",
+      "remote": "https://example.com/redis-cache",
+      "version": "v0.2.0",
+      "description": "Redis cache plugin",
+      "tags": ["redis", "cache"],
+      "manifest": {
+        "name": "redis-cache",
+        "version": "v0.2.0",
+        "compatibleVersions": ["1"],
+        "capabilities": ["generate:file"],
+        "permissions": ["filesystem:write-relative"]
+      }
+    },
+    {
+      "name": "auth-jwt",
+      "remote": "https://example.com/auth-jwt",
+      "version": "v0.1.0",
+      "description": "JWT auth plugin",
+      "tags": ["auth", "jwt"],
+      "manifest": {
+        "name": "auth-jwt",
+        "version": "v0.1.0",
+        "compatibleVersions": ["1"],
+        "capabilities": ["generate:file"],
+        "permissions": ["filesystem:write-relative"]
+      }
+    }
+  ]
+}`
+	if err := os.WriteFile(registry, []byte(data), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	textOut := captureStdout(t, func() {
+		if err := Execute([]string{"plugin", "search", "--registry", registry, "redis"}); err != nil {
+			t.Fatalf("plugin search: %v", err)
+		}
+	})
+	if !strings.Contains(textOut, "redis-cache@v0.2.0") || strings.Contains(textOut, "auth-jwt") {
+		t.Fatalf("plugin search text output = %q, want only redis-cache", textOut)
+	}
+
+	jsonOut := captureStdout(t, func() {
+		if err := Execute([]string{"plugin", "search", "--registry", registry, "--query", "auth", "--json"}); err != nil {
+			t.Fatalf("plugin search --json: %v", err)
+		}
+	})
+	var got struct {
+		Registry string                          `json:"registry"`
+		Query    string                          `json:"query"`
+		Plugins  []generator.PluginRegistryEntry `json:"plugins"`
+	}
+	if err := json.Unmarshal([]byte(jsonOut), &got); err != nil {
+		t.Fatalf("plugin search --json output = %s, error = %v", jsonOut, err)
+	}
+	if got.Registry != registry || got.Query != "auth" || len(got.Plugins) != 1 || got.Plugins[0].Name != "auth-jwt" {
+		t.Fatalf("plugin search --json = %+v, want auth-jwt match", got)
 	}
 }
 

@@ -24,6 +24,8 @@ auto-generated on release by [GoReleaser](https://goreleaser.com); edit only the
   downstream call.
 - **Benchmarks** — Hot-path benchmarks for `rest` routing, `core/limit`, and
   `core/breaker`.
+- **Benchmarks** — Added a reproducible `benchmarks/` suite for HTTP framework
+  comparisons, gofly REST feature toggles, gofly RPC, and gRPC-Go.
 - **Fuzzing** — Fuzz targets for the `.api`/`.proto` parsers (`FuzzParseAPI`,
   `FuzzParseProto`) and REST request binding (`FuzzBindJSON`, `FuzzBindQuery`).
 - **Driver tests** — Lightweight unit coverage for Consul/etcd/Nacos config
@@ -43,6 +45,8 @@ auto-generated on release by [GoReleaser](https://goreleaser.com); edit only the
   Compose, and README instructions for `examples/observability`.
 - **Production example** — Added `examples/production-orders`, combining REST/RPC,
   config/discovery, MQ, outbox, saga, limiter, retry, breaker, and observability.
+- **Docs** — Added a productized documentation tree under `docs/` covering
+  getting started, concepts, module guides, framework migrations, and operations.
 
 ### Changed
 - **Makefile** — `build` / `install` now embed version metadata via
@@ -59,6 +63,8 @@ auto-generated on release by [GoReleaser](https://goreleaser.com); edit only the
   Docker-backed integration tests through `go test -tags=integration`.
 - **CI** — Added a `governance` job for `go.mod`/`go.sum` cleanliness and public
   Go API compatibility; release now waits for this job.
+- **CI** — Benchmark smoke now uploads both raw benchmark output and a Markdown
+  trend summary for PR/release performance review.
 - **Docs** — Added a topic-to-example documentation index and replaced stale
   config/MQ snippets with APIs that exist in the current implementation.
 - **Docs** — Linked the production orders composition example and expanded the

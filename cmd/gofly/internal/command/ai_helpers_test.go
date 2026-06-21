@@ -724,7 +724,7 @@ func TestTemplateCatalogCommandsExposeJSON(t *testing.T) {
 		if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
 			t.Fatalf("template inspect JSON: %v\n%s", err, stdout.String())
 		}
-		if !envelope.OK || envelope.Data.ID != "go-ai-agent" || envelope.Data.Kind != "ai-agent" || !strings.Contains(envelope.Data.Command, "gofly new api") || len(envelope.Data.Verify) == 0 {
+		if !envelope.OK || envelope.Data.ID != "go-ai-agent" || envelope.Data.Kind != "ai-agent" || !strings.Contains(envelope.Data.Command, "gofly new service") || len(envelope.Data.Verify) == 0 {
 			t.Fatalf("template inspect envelope = %+v", envelope)
 		}
 	})
@@ -1896,6 +1896,33 @@ func TestAINewGeneratedProjectVerificationMatrix_BitsUT(t *testing.T) {
 					}
 				}
 			})
+		}
+	})
+}
+
+func TestNewServiceGeneratedProjectSmokeMatrix_BitsUT(t *testing.T) {
+	withFrameworkPath(t, func() {
+		outDir := filepath.Join(t.TempDir(), "orders")
+		if err := Execute([]string{"new", "service", "orders", "--module", "example.com/orders", "--dir", outDir}); err != nil {
+			t.Fatalf("new service golden path: %v", err)
+		}
+		for _, rel := range []string{
+			"go.mod",
+			filepath.Join("cmd", "orders", "main.go"),
+			filepath.Join("internal", "smoke", "service_smoke_test.go"),
+			filepath.Join("internal", "admin", "admin.go"),
+			filepath.Join("internal", "discovery", "registry.go"),
+		} {
+			if _, err := os.Stat(filepath.Join(outDir, rel)); err != nil {
+				t.Fatalf("new service missing generated file %s: %v", rel, err)
+			}
+		}
+		results, passed, err := runAIProjectVerification(outDir, []string{"go mod tidy", "go test ./..."}, 3*time.Minute)
+		if err != nil {
+			t.Fatalf("new service generated project verification: %v", err)
+		}
+		if !passed {
+			t.Fatalf("new service generated project verification failed: %+v", results)
 		}
 	})
 }

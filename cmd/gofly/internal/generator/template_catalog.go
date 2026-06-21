@@ -156,7 +156,7 @@ func builtInProjectTemplates() []ProjectTemplate {
 			Verify:             []string{"gofmt", "go mod tidy", "go test ./..."},
 			VerifyE2EValidated: true,
 			RiskLevel:          "medium",
-			Command:            "gofly new api <name> --module <module> --style production --feature ecosystem-compat --dir <dir>",
+			Command:            "gofly new service <name> --module <module> --style production --feature ecosystem-compat --dir <dir>",
 		},
 		{
 			ID:                 "go-rpc-grpc",
@@ -186,7 +186,7 @@ func builtInProjectTemplates() []ProjectTemplate {
 			Verify:             []string{"gofmt", "go mod tidy", "go test ./..."},
 			VerifyE2EValidated: true,
 			RiskLevel:          "medium",
-			Command:            "gofly new api <name> --module <module> --style production --dir <dir>",
+			Command:            "gofly new service <name> --module <module> --style production --dir <dir>",
 		},
 		{
 			ID:                 "go-cli-cobra",
@@ -231,7 +231,7 @@ func builtInProjectTemplates() []ProjectTemplate {
 			Verify:             []string{"gofmt", "go mod tidy", "go test ./...", "gofly ai doctor --json"},
 			VerifyE2EValidated: true,
 			RiskLevel:          "medium",
-			Command:            "gofly new api <name> --module <module> --style production --dir <dir>",
+			Command:            "gofly new service <name> --module <module> --style production --dir <dir>",
 		},
 		{
 			ID:                 "go-rag-service",
@@ -246,7 +246,7 @@ func builtInProjectTemplates() []ProjectTemplate {
 			Verify:             []string{"gofmt", "go mod tidy", "go test ./..."},
 			VerifyE2EValidated: true,
 			RiskLevel:          "medium",
-			Command:            "gofly new api <name> --module <module> --style production --dir <dir>",
+			Command:            "gofly new service <name> --module <module> --style production --dir <dir>",
 		},
 	}
 }

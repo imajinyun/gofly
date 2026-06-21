@@ -868,6 +868,172 @@ func TestPluginRunnerRejectsProtocolVersionMismatch(t *testing.T) {
 	}
 }
 
+func TestPluginManifestContractValidation(t *testing.T) {
+	valid := PluginManifest{
+		Name:               "example",
+		Version:            "v0.1.0",
+		CompatibleVersions: []string{PluginProtocolVersion},
+		Capabilities:       []string{PluginCapabilityGenerateFile, PluginCapabilityPatchFile},
+		Permissions:        []string{PluginPermissionWriteRelative},
+		RequiresDryRun:     true,
+	}
+	if err := ValidatePluginManifest(valid); err != nil {
+		t.Fatalf("ValidatePluginManifest(valid): %v", err)
+	}
+	if got, ok := NegotiatePluginProtocol([]string{"999", PluginProtocolVersion}); !ok || got != PluginProtocolVersion {
+		t.Fatalf("NegotiatePluginProtocol = %q/%v, want %s/true", got, ok, PluginProtocolVersion)
+	}
+
+	tests := []struct {
+		name string
+		edit func(*PluginManifest)
+		want string
+	}{
+		{name: "missing name", edit: func(m *PluginManifest) { m.Name = "" }, want: "name is required"},
+		{name: "missing version", edit: func(m *PluginManifest) { m.Version = "" }, want: "version is required"},
+		{name: "incompatible", edit: func(m *PluginManifest) { m.CompatibleVersions = []string{"999"} }, want: "incompatible"},
+		{name: "missing capability", edit: func(m *PluginManifest) { m.Capabilities = nil }, want: "at least one capability"},
+		{name: "unknown capability", edit: func(m *PluginManifest) { m.Capabilities = []string{"network:egress"} }, want: "unsupported capability"},
+		{name: "unknown permission", edit: func(m *PluginManifest) { m.Permissions = []string{"filesystem:write-anywhere"} }, want: "unsupported permission"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			manifest := valid
+			tt.edit(&manifest)
+			err := ValidatePluginManifest(manifest)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("ValidatePluginManifest() error = %v, want %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestPluginRunnerValidatesManifestAndOutputPaths(t *testing.T) {
+	dir := t.TempDir()
+	plugin := filepath.Join(dir, "plugin")
+	script := `#!/bin/sh
+case "$1" in
+  --bad-manifest)
+    printf '%s' '{"version":"1","manifest":{"name":"bad","version":"v0.1.0","compatibleVersions":["999"],"capabilities":["generate:file"]}}'
+    ;;
+  --bad-path)
+    printf '%s' '{"version":"1","files":[{"path":"../escape.txt","content":"owned"}]}'
+    ;;
+  *)
+    printf '%s' '{"version":"1","manifest":{"name":"ok","version":"v0.1.0","compatibleVersions":["1"],"capabilities":["generate:file"],"permissions":["filesystem:write-relative"]},"files":[{"path":"internal/plugin.txt","content":"ok"}]}'
+    ;;
+esac
+`
+	if err := os.WriteFile(plugin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	resp, err := NewPluginRunner().Run(plugin, PluginRequest{Command: "service"})
+	if err != nil {
+		t.Fatalf("PluginRunner.Run valid manifest: %v", err)
+	}
+	if resp.Manifest == nil || resp.Manifest.Name != "ok" || len(resp.Files) != 1 {
+		t.Fatalf("PluginRunner.Run valid manifest response = %+v, want manifest and one file", resp)
+	}
+
+	if _, err := NewPluginRunner().Run(plugin+" --bad-manifest", PluginRequest{Command: "service"}); err == nil || !strings.Contains(err.Error(), "manifest") || !strings.Contains(err.Error(), "incompatible") {
+		t.Fatalf("PluginRunner.Run bad manifest error = %v, want incompatible manifest", err)
+	}
+	if _, err := NewPluginRunner().Run(plugin+" --bad-path", PluginRequest{Command: "service"}); err == nil || !strings.Contains(err.Error(), "escapes output directory") {
+		t.Fatalf("PluginRunner.Run bad path error = %v, want path escape", err)
+	}
+}
+
+func TestPluginRegistryIndexValidationAndFiltering(t *testing.T) {
+	index := PluginRegistryIndex{
+		Version: "v1",
+		Plugins: []PluginRegistryEntry{
+			{
+				Name:        "redis-cache",
+				Remote:      "https://example.com/redis-cache",
+				Version:     "v0.2.0",
+				Description: "Redis feature generator",
+				Tags:        []string{"cache", "redis"},
+				Manifest: PluginManifest{
+					Name:               "redis-cache",
+					Version:            "v0.2.0",
+					CompatibleVersions: []string{PluginProtocolVersion},
+					Capabilities:       []string{PluginCapabilityGenerateFile},
+					Permissions:        []string{PluginPermissionWriteRelative},
+				},
+			},
+			{
+				Name:        "auth-jwt",
+				Remote:      "https://example.com/auth-jwt",
+				Version:     "v0.1.0",
+				Description: "JWT auth generator",
+				Tags:        []string{"auth", "jwt"},
+				Manifest: PluginManifest{
+					Name:               "auth-jwt",
+					Version:            "v0.1.0",
+					CompatibleVersions: []string{PluginProtocolVersion},
+					Capabilities:       []string{PluginCapabilityGenerateFile},
+					Permissions:        []string{PluginPermissionWriteRelative},
+				},
+			},
+		},
+	}
+	if err := ValidatePluginRegistryIndex(index); err != nil {
+		t.Fatalf("ValidatePluginRegistryIndex(valid): %v", err)
+	}
+	matches := FilterPluginRegistryEntries(index.Plugins, "redis")
+	if len(matches) != 1 || matches[0].Name != "redis-cache" {
+		t.Fatalf("FilterPluginRegistryEntries(redis) = %#v, want redis-cache", matches)
+	}
+	all := FilterPluginRegistryEntries(index.Plugins, "")
+	if len(all) != 2 || all[0].Name != "auth-jwt" || all[1].Name != "redis-cache" {
+		t.Fatalf("FilterPluginRegistryEntries(empty) = %#v, want sorted entries", all)
+	}
+
+	duplicate := index
+	duplicate.Plugins = append(duplicate.Plugins, duplicate.Plugins[0])
+	if err := ValidatePluginRegistryIndex(duplicate); err == nil || !strings.Contains(err.Error(), "duplicated") {
+		t.Fatalf("ValidatePluginRegistryIndex(duplicate) error = %v, want duplicated", err)
+	}
+	badManifest := index
+	badManifest.Plugins = append([]PluginRegistryEntry(nil), index.Plugins...)
+	badManifest.Plugins[0].Manifest.Capabilities = []string{"network:egress"}
+	if err := ValidatePluginRegistryIndex(badManifest); err == nil || !strings.Contains(err.Error(), "unsupported capability") {
+		t.Fatalf("ValidatePluginRegistryIndex(badManifest) error = %v, want unsupported capability", err)
+	}
+}
+
+func TestLoadPluginRegistryIndexFromFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "registry.json")
+	data := `{
+  "version": "v1",
+  "plugins": [
+    {
+      "name": "auth-jwt",
+      "remote": "https://example.com/auth-jwt",
+      "version": "v0.1.0",
+      "manifest": {
+        "name": "auth-jwt",
+        "version": "v0.1.0",
+        "compatibleVersions": ["1"],
+        "capabilities": ["generate:file"],
+        "permissions": ["filesystem:write-relative"]
+      }
+    }
+  ]
+}`
+	if err := os.WriteFile(path, []byte(data), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	index, err := LoadPluginRegistryIndex(path)
+	if err != nil {
+		t.Fatalf("LoadPluginRegistryIndex(file): %v", err)
+	}
+	if index.Version != "v1" || len(index.Plugins) != 1 || index.Plugins[0].Name != "auth-jwt" {
+		t.Fatalf("LoadPluginRegistryIndex(file) = %#v, want auth-jwt registry", index)
+	}
+}
+
 func TestPluginRunnerExternalExecutionBranches_BitsUT(t *testing.T) {
 	dir := t.TempDir()
 	plugin := filepath.Join(dir, "plugin")

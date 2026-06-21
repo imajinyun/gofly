@@ -87,11 +87,15 @@ test-short: ## Run fast unit tests (no race)
 
 .PHONY: test-generated-matrix
 test-generated-matrix: ## Verify all generated AI project templates end-to-end
-	GOFLY_FRAMEWORK_PATH=$(CURDIR) $(GO) test $(TESTFLAGS) ./cmd/gofly/internal/command -run 'TestAINewGeneratedProjectVerificationMatrix_BitsUT'
+	GOFLY_FRAMEWORK_PATH=$(CURDIR) $(GO) test $(TESTFLAGS) ./cmd/gofly/internal/command -run 'Test(AINewGeneratedProjectVerificationMatrix|NewServiceGeneratedProjectSmokeMatrix)_BitsUT'
 
 .PHONY: bench
 bench: ## Run benchmarks (exclude unit tests)
 	$(GO) test -run='^$$' -bench=. -benchmem $(PKGS)
+
+.PHONY: bench-smoke
+bench-smoke: ## Run one benchmark iteration for PR smoke checks
+	bash $(SCRIPTS_DIR)/benchstat.sh --smoke
 
 .PHONY: bench-stat
 bench-stat: ## Run benchmark baseline and save to bench/current.txt
@@ -100,6 +104,10 @@ bench-stat: ## Run benchmark baseline and save to bench/current.txt
 .PHONY: bench-compare
 bench-compare: ## Compare bench/current.txt against bench/baseline.txt using benchstat
 	bash $(SCRIPTS_DIR)/benchstat.sh --compare
+
+.PHONY: bench-trend
+bench-trend: ## Write bench/summary.md with raw results and optional benchstat comparison
+	bash $(SCRIPTS_DIR)/benchstat.sh --trend
 
 .PHONY: cover
 cover: ## Run tests and write a coverage profile

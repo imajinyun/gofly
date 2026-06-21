@@ -55,6 +55,24 @@ cd hello && go run .
 
 This matches the CLI contract: `quickstart <name> --module <module> [--dir <dir>] [--style minimal|basic|production]`.
 
+## 🟡 Golden path: production service in 10 minutes
+
+Use `new service` when you want the full production baseline: REST, RPC, OpenAPI, governance, admin control-plane, in-memory discovery, config tests, and generated smoke tests.
+
+```sh
+gofly new service orders --style production --module example.com/orders
+cd orders
+go test ./...
+go run ./cmd/orders
+```
+
+In another terminal:
+
+```sh
+curl http://127.0.0.1:8080/healthz
+curl http://127.0.0.1:9090/admin/control-plane
+```
+
 📖 Need runnable examples or full code snippets? See [Quickstart Examples](docs/doc/quickstart.md).
 
 ---
@@ -64,6 +82,7 @@ This matches the CLI contract: `quickstart <name> --module <module> [--dir <dir>
 | Command | Purpose |
 | --- | --- |
 | `gofly quickstart <name> --module <m>` | Scaffold and generate a service in one step |
+| `gofly new service <name> --module <m>` | Create the golden-path production service |
 | `gofly new api\|rpc <name> --module <m>` | Create a REST or RPC project |
 | `gofly api gen --file <s.api> --dir <d>` | Generate REST code from a `.api` IDL |
 | `gofly rpc gen --file <s.proto> --out <d>` | Generate RPC code from a `.proto` file |
@@ -98,9 +117,12 @@ Run `gofly help` for the full command list.
 
 | Topic | Link |
 | --- | --- |
-| 🚀 Examples and full snippets | [docs/doc/quickstart.md](docs/doc/quickstart.md) |
-| 🌐 REST / RPC examples | [docs/doc/quickstart.md](docs/doc/quickstart.md) |
-| 📊 Observability notes | [docs/doc/quickstart.md](docs/doc/quickstart.md) |
+| 📘 Documentation home | [docs/index.md](docs/index.md) |
+| 🚀 Golden-path quickstart | [docs/getting-started/quickstart.md](docs/getting-started/quickstart.md) |
+| 🧭 Concepts | [docs/concepts/architecture.md](docs/concepts/architecture.md) |
+| 🌐 REST / RPC / Gateway guides | [docs/guides/rest.md](docs/guides/rest.md), [docs/guides/rpc.md](docs/guides/rpc.md), [docs/guides/gateway.md](docs/guides/gateway.md) |
+| ⚙️ Production operations | [docs/operations/production-checklist.md](docs/operations/production-checklist.md) |
+| 🔁 Migration guides | [docs/comparisons/gin.md](docs/comparisons/gin.md), [docs/comparisons/go-zero.md](docs/comparisons/go-zero.md), [docs/comparisons/kratos.md](docs/comparisons/kratos.md), [docs/comparisons/kitex.md](docs/comparisons/kitex.md) |
 | 🧪 Local development | [Development](#-development) |
 
 ---
@@ -135,6 +157,8 @@ make build          # build the CLI
 make test           # run tests
 make lint           # run golangci-lint
 make cover-check    # enforce coverage threshold and ratchet
+make bench-smoke    # run one benchmark iteration for PR smoke checks
+make bench-trend    # write bench/summary.md for release trend notes
 make governance     # run repository governance checks
 gofly release check --strict
 ```

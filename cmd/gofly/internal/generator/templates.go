@@ -1177,6 +1177,150 @@ func TestControlPlaneSnapshotWithDiscoveryIncludesRegistryAndSanitizesDiscovery(
 }
 `
 
+const smokeTestTemplate = `package smoke
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"testing"
+	"time"
+)
+
+func TestGeneratedProductionServiceSmoke(t *testing.T) {
+	if os.Getenv("GOFLY_SKIP_GENERATED_SMOKE") == "true" {
+		t.Skip("generated service smoke test disabled by GOFLY_SKIP_GENERATED_SMOKE")
+	}
+	repo := generatedProjectRoot(t)
+	restAddr := reserveLocalAddr(t)
+	rpcAddr := reserveLocalAddr(t)
+	adminAddr := reserveLocalAddr(t)
+	rewriteSmokeConfig(t, repo, restAddr, rpcAddr, adminAddr)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "go", "run", "./cmd/{{.Name}}")
+	cmd.Dir = repo
+	cmd.Env = append(os.Environ(), "GOFLAGS=-count=1")
+	cmd.WaitDelay = 3 * time.Second
+	output := strings.Builder{}
+	cmd.Stdout = &output
+	cmd.Stderr = &output
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start generated service: %v", err)
+	}
+	t.Cleanup(func() {
+		if cmd.Process != nil {
+			_ = cmd.Process.Signal(os.Interrupt)
+		}
+		done := make(chan error, 1)
+		go func() { done <- cmd.Wait() }()
+		select {
+		case <-done:
+		case <-time.After(3 * time.Second):
+			if cmd.Process != nil {
+				_ = cmd.Process.Kill()
+			}
+			select {
+			case <-done:
+			case <-time.After(3 * time.Second):
+				t.Logf("generated service process did not exit cleanly after kill; service output:\n%s", output.String())
+			}
+		}
+	})
+
+	waitHTTPStatus(t, ctx, "http://"+restAddr+"/healthz", http.StatusOK, &output)
+	controlPlane := waitControlPlane(t, ctx, "http://"+adminAddr+"/admin/control-plane", &output)
+	metadata, ok := controlPlane["metadata"].(map[string]any)
+	if !ok || metadata["generated.project"] != "available" || metadata["generated.project.runtime"] != "service,rest,rpc,governance,discovery" {
+		t.Fatalf("control-plane metadata = %#v, want generated project runtime markers", metadata)
+	}
+}
+
+func generatedProjectRoot(t *testing.T) string {
+	t.Helper()
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("locate smoke test file")
+	}
+	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
+}
+
+func reserveLocalAddr(t *testing.T) string {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("reserve local port: %v", err)
+	}
+	defer func() { _ = ln.Close() }()
+	return ln.Addr().String()
+}
+
+func rewriteSmokeConfig(t *testing.T, repo string, restAddr string, rpcAddr string, adminAddr string) {
+	t.Helper()
+	path := filepath.Join(repo, "etc", "{{.Name}}.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read generated config: %v", err)
+	}
+	restHost, restPort, err := net.SplitHostPort(restAddr)
+	if err != nil {
+		t.Fatalf("split rest addr: %v", err)
+	}
+	content := string(data)
+	content = strings.Replace(content, ` + "`\"host\": \"127.0.0.1\"`" + `, fmt.Sprintf(` + "`\"host\": %q`" + `, restHost), 1)
+	content = strings.Replace(content, ` + "`\"port\": 8080`" + `, ` + "`\"port\": `" + `+restPort, 1)
+	content = strings.Replace(content, ` + "`\"addr\": \"127.0.0.1:9090\"`" + `, fmt.Sprintf(` + "`\"addr\": %q`" + `, adminAddr), 1)
+	content = strings.Replace(content, ` + "`\"addr\": \":8081\"`" + `, fmt.Sprintf(` + "`\"addr\": %q`" + `, rpcAddr), 1)
+	content = strings.Replace(content, ` + "`\"advertise\": \"http://127.0.0.1:8081\"`" + `, fmt.Sprintf(` + "`\"advertise\": %q`" + `, "http://"+rpcAddr), 1)
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write generated smoke config: %v", err)
+	}
+}
+
+func waitHTTPStatus(t *testing.T, ctx context.Context, url string, want int, output *strings.Builder) {
+	t.Helper()
+	client := http.Client{Timeout: time.Second}
+	for ctx.Err() == nil {
+		resp, err := client.Get(url)
+		if err == nil {
+			_ = resp.Body.Close()
+			if resp.StatusCode == want {
+				return
+			}
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	t.Fatalf("%s did not return %d before timeout; service output:\n%s", url, want, output.String())
+}
+
+func waitControlPlane(t *testing.T, ctx context.Context, url string, output *strings.Builder) map[string]any {
+	t.Helper()
+	client := http.Client{Timeout: time.Second}
+	for ctx.Err() == nil {
+		resp, err := client.Get(url)
+		if err == nil {
+			var snapshot map[string]any
+			decodeErr := json.NewDecoder(resp.Body).Decode(&snapshot)
+			_ = resp.Body.Close()
+			if resp.StatusCode == http.StatusOK && decodeErr == nil {
+				return snapshot
+			}
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	t.Fatalf("%s did not return a control-plane snapshot before timeout; service output:\n%s", url, output.String())
+	return nil
+}
+`
+
 const mqBrokerTemplate = `package mq
 
 import (

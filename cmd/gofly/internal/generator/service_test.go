@@ -27,6 +27,7 @@ func TestGenerateService(t *testing.T) {
 		filepath.Join("cmd", "hello", "main.go"),
 		filepath.Join("internal", "config", "config_test.go"),
 		filepath.Join("internal", "config", "discovery_test.go"),
+		filepath.Join("internal", "smoke", "service_smoke_test.go"),
 		filepath.Join("internal", "routes", "routes.go"),
 		filepath.Join("internal", "api", "v1", "ping", "ping.go"),
 		filepath.Join("internal", "middleware", "trim.go"),
@@ -186,6 +187,22 @@ func TestGenerateService(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "internal", "admin", "admin_test.go")); err != nil {
 		t.Fatalf("expected generated admin diagnostics test: %v", err)
+	}
+	smokeData, err := os.ReadFile(filepath.Join(dir, "internal", "smoke", "service_smoke_test.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"func TestGeneratedProductionServiceSmoke(t *testing.T)",
+		`exec.CommandContext(ctx, "go", "run", "./cmd/hello")`,
+		`/healthz`,
+		`/admin/control-plane`,
+		`generated.project.runtime`,
+		`service,rest,rpc,governance,discovery`,
+	} {
+		if !strings.Contains(string(smokeData), want) {
+			t.Fatalf("service_smoke_test.go missing %q:\n%s", want, smokeData)
+		}
 	}
 	assertGovernanceRuleFileLoads(t, filepath.Join(dir, "etc", "governance.json"))
 	svcData, err := os.ReadFile(filepath.Join(dir, "internal", "svc", "service_context.go"))
@@ -1043,7 +1060,7 @@ func runGoCommand(t *testing.T, dir string, timeout time.Duration, args ...strin
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "go", args...)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "GOWORK=off")
+	cmd.Env = append(os.Environ(), "GOWORK=off", "GOFLY_SKIP_GENERATED_SMOKE=true")
 	out, err := cmd.CombinedOutput()
 	if ctx.Err() == context.DeadlineExceeded {
 		t.Fatalf("go %s timed out after %s in %s:\n%s", strings.Join(args, " "), timeout, dir, out)

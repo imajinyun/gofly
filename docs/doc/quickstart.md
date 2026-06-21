@@ -15,7 +15,29 @@ gofly version
 
 ---
 
-## 2. Generate and run a service
+## 2. Build a production orders service in 10 minutes
+
+This is the golden path for a demonstrable production service. It generates REST, RPC, OpenAPI, governance rules, an admin control-plane endpoint, in-memory discovery defaults, config tests, and a smoke test that starts the service and checks runtime metadata.
+
+```sh
+gofly new service orders --style production --module example.com/orders
+cd orders
+go test ./...
+go run ./cmd/orders
+```
+
+Keep the service running, then verify it from another terminal:
+
+```sh
+curl http://127.0.0.1:8080/healthz
+curl http://127.0.0.1:9090/admin/control-plane
+```
+
+The control-plane response includes generated project metadata such as `generated.project` and `generated.project.runtime`. The generated smoke test under `internal/smoke/service_smoke_test.go` asserts the same route and metadata contract in CI.
+
+---
+
+## 3. Generate and run a quick service
 
 ```sh
 gofly quickstart hello --module github.com/me/hello --dir hello
@@ -33,7 +55,7 @@ curl -XPOST localhost:8080/users -d '{"name":"ada"}'
 
 ---
 
-## 3. Minimal REST server
+## 4. Minimal REST server
 
 Create a fresh module, then copy the example into `main.go`:
 
@@ -92,7 +114,7 @@ go run .
 
 ---
 
-## 4. Minimal RPC server
+## 5. Minimal RPC server
 
 Create another module, then copy the example into `main.go`:
 
@@ -152,7 +174,7 @@ The server listens on `:8081`.
 
 ---
 
-## 5. Observability notes
+## 6. Observability notes
 
 For production services, enable these baseline signals:
 

@@ -36,7 +36,7 @@ jobs:
       - name: CI build/test/tidy gates
         run: make ci-fast
 
-      - name: Generated project verification matrix
+      - name: Generated project verification and service smoke matrix
         if: matrix.go == '1.26'
         run: make test-generated-matrix
 
@@ -303,12 +303,17 @@ jobs:
       - name: Benchmark baseline smoke
         run: bash bin/scripts/benchstat.sh --smoke
 
+      - name: Benchmark trend summary
+        run: bash bin/scripts/benchstat.sh --trend
+
       - name: Upload benchmark artifacts
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: benchmark-smoke
-          path: bench/current.txt
+          path: |
+            bench/current.txt
+            bench/summary.md
           if-no-files-found: error
 
       - name: Fuzz smoke — api parser

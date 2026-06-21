@@ -69,7 +69,7 @@ func (r commandRegistry) dispatchDefault(args []string, usage string, fallback c
 
 var rootCommands = newCommandRegistry(
 	commandSpec{Name: "version", Short: "Print version metadata.", Run: versionCommand},
-	commandSpec{Name: "new", Short: "Scaffold new API or RPC services.", Run: newCommand},
+	commandSpec{Name: "new", Short: "Scaffold new production, API, or RPC services.", Run: newCommand},
 	commandSpec{Name: "gen", Aliases: []string{"generate"}, Short: "Run unified code generators.", Run: genCommand},
 	commandSpec{Name: "handler", Short: "Generate or complete API handlers.", Run: handlerCommand},
 	commandSpec{Name: "rpc", Short: "Generate and validate RPC services.", Run: rpcCommand},

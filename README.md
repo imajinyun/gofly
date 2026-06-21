@@ -123,6 +123,7 @@ Run `gofly help` for the full command list.
 | 🧩 API stability | [docs/reference/api-surface.md](docs/reference/api-surface.md), [docs/reference/compatibility.md](docs/reference/compatibility.md), [CLI JSON](docs/reference/cli-json-contracts.md), [control-plane](docs/reference/control-plane-contracts.md) |
 | 📊 Benchmark matrix | [docs/reference/benchmark-matrix.md](docs/reference/benchmark-matrix.md), [bench/evidence.md](bench/evidence.md), [benchmarks/README.md](benchmarks/README.md) |
 | 🧭 Concepts | [docs/concepts/architecture.md](docs/concepts/architecture.md) |
+| 🧠 Adoption model | [docs/explanation/adoption-model.md](docs/explanation/adoption-model.md) |
 | 🌐 REST / RPC / Gateway guides | [docs/guides/rest.md](docs/guides/rest.md), [docs/guides/rpc.md](docs/guides/rpc.md), [docs/guides/gateway.md](docs/guides/gateway.md) |
 | ⚙️ Production operations | [docs/operations/production-checklist.md](docs/operations/production-checklist.md) |
 | 📦 Stable releases | [docs/releases/stable.md](docs/releases/stable.md) |

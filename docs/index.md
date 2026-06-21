@@ -4,6 +4,15 @@ gofly is a Go microservice framework and code-generation toolchain for teams tha
 
 Start with the golden path, then use the module guides when you wire production capabilities into an existing service.
 
+## Choose your path
+
+| Goal | Path | Done when |
+| --- | --- | --- |
+| Create a production-shaped service from scratch | [From zero to production](tutorials/zero-to-production.md) | generated tests pass, `/admin/control-plane` is captured, examples and docs checks pass |
+| Run a narrow capability before committing to a service shape | [Use standalone examples](how-to/standalone-examples.md) | the copied example builds outside this repository with a released gofly dependency |
+| Understand what is safe to automate or depend on | [Stable API surface](reference/api-surface.md) | consumers use documented stable CLI JSON, OpenAPI/RPC, and control-plane fields |
+| Decide whether gofly fits an existing platform | [Adoption model](explanation/adoption-model.md) | the team can explain why governance, examples, benchmarks, and control-plane state matter |
+
 ## Getting started
 
 - [From zero to production](tutorials/zero-to-production.md) — build a production-shaped service with contracts, governance, control-plane state, examples, and release gates.
@@ -18,6 +27,18 @@ Start with the golden path, then use the module guides when you wire production 
 - How-to: [Use standalone examples](how-to/standalone-examples.md)
 - Reference: [Stable API surface](reference/api-surface.md), [Compatibility policy](reference/compatibility.md), [CLI JSON contracts](reference/cli-json-contracts.md), [Control-plane contracts](reference/control-plane-contracts.md), [Benchmark matrix](reference/benchmark-matrix.md)
 - Explanation: [Adoption model](explanation/adoption-model.md)
+
+## Definition of done
+
+A documentation change is complete when it keeps the four-layer model navigable, links to the stable API and benchmark evidence where relevant, and passes:
+
+```sh
+make docs-check
+make examples-copyable-check
+make bench-evidence-check
+```
+
+This makes the documentation path executable instead of a loose set of pages.
 
 ## Concepts
 

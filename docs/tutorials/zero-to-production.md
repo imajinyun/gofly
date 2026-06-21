@@ -72,8 +72,9 @@ Production adopters should snapshot this endpoint during release verification an
 ## 6. Validate examples and docs
 
 ```sh
+make examples-copyable-check
 make examples-smoke
-make docs-link-check
+make docs-check
 ```
 
 Examples are standalone modules; copy one as the starting point for a production service when a generated service is too broad for a spike.
@@ -82,11 +83,14 @@ Examples are standalone modules; copy one as the starting point for a production
 
 ```sh
 make ci-fast
+make bench-evidence-check
 make bench-smoke
 make bench-matrix
 ```
 
 Before tagging, also run `make bench-stat` and `make bench-trend` so release notes include reproducible performance data.
+
+Use the [production checklist](../operations/production-checklist.md) as the final merge review checklist for service changes.
 
 ## Next paths
 

@@ -49,6 +49,100 @@ const (
 	PluginPermissionWriteRelative = "filesystem:write-relative"
 )
 
+// PluginProtocolSchema is the JSON Schema for gofly external generator plugin
+// manifest, request, and response payloads. The host still performs Go-side
+// validation for path containment and compatibility negotiation; this schema is
+// published so third-party authors can validate payload shape in any language.
+const PluginProtocolSchema = `{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gofly.dev/schemas/plugin-protocol.v1.json",
+  "title": "gofly generator plugin protocol v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["manifest", "request", "response"],
+  "properties": {
+    "manifest": { "$ref": "#/$defs/manifest" },
+    "request": { "$ref": "#/$defs/request" },
+    "response": { "$ref": "#/$defs/response" }
+  },
+  "$defs": {
+    "manifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version", "compatibleVersions", "capabilities"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "version": { "type": "string", "minLength": 1 },
+        "compatibleVersions": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "enum": ["1"] }
+        },
+        "capabilities": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "enum": ["generate:file", "generate:patch"] }
+        },
+        "permissions": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["filesystem:write-relative"] }
+        },
+        "requiresDryRun": { "type": "boolean" }
+      }
+    },
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["magic", "version", "command", "service", "module", "style", "dir"],
+      "properties": {
+        "magic": { "type": "string", "const": "GOFLY_PLUGIN" },
+        "version": { "type": "string", "const": "1" },
+        "command": { "type": "string", "enum": ["service", "handler", "model", "api", "rpc"] },
+        "service": { "type": "string" },
+        "module": { "type": "string" },
+        "style": { "type": "string" },
+        "dir": { "type": "string" },
+        "input": { "type": "object", "additionalProperties": { "type": "string" } },
+        "idl": { "type": "string", "contentEncoding": "base64" },
+        "idlFormat": { "type": "string", "enum": ["", "proto", "api", "openapi", "thrift"] },
+        "config": { "type": ["object", "null"] },
+        "dryRun": { "type": "boolean" }
+      }
+    },
+    "response": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "version": { "type": "string", "enum": ["", "1"] },
+        "manifest": { "$ref": "#/$defs/manifest" },
+        "files": { "type": "array", "items": { "$ref": "#/$defs/file" } },
+        "patches": { "type": "array", "items": { "$ref": "#/$defs/patch" } },
+        "message": { "type": "string" },
+        "error": { "type": "string" }
+      }
+    },
+    "file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "content"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1, "not": { "pattern": "(^/|^\\\\|(^|[\\\\/])\\.\\.([\\\\/]|$)|:)" } },
+        "content": { "type": "string" }
+      }
+    },
+    "patch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "patch"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1, "not": { "pattern": "(^/|^\\\\|(^|[\\\\/])\\.\\.([\\\\/]|$)|:)" } },
+        "patch": { "type": "string" },
+        "insertAfter": { "type": "string" }
+      }
+    }
+  }
+}`
+
 // PluginRequest 描述 gofly 发给插件的请求。
 type PluginRequest struct {
 	Magic     string            `json:"magic"`
@@ -765,9 +859,8 @@ func LoadPluginRegistryIndex(location string) (PluginRegistryIndex, error) {
 			return PluginRegistryIndex{}, fmt.Errorf("read plugin registry %s: %w", location, err)
 		}
 	} else {
-		// #nosec G304 -- registry path is an explicit operator-selected JSON index.
 		var err error
-		data, err = os.ReadFile(location)
+		data, err = os.ReadFile(location) // #nosec G304 -- registry path is an explicit operator-selected JSON index.
 		if err != nil {
 			return PluginRegistryIndex{}, fmt.Errorf("read plugin registry %s: %w", location, err)
 		}

@@ -908,6 +908,69 @@ func TestPluginManifestContractValidation(t *testing.T) {
 	}
 }
 
+func TestPluginProtocolSchemaContract(t *testing.T) {
+	var schema map[string]any
+	if err := json.Unmarshal([]byte(PluginProtocolSchema), &schema); err != nil {
+		t.Fatalf("PluginProtocolSchema is not valid JSON: %v", err)
+	}
+	defs, ok := schema["$defs"].(map[string]any)
+	if !ok {
+		t.Fatalf("PluginProtocolSchema missing $defs: %#v", schema)
+	}
+	for _, name := range []string{"manifest", "request", "response", "file", "patch"} {
+		if _, ok := defs[name]; !ok {
+			t.Fatalf("PluginProtocolSchema missing $defs.%s", name)
+		}
+	}
+	manifestDef := defs["manifest"].(map[string]any)
+	required := stringSetFromAnySlice(manifestDef["required"].([]any))
+	for _, field := range []string{"name", "version", "compatibleVersions", "capabilities"} {
+		if !required[field] {
+			t.Fatalf("manifest schema required = %#v, want %s", required, field)
+		}
+	}
+	requestDef := defs["request"].(map[string]any)
+	requestRequired := stringSetFromAnySlice(requestDef["required"].([]any))
+	for _, field := range []string{"magic", "version", "command", "service", "module", "style", "dir"} {
+		if !requestRequired[field] {
+			t.Fatalf("request schema required = %#v, want %s", requestRequired, field)
+		}
+	}
+	requestProperties := requestDef["properties"].(map[string]any)
+	magic := requestProperties["magic"].(map[string]any)
+	if magic["const"] != pluginMagic {
+		t.Fatalf("request magic const = %v, want %s", magic["const"], pluginMagic)
+	}
+	version := requestProperties["version"].(map[string]any)
+	if version["const"] != PluginProtocolVersion {
+		t.Fatalf("request version const = %v, want %s", version["const"], PluginProtocolVersion)
+	}
+	manifestProperties := manifestDef["properties"].(map[string]any)
+	capabilities := manifestProperties["capabilities"].(map[string]any)["items"].(map[string]any)
+	capabilityEnum := stringSetFromAnySlice(capabilities["enum"].([]any))
+	for _, capability := range []string{PluginCapabilityGenerateFile, PluginCapabilityPatchFile} {
+		if !capabilityEnum[capability] {
+			t.Fatalf("schema capability enum = %#v, want %s", capabilityEnum, capability)
+		}
+	}
+	permissions := manifestProperties["permissions"].(map[string]any)["items"].(map[string]any)
+	permissionEnum := stringSetFromAnySlice(permissions["enum"].([]any))
+	if !permissionEnum[PluginPermissionWriteRelative] {
+		t.Fatalf("schema permission enum = %#v, want %s", permissionEnum, PluginPermissionWriteRelative)
+	}
+}
+
+func stringSetFromAnySlice(values []any) map[string]bool {
+	out := make(map[string]bool, len(values))
+	for _, value := range values {
+		text, ok := value.(string)
+		if ok {
+			out[text] = true
+		}
+	}
+	return out
+}
+
 func TestPluginRunnerValidatesManifestAndOutputPaths(t *testing.T) {
 	dir := t.TempDir()
 	plugin := filepath.Join(dir, "plugin")

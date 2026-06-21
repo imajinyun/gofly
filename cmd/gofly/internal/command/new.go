@@ -43,6 +43,15 @@ func apiNewCommand(args []string) error {
 	home := fs.String("home", "", "template home directory")
 	remote := fs.String("remote", "", "remote template repository")
 	branch := fs.String("branch", "", "remote template branch")
+	discovery := fs.String("discovery", "", "service discovery provider: memory, consul, or etcdv3")
+	discoveryAddress := fs.String("discovery-address", "", "service discovery address, or comma-separated endpoints for etcdv3")
+	discoveryEndpoints := fs.String("discovery-endpoints", "", "service discovery endpoints, comma-separated")
+	discoveryPrefix := fs.String("discovery-prefix", "", "service discovery key prefix for etcdv3")
+	discoveryTTL := fs.String("discovery-ttl", "", "service discovery registration TTL, e.g. 15s")
+	discoveryDialTimeout := fs.String("discovery-dial-timeout", "", "service discovery dial timeout, e.g. 5s")
+	discoveryTokenEnv := fs.String("discovery-token-env", "", "environment variable containing the Consul ACL token")
+	discoveryUsernameEnv := fs.String("discovery-username-env", "", "environment variable containing the etcd username")
+	discoveryPasswordEnv := fs.String("discovery-password-env", "", "environment variable containing the etcd password")
 	idea := fs.Bool("idea", false, "open generated project in IDE")
 	client := fs.Bool("client", true, "generate client code")
 	c := fs.Bool("c", true, "generate client code")
@@ -87,6 +96,17 @@ func apiNewCommand(args []string) error {
 	if err != nil {
 		return err
 	}
+	applyDiscoveryCLIOverlay(cfg, discoveryCLIOverlay{
+		Provider:    *discovery,
+		Address:     *discoveryAddress,
+		Endpoints:   *discoveryEndpoints,
+		Prefix:      *discoveryPrefix,
+		TTL:         *discoveryTTL,
+		DialTimeout: *discoveryDialTimeout,
+		TokenEnv:    *discoveryTokenEnv,
+		UsernameEnv: *discoveryUsernameEnv,
+		PasswordEnv: *discoveryPasswordEnv,
+	})
 	if cfg.Style == "" || isGoctlTemplateStyle(cfg.Style) {
 		cfg.Style = generator.ServiceStyleBasic
 	}
@@ -138,6 +158,15 @@ func rpcNewCommand(args []string) error {
 	home := fs.String("home", "", "template home directory")
 	remote := fs.String("remote", "", "remote template repository")
 	branch := fs.String("branch", "", "remote template branch")
+	discovery := fs.String("discovery", "", "service discovery provider: memory, consul, or etcdv3")
+	discoveryAddress := fs.String("discovery-address", "", "service discovery address, or comma-separated endpoints for etcdv3")
+	discoveryEndpoints := fs.String("discovery-endpoints", "", "service discovery endpoints, comma-separated")
+	discoveryPrefix := fs.String("discovery-prefix", "", "service discovery key prefix for etcdv3")
+	discoveryTTL := fs.String("discovery-ttl", "", "service discovery registration TTL, e.g. 15s")
+	discoveryDialTimeout := fs.String("discovery-dial-timeout", "", "service discovery dial timeout, e.g. 5s")
+	discoveryTokenEnv := fs.String("discovery-token-env", "", "environment variable containing the Consul ACL token")
+	discoveryUsernameEnv := fs.String("discovery-username-env", "", "environment variable containing the etcd username")
+	discoveryPasswordEnv := fs.String("discovery-password-env", "", "environment variable containing the etcd password")
 	idea := fs.Bool("idea", false, "open generated project in IDE")
 	client := fs.Bool("client", true, "generate client code")
 	c := fs.Bool("c", true, "generate client code")
@@ -189,6 +218,17 @@ func rpcNewCommand(args []string) error {
 	if err != nil {
 		return err
 	}
+	applyDiscoveryCLIOverlay(cfg, discoveryCLIOverlay{
+		Provider:    *discovery,
+		Address:     *discoveryAddress,
+		Endpoints:   *discoveryEndpoints,
+		Prefix:      *discoveryPrefix,
+		TTL:         *discoveryTTL,
+		DialTimeout: *discoveryDialTimeout,
+		TokenEnv:    *discoveryTokenEnv,
+		UsernameEnv: *discoveryUsernameEnv,
+		PasswordEnv: *discoveryPasswordEnv,
+	})
 	if cfg.Style == "" || isGoctlTemplateStyle(cfg.Style) {
 		cfg.Style = generator.ServiceStyleProduction
 	}
@@ -292,6 +332,58 @@ func pluginListFromConfig(cfg *generator.Config, kind string) []string {
 	return nil
 }
 
+type discoveryCLIOverlay struct {
+	Provider    string
+	Address     string
+	Endpoints   string
+	Prefix      string
+	TTL         string
+	DialTimeout string
+	TokenEnv    string
+	UsernameEnv string
+	PasswordEnv string
+}
+
+func applyDiscoveryCLIOverlay(cfg *generator.Config, overlay discoveryCLIOverlay) {
+	if cfg == nil || !overlay.hasValue() {
+		return
+	}
+	if cfg.Discovery == nil {
+		cfg.Discovery = &generator.DiscoveryConfig{}
+	}
+	if overlay.Provider != "" {
+		cfg.Discovery.Provider = overlay.Provider
+	}
+	if overlay.Address != "" {
+		cfg.Discovery.Address = overlay.Address
+	}
+	if overlay.Endpoints != "" {
+		cfg.Discovery.Endpoints = splitCSV(overlay.Endpoints)
+	}
+	if overlay.Prefix != "" {
+		cfg.Discovery.Prefix = overlay.Prefix
+	}
+	if overlay.TTL != "" {
+		cfg.Discovery.TTL = overlay.TTL
+	}
+	if overlay.DialTimeout != "" {
+		cfg.Discovery.DialTimeout = overlay.DialTimeout
+	}
+	if overlay.TokenEnv != "" {
+		cfg.Discovery.TokenEnv = overlay.TokenEnv
+	}
+	if overlay.UsernameEnv != "" {
+		cfg.Discovery.UsernameEnv = overlay.UsernameEnv
+	}
+	if overlay.PasswordEnv != "" {
+		cfg.Discovery.PasswordEnv = overlay.PasswordEnv
+	}
+}
+
+func (o discoveryCLIOverlay) hasValue() bool {
+	return o.Provider != "" || o.Address != "" || o.Endpoints != "" || o.Prefix != "" || o.TTL != "" || o.DialTimeout != "" || o.TokenEnv != "" || o.UsernameEnv != "" || o.PasswordEnv != ""
+}
+
 func isGoctlTemplateStyle(style string) bool {
 	switch strings.ToLower(strings.TrimSpace(style)) {
 	case "go_zero", "gozero", "go-zero", "http-compat", "rpc-compat":
@@ -338,6 +430,9 @@ func buildNewServicePlan(command, dir, configPath string, cfg *generator.Config,
 		}
 		if cfg.RPC != nil && cfg.RPC.Profile != "" {
 			inputs["profile"] = cfg.RPC.Profile
+		}
+		if cfg.Discovery != nil && cfg.Discovery.Provider != "" {
+			inputs["discovery"] = cfg.Discovery.Provider
 		}
 	}
 	if len(plugins) > 0 {

@@ -31,6 +31,7 @@ func TestGenerateService(t *testing.T) {
 		filepath.Join("internal", "middleware", "trim.go"),
 		filepath.Join("internal", "service", "ping_test.go"),
 		filepath.Join("internal", "mq", "broker.go"),
+		filepath.Join("internal", "discovery", "registry.go"),
 		filepath.Join("internal", "rpc", "greeter.go"),
 		filepath.Join("etc", "governance.json"),
 	}
@@ -84,6 +85,7 @@ func TestGenerateService(t *testing.T) {
 	for _, want := range []string{
 		`"github.com/gofly/gofly/core/governance"`,
 		`appadmin "example.com/hello/internal/admin"`,
+		`appdiscovery "example.com/hello/internal/discovery"`,
 		`appmq "example.com/hello/internal/mq"`,
 		"configPath := appconfig.ResolveConfigPath(\"hello\")",
 		"config.Load(configPath",
@@ -99,9 +101,13 @@ func TestGenerateService(t *testing.T) {
 		"rest.WithGovernanceManager(governanceManager)",
 		"if c.OpenAPIEnabled()",
 		"httpServer.AddOpenAPIRoutes(c.OpenAPIInfo())",
+		"appdiscovery.NewRegistry(ctx, c.Discovery)",
+		"rpc.NewDiscoveryRegistrar(registry, c.Discovery.RegisterOptions()...)",
+		"rpc.WithRegistryTTL(c.Discovery.RegistryTTL())",
+		"c.ControlPlaneSnapshotWithDiscovery(ctx, registry)",
 		"rpc.WithServerGovernanceManager(governanceManager)",
 		"servers := []app.Server{httpServer, rpcServer}",
-		"appadmin.NewServer(c.Admin.Addr, c.Admin.PathPrefix, rpcServer, appadmin.WithControlPlaneSnapshot(c.ControlPlaneSnapshot))",
+		"appadmin.NewServer(c.Admin.Addr, c.Admin.PathPrefix, rpcServer, appadmin.WithControlPlaneSnapshot(func(ctx context.Context) (controlplane.Snapshot, error)",
 		"svc.NewServiceContext(c, mqBroker)",
 		"config.Watch[appconfig.Config](ctx, configPath",
 	} {
@@ -117,6 +123,7 @@ func TestGenerateService(t *testing.T) {
 		`"environment": "development"`,
 		`"service": {"name": "hello"`,
 		`"scaffold": {"features": ["ecosystem-compat"]}`,
+		`"discovery": {"provider": "memory", "ttl": "15s", "prefix": "/gofly/services", "dialTimeout": "5s"}`,
 		`"openapi": {"enabled": true, "title": "hello API", "version": "1.0.0"`,
 		`"startupTimeout": 5000000000`,
 		`"shutdownTimeout": 10000000000`,
@@ -223,15 +230,23 @@ func TestGenerateService(t *testing.T) {
 	for _, want := range []string{
 		"Service     app.ServiceConf",
 		"Scaffold    ScaffoldConfig",
+		"Discovery   DiscoveryConfig",
 		"OpenAPI     OpenAPIConfig",
 		`"github.com/gofly/gofly/core/controlplane"`,
+		`"github.com/gofly/gofly/core/discovery"`,
 		"func ConfigPaths(name string) []string",
 		"func ResolveConfigPath(name string) string",
 		`paths := []string{"config.yaml", "config.yml", "config.toml", "config.json"}`,
 		"func (c Config) ServiceConf() app.ServiceConf",
 		"func (c Config) ControlPlaneContributor() ControlPlaneContributor",
 		"func (c Config) ControlPlaneSnapshot(ctx context.Context) (controlplane.Snapshot, error)",
+		"func (c Config) ControlPlaneSnapshotWithDiscovery(ctx context.Context, registry any) (controlplane.Snapshot, error)",
 		"func (c ControlPlaneContributor) ContributeSnapshot(ctx context.Context, snapshot *controlplane.Snapshot) error",
+		`addGeneratedControlPlaneConfig("discovery", cfg.Discovery.Sanitized())`,
+		"func (c DiscoveryConfig) ProviderName() string",
+		"func (c DiscoveryConfig) RegistryTTL() time.Duration",
+		"func (c DiscoveryConfig) RegisterOptions() []discovery.RegisterOption",
+		"func ValidateDiscoveryConfig(c DiscoveryConfig) error",
 		`"generated.project.contract"`,
 		"func (c Config) OpenAPIEnabled() bool",
 		"func (c Config) OpenAPIInfo() rest.OpenAPIInfo",
@@ -246,6 +261,24 @@ func TestGenerateService(t *testing.T) {
 	} {
 		if !strings.Contains(string(configGoData), want) {
 			t.Fatalf("config.go missing production validator %q:\n%s", want, configGoData)
+		}
+	}
+	discoveryData, err := os.ReadFile(filepath.Join(dir, "internal", "discovery", "registry.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"package discovery",
+		`"github.com/gofly/gofly/core/discovery/consul"`,
+		`"github.com/gofly/gofly/core/discovery/etcdv3"`,
+		"func NewRegistry(ctx context.Context, cfg appconfig.DiscoveryConfig) (corediscovery.Registry, closeFunc, error)",
+		`case "memory":`,
+		`case "consul":`,
+		`case "etcdv3":`,
+		"func discoveryEndpoints(cfg appconfig.DiscoveryConfig) []string",
+	} {
+		if !strings.Contains(string(discoveryData), want) {
+			t.Fatalf("registry.go missing %q:\n%s", want, discoveryData)
 		}
 	}
 	configTestData, err := os.ReadFile(filepath.Join(dir, "internal", "config", "config_test.go"))
@@ -295,6 +328,13 @@ func TestApplyEnvOverlay(t *testing.T) {
 	t.Setenv("GOFLY_TEMPLATE_BRANCH", "main")
 	t.Setenv("GOFLY_FEATURES", " http-compat, ,rpc-compat ")
 	t.Setenv("GOFLY_RPC_PROFILE", string(ProfileKitexCompatible))
+	t.Setenv("GOFLY_DISCOVERY", "etcdv3")
+	t.Setenv("GOFLY_DISCOVERY_ENDPOINTS", " 127.0.0.1:2379, ,127.0.0.2:2379 ")
+	t.Setenv("GOFLY_DISCOVERY_PREFIX", "/services")
+	t.Setenv("GOFLY_DISCOVERY_TTL", "20s")
+	t.Setenv("GOFLY_DISCOVERY_DIAL_TIMEOUT", "3s")
+	t.Setenv("GOFLY_DISCOVERY_USERNAME_ENV", "ETCD_USERNAME")
+	t.Setenv("GOFLY_DISCOVERY_PASSWORD_ENV", "ETCD_PASSWORD")
 
 	cfg := &Config{
 		ServiceName:    "filesvc",
@@ -318,6 +358,9 @@ func TestApplyEnvOverlay(t *testing.T) {
 	}
 	if cfg.RPC == nil || cfg.RPC.Profile != string(ProfileKitexCompatible) {
 		t.Fatalf("rpc profile overlay = %#v, want kitex-compatible", cfg.RPC)
+	}
+	if cfg.Discovery == nil || cfg.Discovery.Provider != "etcdv3" || strings.Join(cfg.Discovery.Endpoints, ",") != "127.0.0.1:2379,127.0.0.2:2379" || cfg.Discovery.Prefix != "/services" || cfg.Discovery.TTL != "20s" || cfg.Discovery.DialTimeout != "3s" || cfg.Discovery.UsernameEnv != "ETCD_USERNAME" || cfg.Discovery.PasswordEnv != "ETCD_PASSWORD" {
+		t.Fatalf("discovery overlay = %#v, want etcdv3 endpoints and secret env names", cfg.Discovery)
 	}
 }
 
@@ -765,6 +808,7 @@ func TestGenerateServiceMinimalStyle(t *testing.T) {
 		"Dockerfile",
 		filepath.Join(".github", "workflows", "ci.yml"),
 		filepath.Join("etc", "governance.json"),
+		filepath.Join("internal", "discovery", "registry.go"),
 		filepath.Join("internal", "rpc", "greeter.go"),
 	} {
 		if _, err := os.Stat(filepath.Join(dir, rel)); err == nil {
@@ -870,6 +914,7 @@ func TestGenerateServiceBasicStyle(t *testing.T) {
 	for _, rel := range []string{
 		filepath.Join(".github", "workflows", "ci.yml"),
 		filepath.Join("etc", "governance.json"),
+		filepath.Join("internal", "discovery", "registry.go"),
 		filepath.Join("internal", "rpc", "greeter.go"),
 	} {
 		if _, err := os.Stat(filepath.Join(dir, rel)); err == nil {

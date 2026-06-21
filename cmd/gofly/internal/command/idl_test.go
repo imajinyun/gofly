@@ -1688,6 +1688,60 @@ func TestExecuteNewMergesConfigAndCLICompatibilityFeatures(t *testing.T) {
 	}
 }
 
+func TestExecuteNewMergesDiscoveryCLIOverlay(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.json")
+	if err := generator.SaveConfig(configPath, &generator.Config{
+		ServiceName: "greeter",
+		Module:      "example.com/greeter",
+		Style:       generator.ServiceStyleProduction,
+		Discovery:   &generator.DiscoveryConfig{Provider: "memory", TTL: "15s"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	outDir := filepath.Join(dir, "out")
+	if err := Execute([]string{
+		"new", "rpc", "greeter",
+		"--config", configPath,
+		"--dir", outDir,
+		"--discovery", "etcdv3",
+		"--discovery-endpoints", "127.0.0.1:2379,127.0.0.2:2379",
+		"--discovery-prefix", "/gofly/test",
+		"--discovery-ttl", "30s",
+		"--discovery-dial-timeout", "2s",
+		"--discovery-username-env", "ETCD_USERNAME",
+		"--discovery-password-env", "ETCD_PASSWORD",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := os.Stat(filepath.Join(outDir, "internal", "discovery", "registry.go")); err != nil {
+		t.Fatalf("expected generated discovery registry helper: %v", err)
+	}
+	cfg, err := generator.LoadConfig(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Discovery == nil || cfg.Discovery.Provider != "etcdv3" || strings.Join(cfg.Discovery.Endpoints, ",") != "127.0.0.1:2379,127.0.0.2:2379" || cfg.Discovery.Prefix != "/gofly/test" || cfg.Discovery.TTL != "30s" || cfg.Discovery.DialTimeout != "2s" || cfg.Discovery.UsernameEnv != "ETCD_USERNAME" || cfg.Discovery.PasswordEnv != "ETCD_PASSWORD" {
+		t.Fatalf("saved discovery config = %#v, want CLI overlay", cfg.Discovery)
+	}
+
+	mainData, err := os.ReadFile(filepath.Join(outDir, "cmd", "greeter", "main.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`appdiscovery "example.com/greeter/internal/discovery"`,
+		"appdiscovery.NewRegistry(ctx, c.Discovery)",
+		"rpc.NewDiscoveryRegistrar(registry, c.Discovery.RegisterOptions()...)",
+	} {
+		if !strings.Contains(string(mainData), want) {
+			t.Fatalf("generated main.go missing discovery wiring %q:\n%s", want, mainData)
+		}
+	}
+}
+
 func TestExecuteFeaturePreviewEcosystemCompatibility(t *testing.T) {
 	listOut := captureStdout(t, func() {
 		if err := Execute([]string{"feature", "list"}); err != nil {

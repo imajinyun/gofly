@@ -67,15 +67,15 @@ type ModelConfig struct {
 // Secret material is referenced by environment variable names instead of being
 // persisted in the gofly config file.
 type DiscoveryConfig struct {
-	Provider      string   `json:"provider,omitempty"`
-	Address       string   `json:"address,omitempty"`
-	Endpoints     []string `json:"endpoints,omitempty"`
-	Prefix        string   `json:"prefix,omitempty"`
-	TTL           string   `json:"ttl,omitempty"`
-	DialTimeout   string   `json:"dialTimeout,omitempty"`
-	TokenEnv      string   `json:"tokenEnv,omitempty"`
-	UsernameEnv   string   `json:"usernameEnv,omitempty"`
-	PasswordEnv   string   `json:"passwordEnv,omitempty"`
+	Provider    string   `json:"provider,omitempty"`
+	Address     string   `json:"address,omitempty"`
+	Endpoints   []string `json:"endpoints,omitempty"`
+	Prefix      string   `json:"prefix,omitempty"`
+	TTL         string   `json:"ttl,omitempty"`
+	DialTimeout string   `json:"dialTimeout,omitempty"`
+	TokenEnv    string   `json:"tokenEnv,omitempty"`
+	UsernameEnv string   `json:"usernameEnv,omitempty"`
+	PasswordEnv string   `json:"passwordEnv,omitempty"`
 }
 
 // LLMConfig stores defaults for governed LLM CLI calls. It intentionally does

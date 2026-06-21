@@ -206,7 +206,7 @@ func (s *Server) AddRoute(r Route, opts ...RouteOption) {
 	s.routes = append(s.routes, routeSpecFromRoute(r))
 	pattern := r.Method + " " + r.Path
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		r.Handler(&Context{Response: w, Request: req})
+		r.Handler(&Context{Response: w, Request: req, Validator: s.conf.Validator})
 	}))
 	handler = s.dynamicGovernanceHandler(r, handler)
 	middlewares := s.routeMiddlewares(r, ro)

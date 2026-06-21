@@ -256,7 +256,7 @@ func verifySession(value string, secret []byte) (string, bool) {
 func writeInvalidArgument(c *rest.Context, err error) {
 	c.Response.Header().Set("Content-Type", "application/json; charset=utf-8")
 	c.Response.WriteHeader(http.StatusBadRequest)
-	_ = json.NewEncoder(c.Response).Encode(rest.ErrorResponse{Code: coreerrors.CodeInvalidArgument, Text: "invalid request", Message: err.Error(), Status: http.StatusBadRequest})
+	_ = json.NewEncoder(c.Response).Encode(rest.ErrorResponse{Code: coreerrors.CodeInvalidArgument, Text: "invalid request", Message: err.Error(), Status: http.StatusBadRequest, Fields: rest.ValidationFailuresOf(err)})
 }
 
 func tokenSchema() rest.Schema {
@@ -264,7 +264,7 @@ func tokenSchema() rest.Schema {
 }
 
 func createOrderSchema() rest.Schema {
-	return rest.Schema{Type: "object", Properties: map[string]rest.Schema{"sku": {Type: "string"}, "quantity": {Type: "integer"}}, Required: []string{"sku", "quantity"}}
+	return rest.StructSchema(createOrderRequest{})
 }
 
 func orderSchema() rest.Schema {
@@ -272,7 +272,7 @@ func orderSchema() rest.Schema {
 }
 
 func errorSchema() rest.Schema {
-	return rest.Schema{Type: "object", Properties: map[string]rest.Schema{"code": {Type: "string"}, "text": {Type: "string"}, "message": {Type: "string"}, "status": {Type: "integer"}}, Required: []string{"code", "text", "status"}}
+	return rest.Schema{Type: "object", Properties: map[string]rest.Schema{"code": {Type: "string"}, "text": {Type: "string"}, "message": {Type: "string"}, "status": {Type: "integer"}, "fields": {Type: "array", Items: &rest.Schema{Type: "object", Properties: map[string]rest.Schema{"field": {Type: "string"}, "rule": {Type: "string"}, "message": {Type: "string"}}, Required: []string{"field", "rule", "message"}}}}, Required: []string{"code", "text", "status"}}
 }
 
 func websocketStatsSchema() rest.Schema {

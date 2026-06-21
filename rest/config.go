@@ -52,6 +52,11 @@ type Config struct {
 	// Recover, Trace, Log, Timeout, Metrics, Health, and RequestID.
 	Middlewares MiddlewaresConfig `json:"middlewares"`
 
+	// Validator validates bound request structs. Leave nil to use gofly's
+	// built-in validate tag support; set it to adapt project-specific validators
+	// such as go-playground/validator without adding them to gofly's dependency graph.
+	Validator Validator `json:"-"`
+
 	// Admin configures the optional /admin/* governance endpoints.
 	Admin AdminConfig `json:"admin,omitempty"`
 

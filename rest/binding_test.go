@@ -1,6 +1,7 @@
 package rest
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -311,6 +312,53 @@ func TestValidationErrorError(t *testing.T) {
 	}
 	if got := (&ValidationError{Field: "age", Rule: "min=18"}).Error(); got != "field age failed min=18 validation" {
 		t.Fatalf("ValidationError Error() = %q, want field age failed min=18 validation", got)
+	}
+}
+
+func TestValidationFailuresOfAndAdapter_BitsUT(t *testing.T) {
+	custom := ValidationFailures{{Field: "name", Rule: "custom", Message: "name is reserved"}}
+	got := ValidationFailuresOf(custom)
+	if len(got) != 1 || got[0].Field != "name" || got[0].Rule != "custom" || got[0].Message != "name is reserved" {
+		t.Fatalf("ValidationFailuresOf(custom) = %#v, want custom field failure", got)
+	}
+	got[0].Field = "mutated"
+	if custom[0].Field != "name" {
+		t.Fatalf("ValidationFailuresOf returned aliased slice: %#v", custom)
+	}
+
+	validator := ValidatorFunc(func(value any) error {
+		req, ok := value.(*struct {
+			Name string `json:"name"`
+		})
+		if !ok || req.Name != "reserved" {
+			return nil
+		}
+		return ValidationFailures{{Field: "name", Rule: "reserved", Message: "name is reserved"}}
+	})
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"name":"reserved"}`))
+	ctx := &Context{Request: req, Validator: validator}
+	var body struct {
+		Name string `json:"name"`
+	}
+	if err := ctx.Bind(&body); err == nil || len(ValidationFailuresOf(err)) != 1 {
+		t.Fatalf("Context.Bind custom validator error = %v, want one validation failure", err)
+	}
+}
+
+func TestContextErrorWritesValidationFields_BitsUT(t *testing.T) {
+	rec := httptest.NewRecorder()
+	ctx := &Context{Response: rec, Request: httptest.NewRequest(http.MethodGet, "/", nil)}
+	ctx.Error(&ValidationError{Field: "quantity", Rule: "min=1"})
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("validation error status = %d, want 400", rec.Code)
+	}
+	var got ErrorResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode ErrorResponse: %v", err)
+	}
+	if got.Code != "invalid_argument" || len(got.Fields) != 1 || got.Fields[0].Field != "quantity" || got.Fields[0].Rule != "min=1" {
+		t.Fatalf("ErrorResponse = %#v, want invalid_argument with quantity field", got)
 	}
 }
 

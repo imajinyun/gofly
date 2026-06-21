@@ -145,3 +145,44 @@ func TestOpenAPISchemaHelpers(t *testing.T) {
 		t.Fatalf("RefSchema() = %+v, want ref-only schema", ref)
 	}
 }
+
+func TestStructSchemaLinksValidationTags_BitsUT(t *testing.T) {
+	type Embedded struct {
+		Tenant string `json:"tenant" validate:"required"`
+	}
+	type createOrderRequest struct {
+		Embedded
+		SKU      string   `json:"sku" validate:"required,min=3,max=64"`
+		Quantity int      `json:"quantity" validate:"required,min=1,max=100"`
+		Status   string   `json:"status" validate:"oneof=pending paid canceled"`
+		Labels   []string `json:"labels" validate:"min=1,max=3"`
+		Ignored  string   `json:"-" validate:"required"`
+	}
+
+	schema := StructSchema(createOrderRequest{})
+	if schema.Type != "object" {
+		t.Fatalf("StructSchema type = %q, want object", schema.Type)
+	}
+	if len(schema.Required) != 3 || schema.Required[0] != "tenant" || schema.Required[1] != "sku" || schema.Required[2] != "quantity" {
+		t.Fatalf("StructSchema required = %#v, want tenant/sku/quantity", schema.Required)
+	}
+	sku := schema.Properties["sku"]
+	if sku.Type != "string" || sku.MinLength == nil || *sku.MinLength != 3 || sku.MaxLength == nil || *sku.MaxLength != 64 {
+		t.Fatalf("sku schema = %#v, want string length bounds", sku)
+	}
+	quantity := schema.Properties["quantity"]
+	if quantity.Type != "integer" || quantity.Minimum == nil || *quantity.Minimum != 1 || quantity.Maximum == nil || *quantity.Maximum != 100 {
+		t.Fatalf("quantity schema = %#v, want integer numeric bounds", quantity)
+	}
+	status := schema.Properties["status"]
+	if len(status.Enum) != 3 || status.Enum[0] != "pending" || status.Enum[2] != "canceled" {
+		t.Fatalf("status enum = %#v, want pending/paid/canceled", status.Enum)
+	}
+	labels := schema.Properties["labels"]
+	if labels.Type != "array" || labels.MinItems == nil || *labels.MinItems != 1 || labels.MaxItems == nil || *labels.MaxItems != 3 {
+		t.Fatalf("labels schema = %#v, want array item bounds", labels)
+	}
+	if _, ok := schema.Properties["Ignored"]; ok {
+		t.Fatalf("StructSchema included json:- field: %#v", schema.Properties)
+	}
+}

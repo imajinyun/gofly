@@ -79,8 +79,9 @@ type routeInfo struct {
 type routeInfoKey struct{}
 
 type Context struct {
-	Response http.ResponseWriter
-	Request  *http.Request
+	Response  http.ResponseWriter
+	Request   *http.Request
+	Validator Validator
 }
 
 func (c *Context) JSON(code int, v any) {
@@ -98,18 +99,38 @@ func (c *Context) String(code int, s string) {
 func (c *Context) Error(err error) { WriteError(c.Response, err) }
 
 func (c *Context) Bind(v any) error {
-	return BindJSON(c.Request, v)
+	return bindJSON(c.Request, v, c.Validator)
 }
 
-func (c *Context) BindRequest(v any) error { return BindRequest(c.Request, v) }
+func (c *Context) BindRequest(v any) error { return bindRequest(c.Request, v, c.Validator) }
 
-func (c *Context) BindQuery(v any) error { return BindQuery(c.Request, v) }
+func (c *Context) BindQuery(v any) error {
+	if err := bindValues(v, BindSourceQuery, func(key string) []string { return c.Request.URL.Query()[key] }); err != nil {
+		return err
+	}
+	return validateWith(v, c.Validator)
+}
 
-func (c *Context) BindPath(v any) error { return BindPath(c.Request, v) }
+func (c *Context) BindPath(v any) error {
+	if err := bindValues(v, BindSourcePath, func(key string) []string {
+		if value := c.Request.PathValue(key); value != "" {
+			return []string{value}
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	return validateWith(v, c.Validator)
+}
 
-func (c *Context) BindHeader(v any) error { return BindHeader(c.Request, v) }
+func (c *Context) BindHeader(v any) error {
+	if err := bindValues(v, BindSourceHeader, func(key string) []string { return c.Request.Header.Values(key) }); err != nil {
+		return err
+	}
+	return validateWith(v, c.Validator)
+}
 
-func (c *Context) Validate(v any) error { return Validate(v) }
+func (c *Context) Validate(v any) error { return validateWith(v, c.Validator) }
 
 func (c *Context) Query(key string) string { return c.Request.URL.Query().Get(key) }
 

@@ -4,6 +4,7 @@ package rest
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"reflect"
@@ -25,9 +26,9 @@ const (
 
 // ValidationError reports a single field validation failure.
 type ValidationError struct {
-	Field string
-	Rule  string
-	Text  string
+	Field string `json:"field"`
+	Rule  string `json:"rule"`
+	Text  string `json:"message,omitempty"`
 }
 
 // Error returns a human-readable validation message.
@@ -41,12 +42,54 @@ func (e *ValidationError) Error() string {
 	return fmt.Sprintf("field %s failed %s validation", e.Field, e.Rule)
 }
 
+// ValidationFailure is the stable JSON representation of one validation issue.
+type ValidationFailure struct {
+	Field   string `json:"field"`
+	Rule    string `json:"rule"`
+	Message string `json:"message"`
+}
+
+// ValidationFailures groups multiple validation failures while still
+// satisfying the error interface. Custom validator adapters can return this
+// type to preserve field-level details in REST error responses.
+type ValidationFailures []ValidationFailure
+
+func (e ValidationFailures) Error() string {
+	if len(e) == 0 {
+		return "validation failed"
+	}
+	return e[0].Message
+}
+
+// ValidationFailures returns a defensive copy of the grouped failures.
+func (e ValidationFailures) ValidationFailures() []ValidationFailure {
+	return append([]ValidationFailure(nil), e...)
+}
+
+// Validator validates a bound request value. It is intentionally tiny so apps
+// can adapt go-playground/validator or any project-specific validator without
+// adding a dependency to gofly itself.
+type Validator interface {
+	Validate(value any) error
+}
+
+// ValidatorFunc adapts a function into a Validator.
+type ValidatorFunc func(value any) error
+
+func (f ValidatorFunc) Validate(value any) error { return f(value) }
+
+var builtinValidator Validator = ValidatorFunc(validateStructTarget)
+
 // BindJSON decodes the request body as JSON and validates the result.
 func BindJSON(r *http.Request, v any) error {
+	return bindJSON(r, v, nil)
+}
+
+func bindJSON(r *http.Request, v any, validator Validator) error {
 	if err := decodeJSON(r, v); err != nil {
 		return err
 	}
-	return Validate(v)
+	return validateWith(v, validator)
 }
 
 func BindQuery(r *http.Request, v any) error {
@@ -76,6 +119,10 @@ func BindHeader(r *http.Request, v any) error {
 }
 
 func BindRequest(r *http.Request, v any) error {
+	return bindRequest(r, v, nil)
+}
+
+func bindRequest(r *http.Request, v any, validator Validator) error {
 	if r.Body != nil && r.Body != http.NoBody && r.Method != http.MethodGet && r.Method != http.MethodDelete {
 		if err := decodeJSON(r, v); err != nil {
 			return err
@@ -95,15 +142,54 @@ func BindRequest(r *http.Request, v any) error {
 	if err := bindValues(v, BindSourceHeader, func(key string) []string { return r.Header.Values(key) }); err != nil {
 		return err
 	}
-	return Validate(v)
+	return validateWith(v, validator)
 }
 
 func Validate(v any) error {
+	return builtinValidator.Validate(v)
+}
+
+func validateWith(v any, validator Validator) error {
+	if validator == nil {
+		validator = builtinValidator
+	}
+	return validator.Validate(v)
+}
+
+func validateStructTarget(v any) error {
 	value, err := structValue(v)
 	if err != nil {
 		return err
 	}
 	return validateStruct(value)
+}
+
+type validationFailuresProvider interface {
+	ValidationFailures() []ValidationFailure
+}
+
+// ValidationFailuresOf extracts stable validation failure details from err.
+func ValidationFailuresOf(err error) []ValidationFailure {
+	if err == nil {
+		return nil
+	}
+	var provider validationFailuresProvider
+	if errors.As(err, &provider) {
+		return provider.ValidationFailures()
+	}
+	var validationErr *ValidationError
+	if errors.As(err, &validationErr) {
+		return []ValidationFailure{validationErr.Failure()}
+	}
+	return nil
+}
+
+// Failure converts a ValidationError into its response representation.
+func (e *ValidationError) Failure() ValidationFailure {
+	if e == nil {
+		return ValidationFailure{}
+	}
+	return ValidationFailure{Field: e.Field, Rule: e.Rule, Message: e.Error()}
 }
 
 func decodeJSON(r *http.Request, v any) error {

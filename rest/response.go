@@ -14,19 +14,30 @@ import (
 
 // ErrorResponse is the standard JSON error envelope for REST handlers.
 type ErrorResponse struct {
-	Code    coreerrors.Code `json:"code"`
-	Text    string          `json:"text"`
-	Message string          `json:"message,omitempty"`
-	Status  int             `json:"status,omitempty"`
+	Code    coreerrors.Code     `json:"code"`
+	Text    string              `json:"text"`
+	Message string              `json:"message,omitempty"`
+	Status  int                 `json:"status,omitempty"`
+	Fields  []ValidationFailure `json:"fields,omitempty"`
 }
 
 // WriteError writes a JSON error response derived from err.
 func WriteError(w http.ResponseWriter, err error) {
 	code := coreerrors.CodeOf(err)
-	writeError(w, coreerrors.HTTPStatus(code), code, coreerrors.TextOf(err))
+	status := coreerrors.HTTPStatus(code)
+	fields := ValidationFailuresOf(err)
+	if len(fields) > 0 {
+		code = coreerrors.CodeInvalidArgument
+		status = http.StatusBadRequest
+	}
+	writeError(w, status, code, coreerrors.TextOf(err), fields)
 }
 
-func writeError(w http.ResponseWriter, status int, code coreerrors.Code, text string) {
+func writeError(w http.ResponseWriter, status int, code coreerrors.Code, text string, fieldGroups ...[]ValidationFailure) {
+	var fields []ValidationFailure
+	if len(fieldGroups) > 0 {
+		fields = fieldGroups[0]
+	}
 	if code == "" {
 		code = coreerrors.CodeInternal
 	}
@@ -38,7 +49,7 @@ func writeError(w http.ResponseWriter, status int, code coreerrors.Code, text st
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(ErrorResponse{Code: code, Text: text, Message: text, Status: status})
+	_ = json.NewEncoder(w).Encode(ErrorResponse{Code: code, Text: text, Message: text, Status: status, Fields: fields})
 }
 
 type statusResponseWriter struct {

@@ -35,12 +35,16 @@ gofly is still pre-1.0, but production adopters need to know which surfaces are 
 
 ## CLI and JSON compatibility rules
 
+See [CLI JSON Contracts](cli-json-contracts.md) for the stable command list, JSON envelope, and field-level rules.
+
 - New JSON fields may be added at any time.
 - Existing JSON fields keep their type and meaning within a minor release line.
 - Field removals, renames, or type changes must be detected by contract tests and documented as breaking.
 - Human output is not a scripting contract unless the command explicitly documents it as such.
 
 ## Control-plane compatibility rules
+
+See [Control-Plane Contracts](control-plane-contracts.md) for the snapshot, diff, consumer-action, and watch-event contracts.
 
 - `/admin/control-plane` keeps a stable top-level envelope for service identity, runtime status, contributors, and diagnostics.
 - Contributors may add new keys, but should not repurpose existing keys.

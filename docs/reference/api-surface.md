@@ -26,6 +26,8 @@ Lower-level packages under `core/` are reusable but should be treated as evolvin
 
 ## Stable CLI contracts
 
+Detailed field-level rules live in [CLI JSON Contracts](cli-json-contracts.md). This section only names the stable command families.
+
 | Command family | Stable contract | Notes |
 | --- | --- | --- |
 | `gofly api check`, `gofly api breaking`, `gofly api diff`, `gofly api doc` | Exit codes and JSON output fields. | Use `--format json` or output files in automation. |
@@ -34,6 +36,8 @@ Lower-level packages under `core/` are reusable but should be treated as evolvin
 | `gofly env check --json`, `gofly doctor --json` | Machine-readable environment diagnostics. | Intended for CI and support bundles. |
 
 ## Stable runtime JSON fields
+
+Detailed control-plane envelope and diff rules live in [Control-Plane Contracts](control-plane-contracts.md).
 
 The following JSON surfaces are treated as production contracts:
 

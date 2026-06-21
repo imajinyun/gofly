@@ -120,7 +120,7 @@ Run `gofly help` for the full command list.
 | 📘 Documentation home | [docs/index.md](docs/index.md) |
 | 🧭 From zero to production | [docs/tutorials/zero-to-production.md](docs/tutorials/zero-to-production.md) |
 | 🚀 Golden-path quickstart | [docs/getting-started/quickstart.md](docs/getting-started/quickstart.md) |
-| 🧩 API stability | [docs/reference/api-surface.md](docs/reference/api-surface.md), [docs/reference/compatibility.md](docs/reference/compatibility.md) |
+| 🧩 API stability | [docs/reference/api-surface.md](docs/reference/api-surface.md), [docs/reference/compatibility.md](docs/reference/compatibility.md), [CLI JSON](docs/reference/cli-json-contracts.md), [control-plane](docs/reference/control-plane-contracts.md) |
 | 📊 Benchmark matrix | [docs/reference/benchmark-matrix.md](docs/reference/benchmark-matrix.md), [benchmarks/README.md](benchmarks/README.md) |
 | 🧭 Concepts | [docs/concepts/architecture.md](docs/concepts/architecture.md) |
 | 🌐 REST / RPC / Gateway guides | [docs/guides/rest.md](docs/guides/rest.md), [docs/guides/rpc.md](docs/guides/rpc.md), [docs/guides/gateway.md](docs/guides/gateway.md) |

@@ -169,7 +169,7 @@ require (
 	github.com/prometheus/common v0.66.1 // indirect
 	github.com/prometheus/procfs v0.16.1 // indirect
 	github.com/quic-go/qpack v0.6.0 // indirect
-	github.com/quic-go/quic-go v0.59.0 // indirect
+	github.com/quic-go/quic-go v0.59.1 // indirect
 	github.com/rivo/uniseg v0.2.0 // indirect
 	github.com/securego/gosec/v2 v2.27.1 // indirect
 	github.com/shirou/gopsutil/v4 v4.26.3 // indirect

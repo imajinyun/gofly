@@ -132,6 +132,23 @@ make gosec
 
 每轮治理都必须输出可追踪结论：发现了什么、改了什么、为何暂不修复什么、用什么命令验证。
 
+## 5 轮产品化治理工作流
+
+当用户要求执行产品化治理时，可按以下 5 轮推进；目标是把 gofly 从“功能可用”推进到“可采纳、可验证、可运营、可传播”。
+
+1. **信任与采纳基础**：审计公共 API、CLI flag/JSON、control-plane snapshot、生成器输出和升级计划；补齐契约输入、dry-run plan、兼容性测试和机器可读验证入口。
+2. **REST/DX 增强**：审计 binding、validation、错误响应、middleware、OpenAPI/schema、path/query/header 参数体验；补齐稳定错误 envelope、文档化 response schema、生成物示例和回归测试。
+3. **微服务完整度**：审计配置、服务发现、治理规则、admin/control-plane、K8s、Helm、observability、生产检查脚本；补齐生产默认值、可观测资产、脚本权限和 generated project smoke test。
+4. **性能可信度**：统一 benchmark 工作区，维护 `bench/` baseline/matrix/evidence；补齐 REST/RPC/governance/OpenAPI 场景，执行 `make bench-evidence-check` 和至少一个 benchmark smoke，避免仅凭单次数据宣传性能结论。
+5. **社区增长与迁移**：审计 README、docs taxonomy、quickstart、migration/case study、P1 roadmap、release/CI 入口；运行 `contract-docs-check`、`p1-growth-check`、`migration-docs-check` 等最小门禁，确保新增能力可被新用户发现和复现。
+
+执行约束：
+
+- 每轮都先盘点已完成项，避免回滚用户、脚本或 linter 的外部变更。
+- 涉及生成器、契约或生产资产的改动必须补测试；`gofly new service` 相关改动优先跑 `make test-generated-matrix`。
+- 涉及 benchmark 的改动必须保持 `bench/` 为唯一公开工作区；`benchmarks/` 不得重新引入。
+- 最终报告必须按 5 轮列出：改了什么、关键文件位置、验证命令、失败或降级项、后续建议。
+
 ## AI 治理流水线
 
 LLM 调用经过 9 阶段治理流水线，manifest 通过 `governancePipeline` 字段对外暴露：

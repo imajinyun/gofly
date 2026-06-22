@@ -35,7 +35,8 @@ testflags="${TESTFLAGS:--shuffle=on}"
 govulncheck_scan="${GOVULNCHECK_SCAN:-package}"
 gosec_flags="${GOSEC_FLAGS:--quiet -exclude-generated -exclude-dir=testdata -exclude-dir=vendor -exclude-dir=.tmp-test}"
 coverage_threshold="${COVERAGE_THRESHOLD:-60}"
-coverage_ratchet="${COVERAGE_RATCHET:-82}"
+coverage_ratchet_default="90"
+coverage_ratchet="${COVERAGE_RATCHET:-$coverage_ratchet_default}"
 
 run_round() {
 	round="$1"
@@ -59,8 +60,22 @@ assert_go_tests_match() {
 }
 
 round_baseline() {
+	assert_coverage_ratchet_alignment
 	"$go_cmd" version
 	"$go_cmd" list ./... >/dev/null
+}
+
+assert_coverage_ratchet_alignment() {
+	makefile_ratchet="$(awk '/^COVERAGE_RATCHET[[:space:]]*\?=/ { print $3; exit }' "$root/Makefile")"
+	if [ "$makefile_ratchet" != "$coverage_ratchet_default" ]; then
+		printf 'coverage ratchet drift: Makefile default is %s, governance script default is %s\n' "$makefile_ratchet" "$coverage_ratchet_default"
+		exit 1
+	fi
+	agents_ratchet="$(awk '/Makefile.*COVERAGE_RATCHET/ { for (i = 1; i <= NF; i++) if ($i ~ /^[`"]?[0-9]+%[`".,]?$/) { gsub(/[^0-9.]/, "", $i); print $i; exit } }' "$root/AGENTS.md")"
+	if [ "$agents_ratchet" != "$coverage_ratchet_default" ]; then
+		printf 'coverage ratchet drift: AGENTS.md documents %s%%, governance script default is %s%%\n' "${agents_ratchet:-<missing>}" "$coverage_ratchet_default"
+		exit 1
+	fi
 }
 
 round_format_check() {
@@ -375,6 +390,13 @@ round_final_convergence() {
 
 cd "$root"
 
+if [ "${GOVERNANCE_ONLY_GENERATED_CONTROL_PLANE_SMOKE:-false}" = "true" ]; then
+	printf 'gofly generated project runtime control-plane smoke\n'
+	round_generated_project_control_plane_smoke
+	printf '\nGenerated project runtime control-plane smoke completed successfully.\n'
+	exit 0
+fi
+
 printf 'gofly governance workflow\n'
 printf 'root: %s\n' "$root"
 printf 'GOFLAGS=%s\n' "$GOFLAGS"
@@ -414,12 +436,12 @@ if [ "${GOVERNANCE_SKIP_GENERATED_MATRIX:-false}" = "true" ]; then
 else
 	assert_go_tests_match ./cmd/gofly/internal/command 'TestAINewGeneratedProjectVerificationMatrix_BitsUT' 1
 	run_round 11 "generated project verification matrix" round_generated_project_matrix_tests
-	if [ "${GOVERNANCE_SKIP_GENERATED_CONTROL_PLANE_SMOKE:-false}" = "true" ]; then
-		printf '\n== Round 12: generated project runtime control-plane smoke ==\n'
-		printf 'skipped because GOVERNANCE_SKIP_GENERATED_CONTROL_PLANE_SMOKE=true\n'
-	else
-		run_round 12 "generated project runtime control-plane smoke" round_generated_project_control_plane_smoke
-	fi
+fi
+if [ "${GOVERNANCE_SKIP_GENERATED_CONTROL_PLANE_SMOKE:-false}" = "true" ]; then
+	printf '\n== Round 12: generated project runtime control-plane smoke ==\n'
+	printf 'skipped because GOVERNANCE_SKIP_GENERATED_CONTROL_PLANE_SMOKE=true\n'
+else
+	run_round 12 "generated project runtime control-plane smoke" round_generated_project_control_plane_smoke
 fi
 run_round 13 "docs, coverage, security, and final package listing" round_final_convergence
 

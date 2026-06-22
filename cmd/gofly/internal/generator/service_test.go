@@ -3,6 +3,7 @@ package generator
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -487,6 +488,177 @@ func TestApplyEnvOverlay(t *testing.T) {
 	if cfg.Discovery == nil || cfg.Discovery.Provider != "etcdv3" || strings.Join(cfg.Discovery.Endpoints, ",") != "127.0.0.1:2379,127.0.0.2:2379" || cfg.Discovery.Prefix != "/services" || cfg.Discovery.TTL != "20s" || cfg.Discovery.DialTimeout != "3s" || cfg.Discovery.UsernameEnv != "ETCD_USERNAME" || cfg.Discovery.PasswordEnv != "ETCD_PASSWORD" {
 		t.Fatalf("discovery overlay = %#v, want etcdv3 endpoints and secret env names", cfg.Discovery)
 	}
+}
+
+func TestServiceFilesForProfileCoverageBuffer_BitsUT(t *testing.T) {
+	tests := []struct {
+		name       string
+		style      string
+		profile    GenerationProfile
+		want       []string
+		wantAbsent []string
+	}{
+		{
+			name:    "production gofly profile includes governance and observability assets",
+			style:   ServiceStyleProduction,
+			profile: ProfileGoflyAI,
+			want: []string{
+				"go.mod",
+				filepath.Join("internal", "config", "discovery_test.go"),
+				filepath.Join("internal", "admin", "admin.go"),
+				filepath.Join("deploy", "observability", "prometheus.yaml"),
+				filepath.Join("bin", "production-check.sh"),
+			},
+		},
+		{
+			name:    "basic gofly profile keeps docker and makefile without governance assets",
+			style:   ServiceStyleBasic,
+			profile: ProfileGoflyAI,
+			want: []string{
+				"Dockerfile",
+				"Makefile",
+				filepath.Join("cmd", "orders", "main.go"),
+				filepath.Join("internal", "routes", "routes_test.go"),
+			},
+			wantAbsent: []string{filepath.Join("internal", "admin", "admin.go")},
+		},
+		{
+			name:    "minimal kitex profile adds compatibility adapter only",
+			style:   ServiceStyleMinimal,
+			profile: ProfileKitexCompatible,
+			want: []string{
+				filepath.Join("cmd", "orders", "main.go"),
+				filepath.Join("internal", "compat", "kitex", "adapter.go"),
+			},
+			wantAbsent: []string{"Dockerfile", "Makefile", filepath.Join("internal", "admin", "admin.go")},
+		},
+		{
+			name:    "go zero basic profile uses goctl layout and release assets",
+			style:   ServiceStyleBasic,
+			profile: ProfileGoZeroCompatible,
+			want: []string{
+				"Dockerfile",
+				"Makefile",
+				filepath.Join("internal", "svc", "servicecontext.go"),
+				filepath.Join("internal", "logic", "pinglogic.go"),
+				filepath.Join("internal", "handler", "routes.go"),
+			},
+			wantAbsent: []string{filepath.Join("internal", "routes", "routes.go"), filepath.Join("internal", "compat", "kitex", "adapter.go")},
+		},
+		{
+			name:    "go zero minimal profile omits docker and makefile",
+			style:   ServiceStyleMinimal,
+			profile: ProfileGoZeroCompatible,
+			want: []string{
+				filepath.Join("internal", "types", "types.go"),
+				filepath.Join("internal", "handler", "pinghandler.go"),
+			},
+			wantAbsent: []string{"Dockerfile", "Makefile"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			files := serviceFilesForProfile(tt.style, "orders", tt.profile)
+			for _, path := range tt.want {
+				if files[path] == "" {
+					t.Fatalf("serviceFilesForProfile(%q, %q) missing %q", tt.style, tt.profile, path)
+				}
+			}
+			for _, path := range tt.wantAbsent {
+				if _, ok := files[path]; ok {
+					t.Fatalf("serviceFilesForProfile(%q, %q) unexpectedly included %q", tt.style, tt.profile, path)
+				}
+			}
+		})
+	}
+}
+
+func TestTemplateSyncCoverageBuffer_BitsUT(t *testing.T) {
+	t.Run("local file remote copies payload templates and skips hidden directories", func(t *testing.T) {
+		root := t.TempDir()
+		remote := filepath.Join(root, "remote")
+		payload := filepath.Join(remote, "templates")
+		if err := os.MkdirAll(filepath.Join(payload, "sub"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Join(payload, ".ignored"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(payload, "api.tpl"), []byte("api"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(payload, "sub", "rpc.tpl"), []byte("rpc"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(payload, ".ignored", "secret.tpl"), []byte("secret"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		dst := filepath.Join(root, "dst")
+		if err := SyncTemplateRemote(TemplateOptions{Dir: dst, Remote: "file://" + remote}); err != nil {
+			t.Fatalf("SyncTemplateRemote: %v", err)
+		}
+		for _, rel := range []string{"api.tpl", filepath.Join("sub", "rpc.tpl")} {
+			if _, err := os.Stat(filepath.Join(dst, rel)); err != nil {
+				t.Fatalf("expected copied template %s: %v", rel, err)
+			}
+		}
+		if _, err := os.Stat(filepath.Join(dst, ".ignored", "secret.tpl")); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("hidden template copied error = %v, want not exist", err)
+		}
+	})
+
+	t.Run("remote resolution and validation boundaries", func(t *testing.T) {
+		root := t.TempDir()
+		missingRemote := filepath.Join(root, "missing")
+		fallbackDir := filepath.Join(root, "fallback")
+		if got, err := ResolveTemplateSource(fallbackDir, "", "", false); err != nil || got != fallbackDir {
+			t.Fatalf("ResolveTemplateSource empty remote = %q, %v; want fallback dir", got, err)
+		}
+		if got, err := ResolveTemplateSource(fallbackDir, "file://"+missingRemote, "", false); err != nil || got != fallbackDir {
+			t.Fatalf("ResolveTemplateSource non-strict missing remote = %q, %v; want fallback dir", got, err)
+		}
+		if _, err := ResolveTemplateSource(fallbackDir, "file://"+missingRemote, "", true); err == nil || !strings.Contains(err.Error(), "stat template remote") {
+			t.Fatalf("ResolveTemplateSource strict missing remote error = %v, want stat template remote", err)
+		}
+		if err := validateTemplateSyncDir(""); err == nil || !strings.Contains(err.Error(), "template directory is required") {
+			t.Fatalf("validateTemplateSyncDir empty error = %v", err)
+		}
+		symlink := filepath.Join(root, "templates-link")
+		if err := os.Symlink(filepath.Join(root, "target"), symlink); err != nil {
+			t.Fatalf("create symlink: %v", err)
+		}
+		if err := validateTemplateSyncDir(symlink); err == nil || !strings.Contains(err.Error(), "must not be a symlink") {
+			t.Fatalf("validateTemplateSyncDir symlink error = %v", err)
+		}
+	})
+
+	t.Run("copy directory rejects unsafe sources and destinations", func(t *testing.T) {
+		root := t.TempDir()
+		src := filepath.Join(root, "src")
+		if err := os.MkdirAll(src, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := copyDir(src, src); err != nil {
+			t.Fatalf("copyDir same path: %v", err)
+		}
+		if err := copyDir(src, filepath.Join(src, "child")); err == nil || !strings.Contains(err.Error(), "must not be inside source") {
+			t.Fatalf("copyDir child destination error = %v", err)
+		}
+		notDir := filepath.Join(root, "not-dir")
+		if err := os.WriteFile(notDir, []byte("file"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := copyDir(notDir, filepath.Join(root, "out")); err == nil || !strings.Contains(err.Error(), "is not a directory") {
+			t.Fatalf("copyDir not-directory error = %v", err)
+		}
+		if err := os.Symlink(notDir, filepath.Join(src, "link.tpl")); err != nil {
+			t.Fatalf("create template symlink: %v", err)
+		}
+		if err := copyDir(src, filepath.Join(root, "out")); err == nil || !strings.Contains(err.Error(), "must not be a symlink") {
+			t.Fatalf("copyDir symlink error = %v", err)
+		}
+	})
 }
 
 func TestTemplateAndKubeHelperBoundaries(t *testing.T) {

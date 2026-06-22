@@ -3614,6 +3614,54 @@ func TestGenerateAPIDocFormats(t *testing.T) {
 	}
 }
 
+func TestGenerateProtoDocFormatsAndDefaults_BitsUT(t *testing.T) {
+	dir := t.TempDir()
+	protoFile := filepath.Join(dir, "greeter.proto")
+	if err := os.WriteFile(protoFile, []byte(testProto), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outDir := filepath.Join(dir, "out")
+	for _, format := range []string{"", "json", "openapi3", "yaml", "yml", "markdown", "md"} {
+		if err := GenerateProtoDoc(ProtoDocOptions{ProtoFile: protoFile, Dir: outDir, Format: format}); err != nil {
+			t.Fatalf("proto doc format %q: %v", format, err)
+		}
+	}
+
+	explicitOutput := filepath.Join(dir, "explicit.json")
+	if err := GenerateProtoDoc(ProtoDocOptions{ProtoFile: protoFile, Output: explicitOutput, Format: "oas3"}); err != nil {
+		t.Fatalf("proto doc explicit output: %v", err)
+	}
+	data, err := os.ReadFile(explicitOutput)
+	if err != nil {
+		t.Fatalf("read explicit proto doc: %v", err)
+	}
+	if got := string(data); !strings.Contains(got, `"/greeter.v1.GreeterService/SayHello"`) || !strings.Contains(got, `"post"`) {
+		t.Fatalf("proto doc missing transcoding defaults:\n%s", got)
+	}
+
+	doc := IDLDocument{Package: "chat.v1", Services: []IDLService{{Name: "Chat", Methods: []IDLMethod{
+		{Name: "Unary"},
+		{Name: "Stream", ClientStream: true},
+	}}}}
+	withDefaults := protoDocWithTranscodingDefaults(doc)
+	if got := withDefaults.Services[0].Methods[0]; got.HTTPMethod != "POST" || got.HTTPPath != "/chat.v1.Chat/Unary" {
+		t.Fatalf("unary defaults = %+v, want POST /chat.v1.Chat/Unary", got)
+	}
+	if got := withDefaults.Services[0].Methods[1]; got.HTTPMethod != "" || got.HTTPPath != "" {
+		t.Fatalf("stream defaults = %+v, want unchanged empty HTTP binding", got)
+	}
+
+	if err := GenerateProtoDoc(ProtoDocOptions{ProtoFile: "", Format: "md"}); err == nil || !strings.Contains(err.Error(), "proto file is required") {
+		t.Fatalf("empty proto doc error = %v", err)
+	}
+	if err := GenerateProtoDoc(ProtoDocOptions{ProtoFile: filepath.Join(dir, "missing.proto"), Format: "md"}); err == nil || !strings.Contains(err.Error(), "read proto file") {
+		t.Fatalf("missing proto doc error = %v", err)
+	}
+	if err := GenerateProtoDoc(ProtoDocOptions{ProtoFile: protoFile, Dir: outDir, Format: "xml"}); err == nil || !strings.Contains(err.Error(), "unsupported proto doc format") {
+		t.Fatalf("bad proto doc format error = %v", err)
+	}
+}
+
 func TestOpenAPIFieldNameAndRequired(t *testing.T) {
 	f := IDLField{Name: "UserName", Tag: `json:"user_name,omitempty"`}
 	if got := openAPIFieldName(f); got != "user_name" {

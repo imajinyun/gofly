@@ -43,6 +43,74 @@ func (p bitsUTScaffoldPlugin) Generate(req PluginRequest) (PluginResponse, error
 	}, nil
 }
 
+func TestRemotePluginInstallCoverageBuffer_BitsUT(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	t.Run("installs local http plugin into isolated cache", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/plugins/auth-jwt" {
+				http.NotFound(w, r)
+				return
+			}
+			_, _ = w.Write([]byte("#!/bin/sh\necho plugin\n"))
+		}))
+		defer server.Close()
+
+		installed, err := InstallRemotePlugin(server.URL + "/plugins/auth-jwt@v0.1.0")
+		if err != nil {
+			t.Fatalf("InstallRemotePlugin http: %v", err)
+		}
+		if installed.Version != "v0.1.0" || installed.BinaryDigest == "" || !strings.Contains(installed.Binary, filepath.Join(".cache", "gofly", "plugins")) {
+			t.Fatalf("installed plugin metadata = %+v", installed)
+		}
+		data, err := os.ReadFile(installed.Binary)
+		if err != nil {
+			t.Fatalf("read installed binary: %v", err)
+		}
+		if !bytes.Contains(data, []byte("echo plugin")) {
+			t.Fatalf("installed binary = %q, want downloaded payload", data)
+		}
+	})
+
+	t.Run("installs file plugin and rejects invalid specs", func(t *testing.T) {
+		pluginFile := filepath.Join(t.TempDir(), "local-plugin")
+		if err := os.WriteFile(pluginFile, []byte("#!/bin/sh\necho local\n"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		installed, err := InstallRemotePlugin("file://" + pluginFile + "@v1.2.3")
+		if err != nil {
+			t.Fatalf("InstallRemotePlugin file: %v", err)
+		}
+		if installed.Remote != "file://"+pluginFile || installed.Version != "v1.2.3" {
+			t.Fatalf("file installed metadata = %+v", installed)
+		}
+		for _, remote := range []string{"missing-version", "@v1", "file://plugin@../bad"} {
+			if _, err := InstallRemotePlugin(remote); err == nil {
+				t.Fatalf("InstallRemotePlugin(%q) succeeded, want error", remote)
+			}
+		}
+	})
+
+	t.Run("download rejects insecure and bad status remotes", func(t *testing.T) {
+		tmp, err := os.CreateTemp(t.TempDir(), "plugin-*.tmp")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = tmp.Close() }()
+		if err := downloadRemotePluginPayload(tmp, remotePluginSpec{remote: "ftp://example.com/plugin", version: "v1", hash: "hash"}); err == nil || !strings.Contains(err.Error(), "insecure URL scheme") {
+			t.Fatalf("insecure download error = %v", err)
+		}
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, "missing", http.StatusNotFound)
+		}))
+		defer server.Close()
+		if err := downloadRemotePluginPayload(tmp, remotePluginSpec{remote: server.URL + "/missing", version: "v1", hash: "hash"}); err == nil || !strings.Contains(err.Error(), "status 404") {
+			t.Fatalf("bad status download error = %v", err)
+		}
+	})
+}
+
 func TestPluginResponseWriteFilesRejectsEscapingPaths(t *testing.T) {
 	dir := t.TempDir()
 	outside := filepath.Join(t.TempDir(), "outside.txt")
@@ -1094,6 +1162,47 @@ func TestLoadPluginRegistryIndexFromFile(t *testing.T) {
 	}
 	if index.Version != "v1" || len(index.Plugins) != 1 || index.Plugins[0].Name != "auth-jwt" {
 		t.Fatalf("LoadPluginRegistryIndex(file) = %#v, want auth-jwt registry", index)
+	}
+}
+
+func TestLoadPluginRegistryIndexFromLocalURL_BitsUT(t *testing.T) {
+	registryJSON := `{
+  "version":"v1",
+  "plugins":[{
+    "name":"auth-jwt",
+    "remote":"https://example.com/auth-jwt",
+    "version":"v0.1.0",
+    "manifest":{"name":"auth-jwt","version":"v0.1.0","compatibleVersions":["1"],"capabilities":["generate:file"],"permissions":["filesystem:write-relative"]}
+  }]
+}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/registry.json":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(registryJSON))
+		case "/bad.json":
+			_, _ = w.Write([]byte(`{`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	index, err := LoadPluginRegistryIndex(server.URL + "/registry.json")
+	if err != nil {
+		t.Fatalf("LoadPluginRegistryIndex(local URL): %v", err)
+	}
+	if index.Version != "v1" || len(index.Plugins) != 1 || index.Plugins[0].Name != "auth-jwt" {
+		t.Fatalf("index = %#v, want auth-jwt registry", index)
+	}
+	if _, err := LoadPluginRegistryIndex(server.URL + "/missing.json"); err == nil || !strings.Contains(err.Error(), "status 404") {
+		t.Fatalf("missing registry URL error = %v, want status 404", err)
+	}
+	if _, err := LoadPluginRegistryIndex(server.URL + "/bad.json"); err == nil || !strings.Contains(err.Error(), "decode plugin registry") {
+		t.Fatalf("bad registry URL error = %v, want decode plugin registry", err)
+	}
+	if _, err := LoadPluginRegistryIndex("http://example.com/registry.json"); err == nil || !strings.Contains(err.Error(), "insecure URL scheme") {
+		t.Fatalf("remote http registry error = %v, want insecure URL scheme", err)
 	}
 }
 

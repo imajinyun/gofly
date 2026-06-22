@@ -25,6 +25,7 @@ import (
 	"github.com/gofly/gofly/core/metadata"
 	"github.com/gofly/gofly/core/observability/metrics"
 	"github.com/gofly/gofly/core/observability/trace"
+	controladmin "github.com/gofly/gofly/ops/admin"
 	"github.com/gofly/gofly/rest"
 	"github.com/gofly/gofly/rpc"
 )
@@ -669,6 +670,58 @@ func TestGatewayNewFromConfigUsesNamedResolver(t *testing.T) {
 	}
 }
 
+func TestGatewayNewFromConfigCoverageBuffer_BitsUT(t *testing.T) {
+	resolver := rpc.NewStaticResolver("http://127.0.0.1:1")
+	g, err := NewFromConfig(Config{
+		Timeout:              50 * time.Millisecond,
+		MaxBodyBytes:         128,
+		MaxExpandedEndpoints: 2,
+		PassiveHealth:        PassiveHealthConfig{Enabled: true, FailureThreshold: 2, EjectionDuration: time.Second},
+		ActiveHealth:         ActiveHealthConfig{Enabled: true, Path: "/healthz", Timeout: time.Millisecond, Interval: time.Hour},
+		Shadow:               ShadowConfig{Workers: 1, Queue: 2},
+		Routes: []RouteConfig{{
+			Name:       "orders",
+			Method:     http.MethodGet,
+			PathPrefix: "/orders",
+			Service:    "orders-main",
+			Tags:       map[string]string{"zone": "primary"},
+			Canary: []CanaryRoute{{
+				Name:    "orders-canary",
+				Service: "orders-canary",
+				Ratio:   0.25,
+			}},
+			Shadow: []ShadowRoute{{
+				Service:     "orders-shadow",
+				SampleRatio: 1,
+			}},
+		}},
+	}, map[string]rpc.Resolver{
+		"orders-main":   resolver,
+		"orders-canary": resolver,
+		"orders-shadow": resolver,
+	})
+	if err != nil {
+		t.Fatalf("NewFromConfig: %v", err)
+	}
+	defer func() { _ = g.Close() }()
+	if g.timeout != 50*time.Millisecond || g.maxBodyBytes != 128 || g.maxExpandedEndpoint != 2 || g.passive == nil || g.shadowPool == nil {
+		t.Fatalf("gateway config not applied: timeout=%s maxBody=%d expanded=%d passive=%v shadowPool=%v", g.timeout, g.maxBodyBytes, g.maxExpandedEndpoint, g.passive, g.shadowPool)
+	}
+	routes := g.Routes()
+	if len(routes) != 1 || routes[0].Resolver == nil || routes[0].Canary[0].Resolver == nil || routes[0].Shadow[0].Resolver == nil {
+		t.Fatalf("resolved routes = %+v, want main/canary/shadow resolvers", routes)
+	}
+	snapshot := g.Snapshot()
+	if len(snapshot.Discovery) != 3 {
+		t.Fatalf("snapshot discovery = %+v, want route/canary/shadow entries", snapshot.Discovery)
+	}
+	for _, item := range snapshot.Discovery {
+		if item.Error != "" || len(item.Endpoints) == 0 {
+			t.Fatalf("discovery snapshot item = %+v, want resolved endpoints", item)
+		}
+	}
+}
+
 func TestGatewayRejectsOversizedBody(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatalf("oversized body reached upstream")
@@ -835,6 +888,168 @@ func TestGatewayRegisterAdminExposesFullGovernanceAdminParity(t *testing.T) {
 	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "governance manager is nil") {
 		t.Fatalf("reload status = %d body = %s, want manager error", rec.Code, rec.Body.String())
 	}
+}
+
+func TestGatewayAdminRouteMutationAndAuditCoverageBuffer_BitsUT(t *testing.T) {
+	var nilGateway *Gateway
+	nilGateway.RegisterAdmin(nil, "", "")
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprint(w, "ok")
+	}))
+	t.Cleanup(upstream.Close)
+
+	g, err := New([]Route{{Method: http.MethodGet, PathPrefix: "/api", Targets: []string{upstream.URL}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := rest.MustNewServer(rest.Config{Preset: rest.PresetCustom, DisableDefaultMiddlewares: true})
+	var events []controladmin.AuditEvent
+	g.RegisterAdminWithAudit(s, "gateway-admin/", "secret", func(_ context.Context, event controladmin.AuditEvent) {
+		events = append(events, event)
+	})
+	handler := s.Handler()
+
+	adminRequest := func(method, path, body string) *http.Request {
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		req.Header.Set(auth.AuthorizationHeader, "Bearer secret")
+		return req
+	}
+	assertStatus := func(name string, req *http.Request, want int, wantBody string) string {
+		t.Helper()
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != want {
+			t.Fatalf("%s status = %d body = %s, want %d", name, rec.Code, rec.Body.String(), want)
+		}
+		if wantBody != "" && !strings.Contains(rec.Body.String(), wantBody) {
+			t.Fatalf("%s body missing %q: %s", name, wantBody, rec.Body.String())
+		}
+		return rec.Body.String()
+	}
+
+	assertStatus("unauthorized snapshot", httptest.NewRequest(http.MethodGet, "/gateway-admin/snapshot", nil), http.StatusUnauthorized, "unauthorized")
+	assertStatus("malformed route", adminRequest(http.MethodPost, "/gateway-admin/routes", "{"), http.StatusBadRequest, "unexpected EOF")
+
+	existingRoute := `{"method":"GET","pathPrefix":"/api","targets":["` + upstream.URL + `"]}`
+	assertStatus("duplicate route", adminRequest(http.MethodPost, "/gateway-admin/routes", existingRoute), http.StatusConflict, ErrRouteExists.Error())
+
+	newRoute := RouteConfig{
+		Name:       "hot",
+		Method:     http.MethodPost,
+		PathPrefix: "/hot",
+		Targets:    []string{upstream.URL},
+		Headers:    map[string]string{"Authorization": "Bearer upstream-secret"},
+		Header: HeaderPolicy{
+			SetRequest:  map[string]string{"X-Token": "request-secret"},
+			SetResponse: map[string]string{"Set-Cookie": "response-secret"},
+		},
+		Canary: []CanaryRoute{{Name: "canary", Target: upstream.URL, Ratio: 0.5, Headers: map[string]string{"Cookie": "canary-secret"}, MatchHeaders: map[string]string{"Authorization": "Bearer canary"}}},
+		Shadow: []ShadowRoute{{Target: upstream.URL, SampleRatio: 1, Headers: map[string]string{"X-Shadow-Token": "shadow-secret"}}},
+	}
+	body, err := json.Marshal(newRoute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	createdBody := assertStatus("create route", adminRequest(http.MethodPost, "/gateway-admin/routes", string(body)), http.StatusCreated, `"pathPrefix":"/hot"`)
+	for _, leaked := range []string{"upstream-secret", "request-secret", "response-secret", "canary-secret", "Bearer canary", "shadow-secret"} {
+		if strings.Contains(createdBody, leaked) {
+			t.Fatalf("created route leaked sensitive value %q: %s", leaked, createdBody)
+		}
+	}
+	if !strings.Contains(createdBody, `"Authorization":"***"`) || !strings.Contains(createdBody, `"X-Shadow-Token":"***"`) {
+		t.Fatalf("created route body did not mask sensitive values: %s", createdBody)
+	}
+
+	newRoute.Targets = []string{"http://127.0.0.1:65535"}
+	body, err = json.Marshal(newRoute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertStatus("upsert route", adminRequest(http.MethodPut, "/gateway-admin/routes", string(body)), http.StatusOK, `"targets":["http://127.0.0.1:65535"]`)
+	routesBody := assertStatus("list routes", adminRequest(http.MethodGet, "/gateway-admin/routes", ""), http.StatusOK, `"X-Token":"***"`)
+	if strings.Contains(routesBody, "request-secret") || strings.Contains(routesBody, "shadow-secret") {
+		t.Fatalf("routes response leaked sensitive values: %s", routesBody)
+	}
+
+	assertStatus("delete missing route", adminRequest(http.MethodDelete, "/gateway-admin/routes?method=GET&pathPrefix=/missing", ""), http.StatusNotFound, ErrNoRoute.Error())
+	assertStatus("delete hot route", adminRequest(http.MethodDelete, "/gateway-admin/routes?method=POST&pathPrefix="+url.QueryEscape("/hot"), ""), http.StatusOK, `"status":"ok"`)
+	assertStatus("delete api route", adminRequest(http.MethodDelete, "/gateway-admin/routes?method=GET&pathPrefix="+url.QueryEscape("/api"), ""), http.StatusOK, `"status":"ok"`)
+	assertStatus("health unavailable", adminRequest(http.MethodGet, "/gateway-admin/health", ""), http.StatusServiceUnavailable, `"status":"unavailable"`)
+	assertStatus("governance root", adminRequest(http.MethodGet, "/gateway-admin/governance", ""), http.StatusOK, `"version"`)
+
+	seenStatus := map[int]bool{}
+	for _, event := range events {
+		if event.Component != "gateway" || event.Path == "" || event.Method == "" {
+			t.Fatalf("invalid audit event: %+v", event)
+		}
+		seenStatus[event.Status] = true
+	}
+	for _, status := range []int{http.StatusUnauthorized, http.StatusCreated, http.StatusServiceUnavailable} {
+		if !seenStatus[status] {
+			t.Fatalf("audit statuses = %#v, missing %d", seenStatus, status)
+		}
+	}
+}
+
+func TestGatewayHTTPProxyErrorBranchesCoverageBuffer_BitsUT(t *testing.T) {
+	g, err := New([]Route{{PathPrefix: "/api", Targets: []string{"http://127.0.0.1:1"}}}, WithHTTPClient(&http.Client{Transport: gatewayRoundTripFunc(func(*http.Request) (*http.Response, error) {
+		return nil, errors.New("dial failed")
+	})}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/orders?debug=1", strings.NewReader("body"))
+	req.Host = "gateway.local"
+	req.RemoteAddr = "198.51.100.10:12345"
+
+	if result, err := g.proxyHTTPOnce(req, Route{PathPrefix: "/api"}, "://bad-endpoint", []byte("body"), nil); err == nil || result.Endpoint != "://bad-endpoint" {
+		t.Fatalf("invalid endpoint result = %+v err = %v, want parse error with endpoint", result, err)
+	}
+	if result, err := g.proxyHTTPOnce(req, Route{PathPrefix: "/api"}, "http://127.0.0.1:1", []byte("body"), nil); err == nil || result.Err == nil {
+		t.Fatalf("client error result = %+v err = %v, want transport error", result, err)
+	}
+
+	g, err = New([]Route{{PathPrefix: "/api", Targets: []string{"http://127.0.0.1:1"}}}, WithHTTPClient(&http.Client{Transport: gatewayRoundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"X-Upstream": []string{"ok"}}, Body: errorReadCloser{err: errors.New("read failed")}}, nil
+	})}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result, err := g.proxyHTTPOnce(req, Route{PathPrefix: "/api"}, "http://127.0.0.1:1", []byte("body"), nil); err == nil || result.Status != http.StatusOK || result.Header.Get("X-Upstream") != "ok" {
+		t.Fatalf("body read result = %+v err = %v, want response metadata with read error", result, err)
+	}
+
+	req.TLS = &tls.ConnectionState{}
+	req.Header.Set(HeaderForwardedFor, "203.0.113.7")
+	out, err := cloneProxyRequest(req, mustParseGatewayURLBitsUT(t, "http://upstream.local/base"), Route{Name: "orders", Service: "orders-svc", PreserveHost: true, Headers: map[string]string{"X-Route": "hot"}}, []byte("body"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Host != "gateway.local" || out.Header.Get(HeaderForwardedProto) != "https" || out.Header.Get(HeaderForwardedFor) != "203.0.113.7, 198.51.100.10" {
+		t.Fatalf("forwarded headers host=%q proto=%q for=%q", out.Host, out.Header.Get(HeaderForwardedProto), out.Header.Get(HeaderForwardedFor))
+	}
+	if out.Header.Get(HeaderGatewayService) != "orders-svc" || out.Header.Get(HeaderGatewayRoute) != "orders" || out.Header.Get("X-Route") != "hot" {
+		t.Fatalf("gateway headers = %#v", out.Header)
+	}
+	if body, err := out.GetBody(); err != nil {
+		t.Fatalf("GetBody returned error: %v", err)
+	} else {
+		defer body.Close()
+		data, readErr := io.ReadAll(body)
+		if readErr != nil || string(data) != "body" {
+			t.Fatalf("GetBody data = %q err = %v, want body", data, readErr)
+		}
+	}
+}
+
+func mustParseGatewayURLBitsUT(t *testing.T, raw string) *url.URL {
+	t.Helper()
+	u, err := url.Parse(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return u
 }
 
 func TestGatewayRouteHotUpdate(t *testing.T) {
@@ -1079,6 +1294,41 @@ func TestGatewayRetryBudgetLimitsRetries(t *testing.T) {
 	}
 	if got := calls.Load(); got != 2 {
 		t.Fatalf("upstream calls = %d, want initial call plus one budgeted retry", got)
+	}
+}
+
+func TestGatewayProxyRetryBackoffCancellation_BitsUT(t *testing.T) {
+	var cancel context.CancelFunc
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Retry-After", "60")
+		http.Error(w, "retry later", http.StatusServiceUnavailable)
+		time.AfterFunc(time.Millisecond, cancel)
+	}))
+	t.Cleanup(upstream.Close)
+
+	g, err := New([]Route{{
+		PathPrefix: "/api",
+		Targets:    []string{upstream.URL},
+		Retry: RetryPolicy{
+			Attempts:          2,
+			Backoff:           time.Hour,
+			Statuses:          []int{http.StatusServiceUnavailable},
+			Methods:           []string{http.MethodPost},
+			RespectRetryAfter: true,
+		},
+	}})
+	if err != nil {
+		t.Fatalf("New gateway: %v", err)
+	}
+	defer func() { _ = g.Close() }()
+
+	ctx, stop := context.WithCancel(context.Background())
+	cancel = stop
+	req := httptest.NewRequest(http.MethodPost, "/api/orders", strings.NewReader("{}"))
+	req = req.WithContext(ctx)
+	result, err := g.proxyWithRetry(req, g.Routes()[0], []byte("{}"))
+	if !errors.Is(err, context.Canceled) || result.Status != http.StatusServiceUnavailable {
+		t.Fatalf("proxyWithRetry result=%+v err=%v, want canceled after retryable response", result, err)
 	}
 }
 
@@ -2162,6 +2412,70 @@ func TestCloneDescriptorEmpty(t *testing.T) {
 	got := cloneDescriptor(rpc.Descriptor{})
 	if got.Metadata != nil {
 		t.Fatalf("cloneDescriptor empty metadata = %v, want nil", got.Metadata)
+	}
+}
+
+func TestGatewayMutationAndSnapshotCoverageBuffer_BitsUT(t *testing.T) {
+	if got := (*Gateway)(nil).Snapshot(); len(got.Routes) != 0 || len(got.Discovery) != 0 {
+		t.Fatalf("nil gateway snapshot = %+v, want empty", got)
+	}
+	if got := (*Gateway)(nil).Descriptors(); got != nil {
+		t.Fatalf("nil gateway descriptors = %+v, want nil", got)
+	}
+	if err := (*Gateway)(nil).RegisterDescriptor(rpc.Descriptor{}); err == nil || !strings.Contains(err.Error(), "gateway is nil") {
+		t.Fatalf("nil RegisterDescriptor error = %v", err)
+	}
+	if err := (*Gateway)(nil).AddRoute(Route{}); !errors.Is(err, ErrRouteRequired) {
+		t.Fatalf("nil AddRoute error = %v, want ErrRouteRequired", err)
+	}
+	if err := (*Gateway)(nil).UpdateRoute(Route{}); !errors.Is(err, ErrRouteRequired) {
+		t.Fatalf("nil UpdateRoute error = %v, want ErrRouteRequired", err)
+	}
+	if err := (*Gateway)(nil).UpsertRoute(Route{}); !errors.Is(err, ErrRouteRequired) {
+		t.Fatalf("nil UpsertRoute error = %v, want ErrRouteRequired", err)
+	}
+	if (*Gateway)(nil).RemoveRoute(http.MethodGet, "/missing") {
+		t.Fatal("nil RemoveRoute = true, want false")
+	}
+	if err := (*Gateway)(nil).SetRoutes([]Route{{PathPrefix: "/"}}); !errors.Is(err, ErrRouteRequired) {
+		t.Fatalf("nil SetRoutes error = %v, want ErrRouteRequired", err)
+	}
+
+	g, err := New([]Route{{Method: http.MethodGet, PathPrefix: "/api", Targets: []string{"http://127.0.0.1:1"}}}, WithTimeout(25*time.Millisecond))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer func() { _ = g.Close() }()
+	if got := g.snapshotResolveTimeout(); got != 25*time.Millisecond {
+		t.Fatalf("snapshotResolveTimeout = %s, want route timeout", got)
+	}
+	if err := g.AddRoute(Route{Method: http.MethodGet, PathPrefix: "/api", Targets: []string{"http://127.0.0.1:2"}}); !errors.Is(err, ErrRouteExists) {
+		t.Fatalf("duplicate AddRoute error = %v, want ErrRouteExists", err)
+	}
+	if err := g.UpdateRoute(Route{Method: http.MethodPost, PathPrefix: "/missing", Targets: []string{"http://127.0.0.1:2"}}); !errors.Is(err, ErrNoRoute) {
+		t.Fatalf("missing UpdateRoute error = %v, want ErrNoRoute", err)
+	}
+	if err := g.UpsertRoute(Route{Method: http.MethodPost, PathPrefix: "/api", Targets: []string{"http://127.0.0.1:2"}}); err != nil {
+		t.Fatalf("UpsertRoute insert: %v", err)
+	}
+	if err := g.UpsertRoute(Route{Method: http.MethodPost, PathPrefix: "/api", Targets: []string{"http://127.0.0.1:3"}}); err != nil {
+		t.Fatalf("UpsertRoute replace: %v", err)
+	}
+	if g.RemoveRoute(http.MethodDelete, "/missing") {
+		t.Fatal("RemoveRoute missing = true, want false")
+	}
+	if err := g.SetRoutes(nil); !errors.Is(err, ErrRouteRequired) {
+		t.Fatalf("SetRoutes empty error = %v, want ErrRouteRequired", err)
+	}
+
+	badResolver := rpc.ResolverFunc(func(context.Context) ([]string, error) { return nil, errors.New("resolve failed") })
+	badSnapshot := g.resolverSnapshot(context.Background(), "route", "bad", "bad", "svc", map[string]string{"env": "test"}, badResolver)
+	if badSnapshot.Error != "resolve failed" || badSnapshot.Tags["env"] != "test" {
+		t.Fatalf("bad resolver snapshot = %+v, want error and cloned tags", badSnapshot)
+	}
+	nilSnapshot := g.resolverSnapshot(context.Background(), "route", "nil", "nil", "svc", nil, nil)
+	if nilSnapshot.Error != "resolver is nil" {
+		t.Fatalf("nil resolver snapshot = %+v, want resolver is nil", nilSnapshot)
 	}
 }
 

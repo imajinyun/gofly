@@ -4277,6 +4277,98 @@ get /ping (PingReq) returns (PingResp)
 	}
 }
 
+func TestAPIFormatStdinAndControlPlaneVerificationCoverageBuffer_BitsUT(t *testing.T) {
+	dir := t.TempDir()
+	api := `type PingResp {
+Message string
+}
+service user-api {
+@handler ping
+get /ping returns (PingResp)
+}
+`
+
+	t.Run("api format stdin writes output file and stdout", func(t *testing.T) {
+		oldStdin := os.Stdin
+		readEnd, writeEnd, err := os.Pipe()
+		if err != nil {
+			t.Fatalf("pipe stdin: %v", err)
+		}
+		os.Stdin = readEnd
+		defer func() { os.Stdin = oldStdin }()
+		_, _ = writeEnd.WriteString(api)
+		_ = writeEnd.Close()
+
+		outFile := filepath.Join(dir, "stdin.api")
+		if err := apiFormatCommand([]string{"--stdin", "--output", outFile}); err != nil {
+			t.Fatalf("apiFormatCommand stdin output: %v", err)
+		}
+		data, err := os.ReadFile(outFile)
+		if err != nil {
+			t.Fatalf("read stdin format output: %v", err)
+		}
+		if !strings.Contains(string(data), "  Message string") {
+			t.Fatalf("stdin formatted output = %s", data)
+		}
+
+		readEnd2, writeEnd2, err := os.Pipe()
+		if err != nil {
+			t.Fatalf("pipe stdin second: %v", err)
+		}
+		os.Stdin = readEnd2
+		_, _ = writeEnd2.WriteString(api)
+		_ = writeEnd2.Close()
+		var stdout bytes.Buffer
+		if err := withCommandIO(IOStreams{Out: &stdout}, outputText, verbosityNormal, func() error {
+			return apiFormatCommand([]string{"--stdin"})
+		}); err != nil {
+			t.Fatalf("apiFormatCommand stdin stdout: %v", err)
+		}
+		if !strings.Contains(stdout.String(), "service user-api") {
+			t.Fatalf("stdin stdout output = %q", stdout.String())
+		}
+	})
+
+	t.Run("control-plane snapshot assertion handles skipped and failed cases", func(t *testing.T) {
+		if got := runAIProjectControlPlaneSnapshotAssertion(dir, 0); got.Status != "failed" || !strings.Contains(got.Error, "timeout") {
+			t.Fatalf("zero timeout result = %+v, want failed timeout", got)
+		}
+		if got := runAIProjectControlPlaneSnapshotAssertion(filepath.Join(dir, "missing"), time.Second); got.Status != "failed" {
+			t.Fatalf("missing project result = %+v, want failed", got)
+		}
+		project := filepath.Join(dir, "project")
+		configDir := filepath.Join(project, "internal", "config")
+		if err := os.MkdirAll(configDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if got := runAIProjectControlPlaneSnapshotAssertion(project, time.Second); got.Status != "skipped" || !strings.Contains(got.Error, "does not expose") {
+			t.Fatalf("missing config test result = %+v, want skipped", got)
+		}
+		if err := os.WriteFile(filepath.Join(configDir, "config_test.go"), []byte("package config\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if got := runAIProjectControlPlaneSnapshotAssertion(project, time.Second); got.Status != "skipped" || !strings.Contains(got.Error, "does not expose") {
+			t.Fatalf("config test without contract result = %+v, want skipped", got)
+		}
+		if err := os.WriteFile(filepath.Join(project, "go.mod"), []byte("module example.com/project\n\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(configDir, "config_test.go"), []byte(`package config
+
+import "testing"
+
+func TestControlPlaneSnapshotExposesGeneratedContract(t *testing.T) {
+	t.Fatal("contract mismatch")
+}
+`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if got := runAIProjectControlPlaneSnapshotAssertion(project, 30*time.Second); got.Status != "failed" || !strings.Contains(got.Output, "contract mismatch") {
+			t.Fatalf("failing config test result = %+v, want failed contract mismatch output", got)
+		}
+	})
+}
+
 func TestExecuteAPISwaggerAliasDefaultsOpenAPI(t *testing.T) {
 	dir := t.TempDir()
 	apiPath := filepath.Join(dir, "user.api")

@@ -1845,6 +1845,336 @@ func TestAIProjectApplyHelperErrorAndTextBranches_BitsUT(t *testing.T) {
 	})
 }
 
+func TestCommandConfigFeaturePluginCoverageBuffer_BitsUT(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	serviceDir := t.TempDir()
+
+	t.Run("config command text dry-run and apply branches", func(t *testing.T) {
+		var stdout bytes.Buffer
+		if err := ExecuteWithIO([]string{"config", "init", "--dir", serviceDir, "--name", "orders", "--module", "example.com/orders", "--style", "production", "--dry-run"}, IOStreams{Out: &stdout}); err != nil {
+			t.Fatalf("config init dry-run: %v", err)
+		}
+		if got := stdout.String(); !strings.Contains(got, "config.init") || !strings.Contains(got, "write-config") {
+			t.Fatalf("config init dry-run output missing plan details:\n%s", got)
+		}
+
+		stdout.Reset()
+		if err := ExecuteWithIO([]string{"config", "init", "--dir", serviceDir, "--name", "orders", "--module", "example.com/orders", "--style", "production"}, IOStreams{Out: &stdout}); err != nil {
+			t.Fatalf("config init apply: %v", err)
+		}
+		if !strings.Contains(stdout.String(), "wrote gofly config") {
+			t.Fatalf("config init output = %q, want write confirmation", stdout.String())
+		}
+
+		stdout.Reset()
+		if err := ExecuteWithIO([]string{"config", "show", "--dir", serviceDir}, IOStreams{Out: &stdout}); err != nil {
+			t.Fatalf("config show: %v", err)
+		}
+		if !strings.Contains(stdout.String(), "orders") {
+			t.Fatalf("config show output = %q, want service name", stdout.String())
+		}
+
+		stdout.Reset()
+		if err := ExecuteWithIO([]string{"config", "get", "style", "--dir", serviceDir}, IOStreams{Out: &stdout}); err != nil {
+			t.Fatalf("config get style: %v", err)
+		}
+		if strings.TrimSpace(stdout.String()) != "production" {
+			t.Fatalf("config get style = %q, want production", stdout.String())
+		}
+
+		stdout.Reset()
+		if err := ExecuteWithIO([]string{"config", "set", "features", "", "--dir", serviceDir, "--dry-run"}, IOStreams{Out: &stdout}); err != nil {
+			t.Fatalf("config set empty features dry-run: %v", err)
+		}
+		if got := stdout.String(); !strings.Contains(got, "config.set") || !strings.Contains(got, "update-config") {
+			t.Fatalf("config set dry-run output missing plan details:\n%s", got)
+		}
+
+		stdout.Reset()
+		if err := ExecuteWithIO([]string{"config", "clean", "--dir", serviceDir, "--dry-run"}, IOStreams{Out: &stdout}); err != nil {
+			t.Fatalf("config clean dry-run: %v", err)
+		}
+		if !strings.Contains(stdout.String(), "remove-config") {
+			t.Fatalf("config clean dry-run output = %q, want remove-config", stdout.String())
+		}
+
+		stdout.Reset()
+		if err := ExecuteWithIO([]string{"config", "clean", "--dir", serviceDir}, IOStreams{Out: &stdout}); err != nil {
+			t.Fatalf("config clean apply: %v", err)
+		}
+		if !strings.Contains(stdout.String(), "removed gofly config") {
+			t.Fatalf("config clean output = %q, want removal confirmation", stdout.String())
+		}
+
+		for _, args := range [][]string{
+			{"config"},
+			{"config", "get", "--dir", serviceDir},
+			{"config", "set", "--dir", serviceDir},
+			{"config", "unknown", "--dir", serviceDir},
+		} {
+			err := ExecuteWithIO(args, IOStreams{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}})
+			if !errors.Is(err, errUsage) {
+				t.Fatalf("ExecuteWithIO(%v) error = %v, want errUsage", args, err)
+			}
+		}
+	})
+
+	t.Run("feature command text and json branches", func(t *testing.T) {
+		var stdout bytes.Buffer
+		if err := ExecuteWithIO([]string{"feature", "list"}, IOStreams{Out: &stdout}); err != nil {
+			t.Fatalf("feature list text: %v", err)
+		}
+		if !strings.Contains(stdout.String(), "http-compat") {
+			t.Fatalf("feature list output = %q, want registered features", stdout.String())
+		}
+
+		stdout.Reset()
+		if err := ExecuteWithIO([]string{"feature", "run", "http-compat", "--name", "orders", "--module", "example.com/orders", "--dir", serviceDir}, IOStreams{Out: &stdout}); err != nil {
+			t.Fatalf("feature run text: %v", err)
+		}
+		if got := stdout.String(); !strings.Contains(got, "# file:") || !strings.Contains(got, "internal") {
+			t.Fatalf("feature run text output missing file preview:\n%s", got)
+		}
+
+		stdout.Reset()
+		if err := ExecuteWithIO([]string{"feature", "run", "http-compat", "--features", "rpc-compat", "--name", "orders", "--module", "example.com/orders", "--dir", serviceDir, "--json"}, IOStreams{Out: &stdout}); err != nil {
+			t.Fatalf("feature run json: %v", err)
+		}
+		if got := stdout.String(); !strings.Contains(got, `"feature.run"`) || !strings.Contains(got, `"features"`) || !strings.Contains(got, `"data"`) {
+			t.Fatalf("feature run json output missing preview fields:\n%s", got)
+		}
+
+		err := ExecuteWithIO([]string{"feature", "run", "--json"}, IOStreams{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}})
+		if !errors.Is(err, errUsage) || !strings.Contains(err.Error(), "feature run <feature-name>") {
+			t.Fatalf("feature run missing feature error = %v, want usage", err)
+		}
+		for _, args := range [][]string{
+			{"feature"},
+			{"feature", "unknown"},
+		} {
+			err := ExecuteWithIO(args, IOStreams{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}})
+			if !errors.Is(err, errUsage) {
+				t.Fatalf("ExecuteWithIO(%v) error = %v, want errUsage", args, err)
+			}
+		}
+		if err := ExecuteWithIO([]string{"feature", "run", "missing-feature"}, IOStreams{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}}); err == nil || !strings.Contains(err.Error(), "not registered") {
+			t.Fatalf("feature run missing feature error = %v, want not registered", err)
+		}
+	})
+
+	t.Run("plugin command registry and dry-run branches", func(t *testing.T) {
+		registryPath := filepath.Join(t.TempDir(), "plugins.json")
+		registryJSON := `{
+  "version":"v1",
+  "plugins":[{
+    "name":"auth-jwt",
+    "remote":"https://example.com/auth-jwt",
+    "version":"v0.1.0",
+    "description":"JWT auth generator",
+    "tags":["auth","jwt"],
+    "manifest":{"name":"auth-jwt","version":"v0.1.0","compatibleVersions":["1"],"capabilities":["generate:file"],"permissions":["filesystem:write-relative"]}
+  }]
+}`
+		if err := os.WriteFile(registryPath, []byte(registryJSON), 0o600); err != nil {
+			t.Fatalf("write plugin registry: %v", err)
+		}
+
+		var stdout bytes.Buffer
+		if err := ExecuteWithIO([]string{"plugin", "list", "--json"}, IOStreams{Out: &stdout}); err != nil {
+			t.Fatalf("plugin list json: %v", err)
+		}
+		if got := stdout.String(); !strings.Contains(got, `"internal"`) || !strings.Contains(got, `"installed"`) {
+			t.Fatalf("plugin list json output = %q, want internal and installed lists", got)
+		}
+
+		stdout.Reset()
+		if err := ExecuteWithIO([]string{"plugin", "search", "--registry", registryPath, "auth"}, IOStreams{Out: &stdout}); err != nil {
+			t.Fatalf("plugin search text: %v", err)
+		}
+		if !strings.Contains(stdout.String(), "auth-jwt@v0.1.0") {
+			t.Fatalf("plugin search output = %q, want auth-jwt match", stdout.String())
+		}
+
+		stdout.Reset()
+		if err := ExecuteWithIO([]string{"plugin", "search", "--registry", registryPath, "missing"}, IOStreams{Out: &stdout}); err != nil {
+			t.Fatalf("plugin search no matches: %v", err)
+		}
+		if !strings.Contains(stdout.String(), "no plugins matched") {
+			t.Fatalf("plugin search no-match output = %q", stdout.String())
+		}
+
+		stdout.Reset()
+		if err := ExecuteWithIO([]string{"plugin", "run", "--remote", "https://example.com/auth-jwt@v0.1.0", "--name", "orders", "--module", "example.com/orders", "--dir", serviceDir, "--dry-run", "--json"}, IOStreams{Out: &stdout}); err != nil {
+			t.Fatalf("plugin run remote dry-run json: %v", err)
+		}
+		if got := stdout.String(); !strings.Contains(got, `"plugin.run"`) || !strings.Contains(got, "resolve-plugins") || !strings.Contains(got, "dry-run does not download") {
+			t.Fatalf("plugin run dry-run json output missing governance plan:\n%s", got)
+		}
+
+		stdout.Reset()
+		if err := ExecuteWithIO([]string{"plugin", "run", "local-plugin", "--go-plugin", "./plugins", "--name", "orders", "--module", "example.com/orders", "--dir", serviceDir, "--plan"}, IOStreams{Out: &stdout}); err != nil {
+			t.Fatalf("plugin run go-plugin plan: %v", err)
+		}
+		if got := stdout.String(); !strings.Contains(got, "local-plugin") || !strings.Contains(got, "./plugins") || !strings.Contains(got, "execute-plugins") {
+			t.Fatalf("plugin run go-plugin plan output missing inputs/actions:\n%s", got)
+		}
+
+		err := ExecuteWithIO([]string{"plugin", "search"}, IOStreams{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}})
+		if !errors.Is(err, errUsage) || !strings.Contains(err.Error(), "--registry") {
+			t.Fatalf("plugin search missing registry error = %v, want usage", err)
+		}
+		for _, args := range [][]string{
+			{"plugin"},
+			{"plugin", "install"},
+			{"plugin", "uninstall"},
+			{"plugin", "run"},
+			{"plugin", "unknown"},
+		} {
+			err := ExecuteWithIO(args, IOStreams{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}})
+			if !errors.Is(err, errUsage) {
+				t.Fatalf("ExecuteWithIO(%v) error = %v, want errUsage", args, err)
+			}
+		}
+	})
+}
+
+func TestAIControlPlaneTextAndErrorCoverageBuffer_BitsUT(t *testing.T) {
+	t.Run("text snapshot prints metadata guidance and checksum diff", func(t *testing.T) {
+		checksum := defaultAIControlPlaneSnapshot().StableChecksum()
+		var stdout bytes.Buffer
+		args := []string{"ai", "control-plane", "--format", "text", "--from-checksum", checksum}
+		if err := ExecuteWithIO(args, IOStreams{Out: &stdout}); err != nil {
+			t.Fatalf("ai control-plane text: %v", err)
+		}
+		got := stdout.String()
+		for _, want := range []string{"gofly AI control-plane snapshot", "diff changed=false", "consumerAction=skip", "metadata.", "next:"} {
+			if !strings.Contains(got, want) {
+				t.Fatalf("ai control-plane text output missing %q:\n%s", want, got)
+			}
+		}
+	})
+
+	t.Run("invalid flags and provider source validation", func(t *testing.T) {
+		cases := []struct {
+			name string
+			args []string
+			want string
+		}{
+			{name: "bad format", args: []string{"ai", "control-plane", "--format", "xml"}, want: "unsupported --format"},
+			{name: "bad schema", args: []string{"ai", "control-plane", "--schema", "openapi"}, want: "unsupported --schema"},
+			{name: "relative source", args: []string{"ai", "control-plane", "--source", "/admin/control-plane"}, want: "absolute http(s) URL"},
+			{name: "bad scheme", args: []string{"ai", "control-plane", "--source", "ftp://example.com/control-plane.json"}, want: "only http and https"},
+			{name: "bad timeout", args: []string{"ai", "control-plane", "--watch", "--timeout", "0s"}, want: "positive duration"},
+		}
+		for _, tt := range cases {
+			t.Run(tt.name, func(t *testing.T) {
+				err := ExecuteWithIO(tt.args, IOStreams{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}})
+				if !errors.Is(err, errUsage) || !strings.Contains(err.Error(), tt.want) {
+					t.Fatalf("ExecuteWithIO(%v) error = %v, want %q", tt.args, err, tt.want)
+				}
+			})
+		}
+	})
+
+	t.Run("runtime source error branches", func(t *testing.T) {
+		badJSONServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write([]byte(`not-json`))
+		}))
+		defer badJSONServer.Close()
+		if err := ExecuteWithIO([]string{"ai", "control-plane", "--source", badJSONServer.URL, "--json"}, IOStreams{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}}); err == nil || !strings.Contains(err.Error(), "decode control-plane source") {
+			t.Fatalf("bad json source error = %v, want decode control-plane source", err)
+		}
+
+		statusServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+		}))
+		defer statusServer.Close()
+		if err := ExecuteWithIO([]string{"ai", "control-plane", "--source", statusServer.URL, "--json"}, IOStreams{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}}); err == nil || !strings.Contains(err.Error(), "status 403") {
+			t.Fatalf("status source error = %v, want status 403", err)
+		}
+	})
+}
+
+func TestConfigFieldCoverageBuffer_BitsUT(t *testing.T) {
+	cfg := &generator.Config{}
+	setters := map[string]string{
+		"service":                 "orders",
+		"module":                  "example.com/orders",
+		"style":                   "production",
+		"templates":               "templates",
+		"go-version":              "1.26",
+		"features":                "http-compat,rpc-compat",
+		"rpc.plugins":             "kitex",
+		"rpc.transport":           "grpc",
+		"rpc.profile":             "kitex-compatible",
+		"api.plugins":             "auth",
+		"model.style":             "gorm",
+		"model.ignore-columns":    "password,secret",
+		"model.types-map":         "uuid=string,jsonb=[]byte",
+		"model.cache":             "true",
+		"model.strict":            "true",
+		"llm.provider":            "noop",
+		"llm.model":               "noop-model",
+		"llm.max-input-tokens":    "11",
+		"llm.max-output-tokens":   "12",
+		"llm.max-total-tokens":    "23",
+		"llm.rate-limit":          "3",
+		"llm.rate-burst":          "5",
+		"llm.timeout":             "2s",
+		"custom.extra.governance": "enabled",
+	}
+	for key, value := range setters {
+		if err := setConfigField(cfg, key, value); err != nil {
+			t.Fatalf("setConfigField(%q): %v", key, err)
+		}
+	}
+
+	getters := map[string]string{
+		"service":                 "orders",
+		"module":                  "example.com/orders",
+		"style":                   "production",
+		"templates":               "templates",
+		"go-version":              "1.26",
+		"features":                "http-compat,rpc-compat",
+		"rpc.plugins":             "kitex",
+		"rpc.transport":           "grpc",
+		"rpc.profile":             "kitex-compatible",
+		"api.plugins":             "auth",
+		"model.style":             "gorm",
+		"model.ignore-columns":    "password,secret",
+		"model.cache":             "true",
+		"model.strict":            "true",
+		"llm.provider":            "noop",
+		"llm.model":               "noop-model",
+		"llm.max-input-tokens":    "11",
+		"llm.max-output-tokens":   "12",
+		"llm.max-total-tokens":    "23",
+		"llm.rate-limit":          "3",
+		"llm.rate-burst":          "5",
+		"llm.timeout":             "2s",
+		"custom.extra.governance": "enabled",
+	}
+	for key, want := range getters {
+		if got := getConfigField(cfg, key); got != want {
+			t.Fatalf("getConfigField(%q) = %q, want %q", key, got, want)
+		}
+	}
+	if got := getConfigField(&generator.Config{}, "llm.max-total-tokens"); got != "0" {
+		t.Fatalf("nil LLM max-total getter = %q, want 0", got)
+	}
+	for _, key := range []string{"rpc.plugins", "rpc.transport", "rpc.profile", "api.plugins", "model.style", "model.ignore-columns", "model.types-map", "llm.provider", "llm.model", "llm.timeout", "unknown"} {
+		if got := getConfigField(&generator.Config{}, key); got != "" {
+			t.Fatalf("nil config getConfigField(%q) = %q, want empty", key, got)
+		}
+	}
+	if err := setConfigField(&generator.Config{}, "llm.max-input-tokens", "-1"); !errors.Is(err, errUsage) {
+		t.Fatalf("set negative llm token budget error = %v, want errUsage", err)
+	}
+	if err := setConfigField(&generator.Config{}, "llm.timeout", "bad-duration"); !errors.Is(err, errUsage) {
+		t.Fatalf("set bad llm timeout error = %v, want errUsage", err)
+	}
+}
+
 func TestAINewGeneratedArtifactsAreDeterministicAndIdempotent_BitsUT(t *testing.T) {
 	firstDir := filepath.Join(t.TempDir(), "first")
 	secondDir := filepath.Join(t.TempDir(), "second")

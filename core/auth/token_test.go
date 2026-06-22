@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http/httptest"
 	"strconv"
@@ -83,6 +84,60 @@ func TestJWTSignVerifyAndValidator(t *testing.T) {
 	}
 	if _, err := VerifyJWT(token+"x", secret, JWTOptions{Now: func() time.Time { return now }}); !errors.Is(err, ErrInvalidCredentials) {
 		t.Fatalf("tampered token error = %v, want ErrInvalidCredentials", err)
+	}
+}
+
+func TestJWTValidationAndHeaderHelpers_BitsUT(t *testing.T) {
+	now := time.Unix(1000, 0)
+	for _, tt := range []struct {
+		name   string
+		claims JWTClaims
+		opts   JWTOptions
+		want   error
+	}{
+		{name: "future not before", claims: JWTClaims{NotBefore: now.Add(time.Minute).Unix()}, opts: JWTOptions{Now: func() time.Time { return now }}, want: ErrInvalidCredentials},
+		{name: "issuer mismatch", claims: JWTClaims{Issuer: "other"}, opts: JWTOptions{Issuer: "gofly", Now: func() time.Time { return now }}, want: ErrInvalidCredentials},
+		{name: "audience mismatch", claims: JWTClaims{Audience: "other"}, opts: JWTOptions{Audience: "api", Now: func() time.Time { return now }}, want: ErrInvalidCredentials},
+		{name: "default clock valid", claims: JWTClaims{Subject: "alice"}, opts: JWTOptions{}, want: nil},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateClaims(tt.claims, tt.opts)
+			if !errors.Is(err, tt.want) {
+				t.Fatalf("validateClaims error = %v, want %v", err, tt.want)
+			}
+		})
+	}
+
+	if got := jsonNumberInt64(float64(123.9)); got != 123 {
+		t.Fatalf("jsonNumberInt64(float64) = %d, want 123", got)
+	}
+	if got := jsonNumberInt64(json.Number("456")); got != 456 {
+		t.Fatalf("jsonNumberInt64(json.Number) = %d, want 456", got)
+	}
+	if got := jsonNumberInt64("789"); got != 0 {
+		t.Fatalf("jsonNumberInt64(string) = %d, want 0", got)
+	}
+
+	secret := []byte("secret")
+	withKID, err := SignJWTWithKID(JWTClaims{Subject: "alice"}, "kid-1", secret)
+	if err != nil {
+		t.Fatalf("SignJWTWithKID: %v", err)
+	}
+	if got, err := kidFromToken(withKID); err != nil || got != "kid-1" {
+		t.Fatalf("kidFromToken(with kid) = %q/%v, want kid-1/nil", got, err)
+	}
+	withoutKID, err := SignJWT(JWTClaims{Subject: "alice"}, secret)
+	if err != nil {
+		t.Fatalf("SignJWT: %v", err)
+	}
+	if got, err := kidFromToken(withoutKID); err != nil || got != "" {
+		t.Fatalf("kidFromToken(without kid) = %q/%v, want empty/nil", got, err)
+	}
+	if _, err := kidFromToken(""); !errors.Is(err, ErrMissingCredentials) {
+		t.Fatalf("kidFromToken empty error = %v, want ErrMissingCredentials", err)
+	}
+	if _, err := kidFromToken("not.a.jwt"); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("kidFromToken malformed error = %v, want ErrInvalidCredentials", err)
 	}
 }
 

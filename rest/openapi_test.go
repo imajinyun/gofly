@@ -3,6 +3,7 @@ package rest
 import (
 	"encoding/json"
 	"net/http"
+	"reflect"
 	"testing"
 )
 
@@ -68,6 +69,55 @@ func TestNilServerOpenAPI(t *testing.T) {
 	doc := s.OpenAPI(OpenAPIInfo{})
 	if doc.Info.Title != "gofly service" || doc.Info.Version != "0.0.0" || len(doc.Paths) != 0 {
 		t.Fatalf("nil server openapi = %+v, want default empty document", doc)
+	}
+}
+
+func TestOpenAPISchemaFromTypeAndCloneBoundaries_BitsUT(t *testing.T) {
+	type nested struct {
+		Name string `json:"name" validate:"required,min=2,max=10"`
+	}
+	tests := []struct {
+		name     string
+		value    any
+		wantType string
+		wantFmt  string
+	}{
+		{name: "bool", value: true, wantType: "boolean"},
+		{name: "integer", value: int16(1), wantType: "integer", wantFmt: "int64"},
+		{name: "float", value: float32(1), wantType: "number", wantFmt: "double"},
+		{name: "string fallback", value: "name", wantType: "string"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			schema := schemaFromType(reflect.TypeOf(tt.value))
+			if schema.Type != tt.wantType || schema.Format != tt.wantFmt {
+				t.Fatalf("schemaFromType(%T) = %#v, want type=%q format=%q", tt.value, schema, tt.wantType, tt.wantFmt)
+			}
+		})
+	}
+	arraySchema := schemaFromType(reflect.TypeOf([]nested{}))
+	if arraySchema.Type != "array" || arraySchema.Items == nil || arraySchema.Items.Properties["name"].Type != "string" {
+		t.Fatalf("array schema = %#v, want nested object items", arraySchema)
+	}
+	mapSchema := schemaFromType(reflect.TypeOf(map[string][]int{}))
+	if mapSchema.Type != "object" || mapSchema.AdditionalProperties == nil || mapSchema.AdditionalProperties.Type != "array" || mapSchema.AdditionalProperties.Items.Type != "integer" {
+		t.Fatalf("map schema = %#v, want array additional properties", mapSchema)
+	}
+	objectSchema := schemaFromType(reflect.TypeOf(nested{}))
+	if objectSchema.Type != "object" || len(objectSchema.Required) != 1 || objectSchema.Required[0] != "name" || objectSchema.Properties["name"].MinLength == nil || objectSchema.Properties["name"].MaxLength == nil {
+		t.Fatalf("object schema = %#v, want required validation metadata", objectSchema)
+	}
+
+	minimum := 1.5
+	minLength := 2
+	clone := cloneSchema(Schema{Minimum: &minimum, MinLength: &minLength})
+	minimum = 9.9
+	minLength = 99
+	if clone.Minimum == nil || *clone.Minimum != 1.5 || clone.MinLength == nil || *clone.MinLength != 2 {
+		t.Fatalf("clone schema pointers = min=%v len=%v, want defensive copies", clone.Minimum, clone.MinLength)
+	}
+	if cloneFloat64Ptr(nil) != nil || cloneIntPtr(nil) != nil {
+		t.Fatal("nil pointer clones should stay nil")
 	}
 }
 

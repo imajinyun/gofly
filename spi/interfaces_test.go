@@ -83,6 +83,35 @@ func TestRPCInterceptorFuncWrapsEndpoint(t *testing.T) {
 	}
 }
 
+func TestMiddlewareAdaptersNilPassThrough_BitsUT(t *testing.T) {
+	httpHandler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusAccepted)
+	})
+	for _, handler := range []http.Handler{
+		HTTPMiddlewareFunc(nil).WrapHTTP(httpHandler),
+		RESTMiddleware(nil)(httpHandler),
+	} {
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/", nil))
+		if recorder.Code != http.StatusAccepted {
+			t.Fatalf("nil HTTP adapter status = %d, want %d", recorder.Code, http.StatusAccepted)
+		}
+	}
+
+	rpcEndpoint := endpoint.Endpoint(func(ctx context.Context, req any) (any, error) {
+		return req, ctx.Err()
+	})
+	for _, wrapped := range []endpoint.Endpoint{
+		RPCInterceptorFunc(nil).WrapRPC(rpcEndpoint),
+		EndpointMiddleware(nil)(rpcEndpoint),
+	} {
+		got, err := wrapped(context.Background(), "orders")
+		if err != nil || got != "orders" {
+			t.Fatalf("nil RPC adapter result = %v/%v, want orders/nil", got, err)
+		}
+	}
+}
+
 func TestStableProviderContractsRemainCompatible(t *testing.T) {
 	ctx := context.Background()
 	conf, err := config.StaticProvider[spiTestConfig]{Value: spiTestConfig{Name: "orders"}}.Load(ctx)

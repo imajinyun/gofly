@@ -179,6 +179,135 @@ func TestRPCPolicyValidateAndGovernanceMapping(t *testing.T) {
 	}
 }
 
+func TestRPCPolicyValidateAdditionalBoundaries_BitsUT(t *testing.T) {
+	tests := []struct {
+		name   string
+		policy RPCPolicy
+		want   string
+	}{
+		{name: "negative retry backoff", policy: RPCPolicy{Retry: governance.RetryPolicy{Backoff: -time.Millisecond}}, want: "retry backoff"},
+		{name: "negative hedge delay", policy: RPCPolicy{Hedge: RPCHedgePolicy{Delay: -time.Millisecond}}, want: "hedge delay"},
+		{name: "negative hedge attempts", policy: RPCPolicy{Hedge: RPCHedgePolicy{Attempts: -1}}, want: "hedge attempts"},
+		{name: "negative breaker open timeout", policy: RPCPolicy{Breaker: governance.BreakerPolicy{OpenTimeout: -time.Second}}, want: "breaker open timeout"},
+		{name: "negative breaker window", policy: RPCPolicy{Breaker: governance.BreakerPolicy{Window: -time.Second}}, want: "breaker window"},
+		{name: "negative load shedder max concurrency", policy: RPCPolicy{LoadShedder: RPCLoadShedderPolicy{MaxConcurrency: -1}}, want: "max concurrency"},
+		{name: "negative load shedder max inflight", policy: RPCPolicy{LoadShedder: RPCLoadShedderPolicy{MaxInflight: -1}}, want: "max inflight"},
+		{name: "negative load shedder min window", policy: RPCPolicy{LoadShedder: RPCLoadShedderPolicy{MinWindow: -time.Second}}, want: "min window"},
+		{name: "empty weighted endpoint", policy: RPCPolicy{Balancer: RPCBalancerPolicy{Name: RPCBalancerWeightedRoundRobin, Weights: map[string]int{" ": 1}}}, want: "endpoint is empty"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.policy.Validate()
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("Validate err = %v, want containing %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestRPCPolicyMergeAndBalancerHelpers_BitsUT(t *testing.T) {
+	base := RPCPolicy{
+		Timeout:  time.Second,
+		Retry:    governance.RetryPolicy{Attempts: 1, Backoff: time.Millisecond, Statuses: []int{500}, Methods: []string{"Base"}},
+		Metadata: map[string]string{"base": "kept", "shared": "base"},
+		Headers:  map[string]string{"X-Base": "1"},
+	}
+	override := RPCPolicy{
+		Timeout:  2 * time.Second,
+		Retry:    governance.RetryPolicy{Attempts: 3, Backoff: 2 * time.Millisecond, Statuses: []int{503}, Methods: []string{"Override"}},
+		Breaker:  governance.BreakerPolicy{Enabled: true, OpenTimeout: time.Second},
+		Hedge:    RPCHedgePolicy{Delay: time.Millisecond, Attempts: 3},
+		Fallback: RPCFallbackPolicy{Target: "http://fallback", Method: "svc/Fallback"},
+		LoadShedder: RPCLoadShedderPolicy{
+			MaxInflight: 2,
+			MinWindow:   time.Second,
+		},
+		Balancer: RPCBalancerPolicy{Name: RPCBalancerWeightedRoundRobin, Weights: map[string]int{"http://a": 2}},
+		Metadata: map[string]string{"shared": "override", "extra": "yes"},
+		Headers:  map[string]string{"X-Override": "1"},
+	}
+	merged := mergeRPCPolicy(base, override)
+	if merged.Timeout != 2*time.Second || merged.Retry.Attempts != 3 || merged.Retry.Backoff != 2*time.Millisecond || !merged.Breaker.Enabled {
+		t.Fatalf("merged scalar policy = %#v, want override values", merged)
+	}
+	if merged.Hedge.Attempts != 3 || merged.Fallback.Method != "svc/Fallback" || merged.LoadShedder.MaxInflight != 2 || merged.Balancer.Name != RPCBalancerWeightedRoundRobin {
+		t.Fatalf("merged advanced policy = %#v, want override advanced fields", merged)
+	}
+	if merged.Metadata["base"] != "kept" || merged.Metadata["shared"] != "override" || merged.Headers["X-Base"] != "1" || merged.Headers["X-Override"] != "1" {
+		t.Fatalf("merged maps = metadata=%#v headers=%#v, want base plus override", merged.Metadata, merged.Headers)
+	}
+	override.Balancer.Weights["http://a"] = 99
+	if merged.Balancer.Weights["http://a"] != 2 {
+		t.Fatalf("merged balancer weights alias override: %#v", merged.Balancer.Weights)
+	}
+	if got := mergeRPCPolicyStringMap(nil, nil); got != nil {
+		t.Fatalf("mergeRPCPolicyStringMap(nil, nil) = %#v, want nil", got)
+	}
+	copyOnly := mergeRPCPolicyStringMap(nil, map[string]string{"k": "v"})
+	if copyOnly["k"] != "v" {
+		t.Fatalf("copy-only merge = %#v, want k=v", copyOnly)
+	}
+
+	ctx := metadata.NewContext(context.Background(), metadata.MD{"tenant": "alpha"})
+	if got := rpcPolicyHashKey(ctx, " tenant "); got != "alpha" {
+		t.Fatalf("rpcPolicyHashKey metadata = %q, want alpha", got)
+	}
+	if got := rpcPolicyHashKey(context.Background(), " fallback "); got != "fallback" {
+		t.Fatalf("rpcPolicyHashKey fallback = %q, want fallback", got)
+	}
+	if got := rpcPolicyHashKey(context.Background(), " "); got != "" {
+		t.Fatalf("rpcPolicyHashKey blank = %q, want empty", got)
+	}
+
+	client, err := NewClient("http://127.0.0.1:1", WithBalancer(NewConsistentHashBalancer()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := client.effectiveBalancerName(RPCBalancerPolicy{Name: " " + RPCBalancerHealth + " "}); got != RPCBalancerHealth {
+		t.Fatalf("explicit balancer name = %q, want health", got)
+	}
+	if got := client.effectiveBalancerName(RPCBalancerPolicy{}); got != RPCBalancerConsistentHash {
+		t.Fatalf("inferred balancer name = %q, want consistent_hash", got)
+	}
+	weightedClient, err := NewClient("http://127.0.0.1:1", WithBalancer(NewWeightedRoundRobinBalancer(map[string]int{"http://a": 1})))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := weightedClient.effectiveBalancerName(RPCBalancerPolicy{}); got != RPCBalancerWeightedRoundRobin {
+		t.Fatalf("weighted inferred balancer name = %q, want weighted_round_robin", got)
+	}
+	p2cClient, err := NewClient("http://127.0.0.1:1", WithBalancer(NewP2CBalancer()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := p2cClient.effectiveBalancerName(RPCBalancerPolicy{}); got != RPCBalancerP2C {
+		t.Fatalf("p2c inferred balancer name = %q, want p2c", got)
+	}
+	healthClient, err := NewClient("http://127.0.0.1:1", WithBalancer(NewHealthBalancer()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := healthClient.effectiveBalancerName(RPCBalancerPolicy{}); got != RPCBalancerHealth {
+		t.Fatalf("health inferred balancer name = %q, want health", got)
+	}
+	for _, tt := range []struct {
+		name   string
+		policy RPCBalancerPolicy
+	}{
+		{name: "weighted", policy: RPCBalancerPolicy{Name: RPCBalancerWeightedRoundRobin, Weights: map[string]int{"http://a": 1}}},
+		{name: "p2c", policy: RPCBalancerPolicy{Name: RPCBalancerP2C}},
+		{name: "consistent", policy: RPCBalancerPolicy{Name: RPCBalancerConsistentHash, Key: "tenant"}},
+		{name: "health", policy: RPCBalancerPolicy{Name: RPCBalancerHealth}},
+		{name: "default", policy: RPCBalancerPolicy{Name: "unknown"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if balancer := newRPCPolicyBalancer(tt.policy); balancer == nil {
+				t.Fatalf("newRPCPolicyBalancer(%#v) = nil", tt.policy)
+			}
+		})
+	}
+}
+
 func metadataContext(key, value string) context.Context {
 	return metadata.NewContext(context.Background(), metadata.MD{key: value})
 }

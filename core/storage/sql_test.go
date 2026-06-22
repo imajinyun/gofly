@@ -193,6 +193,32 @@ func TestDialectLimitOffsetContracts(t *testing.T) {
 	}
 }
 
+func TestDialectMethodsDelegateToHelpers_BitsUT(t *testing.T) {
+	if got := DialectPostgres.Placeholder(3); got != "$3" {
+		t.Fatalf("Dialect.Placeholder postgres = %q, want $3", got)
+	}
+	quoted, err := DialectMySQL.QuoteIdent("users.name")
+	if err != nil {
+		t.Fatalf("Dialect.QuoteIdent mysql: %v", err)
+	}
+	if quoted != "`users`.`name`" {
+		t.Fatalf("Dialect.QuoteIdent mysql = %q, want backtick qualified identifier", quoted)
+	}
+	clause, args, err := DialectPostgres.LimitOffset(10, 20, 2)
+	if err != nil {
+		t.Fatalf("Dialect.LimitOffset postgres: %v", err)
+	}
+	if clause != " LIMIT $2 OFFSET $3" || len(args) != 2 || args[0] != 10 || args[1] != 20 {
+		t.Fatalf("Dialect.LimitOffset = %q %#v, want postgres placeholders and args", clause, args)
+	}
+	if _, err := DialectQuestion.QuoteIdent("bad-name"); !errors.Is(err, ErrInvalidIdentifier) {
+		t.Fatalf("Dialect.QuoteIdent invalid error = %v, want ErrInvalidIdentifier", err)
+	}
+	if _, _, err := DialectQuestion.LimitOffset(-1, 0, 1); err == nil || !strings.Contains(err.Error(), "limit must not be negative") {
+		t.Fatalf("Dialect.LimitOffset negative error = %v, want negative limit error", err)
+	}
+}
+
 func TestSQLMutationAndPageBuilders(t *testing.T) {
 	updateQuery, err := UpdateByID("users", []string{"name", "age"}, "id", DialectPostgres)
 	if err != nil {

@@ -42,6 +42,25 @@ func TestContextBindRequest(t *testing.T) {
 	}
 }
 
+func TestValidationFailuresErrorAndDefensiveCopy_BitsUT(t *testing.T) {
+	var empty ValidationFailures
+	if got := empty.Error(); got != "validation failed" {
+		t.Fatalf("empty ValidationFailures.Error() = %q, want validation failed", got)
+	}
+	failures := ValidationFailures{
+		{Field: "name", Rule: "required", Message: "name is required"},
+		{Field: "age", Rule: "min", Message: "age must be positive"},
+	}
+	if got := failures.Error(); got != "name is required" {
+		t.Fatalf("ValidationFailures.Error() = %q, want first message", got)
+	}
+	copy := failures.ValidationFailures()
+	copy[0].Message = "mutated"
+	if failures[0].Message != "name is required" {
+		t.Fatalf("ValidationFailures.ValidationFailures leaked mutable backing array: %+v", failures)
+	}
+}
+
 func TestBindingScalarAndNumericBoundaries_BitsUT(t *testing.T) {
 	type sample struct {
 		Name    string
@@ -91,6 +110,14 @@ func TestBindingScalarAndNumericBoundaries_BitsUT(t *testing.T) {
 	}
 	if numericValue(reflect.ValueOf([]string{"a", "b"})) != 2 || numericValue(reflect.ValueOf(map[string]int{"x": 1})) != 1 || numericValue(reflect.ValueOf("abc")) != 3 {
 		t.Fatal("numericValue should return len for slice/map/string")
+	}
+	zero := 0
+	nonZero := 3
+	if !isZero(reflect.ValueOf(&zero)) || isZero(reflect.ValueOf(&nonZero)) {
+		t.Fatal("isZero should dereference pointers and inspect pointed value")
+	}
+	if numericValue(reflect.ValueOf(int64(-4))) != -4 || numericValue(reflect.ValueOf(uint32(5))) != 5 || numericValue(reflect.ValueOf(float64(2.5))) != 2.5 || numericValue(reflect.ValueOf(struct{}{})) != 0 {
+		t.Fatal("numericValue should handle signed, unsigned, float, and unsupported values")
 	}
 }
 

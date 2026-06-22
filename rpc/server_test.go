@@ -140,6 +140,21 @@ func TestRPCRequestIDMiddlewareAddsAndPreservesID(t *testing.T) {
 	}
 }
 
+func TestRPCClientStreamTraceMiddlewareForwardsCall_BitsUT(t *testing.T) {
+	called := false
+	mw := ClientStreamTraceMiddleware("orders")(func(ctx context.Context, method string) (*Stream, error) {
+		called = true
+		if method != "orders/Watch" {
+			t.Fatalf("method = %q, want orders/Watch", method)
+		}
+		return nil, nil
+	})
+	stream, err := mw(context.Background(), "orders/Watch")
+	if err != nil || stream != nil || !called {
+		t.Fatalf("ClientStreamTraceMiddleware result = %#v/%v called=%t, want nil/nil/true", stream, err, called)
+	}
+}
+
 func TestRPCServerAuthMiddlewareContracts(t *testing.T) {
 	mw := ServerAuthMiddleware(auth.StaticTokenValidator("secret", "rpc-user"))(func(ctx context.Context, req any) (any, error) {
 		return auth.SubjectFromContext(ctx), nil
@@ -322,6 +337,47 @@ func TestHTTPServerStopTimeoutAndRegisterError_BitsUT(t *testing.T) {
 	}
 	if err := failing.register(context.Background(), "127.0.0.1:9000"); err == nil || !strings.Contains(err.Error(), "register rpc service greeter") || !strings.Contains(err.Error(), "boom") {
 		t.Fatalf("register error = %v, want service wrapping", err)
+	}
+}
+
+func TestHTTPServerStartShutdownAliases_BitsUT(t *testing.T) {
+	s := NewServer(WithAddress("not a valid listen address"))
+	if err := s.Start(); err == nil || !strings.Contains(err.Error(), "listen rpc") {
+		t.Fatalf("Start invalid address error = %v, want listen rpc error", err)
+	}
+	if err := NewServer().Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown before Run error = %v", err)
+	}
+}
+
+func TestHTTPServerRunShutdownLifecycle_BitsUT(t *testing.T) {
+	s := NewServer(WithAddress("127.0.0.1:0"))
+	runErr := make(chan error, 1)
+	go func() {
+		runErr <- s.Run()
+	}()
+
+	deadline := time.After(time.Second)
+	for s.State().State != "running" {
+		select {
+		case err := <-runErr:
+			t.Fatalf("Run exited before running: %v", err)
+		case <-deadline:
+			t.Fatal("timed out waiting for server to reach running state")
+		default:
+			time.Sleep(time.Millisecond)
+		}
+	}
+	if err := s.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown running server error = %v", err)
+	}
+	select {
+	case err := <-runErr:
+		if err != nil {
+			t.Fatalf("Run after Shutdown error = %v, want nil", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for Run to exit after Shutdown")
 	}
 }
 

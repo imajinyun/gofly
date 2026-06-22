@@ -114,6 +114,47 @@ func TestProjectFeatureLibraryAppliesTemplateTags(t *testing.T) {
 	}
 }
 
+func TestProjectFeaturePluginContractsAreStableAndDefensive_BitsUT(t *testing.T) {
+	contracts := ListProjectFeaturePluginContracts()
+	if len(contracts) < 4 {
+		t.Fatalf("ListProjectFeaturePluginContracts returned %d contracts, want at least the production feature contracts", len(contracts))
+	}
+	for i := 1; i < len(contracts); i++ {
+		if contracts[i-1].Name > contracts[i].Name {
+			t.Fatalf("contracts are not sorted: %q before %q", contracts[i-1].Name, contracts[i].Name)
+		}
+	}
+	var ciDocker ProjectFeaturePluginContract
+	for _, contract := range contracts {
+		if contract.Name == "ci-docker" {
+			ciDocker = contract
+			break
+		}
+	}
+	if ciDocker.Name == "" || strings.Join(ciDocker.Tags, ",") != "ci,docker" || strings.Join(ciDocker.VerifyCommands, ",") != "go test ./..." {
+		t.Fatalf("ci-docker contract = %+v, want stable tags and verify command", ciDocker)
+	}
+	var postgres ProjectFeaturePluginContract
+	for _, contract := range contracts {
+		if contract.Name == "postgres-repository" {
+			postgres = contract
+			break
+		}
+	}
+	if postgres.Name == "" || strings.Join(postgres.Dependencies, ",") != "github.com/jackc/pgx/v5@latest" || len(postgres.ConfigHints) != 1 || postgres.ConfigHints[0].Key != "DATABASE_URL" || strings.Join(postgres.VerifyCommands, ",") != "go test ./..." {
+		t.Fatalf("postgres contract = %+v, want dependency, config hint and verify command", postgres)
+	}
+	mutatedIndex := 0
+	contracts[mutatedIndex].Tags[0] = "mutated"
+	contracts[0].Dependencies = append(contracts[0].Dependencies, "example.com/mutated")
+	contracts[0].ConfigHints = append(contracts[0].ConfigHints, ConfigHint{Key: "MUTATED", Description: "mutation"})
+	contracts[0].VerifyCommands = append(contracts[0].VerifyCommands, "rm -rf /")
+	fresh := ListProjectFeaturePluginContracts()
+	if fresh[mutatedIndex].Tags[0] == "mutated" || len(fresh[mutatedIndex].Dependencies) != len(contracts[mutatedIndex].Dependencies)-1 || len(fresh[mutatedIndex].ConfigHints) != len(contracts[mutatedIndex].ConfigHints)-1 || len(fresh[mutatedIndex].VerifyCommands) != len(contracts[mutatedIndex].VerifyCommands)-1 {
+		t.Fatalf("ListProjectFeaturePluginContracts leaked mutable slices: first=%+v fresh=%+v", contracts[0], fresh[0])
+	}
+}
+
 func TestProjectFeatureLibraryRejectsUnsafeOutput(t *testing.T) {
 	_, err := ApplyProjectFeaturePlugins(ProjectFeatureOptions{Dir: "", Name: "bad", Module: "example.com/bad", Features: []string{"openapi"}})
 	if err == nil || !strings.Contains(err.Error(), "output directory is required") {

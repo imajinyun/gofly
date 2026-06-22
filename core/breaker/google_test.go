@@ -122,3 +122,19 @@ func TestGoogleBreakerDoCallsMarkFailure(t *testing.T) {
 		t.Fatalf("reject probability = %f, want 0 after MarkFailure no-op", p)
 	}
 }
+
+func TestGoogleBreakerMarkFailureIsCompatibilityNoop_BitsUT(t *testing.T) {
+	now := time.Unix(0, 0)
+	b := NewGoogle(WithGoogleK(2))
+	b.now = func() time.Time { return now }
+	for i := 0; i < 10; i++ {
+		b.currentBucketLocked(now).requests++
+		b.currentBucketLocked(now).accepts++
+	}
+	before := b.RejectProbability()
+	b.MarkFailure()
+	b.MarkFailure()
+	if after := b.RejectProbability(); after != before {
+		t.Fatalf("RejectProbability after explicit MarkFailure = %f, want unchanged %f", after, before)
+	}
+}

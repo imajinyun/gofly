@@ -233,22 +233,28 @@ snapshot={
 with open(sys.argv[1], "w", encoding="utf-8") as f:
     json.dump(snapshot, f)
 PY
-	python3 -m http.server 0 --bind 127.0.0.1 --directory "$tmp" >"$tmp/control-plane-http.log" 2>&1 &
+	python3 - "$tmp" "$tmp/control-plane-http-port" >"$tmp/control-plane-http.log" 2>&1 <<'PY' &
+import functools
+import http.server
+import pathlib
+import sys
+
+directory = sys.argv[1]
+port_file = pathlib.Path(sys.argv[2])
+handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=directory)
+server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+port_file.write_text(str(server.server_address[1]), encoding="utf-8")
+server.serve_forever()
+PY
 	cp_pid="$!"
-	python3 - "$tmp/control-plane-http.log" >"$tmp/control-plane-http-port" <<'PY'
-import re,sys,time
-log=sys.argv[1]
+	python3 - "$tmp/control-plane-http-port" <<'PY'
+import pathlib,sys,time
+port_file=pathlib.Path(sys.argv[1])
 for _ in range(50):
-    try:
-        text=open(log, encoding="utf-8").read()
-    except FileNotFoundError:
-        text=""
-    match=re.search(r"port (\d+)", text)
-    if match:
-        print(match.group(1))
+    if port_file.exists() and port_file.read_text(encoding="utf-8").strip():
         raise SystemExit(0)
     time.sleep(0.1)
-raise SystemExit("http server did not report a port")
+raise SystemExit("http server did not write a port")
 PY
 	cp_port="$(cat "$tmp/control-plane-http-port")"
 	"$go_cmd" run ./cmd/gofly ai control-plane --source "http://127.0.0.1:$cp_port/runtime-control-plane.json" --watch --max-events 1 --timeout 2s --json 2>/dev/null | python3 -c '

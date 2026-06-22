@@ -209,7 +209,7 @@ func materializeNewServiceAPIContract(inputs newServiceContractInputs, serviceNa
 		}
 		return apiOut, nil
 	}
-	if err := copyNewServiceContractFile(apiFile, apiOut); err != nil {
+	if err := copyNewServiceContractFile(apiFile, apiOut, dir); err != nil {
 		return "", fmt.Errorf("copy API contract: %w", err)
 	}
 	return apiOut, nil
@@ -231,19 +231,19 @@ func materializeNewServiceRPCContract(inputs newServiceContractInputs, serviceNa
 		}
 		generatedProto := filepath.Join(dir, strings.TrimSuffix(filepath.Base(thriftFile), filepath.Ext(thriftFile))+".proto")
 		if generatedProto != protoOut {
-			if err := copyNewServiceContractFile(generatedProto, protoOut); err != nil {
+			if err := copyNewServiceContractFile(generatedProto, protoOut, dir); err != nil {
 				return "", fmt.Errorf("copy thrift-derived proto contract: %w", err)
 			}
 		}
 		return protoOut, nil
 	}
-	if err := copyNewServiceContractFile(protoFile, protoOut); err != nil {
+	if err := copyNewServiceContractFile(protoFile, protoOut, dir); err != nil {
 		return "", fmt.Errorf("copy proto contract: %w", err)
 	}
 	return protoOut, nil
 }
 
-func copyNewServiceContractFile(src, dst string) error {
+func copyNewServiceContractFile(src, dst, root string) error {
 	if sameFilePath(src, dst) {
 		return nil
 	}
@@ -252,15 +252,73 @@ func copyNewServiceContractFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(dst), 0o750); err != nil {
+	target, err := secureNewServiceContractTarget(root, dst)
+	if err != nil {
 		return err
 	}
-	if info, err := os.Lstat(dst); err == nil && info.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("refusing to overwrite symlink contract target %s", dst)
+	// #nosec G306 G703 -- target is absolute, its parent chain is symlink-free, and the leaf target is rejected when it is a symlink.
+	return os.WriteFile(target, data, 0o600)
+}
+
+func secureNewServiceContractTarget(root, dst string) (string, error) {
+	if strings.TrimSpace(root) == "" {
+		return "", fmt.Errorf("contract output root is required")
+	}
+	if strings.TrimSpace(dst) == "" {
+		return "", fmt.Errorf("contract target path is required")
+	}
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return "", fmt.Errorf("resolve contract output root %s: %w", root, err)
+	}
+	if info, err := os.Lstat(absRoot); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		return "", fmt.Errorf("contract output root %s must not be a symlink", absRoot)
+	} else if err != nil {
+		return "", err
+	}
+	absDst, err := filepath.Abs(dst)
+	if err != nil {
+		return "", fmt.Errorf("resolve contract target path %s: %w", dst, err)
+	}
+	rel, err := filepath.Rel(absRoot, absDst)
+	if err != nil {
+		return "", fmt.Errorf("rel contract target path %s: %w", dst, err)
+	}
+	if rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("contract target path %q escapes output root %q", absDst, absRoot)
+	}
+	if err := rejectNewServiceContractSymlinkParent(absRoot, rel); err != nil {
+		return "", err
+	}
+	dir := filepath.Dir(absDst)
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return "", err
+	}
+	if info, err := os.Lstat(absDst); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		return "", fmt.Errorf("refusing to overwrite symlink contract target %s", absDst)
 	} else if err != nil && !os.IsNotExist(err) {
-		return err
+		return "", err
 	}
-	return os.WriteFile(dst, data, 0o600)
+	return absDst, nil
+}
+
+func rejectNewServiceContractSymlinkParent(root, rel string) error {
+	current := root
+	parts := strings.Split(filepath.Clean(rel), string(filepath.Separator))
+	for _, part := range parts[:len(parts)-1] {
+		current = filepath.Join(current, part)
+		info, err := os.Lstat(current)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil
+			}
+			return fmt.Errorf("inspect contract target path %s: %w", current, err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("contract target path %q traverses symlink %q", rel, current)
+		}
+	}
+	return nil
 }
 
 func newServiceContractOutputPath(dir, serviceName, ext string) (string, error) {

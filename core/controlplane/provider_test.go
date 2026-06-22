@@ -3,12 +3,151 @@ package controlplane
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/gofly/gofly/core/discovery"
 	"github.com/gofly/gofly/core/governance"
 )
+
+func TestSnapshotContributorFuncBoundaries_BitsUT(t *testing.T) {
+	ctx := context.Background()
+	var snapshot Snapshot
+	var nilContributor SnapshotContributorFunc
+	if err := nilContributor.ContributeSnapshot(ctx, &snapshot); err != nil {
+		t.Fatalf("nil SnapshotContributorFunc returned error = %v, want nil", err)
+	}
+	boom := errors.New("boom")
+	called := false
+	contributor := SnapshotContributorFunc(func(gotCtx context.Context, gotSnapshot *Snapshot) error {
+		if gotCtx != ctx {
+			t.Fatalf("contributor context = %v, want original context", gotCtx)
+		}
+		if gotSnapshot != &snapshot {
+			t.Fatalf("contributor snapshot pointer = %p, want %p", gotSnapshot, &snapshot)
+		}
+		gotSnapshot.Metadata = map[string]string{"feature": "available"}
+		called = true
+		return boom
+	})
+	if err := contributor.ContributeSnapshot(ctx, &snapshot); !errors.Is(err, boom) {
+		t.Fatalf("contributor error = %v, want wrapped boom", err)
+	}
+	if !called || snapshot.Metadata["feature"] != "available" {
+		t.Fatalf("contributor called=%t snapshot=%+v, want mutation before error", called, snapshot)
+	}
+}
+
+func TestControlPlanePureOrderingAndClassification_BitsUT(t *testing.T) {
+	rules := []governance.Rule{
+		{Name: "same", Priority: 1, Service: "users", Method: "List"},
+		{Name: "same", Priority: 1, Service: "orders", Method: "Update"},
+		{Name: "same", Priority: 1, Service: "orders", Method: "Create"},
+		{Name: "alpha", Priority: 1, Service: "users", Method: "List"},
+		{Name: "low", Priority: 0, Service: "orders", Method: "List"},
+		{Name: "high", Priority: 10, Service: "orders", Method: "List"},
+	}
+	sortGovernanceRules(rules)
+	wantOrder := []string{"high/orders/List", "alpha/users/List", "same/orders/Create", "same/orders/Update", "same/users/List", "low/orders/List"}
+	for i, want := range wantOrder {
+		got := rules[i].Name + "/" + rules[i].Service + "/" + rules[i].Method
+		if got != want {
+			t.Fatalf("sorted rule %d = %q, want %q; all=%#v", i, got, want, rules)
+		}
+	}
+
+	classifyCases := []struct {
+		name   string
+		fields []string
+		want   string
+	}{
+		{name: "empty", fields: nil, want: "checksum-change"},
+		{name: "version", fields: []string{"version"}, want: "version-change"},
+		{name: "services", fields: []string{"services"}, want: "service-discovery-change"},
+		{name: "configs", fields: []string{"configs"}, want: "config-change"},
+		{name: "policies", fields: []string{"policies"}, want: "policy-change"},
+		{name: "metadata", fields: []string{"metadata"}, want: "metadata-change"},
+		{name: "unknown", fields: []string{"checksum"}, want: "checksum-change"},
+		{name: "mixed", fields: []string{"version", "metadata"}, want: "mixed-change"},
+	}
+	for _, tt := range classifyCases {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := classifySnapshotChange(tt.fields); got != tt.want {
+				t.Fatalf("classifySnapshotChange(%v) = %q, want %q", tt.fields, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestControlPlaneProviderSourceAndWatchBoundaries_BitsUT(t *testing.T) {
+	if got := (CompositeProvider{}).Source(); got != "runtime" {
+		t.Fatalf("CompositeProvider default source = %q, want runtime", got)
+	}
+	if got := (StaticProvider{}).Source(); got != "static" {
+		t.Fatalf("StaticProvider default source = %q, want static", got)
+	}
+	var nilCtx context.Context
+	if _, err := (CompositeProvider{}).Watch(nilCtx); err == nil || err.Error() != "controlplane watch context is nil" {
+		t.Fatalf("CompositeProvider Watch(nil) error = %v, want nil context error", err)
+	}
+	if _, err := (StaticProvider{}).Watch(nilCtx); err == nil || err.Error() != "controlplane watch context is nil" {
+		t.Fatalf("StaticProvider Watch(nil) error = %v, want nil context error", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	events, err := (CompositeProvider{WatchInterval: time.Millisecond}).Watch(ctx)
+	if err != nil {
+		t.Fatalf("CompositeProvider canceled Watch error = %v", err)
+	}
+	select {
+	case event, ok := <-events:
+		if ok {
+			if event.Error == "" {
+				t.Fatalf("CompositeProvider canceled watch event = %#v, want cancellation error", event)
+			}
+			select {
+			case _, ok := <-events:
+				if ok {
+					t.Fatal("CompositeProvider canceled watch stayed open after cancellation event")
+				}
+			case <-time.After(time.Second):
+				t.Fatal("CompositeProvider canceled watch did not close after cancellation event")
+			}
+		}
+	case <-time.After(time.Second):
+		t.Fatal("CompositeProvider canceled watch did not close")
+	}
+}
+
+func TestControlPlaneProviderLoadBoundaries_BitsUT(t *testing.T) {
+	var nilCtx context.Context
+	snapshot, err := (CompositeProvider{Contributors: []SnapshotContributor{nil}}).Load(nilCtx)
+	if err != nil {
+		t.Fatalf("CompositeProvider Load(nil) error = %v", err)
+	}
+	if snapshot.Version != DefaultSnapshotVersion || snapshot.Checksum == "" {
+		t.Fatalf("CompositeProvider default snapshot = %+v, want default version and checksum", snapshot)
+	}
+	boom := errors.New("boom")
+	_, err = (CompositeProvider{Contributors: []SnapshotContributor{SnapshotContributorFunc(func(context.Context, *Snapshot) error {
+		return boom
+	})}}).Load(context.Background())
+	if !errors.Is(err, boom) {
+		t.Fatalf("CompositeProvider contributor error = %v, want boom", err)
+	}
+
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := (StaticProvider{}).Load(canceled); !errors.Is(err, context.Canceled) {
+		t.Fatalf("StaticProvider canceled Load error = %v, want context.Canceled", err)
+	}
+	staticSnapshot, err := (StaticProvider{Snapshot: Snapshot{Version: "v1"}}).Load(nilCtx)
+	if err != nil || staticSnapshot.Version != "v1" || staticSnapshot.Checksum == "" {
+		t.Fatalf("StaticProvider Load(nil) = %+v/%v, want v1 checksum", staticSnapshot, err)
+	}
+}
 
 func TestSnapshotStableChecksumIgnoresOrderingAndTimestamp(t *testing.T) {
 	left := Snapshot{

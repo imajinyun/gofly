@@ -166,6 +166,136 @@ func TestNewServicePlanAndFlagParsingBoundaries_BitsUT(t *testing.T) {
 	}
 }
 
+func TestNewServiceContractCopySafety_BitsUT(t *testing.T) {
+	t.Run("copies explicit contract inside output root", func(t *testing.T) {
+		tmp := t.TempDir()
+		root := filepath.Join(tmp, "orders")
+		if err := os.MkdirAll(root, 0o750); err != nil {
+			t.Fatalf("mkdir root: %v", err)
+		}
+		src := filepath.Join(tmp, "contract.api")
+		if err := os.WriteFile(src, []byte("service orders {}\n"), 0o600); err != nil {
+			t.Fatalf("write source contract: %v", err)
+		}
+		dst := filepath.Join(root, "orders.api")
+		if err := copyNewServiceContractFile(src, dst, root); err != nil {
+			t.Fatalf("copyNewServiceContractFile: %v", err)
+		}
+		data, err := os.ReadFile(dst)
+		if err != nil {
+			t.Fatalf("read copied contract: %v", err)
+		}
+		if string(data) != "service orders {}\n" {
+			t.Fatalf("copied contract = %q, want source content", data)
+		}
+	})
+
+	t.Run("rejects symlink output root", func(t *testing.T) {
+		tmp := t.TempDir()
+		src := filepath.Join(tmp, "contract.proto")
+		if err := os.WriteFile(src, []byte("syntax = \"proto3\";\n"), 0o600); err != nil {
+			t.Fatalf("write source contract: %v", err)
+		}
+		outside := filepath.Join(tmp, "outside")
+		if err := os.MkdirAll(outside, 0o750); err != nil {
+			t.Fatalf("mkdir outside: %v", err)
+		}
+		rootLink := filepath.Join(tmp, "orders")
+		if err := os.Symlink(outside, rootLink); err != nil {
+			t.Skipf("symlink unsupported: %v", err)
+		}
+		err := copyNewServiceContractFile(src, filepath.Join(rootLink, "orders.proto"), rootLink)
+		if err == nil || !strings.Contains(err.Error(), "must not be a symlink") {
+			t.Fatalf("copy through symlink root error = %v, want symlink root rejection", err)
+		}
+		if _, err := os.Stat(filepath.Join(outside, "orders.proto")); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("copy through symlink root wrote outside target or stat failed: %v", err)
+		}
+	})
+
+	t.Run("rejects symlink parent below output root", func(t *testing.T) {
+		tmp := t.TempDir()
+		root := filepath.Join(tmp, "orders")
+		outside := filepath.Join(tmp, "outside")
+		if err := os.MkdirAll(root, 0o750); err != nil {
+			t.Fatalf("mkdir root: %v", err)
+		}
+		if err := os.MkdirAll(outside, 0o750); err != nil {
+			t.Fatalf("mkdir outside: %v", err)
+		}
+		src := filepath.Join(tmp, "contract.api")
+		if err := os.WriteFile(src, []byte("service orders {}\n"), 0o600); err != nil {
+			t.Fatalf("write source contract: %v", err)
+		}
+		link := filepath.Join(root, "contracts")
+		if err := os.Symlink(outside, link); err != nil {
+			t.Skipf("symlink unsupported: %v", err)
+		}
+		err := copyNewServiceContractFile(src, filepath.Join(link, "orders.api"), root)
+		if err == nil || !strings.Contains(err.Error(), "traverses symlink") {
+			t.Fatalf("copy through symlink parent error = %v, want symlink traversal rejection", err)
+		}
+		if _, err := os.Stat(filepath.Join(outside, "orders.api")); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("copy through symlink parent wrote outside target or stat failed: %v", err)
+		}
+	})
+
+	t.Run("rejects symlink leaf target", func(t *testing.T) {
+		tmp := t.TempDir()
+		root := filepath.Join(tmp, "orders")
+		outside := filepath.Join(tmp, "outside")
+		if err := os.MkdirAll(root, 0o750); err != nil {
+			t.Fatalf("mkdir root: %v", err)
+		}
+		if err := os.MkdirAll(outside, 0o750); err != nil {
+			t.Fatalf("mkdir outside: %v", err)
+		}
+		src := filepath.Join(tmp, "contract.api")
+		if err := os.WriteFile(src, []byte("service orders {}\n"), 0o600); err != nil {
+			t.Fatalf("write source contract: %v", err)
+		}
+		outsideFile := filepath.Join(outside, "orders.api")
+		if err := os.WriteFile(outsideFile, []byte("outside"), 0o600); err != nil {
+			t.Fatalf("write outside file: %v", err)
+		}
+		leaf := filepath.Join(root, "orders.api")
+		if err := os.Symlink(outsideFile, leaf); err != nil {
+			t.Skipf("symlink unsupported: %v", err)
+		}
+		err := copyNewServiceContractFile(src, leaf, root)
+		if err == nil || !strings.Contains(err.Error(), "refusing to overwrite symlink contract target") {
+			t.Fatalf("copy to symlink leaf error = %v, want symlink leaf rejection", err)
+		}
+		data, err := os.ReadFile(outsideFile)
+		if err != nil {
+			t.Fatalf("read outside file: %v", err)
+		}
+		if string(data) != "outside" {
+			t.Fatalf("symlink leaf copy mutated outside file: %q", data)
+		}
+	})
+
+	t.Run("rejects target escaping output root", func(t *testing.T) {
+		tmp := t.TempDir()
+		root := filepath.Join(tmp, "orders")
+		if err := os.MkdirAll(root, 0o750); err != nil {
+			t.Fatalf("mkdir root: %v", err)
+		}
+		src := filepath.Join(tmp, "contract.api")
+		if err := os.WriteFile(src, []byte("service orders {}\n"), 0o600); err != nil {
+			t.Fatalf("write source contract: %v", err)
+		}
+		escape := filepath.Join(tmp, "escape.api")
+		err := copyNewServiceContractFile(src, escape, root)
+		if err == nil || !strings.Contains(err.Error(), "escapes output root") {
+			t.Fatalf("copy escaping root error = %v, want escape rejection", err)
+		}
+		if _, err := os.Stat(escape); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("copy escaping root wrote target or stat failed: %v", err)
+		}
+	})
+}
+
 func TestCommandIOAndAIDoctorBoundaries_BitsUT(t *testing.T) {
 	var out bytes.Buffer
 	var errOut bytes.Buffer

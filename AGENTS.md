@@ -291,9 +291,9 @@ During the “fill test gaps” governance stage, prefer pure unit tests and avo
 
 ### 📏 Coverage ratchet practice
 
-- `Makefile` currently sets `COVERAGE_RATCHET` to `82%` and `COVERAGE_THRESHOLD` to `60%`.
+- `Makefile` currently sets `COVERAGE_RATCHET` to `90%` and `COVERAGE_THRESHOLD` to `60%`.
 - After improving a single subsystem package such as `rpc/grpc`, if coverage rises significantly, the report should recommend whether to raise the global `COVERAGE_RATCHET`.
-- Example: `rpc/grpc` baseline 71.9% → 90.3%, with no remaining 0% functions; after the full repository stabilized, the ratchet was converged to 82%.
+- Example: `rpc/grpc` baseline 71.9% → 90.3%, with no remaining 0% functions; after the full repository stabilized, the ratchet was converged to 90%.
 
 ## 🧾 Review checklist
 

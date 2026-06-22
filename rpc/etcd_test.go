@@ -113,8 +113,22 @@ func TestRPCEtcdRegistryRegisterResolveDeregisterFakeHTTP_BitsUT(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Register error = %v", err)
 	}
+	if !lease.ExpiresAt().IsZero() {
+		t.Fatalf("lease ExpiresAt = %s, want zero", lease.ExpiresAt())
+	}
 	if lease.Instance().Endpoint != "http://127.0.0.1:8080" {
 		t.Fatalf("lease instance = %#v, want normalized endpoint", lease.Instance())
+	}
+	if err := registry.RegisterService(context.Background(), "orders", "http://127.0.0.3:8080/"); err != nil {
+		t.Fatalf("RegisterService error = %v", err)
+	}
+	resolver := registry.Resolver("orders")
+	endpoints, err := resolver.Resolve(context.Background())
+	if err != nil {
+		t.Fatalf("Resolver Resolve error = %v", err)
+	}
+	if len(endpoints) != 2 {
+		t.Fatalf("resolver endpoints = %#v, want two endpoints", endpoints)
 	}
 	resolved, err := registry.Resolve(context.Background(), "orders")
 	if err != nil {
@@ -126,8 +140,8 @@ func TestRPCEtcdRegistryRegisterResolveDeregisterFakeHTTP_BitsUT(t *testing.T) {
 	if err := registry.Deregister(context.Background(), instance); err != nil {
 		t.Fatalf("Deregister error = %v", err)
 	}
-	if len(paths) != 3 || paths[0] != "/v3/kv/put" || paths[1] != "/v3/kv/range" || paths[2] != "/v3/kv/deleterange" {
-		t.Fatalf("paths = %#v, want put/range/deleterange", paths)
+	if len(paths) != 5 || paths[0] != "/v3/kv/put" || paths[1] != "/v3/kv/put" || paths[2] != "/v3/kv/range" || paths[3] != "/v3/kv/range" || paths[4] != "/v3/kv/deleterange" {
+		t.Fatalf("paths = %#v, want put/put/range/range/deleterange", paths)
 	}
 	decodedKey, err := base64.StdEncoding.DecodeString(bodies[0]["key"])
 	if err != nil || string(decodedKey) != "/svc/orders/http://127.0.0.1:8080" {

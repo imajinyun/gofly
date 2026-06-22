@@ -14,6 +14,21 @@ import (
 	"github.com/gofly/gofly/core/kv"
 )
 
+func TestRuleSetLastErrorBoundaries_BitsUT(t *testing.T) {
+	var nilRules *RuleSet
+	nilRules.setLastError(errors.New("ignored"))
+
+	rules := NewRuleSet()
+	rules.setLastError(errors.New("boom"))
+	if got := rules.Status().LastError; got != "boom" {
+		t.Fatalf("last error = %q, want boom", got)
+	}
+	rules.setLastError(nil)
+	if got := rules.Status().LastError; got != "" {
+		t.Fatalf("last error after clear = %q, want empty", got)
+	}
+}
+
 func TestRuleSetMatchesMostSpecificRule(t *testing.T) {
 	rules := NewRuleSet(
 		Rule{

@@ -144,23 +144,15 @@ jobs:
       - name: Public API compatibility report
         env:
           API_BASE_REF: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || '' }}
-          API_COMPAT_REPORT: api-compat-report.json
+          API_COMPAT_REPORT: ${{ runner.temp }}/api-compat-report.json
           API_COMPAT_REQUIRED: ${{ startsWith(github.ref, 'refs/tags/v') && 'true' || 'false' }}
         run: make api-compat
 
       - name: Public API compatibility summary
         if: always()
         run: |
-          if [ -s api-compat-report.json ]; then
-            python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
-          import json
-          from pathlib import Path
-          data = json.loads(Path("api-compat-report.json").read_text(encoding="utf-8"))
-          print("## Public API compatibility")
-          print(f"- status: {data['status']}")
-          print(f"- base_ref: {data['base_ref']}")
-          print(f"- reason: {data['reason']}")
-          PY
+          if [ -s "${{ runner.temp }}/api-compat-report.json" ]; then
+            python3 -c 'import json; from pathlib import Path; data = json.loads(Path("${{ runner.temp }}/api-compat-report.json").read_text(encoding="utf-8")); print("## Public API compatibility"); print("- status: {}".format(data["status"])); print("- base_ref: {}".format(data["base_ref"])); print("- reason: {}".format(data["reason"]))' >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Upload public API compatibility report
@@ -168,7 +160,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: api-compat-report
-          path: api-compat-report.json
+          path: ${{ runner.temp }}/api-compat-report.json
           if-no-files-found: warn
 
   codeql:
@@ -206,6 +198,48 @@ jobs:
         uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294
         with:
           fail-on-severity: high
+
+  dependency-upgrade-validation:
+    name: dependency upgrade validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
+        with:
+          go-version-file: go.mod
+          check-latest: true
+          cache: true
+
+      - name: Detect dependency manifest changes
+        id: dependency_changes
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git fetch --no-tags --prune --depth=1 origin "+refs/heads/${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}"
+          changed_files="$(git diff --name-only "origin/${{ github.base_ref }}...HEAD")"
+          printf '%s\n' "$changed_files"
+          if printf '%s\n' "$changed_files" | grep -E '(^|/)go\.(mod|sum)$'; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Dependency upgrade gates
+        if: steps.dependency_changes.outputs.changed == 'true'
+        run: make dependency-upgrade-check
+
+      - name: Dependency upgrade skip summary
+        if: steps.dependency_changes.outputs.changed != 'true'
+        run: |
+          echo "## Dependency upgrade validation" >> "$GITHUB_STEP_SUMMARY"
+          echo "No go.mod/go.sum changes detected; dependency upgrade gates skipped." >> "$GITHUB_STEP_SUMMARY"
 
   contract-check:
     name: contract / api+rpc (check + breaking)
@@ -335,27 +369,14 @@ jobs:
           GOVERNANCE_ISOLATE_GOMODCACHE: ${{ github.event_name == 'schedule' && 'true' || 'false' }}
           GOVERNANCE_SKIP_GENERATED_MATRIX: "true"
           GOVERNANCE_SKIP_GENERATED_CONTROL_PLANE_SMOKE: "true"
-          GOVERNANCE_SKIP_REPORT: governance-skip-report.json
+          GOVERNANCE_SKIP_REPORT: ${{ runner.temp }}/governance-skip-report.json
         run: make governance-10-rounds
 
       - name: Governance skip summary
         if: always()
         run: |
-          if [ -s governance-skip-report.json ]; then
-            python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
-          import json
-          from pathlib import Path
-          data = json.loads(Path("governance-skip-report.json").read_text(encoding="utf-8"))
-          print("## Governance skip report")
-          skips = data.get("skips", [])
-          if not skips:
-              print("No skipped governance rounds.")
-          else:
-              print("| Round | Gate | Env | Risk | Compensating gate | Required for release |")
-              print("| --- | --- | --- | --- | --- | --- |")
-              for item in skips:
-                  print(f"| {item['round']} | {item['name']} | {item['env']} | {item['risk']} | {item['compensating_gate']} | {item['required_for_release']} |")
-          PY
+          if [ -s "${{ runner.temp }}/governance-skip-report.json" ]; then
+            python3 -c 'import json; from pathlib import Path; data = json.loads(Path("${{ runner.temp }}/governance-skip-report.json").read_text(encoding="utf-8")); print("## Governance skip report"); skips = data.get("skips", []); print("No skipped governance rounds.") if not skips else (print("| Round | Gate | Env | Risk | Compensating gate | Required for release |"), print("| --- | --- | --- | --- | --- | --- |"), [print("| {} | {} | {} | {} | {} | {} |".format(item["round"], item["name"], item["env"], item["risk"], item["compensating_gate"], item["required_for_release"])) for item in skips])' >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Upload governance skip report
@@ -363,7 +384,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: governance-skip-report
-          path: governance-skip-report.json
+          path: ${{ runner.temp }}/governance-skip-report.json
           if-no-files-found: error
 
   bench-fuzz:
@@ -465,7 +486,14 @@ jobs:
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5
 
       - name: Build Docker image
-        run: docker buildx build --load -t gofly:${{ github.sha }} .
+        run: |
+          docker buildx build \
+            --load \
+            --metadata-file docker-build-metadata.json \
+            -t gofly:${{ github.sha }} \
+            .
+          docker image inspect gofly:${{ github.sha }} > docker-image-inspect.json
+          python3 -c 'import json; from pathlib import Path; inspect = json.loads(Path("docker-image-inspect.json").read_text(encoding="utf-8"))[0]; metadata_path = Path("docker-build-metadata.json"); metadata = json.loads(metadata_path.read_text(encoding="utf-8")) if metadata_path.exists() else {}; evidence = {"schema": "gofly.docker_build_evidence.v1", "image_ref": "gofly:${{ github.sha }}", "image_id": inspect.get("Id", ""), "repo_digests": inspect.get("RepoDigests") or [], "repo_tags": inspect.get("RepoTags") or [], "build_metadata": metadata}; Path("docker-build-evidence.json").write_text(json.dumps(evidence, indent=2, sort_keys=True) + "\n", encoding="utf-8")'
 
       - name: Trivy image scan
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
@@ -481,6 +509,18 @@ jobs:
         uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e
         with:
           sarif_file: trivy-results.sarif
+
+      - name: Upload Docker and Trivy evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: docker-trivy-evidence
+          path: |
+            docker-build-evidence.json
+            docker-build-metadata.json
+            docker-image-inspect.json
+            trivy-results.sarif
+          if-no-files-found: error
 
   scorecard:
     name: OSSF Scorecard
@@ -507,9 +547,10 @@ jobs:
   release:
     name: release (tagged)
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build-test, platform-smoke, lint, security, supply-chain, codeql, contract-check, governance, bench-fuzz, integration, docker, scorecard]
+    needs: [build-test, platform-smoke, lint, security, supply-chain, codeql, dependency-upgrade-validation, contract-check, governance, bench-fuzz, integration, docker, scorecard]
     runs-on: ubuntu-latest
     permissions:
+      actions: read
       contents: write
       id-token: write
       attestations: write
@@ -544,10 +585,43 @@ jobs:
       - name: Verify release artifacts
         run: make release-artifacts-check
 
+      - name: Collect release Docker digest evidence
+        run: |
+          mkdir -p release-evidence/docker
+          image="ghcr.io/gofly/gofly:${{ github.ref_name }}"
+          docker buildx imagetools inspect --raw "$image" > release-evidence/docker/release-docker-manifest.json
+          digest="sha256:$(sha256sum release-evidence/docker/release-docker-manifest.json | cut -d ' ' -f1)"
+          python3 -c 'import json; from pathlib import Path; manifest = json.loads(Path("release-evidence/docker/release-docker-manifest.json").read_text(encoding="utf-8")); manifests = manifest.get("manifests") or []; platforms = sorted("{}/{}".format(item.get("platform", {}).get("os"), item.get("platform", {}).get("architecture")) for item in manifests); assert "linux/amd64" in platforms, platforms; assert "linux/arm64" in platforms, platforms; evidence = {"schema": "gofly.release_docker_digest_evidence.v1", "image": "ghcr.io/gofly/gofly:${{ github.ref_name }}", "manifest_digest": "'"$digest"'", "platforms": platforms, "manifest_count": len(manifests)}; Path("release-evidence/docker/release-docker-digests.json").write_text(json.dumps(evidence, indent=2, sort_keys=True) + "\n", encoding="utf-8")'
+          echo "RELEASE_DOCKER_IMAGE=$image" >> "$GITHUB_ENV"
+          echo "RELEASE_DOCKER_DIGEST=$digest" >> "$GITHUB_ENV"
+
+      - name: Download Docker and Trivy evidence
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p release-evidence/docker/ci
+          gh run download "${{ github.run_id }}" \
+            --name docker-trivy-evidence \
+            --dir release-evidence/docker/ci
+          test -s release-evidence/docker/ci/trivy-results.sarif
+          test -s release-evidence/docker/ci/docker-build-evidence.json
+
+      - name: Verify Docker release evidence
+        env:
+          RELEASE_REQUIRE_DOCKER_EVIDENCE: "true"
+          RELEASE_EVIDENCE_DIR: release-evidence/docker
+        run: make release-artifacts-check
+
       - name: Attest release checksums
         uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a
         with:
           subject-path: dist/checksums.txt
+
+      - name: Attest Docker release manifest
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a
+        with:
+          subject-name: ${{ env.RELEASE_DOCKER_IMAGE }}
+          subject-digest: ${{ env.RELEASE_DOCKER_DIGEST }}
 
       - name: Upload release verification evidence
         if: always()
@@ -557,5 +631,5 @@ jobs:
           path: |
             dist/checksums.txt
             dist/*.spdx.json
-            trivy-results.sarif
-          if-no-files-found: warn
+            release-evidence/docker/**
+          if-no-files-found: error

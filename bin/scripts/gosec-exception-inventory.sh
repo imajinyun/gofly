@@ -3,8 +3,10 @@ set -eu
 
 root="$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)"
 out="${GOSEC_INVENTORY_OUT:-}"
+baseline="${GOSEC_INVENTORY_BASELINE:-}"
 
-python3 - "$root" "$out" <<'PY'
+python3 - "$root" "$out" "$baseline" <<'PY'
+import collections
 import json
 import pathlib
 import re
@@ -12,6 +14,7 @@ import sys
 
 root = pathlib.Path(sys.argv[1])
 out = sys.argv[2]
+baseline = sys.argv[3]
 pattern = re.compile(r"#nosec\s+([A-Z0-9\s]+)(?:--|:)\s*(.*)$")
 
 def classify(file_path, rules, rationale):
@@ -108,6 +111,39 @@ report = {
     "summary_by_rule": {rule: len(locations) for rule, locations in sorted(by_rule.items())},
     "entries": entries,
 }
+
+if baseline:
+    baseline_path = pathlib.Path(baseline)
+    baseline_data = json.loads(baseline_path.read_text(encoding="utf-8"))
+
+    def key_from_entry(entry):
+        return "|".join([
+            entry["file"],
+            ",".join(entry.get("rules") or []),
+            entry.get("rationale", ""),
+        ])
+
+    current = collections.Counter(key_from_entry(entry) for entry in entries)
+    allowed = collections.Counter(baseline_data.get("allowed_exceptions", []))
+    added = sorted((current - allowed).elements())
+    removed = sorted((allowed - current).elements())
+    report["baseline"] = {
+        "path": str(baseline_path),
+        "allowed_exceptions": sum(allowed.values()),
+        "added_exceptions": len(added),
+        "removed_exceptions": len(removed),
+    }
+    if added or removed:
+        print("gosec #nosec baseline delta detected", file=sys.stderr)
+        if added:
+            print("new exception(s):", file=sys.stderr)
+            for item in added:
+                print(f"  + {item}", file=sys.stderr)
+        if removed:
+            print("removed baseline exception(s):", file=sys.stderr)
+            for item in removed:
+                print(f"  - {item}", file=sys.stderr)
+        raise SystemExit(1)
 
 payload = json.dumps(report, indent=2, sort_keys=True) + "\n"
 if out:

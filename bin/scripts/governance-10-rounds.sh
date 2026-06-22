@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-# shellcheck disable=SC2086
+# shellcheck disable=SC2016,SC2086
 set -eu
 
 # gofmt dirs, Go package lists, test flags, and tool flags intentionally use
@@ -34,10 +34,11 @@ gofmt_dirs="${GOFMT_DIRS:-app cache cmd core examples gateway ops rest rpc}"
 testflags="${TESTFLAGS:--shuffle=on}"
 govulncheck_scan="${GOVULNCHECK_SCAN:-package}"
 gosec_flags="${GOSEC_FLAGS:--quiet -exclude-generated -exclude-dir=testdata -exclude-dir=vendor -exclude-dir=.tmp-test}"
+gosec_inventory_baseline="${GOSEC_INVENTORY_BASELINE:-$root/bin/scripts/gosec-exception-baseline.json}"
 coverage_threshold="${COVERAGE_THRESHOLD:-60}"
 coverage_ratchet_default="90"
 coverage_ratchet="${COVERAGE_RATCHET:-$coverage_ratchet_default}"
-skip_report="${GOVERNANCE_SKIP_REPORT:-$root/governance-skip-report.json}"
+skip_report="${GOVERNANCE_SKIP_REPORT:-$tmp/governance-skip-report.json}"
 
 write_skip_report() {
 	python3 - "$skip_report" <<'PY'
@@ -421,6 +422,7 @@ run_gosec() {
 }
 
 round_security_audit() {
+	GOSEC_INVENTORY_BASELINE="$gosec_inventory_baseline" sh "$root/bin/scripts/gosec-exception-inventory.sh" >/dev/null
 	run_govulncheck -scan="$govulncheck_scan" -show=traces $pkgs
 	run_gosec $gosec_flags $pkgs
 }
@@ -463,6 +465,7 @@ printf 'GOVERNANCE_ISOLATE_GOMODCACHE=%s\n' "${GOVERNANCE_ISOLATE_GOMODCACHE:-fa
 printf 'GOPROXY=%s\n' "$GOPROXY"
 printf 'GOVULNCHECK_SCAN=%s\n' "$govulncheck_scan"
 printf 'GOSEC_FLAGS=%s\n' "$gosec_flags"
+printf 'GOSEC_INVENTORY_BASELINE=%s\n' "$gosec_inventory_baseline"
 printf 'COVERAGE_THRESHOLD=%s\n' "$coverage_threshold"
 printf 'COVERAGE_RATCHET=%s\n' "$coverage_ratchet"
 printf 'GOVERNANCE_SKIP_GENERATED_MATRIX=%s\n' "${GOVERNANCE_SKIP_GENERATED_MATRIX:-false}"

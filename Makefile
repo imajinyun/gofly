@@ -20,6 +20,7 @@ GOVULNCHECK ?= $(GO) tool govulncheck
 GOSEC       ?= $(GO) tool gosec
 GOVULNCHECK_SCAN ?= package
 GOSEC_FLAGS ?= -quiet -exclude-generated -exclude-dir=testdata -exclude-dir=vendor -exclude-dir=.tmp-test
+GOSEC_INVENTORY_BASELINE ?= $(SCRIPTS_DIR)/gosec-exception-baseline.json
 
 # Minimum total line coverage (percent). COVERAGE_RATCHET prevents regression once raised.
 COVERAGE_THRESHOLD ?= 60
@@ -159,6 +160,10 @@ lint: ## Run golangci-lint (requires golangci-lint installed)
 tidy: ## Tidy and verify go.mod / go.sum
 	sh $(SCRIPTS_DIR)/check-mod-tidy.sh
 
+.PHONY: mod-verify
+mod-verify: ## Verify downloaded module zip checksums against go.sum
+	$(GO) mod verify
+
 .PHONY: check
 check: fmt-check vet test ## Run the core local verification suite
 
@@ -167,6 +172,13 @@ ci-fast: fmt-check vet build examples-check examples-smoke docs-check test tidy 
 
 .PHONY: ci
 ci: ci-fast test-generated-matrix generated-control-plane-smoke cover-check lint supply-chain security api-compat ## Run the full CI verification suite
+
+.PHONY: integration-tests
+integration-tests: ## Run Docker-backed integration test packages for dependency upgrades
+	$(GO) test -tags=integration -count=1 ./core/storage/ ./core/config/... ./core/discovery/... ./core/mq/... ./gateway/
+
+.PHONY: dependency-upgrade-check
+dependency-upgrade-check: mod-verify govulncheck integration-tests ## Validate dependency updates with module, vuln, and integration gates
 
 .PHONY: examples-check
 examples-check: examples-copyable-check ## Build and vet all examples to keep docs and code in sync
@@ -242,12 +254,16 @@ govulncheck: ## Run the Go vulnerability scanner across all packages
 
 .PHONY: gosec
 gosec: ## Run gosec (Go security linter) and emit a summary report
-	@sh $(SCRIPTS_DIR)/gosec-exception-inventory.sh >/dev/null
+	@GOSEC_INVENTORY_BASELINE=$(GOSEC_INVENTORY_BASELINE) sh $(SCRIPTS_DIR)/gosec-exception-inventory.sh >/dev/null
 	$(GOSEC) $(GOSEC_FLAGS) ./...
 
 .PHONY: gosec-inventory
 gosec-inventory: ## Emit structured inventory for all #nosec exceptions
 	@sh $(SCRIPTS_DIR)/gosec-exception-inventory.sh
+
+.PHONY: gosec-inventory-check
+gosec-inventory-check: ## Fail if #nosec inventory differs from the approved baseline
+	@GOSEC_INVENTORY_BASELINE=$(GOSEC_INVENTORY_BASELINE) sh $(SCRIPTS_DIR)/gosec-exception-inventory.sh >/dev/null
 
 .PHONY: release-artifacts-check
 release-artifacts-check: ## Verify release archives, checksums, and SBOM artifacts in dist
@@ -262,8 +278,12 @@ api-compat: ## Check public Go API compatibility against API_BASE_REF
 	sh $(SCRIPTS_DIR)/check-public-api.sh
 
 .PHONY: actionlint
-actionlint: ## Lint GitHub Actions workflows
+actionlint: actions-pin-check ## Lint GitHub Actions workflows
 	$(ACTIONLINT) .github/workflows/*.yml
+
+.PHONY: actions-pin-check
+actions-pin-check: ## Fail if GitHub Actions are not pinned to full commit SHAs
+	sh $(SCRIPTS_DIR)/check-actions-pinned.sh
 
 .PHONY: shellcheck
 shellcheck: ## Lint governance shell scripts
@@ -275,7 +295,7 @@ osv-scan: ## Scan lockfiles and manifests with OSV Scanner
 	$(OSV_SCANNER) scan source --recursive .
 
 .PHONY: supply-chain
-supply-chain: actionlint shellcheck osv-scan ## Run workflow, shell, and OSV supply-chain checks
+supply-chain: actionlint shellcheck osv-scan ## Run workflow, shell, action pin, and OSV supply-chain checks
 
 .PHONY: governance
 governance: tidy cover-check api-compat ## Run governance gates

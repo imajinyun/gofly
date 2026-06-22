@@ -3,7 +3,7 @@ set -eu
 
 go_cmd="${GO:-go}"
 module="${MODULE_PATH:-$($go_cmd list -m)}"
-report="${API_COMPAT_REPORT:-api-compat-report.json}"
+report="${API_COMPAT_REPORT:-${TMPDIR:-/tmp}/gofly-api-compat-report.json}"
 
 write_report() {
 	status="$1"

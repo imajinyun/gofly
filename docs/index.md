@@ -90,4 +90,4 @@ Each migration guide includes mapping, validation gates, and rollback criteria s
 
 - [Examples catalog](../examples/README.md)
 - [Production orders example](../examples/production-orders/README.md)
-- [Benchmark suite](../benchmarks/README.md)
+- [Benchmark suite](../bench/README.md)

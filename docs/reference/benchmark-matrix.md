@@ -8,7 +8,7 @@ gofly publishes benchmark scenarios as a matrix instead of a single headline num
 make bench-matrix
 ```
 
-This writes `bench/matrix.md` from `bin/scripts/benchstat.sh`. The generated file is a release artifact and does not need to be committed after every local run.
+This writes `bench/matrix.md` from `bin/scripts/benchstat.sh`. The generated file lives next to the benchmark sources in `bench/` so source and artifacts share one workspace.
 
 The committed public baseline and environment evidence live in `bench/evidence.md` and are validated by:
 

@@ -39,7 +39,7 @@ Verify the generated service uses the production scaffold and that admin configu
 Run a focused benchmark first:
 
 ```sh
-go test ./benchmarks -run='^$' -bench='BenchmarkHTTPHello/gofly' -benchtime=1x -count=1 -benchmem
+go test ./bench -run='^$' -bench='BenchmarkHTTPHello/gofly' -benchtime=1x -count=1 -benchmem
 ```
 
 Use `make bench-stat` and `benchstat` for real comparisons; do not draw conclusions from one smoke run.

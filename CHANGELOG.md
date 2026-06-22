@@ -24,7 +24,7 @@ auto-generated on release by [GoReleaser](https://goreleaser.com); edit only the
   downstream call.
 - **Benchmarks** — Hot-path benchmarks for `rest` routing, `core/limit`, and
   `core/breaker`.
-- **Benchmarks** — Added a reproducible `benchmarks/` suite for HTTP framework
+- **Benchmarks** — Added a reproducible `bench/` suite for HTTP framework
   comparisons, gofly REST feature toggles, gofly RPC, and gRPC-Go.
 - **Fuzzing** — Fuzz targets for the `.api`/`.proto` parsers (`FuzzParseAPI`,
   `FuzzParseProto`) and REST request binding (`FuzzBindJSON`, `FuzzBindQuery`).

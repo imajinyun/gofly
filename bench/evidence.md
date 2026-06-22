@@ -14,7 +14,7 @@ cpu: Apple M4 Pro
 ## Reproduce
 
 ```sh
-BENCH_COUNT=5 BENCH_PKGS="./benchmarks/" BENCH_PATTERN="Benchmark" make bench-baseline
+BENCH_COUNT=5 BENCH_PKGS="./bench/" BENCH_PATTERN="Benchmark" make bench-baseline
 ```
 
 ## Matrix
@@ -26,7 +26,7 @@ See [Benchmark matrix](matrix.md) for the scenario list, comparison candidates, 
 ```text
 goos: darwin
 goarch: arm64
-pkg: github.com/gofly/gofly/benchmarks
+pkg: github.com/gofly/gofly/bench
 cpu: Apple M4 Pro
 BenchmarkHTTPHello/net_http-14     	  749396	      1502 ns/op	    6188 B/op	      21 allocs/op
 BenchmarkHTTPHello/net_http-14     	  800820	      1508 ns/op	    6188 B/op	      21 allocs/op
@@ -199,5 +199,5 @@ BenchmarkRPCUnary/grpc_go-14                	   79093	     14750 ns/op	    8751 
 BenchmarkRPCUnary/grpc_go-14                	   88897	     13462 ns/op	    8738 B/op	     147 allocs/op
 BenchmarkRPCUnary/grpc_go-14                	   90126	     13690 ns/op	    8723 B/op	     147 allocs/op
 PASS
-ok  	github.com/gofly/gofly/benchmarks	204.811s
+ok  	github.com/gofly/gofly/bench	204.811s
 ```

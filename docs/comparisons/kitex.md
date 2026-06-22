@@ -9,7 +9,7 @@ Kitex is a high-performance RPC framework. gofly does not try to replace special
 | IDL-first RPC | gofly RPC or `rpc/grpc` integration |
 | client/server middleware | RPC middleware plus governance rules |
 | service discovery | `core/discovery` providers |
-| performance benchmarks | `benchmarks/` and `make bench-smoke` |
+| performance benchmarks | `bench/` and `make bench-smoke` |
 | operations | `/admin/control-plane` and observability docs |
 
 ## Migration steps

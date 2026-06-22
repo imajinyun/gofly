@@ -2,7 +2,7 @@
 # shellcheck disable=SC2086
 # benchstat.sh — run benchmarks, compare against a baseline, and emit trend artifacts.
 # Usage:
-#   bash bin/scripts/benchstat.sh              # run benchmarks, save to bench/current.txt
+#   bash bin/scripts/benchstat.sh              # run bench package benchmarks, save to bench/current.txt
 #   bash bin/scripts/benchstat.sh --compare    # compare bench/current.txt against bench/baseline.txt
 #   bash bin/scripts/benchstat.sh --smoke      # run one iteration for CI smoke
 #   bash bin/scripts/benchstat.sh --trend      # write bench/summary.md from the current run
@@ -23,9 +23,9 @@ SUMMARY_FILE="${BENCH_DIR}/summary.md"
 MATRIX_FILE="${BENCH_DIR}/matrix.md"
 EVIDENCE_FILE="${BENCH_DIR}/evidence.md"
 
-# Packages that contain the reproducible Phase 2 benchmark matrix. Set
-# BENCH_PKGS explicitly to include legacy package-local benchmarks.
-BENCH_PKGS="${BENCH_PKGS:-./benchmarks/}"
+# Package that contains the reproducible benchmark matrix and public artifacts.
+# Set BENCH_PKGS explicitly to include legacy package-local benchmarks.
+BENCH_PKGS="${BENCH_PKGS:-./bench/}"
 BENCH_PATTERN="${BENCH_PATTERN:-Benchmark}"
 BENCH_COUNT="${BENCH_COUNT:-5}"
 

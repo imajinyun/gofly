@@ -231,8 +231,9 @@ docker: ## Build a container image tagged gofly:$(VERSION)
 		-t gofly:$(VERSION) -t gofly:latest .
 
 .PHONY: release-snapshot
-release-snapshot: ## Produce a local snapshot release via GoReleaser (requires goreleaser)
+release-snapshot: ## Produce and verify a local snapshot release via GoReleaser (requires goreleaser)
 	goreleaser release --snapshot --clean --skip-publish
+	sh $(SCRIPTS_DIR)/check-release-artifacts.sh
 
 # ---- security & quality gates ------------------------------------------------
 .PHONY: govulncheck
@@ -241,7 +242,16 @@ govulncheck: ## Run the Go vulnerability scanner across all packages
 
 .PHONY: gosec
 gosec: ## Run gosec (Go security linter) and emit a summary report
+	@sh $(SCRIPTS_DIR)/gosec-exception-inventory.sh >/dev/null
 	$(GOSEC) $(GOSEC_FLAGS) ./...
+
+.PHONY: gosec-inventory
+gosec-inventory: ## Emit structured inventory for all #nosec exceptions
+	@sh $(SCRIPTS_DIR)/gosec-exception-inventory.sh
+
+.PHONY: release-artifacts-check
+release-artifacts-check: ## Verify release archives, checksums, and SBOM artifacts in dist
+	sh $(SCRIPTS_DIR)/check-release-artifacts.sh
 
 .PHONY: cover-check
 cover-check: ## Run tests with coverage and fail below threshold/ratchet (%)

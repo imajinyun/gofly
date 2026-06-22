@@ -490,11 +490,7 @@ func (resp PluginResponse) ApplyPatches(dir string) error {
 		if err != nil {
 			return err
 		}
-		if err := rejectExistingSymlinkTarget(target, "plugin"); err != nil {
-			return err
-		}
-		// #nosec G304 -- target is constrained by safePluginTarget before reading patch targets.
-		data, err := os.ReadFile(target)
+		data, err := ReadFileUnderRoot(dir, target, "plugin patch")
 		if err != nil {
 			return fmt.Errorf("read target for patch: %w", err)
 		}
@@ -509,8 +505,7 @@ func (resp PluginResponse) ApplyPatches(dir string) error {
 		} else {
 			content += "\n" + p.Patch
 		}
-		// #nosec G306 G703 -- target is constrained by safePluginTarget before patching; generated project files are intentionally user-readable.
-		if err := os.WriteFile(target, []byte(content), 0o644); err != nil {
+		if err := WriteFileUnderRoot(dir, target, []byte(content), generatedPublicFileMode, generatedDirMode, "plugin patch"); err != nil {
 			return fmt.Errorf("write patched file: %w", err)
 		}
 	}
@@ -521,77 +516,8 @@ func safePluginTarget(root, name string) (string, error) {
 	return safeRelativeTarget(root, name, "plugin")
 }
 
-func safeRelativeTarget(root, name string, label string) (string, error) {
-	if root == "" {
-		return "", errors.New("output directory is required")
-	}
-	if name == "" || filepath.IsAbs(name) {
-		return "", fmt.Errorf("%s path %q must be relative", label, name)
-	}
-	cleanName := filepath.Clean(name)
-	if cleanName == "." || cleanName == ".." || strings.HasPrefix(cleanName, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("%s path %q escapes output directory", label, name)
-	}
-	absRoot, err := filepath.Abs(root)
-	if err != nil {
-		return "", fmt.Errorf("resolve output directory: %w", err)
-	}
-	absRoot, err = filepath.EvalSymlinks(absRoot)
-	if err != nil {
-		return "", fmt.Errorf("resolve output directory symlinks: %w", err)
-	}
-	if err := rejectSymlinkParent(absRoot, cleanName, label); err != nil {
-		return "", err
-	}
-	target, err := filepath.Abs(filepath.Join(absRoot, cleanName))
-	if err != nil {
-		return "", fmt.Errorf("resolve %s path %q: %w", label, name, err)
-	}
-	rel, err := filepath.Rel(absRoot, target)
-	if err != nil {
-		return "", fmt.Errorf("rel %s path %q: %w", label, name, err)
-	}
-	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("%s path %q escapes output directory", label, name)
-	}
-	return target, nil
-}
-
 func rejectPluginSymlinkParent(root, cleanName string) error {
 	return rejectSymlinkParent(root, cleanName, "plugin")
-}
-
-func rejectSymlinkParent(root, cleanName string, label string) error {
-	current := root
-	parts := strings.Split(cleanName, string(filepath.Separator))
-	for _, part := range parts[:len(parts)-1] {
-		current = filepath.Join(current, part)
-		info, err := os.Lstat(current)
-		if err != nil {
-			if os.IsNotExist(err) {
-				return nil
-			}
-			return fmt.Errorf("inspect %s path %q: %w", label, current, err)
-		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("%s path %q traverses symlink %q", label, cleanName, part)
-		}
-	}
-	return nil
-}
-
-func rejectExistingSymlinkTarget(target, label string) error {
-	info, err := os.Lstat(target)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return fmt.Errorf("inspect %s target %q: %w", label, target, err)
-	}
-	if info.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("%s target %q is a symlink", label, target)
-	}
-	return nil
 }
 
 func (r *PluginRunner) resolveBinary(plugin string) (string, error) {

@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"go/format"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -838,12 +837,10 @@ func copyDir(src, dst string) error {
 		if rel == "." {
 			return nil
 		}
-		target := filepath.Join(dst, rel)
 		if d.IsDir() {
-			// #nosec G301 -- template sync copies project templates into user-visible generated source directories.
-			return os.MkdirAll(target, 0o755)
+			return EnsureDirectoryUnderRoot(dst, rel, generatedDirMode, "template copy")
 		}
-		return copyFile(path, target)
+		return CopyFileUnderRoot(src, rel, dst, rel, generatedPublicFileMode, generatedDirMode, "template copy")
 	})
 }
 
@@ -851,26 +848,7 @@ func copyFile(src, dst string) error {
 	if samePath(src, dst) {
 		return nil
 	}
-	// #nosec G304 -- template copy reads files discovered under the validated template source tree.
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-	// #nosec G301 -- template sync writes user-visible generated template directories.
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-		return err
-	}
-	// #nosec G304 -- template copy writes the destination derived from the validated sync target and source-relative path.
-	out, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	if _, err := io.Copy(out, in); err != nil {
-		_ = out.Close()
-		return err
-	}
-	return out.Close()
+	return CopyFileToRoot(src, filepath.Dir(dst), filepath.Base(dst), generatedPublicFileMode, generatedDirMode, "template copy")
 }
 
 func samePath(a, b string) bool {

@@ -3,6 +3,32 @@ set -eu
 
 go_cmd="${GO:-go}"
 module="${MODULE_PATH:-$($go_cmd list -m)}"
+report="${API_COMPAT_REPORT:-api-compat-report.json}"
+
+write_report() {
+	status="$1"
+	base="$2"
+	reason="$3"
+	python3 - "$report" "$status" "$base" "$reason" "$module" <<'PY'
+import json, pathlib, sys
+path = pathlib.Path(sys.argv[1])
+data = {
+    "schema": "gofly.api_compat_report.v1",
+    "status": sys.argv[2],
+    "base_ref": sys.argv[3],
+    "reason": sys.argv[4],
+    "module": sys.argv[5],
+}
+path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+PY
+}
+
+fail_release_skip() {
+	case "${GITHUB_REF:-}" in
+	refs/tags/v*) return 0 ;;
+	esac
+	[ "${API_COMPAT_REQUIRED:-false}" = "true" ] || [ "${GOVERNANCE_RELEASE:-false}" = "true" ]
+}
 
 run_apidiff() {
 	if [ -n "${APIDIFF_TOOL:-}" ]; then
@@ -24,7 +50,13 @@ if [ -z "$base_ref" ]; then
 fi
 
 if ! git rev-parse --verify "${base_ref}^{commit}" >/dev/null 2>&1; then
-	echo "base ref '${base_ref}' is not available; skipping public API compatibility check"
+	reason="base ref '${base_ref}' is not available"
+	echo "$reason; skipping public API compatibility check"
+	write_report skipped "$base_ref" "$reason"
+	if fail_release_skip; then
+		echo "public API compatibility skip is forbidden for release/tag governance"
+		exit 1
+	fi
 	exit 0
 fi
 
@@ -43,7 +75,9 @@ changes="$(run_apidiff -m -incompatible "$tmp/base.exp" "$tmp/current.exp")"
 if [ -n "$changes" ]; then
 	echo "incompatible public Go API changes detected:"
 	echo "$changes"
+	write_report failed "$base_ref" "incompatible public Go API changes detected"
 	exit 1
 fi
 
 echo "no incompatible public Go API changes detected"
+write_report passed "$base_ref" "no incompatible public Go API changes detected"

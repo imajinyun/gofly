@@ -1,6 +1,7 @@
 package generator
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -145,6 +146,65 @@ func TestWriteGeneratedFileUnderRejectsSymlinkParentAndLeaf(t *testing.T) {
 	if _, statErr := os.Stat(leafTarget); statErr == nil {
 		t.Fatalf("writeGeneratedFileUnder wrote through symlink leaf")
 	}
+}
+
+func TestGeneratedFileRootHelpersConstrainReadWriteCopy_BitsUT(t *testing.T) {
+	t.Run("safe target rejects symlink root and absolute escape", func(t *testing.T) {
+		tmp := t.TempDir()
+		outside := t.TempDir()
+		rootLink := filepath.Join(tmp, "root-link")
+		if err := os.Symlink(outside, rootLink); err != nil {
+			t.Skipf("symlink unsupported: %v", err)
+		}
+		if _, err := SafeTarget(rootLink, "service.go", "generated file"); err == nil || !strings.Contains(err.Error(), "must not be a symlink") {
+			t.Fatalf("SafeTarget symlink root err = %v, want symlink root rejection", err)
+		}
+		if _, err := SafeTarget(tmp, filepath.Join(outside, "escape.go"), "generated file"); err == nil || !strings.Contains(err.Error(), "escapes root") {
+			t.Fatalf("SafeTarget absolute escape err = %v, want root escape rejection", err)
+		}
+	})
+
+	t.Run("read and copy reject symlink leaves", func(t *testing.T) {
+		root := t.TempDir()
+		outside := t.TempDir()
+		outsideFile := filepath.Join(outside, "outside.go")
+		if err := os.WriteFile(outsideFile, []byte("package outside\n"), 0o600); err != nil {
+			t.Fatalf("write outside file: %v", err)
+		}
+		leafLink := filepath.Join(root, "link.go")
+		if err := os.Symlink(outsideFile, leafLink); err != nil {
+			t.Skipf("symlink unsupported: %v", err)
+		}
+		if _, err := ReadFileUnderRoot(root, "link.go", "generated file"); err == nil || !strings.Contains(err.Error(), "is a symlink") {
+			t.Fatalf("ReadFileUnderRoot symlink leaf err = %v, want symlink leaf rejection", err)
+		}
+		dst := t.TempDir()
+		if err := CopyFileUnderRoot(root, "link.go", dst, "copied.go", 0o644, 0o755, "generated file"); err == nil || !strings.Contains(err.Error(), "is a symlink") {
+			t.Fatalf("CopyFileUnderRoot symlink source err = %v, want symlink leaf rejection", err)
+		}
+		if _, err := os.Stat(filepath.Join(dst, "copied.go")); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("CopyFileUnderRoot wrote destination after rejected source: %v", err)
+		}
+	})
+
+	t.Run("copy file to root uses private contract permissions", func(t *testing.T) {
+		tmp := t.TempDir()
+		src := filepath.Join(tmp, "contract.proto")
+		if err := os.WriteFile(src, []byte("syntax = \"proto3\";\n"), 0o600); err != nil {
+			t.Fatalf("write source: %v", err)
+		}
+		root := filepath.Join(tmp, "service")
+		if err := CopyFileToRoot(src, root, filepath.Join(root, "contracts", "orders.proto"), 0o600, 0o750, "contract target"); err != nil {
+			t.Fatalf("CopyFileToRoot: %v", err)
+		}
+		info, err := os.Stat(filepath.Join(root, "contracts", "orders.proto"))
+		if err != nil {
+			t.Fatalf("stat copied contract: %v", err)
+		}
+		if got := info.Mode().Perm(); got != 0o600 {
+			t.Fatalf("copied contract mode = %v, want 0600", got)
+		}
+	})
 }
 
 func TestServiceFilesystemSinkRejectsEscapingPaths(t *testing.T) {

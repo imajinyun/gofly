@@ -37,6 +37,58 @@ gosec_flags="${GOSEC_FLAGS:--quiet -exclude-generated -exclude-dir=testdata -exc
 coverage_threshold="${COVERAGE_THRESHOLD:-60}"
 coverage_ratchet_default="90"
 coverage_ratchet="${COVERAGE_RATCHET:-$coverage_ratchet_default}"
+skip_report="${GOVERNANCE_SKIP_REPORT:-$root/governance-skip-report.json}"
+
+write_skip_report() {
+	python3 - "$skip_report" <<'PY'
+import json, pathlib, sys
+path = pathlib.Path(sys.argv[1])
+path.write_text(json.dumps({"schema":"gofly.governance_skip_report.v1","skips":[]}, indent=2) + "\n", encoding="utf-8")
+PY
+}
+
+record_skip() {
+	round="$1"
+	name="$2"
+	env_name="$3"
+	reason="$4"
+	risk="$5"
+	compensating_gate="$6"
+	required_for_release="$7"
+	python3 - "$skip_report" "$round" "$name" "$env_name" "$reason" "$risk" "$compensating_gate" "$required_for_release" <<'PY'
+import json, pathlib, sys
+path = pathlib.Path(sys.argv[1])
+if path.exists():
+    data = json.loads(path.read_text(encoding="utf-8"))
+else:
+    data = {"schema":"gofly.governance_skip_report.v1","skips":[]}
+required = sys.argv[8].lower() == "true"
+data.setdefault("skips", []).append({
+    "round": sys.argv[2],
+    "name": sys.argv[3],
+    "env": sys.argv[4],
+    "reason": sys.argv[5],
+    "risk": sys.argv[6],
+    "compensating_gate": sys.argv[7],
+    "required_for_release": required,
+})
+path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+PY
+}
+
+assert_not_release_skip() {
+	env_name="$1"
+	if [ "${GOVERNANCE_RELEASE:-false}" = "true" ]; then
+		printf '%s must not be true during release governance\n' "$env_name"
+		exit 1
+	fi
+	case "${GITHUB_REF:-}" in
+	refs/tags/v*)
+		printf '%s must not be true during release tag governance\n' "$env_name"
+		exit 1
+		;;
+	esac
+}
 
 run_round() {
 	round="$1"
@@ -381,7 +433,9 @@ round_final_convergence() {
 	round_docs_check
 	round_coverage_check
 	if [ "${GOVERNANCE_SKIP_SECURITY:-false}" = "true" ]; then
+		assert_not_release_skip GOVERNANCE_SKIP_SECURITY
 		printf 'security audit skipped because GOVERNANCE_SKIP_SECURITY=true\n'
+		record_skip 13 "security audit" GOVERNANCE_SKIP_SECURITY "GOVERNANCE_SKIP_SECURITY=true" "govulncheck/gosec findings may be missed" "run make security before merge/release" true
 	else
 		round_security_audit
 	fi
@@ -389,6 +443,7 @@ round_final_convergence() {
 }
 
 cd "$root"
+write_skip_report
 
 if [ "${GOVERNANCE_ONLY_GENERATED_CONTROL_PLANE_SMOKE:-false}" = "true" ]; then
 	printf 'gofly generated project runtime control-plane smoke\n'
@@ -412,6 +467,7 @@ printf 'COVERAGE_THRESHOLD=%s\n' "$coverage_threshold"
 printf 'COVERAGE_RATCHET=%s\n' "$coverage_ratchet"
 printf 'GOVERNANCE_SKIP_GENERATED_MATRIX=%s\n' "${GOVERNANCE_SKIP_GENERATED_MATRIX:-false}"
 printf 'GOVERNANCE_SKIP_GENERATED_CONTROL_PLANE_SMOKE=%s\n' "${GOVERNANCE_SKIP_GENERATED_CONTROL_PLANE_SMOKE:-false}"
+printf 'GOVERNANCE_SKIP_REPORT=%s\n' "$skip_report"
 
 run_round 1 "baseline and module graph" round_baseline
 run_round 2 "format check" round_format_check
@@ -419,8 +475,10 @@ run_round 3 "unit tests without test cache" "$go_cmd" test $testflags $pkgs
 run_round 4 "vet static analysis" "$go_cmd" vet $pkgs
 run_round 5 "golangci-lint" "$golangci_lint" run $pkgs
 if [ "${GOVERNANCE_SKIP_RACE:-false}" = "true" ]; then
+	assert_not_release_skip GOVERNANCE_SKIP_RACE
 	printf '\n== Round 6: race detector ==\n'
 	printf 'skipped because GOVERNANCE_SKIP_RACE=true\n'
+	record_skip 6 "race detector" GOVERNANCE_SKIP_RACE "GOVERNANCE_SKIP_RACE=true" "race conditions may be missed" "run go test -race ./... before merge/release" true
 else
 	run_round 6 "race detector" "$go_cmd" test $testflags -race $pkgs
 fi
@@ -433,16 +491,20 @@ run_round 10 "AI governance pipeline manifest check" round_ai_manifest_check
 if [ "${GOVERNANCE_SKIP_GENERATED_MATRIX:-false}" = "true" ]; then
 	printf '\n== Round 11: generated project verification matrix ==\n'
 	printf 'skipped because GOVERNANCE_SKIP_GENERATED_MATRIX=true; CI must run make test-generated-matrix separately\n'
+	record_skip 11 "generated project verification matrix" GOVERNANCE_SKIP_GENERATED_MATRIX "GOVERNANCE_SKIP_GENERATED_MATRIX=true" "generated project regressions may be missed in this job" "make test-generated-matrix in build-test job" false
 else
 	assert_go_tests_match ./cmd/gofly/internal/command 'TestAINewGeneratedProjectVerificationMatrix_BitsUT' 1
 	run_round 11 "generated project verification matrix" round_generated_project_matrix_tests
 fi
 if [ "${GOVERNANCE_SKIP_GENERATED_CONTROL_PLANE_SMOKE:-false}" = "true" ]; then
+	assert_not_release_skip GOVERNANCE_SKIP_GENERATED_CONTROL_PLANE_SMOKE
 	printf '\n== Round 12: generated project runtime control-plane smoke ==\n'
 	printf 'skipped because GOVERNANCE_SKIP_GENERATED_CONTROL_PLANE_SMOKE=true\n'
+	record_skip 12 "generated project runtime control-plane smoke" GOVERNANCE_SKIP_GENERATED_CONTROL_PLANE_SMOKE "GOVERNANCE_SKIP_GENERATED_CONTROL_PLANE_SMOKE=true" "generated runtime control-plane regressions may be missed" "make generated-control-plane-smoke in build-test job" true
 else
 	run_round 12 "generated project runtime control-plane smoke" round_generated_project_control_plane_smoke
 fi
 run_round 13 "docs, coverage, security, and final package listing" round_final_convergence
 
+printf '\nGovernance skip report: %s\n' "$skip_report"
 printf '\nGovernance workflow completed successfully.\n'

@@ -263,7 +263,7 @@ func TestNewServiceContractCopySafety_BitsUT(t *testing.T) {
 			t.Skipf("symlink unsupported: %v", err)
 		}
 		err := copyNewServiceContractFile(src, leaf, root)
-		if err == nil || !strings.Contains(err.Error(), "refusing to overwrite symlink contract target") {
+		if err == nil || !strings.Contains(err.Error(), "is a symlink") {
 			t.Fatalf("copy to symlink leaf error = %v, want symlink leaf rejection", err)
 		}
 		data, err := os.ReadFile(outsideFile)
@@ -287,7 +287,7 @@ func TestNewServiceContractCopySafety_BitsUT(t *testing.T) {
 		}
 		escape := filepath.Join(tmp, "escape.api")
 		err := copyNewServiceContractFile(src, escape, root)
-		if err == nil || !strings.Contains(err.Error(), "escapes output root") {
+		if err == nil || !strings.Contains(err.Error(), "escapes root") {
 			t.Fatalf("copy escaping root error = %v, want escape rejection", err)
 		}
 		if _, err := os.Stat(escape); !errors.Is(err, os.ErrNotExist) {

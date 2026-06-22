@@ -141,6 +141,36 @@ jobs:
       - name: Workflow, shell, and OSV checks
         run: make supply-chain
 
+      - name: Public API compatibility report
+        env:
+          API_BASE_REF: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || '' }}
+          API_COMPAT_REPORT: api-compat-report.json
+          API_COMPAT_REQUIRED: ${{ startsWith(github.ref, 'refs/tags/v') && 'true' || 'false' }}
+        run: make api-compat
+
+      - name: Public API compatibility summary
+        if: always()
+        run: |
+          if [ -s api-compat-report.json ]; then
+            python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          from pathlib import Path
+          data = json.loads(Path("api-compat-report.json").read_text(encoding="utf-8"))
+          print("## Public API compatibility")
+          print(f"- status: {data['status']}")
+          print(f"- base_ref: {data['base_ref']}")
+          print(f"- reason: {data['reason']}")
+          PY
+          fi
+
+      - name: Upload public API compatibility report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: api-compat-report
+          path: api-compat-report.json
+          if-no-files-found: warn
+
   codeql:
     name: CodeQL security analysis
     runs-on: ubuntu-latest
@@ -305,7 +335,36 @@ jobs:
           GOVERNANCE_ISOLATE_GOMODCACHE: ${{ github.event_name == 'schedule' && 'true' || 'false' }}
           GOVERNANCE_SKIP_GENERATED_MATRIX: "true"
           GOVERNANCE_SKIP_GENERATED_CONTROL_PLANE_SMOKE: "true"
+          GOVERNANCE_SKIP_REPORT: governance-skip-report.json
         run: make governance-10-rounds
+
+      - name: Governance skip summary
+        if: always()
+        run: |
+          if [ -s governance-skip-report.json ]; then
+            python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          from pathlib import Path
+          data = json.loads(Path("governance-skip-report.json").read_text(encoding="utf-8"))
+          print("## Governance skip report")
+          skips = data.get("skips", [])
+          if not skips:
+              print("No skipped governance rounds.")
+          else:
+              print("| Round | Gate | Env | Risk | Compensating gate | Required for release |")
+              print("| --- | --- | --- | --- | --- | --- |")
+              for item in skips:
+                  print(f"| {item['round']} | {item['name']} | {item['env']} | {item['risk']} | {item['compensating_gate']} | {item['required_for_release']} |")
+          PY
+          fi
+
+      - name: Upload governance skip report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: governance-skip-report
+          path: governance-skip-report.json
+          if-no-files-found: error
 
   bench-fuzz:
     name: bench + fuzz smoke
@@ -482,7 +541,21 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: goreleaser release --clean
 
+      - name: Verify release artifacts
+        run: make release-artifacts-check
+
       - name: Attest release checksums
         uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a
         with:
           subject-path: dist/checksums.txt
+
+      - name: Upload release verification evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-dist-evidence
+          path: |
+            dist/checksums.txt
+            dist/*.spdx.json
+            trivy-results.sarif
+          if-no-files-found: warn

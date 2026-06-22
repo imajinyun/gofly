@@ -2,6 +2,8 @@ package command
 
 import (
 	"bytes"
+	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -121,8 +123,16 @@ func TestReleaseCheckCommandJSONAndChangelogBlocker_BitsUT(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("releaseCheckCommand json pass: %v", err)
 	}
-	if !strings.Contains(out.String(), `"summary"`) || !strings.Contains(out.String(), "PASS") || !strings.Contains(out.String(), "go-api-compat") || !strings.Contains(out.String(), "go-mod-tidy") {
-		t.Fatalf("releaseCheckCommand json output = %s, want pass report", out.String())
+	var passEnvelope struct {
+		OK      bool               `json:"ok"`
+		Command string             `json:"command"`
+		Data    releaseCheckReport `json:"data"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &passEnvelope); err != nil {
+		t.Fatalf("releaseCheckCommand json pass decode: %v\n%s", err, out.String())
+	}
+	if !passEnvelope.OK || passEnvelope.Command != "release.check" || !strings.Contains(passEnvelope.Data.Summary, "PASS") || len(passEnvelope.Data.Checks) == 0 {
+		t.Fatalf("releaseCheckCommand json pass envelope = %+v, want ok release.check report", passEnvelope)
 	}
 	if err := os.WriteFile(changelog, []byte("# Changelog\n\n## v9.9.9\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -134,8 +144,47 @@ func TestReleaseCheckCommandJSONAndChangelogBlocker_BitsUT(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "release check failed") {
 		t.Fatalf("releaseCheckCommand changelog blocker error = %v, want release check failed", err)
 	}
-	if !strings.Contains(out.String(), `"changelog-version"`) || !strings.Contains(out.String(), `"BLOCKED:`) || !strings.Contains(out.String(), `9.9.9`) {
-		t.Fatalf("releaseCheckCommand blocker json output = %s, want changelog blocker", out.String())
+	var failEnvelope struct {
+		OK      bool               `json:"ok"`
+		Command string             `json:"command"`
+		Data    releaseCheckReport `json:"data"`
+		Error   *jsonError         `json:"error"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &failEnvelope); err != nil {
+		t.Fatalf("releaseCheckCommand blocker json decode: %v\n%s", err, out.String())
+	}
+	if failEnvelope.OK || failEnvelope.Command != "release.check" || failEnvelope.Error == nil || failEnvelope.Error.Code != "RELEASE_CHECK_FAILED" || !strings.Contains(failEnvelope.Data.Summary, "BLOCKED") || !strings.Contains(out.String(), `9.9.9`) {
+		t.Fatalf("releaseCheckCommand blocker envelope = %+v, want structured blocker", failEnvelope)
+	}
+}
+
+func TestReleaseCheckGlobalJSONDoesNotDuplicateError_BitsUT(t *testing.T) {
+	t.Setenv("API_BASE_REF", "definitely-missing-release-base-ref")
+	dir := t.TempDir()
+	changelog := filepath.Join(dir, "CHANGELOG.md")
+	if err := os.WriteFile(changelog, []byte("# Changelog\n\n## v9.9.9\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	err := ExecuteWithIO([]string{"--output=json", "release", "check", "--changelog", changelog}, IOStreams{Out: &out})
+	if err == nil || !strings.Contains(err.Error(), "release check failed") || !errors.Is(err, errJSONAlreadyReported) {
+		t.Fatalf("ExecuteWithIO release check error = %v, want reported release check failure", err)
+	}
+	var envelope struct {
+		OK      bool               `json:"ok"`
+		Command string             `json:"command"`
+		Data    releaseCheckReport `json:"data"`
+		Error   *jsonError         `json:"error"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &envelope); err != nil {
+		t.Fatalf("ExecuteWithIO release check json decode: %v\n%s", err, out.String())
+	}
+	if envelope.OK || envelope.Command != "release.check" || envelope.Error == nil || envelope.Error.Code != "RELEASE_CHECK_FAILED" {
+		t.Fatalf("ExecuteWithIO release check envelope = %+v, want one structured release failure", envelope)
+	}
+	if strings.Count(out.String(), `"ok"`) != 1 {
+		t.Fatalf("ExecuteWithIO release check emitted duplicate JSON envelopes:\n%s", out.String())
 	}
 }
 

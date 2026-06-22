@@ -272,6 +272,7 @@ func rpcGenCommand(args []string) error {
 	withRecovery := fs.Bool("with-recovery", false, "generate gofly RPC recovery middleware option helpers")
 	withValidator := fs.Bool("with-validator", false, "generate gofly RPC request validator option helpers")
 	timeout := fs.Duration("timeout", defaultProtocTimeout, "maximum protoc execution time when --standard is enabled")
+	jsonOut := fs.Bool("json", false, "emit generation result as JSON")
 	registerGoctlTemplateFlags(fs)
 	remaining, err := parseInterspersedFlags(fs, args)
 	if err != nil {
@@ -332,11 +333,27 @@ func rpcGenCommand(args []string) error {
 			return err
 		}
 	}
-	return runPostPlugins(*pluginArg, generator.PluginRequest{
+	if err := runPostPlugins(*pluginArg, generator.PluginRequest{
 		Command: "rpc",
 		Input:   map[string]string{"proto": *file, "package": *pkg},
 		Dir:     *dir,
-	})
+	}); err != nil {
+		return err
+	}
+	if *jsonOut || outputMode() == outputJSON {
+		inputs := map[string]string{"proto": *file, "dir": *dir, "transport": *transport}
+		if *pkg != "" {
+			inputs["package"] = *pkg
+		}
+		if *profile != "" {
+			inputs["profile"] = *profile
+		}
+		if *standard {
+			inputs["standard"] = "true"
+		}
+		return printJSONEnvelope("rpc.gen", buildIDLGeneratePlan("rpc gen", inputs, splitCSV(*pluginArg)))
+	}
+	return nil
 }
 
 // rpcPluginCommand 实现 `gofly rpc plugin <plugin> --file <.proto> --dir <dir>`。
@@ -1099,6 +1116,7 @@ func apiGenCommand(args []string) error {
 	pluginArg := fs.String("plugin", "", "additional plugin executable (comma-separated) to run after generation")
 	test := fs.Bool("test", false, "generate test files")
 	typeGroup := fs.Bool("type-group", false, "group generated types")
+	jsonOut := fs.Bool("json", false, "emit generation result as JSON")
 	registerGoctlTemplateFlags(fs)
 	remaining, err := parseInterspersedFlags(fs, args)
 	if err != nil {
@@ -1114,11 +1132,54 @@ func apiGenCommand(args []string) error {
 	if err := generator.GenerateRESTFromAPI(generator.APIOptions{APIFile: *file, Dir: *dir, Package: *pkg, RPCPackage: *rpcPkg, Test: *test, TypeGroup: *typeGroup}); err != nil {
 		return err
 	}
-	return runPostPlugins(*pluginArg, generator.PluginRequest{
+	if err := runPostPlugins(*pluginArg, generator.PluginRequest{
 		Command: "api",
 		Input:   map[string]string{"api": *file, "package": *pkg},
 		Dir:     *dir,
-	})
+	}); err != nil {
+		return err
+	}
+	if *jsonOut || outputMode() == outputJSON {
+		inputs := map[string]string{"api": *file, "dir": *dir}
+		if *pkg != "" {
+			inputs["package"] = *pkg
+		}
+		if *rpcPkg != "" {
+			inputs["rpcPackage"] = *rpcPkg
+		}
+		if *test {
+			inputs["test"] = "true"
+		}
+		if *typeGroup {
+			inputs["typeGroup"] = "true"
+		}
+		return printJSONEnvelope("api.gen", buildIDLGeneratePlan("api gen", inputs, splitCSV(*pluginArg)))
+	}
+	return nil
+}
+
+func buildIDLGeneratePlan(command string, inputs map[string]string, plugins []string) cliPlan {
+	dir := inputs["dir"]
+	actions := []cliPlanAction{{Operation: "write-files", Target: dir, Description: "generate code under the output directory", RiskLevel: "medium"}}
+	cleanPlugins := make([]string, 0, len(plugins))
+	for _, plugin := range plugins {
+		plugin = strings.TrimSpace(plugin)
+		if plugin != "" {
+			cleanPlugins = append(cleanPlugins, plugin)
+		}
+	}
+	if len(cleanPlugins) > 0 {
+		inputs["plugins"] = strings.Join(cleanPlugins, ",")
+		actions = append(actions, cliPlanAction{Operation: "run-plugins", Target: strings.Join(cleanPlugins, ","), Description: "execute post-generation plugins and apply returned files or patches", RiskLevel: "high"})
+	}
+	return cliPlan{
+		Command:           command,
+		DryRun:            false,
+		MutatesFilesystem: true,
+		Inputs:            inputs,
+		Actions:           actions,
+		NextActions:       []string{"review generated diff", "go test ./..."},
+	}
 }
 
 func registerGoctlTemplateFlags(fs *flag.FlagSet) {

@@ -2611,6 +2611,147 @@ func assertDryRunPlan(t *testing.T, data []byte, command, planCommand string) {
 	}
 }
 
+func TestNewCommandsEmitJSONEnvelope_BitsUT(t *testing.T) {
+	tests := []struct {
+		name        string
+		args        []string
+		command     string
+		planCommand string
+		wantFile    string
+	}{
+		{
+			name:        "new service",
+			args:        []string{"new", "service", "orders"},
+			command:     "new.service",
+			planCommand: "new service",
+			wantFile:    "go.mod",
+		},
+		{
+			name:        "new api",
+			args:        []string{"new", "api", "hello"},
+			command:     "new.api",
+			planCommand: "new api",
+			wantFile:    "go.mod",
+		},
+		{
+			name:        "new rpc",
+			args:        []string{"new", "rpc", "greeter"},
+			command:     "new.rpc",
+			planCommand: "new rpc",
+			wantFile:    "go.mod",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := filepath.Join(t.TempDir(), "svc")
+			args := append([]string{}, tt.args...)
+			args = append(args, "--module", "example.com/svc", "--dir", dir, "--json")
+			var stdout bytes.Buffer
+			if err := ExecuteWithIO(args, IOStreams{Out: &stdout}); err != nil {
+				t.Fatalf("ExecuteWithIO(%v): %v", args, err)
+			}
+			var envelope struct {
+				OK      bool   `json:"ok"`
+				Command string `json:"command"`
+				Data    struct {
+					Command           string            `json:"command"`
+					DryRun            bool              `json:"dryRun"`
+					MutatesFilesystem bool              `json:"mutatesFilesystem"`
+					Inputs            map[string]string `json:"inputs"`
+					Actions           []struct {
+						Operation string `json:"operation"`
+					} `json:"actions"`
+					NextActions []string `json:"nextActions"`
+				} `json:"data"`
+			}
+			if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+				t.Fatalf("new command output is not valid JSON: %v\n%s", err, stdout.String())
+			}
+			if !envelope.OK || envelope.Command != tt.command || envelope.Data.Command != tt.planCommand || envelope.Data.DryRun || !envelope.Data.MutatesFilesystem {
+				t.Fatalf("new command envelope = %+v, want applied JSON result", envelope)
+			}
+			if envelope.Data.Inputs["dir"] != dir || envelope.Data.Inputs["module"] != "example.com/svc" || len(envelope.Data.Actions) == 0 || len(envelope.Data.NextActions) == 0 {
+				t.Fatalf("new command plan data = %+v, want stable automation fields", envelope.Data)
+			}
+			if _, err := os.Stat(filepath.Join(dir, tt.wantFile)); err != nil {
+				t.Fatalf("new command did not write %s: %v", tt.wantFile, err)
+			}
+		})
+	}
+}
+
+func TestIDLGenerateCommandsEmitJSONEnvelope_BitsUT(t *testing.T) {
+	t.Run("api gen", func(t *testing.T) {
+		dir := t.TempDir()
+		apiPath := filepath.Join(dir, "user.api")
+		api := `type PingResp {
+  Message string
+}
+service user-api {
+  @handler ping
+  get /ping returns (PingResp)
+}
+`
+		if err := os.WriteFile(apiPath, []byte(api), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		outDir := filepath.Join(dir, "out")
+		var stdout bytes.Buffer
+		if err := ExecuteWithIO([]string{"api", "gen", "--file", apiPath, "--dir", outDir, "--package", "handler", "--json"}, IOStreams{Out: &stdout}); err != nil {
+			t.Fatal(err)
+		}
+		assertGenerateEnvelope(t, stdout.Bytes(), "api.gen", "api gen", outDir)
+		if _, err := os.Stat(filepath.Join(outDir, "internal", "api", "v1", "types.go")); err != nil {
+			t.Fatalf("api gen --json did not write generated file: %v", err)
+		}
+	})
+
+	t.Run("rpc gen", func(t *testing.T) {
+		dir := t.TempDir()
+		protoPath := filepath.Join(dir, "greeter.proto")
+		if err := os.WriteFile(protoPath, []byte(commandTestProto), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		outDir := filepath.Join(dir, "out")
+		var stdout bytes.Buffer
+		if err := ExecuteWithIO([]string{"rpc", "gen", "--file", protoPath, "--dir", outDir, "--package", "greeterv1", "--json"}, IOStreams{Out: &stdout}); err != nil {
+			t.Fatal(err)
+		}
+		assertGenerateEnvelope(t, stdout.Bytes(), "rpc.gen", "rpc gen", outDir)
+		if _, err := os.Stat(filepath.Join(outDir, "greeter.grpc.gofly.go")); err != nil {
+			t.Fatalf("rpc gen --json did not write generated file: %v", err)
+		}
+	})
+}
+
+func assertGenerateEnvelope(t *testing.T, data []byte, command, planCommand, dir string) {
+	t.Helper()
+	var envelope struct {
+		OK      bool   `json:"ok"`
+		Command string `json:"command"`
+		Data    struct {
+			Command           string            `json:"command"`
+			DryRun            bool              `json:"dryRun"`
+			MutatesFilesystem bool              `json:"mutatesFilesystem"`
+			Inputs            map[string]string `json:"inputs"`
+			Actions           []struct {
+				Operation string `json:"operation"`
+			} `json:"actions"`
+			NextActions []string `json:"nextActions"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(data, &envelope); err != nil {
+		t.Fatalf("generate output is not valid JSON: %v\n%s", err, string(data))
+	}
+	if !envelope.OK || envelope.Command != command || envelope.Data.Command != planCommand || envelope.Data.DryRun || !envelope.Data.MutatesFilesystem {
+		t.Fatalf("generate envelope = %+v, want applied JSON result", envelope)
+	}
+	if envelope.Data.Inputs["dir"] != dir || len(envelope.Data.Actions) == 0 || envelope.Data.Actions[0].Operation != "write-files" || len(envelope.Data.NextActions) == 0 {
+		t.Fatalf("generate plan data = %+v, want stable automation fields", envelope.Data)
+	}
+}
+
 func TestExecuteAICompleteGovernedNoop(t *testing.T) {
 	t.Run("json envelope reports usage budget and governance", func(t *testing.T) {
 		var stdout, stderr bytes.Buffer

@@ -1,7 +1,6 @@
 package command
 
 import (
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -175,9 +174,9 @@ func releaseCheckCommand(args []string) error {
 		report.Blocking = append(report.Blocking, warnings...)
 	}
 
-	if *jsonOut {
-		b, _ := json.MarshalIndent(report, "", "  ")
-		cliOutputln(string(b))
+	failed := len(report.Blocking) > 0 || (*strict && len(warnings) > 0)
+	if *jsonOut || outputMode() == outputJSON {
+		return printReleaseCheckJSON(report, failed)
 	} else {
 		cliOutputf("gofly release check — %s\n\n", report.Summary)
 		for _, c := range report.Checks {
@@ -204,8 +203,22 @@ func releaseCheckCommand(args []string) error {
 		}
 	}
 
-	if len(report.Blocking) > 0 || (*strict && len(warnings) > 0) {
+	if failed {
 		return errors.New("release check failed")
+	}
+	return nil
+}
+
+func printReleaseCheckJSON(report releaseCheckReport, failed bool) error {
+	envelope := jsonEnvelope{OK: !failed, Command: "release.check", Version: Version, Data: report}
+	if failed {
+		envelope.Error = &jsonError{Code: "RELEASE_CHECK_FAILED", Message: report.Summary, Retryable: false, Remediation: "Resolve blocking release checks before publishing.", Details: map[string]any{"blocking": report.Blocking}}
+	}
+	if err := printJSON(envelope); err != nil {
+		return err
+	}
+	if failed {
+		return fmt.Errorf("release check failed: %w", errJSONAlreadyReported)
 	}
 	return nil
 }

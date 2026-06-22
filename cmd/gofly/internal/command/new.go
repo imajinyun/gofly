@@ -60,6 +60,7 @@ func serviceNewCommand(args []string) error {
 	saveConfig := fs.Bool("save-config", true, "save resolved config back to --config path")
 	dryRun := fs.Bool("dry-run", false, "print the planned filesystem changes without writing files")
 	plan := fs.Bool("plan", false, "alias for --dry-run")
+	jsonOut := fs.Bool("json", false, "emit scaffold result as JSON")
 	remaining, err := parseInterspersedFlags(fs, args)
 	if err != nil {
 		return err
@@ -104,7 +105,7 @@ func serviceNewCommand(args []string) error {
 		if err := validateNewServicePlanInputs(cfg); err != nil {
 			return err
 		}
-		return printCLIPlan("new.service", buildNewServicePlan("new service", *dir, resolved, cfg, plugins, *saveConfig, true))
+		return printCLIPlan("new.service", buildNewServicePlan("new service", *dir, resolved, cfg, plugins, *saveConfig, true), *jsonOut)
 	}
 	if err := generator.GenerateServiceScaffold(generator.ServiceScaffoldOptions{
 		Name:           cfg.ServiceName,
@@ -124,6 +125,9 @@ func serviceNewCommand(args []string) error {
 		if err := generator.SaveConfig(resolved, cfg); err != nil {
 			return err
 		}
+	}
+	if *jsonOut || outputMode() == outputJSON {
+		return printJSONEnvelope("new.service", buildNewServicePlan("new service", *dir, resolved, cfg, plugins, *saveConfig, false))
 	}
 	return nil
 }
@@ -169,6 +173,7 @@ func apiNewCommand(args []string) error {
 	saveConfig := fs.Bool("save-config", true, "save resolved config back to --config path")
 	dryRun := fs.Bool("dry-run", false, "print the planned filesystem changes without writing files")
 	plan := fs.Bool("plan", false, "alias for --dry-run")
+	jsonOut := fs.Bool("json", false, "emit scaffold result as JSON")
 	_ = idea
 	_ = client
 	_ = c
@@ -219,7 +224,7 @@ func apiNewCommand(args []string) error {
 		if err := validateNewServicePlanInputs(cfg); err != nil {
 			return err
 		}
-		return printCLIPlan("new.api", buildNewServicePlan("new api", *dir, resolved, cfg, plugins, *saveConfig, true))
+		return printCLIPlan("new.api", buildNewServicePlan("new api", *dir, resolved, cfg, plugins, *saveConfig, true), *jsonOut)
 	}
 	if err := generator.GenerateServiceScaffold(generator.ServiceScaffoldOptions{
 		Name:           cfg.ServiceName,
@@ -240,6 +245,9 @@ func apiNewCommand(args []string) error {
 		if err := generator.SaveConfig(resolved, cfg); err != nil {
 			return err
 		}
+	}
+	if *jsonOut || outputMode() == outputJSON {
+		return printJSONEnvelope("new.api", buildNewServicePlan("new api", *dir, resolved, cfg, plugins, *saveConfig, false))
 	}
 	return nil
 }
@@ -286,6 +294,7 @@ func rpcNewCommand(args []string) error {
 	saveConfig := fs.Bool("save-config", true, "save resolved config back to --config path")
 	dryRun := fs.Bool("dry-run", false, "print the planned filesystem changes without writing files")
 	plan := fs.Bool("plan", false, "alias for --dry-run")
+	jsonOut := fs.Bool("json", false, "emit scaffold result as JSON")
 	_ = idea
 	_ = client
 	_ = c
@@ -355,7 +364,7 @@ func rpcNewCommand(args []string) error {
 		if err := validateNewServicePlanInputs(cfg); err != nil {
 			return err
 		}
-		return printCLIPlan("new.rpc", buildNewServicePlan("new rpc", *dir, resolved, cfg, plugins, *saveConfig, true))
+		return printCLIPlan("new.rpc", buildNewServicePlan("new rpc", *dir, resolved, cfg, plugins, *saveConfig, true), *jsonOut)
 	}
 	if err := generator.GenerateServiceScaffold(generator.ServiceScaffoldOptions{
 		Name:           cfg.ServiceName,
@@ -376,6 +385,9 @@ func rpcNewCommand(args []string) error {
 		if err := generator.SaveConfig(resolved, cfg); err != nil {
 			return err
 		}
+	}
+	if *jsonOut || outputMode() == outputJSON {
+		return printJSONEnvelope("new.rpc", buildNewServicePlan("new rpc", *dir, resolved, cfg, plugins, *saveConfig, false))
 	}
 	return nil
 }
@@ -559,6 +571,11 @@ func buildNewServicePlan(command, dir, configPath string, cfg *generator.Config,
 		warnings = append(warnings, "dry-run does not execute plugins; plugin-produced files and patches are not enumerated")
 	}
 
+	nextActions := []string{"cd " + dir, "go mod tidy", "go test ./..."}
+	if dryRun {
+		nextActions = []string{"rerun without --dry-run/--plan to apply these actions"}
+	}
+
 	return cliPlan{
 		Command:           command,
 		DryRun:            dryRun,
@@ -566,7 +583,7 @@ func buildNewServicePlan(command, dir, configPath string, cfg *generator.Config,
 		Inputs:            inputs,
 		Actions:           actions,
 		Warnings:          warnings,
-		NextActions:       []string{"rerun without --dry-run/--plan to apply these actions"},
+		NextActions:       nextActions,
 	}
 }
 

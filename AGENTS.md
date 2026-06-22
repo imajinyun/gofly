@@ -1,112 +1,113 @@
-# gofly Agent 工作流
+# 🚀 gofly Agent Workflow
 
-本文件定义本项目的默认自动化协作方式。任何 AI Agent、自动化脚本或人工执行治理任务时，都应优先遵循这里的约束。
+This file defines the default automation and collaboration workflow for this project. Any AI agent, automation script, or human operator performing governance work should follow these constraints first.
 
-## 治理目标与优先级
+## 🎯 Governance goals and priorities
 
-gofly 是 Go 微服务工具链与代码生成项目，治理优先级按以下顺序执行：
+gofly is a Go microservice toolkit and code-generation project. Apply governance priorities in this order:
 
-1. **安全与可恢复性优先**：任何涉及路径、模板、插件、外部进程、网络下载、密钥、SQL/命令执行的改动，先保证不会扩大攻击面或破坏用户工程。
-2. **生成物确定性优先**：代码生成、模板扩展、RPC/API/model 输出必须可重复、可格式化、可编译，并避免写出根目录之外。
-3. **根模块卫生优先**：根模块只保留 gofly 自身真实导入的依赖；生成项目专用依赖只能进入被生成项目自己的 `go.mod`。
-4. **质量门禁优先于功能扩展**：新增功能必须补齐测试、文档/帮助文本和治理门禁，不允许以“后续补测”为默认策略。
-5. **最小变更与可追踪性**：优先修复根因；对历史基线暂不修复的 gosec/lint 项必须给出具体理由、范围和后续收敛建议。
+1. **🛡️ Safety and recoverability first**: for any change involving paths, templates, plugins, external processes, network downloads, secrets, SQL, or command execution, first ensure the change does not expand the attack surface or damage user projects.
+2. **🧱 Generated-output determinism first**: code generation, template extensions, and RPC/API/model outputs must be repeatable, gofmt-clean, compilable, and must not write outside the project root.
+3. **🧼 Root module hygiene first**: the root module may only keep dependencies actually imported by gofly itself; dependencies required only by generated projects must go into the generated project's own `go.mod`.
+4. **✅ Quality gates before feature expansion**: new functionality must include tests, documentation/help text, and governance gates. Do not default to “tests later.”
+5. **🔎 Minimal changes and traceability**: fix root causes first. For historical gosec/lint baselines that are intentionally left unfixed, document the reason, scope, and follow-up convergence plan.
 
-## 治理变更控制
+## 🧭 Governance change control
 
-治理类改动包括 `AGENTS.md`、`Makefile`、`bin/scripts/`、`.golangci.yml`、CI workflow、release 配置、go.mod tool 指令和安全基线说明。处理这类改动时必须遵循：
+Governance changes include `AGENTS.md`, `Makefile`, `bin/scripts/`, `.golangci.yml`, CI workflows, release configuration, `go.mod` tool directives, and security-baseline notes. Follow these rules for such changes:
 
-- **脚本优先于文字**：文档描述必须能在 `Makefile` 或 `bin/scripts/` 中找到对应入口；若只修改文字，应说明当前是治理规范补充而非自动化落地。
-- **单一事实源**：质量门禁命令以 `Makefile` 和 `bin/scripts/` 为准，`AGENTS.md` 只描述约束、分层策略和异常处理；发现不一致时优先修正脚本或明确脚本暂未覆盖。
-- **兼容性保护**：新增阻塞门禁前先评估历史基线；已有历史问题应先以审计/报告模式运行，再分模块收敛，避免一次性阻断所有开发。
-- **可回滚性**：治理脚本不得不可逆修改用户工程；执行 `go mod tidy`、生成物检查、临时 worktree 时必须能恢复或只在临时目录操作。
-- **最小验证**：文档治理至少执行 shell 语法检查和相关 make 目标 dry-run；脚本治理至少执行目标脚本的最小真实路径。
+- **📜 Scripts before prose**: documentation must have a corresponding entry in `Makefile` or `bin/scripts/`. If only text changes, explain that this is a governance-spec update rather than automation rollout.
+- **🎯 Single source of truth**: quality-gate commands are authoritative in `Makefile` and `bin/scripts/`; `AGENTS.md` only describes constraints, layering strategy, and exception handling. If inconsistencies are found, fix scripts first or explicitly state the script gap.
+- **🧩 Compatibility protection**: evaluate historical baselines before adding new blocking gates. Existing historical issues should first run in audit/report mode and then converge module by module, avoiding a one-shot block on all development.
+- **↩️ Rollbackability**: governance scripts must not irreversibly modify user projects. Operations such as `go mod tidy`, generated-output checks, and temporary worktrees must be recoverable or operate only in temporary directories.
+- **🧪 Minimal verification**: documentation governance should at least run shell syntax checks and relevant make-target dry-runs. Script governance should run the smallest real path of the target script.
 
-## 风险分级与处置 SLA
+## 🚦 Risk levels and handling SLA
 
-| 等级 | 触发条件 | 默认处置 |
+| Level | Trigger | Default handling |
 | --- | --- | --- |
-| P0 阻断 | 破坏构建、测试全红、根模块依赖污染、路径逃逸、命令注入、凭据泄露、发布产物不可验证 | 立即修复；不得只写报告；修复后跑对应 L2/L3 门禁 |
-| P1 高优先 | 新增 gosec 高置信告警、race、契约 breaking、生成物不可编译、coverage ratchet 回退 | 当前任务内修复或明确阻塞原因；补回归测试 |
-| P2 中优先 | 历史 gosec/lint 基线、非关键覆盖缺口、文档/CLI help 不一致、可观测性缺口 | 建议纳入下一轮治理；记录模块、命令和影响 |
-| P3 低优先 | 风格统一、注释清理、报告措辞、非阻塞脚本体验优化 | opportunistic 修复；不得挤占 P0/P1 |
+| P0 Blocker | Broken builds, all tests failing, root-module dependency pollution, path traversal, command injection, credential leaks, unverifiable release artifacts | Fix immediately; do not only write a report; run the matching L2/L3 gates after the fix |
+| P1 High | New high-confidence gosec finding, race, breaking contract change, uncompilable generated output, coverage ratchet regression | Fix in the current task or document the blocker; add regression tests |
+| P2 Medium | Historical gosec/lint baseline, non-critical coverage gaps, docs/CLI help inconsistency, observability gap | Recommend for the next governance round; record module, command, and impact |
+| P3 Low | Style alignment, comment cleanup, report wording, non-blocking script UX improvement | Fix opportunistically; do not displace P0/P1 work |
 
-任何降级都必须写明：原始风险、已有防护、降级理由、后续触发条件。
+Any downgrade must document: original risk, existing protections, downgrade rationale, and follow-up trigger conditions.
 
-## 默认执行模式
+## ⚙️ Default execution mode
 
-- 使用中文汇报结论、风险和验证结果。
-- 作为自治高级结对程序员执行任务：主动审计、规划、实现、测试、修复、复测和报告。
-- 用户给出方向后，除非需求存在破坏性风险或权限缺失，否则不要在每一轮之间询问确认。
-- 保持“基线 → 审计 → 修复 → 测试 → 验证 → 报告”的闭环。
-- 修改 Go 代码时优先加载并遵循 Go 相关能力：`golang-how-to`、`golang-testing`、`golang-lint`、`golang-safety`；涉及 CLI、并发、安全、性能、数据库、gRPC、Swagger 等时叠加对应专项能力。
-- 修改 `AGENTS.md`、`Makefile`、`bin/scripts/`、`.golangci.yml` 或 CI 配置时，按治理变更处理：先对齐现有脚本，再更新文档，最后至少执行相关脚本的最小可验证子集。
-- 不要静默忽略外部变更；如果文件被用户、脚本或 linter 修改，保留其意图，并在后续编辑中避免回滚无关内容。
+- Report conclusions, risks, and verification results in Chinese.
+- Prefer English for all documentation, including README files, reference docs, governance notes, release notes, and generated documentation unless the user explicitly requests another language.
+- Work as an autonomous senior pair-programmer: proactively audit, plan, implement, test, fix, re-test, and report.
+- Once the user provides direction, do not ask for confirmation between every round unless there is destructive risk or missing permission.
+- Keep the loop closed: **baseline → audit → fix → test → verify → report**.
+- When changing Go code, load and follow relevant Go capabilities first: `golang-how-to`, `golang-testing`, `golang-lint`, and `golang-safety`; add specialized capabilities for CLI, concurrency, security, performance, databases, gRPC, Swagger, and similar areas.
+- When changing `AGENTS.md`, `Makefile`, `bin/scripts/`, `.golangci.yml`, or CI configuration, treat it as a governance change: align existing scripts first, then update documentation, and finally run at least the smallest verifiable subset of the related script.
+- Do not silently ignore external changes. If files were changed by users, scripts, or linters, preserve their intent and avoid rolling back unrelated edits.
 
-## 必需 Go 能力
+## 🧠 Required Go capabilities
 
-执行 Go 相关任务时按场景叠加以下能力，避免只凭通用经验修改代码：
+Apply these capabilities by scenario when working on Go-related tasks; avoid changing code based only on generic experience:
 
-- **默认必用**：`golang-how-to`、`golang-testing`、`golang-lint`、`golang-safety`。
-- **安全/外部输入**：涉及插件、模板、文件系统、网络、TLS、命令执行、SQL、鉴权时叠加 `golang-security`。
-- **CLI/配置**：涉及 `cmd/gofly`、flag、completion、退出码、配置加载时叠加 `golang-cli`、`golang-spf13-cobra` 或 `golang-spf13-viper`。
-- **RPC/API 契约**：涉及 proto/thrift/OpenAPI/Swagger/REST/gRPC 生成时叠加 `golang-grpc`、`golang-swagger`、`golang-error-handling`。
-- **并发/生命周期**：涉及 goroutine、context、stream、watch、缓存刷新时叠加 `golang-concurrency`、`golang-context`。
-- **性能治理**：只有在已有 benchmark/profile/生产指标指出瓶颈后才做优化；测量用 `golang-benchmark`，优化用 `golang-performance`。
+- **⭐ Default required**: `golang-how-to`, `golang-testing`, `golang-lint`, `golang-safety`.
+- **🔐 Security / external input**: for plugins, templates, filesystem, network, TLS, command execution, SQL, or authentication, also load `golang-security`.
+- **🧰 CLI / configuration**: for `cmd/gofly`, flags, completion, exit codes, or config loading, also load `golang-cli`, `golang-spf13-cobra`, or `golang-spf13-viper`.
+- **📡 RPC/API contracts**: for proto/thrift/OpenAPI/Swagger/REST/gRPC generation, also load `golang-grpc`, `golang-swagger`, and `golang-error-handling`.
+- **🔄 Concurrency / lifecycle**: for goroutines, context, streams, watchers, or cache refresh, also load `golang-concurrency` and `golang-context`.
+- **📈 Performance governance**: optimize only after a benchmark/profile/production signal identifies a bottleneck; measure with `golang-benchmark`, optimize with `golang-performance`.
 
-## 缓存策略
+## 🧊 Cache strategy
 
-治理和质量门禁默认禁用项目级缓存语义：
+Governance and quality gates disable project-level cache semantics by default:
 
-- 对需要验证缓存旁路或启动 gofly 运行时的步骤，设置 `GOFLY_CACHE_DISABLED=true`，确保 gofly 运行时缓存、分层缓存本地 L1 和远端 L2 旁路。
-- 对普通缓存组件行为测试，不全局注入 `GOFLY_CACHE_DISABLED=true`，避免把“缓存应当生效”的单元测试变成旁路模式测试。
-- Go 测试使用 `GOFLAGS=-count=1`，避免测试结果缓存；治理和 CI 测试默认追加 `-shuffle=on`，暴露测试顺序耦合。
-- 使用临时 `GOCACHE` 和 `GOTMPDIR`，执行结束后删除，避免复用本机持久构建缓存。
-- 默认复用 Go 模块下载缓存，避免全量依赖下载耗尽本机临时空间；需要强隔离模块缓存时显式设置 `GOVERNANCE_ISOLATE_GOMODCACHE=true`。
-- 使用 `GOPROXY=direct`，避免依赖远端模块代理缓存。
-- 远程插件下载不得复用 `$USER_CACHE_DIR/gofly/plugins`，必须使用一次性临时文件。
-- 治理工具（`govulncheck`、`gosec`、`apidiff`）使用 Go `tool` 指令固定版本，CI 和本地脚本优先通过 `go tool <name>` 调用。
-- `gorm.io/gorm` 等生成项目专用依赖只能写入被生成项目自己的 `go.mod`，不得作为根模块依赖；`bin/scripts/check-mod-tidy.sh` 会拒绝未被根模块实际导入的生成专用依赖。
+- For steps that must verify cache bypass or start the gofly runtime, set `GOFLY_CACHE_DISABLED=true` so runtime cache, layered local L1 cache, and remote L2 cache are bypassed.
+- For normal cache-component behavior tests, do not inject `GOFLY_CACHE_DISABLED=true` globally; otherwise tests that should prove caching works become bypass-mode tests.
+- Go tests use `GOFLAGS=-count=1` to avoid cached results. Governance and CI tests should also use `-shuffle=on` by default to expose order coupling.
+- Use temporary `GOCACHE` and `GOTMPDIR`; remove them after execution to avoid reusing persistent local build cache.
+- Reuse the Go module download cache by default to avoid exhausting local temporary space. Use `GOVERNANCE_ISOLATE_GOMODCACHE=true` only when strong module-cache isolation is required.
+- Use `GOPROXY=direct` to avoid remote module-proxy cache semantics.
+- Remote plugin downloads must not reuse `$USER_CACHE_DIR/gofly/plugins`; use one-time temporary files.
+- Governance tools (`govulncheck`, `gosec`, `apidiff`) are version-pinned through Go `tool` directives. CI and local scripts should prefer `go tool <name>`.
+- Generated-project-only dependencies such as `gorm.io/gorm` must be written only to the generated project's own `go.mod`, never to the root module. `bin/scripts/check-mod-tidy.sh` rejects generated-only dependencies not actually imported by the root module.
 
-## 依赖与模块治理
+## 📦 Dependency and module governance
 
-- 根模块 `go.mod` 的直接依赖必须满足“根模块实际导入”原则；临时代码生成、样例工程、测试 fixture 所需依赖不得留在根模块。
-- 添加依赖前先确认是否已有标准库或现有依赖可满足需求；确需添加时说明用途、导入点、替代方案和安全影响。
-- `go mod tidy` 只能作为检查/收敛步骤执行；若 tidy 删除生成专用依赖，应保留删除结果，不得反复重新加入根模块。
-- 对生成项目依赖（例如 GORM 风格 model 输出）应由生成器写入目标工程的 `go.mod`，并用临时工程测试验证，而不是污染 gofly 根模块。
-- `go.sum` 变化必须能由根模块依赖图解释；无法解释的间接依赖变化应回溯到触发命令或外部 fixture。
-- Go 1.24+ 工具依赖使用 `go.mod` 的 `tool` 指令固定版本；不得新增 legacy `tools.go`，除非项目显式降级到 Go 1.24 之前。
-- 依赖升级优先 patch/minor；涉及网络、序列化、数据库、认证、加密、代码生成或 CLI 行为的依赖升级必须阅读 release notes 并执行相关子系统测试。
-- 如需临时验证生成项目依赖，应在 `t.TempDir()`、`.tmp-test` 或外部临时目录中创建独立模块；不得在根模块执行会留下生成项目依赖的 `go get`。
+- Direct dependencies in the root `go.mod` must satisfy the “actually imported by the root module” rule. Dependencies needed only for temporary code generation, example projects, or test fixtures must not remain in the root module.
+- Before adding a dependency, confirm whether the standard library or an existing dependency is sufficient. If a new dependency is required, explain its purpose, import site, alternatives, and security impact.
+- Run `go mod tidy` only as a check/convergence step. If tidy removes generated-project-only dependencies, keep the removal instead of repeatedly re-adding them to the root module.
+- Dependencies for generated projects, such as GORM-style model output, should be written by the generator into the target project's `go.mod` and verified with a temporary project test, not by polluting the gofly root module.
+- `go.sum` changes must be explainable by the root module dependency graph. Any unexplained indirect dependency drift should be traced back to the triggering command or external fixture.
+- Go 1.24+ tool dependencies use `go.mod` `tool` directives for version pinning. Do not add legacy `tools.go` unless the project explicitly downgrades below Go 1.24.
+- Prefer patch/minor dependency upgrades. For dependencies involving networking, serialization, databases, authentication, cryptography, code generation, or CLI behavior, read release notes and run relevant subsystem tests.
+- For temporary generated-project dependency verification, create an independent module under `t.TempDir()`, `.tmp-test`, or another external temporary directory. Do not run `go get` in the root module if it leaves generated-project dependencies behind.
 
-## 公共 API 与契约治理
+## 🔌 Public API and contract governance
 
-- 公共 Go API 兼容性由 `make api-compat` / `bin/scripts/check-public-api.sh` 负责；没有可用 git base ref 时脚本会跳过，报告中必须说明跳过原因。
-- CLI 命令、flag、JSON 输出、plugin protocol、OpenAPI/proto/thrift/API diff 均视为外部契约；字段删除、重命名、语义变化必须提供迁移说明或 breaking 报告。
-- 新增 JSON 字段优先保持向后兼容；删除字段或改变类型属于 P1/P0 风险，必须有兼容窗口或明确版本边界。
-- 生成器模板变更必须验证旧输入仍可生成；如果输出 diff 是预期行为，应说明 diff 类型：格式化、功能新增、兼容修复或 breaking。
+- Public Go API compatibility is handled by `make api-compat` / `bin/scripts/check-public-api.sh`. If no git base ref is available, the script may skip; reports must explain the skip reason.
+- CLI commands, flags, JSON output, plugin protocol, OpenAPI/proto/thrift/API diffs are external contracts. Field deletion, renaming, or semantic changes require migration notes or a breaking-change report.
+- New JSON fields should be backward-compatible. Removing fields or changing types is a P1/P0 risk and requires a compatibility window or explicit version boundary.
+- Generator template changes must verify that old inputs still generate successfully. If output diff is expected, describe the diff type: formatting, feature addition, compatibility fix, or breaking change.
 
-## 7 阶段治理路线图
+## 🧱 7-stage governance roadmap
 
-项目级质量治理按以下 7 个阶段顺序推进，每阶段完成后进入下一阶段：
+Project-level quality governance proceeds through these 7 stages in order. Complete each stage before moving to the next:
 
-1. **补齐测试用例**：识别低覆盖率包，优先用纯单元测试覆盖 0% 函数，再补齐边界分支；记录基线、目标和最终覆盖率。
-2. **补齐错误处理**：检查所有 error 返回值是否被处理，补充缺失的 `if err != nil` 和错误包装；优先覆盖对外接口和 goroutine 边界。
-3. **补齐日志与可观测性**：统一日志格式、补充关键路径的 metrics/trace、验证生产配置默认值。
-4. **补齐文档与注释**：公共 API 补充 godoc、CLI 命令补充 help 文本、复杂逻辑补充行内注释。
-5. **性能与并发治理**：识别热点路径、补充 benchmark、检查 goroutine 泄漏和 race condition。
-6. **安全与依赖治理**：执行 gosec/govulncheck、清理未使用依赖、验证路径安全和输入校验。
-7. **架构与契约治理**：检查公共 API 兼容性、proto/OpenAPI 契约一致性、生成物确定性。
+1. **🧪 Fill test gaps**: identify low-coverage packages, first cover 0% functions with pure unit tests, then add boundary branches; record baseline, target, and final coverage.
+2. **🧯 Fill error handling gaps**: check that all returned errors are handled; add missing `if err != nil` and error wrapping; prioritize external interfaces and goroutine boundaries.
+3. **📡 Fill logging and observability gaps**: standardize log format, add metrics/traces on key paths, and verify production-default configuration.
+4. **📚 Fill docs and comments**: add godoc for public APIs, CLI help text for commands, and inline comments for complex logic.
+5. **⚡ Performance and concurrency governance**: identify hot paths, add benchmarks, and check for goroutine leaks and race conditions.
+6. **🔐 Security and dependency governance**: run gosec/govulncheck, remove unused dependencies, and validate path safety and input validation.
+7. **🏗️ Architecture and contract governance**: check public API compatibility, proto/OpenAPI contract consistency, and generated-output determinism.
 
-每阶段执行时必须遵循：基线 → 审计 → 修复 → 测试 → 验证 → 报告。
+Every stage must follow: **baseline → audit → fix → test → verify → report**.
 
-推荐入口：
+Recommended entry point:
 
 ```bash
 make governance-10-rounds
 ```
 
-可按场景执行更小闭环：
+Smaller scenario-specific loops:
 
 ```bash
 make tidy
@@ -115,218 +116,218 @@ make govulncheck
 make gosec
 ```
 
-## 10 轮架构与质量治理
+## 🔟 10-round architecture and quality governance
 
-每次用户要求“架构治理”“质量治理”“重新规划治理”“执行多轮治理”时，默认执行以下 10 轮；每轮结束后自动进入下一轮，最后输出一次总报告。
+Whenever the user asks for “architecture governance,” “quality governance,” “re-plan governance,” or “multi-round governance,” execute the following 10 rounds by default. After each round, continue automatically to the next and produce one final report.
 
-1. **基线与边界盘点**：确认模块、命令、生成器、运行时、缓存、治理、RPC/REST 边界和现有质量门禁。
-2. **上下文与生命周期治理**：检查 `context.Context` 传播、超时、取消、进程生命周期、goroutine 泄漏风险。
-3. **CLI 与配置治理**：检查命令参数、usage error、退出码、配置加载、配置热更新、默认值和兼容性。
-4. **代码生成治理**：检查 proto/API/model/template 生成结果的确定性、路径安全、兼容性和可编译性。
-5. **插件与外部进程治理**：检查插件协议、远程下载、输出限制、错误语义、临时文件、命令注入和资源清理。
-6. **缓存与远端依赖治理**：检查本地缓存、远端缓存、分层缓存、模块代理、远程模板和外部下载的可控性。
-7. **REST/RPC/API 契约治理**：检查 OpenAPI、descriptor、admin endpoint、path 参数、错误响应和兼容字段。
-8. **安全与防御式编码治理**：检查路径穿越、symlink、nil、类型断言、body 限制、URL scheme、敏感信息泄露。
-9. **可观测性与生产默认值治理**：检查日志、metrics、trace、profile、governance manager、生产/测试/开发配置。
-10. **收敛验证与报告**：运行格式化、测试、race、vet、lint、tidy；汇总变更、风险、验证命令和后续建议。
+1. **🧭 Baseline and boundary inventory**: confirm modules, commands, generator, runtime, cache, governance, RPC/REST boundaries, and existing quality gates.
+2. **🧵 Context and lifecycle governance**: check `context.Context` propagation, timeouts, cancellation, process lifecycle, and goroutine leak risks.
+3. **🧰 CLI and configuration governance**: check command arguments, usage errors, exit codes, config loading, hot reload, defaults, and compatibility.
+4. **🏭 Code-generation governance**: check proto/API/model/template output determinism, path safety, compatibility, and compilability.
+5. **🔌 Plugin and external-process governance**: check plugin protocol, remote downloads, output limits, error semantics, temporary files, command injection, and resource cleanup.
+6. **🧊 Cache and remote-dependency governance**: check local cache, remote cache, layered cache, module proxy, remote templates, and external downloads.
+7. **📜 REST/RPC/API contract governance**: check OpenAPI, descriptors, admin endpoints, path parameters, error responses, and compatible fields.
+8. **🛡️ Security and defensive-coding governance**: check path traversal, symlinks, nil handling, type assertions, body limits, URL schemes, and sensitive data leaks.
+9. **📈 Observability and production-default governance**: check logs, metrics, traces, profiles, governance manager, and production/test/development configuration.
+10. **✅ Convergence verification and report**: run formatting, tests, race, vet, lint, and tidy; summarize changes, risks, verification commands, and follow-up recommendations.
 
-每轮治理都必须输出可追踪结论：发现了什么、改了什么、为何暂不修复什么、用什么命令验证。
+Every round must produce traceable conclusions: what was found, what changed, why anything is intentionally left unfixed, and which commands verified the result.
 
-## 5 轮产品化治理工作流
+## 🧩 5-round productization governance workflow
 
-当用户要求执行产品化治理时，可按以下 5 轮推进；目标是把 gofly 从“功能可用”推进到“可采纳、可验证、可运营、可传播”。
+When the user asks for productization governance, use the following 5 rounds. The goal is to move gofly from “functionally usable” to “adoptable, verifiable, operable, and shareable.”
 
-1. **信任与采纳基础**：审计公共 API、CLI flag/JSON、control-plane snapshot、生成器输出和升级计划；补齐契约输入、dry-run plan、兼容性测试和机器可读验证入口。
-2. **REST/DX 增强**：审计 binding、validation、错误响应、middleware、OpenAPI/schema、path/query/header 参数体验；补齐稳定错误 envelope、文档化 response schema、生成物示例和回归测试。
-3. **微服务完整度**：审计配置、服务发现、治理规则、admin/control-plane、K8s、Helm、observability、生产检查脚本；补齐生产默认值、可观测资产、脚本权限和 generated project smoke test。
-4. **性能可信度**：统一 benchmark 工作区，维护 `bench/` baseline/matrix/evidence；补齐 REST/RPC/governance/OpenAPI 场景，执行 `make bench-evidence-check` 和至少一个 benchmark smoke，避免仅凭单次数据宣传性能结论。
-5. **社区增长与迁移**：审计 README、docs taxonomy、quickstart、migration/case study、P1 roadmap、release/CI 入口；运行 `contract-docs-check`、`p1-growth-check`、`migration-docs-check` 等最小门禁，确保新增能力可被新用户发现和复现。
+1. **🤝 Trust and adoption foundation**: audit public APIs, CLI flags/JSON, control-plane snapshots, generator output, and upgrade plans; fill contract inputs, dry-run plans, compatibility tests, and machine-readable verification entry points.
+2. **🛣️ REST/DX enhancement**: audit binding, validation, error responses, middleware, OpenAPI/schema, and path/query/header parameter experience; fill stable error envelopes, documented response schemas, generated examples, and regression tests.
+3. **🛰️ Microservice completeness**: audit config, discovery, governance rules, admin/control-plane, K8s, Helm, observability, and production check scripts; fill production defaults, observability assets, script permissions, and generated-project smoke tests.
+4. **📊 Performance credibility**: keep benchmark work consolidated in `bench/`; maintain baseline/matrix/evidence artifacts; cover REST/RPC/governance/OpenAPI scenarios; run `make bench-evidence-check` and at least one benchmark smoke; avoid making performance claims from a single run.
+5. **🌱 Community growth and migration**: audit README, docs taxonomy, quickstart, migration/case studies, P1 roadmap, and release/CI entries; run minimal gates such as `contract-docs-check`, `p1-growth-check`, and `migration-docs-check` so new capabilities are discoverable and reproducible.
 
-执行约束：
+Execution constraints:
 
-- 每轮都先盘点已完成项，避免回滚用户、脚本或 linter 的外部变更。
-- 涉及生成器、契约或生产资产的改动必须补测试；`gofly new service` 相关改动优先跑 `make test-generated-matrix`。
-- 涉及 benchmark 的改动必须保持 `bench/` 为唯一公开工作区；`benchmarks/` 不得重新引入。
-- 最终报告必须按 5 轮列出：改了什么、关键文件位置、验证命令、失败或降级项、后续建议。
+- Start each round by inventorying already-completed work, avoiding rollbacks of user, script, or linter changes.
+- Generator, contract, or production-asset changes must include tests; `gofly new service` changes should preferentially run `make test-generated-matrix`.
+- Benchmark-related changes must keep `bench/` as the only public benchmark workspace; do not reintroduce `benchmarks/`.
+- Final reports must list by 5 rounds: what changed, key file locations, verification commands, failures or downgrades, and follow-up recommendations.
 
-## AI 治理流水线
+## 🤖 AI governance pipeline
 
-LLM 调用经过 9 阶段治理流水线，manifest 通过 `governancePipeline` 字段对外暴露：
+LLM calls go through a 9-stage governance pipeline. The manifest exposes it through the `governancePipeline` field:
 
 ```
 request-redaction  →  rate-limit  →  token-budget  →  response-cache  →  circuit-breaker  →  provider-call  →  usage-accounting  →  audit-log  →  telemetry-emit
 ```
 
-| 阶段 | 职责 | 可选 |
+| Stage | Responsibility | Optional |
 |---|---|---|
-| `request-redaction` | 在进入流水线前脱敏 prompt 中的密钥和敏感 metadata | 是 |
-| `rate-limit` | token-bucket 限流；桶空时返回 `ErrRateLimited` | 是 |
-| `token-budget` | 检查累计 token 预算；超限时返回 `token_budget_exceeded` | 是 |
-| `response-cache` | 查询响应缓存；命中直接返回，未命中合并并发请求 | 是 |
-| `circuit-breaker` | 熔断器开路时快速拒绝；允许探测请求半开恢复 | 否 |
-| `provider-call` | 将请求转发给 LLM provider，含超时、重试、failover 包装 | 否 |
-| `usage-accounting` | 记录 token 用量（input/output/total）并扣减预算 | 否 |
-| `audit-log` | 输出结构化审计日志：操作、provider、model、状态、耗时、token、错误 | 否 |
-| `telemetry-emit` | 发射低基数 metric/trace 字段：`cache_status`、`error_class`、`provider_status_code` | 否 |
+| `request-redaction` | Redact secrets and sensitive metadata from prompts before entering the pipeline | Yes |
+| `rate-limit` | Token-bucket rate limiting; returns `ErrRateLimited` when empty | Yes |
+| `token-budget` | Check accumulated token budget; returns `token_budget_exceeded` on overflow | Yes |
+| `response-cache` | Query response cache; return immediately on hit, coalesce concurrent misses | Yes |
+| `circuit-breaker` | Fast-reject when breaker is open; allow probe requests during half-open recovery | No |
+| `provider-call` | Forward requests to the LLM provider with timeout, retry, and failover wrapping | No |
+| `usage-accounting` | Record token usage (input/output/total) and deduct budget | No |
+| `audit-log` | Emit structured audit logs: operation, provider, model, status, duration, tokens, error | No |
+| `telemetry-emit` | Emit low-cardinality metric/trace fields: `cache_status`, `error_class`, `provider_status_code` | No |
 
-验证方式：
+Verification:
 
 ```bash
 gofly ai manifest --json | python3 -c "import json,sys; d=json.load(sys.stdin); gp=d['data']['llmGovernance']['governancePipeline']; assert len(gp)==9, f'expected 9 stages, got {len(gp)}'"
 ```
 
-## 分层治理门禁
+## 🧪 Layered governance gates
 
-根据改动范围选择门禁层级；越靠近发布或跨模块改动，层级越高。
+Choose the gate level based on the change scope. The closer the change is to release or cross-module behavior, the higher the level.
 
-| 层级 | 适用范围 | 必跑命令 |
+| Level | Scope | Required commands |
 | --- | --- | --- |
-| L0 文档/注释 | 仅 `AGENTS.md`、注释、说明文本 | 读取相关脚本/配置确认一致性；如改治理命令，执行对应脚本的 help/最小检查 |
-| L1 单包改动 | 单个 package 内代码或测试 | `go test -shuffle=on <pkg>`、`go vet <pkg>`；涉及安全时追加 `go tool gosec -quiet <pkg>/...` |
-| L2 子系统改动 | generator、cmd、cache、rpc、rest 等子树 | `go test -shuffle=on ./子树/...`、`go test -shuffle=on -race ./子树/...`、`go vet ./子树/...`、覆盖率/安全定向扫描 |
-| L3 全仓治理 | 跨模块、依赖、脚本、CI、发布前 | `make governance-10-rounds`、`make cover-check`、`make govulncheck`、`make gosec`、`make tidy` |
+| L0 Docs/comments | Only `AGENTS.md`, comments, or explanatory text | Read related scripts/config to confirm consistency; if governance commands changed, run the relevant script help/minimal check |
+| L1 Single-package change | Code or tests within one package | `go test -shuffle=on <pkg>`, `go vet <pkg>`; add `go tool gosec -quiet <pkg>/...` for security-related changes |
+| L2 Subsystem change | generator, cmd, cache, rpc, rest, and similar subtrees | `go test -shuffle=on ./subtree/...`, `go test -shuffle=on -race ./subtree/...`, `go vet ./subtree/...`, targeted coverage/security scans |
+| L3 Full-repository governance | Cross-module, dependency, script, CI, or pre-release changes | `make governance-10-rounds`, `make cover-check`, `make govulncheck`, `make gosec`, `make tidy` |
 
-若本地环境无法完成高层级门禁，应继续执行低层级可运行命令，并在报告中写明阻塞原因和复现命令。
+If the local environment cannot complete a high-level gate, continue with runnable lower-level commands and document the blocker and reproduction command in the report.
 
-门禁选择规则：
+Gate selection rules:
 
-- 改动跨越两个以上子系统，默认升到 L3。
-- 改动 `go.mod`、`go.sum`、`Makefile`、`bin/scripts/`、`.golangci.yml`、发布配置，默认至少 L2；影响全仓命令时升到 L3。
-- 改动安全边界（路径、插件、模板、外部进程、网络、TLS、认证、密钥），即使只在单包内，也必须追加安全扫描和攻击面说明。
-- 测试只跑目标包时，报告中必须说明为什么未跑全仓，以及未覆盖风险。
+- Changes spanning more than two subsystems default to L3.
+- Changes to `go.mod`, `go.sum`, `Makefile`, `bin/scripts/`, `.golangci.yml`, or release configuration default to at least L2; if they affect full-repository commands, escalate to L3.
+- Changes to security boundaries (paths, plugins, templates, external processes, network, TLS, authentication, secrets) must add security scans and attack-surface notes even if only one package is touched.
+- If only target packages are tested, the report must explain why the full repository was not tested and what risk remains uncovered.
 
-## 必跑质量门禁
+## ✅ Mandatory quality gates
 
-完成治理后至少执行：
+After governance work, run at least:
 
 ```bash
 make governance-10-rounds
 ```
 
-该入口会按无持久缓存策略执行：
+This entry point runs with no persistent cache semantics:
 
-- `gofmt` 检查
+- `gofmt` checks
 - `go test -shuffle=on ./...`
 - `go vet ./...`
 - `golangci-lint run ./...`
-- `go tool govulncheck -scan=package ./...` / `go tool gosec ...`（gosec 历史基线已清零，作为阻塞门禁执行）
+- `go tool govulncheck -scan=package ./...` / `go tool gosec ...` (the historical gosec baseline is currently zero, so gosec is blocking)
 - `go test -shuffle=on -race ./...`
-- `bin/scripts/coverage-check.sh` 覆盖率门禁同时执行最低阈值和 `COVERAGE_RATCHET` 防回退检查
-- `go mod tidy` / `go mod verify` 一致性检查
+- `bin/scripts/coverage-check.sh`, enforcing both the minimum threshold and `COVERAGE_RATCHET`
+- `go mod tidy` / `go mod verify` consistency checks
 
-质量门禁的执行约束：
+Quality-gate constraints:
 
-- `TESTFLAGS` 默认包含 `-shuffle=on`；禁止为了绕过顺序依赖而关闭 shuffle，除非报告中说明具体 flaky 根因和临时豁免范围。
-- `GOFLAGS` 默认包含 `-count=1`；不得用缓存结果作为治理结论。
-- `bin/scripts/coverage-check.sh` 同时检查 `COVERAGE_THRESHOLD` 和 `COVERAGE_RATCHET`，提高覆盖率后应同步提高 ratchet，防止后续回退。
-- `go tool govulncheck` 默认使用 `-scan=package`；如果 source 模式因工具链问题失败，可降级到 package 模式，但必须记录降级原因。
-- `go tool gosec` 当前是阻塞门禁；新增代码不得引入安全告警。`#nosec` 仅用于误报或协议/生成器必需场景，必须写明具体规则号和理由。
-- `golangci-lint` 失败时优先修复根因；`//nolint` 必须指定 linter 名称和理由，不得使用无理由的宽泛豁免。
-- `bin/scripts/governance-10-rounds.sh` 的第 10 轮会执行 coverage ratchet、`govulncheck`、`gosec` 和最终依赖列表检查；只有在工具链或环境限制明确时才允许设置 `GOVERNANCE_SKIP_SECURITY=true`，且报告必须说明跳过原因。
+- `TESTFLAGS` includes `-shuffle=on` by default. Do not disable shuffle to bypass order coupling unless the report explains the flaky root cause and temporary exemption scope.
+- `GOFLAGS` includes `-count=1` by default. Do not use cached results as governance evidence.
+- `bin/scripts/coverage-check.sh` checks both `COVERAGE_THRESHOLD` and `COVERAGE_RATCHET`; after raising coverage to a stable new level, recommend raising the ratchet to prevent future regressions.
+- `go tool govulncheck` defaults to `-scan=package`. If source mode fails because of tooling issues, it may be downgraded to package mode, but the downgrade reason must be recorded.
+- `go tool gosec` is currently blocking. New code must not introduce security findings. `#nosec` is allowed only for false positives or protocol/generator-required cases and must state the exact rule and rationale.
+- If `golangci-lint` fails, fix the root cause first. `//nolint` must name the linter and include a rationale; broad exemptions without reasons are not allowed.
+- Round 10 of `bin/scripts/governance-10-rounds.sh` runs the coverage ratchet, `govulncheck`, `gosec`, and the final dependency-list check. Set `GOVERNANCE_SKIP_SECURITY=true` only when tooling or environment limits are clear, and document the skip reason.
 
-发布治理还应包含 CodeQL、Dependency Review、release checksum provenance attestation 和 GoReleaser SBOM 生成。
+Release governance should also include CodeQL, Dependency Review, release checksum provenance attestations, and GoReleaser SBOM generation.
 
-如某项因本地环境缺少工具失败，应继续执行其余可执行门禁，并在最终报告中明确失败原因、影响范围和复现命令。
+If a gate fails because a local tool is missing, continue running other available gates and clearly report the failure reason, impact scope, and reproduction command.
 
-## CI 与发布治理
+## 🏁 CI and release governance
 
-- CI 必须以 `make governance-10-rounds` 或等价步骤作为主质量入口，并显式包含 `-shuffle=on`、`-race`、`go vet`、`golangci-lint`、coverage ratchet、tidy/verify。
-- CI 供应链门禁必须覆盖 GitHub Actions workflow 语法、治理脚本 shellcheck、OSV 依赖扫描、OpenSSF Scorecard、CodeQL、Dependency Review 和 Trivy。
-- GitHub Actions 或其他 CI job 必须使用最小权限；发布 job 才允许 `contents: write`、`packages: write`、`id-token: write` 或 attestations 权限。
-- GitHub Actions `uses:` 默认 pin 到完整 commit SHA；升级由 Dependabot 分组 PR 统一维护，除非有明确降级理由不得回退到浮动 tag。
-- PR 上构建 Docker 镜像不得 push；发布镜像必须带 SBOM、provenance attestation 和漏洞扫描结果；Docker base/builder image 默认 pin digest。
-- 依赖更新机器人（Dependabot/Renovate）只能在所有必需门禁通过后合入；自动合入必须依赖分支保护，而不是仅依赖 actor 判断。
-- release 前必须记录版本、commit、构建时间、校验和、SBOM/provenance 位置和 go tool 安全扫描结果。
-- 任何跳过 release 门禁的行为都必须有人工批准记录，并在最终报告中列为风险。
+- CI must use `make governance-10-rounds` or equivalent steps as the primary quality entry point, explicitly including `-shuffle=on`, `-race`, `go vet`, `golangci-lint`, coverage ratchet, and tidy/verify.
+- CI supply-chain gates must cover GitHub Actions workflow syntax, governance-script shellcheck, OSV dependency scanning, OpenSSF Scorecard, CodeQL, Dependency Review, and Trivy.
+- GitHub Actions or other CI jobs must use least privilege. Only release jobs may request `contents: write`, `packages: write`, `id-token: write`, or attestations permissions.
+- GitHub Actions `uses:` should default to pinned full commit SHAs. Upgrades should be maintained by grouped Dependabot PRs. Do not fall back to floating tags without explicit downgrade rationale.
+- Docker images built on PRs must not be pushed. Release images must include SBOM, provenance attestation, and vulnerability scan results. Docker base/builder images should be digest-pinned by default.
+- Dependency update bots (Dependabot/Renovate) may merge only after all required gates pass. Auto-merge must rely on branch protection, not only actor checks.
+- Before release, record version, commit, build time, checksums, SBOM/provenance location, and Go tool security-scan results.
+- Any skipped release gate must have human approval recorded and must be listed as a risk in the final report.
 
-## 安全治理基线
+## 🔐 Security governance baseline
 
-- **路径安全**：所有写入用户指定目录的代码必须使用相对路径校验、根目录约束、symlink parent 拒绝或 Go 1.24+ `os.Root` 等机制；不能只依赖 `filepath.Clean` + 字符串前缀判断。
-- **插件安全**：远程插件只允许 HTTPS 或明确的本地测试来源；下载必须有大小限制、超时、一次性临时文件、sha256 digest 和不复用用户缓存的测试。
-- **模板安全**：远程模板同步必须拒绝危险目标目录；模板目录中的 symlink 不得被跟随读取或复制。
-- **外部进程**：`exec.Command` 必须传递拆分后的参数，禁止 shell 拼接；可执行文件路径、插件参数和输出大小必须有边界。
-- **网络与 TLS**：允许 `InsecureSkipVerify` 的配置必须是显式 opt-in，并在文档/报告中标为风险项。
-- **随机数与加密**：安全 token、密钥、nonce 必须使用 `crypto/rand`；非安全用途使用 `math/rand` 时应在代码或报告中说明用途边界。
-- **敏感信息**：日志、错误、CLI 输出、测试快照不得泄露 token、密钥、Cookie、Authorization header 或内部凭据。
+- **Path safety**: all code writing to user-provided directories must use relative-path validation, root constraints, symlink-parent rejection, or Go 1.24+ `os.Root` style protections. Do not rely only on `filepath.Clean` plus string-prefix checks.
+- **Plugin safety**: remote plugins may use only HTTPS or explicit local test sources; downloads must have size limits, timeouts, one-time temporary files, sha256 digests, and tests proving user cache is not reused.
+- **Template safety**: remote template sync must reject dangerous target directories; symlinks inside template directories must not be followed, read, or copied.
+- **External processes**: `exec.Command` must receive split arguments. Shell string concatenation is forbidden. Executable paths, plugin arguments, and output size must be bounded.
+- **Network and TLS**: configurations that allow `InsecureSkipVerify` must be explicit opt-ins and must be marked as risks in docs/reports.
+- **Randomness and cryptography**: security tokens, keys, and nonces must use `crypto/rand`; when `math/rand` is used for non-security purposes, code or reports should state that boundary.
+- **Sensitive data**: logs, errors, CLI output, and test snapshots must not leak tokens, secrets, Cookies, Authorization headers, or internal credentials.
 
-## gosec / govulncheck 基线治理
+## 🕵️ gosec / govulncheck baseline governance
 
-- `gosec` 当前以 `-quiet` 作为阻塞门禁；新增代码不允许引入未解释的安全告警。
-- `#nosec` 只允许用于误报或设计上必须保留的生成器/CLI 行为，格式必须包含规则号和原因，例如 `#nosec G306 -- generated source files are intentionally user-readable`。
-- 每次安全治理报告应记录扫描范围、issue 数量、已收敛数量、是否存在新增/回归告警和下一步模块化清理计划。
-- `govulncheck` 以 `-scan=package` 作为稳定默认；如果切换到 source 模式，需记录工具链版本和失败时的降级路径。
-- 依赖漏洞优先按“可达性 + 暴露面 + 是否存在缓解配置”排序；仅因间接依赖存在 CVE 但不可达时，不得夸大为 P0。
+- `gosec` currently runs with `-quiet` as a blocking gate. New code may not introduce unexplained security findings.
+- `#nosec` is allowed only for false positives or intentionally required generator/CLI behavior. Format must include rule and reason, for example: `#nosec G306 -- generated source files are intentionally user-readable`.
+- Each security-governance report should record scan scope, issue count, resolved count, whether new/regressed findings exist, and the next modular cleanup plan.
+- `govulncheck` uses `-scan=package` as the stable default. If switching to source mode, record toolchain version and downgrade path on failure.
+- Dependency vulnerabilities should be prioritized by reachability, exposure, and mitigating configuration. Do not overstate an unreachable indirect CVE as P0.
 
-## 代码生成治理
+## 🏭 Code-generation governance
 
-- 生成器输出必须满足：路径不逃逸、目录可创建、Go 文件 gofmt、输出确定性、重复运行不会产生无关 diff。
-- API/RPC/Model/Template 生成变更必须补充 fixture 或临时工程编译测试，证明生成物可编译。
-- 契约相关变更必须覆盖 breaking detection、diff、format 和兼容输出；不得只验证 happy path。
-- soft delete、streaming RPC、OpenAPI schema/path params、plugin protocol、remote template/cache 是高风险路径，新增行为必须有回归测试。
-- 生成项目中的 `go.mod` 变更必须发生在目标目录；根模块依赖卫生由 `bin/scripts/check-mod-tidy.sh` 兜底。
-- 生成器文件写入应集中复用安全 helper；新增 `os.WriteFile`、`os.MkdirAll`、`os.ReadFile`、`os.Open` 调用时必须说明路径来源和根目录约束。
-- 插件或模板产生的文件列表必须区分“声明文件数”和“实际写入文件数”；自动化 JSON 输出应报告实际写入数。
-- 生成物验证优先使用临时模块执行 `go test` 或 `go test ./...`；不能只断言字符串片段。
+- Generator output must satisfy: no path escape, creatable directories, gofmt-clean Go files, deterministic output, and no unrelated diff on repeated runs.
+- API/RPC/Model/Template generation changes must add fixtures or temporary-project compile tests proving generated output compiles.
+- Contract-related changes must cover breaking detection, diff, format, and compatible output; do not verify only the happy path.
+- Soft delete, streaming RPC, OpenAPI schema/path params, plugin protocol, and remote template/cache are high-risk paths. New behavior requires regression tests.
+- `go.mod` changes in generated projects must happen in the target directory. Root module dependency hygiene is guarded by `bin/scripts/check-mod-tidy.sh`.
+- Generator file writes should reuse centralized safe helpers. New `os.WriteFile`, `os.MkdirAll`, `os.ReadFile`, or `os.Open` calls must explain path source and root-directory constraints.
+- Plugin or template-produced file lists must distinguish declared file count from actual written file count. Automation JSON output should report actual written counts.
+- Generated-output verification should preferably run `go test` or `go test ./...` in a temporary module. Do not rely only on string-fragment assertions.
 
-## 覆盖率与测试治理
+## 🧪 Coverage and test governance
 
-- 新增或修复功能应优先写行为测试，不为覆盖率编写只断言实现细节的脆弱测试。
-- 对复杂生成器路径使用临时目录和独立 fixture；测试不得依赖执行顺序、全局 HOME、用户插件缓存或持久构建缓存。
-- 覆盖率提升任务必须记录基线、目标、最终覆盖率和关键新增用例；若达到新稳定水平，应同步建议提高 `COVERAGE_RATCHET`。
-- 涉及 goroutine、stream、watch、cache refresh 的测试应优先跑 `-race`；发现 flaky 先定位根因，不以降低并发或关闭 shuffle 作为长期方案。
-- 新增测试不得依赖真实用户 HOME、全局插件缓存、系统 git 配置、固定端口、外部网络或本地持久缓存；确需外部资源时必须可跳过并说明条件。
-- 表驱动测试必须包含可读 `name`；失败信息应显示输入、实际值和期望值，避免只输出 “failed”。
-- 修改治理脚本时，应至少执行 `sh -n` 和相关 make dry-run；修改测试策略时，应执行最小目标包测试证明策略可用。
+- New or fixed functionality should prioritize behavior tests. Do not write fragile implementation-detail tests only for coverage.
+- Use temporary directories and independent fixtures for complex generator paths. Tests must not depend on execution order, global HOME, user plugin cache, or persistent build cache.
+- Coverage-improvement work must record baseline, target, final coverage, and key new cases. If a new stable level is reached, recommend raising `COVERAGE_RATCHET`.
+- Tests involving goroutines, streams, watchers, or cache refresh should preferentially run with `-race`. Diagnose flaky root causes first; do not use lower concurrency or disabling shuffle as a long-term fix.
+- New tests must not depend on real user HOME, global plugin cache, system git config, fixed ports, external networks, or local persistent cache. If external resources are required, tests must be skippable and the condition explained.
+- Table-driven tests must include readable `name` fields; failure messages should show inputs, actual values, and expected values rather than only “failed.”
+- When changing governance scripts, run at least `sh -n` and the related make dry-run. When changing test strategy, run the smallest target-package test that proves the strategy works.
 
-### 纯单元测试策略
+### 🧫 Pure unit-test strategy
 
-治理阶段“补齐测试用例”优先使用纯单元测试，避免引入 Docker 或真实网络依赖：
+During the “fill test gaps” governance stage, prefer pure unit tests and avoid Docker or real network dependencies:
 
-- **gRPC 拦截器**：用 fake handler/invoker/streamer 直接调用拦截器闭包，验证 metadata、重试、熔断、限流行为。
-- **Resolver**：用 fake `rpc.WatchResolver` 和 fake `resolver.ClientConn` 测试 `Build`、`ResolveNow`、`watch`、`update` 全生命周期。
-- **Server**：用 `httptest` 请求 admin 端点验证 `/healthz`、`/metrics`、`/governance/rules`；用 `healthpb.Health_ServiceDesc` + `health.NewServer()` 测试 `RegisterService`。
-- **OTel trace**：用 `metadata.NewIncomingContext`/`NewOutgoingContext` 构造上下文，验证 traceparent 提取和注入；用 fake `ClientStream` 测试 `otelClientStream` 包装器的错误路径。
-- **通用原则**：优先覆盖 0% 函数建立行为基线，再补齐边界分支（nil guard、空切片、error path）。
+- **gRPC interceptors**: call interceptor closures directly with fake handlers/invokers/streamers to verify metadata, retry, breaker, and rate-limit behavior.
+- **Resolver**: use fake `rpc.WatchResolver` and fake `resolver.ClientConn` to test the full `Build`, `ResolveNow`, `watch`, and `update` lifecycle.
+- **Server**: use `httptest` requests against admin endpoints to verify `/healthz`, `/metrics`, and `/governance/rules`; use `healthpb.Health_ServiceDesc` + `health.NewServer()` to test `RegisterService`.
+- **OTel trace**: build contexts with `metadata.NewIncomingContext` / `metadata.NewOutgoingContext` to verify traceparent extraction and injection; use fake `ClientStream` to test `otelClientStream` error paths.
+- **General rule**: first cover 0% functions to establish a behavior baseline, then add boundary branches such as nil guards, empty slices, and error paths.
 
-### 覆盖率 ratchet 实践
+### 📏 Coverage ratchet practice
 
-- `Makefile` 中 `COVERAGE_RATCHET` 当前为 `82%`，`COVERAGE_THRESHOLD` 为 `60%`。
-- 单包子系统（如 `rpc/grpc`）治理后若覆盖率显著提升，应在报告中建议是否上调全局 `COVERAGE_RATCHET`。
-- 示例：`rpc/grpc` 基线 71.9% → 90.3%，无 0% 函数剩余；全仓稳定后已将 ratchet 收敛到 82%。
+- `Makefile` currently sets `COVERAGE_RATCHET` to `82%` and `COVERAGE_THRESHOLD` to `60%`.
+- After improving a single subsystem package such as `rpc/grpc`, if coverage rises significantly, the report should recommend whether to raise the global `COVERAGE_RATCHET`.
+- Example: `rpc/grpc` baseline 71.9% → 90.3%, with no remaining 0% functions; after the full repository stabilized, the ratchet was converged to 82%.
 
-## 评审清单
+## 🧾 Review checklist
 
-提交前按以下清单自检，并在报告中覆盖相关项：
+Before submitting, self-check the following and cover relevant items in the report:
 
-- 是否存在路径逃逸、symlink、外部进程、网络下载、凭据泄露或 TLS 降级风险？
-- 是否新增或删除根模块依赖？是否能由根模块导入图解释？
-- 是否影响 CLI/API/RPC/plugin/JSON 输出契约？是否需要 breaking 或迁移说明？
-- 是否新增足够行为测试、shuffle 测试、race 测试或临时生成物编译测试？
-- 是否保持覆盖率不回退？是否应提升 `COVERAGE_RATCHET`？
-- 是否运行了与改动层级匹配的门禁？未运行项是否有原因和复现命令？
+- Are there any path escape, symlink, external-process, network-download, credential-leak, or TLS downgrade risks?
+- Were root module dependencies added or removed? Can the change be explained by the root module import graph?
+- Does the change affect CLI/API/RPC/plugin/JSON output contracts? Are breaking or migration notes required?
+- Were enough behavior tests, shuffle tests, race tests, or temporary generated-output compile tests added?
+- Did coverage stay non-regressing? Should `COVERAGE_RATCHET` be raised?
+- Were gates matching the change level run? If not, are reasons and reproduction commands documented?
 
-## 异常与降级处理
+## 🚑 Exception and downgrade handling
 
-- 如果 `utree flush`、`git diff`、`git status` 因当前目录不是 git worktree 失败，应记录为环境限制，不得把它归类为代码验证失败。
-- 如果安全/治理工具因为工具链 bug 崩溃，先尝试推荐降级参数（例如 `govulncheck -scan=package`）和更小扫描范围；仍失败时记录版本、命令、错误摘要。
-- 如果依赖下载、模块代理或缓存目录受限，优先使用项目临时 `GOCACHE/GOTMPDIR`，必要时复用模块下载缓存；不得把临时依赖写入仓库。
-- 如果外部进程或测试生成临时工程，清理失败时报告路径和影响，避免把临时目录误认为仓库改动。
+- If `utree flush`, `git diff`, or `git status` fails because the current directory is not a git worktree, record it as an environment limitation rather than a code verification failure.
+- If security/governance tooling crashes because of a toolchain bug, first try recommended downgrade parameters, such as `govulncheck -scan=package`, and smaller scan scopes. If still failing, record version, command, and error summary.
+- If dependency downloads, module proxies, or cache directories are constrained, prefer project-local temporary `GOCACHE/GOTMPDIR`, and reuse the module download cache when needed. Do not write temporary dependencies into the repository.
+- If external processes or tests generate temporary projects and cleanup fails, report the path and impact so temporary directories are not mistaken for repository changes.
 
-## 报告格式
+## 📝 Report format
 
-最终报告包含：
+Final reports include:
 
-- 本次治理目标
-- 10 轮执行摘要
-- 修改文件清单，引用格式为 `file_path:line_number`
-- 质量门禁结果
-- 已知风险和未完成项
-- 后续建议
+- The governance goal for this task
+- 10-round execution summary
+- Modified file list, using `file_path:line_number` references
+- Quality-gate results
+- Known risks and unfinished items
+- Follow-up recommendations
 
-报告要求：
+Report requirements:
 
-- 引用代码或脚本位置时使用 `file_path:line_number` 格式。
-- 对每条失败门禁给出：命令、失败类型、是否环境限制、是否影响本次目标。
-- 对安全扫描输出区分“新增问题”“已收敛问题”“历史基线”；历史基线不得掩盖本次新增风险。
-- 对依赖变更说明是否影响根模块、生成项目或测试 fixture。
-- 结论必须明确是否达到用户目标，不能只罗列执行过程。
+- Reference code or script locations with the `file_path:line_number` format.
+- For every failed gate, include: command, failure type, whether it is an environment limitation, and whether it affects this task's goal.
+- For security scan output, distinguish “new issues,” “resolved issues,” and “historical baseline.” Historical baselines must not hide new risks.
+- For dependency changes, state whether they affect the root module, generated projects, or test fixtures.
+- Conclusions must clearly state whether the user's goal was met; do not only list the execution process.

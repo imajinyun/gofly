@@ -186,3 +186,46 @@ func TestStructSchemaLinksValidationTags_BitsUT(t *testing.T) {
 		t.Fatalf("StructSchema included json:- field: %#v", schema.Properties)
 	}
 }
+
+func TestDefaultErrorResponsesDocumentStableEnvelope_BitsUT(t *testing.T) {
+	schema := ErrorResponseSchema()
+	for _, name := range []string{"code", "text", "message", "status", "fields"} {
+		if _, ok := schema.Properties[name]; !ok {
+			t.Fatalf("ErrorResponseSchema properties = %#v, want %q", schema.Properties, name)
+		}
+	}
+	fields := schema.Properties["fields"]
+	if fields.Type != "array" || fields.Items == nil || fields.Items.Properties["field"].Type != "string" || fields.Items.Properties["rule"].Type != "string" {
+		t.Fatalf("fields schema = %#v, want validation failure array", fields)
+	}
+
+	responses := DefaultErrorResponses()
+	for _, code := range []string{"400", "500"} {
+		resp := responses[code]
+		if resp.Description == "" || resp.Content["application/json"].Schema.Properties["code"].Type != "string" {
+			t.Fatalf("DefaultErrorResponses[%s] = %#v, want JSON ErrorResponse schema", code, resp)
+		}
+	}
+	responses["400"] = Response{Description: "mutated"}
+	if DefaultErrorResponses()["400"].Description == "mutated" {
+		t.Fatal("DefaultErrorResponses reused mutable response map")
+	}
+}
+
+func TestOpenAPIExportsDefaultErrorResponses_BitsUT(t *testing.T) {
+	s := MustNewServer(Config{Name: "orders"})
+	responses := DefaultErrorResponses()
+	responses["200"] = JSONResponse("OK", StructSchema(struct {
+		Message string `json:"message"`
+	}{}))
+	s.AddRoute(Route{Method: http.MethodGet, Path: "/orders", Responses: responses, Handler: func(ctx *Context) { ctx.String(http.StatusOK, "ok") }})
+
+	op := s.OpenAPI(OpenAPIInfo{}).Paths["/orders"]["get"]
+	if op.Responses["400"].Content["application/json"].Schema.Properties["fields"].Type != "array" {
+		t.Fatalf("400 response = %#v, want documented validation fields", op.Responses["400"])
+	}
+	responses["400"] = Response{Description: "mutated"}
+	if s.OpenAPI(OpenAPIInfo{}).Paths["/orders"]["get"].Responses["400"].Description == "mutated" {
+		t.Fatal("OpenAPI reused mutable route response map")
+	}
+}

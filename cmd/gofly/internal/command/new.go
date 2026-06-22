@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -57,6 +58,10 @@ func serviceNewCommand(args []string) error {
 	features := fs.String("feature", "", "feature names to enable, comma-separated")
 	featuresAlias := fs.String("features", "", "alias for --feature")
 	pluginArg := fs.String("plugin", "", "plugin executable (comma-separated for multiple)")
+	apiFile := fs.String("api", "", "API-first .api contract used to generate REST handlers")
+	openAPIFile := fs.String("openapi", "", "OpenAPI/Swagger contract used to generate a REST project")
+	protoFile := fs.String("proto", "", "RPC-first protobuf contract used to generate RPC code")
+	thriftFile := fs.String("thrift", "", "RPC-first thrift contract converted to proto and RPC code")
 	saveConfig := fs.Bool("save-config", true, "save resolved config back to --config path")
 	dryRun := fs.Bool("dry-run", false, "print the planned filesystem changes without writing files")
 	plan := fs.Bool("plan", false, "alias for --dry-run")
@@ -101,11 +106,20 @@ func serviceNewCommand(args []string) error {
 		*dir = cfg.ServiceName
 	}
 	plugins := pluginListFromConfig(cfg, "service")
+	contractInputs := newServiceContractInputs{
+		APIFile:     *apiFile,
+		OpenAPIFile: *openAPIFile,
+		ProtoFile:   *protoFile,
+		ThriftFile:  *thriftFile,
+	}
 	if *dryRun || *plan {
 		if err := validateNewServicePlanInputs(cfg); err != nil {
 			return err
 		}
-		return printCLIPlan("new.service", buildNewServicePlan("new service", *dir, resolved, cfg, plugins, *saveConfig, true), *jsonOut)
+		if err := validateNewServiceContractInputs(contractInputs); err != nil {
+			return err
+		}
+		return printCLIPlan("new.service", buildNewServicePlan("new service", *dir, resolved, cfg, plugins, contractInputs, *saveConfig, true), *jsonOut)
 	}
 	if err := generator.GenerateServiceScaffold(generator.ServiceScaffoldOptions{
 		Name:           cfg.ServiceName,
@@ -121,15 +135,152 @@ func serviceNewCommand(args []string) error {
 	}); err != nil {
 		return err
 	}
+	if err := applyNewServiceContractInputs(contractInputs, cfg.ServiceName, *dir); err != nil {
+		return err
+	}
 	if *saveConfig {
 		if err := generator.SaveConfig(resolved, cfg); err != nil {
 			return err
 		}
 	}
 	if *jsonOut || outputMode() == outputJSON {
-		return printJSONEnvelope("new.service", buildNewServicePlan("new service", *dir, resolved, cfg, plugins, *saveConfig, false))
+		return printJSONEnvelope("new.service", buildNewServicePlan("new service", *dir, resolved, cfg, plugins, contractInputs, *saveConfig, false))
 	}
 	return nil
+}
+
+type newServiceContractInputs struct {
+	APIFile     string
+	OpenAPIFile string
+	ProtoFile   string
+	ThriftFile  string
+}
+
+func applyNewServiceContractInputs(inputs newServiceContractInputs, serviceName, dir string) error {
+	if err := validateNewServiceContractInputs(inputs); err != nil {
+		return err
+	}
+
+	apiContract, err := materializeNewServiceAPIContract(inputs, serviceName, dir)
+	if err != nil {
+		return err
+	}
+	if apiContract != "" {
+		if err := generator.GenerateRESTFromAPI(generator.APIOptions{APIFile: apiContract, Dir: dir, Package: "api", Test: true, TypeGroup: true}); err != nil {
+			return fmt.Errorf("generate REST from API contract: %w", err)
+		}
+	}
+
+	protoContract, err := materializeNewServiceRPCContract(inputs, serviceName, dir)
+	if err != nil {
+		return err
+	}
+	if protoContract != "" {
+		if err := generator.GenerateRPCFromProto(generator.RPCOptions{ProtoFile: protoContract, Dir: filepath.Join(dir, "internal", "rpc"), Package: "rpc", WithMiddleware: true, WithRecovery: true, WithValidator: true}); err != nil {
+			return fmt.Errorf("generate RPC from proto contract: %w", err)
+		}
+	}
+	return nil
+}
+
+func validateNewServiceContractInputs(inputs newServiceContractInputs) error {
+	if strings.TrimSpace(inputs.APIFile) != "" && strings.TrimSpace(inputs.OpenAPIFile) != "" {
+		return fmt.Errorf("%w: --api and --openapi are mutually exclusive", errUsage)
+	}
+	if strings.TrimSpace(inputs.ProtoFile) != "" && strings.TrimSpace(inputs.ThriftFile) != "" {
+		return fmt.Errorf("%w: --proto and --thrift are mutually exclusive", errUsage)
+	}
+	return nil
+}
+
+func materializeNewServiceAPIContract(inputs newServiceContractInputs, serviceName, dir string) (string, error) {
+	apiFile := strings.TrimSpace(inputs.APIFile)
+	openAPIFile := strings.TrimSpace(inputs.OpenAPIFile)
+	if apiFile == "" && openAPIFile == "" {
+		return "", nil
+	}
+	apiOut, err := newServiceContractOutputPath(dir, serviceName, ".api")
+	if err != nil {
+		return "", err
+	}
+	if openAPIFile != "" {
+		if err := generator.GenerateAPIFromOpenAPI(generator.APIImportOptions{Source: openAPIFile, Output: apiOut, Service: serviceName}); err != nil {
+			return "", fmt.Errorf("import OpenAPI contract: %w", err)
+		}
+		return apiOut, nil
+	}
+	if err := copyNewServiceContractFile(apiFile, apiOut); err != nil {
+		return "", fmt.Errorf("copy API contract: %w", err)
+	}
+	return apiOut, nil
+}
+
+func materializeNewServiceRPCContract(inputs newServiceContractInputs, serviceName, dir string) (string, error) {
+	protoFile := strings.TrimSpace(inputs.ProtoFile)
+	thriftFile := strings.TrimSpace(inputs.ThriftFile)
+	if protoFile == "" && thriftFile == "" {
+		return "", nil
+	}
+	protoOut, err := newServiceContractOutputPath(dir, serviceName, ".proto")
+	if err != nil {
+		return "", err
+	}
+	if thriftFile != "" {
+		if err := generator.GenerateProtoFromThrift(generator.RPCScaffoldOptions{IDLFile: thriftFile, Dir: dir}); err != nil {
+			return "", fmt.Errorf("convert thrift contract: %w", err)
+		}
+		generatedProto := filepath.Join(dir, strings.TrimSuffix(filepath.Base(thriftFile), filepath.Ext(thriftFile))+".proto")
+		if generatedProto != protoOut {
+			if err := copyNewServiceContractFile(generatedProto, protoOut); err != nil {
+				return "", fmt.Errorf("copy thrift-derived proto contract: %w", err)
+			}
+		}
+		return protoOut, nil
+	}
+	if err := copyNewServiceContractFile(protoFile, protoOut); err != nil {
+		return "", fmt.Errorf("copy proto contract: %w", err)
+	}
+	return protoOut, nil
+}
+
+func copyNewServiceContractFile(src, dst string) error {
+	if sameFilePath(src, dst) {
+		return nil
+	}
+	// #nosec G304 -- contract files are explicit CLI inputs selected by the user.
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(dst), 0o750); err != nil {
+		return err
+	}
+	if info, err := os.Lstat(dst); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("refusing to overwrite symlink contract target %s", dst)
+	} else if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return os.WriteFile(dst, data, 0o600)
+}
+
+func newServiceContractOutputPath(dir, serviceName, ext string) (string, error) {
+	name := strings.TrimSpace(serviceName)
+	if name == "" {
+		return "", fmt.Errorf("%w: name is required", errUsage)
+	}
+	if name == "." || name == ".." || strings.ContainsAny(name, `/\`) {
+		return "", fmt.Errorf("%w: service name %q cannot be used as a contract filename", errUsage, serviceName)
+	}
+	return filepath.Join(dir, name+ext), nil
+}
+
+func sameFilePath(a, b string) bool {
+	absA, errA := filepath.Abs(a)
+	absB, errB := filepath.Abs(b)
+	if errA != nil || errB != nil {
+		return filepath.Clean(a) == filepath.Clean(b)
+	}
+	return absA == absB
 }
 
 // apiNewCommand 实现 `gofly new api` 与 `gofly api new`。
@@ -224,7 +375,7 @@ func apiNewCommand(args []string) error {
 		if err := validateNewServicePlanInputs(cfg); err != nil {
 			return err
 		}
-		return printCLIPlan("new.api", buildNewServicePlan("new api", *dir, resolved, cfg, plugins, *saveConfig, true), *jsonOut)
+		return printCLIPlan("new.api", buildNewServicePlan("new api", *dir, resolved, cfg, plugins, newServiceContractInputs{}, *saveConfig, true), *jsonOut)
 	}
 	if err := generator.GenerateServiceScaffold(generator.ServiceScaffoldOptions{
 		Name:           cfg.ServiceName,
@@ -247,7 +398,7 @@ func apiNewCommand(args []string) error {
 		}
 	}
 	if *jsonOut || outputMode() == outputJSON {
-		return printJSONEnvelope("new.api", buildNewServicePlan("new api", *dir, resolved, cfg, plugins, *saveConfig, false))
+		return printJSONEnvelope("new.api", buildNewServicePlan("new api", *dir, resolved, cfg, plugins, newServiceContractInputs{}, *saveConfig, false))
 	}
 	return nil
 }
@@ -364,7 +515,7 @@ func rpcNewCommand(args []string) error {
 		if err := validateNewServicePlanInputs(cfg); err != nil {
 			return err
 		}
-		return printCLIPlan("new.rpc", buildNewServicePlan("new rpc", *dir, resolved, cfg, plugins, *saveConfig, true), *jsonOut)
+		return printCLIPlan("new.rpc", buildNewServicePlan("new rpc", *dir, resolved, cfg, plugins, newServiceContractInputs{}, *saveConfig, true), *jsonOut)
 	}
 	if err := generator.GenerateServiceScaffold(generator.ServiceScaffoldOptions{
 		Name:           cfg.ServiceName,
@@ -387,7 +538,7 @@ func rpcNewCommand(args []string) error {
 		}
 	}
 	if *jsonOut || outputMode() == outputJSON {
-		return printJSONEnvelope("new.rpc", buildNewServicePlan("new rpc", *dir, resolved, cfg, plugins, *saveConfig, false))
+		return printJSONEnvelope("new.rpc", buildNewServicePlan("new rpc", *dir, resolved, cfg, plugins, newServiceContractInputs{}, *saveConfig, false))
 	}
 	return nil
 }
@@ -524,7 +675,7 @@ func validateNewServicePlanInputs(cfg *generator.Config) error {
 	}
 }
 
-func buildNewServicePlan(command, dir, configPath string, cfg *generator.Config, plugins []string, saveConfig bool, dryRun bool) cliPlan {
+func buildNewServicePlan(command, dir, configPath string, cfg *generator.Config, plugins []string, contracts newServiceContractInputs, saveConfig bool, dryRun bool) cliPlan {
 	inputs := map[string]string{
 		"dir": dir,
 	}
@@ -551,10 +702,34 @@ func buildNewServicePlan(command, dir, configPath string, cfg *generator.Config,
 	if len(plugins) > 0 {
 		inputs["plugins"] = strings.Join(plugins, ",")
 	}
+	if apiFile := strings.TrimSpace(contracts.APIFile); apiFile != "" {
+		inputs["api"] = apiFile
+	}
+	if openAPIFile := strings.TrimSpace(contracts.OpenAPIFile); openAPIFile != "" {
+		inputs["openapi"] = openAPIFile
+	}
+	if protoFile := strings.TrimSpace(contracts.ProtoFile); protoFile != "" {
+		inputs["proto"] = protoFile
+	}
+	if thriftFile := strings.TrimSpace(contracts.ThriftFile); thriftFile != "" {
+		inputs["thrift"] = thriftFile
+	}
 
 	actions := []cliPlanAction{
 		{Operation: "create-directory", Target: dir, Description: "ensure the service output directory exists", RiskLevel: "low"},
 		{Operation: "write-files", Target: dir, Description: "render scaffold files under the service output directory", RiskLevel: "medium"},
+	}
+	if target := firstNonBlank(contracts.APIFile, contracts.OpenAPIFile); target != "" {
+		actions = append(actions,
+			cliPlanAction{Operation: "materialize-api-contract", Target: target, Description: "copy or import the REST contract into the generated service", RiskLevel: "medium"},
+			cliPlanAction{Operation: "generate-rest-from-contract", Target: dir, Description: "generate REST handlers and tests from the API contract", RiskLevel: "medium"},
+		)
+	}
+	if target := firstNonBlank(contracts.ProtoFile, contracts.ThriftFile); target != "" {
+		actions = append(actions,
+			cliPlanAction{Operation: "materialize-rpc-contract", Target: target, Description: "copy or convert the RPC contract into the generated service", RiskLevel: "medium"},
+			cliPlanAction{Operation: "generate-rpc-from-contract", Target: filepath.Join(dir, "internal", "rpc"), Description: "generate RPC descriptors and middleware adapters from the proto contract", RiskLevel: "medium"},
+		)
 	}
 	if saveConfig {
 		actions = append(actions, cliPlanAction{Operation: "write-config", Target: configPath, Description: "save the resolved gofly config", RiskLevel: "low"})
@@ -585,6 +760,15 @@ func buildNewServicePlan(command, dir, configPath string, cfg *generator.Config,
 		Warnings:          warnings,
 		NextActions:       nextActions,
 	}
+}
+
+func firstNonBlank(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 // mergeLists 合并两组字符串，保持顺序并去重。

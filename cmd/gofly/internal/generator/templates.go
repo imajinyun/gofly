@@ -226,6 +226,8 @@ const configTemplate = `{
         "rate": 100,
         "burst": 100
       },
+      "securityHeaders": {"contentSecurityPolicy": "default-src 'self'", "frameOptions": "DENY", "contentTypeOptions": "nosniff", "referrerPolicy": "no-referrer", "permissionsPolicy": "geolocation=()", "hsts": "max-age=31536000; includeSubDomains"},
+      "logRedaction": {"headers": ["Authorization", "Cookie", "Set-Cookie"], "queries": ["token", "access_token"]},
       "metrics": true,
       "health": true,
       "requestId": true
@@ -1692,6 +1694,9 @@ kind: Deployment
 metadata:
   name: {{.Name}}
   namespace: {{.Namespace}}
+  labels:
+    app.kubernetes.io/name: {{.Name}}
+    app.kubernetes.io/managed-by: gofly
 spec:
   replicas: {{.Replicas}}
 {{.RevisionHistory}}  selector:
@@ -1701,6 +1706,7 @@ spec:
     metadata:
       labels:
         app: {{.Name}}
+        app.kubernetes.io/name: {{.Name}}
     spec:
 {{.ServiceAccount}}{{.ImagePullSecrets}}      containers:
         - name: {{.Name}}
@@ -1718,12 +1724,20 @@ spec:
             httpGet:
               path: /healthz
               port: http
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            failureThreshold: 30
+            periodSeconds: 2
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: {{.Name}}
   namespace: {{.Namespace}}
+  labels:
+    app.kubernetes.io/name: {{.Name}}
 spec:
 {{.ServiceType}}  selector:
     app: {{.Name}}
@@ -1734,7 +1748,375 @@ spec:
 {{.NodePort}}    - name: rpc
       port: {{.RPCPort}}
       targetPort: rpc
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{.Name}}-config
+  namespace: {{.Namespace}}
+data:
+{{.Data}}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{.Name}}-secret
+  namespace: {{.Namespace}}
+type: Opaque
+stringData:
+  admin-token: change-me-admin-token
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{.Name}}
+  namespace: {{.Namespace}}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: {{.Name}}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{.Name}}
+  namespace: {{.Namespace}}
+spec:
+  podSelector:
+    matchLabels:
+      app: {{.Name}}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: {{.Port}}
+        - protocol: TCP
+          port: {{.RPCPort}}
+  egress:
+    - to:
+        - namespaceSelector: {}
 {{.Autoscale}}
+`
+
+const helmChartTemplate = `apiVersion: v2
+name: {{.Name}}
+description: Gofly production service chart for {{.Name}}
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+`
+
+const helmValuesTemplate = `replicaCount: {{.Replicas}}
+
+image:
+  repository: {{.Name}}
+  tag: latest
+  pullPolicy: IfNotPresent
+
+serviceAccount:
+  create: true
+  name: ""
+
+service:
+  type: ClusterIP
+  httpPort: {{.Port}}
+  rpcPort: {{.RPCPort}}
+
+probes:
+  readiness:
+    path: /healthz
+    initialDelaySeconds: 3
+    periodSeconds: 5
+  liveness:
+    path: /healthz
+    initialDelaySeconds: 10
+    periodSeconds: 10
+  startup:
+    path: /healthz
+    failureThreshold: 30
+    periodSeconds: 2
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 80
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+networkPolicy:
+  enabled: true
+
+config:
+  app.json: |
+    {}
+
+secret:
+  adminToken: change-me-admin-token
+
+serviceMonitor:
+  enabled: true
+  interval: 30s
+  path: /admin/metrics
+`
+
+const helmWorkloadTemplate = `apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{.Name}}
+  labels:
+    app.kubernetes.io/name: {{.Name}}
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: {{.Replicas}}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{.Name}}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{.Name}}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: /admin/metrics
+        prometheus.io/port: "9090"
+    spec:
+      containers:
+        - name: {{.Name}}
+          image: {{.Image}}
+          ports:
+            - name: http
+              containerPort: {{.Port}}
+            - name: rpc
+              containerPort: {{.RPCPort}}
+          env:
+            - name: GOFLY_ADMIN_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{.Name}}-secret
+                  key: admin-token
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+{{.Resources}}---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{.Name}}
+  labels:
+    app.kubernetes.io/name: {{.Name}}
+spec:
+  selector:
+    app.kubernetes.io/name: {{.Name}}
+  ports:
+    - name: http
+      port: {{.Port}}
+      targetPort: http
+    - name: rpc
+      port: {{.RPCPort}}
+      targetPort: rpc
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{.Name}}-config
+data:
+{{.Data}}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{.Name}}-secret
+type: Opaque
+stringData:
+  admin-token: change-me-admin-token
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{.Name}}
+  labels:
+    app.kubernetes.io/name: {{.Name}}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{.Name}}
+  endpoints:
+    - port: http
+      path: /admin/metrics
+      interval: 30s
+`
+
+const prometheusStackTemplate = `apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{.Name}}
+  namespace: {{.Namespace}}
+  labels:
+    app.kubernetes.io/name: {{.Name}}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{.Name}}
+  endpoints:
+    - port: http
+      path: /admin/metrics
+      interval: 30s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{.Name}}
+  namespace: {{.Namespace}}
+spec:
+  groups:
+    - name: {{.Name}}.slo
+      rules:
+        - alert: GoflyHighErrorRate
+          expr: sum(rate(http_requests_total{service="{{.Name}}",code=~"5.."}[5m])) / sum(rate(http_requests_total{service="{{.Name}}"}[5m])) > 0.05
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: {{.Name}} high 5xx error rate
+        - alert: GoflyHighP99Latency
+          expr: histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{service="{{.Name}}"}[5m])) by (le)) > 1
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: {{.Name}} p99 latency is above 1s
+`
+
+const otelCollectorTemplate = `apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{.Name}}-otel-collector
+  namespace: {{.Namespace}}
+data:
+  otel-collector-config.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+          http:
+    processors:
+      batch:
+      resource:
+        attributes:
+          - key: service.name
+            value: {{.Name}}
+            action: upsert
+    exporters:
+      logging:
+        verbosity: basic
+      otlp:
+        endpoint: tempo:4317
+        tls:
+          insecure: true
+    service:
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [resource, batch]
+          exporters: [logging, otlp]
+        metrics:
+          receivers: [otlp]
+          processors: [resource, batch]
+          exporters: [logging]
+`
+
+const grafanaDashboardTemplate = `{
+  "title": "{{.Name}} / Gofly Production",
+  "tags": ["gofly", "{{.Name}}", "production"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "panels": [
+    {"type": "timeseries", "title": "HTTP RPS", "targets": [{"expr": "sum(rate(http_requests_total{service=\"{{.Name}}\"}[5m]))"}]},
+    {"type": "timeseries", "title": "HTTP Error Rate", "targets": [{"expr": "sum(rate(http_requests_total{service=\"{{.Name}}\",code=~\"5..\"}[5m])) / sum(rate(http_requests_total{service=\"{{.Name}}\"}[5m]))"}]},
+    {"type": "timeseries", "title": "P99 Latency", "targets": [{"expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{service=\"{{.Name}}\"}[5m])) by (le))"}]},
+    {"type": "logs", "title": "Logs by trace_id", "targets": [{"expr": "{service=\"{{.Name}}\"} | json | trace_id != \"\""}]}
+  ]
+}
+`
+
+const logsCorrelationTemplate = `apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{.Name}}-logs-correlation
+  namespace: {{.Namespace}}
+data:
+  promtail.yaml: |
+    pipeline_stages:
+      - json:
+          expressions:
+            trace_id: trace_id
+            span_id: span_id
+            level: level
+            msg: msg
+      - labels:
+          trace_id:
+          span_id:
+          level:
+      - output:
+          source: msg
+  loki-derived-fields.yaml: |
+    derivedFields:
+      - name: TraceID
+        matcherRegex: 'trace_id=(\\w+)'
+        url: '$${__value.raw}'
+        datasourceUid: tempo
+`
+
+const productionCheckScriptTemplate = `#!/usr/bin/env sh
+set -eu
+
+service_name="{{.Name}}"
+config_file="${1:-etc/{{.Name}}.json}"
+
+fail() {
+  printf 'production-check failed: %s\n' "$1" >&2
+  exit 1
+}
+
+[ -f "$config_file" ] || fail "missing config file: $config_file"
+[ -f "deploy/k8s/{{.Name}}.yaml" ] || fail "missing k8s production manifest"
+[ -f "deploy/helm/values.yaml" ] || fail "missing helm values"
+[ -f "deploy/observability/prometheus.yaml" ] || fail "missing prometheus rules"
+[ -f "deploy/observability/otel-collector.yaml" ] || fail "missing otel collector config"
+[ -f "deploy/observability/grafana-dashboard.json" ] || fail "missing grafana dashboard"
+
+grep -q '"securityHeaders"' "$config_file" || fail "rest security headers are not configured"
+grep -q '"tls"' "$config_file" || printf 'production-check warning: tls is expected to be terminated by ingress or configured in rest.tls\n' >&2
+grep -q '"admin"' "$config_file" || fail "admin control-plane config is missing"
+grep -q 'change-me-admin-token' "$config_file" && fail "replace placeholder admin token before production"
+grep -q 'kind: NetworkPolicy' "deploy/k8s/{{.Name}}.yaml" || fail "network policy is missing"
+grep -q 'kind: PodDisruptionBudget' "deploy/k8s/{{.Name}}.yaml" || fail "pod disruption budget is missing"
+grep -q 'kind: HorizontalPodAutoscaler' "deploy/k8s/{{.Name}}.yaml" || fail "horizontal pod autoscaler is missing"
+grep -q 'ServiceMonitor' "deploy/helm/templates/workload.yaml" || fail "helm serviceMonitor is missing"
+
+printf '%s production checklist passed\n' "$service_name"
 `
 
 const kubeServiceTemplate = `apiVersion: v1
@@ -1800,7 +2182,7 @@ spec:
 {{.ImagePullPolicy}}{{.Resources}}
 `
 
-const makefileTemplate = `.PHONY: test race build run
+const makefileTemplate = `.PHONY: test race build run production-check
 
 test:
 	go test ./...
@@ -1813,6 +2195,9 @@ build:
 
 run:
 	go run ./cmd/{{.Name}}
+
+production-check:
+	sh ./bin/production-check.sh
 `
 
 const ciWorkflowTemplate = `name: ci

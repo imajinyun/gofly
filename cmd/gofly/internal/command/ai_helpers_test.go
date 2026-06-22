@@ -129,9 +129,19 @@ func TestNewServicePlanAndFlagParsingBoundaries_BitsUT(t *testing.T) {
 	if err := validateNewServicePlanInputs(valid); err != nil {
 		t.Fatalf("validateNewServicePlanInputs(valid) = %v", err)
 	}
-	plan := buildNewServicePlan("new api", "out", ".gofly/config.json", valid, []string{"audit", "trace"}, true, true)
+	plan := buildNewServicePlan("new api", "out", ".gofly/config.json", valid, []string{"audit", "trace"}, newServiceContractInputs{}, true, true)
 	if plan.Command != "new api" || !plan.DryRun || !plan.MutatesFilesystem || len(plan.Actions) != 4 || len(plan.Warnings) != 2 || plan.Inputs["features"] != "http" || plan.Inputs["plugins"] != "audit,trace" {
 		t.Fatalf("buildNewServicePlan = %#v, want full dry-run plan", plan)
+	}
+	contractPlan := buildNewServicePlan("new service", "out", ".gofly/config.json", valid, nil, newServiceContractInputs{APIFile: "orders.api", ProtoFile: "orders.proto"}, true, true)
+	if contractPlan.Inputs["api"] != "orders.api" || contractPlan.Inputs["proto"] != "orders.proto" || len(contractPlan.Actions) != 7 {
+		t.Fatalf("buildNewServicePlan contracts = %#v, want contract inputs and materialization actions", contractPlan)
+	}
+	if err := validateNewServiceContractInputs(newServiceContractInputs{APIFile: "a.api", OpenAPIFile: "openapi.yaml"}); err == nil || !strings.Contains(err.Error(), "--api and --openapi") {
+		t.Fatalf("validateNewServiceContractInputs api/openapi = %v, want mutually exclusive error", err)
+	}
+	if _, err := newServiceContractOutputPath("out", "../orders", ".api"); err == nil || !strings.Contains(err.Error(), "cannot be used as a contract filename") {
+		t.Fatalf("newServiceContractOutputPath traversal = %v, want contract filename rejection", err)
 	}
 
 	fs := flag.NewFlagSet("test", flag.ContinueOnError)
@@ -1927,6 +1937,87 @@ func TestNewServiceGeneratedProjectSmokeMatrix_BitsUT(t *testing.T) {
 	})
 }
 
+func TestNewServiceContractInputMatrix_BitsUT(t *testing.T) {
+	withFrameworkPath(t, func() {
+		for _, tt := range []struct {
+			name      string
+			flag      string
+			ext       string
+			contract  string
+			wantFiles []string
+		}{
+			{
+				name: "api-first-api",
+				flag: "--api",
+				ext:  ".api",
+				contract: `type PingResp {
+  Message string
+}
+
+service user-api {
+  @handler ping
+  get /ping returns (PingResp)
+}
+`,
+				wantFiles: []string{filepath.Join("internal", "api", "v1", "user_api", "routes.go"), filepath.Join("internal", "api", "v1", "user_api", "routes_test.go")},
+			},
+			{
+				name:      "api-first-openapi",
+				flag:      "--openapi",
+				ext:       ".json",
+				contract:  `{"openapi":"3.0.3","info":{"title":"orders","version":"1.0.0"},"paths":{"/orders":{"get":{"operationId":"ListOrders","responses":{"200":{"description":"OK","content":{"application/json":{"schema":{"$ref":"#/components/schemas/OrderResp"}}}}}}}},"components":{"schemas":{"OrderResp":{"type":"object","properties":{"id":{"type":"string"}}}}}}`,
+				wantFiles: []string{"orders.api", filepath.Join("internal", "api", "v1", "orders", "routes.go")},
+			},
+			{
+				name: "rpc-first-proto",
+				flag: "--proto",
+				ext:  ".proto",
+				contract: `syntax = "proto3";
+package demo;
+message HelloReq { string name = 1; }
+message HelloResp { string message = 1; }
+service Greeter { rpc SayHello (HelloReq) returns (HelloResp); }
+`,
+				wantFiles: []string{"orders.proto", filepath.Join("internal", "rpc", "orders.gofly.go")},
+			},
+			{
+				name: "rpc-first-thrift",
+				flag: "--thrift",
+				ext:  ".thrift",
+				contract: `namespace go example.com/orders
+struct HelloReq {
+  1: string name
+}
+struct HelloResp {
+  1: string message
+}
+service Greeter {
+  HelloResp SayHello(1: HelloReq req)
+}
+`,
+				wantFiles: []string{"orders.proto", filepath.Join("internal", "rpc", "orders.gofly.go")},
+			},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				tmp := t.TempDir()
+				contractPath := filepath.Join(tmp, "contract"+tt.ext)
+				if err := os.WriteFile(contractPath, []byte(tt.contract), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				outDir := filepath.Join(tmp, "orders")
+				if err := Execute([]string{"new", "service", "orders", "--module", "example.com/orders", "--dir", outDir, tt.flag, contractPath}); err != nil {
+					t.Fatalf("new service %s: %v", tt.flag, err)
+				}
+				for _, rel := range append([]string{filepath.Join("deploy", "k8s", "orders.yaml")}, tt.wantFiles...) {
+					if _, err := os.Stat(filepath.Join(outDir, rel)); err != nil {
+						t.Fatalf("new service %s missing generated file %s: %v", tt.flag, rel, err)
+					}
+				}
+			})
+		}
+	})
+}
+
 func applyAINewAndSnapshot(t *testing.T, outDir string) map[string]string {
 	t.Helper()
 	var stdout bytes.Buffer
@@ -2385,6 +2476,17 @@ func TestRootUtilityCommandsGenerateArtifactsAndReports_BitsUT(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), `"target": "example.com/gofly@v9.9.9"`) || !strings.Contains(out.String(), `"execute": false`) {
 		t.Fatalf("upgradeCommand output = %q, want upgrade plan", out.String())
+	}
+	out.Reset()
+	if err := withCommandIO(IOStreams{Out: &out}, outputText, verbosityNormal, func() error {
+		return upgradeCommand([]string{"--json", "--version", "v9.9.9", "--module", "example.com/gofly", "--project-dir", "/tmp/generated-orders"})
+	}); err != nil {
+		t.Fatalf("upgradeCommand generated project json plan: %v", err)
+	}
+	for _, want := range []string{`"generatedProject": true`, `"projectDir": "/tmp/generated-orders"`, `"diffCommand"`, `"api"`, `"diff"`, `"verifyCommand"`} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("upgradeCommand generated project output missing %q: %q", want, out.String())
+		}
 	}
 	if err := upgradeCommand([]string{"unexpected"}); !errors.Is(err, errUsage) || !strings.Contains(err.Error(), "does not accept positional") {
 		t.Fatalf("upgradeCommand positional error = %v, want usage", err)

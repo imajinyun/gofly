@@ -86,8 +86,8 @@ test-short: ## Run fast unit tests (no race)
 	$(GO) test $(TESTFLAGS) -short $(PKGS)
 
 .PHONY: test-generated-matrix
-test-generated-matrix: ## Verify all generated AI project templates end-to-end
-	GOFLY_FRAMEWORK_PATH=$(CURDIR) $(GO) test $(TESTFLAGS) ./cmd/gofly/internal/command -run 'Test(AINewGeneratedProjectVerificationMatrix|NewServiceGeneratedProjectSmokeMatrix)_BitsUT'
+test-generated-matrix: ## Verify generated project templates and service contract input matrix end-to-end
+	GOFLY_FRAMEWORK_PATH=$(CURDIR) $(GO) test $(TESTFLAGS) ./cmd/gofly/internal/command -run 'Test(AINewGeneratedProjectVerificationMatrix|NewServiceGeneratedProjectSmokeMatrix|NewServiceContractInputMatrix)_BitsUT'
 
 .PHONY: bench
 bench: ## Run benchmarks (exclude unit tests)

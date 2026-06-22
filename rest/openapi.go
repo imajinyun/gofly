@@ -216,6 +216,28 @@ func JSONResponse(description string, schema Schema) Response {
 	return Response{Description: description, Content: map[string]MediaType{"application/json": {Schema: cloneSchemaPtr(&schema)}}}
 }
 
+// JSONErrorResponse documents gofly's standard REST error envelope.
+func JSONErrorResponse(description string) Response {
+	if description == "" {
+		description = "Error"
+	}
+	return JSONResponse(description, ErrorResponseSchema())
+}
+
+// ErrorResponseSchema returns the OpenAPI schema for WriteError responses.
+func ErrorResponseSchema() Schema {
+	return StructSchema(ErrorResponse{})
+}
+
+// DefaultErrorResponses returns the stable machine-readable REST error responses
+// most generated handlers should expose alongside success responses.
+func DefaultErrorResponses() map[string]Response {
+	return map[string]Response{
+		"400": JSONErrorResponse("Invalid request"),
+		"500": JSONErrorResponse("Internal server error"),
+	}
+}
+
 func StringSchema() *Schema { return &Schema{Type: "string"} }
 
 func IntegerSchema() *Schema { return &Schema{Type: "integer", Format: "int64"} }

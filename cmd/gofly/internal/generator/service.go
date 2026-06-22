@@ -162,13 +162,29 @@ func GenerateService(opts ServiceOptions) error {
 		return err
 	}
 	data := map[string]string{
-		"Name":         opts.Name,
-		"Module":       opts.Module,
-		"ReplaceBlock": frameworkReplaceBlock(opts.FrameworkPath),
-		"GoFile":       "./cmd/" + opts.Name,
-		"Exe":          opts.Name,
-		"GoVersion":    "1.26",
-		"BaseImage":    "gcr.io/distroless/static-debian12",
+		"Name":             opts.Name,
+		"Module":           opts.Module,
+		"ReplaceBlock":     frameworkReplaceBlock(opts.FrameworkPath),
+		"GoFile":           "./cmd/" + opts.Name,
+		"Exe":              opts.Name,
+		"GoVersion":        "1.26",
+		"BaseImage":        "gcr.io/distroless/static-debian12",
+		"Namespace":        "default",
+		"Image":            opts.Name + ":latest",
+		"Port":             "8080",
+		"RPCPort":          "8081",
+		"Replicas":         "2",
+		"Host":             opts.Name + ".example.com",
+		"Path":             "/",
+		"Data":             kubeConfigData(nil),
+		"RevisionHistory":  "",
+		"ImagePullSecrets": "",
+		"ServiceAccount":   "",
+		"ImagePullPolicy":  "",
+		"Resources":        kubeResources("100m", "128Mi", "500m", "512Mi"),
+		"ServiceType":      "",
+		"NodePort":         "",
+		"Autoscale":        kubeAutoscale(opts.Name, "default", "2", "6"),
 	}
 	if err := cleanupLegacyServiceFiles(opts.Dir); err != nil {
 		return err
@@ -651,7 +667,7 @@ func ListTemplates(opts TemplateOptions) []TemplateFile {
 	}
 	files := templateFiles()
 	out := make([]TemplateFile, 0, len(files))
-	for _, name := range []string{"api.tpl", "rpc.tpl", "model.tpl", "docker.tpl", "kube-deployment.tpl", "kube-service.tpl", "kube-ingress.tpl", "kube-configmap.tpl", "kube-job.tpl"} {
+	for _, name := range []string{"api.tpl", "rpc.tpl", "model.tpl", "docker.tpl", "kube-deployment.tpl", "kube-service.tpl", "kube-ingress.tpl", "kube-configmap.tpl", "kube-job.tpl", "helm-chart.tpl", "helm-values.tpl"} {
 		out = append(out, TemplateFile{Name: name, Path: filepath.Join(opts.Dir, name)})
 	}
 	return out
@@ -891,6 +907,8 @@ func templateFiles() map[string]string {
 		"kube-ingress.tpl":    kubeIngressTemplate,
 		"kube-configmap.tpl":  kubeConfigMapTemplate,
 		"kube-job.tpl":        kubeJobTemplate,
+		"helm-chart.tpl":      helmChartTemplate,
+		"helm-values.tpl":     helmValuesTemplate,
 	}
 }
 
@@ -1175,6 +1193,15 @@ func serviceFilesForProfile(style, name string, profile GenerationProfile) map[s
 	files[filepath.Join("internal", "rpc", "greeter_test.go")] = greeterTestTemplate
 	files[filepath.Join("internal", "smoke", "service_smoke_test.go")] = smokeTestTemplate
 	files["Dockerfile"] = dockerfileTemplate
+	files[filepath.Join("deploy", "k8s", name+".yaml")] = kubeTemplate
+	files[filepath.Join("deploy", "helm", "Chart.yaml")] = helmChartTemplate
+	files[filepath.Join("deploy", "helm", "values.yaml")] = helmValuesTemplate
+	files[filepath.Join("deploy", "helm", "templates", "workload.yaml")] = helmWorkloadTemplate
+	files[filepath.Join("deploy", "observability", "prometheus.yaml")] = prometheusStackTemplate
+	files[filepath.Join("deploy", "observability", "otel-collector.yaml")] = otelCollectorTemplate
+	files[filepath.Join("deploy", "observability", "grafana-dashboard.json")] = grafanaDashboardTemplate
+	files[filepath.Join("deploy", "observability", "logs-correlation.yaml")] = logsCorrelationTemplate
+	files[filepath.Join("bin", "production-check.sh")] = productionCheckScriptTemplate
 	files["Makefile"] = makefileTemplate
 	files[filepath.Join(".github", "workflows", "ci.yml")] = ciWorkflowTemplate
 	addKitexProfileFiles(files, profile)

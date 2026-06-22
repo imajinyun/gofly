@@ -36,6 +36,15 @@ func TestGenerateService(t *testing.T) {
 		filepath.Join("internal", "discovery", "registry.go"),
 		filepath.Join("internal", "rpc", "greeter.go"),
 		filepath.Join("etc", "governance.json"),
+		filepath.Join("deploy", "k8s", "hello.yaml"),
+		filepath.Join("deploy", "helm", "Chart.yaml"),
+		filepath.Join("deploy", "helm", "values.yaml"),
+		filepath.Join("deploy", "helm", "templates", "workload.yaml"),
+		filepath.Join("deploy", "observability", "prometheus.yaml"),
+		filepath.Join("deploy", "observability", "otel-collector.yaml"),
+		filepath.Join("deploy", "observability", "grafana-dashboard.json"),
+		filepath.Join("deploy", "observability", "logs-correlation.yaml"),
+		filepath.Join("bin", "production-check.sh"),
 	}
 	for _, rel := range paths {
 		if _, err := os.Stat(filepath.Join(dir, rel)); err != nil {
@@ -131,6 +140,8 @@ func TestGenerateService(t *testing.T) {
 		`"shutdownTimeout": 10000000000`,
 		`"timeoutConfig": {"duration": 3000000000`,
 		`"breakerConfig": {"openTimeout": 5000000000`,
+		`"securityHeaders": {"contentSecurityPolicy": "default-src 'self'"`,
+		`"logRedaction": {"headers": ["Authorization", "Cookie", "Set-Cookie"]`,
 		`"token": "change-me-admin-token"`,
 		`"admin": {"enabled": true, "addr": "127.0.0.1:9090", "pathPrefix": "/admin"}`,
 		`"metrics": {"enabled": true}`,
@@ -210,6 +221,79 @@ func TestGenerateService(t *testing.T) {
 		}
 	}
 	assertGovernanceRuleFileLoads(t, filepath.Join(dir, "etc", "governance.json"))
+	kubeData, err := os.ReadFile(filepath.Join(dir, "deploy", "k8s", "hello.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"kind: Deployment",
+		"kind: Service",
+		"kind: ConfigMap",
+		"kind: Secret",
+		"kind: HorizontalPodAutoscaler",
+		"kind: PodDisruptionBudget",
+		"kind: NetworkPolicy",
+		"startupProbe:",
+	} {
+		if !strings.Contains(string(kubeData), want) {
+			t.Fatalf("k8s production manifest missing %q:\n%s", want, kubeData)
+		}
+	}
+	helmValuesData, err := os.ReadFile(filepath.Join(dir, "deploy", "helm", "values.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"probes:", "resources:", "serviceMonitor:", "autoscaling:", "networkPolicy:"} {
+		if !strings.Contains(string(helmValuesData), want) {
+			t.Fatalf("helm values missing %q:\n%s", want, helmValuesData)
+		}
+	}
+	helmWorkloadData, err := os.ReadFile(filepath.Join(dir, "deploy", "helm", "templates", "workload.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(helmWorkloadData), "kind: ServiceMonitor") || !strings.Contains(string(helmWorkloadData), "prometheus.io/scrape") {
+		t.Fatalf("helm workload missing serviceMonitor/probe annotations:\n%s", helmWorkloadData)
+	}
+	prometheusData, err := os.ReadFile(filepath.Join(dir, "deploy", "observability", "prometheus.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"kind: ServiceMonitor", "kind: PrometheusRule", "GoflyHighErrorRate", "GoflyHighP99Latency"} {
+		if !strings.Contains(string(prometheusData), want) {
+			t.Fatalf("prometheus assets missing %q:\n%s", want, prometheusData)
+		}
+	}
+	otelData, err := os.ReadFile(filepath.Join(dir, "deploy", "observability", "otel-collector.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(otelData), "receivers:") || !strings.Contains(string(otelData), "otlp:") || !strings.Contains(string(otelData), "service.name") {
+		t.Fatalf("otel collector asset missing pipeline:\n%s", otelData)
+	}
+	grafanaData, err := os.ReadFile(filepath.Join(dir, "deploy", "observability", "grafana-dashboard.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !json.Valid(grafanaData) || !strings.Contains(string(grafanaData), "Logs by trace_id") {
+		t.Fatalf("grafana dashboard should be valid json with trace log panel:\n%s", grafanaData)
+	}
+	checkData, err := os.ReadFile(filepath.Join(dir, "bin", "production-check.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"securityHeaders", "change-me-admin-token", "kind: NetworkPolicy", "kind: HorizontalPodAutoscaler", "ServiceMonitor"} {
+		if !strings.Contains(string(checkData), want) {
+			t.Fatalf("production check missing %q:\n%s", want, checkData)
+		}
+	}
+	checkInfo, err := os.Stat(filepath.Join(dir, "bin", "production-check.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if checkInfo.Mode()&0o111 == 0 {
+		t.Fatalf("production-check.sh mode = %v, want executable script", checkInfo.Mode())
+	}
 	svcData, err := os.ReadFile(filepath.Join(dir, "internal", "svc", "service_context.go"))
 	if err != nil {
 		t.Fatal(err)
@@ -463,7 +547,7 @@ func TestTemplateAndKubeHelperBoundaries(t *testing.T) {
 	}
 
 	files := ListTemplates(TemplateOptions{Dir: "/tmp/templates"})
-	if len(files) != 9 || files[0].Path == "" || !strings.HasPrefix(files[0].Path, "/tmp/templates") {
+	if len(files) != 11 || files[0].Path == "" || !strings.HasPrefix(files[0].Path, "/tmp/templates") {
 		t.Fatalf("ListTemplates = %#v, want fixed template paths", files)
 	}
 }
@@ -1312,7 +1396,7 @@ func TestTemplateListAndClean(t *testing.T) {
 		t.Fatal(err)
 	}
 	files := ListTemplates(TemplateOptions{Dir: dir})
-	wantTemplates := []string{"api.tpl", "rpc.tpl", "model.tpl", "docker.tpl", "kube-deployment.tpl", "kube-service.tpl", "kube-ingress.tpl", "kube-configmap.tpl", "kube-job.tpl"}
+	wantTemplates := []string{"api.tpl", "rpc.tpl", "model.tpl", "docker.tpl", "kube-deployment.tpl", "kube-service.tpl", "kube-ingress.tpl", "kube-configmap.tpl", "kube-job.tpl", "helm-chart.tpl", "helm-values.tpl"}
 	if len(files) != len(wantTemplates) {
 		t.Fatalf("template files = %+v, want %d templates", files, len(wantTemplates))
 	}

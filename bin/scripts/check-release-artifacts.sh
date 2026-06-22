@@ -69,6 +69,13 @@ if require_docker_evidence:
     for required in (ci_trivy, ci_build_evidence):
         if not required.is_file() or required.stat().st_size == 0:
             raise SystemExit(f"missing Docker CI evidence artifact: {required}")
+    release_docker_sboms = sorted(evidence_dir.glob("release-docker-sbom*.spdx.json"))
+    if not release_docker_sboms:
+        raise SystemExit(f"missing release Docker SBOM evidence in {evidence_dir}")
+    for sbom in release_docker_sboms:
+        data = json.loads(sbom.read_text(encoding="utf-8"))
+        if not data.get("SPDXID") or not data.get("packages"):
+            raise SystemExit(f"Docker SBOM {sbom} is missing SPDXID or packages")
 print(f"release archives verified: {len(archives)}")
 print(f"release SBOMs verified: {len(sboms)}")
 if docker_digest_files:
@@ -82,4 +89,5 @@ else:
 if require_docker_evidence:
     print(f"release Docker digest evidence verified: {release_digest_report}")
     print(f"Docker CI Trivy/build evidence verified: {ci_trivy}, {ci_build_evidence}")
+    print(f"release Docker SBOM evidence verified: {len(release_docker_sboms)}")
 PY

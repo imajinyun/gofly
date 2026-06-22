@@ -5,17 +5,24 @@ Use this checklist before merging or releasing a gofly service.
 ## Build and tests
 
 ```sh
-make ci-fast
-make security
-make release-artifacts-check
+make ci
+make governance-10-rounds
+make dependency-upgrade-check
 ```
 
 For framework changes:
 
 ```sh
-make ci-fast
+make ci
 make test-generated-matrix
+make generated-control-plane-smoke
 make bench-smoke
+```
+
+Before publishing a tag release, also run a local release snapshot when GoReleaser is available:
+
+```sh
+make release-snapshot
 ```
 
 ## Required CI checks
@@ -25,6 +32,7 @@ Treat these GitHub Actions jobs as branch-protection required checks for `main` 
 - `build & test (go 1.26)` and `build & test (go stable)` for the root build, unit, generated matrix, control-plane smoke, coverage, and CLI version gates.
 - `golangci-lint`, `security (govulncheck + gosec)`, `supply-chain lint + OSV`, `CodeQL security analysis`, and `dependency review` for static, vulnerability, workflow, action-pin, and pull-request dependency gates.
 - `dependency upgrade validation` for dependency PRs; it runs `go mod verify`, `govulncheck`, and Docker-backed integration tests when `go.mod` or `go.sum` changes.
+- `branch protection required-check audit` to detect drift between the configured `main` branch protection checks and this checklist.
 - `contract / api+rpc (check + breaking)`, `governance gates`, `bench + fuzz smoke`, and `integration tests (...)` for compatibility, governance, performance-smoke, fuzz, and Docker-backed subsystem coverage.
 - `docker build + trivy` and `OSSF Scorecard` for container scan evidence and supply-chain posture.
 - `release (tagged)` for tag releases; it must depend on all required pre-release jobs and upload release, Docker digest, Trivy, SBOM, and provenance evidence.
@@ -32,6 +40,7 @@ Treat these GitHub Actions jobs as branch-protection required checks for `main` 
 Required-check maintenance rules:
 
 - Keep job names stable. If a job is split or renamed, update branch protection and this checklist in the same change.
+- `branch protection required-check audit` verifies the configured `main` required-check list against this checklist on scheduled and repository-local CI runs.
 - GitHub Actions `uses:` entries must stay pinned to 40-character commit SHAs; `make actions-pin-check` enforces this.
 - Reports and evidence artifacts should write to runner temp or explicit artifact directories, not the repository root.
 

@@ -152,7 +152,17 @@ jobs:
         if: always()
         run: |
           if [ -s "${{ runner.temp }}/api-compat-report.json" ]; then
-            python3 -c 'import json; from pathlib import Path; data = json.loads(Path("${{ runner.temp }}/api-compat-report.json").read_text(encoding="utf-8")); print("## Public API compatibility"); print("- status: {}".format(data["status"])); print("- base_ref: {}".format(data["base_ref"])); print("- reason: {}".format(data["reason"]))' >> "$GITHUB_STEP_SUMMARY"
+            python3 - "${{ runner.temp }}/api-compat-report.json" >> "$GITHUB_STEP_SUMMARY" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          data = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          print("## Public API compatibility")
+          print(f"- status: {data['status']}")
+          print(f"- base_ref: {data['base_ref']}")
+          print(f"- reason: {data['reason']}")
+          PY
           fi
 
       - name: Upload public API compatibility report
@@ -233,13 +243,93 @@ jobs:
 
       - name: Dependency upgrade gates
         if: steps.dependency_changes.outputs.changed == 'true'
-        run: make dependency-upgrade-check
+        run: make dependency-upgrade-check DEPENDENCY_UPGRADE_RUN_INTEGRATION=false
+
+      - name: Dependency upgrade integration delegation summary
+        if: steps.dependency_changes.outputs.changed == 'true'
+        run: |
+          {
+            echo "## Dependency upgrade validation"
+            echo "Dependency manifests changed; module verification and govulncheck ran here."
+            echo "Docker-backed integration coverage is delegated to the required integration matrix to avoid duplicate service startup cost."
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Dependency upgrade skip summary
         if: steps.dependency_changes.outputs.changed != 'true'
         run: |
-          echo "## Dependency upgrade validation" >> "$GITHUB_STEP_SUMMARY"
-          echo "No go.mod/go.sum changes detected; dependency upgrade gates skipped." >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "## Dependency upgrade validation"
+            echo "No go.mod/go.sum changes detected; dependency upgrade gates skipped."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  branch-protection-audit:
+    name: branch protection required-check audit
+    if: github.event_name == 'schedule' || github.repository == 'gofly/gofly'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Audit main required status checks
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+          TARGET_BRANCH: main
+        run: |
+          gh api "repos/${REPOSITORY}/branches/${TARGET_BRANCH}/protection/required_status_checks" > required-status-checks.json
+          python3 - required-status-checks.json <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          expected = {
+              "build & test (go 1.26)",
+              "build & test (go stable)",
+              "golangci-lint",
+              "platform smoke (macos-latest)",
+              "platform smoke (windows-latest)",
+              "security (govulncheck + gosec)",
+              "supply-chain lint + OSV",
+              "CodeQL security analysis",
+              "dependency review",
+              "dependency upgrade validation",
+              "branch protection required-check audit",
+              "contract / api+rpc (check + breaking)",
+              "governance gates",
+              "bench + fuzz smoke",
+              "integration tests (storage-mysql-postgres)",
+              "integration tests (config-consul-nacos-etcd)",
+              "integration tests (mq-brokers)",
+              "integration tests (gateway-transcode)",
+              "docker build + trivy",
+              "OSSF Scorecard",
+          }
+
+          data = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          checks = data.get("checks") or []
+          actual = {item.get("context", "") for item in checks if item.get("context")}
+          actual.update(data.get("contexts") or [])
+          missing = sorted(expected - actual)
+          extra = sorted(actual - expected)
+
+          summary = Path(__import__("os").environ["GITHUB_STEP_SUMMARY"])
+          with summary.open("a", encoding="utf-8") as fh:
+              print("## Branch protection required-check audit", file=fh)
+              print(f"- expected checks: {len(expected)}", file=fh)
+              print(f"- configured checks: {len(actual)}", file=fh)
+              if missing:
+                  print("- missing required checks:", file=fh)
+                  for item in missing:
+                      print(f"  - `{item}`", file=fh)
+              if extra:
+                  print("- extra configured checks:", file=fh)
+                  for item in extra:
+                      print(f"  - `{item}`", file=fh)
+              if not missing and not extra:
+                  print("- status: branch protection matches the documented required-check set", file=fh)
+
+          if missing or extra:
+              raise SystemExit("branch protection required-check drift detected")
+          PY
 
   contract-check:
     name: contract / api+rpc (check + breaking)
@@ -368,7 +458,7 @@ jobs:
         env:
           GOVERNANCE_ISOLATE_GOMODCACHE: ${{ github.event_name == 'schedule' && 'true' || 'false' }}
           GOVERNANCE_SKIP_GENERATED_MATRIX: "true"
-          GOVERNANCE_SKIP_GENERATED_CONTROL_PLANE_SMOKE: "true"
+          GOVERNANCE_SKIP_GENERATED_CONTROL_PLANE_SMOKE: ${{ startsWith(github.ref, 'refs/tags/v') && 'false' || 'true' }}
           GOVERNANCE_SKIP_REPORT: ${{ runner.temp }}/governance-skip-report.json
         run: make governance-10-rounds
 
@@ -376,7 +466,31 @@ jobs:
         if: always()
         run: |
           if [ -s "${{ runner.temp }}/governance-skip-report.json" ]; then
-            python3 -c 'import json; from pathlib import Path; data = json.loads(Path("${{ runner.temp }}/governance-skip-report.json").read_text(encoding="utf-8")); print("## Governance skip report"); skips = data.get("skips", []); print("No skipped governance rounds.") if not skips else (print("| Round | Gate | Env | Risk | Compensating gate | Required for release |"), print("| --- | --- | --- | --- | --- | --- |"), [print("| {} | {} | {} | {} | {} | {} |".format(item["round"], item["name"], item["env"], item["risk"], item["compensating_gate"], item["required_for_release"])) for item in skips])' >> "$GITHUB_STEP_SUMMARY"
+            python3 - "${{ runner.temp }}/governance-skip-report.json" >> "$GITHUB_STEP_SUMMARY" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          data = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          skips = data.get("skips", [])
+          print("## Governance skip report")
+          if not skips:
+              print("No skipped governance rounds.")
+          else:
+              print("| Round | Gate | Env | Risk | Compensating gate | Required for release |")
+              print("| --- | --- | --- | --- | --- | --- |")
+              for item in skips:
+                  print(
+                      "| {} | {} | {} | {} | {} | {} |".format(
+                          item["round"],
+                          item["name"],
+                          item["env"],
+                          item["risk"],
+                          item["compensating_gate"],
+                          item["required_for_release"],
+                      )
+                  )
+          PY
           fi
 
       - name: Upload governance skip report
@@ -554,6 +668,7 @@ jobs:
       contents: write
       id-token: write
       attestations: write
+      packages: write
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
@@ -577,9 +692,23 @@ jobs:
       - name: Install Syft for release SBOMs
         run: go install github.com/anchore/syft/cmd/syft@v1.40.0
 
+      - name: Login to GHCR for release image publish
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Validate Homebrew tap publishing token
+        env:
+          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+        run: |
+          if [ -z "$HOMEBREW_TAP_GITHUB_TOKEN" ]; then
+            echo "HOMEBREW_TAP_GITHUB_TOKEN is required to publish the gofly/homebrew-tap formula." >&2
+            echo "Create a fine-grained token scoped to the tap repository, or temporarily remove the brew publisher from .goreleaser.yml for an intentionally degraded release." >&2
+            exit 1
+          fi
+
       - name: Run GoReleaser
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
         run: goreleaser release --clean
 
       - name: Verify release artifacts
@@ -590,10 +719,52 @@ jobs:
           mkdir -p release-evidence/docker
           image="ghcr.io/gofly/gofly:${{ github.ref_name }}"
           docker buildx imagetools inspect --raw "$image" > release-evidence/docker/release-docker-manifest.json
-          digest="sha256:$(sha256sum release-evidence/docker/release-docker-manifest.json | cut -d ' ' -f1)"
-          python3 -c 'import json; from pathlib import Path; manifest = json.loads(Path("release-evidence/docker/release-docker-manifest.json").read_text(encoding="utf-8")); manifests = manifest.get("manifests") or []; platforms = sorted("{}/{}".format(item.get("platform", {}).get("os"), item.get("platform", {}).get("architecture")) for item in manifests); assert "linux/amd64" in platforms, platforms; assert "linux/arm64" in platforms, platforms; evidence = {"schema": "gofly.release_docker_digest_evidence.v1", "image": "ghcr.io/gofly/gofly:${{ github.ref_name }}", "manifest_digest": "'"$digest"'", "platforms": platforms, "manifest_count": len(manifests)}; Path("release-evidence/docker/release-docker-digests.json").write_text(json.dumps(evidence, indent=2, sort_keys=True) + "\n", encoding="utf-8")'
+          docker buildx imagetools inspect "$image" > release-evidence/docker/release-docker-inspect.txt
+          digest="$(python3 - release-evidence/docker/release-docker-inspect.txt <<'PY'
+          import re
+          import sys
+          from pathlib import Path
+
+          match = re.search(r"^Digest:\s*(sha256:[0-9a-f]{64})$", Path(sys.argv[1]).read_text(encoding="utf-8"), re.MULTILINE)
+          if not match:
+              raise SystemExit("could not find canonical registry digest in docker buildx imagetools inspect output")
+          print(match.group(1))
+          PY
+          )"
+          python3 - release-evidence/docker/release-docker-manifest.json "$image" "$digest" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          manifest_path = Path(sys.argv[1])
+          image = sys.argv[2]
+          digest = sys.argv[3]
+          manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+          manifests = manifest.get("manifests") or []
+          platforms = sorted(
+              "{}/{}".format(item.get("platform", {}).get("os"), item.get("platform", {}).get("architecture"))
+              for item in manifests
+          )
+          if "linux/amd64" not in platforms or "linux/arm64" not in platforms:
+              raise SystemExit(f"release manifest missing required platforms: {platforms}")
+          evidence = {
+              "schema": "gofly.release_docker_digest_evidence.v1",
+              "image": image,
+              "manifest_digest": digest,
+              "platforms": platforms,
+              "manifest_count": len(manifests),
+              "digest_source": "docker buildx imagetools inspect",
+          }
+          Path("release-evidence/docker/release-docker-digests.json").write_text(
+              json.dumps(evidence, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          PY
           echo "RELEASE_DOCKER_IMAGE=$image" >> "$GITHUB_ENV"
           echo "RELEASE_DOCKER_DIGEST=$digest" >> "$GITHUB_ENV"
+
+      - name: Collect release Docker SBOM evidence
+        run: syft "${RELEASE_DOCKER_IMAGE}@${RELEASE_DOCKER_DIGEST}" -o spdx-json=release-evidence/docker/release-docker-sbom.spdx.json
 
       - name: Download Docker and Trivy evidence
         env:

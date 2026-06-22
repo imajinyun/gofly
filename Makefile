@@ -21,6 +21,7 @@ GOSEC       ?= $(GO) tool gosec
 GOVULNCHECK_SCAN ?= package
 GOSEC_FLAGS ?= -quiet -exclude-generated -exclude-dir=testdata -exclude-dir=vendor -exclude-dir=.tmp-test
 GOSEC_INVENTORY_BASELINE ?= $(SCRIPTS_DIR)/gosec-exception-baseline.json
+DEPENDENCY_UPGRADE_RUN_INTEGRATION ?= true
 
 # Minimum total line coverage (percent). COVERAGE_RATCHET prevents regression once raised.
 COVERAGE_THRESHOLD ?= 60
@@ -175,10 +176,17 @@ ci: ci-fast test-generated-matrix generated-control-plane-smoke cover-check lint
 
 .PHONY: integration-tests
 integration-tests: ## Run Docker-backed integration test packages for dependency upgrades
+	@command -v docker >/dev/null 2>&1 || { echo "docker not found; install Docker or skip this Docker-backed gate intentionally"; exit 127; }
+	@docker info >/dev/null 2>&1 || { echo "docker daemon is not reachable; start Docker before running integration-tests"; exit 1; }
 	$(GO) test -tags=integration -count=1 ./core/storage/ ./core/config/... ./core/discovery/... ./core/mq/... ./gateway/
 
 .PHONY: dependency-upgrade-check
-dependency-upgrade-check: mod-verify govulncheck integration-tests ## Validate dependency updates with module, vuln, and integration gates
+dependency-upgrade-check: mod-verify govulncheck ## Validate dependency updates with module, vuln, and integration gates
+	@if [ "$(DEPENDENCY_UPGRADE_RUN_INTEGRATION)" = "true" ]; then \
+		$(MAKE) integration-tests; \
+	else \
+		echo "Skipping integration-tests here; required CI integration matrix provides Docker-backed coverage."; \
+	fi
 
 .PHONY: examples-check
 examples-check: examples-copyable-check ## Build and vet all examples to keep docs and code in sync
@@ -264,6 +272,13 @@ gosec-inventory: ## Emit structured inventory for all #nosec exceptions
 .PHONY: gosec-inventory-check
 gosec-inventory-check: ## Fail if #nosec inventory differs from the approved baseline
 	@GOSEC_INVENTORY_BASELINE=$(GOSEC_INVENTORY_BASELINE) sh $(SCRIPTS_DIR)/gosec-exception-inventory.sh >/dev/null
+
+.PHONY: gosec-inventory-refresh
+gosec-inventory-refresh: ## Refresh the approved #nosec exception baseline after reviewed exception changes
+	@tmp=$$(mktemp); \
+	trap 'rm -f "$$tmp"' EXIT; \
+	sh $(SCRIPTS_DIR)/gosec-exception-inventory.sh > $$tmp; \
+	python3 -c 'import json, sys; from pathlib import Path; inventory = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8")); baseline_path = Path(sys.argv[2]); allowed = ["|".join([entry["file"], ",".join(entry.get("rules") or []), entry.get("rationale", "")]) for entry in inventory.get("entries", [])]; payload = {"allowed_exceptions": sorted(allowed), "schema": "gofly.gosec_exception_baseline.v1"}; baseline_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")' $$tmp $(GOSEC_INVENTORY_BASELINE)
 
 .PHONY: release-artifacts-check
 release-artifacts-check: ## Verify release archives, checksums, and SBOM artifacts in dist

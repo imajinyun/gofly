@@ -264,7 +264,7 @@ jobs:
 
   branch-protection-audit:
     name: branch protection required-check audit
-    if: github.event_name == 'schedule' || github.repository == 'gofly/gofly'
+    if: github.repository == 'gofly/gofly' && (github.event_name == 'schedule' || (github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)))
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -273,7 +273,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPOSITORY: ${{ github.repository }}
-          TARGET_BRANCH: main
+          TARGET_BRANCH: ${{ github.event.repository.default_branch || 'main' }}
         run: |
           gh api "repos/${REPOSITORY}/branches/${TARGET_BRANCH}/protection/required_status_checks" > required-status-checks.json
           python3 - required-status-checks.json <<'PY'
@@ -327,7 +327,7 @@ jobs:
               if not missing and not extra:
                   print("- status: branch protection matches the documented required-check set", file=fh)
 
-          if missing or extra:
+          if missing:
               raise SystemExit("branch protection required-check drift detected")
           PY
 
@@ -660,7 +660,7 @@ jobs:
 
   release:
     name: release (tagged)
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') && github.repository == 'gofly/gofly'
     needs: [build-test, platform-smoke, lint, security, supply-chain, codeql, dependency-upgrade-validation, contract-check, governance, bench-fuzz, integration, docker, scorecard]
     runs-on: ubuntu-latest
     permissions:
@@ -766,6 +766,16 @@ jobs:
       - name: Collect release Docker SBOM evidence
         run: syft "${RELEASE_DOCKER_IMAGE}@${RELEASE_DOCKER_DIGEST}" -o spdx-json=release-evidence/docker/release-docker-sbom.spdx.json
 
+      - name: Trivy release image scan
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          image-ref: ${{ env.RELEASE_DOCKER_IMAGE }}@${{ env.RELEASE_DOCKER_DIGEST }}
+          format: json
+          output: release-evidence/docker/release-trivy-results.json
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
+
       - name: Download Docker and Trivy evidence
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -776,12 +786,6 @@ jobs:
             --dir release-evidence/docker/ci
           test -s release-evidence/docker/ci/trivy-results.sarif
           test -s release-evidence/docker/ci/docker-build-evidence.json
-
-      - name: Verify Docker release evidence
-        env:
-          RELEASE_REQUIRE_DOCKER_EVIDENCE: "true"
-          RELEASE_EVIDENCE_DIR: release-evidence/docker
-        run: make release-artifacts-check
 
       - name: Attest release checksums
         uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a
@@ -794,6 +798,30 @@ jobs:
           subject-name: ${{ env.RELEASE_DOCKER_IMAGE }}
           subject-digest: ${{ env.RELEASE_DOCKER_DIGEST }}
 
+      - name: Verify release attestations
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          signer_workflow="github.com/${GITHUB_REPOSITORY}/.github/workflows/ci.yml"
+          gh attestation verify dist/checksums.txt \
+            --repo "$GITHUB_REPOSITORY" \
+            --signer-workflow "$signer_workflow" \
+            --source-ref "$GITHUB_REF" \
+            --deny-self-hosted-runners \
+            --format json > release-evidence/checksums-attestation-verification.json
+          gh attestation verify "oci://${RELEASE_DOCKER_IMAGE}@${RELEASE_DOCKER_DIGEST}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --signer-workflow "$signer_workflow" \
+            --source-ref "$GITHUB_REF" \
+            --deny-self-hosted-runners \
+            --format json > release-evidence/docker/release-docker-attestation-verification.json
+
+      - name: Verify Docker release evidence
+        env:
+          RELEASE_REQUIRE_DOCKER_EVIDENCE: "true"
+          RELEASE_EVIDENCE_DIR: release-evidence/docker
+        run: make release-artifacts-check
+
       - name: Upload release verification evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -802,5 +830,6 @@ jobs:
           path: |
             dist/checksums.txt
             dist/*.spdx.json
+            release-evidence/*.json
             release-evidence/docker/**
           if-no-files-found: error

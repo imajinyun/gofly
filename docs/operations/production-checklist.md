@@ -31,7 +31,7 @@ Treat these GitHub Actions jobs as branch-protection required checks for `main` 
 
 - `build & test (go 1.26)` and `build & test (go stable)` for the root build, unit, generated matrix, control-plane smoke, coverage, and CLI version gates.
 - `golangci-lint`, `security (govulncheck + gosec)`, `supply-chain lint + OSV`, `CodeQL security analysis`, and `dependency review` for static, vulnerability, workflow, action-pin, and pull-request dependency gates.
-- `dependency upgrade validation` for dependency PRs; it runs `go mod verify`, `govulncheck`, and Docker-backed integration tests when `go.mod` or `go.sum` changes.
+- `dependency upgrade validation` for dependency PRs; it runs `go mod verify` and `govulncheck` when `go.mod` or `go.sum` changes, while Docker-backed coverage is provided by the required `integration tests (...)` matrix.
 - `branch protection required-check audit` to detect drift between the configured `main` branch protection checks and this checklist.
 - `contract / api+rpc (check + breaking)`, `governance gates`, `bench + fuzz smoke`, and `integration tests (...)` for compatibility, governance, performance-smoke, fuzz, and Docker-backed subsystem coverage.
 - `docker build + trivy` and `OSSF Scorecard` for container scan evidence and supply-chain posture.
@@ -40,7 +40,7 @@ Treat these GitHub Actions jobs as branch-protection required checks for `main` 
 Required-check maintenance rules:
 
 - Keep job names stable. If a job is split or renamed, update branch protection and this checklist in the same change.
-- `branch protection required-check audit` verifies the configured `main` required-check list against this checklist on scheduled and repository-local CI runs.
+- `branch protection required-check audit` verifies the configured default-branch required-check list against this checklist on scheduled and default-branch push CI runs; missing project checks fail, extra external checks are reported as informational.
 - GitHub Actions `uses:` entries must stay pinned to 40-character commit SHAs; `make actions-pin-check` enforces this.
 - Reports and evidence artifacts should write to runner temp or explicit artifact directories, not the repository root.
 

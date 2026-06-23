@@ -322,6 +322,12 @@ require(
     "GOVERNANCE_SKIP_RACE" not in governance_job and "GOVERNANCE_SKIP_SECURITY" not in governance_job,
     "ci.yml: governance job must not skip release-blocking race or security gates by default",
 )
+require(
+    "cleanup_ai_manifest_http" in governance_script
+    and "trap 'cleanup_ai_manifest_http;" in governance_script
+    and "cleanup_ai_manifest_http\n\ttrap 'chmod -R u+w" in governance_script,
+    "governance-10-rounds.sh: AI manifest HTTP fixture must be killed on both failure and success paths",
+)
 for marker in (
     "make governance-10-rounds",
     "Round 13 of `bin/scripts/governance-10-rounds.sh`",

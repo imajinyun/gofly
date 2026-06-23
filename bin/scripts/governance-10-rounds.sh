@@ -315,6 +315,11 @@ port_file.write_text(str(server.server_address[1]), encoding="utf-8")
 server.serve_forever()
 PY
 	cp_pid="$!"
+	cleanup_ai_manifest_http() {
+		kill "$cp_pid" 2>/dev/null || true
+		wait "$cp_pid" 2>/dev/null || true
+	}
+	trap 'cleanup_ai_manifest_http; chmod -R u+w "$tmp" 2>/dev/null || true; rm -rf "$tmp"' EXIT INT TERM
 	python3 - "$tmp/control-plane-http-port" <<'PY'
 import pathlib,sys,time
 port_file=pathlib.Path(sys.argv[1])
@@ -336,8 +341,8 @@ assert data["snapshot"]["metadata"]["rest.runtime"]=="available", "runtime sourc
 assert data["snapshot"]["checksum"], "runtime source checksum should be non-empty"
 print("AI runtime control-plane source watch OK")
 '
-	kill "$cp_pid" 2>/dev/null || true
-	wait "$cp_pid" 2>/dev/null || true
+	cleanup_ai_manifest_http
+	trap 'chmod -R u+w "$tmp" 2>/dev/null || true; rm -rf "$tmp"' EXIT INT TERM
 }
 
 round_generated_project_matrix_tests() {

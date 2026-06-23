@@ -34,7 +34,9 @@ Treat these GitHub Actions jobs as branch-protection required checks for the def
 - `golangci-lint`, `security (govulncheck + gosec)`, `supply-chain lint + OSV`, `CodeQL security analysis`, and `dependency review` for static, vulnerability, workflow, action-pin, and pull-request dependency gates.
 - `dependency upgrade validation` for dependency PRs; it runs `go mod verify` and `govulncheck` when `go.mod` or `go.sum` changes, while Docker-backed coverage is provided by the required `integration tests (...)` matrix.
 - `branch protection required-check audit` to detect drift between the configured default-branch protection checks and this checklist.
-- `contract / api+rpc (check + breaking)`, `governance gates`, `bench + fuzz smoke`, and `integration tests (...)` for compatibility, governance, performance-smoke, fuzz, and Docker-backed subsystem coverage.
+- `platform smoke (macos-latest)` and `platform smoke (windows-latest)` for cross-platform CLI/package smoke coverage.
+- `contract / api+rpc (check + breaking)`, `governance gates`, and `bench + fuzz smoke` for compatibility, governance, performance-smoke, and fuzz coverage.
+- `integration tests (storage-mysql-postgres)`, `integration tests (config-consul-nacos-etcd)`, `integration tests (mq-brokers)`, and `integration tests (gateway-transcode)` for Docker-backed subsystem coverage.
 - `docker build + trivy` and `OSSF Scorecard` for container scan evidence and supply-chain posture.
 - `release (tagged)` for tag releases; it must depend on all tag-applicable pre-release jobs and upload release, Docker digest, Trivy, SBOM, and attestation verification evidence.
 

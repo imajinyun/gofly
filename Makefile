@@ -211,7 +211,7 @@ examples-smoke: ## Run runnable example smoke tests and machine-readable output 
 	sh $(SCRIPTS_DIR)/examples-smoke.sh
 
 .PHONY: docs-check
-docs-check: docs-link-check docs-taxonomy-check migration-docs-check p1-growth-check contract-docs-check ## Compile Go code blocks in Markdown docs
+docs-check: docs-link-check docs-taxonomy-check migration-docs-check p1-growth-check contract-docs-check required-checks-drift-check ## Compile Go code blocks in Markdown docs
 	$(GO) env GOMOD >/dev/null
 	sh $(SCRIPTS_DIR)/check-doc-go-snippets.sh
 
@@ -230,6 +230,10 @@ p1-growth-check: ## Validate P1 growth roadmap and cloud-native assets
 .PHONY: contract-docs-check
 contract-docs-check: ## Validate stable CLI JSON and control-plane contract docs
 	sh $(SCRIPTS_DIR)/check-contract-docs.sh
+
+.PHONY: required-checks-drift-check
+required-checks-drift-check: ## Validate CI required checks against docs and release prerequisites
+	sh $(SCRIPTS_DIR)/check-required-checks-drift.sh
 
 .PHONY: docs-link-check
 docs-link-check: ## Validate local Markdown links in docs, examples, and root README files
@@ -284,6 +288,10 @@ gosec-inventory-refresh: ## Refresh the approved #nosec exception baseline after
 release-artifacts-check: ## Verify release archives, checksums, and SBOM artifacts in dist
 	sh $(SCRIPTS_DIR)/check-release-artifacts.sh
 
+.PHONY: release-artifacts-test
+release-artifacts-test: ## Run release artifact provenance fixture tests
+	sh $(SCRIPTS_DIR)/check-release-artifacts-test.sh
+
 .PHONY: cover-check
 cover-check: ## Run tests with coverage and fail below threshold/ratchet (%)
 	COVERAGE_THRESHOLD=$(COVERAGE_THRESHOLD) COVERAGE_RATCHET=$(COVERAGE_RATCHET) PKGS="$(PKGS)" sh $(SCRIPTS_DIR)/coverage-check.sh
@@ -310,7 +318,7 @@ osv-scan: ## Scan lockfiles and manifests with OSV Scanner
 	$(OSV_SCANNER) scan source --recursive .
 
 .PHONY: supply-chain
-supply-chain: actionlint shellcheck osv-scan ## Run workflow, shell, action pin, and OSV supply-chain checks
+supply-chain: actionlint shellcheck release-artifacts-test osv-scan ## Run workflow, shell, release provenance, action pin, and OSV supply-chain checks
 
 .PHONY: governance
 governance: tidy cover-check api-compat ## Run governance gates

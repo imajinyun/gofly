@@ -96,6 +96,12 @@ if require_docker_evidence:
     for required in (ci_trivy, ci_build_evidence):
         if not required.is_file() or required.stat().st_size == 0:
             raise SystemExit(f"missing Docker CI evidence artifact: {required}")
+    ci_build_data = json.loads(ci_build_evidence.read_text(encoding="utf-8"))
+    if ci_build_data.get("schema") != "gofly.docker_build_evidence.v1":
+        raise SystemExit(f"unexpected Docker CI build evidence schema in {ci_build_evidence}")
+    for field in ("image_ref", "image_id", "repo_digests", "repo_tags", "build_metadata"):
+        if field not in ci_build_data:
+            raise SystemExit(f"Docker CI build evidence missing field {field!r}: {ci_build_evidence}")
     if not release_trivy.is_file() or release_trivy.stat().st_size == 0:
         raise SystemExit(f"missing release Docker Trivy evidence: {release_trivy}")
     trivy_text = release_trivy.read_text(encoding="utf-8")

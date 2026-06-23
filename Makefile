@@ -300,6 +300,10 @@ cover-check: ## Run tests with coverage and fail below threshold/ratchet (%)
 api-compat: ## Check public Go API compatibility against API_BASE_REF
 	sh $(SCRIPTS_DIR)/check-public-api.sh
 
+.PHONY: api-compat-test
+api-compat-test: ## Run public API compatibility skip semantics fixture tests
+	sh $(SCRIPTS_DIR)/check-public-api-test.sh
+
 .PHONY: actionlint
 actionlint: actions-pin-check ## Lint GitHub Actions workflows
 	$(ACTIONLINT) .github/workflows/*.yml
@@ -318,7 +322,7 @@ osv-scan: ## Scan lockfiles and manifests with OSV Scanner
 	$(OSV_SCANNER) scan source --recursive .
 
 .PHONY: supply-chain
-supply-chain: actionlint shellcheck release-artifacts-test osv-scan ## Run workflow, shell, release provenance, action pin, and OSV supply-chain checks
+supply-chain: actionlint shellcheck release-artifacts-test api-compat-test osv-scan ## Run workflow, shell, release/API provenance, action pin, and OSV supply-chain checks
 
 .PHONY: governance
 governance: governance-10-rounds api-compat ## Run governance gates

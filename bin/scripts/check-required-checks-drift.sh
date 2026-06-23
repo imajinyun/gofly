@@ -67,6 +67,43 @@ expected_benchmark_artifacts = {
     "bench/evidence.md",
 }
 
+expected_docker_ci_evidence_files = {
+    "docker-build-evidence.json",
+    "docker-build-metadata.json",
+    "docker-image-inspect.json",
+    "trivy-results.sarif",
+}
+
+expected_release_docker_evidence_files = {
+    "release-evidence/checksums-attestation-verification.json",
+    "release-evidence/docker/release-docker-attestation-verification.json",
+    "release-evidence/docker/release-docker-digests.json",
+    "release-evidence/docker/release-docker-inspect.txt",
+    "release-evidence/docker/release-docker-manifest.json",
+    "release-evidence/docker/release-docker-sbom.spdx.json",
+    "release-evidence/docker/release-trivy-results.json",
+    "release-evidence/docker/ci/docker-build-evidence.json",
+    "release-evidence/docker/ci/trivy-results.sarif",
+}
+
+expected_release_docker_digest_fields = {
+    "digest_source",
+    "image",
+    "manifest_count",
+    "manifest_digest",
+    "platforms",
+    "schema",
+}
+
+expected_ci_docker_build_fields = {
+    "build_metadata",
+    "image_id",
+    "image_ref",
+    "repo_digests",
+    "repo_tags",
+    "schema",
+}
+
 expected_governance_rounds = {
     1: "baseline and module graph",
     2: "format check",
@@ -111,6 +148,10 @@ checklist = checklist_path.read_text(encoding="utf-8")
 makefile = makefile_path.read_text(encoding="utf-8")
 governance_script = governance_script_path.read_text(encoding="utf-8")
 agents = agents_path.read_text(encoding="utf-8")
+release_artifacts_script = (root / "bin" / "scripts" / "check-release-artifacts.sh").read_text(encoding="utf-8")
+release_artifacts_test = (root / "bin" / "scripts" / "check-release-artifacts-test.sh").read_text(encoding="utf-8")
+public_api_script = (root / "bin" / "scripts" / "check-public-api.sh").read_text(encoding="utf-8")
+public_api_test = (root / "bin" / "scripts" / "check-public-api-test.sh").read_text(encoding="utf-8")
 
 missing = []
 
@@ -163,6 +204,33 @@ def extract_integration_matrix(text):
     return entries
 
 
+def extract_step_body(job_body, step_name):
+    match = re.search(
+        rf"\n\s+- name:\s*{re.escape(step_name)}\n(?P<body>.*?)(?:\n\s+- name:|\Z)",
+        job_body,
+        re.S,
+    )
+    require(match is not None, f"ci.yml: step {step_name!r} is missing")
+    return match.group("body") if match else ""
+
+
+def extract_upload_artifact_paths(step_body):
+    match = re.search(r"\n\s+path:\s*\|\n(?P<body>.*?)(?:\n\s+if-no-files-found:|\n\s+[A-Za-z0-9_-]+:|\Z)", step_body, re.S)
+    require(match is not None, "ci.yml: upload-artifact path block is missing")
+    if not match:
+        return set()
+    return {line.strip() for line in match.group("body").splitlines() if line.strip()}
+
+
+def extract_python_evidence_keys(step_body, schema):
+    schema_index = step_body.find(f'"schema": "{schema}"')
+    require(schema_index >= 0, f"ci.yml: evidence schema {schema!r} is missing")
+    if schema_index < 0:
+        return set()
+    window = step_body[max(0, schema_index - 500): schema_index + 1000]
+    return set(re.findall(r'"([A-Za-z_][A-Za-z0-9_]*)"\s*:', window))
+
+
 def extract_make_target_body(text, target):
     match = re.search(rf"^\.PHONY:\s*{re.escape(target)}\n{re.escape(target)}:.*?\n(?P<body>.*?)(?=^\.PHONY:|\Z)", text, re.S | re.M)
     require(match is not None, f"Makefile: {target} target is missing")
@@ -184,10 +252,17 @@ dependency_target = extract_make_target_body(makefile, "dependency-upgrade-check
 dependency_job = extract_job_body(workflow, "dependency-upgrade-validation")
 governance_job = extract_job_body(workflow, "governance")
 bench_job = extract_job_body(workflow, "bench-fuzz")
+docker_job = extract_job_body(workflow, "docker")
+release_job = extract_job_body(workflow, "release")
 governance_target_deps = extract_make_target_deps(makefile, "governance")
 governance_10_target = extract_make_target_body(makefile, "governance-10-rounds")
 ci_target_deps = extract_make_target_deps(makefile, "ci")
+supply_chain_target_deps = extract_make_target_deps(makefile, "supply-chain")
 bench_evidence_target = extract_make_target_body(makefile, "bench-evidence-check")
+docker_upload_step = extract_step_body(docker_job, "Upload Docker and Trivy evidence")
+docker_build_step = extract_step_body(docker_job, "Build Docker image")
+release_digest_step = extract_step_body(release_job, "Collect release Docker digest evidence")
+release_upload_step = extract_step_body(release_job, "Upload release verification evidence")
 
 require(
     branch_audit_expected == expected_default_checks,
@@ -201,14 +276,52 @@ for check in sorted(expected_default_checks):
 require("release (tagged)" in checklist, "production-checklist.md: missing release (tagged) job reference")
 require("release provenance" in makefile or "release-artifacts-test" in makefile, "Makefile: release provenance fixture target is missing")
 require("release-artifacts-test" in makefile, "Makefile: release-artifacts-test target is missing")
+require("api-compat-test" in makefile, "Makefile: api-compat-test target is missing")
 require(
     re.search(r"^supply-chain:.*release-artifacts-test", makefile, re.M) is not None,
     "Makefile: supply-chain target must depend on release-artifacts-test",
 )
 require(
+    "api-compat-test" in supply_chain_target_deps,
+    "Makefile: supply-chain target must depend on api-compat-test so skip semantics stay covered in CI",
+)
+require(
     "run: make supply-chain" in workflow,
     "ci.yml: supply-chain job must run make supply-chain so release-artifacts-test is included",
 )
+require(
+    "Public API compatibility report" in workflow and "api-compat-report" in workflow,
+    "ci.yml: supply-chain job must emit and upload the public API compatibility report",
+)
+require(
+    "API_COMPAT_REQUIRED: ${{ startsWith(github.ref, 'refs/tags/v') && 'true' || 'false' }}" in workflow,
+    "ci.yml: public API compatibility must be release-blocking on version tags",
+)
+for marker in (
+    "gofly.api_compat_report.v1",
+    "status",
+    "base_ref",
+    "reason",
+    "module",
+    "base ref '",
+    "skipping public API compatibility check",
+    "public API compatibility skip is forbidden for release/tag governance",
+    "API_COMPAT_REQUIRED",
+    "GOVERNANCE_RELEASE",
+    "refs/tags/v",
+):
+    require(marker in public_api_script, f"check-public-api.sh: missing API compatibility skip governance marker {marker!r}")
+for marker in (
+    "gofly.api_compat_report.v1",
+    "run_skip_allowed",
+    "run_skip_forbidden",
+    "API_COMPAT_REQUIRED=true",
+    "GITHUB_REF=refs/tags/v0.0.0-fixture",
+    "GOVERNANCE_RELEASE=true",
+    "skipping public API compatibility check",
+    "public API compatibility skip is forbidden for release/tag governance",
+):
+    require(marker in public_api_test, f"check-public-api-test.sh: missing API compatibility skip fixture marker {marker!r}")
 
 require(
     release_needs == expected_release_needs,
@@ -285,6 +398,79 @@ require(
     "bench-evidence-check" in agents or "bench-evidence-check" in makefile,
     "benchmark evidence governance must mention bench-evidence-check in AGENTS.md or Makefile",
 )
+
+docker_ci_upload_paths = extract_upload_artifact_paths(docker_upload_step)
+require(
+    docker_ci_upload_paths == expected_docker_ci_evidence_files,
+    "ci.yml: docker-trivy-evidence artifact file set drifted: "
+    f"missing={sorted(expected_docker_ci_evidence_files - docker_ci_upload_paths)} "
+    f"extra={sorted(docker_ci_upload_paths - expected_docker_ci_evidence_files)}",
+)
+require(
+    "name: docker-trivy-evidence" in docker_upload_step,
+    "ci.yml: Docker CI evidence artifact name must remain docker-trivy-evidence for release download",
+)
+require(
+    "--name docker-trivy-evidence" in release_job,
+    "ci.yml: release job must download the docker-trivy-evidence artifact from the Docker required check",
+)
+require(
+    "--dir release-evidence/docker/ci" in release_job,
+    "ci.yml: release job must normalize downloaded Docker CI evidence under release-evidence/docker/ci",
+)
+for evidence_file in sorted(expected_docker_ci_evidence_files):
+    if evidence_file in {"docker-build-evidence.json", "trivy-results.sarif"}:
+        release_path = f"release-evidence/docker/ci/{evidence_file}"
+        require(release_path in release_job, f"ci.yml: release job must assert downloaded Docker CI evidence {release_path}")
+require(
+    extract_python_evidence_keys(docker_build_step, "gofly.docker_build_evidence.v1") == expected_ci_docker_build_fields,
+    "ci.yml: docker-build-evidence.json schema fields drifted from release validator expectations",
+)
+require(
+    "gofly.docker_build_evidence.v1" in release_artifacts_script,
+    "check-release-artifacts.sh: release validator must validate the CI Docker build evidence schema",
+)
+for field in sorted(expected_ci_docker_build_fields):
+    require(
+        f'"{field}"' in release_artifacts_script or f"{field!r}" in release_artifacts_script,
+        f"check-release-artifacts.sh: missing validation for CI Docker build evidence field {field!r}",
+    )
+
+release_digest_fields = extract_python_evidence_keys(release_digest_step, "gofly.release_docker_digest_evidence.v1")
+require(
+    release_digest_fields == expected_release_docker_digest_fields,
+    "ci.yml: release-docker-digests.json schema fields drifted: "
+    f"missing={sorted(expected_release_docker_digest_fields - release_digest_fields)} "
+    f"extra={sorted(release_digest_fields - expected_release_docker_digest_fields)}",
+)
+for evidence_file in sorted(expected_release_docker_evidence_files):
+    require(evidence_file in release_job, f"ci.yml: release Docker evidence file is not produced or asserted: {evidence_file}")
+for marker in (
+    "RELEASE_REQUIRE_DOCKER_EVIDENCE: \"true\"",
+    "RELEASE_EVIDENCE_DIR: release-evidence/docker",
+    "run: make release-artifacts-check",
+):
+    require(marker in release_job, f"ci.yml: Docker release evidence verification marker is missing: {marker}")
+for marker in (
+    "gofly.release_docker_digest_evidence.v1",
+    "release-docker-digests.json",
+    "release-trivy-results.json",
+    "release-docker-attestation-verification.json",
+    "release-docker-sbom",
+    "checksums-attestation-verification.json",
+    "trivy-results.sarif",
+    "docker-build-evidence.json",
+):
+    require(marker in release_artifacts_script, f"check-release-artifacts.sh: missing Docker release evidence marker {marker!r}")
+for marker in (
+    "gofly.release_docker_digest_evidence.v1",
+    "gofly.docker_build_evidence.v1",
+    "release-trivy-results.json",
+    "release-docker-attestation-verification.json",
+    "checksums-attestation-verification.json",
+    "docker-build-evidence.json",
+):
+    require(marker in release_artifacts_test, f"check-release-artifacts-test.sh: missing Docker evidence fixture marker {marker!r}")
 
 rounds = {}
 for match in re.finditer(r"run_round\s+(\d+)\s+\"([^\"]+)\"", governance_script):

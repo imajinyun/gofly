@@ -61,7 +61,21 @@ manifest_digest = "sha256:" + "a" * 64
     encoding="utf-8",
 )
 (evidence / "ci" / "trivy-results.sarif").write_text("{\"version\":\"2.1.0\"}\n", encoding="utf-8")
-(evidence / "ci" / "docker-build-evidence.json").write_text("{\"builder\":\"fixture\"}\n", encoding="utf-8")
+(evidence / "ci" / "docker-build-evidence.json").write_text(
+    json.dumps(
+        {
+            "schema": "gofly.docker_build_evidence.v1",
+            "image_ref": "gofly:fixture",
+            "image_id": "sha256:" + "d" * 64,
+            "repo_digests": [],
+            "repo_tags": ["gofly:fixture"],
+            "build_metadata": {},
+        },
+        sort_keys=True,
+    )
+    + "\n",
+    encoding="utf-8",
+)
 
 checksums_digest = hashlib.sha256(checksums.read_bytes()).hexdigest()
 if mode == "bad-checksums-attestation":

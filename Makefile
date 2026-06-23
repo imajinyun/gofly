@@ -172,7 +172,7 @@ check: fmt-check vet test ## Run the core local verification suite
 ci-fast: fmt-check vet build examples-check examples-smoke docs-check test tidy ## Run the default CI build/test/tidy gates
 
 .PHONY: ci
-ci: ci-fast test-generated-matrix generated-control-plane-smoke cover-check lint supply-chain security api-compat ## Run the full CI verification suite
+ci: ci-fast test-generated-matrix generated-control-plane-smoke governance supply-chain ## Run the full CI verification suite
 
 .PHONY: integration-tests
 integration-tests: ## Run Docker-backed integration test packages for dependency upgrades
@@ -321,10 +321,10 @@ osv-scan: ## Scan lockfiles and manifests with OSV Scanner
 supply-chain: actionlint shellcheck release-artifacts-test osv-scan ## Run workflow, shell, release provenance, action pin, and OSV supply-chain checks
 
 .PHONY: governance
-governance: tidy cover-check api-compat ## Run governance gates
+governance: governance-10-rounds api-compat ## Run governance gates
 
 .PHONY: governance-10-rounds
-governance-10-rounds: ## Run the 10-round no-cache architecture and quality workflow
+governance-10-rounds: ## Run the no-cache architecture and quality governance workflow
 	COVERAGE_THRESHOLD=$(COVERAGE_THRESHOLD) COVERAGE_RATCHET=$(COVERAGE_RATCHET) sh $(SCRIPTS_DIR)/governance-10-rounds.sh
 
 .PHONY: security

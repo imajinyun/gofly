@@ -10,6 +10,8 @@ root = pathlib.Path(".").resolve()
 workflow_path = root / ".github" / "workflows" / "ci.yml"
 checklist_path = root / "docs" / "operations" / "production-checklist.md"
 makefile_path = root / "Makefile"
+governance_script_path = root / "bin" / "scripts" / "governance-10-rounds.sh"
+agents_path = root / "AGENTS.md"
 
 expected_default_checks = {
     "build & test (go 1.26)",
@@ -59,9 +61,50 @@ expected_integration_matrix = {
 
 expected_integration_packages = " ".join(expected_integration_matrix.values())
 
+expected_governance_rounds = {
+    1: "baseline and module graph",
+    2: "format check",
+    3: "unit tests without test cache",
+    4: "vet static analysis",
+    5: "golangci-lint",
+    6: "race detector",
+    7: "module tidy verification",
+    8: "runtime cache bypass tests",
+    9: "plugin no-local-cache tests",
+    10: "AI governance pipeline manifest check",
+    11: "generated project verification matrix",
+    12: "generated project runtime control-plane smoke",
+    13: "docs, coverage, security, and final package listing",
+}
+
+expected_governance_skip_envs = {
+    "GOVERNANCE_SKIP_RACE": {
+        "round": "6",
+        "compensating_gate": "run go test -race ./... before merge/release",
+        "release_blocking": True,
+    },
+    "GOVERNANCE_SKIP_GENERATED_MATRIX": {
+        "round": "11",
+        "compensating_gate": "make test-generated-matrix in build-test job",
+        "release_blocking": False,
+    },
+    "GOVERNANCE_SKIP_GENERATED_CONTROL_PLANE_SMOKE": {
+        "round": "12",
+        "compensating_gate": "make generated-control-plane-smoke in build-test job",
+        "release_blocking": True,
+    },
+    "GOVERNANCE_SKIP_SECURITY": {
+        "round": "13",
+        "compensating_gate": "run make security before merge/release",
+        "release_blocking": True,
+    },
+}
+
 workflow = workflow_path.read_text(encoding="utf-8")
 checklist = checklist_path.read_text(encoding="utf-8")
 makefile = makefile_path.read_text(encoding="utf-8")
+governance_script = governance_script_path.read_text(encoding="utf-8")
+agents = agents_path.read_text(encoding="utf-8")
 
 missing = []
 
@@ -120,6 +163,12 @@ def extract_make_target_body(text, target):
     return match.group("body") if match else ""
 
 
+def extract_make_target_deps(text, target):
+    match = re.search(rf"^{re.escape(target)}:(?P<deps>[^#\n]*)", text, re.M)
+    require(match is not None, f"Makefile: {target} target is missing")
+    return match.group("deps") if match else ""
+
+
 branch_audit_expected = extract_branch_audit_expected(workflow)
 release_needs = extract_release_needs(workflow)
 job_ids = extract_job_ids(workflow)
@@ -127,6 +176,10 @@ integration_matrix = extract_integration_matrix(workflow)
 integration_target = extract_make_target_body(makefile, "integration-tests")
 dependency_target = extract_make_target_body(makefile, "dependency-upgrade-check")
 dependency_job = extract_job_body(workflow, "dependency-upgrade-validation")
+governance_job = extract_job_body(workflow, "governance")
+governance_target_deps = extract_make_target_deps(makefile, "governance")
+governance_10_target = extract_make_target_body(makefile, "governance-10-rounds")
+ci_target_deps = extract_make_target_deps(makefile, "ci")
 
 require(
     branch_audit_expected == expected_default_checks,
@@ -203,6 +256,82 @@ require(
     "Makefile: DEPENDENCY_UPGRADE_RUN_INTEGRATION toggle is missing",
 )
 
+rounds = {}
+for match in re.finditer(r"run_round\s+(\d+)\s+\"([^\"]+)\"", governance_script):
+    rounds[int(match.group(1))] = match.group(2)
+for round_no, round_name in expected_governance_rounds.items():
+    require(
+        rounds.get(round_no) == round_name,
+        f"governance-10-rounds.sh: round {round_no} drifted: expected {round_name!r}, got {rounds.get(round_no)!r}",
+    )
+require(
+    set(rounds) == set(expected_governance_rounds),
+    "governance-10-rounds.sh: executable round set drifted: "
+    f"missing={sorted(set(expected_governance_rounds) - set(rounds))} extra={sorted(set(rounds) - set(expected_governance_rounds))}",
+)
+for env_name, metadata in sorted(expected_governance_skip_envs.items()):
+    require(env_name in governance_script, f"governance-10-rounds.sh: missing skip env {env_name}")
+    require(
+        f"record_skip {metadata['round']}" in governance_script and metadata["compensating_gate"] in governance_script,
+        f"governance-10-rounds.sh: skip env {env_name} must record its compensating gate",
+    )
+    if metadata["release_blocking"]:
+        require(
+            f"assert_not_release_skip {env_name}" in governance_script,
+            f"governance-10-rounds.sh: release-blocking skip env {env_name} must be rejected for releases",
+        )
+
+require(
+    "sh $(SCRIPTS_DIR)/governance-10-rounds.sh" in governance_10_target,
+    "Makefile: governance-10-rounds target must delegate to bin/scripts/governance-10-rounds.sh",
+)
+for env_name in ("COVERAGE_THRESHOLD", "COVERAGE_RATCHET"):
+    require(
+        f"{env_name}=$({env_name})" in governance_10_target,
+        f"Makefile: governance-10-rounds target must pass {env_name} to the script",
+    )
+require(
+    "governance-10-rounds" in governance_target_deps,
+    "Makefile: governance target must delegate to governance-10-rounds instead of running a partial gate subset",
+)
+require(
+    "api-compat" in governance_target_deps,
+    "Makefile: governance target must keep the public API compatibility gate",
+)
+require(
+    "governance" in ci_target_deps or "governance-10-rounds" in ci_target_deps,
+    "Makefile: ci target must include governance or governance-10-rounds so local full CI matches required CI gates",
+)
+require(
+    "run: make governance-10-rounds" in governance_job,
+    "ci.yml: governance job must run make governance-10-rounds",
+)
+require(
+    "GOVERNANCE_SKIP_REPORT" in governance_job and "Upload governance skip report" in workflow,
+    "ci.yml: governance job must emit and upload the governance skip report",
+)
+require(
+    'GOVERNANCE_SKIP_GENERATED_MATRIX: "true"' in governance_job,
+    "ci.yml: governance job must explicitly skip the generated matrix only when the build-test job compensates",
+)
+require(
+    "startsWith(github.ref, 'refs/tags/v') && 'false' || 'true'" in governance_job,
+    "ci.yml: governance job must force generated control-plane smoke on release tags",
+)
+require(
+    "GOVERNANCE_SKIP_RACE" not in governance_job and "GOVERNANCE_SKIP_SECURITY" not in governance_job,
+    "ci.yml: governance job must not skip release-blocking race or security gates by default",
+)
+for marker in (
+    "make governance-10-rounds",
+    "Round 13 of `bin/scripts/governance-10-rounds.sh`",
+    "GOVERNANCE_SKIP_SECURITY",
+    "COVERAGE_RATCHET",
+):
+    require(marker in agents, f"AGENTS.md: missing governance documentation marker {marker!r}")
+for marker in ("go test", "go vet", "golangci-lint", "-race", "gosec", "govulncheck"):
+    require(marker in agents, f"AGENTS.md: missing mandatory governance gate marker {marker!r}")
+
 for check in ("branch protection required-check audit", "release (tagged)", "release-artifacts-test"):
     require(check in checklist or check in workflow or check in makefile, f"required-check marker {check!r} is not referenced")
 
@@ -215,6 +344,7 @@ if missing:
 print(
     "required-check drift ok: "
     f"{len(expected_default_checks)} default checks, {len(expected_release_needs)} release prerequisites, "
-    f"{len(expected_integration_matrix)} integration matrix entries"
+    f"{len(expected_integration_matrix)} integration matrix entries, "
+    f"{len(expected_governance_rounds)} governance rounds"
 )
 PY

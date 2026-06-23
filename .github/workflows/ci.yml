@@ -198,7 +198,6 @@ jobs:
 
   dependency-review:
     name: dependency review
-    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -207,9 +206,19 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
 
       - name: Review dependency changes
+        if: github.event_name == 'pull_request'
         uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294
         with:
           fail-on-severity: high
+
+      - name: Dependency review skip summary
+        if: github.event_name != 'pull_request'
+        run: |
+          {
+            echo "## Dependency review"
+            echo "Dependency Review is a pull-request-only gate; no dependency diff is available on this event."
+            echo "The job remains successful so tag-release dependency graphs are not blocked by a skipped prerequisite."
+          } >> "$GITHUB_STEP_SUMMARY"
 
   dependency-upgrade-validation:
     name: dependency upgrade validation

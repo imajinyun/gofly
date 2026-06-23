@@ -48,6 +48,7 @@ type CachedResolver struct {
 	source      WatchResolver
 	mu          sync.RWMutex
 	endpoints   []string
+	removed     []string
 	err         error
 	watchers    map[chan []string]struct{}
 	updates     int64
@@ -56,6 +57,7 @@ type CachedResolver struct {
 
 type ResolverSnapshot struct {
 	Endpoints   []string  `json:"endpoints"`
+	Removed     []string  `json:"removed,omitempty"`
 	Error       string    `json:"error,omitempty"`
 	Watchers    int       `json:"watchers"`
 	Updates     int64     `json:"updates"`
@@ -102,6 +104,7 @@ func (r *CachedResolver) Snapshot() ResolverSnapshot {
 	defer r.mu.RUnlock()
 	snapshot := ResolverSnapshot{
 		Endpoints:   append([]string(nil), r.endpoints...),
+		Removed:     append([]string(nil), r.removed...),
 		Watchers:    len(r.watchers),
 		Updates:     r.updates,
 		LastUpdated: r.lastUpdated,
@@ -152,6 +155,7 @@ func (r *CachedResolver) watch(ctx context.Context, updates <-chan []string) {
 func (r *CachedResolver) set(endpoints []string) {
 	endpoints = normalizeEndpoints(endpoints)
 	r.mu.Lock()
+	r.removed = removedEndpoints(r.endpoints, endpoints)
 	r.endpoints = endpoints
 	r.updates++
 	r.lastUpdated = time.Now()

@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gofly/gofly/core/breaker"
@@ -53,10 +54,13 @@ type rawResponseEnvelope struct {
 }
 
 type HTTPClient struct {
-	target  string
-	hc      *http.Client
-	opts    clientOptions
-	runtime *ruleRuntime
+	target      string
+	hc          *http.Client
+	opts        clientOptions
+	runtime     *ruleRuntime
+	discovery   *clientDiscoveryRuntime
+	watchCancel context.CancelFunc
+	closeOnce   sync.Once
 }
 
 func NewClient(target string, opts ...ClientOption) (*HTTPClient, error) {
@@ -94,7 +98,29 @@ func NewClient(target string, opts ...ClientOption) (*HTTPClient, error) {
 			}
 		}
 	}
-	return &HTTPClient{target: strings.TrimRight(target, "/"), hc: hc, opts: o, runtime: newRuleRuntime()}, nil
+	client := &HTTPClient{
+		target:    strings.TrimRight(target, "/"),
+		hc:        hc,
+		opts:      o,
+		runtime:   newRuleRuntime(),
+		discovery: newClientDiscoveryRuntime(o.resolver),
+	}
+	client.startResolverWatch()
+	return client, nil
+}
+
+// Close releases background resolver watches and idle HTTP transport resources.
+func (c *HTTPClient) Close() error {
+	if c == nil {
+		return nil
+	}
+	c.closeOnce.Do(func() {
+		if c.watchCancel != nil {
+			c.watchCancel()
+		}
+		c.closeIdleConnections()
+	})
+	return nil
 }
 
 func (c *HTTPClient) Call(ctx context.Context, method string, request any, response any) error {
@@ -157,6 +183,7 @@ func (c *HTTPClient) doCall(ctx context.Context, method string, request any) (*c
 	if err := rpcPolicy.Validate(); err != nil {
 		return nil, fmt.Errorf("apply rpc policy: %w", err)
 	}
+	rpcPolicy = rpcPolicyForMethod(rpcPolicy, method)
 	runtimeKey := governanceRuntimeKey(decision, method)
 	if limiter := c.ruleRateLimiter(runtimeKey, policy.RateLimit); limiter != nil && !limiter.Allow() {
 		return nil, NewError(CodeResourceExhausted, "too many requests")
@@ -283,6 +310,60 @@ func (c *HTTPClient) effectiveRPCPolicy(policy governance.Policy) RPCPolicy {
 		return RPCPolicyFromGovernance(policy)
 	}
 	return mergeRPCPolicy(*c.opts.rpcPolicy, RPCPolicyFromGovernance(policy))
+}
+
+func rpcPolicyForMethod(policy RPCPolicy, method string) RPCPolicy {
+	methodPolicy, ok := matchRPCMethodPolicy(policy.Methods, method)
+	policy.Methods = nil
+	if !ok {
+		return policy
+	}
+	methodPolicy.Methods = nil
+	return mergeRPCPolicy(policy, methodPolicy)
+}
+
+func matchRPCMethodPolicy(methods map[string]RPCPolicy, method string) (RPCPolicy, bool) {
+	if len(methods) == 0 {
+		return RPCPolicy{}, false
+	}
+	for _, candidate := range rpcMethodPolicyCandidates(method) {
+		if policy, ok := methods[candidate]; ok {
+			return policy, true
+		}
+	}
+	return RPCPolicy{}, false
+}
+
+func rpcMethodPolicyCandidates(method string) []string {
+	trimmed := strings.Trim(strings.TrimSpace(method), "/")
+	service, rpcMethod := splitRPCMethod(trimmed)
+	candidates := make([]string, 0, 4)
+	if service != "" && rpcMethod != "" {
+		candidates = append(candidates, service+"/"+rpcMethod, "/"+service+"/"+rpcMethod)
+	}
+	if trimmed != "" {
+		candidates = append(candidates, trimmed)
+	}
+	if rpcMethod != "" {
+		candidates = append(candidates, rpcMethod)
+	}
+	return uniqueRPCMethodPolicyCandidates(candidates)
+}
+
+func uniqueRPCMethodPolicyCandidates(candidates []string) []string {
+	if len(candidates) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(candidates))
+	out := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		if _, ok := seen[candidate]; ok {
+			continue
+		}
+		seen[candidate] = struct{}{}
+		out = append(out, candidate)
+	}
+	return out
 }
 
 func (c *HTTPClient) governanceDecision(ctx context.Context, req governance.Request) governance.Decision {
@@ -607,6 +688,75 @@ func (c *HTTPClient) pickTarget(ctx context.Context, policy RPCBalancerPolicy, f
 		return "", balancer, fmt.Errorf("pick rpc target: %w", err)
 	}
 	return strings.TrimRight(target, "/"), balancer, nil
+}
+
+func (c *HTTPClient) startResolverWatch() {
+	if c == nil || c.opts.resolver == nil {
+		return
+	}
+	watcher, ok := c.opts.resolver.(WatchResolver)
+	if !ok {
+		return
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	updates, err := watcher.Watch(ctx)
+	if err != nil {
+		cancel()
+		c.discovery.recordWatchError(err)
+		return
+	}
+	c.watchCancel = cancel
+	initial, err := watcher.Resolve(context.Background())
+	if err != nil {
+		c.discovery.recordWatchError(err)
+	}
+	c.discovery.recordUpdate(initial, nil)
+	go c.watchResolverUpdates(ctx, normalizeEndpoints(initial), updates)
+}
+
+func (c *HTTPClient) watchResolverUpdates(ctx context.Context, previous []string, updates <-chan []string) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case endpoints, ok := <-updates:
+			if !ok {
+				return
+			}
+			endpoints = normalizeEndpoints(endpoints)
+			removed := removedEndpoints(previous, endpoints)
+			c.discovery.recordUpdate(endpoints, removed)
+			if len(removed) > 0 {
+				c.closeIdleConnections()
+				c.discovery.recordCloseIdle()
+			}
+			previous = endpoints
+		}
+	}
+}
+
+func (c *HTTPClient) closeIdleConnections() {
+	if c == nil || c.hc == nil {
+		return
+	}
+	c.hc.CloseIdleConnections()
+}
+
+func removedEndpoints(previous []string, current []string) []string {
+	if len(previous) == 0 {
+		return nil
+	}
+	currentSet := make(map[string]struct{}, len(current))
+	for _, endpoint := range current {
+		currentSet[endpoint] = struct{}{}
+	}
+	removed := make([]string, 0)
+	for _, endpoint := range previous {
+		if _, ok := currentSet[endpoint]; !ok {
+			removed = append(removed, endpoint)
+		}
+	}
+	return removed
 }
 
 func rpcPolicyHashKey(ctx context.Context, key string) string {

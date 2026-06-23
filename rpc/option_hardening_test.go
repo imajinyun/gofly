@@ -168,6 +168,8 @@ func TestRPCPolicyValidateAndGovernanceMapping(t *testing.T) {
 		{name: "fallback missing target", policy: RPCPolicy{Fallback: RPCFallbackPolicy{Enabled: true}}, want: "fallback target"},
 		{name: "unknown balancer", policy: RPCPolicy{Balancer: RPCBalancerPolicy{Name: "least_request"}}, want: "unsupported"},
 		{name: "negative balancer weight", policy: RPCPolicy{Balancer: RPCBalancerPolicy{Name: RPCBalancerWeightedRoundRobin, Weights: map[string]int{"a": -1}}}, want: "non-negative"},
+		{name: "empty method policy key", policy: RPCPolicy{Methods: map[string]RPCPolicy{" ": {Timeout: time.Millisecond}}}, want: "method key"},
+		{name: "invalid method policy", policy: RPCPolicy{Methods: map[string]RPCPolicy{"svc/Foo": {Timeout: -time.Millisecond}}}, want: "method \"svc/Foo\""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -211,6 +213,9 @@ func TestRPCPolicyMergeAndBalancerHelpers_BitsUT(t *testing.T) {
 		Retry:    governance.RetryPolicy{Attempts: 1, Backoff: time.Millisecond, Statuses: []int{500}, Methods: []string{"Base"}},
 		Metadata: map[string]string{"base": "kept", "shared": "base"},
 		Headers:  map[string]string{"X-Base": "1"},
+		Methods: map[string]RPCPolicy{
+			"svc/Foo": {Timeout: time.Millisecond, Metadata: map[string]string{"base": "method"}},
+		},
 	}
 	override := RPCPolicy{
 		Timeout:  2 * time.Second,
@@ -225,6 +230,10 @@ func TestRPCPolicyMergeAndBalancerHelpers_BitsUT(t *testing.T) {
 		Balancer: RPCBalancerPolicy{Name: RPCBalancerWeightedRoundRobin, Weights: map[string]int{"http://a": 2}},
 		Metadata: map[string]string{"shared": "override", "extra": "yes"},
 		Headers:  map[string]string{"X-Override": "1"},
+		Methods: map[string]RPCPolicy{
+			"svc/Foo": {Retry: governance.RetryPolicy{Attempts: 4}, Metadata: map[string]string{"override": "method"}},
+			"Bar":     {Timeout: 3 * time.Second},
+		},
 	}
 	merged := mergeRPCPolicy(base, override)
 	if merged.Timeout != 2*time.Second || merged.Retry.Attempts != 3 || merged.Retry.Backoff != 2*time.Millisecond || !merged.Breaker.Enabled {
@@ -236,9 +245,20 @@ func TestRPCPolicyMergeAndBalancerHelpers_BitsUT(t *testing.T) {
 	if merged.Metadata["base"] != "kept" || merged.Metadata["shared"] != "override" || merged.Headers["X-Base"] != "1" || merged.Headers["X-Override"] != "1" {
 		t.Fatalf("merged maps = metadata=%#v headers=%#v, want base plus override", merged.Metadata, merged.Headers)
 	}
+	if merged.Methods["svc/Foo"].Timeout != time.Millisecond || merged.Methods["svc/Foo"].Retry.Attempts != 4 || merged.Methods["svc/Foo"].Metadata["base"] != "method" || merged.Methods["svc/Foo"].Metadata["override"] != "method" || merged.Methods["Bar"].Timeout != 3*time.Second {
+		t.Fatalf("merged method policies = %#v, want base plus method override", merged.Methods)
+	}
 	override.Balancer.Weights["http://a"] = 99
 	if merged.Balancer.Weights["http://a"] != 2 {
 		t.Fatalf("merged balancer weights alias override: %#v", merged.Balancer.Weights)
+	}
+	override.Methods["svc/Foo"] = RPCPolicy{Timeout: 99 * time.Second}
+	if merged.Methods["svc/Foo"].Timeout != time.Millisecond {
+		t.Fatalf("merged method policies alias override: %#v", merged.Methods["svc/Foo"])
+	}
+	nested := cloneRPCPolicy(RPCPolicy{Methods: map[string]RPCPolicy{"svc/Nested": {Methods: map[string]RPCPolicy{"ignored": {Timeout: time.Second}}}}})
+	if nested.Methods["svc/Nested"].Methods != nil {
+		t.Fatalf("cloned nested method policy = %#v, want leaf method policy", nested.Methods["svc/Nested"])
 	}
 	if got := mergeRPCPolicyStringMap(nil, nil); got != nil {
 		t.Fatalf("mergeRPCPolicyStringMap(nil, nil) = %#v, want nil", got)

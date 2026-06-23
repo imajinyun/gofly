@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 )
 
 func TestResolverFuncAndStaticResolverHardeningContracts(t *testing.T) {
@@ -71,6 +72,13 @@ func TestCachedResolverConstructionAndSnapshotBoundaries(t *testing.T) {
 	var nilCached *CachedResolver
 	if got := nilCached.Snapshot(); len(got.Endpoints) != 0 || got.Error != "" {
 		t.Fatalf("nil snapshot = %#v, want zero snapshot", got)
+	}
+	updates <- []string{"http://b", "http://c"}
+	if !waitForRPCSnapshot(t, time.Second, func() bool {
+		snapshot := cached.Snapshot()
+		return len(snapshot.Removed) == 1 && snapshot.Removed[0] == "http://a"
+	}) {
+		t.Fatalf("cached resolver snapshot = %#v, want removed http://a", cached.Snapshot())
 	}
 }
 

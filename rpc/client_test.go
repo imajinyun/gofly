@@ -897,6 +897,46 @@ func TestHTTPClientRPCPolicyRuntimeRetryAndCancel(t *testing.T) {
 		}
 	})
 
+	t.Run("method policy retry overrides global policy", func(t *testing.T) {
+		var calls atomic.Int64
+		s := NewServer()
+		if err := s.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{
+			Name:       "MethodRetryPolicy",
+			NewRequest: func() any { return new(helloReq) },
+			Handler: func(ctx context.Context, req any) (any, error) {
+				if calls.Add(1) == 1 {
+					return nil, NewError(CodeUnavailable, "try again")
+				}
+				return helloResp{Message: "method ok"}, nil
+			},
+		}}}, nil); err != nil {
+			t.Fatal(err)
+		}
+		ts := httptest.NewServer(s)
+		defer ts.Close()
+		c, err := NewClient(ts.URL,
+			WithRPCPolicy(RPCPolicy{
+				Retry: governance.RetryPolicy{Attempts: 1, Backoff: time.Millisecond},
+				Methods: map[string]RPCPolicy{
+					"greeter/MethodRetryPolicy": {
+						Retry: governance.RetryPolicy{Attempts: 2, Backoff: time.Millisecond},
+					},
+				},
+			}),
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		var resp helloResp
+		if err := c.Call(context.Background(), "/greeter/MethodRetryPolicy", helloReq{Name: "gofly"}, &resp); err != nil {
+			t.Fatalf("Call: %v", err)
+		}
+		if resp.Message != "method ok" || calls.Load() != 2 {
+			t.Fatalf("response/calls = %#v/%d, want method policy retry success after two attempts", resp, calls.Load())
+		}
+	})
+
 	t.Run("retry backoff observes context cancellation", func(t *testing.T) {
 		var calls atomic.Int64
 		s := NewServer()
@@ -1168,6 +1208,10 @@ func TestHTTPClientRPCPolicyRuntimeSnapshotContributor(t *testing.T) {
 		LoadShedder: RPCLoadShedderPolicy{Enabled: true, MaxConcurrency: 2},
 		Fallback:    RPCFallbackPolicy{Enabled: true, Target: "http://fallback"},
 		Hedge:       RPCHedgePolicy{Enabled: true, Delay: time.Millisecond, Attempts: 2},
+		Methods: map[string]RPCPolicy{
+			"greeter/Fast": {Timeout: 10 * time.Millisecond},
+			"Slow":         {Retry: governance.RetryPolicy{Attempts: 2}},
+		},
 	}
 	c, err := NewClient("http://a", WithRPCPolicy(policy), WithResolver(NewStaticResolver("http://a", "http://b")))
 	if err != nil {
@@ -1193,6 +1237,9 @@ func TestHTTPClientRPCPolicyRuntimeSnapshotContributor(t *testing.T) {
 	if runtimeSnapshot.Cache.Balancers != 1 || runtimeSnapshot.Cache.Breakers != 1 || runtimeSnapshot.Cache.ConcurrencyLimiters != 1 {
 		t.Fatalf("runtime cache = %+v, want balancer, breaker and load shedder limiter", runtimeSnapshot.Cache)
 	}
+	if runtimeSnapshot.MethodPolicyCount != 2 || !slices.Equal(runtimeSnapshot.MethodPolicyKeys, []string{"Slow", "greeter/Fast"}) {
+		t.Fatalf("method policy snapshot = count %d keys %#v, want sorted method policy keys", runtimeSnapshot.MethodPolicyCount, runtimeSnapshot.MethodPolicyKeys)
+	}
 
 	provider := controlplane.CompositeProvider{Contributors: []controlplane.SnapshotContributor{
 		RPCPolicyRuntimeContributor{Name: "primary", Client: c},
@@ -1212,7 +1259,7 @@ func TestHTTPClientRPCPolicyRuntimeSnapshotContributor(t *testing.T) {
 	if err := json.Unmarshal(raw, &decoded); err != nil {
 		t.Fatalf("decode rpc runtime config: %v", err)
 	}
-	if decoded.State.Balancer != RPCBalancerWeightedRoundRobin || !decoded.State.ExplicitPolicyBound || !slices.Contains(decoded.Capabilities, "dynamic_policy") || !slices.Contains(decoded.Capabilities, "kitex_interceptor") {
+	if decoded.State.Balancer != RPCBalancerWeightedRoundRobin || !decoded.State.ExplicitPolicyBound || !slices.Contains(decoded.Capabilities, "dynamic_policy") || !slices.Contains(decoded.Capabilities, "method_policy") || !slices.Contains(decoded.Capabilities, "kitex_interceptor") {
 		t.Fatalf("decoded runtime snapshot = %+v, want policy runtime capability state", decoded)
 	}
 }
@@ -1272,6 +1319,70 @@ func TestHTTPClientDynamicRPCPolicyProviderOverridesRuntime(t *testing.T) {
 	if !snapshot.State.DynamicPolicyBound || !snapshot.State.ExplicitPolicyBound {
 		t.Fatalf("runtime state = %+v, want dynamic and explicit policy bound", snapshot.State)
 	}
+}
+
+func TestHTTPClientRuntimeSnapshotAndResolverWatchCloseIdle(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	updates := make(chan []string, 2)
+	resolver := hardeningWatchResolver{
+		endpoints: []string{"http://a", "http://b"},
+		updates:   updates,
+	}
+	c, err := NewClient("http://a",
+		WithResolver(resolver),
+		WithClientMiddleware(func(next endpoint.Endpoint) endpoint.Endpoint { return next }),
+		WithClientStreamMiddleware(func(next ClientStreamHandler) ClientStreamHandler { return next }),
+		WithRPCPolicy(RPCPolicy{Balancer: RPCBalancerPolicy{Name: RPCBalancerP2C}}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	initial := c.RuntimeSnapshot()
+	if initial.Target != "http://a" || initial.Codec != "json" || !initial.Resolver.Watch || !initial.Discovery.WatchEnabled {
+		t.Fatalf("initial runtime snapshot = %+v, want target, codec and watch enabled", initial)
+	}
+	if initial.Middlewares.Unary != 1 || initial.Middlewares.Stream != 1 || initial.Policy.State.Balancer != RPCBalancerP2C {
+		t.Fatalf("initial middleware/policy snapshot = %+v, want middleware counts and p2c policy", initial)
+	}
+
+	updates <- []string{"http://b", "http://c"}
+	if !waitForRPCSnapshot(t, time.Second, func() bool {
+		snapshot := c.RuntimeSnapshot()
+		return snapshot.Discovery.CloseIdleCalls == 1 &&
+			len(snapshot.Discovery.Removed) == 1 &&
+			snapshot.Discovery.Removed[0] == "http://a"
+	}) {
+		t.Fatalf("runtime snapshot after resolver update = %+v, want removed http://a and idle close", c.RuntimeSnapshot())
+	}
+
+	provider := controlplane.CompositeProvider{Contributors: []controlplane.SnapshotContributor{
+		RPCRuntimeContributor{Name: "primary", Client: c},
+	}}
+	snapshot, err := provider.Load(ctx)
+	if err != nil {
+		t.Fatalf("Load controlplane snapshot: %v", err)
+	}
+	if snapshot.Metadata["rpc.runtime"] != "available" {
+		t.Fatalf("snapshot metadata = %+v, want rpc runtime metadata", snapshot.Metadata)
+	}
+	if raw := snapshot.Configs["rpc.runtime.primary"]; !json.Valid(raw) {
+		t.Fatalf("rpc runtime config is not valid JSON: %s", raw)
+	}
+}
+
+func waitForRPCSnapshot(t *testing.T, timeout time.Duration, fn func() bool) bool {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if fn() {
+			return true
+		}
+		time.Sleep(time.Millisecond)
+	}
+	return fn()
 }
 
 func TestRegistryResolver(t *testing.T) {

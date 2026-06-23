@@ -4,6 +4,8 @@ package discovery
 
 import (
 	"context"
+	"reflect"
+	"sort"
 	"strings"
 	"time"
 )
@@ -56,6 +58,9 @@ type EventType string
 
 const (
 	EventSnapshot   EventType = "snapshot"
+	EventAdded      EventType = "added"
+	EventRemoved    EventType = "removed"
+	EventUpdated    EventType = "updated"
 	EventRegistered EventType = "registered"
 	EventDeregister EventType = "deregistered"
 	EventExpired    EventType = "expired"
@@ -67,6 +72,18 @@ type Event struct {
 	At        time.Time  `json:"at"`
 	Instance  Instance   `json:"instance,omitempty"`
 	Instances []Instance `json:"instances,omitempty"`
+	Changes   ChangeSet  `json:"changes,omitempty"`
+}
+
+type ChangeSet struct {
+	Added     []Instance `json:"added,omitempty"`
+	Removed   []Instance `json:"removed,omitempty"`
+	Updated   []Instance `json:"updated,omitempty"`
+	Unchanged []Instance `json:"unchanged,omitempty"`
+}
+
+func (c ChangeSet) Empty() bool {
+	return len(c.Added) == 0 && len(c.Removed) == 0 && len(c.Updated) == 0 && len(c.Unchanged) == 0
 }
 
 type RegisterOption func(*registerOptions)
@@ -158,6 +175,58 @@ func cloneInstances(instances []Instance) []Instance {
 		out[i] = normalizeInstance(instance)
 	}
 	return out
+}
+
+func DiffInstances(previous []Instance, current []Instance) ChangeSet {
+	prevByID := instancesByID(previous)
+	currentByID := instancesByID(current)
+	changes := ChangeSet{}
+	for id, instance := range currentByID {
+		prev, ok := prevByID[id]
+		if !ok {
+			changes.Added = append(changes.Added, instance)
+			continue
+		}
+		if reflect.DeepEqual(prev, instance) {
+			changes.Unchanged = append(changes.Unchanged, instance)
+			continue
+		}
+		changes.Updated = append(changes.Updated, instance)
+	}
+	for id, instance := range prevByID {
+		if _, ok := currentByID[id]; !ok {
+			changes.Removed = append(changes.Removed, instance)
+		}
+	}
+	sortInstances(changes.Added)
+	sortInstances(changes.Removed)
+	sortInstances(changes.Updated)
+	sortInstances(changes.Unchanged)
+	return changes
+}
+
+func instancesByID(instances []Instance) map[string]Instance {
+	out := make(map[string]Instance, len(instances))
+	for _, instance := range instances {
+		instance = normalizeInstance(instance)
+		if instance.ID == "" && instance.Endpoint == "" {
+			continue
+		}
+		out[instance.ID] = instance
+	}
+	return out
+}
+
+func sortInstances(instances []Instance) {
+	sort.Slice(instances, func(i, j int) bool {
+		if instances[i].Service != instances[j].Service {
+			return instances[i].Service < instances[j].Service
+		}
+		if instances[i].ID != instances[j].ID {
+			return instances[i].ID < instances[j].ID
+		}
+		return instances[i].Endpoint < instances[j].Endpoint
+	})
 }
 
 func cloneStringMap(values map[string]string) map[string]string {

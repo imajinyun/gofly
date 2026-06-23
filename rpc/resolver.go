@@ -331,6 +331,13 @@ func (r *Registry) WatchService(ctx context.Context, service string) (<-chan []s
 	return out, nil
 }
 
+func (r *Registry) WatchEvents(ctx context.Context, service string) (<-chan discovery.Event, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return r.discoveryRegistry().Watch(ctx, strings.TrimSpace(service))
+}
+
 func (r *Registry) Discovery() *discovery.MemoryRegistry {
 	return r.discoveryRegistry()
 }
@@ -377,6 +384,10 @@ func (r registryResolver) ResolveInstances(ctx context.Context) ([]ServiceInstan
 
 func (r registryResolver) Watch(ctx context.Context) (<-chan []string, error) {
 	return r.registry.WatchService(ctx, r.service)
+}
+
+func (r registryResolver) WatchEvents(ctx context.Context) (<-chan discovery.Event, error) {
+	return r.registry.WatchEvents(ctx, r.service)
 }
 
 type Balancer interface {

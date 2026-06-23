@@ -10,6 +10,7 @@ import (
 
 	core "github.com/gofly/gofly/core"
 	"github.com/gofly/gofly/core/kv"
+	coreruntime "github.com/gofly/gofly/core/runtime"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -39,19 +40,21 @@ type Manager struct {
 	plugins  []Plugin
 	source   string
 	tracer   oteltrace.Tracer
+	runtime  *coreruntime.Registry
 }
 
 // ManagerSnapshot captures the current state of a Manager.
 type ManagerSnapshot struct {
-	Config      Config           `json:"config"`
-	Source      string           `json:"source,omitempty"`
-	Status      RuleSetStatus    `json:"status"`
-	Rules       []Rule           `json:"rules,omitempty"`
-	Stats       []RuleStats      `json:"stats,omitempty"`
-	Diagnostics []RuleDiagnostic `json:"diagnostics,omitempty"`
-	History     []RuleSetEvent   `json:"history,omitempty"`
-	Watch       bool             `json:"watch"`
-	Interval    time.Duration    `json:"interval,omitempty"`
+	Config      Config               `json:"config"`
+	Source      string               `json:"source,omitempty"`
+	Status      RuleSetStatus        `json:"status"`
+	Rules       []Rule               `json:"rules,omitempty"`
+	Stats       []RuleStats          `json:"stats,omitempty"`
+	Diagnostics []RuleDiagnostic     `json:"diagnostics,omitempty"`
+	History     []RuleSetEvent       `json:"history,omitempty"`
+	Watch       bool                 `json:"watch"`
+	Interval    time.Duration        `json:"interval,omitempty"`
+	Runtime     coreruntime.Snapshot `json:"runtime,omitempty"`
 }
 
 func WithProvider(provider RuleProvider) ManagerOption {
@@ -104,6 +107,12 @@ func WithTracer(tracer oteltrace.Tracer) ManagerOption {
 	}
 }
 
+func WithRuntimeRegistry(registry *coreruntime.Registry) ManagerOption {
+	return func(m *Manager) {
+		m.runtime = registry
+	}
+}
+
 func NewManager(conf Config, opts ...ManagerOption) (*Manager, error) {
 	if conf.WatchInterval < 0 {
 		return nil, errors.New("governance watch interval must be non-negative")
@@ -135,6 +144,7 @@ func NewManager(conf Config, opts ...ManagerOption) (*Manager, error) {
 		m.provider = pluginRuleProvider{Base: m.provider, Plugins: append([]Plugin(nil), m.plugins...)}
 		m.source = providerSource(m.provider)
 	}
+	m.registerRuntime()
 	return m, nil
 }
 
@@ -322,7 +332,43 @@ func (m *Manager) Snapshot() ManagerSnapshot {
 		History:     m.rules.History(),
 		Watch:       m.conf.Watch,
 		Interval:    m.watchInterval(),
+		Runtime:     m.RuntimeSnapshot(context.Background()),
 	}
+}
+
+func (m *Manager) RuntimeSnapshot(ctx context.Context) coreruntime.Snapshot {
+	if m == nil || m.runtime == nil {
+		return coreruntime.Snapshot{}
+	}
+	return m.runtime.Snapshot(ctx)
+}
+
+func (m *Manager) registerRuntime() {
+	if m == nil || m.runtime == nil {
+		return
+	}
+	m.runtime.Register("governance.manager", "governance", func(context.Context) coreruntime.ComponentSnapshot {
+		snapshot := coreruntime.ComponentSnapshot{
+			Name:   "governance.manager",
+			Kind:   "governance",
+			Owner:  "governance",
+			Status: "ok",
+			Details: map[string]any{
+				"source":        m.source,
+				"watch":         m.conf.Watch,
+				"watchInterval": m.watchInterval(),
+			},
+		}
+		if m.rules != nil {
+			snapshot.Governance = map[string]any{
+				"status":      m.rules.Status(),
+				"rules":       len(m.rules.Snapshot()),
+				"stats":       len(m.rules.Stats()),
+				"diagnostics": len(m.rules.Diagnostics()),
+			}
+		}
+		return snapshot
+	}, coreruntime.WithOwner("governance"))
 }
 
 func (m *Manager) watchInterval() time.Duration {

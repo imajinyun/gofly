@@ -157,6 +157,9 @@ func TestBootstrapWithRuntimeExposesSnapshotAndChecks(t *testing.T) {
 	if snapshot.ServiceName != "runtime-test" || snapshot.MaxProcs.Applied == 0 || snapshot.Health["healthz"].Status != "ok" {
 		t.Fatalf("runtime snapshot = %#v, want service/maxprocs/health", snapshot)
 	}
+	if len(snapshot.Runtime.Components) != 1 || snapshot.Runtime.Components[0].Name != "app.bootstrap" || snapshot.Runtime.Components[0].Target != "runtime-test" {
+		t.Fatalf("unified runtime snapshot = %#v, want app bootstrap component", snapshot.Runtime)
+	}
 	if ready := runtimeState.Check(context.Background(), "readyz"); ready.Status != "error" || ready.Checks["dependency"].Error == "" {
 		t.Fatalf("ready check = %#v, want dependency error", ready)
 	}

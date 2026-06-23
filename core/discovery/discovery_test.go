@@ -74,6 +74,71 @@ func TestCloneInstances(t *testing.T) {
 	}
 }
 
+func TestDiffInstancesClassifiesChanges(t *testing.T) {
+	previous := []Instance{
+		{Service: "orders", ID: "a", Endpoint: "http://a", Weight: 1},
+		{Service: "orders", ID: "b", Endpoint: "http://b", Weight: 1},
+		{Service: "orders", ID: "c", Endpoint: "http://c", Weight: 1},
+	}
+	current := []Instance{
+		{Service: "orders", ID: "b", Endpoint: "http://b", Weight: 2},
+		{Service: "orders", ID: "c", Endpoint: "http://c", Weight: 1},
+		{Service: "orders", ID: "d", Endpoint: "http://d", Weight: 1},
+	}
+	changes := DiffInstances(previous, current)
+	if len(changes.Added) != 1 || changes.Added[0].ID != "d" {
+		t.Fatalf("added = %#v, want d", changes.Added)
+	}
+	if len(changes.Removed) != 1 || changes.Removed[0].ID != "a" {
+		t.Fatalf("removed = %#v, want a", changes.Removed)
+	}
+	if len(changes.Updated) != 1 || changes.Updated[0].ID != "b" || changes.Updated[0].Weight != 2 {
+		t.Fatalf("updated = %#v, want b weight 2", changes.Updated)
+	}
+	if len(changes.Unchanged) != 1 || changes.Unchanged[0].ID != "c" {
+		t.Fatalf("unchanged = %#v, want c", changes.Unchanged)
+	}
+}
+
+func TestBusPublishSubscribeAndClose(t *testing.T) {
+	bus := NewBus()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	events, unsubscribe := bus.Subscribe(ctx, "orders", 1)
+	defer unsubscribe()
+
+	bus.Publish(Event{Type: EventAdded, Service: "orders", Instance: Instance{ID: "a", Endpoint: "http://a"}})
+	select {
+	case event := <-events:
+		if event.Type != EventAdded || event.Instance.ID != "a" {
+			t.Fatalf("event = %#v, want added a", event)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for bus event")
+	}
+
+	unsubscribe()
+	select {
+	case _, ok := <-events:
+		if ok {
+			t.Fatal("events should close after unsubscribe")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for unsubscribe close")
+	}
+
+	closedEvents, _ := bus.Subscribe(context.Background(), "orders", 0)
+	bus.Close()
+	select {
+	case _, ok := <-closedEvents:
+		if ok {
+			t.Fatal("closed bus subscriber should be closed")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for bus close")
+	}
+}
+
 func TestInstanceMatches(t *testing.T) {
 	inst := Instance{Service: "users", Endpoint: "e", Version: "v1", Zone: "az-a", Tags: map[string]string{"env": "prod"}}
 	if !instanceMatches(inst, resolveOptions{}) {
@@ -228,4 +293,50 @@ func TestMemoryRegistrySnapshotAndWatchers(t *testing.T) {
 	if r.Watchers("s") != 0 {
 		t.Fatalf("watchers after cancel = %d", r.Watchers("s"))
 	}
+}
+
+func TestMemoryRegistryWatchEventsIncludeChanges(t *testing.T) {
+	r := NewMemoryRegistry()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ch, err := r.Watch(ctx, "orders")
+	if err != nil {
+		t.Fatalf("watch: %v", err)
+	}
+	<-ch
+
+	if _, err := r.Register(context.Background(), Instance{Service: "orders", ID: "a", Endpoint: "http://a", Weight: 1}); err != nil {
+		t.Fatalf("register a: %v", err)
+	}
+	added := nextDiscoveryEvent(t, ch)
+	if added.Type != EventRegistered || len(added.Changes.Added) != 1 || added.Changes.Added[0].ID != "a" {
+		t.Fatalf("added event = %#v, want added a", added)
+	}
+
+	if _, err := r.Register(context.Background(), Instance{Service: "orders", ID: "a", Endpoint: "http://a", Weight: 2}); err != nil {
+		t.Fatalf("update a: %v", err)
+	}
+	updated := nextDiscoveryEvent(t, ch)
+	if updated.Type != EventRegistered || len(updated.Changes.Updated) != 1 || updated.Changes.Updated[0].Weight != 2 {
+		t.Fatalf("updated event = %#v, want updated weight", updated)
+	}
+
+	if err := r.Deregister(context.Background(), Instance{Service: "orders", ID: "a", Endpoint: "http://a"}); err != nil {
+		t.Fatalf("deregister a: %v", err)
+	}
+	removed := nextDiscoveryEvent(t, ch)
+	if removed.Type != EventDeregister || len(removed.Changes.Removed) != 1 || removed.Changes.Removed[0].ID != "a" {
+		t.Fatalf("removed event = %#v, want removed a", removed)
+	}
+}
+
+func nextDiscoveryEvent(t *testing.T, ch <-chan Event) Event {
+	t.Helper()
+	select {
+	case event := <-ch:
+		return event
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for discovery event")
+	}
+	return Event{}
 }

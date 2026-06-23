@@ -11,11 +11,14 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/http/httptrace"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/gofly/gofly/core/breaker"
+	"github.com/gofly/gofly/core/callstats"
+	"github.com/gofly/gofly/core/discovery"
 	"github.com/gofly/gofly/core/governance"
 	"github.com/gofly/gofly/core/limit"
 	"github.com/gofly/gofly/core/metadata"
@@ -59,6 +62,9 @@ type HTTPClient struct {
 	opts        clientOptions
 	runtime     *ruleRuntime
 	discovery   *clientDiscoveryRuntime
+	stats       *callstats.Registry
+	warmupMu    sync.Mutex
+	warmup      RPCWarmupSnapshot
 	watchCancel context.CancelFunc
 	closeOnce   sync.Once
 }
@@ -104,8 +110,13 @@ func NewClient(target string, opts ...ClientOption) (*HTTPClient, error) {
 		opts:      o,
 		runtime:   newRuleRuntime(),
 		discovery: newClientDiscoveryRuntime(o.resolver),
+		stats:     callstats.NewRegistry(),
 	}
 	client.startResolverWatch()
+	if err := client.warmUp(context.Background()); err != nil {
+		_ = client.Close()
+		return nil, err
+	}
 	return client, nil
 }
 
@@ -119,6 +130,9 @@ func (c *HTTPClient) Close() error {
 			c.watchCancel()
 		}
 		c.closeIdleConnections()
+		if c.opts.connPool != nil {
+			_ = c.opts.connPool.Close()
+		}
 	})
 	return nil
 }
@@ -170,20 +184,24 @@ func (c *HTTPClient) CallRaw(ctx context.Context, method string, request any) (j
 
 func (c *HTTPClient) doCall(ctx context.Context, method string, request any) (*callResult, error) {
 	governanceReq := c.rpcGovernanceRequest(ctx, method)
+	governanceStart := time.Now()
 	decision := c.governanceDecision(ctx, governanceReq)
 	policy := decision.Policy
 	rpcPolicy := c.effectiveRPCPolicy(policy)
 	if c.opts.rpcPolicyProvider != nil {
 		dynamicPolicy, err := c.opts.rpcPolicyProvider.RPCPolicy(ctx, governanceReq)
 		if err != nil {
+			c.observeCallPhase(callstats.PhaseGovernance, governanceStart, true)
 			return nil, fmt.Errorf("resolve dynamic rpc policy: %w", err)
 		}
 		rpcPolicy = mergeRPCPolicy(rpcPolicy, dynamicPolicy)
 	}
 	if err := rpcPolicy.Validate(); err != nil {
+		c.observeCallPhase(callstats.PhaseGovernance, governanceStart, true)
 		return nil, fmt.Errorf("apply rpc policy: %w", err)
 	}
 	rpcPolicy = rpcPolicyForMethod(rpcPolicy, method)
+	c.observeCallPhase(callstats.PhaseGovernance, governanceStart, false)
 	runtimeKey := governanceRuntimeKey(decision, method)
 	if limiter := c.ruleRateLimiter(runtimeKey, policy.RateLimit); limiter != nil && !limiter.Allow() {
 		return nil, NewError(CodeResourceExhausted, "too many requests")
@@ -243,7 +261,9 @@ func (c *HTTPClient) doCallOnce(ctx context.Context, method string, request any,
 	var result *callResult
 	call := func() error {
 		if c.opts.adaptive != nil {
+			start := time.Now()
 			if err := c.opts.adaptive.Allow(); err != nil {
+				c.observeCallPhase(callstats.PhaseBreaker, start, true)
 				return err
 			}
 			var err error
@@ -253,12 +273,15 @@ func (c *HTTPClient) doCallOnce(ctx context.Context, method string, request any,
 			} else {
 				c.opts.adaptive.MarkSuccess()
 			}
+			c.observeCallPhase(callstats.PhaseBreaker, start, err != nil)
 			return err
 		}
 		if c.opts.breaker != nil {
+			start := time.Now()
 			return c.opts.breaker.Do(ctx, func() error {
 				var err error
 				result, err = c.postWithPolicy(ctx, method, request, policy)
+				c.observeCallPhase(callstats.PhaseBreaker, start, err != nil)
 				return err
 			})
 		}
@@ -268,7 +291,9 @@ func (c *HTTPClient) doCallOnce(ctx context.Context, method string, request any,
 	}
 	fn := func() error {
 		if brk := c.ruleBreaker(runtimeKey, policy.Breaker); brk != nil {
+			start := time.Now()
 			if err := brk.Allow(); err != nil {
+				c.observeCallPhase(callstats.PhaseBreaker, start, true)
 				return err
 			}
 			err := call()
@@ -277,6 +302,7 @@ func (c *HTTPClient) doCallOnce(ctx context.Context, method string, request any,
 			} else {
 				brk.MarkSuccess()
 			}
+			c.observeCallPhase(callstats.PhaseBreaker, start, err != nil)
 			return err
 		}
 		return call()
@@ -297,7 +323,16 @@ func (c *HTTPClient) doCallOnce(ctx context.Context, method string, request any,
 	if retryPolicy.ShouldRetry == nil {
 		retryPolicy.ShouldRetry = isRetryable
 	}
-	err := retry.Do(ctx, retryPolicy, fn)
+	retryStart := time.Now()
+	attempts := 0
+	recordedFn := func() error {
+		attempts++
+		return fn()
+	}
+	err := retry.Do(ctx, retryPolicy, recordedFn)
+	if attempts > 1 || retryPolicy.Attempts > 1 {
+		c.observeCallPhase(callstats.PhaseRetry, retryStart, err != nil)
+	}
 	err = normalizeContextError(ctx, err)
 	if errors.Is(err, breaker.ErrOpen) {
 		return nil, NewError(CodeUnavailable, err.Error())
@@ -323,15 +358,20 @@ func rpcPolicyForMethod(policy RPCPolicy, method string) RPCPolicy {
 }
 
 func matchRPCMethodPolicy(methods map[string]RPCPolicy, method string) (RPCPolicy, bool) {
+	policy, _, ok := matchRPCMethodPolicyWithKey(methods, method)
+	return policy, ok
+}
+
+func matchRPCMethodPolicyWithKey(methods map[string]RPCPolicy, method string) (RPCPolicy, string, bool) {
 	if len(methods) == 0 {
-		return RPCPolicy{}, false
+		return RPCPolicy{}, "", false
 	}
 	for _, candidate := range rpcMethodPolicyCandidates(method) {
 		if policy, ok := methods[candidate]; ok {
-			return policy, true
+			return policy, candidate, true
 		}
 	}
-	return RPCPolicy{}, false
+	return RPCPolicy{}, "", false
 }
 
 func rpcMethodPolicyCandidates(method string) []string {
@@ -553,7 +593,10 @@ func (c *HTTPClient) postWithPolicy(ctx context.Context, method string, request 
 	if fallbackMethod == "" {
 		fallbackMethod = method
 	}
-	return c.post(ctx, fallbackMethod, request, RPCBalancerPolicy{}, policy.Fallback.Target)
+	start := time.Now()
+	result, err = c.post(ctx, fallbackMethod, request, RPCBalancerPolicy{}, policy.Fallback.Target)
+	c.observeCallPhase(callstats.PhaseFallback, start, err != nil)
+	return result, err
 }
 
 func (c *HTTPClient) post(ctx context.Context, method string, request any, policy RPCBalancerPolicy, fixedTarget string) (result *callResult, err error) {
@@ -582,7 +625,10 @@ func (c *HTTPClient) post(ctx context.Context, method string, request any, polic
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(c.traceConnect(ctx))
+	sendStart := time.Now()
 	resp, err := c.hc.Do(req)
+	c.observeCallPhase(callstats.PhaseSend, sendStart, err != nil)
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, normalizeContextError(ctx, err)
@@ -591,9 +637,12 @@ func (c *HTTPClient) post(ctx context.Context, method string, request any, polic
 	}
 	defer resp.Body.Close()
 	var env rawResponseEnvelope
+	recvStart := time.Now()
 	if err := json.NewDecoder(resp.Body).Decode(&env); err != nil {
+		c.observeCallPhase(callstats.PhaseRecv, recvStart, true)
 		return nil, fmt.Errorf("decode response: %w", err)
 	}
+	c.observeCallPhase(callstats.PhaseRecv, recvStart, env.Error != "" || resp.StatusCode >= http.StatusInternalServerError)
 	if env.Error != "" {
 		return nil, NewError(env.Code, env.Error)
 	}
@@ -669,7 +718,9 @@ func (c *HTTPClient) pickTarget(ctx context.Context, policy RPCBalancerPolicy, f
 	if fixedTarget != "" {
 		return fixedTarget, nil, nil
 	}
+	resolveStart := time.Now()
 	endpoints, err := c.opts.resolver.Resolve(ctx)
+	c.observeCallPhase(callstats.PhaseResolve, resolveStart, err != nil)
 	if err != nil {
 		return "", nil, fmt.Errorf("resolve rpc target: %w", err)
 	}
@@ -683,15 +734,157 @@ func (c *HTTPClient) pickTarget(ctx context.Context, policy RPCBalancerPolicy, f
 	if strings.TrimSpace(policy.Key) != "" && strings.TrimSpace(policy.Name) == RPCBalancerConsistentHash {
 		ctx = ContextWithHashKey(ctx, rpcPolicyHashKey(ctx, policy.Key))
 	}
+	lbStart := time.Now()
 	target, err := balancer.Pick(ctx, endpoints)
+	c.observeCallPhase(callstats.PhaseLoadBal, lbStart, err != nil)
 	if err != nil {
 		return "", balancer, fmt.Errorf("pick rpc target: %w", err)
 	}
 	return strings.TrimRight(target, "/"), balancer, nil
 }
 
+func (c *HTTPClient) traceConnect(ctx context.Context) context.Context {
+	started := make(map[string]time.Time, 1)
+	var mu sync.Mutex
+	trace := &httptrace.ClientTrace{
+		ConnectStart: func(network, addr string) {
+			mu.Lock()
+			started[network+" "+addr] = time.Now()
+			mu.Unlock()
+		},
+		ConnectDone: func(network, addr string, err error) {
+			key := network + " " + addr
+			mu.Lock()
+			start := started[key]
+			delete(started, key)
+			mu.Unlock()
+			if start.IsZero() {
+				start = time.Now()
+			}
+			c.observeCallPhase(callstats.PhaseConnect, start, err != nil)
+		},
+	}
+	return httptrace.WithClientTrace(ctx, trace)
+}
+
+func (c *HTTPClient) observeCallPhase(phase string, start time.Time, failed bool) {
+	if c == nil || c.stats == nil {
+		return
+	}
+	c.stats.ObserveSince(phase, start, failed)
+}
+
+func (c *HTTPClient) warmUp(ctx context.Context) error {
+	if c == nil || !c.opts.warmup.Enabled {
+		return nil
+	}
+	start := time.Now()
+	snapshot := RPCWarmupSnapshot{
+		Enabled:         true,
+		Attempted:       true,
+		ConnPoolEnabled: c.opts.warmup.ConnPool,
+		At:              start,
+	}
+	defer func() {
+		snapshot.Duration = time.Since(start)
+		c.setWarmupSnapshot(snapshot)
+	}()
+	timeout := c.opts.warmup.Timeout
+	if timeout <= 0 {
+		timeout = c.opts.timeout
+	}
+	if timeout <= 0 {
+		timeout = 3 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	endpoints, err := c.opts.resolver.Resolve(ctx)
+	if err != nil {
+		snapshot.Error = err.Error()
+		return fmt.Errorf("warm up rpc resolver: %w", err)
+	}
+	endpoints = normalizeEndpoints(endpoints)
+	snapshot.Endpoints = append([]string(nil), endpoints...)
+	if len(endpoints) == 0 {
+		err := errors.New("no rpc endpoints resolved")
+		snapshot.Error = err.Error()
+		return fmt.Errorf("warm up rpc resolver: %w", err)
+	}
+	balancer := c.opts.balancer
+	if balancer == nil {
+		balancer = &RoundRobinBalancer{}
+	}
+	selected, err := balancer.Pick(ctx, endpoints)
+	if err != nil {
+		snapshot.Error = err.Error()
+		return fmt.Errorf("warm up rpc balancer: %w", err)
+	}
+	selected = strings.TrimRight(selected, "/")
+	snapshot.Selected = selected
+
+	if c.opts.warmup.ConnPool && c.opts.connPool != nil {
+		for _, endpoint := range warmupEndpoints(endpoints, selected, c.opts.warmup.MaxEndpoints) {
+			conn, err := c.opts.connPool.Get(ctx, endpoint)
+			if err != nil {
+				snapshot.Error = err.Error()
+				return fmt.Errorf("warm up rpc connection pool: %w", err)
+			}
+			if err := conn.Close(); err != nil {
+				snapshot.Error = err.Error()
+				return fmt.Errorf("warm up rpc connection pool release: %w", err)
+			}
+			snapshot.ConnPoolWarmed++
+		}
+	}
+	snapshot.Completed = true
+	return nil
+}
+
+func (c *HTTPClient) setWarmupSnapshot(snapshot RPCWarmupSnapshot) {
+	if c == nil {
+		return
+	}
+	c.warmupMu.Lock()
+	defer c.warmupMu.Unlock()
+	c.warmup = cloneRPCWarmupSnapshot(snapshot)
+}
+
+func warmupEndpoints(endpoints []string, selected string, maxEndpoints int) []string {
+	if maxEndpoints <= 0 {
+		maxEndpoints = 1
+	}
+	out := make([]string, 0, min(maxEndpoints, len(endpoints)))
+	add := func(endpoint string) {
+		endpoint = strings.TrimRight(strings.TrimSpace(endpoint), "/")
+		if endpoint == "" || len(out) >= maxEndpoints {
+			return
+		}
+		for _, existing := range out {
+			if existing == endpoint {
+				return
+			}
+		}
+		out = append(out, endpoint)
+	}
+	add(selected)
+	for _, endpoint := range endpoints {
+		add(endpoint)
+	}
+	return out
+}
+
+func cloneRPCWarmupSnapshot(snapshot RPCWarmupSnapshot) RPCWarmupSnapshot {
+	snapshot.Endpoints = append([]string(nil), snapshot.Endpoints...)
+	return snapshot
+}
+
 func (c *HTTPClient) startResolverWatch() {
 	if c == nil || c.opts.resolver == nil {
+		return
+	}
+	if watcher, ok := c.opts.resolver.(DiscoveryEventResolver); ok {
+		c.startDiscoveryEventWatch(watcher)
 		return
 	}
 	watcher, ok := c.opts.resolver.(WatchResolver)
@@ -714,6 +907,50 @@ func (c *HTTPClient) startResolverWatch() {
 	go c.watchResolverUpdates(ctx, normalizeEndpoints(initial), updates)
 }
 
+func (c *HTTPClient) startDiscoveryEventWatch(watcher DiscoveryEventResolver) {
+	ctx, cancel := context.WithCancel(context.Background())
+	events, err := watcher.WatchEvents(ctx)
+	if err != nil {
+		cancel()
+		c.discovery.recordWatchError(err)
+		return
+	}
+	c.watchCancel = cancel
+	initial, err := watcher.Resolve(context.Background())
+	if err != nil {
+		c.discovery.recordWatchError(err)
+	}
+	c.discovery.recordEvent(normalizeEndpoints(initial), nil, nil, nil)
+	go c.watchDiscoveryEvents(ctx, normalizeEndpoints(initial), events)
+}
+
+func (c *HTTPClient) watchDiscoveryEvents(ctx context.Context, previous []string, events <-chan discovery.Event) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case event, ok := <-events:
+			if !ok {
+				return
+			}
+			endpoints := normalizeEndpoints(endpointsFromDiscovery(event.Instances))
+			added := normalizeEndpoints(endpointsFromDiscovery(event.Changes.Added))
+			removed := normalizeEndpoints(endpointsFromDiscovery(event.Changes.Removed))
+			updated := normalizeEndpoints(endpointsFromDiscovery(event.Changes.Updated))
+			if len(removed) == 0 {
+				removed = removedEndpoints(previous, endpoints)
+			}
+			c.discovery.recordEvent(endpoints, added, removed, updated)
+			if len(removed) > 0 {
+				c.removeConnPoolEndpoints(removed)
+				c.closeIdleConnections()
+				c.discovery.recordCloseIdle()
+			}
+			previous = endpoints
+		}
+	}
+}
+
 func (c *HTTPClient) watchResolverUpdates(ctx context.Context, previous []string, updates <-chan []string) {
 	for {
 		select {
@@ -727,6 +964,7 @@ func (c *HTTPClient) watchResolverUpdates(ctx context.Context, previous []string
 			removed := removedEndpoints(previous, endpoints)
 			c.discovery.recordUpdate(endpoints, removed)
 			if len(removed) > 0 {
+				c.removeConnPoolEndpoints(removed)
 				c.closeIdleConnections()
 				c.discovery.recordCloseIdle()
 			}
@@ -740,6 +978,15 @@ func (c *HTTPClient) closeIdleConnections() {
 		return
 	}
 	c.hc.CloseIdleConnections()
+}
+
+func (c *HTTPClient) removeConnPoolEndpoints(endpoints []string) {
+	if c == nil || c.opts.connPool == nil {
+		return
+	}
+	for _, endpoint := range endpoints {
+		_ = c.opts.connPool.RemoveEndpoint(endpoint)
+	}
 }
 
 func removedEndpoints(previous []string, current []string) []string {

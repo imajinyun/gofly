@@ -83,12 +83,16 @@ func TestGenerateProtocPluginResponse(t *testing.T) {
 	}
 }
 
-func TestGenerateProtocPluginResponseRejectsStreaming(t *testing.T) {
+func TestGenerateProtocPluginResponseSupportsStreaming(t *testing.T) {
 	req := &pluginpb.CodeGeneratorRequest{
 		FileToGenerate: []string{"stream.proto"},
 		ProtoFile: []*descriptorpb.FileDescriptorProto{{
 			Name:    proto.String("stream.proto"),
 			Package: proto.String("demo.stream"),
+			MessageType: []*descriptorpb.DescriptorProto{
+				{Name: proto.String("ChatReq")},
+				{Name: proto.String("ChatResp")},
+			},
 			Service: []*descriptorpb.ServiceDescriptorProto{{
 				Name: proto.String("Greeter"),
 				Method: []*descriptorpb.MethodDescriptorProto{{
@@ -100,9 +104,30 @@ func TestGenerateProtocPluginResponseRejectsStreaming(t *testing.T) {
 			}},
 		}},
 	}
-	_, err := GenerateProtocPluginResponse(req, ProtocPluginOptions{})
-	if err == nil || !strings.Contains(err.Error(), "streaming rpc Greeter.Chat is not supported") {
-		t.Fatalf("streaming error = %v", err)
+	resp, err := GenerateProtocPluginResponse(req, ProtocPluginOptions{})
+	if err != nil {
+		t.Fatalf("streaming response err = %v", err)
+	}
+	if len(resp.File) != 1 {
+		t.Fatalf("files=%d, want 1", len(resp.File))
+	}
+	content := resp.File[0].GetContent()
+	for _, want := range []string{
+		"Streams: []rpc.StreamDesc",
+		`Name: "Chat"`,
+		`NewMessage: func() any { return new(ChatReq) }`,
+		`Mode: rpc.StreamModeClientStream`,
+		`Metadata: map[string]string{"request": "ChatReq", "response": "ChatResp", "clientStream": "true", "serverStream": "false"}`,
+		"Chat(ctx context.Context, stream *rpc.Stream) error",
+		"desc.Streams[0].Handler = func(ctx context.Context, stream *rpc.Stream) error",
+		"return impl.Chat(ctx, stream)",
+		"Chat(ctx context.Context) (*rpc.Stream, error)",
+		`method, err := c.desc.StreamPath("Chat")`,
+		"return streamer.Stream(ctx, method)",
+	} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("streaming content missing %q:\n%s", want, content)
+		}
 	}
 }
 

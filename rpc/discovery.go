@@ -16,6 +16,11 @@ type DiscoveryResolver struct {
 	options  []discovery.ResolveOption
 }
 
+type DiscoveryEventResolver interface {
+	Resolver
+	WatchEvents(ctx context.Context) (<-chan discovery.Event, error)
+}
+
 // DiscoveryRegistrar registers service endpoints via the discovery package.
 type DiscoveryRegistrar struct {
 	registrar discovery.Registrar
@@ -79,6 +84,13 @@ func (r *DiscoveryResolver) Watch(ctx context.Context) (<-chan []string, error) 
 		}
 	}()
 	return out, nil
+}
+
+func (r *DiscoveryResolver) WatchEvents(ctx context.Context) (<-chan discovery.Event, error) {
+	if r == nil || r.resolver == nil {
+		return nil, discovery.ErrNoInstances
+	}
+	return r.resolver.Watch(ctx, r.service, r.options...)
 }
 
 func NewDiscoveryRegistrar(registrar discovery.Registrar, opts ...discovery.RegisterOption) *DiscoveryRegistrar {

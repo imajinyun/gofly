@@ -10,8 +10,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gofly/gofly/core/callstats"
 	"github.com/gofly/gofly/core/controlplane"
 	"github.com/gofly/gofly/core/governance"
+	coreruntime "github.com/gofly/gofly/core/runtime"
 )
 
 const (
@@ -69,7 +71,17 @@ type RPCPolicyRuntimeSnapshot struct {
 	Cache             RPCPolicyRuntimeCacheSnapshot `json:"cache,omitempty"`
 	MethodPolicyCount int                           `json:"methodPolicyCount,omitempty"`
 	MethodPolicyKeys  []string                      `json:"methodPolicyKeys,omitempty"`
+	Priority          []string                      `json:"priority,omitempty"`
 	Capabilities      []string                      `json:"capabilities,omitempty"`
+}
+
+type RPCEffectivePolicySnapshot struct {
+	Method         string                `json:"method,omitempty"`
+	MethodKey      string                `json:"methodKey,omitempty"`
+	Policy         RPCPolicy             `json:"policy"`
+	State          RPCPolicyRuntimeState `json:"state"`
+	Priority       []string              `json:"priority,omitempty"`
+	GovernanceRule string                `json:"governanceRule,omitempty"`
 }
 
 type RPCRuntimeSnapshot struct {
@@ -79,8 +91,31 @@ type RPCRuntimeSnapshot struct {
 	Middlewares RPCEndpointChainSnapshot    `json:"middlewares,omitempty"`
 	Resolver    RPCResolverRuntimeSnapshot  `json:"resolver,omitempty"`
 	Balancer    string                      `json:"balancer,omitempty"`
+	ConnPool    ConnPoolManagerSnapshot     `json:"connPool,omitempty"`
 	Policy      RPCPolicyRuntimeSnapshot    `json:"policy"`
 	Discovery   RPCDiscoveryRuntimeSnapshot `json:"discovery,omitempty"`
+	Stats       callstats.Snapshot          `json:"stats,omitempty"`
+	Warmup      RPCWarmupSnapshot           `json:"warmup,omitempty"`
+}
+
+type RPCWarmupConfig struct {
+	Enabled      bool          `json:"enabled"`
+	Timeout      time.Duration `json:"timeout,omitempty"`
+	ConnPool     bool          `json:"connPool,omitempty"`
+	MaxEndpoints int           `json:"maxEndpoints,omitempty"`
+}
+
+type RPCWarmupSnapshot struct {
+	Enabled         bool          `json:"enabled"`
+	Attempted       bool          `json:"attempted"`
+	Completed       bool          `json:"completed"`
+	ConnPoolEnabled bool          `json:"connPoolEnabled,omitempty"`
+	Endpoints       []string      `json:"endpoints,omitempty"`
+	Selected        string        `json:"selected,omitempty"`
+	ConnPoolWarmed  int           `json:"connPoolWarmed,omitempty"`
+	Duration        time.Duration `json:"duration,omitempty"`
+	Error           string        `json:"error,omitempty"`
+	At              time.Time     `json:"at,omitempty"`
 }
 
 type RPCEndpointChainSnapshot struct {
@@ -104,7 +139,9 @@ type RPCDiscoveryRuntimeSnapshot struct {
 	Updates        int64     `json:"updates,omitempty"`
 	LastUpdated    time.Time `json:"lastUpdated,omitempty"`
 	Endpoints      []string  `json:"endpoints,omitempty"`
+	Added          []string  `json:"added,omitempty"`
 	Removed        []string  `json:"removed,omitempty"`
+	Updated        []string  `json:"updated,omitempty"`
 	CloseIdleCalls int64     `json:"closeIdleCalls,omitempty"`
 	WatchError     string    `json:"watchError,omitempty"`
 }
@@ -118,6 +155,8 @@ type RPCPolicyRuntimeState struct {
 	Balancer            string        `json:"balancer,omitempty"`
 	LoadShedderEnabled  bool          `json:"loadShedderEnabled"`
 	LoadShedderLimit    int           `json:"loadShedderLimit,omitempty"`
+	LoadShedderMode     string        `json:"loadShedderMode,omitempty"`
+	LoadShedderWindow   time.Duration `json:"loadShedderWindow,omitempty"`
 	FallbackEnabled     bool          `json:"fallbackEnabled"`
 	FallbackTarget      string        `json:"fallbackTarget,omitempty"`
 	HedgeEnabled        bool          `json:"hedgeEnabled"`
@@ -218,9 +257,82 @@ func (c *HTTPClient) RuntimeSnapshot() RPCRuntimeSnapshot {
 		Middlewares: RPCEndpointChainSnapshot{Unary: len(c.opts.middlewares), Stream: len(c.opts.streamMiddlewares)},
 		Resolver:    c.resolverRuntimeSnapshot(),
 		Balancer:    c.effectiveBalancerName(RPCBalancerPolicy{}),
+		ConnPool:    c.connPoolSnapshot(),
 		Policy:      c.PolicyRuntimeSnapshot(),
 		Discovery:   c.discovery.Snapshot(),
+		Stats:       c.callStatsSnapshot(),
+		Warmup:      c.warmupSnapshot(),
 	}
+}
+
+func (c *HTTPClient) RuntimeComponentSnapshot(ctx context.Context) coreruntime.ComponentSnapshot {
+	if err := ctx.Err(); err != nil {
+		return coreruntime.ComponentSnapshot{
+			Name:   "rpc.http.client",
+			Kind:   "client",
+			Owner:  "rpc",
+			Target: c.target,
+			Status: "error",
+			Error:  err.Error(),
+		}
+	}
+	snapshot := c.RuntimeSnapshot()
+	return coreruntime.ComponentSnapshot{
+		Name:   "rpc.http.client",
+		Kind:   "client",
+		Owner:  "rpc",
+		Target: snapshot.Target,
+		Status: "ok",
+		Middleware: &coreruntime.MiddlewareSnapshot{
+			Unary:  middlewareCountLayers("client_middleware", snapshot.Middlewares.Unary),
+			Stream: middlewareCountLayers("client_stream_middleware", snapshot.Middlewares.Stream),
+		},
+		Governance: snapshot.Policy,
+		Resolver:   snapshot.Resolver,
+		Balancer:   snapshot.Balancer,
+		ConnPool:   snapshot.ConnPool,
+		Retry:      snapshot.Policy.State.RetryAttempts,
+		Breaker:    snapshot.Policy.State.BreakerEnabled,
+		Details:    snapshot,
+	}
+}
+
+func (c *HTTPClient) callStatsSnapshot() callstats.Snapshot {
+	if c == nil || c.stats == nil {
+		return callstats.Snapshot{}
+	}
+	return c.stats.Snapshot()
+}
+
+func (c *HTTPClient) warmupSnapshot() RPCWarmupSnapshot {
+	if c == nil {
+		return RPCWarmupSnapshot{}
+	}
+	c.warmupMu.Lock()
+	defer c.warmupMu.Unlock()
+	return cloneRPCWarmupSnapshot(c.warmup)
+}
+
+func (c *HTTPClient) connPoolSnapshot() ConnPoolManagerSnapshot {
+	if c == nil || c.opts.connPool == nil {
+		return ConnPoolManagerSnapshot{}
+	}
+	return c.opts.connPool.Snapshot()
+}
+
+func middlewareCountLayers(name string, count int) []coreruntime.MiddlewareLayer {
+	if count <= 0 {
+		return nil
+	}
+	layers := make([]coreruntime.MiddlewareLayer, 0, count)
+	for i := range count {
+		layers = append(layers, coreruntime.MiddlewareLayer{
+			Name:   name,
+			Source: "user",
+			Order:  i,
+		})
+	}
+	return layers
 }
 
 func (c *HTTPClient) PolicyRuntimeSnapshot() RPCPolicyRuntimeSnapshot {
@@ -235,7 +347,36 @@ func (c *HTTPClient) PolicyRuntimeSnapshot() RPCPolicyRuntimeSnapshot {
 		Cache:             c.policyRuntimeCacheSnapshot(),
 		MethodPolicyCount: len(policy.Methods),
 		MethodPolicyKeys:  rpcMethodPolicyKeys(policy.Methods),
+		Priority:          rpcPolicyPriority(),
 		Capabilities:      rpcPolicyRuntimeCapabilities(),
+	}
+}
+
+func (c *HTTPClient) EffectivePolicySnapshot(ctx context.Context, method string) RPCEffectivePolicySnapshot {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	governanceReq := c.rpcGovernanceRequest(ctx, method)
+	decision := c.governanceDecision(ctx, governanceReq)
+	policy := c.effectiveRPCPolicy(decision.Policy)
+	if c.opts.rpcPolicyProvider != nil {
+		if dynamicPolicy, err := c.opts.rpcPolicyProvider.RPCPolicy(ctx, governanceReq); err == nil {
+			policy = mergeRPCPolicy(policy, dynamicPolicy)
+		}
+	}
+	methodPolicy, methodKey, ok := matchRPCMethodPolicyWithKey(policy.Methods, method)
+	policy.Methods = nil
+	if ok {
+		methodPolicy.Methods = nil
+		policy = mergeRPCPolicy(policy, methodPolicy)
+	}
+	return RPCEffectivePolicySnapshot{
+		Method:         strings.Trim(strings.TrimSpace(method), "/"),
+		MethodKey:      methodKey,
+		Policy:         cloneRPCPolicy(policy),
+		State:          c.policyRuntimeState(policy),
+		Priority:       rpcPolicyPriority(),
+		GovernanceRule: decision.RuleName,
 	}
 }
 
@@ -269,7 +410,9 @@ type clientDiscoveryRuntime struct {
 	updates        int64
 	lastUpdated    time.Time
 	endpoints      []string
+	added          []string
 	removed        []string
+	updated        []string
 	closeIdleCalls int64
 	watchErr       error
 }
@@ -286,7 +429,24 @@ func (r *clientDiscoveryRuntime) recordUpdate(endpoints []string, removed []stri
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.endpoints = append([]string(nil), endpoints...)
+	r.added = nil
 	r.removed = append([]string(nil), removed...)
+	r.updated = nil
+	r.updates++
+	r.lastUpdated = time.Now()
+	r.watchErr = nil
+}
+
+func (r *clientDiscoveryRuntime) recordEvent(endpoints []string, added []string, removed []string, updated []string) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.endpoints = append([]string(nil), endpoints...)
+	r.added = append([]string(nil), added...)
+	r.removed = append([]string(nil), removed...)
+	r.updated = append([]string(nil), updated...)
 	r.updates++
 	r.lastUpdated = time.Now()
 	r.watchErr = nil
@@ -321,7 +481,9 @@ func (r *clientDiscoveryRuntime) Snapshot() RPCDiscoveryRuntimeSnapshot {
 		Updates:        r.updates,
 		LastUpdated:    r.lastUpdated,
 		Endpoints:      append([]string(nil), r.endpoints...),
+		Added:          append([]string(nil), r.added...),
 		Removed:        append([]string(nil), r.removed...),
+		Updated:        append([]string(nil), r.updated...),
 		CloseIdleCalls: r.closeIdleCalls,
 	}
 	if r.watchErr != nil {
@@ -355,6 +517,8 @@ func (c *HTTPClient) policyRuntimeState(policy RPCPolicy) RPCPolicyRuntimeState 
 		Balancer:            c.effectiveBalancerName(policy.Balancer),
 		LoadShedderEnabled:  policy.LoadShedder.Enabled,
 		LoadShedderLimit:    rpcLoadShedderLimit(policy.LoadShedder),
+		LoadShedderMode:     rpcLoadShedderMode(policy.LoadShedder),
+		LoadShedderWindow:   policy.LoadShedder.MinWindow,
 		FallbackEnabled:     policy.Fallback.Enabled,
 		FallbackTarget:      policy.Fallback.Target,
 		HedgeEnabled:        policy.Hedge.Enabled,
@@ -404,8 +568,19 @@ func rpcLoadShedderLimit(policy RPCLoadShedderPolicy) int {
 	return policy.MaxInflight
 }
 
+func rpcLoadShedderMode(policy RPCLoadShedderPolicy) string {
+	if !policy.Enabled {
+		return ""
+	}
+	return "static_concurrency"
+}
+
 func rpcPolicyRuntimeCapabilities() []string {
 	return []string{"timeout", "retry", "breaker", "balancer", "load_shedder", "fallback", "hedge", "method_policy", "dynamic_policy", "endpoint_chain", "kitex_interceptor", "observability_interceptor"}
+}
+
+func rpcPolicyPriority() []string {
+	return []string{"client_default", "governance_rule", "dynamic_policy", "method_policy"}
 }
 
 func RPCPolicyFromGovernance(policy governance.Policy) RPCPolicy {

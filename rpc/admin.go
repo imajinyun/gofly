@@ -3,6 +3,7 @@
 package rpc
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/url"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gofly/gofly/core/governance"
+	coreruntime "github.com/gofly/gofly/core/runtime"
 	controladmin "github.com/gofly/gofly/ops/admin"
 )
 
@@ -111,6 +113,8 @@ func (s *HTTPServer) serveAdminRoute(w http.ResponseWriter, r *http.Request) {
 			State:    state,
 			Services: s.ServiceSnapshots(),
 		})
+	case r.URL.Path == "/rpc/admin/runtime":
+		writeAdminJSON(w, http.StatusOK, s.RuntimeSnapshot(r.Context()))
 	default:
 		http.NotFound(w, r)
 	}
@@ -176,6 +180,45 @@ func (s *HTTPServer) serveDescriptorCompatibility(w http.ResponseWriter, r *http
 
 func (s *HTTPServer) Governance() GovernanceSnapshot {
 	return GovernanceSnapshot{Components: s.opts.governance.Snapshots()}
+}
+
+func (s *HTTPServer) RuntimeSnapshot(ctx context.Context) coreruntime.Snapshot {
+	registry := coreruntime.NewRegistry()
+	registry.Register("rpc.http.server", "server", func(context.Context) coreruntime.ComponentSnapshot {
+		state := s.State()
+		return coreruntime.ComponentSnapshot{
+			Name:   "rpc.http.server",
+			Kind:   "server",
+			Owner:  "rpc",
+			Target: state.Address,
+			Status: state.State,
+			Middleware: &coreruntime.MiddlewareSnapshot{
+				Unary:  middlewareCountLayers("server_middleware", len(s.opts.middlewares)),
+				Stream: middlewareCountLayers("server_stream_middleware", len(s.opts.streamMiddlewares)),
+			},
+			Governance: s.RuntimeCacheSnapshot(),
+			Details: map[string]any{
+				"services":     len(s.ServiceSnapshots()),
+				"stateSince":   state.Since,
+				"adminEnabled": true,
+			},
+		}
+	}, coreruntime.WithOwner("rpc"))
+	return registry.Snapshot(ctx)
+}
+
+func (s *HTTPServer) RuntimeCacheSnapshot() RPCPolicyRuntimeCacheSnapshot {
+	if s == nil || s.runtime == nil {
+		return RPCPolicyRuntimeCacheSnapshot{}
+	}
+	s.runtime.mu.Lock()
+	defer s.runtime.mu.Unlock()
+	return RPCPolicyRuntimeCacheSnapshot{
+		RateLimiters:        len(s.runtime.rateLimits),
+		ConcurrencyLimiters: len(s.runtime.concurrency),
+		Breakers:            len(s.runtime.breakers),
+		Balancers:           len(s.runtime.balancers),
+	}
 }
 
 func (s *HTTPServer) governanceAdmin() *governance.Admin {

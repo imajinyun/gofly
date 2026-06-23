@@ -108,15 +108,14 @@ type protocPluginGeneratedFile struct {
 }
 
 type protocPluginMethod struct {
-	Name     string
-	Request  string
-	Response string
+	Name            string
+	Request         string
+	Response        string
+	ClientStreaming bool
+	ServerStreaming bool
 }
 
 func renderProtocPluginFiles(file *descriptorpb.FileDescriptorProto, opts ProtocPluginOptions) ([]protocPluginGeneratedFile, error) {
-	if err := rejectProtocPluginStreaming(file); err != nil {
-		return nil, err
-	}
 	if !opts.Multiple {
 		name, content, err := renderProtocPluginFile(file, nil, opts)
 		if err != nil {
@@ -137,17 +136,6 @@ func renderProtocPluginFiles(file *descriptorpb.FileDescriptorProto, opts Protoc
 		})
 	}
 	return out, nil
-}
-
-func rejectProtocPluginStreaming(file *descriptorpb.FileDescriptorProto) error {
-	for _, svc := range file.GetService() {
-		for _, method := range svc.GetMethod() {
-			if method.GetClientStreaming() || method.GetServerStreaming() {
-				return fmt.Errorf("streaming rpc %s.%s is not supported by gofly protoc plugin", svc.GetName(), method.GetName())
-			}
-		}
-	}
-	return nil
 }
 
 func renderProtocPluginFile(file *descriptorpb.FileDescriptorProto, services []*descriptorpb.ServiceDescriptorProto, opts ProtocPluginOptions) (string, string, error) {
@@ -178,12 +166,34 @@ func renderProtocPluginFile(file *descriptorpb.FileDescriptorProto, services []*
 		if err != nil {
 			return "", "", err
 		}
+		unaryMethods := protocUnaryMethods(methods)
+		streamMethods := protocStreamMethods(methods)
 		b.WriteString("func " + serviceName + "GoflyDescriptor() rpc.ServiceDesc {\n")
-		b.WriteString("\treturn rpc.ServiceDesc{Name: " + quoteGoString(serviceFullName) + ", Methods: []rpc.MethodDesc{\n")
-		for _, method := range methods {
+		b.WriteString("\treturn rpc.ServiceDesc{Name: " + quoteGoString(serviceFullName))
+		if len(unaryMethods) > 0 {
+			b.WriteString(", Methods: []rpc.MethodDesc{\n")
+		} else if len(streamMethods) > 0 {
+			b.WriteString(",\n")
+		}
+		for _, method := range unaryMethods {
 			b.WriteString("\t\t{Name: " + quoteGoString(method.Name) + ", NewRequest: func() any { return new(" + method.Request + ") }, Request: " + quoteGoString(method.Request) + ", Response: " + quoteGoString(method.Response) + "},\n")
 		}
-		b.WriteString("\t}}\n")
+		if len(unaryMethods) > 0 {
+			b.WriteString("\t}")
+		}
+		if len(streamMethods) > 0 {
+			if len(unaryMethods) > 0 {
+				b.WriteString(", Streams: []rpc.StreamDesc{\n")
+			} else {
+				b.WriteString("\tStreams: []rpc.StreamDesc{\n")
+			}
+			for _, method := range streamMethods {
+				message := protocStreamMessageName(method)
+				b.WriteString("\t\t{Name: " + quoteGoString(method.Name) + ", NewMessage: func() any { return new(" + message + ") }, Message: " + quoteGoString(message) + ", Mode: " + protocStreamModeLiteral(method) + ", Metadata: map[string]string{\"request\": " + quoteGoString(method.Request) + ", \"response\": " + quoteGoString(method.Response) + ", \"clientStream\": " + quoteGoString(strconv.FormatBool(method.ClientStreaming)) + ", \"serverStream\": " + quoteGoString(strconv.FormatBool(method.ServerStreaming)) + "}},\n")
+			}
+			b.WriteString("\t}")
+		}
+		b.WriteString("}\n")
 		b.WriteString("}\n\n")
 		b.WriteString("func " + serviceName + "GoflyRuntimeDescriptor() rpc.Descriptor {\n")
 		b.WriteString("\treturn " + serviceName + "GoflyDescriptor().Descriptor()\n")
@@ -191,13 +201,22 @@ func renderProtocPluginFile(file *descriptorpb.FileDescriptorProto, services []*
 		b.WriteString("// " + serviceName + "GoflyService describes the gofly RPC surface generated from " + sanitizeGeneratedCommentLine(file.GetName()) + ".\n")
 		b.WriteString("type " + serviceName + "GoflyService interface {\n")
 		for _, method := range methods {
+			if method.ClientStreaming || method.ServerStreaming {
+				b.WriteString("\t" + method.Name + "(ctx context.Context, stream *rpc.Stream) error\n")
+				continue
+			}
 			b.WriteString("\t" + method.Name + "(ctx context.Context, req *" + method.Request + ") (*" + method.Response + ", error)\n")
 		}
 		b.WriteString("}\n\n")
 		b.WriteString("func " + serviceName + "GoflyServiceDesc(impl " + serviceName + "GoflyService) rpc.ServiceDesc {\n")
 		b.WriteString("\tdesc := " + serviceName + "GoflyDescriptor()\n")
-		for i, method := range methods {
+		for i, method := range unaryMethods {
 			writeDefensiveHandlerBinding(&b, i, method.Name, method.Request)
+		}
+		for i, method := range streamMethods {
+			b.WriteString("\tdesc.Streams[" + strconv.Itoa(i) + "].Handler = func(ctx context.Context, stream *rpc.Stream) error {\n")
+			b.WriteString("\t\treturn impl." + method.Name + "(ctx, stream)\n")
+			b.WriteString("\t}\n")
 		}
 		b.WriteString("\treturn desc\n")
 		b.WriteString("}\n\n")
@@ -217,6 +236,10 @@ func renderProtocPluginFile(file *descriptorpb.FileDescriptorProto, services []*
 		if !opts.NoClient {
 			b.WriteString("type " + serviceName + "GoflyClient interface {\n")
 			for _, method := range methods {
+				if method.ClientStreaming || method.ServerStreaming {
+					b.WriteString("\t" + method.Name + "(ctx context.Context) (*rpc.Stream, error)\n")
+					continue
+				}
 				b.WriteString("\t" + method.Name + "(ctx context.Context, req *" + method.Request + ") (*" + method.Response + ", error)\n")
 			}
 			b.WriteString("}\n\n")
@@ -241,6 +264,20 @@ func renderProtocPluginFile(file *descriptorpb.FileDescriptorProto, services []*
 			b.WriteString("\treturn c.desc.Descriptor()\n")
 			b.WriteString("}\n\n")
 			for _, method := range methods {
+				if method.ClientStreaming || method.ServerStreaming {
+					b.WriteString("func (c *" + serviceName + "GoflyRPCClient) " + method.Name + "(ctx context.Context) (*rpc.Stream, error) {\n")
+					b.WriteString("\tmethod, err := c.desc.StreamPath(" + quoteGoString(method.Name) + ")\n")
+					b.WriteString("\tif err != nil {\n")
+					b.WriteString("\t\treturn nil, err\n")
+					b.WriteString("\t}\n")
+					b.WriteString("\tstreamer, ok := c.cc.(interface { Stream(context.Context, string) (*rpc.Stream, error) })\n")
+					b.WriteString("\tif !ok {\n")
+					b.WriteString("\t\treturn nil, rpc.NewError(rpc.CodeUnimplemented, \"rpc client does not support streaming\")\n")
+					b.WriteString("\t}\n")
+					b.WriteString("\treturn streamer.Stream(ctx, method)\n")
+					b.WriteString("}\n\n")
+					continue
+				}
 				b.WriteString("func (c *" + serviceName + "GoflyRPCClient) " + method.Name + "(ctx context.Context, req *" + method.Request + ") (*" + method.Response + ", error) {\n")
 				b.WriteString("\tvar resp " + method.Response + "\n")
 				b.WriteString("\tmethod, err := c.desc.MethodPath(" + quoteGoString(method.Name) + ")\n")
@@ -302,12 +339,56 @@ func collectProtocPluginMethods(file *descriptorpb.FileDescriptorProto, svc *des
 			return nil, fmt.Errorf("resolve response type for %s.%s: %w", serviceFullName, methodName, err)
 		}
 		methods = append(methods, protocPluginMethod{
-			Name:     methodName,
-			Request:  requestName,
-			Response: responseName,
+			Name:            methodName,
+			Request:         requestName,
+			Response:        responseName,
+			ClientStreaming: method.GetClientStreaming(),
+			ServerStreaming: method.GetServerStreaming(),
 		})
 	}
 	return methods, nil
+}
+
+func protocUnaryMethods(methods []protocPluginMethod) []protocPluginMethod {
+	out := make([]protocPluginMethod, 0, len(methods))
+	for _, method := range methods {
+		if method.ClientStreaming || method.ServerStreaming {
+			continue
+		}
+		out = append(out, method)
+	}
+	return out
+}
+
+func protocStreamMethods(methods []protocPluginMethod) []protocPluginMethod {
+	out := make([]protocPluginMethod, 0, len(methods))
+	for _, method := range methods {
+		if !method.ClientStreaming && !method.ServerStreaming {
+			continue
+		}
+		out = append(out, method)
+	}
+	return out
+}
+
+func protocStreamMessageName(method protocPluginMethod) string {
+	if method.ClientStreaming || method.Request == method.Response {
+		return method.Request
+	}
+	return method.Response
+}
+
+func protocStreamModeLiteral(method protocPluginMethod) string {
+	switch {
+	case method.ClientStreaming && method.ServerStreaming:
+		return "rpc.StreamModeBidiStream"
+	case method.ClientStreaming:
+		return "rpc.StreamModeClientStream"
+	case method.ServerStreaming:
+		return "rpc.StreamModeServerStream"
+	default:
+		return "rpc.StreamModeUnary"
+	}
 }
 
 func protocServiceFullName(file *descriptorpb.FileDescriptorProto, svc *descriptorpb.ServiceDescriptorProto) string {

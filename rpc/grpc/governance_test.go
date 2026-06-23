@@ -2,6 +2,7 @@ package grpc
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 	"github.com/gofly/gofly/core/governance"
 	coretrace "github.com/gofly/gofly/core/observability/trace"
 	coreretry "github.com/gofly/gofly/core/retry"
+	coreruntime "github.com/gofly/gofly/core/runtime"
 
 	oteltrace "go.opentelemetry.io/otel/trace"
 	stdgrpc "google.golang.org/grpc"
@@ -607,6 +609,7 @@ func TestGRPCAdminServerExposesHealthMetricsAndGovernance(t *testing.T) {
 		{path: "/startupz", want: "ok"},
 		{path: "/metrics", want: "gofly_requests_total"},
 		{path: "/governance/rules", want: "admin visible rule"},
+		{path: "/runtime", want: "rpc.grpc.server"},
 	} {
 		t.Run(tc.path, func(t *testing.T) {
 			resp, err := http.Get(adminURL + tc.path)
@@ -622,6 +625,60 @@ func TestGRPCAdminServerExposesHealthMetricsAndGovernance(t *testing.T) {
 				t.Fatalf("GET %s status=%d body=%s, want status 200 containing %q", tc.path, resp.StatusCode, data, tc.want)
 			}
 		})
+	}
+
+	if err := server.Shutdown(context.Background()); err != nil {
+		t.Fatalf("shutdown: %v", err)
+	}
+	select {
+	case err := <-started:
+		if err != nil {
+			t.Fatalf("start returned error: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for grpc server to stop")
+	}
+}
+
+func TestGRPCAdminRuntimeExplainsDefaultInterceptorChain(t *testing.T) {
+	rules := governance.NewRuleSet(governance.Rule{
+		Name:      "runtime visible rule",
+		Transport: governance.TransportRPC,
+		Service:   "greeter.Greeter",
+		Method:    "SayHello",
+	})
+	server := NewDefaultServer("127.0.0.1:0", "greeter", rules, nil, WithAdminAddr("127.0.0.1:0"))
+	started := make(chan error, 1)
+	go func() { started <- server.Start() }()
+	defer func() { _ = server.Shutdown(context.Background()) }()
+
+	adminURL := waitForGRPCAdminURL(t, server)
+	resp, err := http.Get(adminURL + "/runtime")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("runtime status = %d, want 200", resp.StatusCode)
+	}
+	var snapshot coreruntime.Snapshot
+	if err := json.NewDecoder(resp.Body).Decode(&snapshot); err != nil {
+		t.Fatalf("decode runtime: %v", err)
+	}
+	if len(snapshot.Components) != 1 {
+		t.Fatalf("runtime components = %#v, want one grpc component", snapshot.Components)
+	}
+	component := snapshot.Components[0]
+	if component.Name != "rpc.grpc.server" || component.Middleware == nil {
+		t.Fatalf("runtime component = %#v, want grpc server middleware snapshot", component)
+	}
+	unary := component.Middleware.Unary
+	stream := component.Middleware.Stream
+	if len(unary) != 4 || unary[0].Name != "recover" || unary[3].Name != "governance" {
+		t.Fatalf("unary chain = %#v, want recover/observability/otel/governance", unary)
+	}
+	if len(stream) != 3 || stream[0].Name != "observability" || stream[2].Name != "governance" {
+		t.Fatalf("stream chain = %#v, want observability/otel/governance", stream)
 	}
 
 	if err := server.Shutdown(context.Background()); err != nil {

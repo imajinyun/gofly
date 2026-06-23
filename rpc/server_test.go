@@ -19,6 +19,7 @@ import (
 	"github.com/gofly/gofly/core/limit"
 	"github.com/gofly/gofly/core/metadata"
 	"github.com/gofly/gofly/core/observability/trace"
+	coreruntime "github.com/gofly/gofly/core/runtime"
 	"github.com/gofly/gofly/rpc/endpoint"
 )
 
@@ -988,6 +989,24 @@ func TestHTTPServerAdminEndpoints(t *testing.T) {
 	}
 	if len(governance.Components) == 0 || governance.Components[0].Kind != "adaptive_limiter" {
 		t.Fatalf("governance = %#v, want adaptive limiter component", governance)
+	}
+
+	runtimeReq := httptest.NewRequest(http.MethodGet, "/rpc/admin/runtime", nil)
+	runtimeReq.Header.Set("Authorization", "Bearer secret")
+	runtimeRec := httptest.NewRecorder()
+	s.ServeHTTP(runtimeRec, runtimeReq)
+	if runtimeRec.Code != http.StatusOK {
+		t.Fatalf("runtime status = %d, want 200", runtimeRec.Code)
+	}
+	var runtimeSnapshot coreruntime.Snapshot
+	if err := json.NewDecoder(runtimeRec.Body).Decode(&runtimeSnapshot); err != nil {
+		t.Fatal(err)
+	}
+	if len(runtimeSnapshot.Components) != 1 || runtimeSnapshot.Components[0].Name != "rpc.http.server" {
+		t.Fatalf("runtime snapshot = %#v, want rpc http server component", runtimeSnapshot)
+	}
+	if runtimeSnapshot.Components[0].Middleware == nil || len(runtimeSnapshot.Components[0].Middleware.Unary) == 0 {
+		t.Fatalf("runtime middleware = %#v, want rpc middleware chain", runtimeSnapshot.Components[0].Middleware)
 	}
 
 	rulesReq := httptest.NewRequest(http.MethodGet, "/rpc/admin/governance/rules", nil)

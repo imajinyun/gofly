@@ -26,6 +26,7 @@ import (
 	"github.com/gofly/gofly/core/limit"
 	"github.com/gofly/gofly/core/observability/metrics"
 	"github.com/gofly/gofly/core/observability/trace"
+	coreruntime "github.com/gofly/gofly/core/runtime"
 	"github.com/gofly/gofly/core/security"
 	controladmin "github.com/gofly/gofly/ops/admin"
 )
@@ -48,6 +49,7 @@ type Server struct {
 	rules        *governance.RuleSet
 	manager      *governance.Manager
 	ruleRuntime  *ruleRuntime
+	runtime      *coreruntime.Registry
 	contributors []controlplane.SnapshotContributor
 	cpuReader    func() int
 	adminAudit   controladmin.AuditSink
@@ -86,11 +88,12 @@ func NewServer(c Config, opts ...Option) (*Server, error) {
 	if c.Timeout == 0 {
 		c.Timeout = 3 * time.Second
 	}
-	s := &Server{conf: c, mux: http.NewServeMux(), health: make(map[string]CheckFunc), ready: make(map[string]CheckFunc), governance: governance.NewRegistry(), ruleRuntime: newRuleRuntime()}
+	s := &Server{conf: c, mux: http.NewServeMux(), health: make(map[string]CheckFunc), ready: make(map[string]CheckFunc), governance: governance.NewRegistry(), ruleRuntime: newRuleRuntime(), runtime: coreruntime.NewRegistry()}
 	s.setState(serverStateInitialized)
 	for _, opt := range opts {
 		opt(s)
 	}
+	s.registerRuntime()
 	if s.conf.Middlewares.Health {
 		s.AddHealthRoutes()
 	}
@@ -458,7 +461,7 @@ func (s *Server) AddAdminRoutes(c AdminConfig) {
 		ctx.JSON(http.StatusOK, s.conf)
 	}}, opts...)
 	s.AddRoute(Route{Method: http.MethodGet, Path: "/runtime", Handler: func(ctx *Context) {
-		ctx.JSON(http.StatusOK, metrics.Default.Snapshot())
+		ctx.JSON(http.StatusOK, s.RuntimeSnapshot(ctx.Request.Context()))
 	}}, opts...)
 	s.AddRoute(Route{Method: http.MethodGet, Path: "/state", Handler: func(ctx *Context) {
 		ctx.JSON(http.StatusOK, s.State())
@@ -479,6 +482,7 @@ func (s *Server) AddAdminRoutes(c AdminConfig) {
 		governance.WithAdminPathPrefix(prefix+"/governance"),
 		governance.WithAdminDefaultRequest(governance.Request{Transport: governance.TransportREST, Service: s.conf.Name}),
 		governance.WithAdminManager(s.manager),
+		governance.WithAdminRuntimeRegistry(s.runtime),
 	)
 	for _, route := range controladmin.GovernanceEndpoints() {
 		route := route
@@ -542,6 +546,13 @@ func localAdminOnlyMiddleware() Middleware {
 
 // Use appends global middleware to the server.
 func (s *Server) Use(mw Middleware) { s.middlewares = append(s.middlewares, mw) }
+
+func (s *Server) customMiddlewareCount() int {
+	if s == nil {
+		return 0
+	}
+	return len(s.middlewares)
+}
 
 func (s *Server) routeOptions(opts ...RouteOption) routeOptions {
 	ro := routeOptions{
@@ -640,6 +651,44 @@ func (s *Server) routeMiddlewares(r Route, ro routeOptions) []Middleware {
 	return middlewares
 }
 
+func (s *Server) runtimeMiddlewareChain() []coreruntime.MiddlewareLayer {
+	if s == nil {
+		return nil
+	}
+	ro := s.routeOptions()
+	layers := make([]coreruntime.MiddlewareLayer, 0, 16)
+	add := func(enabled bool, name, source, reason string) {
+		if !enabled {
+			return
+		}
+		layers = append(layers, coreruntime.MiddlewareLayer{
+			Name:   name,
+			Source: source,
+			Order:  len(layers),
+			Reason: reason,
+		})
+	}
+	add(s.conf.Middlewares.SecurityHeaders != nil, "security_headers", "preset", "production preset enables security headers")
+	add(boolEnabled(ro.trace), "trace", "config", "rest trace middleware")
+	add(boolEnabled(ro.requestID), "request_id", "config", "request correlation")
+	add(true, "route_info", "runtime", "route metadata for governance and metrics")
+	add(boolEnabled(ro.recover), "recover", "config", "panic recovery")
+	add(boolEnabled(ro.log), "log", "config", "structured request logging")
+	add(boolEnabled(ro.metrics), "metrics", "config", "request metrics")
+	add(ro.rateLimit != nil && ro.rateLimit.enabled, "rate_limit", "config", "token bucket limiter")
+	add(ro.adaptive != nil && ro.adaptive.enabled, "adaptive_rate_limit", "config", "adaptive limiter")
+	add(ro.concurrency != nil && ro.concurrency.enabled, "max_concurrency", "config", "concurrency limiter")
+	add(boolEnabled(ro.breaker), "breaker", "config", "adaptive circuit breaker")
+	add(ro.timeout > 0, "timeout", "config", "request deadline")
+	add(ro.maxBodyBytes > 0, "max_body_bytes", "config", "request body limit")
+	add(trimStringsEnabled(ro.trimStrings), "trim_strings", "config", "input normalization")
+	add(s.conf.Middlewares.CSRF != nil, "csrf", "config", "csrf protection")
+	for range s.customMiddlewareCount() {
+		add(true, "custom_middleware", "user", "server-level middleware registered with Use")
+	}
+	return layers
+}
+
 func boolEnabled(v *bool) bool { return v != nil && *v }
 
 func (s *Server) timeoutDuration() time.Duration {
@@ -708,6 +757,42 @@ type RuntimeControlPlaneContributor struct {
 // GovernanceRuntimeControlPlaneContributor contributes REST governance runtime caches to a control-plane snapshot.
 type GovernanceRuntimeControlPlaneContributor struct {
 	Server *Server
+}
+
+// RuntimeSnapshot returns a unified REST runtime diagnostic snapshot.
+func (s *Server) RuntimeSnapshot(ctx context.Context) coreruntime.Snapshot {
+	if s == nil || s.runtime == nil {
+		return coreruntime.Snapshot{}
+	}
+	return s.runtime.Snapshot(ctx)
+}
+
+func (s *Server) registerRuntime() {
+	if s == nil || s.runtime == nil {
+		return
+	}
+	s.runtime.Register("rest.server", "server", func(context.Context) coreruntime.ComponentSnapshot {
+		state := s.State()
+		return coreruntime.ComponentSnapshot{
+			Name:   "rest.server",
+			Kind:   "server",
+			Owner:  "rest",
+			Target: state.Address,
+			Status: state.State,
+			Middleware: &coreruntime.MiddlewareSnapshot{
+				Unary: s.runtimeMiddlewareChain(),
+			},
+			Governance: s.GovernanceRuntimeCache(),
+			Details: map[string]any{
+				"service":      state.Service,
+				"stateSince":   state.Since,
+				"routes":       len(s.Routes()),
+				"adminEnabled": s.conf.Admin.Enabled,
+				"adminPrefix":  cleanPrefix(s.conf.Admin.PathPrefix),
+				"preset":       s.conf.Preset,
+			},
+		}
+	}, coreruntime.WithOwner("rest"))
 }
 
 // ControlPlaneRuntime returns a sanitized REST runtime snapshot.

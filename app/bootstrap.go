@@ -17,6 +17,7 @@ import (
 	metricsotel "github.com/gofly/gofly/core/observability/metrics/otel"
 	coretrace "github.com/gofly/gofly/core/observability/trace"
 	coreproc "github.com/gofly/gofly/core/proc"
+	coreruntime "github.com/gofly/gofly/core/runtime"
 )
 
 // Config describes the wiring Bootstrap performs. All fields are optional;
@@ -94,6 +95,7 @@ type RuntimeSnapshot struct {
 	MetricsOTLPEnabled bool                    `json:"metricsOtlpEnabled"`
 	Health             map[string]CheckReport  `json:"health,omitempty"`
 	Metrics            *metrics.Snapshot       `json:"metrics,omitempty"`
+	Runtime            coreruntime.Snapshot    `json:"runtime"`
 }
 
 // BootstrapRuntime holds the runtime state wired by Bootstrap. It is returned
@@ -327,7 +329,53 @@ func (r *BootstrapRuntime) Snapshot(ctx context.Context) RuntimeSnapshot {
 		metricsSnapshot := r.registry.Snapshot()
 		snapshot.Metrics = &metricsSnapshot
 	}
+	snapshot.Runtime = r.RuntimeComponentSnapshot(ctx)
 	return snapshot
+}
+
+func (r *BootstrapRuntime) RuntimeComponentSnapshot(ctx context.Context) coreruntime.Snapshot {
+	registry := coreruntime.NewRegistry()
+	target := ""
+	if r != nil {
+		target = r.serviceName
+	}
+	registry.Register("app.bootstrap", "bootstrap", func(ctx context.Context) coreruntime.ComponentSnapshot {
+		if r == nil {
+			return coreruntime.ComponentSnapshot{Name: "app.bootstrap", Kind: "bootstrap", Owner: "app", Status: "missing"}
+		}
+		status := "ok"
+		var errText string
+		if err := ctx.Err(); err != nil {
+			status = "error"
+			errText = err.Error()
+		}
+		return coreruntime.ComponentSnapshot{
+			Name:   "app.bootstrap",
+			Kind:   "bootstrap",
+			Owner:  "app",
+			Target: r.serviceName,
+			Status: status,
+			Error:  errText,
+			Details: map[string]any{
+				"startedAt":          r.startedAt,
+				"uptime":             time.Since(r.startedAt),
+				"goVersion":          runtime.Version(),
+				"goroutines":         runtime.NumGoroutine(),
+				"gomaxprocs":         r.maxProcs.Applied,
+				"traceEnabled":       r.traceEnabled,
+				"traceOtlpEnabled":   r.traceOTLPEnabled,
+				"profileEnabled":     r.profileEnabled,
+				"metricsEnabled":     r.metricsEnabled,
+				"metricsOtlpEnabled": r.metricsOTLPEnabled,
+				"healthChecks": map[string]int{
+					"healthz":  len(r.health.LivenessChecks),
+					"readyz":   len(r.health.ReadinessChecks),
+					"startupz": len(r.health.StartupChecks),
+				},
+			},
+		}
+	}, coreruntime.WithOwner("app"), coreruntime.WithTarget(target))
+	return registry.Snapshot(ctx)
 }
 
 func (r *BootstrapRuntime) Logger() *slog.Logger {

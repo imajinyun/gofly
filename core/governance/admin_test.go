@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gofly/gofly/core/kv"
+	coreruntime "github.com/gofly/gofly/core/runtime"
 )
 
 func TestAdminServesSnapshotExplainAndRuleReplacement(t *testing.T) {
@@ -45,6 +46,27 @@ func TestAdminServesSnapshotExplainAndRuleReplacement(t *testing.T) {
 	}
 	if len(snapshot.Components) != 1 || len(snapshot.Rules) != 1 || len(snapshot.RuleStats) != 1 || snapshot.RuleStatus.Rules != 1 || len(snapshot.Diagnostics) != 0 {
 		t.Fatalf("snapshot = %#v, want components/rules/stats/status", snapshot)
+	}
+
+	runtimeRegistry := coreruntime.NewRegistry()
+	runtimeRegistry.Register("rest.server", "server", func(context.Context) coreruntime.ComponentSnapshot {
+		return coreruntime.ComponentSnapshot{Name: "rest.server", Kind: "server", Owner: "rest", Status: "ok"}
+	})
+	runtimeAdmin := NewAdmin(rules, registry,
+		WithAdminPathPrefix("/admin/governance"),
+		WithAdminRuntimeRegistry(runtimeRegistry),
+	)
+	runtimeRec := httptest.NewRecorder()
+	runtimeAdmin.ServeHTTP(runtimeRec, httptest.NewRequest(http.MethodGet, "/admin/governance/runtime", nil))
+	if runtimeRec.Code != http.StatusOK {
+		t.Fatalf("runtime status = %d, want 200", runtimeRec.Code)
+	}
+	var runtimeSnapshot coreruntime.Snapshot
+	if err := json.NewDecoder(runtimeRec.Body).Decode(&runtimeSnapshot); err != nil {
+		t.Fatal(err)
+	}
+	if len(runtimeSnapshot.Components) != 1 || runtimeSnapshot.Components[0].Name != "rest.server" {
+		t.Fatalf("runtime snapshot = %#v, want rest server component", runtimeSnapshot)
 	}
 
 	explainRec := httptest.NewRecorder()

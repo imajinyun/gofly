@@ -5,9 +5,11 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -15,6 +17,7 @@ import (
 
 	"github.com/gofly/gofly/core/auth"
 	"github.com/gofly/gofly/core/breaker"
+	"github.com/gofly/gofly/core/callstats"
 	"github.com/gofly/gofly/core/controlplane"
 	"github.com/gofly/gofly/core/discovery"
 	"github.com/gofly/gofly/core/governance"
@@ -46,6 +49,36 @@ func TestHTTPClientCall(t *testing.T) {
 	}
 	if resp.Message != "hello client" {
 		t.Fatalf("message = %q, want hello client", resp.Message)
+	}
+}
+
+func TestHTTPClientRuntimeSnapshotIncludesCallPhaseStats(t *testing.T) {
+	s := NewServer()
+	if err := s.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{
+		Name:       "Stats",
+		NewRequest: func() any { return new(helloReq) },
+		Handler: func(ctx context.Context, req any) (any, error) {
+			return helloResp{Message: "stats"}, nil
+		},
+	}}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(s)
+	defer ts.Close()
+	c, err := NewClient(ts.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var resp helloResp
+	if err := c.Call(context.Background(), "greeter/Stats", helloReq{Name: "gofly"}, &resp); err != nil {
+		t.Fatal(err)
+	}
+	snapshot := c.RuntimeSnapshot()
+	for _, phase := range []string{callstats.PhaseGovernance, callstats.PhaseResolve, callstats.PhaseLoadBal, callstats.PhaseSend, callstats.PhaseRecv} {
+		stats, ok := rpcPhaseStats(snapshot.Stats, phase)
+		if !ok || stats.Calls == 0 {
+			t.Fatalf("runtime stats = %#v, want phase %s calls", snapshot.Stats, phase)
+		}
 	}
 }
 
@@ -1118,6 +1151,25 @@ func TestHTTPClientRPCPolicyRuntimeLoadShedder(t *testing.T) {
 	if err := <-firstErr; err != nil {
 		t.Fatalf("first call: %v", err)
 	}
+	state := c.PolicyRuntimeSnapshot().State
+	if !state.LoadShedderEnabled || state.LoadShedderLimit != 1 || state.LoadShedderMode != "static_concurrency" {
+		t.Fatalf("load shedder state = %+v, want static concurrency limit", state)
+	}
+}
+
+func TestHTTPClientRPCPolicyRuntimeLoadShedderReportsMinWindow(t *testing.T) {
+	c, err := NewClient("http://a", WithRPCPolicy(RPCPolicy{LoadShedder: RPCLoadShedderPolicy{
+		Enabled:        true,
+		MaxConcurrency: 3,
+		MinWindow:      250 * time.Millisecond,
+	}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := c.PolicyRuntimeSnapshot().State
+	if state.LoadShedderMode != "static_concurrency" || state.LoadShedderWindow != 250*time.Millisecond {
+		t.Fatalf("load shedder state = %+v, want mode and min window", state)
+	}
 }
 
 func TestHTTPClientRPCPolicyRuntimeFallback(t *testing.T) {
@@ -1155,6 +1207,10 @@ func TestHTTPClientRPCPolicyRuntimeFallback(t *testing.T) {
 	}
 	if resp.Message != "fallback" || fallbackCalls.Load() != 1 {
 		t.Fatalf("fallback response/calls = %#v/%d, want fallback success", resp, fallbackCalls.Load())
+	}
+	stats, ok := rpcPhaseStats(c.RuntimeSnapshot().Stats, callstats.PhaseFallback)
+	if !ok || stats.Calls != 1 || stats.Errors != 0 {
+		t.Fatalf("fallback stats = %#v, want one successful fallback", c.RuntimeSnapshot().Stats)
 	}
 }
 
@@ -1228,7 +1284,7 @@ func TestHTTPClientRPCPolicyRuntimeSnapshotContributor(t *testing.T) {
 	if runtimeSnapshot.State.RetryAttempts != 3 || runtimeSnapshot.State.RetryBackoff != time.Millisecond {
 		t.Fatalf("retry state = %+v, want attempts/backoff from policy", runtimeSnapshot.State)
 	}
-	if !runtimeSnapshot.State.BreakerEnabled || runtimeSnapshot.State.Balancer != RPCBalancerWeightedRoundRobin || !runtimeSnapshot.State.LoadShedderEnabled || runtimeSnapshot.State.LoadShedderLimit != 2 {
+	if !runtimeSnapshot.State.BreakerEnabled || runtimeSnapshot.State.Balancer != RPCBalancerWeightedRoundRobin || !runtimeSnapshot.State.LoadShedderEnabled || runtimeSnapshot.State.LoadShedderLimit != 2 || runtimeSnapshot.State.LoadShedderMode != "static_concurrency" {
 		t.Fatalf("runtime state = %+v, want breaker, balancer and load shedder", runtimeSnapshot.State)
 	}
 	if !runtimeSnapshot.State.FallbackEnabled || runtimeSnapshot.State.FallbackTarget != "http://fallback" || !runtimeSnapshot.State.HedgeEnabled || runtimeSnapshot.State.HedgeAttempts != 2 {
@@ -1239,6 +1295,9 @@ func TestHTTPClientRPCPolicyRuntimeSnapshotContributor(t *testing.T) {
 	}
 	if runtimeSnapshot.MethodPolicyCount != 2 || !slices.Equal(runtimeSnapshot.MethodPolicyKeys, []string{"Slow", "greeter/Fast"}) {
 		t.Fatalf("method policy snapshot = count %d keys %#v, want sorted method policy keys", runtimeSnapshot.MethodPolicyCount, runtimeSnapshot.MethodPolicyKeys)
+	}
+	if !slices.Equal(runtimeSnapshot.Priority, []string{"client_default", "governance_rule", "dynamic_policy", "method_policy"}) {
+		t.Fatalf("priority = %#v, want documented policy precedence", runtimeSnapshot.Priority)
 	}
 
 	provider := controlplane.CompositeProvider{Contributors: []controlplane.SnapshotContributor{
@@ -1261,6 +1320,56 @@ func TestHTTPClientRPCPolicyRuntimeSnapshotContributor(t *testing.T) {
 	}
 	if decoded.State.Balancer != RPCBalancerWeightedRoundRobin || !decoded.State.ExplicitPolicyBound || !slices.Contains(decoded.Capabilities, "dynamic_policy") || !slices.Contains(decoded.Capabilities, "method_policy") || !slices.Contains(decoded.Capabilities, "kitex_interceptor") {
 		t.Fatalf("decoded runtime snapshot = %+v, want policy runtime capability state", decoded)
+	}
+}
+
+func TestHTTPClientEffectivePolicySnapshotExplainsMethodPriority(t *testing.T) {
+	rules := governance.NewRuleSet(governance.Rule{
+		Name:      "orders-governance",
+		Transport: governance.TransportRPC,
+		Service:   "greeter",
+		Method:    "Priority",
+		Policy: governance.Policy{
+			Retry:   governance.RetryPolicy{Attempts: 2, Backoff: time.Millisecond},
+			Headers: map[string]string{"X-Source": "governance"},
+		},
+	})
+	c, err := NewClient("http://a",
+		WithClientGovernanceRuleSet(rules),
+		WithDynamicRPCPolicy(RPCPolicyProviderFunc(func(context.Context, governance.Request) (RPCPolicy, error) {
+			return RPCPolicy{
+				Retry:   governance.RetryPolicy{Attempts: 3, Backoff: 2 * time.Millisecond},
+				Headers: map[string]string{"X-Dynamic": "true"},
+			}, nil
+		})),
+		WithRPCPolicy(RPCPolicy{
+			Retry: governance.RetryPolicy{Attempts: 1, Backoff: time.Second},
+			Methods: map[string]RPCPolicy{
+				"greeter/Priority": {
+					Retry:    governance.RetryPolicy{Attempts: 4, Backoff: 3 * time.Millisecond},
+					Fallback: RPCFallbackPolicy{Enabled: true, Target: "http://fallback"},
+				},
+			},
+		}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := c.EffectivePolicySnapshot(context.Background(), "/greeter/Priority")
+	if snapshot.Method != "greeter/Priority" || snapshot.MethodKey != "greeter/Priority" || snapshot.GovernanceRule != "orders-governance" {
+		t.Fatalf("effective policy identity = %+v, want method key and governance rule", snapshot)
+	}
+	if snapshot.State.RetryAttempts != 4 || snapshot.State.RetryBackoff != 3*time.Millisecond {
+		t.Fatalf("effective retry = %+v, want method override over dynamic/governance/default", snapshot.State)
+	}
+	if !snapshot.State.FallbackEnabled || snapshot.State.FallbackTarget != "http://fallback" {
+		t.Fatalf("effective fallback = %+v, want method fallback", snapshot.State)
+	}
+	if snapshot.Policy.Headers["X-Source"] != "governance" || snapshot.Policy.Headers["X-Dynamic"] != "true" {
+		t.Fatalf("effective headers = %#v, want merged governance and dynamic headers", snapshot.Policy.Headers)
+	}
+	if !slices.Equal(snapshot.Priority, []string{"client_default", "governance_rule", "dynamic_policy", "method_policy"}) {
+		t.Fatalf("priority = %#v, want documented policy precedence", snapshot.Priority)
 	}
 }
 
@@ -1370,6 +1479,129 @@ func TestHTTPClientRuntimeSnapshotAndResolverWatchCloseIdle(t *testing.T) {
 	}
 	if raw := snapshot.Configs["rpc.runtime.primary"]; !json.Valid(raw) {
 		t.Fatalf("rpc runtime config is not valid JSON: %s", raw)
+	}
+}
+
+func TestHTTPClientRuntimeSnapshotRecordsDiscoveryEvents(t *testing.T) {
+	registry := discovery.NewMemoryRegistry()
+	if _, err := registry.Register(context.Background(), discovery.Instance{Service: "orders", ID: "a", Endpoint: "http://a", Weight: 1}); err != nil {
+		t.Fatalf("register a: %v", err)
+	}
+	var removed []string
+	var mu sync.Mutex
+	manager := NewConnPoolManager(func(context.Context, string) (net.Conn, error) {
+		client, server := net.Pipe()
+		t.Cleanup(func() { _ = server.Close() })
+		return client, nil
+	}, ConnPoolConfig{MaxIdle: 1, MaxActive: 1, OnClose: func(endpoint string, reason string, _ ConnPoolStats) {
+		mu.Lock()
+		defer mu.Unlock()
+		removed = append(removed, endpoint+":"+reason)
+	}})
+	conn, err := manager.Get(context.Background(), "http://a")
+	if err != nil {
+		t.Fatalf("pool Get: %v", err)
+	}
+	if err := conn.Close(); err != nil {
+		t.Fatalf("pool Close: %v", err)
+	}
+	c, err := NewClient("http://a", WithResolver(NewDiscoveryResolver(registry, "orders")), WithConnPoolManager(manager))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	if _, err := registry.Register(context.Background(), discovery.Instance{Service: "orders", ID: "b", Endpoint: "http://b", Weight: 1}); err != nil {
+		t.Fatalf("register b: %v", err)
+	}
+	if !waitForRPCSnapshot(t, time.Second, func() bool {
+		snapshot := c.RuntimeSnapshot()
+		return slices.Equal(snapshot.Discovery.Added, []string{"http://b"}) &&
+			slices.Contains(snapshot.Discovery.Endpoints, "http://a") &&
+			slices.Contains(snapshot.Discovery.Endpoints, "http://b")
+	}) {
+		t.Fatalf("runtime snapshot after add = %+v, want added http://b", c.RuntimeSnapshot())
+	}
+
+	if _, err := registry.Register(context.Background(), discovery.Instance{Service: "orders", ID: "b", Endpoint: "http://b", Weight: 2}); err != nil {
+		t.Fatalf("update b: %v", err)
+	}
+	if !waitForRPCSnapshot(t, time.Second, func() bool {
+		return slices.Equal(c.RuntimeSnapshot().Discovery.Updated, []string{"http://b"})
+	}) {
+		t.Fatalf("runtime snapshot after update = %+v, want updated http://b", c.RuntimeSnapshot())
+	}
+
+	if err := registry.Deregister(context.Background(), discovery.Instance{Service: "orders", ID: "a", Endpoint: "http://a"}); err != nil {
+		t.Fatalf("deregister a: %v", err)
+	}
+	if !waitForRPCSnapshot(t, time.Second, func() bool {
+		snapshot := c.RuntimeSnapshot()
+		return slices.Equal(snapshot.Discovery.Removed, []string{"http://a"}) && snapshot.Discovery.CloseIdleCalls > 0
+	}) {
+		t.Fatalf("runtime snapshot after remove = %+v, want removed http://a and close idle", c.RuntimeSnapshot())
+	}
+	mu.Lock()
+	gotRemoved := append([]string(nil), removed...)
+	mu.Unlock()
+	if len(gotRemoved) != 1 || gotRemoved[0] != "http://a:endpoint_removed" {
+		t.Fatalf("connpool removed callbacks = %#v, want endpoint_removed", gotRemoved)
+	}
+	if snapshot := c.RuntimeSnapshot(); slices.ContainsFunc(snapshot.ConnPool.Endpoints, func(stats ConnPoolStats) bool {
+		return stats.Endpoint == "http://a"
+	}) {
+		t.Fatalf("connpool snapshot = %+v, want http://a removed", snapshot.ConnPool)
+	}
+}
+
+func TestHTTPClientWarmupResolvesBalancerAndConnPool(t *testing.T) {
+	var warmed []string
+	var mu sync.Mutex
+	manager := NewConnPoolManager(func(_ context.Context, endpoint string) (net.Conn, error) {
+		client, server := net.Pipe()
+		t.Cleanup(func() { _ = server.Close() })
+		mu.Lock()
+		warmed = append(warmed, endpoint)
+		mu.Unlock()
+		return client, nil
+	}, ConnPoolConfig{MaxIdle: 1, MaxActive: 1})
+
+	c, err := NewClient("http://a",
+		WithResolver(NewStaticResolver("http://a", "http://b")),
+		WithConnPoolManager(manager),
+		WithClientWarmup(RPCWarmupConfig{ConnPool: true, MaxEndpoints: 2, Timeout: time.Second}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	snapshot := c.RuntimeSnapshot()
+	if !snapshot.Warmup.Enabled || !snapshot.Warmup.Attempted || !snapshot.Warmup.Completed || snapshot.Warmup.ConnPoolWarmed != 2 {
+		t.Fatalf("warmup snapshot = %#v, want completed connpool warmup for two endpoints", snapshot.Warmup)
+	}
+	if !slices.Contains(snapshot.Warmup.Endpoints, "http://a") || !slices.Contains(snapshot.Warmup.Endpoints, "http://b") || snapshot.Warmup.Selected == "" {
+		t.Fatalf("warmup endpoints = %#v selected=%q, want resolved endpoints and selected target", snapshot.Warmup.Endpoints, snapshot.Warmup.Selected)
+	}
+	if len(snapshot.ConnPool.Endpoints) != 2 {
+		t.Fatalf("connpool snapshot = %#v, want two warmed endpoint pools", snapshot.ConnPool)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if !slices.Contains(warmed, "http://a") || !slices.Contains(warmed, "http://b") {
+		t.Fatalf("warmed endpoints = %#v, want both endpoints dialed", warmed)
+	}
+}
+
+func TestHTTPClientWarmupFailsFastOnResolverError(t *testing.T) {
+	_, err := NewClient("http://a",
+		WithResolver(ResolverFunc(func(context.Context) ([]string, error) {
+			return nil, errors.New("resolver down")
+		})),
+		WithClientWarmup(RPCWarmupConfig{Timeout: time.Second}),
+	)
+	if err == nil || !strings.Contains(err.Error(), "warm up rpc resolver") {
+		t.Fatalf("NewClient warmup error = %v, want resolver warmup error", err)
 	}
 }
 
@@ -2089,4 +2321,13 @@ func TestIsZeroTransportConfig(t *testing.T) {
 	if IsZeroTransportConfig(TransportConfig{Timeout: time.Second}) {
 		t.Fatal("IsZeroTransportConfig with timeout = true, want false")
 	}
+}
+
+func rpcPhaseStats(snapshot callstats.Snapshot, phase string) (callstats.PhaseSnapshot, bool) {
+	for _, stats := range snapshot.Phases {
+		if stats.Phase == phase {
+			return stats, true
+		}
+	}
+	return callstats.PhaseSnapshot{}, false
 }

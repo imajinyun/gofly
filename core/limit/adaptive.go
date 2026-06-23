@@ -27,6 +27,8 @@ type AdaptiveLimiter struct {
 	windowStart      time.Time
 	requests         int64
 	success          int64
+	passes           int64
+	drops            int64
 	totalLatency     time.Duration
 	peakInFlight     int
 	now              func() time.Time
@@ -155,12 +157,15 @@ func (l *AdaptiveLimiter) Allow() (*AdaptiveToken, error) {
 	now := l.now()
 	l.refreshLocked(now)
 	if l.shouldShedLocked() {
+		l.drops++
 		return nil, ErrLimited
 	}
 	if l.inFlight >= l.limit {
+		l.drops++
 		return nil, ErrLimited
 	}
 	l.inFlight++
+	l.passes++
 	if l.inFlight > l.peakInFlight {
 		l.peakInFlight = l.inFlight
 	}
@@ -208,6 +213,8 @@ func (l *AdaptiveLimiter) Snapshot() AdaptiveSnapshot {
 		Requests:         l.requests,
 		Success:          l.success,
 		Failures:         l.requests - l.success,
+		Passes:           l.passes,
+		Drops:            l.drops,
 		ErrorRatio:       l.errorRatioLocked(),
 		AverageLatency:   l.averageLatencyLocked(),
 		PeakInFlight:     l.peakInFlight,
@@ -248,6 +255,8 @@ func (l *AdaptiveLimiter) refreshLocked(now time.Time) {
 	l.windowStart = now
 	l.requests = 0
 	l.success = 0
+	l.passes = 0
+	l.drops = 0
 	l.totalLatency = 0
 	l.peakInFlight = l.inFlight
 }
@@ -332,6 +341,8 @@ type AdaptiveSnapshot struct {
 	Requests         int64         `json:"requests"`
 	Success          int64         `json:"success"`
 	Failures         int64         `json:"failures"`
+	Passes           int64         `json:"passes"`
+	Drops            int64         `json:"drops"`
 	ErrorRatio       float64       `json:"errorRatio"`
 	AverageLatency   time.Duration `json:"averageLatency"`
 	PeakInFlight     int           `json:"peakInFlight"`

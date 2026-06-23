@@ -214,8 +214,8 @@ func TestWriteJSON(t *testing.T) {
 
 func TestGovernanceEndpoints(t *testing.T) {
 	endpoints := GovernanceEndpoints(WithGovernanceRoot(), WithGovernanceExplain())
-	if len(endpoints) != 17 {
-		t.Fatalf("len(GovernanceEndpoints(root, explain)) = %d, want 17", len(endpoints))
+	if len(endpoints) != 18 {
+		t.Fatalf("len(GovernanceEndpoints(root, explain)) = %d, want 18", len(endpoints))
 	}
 	if endpoints[0] != (Endpoint{Method: http.MethodGet, Path: "/governance"}) {
 		t.Fatalf("first endpoint = %#v, want governance root", endpoints[0])
@@ -226,9 +226,16 @@ func TestGovernanceEndpoints(t *testing.T) {
 	}
 
 	base := GovernanceEndpoints()
+	hasRuntime := false
 	for _, endpoint := range base {
 		if endpoint.Path == "/governance" || endpoint.Path == "/governance/explain" {
 			t.Fatalf("base GovernanceEndpoints should not include optional endpoint %#v", endpoint)
 		}
+		if endpoint == (Endpoint{Method: http.MethodGet, Path: "/governance/runtime"}) {
+			hasRuntime = true
+		}
+	}
+	if !hasRuntime {
+		t.Fatal("base GovernanceEndpoints should include governance runtime endpoint")
 	}
 }

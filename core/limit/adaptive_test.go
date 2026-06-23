@@ -78,6 +78,50 @@ func TestAdaptiveLimiterSnapshotIncludesFailures(t *testing.T) {
 	}
 }
 
+func TestAdaptiveLimiterSnapshotIncludesPassAndDropCounts(t *testing.T) {
+	limiter := NewAdaptiveLimiter(WithAdaptiveLimits(1, 1), WithAdaptiveInitialLimit(1))
+	token, err := limiter.Allow()
+	if err != nil {
+		t.Fatalf("first allow: %v", err)
+	}
+	if _, err := limiter.Allow(); !errors.Is(err, ErrLimited) {
+		token.Done(true)
+		t.Fatalf("second allow = %v, want ErrLimited", err)
+	}
+	snapshot := limiter.Snapshot()
+	token.Done(true)
+	if snapshot.Passes != 1 || snapshot.Drops != 1 {
+		t.Fatalf("snapshot pass/drop = %d/%d, want 1/1", snapshot.Passes, snapshot.Drops)
+	}
+}
+
+func TestAdaptiveLimiterPassDropCountsResetWithWindow(t *testing.T) {
+	now := time.Unix(0, 0)
+	limiter := NewAdaptiveLimiter(
+		WithAdaptiveLimits(1, 1),
+		WithAdaptiveInitialLimit(1),
+		WithAdaptiveLimitWindow(time.Millisecond),
+		WithAdaptiveMinSamples(1),
+	)
+	limiter.now = func() time.Time { return now }
+	limiter.windowStart = now
+
+	token, err := limiter.Allow()
+	if err != nil {
+		t.Fatalf("first allow: %v", err)
+	}
+	if _, err := limiter.Allow(); !errors.Is(err, ErrLimited) {
+		token.Done(true)
+		t.Fatalf("second allow = %v, want ErrLimited", err)
+	}
+	token.Done(true)
+	now = now.Add(2 * time.Millisecond)
+	snapshot := limiter.Snapshot()
+	if snapshot.Passes != 0 || snapshot.Drops != 0 || snapshot.Requests != 0 {
+		t.Fatalf("snapshot after window reset = %#v, want reset pass/drop/request counters", snapshot)
+	}
+}
+
 func TestAdaptiveLimiterRejectsWhenCPUSignalIsOverloaded(t *testing.T) {
 	load := 950
 	limiter := NewAdaptiveLimiter(
@@ -106,6 +150,9 @@ func TestAdaptiveLimiterRejectsWhenCPUSignalIsOverloaded(t *testing.T) {
 	second.Done(true)
 	if !snapshot.Overloaded || snapshot.CPULoad != 950 || snapshot.CPUThreshold != 900 {
 		t.Fatalf("snapshot = %#v, want overloaded CPU signal", snapshot)
+	}
+	if snapshot.Passes != 2 || snapshot.Drops != 1 {
+		t.Fatalf("snapshot pass/drop = %d/%d, want 2/1", snapshot.Passes, snapshot.Drops)
 	}
 
 	load = 100

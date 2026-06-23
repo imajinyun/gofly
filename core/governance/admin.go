@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	coreruntime "github.com/gofly/gofly/core/runtime"
 	controladmin "github.com/gofly/gofly/ops/admin"
 )
 
@@ -28,18 +29,20 @@ type Admin struct {
 	defaultReq   Request
 	authorize    func(*http.Request) bool
 	unauthorized func(http.ResponseWriter)
+	runtime      *coreruntime.Registry
 }
 
 // AdminSnapshot is the JSON response for the governance admin endpoint.
 type AdminSnapshot struct {
-	Components   []ComponentSnapshot `json:"components,omitempty"`
-	Rules        []Rule              `json:"rules,omitempty"`
-	RuleStats    []RuleStats         `json:"ruleStats,omitempty"`
-	Diagnostics  []RuleDiagnostic    `json:"diagnostics,omitempty"`
-	RuleStatus   RuleSetStatus       `json:"ruleStatus,omitempty"`
-	RuleEvents   []RuleSetEvent      `json:"ruleEvents,omitempty"`
-	RuleVersions []RuleSetVersion    `json:"ruleVersions,omitempty"`
-	Manager      *ManagerSnapshot    `json:"manager,omitempty"`
+	Components   []ComponentSnapshot  `json:"components,omitempty"`
+	Rules        []Rule               `json:"rules,omitempty"`
+	RuleStats    []RuleStats          `json:"ruleStats,omitempty"`
+	Diagnostics  []RuleDiagnostic     `json:"diagnostics,omitempty"`
+	RuleStatus   RuleSetStatus        `json:"ruleStatus,omitempty"`
+	RuleEvents   []RuleSetEvent       `json:"ruleEvents,omitempty"`
+	RuleVersions []RuleSetVersion     `json:"ruleVersions,omitempty"`
+	Manager      *ManagerSnapshot     `json:"manager,omitempty"`
+	Runtime      coreruntime.Snapshot `json:"runtime,omitempty"`
 }
 
 type rollbackRequest struct {
@@ -128,6 +131,12 @@ func WithAdminManager(manager *Manager) AdminOption {
 	}
 }
 
+func WithAdminRuntimeRegistry(registry *coreruntime.Registry) AdminOption {
+	return func(a *Admin) {
+		a.runtime = registry
+	}
+}
+
 func (a *Admin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if a == nil {
 		writeAdminError(w, http.StatusServiceUnavailable, "governance admin is nil")
@@ -157,6 +166,8 @@ func (a *Admin) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		a.handleDiagnostics(w, r)
 	case "/metrics":
 		a.handleMetrics(w, r)
+	case "/runtime":
+		a.handleRuntime(w, r)
 	case "/history":
 		a.handleHistory(w, r)
 	case "/events":
@@ -191,6 +202,12 @@ func (a *Admin) Snapshot() AdminSnapshot {
 	if a.manager != nil {
 		managerSnapshot := a.manager.Snapshot()
 		snapshot.Manager = &managerSnapshot
+		if len(managerSnapshot.Runtime.Components) > 0 {
+			snapshot.Runtime = managerSnapshot.Runtime
+		}
+	}
+	if a.runtime != nil {
+		snapshot.Runtime = a.runtime.Snapshot(context.Background())
 	}
 	if a.rules != nil {
 		snapshot.Rules = a.rules.Snapshot()
@@ -324,6 +341,22 @@ func (a *Admin) handleComponents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeAdminJSON(w, http.StatusOK, a.registry.Snapshots())
+}
+
+func (a *Admin) handleRuntime(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeAdminError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	if a.runtime != nil {
+		writeAdminJSON(w, http.StatusOK, a.runtime.Snapshot(r.Context()))
+		return
+	}
+	if a.manager != nil {
+		writeAdminJSON(w, http.StatusOK, a.manager.RuntimeSnapshot(r.Context()))
+		return
+	}
+	writeAdminJSON(w, http.StatusOK, coreruntime.Snapshot{})
 }
 
 func (a *Admin) handleRules(w http.ResponseWriter, r *http.Request) {

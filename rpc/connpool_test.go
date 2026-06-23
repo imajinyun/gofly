@@ -304,6 +304,84 @@ func TestConnPoolMaxIdleAndNilSnapshot_BitsUT(t *testing.T) {
 	}
 }
 
+func TestConnPoolManagerRemovesEndpointAndReportsCloseReason(t *testing.T) {
+	var closed []string
+	var mu sync.Mutex
+	manager := NewConnPoolManager(func(context.Context, string) (net.Conn, error) {
+		client, server := net.Pipe()
+		t.Cleanup(func() { _ = server.Close() })
+		return client, nil
+	}, ConnPoolConfig{
+		MaxIdle:   1,
+		MaxActive: 1,
+		OnClose: func(endpoint string, reason string, stats ConnPoolStats) {
+			mu.Lock()
+			defer mu.Unlock()
+			closed = append(closed, endpoint+":"+reason+":"+stats.LastClosedReason)
+		},
+	})
+
+	conn, err := manager.Get(context.Background(), " http://a/ ")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if err := conn.Close(); err != nil {
+		t.Fatalf("Close to idle: %v", err)
+	}
+	if snapshot := manager.Snapshot(); len(snapshot.Endpoints) != 1 || snapshot.Endpoints[0].Endpoint != "http://a" || snapshot.Endpoints[0].Idle != 1 {
+		t.Fatalf("snapshot = %#v, want idle endpoint http://a", snapshot)
+	}
+	if err := manager.RemoveEndpoint("http://a"); err != nil {
+		t.Fatalf("RemoveEndpoint: %v", err)
+	}
+	if snapshot := manager.Snapshot(); len(snapshot.Endpoints) != 0 {
+		t.Fatalf("snapshot after remove = %#v, want no endpoints", snapshot)
+	}
+	mu.Lock()
+	got := append([]string(nil), closed...)
+	mu.Unlock()
+	if len(got) != 1 || got[0] != "http://a:endpoint_removed:endpoint_removed" {
+		t.Fatalf("closed callbacks = %#v, want endpoint_removed reason", got)
+	}
+}
+
+func TestConnPoolManagerModesAndClose(t *testing.T) {
+	var dials atomic.Int64
+	manager := NewConnPoolManager(func(context.Context, string) (net.Conn, error) {
+		dials.Add(1)
+		client, server := net.Pipe()
+		t.Cleanup(func() { _ = server.Close() })
+		return client, nil
+	}, ConnPoolConfig{Mode: ConnPoolModeShort})
+
+	first, err := manager.Get(context.Background(), "http://a")
+	if err != nil {
+		t.Fatalf("first Get: %v", err)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatalf("first Close: %v", err)
+	}
+	second, err := manager.Get(context.Background(), "http://a")
+	if err != nil {
+		t.Fatalf("second Get: %v", err)
+	}
+	if err := second.Close(); err != nil {
+		t.Fatalf("second Close: %v", err)
+	}
+	if got := dials.Load(); got != 2 {
+		t.Fatalf("dials = %d, want short mode to dial twice", got)
+	}
+	if snapshot := manager.Snapshot(); snapshot.Mode != ConnPoolModeShort || len(snapshot.Endpoints) != 1 || snapshot.Endpoints[0].Idle != 0 {
+		t.Fatalf("short snapshot = %#v, want no idle reuse", snapshot)
+	}
+	if err := manager.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if _, err := manager.Get(context.Background(), "http://a"); !errors.Is(err, ErrConnPoolClosed) {
+		t.Fatalf("Get after Close = %v, want ErrConnPoolClosed", err)
+	}
+}
+
 func newTestConnPool(conf ConnPoolConfig) (*ConnPool, func(), *atomic.Int64, *atomic.Int64) {
 	var mu sync.Mutex
 	var servers []net.Conn

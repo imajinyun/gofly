@@ -81,8 +81,10 @@ type clientOptions struct {
 	rules             *governance.RuleSet
 	rpcPolicy         *RPCPolicy
 	rpcPolicyProvider RPCPolicyProvider
+	connPool          *ConnPoolManager
 	governanceTags    map[string]string
 	tls               *security.TLSConfig
+	warmup            RPCWarmupConfig
 }
 
 type TransportConfig struct {
@@ -386,6 +388,33 @@ func WithDynamicRPCPolicy(provider RPCPolicyProvider) ClientOption {
 	return func(o *clientOptions) {
 		o.rpcPolicyProvider = provider
 	}
+}
+
+func WithConnPoolManager(manager *ConnPoolManager) ClientOption {
+	return func(o *clientOptions) {
+		o.connPool = manager
+	}
+}
+
+func WithClientWarmup(conf RPCWarmupConfig) ClientOption {
+	return func(o *clientOptions) {
+		o.warmup = conf
+		o.warmup.Enabled = true
+	}
+}
+
+func WithConnPool(dial EndpointConnDialer, conf ConnPoolConfig) ClientOption {
+	return func(o *clientOptions) {
+		o.connPool = NewConnPoolManager(dial, conf)
+	}
+}
+
+func WithShortConnection(dial EndpointConnDialer) ClientOption {
+	return WithConnPool(dial, ConnPoolConfig{Mode: ConnPoolModeShort})
+}
+
+func WithLongConnection(dial EndpointConnDialer) ClientOption {
+	return WithConnPool(dial, ConnPoolConfig{Mode: ConnPoolModeLong})
 }
 
 func WithBreaker(brk *breaker.Breaker) ClientOption {

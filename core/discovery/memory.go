@@ -74,9 +74,11 @@ func (r *MemoryRegistry) Register(ctx context.Context, instance Instance, opts .
 	if r.services[instance.Service] == nil {
 		r.services[instance.Service] = make(map[string]memoryEntry)
 	}
+	previous := r.resolveLocked(instance.Service, resolveOptions{includeUnhealthy: true}, time.Now(), nil)
 	r.services[instance.Service][instance.ID] = entry
+	current := r.resolveLocked(instance.Service, resolveOptions{includeUnhealthy: true}, time.Now(), nil)
 	r.mu.Unlock()
-	r.notify(instance.Service, EventRegistered, instance)
+	r.notify(instance.Service, EventRegistered, instance, DiffInstances(previous, current))
 	return &memoryLease{registry: r, instance: instance, ttl: options.ttl}, nil
 }
 
@@ -90,14 +92,16 @@ func (r *MemoryRegistry) Deregister(ctx context.Context, instance Instance) erro
 		return nil
 	}
 	r.mu.Lock()
+	previous := r.resolveLocked(instance.Service, resolveOptions{includeUnhealthy: true}, time.Now(), nil)
 	if service := r.services[instance.Service]; service != nil {
 		delete(service, instance.ID)
 		if len(service) == 0 {
 			delete(r.services, instance.Service)
 		}
 	}
+	current := r.resolveLocked(instance.Service, resolveOptions{includeUnhealthy: true}, time.Now(), nil)
 	r.mu.Unlock()
-	r.notify(instance.Service, EventDeregister, instance)
+	r.notify(instance.Service, EventDeregister, instance, DiffInstances(previous, current))
 	return nil
 }
 
@@ -109,7 +113,7 @@ func (r *MemoryRegistry) Resolve(ctx context.Context, service string, opts ...Re
 	options := applyResolveOptions(opts)
 	instances, expired := r.resolve(service, options, time.Now())
 	for _, instance := range expired {
-		r.notify(instance.Service, EventExpired, instance)
+		r.notify(instance.Service, EventExpired, instance, ChangeSet{Removed: []Instance{instance}})
 	}
 	if len(instances) == 0 {
 		return nil, ErrNoInstances
@@ -135,7 +139,7 @@ func (r *MemoryRegistry) Watch(ctx context.Context, service string, opts ...Reso
 	r.watchers[service][ch] = watchState{options: options}
 	r.mu.Unlock()
 	for _, instance := range expired {
-		r.notify(instance.Service, EventExpired, instance)
+		r.notify(instance.Service, EventExpired, instance, ChangeSet{Removed: []Instance{instance}})
 	}
 	ch <- Event{Type: EventSnapshot, Service: service, At: time.Now(), Instances: instances}
 	go func() {
@@ -211,7 +215,7 @@ func (r *MemoryRegistry) resolveLocked(service string, options resolveOptions, n
 	return out
 }
 
-func (r *MemoryRegistry) notify(service string, eventType EventType, instance Instance) {
+func (r *MemoryRegistry) notify(service string, eventType EventType, instance Instance, changes ChangeSet) {
 	if r == nil {
 		return
 	}
@@ -227,7 +231,7 @@ func (r *MemoryRegistry) notify(service string, eventType EventType, instance In
 	now := time.Now()
 	for ch, state := range watchers {
 		instances, _ := r.resolve(service, state.options, now)
-		event := Event{Type: eventType, Service: service, At: now, Instance: normalizeInstance(instance), Instances: instances}
+		event := Event{Type: eventType, Service: service, At: now, Instance: normalizeInstance(instance), Instances: instances, Changes: changes}
 		select {
 		case ch <- event:
 		default:
@@ -263,7 +267,7 @@ func (l *memoryLease) KeepAlive(ctx context.Context) error {
 		}
 	}
 	l.registry.mu.Unlock()
-	l.registry.notify(l.instance.Service, EventRegistered, l.instance)
+	l.registry.notify(l.instance.Service, EventUpdated, l.instance, ChangeSet{Updated: []Instance{normalizeInstance(l.instance)}})
 	return nil
 }
 

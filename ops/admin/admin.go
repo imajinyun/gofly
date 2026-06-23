@@ -241,6 +241,7 @@ func GovernanceEndpoints(opts ...GovernanceEndpointOption) []Endpoint {
 		Endpoint{Method: http.MethodPut, Path: "/governance/rules"},
 		Endpoint{Method: http.MethodGet, Path: "/governance/status"},
 		Endpoint{Method: http.MethodGet, Path: "/governance/stats"},
+		Endpoint{Method: http.MethodGet, Path: "/governance/runtime"},
 		Endpoint{Method: http.MethodGet, Path: "/governance/history"},
 		Endpoint{Method: http.MethodGet, Path: "/governance/events"},
 		Endpoint{Method: http.MethodGet, Path: "/governance/versions"},

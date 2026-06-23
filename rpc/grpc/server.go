@@ -4,6 +4,7 @@ package grpc
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/gofly/gofly/core/governance"
 	"github.com/gofly/gofly/core/observability/metrics"
+	coreruntime "github.com/gofly/gofly/core/runtime"
 	"github.com/gofly/gofly/core/security"
 
 	stdgrpc "google.golang.org/grpc"
@@ -38,6 +40,9 @@ type Server struct {
 	rules           *governance.RuleSet
 	registry        *metrics.Registry
 	tlsErr          error
+	runtime         *coreruntime.Registry
+	unaryNames      []string
+	streamNames     []string
 }
 
 type ServerOption func(*serverOptions)
@@ -51,10 +56,12 @@ type serverOptions struct {
 	enableReflection   bool
 	stopTimeout        time.Duration
 
-	adminAddr string
-	rules     *governance.RuleSet
-	registry  *metrics.Registry
-	tls       security.TLSConfig
+	adminAddr   string
+	rules       *governance.RuleSet
+	registry    *metrics.Registry
+	tls         security.TLSConfig
+	unaryNames  []string
+	streamNames []string
 }
 
 func NewServer(opts ...ServerOption) *Server {
@@ -88,7 +95,11 @@ func NewServer(opts ...ServerOption) *Server {
 		rules:            o.rules,
 		registry:         o.registry,
 		tlsErr:           tlsErr,
+		runtime:          coreruntime.NewRegistry(),
+		unaryNames:       append([]string(nil), o.unaryNames...),
+		streamNames:      append([]string(nil), o.streamNames...),
 	}
+	s.registerRuntime()
 	if s.enableHealth {
 		healthpb.RegisterHealthServer(s.server, s.health)
 		s.health.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
@@ -108,20 +119,24 @@ func NewDefaultServer(addr, serviceName string, rules *governance.RuleSet, regis
 		ObservabilityUnaryServerInterceptor(serviceName, registry, nil),
 		OTelUnaryServerInterceptor(),
 	}
+	unaryNames := []string{"recover", "observability", "otel_trace"}
 	stream := []stdgrpc.StreamServerInterceptor{
 		ObservabilityStreamServerInterceptor(serviceName, registry, nil),
 		OTelStreamServerInterceptor(),
 	}
+	streamNames := []string{"observability", "otel_trace"}
 	if rules != nil {
 		unary = append(unary, GovernanceUnaryServerInterceptor(rules))
 		stream = append(stream, GovernanceStreamServerInterceptor(rules))
+		unaryNames = append(unaryNames, "governance")
+		streamNames = append(streamNames, "governance")
 	}
 	defaults := []ServerOption{
 		WithAddress(addr),
 		WithRules(rules),
 		WithMetricsRegistry(registry),
-		WithUnaryServerInterceptors(unary...),
-		WithStreamServerInterceptors(stream...),
+		withNamedUnaryServerInterceptors(unaryNames, unary...),
+		withNamedStreamServerInterceptors(streamNames, stream...),
 	}
 	return NewServer(append(defaults, opts...)...)
 }
@@ -139,11 +154,35 @@ func WithServerOptions(opts ...stdgrpc.ServerOption) ServerOption {
 }
 
 func WithUnaryServerInterceptors(interceptors ...stdgrpc.UnaryServerInterceptor) ServerOption {
-	return func(o *serverOptions) { o.unaryInterceptors = append(o.unaryInterceptors, interceptors...) }
+	return func(o *serverOptions) {
+		o.unaryInterceptors = append(o.unaryInterceptors, interceptors...)
+		for range interceptors {
+			o.unaryNames = append(o.unaryNames, "custom_unary_interceptor")
+		}
+	}
 }
 
 func WithStreamServerInterceptors(interceptors ...stdgrpc.StreamServerInterceptor) ServerOption {
-	return func(o *serverOptions) { o.streamInterceptors = append(o.streamInterceptors, interceptors...) }
+	return func(o *serverOptions) {
+		o.streamInterceptors = append(o.streamInterceptors, interceptors...)
+		for range interceptors {
+			o.streamNames = append(o.streamNames, "custom_stream_interceptor")
+		}
+	}
+}
+
+func withNamedUnaryServerInterceptors(names []string, interceptors ...stdgrpc.UnaryServerInterceptor) ServerOption {
+	return func(o *serverOptions) {
+		o.unaryInterceptors = append(o.unaryInterceptors, interceptors...)
+		o.unaryNames = append(o.unaryNames, names...)
+	}
+}
+
+func withNamedStreamServerInterceptors(names []string, interceptors ...stdgrpc.StreamServerInterceptor) ServerOption {
+	return func(o *serverOptions) {
+		o.streamInterceptors = append(o.streamInterceptors, interceptors...)
+		o.streamNames = append(o.streamNames, names...)
+	}
 }
 
 func WithHealth(enabled bool) ServerOption {
@@ -225,6 +264,13 @@ func (s *Server) RegisterService(desc *stdgrpc.ServiceDesc, impl any) {
 	s.server.RegisterService(desc, impl)
 }
 
+func (s *Server) RuntimeSnapshot(ctx context.Context) coreruntime.Snapshot {
+	if s == nil || s.runtime == nil {
+		return coreruntime.Snapshot{}
+	}
+	return s.runtime.Snapshot(ctx)
+}
+
 func (s *Server) Start() error {
 	if s.tlsErr != nil {
 		return fmt.Errorf("configure grpc tls: %w", s.tlsErr)
@@ -244,7 +290,7 @@ func (s *Server) Start() error {
 			return fmt.Errorf("listen grpc admin: %w", err)
 		}
 		s.setAdminAddress(adminListener.Addr().String())
-		s.setAdminServer(newAdminServer(adminListener.Addr().String(), s.rules, s.registry))
+		s.setAdminServer(newAdminServer(adminListener.Addr().String(), s.rules, s.registry, s))
 		go func(hs *http.Server) {
 			if err := hs.Serve(adminListener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				_ = hs.Close()
@@ -328,7 +374,73 @@ func (s *Server) shutdownAdmin(ctx context.Context) error {
 	return nil
 }
 
-func newAdminServer(addr string, rules *governance.RuleSet, registry *metrics.Registry) *http.Server {
+func (s *Server) registerRuntime() {
+	if s == nil || s.runtime == nil {
+		return
+	}
+	s.runtime.Register("rpc.grpc.server", "server", func(ctx context.Context) coreruntime.ComponentSnapshot {
+		if err := ctx.Err(); err != nil {
+			return coreruntime.ComponentSnapshot{
+				Name:   "rpc.grpc.server",
+				Kind:   "server",
+				Owner:  "rpc",
+				Target: s.Address(),
+				Status: "error",
+				Error:  err.Error(),
+			}
+		}
+		status := "initialized"
+		if s.Address() != "" && s.Address() != s.addr {
+			status = "running"
+		}
+		return coreruntime.ComponentSnapshot{
+			Name:   "rpc.grpc.server",
+			Kind:   "server",
+			Owner:  "rpc",
+			Target: s.Address(),
+			Status: status,
+			Middleware: &coreruntime.MiddlewareSnapshot{
+				Unary:  grpcRuntimeMiddlewareLayers(s.unaryNames, "unary"),
+				Stream: grpcRuntimeMiddlewareLayers(s.streamNames, "stream"),
+			},
+			Governance: map[string]any{
+				"rules": s.ruleCount(),
+			},
+			Details: map[string]any{
+				"health":     s.enableHealth,
+				"reflection": s.enableReflection,
+				"adminAddr":  s.AdminAddress(),
+			},
+		}
+	}, coreruntime.WithOwner("rpc"))
+}
+
+func (s *Server) ruleCount() int {
+	if s == nil || s.rules == nil {
+		return 0
+	}
+	return len(s.rules.Snapshot())
+}
+
+func grpcRuntimeMiddlewareLayers(names []string, mode string) []coreruntime.MiddlewareLayer {
+	if len(names) == 0 {
+		return nil
+	}
+	layers := make([]coreruntime.MiddlewareLayer, 0, len(names))
+	for i, name := range names {
+		layers = append(layers, coreruntime.MiddlewareLayer{
+			Name:   name,
+			Source: "preset",
+			Order:  i,
+			Reason: mode + " interceptor chain",
+		})
+	}
+	return layers
+}
+
+func newAdminServer(addr string, rules *governance.RuleSet, registry *metrics.Registry, runtimeSource interface {
+	RuntimeSnapshot(context.Context) coreruntime.Snapshot
+}) *http.Server {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -349,6 +461,14 @@ func newAdminServer(addr string, rules *governance.RuleSet, registry *metrics.Re
 			return
 		}
 		_ = metrics.Default.WritePrometheus(w)
+	})
+	mux.HandleFunc("/runtime", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if runtimeSource == nil {
+			_ = json.NewEncoder(w).Encode(coreruntime.Snapshot{})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(runtimeSource.RuntimeSnapshot(r.Context()))
 	})
 	if rules != nil {
 		admin := governance.NewAdmin(rules, nil)

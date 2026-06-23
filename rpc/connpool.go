@@ -7,11 +7,19 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	core "github.com/gofly/gofly/core"
+)
+
+const (
+	ConnPoolModePool  = "pool"
+	ConnPoolModeLong  = "long"
+	ConnPoolModeShort = "short"
 )
 
 var (
@@ -29,32 +37,42 @@ type ConnPoolConfig struct {
 	MaxLifetime  time.Duration
 	DialTimeout  time.Duration
 	WaitInterval time.Duration
+	Mode         string
+	OnClose      func(endpoint string, reason string, stats ConnPoolStats)
 }
 
 // DefaultConnPoolConfig returns sensible defaults.
 func DefaultConnPoolConfig() ConnPoolConfig {
-	return ConnPoolConfig{MaxIdle: 16, MaxActive: 64, IdleTimeout: time.Minute, MaxLifetime: 30 * time.Minute, DialTimeout: 3 * time.Second, WaitInterval: 5 * time.Millisecond}
+	return ConnPoolConfig{MaxIdle: 16, MaxActive: 64, IdleTimeout: time.Minute, MaxLifetime: 30 * time.Minute, DialTimeout: 3 * time.Second, WaitInterval: 5 * time.Millisecond, Mode: ConnPoolModePool}
 }
 
 // ConnPoolStats reports the current pool state.
 type ConnPoolStats struct {
-	Idle    int   `json:"idle"`
-	Active  int   `json:"active"`
-	Created int64 `json:"created"`
-	Reused  int64 `json:"reused"`
-	Closed  int64 `json:"closed"`
-	Waits   int64 `json:"waits"`
+	Endpoint         string        `json:"endpoint,omitempty"`
+	Mode             string        `json:"mode,omitempty"`
+	Idle             int           `json:"idle"`
+	Active           int           `json:"active"`
+	Created          int64         `json:"created"`
+	Reused           int64         `json:"reused"`
+	Closed           int64         `json:"closed"`
+	Waits            int64         `json:"waits"`
+	IdleTimeout      time.Duration `json:"idleTimeout,omitempty"`
+	MaxLifetime      time.Duration `json:"maxLifetime,omitempty"`
+	LastClosedReason string        `json:"lastClosedReason,omitempty"`
 }
 
 type ConnDialer func(context.Context) (net.Conn, error)
+type EndpointConnDialer func(context.Context, string) (net.Conn, error)
 
 type ConnPool struct {
-	mu     sync.Mutex
-	dial   ConnDialer
-	conf   ConnPoolConfig
-	idle   []*PooledConn
-	active int
-	closed bool
+	mu               sync.Mutex
+	dial             ConnDialer
+	conf             ConnPoolConfig
+	endpoint         string
+	lastClosedReason string
+	idle             []*PooledConn
+	active           int
+	closed           bool
 
 	created atomic.Int64
 	reused  atomic.Int64
@@ -104,10 +122,22 @@ func NewConnPoolWithDialer(dial ConnDialer, conf ConnPoolConfig) *ConnPool {
 	if conf.WaitInterval <= 0 {
 		conf.WaitInterval = defaults.WaitInterval
 	}
+	conf.Mode = normalizeConnPoolMode(conf.Mode)
 	if dial == nil {
 		dial = func(context.Context) (net.Conn, error) { return nil, errors.New("rpc connection pool dialer is nil") }
 	}
 	return &ConnPool{dial: dial, conf: conf}
+}
+
+func normalizeConnPoolMode(mode string) string {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case ConnPoolModeShort:
+		return ConnPoolModeShort
+	case ConnPoolModeLong:
+		return ConnPoolModeLong
+	default:
+		return ConnPoolModePool
+	}
 }
 
 func (p *ConnPool) Get(ctx context.Context) (*PooledConn, error) {
@@ -200,6 +230,10 @@ func (p *ConnPool) Discard(conn *PooledConn) error {
 }
 
 func (p *ConnPool) Close() error {
+	return p.closeWithReason("closed")
+}
+
+func (p *ConnPool) closeWithReason(reason string) error {
 	if p == nil {
 		return nil
 	}
@@ -209,10 +243,12 @@ func (p *ConnPool) Close() error {
 		return nil
 	}
 	p.closed = true
+	p.lastClosedReason = reason
 	idle := p.idle
 	p.idle = nil
 	p.active -= len(idle)
 	p.closedN.Add(int64(len(idle)))
+	stats := p.snapshotLocked()
 	p.mu.Unlock()
 
 	var err error
@@ -220,6 +256,9 @@ func (p *ConnPool) Close() error {
 		if closeErr := conn.Conn.Close(); closeErr != nil {
 			err = errors.Join(err, closeErr)
 		}
+	}
+	if p.conf.OnClose != nil {
+		p.conf.OnClose(p.endpoint, reason, stats)
 	}
 	return err
 }
@@ -229,10 +268,25 @@ func (p *ConnPool) Snapshot() ConnPoolStats {
 		return ConnPoolStats{}
 	}
 	p.mu.Lock()
-	idle := len(p.idle)
-	active := p.active
+	stats := p.snapshotLocked()
 	p.mu.Unlock()
-	return ConnPoolStats{Idle: idle, Active: active, Created: p.created.Load(), Reused: p.reused.Load(), Closed: p.closedN.Load(), Waits: p.waits.Load()}
+	return stats
+}
+
+func (p *ConnPool) snapshotLocked() ConnPoolStats {
+	return ConnPoolStats{
+		Endpoint:         p.endpoint,
+		Mode:             p.conf.Mode,
+		Idle:             len(p.idle),
+		Active:           p.active,
+		Created:          p.created.Load(),
+		Reused:           p.reused.Load(),
+		Closed:           p.closedN.Load(),
+		Waits:            p.waits.Load(),
+		IdleTimeout:      p.conf.IdleTimeout,
+		MaxLifetime:      p.conf.MaxLifetime,
+		LastClosedReason: p.lastClosedReason,
+	}
 }
 
 func (p *ConnPool) release(conn *PooledConn, discard bool) error {
@@ -242,7 +296,7 @@ func (p *ConnPool) release(conn *PooledConn, discard bool) error {
 	now := time.Now()
 	conn.lastUsed = now
 	p.mu.Lock()
-	shouldClose := discard || p.closed || p.expiredLocked(conn, now) || len(p.idle) >= p.conf.MaxIdle
+	shouldClose := discard || p.closed || p.conf.Mode == ConnPoolModeShort || p.expiredLocked(conn, now) || len(p.idle) >= p.conf.MaxIdle
 	if shouldClose {
 		p.active--
 		p.closedN.Add(1)
@@ -252,6 +306,129 @@ func (p *ConnPool) release(conn *PooledConn, discard bool) error {
 	p.idle = append(p.idle, conn)
 	p.mu.Unlock()
 	return nil
+}
+
+type ConnPoolManager struct {
+	mu     sync.Mutex
+	dial   EndpointConnDialer
+	conf   ConnPoolConfig
+	pools  map[string]*ConnPool
+	closed bool
+}
+
+type ConnPoolManagerSnapshot struct {
+	Mode      string          `json:"mode,omitempty"`
+	Endpoints []ConnPoolStats `json:"endpoints,omitempty"`
+	Closed    bool            `json:"closed"`
+}
+
+func NewConnPoolManager(dial EndpointConnDialer, conf ConnPoolConfig) *ConnPoolManager {
+	if dial == nil {
+		dial = func(context.Context, string) (net.Conn, error) {
+			return nil, errors.New("rpc connection pool manager dialer is nil")
+		}
+	}
+	conf.Mode = normalizeConnPoolMode(conf.Mode)
+	if conf.Mode == ConnPoolModeLong {
+		if conf.MaxIdle == 0 {
+			conf.MaxIdle = 1
+		}
+		if conf.MaxActive == 0 {
+			conf.MaxActive = 1
+		}
+	}
+	if conf.Mode == ConnPoolModeShort {
+		conf.MaxIdle = 0
+	}
+	return &ConnPoolManager{dial: dial, conf: conf, pools: make(map[string]*ConnPool)}
+}
+
+func (m *ConnPoolManager) Get(ctx context.Context, endpoint string) (*PooledConn, error) {
+	if m == nil {
+		return nil, ErrConnPoolClosed
+	}
+	endpoint = strings.TrimRight(strings.TrimSpace(endpoint), "/")
+	if endpoint == "" {
+		return nil, errors.New("rpc connection pool endpoint is required")
+	}
+	pool, err := m.pool(endpoint)
+	if err != nil {
+		return nil, err
+	}
+	return pool.Get(ctx)
+}
+
+func (m *ConnPoolManager) RemoveEndpoint(endpoint string) error {
+	endpoint = strings.TrimRight(strings.TrimSpace(endpoint), "/")
+	if m == nil || endpoint == "" {
+		return nil
+	}
+	m.mu.Lock()
+	pool := m.pools[endpoint]
+	delete(m.pools, endpoint)
+	m.mu.Unlock()
+	if pool == nil {
+		return nil
+	}
+	return pool.closeWithReason("endpoint_removed")
+}
+
+func (m *ConnPoolManager) Close() error {
+	if m == nil {
+		return nil
+	}
+	m.mu.Lock()
+	if m.closed {
+		m.mu.Unlock()
+		return nil
+	}
+	m.closed = true
+	pools := m.pools
+	m.pools = nil
+	m.mu.Unlock()
+	var err error
+	for _, pool := range pools {
+		err = errors.Join(err, pool.closeWithReason("manager_closed"))
+	}
+	return err
+}
+
+func (m *ConnPoolManager) Snapshot() ConnPoolManagerSnapshot {
+	if m == nil {
+		return ConnPoolManagerSnapshot{}
+	}
+	m.mu.Lock()
+	pools := make([]*ConnPool, 0, len(m.pools))
+	for _, pool := range m.pools {
+		pools = append(pools, pool)
+	}
+	closed := m.closed
+	mode := normalizeConnPoolMode(m.conf.Mode)
+	m.mu.Unlock()
+	endpoints := make([]ConnPoolStats, 0, len(pools))
+	for _, pool := range pools {
+		endpoints = append(endpoints, pool.Snapshot())
+	}
+	sort.Slice(endpoints, func(i, j int) bool { return endpoints[i].Endpoint < endpoints[j].Endpoint })
+	return ConnPoolManagerSnapshot{Mode: mode, Endpoints: endpoints, Closed: closed}
+}
+
+func (m *ConnPoolManager) pool(endpoint string) (*ConnPool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.closed {
+		return nil, ErrConnPoolClosed
+	}
+	if pool := m.pools[endpoint]; pool != nil {
+		return pool, nil
+	}
+	conf := m.conf
+	pool := NewConnPoolWithDialer(func(ctx context.Context) (net.Conn, error) {
+		return m.dial(ctx, endpoint)
+	}, conf)
+	pool.endpoint = endpoint
+	m.pools[endpoint] = pool
+	return pool, nil
 }
 
 func (p *ConnPool) expiredLocked(conn *PooledConn, now time.Time) bool {

@@ -24,6 +24,7 @@ import (
 	"github.com/gofly/gofly/core/metadata"
 	"github.com/gofly/gofly/core/observability/metrics"
 	"github.com/gofly/gofly/core/observability/trace"
+	coreruntime "github.com/gofly/gofly/core/runtime"
 	controladmin "github.com/gofly/gofly/ops/admin"
 )
 
@@ -676,6 +677,44 @@ func TestAdminRoutesCanRequireBearerToken(t *testing.T) {
 	s.Handler().ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("authorized status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	var runtimeSnapshot coreruntime.Snapshot
+	if err := json.NewDecoder(rec.Body).Decode(&runtimeSnapshot); err != nil {
+		t.Fatal(err)
+	}
+	if len(runtimeSnapshot.Components) != 1 || runtimeSnapshot.Components[0].Name != "rest.server" {
+		t.Fatalf("runtime snapshot = %#v, want rest server component", runtimeSnapshot)
+	}
+	if runtimeSnapshot.Components[0].Middleware == nil || len(runtimeSnapshot.Components[0].Middleware.Unary) == 0 {
+		t.Fatalf("runtime middleware = %#v, want resolved REST chain", runtimeSnapshot.Components[0].Middleware)
+	}
+}
+
+func TestRESTRuntimeSnapshotExplainsPresetAndCustomMiddlewareChain(t *testing.T) {
+	s := MustNewServer(Config{Admin: AdminConfig{Enabled: true, PathPrefix: "/admin"}})
+	s.Use(func(next http.Handler) http.Handler { return next })
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/runtime", nil)
+	req.RemoteAddr = "127.0.0.1:12345"
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("runtime status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	var runtimeSnapshot coreruntime.Snapshot
+	if err := json.NewDecoder(rec.Body).Decode(&runtimeSnapshot); err != nil {
+		t.Fatal(err)
+	}
+	if len(runtimeSnapshot.Components) != 1 || runtimeSnapshot.Components[0].Middleware == nil {
+		t.Fatalf("runtime snapshot = %#v, want rest middleware component", runtimeSnapshot)
+	}
+	layers := runtimeSnapshot.Components[0].Middleware.Unary
+	if len(layers) == 0 || layers[0].Name != "security_headers" || layers[0].Source != "preset" {
+		t.Fatalf("runtime layers = %#v, want production preset security headers first", layers)
+	}
+	last := layers[len(layers)-1]
+	if last.Name != "custom_middleware" || last.Source != "user" {
+		t.Fatalf("runtime last layer = %#v, want user custom middleware", last)
 	}
 }
 

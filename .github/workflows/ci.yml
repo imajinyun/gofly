@@ -541,6 +541,9 @@ jobs:
             echo "examples/ not present or empty; skipping vet"
           fi
 
+      - name: Benchmark evidence gate
+        run: make bench-evidence-check
+
       - name: Benchmark baseline smoke
         run: bash bin/scripts/benchstat.sh --smoke
 

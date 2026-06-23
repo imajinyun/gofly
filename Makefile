@@ -172,7 +172,7 @@ check: fmt-check vet test ## Run the core local verification suite
 ci-fast: fmt-check vet build examples-check examples-smoke docs-check test tidy ## Run the default CI build/test/tidy gates
 
 .PHONY: ci
-ci: ci-fast test-generated-matrix generated-control-plane-smoke governance supply-chain ## Run the full CI verification suite
+ci: ci-fast test-generated-matrix generated-control-plane-smoke bench-evidence-check governance supply-chain ## Run the full CI verification suite
 
 .PHONY: integration-tests
 integration-tests: ## Run Docker-backed integration test packages for dependency upgrades

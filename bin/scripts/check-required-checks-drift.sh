@@ -61,6 +61,12 @@ expected_integration_matrix = {
 
 expected_integration_packages = " ".join(expected_integration_matrix.values())
 
+expected_benchmark_artifacts = {
+    "bench/baseline.txt",
+    "bench/matrix.md",
+    "bench/evidence.md",
+}
+
 expected_governance_rounds = {
     1: "baseline and module graph",
     2: "format check",
@@ -177,9 +183,11 @@ integration_target = extract_make_target_body(makefile, "integration-tests")
 dependency_target = extract_make_target_body(makefile, "dependency-upgrade-check")
 dependency_job = extract_job_body(workflow, "dependency-upgrade-validation")
 governance_job = extract_job_body(workflow, "governance")
+bench_job = extract_job_body(workflow, "bench-fuzz")
 governance_target_deps = extract_make_target_deps(makefile, "governance")
 governance_10_target = extract_make_target_body(makefile, "governance-10-rounds")
 ci_target_deps = extract_make_target_deps(makefile, "ci")
+bench_evidence_target = extract_make_target_body(makefile, "bench-evidence-check")
 
 require(
     branch_audit_expected == expected_default_checks,
@@ -254,6 +262,28 @@ require(
 require(
     "DEPENDENCY_UPGRADE_RUN_INTEGRATION" in makefile,
     "Makefile: DEPENDENCY_UPGRADE_RUN_INTEGRATION toggle is missing",
+)
+require(
+    "bash $(SCRIPTS_DIR)/benchstat.sh --check-evidence" in bench_evidence_target,
+    "Makefile: bench-evidence-check must validate tracked benchmark evidence through benchstat.sh --check-evidence",
+)
+require(
+    "bench-evidence-check" in ci_target_deps,
+    "Makefile: ci target must include bench-evidence-check so local full CI validates benchmark evidence",
+)
+require(
+    "run: make bench-evidence-check" in bench_job,
+    "ci.yml: bench-fuzz job must run make bench-evidence-check before benchmark smoke/trend artifacts",
+)
+require(
+    bench_job.index("run: make bench-evidence-check") < bench_job.index("bash bin/scripts/benchstat.sh --smoke"),
+    "ci.yml: benchmark evidence gate must run before benchmark smoke rewrites current benchmark artifacts",
+)
+for artifact in sorted(expected_benchmark_artifacts):
+    require((root / artifact).exists(), f"benchmark artifact is missing: {artifact}")
+require(
+    "bench-evidence-check" in agents or "bench-evidence-check" in makefile,
+    "benchmark evidence governance must mention bench-evidence-check in AGENTS.md or Makefile",
 )
 
 rounds = {}

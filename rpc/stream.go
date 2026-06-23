@@ -239,15 +239,81 @@ func (c *HTTPClient) Stream(ctx context.Context, method string) (*Stream, error)
 	return handler(ctx, method)
 }
 
-func (c *HTTPClient) openStream(ctx context.Context, method string) (*Stream, error) {
+func (c *HTTPClient) openStream(ctx context.Context, method string) (stream *Stream, err error) {
 	ctx = core.Context(ctx)
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	target, _, err := c.pickTarget(ctx, RPCBalancerPolicy{}, "")
+	governanceReq := c.rpcGovernanceRequest(ctx, method)
+	decision := c.governanceDecision(ctx, governanceReq)
+	policy := decision.Policy
+	rpcPolicy := c.effectiveRPCPolicy(policy)
+	if c.opts.rpcPolicyProvider != nil {
+		dynamicPolicy, err := c.opts.rpcPolicyProvider.RPCPolicy(ctx, governanceReq)
+		if err != nil {
+			return nil, fmt.Errorf("resolve dynamic rpc stream policy: %w", err)
+		}
+		rpcPolicy = mergeRPCPolicy(rpcPolicy, dynamicPolicy)
+	}
+	if err := rpcPolicy.Validate(); err != nil {
+		return nil, fmt.Errorf("apply rpc stream policy: %w", err)
+	}
+	rpcPolicy = rpcPolicyForMethod(rpcPolicy, method)
+	runtimeKey := governanceRuntimeKey(decision, method)
+	if limiter := c.ruleRateLimiter(runtimeKey, policy.RateLimit); limiter != nil && !limiter.Allow() {
+		return nil, NewError(CodeResourceExhausted, "too many stream requests")
+	}
+	releaseLimiters := make([]func(), 0, 2)
+	releaseAll := func() {
+		for i := len(releaseLimiters) - 1; i >= 0; i-- {
+			releaseLimiters[i]()
+		}
+	}
+	defer func() {
+		if err != nil {
+			releaseAll()
+		}
+	}()
+	if limiter := c.ruleConcurrencyLimiter(runtimeKey, policy.Concurrency); limiter != nil {
+		if !limiter.TryAcquire() {
+			return nil, NewError(CodeUnavailable, "too many concurrent streams")
+		}
+		releaseLimiters = append(releaseLimiters, limiter.Release)
+	}
+	if limiter := c.ruleLoadShedderLimiter(runtimeKey, rpcPolicy.LoadShedder); limiter != nil {
+		if !limiter.TryAcquire() {
+			return nil, NewError(CodeResourceExhausted, "rpc stream load shedder rejected request")
+		}
+		releaseLimiters = append(releaseLimiters, limiter.Release)
+	}
+	var brk *breaker.AdaptiveBreaker
+	if brk = c.ruleBreaker(runtimeKey, rpcPolicy.Breaker); brk != nil {
+		if err := brk.Allow(); err != nil {
+			return nil, NewError(CodeUnavailable, err.Error())
+		}
+		defer func() {
+			if err != nil {
+				brk.MarkFailure()
+				return
+			}
+			brk.MarkSuccess()
+		}()
+	}
+	ctx = applyGovernanceMetadata(ctx, canaryMetadata(policy.Canary, governanceReq))
+	ctx = applyGovernanceMetadata(ctx, rpcPolicy.Metadata)
+	ctx = applyGovernanceMetadata(ctx, rpcPolicy.Headers)
+	streamTimeout := c.opts.streamTimeout
+	if rpcPolicy.Timeout > 0 {
+		streamTimeout = rpcPolicy.Timeout
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, rpcPolicy.Timeout)
+		defer cancel()
+	}
+	target, balancer, err := c.pickTarget(ctx, rpcPolicy.Balancer, "")
 	if err != nil {
 		return nil, NewError(CodeUnavailable, err.Error())
 	}
+	defer c.reportEndpointWithBalancer(ctx, balancer, target, &err)
 	u, err := url.Parse(target)
 	if err != nil {
 		return nil, fmt.Errorf("parse target: %w", err)
@@ -308,9 +374,18 @@ func (c *HTTPClient) openStream(ctx context.Context, method string) (*Stream, er
 			break
 		}
 	}
-	stream := newStream(conn, rw, c.opts.codec)
-	stream.readTimeout = c.opts.streamTimeout
-	stream.writeTimeout = c.opts.streamTimeout
+	stream = newStream(conn, rw, c.opts.codec)
+	stream.readTimeout = streamTimeout
+	stream.writeTimeout = streamTimeout
+	if len(releaseLimiters) > 0 {
+		releases := append([]func(){}, releaseLimiters...)
+		stream.onClose(func() {
+			for i := len(releases) - 1; i >= 0; i-- {
+				releases[i]()
+			}
+		})
+		releaseLimiters = nil
+	}
 	return stream, nil
 }
 

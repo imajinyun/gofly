@@ -155,6 +155,48 @@ func TestRPCStreamGovernanceMatchesIncomingMetadata(t *testing.T) {
 	}
 }
 
+func TestRPCClientStreamMethodPolicyMetadataAndTimeout(t *testing.T) {
+	s := NewServer()
+	if err := s.RegisterService(ServiceDesc{Name: "chat", Streams: []StreamDesc{{
+		Name:       "PolicyStream",
+		NewMessage: func() any { return new(helloReq) },
+		Handler: func(ctx context.Context, stream *Stream) error {
+			md, ok := metadata.FromContext(ctx)
+			if !ok || md.Get("x-stream-policy") != "method" || md.Get("x-stream-header") != "enabled" {
+				t.Fatalf("metadata = %#v, want method rpc policy metadata and header", md)
+			}
+			time.Sleep(50 * time.Millisecond)
+			return stream.Send(helloResp{Message: "late"})
+		},
+	}}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(s)
+	defer ts.Close()
+	c, err := NewClient(ts.URL, WithRPCPolicy(RPCPolicy{
+		Timeout: 200 * time.Millisecond,
+		Methods: map[string]RPCPolicy{
+			"chat/PolicyStream": {
+				Timeout:  5 * time.Millisecond,
+				Metadata: map[string]string{"x-stream-policy": "method"},
+				Headers:  map[string]string{"x-stream-header": "enabled"},
+			},
+		},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stream, err := c.Stream(context.Background(), "chat/PolicyStream")
+	if err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+	defer stream.Close()
+	if err := stream.Recv(&helloResp{}); CodeOf(err) != CodeDeadlineExceeded {
+		t.Fatalf("Recv = %v, want deadline_exceeded from method stream policy", err)
+	}
+}
+
 func TestRPCStreamMiddlewareChain(t *testing.T) {
 	globalMiddleware := func(next StreamHandler) StreamHandler {
 		return func(ctx context.Context, stream *Stream) error {

@@ -827,6 +827,93 @@ func TestResolveRemotePluginRejectsDigestMismatch(t *testing.T) {
 	}
 }
 
+func TestResolveRemotePluginRejectsBadCacheMetadata(t *testing.T) {
+	t.Run("invalid json", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		source := filepath.Join(t.TempDir(), "my-plugin")
+		if err := os.WriteFile(source, []byte("#!/bin/sh\nprintf ok\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		remote := source + "@v1.0.0"
+		info, err := InstallRemotePlugin(remote)
+		if err != nil {
+			t.Fatalf("InstallRemotePlugin: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(filepath.Dir(info.Binary), "plugin.json"), []byte("{"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		_, err = ResolveRemotePlugin(remote)
+		if err == nil || !strings.Contains(err.Error(), "read plugin cache metadata") {
+			t.Fatalf("ResolveRemotePlugin invalid metadata error = %v, want metadata read error", err)
+		}
+	})
+
+	t.Run("identity mismatch", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		source := filepath.Join(t.TempDir(), "my-plugin")
+		if err := os.WriteFile(source, []byte("#!/bin/sh\nprintf ok\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		remote := source + "@v1.0.0"
+		info, err := InstallRemotePlugin(remote)
+		if err != nil {
+			t.Fatalf("InstallRemotePlugin: %v", err)
+		}
+		info.Version = "v9.9.9"
+		data, err := json.Marshal(info)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(filepath.Dir(info.Binary), "plugin.json"), data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		_, err = ResolveRemotePlugin(remote)
+		if err == nil || !strings.Contains(err.Error(), "metadata mismatch") {
+			t.Fatalf("ResolveRemotePlugin mismatched metadata error = %v, want metadata mismatch", err)
+		}
+	})
+}
+
+func TestResolveRemotePluginRejectsSymlinkedCachedBinary(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	source := filepath.Join(t.TempDir(), "my-plugin")
+	if err := os.WriteFile(source, []byte("#!/bin/sh\nprintf ok\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	remote := source + "@v1.0.0"
+	info, err := InstallRemotePlugin(remote)
+	if err != nil {
+		t.Fatalf("InstallRemotePlugin: %v", err)
+	}
+	outside := filepath.Join(t.TempDir(), "outside-plugin")
+	outsideData := []byte("#!/bin/sh\nprintf outside\n")
+	if err := os.WriteFile(outside, outsideData, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(info.Binary); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, info.Binary); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+	wantDigestBytes := sha256.Sum256(outsideData)
+	info.BinaryDigest = hex.EncodeToString(wantDigestBytes[:])
+	data, err := json.Marshal(info)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(filepath.Dir(info.Binary), "plugin.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = ResolveRemotePlugin(remote)
+	if err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("ResolveRemotePlugin symlinked binary error = %v, want symlink rejection", err)
+	}
+}
+
 func TestInstallRemotePluginRejectsSymlinkCacheDir(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -856,6 +943,33 @@ func TestInstallRemotePluginRejectsSymlinkCacheDir(t *testing.T) {
 		t.Fatal("plugin was written through symlink cache dir")
 	} else if !os.IsNotExist(err) {
 		t.Fatalf("stat outside plugin: %v", err)
+	}
+}
+
+func TestInstallRemotePluginRejectsSymlinkCacheRoot(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	source := filepath.Join(t.TempDir(), "my-plugin")
+	if err := os.WriteFile(source, []byte("#!/bin/sh\nprintf ok\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cacheParent := filepath.Join(home, ".cache", "gofly")
+	if err := os.MkdirAll(cacheParent, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(cacheParent, "plugins")); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	_, err := InstallRemotePlugin(source + "@v1.0.0")
+	if err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("InstallRemotePlugin with symlink cache root error = %v, want symlink rejection", err)
+	}
+	if entries, err := os.ReadDir(outside); err != nil {
+		t.Fatalf("read outside cache root: %v", err)
+	} else if len(entries) != 0 {
+		t.Fatalf("plugin cache root symlink target was written: %#v", entries)
 	}
 }
 
@@ -1132,6 +1246,25 @@ func TestPluginRegistryIndexValidationAndFiltering(t *testing.T) {
 	if err := ValidatePluginRegistryIndex(badManifest); err == nil || !strings.Contains(err.Error(), "unsupported capability") {
 		t.Fatalf("ValidatePluginRegistryIndex(badManifest) error = %v, want unsupported capability", err)
 	}
+
+	invalidCases := []struct {
+		name  string
+		index PluginRegistryIndex
+		want  string
+	}{
+		{name: "missing registry version", index: PluginRegistryIndex{}, want: "version is required"},
+		{name: "missing entry name", index: PluginRegistryIndex{Version: "v1", Plugins: []PluginRegistryEntry{{Remote: "https://example.com/plugin", Version: "v1"}}}, want: "entry name is required"},
+		{name: "missing remote", index: PluginRegistryIndex{Version: "v1", Plugins: []PluginRegistryEntry{{Name: "missing-remote", Version: "v1"}}}, want: "requires remote and version"},
+		{name: "invalid remote spec", index: PluginRegistryIndex{Version: "v1", Plugins: []PluginRegistryEntry{{Name: "bad-remote", Remote: "https://example.com/plugin", Version: "../main"}}}, want: "remote plugin version"},
+	}
+	for _, tt := range invalidCases {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidatePluginRegistryIndex(tt.index)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("ValidatePluginRegistryIndex(%s) error = %v, want %q", tt.name, err, tt.want)
+			}
+		})
+	}
 }
 
 func TestLoadPluginRegistryIndexFromFile(t *testing.T) {
@@ -1162,6 +1295,21 @@ func TestLoadPluginRegistryIndexFromFile(t *testing.T) {
 	}
 	if index.Version != "v1" || len(index.Plugins) != 1 || index.Plugins[0].Name != "auth-jwt" {
 		t.Fatalf("LoadPluginRegistryIndex(file) = %#v, want auth-jwt registry", index)
+	}
+
+	badJSON := filepath.Join(t.TempDir(), "bad-registry.json")
+	if err := os.WriteFile(badJSON, []byte("{"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadPluginRegistryIndex(badJSON); err == nil || !strings.Contains(err.Error(), "decode plugin registry") {
+		t.Fatalf("LoadPluginRegistryIndex(bad json) error = %v, want decode error", err)
+	}
+	badMetadata := filepath.Join(t.TempDir(), "bad-metadata.json")
+	if err := os.WriteFile(badMetadata, []byte(`{"version":"v1","plugins":[{"name":"bad","remote":"https://example.com/bad","version":"v1","manifest":{"name":"bad","version":"v1","compatibleVersions":["999"],"capabilities":["generate:file"]}}]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadPluginRegistryIndex(badMetadata); err == nil || !strings.Contains(err.Error(), "manifest") || !strings.Contains(err.Error(), "incompatible") {
+		t.Fatalf("LoadPluginRegistryIndex(bad metadata) error = %v, want manifest incompatibility", err)
 	}
 }
 

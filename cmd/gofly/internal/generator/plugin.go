@@ -676,6 +676,9 @@ func ResolveRemotePlugin(remote string) (InstalledPlugin, error) {
 		if info.Remote != spec.remote || info.Version != spec.version || info.Hash != spec.hash {
 			return InstalledPlugin{}, fmt.Errorf("plugin cache metadata mismatch for %s@%s hash=%s", spec.remote, spec.version, spec.hash)
 		}
+		if err := rejectExistingSymlinkTarget(bin, "cached plugin"); err != nil {
+			return InstalledPlugin{}, err
+		}
 		if st, err := os.Stat(bin); err != nil {
 			return InstalledPlugin{}, fmt.Errorf("stat cached plugin %s: %w", bin, err)
 		} else if st.IsDir() || st.Mode()&0o111 == 0 {

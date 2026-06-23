@@ -27,15 +27,16 @@ make release-snapshot
 
 ## Required CI checks
 
-Treat these GitHub Actions jobs as branch-protection required checks for `main` and release tags:
+Treat these GitHub Actions jobs as branch-protection required checks for the default branch. Tag releases depend on the tag-applicable pre-release jobs and exclude pull-request-only or default-branch-only audit jobs:
 
-- `build & test (go 1.26)` and `build & test (go stable)` for the root build, unit, generated matrix, control-plane smoke, coverage, and CLI version gates.
+- `build & test (go stable)` for the root `ci-fast` gates and CLI version build.
+- `build & test (go 1.26)` for the root `ci-fast` gates plus generated matrix, control-plane smoke, coverage, and CLI version build.
 - `golangci-lint`, `security (govulncheck + gosec)`, `supply-chain lint + OSV`, `CodeQL security analysis`, and `dependency review` for static, vulnerability, workflow, action-pin, and pull-request dependency gates.
 - `dependency upgrade validation` for dependency PRs; it runs `go mod verify` and `govulncheck` when `go.mod` or `go.sum` changes, while Docker-backed coverage is provided by the required `integration tests (...)` matrix.
-- `branch protection required-check audit` to detect drift between the configured `main` branch protection checks and this checklist.
+- `branch protection required-check audit` to detect drift between the configured default-branch protection checks and this checklist.
 - `contract / api+rpc (check + breaking)`, `governance gates`, `bench + fuzz smoke`, and `integration tests (...)` for compatibility, governance, performance-smoke, fuzz, and Docker-backed subsystem coverage.
 - `docker build + trivy` and `OSSF Scorecard` for container scan evidence and supply-chain posture.
-- `release (tagged)` for tag releases; it must depend on all required pre-release jobs and upload release, Docker digest, Trivy, SBOM, and provenance evidence.
+- `release (tagged)` for tag releases; it must depend on all tag-applicable pre-release jobs and upload release, Docker digest, Trivy, SBOM, and attestation verification evidence.
 
 Required-check maintenance rules:
 

@@ -37,6 +37,7 @@ if not dist.is_dir():
 archives = sorted([p for p in dist.iterdir() if p.suffix in {".gz", ".zip"} or p.name.endswith(".tar.gz")])
 if not archives:
     raise SystemExit("release dist contains no archives")
+expected_sboms = [dist / f"{archive.name}.spdx.json" for archive in archives]
 
 checksums = dist / "checksums.txt"
 if not checksums.is_file() or checksums.stat().st_size == 0:
@@ -48,20 +49,26 @@ for line in checksums.read_text(encoding="utf-8").splitlines():
     if len(parts) >= 2:
         checksum_entries[parts[-1]] = parts[0]
 
-missing = [p.name for p in archives if p.name not in checksum_entries]
+missing_sboms = [sbom.name for sbom in expected_sboms if not sbom.is_file()]
+if missing_sboms:
+    raise SystemExit(f"release dist is missing archive SBOM(s): {', '.join(missing_sboms)}")
+
+checksum_required_files = archives + expected_sboms
+missing = [p.name for p in checksum_required_files if p.name not in checksum_entries]
 if missing:
-    raise SystemExit(f"checksums.txt does not cover archive(s): {', '.join(missing)}")
+    raise SystemExit(f"checksums.txt does not cover release file(s): {', '.join(missing)}")
 
-for archive in archives:
-    got = hashlib.sha256(archive.read_bytes()).hexdigest()
-    want = checksum_entries[archive.name]
+stale_checksums = [name for name in checksum_entries if not (dist / name).is_file()]
+if stale_checksums:
+    raise SystemExit(f"checksums.txt references missing release file(s): {', '.join(stale_checksums)}")
+
+for release_file in checksum_required_files:
+    got = hashlib.sha256(release_file.read_bytes()).hexdigest()
+    want = checksum_entries[release_file.name]
     if got != want:
-        raise SystemExit(f"checksum mismatch for {archive.name}: got {got}, want {want}")
+        raise SystemExit(f"checksum mismatch for {release_file.name}: got {got}, want {want}")
 
-sboms = sorted(dist.glob("*.spdx.json"))
-if not sboms:
-    raise SystemExit("release dist contains no archive SBOM (*.spdx.json)")
-for sbom in sboms:
+for sbom in expected_sboms:
     data = json.loads(sbom.read_text(encoding="utf-8"))
     if not data.get("SPDXID") or not data.get("packages"):
         raise SystemExit(f"SBOM {sbom.name} is missing SPDXID or packages")
@@ -118,7 +125,7 @@ if require_docker_evidence:
     if not attestation_subject_matches(docker_entries, manifest_digest.removeprefix("sha256:")):
         raise SystemExit(f"Docker attestation does not bind to {manifest_digest}: {release_docker_attestation}")
 print(f"release archives verified: {len(archives)}")
-print(f"release SBOMs verified: {len(sboms)}")
+print(f"release SBOMs verified: {len(expected_sboms)}")
 if docker_digest_files:
     print(f"docker digest evidence files: {len(docker_digest_files)}")
 else:

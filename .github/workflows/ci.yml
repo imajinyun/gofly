@@ -127,6 +127,8 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          fetch-depth: 0
 
       - name: Set up Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
@@ -269,7 +271,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Audit main required status checks
+      - name: Audit default-branch required status checks
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPOSITORY: ${{ github.repository }}
@@ -617,6 +619,7 @@ jobs:
           output: trivy-results.sarif
           severity: CRITICAL,HIGH
           ignore-unfixed: true
+          exit-code: "1"
 
       - name: Upload Trivy scan results
         if: always()

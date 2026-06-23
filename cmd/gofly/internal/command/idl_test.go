@@ -5563,6 +5563,9 @@ func TestPrintJSONError(t *testing.T) {
 }
 
 func TestAnsiColorAndRightPad(t *testing.T) {
+	t.Setenv("NO_COLOR", "")
+	t.Setenv("GOFLY_NO_COLOR", "")
+
 	if got := ansiColor("31", ""); got != "" {
 		t.Fatalf("ansiColor empty = %q", got)
 	}

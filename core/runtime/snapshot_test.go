@@ -47,7 +47,7 @@ func TestRegistrySnapshotSortsAndSurvivesPanic(t *testing.T) {
 
 func TestNilRegistrySnapshotIsSafe(t *testing.T) {
 	var reg *Registry
-	snapshot := reg.Snapshot(nil)
+	snapshot := reg.Snapshot(context.Background())
 	if len(snapshot.Components) != 0 || snapshot.GeneratedAt.IsZero() {
 		t.Fatalf("nil snapshot = %#v, want generated empty snapshot", snapshot)
 	}

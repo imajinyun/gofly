@@ -49,6 +49,15 @@ func TestIsAIHelpSubcommand(t *testing.T) {
 	}
 }
 
+func manifestLinksContainPath(links []aiManifestLink, want string) bool {
+	for _, link := range links {
+		if link.Path == want {
+			return true
+		}
+	}
+	return false
+}
+
 func TestIsRetryableLLMError(t *testing.T) {
 	tests := []struct {
 		name string
@@ -1287,6 +1296,24 @@ func TestAINewTextHelpAndManifestContract_BitsUT(t *testing.T) {
 
 	t.Run("manifest exposes governed feature library contract", func(t *testing.T) {
 		manifest := buildAIToolManifest()
+		if len(manifest.Docs) == 0 || len(manifest.Examples) == 0 || len(manifest.VerifyCommands) == 0 {
+			t.Fatalf("manifest links and verify commands = docs:%+v examples:%+v verify:%+v", manifest.Docs, manifest.Examples, manifest.VerifyCommands)
+		}
+		for _, want := range []string{"docs/concepts/ai-manifest.md", "docs/reference/cli-json-contracts.md"} {
+			if !manifestLinksContainPath(manifest.Docs, want) {
+				t.Fatalf("manifest docs missing %q: %+v", want, manifest.Docs)
+			}
+		}
+		for _, want := range []string{"examples/README.md", "examples/ai-governed-service/README.md"} {
+			if !manifestLinksContainPath(manifest.Examples, want) {
+				t.Fatalf("manifest examples missing %q: %+v", want, manifest.Examples)
+			}
+		}
+		for _, want := range []string{"make docs-check", "make doc-manifest-sync-check"} {
+			if !commandContainsString(manifest.VerifyCommands, want) {
+				t.Fatalf("manifest verify commands missing %q: %+v", want, manifest.VerifyCommands)
+			}
+		}
 		controlPlane := manifest.ControlPlane
 		if controlPlane.Package != "github.com/gofly/gofly/core/controlplane" || controlPlane.SnapshotVersion != "gofly-control-plane.v1" || controlPlane.SnapshotChecksum == "" {
 			t.Fatalf("control plane manifest = %+v, want package, version and stable checksum", controlPlane)
@@ -1350,6 +1377,16 @@ func TestAINewTextHelpAndManifestContract_BitsUT(t *testing.T) {
 		if !strings.Contains(library.DependencyPolicy, "not automatically added") {
 			t.Fatalf("feature library dependency policy = %q, want explicit dependency review boundary", library.DependencyPolicy)
 		}
+		for _, want := range []string{"auth-jwt", "postgres-repository", "redis-cache"} {
+			if !commandContainsString(library.Features, want) {
+				t.Fatalf("feature library features missing %q: %+v", want, library.Features)
+			}
+		}
+		for _, want := range []string{"go-rest-minimal", "go-rag-service", "go-rpc-grpc"} {
+			if !commandContainsString(library.Templates, want) {
+				t.Fatalf("feature library templates missing %q: %+v", want, library.Templates)
+			}
+		}
 		if library.TemplateVerification.CatalogField != "verifyE2EValidated" || library.TemplateVerification.MatrixTarget != "make test-generated-matrix" || !library.TemplateVerification.CIRequired || !library.TemplateVerification.ZeroSkipRequired {
 			t.Fatalf("feature library template verification contract = %+v", library.TemplateVerification)
 		}
@@ -1410,7 +1447,7 @@ func TestAINewTextHelpAndManifestContract_BitsUT(t *testing.T) {
 		if !envelope.OK || envelope.Command != "ai.manifest.schema" || envelope.Data.Schema != "https://json-schema.org/draft/2020-12/schema" || envelope.Data.Title != "gofly AI tool manifest" {
 			t.Fatalf("ai manifest schema envelope = %+v", envelope)
 		}
-		for _, want := range []string{"schemaVersion", "commands", "controlPlane", "llmGovernance", "featureLibrary"} {
+		for _, want := range []string{"schemaVersion", "docs", "examples", "verifyCommands", "commands", "controlPlane", "llmGovernance", "featureLibrary"} {
 			if _, ok := envelope.Data.Properties[want]; !ok {
 				t.Fatalf("ai manifest schema missing property %q: %+v", want, envelope.Data.Properties)
 			}

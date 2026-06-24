@@ -1976,11 +1976,19 @@ type aiToolManifest struct {
 	Version        string                   `json:"version"`
 	Description    string                   `json:"description"`
 	Invocation     string                   `json:"invocation"`
+	Docs           []aiManifestLink         `json:"docs"`
+	Examples       []aiManifestLink         `json:"examples"`
+	VerifyCommands []string                 `json:"verifyCommands"`
 	Output         aiOutputSchema           `json:"output"`
 	ControlPlane   aiControlPlaneManifest   `json:"controlPlane"`
 	LLMGovernance  aiLLMGovernance          `json:"llmGovernance"`
 	FeatureLibrary aiFeatureLibraryManifest `json:"featureLibrary"`
 	Commands       []aiToolCommand          `json:"commands"`
+}
+
+type aiManifestLink struct {
+	Title string `json:"title"`
+	Path  string `json:"path"`
 }
 
 type aiOutputSchema struct {
@@ -2035,6 +2043,8 @@ type aiFeatureLibraryManifest struct {
 	Deterministic        bool                                     `json:"deterministic"`
 	AppliesUnderDirOnly  bool                                     `json:"appliesUnderDirOnly"`
 	DependencyPolicy     string                                   `json:"dependencyPolicy"`
+	Features             []string                                 `json:"features"`
+	Templates            []string                                 `json:"templates"`
 	VerifyAllowlist      []string                                 `json:"verifyAllowlist"`
 	TemplateVerification aiTemplateVerificationContract           `json:"templateVerification"`
 	ResultFields         []string                                 `json:"resultFields"`
@@ -4207,6 +4217,14 @@ func buildAIToolManifest() aiToolManifest {
 		Version:       Version,
 		Description:   "Machine-readable command manifest for LLM/Agent callers. Prefer --output json or command --json flags and inspect the JSON envelope before acting on results.",
 		Invocation:    "gofly <command> [arguments]",
+		Docs:          buildAIManifestDocs(),
+		Examples:      buildAIManifestExamples(),
+		VerifyCommands: []string{
+			"make docs-check",
+			"make examples-smoke",
+			"make test-generated-matrix",
+			"make doc-manifest-sync-check",
+		},
 		Output: aiOutputSchema{
 			Mode:        "json-envelope when --output json, --json or --format json is used",
 			Envelope:    []string{"ok", "command", "version", "data", "error", "diagnostics", "warnings", "nextActions"},
@@ -4249,16 +4267,57 @@ func buildAIToolManifest() aiToolManifest {
 }
 
 func buildAIFeatureLibraryManifest() aiFeatureLibraryManifest {
+	plugins := generator.ListProjectFeaturePluginContracts()
 	return aiFeatureLibraryManifest{
 		Mode:                 "deterministic built-in project feature plugins selected from project template feature tags",
 		Deterministic:        true,
 		AppliesUnderDirOnly:  true,
 		DependencyPolicy:     "feature dependencies are reported in ai new apply results and nextActions for explicit review; they are not automatically added to the root module or generated go.mod",
+		Features:             aiProjectFeatureNames(plugins),
+		Templates:            aiProjectTemplateIDs(),
 		VerifyAllowlist:      generator.ProjectFeatureVerifyAllowlist(),
 		TemplateVerification: buildAITemplateVerificationContract(),
 		ResultFields:         []string{"generatedFeatures", "dependencies", "configHints", "featureVerify", "verify", "nextActions"},
-		Plugins:              generator.ListProjectFeaturePluginContracts(),
+		Plugins:              plugins,
 	}
+}
+
+func buildAIManifestDocs() []aiManifestLink {
+	return []aiManifestLink{
+		{Title: "AI manifest", Path: "docs/concepts/ai-manifest.md"},
+		{Title: "CLI JSON contracts", Path: "docs/reference/cli-json-contracts.md"},
+		{Title: "Stable API surface", Path: "docs/reference/api-surface.md"},
+		{Title: "Compatibility policy", Path: "docs/reference/compatibility.md"},
+		{Title: "P1 growth roadmap", Path: "docs/reference/p1-growth-roadmap.md"},
+	}
+}
+
+func buildAIManifestExamples() []aiManifestLink {
+	return []aiManifestLink{
+		{Title: "Examples catalog", Path: "examples/README.md"},
+		{Title: "AI governed service", Path: "examples/ai-governed-service/README.md"},
+		{Title: "Microshop", Path: "examples/microshop/README.md"},
+		{Title: "Production orders", Path: "examples/production-orders/README.md"},
+	}
+}
+
+func aiProjectFeatureNames(plugins []generator.ProjectFeaturePluginContract) []string {
+	names := make([]string, 0, len(plugins))
+	for _, plugin := range plugins {
+		names = append(names, plugin.Name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+func aiProjectTemplateIDs() []string {
+	templates := generator.ListProjectTemplates()
+	ids := make([]string, 0, len(templates))
+	for _, tmpl := range templates {
+		ids = append(ids, tmpl.ID)
+	}
+	sort.Strings(ids)
+	return ids
 }
 
 func buildAIControlPlaneManifest() aiControlPlaneManifest {
@@ -4820,6 +4879,16 @@ func aiDoctorOutputContract() *aiOutputContract {
 
 func buildAIToolManifestJSONSchema() map[string]any {
 	stringArraySchema := map[string]any{"type": "array", "items": map[string]any{"type": "string"}}
+	linkSchema := map[string]any{
+		"type":                 "object",
+		"required":             []string{"title", "path"},
+		"additionalProperties": false,
+		"properties": map[string]any{
+			"title": map[string]any{"type": "string"},
+			"path":  map[string]any{"type": "string"},
+		},
+	}
+	linkArraySchema := map[string]any{"type": "array", "items": linkSchema}
 	propertySchema := map[string]any{
 		"type":                 "object",
 		"required":             []string{"type", "description"},
@@ -4846,14 +4915,17 @@ func buildAIToolManifestJSONSchema() map[string]any {
 		"$id":                  "https://gofly.dev/schemas/ai-tool-manifest.schema.json",
 		"title":                "gofly AI tool manifest",
 		"type":                 "object",
-		"required":             []string{"schemaVersion", "tool", "version", "description", "invocation", "output", "controlPlane", "llmGovernance", "featureLibrary", "commands"},
+		"required":             []string{"schemaVersion", "tool", "version", "description", "invocation", "docs", "examples", "verifyCommands", "output", "controlPlane", "llmGovernance", "featureLibrary", "commands"},
 		"additionalProperties": false,
 		"properties": map[string]any{
-			"schemaVersion": map[string]any{"type": "string", "const": aiToolManifestSchemaVersion},
-			"tool":          map[string]any{"type": "string", "const": "gofly"},
-			"version":       map[string]any{"type": "string"},
-			"description":   map[string]any{"type": "string"},
-			"invocation":    map[string]any{"type": "string"},
+			"schemaVersion":  map[string]any{"type": "string", "const": aiToolManifestSchemaVersion},
+			"tool":           map[string]any{"type": "string", "const": "gofly"},
+			"version":        map[string]any{"type": "string"},
+			"description":    map[string]any{"type": "string"},
+			"invocation":     map[string]any{"type": "string"},
+			"docs":           linkArraySchema,
+			"examples":       linkArraySchema,
+			"verifyCommands": stringArraySchema,
 			"output": map[string]any{
 				"type":                 "object",
 				"required":             []string{"mode", "envelope", "errorFields"},

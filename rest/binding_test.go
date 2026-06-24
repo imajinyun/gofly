@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	coreerrors "github.com/gofly/gofly/core/errors"
 )
 
 func TestContextBindRequest(t *testing.T) {
@@ -386,6 +388,56 @@ func TestContextErrorWritesValidationFields_BitsUT(t *testing.T) {
 	}
 	if got.Code != "invalid_argument" || len(got.Fields) != 1 || got.Fields[0].Field != "quantity" || got.Fields[0].Rule != "min=1" {
 		t.Fatalf("ErrorResponse = %#v, want invalid_argument with quantity field", got)
+	}
+}
+
+func TestContextErrorWritesBindingFailuresAsInvalidArgument_BitsUT(t *testing.T) {
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		body   string
+		want   string
+	}{
+		{name: "bad json body", method: http.MethodPost, path: "/orders/7?page=2", body: `{"name":`, want: "decode json body"},
+		{name: "bad path value", method: http.MethodGet, path: "/orders/not-int?page=2", want: "bind path field ID"},
+		{name: "bad query value", method: http.MethodGet, path: "/orders/7?page=zero", want: "bind query field Page"},
+		{name: "validation value", method: http.MethodGet, path: "/orders/7?page=0", want: "field Page failed min=1 validation"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			type request struct {
+				ID   int `path:"id" validate:"min=1"`
+				Page int `query:"page" validate:"min=1"`
+			}
+			rec := httptest.NewRecorder()
+			s := MustNewServer(Config{})
+			s.AddRoute(Route{Method: tt.method, Path: "/orders/{id}", Handler: func(ctx *Context) {
+				var req request
+				if err := ctx.BindRequest(&req); err != nil {
+					if coreerrors.CodeOf(err) != coreerrors.CodeInvalidArgument {
+						t.Fatalf("binding error code = %s, want invalid_argument", coreerrors.CodeOf(err))
+					}
+					ctx.Error(err)
+					return
+				}
+				ctx.JSON(http.StatusOK, req)
+			}})
+
+			req := httptest.NewRequest(tt.method, tt.path, strings.NewReader(tt.body))
+			s.Handler().ServeHTTP(rec, req)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400, body = %s", rec.Code, rec.Body.String())
+			}
+			var got ErrorResponse
+			if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+				t.Fatalf("decode ErrorResponse: %v", err)
+			}
+			if got.Code != coreerrors.CodeInvalidArgument || !strings.Contains(got.Text, tt.want) {
+				t.Fatalf("ErrorResponse = %#v, want invalid_argument containing %q", got, tt.want)
+			}
+		})
 	}
 }
 

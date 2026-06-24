@@ -4,6 +4,6 @@ go 1.26
 
 require github.com/gofly/gofly v0.0.0
 
-require go.yaml.in/yaml/v2 v2.4.2 // indirect
+require go.yaml.in/yaml/v2 v2.4.4 // indirect
 
 replace github.com/gofly/gofly => ../..

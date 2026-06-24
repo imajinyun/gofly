@@ -2665,7 +2665,7 @@ func writeMethodFile(dir string, method IDLMethod, svc IDLService, pkg, rpcAlias
 	if method.Request != "" {
 		fprintf(&b, "\t\tvar req %s\n", requestName)
 		fprintf(&b, "\t\tif err := ctx.BindRequest(&req); err != nil {\n")
-		fprintf(&b, "\t\t\tctx.JSON(http.StatusBadRequest, map[string]string{\"error\": err.Error()})\n")
+		fprintf(&b, "\t\t\tctx.Error(err)\n")
 		fprintf(&b, "\t\t\treturn\n")
 		fprintf(&b, "\t\t}\n")
 		fprintf(&b, "\t\tresp, err := impl.%s(ctx.Request.Context(), &req)\n", methodName)
@@ -2904,7 +2904,7 @@ func writeRESTRoute(b *bytes.Buffer, method IDLMethod) {
 	if method.Request != "" {
 		requestName := exportName(method.Request)
 		fprintf(b, "\t\tvar req %s\n", requestName)
-		fprintf(b, "\t\tif err := ctx.BindRequest(&req); err != nil {\n\t\t\tctx.JSON(http.StatusBadRequest, map[string]string{\"error\": err.Error()})\n\t\t\treturn\n\t\t}\n")
+		fprintf(b, "\t\tif err := ctx.BindRequest(&req); err != nil {\n\t\t\tctx.Error(err)\n\t\t\treturn\n\t\t}\n")
 		fprintf(b, "\t\tresp, err := impl.%s(ctx.Request.Context(), &req)\n", methodName)
 	} else {
 		fprintf(b, "\t\tresp, err := impl.%s(ctx.Request.Context())\n", methodName)

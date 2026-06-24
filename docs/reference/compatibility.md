@@ -11,6 +11,18 @@ gofly is still pre-1.0, but production adopters need to know which surfaces are 
 | Experimental | Incubating APIs or generated assets. | May change between patch releases. Do not depend on these without pinning a version. |
 | Internal | Implementation detail. | No compatibility promise. |
 
+## Adoption tier policy
+
+The [Stable API Surface Reference](api-surface.md) defines Tier 0 through Tier 3 adoption surfaces. Release notes must name any tier promotion, demotion, or breaking migration.
+
+Rules:
+
+- Tier 0 generated production services must keep compiling and running across patch releases.
+- Tier 1 surfaces are the default automation and application contract. Breaking changes require a deprecation period, migration guide, and release note.
+- Tier 2 surfaces may evolve, but a breaking change must include a changelog entry, explicit migration steps, and a generated-project or subsystem smoke test update.
+- Tier 3 surfaces must be labeled experimental in docs, command help, generated files, or JSON fields.
+- Any downgrade from a higher tier must state the affected surface, original tier, reason, user impact, and rollback or pinning guidance.
+
 ## Stable public surfaces
 
 | Surface | Stability | Notes |
@@ -32,6 +44,18 @@ gofly is still pre-1.0, but production adopters need to know which surfaces are 
 - Kitex compatibility adapter files generated under compatibility profiles.
 - Prototype plugin extensions outside the published SPI schema.
 - Long-form examples and case-study code until each example has its own `go.mod` and smoke target.
+
+## Deprecation and migration window
+
+Stable and Tier 1 surfaces follow this deprecation process:
+
+1. Mark the old API, JSON field, command flag, or generated asset with `Deprecated:` in Go docs, command help, or reference docs.
+2. Add a migration note that names the replacement surface and the first release where both old and new forms coexist.
+3. Keep the deprecated form for at least one minor release line unless it exposes a security issue.
+4. Add or update a compatibility test, CLI JSON contract fixture, generated-service smoke test, or control-plane contract check before removal.
+5. Record the removal in release notes with the last supported version and rollback guidance.
+
+Security exceptions can shorten the window, but the release must state the risk, mitigation, and upgrade path.
 
 ## CLI and JSON compatibility rules
 

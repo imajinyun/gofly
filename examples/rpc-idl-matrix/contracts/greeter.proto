@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+package examples.rpcmatrix.v1;
+
+option go_package = "github.com/gofly/gofly/examples/rpc-idl-matrix/contracts;contracts";
+
+message HelloRequest {
+  string name = 1;
+}
+
+message HelloResponse {
+  string message = 1;
+}
+
+message ChatMessage {
+  string from = 1;
+  string text = 2;
+}
+
+service MatrixGreeter {
+  rpc SayHello(HelloRequest) returns (HelloResponse);
+  rpc WatchHello(HelloRequest) returns (stream HelloResponse);
+  rpc CollectHello(stream HelloRequest) returns (HelloResponse);
+  rpc Chat(stream ChatMessage) returns (stream ChatMessage);
+}

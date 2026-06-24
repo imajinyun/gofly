@@ -10,13 +10,19 @@ gofly new service orders --style production --module example.com/orders
 
 ```text
 cmd/orders/                 # service entrypoint
-etc/orders.yaml             # runtime config
+etc/orders.json             # runtime config
 etc/governance.json         # governance policy
-internal/handler/           # REST handlers
+internal/routes/            # REST route registration
+internal/api/v1/ping/       # generated REST handler package
 internal/rpc/               # RPC service implementation
+internal/admin/             # admin and control-plane server
+internal/discovery/         # generated discovery registry wiring
 internal/config/            # generated config types and tests
 internal/smoke/             # generated smoke test
-docs/openapi.yaml           # API contract
+deploy/k8s/                 # Kubernetes production assets
+deploy/helm/                # Helm production chart
+deploy/observability/       # Prometheus, OTel, Grafana, and log assets
+bin/production-check.sh     # generated production readiness gate
 ```
 
 ## Development loop
@@ -32,16 +38,16 @@ curl http://127.0.0.1:9090/admin/control-plane
 
 | Concern | Config |
 | --- | --- |
-| REST port | `server.rest.port` in `etc/orders.yaml` |
-| RPC port | `server.rpc.port` in `etc/orders.yaml` |
-| Admin port | `admin.port` in `etc/orders.yaml` |
+| REST port | `rest.addr` in `etc/orders.json` |
+| RPC port | `rpc.addr` in `etc/orders.json` |
+| Admin port | `admin.addr` in `etc/orders.json` |
 | Discovery | `discovery.provider`, `discovery.address`, `discovery.endpoints` |
 | Governance | `etc/governance.json` |
 
 ## Next changes to make
 
-1. Add domain-specific REST routes under `internal/handler`.
+1. Add domain-specific REST routes under `internal/routes` and handler packages under `internal/api`.
 2. Add RPC methods under `internal/rpc`.
-3. Update `docs/openapi.yaml` when API contracts change.
+3. Update route OpenAPI metadata when API contracts change.
 4. Add policy rules to `etc/governance.json` for timeouts, retries, breakers, or rate limits.
-5. Keep `go test ./...` green before committing.
+5. Keep `go test ./...` and `make production-check` green before committing.

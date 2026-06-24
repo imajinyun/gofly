@@ -279,11 +279,20 @@ func TestGenerateService(t *testing.T) {
 	if !json.Valid(grafanaData) || !strings.Contains(string(grafanaData), "Logs by trace_id") {
 		t.Fatalf("grafana dashboard should be valid json with trace log panel:\n%s", grafanaData)
 	}
+	logsData, err := os.ReadFile(filepath.Join(dir, "deploy", "observability", "logs-correlation.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"promtail.yaml", "trace_id", "span_id", "loki-derived-fields.yaml"} {
+		if !strings.Contains(string(logsData), want) {
+			t.Fatalf("logs correlation asset missing %q:\n%s", want, logsData)
+		}
+	}
 	checkData, err := os.ReadFile(filepath.Join(dir, "bin", "production-check.sh"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"securityHeaders", "change-me-admin-token", "kind: NetworkPolicy", "kind: HorizontalPodAutoscaler", "ServiceMonitor"} {
+	for _, want := range []string{"securityHeaders", "change-me-admin-token", "kind: NetworkPolicy", "kind: HorizontalPodAutoscaler", "ServiceMonitor", "logs-correlation.yaml", "Logs by trace_id", "trace_id"} {
 		if !strings.Contains(string(checkData), want) {
 			t.Fatalf("production check missing %q:\n%s", want, checkData)
 		}
@@ -295,6 +304,7 @@ func TestGenerateService(t *testing.T) {
 	if checkInfo.Mode()&0o111 == 0 {
 		t.Fatalf("production-check.sh mode = %v, want executable script", checkInfo.Mode())
 	}
+	assertGeneratedProductionCheckBehavior(t, dir)
 	svcData, err := os.ReadFile(filepath.Join(dir, "internal", "svc", "service_context.go"))
 	if err != nil {
 		t.Fatal(err)
@@ -441,6 +451,41 @@ func TestGenerateService(t *testing.T) {
 		}
 	}
 	assertGeneratedProjectCompiles(t, dir)
+}
+
+func assertGeneratedProductionCheckBehavior(t *testing.T, dir string) {
+	t.Helper()
+
+	script := filepath.Join("bin", "production-check.sh")
+	placeholder := exec.Command("sh", script)
+	placeholder.Dir = dir
+	placeholderOutput, err := placeholder.CombinedOutput()
+	if err == nil {
+		t.Fatalf("production-check with placeholder admin token succeeded, want failure:\n%s", placeholderOutput)
+	}
+	if !strings.Contains(string(placeholderOutput), "replace placeholder admin token") {
+		t.Fatalf("production-check placeholder output = %s, want admin token failure", placeholderOutput)
+	}
+
+	configPath := filepath.Join(dir, "etc", "hello.json")
+	configData, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	configData = []byte(strings.ReplaceAll(string(configData), "change-me-admin-token", "local-production-token"))
+	if err := os.WriteFile(configPath, configData, 0o644); err != nil {
+		t.Fatalf("write production-safe config: %v", err)
+	}
+
+	check := exec.Command("sh", script)
+	check.Dir = dir
+	output, err := check.CombinedOutput()
+	if err != nil {
+		t.Fatalf("production-check failed after replacing placeholder token: %v\n%s", err, output)
+	}
+	if !strings.Contains(string(output), "hello production checklist passed") {
+		t.Fatalf("production-check output = %s, want success message", output)
+	}
 }
 
 func TestApplyEnvOverlay(t *testing.T) {

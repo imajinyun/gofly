@@ -35,8 +35,8 @@ func TestNewRESTServerRoutes_BitsUT(t *testing.T) {
 
 	badUser := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(badUser, httptest.NewRequest(http.MethodPost, "/users", strings.NewReader(`{`)))
-	if badUser.Code != http.StatusInternalServerError {
-		t.Fatalf("POST /users bad json = %d %s, want 500 error path", badUser.Code, badUser.Body.String())
+	if badUser.Code != http.StatusBadRequest || !strings.Contains(badUser.Body.String(), `"code":"invalid_argument"`) {
+		t.Fatalf("POST /users bad json = %d %s, want 400 invalid_argument", badUser.Code, badUser.Body.String())
 	}
 
 	openapi := httptest.NewRecorder()

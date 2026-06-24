@@ -579,7 +579,7 @@ func TestWriteRESTFilesBoundaries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`http.MethodPost`, `Path: "/users/list"`, "ctx.BindRequest(&req)", "impl.ListUsers"} {
+	for _, want := range []string{`http.MethodPost`, `Path: "/users/list"`, "ctx.BindRequest(&req)", "ctx.Error(err)", "impl.ListUsers"} {
 		if !strings.Contains(string(routeData), want) {
 			t.Fatalf("REST method file missing %q:\n%s", want, routeData)
 		}
@@ -1257,6 +1257,7 @@ func TestGenerateRESTCode(t *testing.T) {
 		"func RegisterUserApiRoutes",
 		`Path: "/api/login"`,
 		"ctx.BindRequest(&req)",
+		"ctx.Error(err)",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("generated REST code missing %q:\n%s", want, out)

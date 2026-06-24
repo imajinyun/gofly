@@ -39,6 +39,19 @@ docker run --rm ghcr.io/gofly/gofly:latest version
 - Generated projects should continue to compile across the supported Go version line.
 - See the full [Compatibility Policy](../reference/compatibility.md) and [Stable API Surface Reference](../reference/api-surface.md).
 
+## Release Compatibility Checklist
+
+Before tagging a release, record compatibility evidence for each affected adoption tier:
+
+| Tier | Required evidence |
+| --- | --- |
+| Tier 0 | Generated production service smoke test, generated `go test ./...`, and generated verification target results. |
+| Tier 1 | API compatibility report, CLI JSON contract checks, control-plane contract checks, and OpenAPI/RPC breaking checks when contracts changed. |
+| Tier 2 | Subsystem smoke tests, migration notes for breaking changes, and generated-project or example updates that prove the new behavior. |
+| Tier 3 | Experimental labels in docs/help/generated files and pinning guidance for users who depend on the surface. |
+
+If a stable or Tier 1 surface is deprecated, the release note must include the replacement, coexistence window, first deprecated version, and expected removal version. Security-driven removals must include the risk and mitigation.
+
 ## Benchmark Evidence
 
 Before tagging a release that changes REST, RPC, gateway, governance, or code generation hot paths:

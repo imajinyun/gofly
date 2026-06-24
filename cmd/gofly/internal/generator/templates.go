@@ -2103,9 +2103,11 @@ fail() {
 [ -f "$config_file" ] || fail "missing config file: $config_file"
 [ -f "deploy/k8s/{{.Name}}.yaml" ] || fail "missing k8s production manifest"
 [ -f "deploy/helm/values.yaml" ] || fail "missing helm values"
+[ -f "deploy/helm/templates/workload.yaml" ] || fail "missing helm workload template"
 [ -f "deploy/observability/prometheus.yaml" ] || fail "missing prometheus rules"
 [ -f "deploy/observability/otel-collector.yaml" ] || fail "missing otel collector config"
 [ -f "deploy/observability/grafana-dashboard.json" ] || fail "missing grafana dashboard"
+[ -f "deploy/observability/logs-correlation.yaml" ] || fail "missing log correlation config"
 
 grep -q '"securityHeaders"' "$config_file" || fail "rest security headers are not configured"
 grep -q '"tls"' "$config_file" || printf 'production-check warning: tls is expected to be terminated by ingress or configured in rest.tls\n' >&2
@@ -2115,6 +2117,8 @@ grep -q 'kind: NetworkPolicy' "deploy/k8s/{{.Name}}.yaml" || fail "network polic
 grep -q 'kind: PodDisruptionBudget' "deploy/k8s/{{.Name}}.yaml" || fail "pod disruption budget is missing"
 grep -q 'kind: HorizontalPodAutoscaler' "deploy/k8s/{{.Name}}.yaml" || fail "horizontal pod autoscaler is missing"
 grep -q 'ServiceMonitor' "deploy/helm/templates/workload.yaml" || fail "helm serviceMonitor is missing"
+grep -q 'Logs by trace_id' "deploy/observability/grafana-dashboard.json" || fail "grafana trace log panel is missing"
+grep -q 'trace_id' "deploy/observability/logs-correlation.yaml" || fail "log trace correlation is missing"
 
 printf '%s production checklist passed\n' "$service_name"
 `
@@ -2340,7 +2344,7 @@ func PingHandler(svcCtx *svc.ServiceContext) rest.HandlerFunc {
 	return func(ctx *rest.Context) {
 		var req types.PingReq
 		if err := ctx.BindQuery(&req); err != nil {
-			ctx.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+			ctx.Error(err)
 			return
 		}
 		resp, err := logic.NewPingLogic(ctx.Request.Context(), svcCtx).Ping(&req)
@@ -2428,7 +2432,7 @@ func TestRegisterRoutesUsesTrimMiddleware(t *testing.T) {
 			Name string ` + "`json:\"name\"`" + `
 		}
 		if err := ctx.Bind(&req); err != nil {
-			ctx.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+			ctx.Error(err)
 			return
 		}
 		ctx.JSON(http.StatusOK, req)
@@ -2568,7 +2572,7 @@ func TestTrimSpaceMiddleware(t *testing.T) {
 			} ` + "`json:\"nested\"`" + `
 		}
 		if err := ctx.Bind(&req); err != nil {
-			ctx.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+			ctx.Error(err)
 			return
 		}
 		ctx.JSON(http.StatusOK, map[string]any{

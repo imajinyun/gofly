@@ -10,6 +10,19 @@ This reference names the public surfaces that application teams can adopt first 
 4. Expose `/admin/control-plane` in trusted networks for diagnostics and AI-readable runtime state.
 5. Add `core/governance` policies for timeout, retry, breaker, rate limit, concurrency, canary, and fallback behavior.
 
+## Stable adoption tiers
+
+These tiers define what a production adopter can safely build on during the v0.x line.
+
+| Tier | Surface | Adoption guidance | Compatibility expectation |
+| --- | --- | --- | --- |
+| Tier 0 | Generated production service from `gofly new service --style production` | Use as the default golden path for new services. Keep generated verification targets and customize domain code under generated application boundaries. | Generated projects must compile and run across patch releases. New files and optional config keys are additive. |
+| Tier 1 | `rest`, `ops/admin`, `core/governance`, `core/controlplane`, CLI JSON contracts, OpenAPI output, and control-plane snapshots | Safe for application code, CI automation, agents, and operators. Prefer these surfaces before reaching into lower-level `core/` packages. | No removals or incompatible semantic changes within a minor release line. Deprecations need a migration note and one-minor-release notice. |
+| Tier 2 | `rpc`, `gateway`, `app`, generated service layout, and provider-specific observability helpers | Supported for production pilots and service migrations, but still expanding. Pin versions for critical automation and read release notes before upgrades. | Breaking changes require changelog notes, migration instructions, and a compatibility test or generated-project smoke update. |
+| Tier 3 | Experimental profiles, prototype plugin extensions, compatibility adapters, and long-form example internals | Use only behind wrappers or pinned versions. These are not the first adoption path. | May change between patch releases when explicitly marked experimental. |
+
+When a surface moves up a tier, the release must name the new tier and the verification evidence that protects it.
+
 ## Public Go packages
 
 | Package | Use when | Stability |

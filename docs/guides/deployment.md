@@ -37,6 +37,8 @@ helm install gofly charts/gofly
 
 The starter assets include liveness, readiness, and startup probes, Prometheus scrape annotations, optional ServiceMonitor support, HPA, and PodDisruptionBudget.
 
+Generated production services also include `deploy/observability/prometheus.yaml`, `deploy/observability/otel-collector.yaml`, `deploy/observability/grafana-dashboard.json`, `deploy/observability/logs-correlation.yaml`, and `bin/production-check.sh`. Run the generated `make production-check` after replacing placeholder secrets to verify Kubernetes, Helm, metrics, tracing, dashboard, and log-correlation assets stay in sync.
+
 ## Production configuration checklist
 
 | Area | What to configure |

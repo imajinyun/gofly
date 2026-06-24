@@ -71,5 +71,6 @@ Required-check maintenance rules:
 
 - [ ] logs include request id and trace id.
 - [ ] metrics and traces are exported to trusted backends.
+- [ ] generated `deploy/observability/logs-correlation.yaml` and Grafana `Logs by trace_id` panel are present when using generated production services.
 - [ ] admin token or private networking is configured.
 - [ ] secrets are not present in source, logs, or snapshots.

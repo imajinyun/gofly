@@ -28,6 +28,7 @@ bench/current.txt
 .tmp-test/
 
 # Generated docs and long-form examples
+.harness
 docs/*
 !docs/index.md
 !docs/getting-started/

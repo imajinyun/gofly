@@ -1,0 +1,27 @@
+name: gofly
+root: .
+language: go
+
+commands:
+  allowlist:
+    - gofmt
+    - go test
+    - go vet
+  test:
+    - go test ./...
+  vet:
+    - go vet ./...
+
+acceptance:
+  criteria:
+    - configured project checks pass
+  required_commands:
+    - go test ./...
+  require_review: false
+  require_clean_diff: false
+  require_fix_diff: false
+
+permissions:
+  require_plan_approval: false
+  allow_commit: false
+  allow_push: false

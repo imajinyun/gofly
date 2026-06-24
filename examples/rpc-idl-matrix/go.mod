@@ -1,4 +1,4 @@
-module github.com/gofly/gofly/examples/http-middleware
+module github.com/gofly/gofly/examples/rpc-idl-matrix
 
 go 1.26
 

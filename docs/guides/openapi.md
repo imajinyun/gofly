@@ -19,13 +19,25 @@ Production scaffolds also include a checked-in API contract under `docs/openapi.
 Populate route metadata when you register routes:
 
 ```go
+type GetUserRequest struct {
+    ID string `path:"id" validate:"required"`
+}
+
 rest.Route{
     Method:      http.MethodGet,
     Path:        "/users/{id}",
     Summary:     "get user",
     OperationID: "getUser",
+    Parameters:  []rest.Parameter{{Name: "id", In: "path", Required: true, Schema: rest.StringSchema()}},
+    Responses: map[string]rest.Response{
+        "200": rest.JSONResponse("the user", rest.StructSchema(User{})),
+        "400": rest.JSONErrorResponse("Invalid request"),
+        "404": rest.JSONErrorResponse("User not found"),
+    },
 }
 ```
+
+Use `rest.StructSchema` for request/response DTOs that use gofly's portable validation tags. It links `required`, `min`, `max`, and `oneof` metadata into the generated OpenAPI schema. Use `rest.DefaultErrorResponses()` for the standard `400` and `500` REST error envelopes, then add domain-specific responses such as `404` or `409`.
 
 ## Production configuration
 

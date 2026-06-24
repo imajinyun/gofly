@@ -10,6 +10,8 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+
+	coreerrors "github.com/gofly/gofly/core/errors"
 )
 
 // BindSource identifies where to read a parameter from.
@@ -87,16 +89,16 @@ func BindJSON(r *http.Request, v any) error {
 
 func bindJSON(r *http.Request, v any, validator Validator) error {
 	if err := decodeJSON(r, v); err != nil {
-		return err
+		return invalidRequestError(err)
 	}
-	return validateWith(v, validator)
+	return invalidRequestError(validateWith(v, validator))
 }
 
 func BindQuery(r *http.Request, v any) error {
 	if err := bindValues(v, BindSourceQuery, func(key string) []string { return r.URL.Query()[key] }); err != nil {
-		return err
+		return invalidRequestError(err)
 	}
-	return Validate(v)
+	return invalidRequestError(Validate(v))
 }
 
 func BindPath(r *http.Request, v any) error {
@@ -106,16 +108,16 @@ func BindPath(r *http.Request, v any) error {
 		}
 		return nil
 	}); err != nil {
-		return err
+		return invalidRequestError(err)
 	}
-	return Validate(v)
+	return invalidRequestError(Validate(v))
 }
 
 func BindHeader(r *http.Request, v any) error {
 	if err := bindValues(v, BindSourceHeader, func(key string) []string { return r.Header.Values(key) }); err != nil {
-		return err
+		return invalidRequestError(err)
 	}
-	return Validate(v)
+	return invalidRequestError(Validate(v))
 }
 
 func BindRequest(r *http.Request, v any) error {
@@ -125,7 +127,7 @@ func BindRequest(r *http.Request, v any) error {
 func bindRequest(r *http.Request, v any, validator Validator) error {
 	if r.Body != nil && r.Body != http.NoBody && r.Method != http.MethodGet && r.Method != http.MethodDelete {
 		if err := decodeJSON(r, v); err != nil {
-			return err
+			return invalidRequestError(err)
 		}
 	}
 	if err := bindValues(v, BindSourcePath, func(key string) []string {
@@ -134,15 +136,15 @@ func bindRequest(r *http.Request, v any, validator Validator) error {
 		}
 		return nil
 	}); err != nil {
-		return err
+		return invalidRequestError(err)
 	}
 	if err := bindValues(v, BindSourceQuery, func(key string) []string { return r.URL.Query()[key] }); err != nil {
-		return err
+		return invalidRequestError(err)
 	}
 	if err := bindValues(v, BindSourceHeader, func(key string) []string { return r.Header.Values(key) }); err != nil {
-		return err
+		return invalidRequestError(err)
 	}
-	return validateWith(v, validator)
+	return invalidRequestError(validateWith(v, validator))
 }
 
 func Validate(v any) error {
@@ -154,6 +156,16 @@ func validateWith(v any, validator Validator) error {
 		validator = builtinValidator
 	}
 	return validator.Validate(v)
+}
+
+func invalidRequestError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if coreerrors.CodeOf(err) != coreerrors.CodeInternal {
+		return err
+	}
+	return coreerrors.Wrap(coreerrors.CodeInvalidArgument, err.Error(), err)
 }
 
 func validateStructTarget(v any) error {

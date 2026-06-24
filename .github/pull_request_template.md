@@ -10,6 +10,13 @@
 - [ ] Generator / template
 - [ ] CI / release / docs
 
+## Change Level
+
+- [ ] L0 docs/comments only
+- [ ] L1 single-package change
+- [ ] L2 subsystem change
+- [ ] L3 full-repository governance, release, dependency, CI, or cross-module change
+
 ## Validation
 
 - [ ] `make ci-fast` for default build/test/tidy gates
@@ -20,6 +27,12 @@
 - [ ] `make examples-smoke` when examples or docs links changed
 - [ ] `make docs-link-check` when Markdown links changed
 - [ ] Benchmarks or fuzz tests updated when behavior/performance changed
+
+## Validation Evidence
+
+- Commands run:
+- Failed, skipped, or downgraded gates:
+- Environment limits:
 
 ## CI / Release Governance
 
@@ -33,6 +46,24 @@
 - [ ] Generated code compatibility considered
 - [ ] Config migration documented if needed
 - [ ] No new required runtime dependency added to core framework
+
+## Compatibility Impact
+
+- Public Go API:
+- CLI flags or JSON output:
+- OpenAPI, proto, thrift, or RPC descriptors:
+- Plugin protocol or registry:
+- Generated project layout/config:
+- Migration or deprecation notes:
+
+## Generated Output Diff
+
+- [ ] None
+- [ ] Formatting only
+- [ ] Feature addition
+- [ ] Compatibility fix
+- [ ] Breaking change with migration notes
+- Diff summary:
 
 ## Operational Notes
 

@@ -21,6 +21,7 @@ Governance changes include `AGENTS.md`, `Makefile`, `bin/scripts/`, `.golangci.y
 - **🧩 Compatibility protection**: evaluate historical baselines before adding new blocking gates. Existing historical issues should first run in audit/report mode and then converge module by module, avoiding a one-shot block on all development.
 - **↩️ Rollbackability**: governance scripts must not irreversibly modify user projects. Operations such as `go mod tidy`, generated-output checks, and temporary worktrees must be recoverable or operate only in temporary directories.
 - **🧪 Minimal verification**: documentation governance should at least run shell syntax checks and relevant make-target dry-runs. Script governance should run the smallest real path of the target script.
+- **🧾 Contribution feedback loop**: pull requests must state the change level, validation evidence, compatibility impact, and generated output diff type. `Makefile` targets and `bin/scripts/check-community-growth.sh` are the source of truth for this gate; `AGENTS.md` only records the expectation.
 
 ## 🚦 Risk levels and handling SLA
 

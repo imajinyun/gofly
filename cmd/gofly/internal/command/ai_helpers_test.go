@@ -1970,6 +1970,9 @@ func TestCommandConfigFeaturePluginCoverageBuffer_BitsUT(t *testing.T) {
     "name":"auth-jwt",
     "remote":"https://example.com/auth-jwt",
     "version":"v0.1.0",
+    "protocol":"1",
+    "checksum":"sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "source":"https://github.com/example/gofly-auth-jwt",
     "description":"JWT auth generator",
     "tags":["auth","jwt"],
     "manifest":{"name":"auth-jwt","version":"v0.1.0","compatibleVersions":["1"],"capabilities":["generate:file"],"permissions":["filesystem:write-relative"]}

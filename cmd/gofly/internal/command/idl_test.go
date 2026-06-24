@@ -4994,6 +4994,9 @@ func TestExecutePluginSearchRegistry(t *testing.T) {
       "name": "redis-cache",
       "remote": "https://example.com/redis-cache",
       "version": "v0.2.0",
+      "protocol": "1",
+      "checksum": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "source": "https://github.com/example/gofly-redis-cache",
       "description": "Redis cache plugin",
       "tags": ["redis", "cache"],
       "manifest": {
@@ -5008,6 +5011,9 @@ func TestExecutePluginSearchRegistry(t *testing.T) {
       "name": "auth-jwt",
       "remote": "https://example.com/auth-jwt",
       "version": "v0.1.0",
+      "protocol": "1",
+      "checksum": "sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+      "source": "https://github.com/example/gofly-auth-jwt",
       "description": "JWT auth plugin",
       "tags": ["auth", "jwt"],
       "manifest": {

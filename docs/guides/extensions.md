@@ -39,6 +39,17 @@ Supported permissions:
 
 - `filesystem:write-relative` — host validates all plugin output paths under the target project.
 
+## Compatibility matrix
+
+The host supports external generator plugin protocol `1`. Registry authors should publish every plugin's declared compatibility so operators can reject unsafe upgrades before install or execution.
+
+| Declaration | Host behavior |
+| --- | --- |
+| `compatibleVersions: ["0"]` | Rejected as an old protocol declaration. |
+| `compatibleVersions: ["1"]` | Accepted and selected as the current protocol. |
+| `compatibleVersions: ["2", "1"]` | Accepted by selecting `1`; the future declaration remains visible for migration planning. |
+| `compatibleVersions: ["2"]` | Rejected until the host supports that future protocol. |
+
 ## Registry prototype
 
 `gofly plugin search` reads a JSON registry from an HTTPS URL, localhost HTTP URL, or local file:
@@ -57,6 +68,9 @@ Registry entries use version-pinned remotes so install and run flows stay reprod
       "name": "redis-cache",
       "remote": "https://example.com/gofly-redis-cache",
       "version": "v0.1.0",
+      "protocol": "1",
+      "checksum": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "source": "https://github.com/example/gofly-redis-cache",
       "description": "Redis cache generator",
       "tags": ["redis", "cache"],
       "manifest": {
@@ -73,10 +87,45 @@ Registry entries use version-pinned remotes so install and run flows stay reprod
 
 The registry command only searches and validates registry metadata. It does not download, install, execute, write files, or apply patches.
 
+Required registry fields:
+
+- `name`, `remote`, and `version` identify a version-pinned install target.
+- `protocol` records the external plugin protocol selected by the host.
+- `checksum` records the expected binary digest in `sha256:<hex>` format.
+- `source` records the reviewable source repository or release page.
+- `manifest.compatibleVersions`, `manifest.capabilities`, and `manifest.permissions` make protocol negotiation and filesystem permissions auditable.
+
+Run the copyable plugin ecosystem example to inspect the registry contract, code-generation plugin example, post-generation patching example, and third-party template directory contract:
+
+```sh
+go test -C examples/plugin-ecosystem ./...
+go run -C examples/plugin-ecosystem .
+```
+
+## Third-party template directory contract
+
+Template packs should publish a small metadata file at the template directory root. The example contract lives at `examples/plugin-ecosystem/templates/service/gofly.template.json`:
+
+```json
+{
+  "schema": "gofly.third_party_template_directory.v1",
+  "name": "company-service",
+  "version": "v1.4.2",
+  "protocol": "1",
+  "entrypoints": ["service/go.mod.tpl", "service/main.go.tpl"],
+  "permissions": ["filesystem:write-relative"],
+  "checksum": "sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+  "source": "https://github.com/example/gofly-company-template-pack"
+}
+```
+
+The host still enforces path safety when syncing or applying templates. Template directories must not be dangerous replacement targets, must not be symlinks, and copied template files must stay under the selected template root.
+
 ## Security boundary
 
 - Remote plugin installs require a version-pinned identity: `<repo-or-url>@<version>`.
 - HTTPS is required for non-localhost plugin and registry URLs.
+- Registry entries must include protocol, checksum, source, capabilities, and permissions.
 - Plugin stdout and stderr are bounded.
 - External plugin processes receive a minimized environment.
 - File and patch outputs must use relative paths and are rechecked for parent-directory traversal and symlink traversal before writes.

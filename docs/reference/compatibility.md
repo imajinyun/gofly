@@ -33,10 +33,26 @@ Rules:
 | `core/governance` package | Stable | Rule matching, timeout, retry, breaker, rate limit, concurrency, canary, and fallback policy shapes are stable JSON/runtime contracts. |
 | `core/controlplane` package | Stable | Snapshot envelope, contributor model, and published runtime metadata shape are stable; new fields are additive. |
 | `core/observability` package | Evolving | Metrics, tracing, and profiling helpers are supported; exporter-specific details may change. |
+| `spi` package | Stable | Extension interfaces and generator plugin request/response structs are the public compatibility boundary for third-party extensions. |
 | `cmd/gofly` CLI human output | Evolving | Human-readable text may change for clarity. Scripts should prefer JSON output where available. |
 | `cmd/gofly` CLI JSON output | Stable | Existing fields are additive-only unless marked experimental in command help or docs. |
 | Generated service layout | Evolving | Generated projects compile and run across patch releases. File names may receive additive changes. |
 | Generated examples under `examples/` | Experimental | Examples are runnable contracts, but their directory layout may evolve while being split into standalone modules. |
+
+## Plugin ecosystem compatibility
+
+The external generator plugin protocol is versioned separately from Go packages. The current host protocol is `1`, while the public in-process SPI package uses the `gofly.spi.v1` contract name.
+
+Registry entries for third-party plugins must include:
+
+- `name`, `remote`, and `version` for reproducible discovery and install identity;
+- `protocol` for host/plugin negotiation;
+- `manifest.compatibleVersions` for old/current/future protocol compatibility checks;
+- `manifest.capabilities` and `manifest.permissions` for auditable file and patch behavior;
+- `checksum` in `sha256:<hex>` format for binary provenance;
+- `source` for reviewable source or release metadata.
+
+The copyable example at `examples/plugin-ecosystem` verifies the current registry contract, compatibility matrix, code-generation plugin output, post-generation patching output, and third-party template directory metadata.
 
 ## Experimental surfaces
 

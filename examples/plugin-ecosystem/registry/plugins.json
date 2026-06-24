@@ -1,0 +1,41 @@
+{
+  "version": "v1",
+  "plugins": [
+    {
+      "name": "audit-trail-generator",
+      "remote": "https://plugins.example.com/gofly/audit-trail-generator",
+      "version": "v0.3.0",
+      "protocol": "1",
+      "checksum": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "source": "https://github.com/example/gofly-audit-trail-generator",
+      "description": "Adds audit log scaffolding and route registration patches.",
+      "tags": ["audit", "generator", "patch"],
+      "manifest": {
+        "name": "audit-trail-generator",
+        "version": "v0.3.0",
+        "compatibleVersions": ["1"],
+        "capabilities": ["generate:file", "generate:patch"],
+        "permissions": ["filesystem:write-relative"],
+        "requiresDryRun": true
+      }
+    },
+    {
+      "name": "company-template-pack",
+      "remote": "https://plugins.example.com/gofly/company-template-pack",
+      "version": "v1.4.2",
+      "protocol": "1",
+      "checksum": "sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+      "source": "https://github.com/example/gofly-company-template-pack",
+      "description": "Publishes a third-party template directory contract for company scaffolds.",
+      "tags": ["template", "directory", "starter"],
+      "manifest": {
+        "name": "company-template-pack",
+        "version": "v1.4.2",
+        "compatibleVersions": ["1"],
+        "capabilities": ["generate:file"],
+        "permissions": ["filesystem:write-relative"],
+        "requiresDryRun": true
+      }
+    }
+  ]
+}

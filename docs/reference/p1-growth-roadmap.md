@@ -81,6 +81,12 @@ The growth goal is to make third-party extension safer to discover and maintain.
 
 Definition of done: plugin examples and registry entries pass protocol validation and copy-out checks without adding dependencies to the root module.
 
+Current shipped slice:
+
+- `examples/plugin-ecosystem` emits `gofly.plugin_ecosystem.v1` with registry fields, protocol compatibility cases, file-generation output, patch output, and third-party template directory metadata.
+- `cmd/gofly/internal/generator/plugin.go` validates `protocol`, `checksum`, and `source` for registry entries.
+- `make p1-growth-check` and `make examples-smoke` include the plugin ecosystem assets.
+
 ## First execution slice
 
 The first slice in this change lands the P1 roadmap, cloud-native deployment assets, and a P1 growth validation gate. Follow-up slices should implement the HTTP middleware example matrix, validation adapter examples, CLI JSON expansions, RPC fixture examples, and plugin example modules in the order listed above.

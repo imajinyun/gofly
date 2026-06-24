@@ -26,6 +26,7 @@ done
 (cd examples/microshop && "$GO_CMD" run . describe) >"$workdir/microshop-topology.json"
 (cd examples/ai-governed-service && "$GO_CMD" run . expected) >"$workdir/ai-governed-contract.json"
 (cd examples/rpc-idl-matrix && "$GO_CMD" run .) >"$workdir/rpc-idl-matrix.json"
+(cd examples/plugin-ecosystem && "$GO_CMD" run .) >"$workdir/plugin-ecosystem.json"
 
 python3 - "$workdir" <<'PY'
 import json
@@ -55,6 +56,20 @@ assert {'recovery', 'trace', 'logging', 'timeout', 'retry', 'breaker', 'validati
 assert {'recovery', 'trace', 'logging', 'timeout', 'breaker'} <= set(rpc_matrix['interceptors']['stream']), rpc_matrix
 assert rpc_matrix['results']['retryAttempts'] == '2', rpc_matrix
 assert rpc_matrix['results']['unary'] == 'hello gofly', rpc_matrix
+
+with open(workdir / 'plugin-ecosystem.json', encoding='utf-8') as f:
+    plugin_matrix = json.load(f)
+assert plugin_matrix['schema'] == 'gofly.plugin_ecosystem.v1', plugin_matrix
+assert plugin_matrix['protocol'] == '1', plugin_matrix
+assert plugin_matrix['registry']['path'] == 'registry/plugins.json', plugin_matrix
+assert {'audit-trail-generator', 'company-template-pack'} <= set(plugin_matrix['registry']['names']), plugin_matrix
+assert {'name', 'version', 'protocol', 'compatibleVersions', 'capabilities', 'permissions', 'checksum', 'source'} <= set(plugin_matrix['registry']['fields']), plugin_matrix
+compatibility = {item['name']: item['accepted'] for item in plugin_matrix['compatibility']}
+assert compatibility == {'old-protocol': False, 'current-protocol': True, 'future-plus-current': True, 'future-only': False}, plugin_matrix
+examples = {item['name']: item for item in plugin_matrix['examples']}
+assert 'internal/audit/audit.go' in examples['example-file-generator']['files'], plugin_matrix
+assert 'cmd/orders/main.go' in examples['example-patch-generator']['patches'], plugin_matrix
+assert examples['third-party-template-directory']['contract'] == 'templates/service/gofly.template.json', plugin_matrix
 PY
 
 echo "examples smoke passed"

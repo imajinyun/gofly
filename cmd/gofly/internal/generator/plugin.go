@@ -209,6 +209,9 @@ type PluginRegistryEntry struct {
 	Name        string         `json:"name"`
 	Remote      string         `json:"remote"`
 	Version     string         `json:"version"`
+	Protocol    string         `json:"protocol"`
+	Checksum    string         `json:"checksum"`
+	Source      string         `json:"source"`
 	Description string         `json:"description,omitempty"`
 	Tags        []string       `json:"tags,omitempty"`
 	Manifest    PluginManifest `json:"manifest"`
@@ -823,6 +826,15 @@ func ValidatePluginRegistryIndex(index PluginRegistryIndex) error {
 		if strings.TrimSpace(entry.Remote) == "" || strings.TrimSpace(entry.Version) == "" {
 			return fmt.Errorf("plugin registry entry %s requires remote and version", name)
 		}
+		if strings.TrimSpace(entry.Protocol) != pluginVersion {
+			return fmt.Errorf("plugin registry entry %s requires protocol %s", name, pluginVersion)
+		}
+		if err := validatePluginRegistryChecksum(entry.Checksum); err != nil {
+			return fmt.Errorf("plugin registry entry %s checksum: %w", name, err)
+		}
+		if strings.TrimSpace(entry.Source) == "" {
+			return fmt.Errorf("plugin registry entry %s source is required", name)
+		}
 		if _, err := parseRemotePluginSpec(entry.Remote + "@" + entry.Version); err != nil {
 			return fmt.Errorf("plugin registry entry %s remote: %w", name, err)
 		}
@@ -866,7 +878,7 @@ func SortPluginRegistryEntries(entries []PluginRegistryEntry) {
 }
 
 func pluginRegistryEntryMatches(entry PluginRegistryEntry, query string) bool {
-	fields := []string{entry.Name, entry.Description, entry.Remote, entry.Version, entry.Manifest.Name, entry.Manifest.Version}
+	fields := []string{entry.Name, entry.Description, entry.Remote, entry.Version, entry.Protocol, entry.Checksum, entry.Source, entry.Manifest.Name, entry.Manifest.Version}
 	fields = append(fields, entry.Tags...)
 	fields = append(fields, entry.Manifest.Capabilities...)
 	for _, field := range fields {
@@ -879,6 +891,21 @@ func pluginRegistryEntryMatches(entry PluginRegistryEntry, query string) bool {
 
 func pluginRegistryEntryKey(entry PluginRegistryEntry) string {
 	return entry.Name + "@" + entry.Version
+}
+
+func validatePluginRegistryChecksum(checksum string) error {
+	checksum = strings.TrimSpace(checksum)
+	if !strings.HasPrefix(checksum, "sha256:") {
+		return errors.New("must use sha256:<hex> format")
+	}
+	hexValue := strings.TrimPrefix(checksum, "sha256:")
+	if len(hexValue) != sha256.Size*2 {
+		return fmt.Errorf("sha256 digest length = %d, want %d", len(hexValue), sha256.Size*2)
+	}
+	if _, err := hex.DecodeString(hexValue); err != nil {
+		return fmt.Errorf("decode sha256 digest: %w", err)
+	}
+	return nil
 }
 
 func ResolveGoPluginPaths(root string) ([]string, error) {

@@ -32,6 +32,7 @@ make examples-copyable-check
 | `http-middleware` | Combined HTTP middleware chain for browser/API workloads | `go run ./examples/http-middleware` | `8085` | `curl -s localhost:8085/token` | JWT, CORS, CSRF, session, tracing, metrics, SSE, WebSocket and validation behavior |
 | `rpcserver` | RPC service registration and HTTP transport | `go run ./examples/rpcserver` | `8081` | `curl -s -X POST localhost:8081/examples.greeter.Greeter/SayHello -d '{"name":"gofly"}'` | Greeting response from `SayHello` |
 | `rpc-idl-matrix` | Copyable RPC IDL adoption matrix | `go run ./examples/rpc-idl-matrix` | none | `go run -C examples/rpc-idl-matrix .` | Proto/thrift fixtures, unary/server-streaming/client-streaming/bidirectional streaming, interceptors, resolver updates and load-balancing JSON |
+| `plugin-ecosystem` | Copyable plugin ecosystem governance matrix | `go run ./examples/plugin-ecosystem` | none | `go run -C examples/plugin-ecosystem .` | SPI registry, code-generation plugin, post-generation patching and third-party template directory contract JSON |
 | `config-discovery` | Profile config layering and service discovery | `go run ./examples/config-discovery` | none | command output | Merged config plus resolved `orders` endpoint |
 | `gateway-discovery-rpc` | Gateway route wiring from discovery snapshots | `go run ./examples/gateway-discovery-rpc` | none | command output | Discovery snapshot/register events and route target summary |
 | `mq-worker` | MQ publish, retrying consume and stats snapshot | `go run ./examples/mq-worker` | none | command output | Retry log, received message and broker stats |
@@ -83,6 +84,13 @@ Run the RPC IDL matrix:
 ```bash
 go test -C examples/rpc-idl-matrix ./...
 go run -C examples/rpc-idl-matrix .
+```
+
+Run the plugin ecosystem matrix:
+
+```bash
+go test -C examples/plugin-ecosystem ./...
+go run -C examples/plugin-ecosystem .
 ```
 
 Run the observability example:

@@ -1,0 +1,10 @@
+{
+  "schema": "gofly.third_party_template_directory.v1",
+  "name": "company-service",
+  "version": "v1.4.2",
+  "protocol": "1",
+  "entrypoints": ["service/go.mod.tpl", "service/main.go.tpl"],
+  "permissions": ["filesystem:write-relative"],
+  "checksum": "sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+  "source": "https://github.com/example/gofly-company-template-pack"
+}

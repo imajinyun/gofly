@@ -1090,6 +1090,31 @@ func TestPluginManifestContractValidation(t *testing.T) {
 	}
 }
 
+func TestPluginProtocolCompatibilityMatrix_BitsUT(t *testing.T) {
+	tests := []struct {
+		name     string
+		versions []string
+		wantOK   bool
+	}{
+		{name: "old protocol only", versions: []string{"0"}, wantOK: false},
+		{name: "current protocol", versions: []string{PluginProtocolVersion}, wantOK: true},
+		{name: "future plus current protocol", versions: []string{"2", PluginProtocolVersion}, wantOK: true},
+		{name: "future protocol only", versions: []string{"2"}, wantOK: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			selected, ok := NegotiatePluginProtocol(tt.versions)
+			if ok != tt.wantOK {
+				t.Fatalf("NegotiatePluginProtocol(%v) ok = %v, want %v", tt.versions, ok, tt.wantOK)
+			}
+			if ok && selected != PluginProtocolVersion {
+				t.Fatalf("NegotiatePluginProtocol(%v) selected = %q, want %s", tt.versions, selected, PluginProtocolVersion)
+			}
+		})
+	}
+}
+
 func TestPluginProtocolSchemaContract(t *testing.T) {
 	var schema map[string]any
 	if err := json.Unmarshal([]byte(PluginProtocolSchema), &schema); err != nil {
@@ -1190,6 +1215,7 @@ esac
 }
 
 func TestPluginRegistryIndexValidationAndFiltering(t *testing.T) {
+	const registryChecksum = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 	index := PluginRegistryIndex{
 		Version: "v1",
 		Plugins: []PluginRegistryEntry{
@@ -1197,6 +1223,9 @@ func TestPluginRegistryIndexValidationAndFiltering(t *testing.T) {
 				Name:        "redis-cache",
 				Remote:      "https://example.com/redis-cache",
 				Version:     "v0.2.0",
+				Protocol:    PluginProtocolVersion,
+				Checksum:    registryChecksum,
+				Source:      "https://github.com/example/gofly-redis-cache",
 				Description: "Redis feature generator",
 				Tags:        []string{"cache", "redis"},
 				Manifest: PluginManifest{
@@ -1211,6 +1240,9 @@ func TestPluginRegistryIndexValidationAndFiltering(t *testing.T) {
 				Name:        "auth-jwt",
 				Remote:      "https://example.com/auth-jwt",
 				Version:     "v0.1.0",
+				Protocol:    PluginProtocolVersion,
+				Checksum:    registryChecksum,
+				Source:      "https://github.com/example/gofly-auth-jwt",
 				Description: "JWT auth generator",
 				Tags:        []string{"auth", "jwt"},
 				Manifest: PluginManifest{
@@ -1255,7 +1287,10 @@ func TestPluginRegistryIndexValidationAndFiltering(t *testing.T) {
 		{name: "missing registry version", index: PluginRegistryIndex{}, want: "version is required"},
 		{name: "missing entry name", index: PluginRegistryIndex{Version: "v1", Plugins: []PluginRegistryEntry{{Remote: "https://example.com/plugin", Version: "v1"}}}, want: "entry name is required"},
 		{name: "missing remote", index: PluginRegistryIndex{Version: "v1", Plugins: []PluginRegistryEntry{{Name: "missing-remote", Version: "v1"}}}, want: "requires remote and version"},
-		{name: "invalid remote spec", index: PluginRegistryIndex{Version: "v1", Plugins: []PluginRegistryEntry{{Name: "bad-remote", Remote: "https://example.com/plugin", Version: "../main"}}}, want: "remote plugin version"},
+		{name: "missing protocol", index: PluginRegistryIndex{Version: "v1", Plugins: []PluginRegistryEntry{{Name: "missing-protocol", Remote: "https://example.com/plugin", Version: "v1"}}}, want: "requires protocol"},
+		{name: "invalid checksum", index: PluginRegistryIndex{Version: "v1", Plugins: []PluginRegistryEntry{{Name: "bad-checksum", Remote: "https://example.com/plugin", Version: "v1", Protocol: PluginProtocolVersion, Checksum: "md5:bad", Source: "https://github.com/example/plugin"}}}, want: "sha256"},
+		{name: "missing source", index: PluginRegistryIndex{Version: "v1", Plugins: []PluginRegistryEntry{{Name: "missing-source", Remote: "https://example.com/plugin", Version: "v1", Protocol: PluginProtocolVersion, Checksum: registryChecksum}}}, want: "source is required"},
+		{name: "invalid remote spec", index: PluginRegistryIndex{Version: "v1", Plugins: []PluginRegistryEntry{{Name: "bad-remote", Remote: "https://example.com/plugin", Version: "../main", Protocol: PluginProtocolVersion, Checksum: registryChecksum, Source: "https://github.com/example/plugin"}}}, want: "remote plugin version"},
 	}
 	for _, tt := range invalidCases {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1276,6 +1311,9 @@ func TestLoadPluginRegistryIndexFromFile(t *testing.T) {
       "name": "auth-jwt",
       "remote": "https://example.com/auth-jwt",
       "version": "v0.1.0",
+      "protocol": "1",
+      "checksum": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "source": "https://github.com/example/gofly-auth-jwt",
       "manifest": {
         "name": "auth-jwt",
         "version": "v0.1.0",
@@ -1305,7 +1343,7 @@ func TestLoadPluginRegistryIndexFromFile(t *testing.T) {
 		t.Fatalf("LoadPluginRegistryIndex(bad json) error = %v, want decode error", err)
 	}
 	badMetadata := filepath.Join(t.TempDir(), "bad-metadata.json")
-	if err := os.WriteFile(badMetadata, []byte(`{"version":"v1","plugins":[{"name":"bad","remote":"https://example.com/bad","version":"v1","manifest":{"name":"bad","version":"v1","compatibleVersions":["999"],"capabilities":["generate:file"]}}]}`), 0o644); err != nil {
+	if err := os.WriteFile(badMetadata, []byte(`{"version":"v1","plugins":[{"name":"bad","remote":"https://example.com/bad","version":"v1","protocol":"1","checksum":"sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef","source":"https://github.com/example/bad","manifest":{"name":"bad","version":"v1","compatibleVersions":["999"],"capabilities":["generate:file"]}}]}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := LoadPluginRegistryIndex(badMetadata); err == nil || !strings.Contains(err.Error(), "manifest") || !strings.Contains(err.Error(), "incompatible") {
@@ -1320,6 +1358,9 @@ func TestLoadPluginRegistryIndexFromLocalURL_BitsUT(t *testing.T) {
     "name":"auth-jwt",
     "remote":"https://example.com/auth-jwt",
     "version":"v0.1.0",
+    "protocol":"1",
+    "checksum":"sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "source":"https://github.com/example/gofly-auth-jwt",
     "manifest":{"name":"auth-jwt","version":"v0.1.0","compatibleVersions":["1"],"capabilities":["generate:file"],"permissions":["filesystem:write-relative"]}
   }]
 }`

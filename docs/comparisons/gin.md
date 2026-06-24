@@ -47,6 +47,9 @@ go run .
 ```
 
 Then follow [Moving a Gin-style Service into Gofly](../case-studies/migrate-from-gin.md) for a deeper migration path.
+The runnable migration proof matrix in `examples/migration-proof` records the
+Gin smoke example, validation gates, and rollback note used by `make
+examples-smoke`.
 
 ## Example
 

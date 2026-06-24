@@ -53,6 +53,9 @@ From the repository root, compare RPC behavior with:
 BENCH_PATTERN=BenchmarkRPCUnary make bench-stat
 make bench-trend
 ```
+The runnable migration proof matrix in `examples/migration-proof` records the
+Kitex smoke example, validation gates, and rollback note used by `make
+examples-smoke`.
 
 ## Recommendation
 

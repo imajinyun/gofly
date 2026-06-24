@@ -228,8 +228,12 @@ migration-docs-check: ## Validate case studies and migration guide structure
 	sh $(SCRIPTS_DIR)/check-migration-docs.sh
 
 .PHONY: p1-growth-check
-p1-growth-check: ## Validate P1 growth roadmap and cloud-native assets
+p1-growth-check: helm-template-smoke ## Validate P1 growth roadmap and cloud-native assets
 	sh $(SCRIPTS_DIR)/check-p1-growth-assets.sh
+
+.PHONY: helm-template-smoke
+helm-template-smoke: ## Validate Helm chart production resource coverage
+	sh $(SCRIPTS_DIR)/helm-template-smoke.sh
 
 .PHONY: community-growth-check
 community-growth-check: ## Validate contributor, roadmap, and issue-template adoption signals

@@ -50,7 +50,7 @@ The host supports external generator plugin protocol `1`. Registry authors shoul
 | `compatibleVersions: ["2", "1"]` | Accepted by selecting `1`; the future declaration remains visible for migration planning. |
 | `compatibleVersions: ["2"]` | Rejected until the host supports that future protocol. |
 
-## Registry prototype
+## Publishable registry contract
 
 `gofly plugin search` reads a JSON registry from an HTTPS URL, localhost HTTP URL, or local file:
 
@@ -85,7 +85,11 @@ Registry entries use version-pinned remotes so install and run flows stay reprod
 }
 ```
 
-The registry command only searches and validates registry metadata. It does not download, install, execute, write files, or apply patches.
+The registry is a publishable protocol contract, not only an example index.
+Registry publishers should treat every field as release metadata for a specific
+plugin version, and consumers should validate it before install or execution.
+The registry command only searches and validates registry metadata. It does not
+download, install, execute, write files, or apply patches.
 
 Required registry fields:
 
@@ -94,6 +98,14 @@ Required registry fields:
 - `checksum` records the expected binary digest in `sha256:<hex>` format.
 - `source` records the reviewable source repository or release page.
 - `manifest.compatibleVersions`, `manifest.capabilities`, and `manifest.permissions` make protocol negotiation and filesystem permissions auditable.
+
+Publishable registry checklist:
+
+- Old protocol declarations such as `compatibleVersions: ["0"]` are rejected.
+- Current protocol declarations such as `compatibleVersions: ["1"]` are accepted.
+- Future-plus-current declarations such as `compatibleVersions: ["2", "1"]` are accepted by selecting the current protocol.
+- Future-only declarations such as `compatibleVersions: ["2"]` are rejected until the host supports that protocol.
+- `checksum`, `source`, `protocol`, `capabilities`, `permissions`, and the template contract must be present before release.
 
 Run the copyable plugin ecosystem example to inspect the registry contract, code-generation plugin example, post-generation patching example, and third-party template directory contract:
 

@@ -48,6 +48,9 @@ go run . describe
 ```
 
 Use `examples/production-orders` when you need a single-service migration with messaging and saga behavior.
+The runnable migration proof matrix in `examples/migration-proof` records the
+Kratos smoke example, validation gates, and rollback note used by `make
+examples-smoke`.
 
 ## When gofly fits
 

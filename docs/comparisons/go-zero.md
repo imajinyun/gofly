@@ -48,6 +48,9 @@ go run .
 ```
 
 The example shows REST, RPC, discovery, retry, breaker, outbox, saga, and admin surfaces in one module.
+The runnable migration proof matrix in `examples/migration-proof` records the
+go-zero smoke example, validation gates, and rollback note used by `make
+examples-smoke`.
 
 ## What changes most
 

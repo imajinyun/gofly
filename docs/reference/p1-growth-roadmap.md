@@ -10,7 +10,7 @@ This roadmap turns the P1 growth gaps into productized, testable workstreams. Ea
 | P1-2 | Binding and validation experience | Unified error response contract, validator adapter guidance, and OpenAPI schema linkage for generated services. | `make docs-check` plus generated service smoke tests |
 | P1-3 | CLI DX | Stable `gofly new service`, `api gen`, `rpc gen`, and `release check` JSON/CI output examples. | CLI JSON contract tests and `gofly release check --strict` |
 | P1-4 | RPC IDL ecosystem | Proto/thrift compatibility, streaming, interceptor, resolver, and load-balancing example matrix. | `make examples-smoke` plus RPC contract checks |
-| P1-5 | Cloud-native deployment assets | Helm chart, Kustomize overlay, Kubernetes probes, ServiceMonitor, HPA, and PodDisruptionBudget assets. | `make p1-growth-check` |
+| P1-5 | Cloud-native deployment assets | Helm chart, Kustomize overlay, Kubernetes probes, ServiceMonitor, HPA, PodDisruptionBudget, and NetworkPolicy assets. | `make p1-growth-check` |
 | P1-6 | Plugin ecosystem | SPI registry, plugin examples, version compatibility matrix, and third-party template directory contract. | plugin protocol tests plus `make docs-check` |
 
 ## P1-1 HTTP middleware ecosystem
@@ -67,8 +67,9 @@ The growth goal is a deployable baseline similar to Kratos and go-zero starter c
 - Probes must include liveness, readiness, and startup checks.
 - Observability must include Prometheus scrape annotations and ServiceMonitor support.
 - Availability must include HPA and PodDisruptionBudget support.
+- Default network isolation must include NetworkPolicy support for direct YAML and Helm users.
 
-Definition of done: `make p1-growth-check` validates the static and Helm cloud-native assets exist and contain the expected resource kinds.
+Definition of done: `make p1-growth-check` validates the static and Helm cloud-native assets exist and contain the expected resource kinds, and `make helm-template-smoke` validates the rendered or statically inspected chart surface.
 
 ## P1-6 Plugin ecosystem
 

@@ -27,6 +27,7 @@ done
 (cd examples/ai-governed-service && "$GO_CMD" run . expected) >"$workdir/ai-governed-contract.json"
 (cd examples/cache-local && "$GO_CMD" run .) >"$workdir/cache-local.json"
 (cd examples/http-middleware && "$GO_CMD" run . --describe) >"$workdir/http-middleware.json"
+(cd examples/migration-proof && "$GO_CMD" run .) >"$workdir/migration-proof.json"
 (cd examples/rpc-idl-matrix && "$GO_CMD" run .) >"$workdir/rpc-idl-matrix.json"
 (cd examples/plugin-ecosystem && "$GO_CMD" run .) >"$workdir/plugin-ecosystem.json"
 
@@ -74,6 +75,22 @@ assert http_middleware['routes']['events'] == '/events', http_middleware
 assert http_middleware['routes']['websocket'] == '/ws', http_middleware
 assert http_middleware['contracts']['invalidRequestStatus'] == 400, http_middleware
 assert http_middleware['contracts']['schemaOutput'] == 'openapi', http_middleware
+
+with open(workdir / 'migration-proof.json', encoding='utf-8') as f:
+    migration_proof = json.load(f)
+assert migration_proof['schema'] == 'gofly.migration_proof.v1', migration_proof
+cases = {item['source']: item for item in migration_proof['cases']}
+assert set(cases) == {'gin', 'go-zero', 'kratos', 'kitex'}, migration_proof
+assert cases['gin']['example'] == 'examples/restserver', migration_proof
+assert cases['go-zero']['example'] == 'examples/production-orders', migration_proof
+assert cases['kratos']['example'] == 'examples/microshop', migration_proof
+assert cases['kitex']['example'] == 'examples/rpc-idl-matrix', migration_proof
+for source, item in cases.items():
+    assert item['rollback'], migration_proof
+    assert item['validation'], migration_proof
+    assert item['compatibility'], migration_proof
+rollback_sources = {item['source'] for item in migration_proof['rollbacks']}
+assert rollback_sources == set(cases), migration_proof
 
 with open(workdir / 'rpc-idl-matrix.json', encoding='utf-8') as f:
     rpc_matrix = json.load(f)

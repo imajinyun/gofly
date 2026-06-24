@@ -30,6 +30,7 @@ make examples-copyable-check
 | `middlewares` | Copyable HTTP middleware catalog for generated services | import `github.com/gofly/gofly/examples/middlewares` | none | `go test -C examples/middlewares ./...` | Productization catalog for JWT, CORS, CSRF, sessions, OpenTelemetry, Prometheus, SSE, WebSocket and validation |
 | `middleware-demo` | Focused route-per-middleware demo with catalog and OpenAPI exposure | `go run ./examples/middleware-demo` | `8086` | `curl -s localhost:8086/middleware/catalog` | JSON catalog plus runnable endpoints for each reusable middleware |
 | `http-middleware` | Combined HTTP middleware chain for browser/API workloads | `go run ./examples/http-middleware` | `8085` | `curl -s localhost:8085/token` | JWT, CORS, CSRF, session, tracing, metrics, SSE, WebSocket and validation behavior |
+| `migration-proof` | Runnable migration evidence for Gin, go-zero, Kratos and Kitex adoption | `go run ./examples/migration-proof` | none | `go run -C examples/migration-proof .` | `gofly.migration_proof.v1` JSON with smoke examples, validation gates and rollback notes |
 | `rpcserver` | RPC service registration and HTTP transport | `go run ./examples/rpcserver` | `8081` | `curl -s -X POST localhost:8081/examples.greeter.Greeter/SayHello -d '{"name":"gofly"}'` | Greeting response from `SayHello` |
 | `rpc-idl-matrix` | Copyable RPC IDL adoption matrix | `go run ./examples/rpc-idl-matrix` | none | `go run -C examples/rpc-idl-matrix .` | Proto/thrift fixtures, unary/server-streaming/client-streaming/bidirectional streaming, interceptors, resolver updates and load-balancing JSON |
 | `plugin-ecosystem` | Copyable plugin ecosystem governance matrix | `go run ./examples/plugin-ecosystem` | none | `go run -C examples/plugin-ecosystem .` | SPI registry, code-generation plugin, post-generation patching and third-party template directory contract JSON |
@@ -92,6 +93,13 @@ Run the plugin ecosystem matrix:
 ```bash
 go test -C examples/plugin-ecosystem ./...
 go run -C examples/plugin-ecosystem .
+```
+
+Run the migration proof matrix:
+
+```bash
+go test -C examples/migration-proof ./...
+go run -C examples/migration-proof .
 ```
 
 Run the cache capability matrix:

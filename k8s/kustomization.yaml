@@ -6,6 +6,7 @@ resources:
   - servicemonitor.yaml
   - hpa.yaml
   - pdb.yaml
+  - networkpolicy.yaml
 
 commonLabels:
   app.kubernetes.io/part-of: gofly

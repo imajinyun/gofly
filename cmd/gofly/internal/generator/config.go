@@ -52,6 +52,7 @@ type RPCConfig struct {
 type APIConfig struct {
 	Plugins    []string `json:"plugins,omitempty"`
 	Middleware []string `json:"middleware,omitempty"`
+	Profile    string   `json:"profile,omitempty"`
 }
 
 // ModelConfig 为 model 生成保存默认参数，包含 goctl config 的类型映射能力。
@@ -149,6 +150,12 @@ func ApplyEnvOverlay(cfg *Config) {
 			cfg.RPC = &RPCConfig{}
 		}
 		cfg.RPC.Profile = v
+	}
+	if v := os.Getenv("GOFLY_API_PROFILE"); v != "" {
+		if cfg.API == nil {
+			cfg.API = &APIConfig{}
+		}
+		cfg.API.Profile = v
 	}
 	applyDiscoveryEnvOverlay(cfg)
 }

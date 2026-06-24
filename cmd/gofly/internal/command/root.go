@@ -765,7 +765,7 @@ func commandHelpFor(command string) commandHelp {
 	case "new service":
 		return commandHelp{Name: "new service", Short: "Create the golden-path production service scaffold.", Usage: "gofly new service <name> --module <module> [--dir <dir>] [flags]", Flags: []string{"--name <name>                  service name", "--module <module>              Go module path", "--dir <dir>                    output directory", "--style production             defaults to production", "--discovery memory|consul|etcdv3", "--discovery-address <addr>      discovery address", "--discovery-endpoints <list>    discovery endpoints", "--home, --remote, --branch      template source options", "--feature <names>               feature names to enable", "--plugin <paths>                plugin executables", "--json                         emit scaffold result as JSON"}, Examples: []string{"gofly new service orders --style production --module example.com/orders", "gofly new service orders --module example.com/orders --discovery memory --dir orders --json"}}
 	case "api new", "new api":
-		return commandHelp{Name: command, Short: "Create an API service scaffold.", Usage: "gofly " + command + " <name> --module <module> [flags]", Flags: []string{"--name <name>                  API service name", "--module <module>              Go module path", "--dir <dir>                    output directory", "--style minimal|basic|production", "--home, --remote, --branch     template source options", "--client, --idea, --go_opt     accepted scaffold options", "--json                         emit scaffold result as JSON"}, Examples: []string{"gofly new api hello --module example.com/hello --style go_zero", "gofly api new hello --module example.com/hello --dir hello --json"}}
+		return commandHelp{Name: command, Short: "Create an API service scaffold.", Usage: "gofly " + command + " <name> --module <module> [flags]", Flags: []string{"--name <name>                  API service name", "--module <module>              Go module path", "--dir <dir>                    output directory", "--style minimal|basic|production", "--profile <profile>            generation profile: gofly-ai|gozero-compatible|kitex-compatible", "--home, --remote, --branch     template source options", "--client, --idea, --go_opt     accepted scaffold options", "--json                         emit scaffold result as JSON"}, Examples: []string{"gofly new api hello --module example.com/hello --style go_zero", "gofly api new hello --module example.com/hello --dir hello --profile gozero-compatible --json"}}
 	case "api client", "api ts", "api js", "api dart", "api java", "api kotlin":
 		return commandHelp{Name: command, Short: "Generate typed API client code from an .api file.", Usage: "gofly " + command + " --api <service.api> --dir <dir> [flags]", Flags: []string{"-api, --api, --file <file>  API definition file", "--dir <dir>                   output directory", "--language <name>             client language for api client", "--caller, --unwrap, --legacy  client generation options", "--hostname, --scheme, --pkg   client generation options"}, Examples: []string{"gofly api ts -api user.api -dir web/src/client", "gofly api client -api user.api -dir clients -language java"}}
 	case "api plugin":
@@ -5645,6 +5645,11 @@ func getConfigField(cfg *generator.Config, key string) string {
 			return strings.Join(cfg.API.Plugins, ",")
 		}
 		return ""
+	case "api.profile", "api-profile":
+		if cfg.API != nil {
+			return cfg.API.Profile
+		}
+		return ""
 	case "model.style", "model-style":
 		if cfg.Model != nil {
 			return cfg.Model.Style
@@ -5763,6 +5768,11 @@ func setConfigField(cfg *generator.Config, key, value string) error {
 			cfg.API = &generator.APIConfig{}
 		}
 		cfg.API.Plugins = splitCSV(value)
+	case "api.profile", "api-profile":
+		if cfg.API == nil {
+			cfg.API = &generator.APIConfig{}
+		}
+		cfg.API.Profile = value
 	case "model.style", "model-style":
 		ensureModelConfig(cfg).Style = value
 	case "model.ignorecolumns", "model.ignore-columns", "model-ignore-columns":

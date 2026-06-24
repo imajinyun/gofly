@@ -1113,6 +1113,8 @@ func apiGenCommand(args []string) error {
 	dir := fs.String("dir", ".", "output directory")
 	pkg := fs.String("package", "", "generated Go package name")
 	rpcPkg := fs.String("rpc-package", "", "RPC generated package import path for gateway generation")
+	profile := fs.String("profile", "", "generation profile: gofly-ai, gozero-compatible, or kitex-compatible")
+	profileAlias := fs.String("generation-profile", "", "alias for --profile")
 	pluginArg := fs.String("plugin", "", "additional plugin executable (comma-separated) to run after generation")
 	test := fs.Bool("test", false, "generate test files")
 	typeGroup := fs.Bool("type-group", false, "group generated types")
@@ -1128,8 +1130,11 @@ func apiGenCommand(args []string) error {
 	if *file == "" {
 		*file = leadingFile
 	}
+	if *profile == "" {
+		*profile = *profileAlias
+	}
 	fillNameFromArgs(file, remaining)
-	if err := generator.GenerateRESTFromAPI(generator.APIOptions{APIFile: *file, Dir: *dir, Package: *pkg, RPCPackage: *rpcPkg, Test: *test, TypeGroup: *typeGroup}); err != nil {
+	if err := generator.GenerateRESTFromAPI(generator.APIOptions{APIFile: *file, Dir: *dir, Package: *pkg, RPCPackage: *rpcPkg, Profile: *profile, Test: *test, TypeGroup: *typeGroup}); err != nil {
 		return err
 	}
 	if err := runPostPlugins(*pluginArg, generator.PluginRequest{
@@ -1146,6 +1151,9 @@ func apiGenCommand(args []string) error {
 		}
 		if *rpcPkg != "" {
 			inputs["rpcPackage"] = *rpcPkg
+		}
+		if *profile != "" {
+			inputs["profile"] = *profile
 		}
 		if *test {
 			inputs["test"] = "true"

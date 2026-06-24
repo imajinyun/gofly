@@ -276,6 +276,8 @@ func apiNewCommand(args []string) error {
 	module := fs.String("module", "", "go module path")
 	dir := fs.String("dir", "", "output directory")
 	style := fs.String("style", "", "api scaffold style: minimal, basic, or production")
+	profile := fs.String("profile", "", "generation profile: gofly-ai, gozero-compatible, or kitex-compatible")
+	profileAlias := fs.String("generation-profile", "", "alias for --profile")
 	apiSpec := fs.Bool("api-spec", true, "generate an .api file")
 	configPath := fs.String("config", "", "gofly config file path (defaults to <dir>/.gofly/config.json)")
 	templateDir := fs.String("template-dir", "", "override templates from this directory")
@@ -328,6 +330,9 @@ func apiNewCommand(args []string) error {
 	if *templateDir == "" {
 		*templateDir = *home
 	}
+	if *profile == "" {
+		*profile = *profileAlias
+	}
 	if *dir == "" && *name != "" {
 		*dir = *name
 	}
@@ -354,6 +359,17 @@ func apiNewCommand(args []string) error {
 		*dir = cfg.ServiceName
 	}
 	plugins := pluginListFromConfig(cfg, "api")
+	resolvedProfile := strings.TrimSpace(*profile)
+	if resolvedProfile == "" && cfg.API != nil {
+		resolvedProfile = strings.TrimSpace(cfg.API.Profile)
+	}
+	if _, err := generator.NormalizeGenerationProfile(resolvedProfile); err != nil {
+		return err
+	}
+	if cfg.API == nil {
+		cfg.API = &generator.APIConfig{}
+	}
+	cfg.API.Profile = resolvedProfile
 	if *dryRun || *plan {
 		if err := validateNewServicePlanInputs(cfg); err != nil {
 			return err
@@ -368,6 +384,7 @@ func apiNewCommand(args []string) error {
 		TemplateDir:    cfg.TemplateDir,
 		TemplateRemote: cfg.TemplateRemote,
 		TemplateBranch: cfg.TemplateBranch,
+		Profile:        resolvedProfile,
 		Features:       cfg.Features,
 		Plugins:        plugins,
 		SkipAPISpec:    !*apiSpec,
@@ -677,6 +694,9 @@ func buildNewServicePlan(command, dir, configPath string, cfg *generator.Config,
 		}
 		if cfg.RPC != nil && cfg.RPC.Profile != "" {
 			inputs["profile"] = cfg.RPC.Profile
+		}
+		if cfg.API != nil && cfg.API.Profile != "" {
+			inputs["profile"] = cfg.API.Profile
 		}
 		if cfg.Discovery != nil && cfg.Discovery.Provider != "" {
 			inputs["discovery"] = cfg.Discovery.Provider

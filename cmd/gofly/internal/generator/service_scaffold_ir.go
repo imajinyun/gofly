@@ -112,6 +112,10 @@ func normalizeGenerationProfile(profile string) (GenerationProfile, error) {
 	}
 }
 
+func NormalizeGenerationProfile(profile string) (GenerationProfile, error) {
+	return normalizeGenerationProfile(profile)
+}
+
 func serviceScaffoldArtifacts(files map[string]string) []serviceScaffoldArtifact {
 	paths := make([]string, 0, len(files))
 	for path := range files {

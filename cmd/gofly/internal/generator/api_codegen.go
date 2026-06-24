@@ -22,6 +22,7 @@ type APIOptions struct {
 	RPCPackage string
 	Test       bool
 	TypeGroup  bool
+	Profile    string
 }
 
 type RESTCodeOptions struct {
@@ -134,6 +135,9 @@ func GenerateRESTFromAPI(opts APIOptions) error {
 	}
 	doc, err := ParseAPI(string(content))
 	if err != nil {
+		return err
+	}
+	if _, err := normalizeGenerationProfile(opts.Profile); err != nil {
 		return err
 	}
 	opts.Dir = filepath.Join(opts.Dir, "internal", "api")

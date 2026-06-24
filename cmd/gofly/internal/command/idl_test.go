@@ -1554,6 +1554,67 @@ func TestExecuteAPINew(t *testing.T) {
 	}
 }
 
+func TestExecuteAPINewWithGoZeroCompatibleProfile(t *testing.T) {
+	dir := t.TempDir()
+	if err := Execute([]string{"api", "new", "hello", "--module", "example.com/hello", "--dir", dir, "--profile", "gozero-compatible"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, rel := range []string{
+		filepath.Join("cmd", "hello", "main.go"),
+		filepath.Join("internal", "config", "config.go"),
+		filepath.Join("internal", "handler", "pinghandler.go"),
+		filepath.Join("internal", "logic", "pinglogic.go"),
+		filepath.Join("internal", "svc", "servicecontext.go"),
+	} {
+		if _, err := os.Stat(filepath.Join(dir, rel)); err != nil {
+			t.Fatalf("expected gozero-compatible API file %s: %v", rel, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "internal", "routes", "routes.go")); err == nil {
+		t.Fatal("gozero-compatible API profile should not generate legacy routes.go")
+	}
+	cfg, err := generator.LoadConfig(filepath.Join(dir, generator.DefaultConfigFile))
+	if err != nil {
+		t.Fatalf("load generated config: %v", err)
+	}
+	if cfg.API == nil || cfg.API.Profile != string(generator.ProfileGoZeroCompatible) {
+		t.Fatalf("generated api profile = %#v, want gozero-compatible", cfg.API)
+	}
+}
+
+func TestExecuteAPINewUsesConfigProfileDefault(t *testing.T) {
+	dir := t.TempDir()
+	cfg := generator.DefaultConfig("hello", "example.com/hello")
+	cfg.API.Profile = string(generator.ProfileGoZeroCompatible)
+	if err := generator.SaveConfig(filepath.Join(dir, generator.DefaultConfigFile), cfg); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	if err := ExecuteWithIO([]string{"api", "new", "--config", filepath.Join(dir, generator.DefaultConfigFile), "--dir", dir, "--json"}, IOStreams{Out: &stdout}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "internal", "handler", "pinghandler.go")); err != nil {
+		t.Fatalf("expected gozero-compatible API scaffold from config profile: %v", err)
+	}
+	assertNewEnvelopeInput(t, stdout.Bytes(), "new.api", "new api", "profile", string(generator.ProfileGoZeroCompatible))
+	got, err := generator.LoadConfig(filepath.Join(dir, generator.DefaultConfigFile))
+	if err != nil {
+		t.Fatalf("reload config: %v", err)
+	}
+	if got.API == nil || got.API.Profile != string(generator.ProfileGoZeroCompatible) {
+		t.Fatalf("persisted api profile = %#v, want gozero-compatible", got.API)
+	}
+}
+
+func TestExecuteAPINewRejectsUnknownProfile(t *testing.T) {
+	dir := t.TempDir()
+	err := Execute([]string{"api", "new", "hello", "--module", "example.com/hello", "--dir", dir, "--profile", "unknown-profile"})
+	if err == nil || !strings.Contains(err.Error(), "unknown generation profile") {
+		t.Fatalf("Execute err = %v, want unknown generation profile", err)
+	}
+}
+
 func TestExecuteAPINewAcceptsGoctlReservedFlags(t *testing.T) {
 	dir := t.TempDir()
 	if err := Execute([]string{
@@ -1569,6 +1630,7 @@ func TestExecuteAPINewAcceptsGoctlReservedFlags(t *testing.T) {
 		"-verbose",
 		"-name-from-filename",
 		"-go_opt", "paths=source_relative",
+		"-profile", "gozero-compatible",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -1576,7 +1638,7 @@ func TestExecuteAPINewAcceptsGoctlReservedFlags(t *testing.T) {
 		"go.mod",
 		"hello.api",
 		filepath.Join("cmd", "hello", "main.go"),
-		filepath.Join("internal", "routes", "routes.go"),
+		filepath.Join("internal", "handler", "pinghandler.go"),
 	} {
 		if _, err := os.Stat(filepath.Join(dir, rel)); err != nil {
 			t.Fatalf("expected api new file %s with accepted extra flags: %v", rel, err)
@@ -2707,6 +2769,44 @@ service user-api {
 		}
 	})
 
+	t.Run("api gen profile", func(t *testing.T) {
+		dir := t.TempDir()
+		apiPath := filepath.Join(dir, "user.api")
+		api := `type PingResp {
+  Message string
+}
+service user-api {
+  @handler ping
+  get /ping returns (PingResp)
+}
+`
+		if err := os.WriteFile(apiPath, []byte(api), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		outDir := filepath.Join(dir, "out-profile")
+		var stdout bytes.Buffer
+		if err := ExecuteWithIO([]string{"api", "gen", "--file", apiPath, "--dir", outDir, "--profile", "gozero-compatible", "--json"}, IOStreams{Out: &stdout}); err != nil {
+			t.Fatal(err)
+		}
+		assertGenerateEnvelope(t, stdout.Bytes(), "api.gen", "api gen", outDir)
+		assertGenerateEnvelopeInput(t, stdout.Bytes(), "profile", string(generator.ProfileGoZeroCompatible))
+		if _, err := os.Stat(filepath.Join(outDir, "internal", "api", "v1", "types.go")); err != nil {
+			t.Fatalf("api gen --profile did not write generated file: %v", err)
+		}
+	})
+
+	t.Run("api gen invalid profile", func(t *testing.T) {
+		dir := t.TempDir()
+		apiPath := filepath.Join(dir, "user.api")
+		if err := os.WriteFile(apiPath, []byte(commandTestAPI), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		err := Execute([]string{"api", "gen", "--file", apiPath, "--dir", filepath.Join(dir, "out"), "--profile", "unknown-profile"})
+		if err == nil || !strings.Contains(err.Error(), "unknown generation profile") {
+			t.Fatalf("Execute err = %v, want unknown generation profile", err)
+		}
+	})
+
 	t.Run("rpc gen", func(t *testing.T) {
 		dir := t.TempDir()
 		protoPath := filepath.Join(dir, "greeter.proto")
@@ -2749,6 +2849,42 @@ func assertGenerateEnvelope(t *testing.T, data []byte, command, planCommand, dir
 	}
 	if envelope.Data.Inputs["dir"] != dir || len(envelope.Data.Actions) == 0 || envelope.Data.Actions[0].Operation != "write-files" || len(envelope.Data.NextActions) == 0 {
 		t.Fatalf("generate plan data = %+v, want stable automation fields", envelope.Data)
+	}
+}
+
+func assertGenerateEnvelopeInput(t *testing.T, data []byte, key, want string) {
+	t.Helper()
+	var envelope struct {
+		Data struct {
+			Inputs map[string]string `json:"inputs"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(data, &envelope); err != nil {
+		t.Fatalf("generate output is not valid JSON: %v\n%s", err, string(data))
+	}
+	if got := envelope.Data.Inputs[key]; got != want {
+		t.Fatalf("generate input %q = %q, want %q; inputs=%v", key, got, want, envelope.Data.Inputs)
+	}
+}
+
+func assertNewEnvelopeInput(t *testing.T, data []byte, command, planCommand, key, want string) {
+	t.Helper()
+	var envelope struct {
+		OK      bool   `json:"ok"`
+		Command string `json:"command"`
+		Data    struct {
+			Command string            `json:"command"`
+			Inputs  map[string]string `json:"inputs"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(data, &envelope); err != nil {
+		t.Fatalf("new command output is not valid JSON: %v\n%s", err, string(data))
+	}
+	if !envelope.OK || envelope.Command != command || envelope.Data.Command != planCommand {
+		t.Fatalf("new command envelope = %+v, want %s/%s", envelope, command, planCommand)
+	}
+	if got := envelope.Data.Inputs[key]; got != want {
+		t.Fatalf("new command input %q = %q, want %q; inputs=%v", key, got, want, envelope.Data.Inputs)
 	}
 }
 
@@ -6312,7 +6448,7 @@ func TestGetConfigFieldAllKeys(t *testing.T) {
 		GoVersion:   "1.22",
 		Features:    []string{"a", "b"},
 		RPC:         &generator.RPCConfig{Plugins: []string{"p1"}, Transport: "grpc", Profile: string(generator.ProfileKitexCompatible)},
-		API:         &generator.APIConfig{Plugins: []string{"p2"}},
+		API:         &generator.APIConfig{Plugins: []string{"p2"}, Profile: string(generator.ProfileGoZeroCompatible)},
 		Model: &generator.ModelConfig{
 			Style:         "gorm",
 			IgnoreColumns: []string{"id"},
@@ -6346,6 +6482,8 @@ func TestGetConfigFieldAllKeys(t *testing.T) {
 		{"rpc-profile", string(generator.ProfileKitexCompatible)},
 		{"api.plugins", "p2"},
 		{"api-plugins", "p2"},
+		{"api.profile", string(generator.ProfileGoZeroCompatible)},
+		{"api-profile", string(generator.ProfileGoZeroCompatible)},
 		{"model.style", "gorm"},
 		{"model-style", "gorm"},
 		{"model.ignoreColumns", "id"},
@@ -6378,6 +6516,9 @@ func TestGetConfigFieldNilSubstructs(t *testing.T) {
 	}
 	if got := getConfigField(cfg, "api.plugins"); got != "" {
 		t.Fatalf("nil api.plugins = %q, want empty", got)
+	}
+	if got := getConfigField(cfg, "api.profile"); got != "" {
+		t.Fatalf("nil api.profile = %q, want empty", got)
 	}
 	if got := getConfigField(cfg, "model.style"); got != "" {
 		t.Fatalf("nil model.style = %q, want empty", got)
@@ -6460,6 +6601,13 @@ func TestSetConfigFieldAllKeys(t *testing.T) {
 	}
 	if cfg.API == nil || len(cfg.API.Plugins) != 1 {
 		t.Fatalf("API.Plugins = %v", cfg.API)
+	}
+
+	if err := setConfigField(cfg, "api.profile", string(generator.ProfileGoZeroCompatible)); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.API.Profile != string(generator.ProfileGoZeroCompatible) {
+		t.Fatalf("API.Profile = %q", cfg.API.Profile)
 	}
 
 	if err := setConfigField(cfg, "model.style", "gorm"); err != nil {

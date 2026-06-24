@@ -25,6 +25,7 @@ done
 
 (cd examples/microshop && "$GO_CMD" run . describe) >"$workdir/microshop-topology.json"
 (cd examples/ai-governed-service && "$GO_CMD" run . expected) >"$workdir/ai-governed-contract.json"
+(cd examples/cache-local && "$GO_CMD" run .) >"$workdir/cache-local.json"
 (cd examples/rpc-idl-matrix && "$GO_CMD" run .) >"$workdir/rpc-idl-matrix.json"
 (cd examples/plugin-ecosystem && "$GO_CMD" run .) >"$workdir/plugin-ecosystem.json"
 
@@ -44,6 +45,21 @@ with open(workdir / 'ai-governed-contract.json', encoding='utf-8') as f:
     contract = json.load(f)
 assert contract['service'] == 'ai-governed-service', contract
 assert contract['adminPath'] == '/admin/control-plane', contract
+
+with open(workdir / 'cache-local.json', encoding='utf-8') as f:
+    cache_local = json.load(f)
+assert cache_local['schema'] == 'gofly.cache_local.v1', cache_local
+assert {'typed-local-cache', 'loader-fill', 'negative-cache', 'bloom-protection', 'tiered-l1-l2-cache', 'cache-disabled-mode', 'stats-and-prometheus'} <= set(cache_local['capabilities']), cache_local
+assert cache_local['local']['loaderCalls'] == 1, cache_local
+assert cache_local['local']['stats']['loads'] == 1, cache_local
+assert cache_local['local']['stats']['hits'] == 1, cache_local
+assert cache_local['negative']['loaderCalls'] == 1, cache_local
+assert cache_local['negative']['stats']['negatives'] == 1, cache_local
+assert cache_local['bloom']['stats']['bloomRejects'] == 1, cache_local
+assert cache_local['tiered']['loaderCalls'] == 1, cache_local
+assert cache_local['tiered']['namespacedRemote'] is True, cache_local
+assert cache_local['disabled']['loaderCalls'] == 2, cache_local
+assert cache_local['disabled']['stats']['disabled'] is True, cache_local
 
 with open(workdir / 'rpc-idl-matrix.json', encoding='utf-8') as f:
     rpc_matrix = json.load(f)

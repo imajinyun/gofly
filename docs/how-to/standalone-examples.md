@@ -9,6 +9,7 @@ make examples-smoke
 ```
 
 This verifies every example module has its own `go.mod`, builds each module, runs tests, and checks machine-readable outputs for the microshop and AI-governed examples.
+It also checks stable JSON contracts for examples that serve as machine-readable governance fixtures, including cache, RPC IDL, and plugin ecosystem matrices.
 
 ## Copy an example out of the repository
 
@@ -27,6 +28,7 @@ Keep the local `replace` directive only when developing inside the gofly reposit
 | Need | Example |
 | --- | --- |
 | Basic REST with OpenAPI and health | `examples/restserver` |
+| Typed local, protected, and tiered cache behavior | `examples/cache-local` |
 | Lightweight RPC server/client | `examples/rpcserver` |
 | REST + RPC + discovery + MQ + saga | `examples/production-orders` |
 | Multi-service topology and gateway | `examples/microshop` |

@@ -33,6 +33,7 @@ make examples-copyable-check
 | `rpcserver` | RPC service registration and HTTP transport | `go run ./examples/rpcserver` | `8081` | `curl -s -X POST localhost:8081/examples.greeter.Greeter/SayHello -d '{"name":"gofly"}'` | Greeting response from `SayHello` |
 | `rpc-idl-matrix` | Copyable RPC IDL adoption matrix | `go run ./examples/rpc-idl-matrix` | none | `go run -C examples/rpc-idl-matrix .` | Proto/thrift fixtures, unary/server-streaming/client-streaming/bidirectional streaming, interceptors, resolver updates and load-balancing JSON |
 | `plugin-ecosystem` | Copyable plugin ecosystem governance matrix | `go run ./examples/plugin-ecosystem` | none | `go run -C examples/plugin-ecosystem .` | SPI registry, code-generation plugin, post-generation patching and third-party template directory contract JSON |
+| `cache-local` | Typed local cache, protection knobs and tiered L1/L2 cache | `go run ./examples/cache-local` | none | `go run -C examples/cache-local .` | `gofly.cache_local.v1` JSON with loader, negative-cache, bloom, tiered and disabled-mode stats |
 | `config-discovery` | Profile config layering and service discovery | `go run ./examples/config-discovery` | none | command output | Merged config plus resolved `orders` endpoint |
 | `gateway-discovery-rpc` | Gateway route wiring from discovery snapshots | `go run ./examples/gateway-discovery-rpc` | none | command output | Discovery snapshot/register events and route target summary |
 | `mq-worker` | MQ publish, retrying consume and stats snapshot | `go run ./examples/mq-worker` | none | command output | Retry log, received message and broker stats |
@@ -93,6 +94,13 @@ go test -C examples/plugin-ecosystem ./...
 go run -C examples/plugin-ecosystem .
 ```
 
+Run the cache capability matrix:
+
+```bash
+go test -C examples/cache-local ./...
+go run -C examples/cache-local .
+```
+
 Run the observability example:
 
 ```bash
@@ -129,6 +137,7 @@ Run the standalone examples:
 ```bash
 go run ./examples/gateway-discovery-rpc
 go run ./examples/config-discovery
+go run ./examples/cache-local
 go run ./examples/microshop describe
 go run ./examples/ai-governed-service expected
 go run ./examples/mq-worker

@@ -450,6 +450,14 @@ func TestAPIAnnotationParsingBoundaries(t *testing.T) {
 		values["middleware"] != "auth" {
 		t.Fatalf("parseAPIAnnotationValues = %#v, want parsed annotation values", values)
 	}
+
+	server := parseAPIServerAnnotation(`@server(group: admin prefix: /v1 jwt: required middlewares: auth,trace)`)
+	if server.Group != "admin" ||
+		server.Prefix != "/v1" ||
+		server.JWT != "required" ||
+		!reflect.DeepEqual(server.Middleware, []string{"auth", "trace"}) {
+		t.Fatalf("parseAPIServerAnnotation plural middleware = %#v, want goctl-compatible metadata", server)
+	}
 }
 
 func TestProtoCodegenTypeAndPackageBoundaries(t *testing.T) {
@@ -1559,6 +1567,7 @@ func TestGenerateAPIRoutes(t *testing.T) {
   Message string
 }
 service user-api {
+  @server(group: admin prefix: /api jwt: required middlewares: auth,trace)
   @handler ping
   get /ping returns (PingResp)
 }`
@@ -1577,8 +1586,14 @@ service user-api {
 	if err := json.Unmarshal(data, &routes); err != nil {
 		t.Fatal(err)
 	}
-	if len(routes) != 1 || routes[0].Method != "GET" || routes[0].Path != "/ping" || routes[0].Handler != "Ping" {
-		t.Fatalf("routes = %#v, want GET /ping Ping", routes)
+	if len(routes) != 1 || routes[0].Method != "GET" || routes[0].Path != "/api/ping" || routes[0].Handler != "Ping" || routes[0].Request != "" {
+		t.Fatalf("routes = %#v, want GET /api/ping Ping without request", routes)
+	}
+	if routes[0].Group != "Admin" ||
+		routes[0].Prefix != "/api" ||
+		routes[0].JWT != "Required" ||
+		!reflect.DeepEqual(routes[0].Middlewares, []string{"Auth", "Trace"}) {
+		t.Fatalf("route governance metadata = %#v, want exported group/jwt/middlewares and raw prefix", routes[0])
 	}
 }
 

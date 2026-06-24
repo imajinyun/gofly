@@ -224,7 +224,7 @@ Quality-gate constraints:
 - `go tool govulncheck` defaults to `-scan=package`. If source mode fails because of tooling issues, it may be downgraded to package mode, but the downgrade reason must be recorded.
 - `go tool gosec` is currently blocking. New code must not introduce security findings. `#nosec` is allowed only for false positives or protocol/generator-required cases and must state the exact rule and rationale.
 - If `golangci-lint` fails, fix the root cause first. `//nolint` must name the linter and include a rationale; broad exemptions without reasons are not allowed.
-- Round 13 of `bin/scripts/governance-10-rounds.sh` runs the final docs check, coverage ratchet, `govulncheck`, `gosec`, and dependency-list convergence. Set `GOVERNANCE_SKIP_SECURITY=true` only when tooling or environment limits are clear, and document the skip reason.
+- Round 14 of `bin/scripts/governance-10-rounds.sh` runs the final docs check, coverage ratchet, `govulncheck`, `gosec`, and dependency-list convergence. Set `GOVERNANCE_SKIP_SECURITY=true` only when tooling or environment limits are clear, and document the skip reason.
 
 Release governance should also include CodeQL, Dependency Review, release checksum provenance attestations, and GoReleaser SBOM generation.
 

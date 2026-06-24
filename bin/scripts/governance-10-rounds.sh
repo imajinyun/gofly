@@ -349,6 +349,10 @@ round_generated_project_matrix_tests() {
 	"$go_cmd" test $testflags ./cmd/gofly/internal/command -run 'TestAINewGeneratedProjectVerificationMatrix_BitsUT'
 }
 
+round_generated_output_governance() {
+	GO="$go_cmd" TESTFLAGS="$testflags" sh "$root/bin/scripts/check-generated-output-governance.sh"
+}
+
 round_generated_project_control_plane_smoke() {
 	project="$tmp/control-plane-smoke"
 	"$go_cmd" run ./cmd/gofly ai new --template go-rest-minimal --name smoke --module example.com/smoke --dir "$project" --apply --json >/dev/null
@@ -442,7 +446,7 @@ round_final_convergence() {
 	if [ "${GOVERNANCE_SKIP_SECURITY:-false}" = "true" ]; then
 		assert_not_release_skip GOVERNANCE_SKIP_SECURITY
 		printf 'security audit skipped because GOVERNANCE_SKIP_SECURITY=true\n'
-		record_skip 13 "security audit" GOVERNANCE_SKIP_SECURITY "GOVERNANCE_SKIP_SECURITY=true" "govulncheck/gosec findings may be missed" "run make security before merge/release" true
+		record_skip 14 "security audit" GOVERNANCE_SKIP_SECURITY "GOVERNANCE_SKIP_SECURITY=true" "govulncheck/gosec findings may be missed" "run make security before merge/release" true
 	else
 		round_security_audit
 	fi
@@ -496,23 +500,24 @@ run_round 8 "runtime cache bypass tests" round_runtime_cache_bypass_tests
 assert_go_tests_match ./cmd/gofly/internal/generator 'TestPluginRunnerDownloadPlugin(DoesNotReuseLocalCache|IgnoresUserCache|UsesUniqueTempFile)' 3
 run_round 9 "plugin no-local-cache tests" round_plugin_no_local_cache_tests
 run_round 10 "AI governance pipeline manifest check" round_ai_manifest_check
+run_round 11 "generated output determinism and path safety" round_generated_output_governance
 if [ "${GOVERNANCE_SKIP_GENERATED_MATRIX:-false}" = "true" ]; then
-	printf '\n== Round 11: generated project verification matrix ==\n'
+	printf '\n== Round 12: generated project verification matrix ==\n'
 	printf 'skipped because GOVERNANCE_SKIP_GENERATED_MATRIX=true; CI must run make test-generated-matrix separately\n'
-	record_skip 11 "generated project verification matrix" GOVERNANCE_SKIP_GENERATED_MATRIX "GOVERNANCE_SKIP_GENERATED_MATRIX=true" "generated project regressions may be missed in this job" "make test-generated-matrix in build-test job" false
+	record_skip 12 "generated project verification matrix" GOVERNANCE_SKIP_GENERATED_MATRIX "GOVERNANCE_SKIP_GENERATED_MATRIX=true" "generated project regressions may be missed in this job" "make test-generated-matrix in build-test job" false
 else
 	assert_go_tests_match ./cmd/gofly/internal/command 'TestAINewGeneratedProjectVerificationMatrix_BitsUT' 1
-	run_round 11 "generated project verification matrix" round_generated_project_matrix_tests
+	run_round 12 "generated project verification matrix" round_generated_project_matrix_tests
 fi
 if [ "${GOVERNANCE_SKIP_GENERATED_CONTROL_PLANE_SMOKE:-false}" = "true" ]; then
 	assert_not_release_skip GOVERNANCE_SKIP_GENERATED_CONTROL_PLANE_SMOKE
-	printf '\n== Round 12: generated project runtime control-plane smoke ==\n'
+	printf '\n== Round 13: generated project runtime control-plane smoke ==\n'
 	printf 'skipped because GOVERNANCE_SKIP_GENERATED_CONTROL_PLANE_SMOKE=true\n'
-	record_skip 12 "generated project runtime control-plane smoke" GOVERNANCE_SKIP_GENERATED_CONTROL_PLANE_SMOKE "GOVERNANCE_SKIP_GENERATED_CONTROL_PLANE_SMOKE=true" "generated runtime control-plane regressions may be missed" "make generated-control-plane-smoke in build-test job" true
+	record_skip 13 "generated project runtime control-plane smoke" GOVERNANCE_SKIP_GENERATED_CONTROL_PLANE_SMOKE "GOVERNANCE_SKIP_GENERATED_CONTROL_PLANE_SMOKE=true" "generated runtime control-plane regressions may be missed" "make generated-control-plane-smoke in build-test job" true
 else
-	run_round 12 "generated project runtime control-plane smoke" round_generated_project_control_plane_smoke
+	run_round 13 "generated project runtime control-plane smoke" round_generated_project_control_plane_smoke
 fi
-run_round 13 "docs, coverage, security, and final package listing" round_final_convergence
+run_round 14 "docs, coverage, security, and final package listing" round_final_convergence
 
 printf '\nGovernance skip report: %s\n' "$skip_report"
 printf '\nGovernance workflow completed successfully.\n'

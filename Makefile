@@ -91,6 +91,10 @@ test-short: ## Run fast unit tests (no race)
 test-generated-matrix: ## Verify generated project templates and service contract input matrix end-to-end
 	GOFLY_FRAMEWORK_PATH=$(CURDIR) $(GO) test $(TESTFLAGS) ./cmd/gofly/internal/command -run 'Test(AINewGeneratedProjectVerificationMatrix|NewServiceGeneratedProjectSmokeMatrix|NewServiceContractInputMatrix)_BitsUT'
 
+.PHONY: generated-output-governance
+generated-output-governance: ## Verify generated output determinism, path safety, and dependency placement
+	sh $(SCRIPTS_DIR)/check-generated-output-governance.sh
+
 .PHONY: generated-control-plane-smoke
 generated-control-plane-smoke: ## Run generated REST service runtime control-plane smoke without the full governance matrix
 	GOVERNANCE_ONLY_GENERATED_CONTROL_PLANE_SMOKE=true GO="$(GO)" sh $(SCRIPTS_DIR)/governance-10-rounds.sh
@@ -172,7 +176,7 @@ check: fmt-check vet test ## Run the core local verification suite
 ci-fast: fmt-check vet build examples-check examples-smoke docs-check test tidy ## Run the default CI build/test/tidy gates
 
 .PHONY: ci
-ci: ci-fast test-generated-matrix generated-control-plane-smoke bench-evidence-check governance supply-chain ## Run the full CI verification suite
+ci: ci-fast generated-output-governance test-generated-matrix generated-control-plane-smoke bench-evidence-check governance supply-chain ## Run the full CI verification suite
 
 .PHONY: integration-tests
 integration-tests: ## Run Docker-backed integration test packages for dependency upgrades

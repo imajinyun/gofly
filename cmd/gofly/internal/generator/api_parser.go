@@ -106,11 +106,15 @@ func parseAPIServerAnnotation(line string) IDLServerAnnotation {
 	line = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "@server"))
 	line = strings.Trim(line, "()")
 	values := parseAPIAnnotationValues(line)
+	middleware := values["middleware"]
+	if middleware == "" {
+		middleware = values["middlewares"]
+	}
 	return IDLServerAnnotation{
 		Group:      values["group"],
 		Prefix:     values["prefix"],
 		JWT:        values["jwt"],
-		Middleware: splitAPIAnnotationList(values["middleware"]),
+		Middleware: splitAPIAnnotationList(middleware),
 		Values:     values,
 	}
 }

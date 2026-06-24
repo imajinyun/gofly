@@ -88,12 +88,16 @@ type APIDiffOptions struct {
 }
 
 type APIRouteInfo struct {
-	Service  string `json:"service"`
-	Method   string `json:"method"`
-	Path     string `json:"path"`
-	Handler  string `json:"handler"`
-	Request  string `json:"request,omitempty"`
-	Response string `json:"response"`
+	Service     string   `json:"service"`
+	Method      string   `json:"method"`
+	Path        string   `json:"path"`
+	Handler     string   `json:"handler"`
+	Request     string   `json:"request,omitempty"`
+	Response    string   `json:"response"`
+	Group       string   `json:"group,omitempty"`
+	Prefix      string   `json:"prefix,omitempty"`
+	JWT         string   `json:"jwt,omitempty"`
+	Middlewares []string `json:"middlewares,omitempty"`
 }
 
 type APIDiffResult struct {
@@ -356,7 +360,7 @@ func DiffAPI(base, target IDLDocument) APIDiffResult {
 			diff.AddedRoutes = append(diff.AddedRoutes, targetRoute)
 			continue
 		}
-		if baseRoute != targetRoute {
+		if !apiRouteInfoEqual(baseRoute, targetRoute) {
 			diff.ChangedRoutes = append(diff.ChangedRoutes, APIRouteChange{Key: key, Base: baseRoute, Target: targetRoute})
 		}
 	}
@@ -401,6 +405,19 @@ func apiRouteKey(route APIRouteInfo) string {
 	}
 	parts = append(parts, strings.ToUpper(route.Method), route.Path)
 	return strings.Join(parts, " ")
+}
+
+func apiRouteInfoEqual(base APIRouteInfo, target APIRouteInfo) bool {
+	return base.Service == target.Service &&
+		base.Method == target.Method &&
+		base.Path == target.Path &&
+		base.Handler == target.Handler &&
+		base.Request == target.Request &&
+		base.Response == target.Response &&
+		base.Group == target.Group &&
+		base.Prefix == target.Prefix &&
+		base.JWT == target.JWT &&
+		reflect.DeepEqual(base.Middlewares, target.Middlewares)
 }
 
 func sortedRouteKeys(values map[string]APIRouteInfo) []string {
@@ -557,6 +574,18 @@ func apiRouteSignature(route APIRouteInfo) string {
 	}
 	if route.Response != "" {
 		parts = append(parts, "response="+route.Response)
+	}
+	if route.Group != "" {
+		parts = append(parts, "group="+route.Group)
+	}
+	if route.Prefix != "" {
+		parts = append(parts, "prefix="+route.Prefix)
+	}
+	if route.JWT != "" {
+		parts = append(parts, "jwt="+route.JWT)
+	}
+	if len(route.Middlewares) > 0 {
+		parts = append(parts, "middlewares="+strings.Join(route.Middlewares, ","))
 	}
 	return strings.Join(parts, " ")
 }
@@ -835,6 +864,7 @@ func GenerateAPIRoutes(opts APIRouteOptions) error {
 	case "md", "markdown":
 		data = generateAPIRoutesMarkdown(routes)
 	case "json":
+		// #nosec G117 -- APIRouteInfo.JWT is goctl @server auth policy metadata, not a bearer token or secret.
 		data, err = json.MarshalIndent(routes, "", "  ")
 		if err != nil {
 			return fmt.Errorf("marshal api routes: %w", err)
@@ -869,16 +899,45 @@ func apiRouteInfos(doc IDLDocument) []APIRouteInfo {
 	for _, svc := range doc.Services {
 		for _, method := range svc.Methods {
 			routes = append(routes, APIRouteInfo{
-				Service:  svc.Name,
-				Method:   method.HTTPMethod,
-				Path:     openAPIServicePath(svc, method.HTTPPath),
-				Handler:  exportName(method.Name),
-				Request:  exportName(method.Request),
-				Response: exportName(method.Response),
+				Service:     svc.Name,
+				Method:      method.HTTPMethod,
+				Path:        openAPIServicePath(svc, method.HTTPPath),
+				Handler:     exportName(method.Name),
+				Request:     exportOptionalName(method.Request),
+				Response:    exportName(method.Response),
+				Group:       exportAnnotationName(svc.Server.Group),
+				Prefix:      svc.Server.Prefix,
+				JWT:         exportAnnotationName(svc.Server.JWT),
+				Middlewares: exportAnnotationNames(svc.Server.Middleware),
 			})
 		}
 	}
 	return routes
+}
+
+func exportOptionalName(name string) string {
+	if strings.TrimSpace(name) == "" {
+		return ""
+	}
+	return exportName(name)
+}
+
+func exportAnnotationName(name string) string {
+	return exportOptionalName(name)
+}
+
+func exportAnnotationNames(names []string) []string {
+	if len(names) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(names))
+	for _, name := range names {
+		exported := exportAnnotationName(name)
+		if exported != "" {
+			out = append(out, exported)
+		}
+	}
+	return out
 }
 
 func generateAPIRoutesText(routes []APIRouteInfo) []byte {

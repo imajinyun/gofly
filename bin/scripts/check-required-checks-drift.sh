@@ -115,9 +115,10 @@ expected_governance_rounds = {
     8: "runtime cache bypass tests",
     9: "plugin no-local-cache tests",
     10: "AI governance pipeline manifest check",
-    11: "generated project verification matrix",
-    12: "generated project runtime control-plane smoke",
-    13: "docs, coverage, security, and final package listing",
+    11: "generated output determinism and path safety",
+    12: "generated project verification matrix",
+    13: "generated project runtime control-plane smoke",
+    14: "docs, coverage, security, and final package listing",
 }
 
 expected_governance_skip_envs = {
@@ -127,17 +128,17 @@ expected_governance_skip_envs = {
         "release_blocking": True,
     },
     "GOVERNANCE_SKIP_GENERATED_MATRIX": {
-        "round": "11",
+        "round": "12",
         "compensating_gate": "make test-generated-matrix in build-test job",
         "release_blocking": False,
     },
     "GOVERNANCE_SKIP_GENERATED_CONTROL_PLANE_SMOKE": {
-        "round": "12",
+        "round": "13",
         "compensating_gate": "make generated-control-plane-smoke in build-test job",
         "release_blocking": True,
     },
     "GOVERNANCE_SKIP_SECURITY": {
-        "round": "13",
+        "round": "14",
         "compensating_gate": "run make security before merge/release",
         "release_blocking": True,
     },
@@ -546,7 +547,7 @@ require(
 )
 for marker in (
     "make governance-10-rounds",
-    "Round 13 of `bin/scripts/governance-10-rounds.sh`",
+    "Round 14 of `bin/scripts/governance-10-rounds.sh`",
     "GOVERNANCE_SKIP_SECURITY",
     "COVERAGE_RATCHET",
 ):

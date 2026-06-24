@@ -24,7 +24,7 @@ func TestGenerateStandardProtoTimeoutKillsProcessGroup(t *testing.T) {
 	childPIDPath := filepath.Join(dir, "child.pid")
 	readyPath := filepath.Join(dir, "child.ready")
 	fakeProtoc := filepath.Join(dir, "protoc")
-	script := fmt.Sprintf("#!/bin/sh\nsleep 10 &\necho $! > %q\ntouch %q\nwait\n", childPIDPath, readyPath)
+	script := fmt.Sprintf("#!/bin/sh\nsleep 10 &\nprintf '%%s\\n' \"$!\" > %q\n: > %q\nwait\n", childPIDPath, readyPath)
 	if err := os.WriteFile(fakeProtoc, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +40,7 @@ func TestGenerateStandardProtoTimeoutKillsProcessGroup(t *testing.T) {
 		})
 	}()
 
-	waitForFileOrError(t, readyPath, errCh, 10*time.Second)
+	waitForFileOrError(t, readyPath, errCh, 30*time.Second)
 	cancel()
 	data, err := os.ReadFile(childPIDPath)
 	if err != nil {

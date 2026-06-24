@@ -1,0 +1,33 @@
+# Root direct dependency policy.
+# Schema: module|tier|owner_path|reason
+# Keep generated-project-only dependencies out of this allowlist; generated
+# projects must write those dependencies into their own go.mod files.
+github.com/cloudwego/hertz|benchmark|bench/http_bench_test.go|HTTP framework comparison benchmark dependency; not used by runtime packages.
+github.com/gin-gonic/gin|benchmark|bench/http_bench_test.go|HTTP framework comparison benchmark dependency; not used by runtime packages.
+github.com/go-chi/chi/v5|benchmark|bench/http_bench_test.go|HTTP framework comparison benchmark dependency; not used by runtime packages.
+github.com/gofiber/fiber/v2|benchmark|bench/http_bench_test.go|HTTP framework comparison benchmark dependency; not used by runtime packages.
+github.com/labstack/echo/v4|benchmark|bench/http_bench_test.go|HTTP framework comparison benchmark dependency; not used by runtime packages.
+github.com/testcontainers/testcontainers-go|integration-test|core/*/*_integration_test.go|Docker-backed integration tests use containers behind the integration build tag.
+go.uber.org/goleak|unit-test|*/goleak_test.go|Unit tests verify goroutine lifecycle and leak-free shutdown behavior.
+github.com/go-sql-driver/mysql|generator-datasource|cmd/gofly/internal/generator/model_codegen.go|Model datasource introspection opens MySQL DSNs; generated projects own their generated ORM dependencies.
+github.com/jackc/pgx/v5|generator-datasource|cmd/gofly/internal/generator/model_codegen.go|Model datasource introspection opens PostgreSQL DSNs; generated projects own their generated repository dependencies.
+github.com/hashicorp/consul/api|runtime|core/config core/discovery|Consul-backed config and discovery adapters are root runtime capabilities.
+github.com/nacos-group/nacos-sdk-go/v2|runtime|core/config/nacossource|Nacos-backed config adapter is a root runtime capability.
+github.com/rabbitmq/amqp091-go|runtime|core/mq/rabbitmq|RabbitMQ MQ adapter is a root runtime capability.
+github.com/segmentio/kafka-go|runtime|core/mq/kafka|Kafka MQ adapter is a root runtime capability.
+go.etcd.io/etcd/api/v3|runtime|core/config core/discovery|etcd config and discovery adapters need the public etcd API types.
+go.etcd.io/etcd/client/v3|runtime|core/config core/discovery|etcd config and discovery adapters are root runtime capabilities.
+github.com/prometheus/client_golang|observability|core/observability/metrics|Prometheus metrics are a production observability capability.
+go.opentelemetry.io/otel|observability|core/observability rpc/grpc|OpenTelemetry API is used by runtime traces and metrics.
+go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc|observability|core/observability/metrics/otel|OTLP gRPC metric exporter is a production observability capability.
+go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp|observability|core/observability/metrics/otel|OTLP HTTP metric exporter is a production observability capability.
+go.opentelemetry.io/otel/exporters/otlp/otlptrace|observability|core/observability/trace/exporter|OTLP trace exporter interface is a production observability capability.
+go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc|observability|core/observability/trace/exporter|OTLP gRPC trace exporter is a production observability capability.
+go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp|observability|core/observability/trace/exporter|OTLP HTTP trace exporter is a production observability capability.
+go.opentelemetry.io/otel/metric|observability|core/observability/metrics|OpenTelemetry metric API is used by runtime metric bridges.
+go.opentelemetry.io/otel/sdk|observability|core/observability|OpenTelemetry SDK is used by production observability setup.
+go.opentelemetry.io/otel/sdk/metric|observability|core/observability/metrics/otel|OpenTelemetry metric SDK is used by production metrics setup.
+go.opentelemetry.io/otel/trace|observability|core/observability/trace rpc/grpc|OpenTelemetry trace API is used by runtime tracing and RPC propagation.
+go.yaml.in/yaml/v2|runtime|cmd core|YAML parsing is used by CLI/config/runtime assets.
+google.golang.org/grpc|rpc|rpc/grpc core|gRPC server/client runtime and health/reflection support.
+google.golang.org/protobuf|rpc|rpc/grpc cmd/gofly/internal/command|Protobuf types support generated RPC descriptors and gateway contracts.

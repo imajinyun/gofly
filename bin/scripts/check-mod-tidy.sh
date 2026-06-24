@@ -5,6 +5,7 @@ tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT INT TERM
 go_cmd="${GO:-go}"
 generated_only_root_modules="${GENERATED_ONLY_ROOT_MODULES:-gorm.io/gorm go.mongodb.org/mongo-driver}"
+script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 
 module_declared_in_go_mod() {
 	module="$1"
@@ -28,6 +29,8 @@ reject_unneeded_generated_only_modules() {
 }
 
 reject_unneeded_generated_only_modules
+
+"$script_dir/check-root-dependency-policy.sh"
 
 cp go.mod "$tmp/go.mod.before"
 if [ -f go.sum ]; then

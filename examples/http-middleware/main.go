@@ -43,6 +43,13 @@ type orderResponse struct {
 }
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "--describe" {
+		if err := json.NewEncoder(os.Stdout).Encode(describeReport()); err != nil {
+			log.Fatalf("describe error: %v", err)
+		}
+		return
+	}
+
 	srv := newHTTPMiddlewareServer()
 	go func() {
 		log.Println("listening on :8085 — try /docs, /events, /orders")
@@ -281,4 +288,23 @@ func websocketStatsSchema() rest.Schema {
 
 func describe() []string {
 	return []string{"JWT", "CORS", "CSRF", "sessions", "OpenTelemetry", "Prometheus", "SSE", "WebSocket", "request validation"}
+}
+
+func describeReport() map[string]any {
+	return map[string]any{
+		"schema":       "gofly.http_middleware_matrix.v1",
+		"capabilities": describe(),
+		"routes": map[string]string{
+			"catalog":   "/middleware/catalog",
+			"openapi":   "/openapi.json",
+			"token":     "/token",
+			"orders":    "/orders",
+			"events":    "/events",
+			"websocket": "/ws",
+		},
+		"contracts": map[string]any{
+			"invalidRequestStatus": 400,
+			"schemaOutput":         "openapi",
+		},
+	}
 }

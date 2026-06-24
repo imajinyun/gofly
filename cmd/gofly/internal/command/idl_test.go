@@ -2838,7 +2838,8 @@ func assertGenerateEnvelope(t *testing.T, data []byte, command, planCommand, dir
 			Actions           []struct {
 				Operation string `json:"operation"`
 			} `json:"actions"`
-			NextActions []string `json:"nextActions"`
+			GeneratedFiles int      `json:"generatedFiles"`
+			NextActions    []string `json:"nextActions"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(data, &envelope); err != nil {
@@ -2849,6 +2850,9 @@ func assertGenerateEnvelope(t *testing.T, data []byte, command, planCommand, dir
 	}
 	if envelope.Data.Inputs["dir"] != dir || len(envelope.Data.Actions) == 0 || envelope.Data.Actions[0].Operation != "write-files" || len(envelope.Data.NextActions) == 0 {
 		t.Fatalf("generate plan data = %+v, want stable automation fields", envelope.Data)
+	}
+	if envelope.Data.GeneratedFiles == 0 {
+		t.Fatalf("generate plan data = %+v, want non-zero generatedFiles", envelope.Data)
 	}
 }
 
@@ -3846,6 +3850,38 @@ func TestExecuteModelGen(t *testing.T) {
 	}
 	if !strings.Contains(string(data), `"example.com/usersvc/model/entity"`) {
 		t.Fatalf("generated model import = %s", data)
+	}
+
+	jsonDir := filepath.Join(dir, "json-out")
+	jsonOut := captureStdout(t, func() {
+		if err := Execute([]string{"model", "gen", "--ddl", ddlPath, "--dir", jsonDir, "--package", "model", "--module", "example.com/usersvc", "--json"}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	var envelope struct {
+		OK      bool   `json:"ok"`
+		Command string `json:"command"`
+		Data    struct {
+			Command           string            `json:"command"`
+			MutatesFilesystem bool              `json:"mutatesFilesystem"`
+			Inputs            map[string]string `json:"inputs"`
+			Actions           []struct {
+				Operation string `json:"operation"`
+			} `json:"actions"`
+			GeneratedFiles int `json:"generatedFiles"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(jsonOut), &envelope); err != nil {
+		t.Fatalf("model gen --json output is not valid JSON: %v\n%s", err, jsonOut)
+	}
+	if !envelope.OK || envelope.Command != "model.gen" || envelope.Data.Command != "model gen" || !envelope.Data.MutatesFilesystem {
+		t.Fatalf("model gen JSON envelope = %+v, want stable success envelope", envelope)
+	}
+	if envelope.Data.Inputs["ddl"] != ddlPath || envelope.Data.Inputs["dir"] != jsonDir || envelope.Data.Inputs["module"] != "example.com/usersvc" {
+		t.Fatalf("model gen JSON inputs = %v, want ddl/dir/module", envelope.Data.Inputs)
+	}
+	if envelope.Data.GeneratedFiles < 2 || len(envelope.Data.Actions) == 0 || envelope.Data.Actions[0].Operation != "write-model-files" {
+		t.Fatalf("model gen JSON data = %+v, want generated file count and write action", envelope.Data)
 	}
 }
 

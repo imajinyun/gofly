@@ -45,6 +45,23 @@ Standard error envelope under global JSON mode:
 
 Stable error fields are `ok`, `command`, `error.code`, and `error.message`.
 
+## Scaffold plan contract
+
+Generator-facing commands that write projects or generated artifacts expose the
+same planning fields whether the command is applied or dry-run:
+
+| Field | Type | Stability | Notes |
+| --- | --- | --- | --- |
+| `command` | string | Stable | Canonical plan command, for example `new api`, `rpc gen`, or `model gen`. |
+| `dryRun` | boolean | Stable | `true` means no filesystem mutation was performed by this command. |
+| `mutatesFilesystem` | boolean | Stable | Signals whether applying the plan writes files. |
+| `inputs` | object | Stable keys are command-specific | Includes normalized CLI inputs such as `dir`, `module`, `style`, `profile`, and contract paths. |
+| `actions` | array | Stable item fields | Each item has `operation`, `target`, `description`, and `riskLevel`. |
+| `generatedFiles` | integer | Stable | Count of generated files visible under the output boundary after an applied command; `0` is valid for dry-run or no-output plans. |
+| `pluginEffects` | array | Stable item fields | Present when plugins are configured. Each item has `name`, `executed`, `files`, `patches`, and optional `note`. |
+| `warnings` | array | Additive | Non-blocking automation notes, including dry-run plugin or remote-template limitations. |
+| `nextActions` | array | Additive | Suggested follow-up commands for humans or automation. |
+
 ## Stable command contracts
 
 | Command | JSON mode | Stable payload |
@@ -58,6 +75,8 @@ Stable error fields are `ok`, `command`, `error.code`, and `error.message`.
 | `gofly example list --json` | Raw object | Example names, descriptions, and runnable metadata. |
 | `gofly feature list --json` | Raw object | Feature identifiers and descriptions. |
 | `gofly feature run --format json` | Raw object | Planned/generated files, feature verification commands, config hints, and next actions. |
+| `gofly new service --json`, `gofly new api --json`, `gofly new rpc --json` | Envelope | `command`, `dryRun`, `mutatesFilesystem`, `inputs`, `actions`, `generatedFiles`, `pluginEffects`, `warnings`, `nextActions`. |
+| `gofly model gen --json` | Envelope | `command`, `dryRun`, `mutatesFilesystem`, `inputs`, `actions`, `generatedFiles`, `nextActions`. |
 | `gofly plugin list --json` | Raw object | Built-in and cached plugin inventory. |
 | `gofly plugin search --json` | Raw object | Registry search results and plugin metadata. |
 | `gofly plugin install --json` | Raw object | Version-pinned remote identity, binary path, and digest metadata. |

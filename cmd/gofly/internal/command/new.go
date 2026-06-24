@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"path/filepath"
 	"strings"
 
@@ -740,6 +741,7 @@ func buildNewServicePlan(command, dir, configPath string, cfg *generator.Config,
 	if len(plugins) > 0 {
 		actions = append(actions, cliPlanAction{Operation: "run-plugins", Target: strings.Join(plugins, ","), Description: "execute configured scaffold plugins and apply returned files or patches", RiskLevel: "high"})
 	}
+	pluginEffects := planPluginEffects(plugins, !dryRun)
 
 	warnings := []string(nil)
 	if cfg != nil && cfg.TemplateRemote != "" {
@@ -760,9 +762,51 @@ func buildNewServicePlan(command, dir, configPath string, cfg *generator.Config,
 		MutatesFilesystem: true,
 		Inputs:            inputs,
 		Actions:           actions,
+		GeneratedFiles:    countGeneratedGoProjectFiles(dir),
+		PluginEffects:     pluginEffects,
 		Warnings:          warnings,
 		NextActions:       nextActions,
 	}
+}
+
+func planPluginEffects(plugins []string, executed bool) []cliPluginEffect {
+	effects := make([]cliPluginEffect, 0, len(plugins))
+	for _, plugin := range plugins {
+		plugin = strings.TrimSpace(plugin)
+		if plugin == "" {
+			continue
+		}
+		effect := cliPluginEffect{Name: plugin, Executed: executed}
+		if executed {
+			effect.Note = "plugin output is applied by the generator; exact file and patch counts are plugin-reported when available"
+		} else {
+			effect.Note = "dry-run does not execute plugins"
+		}
+		effects = append(effects, effect)
+	}
+	return effects
+}
+
+func countGeneratedGoProjectFiles(dir string) int {
+	if strings.TrimSpace(dir) == "" {
+		return 0
+	}
+	count := 0
+	_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			switch d.Name() {
+			case ".git", ".gofly":
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		count++
+		return nil
+	})
+	return count
 }
 
 func firstNonBlank(values ...string) string {

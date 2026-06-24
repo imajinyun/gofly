@@ -1323,6 +1323,7 @@ func modelGenCommand(args []string) error {
 	style := fs.String("style", "go_zero", "model style")
 	cache := fs.Bool("cache", false, "generate cache helpers")
 	c := fs.Bool("c", false, "generate cache helpers")
+	jsonOut := fs.Bool("json", false, "emit generation result as JSON")
 	configPath := fs.String("config", "", "gofly config file path")
 	registerGoctlModelTemplateFlags(fs)
 	remaining, err := parseInterspersedFlags(fs, args)
@@ -1383,6 +1384,49 @@ func modelGenCommand(args []string) error {
 		TypesMap:      typesMap,
 	}); err != nil {
 		return err
+	}
+	if *jsonOut || outputMode() == outputJSON {
+		inputs := map[string]string{
+			"ddl":   *ddl,
+			"dir":   *dir,
+			"style": *style,
+		}
+		if *pkg != "" {
+			inputs["package"] = *pkg
+		}
+		if *module != "" {
+			inputs["module"] = *module
+		}
+		if *table != "" {
+			inputs["tables"] = *table
+		}
+		if *database != "" {
+			inputs["database"] = *database
+		}
+		if *ignoreColumns != "" {
+			inputs["ignoreColumns"] = *ignoreColumns
+		}
+		if *prefix != "" {
+			inputs["prefix"] = *prefix
+		}
+		if *strict {
+			inputs["strict"] = "true"
+		}
+		if *cache {
+			inputs["cache"] = "true"
+		}
+		files := generatedModelFiles(filepath.Join(*dir, "model"))
+		return printJSONEnvelope("model.gen", cliPlan{
+			Command:           "model gen",
+			DryRun:            false,
+			MutatesFilesystem: true,
+			Inputs:            inputs,
+			Actions: []cliPlanAction{
+				{Operation: "write-model-files", Target: filepath.Join(*dir, "model"), Description: "generate model entity and repository files", RiskLevel: "medium"},
+			},
+			GeneratedFiles: len(files),
+			NextActions:    []string{"review generated model files", "go test ./..."},
+		})
 	}
 	printModelGenerated(*dir)
 	return nil

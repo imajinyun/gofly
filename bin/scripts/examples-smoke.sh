@@ -26,6 +26,7 @@ done
 (cd examples/microshop && "$GO_CMD" run . describe) >"$workdir/microshop-topology.json"
 (cd examples/ai-governed-service && "$GO_CMD" run . expected) >"$workdir/ai-governed-contract.json"
 (cd examples/cache-local && "$GO_CMD" run .) >"$workdir/cache-local.json"
+(cd examples/http-middleware && "$GO_CMD" run . --describe) >"$workdir/http-middleware.json"
 (cd examples/rpc-idl-matrix && "$GO_CMD" run .) >"$workdir/rpc-idl-matrix.json"
 (cd examples/plugin-ecosystem && "$GO_CMD" run .) >"$workdir/plugin-ecosystem.json"
 
@@ -60,6 +61,19 @@ assert cache_local['tiered']['loaderCalls'] == 1, cache_local
 assert cache_local['tiered']['namespacedRemote'] is True, cache_local
 assert cache_local['disabled']['loaderCalls'] == 2, cache_local
 assert cache_local['disabled']['stats']['disabled'] is True, cache_local
+
+with open(workdir / 'http-middleware.json', encoding='utf-8') as f:
+    http_middleware = json.load(f)
+assert http_middleware['schema'] == 'gofly.http_middleware_matrix.v1', http_middleware
+assert {'JWT', 'CORS', 'CSRF', 'sessions', 'OpenTelemetry', 'Prometheus', 'SSE', 'WebSocket', 'request validation'} <= set(http_middleware['capabilities']), http_middleware
+assert http_middleware['routes']['catalog'] == '/middleware/catalog', http_middleware
+assert http_middleware['routes']['openapi'] == '/openapi.json', http_middleware
+assert http_middleware['routes']['token'] == '/token', http_middleware
+assert http_middleware['routes']['orders'] == '/orders', http_middleware
+assert http_middleware['routes']['events'] == '/events', http_middleware
+assert http_middleware['routes']['websocket'] == '/ws', http_middleware
+assert http_middleware['contracts']['invalidRequestStatus'] == 400, http_middleware
+assert http_middleware['contracts']['schemaOutput'] == 'openapi', http_middleware
 
 with open(workdir / 'rpc-idl-matrix.json', encoding='utf-8') as f:
     rpc_matrix = json.load(f)

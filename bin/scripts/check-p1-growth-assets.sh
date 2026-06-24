@@ -211,6 +211,10 @@ checks = {
         'hello production checklist passed',
     ],
     pathlib.Path('bin/scripts/examples-smoke.sh'): [
+        'http-middleware.json',
+        'gofly.http_middleware_matrix.v1',
+        'invalidRequestStatus',
+        'schemaOutput',
         'rpc-idl-matrix.json',
         'gofly.rpc_idl_matrix.v1',
         'server_stream',

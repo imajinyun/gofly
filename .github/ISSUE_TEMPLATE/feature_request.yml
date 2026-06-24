@@ -45,4 +45,13 @@ body:
     id: compatibility
     attributes:
       label: Compatibility notes
-      description: Public API, generated code, config, or migration concerns.
+      description: Public API, generated code, config, migration, or rollback concerns.
+  - type: textarea
+    id: validation
+    attributes:
+      label: Validation
+      description: List the gate that would prove the proposal is complete.
+      value: |
+        make p1-growth-check
+        make docs-check
+        make examples-smoke

@@ -58,3 +58,12 @@ body:
       label: Environment
       description: Go version, OS/arch, container/runtime, external dependencies.
       render: shell
+  - type: textarea
+    id: validation
+    attributes:
+      label: Validation
+      description: List any local commands that reproduce or verify the issue.
+      value: |
+        go test -shuffle=on ./...
+        make examples-smoke
+        make docs-check

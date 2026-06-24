@@ -32,6 +32,9 @@ body:
     attributes:
       label: Validation
       description: List the exact command that should pass after the change.
-      placeholder: go test ./examples/...
+      value: |
+        go test -shuffle=on ./...
+        make examples-smoke
+        make docs-check
     validations:
       required: true

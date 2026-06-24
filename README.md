@@ -131,6 +131,7 @@ Run `gofly help` for the full command list.
 | 🧪 Runnable examples | [examples/README.md](examples/README.md) |
 | 📚 Case studies | [orders service](docs/case-studies/build-orders-service.md), [AI drift](docs/case-studies/ai-control-plane-drift.md), [Gin migration](docs/case-studies/migrate-from-gin.md) |
 | 🔁 Migration guides | [docs/comparisons/gin.md](docs/comparisons/gin.md), [docs/comparisons/go-zero.md](docs/comparisons/go-zero.md), [docs/comparisons/kratos.md](docs/comparisons/kratos.md), [docs/comparisons/kitex.md](docs/comparisons/kitex.md) |
+| 🤝 Community | [CONTRIBUTING.md](CONTRIBUTING.md), [ROADMAP.md](ROADMAP.md), [SECURITY.md](SECURITY.md) |
 | 🧪 Local development | [Development](#-development) |
 
 ---

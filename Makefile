@@ -211,7 +211,7 @@ examples-smoke: ## Run runnable example smoke tests and machine-readable output 
 	sh $(SCRIPTS_DIR)/examples-smoke.sh
 
 .PHONY: docs-check
-docs-check: docs-link-check docs-taxonomy-check migration-docs-check p1-growth-check contract-docs-check required-checks-drift-check ## Compile Go code blocks in Markdown docs
+docs-check: docs-link-check docs-taxonomy-check migration-docs-check p1-growth-check community-growth-check contract-docs-check required-checks-drift-check ## Compile Go code blocks in Markdown docs
 	$(GO) env GOMOD >/dev/null
 	sh $(SCRIPTS_DIR)/check-doc-go-snippets.sh
 
@@ -226,6 +226,10 @@ migration-docs-check: ## Validate case studies and migration guide structure
 .PHONY: p1-growth-check
 p1-growth-check: ## Validate P1 growth roadmap and cloud-native assets
 	sh $(SCRIPTS_DIR)/check-p1-growth-assets.sh
+
+.PHONY: community-growth-check
+community-growth-check: ## Validate contributor, roadmap, and issue-template adoption signals
+	sh $(SCRIPTS_DIR)/check-community-growth.sh
 
 .PHONY: contract-docs-check
 contract-docs-check: ## Validate stable CLI JSON and control-plane contract docs

@@ -449,16 +449,19 @@ func captureStderr(t *testing.T, fn func()) string {
 	return string(data)
 }
 
-func TestExecuteUnknownFlagIsSilent(t *testing.T) {
+func TestExecuteFlagParsingErrorsAreSilentUsageErrors(t *testing.T) {
 	tests := []struct {
-		name string
-		args []string
+		name        string
+		args        []string
+		wantMessage string
 	}{
-		{name: "api check unknown flag", args: []string{"api", "check", "--bad"}},
-		{name: "rpc gen unknown flag", args: []string{"rpc", "gen", "--bad"}},
-		{name: "version unknown flag", args: []string{"version", "--bad"}},
-		{name: "env unknown flag", args: []string{"env", "--bad"}},
-		{name: "upgrade unknown flag", args: []string{"upgrade", "--bad"}},
+		{name: "api check unknown flag", args: []string{"api", "check", "--bad"}, wantMessage: "flag provided but not defined"},
+		{name: "rpc gen unknown flag", args: []string{"rpc", "gen", "--bad"}, wantMessage: "flag provided but not defined"},
+		{name: "version unknown flag", args: []string{"version", "--bad"}, wantMessage: "flag provided but not defined"},
+		{name: "env unknown flag", args: []string{"env", "--bad"}, wantMessage: "flag provided but not defined"},
+		{name: "upgrade unknown flag", args: []string{"upgrade", "--bad"}, wantMessage: "flag provided but not defined"},
+		{name: "new api missing flag value", args: []string{"new", "api", "hello", "--module"}, wantMessage: "flag needs an argument"},
+		{name: "api gen missing flag value", args: []string{"api", "gen", "--file"}, wantMessage: "flag needs an argument"},
 	}
 
 	for _, tt := range tests {
@@ -468,13 +471,16 @@ func TestExecuteUnknownFlagIsSilent(t *testing.T) {
 				gotErr = Execute(tt.args)
 			})
 			if gotErr == nil {
-				t.Fatalf("Execute(%v) succeeded, want unknown flag error", tt.args)
+				t.Fatalf("Execute(%v) succeeded, want flag parsing error", tt.args)
 			}
-			if !strings.Contains(gotErr.Error(), "flag provided but not defined") {
-				t.Fatalf("Execute(%v) error = %v, want unknown flag", tt.args, gotErr)
+			if !strings.Contains(gotErr.Error(), tt.wantMessage) {
+				t.Fatalf("Execute(%v) error = %v, want %q", tt.args, gotErr, tt.wantMessage)
+			}
+			if ExitCode(gotErr) != 2 {
+				t.Fatalf("ExitCode(%v) = %d, want 2", gotErr, ExitCode(gotErr))
 			}
 			if stderr != "" {
-				t.Fatalf("unknown flag should not print stdlib usage to stderr, got:\n%s", stderr)
+				t.Fatalf("flag parsing errors should not print stdlib usage to stderr, got:\n%s", stderr)
 			}
 		})
 	}

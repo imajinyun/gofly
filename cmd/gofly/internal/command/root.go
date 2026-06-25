@@ -1881,7 +1881,7 @@ func classifyJSONError(err error) *jsonError {
 	}
 	message := err.Error()
 	resp := &jsonError{Code: "COMMAND_ERROR", Message: message, Retryable: false}
-	if errors.Is(err, errUsage) {
+	if ExitCode(err) == exitUsage {
 		resp.Code = "USAGE_ERROR"
 		resp.Remediation = "Check command usage and required flags."
 	}

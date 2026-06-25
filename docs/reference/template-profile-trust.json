@@ -1,0 +1,215 @@
+{
+  "schema": "gofly.template_profile_trust.v1",
+  "sourceOfTruth": "gofly ai manifest --format json",
+  "generatedProfileSource": "docs/reference/generated-upgrade-dry-run.json",
+  "acceptanceGate": "make doc-manifest-sync-check",
+  "templateTrust": [
+    {
+      "id": "go-ai-agent",
+      "purpose": "AI agent service baseline with LLM governance, tool manifest awareness, redaction, audit, and streaming defaults.",
+      "generatedOutputGuarantees": [
+        "built-in template catalog entry",
+        "verifyE2EValidated=true in the template catalog",
+        "generated files stay under the requested project directory"
+      ],
+      "dependencyBoundary": "feature dependencies are reported to generated-project consumers and must not be added to the gofly root module",
+      "verificationCommands": [
+        "make test-generated-matrix",
+        "make doc-manifest-sync-check"
+      ],
+      "aiManifestLinkage": {
+        "templateField": "featureLibrary.templates",
+        "verificationField": "featureLibrary.templateVerification.validatedTemplates",
+        "command": "gofly ai new --template go-ai-agent --dry-run --json"
+      },
+      "trustStatus": "e2e-validated"
+    },
+    {
+      "id": "go-cli-cobra",
+      "purpose": "CLI-oriented Go project skeleton for command parsing, version output, and testable stdout or stderr behavior.",
+      "generatedOutputGuarantees": [
+        "built-in template catalog entry",
+        "verifyE2EValidated=true in the template catalog",
+        "generated files stay under the requested project directory"
+      ],
+      "dependencyBoundary": "feature dependencies are reported to generated-project consumers and must not be added to the gofly root module",
+      "verificationCommands": [
+        "make test-generated-matrix",
+        "make doc-manifest-sync-check"
+      ],
+      "aiManifestLinkage": {
+        "templateField": "featureLibrary.templates",
+        "verificationField": "featureLibrary.templateVerification.validatedTemplates",
+        "command": "gofly ai new --template go-cli-cobra --dry-run --json"
+      },
+      "trustStatus": "e2e-validated"
+    },
+    {
+      "id": "go-gateway",
+      "purpose": "Gateway project baseline for REST ingress, service discovery, and downstream RPC routing.",
+      "generatedOutputGuarantees": [
+        "built-in template catalog entry",
+        "verifyE2EValidated=true in the template catalog",
+        "generated files stay under the requested project directory"
+      ],
+      "dependencyBoundary": "feature dependencies are reported to generated-project consumers and must not be added to the gofly root module",
+      "verificationCommands": [
+        "make test-generated-matrix",
+        "make doc-manifest-sync-check"
+      ],
+      "aiManifestLinkage": {
+        "templateField": "featureLibrary.templates",
+        "verificationField": "featureLibrary.templateVerification.validatedTemplates",
+        "command": "gofly ai new --template go-gateway --dry-run --json"
+      },
+      "trustStatus": "e2e-validated"
+    },
+    {
+      "id": "go-rag-service",
+      "purpose": "Retrieval augmented generation service baseline for document ingestion, embeddings, retrieval, and governed LLM calls.",
+      "generatedOutputGuarantees": [
+        "built-in template catalog entry",
+        "verifyE2EValidated=true in the template catalog",
+        "generated files stay under the requested project directory"
+      ],
+      "dependencyBoundary": "feature dependencies are reported to generated-project consumers and must not be added to the gofly root module",
+      "verificationCommands": [
+        "make test-generated-matrix",
+        "make doc-manifest-sync-check"
+      ],
+      "aiManifestLinkage": {
+        "templateField": "featureLibrary.templates",
+        "verificationField": "featureLibrary.templateVerification.validatedTemplates",
+        "command": "gofly ai new --template go-rag-service --dry-run --json"
+      },
+      "trustStatus": "e2e-validated"
+    },
+    {
+      "id": "go-rest-clean-postgres",
+      "purpose": "Production REST service baseline for database-backed business APIs using clean architecture and Postgres-oriented repository boundaries.",
+      "generatedOutputGuarantees": [
+        "built-in template catalog entry",
+        "verifyE2EValidated=true in the template catalog",
+        "generated files stay under the requested project directory"
+      ],
+      "dependencyBoundary": "feature dependencies are reported to generated-project consumers and must not be added to the gofly root module",
+      "verificationCommands": [
+        "make test-generated-matrix",
+        "make doc-manifest-sync-check"
+      ],
+      "aiManifestLinkage": {
+        "templateField": "featureLibrary.templates",
+        "verificationField": "featureLibrary.templateVerification.validatedTemplates",
+        "command": "gofly ai new --template go-rest-clean-postgres --dry-run --json"
+      },
+      "trustStatus": "e2e-validated"
+    },
+    {
+      "id": "go-rest-minimal",
+      "purpose": "Small REST service baseline with config, health, metrics, OpenAPI, and one ping route.",
+      "generatedOutputGuarantees": [
+        "built-in template catalog entry",
+        "verifyE2EValidated=true in the template catalog",
+        "generated files stay under the requested project directory"
+      ],
+      "dependencyBoundary": "feature dependencies are reported to generated-project consumers and must not be added to the gofly root module",
+      "verificationCommands": [
+        "make test-generated-matrix",
+        "make doc-manifest-sync-check"
+      ],
+      "aiManifestLinkage": {
+        "templateField": "featureLibrary.templates",
+        "verificationField": "featureLibrary.templateVerification.validatedTemplates",
+        "command": "gofly ai new --template go-rest-minimal --dry-run --json"
+      },
+      "trustStatus": "e2e-validated"
+    },
+    {
+      "id": "go-rpc-grpc",
+      "purpose": "RPC service scaffold with proto contract, descriptor diagnostics, and client compatibility tests.",
+      "generatedOutputGuarantees": [
+        "built-in template catalog entry",
+        "verifyE2EValidated=true in the template catalog",
+        "generated files stay under the requested project directory"
+      ],
+      "dependencyBoundary": "feature dependencies are reported to generated-project consumers and must not be added to the gofly root module",
+      "verificationCommands": [
+        "make test-generated-matrix",
+        "make doc-manifest-sync-check"
+      ],
+      "aiManifestLinkage": {
+        "templateField": "featureLibrary.templates",
+        "verificationField": "featureLibrary.templateVerification.validatedTemplates",
+        "command": "gofly ai new --template go-rpc-grpc --dry-run --json"
+      },
+      "trustStatus": "e2e-validated"
+    },
+    {
+      "id": "go-worker-mq",
+      "purpose": "Background worker baseline for queue consumers, retry behavior, and governance policies.",
+      "generatedOutputGuarantees": [
+        "built-in template catalog entry",
+        "verifyE2EValidated=true in the template catalog",
+        "generated files stay under the requested project directory"
+      ],
+      "dependencyBoundary": "feature dependencies are reported to generated-project consumers and must not be added to the gofly root module",
+      "verificationCommands": [
+        "make test-generated-matrix",
+        "make doc-manifest-sync-check"
+      ],
+      "aiManifestLinkage": {
+        "templateField": "featureLibrary.templates",
+        "verificationField": "featureLibrary.templateVerification.validatedTemplates",
+        "command": "gofly ai new --template go-worker-mq --dry-run --json"
+      },
+      "trustStatus": "e2e-validated"
+    }
+  ],
+  "generatedProfileTrust": [
+    {
+      "profile": "old",
+      "purpose": "Prove legacy inputs still regenerate with additive compatibility shims only.",
+      "generatedOutputGuarantees": [
+        "repeat generation must pass",
+        "compatible additions require explanation",
+        "breaking candidates block release"
+      ],
+      "dependencyBoundary": "generated project dependencies stay in temporary generated projects or generated go.mod files, not the gofly root module",
+      "verificationCommands": [
+        "make generated-upgrade-dry-run-check",
+        "make generated-version-compat-check"
+      ],
+      "rollbackNoteRequired": true
+    },
+    {
+      "profile": "current",
+      "purpose": "Prove current inputs regenerate deterministically with no unexplained diff.",
+      "generatedOutputGuarantees": [
+        "repeat generation must pass",
+        "formatting-only diffs require review",
+        "non-formatting diffs block upgrade trust"
+      ],
+      "dependencyBoundary": "generated project dependencies stay in temporary generated projects or generated go.mod files, not the gofly root module",
+      "verificationCommands": [
+        "make generated-upgrade-dry-run-check",
+        "make generated-version-compat-check"
+      ],
+      "rollbackNoteRequired": true
+    },
+    {
+      "profile": "future",
+      "purpose": "Prove future fixture fields are ignored safely or reported as explainable diffs.",
+      "generatedOutputGuarantees": [
+        "repeat generation must pass",
+        "future-only fields must be additive or ignored safely",
+        "breaking candidates block release"
+      ],
+      "dependencyBoundary": "generated project dependencies stay in temporary generated projects or generated go.mod files, not the gofly root module",
+      "verificationCommands": [
+        "make generated-upgrade-dry-run-check",
+        "make generated-version-compat-check"
+      ],
+      "rollbackNoteRequired": true
+    }
+  ]
+}

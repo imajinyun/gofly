@@ -29,6 +29,21 @@ The `featureLibrary.templates` field exposes scaffold templates such as `go-rest
 
 Documentation that names these features or templates is checked by `make doc-manifest-sync-check`, which runs `gofly ai manifest --format json` and verifies that the documented names still exist in the machine-readable manifest.
 
+## Template and profile trust
+
+Template/profile trust is indexed in
+[`../reference/template-profile-trust.json`](../reference/template-profile-trust.json)
+with schema `gofly.template_profile_trust.v1`. The matrix links each
+manifest-exposed project template to its purpose, generated-output guarantees,
+dependency boundary, verification commands, and AI manifest fields. It also
+links historical generated upgrade profiles (`old`, `current`, and `future`) to
+repeat-generation guarantees and rollback-note requirements.
+
+`make doc-manifest-sync-check` validates that the trust matrix stays aligned
+with `featureLibrary.templates`,
+`featureLibrary.templateVerification.validatedTemplates`, and
+[`../reference/generated-upgrade-dry-run.json`](../reference/generated-upgrade-dry-run.json).
+
 ## Production use
 
 - Use `--dry-run` before writing generated files in automation.

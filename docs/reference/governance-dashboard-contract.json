@@ -13,7 +13,9 @@
     "security.gosec.blockingGate",
     "security.govulncheck.blockingGate",
     "aiflow.status",
-    "aiflow.summary"
+    "aiflow.summary",
+    "dashboard.productionReadinessScorecard.surfaceCount",
+    "dashboard.productionReadinessScorecard.riskClassCounts"
   ],
   "releaseReadiness": {
     "schema": "gofly.release_readiness_score.v1",
@@ -51,6 +53,89 @@
     "source": ".harness/store.json",
     "requiredStatusField": "status",
     "requiredSummaryField": "summary"
+  },
+  "productionReadinessScorecard": {
+    "schema": "gofly.production_readiness_scorecard.v1",
+    "source": "docs/reference/governance-dashboard-contract.json",
+    "gate": "make governance-report-check",
+    "requiredRiskClasses": [
+      "production-ready",
+      "candidate",
+      "report-only",
+      "rollback-required"
+    ],
+    "surfaces": [
+      {
+        "id": "stable-api-surface",
+        "riskClass": "production-ready",
+        "source": "docs/reference/api-surface.md",
+        "gate": "make stable-surface-check",
+        "adopterAction": "depend on Tier 0 and Tier 1 surfaces only after stable-surface and deprecation lifecycle gates pass"
+      },
+      {
+        "id": "generated-output",
+        "riskClass": "production-ready",
+        "source": "docs/reference/generated-upgrade-dry-run.json",
+        "gate": "make generated-upgrade-dry-run-check",
+        "adopterAction": "regenerate into a temporary project and review classified diffs before updating generated services"
+      },
+      {
+        "id": "runtime-operations",
+        "riskClass": "production-ready",
+        "source": "docs/reference/runtime-slo.json",
+        "gate": "make runtime-slo-check",
+        "adopterAction": "verify health, readiness, metrics, traces, resilience drills, and rollback decisions before production rollout"
+      },
+      {
+        "id": "cloud-native-deployment",
+        "riskClass": "candidate",
+        "source": "docs/reference/cloud-native-policy-conformance.json",
+        "gate": "make cloud-native-render-check",
+        "adopterAction": "render Helm and Kustomize assets locally and inspect fallback status before treating deployment policy as enforced"
+      },
+      {
+        "id": "security-and-dependencies",
+        "riskClass": "production-ready",
+        "source": "docs/reference/dependency-upgrade-evidence.json",
+        "gate": "make dependency-upgrade-evidence-check",
+        "adopterAction": "verify module checksums, vulnerabilities, root dependency policy, and dependency ownership before upgrading"
+      },
+      {
+        "id": "performance-budget",
+        "riskClass": "report-only",
+        "source": "bench/budget-ratchet.json",
+        "gate": "make bench-regression-check",
+        "adopterAction": "treat latency comparison as trend evidence and block only allocation budgets promoted by the ratchet policy"
+      },
+      {
+        "id": "release-evidence",
+        "riskClass": "production-ready",
+        "source": "docs/releases/readiness-score.json",
+        "gate": "make governance-report-check",
+        "adopterAction": "promote releases only when readiness score is ready and required evidence artifacts are present"
+      },
+      {
+        "id": "adoption-risk",
+        "riskClass": "rollback-required",
+        "source": "docs/reference/adoption-risk-register.json",
+        "gate": "make framework-gap-check",
+        "adopterAction": "pin, rollback, or block promotion when a surface is marked rollback-required or a promotion gate fails"
+      },
+      {
+        "id": "required-checks",
+        "riskClass": "production-ready",
+        "source": "docs/reference/ci-required-check-evidence.json",
+        "gate": "make required-checks-drift-check",
+        "adopterAction": "require release prerequisite drift, branch protection, local gate, and artifact evidence to stay aligned"
+      },
+      {
+        "id": "plugin-ecosystem",
+        "riskClass": "candidate",
+        "source": "docs/reference/plugin-conformance.md",
+        "gate": "make plugin-conformance-check",
+        "adopterAction": "accept only plugins that pass manifest, digest, permission, compatibility, and failure isolation checks"
+      }
+    ]
   },
   "outputs": [
     ".tmp-test/governance-report/governance-report.json",

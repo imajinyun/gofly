@@ -413,7 +413,34 @@ def governance_dashboard_contract():
         "coverage": manifest.get("coverage", {}),
         "security": manifest.get("security", {}),
         "aiflow": manifest.get("aiflow", {}),
+        "productionReadinessScorecard": production_readiness_scorecard(manifest.get("productionReadinessScorecard", {})),
         "outputs": manifest.get("outputs", []),
+    }
+
+
+def production_readiness_scorecard(contract):
+    surfaces = [
+        item
+        for item in contract.get("surfaces") or []
+        if isinstance(item, dict)
+    ]
+    risk_counts = {}
+    missing_sources = []
+    for item in surfaces:
+        risk_class = item.get("riskClass", "")
+        risk_counts[risk_class] = risk_counts.get(risk_class, 0) + 1
+        source = item.get("source", "")
+        if source and not (root / source).exists():
+            missing_sources.append(source)
+    return {
+        "schema": contract.get("schema", ""),
+        "source": contract.get("source", ""),
+        "gate": contract.get("gate", ""),
+        "requiredRiskClasses": contract.get("requiredRiskClasses", []),
+        "surfaceCount": len(surfaces),
+        "riskClassCounts": risk_counts,
+        "missingSources": sorted(missing_sources),
+        "surfaces": surfaces,
     }
 
 
@@ -507,6 +534,7 @@ md_lines = [
     f"- Release evidence index items: `{report['release']['evidenceCount']}`",
     f"- Release evidence consumption items: `{report['releaseEvidenceConsumption']['itemCount']}`",
     f"- Release readiness score: `{report['release']['readinessScore']['score']}/{report['release']['readinessScore']['maxScore']}` (`{report['release']['readinessScore']['status']}`)",
+    f"- Production readiness surfaces: `{report['dashboard']['productionReadinessScorecard']['surfaceCount']}`",
     f"- Generated upgrade dry-run profiles: `{report['generatedUpgradeDryRun']['profileCount']}`",
     "",
     "## API Surface",
@@ -649,6 +677,7 @@ for field in (
     "coverage.ratchet",
     "security.gosec.blockingGate",
     "aiflow.status",
+    "dashboard.productionReadinessScorecard.surfaceCount",
 ):
     if field not in dashboard["summaryFields"]:
         missing.append(f"governance dashboard contract summaryFields missing {field!r}")
@@ -686,6 +715,73 @@ if aiflow_contract.get("requiredStatusField") != "status":
     missing.append("governance dashboard aiflow requiredStatusField mismatch")
 if aiflow_contract.get("requiredSummaryField") != "summary":
     missing.append("governance dashboard aiflow requiredSummaryField mismatch")
+scorecard = dashboard.get("productionReadinessScorecard") or {}
+if scorecard.get("schema") != "gofly.production_readiness_scorecard.v1":
+    missing.append("production readiness scorecard schema mismatch")
+if scorecard.get("source") != "docs/reference/governance-dashboard-contract.json":
+    missing.append("production readiness scorecard source mismatch")
+if scorecard.get("gate") != "make governance-report-check":
+    missing.append("production readiness scorecard gate mismatch")
+required_risk_classes = {"production-ready", "candidate", "report-only", "rollback-required"}
+if set(scorecard.get("requiredRiskClasses") or []) != required_risk_classes:
+    missing.append("production readiness scorecard risk classes mismatch")
+surfaces = scorecard.get("surfaces") or []
+if scorecard.get("surfaceCount") != len(surfaces):
+    missing.append("production readiness scorecard surfaceCount mismatch")
+if len(surfaces) < 10:
+    missing.append("production readiness scorecard must contain at least 10 surfaces")
+if scorecard.get("missingSources"):
+    missing.append(f"production readiness scorecard missing sources: {scorecard['missingSources']}")
+seen_surface_ids = set()
+seen_risk_classes = set()
+required_surface_ids = {
+    "stable-api-surface",
+    "generated-output",
+    "runtime-operations",
+    "cloud-native-deployment",
+    "security-and-dependencies",
+    "performance-budget",
+    "release-evidence",
+    "adoption-risk",
+    "required-checks",
+    "plugin-ecosystem",
+}
+for item in surfaces:
+    if not isinstance(item, dict):
+        missing.append(f"production readiness scorecard surface must be an object: {item!r}")
+        continue
+    item_id = item.get("id", "")
+    if item_id in seen_surface_ids:
+        missing.append(f"duplicate production readiness scorecard surface id: {item_id}")
+    seen_surface_ids.add(item_id)
+    risk_class = item.get("riskClass", "")
+    seen_risk_classes.add(risk_class)
+    if risk_class not in required_risk_classes:
+        missing.append(f"production readiness scorecard {item_id}: unknown riskClass {risk_class!r}")
+    for field in ("id", "riskClass", "source", "gate", "adopterAction"):
+        if not item.get(field):
+            missing.append(f"production readiness scorecard {item_id or '<missing>'}: {field} is required")
+    gate = item.get("gate", "")
+    if gate.startswith("make "):
+        target = gate.removeprefix("make ").split()[0]
+        makefile = read_text(root / "Makefile")
+        if re.search(rf"^{re.escape(target)}:", makefile, re.M) is None:
+            missing.append(f"production readiness scorecard {item_id}: gate target {target!r} missing")
+    else:
+        missing.append(f"production readiness scorecard {item_id}: gate must be a make target")
+    if len(str(item.get("adopterAction") or "").split()) < 10:
+        missing.append(f"production readiness scorecard {item_id}: adopterAction must be actionable")
+if required_surface_ids != seen_surface_ids:
+    missing.append(
+        "production readiness scorecard surface ids mismatch: "
+        f"missing={sorted(required_surface_ids - seen_surface_ids)} "
+        f"extra={sorted(seen_surface_ids - required_surface_ids)}"
+    )
+if seen_risk_classes != required_risk_classes:
+    missing.append(
+        "production readiness scorecard does not cover all risk classes: "
+        f"missing={sorted(required_risk_classes - seen_risk_classes)}"
+    )
 for output in (dashboard.get("outputs") or []):
     if not output.startswith(".tmp-test/governance-report/"):
         missing.append(f"governance dashboard output must stay under .tmp-test/governance-report: {output}")

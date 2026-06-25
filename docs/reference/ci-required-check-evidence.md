@@ -50,3 +50,19 @@ Tag releases depend on the tag-applicable jobs listed in
 remain required for branch protection, but they are not release job
 prerequisites because they either need a pull request diff or live branch
 protection API access.
+
+## Integration Matrix
+
+The `integrationMatrix` section maps production integration families to the
+owner, supported profiles, required local gate, CI job, release prerequisite,
+dependency upgrade trigger, and rollback note. This keeps storage, discovery,
+message queue, gateway, RPC, observability, and release-evidence integrations
+visible before adoption.
+
+| Integration | Owner | Profiles | Required check | Release prerequisite |
+| --- | --- | --- | --- | --- |
+| `storage-sql` | `storage-runtime` | `mysql`, `postgres` | integration tests (storage-mysql-postgres) | `integration` |
+| `config-discovery` | `runtime-governance` | `consul`, `nacos`, `etcd` | integration tests (config-consul-nacos-etcd) | `integration` |
+| `mq-brokers` | `messaging-runtime` | `kafka`, `rabbitmq`, `redis-stream` | integration tests (mq-brokers) | `integration` |
+| `gateway-transcode` | `rpc-runtime` | `gateway`, `grpc`, `rpc`, `http-transcode` | integration tests (gateway-transcode) | `integration` |
+| `observability-release` | `observability-governance` | `otel`, `prometheus`, `runtime-slo`, `release-evidence` | governance gates | `governance` |

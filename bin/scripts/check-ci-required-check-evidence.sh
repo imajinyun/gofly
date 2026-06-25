@@ -50,6 +50,14 @@ expected_release_prerequisites = {
     "scorecard",
 }
 
+expected_integration_matrix = {
+    "storage-sql": "integration tests (storage-mysql-postgres)",
+    "config-discovery": "integration tests (config-consul-nacos-etcd)",
+    "mq-brokers": "integration tests (mq-brokers)",
+    "gateway-transcode": "integration tests (gateway-transcode)",
+    "observability-release": "governance gates",
+}
+
 
 def read_text(path):
     if not path.is_file():
@@ -198,6 +206,46 @@ for item in checks:
         )
         require(artifact_is_documented, f"{check}: artifact {artifact!r} is not documented in workflow or docs")
 
+integration_matrix = manifest.get("integrationMatrix")
+if not isinstance(integration_matrix, list):
+    missing.append("integrationMatrix must be a list")
+    integration_matrix = []
+integration_ids = set()
+for item in integration_matrix:
+    if not isinstance(item, dict):
+        missing.append(f"integrationMatrix entry must be an object: {item!r}")
+        continue
+    item_id = item.get("id", "")
+    if not item_id:
+        missing.append("integrationMatrix id is required")
+    elif item_id in integration_ids:
+        missing.append(f"duplicate integrationMatrix id: {item_id}")
+    integration_ids.add(item_id)
+    for field in (
+        "id",
+        "surface",
+        "owner",
+        "supportedProfiles",
+        "localGate",
+        "ciJob",
+        "requiredCheck",
+        "releasePrerequisite",
+        "dependencyUpgradeTrigger",
+        "rollbackNote",
+    ):
+        require(bool(item.get(field)), f"integrationMatrix {item_id or '<missing>'}: {field} is required")
+    expected_check = expected_integration_matrix.get(item_id)
+    if expected_check:
+        require(item.get("requiredCheck") == expected_check, f"integrationMatrix {item_id}: requiredCheck mismatch")
+    require(item.get("requiredCheck") in actual_checks, f"integrationMatrix {item_id}: requiredCheck is not in checks")
+    require(item.get("ciJob") in job_ids, f"integrationMatrix {item_id}: ciJob is missing")
+    require(item.get("releasePrerequisite") in manifest_prereqs, f"integrationMatrix {item_id}: releasePrerequisite is not release-blocking")
+    require(local_gate_exists(item.get("localGate", ""), target_names), f"integrationMatrix {item_id}: localGate is not runnable or documented")
+    require(len(item.get("supportedProfiles") or []) >= 2, f"integrationMatrix {item_id}: supportedProfiles must name at least two profiles")
+    for field in ("dependencyUpgradeTrigger", "rollbackNote"):
+        require(len(str(item.get(field) or "").split()) >= 8, f"integrationMatrix {item_id}: {field} must be actionable")
+require(set(expected_integration_matrix) == integration_ids, f"integrationMatrix ids drifted: missing={sorted(set(expected_integration_matrix) - integration_ids)} extra={sorted(integration_ids - set(expected_integration_matrix))}")
+
 for needle in [
     "expected_default_checks",
     "expected_release_needs",
@@ -212,6 +260,7 @@ for path_text, needles in {
         "ci-required-check-evidence.json",
         "make ci-required-check-evidence-check",
         "releasePrerequisites",
+        "integrationMatrix",
     ],
     "docs/index.md": ["reference/ci-required-check-evidence.md"],
     "README.md": ["docs/reference/ci-required-check-evidence.md"],

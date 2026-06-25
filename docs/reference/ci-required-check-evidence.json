@@ -136,5 +136,88 @@
     "docker",
     "scorecard"
   ],
+  "integrationMatrix": [
+    {
+      "id": "storage-sql",
+      "surface": "SQL storage integrations for MySQL and PostgreSQL-backed generated or reference services",
+      "owner": "storage-runtime",
+      "supportedProfiles": [
+        "mysql",
+        "postgres"
+      ],
+      "localGate": "make integration-tests",
+      "ciJob": "integration",
+      "requiredCheck": "integration tests (storage-mysql-postgres)",
+      "releasePrerequisite": "integration",
+      "dependencyUpgradeTrigger": "storage driver, transaction, outbox, generated model, or migration dependency changes",
+      "rollbackNote": "pin the previous storage driver or generated profile until SQL integration logs and dependency upgrade evidence pass"
+    },
+    {
+      "id": "config-discovery",
+      "surface": "configuration and service discovery integrations for Consul, Nacos, and etcd-backed deployments",
+      "owner": "runtime-governance",
+      "supportedProfiles": [
+        "consul",
+        "nacos",
+        "etcd"
+      ],
+      "localGate": "make integration-tests",
+      "ciJob": "integration",
+      "requiredCheck": "integration tests (config-consul-nacos-etcd)",
+      "releasePrerequisite": "integration",
+      "dependencyUpgradeTrigger": "config loader, discovery resolver, watch, TLS, or client dependency changes",
+      "rollbackNote": "pin the previous discovery client or disable the new profile until resolver update and health evidence pass"
+    },
+    {
+      "id": "mq-brokers",
+      "surface": "message queue integrations for Kafka, RabbitMQ, and Redis Stream workflows",
+      "owner": "messaging-runtime",
+      "supportedProfiles": [
+        "kafka",
+        "rabbitmq",
+        "redis-stream"
+      ],
+      "localGate": "make integration-tests",
+      "ciJob": "integration",
+      "requiredCheck": "integration tests (mq-brokers)",
+      "releasePrerequisite": "integration",
+      "dependencyUpgradeTrigger": "producer, consumer, retry, outbox, broker client, or serialization dependency changes",
+      "rollbackNote": "pin the previous broker client or keep the prior outbox profile until broker integration evidence passes"
+    },
+    {
+      "id": "gateway-transcode",
+      "surface": "gateway, RPC, HTTP transcoding, and descriptor compatibility integrations",
+      "owner": "rpc-runtime",
+      "supportedProfiles": [
+        "gateway",
+        "grpc",
+        "rpc",
+        "http-transcode"
+      ],
+      "localGate": "make integration-tests",
+      "ciJob": "integration",
+      "requiredCheck": "integration tests (gateway-transcode)",
+      "releasePrerequisite": "integration",
+      "dependencyUpgradeTrigger": "RPC descriptor, gateway routing, resolver, balancer, OpenAPI, or protobuf dependency changes",
+      "rollbackNote": "pin the previous gateway or descriptor profile until resolver, routing, and transcoding evidence pass"
+    },
+    {
+      "id": "observability-release",
+      "surface": "OpenTelemetry, Prometheus, runtime SLO, release evidence, and governance dashboard integrations",
+      "owner": "observability-governance",
+      "supportedProfiles": [
+        "otel",
+        "prometheus",
+        "runtime-slo",
+        "release-evidence"
+      ],
+      "localGate": "make governance-report-check",
+      "ciJob": "governance",
+      "requiredCheck": "governance gates",
+      "releasePrerequisite": "governance",
+      "dependencyUpgradeTrigger": "telemetry exporter, metrics, trace, release evidence, or governance report dependency changes",
+      "rollbackNote": "pin the previous telemetry or governance evidence contract until dashboard and runtime SLO checks pass"
+    }
+  ],
   "schema": "gofly.ci_required_check_evidence.v1"
 }

@@ -47,6 +47,7 @@ if adoption_risk_path.is_file():
 else:
     adoption_risk = {}
     missing.append("docs/reference/adoption-risk-register.json is missing")
+required_risk_classes = {"production-ready", "candidate", "report-only", "rollback-required"}
 long_term_path = root / "docs" / "reference" / "framework-gap-long-term-adoption.json"
 if long_term_path.is_file():
     long_term = json.loads(long_term_path.read_text(encoding="utf-8"))
@@ -386,11 +387,84 @@ adopter_proof_scope = adopter_proof.get("scope") or {}
 adopter_proof_excluded = set(adopter_proof_scope.get("excluded") or [])
 for out_of_scope in ("GitHub stars", "download counts", "community size", "brand awareness"):
     require(out_of_scope in adopter_proof_excluded, f"adopter proof scope.excluded missing {out_of_scope!r}")
+claim_provenance = adopter_proof.get("capabilityClaimProvenance") or {}
+require(claim_provenance.get("schema") == "gofly.capability_claim_provenance.v1", "capability claim provenance schema mismatch")
+require(claim_provenance.get("sourceOfTruth") == "docs/reference/framework-gap-matrix.md", "capability claim provenance sourceOfTruth mismatch")
+require(claim_provenance.get("acceptanceGate") == "make framework-gap-check", "capability claim provenance acceptanceGate mismatch")
+require(
+    len(str(claim_provenance.get("unsupportedClaimPolicy") or "").split()) >= 16,
+    "capability claim provenance unsupportedClaimPolicy must be actionable",
+)
+claim_entries = claim_provenance.get("claims") or []
+require(len(claim_entries) >= 7, "capability claim provenance must contain at least 7 claims")
+required_claim_ids = {
+    "http-dx-openapi-envelope",
+    "generated-scaffold-upgrade",
+    "rpc-boundary-tier1",
+    "production-reference-proof",
+    "release-trust-evidence",
+    "plugin-publishing-protocol",
+    "performance-credibility",
+}
+claim_ids = set()
+claim_frameworks = set()
+claim_types = set()
+for item in claim_entries:
+    if not isinstance(item, dict):
+        missing.append(f"capability claim provenance entry must be an object: {item!r}")
+        continue
+    claim_id = item.get("id", "<missing>")
+    if claim_id in claim_ids:
+        missing.append(f"duplicate capability claim provenance id {claim_id!r}")
+    claim_ids.add(claim_id)
+    for field in (
+        "id",
+        "claim",
+        "claimType",
+        "referenceFrameworks",
+        "sourceEvidence",
+        "gate",
+        "riskClass",
+        "adopterAction",
+        "unsupportedClaimHandling",
+    ):
+        require(bool(item.get(field)), f"capability claim {claim_id}: {field} is required")
+    claim_types.add(item.get("claimType", ""))
+    claim_frameworks.update(item.get("referenceFrameworks") or [])
+    require(item.get("riskClass") in required_risk_classes, f"capability claim {claim_id}: unknown riskClass {item.get('riskClass')!r}")
+    gate = item.get("gate", "")
+    require(gate.startswith("make "), f"capability claim {claim_id}: gate must be a make target")
+    if gate.startswith("make "):
+        target = gate.removeprefix("make ").split()[0]
+        makefile = read_text(root / "Makefile")
+        require(re.search(rf"^{re.escape(target)}:", makefile, re.M), f"capability claim {claim_id}: gate target {target!r} missing")
+    for evidence in item.get("sourceEvidence") or []:
+        if evidence.startswith("docs/") or evidence.startswith("examples/") or evidence.startswith("bench/"):
+            require((root / evidence).exists(), f"capability claim {claim_id}: source evidence path missing: {evidence}")
+        elif evidence.startswith("make "):
+            target = evidence.removeprefix("make ").split()[0]
+            makefile = read_text(root / "Makefile")
+            require(re.search(rf"^{re.escape(target)}:", makefile, re.M), f"capability claim {claim_id}: source evidence target {target!r} missing")
+        else:
+            missing.append(f"capability claim {claim_id}: unsupported source evidence {evidence!r}")
+    for field in ("adopterAction", "unsupportedClaimHandling"):
+        require(len(str(item.get(field) or "").split()) >= 8, f"capability claim {claim_id}: {field} must be actionable")
+require(required_claim_ids <= claim_ids, f"capability claim provenance missing claims: {sorted(required_claim_ids - claim_ids)!r}")
+require({"Gin", "Echo", "Fiber", "Hertz", "go-zero", "Kratos", "Kitex", "gRPC-Go", "Beego"} <= claim_frameworks, "capability claim provenance must cover major reference frameworks")
+for required_type in (
+    "product-capability",
+    "engineering-maturity",
+    "contract-depth",
+    "production-proof",
+    "release-trust",
+    "ecosystem-protocol",
+    "performance-evidence",
+):
+    require(required_type in claim_types, f"capability claim provenance missing claimType {required_type!r}")
 
 require(adoption_risk.get("sourceOfTruth") == "docs/reference/framework-gap-adoption-wave.json", "adoption risk register sourceOfTruth mismatch")
 require(adoption_risk.get("acceptanceGate") == "make framework-gap-check", "adoption risk register acceptanceGate mismatch")
 risk_classes = set(adoption_risk.get("riskClasses") or [])
-required_risk_classes = {"production-ready", "candidate", "report-only", "rollback-required"}
 require(risk_classes == required_risk_classes, f"adoption risk classes = {sorted(risk_classes)!r}, want {sorted(required_risk_classes)!r}")
 risk_entries = adoption_risk.get("entries") or []
 require(len(risk_entries) >= 12, "adoption risk register must contain at least 12 entries")

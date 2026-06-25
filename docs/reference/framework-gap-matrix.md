@@ -53,6 +53,9 @@ The P7 adopter proof wave is captured in
 schema `gofly.framework_gap_adopter_proof.v1`. It focuses on runnable adopter
 proof, evidence traceability, upgrade rehearsal, incident drill evidence, and
 capability claim provenance.
+The `gofly.capability_claim_provenance.v1` section in that file ties each
+framework comparison or production-readiness claim to source evidence, a gate,
+risk class, adopter action, and unsupported-claim handling.
 
 | Order | Task | Gap | Acceptance gate |
 | --- | --- | --- | --- |
@@ -118,6 +121,25 @@ capability claim provenance.
 | candidate | Has concrete guardrails but still requires adopter review or local promotion evidence. |
 | report-only | Provides trend or comparison evidence, but should not be treated as a blocking claim unless a ratchet promotes it. |
 | rollback-required | Indicates a failed gate or breaking candidate where the recommended action is to pin, rollback, or block promotion. |
+
+## Capability Claim Provenance
+
+Capability claims are governed by
+`gofly.capability_claim_provenance.v1` in
+[`framework-gap-adopter-proof.json`](framework-gap-adopter-proof.json). Claims
+without local source evidence, a runnable gate, risk class, adopter action, and
+unsupported-claim handling must be downgraded to `report-only` or removed before
+release.
+
+| Claim | Risk class | Gate |
+| --- | --- | --- |
+| `http-dx-openapi-envelope` | `production-ready` | `make openapi-validation-check` |
+| `generated-scaffold-upgrade` | `production-ready` | `make generated-upgrade-dry-run-check` |
+| `rpc-boundary-tier1` | `candidate` | `make rpc-boundary-check` |
+| `production-reference-proof` | `candidate` | `make reference-app-smoke` |
+| `release-trust-evidence` | `production-ready` | `make governance-report-check` |
+| `plugin-publishing-protocol` | `candidate` | `make plugin-conformance-check` |
+| `performance-credibility` | `report-only` | `make bench-regression-check` |
 
 ## Gap Summary
 

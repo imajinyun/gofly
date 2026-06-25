@@ -53,6 +53,148 @@
       ]
     }
   ],
+  "capabilityClaimProvenance": {
+    "schema": "gofly.capability_claim_provenance.v1",
+    "sourceOfTruth": "docs/reference/framework-gap-matrix.md",
+    "acceptanceGate": "make framework-gap-check",
+    "unsupportedClaimPolicy": "Any framework comparison or production-readiness claim without local evidence, a gate command, a risk class, and an adopter action must be downgraded to report-only or removed before release.",
+    "claims": [
+      {
+        "id": "http-dx-openapi-envelope",
+        "claim": "HTTP binding, validation, OpenAPI schema, and error envelope behavior are governed by local runtime and schema evidence.",
+        "claimType": "product-capability",
+        "referenceFrameworks": [
+          "Gin",
+          "Echo",
+          "Fiber",
+          "Hertz"
+        ],
+        "sourceEvidence": [
+          "docs/reference/openapi-validation-envelope.md",
+          "make openapi-validation-check"
+        ],
+        "gate": "make openapi-validation-check",
+        "riskClass": "production-ready",
+        "adopterAction": "treat generated REST behavior as stable only after invalid request smoke and OpenAPI/runtime binding checks pass",
+        "unsupportedClaimHandling": "downgrade HTTP DX claims to candidate when the schema or invalid request smoke evidence is missing"
+      },
+      {
+        "id": "generated-scaffold-upgrade",
+        "claim": "Generated project upgrades are repeatable and have explainable diff, dependency, smoke, and rollback evidence.",
+        "claimType": "engineering-maturity",
+        "referenceFrameworks": [
+          "go-zero",
+          "Kratos"
+        ],
+        "sourceEvidence": [
+          "docs/reference/generated-upgrade-dry-run.json",
+          "make generated-upgrade-dry-run-check"
+        ],
+        "gate": "make generated-upgrade-dry-run-check",
+        "riskClass": "production-ready",
+        "adopterAction": "regenerate into a temporary project, inspect classified diffs, and pin the previous generator profile on failure",
+        "unsupportedClaimHandling": "remove scaffold compatibility claims when repeat generation, compile smoke, or rollback evidence is absent"
+      },
+      {
+        "id": "rpc-boundary-tier1",
+        "claim": "RPC, gRPC, and Kitex coexistence boundaries are tracked with benchmark, resolver, balancer, stream, and rollback evidence.",
+        "claimType": "contract-depth",
+        "referenceFrameworks": [
+          "Kitex",
+          "gRPC-Go",
+          "go-zero"
+        ],
+        "sourceEvidence": [
+          "docs/reference/rpc-boundary.md",
+          "make rpc-boundary-check"
+        ],
+        "gate": "make rpc-boundary-check",
+        "riskClass": "candidate",
+        "adopterAction": "use RPC surfaces behind the listed boundary checks and keep rollback notes for Kitex coexistence migrations",
+        "unsupportedClaimHandling": "keep RPC Tier 1 language out of release notes until stream, resolver, balancer, and benchmark evidence pass"
+      },
+      {
+        "id": "production-reference-proof",
+        "claim": "Production readiness claims are limited to reference-app, runtime SLO, incident drill, and release evidence surfaces.",
+        "claimType": "production-proof",
+        "referenceFrameworks": [
+          "go-zero",
+          "Kratos",
+          "Kitex",
+          "Beego"
+        ],
+        "sourceEvidence": [
+          "examples/production-orders",
+          "docs/reference/operator-runbook-drills.json",
+          "make reference-app-smoke",
+          "make runtime-slo-check"
+        ],
+        "gate": "make reference-app-smoke",
+        "riskClass": "candidate",
+        "adopterAction": "treat production proof as local reference evidence and rerun the smoke plus runtime SLO gates before adoption",
+        "unsupportedClaimHandling": "downgrade production-ready wording to reference-only when topology smoke or incident rehearsal evidence is missing"
+      },
+      {
+        "id": "release-trust-evidence",
+        "claim": "Release trust is based on readiness score, evidence consumption, required checks, security gates, and artifact manifests.",
+        "claimType": "release-trust",
+        "referenceFrameworks": [
+          "go-zero",
+          "Kratos"
+        ],
+        "sourceEvidence": [
+          "docs/releases/readiness-score.json",
+          "docs/releases/evidence-consumption.json",
+          "docs/reference/ci-required-check-evidence.json",
+          "make governance-report-check"
+        ],
+        "gate": "make governance-report-check",
+        "riskClass": "production-ready",
+        "adopterAction": "promote releases only when readiness score, evidence consumption, required checks, and security gates are complete",
+        "unsupportedClaimHandling": "block release-trust claims when a required artifact, check, or security gate is missing"
+      },
+      {
+        "id": "plugin-publishing-protocol",
+        "claim": "Plugin ecosystem claims are limited to manifest, digest, permission, compatibility, and failure-isolation evidence.",
+        "claimType": "ecosystem-protocol",
+        "referenceFrameworks": [
+          "go-zero",
+          "Kratos"
+        ],
+        "sourceEvidence": [
+          "docs/reference/plugin-conformance.md",
+          "examples/plugin-ecosystem",
+          "make plugin-conformance-check"
+        ],
+        "gate": "make plugin-conformance-check",
+        "riskClass": "candidate",
+        "adopterAction": "accept third-party plugins only after conformance, permission review, digest verification, and compatibility checks pass",
+        "unsupportedClaimHandling": "remove publishable-plugin wording when conformance evidence or failure isolation is incomplete"
+      },
+      {
+        "id": "performance-credibility",
+        "claim": "Performance comparison claims are evidence-scoped to benchmark trends and ratcheted budgets, with latency report-only unless promoted.",
+        "claimType": "performance-evidence",
+        "referenceFrameworks": [
+          "Gin",
+          "Echo",
+          "Fiber",
+          "Hertz",
+          "Kitex"
+        ],
+        "sourceEvidence": [
+          "bench/evidence.md",
+          "bench/budget-ratchet.json",
+          "make bench-evidence-check",
+          "make bench-regression-check"
+        ],
+        "gate": "make bench-regression-check",
+        "riskClass": "report-only",
+        "adopterAction": "use benchmark rows as trend evidence and block only the allocation budgets promoted by the ratchet policy",
+        "unsupportedClaimHandling": "mark performance claims as report-only unless trend evidence, budget policy, and regression gates are present"
+      }
+    ]
+  },
   "dimensions": [
     {
       "id": "evidence-traceability",

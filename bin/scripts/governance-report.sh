@@ -414,7 +414,33 @@ def governance_dashboard_contract():
         "security": manifest.get("security", {}),
         "aiflow": manifest.get("aiflow", {}),
         "productionReadinessScorecard": production_readiness_scorecard(manifest.get("productionReadinessScorecard", {})),
+        "evidenceTraceability": evidence_traceability(manifest.get("evidenceTraceability", {})),
         "outputs": manifest.get("outputs", []),
+    }
+
+
+def evidence_traceability(contract):
+    claims = [
+        item
+        for item in contract.get("claims") or []
+        if isinstance(item, dict)
+    ]
+    missing_sources = []
+    risk_counts = {}
+    for item in claims:
+        risk_class = item.get("riskClass", "")
+        risk_counts[risk_class] = risk_counts.get(risk_class, 0) + 1
+        source = item.get("sourceManifest", "")
+        if source and not (root / source).exists():
+            missing_sources.append(source)
+    return {
+        "schema": contract.get("schema", ""),
+        "source": contract.get("source", ""),
+        "gate": contract.get("gate", ""),
+        "claimCount": len(claims),
+        "riskClassCounts": risk_counts,
+        "missingSources": sorted(missing_sources),
+        "claims": claims,
     }
 
 
@@ -535,6 +561,7 @@ md_lines = [
     f"- Release evidence consumption items: `{report['releaseEvidenceConsumption']['itemCount']}`",
     f"- Release readiness score: `{report['release']['readinessScore']['score']}/{report['release']['readinessScore']['maxScore']}` (`{report['release']['readinessScore']['status']}`)",
     f"- Production readiness surfaces: `{report['dashboard']['productionReadinessScorecard']['surfaceCount']}`",
+    f"- Evidence traceability claims: `{report['dashboard']['evidenceTraceability']['claimCount']}`",
     f"- Generated upgrade dry-run profiles: `{report['generatedUpgradeDryRun']['profileCount']}`",
     "",
     "## API Surface",
@@ -678,6 +705,7 @@ for field in (
     "security.gosec.blockingGate",
     "aiflow.status",
     "dashboard.productionReadinessScorecard.surfaceCount",
+    "dashboard.evidenceTraceability.claimCount",
 ):
     if field not in dashboard["summaryFields"]:
         missing.append(f"governance dashboard contract summaryFields missing {field!r}")
@@ -781,6 +809,64 @@ if seen_risk_classes != required_risk_classes:
     missing.append(
         "production readiness scorecard does not cover all risk classes: "
         f"missing={sorted(required_risk_classes - seen_risk_classes)}"
+    )
+traceability = dashboard.get("evidenceTraceability") or {}
+if traceability.get("schema") != "gofly.evidence_traceability.v1":
+    missing.append("evidence traceability schema mismatch")
+if traceability.get("source") != "docs/reference/governance-dashboard-contract.json":
+    missing.append("evidence traceability source mismatch")
+if traceability.get("gate") != "make governance-report-check":
+    missing.append("evidence traceability gate mismatch")
+claims = traceability.get("claims") or []
+if traceability.get("claimCount") != len(claims):
+    missing.append("evidence traceability claimCount mismatch")
+if len(claims) < 8:
+    missing.append("evidence traceability must contain at least 8 claims")
+if traceability.get("missingSources"):
+    missing.append(f"evidence traceability missing sources: {traceability['missingSources']}")
+required_claim_ids = {
+    "stable-surface-contract",
+    "release-readiness",
+    "required-checks-drift",
+    "runtime-operations",
+    "generated-upgrade-dry-run",
+    "dependency-ownership",
+    "performance-budget",
+    "production-readiness-scorecard",
+}
+seen_claim_ids = set()
+for item in claims:
+    if not isinstance(item, dict):
+        missing.append(f"evidence traceability claim must be an object: {item!r}")
+        continue
+    item_id = item.get("id", "")
+    if item_id in seen_claim_ids:
+        missing.append(f"duplicate evidence traceability claim id: {item_id}")
+    seen_claim_ids.add(item_id)
+    for field in ("id", "claim", "sourceManifest", "reportField", "gate", "riskClass", "rollbackOrEscalation"):
+        if not item.get(field):
+            missing.append(f"evidence traceability {item_id or '<missing>'}: {field} is required")
+    if item.get("riskClass") not in required_risk_classes:
+        missing.append(f"evidence traceability {item_id}: unknown riskClass {item.get('riskClass')!r}")
+    source = item.get("sourceManifest", "")
+    if source and not (root / source).exists():
+        missing.append(f"evidence traceability {item_id}: sourceManifest is missing: {source}")
+    gate = item.get("gate", "")
+    if gate.startswith("make "):
+        target = gate.removeprefix("make ").split()[0]
+        makefile = read_text(root / "Makefile")
+        if re.search(rf"^{re.escape(target)}:", makefile, re.M) is None:
+            missing.append(f"evidence traceability {item_id}: gate target {target!r} missing")
+    else:
+        missing.append(f"evidence traceability {item_id}: gate must be a make target")
+    for field in ("claim", "rollbackOrEscalation"):
+        if len(str(item.get(field) or "").split()) < 8:
+            missing.append(f"evidence traceability {item_id}: {field} must be actionable")
+if seen_claim_ids != required_claim_ids:
+    missing.append(
+        "evidence traceability claim ids mismatch: "
+        f"missing={sorted(required_claim_ids - seen_claim_ids)} "
+        f"extra={sorted(seen_claim_ids - required_claim_ids)}"
     )
 for output in (dashboard.get("outputs") or []):
     if not output.startswith(".tmp-test/governance-report/"):

@@ -15,7 +15,8 @@
     "aiflow.status",
     "aiflow.summary",
     "dashboard.productionReadinessScorecard.surfaceCount",
-    "dashboard.productionReadinessScorecard.riskClassCounts"
+    "dashboard.productionReadinessScorecard.riskClassCounts",
+    "dashboard.evidenceTraceability.claimCount"
   ],
   "releaseReadiness": {
     "schema": "gofly.release_readiness_score.v1",
@@ -134,6 +135,85 @@
         "source": "docs/reference/plugin-conformance.md",
         "gate": "make plugin-conformance-check",
         "adopterAction": "accept only plugins that pass manifest, digest, permission, compatibility, and failure isolation checks"
+      }
+    ]
+  },
+  "evidenceTraceability": {
+    "schema": "gofly.evidence_traceability.v1",
+    "source": "docs/reference/governance-dashboard-contract.json",
+    "gate": "make governance-report-check",
+    "claims": [
+      {
+        "id": "stable-surface-contract",
+        "claim": "Tier 0 and Tier 1 adoption surfaces are machine checked before release.",
+        "sourceManifest": "docs/reference/governance-dashboard-contract.json",
+        "reportField": "apiSurface.tiers",
+        "gate": "make stable-surface-check",
+        "riskClass": "production-ready",
+        "rollbackOrEscalation": "pin the previous release or block promotion when stable-surface evidence is incomplete"
+      },
+      {
+        "id": "release-readiness",
+        "claim": "Release promotion requires complete evidence and a ready score.",
+        "sourceManifest": "docs/releases/readiness-score.json",
+        "reportField": "release.readinessScore.status",
+        "gate": "make governance-report-check",
+        "riskClass": "production-ready",
+        "rollbackOrEscalation": "block release promotion when readiness score is not ready or evidence artifacts are missing"
+      },
+      {
+        "id": "required-checks-drift",
+        "claim": "Release prerequisites and required checks are protected from silent drift.",
+        "sourceManifest": "docs/reference/ci-required-check-evidence.json",
+        "reportField": "ciRequiredChecks.releasePrerequisiteCount",
+        "gate": "make required-checks-drift-check",
+        "riskClass": "production-ready",
+        "rollbackOrEscalation": "restore the missing required check or block tag promotion until branch protection and release needs match"
+      },
+      {
+        "id": "runtime-operations",
+        "claim": "Runtime operation evidence covers golden signals and operator drills.",
+        "sourceManifest": "docs/reference/runtime-slo.json",
+        "reportField": "runtimeSLO.signalCount",
+        "gate": "make runtime-slo-check",
+        "riskClass": "production-ready",
+        "rollbackOrEscalation": "hold rollout and follow operator drill rollback guidance when runtime SLO evidence is incomplete"
+      },
+      {
+        "id": "generated-upgrade-dry-run",
+        "claim": "Generated project upgrades are rehearsed with deterministic diff categories and rollback notes.",
+        "sourceManifest": "docs/reference/generated-upgrade-dry-run.json",
+        "reportField": "generatedUpgradeDryRun.profileCount",
+        "gate": "make generated-upgrade-dry-run-check",
+        "riskClass": "production-ready",
+        "rollbackOrEscalation": "pin the generator profile and block regeneration when dry-run repeatability or rollback notes fail"
+      },
+      {
+        "id": "dependency-ownership",
+        "claim": "Dependency upgrades have owner, boundary, evidence, and rollback contracts.",
+        "sourceManifest": "docs/reference/dependency-upgrade-evidence.json",
+        "reportField": "ciRequiredChecks.driftGate",
+        "gate": "make dependency-upgrade-evidence-check",
+        "riskClass": "production-ready",
+        "rollbackOrEscalation": "revert or pin the dependency when ownership evidence, vulnerability scans, or integration delegation fails"
+      },
+      {
+        "id": "performance-budget",
+        "claim": "Performance claims are limited to tracked benchmark evidence and ratcheted budgets.",
+        "sourceManifest": "bench/budget-ratchet.json",
+        "reportField": "benchmark.regressionGate",
+        "gate": "make bench-regression-check",
+        "riskClass": "report-only",
+        "rollbackOrEscalation": "treat latency rows as report-only and block only allocation budgets promoted by the ratchet"
+      },
+      {
+        "id": "production-readiness-scorecard",
+        "claim": "Production readiness is summarized by risk class across adoption surfaces.",
+        "sourceManifest": "docs/reference/governance-dashboard-contract.json",
+        "reportField": "dashboard.productionReadinessScorecard.surfaceCount",
+        "gate": "make governance-report-check",
+        "riskClass": "candidate",
+        "rollbackOrEscalation": "follow the surface-specific adopter action and block promotion when any required source or gate is missing"
       }
     ]
   },

@@ -21,6 +21,7 @@ The validation entry point is:
 
 ```sh
 make stable-surface-check
+make deprecation-lifecycle-check
 ```
 
 This target is release-blocking for v1 candidate surfaces. It runs:
@@ -62,3 +63,11 @@ Every deprecation must include:
 - the first release containing both old and new forms;
 - the coexistence window;
 - rollback guidance for services pinned to the old surface.
+
+The machine-readable lifecycle source of truth is
+[`deprecation-lifecycle.json`](deprecation-lifecycle.json). Its
+`activeDeprecations` list must be updated in the same change that adds a
+`Deprecated:` marker to production Go code or deprecates a stable CLI, JSON,
+OpenAPI, control-plane, or generated service surface. `make
+deprecation-lifecycle-check` validates the manifest, release-note
+classification, coexistence window, rollback guidance, and marker inventory.

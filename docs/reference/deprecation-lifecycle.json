@@ -1,0 +1,19 @@
+{
+  "activeDeprecations": [],
+  "deprecatedMarkers": [],
+  "policy": {
+    "minimumCoexistenceWindow": "one minor release line",
+    "requiredClassification": [
+      "compatible-addition",
+      "behavioral-fix",
+      "deprecation",
+      "breaking-candidate"
+    ],
+    "securityExceptionRequiredFields": [
+      "risk",
+      "mitigation",
+      "upgradePath"
+    ]
+  },
+  "schema": "gofly.deprecation_lifecycle.v1"
+}

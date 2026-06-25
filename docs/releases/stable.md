@@ -66,6 +66,7 @@ For v1 candidate surfaces, also run:
 
 ```sh
 make stable-surface-check
+make deprecation-lifecycle-check
 ```
 
 The [stable surface governance](../reference/stable-surface.md) checklist is the
@@ -76,6 +77,9 @@ whether the change is a compatible addition, behavioral fix, deprecation, or
 breaking candidate.
 
 If a stable or Tier 1 surface is deprecated, the release note must include the replacement, coexistence window, first deprecated version, and expected removal version. Security-driven removals must include the risk and mitigation.
+`make deprecation-lifecycle-check` validates the
+`gofly.deprecation_lifecycle.v1` manifest so active deprecations include
+rollback guidance, validation gates, and a one-minor-release coexistence window.
 
 ## Benchmark Evidence
 

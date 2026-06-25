@@ -265,7 +265,7 @@ community-growth-check: ## Validate contributor, roadmap, and issue-template ado
 	sh $(SCRIPTS_DIR)/check-community-growth.sh
 
 .PHONY: contract-docs-check
-contract-docs-check: stable-surface-check generated-version-compat-check adopter-decision-check ## Validate stable CLI JSON and control-plane contract docs
+contract-docs-check: stable-surface-check generated-version-compat-check adopter-decision-check deprecation-lifecycle-check ## Validate stable CLI JSON and control-plane contract docs
 	sh $(SCRIPTS_DIR)/check-contract-docs.sh
 
 .PHONY: dx-troubleshooting-check
@@ -294,6 +294,10 @@ fuzz-smoke: ## Run bounded fuzz smoke for public parser and REST binding surface
 .PHONY: stable-surface-check
 stable-surface-check: ## Validate v1 candidate stable surface evidence
 	sh $(SCRIPTS_DIR)/check-stable-surface.sh
+
+.PHONY: deprecation-lifecycle-check
+deprecation-lifecycle-check: ## Validate stable-surface deprecation lifecycle metadata
+	sh $(SCRIPTS_DIR)/check-deprecation-lifecycle.sh
 
 .PHONY: generated-version-compat-check
 generated-version-compat-check: ## Validate generated project cross-version compatibility fixtures

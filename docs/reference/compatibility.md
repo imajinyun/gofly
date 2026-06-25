@@ -77,6 +77,14 @@ Stable and Tier 1 surfaces follow this deprecation process:
 
 Security exceptions can shorten the window, but the release must state the risk, mitigation, and upgrade path.
 
+The machine-readable lifecycle registry is
+[`deprecation-lifecycle.json`](deprecation-lifecycle.json). Run
+`make deprecation-lifecycle-check` whenever a stable or Tier 1 surface gains a
+deprecation marker, replacement surface, or removal plan. The gate requires
+`activeDeprecations` entries to include rollback guidance, validation gates,
+first deprecated version, minimum removal version, and a one-minor-release
+coexistence window unless a documented security exception is present.
+
 ## CLI and JSON compatibility rules
 
 See [CLI JSON Contracts](cli-json-contracts.md) for the stable command list, JSON envelope, and field-level rules.

@@ -73,6 +73,23 @@ Profile-specific rollback notes are part of the manifest so generated-upgrade
 automation can surface the next action without requiring users to read the full
 roadmap.
 
+## Upgrade Rehearsal
+
+The `upgradeRehearsal` section defines the adopter upgrade path as a sequence of
+machine-checkable steps:
+
+| Step | Phase | Gate |
+| --- | --- | --- |
+| `inventory-current-project` | baseline | `make generated-version-compat-check` |
+| `regenerate-dry-run` | generation | `make generated-upgrade-dry-run-check` |
+| `dependency-boundary-review` | dependency | `make dependency-upgrade-evidence-check` |
+| `release-evidence-review` | release | `make governance-report-check` |
+| `adopter-smoke-and-rollback` | verification | `make framework-gap-check` |
+
+Each step records evidence files, expected output, failure class, and
+`rollbackOrEscalation` so an adopter can rehearse an upgrade without committing
+generated runtime artifacts.
+
 ## Relationship To Generated Version Compatibility
 
 `make generated-version-compat-check` remains the executable compatibility

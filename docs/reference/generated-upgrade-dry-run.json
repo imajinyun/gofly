@@ -42,6 +42,73 @@
     ]
   },
   "migrationFidelityMatrix": "docs/reference/migration-fidelity-matrix.json",
+  "upgradeRehearsal": {
+    "schema": "gofly.upgrade_rehearsal.v1",
+    "source": "docs/reference/generated-upgrade-dry-run.json",
+    "acceptanceGate": "make generated-upgrade-dry-run-check",
+    "steps": [
+      {
+        "id": "inventory-current-project",
+        "phase": "baseline",
+        "evidence": [
+          "docs/reference/generated-version-compat.md",
+          "docs/reference/template-profile-trust.json"
+        ],
+        "gate": "make generated-version-compat-check",
+        "expectedOutput": "historical and current fixtures compile and identify the profile used by the project",
+        "failureClass": "rollback-required",
+        "rollbackOrEscalation": "pin the current generator version until fixture compatibility and profile trust evidence are restored"
+      },
+      {
+        "id": "regenerate-dry-run",
+        "phase": "generation",
+        "evidence": [
+          "docs/reference/generated-upgrade-dry-run.json",
+          "docs/reference/migration-fidelity-matrix.json"
+        ],
+        "gate": "make generated-upgrade-dry-run-check",
+        "expectedOutput": "repeat generation is deterministic and diff categories are recorded for old, current, and future profiles",
+        "failureClass": "rollback-required",
+        "rollbackOrEscalation": "discard generated output, keep the previous snapshot, and block upgrade until deterministic-repeat-generation passes"
+      },
+      {
+        "id": "dependency-boundary-review",
+        "phase": "dependency",
+        "evidence": [
+          "docs/reference/dependency-upgrade-evidence.json",
+          "docs/reference/ci-required-check-evidence.json"
+        ],
+        "gate": "make dependency-upgrade-evidence-check",
+        "expectedOutput": "root dependencies, generated-project dependencies, toolchain dependencies, and integration dependencies keep ownership boundaries",
+        "failureClass": "candidate",
+        "rollbackOrEscalation": "revert or pin the dependency when ownership evidence, vulnerability scanning, or integration delegation fails"
+      },
+      {
+        "id": "release-evidence-review",
+        "phase": "release",
+        "evidence": [
+          "docs/releases/evidence-consumption.json",
+          "docs/releases/readiness-score.json"
+        ],
+        "gate": "make governance-report-check",
+        "expectedOutput": "release evidence consumption and readiness score identify the artifacts an adopter must inspect before upgrade",
+        "failureClass": "rollback-required",
+        "rollbackOrEscalation": "block release promotion when readiness is not ready or required release evidence is missing"
+      },
+      {
+        "id": "adopter-smoke-and-rollback",
+        "phase": "verification",
+        "evidence": [
+          "docs/reference/adoption-risk-register.json",
+          "docs/reference/governance-dashboard-contract.json"
+        ],
+        "gate": "make framework-gap-check",
+        "expectedOutput": "adoption risk class, promotion gate, and rollback or escalation action are available for each upgraded surface",
+        "failureClass": "candidate",
+        "rollbackOrEscalation": "treat the surface as candidate or rollback-required until the promotion gate passes locally"
+      }
+    ]
+  },
   "profiles": [
     {
       "api": "testdata/generated-compat/v0.1/orders.api",

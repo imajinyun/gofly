@@ -185,6 +185,41 @@ for item in paths:
     require(len(item.get("compatibilityCaveat", "")) >= 24, f"migration fidelity {framework}: compatibilityCaveat is too short")
 
 makefile = read_text(root / "Makefile")
+rehearsal = manifest.get("upgradeRehearsal") or {}
+require(rehearsal.get("schema") == "gofly.upgrade_rehearsal.v1", "upgrade rehearsal schema must be gofly.upgrade_rehearsal.v1")
+require(rehearsal.get("source") == "docs/reference/generated-upgrade-dry-run.json", "upgrade rehearsal source mismatch")
+require(rehearsal.get("acceptanceGate") == "make generated-upgrade-dry-run-check", "upgrade rehearsal acceptanceGate mismatch")
+steps = rehearsal.get("steps") or []
+required_step_ids = {
+    "inventory-current-project",
+    "regenerate-dry-run",
+    "dependency-boundary-review",
+    "release-evidence-review",
+    "adopter-smoke-and-rollback",
+}
+actual_step_ids = {item.get("id") for item in steps if isinstance(item, dict)}
+require(actual_step_ids == required_step_ids, f"upgrade rehearsal steps mismatch: {sorted(actual_step_ids)!r}")
+seen_phases = set()
+for item in steps:
+    if not isinstance(item, dict):
+        missing.append(f"upgrade rehearsal step must be an object: {item!r}")
+        continue
+    step = item.get("id", "<missing>")
+    for field in ("id", "phase", "evidence", "gate", "expectedOutput", "failureClass", "rollbackOrEscalation"):
+        require(bool(item.get(field)), f"upgrade rehearsal {step}: {field} is required")
+    seen_phases.add(item.get("phase", ""))
+    gate = item.get("gate", "")
+    require(gate.startswith("make "), f"upgrade rehearsal {step}: gate must be a make target")
+    if gate.startswith("make "):
+        target = gate.removeprefix("make ").split()[0]
+        require(re.search(rf"^{re.escape(target)}:", makefile, re.M), f"upgrade rehearsal {step}: gate target {target!r} missing")
+    for evidence in item.get("evidence") or []:
+        require((root / evidence).exists(), f"upgrade rehearsal {step}: evidence path is missing: {evidence}")
+    require(item.get("failureClass") in {"candidate", "rollback-required"}, f"upgrade rehearsal {step}: failureClass must be candidate or rollback-required")
+    for field in ("expectedOutput", "rollbackOrEscalation"):
+        require(len(str(item.get(field) or "").split()) >= 8, f"upgrade rehearsal {step}: {field} must be actionable")
+require({"baseline", "generation", "dependency", "release", "verification"} <= seen_phases, "upgrade rehearsal must cover baseline, generation, dependency, release, and verification phases")
+
 target_body = make_target_body(makefile, "generated-upgrade-dry-run-check")
 contract_deps = make_target_deps(makefile, "contract-docs-check")
 require(

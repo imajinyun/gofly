@@ -41,10 +41,17 @@ if adoption_wave_path.is_file():
 else:
     adoption_wave = {}
     missing.append("docs/reference/framework-gap-adoption-wave.json is missing")
+adoption_risk_path = root / "docs" / "reference" / "adoption-risk-register.json"
+if adoption_risk_path.is_file():
+    adoption_risk = json.loads(adoption_risk_path.read_text(encoding="utf-8"))
+else:
+    adoption_risk = {}
+    missing.append("docs/reference/adoption-risk-register.json is missing")
 
 require(manifest.get("schema") == "gofly.framework_gap_matrix.v1", "framework gap matrix schema mismatch")
 require(next_wave.get("schema") == "gofly.framework_gap_next_wave.v1", "next-wave framework gap schema mismatch")
 require(adoption_wave.get("schema") == "gofly.framework_gap_adoption_wave.v1", "adoption-wave framework gap schema mismatch")
+require(adoption_risk.get("schema") == "gofly.adoption_risk_register.v1", "adoption risk register schema mismatch")
 
 sources = manifest.get("sources") or []
 for source in sources:
@@ -230,14 +237,83 @@ adoption_excluded = set(adoption_scope.get("excluded") or [])
 for out_of_scope in ("GitHub stars", "download counts", "community size", "brand awareness"):
     require(out_of_scope in adoption_excluded, f"adoption-wave scope.excluded missing {out_of_scope!r}")
 
+require(adoption_risk.get("sourceOfTruth") == "docs/reference/framework-gap-adoption-wave.json", "adoption risk register sourceOfTruth mismatch")
+require(adoption_risk.get("acceptanceGate") == "make framework-gap-check", "adoption risk register acceptanceGate mismatch")
+risk_classes = set(adoption_risk.get("riskClasses") or [])
+required_risk_classes = {"production-ready", "candidate", "report-only", "rollback-required"}
+require(risk_classes == required_risk_classes, f"adoption risk classes = {sorted(risk_classes)!r}, want {sorted(required_risk_classes)!r}")
+risk_entries = adoption_risk.get("entries") or []
+require(len(risk_entries) >= 12, "adoption risk register must contain at least 12 entries")
+seen_risk_classes = set()
+seen_entry_ids = set()
+for item in risk_entries:
+    if not isinstance(item, dict):
+        missing.append(f"adoption risk entry must be an object: {item!r}")
+        continue
+    entry_id = item.get("id", "<missing>")
+    if entry_id in seen_entry_ids:
+        missing.append(f"duplicate adoption risk entry id {entry_id!r}")
+    seen_entry_ids.add(entry_id)
+    for field in (
+        "id",
+        "surface",
+        "riskClass",
+        "currentGuardrail",
+        "recommendedAdopterAction",
+        "promotionGate",
+        "rollbackOrEscalation",
+    ):
+        if not item.get(field):
+            missing.append(f"adoption risk {entry_id}: {field} is required")
+    risk_class = item.get("riskClass", "")
+    seen_risk_classes.add(risk_class)
+    require(risk_class in required_risk_classes, f"adoption risk {entry_id}: unknown riskClass {risk_class!r}")
+    for gate_field in ("currentGuardrail", "promotionGate"):
+        gate = item.get(gate_field, "")
+        if gate.startswith("make "):
+            target = gate.removeprefix("make ").split()[0]
+            makefile = read_text(root / "Makefile")
+            require(re.search(rf"^{re.escape(target)}:", makefile, re.M), f"adoption risk {entry_id}: {gate_field} target {target!r} missing")
+        elif gate.startswith("go test -C "):
+            parts = gate.split()
+            if len(parts) >= 4:
+                require((root / parts[3]).exists(), f"adoption risk {entry_id}: {gate_field} path missing: {parts[3]}")
+        else:
+            missing.append(f"adoption risk {entry_id}: {gate_field} must be a make or go test -C gate")
+    for field in ("recommendedAdopterAction", "rollbackOrEscalation"):
+        require(len(str(item.get(field) or "").split()) >= 8, f"adoption risk {entry_id}: {field} must be actionable")
+require(seen_risk_classes == required_risk_classes, f"adoption risk register missing classes: {sorted(required_risk_classes - seen_risk_classes)!r}")
+for required_entry in (
+    "rest-openapi-error-envelope",
+    "generated-production-service",
+    "release-evidence",
+    "cloud-native-policy-assets",
+    "rpc-tier1-promotion",
+    "plugin-publishing",
+    "template-profile-trust",
+    "operator-runbook-drills",
+    "rpc-latency-budget",
+    "benchmark-comparison-claims",
+    "release-gate-failure",
+    "generated-diff-breaking-candidate",
+):
+    require(required_entry in seen_entry_ids, f"adoption risk register missing {required_entry}")
+
 doc = read_text(root / "docs" / "reference" / "framework-gap-matrix.md")
 for needle in (
     "gofly.framework_gap_matrix.v1",
     "make framework-gap-check",
     "framework-gap-next-wave.json",
     "framework-gap-adoption-wave.json",
+    "adoption-risk-register.json",
+    "gofly.adoption_risk_register.v1",
     "Next-Wave TODO Order",
     "Adoption-Wave TODO Order",
+    "Adoption Risk Register",
+    "production-ready",
+    "candidate",
+    "report-only",
+    "rollback-required",
     "GOFLY-P4-2-RPC-LATENCY-RATCHET",
     "GOFLY-P5-1-EXAMPLES-HEALTH-INDEX",
     "Gin",

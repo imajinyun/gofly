@@ -1,0 +1,121 @@
+{
+  "schema": "gofly.adoption_risk_register.v1",
+  "sourceOfTruth": "docs/reference/framework-gap-adoption-wave.json",
+  "acceptanceGate": "make framework-gap-check",
+  "riskClasses": [
+    "production-ready",
+    "candidate",
+    "report-only",
+    "rollback-required"
+  ],
+  "entries": [
+    {
+      "id": "rest-openapi-error-envelope",
+      "surface": "REST binding, OpenAPI schema, validation, and stable error envelope",
+      "riskClass": "production-ready",
+      "currentGuardrail": "make openapi-validation-check",
+      "recommendedAdopterAction": "use the stable rest.ErrorResponse envelope and OpenAPI golden evidence before publishing generated REST APIs",
+      "promotionGate": "make stable-surface-check",
+      "rollbackOrEscalation": "pin the previous generated REST output when runtime binding and OpenAPI schema drift"
+    },
+    {
+      "id": "generated-production-service",
+      "surface": "generated production service scaffold and cross-version generation fixtures",
+      "riskClass": "production-ready",
+      "currentGuardrail": "make generated-version-compat-check",
+      "recommendedAdopterAction": "run the generated version compatibility matrix before adopting new scaffold output",
+      "promotionGate": "make generated-upgrade-dry-run-check",
+      "rollbackOrEscalation": "regenerate with the previous gofly binary when repeat generation or diff explanation fails"
+    },
+    {
+      "id": "release-evidence",
+      "surface": "release evidence, readiness score, checksums, SBOM, provenance, security, race, and benchmark reports",
+      "riskClass": "production-ready",
+      "currentGuardrail": "make governance-report-check",
+      "recommendedAdopterAction": "inspect docs/releases/evidence-consumption.json before upgrading or mirroring release artifacts",
+      "promotionGate": "make release-evidence-index-check",
+      "rollbackOrEscalation": "block promotion and pin the previous release when evidence is missing or readiness is not ready"
+    },
+    {
+      "id": "cloud-native-policy-assets",
+      "surface": "Helm, Kustomize, ServiceMonitor, HPA, PDB, and NetworkPolicy deployment assets",
+      "riskClass": "production-ready",
+      "currentGuardrail": "make cloud-native-render-check",
+      "recommendedAdopterAction": "render the production profile and review policy fallback status before applying to a cluster",
+      "promotionGate": "make helm-template-smoke",
+      "rollbackOrEscalation": "keep the previous deployment manifest when rendered policy assets are missing or fallback status is unexpected"
+    },
+    {
+      "id": "rpc-tier1-promotion",
+      "surface": "rpc, gateway, resolver, balancer, stream governance, and Kitex coexistence boundaries",
+      "riskClass": "candidate",
+      "currentGuardrail": "make rpc-boundary-check",
+      "recommendedAdopterAction": "treat RPC Tier 1 adoption as conditional until stream benchmarks, resolver smoke, and rollback notes pass locally",
+      "promotionGate": "make bench-evidence-check",
+      "rollbackOrEscalation": "keep existing Kitex or gRPC-Go clients on latency-critical paths when boundary evidence is incomplete"
+    },
+    {
+      "id": "plugin-publishing",
+      "surface": "plugin registry, third-party template contract, digest, signature, permission, and failure isolation",
+      "riskClass": "candidate",
+      "currentGuardrail": "make plugin-conformance-check",
+      "recommendedAdopterAction": "publish plugins only after digest, signature, least-permission, compatibility, and no-partial-write checks pass",
+      "promotionGate": "go test -C examples/plugin-ecosystem ./...",
+      "rollbackOrEscalation": "disable the plugin or pin the previous protocol when digest, permission, or compatibility checks fail"
+    },
+    {
+      "id": "template-profile-trust",
+      "surface": "AI manifest project templates and generated old/current/future profile trust matrix",
+      "riskClass": "candidate",
+      "currentGuardrail": "make doc-manifest-sync-check",
+      "recommendedAdopterAction": "verify template purpose, generated-output guarantees, dependency boundary, and profile rollback notes before using automation",
+      "promotionGate": "make test-generated-matrix",
+      "rollbackOrEscalation": "use dry-run output and keep the previous generated snapshot when trust metadata drifts"
+    },
+    {
+      "id": "operator-runbook-drills",
+      "surface": "operator symptom drills for health, metrics, trace correlation, resilience, control-plane drift, and rollback decisions",
+      "riskClass": "candidate",
+      "currentGuardrail": "make runtime-slo-check",
+      "recommendedAdopterAction": "run the relevant drill before changing runtime policy or release promotion decisions",
+      "promotionGate": "make resilience-drill-check",
+      "rollbackOrEscalation": "hold rollout when the expected observation or rollback path is missing from the drill evidence"
+    },
+    {
+      "id": "rpc-latency-budget",
+      "surface": "RPC latency budgets and benchmark trend evidence",
+      "riskClass": "report-only",
+      "currentGuardrail": "make bench-regression-check",
+      "recommendedAdopterAction": "treat latency trends as review evidence until a budget is promoted to blocking with enough samples",
+      "promotionGate": "make bench-trend",
+      "rollbackOrEscalation": "avoid making release claims from single-run latency data"
+    },
+    {
+      "id": "benchmark-comparison-claims",
+      "surface": "gofly versus Gin, Echo, Fiber, Hertz, and Kitex benchmark comparisons",
+      "riskClass": "report-only",
+      "currentGuardrail": "make bench-evidence-check",
+      "recommendedAdopterAction": "use benchmark evidence as directional trend data unless regression budgets are explicitly blocking",
+      "promotionGate": "make bench-regression-check",
+      "rollbackOrEscalation": "remove or downgrade claims that are not backed by repeatable local evidence"
+    },
+    {
+      "id": "release-gate-failure",
+      "surface": "release readiness, security, race, benchmark, checksum, SBOM, and provenance gates",
+      "riskClass": "rollback-required",
+      "currentGuardrail": "make release-snapshot",
+      "recommendedAdopterAction": "do not publish or promote when release evidence consumption marks a required artifact or gate missing",
+      "promotionGate": "make governance-report-check",
+      "rollbackOrEscalation": "pin the previous release and require a new evidence manifest before retrying promotion"
+    },
+    {
+      "id": "generated-diff-breaking-candidate",
+      "surface": "generated project diff categories that delete files, rename public symbols, or change JSON/OpenAPI/proto/config contracts",
+      "riskClass": "rollback-required",
+      "currentGuardrail": "make generated-upgrade-dry-run-check",
+      "recommendedAdopterAction": "treat breaking-candidate diffs as release blockers unless a version boundary and migration note exist",
+      "promotionGate": "make generated-version-compat-check",
+      "rollbackOrEscalation": "restore the previous generated project snapshot and block the generator upgrade"
+    }
+  ]
+}

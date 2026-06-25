@@ -40,6 +40,9 @@ The P5 adoption wave is captured in
 [`framework-gap-adoption-wave.json`](framework-gap-adoption-wave.json) and
 focuses on adopter operations: example health, release evidence consumption,
 operator drills, template/profile trust, and adoption risk registration.
+The adopter-facing risk split is captured in
+[`adoption-risk-register.json`](adoption-risk-register.json) with schema
+`gofly.adoption_risk_register.v1`.
 
 | Order | Task | Gap | Acceptance gate |
 | --- | --- | --- | --- |
@@ -73,6 +76,17 @@ operator drills, template/profile trust, and adoption risk registration.
 | 4 | `GOFLY-P5-3-OPERATOR-RUNBOOK-DRILLS` | Tie runtime symptoms to health, metrics, traces, resilience, drift, and rollback checks. | `make runtime-slo-check` |
 | 5 | `GOFLY-P5-4-TEMPLATE-PROFILE-TRUST` | Index template/profile purpose, generated-output guarantees, dependencies, and verification commands. | `make doc-manifest-sync-check` |
 | 6 | `GOFLY-P5-5-ADOPTION-RISK-REGISTER` | Separate production-ready, candidate, report-only, and rollback-required surfaces for adopters. | `make framework-gap-check` |
+
+## Adoption Risk Register
+
+`adoption-risk-register.json` separates adoption surfaces into four classes:
+
+| Risk class | Meaning |
+| --- | --- |
+| production-ready | Has blocking local gates and can be used by adopters when the listed guardrail passes. |
+| candidate | Has concrete guardrails but still requires adopter review or local promotion evidence. |
+| report-only | Provides trend or comparison evidence, but should not be treated as a blocking claim unless a ratchet promotes it. |
+| rollback-required | Indicates a failed gate or breaking candidate where the recommended action is to pin, rollback, or block promotion. |
 
 ## Gap Summary
 

@@ -147,6 +147,7 @@
         "docs/reference/framework-gap-matrix.md",
         "docs/reference/framework-gap-next-wave.json",
         "docs/reference/framework-gap-adoption-wave.json",
+        "docs/reference/adoption-risk-register.json",
         "make framework-gap-check"
       ],
       "gap": "The gap matrix lists workstreams, but adopters still need a concise risk register that separates production-ready, candidate, report-only, and rollback-required surfaces.",

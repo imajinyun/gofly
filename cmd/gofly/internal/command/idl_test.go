@@ -2673,7 +2673,7 @@ func assertDryRunPlan(t *testing.T, data []byte, command, planCommand string) {
 	}
 }
 
-func TestNewCommandsEmitJSONEnvelope_BitsUT(t *testing.T) {
+func TestNewCommandsEmitJSONEnvelope(t *testing.T) {
 	tests := []struct {
 		name        string
 		args        []string
@@ -2743,7 +2743,7 @@ func TestNewCommandsEmitJSONEnvelope_BitsUT(t *testing.T) {
 	}
 }
 
-func TestIDLGenerateCommandsEmitJSONEnvelope_BitsUT(t *testing.T) {
+func TestIDLGenerateCommandsEmitJSONEnvelope(t *testing.T) {
 	t.Run("api gen", func(t *testing.T) {
 		dir := t.TempDir()
 		apiPath := filepath.Join(dir, "user.api")
@@ -4449,7 +4449,7 @@ get /ping (PingReq) returns (PingResp)
 	}
 }
 
-func TestAPIFormatStdinAndControlPlaneVerificationCoverageBuffer_BitsUT(t *testing.T) {
+func TestAPIFormatStdinAndControlPlaneVerificationCoverageBuffer(t *testing.T) {
 	dir := t.TempDir()
 	api := `type PingResp {
 Message string

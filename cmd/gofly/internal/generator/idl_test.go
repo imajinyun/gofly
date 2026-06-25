@@ -45,7 +45,7 @@ service GreeterService {
 }
 `
 
-func TestPrintASTRendersParsedNode_BitsUT(t *testing.T) {
+func TestPrintASTRendersParsedNode(t *testing.T) {
 	fset := token.NewFileSet()
 	node, err := parser.ParseFile(fset, "handler.go", "package handler\n\nfunc Ping() { println(\"pong\") }\n", 0)
 	if err != nil {
@@ -60,7 +60,7 @@ func TestPrintASTRendersParsedNode_BitsUT(t *testing.T) {
 	}
 }
 
-func TestRPCToolingParserAndLintErrorBoundaries_BitsUT(t *testing.T) {
+func TestRPCToolingParserAndLintErrorBoundaries(t *testing.T) {
 	if _, err := ReadRPCIDL(""); err == nil || !strings.Contains(err.Error(), "idl file is required") {
 		t.Fatalf("ReadRPCIDL blank error = %v, want idl file required", err)
 	}
@@ -257,7 +257,7 @@ func TestGeneratedArtifactsCompileInTemporaryModules(t *testing.T) {
 	}
 }
 
-func TestRPCAndOpenAPIHelperBoundaries_BitsUT(t *testing.T) {
+func TestRPCAndOpenAPIHelperBoundaries(t *testing.T) {
 	requestTests := []struct {
 		name       string
 		methodName string
@@ -3630,7 +3630,7 @@ func TestGenerateAPIDocFormats(t *testing.T) {
 	}
 }
 
-func TestGenerateProtoDocFormatsAndDefaults_BitsUT(t *testing.T) {
+func TestGenerateProtoDocFormatsAndDefaults(t *testing.T) {
 	dir := t.TempDir()
 	protoFile := filepath.Join(dir, "greeter.proto")
 	if err := os.WriteFile(protoFile, []byte(testProto), 0o644); err != nil {

@@ -90,7 +90,7 @@ test-short: ## Run fast unit tests (no race)
 
 .PHONY: test-generated-matrix
 test-generated-matrix: ## Verify generated project templates and service contract input matrix end-to-end
-	GOFLY_FRAMEWORK_PATH=$(CURDIR) $(GO) test $(TESTFLAGS) ./cmd/gofly/internal/command -run 'Test(AINewGeneratedProjectVerificationMatrix|NewServiceGeneratedProjectSmokeMatrix|NewServiceContractInputMatrix)_BitsUT'
+	GOFLY_FRAMEWORK_PATH=$(CURDIR) $(GO) test $(TESTFLAGS) ./cmd/gofly/internal/command -run 'Test(AINewGeneratedProjectVerificationMatrix|NewServiceGeneratedProjectSmokeMatrix|NewServiceContractInputMatrix)'
 
 .PHONY: generated-output-governance
 generated-output-governance: ## Verify generated output determinism, path safety, and dependency placement
@@ -233,6 +233,10 @@ framework-gap-check: ## Validate framework gap matrix and executable TODO roadma
 cli-command-surface-check: ## Validate cmd/gofly command registry, help, aliases, and CLI contract surface
 	sh $(SCRIPTS_DIR)/check-cli-command-surface.sh
 
+.PHONY: cli-json-contract-goldens-check
+cli-json-contract-goldens-check: ## Validate stable cmd/gofly JSON golden contracts and stdout discipline
+	sh $(SCRIPTS_DIR)/check-cli-json-contract-goldens.sh
+
 .PHONY: examples-check
 examples-check: examples-copyable-check ## Build and vet all examples to keep docs and code in sync
 	@if [ ! -d examples ] || ! find examples -type f -name '*.go' | grep -q .; then \
@@ -301,7 +305,7 @@ community-growth-check: ## Validate contributor, roadmap, and issue-template ado
 	sh $(SCRIPTS_DIR)/check-community-growth.sh
 
 .PHONY: contract-docs-check
-contract-docs-check: stable-surface-check generated-version-compat-check generated-upgrade-dry-run-check adopter-decision-check deprecation-lifecycle-check cli-command-surface-check ## Validate stable CLI JSON and control-plane contract docs
+contract-docs-check: stable-surface-check generated-version-compat-check generated-upgrade-dry-run-check adopter-decision-check deprecation-lifecycle-check cli-command-surface-check cli-json-contract-goldens-check ## Validate stable CLI JSON and control-plane contract docs
 	sh $(SCRIPTS_DIR)/check-contract-docs.sh
 
 .PHONY: generated-upgrade-dry-run-check

@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestAIGovernedServiceStateAndControlPlane_BitsUT(t *testing.T) {
+func TestAIGovernedServiceStateAndControlPlane(t *testing.T) {
 	server := buildAIGovernedServer(0, "test-token")
 
 	state := httptest.NewRecorder()
@@ -35,7 +35,7 @@ func TestAIGovernedServiceStateAndControlPlane_BitsUT(t *testing.T) {
 	}
 }
 
-func TestExpectedControlPlaneContract_BitsUT(t *testing.T) {
+func TestExpectedControlPlaneContract(t *testing.T) {
 	contract := expectedControlPlaneContract()
 	if contract["service"] != "ai-governed-service" || contract["adminPath"] != "/admin/control-plane" {
 		t.Fatalf("contract = %#v, want service and admin path", contract)

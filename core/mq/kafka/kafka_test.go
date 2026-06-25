@@ -66,7 +66,7 @@ func TestKafkaMessageRoundTrip(t *testing.T) {
 	}
 }
 
-func TestKafkaMessageEnvelopeHeaderBoundaries_BitsUT(t *testing.T) {
+func TestKafkaMessageEnvelopeHeaderBoundaries(t *testing.T) {
 	published := time.Unix(123, 456)
 	msg := mq.Message{ID: "id-1", Key: "key-1", Body: []byte("payload"), Attempts: 7, PublishedAt: published, Headers: map[string]string{"trace": "abc"}}
 	km := toKafkaMessage(msg)
@@ -90,7 +90,7 @@ func TestKafkaMessageEnvelopeHeaderBoundaries_BitsUT(t *testing.T) {
 	}
 }
 
-func TestKafkaMessageDecodeIgnoresMalformedEnvelopeHeaders_BitsUT(t *testing.T) {
+func TestKafkaMessageDecodeIgnoresMalformedEnvelopeHeaders(t *testing.T) {
 	messageTime := time.Unix(10, 20)
 	got := fromKafkaMessage(kafkago.Message{
 		Key:   []byte("key-1"),

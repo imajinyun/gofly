@@ -105,7 +105,7 @@ func TestWebSocketReadFrameRejectsOverflowLength(t *testing.T) {
 	}
 }
 
-func TestWebSocketReadFrameBoundaries_BitsUT(t *testing.T) {
+func TestWebSocketReadFrameBoundaries(t *testing.T) {
 	tests := []struct {
 		name        string
 		messageType int
@@ -130,7 +130,7 @@ func TestWebSocketReadFrameBoundaries_BitsUT(t *testing.T) {
 	}
 }
 
-func TestWebSocketReadFrameRejectsInvalidAndTruncatedFrames_BitsUT(t *testing.T) {
+func TestWebSocketReadFrameRejectsInvalidAndTruncatedFrames(t *testing.T) {
 	tests := []struct {
 		name  string
 		frame []byte
@@ -163,7 +163,7 @@ type failingWebSocketWriter struct {
 
 func (w failingWebSocketWriter) Write([]byte) (int, error) { return 0, w.err }
 
-func TestWriteWebSocketFrameBoundaries_BitsUT(t *testing.T) {
+func TestWriteWebSocketFrameBoundaries(t *testing.T) {
 	tests := []struct {
 		name    string
 		payload []byte

@@ -14,7 +14,7 @@ import (
 	"github.com/imajinyun/gofly/core/kv"
 )
 
-func TestRuleSetLastErrorBoundaries_BitsUT(t *testing.T) {
+func TestRuleSetLastErrorBoundaries(t *testing.T) {
 	var nilRules *RuleSet
 	nilRules.setLastError(errors.New("ignored"))
 
@@ -779,7 +779,7 @@ func TestValidatePolicyBreakerAndCanaryEdgeCases(t *testing.T) {
 	}
 }
 
-func TestValidatePolicyNegativeBoundaries_BitsUT(t *testing.T) {
+func TestValidatePolicyNegativeBoundaries(t *testing.T) {
 	tests := []struct {
 		name   string
 		policy Policy
@@ -816,7 +816,7 @@ func TestValidatePolicyNegativeBoundaries_BitsUT(t *testing.T) {
 	}
 }
 
-func TestParseAdminEventFilterBoundaries_BitsUT(t *testing.T) {
+func TestParseAdminEventFilterBoundaries(t *testing.T) {
 	filter, err := parseAdminEventFilter(nil)
 	if err != nil || filter != (eventFilter{}) {
 		t.Fatalf("nil parseAdminEventFilter = %#v err=%v, want zero nil", filter, err)
@@ -862,7 +862,7 @@ func TestParseAdminEventFilterBoundaries_BitsUT(t *testing.T) {
 	}
 }
 
-func TestParseRollbackRequestBoundaries_BitsUT(t *testing.T) {
+func TestParseRollbackRequestBoundaries(t *testing.T) {
 	if _, err := parseRollbackRequest(nil); err == nil {
 		t.Fatal("parseRollbackRequest(nil) succeeded, want error")
 	}

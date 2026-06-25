@@ -141,7 +141,7 @@ func TestRPCRequestIDMiddlewareAddsAndPreservesID(t *testing.T) {
 	}
 }
 
-func TestRPCClientStreamTraceMiddlewareForwardsCall_BitsUT(t *testing.T) {
+func TestRPCClientStreamTraceMiddlewareForwardsCall(t *testing.T) {
 	called := false
 	mw := ClientStreamTraceMiddleware("orders")(func(ctx context.Context, method string) (*Stream, error) {
 		called = true
@@ -271,7 +271,7 @@ func (f *fakeLifecycleRegistrar) snapshot() ([]string, []string, bool, time.Dura
 	return append([]string(nil), f.registerCalls...), append([]string(nil), f.deregisterCalls...), f.withOptions, f.ttl
 }
 
-func TestHTTPServerRegistryLifecycleBoundaries_BitsUT(t *testing.T) {
+func TestHTTPServerRegistryLifecycleBoundaries(t *testing.T) {
 	registrar := &fakeLifecycleRegistrar{}
 	s := NewServer(WithRegistry(registrar, "", ""), WithRegistryTTL(time.Minute), WithRegistryRefreshInterval(time.Millisecond))
 	for _, service := range []string{"zeta", "alpha"} {
@@ -319,7 +319,7 @@ func TestHTTPServerRegistryLifecycleBoundaries_BitsUT(t *testing.T) {
 	}
 }
 
-func TestHTTPServerStopTimeoutAndRegisterError_BitsUT(t *testing.T) {
+func TestHTTPServerStopTimeoutAndRegisterError(t *testing.T) {
 	if got := NewServer().readHeaderTimeout(); got != 3*time.Second {
 		t.Fatalf("default readHeaderTimeout = %s, want 3s", got)
 	}
@@ -341,7 +341,7 @@ func TestHTTPServerStopTimeoutAndRegisterError_BitsUT(t *testing.T) {
 	}
 }
 
-func TestHTTPServerStartShutdownAliases_BitsUT(t *testing.T) {
+func TestHTTPServerStartShutdownAliases(t *testing.T) {
 	s := NewServer(WithAddress("not a valid listen address"))
 	if err := s.Start(); err == nil || !strings.Contains(err.Error(), "listen rpc") {
 		t.Fatalf("Start invalid address error = %v, want listen rpc error", err)
@@ -351,7 +351,7 @@ func TestHTTPServerStartShutdownAliases_BitsUT(t *testing.T) {
 	}
 }
 
-func TestHTTPServerRunShutdownLifecycle_BitsUT(t *testing.T) {
+func TestHTTPServerRunShutdownLifecycle(t *testing.T) {
 	s := NewServer(WithAddress("127.0.0.1:0"))
 	runErr := make(chan error, 1)
 	go func() {
@@ -1043,7 +1043,7 @@ func TestHTTPServerAdminWithoutTokenAllowsOnlyLocal(t *testing.T) {
 	}
 }
 
-func TestServerStateNameBoundaries_BitsUT(t *testing.T) {
+func TestServerStateNameBoundaries(t *testing.T) {
 	tests := []struct {
 		name  string
 		state int32

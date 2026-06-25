@@ -18,7 +18,7 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
 
-func TestRPCEtcdRegistryValidationNoopAndDoBoundaries_BitsUT(t *testing.T) {
+func TestRPCEtcdRegistryValidationNoopAndDoBoundaries(t *testing.T) {
 	if _, err := NewEtcdRegistry("", "", nil); err == nil || !strings.Contains(err.Error(), "base url") {
 		t.Fatalf("NewEtcdRegistry empty base error = %v, want base url error", err)
 	}
@@ -79,7 +79,7 @@ func TestRPCEtcdRegistryValidationNoopAndDoBoundaries_BitsUT(t *testing.T) {
 	}
 }
 
-func TestRPCEtcdRegistryRegisterResolveDeregisterFakeHTTP_BitsUT(t *testing.T) {
+func TestRPCEtcdRegistryRegisterResolveDeregisterFakeHTTP(t *testing.T) {
 	var paths []string
 	var bodies []map[string]string
 	instance := discovery.Instance{Service: "orders", Endpoint: "http://127.0.0.1:8080/", Weight: 2, Version: " v1 ", Zone: " az1 ", Status: " healthy ", Tags: map[string]string{"lane": "blue"}, Metadata: map[string]string{"env": "test"}}
@@ -149,7 +149,7 @@ func TestRPCEtcdRegistryRegisterResolveDeregisterFakeHTTP_BitsUT(t *testing.T) {
 	}
 }
 
-func TestRPCEtcdPureHelpers_BitsUT(t *testing.T) {
+func TestRPCEtcdPureHelpers(t *testing.T) {
 	if got := prefixEnd(""); got != "\x00" {
 		t.Fatalf("prefixEnd empty = %q, want nul", got)
 	}

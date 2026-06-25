@@ -77,7 +77,7 @@ burst = 120
 	}
 }
 
-func TestSimpleTOMLParserBoundaries_BitsUT(t *testing.T) {
+func TestSimpleTOMLParserBoundaries(t *testing.T) {
 	t.Run("comments strings arrays and dotted paths", func(t *testing.T) {
 		got, err := parseSimpleTOML([]byte(`
 title = "hello # not a comment" # trailing comment
@@ -133,7 +133,7 @@ name = "api"
 	}
 }
 
-func TestDecodeTOMLStrictRejectsUnknownField_BitsUT(t *testing.T) {
+func TestDecodeTOMLStrictRejectsUnknownField(t *testing.T) {
 	var got testConfig
 	err := decodeConfig("app.toml", []byte(`name = "api"
 extra = true

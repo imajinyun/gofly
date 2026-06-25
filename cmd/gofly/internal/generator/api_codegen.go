@@ -2812,7 +2812,7 @@ func writeAPITestFile(dir string, svc IDLService, pkg string) error {
 	serviceName := exportName(svc.Name)
 	fprintf(&b, "package %s\n\n", pkg)
 	fprintf(&b, "import \"testing\"\n\n")
-	fprintf(&b, "func Test%sRoutesGenerated_BitsUT(t *testing.T) {\n", serviceName)
+	fprintf(&b, "func Test%sRoutesGenerated(t *testing.T) {\n", serviceName)
 	fprintf(&b, "\tt.Helper()\n")
 	fprintf(&b, "\t// This scaffold pins generated route test placement; add handler assertions here.\n")
 	fprintf(&b, "}\n")

@@ -157,7 +157,7 @@ func TestProfileServerCustomPrefixAndDisabledStart(t *testing.T) {
 	}
 }
 
-func TestProfileServerStartBoundaries_BitsUT(t *testing.T) {
+func TestProfileServerStartBoundaries(t *testing.T) {
 	if err := ((*ProfileServer)(nil)).Start(); err != nil {
 		t.Fatalf("nil ProfileServer Start error = %v, want nil", err)
 	}

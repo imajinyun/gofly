@@ -114,7 +114,7 @@ func TestProjectFeatureLibraryAppliesTemplateTags(t *testing.T) {
 	}
 }
 
-func TestProjectFeaturePluginContractsAreStableAndDefensive_BitsUT(t *testing.T) {
+func TestProjectFeaturePluginContractsAreStableAndDefensive(t *testing.T) {
 	contracts := ListProjectFeaturePluginContracts()
 	if len(contracts) < 4 {
 		t.Fatalf("ListProjectFeaturePluginContracts returned %d contracts, want at least the production feature contracts", len(contracts))

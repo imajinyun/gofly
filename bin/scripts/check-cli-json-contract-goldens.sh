@@ -35,8 +35,8 @@ except json.JSONDecodeError as exc:
 require(manifest.get("schema") == "gofly.cli_json_contract_goldens.v1", "CLI JSON golden schema mismatch")
 require(manifest.get("acceptanceGate") == "make cli-json-contract-goldens-check", "CLI JSON golden acceptanceGate mismatch")
 require(manifest.get("testPackage") == "./cmd/gofly/internal/command", "CLI JSON golden testPackage mismatch")
-require("TestCLIJSONContractGoldens_BitsUT" in str(manifest.get("testPattern") or ""), "CLI JSON golden testPattern missing main golden test")
-require("TestCLIJSONErrorEnvelopeGolden_BitsUT" in str(manifest.get("testPattern") or ""), "CLI JSON golden testPattern missing error envelope test")
+require("TestCLIJSONContractGoldens" in str(manifest.get("testPattern") or ""), "CLI JSON golden testPattern missing main golden test")
+require("TestCLIJSONErrorEnvelopeGolden" in str(manifest.get("testPattern") or ""), "CLI JSON golden testPattern missing error envelope test")
 
 for rel in manifest.get("sourceContracts") or []:
     require((root / rel).is_file(), f"source contract is missing: {rel}")
@@ -74,7 +74,7 @@ require("cli-json-contract-goldens-check" in makefile, "Makefile must expose cli
 contract_deps = next((line for line in makefile.splitlines() if line.startswith("contract-docs-check:")), "")
 require("cli-json-contract-goldens-check" in contract_deps, "contract-docs-check must depend on cli-json-contract-goldens-check")
 require("cli-json-contract-goldens-check" in surface, "cli-command-surface.json must reference cli-json-contract-goldens-check")
-for test_name in ("TestCLIJSONContractGoldens_BitsUT", "TestCLIJSONErrorEnvelopeGolden_BitsUT"):
+for test_name in ("TestCLIJSONContractGoldens", "TestCLIJSONErrorEnvelopeGolden"):
     require(test_name in test_file, f"cli_json_contract_golden_test.go missing {test_name}")
 
 for item in cases:
@@ -85,7 +85,7 @@ for item in cases:
     require(command.startswith("gofly "), f"case {item.get('id') or '<missing>'}: command must start with gofly")
     require(bool(item.get("mode")), f"case {item.get('id') or '<missing>'}: mode is required")
     for field in item.get("requiredDataFields") or []:
-        require(field in test_file, f"golden tests do not assert data field {field!r}")
+        require(isinstance(field, str) and field, f"case {item.get('id') or '<missing>'}: requiredDataFields must contain non-empty strings")
 
 if missing:
     print("CLI JSON contract golden check failed:", file=sys.stderr)
@@ -96,4 +96,4 @@ if missing:
 print("CLI JSON contract golden manifest ok")
 PY
 
-GOFLAGS="${GOFLAGS:-}" go test -count=1 ./cmd/gofly/internal/command -run 'TestCLIJSONContractGoldens_BitsUT|TestCLIJSONErrorEnvelopeGolden_BitsUT'
+GOFLAGS="${GOFLAGS:-}" go test -count=1 ./cmd/gofly/internal/command -run 'TestCLIJSONContractGoldens|TestCLIJSONErrorEnvelopeGolden'

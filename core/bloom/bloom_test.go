@@ -19,7 +19,7 @@ func TestFilterNoFalseNegatives(t *testing.T) {
 	}
 }
 
-func TestOptimalParamsAndDistributedStatsBoundaries_BitsUT(t *testing.T) {
+func TestOptimalParamsAndDistributedStatsBoundaries(t *testing.T) {
 	tests := []struct {
 		name string
 		n    uint64

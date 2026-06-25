@@ -346,7 +346,7 @@ func TestRPCStreamRequestIDMiddlewareAddsAndPreservesID(t *testing.T) {
 	}
 }
 
-func TestRPCStreamMetadataHeaderBoundaries_BitsUT(t *testing.T) {
+func TestRPCStreamMetadataHeaderBoundaries(t *testing.T) {
 	var buf bytes.Buffer
 	rw := bufio.NewReadWriter(bufio.NewReader(&buf), bufio.NewWriter(&buf))
 	ctx := metadata.Append(context.Background(), "x-tenant", "beta", "Host", "ignored", "Upgrade", "ignored")
@@ -393,7 +393,7 @@ func TestRPCStreamMetadataHeaderBoundaries_BitsUT(t *testing.T) {
 	}
 }
 
-func TestRPCStreamPureFrameAndCloseBoundaries_BitsUT(t *testing.T) {
+func TestRPCStreamPureFrameAndCloseBoundaries(t *testing.T) {
 	var nilStream *Stream
 	if err := nilStream.Send(helloReq{Name: "gofly"}); !errors.Is(err, ErrStreamClosed) {
 		t.Fatalf("nil Send error = %v, want ErrStreamClosed", err)
@@ -442,7 +442,7 @@ func TestRPCStreamPureFrameAndCloseBoundaries_BitsUT(t *testing.T) {
 	}
 }
 
-func TestRPCStreamEnvelopeErrorBoundaries_BitsUT(t *testing.T) {
+func TestRPCStreamEnvelopeErrorBoundaries(t *testing.T) {
 	marshalStream := newStream(newNoopConn(), bufio.NewReadWriter(bufio.NewReader(&bytes.Buffer{}), bufio.NewWriter(io.Discard)), errCodec{})
 	if err := marshalStream.Send(helloReq{Name: "gofly"}); err == nil || !strings.Contains(err.Error(), "marshal stream message") {
 		t.Fatalf("Send marshal error = %v, want wrapped marshal error", err)
@@ -485,7 +485,7 @@ func TestRPCStreamEnvelopeErrorBoundaries_BitsUT(t *testing.T) {
 	}
 }
 
-func TestRPCStreamContextAndWaitBoundaries_BitsUT(t *testing.T) {
+func TestRPCStreamContextAndWaitBoundaries(t *testing.T) {
 	var nilCtx context.Context
 	if err := streamContextError(nilCtx); err != nil {
 		t.Fatalf("nil context error = %v, want nil", err)
@@ -538,7 +538,7 @@ func TestRPCClientStreamMaxConcurrencyReleasesOnClose(t *testing.T) {
 	}
 }
 
-func TestRPCClientStreamMaxConcurrencyReleasesOnNextError_BitsUT(t *testing.T) {
+func TestRPCClientStreamMaxConcurrencyReleasesOnNextError(t *testing.T) {
 	opened := 0
 	mw := ClientStreamMaxConcurrencyMiddleware(1)(func(context.Context, string) (*Stream, error) {
 		opened++
@@ -586,7 +586,7 @@ func TestRPCClientStreamBearerTokenMiddlewareAddsMetadata(t *testing.T) {
 	}
 }
 
-func TestRPCStreamObservabilityMiddlewareBoundaries_BitsUT(t *testing.T) {
+func TestRPCStreamObservabilityMiddlewareBoundaries(t *testing.T) {
 	stream := newMiddlewareTestStream(t)
 	defer stream.Close()
 
@@ -666,7 +666,7 @@ func TestRPCStreamObservabilityMiddlewareBoundaries_BitsUT(t *testing.T) {
 	}
 }
 
-func TestRPCClientStreamRequestIDAndBreakerBoundaries_BitsUT(t *testing.T) {
+func TestRPCClientStreamRequestIDAndBreakerBoundaries(t *testing.T) {
 	var generated string
 	mw := ClientStreamRequestIDMiddleware()(func(ctx context.Context, method string) (*Stream, error) {
 		generated = metadata.RequestIDFromContext(ctx)
@@ -713,7 +713,7 @@ func TestRPCClientStreamRequestIDAndBreakerBoundaries_BitsUT(t *testing.T) {
 	}
 }
 
-func TestRPCUnaryAndClientStreamMiddlewareBoundaries_BitsUT(t *testing.T) {
+func TestRPCUnaryAndClientStreamMiddlewareBoundaries(t *testing.T) {
 	ctx, _ := trace.Start(context.Background(), "")
 	unaryOK := endpoint.Endpoint(func(context.Context, any) (any, error) { return "ok", nil })
 	if resp, err := LoggingMiddleware("")(unaryOK)(ctx, "req"); err != nil || resp != "ok" {

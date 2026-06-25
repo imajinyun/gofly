@@ -43,7 +43,7 @@ func (p bitsUTScaffoldPlugin) Generate(req PluginRequest) (PluginResponse, error
 	}, nil
 }
 
-func TestRemotePluginInstallCoverageBuffer_BitsUT(t *testing.T) {
+func TestRemotePluginInstallCoverageBuffer(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
 	t.Run("installs local http plugin into isolated cache", func(t *testing.T) {
@@ -1090,7 +1090,7 @@ func TestPluginManifestContractValidation(t *testing.T) {
 	}
 }
 
-func TestPluginProtocolCompatibilityMatrix_BitsUT(t *testing.T) {
+func TestPluginProtocolCompatibilityMatrix(t *testing.T) {
 	tests := []struct {
 		name     string
 		versions []string
@@ -1351,7 +1351,7 @@ func TestLoadPluginRegistryIndexFromFile(t *testing.T) {
 	}
 }
 
-func TestLoadPluginRegistryIndexFromLocalURL_BitsUT(t *testing.T) {
+func TestLoadPluginRegistryIndexFromLocalURL(t *testing.T) {
 	registryJSON := `{
   "version":"v1",
   "plugins":[{
@@ -1395,7 +1395,7 @@ func TestLoadPluginRegistryIndexFromLocalURL_BitsUT(t *testing.T) {
 	}
 }
 
-func TestPluginRunnerExternalExecutionBranches_BitsUT(t *testing.T) {
+func TestPluginRunnerExternalExecutionBranches(t *testing.T) {
 	dir := t.TempDir()
 	plugin := filepath.Join(dir, "plugin")
 	script := `#!/bin/sh

@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestSchemas_BitsUT(t *testing.T) {
+func TestSchemas(t *testing.T) {
 	user := userSchema()
 	if user.Type != "object" || user.Properties["id"].Type != "string" || user.Properties["name"].Type != "string" || len(user.Required) != 2 {
 		t.Fatalf("user schema = %#v, want id/name object schema", user)
@@ -18,7 +18,7 @@ func TestSchemas_BitsUT(t *testing.T) {
 	}
 }
 
-func TestNewRESTServerRoutes_BitsUT(t *testing.T) {
+func TestNewRESTServerRoutes(t *testing.T) {
 	srv := newRESTServer()
 
 	getUser := httptest.NewRecorder()

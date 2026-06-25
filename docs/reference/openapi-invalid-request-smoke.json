@@ -14,7 +14,7 @@
       "source": "ctx.PathValue and path tags",
       "expectedStatus": 400,
       "expectedCode": "invalid_argument",
-      "gate": "go test -shuffle=on ./rest -run TestOpenAPIValidationEnvelopeRuntimeGolden_BitsUT",
+      "gate": "go test -shuffle=on ./rest -run TestOpenAPIValidationEnvelopeRuntimeGolden",
       "evidenceRefs": [
         {
           "path": "rest/binding_test.go",
@@ -39,7 +39,7 @@
       "source": "query tags and BindRequest",
       "expectedStatus": 400,
       "expectedCode": "invalid_argument",
-      "gate": "go test -shuffle=on ./rest -run TestOpenAPIValidationEnvelopeRuntimeGolden_BitsUT",
+      "gate": "go test -shuffle=on ./rest -run TestOpenAPIValidationEnvelopeRuntimeGolden",
       "evidenceRefs": [
         {
           "path": "rest/binding_test.go",
@@ -64,7 +64,7 @@
       "source": "header tags and BindRequest",
       "expectedStatus": 400,
       "expectedCode": "invalid_argument",
-      "gate": "go test -shuffle=on ./rest -run TestOpenAPIValidationEnvelopeRuntimeGolden_BitsUT",
+      "gate": "go test -shuffle=on ./rest -run TestOpenAPIValidationEnvelopeRuntimeGolden",
       "evidenceRefs": [
         {
           "path": "rest/binding_test.go",
@@ -88,7 +88,7 @@
       "source": "JSON body binding",
       "expectedStatus": 400,
       "expectedCode": "invalid_argument",
-      "gate": "go test -shuffle=on ./rest -run TestOpenAPIValidationEnvelopeRuntimeGolden_BitsUT",
+      "gate": "go test -shuffle=on ./rest -run TestOpenAPIValidationEnvelopeRuntimeGolden",
       "evidenceRefs": [
         {
           "path": "rest/binding_test.go",
@@ -112,7 +112,7 @@
       "source": "portable validate tags",
       "expectedStatus": 400,
       "expectedCode": "invalid_argument",
-      "gate": "go test -shuffle=on ./rest -run TestOpenAPIValidationEnvelopeRuntimeGolden_BitsUT",
+      "gate": "go test -shuffle=on ./rest -run TestOpenAPIValidationEnvelopeRuntimeGolden",
       "evidenceRefs": [
         {
           "path": "rest/binding_test.go",
@@ -136,7 +136,7 @@
       "source": "rest.Config.Validator and Context.Validator adapters",
       "expectedStatus": 400,
       "expectedCode": "invalid_argument",
-      "gate": "go test -shuffle=on ./rest -run TestOpenAPIValidationEnvelopeRuntimeGolden_BitsUT",
+      "gate": "go test -shuffle=on ./rest -run TestOpenAPIValidationEnvelopeRuntimeGolden",
       "evidenceRefs": [
         {
           "path": "rest/binding_test.go",
@@ -161,12 +161,12 @@
       "source": "rest.StructSchema, JSONBodySchema, and DefaultErrorResponses",
       "expectedStatus": 400,
       "expectedCode": "invalid_argument",
-      "gate": "go test -shuffle=on ./rest -run TestOpenAPIValidationEnvelopeSchemaGolden_BitsUT",
+      "gate": "go test -shuffle=on ./rest -run TestOpenAPIValidationEnvelopeSchemaGolden",
       "evidenceRefs": [
         {
           "path": "rest/openapi_test.go",
           "contains": [
-            "TestOpenAPIValidationEnvelopeSchemaGolden_BitsUT",
+            "TestOpenAPIValidationEnvelopeSchemaGolden",
             "DefaultErrorResponses",
             "ErrorResponse"
           ]
@@ -186,12 +186,12 @@
       "source": "generated production service smoke",
       "expectedStatus": 400,
       "expectedCode": "invalid_argument",
-      "gate": "go test -shuffle=on ./cmd/gofly/internal/generator -run TestGeneratedServiceOpenAPIValidationEnvelopeContract_BitsUT",
+      "gate": "go test -shuffle=on ./cmd/gofly/internal/generator -run TestGeneratedServiceOpenAPIValidationEnvelopeContract",
       "evidenceRefs": [
         {
           "path": "cmd/gofly/internal/generator/service_test.go",
           "contains": [
-            "TestGeneratedServiceOpenAPIValidationEnvelopeContract_BitsUT",
+            "TestGeneratedServiceOpenAPIValidationEnvelopeContract",
             "assertInvalidRequestEnvelope(t)",
             "waitOpenAPI(t, ctx"
           ]

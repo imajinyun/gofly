@@ -136,7 +136,7 @@ func TestBinaryFrameCodecRejectsOverflowLengths(t *testing.T) {
 	}
 }
 
-func TestFrameCodecAndPayloadBoundaryErrors_BitsUT(t *testing.T) {
+func TestFrameCodecAndPayloadBoundaryErrors(t *testing.T) {
 	if _, err := (JSONFrameCodec{}).Unmarshal([]byte("{")); err == nil {
 		t.Fatal("JSONFrameCodec.Unmarshal invalid JSON succeeded, want error")
 	}
@@ -163,7 +163,7 @@ func TestFrameCodecAndPayloadBoundaryErrors_BitsUT(t *testing.T) {
 	}
 }
 
-func TestFramedTransportPureErrorBoundaries_BitsUT(t *testing.T) {
+func TestFramedTransportPureErrorBoundaries(t *testing.T) {
 	encodeErr := errors.New("encode failed")
 	if err := NewFramedTransport(newNoopConn(), WithPayloadCodec(errPayloadCodec{name: "bad", encodeErr: encodeErr})).Send(context.Background(), Message{Payload: []byte("body")}); !errors.Is(err, encodeErr) {
 		t.Fatalf("Send encode error = %v, want %v", err, encodeErr)

@@ -60,7 +60,7 @@ func TestExecuteHandlerGenDefaultPath(t *testing.T) {
 	}
 }
 
-func TestMergeListsBoundaries_BitsUT(t *testing.T) {
+func TestMergeListsBoundaries(t *testing.T) {
 	tests := []struct {
 		name string
 		a    []string

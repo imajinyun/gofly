@@ -93,7 +93,7 @@ checks = {
         'NewHealthBalancer',
     ],
     pathlib.Path('examples/rpc-idl-matrix/main_test.go'): [
-        'TestRPCIDLMatrixReport_BitsUT',
+        'TestRPCIDLMatrixReport',
         'server_stream',
         'client_stream',
         'bidi_stream',
@@ -129,7 +129,7 @@ checks = {
         'filesystem:write-relative',
     ],
     pathlib.Path('examples/plugin-ecosystem/main_test.go'): [
-        'TestPluginEcosystemReport_BitsUT',
+        'TestPluginEcosystemReport',
         'checksum',
         'source',
         'example-file-generator',
@@ -147,19 +147,19 @@ checks = {
         '/middleware/catalog',
     ],
     pathlib.Path('examples/middlewares/matrix_test.go'): [
-        'TestMiddlewareCatalogProductization_BitsUT',
+        'TestMiddlewareCatalogProductization',
         'catalog item is not fully productized',
         'JWT',
         'OpenTelemetry trace',
         'adaptive limit',
     ],
     pathlib.Path('examples/middleware-demo/main_test.go'): [
-        'TestMiddlewareDemoCatalogAndOpenAPI_BitsUT',
+        'TestMiddlewareDemoCatalogAndOpenAPI',
         '/middleware/catalog',
         '/openapi.json',
     ],
     pathlib.Path('examples/http-middleware/main_test.go'): [
-        'TestHTTPMiddlewareServerContracts_BitsUT',
+        'TestHTTPMiddlewareServerContracts',
         'JWT',
         'CSRF',
         'text/event-stream',
@@ -175,7 +175,7 @@ checks = {
         'rollback',
     ],
     pathlib.Path('examples/migration-proof/main_test.go'): [
-        'TestMigrationProofReport_BitsUT',
+        'TestMigrationProofReport',
         'gin',
         'go-zero',
         'kratos',

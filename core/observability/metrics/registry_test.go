@@ -79,7 +79,7 @@ func (w *failAfterWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-func TestRegistryWritePrometheusWriterError_BitsUT(t *testing.T) {
+func TestRegistryWritePrometheusWriterError(t *testing.T) {
 	reg := NewRegistry()
 	wantErr := errors.New("write failed")
 	if err := reg.WritePrometheus(errWriter{err: wantErr}); !errors.Is(err, wantErr) {
@@ -87,7 +87,7 @@ func TestRegistryWritePrometheusWriterError_BitsUT(t *testing.T) {
 	}
 }
 
-func TestRegistryWritePrometheusErrorBoundaries_BitsUT(t *testing.T) {
+func TestRegistryWritePrometheusErrorBoundaries(t *testing.T) {
 	reg := NewRegistry()
 	reg.IncInFlight()
 	reg.Observe("zeta", 503, 11*time.Millisecond)
@@ -126,7 +126,7 @@ func TestRegistryWritePrometheusErrorBoundaries_BitsUT(t *testing.T) {
 	}
 }
 
-func TestRegistryObserveUnknownRouteAndInFlightFloor_BitsUT(t *testing.T) {
+func TestRegistryObserveUnknownRouteAndInFlightFloor(t *testing.T) {
 	reg := NewRegistry()
 	reg.DecInFlight()
 	reg.IncInFlight()
@@ -143,7 +143,7 @@ func TestRegistryObserveUnknownRouteAndInFlightFloor_BitsUT(t *testing.T) {
 	}
 }
 
-func TestRegistryPrometheusOrderingAndEscaping_BitsUT(t *testing.T) {
+func TestRegistryPrometheusOrderingAndEscaping(t *testing.T) {
 	reg := NewRegistry()
 	reg.Observe("route\n\"quoted\"\\slash", 201, 6*time.Millisecond)
 	reg.Observe("alpha", 404, time.Millisecond)

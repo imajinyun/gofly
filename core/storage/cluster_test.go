@@ -232,7 +232,7 @@ func TestClusterNilGuards(t *testing.T) {
 	}
 }
 
-func TestShardedClusterIndexNormalizationAndClose_BitsUT(t *testing.T) {
+func TestShardedClusterIndexNormalizationAndClose(t *testing.T) {
 	s0, _ := NewCluster(NewSQLStore(nil))
 	s1, _ := NewCluster(NewSQLStore(nil))
 	cases := []struct {
@@ -259,7 +259,7 @@ func TestShardedClusterIndexNormalizationAndClose_BitsUT(t *testing.T) {
 	}
 }
 
-func TestIsReadOnlyCTEBoundaries_BitsUT(t *testing.T) {
+func TestIsReadOnlyCTEBoundaries(t *testing.T) {
 	tests := []struct {
 		name  string
 		query string
@@ -296,7 +296,7 @@ func TestIsReadOnlyCTEBoundaries_BitsUT(t *testing.T) {
 	}
 }
 
-func TestShardedClusterNilAndIterationBoundaries_BitsUT(t *testing.T) {
+func TestShardedClusterNilAndIterationBoundaries(t *testing.T) {
 	var nilSharded *ShardedCluster
 	if nilSharded.Count() != 0 {
 		t.Fatal("nil Count should return 0")
@@ -340,7 +340,7 @@ func TestShardedClusterNilAndIterationBoundaries_BitsUT(t *testing.T) {
 	}
 }
 
-func TestShardTableIndexInvalidBaseBoundary_BitsUT(t *testing.T) {
+func TestShardTableIndexInvalidBaseBoundary(t *testing.T) {
 	if _, err := ShardTableIndex("orders;drop", 0); !errors.Is(err, ErrInvalidIdentifier) {
 		t.Fatalf("ShardTableIndex invalid base error = %v, want ErrInvalidIdentifier", err)
 	}

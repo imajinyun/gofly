@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestPluginEcosystemReport_BitsUT(t *testing.T) {
+func TestPluginEcosystemReport(t *testing.T) {
 	report, err := buildReport(context.Background())
 	if err != nil {
 		t.Fatalf("buildReport: %v", err)

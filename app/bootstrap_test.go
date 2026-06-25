@@ -42,7 +42,7 @@ func TestBootstrapDefaultsServiceName(t *testing.T) {
 	}
 }
 
-func TestBootstrapRuntimeNilAccessorsAndShutdownContext_BitsUT(t *testing.T) {
+func TestBootstrapRuntimeNilAccessorsAndShutdownContext(t *testing.T) {
 	var runtimeState *BootstrapRuntime
 	if runtimeState.Logger() != nil || runtimeState.LogLevel() != nil || runtimeState.MetricsRegistry() != nil {
 		t.Fatal("nil BootstrapRuntime accessors should return nil")

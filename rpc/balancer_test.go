@@ -147,7 +147,7 @@ func TestHealthBalancerRecoversEjectedEndpointAfterDuration(t *testing.T) {
 	}
 }
 
-func TestRoundRobinBalancerBoundaries_BitsUT(t *testing.T) {
+func TestRoundRobinBalancerBoundaries(t *testing.T) {
 	b := &RoundRobinBalancer{}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -170,7 +170,7 @@ func TestRoundRobinBalancerBoundaries_BitsUT(t *testing.T) {
 	}
 }
 
-func TestWeightedRoundRobinBalancerDefaultsAndCancellation_BitsUT(t *testing.T) {
+func TestWeightedRoundRobinBalancerDefaultsAndCancellation(t *testing.T) {
 	b := NewWeightedRoundRobinBalancer(map[string]int{" a/ ": 2, "b": -1, " ": 3})
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -194,7 +194,7 @@ func TestWeightedRoundRobinBalancerDefaultsAndCancellation_BitsUT(t *testing.T) 
 	}
 }
 
-func TestP2CBalancerReportAndSingleEndpoint_BitsUT(t *testing.T) {
+func TestP2CBalancerReportAndSingleEndpoint(t *testing.T) {
 	b := NewP2CBalancer()
 	got, err := b.Pick(context.Background(), []string{" only/ "})
 	if err != nil {

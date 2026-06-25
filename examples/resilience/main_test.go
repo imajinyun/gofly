@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-func TestFlakyDownstreamBoundaries_BitsUT(t *testing.T) {
+func TestFlakyDownstreamBoundaries(t *testing.T) {
 	if err := flakyDownstream(0); err != nil {
 		t.Fatalf("flakyDownstream(0) = %v, want nil", err)
 	}
@@ -16,11 +16,11 @@ func TestFlakyDownstreamBoundaries_BitsUT(t *testing.T) {
 	}
 }
 
-func TestMainDemo_BitsUT(t *testing.T) {
+func TestMainDemo(t *testing.T) {
 	main()
 }
 
-func TestRunDrillJSONContract_BitsUT(t *testing.T) {
+func TestRunDrillJSONContract(t *testing.T) {
 	report := runDrill(context.Background(), drillConfig{
 		Requests:         14,
 		Rate:             1,

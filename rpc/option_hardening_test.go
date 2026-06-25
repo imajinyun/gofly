@@ -181,7 +181,7 @@ func TestRPCPolicyValidateAndGovernanceMapping(t *testing.T) {
 	}
 }
 
-func TestRPCPolicyValidateAdditionalBoundaries_BitsUT(t *testing.T) {
+func TestRPCPolicyValidateAdditionalBoundaries(t *testing.T) {
 	tests := []struct {
 		name   string
 		policy RPCPolicy
@@ -207,7 +207,7 @@ func TestRPCPolicyValidateAdditionalBoundaries_BitsUT(t *testing.T) {
 	}
 }
 
-func TestRPCPolicyMergeAndBalancerHelpers_BitsUT(t *testing.T) {
+func TestRPCPolicyMergeAndBalancerHelpers(t *testing.T) {
 	base := RPCPolicy{
 		Timeout:  time.Second,
 		Retry:    governance.RetryPolicy{Attempts: 1, Backoff: time.Millisecond, Statuses: []int{500}, Methods: []string{"Base"}},

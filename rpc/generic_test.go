@@ -227,7 +227,7 @@ func TestGenericJSONPayloadHelpers(t *testing.T) {
 	}
 }
 
-func TestGenericMethodBoundaries_BitsUT(t *testing.T) {
+func TestGenericMethodBoundaries(t *testing.T) {
 	nilHandler := GenericMethod("Echo", nil)
 	raw := json.RawMessage(`{"name":"gofly"}`)
 	if _, err := nilHandler.Handler(context.Background(), &raw); err == nil || !strings.Contains(err.Error(), "handler is nil") {
@@ -258,7 +258,7 @@ func TestGenericMethodBoundaries_BitsUT(t *testing.T) {
 	}
 }
 
-func TestGenericPathAndJSONErrorBoundaries_BitsUT(t *testing.T) {
+func TestGenericPathAndJSONErrorBoundaries(t *testing.T) {
 	path, err := MethodPath(" /svc/ ", " /Call/ ")
 	if err != nil {
 		t.Fatalf("MethodPath: %v", err)
@@ -662,7 +662,7 @@ func TestCompareDescriptorsChangeOrderIsDeterministic(t *testing.T) {
 	}
 }
 
-func TestCompareDescriptorsBoundaryBranches_BitsUT(t *testing.T) {
+func TestCompareDescriptorsBoundaryBranches(t *testing.T) {
 	base := Descriptor{
 		Name:    "greeter.v1.Greeter",
 		Version: "v1",
@@ -721,7 +721,7 @@ func TestCompareDescriptorsBoundaryBranches_BitsUT(t *testing.T) {
 	assertDescriptorChange(t, report, DescriptorChangeSignature, DescriptorChangeInfo, "greeter.v1.Greeter/AddedStreamMetadata message")
 }
 
-func TestDescriptorStreamModeMetadataBoundaries_BitsUT(t *testing.T) {
+func TestDescriptorStreamModeMetadataBoundaries(t *testing.T) {
 	tests := []struct {
 		name     string
 		explicit StreamMode
@@ -745,7 +745,7 @@ func TestDescriptorStreamModeMetadataBoundaries_BitsUT(t *testing.T) {
 	}
 }
 
-func TestServiceDescMustPathPanics_BitsUT(t *testing.T) {
+func TestServiceDescMustPathPanics(t *testing.T) {
 	desc := ServiceDesc{Name: "greeter", Methods: []MethodDesc{{Name: "SayHello", NewRequest: func() any { return new(helloReq) }}}, Streams: []StreamDesc{{Name: "Chat", NewMessage: func() any { return new(helloReq) }}}}
 	if got := desc.MustMethodPath("SayHello"); got != "greeter/SayHello" {
 		t.Fatalf("MustMethodPath = %q, want greeter/SayHello", got)

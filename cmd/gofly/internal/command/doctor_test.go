@@ -165,7 +165,7 @@ func TestCheckProtoc(t *testing.T) {
 	}
 }
 
-func TestDoctorNextActionsContract_BitsUT(t *testing.T) {
+func TestDoctorNextActionsContract(t *testing.T) {
 	checks := []doctorCheck{
 		{Name: "Go modules", Status: "fail", FixHint: "unset GO111MODULE", NextActions: []string{"unset GO111MODULE or set GO111MODULE=on"}},
 		{Name: "protoc", Status: "warn", FixHint: "install protoc", NextActions: []string{"install protoc before running standard protobuf/gRPC generation"}},
@@ -188,7 +188,7 @@ func TestDoctorNextActionsContract_BitsUT(t *testing.T) {
 	}
 }
 
-func TestBugCommandSupportBundleJSONContract_BitsUT(t *testing.T) {
+func TestBugCommandSupportBundleJSONContract(t *testing.T) {
 	var out bytes.Buffer
 	if err := withCommandIO(IOStreams{Out: &out}, outputText, verbosityNormal, func() error {
 		return bugCommand([]string{"--json"})

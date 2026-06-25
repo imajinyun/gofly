@@ -16,7 +16,7 @@ import (
 	"github.com/imajinyun/gofly/rpc"
 )
 
-func TestOrderStoreAndInventoryBoundaries_BitsUT(t *testing.T) {
+func TestOrderStoreAndInventoryBoundaries(t *testing.T) {
 	store := newOrderStore()
 	first := store.create("coffee")
 	second := store.create("tea")
@@ -43,7 +43,7 @@ func TestOrderStoreAndInventoryBoundaries_BitsUT(t *testing.T) {
 	}
 }
 
-func TestProductionOrderReferenceAppContract_BitsUT(t *testing.T) {
+func TestProductionOrderReferenceAppContract(t *testing.T) {
 	readme, err := os.ReadFile("README.md")
 	if err != nil {
 		t.Fatalf("read README.md: %v", err)
@@ -82,7 +82,7 @@ func TestProductionOrderReferenceAppContract_BitsUT(t *testing.T) {
 	}
 }
 
-func TestBuildRESTServerOrderRouteBoundaries_BitsUT(t *testing.T) {
+func TestBuildRESTServerOrderRouteBoundaries(t *testing.T) {
 	cfg := serviceConfig{}
 	cfg.REST.Port = 0
 	cfg.Resilience.RateLimit = 10
@@ -144,7 +144,7 @@ func TestBuildRESTServerOrderRouteBoundaries_BitsUT(t *testing.T) {
 	}
 }
 
-func TestProductionOrderHelpers_BitsUT(t *testing.T) {
+func TestProductionOrderHelpers(t *testing.T) {
 	cfg := mustLoadConfig()
 	if cfg.REST.Port != 8090 || cfg.RPC.Port != 8092 || cfg.Admin.Port != 8091 || cfg.Resilience.RateLimit != 20 || cfg.Resilience.Burst != 5 {
 		t.Fatalf("config = %#v, want embedded production-order defaults", cfg)
@@ -163,7 +163,7 @@ func TestProductionOrderHelpers_BitsUT(t *testing.T) {
 	}
 }
 
-func TestProductionTopologyModes_BitsUT(t *testing.T) {
+func TestProductionTopologyModes(t *testing.T) {
 	t.Setenv("REFERENCE_APP_MODE", "")
 	memory := loadProductionTopology()
 	if memory.Mode != topologyMemory || memory.SQLOutbox != "memory" || memory.Cache != "memory" || strings.Join(memory.MQ, ",") != "memory" {
@@ -186,7 +186,7 @@ func TestProductionTopologyModes_BitsUT(t *testing.T) {
 	}
 }
 
-func TestProductionTopologyEvidenceContract_BitsUT(t *testing.T) {
+func TestProductionTopologyEvidenceContract(t *testing.T) {
 	t.Setenv("REFERENCE_APP_MODE", "")
 	memory := loadProductionTopology()
 	assertTopologyEvidence(t, memory, []string{"SQL outbox", "Redis cache", "MQ", "Discovery", "OpenTelemetry collector"})
@@ -218,7 +218,7 @@ func assertTopologyEvidence(t *testing.T, topology productionTopology, component
 	}
 }
 
-func TestInventoryServiceDesc_BitsUT(t *testing.T) {
+func TestInventoryServiceDesc(t *testing.T) {
 	desc := inventoryServiceDesc(inventoryService{})
 	if err := desc.Validate(); err != nil {
 		t.Fatalf("inventory descriptor Validate: %v", err)
@@ -247,7 +247,7 @@ func contains(values []string, want string) bool {
 	return false
 }
 
-func TestCreateOrderNoInventoryCompensates_BitsUT(t *testing.T) {
+func TestCreateOrderNoInventoryCompensates(t *testing.T) {
 	registry := discovery.NewMemoryRegistry()
 	store := outbox.NewMemoryStore()
 	relay := outbox.NewRelay(store, outbox.PublisherFunc(func(context.Context, outbox.Message) error { return nil }), outbox.RelayConfig{BatchSize: 10})
@@ -261,7 +261,7 @@ func TestCreateOrderNoInventoryCompensates_BitsUT(t *testing.T) {
 	}
 }
 
-func TestCreateOrderSuccessPublishesOutbox_BitsUT(t *testing.T) {
+func TestCreateOrderSuccessPublishesOutbox(t *testing.T) {
 	rpcSrv := rpc.NewServer()
 	if err := rpcSrv.RegisterService(inventoryServiceDesc(inventoryService{}), nil); err != nil {
 		t.Fatalf("register inventory rpc: %v", err)

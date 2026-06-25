@@ -35,8 +35,8 @@
         {
           "path": "examples/production-orders/main_test.go",
           "contains": [
-            "TestProductionTopologyModes_BitsUT",
-            "TestProductionTopologyEvidenceContract_BitsUT",
+            "TestProductionTopologyModes",
+            "TestProductionTopologyEvidenceContract",
             "assertTopologyEvidence"
           ]
         },

@@ -148,7 +148,7 @@ func TestRegisterGaugeAndHistogram(t *testing.T) {
 	}
 }
 
-func TestCustomMetricLabelDefaultsAndEscaping_BitsUT(t *testing.T) {
+func TestCustomMetricLabelDefaultsAndEscaping(t *testing.T) {
 	reg := NewRegistry()
 	reg.Counter("escaped_total", "Escaped labels.", "path", "status").Add(1, "line\n\"quoted\"\\slash")
 
@@ -166,7 +166,7 @@ func TestCustomMetricLabelDefaultsAndEscaping_BitsUT(t *testing.T) {
 	}
 }
 
-func TestCustomHistogramDefaultAndSortedBuckets_BitsUT(t *testing.T) {
+func TestCustomHistogramDefaultAndSortedBuckets(t *testing.T) {
 	reg := NewRegistry()
 	h := reg.Histogram("sorted_seconds", "Sorted buckets.", []float64{1, 0.1, 0.5})
 	h.Observe(0.2)

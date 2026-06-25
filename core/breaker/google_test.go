@@ -123,7 +123,7 @@ func TestGoogleBreakerDoCallsMarkFailure(t *testing.T) {
 	}
 }
 
-func TestGoogleBreakerMarkFailureIsCompatibilityNoop_BitsUT(t *testing.T) {
+func TestGoogleBreakerMarkFailureIsCompatibilityNoop(t *testing.T) {
 	now := time.Unix(0, 0)
 	b := NewGoogle(WithGoogleK(2))
 	b.now = func() time.Time { return now }

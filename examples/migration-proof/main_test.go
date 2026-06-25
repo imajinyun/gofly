@@ -2,7 +2,7 @@ package main
 
 import "testing"
 
-func TestMigrationProofReport_BitsUT(t *testing.T) {
+func TestMigrationProofReport(t *testing.T) {
 	report := buildReport()
 	if report.Schema != schema {
 		t.Fatalf("schema = %q, want %q", report.Schema, schema)

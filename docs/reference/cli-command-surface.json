@@ -7,6 +7,7 @@
     "cmd/gofly/internal/command/help_metadata.go"
   ],
   "acceptanceGate": "make cli-command-surface-check",
+  "jsonGoldenGate": "make cli-json-contract-goldens-check",
   "ignoredPaths": [
     "docs/superpowers/"
   ],

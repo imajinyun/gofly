@@ -109,7 +109,7 @@ service UserService { @handler getUser POST /users/{id} (User) returns (User) }`
 	}
 }
 
-func TestReleaseCheckCommandJSONAndChangelogBlocker_BitsUT(t *testing.T) {
+func TestReleaseCheckCommandJSONAndChangelogBlocker(t *testing.T) {
 	t.Setenv("API_BASE_REF", "definitely-missing-release-base-ref")
 	dir := t.TempDir()
 	changelog := filepath.Join(dir, "CHANGELOG.md")
@@ -158,7 +158,7 @@ func TestReleaseCheckCommandJSONAndChangelogBlocker_BitsUT(t *testing.T) {
 	}
 }
 
-func TestReleaseCheckGlobalJSONDoesNotDuplicateError_BitsUT(t *testing.T) {
+func TestReleaseCheckGlobalJSONDoesNotDuplicateError(t *testing.T) {
 	t.Setenv("API_BASE_REF", "definitely-missing-release-base-ref")
 	dir := t.TempDir()
 	changelog := filepath.Join(dir, "CHANGELOG.md")
@@ -188,7 +188,7 @@ func TestReleaseCheckGlobalJSONDoesNotDuplicateError_BitsUT(t *testing.T) {
 	}
 }
 
-func TestReleaseCheckCommandAPIAndRPCPassAndErrorBranches_BitsUT(t *testing.T) {
+func TestReleaseCheckCommandAPIAndRPCPassAndErrorBranches(t *testing.T) {
 	t.Setenv("API_BASE_REF", "definitely-missing-release-base-ref")
 	dir := t.TempDir()
 	changelog := filepath.Join(dir, "CHANGELOG.md")

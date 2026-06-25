@@ -2,6 +2,6 @@ package main
 
 import "testing"
 
-func TestMainDemo_BitsUT(t *testing.T) {
+func TestMainDemo(t *testing.T) {
 	main()
 }

@@ -96,7 +96,7 @@ func TestTraceHandlerWithAttrsAndGroup(t *testing.T) {
 	}
 }
 
-func TestReadRequestedLevelBoundaries_BitsUT(t *testing.T) {
+func TestReadRequestedLevelBoundaries(t *testing.T) {
 	tests := []struct {
 		name        string
 		req         *http.Request

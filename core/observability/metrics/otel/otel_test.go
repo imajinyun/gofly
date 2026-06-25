@@ -233,7 +233,7 @@ func TestObserveOptionSorting(t *testing.T) {
 	}
 }
 
-func TestRegisterCallbacksExportsCoreMetrics_BitsUT(t *testing.T) {
+func TestRegisterCallbacksExportsCoreMetrics(t *testing.T) {
 	registry := metrics.NewRegistry()
 	registry.IncInFlight()
 	registry.Observe("users.list", 200, 5*time.Millisecond)

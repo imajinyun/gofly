@@ -13,7 +13,7 @@ import (
 	"github.com/imajinyun/gofly/rest"
 )
 
-func TestMiddlewareCatalogProductization_BitsUT(t *testing.T) {
+func TestMiddlewareCatalogProductization(t *testing.T) {
 	catalog := MiddlewareCatalog()
 	if len(catalog) != 19 {
 		t.Fatalf("MiddlewareCatalog length = %d, want 19", len(catalog))
@@ -32,7 +32,7 @@ func TestMiddlewareCatalogProductization_BitsUT(t *testing.T) {
 	}
 }
 
-func TestAuthMiddlewares_BitsUT(t *testing.T) {
+func TestAuthMiddlewares(t *testing.T) {
 	apiKey := APIKeyMiddleware(APIKeyConfig{Keys: map[string]auth.Principal{
 		"secret": {Subject: "api-client", Roles: []string{"operator"}},
 	}})
@@ -71,7 +71,7 @@ func TestAuthMiddlewares_BitsUT(t *testing.T) {
 	}
 }
 
-func TestWebSecurityAndObservabilityMiddlewares_BitsUT(t *testing.T) {
+func TestWebSecurityAndObservabilityMiddlewares(t *testing.T) {
 	securityHeaders := httptest.NewRecorder()
 	SecurityHeadersMiddleware(rest.SecurityHeadersConfig{})(okHandler()).ServeHTTP(securityHeaders, httptest.NewRequest(http.MethodGet, "/", nil))
 	if securityHeaders.Header().Get("X-Frame-Options") != "DENY" || securityHeaders.Header().Get("X-Content-Type-Options") != "nosniff" {
@@ -106,7 +106,7 @@ func TestWebSecurityAndObservabilityMiddlewares_BitsUT(t *testing.T) {
 	StructuredAccessLogMiddleware(rest.LogRedactionConfig{})(okHandler()).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", nil))
 }
 
-func TestStabilityMiddlewares_BitsUT(t *testing.T) {
+func TestStabilityMiddlewares(t *testing.T) {
 	recovered := httptest.NewRecorder()
 	RecoverMiddleware()(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { panic("boom") })).ServeHTTP(recovered, httptest.NewRequest(http.MethodGet, "/", nil))
 	if recovered.Code != http.StatusInternalServerError {
@@ -144,7 +144,7 @@ func TestStabilityMiddlewares_BitsUT(t *testing.T) {
 	}
 }
 
-func TestPprofAndCatalogHandlers_BitsUT(t *testing.T) {
+func TestPprofAndCatalogHandlers(t *testing.T) {
 	srv := rest.MustNewServer(rest.Config{Preset: rest.PresetCustom, Name: "middleware-test"})
 	RegisterPprofRoutes(srv, "/debug/pprof")
 	srv.AddRoute(rest.Route{Method: http.MethodGet, Path: "/middleware/catalog", Handler: MiddlewareCatalogHandler()})

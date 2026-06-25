@@ -135,7 +135,7 @@
         {
           "path": "examples/http-middleware/main_test.go",
           "contains": [
-            "TestJWTAndSessionHelpers_BitsUT",
+            "TestJWTAndSessionHelpers",
             "verifySession",
             "session_id"
           ]

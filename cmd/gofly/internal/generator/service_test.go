@@ -453,7 +453,7 @@ func TestGenerateService(t *testing.T) {
 	assertGeneratedProjectCompiles(t, dir)
 }
 
-func TestGeneratedServiceOpenAPIValidationEnvelopeContract_BitsUT(t *testing.T) {
+func TestGeneratedServiceOpenAPIValidationEnvelopeContract(t *testing.T) {
 	dir := t.TempDir()
 	if err := GenerateService(ServiceOptions{Name: "orders", Module: "example.com/orders", Dir: dir}); err != nil {
 		t.Fatal(err)
@@ -563,7 +563,7 @@ func TestApplyEnvOverlay(t *testing.T) {
 	}
 }
 
-func TestServiceFilesForProfileCoverageBuffer_BitsUT(t *testing.T) {
+func TestServiceFilesForProfileCoverageBuffer(t *testing.T) {
 	tests := []struct {
 		name       string
 		style      string
@@ -646,7 +646,7 @@ func TestServiceFilesForProfileCoverageBuffer_BitsUT(t *testing.T) {
 	}
 }
 
-func TestTemplateSyncCoverageBuffer_BitsUT(t *testing.T) {
+func TestTemplateSyncCoverageBuffer(t *testing.T) {
 	t.Run("local file remote copies payload templates and skips hidden directories", func(t *testing.T) {
 		root := t.TempDir()
 		remote := filepath.Join(root, "remote")

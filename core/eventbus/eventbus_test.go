@@ -240,7 +240,7 @@ func TestTypedTopicIsolation(t *testing.T) {
 	}
 }
 
-func TestTypedPublishAsyncDeliversMatchingType_BitsUT(t *testing.T) {
+func TestTypedPublishAsyncDeliversMatchingType(t *testing.T) {
 	bus := New()
 	defer bus.Close()
 

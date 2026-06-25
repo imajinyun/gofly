@@ -106,7 +106,7 @@ func TestOTelSpanContextConversion(t *testing.T) {
 	}
 }
 
-func TestToOTelRejectsInvalidSpanContext_BitsUT(t *testing.T) {
+func TestToOTelRejectsInvalidSpanContext(t *testing.T) {
 	tests := []struct {
 		name string
 		sc   SpanContext

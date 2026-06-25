@@ -13,7 +13,7 @@ import (
 	"github.com/imajinyun/gofly/rest"
 )
 
-func TestDescribeCoversP1MiddlewareMatrix_BitsUT(t *testing.T) {
+func TestDescribeCoversP1MiddlewareMatrix(t *testing.T) {
 	got := strings.Join(describe(), " ")
 	for _, want := range []string{"JWT", "CORS", "CSRF", "sessions", "OpenTelemetry", "Prometheus", "SSE", "WebSocket", "request validation"} {
 		if !strings.Contains(got, want) {
@@ -22,7 +22,7 @@ func TestDescribeCoversP1MiddlewareMatrix_BitsUT(t *testing.T) {
 	}
 }
 
-func TestHTTPMiddlewareServerContracts_BitsUT(t *testing.T) {
+func TestHTTPMiddlewareServerContracts(t *testing.T) {
 	srv := newHTTPMiddlewareServer()
 
 	preflight := httptest.NewRecorder()
@@ -111,7 +111,7 @@ func TestHTTPMiddlewareServerContracts_BitsUT(t *testing.T) {
 	}
 }
 
-func TestJWTAndSessionHelpers_BitsUT(t *testing.T) {
+func TestJWTAndSessionHelpers(t *testing.T) {
 	token, err := demoJWT(time.Unix(1700000000, 0))
 	if err != nil {
 		t.Fatalf("demoJWT() error = %v", err)

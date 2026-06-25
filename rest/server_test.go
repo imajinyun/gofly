@@ -39,7 +39,7 @@ func TestServer_AddRoute(t *testing.T) {
 	}
 }
 
-func TestMetricsHandlerJSONBoundary_BitsUT(t *testing.T) {
+func TestMetricsHandlerJSONBoundary(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
 	handler := MetricsHandler(metrics.NewRegistry())
@@ -65,7 +65,7 @@ func TestMetricsHandlerJSONBoundary_BitsUT(t *testing.T) {
 	}
 }
 
-func TestServerStateNameAndRouteTagsBoundaries_BitsUT(t *testing.T) {
+func TestServerStateNameAndRouteTagsBoundaries(t *testing.T) {
 	stateTests := []struct {
 		name  string
 		state int32
@@ -95,7 +95,7 @@ func TestServerStateNameAndRouteTagsBoundaries_BitsUT(t *testing.T) {
 	}
 }
 
-func TestServerOptionAndLifecycleBoundaries_BitsUT(t *testing.T) {
+func TestServerOptionAndLifecycleBoundaries(t *testing.T) {
 	var auditEvents []string
 	sink := controladmin.AuditSink(func(_ context.Context, event controladmin.AuditEvent) {
 		auditEvents = append(auditEvents, event.Path)
@@ -122,7 +122,7 @@ func TestServerOptionAndLifecycleBoundaries_BitsUT(t *testing.T) {
 	}
 }
 
-func TestServerRouteOptionAndOpenAPIBoundaries_BitsUT(t *testing.T) {
+func TestServerRouteOptionAndOpenAPIBoundaries(t *testing.T) {
 	var opts routeOptions
 	WithAdaptiveRateLimit(AdaptiveLimitConfig{TargetLatency: time.Second})(&opts)
 	if opts.adaptive == nil || !opts.adaptive.enabled || opts.adaptive.config.TargetLatency != time.Second {
@@ -347,7 +347,7 @@ func TestContextErrorWritesCoreErrorResponse(t *testing.T) {
 	}
 }
 
-func TestContextQueryValidateAndRequestIDBoundaries_BitsUT(t *testing.T) {
+func TestContextQueryValidateAndRequestIDBoundaries(t *testing.T) {
 	type queryRequest struct {
 		Page int    `query:"page" validate:"min=1"`
 		Name string `query:"name" validate:"required"`
@@ -1982,7 +1982,7 @@ func TestConfiguredMaxBodyBytesUsesMiddlewareConfig(t *testing.T) {
 	}
 }
 
-func TestSignatureAuthMiddlewareRestoresBodyAndRejectsInvalidSignature_BitsUT(t *testing.T) {
+func TestSignatureAuthMiddlewareRestoresBodyAndRejectsInvalidSignature(t *testing.T) {
 	secret := []byte("bits-secret")
 	now := time.Unix(1700000000, 0)
 	body := []byte(`{"name":"gofly"}`)
@@ -2022,7 +2022,7 @@ func TestSignatureAuthMiddlewareRestoresBodyAndRejectsInvalidSignature_BitsUT(t 
 	}
 }
 
-func TestBreakerMiddlewareOpensAfterServerErrors_BitsUT(t *testing.T) {
+func TestBreakerMiddlewareOpensAfterServerErrors(t *testing.T) {
 	s := MustNewServer(Config{DisableDefaultMiddlewares: true})
 	s.Use(BreakerMiddleware())
 	s.AddRoute(Route{Method: http.MethodGet, Path: "/unstable", Handler: func(ctx *Context) {
@@ -2044,7 +2044,7 @@ func TestBreakerMiddlewareOpensAfterServerErrors_BitsUT(t *testing.T) {
 	}
 }
 
-func TestServerTimeoutAndMapCloneHelpers_BitsUT(t *testing.T) {
+func TestServerTimeoutAndMapCloneHelpers(t *testing.T) {
 	s := MustNewServer(Config{Timeout: 5 * time.Second, Middlewares: MiddlewaresConfig{
 		TimeoutConfig: TimeoutConfig{ReadHeaderTimeout: 250 * time.Millisecond},
 	}})
@@ -2077,7 +2077,7 @@ func TestServerTimeoutAndMapCloneHelpers_BitsUT(t *testing.T) {
 	}
 }
 
-func TestZeroCoverageWrapperHelpers_BitsUT(t *testing.T) {
+func TestZeroCoverageWrapperHelpers(t *testing.T) {
 	called := false
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		called = true
@@ -2118,7 +2118,7 @@ func TestZeroCoverageWrapperHelpers_BitsUT(t *testing.T) {
 	}
 }
 
-func TestHealthAndErrorResponseBoundaryBranches_BitsUT(t *testing.T) {
+func TestHealthAndErrorResponseBoundaryBranches(t *testing.T) {
 	s := MustNewServer(Config{})
 	s.AddHealthCheck("", func(context.Context) error { return nil })
 	s.AddHealthCheck("nil", nil)

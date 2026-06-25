@@ -47,7 +47,7 @@ func TestEncodeDecodeRoundTrip(t *testing.T) {
 	}
 }
 
-func TestEncodeDecodeBoundaryFields_BitsUT(t *testing.T) {
+func TestEncodeDecodeBoundaryFields(t *testing.T) {
 	fields := encode(mq.Message{ID: "id-1", Body: []byte("payload")})
 	if fields[fieldID] != "id-1" || fields[fieldBody] != "payload" || fields[fieldAttempts] != "0" {
 		t.Fatalf("encoded fields = %#v, want required envelope fields", fields)
@@ -132,7 +132,7 @@ func TestPublishValidationClosedAndXAdd(t *testing.T) {
 	}
 }
 
-func TestPublishNilContextAndXAddError_BitsUT(t *testing.T) {
+func TestPublishNilContextAndXAddError(t *testing.T) {
 	client := &fakeRedisStreamClient{}
 	broker, err := New(client, Options{MaxLen: 256})
 	if err != nil {
@@ -190,7 +190,7 @@ func TestSubscribeValidationAndGroupCreate(t *testing.T) {
 	}
 }
 
-func TestSubscribeClosedGeneratedConsumerAndGroupError_BitsUT(t *testing.T) {
+func TestSubscribeClosedGeneratedConsumerAndGroupError(t *testing.T) {
 	closedClient := &fakeRedisStreamClient{}
 	closedBroker, err := New(closedClient, Options{})
 	if err != nil {
@@ -285,7 +285,7 @@ func TestSubscriptionProcessSkipsAckWhenDeadLetterFails(t *testing.T) {
 	}
 }
 
-func TestSubscriptionProcessSuccessAndCancellationBoundaries_BitsUT(t *testing.T) {
+func TestSubscriptionProcessSuccessAndCancellationBoundaries(t *testing.T) {
 	client := &fakeRedisStreamClient{xackErr: errors.New("ack failed")}
 	broker, err := New(client, Options{})
 	if err != nil {

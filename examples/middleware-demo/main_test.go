@@ -22,7 +22,7 @@ import (
 	"github.com/imajinyun/gofly/rest"
 )
 
-func TestMiddlewareDemoJWT_BitsUT(t *testing.T) {
+func TestMiddlewareDemoJWT(t *testing.T) {
 	srv := newMiddlewareDemoServer()
 
 	missing := httptest.NewRecorder()
@@ -50,7 +50,7 @@ func TestMiddlewareDemoJWT_BitsUT(t *testing.T) {
 	}
 }
 
-func TestMiddlewareDemoAuthMatrix_BitsUT(t *testing.T) {
+func TestMiddlewareDemoAuthMatrix(t *testing.T) {
 	srv := newMiddlewareDemoServer()
 
 	missingAPIKey := httptest.NewRecorder()
@@ -90,7 +90,7 @@ func TestMiddlewareDemoAuthMatrix_BitsUT(t *testing.T) {
 	}
 }
 
-func TestMiddlewareDemoCORS_BitsUT(t *testing.T) {
+func TestMiddlewareDemoCORS(t *testing.T) {
 	srv := newMiddlewareDemoServer()
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodOptions, "/cors", nil)
@@ -103,7 +103,7 @@ func TestMiddlewareDemoCORS_BitsUT(t *testing.T) {
 	}
 }
 
-func TestMiddlewareDemoCSRF_BitsUT(t *testing.T) {
+func TestMiddlewareDemoCSRF(t *testing.T) {
 	srv := newMiddlewareDemoServer()
 
 	tokenResp := httptest.NewRecorder()
@@ -129,7 +129,7 @@ func TestMiddlewareDemoCSRF_BitsUT(t *testing.T) {
 	}
 }
 
-func TestMiddlewareDemoWebSecurity_BitsUT(t *testing.T) {
+func TestMiddlewareDemoWebSecurity(t *testing.T) {
 	srv := newMiddlewareDemoServer()
 
 	securityHeaders := httptest.NewRecorder()
@@ -151,7 +151,7 @@ func TestMiddlewareDemoWebSecurity_BitsUT(t *testing.T) {
 	}
 }
 
-func TestMiddlewareDemoSession_BitsUT(t *testing.T) {
+func TestMiddlewareDemoSession(t *testing.T) {
 	srv := newMiddlewareDemoServer()
 
 	first := httptest.NewRecorder()
@@ -173,7 +173,7 @@ func TestMiddlewareDemoSession_BitsUT(t *testing.T) {
 	}
 }
 
-func TestMiddlewareDemoOpenTelemetry_BitsUT(t *testing.T) {
+func TestMiddlewareDemoOpenTelemetry(t *testing.T) {
 	srv := newMiddlewareDemoServer()
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/otel", nil)
@@ -184,7 +184,7 @@ func TestMiddlewareDemoOpenTelemetry_BitsUT(t *testing.T) {
 	}
 }
 
-func TestMiddlewareDemoPrometheus_BitsUT(t *testing.T) {
+func TestMiddlewareDemoPrometheus(t *testing.T) {
 	srv := newMiddlewareDemoServer()
 	srv.Handler().ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/prometheus", nil))
 
@@ -195,7 +195,7 @@ func TestMiddlewareDemoPrometheus_BitsUT(t *testing.T) {
 	}
 }
 
-func TestMiddlewareDemoObservability_BitsUT(t *testing.T) {
+func TestMiddlewareDemoObservability(t *testing.T) {
 	srv := newMiddlewareDemoServer()
 
 	requestID := httptest.NewRecorder()
@@ -227,7 +227,7 @@ func TestMiddlewareDemoObservability_BitsUT(t *testing.T) {
 	}
 }
 
-func TestMiddlewareDemoSSE_BitsUT(t *testing.T) {
+func TestMiddlewareDemoSSE(t *testing.T) {
 	srv := newMiddlewareDemoServer()
 	rec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/sse", nil))
@@ -236,7 +236,7 @@ func TestMiddlewareDemoSSE_BitsUT(t *testing.T) {
 	}
 }
 
-func TestMiddlewareDemoWebSocket_BitsUT(t *testing.T) {
+func TestMiddlewareDemoWebSocket(t *testing.T) {
 	srv := httptest.NewServer(newMiddlewareDemoServer().Handler())
 	t.Cleanup(srv.Close)
 
@@ -276,7 +276,7 @@ func TestMiddlewareDemoWebSocket_BitsUT(t *testing.T) {
 	t.Fatalf("websocket stats did not converge")
 }
 
-func TestMiddlewareDemoValidation_BitsUT(t *testing.T) {
+func TestMiddlewareDemoValidation(t *testing.T) {
 	srv := newMiddlewareDemoServer()
 
 	invalid := httptest.NewRecorder()
@@ -292,7 +292,7 @@ func TestMiddlewareDemoValidation_BitsUT(t *testing.T) {
 	}
 }
 
-func TestMiddlewareDemoStability_BitsUT(t *testing.T) {
+func TestMiddlewareDemoStability(t *testing.T) {
 	srv := newMiddlewareDemoServer()
 
 	recovered := httptest.NewRecorder()
@@ -336,7 +336,7 @@ func TestMiddlewareDemoStability_BitsUT(t *testing.T) {
 	}
 }
 
-func TestMiddlewareDemoCatalogAndOpenAPI_BitsUT(t *testing.T) {
+func TestMiddlewareDemoCatalogAndOpenAPI(t *testing.T) {
 	srv := newMiddlewareDemoServer()
 
 	catalogResp := httptest.NewRecorder()

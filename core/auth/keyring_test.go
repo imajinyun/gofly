@@ -77,7 +77,7 @@ func TestKeyringRejectsRemovingActive(t *testing.T) {
 	}
 }
 
-func TestKeyringAddAndKIDsBoundaries_BitsUT(t *testing.T) {
+func TestKeyringAddAndKIDsBoundaries(t *testing.T) {
 	kr, err := NewJWTKeyring(SigningKey{KID: "k1", Secret: []byte("secret-one")})
 	if err != nil {
 		t.Fatalf("NewJWTKeyring returned error: %v", err)

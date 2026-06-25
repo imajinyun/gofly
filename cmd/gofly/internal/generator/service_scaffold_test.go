@@ -148,7 +148,7 @@ func TestWriteGeneratedFileUnderRejectsSymlinkParentAndLeaf(t *testing.T) {
 	}
 }
 
-func TestGeneratedFileRootHelpersConstrainReadWriteCopy_BitsUT(t *testing.T) {
+func TestGeneratedFileRootHelpersConstrainReadWriteCopy(t *testing.T) {
 	t.Run("safe target rejects symlink root and absolute escape", func(t *testing.T) {
 		tmp := t.TempDir()
 		outside := t.TempDir()

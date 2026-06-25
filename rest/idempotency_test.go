@@ -157,7 +157,7 @@ func TestIdempotencyMiddlewareBodyLimitAndNoKeyBypass(t *testing.T) {
 	}
 }
 
-func TestIdempotencyHelpersBoundaries_BitsUT(t *testing.T) {
+func TestIdempotencyHelpersBoundaries(t *testing.T) {
 	noBodyReq := httptest.NewRequest(http.MethodPost, "/orders", nil)
 	noBodyReq.Body = nil
 	body, err := readIdempotencyBody(noBodyReq, 4)
@@ -191,7 +191,7 @@ func TestIdempotencyHelpersBoundaries_BitsUT(t *testing.T) {
 	}
 }
 
-func TestKVIdempotencyStoreCompleteBoundaries_BitsUT(t *testing.T) {
+func TestKVIdempotencyStoreCompleteBoundaries(t *testing.T) {
 	store := kv.NewMemoryStore()
 	idem := NewKVIdempotencyStore(store)
 	ctx := context.Background()

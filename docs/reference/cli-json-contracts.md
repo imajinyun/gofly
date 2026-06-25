@@ -7,6 +7,11 @@ The governed command surface is tracked in
 registered command families, aliases, help topics, JSON contract surfaces, and
 follow-up CLI governance tasks.
 
+The executable golden set is tracked in
+[`cli-json-contract-goldens.json`](cli-json-contract-goldens.json). That
+manifest lists the release-blocking JSON cases and the gate that keeps stdout
+JSON-only for machine consumers.
+
 ## Stability rules
 
 - Existing JSON fields keep their type and meaning within a minor release line.

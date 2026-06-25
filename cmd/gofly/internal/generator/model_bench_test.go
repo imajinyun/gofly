@@ -74,7 +74,7 @@ func (r *bitsUTDatasourceRows) Next(dest []driver.Value) error {
 	return nil
 }
 
-func TestModelHelperBoundaries_BitsUT(t *testing.T) {
+func TestModelHelperBoundaries(t *testing.T) {
 	table := SQLTable{
 		Name:             "users",
 		PrimaryKey:       "id",
@@ -148,7 +148,7 @@ func TestModelHelperBoundaries_BitsUT(t *testing.T) {
 	}
 }
 
-func TestModelCodegenAdvancedRepoBoundaries_BitsUT(t *testing.T) {
+func TestModelCodegenAdvancedRepoBoundaries(t *testing.T) {
 	table := SQLTable{
 		Name:             "users",
 		PrimaryKey:       "id",
@@ -209,14 +209,14 @@ func TestModelCodegenAdvancedRepoBoundaries_BitsUT(t *testing.T) {
 	}
 }
 
-func TestWriteModelFilesEmptyTablesBoundary_BitsUT(t *testing.T) {
+func TestWriteModelFilesEmptyTablesBoundary(t *testing.T) {
 	err := writeModelFiles(nil, t.TempDir(), "model", "example.com/orders", ServiceStyleBasic, false)
 	if err == nil || !strings.Contains(err.Error(), "model table is required") {
 		t.Fatalf("writeModelFiles(nil) error = %v, want model table required", err)
 	}
 }
 
-func TestModelDatasourceGenerationBoundaries_BitsUT(t *testing.T) {
+func TestModelDatasourceGenerationBoundaries(t *testing.T) {
 	if err := GenerateModelFromDatasource(ModelDatasourceOptions{DSN: "ok"}); err == nil || !strings.Contains(err.Error(), "datasource driver is required") {
 		t.Fatalf("GenerateModelFromDatasource missing driver error = %v, want driver required", err)
 	}
@@ -231,7 +231,7 @@ func TestModelDatasourceGenerationBoundaries_BitsUT(t *testing.T) {
 	}
 }
 
-func TestIntrospectSQLTablesWithFakeDatasource_BitsUT(t *testing.T) {
+func TestIntrospectSQLTablesWithFakeDatasource(t *testing.T) {
 	db, err := sql.Open(bitsUTModelDatasourceDriver, "ok")
 	if err != nil {
 		t.Fatal(err)
@@ -274,7 +274,7 @@ func TestIntrospectSQLTablesWithFakeDatasource_BitsUT(t *testing.T) {
 	}
 }
 
-func TestGenerateModelFromDatasourceViaMySQLDriverRejectsInvalidDSN_BitsUT(t *testing.T) {
+func TestGenerateModelFromDatasourceViaMySQLDriverRejectsInvalidDSN(t *testing.T) {
 	dir := t.TempDir()
 	goMod := filepath.Join(dir, "go.mod")
 	if err := os.WriteFile(goMod, []byte("module example.com/models\n"), 0o644); err != nil {
@@ -291,7 +291,7 @@ func TestGenerateModelFromDatasourceViaMySQLDriverRejectsInvalidDSN_BitsUT(t *te
 	}
 }
 
-func TestPrepareModelTablesFilterStrictBoundaries_BitsUT(t *testing.T) {
+func TestPrepareModelTablesFilterStrictBoundaries(t *testing.T) {
 	base := []SQLTable{{
 		Name:       "app_users",
 		PrimaryKey: "id",
@@ -324,7 +324,7 @@ func TestPrepareModelTablesFilterStrictBoundaries_BitsUT(t *testing.T) {
 	}
 }
 
-func TestLegacySQLWritersSoftDeleteBranches_BitsUT(t *testing.T) {
+func TestLegacySQLWritersSoftDeleteBranches(t *testing.T) {
 	table := SQLTable{
 		Name:             "users",
 		PrimaryKey:       "id",

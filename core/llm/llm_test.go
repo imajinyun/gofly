@@ -33,7 +33,7 @@ func TestTokenBudgetReserveAndSnapshot(t *testing.T) {
 	}
 }
 
-func TestTokenEstimationBudgetAndLimiterBoundaries_BitsUT(t *testing.T) {
+func TestTokenEstimationBudgetAndLimiterBoundaries(t *testing.T) {
 	if got := EstimateTokens("   "); got != 0 {
 		t.Fatalf("EstimateTokens(blank) = %d, want 0", got)
 	}
@@ -114,7 +114,7 @@ func TestRedactorRedactsSecretsAndPII(t *testing.T) {
 	}
 }
 
-func TestGovernedProviderRedactEmbedRequestAndErrorClass_BitsUT(t *testing.T) {
+func TestGovernedProviderRedactEmbedRequestAndErrorClass(t *testing.T) {
 	req := EmbedRequest{
 		Inputs:   []string{"email alice@example.com token=secret", "password=hunter2"},
 		Metadata: map[string]string{"credential": "api_key=secret-key", "safe": "value"},

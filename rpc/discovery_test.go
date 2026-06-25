@@ -82,7 +82,7 @@ func TestDiscoveryRegistrarAdaptsLegacyRPCRegistration(t *testing.T) {
 	}
 }
 
-func TestDiscoveryResolverNilAndConversionBoundaries_BitsUT(t *testing.T) {
+func TestDiscoveryResolverNilAndConversionBoundaries(t *testing.T) {
 	var resolver *DiscoveryResolver
 	if _, err := resolver.ResolveInstances(context.Background()); !errors.Is(err, discovery.ErrNoInstances) {
 		t.Fatalf("nil ResolveInstances error = %v, want ErrNoInstances", err)
@@ -112,7 +112,7 @@ func TestDiscoveryResolverNilAndConversionBoundaries_BitsUT(t *testing.T) {
 	}
 }
 
-func TestDiscoveryResolverWatchFiltersAndCloses_BitsUT(t *testing.T) {
+func TestDiscoveryResolverWatchFiltersAndCloses(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	events := make(chan discovery.Event, 1)
 	fake := &fakeDiscoveryResolver{watch: events}
@@ -142,7 +142,7 @@ func TestDiscoveryResolverWatchFiltersAndCloses_BitsUT(t *testing.T) {
 	}
 }
 
-func TestDiscoveryRegistrarNilIsNoop_BitsUT(t *testing.T) {
+func TestDiscoveryRegistrarNilIsNoop(t *testing.T) {
 	var registrar *DiscoveryRegistrar
 	if err := registrar.RegisterService(context.Background(), "svc", "endpoint"); err != nil {
 		t.Fatalf("nil RegisterService error = %v, want nil", err)

@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestRPCIDLMatrixReport_BitsUT(t *testing.T) {
+func TestRPCIDLMatrixReport(t *testing.T) {
 	report, err := runMatrix(context.Background())
 	if err != nil {
 		t.Fatalf("runMatrix: %v", err)

@@ -1,0 +1,140 @@
+{
+  "schema": "gofly.examples_health_index.v1",
+  "sourceOfTruth": "examples/README.md",
+  "acceptanceGate": "make api-example-consistency-check",
+  "copyableGate": "make examples-copyable-check",
+  "smokeGate": "make examples-smoke",
+  "examples": [
+    {
+      "name": "restserver",
+      "path": "examples/restserver",
+      "goMod": "examples/restserver/go.mod",
+      "runtimeMode": "long-running-service",
+      "ports": [
+        8080
+      ],
+      "smokeCommands": [
+        "go test -C examples/restserver ./...",
+        "curl -s localhost:8080/healthz"
+      ],
+      "outputSchema": "http-health-and-user-json",
+      "riskNotes": [
+        "uses fixed local port 8080 when run manually",
+        "long-running service smoke should be bounded by caller"
+      ]
+    },
+    {
+      "name": "http-middleware",
+      "path": "examples/http-middleware",
+      "goMod": "examples/http-middleware/go.mod",
+      "runtimeMode": "describe-json",
+      "ports": [
+        8085
+      ],
+      "smokeCommands": [
+        "go run -C examples/http-middleware . --describe"
+      ],
+      "outputSchema": "gofly.http_middleware_matrix.v1",
+      "riskNotes": [
+        "server mode uses fixed local port 8085",
+        "describe mode is preferred for CI"
+      ]
+    },
+    {
+      "name": "migration-proof",
+      "path": "examples/migration-proof",
+      "goMod": "examples/migration-proof/go.mod",
+      "runtimeMode": "json-report",
+      "ports": [],
+      "smokeCommands": [
+        "go test -C examples/migration-proof ./...",
+        "go run -C examples/migration-proof ."
+      ],
+      "outputSchema": "gofly.migration_proof.v1",
+      "riskNotes": [
+        "migration examples are evidence rows and do not import the source frameworks"
+      ]
+    },
+    {
+      "name": "rpc-idl-matrix",
+      "path": "examples/rpc-idl-matrix",
+      "goMod": "examples/rpc-idl-matrix/go.mod",
+      "runtimeMode": "json-report",
+      "ports": [],
+      "smokeCommands": [
+        "go test -C examples/rpc-idl-matrix ./...",
+        "go run -C examples/rpc-idl-matrix ."
+      ],
+      "outputSchema": "gofly.rpc_idl_matrix.v1",
+      "riskNotes": [
+        "Kitex remains the rollback target for latency-critical RPC methods"
+      ]
+    },
+    {
+      "name": "plugin-ecosystem",
+      "path": "examples/plugin-ecosystem",
+      "goMod": "examples/plugin-ecosystem/go.mod",
+      "runtimeMode": "json-report",
+      "ports": [],
+      "smokeCommands": [
+        "go test -C examples/plugin-ecosystem ./...",
+        "go run -C examples/plugin-ecosystem ."
+      ],
+      "outputSchema": "gofly.plugin_ecosystem.v1",
+      "riskNotes": [
+        "plugin protocol examples must not write outside their declared output boundary"
+      ]
+    },
+    {
+      "name": "cache-local",
+      "path": "examples/cache-local",
+      "goMod": "examples/cache-local/go.mod",
+      "runtimeMode": "json-report",
+      "ports": [],
+      "smokeCommands": [
+        "go test -C examples/cache-local ./...",
+        "go run -C examples/cache-local ."
+      ],
+      "outputSchema": "gofly.cache_local.v1",
+      "riskNotes": [
+        "disabled-cache mode is intentionally part of the evidence contract"
+      ]
+    },
+    {
+      "name": "microshop",
+      "path": "examples/microshop",
+      "goMod": "examples/microshop/go.mod",
+      "runtimeMode": "topology-json",
+      "ports": [
+        8100,
+        8101,
+        8102,
+        8103,
+        8104
+      ],
+      "smokeCommands": [
+        "go test -C examples/microshop ./...",
+        "go run -C examples/microshop describe"
+      ],
+      "outputSchema": "microshop-topology-json",
+      "riskNotes": [
+        "gateway mode starts multiple local service ports",
+        "describe mode is preferred for CI"
+      ]
+    },
+    {
+      "name": "resilience",
+      "path": "examples/resilience",
+      "goMod": "examples/resilience/go.mod",
+      "runtimeMode": "json-report",
+      "ports": [],
+      "smokeCommands": [
+        "go run -C examples/resilience . --json"
+      ],
+      "outputSchema": "gofly.resilience_drill.v1",
+      "riskNotes": [
+        "uses deterministic smoke bounds for retry and breaker behavior"
+      ]
+    }
+  ]
+}

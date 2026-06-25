@@ -36,6 +36,22 @@ else:
 
 if manifest.get("schema") != "gofly.api_example_consistency.v1":
     missing.append("api example consistency schema must be gofly.api_example_consistency.v1")
+health_path = root / "docs" / "reference" / "examples-health-index.json"
+if health_path.is_file():
+    health = json.loads(health_path.read_text(encoding="utf-8"))
+else:
+    health = {}
+    missing.append("docs/reference/examples-health-index.json is missing")
+if health.get("schema") != "gofly.examples_health_index.v1":
+    missing.append("examples health index schema must be gofly.examples_health_index.v1")
+if health.get("sourceOfTruth") != "examples/README.md":
+    missing.append("examples health index sourceOfTruth must be examples/README.md")
+if health.get("acceptanceGate") != "make api-example-consistency-check":
+    missing.append("examples health index acceptanceGate must be make api-example-consistency-check")
+if health.get("copyableGate") != "make examples-copyable-check":
+    missing.append("examples health index copyableGate must be make examples-copyable-check")
+if health.get("smokeGate") != "make examples-smoke":
+    missing.append("examples health index smokeGate must be make examples-smoke")
 
 makefile = read_text(root / "Makefile")
 target_names = make_target_names(makefile)
@@ -60,6 +76,46 @@ if actual_surfaces != required_surfaces:
 
 examples_readme = read_text(root / "examples" / "README.md")
 readme = read_text(root / "README.md")
+
+health_examples = health.get("examples") or []
+health_names = {item.get("name") for item in health_examples if isinstance(item, dict)}
+required_health_examples = {
+    "restserver",
+    "http-middleware",
+    "migration-proof",
+    "rpc-idl-matrix",
+    "plugin-ecosystem",
+    "cache-local",
+    "microshop",
+    "resilience",
+}
+if health_names != required_health_examples:
+    missing.append(f"examples health names = {sorted(health_names)!r}, want {sorted(required_health_examples)!r}")
+for item in health_examples:
+    if not isinstance(item, dict):
+        missing.append(f"examples health entry must be an object: {item!r}")
+        continue
+    name = item.get("name", "<missing>")
+    for field in ("name", "path", "goMod", "runtimeMode", "ports", "smokeCommands", "outputSchema", "riskNotes"):
+        if field not in item or item[field] in ("", None, []):
+            if field != "ports":
+                missing.append(f"examples health {name}: {field} is required")
+    path = item.get("path", "")
+    go_mod = item.get("goMod", "")
+    if path:
+        if not (root / path).is_dir():
+            missing.append(f"examples health {name}: path is missing: {path}")
+        if path not in examples_readme:
+            missing.append(f"examples health {name}: examples/README.md must reference {path}")
+    if go_mod and not (root / go_mod).is_file():
+        missing.append(f"examples health {name}: goMod is missing: {go_mod}")
+    smoke_commands = item.get("smokeCommands") or []
+    if not any("examples/" in command or "-C examples/" in command for command in smoke_commands):
+        missing.append(f"examples health {name}: at least one smoke command must reference examples/")
+    if not item.get("outputSchema"):
+        missing.append(f"examples health {name}: outputSchema is required")
+    if not item.get("riskNotes"):
+        missing.append(f"examples health {name}: riskNotes is required")
 
 for item in surfaces:
     if not isinstance(item, dict):
@@ -111,6 +167,7 @@ docs = {
         "gofly.api_example_consistency.v1",
         "make api-example-consistency-check",
         "api-example-consistency.json",
+        "examples-health-index.json",
         "docs-check",
     ],
     root / "docs" / "index.md": [

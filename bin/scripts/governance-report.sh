@@ -151,6 +151,29 @@ def release_evidence():
     return release
 
 
+def release_evidence_consumption():
+    manifest = read_json(root / "docs/releases/evidence-consumption.json") or {}
+    items = [
+        item
+        for item in manifest.get("items") or []
+        if isinstance(item, dict)
+    ]
+    return {
+        "schema": manifest.get("schema", ""),
+        "manifest": "docs/releases/evidence-consumption.json",
+        "sourceOfTruth": manifest.get("sourceOfTruth", ""),
+        "acceptanceGate": manifest.get("acceptanceGate", ""),
+        "consumers": manifest.get("consumers", []),
+        "itemCount": len(items),
+        "stableIds": [
+            item.get("id", "")
+            for item in items
+            if item.get("id")
+        ],
+        "items": items,
+    }
+
+
 def release_readiness_score(manifest, evidence_index, policy):
     evidence_items = [
         item
@@ -407,6 +430,7 @@ def docs_evidence():
         "docs/reference/governance-dashboard-contract.json",
         "docs/releases/evidence-manifest.json",
         "docs/releases/evidence-index.json",
+        "docs/releases/evidence-consumption.json",
         "docs/releases/readiness-score.json",
         "docs/operations/troubleshooting.md",
     ]
@@ -442,6 +466,7 @@ report = {
     },
     "security": security_evidence(),
     "release": release_evidence(),
+    "releaseEvidenceConsumption": release_evidence_consumption(),
     "aiflow": aiflow_queue(),
     "dashboard": governance_dashboard_contract(),
     "docs": {
@@ -480,6 +505,7 @@ md_lines = [
     f"- Benchmark evidence: `{report['benchmark']['evidenceStatus']}`",
     f"- Release evidence schema: `{report['release']['schema']}`",
     f"- Release evidence index items: `{report['release']['evidenceCount']}`",
+    f"- Release evidence consumption items: `{report['releaseEvidenceConsumption']['itemCount']}`",
     f"- Release readiness score: `{report['release']['readinessScore']['score']}/{report['release']['readinessScore']['maxScore']}` (`{report['release']['readinessScore']['status']}`)",
     f"- Generated upgrade dry-run profiles: `{report['generatedUpgradeDryRun']['profileCount']}`",
     "",
@@ -551,6 +577,43 @@ if report["release"]["evidenceCount"] < 12:
     missing.append("release evidence index is incomplete")
 if report["release"]["releaseRequiredCount"] != report["release"]["evidenceCount"]:
     missing.append("release evidence index contains non-required release item")
+consumption = report["releaseEvidenceConsumption"]
+if consumption["schema"] != "gofly.release_evidence_consumption.v1":
+    missing.append("release evidence consumption schema mismatch")
+if consumption["sourceOfTruth"] != "docs/releases/evidence-index.json":
+    missing.append("release evidence consumption sourceOfTruth mismatch")
+if consumption["acceptanceGate"] != "make governance-report-check":
+    missing.append("release evidence consumption acceptanceGate mismatch")
+for consumer in ("adopter", "release-manager", "ci-agent"):
+    if consumer not in consumption["consumers"]:
+        missing.append(f"release evidence consumption missing consumer {consumer!r}")
+index_by_id = {
+    item.get("id", ""): item
+    for item in (read_json(root / "docs/releases/evidence-index.json") or {}).get("evidence") or []
+    if isinstance(item, dict) and item.get("id")
+}
+consumption_by_id = {
+    item.get("id", ""): item
+    for item in consumption["items"]
+    if isinstance(item, dict) and item.get("id")
+}
+if set(consumption_by_id) != set(index_by_id):
+    missing.append(
+        "release evidence consumption ids mismatch: "
+        f"missing={sorted(set(index_by_id) - set(consumption_by_id))} "
+        f"extra={sorted(set(consumption_by_id) - set(index_by_id))}"
+    )
+for evidence_id, source in sorted(index_by_id.items()):
+    item = consumption_by_id.get(evidence_id)
+    if not item:
+        continue
+    if item.get("artifactPath") != source.get("artifactPath"):
+        missing.append(f"release evidence consumption artifactPath mismatch for {evidence_id}")
+    if item.get("localGate") != source.get("localGate"):
+        missing.append(f"release evidence consumption localGate mismatch for {evidence_id}")
+    for field in ("questionAnswered", "riskClass", "consumerAction", "rollbackOrEscalation"):
+        if not item.get(field):
+            missing.append(f"release evidence consumption {evidence_id} missing {field}")
 readiness_score = report["release"]["readinessScore"]
 if readiness_score["schema"] != "gofly.release_readiness_score.v1":
     missing.append("release readiness score schema mismatch")

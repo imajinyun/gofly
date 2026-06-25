@@ -1,0 +1,120 @@
+{
+  "schema": "gofly.release_evidence_consumption.v1",
+  "sourceOfTruth": "docs/releases/evidence-index.json",
+  "acceptanceGate": "make governance-report-check",
+  "consumers": [
+    "adopter",
+    "release-manager",
+    "ci-agent"
+  ],
+  "items": [
+    {
+      "id": "checksums",
+      "artifactPath": "dist/checksums.txt",
+      "questionAnswered": "Do downloaded archives match the release manifest?",
+      "localGate": "make release-artifacts-check",
+      "riskClass": "supply-chain",
+      "consumerAction": "verify checksums before installing or mirroring archives",
+      "rollbackOrEscalation": "reject the release artifact and rebuild from the tagged commit"
+    },
+    {
+      "id": "archive-sbom",
+      "artifactPath": "dist/<archive>.spdx.json",
+      "questionAnswered": "What dependency and file inventory is shipped in each archive?",
+      "localGate": "make release-artifacts-check",
+      "riskClass": "supply-chain",
+      "consumerAction": "review SBOM deltas before approving a dependency-sensitive upgrade",
+      "rollbackOrEscalation": "pin the previous release until unexpected SBOM entries are explained"
+    },
+    {
+      "id": "docker-sbom",
+      "artifactPath": "release-evidence/docker/release-docker-sbom.spdx.json",
+      "questionAnswered": "What dependency inventory is shipped in the release container?",
+      "localGate": "RELEASE_REQUIRE_DOCKER_EVIDENCE=true make release-artifacts-check",
+      "riskClass": "supply-chain",
+      "consumerAction": "review container SBOM before promoting the image",
+      "rollbackOrEscalation": "keep the previous image digest pinned until the SBOM delta is accepted"
+    },
+    {
+      "id": "checksums-attestation",
+      "artifactPath": "release-evidence/checksums-attestation-verification.json",
+      "questionAnswered": "Were archive checksums covered by provenance attestation?",
+      "localGate": "RELEASE_REQUIRE_DOCKER_EVIDENCE=true make release-artifacts-check",
+      "riskClass": "provenance",
+      "consumerAction": "verify attestation issuer and subject before distributing archives",
+      "rollbackOrEscalation": "block publication when attestation verification is missing or mismatched"
+    },
+    {
+      "id": "docker-attestation",
+      "artifactPath": "release-evidence/docker/release-docker-attestation-verification.json",
+      "questionAnswered": "Was the release container covered by provenance attestation?",
+      "localGate": "RELEASE_REQUIRE_DOCKER_EVIDENCE=true make release-artifacts-check",
+      "riskClass": "provenance",
+      "consumerAction": "verify image attestation before deployment promotion",
+      "rollbackOrEscalation": "continue running the previously attested digest"
+    },
+    {
+      "id": "docker-digest",
+      "artifactPath": "release-evidence/docker/release-docker-digests.json",
+      "questionAnswered": "Which immutable image digests should production pin?",
+      "localGate": "RELEASE_REQUIRE_DOCKER_EVIDENCE=true make release-artifacts-check",
+      "riskClass": "deployment",
+      "consumerAction": "deploy by digest rather than mutable tag",
+      "rollbackOrEscalation": "roll back to the previous known-good digest"
+    },
+    {
+      "id": "trivy",
+      "artifactPath": "release-evidence/docker/release-trivy-results.json",
+      "questionAnswered": "Does the release container have known vulnerability findings?",
+      "localGate": "RELEASE_REQUIRE_DOCKER_EVIDENCE=true make release-artifacts-check",
+      "riskClass": "security",
+      "consumerAction": "review reachable high or critical findings before production rollout",
+      "rollbackOrEscalation": "block promotion or document mitigation before override"
+    },
+    {
+      "id": "api-compat",
+      "artifactPath": "release-evidence/api-compat-report.json",
+      "questionAnswered": "Did public API, CLI, RPC, or generated contracts break compatibility?",
+      "localGate": "make api-compat",
+      "riskClass": "contract",
+      "consumerAction": "inspect breaking changes before upgrading generated projects",
+      "rollbackOrEscalation": "pin the previous gofly version or require migration notes"
+    },
+    {
+      "id": "security",
+      "artifactPath": "release-evidence/security-report.json",
+      "questionAnswered": "Did govulncheck or gosec detect release-blocking issues?",
+      "localGate": "make govulncheck && make gosec",
+      "riskClass": "security",
+      "consumerAction": "review new findings and confirm no unexplained baseline expansion",
+      "rollbackOrEscalation": "block release until the finding is fixed or documented as unreachable"
+    },
+    {
+      "id": "race",
+      "artifactPath": "release-evidence/race-report.txt",
+      "questionAnswered": "Did race-enabled tests pass for concurrent runtime paths?",
+      "localGate": "go test -race ./...",
+      "riskClass": "runtime",
+      "consumerAction": "review race failures before enabling new runtime or RPC paths",
+      "rollbackOrEscalation": "disable the new path or pin the previous release until fixed"
+    },
+    {
+      "id": "bench",
+      "artifactPath": "bench/regression-report.json",
+      "questionAnswered": "Did ratcheted benchmark budgets regress?",
+      "localGate": "make bench-evidence-check",
+      "riskClass": "performance",
+      "consumerAction": "check blocking allocation or latency budget failures before rollout",
+      "rollbackOrEscalation": "hold promotion or downgrade affected hot-path feature usage"
+    },
+    {
+      "id": "governance-dashboard",
+      "artifactPath": ".tmp-test/governance-report/governance-report.json",
+      "questionAnswered": "Is the release-ready governance summary complete?",
+      "localGate": "make governance-report-check",
+      "riskClass": "governance",
+      "consumerAction": "review readiness score, API tiers, coverage, security, benchmark, and aiflow status",
+      "rollbackOrEscalation": "do not publish until the dashboard reports ready status"
+    }
+  ]
+}

@@ -397,12 +397,16 @@ gosec-inventory-refresh: ## Refresh the approved #nosec exception baseline after
 	python3 -c 'import json, sys; from pathlib import Path; inventory = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8")); baseline_path = Path(sys.argv[2]); allowed = ["|".join([entry["file"], ",".join(entry.get("rules") or []), entry.get("rationale", "")]) for entry in inventory.get("entries", [])]; payload = {"allowed_exceptions": sorted(allowed), "schema": "gofly.gosec_exception_baseline.v1"}; baseline_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")' $$tmp $(GOSEC_INVENTORY_BASELINE)
 
 .PHONY: release-artifacts-check
-release-artifacts-check: release-config-check ## Verify release archives, checksums, and SBOM artifacts in dist
+release-artifacts-check: release-config-check release-evidence-index-check ## Verify release archives, checksums, and SBOM artifacts in dist
 	sh $(SCRIPTS_DIR)/check-release-artifacts.sh
 
 .PHONY: release-config-check
 release-config-check: ## Validate GoReleaser and release evidence configuration
 	sh $(SCRIPTS_DIR)/check-release-config.sh
+
+.PHONY: release-evidence-index-check
+release-evidence-index-check: ## Validate release evidence index ids, producers, and gates
+	sh $(SCRIPTS_DIR)/check-release-evidence-index.sh
 
 .PHONY: release-artifacts-test
 release-artifacts-test: ## Run release artifact provenance fixture tests

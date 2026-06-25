@@ -5,6 +5,7 @@ python3 - <<'PY'
 import json
 import pathlib
 import re
+import subprocess
 import sys
 
 checks = {
@@ -163,49 +164,14 @@ if manifest_path.is_file():
         if directory not in (policy.get("volatile_output_directories") or []):
             missing.append(f"docs/releases/evidence-manifest.json: evidence_policy.volatile_output_directories missing {directory!r}")
 
-index_path = pathlib.Path("docs/releases/evidence-index.json")
-if index_path.is_file():
-    index = json.loads(index_path.read_text(encoding="utf-8"))
-    if index.get("schema") != "gofly.release_evidence_index.v1":
-        missing.append("docs/releases/evidence-index.json: schema must be gofly.release_evidence_index.v1")
-    contract = index.get("schemaContract") or {}
-    if contract.get("version") != "1":
-        missing.append("docs/releases/evidence-index.json: schemaContract.version must be 1")
-    required_fields = set(contract.get("requiredFields") or [])
-    for field in ("id", "artifactPath", "producerJob", "localGate", "releaseRequired"):
-        if field not in required_fields:
-            missing.append(f"docs/releases/evidence-index.json: schemaContract.requiredFields missing {field!r}")
-    evidence = index.get("evidence") or []
-    required_ids = {
-        "checksums",
-        "archive-sbom",
-        "docker-sbom",
-        "checksums-attestation",
-        "docker-attestation",
-        "docker-digest",
-        "trivy",
-        "api-compat",
-        "security",
-        "race",
-        "bench",
-        "governance-dashboard",
-    }
-    seen_ids = set()
-    for item in evidence:
-        if not isinstance(item, dict):
-            missing.append(f"docs/releases/evidence-index.json: evidence entry must be an object: {item!r}")
-            continue
-        item_id = item.get("id", "")
-        if item_id in seen_ids:
-            missing.append(f"docs/releases/evidence-index.json: duplicate evidence id {item_id!r}")
-        seen_ids.add(item_id)
-        for field in ("id", "artifactPath", "producerJob", "localGate"):
-            if not item.get(field):
-                missing.append(f"docs/releases/evidence-index.json: evidence {item_id or '<missing>'} missing {field!r}")
-        if item.get("releaseRequired") is not True:
-            missing.append(f"docs/releases/evidence-index.json: evidence {item_id or '<missing>'} must be releaseRequired")
-    for item_id in sorted(required_ids - seen_ids):
-        missing.append(f"docs/releases/evidence-index.json: missing evidence id {item_id!r}")
+try:
+    subprocess.run(
+        ["sh", "bin/scripts/check-release-evidence-index.sh"],
+        check=True,
+        cwd=pathlib.Path(".").resolve(),
+    )
+except subprocess.CalledProcessError as exc:
+    missing.append(f"release evidence index check failed with exit code {exc.returncode}")
 
 workflow = pathlib.Path(".github/workflows/ci.yml").read_text(encoding="utf-8")
 release_start = workflow.find("  release:\n")

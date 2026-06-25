@@ -186,12 +186,31 @@ def ci_required_check_evidence():
     }
 
 
+def runtime_slo_evidence():
+    manifest = read_json(root / "docs/reference/runtime-slo.json") or {}
+    signals = manifest.get("goldenSignals") or []
+    return {
+        "schema": manifest.get("schema", ""),
+        "manifest": "docs/reference/runtime-slo.json",
+        "gate": "make runtime-slo-check",
+        "exampleGate": (manifest.get("verification") or {}).get("observabilityExample", ""),
+        "productionGate": (manifest.get("verification") or {}).get("productionGate", ""),
+        "signals": [
+            item.get("id", "")
+            for item in signals
+            if isinstance(item, dict) and item.get("id")
+        ],
+        "signalCount": len(signals),
+    }
+
+
 def docs_evidence():
     required = [
         "docs/reference/api-surface.md",
         "docs/reference/performance-governance.md",
         "docs/reference/coverage-trend.md",
         "docs/reference/ci-required-check-evidence.md",
+        "docs/reference/runtime-slo.md",
         "docs/reference/cli-json-contracts.md",
         "docs/reference/generated-version-compat.md",
         "docs/releases/evidence-manifest.json",
@@ -216,6 +235,7 @@ report = {
     "coverage": coverage_evidence(),
     "coverageTrend": coverage_evidence(),
     "ciRequiredChecks": ci_required_check_evidence(),
+    "runtimeSLO": runtime_slo_evidence(),
     "benchmark": {
         "gate": "make bench-evidence-check",
         "trendGate": "make bench-trend",
@@ -239,6 +259,7 @@ report = {
         "make bench-evidence-check",
         "make coverage-trend-check",
         "make ci-required-check-evidence-check",
+        "make runtime-slo-check",
         "make cover-check",
         "make govulncheck",
         "make gosec",
@@ -307,6 +328,10 @@ if report["ciRequiredChecks"]["checkCount"] < 20:
     missing.append("CI required-check evidence is incomplete")
 if report["ciRequiredChecks"]["releasePrerequisiteCount"] < 13:
     missing.append("CI release prerequisite evidence is incomplete")
+if report["runtimeSLO"]["schema"] != "gofly.runtime_slo.v1":
+    missing.append("runtime SLO evidence schema mismatch")
+if report["runtimeSLO"]["signalCount"] < 7:
+    missing.append("runtime SLO evidence is incomplete")
 if report["benchmark"]["evidenceStatus"] != "present":
     missing.append("benchmark evidence is missing")
 if report["release"]["schema"] != "gofly.release_evidence_manifest.v1":

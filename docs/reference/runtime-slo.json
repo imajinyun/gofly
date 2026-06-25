@@ -1,0 +1,110 @@
+{
+  "goldenSignals": [
+    {
+      "evidence": [
+        "examples/observability/README.md",
+        "examples/observability/grafana-dashboard.json",
+        "core/observability/metrics/prometheus.go",
+        "rest/middleware.go"
+      ],
+      "id": "latency",
+      "queries": [
+        "histogram_quantile(0.95, sum(rate(gofly_route_duration_seconds_bucket[5m])) by (le, route))"
+      ],
+      "slo": "Track route and RPC latency with bounded labels and review p95 before release."
+    },
+    {
+      "evidence": [
+        "examples/observability/README.md",
+        "examples/observability/grafana-dashboard.json",
+        "rest/middleware.go",
+        "rpc/middleware.go"
+      ],
+      "id": "errors",
+      "queries": [
+        "sum(rate(gofly_errors_total[5m])) / clamp_min(sum(rate(gofly_requests_total[5m])), 1)"
+      ],
+      "slo": "Track error ratio by route or method and investigate regressions before release."
+    },
+    {
+      "evidence": [
+        "examples/observability/README.md",
+        "examples/observability/prometheus.yaml",
+        "k8s/servicemonitor.yaml",
+        "charts/gofly/templates/servicemonitor.yaml"
+      ],
+      "id": "traffic",
+      "queries": [
+        "sum(rate(gofly_requests_total[5m])) by (route)"
+      ],
+      "slo": "Track request traffic and scrape health from Prometheus or ServiceMonitor assets."
+    },
+    {
+      "evidence": [
+        "core/limit/adaptive.go",
+        "core/limit/concurrency.go",
+        "rpc/connpool.go",
+        "docs/operations/production-checklist.md"
+      ],
+      "id": "saturation",
+      "queries": [
+        "adaptive limit passes/drops",
+        "concurrency slots",
+        "connection pool exhaustion"
+      ],
+      "slo": "Track saturation through adaptive limiter drops, concurrency limits, and connection pool exhaustion."
+    },
+    {
+      "evidence": [
+        "cache/cache.go",
+        "core/llm/cache.go",
+        "docs/operations/production-checklist.md"
+      ],
+      "id": "cache",
+      "queries": [
+        "cache hit/miss/error accounting",
+        "LLM response-cache governance stage"
+      ],
+      "slo": "Track cache hit, miss, and error behavior separately from request latency."
+    },
+    {
+      "evidence": [
+        "core/governance/manager.go",
+        "core/governance/rules.go",
+        "docs/concepts/governance.md",
+        "docs/reference/resilience-drill.md"
+      ],
+      "id": "governance-decisions",
+      "queries": [
+        "rate-limit",
+        "retry",
+        "circuit-breaker",
+        "timeout",
+        "canary"
+      ],
+      "slo": "Track runtime policy decisions and verify resilience drills before release."
+    },
+    {
+      "evidence": [
+        "examples/observability/main.go",
+        "examples/observability/README.md",
+        "core/observability/trace/trace.go",
+        "cmd/gofly/internal/generator/templates.go"
+      ],
+      "id": "trace-log-correlation",
+      "queries": [
+        "trace_id",
+        "request_id",
+        "traceparent",
+        "Logs by trace_id"
+      ],
+      "slo": "Carry trace_id and request_id through REST, RPC, logs, generated dashboards, and OpenAPI examples."
+    }
+  ],
+  "schema": "gofly.runtime_slo.v1",
+  "verification": {
+    "gate": "make runtime-slo-check",
+    "observabilityExample": "go test -C examples/observability ./...",
+    "productionGate": "make p1-growth-check"
+  }
+}

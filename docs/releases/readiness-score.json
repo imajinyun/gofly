@@ -1,0 +1,85 @@
+{
+  "components": [
+    {
+      "description": "All release-required evidence ids are present, stable, and mapped to local gates.",
+      "gate": "make release-evidence-index-check",
+      "id": "release-evidence-index",
+      "requiredEvidenceMinimum": 12,
+      "requiresAllEvidenceReleaseRequired": true,
+      "weight": 25
+    },
+    {
+      "description": "Binary archives, release container evidence, and provenance attestations are grouped as required release artifacts.",
+      "gate": "make release-config-check",
+      "id": "artifact-groups",
+      "requiredGroups": [
+        "binary-archives",
+        "release-container",
+        "provenance-attestations"
+      ],
+      "weight": 20
+    },
+    {
+      "description": "Checksums, SBOM, Docker digest, Trivy, and provenance evidence are named in the durable manifest.",
+      "gate": "make release-artifacts-check",
+      "id": "supply-chain-artifacts",
+      "requiredArtifacts": [
+        "checksums",
+        "archive-sbom",
+        "docker-sbom",
+        "docker-digest",
+        "trivy",
+        "checksums-attestation",
+        "docker-attestation"
+      ],
+      "weight": 20
+    },
+    {
+      "description": "Local and tag release gates cover config, snapshot, artifacts, API compatibility, security, race, benchmark, and governance dashboard evidence.",
+      "gate": "make governance-report-check",
+      "id": "blocking-gates",
+      "requiredGates": [
+        "make release-config-check",
+        "make release-snapshot",
+        "make release-artifacts-check",
+        "make release-artifacts-test",
+        "make api-compat",
+        "make govulncheck && make gosec",
+        "go test -race ./...",
+        "make bench-evidence-check",
+        "make governance-report-check"
+      ],
+      "weight": 20
+    },
+    {
+      "description": "Release automation must reject skipped API, security, race, or artifact gates.",
+      "gate": "make release-config-check",
+      "id": "skip-policy",
+      "requiredForbiddenSkips": [
+        "API compatibility",
+        "security",
+        "race",
+        "release artifacts"
+      ],
+      "requiresAllowReleaseGateSkipsFalse": true,
+      "weight": 15
+    }
+  ],
+  "maxScore": 100,
+  "minimumScore": 100,
+  "schema": "gofly.release_readiness_score.v1",
+  "schemaContract": {
+    "requiredFields": [
+      "schema",
+      "maxScore",
+      "minimumScore",
+      "components"
+    ],
+    "version": "1"
+  },
+  "statusPolicy": {
+    "blockedBelowMinimum": true,
+    "readyStatus": "ready",
+    "blockedStatus": "blocked"
+  }
+}

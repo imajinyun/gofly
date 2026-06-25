@@ -26,6 +26,14 @@ promoted. The release evidence index lives at
 release-required evidence item to a stable id, artifact path, producer job, and
 local gate.
 
+The adopter-facing release readiness score lives at
+[`docs/releases/readiness-score.json`](readiness-score.json). It assigns a
+100-point release-blocking score across the evidence index, required artifact
+groups, supply-chain evidence, blocking gates, and skip policy. The score is
+embedded into the governance dashboard by `make governance-report-check`; any
+component below the configured minimum reports `blocked` and fails the
+dashboard contract check.
+
 The manifest is also the machine-readable release evidence schema. Its
 `schema_contract` lists fields that release automation must preserve, while
 `artifact_groups` maps binary archive, release container, and provenance

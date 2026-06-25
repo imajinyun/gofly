@@ -118,8 +118,9 @@ def aiflow_queue():
 def release_evidence():
     manifest = read_json(root / "docs/releases/evidence-manifest.json") or {}
     evidence_index = read_json(root / "docs/releases/evidence-index.json") or {}
+    readiness_policy = read_json(root / "docs/releases/readiness-score.json") or {}
     evidence_items = evidence_index.get("evidence") or []
-    return {
+    release = {
         "schema": manifest.get("schema", ""),
         "manifest": "docs/releases/evidence-manifest.json",
         "indexSchema": evidence_index.get("schema", ""),
@@ -145,6 +146,131 @@ def release_evidence():
             "dockerDigest": bool(manifest.get("docker_digest")),
             "provenanceAttestation": bool(manifest.get("provenance_attestation")),
         },
+    }
+    release["readinessScore"] = release_readiness_score(manifest, evidence_index, readiness_policy)
+    return release
+
+
+def release_readiness_score(manifest, evidence_index, policy):
+    evidence_items = [
+        item
+        for item in evidence_index.get("evidence") or []
+        if isinstance(item, dict)
+    ]
+    evidence_ids = {
+        item.get("id", "")
+        for item in evidence_items
+        if item.get("id")
+    }
+    local_gates = {
+        item.get("localGate", "")
+        for item in evidence_items
+        if item.get("localGate")
+    }
+    manifest_gates = set(manifest.get("required_gates") or [])
+    artifact_groups = {
+        item.get("id", ""): item
+        for item in manifest.get("artifact_groups") or []
+        if isinstance(item, dict) and item.get("id")
+    }
+    forbidden_skips = set((manifest.get("tag_governance") or {}).get("forbidden_skips") or [])
+    evidence_policy = manifest.get("evidence_policy") or {}
+
+    score = 0
+    components = []
+    for component in policy.get("components") or []:
+        if not isinstance(component, dict):
+            continue
+        component_id = component.get("id", "")
+        weight = int(component.get("weight") or 0)
+        passed = True
+        failures = []
+
+        if component_id == "release-evidence-index":
+            minimum = int(component.get("requiredEvidenceMinimum") or 0)
+            if evidence_index.get("schema") != "gofly.release_evidence_index.v1":
+                passed = False
+                failures.append("release evidence index schema mismatch")
+            if len(evidence_items) < minimum:
+                passed = False
+                failures.append(f"release evidence count {len(evidence_items)} is below {minimum}")
+            if component.get("requiresAllEvidenceReleaseRequired") is True:
+                non_required = [
+                    item.get("id", "<missing>")
+                    for item in evidence_items
+                    if item.get("releaseRequired") is not True
+                ]
+                if non_required:
+                    passed = False
+                    failures.append("non-release-required evidence ids: " + ", ".join(non_required))
+        elif component_id == "artifact-groups":
+            for group_id in component.get("requiredGroups") or []:
+                group = artifact_groups.get(group_id)
+                if not group:
+                    passed = False
+                    failures.append(f"missing artifact group {group_id}")
+                    continue
+                if group.get("required") is not True:
+                    passed = False
+                    failures.append(f"artifact group {group_id} is not required")
+                if not group.get("gate"):
+                    passed = False
+                    failures.append(f"artifact group {group_id} is missing gate")
+        elif component_id == "supply-chain-artifacts":
+            for artifact_id in component.get("requiredArtifacts") or []:
+                if artifact_id not in evidence_ids:
+                    passed = False
+                    failures.append(f"missing release evidence id {artifact_id}")
+        elif component_id == "blocking-gates":
+            available_gates = manifest_gates | local_gates
+            required_command = (manifest.get("tag_governance") or {}).get("required_command")
+            if required_command:
+                available_gates.add(required_command)
+            for gate in component.get("requiredGates") or []:
+                if gate not in available_gates:
+                    passed = False
+                    failures.append(f"missing blocking gate {gate}")
+        elif component_id == "skip-policy":
+            for skip in component.get("requiredForbiddenSkips") or []:
+                if skip not in forbidden_skips:
+                    passed = False
+                    failures.append(f"missing forbidden skip {skip}")
+            if (
+                component.get("requiresAllowReleaseGateSkipsFalse") is True
+                and evidence_policy.get("allow_release_gate_skips") is not False
+            ):
+                passed = False
+                failures.append("release gate skips are not explicitly disabled")
+        else:
+            passed = False
+            failures.append(f"unknown release readiness component {component_id}")
+
+        if passed:
+            score += weight
+        components.append({
+            "id": component_id,
+            "gate": component.get("gate", ""),
+            "passed": passed,
+            "weight": weight,
+            "failures": failures,
+        })
+
+    max_score = int(policy.get("maxScore") or 0)
+    minimum_score = int(policy.get("minimumScore") or max_score)
+    status_policy = policy.get("statusPolicy") or {}
+    status_value = (
+        status_policy.get("readyStatus", "ready")
+        if score >= minimum_score
+        else status_policy.get("blockedStatus", "blocked")
+    )
+    return {
+        "schema": policy.get("schema", ""),
+        "policy": "docs/releases/readiness-score.json",
+        "maxScore": max_score,
+        "minimumScore": minimum_score,
+        "score": score,
+        "status": status_value,
+        "components": components,
     }
 
 
@@ -262,6 +388,7 @@ def docs_evidence():
         "docs/reference/generated-upgrade-dry-run.md",
         "docs/releases/evidence-manifest.json",
         "docs/releases/evidence-index.json",
+        "docs/releases/readiness-score.json",
         "docs/operations/troubleshooting.md",
     ]
     return [{"path": path, "status": status(path)} for path in required]
@@ -333,6 +460,7 @@ md_lines = [
     f"- Benchmark evidence: `{report['benchmark']['evidenceStatus']}`",
     f"- Release evidence schema: `{report['release']['schema']}`",
     f"- Release evidence index items: `{report['release']['evidenceCount']}`",
+    f"- Release readiness score: `{report['release']['readinessScore']['score']}/{report['release']['readinessScore']['maxScore']}` (`{report['release']['readinessScore']['status']}`)",
     f"- Generated upgrade dry-run profiles: `{report['generatedUpgradeDryRun']['profileCount']}`",
     "",
     "## API Surface",
@@ -403,6 +531,23 @@ if report["release"]["evidenceCount"] < 12:
     missing.append("release evidence index is incomplete")
 if report["release"]["releaseRequiredCount"] != report["release"]["evidenceCount"]:
     missing.append("release evidence index contains non-required release item")
+readiness_score = report["release"]["readinessScore"]
+if readiness_score["schema"] != "gofly.release_readiness_score.v1":
+    missing.append("release readiness score schema mismatch")
+if readiness_score["score"] != readiness_score["maxScore"]:
+    missing.append(
+        f"release readiness score is {readiness_score['score']}/{readiness_score['maxScore']}"
+    )
+if readiness_score["status"] != "ready":
+    missing.append(f"release readiness score status is {readiness_score['status']!r}")
+if readiness_score["minimumScore"] != 100:
+    missing.append("release readiness score minimum must remain 100")
+for component in readiness_score["components"]:
+    if not component["passed"]:
+        missing.append(
+            "release readiness component "
+            f"{component['id']} failed: {', '.join(component['failures'])}"
+        )
 if report["security"]["gosec"]["baselineSchema"] != "gofly.gosec_exception_baseline.v1":
     missing.append("gosec exception baseline schema mismatch")
 if report["aiflow"]["status"] == "present" and not report["aiflow"].get("summary"):

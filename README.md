@@ -123,6 +123,7 @@ Run `gofly help` for the full command list.
 | 🧭 From zero to production | [docs/tutorials/zero-to-production.md](docs/tutorials/zero-to-production.md) |
 | 🚀 Golden-path quickstart | [docs/getting-started/quickstart.md](docs/getting-started/quickstart.md) |
 | 🧩 API stability | [docs/reference/api-surface.md](docs/reference/api-surface.md), [docs/reference/compatibility.md](docs/reference/compatibility.md), [CLI JSON](docs/reference/cli-json-contracts.md), [control-plane](docs/reference/control-plane-contracts.md) |
+| 🧭 Framework gap matrix | [docs/reference/framework-gap-matrix.md](docs/reference/framework-gap-matrix.md) |
 | 🧪 API example consistency | [docs/reference/api-example-consistency.md](docs/reference/api-example-consistency.md) |
 | 📊 Benchmark and coverage evidence | [docs/reference/benchmark-matrix.md](docs/reference/benchmark-matrix.md), [docs/reference/coverage-trend.md](docs/reference/coverage-trend.md), [bench/evidence.md](bench/evidence.md), [bench/README.md](bench/README.md) |
 | ✅ CI required checks | [docs/reference/ci-required-check-evidence.md](docs/reference/ci-required-check-evidence.md), [docs/operations/production-checklist.md](docs/operations/production-checklist.md) |

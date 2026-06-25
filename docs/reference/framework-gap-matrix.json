@@ -1,0 +1,175 @@
+{
+  "schema": "gofly.framework_gap_matrix.v1",
+  "sources": [
+    "docs/reference/api-surface.md",
+    "docs/reference/p1-growth-roadmap.md",
+    "docs/reference/rpc-boundary.md",
+    "docs/reference/openapi-validation-envelope.md",
+    "docs/reference/generated-upgrade-dry-run.md",
+    "docs/releases/evidence-index.json"
+  ],
+  "dimensions": [
+    {
+      "id": "http-dx",
+      "referenceFrameworks": [
+        "Gin",
+        "Echo",
+        "Fiber",
+        "Hertz"
+      ],
+      "currentEvidence": [
+        "docs/guides/rest.md",
+        "docs/reference/openapi-validation-envelope.md",
+        "make openapi-validation-check"
+      ],
+      "gap": "Common middleware discovery, invalid request smoke coverage, and request binding examples are less immediately visible than mature HTTP-first frameworks.",
+      "priority": "P0",
+      "todo": "Land an OpenAPI invalid-request smoke matrix and HTTP middleware ecosystem matrix.",
+      "aiflowTask": "GOFLY-P3-3-OPENAPI-INVALID-SMOKE",
+      "acceptanceGate": "make openapi-validation-check"
+    },
+    {
+      "id": "microservice-scaffold",
+      "referenceFrameworks": [
+        "go-zero",
+        "Kratos"
+      ],
+      "currentEvidence": [
+        "docs/reference/generated-version-compat.md",
+        "docs/reference/generated-upgrade-dry-run.md",
+        "make generated-version-compat-check",
+        "make generated-upgrade-dry-run-check"
+      ],
+      "gap": "Generated upgrade trust is now documented and gated, but adopter-facing scaffold decisions still need one consolidated comparison and migration path.",
+      "priority": "P0",
+      "todo": "Expose framework gap matrix and keep generated upgrade evidence linked from adoption docs.",
+      "aiflowTask": "GOFLY-P3-1-FRAMEWORK-GAP-MATRIX",
+      "acceptanceGate": "make framework-gap-check"
+    },
+    {
+      "id": "rpc-tier1",
+      "referenceFrameworks": [
+        "Kitex",
+        "gRPC-Go",
+        "go-zero"
+      ],
+      "currentEvidence": [
+        "docs/reference/rpc-boundary.md",
+        "make rpc-boundary-check",
+        "make bench-evidence-check"
+      ],
+      "gap": "RPC, gateway, and app remain Tier 2 until unary/stream benchmarks, resolver/balancer smoke, and Kitex rollback evidence are machine-indexed.",
+      "priority": "P0",
+      "todo": "Create a Tier 1 promotion evidence manifest and gate for rpc/gateway/app.",
+      "aiflowTask": "GOFLY-P3-2-RPC-TIER1-EVIDENCE",
+      "acceptanceGate": "make rpc-boundary-check"
+    },
+    {
+      "id": "production-proof",
+      "referenceFrameworks": [
+        "Kratos",
+        "go-zero",
+        "Kitex"
+      ],
+      "currentEvidence": [
+        "examples/production-orders",
+        "docs/reference/runtime-slo.md",
+        "docs/reference/cloud-native-rendering.md",
+        "make reference-app-smoke",
+        "make p1-growth-check"
+      ],
+      "gap": "Production assets exist, but the reference app topology is not yet indexed as one full REST/RPC/MQ/outbox/cache/discovery/observability/K8s proof.",
+      "priority": "P1",
+      "todo": "Add a production-orders topology manifest covering memory and Docker-backed modes.",
+      "aiflowTask": "GOFLY-P3-5-REFERENCE-APP-TOPOLOGY",
+      "acceptanceGate": "make reference-app-smoke"
+    },
+    {
+      "id": "release-trust",
+      "referenceFrameworks": [
+        "Kratos",
+        "go-zero"
+      ],
+      "currentEvidence": [
+        "docs/releases/evidence-index.json",
+        "docs/releases/evidence-manifest.json",
+        "make release-evidence-index-check",
+        "make release-config-check"
+      ],
+      "gap": "Release evidence is indexed and gated; the next gap is publishing it as a concise adopter-facing release readiness score.",
+      "priority": "P1",
+      "todo": "Expose release evidence index summary in adopter/release docs and governance report consumers.",
+      "aiflowTask": "GOFLY-P3-FOLLOWUP-RELEASE-READINESS-SCORE",
+      "acceptanceGate": "make governance-report-check"
+    },
+    {
+      "id": "ecosystem-plugins",
+      "referenceFrameworks": [
+        "go-zero",
+        "Kratos"
+      ],
+      "currentEvidence": [
+        "examples/plugin-ecosystem",
+        "docs/reference/plugin-conformance.md",
+        "make plugin-conformance-check"
+      ],
+      "gap": "Plugin protocol has conformance coverage, but third-party template publishing and permission-review UX remain early compared with mature extension ecosystems.",
+      "priority": "P1",
+      "todo": "Add plugin permission review evidence and third-party template publishing checklist.",
+      "aiflowTask": "GOFLY-P3-FOLLOWUP-PLUGIN-PUBLISHING-UX",
+      "acceptanceGate": "make plugin-conformance-check"
+    },
+    {
+      "id": "performance-credibility",
+      "referenceFrameworks": [
+        "Gin",
+        "Echo",
+        "Fiber",
+        "Hertz",
+        "Kitex"
+      ],
+      "currentEvidence": [
+        "docs/reference/performance-governance.md",
+        "docs/reference/benchmark-matrix.md",
+        "bench/evidence.md",
+        "make bench-evidence-check"
+      ],
+      "gap": "Bench governance exists, but latency remains report-only in several areas while allocation regression is the first blocking budget.",
+      "priority": "P1",
+      "todo": "Promote selected hot-path latency budgets from report-only to blocking after trend confidence.",
+      "aiflowTask": "GOFLY-P3-FOLLOWUP-BENCH-BUDGET-RATCHET",
+      "acceptanceGate": "make bench-regression-check"
+    },
+    {
+      "id": "adopter-dx",
+      "referenceFrameworks": [
+        "Gin",
+        "go-zero",
+        "Kratos",
+        "Kitex",
+        "Beego"
+      ],
+      "currentEvidence": [
+        "docs/explanation/adopter-decision-guide.md",
+        "docs/reference/api-example-consistency.md",
+        "make adopter-decision-check",
+        "make api-example-consistency-check"
+      ],
+      "gap": "Adopter guidance exists, but top-level framework comparison needs one machine-validated TODO matrix to steer future work.",
+      "priority": "P0",
+      "todo": "Keep this framework gap matrix linked from docs and validated by docs-check.",
+      "aiflowTask": "GOFLY-P3-1-FRAMEWORK-GAP-MATRIX",
+      "acceptanceGate": "make framework-gap-check"
+    }
+  ],
+  "recommendedOrder": [
+    "GOFLY-P3-1-FRAMEWORK-GAP-MATRIX",
+    "GOFLY-P3-2-RPC-TIER1-EVIDENCE",
+    "GOFLY-P3-3-OPENAPI-INVALID-SMOKE",
+    "GOFLY-P3-4-MIDDLEWARE-ECOSYSTEM-MATRIX",
+    "GOFLY-P3-5-REFERENCE-APP-TOPOLOGY",
+    "GOFLY-P3-FOLLOWUP-RELEASE-READINESS-SCORE",
+    "GOFLY-P3-FOLLOWUP-PLUGIN-PUBLISHING-UX",
+    "GOFLY-P3-FOLLOWUP-BENCH-BUDGET-RATCHET"
+  ]
+}

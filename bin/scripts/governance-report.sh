@@ -204,6 +204,36 @@ def runtime_slo_evidence():
     }
 
 
+def generated_upgrade_dry_run_evidence():
+    manifest = read_json(root / "docs/reference/generated-upgrade-dry-run.json") or {}
+    profiles = manifest.get("profiles") or []
+    categories = (manifest.get("diffReportContract") or {}).get("categories") or []
+    return {
+        "schema": manifest.get("schema", ""),
+        "manifest": "docs/reference/generated-upgrade-dry-run.json",
+        "docs": "docs/reference/generated-upgrade-dry-run.md",
+        "gate": "make generated-upgrade-dry-run-check",
+        "compatibilityGate": "make generated-version-compat-check",
+        "profileCount": len(profiles),
+        "profiles": [
+            item.get("profile", "")
+            for item in profiles
+            if isinstance(item, dict) and item.get("profile")
+        ],
+        "diffCategoryCount": len(categories),
+        "diffCategories": [
+            item.get("category", "")
+            for item in categories
+            if isinstance(item, dict) and item.get("category")
+        ],
+        "rollbackNoteCount": sum(
+            1
+            for item in profiles
+            if isinstance(item, dict) and (item.get("diffReport") or {}).get("rollbackNote")
+        ),
+    }
+
+
 def docs_evidence():
     required = [
         "docs/reference/api-surface.md",
@@ -213,6 +243,7 @@ def docs_evidence():
         "docs/reference/runtime-slo.md",
         "docs/reference/cli-json-contracts.md",
         "docs/reference/generated-version-compat.md",
+        "docs/reference/generated-upgrade-dry-run.md",
         "docs/releases/evidence-manifest.json",
         "docs/operations/troubleshooting.md",
     ]
@@ -236,6 +267,7 @@ report = {
     "coverageTrend": coverage_evidence(),
     "ciRequiredChecks": ci_required_check_evidence(),
     "runtimeSLO": runtime_slo_evidence(),
+    "generatedUpgradeDryRun": generated_upgrade_dry_run_evidence(),
     "benchmark": {
         "gate": "make bench-evidence-check",
         "trendGate": "make bench-trend",
@@ -256,6 +288,7 @@ report = {
         "make governance-report-check",
         "make stable-surface-check",
         "make generated-version-compat-check",
+        "make generated-upgrade-dry-run-check",
         "make bench-evidence-check",
         "make coverage-trend-check",
         "make ci-required-check-evidence-check",
@@ -281,6 +314,7 @@ md_lines = [
     f"- Coverage ratchet: `{report['coverage']['ratchet']}%`",
     f"- Benchmark evidence: `{report['benchmark']['evidenceStatus']}`",
     f"- Release evidence schema: `{report['release']['schema']}`",
+    f"- Generated upgrade dry-run profiles: `{report['generatedUpgradeDryRun']['profileCount']}`",
     "",
     "## API Surface",
     "",
@@ -332,6 +366,14 @@ if report["runtimeSLO"]["schema"] != "gofly.runtime_slo.v1":
     missing.append("runtime SLO evidence schema mismatch")
 if report["runtimeSLO"]["signalCount"] < 7:
     missing.append("runtime SLO evidence is incomplete")
+if report["generatedUpgradeDryRun"]["schema"] != "gofly.generated_upgrade_dry_run.v1":
+    missing.append("generated upgrade dry-run schema mismatch")
+if report["generatedUpgradeDryRun"]["profileCount"] != 3:
+    missing.append("generated upgrade dry-run profile count mismatch")
+if report["generatedUpgradeDryRun"]["diffCategoryCount"] != 4:
+    missing.append("generated upgrade dry-run diff category count mismatch")
+if report["generatedUpgradeDryRun"]["rollbackNoteCount"] != 3:
+    missing.append("generated upgrade dry-run rollback note count mismatch")
 if report["benchmark"]["evidenceStatus"] != "present":
     missing.append("benchmark evidence is missing")
 if report["release"]["schema"] != "gofly.release_evidence_manifest.v1":

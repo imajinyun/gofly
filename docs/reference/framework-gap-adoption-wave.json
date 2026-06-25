@@ -1,0 +1,166 @@
+{
+  "schema": "gofly.framework_gap_adoption_wave.v1",
+  "scope": {
+    "included": [
+      "adopter operations",
+      "example health",
+      "release evidence consumption",
+      "operator runbooks",
+      "template and profile trust",
+      "adoption risk register",
+      "machine-verifiable governance"
+    ],
+    "excluded": [
+      "GitHub stars",
+      "download counts",
+      "community size",
+      "brand awareness"
+    ]
+  },
+  "completedBaseline": [
+    {
+      "task": "GOFLY-P4-2-RPC-LATENCY-RATCHET",
+      "evidence": [
+        "bench/budget-ratchet.json",
+        "make bench-regression-check"
+      ]
+    },
+    {
+      "task": "GOFLY-P4-3-GENERATED-MIGRATION-FIDELITY",
+      "evidence": [
+        "docs/reference/migration-fidelity-matrix.json",
+        "make generated-upgrade-dry-run-check"
+      ]
+    },
+    {
+      "task": "GOFLY-P4-4-CLOUD-NATIVE-POLICY-CONFORMANCE",
+      "evidence": [
+        "docs/reference/cloud-native-policy-conformance.json",
+        "make cloud-native-render-check"
+      ]
+    },
+    {
+      "task": "GOFLY-P4-5-DX-SUPPORT-BUNDLE",
+      "evidence": [
+        "docs/reference/dx-support-bundle.json",
+        "make dx-troubleshooting-check"
+      ]
+    },
+    {
+      "task": "GOFLY-P4-6-GOVERNANCE-DASHBOARD-PRODUCTIZATION",
+      "evidence": [
+        "docs/reference/governance-dashboard-contract.json",
+        "make governance-report-check"
+      ]
+    }
+  ],
+  "dimensions": [
+    {
+      "id": "examples-health-index",
+      "priority": "P0",
+      "referenceFrameworks": [
+        "Gin",
+        "Echo",
+        "Fiber",
+        "Hertz",
+        "go-zero",
+        "Kratos"
+      ],
+      "currentEvidence": [
+        "examples/README.md",
+        "bin/scripts/examples-smoke.sh",
+        "make examples-smoke",
+        "make examples-copyable-check"
+      ],
+      "gap": "Top frameworks make example health and runnable scope obvious. gofly has rich examples, but lacks one adopter-facing machine-readable health index for copyability, smoke commands, ports, output schemas, and risk notes.",
+      "todo": "Create an examples health index and gate it through examples smoke or API/example consistency checks.",
+      "aiflowTask": "GOFLY-P5-1-EXAMPLES-HEALTH-INDEX",
+      "acceptanceGate": "make api-example-consistency-check"
+    },
+    {
+      "id": "release-evidence-consumption",
+      "priority": "P0",
+      "referenceFrameworks": [
+        "go-zero",
+        "Kratos"
+      ],
+      "currentEvidence": [
+        "docs/releases/evidence-index.json",
+        "docs/reference/governance-dashboard-contract.json",
+        "make governance-report-check",
+        "make release-evidence-index-check"
+      ],
+      "gap": "Release evidence is produced, but adopters need a concise consumption contract that maps evidence files to what to inspect before upgrading or publishing.",
+      "todo": "Add a release evidence consumption matrix with artifact, question answered, gate, and rollback or escalation path.",
+      "aiflowTask": "GOFLY-P5-2-RELEASE-EVIDENCE-CONSUMPTION",
+      "acceptanceGate": "make governance-report-check"
+    },
+    {
+      "id": "operator-runbook-drills",
+      "priority": "P1",
+      "referenceFrameworks": [
+        "Kratos",
+        "go-zero",
+        "Beego"
+      ],
+      "currentEvidence": [
+        "docs/reference/runtime-slo.json",
+        "docs/reference/resilience-drill.md",
+        "make runtime-slo-check",
+        "make resilience-drill-check"
+      ],
+      "gap": "Runtime SLO and resilience evidence exists, but an operator still needs one drill-oriented runbook that maps symptoms to commands and expected evidence.",
+      "todo": "Create operator drill evidence for health, metrics, traces, resilience, control-plane drift, and rollback checks.",
+      "aiflowTask": "GOFLY-P5-3-OPERATOR-RUNBOOK-DRILLS",
+      "acceptanceGate": "make runtime-slo-check"
+    },
+    {
+      "id": "template-profile-trust",
+      "priority": "P1",
+      "referenceFrameworks": [
+        "go-zero",
+        "Kratos",
+        "Kitex"
+      ],
+      "currentEvidence": [
+        "docs/reference/generated-upgrade-dry-run.json",
+        "docs/reference/migration-fidelity-matrix.json",
+        "make generated-output-governance",
+        "make doc-manifest-sync-check"
+      ],
+      "gap": "Generated profiles are tested, but adopter trust would improve with a single index of template/profile purpose, generated-output guarantees, dependency boundaries, and verification commands.",
+      "todo": "Add a template/profile trust matrix linked to generated-output governance and AI manifest verification commands.",
+      "aiflowTask": "GOFLY-P5-4-TEMPLATE-PROFILE-TRUST",
+      "acceptanceGate": "make doc-manifest-sync-check"
+    },
+    {
+      "id": "adoption-risk-register",
+      "priority": "P1",
+      "referenceFrameworks": [
+        "Gin",
+        "go-zero",
+        "Kratos",
+        "Kitex",
+        "gRPC-Go"
+      ],
+      "currentEvidence": [
+        "docs/reference/framework-gap-matrix.md",
+        "docs/reference/framework-gap-next-wave.json",
+        "docs/reference/framework-gap-adoption-wave.json",
+        "make framework-gap-check"
+      ],
+      "gap": "The gap matrix lists workstreams, but adopters still need a concise risk register that separates production-ready, candidate, report-only, and rollback-required surfaces.",
+      "todo": "Add an adoption risk register with risk level, current guardrail, recommended adopter action, and promotion gate.",
+      "aiflowTask": "GOFLY-P5-5-ADOPTION-RISK-REGISTER",
+      "acceptanceGate": "make framework-gap-check"
+    }
+  ],
+  "recommendedOrder": [
+    "GOFLY-P5-0-ADOPTION-WAVE-ROADMAP",
+    "GOFLY-P5-1-EXAMPLES-HEALTH-INDEX",
+    "GOFLY-P5-2-RELEASE-EVIDENCE-CONSUMPTION",
+    "GOFLY-P5-3-OPERATOR-RUNBOOK-DRILLS",
+    "GOFLY-P5-4-TEMPLATE-PROFILE-TRUST",
+    "GOFLY-P5-5-ADOPTION-RISK-REGISTER"
+  ]
+}

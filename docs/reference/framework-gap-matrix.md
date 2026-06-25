@@ -36,6 +36,10 @@ foundation. The next-wave P4 roadmap is captured in
 comparison focused on product capability, engineering maturity, DX,
 performance evidence, release trust, production proof, and machine-verifiable
 governance. Community size and popularity remain out of scope.
+The P5 adoption wave is captured in
+[`framework-gap-adoption-wave.json`](framework-gap-adoption-wave.json) and
+focuses on adopter operations: example health, release evidence consumption,
+operator drills, template/profile trust, and adoption risk registration.
 
 | Order | Task | Gap | Acceptance gate |
 | --- | --- | --- | --- |
@@ -58,6 +62,17 @@ governance. Community size and popularity remain out of scope.
 | 4 | `GOFLY-P4-4-CLOUD-NATIVE-POLICY-CONFORMANCE` | Turn Helm/Kustomize policy checks and fallback status into release evidence. | `make cloud-native-render-check` |
 | 5 | `GOFLY-P4-5-DX-SUPPORT-BUNDLE` | Productize doctor/release JSON, support bundles, and generated failure reports. | `make dx-troubleshooting-check` |
 | 6 | `GOFLY-P4-6-GOVERNANCE-DASHBOARD-PRODUCTIZATION` | Make the governance report an adopter-facing dashboard contract. | `make governance-report-check` |
+
+## Adoption-Wave TODO Order
+
+| Order | Task | Gap | Acceptance gate |
+| --- | --- | --- | --- |
+| 1 | `GOFLY-P5-0-ADOPTION-WAVE-ROADMAP` | Keep the post-P4 adoption operations roadmap as a machine-readable contract. | `make framework-gap-check` |
+| 2 | `GOFLY-P5-1-EXAMPLES-HEALTH-INDEX` | Make copyable example health, smoke commands, ports, schemas, and risk notes visible in one index. | `make api-example-consistency-check` |
+| 3 | `GOFLY-P5-2-RELEASE-EVIDENCE-CONSUMPTION` | Map release evidence to adopter upgrade and publish decisions. | `make governance-report-check` |
+| 4 | `GOFLY-P5-3-OPERATOR-RUNBOOK-DRILLS` | Tie runtime symptoms to health, metrics, traces, resilience, drift, and rollback checks. | `make runtime-slo-check` |
+| 5 | `GOFLY-P5-4-TEMPLATE-PROFILE-TRUST` | Index template/profile purpose, generated-output guarantees, dependencies, and verification commands. | `make doc-manifest-sync-check` |
+| 6 | `GOFLY-P5-5-ADOPTION-RISK-REGISTER` | Separate production-ready, candidate, report-only, and rollback-required surfaces for adopters. | `make framework-gap-check` |
 
 ## Gap Summary
 

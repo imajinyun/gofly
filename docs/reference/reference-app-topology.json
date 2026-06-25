@@ -1,0 +1,220 @@
+{
+  "schema": "gofly.reference_app_topology.v1",
+  "status": "blocking",
+  "referenceApp": "examples/production-orders",
+  "blockingGate": "make reference-app-smoke",
+  "modes": [
+    {
+      "id": "memory",
+      "gate": "REFERENCE_APP_MODE=memory make reference-app-smoke",
+      "components": [
+        "REST",
+        "RPC",
+        "MQ",
+        "outbox",
+        "saga",
+        "config",
+        "discovery",
+        "cache",
+        "observability",
+        "K8s",
+        "rollback"
+      ],
+      "evidenceRefs": [
+        {
+          "path": "examples/production-orders/main.go",
+          "contains": [
+            "Mode:          topologyMemory",
+            "SQLOutbox:     \"memory\"",
+            "Cache:         \"memory\"",
+            "MQ:            []string{\"memory\"}",
+            "Discovery:     []string{\"memory\"}",
+            "Observability: \"local-admin\""
+          ]
+        },
+        {
+          "path": "examples/production-orders/main_test.go",
+          "contains": [
+            "TestProductionTopologyModes_BitsUT",
+            "TestProductionTopologyEvidenceContract_BitsUT",
+            "assertTopologyEvidence"
+          ]
+        },
+        {
+          "path": "examples/production-orders/README.md",
+          "contains": [
+            "REFERENCE_APP_MODE=memory make reference-app-smoke",
+            "rollback"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "docker",
+      "gate": "REFERENCE_APP_MODE=docker make reference-app-smoke",
+      "components": [
+        "SQL outbox",
+        "Redis cache",
+        "Kafka",
+        "RabbitMQ",
+        "Redis Stream",
+        "Consul",
+        "etcd",
+        "Nacos",
+        "OpenTelemetry collector"
+      ],
+      "evidenceRefs": [
+        {
+          "path": "examples/production-orders/main.go",
+          "contains": [
+            "Mode:          topologyDocker",
+            "SQLOutbox:     sql",
+            "Cache:         redisAddr",
+            "MQ:            []string{kafka, rabbit, redisStream}",
+            "Discovery:     []string{consul, etcd, nacos}",
+            "Observability: otel"
+          ]
+        },
+        {
+          "path": "examples/production-orders/compose.yaml",
+          "contains": [
+            "postgres",
+            "redis",
+            "kafka",
+            "rabbitmq",
+            "consul",
+            "etcd",
+            "nacos",
+            "otel-collector",
+            "REFERENCE_APP_MODE: docker"
+          ]
+        },
+        {
+          "path": "examples/production-orders/README.md",
+          "contains": [
+            "REFERENCE_APP_MODE=docker make reference-app-smoke",
+            "static production topology contract"
+          ]
+        }
+      ]
+    }
+  ],
+  "surfaces": [
+    {
+      "id": "rest",
+      "name": "REST",
+      "route": "/orders",
+      "gate": "go test -C examples/production-orders ./...",
+      "evidenceRefs": [
+        {
+          "path": "examples/production-orders/main.go",
+          "contains": [
+            "REST API accepts order creation requests",
+            "Create an order through REST, RPC, saga, outbox and MQ"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "rpc",
+      "name": "RPC",
+      "route": "inventory reservation",
+      "gate": "go test -C examples/production-orders ./...",
+      "evidenceRefs": [
+        {
+          "path": "examples/production-orders/main.go",
+          "contains": [
+            "RPC service reserves inventory",
+            "reserveInventory"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mq-outbox",
+      "name": "MQ and outbox",
+      "route": "orders.created",
+      "gate": "go test -C examples/production-orders ./...",
+      "evidenceRefs": [
+        {
+          "path": "examples/production-orders/main.go",
+          "contains": [
+            "outbox relays committed events",
+            "orders.created",
+            "outboxStore.Enqueue"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "saga",
+      "name": "saga",
+      "route": "order workflow",
+      "gate": "go test -C examples/production-orders ./...",
+      "evidenceRefs": [
+        {
+          "path": "examples/production-orders/main.go",
+          "contains": [
+            "saga compensates partially completed business steps",
+            "saga.New()",
+            "compensated"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "topology",
+      "name": "topology evidence",
+      "route": "/topology",
+      "gate": "make reference-app-smoke",
+      "evidenceRefs": [
+        {
+          "path": "examples/production-orders/main.go",
+          "contains": [
+            "/topology",
+            "topologyEvidence",
+            "FallbackNote"
+          ]
+        },
+        {
+          "path": "examples/production-orders/main_test.go",
+          "contains": [
+            "topology_evidence",
+            "fallback note",
+            "want production topology object schema"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "cloud-native",
+      "name": "K8s and rollback",
+      "route": "k8s and charts",
+      "gate": "make p1-growth-check",
+      "evidenceRefs": [
+        {
+          "path": "k8s/deployment.yaml",
+          "contains": [
+            "kind: Deployment",
+            "livenessProbe:",
+            "readinessProbe:"
+          ]
+        },
+        {
+          "path": "charts/gofly/Chart.yaml",
+          "contains": [
+            "apiVersion: v2",
+            "name: gofly"
+          ]
+        },
+        {
+          "path": "examples/production-orders/README.md",
+          "contains": [
+            "K8s deployment assets",
+            "Rollback"
+          ]
+        }
+      ]
+    }
+  ]
+}

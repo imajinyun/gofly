@@ -122,12 +122,21 @@ Validation commands such as `rpc check` and `rpc lint` have stable exit codes an
 automation. The contract is intentionally additive: consumers should preserve
 unknown fields and key checks by `name`.
 
+The machine-readable product surface is
+[`dx-support-bundle.json`](dx-support-bundle.json), schema
+`gofly.dx_support_bundle.v1`.
+
 `gofly bug --json` is the support bundle entry point. It emits
 `supportBundle.schema: "gofly.support_bundle.v1"`, a redaction policy, and the
 commands an adopter should attach when reporting a local generation, runtime, or
 release failure. The bundle must never include secrets; redact Authorization,
 Cookie, Set-Cookie, token, secret, password, and provider credential values
 before sharing.
+
+Generated project verification failures use the
+`gofly.generated_project_failure_report.v1` shape: command, status, bounded
+output, error, and next actions. This lets CI and agents tell users which
+verification command failed and which rerun command is safe.
 
 The DX troubleshooting gate verifies this contract with real CLI output:
 

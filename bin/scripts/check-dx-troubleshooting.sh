@@ -52,17 +52,82 @@ error = release.get("error")
 if error is not None and not error.get("remediation"):
     missing.append("release check --json: error lacks remediation")
 
+manifest_path = pathlib.Path("docs/reference/dx-support-bundle.json")
+if manifest_path.is_file():
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+else:
+    manifest = {}
+    missing.append("docs/reference/dx-support-bundle.json: file is missing")
+
+if manifest.get("schema") != "gofly.dx_support_bundle.v1":
+    missing.append("dx support bundle schema must be gofly.dx_support_bundle.v1")
+if manifest.get("acceptanceGate") != "make dx-troubleshooting-check":
+    missing.append("dx support bundle acceptanceGate must be make dx-troubleshooting-check")
+
+surfaces = manifest.get("surfaces") or []
+surface_by_command = {
+    item.get("command"): item for item in surfaces if isinstance(item, dict)
+}
+required_surfaces = {
+    "gofly doctor --json": {"version", "go", "os", "arch", "checks", "summary", "nextActions"},
+    "gofly bug --json": {"tool", "version", "environment", "checks", "supportBundle", "nextActions"},
+    "gofly release check --json --strict": {"ok", "command", "data.summary", "data.checks", "error.remediation"},
+    "gofly ai new --json --apply --verify": {"data.verification", "data.verifyRan", "data.verifyPassed", "data.nextActions"},
+}
+for command, fields in required_surfaces.items():
+    surface = surface_by_command.get(command)
+    if not surface:
+        missing.append(f"dx support bundle surfaces missing {command!r}")
+        continue
+    stable = set(surface.get("stableFields") or [])
+    absent = fields - stable
+    if absent:
+        missing.append(f"dx support bundle {command}: stableFields missing {sorted(absent)!r}")
+    if surface.get("nextActionRequired") is True and "nextActions" not in " ".join(stable):
+        missing.append(f"dx support bundle {command}: nextActionRequired surface must declare nextActions")
+    if surface.get("failureGuidance") in ("", None):
+        missing.append(f"dx support bundle {command}: failureGuidance is required")
+
+bug_surface = surface_by_command.get("gofly bug --json") or {}
+if bug_surface.get("supportBundleSchema") != "gofly.support_bundle.v1":
+    missing.append("dx support bundle bug surface must reference gofly.support_bundle.v1")
+redaction = set(bug_surface.get("redactionPolicy") or [])
+for term in ("Authorization", "Cookie", "Set-Cookie", "*TOKEN*", "*SECRET*", "*PASSWORD*"):
+    if term not in redaction:
+        missing.append(f"dx support bundle redactionPolicy missing {term!r}")
+
+failure_report = manifest.get("generatedFailureReport") or {}
+if failure_report.get("schema") != "gofly.generated_project_failure_report.v1":
+    missing.append("generatedFailureReport.schema must be gofly.generated_project_failure_report.v1")
+for field in ("command", "status", "output", "error", "nextActions"):
+    if field not in set(failure_report.get("fields") or []):
+        missing.append(f"generatedFailureReport.fields missing {field!r}")
+if failure_report.get("boundedOutput") is not True:
+    missing.append("generatedFailureReport.boundedOutput must be true")
+if failure_report.get("redactionRequired") is not True:
+    missing.append("generatedFailureReport.redactionRequired must be true")
+
+for step in ("run gofly doctor --json", "run gofly release check --json --strict", "run gofly bug --json"):
+    if step not in set(manifest.get("supportWorkflow") or []):
+        missing.append(f"dx support bundle supportWorkflow missing {step!r}")
+for doc_path in manifest.get("docs") or []:
+    if not pathlib.Path(doc_path).is_file():
+        missing.append(f"dx support bundle docs path is missing: {doc_path}")
+
 docs = {
     pathlib.Path("docs/reference/cli-json-contracts.md"): [
         "nextActions",
         "supportBundle",
         "gofly.support_bundle.v1",
+        "gofly.dx_support_bundle.v1",
+        "gofly.generated_project_failure_report.v1",
     ],
     pathlib.Path("docs/operations/troubleshooting.md"): [
         "gofly doctor --json",
         "gofly bug --json",
         "gofly release check --json --strict",
         "support bundle",
+        "generated project verification failure",
     ],
 }
 for path, needles in docs.items():

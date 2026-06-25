@@ -16,9 +16,19 @@ gofly bug --json
 remediation when release gates block. `gofly bug --json` returns the
 `gofly.support_bundle.v1` support bundle contract, including redaction policy,
 recommended commands, and next actions for CI or support workflows.
+The productized troubleshooting surface is indexed by
+`docs/reference/dx-support-bundle.json` with schema
+`gofly.dx_support_bundle.v1`.
 
 Redact Authorization, Cookie, Set-Cookie, token, secret, password, and provider
 credential values before sharing the bundle.
+
+## generated project verification failure
+
+When a generated project verification command fails, preserve the bounded
+failure report rather than pasting an unstructured terminal log. The
+`gofly.generated_project_failure_report.v1` contract includes command, status,
+output, error, and next actions so the next rerun path is explicit.
 
 ## Service does not start
 

@@ -1,0 +1,92 @@
+{
+  "schema": "gofly.dx_support_bundle.v1",
+  "acceptanceGate": "make dx-troubleshooting-check",
+  "surfaces": [
+    {
+      "command": "gofly doctor --json",
+      "outputMode": "raw-json",
+      "stableFields": [
+        "version",
+        "go",
+        "os",
+        "arch",
+        "checks",
+        "summary",
+        "nextActions"
+      ],
+      "failureGuidance": "warn and fail checks must include fix_hint or nextActions",
+      "nextActionRequired": true
+    },
+    {
+      "command": "gofly bug --json",
+      "outputMode": "raw-json",
+      "stableFields": [
+        "tool",
+        "version",
+        "environment",
+        "checks",
+        "supportBundle",
+        "nextActions"
+      ],
+      "supportBundleSchema": "gofly.support_bundle.v1",
+      "failureGuidance": "support bundles must include redaction policy, diagnostic commands, and next actions before sharing",
+      "redactionPolicy": [
+        "Authorization",
+        "Cookie",
+        "Set-Cookie",
+        "GOFLY_LLM_*",
+        "*TOKEN*",
+        "*SECRET*",
+        "*PASSWORD*"
+      ],
+      "nextActionRequired": true
+    },
+    {
+      "command": "gofly release check --json --strict",
+      "outputMode": "json-envelope",
+      "stableFields": [
+        "ok",
+        "command",
+        "data.summary",
+        "data.checks",
+        "error.remediation"
+      ],
+      "failureGuidance": "blocking release errors must include structured remediation",
+      "nextActionRequired": false
+    },
+    {
+      "command": "gofly ai new --json --apply --verify",
+      "outputMode": "json-envelope",
+      "stableFields": [
+        "data.verification",
+        "data.verifyRan",
+        "data.verifyPassed",
+        "data.nextActions"
+      ],
+      "failureGuidance": "generated project verification failures must report command, status, bounded output, error, and rerun guidance",
+      "nextActionRequired": true
+    }
+  ],
+  "generatedFailureReport": {
+    "schema": "gofly.generated_project_failure_report.v1",
+    "fields": [
+      "command",
+      "status",
+      "output",
+      "error",
+      "nextActions"
+    ],
+    "boundedOutput": true,
+    "redactionRequired": true
+  },
+  "supportWorkflow": [
+    "run gofly doctor --json",
+    "run gofly release check --json --strict",
+    "run gofly bug --json",
+    "attach generated project verification failure reports when available"
+  ],
+  "docs": [
+    "docs/reference/cli-json-contracts.md",
+    "docs/operations/troubleshooting.md"
+  ]
+}

@@ -88,6 +88,43 @@ require({"rpc", "rpc/grpc", "gateway", "app"} <= set(manifest.get("surfaces") or
 policy = manifest.get("promotionPolicy") or {}
 require(policy.get("blockingGate") == "make rpc-boundary-check", "rpc tier1 evidence blocking gate must be make rpc-boundary-check")
 require(policy.get("releaseGate") == "make bench-evidence-check", "rpc tier1 evidence release gate must be make bench-evidence-check")
+require(policy.get("budgetRatchet") == "bench/budget-ratchet.json", "rpc tier1 evidence must reference bench/budget-ratchet.json")
+require("report-only" in policy.get("latencyPolicy", ""), "rpc latency policy must remain report-only until promoted")
+
+ratchet_path = root / "bench" / "budget-ratchet.json"
+if ratchet_path.is_file():
+    ratchet = json.loads(ratchet_path.read_text(encoding="utf-8"))
+else:
+    ratchet = {}
+    missing.append("bench/budget-ratchet.json: file is missing")
+require(ratchet.get("schema") == "gofly.benchmark_budget_ratchet.v1", "benchmark budget ratchet schema mismatch")
+tracked_benchmarks = set(ratchet.get("trackedBenchmarks") or [])
+latency_policy = ratchet.get("latencyPolicy") or {}
+report_only = set(latency_policy.get("reportOnly") or [])
+promoted_latency = {
+    item.get("benchmark", "")
+    for item in latency_policy.get("promoted") or []
+    if isinstance(item, dict) and item.get("benchmark")
+}
+rpc_policy = ratchet.get("rpcPolicy") or {}
+candidate_benchmarks = {
+    item.get("benchmark", "")
+    for item in rpc_policy.get("candidates") or []
+    if isinstance(item, dict) and item.get("benchmark")
+}
+for benchmark in (
+    "BenchmarkRPCUnary/gofly_rpc",
+    "BenchmarkRPCStreamGovernance",
+    "BenchmarkRPCServerStreamGovernance",
+    "BenchmarkRPCClientStreamGovernance",
+    "BenchmarkRPCBidiStreamGovernance",
+):
+    require(benchmark not in tracked_benchmarks, f"RPC benchmark must stay out of trackedBenchmarks until promotion criteria pass: {benchmark}")
+    require(benchmark in candidate_benchmarks, f"budget ratchet rpcPolicy.candidates missing {benchmark}")
+    require(benchmark not in promoted_latency, f"RPC latency benchmark must not be promoted without trend evidence: {benchmark}")
+require(rpc_policy.get("status") == "report-only", "budget ratchet rpcPolicy.status must be report-only")
+for criterion in ("minimum 5 baseline samples", "minimum 3 current trend samples", "Kitex rollback note"):
+    require(any(criterion in item for item in rpc_policy.get("promotionCriteria") or []), f"budget ratchet rpcPolicy.promotionCriteria missing {criterion!r}")
 
 evidence = manifest.get("evidence") or []
 required_evidence = {

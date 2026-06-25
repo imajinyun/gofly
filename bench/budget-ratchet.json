@@ -32,6 +32,43 @@
       "BenchmarkHTTPGovernance/enabled"
     ]
   },
+  "rpcPolicy": {
+    "candidates": [
+      {
+        "benchmark": "BenchmarkRPCUnary/gofly_rpc",
+        "currentBlocker": "latest smoke exceeded allocation baseline, so it cannot enter trackedBenchmarks yet",
+        "mode": "candidate"
+      },
+      {
+        "benchmark": "BenchmarkRPCStreamGovernance",
+        "currentBlocker": "current scoped run may use mode-specific stream rows instead of the aggregate benchmark",
+        "mode": "candidate"
+      },
+      {
+        "benchmark": "BenchmarkRPCServerStreamGovernance",
+        "currentBlocker": "mode-specific stream baseline is not yet published with five samples",
+        "mode": "candidate"
+      },
+      {
+        "benchmark": "BenchmarkRPCClientStreamGovernance",
+        "currentBlocker": "mode-specific stream baseline is not yet published with five samples",
+        "mode": "candidate"
+      },
+      {
+        "benchmark": "BenchmarkRPCBidiStreamGovernance",
+        "currentBlocker": "mode-specific stream baseline is not yet published with five samples",
+        "mode": "candidate"
+      }
+    ],
+    "promotionCriteria": [
+      "minimum 5 baseline samples",
+      "minimum 3 current trend samples",
+      "no allocation regression under bench-regression-check",
+      "latency median below baseline * proposed maxRegressionRatio for two consecutive releases",
+      "Kitex rollback note remains documented for latency-critical methods"
+    ],
+    "status": "report-only"
+  },
   "schema": "gofly.benchmark_budget_ratchet.v1",
   "schemaContract": {
     "requiredFields": [

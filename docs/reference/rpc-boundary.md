@@ -9,6 +9,13 @@ Machine-readable Tier 1 promotion evidence lives in
 `docs/reference/rpc-tier1-evidence.json` and is validated by
 `make rpc-boundary-check`.
 
+RPC latency ratchet policy lives in `bench/budget-ratchet.json`. RPC unary and
+stream rows are listed as promotion candidates, not blocking tracked rows, until
+the policy has enough trend confidence to promote a specific benchmark. The
+current blocker is explicit: the latest unary smoke exceeded the allocation
+baseline, and mode-specific stream rows do not yet have published five-sample
+baselines. HTTP/OpenAPI budget rows remain the blocking regression surface.
+
 ## Decision table
 
 | Runtime | Use when | Keep out |
@@ -57,5 +64,6 @@ Run:
 ```sh
 make rpc-boundary-check
 BENCH_PATTERN=BenchmarkRPC make bench-stat
+make bench-regression-check
 make bench-evidence-check
 ```

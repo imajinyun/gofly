@@ -11,8 +11,9 @@
     "minimumReleaseTrains": 1,
     "blockingGate": "make rpc-boundary-check",
     "releaseGate": "make bench-evidence-check",
-    "latencyPolicy": "report-only until benchmark trend confidence is promoted",
-    "allocationPolicy": "blocking when bench-regression-check budget covers RPC hot paths"
+    "latencyPolicy": "RPC latency remains report-only in bench/budget-ratchet.json until trend confidence is promoted",
+    "allocationPolicy": "blocking when bench-regression-check budget covers RPC hot paths",
+    "budgetRatchet": "bench/budget-ratchet.json"
   },
   "evidence": [
     {

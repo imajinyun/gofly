@@ -44,6 +44,13 @@ RPC benchmarks cover:
   overhead through `BenchmarkRPCServerStreamGovernance`,
   `BenchmarkRPCClientStreamGovernance`, and `BenchmarkRPCBidiStreamGovernance`
 
+`bench/budget-ratchet.json` lists the gofly RPC unary and stream rows as
+promotion candidates rather than blocking tracked rows. RPC latency remains
+report-only until the ratchet policy records enough trend confidence to promote
+a specific row. The promotion criteria require stable baseline samples, current
+trend samples, no allocation regression, and a Kitex rollback note for
+latency-critical methods.
+
 Kitex is optional. Downstream services that already carry generated Kitex fixtures can add a `kitex` sub-benchmark under `BenchmarkRPCUnary` without making Kitex a required root dependency for every gofly checkout.
 
 ## Local reproduction

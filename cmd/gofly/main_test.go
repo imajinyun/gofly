@@ -61,3 +61,72 @@ func TestRunMainSTDIOExitContract(t *testing.T) {
 		}
 	})
 }
+
+func TestRunMainFlagDiagnosticsContract(t *testing.T) {
+	t.Setenv("GOFLY_PLUGIN_MODE", "")
+
+	t.Run("text flag errors write stderr only", func(t *testing.T) {
+		var stdout, stderr bytes.Buffer
+		code := runMain([]string{"version", "--bad"}, strings.NewReader(""), &stdout, &stderr)
+		if code != 2 {
+			t.Fatalf("runMain text flag exit = %d, want 2", code)
+		}
+		if stdout.Len() != 0 {
+			t.Fatalf("runMain text flag stdout = %q, want empty", stdout.String())
+		}
+		if !strings.Contains(stderr.String(), "flag provided but not defined") {
+			t.Fatalf("runMain text flag stderr = %q, want flag diagnostic", stderr.String())
+		}
+		if strings.Contains(stderr.String(), "Usage:") {
+			t.Fatalf("runMain text flag stderr printed stdlib usage:\n%s", stderr.String())
+		}
+	})
+
+	t.Run("global JSON flag errors write stdout envelope only", func(t *testing.T) {
+		var stdout, stderr bytes.Buffer
+		code := runMain([]string{"--output", "json", "version", "--bad"}, strings.NewReader(""), &stdout, &stderr)
+		if code != 2 {
+			t.Fatalf("runMain JSON flag exit = %d, want 2", code)
+		}
+		if stderr.Len() != 0 {
+			t.Fatalf("runMain JSON flag stderr = %q, want empty", stderr.String())
+		}
+		var envelope struct {
+			OK    bool `json:"ok"`
+			Error struct {
+				Code    string `json:"code"`
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+			t.Fatalf("runMain JSON flag stdout is not valid envelope: %v\n%s", err, stdout.String())
+		}
+		if envelope.OK || envelope.Error.Code != "USAGE_ERROR" || !strings.Contains(envelope.Error.Message, "flag provided but not defined") {
+			t.Fatalf("runMain JSON flag envelope = %+v", envelope)
+		}
+	})
+
+	t.Run("global JSON missing flag value writes usage envelope", func(t *testing.T) {
+		var stdout, stderr bytes.Buffer
+		code := runMain([]string{"--output", "json", "new", "api", "hello", "--module"}, strings.NewReader(""), &stdout, &stderr)
+		if code != 2 {
+			t.Fatalf("runMain JSON missing flag value exit = %d, want 2", code)
+		}
+		if stderr.Len() != 0 {
+			t.Fatalf("runMain JSON missing flag value stderr = %q, want empty", stderr.String())
+		}
+		var envelope struct {
+			OK    bool `json:"ok"`
+			Error struct {
+				Code    string `json:"code"`
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+			t.Fatalf("runMain JSON missing flag value stdout is not valid envelope: %v\n%s", err, stdout.String())
+		}
+		if envelope.OK || envelope.Error.Code != "USAGE_ERROR" || !strings.Contains(envelope.Error.Message, "flag needs an argument") {
+			t.Fatalf("runMain JSON missing flag value envelope = %+v", envelope)
+		}
+	})
+}

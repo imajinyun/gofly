@@ -71,3 +71,8 @@ The machine-readable lifecycle source of truth is
 OpenAPI, control-plane, or generated service surface. `make
 deprecation-lifecycle-check` validates the manifest, release-note
 classification, coexistence window, rollback guidance, and marker inventory.
+The same manifest also includes `supportLifecycle` entries for v1 candidates
+and Tier 1 promotion candidates. Each entry names the owner, support window,
+compatibility class, sunset trigger, release-note evidence, validation gate, and
+rollback guidance required before a stable surface is removed, demoted, or
+promoted.

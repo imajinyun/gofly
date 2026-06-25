@@ -15,5 +15,67 @@
       "upgradePath"
     ]
   },
+  "supportLifecycle": [
+    {
+      "id": "rest-v1-candidate",
+      "surface": "rest package and runtime HTTP contracts",
+      "tier": "Tier 1",
+      "owner": "runtime-governance",
+      "supportWindow": "current minor release line plus one minor release line after deprecation",
+      "compatibilityClass": "stable",
+      "sunsetTrigger": "only after activeDeprecations records the replacement, coexistence window, release-note classification, validation gate, and rollback guidance",
+      "releaseNoteEvidence": "docs/releases/stable.md#release-compatibility-checklist",
+      "validationGate": "make stable-surface-check",
+      "rollbackGuidance": "pin the previous release and keep the old handler, JSON, or OpenAPI contract until the replacement passes local smoke tests"
+    },
+    {
+      "id": "governance-controlplane-v1-candidate",
+      "surface": "core/governance and core/controlplane runtime JSON contracts",
+      "tier": "Tier 1",
+      "owner": "runtime-governance",
+      "supportWindow": "current minor release line plus one minor release line after deprecation",
+      "compatibilityClass": "stable",
+      "sunsetTrigger": "only after the dashboard, control-plane contract tests, release notes, and activeDeprecations metadata identify the replacement and rollback path",
+      "releaseNoteEvidence": "docs/releases/stable.md#release-compatibility-checklist",
+      "validationGate": "make stable-surface-check",
+      "rollbackGuidance": "pin the previous release and keep the previous control-plane consumer until the new snapshot diff is accepted"
+    },
+    {
+      "id": "cli-json-v1-candidate",
+      "surface": "cmd/gofly JSON output consumed by CI, agents, and release automation",
+      "tier": "Tier 1",
+      "owner": "cli-dx",
+      "supportWindow": "current minor release line plus one minor release line after deprecation",
+      "compatibilityClass": "stable",
+      "sunsetTrigger": "only after CLI JSON golden tests, docs, release notes, activeDeprecations, and rollback guidance cover the field or command transition",
+      "releaseNoteEvidence": "docs/releases/stable.md#release-compatibility-checklist",
+      "validationGate": "make stable-surface-check",
+      "rollbackGuidance": "pin the previous CLI version or keep the old JSON field parser until the replacement field is observed in CI"
+    },
+    {
+      "id": "generated-production-service-v1-candidate",
+      "surface": "generated production service layout, OpenAPI fixtures, and production-check output",
+      "tier": "Tier 0",
+      "owner": "generator-governance",
+      "supportWindow": "current minor release line plus one minor release line after deprecation",
+      "compatibilityClass": "stable",
+      "sunsetTrigger": "only after generated compatibility fixtures, generated project smoke tests, release notes, activeDeprecations, and rollback notes prove the migration",
+      "releaseNoteEvidence": "docs/releases/stable.md#release-compatibility-checklist",
+      "validationGate": "make stable-surface-check",
+      "rollbackGuidance": "pin the generator version and regenerate from the previous profile until the new generated diff is classified and accepted"
+    },
+    {
+      "id": "rpc-gateway-app-tier1-candidates",
+      "surface": "rpc, gateway, and app packages while they advance from Tier 2 toward Tier 1",
+      "tier": "Tier 2",
+      "owner": "rpc-runtime",
+      "supportWindow": "best-effort within the current minor release line until Tier 1 promotion evidence is complete",
+      "compatibilityClass": "evolving",
+      "sunsetTrigger": "promotion or removal requires rpc-boundary evidence, generated or example smoke tests, release notes, and rollback guidance",
+      "releaseNoteEvidence": "docs/releases/stable.md#release-compatibility-checklist",
+      "validationGate": "make rpc-boundary-check",
+      "rollbackGuidance": "keep the previous adapter, descriptor, or generated profile pinned until resolver, balancer, stream, and rollback evidence pass locally"
+    }
+  ],
   "schema": "gofly.deprecation_lifecycle.v1"
 }

@@ -25,6 +25,27 @@ Every stable or Tier 1 deprecation must include:
 Security exceptions may shorten the window only when the manifest also records
 `risk`, `mitigation`, and `upgradePath`.
 
+## Support Lifecycle
+
+The `supportLifecycle` section turns stable-surface policy into an adopter-facing
+support contract. Each entry must name:
+
+| Field | Meaning |
+| --- | --- |
+| `surface` | The API, JSON, generated-output, runtime, or package family covered by the support promise. |
+| `tier` | The adoption tier that controls how conservative the change policy must be. |
+| `owner` | The accountable maintainer group for compatibility decisions and release evidence. |
+| `supportWindow` | How long the surface remains supported after a deprecation starts. |
+| `compatibilityClass` | `stable` for Tier 0 or Tier 1 surfaces, `evolving` for Tier 2 promotion candidates. |
+| `sunsetTrigger` | The evidence required before the old surface can be removed or demoted. |
+| `releaseNoteEvidence` | The release document that must record compatibility impact and migration status. |
+| `validationGate` | The local gate that proves the support promise for the surface. |
+| `rollbackGuidance` | The pin, rollback, or migration fallback adopters can use if the new surface fails. |
+
+Current support lifecycle entries cover the `rest` v1 candidate, governance and
+control-plane contracts, CLI JSON, generated production service output, and the
+`rpc`/`gateway`/`app` Tier 1 promotion candidates.
+
 ## Gate
 
 Run:
@@ -38,6 +59,9 @@ The gate validates:
 - `activeDeprecations` entries are complete and unique;
 - `deprecatedMarkers` match production Go files containing `Deprecated:`;
 - active production Go deprecations cannot exist without lifecycle metadata;
+- `supportLifecycle` entries include owner, support window, compatibility
+  class, sunset trigger, release-note evidence, validation gate, and rollback
+  guidance;
 - lifecycle docs, stable-surface docs, compatibility policy, release docs, and
   Makefile targets remain synchronized.
 

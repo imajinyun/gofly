@@ -47,11 +47,18 @@ if adoption_risk_path.is_file():
 else:
     adoption_risk = {}
     missing.append("docs/reference/adoption-risk-register.json is missing")
+long_term_path = root / "docs" / "reference" / "framework-gap-long-term-adoption.json"
+if long_term_path.is_file():
+    long_term = json.loads(long_term_path.read_text(encoding="utf-8"))
+else:
+    long_term = {}
+    missing.append("docs/reference/framework-gap-long-term-adoption.json is missing")
 
 require(manifest.get("schema") == "gofly.framework_gap_matrix.v1", "framework gap matrix schema mismatch")
 require(next_wave.get("schema") == "gofly.framework_gap_next_wave.v1", "next-wave framework gap schema mismatch")
 require(adoption_wave.get("schema") == "gofly.framework_gap_adoption_wave.v1", "adoption-wave framework gap schema mismatch")
 require(adoption_risk.get("schema") == "gofly.adoption_risk_register.v1", "adoption risk register schema mismatch")
+require(long_term.get("schema") == "gofly.framework_gap_long_term_adoption.v1", "long-term adoption framework gap schema mismatch")
 
 sources = manifest.get("sources") or []
 for source in sources:
@@ -237,6 +244,75 @@ adoption_excluded = set(adoption_scope.get("excluded") or [])
 for out_of_scope in ("GitHub stars", "download counts", "community size", "brand awareness"):
     require(out_of_scope in adoption_excluded, f"adoption-wave scope.excluded missing {out_of_scope!r}")
 
+long_term_completed = long_term.get("completedBaseline") or []
+long_term_completed_tasks = {item.get("task") for item in long_term_completed if isinstance(item, dict)}
+for task in (
+    "GOFLY-P5-1-EXAMPLES-HEALTH-INDEX",
+    "GOFLY-P5-2-RELEASE-EVIDENCE-CONSUMPTION",
+    "GOFLY-P5-3-OPERATOR-RUNBOOK-DRILLS",
+    "GOFLY-P5-4-TEMPLATE-PROFILE-TRUST",
+    "GOFLY-P5-5-ADOPTION-RISK-REGISTER",
+):
+    require(task in long_term_completed_tasks, f"long-term adoption completedBaseline missing {task}")
+for item in long_term_completed:
+    if not isinstance(item, dict):
+        missing.append(f"long-term adoption completedBaseline entry must be an object: {item!r}")
+        continue
+    for evidence in item.get("evidence") or []:
+        if evidence.startswith("docs/") or evidence.startswith("bench/"):
+            require((root / evidence).exists(), f"long-term adoption completed evidence path missing: {evidence}")
+
+long_term_dimensions = long_term.get("dimensions") or []
+required_long_term_dimensions = {
+    "support-lifecycle",
+    "integration-matrix",
+    "dependency-ownership",
+    "required-check-drift",
+    "production-readiness-scorecard",
+}
+actual_long_term_dimensions = {item.get("id") for item in long_term_dimensions if isinstance(item, dict)}
+require(
+    actual_long_term_dimensions == required_long_term_dimensions,
+    f"long-term adoption dimensions = {sorted(actual_long_term_dimensions)!r}, want {sorted(required_long_term_dimensions)!r}",
+)
+long_term_tasks = set()
+long_term_frameworks = set()
+for item in long_term_dimensions:
+    if not isinstance(item, dict):
+        missing.append(f"long-term adoption dimension entry must be an object: {item!r}")
+        continue
+    item_id = item.get("id", "<missing>")
+    for field in ("id", "referenceFrameworks", "currentEvidence", "gap", "priority", "todo", "aiflowTask", "acceptanceGate"):
+        if not item.get(field):
+            missing.append(f"long-term adoption dimension {item_id}: {field} is required")
+    long_term_tasks.add(item.get("aiflowTask", ""))
+    long_term_frameworks.update(item.get("referenceFrameworks") or [])
+    gate = item.get("acceptanceGate", "")
+    if gate.startswith("make "):
+        target = gate.removeprefix("make ").split()[0]
+        makefile = read_text(root / "Makefile")
+        require(re.search(rf"^{re.escape(target)}:", makefile, re.M), f"long-term adoption dimension {item_id}: gate target {target!r} missing")
+    for evidence in item.get("currentEvidence") or []:
+        if evidence.startswith("docs/") or evidence.startswith("examples/") or evidence.startswith("bench/") or evidence.startswith("bin/"):
+            require((root / evidence).exists(), f"long-term adoption dimension {item_id}: evidence path missing: {evidence}")
+
+long_term_recommended = long_term.get("recommendedOrder") or []
+require(long_term_recommended and long_term_recommended[0] == "GOFLY-P6-0-LONG-TERM-ADOPTION-ROADMAP", "long-term adoption recommendedOrder must start with GOFLY-P6-0-LONG-TERM-ADOPTION-ROADMAP")
+for task in (
+    "GOFLY-P6-1-SUPPORT-LIFECYCLE",
+    "GOFLY-P6-2-INTEGRATION-MATRIX",
+    "GOFLY-P6-3-DEPENDENCY-OWNERSHIP-PLAYBOOK",
+    "GOFLY-P6-4-REQUIRED-CHECK-DRIFT",
+    "GOFLY-P6-5-PRODUCTION-READINESS-SCORECARD",
+):
+    require(task in long_term_recommended, f"long-term adoption recommendedOrder missing {task}")
+    require(task in long_term_tasks, f"long-term adoption dimensions missing task {task}")
+require({"Gin", "Echo", "Fiber", "Hertz", "go-zero", "Kratos", "Kitex", "gRPC-Go", "Beego"} <= long_term_frameworks, "long-term adoption matrix must cover major reference frameworks")
+long_term_scope = long_term.get("scope") or {}
+long_term_excluded = set(long_term_scope.get("excluded") or [])
+for out_of_scope in ("GitHub stars", "download counts", "community size", "brand awareness"):
+    require(out_of_scope in long_term_excluded, f"long-term adoption scope.excluded missing {out_of_scope!r}")
+
 require(adoption_risk.get("sourceOfTruth") == "docs/reference/framework-gap-adoption-wave.json", "adoption risk register sourceOfTruth mismatch")
 require(adoption_risk.get("acceptanceGate") == "make framework-gap-check", "adoption risk register acceptanceGate mismatch")
 risk_classes = set(adoption_risk.get("riskClasses") or [])
@@ -305,10 +381,13 @@ for needle in (
     "make framework-gap-check",
     "framework-gap-next-wave.json",
     "framework-gap-adoption-wave.json",
+    "framework-gap-long-term-adoption.json",
     "adoption-risk-register.json",
     "gofly.adoption_risk_register.v1",
+    "gofly.framework_gap_long_term_adoption.v1",
     "Next-Wave TODO Order",
     "Adoption-Wave TODO Order",
+    "Long-Term Adoption TODO Order",
     "Adoption Risk Register",
     "production-ready",
     "candidate",
@@ -316,6 +395,7 @@ for needle in (
     "rollback-required",
     "GOFLY-P4-2-RPC-LATENCY-RATCHET",
     "GOFLY-P5-1-EXAMPLES-HEALTH-INDEX",
+    "GOFLY-P6-1-SUPPORT-LIFECYCLE",
     "Gin",
     "go-zero",
     "Kratos",

@@ -1,0 +1,167 @@
+{
+  "schema": "gofly.framework_gap_long_term_adoption.v1",
+  "scope": {
+    "included": [
+      "support lifecycle",
+      "integration matrix ownership",
+      "dependency ownership",
+      "required check drift",
+      "release prerequisite drift",
+      "production readiness scorecards",
+      "machine-verifiable governance"
+    ],
+    "excluded": [
+      "GitHub stars",
+      "download counts",
+      "community size",
+      "brand awareness"
+    ]
+  },
+  "completedBaseline": [
+    {
+      "task": "GOFLY-P5-1-EXAMPLES-HEALTH-INDEX",
+      "evidence": [
+        "docs/reference/api-example-consistency.json",
+        "make api-example-consistency-check"
+      ]
+    },
+    {
+      "task": "GOFLY-P5-2-RELEASE-EVIDENCE-CONSUMPTION",
+      "evidence": [
+        "docs/releases/evidence-consumption.json",
+        "make governance-report-check"
+      ]
+    },
+    {
+      "task": "GOFLY-P5-3-OPERATOR-RUNBOOK-DRILLS",
+      "evidence": [
+        "docs/reference/operator-runbook-drills.json",
+        "make runtime-slo-check"
+      ]
+    },
+    {
+      "task": "GOFLY-P5-4-TEMPLATE-PROFILE-TRUST",
+      "evidence": [
+        "docs/reference/template-profile-trust.json",
+        "make doc-manifest-sync-check"
+      ]
+    },
+    {
+      "task": "GOFLY-P5-5-ADOPTION-RISK-REGISTER",
+      "evidence": [
+        "docs/reference/adoption-risk-register.json",
+        "make framework-gap-check"
+      ]
+    }
+  ],
+  "dimensions": [
+    {
+      "id": "support-lifecycle",
+      "priority": "P0",
+      "referenceFrameworks": [
+        "go-zero",
+        "Kratos",
+        "gRPC-Go"
+      ],
+      "currentEvidence": [
+        "docs/reference/deprecation-lifecycle.json",
+        "docs/reference/stable-surface.md",
+        "make deprecation-lifecycle-check"
+      ],
+      "gap": "Mature frameworks make long-term support, deprecation windows, and stable surface changes explicit. gofly has deprecation metadata, but the support lifecycle still needs adopter-facing ownership, sunset triggers, compatibility classes, and release-note evidence.",
+      "todo": "Extend the deprecation lifecycle contract into a support lifecycle playbook covering owner, support window, compatibility class, sunset trigger, release-note evidence, and promotion or rollback gates.",
+      "aiflowTask": "GOFLY-P6-1-SUPPORT-LIFECYCLE",
+      "acceptanceGate": "make deprecation-lifecycle-check"
+    },
+    {
+      "id": "integration-matrix",
+      "priority": "P0",
+      "referenceFrameworks": [
+        "go-zero",
+        "Kratos",
+        "Kitex",
+        "gRPC-Go"
+      ],
+      "currentEvidence": [
+        "docs/reference/ci-required-check-evidence.json",
+        "docs/reference/dependency-upgrade-evidence.json",
+        "make required-checks-drift-check",
+        "make dependency-upgrade-evidence-check"
+      ],
+      "gap": "Top microservice frameworks usually make supported integrations and CI expectations visible before adoption. gofly has required checks and dependency upgrade evidence, but lacks one integration matrix that maps storage, discovery, MQ, gateway, RPC, and observability surfaces to owners, gates, and release prerequisites.",
+      "todo": "Create an integration matrix that links each production integration family to supported profiles, owner, required local gate, CI required check, dependency upgrade trigger, and rollback note.",
+      "aiflowTask": "GOFLY-P6-2-INTEGRATION-MATRIX",
+      "acceptanceGate": "make required-checks-drift-check"
+    },
+    {
+      "id": "dependency-ownership",
+      "priority": "P1",
+      "referenceFrameworks": [
+        "Gin",
+        "Echo",
+        "Fiber",
+        "Hertz",
+        "go-zero",
+        "Kratos"
+      ],
+      "currentEvidence": [
+        "docs/reference/dependency-upgrade-evidence.json",
+        "docs/reference/dependency-upgrade-evidence.md",
+        "make dependency-upgrade-evidence-check"
+      ],
+      "gap": "Long-lived frameworks separate root dependency hygiene, generated-project dependencies, security scans, and integration test ownership. gofly has dependency evidence, but adopters still need a dependency ownership playbook for upgrades, generated-only dependencies, indirect drift, and integration delegation.",
+      "todo": "Add a dependency ownership playbook that defines owner, upgrade trigger, evidence artifact, generated-project boundary, vulnerability response, and integration delegation for each dependency class.",
+      "aiflowTask": "GOFLY-P6-3-DEPENDENCY-OWNERSHIP-PLAYBOOK",
+      "acceptanceGate": "make dependency-upgrade-evidence-check"
+    },
+    {
+      "id": "required-check-drift",
+      "priority": "P1",
+      "referenceFrameworks": [
+        "go-zero",
+        "Kratos",
+        "Kitex",
+        "gRPC-Go"
+      ],
+      "currentEvidence": [
+        "docs/reference/ci-required-check-evidence.json",
+        "docs/reference/ci-required-check-evidence.md",
+        "make required-checks-drift-check"
+      ],
+      "gap": "Release-capable projects need required checks that do not silently drift away from branch protection or release prerequisites. gofly has required-check evidence, but should make drift between documented gates, CI jobs, branch protection, and release prerequisites a first-class blocker.",
+      "todo": "Promote required-check drift evidence into a release prerequisite contract that reports missing branch-protection checks, stale local gates, release-only permissions, and accepted environment-only fallbacks.",
+      "aiflowTask": "GOFLY-P6-4-REQUIRED-CHECK-DRIFT",
+      "acceptanceGate": "make required-checks-drift-check"
+    },
+    {
+      "id": "production-readiness-scorecard",
+      "priority": "P1",
+      "referenceFrameworks": [
+        "Gin",
+        "go-zero",
+        "Kratos",
+        "Kitex",
+        "gRPC-Go",
+        "Beego"
+      ],
+      "currentEvidence": [
+        "docs/reference/governance-dashboard-contract.json",
+        "docs/releases/readiness-score.json",
+        "docs/reference/adoption-risk-register.json",
+        "make governance-report-check"
+      ],
+      "gap": "gofly has many release and governance artifacts, but an adopter comparing top frameworks still needs one production readiness scorecard that separates stable, candidate, report-only, and rollback-required surfaces across API, generated output, runtime, deployment, security, performance, and release evidence.",
+      "todo": "Create a production readiness scorecard that consumes governance dashboard, adoption risk register, release readiness, required checks, and dependency evidence into a single adopter-facing contract.",
+      "aiflowTask": "GOFLY-P6-5-PRODUCTION-READINESS-SCORECARD",
+      "acceptanceGate": "make governance-report-check"
+    }
+  ],
+  "recommendedOrder": [
+    "GOFLY-P6-0-LONG-TERM-ADOPTION-ROADMAP",
+    "GOFLY-P6-1-SUPPORT-LIFECYCLE",
+    "GOFLY-P6-2-INTEGRATION-MATRIX",
+    "GOFLY-P6-3-DEPENDENCY-OWNERSHIP-PLAYBOOK",
+    "GOFLY-P6-4-REQUIRED-CHECK-DRIFT",
+    "GOFLY-P6-5-PRODUCTION-READINESS-SCORECARD"
+  ]
+}

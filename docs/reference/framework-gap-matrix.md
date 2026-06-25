@@ -43,6 +43,11 @@ operator drills, template/profile trust, and adoption risk registration.
 The adopter-facing risk split is captured in
 [`adoption-risk-register.json`](adoption-risk-register.json) with schema
 `gofly.adoption_risk_register.v1`.
+The P6 long-term adoption wave is captured in
+[`framework-gap-long-term-adoption.json`](framework-gap-long-term-adoption.json)
+with schema `gofly.framework_gap_long_term_adoption.v1`. It focuses on support
+lifecycle, integration matrix ownership, dependency ownership, required-check
+drift, release prerequisite drift, and production readiness scorecards.
 
 | Order | Task | Gap | Acceptance gate |
 | --- | --- | --- | --- |
@@ -76,6 +81,17 @@ The adopter-facing risk split is captured in
 | 4 | `GOFLY-P5-3-OPERATOR-RUNBOOK-DRILLS` | Tie runtime symptoms to health, metrics, traces, resilience, drift, and rollback checks. | `make runtime-slo-check` |
 | 5 | `GOFLY-P5-4-TEMPLATE-PROFILE-TRUST` | Index template/profile purpose, generated-output guarantees, dependencies, and verification commands. | `make doc-manifest-sync-check` |
 | 6 | `GOFLY-P5-5-ADOPTION-RISK-REGISTER` | Separate production-ready, candidate, report-only, and rollback-required surfaces for adopters. | `make framework-gap-check` |
+
+## Long-Term Adoption TODO Order
+
+| Order | Task | Gap | Acceptance gate |
+| --- | --- | --- | --- |
+| 1 | `GOFLY-P6-0-LONG-TERM-ADOPTION-ROADMAP` | Keep the post-P5 long-term adoption roadmap as a machine-readable contract. | `make framework-gap-check` |
+| 2 | `GOFLY-P6-1-SUPPORT-LIFECYCLE` | Turn deprecation metadata into an adopter-facing support lifecycle playbook. | `make deprecation-lifecycle-check` |
+| 3 | `GOFLY-P6-2-INTEGRATION-MATRIX` | Map storage, discovery, MQ, gateway, RPC, and observability integrations to owners, gates, and release prerequisites. | `make required-checks-drift-check` |
+| 4 | `GOFLY-P6-3-DEPENDENCY-OWNERSHIP-PLAYBOOK` | Separate root dependencies, generated-project dependencies, security response, and integration delegation. | `make dependency-upgrade-evidence-check` |
+| 5 | `GOFLY-P6-4-REQUIRED-CHECK-DRIFT` | Block drift between documented gates, CI jobs, branch protection, and release prerequisites. | `make required-checks-drift-check` |
+| 6 | `GOFLY-P6-5-PRODUCTION-READINESS-SCORECARD` | Summarize stable, candidate, report-only, and rollback-required surfaces across production adoption evidence. | `make governance-report-check` |
 
 ## Adoption Risk Register
 

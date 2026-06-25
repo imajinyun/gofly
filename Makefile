@@ -18,6 +18,7 @@ SHELLCHECK ?= shellcheck
 # Governance tools are pinned with Go 1.24+ `tool` directives in go.mod.
 GOVULNCHECK ?= $(GO) tool govulncheck
 GOSEC       ?= $(GO) tool gosec
+GORELEASER  ?= $(GO) run github.com/goreleaser/goreleaser/v2@v2.12.7
 GOVULNCHECK_SCAN ?= package
 GOSEC_FLAGS ?= -quiet -exclude-generated -exclude-dir=testdata -exclude-dir=vendor -exclude-dir=.tmp-test
 GOSEC_INVENTORY_BASELINE ?= $(SCRIPTS_DIR)/gosec-exception-baseline.json
@@ -120,7 +121,7 @@ bench-evidence: ## Write benchmark evidence from bench/baseline.txt
 	bash $(SCRIPTS_DIR)/benchstat.sh --evidence
 
 .PHONY: bench-evidence-check
-bench-evidence-check: ## Validate tracked benchmark baseline, matrix, and evidence
+bench-evidence-check: perf-governance-check rpc-boundary-check ## Validate tracked benchmark baseline, matrix, and evidence
 	bash $(SCRIPTS_DIR)/benchstat.sh --check-evidence
 
 .PHONY: bench-compare
@@ -228,20 +229,48 @@ migration-docs-check: ## Validate case studies and migration guide structure
 	sh $(SCRIPTS_DIR)/check-migration-docs.sh
 
 .PHONY: p1-growth-check
-p1-growth-check: helm-template-smoke ## Validate P1 growth roadmap and cloud-native assets
+p1-growth-check: helm-template-smoke cloud-native-render-check plugin-conformance-check reference-app-smoke openapi-validation-check ## Validate P1 growth roadmap and cloud-native assets
 	sh $(SCRIPTS_DIR)/check-p1-growth-assets.sh
 
 .PHONY: helm-template-smoke
 helm-template-smoke: ## Validate Helm chart production resource coverage
 	sh $(SCRIPTS_DIR)/helm-template-smoke.sh
 
+.PHONY: cloud-native-render-check
+cloud-native-render-check: ## Validate Helm/Kustomize render profiles and policy assets
+	sh $(SCRIPTS_DIR)/check-cloud-native-render.sh
+
+.PHONY: reference-app-smoke
+reference-app-smoke: ## Validate the production-orders reference app evidence
+	sh $(SCRIPTS_DIR)/reference-app-smoke.sh
+
+.PHONY: plugin-conformance-check
+plugin-conformance-check: ## Validate plugin registry and manifest conformance cases
+	sh $(SCRIPTS_DIR)/plugin-conformance-check.sh
+
+.PHONY: openapi-validation-check
+openapi-validation-check: ## Validate OpenAPI, binding, validation, and error envelope contracts
+	sh $(SCRIPTS_DIR)/check-openapi-validation-envelope.sh
+
 .PHONY: community-growth-check
 community-growth-check: ## Validate contributor, roadmap, and issue-template adoption signals
 	sh $(SCRIPTS_DIR)/check-community-growth.sh
 
 .PHONY: contract-docs-check
-contract-docs-check: ## Validate stable CLI JSON and control-plane contract docs
+contract-docs-check: stable-surface-check generated-version-compat-check adopter-decision-check ## Validate stable CLI JSON and control-plane contract docs
 	sh $(SCRIPTS_DIR)/check-contract-docs.sh
+
+.PHONY: stable-surface-check
+stable-surface-check: ## Validate v1 candidate stable surface evidence
+	sh $(SCRIPTS_DIR)/check-stable-surface.sh
+
+.PHONY: generated-version-compat-check
+generated-version-compat-check: ## Validate generated project cross-version compatibility fixtures
+	sh $(SCRIPTS_DIR)/check-generated-version-compat.sh
+
+.PHONY: adopter-decision-check
+adopter-decision-check: ## Validate adopter decision guide runnable evidence
+	sh $(SCRIPTS_DIR)/check-adopter-decision-guide.sh
 
 .PHONY: doc-manifest-sync-check
 doc-manifest-sync-check: ## Validate AI manifest docs, examples, features, templates and verification commands
@@ -271,8 +300,8 @@ docker: ## Build a container image tagged gofly:$(VERSION)
 		-t gofly:$(VERSION) -t gofly:latest .
 
 .PHONY: release-snapshot
-release-snapshot: ## Produce and verify a local snapshot release via GoReleaser (requires goreleaser)
-	goreleaser release --snapshot --clean --skip-publish
+release-snapshot: release-config-check ## Produce and verify a local snapshot release via GoReleaser
+	$(GORELEASER) release --snapshot --clean --skip=publish,docker
 	sh $(SCRIPTS_DIR)/check-release-artifacts.sh
 
 # ---- security & quality gates ------------------------------------------------
@@ -301,8 +330,12 @@ gosec-inventory-refresh: ## Refresh the approved #nosec exception baseline after
 	python3 -c 'import json, sys; from pathlib import Path; inventory = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8")); baseline_path = Path(sys.argv[2]); allowed = ["|".join([entry["file"], ",".join(entry.get("rules") or []), entry.get("rationale", "")]) for entry in inventory.get("entries", [])]; payload = {"allowed_exceptions": sorted(allowed), "schema": "gofly.gosec_exception_baseline.v1"}; baseline_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")' $$tmp $(GOSEC_INVENTORY_BASELINE)
 
 .PHONY: release-artifacts-check
-release-artifacts-check: ## Verify release archives, checksums, and SBOM artifacts in dist
+release-artifacts-check: release-config-check ## Verify release archives, checksums, and SBOM artifacts in dist
 	sh $(SCRIPTS_DIR)/check-release-artifacts.sh
+
+.PHONY: release-config-check
+release-config-check: ## Validate GoReleaser and release evidence configuration
+	sh $(SCRIPTS_DIR)/check-release-config.sh
 
 .PHONY: release-artifacts-test
 release-artifacts-test: ## Run release artifact provenance fixture tests
@@ -319,6 +352,14 @@ api-compat: ## Check public Go API compatibility against API_BASE_REF
 .PHONY: api-compat-test
 api-compat-test: ## Run public API compatibility skip semantics fixture tests
 	sh $(SCRIPTS_DIR)/check-public-api-test.sh
+
+.PHONY: perf-governance-check
+perf-governance-check: ## Validate HTTP hot-path performance governance evidence
+	sh $(SCRIPTS_DIR)/check-perf-governance.sh
+
+.PHONY: rpc-boundary-check
+rpc-boundary-check: ## Validate RPC/gRPC/Kitex coexistence benchmark governance
+	sh $(SCRIPTS_DIR)/check-rpc-boundary.sh
 
 .PHONY: actionlint
 actionlint: actions-pin-check ## Lint GitHub Actions workflows

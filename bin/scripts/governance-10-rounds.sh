@@ -14,13 +14,15 @@ case " ${GOFLAGS:-} " in
 *) export GOFLAGS="${GOFLAGS:+$GOFLAGS }-count=1" ;;
 esac
 export GOCACHE="${GOCACHE:-$tmp/gocache}"
+export GOLANGCI_LINT_CACHE="${GOLANGCI_LINT_CACHE:-$tmp/golangci-lint}"
+lint_home="${GOLANGCI_LINT_HOME:-$tmp/golangci-home}"
 export GOPROXY="${GOPROXY:-direct}"
 export GOFLY_GOVERNANCE_CACHE_DISABLED="${GOFLY_GOVERNANCE_CACHE_DISABLED:-true}"
 if [ -z "${GOTMPDIR:-}" ]; then
 	export GOTMPDIR="$tmp/gotmp"
 fi
 
-mkdir -p "$GOCACHE" "$GOTMPDIR"
+mkdir -p "$GOCACHE" "$GOTMPDIR" "$GOLANGCI_LINT_CACHE" "$lint_home"
 
 if [ "${GOVERNANCE_ISOLATE_GOMODCACHE:-false}" = "true" ] && [ -z "${GOMODCACHE:-}" ]; then
 	export GOMODCACHE="$tmp/gomodcache"
@@ -146,6 +148,10 @@ round_tidy_check() {
 
 round_docs_check() {
 	sh "$root/bin/scripts/check-doc-go-snippets.sh"
+}
+
+round_golangci_lint() {
+	HOME="$lint_home" "$golangci_lint" run $pkgs
 }
 
 round_runtime_cache_bypass_tests() {
@@ -469,6 +475,7 @@ printf 'GOFLAGS=%s\n' "$GOFLAGS"
 printf 'GOFLY_GOVERNANCE_CACHE_DISABLED=%s\n' "$GOFLY_GOVERNANCE_CACHE_DISABLED"
 printf 'GOCACHE=%s\n' "$GOCACHE"
 printf 'GOTMPDIR=%s\n' "$GOTMPDIR"
+printf 'GOLANGCI_LINT_HOME=%s\n' "$lint_home"
 printf 'GOMODCACHE=%s\n' "${GOMODCACHE:-<go default>}"
 printf 'GOVERNANCE_ISOLATE_GOMODCACHE=%s\n' "${GOVERNANCE_ISOLATE_GOMODCACHE:-false}"
 printf 'GOPROXY=%s\n' "$GOPROXY"
@@ -485,7 +492,7 @@ run_round 1 "baseline and module graph" round_baseline
 run_round 2 "format check" round_format_check
 run_round 3 "unit tests without test cache" "$go_cmd" test $testflags $pkgs
 run_round 4 "vet static analysis" "$go_cmd" vet $pkgs
-run_round 5 "golangci-lint" "$golangci_lint" run $pkgs
+run_round 5 "golangci-lint" round_golangci_lint
 if [ "${GOVERNANCE_SKIP_RACE:-false}" = "true" ]; then
 	assert_not_release_skip GOVERNANCE_SKIP_RACE
 	printf '\n== Round 6: race detector ==\n'

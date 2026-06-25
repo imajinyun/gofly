@@ -1,0 +1,15 @@
+{
+  "admin": {
+    "enabled": true,
+    "pathPrefix": "/admin",
+    "tokenEnv": "ORDERS_ADMIN_TOKEN"
+  },
+  "compatibility": {
+    "experimentalFields": "ignore-with-warning",
+    "profile": "future"
+  },
+  "module": "example.com/orders",
+  "name": "orders",
+  "profile": "future",
+  "style": "production"
+}

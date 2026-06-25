@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": true,
+  "properties": {
+    "autoscaling": {
+      "additionalProperties": true,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "maxReplicas": { "minimum": 1, "type": "integer" },
+        "minReplicas": { "minimum": 1, "type": "integer" }
+      },
+      "type": "object"
+    },
+    "networkPolicy": {
+      "additionalProperties": true,
+      "properties": {
+        "allowDNS": { "type": "boolean" },
+        "enabled": { "type": "boolean" },
+        "ingressNamespaces": {
+          "items": { "type": "string" },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "podDisruptionBudget": {
+      "additionalProperties": true,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "minAvailable": { "type": "integer" }
+      },
+      "type": "object"
+    },
+    "serviceMonitor": {
+      "additionalProperties": true,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "interval": { "type": "string" }
+      },
+      "type": "object"
+    }
+  },
+  "title": "gofly Helm values",
+  "type": "object"
+}

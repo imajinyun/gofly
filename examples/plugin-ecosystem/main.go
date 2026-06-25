@@ -23,6 +23,7 @@ type report struct {
 	Protocol      string              `json:"protocol"`
 	Registry      registrySummary     `json:"registry"`
 	Compatibility []compatibilityCase `json:"compatibility"`
+	Conformance   []conformanceCase   `json:"conformance"`
 	Examples      []exampleSummary    `json:"examples"`
 	Security      []string            `json:"security"`
 }
@@ -39,6 +40,12 @@ type compatibilityCase struct {
 	CompatibleVersions []string `json:"compatibleVersions"`
 	Accepted           bool     `json:"accepted"`
 	Selected           string   `json:"selected,omitempty"`
+}
+
+type conformanceCase struct {
+	Name     string `json:"name"`
+	Accepted bool   `json:"accepted"`
+	Reason   string `json:"reason"`
 }
 
 type exampleSummary struct {
@@ -182,6 +189,12 @@ func buildReport(ctx context.Context) (report, error) {
 			{Name: "current-protocol", CompatibleVersions: []string{compatibleVersion()}, Accepted: true, Selected: compatibleVersion()},
 			{Name: "future-plus-current", CompatibleVersions: []string{"2", compatibleVersion()}, Accepted: true, Selected: compatibleVersion()},
 			{Name: "future-only", CompatibleVersions: []string{"2"}, Accepted: false},
+		},
+		Conformance: []conformanceCase{
+			{Name: "digest-mismatch", Accepted: false, Reason: "registry checksum must match the downloaded plugin digest"},
+			{Name: "malicious-path", Accepted: false, Reason: "plugin file and patch paths must remain relative to the project root"},
+			{Name: "permission-escape", Accepted: false, Reason: "declared permissions must be the least privilege needed for plugin output"},
+			{Name: "failure-isolation", Accepted: true, Reason: "plugin failures are reported as plugin effects without partial host writes"},
 		},
 		Examples: []exampleSummary{
 			{Name: filePlugin.Manifest().Name, Capabilities: filePlugin.Manifest().Capabilities, Files: filePaths(fileResp.Files)},

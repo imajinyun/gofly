@@ -11,7 +11,7 @@ Start with the golden path, then use the module guides when you wire production 
 | Create a production-shaped service from scratch | [From zero to production](tutorials/zero-to-production.md) | generated tests pass, `/admin/control-plane` is captured, examples and docs checks pass |
 | Run a narrow capability before committing to a service shape | [Use standalone examples](how-to/standalone-examples.md) | the copied example builds outside this repository with a released gofly dependency |
 | Understand what is safe to automate or depend on | [Stable API surface](reference/api-surface.md) | consumers use documented stable CLI JSON, OpenAPI/RPC, and control-plane fields |
-| Decide whether gofly fits an existing platform | [Adoption model](explanation/adoption-model.md) | the team can explain why governance, examples, benchmarks, and control-plane state matter |
+| Decide whether gofly fits an existing platform | [Adopter decision guide](explanation/adopter-decision-guide.md) and [Adoption model](explanation/adoption-model.md) | the team can explain why governance, examples, benchmarks, and control-plane state matter |
 
 ## Getting started
 
@@ -27,7 +27,7 @@ Start with the golden path, then use the module guides when you wire production 
 - How-to: [Use standalone examples](how-to/standalone-examples.md)
 - Reference: [Stable API surface](reference/api-surface.md), [Compatibility policy](reference/compatibility.md), [CLI JSON contracts](reference/cli-json-contracts.md), [Control-plane contracts](reference/control-plane-contracts.md), [Benchmark matrix](reference/benchmark-matrix.md)
 - Growth: [P1 growth roadmap](reference/p1-growth-roadmap.md)
-- Explanation: [Adoption model](explanation/adoption-model.md)
+- Explanation: [Adopter decision guide](explanation/adopter-decision-guide.md), [Adoption model](explanation/adoption-model.md)
 
 ## Definition of done
 

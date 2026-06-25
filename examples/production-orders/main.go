@@ -6,6 +6,8 @@
 //   - limiter, retry and breaker protect downstream calls
 //   - saga compensates partially completed business steps
 //   - outbox relays committed events into an in-memory MQ worker
+//   - cache boundaries can be added behind the same request path without
+//     changing the REST/RPC contract
 //   - observability exposes metrics, health and pprof on an admin port
 //
 // Run it:

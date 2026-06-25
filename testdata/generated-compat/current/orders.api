@@ -1,0 +1,18 @@
+service orders {
+  @handler CreateOrder
+  post /v1/orders (CreateOrderRequest) returns (CreateOrderResponse)
+
+  @handler GetOrder
+  get /v1/orders/:id returns (CreateOrderResponse)
+}
+
+type CreateOrderRequest {
+  sku string `json:"sku" validate:"required"`
+  quantity int `json:"quantity" validate:"min=1"`
+}
+
+type CreateOrderResponse {
+  id string `json:"id"`
+  status string `json:"status"`
+  trace_id string `json:"trace_id,optional"`
+}

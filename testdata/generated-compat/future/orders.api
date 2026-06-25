@@ -1,0 +1,24 @@
+service orders {
+  @handler CreateOrder
+  post /v2/orders (CreateOrderRequest) returns (CreateOrderResponse)
+
+  @handler StreamOrderEvents
+  get /v2/orders/:id/events returns (OrderEvent)
+}
+
+type CreateOrderRequest {
+  sku string `json:"sku" validate:"required" x-gofly-future:"inventory-policy"`
+  quantity int `json:"quantity" validate:"min=1"`
+  idempotency_key string `header:"Idempotency-Key,optional"`
+}
+
+type CreateOrderResponse {
+  id string `json:"id"`
+  status string `json:"status"`
+  trace_id string `json:"trace_id,optional"`
+}
+
+type OrderEvent {
+  id string `json:"id"`
+  status string `json:"status"`
+}

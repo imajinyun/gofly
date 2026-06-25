@@ -1,0 +1,30 @@
+{
+  "archives": [
+    "dist/gofly_<version>_darwin_amd64.tar.gz",
+    "dist/gofly_<version>_darwin_arm64.tar.gz",
+    "dist/gofly_<version>_linux_amd64.tar.gz",
+    "dist/gofly_<version>_linux_arm64.tar.gz",
+    "dist/gofly_<version>_windows_amd64.zip",
+    "dist/gofly_<version>_windows_arm64.zip"
+  ],
+  "checksums": "dist/checksums.txt",
+  "docker_digest": "release-evidence/docker/release-docker-digests.json",
+  "provenance_attestation": [
+    "release-evidence/checksums-attestation-verification.json",
+    "release-evidence/docker/release-docker-attestation-verification.json"
+  ],
+  "sbom": [
+    "dist/<archive>.spdx.json",
+    "release-evidence/docker/release-docker-sbom.spdx.json"
+  ],
+  "schema": "gofly.release_evidence_manifest.v1",
+  "tag_governance": {
+    "forbidden_skips": [
+      "API compatibility",
+      "security",
+      "race",
+      "release artifacts"
+    ],
+    "required_command": "make release-snapshot"
+  }
+}

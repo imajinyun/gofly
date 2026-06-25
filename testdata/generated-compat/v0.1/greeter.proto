@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package compat.v1;
+
+option go_package = "example.com/orders/gen/compatv1";
+
+service Greeter {
+  rpc SayHello(HelloRequest) returns (HelloResponse);
+}
+
+message HelloRequest {
+  string name = 1;
+}
+
+message HelloResponse {
+  string message = 1;
+}

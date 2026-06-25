@@ -14,6 +14,10 @@ gofly is still pre-1.0, but production adopters need to know which surfaces are 
 ## Adoption tier policy
 
 The [Stable API Surface Reference](api-surface.md) defines Tier 0 through Tier 3 adoption surfaces. Release notes must name any tier promotion, demotion, or breaking migration.
+The v1 candidate subset and the Tier 2 to Tier 1 promotion checklist are
+defined in [Stable Surface Governance](stable-surface.md). Promotion requires
+compatibility tests, adoption evidence, deprecation notes, and release-note
+classification.
 
 Rules:
 

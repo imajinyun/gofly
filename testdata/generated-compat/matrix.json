@@ -1,0 +1,29 @@
+{
+  "profiles": [
+    {
+      "api": "v0.1/orders.api",
+      "expectedDiff": "compatible feature addition",
+      "profile": "old",
+      "proto": "v0.1/greeter.proto",
+      "serviceConfig": "v0.1/service-config.json",
+      "verification": "generate, compile, and run generated smoke tests"
+    },
+    {
+      "api": "current/orders.api",
+      "expectedDiff": "no unexplained diff",
+      "profile": "current",
+      "proto": "current/greeter.proto",
+      "serviceConfig": "current/service-config.json",
+      "verification": "generate, compile, and run generated smoke tests"
+    },
+    {
+      "api": "future/orders.api",
+      "expectedDiff": "experimental future field ignored safely",
+      "profile": "future",
+      "proto": "future/greeter.proto",
+      "serviceConfig": "future/service-config.json",
+      "verification": "generate, compile, and report explainable diffs"
+    }
+  ],
+  "schema": "gofly.generated_version_compat.v1"
+}

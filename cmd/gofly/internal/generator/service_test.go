@@ -453,6 +453,27 @@ func TestGenerateService(t *testing.T) {
 	assertGeneratedProjectCompiles(t, dir)
 }
 
+func TestGeneratedServiceOpenAPIValidationEnvelopeContract_BitsUT(t *testing.T) {
+	dir := t.TempDir()
+	if err := GenerateService(ServiceOptions{Name: "orders", Module: "example.com/orders", Dir: dir}); err != nil {
+		t.Fatal(err)
+	}
+	serviceSmoke, err := os.ReadFile(filepath.Join(dir, "internal", "smoke", "service_smoke_test.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"invalid request",
+		"rest.ErrorResponse",
+		"OpenAPI",
+		"/openapi.json",
+	} {
+		if !strings.Contains(string(serviceSmoke), want) {
+			t.Fatalf("generated service invalid request/OpenAPI smoke missing %q:\n%s", want, serviceSmoke)
+		}
+	}
+}
+
 func assertGeneratedProductionCheckBehavior(t *testing.T, dir string) {
 	t.Helper()
 

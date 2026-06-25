@@ -1,0 +1,14 @@
+service orders {
+  @handler CreateOrder
+  post /v1/orders (CreateOrderRequest) returns (CreateOrderResponse)
+}
+
+type CreateOrderRequest {
+  sku string `json:"sku"`
+  quantity int `json:"quantity"`
+}
+
+type CreateOrderResponse {
+  id string `json:"id"`
+  status string `json:"status"`
+}

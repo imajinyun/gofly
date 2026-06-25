@@ -1,0 +1,11 @@
+{
+  "admin": {
+    "enabled": true,
+    "pathPrefix": "/admin",
+    "tokenEnv": "ORDERS_ADMIN_TOKEN"
+  },
+  "module": "example.com/orders",
+  "name": "orders",
+  "profile": "current",
+  "style": "production"
+}

@@ -1189,6 +1189,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1196,6 +1197,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	coreerrors "github.com/gofly/gofly/core/errors"
+	"github.com/gofly/gofly/rest"
 )
 
 func TestGeneratedProductionServiceSmoke(t *testing.T) {
@@ -1241,6 +1245,8 @@ func TestGeneratedProductionServiceSmoke(t *testing.T) {
 	})
 
 	waitHTTPStatus(t, ctx, "http://"+restAddr+"/healthz", http.StatusOK, &output)
+	waitOpenAPI(t, ctx, "http://"+restAddr+"/openapi.json", &output)
+	assertInvalidRequestEnvelope(t)
 	controlPlane := waitControlPlane(t, ctx, "http://"+adminAddr+"/admin/control-plane", &output)
 	metadata, ok := controlPlane["metadata"].(map[string]any)
 	if !ok || metadata["generated.project"] != "available" || metadata["generated.project.runtime"] != "service,rest,rpc,governance,discovery" {
@@ -1303,6 +1309,37 @@ func waitHTTPStatus(t *testing.T, ctx context.Context, url string, want int, out
 		time.Sleep(200 * time.Millisecond)
 	}
 	t.Fatalf("%s did not return %d before timeout; service output:\n%s", url, want, output.String())
+}
+
+func waitOpenAPI(t *testing.T, ctx context.Context, url string, output *strings.Builder) {
+	t.Helper()
+	client := http.Client{Timeout: time.Second}
+	for ctx.Err() == nil {
+		resp, err := client.Get(url)
+		if err == nil {
+			var doc map[string]any
+			decodeErr := json.NewDecoder(resp.Body).Decode(&doc)
+			_ = resp.Body.Close()
+			if resp.StatusCode == http.StatusOK && decodeErr == nil && doc["openapi"] != "" {
+				return
+			}
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	t.Fatalf("%s did not return OpenAPI JSON before timeout; service output:\n%s", url, output.String())
+}
+
+func assertInvalidRequestEnvelope(t *testing.T) {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	rest.WriteError(rec, coreerrors.New(coreerrors.CodeInvalidArgument, "invalid request"))
+	var envelope rest.ErrorResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode invalid request rest.ErrorResponse: %v", err)
+	}
+	if rec.Code != http.StatusBadRequest || envelope.Code != coreerrors.CodeInvalidArgument || envelope.Status != http.StatusBadRequest {
+		t.Fatalf("invalid request envelope = status %d body %+v, want rest.ErrorResponse invalid_argument", rec.Code, envelope)
+	}
 }
 
 func waitControlPlane(t *testing.T, ctx context.Context, url string, output *strings.Builder) map[string]any {

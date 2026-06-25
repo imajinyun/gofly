@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -38,6 +39,34 @@ func TestOrderStoreAndInventoryBoundaries_BitsUT(t *testing.T) {
 	}
 	if resp.ReservationID != "res-coffee" {
 		t.Fatalf("reservation id = %q, want res-coffee", resp.ReservationID)
+	}
+}
+
+func TestProductionOrderReferenceAppContract_BitsUT(t *testing.T) {
+	readme, err := os.ReadFile("README.md")
+	if err != nil {
+		t.Fatalf("read README.md: %v", err)
+	}
+	text := string(readme)
+	for _, want := range []string{
+		"gofly.reference_app.v1",
+		"REST",
+		"RPC",
+		"MQ",
+		"outbox",
+		"saga",
+		"config",
+		"discovery",
+		"cache",
+		"observability",
+		"K8s",
+		"rollback",
+		"REFERENCE_APP_MODE=memory make reference-app-smoke",
+		"REFERENCE_APP_MODE=docker make reference-app-smoke",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("README.md missing %q", want)
+		}
 	}
 }
 

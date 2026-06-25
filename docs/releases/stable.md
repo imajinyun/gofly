@@ -11,6 +11,18 @@ gofly version
 
 Tagged releases publish CLI binaries with SHA-256 checksums and SBOM metadata through GoReleaser.
 
+Local release convergence starts with:
+
+```sh
+make release-snapshot
+```
+
+The release evidence manifest lives at
+[`docs/releases/evidence-manifest.json`](evidence-manifest.json). It names the
+multi-platform archives, `checksums.txt`, archive SBOM files, Docker image tags
+and digest, and provenance attestation evidence expected before a tag is
+promoted.
+
 ## Verify Binary Artifacts
 
 ```sh
@@ -49,6 +61,19 @@ Before tagging a release, record compatibility evidence for each affected adopti
 | Tier 1 | API compatibility report, CLI JSON contract checks, control-plane contract checks, and OpenAPI/RPC breaking checks when contracts changed. |
 | Tier 2 | Subsystem smoke tests, migration notes for breaking changes, and generated-project or example updates that prove the new behavior. |
 | Tier 3 | Experimental labels in docs/help/generated files and pinning guidance for users who depend on the surface. |
+
+For v1 candidate surfaces, also run:
+
+```sh
+make stable-surface-check
+```
+
+The [stable surface governance](../reference/stable-surface.md) checklist is the
+release evidence manifest for `rest`, `core/governance`, `core/controlplane`,
+CLI JSON, and the generated production service. Release notes for these surfaces
+must name the deprecation status, coexistence window, rollback guidance, and
+whether the change is a compatible addition, behavioral fix, deprecation, or
+breaking candidate.
 
 If a stable or Tier 1 surface is deprecated, the release note must include the replacement, coexistence window, first deprecated version, and expected removal version. Security-driven removals must include the risk and mitigation.
 

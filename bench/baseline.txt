@@ -172,5 +172,10 @@ BenchmarkRPCUnary/grpc_go-14                	   85828	     13840 ns/op	    8771 
 BenchmarkRPCUnary/grpc_go-14                	   79093	     14750 ns/op	    8751 B/op	     147 allocs/op
 BenchmarkRPCUnary/grpc_go-14                	   88897	     13462 ns/op	    8738 B/op	     147 allocs/op
 BenchmarkRPCUnary/grpc_go-14                	   90126	     13690 ns/op	    8723 B/op	     147 allocs/op
+BenchmarkRPCStreamGovernance-14    	    2506	    414949 ns/op	   28699 B/op	     150 allocs/op
+BenchmarkRPCStreamGovernance-14    	    2739	    376242 ns/op	   28616 B/op	     149 allocs/op
+BenchmarkRPCStreamGovernance-14    	    3313	    378709 ns/op	   28614 B/op	     149 allocs/op
+BenchmarkRPCStreamGovernance-14    	    3434	    392031 ns/op	   28584 B/op	     149 allocs/op
+BenchmarkRPCStreamGovernance-14    	    2856	    380096 ns/op	   28573 B/op	     149 allocs/op
 PASS
 ok  	github.com/gofly/gofly/bench	204.811s

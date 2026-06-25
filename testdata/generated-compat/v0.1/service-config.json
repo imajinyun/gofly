@@ -1,0 +1,10 @@
+{
+  "admin": {
+    "enabled": true,
+    "pathPrefix": "/admin"
+  },
+  "module": "example.com/orders",
+  "name": "orders",
+  "profile": "old",
+  "style": "production"
+}

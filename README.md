@@ -124,7 +124,7 @@ Run `gofly help` for the full command list.
 | 📊 Benchmark matrix | [docs/reference/benchmark-matrix.md](docs/reference/benchmark-matrix.md), [bench/evidence.md](bench/evidence.md), [bench/README.md](bench/README.md) |
 | 📈 P1 growth roadmap | [docs/reference/p1-growth-roadmap.md](docs/reference/p1-growth-roadmap.md) |
 | 🧭 Concepts | [docs/concepts/architecture.md](docs/concepts/architecture.md) |
-| 🧠 Adoption model | [docs/explanation/adoption-model.md](docs/explanation/adoption-model.md) |
+| 🧠 Adoption model | [docs/explanation/adopter-decision-guide.md](docs/explanation/adopter-decision-guide.md), [docs/explanation/adoption-model.md](docs/explanation/adoption-model.md) |
 | 🌐 REST / RPC / Gateway guides | [docs/guides/rest.md](docs/guides/rest.md), [docs/guides/rpc.md](docs/guides/rpc.md), [docs/guides/gateway.md](docs/guides/gateway.md) |
 | ⚙️ Production operations | [docs/operations/production-checklist.md](docs/operations/production-checklist.md) |
 | 📦 Stable releases | [docs/releases/stable.md](docs/releases/stable.md) |

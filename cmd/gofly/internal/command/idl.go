@@ -1186,6 +1186,7 @@ func buildIDLGeneratePlan(command string, inputs map[string]string, plugins []st
 		MutatesFilesystem: true,
 		Inputs:            inputs,
 		Actions:           actions,
+		GeneratedFiles:    countGeneratedGoProjectFiles(dir),
 		NextActions:       []string{"review generated diff", "go test ./..."},
 	}
 }

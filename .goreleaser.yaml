@@ -1,0 +1,94 @@
+version: 2
+
+project_name: gofly
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: gofly
+    main: ./cmd/gofly
+    binary: gofly
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/gofly/gofly/cmd/gofly/internal/command.Version={{.Version}}
+      - -X github.com/gofly/gofly/cmd/gofly/internal/command.Commit={{.Commit}}
+      - -X github.com/gofly/gofly/cmd/gofly/internal/command.BuiltAt={{.Date}}
+
+archives:
+  - id: gofly-archives
+    builds:
+      - gofly
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Version }}_
+      {{- .Os }}_
+      {{- .Arch }}
+    files:
+      - LICENSE
+      - README.md
+      - SECURITY.md
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+sboms:
+  - id: archive-sboms
+    artifacts: archive
+
+dockers:
+  - image_templates:
+      - ghcr.io/gofly/gofly:{{ .Version }}-amd64
+    dockerfile: Dockerfile
+    use: buildx
+    goos: linux
+    goarch: amd64
+    build_flag_templates:
+      - --platform=linux/amd64
+      - --label=org.opencontainers.image.source=https://github.com/gofly/gofly
+      - --label=org.opencontainers.image.revision={{.Commit}}
+  - image_templates:
+      - ghcr.io/gofly/gofly:{{ .Version }}-arm64
+    dockerfile: Dockerfile
+    use: buildx
+    goos: linux
+    goarch: arm64
+    build_flag_templates:
+      - --platform=linux/arm64
+      - --label=org.opencontainers.image.source=https://github.com/gofly/gofly
+      - --label=org.opencontainers.image.revision={{.Commit}}
+
+docker_manifests:
+  - name_template: ghcr.io/gofly/gofly:{{ .Version }}
+    image_templates:
+      - ghcr.io/gofly/gofly:{{ .Version }}-amd64
+      - ghcr.io/gofly/gofly:{{ .Version }}-arm64
+  - name_template: ghcr.io/gofly/gofly:latest
+    image_templates:
+      - ghcr.io/gofly/gofly:{{ .Version }}-amd64
+      - ghcr.io/gofly/gofly:{{ .Version }}-arm64
+
+release:
+  draft: true
+  replace_existing_draft: true
+
+changelog:
+  use: git
+  sort: asc

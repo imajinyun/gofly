@@ -83,6 +83,10 @@ Binding, parsing, and validation failures are reported as the stable REST error 
 }
 ```
 
+The concrete response type is `rest.ErrorResponse`; generated routes should use
+`rest.JSONErrorResponse(...)` in OpenAPI metadata when documenting custom error
+codes.
+
 Generated handlers and hand-written handlers should use `ctx.Error(err)` for binding and validation failures, and should document `rest.DefaultErrorResponses()` or `rest.JSONErrorResponse(...)` in route metadata.
 
 ## Production configuration

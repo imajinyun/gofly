@@ -173,7 +173,8 @@ check_evidence() {
 		BenchmarkHTTPMiddlewareChain \
 		BenchmarkHTTPOpenAPI \
 		BenchmarkHTTPGovernance \
-		BenchmarkRPCUnary; do
+		BenchmarkRPCUnary \
+		BenchmarkRPCStreamGovernance; do
 		if ! grep -q "$benchmark" "$BASELINE_FILE"; then
 			echo "baseline is missing $benchmark"
 			exit 1
@@ -206,6 +207,8 @@ write_matrix() {
 		echo "| OpenAPI overhead | BenchmarkHTTPOpenAPI | gofly disabled/enabled | BENCH_PATTERN=BenchmarkHTTPOpenAPI make bench-stat | Contract metadata cost |"
 		echo "| Governance overhead | BenchmarkHTTPGovernance | gofly disabled/enabled | BENCH_PATTERN=BenchmarkHTTPGovernance make bench-stat | Runtime policy decision cost |"
 		echo "| RPC unary | BenchmarkRPCUnary | gofly RPC, gRPC-Go | BENCH_PATTERN=BenchmarkRPCUnary make bench-stat | Service-to-service call cost |"
+		echo "| RPC stream governance | BenchmarkRPCStreamGovernance | gofly RPC stream governance | BENCH_PATTERN=BenchmarkRPCStreamGovernance make bench-stat | Stream governance overhead |"
+		echo "| RPC resolver/balancer smoke | examples/rpc-idl-matrix | gofly resolver, weighted round-robin, P2C, consistent hash, health-aware | go run -C examples/rpc-idl-matrix . | resolver/balancer smoke and Kitex boundary evidence |"
 		echo
 		echo "## Release rule"
 		echo

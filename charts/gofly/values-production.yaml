@@ -1,0 +1,22 @@
+replicaCount: 3
+
+serviceMonitor:
+  enabled: true
+  interval: 30s
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 2
+
+networkPolicy:
+  enabled: true
+  ingressNamespaces:
+    - ingress-nginx
+    - monitoring
+  allowDNS: true

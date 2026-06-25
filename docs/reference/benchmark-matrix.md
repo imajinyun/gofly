@@ -16,6 +16,27 @@ The committed public baseline and environment evidence live in `bench/evidence.m
 make bench-evidence-check
 ```
 
+## Publishing manifest
+
+Schema: `gofly.benchmark_publishing.v1`
+
+`bench/publishing.json` is the machine-readable publishing checklist for
+release automation. It names the raw benchmark output, public baseline, trend
+summary, and allocation regression report that should be attached when a release
+changes REST, RPC, gateway, governance, OpenAPI, or code generation hot paths.
+
+Validate the publishing contract with:
+
+```sh
+make bench-publish-check
+make bench-regression-check
+```
+
+`make bench-regression-check` writes `bench/regression-report.json` with schema
+`gofly.benchmark_regression_report.v1`. Allocation regression is blocking for
+tracked HTTP hot-path rows; latency is report-only until the policy promotes it
+to a release-blocking metric.
+
 ## Run the benchmark suite
 
 ```sh
@@ -54,4 +75,5 @@ Every release that changes REST, RPC, gateway, governance, OpenAPI, or code gene
 1. raw output from `make bench-stat`;
 2. `bench/evidence.md` from `make bench-baseline` when publishing a new public baseline;
 3. `bench/summary.md` from `make bench-trend`;
-4. significant `benchstat` rows in release notes when a baseline exists.
+4. `bench/regression-report.json` from `make bench-regression-check`;
+5. significant `benchstat` rows in release notes when a baseline exists.

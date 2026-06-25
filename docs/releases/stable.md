@@ -85,6 +85,11 @@ Before tagging a release that changes REST, RPC, gateway, governance, or code ge
 make bench-stat
 make bench-trend
 make bench-matrix
+make bench-regression-check
+make bench-publish-check
 ```
 
-Attach raw benchmark output and the generated trend summary to release notes. See [Benchmark Matrix Reference](../reference/benchmark-matrix.md).
+Attach raw benchmark output, the generated trend summary, and
+`bench/regression-report.json` to release notes. `bench/publishing.json`
+defines the `gofly.benchmark_publishing.v1` machine-readable publishing
+contract for release automation. See [Benchmark Matrix Reference](../reference/benchmark-matrix.md).

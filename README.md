@@ -193,3 +193,10 @@ make governance-10-rounds
 gofly is released under the [MIT License](./LICENSE).
 
 Third-party framework names such as go-zero and Kitex, when mentioned in docs, tests, or generated compatibility adapters, are used only for ecosystem compatibility and migration context. gofly does not include or depend on their source code and is not endorsed by or affiliated with those projects.
+
+<!-- claim-provenance: http-dx-openapi-envelope -->
+<!-- claim-provenance: generated-scaffold-upgrade -->
+<!-- claim-provenance: rpc-boundary-tier1 -->
+<!-- claim-provenance: production-reference-proof -->
+<!-- claim-provenance: release-trust-evidence -->
+<!-- claim-provenance: performance-credibility -->

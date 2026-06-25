@@ -141,6 +141,19 @@ release.
 | `plugin-publishing-protocol` | `candidate` | `make plugin-conformance-check` |
 | `performance-credibility` | `report-only` | `make bench-regression-check` |
 
+Adopter-facing docs that make capability or framework comparison claims include
+hidden `claim-provenance` markers. `make framework-gap-check` verifies that each
+marker references a known claim id and that `docs/superpowers/` remains ignored
+and outside the scan target set.
+
+<!-- claim-provenance: http-dx-openapi-envelope -->
+<!-- claim-provenance: generated-scaffold-upgrade -->
+<!-- claim-provenance: rpc-boundary-tier1 -->
+<!-- claim-provenance: production-reference-proof -->
+<!-- claim-provenance: release-trust-evidence -->
+<!-- claim-provenance: plugin-publishing-protocol -->
+<!-- claim-provenance: performance-credibility -->
+
 ## Gap Summary
 
 | Dimension | Compared with | Current evidence | Next action |

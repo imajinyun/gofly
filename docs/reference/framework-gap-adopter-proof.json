@@ -58,6 +58,59 @@
     "sourceOfTruth": "docs/reference/framework-gap-matrix.md",
     "acceptanceGate": "make framework-gap-check",
     "unsupportedClaimPolicy": "Any framework comparison or production-readiness claim without local evidence, a gate command, a risk class, and an adopter action must be downgraded to report-only or removed before release.",
+    "docsScan": {
+      "schema": "gofly.docs_claim_provenance_scan.v1",
+      "ignoredPaths": [
+        "docs/superpowers/"
+      ],
+      "targetDocs": [
+        {
+          "path": "README.md",
+          "requiredClaimIds": [
+            "http-dx-openapi-envelope",
+            "generated-scaffold-upgrade",
+            "rpc-boundary-tier1",
+            "production-reference-proof",
+            "release-trust-evidence",
+            "performance-credibility"
+          ],
+          "unsupportedClaimHandling": "README capability and framework comparison language must reference claim-provenance ids or be downgraded before release."
+        },
+        {
+          "path": "docs/index.md",
+          "requiredClaimIds": [
+            "generated-scaffold-upgrade",
+            "production-reference-proof",
+            "release-trust-evidence"
+          ],
+          "unsupportedClaimHandling": "Documentation home claims must stay tied to runnable adopter evidence and release gates."
+        },
+        {
+          "path": "docs/explanation/adopter-decision-guide.md",
+          "requiredClaimIds": [
+            "http-dx-openapi-envelope",
+            "generated-scaffold-upgrade",
+            "rpc-boundary-tier1",
+            "production-reference-proof",
+            "release-trust-evidence"
+          ],
+          "unsupportedClaimHandling": "Migration decision claims must reference provenance ids and retain rollback gate language."
+        },
+        {
+          "path": "docs/reference/framework-gap-matrix.md",
+          "requiredClaimIds": [
+            "http-dx-openapi-envelope",
+            "generated-scaffold-upgrade",
+            "rpc-boundary-tier1",
+            "production-reference-proof",
+            "release-trust-evidence",
+            "plugin-publishing-protocol",
+            "performance-credibility"
+          ],
+          "unsupportedClaimHandling": "Framework gap claims must stay aligned with the capability claim provenance contract."
+        }
+      ]
+    },
     "claims": [
       {
         "id": "http-dx-openapi-envelope",

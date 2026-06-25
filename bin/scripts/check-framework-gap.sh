@@ -5,6 +5,7 @@ python3 - <<'PY'
 import json
 import pathlib
 import re
+import subprocess
 import sys
 
 root = pathlib.Path(".").resolve()
@@ -461,6 +462,53 @@ for required_type in (
     "performance-evidence",
 ):
     require(required_type in claim_types, f"capability claim provenance missing claimType {required_type!r}")
+docs_scan = claim_provenance.get("docsScan") or {}
+require(docs_scan.get("schema") == "gofly.docs_claim_provenance_scan.v1", "docs claim provenance scan schema mismatch")
+ignored_paths = set(docs_scan.get("ignoredPaths") or [])
+require("docs/superpowers/" in ignored_paths, "docs claim provenance scan must ignore docs/superpowers/")
+gitignore = read_text(root / ".gitignore")
+require("docs/superpowers/" in gitignore, ".gitignore must permanently ignore docs/superpowers/")
+tracked_superpowers = subprocess.run(
+    ["git", "ls-files", "docs/superpowers"],
+    cwd=root,
+    check=False,
+    text=True,
+    stdout=subprocess.PIPE,
+    stderr=subprocess.PIPE,
+)
+if tracked_superpowers.returncode == 0:
+    tracked = [line for line in tracked_superpowers.stdout.splitlines() if line.strip()]
+    require(not tracked, f"docs/superpowers must never be tracked: {tracked}")
+else:
+    missing.append(f"could not verify docs/superpowers tracked files: {tracked_superpowers.stderr.strip()}")
+target_docs = docs_scan.get("targetDocs") or []
+require(len(target_docs) >= 4, "docs claim provenance scan must cover at least 4 adopter-facing docs")
+seen_target_docs = set()
+for item in target_docs:
+    if not isinstance(item, dict):
+        missing.append(f"docs claim provenance target must be an object: {item!r}")
+        continue
+    path = item.get("path", "")
+    seen_target_docs.add(path)
+    require(path, "docs claim provenance target path is required")
+    require(path != "docs/superpowers/" and not path.startswith("docs/superpowers/"), f"docs claim provenance target must not scan {path!r}")
+    doc_text = read_text(root / path) if path else ""
+    required_ids = item.get("requiredClaimIds") or []
+    require(required_ids, f"docs claim provenance target {path}: requiredClaimIds is required")
+    for claim_id in required_ids:
+        require(claim_id in claim_ids, f"docs claim provenance target {path}: unknown claim id {claim_id!r}")
+        require(f"claim-provenance: {claim_id}" in doc_text, f"docs claim provenance target {path}: missing marker for {claim_id}")
+    require(
+        len(str(item.get("unsupportedClaimHandling") or "").split()) >= 8,
+        f"docs claim provenance target {path}: unsupportedClaimHandling must be actionable",
+    )
+for required_doc in (
+    "README.md",
+    "docs/index.md",
+    "docs/explanation/adopter-decision-guide.md",
+    "docs/reference/framework-gap-matrix.md",
+):
+    require(required_doc in seen_target_docs, f"docs claim provenance scan missing {required_doc}")
 
 require(adoption_risk.get("sourceOfTruth") == "docs/reference/framework-gap-adoption-wave.json", "adoption risk register sourceOfTruth mismatch")
 require(adoption_risk.get("acceptanceGate") == "make framework-gap-check", "adoption risk register acceptanceGate mismatch")

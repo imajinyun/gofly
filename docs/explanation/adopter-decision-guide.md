@@ -81,3 +81,9 @@ Run the guide gate with:
 make docs-check
 make adopter-decision-check
 ```
+
+<!-- claim-provenance: http-dx-openapi-envelope -->
+<!-- claim-provenance: generated-scaffold-upgrade -->
+<!-- claim-provenance: rpc-boundary-tier1 -->
+<!-- claim-provenance: production-reference-proof -->
+<!-- claim-provenance: release-trust-evidence -->

@@ -45,6 +45,20 @@ operator action, and rollback or escalation path.
 | control-plane-drift | runtime metadata, service discovery, config, or governance policy differs from the expected deployment state | `curl http://127.0.0.1:9090/admin/control-plane`, `make generated-control-plane-smoke` |
 | rollback-decision | release promotion is blocked by runtime, benchmark, security, or governance evidence | `make governance-report-check`, `make bench-evidence-check`, `make govulncheck` |
 
+## Incident Rehearsals
+
+The runbook also includes `incidentRehearsals` for adopter-facing incident
+practice. Each rehearsal names symptoms, golden signals, required artifacts,
+rollback trigger, and post-incident evidence so incident practice stays tied to
+runnable gates instead of prose-only runbooks.
+
+| Incident | Source drill | Diagnosis gate |
+| --- | --- | --- |
+| `rollout-readiness-incident` | `health-probe-failure` | `make runtime-slo-check` |
+| `latency-error-regression-incident` | `metrics-regression` | `make runtime-slo-check` |
+| `governance-policy-incident` | `resilience-policy-regression` | `make resilience-drill-check` |
+| `release-gate-incident` | `rollback-decision` | `make governance-report-check` |
+
 ## Verification
 
 Run the contract gate for documentation or observability evidence changes:

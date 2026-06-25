@@ -2,6 +2,100 @@
   "schema": "gofly.operator_runbook_drills.v1",
   "sourceOfTruth": "docs/reference/runtime-slo.json",
   "acceptanceGate": "make runtime-slo-check",
+  "incidentRehearsals": [
+    {
+      "id": "rollout-readiness-incident",
+      "sourceDrill": "health-probe-failure",
+      "severity": "sev2",
+      "symptoms": [
+        "readiness probe fails after rollout",
+        "traffic shifts away from the new deployment",
+        "dependency health remains degraded"
+      ],
+      "goldenSignals": [
+        "traffic",
+        "saturation"
+      ],
+      "requiredArtifacts": [
+        "docs/operations/troubleshooting.md",
+        "docs/reference/runtime-slo.json",
+        "docs/reference/operator-runbook-drills.json"
+      ],
+      "diagnosisGate": "make runtime-slo-check",
+      "rollbackTrigger": "readiness stays failed after dependency recovery or the previous deployment remains healthier",
+      "postIncidentEvidence": "record probe status, dependency readiness, rollout decision, and whether the previous deployment stayed active"
+    },
+    {
+      "id": "latency-error-regression-incident",
+      "sourceDrill": "metrics-regression",
+      "severity": "sev2",
+      "symptoms": [
+        "route latency p95 increases after release",
+        "error ratio rises for a bounded route",
+        "in-flight requests stay elevated"
+      ],
+      "goldenSignals": [
+        "latency",
+        "errors",
+        "traffic",
+        "saturation"
+      ],
+      "requiredArtifacts": [
+        "examples/observability/grafana-dashboard.json",
+        "examples/observability/prometheus.yaml",
+        "docs/reference/runtime-slo.md"
+      ],
+      "diagnosisGate": "make runtime-slo-check",
+      "rollbackTrigger": "the regression cannot be explained by traffic mix, dependency health, or an accepted benchmark budget",
+      "postIncidentEvidence": "record dashboard window, changed route, release version, rollback decision, and follow-up benchmark gate"
+    },
+    {
+      "id": "governance-policy-incident",
+      "sourceDrill": "resilience-policy-regression",
+      "severity": "sev1",
+      "symptoms": [
+        "breaker opens unexpectedly",
+        "retry attempts exceed the expected policy",
+        "rate-limit rejection changes after config update"
+      ],
+      "goldenSignals": [
+        "governance-decisions",
+        "errors",
+        "saturation"
+      ],
+      "requiredArtifacts": [
+        "docs/reference/resilience-drill.json",
+        "docs/reference/resilience-drill.md",
+        "examples/resilience/main.go"
+      ],
+      "diagnosisGate": "make resilience-drill-check",
+      "rollbackTrigger": "deterministic resilience drill output changes without a matching policy migration note",
+      "postIncidentEvidence": "record policy input, downstream call count, drill output, rollback or accepted migration note, and release gate status"
+    },
+    {
+      "id": "release-gate-incident",
+      "sourceDrill": "rollback-decision",
+      "severity": "sev1",
+      "symptoms": [
+        "release readiness score is blocked",
+        "security or benchmark gate fails",
+        "required release evidence is missing"
+      ],
+      "goldenSignals": [
+        "latency",
+        "errors",
+        "governance-decisions"
+      ],
+      "requiredArtifacts": [
+        "docs/releases/evidence-consumption.json",
+        "docs/releases/readiness-score.json",
+        "docs/reference/governance-dashboard-contract.json"
+      ],
+      "diagnosisGate": "make governance-report-check",
+      "rollbackTrigger": "release evidence marks a required artifact missing or a blocking gate failed",
+      "postIncidentEvidence": "record failed component, consumer action, release manager decision, rollback or pin version, and follow-up gate command"
+    }
+  ],
   "drills": [
     {
       "id": "health-probe-failure",

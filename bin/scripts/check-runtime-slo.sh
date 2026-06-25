@@ -119,6 +119,46 @@ require(runbook.get("acceptanceGate") == "make runtime-slo-check", "operator run
 drills = runbook.get("drills") or []
 actual_drills = {item.get("id") for item in drills if isinstance(item, dict)}
 require(actual_drills == required_drills, f"operator drills drifted: missing={sorted(required_drills - actual_drills)} extra={sorted(actual_drills - required_drills)}")
+incident_rehearsals = runbook.get("incidentRehearsals") or []
+required_incidents = {
+    "rollout-readiness-incident",
+    "latency-error-regression-incident",
+    "governance-policy-incident",
+    "release-gate-incident",
+}
+actual_incidents = {item.get("id") for item in incident_rehearsals if isinstance(item, dict)}
+require(actual_incidents == required_incidents, f"incident rehearsals drifted: missing={sorted(required_incidents - actual_incidents)} extra={sorted(actual_incidents - required_incidents)}")
+for item in incident_rehearsals:
+    if not isinstance(item, dict):
+        missing.append(f"incident rehearsal entry must be an object: {item!r}")
+        continue
+    incident = item.get("id", "")
+    for field in (
+        "id",
+        "sourceDrill",
+        "severity",
+        "symptoms",
+        "goldenSignals",
+        "requiredArtifacts",
+        "diagnosisGate",
+        "rollbackTrigger",
+        "postIncidentEvidence",
+    ):
+        require(bool(item.get(field)), f"{incident or '<missing>'}: {field} is required")
+    require(item.get("sourceDrill") in required_drills, f"{incident}: sourceDrill must reference an operator drill")
+    require(item.get("severity") in {"sev1", "sev2", "sev3"}, f"{incident}: severity must be sev1, sev2, or sev3")
+    require(len(item.get("symptoms") or []) >= 3, f"{incident}: symptoms must include at least three signals")
+    for signal in item.get("goldenSignals") or []:
+        require(signal in required_signals, f"{incident}: unknown golden signal {signal!r}")
+    for evidence in item.get("requiredArtifacts") or []:
+        require((root / evidence).exists(), f"{incident}: required artifact is missing: {evidence}")
+    gate = item.get("diagnosisGate", "")
+    require(gate.startswith("make "), f"{incident}: diagnosisGate must be a make target")
+    if gate.startswith("make "):
+        target = gate.removeprefix("make ").split()[0]
+        require(target in target_names, f"{incident}: diagnosisGate target {target!r} missing")
+    for field in ("rollbackTrigger", "postIncidentEvidence"):
+        require(len(str(item.get(field) or "").split()) >= 8, f"{incident}: {field} must be actionable")
 for item in drills:
     if not isinstance(item, dict):
         missing.append(f"operator drill entry must be an object: {item!r}")

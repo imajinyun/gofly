@@ -21,6 +21,21 @@ func TestPluginEcosystemReport_BitsUT(t *testing.T) {
 			t.Fatalf("registry fields = %#v, missing %s", report.Registry.Fields, field)
 		}
 	}
+	for _, field := range []string{"name", "version", "compatibleVersions", "capabilities", "permissions", "requiresDryRun"} {
+		if !contains(report.Publishing.ManifestFields, field) {
+			t.Fatalf("publishing manifest fields = %#v, missing %s", report.Publishing.ManifestFields, field)
+		}
+	}
+	for _, gate := range []string{"make plugin-conformance-check", "go test -C examples/plugin-ecosystem ./...", "go run -C examples/plugin-ecosystem ."} {
+		if !contains(report.Publishing.RequiredGates, gate) {
+			t.Fatalf("publishing gates = %#v, missing %s", report.Publishing.RequiredGates, gate)
+		}
+	}
+	for _, note := range []string{"protocol compatibility", "digest provenance", "permission rationale", "template contract", "rollback and failure isolation behavior"} {
+		if !contains(report.Publishing.ReleaseNotes, note) {
+			t.Fatalf("publishing release notes = %#v, missing %s", report.Publishing.ReleaseNotes, note)
+		}
+	}
 	for _, name := range []string{"audit-trail-generator", "company-template-pack"} {
 		if !contains(report.Registry.Names, name) {
 			t.Fatalf("registry names = %#v, missing %s", report.Registry.Names, name)

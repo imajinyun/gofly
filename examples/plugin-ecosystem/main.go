@@ -22,6 +22,7 @@ type report struct {
 	Schema        string              `json:"schema"`
 	Protocol      string              `json:"protocol"`
 	Registry      registrySummary     `json:"registry"`
+	Publishing    publishingSummary   `json:"publishing"`
 	Compatibility []compatibilityCase `json:"compatibility"`
 	Conformance   []conformanceCase   `json:"conformance"`
 	Examples      []exampleSummary    `json:"examples"`
@@ -33,6 +34,13 @@ type registrySummary struct {
 	Names   []string `json:"names"`
 	Fields  []string `json:"fields"`
 	Sources []string `json:"sources"`
+}
+
+type publishingSummary struct {
+	ManifestFields []string `json:"manifestFields"`
+	RegistryFields []string `json:"registryFields"`
+	RequiredGates  []string `json:"requiredGates"`
+	ReleaseNotes   []string `json:"releaseNotes"`
 }
 
 type compatibilityCase struct {
@@ -183,6 +191,12 @@ func buildReport(ctx context.Context) (report, error) {
 			Names:   names,
 			Fields:  []string{"name", "version", "protocol", "compatibleVersions", "capabilities", "permissions", "checksum", "source"},
 			Sources: sources,
+		},
+		Publishing: publishingSummary{
+			ManifestFields: []string{"name", "version", "compatibleVersions", "capabilities", "permissions", "requiresDryRun"},
+			RegistryFields: []string{"name", "remote", "version", "protocol", "checksum", "source", "manifest"},
+			RequiredGates:  []string{"make plugin-conformance-check", "go test -C examples/plugin-ecosystem ./...", "go run -C examples/plugin-ecosystem ."},
+			ReleaseNotes:   []string{"protocol compatibility", "digest provenance", "permission rationale", "template contract", "rollback and failure isolation behavior"},
 		},
 		Compatibility: []compatibilityCase{
 			{Name: "old-protocol", CompatibleVersions: []string{"0"}, Accepted: false},

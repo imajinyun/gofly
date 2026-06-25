@@ -8,8 +8,19 @@ import sys
 checks = {
     pathlib.Path("docs/reference/plugin-conformance.md"): [
         "gofly.plugin_conformance.v1",
+        "Publishing contract",
         "registry JSON schema",
         "plugin manifest schema",
+        "`name`, `remote`, `version`",
+        "`compatibleVersions`, `capabilities`, `permissions`, and",
+        "make plugin-conformance-check",
+        "go test -C examples/plugin-ecosystem ./...",
+        "go run -C examples/plugin-ecosystem .",
+        "protocol compatibility",
+        "digest provenance",
+        "permission rationale",
+        "template contract",
+        "rollback and failure isolation behavior",
         "digest",
         "least permission",
         "compatibility runner",
@@ -22,6 +33,14 @@ checks = {
         "permission escape",
     ],
     pathlib.Path("examples/plugin-ecosystem/main.go"): [
+        "Publishing",
+        "publishingSummary",
+        "ManifestFields",
+        "RegistryFields",
+        "RequiredGates",
+        "ReleaseNotes",
+        "requiresDryRun",
+        "digest provenance",
         "old-protocol",
         "current-protocol",
         "future-plus-current",
@@ -41,6 +60,11 @@ checks = {
         "TestPluginProtocolCompatibilityMatrix",
         "TestPluginProtocolSchemaContract",
         "TestPluginRegistryIndexValidationAndFiltering",
+    ],
+    pathlib.Path("examples/plugin-ecosystem/main_test.go"): [
+        "Publishing.ManifestFields",
+        "Publishing.RequiredGates",
+        "Publishing.ReleaseNotes",
     ],
 }
 

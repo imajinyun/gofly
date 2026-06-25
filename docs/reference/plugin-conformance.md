@@ -6,6 +6,26 @@ Plugin adoption requires a conformance suite, not only a registry example. The
 suite covers registry JSON schema, plugin manifest schema, digest validation,
 least permission checks, a compatibility runner, and a failure isolation report.
 
+## Publishing contract
+
+A publishable plugin registry entry must include `name`, `remote`, `version`,
+`protocol`, `checksum`, `source`, and `manifest`. The manifest must include
+`name`, `version`, `compatibleVersions`, `capabilities`, `permissions`, and
+`requiresDryRun`. Treat these fields as the public publishing protocol rather
+than example-only metadata.
+
+Publishers must run these gates before announcing a plugin:
+
+```sh
+make plugin-conformance-check
+go test -C examples/plugin-ecosystem ./...
+go run -C examples/plugin-ecosystem .
+```
+
+Release notes for a plugin should state protocol compatibility,
+digest provenance, permission rationale, template contract, and
+rollback and failure isolation behavior.
+
 ## Required cases
 
 | Case | Expected result | Reason |

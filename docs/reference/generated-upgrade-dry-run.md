@@ -31,6 +31,39 @@ Durable evidence should stay limited to:
 - generated snapshot metadata expectations;
 - explainable diff and rollback reports added by later gates.
 
+## Explainable Diff Report
+
+Every upgrade dry-run report must classify generated output changes with the
+`diffReportContract.categories` values from the manifest:
+
+| Category | Meaning | Release handling |
+| --- | --- | --- |
+| `deterministic-repeat-generation` | The same profile generated twice has no content diff after volatile paths and timestamps are normalized. | Required pass/fail evidence for every profile. |
+| `compatible-addition` | Generated files, fields, handlers, comments, or metadata were added without deleting or changing an existing public contract. | Review and keep a rollback note. |
+| `formatting-only` | The diff is limited to gofmt, imports, whitespace, or generated comment normalization. | Review the normalized diff and confirm no semantic token changed. |
+| `breaking-candidate` | Files, public symbols, JSON/OpenAPI/proto fields, config keys, or plugin protocol behavior were deleted, renamed, or changed. | Block release until migrated, reverted, or explicitly accepted as a breaking version boundary. |
+
+Each profile entry must include a `diffReport` object with:
+
+- `repeatGeneration`: the deterministic generation requirement;
+- `categories`: the accepted categories for that profile;
+- `summary`: the human-readable review expectation;
+- `rollbackNote`: the action an adopter can take when the generated output is
+  not acceptable.
+
+Adopters should review upgrade output in this order:
+
+1. Generate the same profile twice and confirm the
+   `deterministic-repeat-generation` category passes.
+2. Compare the previous and upgraded generated project snapshots.
+3. Classify every file diff into one of the manifest categories.
+4. Treat any unclassified diff as a `breaking-candidate` until a migration note
+   or rollback note explains it.
+
+Profile-specific rollback notes are part of the manifest so generated-upgrade
+automation can surface the next action without requiring users to read the full
+roadmap.
+
 ## Relationship To Generated Version Compatibility
 
 `make generated-version-compat-check` remains the executable compatibility

@@ -6,9 +6,53 @@
       "$TMPDIR/gofly-generated-upgrade-*"
     ]
   },
+  "diffReportContract": {
+    "categories": [
+      {
+        "category": "deterministic-repeat-generation",
+        "description": "Repeated generation from the same inputs must produce no content diff after volatile paths and timestamps are normalized.",
+        "requiresRollbackNote": false,
+        "severity": "pass-or-fail"
+      },
+      {
+        "category": "compatible-addition",
+        "description": "New generated files, fields, handlers, comments, or metadata are allowed only when existing public names and runtime behavior remain compatible.",
+        "requiresRollbackNote": true,
+        "severity": "review"
+      },
+      {
+        "category": "formatting-only",
+        "description": "Whitespace, gofmt, import ordering, or generated comment normalization may be accepted when no semantic token changes are present.",
+        "requiresRollbackNote": false,
+        "severity": "review"
+      },
+      {
+        "category": "breaking-candidate",
+        "description": "Deleted files, renamed symbols, changed JSON/OpenAPI/proto fields, removed config keys, or incompatible plugin protocol changes must block release until explained or migrated.",
+        "requiresRollbackNote": true,
+        "severity": "block"
+      }
+    ],
+    "requiredFields": [
+      "profile",
+      "repeatGeneration",
+      "categories",
+      "summary",
+      "rollbackNote"
+    ]
+  },
   "profiles": [
     {
       "api": "testdata/generated-compat/v0.1/orders.api",
+      "diffReport": {
+        "categories": [
+          "deterministic-repeat-generation",
+          "compatible-addition"
+        ],
+        "repeatGeneration": "must-pass",
+        "rollbackNote": "Keep the previous generated project snapshot and regenerate with the v0.1 fixture profile if additive compatibility shims fail to compile.",
+        "summary": "Legacy fixtures may receive additive generated files or shims, but repeated generation must remain deterministic."
+      },
       "generatedSnapshot": {
         "expectedDiff": "compatible feature addition",
         "metadata": {
@@ -28,6 +72,15 @@
     },
     {
       "api": "testdata/generated-compat/current/orders.api",
+      "diffReport": {
+        "categories": [
+          "deterministic-repeat-generation",
+          "formatting-only"
+        ],
+        "repeatGeneration": "must-pass",
+        "rollbackNote": "Re-run the current profile with the last released gofly binary; any non-formatting diff must be treated as an upgrade blocker.",
+        "summary": "Current fixtures should produce no unexplained diff; formatting-only changes require explicit review evidence."
+      },
       "generatedSnapshot": {
         "expectedDiff": "no unexplained diff",
         "metadata": {
@@ -47,6 +100,16 @@
     },
     {
       "api": "testdata/generated-compat/future/orders.api",
+      "diffReport": {
+        "categories": [
+          "deterministic-repeat-generation",
+          "compatible-addition",
+          "breaking-candidate"
+        ],
+        "repeatGeneration": "must-pass",
+        "rollbackNote": "Disable future-only fixture fields or pin to the current profile when unsupported fields become breaking candidates.",
+        "summary": "Future fixtures may surface ignored or additive fields, but any deleted contract or changed generated public surface is a breaking candidate."
+      },
       "generatedSnapshot": {
         "expectedDiff": "experimental future field ignored safely",
         "metadata": {

@@ -32,7 +32,7 @@ bench/summary.md
 # Generated docs and long-form examples
 .harness
 docs/*
-docs/superpowers
+docs/superpowers/
 !docs/index.md
 !docs/getting-started/
 !docs/getting-started/*.md

@@ -23,6 +23,17 @@ The validation entry point is:
 make stable-surface-check
 ```
 
+This target is release-blocking for v1 candidate surfaces. It runs:
+
+- public Go API compatibility through `check-public-api.sh`;
+- CLI JSON golden contract tests for scaffold, IDL, version, AI manifest,
+  doctor, release, and RPC descriptor outputs;
+- `core/controlplane` snapshot, watch, load, checksum, and diff contract tests;
+- `rest` OpenAPI, default error response, and runtime control-plane golden
+  tests;
+- generated production service compile smoke and generated OpenAPI error
+  envelope fixture checks.
+
 ## Tier 2 to Tier 1 criteria
 
 `rpc`, `gateway`, and `app` remain Tier 2 until each surface satisfies all of

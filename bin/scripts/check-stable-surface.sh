@@ -1,6 +1,17 @@
 #!/usr/bin/env sh
 set -eu
 
+go_cmd="${GO:-go}"
+testflags="${TESTFLAGS:--count=1 -shuffle=on}"
+scripts_dir="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
+
+run_check() {
+	name="$1"
+	shift
+	printf '\n== stable surface: %s ==\n' "$name"
+	"$@"
+}
+
 python3 - <<'PY'
 import pathlib
 import sys
@@ -64,3 +75,17 @@ if missing:
 
 print("stable surface governance ok")
 PY
+
+run_check "public Go API compatibility" sh "$scripts_dir/check-public-api.sh"
+
+run_check "CLI JSON golden contracts" "$go_cmd" test $testflags ./cmd/gofly/internal/command -run 'Test(NewCommandsEmitJSONEnvelope_BitsUT|IDLGenerateCommandsEmitJSONEnvelope_BitsUT|VersionCommandJSONEnvelope|ExecuteAIManifestJSONEnvelope|DoctorCommandJSON|ReleaseCheckCommandJSONAndChangelogBlocker_BitsUT|ReleaseCheckGlobalJSONDoesNotDuplicateError_BitsUT|RPCDescriptorCommandJSONCompatible)$'
+
+run_check "control-plane golden contracts" "$go_cmd" test $testflags ./core/controlplane -run 'TestControlPlane(PureOrderingAndClassification|ProviderSourceAndWatchBoundaries|ProviderLoadBoundaries)_BitsUT'
+
+run_check "REST OpenAPI and control-plane golden contracts" "$go_cmd" test $testflags ./rest -run 'Test(ServerOpenAPIExportsRegisteredRoutes|ServerRouteOptionAndOpenAPIBoundaries_BitsUT|OpenAPIExportsDefaultErrorResponses_BitsUT|ControlPlaneRuntimeSnapshotGoldenContractAndSemanticDiff)$'
+
+run_check "generated production service compile smoke" "$go_cmd" test $testflags ./cmd/gofly/internal/command -run 'TestNewServiceGeneratedProjectSmokeMatrix_BitsUT'
+
+run_check "generated production service OpenAPI envelope fixture" "$go_cmd" test $testflags ./cmd/gofly/internal/generator -run 'TestGeneratedServiceOpenAPIValidationEnvelopeContract_BitsUT'
+
+printf '\nstable surface release-blocking contracts ok\n'

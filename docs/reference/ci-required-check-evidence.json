@@ -1,0 +1,140 @@
+{
+  "checks": [
+    {
+      "artifact": "coverage-go-1.26",
+      "check": "build & test (go 1.26)",
+      "job": "build-test",
+      "localGate": "make ci-fast"
+    },
+    {
+      "artifact": "workflow logs and CLI version output",
+      "check": "build & test (go stable)",
+      "job": "build-test",
+      "localGate": "make ci-fast"
+    },
+    {
+      "artifact": "golangci-lint job logs",
+      "check": "golangci-lint",
+      "job": "lint",
+      "localGate": "make lint"
+    },
+    {
+      "artifact": "platform smoke job logs",
+      "check": "platform smoke (macos-latest)",
+      "job": "platform-smoke",
+      "localGate": "go test -count=1 ./app ./rest ./rpc ./gateway ./cache"
+    },
+    {
+      "artifact": "platform smoke job logs",
+      "check": "platform smoke (windows-latest)",
+      "job": "platform-smoke",
+      "localGate": "go test -count=1 ./app ./rest ./rpc ./gateway ./cache"
+    },
+    {
+      "artifact": "govulncheck and gosec output",
+      "check": "security (govulncheck + gosec)",
+      "job": "security",
+      "localGate": "make security"
+    },
+    {
+      "artifact": "api-compat-report",
+      "check": "supply-chain lint + OSV",
+      "job": "supply-chain",
+      "localGate": "make supply-chain"
+    },
+    {
+      "artifact": "CodeQL code scanning result",
+      "check": "CodeQL security analysis",
+      "job": "codeql",
+      "localGate": "GitHub CodeQL workflow"
+    },
+    {
+      "artifact": "Dependency Review job summary",
+      "check": "dependency review",
+      "job": "dependency-review",
+      "localGate": "GitHub Dependency Review workflow"
+    },
+    {
+      "artifact": "dependency upgrade job summary",
+      "check": "dependency upgrade validation",
+      "job": "dependency-upgrade-validation",
+      "localGate": "make dependency-upgrade-check"
+    },
+    {
+      "artifact": "required-status-checks.json",
+      "check": "branch protection required-check audit",
+      "job": "branch-protection-audit",
+      "localGate": "make required-checks-drift-check"
+    },
+    {
+      "artifact": "contract-check job logs",
+      "check": "contract / api+rpc (check + breaking)",
+      "job": "contract-check",
+      "localGate": "make stable-surface-check"
+    },
+    {
+      "artifact": "governance-skip-report",
+      "check": "governance gates",
+      "job": "governance",
+      "localGate": "make governance-10-rounds"
+    },
+    {
+      "artifact": "benchmark-smoke",
+      "check": "bench + fuzz smoke",
+      "job": "bench-fuzz",
+      "localGate": "make bench-evidence-check"
+    },
+    {
+      "artifact": "integration matrix job logs",
+      "check": "integration tests (storage-mysql-postgres)",
+      "job": "integration",
+      "localGate": "make integration-tests"
+    },
+    {
+      "artifact": "integration matrix job logs",
+      "check": "integration tests (config-consul-nacos-etcd)",
+      "job": "integration",
+      "localGate": "make integration-tests"
+    },
+    {
+      "artifact": "integration matrix job logs",
+      "check": "integration tests (mq-brokers)",
+      "job": "integration",
+      "localGate": "make integration-tests"
+    },
+    {
+      "artifact": "integration matrix job logs",
+      "check": "integration tests (gateway-transcode)",
+      "job": "integration",
+      "localGate": "make integration-tests"
+    },
+    {
+      "artifact": "docker-trivy-evidence",
+      "check": "docker build + trivy",
+      "job": "docker",
+      "localGate": "make docker"
+    },
+    {
+      "artifact": "scorecard-results",
+      "check": "OSSF Scorecard",
+      "job": "scorecard",
+      "localGate": "OpenSSF Scorecard workflow"
+    }
+  ],
+  "releasePrerequisites": [
+    "build-test",
+    "platform-smoke",
+    "lint",
+    "security",
+    "supply-chain",
+    "codeql",
+    "dependency-upgrade-validation",
+    "contract-check",
+    "governance",
+    "bench-fuzz",
+    "integration",
+    "docker",
+    "scorecard"
+  ],
+  "schema": "gofly.ci_required_check_evidence.v1"
+}

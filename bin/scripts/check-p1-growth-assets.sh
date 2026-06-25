@@ -2,10 +2,12 @@
 set -eu
 
 python3 - <<'PY'
+import json
 import pathlib
 import sys
 
 root = pathlib.Path('.').resolve()
+middleware_manifest_path = root / 'docs' / 'reference' / 'http-middleware-ecosystem.json'
 
 checks = {
     pathlib.Path('docs/reference/p1-growth-roadmap.md'): [
@@ -269,6 +271,62 @@ checks = {
 }
 
 missing = []
+
+
+def require(condition, message):
+    if not condition:
+        missing.append(message)
+
+
+if middleware_manifest_path.is_file():
+    middleware_manifest = json.loads(middleware_manifest_path.read_text(encoding='utf-8'))
+else:
+    middleware_manifest = {}
+    missing.append('docs/reference/http-middleware-ecosystem.json: file is missing')
+
+require(middleware_manifest.get('schema') == 'gofly.http_middleware_ecosystem.v1', 'HTTP middleware ecosystem schema mismatch')
+require(middleware_manifest.get('status') == 'blocking', 'HTTP middleware ecosystem status must be blocking')
+require(middleware_manifest.get('blockingGate') == 'make p1-growth-check', 'HTTP middleware ecosystem blocking gate must be make p1-growth-check')
+require(middleware_manifest.get('smokeGate') == 'make examples-smoke', 'HTTP middleware ecosystem smoke gate must be make examples-smoke')
+
+modules = set(middleware_manifest.get('exampleModules') or [])
+for module in ('examples/middlewares', 'examples/middleware-demo', 'examples/http-middleware'):
+    require(module in modules, f'HTTP middleware ecosystem missing example module {module}')
+
+capabilities = middleware_manifest.get('capabilities') or []
+required_capabilities = {'jwt', 'cors', 'csrf', 'session', 'prometheus', 'otel', 'sse', 'websocket'}
+actual_capabilities = {item.get('id') for item in capabilities if isinstance(item, dict)}
+require(required_capabilities <= actual_capabilities, f'HTTP middleware ecosystem missing capabilities: {sorted(required_capabilities - actual_capabilities)!r}')
+
+for item in capabilities:
+    if not isinstance(item, dict):
+        missing.append(f'HTTP middleware capability must be an object: {item!r}')
+        continue
+    item_id = item.get('id', '<missing>')
+    for field in ('id', 'name', 'category', 'ownerDocs', 'examples', 'smokeGates', 'evidenceRefs'):
+        require(item.get(field) not in ('', None, []), f'HTTP middleware capability {item_id}: {field} is required')
+    for doc in item.get('ownerDocs') or []:
+        require((root / doc).is_file(), f'HTTP middleware capability {item_id}: owner doc missing: {doc}')
+    for example in item.get('examples') or []:
+        require((root / example).exists(), f'HTTP middleware capability {item_id}: example missing: {example}')
+    for gate in item.get('smokeGates') or []:
+        require('examples/' in gate, f'HTTP middleware capability {item_id}: smoke gate must reference examples: {gate}')
+    for ref in item.get('evidenceRefs') or []:
+        ref_path = ref.get('path', '')
+        needles = ref.get('contains') or []
+        require(bool(ref_path), f'HTTP middleware capability {item_id}: ref path is required')
+        require(bool(needles), f'HTTP middleware capability {item_id}: ref contains list is required for {ref_path}')
+        if not ref_path:
+            continue
+        path = root / ref_path
+        if not path.is_file():
+            missing.append(f'HTTP middleware capability {item_id}: ref file missing: {ref_path}')
+            continue
+        text = path.read_text(encoding='utf-8')
+        for needle in needles:
+            if needle not in text:
+                missing.append(f'HTTP middleware capability {item_id}: {ref_path} missing {needle!r}')
+
 for rel, terms in checks.items():
     path = root / rel
     if not path.is_file():

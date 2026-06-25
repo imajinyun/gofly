@@ -1,0 +1,282 @@
+{
+  "schema": "gofly.http_middleware_ecosystem.v1",
+  "status": "blocking",
+  "blockingGate": "make p1-growth-check",
+  "smokeGate": "make examples-smoke",
+  "exampleModules": [
+    "examples/middlewares",
+    "examples/middleware-demo",
+    "examples/http-middleware"
+  ],
+  "capabilities": [
+    {
+      "id": "jwt",
+      "name": "JWT",
+      "category": "auth",
+      "ownerDocs": [
+        "examples/http-middleware/README.md",
+        "examples/middlewares/jwt.go"
+      ],
+      "examples": [
+        "examples/http-middleware",
+        "examples/middlewares"
+      ],
+      "smokeGates": [
+        "go test -C examples/http-middleware ./...",
+        "go test -C examples/middlewares ./..."
+      ],
+      "evidenceRefs": [
+        {
+          "path": "examples/http-middleware/main_test.go",
+          "contains": [
+            "JWT",
+            "without JWT",
+            "VerifyJWT"
+          ]
+        },
+        {
+          "path": "examples/middlewares/catalog.go",
+          "contains": [
+            "JWT",
+            "JWTMiddleware"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "cors",
+      "name": "CORS",
+      "category": "web-security",
+      "ownerDocs": [
+        "examples/http-middleware/README.md",
+        "examples/middlewares/cors.go"
+      ],
+      "examples": [
+        "examples/http-middleware",
+        "examples/middlewares"
+      ],
+      "smokeGates": [
+        "go test -C examples/http-middleware ./...",
+        "go test -C examples/middlewares ./..."
+      ],
+      "evidenceRefs": [
+        {
+          "path": "examples/http-middleware/main_test.go",
+          "contains": [
+            "Access-Control-Allow-Origin",
+            "CORS"
+          ]
+        },
+        {
+          "path": "examples/middlewares/catalog.go",
+          "contains": [
+            "CORS",
+            "CORSMiddleware"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "csrf",
+      "name": "CSRF",
+      "category": "web-security",
+      "ownerDocs": [
+        "examples/http-middleware/README.md",
+        "examples/middlewares/csrf.go"
+      ],
+      "examples": [
+        "examples/http-middleware",
+        "examples/middlewares"
+      ],
+      "smokeGates": [
+        "go test -C examples/http-middleware ./...",
+        "go test -C examples/middlewares ./..."
+      ],
+      "evidenceRefs": [
+        {
+          "path": "examples/http-middleware/main_test.go",
+          "contains": [
+            "CSRF",
+            "X-CSRF-Token",
+            "without CSRF"
+          ]
+        },
+        {
+          "path": "examples/middlewares/catalog.go",
+          "contains": [
+            "CSRF",
+            "CSRFMiddleware"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "session",
+      "name": "sessions",
+      "category": "web-security",
+      "ownerDocs": [
+        "examples/http-middleware/README.md"
+      ],
+      "examples": [
+        "examples/http-middleware"
+      ],
+      "smokeGates": [
+        "go test -C examples/http-middleware ./..."
+      ],
+      "evidenceRefs": [
+        {
+          "path": "examples/http-middleware/main.go",
+          "contains": [
+            "sessionMiddleware",
+            "gofly_demo_session",
+            "HttpOnly"
+          ]
+        },
+        {
+          "path": "examples/http-middleware/main_test.go",
+          "contains": [
+            "TestJWTAndSessionHelpers_BitsUT",
+            "verifySession",
+            "session_id"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "prometheus",
+      "name": "Prometheus",
+      "category": "observability",
+      "ownerDocs": [
+        "examples/http-middleware/README.md",
+        "examples/middlewares/prometheus.go"
+      ],
+      "examples": [
+        "examples/http-middleware",
+        "examples/middlewares"
+      ],
+      "smokeGates": [
+        "go test -C examples/http-middleware ./...",
+        "go test -C examples/middlewares ./..."
+      ],
+      "evidenceRefs": [
+        {
+          "path": "examples/http-middleware/main_test.go",
+          "contains": [
+            "Prometheus",
+            "gofly_requests_total",
+            "/metrics"
+          ]
+        },
+        {
+          "path": "examples/middlewares/catalog.go",
+          "contains": [
+            "Prometheus metrics",
+            "PrometheusMiddleware"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "otel",
+      "name": "OpenTelemetry",
+      "category": "observability",
+      "ownerDocs": [
+        "examples/http-middleware/README.md",
+        "examples/middlewares/opentelemetry.go"
+      ],
+      "examples": [
+        "examples/http-middleware",
+        "examples/middlewares"
+      ],
+      "smokeGates": [
+        "go test -C examples/http-middleware ./...",
+        "go test -C examples/middlewares ./..."
+      ],
+      "evidenceRefs": [
+        {
+          "path": "examples/http-middleware/main_test.go",
+          "contains": [
+            "OpenTelemetry",
+            "Traceparent",
+            "trace"
+          ]
+        },
+        {
+          "path": "examples/middlewares/catalog.go",
+          "contains": [
+            "OpenTelemetry trace",
+            "OpenTelemetryMiddleware"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "sse",
+      "name": "SSE",
+      "category": "realtime",
+      "ownerDocs": [
+        "examples/http-middleware/README.md",
+        "examples/middlewares/sse.go"
+      ],
+      "examples": [
+        "examples/http-middleware",
+        "examples/middlewares"
+      ],
+      "smokeGates": [
+        "go test -C examples/http-middleware ./...",
+        "go test -C examples/middlewares ./..."
+      ],
+      "evidenceRefs": [
+        {
+          "path": "examples/http-middleware/main.go",
+          "contains": [
+            "SSE event",
+            "/events",
+            "rest.SSEEvent"
+          ]
+        },
+        {
+          "path": "examples/http-middleware/main_test.go",
+          "contains": [
+            "text/event-stream",
+            "event: ready"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "websocket",
+      "name": "WebSocket",
+      "category": "realtime",
+      "ownerDocs": [
+        "examples/http-middleware/README.md",
+        "examples/middlewares/websocket.go"
+      ],
+      "examples": [
+        "examples/http-middleware",
+        "examples/middlewares"
+      ],
+      "smokeGates": [
+        "go test -C examples/http-middleware ./...",
+        "go test -C examples/middlewares ./..."
+      ],
+      "evidenceRefs": [
+        {
+          "path": "examples/http-middleware/main.go",
+          "contains": [
+            "WebSocket",
+            "/ws",
+            "WithWebSocketMaxMessageBytes"
+          ]
+        },
+        {
+          "path": "examples/http-middleware/main_test.go",
+          "contains": [
+            "/ws",
+            "openapi"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/gofly/gofly/core/auth"
+	"github.com/imajinyun/gofly/core/auth"
 )
 
 func TestCleanPathPrefix(t *testing.T) {

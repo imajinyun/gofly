@@ -5,7 +5,7 @@ package outbox
 import (
 	"context"
 
-	"github.com/gofly/gofly/core/mq"
+	"github.com/imajinyun/gofly/core/mq"
 )
 
 // brokerPublisher adapts a core/mq.Broker to the Publisher interface so the

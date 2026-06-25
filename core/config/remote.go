@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"sync"
 
-	core "github.com/gofly/gofly/core"
+	core "github.com/imajinyun/gofly/core"
 )
 
 // ErrRemoteSourceClosed is returned when a remote source has been closed.

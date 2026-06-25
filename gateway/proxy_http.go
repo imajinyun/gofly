@@ -12,8 +12,8 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/gofly/gofly/core/breaker"
-	"github.com/gofly/gofly/core/observability/trace"
+	"github.com/imajinyun/gofly/core/breaker"
+	"github.com/imajinyun/gofly/core/observability/trace"
 )
 
 // proxyOnce executes a single proxy attempt for the matched route.

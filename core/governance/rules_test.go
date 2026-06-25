@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gofly/gofly/core/kv"
+	"github.com/imajinyun/gofly/core/kv"
 )
 
 func TestRuleSetLastErrorBoundaries_BitsUT(t *testing.T) {

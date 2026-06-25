@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 
-	coreerrors "github.com/gofly/gofly/core/errors"
-	"github.com/gofly/gofly/rest"
+	coreerrors "github.com/imajinyun/gofly/core/errors"
+	"github.com/imajinyun/gofly/rest"
 )
 
 // JSONValidation binds and validates JSON, writing field-aware validation

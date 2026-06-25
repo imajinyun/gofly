@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gofly/gofly/core/kv"
-	coreruntime "github.com/gofly/gofly/core/runtime"
+	"github.com/imajinyun/gofly/core/kv"
+	coreruntime "github.com/imajinyun/gofly/core/runtime"
 )
 
 func TestAdminServesSnapshotExplainAndRuleReplacement(t *testing.T) {

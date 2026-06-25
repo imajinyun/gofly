@@ -1,8 +1,8 @@
 package middleware
 
 import (
-	"github.com/gofly/gofly/core/observability/trace"
-	"github.com/gofly/gofly/rest"
+	"github.com/imajinyun/gofly/core/observability/trace"
+	"github.com/imajinyun/gofly/rest"
 )
 
 // OpenTelemetryConfig configures W3C trace propagation middleware.

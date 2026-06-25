@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/gofly/gofly/rest"
+	"github.com/imajinyun/gofly/rest"
 )
 
 // WebSocketConfig configures WebSocket upgrade limits and metrics accounting.

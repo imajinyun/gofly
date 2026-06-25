@@ -9,7 +9,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/gofly/gofly/rpc"
+	"github.com/imajinyun/gofly/rpc"
 
 	stdgrpc "google.golang.org/grpc"
 	_ "google.golang.org/grpc/balancer/roundrobin"

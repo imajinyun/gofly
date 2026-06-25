@@ -45,7 +45,7 @@ formatters:
   settings:
     goimports:
       local-prefixes:
-        - github.com/gofly/gofly
+        - github.com/imajinyun/gofly
   exclusions:
     generated: lax
     paths:

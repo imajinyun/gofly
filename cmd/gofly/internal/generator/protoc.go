@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	core "github.com/gofly/gofly/core"
+	core "github.com/imajinyun/gofly/core"
 )
 
 type ProtocOptions struct {

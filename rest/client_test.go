@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
-	coreerrors "github.com/gofly/gofly/core/errors"
-	"github.com/gofly/gofly/core/governance"
-	coreretry "github.com/gofly/gofly/core/retry"
-	"github.com/gofly/gofly/core/security"
+	coreerrors "github.com/imajinyun/gofly/core/errors"
+	"github.com/imajinyun/gofly/core/governance"
+	coreretry "github.com/imajinyun/gofly/core/retry"
+	"github.com/imajinyun/gofly/core/security"
 )
 
 func TestRESTClientGovernanceRuleRuntimeRateLimit(t *testing.T) {

@@ -15,15 +15,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gofly/gofly/core/auth"
-	"github.com/gofly/gofly/core/breaker"
-	"github.com/gofly/gofly/core/callstats"
-	"github.com/gofly/gofly/core/controlplane"
-	"github.com/gofly/gofly/core/discovery"
-	"github.com/gofly/gofly/core/governance"
-	"github.com/gofly/gofly/core/metadata"
-	"github.com/gofly/gofly/core/observability/trace"
-	"github.com/gofly/gofly/rpc/endpoint"
+	"github.com/imajinyun/gofly/core/auth"
+	"github.com/imajinyun/gofly/core/breaker"
+	"github.com/imajinyun/gofly/core/callstats"
+	"github.com/imajinyun/gofly/core/controlplane"
+	"github.com/imajinyun/gofly/core/discovery"
+	"github.com/imajinyun/gofly/core/governance"
+	"github.com/imajinyun/gofly/core/metadata"
+	"github.com/imajinyun/gofly/core/observability/trace"
+	"github.com/imajinyun/gofly/rpc/endpoint"
 )
 
 func TestHTTPClientCall(t *testing.T) {

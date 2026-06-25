@@ -29,7 +29,7 @@ COVERAGE_THRESHOLD ?= 60
 COVERAGE_RATCHET ?= 90
 
 # Build metadata injected via -ldflags.
-PKG_ROOT   := github.com/gofly/gofly/cmd/gofly/internal/command
+PKG_ROOT   := github.com/imajinyun/gofly/cmd/gofly/internal/command
 VERSION    ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT     ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 BUILT_AT   ?= $(shell git log -1 --format=%cI 2>/dev/null || echo unknown)

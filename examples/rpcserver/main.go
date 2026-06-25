@@ -5,8 +5,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/gofly/gofly/app"
-	"github.com/gofly/gofly/rpc"
+	"github.com/imajinyun/gofly/app"
+	"github.com/imajinyun/gofly/rpc"
 )
 
 type helloReq struct {

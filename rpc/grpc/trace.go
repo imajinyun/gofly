@@ -5,7 +5,7 @@ package grpc
 import (
 	"context"
 
-	coretrace "github.com/gofly/gofly/core/observability/trace"
+	coretrace "github.com/imajinyun/gofly/core/observability/trace"
 
 	otelcodes "go.opentelemetry.io/otel/codes"
 	oteltrace "go.opentelemetry.io/otel/trace"

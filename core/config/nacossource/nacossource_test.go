@@ -11,7 +11,7 @@ import (
 	"github.com/nacos-group/nacos-sdk-go/v2/model"
 	"github.com/nacos-group/nacos-sdk-go/v2/vo"
 
-	"github.com/gofly/gofly/core/config"
+	"github.com/imajinyun/gofly/core/config"
 )
 
 func TestConfigGroupDefault(t *testing.T) {

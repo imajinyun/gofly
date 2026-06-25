@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	flyrpc "github.com/gofly/gofly/rpc"
+	flyrpc "github.com/imajinyun/gofly/rpc"
 
 	stdgrpc "google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"

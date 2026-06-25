@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	corebreaker "github.com/gofly/gofly/core/breaker"
+	corebreaker "github.com/imajinyun/gofly/core/breaker"
 )
 
 const fakeDriverName = "gofly_storage_fake"

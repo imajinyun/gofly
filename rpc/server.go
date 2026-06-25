@@ -19,11 +19,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/gofly/gofly/core/breaker"
-	"github.com/gofly/gofly/core/governance"
-	"github.com/gofly/gofly/core/limit"
-	"github.com/gofly/gofly/core/metadata"
-	"github.com/gofly/gofly/rpc/endpoint"
+	"github.com/imajinyun/gofly/core/breaker"
+	"github.com/imajinyun/gofly/core/governance"
+	"github.com/imajinyun/gofly/core/limit"
+	"github.com/imajinyun/gofly/core/metadata"
+	"github.com/imajinyun/gofly/rpc/endpoint"
 )
 
 // HTTPServer is an HTTP-based RPC server with governance and service registration.

@@ -9,7 +9,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/gofly/gofly/cmd/gofly/internal/generator"
+	"github.com/imajinyun/gofly/cmd/gofly/internal/generator"
 )
 
 // releaseCheckReport aggregates all release-governance signals into a single

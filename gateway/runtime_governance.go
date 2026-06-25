@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gofly/gofly/core/limit"
+	"github.com/imajinyun/gofly/core/limit"
 )
 
 // retryRuntime tracks per-route and per-upstream retry budgets.

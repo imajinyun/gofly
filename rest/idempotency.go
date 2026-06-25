@@ -15,8 +15,8 @@ import (
 	"sync"
 	"time"
 
-	coreerrors "github.com/gofly/gofly/core/errors"
-	"github.com/gofly/gofly/core/kv"
+	coreerrors "github.com/imajinyun/gofly/core/errors"
+	"github.com/imajinyun/gofly/core/kv"
 )
 
 // DefaultIdempotencyHeader is the default header name for idempotency keys.

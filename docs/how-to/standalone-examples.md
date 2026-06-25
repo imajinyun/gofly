@@ -16,8 +16,8 @@ It also checks stable JSON contracts for examples that serve as machine-readable
 ```sh
 cp -R examples/production-orders /tmp/orders-demo
 cd /tmp/orders-demo
-go mod edit -dropreplace github.com/gofly/gofly
-go get github.com/gofly/gofly@latest
+go mod edit -dropreplace github.com/imajinyun/gofly
+go get github.com/imajinyun/gofly@latest
 go test ./...
 ```
 

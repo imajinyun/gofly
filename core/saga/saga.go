@@ -12,7 +12,7 @@ import (
 	"errors"
 	"fmt"
 
-	core "github.com/gofly/gofly/core"
+	core "github.com/imajinyun/gofly/core"
 )
 
 // Action performs the forward work of a step.

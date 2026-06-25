@@ -1,4 +1,4 @@
-module github.com/gofly/gofly
+module github.com/imajinyun/gofly
 
 go 1.26
 

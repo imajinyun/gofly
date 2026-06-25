@@ -9,12 +9,12 @@ import (
 	"runtime/debug"
 	"time"
 
-	"github.com/gofly/gofly/core/breaker"
-	coreerrors "github.com/gofly/gofly/core/errors"
-	"github.com/gofly/gofly/core/observability"
-	"github.com/gofly/gofly/core/observability/metrics"
-	coretrace "github.com/gofly/gofly/core/observability/trace"
-	coreretry "github.com/gofly/gofly/core/retry"
+	"github.com/imajinyun/gofly/core/breaker"
+	coreerrors "github.com/imajinyun/gofly/core/errors"
+	"github.com/imajinyun/gofly/core/observability"
+	"github.com/imajinyun/gofly/core/observability/metrics"
+	coretrace "github.com/imajinyun/gofly/core/observability/trace"
+	coreretry "github.com/imajinyun/gofly/core/retry"
 
 	stdgrpc "google.golang.org/grpc"
 	"google.golang.org/grpc/codes"

@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	coreruntime "github.com/gofly/gofly/core/runtime"
-	controladmin "github.com/gofly/gofly/ops/admin"
+	coreruntime "github.com/imajinyun/gofly/core/runtime"
+	controladmin "github.com/imajinyun/gofly/ops/admin"
 )
 
 // AdminOption customises the admin HTTP handler.

@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gofly/gofly/rpc"
+	"github.com/imajinyun/gofly/rpc"
 )
 
 const testProto = `syntax = "proto3";
@@ -315,7 +315,7 @@ func TestRPCAndOpenAPIHelperBoundaries_BitsUT(t *testing.T) {
 
 func writeGeneratedModule(t *testing.T, dir string, module string) {
 	t.Helper()
-	goMod := fmt.Sprintf("module %s\n\ngo 1.26\n\nrequire github.com/gofly/gofly v0.0.0\n", module)
+	goMod := fmt.Sprintf("module %s\n\ngo 1.26\n\nrequire github.com/imajinyun/gofly v0.0.0\n", module)
 	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(goMod), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -328,11 +328,11 @@ func appendGoflyReplace(t *testing.T, goModPath string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(data), "replace github.com/gofly/gofly =>") {
+	if strings.Contains(string(data), "replace github.com/imajinyun/gofly =>") {
 		return
 	}
 	root := repositoryRoot(t)
-	line := fmt.Sprintf("\nreplace github.com/gofly/gofly => %s\n", filepath.ToSlash(root))
+	line := fmt.Sprintf("\nreplace github.com/imajinyun/gofly => %s\n", filepath.ToSlash(root))
 	if err := os.WriteFile(goModPath, append(data, []byte(line)...), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -1115,7 +1115,7 @@ func TestGenerateRPCCodeWithMiddlewareRecoveryValidator(t *testing.T) {
 	}
 	out := string(code)
 	for _, want := range []string{
-		`"github.com/gofly/gofly/rpc/endpoint"`,
+		`"github.com/imajinyun/gofly/rpc/endpoint"`,
 		"type GreeterServiceValidator interface",
 		"ValidateSayHello(ctx context.Context, req *SayHelloRequest) error",
 		"func NewGreeterServiceBizError(code rpc.Code, message string) error",
@@ -2526,7 +2526,7 @@ service greeter-service {
 	out := string(code)
 	for _, want := range []string{
 		`greeterv1 "example.com/hello/api/greeter/v1/greeterv1"`,
-		`"github.com/gofly/gofly/rpc"`,
+		`"github.com/imajinyun/gofly/rpc"`,
 		"type GreeterServiceGateway struct",
 		"client *greeterv1.GreeterServiceClient",
 		"func NewGreeterServiceGateway(cc rpc.Client) *GreeterServiceGateway",
@@ -2600,7 +2600,7 @@ func TestGenerateModelCode(t *testing.T) {
 		"ID        int64",
 		"Age       *int",
 		"CreatedAt *time.Time",
-		`"github.com/gofly/gofly/core/storage"`,
+		`"github.com/imajinyun/gofly/core/storage"`,
 		"type UserModel struct",
 		"func NewUserModel",
 		"func NewCachedUserModel",
@@ -2617,7 +2617,7 @@ func TestGenerateModelCode(t *testing.T) {
 			t.Fatalf("generated model code missing %q:\n%s", want, out)
 		}
 	}
-	if strings.Contains(out, `"github.com/gofly/gofly/storage"`) {
+	if strings.Contains(out, `"github.com/imajinyun/gofly/storage"`) {
 		t.Fatalf("generated model code imports legacy storage package:\n%s", out)
 	}
 }
@@ -2648,7 +2648,7 @@ func TestGenerateModelFromDDL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(repo), "func NewCachedOrderRepo") || strings.Contains(string(repo), "cache.ModelCache[*entity.Order, int64]") || strings.Contains(string(repo), `"github.com/gofly/gofly/cache"`) {
+	if strings.Contains(string(repo), "func NewCachedOrderRepo") || strings.Contains(string(repo), "cache.ModelCache[*entity.Order, int64]") || strings.Contains(string(repo), `"github.com/imajinyun/gofly/cache"`) {
 		t.Fatalf("generated repo should not include cache helpers unless cache is enabled = %s", repo)
 	}
 	for _, want := range []string{
@@ -2669,7 +2669,7 @@ func TestGenerateModelFromDDL(t *testing.T) {
 			t.Fatalf("generated repo missing %q:\n%s", want, repo)
 		}
 	}
-	if !strings.Contains(string(repo), `"github.com/gofly/gofly/core/storage"`) || strings.Contains(string(repo), `"github.com/gofly/gofly/storage"`) {
+	if !strings.Contains(string(repo), `"github.com/imajinyun/gofly/core/storage"`) || strings.Contains(string(repo), `"github.com/imajinyun/gofly/storage"`) {
 		t.Fatalf("generated repo should import core/storage only:\n%s", repo)
 	}
 }
@@ -2694,8 +2694,8 @@ func TestGenerateModelFromDDLCacheOptionControlsSQLRepoHelpers(t *testing.T) {
 	}
 	repoOut := string(repo)
 	for _, want := range []string{
-		`"github.com/gofly/gofly/cache"`,
-		`"github.com/gofly/gofly/core/kv/redis"`,
+		`"github.com/imajinyun/gofly/cache"`,
+		`"github.com/imajinyun/gofly/core/kv/redis"`,
 		"func NewCachedOrderRepo",
 		"cache.ModelCache[*entity.Order, int64]",
 		"type CachedOrderRepo struct",
@@ -2926,7 +2926,7 @@ func TestGenerateModelFromDDLGORMStyle(t *testing.T) {
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(outDir, "go.mod"), []byte("module example.com/shop\n\nrequire github.com/gofly/gofly v0.0.0\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(outDir, "go.mod"), []byte("module example.com/shop\n\nrequire github.com/imajinyun/gofly v0.0.0\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := GenerateModelFromDDL(ModelOptions{DDLFile: ddlPath, Dir: outDir, Package: "model", Module: "example.com/shop", Style: "gorm"}); err != nil {
@@ -2960,7 +2960,7 @@ func TestGenerateModelFromDDLGORMStyle(t *testing.T) {
 	repoOut := string(repoData)
 	for _, want := range []string{
 		`"gorm.io/gorm"`,
-		`"github.com/gofly/gofly/core/storage"`,
+		`"github.com/imajinyun/gofly/core/storage"`,
 		`"example.com/shop/model/entity"`,
 		"type UserRepo struct",
 		"db *gorm.DB",
@@ -3000,7 +3000,7 @@ func TestGenerateModelFromDDLGoZeroStyleDoesNotRequireGORM(t *testing.T) {
 		t.Fatal(err)
 	}
 	goModPath := filepath.Join(outDir, "go.mod")
-	if err := os.WriteFile(goModPath, []byte("module example.com/shop\n\nrequire github.com/gofly/gofly v0.0.0\n"), 0o644); err != nil {
+	if err := os.WriteFile(goModPath, []byte("module example.com/shop\n\nrequire github.com/imajinyun/gofly v0.0.0\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := GenerateModelFromDDL(ModelOptions{
@@ -3056,7 +3056,7 @@ func TestGenerateModelFromDDLGORMStyleFindsParentGoMod(t *testing.T) {
 
 func TestGenerateMongoModelDriverStyle(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/shop\n\nrequire github.com/gofly/gofly v0.0.0\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/shop\n\nrequire github.com/imajinyun/gofly v0.0.0\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := GenerateMongoModel(MongoModelOptions{Type: "UserProfile", Dir: dir, Package: "model", Cache: true, Style: "driver"}); err != nil {
@@ -3143,7 +3143,7 @@ func TestGenerateModelFromDDLGORMSoftDeleteAndLegacyMongo(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		`"github.com/gofly/gofly/cache"`,
+		`"github.com/imajinyun/gofly/cache"`,
 		"type MongoCollection[T any] interface",
 		"func NewCachedUserProfileRepo",
 		"func (r *UserProfileRepo) FindMany",

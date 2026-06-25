@@ -9,7 +9,7 @@ import (
 
 	consulapi "github.com/hashicorp/consul/api"
 
-	"github.com/gofly/gofly/core/discovery"
+	"github.com/imajinyun/gofly/core/discovery"
 )
 
 // lease keeps a Consul TTL health check alive and satisfies discovery.Lease.

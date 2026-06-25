@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gofly/gofly/core/governance"
-	"github.com/gofly/gofly/rpc"
+	"github.com/imajinyun/gofly/core/governance"
+	"github.com/imajinyun/gofly/rpc"
 )
 
 // governedRoute returns a copy of route with governance policies applied.

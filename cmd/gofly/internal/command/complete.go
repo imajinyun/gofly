@@ -3,7 +3,7 @@ package command
 import (
 	"fmt"
 
-	"github.com/gofly/gofly/cmd/gofly/internal/generator"
+	"github.com/imajinyun/gofly/cmd/gofly/internal/generator"
 )
 
 // completeCommand 是 `gofly complete handler` 的快捷入口；也可以直接走 `gofly handler complete`。

@@ -11,13 +11,13 @@ import (
 	"strings"
 	"time"
 
-	core "github.com/gofly/gofly/core"
-	"github.com/gofly/gofly/core/breaker"
-	coreerrors "github.com/gofly/gofly/core/errors"
-	"github.com/gofly/gofly/core/governance"
-	"github.com/gofly/gofly/core/limit"
-	coreretry "github.com/gofly/gofly/core/retry"
-	"github.com/gofly/gofly/core/security"
+	core "github.com/imajinyun/gofly/core"
+	"github.com/imajinyun/gofly/core/breaker"
+	coreerrors "github.com/imajinyun/gofly/core/errors"
+	"github.com/imajinyun/gofly/core/governance"
+	"github.com/imajinyun/gofly/core/limit"
+	coreretry "github.com/imajinyun/gofly/core/retry"
+	"github.com/imajinyun/gofly/core/security"
 )
 
 // ClientOption customises the REST client.

@@ -7,11 +7,11 @@ import (
 	"context"
 	"time"
 
-	coregovernance "github.com/gofly/gofly/core/governance"
-	coretrace "github.com/gofly/gofly/core/observability/trace"
-	coreproc "github.com/gofly/gofly/core/proc"
-	"github.com/gofly/gofly/rest"
-	"github.com/gofly/gofly/rpc"
+	coregovernance "github.com/imajinyun/gofly/core/governance"
+	coretrace "github.com/imajinyun/gofly/core/observability/trace"
+	coreproc "github.com/imajinyun/gofly/core/proc"
+	"github.com/imajinyun/gofly/rest"
+	"github.com/imajinyun/gofly/rpc"
 )
 
 const (

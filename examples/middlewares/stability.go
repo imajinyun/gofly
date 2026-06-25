@@ -5,10 +5,10 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/gofly/gofly/core/breaker"
-	coreerrors "github.com/gofly/gofly/core/errors"
-	"github.com/gofly/gofly/core/limit"
-	"github.com/gofly/gofly/rest"
+	"github.com/imajinyun/gofly/core/breaker"
+	coreerrors "github.com/imajinyun/gofly/core/errors"
+	"github.com/imajinyun/gofly/core/limit"
+	"github.com/imajinyun/gofly/rest"
 )
 
 // RateLimitConfig configures token-bucket request limiting.

@@ -378,7 +378,7 @@ with open(path, "w", encoding="utf-8") as f:
 PY
 	(
 		cd "$project"
-		"$go_cmd" mod edit -replace github.com/gofly/gofly="$root"
+		"$go_cmd" mod edit -replace github.com/imajinyun/gofly="$root"
 		"$go_cmd" mod tidy
 	)
 	(

@@ -9,7 +9,7 @@ English version: [quickstart.md](quickstart.md)
 ## 1. 安装 CLI
 
 ```sh
-go install github.com/gofly/gofly/cmd/gofly@latest
+go install github.com/imajinyun/gofly/cmd/gofly@latest
 gofly version
 ```
 
@@ -40,7 +40,7 @@ curl -XPOST localhost:8080/users -d '{"name":"ada"}'
 ```sh
 mkdir hello-rest && cd hello-rest
 go mod init github.com/me/hello-rest
-go get github.com/gofly/gofly@latest
+go get github.com/imajinyun/gofly@latest
 ```
 
 ```go
@@ -49,7 +49,7 @@ package main
 import (
 	"net/http"
 
-	"github.com/gofly/gofly/rest"
+	"github.com/imajinyun/gofly/rest"
 )
 
 func main() {
@@ -99,7 +99,7 @@ go run .
 ```sh
 mkdir hello-rpc && cd hello-rpc
 go mod init github.com/me/hello-rpc
-go get github.com/gofly/gofly@latest
+go get github.com/imajinyun/gofly@latest
 ```
 
 ```go
@@ -108,8 +108,8 @@ package main
 import (
 	"context"
 
-	"github.com/gofly/gofly/app"
-	"github.com/gofly/gofly/rpc"
+	"github.com/imajinyun/gofly/app"
+	"github.com/imajinyun/gofly/rpc"
 )
 
 type helloReq struct{ Name string }

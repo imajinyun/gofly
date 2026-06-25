@@ -13,7 +13,7 @@ import (
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"google.golang.org/grpc"
 
-	"github.com/gofly/gofly/core/config"
+	"github.com/imajinyun/gofly/core/config"
 )
 
 func TestNewValidation(t *testing.T) {

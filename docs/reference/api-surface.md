@@ -29,13 +29,13 @@ When a surface moves up a tier, the release must name the new tier and the verif
 
 | Package | Use when | Stability |
 | --- | --- | --- |
-| `github.com/gofly/gofly/rest` | Building HTTP APIs, OpenAPI, middleware, health, and metrics. | Stable |
-| `github.com/gofly/gofly/rpc` | Lightweight JSON RPC services, descriptors, clients, and governance integration. | Evolving |
-| `github.com/gofly/gofly/gateway` | Routing REST ingress to service discovery and RPC backends. | Evolving |
-| `github.com/gofly/gofly/app` | Running services with startup/shutdown lifecycle. | Evolving |
-| `github.com/gofly/gofly/ops/admin` | Mounting admin endpoints and control-plane snapshots. | Stable |
-| `github.com/gofly/gofly/core/governance` | Runtime policy matching and decision inspection. | Stable |
-| `github.com/gofly/gofly/core/controlplane` | Publishing typed runtime snapshot contributors. | Stable |
+| `github.com/imajinyun/gofly/rest` | Building HTTP APIs, OpenAPI, middleware, health, and metrics. | Stable |
+| `github.com/imajinyun/gofly/rpc` | Lightweight JSON RPC services, descriptors, clients, and governance integration. | Evolving |
+| `github.com/imajinyun/gofly/gateway` | Routing REST ingress to service discovery and RPC backends. | Evolving |
+| `github.com/imajinyun/gofly/app` | Running services with startup/shutdown lifecycle. | Evolving |
+| `github.com/imajinyun/gofly/ops/admin` | Mounting admin endpoints and control-plane snapshots. | Stable |
+| `github.com/imajinyun/gofly/core/governance` | Runtime policy matching and decision inspection. | Stable |
+| `github.com/imajinyun/gofly/core/controlplane` | Publishing typed runtime snapshot contributors. | Stable |
 
 Lower-level packages under `core/` are reusable but should be treated as evolving unless listed above.
 

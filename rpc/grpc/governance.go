@@ -9,11 +9,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gofly/gofly/core/breaker"
-	coreerrors "github.com/gofly/gofly/core/errors"
-	"github.com/gofly/gofly/core/governance"
-	"github.com/gofly/gofly/core/limit"
-	coreretry "github.com/gofly/gofly/core/retry"
+	"github.com/imajinyun/gofly/core/breaker"
+	coreerrors "github.com/imajinyun/gofly/core/errors"
+	"github.com/imajinyun/gofly/core/governance"
+	"github.com/imajinyun/gofly/core/limit"
+	coreretry "github.com/imajinyun/gofly/core/retry"
 
 	stdgrpc "google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"

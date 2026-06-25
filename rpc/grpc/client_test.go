@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gofly/gofly/core/security"
+	"github.com/imajinyun/gofly/core/security"
 
 	stdgrpc "google.golang.org/grpc"
 )

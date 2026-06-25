@@ -15,13 +15,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gofly/gofly/core/auth"
-	corebreaker "github.com/gofly/gofly/core/breaker"
-	coregovernance "github.com/gofly/gofly/core/governance"
-	"github.com/gofly/gofly/core/metadata"
-	"github.com/gofly/gofly/core/observability/metrics"
-	"github.com/gofly/gofly/core/observability/trace"
-	"github.com/gofly/gofly/rpc/endpoint"
+	"github.com/imajinyun/gofly/core/auth"
+	corebreaker "github.com/imajinyun/gofly/core/breaker"
+	coregovernance "github.com/imajinyun/gofly/core/governance"
+	"github.com/imajinyun/gofly/core/metadata"
+	"github.com/imajinyun/gofly/core/observability/metrics"
+	"github.com/imajinyun/gofly/core/observability/trace"
+	"github.com/imajinyun/gofly/rpc/endpoint"
 )
 
 func TestRPCStreamEcho(t *testing.T) {

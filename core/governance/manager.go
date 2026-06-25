@@ -8,9 +8,9 @@ import (
 	"fmt"
 	"time"
 
-	core "github.com/gofly/gofly/core"
-	"github.com/gofly/gofly/core/kv"
-	coreruntime "github.com/gofly/gofly/core/runtime"
+	core "github.com/imajinyun/gofly/core"
+	"github.com/imajinyun/gofly/core/kv"
+	coreruntime "github.com/imajinyun/gofly/core/runtime"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"

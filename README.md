@@ -6,7 +6,7 @@
 
 It is designed for platform, backend, and AI-agent-assisted engineering teams who need to generate services quickly, run them with production defaults, and keep runtime behavior observable and governable after deployment.
 
-- 📦 **Module:** `github.com/gofly/gofly`
+- 📦 **Module:** `github.com/imajinyun/gofly`
 - 🧭 **Go:** 1.26+
 - 🚀 **CLI:** `gofly`
 
@@ -47,11 +47,13 @@ It is designed for platform, backend, and AI-agent-assisted engineering teams wh
 ## ⚡ 5-minute start
 
 ```sh
-go install github.com/gofly/gofly/cmd/gofly@latest
+go install github.com/imajinyun/gofly/cmd/gofly@latest
 
 gofly quickstart hello --module github.com/me/hello --dir hello
 cd hello && go run .
 ```
+
+Use `github.com/imajinyun/gofly` for both CLI installation and library imports.
 
 This matches the CLI contract: `quickstart <name> --module <module> [--dir <dir>] [--style minimal|basic|production]`.
 

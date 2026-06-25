@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gofly/gofly/core/security"
+	"github.com/imajinyun/gofly/core/security"
 )
 
 func TestValidateProductionConfigRejectsDangerousDefaults(t *testing.T) {

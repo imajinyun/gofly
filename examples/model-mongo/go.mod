@@ -1,5 +1,5 @@
-module github.com/gofly/gofly/examples/model-mongo
+module github.com/imajinyun/gofly/examples/model-mongo
 
 go 1.26
 
-replace github.com/gofly/gofly => ../..
+replace github.com/imajinyun/gofly => ../..

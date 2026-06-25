@@ -21,9 +21,9 @@ builds:
       - arm64
     ldflags:
       - -s -w
-      - -X github.com/gofly/gofly/cmd/gofly/internal/command.Version={{.Version}}
-      - -X github.com/gofly/gofly/cmd/gofly/internal/command.Commit={{.Commit}}
-      - -X github.com/gofly/gofly/cmd/gofly/internal/command.BuiltAt={{.Date}}
+      - -X github.com/imajinyun/gofly/cmd/gofly/internal/command.Version={{.Version}}
+      - -X github.com/imajinyun/gofly/cmd/gofly/internal/command.Commit={{.Commit}}
+      - -X github.com/imajinyun/gofly/cmd/gofly/internal/command.BuiltAt={{.Date}}
 
 archives:
   - id: gofly-archives
@@ -62,7 +62,7 @@ dockers:
     goarch: amd64
     build_flag_templates:
       - --platform=linux/amd64
-      - --label=org.opencontainers.image.source=https://github.com/gofly/gofly
+      - --label=org.opencontainers.image.source=https://github.com/imajinyun/gofly
       - --label=org.opencontainers.image.revision={{.Commit}}
   - image_templates:
       - ghcr.io/gofly/gofly:{{ .Version }}-arm64
@@ -72,7 +72,7 @@ dockers:
     goarch: arm64
     build_flag_templates:
       - --platform=linux/arm64
-      - --label=org.opencontainers.image.source=https://github.com/gofly/gofly
+      - --label=org.opencontainers.image.source=https://github.com/imajinyun/gofly
       - --label=org.opencontainers.image.revision={{.Commit}}
 
 docker_manifests:

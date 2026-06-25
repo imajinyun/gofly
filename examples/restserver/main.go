@@ -29,7 +29,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/gofly/gofly/rest"
+	"github.com/imajinyun/gofly/rest"
 )
 
 type createUserRequest struct {

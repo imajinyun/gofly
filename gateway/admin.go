@@ -8,9 +8,9 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/gofly/gofly/core/governance"
-	controladmin "github.com/gofly/gofly/ops/admin"
-	"github.com/gofly/gofly/rest"
+	"github.com/imajinyun/gofly/core/governance"
+	controladmin "github.com/imajinyun/gofly/ops/admin"
+	"github.com/imajinyun/gofly/rest"
 )
 
 const defaultAdminPathPrefix = "/_gofly/gateway"

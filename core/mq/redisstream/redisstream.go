@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gofly/gofly/core/kv/redis"
-	"github.com/gofly/gofly/core/mq"
+	"github.com/imajinyun/gofly/core/kv/redis"
+	"github.com/imajinyun/gofly/core/mq"
 )
 
 // Client is the subset of *redis.Client the broker depends on. It is satisfied

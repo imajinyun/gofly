@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gofly/gofly/core/metadata"
+	"github.com/imajinyun/gofly/core/metadata"
 )
 
 func TestFramedTransportSendReceive(t *testing.T) {

@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gofly/gofly/core/auth"
-	"github.com/gofly/gofly/core/security"
+	"github.com/imajinyun/gofly/core/auth"
+	"github.com/imajinyun/gofly/core/security"
 )
 
 // Endpoint describes a registered admin HTTP route.

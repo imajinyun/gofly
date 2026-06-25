@@ -16,7 +16,7 @@ import (
 	"sync"
 	"time"
 
-	core "github.com/gofly/gofly/core"
+	core "github.com/imajinyun/gofly/core"
 )
 
 var (

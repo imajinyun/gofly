@@ -3,7 +3,7 @@
 package rpc
 
 import (
-	coreerrors "github.com/gofly/gofly/core/errors"
+	coreerrors "github.com/imajinyun/gofly/core/errors"
 )
 
 type Code = coreerrors.Code

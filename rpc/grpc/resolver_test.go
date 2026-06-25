@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gofly/gofly/rpc"
+	"github.com/imajinyun/gofly/rpc"
 
 	"google.golang.org/grpc/resolver"
 	"google.golang.org/grpc/serviceconfig"

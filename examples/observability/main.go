@@ -32,11 +32,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/gofly/gofly/core/metadata"
-	"github.com/gofly/gofly/core/observability"
-	"github.com/gofly/gofly/core/observability/metrics"
-	"github.com/gofly/gofly/core/observability/trace"
-	"github.com/gofly/gofly/rest"
+	"github.com/imajinyun/gofly/core/metadata"
+	"github.com/imajinyun/gofly/core/observability"
+	"github.com/imajinyun/gofly/core/observability/metrics"
+	"github.com/imajinyun/gofly/core/observability/trace"
+	"github.com/imajinyun/gofly/rest"
 )
 
 func main() {

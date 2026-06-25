@@ -13,7 +13,7 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 
-	"github.com/gofly/gofly/core/config"
+	"github.com/imajinyun/gofly/core/config"
 )
 
 func TestConsulSourceIntegration_GetAndWatch(t *testing.T) {

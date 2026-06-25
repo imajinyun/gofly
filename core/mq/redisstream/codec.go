@@ -5,8 +5,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/gofly/gofly/core/kv/redis"
-	"github.com/gofly/gofly/core/mq"
+	"github.com/imajinyun/gofly/core/kv/redis"
+	"github.com/imajinyun/gofly/core/mq"
 )
 
 // Field names used to serialize an mq.Message into a stream entry. Headers are

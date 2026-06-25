@@ -10,10 +10,10 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/gofly/gofly/core/breaker"
-	coreerrors "github.com/gofly/gofly/core/errors"
-	"github.com/gofly/gofly/core/metadata"
-	"github.com/gofly/gofly/rpc"
+	"github.com/imajinyun/gofly/core/breaker"
+	coreerrors "github.com/imajinyun/gofly/core/errors"
+	"github.com/imajinyun/gofly/core/metadata"
+	"github.com/imajinyun/gofly/rpc"
 )
 
 // TranscoderFactory builds a generic RPC client for a resolved upstream

@@ -12,10 +12,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gofly/gofly/core/governance"
-	"github.com/gofly/gofly/core/observability/metrics"
-	coreruntime "github.com/gofly/gofly/core/runtime"
-	"github.com/gofly/gofly/core/security"
+	"github.com/imajinyun/gofly/core/governance"
+	"github.com/imajinyun/gofly/core/observability/metrics"
+	coreruntime "github.com/imajinyun/gofly/core/runtime"
+	"github.com/imajinyun/gofly/core/security"
 
 	stdgrpc "google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"

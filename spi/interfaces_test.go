@@ -7,12 +7,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gofly/gofly/core/config"
-	"github.com/gofly/gofly/core/controlplane"
-	"github.com/gofly/gofly/core/discovery"
-	"github.com/gofly/gofly/core/governance"
-	"github.com/gofly/gofly/core/kv"
-	"github.com/gofly/gofly/rpc/endpoint"
+	"github.com/imajinyun/gofly/core/config"
+	"github.com/imajinyun/gofly/core/controlplane"
+	"github.com/imajinyun/gofly/core/discovery"
+	"github.com/imajinyun/gofly/core/governance"
+	"github.com/imajinyun/gofly/core/kv"
+	"github.com/imajinyun/gofly/rpc/endpoint"
 )
 
 type spiTestConfig struct {

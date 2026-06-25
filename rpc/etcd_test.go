@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gofly/gofly/core/discovery"
+	"github.com/imajinyun/gofly/core/discovery"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)

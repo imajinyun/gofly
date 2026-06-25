@@ -16,10 +16,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gofly/gofly/core/auth"
-	coreerrors "github.com/gofly/gofly/core/errors"
-	middleware "github.com/gofly/gofly/examples/middlewares"
-	"github.com/gofly/gofly/rest"
+	"github.com/imajinyun/gofly/core/auth"
+	coreerrors "github.com/imajinyun/gofly/core/errors"
+	middleware "github.com/imajinyun/gofly/examples/middlewares"
+	"github.com/imajinyun/gofly/rest"
 )
 
 func TestMiddlewareDemoJWT_BitsUT(t *testing.T) {

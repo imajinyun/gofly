@@ -118,9 +118,9 @@ module gofly-doc-snippets
 
 go 1.26
 
-require github.com/gofly/gofly v0.0.0
+require github.com/imajinyun/gofly v0.0.0
 
-replace github.com/gofly/gofly => $root
+replace github.com/imajinyun/gofly => $root
 EOF
 
 if [ -f "$root/go.sum" ]; then

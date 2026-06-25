@@ -1277,7 +1277,7 @@ func frameworkReplaceBlock(path string) string {
 	if path == "" {
 		return ""
 	}
-	return "\nreplace github.com/gofly/gofly => " + path + "\n"
+	return "\nreplace github.com/imajinyun/gofly => " + path + "\n"
 }
 
 func GenerateHandler(opts HandlerOptions) error {

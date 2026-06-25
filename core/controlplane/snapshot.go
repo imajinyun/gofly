@@ -11,7 +11,7 @@ import (
 	"reflect"
 	"time"
 
-	"github.com/gofly/gofly/core/governance"
+	"github.com/imajinyun/gofly/core/governance"
 )
 
 type Snapshot struct {

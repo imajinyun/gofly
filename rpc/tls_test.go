@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gofly/gofly/core/security"
+	"github.com/imajinyun/gofly/core/security"
 )
 
 func TestHTTPClientMutualTLSRoundTrip(t *testing.T) {

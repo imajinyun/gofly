@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gofly/gofly/core/security"
+	"github.com/imajinyun/gofly/core/security"
 
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 )

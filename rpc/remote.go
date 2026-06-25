@@ -16,8 +16,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	core "github.com/gofly/gofly/core"
-	"github.com/gofly/gofly/core/metadata"
+	core "github.com/imajinyun/gofly/core"
+	"github.com/imajinyun/gofly/core/metadata"
 )
 
 const DefaultMaxFrameBytes int64 = 4 << 20

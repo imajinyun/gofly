@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package examples.rpcmatrix.v1;
 
-option go_package = "github.com/gofly/gofly/examples/rpc-idl-matrix/contracts;contracts";
+option go_package = "github.com/imajinyun/gofly/examples/rpc-idl-matrix/contracts;contracts";
 
 message HelloRequest {
   string name = 1;

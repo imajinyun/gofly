@@ -9,8 +9,8 @@ import (
 	"fmt"
 	"time"
 
-	core "github.com/gofly/gofly/core"
-	"github.com/gofly/gofly/core/kv"
+	core "github.com/imajinyun/gofly/core"
+	"github.com/imajinyun/gofly/core/kv"
 )
 
 // Codec serialises cache values for the shared (L2) backend.

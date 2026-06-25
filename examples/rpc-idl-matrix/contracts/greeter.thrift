@@ -1,4 +1,4 @@
-namespace go github.com/gofly/gofly/examples/rpc-idl-matrix/contracts
+namespace go github.com/imajinyun/gofly/examples/rpc-idl-matrix/contracts
 
 struct HelloRequest {
   1: required string name

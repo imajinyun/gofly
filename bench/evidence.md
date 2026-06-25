@@ -26,7 +26,7 @@ See [Benchmark matrix](matrix.md) for the scenario list, comparison candidates, 
 ```text
 goos: darwin
 goarch: arm64
-pkg: github.com/gofly/gofly/bench
+pkg: github.com/imajinyun/gofly/bench
 cpu: Apple M4 Pro
 BenchmarkHTTPHello/net_http-14     	  749396	      1502 ns/op	    6188 B/op	      21 allocs/op
 BenchmarkHTTPHello/net_http-14     	  800820	      1508 ns/op	    6188 B/op	      21 allocs/op
@@ -204,5 +204,5 @@ BenchmarkRPCStreamGovernance-14    	    3313	    378709 ns/op	   28614 B/op	    
 BenchmarkRPCStreamGovernance-14    	    3434	    392031 ns/op	   28584 B/op	     149 allocs/op
 BenchmarkRPCStreamGovernance-14    	    2856	    380096 ns/op	   28573 B/op	     149 allocs/op
 PASS
-ok  	github.com/gofly/gofly/bench	204.811s
+ok  	github.com/imajinyun/gofly/bench	204.811s
 ```

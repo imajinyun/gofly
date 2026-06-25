@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/gofly/gofly/core/auth"
+	"github.com/imajinyun/gofly/core/auth"
 
 	stdgrpc "google.golang.org/grpc"
 	"google.golang.org/grpc/codes"

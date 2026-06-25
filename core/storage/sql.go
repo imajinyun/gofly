@@ -14,8 +14,8 @@ import (
 	"sync"
 	"time"
 
-	core "github.com/gofly/gofly/core"
-	corebreaker "github.com/gofly/gofly/core/breaker"
+	core "github.com/imajinyun/gofly/core"
+	corebreaker "github.com/imajinyun/gofly/core/breaker"
 )
 
 var (

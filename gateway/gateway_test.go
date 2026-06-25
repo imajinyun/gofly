@@ -18,16 +18,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gofly/gofly/core/auth"
-	"github.com/gofly/gofly/core/discovery"
-	coreerrors "github.com/gofly/gofly/core/errors"
-	"github.com/gofly/gofly/core/governance"
-	"github.com/gofly/gofly/core/metadata"
-	"github.com/gofly/gofly/core/observability/metrics"
-	"github.com/gofly/gofly/core/observability/trace"
-	controladmin "github.com/gofly/gofly/ops/admin"
-	"github.com/gofly/gofly/rest"
-	"github.com/gofly/gofly/rpc"
+	"github.com/imajinyun/gofly/core/auth"
+	"github.com/imajinyun/gofly/core/discovery"
+	coreerrors "github.com/imajinyun/gofly/core/errors"
+	"github.com/imajinyun/gofly/core/governance"
+	"github.com/imajinyun/gofly/core/metadata"
+	"github.com/imajinyun/gofly/core/observability/metrics"
+	"github.com/imajinyun/gofly/core/observability/trace"
+	controladmin "github.com/imajinyun/gofly/ops/admin"
+	"github.com/imajinyun/gofly/rest"
+	"github.com/imajinyun/gofly/rpc"
 )
 
 type failAfterWriter struct {

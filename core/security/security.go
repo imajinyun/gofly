@@ -12,7 +12,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/gofly/gofly/core/auth"
+	"github.com/imajinyun/gofly/core/auth"
 )
 
 // TLSConfig describes the TLS/mTLS material for a server or client.

@@ -3,8 +3,8 @@ package middleware
 import (
 	"time"
 
-	"github.com/gofly/gofly/core/auth"
-	"github.com/gofly/gofly/rest"
+	"github.com/imajinyun/gofly/core/auth"
+	"github.com/imajinyun/gofly/rest"
 )
 
 // JWTConfig configures HS256 bearer JWT authentication.

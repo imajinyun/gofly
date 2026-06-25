@@ -26,9 +26,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/gofly/gofly/core/breaker"
-	"github.com/gofly/gofly/core/limit"
-	"github.com/gofly/gofly/core/retry"
+	"github.com/imajinyun/gofly/core/breaker"
+	"github.com/imajinyun/gofly/core/limit"
+	"github.com/imajinyun/gofly/core/retry"
 )
 
 // errDownstream is the transient error returned by the simulated dependency.

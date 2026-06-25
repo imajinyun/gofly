@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	coreerrors "github.com/gofly/gofly/core/errors"
-	"github.com/gofly/gofly/rest"
+	coreerrors "github.com/imajinyun/gofly/core/errors"
+	"github.com/imajinyun/gofly/rest"
 )
 
 // SessionConfig configures a signed cookie session middleware.

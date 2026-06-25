@@ -10,7 +10,7 @@ import (
 
 	clientv3 "go.etcd.io/etcd/client/v3"
 
-	"github.com/gofly/gofly/core/config"
+	"github.com/imajinyun/gofly/core/config"
 )
 
 // Config configures the etcd config source.

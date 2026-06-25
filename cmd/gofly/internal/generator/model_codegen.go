@@ -131,7 +131,7 @@ func GenerateModelFromDDL(opts ModelOptions) error {
 		var inferErr error
 		module, inferErr = inferModelModule(opts.Dir)
 		if inferErr != nil {
-			module = "github.com/gofly/gofly"
+			module = "github.com/imajinyun/gofly"
 		}
 	}
 	style := normalizeModelStyle(opts.Style)
@@ -197,7 +197,7 @@ func GenerateModelFromDatasource(opts ModelDatasourceOptions) error {
 		var inferErr error
 		module, inferErr = inferModelModule(opts.Dir)
 		if inferErr != nil {
-			module = "github.com/gofly/gofly"
+			module = "github.com/imajinyun/gofly"
 		}
 	}
 	style := normalizeModelStyle(opts.Style)
@@ -673,7 +673,7 @@ func GenerateMongoModel(opts MongoModelOptions) error {
 	fprintf(&b, "\t\"context\"\n")
 	fprintf(&b, "\t\"errors\"\n")
 	if opts.Cache {
-		fprintf(&b, "\n\t\"github.com/gofly/gofly/cache\"\n")
+		fprintf(&b, "\n\t\"github.com/imajinyun/gofly/cache\"\n")
 	}
 	fprintf(&b, ")\n\n")
 	fprintf(&b, "var Err%sNotFound = errors.New(%q)\n\n", typeName, strings.ToLower(typeName)+" not found")
@@ -734,7 +734,7 @@ func generateMongoDriverModel(opts MongoModelOptions, pkg string) error {
 	fprintf(&b, "\t\"errors\"\n")
 	fprintf(&b, "\n")
 	if opts.Cache {
-		fprintf(&b, "\t\"github.com/gofly/gofly/cache\"\n")
+		fprintf(&b, "\t\"github.com/imajinyun/gofly/cache\"\n")
 	}
 	fprintf(&b, "\t\"go.mongodb.org/mongo-driver/bson\"\n")
 	fprintf(&b, "\t\"go.mongodb.org/mongo-driver/bson/primitive\"\n")
@@ -884,10 +884,10 @@ func writeRepoFile(dir string, table SQLTable, pkg string, module string, style 
 	}
 	fprintf(&b, "\n")
 	if cacheEnabled {
-		fprintf(&b, "\t\"github.com/gofly/gofly/cache\"\n")
-		fprintf(&b, "\t\"github.com/gofly/gofly/core/kv/redis\"\n")
+		fprintf(&b, "\t\"github.com/imajinyun/gofly/cache\"\n")
+		fprintf(&b, "\t\"github.com/imajinyun/gofly/core/kv/redis\"\n")
 	}
-	fprintf(&b, "\t\"github.com/gofly/gofly/core/storage\"\n")
+	fprintf(&b, "\t\"github.com/imajinyun/gofly/core/storage\"\n")
 	fprintf(&b, "\t%q\n", modelEntityImport(module))
 	fprintf(&b, ")\n\n")
 	fprintf(&b, "type %s struct {\n\tstore *storage.SQLStore\n\ttx *sql.Tx\n\tdialect storage.Dialect\n}\n\n", repoName)
@@ -933,10 +933,10 @@ func writeGORMRepoFile(dir string, table SQLTable, module string, cacheEnabled b
 	}
 	fprintf(&b, "\n")
 	if cacheEnabled {
-		fprintf(&b, "\t\"github.com/gofly/gofly/cache\"\n")
-		fprintf(&b, "\t\"github.com/gofly/gofly/core/kv/redis\"\n")
+		fprintf(&b, "\t\"github.com/imajinyun/gofly/cache\"\n")
+		fprintf(&b, "\t\"github.com/imajinyun/gofly/core/kv/redis\"\n")
 	}
-	fprintf(&b, "\t\"github.com/gofly/gofly/core/storage\"\n")
+	fprintf(&b, "\t\"github.com/imajinyun/gofly/core/storage\"\n")
 	fprintf(&b, "\t%q\n", modelEntityImport(module))
 	fprintf(&b, "\t\"gorm.io/gorm\"\n")
 	fprintf(&b, ")\n\n")
@@ -1199,7 +1199,7 @@ func writeGORMWhereMethods(b *bytes.Buffer, table SQLTable, typeName, receiverNa
 func modelEntityImport(module string) string {
 	module = strings.Trim(strings.TrimSpace(module), "/")
 	if module == "" {
-		module = "github.com/gofly/gofly"
+		module = "github.com/imajinyun/gofly"
 	}
 	return module + "/model/entity"
 }
@@ -1260,8 +1260,8 @@ func GenerateModelCode(tables []SQLTable, packageName string) ([]byte, error) {
 	if modelsNeedTime(tables) || tablesHaveSoftDelete(tables) {
 		fprintf(&b, "\t\"time\"\n")
 	}
-	fprintf(&b, "\n\t\"github.com/gofly/gofly/cache\"\n")
-	fprintf(&b, "\t\"github.com/gofly/gofly/core/storage\"\n")
+	fprintf(&b, "\n\t\"github.com/imajinyun/gofly/cache\"\n")
+	fprintf(&b, "\t\"github.com/imajinyun/gofly/core/storage\"\n")
 	fprintf(&b, ")\n\n")
 	fprintf(&b, "type Tabler interface {\n\tTableName() string\n}\n\n")
 	for _, table := range tables {

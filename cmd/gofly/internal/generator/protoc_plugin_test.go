@@ -48,7 +48,7 @@ func TestGenerateProtocPluginResponse(t *testing.T) {
 	for _, want := range []string{
 		"package hellopb",
 		`"context"`,
-		`"github.com/gofly/gofly/rpc"`,
+		`"github.com/imajinyun/gofly/rpc"`,
 		"// Module: example.com/app",
 		"func GreeterGoflyDescriptor() rpc.ServiceDesc",
 		`Name: "demo.hello.Greeter"`,
@@ -300,9 +300,9 @@ func TestGenerateProtocPluginResponseGeneratedCodeCompiles(t *testing.T) {
 
 go 1.26
 
-require github.com/gofly/gofly v0.0.0
+require github.com/imajinyun/gofly v0.0.0
 
-replace github.com/gofly/gofly => %s
+replace github.com/imajinyun/gofly => %s
 `, filepath.ToSlash(repoRoot))
 	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(goMod), 0o644); err != nil {
 		t.Fatal(err)
@@ -336,8 +336,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/gofly/gofly/core/metadata"
-	"github.com/gofly/gofly/rpc"
+	"github.com/imajinyun/gofly/core/metadata"
+	"github.com/imajinyun/gofly/rpc"
 )
 
 type fakeService struct{}

@@ -54,7 +54,7 @@ const gatewayGoModTemplate = `module {{.Module}}
 
 go 1.26
 
-require github.com/gofly/gofly v0.0.0
+require github.com/imajinyun/gofly v0.0.0
 {{.ReplaceBlock}}
 `
 
@@ -64,12 +64,12 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/gofly/gofly/app"
-	"github.com/gofly/gofly/core/config"
-	"github.com/gofly/gofly/core/governance"
-	"github.com/gofly/gofly/core/proc"
-	"github.com/gofly/gofly/gateway"
-	"github.com/gofly/gofly/rest"
+	"github.com/imajinyun/gofly/app"
+	"github.com/imajinyun/gofly/core/config"
+	"github.com/imajinyun/gofly/core/governance"
+	"github.com/imajinyun/gofly/core/proc"
+	"github.com/imajinyun/gofly/gateway"
+	"github.com/imajinyun/gofly/rest"
 
 	appconfig "{{.Module}}/internal/config"
 	appmq "{{.Module}}/internal/mq"
@@ -164,10 +164,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gofly/gofly/app"
-	"github.com/gofly/gofly/core/governance"
-	"github.com/gofly/gofly/gateway"
-	"github.com/gofly/gofly/rest"
+	"github.com/imajinyun/gofly/app"
+	"github.com/imajinyun/gofly/core/governance"
+	"github.com/imajinyun/gofly/gateway"
+	"github.com/imajinyun/gofly/rest"
 )
 
 type Config struct {
@@ -304,7 +304,7 @@ type RedisConfig struct {
 const gatewaySvcTemplate = `package svc
 
 import (
-	"github.com/gofly/gofly/core/mq"
+	"github.com/imajinyun/gofly/core/mq"
 	"{{.Module}}/internal/config"
 )
 
@@ -322,7 +322,7 @@ const gatewayRoutesTemplate = `package routes
 import (
 	"net/http"
 
-	"github.com/gofly/gofly/rest"
+	"github.com/imajinyun/gofly/rest"
 	"{{.Module}}/internal/svc"
 )
 

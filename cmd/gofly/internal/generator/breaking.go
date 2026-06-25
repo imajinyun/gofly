@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/gofly/gofly/rpc"
+	"github.com/imajinyun/gofly/rpc"
 )
 
 // ChangeSeverity 表示变更对下游消费者的影响等级。

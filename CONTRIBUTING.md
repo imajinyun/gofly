@@ -11,7 +11,7 @@ Thanks for helping improve gofly. This project is a Go microservice framework, s
 ## Local Setup
 
 ```sh
-git clone https://github.com/gofly/gofly.git
+git clone https://github.com/imajinyun/gofly.git
 cd gofly
 go mod download
 go test -shuffle=on ./...

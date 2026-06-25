@@ -17,8 +17,8 @@ import (
 	"sync"
 	"time"
 
-	core "github.com/gofly/gofly/core"
-	"github.com/gofly/gofly/core/kv"
+	core "github.com/imajinyun/gofly/core"
+	"github.com/imajinyun/gofly/core/kv"
 )
 
 const (

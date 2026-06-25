@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/gofly/gofly/rpc"
-	"github.com/gofly/gofly/rpc/endpoint"
+	"github.com/imajinyun/gofly/rpc"
+	"github.com/imajinyun/gofly/rpc/endpoint"
 )
 
 // ExampleNewServer demonstrates creating an RPC server, registering a service,

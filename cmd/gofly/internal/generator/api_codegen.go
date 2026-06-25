@@ -2699,7 +2699,7 @@ func writeGatewayFile(dir string, svc IDLService, pkg, rpcAlias, rpcPkg string) 
 	gatewayName := serviceName + "Gateway"
 	fprintf(&b, "package %s\n\n", pkg)
 	fprintf(&b, "import (\n")
-	fprintf(&b, "\t\"github.com/gofly/gofly/rpc\"\n")
+	fprintf(&b, "\t\"github.com/imajinyun/gofly/rpc\"\n")
 	fprintf(&b, "\t%s %q\n", rpcAlias, rpcPkg)
 	fprintf(&b, ")\n\n")
 	fprintf(&b, "type %s struct {\n\tclient *%s.%sClient\n}\n\n", gatewayName, rpcAlias, serviceName)
@@ -2721,7 +2721,7 @@ func writeMethodFile(dir string, method IDLMethod, svc IDLService, pkg, rpcAlias
 	fprintf(&b, "package %s\n\n", pkg)
 	fprintf(&b, "import (\n")
 	fprintf(&b, "\t\"net/http\"\n\n")
-	fprintf(&b, "\t\"github.com/gofly/gofly/rest\"\n")
+	fprintf(&b, "\t\"github.com/imajinyun/gofly/rest\"\n")
 	fprintf(&b, ")\n\n")
 	fprintf(&b, "func Register%sRoute(s *rest.Server, impl %s) {\n", methodName, serviceName)
 	fprintf(&b, "\ts.AddRoute(rest.Route{Method: http.Method%s, Path: %q, Handler: func(ctx *rest.Context) {\n", exportName(strings.ToLower(method.HTTPMethod)), method.HTTPPath)
@@ -2786,9 +2786,9 @@ func writeRoutesFile(dir string, svc IDLService, pkg, rpcAlias, rpcPkg string) e
 	fprintf(&b, "package %s\n\n", pkg)
 	fprintf(&b, "import (\n")
 	if rpcPkg != "" {
-		fprintf(&b, "\t\"github.com/gofly/gofly/rpc\"\n")
+		fprintf(&b, "\t\"github.com/imajinyun/gofly/rpc\"\n")
 	}
-	fprintf(&b, "\t\"github.com/gofly/gofly/rest\"\n")
+	fprintf(&b, "\t\"github.com/imajinyun/gofly/rest\"\n")
 	fprintf(&b, ")\n\n")
 	fprintf(&b, "func Register%sRoutes(s *rest.Server, impl %s) {\n", serviceName, serviceName)
 	for _, method := range svc.Methods {
@@ -2855,10 +2855,10 @@ func GenerateRESTCodeWithOptions(doc IDLDocument, opts RESTCodeOptions) ([]byte,
 	fprintf(&b, "\t\"context\"\n")
 	fprintf(&b, "\t\"net/http\"\n")
 	if opts.RPCPackage != "" {
-		fprintf(&b, "\t\"github.com/gofly/gofly/rpc\"\n")
+		fprintf(&b, "\t\"github.com/imajinyun/gofly/rpc\"\n")
 		fprintf(&b, "\t%s %q\n", rpcAlias, opts.RPCPackage)
 	}
-	fprintf(&b, "\t\"github.com/gofly/gofly/rest\"\n")
+	fprintf(&b, "\t\"github.com/imajinyun/gofly/rest\"\n")
 	fprintf(&b, ")\n\n")
 	for _, msg := range doc.Messages {
 		writeAPIMessage(&b, msg)

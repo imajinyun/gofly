@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/gofly/gofly/core/storage"
+	"github.com/imajinyun/gofly/core/storage"
 )
 
 // DefaultTableName is the table used when SQLStore is created without a custom

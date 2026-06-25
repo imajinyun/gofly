@@ -22,7 +22,7 @@ type HandlerCompleter struct {
 	Receiver string
 	// Package 是生成文件时使用的 package 名。
 	Package string
-	// Imports 是默认导入列表，如 "github.com/gofly/gofly/rest"。
+	// Imports 是默认导入列表，如 "github.com/imajinyun/gofly/rest"。
 	Imports []string
 	// File 是目标文件路径（绝对或相对当前工作目录）。
 	File string

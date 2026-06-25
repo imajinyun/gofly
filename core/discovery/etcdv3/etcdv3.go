@@ -14,7 +14,7 @@ import (
 
 	clientv3 "go.etcd.io/etcd/client/v3"
 
-	"github.com/gofly/gofly/core/discovery"
+	"github.com/imajinyun/gofly/core/discovery"
 )
 
 // Config configures the etcd v3 registry.

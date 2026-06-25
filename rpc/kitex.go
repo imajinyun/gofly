@@ -6,9 +6,9 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/gofly/gofly/core/observability"
-	"github.com/gofly/gofly/core/observability/metrics"
-	"github.com/gofly/gofly/rpc/endpoint"
+	"github.com/imajinyun/gofly/core/observability"
+	"github.com/imajinyun/gofly/core/observability/metrics"
+	"github.com/imajinyun/gofly/rpc/endpoint"
 )
 
 type KitexEndpoint = endpoint.Endpoint

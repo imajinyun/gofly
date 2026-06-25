@@ -10,7 +10,7 @@ import (
 	"os"
 	"time"
 
-	core "github.com/gofly/gofly/core"
+	core "github.com/imajinyun/gofly/core"
 )
 
 // Provider loads a typed configuration value.

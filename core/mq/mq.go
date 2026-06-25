@@ -13,8 +13,8 @@ import (
 	"sync"
 	"time"
 
-	core "github.com/gofly/gofly/core"
-	"github.com/gofly/gofly/core/observability/trace"
+	core "github.com/imajinyun/gofly/core"
+	"github.com/imajinyun/gofly/core/observability/trace"
 )
 
 // Broker-level errors returned by all implementations.

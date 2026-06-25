@@ -4,7 +4,7 @@
 
 `gofly` 是一个 Go 微服务工具链：它将类似 `goctl` 的代码生成 CLI 与生产可用的运行时能力组合在一起，覆盖 REST、RPC、网关、可观测性、韧性治理和服务治理。
 
-- 📦 **模块:** `github.com/gofly/gofly`
+- 📦 **模块:** `github.com/imajinyun/gofly`
 - 🧭 **Go:** 1.26+
 - 🚀 **CLI:** `gofly`
 
@@ -23,11 +23,13 @@
 ## ⚡ 快速开始
 
 ```sh
-go install github.com/gofly/gofly/cmd/gofly@latest
+go install github.com/imajinyun/gofly/cmd/gofly@latest
 
 gofly quickstart hello --module github.com/me/hello --dir hello
 cd hello && go run .
 ```
+
+CLI 安装和库导入均使用 `github.com/imajinyun/gofly`。
 
 📖 需要完整示例和大段代码？请阅读 [快速开始示例](docs/doc/quickstart.CN.md)。
 

@@ -13,7 +13,7 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 	clientv3 "go.etcd.io/etcd/client/v3"
 
-	"github.com/gofly/gofly/core/discovery"
+	"github.com/imajinyun/gofly/core/discovery"
 )
 
 func TestEtcdRegistryIntegration_RegisterResolveDeregister(t *testing.T) {

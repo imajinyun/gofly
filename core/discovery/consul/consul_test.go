@@ -14,7 +14,7 @@ import (
 
 	consulapi "github.com/hashicorp/consul/api"
 
-	"github.com/gofly/gofly/core/discovery"
+	"github.com/imajinyun/gofly/core/discovery"
 )
 
 func TestConfigDefaultsAndNewWithClientValidation(t *testing.T) {

@@ -1,8 +1,8 @@
 package middleware
 
 import (
-	coreerrors "github.com/gofly/gofly/core/errors"
-	"github.com/gofly/gofly/rest"
+	coreerrors "github.com/imajinyun/gofly/core/errors"
+	"github.com/imajinyun/gofly/rest"
 )
 
 // SSEStream writes a stream of server-sent events, stopping when the request

@@ -3,7 +3,7 @@ package middleware
 import (
 	"time"
 
-	"github.com/gofly/gofly/rest"
+	"github.com/imajinyun/gofly/rest"
 )
 
 // SecurityHeadersMiddleware applies browser security headers. A zero config

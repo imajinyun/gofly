@@ -10,12 +10,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gofly/gofly/core/breaker"
-	coreerrors "github.com/gofly/gofly/core/errors"
-	"github.com/gofly/gofly/core/governance"
-	coretrace "github.com/gofly/gofly/core/observability/trace"
-	coreretry "github.com/gofly/gofly/core/retry"
-	coreruntime "github.com/gofly/gofly/core/runtime"
+	"github.com/imajinyun/gofly/core/breaker"
+	coreerrors "github.com/imajinyun/gofly/core/errors"
+	"github.com/imajinyun/gofly/core/governance"
+	coretrace "github.com/imajinyun/gofly/core/observability/trace"
+	coreretry "github.com/imajinyun/gofly/core/retry"
+	coreruntime "github.com/imajinyun/gofly/core/runtime"
 
 	oteltrace "go.opentelemetry.io/otel/trace"
 	stdgrpc "google.golang.org/grpc"

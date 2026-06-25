@@ -5,7 +5,7 @@ This tutorial is the productized path for a new gofly adopter. It takes a servic
 ## 1. Install and verify
 
 ```sh
-go install github.com/gofly/gofly/cmd/gofly@latest
+go install github.com/imajinyun/gofly/cmd/gofly@latest
 gofly doctor --json
 ```
 

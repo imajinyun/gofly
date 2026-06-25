@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/gofly/gofly/cmd/gofly/internal/generator"
-	"github.com/gofly/gofly/core/llm"
+	"github.com/imajinyun/gofly/cmd/gofly/internal/generator"
+	"github.com/imajinyun/gofly/core/llm"
 )
 
 type aiDoctorReport struct {

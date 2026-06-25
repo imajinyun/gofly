@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 
-	"github.com/gofly/gofly/spi"
+	"github.com/imajinyun/gofly/spi"
 )
 
 const (

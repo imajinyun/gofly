@@ -32,7 +32,7 @@ checks = {
     "status": want_status,
     "base_ref": want_base,
     "reason": want_reason,
-    "module": "github.com/gofly/gofly",
+    "module": "github.com/imajinyun/gofly",
 }
 for key, want in checks.items():
     got = data.get(key)

@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gofly/gofly/core/mq"
-	"github.com/gofly/gofly/core/storage"
+	"github.com/imajinyun/gofly/core/mq"
+	"github.com/imajinyun/gofly/core/storage"
 )
 
 func TestBrokerPublisherForwardsMessage(t *testing.T) {

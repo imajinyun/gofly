@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gofly/gofly/core/kv"
+	"github.com/imajinyun/gofly/core/kv"
 
 	"go.opentelemetry.io/otel/attribute"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"

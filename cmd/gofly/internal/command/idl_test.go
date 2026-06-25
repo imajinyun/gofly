@@ -16,8 +16,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gofly/gofly/cmd/gofly/internal/generator"
-	"github.com/gofly/gofly/core/llm"
+	"github.com/imajinyun/gofly/cmd/gofly/internal/generator"
+	"github.com/imajinyun/gofly/core/llm"
 )
 
 const commandTestProto = `syntax = "proto3";
@@ -2205,7 +2205,7 @@ func TestExecuteAIManifestJSONEnvelope(t *testing.T) {
 	if envelope.Data.SchemaVersion != aiToolManifestSchemaVersion || envelope.Data.Tool != "gofly" {
 		t.Fatalf("ai manifest metadata = %+v", envelope.Data)
 	}
-	if envelope.Data.LLMGovernance.Package != "github.com/gofly/gofly/core/llm" || !commandContainsString(envelope.Data.LLMGovernance.Capabilities, "token budget") || !commandContainsString(envelope.Data.LLMGovernance.Capabilities, "response caching") || !commandContainsString(envelope.Data.LLMGovernance.Capabilities, "cost-aware token accounting") || !commandContainsString(envelope.Data.LLMGovernance.Capabilities, "low-cardinality observability") || !commandContainsString(envelope.Data.LLMGovernance.Capabilities, "governance pipeline") || !commandContainsString(envelope.Data.LLMGovernance.Resilience, "circuit breaker") || !commandContainsString(envelope.Data.LLMGovernance.Resilience, "provider failover") || !commandContainsString(envelope.Data.LLMGovernance.Resilience, "retryability classification") || !commandContainsString(envelope.Data.LLMGovernance.Resilience, "request coalescing") || !commandContainsString(envelope.Data.LLMGovernance.AuditFields, "total_tokens") || !commandContainsString(envelope.Data.LLMGovernance.AuditFields, "error_class") || !commandContainsString(envelope.Data.LLMGovernance.TelemetryFields, "provider_status_code") || !commandContainsString(envelope.Data.LLMGovernance.TelemetryFields, "cache_status") || !commandContainsString(envelope.Data.LLMGovernance.TelemetryFields, "total_tokens") {
+	if envelope.Data.LLMGovernance.Package != "github.com/imajinyun/gofly/core/llm" || !commandContainsString(envelope.Data.LLMGovernance.Capabilities, "token budget") || !commandContainsString(envelope.Data.LLMGovernance.Capabilities, "response caching") || !commandContainsString(envelope.Data.LLMGovernance.Capabilities, "cost-aware token accounting") || !commandContainsString(envelope.Data.LLMGovernance.Capabilities, "low-cardinality observability") || !commandContainsString(envelope.Data.LLMGovernance.Capabilities, "governance pipeline") || !commandContainsString(envelope.Data.LLMGovernance.Resilience, "circuit breaker") || !commandContainsString(envelope.Data.LLMGovernance.Resilience, "provider failover") || !commandContainsString(envelope.Data.LLMGovernance.Resilience, "retryability classification") || !commandContainsString(envelope.Data.LLMGovernance.Resilience, "request coalescing") || !commandContainsString(envelope.Data.LLMGovernance.AuditFields, "total_tokens") || !commandContainsString(envelope.Data.LLMGovernance.AuditFields, "error_class") || !commandContainsString(envelope.Data.LLMGovernance.TelemetryFields, "provider_status_code") || !commandContainsString(envelope.Data.LLMGovernance.TelemetryFields, "cache_status") || !commandContainsString(envelope.Data.LLMGovernance.TelemetryFields, "total_tokens") {
 		t.Fatalf("ai manifest LLM governance = %+v", envelope.Data.LLMGovernance)
 	}
 	if envelope.Data.LLMGovernance.FailoverPolicy.EnvVar != "GOFLY_LLM_FAILOVER_PROVIDERS" || envelope.Data.LLMGovernance.FailoverPolicy.Mode != "disabled" || envelope.Data.LLMGovernance.FailoverPolicy.AutomaticSwitching || len(envelope.Data.LLMGovernance.FailoverPolicy.EligibleCompleteSpecs) != 2 || len(envelope.Data.LLMGovernance.FailoverPolicy.EligibleStreamSpecs) != 2 {

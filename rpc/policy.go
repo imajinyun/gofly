@@ -10,10 +10,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gofly/gofly/core/callstats"
-	"github.com/gofly/gofly/core/controlplane"
-	"github.com/gofly/gofly/core/governance"
-	coreruntime "github.com/gofly/gofly/core/runtime"
+	"github.com/imajinyun/gofly/core/callstats"
+	"github.com/imajinyun/gofly/core/controlplane"
+	"github.com/imajinyun/gofly/core/governance"
+	coreruntime "github.com/imajinyun/gofly/core/runtime"
 )
 
 const (

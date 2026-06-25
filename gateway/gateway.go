@@ -18,12 +18,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gofly/gofly/core/breaker"
-	"github.com/gofly/gofly/core/discovery"
-	"github.com/gofly/gofly/core/governance"
-	"github.com/gofly/gofly/core/limit"
-	"github.com/gofly/gofly/core/observability/metrics"
-	"github.com/gofly/gofly/rpc"
+	"github.com/imajinyun/gofly/core/breaker"
+	"github.com/imajinyun/gofly/core/discovery"
+	"github.com/imajinyun/gofly/core/governance"
+	"github.com/imajinyun/gofly/core/limit"
+	"github.com/imajinyun/gofly/core/observability/metrics"
+	"github.com/imajinyun/gofly/rpc"
 )
 
 const (

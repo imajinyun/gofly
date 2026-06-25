@@ -3,7 +3,7 @@ package middleware
 import (
 	"net/http"
 
-	"github.com/gofly/gofly/rest"
+	"github.com/imajinyun/gofly/rest"
 )
 
 // CatalogItem describes one production-ready middleware capability and where a

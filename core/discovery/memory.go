@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	core "github.com/gofly/gofly/core"
+	core "github.com/imajinyun/gofly/core"
 )
 
 // ErrNoInstances is returned when a resolver finds no healthy instances.

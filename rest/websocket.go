@@ -19,7 +19,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	coreerrors "github.com/gofly/gofly/core/errors"
+	coreerrors "github.com/imajinyun/gofly/core/errors"
 )
 
 // WebSocket message type constants.

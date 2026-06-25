@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gofly/gofly/core/metadata"
-	"github.com/gofly/gofly/rpc/endpoint"
+	"github.com/imajinyun/gofly/core/metadata"
+	"github.com/imajinyun/gofly/rpc/endpoint"
 )
 
 func TestGenericInvokerInvoke(t *testing.T) {

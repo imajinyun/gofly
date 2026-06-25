@@ -7,12 +7,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gofly/gofly/core/breaker"
-	"github.com/gofly/gofly/core/governance"
-	"github.com/gofly/gofly/core/metadata"
-	"github.com/gofly/gofly/core/observability/metrics"
-	"github.com/gofly/gofly/core/observability/trace"
-	"github.com/gofly/gofly/core/retry"
+	"github.com/imajinyun/gofly/core/breaker"
+	"github.com/imajinyun/gofly/core/governance"
+	"github.com/imajinyun/gofly/core/metadata"
+	"github.com/imajinyun/gofly/core/observability/metrics"
+	"github.com/imajinyun/gofly/core/observability/trace"
+	"github.com/imajinyun/gofly/core/retry"
 )
 
 func TestMemoryBrokerPublishConsumeAck(t *testing.T) {

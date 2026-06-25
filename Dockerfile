@@ -40,9 +40,9 @@ ARG BUILT_AT=unknown
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     LDFLAGS="-s -w \
-             -X 'github.com/gofly/gofly/cmd/gofly/internal/command.Version=${VERSION}' \
-             -X 'github.com/gofly/gofly/cmd/gofly/internal/command.Commit=${COMMIT}' \
-             -X 'github.com/gofly/gofly/cmd/gofly/internal/command.BuiltAt=${BUILT_AT}'" && \
+             -X 'github.com/imajinyun/gofly/cmd/gofly/internal/command.Version=${VERSION}' \
+             -X 'github.com/imajinyun/gofly/cmd/gofly/internal/command.Commit=${COMMIT}' \
+             -X 'github.com/imajinyun/gofly/cmd/gofly/internal/command.BuiltAt=${BUILT_AT}'" && \
     go build -trimpath -ldflags "${LDFLAGS}" -o /out/gofly ./cmd/gofly
 
 # ---- runtime -----------------------------------------------------------------

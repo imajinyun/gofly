@@ -4,7 +4,7 @@ const goModTemplate = `module {{.Module}}
 
 go 1.26
 
-require github.com/gofly/gofly v0.0.0
+require github.com/imajinyun/gofly v0.0.0
 {{.ReplaceBlock}}
 `
 
@@ -15,13 +15,13 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/gofly/gofly/app"
-	"github.com/gofly/gofly/core/config"
-	"github.com/gofly/gofly/core/controlplane"
-	"github.com/gofly/gofly/core/governance"
-	"github.com/gofly/gofly/core/proc"
-	"github.com/gofly/gofly/rest"
-	"github.com/gofly/gofly/rpc"
+	"github.com/imajinyun/gofly/app"
+	"github.com/imajinyun/gofly/core/config"
+	"github.com/imajinyun/gofly/core/controlplane"
+	"github.com/imajinyun/gofly/core/governance"
+	"github.com/imajinyun/gofly/core/proc"
+	"github.com/imajinyun/gofly/rest"
+	"github.com/imajinyun/gofly/rpc"
 
 	appadmin "{{.Module}}/internal/admin"
 	appconfig "{{.Module}}/internal/config"
@@ -116,10 +116,10 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/gofly/gofly/app"
-	"github.com/gofly/gofly/core/config"
-	"github.com/gofly/gofly/core/proc"
-	"github.com/gofly/gofly/rest"
+	"github.com/imajinyun/gofly/app"
+	"github.com/imajinyun/gofly/core/config"
+	"github.com/imajinyun/gofly/core/proc"
+	"github.com/imajinyun/gofly/rest"
 
 	appconfig "{{.Module}}/internal/config"
 	"{{.Module}}/internal/routes"
@@ -162,10 +162,10 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/gofly/gofly/app"
-	"github.com/gofly/gofly/core/config"
-	"github.com/gofly/gofly/core/proc"
-	"github.com/gofly/gofly/rest"
+	"github.com/imajinyun/gofly/app"
+	"github.com/imajinyun/gofly/core/config"
+	"github.com/imajinyun/gofly/core/proc"
+	"github.com/imajinyun/gofly/rest"
 
 	appconfig "{{.Module}}/internal/config"
 	"{{.Module}}/internal/handler"
@@ -294,9 +294,9 @@ import (
 	"os"
 	"strings"
 
-	corediscovery "github.com/gofly/gofly/core/discovery"
-	"github.com/gofly/gofly/core/discovery/consul"
-	"github.com/gofly/gofly/core/discovery/etcdv3"
+	corediscovery "github.com/imajinyun/gofly/core/discovery"
+	"github.com/imajinyun/gofly/core/discovery/consul"
+	"github.com/imajinyun/gofly/core/discovery/etcdv3"
 
 	appconfig "{{.Module}}/internal/config"
 )
@@ -358,9 +358,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gofly/gofly/core/controlplane"
-	"github.com/gofly/gofly/core/observability/metrics"
-	"github.com/gofly/gofly/rpc"
+	"github.com/imajinyun/gofly/core/controlplane"
+	"github.com/imajinyun/gofly/core/observability/metrics"
+	"github.com/imajinyun/gofly/rpc"
 )
 
 const defaultAddr = "127.0.0.1:9090"
@@ -484,8 +484,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gofly/gofly/core/controlplane"
-	"github.com/gofly/gofly/rpc"
+	"github.com/imajinyun/gofly/core/controlplane"
+	"github.com/imajinyun/gofly/rpc"
 	appconfig "{{.Module}}/internal/config"
 	apprpc "{{.Module}}/internal/rpc"
 	"{{.Module}}/internal/svc"
@@ -592,11 +592,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gofly/gofly/app"
-	"github.com/gofly/gofly/core/controlplane"
-	"github.com/gofly/gofly/core/discovery"
-	"github.com/gofly/gofly/core/governance"
-	"github.com/gofly/gofly/rest"
+	"github.com/imajinyun/gofly/app"
+	"github.com/imajinyun/gofly/core/controlplane"
+	"github.com/imajinyun/gofly/core/discovery"
+	"github.com/imajinyun/gofly/core/governance"
+	"github.com/imajinyun/gofly/rest"
 )
 
 type Config struct {
@@ -1027,9 +1027,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gofly/gofly/app"
-	"github.com/gofly/gofly/core/controlplane"
-	"github.com/gofly/gofly/rest"
+	"github.com/imajinyun/gofly/app"
+	"github.com/imajinyun/gofly/core/controlplane"
+	"github.com/imajinyun/gofly/rest"
 )
 
 func TestOpenAPIConfigDefaultsAndOverrides(t *testing.T) {
@@ -1103,9 +1103,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gofly/gofly/app"
-	"github.com/gofly/gofly/core/discovery"
-	"github.com/gofly/gofly/rest"
+	"github.com/imajinyun/gofly/app"
+	"github.com/imajinyun/gofly/core/discovery"
+	"github.com/imajinyun/gofly/rest"
 )
 
 func TestDiscoveryConfigDefaultsValidationAndSnapshot(t *testing.T) {
@@ -1198,8 +1198,8 @@ import (
 	"testing"
 	"time"
 
-	coreerrors "github.com/gofly/gofly/core/errors"
-	"github.com/gofly/gofly/rest"
+	coreerrors "github.com/imajinyun/gofly/core/errors"
+	"github.com/imajinyun/gofly/rest"
 )
 
 func TestGeneratedProductionServiceSmoke(t *testing.T) {
@@ -1370,12 +1370,12 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/gofly/gofly/core/governance"
-	"github.com/gofly/gofly/core/kv/redis"
-	coremq "github.com/gofly/gofly/core/mq"
-	"github.com/gofly/gofly/core/mq/kafka"
-	"github.com/gofly/gofly/core/mq/rabbitmq"
-	"github.com/gofly/gofly/core/mq/redisstream"
+	"github.com/imajinyun/gofly/core/governance"
+	"github.com/imajinyun/gofly/core/kv/redis"
+	coremq "github.com/imajinyun/gofly/core/mq"
+	"github.com/imajinyun/gofly/core/mq/kafka"
+	"github.com/imajinyun/gofly/core/mq/rabbitmq"
+	"github.com/imajinyun/gofly/core/mq/redisstream"
 
 	"{{.Module}}/internal/config"
 )
@@ -1472,9 +1472,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/gofly/gofly/app"
-	"github.com/gofly/gofly/core/controlplane"
-	"github.com/gofly/gofly/rest"
+	"github.com/imajinyun/gofly/app"
+	"github.com/imajinyun/gofly/core/controlplane"
+	"github.com/imajinyun/gofly/rest"
 )
 
 type Config struct {
@@ -2265,7 +2265,7 @@ const svcTemplate = `package svc
 import (
 	"sync"
 
-	"github.com/gofly/gofly/core/mq"
+	"github.com/imajinyun/gofly/core/mq"
 	"{{.Module}}/internal/config"
 )
 
@@ -2370,7 +2370,7 @@ const goZeroPingHandlerTemplate = `package handler
 import (
 	"net/http"
 
-	"github.com/gofly/gofly/rest"
+	"github.com/imajinyun/gofly/rest"
 
 	"{{.Module}}/internal/logic"
 	"{{.Module}}/internal/svc"
@@ -2399,7 +2399,7 @@ const goZeroRoutesTemplate = `package handler
 import (
 	"net/http"
 
-	"github.com/gofly/gofly/rest"
+	"github.com/imajinyun/gofly/rest"
 	"{{.Module}}/internal/svc"
 )
 
@@ -2413,7 +2413,7 @@ func RegisterHandlers(server *rest.Server, svcCtx *svc.ServiceContext) {
 const routesTemplate = `package routes
 
 import (
-	"github.com/gofly/gofly/rest"
+	"github.com/imajinyun/gofly/rest"
 	"{{.Module}}/internal/api/v1/ping"
 	"{{.Module}}/internal/svc"
 )
@@ -2433,7 +2433,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gofly/gofly/rest"
+	"github.com/imajinyun/gofly/rest"
 	"{{.Module}}/internal/config"
 	"{{.Module}}/internal/svc"
 )
@@ -2502,7 +2502,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/gofly/gofly/rest"
+	"github.com/imajinyun/gofly/rest"
 )
 
 func TrimSpaceMiddleware() rest.Middleware {
@@ -2594,7 +2594,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gofly/gofly/rest"
+	"github.com/imajinyun/gofly/rest"
 )
 
 func TestTrimSpaceMiddleware(t *testing.T) {
@@ -2641,7 +2641,7 @@ func TestTrimSpaceMiddleware(t *testing.T) {
 const pingHandlerTemplate = `package ping
 
 import (
-	"github.com/gofly/gofly/rest"
+	"github.com/imajinyun/gofly/rest"
 	"{{.Module}}/internal/service"
 	"{{.Module}}/internal/svc"
 )
@@ -2656,7 +2656,7 @@ func PingHandler(svcCtx *svc.ServiceContext) rest.HandlerFunc {
 const handlerGenTemplate = `package {{.Package}}
 
 import (
-	"github.com/gofly/gofly/rest"
+	"github.com/imajinyun/gofly/rest"
 	"{{.Module}}/internal/svc"
 )
 
@@ -2672,7 +2672,7 @@ const middlewareGenTemplate = `package middleware
 import (
 	"net/http"
 
-	"github.com/gofly/gofly/rest"
+	"github.com/imajinyun/gofly/rest"
 )
 
 func {{.MiddlewareName}}() rest.Middleware {
@@ -2712,7 +2712,7 @@ const greeterTemplate = `package rpc
 import (
 	"context"
 
-	"github.com/gofly/gofly/rpc"
+	"github.com/imajinyun/gofly/rpc"
 	"{{.Module}}/internal/svc"
 )
 
@@ -2781,8 +2781,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/gofly/gofly/core/metadata"
-	"github.com/gofly/gofly/rpc"
+	"github.com/imajinyun/gofly/core/metadata"
+	"github.com/imajinyun/gofly/rpc"
 	"{{.Module}}/internal/config"
 	"{{.Module}}/internal/svc"
 )
@@ -2865,7 +2865,7 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/gofly/gofly/rest"
+	"github.com/imajinyun/gofly/rest"
 )
 
 // Handler is a minimal HTTP handler shape used by migration code that previously
@@ -2919,7 +2919,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/gofly/gofly/rpc"
+	"github.com/imajinyun/gofly/rpc"
 )
 
 // Endpoint is the minimal unary endpoint shape used by generated migration

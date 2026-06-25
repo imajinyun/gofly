@@ -7,11 +7,11 @@ import (
 	"net/http/httptest"
 	"time"
 
-	"github.com/gofly/gofly/core/controlplane"
-	"github.com/gofly/gofly/core/discovery"
-	"github.com/gofly/gofly/core/governance"
-	"github.com/gofly/gofly/rpc/endpoint"
-	"github.com/gofly/gofly/spi"
+	"github.com/imajinyun/gofly/core/controlplane"
+	"github.com/imajinyun/gofly/core/discovery"
+	"github.com/imajinyun/gofly/core/governance"
+	"github.com/imajinyun/gofly/rpc/endpoint"
+	"github.com/imajinyun/gofly/spi"
 )
 
 type exampleConfig struct {

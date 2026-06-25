@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/gofly/gofly/core/security"
+	"github.com/imajinyun/gofly/core/security"
 )
 
 const defaultMaxBodyBytes int64 = 1 << 20 // 1 MiB

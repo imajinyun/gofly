@@ -154,7 +154,7 @@ func renderProtocPluginFile(file *descriptorpb.FileDescriptorProto, services []*
 	b.WriteString("package " + pkg + "\n\n")
 	b.WriteString("import (\n")
 	b.WriteString("\t\"context\"\n")
-	b.WriteString("\t\"github.com/gofly/gofly/rpc\"\n")
+	b.WriteString("\t\"github.com/imajinyun/gofly/rpc\"\n")
 	b.WriteString(")\n\n")
 	if opts.Module != "" {
 		b.WriteString("// Module: " + sanitizeGeneratedCommentLine(opts.Module) + "\n\n")

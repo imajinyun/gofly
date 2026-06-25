@@ -9,11 +9,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gofly/gofly/core/breaker"
-	"github.com/gofly/gofly/core/discovery"
-	"github.com/gofly/gofly/core/outbox"
-	"github.com/gofly/gofly/core/retry"
-	"github.com/gofly/gofly/rpc"
+	"github.com/imajinyun/gofly/core/breaker"
+	"github.com/imajinyun/gofly/core/discovery"
+	"github.com/imajinyun/gofly/core/outbox"
+	"github.com/imajinyun/gofly/core/retry"
+	"github.com/imajinyun/gofly/rpc"
 )
 
 func TestOrderStoreAndInventoryBoundaries_BitsUT(t *testing.T) {

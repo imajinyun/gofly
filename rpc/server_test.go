@@ -13,14 +13,14 @@ import (
 
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
-	"github.com/gofly/gofly/core/auth"
-	"github.com/gofly/gofly/core/breaker"
-	coregovernance "github.com/gofly/gofly/core/governance"
-	"github.com/gofly/gofly/core/limit"
-	"github.com/gofly/gofly/core/metadata"
-	"github.com/gofly/gofly/core/observability/trace"
-	coreruntime "github.com/gofly/gofly/core/runtime"
-	"github.com/gofly/gofly/rpc/endpoint"
+	"github.com/imajinyun/gofly/core/auth"
+	"github.com/imajinyun/gofly/core/breaker"
+	coregovernance "github.com/imajinyun/gofly/core/governance"
+	"github.com/imajinyun/gofly/core/limit"
+	"github.com/imajinyun/gofly/core/metadata"
+	"github.com/imajinyun/gofly/core/observability/trace"
+	coreruntime "github.com/imajinyun/gofly/core/runtime"
+	"github.com/imajinyun/gofly/rpc/endpoint"
 )
 
 type helloReq struct {

@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	coretrace "github.com/gofly/gofly/core/observability/trace"
+	coretrace "github.com/imajinyun/gofly/core/observability/trace"
 )
 
 func TestNewLoggerDefaultsAndFormats(t *testing.T) {

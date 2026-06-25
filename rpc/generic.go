@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/gofly/gofly/core/metadata"
+	"github.com/imajinyun/gofly/core/metadata"
 )
 
 type GenericInvoker struct {

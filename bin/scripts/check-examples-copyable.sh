@@ -23,7 +23,7 @@ $(sed -n 's/.*=> \.\.\/\([^[:space:]]*\).*/\1/p' "$copy/go.mod")
 EOF
 	(
 		cd "$copy"
-		"$GO_CMD" mod edit -replace "github.com/gofly/gofly=$root"
+		"$GO_CMD" mod edit -replace "github.com/imajinyun/gofly=$root"
 		"$GO_CMD" test -count=1 ./...
 		"$GO_CMD" build -o "$workdir/$name.bin" ./...
 	)

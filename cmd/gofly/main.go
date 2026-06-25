@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/gofly/gofly/cmd/gofly/internal/command"
+	"github.com/imajinyun/gofly/cmd/gofly/internal/command"
 )
 
 func main() {

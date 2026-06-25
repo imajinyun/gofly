@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gofly/gofly/core/breaker"
-	"github.com/gofly/gofly/core/observability"
-	"github.com/gofly/gofly/core/observability/trace"
+	"github.com/imajinyun/gofly/core/breaker"
+	"github.com/imajinyun/gofly/core/observability"
+	"github.com/imajinyun/gofly/core/observability/trace"
 )
 
 // ServeHTTP matches the request against configured routes, applies governance

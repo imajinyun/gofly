@@ -6,7 +6,7 @@ import (
 	"context"
 	"strings"
 
-	"github.com/gofly/gofly/core/discovery"
+	"github.com/imajinyun/gofly/core/discovery"
 )
 
 // DiscoveryResolver resolves service endpoints via the discovery package.

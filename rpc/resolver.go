@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gofly/gofly/core/discovery"
+	"github.com/imajinyun/gofly/core/discovery"
 )
 
 type Resolver interface {

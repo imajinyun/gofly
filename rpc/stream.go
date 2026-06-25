@@ -21,10 +21,10 @@ import (
 	"sync"
 	"time"
 
-	core "github.com/gofly/gofly/core"
-	"github.com/gofly/gofly/core/breaker"
-	"github.com/gofly/gofly/core/governance"
-	"github.com/gofly/gofly/core/metadata"
+	core "github.com/imajinyun/gofly/core"
+	"github.com/imajinyun/gofly/core/breaker"
+	"github.com/imajinyun/gofly/core/governance"
+	"github.com/imajinyun/gofly/core/metadata"
 )
 
 const (

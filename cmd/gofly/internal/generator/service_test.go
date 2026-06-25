@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gofly/gofly/core/governance"
+	"github.com/imajinyun/gofly/core/governance"
 )
 
 func TestGenerateService(t *testing.T) {
@@ -74,7 +74,7 @@ func TestGenerateService(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(data), "/Users/") || strings.Contains(string(data), "replace github.com/gofly/gofly =>") {
+	if strings.Contains(string(data), "/Users/") || strings.Contains(string(data), "replace github.com/imajinyun/gofly =>") {
 		t.Fatalf("go.mod contains unexpected local replace: %s", data)
 	}
 	routesData, err := os.ReadFile(filepath.Join(dir, "internal", "routes", "routes.go"))
@@ -95,7 +95,7 @@ func TestGenerateService(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		`"github.com/gofly/gofly/core/governance"`,
+		`"github.com/imajinyun/gofly/core/governance"`,
 		`appadmin "example.com/hello/internal/admin"`,
 		`appdiscovery "example.com/hello/internal/discovery"`,
 		`appmq "example.com/hello/internal/mq"`,
@@ -188,7 +188,7 @@ func TestGenerateService(t *testing.T) {
 	}
 	for _, want := range []string{
 		"package admin",
-		`"github.com/gofly/gofly/core/controlplane"`,
+		`"github.com/imajinyun/gofly/core/controlplane"`,
 		`"net/http/pprof"`,
 		`prefix+"/metrics"`,
 		`prefix+"/control-plane"`,
@@ -309,7 +309,7 @@ func TestGenerateService(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(svcData), `"github.com/gofly/gofly/core/mq"`) || !strings.Contains(string(svcData), "MQ     mq.Broker") {
+	if !strings.Contains(string(svcData), `"github.com/imajinyun/gofly/core/mq"`) || !strings.Contains(string(svcData), "MQ     mq.Broker") {
 		t.Fatalf("service context missing mq broker wiring:\n%s", svcData)
 	}
 	mainData, err = os.ReadFile(filepath.Join(dir, "cmd", "hello", "main.go"))
@@ -350,8 +350,8 @@ func TestGenerateService(t *testing.T) {
 		"Scaffold    ScaffoldConfig",
 		"Discovery   DiscoveryConfig",
 		"OpenAPI     OpenAPIConfig",
-		`"github.com/gofly/gofly/core/controlplane"`,
-		`"github.com/gofly/gofly/core/discovery"`,
+		`"github.com/imajinyun/gofly/core/controlplane"`,
+		`"github.com/imajinyun/gofly/core/discovery"`,
 		"func ConfigPaths(name string) []string",
 		"func ResolveConfigPath(name string) string",
 		`paths := []string{"config.yaml", "config.yml", "config.toml", "config.json"}`,
@@ -388,8 +388,8 @@ func TestGenerateService(t *testing.T) {
 	}
 	for _, want := range []string{
 		"package discovery",
-		`"github.com/gofly/gofly/core/discovery/consul"`,
-		`"github.com/gofly/gofly/core/discovery/etcdv3"`,
+		`"github.com/imajinyun/gofly/core/discovery/consul"`,
+		`"github.com/imajinyun/gofly/core/discovery/etcdv3"`,
 		"func NewRegistry(ctx context.Context, cfg appconfig.DiscoveryConfig) (corediscovery.Registry, closeFunc, error)",
 		`case "memory":`,
 		`case "consul":`,
@@ -1222,7 +1222,7 @@ func TestGenerateServiceMinimalStyle(t *testing.T) {
 	for _, want := range []string{
 		"Scaffold    ScaffoldConfig",
 		"OpenAPI     OpenAPIConfig",
-		`"github.com/gofly/gofly/core/controlplane"`,
+		`"github.com/imajinyun/gofly/core/controlplane"`,
 		"func (c Config) ControlPlaneSnapshot(ctx context.Context) (controlplane.Snapshot, error)",
 		"func (c ControlPlaneContributor) ContributeSnapshot(ctx context.Context, snapshot *controlplane.Snapshot) error",
 		`"generated.project.runtime"] = "service,rest"`,
@@ -1297,7 +1297,7 @@ func TestGenerateServiceBasicStyle(t *testing.T) {
 func assertGeneratedProjectCompiles(t *testing.T, dir string) {
 	t.Helper()
 	frameworkPath := repositoryRoot(t)
-	runGoCommand(t, dir, 30*time.Second, "mod", "edit", "-replace", "github.com/gofly/gofly="+frameworkPath)
+	runGoCommand(t, dir, 30*time.Second, "mod", "edit", "-replace", "github.com/imajinyun/gofly="+frameworkPath)
 	runGoCommand(t, dir, 2*time.Minute, "mod", "tidy")
 	runGoCommand(t, dir, 2*time.Minute, "test", "./...")
 }
@@ -1382,7 +1382,7 @@ func repositoryRoot(t *testing.T) string {
 	if err != nil {
 		t.Fatalf("read framework go.mod: %v", err)
 	}
-	if !strings.Contains(string(data), "module github.com/gofly/gofly") {
+	if !strings.Contains(string(data), "module github.com/imajinyun/gofly") {
 		t.Fatalf("framework root %s has unexpected go.mod:\n%s", root, data)
 	}
 	return root
@@ -2201,7 +2201,7 @@ func TestGenerateServiceAllowsExplicitFrameworkPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), "replace github.com/gofly/gofly => "+frameworkPath) {
+	if !strings.Contains(string(data), "replace github.com/imajinyun/gofly => "+frameworkPath) {
 		t.Fatalf("go.mod missing explicit local replace: %s", data)
 	}
 }

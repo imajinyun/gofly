@@ -1,8 +1,8 @@
-module github.com/gofly/gofly/examples/rpcserver
+module github.com/imajinyun/gofly/examples/rpcserver
 
 go 1.26
 
-require github.com/gofly/gofly v0.0.0
+require github.com/imajinyun/gofly v0.0.0
 
 require (
 	github.com/beorn7/perks v1.0.1 // indirect
@@ -39,4 +39,4 @@ require (
 	google.golang.org/protobuf v1.36.11 // indirect
 )
 
-replace github.com/gofly/gofly => ../..
+replace github.com/imajinyun/gofly => ../..

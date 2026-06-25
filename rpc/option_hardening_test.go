@@ -7,13 +7,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gofly/gofly/core/breaker"
-	"github.com/gofly/gofly/core/governance"
-	"github.com/gofly/gofly/core/limit"
-	"github.com/gofly/gofly/core/metadata"
-	"github.com/gofly/gofly/core/retry"
-	"github.com/gofly/gofly/core/security"
-	controladmin "github.com/gofly/gofly/ops/admin"
+	"github.com/imajinyun/gofly/core/breaker"
+	"github.com/imajinyun/gofly/core/governance"
+	"github.com/imajinyun/gofly/core/limit"
+	"github.com/imajinyun/gofly/core/metadata"
+	"github.com/imajinyun/gofly/core/retry"
+	"github.com/imajinyun/gofly/core/security"
+	controladmin "github.com/imajinyun/gofly/ops/admin"
 )
 
 func TestRPCServerOptionHardeningContracts(t *testing.T) {

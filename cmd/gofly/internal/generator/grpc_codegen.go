@@ -51,7 +51,7 @@ func GenerateGRPCBindingCode(doc IDLDocument, packageName string) ([]byte, error
 	fprintf(&b, "package %s\n\n", packageName)
 	fprintf(&b, "import (\n")
 	fprintf(&b, "\t\"context\"\n")
-	fprintf(&b, "\tflygrpc \"github.com/gofly/gofly/rpc/grpc\"\n")
+	fprintf(&b, "\tflygrpc \"github.com/imajinyun/gofly/rpc/grpc\"\n")
 	fprintf(&b, ")\n\n")
 	for _, svc := range doc.Services {
 		writeGRPCServiceBinding(&b, svc)

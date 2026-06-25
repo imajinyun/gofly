@@ -15,8 +15,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/gofly/gofly/core/limit"
-	"github.com/gofly/gofly/core/observability"
+	"github.com/imajinyun/gofly/core/limit"
+	"github.com/imajinyun/gofly/core/observability"
 )
 
 var (

@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/gofly/gofly/rest"
+	"github.com/imajinyun/gofly/rest"
 )
 
 // CORSMiddleware returns a reusable CORS middleware with production-safe exact

@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gofly/gofly/core/governance"
-	coreruntime "github.com/gofly/gofly/core/runtime"
-	controladmin "github.com/gofly/gofly/ops/admin"
+	"github.com/imajinyun/gofly/core/governance"
+	coreruntime "github.com/imajinyun/gofly/core/runtime"
+	controladmin "github.com/imajinyun/gofly/ops/admin"
 )
 
 const maxDescriptorCompatibilityBytes = 1 << 20

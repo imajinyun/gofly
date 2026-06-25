@@ -33,9 +33,9 @@ builds:
       - -trimpath
     ldflags:
       - -s -w
-      - -X 'github.com/gofly/gofly/cmd/gofly/internal/command.Version={{ .Version }}'
-      - -X 'github.com/gofly/gofly/cmd/gofly/internal/command.Commit={{ .Commit }}'
-      - -X 'github.com/gofly/gofly/cmd/gofly/internal/command.BuiltAt={{ .Date }}'
+      - -X 'github.com/imajinyun/gofly/cmd/gofly/internal/command.Version={{ .Version }}'
+      - -X 'github.com/imajinyun/gofly/cmd/gofly/internal/command.Commit={{ .Commit }}'
+      - -X 'github.com/imajinyun/gofly/cmd/gofly/internal/command.BuiltAt={{ .Date }}'
 
 archives:
   - id: default
@@ -107,7 +107,7 @@ brews:
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     directory: Formula
-    homepage: "https://github.com/gofly/gofly"
+    homepage: "https://github.com/imajinyun/gofly"
     description: "AI-native Go microservice framework and code-generation CLI"
     license: "MIT"
     test: |

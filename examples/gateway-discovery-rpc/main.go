@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/gofly/gofly/core/discovery"
+	"github.com/imajinyun/gofly/core/discovery"
 )
 
 func main() {

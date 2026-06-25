@@ -8,7 +8,7 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	"github.com/gofly/gofly/core/metadata"
+	"github.com/imajinyun/gofly/core/metadata"
 )
 
 // Codec marshals and unmarshals RPC payloads.

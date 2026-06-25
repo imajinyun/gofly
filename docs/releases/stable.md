@@ -5,7 +5,7 @@ This page is the stable release entry point for installing and verifying gofly.
 ## Install
 
 ```sh
-go install github.com/gofly/gofly/cmd/gofly@latest
+go install github.com/imajinyun/gofly/cmd/gofly@latest
 gofly version
 ```
 

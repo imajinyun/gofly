@@ -11,7 +11,7 @@ import (
 
 	consulapi "github.com/hashicorp/consul/api"
 
-	"github.com/gofly/gofly/core/config"
+	"github.com/imajinyun/gofly/core/config"
 )
 
 // Config configures the Consul KV config source.

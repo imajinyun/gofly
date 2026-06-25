@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gofly/gofly/core/breaker"
+	"github.com/imajinyun/gofly/core/breaker"
 )
 
 // errFailOnceProvider succeeds on the first call and fails on subsequent calls.

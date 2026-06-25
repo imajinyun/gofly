@@ -202,7 +202,7 @@ func readInt64(path string) (int64, error) {
 // ------------------------------------------------------------------
 
 // BuildInfo describes the binary being executed. Fields are typically
-// injected at build time via `-ldflags "-X 'github.com/gofly/gofly/core/proc.Version=v1.0.0'"`.
+// injected at build time via `-ldflags "-X 'github.com/imajinyun/gofly/core/proc.Version=v1.0.0'"`.
 type BuildInfo struct {
 	Version   string `json:"version"`
 	Commit    string `json:"commit"`

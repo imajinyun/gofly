@@ -1,6 +1,6 @@
 # gofly Examples
 
-This directory contains runnable examples for the major gofly runtime paths. Each example is a standalone Go module with a local `replace github.com/gofly/gofly => ../..` directive so users can copy the directory into another workspace and then replace the dependency with a released gofly version.
+This directory contains runnable examples for the major gofly runtime paths. Each example is a standalone Go module with a local `replace github.com/imajinyun/gofly => ../..` directive so users can copy the directory into another workspace and then replace the dependency with a released gofly version.
 
 ## Standalone module contract
 
@@ -11,8 +11,8 @@ When copying an example out of the repository:
 ```bash
 cp -R examples/restserver /tmp/restserver-demo
 cd /tmp/restserver-demo
-go mod edit -dropreplace github.com/gofly/gofly
-go get github.com/gofly/gofly@latest
+go mod edit -dropreplace github.com/imajinyun/gofly
+go get github.com/imajinyun/gofly@latest
 go test ./...
 ```
 
@@ -27,7 +27,7 @@ make examples-copyable-check
 | Example | Purpose | Command | Ports | Verify | Expected output |
 | --- | --- | --- | --- | --- | --- |
 | `restserver` | REST routing, OpenAPI, health and metrics | `go run ./examples/restserver` | `8080` | `curl -s localhost:8080/healthz` | HTTP 200 health response and `/users/{id}` JSON payloads |
-| `middlewares` | Copyable HTTP middleware catalog for generated services | import `github.com/gofly/gofly/examples/middlewares` | none | `go test -C examples/middlewares ./...` | Productization catalog for JWT, CORS, CSRF, sessions, OpenTelemetry, Prometheus, SSE, WebSocket and validation |
+| `middlewares` | Copyable HTTP middleware catalog for generated services | import `github.com/imajinyun/gofly/examples/middlewares` | none | `go test -C examples/middlewares ./...` | Productization catalog for JWT, CORS, CSRF, sessions, OpenTelemetry, Prometheus, SSE, WebSocket and validation |
 | `middleware-demo` | Focused route-per-middleware demo with catalog and OpenAPI exposure | `go run ./examples/middleware-demo` | `8086` | `curl -s localhost:8086/middleware/catalog` | JSON catalog plus runnable endpoints for each reusable middleware |
 | `http-middleware` | Combined HTTP middleware chain for browser/API workloads | `go run ./examples/http-middleware` | `8085` | `curl -s localhost:8085/token` | JWT, CORS, CSRF, session, tracing, metrics, SSE, WebSocket and validation behavior |
 | `migration-proof` | Runnable migration evidence for Gin, go-zero, Kratos and Kitex adoption | `go run ./examples/migration-proof` | none | `go run -C examples/migration-proof .` | `gofly.migration_proof.v1` JSON with smoke examples, validation gates and rollback notes |

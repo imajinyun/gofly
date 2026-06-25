@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/gofly/gofly/cmd/gofly/internal/generator"
+	"github.com/imajinyun/gofly/cmd/gofly/internal/generator"
 )
 
 func handlerCommand(args []string) error {

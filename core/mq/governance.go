@@ -11,15 +11,15 @@ import (
 	"sync"
 	"time"
 
-	core "github.com/gofly/gofly/core"
-	"github.com/gofly/gofly/core/breaker"
-	"github.com/gofly/gofly/core/governance"
-	"github.com/gofly/gofly/core/limit"
-	"github.com/gofly/gofly/core/metadata"
-	"github.com/gofly/gofly/core/observability"
-	"github.com/gofly/gofly/core/observability/metrics"
-	"github.com/gofly/gofly/core/observability/trace"
-	"github.com/gofly/gofly/core/retry"
+	core "github.com/imajinyun/gofly/core"
+	"github.com/imajinyun/gofly/core/breaker"
+	"github.com/imajinyun/gofly/core/governance"
+	"github.com/imajinyun/gofly/core/limit"
+	"github.com/imajinyun/gofly/core/metadata"
+	"github.com/imajinyun/gofly/core/observability"
+	"github.com/imajinyun/gofly/core/observability/metrics"
+	"github.com/imajinyun/gofly/core/observability/trace"
+	"github.com/imajinyun/gofly/core/retry"
 )
 
 const (

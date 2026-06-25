@@ -15,7 +15,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/gofly/gofly/core/mq"
+	"github.com/imajinyun/gofly/core/mq"
 )
 
 func main() {

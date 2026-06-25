@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"strings"
 
-	coreerrors "github.com/gofly/gofly/core/errors"
+	coreerrors "github.com/imajinyun/gofly/core/errors"
 )
 
 // BindSource identifies where to read a parameter from.

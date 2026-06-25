@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	core "github.com/gofly/gofly/core"
-	"github.com/gofly/gofly/core/auth"
-	"github.com/gofly/gofly/core/security"
+	core "github.com/imajinyun/gofly/core"
+	"github.com/imajinyun/gofly/core/auth"
+	"github.com/imajinyun/gofly/core/security"
 )
 
 // ProfileConfig configures the optional pprof HTTP server.

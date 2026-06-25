@@ -1,8 +1,8 @@
 package middleware
 
 import (
-	"github.com/gofly/gofly/core/observability/metrics"
-	"github.com/gofly/gofly/rest"
+	"github.com/imajinyun/gofly/core/observability/metrics"
+	"github.com/imajinyun/gofly/rest"
 )
 
 // PrometheusMiddleware records low-cardinality request metrics backed by a

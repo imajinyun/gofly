@@ -18,17 +18,17 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/gofly/gofly/core/auth"
-	"github.com/gofly/gofly/core/breaker"
-	"github.com/gofly/gofly/core/controlplane"
-	coreerrors "github.com/gofly/gofly/core/errors"
-	"github.com/gofly/gofly/core/governance"
-	"github.com/gofly/gofly/core/limit"
-	"github.com/gofly/gofly/core/observability/metrics"
-	"github.com/gofly/gofly/core/observability/trace"
-	coreruntime "github.com/gofly/gofly/core/runtime"
-	"github.com/gofly/gofly/core/security"
-	controladmin "github.com/gofly/gofly/ops/admin"
+	"github.com/imajinyun/gofly/core/auth"
+	"github.com/imajinyun/gofly/core/breaker"
+	"github.com/imajinyun/gofly/core/controlplane"
+	coreerrors "github.com/imajinyun/gofly/core/errors"
+	"github.com/imajinyun/gofly/core/governance"
+	"github.com/imajinyun/gofly/core/limit"
+	"github.com/imajinyun/gofly/core/observability/metrics"
+	"github.com/imajinyun/gofly/core/observability/trace"
+	coreruntime "github.com/imajinyun/gofly/core/runtime"
+	"github.com/imajinyun/gofly/core/security"
+	controladmin "github.com/imajinyun/gofly/ops/admin"
 )
 
 // Option configures a Server.

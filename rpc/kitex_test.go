@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/gofly/gofly/core/observability/metrics"
+	"github.com/imajinyun/gofly/core/observability/metrics"
 )
 
 func TestKitexInterceptorMiddlewareChainsInDeclarationOrder(t *testing.T) {

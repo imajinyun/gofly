@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gofly/gofly/app"
+	"github.com/imajinyun/gofly/app"
 )
 
 type testConfig struct {

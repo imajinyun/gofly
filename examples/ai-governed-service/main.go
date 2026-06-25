@@ -10,9 +10,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/gofly/gofly/app"
-	"github.com/gofly/gofly/core/governance"
-	"github.com/gofly/gofly/rest"
+	"github.com/imajinyun/gofly/app"
+	"github.com/imajinyun/gofly/core/governance"
+	"github.com/imajinyun/gofly/rest"
 )
 
 func main() {

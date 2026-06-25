@@ -5,8 +5,8 @@ package grpc
 import (
 	"context"
 
-	"github.com/gofly/gofly/core/auth"
-	coreerrors "github.com/gofly/gofly/core/errors"
+	"github.com/imajinyun/gofly/core/auth"
+	coreerrors "github.com/imajinyun/gofly/core/errors"
 
 	stdgrpc "google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"

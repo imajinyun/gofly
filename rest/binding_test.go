@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	coreerrors "github.com/gofly/gofly/core/errors"
+	coreerrors "github.com/imajinyun/gofly/core/errors"
 )
 
 func TestContextBindRequest(t *testing.T) {

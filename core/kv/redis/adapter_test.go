@@ -1,6 +1,6 @@
 package redis
 
-import "github.com/gofly/gofly/core/kv"
+import "github.com/imajinyun/gofly/core/kv"
 
 // Compile-time assertion that *Client satisfies the kv.RedisClient contract so
 // it can be wrapped by kv.NewRedisStore.

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gofly/gofly/rest"
+	"github.com/imajinyun/gofly/rest"
 )
 
 func TestServiceConfWithDefaultsWiresRuntimePrimitives(t *testing.T) {

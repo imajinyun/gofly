@@ -6,7 +6,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/gofly/gofly/core/outbox"
+	"github.com/imajinyun/gofly/core/outbox"
 )
 
 func main() {

@@ -5,7 +5,7 @@ Use this path when you want a runnable production-shaped service, not a toy rout
 ## 1. Install
 
 ```sh
-go install github.com/gofly/gofly/cmd/gofly@latest
+go install github.com/imajinyun/gofly/cmd/gofly@latest
 gofly version
 ```
 

@@ -5,7 +5,7 @@ package gateway
 import (
 	"net/http"
 
-	"github.com/gofly/gofly/core/breaker"
+	"github.com/imajinyun/gofly/core/breaker"
 )
 
 // gatewayRouteDispatcher dispatches proxy requests to HTTP or transcoded RPC.

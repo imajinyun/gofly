@@ -9,9 +9,13 @@
 ## Install the CLI
 
 ```sh
-go install github.com/gofly/gofly/cmd/gofly@latest
+go install github.com/imajinyun/gofly/cmd/gofly@latest
 gofly version
 ```
+
+The published Go module path is `github.com/imajinyun/gofly`. If `go install`
+reports that the module declares a different path, clear any stale install
+command or module cache entry that still points at `github.com/gofly/gofly`.
 
 For local development from a checkout:
 

@@ -16,7 +16,7 @@ import (
 
 	amqp "github.com/rabbitmq/amqp091-go"
 
-	"github.com/gofly/gofly/core/mq"
+	"github.com/imajinyun/gofly/core/mq"
 )
 
 // Options configures the RabbitMQ broker.

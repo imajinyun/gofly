@@ -5,7 +5,7 @@ import (
 	"net/http/pprof"
 	"strings"
 
-	"github.com/gofly/gofly/rest"
+	"github.com/imajinyun/gofly/rest"
 )
 
 // RequestIDMiddleware propagates or generates X-Request-Id and stores it in

@@ -12,9 +12,9 @@ import (
 	"sort"
 	"time"
 
-	"github.com/gofly/gofly/cache"
-	"github.com/gofly/gofly/core/bloom"
-	"github.com/gofly/gofly/core/kv"
+	"github.com/imajinyun/gofly/cache"
+	"github.com/imajinyun/gofly/core/bloom"
+	"github.com/imajinyun/gofly/core/kv"
 )
 
 const reportSchema = "gofly.cache_local.v1"

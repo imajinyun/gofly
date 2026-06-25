@@ -12,11 +12,11 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/gofly/gofly/core/controlplane"
-	"github.com/gofly/gofly/core/discovery"
-	"github.com/gofly/gofly/core/governance"
-	"github.com/gofly/gofly/rest"
-	"github.com/gofly/gofly/rpc/endpoint"
+	"github.com/imajinyun/gofly/core/controlplane"
+	"github.com/imajinyun/gofly/core/discovery"
+	"github.com/imajinyun/gofly/core/governance"
+	"github.com/imajinyun/gofly/rest"
+	"github.com/imajinyun/gofly/rpc/endpoint"
 )
 
 // ProtocolVersion is the current stable SPI contract version.

@@ -16,8 +16,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/gofly/gofly/core/config"
-	"github.com/gofly/gofly/core/discovery"
+	"github.com/imajinyun/gofly/core/config"
+	"github.com/imajinyun/gofly/core/discovery"
 )
 
 type appConfig struct {

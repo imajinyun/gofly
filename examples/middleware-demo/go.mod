@@ -1,10 +1,10 @@
-module github.com/gofly/gofly/examples/middleware-demo
+module github.com/imajinyun/gofly/examples/middleware-demo
 
 go 1.26
 
 require (
-	github.com/gofly/gofly v0.0.0
-	github.com/gofly/gofly/examples/middlewares v0.0.0
+	github.com/imajinyun/gofly v0.0.0
+	github.com/imajinyun/gofly/examples/middlewares v0.0.0
 )
 
 require (
@@ -39,6 +39,6 @@ require (
 	google.golang.org/protobuf v1.36.11 // indirect
 )
 
-replace github.com/gofly/gofly => ../..
+replace github.com/imajinyun/gofly => ../..
 
-replace github.com/gofly/gofly/examples/middlewares => ../middlewares
+replace github.com/imajinyun/gofly/examples/middlewares => ../middlewares

@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	core "github.com/gofly/gofly/core"
-	"github.com/gofly/gofly/core/discovery"
+	core "github.com/imajinyun/gofly/core"
+	"github.com/imajinyun/gofly/core/discovery"
 )
 
 type EtcdRegistry struct {

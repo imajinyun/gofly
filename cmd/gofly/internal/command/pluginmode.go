@@ -4,7 +4,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/gofly/gofly/cmd/gofly/internal/generator"
+	"github.com/imajinyun/gofly/cmd/gofly/internal/generator"
 )
 
 func IsCompilerPluginMode() bool {

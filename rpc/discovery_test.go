@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gofly/gofly/core/discovery"
+	"github.com/imajinyun/gofly/core/discovery"
 )
 
 func TestDiscoveryResolverAdaptsInstancesAndWatch(t *testing.T) {

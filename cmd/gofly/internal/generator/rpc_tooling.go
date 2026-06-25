@@ -248,7 +248,7 @@ func GenerateRPCClientCode(doc IDLDocument, packageName string) ([]byte, error) 
 	}
 	var b bytes.Buffer
 	fprintf(&b, "package %s\n\n", packageName)
-	fprintf(&b, "import (\n\t\"context\"\n\n\t\"github.com/gofly/gofly/rpc\"\n)\n\n")
+	fprintf(&b, "import (\n\t\"context\"\n\n\t\"github.com/imajinyun/gofly/rpc\"\n)\n\n")
 	for _, svc := range doc.Services {
 		serviceName := exportName(svc.Name)
 		writeRPCServiceDescriptor(&b, doc, svc)
@@ -292,7 +292,7 @@ func GenerateRPCServerCode(doc IDLDocument, packageName string) ([]byte, error) 
 	}
 	var b bytes.Buffer
 	fprintf(&b, "package %s\n\n", packageName)
-	fprintf(&b, "import (\n\t\"context\"\n\n\t\"github.com/gofly/gofly/rpc\"\n)\n\n")
+	fprintf(&b, "import (\n\t\"context\"\n\n\t\"github.com/imajinyun/gofly/rpc\"\n)\n\n")
 	for _, svc := range doc.Services {
 		serviceName := exportName(svc.Name)
 		writeRPCServiceInterface(&b, svc)

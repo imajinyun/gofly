@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gofly/gofly/app"
-	"github.com/gofly/gofly/rest"
+	"github.com/imajinyun/gofly/app"
+	"github.com/imajinyun/gofly/rest"
 )
 
 type serviceSpec struct {

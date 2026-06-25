@@ -17,8 +17,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gofly/gofly/core/observability/metrics"
-	"github.com/gofly/gofly/core/observability/trace"
+	"github.com/imajinyun/gofly/core/observability/metrics"
+	"github.com/imajinyun/gofly/core/observability/trace"
 )
 
 // ObserverConfig bundles all observability knobs for a service. The zero value

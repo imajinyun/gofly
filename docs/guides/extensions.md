@@ -1,6 +1,6 @@
 # Extensions and stable SPI
 
-gofly exposes stable extension points through `github.com/gofly/gofly/spi`.
+gofly exposes stable extension points through `github.com/imajinyun/gofly/spi`.
 The current contract version is `gofly.spi.v1`.
 
 ## Stable SPI surface

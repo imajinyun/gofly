@@ -9,7 +9,7 @@ import (
 	"net"
 	"net/http"
 
-	coreerrors "github.com/gofly/gofly/core/errors"
+	coreerrors "github.com/imajinyun/gofly/core/errors"
 )
 
 // ErrorResponse is the standard JSON error envelope for REST handlers.

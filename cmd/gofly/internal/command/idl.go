@@ -16,9 +16,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gofly/gofly/cmd/gofly/internal/generator"
-	"github.com/gofly/gofly/cmd/gofly/internal/spinner"
-	"github.com/gofly/gofly/rpc"
+	"github.com/imajinyun/gofly/cmd/gofly/internal/generator"
+	"github.com/imajinyun/gofly/cmd/gofly/internal/spinner"
+	"github.com/imajinyun/gofly/rpc"
 )
 
 var runModelDatasource = generator.GenerateModelFromDatasource

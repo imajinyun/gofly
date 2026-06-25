@@ -9,7 +9,7 @@ import (
 
 	clientv3 "go.etcd.io/etcd/client/v3"
 
-	"github.com/gofly/gofly/core/discovery"
+	"github.com/imajinyun/gofly/core/discovery"
 )
 
 // lease wraps a native etcd lease and its keep-alive loop, satisfying

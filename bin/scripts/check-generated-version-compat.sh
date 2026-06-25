@@ -124,14 +124,14 @@ run_profile() {
 	"$go_cmd" run ./cmd/gofly new service orders --module example.com/orders --dir "$first" --config "$first_config" --api "$api" --proto "$proto" --json >"$stdout_file"
 	(
 		cd "$first"
-		"$go_cmd" mod edit -replace github.com/gofly/gofly="$root"
+		"$go_cmd" mod edit -replace github.com/imajinyun/gofly="$root"
 		"$go_cmd" mod tidy
 	)
 
 	"$go_cmd" run ./cmd/gofly new service orders --module example.com/orders --dir "$second" --config "$second_config" --api "$api" --proto "$proto" --json >/dev/null
 	(
 		cd "$second"
-		"$go_cmd" mod edit -replace github.com/gofly/gofly="$root"
+		"$go_cmd" mod edit -replace github.com/imajinyun/gofly="$root"
 		"$go_cmd" mod tidy
 	)
 

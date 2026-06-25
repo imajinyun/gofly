@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gofly/gofly/core/auth"
+	"github.com/imajinyun/gofly/core/auth"
 )
 
 func TestTLSConfigEnabled(t *testing.T) {

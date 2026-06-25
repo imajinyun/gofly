@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gofly/gofly/rpc/endpoint"
+	"github.com/imajinyun/gofly/rpc/endpoint"
 )
 
 // Handler is an RPC method handler.

@@ -114,9 +114,9 @@ func GenerateRPCCodeWithOptions(doc IDLDocument, packageName string, opts RPCCod
 	fprintf(&b, "import (\n")
 	fprintf(&b, "\t\"context\"\n")
 	if opts.WithMiddleware {
-		fprintf(&b, "\n\t\"github.com/gofly/gofly/rpc/endpoint\"\n")
+		fprintf(&b, "\n\t\"github.com/imajinyun/gofly/rpc/endpoint\"\n")
 	}
-	fprintf(&b, "\t\"github.com/gofly/gofly/rpc\"\n")
+	fprintf(&b, "\t\"github.com/imajinyun/gofly/rpc\"\n")
 	fprintf(&b, ")\n\n")
 	for _, enum := range doc.Enums {
 		writeEnum(&b, enum)

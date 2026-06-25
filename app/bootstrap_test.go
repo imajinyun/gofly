@@ -10,10 +10,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gofly/gofly/core/observability/metrics"
-	metricsotel "github.com/gofly/gofly/core/observability/metrics/otel"
-	coretrace "github.com/gofly/gofly/core/observability/trace"
-	traceexporter "github.com/gofly/gofly/core/observability/trace/exporter"
+	"github.com/imajinyun/gofly/core/observability/metrics"
+	metricsotel "github.com/imajinyun/gofly/core/observability/metrics/otel"
+	coretrace "github.com/imajinyun/gofly/core/observability/trace"
+	traceexporter "github.com/imajinyun/gofly/core/observability/trace/exporter"
 )
 
 func TestBootstrapReturnsNonNilShutdown(t *testing.T) {

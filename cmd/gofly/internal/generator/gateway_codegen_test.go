@@ -17,7 +17,7 @@ func TestGenerateGatewayWiresGovernanceManager(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		`"github.com/gofly/gofly/core/governance"`,
+		`"github.com/imajinyun/gofly/core/governance"`,
 		`appmq "example.com/edge/internal/mq"`,
 		"configPath := appconfig.ResolveConfigPath(\"edge\")",
 		"config.Load(configPath",
@@ -75,7 +75,7 @@ func TestGenerateGatewayWiresGovernanceManager(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(svcData), `"github.com/gofly/gofly/core/mq"`) || !strings.Contains(string(svcData), "MQ     mq.Broker") {
+	if !strings.Contains(string(svcData), `"github.com/imajinyun/gofly/core/mq"`) || !strings.Contains(string(svcData), "MQ     mq.Broker") {
 		t.Fatalf("gateway service context missing mq broker wiring:\n%s", svcData)
 	}
 	assertGeneratedProjectCompiles(t, dir)

@@ -15,10 +15,10 @@ import (
 func TestMain(m *testing.M) {
 	goleak.VerifyTestMain(m,
 		goleak.IgnoreTopFunction(
-			"github.com/gofly/gofly/rpc.(*HTTPServer).serveStream",
+			"github.com/imajinyun/gofly/rpc.(*HTTPServer).serveStream",
 		),
 		goleak.IgnoreTopFunction(
-			"github.com/gofly/gofly/rpc.TestRPCStreamClientOperationTimeout.func2",
+			"github.com/imajinyun/gofly/rpc.TestRPCStreamClientOperationTimeout.func2",
 		),
 	)
 }

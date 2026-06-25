@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gofly/gofly/core/discovery"
-	"github.com/gofly/gofly/core/governance"
+	"github.com/imajinyun/gofly/core/discovery"
+	"github.com/imajinyun/gofly/core/governance"
 )
 
 const DefaultSnapshotVersion = "gofly-control-plane.v1"

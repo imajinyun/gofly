@@ -17,9 +17,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/gofly/gofly/core/auth"
-	coreerrors "github.com/gofly/gofly/core/errors"
-	"github.com/gofly/gofly/rest"
+	"github.com/imajinyun/gofly/core/auth"
+	coreerrors "github.com/imajinyun/gofly/core/errors"
+	"github.com/imajinyun/gofly/rest"
 )
 
 var (

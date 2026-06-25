@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	core "github.com/gofly/gofly/core"
+	core "github.com/imajinyun/gofly/core"
 )
 
 // RedisModelClient is the minimal Redis command surface required by

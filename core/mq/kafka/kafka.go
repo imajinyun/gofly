@@ -15,7 +15,7 @@ import (
 
 	kafkago "github.com/segmentio/kafka-go"
 
-	"github.com/gofly/gofly/core/mq"
+	"github.com/imajinyun/gofly/core/mq"
 )
 
 // Options configures the Kafka broker.

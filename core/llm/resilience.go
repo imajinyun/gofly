@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gofly/gofly/core/breaker"
+	"github.com/imajinyun/gofly/core/breaker"
 )
 
 // ErrCircuitOpen is returned when a provider circuit breaker is open and

@@ -22,11 +22,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gofly/gofly/cmd/gofly/internal/generator"
-	"github.com/gofly/gofly/cmd/gofly/internal/spinner"
-	"github.com/gofly/gofly/core/breaker"
-	"github.com/gofly/gofly/core/controlplane"
-	"github.com/gofly/gofly/core/llm"
+	"github.com/imajinyun/gofly/cmd/gofly/internal/generator"
+	"github.com/imajinyun/gofly/cmd/gofly/internal/spinner"
+	"github.com/imajinyun/gofly/core/breaker"
+	"github.com/imajinyun/gofly/core/controlplane"
+	"github.com/imajinyun/gofly/core/llm"
 )
 
 // Version, Commit and BuiltAt are injected at build time via -ldflags.
@@ -1721,7 +1721,7 @@ func upgradeCommand(args []string) error {
 	}
 	fs := flag.NewFlagSet("upgrade", flag.ContinueOnError)
 	version := fs.String("version", "latest", "version to install")
-	module := fs.String("module", "github.com/gofly/gofly/cmd/gofly", "module path to install")
+	module := fs.String("module", "github.com/imajinyun/gofly/cmd/gofly", "module path to install")
 	projectDir := fs.String("project-dir", "", "generated project directory to include upgrade/diff verification commands")
 	dir := fs.String("dir", "", "alias for --project-dir")
 	execute := fs.Bool("execute", false, "execute go install instead of printing the upgrade command")
@@ -3686,7 +3686,7 @@ func printAICompletePlan(config aiCompleteConfig, inputTokens int, forceJSON boo
 		Inputs:            inputs,
 		Actions: []cliPlanAction{
 			{Operation: "estimate-tokens", Target: "prompt", Description: "estimate input tokens without storing or printing prompt text", RiskLevel: "read"},
-			{Operation: "apply-governance", Target: "github.com/gofly/gofly/core/llm", Description: "apply token budget, redaction and audit controls before provider invocation", RiskLevel: "read"},
+			{Operation: "apply-governance", Target: "github.com/imajinyun/gofly/core/llm", Description: "apply token budget, redaction and audit controls before provider invocation", RiskLevel: "read"},
 			{Operation: "plan-provider-failover", Target: strings.Join(config.FailoverProviders, ","), Description: aiFailoverPlanDescription(config.FailoverProviders, config.AllowFailover), RiskLevel: "read"},
 			{Operation: "invoke-provider", Target: config.Provider, Description: aiProviderPlanDescription(spec), RiskLevel: "read"},
 		},
@@ -3746,7 +3746,7 @@ func printAIStreamPlanFor(envelopeCommand, displayCommand string, config aiCompl
 		Inputs:            inputs,
 		Actions: []cliPlanAction{
 			{Operation: "estimate-tokens", Target: "prompt", Description: "estimate input tokens without storing or printing prompt text", RiskLevel: "read"},
-			{Operation: "apply-governance", Target: "github.com/gofly/gofly/core/llm", Description: "apply token budget, redaction, event size limits and audit controls before provider streaming", RiskLevel: "read"},
+			{Operation: "apply-governance", Target: "github.com/imajinyun/gofly/core/llm", Description: "apply token budget, redaction, event size limits and audit controls before provider streaming", RiskLevel: "read"},
 			{Operation: "plan-provider-failover", Target: strings.Join(config.FailoverProviders, ","), Description: aiFailoverPlanDescription(config.FailoverProviders, config.AllowFailover), RiskLevel: "read"},
 			{Operation: "invoke-stream-provider", Target: config.Provider, Description: aiProviderPlanDescription(spec), RiskLevel: "read"},
 		},
@@ -4262,7 +4262,7 @@ func buildAIToolManifest() aiToolManifest {
 		},
 		ControlPlane: buildAIControlPlaneManifest(),
 		LLMGovernance: aiLLMGovernance{
-			Package:                "github.com/gofly/gofly/core/llm",
+			Package:                "github.com/imajinyun/gofly/core/llm",
 			Capabilities:           []string{"provider abstraction", "provider registry", "capability manifest", "provider plugin manifest contract", "model-level capability negotiation", "environment-only secret resolver", "token budget", "rate limiting", "prompt and metadata redaction", "structured audit logging", "stream event size limits", "no-op provider", "response caching", "cost-aware token accounting", "low-cardinality observability", "governance pipeline"},
 			Resilience:             []string{"circuit breaker", "provider failover", "manual provider failover", "bounded provider responses", "context cancellation", "timeout propagation", "retryability classification", "low-cardinality error classes", "provider status code capture", "HTTP status class classification", "request coalescing"},
 			ProviderPluginContract: buildAIProviderPluginContract(),
@@ -4353,7 +4353,7 @@ func aiProjectTemplateIDs() []string {
 func buildAIControlPlaneManifest() aiControlPlaneManifest {
 	snapshot := defaultAIControlPlaneSnapshot().WithChecksum()
 	return aiControlPlaneManifest{
-		Package:          "github.com/gofly/gofly/core/controlplane",
+		Package:          "github.com/imajinyun/gofly/core/controlplane",
 		Purpose:          "versioned control-plane snapshots for AI agents to reason about runtime config, service discovery, governance policy, gateway routing, LLM and tool capabilities before acting",
 		SnapshotVersion:  snapshot.Version,
 		SnapshotChecksum: snapshot.Checksum,

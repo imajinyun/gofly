@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gofly/gofly/core/bloom"
+	"github.com/imajinyun/gofly/core/bloom"
 )
 
 func TestNegativeCache(t *testing.T) {

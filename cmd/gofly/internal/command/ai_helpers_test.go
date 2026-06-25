@@ -18,9 +18,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gofly/gofly/cmd/gofly/internal/generator"
-	"github.com/gofly/gofly/core/controlplane"
-	"github.com/gofly/gofly/core/llm"
+	"github.com/imajinyun/gofly/cmd/gofly/internal/generator"
+	"github.com/imajinyun/gofly/core/controlplane"
+	"github.com/imajinyun/gofly/core/llm"
 )
 
 func TestIsAIHelpSubcommand(t *testing.T) {
@@ -1315,7 +1315,7 @@ func TestAINewTextHelpAndManifestContract_BitsUT(t *testing.T) {
 			}
 		}
 		controlPlane := manifest.ControlPlane
-		if controlPlane.Package != "github.com/gofly/gofly/core/controlplane" || controlPlane.SnapshotVersion != "gofly-control-plane.v1" || controlPlane.SnapshotChecksum == "" {
+		if controlPlane.Package != "github.com/imajinyun/gofly/core/controlplane" || controlPlane.SnapshotVersion != "gofly-control-plane.v1" || controlPlane.SnapshotChecksum == "" {
 			t.Fatalf("control plane manifest = %+v, want package, version and stable checksum", controlPlane)
 		}
 		if controlPlane.SchemaID != aiControlPlaneSchemaID || controlPlane.SchemaCommand != "gofly ai control-plane --schema jsonschema" || controlPlane.SchemaChecksum == "" || controlPlane.SchemaChecksum != aiControlPlaneJSONSchemaChecksum() {
@@ -2648,7 +2648,7 @@ func commandRepositoryRoot(t *testing.T) string {
 	if err != nil {
 		t.Fatalf("read framework go.mod: %v", err)
 	}
-	if !strings.Contains(string(data), "module github.com/gofly/gofly") {
+	if !strings.Contains(string(data), "module github.com/imajinyun/gofly") {
 		t.Fatalf("framework root %s has unexpected go.mod:\n%s", root, data)
 	}
 	return root

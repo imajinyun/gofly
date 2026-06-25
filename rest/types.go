@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/gofly/gofly/core/auth"
+	"github.com/imajinyun/gofly/core/auth"
 )
 
 // Middleware is an HTTP middleware function.

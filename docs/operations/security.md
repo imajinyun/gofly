@@ -28,3 +28,6 @@ If an admin endpoint must be reachable outside localhost, configure a bearer tok
 ## Dependency checks
 
 The repository security gates use `govulncheck` and `gosec`. Run the project-level security target before release when dependencies or generated templates change.
+For dependency manifest changes, run `make dependency-upgrade-check`; its
+machine-readable evidence contract is
+[`dependency-upgrade-evidence.json`](../reference/dependency-upgrade-evidence.json).

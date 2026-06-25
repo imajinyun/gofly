@@ -178,6 +178,10 @@ tidy: ## Tidy and verify go.mod / go.sum
 mod-verify: ## Verify downloaded module zip checksums against go.sum
 	$(GO) mod verify
 
+.PHONY: root-dependency-policy-check
+root-dependency-policy-check: ## Validate root go.mod direct dependency ownership policy
+	sh $(SCRIPTS_DIR)/check-root-dependency-policy.sh
+
 .PHONY: check
 check: fmt-check vet test ## Run the core local verification suite
 
@@ -194,12 +198,16 @@ integration-tests: ## Run Docker-backed integration test packages for dependency
 	$(GO) test -tags=integration -count=1 ./core/storage/ ./core/config/... ./core/discovery/... ./core/mq/... ./gateway/
 
 .PHONY: dependency-upgrade-check
-dependency-upgrade-check: mod-verify govulncheck ## Validate dependency updates with module, vuln, and integration gates
+dependency-upgrade-check: dependency-upgrade-evidence-check root-dependency-policy-check mod-verify govulncheck ## Validate dependency updates with module, vuln, and integration gates
 	@if [ "$(DEPENDENCY_UPGRADE_RUN_INTEGRATION)" = "true" ]; then \
 		$(MAKE) integration-tests; \
 	else \
 		echo "Skipping integration-tests here; required CI integration matrix provides Docker-backed coverage."; \
 	fi
+
+.PHONY: dependency-upgrade-evidence-check
+dependency-upgrade-evidence-check: ## Validate dependency upgrade evidence and CI delegation contract
+	sh $(SCRIPTS_DIR)/check-dependency-upgrade-evidence.sh
 
 .PHONY: examples-check
 examples-check: examples-copyable-check ## Build and vet all examples to keep docs and code in sync
@@ -224,7 +232,7 @@ examples-smoke: ## Run runnable example smoke tests and machine-readable output 
 	sh $(SCRIPTS_DIR)/examples-smoke.sh
 
 .PHONY: docs-check
-docs-check: docs-link-check docs-taxonomy-check migration-docs-check p1-growth-check community-growth-check contract-docs-check dx-troubleshooting-check governance-report-check fuzz-robustness-check doc-manifest-sync-check required-checks-drift-check ## Compile Go code blocks in Markdown docs
+docs-check: docs-link-check docs-taxonomy-check migration-docs-check p1-growth-check community-growth-check contract-docs-check dx-troubleshooting-check governance-report-check fuzz-robustness-check dependency-upgrade-evidence-check doc-manifest-sync-check required-checks-drift-check ## Compile Go code blocks in Markdown docs
 	$(GO) env GOMOD >/dev/null
 	sh $(SCRIPTS_DIR)/check-doc-go-snippets.sh
 

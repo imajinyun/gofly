@@ -1,0 +1,47 @@
+{
+  "ciDelegation": {
+    "integrationMatrixJob": "integration tests (${ matrix.area })",
+    "job": "dependency-upgrade-validation",
+    "reason": "avoid duplicate Docker-backed dependency startup cost",
+    "skipToggle": "DEPENDENCY_UPGRADE_RUN_INTEGRATION=false"
+  },
+  "commands": {
+    "ciGate": "make dependency-upgrade-check DEPENDENCY_UPGRADE_RUN_INTEGRATION=false",
+    "evidenceGate": "make dependency-upgrade-evidence-check",
+    "integrationGate": "make integration-tests",
+    "localGate": "make dependency-upgrade-check",
+    "moduleVerification": "go mod verify",
+    "vulnerabilityScan": "make govulncheck"
+  },
+  "evidence": [
+    {
+      "artifact": "command log or CI step summary",
+      "command": "go mod verify",
+      "id": "module-verification",
+      "owner": "dependency-upgrade-check",
+      "requiredWhen": "go.mod or go.sum changes"
+    },
+    {
+      "artifact": "govulncheck output or security job summary",
+      "command": "make govulncheck",
+      "id": "vulnerability-scan",
+      "owner": "dependency-upgrade-check",
+      "requiredWhen": "go.mod or go.sum changes"
+    },
+    {
+      "artifact": "integration matrix job logs",
+      "command": "make integration-tests",
+      "id": "docker-backed-integration",
+      "owner": "integration matrix",
+      "requiredWhen": "dependency changes affect storage, config, discovery, MQ, or gateway packages"
+    },
+    {
+      "artifact": "root dependency policy check output",
+      "command": "make root-dependency-policy-check",
+      "id": "root-dependency-policy",
+      "owner": "governance",
+      "requiredWhen": "root go.mod direct dependencies change"
+    }
+  ],
+  "schema": "gofly.dependency_upgrade_evidence.v1"
+}

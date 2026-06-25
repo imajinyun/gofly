@@ -7,6 +7,7 @@ Use this checklist before merging or releasing a gofly service.
 ```sh
 make ci
 make governance-10-rounds
+make dependency-upgrade-evidence-check
 make dependency-upgrade-check
 ```
 
@@ -34,7 +35,7 @@ Treat these GitHub Actions jobs as branch-protection required checks for the def
 - `build & test (go stable)` for the root `ci-fast` gates and CLI version build.
 - `build & test (go 1.26)` for the root `ci-fast` gates plus generated matrix, control-plane smoke, coverage, and CLI version build.
 - `golangci-lint`, `security (govulncheck + gosec)`, `supply-chain lint + OSV`, `CodeQL security analysis`, and `dependency review` for static, vulnerability, workflow, action-pin, and pull-request dependency gates.
-- `dependency upgrade validation` for dependency PRs; it runs `go mod verify` and `govulncheck` when `go.mod` or `go.sum` changes, while Docker-backed coverage is provided by the required `integration tests (...)` matrix.
+- `dependency upgrade validation` for dependency PRs; it runs `go mod verify` and `govulncheck` when `go.mod` or `go.sum` changes, while Docker-backed coverage is provided by the required `integration tests (...)` matrix. The evidence contract is [`dependency-upgrade-evidence.json`](../reference/dependency-upgrade-evidence.json) and is validated by `make dependency-upgrade-evidence-check`.
 - `branch protection required-check audit` to detect drift between the configured default-branch protection checks and this checklist.
 - `platform smoke (macos-latest)` and `platform smoke (windows-latest)` for cross-platform CLI/package smoke coverage.
 - `contract / api+rpc (check + breaking)`, `governance gates`, and `bench + fuzz smoke` for compatibility, governance, performance-smoke, and fuzz coverage. `make fuzz-robustness-check` keeps parser and REST binding fuzz targets synchronized with the required CI smoke commands.

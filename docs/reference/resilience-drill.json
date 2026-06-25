@@ -1,0 +1,38 @@
+{
+  "commands": {
+    "drill": "go run -C examples/resilience . --json",
+    "gate": "make resilience-drill-check",
+    "smoke": "make examples-smoke"
+  },
+  "example": "examples/resilience",
+  "reportSchema": "gofly.resilience_drill.v1",
+  "requiredEvidence": [
+    "rate-limit rejection",
+    "retry attempts",
+    "breaker open",
+    "recovery to closed"
+  ],
+  "referenceAppEvidence": [
+    {
+      "component": "saga compensation",
+      "path": "examples/production-orders/README.md",
+      "signal": "Inventory failure triggers saga compensation"
+    },
+    {
+      "component": "outbox retry",
+      "path": "examples/production-orders/main.go",
+      "signal": "MaxAttempts"
+    },
+    {
+      "component": "topology fallback",
+      "path": "examples/production-orders/README.md",
+      "signal": "fallback note"
+    },
+    {
+      "component": "rollback note",
+      "path": "examples/production-orders/README.md",
+      "signal": "Rollback by keeping the previous deployment active"
+    }
+  ],
+  "schema": "gofly.resilience_drill_evidence.v1"
+}

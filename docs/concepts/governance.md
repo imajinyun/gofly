@@ -43,3 +43,16 @@ Governance rules apply production policies outside business handlers. A rule mat
 - Keep generated `etc/governance.json` under review with the service code.
 
 See [operations/production-checklist](../operations/production-checklist.md) before release.
+
+## Resilience drill
+
+`examples/resilience` emits a deterministic `gofly.resilience_drill.v1` report
+for rate-limit rejection, retry attempts, breaker-open fast fail, and recovery
+back to a closed breaker state.
+
+Run:
+
+```sh
+go run -C examples/resilience . --json
+make resilience-drill-check
+```

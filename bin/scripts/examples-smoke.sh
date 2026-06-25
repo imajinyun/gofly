@@ -30,6 +30,7 @@ done
 (cd examples/migration-proof && "$GO_CMD" run .) >"$workdir/migration-proof.json"
 (cd examples/rpc-idl-matrix && "$GO_CMD" run .) >"$workdir/rpc-idl-matrix.json"
 (cd examples/plugin-ecosystem && "$GO_CMD" run .) >"$workdir/plugin-ecosystem.json"
+(cd examples/resilience && "$GO_CMD" run . --json) >"$workdir/resilience-drill.json"
 
 python3 - "$workdir" <<'PY'
 import json
@@ -117,6 +118,19 @@ examples = {item['name']: item for item in plugin_matrix['examples']}
 assert 'internal/audit/audit.go' in examples['example-file-generator']['files'], plugin_matrix
 assert 'cmd/orders/main.go' in examples['example-patch-generator']['patches'], plugin_matrix
 assert examples['third-party-template-directory']['contract'] == 'templates/service/gofly.template.json', plugin_matrix
+
+with open(workdir / 'resilience-drill.json', encoding='utf-8') as f:
+    resilience_drill = json.load(f)
+assert resilience_drill['schema'] == 'gofly.resilience_drill.v1', resilience_drill
+assert resilience_drill['scenario'] == 'limiter-retry-breaker-recovery', resilience_drill
+assert {'rate-limit', 'retry', 'circuit-breaker', 'downstream'} <= set(resilience_drill['layers']), resilience_drill
+results = resilience_drill['results']
+assert results['downstreamCalls'] >= 5, resilience_drill
+assert results['rejected'] > 0, resilience_drill
+assert results['breakerOpen'] > 0, resilience_drill
+assert results['ok'] > 0, resilience_drill
+assert results['recovered'] is True, resilience_drill
+assert results['finalBreaker'] == 'closed', resilience_drill
 PY
 
 echo "examples smoke passed"

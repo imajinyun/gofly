@@ -245,7 +245,7 @@ migration-docs-check: ## Validate case studies and migration guide structure
 	sh $(SCRIPTS_DIR)/check-migration-docs.sh
 
 .PHONY: p1-growth-check
-p1-growth-check: helm-template-smoke cloud-native-render-check plugin-conformance-check reference-app-smoke openapi-validation-check ## Validate P1 growth roadmap and cloud-native assets
+p1-growth-check: helm-template-smoke cloud-native-render-check plugin-conformance-check reference-app-smoke openapi-validation-check resilience-drill-check ## Validate P1 growth roadmap and cloud-native assets
 	sh $(SCRIPTS_DIR)/check-p1-growth-assets.sh
 
 .PHONY: helm-template-smoke
@@ -259,6 +259,10 @@ cloud-native-render-check: ## Validate Helm/Kustomize render profiles and policy
 .PHONY: reference-app-smoke
 reference-app-smoke: ## Validate the production-orders reference app evidence
 	sh $(SCRIPTS_DIR)/reference-app-smoke.sh
+
+.PHONY: resilience-drill-check
+resilience-drill-check: ## Validate runnable resilience drill evidence
+	sh $(SCRIPTS_DIR)/check-resilience-drill.sh
 
 .PHONY: plugin-conformance-check
 plugin-conformance-check: ## Validate plugin registry and manifest conformance cases

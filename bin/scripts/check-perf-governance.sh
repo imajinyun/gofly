@@ -18,6 +18,8 @@ checks = {
         "allocation",
         "regression budget",
         "make bench-trend",
+        "make bench-regression-check",
+        "gofly.benchmark_regression_report.v1",
     ],
     pathlib.Path("bench/matrix.md"): [
         "BenchmarkHTTPHello",
@@ -29,6 +31,8 @@ checks = {
         "allocations",
     ],
     pathlib.Path("bin/scripts/benchstat.sh"): [
+        "gofly.benchmark_regression_report.v1",
+        "--regression-check",
         "BenchmarkHTTPHello",
         "BenchmarkHTTPPathParams",
         "BenchmarkHTTPJSONBinding",

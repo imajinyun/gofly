@@ -19,17 +19,26 @@ benchmark or pprof evidence first.
 
 ## Regression budget
 
-`make bench-trend` produces the current trend artifact. Release reviewers should
-treat this as a non-blocking regression budget until enough historical data is
-available:
+`make bench-trend` produces the current trend artifact. The regression budget is
+enforced by `make bench-regression-check`, which upgrades HTTP hot-path
+allocation drift from review guidance to a blocking gate:
 
-- no unexplained allocation growth on `gofly` REST rows;
-- no unexplained governance overhead increase without a linked feature;
+- `allocs/op` median is blocking for the tracked `gofly` HTTP rows;
+- latency remains report-only until enough cross-run history exists;
+- governance overhead allocation growth must have a linked feature and baseline
+  refresh rationale;
 - any optimization must cite the benchmark or pprof signal that motivated it.
+
+The regression gate writes `bench/regression-report.json` with schema
+`gofly.benchmark_regression_report.v1`. CI uploads the report with the benchmark
+smoke artifacts so release reviewers can inspect latency and byte trends even
+when the blocking allocation budget passes.
 
 Run:
 
 ```sh
 make perf-governance-check
+make bench-smoke
+make bench-regression-check
 make bench-trend
 ```

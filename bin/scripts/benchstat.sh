@@ -10,6 +10,7 @@
 #   bash bin/scripts/benchstat.sh --baseline   # refresh bench/baseline.txt and bench/evidence.md
 #   bash bin/scripts/benchstat.sh --evidence   # write bench/evidence.md from bench/baseline.txt
 #   bash bin/scripts/benchstat.sh --check-evidence # validate tracked benchmark evidence
+#   bash bin/scripts/benchstat.sh --regression-check # block HTTP hot-path allocs/op regressions
 
 set -eu
 
@@ -22,6 +23,8 @@ BASELINE_FILE="${BENCH_DIR}/baseline.txt"
 SUMMARY_FILE="${BENCH_DIR}/summary.md"
 MATRIX_FILE="${BENCH_DIR}/matrix.md"
 EVIDENCE_FILE="${BENCH_DIR}/evidence.md"
+REGRESSION_REPORT_FILE="${BENCH_DIR}/regression-report.json"
+BENCH_ALLOC_REGRESSION_TOLERANCE="${BENCH_ALLOC_REGRESSION_TOLERANCE:-0}"
 
 # Package that contains the reproducible benchmark matrix and public artifacts.
 # Set BENCH_PKGS explicitly to include legacy package-local benchmarks.
@@ -191,6 +194,141 @@ check_evidence() {
 	echo "benchmark evidence ok"
 }
 
+check_regression() {
+	if [ ! -f "$BASELINE_FILE" ]; then
+		echo "Baseline not found at $BASELINE_FILE; run --baseline first."
+		exit 1
+	fi
+	if [ ! -f "$CURRENT_FILE" ]; then
+		echo "Current results not found at $CURRENT_FILE; run --smoke or make bench-stat first."
+		exit 1
+	fi
+	mkdir -p "$BENCH_DIR"
+	python3 - "$BASELINE_FILE" "$CURRENT_FILE" "$REGRESSION_REPORT_FILE" "$BENCH_ALLOC_REGRESSION_TOLERANCE" <<'PY'
+import json
+import re
+import statistics
+import sys
+from pathlib import Path
+
+baseline_path = Path(sys.argv[1])
+current_path = Path(sys.argv[2])
+report_path = Path(sys.argv[3])
+alloc_tolerance = float(sys.argv[4])
+
+line_re = re.compile(
+    r"^(Benchmark\S+)-\d+\s+\d+\s+([0-9.]+)\s+ns/op\s+([0-9.]+)\s+B/op\s+([0-9.]+)\s+allocs/op$"
+)
+
+tracked = {
+    "BenchmarkHTTPHello/gofly",
+    "BenchmarkHTTPPathParams/gofly",
+    "BenchmarkHTTPJSONBinding/gofly",
+    "BenchmarkHTTPMiddlewareChain/gofly",
+    "BenchmarkHTTPOpenAPI/disabled",
+    "BenchmarkHTTPOpenAPI/enabled",
+    "BenchmarkHTTPGovernance/disabled",
+    "BenchmarkHTTPGovernance/enabled",
+}
+
+
+def parse(path: Path) -> dict[str, list[dict[str, float]]]:
+    parsed: dict[str, list[dict[str, float]]] = {}
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        match = line_re.match(raw.strip())
+        if not match:
+            continue
+        name, ns_op, bytes_op, allocs_op = match.groups()
+        if name not in tracked:
+            continue
+        parsed.setdefault(name, []).append(
+            {
+                "nsPerOp": float(ns_op),
+                "bytesPerOp": float(bytes_op),
+                "allocsPerOp": float(allocs_op),
+            }
+        )
+    return parsed
+
+
+def median(values: list[float]) -> float:
+    return float(statistics.median(values))
+
+
+baseline = parse(baseline_path)
+current = parse(current_path)
+rows = []
+failures = []
+missing = []
+
+for name in sorted(tracked):
+    if name not in baseline:
+        missing.append(f"baseline missing {name}")
+        continue
+    if name not in current:
+        missing.append(f"current missing {name}")
+        continue
+    base_samples = baseline[name]
+    current_samples = current[name]
+    base_allocs = median([sample["allocsPerOp"] for sample in base_samples])
+    current_allocs = median([sample["allocsPerOp"] for sample in current_samples])
+    alloc_budget = base_allocs + alloc_tolerance
+    row = {
+        "benchmark": name,
+        "baseline": {
+            "samples": len(base_samples),
+            "nsPerOpMedian": median([sample["nsPerOp"] for sample in base_samples]),
+            "bytesPerOpMedian": median([sample["bytesPerOp"] for sample in base_samples]),
+            "allocsPerOpMedian": base_allocs,
+        },
+        "current": {
+            "samples": len(current_samples),
+            "nsPerOpMedian": median([sample["nsPerOp"] for sample in current_samples]),
+            "bytesPerOpMedian": median([sample["bytesPerOp"] for sample in current_samples]),
+            "allocsPerOpMedian": current_allocs,
+        },
+        "budget": {
+            "allocsPerOpMax": alloc_budget,
+            "allocTolerance": alloc_tolerance,
+            "latencyMode": "report-only",
+        },
+        "status": "passed" if current_allocs <= alloc_budget else "failed",
+    }
+    if row["status"] == "failed":
+        failures.append(
+            f"{name}: allocs/op median {current_allocs:g} exceeds budget {alloc_budget:g}"
+        )
+    rows.append(row)
+
+if missing:
+    failures.extend(missing)
+
+report = {
+    "schema": "gofly.benchmark_regression_report.v1",
+    "status": "passed" if not failures else "failed",
+    "policy": {
+        "scope": "HTTP hot-path gofly rows",
+        "blockingMetric": "allocs/op median",
+        "latencyMode": "report-only",
+        "allocTolerance": alloc_tolerance,
+    },
+    "baselineFile": str(baseline_path),
+    "currentFile": str(current_path),
+    "checks": rows,
+    "failures": failures,
+}
+report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+if failures:
+    print(f"benchmark regression check failed; report written to {report_path}", file=sys.stderr)
+    for failure in failures:
+        print(f"  {failure}", file=sys.stderr)
+    sys.exit(1)
+
+print(f"benchmark regression ok; report written to {report_path}")
+PY
+}
+
 write_matrix() {
 	mkdir -p "$BENCH_DIR"
 	{
@@ -239,6 +377,9 @@ case "${1:-}" in
 		;;
 	--check-evidence)
 		check_evidence
+		;;
+	--regression-check)
+		check_regression
 		;;
 	*)
 		run_benchmarks "$CURRENT_FILE" "$BENCH_COUNT"

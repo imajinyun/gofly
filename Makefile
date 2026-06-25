@@ -124,6 +124,10 @@ bench-evidence: ## Write benchmark evidence from bench/baseline.txt
 bench-evidence-check: perf-governance-check rpc-boundary-check ## Validate tracked benchmark baseline, matrix, and evidence
 	bash $(SCRIPTS_DIR)/benchstat.sh --check-evidence
 
+.PHONY: bench-regression-check
+bench-regression-check: perf-governance-check ## Block HTTP hot-path allocation regressions against bench/baseline.txt
+	bash $(SCRIPTS_DIR)/benchstat.sh --regression-check
+
 .PHONY: bench-compare
 bench-compare: ## Compare bench/current.txt against bench/baseline.txt using benchstat
 	bash $(SCRIPTS_DIR)/benchstat.sh --compare

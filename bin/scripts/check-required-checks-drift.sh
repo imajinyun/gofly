@@ -260,6 +260,7 @@ governance_10_target = extract_make_target_body(makefile, "governance-10-rounds"
 ci_target_deps = extract_make_target_deps(makefile, "ci")
 supply_chain_target_deps = extract_make_target_deps(makefile, "supply-chain")
 bench_evidence_target = extract_make_target_body(makefile, "bench-evidence-check")
+bench_regression_target = extract_make_target_body(makefile, "bench-regression-check")
 docker_upload_step = extract_step_body(docker_job, "Upload Docker and Trivy evidence")
 docker_build_step = extract_step_body(docker_job, "Build Docker image")
 release_digest_step = extract_step_body(release_job, "Collect release Docker digest evidence")
@@ -382,6 +383,10 @@ require(
     "Makefile: bench-evidence-check must validate tracked benchmark evidence through benchstat.sh --check-evidence",
 )
 require(
+    "bash $(SCRIPTS_DIR)/benchstat.sh --regression-check" in bench_regression_target,
+    "Makefile: bench-regression-check must validate HTTP allocation budgets through benchstat.sh --regression-check",
+)
+require(
     "bench-evidence-check" in ci_target_deps,
     "Makefile: ci target must include bench-evidence-check so local full CI validates benchmark evidence",
 )
@@ -390,8 +395,20 @@ require(
     "ci.yml: bench-fuzz job must run make bench-evidence-check before benchmark smoke/trend artifacts",
 )
 require(
+    "run: make bench-regression-check" in bench_job,
+    "ci.yml: bench-fuzz job must run make bench-regression-check after benchmark smoke",
+)
+require(
     bench_job.index("run: make bench-evidence-check") < bench_job.index("bash bin/scripts/benchstat.sh --smoke"),
     "ci.yml: benchmark evidence gate must run before benchmark smoke rewrites current benchmark artifacts",
+)
+require(
+    bench_job.index("bash bin/scripts/benchstat.sh --smoke") < bench_job.index("run: make bench-regression-check"),
+    "ci.yml: benchmark regression gate must run after benchmark smoke writes bench/current.txt",
+)
+require(
+    bench_job.index("run: make bench-regression-check") < bench_job.index("bash bin/scripts/benchstat.sh --trend"),
+    "ci.yml: benchmark regression gate must run before benchmark trend artifacts are uploaded",
 )
 for artifact in sorted(expected_benchmark_artifacts):
     require((root / artifact).exists(), f"benchmark artifact is missing: {artifact}")

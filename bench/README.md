@@ -69,6 +69,13 @@ Validate that the tracked baseline, matrix, and evidence are complete and do not
 make bench-evidence-check
 ```
 
+Block HTTP hot-path allocation regressions against `bench/baseline.txt` after a current run:
+
+```sh
+make bench-smoke
+make bench-regression-check
+```
+
 Compare `bench/current.txt` with `bench/baseline.txt`:
 
 ```sh
@@ -88,6 +95,7 @@ make bench-matrix
 ```
 
 For release notes, include `bench/evidence.md` as the public baseline, attach `bench/summary.md` with release artifacts, and paste statistically significant `benchstat` rows into the release description.
+CI also uploads `bench/regression-report.json`, which blocks `allocs/op` median regressions for gofly HTTP hot-path rows while leaving latency as report-only evidence.
 
 ## Public matrix
 

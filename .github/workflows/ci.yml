@@ -547,6 +547,9 @@ jobs:
       - name: Benchmark baseline smoke
         run: bash bin/scripts/benchstat.sh --smoke
 
+      - name: Benchmark allocation regression gate
+        run: make bench-regression-check
+
       - name: Benchmark trend summary
         run: bash bin/scripts/benchstat.sh --trend
 
@@ -557,6 +560,7 @@ jobs:
           name: benchmark-smoke
           path: |
             bench/current.txt
+            bench/regression-report.json
             bench/summary.md
           if-no-files-found: error
 

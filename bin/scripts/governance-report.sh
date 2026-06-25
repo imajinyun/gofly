@@ -148,10 +148,30 @@ def security_evidence():
     }
 
 
+def coverage_evidence():
+    manifest = read_json(root / "docs/reference/coverage-trend.json") or {}
+    policy = manifest.get("ratchetPolicy") or {}
+    return {
+        "gate": "make cover-check",
+        "trendGate": "make coverage-trend-check",
+        "threshold": make_var("COVERAGE_THRESHOLD", "60"),
+        "ratchet": make_var("COVERAGE_RATCHET", "90"),
+        "manifest": "docs/reference/coverage-trend.json",
+        "schema": manifest.get("schema", ""),
+        "policy": {
+            "blockingGate": policy.get("blockingGate", ""),
+            "trendGate": policy.get("trendGate", ""),
+            "volatileArtifacts": policy.get("volatileArtifacts", []),
+        },
+        "evidenceCount": len(manifest.get("evidence") or []),
+    }
+
+
 def docs_evidence():
     required = [
         "docs/reference/api-surface.md",
         "docs/reference/performance-governance.md",
+        "docs/reference/coverage-trend.md",
         "docs/reference/cli-json-contracts.md",
         "docs/reference/generated-version-compat.md",
         "docs/releases/evidence-manifest.json",
@@ -173,11 +193,8 @@ report = {
         "gate": "make stable-surface-check",
         "tiers": extract_tiers(),
     },
-    "coverage": {
-        "gate": "make cover-check",
-        "threshold": make_var("COVERAGE_THRESHOLD", "60"),
-        "ratchet": make_var("COVERAGE_RATCHET", "90"),
-    },
+    "coverage": coverage_evidence(),
+    "coverageTrend": coverage_evidence(),
     "benchmark": {
         "gate": "make bench-evidence-check",
         "trendGate": "make bench-trend",
@@ -199,6 +216,7 @@ report = {
         "make stable-surface-check",
         "make generated-version-compat-check",
         "make bench-evidence-check",
+        "make coverage-trend-check",
         "make cover-check",
         "make govulncheck",
         "make gosec",
@@ -255,6 +273,12 @@ if not report["apiSurface"]["tiers"]:
     missing.append("apiSurface.tiers is empty")
 if report["coverage"]["ratchet"] == "":
     missing.append("coverage.ratchet is empty")
+if report["coverageTrend"]["schema"] != "gofly.coverage_trend.v1":
+    missing.append("coverage trend schema mismatch")
+if report["coverageTrend"]["policy"]["blockingGate"] != "make cover-check":
+    missing.append("coverage trend blocking gate mismatch")
+if report["coverageTrend"]["evidenceCount"] < 5:
+    missing.append("coverage trend evidence is incomplete")
 if report["benchmark"]["evidenceStatus"] != "present":
     missing.append("benchmark evidence is missing")
 if report["release"]["schema"] != "gofly.release_evidence_manifest.v1":

@@ -213,6 +213,10 @@ dependency-upgrade-evidence-check: ## Validate dependency upgrade evidence and C
 api-example-consistency-check: ## Validate public API docs, examples, and gates stay aligned
 	sh $(SCRIPTS_DIR)/check-api-example-consistency.sh
 
+.PHONY: coverage-trend-check
+coverage-trend-check: ## Validate coverage trend, threshold, and ratchet evidence
+	sh $(SCRIPTS_DIR)/check-coverage-trend.sh
+
 .PHONY: examples-check
 examples-check: examples-copyable-check ## Build and vet all examples to keep docs and code in sync
 	@if [ ! -d examples ] || ! find examples -type f -name '*.go' | grep -q .; then \
@@ -236,7 +240,7 @@ examples-smoke: ## Run runnable example smoke tests and machine-readable output 
 	sh $(SCRIPTS_DIR)/examples-smoke.sh
 
 .PHONY: docs-check
-docs-check: docs-link-check docs-taxonomy-check migration-docs-check p1-growth-check community-growth-check contract-docs-check dx-troubleshooting-check governance-report-check fuzz-robustness-check dependency-upgrade-evidence-check api-example-consistency-check doc-manifest-sync-check required-checks-drift-check ## Compile Go code blocks in Markdown docs
+docs-check: docs-link-check docs-taxonomy-check migration-docs-check p1-growth-check community-growth-check contract-docs-check dx-troubleshooting-check governance-report-check fuzz-robustness-check dependency-upgrade-evidence-check api-example-consistency-check coverage-trend-check doc-manifest-sync-check required-checks-drift-check ## Compile Go code blocks in Markdown docs
 	$(GO) env GOMOD >/dev/null
 	sh $(SCRIPTS_DIR)/check-doc-go-snippets.sh
 

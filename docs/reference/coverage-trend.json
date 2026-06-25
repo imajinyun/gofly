@@ -1,0 +1,44 @@
+{
+  "evidence": [
+    {
+      "artifact": "coverage-check command output",
+      "command": "make cover-check",
+      "id": "coverage-threshold",
+      "owner": "coverage-check.sh"
+    },
+    {
+      "artifact": "coverage-check command output",
+      "command": "make cover-check",
+      "id": "coverage-ratchet",
+      "owner": "coverage-check.sh"
+    },
+    {
+      "artifact": "isolated GOCACHE and GOTMPDIR environment",
+      "command": "make cover-check",
+      "id": "cache-isolation",
+      "owner": "coverage-check.sh"
+    },
+    {
+      "artifact": "sanitized coverage profile used for go tool cover -func",
+      "command": "make cover-check",
+      "id": "profile-sanitization",
+      "owner": "coverage-check.sh"
+    },
+    {
+      "artifact": "coverage.out remains a local volatile artifact",
+      "command": "make coverage-trend-check",
+      "id": "volatile-artifact-boundary",
+      "owner": "check-coverage-trend.sh"
+    }
+  ],
+  "ratchetPolicy": {
+    "blockingGate": "make cover-check",
+    "ratchetPercent": "90",
+    "thresholdPercent": "60",
+    "trendGate": "make coverage-trend-check",
+    "volatileArtifacts": [
+      "coverage.out"
+    ]
+  },
+  "schema": "gofly.coverage_trend.v1"
+}

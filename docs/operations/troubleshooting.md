@@ -23,6 +23,22 @@ The productized troubleshooting surface is indexed by
 Redact Authorization, Cookie, Set-Cookie, token, secret, password, and provider
 credential values before sharing the bundle.
 
+## Operator runbook drills
+
+Runtime symptoms are indexed by
+`docs/reference/operator-runbook-drills.json` with schema
+`gofly.operator_runbook_drills.v1`. The drills map health probe failures,
+metrics regressions, trace correlation breaks, resilience policy regressions,
+control-plane drift, and rollback decisions to concrete evidence, check
+commands, expected observations, operator actions, and rollback or escalation
+paths.
+
+Run the machine gate before changing the drill set:
+
+```sh
+make runtime-slo-check
+```
+
 ## generated project verification failure
 
 When a generated project verification command fails, preserve the bounded

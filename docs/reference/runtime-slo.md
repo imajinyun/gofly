@@ -28,6 +28,23 @@ assets, governance docs, and release dashboards do not drift apart.
 | governance-decisions | governance manager, rules, resilience drill | rate-limit, retry, circuit-breaker, timeout, and canary decisions |
 | trace-log-correlation | trace propagation, generated dashboards, observability example | `trace_id`, `request_id`, `traceparent`, and `Logs by trace_id` |
 
+## Operator Runbook Drills
+
+Operator drills are indexed in
+[`operator-runbook-drills.json`](operator-runbook-drills.json) with schema
+`gofly.operator_runbook_drills.v1`. Each drill maps an observed symptom to
+golden signals, evidence files, local check commands, expected observation,
+operator action, and rollback or escalation path.
+
+| Drill | Symptom | Primary Checks |
+| --- | --- | --- |
+| health-probe-failure | startup, liveness, or readiness probes fail during rollout | `curl -v http://127.0.0.1:8080/healthz`, `curl -v http://127.0.0.1:8080/readyz`, `make p1-growth-check` |
+| metrics-regression | request rate, error ratio, latency, or in-flight request metrics drift after a release | `make runtime-slo-check`, `go test -C examples/observability ./...` |
+| trace-correlation-break | logs, REST requests, RPC calls, or traces cannot be correlated by request_id or trace_id | `make runtime-slo-check`, `go test -C examples/observability ./...` |
+| resilience-policy-regression | rate limit, retry, timeout, breaker, or canary behavior changes unexpectedly | `make resilience-drill-check`, `go run -C examples/resilience . --json` |
+| control-plane-drift | runtime metadata, service discovery, config, or governance policy differs from the expected deployment state | `curl http://127.0.0.1:9090/admin/control-plane`, `make generated-control-plane-smoke` |
+| rollback-decision | release promotion is blocked by runtime, benchmark, security, or governance evidence | `make governance-report-check`, `make bench-evidence-check`, `make govulncheck` |
+
 ## Verification
 
 Run the contract gate for documentation or observability evidence changes:

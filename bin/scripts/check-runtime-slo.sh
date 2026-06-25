@@ -9,6 +9,7 @@ import sys
 
 root = pathlib.Path(".").resolve()
 manifest_path = root / "docs" / "reference" / "runtime-slo.json"
+runbook_path = root / "docs" / "reference" / "operator-runbook-drills.json"
 missing = []
 
 required_signals = {
@@ -19,6 +20,14 @@ required_signals = {
     "cache",
     "governance-decisions",
     "trace-log-correlation",
+}
+required_drills = {
+    "health-probe-failure",
+    "metrics-regression",
+    "trace-correlation-break",
+    "resilience-policy-regression",
+    "control-plane-drift",
+    "rollback-decision",
 }
 
 
@@ -43,12 +52,18 @@ if not manifest_path.is_file():
     manifest = {}
 else:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+if not runbook_path.is_file():
+    missing.append("docs/reference/operator-runbook-drills.json is missing")
+    runbook = {}
+else:
+    runbook = json.loads(runbook_path.read_text(encoding="utf-8"))
 
 makefile = read_text(root / "Makefile")
 docs = read_text(root / "docs" / "reference" / "runtime-slo.md")
 docs_index = read_text(root / "docs" / "index.md")
 readme = read_text(root / "README.md")
 operations = read_text(root / "docs" / "operations" / "observability.md")
+troubleshooting = read_text(root / "docs" / "operations" / "troubleshooting.md")
 example_readme = read_text(root / "examples" / "observability" / "README.md")
 example_main = read_text(root / "examples" / "observability" / "main.go")
 governance_report = read_text(root / "bin" / "scripts" / "governance-report.sh")
@@ -98,6 +113,60 @@ for needle in [
 ]:
     require(needle in operations, f"docs/operations/observability.md missing {needle!r}")
 
+require(runbook.get("schema") == "gofly.operator_runbook_drills.v1", "operator runbook drills schema mismatch")
+require(runbook.get("sourceOfTruth") == "docs/reference/runtime-slo.json", "operator runbook sourceOfTruth mismatch")
+require(runbook.get("acceptanceGate") == "make runtime-slo-check", "operator runbook acceptanceGate mismatch")
+drills = runbook.get("drills") or []
+actual_drills = {item.get("id") for item in drills if isinstance(item, dict)}
+require(actual_drills == required_drills, f"operator drills drifted: missing={sorted(required_drills - actual_drills)} extra={sorted(actual_drills - required_drills)}")
+for item in drills:
+    if not isinstance(item, dict):
+        missing.append(f"operator drill entry must be an object: {item!r}")
+        continue
+    drill = item.get("id", "")
+    for field in (
+        "id",
+        "symptom",
+        "goldenSignals",
+        "evidence",
+        "checkCommands",
+        "expectedObservation",
+        "operatorAction",
+        "rollbackOrEscalation",
+    ):
+        require(bool(item.get(field)), f"{drill or '<missing>'}: {field} is required")
+    if drill:
+        require(drill in docs, f"runtime-slo.md must document operator drill {drill!r}")
+    for signal in item.get("goldenSignals") or []:
+        require(signal in required_signals, f"{drill}: unknown golden signal {signal!r}")
+    for evidence in item.get("evidence") or []:
+        path = root / evidence
+        require(path.exists(), f"{drill}: evidence path is missing: {evidence}")
+    for command in item.get("checkCommands") or []:
+        command_text = str(command)
+        require(
+            command_text in docs or command_text in troubleshooting or command_text in makefile,
+            f"{drill}: check command {command_text!r} must be documented",
+        )
+    for field in ("expectedObservation", "operatorAction", "rollbackOrEscalation"):
+        value = str(item.get(field) or "")
+        require(
+            len(value.split()) >= 6,
+            f"{drill}: {field} must describe an actionable operator path",
+        )
+
+for needle in [
+    "operator-runbook-drills.json",
+    "gofly.operator_runbook_drills.v1",
+    "health probe failures",
+    "metrics regressions",
+    "trace correlation breaks",
+    "control-plane drift",
+    "rollback decisions",
+    "make runtime-slo-check",
+]:
+    require(needle in troubleshooting, f"docs/operations/troubleshooting.md missing {needle!r}")
+
 for needle in [
     "gofly_requests_total",
     "gofly_errors_total",
@@ -143,6 +212,8 @@ for path_text, needles in {
     "docs/reference/runtime-slo.md": [
         "gofly.runtime_slo.v1",
         "runtime-slo.json",
+        "operator-runbook-drills.json",
+        "gofly.operator_runbook_drills.v1",
         "make runtime-slo-check",
         "go test -C examples/observability ./...",
         "make p1-growth-check",
@@ -168,5 +239,5 @@ if missing:
         print("  " + item, file=sys.stderr)
     sys.exit(1)
 
-print(f"runtime SLO governance ok: {len(signals)} golden signals")
+print(f"runtime SLO governance ok: {len(signals)} golden signals, {len(drills)} operator drills")
 PY

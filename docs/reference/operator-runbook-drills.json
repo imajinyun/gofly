@@ -1,0 +1,134 @@
+{
+  "schema": "gofly.operator_runbook_drills.v1",
+  "sourceOfTruth": "docs/reference/runtime-slo.json",
+  "acceptanceGate": "make runtime-slo-check",
+  "drills": [
+    {
+      "id": "health-probe-failure",
+      "symptom": "startup, liveness, or readiness probes fail during rollout",
+      "goldenSignals": [
+        "traffic",
+        "saturation"
+      ],
+      "evidence": [
+        "docs/operations/troubleshooting.md",
+        "docs/operations/observability.md",
+        "examples/observability/README.md"
+      ],
+      "checkCommands": [
+        "curl -v http://127.0.0.1:8080/healthz",
+        "curl -v http://127.0.0.1:8080/readyz",
+        "make p1-growth-check"
+      ],
+      "expectedObservation": "readiness failures are tied to dependency health while liveness remains reserved for process health",
+      "operatorAction": "inspect dependency readiness before restarting the process or rolling forward",
+      "rollbackOrEscalation": "hold rollout and keep the previous deployment active when readiness fails after dependency recovery"
+    },
+    {
+      "id": "metrics-regression",
+      "symptom": "request rate, error ratio, latency, or in-flight request metrics drift after a release",
+      "goldenSignals": [
+        "latency",
+        "errors",
+        "traffic",
+        "saturation"
+      ],
+      "evidence": [
+        "docs/reference/runtime-slo.md",
+        "examples/observability/grafana-dashboard.json",
+        "examples/observability/prometheus.yaml"
+      ],
+      "checkCommands": [
+        "make runtime-slo-check",
+        "go test -C examples/observability ./..."
+      ],
+      "expectedObservation": "Prometheus and Grafana assets expose request, error, latency, and saturation signals with bounded labels",
+      "operatorAction": "compare the changed route or method against the previous release window before changing runtime policy",
+      "rollbackOrEscalation": "rollback the affected deployment or mark the regression as release-blocking when the metric cannot be explained"
+    },
+    {
+      "id": "trace-correlation-break",
+      "symptom": "logs, REST requests, RPC calls, or traces cannot be correlated by request_id or trace_id",
+      "goldenSignals": [
+        "trace-log-correlation",
+        "errors"
+      ],
+      "evidence": [
+        "docs/reference/runtime-slo.md",
+        "examples/observability/README.md",
+        "core/observability/trace/trace.go",
+        "rest/middleware.go"
+      ],
+      "checkCommands": [
+        "make runtime-slo-check",
+        "go test -C examples/observability ./..."
+      ],
+      "expectedObservation": "traceparent, trace_id, and request_id are visible across middleware, logs, and the observability example",
+      "operatorAction": "verify propagation headers before treating downstream failures as independent incidents",
+      "rollbackOrEscalation": "disable the new middleware path or rollback the route change if correlation disappears"
+    },
+    {
+      "id": "resilience-policy-regression",
+      "symptom": "rate limit, retry, timeout, breaker, or canary behavior changes unexpectedly",
+      "goldenSignals": [
+        "governance-decisions",
+        "errors",
+        "saturation"
+      ],
+      "evidence": [
+        "docs/reference/resilience-drill.md",
+        "docs/reference/resilience-drill.json",
+        "examples/resilience/main.go"
+      ],
+      "checkCommands": [
+        "make resilience-drill-check",
+        "go run -C examples/resilience . --json"
+      ],
+      "expectedObservation": "the deterministic drill reports rate-limit rejection, retry attempts, breaker-open fast fail, and closed-state recovery",
+      "operatorAction": "inspect policy inputs and downstream call counts before raising retry or concurrency limits",
+      "rollbackOrEscalation": "restore the previous governance policy when breaker recovery or retry evidence changes unexpectedly"
+    },
+    {
+      "id": "control-plane-drift",
+      "symptom": "runtime metadata, service discovery, config, or governance policy differs from the expected deployment state",
+      "goldenSignals": [
+        "governance-decisions",
+        "traffic"
+      ],
+      "evidence": [
+        "docs/reference/control-plane-contracts.md",
+        "docs/operations/troubleshooting.md",
+        "examples/ai-governed-service/main_test.go"
+      ],
+      "checkCommands": [
+        "curl http://127.0.0.1:9090/admin/control-plane",
+        "make generated-control-plane-smoke"
+      ],
+      "expectedObservation": "control-plane snapshots expose stable checksum, metadata, service, config, and policy fields without secrets",
+      "operatorAction": "diff the current snapshot against the release or rollout baseline before changing configuration",
+      "rollbackOrEscalation": "perform full reconciliation or rollback when the drift is a config, service-discovery, or policy change"
+    },
+    {
+      "id": "rollback-decision",
+      "symptom": "release promotion is blocked by runtime, benchmark, security, or governance evidence",
+      "goldenSignals": [
+        "latency",
+        "errors",
+        "governance-decisions"
+      ],
+      "evidence": [
+        "docs/releases/evidence-consumption.json",
+        "docs/reference/governance-dashboard-contract.json",
+        "docs/operations/troubleshooting.md"
+      ],
+      "checkCommands": [
+        "make governance-report-check",
+        "make bench-evidence-check",
+        "make govulncheck"
+      ],
+      "expectedObservation": "release evidence states the blocking gate, consumer action, risk class, and rollback or escalation path",
+      "operatorAction": "use the machine-readable evidence before overriding a release or deployment gate",
+      "rollbackOrEscalation": "pin the previous release until the blocking evidence is fixed or explicitly accepted"
+    }
+  ]
+}

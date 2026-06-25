@@ -1,5 +1,25 @@
 # Troubleshooting
 
+## Collect a support bundle
+
+Start with machine-readable diagnostics before changing code or generated
+projects:
+
+```sh
+gofly doctor --json
+gofly release check --json --strict
+gofly bug --json
+```
+
+`gofly doctor --json` returns check-level and report-level `nextActions`.
+`gofly release check --json --strict` returns a structured error envelope with
+remediation when release gates block. `gofly bug --json` returns the
+`gofly.support_bundle.v1` support bundle contract, including redaction policy,
+recommended commands, and next actions for CI or support workflows.
+
+Redact Authorization, Cookie, Set-Cookie, token, secret, password, and provider
+credential values before sharing the bundle.
+
 ## Service does not start
 
 Run:

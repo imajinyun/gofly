@@ -220,7 +220,7 @@ examples-smoke: ## Run runnable example smoke tests and machine-readable output 
 	sh $(SCRIPTS_DIR)/examples-smoke.sh
 
 .PHONY: docs-check
-docs-check: docs-link-check docs-taxonomy-check migration-docs-check p1-growth-check community-growth-check contract-docs-check doc-manifest-sync-check required-checks-drift-check ## Compile Go code blocks in Markdown docs
+docs-check: docs-link-check docs-taxonomy-check migration-docs-check p1-growth-check community-growth-check contract-docs-check dx-troubleshooting-check doc-manifest-sync-check required-checks-drift-check ## Compile Go code blocks in Markdown docs
 	$(GO) env GOMOD >/dev/null
 	sh $(SCRIPTS_DIR)/check-doc-go-snippets.sh
 
@@ -263,6 +263,10 @@ community-growth-check: ## Validate contributor, roadmap, and issue-template ado
 .PHONY: contract-docs-check
 contract-docs-check: stable-surface-check generated-version-compat-check adopter-decision-check ## Validate stable CLI JSON and control-plane contract docs
 	sh $(SCRIPTS_DIR)/check-contract-docs.sh
+
+.PHONY: dx-troubleshooting-check
+dx-troubleshooting-check: ## Validate doctor, release, and support-bundle troubleshooting JSON contracts
+	sh $(SCRIPTS_DIR)/check-dx-troubleshooting.sh
 
 .PHONY: stable-surface-check
 stable-surface-check: ## Validate v1 candidate stable surface evidence

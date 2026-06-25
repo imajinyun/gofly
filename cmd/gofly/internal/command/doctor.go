@@ -12,20 +12,22 @@ import (
 
 // doctorCheck represents a single diagnostic check result.
 type doctorCheck struct {
-	Name    string `json:"name"`
-	Status  string `json:"status"` // ok, warn, fail
-	Message string `json:"message,omitempty"`
-	FixHint string `json:"fix_hint,omitempty"`
+	Name        string   `json:"name"`
+	Status      string   `json:"status"` // ok, warn, fail
+	Message     string   `json:"message,omitempty"`
+	FixHint     string   `json:"fix_hint,omitempty"`
+	NextActions []string `json:"nextActions,omitempty"`
 }
 
 // doctorReport aggregates all diagnostic checks.
 type doctorReport struct {
-	Version string        `json:"version"`
-	Go      string        `json:"go"`
-	OS      string        `json:"os"`
-	Arch    string        `json:"arch"`
-	Checks  []doctorCheck `json:"checks"`
-	Summary string        `json:"summary"`
+	Version     string        `json:"version"`
+	Go          string        `json:"go"`
+	OS          string        `json:"os"`
+	Arch        string        `json:"arch"`
+	Checks      []doctorCheck `json:"checks"`
+	Summary     string        `json:"summary"`
+	NextActions []string      `json:"nextActions"`
 }
 
 func doctorCommand(args []string) error {
@@ -75,12 +77,13 @@ func runDoctor() doctorReport {
 	}
 
 	return doctorReport{
-		Version: Version,
-		Go:      runtime.Version(),
-		OS:      runtime.GOOS,
-		Arch:    runtime.GOARCH,
-		Checks:  checks,
-		Summary: summary,
+		Version:     Version,
+		Go:          runtime.Version(),
+		OS:          runtime.GOOS,
+		Arch:        runtime.GOARCH,
+		Checks:      checks,
+		Summary:     summary,
+		NextActions: doctorNextActions(checks, fails, warns),
 	}
 }
 
@@ -110,14 +113,14 @@ func checkGoVersion() doctorCheck {
 		return doctorCheck{Name: "Go version", Status: "ok"}
 	}
 	if strings.HasPrefix(v, "go1.23") {
-		return doctorCheck{Name: "Go version", Status: "warn", Message: "Go 1.23 detected; gofly recommends 1.24+", FixHint: "upgrade Go to 1.24 or later"}
+		return doctorCheck{Name: "Go version", Status: "warn", Message: "Go 1.23 detected; gofly recommends 1.24+", FixHint: "upgrade Go to 1.24 or later", NextActions: []string{"install Go 1.24 or later and rerun `gofly doctor --json`"}}
 	}
-	return doctorCheck{Name: "Go version", Status: "warn", Message: v + " may not support go.mod tool directives", FixHint: "upgrade Go to 1.24 or later"}
+	return doctorCheck{Name: "Go version", Status: "warn", Message: v + " may not support go.mod tool directives", FixHint: "upgrade Go to 1.24 or later", NextActions: []string{"install Go 1.24 or later and rerun `gofly doctor --json`"}}
 }
 
 func checkGoModule() doctorCheck {
 	if os.Getenv("GO111MODULE") == "off" {
-		return doctorCheck{Name: "Go modules", Status: "fail", Message: "GO111MODULE=off", FixHint: "unset GO111MODULE or set it to on"}
+		return doctorCheck{Name: "Go modules", Status: "fail", Message: "GO111MODULE=off", FixHint: "unset GO111MODULE or set it to on", NextActions: []string{"unset GO111MODULE or set GO111MODULE=on"}}
 	}
 	return doctorCheck{Name: "Go modules", Status: "ok"}
 }
@@ -128,7 +131,7 @@ func checkGOPATH() doctorCheck {
 		gp = build.Default.GOPATH
 	}
 	if gp == "" {
-		return doctorCheck{Name: "GOPATH", Status: "warn", Message: "not set and default is empty", FixHint: "export GOPATH=$HOME/go"}
+		return doctorCheck{Name: "GOPATH", Status: "warn", Message: "not set and default is empty", FixHint: "export GOPATH=$HOME/go", NextActions: []string{"export GOPATH=$HOME/go when using tools that still inspect GOPATH"}}
 	}
 	return doctorCheck{Name: "GOPATH", Status: "ok"}
 }
@@ -141,18 +144,18 @@ func checkTools() doctorCheck {
 		}
 	}
 	if len(missing) > 0 {
-		return doctorCheck{Name: "Core tools", Status: "fail", Message: "missing: " + strings.Join(missing, ", "), FixHint: "install missing tools via system package manager"}
+		return doctorCheck{Name: "Core tools", Status: "fail", Message: "missing: " + strings.Join(missing, ", "), FixHint: "install missing tools via system package manager", NextActions: []string{"install missing core tools and ensure they are available in PATH"}}
 	}
 	return doctorCheck{Name: "Core tools", Status: "ok"}
 }
 
 func checkGit() doctorCheck {
 	if _, err := exec.LookPath("git"); err != nil {
-		return doctorCheck{Name: "Git", Status: "fail", Message: "not found in PATH", FixHint: "install git"}
+		return doctorCheck{Name: "Git", Status: "fail", Message: "not found in PATH", FixHint: "install git", NextActions: []string{"install git and rerun `gofly doctor --json`"}}
 	}
 	out, err := exec.Command("git", "version").Output()
 	if err != nil {
-		return doctorCheck{Name: "Git", Status: "warn", Message: "found but version check failed"}
+		return doctorCheck{Name: "Git", Status: "warn", Message: "found but version check failed", NextActions: []string{"verify git is executable and rerun `gofly doctor --json`"}}
 	}
 	v := strings.TrimSpace(string(out))
 	return doctorCheck{Name: "Git", Status: "ok", Message: v}
@@ -160,11 +163,11 @@ func checkGit() doctorCheck {
 
 func checkProtoc() doctorCheck {
 	if _, err := exec.LookPath("protoc"); err != nil {
-		return doctorCheck{Name: "protoc", Status: "warn", Message: "not found in PATH", FixHint: "install protoc (see https://grpc.io/docs/protoc-installation/)"}
+		return doctorCheck{Name: "protoc", Status: "warn", Message: "not found in PATH", FixHint: "install protoc (see https://grpc.io/docs/protoc-installation/)", NextActions: []string{"install protoc before running standard protobuf/gRPC generation"}}
 	}
 	out, err := exec.Command("protoc", "--version").Output()
 	if err != nil {
-		return doctorCheck{Name: "protoc", Status: "warn", Message: "found but version check failed"}
+		return doctorCheck{Name: "protoc", Status: "warn", Message: "found but version check failed", NextActions: []string{"verify protoc is executable and rerun `gofly doctor --json`"}}
 	}
 	return doctorCheck{Name: "protoc", Status: "ok", Message: strings.TrimSpace(string(out))}
 }
@@ -173,13 +176,44 @@ func checkWritePermission() doctorCheck {
 	tmpDir := os.TempDir()
 	f, err := os.CreateTemp(tmpDir, "gofly-doctor-*")
 	if err != nil {
-		return doctorCheck{Name: "Write permission", Status: "fail", Message: "cannot write to " + tmpDir, FixHint: "check TMPDIR / temp directory permissions"}
+		return doctorCheck{Name: "Write permission", Status: "fail", Message: "cannot write to " + tmpDir, FixHint: "check TMPDIR / temp directory permissions", NextActions: []string{"fix TMPDIR permissions or set TMPDIR to a writable temporary directory"}}
 	}
 	if err := f.Close(); err != nil {
-		return doctorCheck{Name: "Write permission", Status: "fail", Message: "cannot close temp file in " + tmpDir, FixHint: "check TMPDIR / temp directory permissions"}
+		return doctorCheck{Name: "Write permission", Status: "fail", Message: "cannot close temp file in " + tmpDir, FixHint: "check TMPDIR / temp directory permissions", NextActions: []string{"fix TMPDIR permissions or set TMPDIR to a writable temporary directory"}}
 	}
 	if err := os.Remove(f.Name()); err != nil {
-		return doctorCheck{Name: "Write permission", Status: "warn", Message: "temp file cleanup failed: " + err.Error(), FixHint: "check TMPDIR / temp directory permissions"}
+		return doctorCheck{Name: "Write permission", Status: "warn", Message: "temp file cleanup failed: " + err.Error(), FixHint: "check TMPDIR / temp directory permissions", NextActions: []string{"clean stale temporary files and verify TMPDIR cleanup permissions"}}
 	}
 	return doctorCheck{Name: "Write permission", Status: "ok"}
+}
+
+func doctorNextActions(checks []doctorCheck, fails int, warns int) []string {
+	var actions []string
+	for _, check := range checks {
+		if check.Status == "ok" {
+			continue
+		}
+		actions = appendMissingStrings(actions, check.NextActions...)
+		if check.FixHint != "" {
+			actions = appendMissingStrings(actions, check.FixHint)
+		}
+	}
+	switch {
+	case fails > 0:
+		actions = appendMissingStrings(actions,
+			"fix failed doctor checks before generating or releasing services",
+			"run `gofly bug --json` to collect a support bundle for issue reports",
+		)
+	case warns > 0:
+		actions = appendMissingStrings(actions,
+			"review warning checks before running release gates",
+			"run `gofly release check --json --strict` before publishing",
+		)
+	default:
+		actions = appendMissingStrings(actions,
+			"run `gofly release check --json --strict` before publishing",
+			"run `make governance-10-rounds` for full repository governance",
+		)
+	}
+	return actions
 }

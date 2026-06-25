@@ -67,11 +67,11 @@ same planning fields whether the command is applied or dry-run:
 | Command | JSON mode | Stable payload |
 | --- | --- | --- |
 | `gofly version --json` | Envelope | `tool`, `version`, `commit`, `built_at`, `go_version`, `goos`, `goarch` |
-| `gofly doctor --json` | Raw object | `version`, `go`, `os`, `arch`, `checks`, `summary` |
+| `gofly doctor --json` | Raw object | `version`, `go`, `os`, `arch`, `checks`, `summary`, `nextActions`; warn/fail checks include `fix_hint` and/or `nextActions`. |
 | `gofly env --json`, `gofly env check --json` | Raw object | Environment/toolchain keys and check status objects. |
-| `gofly bug --json` | Raw object | `tool`, `version`, `environment`, `checks` |
+| `gofly bug --json` | Raw object | `tool`, `version`, `environment`, `checks`, `supportBundle`, `nextActions`. `supportBundle.schema` is `gofly.support_bundle.v1`. |
 | `gofly upgrade --json` | Raw object | `command`, `target`, `module`, `version`, `execute`, `output` |
-| `gofly release check --json` | Raw object | Release gate results, strictness, warnings, and failure summaries. |
+| `gofly release check --json` | Envelope | Release gate results, strictness, warnings, failure summaries, and structured `error.remediation` on blockers. |
 | `gofly example list --json` | Raw object | Example names, descriptions, and runnable metadata. |
 | `gofly feature list --json` | Raw object | Feature identifiers and descriptions. |
 | `gofly feature run --format json` | Raw object | Planned/generated files, feature verification commands, config hints, and next actions. |
@@ -114,6 +114,26 @@ Validation commands such as `api check` have stable exit codes and human text, b
 | `gofly rpc doc --json` or `--format openapi` | OpenAPI JSON generated from protobuf HTTP transcoding metadata. | YAML and markdown outputs are not JSON contracts. |
 
 Validation commands such as `rpc check` and `rpc lint` have stable exit codes and human text, but no stable success JSON payload unless global JSON error reporting is active.
+
+## Troubleshooting and support bundle contract
+
+`gofly doctor --json`, `gofly release check --json --strict`, and
+`gofly bug --json` form the stable troubleshooting loop for CI and support
+automation. The contract is intentionally additive: consumers should preserve
+unknown fields and key checks by `name`.
+
+`gofly bug --json` is the support bundle entry point. It emits
+`supportBundle.schema: "gofly.support_bundle.v1"`, a redaction policy, and the
+commands an adopter should attach when reporting a local generation, runtime, or
+release failure. The bundle must never include secrets; redact Authorization,
+Cookie, Set-Cookie, token, secret, password, and provider credential values
+before sharing.
+
+The DX troubleshooting gate verifies this contract with real CLI output:
+
+```sh
+make dx-troubleshooting-check
+```
 
 ## Consumer guidance
 

@@ -1,7 +1,10 @@
 package command
 
 import (
+	"bytes"
+	"encoding/json"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -73,8 +76,18 @@ func TestCheckWritePermission(t *testing.T) {
 }
 
 func TestDoctorCommandJSON(t *testing.T) {
-	if err := doctorCommand([]string{"--json"}); err != nil {
+	var out bytes.Buffer
+	if err := withCommandIO(IOStreams{Out: &out}, outputText, verbosityNormal, func() error {
+		return doctorCommand([]string{"--json"})
+	}); err != nil {
 		t.Fatalf("doctor --json: %v", err)
+	}
+	var report doctorReport
+	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
+		t.Fatalf("doctor --json decode: %v\n%s", err, out.String())
+	}
+	if len(report.NextActions) == 0 {
+		t.Fatalf("doctor --json nextActions = %#v, want troubleshooting next action guidance", report.NextActions)
 	}
 }
 
@@ -150,4 +163,58 @@ func TestCheckProtoc(t *testing.T) {
 	if c.Status != "ok" && c.Status != "warn" {
 		t.Fatalf("unexpected status %q", c.Status)
 	}
+}
+
+func TestDoctorNextActionsContract_BitsUT(t *testing.T) {
+	checks := []doctorCheck{
+		{Name: "Go modules", Status: "fail", FixHint: "unset GO111MODULE", NextActions: []string{"unset GO111MODULE or set GO111MODULE=on"}},
+		{Name: "protoc", Status: "warn", FixHint: "install protoc", NextActions: []string{"install protoc before running standard protobuf/gRPC generation"}},
+	}
+	actions := doctorNextActions(checks, 1, 1)
+	for _, want := range []string{
+		"unset GO111MODULE or set GO111MODULE=on",
+		"install protoc before running standard protobuf/gRPC generation",
+		"fix failed doctor checks before generating or releasing services",
+		"run `gofly bug --json` to collect a support bundle for issue reports",
+	} {
+		if !containsDoctorAction(actions, want) {
+			t.Fatalf("doctorNextActions = %#v, want %q", actions, want)
+		}
+	}
+
+	healthy := doctorNextActions(nil, 0, 0)
+	if !containsDoctorAction(healthy, "run `gofly release check --json --strict` before publishing") || !containsDoctorAction(healthy, "run `make governance-10-rounds` for full repository governance") {
+		t.Fatalf("healthy doctorNextActions = %#v, want release and governance next actions", healthy)
+	}
+}
+
+func TestBugCommandSupportBundleJSONContract_BitsUT(t *testing.T) {
+	var out bytes.Buffer
+	if err := withCommandIO(IOStreams{Out: &out}, outputText, verbosityNormal, func() error {
+		return bugCommand([]string{"--json"})
+	}); err != nil {
+		t.Fatalf("bug --json: %v", err)
+	}
+	var report bugReport
+	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
+		t.Fatalf("bug --json decode: %v\n%s", err, out.String())
+	}
+	if report.SupportBundle.Schema != "gofly.support_bundle.v1" || len(report.SupportBundle.Commands) == 0 || len(report.SupportBundle.Redaction) == 0 {
+		t.Fatalf("support bundle = %#v, want schema, commands, and redaction policy", report.SupportBundle)
+	}
+	if !containsDoctorAction(report.NextActions, "attach this support bundle when opening an issue or asking for help") {
+		t.Fatalf("bug nextActions = %#v, want support bundle guidance", report.NextActions)
+	}
+	if !strings.Contains(strings.Join(report.SupportBundle.Commands, "\n"), "gofly doctor --json") {
+		t.Fatalf("support bundle commands = %#v, want doctor command", report.SupportBundle.Commands)
+	}
+}
+
+func containsDoctorAction(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }

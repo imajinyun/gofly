@@ -34,6 +34,8 @@ checks = {
         "OpenTelemetry collector",
         "REFERENCE_APP_MODE=memory make reference-app-smoke",
         "REFERENCE_APP_MODE=docker make reference-app-smoke",
+        "topology_evidence",
+        "fallback note",
     ],
     pathlib.Path("examples/production-orders/main.go"): [
         "REST API accepts order creation requests",
@@ -44,12 +46,14 @@ checks = {
         "observability exposes metrics",
         "cache",
         "/topology",
+        "topologyEvidence",
     ],
     pathlib.Path("examples/production-orders/main_test.go"): [
         "TestCreateOrderSuccessPublishesOutbox_BitsUT",
         "TestBuildRESTServerOrderRouteBoundaries_BitsUT",
         "TestProductionOrderReferenceAppContract_BitsUT",
         "TestProductionTopologyModes_BitsUT",
+        "TestProductionTopologyEvidenceContract_BitsUT",
         "REST",
         "RPC",
         "MQ",
@@ -108,8 +112,18 @@ if ! docker info >/dev/null 2>&1; then
 	exit 0
 fi
 
-docker compose -f "$compose_file" up -d --build production-orders
+compose_log="$(mktemp)"
+if ! docker compose -f "$compose_file" up -d --build production-orders >"$compose_log" 2>&1; then
+	if grep -E 'docker-credential|credential helper|Pulling|pull access denied|network.*timeout|TLS handshake timeout' "$compose_log" >/dev/null 2>&1; then
+		echo "reference app docker mode static topology verified; docker compose dependency pull failed, skipping live compose smoke"
+		cat "$compose_log"
+		exit 0
+	fi
+	cat "$compose_log"
+	exit 1
+fi
 cleanup() {
+	rm -f "$compose_log"
 	docker compose -f "$compose_file" down -v --remove-orphans
 }
 trap cleanup EXIT INT TERM

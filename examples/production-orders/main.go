@@ -76,12 +76,21 @@ const (
 )
 
 type productionTopology struct {
-	Mode          topologyMode `json:"mode"`
-	SQLOutbox     string       `json:"sql_outbox"`
-	Cache         string       `json:"cache"`
-	MQ            []string     `json:"mq"`
-	Discovery     []string     `json:"discovery"`
-	Observability string       `json:"observability"`
+	Mode          topologyMode       `json:"mode"`
+	SQLOutbox     string             `json:"sql_outbox"`
+	Cache         string             `json:"cache"`
+	MQ            []string           `json:"mq"`
+	Discovery     []string           `json:"discovery"`
+	Observability string             `json:"observability"`
+	Evidence      []topologyEvidence `json:"topology_evidence"`
+}
+
+type topologyEvidence struct {
+	Component    string `json:"component"`
+	Mode         string `json:"mode"`
+	Endpoint     string `json:"endpoint"`
+	Validation   string `json:"validation"`
+	FallbackNote string `json:"fallback_note"`
 }
 
 type createOrderRequest struct {
@@ -498,15 +507,42 @@ func loadProductionTopology() productionTopology {
 			MQ:            []string{"memory"},
 			Discovery:     []string{"memory"},
 			Observability: "local-admin",
+			Evidence: []topologyEvidence{
+				{Component: "SQL outbox", Mode: "memory", Endpoint: "memory", Validation: "go test -C examples/production-orders ./...", FallbackNote: "no external SQL dependency in memory mode"},
+				{Component: "Redis cache", Mode: "memory", Endpoint: "memory", Validation: "REFERENCE_APP_MODE=memory make reference-app-smoke", FallbackNote: "read-through cache boundary uses in-process state"},
+				{Component: "MQ", Mode: "memory", Endpoint: "memory", Validation: "outbox relay publishes orders.created in unit smoke", FallbackNote: "broker adapters are represented by Docker topology evidence"},
+				{Component: "Discovery", Mode: "memory", Endpoint: "memory", Validation: "/admin/control-plane reports registered inventory endpoint", FallbackNote: "external discovery is disabled for local smoke"},
+				{Component: "OpenTelemetry collector", Mode: "memory", Endpoint: "local-admin", Validation: "/debug/metrics and trace propagation smoke", FallbackNote: "OTLP export is replaced by local admin observability"},
+			},
 		}
 	}
+	sql := envOr("ORDER_SQL_DSN", "postgres://orders:orders@postgres:5432/orders?sslmode=disable")
+	redisAddr := envOr("REDIS_ADDR", "redis:6379")
+	kafka := envOr("KAFKA_BROKERS", "kafka:9092")
+	rabbit := envOr("RABBITMQ_URL", "amqp://guest:guest@rabbitmq:5672/")
+	redisStream := envOr("REDIS_STREAM_ADDR", "redis:6379")
+	consul := envOr("CONSUL_ADDR", "consul:8500")
+	etcd := envOr("ETCD_ENDPOINTS", "etcd:2379")
+	nacos := envOr("NACOS_ADDR", "nacos:8848")
+	otel := envOr("OTEL_EXPORTER_OTLP_ENDPOINT", "http://otel-collector:4318")
 	return productionTopology{
 		Mode:          topologyDocker,
-		SQLOutbox:     envOr("ORDER_SQL_DSN", "postgres://orders:orders@postgres:5432/orders?sslmode=disable"),
-		Cache:         envOr("REDIS_ADDR", "redis:6379"),
-		MQ:            []string{envOr("KAFKA_BROKERS", "kafka:9092"), envOr("RABBITMQ_URL", "amqp://guest:guest@rabbitmq:5672/"), envOr("REDIS_STREAM_ADDR", "redis:6379")},
-		Discovery:     []string{envOr("CONSUL_ADDR", "consul:8500"), envOr("ETCD_ENDPOINTS", "etcd:2379"), envOr("NACOS_ADDR", "nacos:8848")},
-		Observability: envOr("OTEL_EXPORTER_OTLP_ENDPOINT", "http://otel-collector:4318"),
+		SQLOutbox:     sql,
+		Cache:         redisAddr,
+		MQ:            []string{kafka, rabbit, redisStream},
+		Discovery:     []string{consul, etcd, nacos},
+		Observability: otel,
+		Evidence: []topologyEvidence{
+			{Component: "SQL outbox", Mode: "docker", Endpoint: sql, Validation: "compose service postgres plus /topology sql_outbox", FallbackNote: "static topology contract is verified when Docker is unavailable"},
+			{Component: "Redis cache", Mode: "docker", Endpoint: redisAddr, Validation: "compose service redis plus /topology cache", FallbackNote: "memory cache remains the local fallback"},
+			{Component: "Kafka", Mode: "docker", Endpoint: kafka, Validation: "compose service kafka plus /topology mq", FallbackNote: "memory broker remains the local fallback"},
+			{Component: "RabbitMQ", Mode: "docker", Endpoint: rabbit, Validation: "compose service rabbitmq plus /topology mq", FallbackNote: "memory broker remains the local fallback"},
+			{Component: "Redis Stream", Mode: "docker", Endpoint: redisStream, Validation: "compose service redis plus /topology mq", FallbackNote: "memory broker remains the local fallback"},
+			{Component: "Consul", Mode: "docker", Endpoint: consul, Validation: "compose service consul plus /topology discovery", FallbackNote: "memory discovery remains the local fallback"},
+			{Component: "etcd", Mode: "docker", Endpoint: etcd, Validation: "compose service etcd plus /topology discovery", FallbackNote: "memory discovery remains the local fallback"},
+			{Component: "Nacos", Mode: "docker", Endpoint: nacos, Validation: "compose service nacos plus /topology discovery", FallbackNote: "memory discovery remains the local fallback"},
+			{Component: "OpenTelemetry collector", Mode: "docker", Endpoint: otel, Validation: "compose service otel-collector plus /topology observability", FallbackNote: "local admin observability remains the local fallback"},
+		},
 	}
 }
 
@@ -538,8 +574,15 @@ func topologySchema() rest.Schema {
 			"mq":            {Type: "array", Items: &rest.Schema{Type: "string"}},
 			"discovery":     {Type: "array", Items: &rest.Schema{Type: "string"}},
 			"observability": {Type: "string"},
+			"topology_evidence": {Type: "array", Items: &rest.Schema{Type: "object", Properties: map[string]rest.Schema{
+				"component":     {Type: "string"},
+				"mode":          {Type: "string"},
+				"endpoint":      {Type: "string"},
+				"validation":    {Type: "string"},
+				"fallback_note": {Type: "string"},
+			}}},
 		},
-		Required: []string{"mode", "sql_outbox", "cache", "mq", "discovery", "observability"},
+		Required: []string{"mode", "sql_outbox", "cache", "mq", "discovery", "observability", "topology_evidence"},
 	}
 }
 

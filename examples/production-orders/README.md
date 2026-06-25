@@ -28,6 +28,8 @@ Docker-backed mode renders the same reference app against a production topology:
 - Kafka and RabbitMQ broker endpoints
 - Consul, etcd, and Nacos discovery endpoints
 - OpenTelemetry collector endpoint
+- machine-readable `topology_evidence` entries with component, mode, endpoint,
+  validation, and fallback note fields
 
 ## Smoke Modes
 
@@ -139,6 +141,10 @@ open http://localhost:8090/docs
   and external discovery for production deployments. Docker-backed mode exposes
   those endpoints through `/topology` so operators can verify the selected
   production profile before routing traffic.
+- The `/topology` response includes `topology_evidence` so CI and operators can
+  verify that SQL outbox, Redis cache, Kafka, RabbitMQ, Redis Stream, Consul,
+  etcd, Nacos, and OpenTelemetry collector endpoints were selected by the
+  active profile.
 - Rollback by keeping the previous deployment active, disabling the new gateway
   route, and replaying unpublished outbox entries after the old service is
   healthy.

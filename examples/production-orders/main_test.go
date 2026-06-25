@@ -73,6 +73,8 @@ func TestProductionOrderReferenceAppContract_BitsUT(t *testing.T) {
 		"OpenTelemetry collector",
 		"REFERENCE_APP_MODE=memory make reference-app-smoke",
 		"REFERENCE_APP_MODE=docker make reference-app-smoke",
+		"topology_evidence",
+		"fallback note",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("README.md missing %q", want)
@@ -156,7 +158,7 @@ func TestProductionOrderHelpers_BitsUT(t *testing.T) {
 		t.Fatalf("response schema = %#v, want trace/request fields", respSchema)
 	}
 	topologySchema := topologySchema()
-	if topologySchema.Type != "object" || len(topologySchema.Required) != 6 || topologySchema.Properties["mq"].Items.Type != "string" {
+	if topologySchema.Type != "object" || len(topologySchema.Required) != 7 || topologySchema.Properties["mq"].Items.Type != "string" || topologySchema.Properties["topology_evidence"].Items.Type != "object" {
 		t.Fatalf("topology schema = %#v, want production topology object schema", topologySchema)
 	}
 }
@@ -181,6 +183,38 @@ func TestProductionTopologyModes_BitsUT(t *testing.T) {
 	docker := loadProductionTopology()
 	if docker.Mode != topologyDocker || docker.SQLOutbox == "memory" || !contains(docker.MQ, "kafka:9092") || !contains(docker.Discovery, "nacos:8848") {
 		t.Fatalf("docker topology = %#v, want SQL/cache/MQ/discovery/OTel endpoints", docker)
+	}
+}
+
+func TestProductionTopologyEvidenceContract_BitsUT(t *testing.T) {
+	t.Setenv("REFERENCE_APP_MODE", "")
+	memory := loadProductionTopology()
+	assertTopologyEvidence(t, memory, []string{"SQL outbox", "Redis cache", "MQ", "Discovery", "OpenTelemetry collector"})
+
+	t.Setenv("REFERENCE_APP_MODE", "docker")
+	docker := loadProductionTopology()
+	assertTopologyEvidence(t, docker, []string{"SQL outbox", "Redis cache", "Kafka", "RabbitMQ", "Redis Stream", "Consul", "etcd", "Nacos", "OpenTelemetry collector"})
+}
+
+func assertTopologyEvidence(t *testing.T, topology productionTopology, components []string) {
+	t.Helper()
+	if len(topology.Evidence) < len(components) {
+		t.Fatalf("topology evidence = %#v, want at least %d entries", topology.Evidence, len(components))
+	}
+	for _, component := range components {
+		found := false
+		for _, evidence := range topology.Evidence {
+			if evidence.Component != component {
+				continue
+			}
+			found = true
+			if evidence.Mode == "" || evidence.Endpoint == "" || evidence.Validation == "" || evidence.FallbackNote == "" {
+				t.Fatalf("topology evidence for %s = %#v, want mode, endpoint, validation and fallback note", component, evidence)
+			}
+		}
+		if !found {
+			t.Fatalf("topology evidence = %#v, missing component %q", topology.Evidence, component)
+		}
 	}
 }
 

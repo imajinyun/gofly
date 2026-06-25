@@ -55,6 +55,15 @@ assert topology["cache"], topology
 assert topology["mq"], topology
 assert topology["discovery"], topology
 assert topology["observability"], topology
+evidence = topology.get("topology_evidence") or []
+components = {item.get("component") for item in evidence}
+assert {"SQL outbox", "Redis cache", "MQ", "Discovery", "OpenTelemetry collector"} <= components or {
+    "SQL outbox", "Redis cache", "Kafka", "RabbitMQ", "Redis Stream", "Consul", "etcd", "Nacos", "OpenTelemetry collector"
+} <= components, evidence
+for item in evidence:
+    assert item.get("endpoint"), item
+    assert item.get("validation"), item
+    assert item.get("fallback_note"), item
 
 status, body = request("GET", base_url + "/openapi.json")
 assert status == 200, (status, body)

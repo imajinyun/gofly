@@ -293,8 +293,12 @@ community-growth-check: ## Validate contributor, roadmap, and issue-template ado
 	sh $(SCRIPTS_DIR)/check-community-growth.sh
 
 .PHONY: contract-docs-check
-contract-docs-check: stable-surface-check generated-version-compat-check adopter-decision-check deprecation-lifecycle-check ## Validate stable CLI JSON and control-plane contract docs
+contract-docs-check: stable-surface-check generated-version-compat-check generated-upgrade-dry-run-check adopter-decision-check deprecation-lifecycle-check ## Validate stable CLI JSON and control-plane contract docs
 	sh $(SCRIPTS_DIR)/check-contract-docs.sh
+
+.PHONY: generated-upgrade-dry-run-check
+generated-upgrade-dry-run-check: ## Validate generated upgrade dry-run manifest and diff report contract
+	sh $(SCRIPTS_DIR)/check-generated-upgrade-dry-run.sh
 
 .PHONY: dx-troubleshooting-check
 dx-troubleshooting-check: ## Validate doctor, release, and support-bundle troubleshooting JSON contracts

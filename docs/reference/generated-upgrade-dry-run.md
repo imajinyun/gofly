@@ -10,6 +10,12 @@ visible, and where temporary generated projects may be created. The
 machine-readable manifest is
 [`generated-upgrade-dry-run.json`](generated-upgrade-dry-run.json).
 
+Validation:
+
+```bash
+make generated-upgrade-dry-run-check
+```
+
 ## Fixture Profiles
 
 | Profile | API | Proto | Service config | Plugin profile | Snapshot expectation |

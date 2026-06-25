@@ -376,6 +376,24 @@ def generated_upgrade_dry_run_evidence():
     }
 
 
+def governance_dashboard_contract():
+    manifest = read_json(root / "docs/reference/governance-dashboard-contract.json") or {}
+    return {
+        "schema": manifest.get("schema", ""),
+        "manifest": "docs/reference/governance-dashboard-contract.json",
+        "sourceReport": manifest.get("sourceReport", ""),
+        "acceptanceGate": manifest.get("acceptanceGate", ""),
+        "summaryFields": manifest.get("summaryFields", []),
+        "releaseReadiness": manifest.get("releaseReadiness", {}),
+        "apiTiers": manifest.get("apiTiers", {}),
+        "benchmarkRatchet": manifest.get("benchmarkRatchet", {}),
+        "coverage": manifest.get("coverage", {}),
+        "security": manifest.get("security", {}),
+        "aiflow": manifest.get("aiflow", {}),
+        "outputs": manifest.get("outputs", []),
+    }
+
+
 def docs_evidence():
     required = [
         "docs/reference/api-surface.md",
@@ -386,6 +404,7 @@ def docs_evidence():
         "docs/reference/cli-json-contracts.md",
         "docs/reference/generated-version-compat.md",
         "docs/reference/generated-upgrade-dry-run.md",
+        "docs/reference/governance-dashboard-contract.json",
         "docs/releases/evidence-manifest.json",
         "docs/releases/evidence-index.json",
         "docs/releases/readiness-score.json",
@@ -424,6 +443,7 @@ report = {
     "security": security_evidence(),
     "release": release_evidence(),
     "aiflow": aiflow_queue(),
+    "dashboard": governance_dashboard_contract(),
     "docs": {
         "gate": "make docs-check",
         "evidence": docs_evidence(),
@@ -552,6 +572,60 @@ if report["security"]["gosec"]["baselineSchema"] != "gofly.gosec_exception_basel
     missing.append("gosec exception baseline schema mismatch")
 if report["aiflow"]["status"] == "present" and not report["aiflow"].get("summary"):
     missing.append("aiflow queue status summary is empty")
+dashboard = report["dashboard"]
+if dashboard["schema"] != "gofly.governance_dashboard_contract.v1":
+    missing.append("governance dashboard contract schema mismatch")
+if dashboard["sourceReport"] != "gofly.governance_report.v1":
+    missing.append("governance dashboard contract sourceReport mismatch")
+if dashboard["acceptanceGate"] != "make governance-report-check":
+    missing.append("governance dashboard contract acceptanceGate mismatch")
+for field in (
+    "release.readinessScore.status",
+    "apiSurface.tiers",
+    "benchmark.regressionGate",
+    "coverage.ratchet",
+    "security.gosec.blockingGate",
+    "aiflow.status",
+):
+    if field not in dashboard["summaryFields"]:
+        missing.append(f"governance dashboard contract summaryFields missing {field!r}")
+release_contract = dashboard.get("releaseReadiness") or {}
+if release_contract.get("schema") != "gofly.release_readiness_score.v1":
+    missing.append("governance dashboard releaseReadiness schema mismatch")
+if release_contract.get("requiredStatus") != "ready":
+    missing.append("governance dashboard releaseReadiness requiredStatus mismatch")
+if int(release_contract.get("minimumScore") or 0) != 100:
+    missing.append("governance dashboard releaseReadiness minimumScore mismatch")
+api_contract = dashboard.get("apiTiers") or {}
+if api_contract.get("gate") != "make stable-surface-check":
+    missing.append("governance dashboard apiTiers gate mismatch")
+if len(report["apiSurface"]["tiers"]) < int(api_contract.get("minimumTierCount") or 0):
+    missing.append("governance dashboard api tier count below contract")
+benchmark_contract = dashboard.get("benchmarkRatchet") or {}
+if benchmark_contract.get("gate") != "make bench-regression-check":
+    missing.append("governance dashboard benchmarkRatchet gate mismatch")
+ratchet = read_json(root / "bench/budget-ratchet.json") or {}
+for field in benchmark_contract.get("requiredFields") or []:
+    if field not in ratchet:
+        missing.append(f"governance dashboard benchmark ratchet missing {field!r}")
+coverage_contract = dashboard.get("coverage") or {}
+if coverage_contract.get("gate") != "make coverage-trend-check":
+    missing.append("governance dashboard coverage gate mismatch")
+if coverage_contract.get("ratchetVar") != "COVERAGE_RATCHET":
+    missing.append("governance dashboard coverage ratchetVar mismatch")
+security_contract = dashboard.get("security") or {}
+if security_contract.get("gosecGate") != report["security"]["gosec"]["blockingGate"]:
+    missing.append("governance dashboard gosec gate mismatch")
+if security_contract.get("govulncheckGate") != report["security"]["govulncheck"]["blockingGate"]:
+    missing.append("governance dashboard govulncheck gate mismatch")
+aiflow_contract = dashboard.get("aiflow") or {}
+if aiflow_contract.get("requiredStatusField") != "status":
+    missing.append("governance dashboard aiflow requiredStatusField mismatch")
+if aiflow_contract.get("requiredSummaryField") != "summary":
+    missing.append("governance dashboard aiflow requiredSummaryField mismatch")
+for output in (dashboard.get("outputs") or []):
+    if not output.startswith(".tmp-test/governance-report/"):
+        missing.append(f"governance dashboard output must stay under .tmp-test/governance-report: {output}")
 for item in report["docs"]["evidence"]:
     if item["status"] != "present":
         missing.append(f"{item['path']} is missing")

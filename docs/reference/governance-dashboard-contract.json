@@ -1,0 +1,59 @@
+{
+  "schema": "gofly.governance_dashboard_contract.v1",
+  "sourceReport": "gofly.governance_report.v1",
+  "acceptanceGate": "make governance-report-check",
+  "summaryFields": [
+    "release.readinessScore.status",
+    "release.readinessScore.score",
+    "apiSurface.tiers",
+    "benchmark.regressionGate",
+    "benchmark.regressionReport",
+    "coverage.ratchet",
+    "coverageTrend.policy.blockingGate",
+    "security.gosec.blockingGate",
+    "security.govulncheck.blockingGate",
+    "aiflow.status",
+    "aiflow.summary"
+  ],
+  "releaseReadiness": {
+    "schema": "gofly.release_readiness_score.v1",
+    "requiredStatus": "ready",
+    "minimumScore": 100,
+    "source": "docs/releases/readiness-score.json"
+  },
+  "apiTiers": {
+    "source": "docs/reference/api-surface.md",
+    "gate": "make stable-surface-check",
+    "minimumTierCount": 3
+  },
+  "benchmarkRatchet": {
+    "source": "bench/budget-ratchet.json",
+    "gate": "make bench-regression-check",
+    "requiredFields": [
+      "schema",
+      "trackedBenchmarks",
+      "latencyPolicy",
+      "allocationPolicy",
+      "rpcPolicy"
+    ]
+  },
+  "coverage": {
+    "source": "docs/reference/coverage-trend.json",
+    "gate": "make coverage-trend-check",
+    "ratchetVar": "COVERAGE_RATCHET"
+  },
+  "security": {
+    "gosecGate": "make gosec",
+    "govulncheckGate": "make govulncheck",
+    "baseline": "bin/scripts/gosec-exception-baseline.json"
+  },
+  "aiflow": {
+    "source": ".harness/store.json",
+    "requiredStatusField": "status",
+    "requiredSummaryField": "summary"
+  },
+  "outputs": [
+    ".tmp-test/governance-report/governance-report.json",
+    ".tmp-test/governance-report/governance-report.md"
+  ]
+}

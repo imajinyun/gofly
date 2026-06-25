@@ -48,6 +48,11 @@ The P6 long-term adoption wave is captured in
 with schema `gofly.framework_gap_long_term_adoption.v1`. It focuses on support
 lifecycle, integration matrix ownership, dependency ownership, required-check
 drift, release prerequisite drift, and production readiness scorecards.
+The P7 adopter proof wave is captured in
+[`framework-gap-adopter-proof.json`](framework-gap-adopter-proof.json) with
+schema `gofly.framework_gap_adopter_proof.v1`. It focuses on runnable adopter
+proof, evidence traceability, upgrade rehearsal, incident drill evidence, and
+capability claim provenance.
 
 | Order | Task | Gap | Acceptance gate |
 | --- | --- | --- | --- |
@@ -92,6 +97,16 @@ drift, release prerequisite drift, and production readiness scorecards.
 | 4 | `GOFLY-P6-3-DEPENDENCY-OWNERSHIP-PLAYBOOK` | Separate root dependencies, generated-project dependencies, security response, and integration delegation. | `make dependency-upgrade-evidence-check` |
 | 5 | `GOFLY-P6-4-REQUIRED-CHECK-DRIFT` | Block drift between documented gates, CI jobs, branch protection, and release prerequisites. | `make required-checks-drift-check` |
 | 6 | `GOFLY-P6-5-PRODUCTION-READINESS-SCORECARD` | Summarize stable, candidate, report-only, and rollback-required surfaces across production adoption evidence. | `make governance-report-check` |
+
+## Adopter Proof TODO Order
+
+| Order | Task | Gap | Acceptance gate |
+| --- | --- | --- | --- |
+| 1 | `GOFLY-P7-0-ADOPTER-PROOF-ROADMAP` | Keep the post-P6 adopter proof roadmap as a machine-readable contract. | `make framework-gap-check` |
+| 2 | `GOFLY-P7-1-EVIDENCE-TRACEABILITY` | Link top-level claims to source manifests, report fields, gates, and rollback or escalation actions. | `make governance-report-check` |
+| 3 | `GOFLY-P7-2-UPGRADE-REHEARSAL` | Tie generated dry-run, dependency ownership, release evidence, smoke gates, and rollback steps into one rehearsal path. | `make generated-upgrade-dry-run-check` |
+| 4 | `GOFLY-P7-3-INCIDENT-DRILL-EVIDENCE` | Map runtime symptoms to SLO signals, required artifacts, rollback triggers, and post-incident evidence. | `make runtime-slo-check` |
+| 5 | `GOFLY-P7-4-CAPABILITY-CLAIM-PROVENANCE` | Prevent unsupported framework comparison or production-readiness claims from drifting beyond local evidence. | `make framework-gap-check` |
 
 ## Adoption Risk Register
 

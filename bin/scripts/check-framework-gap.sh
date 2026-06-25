@@ -53,12 +53,19 @@ if long_term_path.is_file():
 else:
     long_term = {}
     missing.append("docs/reference/framework-gap-long-term-adoption.json is missing")
+adopter_proof_path = root / "docs" / "reference" / "framework-gap-adopter-proof.json"
+if adopter_proof_path.is_file():
+    adopter_proof = json.loads(adopter_proof_path.read_text(encoding="utf-8"))
+else:
+    adopter_proof = {}
+    missing.append("docs/reference/framework-gap-adopter-proof.json is missing")
 
 require(manifest.get("schema") == "gofly.framework_gap_matrix.v1", "framework gap matrix schema mismatch")
 require(next_wave.get("schema") == "gofly.framework_gap_next_wave.v1", "next-wave framework gap schema mismatch")
 require(adoption_wave.get("schema") == "gofly.framework_gap_adoption_wave.v1", "adoption-wave framework gap schema mismatch")
 require(adoption_risk.get("schema") == "gofly.adoption_risk_register.v1", "adoption risk register schema mismatch")
 require(long_term.get("schema") == "gofly.framework_gap_long_term_adoption.v1", "long-term adoption framework gap schema mismatch")
+require(adopter_proof.get("schema") == "gofly.framework_gap_adopter_proof.v1", "adopter proof framework gap schema mismatch")
 
 sources = manifest.get("sources") or []
 for source in sources:
@@ -313,6 +320,73 @@ long_term_excluded = set(long_term_scope.get("excluded") or [])
 for out_of_scope in ("GitHub stars", "download counts", "community size", "brand awareness"):
     require(out_of_scope in long_term_excluded, f"long-term adoption scope.excluded missing {out_of_scope!r}")
 
+adopter_proof_completed = adopter_proof.get("completedBaseline") or []
+adopter_proof_completed_tasks = {item.get("task") for item in adopter_proof_completed if isinstance(item, dict)}
+for task in (
+    "GOFLY-P6-1-SUPPORT-LIFECYCLE",
+    "GOFLY-P6-2-INTEGRATION-MATRIX",
+    "GOFLY-P6-3-DEPENDENCY-OWNERSHIP-PLAYBOOK",
+    "GOFLY-P6-4-REQUIRED-CHECK-DRIFT",
+    "GOFLY-P6-5-PRODUCTION-READINESS-SCORECARD",
+):
+    require(task in adopter_proof_completed_tasks, f"adopter proof completedBaseline missing {task}")
+for item in adopter_proof_completed:
+    if not isinstance(item, dict):
+        missing.append(f"adopter proof completedBaseline entry must be an object: {item!r}")
+        continue
+    for evidence in item.get("evidence") or []:
+        if evidence.startswith("docs/") or evidence.startswith("bench/"):
+            require((root / evidence).exists(), f"adopter proof completed evidence path missing: {evidence}")
+
+adopter_proof_dimensions = adopter_proof.get("dimensions") or []
+required_adopter_proof_dimensions = {
+    "evidence-traceability",
+    "upgrade-rehearsal",
+    "incident-drill-evidence",
+    "capability-claim-provenance",
+}
+actual_adopter_proof_dimensions = {item.get("id") for item in adopter_proof_dimensions if isinstance(item, dict)}
+require(
+    actual_adopter_proof_dimensions == required_adopter_proof_dimensions,
+    f"adopter proof dimensions = {sorted(actual_adopter_proof_dimensions)!r}, want {sorted(required_adopter_proof_dimensions)!r}",
+)
+adopter_proof_tasks = set()
+adopter_proof_frameworks = set()
+for item in adopter_proof_dimensions:
+    if not isinstance(item, dict):
+        missing.append(f"adopter proof dimension entry must be an object: {item!r}")
+        continue
+    item_id = item.get("id", "<missing>")
+    for field in ("id", "referenceFrameworks", "currentEvidence", "gap", "priority", "todo", "aiflowTask", "acceptanceGate"):
+        if not item.get(field):
+            missing.append(f"adopter proof dimension {item_id}: {field} is required")
+    adopter_proof_tasks.add(item.get("aiflowTask", ""))
+    adopter_proof_frameworks.update(item.get("referenceFrameworks") or [])
+    gate = item.get("acceptanceGate", "")
+    if gate.startswith("make "):
+        target = gate.removeprefix("make ").split()[0]
+        makefile = read_text(root / "Makefile")
+        require(re.search(rf"^{re.escape(target)}:", makefile, re.M), f"adopter proof dimension {item_id}: gate target {target!r} missing")
+    for evidence in item.get("currentEvidence") or []:
+        if evidence.startswith("docs/") or evidence.startswith("examples/") or evidence.startswith("bench/") or evidence.startswith("bin/"):
+            require((root / evidence).exists(), f"adopter proof dimension {item_id}: evidence path missing: {evidence}")
+
+adopter_proof_recommended = adopter_proof.get("recommendedOrder") or []
+require(adopter_proof_recommended and adopter_proof_recommended[0] == "GOFLY-P7-0-ADOPTER-PROOF-ROADMAP", "adopter proof recommendedOrder must start with GOFLY-P7-0-ADOPTER-PROOF-ROADMAP")
+for task in (
+    "GOFLY-P7-1-EVIDENCE-TRACEABILITY",
+    "GOFLY-P7-2-UPGRADE-REHEARSAL",
+    "GOFLY-P7-3-INCIDENT-DRILL-EVIDENCE",
+    "GOFLY-P7-4-CAPABILITY-CLAIM-PROVENANCE",
+):
+    require(task in adopter_proof_recommended, f"adopter proof recommendedOrder missing {task}")
+    require(task in adopter_proof_tasks, f"adopter proof dimensions missing task {task}")
+require({"Gin", "Echo", "Fiber", "Hertz", "go-zero", "Kratos", "Kitex", "gRPC-Go", "Beego"} <= adopter_proof_frameworks, "adopter proof matrix must cover major reference frameworks")
+adopter_proof_scope = adopter_proof.get("scope") or {}
+adopter_proof_excluded = set(adopter_proof_scope.get("excluded") or [])
+for out_of_scope in ("GitHub stars", "download counts", "community size", "brand awareness"):
+    require(out_of_scope in adopter_proof_excluded, f"adopter proof scope.excluded missing {out_of_scope!r}")
+
 require(adoption_risk.get("sourceOfTruth") == "docs/reference/framework-gap-adoption-wave.json", "adoption risk register sourceOfTruth mismatch")
 require(adoption_risk.get("acceptanceGate") == "make framework-gap-check", "adoption risk register acceptanceGate mismatch")
 risk_classes = set(adoption_risk.get("riskClasses") or [])
@@ -382,12 +456,15 @@ for needle in (
     "framework-gap-next-wave.json",
     "framework-gap-adoption-wave.json",
     "framework-gap-long-term-adoption.json",
+    "framework-gap-adopter-proof.json",
     "adoption-risk-register.json",
     "gofly.adoption_risk_register.v1",
     "gofly.framework_gap_long_term_adoption.v1",
+    "gofly.framework_gap_adopter_proof.v1",
     "Next-Wave TODO Order",
     "Adoption-Wave TODO Order",
     "Long-Term Adoption TODO Order",
+    "Adopter Proof TODO Order",
     "Adoption Risk Register",
     "production-ready",
     "candidate",
@@ -396,6 +473,7 @@ for needle in (
     "GOFLY-P4-2-RPC-LATENCY-RATCHET",
     "GOFLY-P5-1-EXAMPLES-HEALTH-INDEX",
     "GOFLY-P6-1-SUPPORT-LIFECYCLE",
+    "GOFLY-P7-1-EVIDENCE-TRACEABILITY",
     "Gin",
     "go-zero",
     "Kratos",

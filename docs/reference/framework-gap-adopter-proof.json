@@ -1,0 +1,146 @@
+{
+  "schema": "gofly.framework_gap_adopter_proof.v1",
+  "scope": {
+    "included": [
+      "runnable adopter proof",
+      "evidence traceability",
+      "upgrade rehearsal",
+      "incident drill evidence",
+      "capability claim provenance",
+      "machine-verifiable governance"
+    ],
+    "excluded": [
+      "GitHub stars",
+      "download counts",
+      "community size",
+      "brand awareness"
+    ]
+  },
+  "completedBaseline": [
+    {
+      "task": "GOFLY-P6-1-SUPPORT-LIFECYCLE",
+      "evidence": [
+        "docs/reference/deprecation-lifecycle.json",
+        "make deprecation-lifecycle-check"
+      ]
+    },
+    {
+      "task": "GOFLY-P6-2-INTEGRATION-MATRIX",
+      "evidence": [
+        "docs/reference/ci-required-check-evidence.json",
+        "make required-checks-drift-check"
+      ]
+    },
+    {
+      "task": "GOFLY-P6-3-DEPENDENCY-OWNERSHIP-PLAYBOOK",
+      "evidence": [
+        "docs/reference/dependency-upgrade-evidence.json",
+        "make dependency-upgrade-evidence-check"
+      ]
+    },
+    {
+      "task": "GOFLY-P6-4-REQUIRED-CHECK-DRIFT",
+      "evidence": [
+        "docs/reference/ci-required-check-evidence.json",
+        "make required-checks-drift-check"
+      ]
+    },
+    {
+      "task": "GOFLY-P6-5-PRODUCTION-READINESS-SCORECARD",
+      "evidence": [
+        "docs/reference/governance-dashboard-contract.json",
+        "make governance-report-check"
+      ]
+    }
+  ],
+  "dimensions": [
+    {
+      "id": "evidence-traceability",
+      "priority": "P0",
+      "referenceFrameworks": [
+        "go-zero",
+        "Kratos",
+        "Kitex",
+        "gRPC-Go"
+      ],
+      "currentEvidence": [
+        "docs/reference/governance-dashboard-contract.json",
+        "docs/reference/adoption-risk-register.json",
+        "make governance-report-check"
+      ],
+      "gap": "Mature frameworks make adopter-facing claims easy to trace to runnable evidence. gofly now has many evidence contracts, but lacks one traceability map linking claims, source manifests, report fields, gate commands, and rollback or escalation actions.",
+      "todo": "Add an evidence traceability contract and gate it through governance report checks so top-level claims cannot drift away from source evidence.",
+      "aiflowTask": "GOFLY-P7-1-EVIDENCE-TRACEABILITY",
+      "acceptanceGate": "make governance-report-check"
+    },
+    {
+      "id": "upgrade-rehearsal",
+      "priority": "P0",
+      "referenceFrameworks": [
+        "go-zero",
+        "Kratos",
+        "Gin",
+        "Kitex"
+      ],
+      "currentEvidence": [
+        "docs/reference/generated-upgrade-dry-run.json",
+        "docs/reference/dependency-upgrade-evidence.json",
+        "docs/releases/evidence-consumption.json",
+        "make generated-upgrade-dry-run-check"
+      ],
+      "gap": "Top frameworks reduce upgrade risk with predictable migration rehearsal paths. gofly has generated dry-run and dependency evidence, but needs one adoption rehearsal contract tying regenerate, dependency, release evidence, smoke, and rollback steps together.",
+      "todo": "Add an upgrade rehearsal contract that maps each rehearsal step to evidence, gate commands, expected output, failure class, and rollback path.",
+      "aiflowTask": "GOFLY-P7-2-UPGRADE-REHEARSAL",
+      "acceptanceGate": "make generated-upgrade-dry-run-check"
+    },
+    {
+      "id": "incident-drill-evidence",
+      "priority": "P1",
+      "referenceFrameworks": [
+        "Kratos",
+        "go-zero",
+        "Beego"
+      ],
+      "currentEvidence": [
+        "docs/reference/runtime-slo.json",
+        "docs/reference/operator-runbook-drills.json",
+        "make runtime-slo-check"
+      ],
+      "gap": "Production frameworks are trusted faster when operational failure drills are concrete. gofly has runtime SLO and operator drills, but should expose incident rehearsal rows with symptoms, artifacts, rollback triggers, and post-incident evidence.",
+      "todo": "Extend runtime SLO governance with incident drill evidence covering diagnosis, mitigation, rollback trigger, and post-incident artifact requirements.",
+      "aiflowTask": "GOFLY-P7-3-INCIDENT-DRILL-EVIDENCE",
+      "acceptanceGate": "make runtime-slo-check"
+    },
+    {
+      "id": "capability-claim-provenance",
+      "priority": "P1",
+      "referenceFrameworks": [
+        "Gin",
+        "Echo",
+        "Fiber",
+        "Hertz",
+        "go-zero",
+        "Kratos",
+        "Kitex",
+        "gRPC-Go",
+        "Beego"
+      ],
+      "currentEvidence": [
+        "docs/reference/framework-gap-matrix.md",
+        "docs/reference/governance-dashboard-contract.json",
+        "make framework-gap-check"
+      ],
+      "gap": "Framework comparison and production-readiness claims become risky when they outpace local proof. gofly has governed evidence, but needs claim provenance to prevent unsupported claims in docs and reports.",
+      "todo": "Add a capability claim provenance contract that requires every comparison or production-readiness claim to name source evidence, gate, risk class, adopter action, and unsupported-claim handling.",
+      "aiflowTask": "GOFLY-P7-4-CAPABILITY-CLAIM-PROVENANCE",
+      "acceptanceGate": "make framework-gap-check"
+    }
+  ],
+  "recommendedOrder": [
+    "GOFLY-P7-0-ADOPTER-PROOF-ROADMAP",
+    "GOFLY-P7-1-EVIDENCE-TRACEABILITY",
+    "GOFLY-P7-2-UPGRADE-REHEARSAL",
+    "GOFLY-P7-3-INCIDENT-DRILL-EVIDENCE",
+    "GOFLY-P7-4-CAPABILITY-CLAIM-PROVENANCE"
+  ]
+}

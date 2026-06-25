@@ -1,0 +1,136 @@
+{
+  "schema": "gofly.cloud_native_policy_conformance.v1",
+  "sourceOfTruth": "docs/reference/cloud-native-rendering.md",
+  "acceptanceGate": "make cloud-native-render-check",
+  "renderModes": [
+    {
+      "mode": "helm-template",
+      "command": "helm template gofly charts/gofly",
+      "requiredWhenToolAvailable": "helm",
+      "fallback": "static-template-render"
+    },
+    {
+      "mode": "static-template-render",
+      "command": "cat charts/gofly/templates/*.yaml",
+      "fallbackReason": "helm not installed in the local or CI environment"
+    }
+  ],
+  "schemaValidation": [
+    {
+      "tool": "kubeconform",
+      "mode": "optional-ci",
+      "fallbackReport": "tool-unavailable"
+    },
+    {
+      "tool": "kubeval",
+      "mode": "optional-ci",
+      "fallbackReport": "tool-unavailable"
+    }
+  ],
+  "profiles": [
+    {
+      "name": "helm-default",
+      "values": "charts/gofly/values.yaml",
+      "schema": "charts/gofly/values.schema.json",
+      "templates": [
+        "charts/gofly/templates/deployment.yaml",
+        "charts/gofly/templates/service.yaml",
+        "charts/gofly/templates/servicemonitor.yaml",
+        "charts/gofly/templates/hpa.yaml",
+        "charts/gofly/templates/pdb.yaml",
+        "charts/gofly/templates/networkpolicy.yaml"
+      ],
+      "requiredKinds": [
+        "Deployment",
+        "Service",
+        "ServiceMonitor",
+        "HorizontalPodAutoscaler",
+        "PodDisruptionBudget",
+        "NetworkPolicy"
+      ]
+    },
+    {
+      "name": "helm-production",
+      "values": "charts/gofly/values-production.yaml",
+      "schema": "charts/gofly/values.schema.json",
+      "templates": [
+        "charts/gofly/templates/deployment.yaml",
+        "charts/gofly/templates/service.yaml",
+        "charts/gofly/templates/servicemonitor.yaml",
+        "charts/gofly/templates/hpa.yaml",
+        "charts/gofly/templates/pdb.yaml",
+        "charts/gofly/templates/networkpolicy.yaml"
+      ],
+      "requiredKinds": [
+        "Deployment",
+        "Service",
+        "ServiceMonitor",
+        "HorizontalPodAutoscaler",
+        "PodDisruptionBudget",
+        "NetworkPolicy"
+      ]
+    },
+    {
+      "name": "kustomize-production",
+      "overlay": "k8s/overlays/production/kustomization.yaml",
+      "resources": [
+        "k8s/deployment.yaml",
+        "k8s/servicemonitor.yaml",
+        "k8s/hpa.yaml",
+        "k8s/pdb.yaml",
+        "k8s/networkpolicy.yaml"
+      ],
+      "requiredKinds": [
+        "Deployment",
+        "ServiceMonitor",
+        "HorizontalPodAutoscaler",
+        "PodDisruptionBudget",
+        "NetworkPolicy"
+      ]
+    }
+  ],
+  "policyResources": [
+    {
+      "kind": "ServiceMonitor",
+      "helmTemplate": "charts/gofly/templates/servicemonitor.yaml",
+      "kustomizeResource": "k8s/servicemonitor.yaml",
+      "requiredSignals": [
+        "metrics port",
+        "scrape interval"
+      ]
+    },
+    {
+      "kind": "HorizontalPodAutoscaler",
+      "helmTemplate": "charts/gofly/templates/hpa.yaml",
+      "kustomizeResource": "k8s/hpa.yaml",
+      "requiredSignals": [
+        "min replicas",
+        "max replicas",
+        "CPU utilization target"
+      ]
+    },
+    {
+      "kind": "PodDisruptionBudget",
+      "helmTemplate": "charts/gofly/templates/pdb.yaml",
+      "kustomizeResource": "k8s/pdb.yaml",
+      "requiredSignals": [
+        "minAvailable"
+      ]
+    },
+    {
+      "kind": "NetworkPolicy",
+      "helmTemplate": "charts/gofly/templates/networkpolicy.yaml",
+      "kustomizeResource": "k8s/networkpolicy.yaml",
+      "requiredSignals": [
+        "Ingress",
+        "Egress",
+        "DNS allowance"
+      ]
+    }
+  ],
+  "rolloutGates": [
+    "make helm-template-smoke",
+    "make cloud-native-render-check",
+    "make p1-growth-check"
+  ]
+}

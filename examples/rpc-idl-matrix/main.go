@@ -129,11 +129,10 @@ func runMatrix(ctx context.Context) (matrixReport, error) {
 		return matrixReport{}, fmt.Errorf("resolve matrix endpoints: %w", err)
 	}
 
-	updated := append([]string(nil), endpoints...)
 	if err := registry.DeregisterService(ctx, "matrix-greeter", "http://127.0.0.1:65535"); err != nil {
 		return matrixReport{}, fmt.Errorf("deregister standby endpoint: %w", err)
 	}
-	updated, err = resolver.Resolve(ctx)
+	updated, err := resolver.Resolve(ctx)
 	if err != nil {
 		return matrixReport{}, fmt.Errorf("resolve updated matrix endpoints: %w", err)
 	}

@@ -66,3 +66,28 @@ visible before adoption.
 | `mq-brokers` | `messaging-runtime` | `kafka`, `rabbitmq`, `redis-stream` | integration tests (mq-brokers) | `integration` |
 | `gateway-transcode` | `rpc-runtime` | `gateway`, `grpc`, `rpc`, `http-transcode` | integration tests (gateway-transcode) | `integration` |
 | `observability-release` | `observability-governance` | `otel`, `prometheus`, `runtime-slo`, `release-evidence` | governance gates | `governance` |
+
+## Release Prerequisite Drift
+
+The `releasePrerequisiteDrift` section makes tag-release gate ownership
+machine-readable. Each release prerequisite job must list its owner, local gate,
+required checks, artifact, drift policy, and fallback policy. `make
+required-checks-drift-check` verifies that these rows match the CI release
+`needs` list, branch-protection expected checks, and the required-check evidence
+matrix.
+
+| Job | Owner | Drift policy |
+| --- | --- | --- |
+| `build-test` | `ci-platform` | Build checks, release needs, branch protection, and `make ci-fast` must stay aligned. |
+| `platform-smoke` | `ci-platform` | macOS and Windows smoke checks must stay release-blocking together. |
+| `lint` | `code-quality` | `golangci-lint` must remain represented by the same local lint gate. |
+| `security` | `security-governance` | govulncheck and gosec evidence must remain release-blocking and unskipped. |
+| `supply-chain` | `release-governance` | release artifact fixtures, API compatibility, and OSV evidence must stay aligned. |
+| `codeql` | `security-governance` | hosted CodeQL evidence must remain required for branch protection and tags. |
+| `dependency-upgrade-validation` | `dependency-governance` | integration delegation is valid only when required integration rows cover the affected family. |
+| `contract-check` | `contract-governance` | stable-surface and API/RPC contract evidence must remain release-blocking. |
+| `governance` | `governance-platform` | release-blocking skips must be rejected or have explicit compensating gates. |
+| `bench-fuzz` | `performance-governance` | benchmark evidence, smoke, regression, trend, and fuzz ordering must stay stable. |
+| `integration` | `integration-platform` | integration matrix areas, package lists, required checks, and dependency delegation must match. |
+| `docker` | `release-governance` | Docker build, Trivy, digest, SBOM, and provenance evidence must stay release-consumable. |
+| `scorecard` | `security-governance` | hosted Scorecard evidence must remain required for branch protection and tags. |

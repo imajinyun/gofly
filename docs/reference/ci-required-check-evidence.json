@@ -219,5 +219,155 @@
       "rollbackNote": "pin the previous telemetry or governance evidence contract until dashboard and runtime SLO checks pass"
     }
   ],
+  "releasePrerequisiteDrift": [
+    {
+      "job": "build-test",
+      "owner": "ci-platform",
+      "localGate": "make ci-fast",
+      "requiredChecks": [
+        "build & test (go 1.26)",
+        "build & test (go stable)"
+      ],
+      "artifact": "coverage-go-1.26",
+      "driftPolicy": "release job needs, branch-protection expected checks, and local ci-fast gate must stay aligned before a tag is promoted",
+      "fallbackPolicy": "block release promotion when build-test is missing, skipped, or not represented in branch-protection expected checks"
+    },
+    {
+      "job": "platform-smoke",
+      "owner": "ci-platform",
+      "localGate": "go test -count=1 ./app ./rest ./rpc ./gateway ./cache",
+      "requiredChecks": [
+        "platform smoke (macos-latest)",
+        "platform smoke (windows-latest)"
+      ],
+      "artifact": "platform smoke job logs",
+      "driftPolicy": "release job needs and branch-protection expected checks must keep both macOS and Windows platform smoke checks",
+      "fallbackPolicy": "block release promotion when either platform smoke row is missing or the targeted package smoke cannot run locally"
+    },
+    {
+      "job": "lint",
+      "owner": "code-quality",
+      "localGate": "make lint",
+      "requiredChecks": [
+        "golangci-lint"
+      ],
+      "artifact": "golangci-lint job logs",
+      "driftPolicy": "release job needs, branch-protection expected checks, and local lint target must use the same lint gate",
+      "fallbackPolicy": "block release promotion when lint is removed from release needs or branch protection"
+    },
+    {
+      "job": "security",
+      "owner": "security-governance",
+      "localGate": "make security",
+      "requiredChecks": [
+        "security (govulncheck + gosec)"
+      ],
+      "artifact": "govulncheck and gosec output",
+      "driftPolicy": "security must remain release-blocking and cannot be skipped by governance job environment defaults",
+      "fallbackPolicy": "block release promotion when govulncheck or gosec evidence is missing or marked skipped"
+    },
+    {
+      "job": "supply-chain",
+      "owner": "release-governance",
+      "localGate": "make supply-chain",
+      "requiredChecks": [
+        "supply-chain lint + OSV"
+      ],
+      "artifact": "api-compat-report",
+      "driftPolicy": "supply-chain must keep release artifact fixtures, public API compatibility skip governance, and OSV evidence aligned",
+      "fallbackPolicy": "block release promotion when API compatibility skip is forbidden but no report is uploaded"
+    },
+    {
+      "job": "codeql",
+      "owner": "security-governance",
+      "localGate": "GitHub CodeQL workflow",
+      "requiredChecks": [
+        "CodeQL security analysis"
+      ],
+      "artifact": "CodeQL code scanning result",
+      "driftPolicy": "hosted CodeQL evidence must stay listed as a branch-protection check and release prerequisite",
+      "fallbackPolicy": "block release promotion when hosted CodeQL evidence is unavailable for the tag"
+    },
+    {
+      "job": "dependency-upgrade-validation",
+      "owner": "dependency-governance",
+      "localGate": "make dependency-upgrade-check",
+      "requiredChecks": [
+        "dependency upgrade validation"
+      ],
+      "artifact": "dependency upgrade job summary",
+      "driftPolicy": "dependency upgrade validation may delegate Docker-backed coverage only when the required integration matrix owns the same affected families",
+      "fallbackPolicy": "run make dependency-upgrade-check with integration enabled or block release promotion when delegated integration evidence is missing"
+    },
+    {
+      "job": "contract-check",
+      "owner": "contract-governance",
+      "localGate": "make stable-surface-check",
+      "requiredChecks": [
+        "contract / api+rpc (check + breaking)"
+      ],
+      "artifact": "contract-check job logs",
+      "driftPolicy": "stable-surface and API/RPC contract checks must remain release-blocking for candidate and Tier 1 surfaces",
+      "fallbackPolicy": "block release promotion when stable-surface evidence or API/RPC breaking reports are missing"
+    },
+    {
+      "job": "governance",
+      "owner": "governance-platform",
+      "localGate": "make governance-10-rounds",
+      "requiredChecks": [
+        "governance gates"
+      ],
+      "artifact": "governance-skip-report",
+      "driftPolicy": "governance skips must remain explicit, release-blocking skips must be rejected on tags, and compensating gates must be documented",
+      "fallbackPolicy": "block release promotion when race, security, or generated control-plane smoke is skipped without release-safe compensation"
+    },
+    {
+      "job": "bench-fuzz",
+      "owner": "performance-governance",
+      "localGate": "make bench-evidence-check",
+      "requiredChecks": [
+        "bench + fuzz smoke"
+      ],
+      "artifact": "benchmark-smoke",
+      "driftPolicy": "benchmark evidence, smoke, regression, trend, and fuzz smoke ordering must remain stable before release evidence upload",
+      "fallbackPolicy": "block release promotion when benchmark evidence is missing or regression budget checks fail"
+    },
+    {
+      "job": "integration",
+      "owner": "integration-platform",
+      "localGate": "make integration-tests",
+      "requiredChecks": [
+        "integration tests (storage-mysql-postgres)",
+        "integration tests (config-consul-nacos-etcd)",
+        "integration tests (mq-brokers)",
+        "integration tests (gateway-transcode)"
+      ],
+      "artifact": "integration matrix job logs",
+      "driftPolicy": "integration matrix areas, package lists, required checks, and dependency-upgrade delegation must stay aligned",
+      "fallbackPolicy": "block release promotion when any integration matrix row is missing or package coverage drifts from Makefile"
+    },
+    {
+      "job": "docker",
+      "owner": "release-governance",
+      "localGate": "make docker",
+      "requiredChecks": [
+        "docker build + trivy"
+      ],
+      "artifact": "docker-trivy-evidence",
+      "driftPolicy": "Docker build evidence, Trivy results, release digest evidence, SBOM, and provenance attestation must remain release-consumable",
+      "fallbackPolicy": "block release promotion when Docker CI evidence or release Docker evidence is missing"
+    },
+    {
+      "job": "scorecard",
+      "owner": "security-governance",
+      "localGate": "OpenSSF Scorecard workflow",
+      "requiredChecks": [
+        "OSSF Scorecard"
+      ],
+      "artifact": "scorecard-results",
+      "driftPolicy": "Scorecard evidence must remain listed as a branch-protection check and release prerequisite",
+      "fallbackPolicy": "block release promotion when hosted Scorecard evidence is unavailable for the tag"
+    }
+  ],
   "schema": "gofly.ci_required_check_evidence.v1"
 }

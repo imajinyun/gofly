@@ -5,6 +5,7 @@ python3 - <<'PY'
 import pathlib
 import re
 import sys
+import json
 
 root = pathlib.Path(".").resolve()
 workflow_path = root / ".github" / "workflows" / "ci.yml"
@@ -12,6 +13,7 @@ checklist_path = root / "docs" / "operations" / "production-checklist.md"
 makefile_path = root / "Makefile"
 governance_script_path = root / "bin" / "scripts" / "governance-10-rounds.sh"
 agents_path = root / "AGENTS.md"
+required_check_manifest_path = root / "docs" / "reference" / "ci-required-check-evidence.json"
 
 expected_default_checks = {
     "build & test (go 1.26)",
@@ -153,6 +155,7 @@ release_artifacts_script = (root / "bin" / "scripts" / "check-release-artifacts.
 release_artifacts_test = (root / "bin" / "scripts" / "check-release-artifacts-test.sh").read_text(encoding="utf-8")
 public_api_script = (root / "bin" / "scripts" / "check-public-api.sh").read_text(encoding="utf-8")
 public_api_test = (root / "bin" / "scripts" / "check-public-api-test.sh").read_text(encoding="utf-8")
+required_check_manifest = json.loads(required_check_manifest_path.read_text(encoding="utf-8"))
 
 missing = []
 
@@ -333,6 +336,55 @@ require(
 require(
     release_needs <= job_ids,
     f"ci.yml: release needs unknown job id(s): {sorted(release_needs - job_ids)}",
+)
+
+manifest_checks = {
+    item.get("check"): item
+    for item in required_check_manifest.get("checks", [])
+    if isinstance(item, dict)
+}
+release_drift = required_check_manifest.get("releasePrerequisiteDrift")
+if not isinstance(release_drift, list):
+    missing.append("ci-required-check-evidence.json: releasePrerequisiteDrift must be a list")
+    release_drift = []
+release_drift_jobs = set()
+for item in release_drift:
+    if not isinstance(item, dict):
+        missing.append(f"releasePrerequisiteDrift entry must be an object: {item!r}")
+        continue
+    job = item.get("job", "")
+    if not job:
+        missing.append("releasePrerequisiteDrift job is required")
+    elif job in release_drift_jobs:
+        missing.append(f"duplicate releasePrerequisiteDrift job: {job}")
+    release_drift_jobs.add(job)
+    for field in (
+        "job",
+        "owner",
+        "localGate",
+        "requiredChecks",
+        "artifact",
+        "driftPolicy",
+        "fallbackPolicy",
+    ):
+        if not item.get(field):
+            missing.append(f"releasePrerequisiteDrift {job or '<missing>'}: {field} is required")
+    require(job in release_needs, f"releasePrerequisiteDrift {job}: job is not a release prerequisite")
+    required_checks = item.get("requiredChecks") or []
+    require(len(required_checks) >= 1, f"releasePrerequisiteDrift {job}: requiredChecks must not be empty")
+    for check in required_checks:
+        require(check in expected_default_checks, f"releasePrerequisiteDrift {job}: unknown required check {check!r}")
+        require(check in branch_audit_expected, f"releasePrerequisiteDrift {job}: check {check!r} is not branch-protected")
+        manifest_check = manifest_checks.get(check) or {}
+        require(manifest_check.get("job") == job, f"releasePrerequisiteDrift {job}: check {check!r} belongs to {manifest_check.get('job')!r}")
+        require(manifest_check.get("localGate") == item.get("localGate"), f"releasePrerequisiteDrift {job}: localGate mismatch for {check!r}")
+    require(any((manifest_checks.get(check) or {}).get("artifact") == item.get("artifact") for check in required_checks), f"releasePrerequisiteDrift {job}: artifact does not match required check evidence")
+    for field in ("driftPolicy", "fallbackPolicy"):
+        require(len(str(item.get(field) or "").split()) >= 10, f"releasePrerequisiteDrift {job}: {field} must be actionable")
+require(
+    release_drift_jobs == expected_release_needs,
+    "ci-required-check-evidence.json: releasePrerequisiteDrift jobs drifted: "
+    f"missing={sorted(expected_release_needs - release_drift_jobs)} extra={sorted(release_drift_jobs - expected_release_needs)}",
 )
 
 default_required_job_ids = expected_release_needs | {"dependency-review", "branch-protection-audit"}

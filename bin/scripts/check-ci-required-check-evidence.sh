@@ -58,6 +58,8 @@ expected_integration_matrix = {
     "observability-release": "governance gates",
 }
 
+expected_release_drift_jobs = expected_release_prerequisites
+
 
 def read_text(path):
     if not path.is_file():
@@ -246,6 +248,43 @@ for item in integration_matrix:
         require(len(str(item.get(field) or "").split()) >= 8, f"integrationMatrix {item_id}: {field} must be actionable")
 require(set(expected_integration_matrix) == integration_ids, f"integrationMatrix ids drifted: missing={sorted(set(expected_integration_matrix) - integration_ids)} extra={sorted(integration_ids - set(expected_integration_matrix))}")
 
+release_drift = manifest.get("releasePrerequisiteDrift")
+if not isinstance(release_drift, list):
+    missing.append("releasePrerequisiteDrift must be a list")
+    release_drift = []
+release_drift_jobs = set()
+for item in release_drift:
+    if not isinstance(item, dict):
+        missing.append(f"releasePrerequisiteDrift entry must be an object: {item!r}")
+        continue
+    job = item.get("job", "")
+    if not job:
+        missing.append("releasePrerequisiteDrift job is required")
+    elif job in release_drift_jobs:
+        missing.append(f"duplicate releasePrerequisiteDrift job: {job}")
+    release_drift_jobs.add(job)
+    for field in (
+        "job",
+        "owner",
+        "localGate",
+        "requiredChecks",
+        "artifact",
+        "driftPolicy",
+        "fallbackPolicy",
+    ):
+        require(bool(item.get(field)), f"releasePrerequisiteDrift {job or '<missing>'}: {field} is required")
+    require(job in manifest_prereqs, f"releasePrerequisiteDrift {job}: job is not a release prerequisite")
+    require(job in job_ids, f"releasePrerequisiteDrift {job}: job is missing from workflow")
+    for check in item.get("requiredChecks") or []:
+        require(check in actual_checks, f"releasePrerequisiteDrift {job}: required check {check!r} is not in checks")
+        matching = [entry for entry in checks if isinstance(entry, dict) and entry.get("check") == check]
+        if matching:
+            require(matching[0].get("job") == job, f"releasePrerequisiteDrift {job}: required check {check!r} belongs to {matching[0].get('job')!r}")
+            require(matching[0].get("localGate") == item.get("localGate"), f"releasePrerequisiteDrift {job}: localGate mismatch for {check!r}")
+    for field in ("driftPolicy", "fallbackPolicy"):
+        require(len(str(item.get(field) or "").split()) >= 10, f"releasePrerequisiteDrift {job}: {field} must be actionable")
+require(release_drift_jobs == expected_release_drift_jobs, f"releasePrerequisiteDrift jobs drifted: missing={sorted(expected_release_drift_jobs - release_drift_jobs)} extra={sorted(release_drift_jobs - expected_release_drift_jobs)}")
+
 for needle in [
     "expected_default_checks",
     "expected_release_needs",
@@ -261,6 +300,7 @@ for path_text, needles in {
         "make ci-required-check-evidence-check",
         "releasePrerequisites",
         "integrationMatrix",
+        "releasePrerequisiteDrift",
     ],
     "docs/index.md": ["reference/ci-required-check-evidence.md"],
     "README.md": ["docs/reference/ci-required-check-evidence.md"],

@@ -19,7 +19,7 @@ Start with the golden path, then use the module guides when you wire production 
 - [Quickstart](getting-started/quickstart.md) — run the golden-path production service.
 - [Installation](getting-started/installation.md) — install `gofly`, verify toolchain requirements, and choose local or CI usage.
 - [First service](getting-started/first-service.md) — understand the generated project layout and commands.
-- [Stable releases](releases/stable.md) — install and verify binary, Docker, checksum, and SBOM artifacts.
+- [Stable releases](releases/stable.md) — install and verify binary, Docker, checksum, SBOM, provenance, and release evidence index artifacts.
 
 ## Documentation model
 

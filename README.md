@@ -126,6 +126,7 @@ Run `gofly help` for the full command list.
 | 🧪 API example consistency | [docs/reference/api-example-consistency.md](docs/reference/api-example-consistency.md) |
 | 📊 Benchmark and coverage evidence | [docs/reference/benchmark-matrix.md](docs/reference/benchmark-matrix.md), [docs/reference/coverage-trend.md](docs/reference/coverage-trend.md), [bench/evidence.md](bench/evidence.md), [bench/README.md](bench/README.md) |
 | ✅ CI required checks | [docs/reference/ci-required-check-evidence.md](docs/reference/ci-required-check-evidence.md), [docs/operations/production-checklist.md](docs/operations/production-checklist.md) |
+| 🧾 Release evidence index | [docs/releases/evidence-index.json](docs/releases/evidence-index.json), [docs/releases/evidence-manifest.json](docs/releases/evidence-manifest.json) |
 | 📡 Runtime SLO evidence | [docs/reference/runtime-slo.md](docs/reference/runtime-slo.md), [docs/operations/observability.md](docs/operations/observability.md), [examples/observability](examples/observability) |
 | 🔁 Generated upgrade dry-run | [docs/reference/generated-upgrade-dry-run.md](docs/reference/generated-upgrade-dry-run.md) |
 | 📈 P1 growth roadmap | [docs/reference/p1-growth-roadmap.md](docs/reference/p1-growth-roadmap.md) |

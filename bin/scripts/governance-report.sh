@@ -117,9 +117,25 @@ def aiflow_queue():
 
 def release_evidence():
     manifest = read_json(root / "docs/releases/evidence-manifest.json") or {}
+    evidence_index = read_json(root / "docs/releases/evidence-index.json") or {}
+    evidence_items = evidence_index.get("evidence") or []
     return {
         "schema": manifest.get("schema", ""),
         "manifest": "docs/releases/evidence-manifest.json",
+        "indexSchema": evidence_index.get("schema", ""),
+        "index": "docs/releases/evidence-index.json",
+        "indexGate": "make release-evidence-index-check",
+        "evidenceCount": len(evidence_items),
+        "releaseRequiredCount": sum(
+            1
+            for item in evidence_items
+            if isinstance(item, dict) and item.get("releaseRequired") is True
+        ),
+        "stableIds": [
+            item.get("id", "")
+            for item in evidence_items
+            if isinstance(item, dict) and item.get("id")
+        ],
         "requiredCommand": (manifest.get("tag_governance") or {}).get("required_command", ""),
         "forbiddenSkips": (manifest.get("tag_governance") or {}).get("forbidden_skips", []),
         "artifacts": {
@@ -245,6 +261,7 @@ def docs_evidence():
         "docs/reference/generated-version-compat.md",
         "docs/reference/generated-upgrade-dry-run.md",
         "docs/releases/evidence-manifest.json",
+        "docs/releases/evidence-index.json",
         "docs/operations/troubleshooting.md",
     ]
     return [{"path": path, "status": status(path)} for path in required]
@@ -289,6 +306,7 @@ report = {
         "make stable-surface-check",
         "make generated-version-compat-check",
         "make generated-upgrade-dry-run-check",
+        "make release-evidence-index-check",
         "make bench-evidence-check",
         "make coverage-trend-check",
         "make ci-required-check-evidence-check",
@@ -314,6 +332,7 @@ md_lines = [
     f"- Coverage ratchet: `{report['coverage']['ratchet']}%`",
     f"- Benchmark evidence: `{report['benchmark']['evidenceStatus']}`",
     f"- Release evidence schema: `{report['release']['schema']}`",
+    f"- Release evidence index items: `{report['release']['evidenceCount']}`",
     f"- Generated upgrade dry-run profiles: `{report['generatedUpgradeDryRun']['profileCount']}`",
     "",
     "## API Surface",
@@ -378,6 +397,12 @@ if report["benchmark"]["evidenceStatus"] != "present":
     missing.append("benchmark evidence is missing")
 if report["release"]["schema"] != "gofly.release_evidence_manifest.v1":
     missing.append("release evidence manifest schema mismatch")
+if report["release"]["indexSchema"] != "gofly.release_evidence_index.v1":
+    missing.append("release evidence index schema mismatch")
+if report["release"]["evidenceCount"] < 12:
+    missing.append("release evidence index is incomplete")
+if report["release"]["releaseRequiredCount"] != report["release"]["evidenceCount"]:
+    missing.append("release evidence index contains non-required release item")
 if report["security"]["gosec"]["baselineSchema"] != "gofly.gosec_exception_baseline.v1":
     missing.append("gosec exception baseline schema mismatch")
 if report["aiflow"]["status"] == "present" and not report["aiflow"].get("summary"):

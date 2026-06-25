@@ -126,6 +126,47 @@ for item_id in required_evidence:
     if item_id not in seen:
         missing.append(f"evidence missing {item_id!r}")
 
+ownership = manifest.get("ownership")
+if not isinstance(ownership, list):
+    missing.append("ownership must be a list")
+    ownership = []
+required_ownership = {
+    "root-runtime-dependencies",
+    "generated-project-dependencies",
+    "toolchain-and-go-tools",
+    "docker-backed-integration-dependencies",
+}
+ownership_ids = set()
+for item in ownership:
+    if not isinstance(item, dict):
+        missing.append(f"ownership entry must be an object: {item!r}")
+        continue
+    item_id = item.get("id", "")
+    if not item_id:
+        missing.append("ownership id is required")
+    elif item_id in ownership_ids:
+        missing.append(f"duplicate ownership id: {item_id}")
+    ownership_ids.add(item_id)
+    for field in (
+        "id",
+        "owner",
+        "scope",
+        "allowedLocation",
+        "upgradeTrigger",
+        "requiredEvidence",
+        "integrationDelegation",
+        "rollbackGuidance",
+    ):
+        if not item.get(field):
+            missing.append(f"ownership {item_id or '<missing>'}: {field} is required")
+    evidence_refs = set(item.get("requiredEvidence") or [])
+    unknown_refs = evidence_refs - set(required_evidence)
+    if unknown_refs:
+        missing.append(f"ownership {item_id}: unknown requiredEvidence {sorted(unknown_refs)!r}")
+    for field in ("upgradeTrigger", "integrationDelegation", "rollbackGuidance"):
+        require(len(str(item.get(field) or "").split()) >= 8, f"ownership {item_id}: {field} must be actionable")
+require(ownership_ids == required_ownership, f"ownership ids drifted: missing={sorted(required_ownership - ownership_ids)} extra={sorted(ownership_ids - required_ownership)}")
+
 delegation = manifest.get("ciDelegation") or {}
 if delegation.get("job") != "dependency-upgrade-validation":
     missing.append("ciDelegation.job must be dependency-upgrade-validation")
@@ -157,6 +198,8 @@ docs = {
         "make dependency-upgrade-evidence-check",
         "DEPENDENCY_UPGRADE_RUN_INTEGRATION=false",
         "root-dependency-policy",
+        "ownership",
+        "generated-project-dependencies",
     ],
     root / "docs" / "operations" / "production-checklist.md": [
         "make dependency-upgrade-evidence-check",

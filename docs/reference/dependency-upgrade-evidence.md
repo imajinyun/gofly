@@ -43,3 +43,17 @@ discovery, MQ, and gateway packages.
 Root `go.mod` changes must also stay aligned with the root dependency policy so
 generated-project-only dependencies remain in generated projects rather than the
 framework root module.
+
+## Ownership
+
+The `ownership` section separates dependency classes by owner, allowed location,
+upgrade trigger, evidence, integration delegation, and rollback guidance. This
+keeps generated-project-only dependencies out of the root module while making
+runtime, toolchain, and Docker-backed integration ownership explicit.
+
+| Dependency class | Owner | Allowed location | Required evidence |
+| --- | --- | --- | --- |
+| `root-runtime-dependencies` | `runtime-governance` | root `go.mod` | module verification, vulnerability scan, root dependency policy |
+| `generated-project-dependencies` | `generator-governance` | generated project `go.mod` or isolated temporary module | module verification, root dependency policy |
+| `toolchain-and-go-tools` | `release-governance` | root `go.mod` tool directives and release configuration | module verification, vulnerability scan |
+| `docker-backed-integration-dependencies` | `integration-platform` | root `go.mod` only when imported by root packages | module verification, vulnerability scan, Docker-backed integration |

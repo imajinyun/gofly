@@ -43,5 +43,61 @@
       "requiredWhen": "root go.mod direct dependencies change"
     }
   ],
+  "ownership": [
+    {
+      "id": "root-runtime-dependencies",
+      "owner": "runtime-governance",
+      "scope": "direct dependencies imported by the gofly root module at runtime or by public packages",
+      "allowedLocation": "root go.mod",
+      "upgradeTrigger": "runtime, REST, RPC, gateway, cache, governance, observability, or CLI package imports change",
+      "requiredEvidence": [
+        "module-verification",
+        "vulnerability-scan",
+        "root-dependency-policy"
+      ],
+      "integrationDelegation": "run make integration-tests when the dependency affects storage, discovery, MQ, gateway, or observability behavior",
+      "rollbackGuidance": "revert the dependency version or pin the previous minor release when module verification, vulnerability scanning, or integration evidence fails"
+    },
+    {
+      "id": "generated-project-dependencies",
+      "owner": "generator-governance",
+      "scope": "dependencies required only by generated services, generated models, examples, or compatibility profiles",
+      "allowedLocation": "generated project go.mod or isolated temporary test module",
+      "upgradeTrigger": "template, profile, model, OpenAPI, RPC descriptor, or generated production service output changes",
+      "requiredEvidence": [
+        "module-verification",
+        "root-dependency-policy"
+      ],
+      "integrationDelegation": "use generated-project smoke or generated version compatibility gates instead of adding generated-only dependencies to the root module",
+      "rollbackGuidance": "pin the generator profile and keep the dependency in the generated project go.mod until generated compile smoke passes"
+    },
+    {
+      "id": "toolchain-and-go-tools",
+      "owner": "release-governance",
+      "scope": "Go tool directives, release tooling, security scanners, linters, and CI-only tools",
+      "allowedLocation": "root go.mod tool directives and release configuration",
+      "upgradeTrigger": "Go version, govulncheck, gosec, golangci-lint, goreleaser, SBOM, provenance, or release artifact tooling changes",
+      "requiredEvidence": [
+        "module-verification",
+        "vulnerability-scan"
+      ],
+      "integrationDelegation": "delegate Docker-backed coverage to required CI integration jobs unless the tool directly changes generated or runtime behavior",
+      "rollbackGuidance": "pin the previous tool directive or release configuration until local release snapshot and security evidence pass"
+    },
+    {
+      "id": "docker-backed-integration-dependencies",
+      "owner": "integration-platform",
+      "scope": "dependencies that affect storage drivers, discovery clients, MQ clients, gateway transcode, Docker images, or integration profiles",
+      "allowedLocation": "root go.mod only when imported by root packages; otherwise generated project go.mod or integration fixture module",
+      "upgradeTrigger": "storage, config, discovery, MQ, gateway, RPC, Docker, or integration profile dependencies change",
+      "requiredEvidence": [
+        "module-verification",
+        "vulnerability-scan",
+        "docker-backed-integration"
+      ],
+      "integrationDelegation": "CI may set DEPENDENCY_UPGRADE_RUN_INTEGRATION=false only when the required integration matrix covers the same affected family",
+      "rollbackGuidance": "pin the previous dependency and block release promotion when Docker-backed integration logs or required-check evidence are missing"
+    }
+  ],
   "schema": "gofly.dependency_upgrade_evidence.v1"
 }

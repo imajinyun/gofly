@@ -1,0 +1,54 @@
+{
+  "schema": "gofly.api_example_consistency.v1",
+  "surfaces": [
+    {
+      "surface": "rest",
+      "docs": "docs/guides/rest.md",
+      "example": "examples/restserver",
+      "packageExample": "rest/example_test.go",
+      "gate": "make examples-smoke"
+    },
+    {
+      "surface": "rpc",
+      "docs": "docs/guides/rpc.md",
+      "example": "examples/rpcserver",
+      "packageExample": "rpc/example_test.go",
+      "gate": "make examples-smoke"
+    },
+    {
+      "surface": "rpc-idl-matrix",
+      "docs": "docs/guides/rpc.md",
+      "example": "examples/rpc-idl-matrix",
+      "packageExample": "examples/rpc-idl-matrix/main_test.go",
+      "gate": "make examples-smoke"
+    },
+    {
+      "surface": "resilience",
+      "docs": "docs/reference/resilience-drill.md",
+      "example": "examples/resilience",
+      "packageExample": "examples/resilience/main_test.go",
+      "gate": "make resilience-drill-check"
+    },
+    {
+      "surface": "plugin-ecosystem",
+      "docs": "docs/reference/plugin-conformance.md",
+      "example": "examples/plugin-ecosystem",
+      "packageExample": "examples/plugin-ecosystem/main_test.go",
+      "gate": "make plugin-conformance-check"
+    },
+    {
+      "surface": "migration-proof",
+      "docs": "docs/explanation/adopter-decision-guide.md",
+      "example": "examples/migration-proof",
+      "packageExample": "examples/migration-proof/main_test.go",
+      "gate": "make examples-smoke"
+    },
+    {
+      "surface": "dependency-upgrade-evidence",
+      "docs": "docs/reference/dependency-upgrade-evidence.md",
+      "example": "docs/reference/dependency-upgrade-evidence.json",
+      "packageExample": "bin/scripts/check-dependency-upgrade-evidence.sh",
+      "gate": "make dependency-upgrade-evidence-check"
+    }
+  ]
+}

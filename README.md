@@ -121,6 +121,7 @@ Run `gofly help` for the full command list.
 | 🧭 From zero to production | [docs/tutorials/zero-to-production.md](docs/tutorials/zero-to-production.md) |
 | 🚀 Golden-path quickstart | [docs/getting-started/quickstart.md](docs/getting-started/quickstart.md) |
 | 🧩 API stability | [docs/reference/api-surface.md](docs/reference/api-surface.md), [docs/reference/compatibility.md](docs/reference/compatibility.md), [CLI JSON](docs/reference/cli-json-contracts.md), [control-plane](docs/reference/control-plane-contracts.md) |
+| 🧪 API example consistency | [docs/reference/api-example-consistency.md](docs/reference/api-example-consistency.md) |
 | 📊 Benchmark matrix | [docs/reference/benchmark-matrix.md](docs/reference/benchmark-matrix.md), [bench/evidence.md](bench/evidence.md), [bench/README.md](bench/README.md) |
 | 📈 P1 growth roadmap | [docs/reference/p1-growth-roadmap.md](docs/reference/p1-growth-roadmap.md) |
 | 🧭 Concepts | [docs/concepts/architecture.md](docs/concepts/architecture.md) |

@@ -23,6 +23,7 @@ required_artifacts = {
     "currentRaw": ("make bench-stat", "bench/current.txt"),
     "trendSummary": ("make bench-trend", "bench/summary.md"),
     "regressionReport": ("make bench-regression-check", "bench/regression-report.json"),
+    "budgetRatchet": ("make bench-regression-check", "bench/budget-ratchet.json"),
     "publicBaseline": ("make bench-baseline", "bench/evidence.md"),
 }
 for name, (command, path) in required_artifacts.items():
@@ -33,6 +34,8 @@ for name, (command, path) in required_artifacts.items():
         missing.append(f"{name} path = {item.get('path')!r}, want {path!r}")
 if (artifacts.get("regressionReport") or {}).get("schema") != "gofly.benchmark_regression_report.v1":
     missing.append("regressionReport schema must reference gofly.benchmark_regression_report.v1")
+if (artifacts.get("budgetRatchet") or {}).get("schema") != "gofly.benchmark_budget_ratchet.v1":
+    missing.append("budgetRatchet schema must reference gofly.benchmark_budget_ratchet.v1")
 
 release_rule = manifest.get("releaseRule") or {}
 for term in [
@@ -46,7 +49,7 @@ for term in [
 for area in ["REST", "RPC", "gateway", "governance", "OpenAPI", "code generation hot paths"]:
     if area not in release_rule.get("changedAreas", []):
         missing.append(f"releaseRule.changedAreas missing {area!r}")
-for note in ["include significant benchstat rows", "state allocation regression status", "state latency is report-only unless promoted by policy"]:
+for note in ["include significant benchstat rows", "state allocation regression status", "state latency ratchet status from bench/budget-ratchet.json"]:
     if note not in release_rule.get("notes", []):
         missing.append(f"releaseRule.notes missing {note!r}")
 
@@ -54,9 +57,10 @@ docs = {
     pathlib.Path("docs/reference/benchmark-matrix.md"): [
         "gofly.benchmark_publishing.v1",
         "bench/publishing.json",
+        "bench/budget-ratchet.json",
         "make bench-regression-check",
         "bench/regression-report.json",
-        "latency is report-only",
+        "gofly.benchmark_budget_ratchet.v1",
     ],
     pathlib.Path("docs/releases/stable.md"): [
         "bench/publishing.json",

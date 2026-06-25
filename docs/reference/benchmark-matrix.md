@@ -34,8 +34,11 @@ make bench-regression-check
 
 `make bench-regression-check` writes `bench/regression-report.json` with schema
 `gofly.benchmark_regression_report.v1`. Allocation regression is blocking for
-tracked HTTP hot-path rows; latency is report-only until the policy promotes it
-to a release-blocking metric.
+tracked HTTP hot-path rows. `bench/budget-ratchet.json` defines the
+`gofly.benchmark_budget_ratchet.v1` policy that promotes selected latency rows
+to release-blocking metrics while keeping the rest explicitly report-only.
+The first promoted rows are `BenchmarkHTTPOpenAPI/disabled` and
+`BenchmarkHTTPOpenAPI/enabled`.
 
 ## Run the benchmark suite
 

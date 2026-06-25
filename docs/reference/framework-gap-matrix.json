@@ -131,12 +131,14 @@
       "currentEvidence": [
         "docs/reference/performance-governance.md",
         "docs/reference/benchmark-matrix.md",
+        "bench/budget-ratchet.json",
         "bench/evidence.md",
-        "make bench-evidence-check"
+        "make bench-evidence-check",
+        "make bench-regression-check"
       ],
-      "gap": "Bench governance exists, but latency remains report-only in several areas while allocation regression is the first blocking budget.",
+      "gap": "Bench governance exists and selected OpenAPI latency rows are now blocking; the remaining latency-critical HTTP and RPC rows still need more trend confidence before promotion.",
       "priority": "P1",
-      "todo": "Promote selected hot-path latency budgets from report-only to blocking after trend confidence.",
+      "todo": "Continue promoting hot-path latency budgets from report-only to blocking as trend confidence grows.",
       "aiflowTask": "GOFLY-P3-FOLLOWUP-BENCH-BUDGET-RATCHET",
       "acceptanceGate": "make bench-regression-check"
     },

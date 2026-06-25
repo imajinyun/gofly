@@ -10,7 +10,7 @@
 #   bash bin/scripts/benchstat.sh --baseline   # refresh bench/baseline.txt and bench/evidence.md
 #   bash bin/scripts/benchstat.sh --evidence   # write bench/evidence.md from bench/baseline.txt
 #   bash bin/scripts/benchstat.sh --check-evidence # validate tracked benchmark evidence
-#   bash bin/scripts/benchstat.sh --regression-check # block HTTP hot-path allocs/op regressions
+#   bash bin/scripts/benchstat.sh --regression-check # block HTTP hot-path budget regressions
 
 set -eu
 
@@ -24,6 +24,7 @@ SUMMARY_FILE="${BENCH_DIR}/summary.md"
 MATRIX_FILE="${BENCH_DIR}/matrix.md"
 EVIDENCE_FILE="${BENCH_DIR}/evidence.md"
 REGRESSION_REPORT_FILE="${BENCH_DIR}/regression-report.json"
+RATCHET_FILE="${BENCH_DIR}/budget-ratchet.json"
 BENCH_ALLOC_REGRESSION_TOLERANCE="${BENCH_ALLOC_REGRESSION_TOLERANCE:-0}"
 
 # Package that contains the reproducible benchmark matrix and public artifacts.
@@ -204,7 +205,7 @@ check_regression() {
 		exit 1
 	fi
 	mkdir -p "$BENCH_DIR"
-	python3 - "$BASELINE_FILE" "$CURRENT_FILE" "$REGRESSION_REPORT_FILE" "$BENCH_ALLOC_REGRESSION_TOLERANCE" <<'PY'
+	python3 - "$BASELINE_FILE" "$CURRENT_FILE" "$REGRESSION_REPORT_FILE" "$RATCHET_FILE" "$BENCH_ALLOC_REGRESSION_TOLERANCE" <<'PY'
 import json
 import re
 import statistics
@@ -214,21 +215,20 @@ from pathlib import Path
 baseline_path = Path(sys.argv[1])
 current_path = Path(sys.argv[2])
 report_path = Path(sys.argv[3])
-alloc_tolerance = float(sys.argv[4])
+ratchet_path = Path(sys.argv[4])
+alloc_tolerance = float(sys.argv[5])
 
 line_re = re.compile(
     r"^(Benchmark\S+)-\d+\s+\d+\s+([0-9.]+)\s+ns/op\s+([0-9.]+)\s+B/op\s+([0-9.]+)\s+allocs/op$"
 )
 
-tracked = {
-    "BenchmarkHTTPHello/gofly",
-    "BenchmarkHTTPPathParams/gofly",
-    "BenchmarkHTTPJSONBinding/gofly",
-    "BenchmarkHTTPMiddlewareChain/gofly",
-    "BenchmarkHTTPOpenAPI/disabled",
-    "BenchmarkHTTPOpenAPI/enabled",
-    "BenchmarkHTTPGovernance/disabled",
-    "BenchmarkHTTPGovernance/enabled",
+ratchet = json.loads(ratchet_path.read_text(encoding="utf-8"))
+tracked = set(ratchet.get("trackedBenchmarks") or [])
+latency_policy = ratchet.get("latencyPolicy") or {}
+promoted_latency = {
+    item.get("benchmark", ""): item
+    for item in latency_policy.get("promoted") or []
+    if isinstance(item, dict) and item.get("benchmark")
 }
 
 
@@ -272,32 +272,54 @@ for name in sorted(tracked):
     current_samples = current[name]
     base_allocs = median([sample["allocsPerOp"] for sample in base_samples])
     current_allocs = median([sample["allocsPerOp"] for sample in current_samples])
+    base_ns = median([sample["nsPerOp"] for sample in base_samples])
+    current_ns = median([sample["nsPerOp"] for sample in current_samples])
     alloc_budget = base_allocs + alloc_tolerance
+    latency_rule = promoted_latency.get(name)
+    latency_mode = latency_rule.get("mode", latency_policy.get("defaultMode", "report-only")) if latency_rule else latency_policy.get("defaultMode", "report-only")
+    latency_budget = None
+    latency_passed = True
+    if latency_mode == "blocking":
+        minimum_samples = int(latency_rule.get("minimumBaselineSamples") or 1)
+        max_ratio = float(latency_rule.get("maxRegressionRatio") or 1)
+        latency_budget = base_ns * max_ratio
+        latency_passed = len(base_samples) >= minimum_samples and current_ns <= latency_budget
     row = {
         "benchmark": name,
         "baseline": {
             "samples": len(base_samples),
-            "nsPerOpMedian": median([sample["nsPerOp"] for sample in base_samples]),
+            "nsPerOpMedian": base_ns,
             "bytesPerOpMedian": median([sample["bytesPerOp"] for sample in base_samples]),
             "allocsPerOpMedian": base_allocs,
         },
         "current": {
             "samples": len(current_samples),
-            "nsPerOpMedian": median([sample["nsPerOp"] for sample in current_samples]),
+            "nsPerOpMedian": current_ns,
             "bytesPerOpMedian": median([sample["bytesPerOp"] for sample in current_samples]),
             "allocsPerOpMedian": current_allocs,
         },
         "budget": {
             "allocsPerOpMax": alloc_budget,
             "allocTolerance": alloc_tolerance,
-            "latencyMode": "report-only",
+            "latencyMode": latency_mode,
+            "nsPerOpMax": latency_budget,
         },
-        "status": "passed" if current_allocs <= alloc_budget else "failed",
+        "status": "passed" if current_allocs <= alloc_budget and latency_passed else "failed",
     }
-    if row["status"] == "failed":
+    if current_allocs > alloc_budget:
         failures.append(
             f"{name}: allocs/op median {current_allocs:g} exceeds budget {alloc_budget:g}"
         )
+    if not latency_passed:
+        if len(base_samples) < int(latency_rule.get("minimumBaselineSamples") or 1):
+            failures.append(
+                f"{name}: latency budget requires at least "
+                f"{int(latency_rule.get('minimumBaselineSamples') or 1)} baseline samples"
+            )
+        else:
+            failures.append(
+                f"{name}: ns/op median {current_ns:g} exceeds budget {latency_budget:g}"
+            )
     rows.append(row)
 
 if missing:
@@ -309,7 +331,10 @@ report = {
     "policy": {
         "scope": "HTTP hot-path gofly rows",
         "blockingMetric": "allocs/op median",
-        "latencyMode": "report-only",
+        "ratchet": str(ratchet_path),
+        "ratchetSchema": ratchet.get("schema", ""),
+        "latencyMode": latency_policy.get("defaultMode", "report-only"),
+        "latencyBlockingBenchmarks": sorted(promoted_latency),
         "allocTolerance": alloc_tolerance,
     },
     "baselineFile": str(baseline_path),

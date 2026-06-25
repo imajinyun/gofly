@@ -129,7 +129,7 @@ bench-publish-check: ## Validate the benchmark publishing manifest contract
 	sh $(SCRIPTS_DIR)/check-benchmark-publishing.sh
 
 .PHONY: bench-regression-check
-bench-regression-check: perf-governance-check ## Block HTTP hot-path allocation regressions against bench/baseline.txt
+bench-regression-check: perf-governance-check ## Block HTTP hot-path budget regressions against bench/baseline.txt
 	bash $(SCRIPTS_DIR)/benchstat.sh --regression-check
 
 .PHONY: bench-compare

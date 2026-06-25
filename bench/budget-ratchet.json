@@ -1,0 +1,55 @@
+{
+  "acceptanceGate": "make bench-regression-check",
+  "allocationPolicy": {
+    "blocking": true,
+    "metric": "allocs/op median",
+    "tolerance": 0
+  },
+  "latencyPolicy": {
+    "defaultMode": "report-only",
+    "promoted": [
+      {
+        "benchmark": "BenchmarkHTTPOpenAPI/disabled",
+        "maxRegressionRatio": 1.05,
+        "minimumBaselineSamples": 5,
+        "mode": "blocking",
+        "reason": "OpenAPI disabled route metadata has stable five-sample baseline evidence and current smoke is below baseline."
+      },
+      {
+        "benchmark": "BenchmarkHTTPOpenAPI/enabled",
+        "maxRegressionRatio": 1.05,
+        "minimumBaselineSamples": 5,
+        "mode": "blocking",
+        "reason": "OpenAPI enabled route metadata has stable five-sample baseline evidence and current smoke is below baseline."
+      }
+    ],
+    "reportOnly": [
+      "BenchmarkHTTPHello/gofly",
+      "BenchmarkHTTPPathParams/gofly",
+      "BenchmarkHTTPJSONBinding/gofly",
+      "BenchmarkHTTPMiddlewareChain/gofly",
+      "BenchmarkHTTPGovernance/disabled",
+      "BenchmarkHTTPGovernance/enabled"
+    ]
+  },
+  "schema": "gofly.benchmark_budget_ratchet.v1",
+  "schemaContract": {
+    "requiredFields": [
+      "schema",
+      "acceptanceGate",
+      "allocationPolicy",
+      "latencyPolicy"
+    ],
+    "version": "1"
+  },
+  "trackedBenchmarks": [
+    "BenchmarkHTTPHello/gofly",
+    "BenchmarkHTTPPathParams/gofly",
+    "BenchmarkHTTPJSONBinding/gofly",
+    "BenchmarkHTTPMiddlewareChain/gofly",
+    "BenchmarkHTTPOpenAPI/disabled",
+    "BenchmarkHTTPOpenAPI/enabled",
+    "BenchmarkHTTPGovernance/disabled",
+    "BenchmarkHTTPGovernance/enabled"
+  ]
+}

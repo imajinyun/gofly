@@ -72,7 +72,7 @@ Validate that the tracked baseline, matrix, and evidence are complete and do not
 make bench-evidence-check
 ```
 
-Block HTTP hot-path allocation regressions against `bench/baseline.txt` after a current run:
+Block HTTP hot-path budget regressions against `bench/baseline.txt` after a current run. The budget gate always blocks allocation regressions and also blocks latency regressions for rows promoted in `bench/budget-ratchet.json`:
 
 ```sh
 make bench-smoke

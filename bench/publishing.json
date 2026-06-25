@@ -16,6 +16,12 @@
       "schema": "gofly.benchmark_regression_report.v1",
       "tracked": false
     },
+    "budgetRatchet": {
+      "command": "make bench-regression-check",
+      "path": "bench/budget-ratchet.json",
+      "schema": "gofly.benchmark_budget_ratchet.v1",
+      "tracked": true
+    },
     "trendSummary": {
       "command": "make bench-trend",
       "path": "bench/summary.md",
@@ -41,7 +47,7 @@
       "include significant benchstat rows",
       "state environment from bench/evidence.md",
       "state allocation regression status",
-      "state latency is report-only unless promoted by policy"
+      "state latency ratchet status from bench/budget-ratchet.json"
     ]
   },
   "schema": "gofly.benchmark_publishing.v1"

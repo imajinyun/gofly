@@ -21,10 +21,15 @@ benchmark or pprof evidence first.
 
 `make bench-trend` produces the current trend artifact. The regression budget is
 enforced by `make bench-regression-check`, which upgrades HTTP hot-path
-allocation drift from review guidance to a blocking gate:
+allocation drift and selected latency drift from review guidance to blocking
+gates:
 
 - `allocs/op` median is blocking for the tracked `gofly` HTTP rows;
-- latency remains report-only until enough cross-run history exists;
+- latency defaults to report-only, with promoted rows defined in
+  `bench/budget-ratchet.json`;
+- `BenchmarkHTTPOpenAPI/disabled` and `BenchmarkHTTPOpenAPI/enabled` are the
+  first blocking latency rows because they have five-sample baseline history
+  and current smoke evidence below baseline;
 - governance overhead allocation growth must have a linked feature and baseline
   refresh rationale;
 - any optimization must cite the benchmark or pprof signal that motivated it.

@@ -441,6 +441,149 @@ func TestContextErrorWritesBindingFailuresAsInvalidArgument_BitsUT(t *testing.T)
 	}
 }
 
+func TestOpenAPIValidationEnvelopeRuntimeGolden_BitsUT(t *testing.T) {
+	type createOrderRequest struct {
+		Tenant   string   `header:"X-Tenant" validate:"required"`
+		ID       int      `path:"id" validate:"min=1"`
+		Page     int      `query:"page" validate:"min=1,max=100"`
+		SKU      string   `json:"sku" validate:"required,min=3,max=64"`
+		Status   string   `json:"status" validate:"oneof=pending paid canceled"`
+		Quantity int      `json:"quantity" validate:"min=1,max=100"`
+		Labels   []string `json:"labels" validate:"min=1,max=3"`
+	}
+
+	tests := []struct {
+		name      string
+		method    string
+		target    string
+		pathValue string
+		header    string
+		body      string
+		validator Validator
+		wantText  string
+		wantField string
+		wantRule  string
+	}{
+		{
+			name:      "path parse failure",
+			method:    http.MethodPost,
+			target:    "/orders/not-int?page=1",
+			pathValue: "not-int",
+			header:    "tenant-a",
+			body:      `{"sku":"ABC","status":"pending","quantity":1,"labels":["new"]}`,
+			wantText:  "bind path field ID",
+		},
+		{
+			name:      "query tag validation failure",
+			method:    http.MethodPost,
+			target:    "/orders/7?page=0",
+			pathValue: "7",
+			header:    "tenant-a",
+			body:      `{"sku":"ABC","status":"pending","quantity":1,"labels":["new"]}`,
+			wantText:  "field Page failed min=1 validation",
+			wantField: "Page",
+			wantRule:  "min=1",
+		},
+		{
+			name:      "header tag validation failure",
+			method:    http.MethodPost,
+			target:    "/orders/7?page=1",
+			pathValue: "7",
+			body:      `{"sku":"ABC","status":"pending","quantity":1,"labels":["new"]}`,
+			wantText:  "field Tenant failed required validation",
+			wantField: "Tenant",
+			wantRule:  "required",
+		},
+		{
+			name:      "body schema decode failure",
+			method:    http.MethodPost,
+			target:    "/orders/7?page=1",
+			pathValue: "7",
+			header:    "tenant-a",
+			body:      `{"sku":"ABC","status":"pending","quantity":"many","labels":["new"]}`,
+			wantText:  "decode json body",
+		},
+		{
+			name:      "body tag enum validation failure",
+			method:    http.MethodPost,
+			target:    "/orders/7?page=1",
+			pathValue: "7",
+			header:    "tenant-a",
+			body:      `{"sku":"ABC","status":"shipped","quantity":1,"labels":["new"]}`,
+			wantText:  "field Status failed oneof=pending paid canceled validation",
+			wantField: "Status",
+			wantRule:  "oneof=pending paid canceled",
+		},
+		{
+			name:      "validator adapter field failure",
+			method:    http.MethodPost,
+			target:    "/orders/7?page=1",
+			pathValue: "7",
+			header:    "tenant-a",
+			body:      `{"sku":"BLOCKED","status":"pending","quantity":1,"labels":["new"]}`,
+			validator: ValidatorFunc(func(value any) error {
+				req, ok := value.(*createOrderRequest)
+				if !ok || req.SKU != "BLOCKED" {
+					return nil
+				}
+				return ValidationFailures{{Field: "sku", Rule: "reserved", Message: "sku is reserved"}}
+			}),
+			wantText:  "sku is reserved",
+			wantField: "sku",
+			wantRule:  "reserved",
+		},
+	}
+
+	s := MustNewServer(Config{})
+	s.AddRoute(Route{Method: http.MethodPost, Path: "/orders/{id}", Handler: func(ctx *Context) {
+		for _, tt := range tests {
+			if ctx.Request.Header.Get("X-Test-Case") == tt.name {
+				ctx.Validator = tt.validator
+				break
+			}
+		}
+		var req createOrderRequest
+		if err := ctx.BindRequest(&req); err != nil {
+			ctx.Error(err)
+			return
+		}
+		ctx.JSON(http.StatusOK, req)
+	}})
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(tt.method, tt.target, strings.NewReader(tt.body))
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("X-Test-Case", tt.name)
+			if tt.header != "" {
+				req.Header.Set("X-Tenant", tt.header)
+			}
+			req.SetPathValue("id", tt.pathValue)
+			rec := httptest.NewRecorder()
+			s.Handler().ServeHTTP(rec, req)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400, body = %s", rec.Code, rec.Body.String())
+			}
+			var got ErrorResponse
+			if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+				t.Fatalf("decode rest.ErrorResponse: %v", err)
+			}
+			if got.Code != coreerrors.CodeInvalidArgument || got.Status != http.StatusBadRequest || !strings.Contains(got.Text, tt.wantText) {
+				t.Fatalf("rest.ErrorResponse = %#v, want invalid_argument status 400 text containing %q", got, tt.wantText)
+			}
+			if tt.wantField == "" {
+				if len(got.Fields) != 0 {
+					t.Fatalf("fields = %#v, want no field-level failures for parse/decode error", got.Fields)
+				}
+				return
+			}
+			if len(got.Fields) != 1 || got.Fields[0].Field != tt.wantField || got.Fields[0].Rule != tt.wantRule {
+				t.Fatalf("fields = %#v, want %s/%s", got.Fields, tt.wantField, tt.wantRule)
+			}
+		})
+	}
+}
+
 func TestValidateRejectsRequiredAndRange(t *testing.T) {
 	type request struct {
 		Name string `validate:"required"`

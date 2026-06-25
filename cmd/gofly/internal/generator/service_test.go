@@ -463,8 +463,15 @@ func TestGeneratedServiceOpenAPIValidationEnvelopeContract_BitsUT(t *testing.T) 
 		t.Fatal(err)
 	}
 	for _, want := range []string{
+		"func TestGeneratedProductionServiceSmoke(t *testing.T)",
+		"waitOpenAPI(t, ctx, \"http://\"+restAddr+\"/openapi.json\", &output)",
+		"assertInvalidRequestEnvelope(t)",
+		"func assertInvalidRequestEnvelope(t *testing.T)",
 		"invalid request",
 		"rest.ErrorResponse",
+		"rest.WriteError(rec, coreerrors.New(coreerrors.CodeInvalidArgument, \"invalid request\"))",
+		"envelope.Code != coreerrors.CodeInvalidArgument",
+		"envelope.Status != http.StatusBadRequest",
 		"OpenAPI",
 		"/openapi.json",
 	} {

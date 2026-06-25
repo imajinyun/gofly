@@ -279,3 +279,111 @@ func TestOpenAPIExportsDefaultErrorResponses_BitsUT(t *testing.T) {
 		t.Fatal("OpenAPI reused mutable route response map")
 	}
 }
+
+func TestOpenAPIValidationEnvelopeSchemaGolden_BitsUT(t *testing.T) {
+	type createOrderRequest struct {
+		Tenant   string   `json:"-" header:"X-Tenant" validate:"required"`
+		ID       int      `json:"-" path:"id" validate:"min=1"`
+		Page     int      `json:"-" query:"page" validate:"min=1,max=100"`
+		SKU      string   `json:"sku" validate:"required,min=3,max=64"`
+		Status   string   `json:"status" validate:"oneof=pending paid canceled"`
+		Quantity int      `json:"quantity" validate:"min=1,max=100"`
+		Labels   []string `json:"labels" validate:"min=1,max=3"`
+	}
+
+	bodySchema := StructSchema(createOrderRequest{})
+	parameters := []Parameter{
+		{Name: "page", In: "query", Required: true, Schema: IntegerSchema()},
+		{Name: "X-Tenant", In: "header", Required: true, Schema: StringSchema()},
+	}
+	responses := DefaultErrorResponses()
+	responses["201"] = JSONResponse("Created", StructSchema(struct {
+		ID string `json:"id" validate:"required"`
+	}{}))
+	s := MustNewServer(Config{Name: "orders"})
+	s.AddRoute(Route{
+		Method:      http.MethodPost,
+		Path:        "/orders/{id}",
+		OperationID: "createOrder",
+		Tags:        []string{"orders"},
+		Parameters:  parameters,
+		RequestBody: JSONBodySchema(bodySchema, true),
+		Responses:   responses,
+		Handler:     func(ctx *Context) { ctx.String(http.StatusCreated, "created") },
+	})
+
+	op := s.OpenAPI(OpenAPIInfo{Version: "1.0.0"}).Paths["/orders/{id}"]["post"]
+	if len(op.Tags) != 1 || op.Tags[0] != "orders" || op.OperationID != "createOrder" {
+		t.Fatalf("operation metadata = %#v, want orders tag and createOrder operation id", op)
+	}
+	assertParameter := func(name string, in string) Parameter {
+		t.Helper()
+		for _, parameter := range op.Parameters {
+			if parameter.Name == name && parameter.In == in {
+				if !parameter.Required {
+					t.Fatalf("%s parameter required = false, want true", name)
+				}
+				return parameter
+			}
+		}
+		t.Fatalf("parameters = %#v, missing %s %s parameter", op.Parameters, in, name)
+		return Parameter{}
+	}
+	if assertParameter("id", "path").Schema.Type != "string" {
+		t.Fatalf("path id parameter = %#v, want string schema", assertParameter("id", "path"))
+	}
+	if assertParameter("page", "query").Schema.Type != "integer" {
+		t.Fatalf("query page parameter = %#v, want integer schema", assertParameter("page", "query"))
+	}
+	if assertParameter("X-Tenant", "header").Schema.Type != "string" {
+		t.Fatalf("header tenant parameter = %#v, want string schema", assertParameter("X-Tenant", "header"))
+	}
+
+	if op.RequestBody == nil || !op.RequestBody.Required {
+		t.Fatalf("request body = %#v, want required body", op.RequestBody)
+	}
+	schema := op.RequestBody.Content["application/json"].Schema
+	for _, required := range []string{"sku"} {
+		if !containsString(schema.Required, required) {
+			t.Fatalf("body required = %#v, want %s", schema.Required, required)
+		}
+	}
+	sku := schema.Properties["sku"]
+	if sku.MinLength == nil || *sku.MinLength != 3 || sku.MaxLength == nil || *sku.MaxLength != 64 {
+		t.Fatalf("sku schema = %#v, want min/max length", sku)
+	}
+	status := schema.Properties["status"]
+	if len(status.Enum) != 3 || status.Enum[0] != "pending" || status.Enum[2] != "canceled" {
+		t.Fatalf("status schema = %#v, want oneof enum", status)
+	}
+	quantity := schema.Properties["quantity"]
+	if quantity.Minimum == nil || *quantity.Minimum != 1 || quantity.Maximum == nil || *quantity.Maximum != 100 {
+		t.Fatalf("quantity schema = %#v, want min/max numeric range", quantity)
+	}
+	labels := schema.Properties["labels"]
+	if labels.MinItems == nil || *labels.MinItems != 1 || labels.MaxItems == nil || *labels.MaxItems != 3 {
+		t.Fatalf("labels schema = %#v, want min/max item range", labels)
+	}
+	if _, ok := schema.Properties["Tenant"]; ok {
+		t.Fatalf("body schema included header-only field: %#v", schema.Properties)
+	}
+
+	errorSchema := op.Responses["400"].Content["application/json"].Schema
+	for _, property := range []string{"code", "text", "message", "status", "fields"} {
+		if _, ok := errorSchema.Properties[property]; !ok {
+			t.Fatalf("400 rest.ErrorResponse schema properties = %#v, missing %s", errorSchema.Properties, property)
+		}
+	}
+	if errorSchema.Properties["fields"].Items.Properties["message"].Type != "string" {
+		t.Fatalf("validation field schema = %#v, want message string", errorSchema.Properties["fields"])
+	}
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}

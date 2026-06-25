@@ -93,3 +93,17 @@ Attach raw benchmark output, the generated trend summary, and
 `bench/regression-report.json` to release notes. `bench/publishing.json`
 defines the `gofly.benchmark_publishing.v1` machine-readable publishing
 contract for release automation. See [Benchmark Matrix Reference](../reference/benchmark-matrix.md).
+
+## Fuzz Robustness Evidence
+
+Before tagging a release that changes parser or REST binding behavior:
+
+```sh
+make fuzz-robustness-check
+make fuzz-smoke
+```
+
+`make fuzz-robustness-check` validates the `gofly.fuzz_robustness.v1`
+manifest, existing fuzz targets, CI smoke commands, and release documentation.
+`make fuzz-smoke` runs bounded 20-second fuzz smoke coverage for `.api` parser,
+`.proto` parser, JSON binding, and query binding surfaces.

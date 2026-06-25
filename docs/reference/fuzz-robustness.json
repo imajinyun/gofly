@@ -1,0 +1,41 @@
+{
+  "releaseRule": {
+    "blockingCheck": "make fuzz-robustness-check",
+    "smokeCheck": "make fuzz-smoke",
+    "surfaces": [
+      "parser",
+      "REST binding"
+    ]
+  },
+  "schema": "gofly.fuzz_robustness.v1",
+  "targets": [
+    {
+      "file": "cmd/gofly/internal/generator/parser_fuzz_test.go",
+      "name": "FuzzParseAPI",
+      "package": "./cmd/gofly/internal/generator/",
+      "smokeCommand": "go test -run=Fuzz -fuzz=FuzzParseAPI -fuzztime=20s ./cmd/gofly/internal/generator/",
+      "surface": "parser"
+    },
+    {
+      "file": "cmd/gofly/internal/generator/parser_fuzz_test.go",
+      "name": "FuzzParseProto",
+      "package": "./cmd/gofly/internal/generator/",
+      "smokeCommand": "go test -run=Fuzz -fuzz=FuzzParseProto -fuzztime=20s ./cmd/gofly/internal/generator/",
+      "surface": "parser"
+    },
+    {
+      "file": "rest/binding_fuzz_test.go",
+      "name": "FuzzBindJSON",
+      "package": "./rest/",
+      "smokeCommand": "go test -run=Fuzz -fuzz=FuzzBindJSON -fuzztime=20s ./rest/",
+      "surface": "REST binding"
+    },
+    {
+      "file": "rest/binding_fuzz_test.go",
+      "name": "FuzzBindQuery",
+      "package": "./rest/",
+      "smokeCommand": "go test -run=Fuzz -fuzz=FuzzBindQuery -fuzztime=20s ./rest/",
+      "surface": "REST binding"
+    }
+  ]
+}

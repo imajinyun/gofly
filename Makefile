@@ -224,7 +224,7 @@ examples-smoke: ## Run runnable example smoke tests and machine-readable output 
 	sh $(SCRIPTS_DIR)/examples-smoke.sh
 
 .PHONY: docs-check
-docs-check: docs-link-check docs-taxonomy-check migration-docs-check p1-growth-check community-growth-check contract-docs-check dx-troubleshooting-check governance-report-check doc-manifest-sync-check required-checks-drift-check ## Compile Go code blocks in Markdown docs
+docs-check: docs-link-check docs-taxonomy-check migration-docs-check p1-growth-check community-growth-check contract-docs-check dx-troubleshooting-check governance-report-check fuzz-robustness-check doc-manifest-sync-check required-checks-drift-check ## Compile Go code blocks in Markdown docs
 	$(GO) env GOMOD >/dev/null
 	sh $(SCRIPTS_DIR)/check-doc-go-snippets.sh
 
@@ -279,6 +279,17 @@ governance-report: ## Write the machine-readable governance dashboard JSON and M
 .PHONY: governance-report-check
 governance-report-check: ## Validate the governance dashboard report contract
 	GOVERNANCE_REPORT_CHECK=true sh $(SCRIPTS_DIR)/governance-report.sh
+
+.PHONY: fuzz-robustness-check
+fuzz-robustness-check: ## Validate fuzz target coverage and bounded fuzz smoke commands
+	sh $(SCRIPTS_DIR)/check-fuzz-robustness.sh
+
+.PHONY: fuzz-smoke
+fuzz-smoke: ## Run bounded fuzz smoke for public parser and REST binding surfaces
+	$(GO) test -run=Fuzz -fuzz=FuzzParseAPI -fuzztime=20s ./cmd/gofly/internal/generator/
+	$(GO) test -run=Fuzz -fuzz=FuzzParseProto -fuzztime=20s ./cmd/gofly/internal/generator/
+	$(GO) test -run=Fuzz -fuzz=FuzzBindJSON -fuzztime=20s ./rest/
+	$(GO) test -run=Fuzz -fuzz=FuzzBindQuery -fuzztime=20s ./rest/
 
 .PHONY: stable-surface-check
 stable-surface-check: ## Validate v1 candidate stable surface evidence

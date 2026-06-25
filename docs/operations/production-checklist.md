@@ -17,6 +17,8 @@ make ci
 make test-generated-matrix
 make generated-control-plane-smoke
 make bench-smoke
+make fuzz-robustness-check
+make fuzz-smoke
 ```
 
 Before publishing a tag release, also run a local release snapshot when GoReleaser is available:
@@ -35,7 +37,7 @@ Treat these GitHub Actions jobs as branch-protection required checks for the def
 - `dependency upgrade validation` for dependency PRs; it runs `go mod verify` and `govulncheck` when `go.mod` or `go.sum` changes, while Docker-backed coverage is provided by the required `integration tests (...)` matrix.
 - `branch protection required-check audit` to detect drift between the configured default-branch protection checks and this checklist.
 - `platform smoke (macos-latest)` and `platform smoke (windows-latest)` for cross-platform CLI/package smoke coverage.
-- `contract / api+rpc (check + breaking)`, `governance gates`, and `bench + fuzz smoke` for compatibility, governance, performance-smoke, and fuzz coverage.
+- `contract / api+rpc (check + breaking)`, `governance gates`, and `bench + fuzz smoke` for compatibility, governance, performance-smoke, and fuzz coverage. `make fuzz-robustness-check` keeps parser and REST binding fuzz targets synchronized with the required CI smoke commands.
 - `integration tests (storage-mysql-postgres)`, `integration tests (config-consul-nacos-etcd)`, `integration tests (mq-brokers)`, and `integration tests (gateway-transcode)` for Docker-backed subsystem coverage.
 - `docker build + trivy` and `OSSF Scorecard` for container scan evidence and supply-chain posture.
 - `release (tagged)` for tag releases; it must depend on all tag-applicable pre-release jobs and upload release, Docker digest, Trivy, SBOM, and attestation verification evidence.

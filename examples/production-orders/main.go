@@ -3,6 +3,7 @@
 //   - REST API accepts order creation requests
 //   - RPC service reserves inventory
 //   - profile config and memory discovery provide runtime wiring
+//   - Docker-backed topology wires SQL outbox, Redis cache, MQ, discovery and OTel endpoints
 //   - limiter, retry and breaker protect downstream calls
 //   - saga compensates partially completed business steps
 //   - outbox relays committed events into an in-memory MQ worker
@@ -65,6 +66,22 @@ type serviceConfig struct {
 		RateLimit int `json:"rate_limit"`
 		Burst     int `json:"burst"`
 	} `json:"resilience"`
+}
+
+type topologyMode string
+
+const (
+	topologyMemory topologyMode = "memory"
+	topologyDocker topologyMode = "docker"
+)
+
+type productionTopology struct {
+	Mode          topologyMode `json:"mode"`
+	SQLOutbox     string       `json:"sql_outbox"`
+	Cache         string       `json:"cache"`
+	MQ            []string     `json:"mq"`
+	Discovery     []string     `json:"discovery"`
+	Observability string       `json:"observability"`
 }
 
 type createOrderRequest struct {
@@ -131,8 +148,17 @@ func main() {
 	defer stop()
 
 	cfg := mustLoadConfig()
+	topology := loadProductionTopology()
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	slog.SetDefault(logger)
+	slog.Info("reference app topology",
+		"mode", topology.Mode,
+		"sql_outbox", topology.SQLOutbox,
+		"cache", topology.Cache,
+		"mq", topology.MQ,
+		"discovery", topology.Discovery,
+		"observability", topology.Observability,
+	)
 
 	registry := metrics.NewRegistry()
 	obs := observability.NewObserve(observability.ObserverConfig{
@@ -195,7 +221,7 @@ func main() {
 		log.Fatalf("register rpc service: %v", err)
 	}
 
-	restSrv := buildRESTServer(cfg, registry, discoveryRegistry, outboxStore, relay, newOrderStore())
+	restSrv := buildRESTServer(cfg, registry, discoveryRegistry, outboxStore, relay, newOrderStore(), topology)
 
 	adminMux := http.NewServeMux()
 	obs.Register(adminMux, "/debug")
@@ -217,6 +243,7 @@ func buildRESTServer(
 	outboxStore *outbox.MemoryStore,
 	relay *outbox.Relay,
 	orders *orderStore,
+	topology productionTopology,
 ) *rest.Server {
 	limiter := limit.New(cfg.Resilience.RateLimit, cfg.Resilience.Burst)
 	inventoryBreaker := breaker.New(
@@ -281,6 +308,17 @@ func buildRESTServer(
 				return
 			}
 			c.JSON(http.StatusAccepted, response)
+		},
+	})
+	srv.AddRoute(rest.Route{
+		Method:      http.MethodGet,
+		Path:        "/topology",
+		Summary:     "Show the production reference topology",
+		Description: "Returns the active memory or Docker-backed topology contract for this reference app.",
+		Tags:        []string{"orders"},
+		Responses:   map[string]rest.Response{"200": rest.JSONResponse("production topology", topologySchema())},
+		Handler: func(c *rest.Context) {
+			c.JSON(http.StatusOK, topology)
 		},
 	})
 	srv.AddOpenAPIRoutes(rest.OpenAPIInfo{Title: "production orders", Version: "1.0.0"})
@@ -447,6 +485,38 @@ func writeConfig(path, body string) {
 	}
 }
 
+func loadProductionTopology() productionTopology {
+	mode := topologyMode(os.Getenv("REFERENCE_APP_MODE"))
+	if mode == "" {
+		mode = topologyMemory
+	}
+	if mode != topologyDocker {
+		return productionTopology{
+			Mode:          topologyMemory,
+			SQLOutbox:     "memory",
+			Cache:         "memory",
+			MQ:            []string{"memory"},
+			Discovery:     []string{"memory"},
+			Observability: "local-admin",
+		}
+	}
+	return productionTopology{
+		Mode:          topologyDocker,
+		SQLOutbox:     envOr("ORDER_SQL_DSN", "postgres://orders:orders@postgres:5432/orders?sslmode=disable"),
+		Cache:         envOr("REDIS_ADDR", "redis:6379"),
+		MQ:            []string{envOr("KAFKA_BROKERS", "kafka:9092"), envOr("RABBITMQ_URL", "amqp://guest:guest@rabbitmq:5672/"), envOr("REDIS_STREAM_ADDR", "redis:6379")},
+		Discovery:     []string{envOr("CONSUL_ADDR", "consul:8500"), envOr("ETCD_ENDPOINTS", "etcd:2379"), envOr("NACOS_ADDR", "nacos:8848")},
+		Observability: envOr("OTEL_EXPORTER_OTLP_ENDPOINT", "http://otel-collector:4318"),
+	}
+}
+
+func envOr(key, fallback string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return fallback
+}
+
 func orderRequestSchema() *rest.Schema {
 	return &rest.Schema{
 		Type: "object",
@@ -455,6 +525,21 @@ func orderRequestSchema() *rest.Schema {
 			"quantity": {Type: "integer"},
 		},
 		Required: []string{"sku", "quantity"},
+	}
+}
+
+func topologySchema() rest.Schema {
+	return rest.Schema{
+		Type: "object",
+		Properties: map[string]rest.Schema{
+			"mode":          {Type: "string"},
+			"sql_outbox":    {Type: "string"},
+			"cache":         {Type: "string"},
+			"mq":            {Type: "array", Items: &rest.Schema{Type: "string"}},
+			"discovery":     {Type: "array", Items: &rest.Schema{Type: "string"}},
+			"observability": {Type: "string"},
+		},
+		Required: []string{"mode", "sql_outbox", "cache", "mq", "discovery", "observability"},
 	}
 }
 

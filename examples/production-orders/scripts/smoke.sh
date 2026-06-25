@@ -46,6 +46,16 @@ payload = json.loads(body)
 assert payload["status"] == "accepted", payload
 assert payload["id"].startswith("order-"), payload
 
+status, body = request("GET", base_url + "/topology")
+assert status == 200, (status, body)
+topology = json.loads(body)
+assert topology["mode"] in {"memory", "docker"}, topology
+assert topology["sql_outbox"], topology
+assert topology["cache"], topology
+assert topology["mq"], topology
+assert topology["discovery"], topology
+assert topology["observability"], topology
+
 status, body = request("GET", base_url + "/openapi.json")
 assert status == 200, (status, body)
 assert "production orders" in body, body[:200]

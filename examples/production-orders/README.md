@@ -21,6 +21,14 @@ This example composes the main gofly runtime capabilities into one service:
 The example is dependency-free: it uses in-memory adapters so it can run in CI
 and local development without Docker.
 
+Docker-backed mode renders the same reference app against a production topology:
+
+- SQL outbox endpoint through Postgres
+- Redis cache and Redis Stream endpoint
+- Kafka and RabbitMQ broker endpoints
+- Consul, etcd, and Nacos discovery endpoints
+- OpenTelemetry collector endpoint
+
 ## Smoke Modes
 
 Memory mode is the default and does not require Docker:
@@ -35,6 +43,10 @@ integration stack:
 ```bash
 REFERENCE_APP_MODE=docker make reference-app-smoke
 ```
+
+When Docker is available, the smoke gate starts `examples/production-orders/compose.yaml`
+and runs the HTTP smoke script. When Docker is unavailable, the gate still
+verifies the static production topology contract and reports the fallback.
 
 ## Run
 
@@ -107,6 +119,7 @@ curl -s localhost:8091/debug/readyz
 curl -s localhost:8091/debug/metrics.json
 curl -s localhost:8091/debug/metrics | grep gofly_requests_total
 curl -s -H 'Authorization: Bearer orders-token' localhost:8090/admin/control-plane
+curl -s localhost:8090/topology
 ```
 
 OpenAPI and Swagger UI are exposed by the REST server:
@@ -122,7 +135,10 @@ open http://localhost:8090/docs
 - The outbox relay publishes `orders.created` after the order workflow commits.
 - The MQ worker consumes the event and logs trace metadata carried in headers.
 - The REST route uses low-cardinality route metrics and propagates trace/request IDs.
-- Replace the in-memory adapters with Redis/RabbitMQ/Kafka, SQL outbox storage, and external discovery for production deployments.
+- Replace the in-memory adapters with Redis/RabbitMQ/Kafka, SQL outbox storage,
+  and external discovery for production deployments. Docker-backed mode exposes
+  those endpoints through `/topology` so operators can verify the selected
+  production profile before routing traffic.
 - Rollback by keeping the previous deployment active, disabling the new gateway
   route, and replaying unpublished outbox entries after the old service is
   healthy.

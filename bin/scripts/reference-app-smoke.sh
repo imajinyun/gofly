@@ -2,6 +2,7 @@
 set -eu
 
 mode="${REFERENCE_APP_MODE:-memory}"
+compose_file="examples/production-orders/compose.yaml"
 
 python3 - "$mode" <<'PY'
 import pathlib
@@ -22,6 +23,15 @@ checks = {
         "observability",
         "K8s",
         "rollback",
+        "SQL outbox",
+        "Redis cache",
+        "Kafka",
+        "RabbitMQ",
+        "Redis Stream",
+        "Consul",
+        "etcd",
+        "Nacos",
+        "OpenTelemetry collector",
         "REFERENCE_APP_MODE=memory make reference-app-smoke",
         "REFERENCE_APP_MODE=docker make reference-app-smoke",
     ],
@@ -29,18 +39,37 @@ checks = {
         "REST API accepts order creation requests",
         "RPC service reserves inventory",
         "profile config and memory discovery",
+        "Docker-backed topology wires SQL outbox",
         "outbox relays committed events",
         "observability exposes metrics",
         "cache",
+        "/topology",
     ],
     pathlib.Path("examples/production-orders/main_test.go"): [
         "TestCreateOrderSuccessPublishesOutbox_BitsUT",
         "TestBuildRESTServerOrderRouteBoundaries_BitsUT",
         "TestProductionOrderReferenceAppContract_BitsUT",
+        "TestProductionTopologyModes_BitsUT",
         "REST",
         "RPC",
         "MQ",
         "rollback",
+    ],
+    pathlib.Path("examples/production-orders/compose.yaml"): [
+        "postgres",
+        "redis",
+        "kafka",
+        "rabbitmq",
+        "consul",
+        "etcd",
+        "nacos",
+        "otel-collector",
+        "REFERENCE_APP_MODE: docker",
+    ],
+    pathlib.Path("examples/production-orders/otel-collector.yaml"): [
+        "receivers",
+        "otlp",
+        "debug",
     ],
 }
 
@@ -56,9 +85,6 @@ for path, needles in checks.items():
 
 if mode not in {"memory", "docker"}:
     missing.append(f"unsupported REFERENCE_APP_MODE={mode!r}")
-if mode == "docker":
-    print("reference app docker mode is delegated to integration CI; static contract verified")
-
 if missing:
     print("reference app smoke failed:", file=sys.stderr)
     for item in missing:
@@ -67,3 +93,27 @@ if missing:
 
 print(f"reference app smoke ok ({mode})")
 PY
+
+if [ "$mode" = "memory" ]; then
+	(cd examples/production-orders && go test -count=1 ./...)
+	exit 0
+fi
+
+if ! command -v docker >/dev/null 2>&1; then
+	echo "reference app docker mode static topology verified; docker not found, skipping live compose smoke"
+	exit 0
+fi
+if ! docker info >/dev/null 2>&1; then
+	echo "reference app docker mode static topology verified; docker daemon unavailable, skipping live compose smoke"
+	exit 0
+fi
+
+docker compose -f "$compose_file" up -d --build production-orders
+cleanup() {
+	docker compose -f "$compose_file" down -v --remove-orphans
+}
+trap cleanup EXIT INT TERM
+
+PRODUCTION_ORDERS_URL="${PRODUCTION_ORDERS_URL:-http://127.0.0.1:18090}" \
+PRODUCTION_ORDERS_ADMIN_URL="${PRODUCTION_ORDERS_ADMIN_URL:-http://127.0.0.1:18091}" \
+	sh examples/production-orders/scripts/smoke.sh

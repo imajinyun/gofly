@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -61,6 +62,15 @@ func TestProductionOrderReferenceAppContract_BitsUT(t *testing.T) {
 		"observability",
 		"K8s",
 		"rollback",
+		"SQL outbox",
+		"Redis cache",
+		"Kafka",
+		"RabbitMQ",
+		"Redis Stream",
+		"Consul",
+		"etcd",
+		"Nacos",
+		"OpenTelemetry collector",
 		"REFERENCE_APP_MODE=memory make reference-app-smoke",
 		"REFERENCE_APP_MODE=docker make reference-app-smoke",
 	} {
@@ -78,7 +88,7 @@ func TestBuildRESTServerOrderRouteBoundaries_BitsUT(t *testing.T) {
 	registry := discovery.NewMemoryRegistry()
 	store := outbox.NewMemoryStore()
 	relay := outbox.NewRelay(store, outbox.PublisherFunc(func(context.Context, outbox.Message) error { return nil }), outbox.RelayConfig{BatchSize: 10})
-	srv := buildRESTServer(cfg, nil, registry, store, relay, newOrderStore())
+	srv := buildRESTServer(cfg, nil, registry, store, relay, newOrderStore(), loadProductionTopology())
 
 	badJSON := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(badJSON, httptest.NewRequest(http.MethodPost, "/orders", strings.NewReader(`{`)))
@@ -100,6 +110,19 @@ func TestBuildRESTServerOrderRouteBoundaries_BitsUT(t *testing.T) {
 		t.Fatalf("control-plane status = %d body=%s, want 200", controlPlane.Code, controlPlane.Body.String())
 	}
 
+	topology := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(topology, httptest.NewRequest(http.MethodGet, "/topology", nil))
+	if topology.Code != http.StatusOK {
+		t.Fatalf("topology status = %d body=%s, want 200", topology.Code, topology.Body.String())
+	}
+	var topologyPayload productionTopology
+	if err := json.Unmarshal(topology.Body.Bytes(), &topologyPayload); err != nil {
+		t.Fatalf("decode topology: %v", err)
+	}
+	if topologyPayload.Mode != topologyMemory || topologyPayload.SQLOutbox != "memory" || len(topologyPayload.MQ) == 0 {
+		t.Fatalf("topology payload = %#v, want memory topology", topologyPayload)
+	}
+
 	unavailable := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(unavailable, httptest.NewRequest(http.MethodPost, "/orders", strings.NewReader(`{"sku":"coffee","quantity":1}`)))
 	if unavailable.Code != http.StatusServiceUnavailable {
@@ -109,7 +132,7 @@ func TestBuildRESTServerOrderRouteBoundaries_BitsUT(t *testing.T) {
 	limitedCfg := cfg
 	limitedCfg.Resilience.RateLimit = 1
 	limitedCfg.Resilience.Burst = 1
-	limitedSrv := buildRESTServer(limitedCfg, nil, registry, store, relay, newOrderStore())
+	limitedSrv := buildRESTServer(limitedCfg, nil, registry, store, relay, newOrderStore(), loadProductionTopology())
 	first := httptest.NewRecorder()
 	limitedSrv.Handler().ServeHTTP(first, httptest.NewRequest(http.MethodPost, "/orders", strings.NewReader(`{"sku":"coffee","quantity":1}`)))
 	rateLimited := httptest.NewRecorder()
@@ -132,6 +155,33 @@ func TestProductionOrderHelpers_BitsUT(t *testing.T) {
 	if respSchema.Type != "object" || len(respSchema.Required) != 2 || respSchema.Properties["trace_id"].Type != "string" {
 		t.Fatalf("response schema = %#v, want trace/request fields", respSchema)
 	}
+	topologySchema := topologySchema()
+	if topologySchema.Type != "object" || len(topologySchema.Required) != 6 || topologySchema.Properties["mq"].Items.Type != "string" {
+		t.Fatalf("topology schema = %#v, want production topology object schema", topologySchema)
+	}
+}
+
+func TestProductionTopologyModes_BitsUT(t *testing.T) {
+	t.Setenv("REFERENCE_APP_MODE", "")
+	memory := loadProductionTopology()
+	if memory.Mode != topologyMemory || memory.SQLOutbox != "memory" || memory.Cache != "memory" || strings.Join(memory.MQ, ",") != "memory" {
+		t.Fatalf("memory topology = %#v, want in-memory adapters", memory)
+	}
+
+	t.Setenv("REFERENCE_APP_MODE", "docker")
+	t.Setenv("ORDER_SQL_DSN", "postgres://orders:orders@postgres:5432/orders?sslmode=disable")
+	t.Setenv("REDIS_ADDR", "redis:6379")
+	t.Setenv("KAFKA_BROKERS", "kafka:9092")
+	t.Setenv("RABBITMQ_URL", "amqp://guest:guest@rabbitmq:5672/")
+	t.Setenv("REDIS_STREAM_ADDR", "redis:6379")
+	t.Setenv("CONSUL_ADDR", "consul:8500")
+	t.Setenv("ETCD_ENDPOINTS", "etcd:2379")
+	t.Setenv("NACOS_ADDR", "nacos:8848")
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://otel-collector:4318")
+	docker := loadProductionTopology()
+	if docker.Mode != topologyDocker || docker.SQLOutbox == "memory" || !contains(docker.MQ, "kafka:9092") || !contains(docker.Discovery, "nacos:8848") {
+		t.Fatalf("docker topology = %#v, want SQL/cache/MQ/discovery/OTel endpoints", docker)
+	}
 }
 
 func TestInventoryServiceDesc_BitsUT(t *testing.T) {
@@ -152,6 +202,15 @@ func TestInventoryServiceDesc_BitsUT(t *testing.T) {
 	if got.(*reserveResponse).ReservationID != "res-coffee" {
 		t.Fatalf("handler response = %#v, want res-coffee", got)
 	}
+}
+
+func contains(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 func TestCreateOrderNoInventoryCompensates_BitsUT(t *testing.T) {

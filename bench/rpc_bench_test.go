@@ -32,19 +32,46 @@ func BenchmarkRPCUnary(b *testing.B) {
 }
 
 func BenchmarkRPCStreamGovernance(b *testing.B) {
+	b.Run("server_stream", benchmarkGoflyRPCServerStreamGovernance)
+	b.Run("client_stream", benchmarkGoflyRPCClientStreamGovernance)
+	b.Run("bidi_stream", benchmarkGoflyRPCBidiStreamGovernance)
+}
+
+func BenchmarkRPCServerStreamGovernance(b *testing.B) {
+	benchmarkGoflyRPCServerStreamGovernance(b)
+}
+
+func BenchmarkRPCClientStreamGovernance(b *testing.B) {
+	benchmarkGoflyRPCClientStreamGovernance(b)
+}
+
+func BenchmarkRPCBidiStreamGovernance(b *testing.B) {
+	benchmarkGoflyRPCBidiStreamGovernance(b)
+}
+
+func benchmarkGoflyRPCServerStreamGovernance(b *testing.B) {
+	benchmarkGoflyRPCStreamGovernance(b, flyrpc.StreamModeServerStream)
+}
+
+func benchmarkGoflyRPCClientStreamGovernance(b *testing.B) {
+	benchmarkGoflyRPCStreamGovernance(b, flyrpc.StreamModeClientStream)
+}
+
+func benchmarkGoflyRPCBidiStreamGovernance(b *testing.B) {
+	benchmarkGoflyRPCStreamGovernance(b, flyrpc.StreamModeBidiStream)
+}
+
+func benchmarkGoflyRPCStreamGovernance(b *testing.B, mode flyrpc.StreamMode) {
 	// stream governance overhead is tracked separately from unary RPC because
-	// stream setup, receive, and close behavior exercise different policy hooks.
+	// stream setup, receive, close and mode-specific message flow exercise
+	// different policy hooks.
 	server := flyrpc.NewServer()
 	if err := server.RegisterService(flyrpc.ServiceDesc{Name: "streamer", Streams: []flyrpc.StreamDesc{{
 		Name:       "Watch",
 		NewMessage: func() any { return new(rpcBenchRequest) },
-		Mode:       flyrpc.StreamModeBidiStream,
+		Mode:       mode,
 		Handler: func(ctx context.Context, stream *flyrpc.Stream) error {
-			var req rpcBenchRequest
-			if err := stream.Recv(&req); err != nil {
-				return err
-			}
-			return stream.Send(rpcBenchResponse{Message: "hello " + req.Name})
+			return handleRPCBenchStream(mode, stream)
 		},
 	}}}, nil); err != nil {
 		b.Fatal(err)
@@ -63,18 +90,84 @@ func BenchmarkRPCStreamGovernance(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		if err := stream.Send(rpcBenchRequest{Name: "ada"}); err != nil {
+		if err := exerciseRPCBenchStream(mode, stream); err != nil {
 			b.Fatal(err)
-		}
-		var resp rpcBenchResponse
-		if err := stream.Recv(&resp); err != nil {
-			b.Fatal(err)
-		}
-		if resp.Message != "hello ada" {
-			b.Fatalf("message = %q, want hello ada", resp.Message)
 		}
 		_ = stream.Close()
 	}
+}
+
+func handleRPCBenchStream(mode flyrpc.StreamMode, stream *flyrpc.Stream) error {
+	switch mode {
+	case flyrpc.StreamModeServerStream:
+		var req rpcBenchRequest
+		if err := stream.Recv(&req); err != nil {
+			return err
+		}
+		if err := stream.Send(rpcBenchResponse{Message: "hello " + req.Name + ":first"}); err != nil {
+			return err
+		}
+		return stream.Send(rpcBenchResponse{Message: "hello " + req.Name + ":second"})
+	case flyrpc.StreamModeClientStream:
+		names := make([]string, 0, 2)
+		for len(names) < 2 {
+			var req rpcBenchRequest
+			if err := stream.Recv(&req); err != nil {
+				return err
+			}
+			names = append(names, req.Name)
+		}
+		return stream.Send(rpcBenchResponse{Message: "hello " + names[0] + "," + names[1]})
+	default:
+		var req rpcBenchRequest
+		if err := stream.Recv(&req); err != nil {
+			return err
+		}
+		return stream.Send(rpcBenchResponse{Message: "hello " + req.Name})
+	}
+}
+
+func exerciseRPCBenchStream(mode flyrpc.StreamMode, stream *flyrpc.Stream) error {
+	switch mode {
+	case flyrpc.StreamModeServerStream:
+		if err := stream.Send(rpcBenchRequest{Name: "ada"}); err != nil {
+			return err
+		}
+		for _, want := range []string{"hello ada:first", "hello ada:second"} {
+			var resp rpcBenchResponse
+			if err := stream.Recv(&resp); err != nil {
+				return err
+			}
+			if resp.Message != want {
+				return flyrpc.NewError(flyrpc.CodeInternal, "unexpected server stream response")
+			}
+		}
+	case flyrpc.StreamModeClientStream:
+		for _, name := range []string{"ada", "bob"} {
+			if err := stream.Send(rpcBenchRequest{Name: name}); err != nil {
+				return err
+			}
+		}
+		var resp rpcBenchResponse
+		if err := stream.Recv(&resp); err != nil {
+			return err
+		}
+		if resp.Message != "hello ada,bob" {
+			return flyrpc.NewError(flyrpc.CodeInternal, "unexpected client stream response")
+		}
+	default:
+		if err := stream.Send(rpcBenchRequest{Name: "ada"}); err != nil {
+			return err
+		}
+		var resp rpcBenchResponse
+		if err := stream.Recv(&resp); err != nil {
+			return err
+		}
+		if resp.Message != "hello ada" {
+			return flyrpc.NewError(flyrpc.CodeInternal, "unexpected bidi stream response")
+		}
+	}
+	return nil
 }
 
 func benchmarkGoflyRPCUnary(b *testing.B) {

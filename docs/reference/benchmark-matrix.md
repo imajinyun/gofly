@@ -42,6 +42,9 @@ BENCH_PATTERN=BenchmarkRPCUnary make bench-stat
 | Governance decision path | `BenchmarkHTTPGovernance` | gofly disabled/enabled |
 | RPC unary call | `BenchmarkRPCUnary` | gofly RPC, gRPC-Go |
 | RPC stream governance | `BenchmarkRPCStreamGovernance` | gofly RPC stream governance |
+| RPC server-stream governance | `BenchmarkRPCServerStreamGovernance` | gofly RPC stream governance |
+| RPC client-stream governance | `BenchmarkRPCClientStreamGovernance` | gofly RPC stream governance |
+| RPC bidirectional stream governance | `BenchmarkRPCBidiStreamGovernance` | gofly RPC stream governance |
 | RPC resolver/balancer smoke | `examples/rpc-idl-matrix` | resolver/balancer smoke and Kitex boundary evidence |
 
 ## Release rule

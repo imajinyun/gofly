@@ -40,6 +40,9 @@ RPC benchmarks cover:
 
 - gofly RPC unary call over the real HTTP RPC client/server path
 - gRPC-Go unary call over `bufconn`
+- gofly RPC server-stream, client-stream, and bidirectional stream governance
+  overhead through `BenchmarkRPCServerStreamGovernance`,
+  `BenchmarkRPCClientStreamGovernance`, and `BenchmarkRPCBidiStreamGovernance`
 
 Kitex is optional. Downstream services that already carry generated Kitex fixtures can add a `kitex` sub-benchmark under `BenchmarkRPCUnary` without making Kitex a required root dependency for every gofly checkout.
 
@@ -108,6 +111,10 @@ CI also uploads `bench/regression-report.json`, which blocks `allocs/op` median 
 | OpenAPI overhead | `BenchmarkHTTPOpenAPI` | gofly disabled/enabled | Contract metadata cost |
 | Governance overhead | `BenchmarkHTTPGovernance` | gofly disabled/enabled | Runtime policy decision cost |
 | RPC unary | `BenchmarkRPCUnary` | gofly RPC, gRPC-Go | Service-to-service call cost |
+| RPC stream governance | `BenchmarkRPCStreamGovernance` | gofly RPC stream governance | Aggregate stream governance overhead |
+| RPC server stream governance | `BenchmarkRPCServerStreamGovernance` | gofly RPC stream governance | Server-stream setup and send overhead |
+| RPC client stream governance | `BenchmarkRPCClientStreamGovernance` | gofly RPC stream governance | Client-stream send and response overhead |
+| RPC bidi stream governance | `BenchmarkRPCBidiStreamGovernance` | gofly RPC stream governance | Bidirectional stream round-trip overhead |
 
 ## Notes on fairness
 

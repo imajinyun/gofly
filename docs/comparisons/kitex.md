@@ -31,6 +31,9 @@ make examples-copyable-check
 make docs-check
 BENCH_PATTERN=BenchmarkRPCUnary make bench-stat
 BENCH_PATTERN=BenchmarkRPCStreamGovernance make bench-stat
+BENCH_PATTERN=BenchmarkRPCServerStreamGovernance make bench-stat
+BENCH_PATTERN=BenchmarkRPCClientStreamGovernance make bench-stat
+BENCH_PATTERN=BenchmarkRPCBidiStreamGovernance make bench-stat
 make bench-evidence-check
 ```
 

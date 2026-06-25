@@ -1,0 +1,69 @@
+{
+  "artifactPolicy": {
+    "commitGeneratedRuntimeArtifacts": false,
+    "volatileDirectories": [
+      ".tmp-test/generated-upgrade-dry-run",
+      "$TMPDIR/gofly-generated-upgrade-*"
+    ]
+  },
+  "profiles": [
+    {
+      "api": "testdata/generated-compat/v0.1/orders.api",
+      "generatedSnapshot": {
+        "expectedDiff": "compatible feature addition",
+        "metadata": {
+          "generated.project.contract": "scaffold,runtime-policy,ai-manifest",
+          "generated.project.runtime": "service,rest,rpc,governance,discovery"
+        },
+        "summary": "Old contracts should regenerate with additive files and compatibility shims only."
+      },
+      "pluginProfile": {
+        "compatibility": "legacy-safe",
+        "protocol": "1",
+        "registry": "examples/plugin-ecosystem/registry/plugins.json"
+      },
+      "profile": "old",
+      "proto": "testdata/generated-compat/v0.1/greeter.proto",
+      "serviceConfig": "testdata/generated-compat/v0.1/service-config.json"
+    },
+    {
+      "api": "testdata/generated-compat/current/orders.api",
+      "generatedSnapshot": {
+        "expectedDiff": "no unexplained diff",
+        "metadata": {
+          "generated.project.contract": "scaffold,runtime-policy,ai-manifest",
+          "generated.project.runtime": "service,rest,rpc,governance,discovery"
+        },
+        "summary": "Current contracts should regenerate deterministically with no unexplained diff."
+      },
+      "pluginProfile": {
+        "compatibility": "current",
+        "protocol": "1",
+        "registry": "examples/plugin-ecosystem/registry/plugins.json"
+      },
+      "profile": "current",
+      "proto": "testdata/generated-compat/current/greeter.proto",
+      "serviceConfig": "testdata/generated-compat/current/service-config.json"
+    },
+    {
+      "api": "testdata/generated-compat/future/orders.api",
+      "generatedSnapshot": {
+        "expectedDiff": "experimental future field ignored safely",
+        "metadata": {
+          "generated.project.contract": "scaffold,runtime-policy,ai-manifest",
+          "generated.project.runtime": "service,rest,rpc,governance,discovery"
+        },
+        "summary": "Future contracts should report explainable diffs and ignore unsupported fields safely."
+      },
+      "pluginProfile": {
+        "compatibility": "future-tolerant",
+        "protocol": "1",
+        "registry": "examples/plugin-ecosystem/registry/plugins.json"
+      },
+      "profile": "future",
+      "proto": "testdata/generated-compat/future/greeter.proto",
+      "serviceConfig": "testdata/generated-compat/future/service-config.json"
+    }
+  ],
+  "schema": "gofly.generated_upgrade_dry_run.v1"
+}

@@ -4,23 +4,30 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/imajinyun/gofly/cmd/gofly/internal/command"
 )
 
 func main() {
+	os.Exit(runMain(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
+}
+
+func runMain(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if command.IsCompilerPluginMode() {
-		if err := command.ExecuteCompilerPluginMode(os.Stdin, os.Stdout); err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
+		if err := command.ExecuteCompilerPluginMode(stdin, stdout); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
 		}
-		return
+		return 0
 	}
-	if err := command.Execute(os.Args[1:]); err != nil {
-		if command.OutputMode() != "json" {
-			fmt.Fprintln(os.Stderr, err)
+	streams := command.IOStreams{In: stdin, Out: stdout, Err: stderr}
+	if err := command.ExecuteWithIO(args, streams); err != nil {
+		if !command.JSONOutputRequested(args) {
+			fmt.Fprintln(stderr, err)
 		}
-		os.Exit(command.ExitCode(err))
+		return command.ExitCode(err)
 	}
+	return 0
 }

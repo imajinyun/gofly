@@ -30,6 +30,13 @@ confidence rather than broad rewrites.
 
 ## Executable TODO Order
 
+The P3 baseline below is complete enough to serve as the current governed
+foundation. The next-wave P4 roadmap is captured in
+[`framework-gap-next-wave.json`](framework-gap-next-wave.json) and keeps the
+comparison focused on product capability, engineering maturity, DX,
+performance evidence, release trust, production proof, and machine-verifiable
+governance. Community size and popularity remain out of scope.
+
 | Order | Task | Gap | Acceptance gate |
 | --- | --- | --- | --- |
 | 1 | `GOFLY-P3-1-FRAMEWORK-GAP-MATRIX` | Keep the framework gap analysis and TODO list as a governed source of truth. | `make framework-gap-check` |
@@ -40,6 +47,17 @@ confidence rather than broad rewrites.
 | 6 | `GOFLY-P3-FOLLOWUP-RELEASE-READINESS-SCORE` | Turn release evidence into a compact adopter-facing readiness score. | `make governance-report-check` |
 | 7 | `GOFLY-P3-FOLLOWUP-PLUGIN-PUBLISHING-UX` | Improve plugin permission review and third-party template publishing UX. | `make plugin-conformance-check` |
 | 8 | `GOFLY-P3-FOLLOWUP-BENCH-BUDGET-RATCHET` | Promote selected performance budgets from report-only to blocking after trend confidence. | `make bench-regression-check` |
+
+## Next-Wave TODO Order
+
+| Order | Task | Gap | Acceptance gate |
+| --- | --- | --- | --- |
+| 1 | `GOFLY-P4-1-NEXT-WAVE-GAP-ROADMAP` | Refresh the post-P3 gap analysis as a machine-readable roadmap. | `make framework-gap-check` |
+| 2 | `GOFLY-P4-2-RPC-LATENCY-RATCHET` | Promote RPC latency budgets only where benchmark trend confidence is strong enough. | `make bench-regression-check` |
+| 3 | `GOFLY-P4-3-GENERATED-MIGRATION-FIDELITY` | Tie framework migration paths to deterministic regeneration, diff categories, rollback notes, and smoke gates. | `make generated-upgrade-dry-run-check` |
+| 4 | `GOFLY-P4-4-CLOUD-NATIVE-POLICY-CONFORMANCE` | Turn Helm/Kustomize policy checks and fallback status into release evidence. | `make cloud-native-render-check` |
+| 5 | `GOFLY-P4-5-DX-SUPPORT-BUNDLE` | Productize doctor/release JSON, support bundles, and generated failure reports. | `make dx-troubleshooting-check` |
+| 6 | `GOFLY-P4-6-GOVERNANCE-DASHBOARD-PRODUCTIZATION` | Make the governance report an adopter-facing dashboard contract. | `make governance-report-check` |
 
 ## Gap Summary
 

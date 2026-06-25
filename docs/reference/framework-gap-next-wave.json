@@ -1,0 +1,145 @@
+{
+  "completedBaseline": [
+    {
+      "evidence": [
+        "docs/releases/readiness-score.json",
+        "make governance-report-check"
+      ],
+      "task": "GOFLY-P3-FOLLOWUP-RELEASE-READINESS-SCORE"
+    },
+    {
+      "evidence": [
+        "docs/reference/plugin-publishing-ux.json",
+        "make plugin-conformance-check"
+      ],
+      "task": "GOFLY-P3-FOLLOWUP-PLUGIN-PUBLISHING-UX"
+    },
+    {
+      "evidence": [
+        "bench/budget-ratchet.json",
+        "make bench-regression-check"
+      ],
+      "task": "GOFLY-P3-FOLLOWUP-BENCH-BUDGET-RATCHET"
+    }
+  ],
+  "dimensions": [
+    {
+      "acceptanceGate": "make bench-regression-check",
+      "aiflowTask": "GOFLY-P4-2-RPC-LATENCY-RATCHET",
+      "currentEvidence": [
+        "docs/reference/rpc-tier1-evidence.json",
+        "bench/budget-ratchet.json",
+        "bench/rpc_bench_test.go",
+        "make rpc-boundary-check"
+      ],
+      "gap": "Kitex and gRPC-Go still have stronger latency-critical RPC evidence. gofly has unary and stream benchmark coverage, but RPC latency budgets are not yet promoted into a ratcheted blocking policy.",
+      "id": "rpc-latency-depth",
+      "priority": "P0",
+      "referenceFrameworks": [
+        "Kitex",
+        "gRPC-Go"
+      ],
+      "todo": "Add an RPC latency ratchet policy tied to unary and stream benchmark trend confidence, keeping weak-signal rows report-only."
+    },
+    {
+      "acceptanceGate": "make generated-upgrade-dry-run-check",
+      "aiflowTask": "GOFLY-P4-3-GENERATED-MIGRATION-FIDELITY",
+      "currentEvidence": [
+        "docs/reference/generated-upgrade-dry-run.json",
+        "docs/explanation/adopter-decision-guide.md",
+        "examples/migration-proof",
+        "make generated-version-compat-check"
+      ],
+      "gap": "go-zero and Kratos remain clearer for long-term scaffold migration expectations. gofly has compatibility fixtures and migration examples, but lacks one adopter-facing fidelity matrix tying regeneration diffs, rollback notes, and framework-specific smoke gates together.",
+      "id": "generated-migration-fidelity",
+      "priority": "P0",
+      "referenceFrameworks": [
+        "go-zero",
+        "Kratos",
+        "Gin",
+        "Kitex"
+      ],
+      "todo": "Create a migration fidelity matrix for Gin, go-zero, Kratos, and Kitex paths with deterministic regeneration, diff categories, rollback notes, and gate commands."
+    },
+    {
+      "acceptanceGate": "make cloud-native-render-check",
+      "aiflowTask": "GOFLY-P4-4-CLOUD-NATIVE-POLICY-CONFORMANCE",
+      "currentEvidence": [
+        "docs/reference/cloud-native-rendering.md",
+        "charts/gofly/values.schema.json",
+        "k8s/overlays/production/kustomization.yaml",
+        "make cloud-native-render-check"
+      ],
+      "gap": "Kratos and go-zero are still easier to trust for production deployment conventions. gofly renders Helm and Kustomize assets, but policy conformance and fallback reporting are not yet captured as one machine-readable release artifact.",
+      "id": "cloud-native-policy-conformance",
+      "priority": "P1",
+      "referenceFrameworks": [
+        "Kratos",
+        "go-zero"
+      ],
+      "todo": "Add cloud-native policy conformance evidence for Helm/Kustomize profiles, NetworkPolicy, HPA, PDB, ServiceMonitor, kubeconform fallback status, and rollout gates."
+    },
+    {
+      "acceptanceGate": "make dx-troubleshooting-check",
+      "aiflowTask": "GOFLY-P4-5-DX-SUPPORT-BUNDLE",
+      "currentEvidence": [
+        "docs/operations/troubleshooting.md",
+        "docs/reference/cli-json-contracts.md",
+        "make dx-troubleshooting-check"
+      ],
+      "gap": "Mature frameworks often make failure recovery obvious through stable diagnostics and common troubleshooting paths. gofly has doctor and release JSON contracts, but support-bundle evidence and generated failure reports need to be indexed as a product surface.",
+      "id": "dx-support-bundle",
+      "priority": "P1",
+      "referenceFrameworks": [
+        "go-zero",
+        "Kratos",
+        "Beego"
+      ],
+      "todo": "Productize support bundle evidence with doctor/release JSON next actions, generated project failure reports, and stable CLI JSON contract tests."
+    },
+    {
+      "acceptanceGate": "make governance-report-check",
+      "aiflowTask": "GOFLY-P4-6-GOVERNANCE-DASHBOARD-PRODUCTIZATION",
+      "currentEvidence": [
+        "bin/scripts/governance-report.sh",
+        "docs/releases/readiness-score.json",
+        "docs/reference/coverage-trend.json",
+        "make governance-report-check"
+      ],
+      "gap": "gofly has stronger governance automation than many frameworks, but the dashboard is still a generated report rather than a polished adopter-facing contract that summarizes release readiness, API tiers, security, coverage, benchmark ratchets, and task status.",
+      "id": "governance-dashboard-productization",
+      "priority": "P1",
+      "referenceFrameworks": [
+        "Kratos",
+        "go-zero"
+      ],
+      "todo": "Define a dashboard contract with stable summary fields for release readiness, API tiers, benchmark ratchet status, coverage, security, and aiflow task status."
+    }
+  ],
+  "recommendedOrder": [
+    "GOFLY-P4-1-NEXT-WAVE-GAP-ROADMAP",
+    "GOFLY-P4-2-RPC-LATENCY-RATCHET",
+    "GOFLY-P4-3-GENERATED-MIGRATION-FIDELITY",
+    "GOFLY-P4-4-CLOUD-NATIVE-POLICY-CONFORMANCE",
+    "GOFLY-P4-5-DX-SUPPORT-BUNDLE",
+    "GOFLY-P4-6-GOVERNANCE-DASHBOARD-PRODUCTIZATION"
+  ],
+  "schema": "gofly.framework_gap_next_wave.v1",
+  "scope": {
+    "excluded": [
+      "GitHub stars",
+      "download counts",
+      "community size",
+      "brand awareness"
+    ],
+    "included": [
+      "product capability",
+      "engineering maturity",
+      "developer experience",
+      "performance evidence",
+      "release trust",
+      "production proof",
+      "machine-verifiable governance"
+    ]
+  }
+}

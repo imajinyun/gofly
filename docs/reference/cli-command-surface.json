@@ -1,0 +1,184 @@
+{
+  "schema": "gofly.cli_command_surface.v1",
+  "sourceCode": [
+    "cmd/gofly/internal/command/registry.go",
+    "cmd/gofly/internal/command/idl_registry.go",
+    "cmd/gofly/internal/command/root.go",
+    "cmd/gofly/internal/command/help_metadata.go"
+  ],
+  "acceptanceGate": "make cli-command-surface-check",
+  "ignoredPaths": [
+    "docs/superpowers/"
+  ],
+  "principles": [
+    "registered commands must have discoverable help",
+    "registered aliases must resolve to canonical help topics",
+    "JSON-capable commands must be documented in CLI JSON contracts",
+    "automation output must go to stdout and diagnostics must go to stderr",
+    "usage errors must map to stable exit code 2"
+  ],
+  "rootCommands": [
+    {
+      "name": "version",
+      "jsonContract": "gofly version --json",
+      "helpTopic": "version"
+    },
+    {
+      "name": "new",
+      "children": [
+        "service",
+        "api",
+        "rpc"
+      ],
+      "jsonContract": "gofly new service --json, gofly new api --json, gofly new rpc --json",
+      "helpTopic": "new"
+    },
+    {
+      "name": "gen",
+      "aliases": [
+        "generate"
+      ],
+      "children": [
+        "handler",
+        "rpc",
+        "api",
+        "rest",
+        "middleware",
+        "model",
+        "gateway"
+      ],
+      "helpTopic": "gen"
+    },
+    {
+      "name": "api",
+      "children": [
+        "check",
+        "breaking",
+        "gen",
+        "types",
+        "route",
+        "import",
+        "diff",
+        "plugin",
+        "middleware",
+        "format",
+        "doc",
+        "docs",
+        "swagger",
+        "client",
+        "ts",
+        "js",
+        "dart",
+        "java",
+        "kotlin",
+        "new"
+      ],
+      "jsonContract": "API command JSON outputs",
+      "helpTopic": "api"
+    },
+    {
+      "name": "rpc",
+      "children": [
+        "idl",
+        "thrift",
+        "client",
+        "server",
+        "middleware",
+        "lint",
+        "deps",
+        "check",
+        "doc",
+        "breaking",
+        "descriptor",
+        "gen",
+        "protoc",
+        "new",
+        "plugin",
+        "template"
+      ],
+      "jsonContract": "RPC command JSON outputs",
+      "helpTopic": "rpc"
+    },
+    {
+      "name": "model",
+      "children": [
+        "gen",
+        "mysql",
+        "pg",
+        "mongo"
+      ],
+      "jsonContract": "gofly model gen --json",
+      "helpTopic": "model"
+    },
+    {
+      "name": "plugin",
+      "children": [
+        "list",
+        "search",
+        "install",
+        "uninstall",
+        "run"
+      ],
+      "jsonContract": "gofly plugin list/search/install/uninstall/run --json",
+      "helpTopic": "plugin"
+    },
+    {
+      "name": "release",
+      "children": [
+        "check"
+      ],
+      "jsonContract": "gofly release check --json",
+      "helpTopic": "release"
+    },
+    {
+      "name": "doctor",
+      "jsonContract": "gofly doctor --json",
+      "helpTopic": "doctor"
+    },
+    {
+      "name": "ai",
+      "aliases": [
+        "tools"
+      ],
+      "children": [
+        "manifest",
+        "control-plane",
+        "plan",
+        "new",
+        "complete",
+        "stream",
+        "doctor"
+      ],
+      "jsonContract": "gofly ai ... --json",
+      "helpTopic": "ai"
+    }
+  ],
+  "knownDrift": [
+    {
+      "id": "plugin-help-boundary",
+      "risk": "registered plugin search/install/uninstall commands can drift from help boundary helpers",
+      "followUpTask": "GOFLY-P9-1-CLI-COMMAND-SURFACE-GATE"
+    },
+    {
+      "id": "rpc-doc-discovery",
+      "risk": "registered rpc doc aliases must stay documented in help and CLI JSON contracts",
+      "followUpTask": "GOFLY-P9-1-CLI-COMMAND-SURFACE-GATE"
+    },
+    {
+      "id": "json-contract-goldens",
+      "risk": "stable JSON outputs need golden tests beyond prose contracts",
+      "followUpTask": "GOFLY-P9-2-CLI-JSON-CONTRACT-GOLDENS"
+    },
+    {
+      "id": "stdio-error-discipline",
+      "risk": "text diagnostics, JSON output, quiet mode, and exit code behavior need one CLI-wide regression suite",
+      "followUpTask": "GOFLY-P9-3-CLI-STDIO-AND-ERROR-DISCIPLINE"
+    }
+  ],
+  "recommendedOrder": [
+    "GOFLY-P9-0-CLI-GOVERNANCE-ROADMAP",
+    "GOFLY-P9-1-CLI-COMMAND-SURFACE-GATE",
+    "GOFLY-P9-2-CLI-JSON-CONTRACT-GOLDENS",
+    "GOFLY-P9-3-CLI-STDIO-AND-ERROR-DISCIPLINE"
+  ]
+}

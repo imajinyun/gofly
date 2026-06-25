@@ -2,6 +2,11 @@
 
 This reference defines the machine-readable CLI outputs that gofly treats as automation contracts. Human-readable output can change for clarity; scripts and agents should use `--json`, `--format json`, or the global `--output json` flag where documented.
 
+The governed command surface is tracked in
+[`cli-command-surface.json`](cli-command-surface.json). That manifest maps
+registered command families, aliases, help topics, JSON contract surfaces, and
+follow-up CLI governance tasks.
+
 ## Stability rules
 
 - Existing JSON fields keep their type and meaning within a minor release line.

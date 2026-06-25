@@ -124,6 +124,66 @@ for profile in profiles:
     unknown = diff_categories - required_categories
     require(not unknown, f"profile {name}: unknown diff categories: {sorted(unknown)!r}")
 
+matrix_rel = manifest.get("migrationFidelityMatrix")
+require(matrix_rel == "docs/reference/migration-fidelity-matrix.json", "migrationFidelityMatrix must point to docs/reference/migration-fidelity-matrix.json")
+matrix_path = root / matrix_rel if matrix_rel else root / "docs" / "reference" / "migration-fidelity-matrix.json"
+if matrix_path.is_file():
+    matrix = json.loads(matrix_path.read_text(encoding="utf-8"))
+else:
+    matrix = {}
+    missing.append("docs/reference/migration-fidelity-matrix.json is missing")
+
+require(
+    matrix.get("schema") == "gofly.generated_migration_fidelity.v1",
+    "migration fidelity matrix schema must be gofly.generated_migration_fidelity.v1",
+)
+require(
+    matrix.get("sourceOfTruth") == "docs/reference/generated-upgrade-dry-run.json",
+    "migration fidelity matrix sourceOfTruth must be docs/reference/generated-upgrade-dry-run.json",
+)
+require(
+    matrix.get("acceptanceGate") == "make generated-upgrade-dry-run-check",
+    "migration fidelity matrix acceptanceGate must be make generated-upgrade-dry-run-check",
+)
+required_path_fields = set(matrix.get("requiredPathFields") or [])
+for field in (
+    "framework",
+    "example",
+    "docs",
+    "dryRunProfile",
+    "deterministicRegeneration",
+    "diffCategories",
+    "smokeGates",
+    "rollbackNote",
+    "compatibilityCaveat",
+):
+    require(field in required_path_fields, f"migration fidelity requiredPathFields missing {field!r}")
+
+paths = matrix.get("paths") or []
+frameworks = {item.get("framework") for item in paths if isinstance(item, dict)}
+require(frameworks == {"gin", "go-zero", "kratos", "kitex"}, f"migration fidelity frameworks mismatch: {sorted(frameworks)!r}")
+for item in paths:
+    if not isinstance(item, dict):
+        missing.append(f"migration fidelity path must be an object: {item!r}")
+        continue
+    framework = item.get("framework", "<missing>")
+    for field in required_path_fields:
+        require(field in item and item[field] not in ("", None, [], {}), f"migration fidelity {framework}: {field} is required")
+    example = item.get("example")
+    if example:
+        require((root / example).is_dir(), f"migration fidelity {framework}: example path is missing: {example}")
+    for doc_path in item.get("docs") or []:
+        require((root / doc_path).is_file(), f"migration fidelity {framework}: doc path is missing: {doc_path}")
+    require(item.get("dryRunProfile") in profile_names, f"migration fidelity {framework}: dryRunProfile must reference generated upgrade profile")
+    require(item.get("deterministicRegeneration") == "required", f"migration fidelity {framework}: deterministicRegeneration must be required")
+    diff_categories = set(item.get("diffCategories") or [])
+    require("deterministic-repeat-generation" in diff_categories, f"migration fidelity {framework}: deterministic diff category is required")
+    unknown = diff_categories - required_categories
+    require(not unknown, f"migration fidelity {framework}: unknown diff categories: {sorted(unknown)!r}")
+    require(any("make " in gate or gate.startswith("go test ") or gate.startswith("go run ") for gate in item.get("smokeGates") or []), f"migration fidelity {framework}: smokeGates must include runnable commands")
+    require(len(item.get("rollbackNote", "")) >= 24, f"migration fidelity {framework}: rollbackNote is too short")
+    require(len(item.get("compatibilityCaveat", "")) >= 24, f"migration fidelity {framework}: compatibilityCaveat is too short")
+
 makefile = read_text(root / "Makefile")
 target_body = make_target_body(makefile, "generated-upgrade-dry-run-check")
 contract_deps = make_target_deps(makefile, "contract-docs-check")

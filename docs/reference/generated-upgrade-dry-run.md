@@ -9,6 +9,9 @@ protocol profile is in scope, what generated snapshot metadata must remain
 visible, and where temporary generated projects may be created. The
 machine-readable manifest is
 [`generated-upgrade-dry-run.json`](generated-upgrade-dry-run.json).
+Framework-specific migration fidelity evidence lives in
+[`migration-fidelity-matrix.json`](migration-fidelity-matrix.json) and is
+validated by the same gate.
 
 Validation:
 
@@ -76,3 +79,30 @@ roadmap.
 matrix. The upgrade dry-run manifest reuses the same fixture roots so future
 automation can compare a generated project before and after a gofly upgrade
 without inventing a second source of truth.
+
+## Migration Fidelity Matrix
+
+The migration fidelity matrix ties generated upgrade expectations to adopter
+paths that teams compare against Gin, go-zero, Kratos, and Kitex. Each path must
+declare:
+
+- a runnable example directory;
+- comparison or case-study documentation;
+- the generated dry-run profile used as the upgrade fixture;
+- accepted diff categories from `diffReportContract.categories`;
+- smoke gates that validate the path;
+- a rollback note and a compatibility caveat.
+
+The current paths are:
+
+| Framework | Example | Dry-run profile | Primary gates |
+| --- | --- | --- | --- |
+| Gin | `examples/restserver` | `current` | `go test -C examples/restserver ./...`, `make migration-docs-check` |
+| go-zero | `examples/production-orders` | `old` | `make generated-version-compat-check`, `make reference-app-smoke` |
+| Kratos | `examples/microshop` | `current` | `go test -C examples/microshop ./...`, `make adopter-decision-check` |
+| Kitex | `examples/rpc-idl-matrix` | `future` | `go test -C examples/rpc-idl-matrix ./...`, `make rpc-boundary-check` |
+
+Any new migration path must be added to the matrix before docs can claim it as
+adopter-ready. The gate checks that examples and docs exist, dry-run profiles are
+valid, every path includes deterministic regeneration, and rollback guidance is
+present.

@@ -1,0 +1,105 @@
+{
+  "schema": "gofly.generated_migration_fidelity.v1",
+  "sourceOfTruth": "docs/reference/generated-upgrade-dry-run.json",
+  "acceptanceGate": "make generated-upgrade-dry-run-check",
+  "paths": [
+    {
+      "framework": "gin",
+      "example": "examples/restserver",
+      "docs": [
+        "docs/comparisons/gin.md",
+        "docs/case-studies/migrate-from-gin.md"
+      ],
+      "dryRunProfile": "current",
+      "deterministicRegeneration": "required",
+      "diffCategories": [
+        "deterministic-repeat-generation",
+        "formatting-only",
+        "compatible-addition"
+      ],
+      "smokeGates": [
+        "go test -C examples/restserver ./...",
+        "make migration-docs-check"
+      ],
+      "rollbackNote": "Keep the Gin router active until gofly route responses, OpenAPI schema, metrics, and error envelope evidence match sampled production behavior.",
+      "compatibilityCaveat": "Middleware-specific Gin context APIs should be adapted at route boundaries before removing the original handler."
+    },
+    {
+      "framework": "go-zero",
+      "example": "examples/production-orders",
+      "docs": [
+        "docs/comparisons/go-zero.md",
+        "docs/reference/generated-version-compat.md"
+      ],
+      "dryRunProfile": "old",
+      "deterministicRegeneration": "required",
+      "diffCategories": [
+        "deterministic-repeat-generation",
+        "compatible-addition"
+      ],
+      "smokeGates": [
+        "make generated-version-compat-check",
+        "make generated-upgrade-dry-run-check",
+        "make reference-app-smoke"
+      ],
+      "rollbackNote": "Keep the previous go-zero service reachable through discovery and route traffic back if generated REST/RPC shape or release checks diverge.",
+      "compatibilityCaveat": "goctl-style scaffold migrations must preserve public config keys and generated API/RPC entry points."
+    },
+    {
+      "framework": "kratos",
+      "example": "examples/microshop",
+      "docs": [
+        "docs/comparisons/kratos.md",
+        "docs/explanation/adopter-decision-guide.md"
+      ],
+      "dryRunProfile": "current",
+      "deterministicRegeneration": "required",
+      "diffCategories": [
+        "deterministic-repeat-generation",
+        "formatting-only",
+        "compatible-addition"
+      ],
+      "smokeGates": [
+        "go test -C examples/microshop ./...",
+        "go run -C examples/microshop describe",
+        "make adopter-decision-check"
+      ],
+      "rollbackNote": "Restore the previous Kratos deployment target while keeping shared domain packages and service discovery registrations unchanged.",
+      "compatibilityCaveat": "Kratos app lifecycle and transport bootstrap code should be migrated one service boundary at a time."
+    },
+    {
+      "framework": "kitex",
+      "example": "examples/rpc-idl-matrix",
+      "docs": [
+        "docs/comparisons/kitex.md",
+        "docs/guides/rpc.md",
+        "docs/reference/rpc-boundary.md"
+      ],
+      "dryRunProfile": "future",
+      "deterministicRegeneration": "required",
+      "diffCategories": [
+        "deterministic-repeat-generation",
+        "compatible-addition",
+        "breaking-candidate"
+      ],
+      "smokeGates": [
+        "go test -C examples/rpc-idl-matrix ./...",
+        "go run -C examples/rpc-idl-matrix .",
+        "make rpc-boundary-check"
+      ],
+      "rollbackNote": "Route latency-critical methods back to Kitex when RPC latency, streaming behavior, or IDL compatibility evidence is not yet promoted.",
+      "compatibilityCaveat": "Kitex remains the rollback target for latency-critical generated RPC paths until gofly RPC evidence is promoted."
+    }
+  ],
+  "requiredPathFields": [
+    "framework",
+    "example",
+    "docs",
+    "dryRunProfile",
+    "deterministicRegeneration",
+    "diffCategories",
+    "smokeGates",
+    "rollbackNote",
+    "compatibilityCaveat"
+  ]
+}

@@ -41,6 +41,7 @@
       "rollbackNote"
     ]
   },
+  "migrationFidelityMatrix": "docs/reference/migration-fidelity-matrix.json",
   "profiles": [
     {
       "api": "testdata/generated-compat/v0.1/orders.api",

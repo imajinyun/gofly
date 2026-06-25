@@ -12,6 +12,14 @@ Validate the matrix with:
 make generated-version-compat-check
 ```
 
+The gate creates a temporary project for every profile, runs `gofly new
+service` with the profile's `.api`, `.proto`, and service config inputs, applies
+a local module replacement for the current framework checkout, runs `go mod
+tidy`, verifies repeat generation with a clean diff, and then executes `go test
+./...` in the generated project. It writes a machine-readable
+`gofly.generated_version_compat_report.v1` report with generated file counts,
+repeat-generation diff status, test status, and the expected diff explanation.
+
 ## Profiles
 
 | Profile | Fixtures | Expected diff | Verification |

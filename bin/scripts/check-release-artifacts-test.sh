@@ -40,10 +40,12 @@ with checksums.open("w", encoding="utf-8") as fh:
         fh.write(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}\n")
 
 manifest_digest = "sha256:" + "a" * 64
+image_name = "ghcr.io/example/gofly"
 (evidence / "release-docker-digests.json").write_text(
     json.dumps(
         {
             "schema": "gofly.release_docker_digest_evidence.v1",
+            "image": image_name,
             "manifest_digest": manifest_digest,
             "platforms": ["linux/amd64", "linux/arm64"],
         },
@@ -78,11 +80,14 @@ manifest_digest = "sha256:" + "a" * 64
 )
 
 checksums_digest = hashlib.sha256(checksums.read_bytes()).hexdigest()
+checksums_subject = "dist/checksums.txt"
 if mode == "bad-checksums-attestation":
     checksums_digest = "b" * 64
+if mode == "bad-checksums-subject":
+    checksums_subject = "dist/other-checksums.txt"
 
 checksums_attestation = [
-    {"verificationResult": {"statement": {"subject": [{"digest": {"sha256": checksums_digest}}]}}}
+    {"verificationResult": {"statement": {"subject": [{"name": checksums_subject, "digest": {"sha256": checksums_digest}}]}}}
 ]
 (evidence.parent / "checksums-attestation-verification.json").write_text(
     json.dumps(checksums_attestation, sort_keys=True) + "\n",
@@ -92,8 +97,11 @@ checksums_attestation = [
 docker_digest = manifest_digest.removeprefix("sha256:")
 if mode == "bad-docker-attestation":
     docker_digest = "c" * 64
+docker_subject = image_name
+if mode == "bad-docker-subject":
+    docker_subject = "ghcr.io/example/other"
 docker_attestation = [
-    {"verificationResult": {"statement": {"subject": [{"digest": {"sha256": docker_digest}}]}}}
+    {"verificationResult": {"statement": {"subject": [{"name": docker_subject, "digest": {"sha256": docker_digest}}]}}}
 ]
 (evidence / "release-docker-attestation-verification.json").write_text(
     json.dumps(docker_attestation, sort_keys=True) + "\n",
@@ -150,7 +158,9 @@ run_failure() {
 
 run_success "valid-release-evidence"
 run_failure "bad-checksums-attestation" "bad-checksums-attestation" "checksums attestation does not bind"
+run_failure "bad-checksums-subject" "bad-checksums-subject" "checksums attestation does not bind"
 run_failure "bad-docker-attestation" "bad-docker-attestation" "Docker attestation does not bind"
+run_failure "bad-docker-subject" "bad-docker-subject" "Docker attestation does not bind"
 run_failure "trivy-vulnerability" "trivy-vulnerability" "HIGH/CRITICAL vulnerabilities"
 
 printf 'release artifact provenance fixture tests passed for %s\n' "$repo_root"

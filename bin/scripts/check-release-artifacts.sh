@@ -23,12 +23,17 @@ def load_attestation_entries(path):
         raise SystemExit(f"empty release attestation verification evidence: {path}")
     return entries
 
-def attestation_subject_matches(entries, sha256_digest):
+def attestation_subject_matches(entries, sha256_digest, expected_name=""):
     for entry in entries:
         statement = entry.get("verificationResult", {}).get("statement", {})
         for subject in statement.get("subject", []) or []:
-            if subject.get("digest", {}).get("sha256") == sha256_digest:
-                return True
+            if subject.get("digest", {}).get("sha256") != sha256_digest:
+                continue
+            if expected_name:
+                subject_name = subject.get("name", "")
+                if subject_name != expected_name and not subject_name.endswith("/" + expected_name):
+                    continue
+            return True
     return False
 
 if not dist.is_dir():
@@ -87,6 +92,9 @@ if require_docker_evidence:
     digest_data = json.loads(release_digest_report.read_text(encoding="utf-8"))
     if digest_data.get("schema") != "gofly.release_docker_digest_evidence.v1":
         raise SystemExit(f"unexpected Docker digest evidence schema in {release_digest_report}")
+    image_name = digest_data.get("image", "")
+    if not image_name:
+        raise SystemExit(f"Docker digest evidence missing image name in {release_digest_report}")
     manifest_digest = digest_data.get("manifest_digest", "")
     if not manifest_digest.startswith("sha256:") or len(manifest_digest) != len("sha256:") + 64:
         raise SystemExit(f"invalid Docker manifest digest in {release_digest_report}: {manifest_digest}")
@@ -125,11 +133,11 @@ if require_docker_evidence:
             raise SystemExit(f"Docker SBOM {sbom} is missing SPDXID or packages")
     checksums_entries = load_attestation_entries(checksums_attestation)
     checksums_sha256 = hashlib.sha256(checksums.read_bytes()).hexdigest()
-    if not attestation_subject_matches(checksums_entries, checksums_sha256):
-        raise SystemExit(f"checksums attestation does not bind to dist/checksums.txt sha256: {checksums_attestation}")
+    if not attestation_subject_matches(checksums_entries, checksums_sha256, "dist/checksums.txt"):
+        raise SystemExit(f"checksums attestation does not bind to dist/checksums.txt subject and sha256: {checksums_attestation}")
     docker_entries = load_attestation_entries(release_docker_attestation)
-    if not attestation_subject_matches(docker_entries, manifest_digest.removeprefix("sha256:")):
-        raise SystemExit(f"Docker attestation does not bind to {manifest_digest}: {release_docker_attestation}")
+    if not attestation_subject_matches(docker_entries, manifest_digest.removeprefix("sha256:"), image_name):
+        raise SystemExit(f"Docker attestation does not bind to {image_name}@{manifest_digest}: {release_docker_attestation}")
 print(f"release archives verified: {len(archives)}")
 print(f"release SBOMs verified: {len(expected_sboms)}")
 if docker_digest_files:

@@ -1,0 +1,218 @@
+{
+  "schema": "gofly.rpc_tier1_evidence.v1",
+  "status": "tier1-candidate",
+  "surfaces": [
+    "rpc",
+    "rpc/grpc",
+    "gateway",
+    "app"
+  ],
+  "promotionPolicy": {
+    "minimumReleaseTrains": 1,
+    "blockingGate": "make rpc-boundary-check",
+    "releaseGate": "make bench-evidence-check",
+    "latencyPolicy": "report-only until benchmark trend confidence is promoted",
+    "allocationPolicy": "blocking when bench-regression-check budget covers RPC hot paths"
+  },
+  "evidence": [
+    {
+      "id": "unary-contract",
+      "capability": "Unary contract",
+      "requiredForTier1": true,
+      "benchmark": "BenchmarkRPCUnary",
+      "gate": "BENCH_PATTERN=BenchmarkRPCUnary make bench-stat",
+      "evidenceRefs": [
+        {
+          "path": "bench/rpc_bench_test.go",
+          "contains": [
+            "BenchmarkRPCUnary"
+          ]
+        },
+        {
+          "path": "bench/matrix.md",
+          "contains": [
+            "BenchmarkRPCUnary",
+            "gRPC-Go"
+          ]
+        },
+        {
+          "path": "docs/reference/rpc-boundary.md",
+          "contains": [
+            "Unary contract",
+            "gofly RPC vs gRPC-Go benchmark evidence"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "server-stream-governance",
+      "capability": "Server stream governance",
+      "requiredForTier1": true,
+      "benchmark": "BenchmarkRPCServerStreamGovernance",
+      "gate": "BENCH_PATTERN=BenchmarkRPCServerStreamGovernance make bench-stat",
+      "evidenceRefs": [
+        {
+          "path": "bench/rpc_bench_test.go",
+          "contains": [
+            "BenchmarkRPCServerStreamGovernance",
+            "server_stream"
+          ]
+        },
+        {
+          "path": "examples/rpc-idl-matrix/main_test.go",
+          "contains": [
+            "server_stream"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "client-stream-governance",
+      "capability": "Client stream governance",
+      "requiredForTier1": true,
+      "benchmark": "BenchmarkRPCClientStreamGovernance",
+      "gate": "BENCH_PATTERN=BenchmarkRPCClientStreamGovernance make bench-stat",
+      "evidenceRefs": [
+        {
+          "path": "bench/rpc_bench_test.go",
+          "contains": [
+            "BenchmarkRPCClientStreamGovernance",
+            "client_stream"
+          ]
+        },
+        {
+          "path": "examples/rpc-idl-matrix/main_test.go",
+          "contains": [
+            "client_stream"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "bidi-stream-governance",
+      "capability": "Bidirectional stream governance",
+      "requiredForTier1": true,
+      "benchmark": "BenchmarkRPCBidiStreamGovernance",
+      "gate": "BENCH_PATTERN=BenchmarkRPCBidiStreamGovernance make bench-stat",
+      "evidenceRefs": [
+        {
+          "path": "bench/rpc_bench_test.go",
+          "contains": [
+            "BenchmarkRPCBidiStreamGovernance",
+            "bidi_stream"
+          ]
+        },
+        {
+          "path": "examples/rpc-idl-matrix/main_test.go",
+          "contains": [
+            "bidi_stream"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "resolver-updates",
+      "capability": "Resolver update contract",
+      "requiredForTier1": true,
+      "gate": "go test -C examples/rpc-idl-matrix ./...",
+      "evidenceRefs": [
+        {
+          "path": "examples/rpc-idl-matrix/main_test.go",
+          "contains": [
+            "Resolver",
+            "Updated"
+          ]
+        },
+        {
+          "path": "bench/matrix.md",
+          "contains": [
+            "resolver/balancer smoke"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "balancer-routing",
+      "capability": "Balancer routing contract",
+      "requiredForTier1": true,
+      "gate": "go run -C examples/rpc-idl-matrix .",
+      "evidenceRefs": [
+        {
+          "path": "examples/rpc-idl-matrix/main_test.go",
+          "contains": [
+            "round_robin",
+            "weighted_round_robin",
+            "p2c",
+            "consistent_hash",
+            "health_aware"
+          ]
+        },
+        {
+          "path": "docs/reference/rpc-boundary.md",
+          "contains": [
+            "Balancer routing"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "kitex-coexistence-rollback",
+      "capability": "Kitex coexistence and rollback",
+      "requiredForTier1": true,
+      "gate": "make rpc-boundary-check",
+      "evidenceRefs": [
+        {
+          "path": "docs/comparisons/kitex.md",
+          "contains": [
+            "coexistence",
+            "rollback",
+            "BenchmarkRPCUnary",
+            "BenchmarkRPCBidiStreamGovernance"
+          ]
+        },
+        {
+          "path": "docs/reference/rpc-boundary.md",
+          "contains": [
+            "Kitex coexistence",
+            "rollback"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "grpc-compatibility",
+      "capability": "gRPC compatibility matrix",
+      "requiredForTier1": true,
+      "gate": "go test -shuffle=on ./rpc/grpc/...",
+      "evidenceRefs": [
+        {
+          "path": "docs/reference/rpc-boundary.md",
+          "contains": [
+            "gRPC compatibility matrix",
+            "Unauthenticated",
+            "SERVING"
+          ]
+        },
+        {
+          "path": "rpc/grpc/auth_test.go",
+          "contains": [
+            "Unauthenticated"
+          ]
+        },
+        {
+          "path": "rpc/grpc/governance_test.go",
+          "contains": [
+            "timeout",
+            "breaker"
+          ]
+        },
+        {
+          "path": "rpc/grpc/governance_test.go",
+          "contains": [
+            "traceparent"
+          ]
+        }
+      ]
+    }
+  ]
+}

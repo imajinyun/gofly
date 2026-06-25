@@ -5,6 +5,10 @@ Schema: `gofly.rpc_boundary.v1`
 gofly RPC, `rpc/grpc`, and Kitex should coexist by workload shape rather than
 by framework preference.
 
+Machine-readable Tier 1 promotion evidence lives in
+`docs/reference/rpc-tier1-evidence.json` and is validated by
+`make rpc-boundary-check`.
+
 ## Decision table
 
 | Runtime | Use when | Keep out |

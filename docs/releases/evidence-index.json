@@ -1,0 +1,100 @@
+{
+  "evidence": [
+    {
+      "artifactPath": "dist/checksums.txt",
+      "id": "checksums",
+      "localGate": "make release-artifacts-check",
+      "producerJob": "release",
+      "releaseRequired": true
+    },
+    {
+      "artifactPath": "dist/<archive>.spdx.json",
+      "id": "archive-sbom",
+      "localGate": "make release-artifacts-check",
+      "producerJob": "release",
+      "releaseRequired": true
+    },
+    {
+      "artifactPath": "release-evidence/docker/release-docker-sbom.spdx.json",
+      "id": "docker-sbom",
+      "localGate": "RELEASE_REQUIRE_DOCKER_EVIDENCE=true make release-artifacts-check",
+      "producerJob": "release",
+      "releaseRequired": true
+    },
+    {
+      "artifactPath": "release-evidence/checksums-attestation-verification.json",
+      "id": "checksums-attestation",
+      "localGate": "RELEASE_REQUIRE_DOCKER_EVIDENCE=true make release-artifacts-check",
+      "producerJob": "release",
+      "releaseRequired": true
+    },
+    {
+      "artifactPath": "release-evidence/docker/release-docker-attestation-verification.json",
+      "id": "docker-attestation",
+      "localGate": "RELEASE_REQUIRE_DOCKER_EVIDENCE=true make release-artifacts-check",
+      "producerJob": "release",
+      "releaseRequired": true
+    },
+    {
+      "artifactPath": "release-evidence/docker/release-docker-digests.json",
+      "id": "docker-digest",
+      "localGate": "RELEASE_REQUIRE_DOCKER_EVIDENCE=true make release-artifacts-check",
+      "producerJob": "release",
+      "releaseRequired": true
+    },
+    {
+      "artifactPath": "release-evidence/docker/release-trivy-results.json",
+      "id": "trivy",
+      "localGate": "RELEASE_REQUIRE_DOCKER_EVIDENCE=true make release-artifacts-check",
+      "producerJob": "release",
+      "releaseRequired": true
+    },
+    {
+      "artifactPath": "release-evidence/api-compat-report.json",
+      "id": "api-compat",
+      "localGate": "make api-compat",
+      "producerJob": "contract-check",
+      "releaseRequired": true
+    },
+    {
+      "artifactPath": "release-evidence/security-report.json",
+      "id": "security",
+      "localGate": "make govulncheck && make gosec",
+      "producerJob": "security",
+      "releaseRequired": true
+    },
+    {
+      "artifactPath": "release-evidence/race-report.txt",
+      "id": "race",
+      "localGate": "go test -race ./...",
+      "producerJob": "governance",
+      "releaseRequired": true
+    },
+    {
+      "artifactPath": "bench/regression-report.json",
+      "id": "bench",
+      "localGate": "make bench-evidence-check",
+      "producerJob": "bench-fuzz",
+      "releaseRequired": true
+    },
+    {
+      "artifactPath": ".tmp-test/governance-report/governance-report.json",
+      "id": "governance-dashboard",
+      "localGate": "make governance-report-check",
+      "producerJob": "governance",
+      "releaseRequired": true
+    }
+  ],
+  "schema": "gofly.release_evidence_index.v1",
+  "schemaContract": {
+    "requiredFields": [
+      "id",
+      "artifactPath",
+      "producerJob",
+      "localGate",
+      "releaseRequired"
+    ],
+    "stableIdPolicy": "ids are append-only and must not be renamed inside a release line",
+    "version": "1"
+  }
+}

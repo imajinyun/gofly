@@ -7,17 +7,82 @@
     "dist/gofly_<version>_windows_amd64.zip",
     "dist/gofly_<version>_windows_arm64.zip"
   ],
+  "artifact_groups": [
+    {
+      "artifacts": [
+        "archives",
+        "checksums",
+        "sbom"
+      ],
+      "gate": "make release-snapshot",
+      "id": "binary-archives",
+      "required": true
+    },
+    {
+      "artifacts": [
+        "docker_digest",
+        "docker_trivy",
+        "docker_sbom"
+      ],
+      "gate": "RELEASE_REQUIRE_DOCKER_EVIDENCE=true make release-artifacts-check",
+      "id": "release-container",
+      "required": true
+    },
+    {
+      "artifacts": [
+        "checksums_attestation",
+        "docker_attestation"
+      ],
+      "gate": "make release-artifacts-check",
+      "id": "provenance-attestations",
+      "required": true
+    }
+  ],
   "checksums": "dist/checksums.txt",
   "docker_digest": "release-evidence/docker/release-docker-digests.json",
+  "docker_sbom": "release-evidence/docker/release-docker-sbom.spdx.json",
+  "docker_trivy": "release-evidence/docker/release-trivy-results.json",
+  "evidence_policy": {
+    "allow_empty_artifacts": false,
+    "allow_release_gate_skips": false,
+    "durable_manifest": "docs/releases/evidence-manifest.json",
+    "volatile_output_directories": [
+      "dist",
+      "release-evidence"
+    ]
+  },
   "provenance_attestation": [
     "release-evidence/checksums-attestation-verification.json",
     "release-evidence/docker/release-docker-attestation-verification.json"
+  ],
+  "required_gates": [
+    "make release-config-check",
+    "make release-snapshot",
+    "make release-artifacts-check",
+    "make release-artifacts-test"
   ],
   "sbom": [
     "dist/<archive>.spdx.json",
     "release-evidence/docker/release-docker-sbom.spdx.json"
   ],
   "schema": "gofly.release_evidence_manifest.v1",
+  "schema_contract": {
+    "required_fields": [
+      "schema",
+      "archives",
+      "checksums",
+      "sbom",
+      "docker_digest",
+      "docker_trivy",
+      "docker_sbom",
+      "provenance_attestation",
+      "tag_governance",
+      "artifact_groups",
+      "required_gates",
+      "evidence_policy"
+    ],
+    "version": "1"
+  },
   "tag_governance": {
     "forbidden_skips": [
       "API compatibility",

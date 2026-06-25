@@ -21,7 +21,17 @@ The release evidence manifest lives at
 [`docs/releases/evidence-manifest.json`](evidence-manifest.json). It names the
 multi-platform archives, `checksums.txt`, archive SBOM files, Docker image tags
 and digest, and provenance attestation evidence expected before a tag is
-promoted.
+promoted. The release evidence index lives at
+[`docs/releases/evidence-index.json`](evidence-index.json) and maps each
+release-required evidence item to a stable id, artifact path, producer job, and
+local gate.
+
+The manifest is also the machine-readable release evidence schema. Its
+`schema_contract` lists fields that release automation must preserve, while
+`artifact_groups` maps binary archive, release container, and provenance
+evidence to the gate that verifies each group. `required_gates` and
+`evidence_policy` make skipped release checks explicit instead of relying on a
+manual checklist.
 
 ## Verify Binary Artifacts
 

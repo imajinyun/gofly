@@ -4,6 +4,8 @@ Schema: `gofly.openapi_validation_envelope.v1`
 
 The generated service contract must keep runtime binding and OpenAPI schema in
 sync across path, query, header, body, tag, schema, and error code behavior.
+The blocking invalid-request smoke matrix lives in
+`docs/reference/openapi-invalid-request-smoke.json`.
 
 ## Contract
 

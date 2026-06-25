@@ -40,7 +40,7 @@ Use `Context.BindRequest` for normal request DTOs. It merges supported sources i
 | `ctx.BindHeader` / `rest.BindHeader` | HTTP headers |
 | `ctx.BindRequest` / `rest.BindRequest` | body, path, query, and headers |
 
-The built-in validator supports the portable `validate` tag subset used by OpenAPI schema generation: `required`, `min`, `max`, and `oneof`. Set `rest.Config.Validator` to adapt a project validator without adding it to gofly's root module dependency graph.
+The built-in validator supports the portable `validate` tag subset used by OpenAPI schema generation: `required`, `min`, `max`, and `oneof`. Set `rest.Config.Validator` as the validator adapter for a project validator without adding it to gofly's root module dependency graph.
 
 ```go
 type CreateOrderRequest struct {

@@ -1,0 +1,210 @@
+{
+  "schema": "gofly.openapi_invalid_request_smoke.v1",
+  "status": "blocking",
+  "blockingGate": "make openapi-validation-check",
+  "runtimeEnvelope": {
+    "type": "rest.ErrorResponse",
+    "status": 400,
+    "code": "invalid_argument"
+  },
+  "smokeCases": [
+    {
+      "id": "path-parse-failure",
+      "surface": "path",
+      "source": "ctx.PathValue and path tags",
+      "expectedStatus": 400,
+      "expectedCode": "invalid_argument",
+      "gate": "go test -shuffle=on ./rest -run TestOpenAPIValidationEnvelopeRuntimeGolden_BitsUT",
+      "evidenceRefs": [
+        {
+          "path": "rest/binding_test.go",
+          "contains": [
+            "path parse failure",
+            "bind path field ID",
+            "rest.ErrorResponse"
+          ]
+        },
+        {
+          "path": "rest/openapi_test.go",
+          "contains": [
+            "path",
+            "JSONBodySchema"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "query-validation-failure",
+      "surface": "query",
+      "source": "query tags and BindRequest",
+      "expectedStatus": 400,
+      "expectedCode": "invalid_argument",
+      "gate": "go test -shuffle=on ./rest -run TestOpenAPIValidationEnvelopeRuntimeGolden_BitsUT",
+      "evidenceRefs": [
+        {
+          "path": "rest/binding_test.go",
+          "contains": [
+            "query tag validation failure",
+            "field Page failed min=1 validation",
+            "ValidationFailuresOf"
+          ]
+        },
+        {
+          "path": "rest/openapi_test.go",
+          "contains": [
+            "query",
+            "min=1,max=100"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "header-validation-failure",
+      "surface": "header",
+      "source": "header tags and BindRequest",
+      "expectedStatus": 400,
+      "expectedCode": "invalid_argument",
+      "gate": "go test -shuffle=on ./rest -run TestOpenAPIValidationEnvelopeRuntimeGolden_BitsUT",
+      "evidenceRefs": [
+        {
+          "path": "rest/binding_test.go",
+          "contains": [
+            "header tag validation failure",
+            "field Tenant failed required validation"
+          ]
+        },
+        {
+          "path": "rest/openapi_test.go",
+          "contains": [
+            "header",
+            "required"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "body-decode-failure",
+      "surface": "body",
+      "source": "JSON body binding",
+      "expectedStatus": 400,
+      "expectedCode": "invalid_argument",
+      "gate": "go test -shuffle=on ./rest -run TestOpenAPIValidationEnvelopeRuntimeGolden_BitsUT",
+      "evidenceRefs": [
+        {
+          "path": "rest/binding_test.go",
+          "contains": [
+            "body schema decode failure",
+            "decode json body"
+          ]
+        },
+        {
+          "path": "rest/openapi_test.go",
+          "contains": [
+            "JSONBodySchema",
+            "DefaultErrorResponses"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "body-tag-validation-failure",
+      "surface": "tag",
+      "source": "portable validate tags",
+      "expectedStatus": 400,
+      "expectedCode": "invalid_argument",
+      "gate": "go test -shuffle=on ./rest -run TestOpenAPIValidationEnvelopeRuntimeGolden_BitsUT",
+      "evidenceRefs": [
+        {
+          "path": "rest/binding_test.go",
+          "contains": [
+            "body tag enum validation failure",
+            "oneof=pending paid canceled"
+          ]
+        },
+        {
+          "path": "rest/openapi_test.go",
+          "contains": [
+            "oneof=pending paid canceled",
+            "Enum"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "validator-adapter-failure",
+      "surface": "validator",
+      "source": "rest.Config.Validator and Context.Validator adapters",
+      "expectedStatus": 400,
+      "expectedCode": "invalid_argument",
+      "gate": "go test -shuffle=on ./rest -run TestOpenAPIValidationEnvelopeRuntimeGolden_BitsUT",
+      "evidenceRefs": [
+        {
+          "path": "rest/binding_test.go",
+          "contains": [
+            "validator adapter field failure",
+            "sku is reserved",
+            "ValidationFailures"
+          ]
+        },
+        {
+          "path": "docs/guides/rest.md",
+          "contains": [
+            "rest.Config.Validator",
+            "validator adapter"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "openapi-schema-alignment",
+      "surface": "schema",
+      "source": "rest.StructSchema, JSONBodySchema, and DefaultErrorResponses",
+      "expectedStatus": 400,
+      "expectedCode": "invalid_argument",
+      "gate": "go test -shuffle=on ./rest -run TestOpenAPIValidationEnvelopeSchemaGolden_BitsUT",
+      "evidenceRefs": [
+        {
+          "path": "rest/openapi_test.go",
+          "contains": [
+            "TestOpenAPIValidationEnvelopeSchemaGolden_BitsUT",
+            "DefaultErrorResponses",
+            "ErrorResponse"
+          ]
+        },
+        {
+          "path": "docs/guides/openapi.md",
+          "contains": [
+            "rest.StructSchema",
+            "rest.DefaultErrorResponses()"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "generated-service-invalid-request",
+      "surface": "generated-service",
+      "source": "generated production service smoke",
+      "expectedStatus": 400,
+      "expectedCode": "invalid_argument",
+      "gate": "go test -shuffle=on ./cmd/gofly/internal/generator -run TestGeneratedServiceOpenAPIValidationEnvelopeContract_BitsUT",
+      "evidenceRefs": [
+        {
+          "path": "cmd/gofly/internal/generator/service_test.go",
+          "contains": [
+            "TestGeneratedServiceOpenAPIValidationEnvelopeContract_BitsUT",
+            "assertInvalidRequestEnvelope(t)",
+            "waitOpenAPI(t, ctx"
+          ]
+        },
+        {
+          "path": "cmd/gofly/internal/generator/templates.go",
+          "contains": [
+            "func assertInvalidRequestEnvelope(t *testing.T)",
+            "rest.ErrorResponse",
+            "coreerrors.CodeInvalidArgument"
+          ]
+        }
+      ]
+    }
+  ]
+}

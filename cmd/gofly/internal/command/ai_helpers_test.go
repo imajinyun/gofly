@@ -95,7 +95,7 @@ func TestCommandHelpSubcommandBoundaries_BitsUT(t *testing.T) {
 		{name: "model", fn: isModelHelpSubcommand, yes: "mongo", no: "ddl"},
 		{name: "config", fn: isConfigHelpSubcommand, yes: "set", no: "delete"},
 		{name: "feature", fn: isFeatureHelpSubcommand, yes: "run", no: "enable"},
-		{name: "plugin", fn: isPluginHelpSubcommand, yes: "list", no: "install"},
+		{name: "plugin", fn: isPluginHelpSubcommand, yes: "install", no: "enable"},
 		{name: "kube", fn: isKubeHelpSubcommand, yes: "deploy", no: "delete"},
 		{name: "template", fn: isTemplateHelpSubcommand, yes: "revert", no: "diff"},
 		{name: "env", fn: isEnvHelpSubcommand, yes: "install", no: "doctor"},
@@ -113,6 +113,122 @@ func TestCommandHelpSubcommandBoundaries_BitsUT(t *testing.T) {
 	if !isModelDriverHelpSubcommand("mysql", "ddl") || !isModelDriverHelpSubcommand("pg", "datasource") || isModelDriverHelpSubcommand("sqlite", "ddl") {
 		t.Fatal("model driver help subcommand boundaries mismatch")
 	}
+}
+
+func TestCLICommandSurfaceManifestMatchesRegistries_BitsUT(t *testing.T) {
+	repoRoot := filepath.Join("..", "..", "..", "..")
+	data, err := os.ReadFile(filepath.Join(repoRoot, "docs", "reference", "cli-command-surface.json"))
+	if err != nil {
+		t.Fatalf("read cli command surface manifest: %v", err)
+	}
+	type manifestRootCommand struct {
+		Name         string   `json:"name"`
+		Aliases      []string `json:"aliases"`
+		Children     []string `json:"children"`
+		JSONContract string   `json:"jsonContract"`
+		HelpTopic    string   `json:"helpTopic"`
+	}
+	var manifest struct {
+		Schema           string                `json:"schema"`
+		AcceptanceGate   string                `json:"acceptanceGate"`
+		IgnoredPaths     []string              `json:"ignoredPaths"`
+		RootCommands     []manifestRootCommand `json:"rootCommands"`
+		RecommendedOrder []string              `json:"recommendedOrder"`
+	}
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		t.Fatalf("decode cli command surface manifest: %v", err)
+	}
+	if manifest.Schema != "gofly.cli_command_surface.v1" {
+		t.Fatalf("schema = %q, want gofly.cli_command_surface.v1", manifest.Schema)
+	}
+	if manifest.AcceptanceGate != "make cli-command-surface-check" {
+		t.Fatalf("acceptanceGate = %q, want make cli-command-surface-check", manifest.AcceptanceGate)
+	}
+	if !containsString(manifest.IgnoredPaths, "docs/superpowers/") {
+		t.Fatalf("ignoredPaths = %v, want docs/superpowers/", manifest.IgnoredPaths)
+	}
+
+	byName := make(map[string]manifestRootCommand)
+	for _, item := range manifest.RootCommands {
+		byName[item.Name] = item
+	}
+	for _, spec := range rootCommands.primary {
+		if _, ok := byName[spec.Name]; !ok {
+			t.Fatalf("root command %q missing from cli command surface manifest", spec.Name)
+		}
+	}
+	for _, item := range manifest.RootCommands {
+		spec, ok := rootCommands.commands[item.Name]
+		if !ok {
+			t.Fatalf("manifest root command %q is not registered", item.Name)
+		}
+		for _, alias := range item.Aliases {
+			aliasSpec, ok := rootCommands.commands[alias]
+			if !ok || aliasSpec.Name != spec.Name {
+				t.Fatalf("manifest alias %q for %q does not resolve to canonical command", alias, item.Name)
+			}
+		}
+		if help := commandHelpFor(item.HelpTopic); help.Name == "" || help.Short == "" || help.Usage == "" {
+			t.Fatalf("manifest help topic %q for %q returned incomplete help: %#v", item.HelpTopic, item.Name, help)
+		}
+		switch item.Name {
+		case "api":
+			assertRegistryChildren(t, item.Name, apiCommands, item.Children)
+		case "rpc":
+			assertRegistryChildren(t, item.Name, rpcCommands, item.Children)
+		case "model":
+			assertRegistryChildren(t, item.Name, modelCommands, item.Children)
+		case "plugin":
+			for _, child := range item.Children {
+				if !isPluginHelpSubcommand(child) {
+					t.Fatalf("plugin child %q is registered in manifest but rejected by help boundary", child)
+				}
+			}
+		}
+		if item.JSONContract != "" {
+			contractDoc, err := os.ReadFile(filepath.Join(repoRoot, "docs", "reference", "cli-json-contracts.md"))
+			if err != nil {
+				t.Fatalf("read cli json contracts: %v", err)
+			}
+			for _, needle := range strings.Split(item.JSONContract, ",") {
+				needle = strings.TrimSpace(needle)
+				if needle == "" || strings.Contains(needle, "...") {
+					continue
+				}
+				if !strings.Contains(string(contractDoc), needle) {
+					t.Fatalf("JSON contract %q for %q missing from cli-json-contracts.md", needle, item.Name)
+				}
+			}
+		}
+	}
+	for _, task := range []string{
+		"GOFLY-P9-0-CLI-GOVERNANCE-ROADMAP",
+		"GOFLY-P9-1-CLI-COMMAND-SURFACE-GATE",
+		"GOFLY-P9-2-CLI-JSON-CONTRACT-GOLDENS",
+		"GOFLY-P9-3-CLI-STDIO-AND-ERROR-DISCIPLINE",
+	} {
+		if !containsString(manifest.RecommendedOrder, task) {
+			t.Fatalf("recommendedOrder missing %s", task)
+		}
+	}
+}
+
+func assertRegistryChildren(t *testing.T, name string, registry commandRegistry, children []string) {
+	t.Helper()
+	for _, child := range children {
+		if _, ok := registry.commands[child]; !ok {
+			t.Fatalf("%s child %q missing from registry", name, child)
+		}
+	}
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 func TestNewServicePlanAndFlagParsingBoundaries_BitsUT(t *testing.T) {

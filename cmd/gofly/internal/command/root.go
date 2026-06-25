@@ -632,7 +632,7 @@ func isRPCHelpSubcommand(command string) bool {
 	switch command {
 	case "idl", "thrift", "client", "server", "middleware", "lint", "deps":
 		return true
-	case "gen", "protoc", "check", "breaking", "descriptor", "plugin", "template", "new":
+	case "gen", "protoc", "check", "doc", "breaking", "descriptor", "plugin", "template", "new":
 		return true
 	default:
 		return false
@@ -677,7 +677,7 @@ func isFeatureHelpSubcommand(command string) bool {
 
 func isPluginHelpSubcommand(command string) bool {
 	switch command {
-	case "list", "run":
+	case "list", "search", "install", "uninstall", "run":
 		return true
 	default:
 		return false

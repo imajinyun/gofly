@@ -50,6 +50,14 @@
       "helpTopic": "gen"
     },
     {
+      "name": "handler",
+      "children": [
+        "gen",
+        "complete"
+      ],
+      "helpTopic": "handler"
+    },
+    {
       "name": "api",
       "children": [
         "check",
@@ -111,6 +119,95 @@
       "helpTopic": "model"
     },
     {
+      "name": "docker",
+      "helpTopic": "docker"
+    },
+    {
+      "name": "kube",
+      "children": [
+        "deploy",
+        "service",
+        "ingress",
+        "configmap",
+        "job"
+      ],
+      "helpTopic": "kube"
+    },
+    {
+      "name": "template",
+      "children": [
+        "init",
+        "list",
+        "clean",
+        "update",
+        "revert"
+      ],
+      "helpTopic": "template"
+    },
+    {
+      "name": "env",
+      "children": [
+        "check"
+      ],
+      "jsonContract": "gofly env --json, gofly env check --json",
+      "helpTopic": "env"
+    },
+    {
+      "name": "completion",
+      "children": [
+        "bash",
+        "zsh",
+        "fish",
+        "powershell",
+        "pwsh"
+      ],
+      "helpTopic": "completion"
+    },
+    {
+      "name": "quickstart",
+      "helpTopic": "quickstart"
+    },
+    {
+      "name": "migrate",
+      "aliases": [
+        "migration"
+      ],
+      "children": [
+        "create"
+      ],
+      "helpTopic": "migrate"
+    },
+    {
+      "name": "bug",
+      "jsonContract": "gofly bug --json",
+      "helpTopic": "bug"
+    },
+    {
+      "name": "upgrade",
+      "jsonContract": "gofly upgrade --json",
+      "helpTopic": "upgrade"
+    },
+    {
+      "name": "config",
+      "children": [
+        "init",
+        "show",
+        "get",
+        "set",
+        "clean"
+      ],
+      "helpTopic": "config"
+    },
+    {
+      "name": "feature",
+      "children": [
+        "list",
+        "run"
+      ],
+      "jsonContract": "gofly feature list --json, gofly feature run --format json",
+      "helpTopic": "feature"
+    },
+    {
       "name": "plugin",
       "children": [
         "list",
@@ -119,8 +216,15 @@
         "uninstall",
         "run"
       ],
-      "jsonContract": "gofly plugin list/search/install/uninstall/run --json",
+      "jsonContract": "gofly plugin list --json, gofly plugin search --json, gofly plugin install --json, gofly plugin uninstall --json, gofly plugin run --json",
       "helpTopic": "plugin"
+    },
+    {
+      "name": "complete",
+      "children": [
+        "handler"
+      ],
+      "helpTopic": "complete"
     },
     {
       "name": "release",
@@ -134,6 +238,18 @@
       "name": "doctor",
       "jsonContract": "gofly doctor --json",
       "helpTopic": "doctor"
+    },
+    {
+      "name": "example",
+      "aliases": [
+        "examples"
+      ],
+      "children": [
+        "list",
+        "run"
+      ],
+      "jsonContract": "gofly example list --json",
+      "helpTopic": "example"
     },
     {
       "name": "ai",

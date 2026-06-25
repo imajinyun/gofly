@@ -3591,6 +3591,68 @@ func TestGlobalOutputJSONErrorsToStdoutOnly(t *testing.T) {
 	}
 }
 
+func TestCLISTDIOExitContract(t *testing.T) {
+	t.Run("text usage errors return exit 2 without writing streams", func(t *testing.T) {
+		var stdout, stderr bytes.Buffer
+		err := ExecuteWithIO([]string{"example", "nonexistent"}, IOStreams{Out: &stdout, Err: &stderr})
+		if err == nil {
+			t.Fatal("text usage command returned nil, want error")
+		}
+		if ExitCode(err) != 2 {
+			t.Fatalf("ExitCode(text usage error) = %d, want 2: %v", ExitCode(err), err)
+		}
+		if stdout.Len() != 0 || stderr.Len() != 0 {
+			t.Fatalf("ExecuteWithIO text usage stdout=%q stderr=%q, want caller-owned error rendering", stdout.String(), stderr.String())
+		}
+	})
+
+	t.Run("global JSON usage errors write one stdout envelope", func(t *testing.T) {
+		var stdout, stderr bytes.Buffer
+		err := ExecuteWithIO([]string{"--output", "json", "example", "nonexistent"}, IOStreams{Out: &stdout, Err: &stderr})
+		if err == nil {
+			t.Fatal("JSON usage command returned nil, want error")
+		}
+		if ExitCode(err) != 2 {
+			t.Fatalf("ExitCode(JSON usage error) = %d, want 2: %v", ExitCode(err), err)
+		}
+		if stderr.Len() != 0 {
+			t.Fatalf("JSON usage stderr = %q, want empty", stderr.String())
+		}
+		if strings.Count(stdout.String(), `"ok"`) != 1 {
+			t.Fatalf("JSON usage stdout emitted duplicate envelopes:\n%s", stdout.String())
+		}
+		var envelope struct {
+			OK    bool `json:"ok"`
+			Error struct {
+				Code    string `json:"code"`
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+			t.Fatalf("JSON usage stdout is not valid envelope: %v\n%s", err, stdout.String())
+		}
+		if envelope.OK || envelope.Error.Code != "USAGE_ERROR" || envelope.Error.Message == "" {
+			t.Fatalf("JSON usage envelope = %+v", envelope)
+		}
+	})
+
+	t.Run("JSONOutputRequested survives ExecuteWithIO mode reset", func(t *testing.T) {
+		var stdout bytes.Buffer
+		if err := ExecuteWithIO([]string{"--output", "json", "version"}, IOStreams{Out: &stdout}); err != nil {
+			t.Fatal(err)
+		}
+		if OutputMode() != outputText {
+			t.Fatalf("OutputMode after ExecuteWithIO = %q, want restored text", OutputMode())
+		}
+		if !JSONOutputRequested([]string{"--output", "json", "example", "nonexistent"}) {
+			t.Fatal("JSONOutputRequested(--output json ...) = false, want true after mode reset")
+		}
+		if JSONOutputRequested([]string{"version", "--json"}) {
+			t.Fatal("JSONOutputRequested(command-local --json) = true, want false for global process error rendering")
+		}
+	})
+}
+
 func TestExecuteAIManifestAliasAndText(t *testing.T) {
 	var stdout bytes.Buffer
 	if err := ExecuteWithIO([]string{"tools", "manifest", "--format", "text"}, IOStreams{Out: &stdout}); err != nil {

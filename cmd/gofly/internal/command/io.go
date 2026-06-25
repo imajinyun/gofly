@@ -96,6 +96,14 @@ func OutputMode() string {
 // outputMode is an alias for OutputMode used by internal callers.
 func outputMode() string { return OutputMode() }
 
+// JSONOutputRequested reports whether the argv-level global controls request
+// JSON output. It is used by the process entry point after ExecuteWithIO has
+// restored the command-local output mode.
+func JSONOutputRequested(args []string) bool {
+	output, _, _, err := parseGlobalControls(args)
+	return err == nil && output == outputJSON
+}
+
 // isQuiet returns true when output is suppressed to stderr-only mode.
 func isQuiet() bool { return commandIO.verbosity <= verbosityQuiet }
 

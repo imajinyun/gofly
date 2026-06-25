@@ -196,7 +196,7 @@ func buildReport(ctx context.Context) (report, error) {
 			ManifestFields: []string{"name", "version", "compatibleVersions", "capabilities", "permissions", "requiresDryRun"},
 			RegistryFields: []string{"name", "remote", "version", "protocol", "checksum", "source", "manifest"},
 			RequiredGates:  []string{"make plugin-conformance-check", "go test -C examples/plugin-ecosystem ./...", "go run -C examples/plugin-ecosystem ."},
-			ReleaseNotes:   []string{"protocol compatibility", "digest provenance", "permission rationale", "template contract", "rollback and failure isolation behavior"},
+			ReleaseNotes:   []string{"protocol compatibility", "digest provenance", "signature provenance", "permission rationale", "template contract", "rollback and failure isolation behavior"},
 		},
 		Compatibility: []compatibilityCase{
 			{Name: "old-protocol", CompatibleVersions: []string{"0"}, Accepted: false},

@@ -1,0 +1,110 @@
+{
+  "acceptanceGate": "make plugin-conformance-check",
+  "checklist": [
+    {
+      "evidence": [
+        "manifest.permissions",
+        "permissionReview.rationale",
+        "permissionReview.leastPrivilege"
+      ],
+      "id": "permission-review",
+      "required": true
+    },
+    {
+      "evidence": [
+        "registry.checksum",
+        "registry.source",
+        "registry.protocol",
+        "registry.manifest"
+      ],
+      "id": "registry-publishing",
+      "required": true
+    },
+    {
+      "evidence": [
+        "template.schema",
+        "template.entrypoints",
+        "template.permissions",
+        "template.checksum",
+        "template.source"
+      ],
+      "id": "third-party-template-publishing",
+      "required": true
+    },
+    {
+      "evidence": [
+        "digest.sha256",
+        "signature.provenance",
+        "source.repository"
+      ],
+      "id": "digest-and-signature",
+      "required": true
+    },
+    {
+      "evidence": [
+        "old protocol",
+        "current protocol",
+        "future protocol",
+        "future-plus-current protocol"
+      ],
+      "id": "compatibility-matrix",
+      "required": true
+    },
+    {
+      "evidence": [
+        "malicious path",
+        "digest mismatch",
+        "permission escape",
+        "no partial writes"
+      ],
+      "id": "failure-isolation",
+      "required": true
+    }
+  ],
+  "permissionReview": {
+    "allowedPermissions": [
+      "filesystem:write-relative"
+    ],
+    "leastPrivilege": true,
+    "requiresDryRun": true,
+    "requiresRationale": true
+  },
+  "publishingCommands": [
+    "make plugin-conformance-check",
+    "go test -C examples/plugin-ecosystem ./...",
+    "go run -C examples/plugin-ecosystem ."
+  ],
+  "releaseNoteFields": [
+    "protocol compatibility",
+    "digest provenance",
+    "signature provenance",
+    "permission rationale",
+    "template contract",
+    "rollback and failure isolation behavior"
+  ],
+  "schema": "gofly.plugin_publishing_ux.v1",
+  "schemaContract": {
+    "requiredFields": [
+      "schema",
+      "acceptanceGate",
+      "permissionReview",
+      "checklist",
+      "publishingCommands",
+      "releaseNoteFields"
+    ],
+    "version": "1"
+  },
+  "templateContract": {
+    "path": "examples/plugin-ecosystem/templates/service/gofly.template.json",
+    "requiredFields": [
+      "schema",
+      "name",
+      "version",
+      "protocol",
+      "entrypoints",
+      "permissions",
+      "checksum",
+      "source"
+    ]
+  }
+}

@@ -2,6 +2,9 @@
 
 Schema: `gofly.plugin_conformance.v1`
 
+Publishing UX schema: `gofly.plugin_publishing_ux.v1` in
+`docs/reference/plugin-publishing-ux.json`.
+
 Plugin adoption requires a conformance suite, not only a registry example. The
 suite covers registry JSON schema, plugin manifest schema, digest validation,
 least permission checks, a compatibility runner, and a failure isolation report.
@@ -23,8 +26,15 @@ go run -C examples/plugin-ecosystem .
 ```
 
 Release notes for a plugin should state protocol compatibility,
-digest provenance, permission rationale, template contract, and
+digest provenance, signature provenance, permission rationale, template contract, and
 rollback and failure isolation behavior.
+
+The publishing UX manifest turns that release checklist into a gateable
+contract. It requires a permission-review rationale, least-privilege
+`filesystem:write-relative` permissions, dry-run support, third-party template
+metadata, digest and signature provenance, compatibility evidence, and failure
+isolation evidence that rejects malicious paths, digest mismatch, permission
+escape, and partial writes.
 
 ## Required cases
 

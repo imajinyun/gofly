@@ -106,6 +106,13 @@ Publishable registry checklist:
 - Future-plus-current declarations such as `compatibleVersions: ["2", "1"]` are accepted by selecting the current protocol.
 - Future-only declarations such as `compatibleVersions: ["2"]` are rejected until the host supports that protocol.
 - `checksum`, `source`, `protocol`, `capabilities`, `permissions`, and the template contract must be present before release.
+- Plugin release notes must state protocol compatibility, digest provenance, signature provenance, permission rationale, template contract, and rollback and failure isolation behavior.
+
+`docs/reference/plugin-publishing-ux.json` defines the gateable publishing UX
+contract for third-party plugins and template packs. It requires a
+least-privilege permission review, dry-run support, registry metadata, template
+metadata, digest and signature provenance, compatibility evidence, and
+failure-isolation evidence before a plugin is treated as publishable.
 
 Run the copyable plugin ecosystem example to inspect the registry contract, code-generation plugin example, post-generation patching example, and third-party template directory contract:
 

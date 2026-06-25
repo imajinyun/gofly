@@ -31,7 +31,7 @@ func TestPluginEcosystemReport_BitsUT(t *testing.T) {
 			t.Fatalf("publishing gates = %#v, missing %s", report.Publishing.RequiredGates, gate)
 		}
 	}
-	for _, note := range []string{"protocol compatibility", "digest provenance", "permission rationale", "template contract", "rollback and failure isolation behavior"} {
+	for _, note := range []string{"protocol compatibility", "digest provenance", "signature provenance", "permission rationale", "template contract", "rollback and failure isolation behavior"} {
 		if !contains(report.Publishing.ReleaseNotes, note) {
 			t.Fatalf("publishing release notes = %#v, missing %s", report.Publishing.ReleaseNotes, note)
 		}

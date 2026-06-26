@@ -60,6 +60,40 @@ func pluginListFromConfig(cfg *generator.Config, kind string) []string {
 	return nil
 }
 
+type newScaffoldLoadOptions struct {
+	ConfigPath     string
+	Dir            string
+	Name           string
+	Module         string
+	Style          string
+	TemplateDir    string
+	TemplateRemote string
+	TemplateBranch string
+	Features       string
+	Plugins        string
+	Kind           string
+	Discovery      discoveryCLIFlagValues
+}
+
+type newScaffoldLoadContext struct {
+	Config      *generator.Config
+	ConfigPath  string
+	PluginNames []string
+}
+
+func loadNewScaffoldContext(opts newScaffoldLoadOptions) (newScaffoldLoadContext, error) {
+	cfg, resolved, err := loadAndOverlay(opts.ConfigPath, opts.Dir, opts.Name, opts.Module, opts.Style, opts.TemplateDir, opts.TemplateRemote, opts.TemplateBranch, opts.Features, opts.Plugins, opts.Kind)
+	if err != nil {
+		return newScaffoldLoadContext{}, err
+	}
+	applyDiscoveryCLIOverlay(cfg, discoveryCLIOverlayFromFlags(opts.Discovery))
+	return newScaffoldLoadContext{
+		Config:      cfg,
+		ConfigPath:  resolved,
+		PluginNames: pluginListFromConfig(cfg, opts.Kind),
+	}, nil
+}
+
 func saveNewScaffoldConfig(save bool, path string, cfg *generator.Config) error {
 	if !save {
 		return nil

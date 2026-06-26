@@ -82,17 +82,17 @@ func apiNewCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	applyDiscoveryCLIOverlay(cfg, discoveryCLIOverlay{
-		Provider:    *discovery,
-		Address:     *discoveryAddress,
-		Endpoints:   *discoveryEndpoints,
-		Prefix:      *discoveryPrefix,
-		TTL:         *discoveryTTL,
-		DialTimeout: *discoveryDialTimeout,
-		TokenEnv:    *discoveryTokenEnv,
-		UsernameEnv: *discoveryUsernameEnv,
-		PasswordEnv: *discoveryPasswordEnv,
-	})
+	applyDiscoveryCLIOverlay(cfg, discoveryCLIOverlayFromFlags(discoveryCLIFlagValues{
+		Discovery:            discovery,
+		DiscoveryAddress:     discoveryAddress,
+		DiscoveryEndpoints:   discoveryEndpoints,
+		DiscoveryPrefix:      discoveryPrefix,
+		DiscoveryTTL:         discoveryTTL,
+		DiscoveryDialTimeout: discoveryDialTimeout,
+		DiscoveryTokenEnv:    discoveryTokenEnv,
+		DiscoveryUsernameEnv: discoveryUsernameEnv,
+		DiscoveryPasswordEnv: discoveryPasswordEnv,
+	}))
 	if cfg.Style == "" || isGoctlTemplateStyle(cfg.Style) {
 		cfg.Style = generator.ServiceStyleBasic
 	}

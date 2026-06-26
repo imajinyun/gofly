@@ -14,6 +14,39 @@ type discoveryCLIOverlay struct {
 	PasswordEnv string
 }
 
+type discoveryCLIFlagValues struct {
+	Discovery            *string
+	DiscoveryAddress     *string
+	DiscoveryEndpoints   *string
+	DiscoveryPrefix      *string
+	DiscoveryTTL         *string
+	DiscoveryDialTimeout *string
+	DiscoveryTokenEnv    *string
+	DiscoveryUsernameEnv *string
+	DiscoveryPasswordEnv *string
+}
+
+func discoveryCLIOverlayFromFlags(flags discoveryCLIFlagValues) discoveryCLIOverlay {
+	return discoveryCLIOverlay{
+		Provider:    valueFromStringFlag(flags.Discovery),
+		Address:     valueFromStringFlag(flags.DiscoveryAddress),
+		Endpoints:   valueFromStringFlag(flags.DiscoveryEndpoints),
+		Prefix:      valueFromStringFlag(flags.DiscoveryPrefix),
+		TTL:         valueFromStringFlag(flags.DiscoveryTTL),
+		DialTimeout: valueFromStringFlag(flags.DiscoveryDialTimeout),
+		TokenEnv:    valueFromStringFlag(flags.DiscoveryTokenEnv),
+		UsernameEnv: valueFromStringFlag(flags.DiscoveryUsernameEnv),
+		PasswordEnv: valueFromStringFlag(flags.DiscoveryPasswordEnv),
+	}
+}
+
+func valueFromStringFlag(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
+}
+
 func applyDiscoveryCLIOverlay(cfg *generator.Config, overlay discoveryCLIOverlay) {
 	if cfg == nil || !overlay.hasValue() {
 		return

@@ -88,6 +88,16 @@ func serviceNewCommand(args []string) error {
 		ProtoFile:   *protoFile,
 		ThriftFile:  *thriftFile,
 	}
+	output := newServicePlanOutput{
+		Command:     "new.service",
+		DisplayName: "new service",
+		Dir:         *dir,
+		ConfigPath:  resolved,
+		Config:      cfg,
+		Plugins:     plugins,
+		Contracts:   contractInputs,
+		SaveConfig:  *saveConfig,
+	}
 	if *dryRun || *plan {
 		if err := validateNewServicePlanInputs(cfg); err != nil {
 			return err
@@ -95,7 +105,7 @@ func serviceNewCommand(args []string) error {
 		if err := validateNewServiceContractInputs(contractInputs); err != nil {
 			return err
 		}
-		return printCLIPlan("new.service", buildNewServicePlan("new service", *dir, resolved, cfg, plugins, contractInputs, *saveConfig, true), *jsonOut)
+		return output.printPlan(*jsonOut)
 	}
 	if err := generateNewServiceScaffold(cfg, newServiceScaffoldOptions{
 		Dir:     *dir,
@@ -112,7 +122,7 @@ func serviceNewCommand(args []string) error {
 		}
 	}
 	if *jsonOut || outputMode() == outputJSON {
-		return printJSONEnvelope("new.service", buildNewServicePlan("new service", *dir, resolved, cfg, plugins, contractInputs, *saveConfig, false))
+		return output.printResult()
 	}
 	return nil
 }

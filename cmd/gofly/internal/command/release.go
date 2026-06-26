@@ -4,8 +4,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"os/exec"
-	"strings"
 )
 
 func releaseCommand(args []string) error {
@@ -56,46 +54,18 @@ func releaseCheckCommand(args []string) error {
 	}
 
 	// 3. Go public API compatibility (apidiff).
-	apidiffItem := releaseCheckItem{Name: "go-api-compat", Status: "pass"}
-	if out, err := runAPIDiffCheck(); err != nil {
-		apidiffItem.Status = "fail"
-		apidiffItem.Detail = string(out)
-		apidiffItem.Blocker = true
-		blockers = append(blockers, "Go public API incompatible changes detected")
-	} else {
-		apidiffItem.Detail = strings.TrimSpace(string(out))
-		if apidiffItem.Detail == "" {
-			apidiffItem.Detail = "no incompatible changes"
-		}
-	}
+	apidiffItem, checkBlockers := releaseGoAPICompatCheck()
+	blockers = append(blockers, checkBlockers...)
 	report.Checks = append(report.Checks, apidiffItem)
 
 	// 4. CHANGELOG version consistency.
-	changelogItem := releaseCheckItem{Name: "changelog-version", Status: "pass"}
-	changelogVersion, err := parseChangelogVersion(*changelog)
-	if err != nil {
-		changelogItem.Status = "skip"
-		changelogItem.Detail = "changelog not found or unparsable"
-	} else if changelogVersion != "" && changelogVersion != Version {
-		changelogItem.Status = "fail"
-		changelogItem.Detail = fmt.Sprintf("CHANGELOG version %q != gofly version %q", changelogVersion, Version)
-		changelogItem.Blocker = true
-		blockers = append(blockers, changelogItem.Detail)
-	} else {
-		changelogItem.Detail = fmt.Sprintf("version %q", changelogVersion)
-	}
+	changelogItem, checkBlockers := releaseChangelogVersionCheck(*changelog)
+	blockers = append(blockers, checkBlockers...)
 	report.Checks = append(report.Checks, changelogItem)
 
 	// 5. go mod tidy check.
-	tidyItem := releaseCheckItem{Name: "go-mod-tidy", Status: "pass"}
-	if out, err := exec.Command("go", "mod", "tidy", "-diff").CombinedOutput(); err != nil {
-		tidyItem.Status = "fail"
-		tidyItem.Detail = strings.TrimSpace(string(out))
-		tidyItem.Blocker = true
-		blockers = append(blockers, "go mod tidy would change go.mod/go.sum")
-	} else {
-		tidyItem.Detail = "clean"
-	}
+	tidyItem, checkBlockers := releaseGoModTidyCheck()
+	blockers = append(blockers, checkBlockers...)
 	report.Checks = append(report.Checks, tidyItem)
 
 	// Determine recommended SemVer bump.

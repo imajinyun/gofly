@@ -88,7 +88,7 @@ func serviceNewCommand(args []string) error {
 		ProtoFile:   *protoFile,
 		ThriftFile:  *thriftFile,
 	}
-	output := newServicePlanOutput{
+	output := newScaffoldPlanOutput{
 		Command:     "new.service",
 		DisplayName: "new service",
 		Dir:         *dir,

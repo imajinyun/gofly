@@ -1,10 +1,6 @@
 package command
 
-import (
-	"flag"
-
-	"github.com/imajinyun/gofly/cmd/gofly/internal/generator"
-)
+import "github.com/imajinyun/gofly/cmd/gofly/internal/generator"
 
 func modelCommand(args []string) error {
 	if printCommandHelp("model", args) {
@@ -15,103 +11,48 @@ func modelCommand(args []string) error {
 
 func modelGenCommand(args []string) error {
 	leadingDDL, args := splitLeadingName(args)
-	fs := flag.NewFlagSet("model gen", flag.ContinueOnError)
-	ddl := fs.String("ddl", "", "SQL DDL file")
-	src := fs.String("src", "", "SQL DDL file")
-	s := fs.String("s", "", "SQL DDL file")
-	dir := fs.String("dir", ".", "output directory")
-	d := fs.String("d", "", "output directory")
-	pkg := fs.String("package", "", "generated Go package name")
-	module := fs.String("module", "", "go module path, inferred from go.mod when empty")
-	table := fs.String("table", "", "comma-separated table names to generate")
-	tables := fs.String("tables", "", "comma-separated table names to generate, alias for --table")
-	t := fs.String("t", "", "comma-separated table names to generate")
-	database := fs.String("database", "", "database name")
-	strict := fs.Bool("strict", false, "enable strict generation checks")
-	ignoreColumns := fs.String("ignore-columns", "", "columns to ignore during generation")
-	i := fs.String("i", "", "columns to ignore during generation")
-	prefix := fs.String("prefix", "", "table prefix to trim")
-	p := fs.String("p", "", "table prefix to trim")
-	style := fs.String("style", "go_zero", "model style")
-	cache := fs.Bool("cache", false, "generate cache helpers")
-	c := fs.Bool("c", false, "generate cache helpers")
-	jsonOut := fs.Bool("json", false, "emit generation result as JSON")
-	configPath := fs.String("config", "", "gofly config file path")
-	registerGoctlModelTemplateFlags(fs)
+	fs, flags := newModelGenFlagSet()
 	remaining, err := parseInterspersedFlags(fs, args)
 	if err != nil {
 		return err
 	}
-	if *ddl == "" {
-		*ddl = *src
-	}
-	if *ddl == "" {
-		*ddl = *s
-	}
-	if *d != "" {
-		*dir = *d
-	}
-	if *ddl == "" {
-		*ddl = leadingDDL
-	}
-	if *ddl == "" && len(remaining) > 0 {
-		*ddl = remaining[0]
-		remaining = remaining[1:]
-	}
-	if *d == "" && *dir == "." && len(remaining) > 0 {
-		*dir = remaining[0]
-	}
-	if *table == "" {
-		*table = *tables
-	}
-	if *table == "" {
-		*table = *t
-	}
-	if *ignoreColumns == "" {
-		*ignoreColumns = *i
-	}
-	if *prefix == "" {
-		*prefix = *p
-	}
-	if *c {
-		*cache = true
-	}
-	typesMap, err := modelTypesMapFromConfig(*configPath, *dir)
+	remaining = flags.normalize(leadingDDL, remaining)
+	typesMap, err := modelTypesMapFromConfig(*flags.ConfigPath, *flags.Dir)
 	if err != nil {
 		return err
 	}
-	fillNameFromArgs(ddl, remaining)
+	fillNameFromArgs(flags.DDL, remaining)
 	if err := generator.GenerateModelFromDDL(generator.ModelOptions{
-		DDLFile:       *ddl,
-		Dir:           *dir,
-		Package:       *pkg,
-		Module:        *module,
-		Tables:        splitCSV(*table),
-		Style:         *style,
-		Database:      *database,
-		IgnoreColumns: splitCSV(*ignoreColumns),
-		Prefix:        *prefix,
-		Strict:        *strict,
-		Cache:         *cache,
+		DDLFile:       *flags.DDL,
+		Dir:           *flags.Dir,
+		Package:       *flags.Package,
+		Module:        *flags.Module,
+		Tables:        splitCSV(*flags.Table),
+		Style:         *flags.Style,
+		Database:      *flags.Database,
+		IgnoreColumns: splitCSV(*flags.IgnoreColumns),
+		Prefix:        *flags.Prefix,
+		Strict:        *flags.Strict,
+		Cache:         *flags.Cache,
 		TypesMap:      typesMap,
 	}); err != nil {
 		return err
 	}
-	if *jsonOut || outputMode() == outputJSON {
+	if *flags.JSON || outputMode() == outputJSON {
 		return printModelGenJSON(modelGenJSONOptions{
-			DDL:           *ddl,
-			Dir:           *dir,
-			Package:       *pkg,
-			Module:        *module,
-			Tables:        *table,
-			Database:      *database,
-			IgnoreColumns: *ignoreColumns,
-			Prefix:        *prefix,
-			Style:         *style,
-			Strict:        *strict,
-			Cache:         *cache,
+			DDL:           *flags.DDL,
+			Dir:           *flags.Dir,
+			Package:       *flags.Package,
+			Module:        *flags.Module,
+			Tables:        *flags.Table,
+			Database:      *flags.Database,
+			IgnoreColumns: *flags.IgnoreColumns,
+			Prefix:        *flags.Prefix,
+			Style:         *flags.Style,
+			Strict:        *flags.Strict,
+			Cache:         *flags.Cache,
 		})
 	}
-	printModelGenerated(*dir)
+	printModelGenerated(*flags.Dir)
 	return nil
 }

@@ -59,23 +59,22 @@ func apiNewCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	setVerbosity(resolveVerbosity(verbose, v, quiet, q))
-	if *name == "" {
-		*name = leadingName
-	}
-	fillNameFromArgs(name, remaining)
-	if *apiPluginArg != "" {
-		*pluginArg = *apiPluginArg
-	}
-	if *templateDir == "" {
-		*templateDir = *home
-	}
-	if *profile == "" {
-		*profile = *profileAlias
-	}
-	if *dir == "" && *name != "" {
-		*dir = *name
-	}
+	normalizeNewScaffoldFlags(newScaffoldFlagNormalization{
+		Name:          name,
+		Dir:           dir,
+		TemplateDir:   templateDir,
+		TemplateHome:  home,
+		Profile:       profile,
+		ProfileAlias:  profileAlias,
+		Plugin:        pluginArg,
+		PluginAlias:   apiPluginArg,
+		Verbose:       verbose,
+		VerboseAlias:  v,
+		Quiet:         quiet,
+		QuietAlias:    q,
+		LeadingName:   leadingName,
+		RemainingArgs: remaining,
+	})
 	verboseOutputf("new api: configuring service %q in %s\n", *name, *dir)
 	cfg, resolved, err := loadAndOverlay(*configPath, *dir, *name, *module, *style, *templateDir, *remote, *branch, joinCSV(*features, *featuresAlias), *pluginArg, "api")
 	if err != nil {

@@ -126,10 +126,8 @@ func apiNewCommand(args []string) error {
 	}); err != nil {
 		return err
 	}
-	if *saveConfig {
-		if err := generator.SaveConfig(resolved, cfg); err != nil {
-			return err
-		}
+	if err := saveNewScaffoldConfig(*saveConfig, resolved, cfg); err != nil {
+		return err
 	}
 	if *jsonOut || outputMode() == outputJSON {
 		return output.printResult()

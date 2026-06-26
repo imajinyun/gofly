@@ -60,6 +60,13 @@ func pluginListFromConfig(cfg *generator.Config, kind string) []string {
 	return nil
 }
 
+func saveNewScaffoldConfig(save bool, path string, cfg *generator.Config) error {
+	if !save {
+		return nil
+	}
+	return generator.SaveConfig(path, cfg)
+}
+
 type newScaffoldFlagNormalization struct {
 	Name          *string
 	Dir           *string

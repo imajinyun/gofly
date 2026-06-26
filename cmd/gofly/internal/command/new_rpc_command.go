@@ -113,11 +113,21 @@ func rpcNewCommand(args []string) error {
 		cfg.RPC = &generator.RPCConfig{}
 	}
 	cfg.RPC.Profile = resolvedProfile
+	output := newScaffoldPlanOutput{
+		Command:     "new.rpc",
+		DisplayName: "new rpc",
+		Dir:         *dir,
+		ConfigPath:  resolved,
+		Config:      cfg,
+		Plugins:     plugins,
+		Contracts:   newServiceContractInputs{},
+		SaveConfig:  *saveConfig,
+	}
 	if *dryRun || *plan {
 		if err := validateNewServicePlanInputs(cfg); err != nil {
 			return err
 		}
-		return printCLIPlan("new.rpc", buildNewServicePlan("new rpc", *dir, resolved, cfg, plugins, newServiceContractInputs{}, *saveConfig, true), *jsonOut)
+		return output.printPlan(*jsonOut)
 	}
 	if err := generateNewRPCScaffold(cfg, newRPCScaffoldOptions{
 		Dir:             *dir,
@@ -132,7 +142,7 @@ func rpcNewCommand(args []string) error {
 		}
 	}
 	if *jsonOut || outputMode() == outputJSON {
-		return printJSONEnvelope("new.rpc", buildNewServicePlan("new rpc", *dir, resolved, cfg, plugins, newServiceContractInputs{}, *saveConfig, false))
+		return output.printResult()
 	}
 	return nil
 }

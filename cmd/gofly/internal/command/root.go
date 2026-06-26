@@ -135,10 +135,6 @@ type cliPluginEffect struct {
 	Note     string `json:"note,omitempty"`
 }
 
-func isHelpArg(arg string) bool {
-	return arg == "-h" || arg == "--help"
-}
-
 func versionCommand(args []string) error {
 	if printCommandHelp("version", args) {
 		return nil
@@ -170,56 +166,6 @@ func currentVersionInfo() versionInfo {
 		GOOS:      runtime.GOOS,
 		GOARCH:    runtime.GOARCH,
 	}
-}
-
-func printCommandHelp(command string, args []string) bool {
-	topic, ok := commandHelpTopic(command, args)
-	if !ok {
-		return false
-	}
-	printHelp(topic)
-	return true
-}
-
-func commandHelpTopic(command string, args []string) (string, bool) {
-	if len(args) == 0 {
-		return "", false
-	}
-	if args[0] == "help" {
-		return joinHelpTopic(command, leadingHelpTopicArgs(args[1:])), true
-	}
-	for i, arg := range args {
-		if isHelpArg(arg) {
-			return joinHelpTopic(command, leadingHelpTopicArgs(args[:i])), true
-		}
-	}
-	return "", false
-}
-
-func leadingHelpTopicArgs(args []string) []string {
-	parts := make([]string, 0, len(args))
-	for _, arg := range args {
-		if arg == "" || strings.HasPrefix(arg, "-") {
-			break
-		}
-		parts = append(parts, arg)
-	}
-	return parts
-}
-
-func joinHelpTopic(command string, parts []string) string {
-	if len(parts) == 0 {
-		return command
-	}
-	return command + " " + strings.Join(parts, " ")
-}
-
-func printHelp(command string) {
-	if command == "" {
-		cliOutputln(usage())
-		return
-	}
-	cliOutputln(commandUsage(command))
 }
 
 func usage() string {
@@ -451,6 +397,9 @@ func trimHelpTopicPositionals(parts []string) []string {
 			return parts[:2]
 		}
 	case "plugin":
+		if (parts[1] == "install" || parts[1] == "uninstall") && len(parts) >= 3 {
+			return parts[:3]
+		}
 		if isPluginHelpSubcommand(parts[1]) {
 			return parts[:2]
 		}

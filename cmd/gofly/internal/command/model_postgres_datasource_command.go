@@ -7,24 +7,9 @@ import (
 	"github.com/imajinyun/gofly/cmd/gofly/internal/generator"
 )
 
-var runModelDatasource = generator.GenerateModelFromDatasource
-
-func modelMySQLCommand(args []string) error {
-	if len(args) == 0 || args[0] == "ddl" {
-		if len(args) > 0 {
-			args = args[1:]
-		}
-		return modelGenCommand(args)
-	}
-	if args[0] == "datasource" {
-		return modelMySQLDatasourceCommand(args[1:])
-	}
-	return fmt.Errorf("%w: expected `gofly model mysql ddl` or `gofly model mysql datasource`", errUsage)
-}
-
-func modelMySQLDatasourceCommand(args []string) error {
+func modelPostgresDatasourceCommand(args []string) error {
 	leadingURL, args := splitLeadingName(args)
-	fs := flag.NewFlagSet("model mysql datasource", flag.ContinueOnError)
+	fs := flag.NewFlagSet("model pg datasource", flag.ContinueOnError)
 	url := fs.String("url", "", "database datasource url")
 	dsn := fs.String("dsn", "", "database datasource url, alias for --url")
 	datasource := fs.String("datasource", "", "database datasource url")
@@ -37,6 +22,7 @@ func modelMySQLDatasourceCommand(args []string) error {
 	module := fs.String("module", "", "go module path, inferred from go.mod when empty")
 	database := fs.String("database", "", "database name")
 	schema := fs.String("schema", "", "schema name")
+	s := fs.String("s", "", "schema name")
 	strict := fs.Bool("strict", false, "enable strict generation checks")
 	ignoreColumns := fs.String("ignore-columns", "", "columns to ignore during generation")
 	i := fs.String("i", "", "columns to ignore during generation")
@@ -69,6 +55,9 @@ func modelMySQLDatasourceCommand(args []string) error {
 	if *table == "" {
 		*table = *t
 	}
+	if *schema == "" {
+		*schema = *s
+	}
 	if *ignoreColumns == "" {
 		*ignoreColumns = *i
 	}
@@ -87,7 +76,7 @@ func modelMySQLDatasourceCommand(args []string) error {
 		return fmt.Errorf("%w: datasource url is required", errUsage)
 	}
 	return runModelDatasource(generator.ModelDatasourceOptions{
-		Driver:        "mysql",
+		Driver:        "postgres",
 		DSN:           *url,
 		Dir:           *dir,
 		Package:       *pkg,
@@ -102,17 +91,4 @@ func modelMySQLDatasourceCommand(args []string) error {
 		Cache:         *cache,
 		TypesMap:      typesMap,
 	})
-}
-
-func modelPostgresCommand(args []string) error {
-	if len(args) == 0 || args[0] == "ddl" {
-		if len(args) > 0 {
-			args = args[1:]
-		}
-		return modelGenCommand(args)
-	}
-	if args[0] == "datasource" {
-		return modelPostgresDatasourceCommand(args[1:])
-	}
-	return fmt.Errorf("%w: expected `gofly model pg ddl` or `gofly model pg datasource`", errUsage)
 }

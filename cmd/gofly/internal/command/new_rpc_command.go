@@ -2,7 +2,6 @@ package command
 
 import (
 	"flag"
-	"strings"
 
 	"github.com/imajinyun/gofly/cmd/gofly/internal/generator"
 )
@@ -105,14 +104,7 @@ func rpcNewCommand(args []string) error {
 		*dir = cfg.ServiceName
 	}
 	plugins := pluginListFromConfig(cfg, "rpc")
-	resolvedProfile := strings.TrimSpace(*profile)
-	if resolvedProfile == "" && cfg.RPC != nil {
-		resolvedProfile = strings.TrimSpace(cfg.RPC.Profile)
-	}
-	if cfg.RPC == nil {
-		cfg.RPC = &generator.RPCConfig{}
-	}
-	cfg.RPC.Profile = resolvedProfile
+	resolvedProfile := resolveNewRPCProfile(cfg, *profile)
 	output := newScaffoldPlanOutput{
 		Command:     "new.rpc",
 		DisplayName: "new rpc",

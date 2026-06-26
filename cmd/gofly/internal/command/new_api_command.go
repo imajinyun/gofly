@@ -117,19 +117,11 @@ func apiNewCommand(args []string) error {
 		}
 		return printCLIPlan("new.api", buildNewServicePlan("new api", *dir, resolved, cfg, plugins, newServiceContractInputs{}, *saveConfig, true), *jsonOut)
 	}
-	if err := generator.GenerateServiceScaffold(generator.ServiceScaffoldOptions{
-		Name:           cfg.ServiceName,
-		Module:         cfg.Module,
-		Dir:            *dir,
-		Style:          cfg.Style,
-		TemplateDir:    cfg.TemplateDir,
-		TemplateRemote: cfg.TemplateRemote,
-		TemplateBranch: cfg.TemplateBranch,
-		Profile:        resolvedProfile,
-		Features:       cfg.Features,
-		Plugins:        plugins,
-		SkipAPISpec:    !*apiSpec,
-		Kind:           "api",
+	if err := generateNewAPIScaffold(cfg, newAPIScaffoldOptions{
+		Dir:             *dir,
+		ResolvedProfile: resolvedProfile,
+		Plugins:         plugins,
+		SkipAPISpec:     !*apiSpec,
 	}); err != nil {
 		return err
 	}

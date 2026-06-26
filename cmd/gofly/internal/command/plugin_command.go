@@ -9,33 +9,6 @@ import (
 	"github.com/imajinyun/gofly/cmd/gofly/internal/spinner"
 )
 
-type pluginListOutput struct {
-	Internal  []string                    `json:"internal"`
-	Installed []generator.InstalledPlugin `json:"installed"`
-}
-
-type pluginRegistrySearchOutput struct {
-	Registry string                          `json:"registry"`
-	Query    string                          `json:"query,omitempty"`
-	Plugins  []generator.PluginRegistryEntry `json:"plugins"`
-}
-
-type pluginRunOutput struct {
-	Plugins []pluginRunResult `json:"plugins"`
-}
-
-type pluginRunResult struct {
-	Plugin  string `json:"plugin"`
-	Message string `json:"message,omitempty"`
-	Files   int    `json:"files"`
-	Patches int    `json:"patches"`
-}
-
-type pluginUninstallOutput struct {
-	Remote string `json:"remote"`
-	Path   string `json:"path"`
-}
-
 // pluginCommand 暴露 `gofly plugin list|search|install|uninstall|run`。
 func pluginCommand(args []string) error {
 	if printCommandHelp("plugin", args) {

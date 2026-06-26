@@ -97,17 +97,9 @@ func serviceNewCommand(args []string) error {
 		}
 		return printCLIPlan("new.service", buildNewServicePlan("new service", *dir, resolved, cfg, plugins, contractInputs, *saveConfig, true), *jsonOut)
 	}
-	if err := generator.GenerateServiceScaffold(generator.ServiceScaffoldOptions{
-		Name:           cfg.ServiceName,
-		Module:         cfg.Module,
-		Dir:            *dir,
-		Style:          cfg.Style,
-		TemplateDir:    cfg.TemplateDir,
-		TemplateRemote: cfg.TemplateRemote,
-		TemplateBranch: cfg.TemplateBranch,
-		Features:       cfg.Features,
-		Plugins:        plugins,
-		Kind:           "service",
+	if err := generateNewServiceScaffold(cfg, newServiceScaffoldOptions{
+		Dir:     *dir,
+		Plugins: plugins,
 	}); err != nil {
 		return err
 	}

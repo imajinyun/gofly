@@ -60,23 +60,22 @@ func rpcNewCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	setVerbosity(resolveVerbosity(verbose, v, quiet, q))
-	if *name == "" {
-		*name = leadingName
-	}
-	fillNameFromArgs(name, remaining)
-	if *rpcPluginArg != "" {
-		*pluginArg = *rpcPluginArg
-	}
-	if *templateDir == "" {
-		*templateDir = *home
-	}
-	if *profile == "" {
-		*profile = *profileAlias
-	}
-	if *dir == "" && *name != "" {
-		*dir = *name
-	}
+	normalizeNewScaffoldFlags(newScaffoldFlagNormalization{
+		Name:          name,
+		Dir:           dir,
+		TemplateDir:   templateDir,
+		TemplateHome:  home,
+		Profile:       profile,
+		ProfileAlias:  profileAlias,
+		Plugin:        pluginArg,
+		PluginAlias:   rpcPluginArg,
+		Verbose:       verbose,
+		VerboseAlias:  v,
+		Quiet:         quiet,
+		QuietAlias:    q,
+		LeadingName:   leadingName,
+		RemainingArgs: remaining,
+	})
 	verboseOutputf("new rpc: configuring service %q in %s\n", *name, *dir)
 	cfg, resolved, err := loadAndOverlay(*configPath, *dir, *name, *module, *style, *templateDir, *remote, *branch, joinCSV(*features, *featuresAlias), *pluginArg, "rpc")
 	if err != nil {

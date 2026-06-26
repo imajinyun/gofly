@@ -120,6 +120,27 @@ func buildNewServicePlan(command, dir, configPath string, cfg *generator.Config,
 	}
 }
 
+type newServicePlanOutput struct {
+	Command     string
+	DisplayName string
+	Dir         string
+	ConfigPath  string
+	Config      *generator.Config
+	Plugins     []string
+	Contracts   newServiceContractInputs
+	SaveConfig  bool
+}
+
+func (o newServicePlanOutput) printPlan(forceJSON bool) error {
+	plan := buildNewServicePlan(o.DisplayName, o.Dir, o.ConfigPath, o.Config, o.Plugins, o.Contracts, o.SaveConfig, true)
+	return printCLIPlan(o.Command, plan, forceJSON)
+}
+
+func (o newServicePlanOutput) printResult() error {
+	plan := buildNewServicePlan(o.DisplayName, o.Dir, o.ConfigPath, o.Config, o.Plugins, o.Contracts, o.SaveConfig, false)
+	return printJSONEnvelope(o.Command, plan)
+}
+
 func planPluginEffects(plugins []string, executed bool) []cliPluginEffect {
 	effects := make([]cliPluginEffect, 0, len(plugins))
 	for _, plugin := range plugins {

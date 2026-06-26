@@ -26,11 +26,15 @@ bench/current.txt
 bench/regression-report.json
 bench/summary.md
 
-# Temporary test caches (GOCACHE/GOTMPDIR)
+# Runtime and governance scratch state
+.aiflow/
+.harness/
 .tmp-test/
+.trae/
+governance-report/
+governance-report.*
 
 # Generated docs and long-form examples
-.harness
 docs/*
 docs/superpowers/
 !docs/index.md
@@ -73,4 +77,3 @@ go.work.sum
 # Editor/IDE
 .idea/
 .vscode/
-.trae/

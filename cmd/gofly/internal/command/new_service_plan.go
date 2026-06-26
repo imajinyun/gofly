@@ -120,7 +120,7 @@ func buildNewServicePlan(command, dir, configPath string, cfg *generator.Config,
 	}
 }
 
-type newServicePlanOutput struct {
+type newScaffoldPlanOutput struct {
 	Command     string
 	DisplayName string
 	Dir         string
@@ -131,12 +131,12 @@ type newServicePlanOutput struct {
 	SaveConfig  bool
 }
 
-func (o newServicePlanOutput) printPlan(forceJSON bool) error {
+func (o newScaffoldPlanOutput) printPlan(forceJSON bool) error {
 	plan := buildNewServicePlan(o.DisplayName, o.Dir, o.ConfigPath, o.Config, o.Plugins, o.Contracts, o.SaveConfig, true)
 	return printCLIPlan(o.Command, plan, forceJSON)
 }
 
-func (o newServicePlanOutput) printResult() error {
+func (o newScaffoldPlanOutput) printResult() error {
 	plan := buildNewServicePlan(o.DisplayName, o.Dir, o.ConfigPath, o.Config, o.Plugins, o.Contracts, o.SaveConfig, false)
 	return printJSONEnvelope(o.Command, plan)
 }

@@ -2,7 +2,6 @@ package command
 
 import (
 	"flag"
-	"path/filepath"
 
 	"github.com/imajinyun/gofly/cmd/gofly/internal/generator"
 )
@@ -99,46 +98,18 @@ func modelGenCommand(args []string) error {
 		return err
 	}
 	if *jsonOut || outputMode() == outputJSON {
-		inputs := map[string]string{
-			"ddl":   *ddl,
-			"dir":   *dir,
-			"style": *style,
-		}
-		if *pkg != "" {
-			inputs["package"] = *pkg
-		}
-		if *module != "" {
-			inputs["module"] = *module
-		}
-		if *table != "" {
-			inputs["tables"] = *table
-		}
-		if *database != "" {
-			inputs["database"] = *database
-		}
-		if *ignoreColumns != "" {
-			inputs["ignoreColumns"] = *ignoreColumns
-		}
-		if *prefix != "" {
-			inputs["prefix"] = *prefix
-		}
-		if *strict {
-			inputs["strict"] = "true"
-		}
-		if *cache {
-			inputs["cache"] = "true"
-		}
-		files := generatedModelFiles(filepath.Join(*dir, "model"))
-		return printJSONEnvelope("model.gen", cliPlan{
-			Command:           "model gen",
-			DryRun:            false,
-			MutatesFilesystem: true,
-			Inputs:            inputs,
-			Actions: []cliPlanAction{
-				{Operation: "write-model-files", Target: filepath.Join(*dir, "model"), Description: "generate model entity and repository files", RiskLevel: "medium"},
-			},
-			GeneratedFiles: len(files),
-			NextActions:    []string{"review generated model files", "go test ./..."},
+		return printModelGenJSON(modelGenJSONOptions{
+			DDL:           *ddl,
+			Dir:           *dir,
+			Package:       *pkg,
+			Module:        *module,
+			Tables:        *table,
+			Database:      *database,
+			IgnoreColumns: *ignoreColumns,
+			Prefix:        *prefix,
+			Style:         *style,
+			Strict:        *strict,
+			Cache:         *cache,
 		})
 	}
 	printModelGenerated(*dir)

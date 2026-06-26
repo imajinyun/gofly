@@ -76,28 +76,42 @@ func apiNewCommand(args []string) error {
 		RemainingArgs: remaining,
 	})
 	verboseOutputf("new api: configuring service %q in %s\n", *name, *dir)
-	cfg, resolved, err := loadAndOverlay(*configPath, *dir, *name, *module, *style, *templateDir, *remote, *branch, joinCSV(*features, *featuresAlias), *pluginArg, "api")
+	loadCtx, err := loadNewScaffoldContext(newScaffoldLoadOptions{
+		ConfigPath:     *configPath,
+		Dir:            *dir,
+		Name:           *name,
+		Module:         *module,
+		Style:          *style,
+		TemplateDir:    *templateDir,
+		TemplateRemote: *remote,
+		TemplateBranch: *branch,
+		Features:       joinCSV(*features, *featuresAlias),
+		Plugins:        *pluginArg,
+		Kind:           "api",
+		Discovery: discoveryCLIFlagValues{
+			Discovery:            discovery,
+			DiscoveryAddress:     discoveryAddress,
+			DiscoveryEndpoints:   discoveryEndpoints,
+			DiscoveryPrefix:      discoveryPrefix,
+			DiscoveryTTL:         discoveryTTL,
+			DiscoveryDialTimeout: discoveryDialTimeout,
+			DiscoveryTokenEnv:    discoveryTokenEnv,
+			DiscoveryUsernameEnv: discoveryUsernameEnv,
+			DiscoveryPasswordEnv: discoveryPasswordEnv,
+		},
+	})
 	if err != nil {
 		return err
 	}
-	applyDiscoveryCLIOverlay(cfg, discoveryCLIOverlayFromFlags(discoveryCLIFlagValues{
-		Discovery:            discovery,
-		DiscoveryAddress:     discoveryAddress,
-		DiscoveryEndpoints:   discoveryEndpoints,
-		DiscoveryPrefix:      discoveryPrefix,
-		DiscoveryTTL:         discoveryTTL,
-		DiscoveryDialTimeout: discoveryDialTimeout,
-		DiscoveryTokenEnv:    discoveryTokenEnv,
-		DiscoveryUsernameEnv: discoveryUsernameEnv,
-		DiscoveryPasswordEnv: discoveryPasswordEnv,
-	}))
+	cfg := loadCtx.Config
+	resolved := loadCtx.ConfigPath
 	if cfg.Style == "" || isGoctlTemplateStyle(cfg.Style) {
 		cfg.Style = generator.ServiceStyleBasic
 	}
 	if *dir == "" && cfg.ServiceName != "" {
 		*dir = cfg.ServiceName
 	}
-	plugins := pluginListFromConfig(cfg, "api")
+	plugins := loadCtx.PluginNames
 	resolvedProfile, err := resolveNewAPIProfile(cfg, *profile)
 	if err != nil {
 		return err

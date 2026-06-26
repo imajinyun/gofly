@@ -78,7 +78,9 @@ type newScaffoldFlagNormalization struct {
 }
 
 func normalizeNewScaffoldFlags(flags newScaffoldFlagNormalization) {
-	setVerbosity(resolveVerbosity(flags.Verbose, flags.VerboseAlias, flags.Quiet, flags.QuietAlias))
+	if flags.hasVerbosityFlags() {
+		setVerbosity(resolveVerbosity(flags.Verbose, flags.VerboseAlias, flags.Quiet, flags.QuietAlias))
+	}
 	if valueFromStringFlag(flags.Name) == "" {
 		setStringFlag(flags.Name, flags.LeadingName)
 	}
@@ -95,6 +97,10 @@ func normalizeNewScaffoldFlags(flags newScaffoldFlagNormalization) {
 	if valueFromStringFlag(flags.Dir) == "" && valueFromStringFlag(flags.Name) != "" {
 		setStringFlag(flags.Dir, valueFromStringFlag(flags.Name))
 	}
+}
+
+func (flags newScaffoldFlagNormalization) hasVerbosityFlags() bool {
+	return flags.Verbose != nil || flags.VerboseAlias != nil || flags.Quiet != nil || flags.QuietAlias != nil
 }
 
 func setStringFlag(target *string, value string) {

@@ -46,16 +46,14 @@ func serviceNewCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	if *name == "" {
-		*name = leadingName
-	}
-	fillNameFromArgs(name, remaining)
-	if *templateDir == "" {
-		*templateDir = *home
-	}
-	if *dir == "" && *name != "" {
-		*dir = *name
-	}
+	normalizeNewScaffoldFlags(newScaffoldFlagNormalization{
+		Name:          name,
+		Dir:           dir,
+		TemplateDir:   templateDir,
+		TemplateHome:  home,
+		LeadingName:   leadingName,
+		RemainingArgs: remaining,
+	})
 	verboseOutputf("new service: configuring service %q in %s\n", *name, *dir)
 	cfg, resolved, err := loadAndOverlay(*configPath, *dir, *name, *module, *style, *templateDir, *remote, *branch, joinCSV(*features, *featuresAlias), *pluginArg, "service")
 	if err != nil {

@@ -2,7 +2,6 @@ package command
 
 import (
 	"flag"
-	"strings"
 
 	"github.com/imajinyun/gofly/cmd/gofly/internal/generator"
 )
@@ -100,17 +99,10 @@ func apiNewCommand(args []string) error {
 		*dir = cfg.ServiceName
 	}
 	plugins := pluginListFromConfig(cfg, "api")
-	resolvedProfile := strings.TrimSpace(*profile)
-	if resolvedProfile == "" && cfg.API != nil {
-		resolvedProfile = strings.TrimSpace(cfg.API.Profile)
-	}
-	if _, err := generator.NormalizeGenerationProfile(resolvedProfile); err != nil {
+	resolvedProfile, err := resolveNewAPIProfile(cfg, *profile)
+	if err != nil {
 		return err
 	}
-	if cfg.API == nil {
-		cfg.API = &generator.APIConfig{}
-	}
-	cfg.API.Profile = resolvedProfile
 	output := newScaffoldPlanOutput{
 		Command:     "new.api",
 		DisplayName: "new api",

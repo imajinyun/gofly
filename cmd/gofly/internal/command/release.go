@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
-
-	"github.com/imajinyun/gofly/cmd/gofly/internal/generator"
 )
 
 func releaseCommand(args []string) error {
@@ -43,53 +41,17 @@ func releaseCheckCommand(args []string) error {
 
 	// 1. API breaking check (only if files provided).
 	if *apiBase != "" && *apiTarget != "" {
-		apiReport, err := generator.DetectAPIChanges(generator.APIBreakingOptions{Base: *apiBase, Target: *apiTarget})
-		item := releaseCheckItem{Name: "api-breaking", Status: "pass"}
-		if err != nil {
-			item.Status = "fail"
-			item.Detail = err.Error()
-			item.Blocker = true
-			blockers = append(blockers, "api breaking check error: "+err.Error())
-		} else if apiReport.HasBreaking() {
-			item.Status = "fail"
-			item.Detail = fmt.Sprintf("%d breaking change(s) detected", apiReport.Breaking)
-			item.Blocker = true
-			blockers = append(blockers, fmt.Sprintf("API breaking: %d change(s)", apiReport.Breaking))
-		} else if !apiReport.IsEmpty() {
-			item.Status = "pass"
-			item.Detail = fmt.Sprintf("%d warning(s), no breaking", apiReport.Warnings)
-			if apiReport.Warnings > 0 {
-				warnings = append(warnings, fmt.Sprintf("API warnings: %d", apiReport.Warnings))
-			}
-		} else {
-			item.Detail = "no changes"
-		}
+		item, checkBlockers, checkWarnings := releaseAPIBreakingCheck(*apiBase, *apiTarget)
+		blockers = append(blockers, checkBlockers...)
+		warnings = append(warnings, checkWarnings...)
 		report.Checks = append(report.Checks, item)
 	}
 
 	// 2. RPC breaking check (only if files provided).
 	if *rpcBase != "" && *rpcTarget != "" {
-		rpcReport, err := generator.DetectProtoDescriptorChanges(generator.ProtoBreakingOptions{Base: *rpcBase, Target: *rpcTarget})
-		item := releaseCheckItem{Name: "rpc-breaking", Status: "pass"}
-		if err != nil {
-			item.Status = "fail"
-			item.Detail = err.Error()
-			item.Blocker = true
-			blockers = append(blockers, "rpc breaking check error: "+err.Error())
-		} else if rpcReport.HasBreaking() {
-			item.Status = "fail"
-			item.Detail = fmt.Sprintf("%d breaking change(s) detected", rpcReport.Breaking)
-			item.Blocker = true
-			blockers = append(blockers, fmt.Sprintf("RPC breaking: %d change(s)", rpcReport.Breaking))
-		} else if len(rpcReport.Changes) > 0 {
-			item.Status = "pass"
-			item.Detail = fmt.Sprintf("%d warning(s), no breaking", rpcReport.Warnings)
-			if rpcReport.Warnings > 0 {
-				warnings = append(warnings, fmt.Sprintf("RPC warnings: %d", rpcReport.Warnings))
-			}
-		} else {
-			item.Detail = "no changes"
-		}
+		item, checkBlockers, checkWarnings := releaseRPCBreakingCheck(*rpcBase, *rpcTarget)
+		blockers = append(blockers, checkBlockers...)
+		warnings = append(warnings, checkWarnings...)
 		report.Checks = append(report.Checks, item)
 	}
 

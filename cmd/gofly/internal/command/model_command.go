@@ -1,7 +1,5 @@
 package command
 
-import "github.com/imajinyun/gofly/cmd/gofly/internal/generator"
-
 func modelCommand(args []string) error {
 	if printCommandHelp("model", args) {
 		return nil
@@ -22,20 +20,7 @@ func modelGenCommand(args []string) error {
 		return err
 	}
 	fillNameFromArgs(flags.DDL, remaining)
-	if err := generator.GenerateModelFromDDL(generator.ModelOptions{
-		DDLFile:       *flags.DDL,
-		Dir:           *flags.Dir,
-		Package:       *flags.Package,
-		Module:        *flags.Module,
-		Tables:        splitCSV(*flags.Table),
-		Style:         *flags.Style,
-		Database:      *flags.Database,
-		IgnoreColumns: splitCSV(*flags.IgnoreColumns),
-		Prefix:        *flags.Prefix,
-		Strict:        *flags.Strict,
-		Cache:         *flags.Cache,
-		TypesMap:      typesMap,
-	}); err != nil {
+	if err := generateModelFromFlags(flags, typesMap); err != nil {
 		return err
 	}
 	if *flags.JSON || outputMode() == outputJSON {

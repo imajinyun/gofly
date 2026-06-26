@@ -16,6 +16,22 @@ type modelGenJSONOptions struct {
 	Cache         bool
 }
 
+func modelGenJSONOptionsFromFlags(flags modelGenFlags) modelGenJSONOptions {
+	return modelGenJSONOptions{
+		DDL:           *flags.DDL,
+		Dir:           *flags.Dir,
+		Package:       *flags.Package,
+		Module:        *flags.Module,
+		Tables:        *flags.Table,
+		Database:      *flags.Database,
+		IgnoreColumns: *flags.IgnoreColumns,
+		Prefix:        *flags.Prefix,
+		Style:         *flags.Style,
+		Strict:        *flags.Strict,
+		Cache:         *flags.Cache,
+	}
+}
+
 func printModelGenJSON(opts modelGenJSONOptions) error {
 	inputs := map[string]string{
 		"ddl":   opts.DDL,

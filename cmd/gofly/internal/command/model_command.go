@@ -24,19 +24,7 @@ func modelGenCommand(args []string) error {
 		return err
 	}
 	if *flags.JSON || outputMode() == outputJSON {
-		return printModelGenJSON(modelGenJSONOptions{
-			DDL:           *flags.DDL,
-			Dir:           *flags.Dir,
-			Package:       *flags.Package,
-			Module:        *flags.Module,
-			Tables:        *flags.Table,
-			Database:      *flags.Database,
-			IgnoreColumns: *flags.IgnoreColumns,
-			Prefix:        *flags.Prefix,
-			Style:         *flags.Style,
-			Strict:        *flags.Strict,
-			Cache:         *flags.Cache,
-		})
+		return printModelGenJSON(modelGenJSONOptionsFromFlags(flags))
 	}
 	printModelGenerated(*flags.Dir)
 	return nil

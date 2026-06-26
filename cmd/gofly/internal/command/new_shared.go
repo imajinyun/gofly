@@ -60,6 +60,50 @@ func pluginListFromConfig(cfg *generator.Config, kind string) []string {
 	return nil
 }
 
+type newScaffoldFlagNormalization struct {
+	Name          *string
+	Dir           *string
+	TemplateDir   *string
+	TemplateHome  *string
+	Profile       *string
+	ProfileAlias  *string
+	Plugin        *string
+	PluginAlias   *string
+	Verbose       *bool
+	VerboseAlias  *bool
+	Quiet         *bool
+	QuietAlias    *bool
+	LeadingName   string
+	RemainingArgs []string
+}
+
+func normalizeNewScaffoldFlags(flags newScaffoldFlagNormalization) {
+	setVerbosity(resolveVerbosity(flags.Verbose, flags.VerboseAlias, flags.Quiet, flags.QuietAlias))
+	if valueFromStringFlag(flags.Name) == "" {
+		setStringFlag(flags.Name, flags.LeadingName)
+	}
+	fillNameFromArgs(flags.Name, flags.RemainingArgs)
+	if valueFromStringFlag(flags.PluginAlias) != "" {
+		setStringFlag(flags.Plugin, valueFromStringFlag(flags.PluginAlias))
+	}
+	if valueFromStringFlag(flags.TemplateDir) == "" {
+		setStringFlag(flags.TemplateDir, valueFromStringFlag(flags.TemplateHome))
+	}
+	if valueFromStringFlag(flags.Profile) == "" {
+		setStringFlag(flags.Profile, valueFromStringFlag(flags.ProfileAlias))
+	}
+	if valueFromStringFlag(flags.Dir) == "" && valueFromStringFlag(flags.Name) != "" {
+		setStringFlag(flags.Dir, valueFromStringFlag(flags.Name))
+	}
+}
+
+func setStringFlag(target *string, value string) {
+	if target == nil {
+		return
+	}
+	*target = value
+}
+
 func isGoctlTemplateStyle(style string) bool {
 	switch strings.ToLower(strings.TrimSpace(style)) {
 	case "go_zero", "gozero", "go-zero", "http-compat", "rpc-compat":

@@ -114,10 +114,8 @@ func serviceNewCommand(args []string) error {
 	if err := applyNewServiceContractInputs(contractInputs, cfg.ServiceName, *dir); err != nil {
 		return err
 	}
-	if *saveConfig {
-		if err := generator.SaveConfig(resolved, cfg); err != nil {
-			return err
-		}
+	if err := saveNewScaffoldConfig(*saveConfig, resolved, cfg); err != nil {
+		return err
 	}
 	if *jsonOut || outputMode() == outputJSON {
 		return output.printResult()

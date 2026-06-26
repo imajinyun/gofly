@@ -119,18 +119,10 @@ func rpcNewCommand(args []string) error {
 		}
 		return printCLIPlan("new.rpc", buildNewServicePlan("new rpc", *dir, resolved, cfg, plugins, newServiceContractInputs{}, *saveConfig, true), *jsonOut)
 	}
-	if err := generator.GenerateServiceScaffold(generator.ServiceScaffoldOptions{
-		Name:           cfg.ServiceName,
-		Module:         cfg.Module,
-		Dir:            *dir,
-		Style:          cfg.Style,
-		TemplateDir:    cfg.TemplateDir,
-		TemplateRemote: cfg.TemplateRemote,
-		TemplateBranch: cfg.TemplateBranch,
-		Profile:        resolvedProfile,
-		Features:       cfg.Features,
-		Plugins:        plugins,
-		Kind:           "rpc",
+	if err := generateNewRPCScaffold(cfg, newRPCScaffoldOptions{
+		Dir:             *dir,
+		ResolvedProfile: resolvedProfile,
+		Plugins:         plugins,
 	}); err != nil {
 		return err
 	}

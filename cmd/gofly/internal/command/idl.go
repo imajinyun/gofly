@@ -5,7 +5,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -703,88 +702,6 @@ func apiCheckCommand(args []string) error {
 	}
 	cliOutputf("api ok: %d type(s), %d service(s)\n", len(doc.Messages), len(doc.Services))
 	return nil
-}
-
-// apiPluginCommandRunner 实现 `gofly api plugin <plugin> --file <.api> --dir <dir>`，
-// 使用 gofly 的 PluginRunner 协议（JSON stdin/stdout）。保留旧实现 `apiPluginCommand`
-// 直接 exec 外部插件并传入 CLI 参数；当用户显式传入 `--legacy` 时启用。
-func apiPluginCommandRunner(args []string) error {
-	leadingPlugin, args := splitLeadingName(args)
-	fs := flag.NewFlagSet("api plugin", flag.ContinueOnError)
-	file := fs.String("file", "", "api file")
-	api := fs.String("api", "", "api file")
-	dir := fs.String("dir", ".", "plugin output directory")
-	pluginArg := fs.String("plugin", "", "plugin executable name or path")
-	p := fs.String("p", "", "plugin executable name or path")
-	style := fs.String("style", "go_zero", "plugin style option")
-	legacy := fs.Bool("legacy", false, "use plain CLI args instead of gofly plugin JSON protocol")
-	remaining, err := parseInterspersedFlags(fs, args)
-	if err != nil {
-		return err
-	}
-	if *file == "" {
-		*file = *api
-	}
-	if *pluginArg == "" {
-		*pluginArg = *p
-	}
-	if *pluginArg == "" {
-		*pluginArg = leadingPlugin
-	}
-	extraArgs := remaining
-	if *pluginArg == "" && len(remaining) > 0 {
-		*pluginArg = remaining[0]
-		extraArgs = remaining[1:]
-	}
-	if *file == "" {
-		return fmt.Errorf("%w: api file is required", errUsage)
-	}
-	if *pluginArg == "" {
-		return fmt.Errorf("%w: api plugin is required", errUsage)
-	}
-	if *legacy {
-		return apiPluginCommandLegacy(*file, *pluginArg, *dir, *style, extraArgs)
-	}
-	// 自动检测：如果插件是文件系统上的 shell 脚本（.sh 或以 #! 开头），
-	// 默认走 CLI 参数模式，方便执行普通 shell 插件。
-	if !*legacy && looksLikeShellScript(*pluginArg) {
-		return apiPluginCommandLegacy(*file, *pluginArg, *dir, *style, extraArgs)
-	}
-	return runPostPlugins(*pluginArg, generator.PluginRequest{
-		Command: "api",
-		Style:   *style,
-		Input:   map[string]string{"api": *file, "style": *style},
-		Dir:     *dir,
-	})
-}
-
-// apiPluginCommandLegacy 直接 exec 外部程序，
-// 以 `-api`、`-dir` 等 CLI 参数传递信息。保留以兼容旧插件。
-func apiPluginCommandLegacy(file, plugin, dir, style string, extraArgs []string) error {
-	parts := strings.Fields(plugin)
-	bin := parts[0]
-	cmdArgs := append([]string{}, parts[1:]...)
-	cmdArgs = append(cmdArgs, "-api", file, "-dir", dir)
-	if style != "" {
-		cmdArgs = append(cmdArgs, "-style", style)
-	}
-	cmdArgs = append(cmdArgs, extraArgs...)
-	// #nosec G204 -- legacy API plugins are an explicit compatibility feature; command and args are argv-separated without shell evaluation.
-	cmd := exec.CommandContext(context.Background(), bin, cmdArgs...)
-	cmd.Env = append(os.Environ(), "GOFLY_API_FILE="+file, "GOFLY_API_DIR="+dir)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("run api plugin: %w: %s", err, out)
-	}
-	if len(out) > 0 {
-		cliOutput(string(out))
-	}
-	return nil
-}
-
-// apiPluginCommand 保留为插件入口别名（默认走新协议）。
-func apiPluginCommand(args []string) error {
-	return apiPluginCommandRunner(args)
 }
 
 func apiMiddlewareCommand(args []string) error {

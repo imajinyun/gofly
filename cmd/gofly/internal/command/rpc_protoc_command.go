@@ -110,29 +110,13 @@ func rpcProtocCommand(args []string) error {
 	if *verbose || *v {
 		errorf("[gofly] rpc protoc: proto=%s go_out=%s go-grpc_out=%s proto_path=%s\n", *file, *goOut, *goGRPCOut, *protoPath)
 	}
-	goflyOptions := []string{"paths=source_relative"}
-	goflyEnv := []string(nil)
-	goflyOut := ""
-	if useGoflyPlugin {
-		goflyOut = *dir
-		goflyEnv = append(goflyEnv, "GOFLY_PLUGIN_MODE=protoc")
-		if !*client {
-			goflyOptions = append(goflyOptions, "no_client=true")
-			goflyEnv = append(goflyEnv, "GOFLY_NO_CLIENT=true")
-		}
-		if *multiple || *m {
-			goflyOptions = append(goflyOptions, "multiple=true")
-			goflyEnv = append(goflyEnv, "GOFLY_MULTIPLE=true")
-		}
-		if *module != "" {
-			goflyOptions = append(goflyOptions, "module="+*module)
-			goflyEnv = append(goflyEnv, "GOFLY_MODULE="+*module)
-		}
-		if *nameFromFilename {
-			goflyOptions = append(goflyOptions, "name_from_filename=true")
-			goflyEnv = append(goflyEnv, "GOFLY_NAME_FROM_FILENAME=true")
-		}
-	}
+	goflyPluginOptions := buildGoflyProtocPluginOptions(useGoflyPlugin, goflyProtocPluginConfig{
+		Dir:              *dir,
+		Client:           *client,
+		Multiple:         *multiple || *m,
+		Module:           *module,
+		NameFromFilename: *nameFromFilename,
+	})
 
 	sp := spinner.New()
 	if isQuiet() || outputMode() == outputJSON {
@@ -144,12 +128,12 @@ func rpcProtocCommand(args []string) error {
 		ProtoPath:    splitCSV(*protoPath),
 		GoOut:        *goOut,
 		GoGRPCOut:    *goGRPCOut,
-		GoflyOut:     goflyOut,
+		GoflyOut:     goflyPluginOptions.Out,
 		GoflyPlugin:  goflyPlugin,
-		GoflyOptions: goflyOptions,
+		GoflyOptions: goflyPluginOptions.Options,
 		Protoc:       *protoc,
 		ExtraArgs:    extraArgs,
-		Env:          goflyEnv,
+		Env:          goflyPluginOptions.Env,
 		Timeout:      *timeout,
 	})
 	sp.Stop()

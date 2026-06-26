@@ -7,6 +7,26 @@ import (
 	"strings"
 )
 
+// ServiceScaffoldOptions 是配置驱动的脚手架选项；包含模板扩展、feature、插件等。
+// 与 Config 配合使用：ApplyOverlay(name, module, style, templateDir, features) 把 CLI 参数覆盖在配置之上。
+type ServiceScaffoldOptions struct {
+	Name                 string
+	Module               string
+	Dir                  string
+	Style                string
+	Profile              string
+	TemplateDir          string
+	TemplateRemote       string
+	TemplateBranch       string
+	StrictTemplateRemote bool
+	Features             []string
+	Plugins              []string // 可执行插件（或内部插件名），通过 PluginRunner 运行
+	FrameworkPath        string
+	ExtraFiles           map[string]string // 额外需要写入的文件，key 是相对路径
+	SkipAPISpec          bool              // api new 时使用：是否跳过 .api 文件的生成
+	Kind                 string            // "api" 或 "rpc"，决定是否额外写入 .api/.proto
+}
+
 type GenerationProfile string
 
 const (

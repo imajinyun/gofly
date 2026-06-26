@@ -24,6 +24,7 @@ type cliJSONGoldenCase struct {
 	RequiredDataFields     []string `json:"requiredDataFields"`
 	RequiredFields         []string `json:"requiredFields"`
 	RequiredErrorFields    []string `json:"requiredErrorFields"`
+	RequiredErrorCode      string   `json:"requiredErrorCode"`
 }
 
 func TestCLIJSONContractGoldens(t *testing.T) {
@@ -120,6 +121,41 @@ func TestCLIJSONErrorEnvelopeGolden(t *testing.T) {
 	assertRequiredFields(t, errorCase.ID+".error", errorObject, errorCase.RequiredErrorFields)
 	if code, ok := errorObject["code"].(string); !ok || code == "" {
 		t.Fatalf("global error code = %v, want non-empty string", errorObject["code"])
+	}
+	for _, item := range manifest.Cases {
+		if item.Mode != "error-envelope" || item.RequiredErrorCode == "" {
+			continue
+		}
+		t.Run(item.ID, func(t *testing.T) {
+			stdout, stderr, err := runCLIJSONGoldenErrorCase(t, item)
+			if err == nil {
+				t.Fatalf("%s returned nil, want error", item.Command)
+			}
+			if stderr.Len() != 0 {
+				t.Fatalf("%s wrote stderr = %q, want empty", item.Command, stderr.String())
+			}
+			value := decodeJSONObject(t, stdout.Bytes())
+			errorObject, ok := value["error"].(map[string]any)
+			if !ok {
+				t.Fatalf("%s error = %T, want object", item.ID, value["error"])
+			}
+			if code, _ := errorObject["code"].(string); code != item.RequiredErrorCode {
+				t.Fatalf("%s error code = %q, want %q", item.ID, code, item.RequiredErrorCode)
+			}
+		})
+	}
+}
+
+func runCLIJSONGoldenErrorCase(t *testing.T, item cliJSONGoldenCase) (bytes.Buffer, bytes.Buffer, error) {
+	t.Helper()
+	var stdout, stderr bytes.Buffer
+	switch item.ID {
+	case "global-flag-error-envelope":
+		err := ExecuteWithIO([]string{"--output", "json", "version", "--bad"}, IOStreams{Out: &stdout, Err: &stderr})
+		return stdout, stderr, err
+	default:
+		t.Fatalf("unsupported JSON golden error case %q", item.ID)
+		return stdout, stderr, nil
 	}
 }
 

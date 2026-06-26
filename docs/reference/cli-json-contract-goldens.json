@@ -10,7 +10,8 @@
   "stdoutPolicy": {
     "jsonCommandsMustWriteOnlyJSONToStdout": true,
     "successfulJSONCommandsMustNotWriteDiagnosticsToStderr": true,
-    "globalJSONErrorsMustWriteOneEnvelopeToStdout": true
+    "globalJSONErrorsMustWriteOneEnvelopeToStdout": true,
+    "globalJSONFlagErrorsMustUseUsageErrorCode": true
   },
   "cases": [
     {
@@ -136,6 +137,23 @@
         "message",
         "retryable"
       ]
+    },
+    {
+      "id": "global-flag-error-envelope",
+      "command": "gofly --output json version --bad",
+      "mode": "error-envelope",
+      "requiredEnvelopeFields": [
+        "ok",
+        "command",
+        "version",
+        "error"
+      ],
+      "requiredErrorFields": [
+        "code",
+        "message",
+        "retryable"
+      ],
+      "requiredErrorCode": "USAGE_ERROR"
     }
   ]
 }

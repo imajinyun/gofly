@@ -325,8 +325,12 @@ resilience-drill-check: ## Validate runnable resilience drill evidence
 	sh $(SCRIPTS_DIR)/check-resilience-drill.sh
 
 .PHONY: plugin-conformance-check
-plugin-conformance-check: ## Validate plugin registry and manifest conformance cases
+plugin-conformance-check: plugin-external-governance-check ## Validate plugin registry and manifest conformance cases
 	sh $(SCRIPTS_DIR)/plugin-conformance-check.sh
+
+.PHONY: plugin-external-governance-check
+plugin-external-governance-check: ## Validate plugin external process, download, permissions, and failure-isolation evidence
+	sh $(SCRIPTS_DIR)/check-plugin-external-governance.sh
 
 .PHONY: openapi-validation-check
 openapi-validation-check: ## Validate OpenAPI, binding, validation, and error envelope contracts

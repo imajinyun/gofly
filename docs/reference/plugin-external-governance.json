@@ -1,0 +1,120 @@
+{
+  "schema": "gofly.plugin_external_governance.v1",
+  "aiflowTask": "GOFLY-GOV-10R3-05",
+  "purpose": "Map plugin registry, manifest, remote download, external process, filesystem output, permissions, protocol compatibility, and failure isolation to executable evidence.",
+  "acceptanceGate": "make plugin-external-governance-check",
+  "aggregateGate": "make plugin-conformance-check",
+  "sourceCode": [
+    "cmd/gofly/internal/generator/plugin.go",
+    "cmd/gofly/internal/generator/plugin_test.go",
+    "cmd/gofly/internal/command/idl_test.go",
+    "docs/reference/plugin-conformance.md",
+    "docs/reference/plugin-publishing-ux.json",
+    "examples/plugin-ecosystem"
+  ],
+  "policy": {
+    "execCommandUsesSplitArgs": true,
+    "remoteDownloadUsesFreshTempFiles": true,
+    "remoteDownloadDoesNotReuseUserCache": true,
+    "digestMismatchFailsClosed": true,
+    "permissionEscapeFailsClosed": true,
+    "pathEscapeAndSymlinkTraversalFailClosed": true,
+    "partialWritesRejected": true,
+    "outputSizeBounded": true
+  },
+  "surfaces": [
+    {
+      "id": "external-process",
+      "risk": "plugin execution can become command injection or unbounded output if arguments, context, and buffers drift",
+      "gate": "go test -count=1 ./cmd/gofly/internal/generator -run TestPluginRunnerExternalExecutionBranches",
+      "tests": [
+        "TestPluginRunnerExternalExecutionBranches",
+        "TestPluginArgumentAndCacheHelpersBoundaries",
+        "TestLimitedPluginBufferRejectsOversizedOutput"
+      ],
+      "evidence": [
+        "cmd/gofly/internal/generator/plugin.go",
+        "docs/reference/plugin-conformance.md"
+      ]
+    },
+    {
+      "id": "remote-download",
+      "risk": "remote plugin downloads must not reuse user cache or predictable temp files and must fail closed on digest mismatch",
+      "gate": "go test -count=1 ./cmd/gofly/internal/generator -run TestPluginRunnerDownloadPlugin",
+      "tests": [
+        "TestPluginRunnerDownloadPluginDoesNotReuseLocalCache",
+        "TestPluginRunnerDownloadPluginIgnoresUserCache",
+        "TestPluginRunnerDownloadPluginUsesUniqueTempFile",
+        "TestResolveRemotePluginRejectsDigestMismatch"
+      ],
+      "evidence": [
+        "cmd/gofly/internal/generator/plugin.go",
+        "docs/reference/plugin-publishing-ux.json"
+      ]
+    },
+    {
+      "id": "registry-and-manifest",
+      "risk": "registry entries and manifests are publishable protocol contracts, not examples",
+      "gate": "make plugin-conformance-check",
+      "tests": [
+        "TestPluginManifestContractValidation",
+        "TestPluginProtocolSchemaContract",
+        "TestPluginRegistryIndexValidationAndFiltering"
+      ],
+      "evidence": [
+        "docs/reference/plugin-conformance.md",
+        "docs/reference/plugin-publishing-ux.json",
+        "examples/plugin-ecosystem/registry/plugins.json"
+      ]
+    },
+    {
+      "id": "filesystem-output",
+      "risk": "plugin files and patches must stay relative, reject symlink traversal, and avoid partial writes",
+      "gate": "go test -count=1 ./cmd/gofly/internal/generator -run TestPluginResponse",
+      "tests": [
+        "TestPluginResponseWriteFilesRejectsEscapingPaths",
+        "TestPluginResponseApplyRejectsPartialWritesWhenPatchFails",
+        "TestPluginResponseRejectsSymlinkParentTraversal",
+        "TestPluginResponseRejectsSymlinkLeaf"
+      ],
+      "evidence": [
+        "cmd/gofly/internal/generator/plugin.go",
+        "docs/reference/plugin-conformance.md"
+      ]
+    },
+    {
+      "id": "permission-and-protocol",
+      "risk": "unsupported permissions, old protocols, and future-only protocols must fail before plugin effects run",
+      "gate": "go test -count=1 ./cmd/gofly/internal/generator -run TestPluginProtocolCompatibilityMatrix",
+      "tests": [
+        "TestPluginManifestContractValidation",
+        "TestPluginProtocolCompatibilityMatrix",
+        "TestPluginProtocolSchemaContract"
+      ],
+      "evidence": [
+        "cmd/gofly/internal/generator/plugin.go",
+        "docs/reference/plugin-publishing-ux.json"
+      ]
+    },
+    {
+      "id": "cli-plugin-commands",
+      "risk": "CLI plugin commands must preserve JSON reporting, legacy argument splitting, and remote install/run/uninstall boundaries",
+      "gate": "go test -count=1 ./cmd/gofly/internal/command -run TestExecutePlugin",
+      "tests": [
+        "TestExecuteAPIPlugin",
+        "TestAPIPluginCommandLegacyPassesExtraArgsWithoutShell",
+        "TestExecutePluginInstallRunRemoteAndUninstall",
+        "TestExecutePluginRunJSONReportsWrittenFiles"
+      ],
+      "evidence": [
+        "docs/reference/cli-command-surface.json",
+        "docs/reference/plugin-conformance.md"
+      ]
+    }
+  ],
+  "aiflowExecution": {
+    "status": "local-fallback",
+    "blocker": "aiflow CLI currently fails to compile in the adjacent aiflow checkout because harness/policy.go imports fmt without use",
+    "goflyImpact": "none; the local plugin external governance gate is self-contained"
+  }
+}

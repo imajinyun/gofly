@@ -107,9 +107,7 @@ func rpcNewCommand(args []string) error {
 	cfg := loadCtx.Config
 	resolved := loadCtx.ConfigPath
 	applyNewScaffoldStyleDefault(cfg, *style, generator.ServiceStyleProduction, true)
-	if *dir == "" && cfg.ServiceName != "" {
-		*dir = cfg.ServiceName
-	}
+	applyNewScaffoldDirFallback(dir, cfg)
 	plugins := loadCtx.PluginNames
 	resolvedProfile := resolveNewRPCProfile(cfg, *profile)
 	output := newScaffoldPlanOutput{

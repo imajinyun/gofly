@@ -53,7 +53,7 @@
       "id": "GOFLY-GOV-10R-06",
       "round": 6,
       "title": "Cache and remote-dependency governance",
-      "gate": "make tidy"
+      "gate": "make cache-dependency-governance-check"
     },
     {
       "id": "GOFLY-GOV-10R-07",

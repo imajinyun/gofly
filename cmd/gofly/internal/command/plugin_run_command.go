@@ -18,8 +18,7 @@ func pluginRunCommand(args []string) error {
 	remote := fs.String("remote", "", "remote plugin as <repo-or-url>@<version>")
 	goPlugin := fs.String("go-plugin", "", "plugin executable or directory to traverse")
 	jsonOutput := fs.Bool("json", false, "output JSON")
-	dryRun := fs.Bool("dry-run", false, "print the planned plugin execution without executing plugins or writing files")
-	plan := fs.Bool("plan", false, "alias for --dry-run")
+	preview := registerDryRunPlanFlags(fs, "print the planned plugin execution without executing plugins or writing files")
 	plugin := ""
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		plugin = args[0]
@@ -32,7 +31,7 @@ func pluginRunCommand(args []string) error {
 	if plugin == "" && len(remaining) > 0 {
 		plugin = remaining[0]
 	}
-	previewOnly := *dryRun || *plan
+	previewOnly := preview.enabled()
 	plugins := []string(nil)
 	if *remote != "" {
 		if previewOnly {

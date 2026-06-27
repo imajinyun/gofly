@@ -9,8 +9,7 @@ import (
 func apiClientCommand(command string, args []string) error {
 	leadingFile, args := splitLeadingName(args)
 	fs := flag.NewFlagSet("api client", flag.ContinueOnError)
-	file := fs.String("file", "", "api file")
-	api := fs.String("api", "", "api file")
+	file := registerAPIFileFlags(fs, "api file")
 	dir := fs.String("dir", ".", "output directory")
 	output := registerOutputPathFlags(fs, "output file")
 	language := fs.String("language", "typescript", "client language: typescript, javascript, dart, java, or kotlin")
@@ -52,21 +51,15 @@ func apiClientCommand(command string, args []string) error {
 	if *pkg != "" {
 		warnNoopFlag("api client", "pkg", "non-Go clients do not use package names; Go DTOs use api types")
 	}
-	if *file == "" {
-		*file = *api
-	}
-	if *file == "" {
-		*file = leadingFile
-	}
+	apiFile := file.resolve(leadingFile, remaining)
 	if *baseURL == "" && *hostname != "" {
 		if *scheme == "" {
 			*scheme = "http"
 		}
 		*baseURL = *scheme + "://" + *hostname
 	}
-	fillNameFromArgs(file, remaining)
 	return generator.GenerateAPIClient(generator.APIClientOptions{
-		APIFile:  *file,
+		APIFile:  apiFile,
 		Dir:      *dir,
 		Output:   output.resolve(),
 		Language: *language,

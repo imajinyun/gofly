@@ -3,7 +3,6 @@ package command
 import (
 	"flag"
 	"fmt"
-	"os"
 	"path/filepath"
 
 	"github.com/imajinyun/gofly/cmd/gofly/internal/generator"
@@ -50,9 +49,9 @@ func rpcCheckCommand(args []string) error {
 	if protoFile == "" {
 		return fmt.Errorf("%w: proto file is required", errUsage)
 	}
-	content, err := os.ReadFile(protoFile)
+	content, err := readExplicitInputFile(protoFile, "proto")
 	if err != nil {
-		return fmt.Errorf("read proto file: %w", err)
+		return err
 	}
 	doc, err := generator.ParseProto(string(content))
 	if err != nil {

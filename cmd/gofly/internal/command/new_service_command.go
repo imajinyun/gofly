@@ -93,16 +93,7 @@ func serviceNewCommand(args []string) error {
 		ProtoFile:   *protoFile,
 		ThriftFile:  *thriftFile,
 	}
-	output := newScaffoldPlanOutput{
-		Command:     "new.service",
-		DisplayName: "new service",
-		Dir:         *dir,
-		ConfigPath:  resolved,
-		Config:      cfg,
-		Plugins:     plugins,
-		Contracts:   contractInputs,
-		SaveConfig:  *saveConfig,
-	}
+	output := newScaffoldPlanOutputFor("new.service", "new service", *dir, resolved, cfg, plugins, contractInputs, *saveConfig)
 	if *dryRun || *plan {
 		if err := validateNewServicePlanInputs(cfg); err != nil {
 			return err

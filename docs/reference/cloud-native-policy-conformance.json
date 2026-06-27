@@ -2,6 +2,23 @@
   "schema": "gofly.cloud_native_policy_conformance.v1",
   "sourceOfTruth": "docs/reference/cloud-native-rendering.md",
   "acceptanceGate": "make cloud-native-render-check",
+  "renderReport": {
+    "schema": "gofly.cloud_native_render_report.v1",
+    "path": ".tmp-test/cloud-native-render/render-report.json",
+    "requiredFields": [
+      "schema",
+      "renderMode",
+      "helm.available",
+      "helm.requiredWhenAvailable",
+      "helm.fallbackStatus",
+      "kustomize.available",
+      "kubeconform.schemaValidationStatus",
+      "kubeval.schemaValidationStatus",
+      "requiredKinds"
+    ],
+    "fallbackPolicy": "helm template is mandatory when helm is available; static-template-render is allowed only when helm is absent and the report marks helm.fallbackStatus as static-fallback",
+    "schemaValidationPolicy": "kubeconform and kubeval are optional CI validators; when absent the report must mark schemaValidationStatus as tool-unavailable"
+  },
   "renderModes": [
     {
       "mode": "helm-template",

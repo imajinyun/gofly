@@ -31,11 +31,9 @@ func serviceNewCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	normalizeNewScaffoldFlags(newScaffoldFlagNormalization{
-		Name:          baseFlags.Name,
-		Dir:           baseFlags.Dir,
-		TemplateDir:   templateFlags.TemplateDir,
-		TemplateHome:  templateFlags.Home,
+	normalizeNewScaffoldFlagGroups(newScaffoldNormalizeOptions{
+		Base:          baseFlags,
+		Template:      templateFlags,
 		LeadingName:   leadingName,
 		RemainingArgs: remaining,
 	})

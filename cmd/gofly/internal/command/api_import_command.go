@@ -6,12 +6,37 @@ import (
 	"github.com/imajinyun/gofly/cmd/gofly/internal/generator"
 )
 
+type apiImportSourceFlags struct {
+	Src     *string
+	From    *string
+	Swagger *string
+}
+
+func registerAPIImportSourceFlags(fs *flag.FlagSet) apiImportSourceFlags {
+	return apiImportSourceFlags{
+		Src:     fs.String("src", "", "OpenAPI/Swagger JSON or YAML file"),
+		From:    fs.String("from", "", "OpenAPI/Swagger JSON or YAML file"),
+		Swagger: fs.String("swagger", "", "Swagger JSON or YAML file, alias for --src"),
+	}
+}
+
+func (f apiImportSourceFlags) normalize(leadingSource string, remaining []string) {
+	if valueFromStringFlag(f.Src) == "" {
+		setStringFlag(f.Src, valueFromStringFlag(f.From))
+	}
+	if valueFromStringFlag(f.Src) == "" {
+		setStringFlag(f.Src, valueFromStringFlag(f.Swagger))
+	}
+	if valueFromStringFlag(f.Src) == "" {
+		setStringFlag(f.Src, leadingSource)
+	}
+	fillNameFromArgs(f.Src, remaining)
+}
+
 func apiImportCommand(args []string) error {
 	leadingSource, args := splitLeadingName(args)
 	fs := flag.NewFlagSet("api import", flag.ContinueOnError)
-	src := fs.String("src", "", "OpenAPI/Swagger JSON or YAML file")
-	from := fs.String("from", "", "OpenAPI/Swagger JSON or YAML file")
-	swagger := fs.String("swagger", "", "Swagger JSON or YAML file, alias for --src")
+	source := registerAPIImportSourceFlags(fs)
 	dir := fs.String("dir", ".", "output directory")
 	output := registerOutputPathFlags(fs, "output .api file")
 	service := fs.String("service", "", "service name for generated .api")
@@ -19,15 +44,6 @@ func apiImportCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	if *src == "" {
-		*src = *from
-	}
-	if *src == "" {
-		*src = *swagger
-	}
-	if *src == "" {
-		*src = leadingSource
-	}
-	fillNameFromArgs(src, remaining)
-	return generator.GenerateAPIFromOpenAPI(generator.APIImportOptions{Source: *src, Dir: *dir, Output: output.resolve(), Service: *service})
+	source.normalize(leadingSource, remaining)
+	return generator.GenerateAPIFromOpenAPI(generator.APIImportOptions{Source: *source.Src, Dir: *dir, Output: output.resolve(), Service: *service})
 }

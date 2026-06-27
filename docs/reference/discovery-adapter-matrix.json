@@ -9,6 +9,7 @@
       "watch and lease behavior",
       "filtering support",
       "failover behavior",
+      "adapter ownership and promotion boundaries",
       "release gates"
     ],
     "excluded": [
@@ -22,10 +23,23 @@
     "planned": "Provider is a known adoption target, but must not be advertised as supported until implementation, tests, and release gates exist.",
     "config-only": "Provider exists for another subsystem and must not be implied as a discovery adapter without a discovery implementation."
   },
+  "governanceCoverage": {
+    "adapterMatrixGate": "make discovery-adapter-matrix-check",
+    "requiredChecksGate": "make required-checks-drift-check",
+    "frameworkGapEvidence": "docs/reference/framework-gap-long-term-adoption.json",
+    "dependencyEvidence": "docs/reference/dependency-upgrade-evidence.json"
+  },
   "providers": [
     {
       "id": "memory",
       "status": "implemented",
+      "owner": {
+        "team": "runtime-governance",
+        "surface": "core/discovery",
+        "supportClass": "local-tier1",
+        "promotionGate": "make discovery-adapter-matrix-check",
+        "dependencyUpgradeTrigger": "memory registry semantics, watcher cleanup, generated smoke, or control-plane snapshot changes"
+      },
       "package": "core/discovery",
       "implementation": "core/discovery/memory.go",
       "tests": [
@@ -51,6 +65,13 @@
     {
       "id": "consul",
       "status": "implemented",
+      "owner": {
+        "team": "runtime-governance",
+        "surface": "core/discovery/consul",
+        "supportClass": "network-tier1",
+        "promotionGate": "make required-checks-drift-check",
+        "dependencyUpgradeTrigger": "github.com/hashicorp/consul/api client, watch, health, or TLS changes"
+      },
       "package": "core/discovery/consul",
       "implementation": "core/discovery/consul/consul.go",
       "tests": [
@@ -75,6 +96,13 @@
     {
       "id": "etcdv3",
       "status": "implemented",
+      "owner": {
+        "team": "runtime-governance",
+        "surface": "core/discovery/etcdv3",
+        "supportClass": "network-tier1",
+        "promotionGate": "make required-checks-drift-check",
+        "dependencyUpgradeTrigger": "go.etcd.io/etcd client, lease, watch, resolver, or TLS changes"
+      },
       "package": "core/discovery/etcdv3",
       "implementation": "core/discovery/etcdv3/etcdv3.go",
       "tests": [
@@ -101,6 +129,13 @@
     {
       "id": "nacos",
       "status": "config-only",
+      "owner": {
+        "team": "config-governance",
+        "surface": "core/config/nacossource",
+        "supportClass": "config-only",
+        "promotionGate": "make discovery-adapter-matrix-check",
+        "dependencyUpgradeTrigger": "Nacos config source changes only; discovery support requires a new adapter task"
+      },
       "package": "core/config/nacossource",
       "implementation": "core/config/nacossource",
       "tests": [
@@ -130,6 +165,13 @@
     {
       "id": "dns",
       "status": "planned",
+      "owner": {
+        "team": "runtime-governance",
+        "surface": "core/discovery/dns",
+        "supportClass": "planned",
+        "promotionGate": "make discovery-adapter-matrix-check",
+        "dependencyUpgradeTrigger": "DNS resolver implementation, TTL, negative-cache, or generated-service profile changes"
+      },
       "package": "",
       "implementation": "",
       "tests": [],
@@ -157,6 +199,13 @@
     {
       "id": "kubernetes",
       "status": "planned",
+      "owner": {
+        "team": "cloud-native-governance",
+        "surface": "core/discovery/kubernetes",
+        "supportClass": "planned",
+        "promotionGate": "make required-checks-drift-check",
+        "dependencyUpgradeTrigger": "Kubernetes Service, EndpointSlice, watch, RBAC, Helm, or Kustomize profile changes"
+      },
       "package": "",
       "implementation": "",
       "tests": [],
@@ -184,6 +233,13 @@
     {
       "id": "static",
       "status": "planned",
+      "owner": {
+        "team": "runtime-governance",
+        "surface": "core/discovery/static",
+        "supportClass": "planned",
+        "promotionGate": "make discovery-adapter-matrix-check",
+        "dependencyUpgradeTrigger": "static file, config reload, path validation, or generated-service profile changes"
+      },
       "package": "",
       "implementation": "",
       "tests": [],

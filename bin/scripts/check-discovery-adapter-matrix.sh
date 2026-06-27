@@ -30,6 +30,15 @@ required_capabilities = {
     "tagVersionZoneFiltering",
     "failover",
 }
+expected_owners = {
+    "memory": ("runtime-governance", "local-tier1"),
+    "consul": ("runtime-governance", "network-tier1"),
+    "etcdv3": ("runtime-governance", "network-tier1"),
+    "nacos": ("config-governance", "config-only"),
+    "dns": ("runtime-governance", "planned"),
+    "kubernetes": ("cloud-native-governance", "planned"),
+    "static": ("runtime-governance", "planned"),
+}
 
 
 def read_text(path):
@@ -65,6 +74,7 @@ makefile = read_text(root / "Makefile")
 guide = read_text(root / "docs" / "guides" / "discovery.md")
 docs_index = read_text(root / "docs" / "index.md")
 framework_long_term = read_text(root / "docs" / "reference" / "framework-gap-long-term-adoption.json")
+dependency_evidence = read_text(root / "docs" / "reference" / "dependency-upgrade-evidence.json")
 targets = make_target_names(makefile)
 docs_check_line = next((line for line in makefile.splitlines() if line.startswith("docs-check:")), "")
 
@@ -79,6 +89,24 @@ status_policy = matrix.get("statusPolicy") or {}
 for status in {"implemented", "planned", "config-only"}:
     require(status in status_policy, f"statusPolicy must document {status}")
 
+governance_coverage = matrix.get("governanceCoverage") or {}
+require(
+    governance_coverage.get("adapterMatrixGate") == "make discovery-adapter-matrix-check",
+    "governanceCoverage.adapterMatrixGate must be make discovery-adapter-matrix-check",
+)
+require(
+    governance_coverage.get("requiredChecksGate") == "make required-checks-drift-check",
+    "governanceCoverage.requiredChecksGate must be make required-checks-drift-check",
+)
+require(
+    governance_coverage.get("frameworkGapEvidence") == "docs/reference/framework-gap-long-term-adoption.json",
+    "governanceCoverage.frameworkGapEvidence must point to framework-gap-long-term-adoption.json",
+)
+require(
+    governance_coverage.get("dependencyEvidence") == "docs/reference/dependency-upgrade-evidence.json",
+    "governanceCoverage.dependencyEvidence must point to dependency-upgrade-evidence.json",
+)
+
 providers = matrix.get("providers") or []
 provider_map = {
     item.get("id"): item
@@ -91,6 +119,17 @@ for provider_id, expected_status in expected_providers.items():
     item = provider_map.get(provider_id) or {}
     require(item.get("status") == expected_status, f"{provider_id}: status must be {expected_status}")
     require(provider_id in guide, f"docs/guides/discovery.md must document provider {provider_id}")
+    owner = item.get("owner") or {}
+    expected_team, expected_support_class = expected_owners[provider_id]
+    require(owner.get("team") == expected_team, f"{provider_id}: owner.team must be {expected_team}")
+    require(owner.get("supportClass") == expected_support_class, f"{provider_id}: owner.supportClass must be {expected_support_class}")
+    require(str(owner.get("surface") or ""), f"{provider_id}: owner.surface is required")
+    promotion_gate = str(owner.get("promotionGate") or "")
+    require(gate_is_known(promotion_gate, targets), f"{provider_id}: owner.promotionGate is not known: {promotion_gate!r}")
+    require(
+        len(str(owner.get("dependencyUpgradeTrigger") or "").split()) >= 3,
+        f"{provider_id}: owner.dependencyUpgradeTrigger must be actionable",
+    )
     capabilities = item.get("capabilities") or {}
     require(set(capabilities) == required_capabilities, f"{provider_id}: capabilities drifted")
     failover = str(capabilities.get("failover") or "")
@@ -121,6 +160,10 @@ for provider_id, expected_status in expected_providers.items():
         require(not item.get("implementation"), f"{provider_id}: planned provider must not point to an implementation")
         require(not item.get("tests"), f"{provider_id}: planned provider must not claim tests")
         require(len(item.get("promotionCriteria") or []) >= 3, f"{provider_id}: promotionCriteria must include at least three items")
+        require(owner.get("promotionGate") in {
+            "make discovery-adapter-matrix-check",
+            "make required-checks-drift-check",
+        }, f"{provider_id}: planned promotion gate must stay in discovery or required-check governance")
         for capability in (
             "register",
             "deregister",
@@ -136,6 +179,7 @@ for provider_id, expected_status in expected_providers.items():
         require("config" in str(item.get("package")), f"{provider_id}: config-only provider must stay scoped to config")
         require(len(item.get("promotionCriteria") or []) >= 3, f"{provider_id}: promotionCriteria must include at least three items")
         require(capabilities.get("resolve") is False, f"{provider_id}: config-only provider must not claim discovery resolve")
+        require(owner.get("supportClass") == "config-only", f"{provider_id}: config-only supportClass must stay config-only")
 
 release_gates = matrix.get("releaseGates") or []
 for gate in (
@@ -166,6 +210,14 @@ require(
 require(
     "docs/reference/discovery-adapter-matrix.json" in framework_long_term,
     "long-term framework adoption evidence must link discovery adapter matrix",
+)
+require(
+    "dependency changes affect storage, config, discovery, MQ, or gateway packages" in dependency_evidence,
+    "dependency upgrade evidence must cover discovery packages",
+)
+require(
+    "discovery" in dependency_evidence and "make integration-tests" in dependency_evidence,
+    "dependency upgrade evidence must define discovery integration delegation",
 )
 
 if missing:

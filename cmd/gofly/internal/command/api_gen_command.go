@@ -9,8 +9,7 @@ import (
 func apiGenCommand(args []string) error {
 	leadingFile, args := splitLeadingName(args)
 	fs := flag.NewFlagSet("api gen", flag.ContinueOnError)
-	file := fs.String("file", "", "api file")
-	api := fs.String("api", "", "api file")
+	file := registerAPIFileFlags(fs, "api file")
 	dir := fs.String("dir", ".", "output directory")
 	pkg := fs.String("package", "", "generated Go package name")
 	rpcPkg := fs.String("rpc-package", "", "RPC generated package import path for gateway generation")
@@ -25,28 +24,22 @@ func apiGenCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	if *file == "" {
-		*file = *api
-	}
-	if *file == "" {
-		*file = leadingFile
-	}
+	apiFile := file.resolve(leadingFile, remaining)
 	if *profile == "" {
 		*profile = *profileAlias
 	}
-	fillNameFromArgs(file, remaining)
-	if err := generator.GenerateRESTFromAPI(generator.APIOptions{APIFile: *file, Dir: *dir, Package: *pkg, RPCPackage: *rpcPkg, Profile: *profile, Test: *test, TypeGroup: *typeGroup}); err != nil {
+	if err := generator.GenerateRESTFromAPI(generator.APIOptions{APIFile: apiFile, Dir: *dir, Package: *pkg, RPCPackage: *rpcPkg, Profile: *profile, Test: *test, TypeGroup: *typeGroup}); err != nil {
 		return err
 	}
 	if err := runPostPlugins(*pluginArg, generator.PluginRequest{
 		Command: "api",
-		Input:   map[string]string{"api": *file, "package": *pkg},
+		Input:   map[string]string{"api": apiFile, "package": *pkg},
 		Dir:     *dir,
 	}); err != nil {
 		return err
 	}
 	if *jsonOut || outputMode() == outputJSON {
-		inputs := map[string]string{"api": *file, "dir": *dir}
+		inputs := map[string]string{"api": apiFile, "dir": *dir}
 		if *pkg != "" {
 			inputs["package"] = *pkg
 		}

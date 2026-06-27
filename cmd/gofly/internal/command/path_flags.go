@@ -7,6 +7,11 @@ type outputPathFlags struct {
 	Alias  *string
 }
 
+type apiFileFlags struct {
+	File *string
+	API  *string
+}
+
 func registerOutputPathFlags(fs *flag.FlagSet, usage string) outputPathFlags {
 	if usage == "" {
 		usage = "output file"
@@ -17,9 +22,39 @@ func registerOutputPathFlags(fs *flag.FlagSet, usage string) outputPathFlags {
 	}
 }
 
+func registerAPIFileFlags(fs *flag.FlagSet, usage string) apiFileFlags {
+	if usage == "" {
+		usage = "api file"
+	}
+	return apiFileFlags{
+		File: fs.String("file", "", usage),
+		API:  fs.String("api", "", usage),
+	}
+}
+
 func (f outputPathFlags) resolve() string {
 	if valueFromStringFlag(f.Output) != "" {
 		return valueFromStringFlag(f.Output)
 	}
 	return valueFromStringFlag(f.Alias)
+}
+
+func (f apiFileFlags) resolve(leading string, remaining []string) string {
+	if valueFromStringFlag(f.File) != "" {
+		return valueFromStringFlag(f.File)
+	}
+	if valueFromStringFlag(f.API) != "" {
+		return valueFromStringFlag(f.API)
+	}
+	if leading != "" {
+		return leading
+	}
+	return firstRemainingArg(remaining)
+}
+
+func firstRemainingArg(args []string) string {
+	if len(args) == 0 {
+		return ""
+	}
+	return args[0]
 }

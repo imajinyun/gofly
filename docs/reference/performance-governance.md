@@ -30,6 +30,10 @@ gates:
 - `BenchmarkHTTPOpenAPI/disabled` and `BenchmarkHTTPOpenAPI/enabled` are the
   first blocking latency rows because they have five-sample baseline history
   and current smoke evidence below baseline;
+- `BenchmarkHTTPGovernance/disabled` and `BenchmarkHTTPGovernance/enabled` are
+  also blocking latency rows because the governance policy path now has
+  five-sample baseline history, no allocation drift, and current smoke evidence
+  below baseline;
 - governance overhead allocation growth must have a linked feature and baseline
   refresh rationale;
 - any optimization must cite the benchmark or pprof signal that motivated it.

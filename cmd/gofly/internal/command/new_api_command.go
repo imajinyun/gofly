@@ -105,9 +105,7 @@ func apiNewCommand(args []string) error {
 	}
 	cfg := loadCtx.Config
 	resolved := loadCtx.ConfigPath
-	if cfg.Style == "" || isGoctlTemplateStyle(cfg.Style) {
-		cfg.Style = generator.ServiceStyleBasic
-	}
+	applyNewScaffoldStyleDefault(cfg, *style, generator.ServiceStyleBasic, false)
 	if *dir == "" && cfg.ServiceName != "" {
 		*dir = cfg.ServiceName
 	}

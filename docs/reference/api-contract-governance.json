@@ -1,0 +1,136 @@
+{
+  "schema": "gofly.api_contract_governance.v1",
+  "aiflowTask": "GOFLY-GOV-10R3-07",
+  "purpose": "Keep REST/OpenAPI runtime binding, validation envelopes, RPC boundary evidence, gateway contracts, descriptor compatibility, and release-required contract checks synchronized.",
+  "acceptanceGate": "make api-contract-check",
+  "aggregateGates": [
+    "make api-contract-governance-check",
+    "make docs-check",
+    "make contract-docs-check"
+  ],
+  "childGates": [
+    "make openapi-validation-check",
+    "make rpc-boundary-check"
+  ],
+  "sourceCode": [
+    "bin/scripts/check-api-contract-governance.sh",
+    "bin/scripts/check-openapi-validation-envelope.sh",
+    "bin/scripts/check-rpc-boundary.sh",
+    "docs/reference/openapi-invalid-request-smoke.json",
+    "docs/reference/rpc-tier1-evidence.json",
+    "docs/reference/openapi-validation-envelope.md",
+    "docs/reference/rpc-boundary.md",
+    "docs/reference/governance-boundary-inventory.json",
+    "docs/reference/ci-required-check-evidence.json",
+    "rest",
+    "rpc",
+    "gateway"
+  ],
+  "policy": {
+    "openapiRuntimeBindingMustMatchSchema": true,
+    "invalidRequestsReturnStableRestErrorResponse": true,
+    "rpcTier1PromotionRequiresReleaseTrainEvidence": true,
+    "rpcLatencyRemainsReportOnlyUntilBudgetPromotion": true,
+    "gatewayAndDescriptorContractsUseAggregateGate": true,
+    "releaseContractCheckMustStayReleaseBlocking": true
+  },
+  "surfaces": [
+    {
+      "id": "rest-openapi-validation-envelope",
+      "risk": "runtime binding and OpenAPI schema can drift and make generated services return undocumented errors",
+      "gate": "make openapi-validation-check",
+      "evidenceRefs": [
+        {
+          "path": "docs/reference/openapi-invalid-request-smoke.json",
+          "contains": [
+            "gofly.openapi_invalid_request_smoke.v1",
+            "rest.ErrorResponse",
+            "generated-service-invalid-request"
+          ]
+        },
+        {
+          "path": "bin/scripts/check-openapi-validation-envelope.sh",
+          "contains": [
+            "runtimeEnvelope",
+            "coreerrors.CodeInvalidArgument",
+            "TestGeneratedServiceOpenAPIValidationEnvelopeContract"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "rpc-tier1-boundary",
+      "risk": "rpc, rpc/grpc, gateway, and app promotion can be claimed before stream, resolver, balancer, benchmark, and rollback evidence is complete",
+      "gate": "make rpc-boundary-check",
+      "evidenceRefs": [
+        {
+          "path": "docs/reference/rpc-tier1-evidence.json",
+          "contains": [
+            "gofly.rpc_tier1_evidence.v1",
+            "rpc-release-train-missing",
+            "rpc-budget-report-only"
+          ]
+        },
+        {
+          "path": "bin/scripts/check-rpc-boundary.sh",
+          "contains": [
+            "BenchmarkRPCUnary/gofly_rpc",
+            "resolver-updates",
+            "kitex-coexistence-rollback",
+            "grpc-compatibility"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "gateway-descriptor-contracts",
+      "risk": "gateway and descriptor compatibility can drift away from the aggregate REST/RPC contract boundary",
+      "gate": "make api-contract-check",
+      "evidenceRefs": [
+        {
+          "path": "docs/reference/governance-boundary-inventory.json",
+          "contains": [
+            "rest-rpc-contracts",
+            "gateway",
+            "make api-contract-check"
+          ]
+        },
+        {
+          "path": "docs/reference/cli-json-contracts.md",
+          "contains": [
+            "gofly rpc descriptor",
+            "gofly rpc doc",
+            "OpenAPI JSON generated from protobuf HTTP transcoding metadata"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "release-contract-required-check",
+      "risk": "contract checks can pass locally but disappear from release-required CI evidence",
+      "gate": "make required-checks-drift-check",
+      "evidenceRefs": [
+        {
+          "path": "docs/reference/ci-required-check-evidence.json",
+          "contains": [
+            "contract-check",
+            "contract / api+rpc (check + breaking)",
+            "stable-surface and API/RPC contract checks must remain release-blocking"
+          ]
+        },
+        {
+          "path": "Makefile",
+          "contains": [
+            "api-contract-check: openapi-validation-check rpc-boundary-check",
+            "api-contract-governance-check"
+          ]
+        }
+      ]
+    }
+  ],
+  "aiflowExecution": {
+    "status": "local-fallback",
+    "blocker": "aiflow CLI currently fails to compile in the adjacent aiflow checkout because harness/policy.go imports fmt without use",
+    "goflyImpact": "none; the local REST/RPC/API contract governance gate is self-contained"
+  }
+}

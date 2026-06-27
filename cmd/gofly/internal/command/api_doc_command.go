@@ -10,8 +10,7 @@ import (
 func apiDocCommand(command string, args []string) error {
 	leadingFile, args := splitLeadingName(args)
 	fs := flag.NewFlagSet("api doc", flag.ContinueOnError)
-	file := fs.String("file", "", "api file")
-	api := fs.String("api", "", "api file")
+	file := registerAPIFileFlags(fs, "api file")
 	dir := fs.String("dir", ".", "output directory")
 	output := registerOutputPathFlags(fs, "output file")
 	filename := fs.String("filename", "", "swagger filename")
@@ -30,12 +29,6 @@ func apiDocCommand(command string, args []string) error {
 	if err != nil {
 		return err
 	}
-	if *file == "" {
-		*file = *api
-	}
-	if *file == "" {
-		*file = leadingFile
-	}
 	outputPath := output.resolve()
 	docOutput.applyFormatAliases("json")
 	if *oas3 && valueFromStringFlag(docOutput.Format) == "markdown" {
@@ -44,6 +37,5 @@ func apiDocCommand(command string, args []string) error {
 	if outputPath == "" && *filename != "" {
 		outputPath = filepath.Join(*dir, *filename)
 	}
-	fillNameFromArgs(file, remaining)
-	return generator.GenerateAPIDoc(generator.APIDocOptions{APIFile: *file, Dir: *dir, Output: outputPath, Format: valueFromStringFlag(docOutput.Format)})
+	return generator.GenerateAPIDoc(generator.APIDocOptions{APIFile: file.resolve(leadingFile, remaining), Dir: *dir, Output: outputPath, Format: valueFromStringFlag(docOutput.Format)})
 }

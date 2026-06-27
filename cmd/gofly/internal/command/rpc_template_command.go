@@ -20,9 +20,7 @@ func rpcTemplateCommand(args []string) error {
 	fs := flag.NewFlagSet("rpc template", flag.ContinueOnError)
 	output := registerOutputPathFlags(fs, "output proto template file")
 	name := fs.String("name", "", "rpc service name used in the template")
-	home := fs.String("home", "", "template home directory")
-	remote := fs.String("remote", "", "remote template repository")
-	branch := fs.String("branch", "", "remote template branch")
+	templateSource := registerTemplateSourceFlags(fs, "", "", "")
 	style := fs.String("style", "go_zero", "scaffold style option")
 	multiple := fs.Bool("multiple", false, "generate multiple service packages")
 	_ = style
@@ -35,5 +33,11 @@ func rpcTemplateCommand(args []string) error {
 		*name = leadingName
 	}
 	fillNameFromArgs(name, remaining)
-	return generator.GenerateRPCTemplate(generator.IDLTemplateOptions{Output: output.resolve(), Name: *name, TemplateDir: *home, Remote: *remote, Branch: *branch})
+	return generator.GenerateRPCTemplate(generator.IDLTemplateOptions{
+		Output:      output.resolve(),
+		Name:        *name,
+		TemplateDir: *templateSource.Home,
+		Remote:      *templateSource.Remote,
+		Branch:      *templateSource.Branch,
+	})
 }

@@ -1,0 +1,99 @@
+{
+  "schema": "gofly.governance_convergence_verification.v1",
+  "aiflowTask": "GOFLY-GOV-10R3-10",
+  "purpose": "Tie the active 10-round governance batch to final convergence gates, commit checkpoints, ignored runtime paths, skip-report policy, and release-blocking verification.",
+  "acceptanceGate": "make governance-10-rounds",
+  "aggregateGates": [
+    "make governance-boundary-inventory-check",
+    "make governance-report-check",
+    "make required-checks-drift-check",
+    "make security",
+    "make cache-dependency-governance-check"
+  ],
+  "activeBatch": "GOFLY-GOV-10R3",
+  "roundCommits": [
+    {
+      "round": 1,
+      "task": "GOFLY-GOV-10R3-01",
+      "commit": "64daaf2",
+      "gate": "make governance-boundary-inventory-check"
+    },
+    {
+      "round": 2,
+      "task": "GOFLY-GOV-10R3-02",
+      "commit": "1566e5f",
+      "gate": "make context-lifecycle-governance-check"
+    },
+    {
+      "round": 3,
+      "task": "GOFLY-GOV-10R3-03",
+      "commit": "fed700f",
+      "gate": "make cli-configuration-governance-check"
+    },
+    {
+      "round": 4,
+      "task": "GOFLY-GOV-10R3-04",
+      "commit": "13b3973",
+      "gate": "make code-generation-governance-check"
+    },
+    {
+      "round": 5,
+      "task": "GOFLY-GOV-10R3-05",
+      "commit": "e3e3cd5",
+      "gate": "make plugin-external-governance-check"
+    },
+    {
+      "round": 6,
+      "task": "GOFLY-GOV-10R3-06",
+      "commit": "ff003fa",
+      "gate": "make cache-dependency-governance-check"
+    },
+    {
+      "round": 7,
+      "task": "GOFLY-GOV-10R3-07",
+      "commit": "5cc3699",
+      "gate": "make api-contract-check"
+    },
+    {
+      "round": 8,
+      "task": "GOFLY-GOV-10R3-08",
+      "commit": "97aff15",
+      "gate": "make security"
+    },
+    {
+      "round": 9,
+      "task": "GOFLY-GOV-10R3-09",
+      "commit": "6440bb5",
+      "gate": "make governance-report-check"
+    },
+    {
+      "round": 10,
+      "task": "GOFLY-GOV-10R3-10",
+      "commit": "pending-current-task",
+      "gate": "make governance-10-rounds"
+    }
+  ],
+  "finalGatePolicy": {
+    "entrypoint": "make governance-10-rounds",
+    "script": "bin/scripts/governance-10-rounds.sh",
+    "skipReport": "GOVERNANCE_SKIP_REPORT",
+    "releaseSkipsRejected": [
+      "GOVERNANCE_SKIP_RACE",
+      "GOVERNANCE_SKIP_SECURITY",
+      "GOVERNANCE_SKIP_GENERATED_CONTROL_PLANE_SMOKE"
+    ],
+    "runtimeIgnoredPaths": [
+      "docs/superpowers/",
+      ".aiflow/",
+      ".harness/",
+      ".tmp-test/",
+      ".trae/",
+      "coverage.out"
+    ]
+  },
+  "aiflowExecution": {
+    "status": "local-fallback",
+    "blocker": "aiflow CLI currently fails to compile in the adjacent aiflow checkout because harness/policy.go imports fmt without use",
+    "goflyImpact": "none; the local convergence verification gate is self-contained"
+  }
+}

@@ -12,6 +12,18 @@ manifest_path = root / "docs" / "reference" / "governance-boundary-inventory.jso
 missing = []
 
 expected_tasks = [f"GOFLY-GOV-10R-{idx:02d}" for idx in range(1, 11)]
+expected_batches = {
+    "GOFLY-GOV-10R": {
+        "status": "completed-with-local-fallbacks",
+        "taskPrefix": "GOFLY-GOV-10R-",
+        "roundCount": 10,
+    },
+    "GOFLY-GOV-10R2": {
+        "status": "active",
+        "taskPrefix": "GOFLY-GOV-10R2-",
+        "roundCount": 10,
+    },
+}
 expected_surfaces = {
     "cli",
     "generator",
@@ -74,6 +86,7 @@ governance_script = read_text(root / "bin" / "scripts" / "governance-10-rounds.s
 targets = make_target_names(makefile)
 
 require(manifest.get("schema") == "gofly.governance_boundary_inventory.v1", "schema must be gofly.governance_boundary_inventory.v1")
+require(manifest.get("activeAiflowBatch") == "GOFLY-GOV-10R2", "activeAiflowBatch must be GOFLY-GOV-10R2")
 require("governance-boundary-inventory-check" in targets, "Makefile must expose governance-boundary-inventory-check")
 require("api-contract-check" in targets, "Makefile must expose api-contract-check")
 require("check-governance-boundary-inventory.sh" in governance_script, "governance-10-rounds.sh must run the boundary inventory in Round 01")
@@ -81,6 +94,19 @@ require("check-governance-boundary-inventory.sh" in governance_script, "governan
 api_contract_line = next((line for line in makefile.splitlines() if line.startswith("api-contract-check:")), "")
 require("openapi-validation-check" in api_contract_line, "api-contract-check must depend on openapi-validation-check")
 require("rpc-boundary-check" in api_contract_line, "api-contract-check must depend on rpc-boundary-check")
+
+batches = manifest.get("aiflowTaskBatches") or []
+actual_batches = {
+    item.get("id"): item
+    for item in batches
+    if isinstance(item, dict) and item.get("id")
+}
+require(set(actual_batches) == set(expected_batches), f"aiflowTaskBatches drifted: missing={sorted(set(expected_batches) - set(actual_batches))} extra={sorted(set(actual_batches) - set(expected_batches))}")
+for batch_id, expected in expected_batches.items():
+    item = actual_batches.get(batch_id) or {}
+    for field, value in expected.items():
+        require(item.get(field) == value, f"{batch_id}: {field} must be {value!r}")
+    require(bool(item.get("evidence")), f"{batch_id}: evidence is required")
 
 tasks = manifest.get("aiflowTasks") or []
 actual_tasks = [item.get("id") for item in tasks if isinstance(item, dict)]

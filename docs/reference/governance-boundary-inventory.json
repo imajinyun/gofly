@@ -1,6 +1,23 @@
 {
   "schema": "gofly.governance_boundary_inventory.v1",
   "purpose": "Lightweight baseline inventory for the 10-round governance workflow before expensive full-repository gates run.",
+  "activeAiflowBatch": "GOFLY-GOV-10R2",
+  "aiflowTaskBatches": [
+    {
+      "id": "GOFLY-GOV-10R",
+      "status": "completed-with-local-fallbacks",
+      "taskPrefix": "GOFLY-GOV-10R-",
+      "roundCount": 10,
+      "evidence": "git log --oneline -n 10"
+    },
+    {
+      "id": "GOFLY-GOV-10R2",
+      "status": "active",
+      "taskPrefix": "GOFLY-GOV-10R2-",
+      "roundCount": 10,
+      "evidence": "go run ./cmd/aiflow status -root /Users/bytedance/Codes/go/src/github/gofly -id GOFLY-GOV-10R2-01"
+    }
+  ],
   "aiflowTasks": [
     {
       "id": "GOFLY-GOV-10R-01",

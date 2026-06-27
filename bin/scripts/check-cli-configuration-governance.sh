@@ -93,6 +93,7 @@ required_patterns = {
     "config-usage-errors": r"TestExecuteConfigInvalidSubcommand|config command text dry-run and apply branches",
     "global-output-mode": r"TestParseGlobalOutput|TestGlobalOutputJSONErrorsToStdoutOnly|TestCLISTDIOExitContract",
     "json-goldens": r"TestCLIJSONContractGoldens|TestCLIJSONErrorEnvelopeGolden",
+    "help-alias-alignment": r"TestCLICommandSurfaceManifestMatchesRegistries|TestCommandHelpSubcommandBoundaries",
 }
 coverage_ids = {item.get("id") for item in manifest.get("coverage") or [] if isinstance(item, dict)}
 for coverage_id, pattern in required_patterns.items():
@@ -102,6 +103,20 @@ for coverage_id, pattern in required_patterns.items():
 known_drifts = {item.get("id") for item in manifest.get("knownDrift") or [] if isinstance(item, dict)}
 require("config-json-output" in known_drifts, "knownDrift must document config-json-output boundary")
 require("gofly.cli_json_contract_goldens.v1" in cli_goldens, "CLI JSON golden manifest must remain available")
+surfaces = {item.get("id"): item for item in manifest.get("configurationSurfaces") or [] if isinstance(item, dict)}
+help_surface = surfaces.get("help-alias-contract") or {}
+require(bool(help_surface), "configurationSurfaces must include help-alias-contract")
+require(help_surface.get("source") == "cmd/gofly/internal/command/help_metadata.go", "help-alias-contract source mismatch")
+require(help_surface.get("surfaceManifest") == "docs/reference/cli-command-surface.json", "help-alias-contract surfaceManifest mismatch")
+require("topLevelHelpAliases" in read_text(root / "cmd" / "gofly" / "internal" / "command" / "help_metadata.go"), "help alias metadata missing topLevelHelpAliases")
+require("nestedHelpAliases" in read_text(root / "cmd" / "gofly" / "internal" / "command" / "help_metadata.go"), "help alias metadata missing nestedHelpAliases")
+require("TestCLICommandSurfaceManifestMatchesRegistries" in test_corpus, "help alias evidence missing TestCLICommandSurfaceManifestMatchesRegistries")
+require("TestCommandHelpSubcommandBoundaries" in test_corpus, "help alias evidence missing TestCommandHelpSubcommandBoundaries")
+aiflow_execution = manifest.get("aiflowExecution") or {}
+require(aiflow_execution.get("status") == "aiflow-driven", "aiflowExecution.status must be aiflow-driven")
+require("GOFLY-GOV-10R3-03" in aiflow_execution.get("driver", ""), "aiflowExecution.driver must reference GOFLY-GOV-10R3-03")
+require("make cli-command-surface-check" in aiflow_execution.get("completionPolicy", ""), "aiflowExecution.completionPolicy must require cli-command-surface-check")
+require("make cli-configuration-governance-check" in aiflow_execution.get("completionPolicy", ""), "aiflowExecution.completionPolicy must require cli-configuration-governance-check")
 
 test_cmd = [
     "go",
@@ -109,7 +124,7 @@ test_cmd = [
     "-count=1",
     "./cmd/gofly/internal/command",
     "-run",
-    "TestExecuteConfigShowAndGet|TestExecuteConfigSetAndGet|TestExecuteConfigInvalidSubcommand|TestExecuteConfigClean|TestExecuteConfigInitPersistsDefaultEcosystemFeature|TestExecuteConfigSetFeaturesValidatesAndAllowsEmptyList|TestParseGlobalOutput|TestGlobalOutputJSONErrorsToStdoutOnly|TestCLISTDIOExitContract|TestCommandConfigFeaturePluginCoverageBuffer|TestCLIJSONContractGoldens|TestCLIJSONErrorEnvelopeGolden",
+    "TestCLICommandSurfaceManifestMatchesRegistries|TestCommandHelpSubcommandBoundaries|TestExecuteConfigShowAndGet|TestExecuteConfigSetAndGet|TestExecuteConfigInvalidSubcommand|TestExecuteConfigClean|TestExecuteConfigInitPersistsDefaultEcosystemFeature|TestExecuteConfigSetFeaturesValidatesAndAllowsEmptyList|TestParseGlobalOutput|TestGlobalOutputJSONErrorsToStdoutOnly|TestCLISTDIOExitContract|TestCommandConfigFeaturePluginCoverageBuffer|TestCLIJSONContractGoldens|TestCLIJSONErrorEnvelopeGolden",
 ]
 test = subprocess.run(test_cmd, cwd=root, check=False, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 if test.returncode != 0:

@@ -56,6 +56,13 @@
     {
       "id": "json-golden-contracts",
       "contract": "stable JSON-capable commands are governed by docs/reference/cli-json-contract-goldens.json and TestCLIJSONContractGoldens"
+    },
+    {
+      "id": "help-alias-contract",
+      "contract": "top-level and nested help aliases must resolve to canonical help topics without falling back to generic help text",
+      "source": "cmd/gofly/internal/command/help_metadata.go",
+      "surfaceManifest": "docs/reference/cli-command-surface.json",
+      "evidence": "TestCLICommandSurfaceManifestMatchesRegistries and TestCommandHelpSubcommandBoundaries"
     }
   ],
   "coverage": [
@@ -93,9 +100,16 @@
       "id": "json-goldens",
       "evidence": "TestCLIJSONContractGoldens and TestCLIJSONErrorEnvelopeGolden",
       "riskBlocked": "JSON-capable commands drifting from stable envelopes"
+    },
+    {
+      "id": "help-alias-alignment",
+      "evidence": "TestCLICommandSurfaceManifestMatchesRegistries and TestCommandHelpSubcommandBoundaries",
+      "riskBlocked": "registered aliases resolving to fallback help or undocumented canonical topics"
     }
   ],
   "evidenceTests": [
+    "TestCLICommandSurfaceManifestMatchesRegistries",
+    "TestCommandHelpSubcommandBoundaries",
     "TestExecuteConfigShowAndGet",
     "TestExecuteConfigSetAndGet",
     "TestExecuteConfigInvalidSubcommand",
@@ -117,8 +131,8 @@
     }
   ],
   "aiflowExecution": {
-    "status": "local-fallback",
-    "blocker": "aiflow CLI currently fails to compile in the adjacent aiflow checkout because harness/policy.go imports fmt without use",
-    "goflyImpact": "none; the local governance gate is self-contained"
+    "status": "aiflow-driven",
+    "driver": "go run ./cmd/aiflow status -root /Users/bytedance/Codes/go/src/github/gofly -id GOFLY-GOV-10R3-03",
+    "completionPolicy": "mark complete through aiflow after make cli-command-surface-check and make cli-configuration-governance-check pass"
   }
 }

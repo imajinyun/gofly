@@ -95,13 +95,7 @@ func serviceNewCommand(args []string) error {
 	}
 	output := newScaffoldPlanOutputFor("new.service", "new service", *dir, resolved, cfg, plugins, contractInputs, *saveConfig)
 	if *dryRun || *plan {
-		if err := validateNewServicePlanInputs(cfg); err != nil {
-			return err
-		}
-		if err := validateNewServiceContractInputs(contractInputs); err != nil {
-			return err
-		}
-		return output.printPlan(*jsonOut)
+		return output.printDryRunPlan(*jsonOut, true)
 	}
 	if err := generateNewServiceScaffold(cfg, newServiceScaffoldOptions{
 		Dir:     *dir,

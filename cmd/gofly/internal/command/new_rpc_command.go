@@ -22,10 +22,7 @@ func rpcNewCommand(args []string) error {
 	compatFlags := registerNewRPCCompatFlags(fs)
 	verbosityFlags := registerNewScaffoldVerbosityFlags(fs)
 	extensionFlags := registerNewScaffoldExtensionFlags(fs, "rpc-plugin")
-	saveConfig := fs.Bool("save-config", true, "save resolved config back to --config path")
-	dryRun := fs.Bool("dry-run", false, "print the planned filesystem changes without writing files")
-	plan := fs.Bool("plan", false, "alias for --dry-run")
-	jsonOut := fs.Bool("json", false, "emit scaffold result as JSON")
+	executionFlags := registerNewScaffoldExecutionFlags(fs)
 	_ = compatFlags
 	remaining, err := parseInterspersedFlags(fs, args)
 	if err != nil {
@@ -71,9 +68,9 @@ func rpcNewCommand(args []string) error {
 	applyNewScaffoldDirFallback(dir, cfg)
 	plugins := loadCtx.PluginNames
 	resolvedProfile := resolveNewRPCProfile(cfg, *profile)
-	output := newScaffoldPlanOutputFor("new.rpc", "new rpc", *dir, resolved, cfg, plugins, newServiceContractInputs{}, *saveConfig)
-	if *dryRun || *plan {
-		return output.printDryRunPlan(*jsonOut, false)
+	output := newScaffoldPlanOutputFor("new.rpc", "new rpc", *dir, resolved, cfg, plugins, newServiceContractInputs{}, *executionFlags.SaveConfig)
+	if *executionFlags.DryRun || *executionFlags.Plan {
+		return output.printDryRunPlan(*executionFlags.JSON, false)
 	}
 	if err := generateNewRPCScaffold(cfg, newRPCScaffoldOptions{
 		Dir:             *dir,
@@ -82,8 +79,8 @@ func rpcNewCommand(args []string) error {
 	}); err != nil {
 		return err
 	}
-	if err := saveNewScaffoldConfig(*saveConfig, resolved, cfg); err != nil {
+	if err := saveNewScaffoldConfig(*executionFlags.SaveConfig, resolved, cfg); err != nil {
 		return err
 	}
-	return output.printResultWhenRequested(*jsonOut)
+	return output.printResultWhenRequested(*executionFlags.JSON)
 }

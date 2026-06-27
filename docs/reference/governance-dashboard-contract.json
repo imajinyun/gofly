@@ -14,6 +14,8 @@
     "security.govulncheck.blockingGate",
     "productionDefaults.capabilityCount",
     "productionDefaults.missingAssets",
+    "governanceConvergence.taskCount",
+    "governanceConvergence.ignoredRuntimePathCount",
     "aiflow.status",
     "aiflow.summary",
     "dashboard.productionReadinessScorecard.surfaceCount",
@@ -66,6 +68,21 @@
       "admin-diagnostics",
       "profiles",
       "rollback-drills"
+    ]
+  },
+  "governanceConvergence": {
+    "schema": "gofly.governance_boundary_inventory.v1",
+    "source": "docs/reference/governance-boundary-inventory.json",
+    "gate": "make governance-boundary-inventory-check",
+    "finalGate": "make governance-10-rounds",
+    "requiredTaskCount": 10,
+    "requiredIgnoredRuntimePaths": [
+      "docs/superpowers/",
+      ".aiflow/",
+      ".harness/",
+      ".tmp-test/",
+      ".trae/",
+      "coverage.out"
     ]
   },
   "aiflow": {

@@ -438,6 +438,28 @@ def production_defaults_evidence():
     }
 
 
+def governance_convergence_evidence():
+    manifest = read_json(root / "docs/reference/governance-boundary-inventory.json") or {}
+    tasks = [
+        item
+        for item in manifest.get("aiflowTasks") or []
+        if isinstance(item, dict)
+    ]
+    ignored_paths = manifest.get("ignoredRuntimePaths") or []
+    return {
+        "schema": manifest.get("schema", ""),
+        "source": "docs/reference/governance-boundary-inventory.json",
+        "gate": "make governance-boundary-inventory-check",
+        "finalGate": "make governance-10-rounds",
+        "taskCount": len(tasks),
+        "tasks": tasks,
+        "baselineGates": manifest.get("baselineGates", []),
+        "ignoredRuntimePaths": ignored_paths,
+        "ignoredRuntimePathCount": len(ignored_paths),
+        "timeoutPolicy": manifest.get("timeoutPolicy", {}),
+    }
+
+
 def generated_upgrade_dry_run_evidence():
     manifest = read_json(root / "docs/reference/generated-upgrade-dry-run.json") or {}
     profiles = manifest.get("profiles") or []
@@ -482,6 +504,7 @@ def governance_dashboard_contract():
         "coverage": manifest.get("coverage", {}),
         "security": manifest.get("security", {}),
         "productionDefaults": manifest.get("productionDefaults", {}),
+        "governanceConvergence": manifest.get("governanceConvergence", {}),
         "aiflow": manifest.get("aiflow", {}),
         "productionReadinessScorecard": production_readiness_scorecard(manifest.get("productionReadinessScorecard", {})),
         "evidenceTraceability": evidence_traceability(manifest.get("evidenceTraceability", {})),
@@ -578,6 +601,7 @@ report = {
     "ciRequiredChecks": ci_required_check_evidence(),
     "runtimeSLO": runtime_slo_evidence(),
     "productionDefaults": production_defaults_evidence(),
+    "governanceConvergence": governance_convergence_evidence(),
     "generatedUpgradeDryRun": generated_upgrade_dry_run_evidence(),
     "benchmark": {
         "gate": "make bench-evidence-check",
@@ -633,6 +657,7 @@ md_lines = [
     f"- Release readiness score: `{report['release']['readinessScore']['score']}/{report['release']['readinessScore']['maxScore']}` (`{report['release']['readinessScore']['status']}`)",
     f"- Production readiness surfaces: `{report['dashboard']['productionReadinessScorecard']['surfaceCount']}`",
     f"- Production default capabilities: `{report['productionDefaults']['capabilityCount']}`",
+    f"- Governance convergence rounds: `{report['governanceConvergence']['taskCount']}`",
     f"- Evidence traceability claims: `{report['dashboard']['evidenceTraceability']['claimCount']}`",
     f"- Generated upgrade dry-run profiles: `{report['generatedUpgradeDryRun']['profileCount']}`",
     "",
@@ -686,6 +711,53 @@ if report["runtimeSLO"]["schema"] != "gofly.runtime_slo.v1":
     missing.append("runtime SLO evidence schema mismatch")
 if report["runtimeSLO"]["signalCount"] < 7:
     missing.append("runtime SLO evidence is incomplete")
+convergence = report["governanceConvergence"]
+if convergence["schema"] != "gofly.governance_boundary_inventory.v1":
+    missing.append("governance convergence schema mismatch")
+if convergence["gate"] != "make governance-boundary-inventory-check":
+    missing.append("governance convergence gate mismatch")
+if convergence["finalGate"] != "make governance-10-rounds":
+    missing.append("governance convergence finalGate mismatch")
+if convergence["taskCount"] != 10:
+    missing.append("governance convergence must track 10 rounds")
+expected_round_ids = [f"GOFLY-GOV-10R-{idx:02d}" for idx in range(1, 11)]
+actual_round_ids = [
+    item.get("id", "")
+    for item in convergence.get("tasks") or []
+    if isinstance(item, dict)
+]
+if actual_round_ids != expected_round_ids:
+    missing.append(
+        "governance convergence task ids mismatch: "
+        f"expected={expected_round_ids} got={actual_round_ids}"
+    )
+for item in convergence.get("tasks") or []:
+    if not isinstance(item, dict):
+        missing.append(f"governance convergence task must be an object: {item!r}")
+        continue
+    item_id = item.get("id", "")
+    for field in ("id", "round", "title", "gate"):
+        if not item.get(field):
+            missing.append(f"governance convergence {item_id or '<missing>'}: {field} is required")
+ignored_runtime_paths = set(convergence.get("ignoredRuntimePaths") or [])
+expected_ignored_runtime_paths = {
+    "docs/superpowers/",
+    ".aiflow/",
+    ".harness/",
+    ".tmp-test/",
+    ".trae/",
+    "coverage.out",
+}
+if ignored_runtime_paths != expected_ignored_runtime_paths:
+    missing.append(
+        "governance convergence ignoredRuntimePaths drifted: "
+        f"missing={sorted(expected_ignored_runtime_paths - ignored_runtime_paths)} "
+        f"extra={sorted(ignored_runtime_paths - expected_ignored_runtime_paths)}"
+    )
+if convergence.get("ignoredRuntimePathCount") != len(expected_ignored_runtime_paths):
+    missing.append("governance convergence ignoredRuntimePathCount mismatch")
+if "governance-boundary-inventory-check" not in (convergence.get("timeoutPolicy") or {}).get("fallback", ""):
+    missing.append("governance convergence timeout fallback must mention governance-boundary-inventory-check")
 production_defaults = report["productionDefaults"]
 if production_defaults["schema"] != "gofly.production_defaults.v1":
     missing.append("production defaults schema mismatch")
@@ -825,6 +897,8 @@ for field in (
     "aiflow.status",
     "productionDefaults.capabilityCount",
     "productionDefaults.missingAssets",
+    "governanceConvergence.taskCount",
+    "governanceConvergence.ignoredRuntimePathCount",
     "dashboard.productionReadinessScorecard.surfaceCount",
     "dashboard.evidenceTraceability.claimCount",
 ):
@@ -868,6 +942,15 @@ if set(production_defaults_contract.get("requiredCapabilities") or []) != requir
     missing.append("governance dashboard productionDefaults requiredCapabilities mismatch")
 if int(production_defaults_contract.get("requiredAssetMinimum") or 0) > production_defaults.get("assetCount", 0):
     missing.append("governance dashboard productionDefaults requiredAssetMinimum is not met")
+convergence_contract = dashboard.get("governanceConvergence") or {}
+if convergence_contract.get("schema") != "gofly.governance_boundary_inventory.v1":
+    missing.append("governance dashboard governanceConvergence schema mismatch")
+if convergence_contract.get("gate") != "make governance-boundary-inventory-check":
+    missing.append("governance dashboard governanceConvergence gate mismatch")
+if int(convergence_contract.get("requiredTaskCount") or 0) != 10:
+    missing.append("governance dashboard governanceConvergence requiredTaskCount mismatch")
+if set(convergence_contract.get("requiredIgnoredRuntimePaths") or []) != expected_ignored_runtime_paths:
+    missing.append("governance dashboard governanceConvergence requiredIgnoredRuntimePaths mismatch")
 aiflow_contract = dashboard.get("aiflow") or {}
 if aiflow_contract.get("requiredStatusField") != "status":
     missing.append("governance dashboard aiflow requiredStatusField mismatch")

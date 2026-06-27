@@ -87,6 +87,34 @@ def count_benchmarks():
     return sorted(names)
 
 
+def benchmark_surface_policy():
+    ratchet = read_json(root / "bench/budget-ratchet.json") or {}
+    surfaces = [
+        item
+        for item in ratchet.get("surfacePolicy") or []
+        if isinstance(item, dict)
+    ]
+    status_counts = {}
+    latency_mode_counts = {}
+    unsupported = []
+    for item in surfaces:
+        status_value = item.get("status", "")
+        latency_mode = item.get("latencyMode", "")
+        status_counts[status_value] = status_counts.get(status_value, 0) + 1
+        latency_mode_counts[latency_mode] = latency_mode_counts.get(latency_mode, 0) + 1
+        if status_value == "unsupported-report-only":
+            unsupported.append(item.get("id", ""))
+    return {
+        "source": "bench/budget-ratchet.json",
+        "gate": ratchet.get("acceptanceGate", "make bench-regression-check"),
+        "surfaceCount": len(surfaces),
+        "statusCounts": status_counts,
+        "latencyModeCounts": latency_mode_counts,
+        "unsupportedReportOnly": unsupported,
+        "surfaces": surfaces,
+    }
+
+
 def aiflow_queue():
     data = read_json(root / ".harness/store.json")
     if not isinstance(data, dict):
@@ -703,8 +731,12 @@ report = {
         "regressionGate": "make bench-regression-check",
         "evidence": "bench/evidence.md",
         "regressionReport": "bench/regression-report.json",
+        "trendSummary": "bench/summary.md",
         "benchmarks": count_benchmarks(),
         "evidenceStatus": status("bench/evidence.md"),
+        "regressionReportStatus": status("bench/regression-report.json"),
+        "trendSummaryStatus": status("bench/summary.md"),
+        "surfacePolicy": benchmark_surface_policy(),
     },
     "security": security_evidence(),
     "release": release_evidence(),
@@ -745,6 +777,8 @@ md_lines = [
     f"- Dirty worktree when generated: `{str(report['git']['dirty']).lower()}`",
     f"- Coverage ratchet: `{report['coverage']['ratchet']}%`",
     f"- Benchmark evidence: `{report['benchmark']['evidenceStatus']}`",
+    f"- Benchmark trend summary: `{report['benchmark']['trendSummaryStatus']}`",
+    f"- Benchmark surface policies: `{report['benchmark']['surfacePolicy']['surfaceCount']}`",
     f"- Release evidence schema: `{report['release']['schema']}`",
     f"- Release evidence index items: `{report['release']['evidenceCount']}`",
     f"- Release evidence consumption items: `{report['releaseEvidenceConsumption']['itemCount']}`",
@@ -1027,6 +1061,35 @@ if report["generatedUpgradeDryRun"]["rollbackNoteCount"] != 3:
     missing.append("generated upgrade dry-run rollback note count mismatch")
 if report["benchmark"]["evidenceStatus"] != "present":
     missing.append("benchmark evidence is missing")
+if report["benchmark"]["trendSummaryStatus"] != "present":
+    missing.append("benchmark trend summary is missing")
+if report["benchmark"]["regressionReportStatus"] != "present":
+    missing.append("benchmark regression report is missing")
+surface_policy = report["benchmark"].get("surfacePolicy") or {}
+if surface_policy.get("gate") != "make bench-regression-check":
+    missing.append("benchmark surface policy gate mismatch")
+if surface_policy.get("surfaceCount", 0) < 5:
+    missing.append("benchmark surface policy must track REST, governance, RPC, gateway and cache surfaces")
+required_surface_policy_statuses = {
+    "allocation-blocking",
+    "latency-and-allocation-blocking",
+    "candidate",
+    "unsupported-report-only",
+}
+if not required_surface_policy_statuses.issubset(set((surface_policy.get("statusCounts") or {}).keys())):
+    missing.append("benchmark surface policy statusCounts missing required status classes")
+if len(surface_policy.get("unsupportedReportOnly") or []) < 2:
+    missing.append("benchmark surface policy must keep unsupported gateway/cache surfaces report-only")
+for item in surface_policy.get("surfaces") or []:
+    if not isinstance(item, dict):
+        missing.append(f"benchmark surface policy item must be an object: {item!r}")
+        continue
+    item_id = item.get("id", "")
+    for field in ("id", "surface", "status", "latencyMode", "promotionGate"):
+        if not item.get(field):
+            missing.append(f"benchmark surface policy {item_id or '<missing>'}: {field} is required")
+    if item.get("promotionGate") != "make bench-regression-check":
+        missing.append(f"benchmark surface policy {item_id}: promotionGate mismatch")
 if report["release"]["schema"] != "gofly.release_evidence_manifest.v1":
     missing.append("release evidence manifest schema mismatch")
 if report["release"]["indexSchema"] != "gofly.release_evidence_index.v1":
@@ -1104,6 +1167,9 @@ for field in (
     "release.readinessScore.status",
     "apiSurface.tiers",
     "benchmark.regressionGate",
+    "benchmark.trendSummaryStatus",
+    "benchmark.surfacePolicy.surfaceCount",
+    "benchmark.surfacePolicy.statusCounts",
     "coverage.ratchet",
     "security.gosec.blockingGate",
     "aiflow.status",

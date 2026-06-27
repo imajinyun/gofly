@@ -28,7 +28,7 @@ func rpcGenCommand(args []string) error {
 	withRecovery := fs.Bool("with-recovery", false, "generate gofly RPC recovery middleware option helpers")
 	withValidator := fs.Bool("with-validator", false, "generate gofly RPC request validator option helpers")
 	timeout := fs.Duration("timeout", defaultProtocTimeout, "maximum protoc execution time when --standard is enabled")
-	jsonOut := fs.Bool("json", false, "emit generation result as JSON")
+	jsonOut := registerCLIJSONOutputFlag(fs, "emit generation result as JSON")
 	registerGoctlTemplateFlags(fs)
 	remaining, err := parseInterspersedFlags(fs, args)
 	if err != nil {

@@ -12,6 +12,10 @@ func registerDryRunPlanFlags(fs *flag.FlagSet, dryRunUsage string) dryRunPlanFla
 }
 
 func registerDryRunPlanFlagsWithDefault(fs *flag.FlagSet, defaultValue bool, dryRunUsage, planUsage string) dryRunPlanFlags {
+	return registerDryRunPlanFlagsWithDefaults(fs, defaultValue, defaultValue, dryRunUsage, planUsage)
+}
+
+func registerDryRunPlanFlagsWithDefaults(fs *flag.FlagSet, dryRunDefault, planDefault bool, dryRunUsage, planUsage string) dryRunPlanFlags {
 	if dryRunUsage == "" {
 		dryRunUsage = "print the planned actions without applying changes"
 	}
@@ -19,8 +23,8 @@ func registerDryRunPlanFlagsWithDefault(fs *flag.FlagSet, defaultValue bool, dry
 		planUsage = "alias for --dry-run"
 	}
 	return dryRunPlanFlags{
-		DryRun: fs.Bool("dry-run", defaultValue, dryRunUsage),
-		Plan:   fs.Bool("plan", defaultValue, planUsage),
+		DryRun: fs.Bool("dry-run", dryRunDefault, dryRunUsage),
+		Plan:   fs.Bool("plan", planDefault, planUsage),
 	}
 }
 

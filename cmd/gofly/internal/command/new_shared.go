@@ -98,6 +98,25 @@ func registerNewScaffoldTemplateSourceFlags(fs *flag.FlagSet) newScaffoldTemplat
 	}
 }
 
+type newScaffoldExtensionFlags struct {
+	Features      *string
+	FeaturesAlias *string
+	Plugin        *string
+	PluginAlias   *string
+}
+
+func registerNewScaffoldExtensionFlags(fs *flag.FlagSet, pluginAlias string) newScaffoldExtensionFlags {
+	flags := newScaffoldExtensionFlags{
+		Features:      fs.String("feature", "", "feature names to enable, comma-separated"),
+		FeaturesAlias: fs.String("features", "", "alias for --feature"),
+		Plugin:        fs.String("plugin", "", "plugin executable (comma-separated for multiple)"),
+	}
+	if pluginAlias != "" {
+		flags.PluginAlias = fs.String(pluginAlias, "", "alias for --plugin")
+	}
+	return flags
+}
+
 func loadNewScaffoldContext(opts newScaffoldLoadOptions) (newScaffoldLoadContext, error) {
 	cfg, resolved, err := loadAndOverlay(opts.ConfigPath, opts.Dir, opts.Name, opts.Module, opts.Style, opts.TemplateDir, opts.TemplateRemote, opts.TemplateBranch, opts.Features, opts.Plugins, opts.Kind)
 	if err != nil {

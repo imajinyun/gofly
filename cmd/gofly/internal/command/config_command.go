@@ -27,13 +27,12 @@ func configCommand(args []string) error {
 	style := fs.String("style", "", "style override: minimal|basic|production")
 	key := fs.String("key", "", "config key (for get/set)")
 	value := fs.String("value", "", "config value (for set)")
-	dryRun := fs.Bool("dry-run", false, "print the planned filesystem changes without writing files")
-	plan := fs.Bool("plan", false, "alias for --dry-run")
+	preview := registerDryRunPlanFlags(fs, "print the planned filesystem changes without writing files")
 	remaining, err := parseInterspersedFlags(fs, rest)
 	if err != nil {
 		return err
 	}
-	previewOnly := *dryRun || *plan
+	previewOnly := preview.enabled()
 	if *key == "" && len(remaining) > 0 {
 		*key = remaining[0]
 	}

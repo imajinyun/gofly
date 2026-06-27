@@ -26,6 +26,13 @@ promoted. The release evidence index lives at
 release-required evidence item to a stable id, artifact path, producer job, and
 local gate.
 
+The release evidence consumption contract lives at
+[`docs/releases/evidence-consumption.json`](evidence-consumption.json). It maps
+the same stable evidence ids to the adopter, release-manager, and CI-agent
+question answered by each artifact, the local gate that reproduces the check,
+the consumer action, and the rollback or escalation path when the evidence is
+missing or fails review.
+
 The adopter-facing release readiness score lives at
 [`docs/releases/readiness-score.json`](readiness-score.json). It assigns a
 100-point release-blocking score across the evidence index, required artifact

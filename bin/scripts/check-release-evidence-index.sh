@@ -9,6 +9,7 @@ import sys
 root = pathlib.Path(".").resolve()
 index_path = root / "docs" / "releases" / "evidence-index.json"
 manifest_path = root / "docs" / "releases" / "evidence-manifest.json"
+consumption_path = root / "docs" / "releases" / "evidence-consumption.json"
 missing = []
 
 if not index_path.is_file():
@@ -102,6 +103,49 @@ for item in index.get("evidence") or []:
 for item_id in sorted(required_ids - seen_ids):
     missing.append(f"docs/releases/evidence-index.json: missing evidence id {item_id!r}")
 
+if consumption_path.is_file():
+    consumption = json.loads(consumption_path.read_text(encoding="utf-8"))
+    if consumption.get("schema") != "gofly.release_evidence_consumption.v1":
+        missing.append("docs/releases/evidence-consumption.json: schema must be gofly.release_evidence_consumption.v1")
+    if consumption.get("sourceOfTruth") != "docs/releases/evidence-index.json":
+        missing.append("docs/releases/evidence-consumption.json: sourceOfTruth must be docs/releases/evidence-index.json")
+    if consumption.get("acceptanceGate") != "make governance-report-check":
+        missing.append("docs/releases/evidence-consumption.json: acceptanceGate must be make governance-report-check")
+    consumers = set(consumption.get("consumers") or [])
+    for consumer in ("adopter", "release-manager", "ci-agent"):
+        if consumer not in consumers:
+            missing.append(f"docs/releases/evidence-consumption.json: consumers missing {consumer!r}")
+
+    index_by_id = {
+        item.get("id", ""): item
+        for item in index.get("evidence") or []
+        if isinstance(item, dict) and item.get("id")
+    }
+    consumption_by_id = {
+        item.get("id", ""): item
+        for item in consumption.get("items") or []
+        if isinstance(item, dict) and item.get("id")
+    }
+    if set(consumption_by_id) != set(index_by_id):
+        missing.append(
+            "docs/releases/evidence-consumption.json: ids must match evidence-index "
+            f"missing={sorted(set(index_by_id) - set(consumption_by_id))} "
+            f"extra={sorted(set(consumption_by_id) - set(index_by_id))}"
+        )
+    for evidence_id, source in sorted(index_by_id.items()):
+        item = consumption_by_id.get(evidence_id)
+        if not item:
+            continue
+        if item.get("artifactPath") != source.get("artifactPath"):
+            missing.append(f"docs/releases/evidence-consumption.json: artifactPath mismatch for {evidence_id}")
+        if item.get("localGate") != source.get("localGate"):
+            missing.append(f"docs/releases/evidence-consumption.json: localGate mismatch for {evidence_id}")
+        for field in ("questionAnswered", "riskClass", "consumerAction", "rollbackOrEscalation"):
+            if not item.get(field):
+                missing.append(f"docs/releases/evidence-consumption.json: evidence {evidence_id} missing {field!r}")
+else:
+    missing.append("docs/releases/evidence-consumption.json is missing")
+
 if manifest_path.is_file():
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     if manifest.get("schema") != "gofly.release_evidence_manifest.v1":
@@ -142,7 +186,7 @@ for marker in (
         missing.append(f".github/workflows/ci.yml: missing release evidence marker {marker!r}")
 
 stable_doc = (root / "docs" / "releases" / "stable.md").read_text(encoding="utf-8")
-for marker in ("evidence-index.json", "producer job", "local gate"):
+for marker in ("evidence-index.json", "evidence-consumption.json", "producer job", "local gate", "rollback or escalation"):
     if marker not in stable_doc:
         missing.append(f"docs/releases/stable.md: missing {marker!r}")
 

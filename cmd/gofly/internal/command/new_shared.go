@@ -183,6 +183,23 @@ func loadNewScaffoldContext(opts newScaffoldLoadOptions) (newScaffoldLoadContext
 	}, nil
 }
 
+func newScaffoldLoadOptionsFromFlags(kind string, base newScaffoldBaseFlags, template newScaffoldTemplateSourceFlags, extension newScaffoldExtensionFlags, discovery discoveryCLIFlagValues) newScaffoldLoadOptions {
+	return newScaffoldLoadOptions{
+		ConfigPath:     *base.ConfigPath,
+		Dir:            *base.Dir,
+		Name:           *base.Name,
+		Module:         *base.Module,
+		Style:          *base.Style,
+		TemplateDir:    *template.TemplateDir,
+		TemplateRemote: *template.Remote,
+		TemplateBranch: *template.Branch,
+		Features:       joinCSV(*extension.Features, *extension.FeaturesAlias),
+		Plugins:        *extension.Plugin,
+		Kind:           kind,
+		Discovery:      discovery,
+	}
+}
+
 func saveNewScaffoldConfig(save bool, path string, cfg *generator.Config) error {
 	if !save {
 		return nil

@@ -47,20 +47,8 @@ func apiNewCommand(args []string) error {
 		RemainingArgs: remaining,
 	})
 	verboseOutputf("new api: configuring service %q in %s\n", *baseFlags.Name, *baseFlags.Dir)
-	loadCtx, err := loadNewScaffoldContext(newScaffoldLoadOptions{
-		ConfigPath:     *baseFlags.ConfigPath,
-		Dir:            *baseFlags.Dir,
-		Name:           *baseFlags.Name,
-		Module:         *baseFlags.Module,
-		Style:          *baseFlags.Style,
-		TemplateDir:    *templateFlags.TemplateDir,
-		TemplateRemote: *templateFlags.Remote,
-		TemplateBranch: *templateFlags.Branch,
-		Features:       joinCSV(*extensionFlags.Features, *extensionFlags.FeaturesAlias),
-		Plugins:        *extensionFlags.Plugin,
-		Kind:           "api",
-		Discovery:      discoveryFlags,
-	})
+	loadOpts := newScaffoldLoadOptionsFromFlags("api", baseFlags, templateFlags, extensionFlags, discoveryFlags)
+	loadCtx, err := loadNewScaffoldContext(loadOpts)
 	if err != nil {
 		return err
 	}

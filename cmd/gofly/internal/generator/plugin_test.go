@@ -159,6 +159,39 @@ func TestPluginResponseWriteFilesAllowsRelativePaths(t *testing.T) {
 	}
 }
 
+func TestPluginResponseApplyRejectsPartialWritesWhenPatchFails(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "handler.go"), []byte("package handler\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	resp := PluginResponse{
+		Files: []PluginFile{{Path: "generated.txt", Content: "should-not-write"}},
+		Patches: []PluginPatch{{
+			Path:        "handler.go",
+			InsertAfter: "func Missing() {}",
+			Patch:       "// generated",
+		}},
+	}
+
+	count, err := resp.Apply(dir)
+	if err == nil || !strings.Contains(err.Error(), "anchor") {
+		t.Fatalf("Apply missing anchor err = %v, want anchor error", err)
+	}
+	if count != 0 {
+		t.Fatalf("Apply count = %d, want 0 on failure", count)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "generated.txt")); !os.IsNotExist(err) {
+		t.Fatalf("generated file was partially written or stat failed: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "handler.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "package handler\n" {
+		t.Fatalf("patch failure mutated target: %q", data)
+	}
+}
+
 func TestPluginArgumentAndCacheHelpersBoundaries(t *testing.T) {
 	path, args := splitPluginArgs("  ")
 	if path != "" || args != nil {

@@ -86,11 +86,8 @@ func pluginRunCommand(args []string) error {
 		if resp.Message != "" && !*jsonOutput {
 			errorf("[gofly] plugin %s: %s\n", plugin, resp.Message)
 		}
-		writtenFiles, err := resp.WriteFiles(*dir)
+		writtenFiles, err := resp.Apply(*dir)
 		if err != nil {
-			return err
-		}
-		if err := resp.ApplyPatches(*dir); err != nil {
 			return err
 		}
 		results = append(results, pluginRunResult{Plugin: plugin, Message: resp.Message, Files: writtenFiles, Patches: len(resp.Patches)})

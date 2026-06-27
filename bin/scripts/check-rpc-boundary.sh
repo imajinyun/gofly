@@ -90,6 +90,26 @@ require(policy.get("blockingGate") == "make rpc-boundary-check", "rpc tier1 evid
 require(policy.get("releaseGate") == "make bench-evidence-check", "rpc tier1 evidence release gate must be make bench-evidence-check")
 require(policy.get("budgetRatchet") == "bench/budget-ratchet.json", "rpc tier1 evidence must reference bench/budget-ratchet.json")
 require("report-only" in policy.get("latencyPolicy", ""), "rpc latency policy must remain report-only until promoted")
+readiness = manifest.get("promotionReadiness") or {}
+require(readiness.get("currentTier") == "tier2", "rpc promotionReadiness.currentTier must be tier2 while candidate evidence is incomplete")
+require(readiness.get("targetTier") == "tier1", "rpc promotionReadiness.targetTier must be tier1")
+require(readiness.get("status") == "blocked", "rpc promotionReadiness.status must stay blocked until release train and budget evidence pass")
+release_train = readiness.get("releaseTrainEvidence") or {}
+require(release_train.get("requiredCompletedReleaseTrains") == 1, "rpc release train evidence must require one completed release train")
+require(release_train.get("completedReleaseTrains") == 0, "rpc completed release trains must remain 0 until release evidence is attached")
+require(release_train.get("status") == "pending", "rpc release train evidence must be pending before promotion")
+release_refs = release_train.get("evidenceRefs") or []
+require(release_refs, "rpc release train evidence must list release and required-check evidence refs")
+for required_path in ("docs/releases/evidence-index.json", "docs/reference/ci-required-check-evidence.json"):
+    require(any(ref.get("path") == required_path for ref in release_refs if isinstance(ref, dict)), f"rpc release train evidence missing {required_path}")
+budget_evidence = readiness.get("budgetEvidence") or {}
+require(budget_evidence.get("status") == "pending", "rpc budgetEvidence.status must be pending until blocking RPC budgets exist")
+require(budget_evidence.get("ratchet") == "bench/budget-ratchet.json", "rpc budgetEvidence must reference bench/budget-ratchet.json")
+require(budget_evidence.get("requiredGate") == "make bench-regression-check", "rpc budgetEvidence.requiredGate must be make bench-regression-check")
+blockers = readiness.get("remainingBlockers") or []
+blocker_ids = {item.get("id") for item in blockers if isinstance(item, dict)}
+for blocker_id in ("rpc-release-train-missing", "rpc-budget-report-only"):
+    require(blocker_id in blocker_ids, f"rpc promotionReadiness.remainingBlockers missing {blocker_id}")
 
 ratchet_path = root / "bench" / "budget-ratchet.json"
 if ratchet_path.is_file():
@@ -107,6 +127,13 @@ promoted_latency = {
     if isinstance(item, dict) and item.get("benchmark")
 }
 rpc_policy = ratchet.get("rpcPolicy") or {}
+release_promotion = rpc_policy.get("releasePromotion") or {}
+require(release_promotion.get("status") == "blocked", "budget ratchet rpcPolicy.releasePromotion.status must be blocked")
+require(release_promotion.get("tier1Manifest") == "docs/reference/rpc-tier1-evidence.json", "budget ratchet rpcPolicy.releasePromotion must reference rpc tier1 manifest")
+require(release_promotion.get("requiredCompletedReleaseTrains") == 1, "budget ratchet rpcPolicy.releasePromotion must require one release train")
+require(release_promotion.get("completedReleaseTrains") == 0, "budget ratchet rpcPolicy.releasePromotion completed release trains must remain 0 before promotion")
+require(release_promotion.get("requiredBlockingGate") == "make bench-regression-check", "budget ratchet rpcPolicy.releasePromotion gate must be make bench-regression-check")
+require("Kitex" in release_promotion.get("rollbackGuidance", ""), "budget ratchet rpcPolicy.releasePromotion rollback guidance must mention Kitex")
 candidate_benchmarks = {
     item.get("benchmark", "")
     for item in rpc_policy.get("candidates") or []

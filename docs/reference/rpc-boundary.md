@@ -16,6 +16,12 @@ current blocker is explicit: the latest unary smoke exceeded the allocation
 baseline, and mode-specific stream rows do not yet have published five-sample
 baselines. HTTP/OpenAPI budget rows remain the blocking regression surface.
 
+`promotionReadiness` in the Tier 1 evidence manifest keeps the current state
+machine-readable: `rpc`, `rpc/grpc`, `gateway`, and `app` are still Tier 2
+surfaces targeting Tier 1. Promotion is blocked until one complete release train
+attaches RPC boundary and benchmark evidence, and until at least one RPC unary or
+stream row moves from `rpcPolicy.candidates` into blocking budget coverage.
+
 ## Decision table
 
 | Runtime | Use when | Keep out |
@@ -49,6 +55,14 @@ at least one release train:
 | Resolver updates | registry resolver removes unhealthy/standby endpoint from the report | `go test -C examples/rpc-idl-matrix ./...` |
 | Balancer routing | round-robin, weighted round-robin, P2C, consistent hash, and health-aware picks | `go run -C examples/rpc-idl-matrix .` |
 | Kitex coexistence | rollback note keeps Kitex on hot paths while gofly owns governance surfaces | `make rpc-boundary-check` |
+
+Current promotion blockers:
+
+- `rpc-release-train-missing`: no completed release train has attached the full
+  RPC boundary and benchmark evidence set yet.
+- `rpc-budget-report-only`: RPC unary and stream benchmarks remain candidates in
+  `bench/budget-ratchet.json`; latency-critical methods should keep their Kitex
+  or existing gRPC rollback path until blocking budget evidence exists.
 
 ## gRPC compatibility matrix
 

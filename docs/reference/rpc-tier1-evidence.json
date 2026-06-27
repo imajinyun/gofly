@@ -15,6 +15,44 @@
     "allocationPolicy": "blocking when bench-regression-check budget covers RPC hot paths",
     "budgetRatchet": "bench/budget-ratchet.json"
   },
+  "promotionReadiness": {
+    "currentTier": "tier2",
+    "targetTier": "tier1",
+    "status": "blocked",
+    "releaseTrainEvidence": {
+      "requiredCompletedReleaseTrains": 1,
+      "completedReleaseTrains": 0,
+      "status": "pending",
+      "evidenceRefs": [
+        {
+          "path": "docs/releases/evidence-index.json",
+          "gate": "make release-evidence-index-check"
+        },
+        {
+          "path": "docs/reference/ci-required-check-evidence.json",
+          "gate": "make required-checks-drift-check"
+        }
+      ]
+    },
+    "budgetEvidence": {
+      "status": "pending",
+      "ratchet": "bench/budget-ratchet.json",
+      "requiredGate": "make bench-regression-check",
+      "currentPolicy": "rpcPolicy.status remains report-only until RPC hot-path allocation and latency rows meet promotion criteria"
+    },
+    "remainingBlockers": [
+      {
+        "id": "rpc-release-train-missing",
+        "kind": "release-train",
+        "requiredAction": "attach at least one stable release train with complete rpc-boundary and bench-evidence artifacts before Tier 1 promotion"
+      },
+      {
+        "id": "rpc-budget-report-only",
+        "kind": "benchmark-budget",
+        "requiredAction": "promote selected RPC unary or stream rows from rpcPolicy.candidates into blocking budget coverage only after trend confidence passes"
+      }
+    ]
+  },
   "evidence": [
     {
       "id": "unary-contract",

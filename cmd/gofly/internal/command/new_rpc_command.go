@@ -10,12 +10,12 @@ import (
 func rpcNewCommand(args []string) error {
 	leadingName, args := splitLeadingName(args)
 	fs := flag.NewFlagSet("new rpc", flag.ContinueOnError)
-	name := fs.String("name", "", "rpc service name")
-	module := fs.String("module", "", "go module path")
-	dir := fs.String("dir", "", "output directory")
-	style := fs.String("style", "", "rpc scaffold style: minimal, basic, or production")
+	baseFlags := registerNewScaffoldBaseFlags(fs, newScaffoldBaseFlagOptions{
+		NameUsage:   "rpc service name",
+		StyleUsage:  "rpc scaffold style: minimal, basic, or production",
+		ConfigUsage: "gofly config file path",
+	})
 	profileFlags := registerNewScaffoldProfileFlags(fs)
-	configPath := fs.String("config", "", "gofly config file path")
 	templateFlags := registerNewScaffoldTemplateSourceFlags(fs)
 	discoveryFlags := registerDiscoveryCLIFlags(fs)
 	compatFlags := registerNewRPCCompatFlags(fs)
@@ -28,8 +28,8 @@ func rpcNewCommand(args []string) error {
 		return err
 	}
 	normalizeNewScaffoldFlags(newScaffoldFlagNormalization{
-		Name:          name,
-		Dir:           dir,
+		Name:          baseFlags.Name,
+		Dir:           baseFlags.Dir,
 		TemplateDir:   templateFlags.TemplateDir,
 		TemplateHome:  templateFlags.Home,
 		Profile:       profileFlags.Profile,
@@ -43,13 +43,13 @@ func rpcNewCommand(args []string) error {
 		LeadingName:   leadingName,
 		RemainingArgs: remaining,
 	})
-	verboseOutputf("new rpc: configuring service %q in %s\n", *name, *dir)
+	verboseOutputf("new rpc: configuring service %q in %s\n", *baseFlags.Name, *baseFlags.Dir)
 	loadCtx, err := loadNewScaffoldContext(newScaffoldLoadOptions{
-		ConfigPath:     *configPath,
-		Dir:            *dir,
-		Name:           *name,
-		Module:         *module,
-		Style:          *style,
+		ConfigPath:     *baseFlags.ConfigPath,
+		Dir:            *baseFlags.Dir,
+		Name:           *baseFlags.Name,
+		Module:         *baseFlags.Module,
+		Style:          *baseFlags.Style,
 		TemplateDir:    *templateFlags.TemplateDir,
 		TemplateRemote: *templateFlags.Remote,
 		TemplateBranch: *templateFlags.Branch,
@@ -63,16 +63,16 @@ func rpcNewCommand(args []string) error {
 	}
 	cfg := loadCtx.Config
 	resolved := loadCtx.ConfigPath
-	applyNewScaffoldStyleDefault(cfg, *style, generator.ServiceStyleProduction, true)
-	applyNewScaffoldDirFallback(dir, cfg)
+	applyNewScaffoldStyleDefault(cfg, *baseFlags.Style, generator.ServiceStyleProduction, true)
+	applyNewScaffoldDirFallback(baseFlags.Dir, cfg)
 	plugins := loadCtx.PluginNames
 	resolvedProfile := resolveNewRPCProfile(cfg, *profileFlags.Profile)
-	output := newScaffoldPlanOutputFor("new.rpc", "new rpc", *dir, resolved, cfg, plugins, newServiceContractInputs{}, *executionFlags.SaveConfig)
+	output := newScaffoldPlanOutputFor("new.rpc", "new rpc", *baseFlags.Dir, resolved, cfg, plugins, newServiceContractInputs{}, *executionFlags.SaveConfig)
 	if *executionFlags.DryRun || *executionFlags.Plan {
 		return output.printDryRunPlan(*executionFlags.JSON, false)
 	}
 	if err := generateNewRPCScaffold(cfg, newRPCScaffoldOptions{
-		Dir:             *dir,
+		Dir:             *baseFlags.Dir,
 		ResolvedProfile: resolvedProfile,
 		Plugins:         plugins,
 	}); err != nil {

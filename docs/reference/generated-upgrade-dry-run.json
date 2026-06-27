@@ -42,6 +42,27 @@
     ]
   },
   "migrationFidelityMatrix": "docs/reference/migration-fidelity-matrix.json",
+  "goctlGeneratorCompatibility": {
+    "source": "docs/reference/goctl-generator-compatibility.json",
+    "acceptanceGate": "make goctl-generator-compat-check",
+    "integrationPolicy": "Generated upgrade dry-runs must fail when goctl-compatible profiles, flags, API tooling, route layout, or generated dependency boundaries drift.",
+    "requiredCapabilities": [
+      "gozero-compatible-profile",
+      "goctl-compatible-flags",
+      "api-tooling-compatibility",
+      "generated-version-fixtures",
+      "upgrade-diff-contract",
+      "route-layout-boundary"
+    ],
+    "requiredBoundaries": [
+      "noNewJSONEnvelopeFlags",
+      "apiRouteAndDiffFormatValidationUnchanged",
+      "positionalPluginAndMiddlewareNamesRemainNames",
+      "generatedProjectDependenciesStayInGeneratedGoMod",
+      "runtimeArtifactsRemainVolatile"
+    ],
+    "rollbackOrEscalation": "Pin the previous generator version or fall back to the default gofly-ai profile when goctl-compatible scaffold evidence, flags, API tooling, or route layout contracts fail."
+  },
   "upgradeRehearsal": {
     "schema": "gofly.upgrade_rehearsal.v1",
     "source": "docs/reference/generated-upgrade-dry-run.json",
@@ -70,6 +91,20 @@
         "expectedOutput": "repeat generation is deterministic and diff categories are recorded for old, current, and future profiles",
         "failureClass": "rollback-required",
         "rollbackOrEscalation": "discard generated output, keep the previous snapshot, and block upgrade until deterministic-repeat-generation passes"
+      },
+      {
+        "id": "goctl-compatibility-review",
+        "phase": "generation",
+        "evidence": [
+          "docs/reference/goctl-generator-compatibility.json",
+          "cmd/gofly/internal/generator/service_scaffold_ir.go",
+          "cmd/gofly/internal/command/new_goctl_compat_flags.go",
+          "cmd/gofly/internal/generator/api_codegen.go"
+        ],
+        "gate": "make goctl-generator-compat-check",
+        "expectedOutput": "gozero-compatible profile, goctl-style flags, API tooling, route layout, and generated dependency boundaries stay compatible with upgrade dry-run fixtures",
+        "failureClass": "rollback-required",
+        "rollbackOrEscalation": "pin the previous generator or fall back to gofly-ai scaffolds until goctl-compatible evidence and generated dry-run reports converge"
       },
       {
         "id": "dependency-boundary-review",

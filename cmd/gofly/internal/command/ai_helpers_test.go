@@ -209,6 +209,28 @@ func TestCLICommandSurfaceManifestMatchesRegistries_BitsUT(t *testing.T) {
 			}
 		}
 	}
+	for alias, canonical := range topLevelHelpAliases {
+		topic := commandHelpFor(alias)
+		if topic.Name == "" || topic.Short == "" || topic.Usage == "" {
+			t.Fatalf("top-level help alias %q returned incomplete help: %#v", alias, topic)
+		}
+		if got := canonicalHelpTopic(alias); got != canonical {
+			t.Fatalf("top-level help alias %q canonical topic = %q, want %q", alias, got, canonical)
+		}
+	}
+	for parent, aliases := range nestedHelpAliases {
+		for alias, canonical := range aliases {
+			aliasTopic := parent + " " + alias
+			topic := commandHelpFor(aliasTopic)
+			if topic.Name == "" || topic.Short == "" || topic.Usage == "" {
+				t.Fatalf("nested help alias %q returned incomplete help: %#v", aliasTopic, topic)
+			}
+			wantTopic := parent + " " + canonical
+			if got := canonicalHelpTopic(aliasTopic); got != wantTopic {
+				t.Fatalf("nested help alias %q canonical topic = %q, want %q", aliasTopic, got, wantTopic)
+			}
+		}
+	}
 	for _, task := range []string{
 		"GOFLY-P9-0-CLI-GOVERNANCE-ROADMAP",
 		"GOFLY-P9-1-CLI-COMMAND-SURFACE-GATE",

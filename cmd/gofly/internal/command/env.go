@@ -15,6 +15,41 @@ type toolCheck struct {
 	Path   string `json:"path,omitempty"`
 }
 
+type envMutationFlags struct {
+	Write        *string
+	WriteAlias   *string
+	Force        *bool
+	ForceAlias   *bool
+	Verbose      *bool
+	VerboseAlias *bool
+}
+
+func registerEnvMutationFlags(fs *flag.FlagSet) envMutationFlags {
+	return envMutationFlags{
+		Write:        fs.String("write", "", "write environment key=value"),
+		WriteAlias:   fs.String("w", "", "write environment key=value"),
+		Force:        fs.Bool("force", false, "overwrite existing environment value"),
+		ForceAlias:   fs.Bool("f", false, "overwrite existing environment value"),
+		Verbose:      fs.Bool("verbose", false, "print verbose output"),
+		VerboseAlias: fs.Bool("v", false, "print verbose output"),
+	}
+}
+
+func (f envMutationFlags) writeValue() string {
+	if valueFromStringFlag(f.Write) != "" {
+		return valueFromStringFlag(f.Write)
+	}
+	return valueFromStringFlag(f.WriteAlias)
+}
+
+func (f envMutationFlags) forceEnabled() bool {
+	return valueFromBoolFlag(f.Force) || valueFromBoolFlag(f.ForceAlias)
+}
+
+func (f envMutationFlags) verboseEnabled() bool {
+	return valueFromBoolFlag(f.Verbose) || valueFromBoolFlag(f.VerboseAlias)
+}
+
 func envCommand(args []string) error {
 	if printCommandHelp("env", args) {
 		return nil
@@ -27,31 +62,23 @@ func envCommand(args []string) error {
 	}
 	fs := flag.NewFlagSet("env", flag.ContinueOnError)
 	jsonOutput := fs.Bool("json", false, "print environment as JSON")
-	write := fs.String("write", "", "write environment key=value")
-	w := fs.String("w", "", "write environment key=value")
-	force := fs.Bool("force", false, "overwrite existing environment value")
-	f := fs.Bool("f", false, "overwrite existing environment value")
-	verbose := fs.Bool("verbose", false, "print verbose output")
-	v := fs.Bool("v", false, "print verbose output")
+	mutationFlags := registerEnvMutationFlags(fs)
 	if _, err := parseInterspersedFlags(fs, args); err != nil {
 		return err
 	}
-	if *write == "" {
-		*write = *w
-	}
-	if *write != "" {
-		key, value, ok := strings.Cut(*write, "=")
+	if writeValue := mutationFlags.writeValue(); writeValue != "" {
+		key, value, ok := strings.Cut(writeValue, "=")
 		key = strings.TrimSpace(key)
 		if !ok || key == "" {
 			return fmt.Errorf("%w: --write expects key=value", errUsage)
 		}
-		if old, exists := os.LookupEnv(key); exists && old != "" && !*force && !*f {
+		if old, exists := os.LookupEnv(key); exists && old != "" && !mutationFlags.forceEnabled() {
 			return fmt.Errorf("%w: environment %s already exists; pass --force to overwrite", errUsage, key)
 		}
 		if err := os.Setenv(key, value); err != nil {
 			return fmt.Errorf("set env %s: %w", key, err)
 		}
-		if *verbose || *v {
+		if mutationFlags.verboseEnabled() {
 			cliOutputf("%s=%s\n", key, value)
 		}
 	}

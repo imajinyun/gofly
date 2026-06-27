@@ -16,8 +16,7 @@ func aiNewCommand(args []string) error {
 	module := fs.String("module", "", "Go module path")
 	dir := fs.String("dir", "", "output directory")
 	outputFlags := registerCLIOutputFlags(fs, cliOutputFlagOptions{JSONUsage: "output JSON envelope"})
-	dryRun := fs.Bool("dry-run", true, "print the scaffold plan without writing files")
-	plan := fs.Bool("plan", false, "alias for --dry-run")
+	preview := registerDryRunPlanFlagsWithDefaults(fs, true, false, "print the scaffold plan without writing files", "alias for --dry-run")
 	apply := fs.Bool("apply", false, "apply the planned scaffold and write files")
 	verify := fs.Bool("verify", false, "run supported post-generation verification commands after --apply")
 	verifyTimeoutText := fs.String("verify-timeout", "2m", "timeout for each verification command")
@@ -37,17 +36,17 @@ func aiNewCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	if *apply && (*dryRun || *plan) && !flagWasProvided(fs, "dry-run") && !flagWasProvided(fs, "plan") {
-		*dryRun = false
+	if *apply && preview.enabled() && !flagWasProvided(fs, "dry-run") && !flagWasProvided(fs, "plan") {
+		setBoolFlag(preview.DryRun, false)
 	}
-	if *apply && (*dryRun || *plan) {
+	if *apply && preview.enabled() {
 		return fmt.Errorf("%w: --apply cannot be combined with --dry-run or --plan", errUsage)
 	}
 	verifyTimeout, err := time.ParseDuration(strings.TrimSpace(*verifyTimeoutText))
 	if err != nil || verifyTimeout <= 0 {
 		return fmt.Errorf("%w: --verify-timeout must be a positive duration", errUsage)
 	}
-	projectPlan, err := buildAIProjectNewPlan(*prompt, *kind, *templateID, *name, *module, *dir, !*apply || *dryRun || *plan)
+	projectPlan, err := buildAIProjectNewPlan(*prompt, *kind, *templateID, *name, *module, *dir, !*apply || preview.enabled())
 	if err != nil {
 		return err
 	}

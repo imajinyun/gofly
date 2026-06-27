@@ -1,6 +1,7 @@
 package command
 
 import (
+	"flag"
 	"path/filepath"
 	"strings"
 
@@ -134,6 +135,22 @@ type newScaffoldFlagNormalization struct {
 	QuietAlias    *bool
 	LeadingName   string
 	RemainingArgs []string
+}
+
+type newScaffoldVerbosityFlags struct {
+	Verbose      *bool
+	VerboseAlias *bool
+	Quiet        *bool
+	QuietAlias   *bool
+}
+
+func registerNewScaffoldVerbosityFlags(fs *flag.FlagSet) newScaffoldVerbosityFlags {
+	return newScaffoldVerbosityFlags{
+		Verbose:      fs.Bool("verbose", false, "print verbose output"),
+		VerboseAlias: fs.Bool("v", false, "print verbose output"),
+		Quiet:        fs.Bool("quiet", false, "suppress normal output"),
+		QuietAlias:   fs.Bool("q", false, "suppress normal output"),
+	}
 }
 
 func normalizeNewScaffoldFlags(flags newScaffoldFlagNormalization) {

@@ -12,13 +12,13 @@ import (
 func apiNewCommand(args []string) error {
 	leadingName, args := splitLeadingName(args)
 	fs := flag.NewFlagSet("new api", flag.ContinueOnError)
-	name := fs.String("name", "", "api service name")
-	module := fs.String("module", "", "go module path")
-	dir := fs.String("dir", "", "output directory")
-	style := fs.String("style", "", "api scaffold style: minimal, basic, or production")
+	baseFlags := registerNewScaffoldBaseFlags(fs, newScaffoldBaseFlagOptions{
+		NameUsage:   "api service name",
+		StyleUsage:  "api scaffold style: minimal, basic, or production",
+		ConfigUsage: "gofly config file path (defaults to <dir>/.gofly/config.json)",
+	})
 	profileFlags := registerNewScaffoldProfileFlags(fs)
 	apiSpec := fs.Bool("api-spec", true, "generate an .api file")
-	configPath := fs.String("config", "", "gofly config file path (defaults to <dir>/.gofly/config.json)")
 	templateFlags := registerNewScaffoldTemplateSourceFlags(fs)
 	discoveryFlags := registerDiscoveryCLIFlags(fs)
 	compatFlags := registerNewAPICompatFlags(fs)
@@ -31,8 +31,8 @@ func apiNewCommand(args []string) error {
 		return err
 	}
 	normalizeNewScaffoldFlags(newScaffoldFlagNormalization{
-		Name:          name,
-		Dir:           dir,
+		Name:          baseFlags.Name,
+		Dir:           baseFlags.Dir,
 		TemplateDir:   templateFlags.TemplateDir,
 		TemplateHome:  templateFlags.Home,
 		Profile:       profileFlags.Profile,
@@ -46,13 +46,13 @@ func apiNewCommand(args []string) error {
 		LeadingName:   leadingName,
 		RemainingArgs: remaining,
 	})
-	verboseOutputf("new api: configuring service %q in %s\n", *name, *dir)
+	verboseOutputf("new api: configuring service %q in %s\n", *baseFlags.Name, *baseFlags.Dir)
 	loadCtx, err := loadNewScaffoldContext(newScaffoldLoadOptions{
-		ConfigPath:     *configPath,
-		Dir:            *dir,
-		Name:           *name,
-		Module:         *module,
-		Style:          *style,
+		ConfigPath:     *baseFlags.ConfigPath,
+		Dir:            *baseFlags.Dir,
+		Name:           *baseFlags.Name,
+		Module:         *baseFlags.Module,
+		Style:          *baseFlags.Style,
 		TemplateDir:    *templateFlags.TemplateDir,
 		TemplateRemote: *templateFlags.Remote,
 		TemplateBranch: *templateFlags.Branch,
@@ -66,19 +66,19 @@ func apiNewCommand(args []string) error {
 	}
 	cfg := loadCtx.Config
 	resolved := loadCtx.ConfigPath
-	applyNewScaffoldStyleDefault(cfg, *style, generator.ServiceStyleBasic, false)
-	applyNewScaffoldDirFallback(dir, cfg)
+	applyNewScaffoldStyleDefault(cfg, *baseFlags.Style, generator.ServiceStyleBasic, false)
+	applyNewScaffoldDirFallback(baseFlags.Dir, cfg)
 	plugins := loadCtx.PluginNames
 	resolvedProfile, err := resolveNewAPIProfile(cfg, *profileFlags.Profile)
 	if err != nil {
 		return err
 	}
-	output := newScaffoldPlanOutputFor("new.api", "new api", *dir, resolved, cfg, plugins, newServiceContractInputs{}, *executionFlags.SaveConfig)
+	output := newScaffoldPlanOutputFor("new.api", "new api", *baseFlags.Dir, resolved, cfg, plugins, newServiceContractInputs{}, *executionFlags.SaveConfig)
 	if *executionFlags.DryRun || *executionFlags.Plan {
 		return output.printDryRunPlan(*executionFlags.JSON, false)
 	}
 	if err := generateNewAPIScaffold(cfg, newAPIScaffoldOptions{
-		Dir:             *dir,
+		Dir:             *baseFlags.Dir,
 		ResolvedProfile: resolvedProfile,
 		Plugins:         plugins,
 		SkipAPISpec:     !*apiSpec,

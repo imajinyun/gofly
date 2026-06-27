@@ -5268,7 +5268,8 @@ func TestExecutePluginSearchRegistry(t *testing.T) {
         "version": "v0.2.0",
         "compatibleVersions": ["1"],
         "capabilities": ["generate:file"],
-        "permissions": ["filesystem:write-relative"]
+        "permissions": ["filesystem:write-relative"],
+        "requiresDryRun": true
       }
     },
     {
@@ -5285,7 +5286,8 @@ func TestExecutePluginSearchRegistry(t *testing.T) {
         "version": "v0.1.0",
         "compatibleVersions": ["1"],
         "capabilities": ["generate:file"],
-        "permissions": ["filesystem:write-relative"]
+        "permissions": ["filesystem:write-relative"],
+        "requiresDryRun": true
       }
     }
   ]

@@ -1356,7 +1356,8 @@ func TestLoadPluginRegistryIndexFromFile(t *testing.T) {
         "version": "v0.1.0",
         "compatibleVersions": ["1"],
         "capabilities": ["generate:file"],
-        "permissions": ["filesystem:write-relative"]
+        "permissions": ["filesystem:write-relative"],
+        "requiresDryRun": true
       }
     }
   ]
@@ -1398,7 +1399,7 @@ func TestLoadPluginRegistryIndexFromLocalURL_BitsUT(t *testing.T) {
     "protocol":"1",
     "checksum":"sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
     "source":"https://github.com/example/gofly-auth-jwt",
-    "manifest":{"name":"auth-jwt","version":"v0.1.0","compatibleVersions":["1"],"capabilities":["generate:file"],"permissions":["filesystem:write-relative"]}
+    "manifest":{"name":"auth-jwt","version":"v0.1.0","compatibleVersions":["1"],"capabilities":["generate:file"],"permissions":["filesystem:write-relative"],"requiresDryRun":true}
   }]
 }`
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

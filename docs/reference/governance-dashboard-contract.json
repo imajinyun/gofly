@@ -12,6 +12,8 @@
     "coverageTrend.policy.blockingGate",
     "security.gosec.blockingGate",
     "security.govulncheck.blockingGate",
+    "productionDefaults.capabilityCount",
+    "productionDefaults.missingAssets",
     "aiflow.status",
     "aiflow.summary",
     "dashboard.productionReadinessScorecard.surfaceCount",
@@ -49,6 +51,22 @@
     "gosecGate": "make gosec",
     "govulncheckGate": "make govulncheck",
     "baseline": "bin/scripts/gosec-exception-baseline.json"
+  },
+  "productionDefaults": {
+    "schema": "gofly.production_defaults.v1",
+    "source": "docs/reference/runtime-slo.json",
+    "gate": "make runtime-slo-check",
+    "reportGate": "make governance-report-check",
+    "requiredAssetMinimum": 9,
+    "requiredCapabilities": [
+      "health-probes",
+      "metrics",
+      "traces",
+      "structured-logs",
+      "admin-diagnostics",
+      "profiles",
+      "rollback-drills"
+    ]
   },
   "aiflow": {
     "source": ".harness/store.json",

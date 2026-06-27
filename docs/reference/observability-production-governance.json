@@ -1,0 +1,185 @@
+{
+  "schema": "gofly.observability_production_governance.v1",
+  "aiflowTask": "GOFLY-GOV-10R3-09",
+  "purpose": "Keep runtime golden signals, production defaults, control-plane snapshots, observability examples, and governance dashboard report fields synchronized.",
+  "acceptanceGate": "make governance-report-check",
+  "aggregateGates": [
+    "make governance-report-check",
+    "make runtime-slo-check",
+    "go test -C examples/observability ./...",
+    "make p1-growth-check"
+  ],
+  "sourceCode": [
+    "bin/scripts/governance-report.sh",
+    "bin/scripts/check-runtime-slo.sh",
+    "docs/reference/runtime-slo.json",
+    "docs/reference/operator-runbook-drills.json",
+    "docs/reference/governance-dashboard-contract.json",
+    "docs/operations/observability.md",
+    "docs/operations/production-checklist.md",
+    "examples/observability/main.go",
+    "examples/observability/README.md",
+    "core/observability",
+    "rest/server_test.go",
+    "rpc/server_test.go",
+    "gateway/gateway_test.go"
+  ],
+  "policy": {
+    "runtimeSLOMustExposeSevenGoldenSignals": true,
+    "operatorDrillsMustStayLinkedToRuntimeSLO": true,
+    "productionDefaultsMustHaveRequiredAssets": true,
+    "governanceReportMustEmitRuntimeSLOAndProductionDefaults": true,
+    "controlPlaneSnapshotsMustStayDocumented": true,
+    "observabilityExamplesMustRemainRunnable": true
+  },
+  "surfaces": [
+    {
+      "id": "runtime-slo-golden-signals",
+      "risk": "latency, errors, traffic, saturation, cache, governance decisions, and trace correlation can drift from operator docs",
+      "gate": "make runtime-slo-check",
+      "evidenceRefs": [
+        {
+          "path": "docs/reference/runtime-slo.json",
+          "contains": [
+            "gofly.runtime_slo.v1",
+            "latency",
+            "errors",
+            "traffic",
+            "saturation",
+            "trace-log-correlation"
+          ]
+        },
+        {
+          "path": "bin/scripts/check-runtime-slo.sh",
+          "contains": [
+            "required_signals",
+            "required_drills",
+            "operator-runbook-drills.json",
+            "go test -C examples/observability ./..."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "production-defaults",
+      "risk": "production rollout evidence can miss health probes, metrics, traces, logs, admin diagnostics, profiles, or rollback drills",
+      "gate": "make governance-report-check",
+      "evidenceRefs": [
+        {
+          "path": "bin/scripts/governance-report.sh",
+          "contains": [
+            "production_defaults_evidence",
+            "health-probes",
+            "metrics",
+            "traces",
+            "structured-logs",
+            "admin-diagnostics",
+            "rollback-drills"
+          ]
+        },
+        {
+          "path": "docs/reference/governance-dashboard-contract.json",
+          "contains": [
+            "productionDefaults.capabilityCount",
+            "requiredAssetMinimum",
+            "requiredCapabilities"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "control-plane-and-runtime-snapshots",
+      "risk": "control-plane and runtime snapshot contracts can become invisible to production operators",
+      "gate": "go test -shuffle=on ./rest ./rpc -run Test.*(ControlPlane|Runtime)",
+      "evidenceRefs": [
+        {
+          "path": "rest/server_test.go",
+          "contains": [
+            "/admin/control-plane",
+            "runtimeSnapshot",
+            "control-plane snapshot"
+          ]
+        },
+        {
+          "path": "rpc/server_test.go",
+          "contains": [
+            "descriptorsReq",
+            "runtimeReq",
+            "governanceReq"
+          ]
+        },
+        {
+          "path": "docs/reference/control-plane-contracts.md",
+          "contains": [
+            "control-plane",
+            "runtime",
+            "snapshot"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "observability-example-assets",
+      "risk": "examples can stop proving Prometheus, Grafana, OpenTelemetry, trace_id, and request_id integration",
+      "gate": "go test -C examples/observability ./...",
+      "evidenceRefs": [
+        {
+          "path": "examples/observability/README.md",
+          "contains": [
+            "Prometheus",
+            "Grafana",
+            "OpenTelemetry Collector",
+            "trace_id",
+            "request_id"
+          ]
+        },
+        {
+          "path": "examples/observability/main.go",
+          "contains": [
+            "observability.StartTrace",
+            "metrics",
+            "slog.InfoContext"
+          ]
+        },
+        {
+          "path": "examples/observability/grafana-dashboard.json",
+          "contains": [
+            "Request Rate",
+            "Error Ratio",
+            "Route Latency P95"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "governance-dashboard-report",
+      "risk": "machine-readable governance report can omit runtime SLO, production defaults, readiness, or traceability fields",
+      "gate": "make governance-report-check",
+      "evidenceRefs": [
+        {
+          "path": "docs/reference/governance-dashboard-contract.json",
+          "contains": [
+            "gofly.governance_dashboard_contract.v1",
+            "runtimeSLO.operatorDrillCount",
+            "productionDefaults.missingAssets",
+            "dashboard.evidenceTraceability.claimCount"
+          ]
+        },
+        {
+          "path": "bin/scripts/governance-report.sh",
+          "contains": [
+            "gofly.governance_report.v1",
+            "runtimeSLO",
+            "productionDefaults",
+            "evidenceTraceability"
+          ]
+        }
+      ]
+    }
+  ],
+  "aiflowExecution": {
+    "status": "local-fallback",
+    "blocker": "aiflow CLI currently fails to compile in the adjacent aiflow checkout because harness/policy.go imports fmt without use",
+    "goflyImpact": "none; the local observability and production-default governance gate is self-contained"
+  }
+}

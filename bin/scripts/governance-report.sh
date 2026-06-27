@@ -22,6 +22,7 @@ root = pathlib.Path(sys.argv[1])
 json_out = pathlib.Path(sys.argv[2])
 md_out = pathlib.Path(sys.argv[3])
 check_mode = sys.argv[4].lower() == "true"
+observability_manifest_path = root / "docs" / "reference" / "observability-production-governance.json"
 
 
 def read_text(path):
@@ -555,6 +556,28 @@ def evidence_traceability(contract):
     }
 
 
+def observability_production_governance_contract():
+    manifest = read_json(observability_manifest_path) or {}
+    surfaces = [
+        item
+        for item in manifest.get("surfaces") or []
+        if isinstance(item, dict)
+    ]
+    return {
+        "schema": manifest.get("schema", ""),
+        "manifest": "docs/reference/observability-production-governance.json",
+        "aiflowTask": manifest.get("aiflowTask", ""),
+        "acceptanceGate": manifest.get("acceptanceGate", ""),
+        "aggregateGates": manifest.get("aggregateGates", []),
+        "surfaceCount": len(surfaces),
+        "surfaces": [
+            item.get("id", "")
+            for item in surfaces
+            if item.get("id")
+        ],
+    }
+
+
 def production_readiness_scorecard(contract):
     surfaces = [
         item
@@ -619,6 +642,7 @@ report = {
     "ciRequiredChecks": ci_required_check_evidence(),
     "runtimeSLO": runtime_slo_evidence(),
     "productionDefaults": production_defaults_evidence(),
+    "observabilityProductionGovernance": observability_production_governance_contract(),
     "governanceConvergence": governance_convergence_evidence(),
     "generatedUpgradeDryRun": generated_upgrade_dry_run_evidence(),
     "benchmark": {
@@ -832,6 +856,71 @@ for item in capabilities:
             missing.append(f"production defaults {item_id}: evidence path is missing: {evidence}")
     if len(str(item.get("operatorAction") or "").split()) < 8:
         missing.append(f"production defaults {item_id}: operatorAction must be actionable")
+observability_governance = report["observabilityProductionGovernance"]
+if observability_governance["schema"] != "gofly.observability_production_governance.v1":
+    missing.append("observability production governance schema mismatch")
+if observability_governance["aiflowTask"] != "GOFLY-GOV-10R3-09":
+    missing.append("observability production governance aiflowTask mismatch")
+if observability_governance["acceptanceGate"] != "make governance-report-check":
+    missing.append("observability production governance acceptanceGate mismatch")
+required_observability_gates = {
+    "make governance-report-check",
+    "make runtime-slo-check",
+    "go test -C examples/observability ./...",
+    "make p1-growth-check",
+}
+if set(observability_governance.get("aggregateGates") or []) != required_observability_gates:
+    missing.append("observability production governance aggregateGates mismatch")
+required_observability_surfaces = {
+    "runtime-slo-golden-signals",
+    "production-defaults",
+    "control-plane-and-runtime-snapshots",
+    "observability-example-assets",
+    "governance-dashboard-report",
+}
+if set(observability_governance.get("surfaces") or []) != required_observability_surfaces:
+    missing.append("observability production governance surfaces mismatch")
+if observability_governance.get("surfaceCount") != len(required_observability_surfaces):
+    missing.append("observability production governance surfaceCount mismatch")
+observability_manifest = read_json(observability_manifest_path) or {}
+observability_policy = observability_manifest.get("policy") or {}
+for key in (
+    "runtimeSLOMustExposeSevenGoldenSignals",
+    "operatorDrillsMustStayLinkedToRuntimeSLO",
+    "productionDefaultsMustHaveRequiredAssets",
+    "governanceReportMustEmitRuntimeSLOAndProductionDefaults",
+    "controlPlaneSnapshotsMustStayDocumented",
+    "observabilityExamplesMustRemainRunnable",
+):
+    if observability_policy.get(key) is not True:
+        missing.append(f"observability production governance policy.{key} must be true")
+for item in observability_manifest.get("surfaces") or []:
+    if not isinstance(item, dict):
+        missing.append(f"observability production governance surface must be an object: {item!r}")
+        continue
+    surface = item.get("id", "")
+    for field in ("id", "risk", "gate", "evidenceRefs"):
+        if not item.get(field):
+            missing.append(f"observability production governance {surface or '<missing>'}: {field} is required")
+    gate = str(item.get("gate") or "")
+    if not (gate.startswith("make ") or gate.startswith("go test ")):
+        missing.append(f"observability production governance {surface}: gate must be runnable")
+    for ref in item.get("evidenceRefs") or []:
+        ref_path = ref.get("path", "")
+        needles = ref.get("contains") or []
+        if not ref_path:
+            missing.append(f"observability production governance {surface}: ref path is required")
+            continue
+        if not needles:
+            missing.append(f"observability production governance {surface}: ref contains list is required for {ref_path}")
+        path = root / ref_path
+        if not path.is_file():
+            missing.append(f"observability production governance {surface}: evidence path is missing: {ref_path}")
+            continue
+        text = read_text(path)
+        for needle in needles:
+            if needle not in text:
+                missing.append(f"observability production governance {surface}: {ref_path} missing {needle!r}")
 if report["generatedUpgradeDryRun"]["schema"] != "gofly.generated_upgrade_dry_run.v1":
     missing.append("generated upgrade dry-run schema mismatch")
 if report["generatedUpgradeDryRun"]["profileCount"] != 3:

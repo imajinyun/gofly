@@ -110,16 +110,7 @@ func rpcNewCommand(args []string) error {
 	applyNewScaffoldDirFallback(dir, cfg)
 	plugins := loadCtx.PluginNames
 	resolvedProfile := resolveNewRPCProfile(cfg, *profile)
-	output := newScaffoldPlanOutput{
-		Command:     "new.rpc",
-		DisplayName: "new rpc",
-		Dir:         *dir,
-		ConfigPath:  resolved,
-		Config:      cfg,
-		Plugins:     plugins,
-		Contracts:   newServiceContractInputs{},
-		SaveConfig:  *saveConfig,
-	}
+	output := newScaffoldPlanOutputFor("new.rpc", "new rpc", *dir, resolved, cfg, plugins, newServiceContractInputs{}, *saveConfig)
 	if *dryRun || *plan {
 		if err := validateNewServicePlanInputs(cfg); err != nil {
 			return err

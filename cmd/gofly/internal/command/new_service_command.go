@@ -44,22 +44,20 @@ func serviceNewCommand(args []string) error {
 		return err
 	}
 	cfg := loadCtx.Config
-	resolved := loadCtx.ConfigPath
 	applyNewScaffoldDefaults(cfg, baseFlags, generator.ServiceStyleProduction, true)
-	plugins := loadCtx.PluginNames
 	contractInputs := newServiceContractInputs{
 		APIFile:     *apiFile,
 		OpenAPIFile: *openAPIFile,
 		ProtoFile:   *protoFile,
 		ThriftFile:  *thriftFile,
 	}
-	output := newScaffoldPlanOutputFor("new.service", "new service", *baseFlags.Dir, resolved, cfg, plugins, contractInputs, *executionFlags.SaveConfig)
+	output := newScaffoldPlanOutputFromContext("new.service", "new service", baseFlags, loadCtx, contractInputs, executionFlags)
 	if *executionFlags.DryRun || *executionFlags.Plan {
 		return output.printDryRunPlan(*executionFlags.JSON, true)
 	}
 	if err := generateNewServiceScaffold(cfg, newServiceScaffoldOptions{
 		Dir:     *baseFlags.Dir,
-		Plugins: plugins,
+		Plugins: loadCtx.PluginNames,
 	}); err != nil {
 		return err
 	}

@@ -131,6 +131,19 @@ type newScaffoldPlanOutput struct {
 	SaveConfig  bool
 }
 
+func newScaffoldPlanOutputFor(command, displayName, dir, configPath string, cfg *generator.Config, plugins []string, contracts newServiceContractInputs, saveConfig bool) newScaffoldPlanOutput {
+	return newScaffoldPlanOutput{
+		Command:     command,
+		DisplayName: displayName,
+		Dir:         dir,
+		ConfigPath:  configPath,
+		Config:      cfg,
+		Plugins:     plugins,
+		Contracts:   contracts,
+		SaveConfig:  saveConfig,
+	}
+}
+
 func (o newScaffoldPlanOutput) printPlan(forceJSON bool) error {
 	plan := buildNewServicePlan(o.DisplayName, o.Dir, o.ConfigPath, o.Config, o.Plugins, o.Contracts, o.SaveConfig, true)
 	return printCLIPlan(o.Command, plan, forceJSON)

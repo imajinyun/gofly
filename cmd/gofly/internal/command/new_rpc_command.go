@@ -14,8 +14,7 @@ func rpcNewCommand(args []string) error {
 	module := fs.String("module", "", "go module path")
 	dir := fs.String("dir", "", "output directory")
 	style := fs.String("style", "", "rpc scaffold style: minimal, basic, or production")
-	profile := fs.String("profile", "", "generation profile: gofly-ai, gozero-compatible, or kitex-compatible")
-	profileAlias := fs.String("generation-profile", "", "alias for --profile")
+	profileFlags := registerNewScaffoldProfileFlags(fs)
 	configPath := fs.String("config", "", "gofly config file path")
 	templateFlags := registerNewScaffoldTemplateSourceFlags(fs)
 	discoveryFlags := registerDiscoveryCLIFlags(fs)
@@ -33,8 +32,8 @@ func rpcNewCommand(args []string) error {
 		Dir:           dir,
 		TemplateDir:   templateFlags.TemplateDir,
 		TemplateHome:  templateFlags.Home,
-		Profile:       profile,
-		ProfileAlias:  profileAlias,
+		Profile:       profileFlags.Profile,
+		ProfileAlias:  profileFlags.ProfileAlias,
 		Plugin:        extensionFlags.Plugin,
 		PluginAlias:   extensionFlags.PluginAlias,
 		Verbose:       verbosityFlags.Verbose,
@@ -67,7 +66,7 @@ func rpcNewCommand(args []string) error {
 	applyNewScaffoldStyleDefault(cfg, *style, generator.ServiceStyleProduction, true)
 	applyNewScaffoldDirFallback(dir, cfg)
 	plugins := loadCtx.PluginNames
-	resolvedProfile := resolveNewRPCProfile(cfg, *profile)
+	resolvedProfile := resolveNewRPCProfile(cfg, *profileFlags.Profile)
 	output := newScaffoldPlanOutputFor("new.rpc", "new rpc", *dir, resolved, cfg, plugins, newServiceContractInputs{}, *executionFlags.SaveConfig)
 	if *executionFlags.DryRun || *executionFlags.Plan {
 		return output.printDryRunPlan(*executionFlags.JSON, false)

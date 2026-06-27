@@ -3205,6 +3205,8 @@ func TestAIDoctorCommandAndChecks(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("GOFLY_LLM_OPENAI_API_KEY", "super-secret-provider-token")
+	t.Setenv("GOFLY_LLM_OPENAI_BASE_URL", "https://internal.example.test/v1?token=endpoint-token")
+	t.Setenv("GOFLY_LLM_OPENAI_ALLOWED_HOSTS", "internal.example.test")
 	t.Setenv("GOFLY_LLM_FAILOVER_PROVIDERS", "noop,missing")
 	t.Chdir(dir)
 
@@ -3259,6 +3261,11 @@ func TestAIDoctorCommandAndChecks(t *testing.T) {
 	}
 	if strings.Contains(stdout.String(), "super-secret-provider-token") {
 		t.Fatalf("ai doctor leaked secret value: %s", stdout.String())
+	}
+	for _, leaked := range []string{"internal.example.test", "endpoint-token"} {
+		if strings.Contains(stdout.String(), leaked) {
+			t.Fatalf("ai doctor leaked endpoint config %q: %s", leaked, stdout.String())
+		}
 	}
 
 	stdout.Reset()

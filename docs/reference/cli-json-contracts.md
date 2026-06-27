@@ -154,7 +154,13 @@ before sharing.
 Generated project verification failures use the
 `gofly.generated_project_failure_report.v1` shape: command, status, bounded
 output, error, and next actions. This lets CI and agents tell users which
-verification command failed and which rerun command is safe.
+verification command failed and which rerun command is safe. Verification
+output is bounded to 4096 bytes, status values are `passed`, `failed`, or
+`skipped`, and rerun guidance is carried by the `nextActions` field so support
+automation can attach the failure report without scraping terminal text.
+The product surface records these as `outputLimitBytes: 4096` and
+`rerunGuidanceField: "nextActions"` in
+[`dx-support-bundle.json`](dx-support-bundle.json).
 
 The DX troubleshooting gate verifies this contract with real CLI output:
 

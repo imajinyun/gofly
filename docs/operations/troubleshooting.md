@@ -44,7 +44,9 @@ make runtime-slo-check
 When a generated project verification command fails, preserve the bounded
 failure report rather than pasting an unstructured terminal log. The
 `gofly.generated_project_failure_report.v1` contract includes command, status,
-output, error, and next actions so the next rerun path is explicit.
+output, error, and next actions so the next rerun path is explicit. The output
+field is capped at 4096 bytes and the rerun command belongs in `nextActions`,
+which lets CI attach the report as an artifact without leaking unbounded logs.
 
 ## Service does not start
 

@@ -1,0 +1,154 @@
+{
+  "schema": "gofly.governance_boundary_inventory.v1",
+  "purpose": "Lightweight baseline inventory for the 10-round governance workflow before expensive full-repository gates run.",
+  "aiflowTasks": [
+    {
+      "id": "GOFLY-GOV-10R-01",
+      "round": 1,
+      "title": "Baseline and boundary inventory",
+      "gate": "make governance-boundary-inventory-check"
+    },
+    {
+      "id": "GOFLY-GOV-10R-02",
+      "round": 2,
+      "title": "Context and lifecycle governance",
+      "gate": "targeted go test and go vet for touched packages"
+    },
+    {
+      "id": "GOFLY-GOV-10R-03",
+      "round": 3,
+      "title": "CLI and configuration governance",
+      "gate": "make cli-command-surface-check"
+    },
+    {
+      "id": "GOFLY-GOV-10R-04",
+      "round": 4,
+      "title": "Code-generation governance",
+      "gate": "make generated-upgrade-dry-run-check"
+    },
+    {
+      "id": "GOFLY-GOV-10R-05",
+      "round": 5,
+      "title": "Plugin and external-process governance",
+      "gate": "make plugin-conformance-check"
+    },
+    {
+      "id": "GOFLY-GOV-10R-06",
+      "round": 6,
+      "title": "Cache and remote-dependency governance",
+      "gate": "make tidy"
+    },
+    {
+      "id": "GOFLY-GOV-10R-07",
+      "round": 7,
+      "title": "REST/RPC/API contract governance",
+      "gate": "make openapi-validation-check && make rpc-boundary-check"
+    },
+    {
+      "id": "GOFLY-GOV-10R-08",
+      "round": 8,
+      "title": "Security and defensive-coding governance",
+      "gate": "make security"
+    },
+    {
+      "id": "GOFLY-GOV-10R-09",
+      "round": 9,
+      "title": "Observability and production-default governance",
+      "gate": "make governance-report-check"
+    },
+    {
+      "id": "GOFLY-GOV-10R-10",
+      "round": 10,
+      "title": "Convergence verification and report",
+      "gate": "make governance-10-rounds"
+    }
+  ],
+  "surfaces": [
+    {
+      "id": "cli",
+      "paths": [
+        "cmd/gofly",
+        "docs/reference/cli-command-surface.json",
+        "docs/reference/cli-json-contract-goldens.json"
+      ],
+      "gate": "make cli-command-surface-check"
+    },
+    {
+      "id": "generator",
+      "paths": [
+        "cmd/gofly/internal/generator",
+        "docs/reference/generated-version-compat.md",
+        "docs/reference/generated-upgrade-dry-run.json"
+      ],
+      "gate": "make generated-upgrade-dry-run-check"
+    },
+    {
+      "id": "runtime",
+      "paths": [
+        "core/runtime",
+        "core/governance",
+        "core/controlplane",
+        "docs/reference/control-plane-contracts.md"
+      ],
+      "gate": "make governance-report-check"
+    },
+    {
+      "id": "rest-rpc-contracts",
+      "paths": [
+        "rest",
+        "rpc",
+        "gateway",
+        "docs/reference/openapi-validation-envelope.md",
+        "docs/reference/rpc-boundary.md"
+      ],
+      "gate": "make openapi-validation-check && make rpc-boundary-check"
+    },
+    {
+      "id": "plugin-template-security",
+      "paths": [
+        "spi",
+        "cmd/gofly/internal/generator",
+        "docs/reference/plugin-conformance.md"
+      ],
+      "gate": "make plugin-conformance-check"
+    },
+    {
+      "id": "cloud-native-production",
+      "paths": [
+        "charts/gofly",
+        "k8s",
+        "docs/reference/cloud-native-rendering.md",
+        "docs/reference/runtime-slo.md"
+      ],
+      "gate": "make p1-growth-check"
+    },
+    {
+      "id": "release-governance",
+      "paths": [
+        ".github/workflows",
+        ".goreleaser.yaml",
+        "bin/scripts",
+        "docs/reference/ci-required-check-evidence.json"
+      ],
+      "gate": "make required-checks-drift-check"
+    }
+  ],
+  "ignoredRuntimePaths": [
+    "docs/superpowers/",
+    ".aiflow/",
+    ".harness/",
+    ".tmp-test/",
+    ".trae/",
+    "coverage.out"
+  ],
+  "baselineGates": [
+    "make governance-boundary-inventory-check",
+    "go list ./...",
+    "make framework-gap-check",
+    "make governance-report-check"
+  ],
+  "timeoutPolicy": {
+    "aiflowDefaultCommandTimeout": "2m",
+    "fallback": "Use governance-boundary-inventory-check for Round 01 evidence before running full go test ./..."
+  }
+}

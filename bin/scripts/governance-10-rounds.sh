@@ -118,6 +118,7 @@ round_baseline() {
 	assert_coverage_ratchet_alignment
 	"$go_cmd" version
 	"$go_cmd" list ./... >/dev/null
+	sh "$root/bin/scripts/check-governance-boundary-inventory.sh"
 }
 
 assert_coverage_ratchet_alignment() {

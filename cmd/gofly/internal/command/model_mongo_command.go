@@ -6,40 +6,72 @@ import (
 	"github.com/imajinyun/gofly/cmd/gofly/internal/generator"
 )
 
+type modelMongoFlags struct {
+	Type        *string
+	TypeAlias   *string
+	Dir         *string
+	DirAlias    *string
+	Package     *string
+	Cache       *bool
+	CacheAlias  *bool
+	Prefix      *string
+	PrefixAlias *string
+	Easy        *bool
+	EasyAlias   *bool
+	Style       *string
+}
+
+func registerModelMongoFlags(fs *flag.FlagSet) modelMongoFlags {
+	return modelMongoFlags{
+		Type:        fs.String("type", "", "mongo model type name"),
+		TypeAlias:   fs.String("t", "", "mongo model type name"),
+		Dir:         fs.String("dir", ".", "output directory"),
+		DirAlias:    fs.String("d", "", "output directory"),
+		Package:     fs.String("package", "model", "generated Go package name"),
+		Cache:       fs.Bool("cache", false, "generate cache helpers"),
+		CacheAlias:  fs.Bool("c", false, "generate cache helpers"),
+		Prefix:      fs.String("prefix", "", "model prefix to trim"),
+		PrefixAlias: fs.String("p", "", "model prefix to trim"),
+		Easy:        fs.Bool("easy", false, "use simplified mongo output"),
+		EasyAlias:   fs.Bool("e", false, "use simplified mongo output"),
+		Style:       fs.String("style", "go_zero", "model style"),
+	}
+}
+
+func (flags modelMongoFlags) normalize() {
+	if valueFromStringFlag(flags.Type) == "" {
+		setStringFlag(flags.Type, valueFromStringFlag(flags.TypeAlias))
+	}
+	if valueFromStringFlag(flags.DirAlias) != "" {
+		setStringFlag(flags.Dir, valueFromStringFlag(flags.DirAlias))
+	}
+	if valueFromStringFlag(flags.Prefix) == "" {
+		setStringFlag(flags.Prefix, valueFromStringFlag(flags.PrefixAlias))
+	}
+	if valueFromBoolFlag(flags.CacheAlias) {
+		setBoolFlag(flags.Cache, true)
+	}
+}
+
 func modelMongoCommand(args []string) error {
 	fs := flag.NewFlagSet("model mongo", flag.ContinueOnError)
-	typeName := fs.String("type", "", "mongo model type name")
-	t := fs.String("t", "", "mongo model type name")
-	dir := fs.String("dir", ".", "output directory")
-	d := fs.String("d", "", "output directory")
-	pkg := fs.String("package", "model", "generated Go package name")
-	cache := fs.Bool("cache", false, "generate cache helpers")
-	c := fs.Bool("c", false, "generate cache helpers")
-	prefix := fs.String("prefix", "", "model prefix to trim")
-	p := fs.String("p", "", "model prefix to trim")
-	easy := fs.Bool("easy", false, "use simplified mongo output")
-	e := fs.Bool("e", false, "use simplified mongo output")
-	style := fs.String("style", "go_zero", "model style")
+	flags := registerModelMongoFlags(fs)
 	registerGoctlModelTemplateFlags(fs)
-	_ = easy
-	_ = e
-	_ = style
+	_ = flags.Easy
+	_ = flags.EasyAlias
+	_ = flags.Style
 	remaining, err := parseInterspersedFlags(fs, args)
 	if err != nil {
 		return err
 	}
-	if *typeName == "" {
-		*typeName = *t
-	}
-	if *d != "" {
-		*dir = *d
-	}
-	if *prefix == "" {
-		*prefix = *p
-	}
-	if *c {
-		*cache = true
-	}
-	fillNameFromArgs(typeName, remaining)
-	return generator.GenerateMongoModel(generator.MongoModelOptions{Type: *typeName, Dir: *dir, Package: *pkg, Prefix: *prefix, Cache: *cache, Style: *style})
+	flags.normalize()
+	fillNameFromArgs(flags.Type, remaining)
+	return generator.GenerateMongoModel(generator.MongoModelOptions{
+		Type:    *flags.Type,
+		Dir:     *flags.Dir,
+		Package: *flags.Package,
+		Prefix:  *flags.Prefix,
+		Cache:   *flags.Cache,
+		Style:   *flags.Style,
+	})
 }

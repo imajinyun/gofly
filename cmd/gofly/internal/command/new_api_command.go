@@ -46,21 +46,19 @@ func apiNewCommand(args []string) error {
 		return err
 	}
 	cfg := loadCtx.Config
-	resolved := loadCtx.ConfigPath
 	applyNewScaffoldDefaults(cfg, baseFlags, generator.ServiceStyleBasic, false)
-	plugins := loadCtx.PluginNames
 	resolvedProfile, err := resolveNewAPIProfile(cfg, *profileFlags.Profile)
 	if err != nil {
 		return err
 	}
-	output := newScaffoldPlanOutputFor("new.api", "new api", *baseFlags.Dir, resolved, cfg, plugins, newServiceContractInputs{}, *executionFlags.SaveConfig)
+	output := newScaffoldPlanOutputFromContext("new.api", "new api", baseFlags, loadCtx, newServiceContractInputs{}, executionFlags)
 	if *executionFlags.DryRun || *executionFlags.Plan {
 		return output.printDryRunPlan(*executionFlags.JSON, false)
 	}
 	if err := generateNewAPIScaffold(cfg, newAPIScaffoldOptions{
 		Dir:             *baseFlags.Dir,
 		ResolvedProfile: resolvedProfile,
-		Plugins:         plugins,
+		Plugins:         loadCtx.PluginNames,
 		SkipAPISpec:     !*apiSpec,
 	}); err != nil {
 		return err

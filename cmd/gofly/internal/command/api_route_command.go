@@ -14,7 +14,7 @@ func apiRouteCommand(args []string) error {
 	dir := fs.String("dir", ".", "output directory")
 	output := fs.String("output", "", "output routes file")
 	o := fs.String("o", "", "output routes file")
-	format := fs.String("format", "text", "route format: text, markdown, or json")
+	format := registerCLIFormatFlag(fs, outputText, "route format: text, markdown, or json")
 	remaining, err := parseInterspersedFlags(fs, args)
 	if err != nil {
 		return err

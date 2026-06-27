@@ -44,6 +44,55 @@
       "BenchmarkHTTPMiddlewareChain/gofly"
     ]
   },
+  "surfacePolicy": [
+    {
+      "id": "rest-route-hot-path",
+      "surface": "REST route dispatch",
+      "benchmark": "BenchmarkHTTPHello/gofly",
+      "status": "allocation-blocking",
+      "latencyMode": "report-only",
+      "evidence": "five-sample baseline is present and allocs/op median is blocking; latency stays report-only until current trend samples are promoted",
+      "promotionGate": "make bench-regression-check"
+    },
+    {
+      "id": "governance-rule-match",
+      "surface": "governance rule match",
+      "benchmark": "BenchmarkHTTPGovernance/enabled",
+      "status": "latency-and-allocation-blocking",
+      "latencyMode": "blocking",
+      "evidence": "five-sample baseline and current smoke are available for the enabled governance policy path",
+      "promotionGate": "make bench-regression-check"
+    },
+    {
+      "id": "rpc-unary",
+      "surface": "RPC unary",
+      "benchmark": "BenchmarkRPCUnary/gofly_rpc",
+      "status": "candidate",
+      "latencyMode": "report-only",
+      "currentBlocker": "RPC unary remains outside trackedBenchmarks until allocation and latency evidence satisfy the RPC promotion criteria",
+      "promotionGate": "make bench-regression-check"
+    },
+    {
+      "id": "gateway-proxy",
+      "surface": "gateway proxy",
+      "benchmark": "",
+      "status": "unsupported-report-only",
+      "latencyMode": "report-only",
+      "currentBlocker": "bench/ does not yet publish a dedicated gateway proxy baseline/current row",
+      "requiredEvidence": "add a gateway proxy benchmark with at least five baseline samples, current trend samples, allocation budget, and rollback guidance before promotion",
+      "promotionGate": "make bench-regression-check"
+    },
+    {
+      "id": "cache-hot-path",
+      "surface": "cache hot path",
+      "benchmark": "",
+      "status": "unsupported-report-only",
+      "latencyMode": "report-only",
+      "currentBlocker": "cache examples and smoke gates exist, but bench/ does not yet publish a dedicated cache hot-path baseline/current row",
+      "requiredEvidence": "add a cache hot-path benchmark with at least five baseline samples, current trend samples, allocation budget, and cache-mode notes before promotion",
+      "promotionGate": "make bench-regression-check"
+    }
+  ],
   "rpcPolicy": {
     "releasePromotion": {
       "status": "blocked",
@@ -95,7 +144,8 @@
       "schema",
       "acceptanceGate",
       "allocationPolicy",
-      "latencyPolicy"
+      "latencyPolicy",
+      "surfacePolicy"
     ],
     "version": "1"
   },

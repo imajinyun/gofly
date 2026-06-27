@@ -246,6 +246,7 @@ def validate_ratchet_policy() -> None:
     rpc_policy = ratchet.get("rpcPolicy") or {}
     release_promotion = rpc_policy.get("releasePromotion") or {}
     rpc_candidates = rpc_policy.get("candidates") or []
+    surface_policy = ratchet.get("surfacePolicy") or []
 
     require_policy(
         ratchet.get("schema") == "gofly.benchmark_budget_ratchet.v1",
@@ -267,6 +268,10 @@ def validate_ratchet_policy() -> None:
     require_policy(
         latency_policy.get("defaultMode") == "report-only",
         "latencyPolicy.defaultMode must remain report-only",
+    )
+    require_policy(
+        isinstance(surface_policy, list) and bool(surface_policy),
+        "surfacePolicy must list performance claim boundaries",
     )
 
     for item in promoted:
@@ -318,6 +323,55 @@ def validate_ratchet_policy() -> None:
             f"{benchmark}: RPC candidate must not enter trackedBenchmarks before promotion",
         )
         require_policy(bool(item.get("currentBlocker")), f"{benchmark}: currentBlocker is required")
+
+    surface_ids = set()
+    for item in surface_policy:
+        if not isinstance(item, dict):
+            require_policy(False, f"surfacePolicy item must be an object: {item!r}")
+            continue
+        surface_id = item.get("id", "")
+        status = item.get("status", "")
+        benchmark = item.get("benchmark", "")
+        surface_ids.add(surface_id)
+        require_policy(bool(surface_id), "surfacePolicy item id is required")
+        require_policy(bool(item.get("surface")), f"{surface_id}: surface is required")
+        require_policy(
+            item.get("promotionGate") == "make bench-regression-check",
+            f"{surface_id}: promotionGate must be make bench-regression-check",
+        )
+        require_policy(
+            item.get("latencyMode") in {"blocking", "report-only"},
+            f"{surface_id}: latencyMode must be blocking or report-only",
+        )
+        if status in {"allocation-blocking", "latency-and-allocation-blocking"}:
+            require_policy(benchmark in tracked, f"{surface_id}: blocking surface benchmark must be tracked")
+            require_policy(bool(item.get("evidence")), f"{surface_id}: blocking surface evidence is required")
+        elif status == "candidate":
+            require_policy(bool(benchmark), f"{surface_id}: candidate surface benchmark is required")
+            require_policy(benchmark not in tracked, f"{surface_id}: candidate benchmark must stay out of trackedBenchmarks")
+            require_policy(bool(item.get("currentBlocker")), f"{surface_id}: candidate currentBlocker is required")
+        elif status == "unsupported-report-only":
+            require_policy(not benchmark, f"{surface_id}: unsupported report-only surface must not name a benchmark")
+            require_policy(
+                item.get("latencyMode") == "report-only",
+                f"{surface_id}: unsupported surface latencyMode must be report-only",
+            )
+            require_policy(bool(item.get("currentBlocker")), f"{surface_id}: unsupported currentBlocker is required")
+            require_policy(bool(item.get("requiredEvidence")), f"{surface_id}: unsupported requiredEvidence is required")
+        else:
+            require_policy(False, f"{surface_id}: unknown surfacePolicy status {status!r}")
+
+    for required_surface in (
+        "rest-route-hot-path",
+        "rpc-unary",
+        "gateway-proxy",
+        "governance-rule-match",
+        "cache-hot-path",
+    ):
+        require_policy(
+            required_surface in surface_ids,
+            f"surfacePolicy missing required surface {required_surface}",
+        )
 
 
 validate_ratchet_policy()

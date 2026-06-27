@@ -65,6 +65,10 @@ func valueFromStringFlag(value *string) string {
 	return *value
 }
 
+func valueFromBoolFlag(value *bool) bool {
+	return value != nil && *value
+}
+
 func applyDiscoveryCLIOverlay(cfg *generator.Config, overlay discoveryCLIOverlay) {
 	if cfg == nil || !overlay.hasValue() {
 		return

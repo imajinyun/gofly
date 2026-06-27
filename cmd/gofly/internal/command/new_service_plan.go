@@ -144,6 +144,10 @@ func newScaffoldPlanOutputFor(command, displayName, dir, configPath string, cfg 
 	}
 }
 
+func newScaffoldPlanOutputFromContext(command, displayName string, base newScaffoldBaseFlags, ctx newScaffoldLoadContext, contracts newServiceContractInputs, execution newScaffoldExecutionFlags) newScaffoldPlanOutput {
+	return newScaffoldPlanOutputFor(command, displayName, valueFromStringFlag(base.Dir), ctx.ConfigPath, ctx.Config, ctx.PluginNames, contracts, valueFromBoolFlag(execution.SaveConfig))
+}
+
 func (o newScaffoldPlanOutput) printPlan(forceJSON bool) error {
 	plan := buildNewServicePlan(o.DisplayName, o.Dir, o.ConfigPath, o.Config, o.Plugins, o.Contracts, o.SaveConfig, true)
 	return printCLIPlan(o.Command, plan, forceJSON)

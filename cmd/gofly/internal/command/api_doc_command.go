@@ -16,14 +16,17 @@ func apiDocCommand(command string, args []string) error {
 	output := fs.String("output", "", "output file")
 	o := fs.String("o", "", "output file")
 	filename := fs.String("filename", "", "swagger filename")
-	yamlOut := fs.Bool("yaml", false, "write swagger as yaml")
-	jsonOut := fs.Bool("json", false, "write swagger as json")
 	oas3 := fs.Bool("oas3", false, "write OpenAPI v3 output")
 	defaultFormat := "markdown"
 	if command == "swagger" {
 		defaultFormat = "openapi"
 	}
-	format := fs.String("format", defaultFormat, "doc format: markdown, openapi/json, or yaml")
+	docOutput := registerDocOutputFlags(fs, docOutputFlagOptions{
+		DefaultFormat: defaultFormat,
+		FormatUsage:   "doc format: markdown, openapi/json, or yaml",
+		YAMLUsage:     "write swagger as yaml",
+		JSONUsage:     "write swagger as json",
+	})
 	remaining, err := parseInterspersedFlags(fs, args)
 	if err != nil {
 		return err
@@ -37,18 +40,13 @@ func apiDocCommand(command string, args []string) error {
 	if *output == "" {
 		*output = *o
 	}
-	if *yamlOut {
-		*format = "yaml"
-	}
-	if *jsonOut {
-		*format = "json"
-	}
-	if *oas3 && *format == "markdown" {
-		*format = "openapi"
+	docOutput.applyFormatAliases("json")
+	if *oas3 && valueFromStringFlag(docOutput.Format) == "markdown" {
+		setStringFlag(docOutput.Format, "openapi")
 	}
 	if *output == "" && *filename != "" {
 		*output = filepath.Join(*dir, *filename)
 	}
 	fillNameFromArgs(file, remaining)
-	return generator.GenerateAPIDoc(generator.APIDocOptions{APIFile: *file, Dir: *dir, Output: *output, Format: *format})
+	return generator.GenerateAPIDoc(generator.APIDocOptions{APIFile: *file, Dir: *dir, Output: *output, Format: valueFromStringFlag(docOutput.Format)})
 }

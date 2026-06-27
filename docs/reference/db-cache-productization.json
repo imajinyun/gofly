@@ -1,0 +1,214 @@
+{
+  "schema": "gofly.db_cache_productization.v1",
+  "sourceOfTruth": [
+    "docs/guides/cache.md",
+    "docs/guides/model.md",
+    "docs/reference/reference-app-topology.json"
+  ],
+  "acceptanceGate": "make db-cache-productization-check",
+  "scope": {
+    "included": [
+      "SQL storage routing and transactions",
+      "SQL dialect and query-builder safety",
+      "transactional outbox",
+      "typed local and tiered cache",
+      "Redis-backed model cache",
+      "model generator dependency boundaries",
+      "reference app topology evidence"
+    ],
+    "excluded": [
+      "ORM runtime ownership in the root module",
+      "cluster provisioning",
+      "database migration runner",
+      "production credential management"
+    ]
+  },
+  "statusPolicy": {
+    "implemented": "Capability has repository code, behavior tests, adopter documentation, and a gate.",
+    "planned": "Capability is an adoption target and must not be advertised as supported until code, tests, examples, and gates land together."
+  },
+  "capabilities": [
+    {
+      "id": "sql-storage-core",
+      "status": "implemented",
+      "implementation": [
+        "core/storage/sql.go",
+        "core/storage/cluster.go"
+      ],
+      "tests": [
+        "core/storage/sql_test.go",
+        "core/storage/cluster_test.go",
+        "core/storage/sql_integration_test.go"
+      ],
+      "evidence": [
+        "SQLStore",
+        "Transact",
+        "NewCluster",
+        "ShardedCluster",
+        "ValidateIdentifier",
+        "LimitOffset"
+      ],
+      "adopterValue": "Use SQLStore for pooled SQL access, read/write split, sharding helpers, transactions, query stats, dialect placeholders, and identifier validation.",
+      "gate": "go test -shuffle=on ./core/storage/...",
+      "rollbackNote": "Keep the previous repository implementation pinned until SQLStore tests, generated model compile smoke, and storage integration evidence pass."
+    },
+    {
+      "id": "transactional-outbox",
+      "status": "implemented",
+      "implementation": [
+        "core/outbox/sql.go",
+        "core/outbox/relay.go"
+      ],
+      "tests": [
+        "core/outbox/sql_test.go",
+        "core/outbox/outbox_test.go"
+      ],
+      "evidence": [
+        "NewSQLStore",
+        "Enqueue",
+        "Fetch",
+        "MarkDelivered",
+        "Retry",
+        "MarkDead"
+      ],
+      "adopterValue": "Use SQL outbox for atomic business writes plus event relay without coupling generated services to a broker-specific transaction model.",
+      "gate": "go test -shuffle=on ./core/outbox/...",
+      "rollbackNote": "Keep the prior broker handoff path active until SQL outbox enqueue, relay, retry, and rollback evidence pass in the reference app."
+    },
+    {
+      "id": "typed-tiered-cache",
+      "status": "implemented",
+      "implementation": [
+        "cache/cache.go",
+        "cache/tiered.go"
+      ],
+      "tests": [
+        "cache/cache_test.go",
+        "cache/tiered_test.go",
+        "cache/protect_test.go"
+      ],
+      "evidence": [
+        "func New[",
+        "func NewModel[",
+        "func NewTiered[",
+        "WithNegativeCache",
+        "WithBloomFilter",
+        "GOFLY_CACHE_DISABLED",
+        "WritePrometheus"
+      ],
+      "adopterValue": "Use typed local cache and optional L1/L2 cache with loader fill, negative-cache protection, bloom filtering, disabled mode, stats, and Prometheus output.",
+      "gate": "go test -shuffle=on ./cache",
+      "rollbackNote": "Disable cache with GOFLY_CACHE_DISABLED or revert to source-of-truth reads when cache metrics, loader behavior, or invalidation evidence diverge."
+    },
+    {
+      "id": "redis-model-cache",
+      "status": "implemented",
+      "implementation": [
+        "cache/redis_model.go",
+        "core/kv/redis/client.go",
+        "core/kv/kv.go"
+      ],
+      "tests": [
+        "cache/redis_model_test.go",
+        "core/kv/kv_test.go",
+        "core/kv/redis/client_test.go"
+      ],
+      "evidence": [
+        "NewRedisModel",
+        "WithRedisModelTTL",
+        "WithRedisModelNotFound",
+        "NewRedisStore",
+        "redis.Client"
+      ],
+      "adopterValue": "Use Redis-backed generated model cache through a narrow cache-aside interface with explicit miss semantics and write-through invalidation hooks.",
+      "gate": "go test -shuffle=on ./cache ./core/kv/...",
+      "rollbackNote": "Pin generated repositories to direct SQL reads until Redis miss handling, TTLs, and invalidation are proven for the service."
+    },
+    {
+      "id": "model-generator-boundary",
+      "status": "implemented",
+      "implementation": [
+        "cmd/gofly/internal/generator/model_codegen.go",
+        "cmd/gofly/internal/generator/idl_model.go"
+      ],
+      "tests": [
+        "cmd/gofly/internal/generator/idl_test.go",
+        "cmd/gofly/internal/generator/model_bench_test.go",
+        "examples/model-gorm/main_test.go"
+      ],
+      "evidence": [
+        "GenerateModelFromDDL",
+        "GenerateModelFromDatasource",
+        "ensureModelGoModDependencies",
+        "RedisCachedOrderRepo",
+        "UpdateWithInvalidate",
+        "optimistic lock",
+        "writeSQLCursorPage"
+      ],
+      "adopterValue": "Generate repository-facing SQL or GORM model code while keeping generated-only dependencies in the generated module instead of root go.mod.",
+      "gate": "go test -shuffle=on ./cmd/gofly/internal/generator -run TestGenerateModelFromDDL",
+      "rollbackNote": "Keep generated model output behind dry-run or temp-module compile checks until dependency placement and regeneration diffs are reviewed."
+    },
+    {
+      "id": "reference-app-db-cache",
+      "status": "implemented",
+      "implementation": [
+        "examples/production-orders/main.go",
+        "examples/production-orders/compose.yaml",
+        "docs/reference/reference-app-topology.json"
+      ],
+      "tests": [
+        "examples/production-orders/main_test.go",
+        "examples/cache-local/main_test.go"
+      ],
+      "evidence": [
+        "SQL outbox",
+        "Redis cache",
+        "REFERENCE_APP_MODE=memory make reference-app-smoke",
+        "REFERENCE_APP_MODE=docker make reference-app-smoke",
+        "gofly.cache_local.v1"
+      ],
+      "adopterValue": "Use production-orders and cache-local as runnable evidence for memory fallback, Docker-backed SQL outbox, Redis cache, topology reporting, and rollback notes.",
+      "gate": "make reference-app-smoke",
+      "rollbackNote": "Run memory mode as the default fallback and require Docker mode before claiming production dependency evidence."
+    },
+    {
+      "id": "migration-runner",
+      "status": "planned",
+      "implementation": [],
+      "tests": [],
+      "promotionCriteria": [
+        "define migration file layout and rollback semantics",
+        "add dry-run diff and checksum evidence",
+        "add database-specific integration smoke",
+        "keep generated project dependencies out of root go.mod"
+      ],
+      "adopterValue": "Future database migration workflow for teams that want generated services and schema evolution evidence in one gate.",
+      "gate": "make db-cache-productization-check",
+      "rollbackNote": "Keep using the team's existing migration runner until gofly owns dry-run, rollback, and database integration evidence."
+    },
+    {
+      "id": "production-redis-integration",
+      "status": "planned",
+      "implementation": [],
+      "tests": [],
+      "promotionCriteria": [
+        "add optional Docker-backed Redis cache integration smoke",
+        "prove cache miss, hit, TTL, invalidation, and unavailable-Redis fallback",
+        "document credential and TLS boundaries",
+        "publish CI evidence without requiring local Redis"
+      ],
+      "adopterValue": "Future Redis-backed cache integration proof beyond fake clients and topology evidence.",
+      "gate": "make db-cache-productization-check",
+      "rollbackNote": "Use local typed cache or direct SQL reads until Redis integration evidence exists for the target environment."
+    }
+  ],
+  "releaseGates": [
+    "go test -shuffle=on ./core/storage/...",
+    "go test -shuffle=on ./core/outbox/...",
+    "go test -shuffle=on ./cache ./core/kv/...",
+    "go test -shuffle=on ./cmd/gofly/internal/generator -run TestGenerateModelFromDDL",
+    "make reference-app-smoke",
+    "make db-cache-productization-check"
+  ]
+}

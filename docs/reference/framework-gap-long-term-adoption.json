@@ -84,8 +84,10 @@
       ],
       "currentEvidence": [
         "docs/reference/ci-required-check-evidence.json",
+        "docs/reference/db-cache-productization.json",
         "docs/reference/discovery-adapter-matrix.json",
         "docs/reference/dependency-upgrade-evidence.json",
+        "make db-cache-productization-check",
         "make required-checks-drift-check",
         "make discovery-adapter-matrix-check",
         "make dependency-upgrade-evidence-check"

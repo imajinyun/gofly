@@ -237,6 +237,10 @@ governance-boundary-inventory-check: ## Validate 10-round governance boundary in
 discovery-adapter-matrix-check: ## Validate discovery provider status, failover, and release gate matrix
 	sh $(SCRIPTS_DIR)/check-discovery-adapter-matrix.sh
 
+.PHONY: db-cache-productization-check
+db-cache-productization-check: ## Validate DB/cache productization evidence, gaps, and release gates
+	sh $(SCRIPTS_DIR)/check-db-cache-productization.sh
+
 .PHONY: framework-gap-check
 framework-gap-check: ## Validate framework gap matrix and executable TODO roadmap
 	sh $(SCRIPTS_DIR)/check-framework-gap.sh
@@ -268,7 +272,7 @@ examples-smoke: ## Run runnable example smoke tests and machine-readable output 
 	sh $(SCRIPTS_DIR)/examples-smoke.sh
 
 .PHONY: docs-check
-docs-check: docs-link-check docs-taxonomy-check migration-docs-check p1-growth-check community-growth-check contract-docs-check dx-troubleshooting-check governance-report-check fuzz-robustness-check dependency-upgrade-evidence-check api-example-consistency-check coverage-trend-check ci-required-check-evidence-check runtime-slo-check discovery-adapter-matrix-check framework-gap-check cli-command-surface-check doc-manifest-sync-check required-checks-drift-check ## Compile Go code blocks in Markdown docs
+docs-check: docs-link-check docs-taxonomy-check migration-docs-check p1-growth-check community-growth-check contract-docs-check dx-troubleshooting-check governance-report-check fuzz-robustness-check dependency-upgrade-evidence-check api-example-consistency-check coverage-trend-check ci-required-check-evidence-check runtime-slo-check discovery-adapter-matrix-check db-cache-productization-check framework-gap-check cli-command-surface-check doc-manifest-sync-check required-checks-drift-check ## Compile Go code blocks in Markdown docs
 	$(GO) env GOMOD >/dev/null
 	sh $(SCRIPTS_DIR)/check-doc-go-snippets.sh
 

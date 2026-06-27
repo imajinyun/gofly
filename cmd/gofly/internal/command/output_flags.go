@@ -43,6 +43,32 @@ func registerCLIJSONOutputFlag(fs *flag.FlagSet, usage string) *bool {
 	return fs.Bool("json", false, usage)
 }
 
+func registerCLIFormatFlag(fs *flag.FlagSet, defaultFormat string, usage string) *string {
+	if defaultFormat == "" {
+		defaultFormat = outputText
+	}
+	if usage == "" {
+		usage = "output format"
+	}
+	return fs.String("format", defaultFormat, usage)
+}
+
+func normalizeCLIFormat(value *string, fallback string, allowed ...string) (string, error) {
+	format := strings.ToLower(strings.TrimSpace(valueFromStringFlag(value)))
+	if format == "" {
+		format = fallback
+	}
+	if len(allowed) == 0 {
+		return format, nil
+	}
+	for _, candidate := range allowed {
+		if format == candidate {
+			return format, nil
+		}
+	}
+	return "", fmt.Errorf("%w: unsupported --format %q", errUsage, valueFromStringFlag(value))
+}
+
 type docOutputFlags struct {
 	Format *string
 	YAML   *bool

@@ -1,0 +1,217 @@
+{
+  "schema": "gofly.discovery_adapter_matrix.v1",
+  "sourceOfTruth": "docs/guides/discovery.md",
+  "acceptanceGate": "make discovery-adapter-matrix-check",
+  "scope": {
+    "included": [
+      "provider implementation status",
+      "registration and resolution capabilities",
+      "watch and lease behavior",
+      "filtering support",
+      "failover behavior",
+      "release gates"
+    ],
+    "excluded": [
+      "provider-specific production tuning",
+      "networked integration credentials",
+      "runtime cluster provisioning"
+    ]
+  },
+  "statusPolicy": {
+    "implemented": "Provider has repository code, unit or integration evidence, guide documentation, and an executable gate.",
+    "planned": "Provider is a known adoption target, but must not be advertised as supported until implementation, tests, and release gates exist.",
+    "config-only": "Provider exists for another subsystem and must not be implied as a discovery adapter without a discovery implementation."
+  },
+  "providers": [
+    {
+      "id": "memory",
+      "status": "implemented",
+      "package": "core/discovery",
+      "implementation": "core/discovery/memory.go",
+      "tests": [
+        "core/discovery/memory_test.go",
+        "core/discovery/discovery_test.go"
+      ],
+      "capabilities": {
+        "register": true,
+        "deregister": true,
+        "resolve": true,
+        "watch": true,
+        "ttlLease": true,
+        "healthFiltering": true,
+        "tagVersionZoneFiltering": true,
+        "failover": "in-process snapshot and watcher cleanup; use only for local, tests, and generated golden paths"
+      },
+      "gates": [
+        "go test -shuffle=on ./core/discovery/...",
+        "make discovery-adapter-matrix-check"
+      ],
+      "rollbackNote": "Switch generated or local smoke tests back to memory discovery when networked registries are unavailable."
+    },
+    {
+      "id": "consul",
+      "status": "implemented",
+      "package": "core/discovery/consul",
+      "implementation": "core/discovery/consul/consul.go",
+      "tests": [
+        "core/discovery/consul/consul_test.go"
+      ],
+      "capabilities": {
+        "register": true,
+        "deregister": true,
+        "resolve": true,
+        "watch": true,
+        "ttlLease": true,
+        "healthFiltering": true,
+        "tagVersionZoneFiltering": true,
+        "failover": "Consul watch retries through the client path; production failover must be validated with the deployment's Consul topology"
+      },
+      "gates": [
+        "go test -shuffle=on ./core/discovery/...",
+        "make discovery-adapter-matrix-check"
+      ],
+      "rollbackNote": "Keep memory discovery available for local smoke and route traffic back to the previous Consul registration path if health checks or watches diverge."
+    },
+    {
+      "id": "etcdv3",
+      "status": "implemented",
+      "package": "core/discovery/etcdv3",
+      "implementation": "core/discovery/etcdv3/etcdv3.go",
+      "tests": [
+        "core/discovery/etcdv3/etcdv3_test.go",
+        "core/discovery/etcdv3/etcdv3_integration_test.go"
+      ],
+      "capabilities": {
+        "register": true,
+        "deregister": true,
+        "resolve": true,
+        "watch": true,
+        "ttlLease": true,
+        "healthFiltering": true,
+        "tagVersionZoneFiltering": true,
+        "failover": "etcd lease and watch behavior is covered by unit tests and Docker-backed integration when the integration matrix runs"
+      },
+      "gates": [
+        "go test -shuffle=on ./core/discovery/...",
+        "make integration-tests",
+        "make discovery-adapter-matrix-check"
+      ],
+      "rollbackNote": "Keep the previous etcd service registration compatible until generated services pass discovery smoke and integration gates."
+    },
+    {
+      "id": "nacos",
+      "status": "config-only",
+      "package": "core/config/nacossource",
+      "implementation": "core/config/nacossource",
+      "tests": [
+        "core/config/nacossource"
+      ],
+      "capabilities": {
+        "register": false,
+        "deregister": false,
+        "resolve": false,
+        "watch": false,
+        "ttlLease": false,
+        "healthFiltering": false,
+        "tagVersionZoneFiltering": false,
+        "failover": "Nacos is present as a configuration source, not as a discovery registry"
+      },
+      "promotionCriteria": [
+        "add a core/discovery/nacos adapter",
+        "cover register, resolve, watch, TTL, and metadata filters",
+        "add Docker-backed or documented external integration evidence",
+        "promote this matrix row from config-only to implemented"
+      ],
+      "gates": [
+        "make discovery-adapter-matrix-check"
+      ],
+      "rollbackNote": "Do not route service discovery traffic to Nacos until a discovery adapter and integration evidence exist."
+    },
+    {
+      "id": "dns",
+      "status": "planned",
+      "package": "",
+      "implementation": "",
+      "tests": [],
+      "capabilities": {
+        "register": false,
+        "deregister": false,
+        "resolve": false,
+        "watch": false,
+        "ttlLease": false,
+        "healthFiltering": false,
+        "tagVersionZoneFiltering": false,
+        "failover": "planned resolver-only provider; no runtime support is advertised"
+      },
+      "promotionCriteria": [
+        "define resolver-only semantics explicitly",
+        "document lack of registration and watch guarantees",
+        "add resolver tests with TTL and negative-cache behavior",
+        "add migration notes for DNS-backed environments"
+      ],
+      "gates": [
+        "make discovery-adapter-matrix-check"
+      ],
+      "rollbackNote": "Keep DNS-backed services on existing platform discovery until resolver-only semantics are implemented and documented."
+    },
+    {
+      "id": "kubernetes",
+      "status": "planned",
+      "package": "",
+      "implementation": "",
+      "tests": [],
+      "capabilities": {
+        "register": false,
+        "deregister": false,
+        "resolve": false,
+        "watch": false,
+        "ttlLease": false,
+        "healthFiltering": false,
+        "tagVersionZoneFiltering": false,
+        "failover": "planned service/endpoints provider; no runtime support is advertised"
+      },
+      "promotionCriteria": [
+        "choose Kubernetes Service, EndpointSlice, or API watcher semantics",
+        "avoid adding cluster credentials to local tests",
+        "add static fixtures plus optional integration evidence",
+        "link Helm and Kustomize production assets to provider configuration"
+      ],
+      "gates": [
+        "make discovery-adapter-matrix-check"
+      ],
+      "rollbackNote": "Use existing Kubernetes service discovery directly until a gofly Kubernetes adapter has endpoint and policy evidence."
+    },
+    {
+      "id": "static",
+      "status": "planned",
+      "package": "",
+      "implementation": "",
+      "tests": [],
+      "capabilities": {
+        "register": false,
+        "deregister": false,
+        "resolve": false,
+        "watch": false,
+        "ttlLease": false,
+        "healthFiltering": false,
+        "tagVersionZoneFiltering": false,
+        "failover": "planned file or config-backed provider; no runtime support is advertised"
+      },
+      "promotionCriteria": [
+        "define immutable and reloadable profile behavior",
+        "validate path safety for any file-backed source",
+        "add generated service smoke coverage",
+        "document rollback to memory or external discovery"
+      ],
+      "gates": [
+        "make discovery-adapter-matrix-check"
+      ],
+      "rollbackNote": "Keep static endpoints in application configuration until reload, validation, and generated-service smoke coverage exist."
+    }
+  ],
+  "releaseGates": [
+    "go test -shuffle=on ./core/discovery/...",
+    "make discovery-adapter-matrix-check",
+    "make required-checks-drift-check"
+  ]
+}

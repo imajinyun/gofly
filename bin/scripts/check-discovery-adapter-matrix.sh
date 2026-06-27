@@ -1,0 +1,178 @@
+#!/usr/bin/env sh
+set -eu
+
+python3 - <<'PY'
+import json
+import pathlib
+import re
+import sys
+
+root = pathlib.Path(".").resolve()
+matrix_path = root / "docs" / "reference" / "discovery-adapter-matrix.json"
+missing = []
+
+expected_providers = {
+    "memory": "implemented",
+    "consul": "implemented",
+    "etcdv3": "implemented",
+    "nacos": "config-only",
+    "dns": "planned",
+    "kubernetes": "planned",
+    "static": "planned",
+}
+required_capabilities = {
+    "register",
+    "deregister",
+    "resolve",
+    "watch",
+    "ttlLease",
+    "healthFiltering",
+    "tagVersionZoneFiltering",
+    "failover",
+}
+
+
+def read_text(path):
+    if not path.is_file():
+        missing.append(f"{path.relative_to(root)} is missing")
+        return ""
+    return path.read_text(encoding="utf-8")
+
+
+def require(condition, message):
+    if not condition:
+        missing.append(message)
+
+
+def make_target_names(makefile):
+    return set(re.findall(r"^([A-Za-z0-9_-]+):", makefile, re.M))
+
+
+def gate_is_known(gate, targets):
+    if gate.startswith("make "):
+        parts = gate.removeprefix("make ").split()
+        return bool(parts) and parts[0] in targets
+    return gate.startswith("go test ")
+
+
+if matrix_path.is_file():
+    matrix = json.loads(matrix_path.read_text(encoding="utf-8"))
+else:
+    matrix = {}
+    missing.append("docs/reference/discovery-adapter-matrix.json is missing")
+
+makefile = read_text(root / "Makefile")
+guide = read_text(root / "docs" / "guides" / "discovery.md")
+docs_index = read_text(root / "docs" / "index.md")
+framework_long_term = read_text(root / "docs" / "reference" / "framework-gap-long-term-adoption.json")
+targets = make_target_names(makefile)
+docs_check_line = next((line for line in makefile.splitlines() if line.startswith("docs-check:")), "")
+
+require(matrix.get("schema") == "gofly.discovery_adapter_matrix.v1", "schema must be gofly.discovery_adapter_matrix.v1")
+require(matrix.get("sourceOfTruth") == "docs/guides/discovery.md", "sourceOfTruth must be docs/guides/discovery.md")
+require(matrix.get("acceptanceGate") == "make discovery-adapter-matrix-check", "acceptanceGate must be make discovery-adapter-matrix-check")
+require("discovery-adapter-matrix-check" in targets, "Makefile must expose discovery-adapter-matrix-check")
+require("discovery-adapter-matrix-check" in docs_check_line, "docs-check must depend on discovery-adapter-matrix-check")
+require("check-discovery-adapter-matrix.sh" in makefile, "Makefile must call check-discovery-adapter-matrix.sh")
+
+status_policy = matrix.get("statusPolicy") or {}
+for status in {"implemented", "planned", "config-only"}:
+    require(status in status_policy, f"statusPolicy must document {status}")
+
+providers = matrix.get("providers") or []
+provider_map = {
+    item.get("id"): item
+    for item in providers
+    if isinstance(item, dict) and item.get("id")
+}
+require(set(provider_map) == set(expected_providers), f"providers drifted: missing={sorted(set(expected_providers) - set(provider_map))} extra={sorted(set(provider_map) - set(expected_providers))}")
+
+for provider_id, expected_status in expected_providers.items():
+    item = provider_map.get(provider_id) or {}
+    require(item.get("status") == expected_status, f"{provider_id}: status must be {expected_status}")
+    require(provider_id in guide, f"docs/guides/discovery.md must document provider {provider_id}")
+    capabilities = item.get("capabilities") or {}
+    require(set(capabilities) == required_capabilities, f"{provider_id}: capabilities drifted")
+    failover = str(capabilities.get("failover") or "")
+    require(len(failover.split()) >= 6, f"{provider_id}: failover behavior must be actionable")
+    rollback = str(item.get("rollbackNote") or "")
+    require(len(rollback.split()) >= 8, f"{provider_id}: rollbackNote must be actionable")
+    gates = item.get("gates") or []
+    require(gates, f"{provider_id}: gates are required")
+    for gate in gates:
+        require(gate_is_known(str(gate), targets), f"{provider_id}: gate is not known: {gate!r}")
+    if expected_status == "implemented":
+        for field in ("package", "implementation", "tests"):
+            require(bool(item.get(field)), f"{provider_id}: {field} is required for implemented providers")
+        require((root / item.get("implementation", "")).is_file(), f"{provider_id}: implementation path is missing")
+        for test_path in item.get("tests") or []:
+            require((root / test_path).is_file(), f"{provider_id}: test path is missing: {test_path}")
+        for capability in (
+            "register",
+            "deregister",
+            "resolve",
+            "watch",
+            "ttlLease",
+            "healthFiltering",
+            "tagVersionZoneFiltering",
+        ):
+            require(capabilities.get(capability) is True, f"{provider_id}: {capability} must be true")
+    elif expected_status == "planned":
+        require(not item.get("implementation"), f"{provider_id}: planned provider must not point to an implementation")
+        require(not item.get("tests"), f"{provider_id}: planned provider must not claim tests")
+        require(len(item.get("promotionCriteria") or []) >= 3, f"{provider_id}: promotionCriteria must include at least three items")
+        for capability in (
+            "register",
+            "deregister",
+            "resolve",
+            "watch",
+            "ttlLease",
+            "healthFiltering",
+            "tagVersionZoneFiltering",
+        ):
+            require(capabilities.get(capability) is False, f"{provider_id}: {capability} must be false until implemented")
+    elif expected_status == "config-only":
+        require(item.get("package"), f"{provider_id}: config-only provider must name the owning package")
+        require("config" in str(item.get("package")), f"{provider_id}: config-only provider must stay scoped to config")
+        require(len(item.get("promotionCriteria") or []) >= 3, f"{provider_id}: promotionCriteria must include at least three items")
+        require(capabilities.get("resolve") is False, f"{provider_id}: config-only provider must not claim discovery resolve")
+
+release_gates = matrix.get("releaseGates") or []
+for gate in (
+    "go test -shuffle=on ./core/discovery/...",
+    "make discovery-adapter-matrix-check",
+    "make required-checks-drift-check",
+):
+    require(gate in release_gates, f"releaseGates missing {gate!r}")
+for gate in release_gates:
+    require(gate_is_known(str(gate), targets), f"release gate is not known: {gate!r}")
+
+for needle in [
+    "Discovery adapter matrix",
+    "docs/reference/discovery-adapter-matrix.json",
+    "make discovery-adapter-matrix-check",
+    "implemented",
+    "planned",
+    "config-only",
+    "failover",
+    "rollback",
+]:
+    require(needle in guide, f"docs/guides/discovery.md missing {needle!r}")
+
+require(
+    "[Discovery adapter matrix](reference/discovery-adapter-matrix.json)" in docs_index,
+    "docs/index.md must link the discovery adapter matrix",
+)
+require(
+    "docs/reference/discovery-adapter-matrix.json" in framework_long_term,
+    "long-term framework adoption evidence must link discovery adapter matrix",
+)
+
+if missing:
+    print("discovery adapter matrix check failed:", file=sys.stderr)
+    for item in missing:
+        print(f"- {item}", file=sys.stderr)
+    sys.exit(1)
+
+print("discovery adapter matrix OK")
+PY

@@ -110,6 +110,15 @@ func applyNewScaffoldStyleDefault(cfg *generator.Config, requestedStyle, default
 	}
 }
 
+func applyNewScaffoldDirFallback(dir *string, cfg *generator.Config) {
+	if dir == nil || cfg == nil {
+		return
+	}
+	if *dir == "" && cfg.ServiceName != "" {
+		*dir = cfg.ServiceName
+	}
+}
+
 type newScaffoldFlagNormalization struct {
 	Name          *string
 	Dir           *string

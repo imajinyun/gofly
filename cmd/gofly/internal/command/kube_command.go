@@ -38,9 +38,7 @@ func kubeCommand(args []string) error {
 	limitMem := fs.String("limitMem", "", "memory resource limit")
 	imagePullPolicy := fs.String("imagePullPolicy", "", "image pull policy")
 	serviceAccount := fs.String("serviceAccount", "", "Kubernetes service account")
-	home := fs.String("home", "", "template home directory")
-	remote := fs.String("remote", "", "remote template repository")
-	branch := fs.String("branch", "", "remote template branch")
+	templateSource := registerTemplateSourceFlags(fs, "", "", "")
 	host := fs.String("host", "", "ingress host")
 	path := fs.String("path", "/", "ingress path")
 	data := fs.String("data", "", "configmap data as comma-separated key=value pairs")
@@ -79,9 +77,9 @@ func kubeCommand(args []string) error {
 		LimitMem:        *limitMem,
 		ImagePullPolicy: *imagePullPolicy,
 		ServiceAccount:  *serviceAccount,
-		TemplateDir:     *home,
-		Remote:          *remote,
-		Branch:          *branch,
+		TemplateDir:     *templateSource.Home,
+		Remote:          *templateSource.Remote,
+		Branch:          *templateSource.Branch,
 	})
 }
 

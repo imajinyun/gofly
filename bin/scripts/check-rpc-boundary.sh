@@ -29,6 +29,16 @@ checks = {
         "balancer",
         "rollback",
         "bench-evidence-check",
+        "Deadline and error-code mapping",
+        "deadline_exceeded",
+        "invalid_argument",
+        "Unauthenticated",
+        "Retry and balancer contract",
+        "health-aware",
+        "service mesh",
+        "go-zero coexistence",
+        "generated service",
+        "rollback routing",
     ],
     pathlib.Path("bench/matrix.md"): [
         "BenchmarkRPCUnary",
@@ -57,6 +67,11 @@ checks = {
         "BenchmarkRPCClientStreamGovernance",
         "BenchmarkRPCBidiStreamGovernance",
         "coexistence",
+    ],
+    pathlib.Path("docs/comparisons/go-zero.md"): [
+        "timeout, retry, breaker, and rate-limit",
+        "Rollback plan",
+        "discovery",
     ],
     pathlib.Path("examples/rpc-idl-matrix/main_test.go"): [
         "server_stream",
@@ -163,6 +178,9 @@ required_evidence = {
     "balancer-routing",
     "kitex-coexistence-rollback",
     "grpc-compatibility",
+    "deadline-error-code-mapping",
+    "retry-balancer-contract",
+    "gozero-coexistence-rollback",
 }
 actual_evidence = {item.get("id") for item in evidence if isinstance(item, dict)}
 require(required_evidence <= actual_evidence, f"rpc tier1 evidence missing ids: {sorted(required_evidence - actual_evidence)!r}")
@@ -197,6 +215,41 @@ for item in evidence:
         for needle in needles:
             if needle not in text:
                 missing.append(f"rpc tier1 evidence {item_id}: {ref_path} missing {needle!r}")
+
+evidence_by_id = {
+    item.get("id"): item for item in evidence
+    if isinstance(item, dict) and item.get("id")
+}
+
+deadline_mapping = evidence_by_id.get("deadline-error-code-mapping") or {}
+deadline_contracts = deadline_mapping.get("contractMappings") or []
+deadline_stable_codes = {
+    contract.get("stableCode")
+    for contract in deadline_contracts
+    if isinstance(contract, dict)
+}
+for code in ("deadline_exceeded", "invalid_argument", "Unauthenticated", "Unavailable"):
+    require(code in deadline_stable_codes, f"deadline-error-code-mapping missing stable code {code}")
+require(
+    any(contract.get("httpStatus") == 504 for contract in deadline_contracts if isinstance(contract, dict)),
+    "deadline-error-code-mapping must include HTTP 504 mapping for deadline expiry",
+)
+
+retry_mapping = evidence_by_id.get("retry-balancer-contract") or {}
+retry_contracts = retry_mapping.get("contractMappings") or []
+retry_text = json.dumps(retry_contracts, sort_keys=True)
+for needle in ("unavailable", "codes.Unavailable", "round_robin", "weighted_round_robin", "p2c", "consistent_hash", "health_aware"):
+    require(needle in retry_text, f"retry-balancer-contract missing {needle}")
+
+gozero_mapping = evidence_by_id.get("gozero-coexistence-rollback") or {}
+require(
+    "generated-upgrade-dry-run-check" in gozero_mapping.get("gate", ""),
+    "gozero-coexistence-rollback gate must include generated-upgrade-dry-run-check",
+)
+require(
+    "go-zero" in gozero_mapping.get("rollbackOrEscalation", ""),
+    "gozero-coexistence-rollback rollbackOrEscalation must mention go-zero",
+)
 
 for path, needles in checks.items():
     if not path.is_file():

@@ -75,7 +75,12 @@ targets = make_target_names(makefile)
 
 require(manifest.get("schema") == "gofly.governance_boundary_inventory.v1", "schema must be gofly.governance_boundary_inventory.v1")
 require("governance-boundary-inventory-check" in targets, "Makefile must expose governance-boundary-inventory-check")
+require("api-contract-check" in targets, "Makefile must expose api-contract-check")
 require("check-governance-boundary-inventory.sh" in governance_script, "governance-10-rounds.sh must run the boundary inventory in Round 01")
+
+api_contract_line = next((line for line in makefile.splitlines() if line.startswith("api-contract-check:")), "")
+require("openapi-validation-check" in api_contract_line, "api-contract-check must depend on openapi-validation-check")
+require("rpc-boundary-check" in api_contract_line, "api-contract-check must depend on rpc-boundary-check")
 
 tasks = manifest.get("aiflowTasks") or []
 actual_tasks = [item.get("id") for item in tasks if isinstance(item, dict)]

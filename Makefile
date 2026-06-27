@@ -304,6 +304,9 @@ plugin-conformance-check: ## Validate plugin registry and manifest conformance c
 openapi-validation-check: ## Validate OpenAPI, binding, validation, and error envelope contracts
 	sh $(SCRIPTS_DIR)/check-openapi-validation-envelope.sh
 
+.PHONY: api-contract-check
+api-contract-check: openapi-validation-check rpc-boundary-check ## Validate REST/OpenAPI and RPC boundary contracts
+
 .PHONY: community-growth-check
 community-growth-check: ## Validate contributor, roadmap, and issue-template adoption signals
 	sh $(SCRIPTS_DIR)/check-community-growth.sh

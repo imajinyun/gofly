@@ -2,7 +2,9 @@
 set -eu
 
 python3 - <<'PY'
+import json
 import pathlib
+import subprocess
 import sys
 
 missing = []
@@ -85,6 +87,66 @@ if manual.is_file():
         for term in terms:
             if term not in text:
                 missing.append(f"{manual}: migration path {name!r} missing {term!r}")
+
+    proof = subprocess.run(
+        ["go", "run", "-C", "examples/migration-proof", "."],
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+    if proof.returncode != 0:
+        missing.append("examples/migration-proof runnable case failed:\n" + proof.stdout)
+    else:
+        try:
+            report = json.loads(proof.stdout)
+        except json.JSONDecodeError as exc:
+            missing.append(f"examples/migration-proof emitted invalid JSON: {exc}")
+            report = {}
+        if report.get("schema") != "gofly.migration_proof.v1":
+            missing.append("examples/migration-proof schema mismatch")
+        cases = {item.get("source"): item for item in report.get("cases") or [] if isinstance(item, dict)}
+        expected_cases = {
+            "gin": {
+                "manualPath": "Gin to gofly",
+                "example": "examples/restserver",
+                "gate": "go test -C examples/restserver ./...",
+            },
+            "go-zero": {
+                "manualPath": "go-zero to gofly",
+                "example": "examples/production-orders",
+                "gate": "make generated-version-compat-check",
+            },
+            "kratos": {
+                "manualPath": "Kratos to gofly",
+                "example": "examples/microshop",
+                "gate": "make cloud-native-render-check",
+            },
+            "kitex": {
+                "manualPath": "Kitex with gofly",
+                "example": "examples/rpc-idl-matrix",
+                "gate": "make rpc-boundary-check",
+            },
+        }
+        if set(cases) != set(expected_cases):
+            missing.append(f"examples/migration-proof sources = {sorted(cases)}, want {sorted(expected_cases)}")
+        for source, expected in expected_cases.items():
+            item = cases.get(source) or {}
+            if item.get("example") != expected["example"]:
+                missing.append(f"examples/migration-proof {source}: example = {item.get('example')!r}, want {expected['example']!r}")
+            if expected["manualPath"] not in text:
+                missing.append(f"{manual}: missing decision table row {expected['manualPath']!r}")
+            if expected["gate"] not in (item.get("gateCommands") or []):
+                missing.append(f"examples/migration-proof {source}: gateCommands missing {expected['gate']!r}")
+            for field in ("rollback", "compatibilityCaveats", "decisionTable"):
+                if not item.get(field):
+                    missing.append(f"examples/migration-proof {source}: missing {field}")
+            decision = item.get("decisionTable") or {}
+            for field in ("chooseWhen", "keepSourceWhen", "adopterAction", "rollbackTrigger"):
+                if not decision.get(field):
+                    missing.append(f"examples/migration-proof {source}: decisionTable missing {field}")
+            if not item.get("validation"):
+                missing.append(f"examples/migration-proof {source}: validation must include smoke commands")
 
 for path, needles in checks.items():
     if not path.is_file():

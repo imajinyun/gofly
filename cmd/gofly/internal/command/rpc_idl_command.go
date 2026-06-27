@@ -94,13 +94,3 @@ func rpcDepsCommand(args []string) error {
 	}
 	return nil
 }
-
-func resolveIDLFile(file *string, src *string, leading string, remaining []string) {
-	if *file == "" {
-		*file = *src
-	}
-	if *file == "" {
-		*file = leading
-	}
-	fillNameFromArgs(file, remaining)
-}

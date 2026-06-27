@@ -16,7 +16,7 @@ func apiDiffCommand(args []string) error {
 	dir := fs.String("dir", ".", "output directory")
 	output := fs.String("output", "", "output diff file")
 	o := fs.String("o", "", "output diff file")
-	format := fs.String("format", "text", "diff format: text, markdown, or json")
+	format := registerCLIFormatFlag(fs, outputText, "diff format: text, markdown, or json")
 	remaining, err := parseInterspersedFlags(fs, args)
 	if err != nil {
 		return err

@@ -46,8 +46,7 @@ func featureCommand(args []string) error {
 		style := fs.String("style", "basic", "service style")
 		featureFlag := fs.String("feature", "", "feature names to enable, comma-separated")
 		featuresFlag := fs.String("features", "", "alias for --feature")
-		formatName := fs.String("format", "text", "output format: text or json")
-		jsonOutput := fs.Bool("json", false, "output JSON")
+		outputFlags := registerCLIOutputFlags(fs, cliOutputFlagOptions{})
 		feature := ""
 		if len(rest) > 0 && !strings.HasPrefix(rest[0], "-") {
 			feature = rest[0]
@@ -62,15 +61,16 @@ func featureCommand(args []string) error {
 			remaining = remaining[1:]
 		}
 		featureNames := splitCSV(joinCSV(feature, strings.Join(remaining, ","), *featureFlag, *featuresFlag))
+		useJSON := valueFromBoolFlag(outputFlags.JSON) || strings.EqualFold(strings.TrimSpace(valueFromStringFlag(outputFlags.Format)), outputJSON)
 		if len(featureNames) == 0 {
 			err := fmt.Errorf("%w: expected `gofly feature run <feature-name>`", errUsage)
-			if *jsonOutput || strings.EqualFold(strings.TrimSpace(*formatName), "json") {
+			if useJSON {
 				_ = printJSONError("feature.run", err)
 			}
 			return err
 		}
 		if err := generator.ValidateFeatureNames(featureNames); err != nil {
-			if *jsonOutput || strings.EqualFold(strings.TrimSpace(*formatName), "json") {
+			if useJSON {
 				_ = printJSONError("feature.run", err)
 			}
 			return err
@@ -87,7 +87,7 @@ func featureCommand(args []string) error {
 			return err
 		}
 		preview := buildFeatureRunPreview(featureNames, files, data)
-		if *jsonOutput || strings.EqualFold(strings.TrimSpace(*formatName), "json") {
+		if useJSON {
 			return printJSONEnvelope("feature.run", preview)
 		}
 		for _, file := range preview.Files {

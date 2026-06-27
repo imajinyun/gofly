@@ -19,12 +19,22 @@ type report struct {
 }
 
 type migrationCase struct {
-	Source        string   `json:"source"`
-	Example       string   `json:"example"`
-	Contract      string   `json:"contract"`
-	Validation    []string `json:"validation"`
-	Rollback      string   `json:"rollback"`
-	Compatibility []string `json:"compatibility"`
+	Source               string        `json:"source"`
+	Example              string        `json:"example"`
+	Contract             string        `json:"contract"`
+	Validation           []string      `json:"validation"`
+	GateCommands         []string      `json:"gateCommands"`
+	Rollback             string        `json:"rollback"`
+	Compatibility        []string      `json:"compatibility"`
+	CompatibilityCaveats []string      `json:"compatibilityCaveats"`
+	DecisionTable        decisionTable `json:"decisionTable"`
+}
+
+type decisionTable struct {
+	ChooseWhen      string `json:"chooseWhen"`
+	KeepSourceWhen  string `json:"keepSourceWhen"`
+	AdopterAction   string `json:"adopterAction"`
+	RollbackTrigger string `json:"rollbackTrigger"`
 }
 
 type rollbackNote struct {
@@ -52,8 +62,19 @@ func buildReport() report {
 				"go run -C examples/restserver .",
 				"curl -s localhost:8080/openapi.json",
 			},
-			Rollback:      "keep Gin route active behind the existing router until sampled responses and metrics match",
-			Compatibility: []string{"docs/comparisons/gin.md", "docs/case-studies/migrate-from-gin.md"},
+			GateCommands: []string{
+				"go test -C examples/restserver ./...",
+				"make examples-smoke",
+			},
+			Rollback:             "keep Gin route active behind the existing router until sampled responses and metrics match",
+			Compatibility:        []string{"docs/comparisons/gin.md", "docs/case-studies/migrate-from-gin.md"},
+			CompatibilityCaveats: []string{"Gin :id routes become gofly {id} routes", "compare status codes, JSON field names, and error envelopes before switching traffic"},
+			DecisionTable: decisionTable{
+				ChooseWhen:      "the HTTP service needs OpenAPI, generated contracts, runtime governance, or control-plane state",
+				KeepSourceWhen:  "the service is a focused HTTP API without generated-contract or governance needs",
+				AdopterAction:   "mirror routes through gofly, compare sampled responses, and promote only after examples-smoke passes",
+				RollbackTrigger: "sampled response, metric, status-code, or OpenAPI schema drift appears during rollout",
+			},
 		},
 		{
 			Source:   "go-zero",
@@ -64,8 +85,19 @@ func buildReport() report {
 				"go run -C examples/production-orders .",
 				"gofly release check --strict",
 			},
-			Rollback:      "keep go-zero and gofly services addressable through discovery and switch routing back to go-zero",
-			Compatibility: []string{"docs/comparisons/go-zero.md"},
+			GateCommands: []string{
+				"make generated-version-compat-check",
+				"make reference-app-smoke",
+			},
+			Rollback:             "keep go-zero and gofly services addressable through discovery and switch routing back to go-zero",
+			Compatibility:        []string{"docs/comparisons/go-zero.md"},
+			CompatibilityCaveats: []string{"preserve .api request and response field names", "verify generated OpenAPI and /admin/control-plane before changing discovery"},
+			DecisionTable: decisionTable{
+				ChooseWhen:      "the team wants generated services plus governance files, discovery, release gates, and admin diagnostics",
+				KeepSourceWhen:  "existing go-zero generated code owns stable production routing and generated compatibility evidence is incomplete",
+				AdopterAction:   "run generated compatibility and reference-app smoke before changing discovery or traffic routing",
+				RollbackTrigger: "generated compatibility, reference app smoke, release check, or control-plane evidence fails",
+			},
 		},
 		{
 			Source:   "kratos",
@@ -75,8 +107,19 @@ func buildReport() report {
 				"go test -C examples/microshop ./...",
 				"go run -C examples/microshop describe",
 			},
-			Rollback:      "restore the previous Kratos deployment target while keeping shared domain services unchanged",
-			Compatibility: []string{"docs/comparisons/kratos.md"},
+			GateCommands: []string{
+				"make cloud-native-render-check",
+				"go test -C examples/microshop ./...",
+			},
+			Rollback:             "restore the previous Kratos deployment target while keeping shared domain services unchanged",
+			Compatibility:        []string{"docs/comparisons/kratos.md"},
+			CompatibilityCaveats: []string{"keep domain services separate from transport wiring", "compare lifecycle hooks, health checks, discovery registration, and topology output"},
+			DecisionTable: decisionTable{
+				ChooseWhen:      "cloud-native operations remain important and generated governance contracts or AI-readable runtime state are needed",
+				KeepSourceWhen:  "Kratos lifecycle, deployment, and service registration behavior is the production source of truth",
+				AdopterAction:   "start with control-plane comparison or non-critical service slices before replacing the serving deployment",
+				RollbackTrigger: "rendered policy, topology, health, discovery, or lifecycle behavior diverges from the previous Kratos deployment",
+			},
 		},
 		{
 			Source:   "kitex",
@@ -87,8 +130,19 @@ func buildReport() report {
 				"go run -C examples/rpc-idl-matrix .",
 				"BENCH_PATTERN=BenchmarkRPCUnary make bench-stat",
 			},
-			Rollback:      "route latency-critical methods back to Kitex and retain gofly for REST ingress or governance surfaces",
-			Compatibility: []string{"docs/comparisons/kitex.md", "docs/guides/rpc.md"},
+			GateCommands: []string{
+				"make rpc-boundary-check",
+				"make bench-evidence-check",
+			},
+			Rollback:             "route latency-critical methods back to Kitex and retain gofly for REST ingress or governance surfaces",
+			Compatibility:        []string{"docs/comparisons/kitex.md", "docs/guides/rpc.md"},
+			CompatibilityCaveats: []string{"do not migrate hot methods without bench evidence", "compare unary, stream, resolver, balancer, tracing, auth, and rollback behavior"},
+			DecisionTable: decisionTable{
+				ChooseWhen:      "Kitex keeps latency-critical RPC while gofly owns REST ingress, governance, release checks, or non-hot-path service glue",
+				KeepSourceWhen:  "the method is latency-critical or depends on Kitex IDL/runtime behavior without gofly benchmark evidence",
+				AdopterAction:   "keep Kitex for hot RPC and add gofly around ingress, governance, descriptor comparison, or generated service surfaces",
+				RollbackTrigger: "RPC boundary, stream contract, resolver, balancer, tracing, auth, or benchmark evidence fails",
+			},
 		},
 	}
 	sort.Slice(cases, func(i, j int) bool { return cases[i].Source < cases[j].Source })

@@ -23,6 +23,15 @@ func TestMigrationProofReport(t *testing.T) {
 		if item.Rollback == "" || len(item.Validation) == 0 || len(item.Compatibility) == 0 {
 			t.Fatalf("case %q is missing rollback, validation, or compatibility: %+v", item.Source, item)
 		}
+		if len(item.GateCommands) == 0 || len(item.CompatibilityCaveats) == 0 {
+			t.Fatalf("case %q is missing gate commands or compatibility caveats: %+v", item.Source, item)
+		}
+		if item.DecisionTable.ChooseWhen == "" ||
+			item.DecisionTable.KeepSourceWhen == "" ||
+			item.DecisionTable.AdopterAction == "" ||
+			item.DecisionTable.RollbackTrigger == "" {
+			t.Fatalf("case %q decision table is incomplete: %+v", item.Source, item.DecisionTable)
+		}
 		delete(wantSources, item.Source)
 	}
 	if len(wantSources) != 0 {

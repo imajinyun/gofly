@@ -9,8 +9,7 @@ import (
 func apiRouteCommand(args []string) error {
 	leadingFile, args := splitLeadingName(args)
 	fs := flag.NewFlagSet("api route", flag.ContinueOnError)
-	file := fs.String("file", "", "api file")
-	api := fs.String("api", "", "api file")
+	file := registerAPIFileFlags(fs, "api file")
 	dir := fs.String("dir", ".", "output directory")
 	output := registerOutputPathFlags(fs, "output routes file")
 	format := registerCLIFormatFlag(fs, outputText, "route format: text, markdown, or json")
@@ -18,12 +17,5 @@ func apiRouteCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	if *file == "" {
-		*file = *api
-	}
-	if *file == "" {
-		*file = leadingFile
-	}
-	fillNameFromArgs(file, remaining)
-	return generator.GenerateAPIRoutes(generator.APIRouteOptions{APIFile: *file, Dir: *dir, Output: output.resolve(), Format: *format})
+	return generator.GenerateAPIRoutes(generator.APIRouteOptions{APIFile: file.resolve(leadingFile, remaining), Dir: *dir, Output: output.resolve(), Format: *format})
 }

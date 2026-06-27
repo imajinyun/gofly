@@ -11,9 +11,7 @@ func apiTemplateCommand(args []string) error {
 	fs := flag.NewFlagSet("api template", flag.ContinueOnError)
 	output := registerOutputPathFlags(fs, "output api template file")
 	name := fs.String("name", "", "api service name used in the template")
-	home := fs.String("home", "", "template home directory")
-	remote := fs.String("remote", "", "remote template repository")
-	branch := fs.String("branch", "", "remote template branch")
+	templateSource := registerTemplateSourceFlags(fs, "", "", "")
 	style := fs.String("style", "go_zero", "scaffold style option")
 	multiple := fs.Bool("multiple", false, "generate multiple service packages")
 	_ = style
@@ -26,5 +24,11 @@ func apiTemplateCommand(args []string) error {
 		*name = leadingName
 	}
 	fillNameFromArgs(name, remaining)
-	return generator.GenerateAPITemplate(generator.IDLTemplateOptions{Output: output.resolve(), Name: *name, TemplateDir: *home, Remote: *remote, Branch: *branch})
+	return generator.GenerateAPITemplate(generator.IDLTemplateOptions{
+		Output:      output.resolve(),
+		Name:        *name,
+		TemplateDir: *templateSource.Home,
+		Remote:      *templateSource.Remote,
+		Branch:      *templateSource.Branch,
+	})
 }

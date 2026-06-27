@@ -14,8 +14,7 @@ func dockerCommand(args []string) error {
 	fs := flag.NewFlagSet("docker", flag.ContinueOnError)
 	name := fs.String("name", "", "service name")
 	dir := fs.String("dir", ".", "output directory")
-	output := fs.String("output", "", "output Dockerfile path")
-	o := fs.String("o", "", "output Dockerfile path")
+	output := registerOutputPathFlags(fs, "output Dockerfile path")
 	goFile := fs.String("go", "", "main package or Go file to build")
 	exe := fs.String("exe", "", "binary name")
 	goVersion := fs.String("go-version", "1.26", "golang builder image version")
@@ -33,9 +32,6 @@ func dockerCommand(args []string) error {
 	if *name == "" {
 		*name = leadingName
 	}
-	if *output == "" {
-		*output = *o
-	}
 	if *version != "" {
 		*goVersion = *version
 	}
@@ -43,7 +39,7 @@ func dockerCommand(args []string) error {
 	return generator.GenerateDockerfile(generator.DockerOptions{
 		Name:        *name,
 		Dir:         *dir,
-		Output:      *output,
+		Output:      output.resolve(),
 		GoFile:      *goFile,
 		Exe:         *exe,
 		GoVersion:   *goVersion,

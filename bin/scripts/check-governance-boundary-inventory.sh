@@ -11,7 +11,8 @@ root = pathlib.Path(".").resolve()
 manifest_path = root / "docs" / "reference" / "governance-boundary-inventory.json"
 missing = []
 
-expected_tasks = [f"GOFLY-GOV-10R-{idx:02d}" for idx in range(1, 11)]
+expected_active_batch = "GOFLY-GOV-10R3"
+expected_tasks = [f"{expected_active_batch}-{idx:02d}" for idx in range(1, 11)]
 expected_batches = {
     "GOFLY-GOV-10R": {
         "status": "completed-with-local-fallbacks",
@@ -19,8 +20,13 @@ expected_batches = {
         "roundCount": 10,
     },
     "GOFLY-GOV-10R2": {
-        "status": "active",
+        "status": "completed-with-local-fallbacks",
         "taskPrefix": "GOFLY-GOV-10R2-",
+        "roundCount": 10,
+    },
+    "GOFLY-GOV-10R3": {
+        "status": "active",
+        "taskPrefix": "GOFLY-GOV-10R3-",
         "roundCount": 10,
     },
 }
@@ -86,7 +92,7 @@ governance_script = read_text(root / "bin" / "scripts" / "governance-10-rounds.s
 targets = make_target_names(makefile)
 
 require(manifest.get("schema") == "gofly.governance_boundary_inventory.v1", "schema must be gofly.governance_boundary_inventory.v1")
-require(manifest.get("activeAiflowBatch") == "GOFLY-GOV-10R2", "activeAiflowBatch must be GOFLY-GOV-10R2")
+require(manifest.get("activeAiflowBatch") == expected_active_batch, f"activeAiflowBatch must be {expected_active_batch}")
 require("governance-boundary-inventory-check" in targets, "Makefile must expose governance-boundary-inventory-check")
 require("api-contract-check" in targets, "Makefile must expose api-contract-check")
 require("check-governance-boundary-inventory.sh" in governance_script, "governance-10-rounds.sh must run the boundary inventory in Round 01")
@@ -117,8 +123,13 @@ for expected_round, item in enumerate(tasks, start=1):
         continue
     task_id = item.get("id", "<missing>")
     require(item.get("round") == expected_round, f"{task_id}: round must be {expected_round}")
-    for field in ("id", "title", "gate"):
+    for field in ("id", "title", "objective", "deliverable", "gate", "commitPolicy"):
         require(bool(item.get(field)), f"{task_id}: {field} is required")
+    require(task_id.startswith(expected_active_batch + "-"), f"{task_id}: id must use active batch prefix {expected_active_batch}-")
+    require(
+        "commit" in item.get("commitPolicy", "").lower(),
+        f"{task_id}: commitPolicy must describe the per-task commit checkpoint",
+    )
     require(gate_is_known(item.get("gate", ""), targets), f"{task_id}: gate is not known: {item.get('gate')!r}")
 
 surfaces = manifest.get("surfaces") or []

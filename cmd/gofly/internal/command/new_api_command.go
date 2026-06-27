@@ -47,8 +47,7 @@ func apiNewCommand(args []string) error {
 	}
 	cfg := loadCtx.Config
 	resolved := loadCtx.ConfigPath
-	applyNewScaffoldStyleDefault(cfg, *baseFlags.Style, generator.ServiceStyleBasic, false)
-	applyNewScaffoldDirFallback(baseFlags.Dir, cfg)
+	applyNewScaffoldDefaults(cfg, baseFlags, generator.ServiceStyleBasic, false)
 	plugins := loadCtx.PluginNames
 	resolvedProfile, err := resolveNewAPIProfile(cfg, *profileFlags.Profile)
 	if err != nil {

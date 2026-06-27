@@ -85,9 +85,7 @@ func serviceNewCommand(args []string) error {
 	cfg := loadCtx.Config
 	resolved := loadCtx.ConfigPath
 	applyNewScaffoldStyleDefault(cfg, *style, generator.ServiceStyleProduction, true)
-	if *dir == "" && cfg.ServiceName != "" {
-		*dir = cfg.ServiceName
-	}
+	applyNewScaffoldDirFallback(dir, cfg)
 	plugins := loadCtx.PluginNames
 	contractInputs := newServiceContractInputs{
 		APIFile:     *apiFile,

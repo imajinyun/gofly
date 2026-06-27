@@ -22,8 +22,7 @@ func aiStreamCommand(args []string) error {
 	configPath := fs.String("config", "", "gofly config file path")
 	dir := fs.String("dir", ".", "service root used to resolve .gofly/config.json when --config is omitted")
 	outputFlags := registerCLIOutputFlags(fs, cliOutputFlagOptions{JSONUsage: "output newline-delimited JSON envelopes"})
-	dryRun := fs.Bool("dry-run", false, "print the governance plan without invoking the provider")
-	plan := fs.Bool("plan", false, "alias for --dry-run")
+	preview := registerDryRunPlanFlags(fs, "print the governance plan without invoking the provider")
 	allowFailover := fs.Bool("allow-failover", false, "manually retry retryable provider start failures against GOFLY_LLM_FAILOVER_PROVIDERS before emitting any stream events")
 	failover := fs.Bool("failover", false, "alias for --allow-failover")
 	remaining, err := parseInterspersedFlags(fs, args)
@@ -60,7 +59,7 @@ func aiStreamCommand(args []string) error {
 	}
 	jsonMode := outputFlags.useJSON(format)
 	inputTokens := llm.EstimateTokens(*prompt)
-	if *dryRun || *plan {
+	if preview.enabled() {
 		return printAIStreamPlan(resolved, inputTokens, jsonMode)
 	}
 	return runAIStream(resolved, *prompt, jsonMode, "ai.stream", "ai.stream")

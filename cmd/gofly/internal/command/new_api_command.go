@@ -52,8 +52,8 @@ func apiNewCommand(args []string) error {
 		return err
 	}
 	output := newScaffoldPlanOutputFromContext("new.api", "new api", baseFlags, loadCtx, newServiceContractInputs{}, executionFlags)
-	if *executionFlags.DryRun || *executionFlags.Plan {
-		return output.printDryRunPlan(*executionFlags.JSON, false)
+	if handled, err := output.maybePrintDryRunPlan(executionFlags, false); handled || err != nil {
+		return err
 	}
 	if err := generateNewAPIScaffold(cfg, newAPIScaffoldOptions{
 		Dir:             *baseFlags.Dir,

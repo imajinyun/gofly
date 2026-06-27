@@ -30,6 +30,14 @@ required_release_gates = {
     "make framework-gap-check",
     "make db-cache-productization-check",
 }
+expected_workflows = {
+    "generated-transaction-workflow",
+    "generated-pagination-workflow",
+    "generated-optimistic-lock-workflow",
+    "read-write-split-workflow",
+    "redis-sql-observability-workflow",
+    "generated-db-smoke-workflow",
+}
 
 
 def read_text(path):
@@ -108,6 +116,40 @@ capability_map = {
     if isinstance(item, dict) and item.get("id")
 }
 require(set(capability_map) == set(expected_capabilities), f"capabilities drifted: missing={sorted(set(expected_capabilities) - set(capability_map))} extra={sorted(set(capability_map) - set(expected_capabilities))}")
+
+workflow_matrix = manifest.get("workflowMatrix") or []
+workflow_map = {
+    item.get("id"): item
+    for item in workflow_matrix
+    if isinstance(item, dict) and item.get("id")
+}
+require(
+    set(workflow_map) == expected_workflows,
+    f"workflowMatrix drifted: missing={sorted(expected_workflows - set(workflow_map))} extra={sorted(set(workflow_map) - expected_workflows)}",
+)
+
+for workflow_id in sorted(expected_workflows):
+    item = workflow_map.get(workflow_id) or {}
+    require(item.get("status") == "implemented", f"{workflow_id}: status must be implemented")
+    source = str(item.get("source") or "")
+    require(source and (root / source).exists(), f"{workflow_id}: source path is missing: {source!r}")
+    require(gate_is_known(str(item.get("gate") or ""), targets), f"{workflow_id}: gate is not known: {item.get('gate')!r}")
+    for field in ("runtimeEvidence", "generatedEvidence", "tests"):
+        values = item.get(field) or []
+        require(len(values) >= 2, f"{workflow_id}: {field} must include at least two anchors")
+    observability = str(item.get("observability") or "")
+    require(len(observability.split()) >= 8, f"{workflow_id}: observability must explain the evidence path")
+    rollback = str(item.get("rollbackNote") or "")
+    require(len(rollback.split()) >= 8, f"{workflow_id}: rollbackNote must be actionable")
+    searchable_paths = {source}
+    searchable_paths.update(str(path) for path in item.get("tests") or [])
+    searchable = "\n".join(read_text(root / rel) for rel in sorted(searchable_paths) if (root / rel).exists())
+    for anchor in item.get("runtimeEvidence") or []:
+        require(str(anchor) in searchable or str(anchor) in reference_topology, f"{workflow_id}: runtimeEvidence anchor {anchor!r} is not present")
+    for anchor in item.get("generatedEvidence") or []:
+        require(str(anchor) in searchable or str(anchor) in reference_topology, f"{workflow_id}: generatedEvidence anchor {anchor!r} is not present")
+    for rel in item.get("tests") or []:
+        require((root / rel).exists(), f"{workflow_id}: test path is missing: {rel}")
 
 for capability_id, expected_status in expected_capabilities.items():
     item = capability_map.get(capability_id) or {}

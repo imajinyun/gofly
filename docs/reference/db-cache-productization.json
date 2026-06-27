@@ -40,6 +40,142 @@
     "implemented": "Capability has repository code, behavior tests, adopter documentation, and a gate.",
     "planned": "Capability is an adoption target and must not be advertised as supported until code, tests, examples, and gates land together."
   },
+  "workflowMatrix": [
+    {
+      "id": "generated-transaction-workflow",
+      "status": "implemented",
+      "source": "cmd/gofly/internal/generator/model_codegen.go",
+      "runtimeEvidence": [
+        "func (s *SQLStore) Transact(ctx context.Context, opts *sql.TxOptions, fn TxFunc) error",
+        "func (c *Cluster) Transact(ctx context.Context, opts *sql.TxOptions, fn TxFunc) error"
+      ],
+      "generatedEvidence": [
+        "func (r *OrderRepo) Transact(ctx context.Context, opts *sql.TxOptions, fn func(context.Context, *OrderRepo) error) error",
+        "return r.store.Transact(ctx, opts"
+      ],
+      "tests": [
+        "cmd/gofly/internal/generator/idl_test.go",
+        "core/storage/sql.go",
+        "core/storage/cluster.go",
+        "core/storage/sql_test.go",
+        "core/storage/cluster_test.go"
+      ],
+      "observability": "SQLStore records transaction timing and failures through StoreStats snapshots.",
+      "gate": "go test -shuffle=on ./cmd/gofly/internal/generator -run TestGenerateModelFromDDL",
+      "rollbackNote": "Keep generated transactional writes behind existing repository transactions until Transact output and SQLStore transaction tests pass."
+    },
+    {
+      "id": "generated-pagination-workflow",
+      "status": "implemented",
+      "source": "cmd/gofly/internal/generator/model_codegen.go",
+      "runtimeEvidence": [
+        "func LimitOffset(dialect Dialect, limit int, offset int, start int) (string, []any, error)",
+        "storage.SelectWhere"
+      ],
+      "generatedEvidence": [
+        "func (r *OrderRepo) ListAfter(ctx context.Context, after int64, limit int) ([]entity.Order, error)",
+        "ORDER BY %s ASC LIMIT"
+      ],
+      "tests": [
+        "cmd/gofly/internal/generator/idl_test.go",
+        "core/storage/sql.go",
+        "core/storage/sql_test.go"
+      ],
+      "observability": "SQL pagination paths run through SQLStore query helpers, so query_one/query_all stats remain visible.",
+      "gate": "go test -shuffle=on ./cmd/gofly/internal/generator -run TestGenerateModelFromDDL",
+      "rollbackNote": "Use the previous list endpoint or bounded offset pagination until generated cursor pagination compiles and storage limit tests pass."
+    },
+    {
+      "id": "generated-optimistic-lock-workflow",
+      "status": "implemented",
+      "source": "cmd/gofly/internal/generator/model_codegen.go",
+      "runtimeEvidence": [
+        "storage.ErrNotFound",
+        "UpdateWithVersion"
+      ],
+      "generatedEvidence": [
+        "func (r *%s) UpdateWithVersion(ctx context.Context, in *entity.%s, expectedVersion %s) error",
+        "expectedVersion+1"
+      ],
+      "tests": [
+        "cmd/gofly/internal/generator/idl_test.go",
+        "cmd/gofly/internal/generator/model_bench_test.go"
+      ],
+      "observability": "Versioned updates use SQLStore exec stats and return storage.ErrNotFound on compare-and-swap misses.",
+      "gate": "go test -shuffle=on ./cmd/gofly/internal/generator -run TestGenerateModelFromDDL",
+      "rollbackNote": "Keep explicit application-level compare-and-swap logic until generated UpdateWithVersion output and tests pass."
+    },
+    {
+      "id": "read-write-split-workflow",
+      "status": "implemented",
+      "source": "core/storage/cluster.go",
+      "runtimeEvidence": [
+        "func NewCluster(primary *SQLStore, replicas ...*SQLStore) (*Cluster, error)",
+        "func (c *Cluster) Reader() *SQLStore",
+        "func (c *Cluster) Writer() *SQLStore",
+        "func (c *Cluster) ForQuery(query string) *SQLStore",
+        "FOR UPDATE"
+      ],
+      "generatedEvidence": [
+        "store *storage.SQLStore",
+        "return r.store.Transact(ctx, opts"
+      ],
+      "tests": [
+        "core/storage/cluster_test.go",
+        "cmd/gofly/internal/generator/model_codegen.go",
+        "cmd/gofly/internal/generator/idl_test.go"
+      ],
+      "observability": "Primary and replica SQLStore instances expose independent StoreSnapshot database and operation stats.",
+      "gate": "go test -shuffle=on ./core/storage/...",
+      "rollbackNote": "Route all operations to the primary SQLStore until read/write split tests and topology evidence pass."
+    },
+    {
+      "id": "redis-sql-observability-workflow",
+      "status": "implemented",
+      "source": "cache/cache.go",
+      "runtimeEvidence": [
+        "type StoreSnapshot struct",
+        "type StoreStats struct",
+        "Stats        cache.Stats",
+        "WritePrometheus"
+      ],
+      "generatedEvidence": [
+        "RedisCachedOrderRepo",
+        "UpdateWithInvalidate"
+      ],
+      "tests": [
+        "cache/cache_test.go",
+        "cache/redis_model_test.go",
+        "cmd/gofly/internal/generator/idl_test.go",
+        "core/storage/sql.go",
+        "examples/cache-local/main.go",
+        "examples/cache-local/main_test.go"
+      ],
+      "observability": "Cache stats, Redis model cache boundaries, SQL StoreSnapshot, and Prometheus output provide one troubleshooting path for generated services.",
+      "gate": "go test -shuffle=on ./cache ./core/kv/...",
+      "rollbackNote": "Disable Redis-backed cache or set GOFLY_CACHE_DISABLED=true when cache stats, Redis miss semantics, or invalidation evidence fail."
+    },
+    {
+      "id": "generated-db-smoke-workflow",
+      "status": "implemented",
+      "source": "cmd/gofly/internal/generator/idl_test.go",
+      "runtimeEvidence": [
+        "writeGeneratedModule",
+        "runGoCommand"
+      ],
+      "generatedEvidence": [
+        "TestGenerateModelFromDDLRedisCacheCompilesInTempModule",
+        "\"test\", \"./...\""
+      ],
+      "tests": [
+        "cmd/gofly/internal/generator/idl_test.go",
+        "bin/scripts/check-generated-version-compat.sh"
+      ],
+      "observability": "Generated DB/cache smoke keeps generated-only dependencies inside the temp module and preserves generated-version compatibility evidence.",
+      "gate": "make generated-version-compat-check",
+      "rollbackNote": "Keep generated DB/cache features out of adopter templates until temp-module compile and generated-version compatibility gates pass."
+    }
+  ],
   "capabilities": [
     {
       "id": "sql-storage-core",

@@ -1,7 +1,7 @@
 {
   "schema": "gofly.governance_boundary_inventory.v1",
   "purpose": "Lightweight baseline inventory for the 10-round governance workflow before expensive full-repository gates run.",
-  "activeAiflowBatch": "GOFLY-GOV-10R2",
+  "activeAiflowBatch": "GOFLY-GOV-10R3",
   "aiflowTaskBatches": [
     {
       "id": "GOFLY-GOV-10R",
@@ -12,72 +12,109 @@
     },
     {
       "id": "GOFLY-GOV-10R2",
-      "status": "active",
+      "status": "completed-with-local-fallbacks",
       "taskPrefix": "GOFLY-GOV-10R2-",
       "roundCount": 10,
       "evidence": "go run ./cmd/aiflow status -root /Users/bytedance/Codes/go/src/github/gofly -id GOFLY-GOV-10R2-01"
+    },
+    {
+      "id": "GOFLY-GOV-10R3",
+      "status": "active",
+      "taskPrefix": "GOFLY-GOV-10R3-",
+      "roundCount": 10,
+      "evidence": "go run ./cmd/aiflow status -root /Users/bytedance/Codes/go/src/github/gofly -id GOFLY-GOV-10R3-01"
     }
   ],
   "aiflowTasks": [
     {
-      "id": "GOFLY-GOV-10R-01",
+      "id": "GOFLY-GOV-10R3-01",
       "round": 1,
       "title": "Baseline and boundary inventory",
-      "gate": "make governance-boundary-inventory-check"
+      "objective": "Refresh the active aiflow 10-round batch, map project surfaces to gates, and keep ignored runtime paths out of commits.",
+      "deliverable": "Machine-readable boundary inventory with active batch, task map, surfaces, ignored runtime paths, timeout policy, and baseline gates.",
+      "gate": "make governance-boundary-inventory-check",
+      "commitPolicy": "commit after the boundary inventory gate passes"
     },
     {
-      "id": "GOFLY-GOV-10R-02",
+      "id": "GOFLY-GOV-10R3-02",
       "round": 2,
       "title": "Context and lifecycle governance",
-      "gate": "targeted go test and go vet for touched packages"
+      "objective": "Audit context propagation, timeout defaults, cancellation behavior, process lifecycle, and goroutine leak risks on touched runtime paths.",
+      "deliverable": "Focused lifecycle fixes or a documented downgrade with targeted tests for the touched package set.",
+      "gate": "targeted go test and go vet for touched packages",
+      "commitPolicy": "commit after targeted lifecycle tests pass"
     },
     {
-      "id": "GOFLY-GOV-10R-03",
+      "id": "GOFLY-GOV-10R3-03",
       "round": 3,
       "title": "CLI and configuration governance",
-      "gate": "make cli-command-surface-check"
+      "objective": "Keep cmd/gofly commands, help, aliases, config defaults, stdout/stderr discipline, and JSON contracts aligned.",
+      "deliverable": "CLI command-surface evidence or contract tests that prevent command drift without changing existing semantics.",
+      "gate": "make cli-command-surface-check",
+      "commitPolicy": "commit after CLI surface gate passes"
     },
     {
-      "id": "GOFLY-GOV-10R-04",
+      "id": "GOFLY-GOV-10R3-04",
       "round": 4,
       "title": "Code-generation governance",
-      "gate": "make generated-upgrade-dry-run-check"
+      "objective": "Tighten API/RPC/model/template determinism, path safety, upgrade diff classification, and generated project compile evidence.",
+      "deliverable": "Generator fixture, matrix, or script updates proving repeatable generation and explainable upgrade diffs.",
+      "gate": "make generated-upgrade-dry-run-check",
+      "commitPolicy": "commit after generated-output and upgrade dry-run gates pass"
     },
     {
-      "id": "GOFLY-GOV-10R-05",
+      "id": "GOFLY-GOV-10R3-05",
       "round": 5,
       "title": "Plugin and external-process governance",
-      "gate": "make plugin-conformance-check"
+      "objective": "Audit plugin registry, manifest, digest, permissions, temporary files, external command arguments, and failure isolation.",
+      "deliverable": "Plugin conformance evidence covering safe downloads, no cache reuse, digest mismatch, permission escape, and no partial writes.",
+      "gate": "make plugin-conformance-check",
+      "commitPolicy": "commit after plugin conformance gate passes"
     },
     {
-      "id": "GOFLY-GOV-10R-06",
+      "id": "GOFLY-GOV-10R3-06",
       "round": 6,
       "title": "Cache and remote-dependency governance",
-      "gate": "make cache-dependency-governance-check"
+      "objective": "Verify cache bypass semantics, remote dependency policy, module hygiene, and generated-project-only dependency isolation.",
+      "deliverable": "Cache/dependency governance evidence or tests that keep root module dependencies limited to real root imports.",
+      "gate": "make cache-dependency-governance-check",
+      "commitPolicy": "commit after cache and dependency governance gate passes"
     },
     {
-      "id": "GOFLY-GOV-10R-07",
+      "id": "GOFLY-GOV-10R3-07",
       "round": 7,
       "title": "REST/RPC/API contract governance",
-      "gate": "make api-contract-check"
+      "objective": "Keep OpenAPI, binding, validation, error envelope, RPC boundary, gateway, and descriptor contracts synchronized.",
+      "deliverable": "REST/RPC contract evidence or golden tests proving runtime behavior matches documented schema and boundary matrices.",
+      "gate": "make api-contract-check",
+      "commitPolicy": "commit after REST/RPC aggregate contract gate passes"
     },
     {
-      "id": "GOFLY-GOV-10R-08",
+      "id": "GOFLY-GOV-10R3-08",
       "round": 8,
       "title": "Security and defensive-coding governance",
-      "gate": "make security"
+      "objective": "Audit path traversal, symlink handling, nil safety, type assertions, body limits, URL schemes, secret redaction, and #nosec baseline drift.",
+      "deliverable": "Security fixes, defensive tests, or baseline evidence with explicit downgrade rationale for historical findings.",
+      "gate": "make security",
+      "commitPolicy": "commit after security governance gate passes or a documented tooling downgrade is added"
     },
     {
-      "id": "GOFLY-GOV-10R-09",
+      "id": "GOFLY-GOV-10R3-09",
       "round": 9,
       "title": "Observability and production-default governance",
-      "gate": "make governance-report-check"
+      "objective": "Validate logs, metrics, traces, runtime SLOs, production defaults, control-plane snapshots, and governance dashboard contracts.",
+      "deliverable": "Observability or production-default evidence consumable by governance-report and runtime SLO checks.",
+      "gate": "make governance-report-check",
+      "commitPolicy": "commit after governance report and targeted runtime SLO evidence pass"
     },
     {
-      "id": "GOFLY-GOV-10R-10",
+      "id": "GOFLY-GOV-10R3-10",
       "round": 10,
       "title": "Convergence verification and report",
-      "gate": "make governance-10-rounds"
+      "objective": "Run convergence verification across formatting, tests, vet, lint, coverage, security, tidy, docs, API compatibility, and release evidence.",
+      "deliverable": "Final governance report with pass/fail evidence, known risks, skipped gates, and next-round recommendations.",
+      "gate": "make governance-10-rounds",
+      "commitPolicy": "commit after convergence gate passes or environment-limited failures are documented"
     }
   ],
   "surfaces": [

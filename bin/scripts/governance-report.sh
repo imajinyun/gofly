@@ -468,6 +468,7 @@ def governance_convergence_evidence():
         "source": "docs/reference/governance-boundary-inventory.json",
         "gate": "make governance-boundary-inventory-check",
         "finalGate": "make governance-10-rounds",
+        "activeAiflowBatch": manifest.get("activeAiflowBatch", ""),
         "taskCount": len(tasks),
         "tasks": tasks,
         "baselineGates": manifest.get("baselineGates", []),
@@ -743,7 +744,10 @@ if convergence["finalGate"] != "make governance-10-rounds":
     missing.append("governance convergence finalGate mismatch")
 if convergence["taskCount"] != 10:
     missing.append("governance convergence must track 10 rounds")
-expected_round_ids = [f"GOFLY-GOV-10R-{idx:02d}" for idx in range(1, 11)]
+active_aiflow_batch = convergence.get("activeAiflowBatch", "")
+if not active_aiflow_batch:
+    missing.append("governance convergence activeAiflowBatch is required")
+expected_round_ids = [f"{active_aiflow_batch}-{idx:02d}" for idx in range(1, 11)]
 actual_round_ids = [
     item.get("id", "")
     for item in convergence.get("tasks") or []

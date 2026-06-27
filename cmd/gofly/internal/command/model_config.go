@@ -37,8 +37,6 @@ func modelTypesMapFromConfig(configPath, dir string) (map[string]string, error) 
 }
 
 func registerGoctlModelTemplateFlags(fs *flag.FlagSet) {
-	fs.String("home", "", "template home directory")
-	fs.String("remote", "", "remote template repository")
-	fs.String("branch", "", "remote template branch")
+	registerTemplateSourceFlags(fs, "", "", "")
 	fs.Bool("idea", false, "open generated project in IDE")
 }

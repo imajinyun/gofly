@@ -43,6 +43,48 @@ func registerCLIJSONOutputFlag(fs *flag.FlagSet, usage string) *bool {
 	return fs.Bool("json", false, usage)
 }
 
+type docOutputFlags struct {
+	Format *string
+	YAML   *bool
+	JSON   *bool
+}
+
+type docOutputFlagOptions struct {
+	DefaultFormat string
+	FormatUsage   string
+	YAMLUsage     string
+	JSONUsage     string
+}
+
+func registerDocOutputFlags(fs *flag.FlagSet, opts docOutputFlagOptions) docOutputFlags {
+	formatUsage := opts.FormatUsage
+	if formatUsage == "" {
+		formatUsage = "doc format: openapi/json, yaml, or markdown"
+	}
+	yamlUsage := opts.YAMLUsage
+	if yamlUsage == "" {
+		yamlUsage = "write output as yaml"
+	}
+	jsonUsage := opts.JSONUsage
+	if jsonUsage == "" {
+		jsonUsage = "write output as json"
+	}
+	return docOutputFlags{
+		Format: fs.String("format", opts.DefaultFormat, formatUsage),
+		YAML:   fs.Bool("yaml", false, yamlUsage),
+		JSON:   fs.Bool("json", false, jsonUsage),
+	}
+}
+
+func (f docOutputFlags) applyFormatAliases(jsonFormat string) {
+	if valueFromBoolFlag(f.YAML) {
+		setStringFlag(f.Format, "yaml")
+	}
+	if valueFromBoolFlag(f.JSON) {
+		setStringFlag(f.Format, jsonFormat)
+	}
+}
+
 func (f cliOutputFlags) normalizedFormat(fallback string) (string, error) {
 	if fallback == "" {
 		fallback = outputText

@@ -174,6 +174,11 @@ for item in evidence:
     item_id = item.get("id", "<missing>")
     for field in ("id", "capability", "gate", "evidenceRefs"):
         require(bool(item.get(field)), f"rpc tier1 evidence {item_id}: {field} is required")
+    for field in ("decisionBoundary", "rollbackOrEscalation"):
+        require(
+            len(str(item.get(field) or "").split()) >= 8,
+            f"rpc tier1 evidence {item_id}: {field} must be actionable",
+        )
     require(item.get("requiredForTier1") is True, f"rpc tier1 evidence {item_id}: requiredForTier1 must be true")
     refs = item.get("evidenceRefs") or []
     require(refs, f"rpc tier1 evidence {item_id}: evidenceRefs must not be empty")

@@ -60,6 +60,8 @@
       "requiredForTier1": true,
       "benchmark": "BenchmarkRPCUnary",
       "gate": "BENCH_PATTERN=BenchmarkRPCUnary make bench-stat",
+      "decisionBoundary": "Use gofly unary RPC for governed service glue only after gofly and gRPC-Go trend evidence is attached.",
+      "rollbackOrEscalation": "Keep latency-critical unary methods on existing Kitex or gRPC clients until RPC unary budgets become blocking.",
       "evidenceRefs": [
         {
           "path": "bench/rpc_bench_test.go",
@@ -89,6 +91,8 @@
       "requiredForTier1": true,
       "benchmark": "BenchmarkRPCServerStreamGovernance",
       "gate": "BENCH_PATTERN=BenchmarkRPCServerStreamGovernance make bench-stat",
+      "decisionBoundary": "Use gofly server streaming when governance metadata and mode-specific stream overhead are acceptable for the workload.",
+      "rollbackOrEscalation": "Route server streaming traffic back to the prior Kitex or gRPC stream path if governance overhead exceeds the report-only budget.",
       "evidenceRefs": [
         {
           "path": "bench/rpc_bench_test.go",
@@ -111,6 +115,8 @@
       "requiredForTier1": true,
       "benchmark": "BenchmarkRPCClientStreamGovernance",
       "gate": "BENCH_PATTERN=BenchmarkRPCClientStreamGovernance make bench-stat",
+      "decisionBoundary": "Use gofly client streaming when upload-style flows need policy evidence more than transport-layer specialization.",
+      "rollbackOrEscalation": "Keep client upload streams on the existing RPC stack until client-stream benchmark trend evidence is published.",
       "evidenceRefs": [
         {
           "path": "bench/rpc_bench_test.go",
@@ -133,6 +139,8 @@
       "requiredForTier1": true,
       "benchmark": "BenchmarkRPCBidiStreamGovernance",
       "gate": "BENCH_PATTERN=BenchmarkRPCBidiStreamGovernance make bench-stat",
+      "decisionBoundary": "Use gofly bidirectional streaming only for governed realtime flows that pass stream contract and rollback evidence.",
+      "rollbackOrEscalation": "Keep latency-sensitive bidirectional sessions on Kitex or gRPC until bidi stream budgets are promoted from report-only.",
       "evidenceRefs": [
         {
           "path": "bench/rpc_bench_test.go",
@@ -154,6 +162,8 @@
       "capability": "Resolver update contract",
       "requiredForTier1": true,
       "gate": "go test -C examples/rpc-idl-matrix ./...",
+      "decisionBoundary": "Use gofly discovery when resolver update tests prove unhealthy or standby endpoints are removed before routing.",
+      "rollbackOrEscalation": "Pin static endpoints or the previous discovery adapter until resolver update smoke passes.",
       "evidenceRefs": [
         {
           "path": "examples/rpc-idl-matrix/main_test.go",
@@ -175,6 +185,8 @@
       "capability": "Balancer routing contract",
       "requiredForTier1": true,
       "gate": "go run -C examples/rpc-idl-matrix .",
+      "decisionBoundary": "Use gofly balancing when the chosen policy has deterministic routing evidence for the target migration path.",
+      "rollbackOrEscalation": "Keep the upstream service mesh or existing client balancer until round-robin, weighted, P2C, hash, and health-aware smoke pass.",
       "evidenceRefs": [
         {
           "path": "examples/rpc-idl-matrix/main_test.go",
@@ -199,6 +211,8 @@
       "capability": "Kitex coexistence and rollback",
       "requiredForTier1": true,
       "gate": "make rpc-boundary-check",
+      "decisionBoundary": "Keep Kitex on latency-critical transport paths while gofly owns governance, REST ingress, and generated control-plane surfaces.",
+      "rollbackOrEscalation": "Route hot methods back to Kitex when benchmark or stream contract evidence is missing or regresses.",
       "evidenceRefs": [
         {
           "path": "docs/comparisons/kitex.md",
@@ -223,6 +237,8 @@
       "capability": "gRPC compatibility matrix",
       "requiredForTier1": true,
       "gate": "go test -shuffle=on ./rpc/grpc/...",
+      "decisionBoundary": "Use rpc/grpc where ecosystem compatibility, health, auth, tracing, and governance interceptors are required.",
+      "rollbackOrEscalation": "Keep native gRPC-Go clients and servers active until health, auth, tracing, and governance compatibility tests pass.",
       "evidenceRefs": [
         {
           "path": "docs/reference/rpc-boundary.md",

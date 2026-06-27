@@ -33,6 +33,14 @@
     ]
   },
   "rpcPolicy": {
+    "releasePromotion": {
+      "status": "blocked",
+      "tier1Manifest": "docs/reference/rpc-tier1-evidence.json",
+      "requiredCompletedReleaseTrains": 1,
+      "completedReleaseTrains": 0,
+      "requiredBlockingGate": "make bench-regression-check",
+      "rollbackGuidance": "keep latency-critical methods on Kitex or existing gRPC paths until RPC candidates have blocking budget evidence"
+    },
     "candidates": [
       {
         "benchmark": "BenchmarkRPCUnary/gofly_rpc",

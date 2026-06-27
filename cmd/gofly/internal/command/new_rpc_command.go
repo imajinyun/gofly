@@ -44,8 +44,7 @@ func rpcNewCommand(args []string) error {
 	}
 	cfg := loadCtx.Config
 	resolved := loadCtx.ConfigPath
-	applyNewScaffoldStyleDefault(cfg, *baseFlags.Style, generator.ServiceStyleProduction, true)
-	applyNewScaffoldDirFallback(baseFlags.Dir, cfg)
+	applyNewScaffoldDefaults(cfg, baseFlags, generator.ServiceStyleProduction, true)
 	plugins := loadCtx.PluginNames
 	resolvedProfile := resolveNewRPCProfile(cfg, *profileFlags.Profile)
 	output := newScaffoldPlanOutputFor("new.rpc", "new rpc", *baseFlags.Dir, resolved, cfg, plugins, newServiceContractInputs{}, *executionFlags.SaveConfig)

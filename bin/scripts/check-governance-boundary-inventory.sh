@@ -12,8 +12,10 @@ manifest_path = root / "docs" / "reference" / "governance-boundary-inventory.jso
 convergence_path = root / "docs" / "reference" / "governance-convergence-verification.json"
 missing = []
 
-expected_active_batch = "GOFLY-GOV-10R3"
+expected_active_batch = "GOFLY-GOV-10R4"
+expected_converged_batch = "GOFLY-GOV-10R3"
 expected_tasks = [f"{expected_active_batch}-{idx:02d}" for idx in range(1, 11)]
+expected_converged_tasks = [f"{expected_converged_batch}-{idx:02d}" for idx in range(1, 11)]
 expected_batches = {
     "GOFLY-GOV-10R": {
         "status": "completed-with-local-fallbacks",
@@ -26,8 +28,13 @@ expected_batches = {
         "roundCount": 10,
     },
     "GOFLY-GOV-10R3": {
-        "status": "active",
+        "status": "completed-with-local-fallbacks",
         "taskPrefix": "GOFLY-GOV-10R3-",
+        "roundCount": 10,
+    },
+    "GOFLY-GOV-10R4": {
+        "status": "active",
+        "taskPrefix": "GOFLY-GOV-10R4-",
         "roundCount": 10,
     },
 }
@@ -170,7 +177,7 @@ require("governance-boundary-inventory-check" in timeout_policy.get("fallback", 
 require(convergence_manifest.get("schema") == "gofly.governance_convergence_verification.v1", "convergence verification schema mismatch")
 require(convergence_manifest.get("aiflowTask") == "GOFLY-GOV-10R3-10", "convergence verification aiflowTask mismatch")
 require(convergence_manifest.get("acceptanceGate") == "make governance-10-rounds", "convergence verification acceptanceGate mismatch")
-require(convergence_manifest.get("activeBatch") == expected_active_batch, "convergence verification activeBatch mismatch")
+require(convergence_manifest.get("activeBatch") == expected_converged_batch, "convergence verification activeBatch mismatch")
 aggregate_gates = set(convergence_manifest.get("aggregateGates") or [])
 for gate in (
     "make governance-boundary-inventory-check",
@@ -188,7 +195,7 @@ actual_round_commit_tasks = [
     for item in round_commits
     if isinstance(item, dict)
 ]
-require(actual_round_commit_tasks == expected_tasks, f"convergence verification roundCommits tasks mismatch: {actual_round_commit_tasks!r}")
+require(actual_round_commit_tasks == expected_converged_tasks, f"convergence verification roundCommits tasks mismatch: {actual_round_commit_tasks!r}")
 for expected_round, item in enumerate(round_commits, start=1):
     if not isinstance(item, dict):
         missing.append(f"roundCommits entry must be an object: {item!r}")
@@ -198,8 +205,7 @@ for expected_round, item in enumerate(round_commits, start=1):
     require(item.get("commit"), f"{task_id}: roundCommit commit is required")
     gate = item.get("gate", "")
     require(gate_is_known(gate, targets), f"{task_id}: roundCommit gate is not known: {gate!r}")
-    if item.get("commit") != "pending-current-task":
-        require(re.fullmatch(r"[0-9a-f]{7,40}", str(item.get("commit"))), f"{task_id}: commit must be a git short or full SHA")
+    require(re.fullmatch(r"[0-9a-f]{7,40}", str(item.get("commit"))), f"{task_id}: commit must be a git short or full SHA")
 
 final_gate_policy = convergence_manifest.get("finalGatePolicy") or {}
 require(final_gate_policy.get("entrypoint") == "make governance-10-rounds", "finalGatePolicy.entrypoint mismatch")

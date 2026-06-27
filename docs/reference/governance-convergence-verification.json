@@ -69,7 +69,7 @@
     {
       "round": 10,
       "task": "GOFLY-GOV-10R3-10",
-      "commit": "pending-current-task",
+      "commit": "18c3551",
       "gate": "make governance-10-rounds"
     }
   ],

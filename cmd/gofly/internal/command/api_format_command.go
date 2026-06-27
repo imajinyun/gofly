@@ -16,8 +16,7 @@ func apiFormatCommand(args []string) error {
 	file := fs.String("file", "", "api file")
 	api := fs.String("api", "", "api file")
 	dir := fs.String("dir", "", "directory containing .api files")
-	output := fs.String("output", "", "formatted output file")
-	o := fs.String("o", "", "formatted output file")
+	output := registerOutputPathFlags(fs, "formatted output file")
 	write := fs.Bool("write", true, "write result to source file")
 	w := fs.Bool("w", true, "write result to source file")
 	iu := fs.Bool("iu", false, "preserve import/use layout")
@@ -32,6 +31,7 @@ func apiFormatCommand(args []string) error {
 	if flagWasSet(fs, "w") {
 		*write = *w
 	}
+	outputPath := output.resolve()
 	if *stdin {
 		content, err := io.ReadAll(os.Stdin)
 		if err != nil {
@@ -42,16 +42,13 @@ func apiFormatCommand(args []string) error {
 			return err
 		}
 		formatted := generator.FormatAPI(doc)
-		if *output == "" {
-			*output = *o
-		}
-		if *output != "" {
+		if outputPath != "" {
 			// #nosec G301 -- CLI formatting writes user-visible project artifacts that should remain traversable by tools.
-			if err := os.MkdirAll(filepath.Dir(*output), 0o755); err != nil {
+			if err := os.MkdirAll(filepath.Dir(outputPath), 0o755); err != nil {
 				return fmt.Errorf("create api format output directory: %w", err)
 			}
 			// #nosec G306 -- formatted API files are generated project artifacts intentionally readable by collaborators and tooling.
-			return os.WriteFile(*output, formatted, 0o644)
+			return os.WriteFile(outputPath, formatted, 0o644)
 		}
 		cliOutput(string(formatted))
 		return nil
@@ -62,20 +59,17 @@ func apiFormatCommand(args []string) error {
 	if *file == "" {
 		*file = leadingFile
 	}
-	if *output == "" {
-		*output = *o
-	}
 	fillNameFromArgs(file, remaining)
 	formatted, err := generator.FormatAPIFromFile(generator.APIFormatOptions{
 		APIFile: *file,
 		Dir:     *dir,
-		Output:  *output,
+		Output:  outputPath,
 		Write:   *write,
 	})
 	if err != nil {
 		return err
 	}
-	if !*write && *output == "" && *dir == "" {
+	if !*write && outputPath == "" && *dir == "" {
 		cliOutput(string(formatted))
 	}
 	return nil

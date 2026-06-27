@@ -13,8 +13,7 @@ func aiPlanCommand(args []string) error {
 	name := fs.String("name", "", "project or service name used in the generated command")
 	module := fs.String("module", "", "Go module path used in the generated command")
 	dir := fs.String("dir", "", "output directory used in the generated command")
-	formatName := fs.String("format", outputText, "output format: text or json")
-	jsonOutput := fs.Bool("json", false, "output JSON envelope")
+	outputFlags := registerCLIOutputFlags(fs, cliOutputFlagOptions{JSONUsage: "output JSON envelope"})
 	dryRun := fs.Bool("dry-run", true, "plan only without writing files")
 	plan := fs.Bool("plan", true, "alias for --dry-run")
 	remaining, err := parseInterspersedFlags(fs, args)
@@ -29,15 +28,12 @@ func aiPlanCommand(args []string) error {
 	if strings.TrimSpace(*prompt) == "" {
 		return fmt.Errorf("%w: --prompt or positional prompt text is required for `gofly ai plan`", errUsage)
 	}
-	format := strings.ToLower(strings.TrimSpace(*formatName))
-	if format == "" {
-		format = outputText
-	}
-	if format != outputText && format != outputJSON {
-		return fmt.Errorf("%w: unsupported --format %q", errUsage, *formatName)
+	format, err := outputFlags.normalizedFormat(outputText)
+	if err != nil {
+		return err
 	}
 	projectPlan := buildAIProjectPlan(*prompt, *kind, *name, *module, *dir, *dryRun || *plan)
-	if *jsonOutput || outputMode() == outputJSON || format == outputJSON {
+	if outputFlags.useJSON(format) {
 		return printJSONEnvelope("ai.plan", projectPlan)
 	}
 	cliOutputfIf("template=%s kind=%s risk=%s\n", projectPlan.Template.ID, projectPlan.ProjectType, projectPlan.RiskLevel)

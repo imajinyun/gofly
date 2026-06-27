@@ -37,9 +37,12 @@ type aiOutputSchema struct {
 
 func aiManifestCommand(args []string) error {
 	fs := flag.NewFlagSet("ai manifest", flag.ContinueOnError)
-	formatName := fs.String("format", outputJSON, "output format: json or text")
+	outputFlags := registerCLIOutputFlags(fs, cliOutputFlagOptions{
+		DefaultFormat: outputJSON,
+		FormatUsage:   "output format: json or text",
+		JSONUsage:     "output JSON envelope",
+	})
 	schemaName := fs.String("schema", "", "output manifest schema: jsonschema")
-	jsonOutput := fs.Bool("json", false, "output JSON envelope")
 	remaining, err := parseInterspersedFlags(fs, args)
 	if err != nil {
 		return err
@@ -47,12 +50,9 @@ func aiManifestCommand(args []string) error {
 	if len(remaining) > 0 {
 		return fmt.Errorf("%w: ai manifest does not accept positional arguments: %s", errUsage, strings.Join(remaining, " "))
 	}
-	format := strings.ToLower(strings.TrimSpace(*formatName))
-	if format == "" {
-		format = outputJSON
-	}
-	if format != outputJSON && format != outputText {
-		return fmt.Errorf("%w: unsupported --format %q", errUsage, *formatName)
+	format, err := outputFlags.normalizedFormat(outputJSON)
+	if err != nil {
+		return err
 	}
 	schema := strings.ToLower(strings.TrimSpace(*schemaName))
 	if schema != "" {
@@ -62,7 +62,7 @@ func aiManifestCommand(args []string) error {
 		return printJSONEnvelope("ai.manifest.schema", buildAIToolManifestJSONSchema())
 	}
 	manifest := buildAIToolManifest()
-	if *jsonOutput || outputMode() == outputJSON || format == outputJSON {
+	if outputFlags.useJSON(format) {
 		return printJSONEnvelope("ai.manifest", manifest)
 	}
 	cliOutputfIf("gofly AI tool manifest (%s)\n", manifest.SchemaVersion)

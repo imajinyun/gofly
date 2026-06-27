@@ -242,6 +242,16 @@ type newScaffoldFlagNormalization struct {
 	RemainingArgs []string
 }
 
+type newScaffoldNormalizeOptions struct {
+	Base          newScaffoldBaseFlags
+	Template      newScaffoldTemplateSourceFlags
+	Profile       *newScaffoldProfileFlags
+	Extension     *newScaffoldExtensionFlags
+	Verbosity     *newScaffoldVerbosityFlags
+	LeadingName   string
+	RemainingArgs []string
+}
+
 type newScaffoldVerbosityFlags struct {
 	Verbose      *bool
 	VerboseAlias *bool
@@ -256,6 +266,32 @@ func registerNewScaffoldVerbosityFlags(fs *flag.FlagSet) newScaffoldVerbosityFla
 		Quiet:        fs.Bool("quiet", false, "suppress normal output"),
 		QuietAlias:   fs.Bool("q", false, "suppress normal output"),
 	}
+}
+
+func normalizeNewScaffoldFlagGroups(opts newScaffoldNormalizeOptions) {
+	normalization := newScaffoldFlagNormalization{
+		Name:          opts.Base.Name,
+		Dir:           opts.Base.Dir,
+		TemplateDir:   opts.Template.TemplateDir,
+		TemplateHome:  opts.Template.Home,
+		LeadingName:   opts.LeadingName,
+		RemainingArgs: opts.RemainingArgs,
+	}
+	if opts.Profile != nil {
+		normalization.Profile = opts.Profile.Profile
+		normalization.ProfileAlias = opts.Profile.ProfileAlias
+	}
+	if opts.Extension != nil {
+		normalization.Plugin = opts.Extension.Plugin
+		normalization.PluginAlias = opts.Extension.PluginAlias
+	}
+	if opts.Verbosity != nil {
+		normalization.Verbose = opts.Verbosity.Verbose
+		normalization.VerboseAlias = opts.Verbosity.VerboseAlias
+		normalization.Quiet = opts.Verbosity.Quiet
+		normalization.QuietAlias = opts.Verbosity.QuietAlias
+	}
+	normalizeNewScaffoldFlags(normalization)
 }
 
 func normalizeNewScaffoldFlags(flags newScaffoldFlagNormalization) {

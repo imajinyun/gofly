@@ -30,19 +30,12 @@ func apiNewCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	normalizeNewScaffoldFlags(newScaffoldFlagNormalization{
-		Name:          baseFlags.Name,
-		Dir:           baseFlags.Dir,
-		TemplateDir:   templateFlags.TemplateDir,
-		TemplateHome:  templateFlags.Home,
-		Profile:       profileFlags.Profile,
-		ProfileAlias:  profileFlags.ProfileAlias,
-		Plugin:        extensionFlags.Plugin,
-		PluginAlias:   extensionFlags.PluginAlias,
-		Verbose:       verbosityFlags.Verbose,
-		VerboseAlias:  verbosityFlags.VerboseAlias,
-		Quiet:         verbosityFlags.Quiet,
-		QuietAlias:    verbosityFlags.QuietAlias,
+	normalizeNewScaffoldFlagGroups(newScaffoldNormalizeOptions{
+		Base:          baseFlags,
+		Template:      templateFlags,
+		Profile:       &profileFlags,
+		Extension:     &extensionFlags,
+		Verbosity:     &verbosityFlags,
 		LeadingName:   leadingName,
 		RemainingArgs: remaining,
 	})

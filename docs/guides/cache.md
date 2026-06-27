@@ -32,6 +32,22 @@ value, ok := c.Get("user:42")
 | Tiered cache | `cache.NewTiered` |
 | Governance bypass | `GOFLY_CACHE_DISABLED=true` or explicit disabled options |
 
+## DB and cache productization matrix
+
+The machine-readable productization contract lives at
+[`docs/reference/db-cache-productization.json`](../reference/db-cache-productization.json)
+and is checked by:
+
+```sh
+make db-cache-productization-check
+```
+
+The matrix links `SQLStore`, `NewCluster`, SQL outbox evidence,
+Redis-backed model cache support, model generator dependency boundaries,
+reference-app topology, and planned follow-ups. Planned rows are adoption
+targets only; they must not be advertised as supported until code, tests,
+examples, and gates land together.
+
 ## Recommendation
 
 - keep cache TTLs explicit per domain;

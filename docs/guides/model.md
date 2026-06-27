@@ -26,6 +26,21 @@ gofly gen model --ddl schema.sql --dir internal/model
 | Dependencies | generated project dependencies stay in generated project `go.mod` |
 | Verification | compile generated code and run `go test ./...` |
 
+## DB and cache productization matrix
+
+The model generator is part of the DB/cache productization contract at
+[`docs/reference/db-cache-productization.json`](../reference/db-cache-productization.json).
+Validate it with:
+
+```sh
+make db-cache-productization-check
+```
+
+The matrix ties generated SQL/GORM repositories to `SQLStore`, `NewCluster`,
+SQL outbox adoption, Redis-backed model cache boundaries, temp-module compile
+evidence, and planned migration-runner work. Generated-only dependencies remain
+owned by the generated project module, not the gofly root module.
+
 ## Recommendation
 
 Pair model generation with migration review and a service-level example that exercises one real read/write path.

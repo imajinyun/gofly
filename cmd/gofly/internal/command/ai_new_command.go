@@ -15,8 +15,7 @@ func aiNewCommand(args []string) error {
 	name := fs.String("name", "", "project or service name")
 	module := fs.String("module", "", "Go module path")
 	dir := fs.String("dir", "", "output directory")
-	formatName := fs.String("format", outputText, "output format: text or json")
-	jsonOutput := fs.Bool("json", false, "output JSON envelope")
+	outputFlags := registerCLIOutputFlags(fs, cliOutputFlagOptions{JSONUsage: "output JSON envelope"})
 	dryRun := fs.Bool("dry-run", true, "print the scaffold plan without writing files")
 	plan := fs.Bool("plan", false, "alias for --dry-run")
 	apply := fs.Bool("apply", false, "apply the planned scaffold and write files")
@@ -34,12 +33,9 @@ func aiNewCommand(args []string) error {
 	if strings.TrimSpace(*prompt) == "" && strings.TrimSpace(*templateID) == "" {
 		return fmt.Errorf("%w: --prompt, positional prompt text, or --template is required for `gofly ai new`", errUsage)
 	}
-	format := strings.ToLower(strings.TrimSpace(*formatName))
-	if format == "" {
-		format = outputText
-	}
-	if format != outputText && format != outputJSON {
-		return fmt.Errorf("%w: unsupported --format %q", errUsage, *formatName)
+	format, err := outputFlags.normalizedFormat(outputText)
+	if err != nil {
+		return err
 	}
 	if *apply && (*dryRun || *plan) && !flagWasProvided(fs, "dry-run") && !flagWasProvided(fs, "plan") {
 		*dryRun = false
@@ -56,7 +52,7 @@ func aiNewCommand(args []string) error {
 		return err
 	}
 	if !*apply {
-		if *jsonOutput || outputMode() == outputJSON || format == outputJSON {
+		if outputFlags.useJSON(format) {
 			return printJSONEnvelope("ai.new", projectPlan)
 		}
 		printAIProjectPlanText(projectPlan)
@@ -66,7 +62,7 @@ func aiNewCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	if *jsonOutput || outputMode() == outputJSON || format == outputJSON {
+	if outputFlags.useJSON(format) {
 		return printJSONEnvelope("ai.new", result)
 	}
 	cliOutputfIf("applied template=%s kind=%s output=%s\n", result.Plan.Template.ID, result.Plan.ProjectType, result.OutputDir)

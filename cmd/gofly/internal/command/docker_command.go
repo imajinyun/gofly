@@ -22,9 +22,7 @@ func dockerCommand(args []string) error {
 	baseImage := fs.String("base", "gcr.io/distroless/static-debian12", "runtime base image")
 	port := fs.String("port", "", "HTTP port metadata")
 	tz := fs.String("tz", "", "container timezone metadata")
-	home := fs.String("home", "", "template home directory")
-	remote := fs.String("remote", "", "remote template repository")
-	branch := fs.String("branch", "", "remote template branch")
+	templateSource := registerTemplateSourceFlags(fs, "", "", "")
 	remaining, err := parseInterspersedFlags(fs, args)
 	if err != nil {
 		return err
@@ -46,8 +44,8 @@ func dockerCommand(args []string) error {
 		BaseImage:   *baseImage,
 		Port:        *port,
 		Timezone:    *tz,
-		TemplateDir: *home,
-		Remote:      *remote,
-		Branch:      *branch,
+		TemplateDir: *templateSource.Home,
+		Remote:      *templateSource.Remote,
+		Branch:      *templateSource.Branch,
 	})
 }

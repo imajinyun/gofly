@@ -11,23 +11,16 @@ import (
 func apiCheckCommand(args []string) error {
 	leadingFile, args := splitLeadingName(args)
 	fs := flag.NewFlagSet("api check", flag.ContinueOnError)
-	file := fs.String("file", "", "api file")
-	api := fs.String("api", "", "api file")
+	file := registerAPIFileFlags(fs, "api file")
 	remaining, err := parseInterspersedFlags(fs, args)
 	if err != nil {
 		return err
 	}
-	if *file == "" {
-		*file = *api
-	}
-	if *file == "" {
-		*file = leadingFile
-	}
-	fillNameFromArgs(file, remaining)
-	if *file == "" {
+	apiFile := file.resolve(leadingFile, remaining)
+	if apiFile == "" {
 		return fmt.Errorf("%w: api file is required", errUsage)
 	}
-	content, err := os.ReadFile(*file)
+	content, err := os.ReadFile(apiFile)
 	if err != nil {
 		return fmt.Errorf("read api file: %w", err)
 	}

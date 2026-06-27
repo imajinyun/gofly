@@ -40,10 +40,11 @@ type aiProjectApplyResult struct {
 }
 
 type aiProjectVerificationResult struct {
-	Command string `json:"command"`
-	Status  string `json:"status"`
-	Output  string `json:"output,omitempty"`
-	Error   string `json:"error,omitempty"`
+	Command     string   `json:"command"`
+	Status      string   `json:"status"`
+	Output      string   `json:"output,omitempty"`
+	Error       string   `json:"error,omitempty"`
+	NextActions []string `json:"nextActions,omitempty"`
 }
 
 type aiProjectApplyOptions struct {

@@ -36,6 +36,13 @@ func registerCLIOutputFlags(fs *flag.FlagSet, opts cliOutputFlagOptions) cliOutp
 	}
 }
 
+func registerCLIJSONOutputFlag(fs *flag.FlagSet, usage string) *bool {
+	if usage == "" {
+		usage = "output JSON"
+	}
+	return fs.Bool("json", false, usage)
+}
+
 func (f cliOutputFlags) normalizedFormat(fallback string) (string, error) {
 	if fallback == "" {
 		fallback = outputText

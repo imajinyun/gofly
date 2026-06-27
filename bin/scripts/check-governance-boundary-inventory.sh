@@ -9,6 +9,7 @@ import sys
 
 root = pathlib.Path(".").resolve()
 manifest_path = root / "docs" / "reference" / "governance-boundary-inventory.json"
+convergence_path = root / "docs" / "reference" / "governance-convergence-verification.json"
 missing = []
 
 expected_active_batch = "GOFLY-GOV-10R3"
@@ -85,6 +86,11 @@ if manifest_path.is_file():
 else:
     manifest = {}
     missing.append("docs/reference/governance-boundary-inventory.json is missing")
+if convergence_path.is_file():
+    convergence_manifest = json.loads(convergence_path.read_text(encoding="utf-8"))
+else:
+    convergence_manifest = {}
+    missing.append("docs/reference/governance-convergence-verification.json is missing")
 
 makefile = read_text(root / "Makefile")
 gitignore = read_text(root / ".gitignore")
@@ -160,6 +166,53 @@ for gate in baseline_gates:
 timeout_policy = manifest.get("timeoutPolicy") or {}
 require(timeout_policy.get("aiflowDefaultCommandTimeout") == "2m", "timeoutPolicy must record the aiflow 2m command timeout")
 require("governance-boundary-inventory-check" in timeout_policy.get("fallback", ""), "timeoutPolicy fallback must mention governance-boundary-inventory-check")
+
+require(convergence_manifest.get("schema") == "gofly.governance_convergence_verification.v1", "convergence verification schema mismatch")
+require(convergence_manifest.get("aiflowTask") == "GOFLY-GOV-10R3-10", "convergence verification aiflowTask mismatch")
+require(convergence_manifest.get("acceptanceGate") == "make governance-10-rounds", "convergence verification acceptanceGate mismatch")
+require(convergence_manifest.get("activeBatch") == expected_active_batch, "convergence verification activeBatch mismatch")
+aggregate_gates = set(convergence_manifest.get("aggregateGates") or [])
+for gate in (
+    "make governance-boundary-inventory-check",
+    "make governance-report-check",
+    "make required-checks-drift-check",
+    "make security",
+    "make cache-dependency-governance-check",
+):
+    require(gate in aggregate_gates, f"convergence verification aggregateGates missing {gate}")
+
+round_commits = convergence_manifest.get("roundCommits") or []
+require(len(round_commits) == 10, "convergence verification must track 10 round commits")
+actual_round_commit_tasks = [
+    item.get("task")
+    for item in round_commits
+    if isinstance(item, dict)
+]
+require(actual_round_commit_tasks == expected_tasks, f"convergence verification roundCommits tasks mismatch: {actual_round_commit_tasks!r}")
+for expected_round, item in enumerate(round_commits, start=1):
+    if not isinstance(item, dict):
+        missing.append(f"roundCommits entry must be an object: {item!r}")
+        continue
+    task_id = item.get("task", "<missing>")
+    require(item.get("round") == expected_round, f"{task_id}: roundCommit round must be {expected_round}")
+    require(item.get("commit"), f"{task_id}: roundCommit commit is required")
+    gate = item.get("gate", "")
+    require(gate_is_known(gate, targets), f"{task_id}: roundCommit gate is not known: {gate!r}")
+    if item.get("commit") != "pending-current-task":
+        require(re.fullmatch(r"[0-9a-f]{7,40}", str(item.get("commit"))), f"{task_id}: commit must be a git short or full SHA")
+
+final_gate_policy = convergence_manifest.get("finalGatePolicy") or {}
+require(final_gate_policy.get("entrypoint") == "make governance-10-rounds", "finalGatePolicy.entrypoint mismatch")
+require(final_gate_policy.get("script") == "bin/scripts/governance-10-rounds.sh", "finalGatePolicy.script mismatch")
+require(final_gate_policy.get("skipReport") == "GOVERNANCE_SKIP_REPORT", "finalGatePolicy.skipReport mismatch")
+require(set(final_gate_policy.get("runtimeIgnoredPaths") or []) == expected_ignored, "finalGatePolicy.runtimeIgnoredPaths mismatch")
+for skip in ("GOVERNANCE_SKIP_RACE", "GOVERNANCE_SKIP_SECURITY", "GOVERNANCE_SKIP_GENERATED_CONTROL_PLANE_SMOKE"):
+    require(skip in set(final_gate_policy.get("releaseSkipsRejected") or []), f"finalGatePolicy.releaseSkipsRejected missing {skip}")
+    require(f"assert_not_release_skip {skip}" in governance_script, f"governance-10-rounds.sh must reject release skip {skip}")
+
+execution = convergence_manifest.get("aiflowExecution") or {}
+require(execution.get("status") == "local-fallback", "convergence verification aiflowExecution.status must be local-fallback")
+require("fmt" in str(execution.get("blocker") or ""), "convergence verification aiflowExecution.blocker must document current aiflow compile blocker")
 
 if missing:
     print("governance boundary inventory check failed:", file=sys.stderr)

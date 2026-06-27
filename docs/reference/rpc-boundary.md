@@ -8,6 +8,9 @@ by framework preference.
 Machine-readable Tier 1 promotion evidence lives in
 `docs/reference/rpc-tier1-evidence.json` and is validated by
 `make rpc-boundary-check`.
+Each evidence row includes a `decisionBoundary` and `rollbackOrEscalation`
+entry so adopters can decide whether to use gofly RPC, `rpc/grpc`, or keep an
+existing Kitex/gRPC path for the workload.
 
 RPC latency ratchet policy lives in `bench/budget-ratchet.json`. RPC unary and
 stream rows are listed as promotion candidates, not blocking tracked rows, until

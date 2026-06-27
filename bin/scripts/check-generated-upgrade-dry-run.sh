@@ -101,6 +101,84 @@ required_fields = set(contract.get("requiredFields") or [])
 for field in ("profile", "repeatGeneration", "categories", "summary", "rollbackNote"):
     require(field in required_fields, f"diffReportContract.requiredFields missing {field!r}")
 
+goctl_policy = manifest.get("goctlGeneratorCompatibility") or {}
+require(
+    goctl_policy.get("source") == "docs/reference/goctl-generator-compatibility.json",
+    "goctlGeneratorCompatibility.source must point to docs/reference/goctl-generator-compatibility.json",
+)
+require(
+    goctl_policy.get("acceptanceGate") == "make goctl-generator-compat-check",
+    "goctlGeneratorCompatibility.acceptanceGate must be make goctl-generator-compat-check",
+)
+require(
+    len(str(goctl_policy.get("integrationPolicy") or "").split()) >= 10,
+    "goctlGeneratorCompatibility.integrationPolicy must explain upgrade dry-run integration",
+)
+require(
+    len(str(goctl_policy.get("rollbackOrEscalation") or "").split()) >= 10,
+    "goctlGeneratorCompatibility.rollbackOrEscalation must be actionable",
+)
+goctl_path = root / "docs" / "reference" / "goctl-generator-compatibility.json"
+if goctl_path.is_file():
+    goctl_manifest = json.loads(goctl_path.read_text(encoding="utf-8"))
+else:
+    goctl_manifest = {}
+    missing.append("docs/reference/goctl-generator-compatibility.json is missing")
+require(
+    goctl_manifest.get("schema") == "gofly.goctl_generator_compatibility.v1",
+    "goctl generator compatibility schema mismatch",
+)
+require(
+    goctl_manifest.get("acceptanceGate") == "make goctl-generator-compat-check",
+    "goctl generator compatibility acceptanceGate mismatch",
+)
+goctl_capabilities = {
+    item.get("id"): item
+    for item in goctl_manifest.get("capabilities") or []
+    if isinstance(item, dict) and item.get("id")
+}
+required_goctl_capabilities = set(goctl_policy.get("requiredCapabilities") or [])
+expected_goctl_capabilities = {
+    "gozero-compatible-profile",
+    "goctl-compatible-flags",
+    "api-tooling-compatibility",
+    "generated-version-fixtures",
+    "upgrade-diff-contract",
+    "route-layout-boundary",
+}
+require(
+    required_goctl_capabilities == expected_goctl_capabilities,
+    f"goctlGeneratorCompatibility.requiredCapabilities mismatch: {sorted(required_goctl_capabilities)!r}",
+)
+require(
+    required_goctl_capabilities <= set(goctl_capabilities),
+    f"goctl compatibility matrix missing required capabilities: {sorted(required_goctl_capabilities - set(goctl_capabilities))!r}",
+)
+for capability_id in required_goctl_capabilities:
+    capability = goctl_capabilities.get(capability_id) or {}
+    require(capability.get("status") == "implemented", f"goctl capability {capability_id} must be implemented")
+    require(bool(capability.get("gate")), f"goctl capability {capability_id} must include a gate")
+    require(bool(capability.get("rollbackNote")), f"goctl capability {capability_id} must include rollbackNote")
+required_goctl_boundaries = set(goctl_policy.get("requiredBoundaries") or [])
+goctl_boundaries = goctl_manifest.get("compatibilityBoundaries") or {}
+expected_goctl_boundaries = {
+    "noNewJSONEnvelopeFlags",
+    "apiRouteAndDiffFormatValidationUnchanged",
+    "positionalPluginAndMiddlewareNamesRemainNames",
+    "generatedProjectDependenciesStayInGeneratedGoMod",
+    "runtimeArtifactsRemainVolatile",
+}
+require(
+    required_goctl_boundaries == expected_goctl_boundaries,
+    f"goctlGeneratorCompatibility.requiredBoundaries mismatch: {sorted(required_goctl_boundaries)!r}",
+)
+for boundary in required_goctl_boundaries:
+    require(goctl_boundaries.get(boundary) is True, f"goctl compatibility boundary {boundary} must be true")
+require(
+    "make generated-upgrade-dry-run-check" in set(goctl_manifest.get("releaseGates") or []),
+    "goctl compatibility releaseGates must include make generated-upgrade-dry-run-check",
+)
+
 profiles = manifest.get("profiles") or []
 profile_names = {item.get("profile") for item in profiles if isinstance(item, dict)}
 require(profile_names == {"old", "current", "future"}, f"profiles mismatch: {sorted(profile_names)!r}")
@@ -240,6 +318,7 @@ steps = rehearsal.get("steps") or []
 required_step_ids = {
     "inventory-current-project",
     "regenerate-dry-run",
+    "goctl-compatibility-review",
     "dependency-boundary-review",
     "release-evidence-review",
     "adopter-smoke-and-rollback",

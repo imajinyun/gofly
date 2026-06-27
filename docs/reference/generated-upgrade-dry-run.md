@@ -39,6 +39,13 @@ not change `api route` or `api diff` format validation semantics, keep plugin
 and middleware positional arguments as names, and keep generated project
 dependencies out of the root module.
 
+The upgrade dry-run manifest embeds this matrix through the
+`goctlGeneratorCompatibility` section. That section makes the goctl-compatible
+surface part of the upgrade rehearsal rather than a standalone checklist: a
+dry-run must fail when the `gozero-compatible` profile, goctl-style flags, API
+tooling, route layout, generated-version fixtures, or generated dependency
+boundaries drift from the compatibility matrix.
+
 ## Fixture Profiles
 
 | Profile | API | Proto | Service config | Plugin profile | Snapshot expectation |
@@ -117,6 +124,7 @@ machine-checkable steps:
 | --- | --- | --- |
 | `inventory-current-project` | baseline | `make generated-version-compat-check` |
 | `regenerate-dry-run` | generation | `make generated-upgrade-dry-run-check` |
+| `goctl-compatibility-review` | generation | `make goctl-generator-compat-check` |
 | `dependency-boundary-review` | dependency | `make dependency-upgrade-evidence-check` |
 | `release-evidence-review` | release | `make governance-report-check` |
 | `adopter-smoke-and-rollback` | verification | `make framework-gap-check` |

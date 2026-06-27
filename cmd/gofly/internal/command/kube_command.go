@@ -20,8 +20,7 @@ func kubeCommand(args []string) error {
 	fs := flag.NewFlagSet("kube", flag.ContinueOnError)
 	name := fs.String("name", "", "service name")
 	dir := fs.String("dir", ".", "output directory")
-	output := fs.String("output", "", "output yaml path")
-	o := fs.String("o", "", "output yaml path")
+	output := registerOutputPathFlags(fs, "output yaml path")
 	namespace := fs.String("namespace", "default", "kubernetes namespace")
 	image := fs.String("image", "", "container image")
 	secret := fs.String("secret", "", "image pull secret name")
@@ -49,9 +48,6 @@ func kubeCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	if *output == "" {
-		*output = *o
-	}
 	if *name == "" {
 		*name = leadingName
 	}
@@ -62,7 +58,7 @@ func kubeCommand(args []string) error {
 	return generator.GenerateKube(generator.KubeOptions{
 		Name:            *name,
 		Dir:             *dir,
-		Output:          *output,
+		Output:          output.resolve(),
 		Kind:            kind,
 		Namespace:       *namespace,
 		Image:           *image,

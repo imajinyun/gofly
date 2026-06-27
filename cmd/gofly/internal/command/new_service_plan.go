@@ -149,6 +149,18 @@ func (o newScaffoldPlanOutput) printPlan(forceJSON bool) error {
 	return printCLIPlan(o.Command, plan, forceJSON)
 }
 
+func (o newScaffoldPlanOutput) printDryRunPlan(forceJSON bool, validateContracts bool) error {
+	if err := validateNewServicePlanInputs(o.Config); err != nil {
+		return err
+	}
+	if validateContracts {
+		if err := validateNewServiceContractInputs(o.Contracts); err != nil {
+			return err
+		}
+	}
+	return o.printPlan(forceJSON)
+}
+
 func (o newScaffoldPlanOutput) printResult() error {
 	plan := buildNewServicePlan(o.DisplayName, o.Dir, o.ConfigPath, o.Config, o.Plugins, o.Contracts, o.SaveConfig, false)
 	return printJSONEnvelope(o.Command, plan)

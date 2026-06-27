@@ -114,10 +114,7 @@ func apiNewCommand(args []string) error {
 	}
 	output := newScaffoldPlanOutputFor("new.api", "new api", *dir, resolved, cfg, plugins, newServiceContractInputs{}, *saveConfig)
 	if *dryRun || *plan {
-		if err := validateNewServicePlanInputs(cfg); err != nil {
-			return err
-		}
-		return output.printPlan(*jsonOut)
+		return output.printDryRunPlan(*jsonOut, false)
 	}
 	if err := generateNewAPIScaffold(cfg, newAPIScaffoldOptions{
 		Dir:             *dir,

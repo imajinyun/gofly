@@ -13,8 +13,7 @@ import (
 func apiFormatCommand(args []string) error {
 	leadingFile, args := splitLeadingName(args)
 	fs := flag.NewFlagSet("api format", flag.ContinueOnError)
-	file := fs.String("file", "", "api file")
-	api := fs.String("api", "", "api file")
+	file := registerAPIFileFlags(fs, "api file")
 	dir := fs.String("dir", "", "directory containing .api files")
 	output := registerOutputPathFlags(fs, "formatted output file")
 	write := fs.Bool("write", true, "write result to source file")
@@ -53,15 +52,8 @@ func apiFormatCommand(args []string) error {
 		cliOutput(string(formatted))
 		return nil
 	}
-	if *file == "" {
-		*file = *api
-	}
-	if *file == "" {
-		*file = leadingFile
-	}
-	fillNameFromArgs(file, remaining)
 	formatted, err := generator.FormatAPIFromFile(generator.APIFormatOptions{
-		APIFile: *file,
+		APIFile: file.resolve(leadingFile, remaining),
 		Dir:     *dir,
 		Output:  outputPath,
 		Write:   *write,

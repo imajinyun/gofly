@@ -96,6 +96,10 @@ test-generated-matrix: ## Verify generated project templates and service contrac
 generated-output-governance: ## Verify generated output determinism, path safety, and dependency placement
 	sh $(SCRIPTS_DIR)/check-generated-output-governance.sh
 
+.PHONY: code-generation-governance-check
+code-generation-governance-check: ## Validate code-generation surfaces, risks, tests, and dry-run gates
+	sh $(SCRIPTS_DIR)/check-code-generation-governance.sh
+
 .PHONY: generated-control-plane-smoke
 generated-control-plane-smoke: ## Run generated REST service runtime control-plane smoke without the full governance matrix
 	GOVERNANCE_ONLY_GENERATED_CONTROL_PLANE_SMOKE=true GO="$(GO)" sh $(SCRIPTS_DIR)/governance-10-rounds.sh
@@ -345,7 +349,7 @@ contract-docs-check: stable-surface-check generated-version-compat-check generat
 	sh $(SCRIPTS_DIR)/check-contract-docs.sh
 
 .PHONY: generated-upgrade-dry-run-check
-generated-upgrade-dry-run-check: generated-output-governance ## Validate generated upgrade dry-run manifest and diff report contract
+generated-upgrade-dry-run-check: generated-output-governance code-generation-governance-check ## Validate generated upgrade dry-run manifest and diff report contract
 	sh $(SCRIPTS_DIR)/check-generated-upgrade-dry-run.sh
 
 .PHONY: dx-troubleshooting-check

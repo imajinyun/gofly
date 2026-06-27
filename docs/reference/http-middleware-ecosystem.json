@@ -3,6 +3,16 @@
   "status": "blocking",
   "blockingGate": "make p1-growth-check",
   "smokeGate": "make examples-smoke",
+  "migrationPolicy": {
+    "referenceFrameworks": [
+      "Gin",
+      "go-zero"
+    ],
+    "adopterAction": "Use the middleware matrix as the migration checklist before switching HTTP traffic from Gin or go-zero services.",
+    "openAPIVisibilityRequired": true,
+    "controlPlaneVisibilityRequired": true,
+    "rollbackOrEscalation": "Keep the existing Gin or go-zero middleware chain active until JWT, CORS, CSRF, session, Prometheus, OpenTelemetry, SSE, WebSocket, OpenAPI, and smoke gates pass locally."
+  },
   "exampleModules": [
     "examples/middlewares",
     "examples/middleware-demo",
@@ -25,6 +35,14 @@
         "go test -C examples/http-middleware ./...",
         "go test -C examples/middlewares ./..."
       ],
+      "migration": {
+        "from": [
+          "Gin auth middleware",
+          "go-zero JWT middleware"
+        ],
+        "adopterAction": "Map bearer token validation to rest.BearerAuthMiddleware and expose the secured route in OpenAPI before switching traffic.",
+        "rollbackOrEscalation": "Keep the previous auth middleware chain active when JWT validation, OpenAPI security metadata, or smoke tests fail."
+      },
       "evidenceRefs": [
         {
           "path": "examples/http-middleware/main_test.go",
@@ -59,6 +77,14 @@
         "go test -C examples/http-middleware ./...",
         "go test -C examples/middlewares ./..."
       ],
+      "migration": {
+        "from": [
+          "Gin CORS middleware",
+          "go-zero CORS middleware"
+        ],
+        "adopterAction": "Port allowed origins, headers, methods, credentials, and exposed headers into rest.CORSConfig before switching browser traffic.",
+        "rollbackOrEscalation": "Keep the previous CORS layer when preflight headers or credential behavior diverge from production samples."
+      },
       "evidenceRefs": [
         {
           "path": "examples/http-middleware/main_test.go",
@@ -92,6 +118,14 @@
         "go test -C examples/http-middleware ./...",
         "go test -C examples/middlewares ./..."
       ],
+      "migration": {
+        "from": [
+          "Gin CSRF middleware",
+          "go-zero custom CSRF middleware"
+        ],
+        "adopterAction": "Port token cookie, header, TTL, SameSite, Secure, and HttpOnly policy into rest.CSRFConfig before enabling state-changing routes.",
+        "rollbackOrEscalation": "Keep the previous CSRF layer when token issuance, validation, or browser cookie policy fails smoke coverage."
+      },
       "evidenceRefs": [
         {
           "path": "examples/http-middleware/main_test.go",
@@ -123,6 +157,14 @@
       "smokeGates": [
         "go test -C examples/http-middleware ./..."
       ],
+      "migration": {
+        "from": [
+          "Gin session middleware",
+          "go-zero custom session middleware"
+        ],
+        "adopterAction": "Keep signed session cookies HttpOnly and SameSite, then expose session-dependent route behavior in middleware smoke tests.",
+        "rollbackOrEscalation": "Keep the previous session implementation when cookie signing, renewal, or route session propagation differs from production."
+      },
       "evidenceRefs": [
         {
           "path": "examples/http-middleware/main.go",
@@ -158,6 +200,14 @@
         "go test -C examples/http-middleware ./...",
         "go test -C examples/middlewares ./..."
       ],
+      "migration": {
+        "from": [
+          "Gin Prometheus middleware",
+          "go-zero prometheus handler"
+        ],
+        "adopterAction": "Expose request counters and latency metrics on /metrics and keep scrape labels low-cardinality before replacing existing metrics middleware.",
+        "rollbackOrEscalation": "Keep the previous metrics endpoint when Prometheus output, route labels, or smoke checks drift."
+      },
       "evidenceRefs": [
         {
           "path": "examples/http-middleware/main_test.go",
@@ -192,6 +242,14 @@
         "go test -C examples/http-middleware ./...",
         "go test -C examples/middlewares ./..."
       ],
+      "migration": {
+        "from": [
+          "Gin OpenTelemetry middleware",
+          "go-zero tracing middleware"
+        ],
+        "adopterAction": "Propagate traceparent headers through the gofly middleware chain and verify OpenAPI/catalog exposure before traffic shift.",
+        "rollbackOrEscalation": "Keep the previous tracing middleware when trace propagation or span labeling differs from production samples."
+      },
       "evidenceRefs": [
         {
           "path": "examples/http-middleware/main_test.go",
@@ -226,6 +284,14 @@
         "go test -C examples/http-middleware ./...",
         "go test -C examples/middlewares ./..."
       ],
+      "migration": {
+        "from": [
+          "Gin SSE handlers",
+          "go-zero streaming handlers"
+        ],
+        "adopterAction": "Verify text/event-stream headers, request correlation, and cancellation behavior before moving event streams to gofly.",
+        "rollbackOrEscalation": "Keep the previous SSE endpoint when stream headers, event IDs, or cancellation behavior fails smoke coverage."
+      },
       "evidenceRefs": [
         {
           "path": "examples/http-middleware/main.go",
@@ -260,6 +326,14 @@
         "go test -C examples/http-middleware ./...",
         "go test -C examples/middlewares ./..."
       ],
+      "migration": {
+        "from": [
+          "Gin WebSocket handlers",
+          "go-zero custom WebSocket handlers"
+        ],
+        "adopterAction": "Verify upgrade handling, message-size bounds, timeouts, and manager stats before replacing existing WebSocket routes.",
+        "rollbackOrEscalation": "Keep the previous WebSocket endpoint when upgrade behavior, bounds, or connection stats diverge."
+      },
       "evidenceRefs": [
         {
           "path": "examples/http-middleware/main.go",

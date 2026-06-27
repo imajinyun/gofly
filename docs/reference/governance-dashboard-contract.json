@@ -8,6 +8,9 @@
     "apiSurface.tiers",
     "benchmark.regressionGate",
     "benchmark.regressionReport",
+    "benchmark.trendSummaryStatus",
+    "benchmark.surfacePolicy.surfaceCount",
+    "benchmark.surfacePolicy.statusCounts",
     "coverage.ratchet",
     "coverageTrend.policy.blockingGate",
     "security.gosec.blockingGate",
@@ -45,7 +48,8 @@
       "trackedBenchmarks",
       "latencyPolicy",
       "allocationPolicy",
-      "rpcPolicy"
+      "rpcPolicy",
+      "surfacePolicy"
     ]
   },
   "coverage": {

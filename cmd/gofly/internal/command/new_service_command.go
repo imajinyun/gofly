@@ -52,8 +52,8 @@ func serviceNewCommand(args []string) error {
 		ThriftFile:  *thriftFile,
 	}
 	output := newScaffoldPlanOutputFromContext("new.service", "new service", baseFlags, loadCtx, contractInputs, executionFlags)
-	if *executionFlags.DryRun || *executionFlags.Plan {
-		return output.printDryRunPlan(*executionFlags.JSON, true)
+	if handled, err := output.maybePrintDryRunPlan(executionFlags, true); handled || err != nil {
+		return err
 	}
 	if err := generateNewServiceScaffold(cfg, newServiceScaffoldOptions{
 		Dir:     *baseFlags.Dir,

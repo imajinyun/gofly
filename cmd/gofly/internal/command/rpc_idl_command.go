@@ -13,7 +13,7 @@ func rpcIDLCommand(args []string) error {
 	fs := flag.NewFlagSet("rpc idl", flag.ContinueOnError)
 	file := fs.String("file", "", "proto or thrift idl file")
 	src := fs.String("src", "", "proto or thrift idl file")
-	formatName := fs.String("format", "text", "output format: text or json")
+	formatName := registerCLIFormatFlag(fs, outputText, "output format: text or json")
 	remaining, err := parseInterspersedFlags(fs, args)
 	if err != nil {
 		return err

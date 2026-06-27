@@ -69,6 +69,54 @@
     "requiresDryRun": true,
     "requiresRationale": true
   },
+  "protocolCompatibility": [
+    {
+      "case": "old protocol",
+      "compatibleVersions": [
+        "0"
+      ],
+      "accepted": false,
+      "publisherAction": "Do not publish old-protocol-only plugins for a protocol 1 host.",
+      "rollbackOrEscalation": "Pin the previous plugin release or upgrade the plugin manifest to include protocol 1 before install."
+    },
+    {
+      "case": "current protocol",
+      "compatibleVersions": [
+        "1"
+      ],
+      "accepted": true,
+      "publisherAction": "Publish only after registry checksum, manifest permissions, and dry-run evidence pass.",
+      "rollbackOrEscalation": "Disable the plugin release if digest, permission, or dry-run evidence regresses."
+    },
+    {
+      "case": "future-plus-current protocol",
+      "compatibleVersions": [
+        "2",
+        "1"
+      ],
+      "accepted": true,
+      "publisherAction": "Select protocol 1 behavior until the host upgrades to the future protocol.",
+      "rollbackOrEscalation": "Keep the current protocol path active when future-only behavior is not understood by the host."
+    },
+    {
+      "case": "future protocol",
+      "compatibleVersions": [
+        "2"
+      ],
+      "accepted": false,
+      "publisherAction": "Block publication for hosts that do not negotiate the future protocol.",
+      "rollbackOrEscalation": "Require a host upgrade or republish with current protocol compatibility before enabling the plugin."
+    }
+  ],
+  "failureIsolationPolicy": {
+    "maliciousPathRejected": true,
+    "digestMismatchRejected": true,
+    "permissionEscapeRejected": true,
+    "partialWritesRejected": true,
+    "reportField": "failure isolation",
+    "publisherAction": "Treat rejected conformance cases as publish blockers and attach the JSON conformance report to release notes.",
+    "rollbackOrEscalation": "Disable or pin the previous plugin release when any failure-isolation case regresses."
+  },
   "publishingCommands": [
     "make plugin-conformance-check",
     "go test -C examples/plugin-ecosystem ./...",

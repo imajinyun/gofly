@@ -35,6 +35,10 @@ contract. It requires a permission-review rationale, least-privilege
 metadata, digest and signature provenance, compatibility evidence, and failure
 isolation evidence that rejects malicious paths, digest mismatch, permission
 escape, and partial writes.
+The same manifest records `protocolCompatibility` for old, current,
+future-plus-current, and future-only plugins, plus a `failureIsolationPolicy`
+that makes malicious path, digest mismatch, permission escape, and partial
+writes publish blockers with rollback or escalation guidance.
 
 ## Required cases
 

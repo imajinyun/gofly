@@ -112,6 +112,37 @@ if permission_review.get("requiresDryRun") is not True:
 if permission_review.get("requiresRationale") is not True:
     missing.append("docs/reference/plugin-publishing-ux.json: permissionReview.requiresRationale must be true")
 
+compatibility = manifest.get("protocolCompatibility") or []
+compatibility_by_case = {item.get("case"): item for item in compatibility if isinstance(item, dict)}
+expected_compatibility = {
+    "old protocol": (False, {"0"}),
+    "current protocol": (True, {"1"}),
+    "future-plus-current protocol": (True, {"1", "2"}),
+    "future protocol": (False, {"2"}),
+}
+for case, (accepted, versions) in expected_compatibility.items():
+    item = compatibility_by_case.get(case)
+    if not item:
+        missing.append(f"docs/reference/plugin-publishing-ux.json: protocolCompatibility missing {case!r}")
+        continue
+    if item.get("accepted") is not accepted:
+        missing.append(f"docs/reference/plugin-publishing-ux.json: protocolCompatibility {case!r} accepted must be {accepted}")
+    if set(item.get("compatibleVersions") or []) != versions:
+        missing.append(f"docs/reference/plugin-publishing-ux.json: protocolCompatibility {case!r} compatibleVersions mismatch")
+    for field in ("publisherAction", "rollbackOrEscalation"):
+        if len(str(item.get(field) or "").split()) < 8:
+            missing.append(f"docs/reference/plugin-publishing-ux.json: protocolCompatibility {case!r} {field} must be actionable")
+
+failure_policy = manifest.get("failureIsolationPolicy") or {}
+for field in ("maliciousPathRejected", "digestMismatchRejected", "permissionEscapeRejected", "partialWritesRejected"):
+    if failure_policy.get(field) is not True:
+        missing.append(f"docs/reference/plugin-publishing-ux.json: failureIsolationPolicy.{field} must be true")
+if failure_policy.get("reportField") != "failure isolation":
+    missing.append("docs/reference/plugin-publishing-ux.json: failureIsolationPolicy.reportField must be failure isolation")
+for field in ("publisherAction", "rollbackOrEscalation"):
+    if len(str(failure_policy.get(field) or "").split()) < 8:
+        missing.append(f"docs/reference/plugin-publishing-ux.json: failureIsolationPolicy.{field} must be actionable")
+
 expected_checklist = {
     "permission-review": {"manifest.permissions", "permissionReview.rationale", "permissionReview.leastPrivilege"},
     "registry-publishing": {"registry.checksum", "registry.source", "registry.protocol", "registry.manifest"},

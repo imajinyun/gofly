@@ -112,16 +112,7 @@ func apiNewCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	output := newScaffoldPlanOutput{
-		Command:     "new.api",
-		DisplayName: "new api",
-		Dir:         *dir,
-		ConfigPath:  resolved,
-		Config:      cfg,
-		Plugins:     plugins,
-		Contracts:   newServiceContractInputs{},
-		SaveConfig:  *saveConfig,
-	}
+	output := newScaffoldPlanOutputFor("new.api", "new api", *dir, resolved, cfg, plugins, newServiceContractInputs{}, *saveConfig)
 	if *dryRun || *plan {
 		if err := validateNewServicePlanInputs(cfg); err != nil {
 			return err

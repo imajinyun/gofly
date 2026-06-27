@@ -66,8 +66,5 @@ func serviceNewCommand(args []string) error {
 	if err := applyNewServiceContractInputs(contractInputs, cfg.ServiceName, *baseFlags.Dir); err != nil {
 		return err
 	}
-	if err := saveNewScaffoldConfig(*executionFlags.SaveConfig, resolved, cfg); err != nil {
-		return err
-	}
-	return output.printResultWhenRequested(*executionFlags.JSON)
+	return output.finalize(*executionFlags.SaveConfig, cfg, *executionFlags.JSON)
 }

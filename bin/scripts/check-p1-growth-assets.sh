@@ -288,6 +288,12 @@ require(middleware_manifest.get('schema') == 'gofly.http_middleware_ecosystem.v1
 require(middleware_manifest.get('status') == 'blocking', 'HTTP middleware ecosystem status must be blocking')
 require(middleware_manifest.get('blockingGate') == 'make p1-growth-check', 'HTTP middleware ecosystem blocking gate must be make p1-growth-check')
 require(middleware_manifest.get('smokeGate') == 'make examples-smoke', 'HTTP middleware ecosystem smoke gate must be make examples-smoke')
+middleware_policy = middleware_manifest.get('migrationPolicy') or {}
+require(set(middleware_policy.get('referenceFrameworks') or []) == {'Gin', 'go-zero'}, 'HTTP middleware migration policy must reference Gin and go-zero')
+require(middleware_policy.get('openAPIVisibilityRequired') is True, 'HTTP middleware migration policy must require OpenAPI visibility')
+require(middleware_policy.get('controlPlaneVisibilityRequired') is True, 'HTTP middleware migration policy must require control-plane visibility')
+for field in ('adopterAction', 'rollbackOrEscalation'):
+    require(len(str(middleware_policy.get(field) or '').split()) >= 10, f'HTTP middleware migration policy {field} must be actionable')
 
 modules = set(middleware_manifest.get('exampleModules') or [])
 for module in ('examples/middlewares', 'examples/middleware-demo', 'examples/http-middleware'):
@@ -305,6 +311,11 @@ for item in capabilities:
     item_id = item.get('id', '<missing>')
     for field in ('id', 'name', 'category', 'ownerDocs', 'examples', 'smokeGates', 'evidenceRefs'):
         require(item.get(field) not in ('', None, []), f'HTTP middleware capability {item_id}: {field} is required')
+    migration = item.get('migration') or {}
+    require(set(migration.get('from') or []) & {'Gin auth middleware', 'Gin CORS middleware', 'Gin CSRF middleware', 'Gin session middleware', 'Gin Prometheus middleware', 'Gin OpenTelemetry middleware', 'Gin SSE handlers', 'Gin WebSocket handlers'}, f'HTTP middleware capability {item_id}: migration.from must include a Gin source')
+    require(any('go-zero' in source for source in migration.get('from') or []), f'HTTP middleware capability {item_id}: migration.from must include a go-zero source')
+    for field in ('adopterAction', 'rollbackOrEscalation'):
+        require(len(str(migration.get(field) or '').split()) >= 8, f'HTTP middleware capability {item_id}: migration.{field} must be actionable')
     for doc in item.get('ownerDocs') or []:
         require((root / doc).is_file(), f'HTTP middleware capability {item_id}: owner doc missing: {doc}')
     for example in item.get('examples') or []:

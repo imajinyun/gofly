@@ -12,8 +12,7 @@ import (
 func rpcProtocCommand(args []string) error {
 	leadingFile, args := splitLeadingName(args)
 	fs := flag.NewFlagSet("rpc protoc", flag.ContinueOnError)
-	file := fs.String("file", "", "proto file")
-	src := fs.String("src", "", "proto file")
+	file := registerIDLFileFlags(fs, "proto file")
 	dir := fs.String("dir", ".", "output directory")
 	protoPath := fs.String("proto_path", ".", "comma-separated proto include paths")
 	protoPathAlias := fs.String("proto-path", "", "comma-separated proto include paths")
@@ -69,13 +68,8 @@ func rpcProtocCommand(args []string) error {
 	if len(externalPlugins) > 0 {
 		warnNoopFlag("rpc protoc", "plugin", "external protoc plugins are not invoked by the compatibility wrapper yet")
 	}
-	if *file == "" {
-		*file = *src
-	}
-	if *file == "" {
-		*file = leadingFile
-	}
-	if *file == "" {
+	protoFile := file.resolve(leadingFile, remaining)
+	if protoFile == "" {
 		return fmt.Errorf("%w: proto file is required", errUsage)
 	}
 	if *timeout <= 0 {
@@ -96,7 +90,6 @@ func rpcProtocCommand(args []string) error {
 	if *goGRPCOut == "" {
 		*goGRPCOut = *dir
 	}
-	fillNameFromArgs(file, remaining)
 	extraArgs := splitCSV(*extra)
 	if *goOpt != "" {
 		extraArgs = append(extraArgs, "--go_opt="+*goOpt)
@@ -108,7 +101,7 @@ func rpcProtocCommand(args []string) error {
 		extraArgs = append(extraArgs, "--go-grpc_opt="+*goGRPCOptUnderscore)
 	}
 	if *verbose || *v {
-		errorf("[gofly] rpc protoc: proto=%s go_out=%s go-grpc_out=%s proto_path=%s\n", *file, *goOut, *goGRPCOut, *protoPath)
+		errorf("[gofly] rpc protoc: proto=%s go_out=%s go-grpc_out=%s proto_path=%s\n", protoFile, *goOut, *goGRPCOut, *protoPath)
 	}
 	goflyPluginOptions := buildGoflyProtocPluginOptions(useGoflyPlugin, goflyProtocPluginConfig{
 		Dir:              *dir,
@@ -124,7 +117,7 @@ func rpcProtocCommand(args []string) error {
 	}
 	sp.Start("running protoc...")
 	err = generator.GenerateStandardProto(context.Background(), generator.ProtocOptions{
-		ProtoFile:    *file,
+		ProtoFile:    protoFile,
 		ProtoPath:    splitCSV(*protoPath),
 		GoOut:        *goOut,
 		GoGRPCOut:    *goGRPCOut,

@@ -323,6 +323,10 @@ func DeduplicateSnapshotEvents(ctx context.Context, in <-chan SnapshotEvent) <-c
 		ctx = context.Background()
 	}
 	out := make(chan SnapshotEvent)
+	if in == nil {
+		close(out)
+		return out
+	}
 	go func() {
 		defer close(out)
 		lastChecksum := ""

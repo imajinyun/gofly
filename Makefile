@@ -225,6 +225,10 @@ ci-required-check-evidence-check: ## Validate CI required-check evidence artifac
 runtime-slo-check: ## Validate runtime SLO and golden-signal evidence
 	sh $(SCRIPTS_DIR)/check-runtime-slo.sh
 
+.PHONY: governance-boundary-inventory-check
+governance-boundary-inventory-check: ## Validate 10-round governance boundary inventory and aiflow task map
+	sh $(SCRIPTS_DIR)/check-governance-boundary-inventory.sh
+
 .PHONY: framework-gap-check
 framework-gap-check: ## Validate framework gap matrix and executable TODO roadmap
 	sh $(SCRIPTS_DIR)/check-framework-gap.sh
@@ -464,7 +468,7 @@ supply-chain: actionlint shellcheck release-artifacts-test api-compat-test osv-s
 governance: governance-10-rounds api-compat ## Run governance gates
 
 .PHONY: governance-10-rounds
-governance-10-rounds: ## Run the no-cache architecture and quality governance workflow
+governance-10-rounds: governance-boundary-inventory-check ## Run the no-cache architecture and quality governance workflow
 	COVERAGE_THRESHOLD=$(COVERAGE_THRESHOLD) COVERAGE_RATCHET=$(COVERAGE_RATCHET) sh $(SCRIPTS_DIR)/governance-10-rounds.sh
 
 .PHONY: security

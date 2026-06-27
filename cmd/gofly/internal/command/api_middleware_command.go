@@ -13,8 +13,7 @@ func apiMiddlewareCommand(args []string) error {
 	leadingNames, args := splitLeadingNames(args)
 	fs := flag.NewFlagSet("api middleware", flag.ContinueOnError)
 	name := fs.String("name", "", "middleware name, comma-separated for multiple middlewares")
-	api := fs.String("api", "", "api file to discover middleware declarations")
-	file := fs.String("file", "", "api file, alias for --api")
+	api := registerAPIFileFlags(fs, "api file to discover middleware declarations")
 	dir := fs.String("dir", ".", "service root directory")
 	remaining, err := parseInterspersedFlags(fs, args)
 	if err != nil {
@@ -24,9 +23,7 @@ func apiMiddlewareCommand(args []string) error {
 		*name = strings.Join(leadingNames, ",")
 	}
 	fillNameFromArgs(name, remaining)
-	if *api == "" {
-		*api = *file
-	}
+	apiFile := api.resolve("", nil)
 	names := splitCSV(*name)
 	switch {
 	case len(leadingNames) > 0:
@@ -36,8 +33,8 @@ func apiMiddlewareCommand(args []string) error {
 	case *name == "":
 		names = append(names, remaining...)
 	}
-	if *api != "" {
-		apiNames, err := apiMiddlewareNames(*api)
+	if apiFile != "" {
+		apiNames, err := apiMiddlewareNames(apiFile)
 		if err != nil {
 			return err
 		}

@@ -51,6 +51,12 @@ a specific row. The promotion criteria require stable baseline samples, current
 trend samples, no allocation regression, and a Kitex rollback note for
 latency-critical methods.
 
+The same ratchet file also lists performance claim boundaries in
+`surfacePolicy`. REST route and governance rule-match rows have concrete
+benchmark evidence; RPC unary is still a candidate; gateway proxy and cache hot
+path are explicitly `unsupported-report-only` because this workspace does not
+yet publish dedicated benchmark rows for them.
+
 Kitex is optional. Downstream services that already carry generated Kitex fixtures can add a `kitex` sub-benchmark under `BenchmarkRPCUnary` without making Kitex a required root dependency for every gofly checkout.
 
 ## Local reproduction

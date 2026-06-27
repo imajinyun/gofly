@@ -37,6 +37,7 @@ checks = {
         "allocationPolicy.blocking must be true",
         "latencyPolicy.defaultMode must remain report-only",
         "RPC candidate must not enter trackedBenchmarks before promotion",
+        "surfacePolicy missing required surface",
         "BenchmarkHTTPHello",
         "BenchmarkHTTPPathParams",
         "BenchmarkHTTPJSONBinding",
@@ -52,6 +53,10 @@ checks = {
         "requiredBlockingGate",
         "rollbackGuidance",
         "currentBlocker",
+        "surfacePolicy",
+        "unsupported-report-only",
+        "gateway-proxy",
+        "cache-hot-path",
     ],
 }
 

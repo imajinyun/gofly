@@ -50,6 +50,13 @@ declare at least five baseline samples and a promotion reason, and RPC
 candidates to remain out of `trackedBenchmarks` until their promotion criteria
 are met.
 
+The ratchet also carries a `surfacePolicy` section so unsupported performance
+claims stay machine-visible. REST route dispatch is allocation-blocking but
+latency report-only, governance rule matching has selected latency and
+allocation blocking rows, RPC unary remains a candidate, and gateway proxy plus
+cache hot path stay `unsupported-report-only` until `bench/` publishes dedicated
+baseline/current rows with enough samples to promote.
+
 Run:
 
 ```sh

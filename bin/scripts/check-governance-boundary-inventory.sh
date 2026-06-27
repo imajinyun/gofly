@@ -10,6 +10,7 @@ import sys
 root = pathlib.Path(".").resolve()
 manifest_path = root / "docs" / "reference" / "governance-boundary-inventory.json"
 convergence_path = root / "docs" / "reference" / "governance-convergence-verification.json"
+p10_path = root / "docs" / "reference" / "governance-p10-roadmap.json"
 missing = []
 
 expected_active_batch = "GOFLY-GOV-10R4"
@@ -110,6 +111,11 @@ if convergence_path.is_file():
 else:
     convergence_manifest = {}
     missing.append("docs/reference/governance-convergence-verification.json is missing")
+if p10_path.is_file():
+    p10_manifest = json.loads(p10_path.read_text(encoding="utf-8"))
+else:
+    p10_manifest = {}
+    missing.append("docs/reference/governance-p10-roadmap.json is missing")
 
 makefile = read_text(root / "Makefile")
 gitignore = read_text(root / ".gitignore")
@@ -117,6 +123,7 @@ governance_script = read_text(root / "bin" / "scripts" / "governance-10-rounds.s
 targets = make_target_names(makefile)
 
 require(manifest.get("schema") == "gofly.governance_boundary_inventory.v1", "schema must be gofly.governance_boundary_inventory.v1")
+require(p10_manifest.get("schema") == "gofly.governance_p10_roadmap.v1", "P10 roadmap schema mismatch")
 require(manifest.get("activeAiflowBatch") == expected_active_batch, f"activeAiflowBatch must be {expected_active_batch}")
 require("governance-boundary-inventory-check" in targets, "Makefile must expose governance-boundary-inventory-check")
 require("api-contract-check" in targets, "Makefile must expose api-contract-check")
@@ -237,6 +244,42 @@ execution = convergence_manifest.get("aiflowExecution") or {}
 require(execution.get("status") == "completed", "convergence verification aiflowExecution.status must be completed")
 require(execution.get("blocker") == "none", "convergence verification aiflowExecution.blocker must be none")
 require("commit and push" in str(execution.get("goflyImpact") or ""), "convergence verification aiflowExecution.goflyImpact must document aiflow commit policy")
+
+p10_rounds = p10_manifest.get("rounds") or []
+require(len(p10_rounds) == 10, "P10 roadmap must contain 10 rounds")
+actual_p10_ids = [
+    item.get("id")
+    for item in p10_rounds
+    if isinstance(item, dict)
+]
+expected_p10_ids = [
+    "GOFLY-P10-1-RPC-TIER1-CLOSEOUT",
+    "GOFLY-P10-2-GOCTL-GENERATOR-FIDELITY",
+    "GOFLY-P10-3-STORAGE-CACHE-PRODUCTIZATION",
+    "GOFLY-P10-4-REST-MIDDLEWARE-ECOSYSTEM-MATRIX",
+    "GOFLY-P10-5-DISCOVERY-ADAPTER-MATRIX",
+    "GOFLY-P10-6-AI_NATIVE_SUPPORT_BUNDLE",
+    "GOFLY-P10-7-PERFORMANCE-BUDGET-RATCHET",
+    "GOFLY-P10-8-CLOUD-NATIVE-ADOPTION-PROOF",
+    "GOFLY-P10-9-RELEASE-DASHBOARD-CONSUMPTION",
+    "GOFLY-P10-10-CONVERGENCE-REPORT",
+]
+require(actual_p10_ids == expected_p10_ids, f"P10 roadmap ids mismatch: {actual_p10_ids!r}")
+submission = p10_manifest.get("aiflowSubmission") or {}
+require(submission.get("status") in {"submitted", "blocked"}, "P10 aiflowSubmission.status must be submitted or blocked")
+if submission.get("status") == "blocked":
+    require(bool(submission.get("blockedBy")), "P10 blocked submission must include blockedBy")
+    require("aiflow" in str(submission.get("safetyPolicy") or ""), "P10 blocked submission must include safetyPolicy")
+for expected_round, item in enumerate(p10_rounds, start=1):
+    if not isinstance(item, dict):
+        missing.append(f"P10 roadmap round must be an object: {item!r}")
+        continue
+    item_id = item.get("id", "<missing>")
+    require(item.get("round") == expected_round, f"{item_id}: round must be {expected_round}")
+    for field in ("id", "status", "title", "objective", "acceptanceGate", "commitPolicy"):
+        require(bool(item.get(field)), f"{item_id}: {field} is required")
+    require(gate_is_known(item.get("acceptanceGate", ""), targets), f"{item_id}: acceptanceGate is not known: {item.get('acceptanceGate')!r}")
+    require("commit" in item.get("commitPolicy", "").lower(), f"{item_id}: commitPolicy must mention commit")
 
 if missing:
     print("governance boundary inventory check failed:", file=sys.stderr)

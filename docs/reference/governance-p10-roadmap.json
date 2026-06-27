@@ -1,0 +1,121 @@
+{
+  "schema": "gofly.governance_p10_roadmap.v1",
+  "purpose": "Plan the next 10 aiflow-driven governance rounds after GOFLY-GOV-10R4 convergence.",
+  "sourceEvidence": [
+    "docs/reference/framework-gap-next-wave.json",
+    "docs/reference/framework-gap-matrix.json",
+    "docs/reference/governance-convergence-verification.json",
+    "go run ./cmd/aiflow status -root /Users/bytedance/Codes/go/src/github/gofly"
+  ],
+  "aiflowSubmission": {
+    "status": "blocked",
+    "blockedBy": "Adjacent aiflow checkout does not compile because harness/policy.go imports strings without use.",
+    "safetyPolicy": "Do not edit the adjacent aiflow repository without explicit permission because it is outside the gofly writable root and has unrelated dirty files.",
+    "existingQueuedRounds": [
+      "GOFLY-P10-1-RPC-TIER1-CLOSEOUT",
+      "GOFLY-P10-2-GOCTL-GENERATOR-FIDELITY",
+      "GOFLY-P10-3-STORAGE-CACHE-PRODUCTIZATION",
+      "GOFLY-P10-4-REST-MIDDLEWARE-ECOSYSTEM-MATRIX",
+      "GOFLY-P10-5-DISCOVERY-ADAPTER-MATRIX",
+      "GOFLY-P10-6-AI_NATIVE_SUPPORT_BUNDLE",
+      "GOFLY-P10-7-PERFORMANCE-BUDGET-RATCHET"
+    ],
+    "pendingSubmissionRounds": [
+      "GOFLY-P10-8-CLOUD-NATIVE-ADOPTION-PROOF",
+      "GOFLY-P10-9-RELEASE-DASHBOARD-CONSUMPTION",
+      "GOFLY-P10-10-CONVERGENCE-REPORT"
+    ]
+  },
+  "rounds": [
+    {
+      "round": 1,
+      "id": "GOFLY-P10-1-RPC-TIER1-CLOSEOUT",
+      "status": "queued",
+      "title": "RPC Tier-1 closeout",
+      "objective": "Strengthen gRPC compatibility, streaming behavior evidence, deadline/error-code mapping, retry and balancer contracts, and Kitex/go-zero coexistence documentation.",
+      "acceptanceGate": "make rpc-boundary-check",
+      "commitPolicy": "commit after RPC boundary evidence and targeted RPC tests pass"
+    },
+    {
+      "round": 2,
+      "id": "GOFLY-P10-2-GOCTL-GENERATOR-FIDELITY",
+      "status": "queued",
+      "title": "goctl generator fidelity",
+      "objective": "Improve deterministic regeneration, diff categories, .api/proto import edge cases, generated smoke fixtures, and rollback notes.",
+      "acceptanceGate": "make generated-upgrade-dry-run-check",
+      "commitPolicy": "commit after generated upgrade evidence and generator tests pass"
+    },
+    {
+      "round": 3,
+      "id": "GOFLY-P10-3-STORAGE-CACHE-PRODUCTIZATION",
+      "status": "queued",
+      "title": "Storage and cache productization",
+      "objective": "Close go-zero sqlx/cache gaps around read/write strategy, transaction examples, generated model cache contracts, Redis/cache observability, and local smoke tests.",
+      "acceptanceGate": "make db-cache-productization-check",
+      "commitPolicy": "commit after storage/cache gates and targeted tests pass"
+    },
+    {
+      "round": 4,
+      "id": "GOFLY-P10-4-REST-MIDDLEWARE-ECOSYSTEM-MATRIX",
+      "status": "queued",
+      "title": "REST middleware ecosystem matrix",
+      "objective": "Make JWT, CORS, CSRF, session, Prometheus, OpenTelemetry, SSE, and WebSocket middleware coverage migratable from go-zero and Gin-style services.",
+      "acceptanceGate": "make p1-growth-check",
+      "commitPolicy": "commit after middleware evidence and REST/API smoke gates pass"
+    },
+    {
+      "round": 5,
+      "id": "GOFLY-P10-5-DISCOVERY-ADAPTER-MATRIX",
+      "status": "queued",
+      "title": "Discovery adapter matrix",
+      "objective": "Move discovery from abstraction to adapter evidence across memory, static, DNS, Kubernetes, Consul, Nacos, and etcd behavior boundaries.",
+      "acceptanceGate": "make discovery-adapter-matrix-check",
+      "commitPolicy": "commit after discovery matrix and targeted discovery tests pass"
+    },
+    {
+      "round": 6,
+      "id": "GOFLY-P10-6-AI_NATIVE_SUPPORT_BUNDLE",
+      "status": "queued",
+      "title": "AI-native support bundle",
+      "objective": "Turn support bundle, doctor/release JSON, governance dashboard fields, control-plane snapshots, and remediation hints into an adopter workflow.",
+      "acceptanceGate": "make governance-report-check",
+      "commitPolicy": "commit after dashboard/support-bundle gates pass"
+    },
+    {
+      "round": 7,
+      "id": "GOFLY-P10-7-PERFORMANCE-BUDGET-RATCHET",
+      "status": "queued",
+      "title": "Performance budget ratchet",
+      "objective": "Promote only benchmark rows with enough trend confidence while keeping weak-signal REST/RPC latency rows report-only.",
+      "acceptanceGate": "make bench-regression-check",
+      "commitPolicy": "commit after benchmark evidence and regression gates pass"
+    },
+    {
+      "round": 8,
+      "id": "GOFLY-P10-8-CLOUD-NATIVE-ADOPTION-PROOF",
+      "status": "planned",
+      "title": "Cloud-native adoption proof",
+      "objective": "Connect cloud-native rendering evidence, reference app topology, runtime SLOs, and adopter rollback notes into one production adoption proof.",
+      "acceptanceGate": "make p1-growth-check",
+      "commitPolicy": "commit after cloud-native, reference app, and runtime SLO gates pass"
+    },
+    {
+      "round": 9,
+      "id": "GOFLY-P10-9-RELEASE-DASHBOARD-CONSUMPTION",
+      "status": "planned",
+      "title": "Release dashboard consumption",
+      "objective": "Expose release readiness, API tiers, security, coverage, benchmark ratchets, and aiflow task status as stable adopter-facing dashboard fields.",
+      "acceptanceGate": "make governance-report-check",
+      "commitPolicy": "commit after governance report and required-check drift gates pass"
+    },
+    {
+      "round": 10,
+      "id": "GOFLY-P10-10-CONVERGENCE-REPORT",
+      "status": "planned",
+      "title": "P10 convergence report",
+      "objective": "Record per-round commits, skipped gates, ignored runtime paths, full governance verification, and next-wave follow-up recommendations.",
+      "acceptanceGate": "make governance-10-rounds",
+      "commitPolicy": "commit after convergence gate passes or environment-limited failures are documented"
+    }
+  ]
+}

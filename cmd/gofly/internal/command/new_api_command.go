@@ -106,9 +106,7 @@ func apiNewCommand(args []string) error {
 	cfg := loadCtx.Config
 	resolved := loadCtx.ConfigPath
 	applyNewScaffoldStyleDefault(cfg, *style, generator.ServiceStyleBasic, false)
-	if *dir == "" && cfg.ServiceName != "" {
-		*dir = cfg.ServiceName
-	}
+	applyNewScaffoldDirFallback(dir, cfg)
 	plugins := loadCtx.PluginNames
 	resolvedProfile, err := resolveNewAPIProfile(cfg, *profile)
 	if err != nil {

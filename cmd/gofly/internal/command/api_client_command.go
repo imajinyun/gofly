@@ -12,8 +12,7 @@ func apiClientCommand(command string, args []string) error {
 	file := fs.String("file", "", "api file")
 	api := fs.String("api", "", "api file")
 	dir := fs.String("dir", ".", "output directory")
-	output := fs.String("output", "", "output file")
-	o := fs.String("o", "", "output file")
+	output := registerOutputPathFlags(fs, "output file")
 	language := fs.String("language", "typescript", "client language: typescript, javascript, dart, java, or kotlin")
 	baseURL := fs.String("base-url", "", "default API base URL")
 	caller := fs.String("caller", "", "client caller name")
@@ -59,9 +58,6 @@ func apiClientCommand(command string, args []string) error {
 	if *file == "" {
 		*file = leadingFile
 	}
-	if *output == "" {
-		*output = *o
-	}
 	if *baseURL == "" && *hostname != "" {
 		if *scheme == "" {
 			*scheme = "http"
@@ -72,7 +68,7 @@ func apiClientCommand(command string, args []string) error {
 	return generator.GenerateAPIClient(generator.APIClientOptions{
 		APIFile:  *file,
 		Dir:      *dir,
-		Output:   *output,
+		Output:   output.resolve(),
 		Language: *language,
 		BaseURL:  *baseURL,
 	})

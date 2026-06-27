@@ -11,11 +11,34 @@ go run ./examples/gateway-discovery-rpc
 
 ## Providers
 
-| Provider | Use case |
-| --- | --- |
-| `memory` | local development, tests, generated golden path |
-| `consul` | existing Consul-based environments |
-| `etcdv3` | etcd-backed service registration |
+The provider status is intentionally explicit. Only `implemented` providers
+have discovery adapter code, tests, and release gates. `planned` and
+`config-only` rows are adoption targets, not supported discovery runtimes.
+
+| Provider | Status | Use case | Failover / rollback boundary |
+| --- | --- | --- | --- |
+| `memory` | implemented | local development, tests, generated golden path | in-process snapshot and watcher cleanup; roll back networked smoke tests to memory when external registries are unavailable |
+| `consul` | implemented | existing Consul-based environments | validate Consul health checks and watch behavior in the deployment topology; roll traffic back to the previous Consul registration path if watches diverge |
+| `etcdv3` | implemented | etcd-backed service registration | validate lease and watch behavior with the Docker-backed integration matrix; keep the previous etcd registration path until generated-service smoke passes |
+| `nacos` | config-only | Nacos-backed configuration source only | do not route service discovery traffic to Nacos until a `core/discovery/nacos` adapter and integration evidence exist |
+| `dns` | planned | future resolver-only profile | no registration or watch guarantees are advertised until resolver semantics and TTL behavior are tested |
+| `kubernetes` | planned | future Service or EndpointSlice profile | keep using platform service discovery directly until endpoint watching and policy evidence exist |
+| `static` | planned | future file or config-backed profile | keep static endpoints in application configuration until reload, validation, and generated-service smoke coverage exist |
+
+## Discovery adapter matrix
+
+The machine-readable matrix lives at
+[`docs/reference/discovery-adapter-matrix.json`](../reference/discovery-adapter-matrix.json)
+and is checked by:
+
+```sh
+make discovery-adapter-matrix-check
+```
+
+The matrix records provider status, implementation and test evidence,
+capabilities, failover behavior, rollback notes, and release gates. Promote a
+planned row to implemented only after code, tests, documentation, and gates
+land together.
 
 ## Production configuration
 
@@ -52,4 +75,5 @@ cleanup and load-balancer cache invalidation.
 - register one instance;
 - resolve it from a client or gateway;
 - watch updates when instances change;
-- confirm control-plane metadata reflects discovery wiring.
+- confirm control-plane metadata reflects discovery wiring;
+- run `make discovery-adapter-matrix-check` before advertising a provider as supported.

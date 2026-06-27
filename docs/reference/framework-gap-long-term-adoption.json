@@ -84,8 +84,10 @@
       ],
       "currentEvidence": [
         "docs/reference/ci-required-check-evidence.json",
+        "docs/reference/discovery-adapter-matrix.json",
         "docs/reference/dependency-upgrade-evidence.json",
         "make required-checks-drift-check",
+        "make discovery-adapter-matrix-check",
         "make dependency-upgrade-evidence-check"
       ],
       "gap": "Top microservice frameworks usually make supported integrations and CI expectations visible before adoption. gofly has required checks and dependency upgrade evidence, but lacks one integration matrix that maps storage, discovery, MQ, gateway, RPC, and observability surfaces to owners, gates, and release prerequisites.",

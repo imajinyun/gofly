@@ -5,6 +5,7 @@ python3 - <<'PY'
 import json
 import pathlib
 import re
+import subprocess
 import sys
 
 root = pathlib.Path(".").resolve()
@@ -60,6 +61,22 @@ require(
 volatile_dirs = set(policy.get("volatileDirectories") or [])
 for directory in (".tmp-test/generated-upgrade-dry-run", "$TMPDIR/gofly-generated-upgrade-*"):
     require(directory in volatile_dirs, f"artifactPolicy.volatileDirectories missing {directory!r}")
+
+gitignore = read_text(root / ".gitignore")
+require(".tmp-test/" in gitignore, ".gitignore must ignore .tmp-test/ generated dry-run artifacts")
+tracked_tmp = subprocess.run(
+    ["git", "ls-files", ".tmp-test"],
+    cwd=root,
+    check=False,
+    text=True,
+    stdout=subprocess.PIPE,
+    stderr=subprocess.PIPE,
+)
+if tracked_tmp.returncode == 0:
+    tracked_paths = [line for line in tracked_tmp.stdout.splitlines() if line.strip()]
+    require(not tracked_paths, f"generated dry-run temp artifacts must not be tracked: {tracked_paths}")
+else:
+    missing.append(f"could not verify tracked .tmp-test artifacts: {tracked_tmp.stderr.strip()}")
 
 contract = manifest.get("diffReportContract") or {}
 categories = contract.get("categories") or []

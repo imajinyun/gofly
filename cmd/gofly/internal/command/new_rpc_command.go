@@ -46,8 +46,8 @@ func rpcNewCommand(args []string) error {
 	applyNewScaffoldDefaults(cfg, baseFlags, generator.ServiceStyleProduction, true)
 	resolvedProfile := resolveNewRPCProfile(cfg, *profileFlags.Profile)
 	output := newScaffoldPlanOutputFromContext("new.rpc", "new rpc", baseFlags, loadCtx, newServiceContractInputs{}, executionFlags)
-	if *executionFlags.DryRun || *executionFlags.Plan {
-		return output.printDryRunPlan(*executionFlags.JSON, false)
+	if handled, err := output.maybePrintDryRunPlan(executionFlags, false); handled || err != nil {
+		return err
 	}
 	if err := generateNewRPCScaffold(cfg, newRPCScaffoldOptions{
 		Dir:             *baseFlags.Dir,

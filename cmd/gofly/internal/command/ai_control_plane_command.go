@@ -15,8 +15,7 @@ func aiControlPlaneCommand(args []string) error {
 		return nil
 	}
 	fs := flag.NewFlagSet("ai control-plane", flag.ContinueOnError)
-	formatName := fs.String("format", outputText, "output format: text or json")
-	jsonOutput := fs.Bool("json", false, "output JSON envelope")
+	outputFlags := registerCLIOutputFlags(fs, cliOutputFlagOptions{JSONUsage: "output JSON envelope"})
 	schemaName := fs.String("schema", "", "output control-plane schema: jsonschema")
 	watch := fs.Bool("watch", false, "emit bounded snapshot watch events")
 	maxEvents := fs.Int("max-events", 1, "maximum watch events to emit")
@@ -32,12 +31,9 @@ func aiControlPlaneCommand(args []string) error {
 	if len(remaining) > 0 {
 		return fmt.Errorf("%w: ai control-plane does not accept positional arguments: %s", errUsage, strings.Join(remaining, " "))
 	}
-	format := strings.ToLower(strings.TrimSpace(*formatName))
-	if format == "" {
-		format = outputText
-	}
-	if format != outputText && format != outputJSON {
-		return fmt.Errorf("%w: unsupported --format %q", errUsage, *formatName)
+	format, err := outputFlags.normalizedFormat(outputText)
+	if err != nil {
+		return err
 	}
 	schema := strings.ToLower(strings.TrimSpace(*schemaName))
 	if schema != "" {
@@ -55,7 +51,7 @@ func aiControlPlaneCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	jsonMode := *jsonOutput || outputMode() == outputJSON || format == outputJSON
+	jsonMode := outputFlags.useJSON(format)
 	if *watch {
 		return runAIControlPlaneWatch(provider, manifest, baseline, *maxEvents, *timeoutName, jsonMode)
 	}

@@ -9,8 +9,7 @@ import (
 func apiTemplateCommand(args []string) error {
 	leadingName, args := splitLeadingName(args)
 	fs := flag.NewFlagSet("api template", flag.ContinueOnError)
-	output := fs.String("output", "", "output api template file")
-	o := fs.String("o", "", "output api template file")
+	output := registerOutputPathFlags(fs, "output api template file")
 	name := fs.String("name", "", "api service name used in the template")
 	home := fs.String("home", "", "template home directory")
 	remote := fs.String("remote", "", "remote template repository")
@@ -23,12 +22,9 @@ func apiTemplateCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	if *output == "" {
-		*output = *o
-	}
 	if *name == "" {
 		*name = leadingName
 	}
 	fillNameFromArgs(name, remaining)
-	return generator.GenerateAPITemplate(generator.IDLTemplateOptions{Output: *output, Name: *name, TemplateDir: *home, Remote: *remote, Branch: *branch})
+	return generator.GenerateAPITemplate(generator.IDLTemplateOptions{Output: output.resolve(), Name: *name, TemplateDir: *home, Remote: *remote, Branch: *branch})
 }

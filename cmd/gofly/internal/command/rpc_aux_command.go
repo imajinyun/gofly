@@ -81,8 +81,7 @@ func rpcDocCommand(args []string) error {
 	file := fs.String("file", "", "proto source file")
 	src := fs.String("src", "", "proto source file")
 	dir := fs.String("dir", ".", "output directory")
-	output := fs.String("output", "", "output file")
-	o := fs.String("o", "", "output file")
+	output := registerOutputPathFlags(fs, "output file")
 	filename := fs.String("filename", "", "output filename")
 	docOutput := registerDocOutputFlags(fs, docOutputFlagOptions{
 		DefaultFormat: "openapi",
@@ -97,12 +96,10 @@ func rpcDocCommand(args []string) error {
 	if *file == "" {
 		return fmt.Errorf("%w: proto file is required", errUsage)
 	}
-	if *output == "" {
-		*output = *o
-	}
+	outputPath := output.resolve()
 	docOutput.applyFormatAliases("openapi")
-	if *output == "" && *filename != "" {
-		*output = filepath.Join(*dir, *filename)
+	if outputPath == "" && *filename != "" {
+		outputPath = filepath.Join(*dir, *filename)
 	}
-	return generator.GenerateProtoDoc(generator.ProtoDocOptions{ProtoFile: *file, Dir: *dir, Output: *output, Format: valueFromStringFlag(docOutput.Format)})
+	return generator.GenerateProtoDoc(generator.ProtoDocOptions{ProtoFile: *file, Dir: *dir, Output: outputPath, Format: valueFromStringFlag(docOutput.Format)})
 }

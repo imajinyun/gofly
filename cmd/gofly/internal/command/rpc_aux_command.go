@@ -84,9 +84,11 @@ func rpcDocCommand(args []string) error {
 	output := fs.String("output", "", "output file")
 	o := fs.String("o", "", "output file")
 	filename := fs.String("filename", "", "output filename")
-	yamlOut := fs.Bool("yaml", false, "write OpenAPI as yaml")
-	jsonOut := fs.Bool("json", false, "write OpenAPI as json")
-	format := fs.String("format", "openapi", "doc format: openapi/json, yaml, or markdown")
+	docOutput := registerDocOutputFlags(fs, docOutputFlagOptions{
+		DefaultFormat: "openapi",
+		YAMLUsage:     "write OpenAPI as yaml",
+		JSONUsage:     "write OpenAPI as json",
+	})
 	remaining, err := parseInterspersedFlags(fs, args)
 	if err != nil {
 		return err
@@ -98,14 +100,9 @@ func rpcDocCommand(args []string) error {
 	if *output == "" {
 		*output = *o
 	}
-	if *yamlOut {
-		*format = "yaml"
-	}
-	if *jsonOut {
-		*format = "openapi"
-	}
+	docOutput.applyFormatAliases("openapi")
 	if *output == "" && *filename != "" {
 		*output = filepath.Join(*dir, *filename)
 	}
-	return generator.GenerateProtoDoc(generator.ProtoDocOptions{ProtoFile: *file, Dir: *dir, Output: *output, Format: *format})
+	return generator.GenerateProtoDoc(generator.ProtoDocOptions{ProtoFile: *file, Dir: *dir, Output: *output, Format: valueFromStringFlag(docOutput.Format)})
 }

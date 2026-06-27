@@ -10,8 +10,7 @@ import (
 
 func pluginListCommand(args []string) error {
 	fs := flag.NewFlagSet("plugin list", flag.ContinueOnError)
-	formatName := fs.String("format", "text", "output format: text or json")
-	jsonOutput := fs.Bool("json", false, "output JSON")
+	outputFlags := registerCLIOutputFlags(fs, cliOutputFlagOptions{})
 	if _, err := parseInterspersedFlags(fs, args); err != nil {
 		return err
 	}
@@ -20,7 +19,7 @@ func pluginListCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	if *jsonOutput || strings.EqualFold(strings.TrimSpace(*formatName), "json") {
+	if valueFromBoolFlag(outputFlags.JSON) || strings.EqualFold(strings.TrimSpace(valueFromStringFlag(outputFlags.Format)), outputJSON) {
 		return printJSON(pluginListOutput{Internal: internal, Installed: installed})
 	}
 	if len(internal) == 0 && len(installed) == 0 {

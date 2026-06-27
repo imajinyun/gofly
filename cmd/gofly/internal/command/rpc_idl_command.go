@@ -11,18 +11,17 @@ import (
 func rpcIDLCommand(args []string) error {
 	leadingFile, args := splitLeadingName(args)
 	fs := flag.NewFlagSet("rpc idl", flag.ContinueOnError)
-	file := fs.String("file", "", "proto or thrift idl file")
-	src := fs.String("src", "", "proto or thrift idl file")
+	file := registerIDLFileFlags(fs, "proto or thrift idl file")
 	formatName := registerCLIFormatFlag(fs, outputText, "output format: text or json")
 	remaining, err := parseInterspersedFlags(fs, args)
 	if err != nil {
 		return err
 	}
-	resolveIDLFile(file, src, leadingFile, remaining)
-	if *file == "" {
+	idlFile := file.resolve(leadingFile, remaining)
+	if idlFile == "" {
 		return fmt.Errorf("%w: idl file is required", errUsage)
 	}
-	doc, err := generator.ReadRPCIDL(*file)
+	doc, err := generator.ReadRPCIDL(idlFile)
 	if err != nil {
 		return err
 	}
@@ -37,17 +36,16 @@ func rpcIDLCommand(args []string) error {
 func rpcLintCommand(args []string) error {
 	leadingFile, args := splitLeadingName(args)
 	fs := flag.NewFlagSet("rpc lint", flag.ContinueOnError)
-	file := fs.String("file", "", "proto or thrift idl file")
-	src := fs.String("src", "", "proto or thrift idl file")
+	file := registerIDLFileFlags(fs, "proto or thrift idl file")
 	remaining, err := parseInterspersedFlags(fs, args)
 	if err != nil {
 		return err
 	}
-	resolveIDLFile(file, src, leadingFile, remaining)
-	if *file == "" {
+	idlFile := file.resolve(leadingFile, remaining)
+	if idlFile == "" {
 		return fmt.Errorf("%w: idl file is required", errUsage)
 	}
-	doc, err := generator.ReadRPCIDL(*file)
+	doc, err := generator.ReadRPCIDL(idlFile)
 	if err != nil {
 		return err
 	}
@@ -61,18 +59,17 @@ func rpcLintCommand(args []string) error {
 func rpcDepsCommand(args []string) error {
 	leadingFile, args := splitLeadingName(args)
 	fs := flag.NewFlagSet("rpc deps", flag.ContinueOnError)
-	file := fs.String("file", "", "proto or thrift idl file")
-	src := fs.String("src", "", "proto or thrift idl file")
+	file := registerIDLFileFlags(fs, "proto or thrift idl file")
 	formatName := registerCLIFormatFlag(fs, outputText, "output format: text or json")
 	remaining, err := parseInterspersedFlags(fs, args)
 	if err != nil {
 		return err
 	}
-	resolveIDLFile(file, src, leadingFile, remaining)
-	if *file == "" {
+	idlFile := file.resolve(leadingFile, remaining)
+	if idlFile == "" {
 		return fmt.Errorf("%w: idl file is required", errUsage)
 	}
-	doc, err := generator.ReadRPCIDL(*file)
+	doc, err := generator.ReadRPCIDL(idlFile)
 	if err != nil {
 		return err
 	}

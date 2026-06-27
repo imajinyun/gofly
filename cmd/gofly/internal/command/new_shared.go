@@ -117,6 +117,22 @@ func registerNewScaffoldExtensionFlags(fs *flag.FlagSet, pluginAlias string) new
 	return flags
 }
 
+type newScaffoldExecutionFlags struct {
+	SaveConfig *bool
+	DryRun     *bool
+	Plan       *bool
+	JSON       *bool
+}
+
+func registerNewScaffoldExecutionFlags(fs *flag.FlagSet) newScaffoldExecutionFlags {
+	return newScaffoldExecutionFlags{
+		SaveConfig: fs.Bool("save-config", true, "save resolved config back to --config path"),
+		DryRun:     fs.Bool("dry-run", false, "print the planned filesystem changes without writing files"),
+		Plan:       fs.Bool("plan", false, "alias for --dry-run"),
+		JSON:       fs.Bool("json", false, "emit scaffold result as JSON"),
+	}
+}
+
 func loadNewScaffoldContext(opts newScaffoldLoadOptions) (newScaffoldLoadContext, error) {
 	cfg, resolved, err := loadAndOverlay(opts.ConfigPath, opts.Dir, opts.Name, opts.Module, opts.Style, opts.TemplateDir, opts.TemplateRemote, opts.TemplateBranch, opts.Features, opts.Plugins, opts.Kind)
 	if err != nil {

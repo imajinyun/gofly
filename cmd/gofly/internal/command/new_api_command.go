@@ -16,8 +16,7 @@ func apiNewCommand(args []string) error {
 	module := fs.String("module", "", "go module path")
 	dir := fs.String("dir", "", "output directory")
 	style := fs.String("style", "", "api scaffold style: minimal, basic, or production")
-	profile := fs.String("profile", "", "generation profile: gofly-ai, gozero-compatible, or kitex-compatible")
-	profileAlias := fs.String("generation-profile", "", "alias for --profile")
+	profileFlags := registerNewScaffoldProfileFlags(fs)
 	apiSpec := fs.Bool("api-spec", true, "generate an .api file")
 	configPath := fs.String("config", "", "gofly config file path (defaults to <dir>/.gofly/config.json)")
 	templateFlags := registerNewScaffoldTemplateSourceFlags(fs)
@@ -36,8 +35,8 @@ func apiNewCommand(args []string) error {
 		Dir:           dir,
 		TemplateDir:   templateFlags.TemplateDir,
 		TemplateHome:  templateFlags.Home,
-		Profile:       profile,
-		ProfileAlias:  profileAlias,
+		Profile:       profileFlags.Profile,
+		ProfileAlias:  profileFlags.ProfileAlias,
 		Plugin:        extensionFlags.Plugin,
 		PluginAlias:   extensionFlags.PluginAlias,
 		Verbose:       verbosityFlags.Verbose,
@@ -70,7 +69,7 @@ func apiNewCommand(args []string) error {
 	applyNewScaffoldStyleDefault(cfg, *style, generator.ServiceStyleBasic, false)
 	applyNewScaffoldDirFallback(dir, cfg)
 	plugins := loadCtx.PluginNames
-	resolvedProfile, err := resolveNewAPIProfile(cfg, *profile)
+	resolvedProfile, err := resolveNewAPIProfile(cfg, *profileFlags.Profile)
 	if err != nil {
 		return err
 	}

@@ -268,6 +268,160 @@
           ]
         }
       ]
+    },
+    {
+      "id": "deadline-error-code-mapping",
+      "capability": "Deadline and error-code mapping",
+      "requiredForTier1": true,
+      "gate": "go test -shuffle=on ./rpc/... ./rpc/grpc/...",
+      "decisionBoundary": "Use gofly RPC or rpc/grpc only when deadline, timeout, validation, auth, and unavailable errors map to stable runtime codes.",
+      "rollbackOrEscalation": "Keep the existing gRPC-Go, Kitex, or go-zero path active when mapped error codes drift from sampled production behavior.",
+      "contractMappings": [
+        {
+          "runtime": "gofly RPC",
+          "source": "context deadline or policy timeout",
+          "stableCode": "deadline_exceeded",
+          "httpStatus": 504
+        },
+        {
+          "runtime": "gofly RPC",
+          "source": "invalid request payload or metadata",
+          "stableCode": "invalid_argument",
+          "httpStatus": 400
+        },
+        {
+          "runtime": "rpc/grpc",
+          "source": "missing or invalid credentials",
+          "stableCode": "Unauthenticated"
+        },
+        {
+          "runtime": "rpc/grpc",
+          "source": "upstream or governance rejection",
+          "stableCode": "Unavailable"
+        }
+      ],
+      "evidenceRefs": [
+        {
+          "path": "rpc/server_test.go",
+          "contains": [
+            "CodeDeadlineExceeded",
+            "CodeInvalidArgument",
+            "http.StatusGatewayTimeout"
+          ]
+        },
+        {
+          "path": "rpc/grpc/governance_test.go",
+          "contains": [
+            "codes.DeadlineExceeded",
+            "codes.Unavailable",
+            "codes.ResourceExhausted"
+          ]
+        },
+        {
+          "path": "rpc/grpc/auth_test.go",
+          "contains": [
+            "codes.Unauthenticated",
+            "codes.PermissionDenied"
+          ]
+        },
+        {
+          "path": "docs/reference/rpc-boundary.md",
+          "contains": [
+            "Deadline and error-code mapping",
+            "deadline_exceeded",
+            "Unauthenticated"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "retry-balancer-contract",
+      "capability": "Retry and balancer contract",
+      "requiredForTier1": true,
+      "gate": "go test -shuffle=on ./rpc/... ./rpc/grpc/... && go test -C examples/rpc-idl-matrix ./...",
+      "decisionBoundary": "Use gofly retry and balancing only when retryable statuses, resolver updates, and routing policy behavior match the migration plan.",
+      "rollbackOrEscalation": "Keep service-mesh or previous client-side routing in control when retry status lists, endpoint health, or balancer policy evidence is missing.",
+      "contractMappings": [
+        {
+          "runtime": "gofly RPC",
+          "source": "retry policy",
+          "stableCode": "unavailable",
+          "routing": "round_robin, weighted_round_robin, p2c, consistent_hash, health_aware"
+        },
+        {
+          "runtime": "rpc/grpc",
+          "source": "retry policy",
+          "stableCode": "codes.Unavailable",
+          "routing": "resolver update plus gRPC round_robin"
+        }
+      ],
+      "evidenceRefs": [
+        {
+          "path": "rpc/option_hardening_test.go",
+          "contains": [
+            "weighted_round_robin",
+            "consistent_hash",
+            "health"
+          ]
+        },
+        {
+          "path": "rpc/grpc/governance_test.go",
+          "contains": [
+            "Retry",
+            "codes.Unavailable"
+          ]
+        },
+        {
+          "path": "examples/rpc-idl-matrix/main_test.go",
+          "contains": [
+            "round_robin",
+            "weighted_round_robin",
+            "health_aware"
+          ]
+        },
+        {
+          "path": "docs/reference/rpc-boundary.md",
+          "contains": [
+            "Retry and balancer contract",
+            "health-aware",
+            "service mesh"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "gozero-coexistence-rollback",
+      "capability": "go-zero coexistence and rollback",
+      "requiredForTier1": true,
+      "gate": "make generated-upgrade-dry-run-check && make rpc-boundary-check",
+      "decisionBoundary": "Migrate go-zero generated services only when REST/RPC shape, governance policy, discovery state, and rollback routing are all rehearsed.",
+      "rollbackOrEscalation": "Keep the go-zero service registered during rollout and route traffic back when generated output, control-plane, or RPC evidence diverges.",
+      "evidenceRefs": [
+        {
+          "path": "docs/comparisons/go-zero.md",
+          "contains": [
+            "timeout, retry, breaker, and rate-limit",
+            "Rollback plan",
+            "discovery"
+          ]
+        },
+        {
+          "path": "docs/reference/migration-fidelity-matrix.json",
+          "contains": [
+            "go-zero",
+            "rollbackNote",
+            "Keep the previous go-zero service reachable"
+          ]
+        },
+        {
+          "path": "docs/reference/rpc-boundary.md",
+          "contains": [
+            "go-zero coexistence",
+            "generated service",
+            "rollback routing"
+          ]
+        }
+      ]
     }
   ]
 }

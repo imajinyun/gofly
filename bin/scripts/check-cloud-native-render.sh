@@ -2,19 +2,51 @@
 set -eu
 
 rendered="${TMPDIR:-/tmp}/gofly-helm-render-smoke.yaml"
+rendered_production="${TMPDIR:-/tmp}/gofly-helm-render-production-smoke.yaml"
+report_path="${CLOUD_NATIVE_RENDER_REPORT:-.tmp-test/cloud-native-render/render-report.json}"
+mkdir -p "$(dirname -- "$report_path")"
 
 if command -v helm >/dev/null 2>&1; then
 	helm template gofly charts/gofly > "$rendered"
+	helm template gofly charts/gofly -f charts/gofly/values-production.yaml > "$rendered_production"
+	render_mode="helm-template"
+	helm_available="true"
 else
 	cat charts/gofly/templates/*.yaml > "$rendered"
+	cat charts/gofly/templates/*.yaml > "$rendered_production"
+	render_mode="static-template-render"
+	helm_available="false"
 fi
 
-python3 - "$rendered" <<'PY'
+if command -v kustomize >/dev/null 2>&1; then
+	kustomize_available="true"
+else
+	kustomize_available="false"
+fi
+if command -v kubeconform >/dev/null 2>&1; then
+	kubeconform_available="true"
+else
+	kubeconform_available="false"
+fi
+if command -v kubeval >/dev/null 2>&1; then
+	kubeval_available="true"
+else
+	kubeval_available="false"
+fi
+
+python3 - "$rendered" "$rendered_production" "$report_path" "$render_mode" "$helm_available" "$kustomize_available" "$kubeconform_available" "$kubeval_available" <<'PY'
 import pathlib
 import sys
 import json
 
 rendered = pathlib.Path(sys.argv[1])
+rendered_production = pathlib.Path(sys.argv[2])
+report_path = pathlib.Path(sys.argv[3])
+render_mode = sys.argv[4]
+helm_available = sys.argv[5] == "true"
+kustomize_available = sys.argv[6] == "true"
+kubeconform_available = sys.argv[7] == "true"
+kubeval_available = sys.argv[8] == "true"
 checks = {
     pathlib.Path("charts/gofly/values.schema.json"): [
         "networkPolicy",
@@ -48,12 +80,14 @@ checks = {
     ],
     pathlib.Path("docs/reference/cloud-native-policy-conformance.json"): [
         "gofly.cloud_native_policy_conformance.v1",
+        "gofly.cloud_native_render_report.v1",
         "helm-template",
         "static-template-render",
         "toolAvailabilityPolicy",
         "kubeconform",
         "kubeval",
         "renderedGoldens",
+        "renderReport",
         "fallbackStatus",
         "ServiceMonitor",
         "HorizontalPodAutoscaler",
@@ -82,9 +116,18 @@ for path, needles in checks.items():
             missing.append(f"{path}: missing {needle!r}")
 
 render_text = rendered.read_text(encoding="utf-8")
+production_render_text = rendered_production.read_text(encoding="utf-8")
 for needle in ("kind: Deployment", "kind: Service", "kind: NetworkPolicy"):
     if needle not in render_text:
         missing.append(f"rendered Helm output missing {needle!r}")
+for needle in (
+    "kind: ServiceMonitor",
+    "kind: HorizontalPodAutoscaler",
+    "kind: PodDisruptionBudget",
+    "kind: NetworkPolicy",
+):
+    if needle not in production_render_text:
+        missing.append(f"rendered production Helm output missing {needle!r}")
 
 for tool in ("kubeconform", "kubeval"):
     # Tool execution is optional locally; documentation must state the fallback.
@@ -103,6 +146,25 @@ if manifest.get("sourceOfTruth") != "docs/reference/cloud-native-rendering.md":
     missing.append("cloud-native policy conformance sourceOfTruth mismatch")
 if manifest.get("acceptanceGate") != "make cloud-native-render-check":
     missing.append("cloud-native policy conformance acceptanceGate mismatch")
+
+render_report = manifest.get("renderReport") or {}
+if render_report.get("schema") != "gofly.cloud_native_render_report.v1":
+    missing.append("cloud-native policy conformance renderReport schema mismatch")
+if render_report.get("path") != ".tmp-test/cloud-native-render/render-report.json":
+    missing.append("cloud-native policy conformance renderReport path mismatch")
+required_report_fields = {
+    "schema",
+    "renderMode",
+    "helm.available",
+    "helm.requiredWhenAvailable",
+    "helm.fallbackStatus",
+    "kustomize.available",
+    "kubeconform.schemaValidationStatus",
+    "kubeval.schemaValidationStatus",
+    "requiredKinds",
+}
+if set(render_report.get("requiredFields") or []) != required_report_fields:
+    missing.append("cloud-native policy conformance renderReport requiredFields mismatch")
 
 render_modes = {item.get("mode") for item in manifest.get("renderModes") or [] if isinstance(item, dict)}
 for mode in ("helm-template", "static-template-render"):
@@ -215,6 +277,44 @@ rollout_gates = set(manifest.get("rolloutGates") or [])
 for gate in ("make helm-template-smoke", "make cloud-native-render-check", "make p1-growth-check"):
     if gate not in rollout_gates:
         missing.append(f"cloud-native policy conformance rolloutGates missing {gate!r}")
+
+schema_validation_status = {
+    "kubeconform": "tool-available-not-run" if kubeconform_available else "tool-unavailable",
+    "kubeval": "tool-available-not-run" if kubeval_available else "tool-unavailable",
+}
+fallback_status = "not-fallback" if helm_available else "static-fallback"
+report = {
+    "schema": "gofly.cloud_native_render_report.v1",
+    "renderMode": render_mode,
+    "helm": {
+        "available": helm_available,
+        "requiredWhenAvailable": True,
+        "fallbackStatus": fallback_status,
+        "defaultRender": str(rendered),
+        "productionRender": str(rendered_production),
+    },
+    "kustomize": {
+        "available": kustomize_available,
+        "requiredWhenAvailable": True,
+        "fallbackStatus": "not-fallback" if kustomize_available else "static-fallback",
+    },
+    "kubeconform": {
+        "available": kubeconform_available,
+        "schemaValidationStatus": schema_validation_status["kubeconform"],
+    },
+    "kubeval": {
+        "available": kubeval_available,
+        "schemaValidationStatus": schema_validation_status["kubeval"],
+    },
+    "requiredKinds": sorted(required_kinds),
+    "golden": "docs/reference/cloud-native-rendered-production.golden.yaml",
+}
+report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+if helm_available and render_mode != "helm-template":
+    missing.append("helm is available, so renderMode must be helm-template")
+if not helm_available and fallback_status != "static-fallback":
+    missing.append("helm is unavailable, so fallbackStatus must be static-fallback")
 
 if missing:
     print("cloud-native render check failed:", file=sys.stderr)

@@ -35,6 +35,8 @@ the fallback status instead of silently accepting an unrendered profile.
 
 The conformance manifest keeps the release evidence explicit:
 
+- render report: `.tmp-test/cloud-native-render/render-report.json`, schema
+  `gofly.cloud_native_render_report.v1`;
 - render modes: `helm-template` and `static-template-render`;
 - tool availability policy: `helm`, `kustomize`, `kubeconform`, and `kubeval`;
 - optional schema validation tools: `kubeconform` and `kubeval`;

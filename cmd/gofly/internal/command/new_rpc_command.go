@@ -112,10 +112,7 @@ func rpcNewCommand(args []string) error {
 	resolvedProfile := resolveNewRPCProfile(cfg, *profile)
 	output := newScaffoldPlanOutputFor("new.rpc", "new rpc", *dir, resolved, cfg, plugins, newServiceContractInputs{}, *saveConfig)
 	if *dryRun || *plan {
-		if err := validateNewServicePlanInputs(cfg); err != nil {
-			return err
-		}
-		return output.printPlan(*jsonOut)
+		return output.printDryRunPlan(*jsonOut, false)
 	}
 	if err := generateNewRPCScaffold(cfg, newRPCScaffoldOptions{
 		Dir:             *dir,

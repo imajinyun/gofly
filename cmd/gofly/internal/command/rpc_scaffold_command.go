@@ -10,29 +10,27 @@ import (
 func rpcThriftCommand(args []string) error {
 	leadingFile, args := splitLeadingName(args)
 	fs := flag.NewFlagSet("rpc thrift", flag.ContinueOnError)
-	file := fs.String("file", "", "thrift idl file")
-	src := fs.String("src", "", "thrift idl file")
+	file := registerIDLFileFlags(fs, "thrift idl file")
 	dir := fs.String("dir", ".", "output directory")
 	out := fs.String("out", "", "output directory")
 	remaining, err := parseInterspersedFlags(fs, args)
 	if err != nil {
 		return err
 	}
-	resolveIDLFile(file, src, leadingFile, remaining)
+	idlFile := file.resolve(leadingFile, remaining)
 	if *out != "" {
 		*dir = *out
 	}
-	if *file == "" {
+	if idlFile == "" {
 		return fmt.Errorf("%w: thrift file is required", errUsage)
 	}
-	return generator.GenerateProtoFromThrift(generator.RPCScaffoldOptions{IDLFile: *file, Dir: *dir})
+	return generator.GenerateProtoFromThrift(generator.RPCScaffoldOptions{IDLFile: idlFile, Dir: *dir})
 }
 
 func rpcClientCommand(args []string) error {
 	leadingFile, args := splitLeadingName(args)
 	fs := flag.NewFlagSet("rpc client", flag.ContinueOnError)
-	file := fs.String("file", "", "proto or thrift idl file")
-	src := fs.String("src", "", "proto or thrift idl file")
+	file := registerIDLFileFlags(fs, "proto or thrift idl file")
 	dir := fs.String("dir", ".", "output directory")
 	out := fs.String("out", "", "output directory")
 	pkg := fs.String("package", "", "generated Go package name")
@@ -40,21 +38,20 @@ func rpcClientCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	resolveIDLFile(file, src, leadingFile, remaining)
+	idlFile := file.resolve(leadingFile, remaining)
 	if *out != "" {
 		*dir = *out
 	}
-	if *file == "" {
+	if idlFile == "" {
 		return fmt.Errorf("%w: idl file is required", errUsage)
 	}
-	return generator.GenerateRPCClient(generator.RPCScaffoldOptions{IDLFile: *file, Dir: *dir, Package: *pkg})
+	return generator.GenerateRPCClient(generator.RPCScaffoldOptions{IDLFile: idlFile, Dir: *dir, Package: *pkg})
 }
 
 func rpcServerCommand(args []string) error {
 	leadingFile, args := splitLeadingName(args)
 	fs := flag.NewFlagSet("rpc server", flag.ContinueOnError)
-	file := fs.String("file", "", "proto or thrift idl file")
-	src := fs.String("src", "", "proto or thrift idl file")
+	file := registerIDLFileFlags(fs, "proto or thrift idl file")
 	dir := fs.String("dir", ".", "output directory")
 	out := fs.String("out", "", "output directory")
 	pkg := fs.String("package", "", "generated Go package name")
@@ -62,14 +59,14 @@ func rpcServerCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	resolveIDLFile(file, src, leadingFile, remaining)
+	idlFile := file.resolve(leadingFile, remaining)
 	if *out != "" {
 		*dir = *out
 	}
-	if *file == "" {
+	if idlFile == "" {
 		return fmt.Errorf("%w: idl file is required", errUsage)
 	}
-	return generator.GenerateRPCServer(generator.RPCScaffoldOptions{IDLFile: *file, Dir: *dir, Package: *pkg})
+	return generator.GenerateRPCServer(generator.RPCScaffoldOptions{IDLFile: idlFile, Dir: *dir, Package: *pkg})
 }
 
 func rpcMiddlewareCommand(args []string) error {

@@ -58,6 +58,9 @@ Durable evidence should stay limited to:
 - profile fixture paths;
 - plugin registry/profile metadata;
 - generated snapshot metadata expectations;
+- profile dependency policy: generated-project-only dependencies must stay in
+  the generated module or an isolated temporary test module and must never be
+  added to the gofly root module;
 - explainable diff and rollback reports added by later gates.
 
 ## Explainable Diff Report
@@ -79,6 +82,18 @@ Each profile entry must include a `diffReport` object with:
 - `summary`: the human-readable review expectation;
 - `rollbackNote`: the action an adopter can take when the generated output is
   not acceptable.
+
+Each profile entry must also include a `dependencyPolicy` object with:
+
+- `owner`: always `generated-project-dependencies`;
+- `allowedLocation`: `generated project go.mod or isolated temporary test
+  module`;
+- `rootModulePolicy`: `must-not-add-generated-only-dependencies`;
+- `verificationGates`: a generated compatibility gate plus a dependency
+  boundary gate such as `make root-dependency-policy-check` or
+  `make dependency-upgrade-evidence-check`;
+- `rollbackOrEscalation`: the action to take if generated dependencies escape
+  into the root module or if the generated project fails its compile smoke.
 
 Adopters should review upgrade output in this order:
 

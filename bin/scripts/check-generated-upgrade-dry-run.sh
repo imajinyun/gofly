@@ -129,6 +129,36 @@ for profile in profiles:
     for key in ("generated.project.contract", "generated.project.runtime"):
         require(bool(metadata.get(key)), f"profile {name}: generatedSnapshot.metadata.{key} is required")
 
+    dependency_policy = profile.get("dependencyPolicy") or {}
+    require(
+        dependency_policy.get("owner") == "generated-project-dependencies",
+        f"profile {name}: dependencyPolicy.owner must be generated-project-dependencies",
+    )
+    require(
+        dependency_policy.get("allowedLocation") == "generated project go.mod or isolated temporary test module",
+        f"profile {name}: dependencyPolicy.allowedLocation must keep dependencies out of the root module",
+    )
+    require(
+        dependency_policy.get("rootModulePolicy") == "must-not-add-generated-only-dependencies",
+        f"profile {name}: dependencyPolicy.rootModulePolicy must reject generated-only root dependencies",
+    )
+    verification_gates = set(dependency_policy.get("verificationGates") or [])
+    require(verification_gates, f"profile {name}: dependencyPolicy.verificationGates is required")
+    require(
+        any(gate in verification_gates for gate in ("make generated-version-compat-check", "make generated-upgrade-dry-run-check")),
+        f"profile {name}: dependencyPolicy.verificationGates must include a generated compatibility gate",
+    )
+    require(
+        any(gate in verification_gates for gate in ("make root-dependency-policy-check", "make dependency-upgrade-evidence-check")),
+        f"profile {name}: dependencyPolicy.verificationGates must include a dependency boundary gate",
+    )
+    for gate in verification_gates:
+        require(gate.startswith("make "), f"profile {name}: dependencyPolicy gate must be a make target: {gate!r}")
+    require(
+        len(str(dependency_policy.get("rollbackOrEscalation") or "").split()) >= 10,
+        f"profile {name}: dependencyPolicy.rollbackOrEscalation must be actionable",
+    )
+
     diff_report = profile.get("diffReport") or {}
     require(diff_report.get("repeatGeneration") == "must-pass", f"profile {name}: diffReport.repeatGeneration must be must-pass")
     require(bool(diff_report.get("summary")), f"profile {name}: diffReport.summary is required")

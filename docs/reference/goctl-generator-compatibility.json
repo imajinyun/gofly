@@ -1,0 +1,176 @@
+{
+  "schema": "gofly.goctl_generator_compatibility.v1",
+  "sourceOfTruth": [
+    "docs/reference/generated-upgrade-dry-run.json",
+    "testdata/generated-compat/matrix.json",
+    "docs/reference/migration-fidelity-matrix.json"
+  ],
+  "acceptanceGate": "make goctl-generator-compat-check",
+  "compatibilityBoundaries": {
+    "noNewJSONEnvelopeFlags": true,
+    "apiRouteAndDiffFormatValidationUnchanged": true,
+    "positionalPluginAndMiddlewareNamesRemainNames": true,
+    "generatedProjectDependenciesStayInGeneratedGoMod": true,
+    "runtimeArtifactsRemainVolatile": true
+  },
+  "statusPolicy": {
+    "implemented": "Capability has repository code or fixtures, tests, adopter documentation, and a gate.",
+    "planned": "Capability is a known goctl-alignment target and must not be advertised as supported until code, tests, examples, and gates land together."
+  },
+  "capabilities": [
+    {
+      "id": "gozero-compatible-profile",
+      "status": "implemented",
+      "implementation": [
+        "cmd/gofly/internal/generator/service_profile.go",
+        "cmd/gofly/internal/generator/service_scaffold_ir.go",
+        "cmd/gofly/internal/command/new_shared.go"
+      ],
+      "tests": [
+        "cmd/gofly/internal/generator/service_scaffold_test.go",
+        "cmd/gofly/internal/command/idl_test.go"
+      ],
+      "evidence": [
+        "ProfileGoZeroCompatible",
+        "goctl-layout",
+        "filepath.Join(\"internal\", \"handler\", \"routes.go\")",
+        "filepath.Join(\"internal\", \"logic\", \"pinglogic.go\")",
+        "filepath.Join(\"internal\", \"svc\", \"servicecontext.go\")",
+        "filepath.Join(\"internal\", \"types\", \"types.go\")"
+      ],
+      "gate": "go test -shuffle=on ./cmd/gofly/internal/generator -run TestBuildServiceScaffoldIRGoZeroProfileUsesLayeredArtifacts",
+      "rollbackNote": "Use the default gofly-ai profile or pin the previous generated project when gozero-compatible layered files drift."
+    },
+    {
+      "id": "goctl-compatible-flags",
+      "status": "implemented",
+      "implementation": [
+        "cmd/gofly/internal/command/new_goctl_compat_flags.go",
+        "cmd/gofly/internal/command/rpc_protoc_command.go"
+      ],
+      "tests": [
+        "cmd/gofly/internal/command/idl_test.go"
+      ],
+      "evidence": [
+        "name-from-filename",
+        "go_opt",
+        "go-grpc_opt",
+        "go_grpc_opt",
+        "warnNoopFlag"
+      ],
+      "gate": "go test -shuffle=on ./cmd/gofly/internal/command -run Test.*Goctl",
+      "rollbackNote": "Keep goctl-style flags as accepted compatibility inputs and warn on no-op behavior instead of changing positional parsing semantics."
+    },
+    {
+      "id": "api-tooling-compatibility",
+      "status": "implemented",
+      "implementation": [
+        "cmd/gofly/internal/command/api_format_command.go",
+        "cmd/gofly/internal/command/api_import_command.go",
+        "cmd/gofly/internal/command/api_route_command.go",
+        "cmd/gofly/internal/command/api_diff_command.go",
+        "cmd/gofly/internal/generator/api_codegen.go"
+      ],
+      "tests": [
+        "cmd/gofly/internal/command/idl_test.go",
+        "cmd/gofly/internal/generator/idl_test.go"
+      ],
+      "evidence": [
+        "api format",
+        "api import",
+        "api route",
+        "api diff",
+        "unsupported api diff format",
+        "unsupported api route format"
+      ],
+      "gate": "go test -shuffle=on ./cmd/gofly/internal/command -run TestAPI",
+      "rollbackNote": "Preserve existing api route and api diff format semantics; do not add unrelated validation or JSON envelope behavior."
+    },
+    {
+      "id": "generated-version-fixtures",
+      "status": "implemented",
+      "implementation": [
+        "testdata/generated-compat/matrix.json",
+        "docs/reference/generated-version-compat.md",
+        "docs/reference/generated-upgrade-dry-run.json"
+      ],
+      "tests": [
+        "bin/scripts/check-generated-version-compat.sh",
+        "bin/scripts/check-generated-upgrade-dry-run.sh"
+      ],
+      "evidence": [
+        "old",
+        "current",
+        "future",
+        "deterministic-repeat-generation",
+        "compatible-addition",
+        "breaking-candidate"
+      ],
+      "gate": "make generated-version-compat-check",
+      "rollbackNote": "Pin the previous generator version when old, current, or future fixtures stop generating, compiling, or reporting explainable diffs."
+    },
+    {
+      "id": "upgrade-diff-contract",
+      "status": "implemented",
+      "implementation": [
+        "docs/reference/generated-upgrade-dry-run.json",
+        "docs/reference/migration-fidelity-matrix.json",
+        "cmd/gofly/internal/command/upgrade.go"
+      ],
+      "tests": [
+        "bin/scripts/check-generated-upgrade-dry-run.sh",
+        "cmd/gofly/internal/command/ai_helpers_test.go"
+      ],
+      "evidence": [
+        "diffReportContract",
+        "migrationFidelityMatrix",
+        "upgradeRehearsal",
+        "DiffCommand",
+        "rollbackNote"
+      ],
+      "gate": "make generated-upgrade-dry-run-check",
+      "rollbackNote": "Treat unclassified generated diffs as breaking candidates until a migration note or rollback note explains the change."
+    },
+    {
+      "id": "route-layout-boundary",
+      "status": "implemented",
+      "implementation": [
+        "cmd/gofly/internal/generator/service_profile.go",
+        "cmd/gofly/internal/generator/templates.go",
+        "cmd/gofly/internal/generator/api_codegen.go"
+      ],
+      "tests": [
+        "cmd/gofly/internal/generator/service_scaffold_test.go",
+        "cmd/gofly/internal/command/ai_helpers_test.go"
+      ],
+      "evidence": [
+        "filepath.Join(\"internal\", \"routes\", \"routes.go\")",
+        "filepath.Join(\"internal\", \"handler\", \"routes.go\")",
+        "gozero profile should not include legacy file",
+        "\"{{.Module}}/internal/routes\""
+      ],
+      "gate": "make test-generated-matrix",
+      "rollbackNote": "Keep default generated routes aggregated under internal/routes while gozero-compatible scaffolds retain goctl-style handler routing."
+    },
+    {
+      "id": "multi-language-client-generation",
+      "status": "planned",
+      "implementation": [],
+      "tests": [],
+      "promotionCriteria": [
+        "define supported client languages and output contracts",
+        "add generated client fixtures for old, current, and future API inputs",
+        "verify generated clients in isolated temporary projects",
+        "add compatibility notes and rollback guidance"
+      ],
+      "gate": "make goctl-generator-compat-check",
+      "rollbackNote": "Keep client generation scoped to current Go artifacts until language-specific compile and compatibility gates exist."
+    }
+  ],
+  "releaseGates": [
+    "make goctl-generator-compat-check",
+    "make generated-version-compat-check",
+    "make generated-upgrade-dry-run-check",
+    "make test-generated-matrix"
+  ]
+}

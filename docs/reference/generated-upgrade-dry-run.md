@@ -19,6 +19,26 @@ Validation:
 make generated-upgrade-dry-run-check
 ```
 
+## Goctl-compatible generator matrix
+
+The goctl-alignment contract lives at
+[`docs/reference/goctl-generator-compatibility.json`](goctl-generator-compatibility.json)
+and is checked by:
+
+```bash
+make goctl-generator-compat-check
+```
+
+The matrix records the implemented `gozero-compatible` scaffold profile,
+accepted goctl-style flags such as `name-from-filename`, `go_opt`,
+`go-grpc_opt`, and `go_grpc_opt`, API tooling compatibility for `api format`,
+`api import`, `api route`, and `api diff`, generated-version fixtures, upgrade
+diff categories, and route layout boundaries. It also records compatibility
+boundaries that must not drift: do not add unrelated JSON envelope flags, do
+not change `api route` or `api diff` format validation semantics, keep plugin
+and middleware positional arguments as names, and keep generated project
+dependencies out of the root module.
+
 ## Fixture Profiles
 
 | Profile | API | Proto | Service config | Plugin profile | Snapshot expectation |

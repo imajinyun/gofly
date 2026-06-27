@@ -173,6 +173,13 @@ func (o newScaffoldPlanOutput) printResultWhenRequested(forceJSON bool) error {
 	return o.printResult()
 }
 
+func (o newScaffoldPlanOutput) finalize(saveConfig bool, cfg *generator.Config, forceJSON bool) error {
+	if err := saveNewScaffoldConfig(saveConfig, o.ConfigPath, cfg); err != nil {
+		return err
+	}
+	return o.printResultWhenRequested(forceJSON)
+}
+
 func planPluginEffects(plugins []string, executed bool) []cliPluginEffect {
 	effects := make([]cliPluginEffect, 0, len(plugins))
 	for _, plugin := range plugins {

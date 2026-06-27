@@ -1,0 +1,136 @@
+{
+  "schema": "gofly.cache_dependency_governance.v1",
+  "aiflowTask": "GOFLY-GOV-10R3-06",
+  "purpose": "Map cache bypass, Go build-cache isolation, remote plugin cache safety, root dependency ownership, generated-project dependency boundaries, and module tidy recovery to executable evidence.",
+  "acceptanceGate": "make cache-dependency-governance-check",
+  "aggregateGates": [
+    "make docs-check",
+    "make dependency-upgrade-evidence-check"
+  ],
+  "sourceCode": [
+    "bin/scripts/check-cache-dependency-governance.sh",
+    "bin/scripts/governance-10-rounds.sh",
+    "bin/scripts/check-dependency-upgrade-evidence.sh",
+    "bin/scripts/check-root-dependency-policy.sh",
+    "bin/scripts/check-mod-tidy.sh",
+    "docs/reference/dependency-upgrade-evidence.json",
+    "cache/cache_test.go",
+    "cache/tiered_test.go",
+    "cmd/gofly/internal/generator/plugin_test.go"
+  ],
+  "policy": {
+    "runtimeCacheBypassUsesExplicitEnvironment": true,
+    "goBuildCacheUsesTemporaryDirectory": true,
+    "goTempUsesTemporaryDirectory": true,
+    "goModCacheIsolationIsExplicitOptIn": true,
+    "goProxyDefaultsToDirectForGovernance": true,
+    "remotePluginDownloadsAvoidUserCache": true,
+    "rootDependenciesMustBeImportedByRootModule": true,
+    "generatedOnlyDependenciesStayOutOfRootModule": true,
+    "tidyCheckRestoresGoModAndGoSum": true
+  },
+  "surfaces": [
+    {
+      "id": "runtime-cache-bypass",
+      "risk": "governance checks can accidentally prove cached behavior instead of bypass semantics",
+      "gate": "go test -count=1 ./cache -run Test(CacheDisabledBy|TieredCacheDisabledBy)",
+      "tests": [
+        "TestCacheDisabledByEnvBypassesStorage",
+        "TestTieredCacheDisabledByEnvBypassesLocalAndRemote"
+      ],
+      "evidence": [
+        "GOFLY_CACHE_DISABLED=true",
+        "GOFLY_GOVERNANCE_CACHE_DISABLED",
+        "round_runtime_cache_bypass_tests"
+      ]
+    },
+    {
+      "id": "go-build-cache-isolation",
+      "risk": "persistent or permission-restricted Go build caches can make governance runs flaky or reuse stale artifacts",
+      "gate": "make governance-10-rounds",
+      "tests": [
+        "make cache-dependency-governance-check",
+        "make governance-10-rounds"
+      ],
+      "evidence": [
+        "export GOCACHE",
+        "export GOTMPDIR",
+        "mktemp -d"
+      ]
+    },
+    {
+      "id": "gomodcache-isolation",
+      "risk": "strong module-cache isolation is useful for release audits but should remain explicit to avoid exhausting local disk",
+      "gate": "GOVERNANCE_ISOLATE_GOMODCACHE=true make governance-10-rounds",
+      "tests": [
+        "GOVERNANCE_ISOLATE_GOMODCACHE"
+      ],
+      "evidence": [
+        "GOVERNANCE_ISOLATE_GOMODCACHE",
+        "export GOMODCACHE"
+      ]
+    },
+    {
+      "id": "remote-plugin-cache-safety",
+      "risk": "remote plugin downloads can reuse user plugin cache or predictable temporary files",
+      "gate": "go test -count=1 ./cmd/gofly/internal/generator -run TestPluginRunnerDownloadPlugin",
+      "tests": [
+        "TestPluginRunnerDownloadPluginDoesNotReuseLocalCache",
+        "TestPluginRunnerDownloadPluginIgnoresUserCache",
+        "TestPluginRunnerDownloadPluginUsesUniqueTempFile"
+      ],
+      "evidence": [
+        "TestPluginRunnerDownloadPluginDoesNotReuseLocalCache",
+        "TestPluginRunnerDownloadPluginIgnoresUserCache",
+        "TestPluginRunnerDownloadPluginUsesUniqueTempFile"
+      ]
+    },
+    {
+      "id": "root-dependency-policy",
+      "risk": "generated-project-only dependencies can pollute the root module and make releases harder to audit",
+      "gate": "make root-dependency-policy-check",
+      "tests": [
+        "bin/scripts/check-root-dependency-policy.sh",
+        "bin/scripts/root-dependency-policy.tsv"
+      ],
+      "evidence": [
+        "check-root-dependency-policy.sh",
+        "generated-project-only",
+        "mod why"
+      ]
+    },
+    {
+      "id": "module-tidy-recovery",
+      "risk": "tidy checks must report drift without leaving modified go.mod or go.sum behind",
+      "gate": "make tidy",
+      "tests": [
+        "bin/scripts/check-mod-tidy.sh"
+      ],
+      "evidence": [
+        "GENERATED_ONLY_ROOT_MODULES",
+        "restore_mod_files",
+        "go mod tidy"
+      ]
+    },
+    {
+      "id": "dependency-upgrade-evidence",
+      "risk": "dependency changes need module verification, vulnerability scanning, ownership, and integration delegation evidence",
+      "gate": "make dependency-upgrade-evidence-check",
+      "tests": [
+        "bin/scripts/check-dependency-upgrade-evidence.sh",
+        "docs/reference/dependency-upgrade-evidence.json"
+      ],
+      "evidence": [
+        "gofly.dependency_upgrade_evidence.v1",
+        "root-runtime-dependencies",
+        "generated-project-dependencies",
+        "docker-backed-integration-dependencies"
+      ]
+    }
+  ],
+  "aiflowExecution": {
+    "status": "local-fallback",
+    "blocker": "aiflow CLI currently fails to compile in the adjacent aiflow checkout because harness/policy.go imports fmt without use",
+    "goflyImpact": "none; the local cache and remote-dependency governance gate is self-contained"
+  }
+}

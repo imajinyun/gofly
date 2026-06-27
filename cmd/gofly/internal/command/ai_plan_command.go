@@ -14,8 +14,7 @@ func aiPlanCommand(args []string) error {
 	module := fs.String("module", "", "Go module path used in the generated command")
 	dir := fs.String("dir", "", "output directory used in the generated command")
 	outputFlags := registerCLIOutputFlags(fs, cliOutputFlagOptions{JSONUsage: "output JSON envelope"})
-	dryRun := fs.Bool("dry-run", true, "plan only without writing files")
-	plan := fs.Bool("plan", true, "alias for --dry-run")
+	preview := registerDryRunPlanFlagsWithDefault(fs, true, "plan only without writing files", "alias for --dry-run")
 	remaining, err := parseInterspersedFlags(fs, args)
 	if err != nil {
 		return err
@@ -32,7 +31,7 @@ func aiPlanCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	projectPlan := buildAIProjectPlan(*prompt, *kind, *name, *module, *dir, *dryRun || *plan)
+	projectPlan := buildAIProjectPlan(*prompt, *kind, *name, *module, *dir, preview.enabled())
 	if outputFlags.useJSON(format) {
 		return printJSONEnvelope("ai.plan", projectPlan)
 	}

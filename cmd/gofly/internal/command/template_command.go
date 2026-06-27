@@ -19,10 +19,7 @@ func templateCommand(args []string) error {
 	}
 	subcommand := args[0]
 	fs := flag.NewFlagSet("template "+subcommand, flag.ContinueOnError)
-	dir := fs.String("dir", "", "template output directory")
-	home := fs.String("home", "", "template output directory")
-	remote := fs.String("remote", "", "remote template repository or local directory")
-	branch := fs.String("branch", "", "remote template branch")
+	templateSource := registerTemplateDirectorySourceFlags(fs)
 	category := fs.String("category", "", "template category filter")
 	c := fs.String("c", "", "template category filter")
 	name := fs.String("name", "", "template name filter")
@@ -32,9 +29,7 @@ func templateCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	if *dir == "" {
-		*dir = *home
-	}
+	templateSource.normalize()
 	if *category == "" {
 		*category = *c
 	}
@@ -45,7 +40,7 @@ func templateCommand(args []string) error {
 		*name = remaining[0]
 	}
 	useJSON := valueFromBoolFlag(outputFlags.JSON) || strings.EqualFold(strings.TrimSpace(valueFromStringFlag(outputFlags.Format)), outputJSON)
-	opts := generator.TemplateOptions{Dir: *dir, Remote: *remote, Branch: *branch, StrictRemote: true}
+	opts := generator.TemplateOptions{Dir: *templateSource.Dir, Remote: *templateSource.Remote, Branch: *templateSource.Branch, StrictRemote: true}
 	switch subcommand {
 	case "init", "update":
 		if *category != "" || *name != "" {
@@ -56,7 +51,7 @@ func templateCommand(args []string) error {
 		if *category != "" || *name != "" {
 			warnNoopFlag("template revert", "category/name", "template revert currently restores the full default template set")
 		}
-		return generator.GenerateTemplateInit(generator.TemplateOptions{Dir: *dir})
+		return generator.GenerateTemplateInit(generator.TemplateOptions{Dir: *templateSource.Dir})
 	case "list", "ls":
 		catalog := filterProjectTemplates(generator.ListProjectTemplates(), *category, *name)
 		if useJSON {

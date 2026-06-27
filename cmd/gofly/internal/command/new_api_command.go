@@ -25,10 +25,7 @@ func apiNewCommand(args []string) error {
 	compatFlags := registerNewAPICompatFlags(fs)
 	verbosityFlags := registerNewScaffoldVerbosityFlags(fs)
 	extensionFlags := registerNewScaffoldExtensionFlags(fs, "api-plugin")
-	saveConfig := fs.Bool("save-config", true, "save resolved config back to --config path")
-	dryRun := fs.Bool("dry-run", false, "print the planned filesystem changes without writing files")
-	plan := fs.Bool("plan", false, "alias for --dry-run")
-	jsonOut := fs.Bool("json", false, "emit scaffold result as JSON")
+	executionFlags := registerNewScaffoldExecutionFlags(fs)
 	_ = compatFlags
 	remaining, err := parseInterspersedFlags(fs, args)
 	if err != nil {
@@ -77,9 +74,9 @@ func apiNewCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	output := newScaffoldPlanOutputFor("new.api", "new api", *dir, resolved, cfg, plugins, newServiceContractInputs{}, *saveConfig)
-	if *dryRun || *plan {
-		return output.printDryRunPlan(*jsonOut, false)
+	output := newScaffoldPlanOutputFor("new.api", "new api", *dir, resolved, cfg, plugins, newServiceContractInputs{}, *executionFlags.SaveConfig)
+	if *executionFlags.DryRun || *executionFlags.Plan {
+		return output.printDryRunPlan(*executionFlags.JSON, false)
 	}
 	if err := generateNewAPIScaffold(cfg, newAPIScaffoldOptions{
 		Dir:             *dir,
@@ -89,8 +86,8 @@ func apiNewCommand(args []string) error {
 	}); err != nil {
 		return err
 	}
-	if err := saveNewScaffoldConfig(*saveConfig, resolved, cfg); err != nil {
+	if err := saveNewScaffoldConfig(*executionFlags.SaveConfig, resolved, cfg); err != nil {
 		return err
 	}
-	return output.printResultWhenRequested(*jsonOut)
+	return output.printResultWhenRequested(*executionFlags.JSON)
 }

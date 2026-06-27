@@ -231,6 +231,121 @@ promoted_latency = {
     if isinstance(item, dict) and item.get("benchmark")
 }
 
+policy_failures = []
+
+
+def require_policy(condition: bool, message: str) -> None:
+    if not condition:
+        policy_failures.append(message)
+
+
+def validate_ratchet_policy() -> None:
+    allocation_policy = ratchet.get("allocationPolicy") or {}
+    report_only = set(latency_policy.get("reportOnly") or [])
+    promoted = latency_policy.get("promoted") or []
+    rpc_policy = ratchet.get("rpcPolicy") or {}
+    release_promotion = rpc_policy.get("releasePromotion") or {}
+    rpc_candidates = rpc_policy.get("candidates") or []
+
+    require_policy(
+        ratchet.get("schema") == "gofly.benchmark_budget_ratchet.v1",
+        "budget ratchet schema mismatch",
+    )
+    require_policy(
+        ratchet.get("acceptanceGate") == "make bench-regression-check",
+        "budget ratchet acceptanceGate must be make bench-regression-check",
+    )
+    require_policy(bool(tracked), "budget ratchet trackedBenchmarks must not be empty")
+    require_policy(
+        allocation_policy.get("blocking") is True,
+        "allocationPolicy.blocking must be true",
+    )
+    require_policy(
+        allocation_policy.get("metric") == "allocs/op median",
+        "allocationPolicy.metric must be allocs/op median",
+    )
+    require_policy(
+        latency_policy.get("defaultMode") == "report-only",
+        "latencyPolicy.defaultMode must remain report-only",
+    )
+
+    for item in promoted:
+        if not isinstance(item, dict):
+            require_policy(False, f"latencyPolicy.promoted item must be an object: {item!r}")
+            continue
+        benchmark = item.get("benchmark", "")
+        require_policy(benchmark in tracked, f"promoted latency benchmark is not tracked: {benchmark}")
+        require_policy(item.get("mode") == "blocking", f"{benchmark}: promoted latency mode must be blocking")
+        require_policy(
+            int(item.get("minimumBaselineSamples") or 0) >= 5,
+            f"{benchmark}: promoted latency requires at least five baseline samples",
+        )
+        require_policy(
+            float(item.get("maxRegressionRatio") or 0) >= 1,
+            f"{benchmark}: promoted latency maxRegressionRatio must be >= 1",
+        )
+        require_policy(bool(item.get("reason")), f"{benchmark}: promoted latency reason is required")
+
+    require_policy(
+        not (set(promoted_latency) & report_only),
+        "latencyPolicy promoted benchmarks must not also be report-only",
+    )
+    for benchmark in report_only:
+        require_policy(benchmark in tracked, f"report-only latency benchmark is not tracked: {benchmark}")
+
+    require_policy(
+        release_promotion.get("status") == "blocked",
+        "rpcPolicy.releasePromotion.status must remain blocked until Tier 1 criteria are met",
+    )
+    require_policy(
+        release_promotion.get("requiredBlockingGate") == "make bench-regression-check",
+        "rpcPolicy.releasePromotion.requiredBlockingGate must be make bench-regression-check",
+    )
+    require_policy(
+        bool(release_promotion.get("rollbackGuidance")),
+        "rpcPolicy.releasePromotion.rollbackGuidance is required",
+    )
+    require_policy(rpc_policy.get("status") == "report-only", "rpcPolicy.status must remain report-only")
+
+    for item in rpc_candidates:
+        if not isinstance(item, dict):
+            require_policy(False, f"rpcPolicy candidate must be an object: {item!r}")
+            continue
+        benchmark = item.get("benchmark", "")
+        require_policy(item.get("mode") == "candidate", f"{benchmark}: RPC benchmark mode must be candidate")
+        require_policy(
+            benchmark not in tracked,
+            f"{benchmark}: RPC candidate must not enter trackedBenchmarks before promotion",
+        )
+        require_policy(bool(item.get("currentBlocker")), f"{benchmark}: currentBlocker is required")
+
+
+validate_ratchet_policy()
+if policy_failures:
+    report = {
+        "schema": "gofly.benchmark_regression_report.v1",
+        "status": "failed",
+        "policy": {
+            "scope": "ratcheted gofly hot-path rows",
+            "blockingMetric": "allocs/op median",
+            "ratchet": str(ratchet_path),
+            "ratchetSchema": ratchet.get("schema", ""),
+            "latencyMode": latency_policy.get("defaultMode", ""),
+            "latencyBlockingBenchmarks": sorted(promoted_latency),
+            "rpcPolicy": ratchet.get("rpcPolicy", {}),
+            "allocTolerance": alloc_tolerance,
+        },
+        "baselineFile": str(baseline_path),
+        "currentFile": str(current_path),
+        "checks": [],
+        "failures": policy_failures,
+    }
+    report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    print(f"benchmark regression check failed; report written to {report_path}", file=sys.stderr)
+    for failure in policy_failures:
+        print(f"  {failure}", file=sys.stderr)
+    sys.exit(1)
+
 
 def parse(path: Path) -> dict[str, list[dict[str, float]]]:
     parsed: dict[str, list[dict[str, float]]] = {}

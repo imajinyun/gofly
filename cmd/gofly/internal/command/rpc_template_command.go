@@ -18,8 +18,7 @@ func isTemplateSubcommand(command string) bool {
 func rpcTemplateCommand(args []string) error {
 	leadingName, args := splitLeadingName(args)
 	fs := flag.NewFlagSet("rpc template", flag.ContinueOnError)
-	output := fs.String("output", "", "output proto template file")
-	o := fs.String("o", "", "output proto template file")
+	output := registerOutputPathFlags(fs, "output proto template file")
 	name := fs.String("name", "", "rpc service name used in the template")
 	home := fs.String("home", "", "template home directory")
 	remote := fs.String("remote", "", "remote template repository")
@@ -32,12 +31,9 @@ func rpcTemplateCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	if *output == "" {
-		*output = *o
-	}
 	if *name == "" {
 		*name = leadingName
 	}
 	fillNameFromArgs(name, remaining)
-	return generator.GenerateRPCTemplate(generator.IDLTemplateOptions{Output: *output, Name: *name, TemplateDir: *home, Remote: *remote, Branch: *branch})
+	return generator.GenerateRPCTemplate(generator.IDLTemplateOptions{Output: output.resolve(), Name: *name, TemplateDir: *home, Remote: *remote, Branch: *branch})
 }

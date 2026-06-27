@@ -1,0 +1,162 @@
+{
+  "schema": "gofly.code_generation_governance.v1",
+  "aiflowTask": "GOFLY-GOV-10R3-04",
+  "purpose": "Map gofly code-generation surfaces to deterministic output, path safety, dependency hygiene, upgrade diff classification, and generated project compile evidence.",
+  "acceptanceGate": "make code-generation-governance-check",
+  "aggregateGate": "make generated-upgrade-dry-run-check",
+  "sourceCode": [
+    "cmd/gofly/internal/generator",
+    "cmd/gofly/internal/command",
+    "bin/scripts/check-generated-output-governance.sh",
+    "bin/scripts/check-generated-upgrade-dry-run.sh",
+    "docs/reference/generated-upgrade-dry-run.json",
+    "docs/reference/generated-version-compat.md",
+    "docs/reference/migration-fidelity-matrix.json",
+    "docs/reference/template-profile-trust.json"
+  ],
+  "policy": {
+    "noPathEscape": true,
+    "repeatGenerationMustBeDeterministic": true,
+    "rootModuleDependencyHygiene": true,
+    "generatedProjectDependenciesStayInGeneratedGoMod": true,
+    "upgradeDiffsMustBeClassified": true,
+    "dryRunMustNotWriteRuntimeArtifacts": true
+  },
+  "surfaces": [
+    {
+      "id": "service-scaffold",
+      "commands": [
+        "gofly new service",
+        "gofly ai new"
+      ],
+      "risk": "generated project structure, production profile defaults, route aggregation, and repeated generation can drift silently",
+      "gate": "make test-generated-matrix",
+      "tests": [
+        "TestBuildServiceScaffoldIRProfilesDeclareStableManifest",
+        "TestAINewGeneratedArtifactsAreDeterministicAndIdempotent",
+        "TestAINewGeneratedProjectVerificationMatrix",
+        "TestNewServiceGeneratedProjectSmokeMatrix"
+      ],
+      "evidence": [
+        "docs/reference/generated-upgrade-dry-run.json",
+        "docs/reference/template-profile-trust.json"
+      ]
+    },
+    {
+      "id": "api-generator",
+      "commands": [
+        "gofly api gen",
+        "gofly new api"
+      ],
+      "risk": "API handlers, routes, OpenAPI envelopes, goctl-compatible flags, and config profile defaults can diverge",
+      "gate": "make generated-output-governance",
+      "tests": [
+        "TestExecuteAPINewWithGoZeroCompatibleProfile",
+        "TestExecuteAPINewUsesConfigProfileDefault",
+        "TestExecuteAPINewRejectsUnknownProfile",
+        "TestExecuteAPINewAcceptsGoctlReservedFlags",
+        "TestIDLGenerateCommandsEmitJSONEnvelope"
+      ],
+      "evidence": [
+        "docs/reference/goctl-generator-compatibility.json",
+        "docs/reference/generated-upgrade-dry-run.json"
+      ]
+    },
+    {
+      "id": "rpc-generator",
+      "commands": [
+        "gofly rpc gen",
+        "gofly rpc protoc",
+        "gofly new rpc"
+      ],
+      "risk": "proto descriptors, generated client/server stubs, and JSON envelopes need stable compatibility evidence",
+      "gate": "make generated-output-governance",
+      "tests": [
+        "TestIDLGenerateCommandsEmitJSONEnvelope",
+        "TestNewServiceGeneratedProjectSmokeMatrix"
+      ],
+      "evidence": [
+        "docs/reference/rpc-boundary.md",
+        "docs/reference/generated-version-compat.md"
+      ]
+    },
+    {
+      "id": "model-generator",
+      "commands": [
+        "gofly model gen",
+        "gofly model mysql",
+        "gofly model pg",
+        "gofly model mongo"
+      ],
+      "risk": "generated-project-only database dependencies must not pollute the root module",
+      "gate": "make generated-output-governance",
+      "tests": [
+        "TestGenerateModelFromDDLGORMStyle",
+        "TestGenerateModelFromDDLGoZeroStyleDoesNotRequireGORM",
+        "TestGenerateMongoModelDriverStyle"
+      ],
+      "evidence": [
+        "docs/reference/db-cache-productization.json",
+        "docs/reference/dependency-upgrade-evidence.json"
+      ]
+    },
+    {
+      "id": "template-sync",
+      "commands": [
+        "gofly template update",
+        "gofly template revert",
+        "gofly template init"
+      ],
+      "risk": "local or remote templates must reject dangerous roots and symlink traversal",
+      "gate": "make generated-output-governance",
+      "tests": [
+        "TestApplyTemplateExtensionRejectsSymlinkTemplate",
+        "TestCopyDirRejectsSymlinkSourceEntry"
+      ],
+      "evidence": [
+        "docs/reference/template-profile-trust.json",
+        "docs/reference/generated-upgrade-dry-run.json"
+      ]
+    },
+    {
+      "id": "plugin-generated-output",
+      "commands": [
+        "gofly plugin run",
+        "gofly api plugin",
+        "gofly rpc plugin"
+      ],
+      "risk": "plugin responses must reject path escape, symlink parents, symlink leaves, and partial writes",
+      "gate": "make generated-output-governance",
+      "tests": [
+        "TestPluginResponseWriteFilesRejectsEscapingPaths",
+        "TestPluginResponseRejectsSymlinkParentTraversal",
+        "TestPluginResponseRejectsSymlinkLeaf",
+        "TestPluginSymlinkParentBoundaries"
+      ],
+      "evidence": [
+        "docs/reference/plugin-conformance.md",
+        "docs/reference/generated-upgrade-dry-run.json"
+      ]
+    }
+  ],
+  "profileMatrix": {
+    "source": "docs/reference/generated-upgrade-dry-run.json",
+    "versionCompat": "docs/reference/generated-version-compat.md",
+    "profiles": [
+      "old",
+      "current",
+      "future"
+    ]
+  },
+  "diffCategories": [
+    "deterministic-repeat-generation",
+    "compatible-addition",
+    "formatting-only",
+    "breaking-candidate"
+  ],
+  "aiflowExecution": {
+    "status": "local-fallback",
+    "blocker": "aiflow CLI currently fails to compile in the adjacent aiflow checkout because harness/policy.go imports fmt without use",
+    "goflyImpact": "none; the local code-generation governance gate is self-contained"
+  }
+}

@@ -2186,7 +2186,7 @@ func TestCommandConfigFeaturePluginCoverageBuffer(t *testing.T) {
     "source":"https://github.com/example/gofly-auth-jwt",
     "description":"JWT auth generator",
     "tags":["auth","jwt"],
-    "manifest":{"name":"auth-jwt","version":"v0.1.0","compatibleVersions":["1"],"capabilities":["generate:file"],"permissions":["filesystem:write-relative"]}
+    "manifest":{"name":"auth-jwt","version":"v0.1.0","compatibleVersions":["1"],"capabilities":["generate:file"],"permissions":["filesystem:write-relative"],"requiresDryRun":true}
   }]
 }`
 		if err := os.WriteFile(registryPath, []byte(registryJSON), 0o600); err != nil {

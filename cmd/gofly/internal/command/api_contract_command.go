@@ -3,7 +3,6 @@ package command
 import (
 	"flag"
 	"fmt"
-	"os"
 
 	"github.com/imajinyun/gofly/cmd/gofly/internal/generator"
 )
@@ -20,9 +19,9 @@ func apiCheckCommand(args []string) error {
 	if apiFile == "" {
 		return fmt.Errorf("%w: api file is required", errUsage)
 	}
-	content, err := os.ReadFile(apiFile)
+	content, err := readExplicitInputFile(apiFile, "api")
 	if err != nil {
-		return fmt.Errorf("read api file: %w", err)
+		return err
 	}
 	doc, err := generator.ParseAPI(string(content))
 	if err != nil {

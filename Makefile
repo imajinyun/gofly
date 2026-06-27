@@ -424,6 +424,10 @@ gosec-inventory-refresh: ## Refresh the approved #nosec exception baseline after
 	sh $(SCRIPTS_DIR)/gosec-exception-inventory.sh > $$tmp; \
 	python3 -c 'import json, sys; from pathlib import Path; inventory = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8")); baseline_path = Path(sys.argv[2]); allowed = ["|".join([entry["file"], ",".join(entry.get("rules") or []), entry.get("rationale", "")]) for entry in inventory.get("entries", [])]; payload = {"allowed_exceptions": sorted(allowed), "schema": "gofly.gosec_exception_baseline.v1"}; baseline_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")' $$tmp $(GOSEC_INVENTORY_BASELINE)
 
+.PHONY: security-governance-check
+security-governance-check: ## Validate security gates, baselines, and release-skip protections
+	sh $(SCRIPTS_DIR)/check-security-governance.sh
+
 .PHONY: release-artifacts-check
 release-artifacts-check: release-config-check release-evidence-index-check ## Verify release archives, checksums, and SBOM artifacts in dist
 	sh $(SCRIPTS_DIR)/check-release-artifacts.sh
@@ -488,7 +492,7 @@ governance-10-rounds: governance-boundary-inventory-check ## Run the no-cache ar
 	COVERAGE_THRESHOLD=$(COVERAGE_THRESHOLD) COVERAGE_RATCHET=$(COVERAGE_RATCHET) sh $(SCRIPTS_DIR)/governance-10-rounds.sh
 
 .PHONY: security
-security: govulncheck gosec ## Run govulncheck + gosec (shortcut)
+security: security-governance-check govulncheck gosec ## Run govulncheck + gosec (shortcut)
 
 .PHONY: clean
 clean: ## Remove build and coverage artifacts

@@ -74,9 +74,10 @@ def classify(file_path, rules, rationale):
     return trust, sorted(set(protections)), sorted(set(coverage)), helper
 
 entries = []
+ignored_path_parts = {".aiflow", ".harness", ".tmp-test", ".trae", "vendor", "testdata"}
 for path in sorted(root.rglob("*.go")):
     rel = path.relative_to(root).as_posix()
-    if "/vendor/" in f"/{rel}/" or "/testdata/" in f"/{rel}/":
+    if any(part in ignored_path_parts for part in pathlib.PurePosixPath(rel).parts):
         continue
     for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
         if "#nosec" not in line:

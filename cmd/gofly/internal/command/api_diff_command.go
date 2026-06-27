@@ -14,8 +14,7 @@ func apiDiffCommand(args []string) error {
 	target := fs.String("target", "", "target api file")
 	newFile := fs.String("new", "", "target api file, alias for --target")
 	dir := fs.String("dir", ".", "output directory")
-	output := fs.String("output", "", "output diff file")
-	o := fs.String("o", "", "output diff file")
+	output := registerOutputPathFlags(fs, "output diff file")
 	format := registerCLIFormatFlag(fs, outputText, "diff format: text, markdown, or json")
 	remaining, err := parseInterspersedFlags(fs, args)
 	if err != nil {
@@ -33,9 +32,6 @@ func apiDiffCommand(args []string) error {
 	if *target == "" && len(leadingFiles) > 1 {
 		*target = leadingFiles[1]
 	}
-	if *output == "" {
-		*output = *o
-	}
 	if *base == "" && len(remaining) > 0 {
 		*base = remaining[0]
 		remaining = remaining[1:]
@@ -43,5 +39,5 @@ func apiDiffCommand(args []string) error {
 	if *target == "" && len(remaining) > 0 {
 		*target = remaining[0]
 	}
-	return generator.GenerateAPIDiff(generator.APIDiffOptions{Base: *base, Target: *target, Dir: *dir, Output: *output, Format: *format})
+	return generator.GenerateAPIDiff(generator.APIDiffOptions{Base: *base, Target: *target, Dir: *dir, Output: output.resolve(), Format: *format})
 }

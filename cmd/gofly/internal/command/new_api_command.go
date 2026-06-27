@@ -127,8 +127,5 @@ func apiNewCommand(args []string) error {
 	if err := saveNewScaffoldConfig(*saveConfig, resolved, cfg); err != nil {
 		return err
 	}
-	if *jsonOut || outputMode() == outputJSON {
-		return output.printResult()
-	}
-	return nil
+	return output.printResultWhenRequested(*jsonOut)
 }

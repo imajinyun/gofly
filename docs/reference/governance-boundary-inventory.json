@@ -42,7 +42,7 @@
       "id": "GOFLY-GOV-10R-07",
       "round": 7,
       "title": "REST/RPC/API contract governance",
-      "gate": "make openapi-validation-check && make rpc-boundary-check"
+      "gate": "make api-contract-check"
     },
     {
       "id": "GOFLY-GOV-10R-08",
@@ -101,7 +101,7 @@
         "docs/reference/openapi-validation-envelope.md",
         "docs/reference/rpc-boundary.md"
       ],
-      "gate": "make openapi-validation-check && make rpc-boundary-check"
+      "gate": "make api-contract-check"
     },
     {
       "id": "plugin-template-security",

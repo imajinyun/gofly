@@ -84,12 +84,7 @@ func serviceNewCommand(args []string) error {
 	}
 	cfg := loadCtx.Config
 	resolved := loadCtx.ConfigPath
-	if cfg.Style == "" || isGoctlTemplateStyle(cfg.Style) {
-		cfg.Style = generator.ServiceStyleProduction
-	}
-	if *style == "" {
-		cfg.Style = generator.ServiceStyleProduction
-	}
+	applyNewScaffoldStyleDefault(cfg, *style, generator.ServiceStyleProduction, true)
 	if *dir == "" && cfg.ServiceName != "" {
 		*dir = cfg.ServiceName
 	}

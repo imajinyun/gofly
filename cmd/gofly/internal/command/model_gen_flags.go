@@ -56,39 +56,64 @@ func newModelGenFlagSet() (*flag.FlagSet, modelGenFlags) {
 }
 
 func (flags modelGenFlags) normalize(leadingDDL string, remaining []string) []string {
-	if *flags.DDL == "" {
-		*flags.DDL = *flags.Src
+	remaining = flags.normalizeDDL(leadingDDL, remaining)
+	flags.normalizeDir(remaining)
+	flags.normalizeTable()
+	flags.normalizeIgnoreColumns()
+	flags.normalizePrefix()
+	flags.normalizeCache()
+	return remaining
+}
+
+func (flags modelGenFlags) normalizeDDL(leadingDDL string, remaining []string) []string {
+	if valueFromStringFlag(flags.DDL) == "" {
+		setStringFlag(flags.DDL, valueFromStringFlag(flags.Src))
 	}
-	if *flags.DDL == "" {
-		*flags.DDL = *flags.ShortSrc
+	if valueFromStringFlag(flags.DDL) == "" {
+		setStringFlag(flags.DDL, valueFromStringFlag(flags.ShortSrc))
 	}
-	if *flags.ShortDir != "" {
-		*flags.Dir = *flags.ShortDir
+	if valueFromStringFlag(flags.DDL) == "" {
+		setStringFlag(flags.DDL, leadingDDL)
 	}
-	if *flags.DDL == "" {
-		*flags.DDL = leadingDDL
-	}
-	if *flags.DDL == "" && len(remaining) > 0 {
-		*flags.DDL = remaining[0]
-		remaining = remaining[1:]
-	}
-	if *flags.ShortDir == "" && *flags.Dir == "." && len(remaining) > 0 {
-		*flags.Dir = remaining[0]
-	}
-	if *flags.Table == "" {
-		*flags.Table = *flags.Tables
-	}
-	if *flags.Table == "" {
-		*flags.Table = *flags.ShortTable
-	}
-	if *flags.IgnoreColumns == "" {
-		*flags.IgnoreColumns = *flags.ShortIgnore
-	}
-	if *flags.Prefix == "" {
-		*flags.Prefix = *flags.ShortPrefix
-	}
-	if *flags.ShortCache {
-		*flags.Cache = true
+	if valueFromStringFlag(flags.DDL) == "" && len(remaining) > 0 {
+		setStringFlag(flags.DDL, remaining[0])
+		return remaining[1:]
 	}
 	return remaining
+}
+
+func (flags modelGenFlags) normalizeDir(remaining []string) {
+	if valueFromStringFlag(flags.ShortDir) != "" {
+		setStringFlag(flags.Dir, valueFromStringFlag(flags.ShortDir))
+	}
+	if valueFromStringFlag(flags.ShortDir) == "" && valueFromStringFlag(flags.Dir) == "." && len(remaining) > 0 {
+		setStringFlag(flags.Dir, remaining[0])
+	}
+}
+
+func (flags modelGenFlags) normalizeTable() {
+	if valueFromStringFlag(flags.Table) == "" {
+		setStringFlag(flags.Table, valueFromStringFlag(flags.Tables))
+	}
+	if valueFromStringFlag(flags.Table) == "" {
+		setStringFlag(flags.Table, valueFromStringFlag(flags.ShortTable))
+	}
+}
+
+func (flags modelGenFlags) normalizeIgnoreColumns() {
+	if valueFromStringFlag(flags.IgnoreColumns) == "" {
+		setStringFlag(flags.IgnoreColumns, valueFromStringFlag(flags.ShortIgnore))
+	}
+}
+
+func (flags modelGenFlags) normalizePrefix() {
+	if valueFromStringFlag(flags.Prefix) == "" {
+		setStringFlag(flags.Prefix, valueFromStringFlag(flags.ShortPrefix))
+	}
+}
+
+func (flags modelGenFlags) normalizeCache() {
+	if valueFromBoolFlag(flags.ShortCache) {
+		setBoolFlag(flags.Cache, true)
+	}
 }

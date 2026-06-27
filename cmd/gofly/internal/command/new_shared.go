@@ -332,6 +332,13 @@ func setStringFlag(target *string, value string) {
 	*target = value
 }
 
+func setBoolFlag(target *bool, value bool) {
+	if target == nil {
+		return
+	}
+	*target = value
+}
+
 func isGoctlTemplateStyle(style string) bool {
 	switch strings.ToLower(strings.TrimSpace(style)) {
 	case "go_zero", "gozero", "go-zero", "http-compat", "rpc-compat":

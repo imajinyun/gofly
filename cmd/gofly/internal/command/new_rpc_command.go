@@ -43,18 +43,16 @@ func rpcNewCommand(args []string) error {
 		return err
 	}
 	cfg := loadCtx.Config
-	resolved := loadCtx.ConfigPath
 	applyNewScaffoldDefaults(cfg, baseFlags, generator.ServiceStyleProduction, true)
-	plugins := loadCtx.PluginNames
 	resolvedProfile := resolveNewRPCProfile(cfg, *profileFlags.Profile)
-	output := newScaffoldPlanOutputFor("new.rpc", "new rpc", *baseFlags.Dir, resolved, cfg, plugins, newServiceContractInputs{}, *executionFlags.SaveConfig)
+	output := newScaffoldPlanOutputFromContext("new.rpc", "new rpc", baseFlags, loadCtx, newServiceContractInputs{}, executionFlags)
 	if *executionFlags.DryRun || *executionFlags.Plan {
 		return output.printDryRunPlan(*executionFlags.JSON, false)
 	}
 	if err := generateNewRPCScaffold(cfg, newRPCScaffoldOptions{
 		Dir:             *baseFlags.Dir,
 		ResolvedProfile: resolvedProfile,
-		Plugins:         plugins,
+		Plugins:         loadCtx.PluginNames,
 	}); err != nil {
 		return err
 	}

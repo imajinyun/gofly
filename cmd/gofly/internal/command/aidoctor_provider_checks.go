@@ -76,15 +76,40 @@ func checkAIDoctorEnvVars() []aiDoctorItem {
 			continue
 		}
 		status := "ok"
-		msg := value
-		if strings.Contains(env, "API_KEY") || strings.Contains(env, "SECRET") || strings.Contains(env, "TOKEN") {
-			msg = "<set>"
-		}
 		items = append(items, aiDoctorItem{
 			Name:    "env." + env,
 			Status:  status,
-			Message: msg,
+			Message: aiDoctorEnvValueMessage(env, value),
 		})
 	}
 	return items
+}
+
+func aiDoctorEnvValueMessage(env, value string) string {
+	if value == "" {
+		return ""
+	}
+	if isAIDoctorRedactedEnv(env) {
+		return "<set>"
+	}
+	return value
+}
+
+func isAIDoctorRedactedEnv(env string) bool {
+	upper := strings.ToUpper(env)
+	for _, marker := range []string{
+		"API_KEY",
+		"SECRET",
+		"TOKEN",
+		"PASSWORD",
+		"CREDENTIAL",
+		"BASE_URL",
+		"ENDPOINT",
+		"HOST",
+	} {
+		if strings.Contains(upper, marker) {
+			return true
+		}
+	}
+	return false
 }

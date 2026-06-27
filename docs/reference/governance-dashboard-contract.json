@@ -16,6 +16,8 @@
     "productionDefaults.missingAssets",
     "runtimeSLO.operatorDrillCount",
     "runtimeSLO.incidentRehearsalCount",
+    "dxSupportBundle.surfaceCount",
+    "dxSupportBundle.remediationHintCount",
     "governanceConvergence.taskCount",
     "governanceConvergence.ignoredRuntimePathCount",
     "aiflow.status",
@@ -91,6 +93,32 @@
     "source": ".harness/store.json",
     "requiredStatusField": "status",
     "requiredSummaryField": "summary"
+  },
+  "aiNativeWorkflow": {
+    "schema": "gofly.dx_support_bundle.v1",
+    "source": "docs/reference/dx-support-bundle.json",
+    "controlPlaneSource": "docs/case-studies/ai-control-plane-drift.md",
+    "gate": "make dx-troubleshooting-check",
+    "reportGate": "make governance-report-check",
+    "requiredCommands": [
+      "gofly doctor --json",
+      "gofly bug --json",
+      "gofly release check --json --strict",
+      "gofly ai new --json --apply --verify"
+    ],
+    "requiredWorkflowSteps": [
+      "run gofly doctor --json",
+      "run gofly release check --json --strict",
+      "run gofly bug --json",
+      "attach generated project verification failure reports when available"
+    ],
+    "requiredStableFields": [
+      "nextActions",
+      "supportBundle",
+      "error.remediation",
+      "data.verification",
+      "data.nextActions"
+    ]
   },
   "productionReadinessScorecard": {
     "schema": "gofly.production_readiness_scorecard.v1",
@@ -172,6 +200,13 @@
         "source": "docs/reference/plugin-conformance.md",
         "gate": "make plugin-conformance-check",
         "adopterAction": "accept only plugins that pass manifest, digest, permission, compatibility, and failure isolation checks"
+      },
+      {
+        "id": "ai-native-support-bundle",
+        "riskClass": "production-ready",
+        "source": "docs/reference/dx-support-bundle.json",
+        "gate": "make dx-troubleshooting-check",
+        "adopterAction": "collect doctor, release, support bundle, generated verification, and control-plane evidence before asking agents or maintainers to diagnose failures"
       }
     ]
   },
@@ -251,6 +286,15 @@
         "gate": "make governance-report-check",
         "riskClass": "candidate",
         "rollbackOrEscalation": "follow the surface-specific adopter action and block promotion when any required source or gate is missing"
+      },
+      {
+        "id": "ai-native-support-workflow",
+        "claim": "AI-native support workflows expose doctor, release, support bundle, generated failure, and control-plane remediation evidence as machine-readable contracts.",
+        "sourceManifest": "docs/reference/dx-support-bundle.json",
+        "reportField": "dxSupportBundle.surfaceCount",
+        "gate": "make dx-troubleshooting-check",
+        "riskClass": "production-ready",
+        "rollbackOrEscalation": "fall back to manual troubleshooting and block agent-driven remediation when nextActions, support bundle redaction, or control-plane evidence is missing"
       }
     ]
   },

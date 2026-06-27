@@ -525,6 +525,7 @@ def governance_dashboard_contract():
         "productionDefaults": manifest.get("productionDefaults", {}),
         "governanceConvergence": manifest.get("governanceConvergence", {}),
         "aiflow": manifest.get("aiflow", {}),
+        "aiNativeWorkflow": manifest.get("aiNativeWorkflow", {}),
         "productionReadinessScorecard": production_readiness_scorecard(manifest.get("productionReadinessScorecard", {})),
         "evidenceTraceability": evidence_traceability(manifest.get("evidenceTraceability", {})),
         "outputs": manifest.get("outputs", []),
@@ -604,6 +605,56 @@ def production_readiness_scorecard(contract):
     }
 
 
+def dx_support_bundle_evidence():
+    manifest = read_json(root / "docs/reference/dx-support-bundle.json") or {}
+    surfaces = [
+        item
+        for item in manifest.get("surfaces") or []
+        if isinstance(item, dict)
+    ]
+    stable_field_refs = sorted({
+        field
+        for item in surfaces
+        for field in item.get("stableFields") or []
+    })
+    remediation_hints = []
+    for item in surfaces:
+        command = item.get("command", "")
+        guidance = item.get("failureGuidance", "")
+        if guidance:
+            remediation_hints.append({
+                "command": command,
+                "failureGuidance": guidance,
+                "nextActionRequired": item.get("nextActionRequired") is True,
+            })
+    generated_failure = manifest.get("generatedFailureReport") or {}
+    return {
+        "schema": manifest.get("schema", ""),
+        "manifest": "docs/reference/dx-support-bundle.json",
+        "gate": manifest.get("acceptanceGate", ""),
+        "surfaceCount": len(surfaces),
+        "commands": [
+            item.get("command", "")
+            for item in surfaces
+            if item.get("command")
+        ],
+        "stableFieldRefs": stable_field_refs,
+        "supportWorkflow": manifest.get("supportWorkflow", []),
+        "generatedFailureReport": {
+            "schema": generated_failure.get("schema", ""),
+            "boundedOutput": generated_failure.get("boundedOutput") is True,
+            "redactionRequired": generated_failure.get("redactionRequired") is True,
+            "rerunGuidanceField": generated_failure.get("rerunGuidanceField", ""),
+        },
+        "remediationHints": remediation_hints,
+        "remediationHintCount": len(remediation_hints),
+        "controlPlaneEvidence": {
+            "source": "docs/case-studies/ai-control-plane-drift.md",
+            "status": status("docs/case-studies/ai-control-plane-drift.md"),
+        },
+    }
+
+
 def docs_evidence():
     required = [
         "docs/reference/api-surface.md",
@@ -641,6 +692,7 @@ report = {
     "coverageTrend": coverage_evidence(),
     "ciRequiredChecks": ci_required_check_evidence(),
     "runtimeSLO": runtime_slo_evidence(),
+    "dxSupportBundle": dx_support_bundle_evidence(),
     "productionDefaults": production_defaults_evidence(),
     "observabilityProductionGovernance": observability_production_governance_contract(),
     "governanceConvergence": governance_convergence_evidence(),
@@ -699,6 +751,7 @@ md_lines = [
     f"- Release readiness score: `{report['release']['readinessScore']['score']}/{report['release']['readinessScore']['maxScore']}` (`{report['release']['readinessScore']['status']}`)",
     f"- Production readiness surfaces: `{report['dashboard']['productionReadinessScorecard']['surfaceCount']}`",
     f"- Production default capabilities: `{report['productionDefaults']['capabilityCount']}`",
+    f"- DX support bundle surfaces: `{report['dxSupportBundle']['surfaceCount']}`",
     f"- Governance convergence rounds: `{report['governanceConvergence']['taskCount']}`",
     f"- Evidence traceability claims: `{report['dashboard']['evidenceTraceability']['claimCount']}`",
     f"- Generated upgrade dry-run profiles: `{report['generatedUpgradeDryRun']['profileCount']}`",
@@ -759,6 +812,49 @@ if report["runtimeSLO"]["operatorDrillCount"] < 6:
     missing.append("runtime SLO operator drill evidence is incomplete")
 if report["runtimeSLO"]["incidentRehearsalCount"] < 4:
     missing.append("runtime SLO incident rehearsal evidence is incomplete")
+dx_support_bundle = report["dxSupportBundle"]
+if dx_support_bundle["schema"] != "gofly.dx_support_bundle.v1":
+    missing.append("dx support bundle schema mismatch")
+if dx_support_bundle["gate"] != "make dx-troubleshooting-check":
+    missing.append("dx support bundle gate mismatch")
+required_dx_commands = {
+    "gofly doctor --json",
+    "gofly bug --json",
+    "gofly release check --json --strict",
+    "gofly ai new --json --apply --verify",
+}
+if set(dx_support_bundle.get("commands") or []) != required_dx_commands:
+    missing.append("dx support bundle commands mismatch")
+required_workflow_steps = {
+    "run gofly doctor --json",
+    "run gofly release check --json --strict",
+    "run gofly bug --json",
+    "attach generated project verification failure reports when available",
+}
+if set(dx_support_bundle.get("supportWorkflow") or []) != required_workflow_steps:
+    missing.append("dx support bundle supportWorkflow mismatch")
+required_stable_field_refs = {
+    "nextActions",
+    "supportBundle",
+    "error.remediation",
+    "data.verification",
+    "data.nextActions",
+}
+if not required_stable_field_refs.issubset(set(dx_support_bundle.get("stableFieldRefs") or [])):
+    missing.append("dx support bundle stableFieldRefs missing AI-native remediation fields")
+failure_report = dx_support_bundle.get("generatedFailureReport") or {}
+if failure_report.get("schema") != "gofly.generated_project_failure_report.v1":
+    missing.append("dx support bundle generated failure report schema mismatch")
+if failure_report.get("boundedOutput") is not True or failure_report.get("redactionRequired") is not True:
+    missing.append("dx support bundle generated failure report must keep bounded output and redaction")
+if failure_report.get("rerunGuidanceField") != "nextActions":
+    missing.append("dx support bundle generated failure report rerun guidance mismatch")
+if dx_support_bundle.get("remediationHintCount") != len(dx_support_bundle.get("remediationHints") or []):
+    missing.append("dx support bundle remediationHintCount mismatch")
+if dx_support_bundle.get("remediationHintCount", 0) < 4:
+    missing.append("dx support bundle remediation hints are incomplete")
+if (dx_support_bundle.get("controlPlaneEvidence") or {}).get("status") != "present":
+    missing.append("dx support bundle control-plane evidence is missing")
 convergence = report["governanceConvergence"]
 if convergence["schema"] != "gofly.governance_boundary_inventory.v1":
     missing.append("governance convergence schema mismatch")
@@ -1015,6 +1111,8 @@ for field in (
     "productionDefaults.missingAssets",
     "runtimeSLO.operatorDrillCount",
     "runtimeSLO.incidentRehearsalCount",
+    "dxSupportBundle.surfaceCount",
+    "dxSupportBundle.remediationHintCount",
     "governanceConvergence.taskCount",
     "governanceConvergence.ignoredRuntimePathCount",
     "dashboard.productionReadinessScorecard.surfaceCount",
@@ -1074,6 +1172,21 @@ if aiflow_contract.get("requiredStatusField") != "status":
     missing.append("governance dashboard aiflow requiredStatusField mismatch")
 if aiflow_contract.get("requiredSummaryField") != "summary":
     missing.append("governance dashboard aiflow requiredSummaryField mismatch")
+ai_native_contract = dashboard.get("aiNativeWorkflow") or {}
+if ai_native_contract.get("schema") != "gofly.dx_support_bundle.v1":
+    missing.append("governance dashboard aiNativeWorkflow schema mismatch")
+if ai_native_contract.get("source") != "docs/reference/dx-support-bundle.json":
+    missing.append("governance dashboard aiNativeWorkflow source mismatch")
+if ai_native_contract.get("gate") != "make dx-troubleshooting-check":
+    missing.append("governance dashboard aiNativeWorkflow gate mismatch")
+if ai_native_contract.get("reportGate") != "make governance-report-check":
+    missing.append("governance dashboard aiNativeWorkflow reportGate mismatch")
+if set(ai_native_contract.get("requiredCommands") or []) != required_dx_commands:
+    missing.append("governance dashboard aiNativeWorkflow requiredCommands mismatch")
+if set(ai_native_contract.get("requiredWorkflowSteps") or []) != required_workflow_steps:
+    missing.append("governance dashboard aiNativeWorkflow requiredWorkflowSteps mismatch")
+if not set(ai_native_contract.get("requiredStableFields") or []).issubset(set(dx_support_bundle.get("stableFieldRefs") or [])):
+    missing.append("governance dashboard aiNativeWorkflow requiredStableFields missing from report")
 scorecard = dashboard.get("productionReadinessScorecard") or {}
 if scorecard.get("schema") != "gofly.production_readiness_scorecard.v1":
     missing.append("production readiness scorecard schema mismatch")
@@ -1104,6 +1217,7 @@ required_surface_ids = {
     "adoption-risk",
     "required-checks",
     "plugin-ecosystem",
+    "ai-native-support-bundle",
 }
 for item in surfaces:
     if not isinstance(item, dict):
@@ -1164,6 +1278,7 @@ required_claim_ids = {
     "dependency-ownership",
     "performance-budget",
     "production-readiness-scorecard",
+    "ai-native-support-workflow",
 }
 seen_claim_ids = set()
 for item in claims:

@@ -50,13 +50,24 @@ checks = {
         "gofly.cloud_native_policy_conformance.v1",
         "helm-template",
         "static-template-render",
+        "toolAvailabilityPolicy",
         "kubeconform",
         "kubeval",
+        "renderedGoldens",
+        "fallbackStatus",
         "ServiceMonitor",
         "HorizontalPodAutoscaler",
         "PodDisruptionBudget",
         "NetworkPolicy",
         "make cloud-native-render-check",
+    ],
+    pathlib.Path("docs/reference/cloud-native-rendered-production.golden.yaml"): [
+        "kind: Deployment",
+        "kind: Service",
+        "kind: ServiceMonitor",
+        "kind: HorizontalPodAutoscaler",
+        "kind: PodDisruptionBudget",
+        "kind: NetworkPolicy",
     ],
 }
 
@@ -103,6 +114,26 @@ for tool in ("kubeconform", "kubeval"):
     if tool not in schema_tools:
         missing.append(f"cloud-native policy conformance schemaValidation missing {tool!r}")
 
+tool_policy = manifest.get("toolAvailabilityPolicy") or {}
+for tool, field in (
+    ("helm", "renderMode"),
+    ("kustomize", "renderMode"),
+    ("kubeconform", "schemaValidationStatus"),
+    ("kubeval", "schemaValidationStatus"),
+):
+    policy = tool_policy.get(tool)
+    if not isinstance(policy, dict):
+        missing.append(f"cloud-native policy conformance toolAvailabilityPolicy missing {tool!r}")
+        continue
+    if policy.get("reportField") != field:
+        missing.append(f"cloud-native policy conformance {tool}: reportField must be {field!r}")
+    if not policy.get("missingStatus"):
+        missing.append(f"cloud-native policy conformance {tool}: missingStatus is required")
+    if tool in ("helm", "kustomize") and policy.get("requiredWhenAvailable") is not True:
+        missing.append(f"cloud-native policy conformance {tool}: requiredWhenAvailable must be true")
+    if tool in ("kubeconform", "kubeval") and policy.get("requiredWhenAvailable") is not False:
+        missing.append(f"cloud-native policy conformance {tool}: requiredWhenAvailable must be false")
+
 required_kinds = {
     "Deployment",
     "Service",
@@ -138,6 +169,30 @@ for profile in profiles:
         missing.append(f"cloud-native policy conformance {name}: unknown requiredKinds: {sorted(unknown)!r}")
     if not expected <= kinds:
         missing.append(f"cloud-native policy conformance {name}: requiredKinds missing {sorted(expected - kinds)!r}")
+
+golden_profiles = {item.get("profile") for item in manifest.get("renderedGoldens") or [] if isinstance(item, dict)}
+if "kustomize-production" not in golden_profiles:
+    missing.append("cloud-native policy conformance renderedGoldens missing kustomize-production")
+for item in manifest.get("renderedGoldens") or []:
+    if not isinstance(item, dict):
+        missing.append(f"cloud-native rendered golden must be an object: {item!r}")
+        continue
+    name = item.get("name", "<missing>")
+    path = item.get("path")
+    if not path or not pathlib.Path(path).is_file():
+        missing.append(f"cloud-native rendered golden {name}: path is missing: {path}")
+        continue
+    if item.get("fallbackStatus") not in {"tool-unavailable-explicit", "not-fallback"}:
+        missing.append(f"cloud-native rendered golden {name}: fallbackStatus must be explicit")
+    if not item.get("producedBy"):
+        missing.append(f"cloud-native rendered golden {name}: producedBy is required")
+    text = pathlib.Path(path).read_text(encoding="utf-8")
+    kinds = set(item.get("requiredKinds") or [])
+    if not required_kinds <= kinds:
+        missing.append(f"cloud-native rendered golden {name}: requiredKinds missing {sorted(required_kinds - kinds)!r}")
+    for kind in kinds:
+        if f"kind: {kind}" not in text:
+            missing.append(f"cloud-native rendered golden {name}: file missing kind {kind!r}")
 
 policy_resources = manifest.get("policyResources") or []
 policy_kinds = {item.get("kind") for item in policy_resources if isinstance(item, dict)}

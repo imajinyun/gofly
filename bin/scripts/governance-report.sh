@@ -369,6 +369,75 @@ def runtime_slo_evidence():
     }
 
 
+def production_defaults_evidence():
+    required_assets = [
+        "examples/observability/main.go",
+        "examples/observability/README.md",
+        "examples/observability/prometheus.yaml",
+        "examples/observability/otel-collector.yaml",
+        "examples/observability/grafana-dashboard.json",
+        "k8s/servicemonitor.yaml",
+        "charts/gofly/templates/servicemonitor.yaml",
+        "docs/operations/observability.md",
+        "docs/operations/production-checklist.md",
+    ]
+    capabilities = [
+        {
+            "id": "health-probes",
+            "evidence": ["examples/observability/main.go", "docs/operations/production-checklist.md"],
+            "operatorAction": "verify /healthz, /readyz and startup probes before production rollout",
+        },
+        {
+            "id": "metrics",
+            "evidence": ["core/observability/metrics/prometheus.go", "examples/observability/prometheus.yaml"],
+            "operatorAction": "scrape /debug/metrics and review request, error, inflight and latency signals",
+        },
+        {
+            "id": "traces",
+            "evidence": ["core/observability/trace/trace.go", "examples/observability/otel-collector.yaml"],
+            "operatorAction": "propagate traceparent and correlate trace_id across REST, RPC and logs",
+        },
+        {
+            "id": "structured-logs",
+            "evidence": ["core/observability/observer.go", "docs/operations/observability.md"],
+            "operatorAction": "emit request_id and trace_id without raw secrets or high-cardinality payloads",
+        },
+        {
+            "id": "admin-diagnostics",
+            "evidence": ["core/governance/admin.go", "docs/operations/observability.md"],
+            "operatorAction": "inspect /admin/control-plane and diagnostics during rollout or rollback decisions",
+        },
+        {
+            "id": "profiles",
+            "evidence": ["core/observability/setup.go", "docs/operations/production-checklist.md"],
+            "operatorAction": "enable pprof only for trusted admin access and disable or restrict it in hardened profiles",
+        },
+        {
+            "id": "rollback-drills",
+            "evidence": ["docs/reference/operator-runbook-drills.json", "docs/operations/troubleshooting.md"],
+            "operatorAction": "follow operator drill rollback triggers when SLO, control-plane or release evidence regresses",
+        },
+    ]
+    missing_assets = [
+        path
+        for path in required_assets
+        if not (root / path).exists()
+    ]
+    return {
+        "schema": "gofly.production_defaults.v1",
+        "source": "docs/reference/runtime-slo.json",
+        "gate": "make runtime-slo-check",
+        "reportGate": "make governance-report-check",
+        "exampleGate": "go test -C examples/observability ./...",
+        "productionGate": "make p1-growth-check",
+        "requiredAssets": required_assets,
+        "assetCount": len(required_assets),
+        "missingAssets": sorted(missing_assets),
+        "capabilities": capabilities,
+        "capabilityCount": len(capabilities),
+    }
+
+
 def generated_upgrade_dry_run_evidence():
     manifest = read_json(root / "docs/reference/generated-upgrade-dry-run.json") or {}
     profiles = manifest.get("profiles") or []
@@ -412,6 +481,7 @@ def governance_dashboard_contract():
         "benchmarkRatchet": manifest.get("benchmarkRatchet", {}),
         "coverage": manifest.get("coverage", {}),
         "security": manifest.get("security", {}),
+        "productionDefaults": manifest.get("productionDefaults", {}),
         "aiflow": manifest.get("aiflow", {}),
         "productionReadinessScorecard": production_readiness_scorecard(manifest.get("productionReadinessScorecard", {})),
         "evidenceTraceability": evidence_traceability(manifest.get("evidenceTraceability", {})),
@@ -507,6 +577,7 @@ report = {
     "coverageTrend": coverage_evidence(),
     "ciRequiredChecks": ci_required_check_evidence(),
     "runtimeSLO": runtime_slo_evidence(),
+    "productionDefaults": production_defaults_evidence(),
     "generatedUpgradeDryRun": generated_upgrade_dry_run_evidence(),
     "benchmark": {
         "gate": "make bench-evidence-check",
@@ -561,6 +632,7 @@ md_lines = [
     f"- Release evidence consumption items: `{report['releaseEvidenceConsumption']['itemCount']}`",
     f"- Release readiness score: `{report['release']['readinessScore']['score']}/{report['release']['readinessScore']['maxScore']}` (`{report['release']['readinessScore']['status']}`)",
     f"- Production readiness surfaces: `{report['dashboard']['productionReadinessScorecard']['surfaceCount']}`",
+    f"- Production default capabilities: `{report['productionDefaults']['capabilityCount']}`",
     f"- Evidence traceability claims: `{report['dashboard']['evidenceTraceability']['claimCount']}`",
     f"- Generated upgrade dry-run profiles: `{report['generatedUpgradeDryRun']['profileCount']}`",
     "",
@@ -614,6 +686,53 @@ if report["runtimeSLO"]["schema"] != "gofly.runtime_slo.v1":
     missing.append("runtime SLO evidence schema mismatch")
 if report["runtimeSLO"]["signalCount"] < 7:
     missing.append("runtime SLO evidence is incomplete")
+production_defaults = report["productionDefaults"]
+if production_defaults["schema"] != "gofly.production_defaults.v1":
+    missing.append("production defaults schema mismatch")
+if production_defaults["gate"] != "make runtime-slo-check":
+    missing.append("production defaults gate mismatch")
+if production_defaults["reportGate"] != "make governance-report-check":
+    missing.append("production defaults report gate mismatch")
+required_capabilities = {
+    "health-probes",
+    "metrics",
+    "traces",
+    "structured-logs",
+    "admin-diagnostics",
+    "profiles",
+    "rollback-drills",
+}
+capabilities = production_defaults.get("capabilities") or []
+actual_capabilities = {
+    item.get("id", "")
+    for item in capabilities
+    if isinstance(item, dict) and item.get("id")
+}
+if actual_capabilities != required_capabilities:
+    missing.append(
+        "production defaults capabilities drifted: "
+        f"missing={sorted(required_capabilities - actual_capabilities)} "
+        f"extra={sorted(actual_capabilities - required_capabilities)}"
+    )
+if production_defaults.get("capabilityCount") != len(capabilities):
+    missing.append("production defaults capabilityCount mismatch")
+if production_defaults.get("assetCount", 0) < 9:
+    missing.append("production defaults asset coverage is incomplete")
+if production_defaults.get("missingAssets"):
+    missing.append(f"production defaults missing assets: {production_defaults['missingAssets']}")
+for item in capabilities:
+    if not isinstance(item, dict):
+        missing.append(f"production defaults capability must be an object: {item!r}")
+        continue
+    item_id = item.get("id", "")
+    for field in ("id", "evidence", "operatorAction"):
+        if not item.get(field):
+            missing.append(f"production defaults {item_id or '<missing>'}: {field} is required")
+    for evidence in item.get("evidence") or []:
+        if not (root / evidence).exists():
+            missing.append(f"production defaults {item_id}: evidence path is missing: {evidence}")
+    if len(str(item.get("operatorAction") or "").split()) < 8:
+        missing.append(f"production defaults {item_id}: operatorAction must be actionable")
 if report["generatedUpgradeDryRun"]["schema"] != "gofly.generated_upgrade_dry_run.v1":
     missing.append("generated upgrade dry-run schema mismatch")
 if report["generatedUpgradeDryRun"]["profileCount"] != 3:
@@ -704,6 +823,8 @@ for field in (
     "coverage.ratchet",
     "security.gosec.blockingGate",
     "aiflow.status",
+    "productionDefaults.capabilityCount",
+    "productionDefaults.missingAssets",
     "dashboard.productionReadinessScorecard.surfaceCount",
     "dashboard.evidenceTraceability.claimCount",
 ):
@@ -738,6 +859,15 @@ if security_contract.get("gosecGate") != report["security"]["gosec"]["blockingGa
     missing.append("governance dashboard gosec gate mismatch")
 if security_contract.get("govulncheckGate") != report["security"]["govulncheck"]["blockingGate"]:
     missing.append("governance dashboard govulncheck gate mismatch")
+production_defaults_contract = dashboard.get("productionDefaults") or {}
+if production_defaults_contract.get("schema") != "gofly.production_defaults.v1":
+    missing.append("governance dashboard productionDefaults schema mismatch")
+if production_defaults_contract.get("gate") != "make runtime-slo-check":
+    missing.append("governance dashboard productionDefaults gate mismatch")
+if set(production_defaults_contract.get("requiredCapabilities") or []) != required_capabilities:
+    missing.append("governance dashboard productionDefaults requiredCapabilities mismatch")
+if int(production_defaults_contract.get("requiredAssetMinimum") or 0) > production_defaults.get("assetCount", 0):
+    missing.append("governance dashboard productionDefaults requiredAssetMinimum is not met")
 aiflow_contract = dashboard.get("aiflow") or {}
 if aiflow_contract.get("requiredStatusField") != "status":
     missing.append("governance dashboard aiflow requiredStatusField mismatch")

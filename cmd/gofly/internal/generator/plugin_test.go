@@ -1267,6 +1267,7 @@ func TestPluginRegistryIndexValidationAndFiltering(t *testing.T) {
 					CompatibleVersions: []string{PluginProtocolVersion},
 					Capabilities:       []string{PluginCapabilityGenerateFile},
 					Permissions:        []string{PluginPermissionWriteRelative},
+					RequiresDryRun:     true,
 				},
 			},
 			{
@@ -1284,6 +1285,7 @@ func TestPluginRegistryIndexValidationAndFiltering(t *testing.T) {
 					CompatibleVersions: []string{PluginProtocolVersion},
 					Capabilities:       []string{PluginCapabilityGenerateFile},
 					Permissions:        []string{PluginPermissionWriteRelative},
+					RequiresDryRun:     true,
 				},
 			},
 		},
@@ -1324,6 +1326,8 @@ func TestPluginRegistryIndexValidationAndFiltering(t *testing.T) {
 		{name: "invalid checksum", index: PluginRegistryIndex{Version: "v1", Plugins: []PluginRegistryEntry{{Name: "bad-checksum", Remote: "https://example.com/plugin", Version: "v1", Protocol: PluginProtocolVersion, Checksum: "md5:bad", Source: "https://github.com/example/plugin"}}}, want: "sha256"},
 		{name: "missing source", index: PluginRegistryIndex{Version: "v1", Plugins: []PluginRegistryEntry{{Name: "missing-source", Remote: "https://example.com/plugin", Version: "v1", Protocol: PluginProtocolVersion, Checksum: registryChecksum}}}, want: "source is required"},
 		{name: "invalid remote spec", index: PluginRegistryIndex{Version: "v1", Plugins: []PluginRegistryEntry{{Name: "bad-remote", Remote: "https://example.com/plugin", Version: "../main", Protocol: PluginProtocolVersion, Checksum: registryChecksum, Source: "https://github.com/example/plugin"}}}, want: "remote plugin version"},
+		{name: "missing dry run", index: PluginRegistryIndex{Version: "v1", Plugins: []PluginRegistryEntry{{Name: "missing-dry-run", Remote: "https://example.com/plugin", Version: "v1", Protocol: PluginProtocolVersion, Checksum: registryChecksum, Source: "https://github.com/example/plugin", Manifest: PluginManifest{Name: "missing-dry-run", Version: "v1", CompatibleVersions: []string{PluginProtocolVersion}, Capabilities: []string{PluginCapabilityGenerateFile}, Permissions: []string{PluginPermissionWriteRelative}}}}}, want: "requiresDryRun must be true"},
+		{name: "missing permissions", index: PluginRegistryIndex{Version: "v1", Plugins: []PluginRegistryEntry{{Name: "missing-permissions", Remote: "https://example.com/plugin", Version: "v1", Protocol: PluginProtocolVersion, Checksum: registryChecksum, Source: "https://github.com/example/plugin", Manifest: PluginManifest{Name: "missing-permissions", Version: "v1", CompatibleVersions: []string{PluginProtocolVersion}, Capabilities: []string{PluginCapabilityGenerateFile}, RequiresDryRun: true}}}}, want: "permissions are required"},
 	}
 	for _, tt := range invalidCases {
 		t.Run(tt.name, func(t *testing.T) {

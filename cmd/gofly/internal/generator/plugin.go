@@ -924,6 +924,12 @@ func ValidatePluginRegistryIndex(index PluginRegistryIndex) error {
 		if err := ValidatePluginManifest(manifest); err != nil {
 			return fmt.Errorf("plugin registry entry %s manifest: %w", name, err)
 		}
+		if !manifest.RequiresDryRun {
+			return fmt.Errorf("plugin registry entry %s manifest requiresDryRun must be true", name)
+		}
+		if len(manifest.Permissions) == 0 {
+			return fmt.Errorf("plugin registry entry %s manifest permissions are required", name)
+		}
 	}
 	return nil
 }

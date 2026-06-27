@@ -12,6 +12,8 @@ import (
 	"time"
 )
 
+const maxVerificationOutputBytes = 4096
+
 func runAIProjectVerification(dir string, verify []string, timeout time.Duration) ([]aiProjectVerificationResult, bool, error) {
 	if timeout <= 0 {
 		return nil, false, fmt.Errorf("%w: verification timeout must be positive", errUsage)
@@ -35,42 +37,44 @@ func runAIProjectVerification(dir string, verify []string, timeout time.Duration
 func runAIProjectControlPlaneSnapshotAssertion(dir string, timeout time.Duration) aiProjectVerificationResult {
 	const command = "control-plane snapshot"
 	if timeout <= 0 {
-		return aiProjectVerificationResult{Command: command, Status: "failed", Error: "verification timeout must be positive"}
+		return newAIProjectVerificationResult(command, "failed", "", "verification timeout must be positive")
 	}
 	root, err := os.OpenRoot(dir)
 	if err != nil {
-		return aiProjectVerificationResult{Command: command, Status: "failed", Error: err.Error()}
+		return newAIProjectVerificationResult(command, "failed", "", err.Error())
 	}
 	defer func() { _ = root.Close() }()
 	testFile, err := root.Open(filepath.Join("internal", "config", "config_test.go"))
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return aiProjectVerificationResult{Command: command, Status: "skipped", Error: "generated project does not expose a control-plane snapshot contract test"}
+			return newAIProjectVerificationResult(command, "skipped", "", "generated project does not expose a control-plane snapshot contract test")
 		}
-		return aiProjectVerificationResult{Command: command, Status: "failed", Error: err.Error()}
+		return newAIProjectVerificationResult(command, "failed", "", err.Error())
 	}
 	data, err := io.ReadAll(testFile)
 	_ = testFile.Close()
 	if err != nil {
-		return aiProjectVerificationResult{Command: command, Status: "failed", Error: err.Error()}
+		return newAIProjectVerificationResult(command, "failed", "", err.Error())
 	}
 	if !strings.Contains(string(data), "TestControlPlaneSnapshotExposesGeneratedContract") {
-		return aiProjectVerificationResult{Command: command, Status: "skipped", Error: "generated project does not expose a control-plane snapshot contract test"}
+		return newAIProjectVerificationResult(command, "skipped", "", "generated project does not expose a control-plane snapshot contract test")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "go", "test", "./internal/config", "-run", "TestControlPlaneSnapshotExposesGeneratedContract", "-count=1")
 	cmd.Dir = dir
 	out, err := cmd.CombinedOutput()
-	result := aiProjectVerificationResult{Command: command, Status: "passed", Output: truncateVerificationOutput(string(out))}
+	result := newAIProjectVerificationResult(command, "passed", string(out), "")
 	if ctx.Err() == context.DeadlineExceeded {
 		result.Status = "failed"
-		result.Error = "control-plane snapshot assertion timed out"
+		result.Error = sanitizeVerificationText("control-plane snapshot assertion timed out")
+		result.NextActions = aiProjectVerificationNextActions(command, result.Status)
 		return result
 	}
 	if err != nil {
 		result.Status = "failed"
-		result.Error = err.Error()
+		result.Error = sanitizeVerificationText(err.Error())
+		result.NextActions = aiProjectVerificationNextActions(command, result.Status)
 	}
 	return result
 }
@@ -78,7 +82,7 @@ func runAIProjectControlPlaneSnapshotAssertion(dir string, timeout time.Duration
 func runAIProjectVerificationCommand(dir, command string, timeout time.Duration) aiProjectVerificationResult {
 	name, args, ok := aiProjectVerificationCommandArgs(command)
 	if !ok {
-		return aiProjectVerificationResult{Command: command, Status: "skipped", Error: "unsupported verification command"}
+		return newAIProjectVerificationResult(command, "skipped", "", "unsupported verification command")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
@@ -91,15 +95,17 @@ func runAIProjectVerificationCommand(dir, command string, timeout time.Duration)
 		}
 	}
 	out, err := cmd.CombinedOutput()
-	result := aiProjectVerificationResult{Command: command, Status: "passed", Output: truncateVerificationOutput(string(out))}
+	result := newAIProjectVerificationResult(command, "passed", string(out), "")
 	if ctx.Err() == context.DeadlineExceeded {
 		result.Status = "failed"
-		result.Error = "verification command timed out"
+		result.Error = sanitizeVerificationText("verification command timed out")
+		result.NextActions = aiProjectVerificationNextActions(command, result.Status)
 		return result
 	}
 	if err != nil {
 		result.Status = "failed"
-		result.Error = err.Error()
+		result.Error = sanitizeVerificationText(err.Error())
+		result.NextActions = aiProjectVerificationNextActions(command, result.Status)
 	}
 	return result
 }
@@ -128,11 +134,88 @@ func aiProjectVerificationCommandArgs(command string) (string, []string, bool) {
 	}
 }
 
+func newAIProjectVerificationResult(command, status, output, errText string) aiProjectVerificationResult {
+	return aiProjectVerificationResult{
+		Command:     command,
+		Status:      status,
+		Output:      truncateVerificationOutput(output),
+		Error:       sanitizeVerificationText(errText),
+		NextActions: aiProjectVerificationNextActions(command, status),
+	}
+}
+
 func truncateVerificationOutput(output string) string {
-	const maxVerificationOutputBytes = 4096
-	output = strings.TrimSpace(output)
+	output = strings.TrimSpace(sanitizeVerificationText(output))
 	if len(output) <= maxVerificationOutputBytes {
 		return output
 	}
-	return output[:maxVerificationOutputBytes] + "\n... truncated ..."
+	const suffix = "\n... truncated ..."
+	return output[:maxVerificationOutputBytes-len(suffix)] + suffix
+}
+
+func sanitizeVerificationText(text string) string {
+	text = strings.TrimSpace(text)
+	lines := strings.Split(text, "\n")
+	for idx, line := range lines {
+		for _, marker := range []string{"Authorization", "Cookie", "Set-Cookie"} {
+			if strings.Contains(line, marker+":") {
+				lines[idx] = redactVerificationHeaderLine(line, marker)
+				break
+			}
+		}
+	}
+	text = strings.Join(lines, "\n")
+	for _, marker := range []string{"TOKEN", "SECRET", "PASSWORD", "GOFLY_LLM_"} {
+		text = redactVerificationAssignment(text, marker)
+	}
+	return text
+}
+
+func redactVerificationHeaderLine(line, header string) string {
+	idx := strings.Index(line, header+":")
+	if idx < 0 {
+		return line
+	}
+	valueStart := idx + len(header) + 1
+	end := len(line)
+	for _, marker := range []string{" GOFLY_LLM_", " TOKEN", " SECRET", " PASSWORD"} {
+		if markerIdx := strings.Index(strings.ToUpper(line[valueStart:]), marker); markerIdx >= 0 {
+			end = min(end, valueStart+markerIdx)
+		}
+	}
+	return strings.TrimRight(line[:idx+len(header)+1], " ") + " [REDACTED]" + line[end:]
+}
+
+func redactVerificationAssignment(text, marker string) string {
+	fields := strings.Fields(text)
+	for idx, field := range fields {
+		upper := strings.ToUpper(field)
+		if !strings.Contains(upper, marker) || !strings.Contains(field, "=") {
+			continue
+		}
+		key := strings.SplitN(field, "=", 2)[0]
+		fields[idx] = key + "=[REDACTED]"
+	}
+	if len(fields) == 0 {
+		return text
+	}
+	return strings.Join(fields, " ")
+}
+
+func aiProjectVerificationNextActions(command, status string) []string {
+	switch status {
+	case "failed":
+		return []string{
+			"cd into the generated project output directory",
+			"rerun `" + command + "` after fixing the reported error",
+			"attach this bounded verification result to `gofly bug --json` support bundles if the failure persists",
+		}
+	case "skipped":
+		return []string{
+			"check the generated project template verify list before relying on this command",
+			"run `gofly ai manifest --format json` to inspect supported verification commands",
+		}
+	default:
+		return nil
+	}
 }

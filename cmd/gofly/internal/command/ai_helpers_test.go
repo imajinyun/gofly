@@ -1211,10 +1211,11 @@ func TestAINewPlansAndAppliesSelectedTemplate(t *testing.T) {
 					VerifyRan    bool `json:"verifyRan"`
 					VerifyPassed bool `json:"verifyPassed"`
 					Verification []struct {
-						Command string `json:"command"`
-						Status  string `json:"status"`
-						Output  string `json:"output"`
-						Error   string `json:"error"`
+						Command     string   `json:"command"`
+						Status      string   `json:"status"`
+						Output      string   `json:"output"`
+						Error       string   `json:"error"`
+						NextActions []string `json:"nextActions"`
 					} `json:"verification"`
 				} `json:"data"`
 			}
@@ -1229,6 +1230,9 @@ func TestAINewPlansAndAppliesSelectedTemplate(t *testing.T) {
 				gotCommands = append(gotCommands, check.Command+":"+check.Status)
 				if check.Status != "passed" {
 					t.Fatalf("verification check failed: %+v\n%s", check, stdout.String())
+				}
+				if len(check.NextActions) != 0 {
+					t.Fatalf("passed verification check nextActions = %+v, want empty success result", check.NextActions)
 				}
 			}
 			if strings.Join(gotCommands, ",") != "gofmt:passed,go mod tidy:passed,go test ./...:passed,go vet ./...:passed,control-plane snapshot:passed" {
@@ -2799,8 +2803,28 @@ func TestAIProjectApplyVerificationScaffoldBoundaries_BitsUT(t *testing.T) {
 			t.Fatalf("write bad_test.go: %v", err)
 		}
 		result := runAIProjectVerificationCommand(dir, "go test ./...", 30*time.Second)
-		if result.Status != "failed" || len(result.Output) >= 6000 || !strings.Contains(result.Output, "truncated") {
+		if result.Status != "failed" || len(result.Output) > 4096 || !strings.Contains(result.Output, "truncated") {
 			t.Fatalf("verification truncation result = status:%s len:%d error:%q", result.Status, len(result.Output), result.Error)
+		}
+	})
+
+	t.Run("verification failure report includes rerun guidance and redaction", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/bad\n\ngo 1.26\n"), 0o644); err != nil {
+			t.Fatalf("write go.mod: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "bad_test.go"), []byte("package bad\nimport \"testing\"\nfunc TestSecret(t *testing.T) { t.Fatal(\"Authorization: Bearer token\\nGOFLY_LLM_TOKEN=super-secret\") }\n"), 0o644); err != nil {
+			t.Fatalf("write bad_test.go: %v", err)
+		}
+		result := runAIProjectVerificationCommand(dir, "go test ./...", 30*time.Second)
+		if result.Status != "failed" || result.Error == "" || len(result.NextActions) == 0 {
+			t.Fatalf("verification failure report = %+v, want error and nextActions", result)
+		}
+		if !commandContainsString(result.NextActions, "rerun `go test ./...` after fixing the reported error") {
+			t.Fatalf("verification failure nextActions = %+v, want rerun guidance", result.NextActions)
+		}
+		if strings.Contains(result.Output, "Bearer token") || strings.Contains(result.Output, "super-secret") || !strings.Contains(result.Output, "Authorization: [REDACTED]") || !strings.Contains(result.Output, "GOFLY_LLM_TOKEN=[REDACTED]") {
+			t.Fatalf("verification failure output was not redacted:\n%s", result.Output)
 		}
 	})
 }
@@ -2856,6 +2880,9 @@ func TestAIProjectVerificationHelpers_BitsUT(t *testing.T) {
 		if !passed || len(results) != 2 || results[0].Status != "passed" || results[1].Status != "skipped" {
 			t.Fatalf("verification results = %+v passed=%v, want passed+skipped", results, passed)
 		}
+		if len(results[0].NextActions) != 0 || !commandContainsString(results[1].NextActions, "run `gofly ai manifest --format json` to inspect supported verification commands") {
+			t.Fatalf("verification nextActions = %+v, want skipped guidance only", results)
+		}
 	})
 
 	t.Run("reports failing supported checks", func(t *testing.T) {
@@ -2863,7 +2890,7 @@ func TestAIProjectVerificationHelpers_BitsUT(t *testing.T) {
 		if err != nil {
 			t.Fatalf("runAIProjectVerification failed check: %v", err)
 		}
-		if passed || len(results) != 1 || results[0].Status != "failed" || results[0].Error == "" {
+		if passed || len(results) != 1 || results[0].Status != "failed" || results[0].Error == "" || len(results[0].NextActions) == 0 {
 			t.Fatalf("verification failure results = %+v passed=%v, want failed result", results, passed)
 		}
 	})

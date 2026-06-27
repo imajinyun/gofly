@@ -1,16 +1,20 @@
 package command
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
-var runUpgradeInstall = func(target string) ([]byte, error) {
+var upgradeInstallTimeout = 10 * time.Minute
+
+var runUpgradeInstall = func(ctx context.Context, target string) ([]byte, error) {
 	// #nosec G204 -- upgrade execute intentionally runs `go install` with a single module@version argv value, never through a shell.
-	return exec.Command("go", "install", target).CombinedOutput()
+	return exec.CommandContext(ctx, "go", "install", target).CombinedOutput()
 }
 
 type upgradePlan struct {
@@ -83,7 +87,9 @@ func upgradeCommand(args []string) error {
 	if check := envToolCheck("go"); check.Status != "ok" {
 		return fmt.Errorf("upgrade gofly: go tool is missing")
 	}
-	out, err := runUpgradeInstall(target)
+	ctx, cancel := context.WithTimeout(context.Background(), upgradeInstallTimeout)
+	defer cancel()
+	out, err := runUpgradeInstall(ctx, target)
 	plan.Output = string(out)
 	if len(out) > 0 && !*jsonOutput {
 		cliOutput(string(out))

@@ -2,6 +2,7 @@ package command
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -5941,8 +5942,10 @@ func TestUpgradeCommandExecuteUsesInstallRunner(t *testing.T) {
 	old := runUpgradeInstall
 	t.Cleanup(func() { runUpgradeInstall = old })
 	var gotTarget string
-	runUpgradeInstall = func(target string) ([]byte, error) {
+	var gotDeadline bool
+	runUpgradeInstall = func(ctx context.Context, target string) ([]byte, error) {
 		gotTarget = target
+		_, gotDeadline = ctx.Deadline()
 		return []byte("installed\n"), nil
 	}
 	if err := upgradeCommand([]string{"--execute", "--json", "--version", "v9.9.9", "--module", "example.com/gofly/cmd/gofly"}); err != nil {
@@ -5950,6 +5953,9 @@ func TestUpgradeCommandExecuteUsesInstallRunner(t *testing.T) {
 	}
 	if gotTarget != "example.com/gofly/cmd/gofly@v9.9.9" {
 		t.Fatalf("upgrade target = %q, want module@version", gotTarget)
+	}
+	if !gotDeadline {
+		t.Fatal("upgrade install runner context has no deadline")
 	}
 }
 

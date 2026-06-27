@@ -27,8 +27,7 @@ func templateCommand(args []string) error {
 	c := fs.String("c", "", "template category filter")
 	name := fs.String("name", "", "template name filter")
 	n := fs.String("n", "", "template name filter")
-	formatName := fs.String("format", "text", "output format: text or json")
-	jsonOutput := fs.Bool("json", false, "output JSON")
+	outputFlags := registerCLIOutputFlags(fs, cliOutputFlagOptions{})
 	remaining, err := parseInterspersedFlags(fs, args[1:])
 	if err != nil {
 		return err
@@ -45,7 +44,7 @@ func templateCommand(args []string) error {
 	if *name == "" && len(remaining) > 0 {
 		*name = remaining[0]
 	}
-	useJSON := *jsonOutput || strings.EqualFold(strings.TrimSpace(*formatName), outputJSON)
+	useJSON := valueFromBoolFlag(outputFlags.JSON) || strings.EqualFold(strings.TrimSpace(valueFromStringFlag(outputFlags.Format)), outputJSON)
 	opts := generator.TemplateOptions{Dir: *dir, Remote: *remote, Branch: *branch, StrictRemote: true}
 	switch subcommand {
 	case "init", "update":

@@ -20,10 +20,7 @@ func apiNewCommand(args []string) error {
 	profileAlias := fs.String("generation-profile", "", "alias for --profile")
 	apiSpec := fs.Bool("api-spec", true, "generate an .api file")
 	configPath := fs.String("config", "", "gofly config file path (defaults to <dir>/.gofly/config.json)")
-	templateDir := fs.String("template-dir", "", "override templates from this directory")
-	home := fs.String("home", "", "template home directory")
-	remote := fs.String("remote", "", "remote template repository")
-	branch := fs.String("branch", "", "remote template branch")
+	templateFlags := registerNewScaffoldTemplateSourceFlags(fs)
 	discoveryFlags := registerDiscoveryCLIFlags(fs)
 	compatFlags := registerNewAPICompatFlags(fs)
 	verbosityFlags := registerNewScaffoldVerbosityFlags(fs)
@@ -43,8 +40,8 @@ func apiNewCommand(args []string) error {
 	normalizeNewScaffoldFlags(newScaffoldFlagNormalization{
 		Name:          name,
 		Dir:           dir,
-		TemplateDir:   templateDir,
-		TemplateHome:  home,
+		TemplateDir:   templateFlags.TemplateDir,
+		TemplateHome:  templateFlags.Home,
 		Profile:       profile,
 		ProfileAlias:  profileAlias,
 		Plugin:        pluginArg,
@@ -63,9 +60,9 @@ func apiNewCommand(args []string) error {
 		Name:           *name,
 		Module:         *module,
 		Style:          *style,
-		TemplateDir:    *templateDir,
-		TemplateRemote: *remote,
-		TemplateBranch: *branch,
+		TemplateDir:    *templateFlags.TemplateDir,
+		TemplateRemote: *templateFlags.Remote,
+		TemplateBranch: *templateFlags.Branch,
 		Features:       joinCSV(*features, *featuresAlias),
 		Plugins:        *pluginArg,
 		Kind:           "api",

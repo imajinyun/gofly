@@ -22,8 +22,7 @@ func aiCompleteCommand(args []string) error {
 	configPath := fs.String("config", "", "gofly config file path")
 	dir := fs.String("dir", ".", "service root used to resolve .gofly/config.json when --config is omitted")
 	outputFlags := registerCLIOutputFlags(fs, cliOutputFlagOptions{JSONUsage: "output JSON envelope"})
-	dryRun := fs.Bool("dry-run", false, "print the governance plan without invoking the provider")
-	plan := fs.Bool("plan", false, "alias for --dry-run")
+	preview := registerDryRunPlanFlags(fs, "print the governance plan without invoking the provider")
 	stream := fs.Bool("stream", false, "stream completion events; compatible alias for `gofly ai stream`")
 	allowFailover := fs.Bool("allow-failover", false, "manually retry retryable provider failures against GOFLY_LLM_FAILOVER_PROVIDERS")
 	failover := fs.Bool("failover", false, "alias for --allow-failover")
@@ -62,12 +61,12 @@ func aiCompleteCommand(args []string) error {
 	req := llm.Request{Provider: resolved.Provider, Model: resolved.Model, Prompt: *prompt, MaxOutputTokens: resolved.MaxOutputTokens, Metadata: map[string]string{"tool": "gofly", "command": "ai.complete"}}
 	inputTokens := llm.EstimateTokens(*prompt)
 	if *stream {
-		if *dryRun || *plan {
+		if preview.enabled() {
 			return printAIStreamPlanFor("ai.complete", "ai complete --stream", resolved, inputTokens, outputFlags.useJSON(format))
 		}
 		return runAIStream(resolved, *prompt, outputFlags.useJSON(format), "ai.complete", "ai.complete")
 	}
-	if *dryRun || *plan {
+	if preview.enabled() {
 		return printAICompletePlan(resolved, inputTokens, outputFlags.useJSON(format))
 	}
 	resp, providerSpec, budget, failoverUsed, failoverFrom, err := runAICompleteWithFailover(resolved, req, *prompt)

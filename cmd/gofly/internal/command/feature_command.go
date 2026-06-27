@@ -22,13 +22,12 @@ func featureCommand(args []string) error {
 	switch sub {
 	case "list", "ls":
 		fs := flag.NewFlagSet("feature list", flag.ContinueOnError)
-		formatName := fs.String("format", "text", "output format: text or json")
-		jsonOutput := fs.Bool("json", false, "output JSON")
+		outputFlags := registerCLIOutputFlags(fs, cliOutputFlagOptions{})
 		if _, err := parseInterspersedFlags(fs, rest); err != nil {
 			return err
 		}
 		names := generator.ListFeatures()
-		if *jsonOutput || strings.EqualFold(strings.TrimSpace(*formatName), "json") {
+		if valueFromBoolFlag(outputFlags.JSON) || strings.EqualFold(strings.TrimSpace(valueFromStringFlag(outputFlags.Format)), outputJSON) {
 			return printJSONEnvelope("feature.list", featureListPreview{Features: names})
 		}
 		if len(names) == 0 {

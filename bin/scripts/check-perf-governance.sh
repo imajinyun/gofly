@@ -33,12 +33,25 @@ checks = {
     pathlib.Path("bin/scripts/benchstat.sh"): [
         "gofly.benchmark_regression_report.v1",
         "--regression-check",
+        "validate_ratchet_policy",
+        "allocationPolicy.blocking must be true",
+        "latencyPolicy.defaultMode must remain report-only",
+        "RPC candidate must not enter trackedBenchmarks before promotion",
         "BenchmarkHTTPHello",
         "BenchmarkHTTPPathParams",
         "BenchmarkHTTPJSONBinding",
         "BenchmarkHTTPMiddlewareChain",
         "BenchmarkHTTPOpenAPI",
         "BenchmarkHTTPGovernance",
+    ],
+    pathlib.Path("bench/budget-ratchet.json"): [
+        "gofly.benchmark_budget_ratchet.v1",
+        "allocs/op median",
+        "report-only",
+        "minimumBaselineSamples",
+        "requiredBlockingGate",
+        "rollbackGuidance",
+        "currentBlocker",
     ],
 }
 

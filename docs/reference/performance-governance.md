@@ -43,6 +43,13 @@ The regression gate writes `bench/regression-report.json` with schema
 smoke artifacts so release reviewers can inspect latency and byte trends even
 when the blocking allocation budget passes.
 
+`make bench-regression-check` also validates the ratchet policy before comparing
+numbers. The policy check requires `allocationPolicy.blocking` to stay true,
+`latencyPolicy.defaultMode` to stay `report-only`, promoted latency rows to
+declare at least five baseline samples and a promotion reason, and RPC
+candidates to remain out of `trackedBenchmarks` until their promotion criteria
+are met.
+
 Run:
 
 ```sh

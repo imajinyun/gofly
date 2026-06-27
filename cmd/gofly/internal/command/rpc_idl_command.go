@@ -63,7 +63,7 @@ func rpcDepsCommand(args []string) error {
 	fs := flag.NewFlagSet("rpc deps", flag.ContinueOnError)
 	file := fs.String("file", "", "proto or thrift idl file")
 	src := fs.String("src", "", "proto or thrift idl file")
-	formatName := fs.String("format", "text", "output format: text or json")
+	formatName := registerCLIFormatFlag(fs, outputText, "output format: text or json")
 	remaining, err := parseInterspersedFlags(fs, args)
 	if err != nil {
 		return err
@@ -77,22 +77,25 @@ func rpcDepsCommand(args []string) error {
 		return err
 	}
 	report := generator.RPCIDLReportFor(doc)
-	switch strings.ToLower(strings.TrimSpace(*formatName)) {
-	case "", "text":
+	format, err := normalizeCLIFormat(formatName, outputText, outputText, outputJSON)
+	if err != nil {
+		return fmt.Errorf("%w: unsupported rpc deps format %q", errUsage, valueFromStringFlag(formatName))
+	}
+	switch format {
+	case outputText:
 		for _, dep := range report.Imports {
 			cliOutputln(dep)
 		}
 		return nil
-	case "json":
+	case outputJSON:
 		out, err := generator.FormatRPCIDLReport(doc, "json")
 		if err != nil {
 			return err
 		}
 		cliOutputln(strings.TrimRight(string(out), "\n"))
 		return nil
-	default:
-		return fmt.Errorf("%w: unsupported rpc deps format %q", errUsage, *formatName)
 	}
+	return nil
 }
 
 func resolveIDLFile(file *string, src *string, leading string, remaining []string) {

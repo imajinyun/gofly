@@ -50,6 +50,29 @@ func TestCachingProviderHitsAfterFirstComplete(t *testing.T) {
 	}
 }
 
+func TestCachingProviderDisabledByEnvBypassesStorage(t *testing.T) {
+	t.Setenv(envCacheDisabled, "true")
+	inner := &countingProvider{}
+	cache := NewCachingProvider(inner)
+	req := Request{Provider: "noop", Model: "noop", Prompt: "hello", MaxOutputTokens: 64}
+
+	for i := 0; i < 2; i++ {
+		if _, err := cache.Complete(context.Background(), req); err != nil {
+			t.Fatalf("Complete(%d): %v", i, err)
+		}
+	}
+	if inner.count.Load() != 2 {
+		t.Fatalf("inner called %d times, want 2 when cache disabled", inner.count.Load())
+	}
+	snap := cache.CacheSnapshot()
+	if !snap.Disabled {
+		t.Fatalf("CacheSnapshot().Disabled = false, want true")
+	}
+	if snap.Size != 0 {
+		t.Fatalf("disabled cache size = %d, want 0", snap.Size)
+	}
+}
+
 func TestCachingProviderMissOnDifferentPrompt(t *testing.T) {
 	inner := &countingProvider{}
 	cache := NewCachingProvider(inner)

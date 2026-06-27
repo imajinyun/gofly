@@ -13,8 +13,7 @@ func apiDocCommand(command string, args []string) error {
 	file := fs.String("file", "", "api file")
 	api := fs.String("api", "", "api file")
 	dir := fs.String("dir", ".", "output directory")
-	output := fs.String("output", "", "output file")
-	o := fs.String("o", "", "output file")
+	output := registerOutputPathFlags(fs, "output file")
 	filename := fs.String("filename", "", "swagger filename")
 	oas3 := fs.Bool("oas3", false, "write OpenAPI v3 output")
 	defaultFormat := "markdown"
@@ -37,16 +36,14 @@ func apiDocCommand(command string, args []string) error {
 	if *file == "" {
 		*file = leadingFile
 	}
-	if *output == "" {
-		*output = *o
-	}
+	outputPath := output.resolve()
 	docOutput.applyFormatAliases("json")
 	if *oas3 && valueFromStringFlag(docOutput.Format) == "markdown" {
 		setStringFlag(docOutput.Format, "openapi")
 	}
-	if *output == "" && *filename != "" {
-		*output = filepath.Join(*dir, *filename)
+	if outputPath == "" && *filename != "" {
+		outputPath = filepath.Join(*dir, *filename)
 	}
 	fillNameFromArgs(file, remaining)
-	return generator.GenerateAPIDoc(generator.APIDocOptions{APIFile: *file, Dir: *dir, Output: *output, Format: valueFromStringFlag(docOutput.Format)})
+	return generator.GenerateAPIDoc(generator.APIDocOptions{APIFile: *file, Dir: *dir, Output: outputPath, Format: valueFromStringFlag(docOutput.Format)})
 }

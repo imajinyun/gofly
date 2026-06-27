@@ -1,6 +1,6 @@
 {
   "schema": "gofly.governance_convergence_verification.v1",
-  "aiflowTask": "GOFLY-GOV-10R3-10",
+  "aiflowTask": "GOFLY-GOV-10R4-10",
   "purpose": "Tie the active 10-round governance batch to final convergence gates, commit checkpoints, ignored runtime paths, skip-report policy, and release-blocking verification.",
   "acceptanceGate": "make governance-10-rounds",
   "aggregateGates": [
@@ -10,67 +10,68 @@
     "make security",
     "make cache-dependency-governance-check"
   ],
-  "activeBatch": "GOFLY-GOV-10R3",
+  "activeBatch": "GOFLY-GOV-10R4",
   "roundCommits": [
     {
       "round": 1,
-      "task": "GOFLY-GOV-10R3-01",
-      "commit": "64daaf2",
+      "task": "GOFLY-GOV-10R4-01",
+      "commit": "6f48722",
       "gate": "make governance-boundary-inventory-check"
     },
     {
       "round": 2,
-      "task": "GOFLY-GOV-10R3-02",
-      "commit": "1566e5f",
-      "gate": "make context-lifecycle-governance-check"
+      "task": "GOFLY-GOV-10R4-02",
+      "commit": "fed8748",
+      "gate": "make release-evidence-index-check"
     },
     {
       "round": 3,
-      "task": "GOFLY-GOV-10R3-03",
-      "commit": "fed700f",
-      "gate": "make cli-configuration-governance-check"
+      "task": "GOFLY-GOV-10R4-03",
+      "commit": "abb2f39",
+      "gate": "make generated-upgrade-dry-run-check"
     },
     {
       "round": 4,
-      "task": "GOFLY-GOV-10R3-04",
-      "commit": "13b3973",
-      "gate": "make code-generation-governance-check"
+      "task": "GOFLY-GOV-10R4-04",
+      "commit": "6a0840b",
+      "gate": "make dx-troubleshooting-check"
     },
     {
       "round": 5,
-      "task": "GOFLY-GOV-10R3-05",
-      "commit": "e3e3cd5",
-      "gate": "make plugin-external-governance-check"
+      "task": "GOFLY-GOV-10R4-05",
+      "commit": "d75795a",
+      "gate": "make openapi-validation-check"
     },
     {
       "round": 6,
-      "task": "GOFLY-GOV-10R3-06",
-      "commit": "ff003fa",
-      "gate": "make cache-dependency-governance-check"
+      "task": "GOFLY-GOV-10R4-06",
+      "commit": "fdaccf8",
+      "gate": "make rpc-boundary-check"
     },
     {
       "round": 7,
-      "task": "GOFLY-GOV-10R3-07",
-      "commit": "5cc3699",
-      "gate": "make api-contract-check"
+      "task": "GOFLY-GOV-10R4-07",
+      "commit": "99a07bb",
+      "gate": "make plugin-conformance-check"
     },
     {
       "round": 8,
-      "task": "GOFLY-GOV-10R3-08",
-      "commit": "97aff15",
-      "gate": "make security"
+      "task": "GOFLY-GOV-10R4-08",
+      "commit": "d5d9e77",
+      "gate": "make cloud-native-render-check"
     },
     {
       "round": 9,
-      "task": "GOFLY-GOV-10R3-09",
-      "commit": "6440bb5",
-      "gate": "make governance-report-check"
+      "task": "GOFLY-GOV-10R4-09",
+      "commit": "ec4b5a2",
+      "gate": "make bench-regression-check"
     },
     {
       "round": 10,
-      "task": "GOFLY-GOV-10R3-10",
-      "commit": "18c3551",
-      "gate": "make governance-10-rounds"
+      "task": "GOFLY-GOV-10R4-10",
+      "commit": "self",
+      "gate": "make governance-boundary-inventory-check",
+      "selfReference": true
     }
   ],
   "finalGatePolicy": {
@@ -92,8 +93,8 @@
     ]
   },
   "aiflowExecution": {
-    "status": "local-fallback",
-    "blocker": "aiflow CLI currently fails to compile in the adjacent aiflow checkout because harness/policy.go imports fmt without use",
-    "goflyImpact": "none; the local convergence verification gate is self-contained"
+    "status": "completed",
+    "blocker": "none",
+    "goflyImpact": "R4 tasks were submitted through aiflow and completed locally with per-task commits because aiflow project policy disables commit and push."
   }
 }

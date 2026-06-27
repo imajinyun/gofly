@@ -15,8 +15,7 @@ import (
 func apiPluginCommandRunner(args []string) error {
 	leadingPlugin, args := splitLeadingName(args)
 	fs := flag.NewFlagSet("api plugin", flag.ContinueOnError)
-	file := fs.String("file", "", "api file")
-	api := fs.String("api", "", "api file")
+	file := registerAPIFileFlags(fs, "api file")
 	dir := fs.String("dir", ".", "plugin output directory")
 	pluginArg := fs.String("plugin", "", "plugin executable name or path")
 	p := fs.String("p", "", "plugin executable name or path")
@@ -26,9 +25,7 @@ func apiPluginCommandRunner(args []string) error {
 	if err != nil {
 		return err
 	}
-	if *file == "" {
-		*file = *api
-	}
+	apiFile := file.resolve("", nil)
 	if *pluginArg == "" {
 		*pluginArg = *p
 	}
@@ -40,22 +37,22 @@ func apiPluginCommandRunner(args []string) error {
 		*pluginArg = remaining[0]
 		extraArgs = remaining[1:]
 	}
-	if *file == "" {
+	if apiFile == "" {
 		return fmt.Errorf("%w: api file is required", errUsage)
 	}
 	if *pluginArg == "" {
 		return fmt.Errorf("%w: api plugin is required", errUsage)
 	}
 	if *legacy {
-		return apiPluginCommandLegacy(*file, *pluginArg, *dir, *style, extraArgs)
+		return apiPluginCommandLegacy(apiFile, *pluginArg, *dir, *style, extraArgs)
 	}
 	if !*legacy && looksLikeShellScript(*pluginArg) {
-		return apiPluginCommandLegacy(*file, *pluginArg, *dir, *style, extraArgs)
+		return apiPluginCommandLegacy(apiFile, *pluginArg, *dir, *style, extraArgs)
 	}
 	return runPostPlugins(*pluginArg, generator.PluginRequest{
 		Command: "api",
 		Style:   *style,
-		Input:   map[string]string{"api": *file, "style": *style},
+		Input:   map[string]string{"api": apiFile, "style": *style},
 		Dir:     *dir,
 	})
 }

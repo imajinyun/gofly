@@ -41,6 +41,12 @@ SQL outbox adoption, Redis-backed model cache boundaries, temp-module compile
 evidence, and planned migration-runner work. Generated-only dependencies remain
 owned by the generated project module, not the gofly root module.
 
+For go-zero `sqlx` migrations, the same matrix requires `goZeroAlignment`
+evidence before adopter docs can claim parity. Generated repositories must keep
+read/write strategy, transaction examples, Redis-backed cache contracts,
+observability, local smoke tests, and rollback guidance connected to
+`make framework-gap-check`.
+
 ## Recommendation
 
 Pair model generation with migration review and a service-level example that exercises one real read/write path.

@@ -39,8 +39,7 @@ func pluginSearchCommand(args []string) error {
 	fs := flag.NewFlagSet("plugin search", flag.ContinueOnError)
 	registry := fs.String("registry", "", "plugin registry JSON URL or path")
 	query := fs.String("query", "", "search query")
-	formatName := fs.String("format", "text", "output format: text or json")
-	jsonOutput := fs.Bool("json", false, "output JSON")
+	outputFlags := registerCLIOutputFlags(fs, cliOutputFlagOptions{})
 	remaining, err := parseInterspersedFlags(fs, args)
 	if err != nil {
 		return err
@@ -54,7 +53,7 @@ func pluginSearchCommand(args []string) error {
 		return err
 	}
 	matches := generator.FilterPluginRegistryEntries(index.Plugins, *query)
-	if *jsonOutput || strings.EqualFold(strings.TrimSpace(*formatName), "json") {
+	if valueFromBoolFlag(outputFlags.JSON) || strings.EqualFold(strings.TrimSpace(valueFromStringFlag(outputFlags.Format)), outputJSON) {
 		return printJSON(pluginRegistrySearchOutput{Registry: *registry, Query: *query, Plugins: matches})
 	}
 	if len(matches) == 0 {

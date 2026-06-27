@@ -1,0 +1,219 @@
+{
+  "schema": "gofly.security_defensive_governance.v1",
+  "aiflowTask": "GOFLY-GOV-10R3-08",
+  "purpose": "Map security scanners, #nosec baseline drift, path and symlink safety, external process boundaries, remote URL and size limits, REST/RPC body limits, and secret redaction to executable evidence.",
+  "acceptanceGate": "make security",
+  "aggregateGates": [
+    "make security-governance-check",
+    "make govulncheck",
+    "make gosec"
+  ],
+  "sourceCode": [
+    "bin/scripts/check-security-governance.sh",
+    "bin/scripts/gosec-exception-inventory.sh",
+    "bin/scripts/gosec-exception-baseline.json",
+    "bin/scripts/governance-10-rounds.sh",
+    "docs/reference/governance-dashboard-contract.json",
+    "docs/reference/ci-required-check-evidence.json",
+    "cmd/gofly/internal/generator/generated_file.go",
+    "cmd/gofly/internal/generator/plugin.go",
+    "cmd/gofly/internal/generator/feature_library.go",
+    "rest/server_test.go",
+    "rpc/server_test.go",
+    "gateway/gateway_test.go"
+  ],
+  "policy": {
+    "securityGateRunsGovernanceBeforeScanners": true,
+    "gosecBaselineMustBeReviewedAndMachineChecked": true,
+    "releaseGovernanceCannotSkipSecurity": true,
+    "pathWritesUseRootAndSymlinkGuards": true,
+    "externalProcessesUseArgvAndExplicitOperatorInput": true,
+    "remoteDownloadsRejectInsecureSchemesAndLimitBytes": true,
+    "bodyLimitsAreCoveredForRestRpcGateway": true,
+    "secretValuesAreRedactedFromRuntimeAndAdminSurfaces": true
+  },
+  "surfaces": [
+    {
+      "id": "scanner-and-baseline",
+      "risk": "new gosec exceptions or vulnerability scan drift can bypass review if the baseline is not machine checked",
+      "gate": "make security",
+      "evidenceRefs": [
+        {
+          "path": "Makefile",
+          "contains": [
+            "security: security-governance-check govulncheck gosec",
+            "$(GOVULNCHECK) -scan=$(GOVULNCHECK_SCAN) -show=traces $(PKGS)",
+            "GOSEC_INVENTORY_BASELINE=$(GOSEC_INVENTORY_BASELINE)"
+          ]
+        },
+        {
+          "path": "bin/scripts/gosec-exception-baseline.json",
+          "contains": [
+            "gofly.gosec_exception_baseline.v1",
+            "allowed_exceptions"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "release-skip-protection",
+      "risk": "security checks can become non-blocking in release governance through environment skips",
+      "gate": "make governance-10-rounds",
+      "evidenceRefs": [
+        {
+          "path": "bin/scripts/governance-10-rounds.sh",
+          "contains": [
+            "GOVERNANCE_SKIP_SECURITY",
+            "assert_not_release_skip GOVERNANCE_SKIP_SECURITY",
+            "run make security before merge/release",
+            "round_security_audit"
+          ]
+        },
+        {
+          "path": "docs/reference/ci-required-check-evidence.json",
+          "contains": [
+            "security (govulncheck + gosec)",
+            "security must remain release-blocking"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "path-and-symlink-safety",
+      "risk": "generated files, templates, plugins, and copies can escape output roots or write through symlinks",
+      "gate": "go test -shuffle=on ./cmd/gofly/internal/generator -run TestGeneratedFileSafeTargetValidation|TestPluginResponseRejectsSymlink",
+      "evidenceRefs": [
+        {
+          "path": "cmd/gofly/internal/generator/generated_file.go",
+          "contains": [
+            "SafeTarget",
+            "rejectSymlinkParent",
+            "rejectExistingSymlinkTarget",
+            "WriteFileUnderRoot",
+            "ReadFileUnderRoot",
+            "CopyFileUnderRoot"
+          ]
+        },
+        {
+          "path": "cmd/gofly/internal/generator/generated_file_test.go",
+          "contains": [
+            "TestGeneratedFileSafeTargetValidation",
+            "rejects symlink root",
+            "symlink destination"
+          ]
+        },
+        {
+          "path": "cmd/gofly/internal/generator/plugin_test.go",
+          "contains": [
+            "TestPluginResponseRejectsSymlinkParentTraversal",
+            "TestPluginResponseRejectsSymlinkLeaf"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "external-process-and-remote-downloads",
+      "risk": "plugin, template, protoc, release, and upgrade commands can become injection or unbounded download paths",
+      "gate": "make plugin-external-governance-check",
+      "evidenceRefs": [
+        {
+          "path": "cmd/gofly/internal/generator/plugin.go",
+          "contains": [
+            "exec.CommandContext",
+            "splitPluginArgs",
+            "insecure URL scheme",
+            "io.LimitReader",
+            "maxDownloadedPluginBytes"
+          ]
+        },
+        {
+          "path": "cmd/gofly/internal/generator/plugin_test.go",
+          "contains": [
+            "TestPluginRunnerExternalExecutionBranches",
+            "TestPluginArgumentAndCacheHelpersBoundaries",
+            "TestPluginRunnerDownloadPluginUsesUniqueTempFile"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "body-limit-and-url-scheme",
+      "risk": "REST, RPC, gateway, and plugin entry points can accept oversized bodies or unsafe upstream/download schemes",
+      "gate": "go test -shuffle=on ./rest ./rpc ./gateway ./cmd/gofly/internal/generator -run Test.*(MaxBodyBytes|URL|Scheme|DownloadPlugin)",
+      "evidenceRefs": [
+        {
+          "path": "rest/server_test.go",
+          "contains": [
+            "TestMaxBodyBytesMiddleware",
+            "TestConfiguredMaxBodyBytesUsesMiddlewareConfig"
+          ]
+        },
+        {
+          "path": "rpc/server_test.go",
+          "contains": [
+            "TestHTTPServerGovernanceRuleRuntimeMaxBodyBytes",
+            "oversizedCompatibilityReq"
+          ]
+        },
+        {
+          "path": "gateway/gateway_test.go",
+          "contains": [
+            "WithMaxBodyBytes",
+            "scheme and host"
+          ]
+        },
+        {
+          "path": "cmd/gofly/internal/generator/plugin_test.go",
+          "contains": [
+            "insecure URL scheme",
+            "missing scheme/host"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "secret-redaction-and-template-safety",
+      "risk": "runtime snapshots, admin APIs, gateway route views, support bundles, and templates can leak secrets",
+      "gate": "go test -shuffle=on ./rest ./gateway ./cmd/gofly/internal/generator -run Test.*(Secret|Redact|Unsafe)",
+      "evidenceRefs": [
+        {
+          "path": "rest/server_test.go",
+          "contains": [
+            "token=%2A%2A%2A",
+            "Authorization",
+            "runtimeSnapshot.Config.Admin.Token"
+          ]
+        },
+        {
+          "path": "gateway/gateway_test.go",
+          "contains": [
+            "upstream-secret",
+            "sanitizedGatewayRouteConfig",
+            "Authorization"
+          ]
+        },
+        {
+          "path": "cmd/gofly/internal/generator/template_catalog_test.go",
+          "contains": [
+            "RejectsUnsafeOutput",
+            "hardcoded secret template",
+            "dependency with URL scheme"
+          ]
+        },
+        {
+          "path": "cmd/gofly/internal/generator/feature_library.go",
+          "contains": [
+            "validateProjectFeatureTemplateContent",
+            "isSafeProjectFeatureDependency",
+            "feature template contains forbidden security-sensitive content"
+          ]
+        }
+      ]
+    }
+  ],
+  "aiflowExecution": {
+    "status": "local-fallback",
+    "blocker": "aiflow CLI currently fails to compile in the adjacent aiflow checkout because harness/policy.go imports fmt without use",
+    "goflyImpact": "none; the local security and defensive-coding governance gate is self-contained"
+  }
+}

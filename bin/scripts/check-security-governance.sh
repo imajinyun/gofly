@@ -8,6 +8,7 @@ import re
 import sys
 
 root = pathlib.Path(".").resolve()
+manifest_path = root / "docs" / "reference" / "security-defensive-governance.json"
 missing = []
 
 
@@ -29,6 +30,15 @@ ci_evidence = json.loads(read_text(root / "docs" / "reference" / "ci-required-ch
 baseline = json.loads(read_text(root / "bin" / "scripts" / "gosec-exception-baseline.json") or "{}")
 governance_script = read_text(root / "bin" / "scripts" / "governance-10-rounds.sh")
 inventory_script = read_text(root / "bin" / "scripts" / "gosec-exception-inventory.sh")
+
+try:
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+except FileNotFoundError:
+    manifest = {}
+    missing.append("docs/reference/security-defensive-governance.json is missing")
+except json.JSONDecodeError as exc:
+    manifest = {}
+    missing.append(f"docs/reference/security-defensive-governance.json is invalid JSON: {exc}")
 
 
 def target_deps(name):
@@ -94,6 +104,68 @@ for needle in (
 
 for needle in ("trust_boundary", "current_protection", "coverage_tests", "replaceable_helper"):
     require(needle in inventory_script, f"gosec exception inventory must emit {needle!r}")
+
+require(manifest.get("schema") == "gofly.security_defensive_governance.v1", "security defensive governance schema mismatch")
+require(manifest.get("aiflowTask") == "GOFLY-GOV-10R3-08", "security defensive governance aiflowTask mismatch")
+require(manifest.get("acceptanceGate") == "make security", "security defensive governance acceptanceGate mismatch")
+aggregate_gates = set(manifest.get("aggregateGates") or [])
+for gate in ("make security-governance-check", "make govulncheck", "make gosec"):
+    require(gate in aggregate_gates, f"security defensive governance aggregateGates missing {gate}")
+
+for rel in manifest.get("sourceCode") or []:
+    require((root / rel).exists(), f"security defensive governance source is missing: {rel}")
+
+policy = manifest.get("policy") or {}
+for key in (
+    "securityGateRunsGovernanceBeforeScanners",
+    "gosecBaselineMustBeReviewedAndMachineChecked",
+    "releaseGovernanceCannotSkipSecurity",
+    "pathWritesUseRootAndSymlinkGuards",
+    "externalProcessesUseArgvAndExplicitOperatorInput",
+    "remoteDownloadsRejectInsecureSchemesAndLimitBytes",
+    "bodyLimitsAreCoveredForRestRpcGateway",
+    "secretValuesAreRedactedFromRuntimeAndAdminSurfaces",
+):
+    require(policy.get(key) is True, f"policy.{key} must be true")
+
+surface_ids = {item.get("id") for item in manifest.get("surfaces") or [] if isinstance(item, dict)}
+required_surfaces = {
+    "scanner-and-baseline",
+    "release-skip-protection",
+    "path-and-symlink-safety",
+    "external-process-and-remote-downloads",
+    "body-limit-and-url-scheme",
+    "secret-redaction-and-template-safety",
+}
+require(surface_ids == required_surfaces, f"security defensive surfaces mismatch: {sorted(surface_ids)!r}")
+
+for item in manifest.get("surfaces") or []:
+    if not isinstance(item, dict):
+        missing.append(f"surface entry must be an object: {item!r}")
+        continue
+    surface = item.get("id", "<missing>")
+    for field in ("risk", "gate", "evidenceRefs"):
+        require(item.get(field), f"surface {surface}: {field} is required")
+    gate = str(item.get("gate") or "")
+    require(gate.startswith("make ") or gate.startswith("go test "), f"surface {surface}: gate must be runnable")
+    for ref in item.get("evidenceRefs") or []:
+        ref_path = ref.get("path", "")
+        needles = ref.get("contains") or []
+        require(ref_path, f"surface {surface}: ref path is required")
+        require(needles, f"surface {surface}: ref contains list is required for {ref_path}")
+        if not ref_path:
+            continue
+        path = root / ref_path
+        if not path.exists():
+            missing.append(f"surface {surface}: evidence path is missing: {ref_path}")
+            continue
+        text = path.read_text(encoding="utf-8") if path.is_file() else ""
+        for needle in needles:
+            require(needle in text, f"surface {surface}: {ref_path} missing {needle!r}")
+
+execution = manifest.get("aiflowExecution") or {}
+require(execution.get("status") == "local-fallback", "aiflowExecution.status must be local-fallback")
+require("fmt" in str(execution.get("blocker") or ""), "aiflowExecution.blocker must document current aiflow compile blocker")
 
 if missing:
     print("security governance check failed:", file=sys.stderr)

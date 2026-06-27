@@ -21,10 +21,7 @@ func rpcNewCommand(args []string) error {
 	discoveryFlags := registerDiscoveryCLIFlags(fs)
 	compatFlags := registerNewRPCCompatFlags(fs)
 	verbosityFlags := registerNewScaffoldVerbosityFlags(fs)
-	features := fs.String("feature", "", "feature names to enable, comma-separated")
-	featuresAlias := fs.String("features", "", "alias for --feature")
-	pluginArg := fs.String("plugin", "", "plugin executable (comma-separated for multiple)")
-	rpcPluginArg := fs.String("rpc-plugin", "", "alias for --plugin")
+	extensionFlags := registerNewScaffoldExtensionFlags(fs, "rpc-plugin")
 	saveConfig := fs.Bool("save-config", true, "save resolved config back to --config path")
 	dryRun := fs.Bool("dry-run", false, "print the planned filesystem changes without writing files")
 	plan := fs.Bool("plan", false, "alias for --dry-run")
@@ -41,8 +38,8 @@ func rpcNewCommand(args []string) error {
 		TemplateHome:  templateFlags.Home,
 		Profile:       profile,
 		ProfileAlias:  profileAlias,
-		Plugin:        pluginArg,
-		PluginAlias:   rpcPluginArg,
+		Plugin:        extensionFlags.Plugin,
+		PluginAlias:   extensionFlags.PluginAlias,
 		Verbose:       verbosityFlags.Verbose,
 		VerboseAlias:  verbosityFlags.VerboseAlias,
 		Quiet:         verbosityFlags.Quiet,
@@ -60,8 +57,8 @@ func rpcNewCommand(args []string) error {
 		TemplateDir:    *templateFlags.TemplateDir,
 		TemplateRemote: *templateFlags.Remote,
 		TemplateBranch: *templateFlags.Branch,
-		Features:       joinCSV(*features, *featuresAlias),
-		Plugins:        *pluginArg,
+		Features:       joinCSV(*extensionFlags.Features, *extensionFlags.FeaturesAlias),
+		Plugins:        *extensionFlags.Plugin,
 		Kind:           "rpc",
 		Discovery:      discoveryFlags,
 	})

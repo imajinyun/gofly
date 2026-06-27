@@ -309,7 +309,7 @@ contract-docs-check: stable-surface-check generated-version-compat-check generat
 	sh $(SCRIPTS_DIR)/check-contract-docs.sh
 
 .PHONY: generated-upgrade-dry-run-check
-generated-upgrade-dry-run-check: ## Validate generated upgrade dry-run manifest and diff report contract
+generated-upgrade-dry-run-check: generated-output-governance ## Validate generated upgrade dry-run manifest and diff report contract
 	sh $(SCRIPTS_DIR)/check-generated-upgrade-dry-run.sh
 
 .PHONY: dx-troubleshooting-check

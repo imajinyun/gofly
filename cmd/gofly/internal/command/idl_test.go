@@ -4712,6 +4712,22 @@ func TestExecuteAPIImport(t *testing.T) {
 	if !strings.Contains(string(data), "get /pets/{id} (GetPetReq) returns (PetResp)") {
 		t.Fatalf("api import output = %s", data)
 	}
+
+	aliasDir := filepath.Join(dir, "api-from")
+	if err := Execute([]string{"api", "import", "--from", openAPIPath, "--dir", aliasDir, "--service", "pet-api"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(aliasDir, "pet_api.api")); err != nil {
+		t.Fatalf("expected api import --from output: %v", err)
+	}
+
+	positionalDir := filepath.Join(dir, "api-positional")
+	if err := Execute([]string{"api", "import", openAPIPath, "--dir", positionalDir, "--service", "pet-api"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(positionalDir, "pet_api.api")); err != nil {
+		t.Fatalf("expected api import positional source output: %v", err)
+	}
 }
 
 func TestExecuteAPIDiff(t *testing.T) {

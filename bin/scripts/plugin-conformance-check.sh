@@ -64,6 +64,8 @@ checks = {
         "TestPluginProtocolCompatibilityMatrix",
         "TestPluginProtocolSchemaContract",
         "TestPluginRegistryIndexValidationAndFiltering",
+        "requiresDryRun must be true",
+        "permissions are required",
     ],
     pathlib.Path("examples/plugin-ecosystem/main_test.go"): [
         "Publishing.ManifestFields",

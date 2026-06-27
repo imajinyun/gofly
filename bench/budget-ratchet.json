@@ -21,15 +21,27 @@
         "minimumBaselineSamples": 5,
         "mode": "blocking",
         "reason": "OpenAPI enabled route metadata has stable five-sample baseline evidence and current smoke is below baseline."
+      },
+      {
+        "benchmark": "BenchmarkHTTPGovernance/disabled",
+        "maxRegressionRatio": 1.05,
+        "minimumBaselineSamples": 5,
+        "mode": "blocking",
+        "reason": "Governance disabled hot path has stable five-sample baseline evidence, no allocation drift, and current smoke is below baseline."
+      },
+      {
+        "benchmark": "BenchmarkHTTPGovernance/enabled",
+        "maxRegressionRatio": 1.05,
+        "minimumBaselineSamples": 5,
+        "mode": "blocking",
+        "reason": "Governance enabled policy path has stable five-sample baseline evidence, no allocation drift, and current smoke is below baseline."
       }
     ],
     "reportOnly": [
       "BenchmarkHTTPHello/gofly",
       "BenchmarkHTTPPathParams/gofly",
       "BenchmarkHTTPJSONBinding/gofly",
-      "BenchmarkHTTPMiddlewareChain/gofly",
-      "BenchmarkHTTPGovernance/disabled",
-      "BenchmarkHTTPGovernance/enabled"
+      "BenchmarkHTTPMiddlewareChain/gofly"
     ]
   },
   "rpcPolicy": {

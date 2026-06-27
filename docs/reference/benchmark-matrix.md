@@ -38,7 +38,10 @@ tracked HTTP hot-path rows. `bench/budget-ratchet.json` defines the
 `gofly.benchmark_budget_ratchet.v1` policy that promotes selected latency rows
 to release-blocking metrics while keeping the rest explicitly report-only.
 The first promoted rows are `BenchmarkHTTPOpenAPI/disabled` and
-`BenchmarkHTTPOpenAPI/enabled`.
+`BenchmarkHTTPOpenAPI/enabled`. Governance overhead rows,
+`BenchmarkHTTPGovernance/disabled` and `BenchmarkHTTPGovernance/enabled`, are
+also blocking latency rows once the current ratchet confirms five baseline
+samples, no allocation drift, and a smoke run below baseline.
 
 ## Run the benchmark suite
 

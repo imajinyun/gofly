@@ -20,9 +20,7 @@ func serviceNewCommand(args []string) error {
 	configPath := fs.String("config", "", "gofly config file path (defaults to <dir>/.gofly/config.json)")
 	templateFlags := registerNewScaffoldTemplateSourceFlags(fs)
 	discoveryFlags := registerDiscoveryCLIFlags(fs)
-	features := fs.String("feature", "", "feature names to enable, comma-separated")
-	featuresAlias := fs.String("features", "", "alias for --feature")
-	pluginArg := fs.String("plugin", "", "plugin executable (comma-separated for multiple)")
+	extensionFlags := registerNewScaffoldExtensionFlags(fs, "")
 	apiFile := fs.String("api", "", "API-first .api contract used to generate REST handlers")
 	openAPIFile := fs.String("openapi", "", "OpenAPI/Swagger contract used to generate a REST project")
 	protoFile := fs.String("proto", "", "RPC-first protobuf contract used to generate RPC code")
@@ -53,8 +51,8 @@ func serviceNewCommand(args []string) error {
 		TemplateDir:    *templateFlags.TemplateDir,
 		TemplateRemote: *templateFlags.Remote,
 		TemplateBranch: *templateFlags.Branch,
-		Features:       joinCSV(*features, *featuresAlias),
-		Plugins:        *pluginArg,
+		Features:       joinCSV(*extensionFlags.Features, *extensionFlags.FeaturesAlias),
+		Plugins:        *extensionFlags.Plugin,
 		Kind:           "service",
 		Discovery:      discoveryFlags,
 	})

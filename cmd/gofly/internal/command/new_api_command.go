@@ -63,5 +63,5 @@ func apiNewCommand(args []string) error {
 	}); err != nil {
 		return err
 	}
-	return output.finalize(*executionFlags.SaveConfig, cfg, *executionFlags.JSON)
+	return output.finalizeWithExecution(executionFlags, cfg)
 }

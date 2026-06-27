@@ -17,10 +17,7 @@ func rpcNewCommand(args []string) error {
 	profile := fs.String("profile", "", "generation profile: gofly-ai, gozero-compatible, or kitex-compatible")
 	profileAlias := fs.String("generation-profile", "", "alias for --profile")
 	configPath := fs.String("config", "", "gofly config file path")
-	templateDir := fs.String("template-dir", "", "override templates from this directory")
-	home := fs.String("home", "", "template home directory")
-	remote := fs.String("remote", "", "remote template repository")
-	branch := fs.String("branch", "", "remote template branch")
+	templateFlags := registerNewScaffoldTemplateSourceFlags(fs)
 	discoveryFlags := registerDiscoveryCLIFlags(fs)
 	compatFlags := registerNewRPCCompatFlags(fs)
 	verbosityFlags := registerNewScaffoldVerbosityFlags(fs)
@@ -40,8 +37,8 @@ func rpcNewCommand(args []string) error {
 	normalizeNewScaffoldFlags(newScaffoldFlagNormalization{
 		Name:          name,
 		Dir:           dir,
-		TemplateDir:   templateDir,
-		TemplateHome:  home,
+		TemplateDir:   templateFlags.TemplateDir,
+		TemplateHome:  templateFlags.Home,
 		Profile:       profile,
 		ProfileAlias:  profileAlias,
 		Plugin:        pluginArg,
@@ -60,9 +57,9 @@ func rpcNewCommand(args []string) error {
 		Name:           *name,
 		Module:         *module,
 		Style:          *style,
-		TemplateDir:    *templateDir,
-		TemplateRemote: *remote,
-		TemplateBranch: *branch,
+		TemplateDir:    *templateFlags.TemplateDir,
+		TemplateRemote: *templateFlags.Remote,
+		TemplateBranch: *templateFlags.Branch,
 		Features:       joinCSV(*features, *featuresAlias),
 		Plugins:        *pluginArg,
 		Kind:           "rpc",

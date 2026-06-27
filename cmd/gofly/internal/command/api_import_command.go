@@ -13,8 +13,7 @@ func apiImportCommand(args []string) error {
 	from := fs.String("from", "", "OpenAPI/Swagger JSON or YAML file")
 	swagger := fs.String("swagger", "", "Swagger JSON or YAML file, alias for --src")
 	dir := fs.String("dir", ".", "output directory")
-	output := fs.String("output", "", "output .api file")
-	o := fs.String("o", "", "output .api file")
+	output := registerOutputPathFlags(fs, "output .api file")
 	service := fs.String("service", "", "service name for generated .api")
 	remaining, err := parseInterspersedFlags(fs, args)
 	if err != nil {
@@ -29,9 +28,6 @@ func apiImportCommand(args []string) error {
 	if *src == "" {
 		*src = leadingSource
 	}
-	if *output == "" {
-		*output = *o
-	}
 	fillNameFromArgs(src, remaining)
-	return generator.GenerateAPIFromOpenAPI(generator.APIImportOptions{Source: *src, Dir: *dir, Output: *output, Service: *service})
+	return generator.GenerateAPIFromOpenAPI(generator.APIImportOptions{Source: *src, Dir: *dir, Output: output.resolve(), Service: *service})
 }

@@ -233,6 +233,10 @@ runtime-slo-check: ## Validate runtime SLO and golden-signal evidence
 governance-boundary-inventory-check: ## Validate 10-round governance boundary inventory and aiflow task map
 	sh $(SCRIPTS_DIR)/check-governance-boundary-inventory.sh
 
+.PHONY: context-lifecycle-governance-check
+context-lifecycle-governance-check: ## Validate context propagation, shutdown, watch, and goroutine lifecycle evidence
+	sh $(SCRIPTS_DIR)/check-context-lifecycle-governance.sh
+
 .PHONY: discovery-adapter-matrix-check
 discovery-adapter-matrix-check: ## Validate discovery provider status, failover, and release gate matrix
 	sh $(SCRIPTS_DIR)/check-discovery-adapter-matrix.sh
@@ -280,7 +284,7 @@ examples-smoke: ## Run runnable example smoke tests and machine-readable output 
 	sh $(SCRIPTS_DIR)/examples-smoke.sh
 
 .PHONY: docs-check
-docs-check: docs-link-check docs-taxonomy-check migration-docs-check p1-growth-check community-growth-check contract-docs-check dx-troubleshooting-check governance-report-check fuzz-robustness-check dependency-upgrade-evidence-check api-example-consistency-check coverage-trend-check ci-required-check-evidence-check runtime-slo-check discovery-adapter-matrix-check db-cache-productization-check goctl-generator-compat-check framework-gap-check cli-command-surface-check doc-manifest-sync-check required-checks-drift-check ## Compile Go code blocks in Markdown docs
+docs-check: docs-link-check docs-taxonomy-check migration-docs-check p1-growth-check community-growth-check contract-docs-check dx-troubleshooting-check governance-report-check fuzz-robustness-check dependency-upgrade-evidence-check api-example-consistency-check coverage-trend-check ci-required-check-evidence-check runtime-slo-check governance-boundary-inventory-check context-lifecycle-governance-check discovery-adapter-matrix-check db-cache-productization-check goctl-generator-compat-check framework-gap-check cli-command-surface-check doc-manifest-sync-check required-checks-drift-check ## Compile Go code blocks in Markdown docs
 	$(GO) env GOMOD >/dev/null
 	sh $(SCRIPTS_DIR)/check-doc-go-snippets.sh
 

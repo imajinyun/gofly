@@ -1,0 +1,128 @@
+{
+  "schema": "gofly.context_lifecycle_governance.v1",
+  "aiflowTask": "GOFLY-GOV-10R3-02",
+  "acceptanceGate": "make context-lifecycle-governance-check",
+  "policy": {
+    "nilContextBoundary": "Public compatibility helpers may normalize nil context at package boundaries; internal request paths must propagate caller context.",
+    "shutdownBoundary": "Shutdown paths must preserve request-scoped values while avoiding inherited cancellation.",
+    "goroutineBoundary": "Every background goroutine must have a context, close path, or explicit shutdown method.",
+    "timeoutBoundary": "Network, watch, retry, and startup/shutdown paths must have bounded timeout or cancellation evidence.",
+    "leakDetection": "Packages with lifecycle goroutines should keep goleak coverage or documented targeted shutdown tests."
+  },
+  "surfaces": [
+    {
+      "id": "app-runtime-lifecycle",
+      "status": "implemented",
+      "paths": [
+        "app/app.go",
+        "app/bootstrap.go"
+      ],
+      "tests": [
+        "app/app_test.go",
+        "app/bootstrap_test.go",
+        "app/goleak_test.go"
+      ],
+      "evidence": [
+        "shutdownContext(ctx)",
+        "context.WithoutCancel(ctx)",
+        "TestRunShutdownContextKeepsValuesAfterCancel",
+        "TestBootstrapRuntimeNilAccessorsAndShutdownContext",
+        "goleak.VerifyTestMain(m)"
+      ],
+      "gate": "go test -shuffle=on ./app -run 'TestRun|TestBootstrapRuntimeNilAccessorsAndShutdownContext'"
+    },
+    {
+      "id": "gateway-shadow-and-health-lifecycle",
+      "status": "implemented",
+      "paths": [
+        "gateway/runtime_governance.go"
+      ],
+      "tests": [
+        "gateway/gateway_test.go",
+        "gateway/goleak_test.go"
+      ],
+      "evidence": [
+        "func (p *shadowPool) Shutdown(ctx context.Context) error",
+        "case <-ctx.Done():",
+        "context.WithTimeout(ctx, conf.Timeout)",
+        "TestGatewayCloseAndShutdown",
+        "TestShadowPoolShutdownNil",
+        "goleak.VerifyTestMain(m)"
+      ],
+      "gate": "go test -shuffle=on ./gateway -run 'TestGatewayCloseAndShutdown|TestShadowPoolShutdownNil|TestGatewayActiveHealth'"
+    },
+    {
+      "id": "rpc-resolver-and-client-lifecycle",
+      "status": "implemented",
+      "paths": [
+        "rpc/resolver.go",
+        "rpc/client.go"
+      ],
+      "tests": [
+        "rpc/resolver_hardening_test.go",
+        "rpc/client_test.go",
+        "rpc/goleak_test.go"
+      ],
+      "evidence": [
+        "go r.watch(ctx, updates)",
+        "case <-ctx.Done():",
+        "TestCachedResolverConstructionAndSnapshotBoundaries",
+        "retry backoff observes context cancellation",
+        "goleak.IgnoreTopFunction"
+      ],
+      "gate": "go test -shuffle=on ./rpc -run 'TestCachedResolverConstructionAndSnapshotBoundaries|TestRegistryResolverHardeningBoundaries|TestClient'"
+    },
+    {
+      "id": "distributed-lock-watchdog",
+      "status": "implemented",
+      "paths": [
+        "core/lock/watchdog.go",
+        "core/lock/lock.go"
+      ],
+      "tests": [
+        "core/lock/watchdog_test.go",
+        "core/lock/lock_test.go"
+      ],
+      "evidence": [
+        "func Keepalive(ctx context.Context",
+        "case <-ctx.Done():",
+        "ticker := time.NewTicker(g.interval)",
+        "TestKeepaliveContextCancel",
+        "TestMemoryLockerContextCancellation"
+      ],
+      "gate": "go test -shuffle=on ./core/lock -run 'TestKeepalive|TestMemoryLockerContextCancellation'"
+    },
+    {
+      "id": "cli-control-plane-watch",
+      "status": "implemented",
+      "paths": [
+        "cmd/gofly/internal/command/ai_control_plane_provider.go",
+        "cmd/gofly/internal/command/ai_control_plane_watch.go"
+      ],
+      "tests": [
+        "cmd/gofly/internal/command/ai_helpers_test.go"
+      ],
+      "evidence": [
+        "func (p httpControlPlaneProvider) Watch(ctx context.Context)",
+        "ticker := time.NewTicker(interval)",
+        "case <-ctx.Done():",
+        "ai control-plane watch emits bounded JSON events",
+        "runtime source error branches"
+      ],
+      "gate": "go test -shuffle=on ./cmd/gofly/internal/command -run 'TestAINewTextHelpAndManifestContract|TestAIControlPlaneTextAndErrorCoverageBuffer'"
+    }
+  ],
+  "releaseGates": [
+    "make context-lifecycle-governance-check",
+    "targeted go test and go vet for touched packages"
+  ],
+  "knownExternalBlockers": [
+    {
+      "id": "aiflow-cli-compile",
+      "scope": "/Users/bytedance/Codes/go/src/github/aiflow",
+      "symptom": "go run ./cmd/aiflow status fails because harness/policy.go imports fmt without use",
+      "impact": "aiflow queue status/complete commands may be unavailable until the adjacent repository is fixed",
+      "goflyImpact": "none; gofly local governance gates remain runnable"
+    }
+  ]
+}

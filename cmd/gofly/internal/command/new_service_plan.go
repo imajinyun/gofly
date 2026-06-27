@@ -166,6 +166,13 @@ func (o newScaffoldPlanOutput) printResult() error {
 	return printJSONEnvelope(o.Command, plan)
 }
 
+func (o newScaffoldPlanOutput) printResultWhenRequested(forceJSON bool) error {
+	if !forceJSON && outputMode() != outputJSON {
+		return nil
+	}
+	return o.printResult()
+}
+
 func planPluginEffects(plugins []string, executed bool) []cliPluginEffect {
 	effects := make([]cliPluginEffect, 0, len(plugins))
 	for _, plugin := range plugins {

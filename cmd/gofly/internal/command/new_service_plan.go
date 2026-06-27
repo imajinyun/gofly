@@ -191,6 +191,10 @@ func (o newScaffoldPlanOutput) finalize(saveConfig bool, cfg *generator.Config, 
 	return o.printResultWhenRequested(forceJSON)
 }
 
+func (o newScaffoldPlanOutput) finalizeWithExecution(execution newScaffoldExecutionFlags, cfg *generator.Config) error {
+	return o.finalize(valueFromBoolFlag(execution.SaveConfig), cfg, valueFromBoolFlag(execution.JSON))
+}
+
 func planPluginEffects(plugins []string, executed bool) []cliPluginEffect {
 	effects := make([]cliPluginEffect, 0, len(plugins))
 	for _, plugin := range plugins {

@@ -554,3 +554,15 @@ func TestDeduplicateSnapshotEvents(t *testing.T) {
 		t.Fatalf("events = %#v, want v1/error/v2", got)
 	}
 }
+
+func TestDeduplicateSnapshotEventsNilInputCloses(t *testing.T) {
+	events := DeduplicateSnapshotEvents(context.Background(), nil)
+	select {
+	case event, ok := <-events:
+		if ok {
+			t.Fatalf("nil input event = %#v, want closed channel", event)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("nil input deduplicator did not close")
+	}
+}

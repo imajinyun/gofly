@@ -19,7 +19,7 @@ func apiGenCommand(args []string) error {
 	pluginArg := fs.String("plugin", "", "additional plugin executable (comma-separated) to run after generation")
 	test := fs.Bool("test", false, "generate test files")
 	typeGroup := fs.Bool("type-group", false, "group generated types")
-	jsonOut := fs.Bool("json", false, "emit generation result as JSON")
+	jsonOut := registerCLIJSONOutputFlag(fs, "emit generation result as JSON")
 	registerGoctlTemplateFlags(fs)
 	remaining, err := parseInterspersedFlags(fs, args)
 	if err != nil {

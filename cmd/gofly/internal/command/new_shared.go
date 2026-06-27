@@ -101,6 +101,15 @@ func saveNewScaffoldConfig(save bool, path string, cfg *generator.Config) error 
 	return generator.SaveConfig(path, cfg)
 }
 
+func applyNewScaffoldStyleDefault(cfg *generator.Config, requestedStyle, defaultStyle string, forceWhenRequestedEmpty bool) {
+	if cfg == nil {
+		return
+	}
+	if cfg.Style == "" || isGoctlTemplateStyle(cfg.Style) || (forceWhenRequestedEmpty && requestedStyle == "") {
+		cfg.Style = defaultStyle
+	}
+}
+
 type newScaffoldFlagNormalization struct {
 	Name          *string
 	Dir           *string

@@ -2,6 +2,20 @@ package command
 
 func modelCommandHelp(command string) (commandHelp, bool) {
 	switch command {
+	case "model mysql", "model pg":
+		driver := command[len("model "):]
+		driverName := "MySQL"
+		if driver == "pg" {
+			driverName = "PostgreSQL"
+		}
+		return commandHelp{
+			Name:     command,
+			Short:    "Generate SQL model code for " + driverName + ".",
+			Usage:    "gofly " + command + " ddl|datasource [arguments]",
+			Commands: []helpCommand{{Name: "ddl", Short: "generate SQL model code from DDL"}, {Name: "datasource", Short: "generate model code by introspecting a datasource"}},
+			Flags:    []string{"--style go_zero|gorm  choose model style", "--ddl, --src <file>    DDL source file", "--url, --dsn <dsn>     datasource URL", "--table <tables>       table filter", "--dir <dir>            output directory"},
+			Examples: []string{"gofly " + command + " ddl -src schema.sql -dir . -style gorm", "gofly " + command + " datasource --url <dsn> --table users --dir ."},
+		}, true
 	case "model gen", "model mysql ddl", "model pg ddl":
 		return commandHelp{Name: command, Short: "Generate SQL model code from DDL.", Usage: "gofly " + command + " --ddl <schema.sql> [<dir>] [flags]", Flags: []string{"--ddl, --src, -s <file>        SQL DDL file", "--dir, -d <dir>                output directory", "--package <pkg>                generated package name", "--module <module>              module import path", "--table, --tables, -t <tables> table filter", "--style go_zero|gorm           model style", "--cache, -c                    cache option", "--home, --remote, --branch     template source options"}, Examples: []string{"gofly model gen -ddl schema.sql ./internal --style gorm", "gofly model mysql ddl -src schema.sql -dir . -style go_zero"}}, true
 	case "gen model":

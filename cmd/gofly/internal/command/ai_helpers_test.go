@@ -176,8 +176,8 @@ func TestCLICommandSurfaceManifestMatchesRegistries(t *testing.T) {
 				t.Fatalf("manifest alias %q for %q does not resolve to canonical command", alias, item.Name)
 			}
 		}
-		if help := commandHelpFor(item.HelpTopic); help.Name == "" || help.Short == "" || help.Usage == "" {
-			t.Fatalf("manifest help topic %q for %q returned incomplete help: %#v", item.HelpTopic, item.Name, help)
+		if help := commandHelpFor(item.HelpTopic); help.Name == "" || help.Short == "" || help.Usage == "" || help.Short == "gofly command help." {
+			t.Fatalf("manifest help topic %q for %q returned fallback or incomplete help: %#v", item.HelpTopic, item.Name, help)
 		}
 		switch item.Name {
 		case "api":
@@ -211,8 +211,8 @@ func TestCLICommandSurfaceManifestMatchesRegistries(t *testing.T) {
 	}
 	for alias, canonical := range topLevelHelpAliases {
 		topic := commandHelpFor(alias)
-		if topic.Name == "" || topic.Short == "" || topic.Usage == "" {
-			t.Fatalf("top-level help alias %q returned incomplete help: %#v", alias, topic)
+		if topic.Name == "" || topic.Short == "" || topic.Usage == "" || topic.Short == "gofly command help." {
+			t.Fatalf("top-level help alias %q returned fallback or incomplete help: %#v", alias, topic)
 		}
 		if got := canonicalHelpTopic(alias); got != canonical {
 			t.Fatalf("top-level help alias %q canonical topic = %q, want %q", alias, got, canonical)
@@ -222,8 +222,8 @@ func TestCLICommandSurfaceManifestMatchesRegistries(t *testing.T) {
 		for alias, canonical := range aliases {
 			aliasTopic := parent + " " + alias
 			topic := commandHelpFor(aliasTopic)
-			if topic.Name == "" || topic.Short == "" || topic.Usage == "" {
-				t.Fatalf("nested help alias %q returned incomplete help: %#v", aliasTopic, topic)
+			if topic.Name == "" || topic.Short == "" || topic.Usage == "" || topic.Short == "gofly command help." {
+				t.Fatalf("nested help alias %q returned fallback or incomplete help: %#v", aliasTopic, topic)
 			}
 			wantTopic := parent + " " + canonical
 			if got := canonicalHelpTopic(aliasTopic); got != wantTopic {

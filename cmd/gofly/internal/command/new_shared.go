@@ -82,6 +82,31 @@ type newScaffoldLoadContext struct {
 	PluginNames []string
 }
 
+type newScaffoldBaseFlagOptions struct {
+	NameUsage    string
+	StyleDefault string
+	StyleUsage   string
+	ConfigUsage  string
+}
+
+type newScaffoldBaseFlags struct {
+	Name       *string
+	Module     *string
+	Dir        *string
+	Style      *string
+	ConfigPath *string
+}
+
+func registerNewScaffoldBaseFlags(fs *flag.FlagSet, opts newScaffoldBaseFlagOptions) newScaffoldBaseFlags {
+	return newScaffoldBaseFlags{
+		Name:       fs.String("name", "", opts.NameUsage),
+		Module:     fs.String("module", "", "go module path"),
+		Dir:        fs.String("dir", "", "output directory"),
+		Style:      fs.String("style", opts.StyleDefault, opts.StyleUsage),
+		ConfigPath: fs.String("config", "", opts.ConfigUsage),
+	}
+}
+
 type newScaffoldTemplateSourceFlags struct {
 	TemplateDir *string
 	Home        *string

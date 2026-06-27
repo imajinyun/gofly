@@ -5,6 +5,9 @@ Schema: `gofly.plugin_conformance.v1`
 Publishing UX schema: `gofly.plugin_publishing_ux.v1` in
 `docs/reference/plugin-publishing-ux.json`.
 
+Runner report schema: `gofly.plugin_conformance_report.v1` in
+`docs/reference/plugin-conformance-report.json`.
+
 Plugin adoption requires a conformance suite, not only a registry example. The
 suite covers registry JSON schema, plugin manifest schema, digest validation,
 least permission checks, a compatibility runner, and a failure isolation report.
@@ -39,6 +42,14 @@ The same manifest records `protocolCompatibility` for old, current,
 future-plus-current, and future-only plugins, plus a `failureIsolationPolicy`
 that makes malicious path, digest mismatch, permission escape, and partial
 writes publish blockers with rollback or escalation guidance.
+
+The conformance report is the machine-readable runner output for release and
+adopter review. It lists every publish blocker as a stable JSON case with
+expected outcome, evidence files, test anchors, and failure policy. Keep the
+report in sync with this document and `make plugin-conformance-check` whenever
+the plugin protocol, registry schema, manifest fields, digest handling,
+signature provenance, permission model, path safety, or partial-write behavior
+changes.
 
 ## Required cases
 

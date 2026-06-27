@@ -9,6 +9,7 @@ import sys
 checks = {
     pathlib.Path("docs/reference/plugin-conformance.md"): [
         "gofly.plugin_conformance.v1",
+        "plugin-conformance-report.json",
         "gofly.plugin_publishing_ux.v1",
         "plugin-publishing-ux.json",
         "Publishing contract",
@@ -187,6 +188,78 @@ else:
     for field in template_contract.get("requiredFields") or []:
         if field not in template_data:
             missing.append(f"{template_path}: missing template field {field!r}")
+
+report_path = pathlib.Path("docs/reference/plugin-conformance-report.json")
+if not report_path.is_file():
+    missing.append("docs/reference/plugin-conformance-report.json: file is missing")
+    report = {}
+else:
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+
+if report.get("schema") != "gofly.plugin_conformance_report.v1":
+    missing.append("docs/reference/plugin-conformance-report.json: schema must be gofly.plugin_conformance_report.v1")
+if report.get("sourceOfTruth") != "docs/reference/plugin-conformance.md":
+    missing.append("docs/reference/plugin-conformance-report.json: sourceOfTruth must be docs/reference/plugin-conformance.md")
+if report.get("aiflowTask") != "GOFLY-P1-4-PLUGIN-CONFORMANCE-RUNNER":
+    missing.append("docs/reference/plugin-conformance-report.json: aiflowTask must be GOFLY-P1-4-PLUGIN-CONFORMANCE-RUNNER")
+if report.get("acceptanceGate") != "make plugin-conformance-check":
+    missing.append("docs/reference/plugin-conformance-report.json: acceptanceGate must be make plugin-conformance-check")
+runner = report.get("runner") or {}
+if runner.get("mode") != "make-target-json-report":
+    missing.append("docs/reference/plugin-conformance-report.json: runner.mode must be make-target-json-report")
+if runner.get("command") != "make plugin-conformance-check":
+    missing.append("docs/reference/plugin-conformance-report.json: runner.command must be make plugin-conformance-check")
+protocol = report.get("protocol") or {}
+if protocol.get("current") != "1":
+    missing.append("docs/reference/plugin-conformance-report.json: protocol.current must be 1")
+if protocol.get("contractTest") != "TestPluginProtocolSchemaContract":
+    missing.append("docs/reference/plugin-conformance-report.json: protocol.contractTest must be TestPluginProtocolSchemaContract")
+
+expected_cases = {
+    "registry-schema": ("registry", "pass", {"TestPluginRegistryIndexValidationAndFiltering"}),
+    "manifest-schema": ("manifest", "pass", {"TestPluginManifestContractValidation", "TestPluginProtocolSchemaContract"}),
+    "old-protocol": ("compatibility", "reject", {"TestPluginProtocolCompatibilityMatrix"}),
+    "current-protocol": ("compatibility", "accept", {"TestPluginProtocolCompatibilityMatrix"}),
+    "future-plus-current-protocol": ("compatibility", "accept", {"TestPluginProtocolCompatibilityMatrix"}),
+    "future-only-protocol": ("compatibility", "reject", {"TestPluginProtocolCompatibilityMatrix"}),
+    "digest-mismatch": ("digest", "reject", {"TestResolveRemotePluginRejectsDigestMismatch"}),
+    "signature-provenance": ("signature", "record", {"TestPluginEcosystemReport"}),
+    "permission-escape": ("permission", "reject", {"TestPluginManifestContractValidation"}),
+    "malicious-path": ("filesystem", "reject", {"TestPluginResponseWriteFilesRejectsEscapingPaths"}),
+    "no-partial-writes": ("failure-isolation", "reject", {"TestPluginResponseApplyRejectsPartialWritesWhenPatchFails"}),
+}
+cases = report.get("cases") or []
+case_map = {item.get("id"): item for item in cases if isinstance(item, dict)}
+if set(case_map) != set(expected_cases):
+    missing.append(
+        "docs/reference/plugin-conformance-report.json: cases drifted "
+        f"missing={sorted(set(expected_cases) - set(case_map))} "
+        f"extra={sorted(set(case_map) - set(expected_cases))}"
+    )
+for case_id, (category, expected, required_tests) in expected_cases.items():
+    item = case_map.get(case_id) or {}
+    if item.get("category") != category:
+        missing.append(f"docs/reference/plugin-conformance-report.json: {case_id} category must be {category}")
+    if item.get("expected") != expected:
+        missing.append(f"docs/reference/plugin-conformance-report.json: {case_id} expected must be {expected}")
+    tests = set(item.get("tests") or [])
+    for test_name in required_tests:
+        if test_name not in tests:
+            missing.append(f"docs/reference/plugin-conformance-report.json: {case_id} missing test {test_name!r}")
+    for evidence in item.get("evidence") or []:
+        if not pathlib.Path(evidence).exists():
+            missing.append(f"docs/reference/plugin-conformance-report.json: {case_id} evidence path is missing: {evidence}")
+    if len(str(item.get("failurePolicy") or "").split()) < 8:
+        missing.append(f"docs/reference/plugin-conformance-report.json: {case_id} failurePolicy must be actionable")
+
+release_gates = set(report.get("releaseGates") or [])
+for command in (
+    "make plugin-conformance-check",
+    "go test -C examples/plugin-ecosystem ./...",
+    "go run -C examples/plugin-ecosystem .",
+):
+    if command not in release_gates:
+        missing.append(f"docs/reference/plugin-conformance-report.json: releaseGates missing {command!r}")
 
 if missing:
     print("plugin conformance check failed:", file=sys.stderr)

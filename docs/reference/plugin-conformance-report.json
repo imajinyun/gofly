@@ -1,0 +1,186 @@
+{
+  "schema": "gofly.plugin_conformance_report.v1",
+  "sourceOfTruth": "docs/reference/plugin-conformance.md",
+  "aiflowTask": "GOFLY-P1-4-PLUGIN-CONFORMANCE-RUNNER",
+  "acceptanceGate": "make plugin-conformance-check",
+  "runner": {
+    "mode": "make-target-json-report",
+    "command": "make plugin-conformance-check",
+    "reportConsumer": "release evidence and adopter plugin publishing review",
+    "outputContract": "registry, manifest, digest, signature, permission, compatibility, malicious-path, and failure-isolation results are represented as stable JSON cases"
+  },
+  "protocol": {
+    "current": "1",
+    "schemaEvidence": "cmd/gofly/internal/generator/plugin.go",
+    "contractTest": "TestPluginProtocolSchemaContract"
+  },
+  "cases": [
+    {
+      "id": "registry-schema",
+      "category": "registry",
+      "expected": "pass",
+      "evidence": [
+        "cmd/gofly/internal/generator/plugin.go",
+        "cmd/gofly/internal/generator/plugin_test.go",
+        "examples/plugin-ecosystem/registry/plugins.json"
+      ],
+      "tests": [
+        "TestPluginRegistryIndexValidationAndFiltering"
+      ],
+      "failurePolicy": "registry entries missing checksum, source, protocol, manifest, dry-run, or permissions fail before publication"
+    },
+    {
+      "id": "manifest-schema",
+      "category": "manifest",
+      "expected": "pass",
+      "evidence": [
+        "cmd/gofly/internal/generator/plugin.go",
+        "docs/reference/plugin-publishing-ux.json"
+      ],
+      "tests": [
+        "TestPluginManifestContractValidation",
+        "TestPluginProtocolSchemaContract"
+      ],
+      "failurePolicy": "unsupported capabilities, unsupported permissions, and incompatible manifests fail before plugin effects run"
+    },
+    {
+      "id": "old-protocol",
+      "category": "compatibility",
+      "compatibleVersions": [
+        "0"
+      ],
+      "expected": "reject",
+      "evidence": [
+        "cmd/gofly/internal/generator/plugin_test.go",
+        "docs/reference/plugin-publishing-ux.json"
+      ],
+      "tests": [
+        "TestPluginProtocolCompatibilityMatrix"
+      ],
+      "failurePolicy": "old-protocol-only plugins are rejected for a protocol 1 host"
+    },
+    {
+      "id": "current-protocol",
+      "category": "compatibility",
+      "compatibleVersions": [
+        "1"
+      ],
+      "expected": "accept",
+      "evidence": [
+        "cmd/gofly/internal/generator/plugin_test.go",
+        "docs/reference/plugin-publishing-ux.json"
+      ],
+      "tests": [
+        "TestPluginProtocolCompatibilityMatrix"
+      ],
+      "failurePolicy": "current protocol plugins may run only after manifest, digest, and permission checks pass"
+    },
+    {
+      "id": "future-plus-current-protocol",
+      "category": "compatibility",
+      "compatibleVersions": [
+        "2",
+        "1"
+      ],
+      "expected": "accept",
+      "evidence": [
+        "cmd/gofly/internal/generator/plugin_test.go",
+        "docs/reference/plugin-publishing-ux.json"
+      ],
+      "tests": [
+        "TestPluginProtocolCompatibilityMatrix"
+      ],
+      "failurePolicy": "future-capable plugins must keep protocol 1 behavior active until the host upgrades"
+    },
+    {
+      "id": "future-only-protocol",
+      "category": "compatibility",
+      "compatibleVersions": [
+        "2"
+      ],
+      "expected": "reject",
+      "evidence": [
+        "cmd/gofly/internal/generator/plugin_test.go",
+        "docs/reference/plugin-publishing-ux.json"
+      ],
+      "tests": [
+        "TestPluginProtocolCompatibilityMatrix"
+      ],
+      "failurePolicy": "future-only plugins are rejected until the host understands the future protocol"
+    },
+    {
+      "id": "digest-mismatch",
+      "category": "digest",
+      "expected": "reject",
+      "evidence": [
+        "cmd/gofly/internal/generator/plugin.go",
+        "cmd/gofly/internal/generator/plugin_test.go"
+      ],
+      "tests": [
+        "TestResolveRemotePluginRejectsDigestMismatch"
+      ],
+      "failurePolicy": "downloaded plugin bytes must match the registry sha256 digest and fail closed before cache promotion"
+    },
+    {
+      "id": "signature-provenance",
+      "category": "signature",
+      "expected": "record",
+      "evidence": [
+        "docs/reference/plugin-publishing-ux.json",
+        "examples/plugin-ecosystem/main.go"
+      ],
+      "tests": [
+        "TestPluginEcosystemReport"
+      ],
+      "failurePolicy": "publisher release notes must record signature provenance before publishing third-party plugins"
+    },
+    {
+      "id": "permission-escape",
+      "category": "permission",
+      "expected": "reject",
+      "evidence": [
+        "cmd/gofly/internal/generator/plugin.go",
+        "cmd/gofly/internal/generator/plugin_test.go"
+      ],
+      "tests": [
+        "TestPluginManifestContractValidation",
+        "TestPluginRegistryIndexValidationAndFiltering"
+      ],
+      "failurePolicy": "permissions outside filesystem:write-relative are rejected before plugin effects run"
+    },
+    {
+      "id": "malicious-path",
+      "category": "filesystem",
+      "expected": "reject",
+      "evidence": [
+        "cmd/gofly/internal/generator/plugin.go",
+        "cmd/gofly/internal/generator/plugin_test.go"
+      ],
+      "tests": [
+        "TestPluginResponseWriteFilesRejectsEscapingPaths",
+        "TestPluginResponseRejectsSymlinkParentTraversal",
+        "TestPluginResponseRejectsSymlinkLeaf"
+      ],
+      "failurePolicy": "file and patch paths must stay relative to the project root and reject symlink traversal"
+    },
+    {
+      "id": "no-partial-writes",
+      "category": "failure-isolation",
+      "expected": "reject",
+      "evidence": [
+        "cmd/gofly/internal/generator/plugin.go",
+        "cmd/gofly/internal/generator/plugin_test.go"
+      ],
+      "tests": [
+        "TestPluginResponseApplyRejectsPartialWritesWhenPatchFails"
+      ],
+      "failurePolicy": "plugin output application must reject partial writes when any file or patch fails"
+    }
+  ],
+  "releaseGates": [
+    "make plugin-conformance-check",
+    "go test -shuffle=on ./cmd/gofly/internal/generator -run TestPluginProtocolCompatibilityMatrix",
+    "go test -C examples/plugin-ecosystem ./...",
+    "go run -C examples/plugin-ecosystem ."
+  ]
+}

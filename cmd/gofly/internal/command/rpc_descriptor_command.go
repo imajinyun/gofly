@@ -3,7 +3,6 @@ package command
 import (
 	"flag"
 	"fmt"
-	"strings"
 
 	"github.com/imajinyun/gofly/cmd/gofly/internal/generator"
 	"github.com/imajinyun/gofly/rpc"
@@ -15,7 +14,7 @@ func rpcDescriptorCommand(args []string) error {
 	target := fs.String("target", "", "target descriptor json file")
 	remoteURL := fs.String("url", "", "remote admin descriptor URL or admin base URL")
 	service := fs.String("service", "", "service name when --url points at an admin base URL")
-	formatName := fs.String("format", "text", "output format: text or json")
+	formatName := registerCLIFormatFlag(fs, outputText, "output format: text or json")
 	token := fs.String("token", "", "bearer token for descriptor URL sources")
 	remaining, err := parseInterspersedFlags(fs, args)
 	if err != nil {
@@ -47,15 +46,17 @@ func rpcDescriptorCommand(args []string) error {
 		return fmt.Errorf("read target descriptor: %w", err)
 	}
 	report := rpc.CompareDescriptors(baseDescriptor, targetDescriptor)
-	switch strings.ToLower(strings.TrimSpace(*formatName)) {
-	case "", "text":
+	format, err := normalizeCLIFormat(formatName, outputText, outputText, outputJSON)
+	if err != nil {
+		return err
+	}
+	switch format {
+	case outputText:
 		cliOutput(formatRPCDescriptorCompatibilityText(report))
-	case "json":
+	case outputJSON:
 		if err := printJSON(report); err != nil {
 			return err
 		}
-	default:
-		return fmt.Errorf("%w: unsupported rpc descriptor format %q", errUsage, *formatName)
 	}
 	if report.HasBreaking() {
 		return generator.ErrBreakingChanges

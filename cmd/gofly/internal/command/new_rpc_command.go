@@ -18,11 +18,10 @@ func rpcNewCommand(args []string) error {
 	profileFlags := registerNewScaffoldProfileFlags(fs)
 	templateFlags := registerNewScaffoldTemplateSourceFlags(fs)
 	discoveryFlags := registerDiscoveryCLIFlags(fs)
-	compatFlags := registerNewRPCCompatFlags(fs)
+	registerNewRPCCompatFlags(fs)
 	verbosityFlags := registerNewScaffoldVerbosityFlags(fs)
 	extensionFlags := registerNewScaffoldExtensionFlags(fs, "rpc-plugin")
 	executionFlags := registerNewScaffoldExecutionFlags(fs)
-	_ = compatFlags
 	remaining, err := parseInterspersedFlags(fs, args)
 	if err != nil {
 		return err

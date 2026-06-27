@@ -21,11 +21,10 @@ func apiNewCommand(args []string) error {
 	apiSpec := fs.Bool("api-spec", true, "generate an .api file")
 	templateFlags := registerNewScaffoldTemplateSourceFlags(fs)
 	discoveryFlags := registerDiscoveryCLIFlags(fs)
-	compatFlags := registerNewAPICompatFlags(fs)
+	registerNewAPICompatFlags(fs)
 	verbosityFlags := registerNewScaffoldVerbosityFlags(fs)
 	extensionFlags := registerNewScaffoldExtensionFlags(fs, "api-plugin")
 	executionFlags := registerNewScaffoldExecutionFlags(fs)
-	_ = compatFlags
 	remaining, err := parseInterspersedFlags(fs, args)
 	if err != nil {
 		return err

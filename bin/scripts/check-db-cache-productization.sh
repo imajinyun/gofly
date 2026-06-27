@@ -27,6 +27,7 @@ required_release_gates = {
     "go test -shuffle=on ./cache ./core/kv/...",
     "go test -shuffle=on ./cmd/gofly/internal/generator -run TestGenerateModelFromDDL",
     "make reference-app-smoke",
+    "make framework-gap-check",
     "make db-cache-productization-check",
 }
 
@@ -74,6 +75,27 @@ require(manifest.get("acceptanceGate") == "make db-cache-productization-check", 
 require("db-cache-productization-check" in targets, "Makefile must expose db-cache-productization-check")
 require("db-cache-productization-check" in docs_check_line, "docs-check must depend on db-cache-productization-check")
 require("check-db-cache-productization.sh" in makefile, "Makefile must call check-db-cache-productization.sh")
+
+gozero = manifest.get("goZeroAlignment") or {}
+require(gozero.get("reference") == "docs/comparisons/go-zero.md", "goZeroAlignment.reference must be docs/comparisons/go-zero.md")
+require(gozero.get("acceptanceGate") == "make framework-gap-check", "goZeroAlignment.acceptanceGate must be make framework-gap-check")
+require(len(str(gozero.get("strategy") or "").split()) >= 10, "goZeroAlignment.strategy must explain sqlx/cache alignment")
+require(len(str(gozero.get("rollbackOrEscalation") or "").split()) >= 10, "goZeroAlignment.rollbackOrEscalation must be actionable")
+expected_gozero_evidence = {
+    "SQL read/write strategy through SQLStore and NewCluster",
+    "transaction examples through SQLStore.Transact and SQL outbox",
+    "generated model cache contracts through RedisCachedOrderRepo and UpdateWithInvalidate",
+    "Redis/cache observability through cache stats and WritePrometheus",
+    "local smoke tests through examples/cache-local and reference-app-smoke",
+}
+actual_gozero_evidence = set(gozero.get("requiredEvidence") or [])
+require(
+    actual_gozero_evidence == expected_gozero_evidence,
+    f"goZeroAlignment.requiredEvidence drifted: missing={sorted(expected_gozero_evidence - actual_gozero_evidence)} extra={sorted(actual_gozero_evidence - expected_gozero_evidence)}",
+)
+gozero_doc = read_text(root / "docs" / "comparisons" / "go-zero.md")
+for needle in ("sqlx", "cache", "Rollback plan", "production orders"):
+    require(needle in gozero_doc, f"go-zero comparison doc missing {needle!r}")
 
 status_policy = manifest.get("statusPolicy") or {}
 for status in {"implemented", "planned"}:

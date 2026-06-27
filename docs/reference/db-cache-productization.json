@@ -23,6 +23,19 @@
       "production credential management"
     ]
   },
+  "goZeroAlignment": {
+    "reference": "docs/comparisons/go-zero.md",
+    "acceptanceGate": "make framework-gap-check",
+    "strategy": "Close sqlx/cache adoption gaps with runnable gofly primitives instead of importing go-zero runtime dependencies into the root module.",
+    "requiredEvidence": [
+      "SQL read/write strategy through SQLStore and NewCluster",
+      "transaction examples through SQLStore.Transact and SQL outbox",
+      "generated model cache contracts through RedisCachedOrderRepo and UpdateWithInvalidate",
+      "Redis/cache observability through cache stats and WritePrometheus",
+      "local smoke tests through examples/cache-local and reference-app-smoke"
+    ],
+    "rollbackOrEscalation": "Keep existing go-zero sqlx/cache repositories active until storage, cache, generated model, reference app, and framework gap gates pass locally."
+  },
   "statusPolicy": {
     "implemented": "Capability has repository code, behavior tests, adopter documentation, and a gate.",
     "planned": "Capability is an adoption target and must not be advertised as supported until code, tests, examples, and gates land together."
@@ -209,6 +222,7 @@
     "go test -shuffle=on ./cache ./core/kv/...",
     "go test -shuffle=on ./cmd/gofly/internal/generator -run TestGenerateModelFromDDL",
     "make reference-app-smoke",
+    "make framework-gap-check",
     "make db-cache-productization-check"
   ]
 }

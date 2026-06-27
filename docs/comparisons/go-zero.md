@@ -10,6 +10,8 @@ go-zero and gofly both value generated services. gofly keeps the generated-servi
 | rpc service | generated gofly RPC package |
 | service config | `etc/<service>.yaml` |
 | middleware | `rest.Middleware` and governance rules |
+| `sqlx` repositories | `core/storage.SQLStore`, `NewCluster`, generated model repositories |
+| cache/cache-aside | typed cache, Redis-backed model cache, explicit invalidation hooks |
 | operational checks | `/admin/control-plane`, `gofly release check` |
 
 ## Migration steps
@@ -57,6 +59,9 @@ examples-smoke`.
 - gofly expects runtime metadata to be visible to operators.
 - production defaults are part of the generated baseline;
 - AI tooling can inspect command capabilities through `gofly ai manifest --json`.
+- go-zero `sqlx` and cache migrations should keep repository behavior
+  observable through storage/cache tests, generated model smoke, and
+  `make db-cache-productization-check` before switching traffic.
 
 ## Keep go-zero when
 

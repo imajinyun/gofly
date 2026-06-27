@@ -48,6 +48,13 @@ reference-app topology, and planned follow-ups. Planned rows are adoption
 targets only; they must not be advertised as supported until code, tests,
 examples, and gates land together.
 
+For go-zero `sqlx` and cache migrations, the matrix also records a
+`goZeroAlignment` policy. That policy keeps adoption grounded in runnable
+gofly evidence: SQL read/write routing, transaction examples, generated model
+cache contracts, Redis/cache observability, local smoke tests, and
+`make framework-gap-check`. Keep the existing go-zero repository path active
+until those gates pass locally.
+
 ## Recommendation
 
 - keep cache TTLs explicit per domain;

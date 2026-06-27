@@ -216,6 +216,11 @@ func applyNewScaffoldStyleDefault(cfg *generator.Config, requestedStyle, default
 	}
 }
 
+func applyNewScaffoldDefaults(cfg *generator.Config, base newScaffoldBaseFlags, defaultStyle string, forceStyleWhenRequestedEmpty bool) {
+	applyNewScaffoldStyleDefault(cfg, valueFromStringFlag(base.Style), defaultStyle, forceStyleWhenRequestedEmpty)
+	applyNewScaffoldDirFallback(base.Dir, cfg)
+}
+
 func applyNewScaffoldDirFallback(dir *string, cfg *generator.Config) {
 	if dir == nil || cfg == nil {
 		return

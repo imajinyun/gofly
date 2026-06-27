@@ -25,10 +25,7 @@ func serviceNewCommand(args []string) error {
 	openAPIFile := fs.String("openapi", "", "OpenAPI/Swagger contract used to generate a REST project")
 	protoFile := fs.String("proto", "", "RPC-first protobuf contract used to generate RPC code")
 	thriftFile := fs.String("thrift", "", "RPC-first thrift contract converted to proto and RPC code")
-	saveConfig := fs.Bool("save-config", true, "save resolved config back to --config path")
-	dryRun := fs.Bool("dry-run", false, "print the planned filesystem changes without writing files")
-	plan := fs.Bool("plan", false, "alias for --dry-run")
-	jsonOut := fs.Bool("json", false, "emit scaffold result as JSON")
+	executionFlags := registerNewScaffoldExecutionFlags(fs)
 	remaining, err := parseInterspersedFlags(fs, args)
 	if err != nil {
 		return err
@@ -70,9 +67,9 @@ func serviceNewCommand(args []string) error {
 		ProtoFile:   *protoFile,
 		ThriftFile:  *thriftFile,
 	}
-	output := newScaffoldPlanOutputFor("new.service", "new service", *dir, resolved, cfg, plugins, contractInputs, *saveConfig)
-	if *dryRun || *plan {
-		return output.printDryRunPlan(*jsonOut, true)
+	output := newScaffoldPlanOutputFor("new.service", "new service", *dir, resolved, cfg, plugins, contractInputs, *executionFlags.SaveConfig)
+	if *executionFlags.DryRun || *executionFlags.Plan {
+		return output.printDryRunPlan(*executionFlags.JSON, true)
 	}
 	if err := generateNewServiceScaffold(cfg, newServiceScaffoldOptions{
 		Dir:     *dir,
@@ -83,8 +80,8 @@ func serviceNewCommand(args []string) error {
 	if err := applyNewServiceContractInputs(contractInputs, cfg.ServiceName, *dir); err != nil {
 		return err
 	}
-	if err := saveNewScaffoldConfig(*saveConfig, resolved, cfg); err != nil {
+	if err := saveNewScaffoldConfig(*executionFlags.SaveConfig, resolved, cfg); err != nil {
 		return err
 	}
-	return output.printResultWhenRequested(*jsonOut)
+	return output.printResultWhenRequested(*executionFlags.JSON)
 }

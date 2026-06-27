@@ -38,6 +38,14 @@ func commandHelpFor(command string) commandHelp {
 			Usage:    "gofly gen handler|rpc|api|rest|middleware|model|gateway [arguments]",
 			Commands: []helpCommand{{Name: "handler", Short: "generate REST handler"}, {Name: "rpc", Short: "generate RPC code"}, {Name: "api/rest", Short: "generate REST code"}, {Name: "middleware", Short: "generate middleware skeletons"}, {Name: "model", Short: "generate model code"}, {Name: "gateway", Short: "generate API gateway"}},
 		}
+	case "handler":
+		return commandHelp{
+			Name:     "handler",
+			Short:    "Generate or complete API handlers.",
+			Usage:    "gofly handler gen|complete [arguments]",
+			Commands: []helpCommand{{Name: "gen", Short: "generate REST handler skeletons"}, {Name: "complete", Short: "append missing methods to an existing handler Go file"}},
+			Examples: []string{"gofly handler gen CreateOrder --dir . --path v1/order", "gofly handler complete --file internal/svc/service.go --method HealthCheck"},
+		}
 	case "gen handler", "handler gen":
 		return commandHelp{Name: command, Short: "Generate REST handler skeletons.", Usage: "gofly " + command + " <name> --dir <service-dir> [--module <module>] [--path <subdir>]", Flags: []string{"--name <name>      handler name", "--dir <dir>        service root directory", "--module <module>  Go module path", "--path <subdir>    handler subdirectory under internal/api"}, Examples: []string{"gofly " + command + " CreateOrder --dir . --path v1/order"}}
 	case "handler complete":
@@ -60,6 +68,10 @@ func commandHelpFor(command string) commandHelp {
 		return commandHelp{Name: "quickstart", Short: "Create a runnable API service quickly.", Usage: "gofly quickstart <name> --module <module> [--dir <dir>] [--style minimal|basic|production]", Flags: []string{"--name <name>          service name, also accepted as positional", "--module <module>      Go module path", "--dir <dir>            output directory", "--style <style>        scaffold style", "--api-spec             generate an .api file", "--service-type, -t     quickstart service type: mono or micro"}, Examples: []string{"gofly quickstart checkout --module example.com/checkout --t micro"}}
 	case "migrate", "migration", "migrate create", "migrate new", "migration create", "migration new":
 		return commandHelp{Name: command, Short: "Create SQL migration files.", Usage: "gofly migrate create <name> [--dir <dir>]", Flags: []string{"--name <name>  migration name, also accepted as positional", "--dir <dir>    migration output directory"}, Examples: []string{"gofly migrate create add-users --dir migrations"}}
+	case "bug":
+		return commandHelp{Name: "bug", Short: "Print diagnostic bug reports.", Usage: "gofly bug [--json]", Flags: []string{"--json  print bug report as JSON"}, Examples: []string{"gofly bug", "gofly bug --json"}}
+	case "upgrade":
+		return commandHelp{Name: "upgrade", Short: "Print or run upgrade commands.", Usage: "gofly upgrade [--version <version>] [--module <module>] [--project-dir <dir>] [--execute] [--json]", Flags: []string{"--version <version>  version to install", "--module <module>    module path to install", "--project-dir <dir>  generated project directory for diff/verify commands", "--dir <dir>          alias for --project-dir", "--execute            execute go install instead of printing the command", "--json               print upgrade plan/result as JSON"}, Examples: []string{"gofly upgrade --version latest", "gofly upgrade --version v1.2.3 --json", "gofly upgrade --project-dir ./orders --version latest"}}
 	case "env":
 		return commandHelp{Name: "env", Short: "Print and check local toolchain environment.", Usage: "gofly env [--json] | gofly env check [--json]", Flags: []string{"--json          print environment as JSON", "--write, -w     write environment key=value", "--verbose, -v   print verbose output"}, Examples: []string{"gofly env check --json"}}
 	case "env check", "env install":

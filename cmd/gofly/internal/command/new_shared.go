@@ -82,6 +82,22 @@ type newScaffoldLoadContext struct {
 	PluginNames []string
 }
 
+type newScaffoldTemplateSourceFlags struct {
+	TemplateDir *string
+	Home        *string
+	Remote      *string
+	Branch      *string
+}
+
+func registerNewScaffoldTemplateSourceFlags(fs *flag.FlagSet) newScaffoldTemplateSourceFlags {
+	return newScaffoldTemplateSourceFlags{
+		TemplateDir: fs.String("template-dir", "", "override templates from this directory"),
+		Home:        fs.String("home", "", "template home directory"),
+		Remote:      fs.String("remote", "", "remote template repository"),
+		Branch:      fs.String("branch", "", "remote template branch"),
+	}
+}
+
 func loadNewScaffoldContext(opts newScaffoldLoadOptions) (newScaffoldLoadContext, error) {
 	cfg, resolved, err := loadAndOverlay(opts.ConfigPath, opts.Dir, opts.Name, opts.Module, opts.Style, opts.TemplateDir, opts.TemplateRemote, opts.TemplateBranch, opts.Features, opts.Plugins, opts.Kind)
 	if err != nil {

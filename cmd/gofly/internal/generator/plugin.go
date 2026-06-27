@@ -480,6 +480,26 @@ func (resp PluginResponse) WriteFiles(dir string) (int, error) {
 	return count, nil
 }
 
+// Apply writes plugin files and patches only after every response item is
+// validated and patch content can be computed. This avoids partial writes when a
+// later patch fails after earlier file outputs were already accepted.
+func (resp PluginResponse) Apply(dir string) (int, error) {
+	planned, err := resp.planWrites(dir)
+	if err != nil {
+		return 0, err
+	}
+	fileCount := 0
+	for _, write := range planned {
+		if err := WriteFileUnderRoot(dir, write.target, write.data, write.mode, generatedDirMode, "plugin output"); err != nil {
+			return 0, err
+		}
+		if write.file {
+			fileCount++
+		}
+	}
+	return fileCount, nil
+}
+
 // ApplyPatches 对目标目录应用补丁（简单插入式插入）。
 func (resp PluginResponse) ApplyPatches(dir string) error {
 	if dir == "" {
@@ -513,6 +533,65 @@ func (resp PluginResponse) ApplyPatches(dir string) error {
 		}
 	}
 	return nil
+}
+
+type pluginPlannedWrite struct {
+	target string
+	data   []byte
+	mode   os.FileMode
+	file   bool
+}
+
+func (resp PluginResponse) planWrites(dir string) ([]pluginPlannedWrite, error) {
+	if dir == "" {
+		return nil, errors.New("output directory is required")
+	}
+	planned := make([]pluginPlannedWrite, 0, len(resp.Files)+len(resp.Patches))
+	for _, f := range resp.Files {
+		if f.Path == "" {
+			continue
+		}
+		target, err := safePluginTarget(dir, f.Path)
+		if err != nil {
+			return nil, err
+		}
+		planned = append(planned, pluginPlannedWrite{
+			target: target,
+			data:   []byte(f.Content),
+			mode:   generatedFileMode(f.Path),
+			file:   true,
+		})
+	}
+	for _, p := range resp.Patches {
+		if p.Path == "" {
+			continue
+		}
+		target, err := safePluginTarget(dir, p.Path)
+		if err != nil {
+			return nil, err
+		}
+		data, err := ReadFileUnderRoot(dir, target, "plugin patch")
+		if err != nil {
+			return nil, fmt.Errorf("read target for patch: %w", err)
+		}
+		content := string(data)
+		if p.InsertAfter != "" {
+			idx := strings.Index(content, p.InsertAfter)
+			if idx < 0 {
+				return nil, fmt.Errorf("plugin patch anchor %q not found in %s", p.InsertAfter, p.Path)
+			}
+			insertAt := idx + len(p.InsertAfter)
+			content = content[:insertAt] + "\n" + p.Patch + content[insertAt:]
+		} else {
+			content += "\n" + p.Patch
+		}
+		planned = append(planned, pluginPlannedWrite{
+			target: target,
+			data:   []byte(content),
+			mode:   generatedPublicFileMode,
+		})
+	}
+	return planned, nil
 }
 
 func safePluginTarget(root, name string) (string, error) {

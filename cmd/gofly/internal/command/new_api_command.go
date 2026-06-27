@@ -25,15 +25,11 @@ func apiNewCommand(args []string) error {
 	remote := fs.String("remote", "", "remote template repository")
 	branch := fs.String("branch", "", "remote template branch")
 	discoveryFlags := registerDiscoveryCLIFlags(fs)
-	idea := fs.Bool("idea", false, "open generated project in IDE")
-	client := fs.Bool("client", true, "generate client code")
-	c := fs.Bool("c", true, "generate client code")
+	compatFlags := registerNewAPICompatFlags(fs)
 	verbose := fs.Bool("verbose", false, "print verbose output")
 	v := fs.Bool("v", false, "print verbose output")
 	quiet := fs.Bool("quiet", false, "suppress normal output")
 	q := fs.Bool("q", false, "suppress normal output")
-	nameFromFilename := fs.Bool("name-from-filename", false, "derive service name from filename")
-	goOpt := fs.String("go_opt", "", "extra protoc-gen-go option")
 	features := fs.String("feature", "", "feature names to enable, comma-separated")
 	featuresAlias := fs.String("features", "", "alias for --feature")
 	pluginArg := fs.String("plugin", "", "plugin executable (comma-separated for multiple)")
@@ -42,11 +38,7 @@ func apiNewCommand(args []string) error {
 	dryRun := fs.Bool("dry-run", false, "print the planned filesystem changes without writing files")
 	plan := fs.Bool("plan", false, "alias for --dry-run")
 	jsonOut := fs.Bool("json", false, "emit scaffold result as JSON")
-	_ = idea
-	_ = client
-	_ = c
-	_ = nameFromFilename
-	_ = goOpt
+	_ = compatFlags
 	remaining, err := parseInterspersedFlags(fs, args)
 	if err != nil {
 		return err

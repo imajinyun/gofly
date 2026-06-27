@@ -353,10 +353,15 @@ def ci_required_check_evidence():
 
 def runtime_slo_evidence():
     manifest = read_json(root / "docs/reference/runtime-slo.json") or {}
+    runbook = read_json(root / "docs/reference/operator-runbook-drills.json") or {}
     signals = manifest.get("goldenSignals") or []
+    drills = runbook.get("drills") or []
+    incidents = runbook.get("incidentRehearsals") or []
     return {
         "schema": manifest.get("schema", ""),
         "manifest": "docs/reference/runtime-slo.json",
+        "runbook": "docs/reference/operator-runbook-drills.json",
+        "runbookSchema": runbook.get("schema", ""),
         "gate": "make runtime-slo-check",
         "exampleGate": (manifest.get("verification") or {}).get("observabilityExample", ""),
         "productionGate": (manifest.get("verification") or {}).get("productionGate", ""),
@@ -366,6 +371,18 @@ def runtime_slo_evidence():
             if isinstance(item, dict) and item.get("id")
         ],
         "signalCount": len(signals),
+        "operatorDrills": [
+            item.get("id", "")
+            for item in drills
+            if isinstance(item, dict) and item.get("id")
+        ],
+        "operatorDrillCount": len(drills),
+        "incidentRehearsals": [
+            item.get("id", "")
+            for item in incidents
+            if isinstance(item, dict) and item.get("id")
+        ],
+        "incidentRehearsalCount": len(incidents),
     }
 
 
@@ -711,6 +728,12 @@ if report["runtimeSLO"]["schema"] != "gofly.runtime_slo.v1":
     missing.append("runtime SLO evidence schema mismatch")
 if report["runtimeSLO"]["signalCount"] < 7:
     missing.append("runtime SLO evidence is incomplete")
+if report["runtimeSLO"]["runbookSchema"] != "gofly.operator_runbook_drills.v1":
+    missing.append("runtime SLO runbook schema mismatch")
+if report["runtimeSLO"]["operatorDrillCount"] < 6:
+    missing.append("runtime SLO operator drill evidence is incomplete")
+if report["runtimeSLO"]["incidentRehearsalCount"] < 4:
+    missing.append("runtime SLO incident rehearsal evidence is incomplete")
 convergence = report["governanceConvergence"]
 if convergence["schema"] != "gofly.governance_boundary_inventory.v1":
     missing.append("governance convergence schema mismatch")
@@ -897,6 +920,8 @@ for field in (
     "aiflow.status",
     "productionDefaults.capabilityCount",
     "productionDefaults.missingAssets",
+    "runtimeSLO.operatorDrillCount",
+    "runtimeSLO.incidentRehearsalCount",
     "governanceConvergence.taskCount",
     "governanceConvergence.ignoredRuntimePathCount",
     "dashboard.productionReadinessScorecard.surfaceCount",

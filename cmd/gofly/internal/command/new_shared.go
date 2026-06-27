@@ -133,6 +133,18 @@ func registerNewScaffoldExecutionFlags(fs *flag.FlagSet) newScaffoldExecutionFla
 	}
 }
 
+type newScaffoldProfileFlags struct {
+	Profile      *string
+	ProfileAlias *string
+}
+
+func registerNewScaffoldProfileFlags(fs *flag.FlagSet) newScaffoldProfileFlags {
+	return newScaffoldProfileFlags{
+		Profile:      fs.String("profile", "", "generation profile: gofly-ai, gozero-compatible, or kitex-compatible"),
+		ProfileAlias: fs.String("generation-profile", "", "alias for --profile"),
+	}
+}
+
 func loadNewScaffoldContext(opts newScaffoldLoadOptions) (newScaffoldLoadContext, error) {
 	cfg, resolved, err := loadAndOverlay(opts.ConfigPath, opts.Dir, opts.Name, opts.Module, opts.Style, opts.TemplateDir, opts.TemplateRemote, opts.TemplateBranch, opts.Features, opts.Plugins, opts.Kind)
 	if err != nil {

@@ -77,7 +77,33 @@
       "nextActions"
     ],
     "boundedOutput": true,
-    "redactionRequired": true
+    "outputLimitBytes": 4096,
+    "statusValues": [
+      "passed",
+      "failed",
+      "skipped"
+    ],
+    "rerunGuidanceField": "nextActions",
+    "redactionRequired": true,
+    "redactionTerms": [
+      "Authorization",
+      "Cookie",
+      "Set-Cookie",
+      "GOFLY_LLM_*",
+      "*TOKEN*",
+      "*SECRET*",
+      "*PASSWORD*"
+    ],
+    "evidenceProducers": [
+      {
+        "command": "gofly ai new --json --apply --verify",
+        "fields": [
+          "data.verification",
+          "data.nextActions"
+        ]
+      }
+    ],
+    "ciArtifactUsage": "Attach the bounded verification result object as a CI artifact and rerun only the command named in nextActions after fixing the reported error."
   },
   "supportWorkflow": [
     "run gofly doctor --json",

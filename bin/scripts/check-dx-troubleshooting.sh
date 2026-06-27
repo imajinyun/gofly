@@ -104,8 +104,32 @@ for field in ("command", "status", "output", "error", "nextActions"):
         missing.append(f"generatedFailureReport.fields missing {field!r}")
 if failure_report.get("boundedOutput") is not True:
     missing.append("generatedFailureReport.boundedOutput must be true")
+if failure_report.get("outputLimitBytes") != 4096:
+    missing.append("generatedFailureReport.outputLimitBytes must be 4096")
+if set(failure_report.get("statusValues") or []) != {"passed", "failed", "skipped"}:
+    missing.append("generatedFailureReport.statusValues must be passed/failed/skipped")
+if failure_report.get("rerunGuidanceField") != "nextActions":
+    missing.append("generatedFailureReport.rerunGuidanceField must be nextActions")
 if failure_report.get("redactionRequired") is not True:
     missing.append("generatedFailureReport.redactionRequired must be true")
+failure_redaction = set(failure_report.get("redactionTerms") or [])
+for term in ("Authorization", "Cookie", "Set-Cookie", "GOFLY_LLM_*", "*TOKEN*", "*SECRET*", "*PASSWORD*"):
+    if term not in failure_redaction:
+        missing.append(f"generatedFailureReport.redactionTerms missing {term!r}")
+evidence_producers = failure_report.get("evidenceProducers") or []
+producer_by_command = {
+    item.get("command"): item for item in evidence_producers if isinstance(item, dict)
+}
+producer = producer_by_command.get("gofly ai new --json --apply --verify")
+if not producer:
+    missing.append("generatedFailureReport.evidenceProducers missing gofly ai new --json --apply --verify")
+else:
+    fields = set(producer.get("fields") or [])
+    for field in ("data.verification", "data.nextActions"):
+        if field not in fields:
+            missing.append(f"generatedFailureReport producer missing {field!r}")
+if not failure_report.get("ciArtifactUsage"):
+    missing.append("generatedFailureReport.ciArtifactUsage is required")
 
 for step in ("run gofly doctor --json", "run gofly release check --json --strict", "run gofly bug --json"):
     if step not in set(manifest.get("supportWorkflow") or []):
@@ -121,6 +145,8 @@ docs = {
         "gofly.support_bundle.v1",
         "gofly.dx_support_bundle.v1",
         "gofly.generated_project_failure_report.v1",
+        "outputLimitBytes",
+        "rerunGuidanceField",
     ],
     pathlib.Path("docs/operations/troubleshooting.md"): [
         "gofly doctor --json",
@@ -128,6 +154,8 @@ docs = {
         "gofly release check --json --strict",
         "support bundle",
         "generated project verification failure",
+        "4096 bytes",
+        "nextActions",
     ],
 }
 for path, needles in docs.items():

@@ -26,10 +26,7 @@ func apiNewCommand(args []string) error {
 	branch := fs.String("branch", "", "remote template branch")
 	discoveryFlags := registerDiscoveryCLIFlags(fs)
 	compatFlags := registerNewAPICompatFlags(fs)
-	verbose := fs.Bool("verbose", false, "print verbose output")
-	v := fs.Bool("v", false, "print verbose output")
-	quiet := fs.Bool("quiet", false, "suppress normal output")
-	q := fs.Bool("q", false, "suppress normal output")
+	verbosityFlags := registerNewScaffoldVerbosityFlags(fs)
 	features := fs.String("feature", "", "feature names to enable, comma-separated")
 	featuresAlias := fs.String("features", "", "alias for --feature")
 	pluginArg := fs.String("plugin", "", "plugin executable (comma-separated for multiple)")
@@ -52,10 +49,10 @@ func apiNewCommand(args []string) error {
 		ProfileAlias:  profileAlias,
 		Plugin:        pluginArg,
 		PluginAlias:   apiPluginArg,
-		Verbose:       verbose,
-		VerboseAlias:  v,
-		Quiet:         quiet,
-		QuietAlias:    q,
+		Verbose:       verbosityFlags.Verbose,
+		VerboseAlias:  verbosityFlags.VerboseAlias,
+		Quiet:         verbosityFlags.Quiet,
+		QuietAlias:    verbosityFlags.QuietAlias,
 		LeadingName:   leadingName,
 		RemainingArgs: remaining,
 	})

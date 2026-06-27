@@ -13,8 +13,7 @@ import (
 func rpcPluginCommand(args []string) error {
 	leadingPlugin, args := splitLeadingName(args)
 	fs := flag.NewFlagSet("rpc plugin", flag.ContinueOnError)
-	file := fs.String("file", "", "proto file")
-	src := fs.String("src", "", "proto file")
+	file := registerIDLFileFlags(fs, "proto file")
 	dir := fs.String("dir", ".", "output directory")
 	pluginArg := fs.String("plugin", "", "plugin executable name or path")
 	remaining, err := parseInterspersedFlags(fs, args)
@@ -25,10 +24,8 @@ func rpcPluginCommand(args []string) error {
 		*pluginArg = leadingPlugin
 	}
 	fillNameFromArgs(pluginArg, remaining)
-	if *file == "" {
-		*file = *src
-	}
-	if *file == "" {
+	protoFile := file.resolve("", nil)
+	if protoFile == "" {
 		return fmt.Errorf("%w: --file is required for `gofly rpc plugin`", errUsage)
 	}
 	if *pluginArg == "" {
@@ -36,7 +33,7 @@ func rpcPluginCommand(args []string) error {
 	}
 	return runPostPlugins(*pluginArg, generator.PluginRequest{
 		Command: "rpc",
-		Input:   map[string]string{"proto": *file},
+		Input:   map[string]string{"proto": protoFile},
 		Dir:     *dir,
 	})
 }
@@ -44,23 +41,16 @@ func rpcPluginCommand(args []string) error {
 func rpcCheckCommand(args []string) error {
 	leadingFile, args := splitLeadingName(args)
 	fs := flag.NewFlagSet("rpc check", flag.ContinueOnError)
-	file := fs.String("file", "", "proto file")
-	src := fs.String("src", "", "proto file")
+	file := registerIDLFileFlags(fs, "proto file")
 	remaining, err := parseInterspersedFlags(fs, args)
 	if err != nil {
 		return err
 	}
-	if *file == "" {
-		*file = *src
-	}
-	if *file == "" {
-		*file = leadingFile
-	}
-	fillNameFromArgs(file, remaining)
-	if *file == "" {
+	protoFile := file.resolve(leadingFile, remaining)
+	if protoFile == "" {
 		return fmt.Errorf("%w: proto file is required", errUsage)
 	}
-	content, err := os.ReadFile(*file)
+	content, err := os.ReadFile(protoFile)
 	if err != nil {
 		return fmt.Errorf("read proto file: %w", err)
 	}
@@ -78,8 +68,7 @@ func rpcCheckCommand(args []string) error {
 func rpcDocCommand(args []string) error {
 	leadingFile, args := splitLeadingName(args)
 	fs := flag.NewFlagSet("rpc doc", flag.ContinueOnError)
-	file := fs.String("file", "", "proto source file")
-	src := fs.String("src", "", "proto source file")
+	file := registerIDLFileFlags(fs, "proto source file")
 	dir := fs.String("dir", ".", "output directory")
 	output := registerOutputPathFlags(fs, "output file")
 	filename := fs.String("filename", "", "output filename")
@@ -92,8 +81,8 @@ func rpcDocCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	resolveIDLFile(file, src, leadingFile, remaining)
-	if *file == "" {
+	protoFile := file.resolve(leadingFile, remaining)
+	if protoFile == "" {
 		return fmt.Errorf("%w: proto file is required", errUsage)
 	}
 	outputPath := output.resolve()
@@ -101,5 +90,5 @@ func rpcDocCommand(args []string) error {
 	if outputPath == "" && *filename != "" {
 		outputPath = filepath.Join(*dir, *filename)
 	}
-	return generator.GenerateProtoDoc(generator.ProtoDocOptions{ProtoFile: *file, Dir: *dir, Output: outputPath, Format: valueFromStringFlag(docOutput.Format)})
+	return generator.GenerateProtoDoc(generator.ProtoDocOptions{ProtoFile: protoFile, Dir: *dir, Output: outputPath, Format: valueFromStringFlag(docOutput.Format)})
 }

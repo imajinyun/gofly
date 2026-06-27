@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"os"
+	"strings"
 	"sync"
 	"time"
 )
@@ -44,12 +46,14 @@ type CacheSnapshot struct {
 	Hits      int    `json:"hits,omitempty"`
 	Misses    int    `json:"misses,omitempty"`
 	Evictions int    `json:"evictions,omitempty"`
+	Disabled  bool   `json:"disabled,omitempty"`
 }
 
 const (
 	defaultCacheTTL       = 5 * time.Minute
 	defaultCacheMaxSize   = 256
 	evictionCheckInterval = 64
+	envCacheDisabled      = "GOFLY_CACHE_DISABLED"
 )
 
 // NewCachingProvider wraps inner with an in-memory response cache. Nil inner
@@ -102,9 +106,10 @@ func (p *CachingProvider) CacheSnapshot() CacheSnapshot {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return CacheSnapshot{
-		Size:    len(p.entries),
-		MaxSize: p.maxEntries,
-		TTL:     p.ttl.String(),
+		Size:     len(p.entries),
+		MaxSize:  p.maxEntries,
+		TTL:      p.ttl.String(),
+		Disabled: llmCacheDisabledByEnv(),
 	}
 }
 
@@ -112,6 +117,9 @@ func (p *CachingProvider) CacheSnapshot() CacheSnapshot {
 // to the inner provider and caches the result. Concurrent cache misses for
 // the same cache key are coalesced so only one inner provider call is made.
 func (p *CachingProvider) Complete(ctx context.Context, req Request) (Response, error) {
+	if llmCacheDisabledByEnv() {
+		return p.inner.Complete(ctx, req)
+	}
 	key := cacheKey(req)
 	for {
 		if resp, ok := p.get(key); ok {
@@ -259,6 +267,16 @@ func cacheKey(req Request) string {
 		req.MaxOutputTokens,
 	)))
 	return fmt.Sprintf("llm-cache-%x", h[:16])
+}
+
+func llmCacheDisabledByEnv() bool {
+	value := strings.TrimSpace(strings.ToLower(os.Getenv(envCacheDisabled)))
+	switch value {
+	case "1", "t", "true", "y", "yes", "on":
+		return true
+	default:
+		return false
+	}
 }
 
 var _ Provider = (*CachingProvider)(nil)

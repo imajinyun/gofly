@@ -165,6 +165,13 @@ func (o newScaffoldPlanOutput) printDryRunPlan(forceJSON bool, validateContracts
 	return o.printPlan(forceJSON)
 }
 
+func (o newScaffoldPlanOutput) maybePrintDryRunPlan(execution newScaffoldExecutionFlags, validateContracts bool) (bool, error) {
+	if !valueFromBoolFlag(execution.DryRun) && !valueFromBoolFlag(execution.Plan) {
+		return false, nil
+	}
+	return true, o.printDryRunPlan(valueFromBoolFlag(execution.JSON), validateContracts)
+}
+
 func (o newScaffoldPlanOutput) printResult() error {
 	plan := buildNewServicePlan(o.DisplayName, o.Dir, o.ConfigPath, o.Config, o.Plugins, o.Contracts, o.SaveConfig, false)
 	return printJSONEnvelope(o.Command, plan)

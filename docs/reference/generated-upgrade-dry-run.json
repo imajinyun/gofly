@@ -129,6 +129,16 @@
         },
         "summary": "Old contracts should regenerate with additive files and compatibility shims only."
       },
+      "dependencyPolicy": {
+        "owner": "generated-project-dependencies",
+        "allowedLocation": "generated project go.mod or isolated temporary test module",
+        "rootModulePolicy": "must-not-add-generated-only-dependencies",
+        "verificationGates": [
+          "make generated-version-compat-check",
+          "make root-dependency-policy-check"
+        ],
+        "rollbackOrEscalation": "Keep the legacy generated project dependency set pinned inside the generated module until compatibility fixtures compile and root dependency policy passes."
+      },
       "pluginProfile": {
         "compatibility": "legacy-safe",
         "protocol": "1",
@@ -156,6 +166,16 @@
           "generated.project.runtime": "service,rest,rpc,governance,discovery"
         },
         "summary": "Current contracts should regenerate deterministically with no unexplained diff."
+      },
+      "dependencyPolicy": {
+        "owner": "generated-project-dependencies",
+        "allowedLocation": "generated project go.mod or isolated temporary test module",
+        "rootModulePolicy": "must-not-add-generated-only-dependencies",
+        "verificationGates": [
+          "make generated-upgrade-dry-run-check",
+          "make root-dependency-policy-check"
+        ],
+        "rollbackOrEscalation": "Reject the upgrade diff and keep the current generated project dependency set when regeneration changes root module dependencies or fails repeat generation."
       },
       "pluginProfile": {
         "compatibility": "current",
@@ -185,6 +205,16 @@
           "generated.project.runtime": "service,rest,rpc,governance,discovery"
         },
         "summary": "Future contracts should report explainable diffs and ignore unsupported fields safely."
+      },
+      "dependencyPolicy": {
+        "owner": "generated-project-dependencies",
+        "allowedLocation": "generated project go.mod or isolated temporary test module",
+        "rootModulePolicy": "must-not-add-generated-only-dependencies",
+        "verificationGates": [
+          "make generated-upgrade-dry-run-check",
+          "make dependency-upgrade-evidence-check"
+        ],
+        "rollbackOrEscalation": "Disable the future-only profile or pin the current generator when experimental generated dependencies escape the generated module boundary."
       },
       "pluginProfile": {
         "compatibility": "future-tolerant",

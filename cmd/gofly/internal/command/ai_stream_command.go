@@ -21,8 +21,7 @@ func aiStreamCommand(args []string) error {
 	timeoutText := fs.String("timeout", "", "provider call timeout, for example 2s or 500ms")
 	configPath := fs.String("config", "", "gofly config file path")
 	dir := fs.String("dir", ".", "service root used to resolve .gofly/config.json when --config is omitted")
-	formatName := fs.String("format", outputText, "output format: text or json")
-	jsonOutput := fs.Bool("json", false, "output newline-delimited JSON envelopes")
+	outputFlags := registerCLIOutputFlags(fs, cliOutputFlagOptions{JSONUsage: "output newline-delimited JSON envelopes"})
 	dryRun := fs.Bool("dry-run", false, "print the governance plan without invoking the provider")
 	plan := fs.Bool("plan", false, "alias for --dry-run")
 	allowFailover := fs.Bool("allow-failover", false, "manually retry retryable provider start failures against GOFLY_LLM_FAILOVER_PROVIDERS before emitting any stream events")
@@ -39,12 +38,9 @@ func aiStreamCommand(args []string) error {
 	if strings.TrimSpace(*prompt) == "" {
 		return fmt.Errorf("%w: --prompt or positional prompt text is required for `gofly ai stream`", errUsage)
 	}
-	format := strings.ToLower(strings.TrimSpace(*formatName))
-	if format == "" {
-		format = outputText
-	}
-	if format != outputText && format != outputJSON {
-		return fmt.Errorf("%w: unsupported --format %q", errUsage, *formatName)
+	format, err := outputFlags.normalizedFormat(outputText)
+	if err != nil {
+		return err
 	}
 	resolved, err := resolveAICompleteConfig(fs, aiCompleteConfigFlags{
 		Provider:           *provider,
@@ -62,9 +58,10 @@ func aiStreamCommand(args []string) error {
 	if err != nil {
 		return err
 	}
+	jsonMode := outputFlags.useJSON(format)
 	inputTokens := llm.EstimateTokens(*prompt)
 	if *dryRun || *plan {
-		return printAIStreamPlan(resolved, inputTokens, format == outputJSON || *jsonOutput)
+		return printAIStreamPlan(resolved, inputTokens, jsonMode)
 	}
-	return runAIStream(resolved, *prompt, format == outputJSON || *jsonOutput, "ai.stream", "ai.stream")
+	return runAIStream(resolved, *prompt, jsonMode, "ai.stream", "ai.stream")
 }

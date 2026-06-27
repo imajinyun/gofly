@@ -310,6 +310,11 @@ openapi-validation-check: ## Validate OpenAPI, binding, validation, and error en
 
 .PHONY: api-contract-check
 api-contract-check: openapi-validation-check rpc-boundary-check ## Validate REST/OpenAPI and RPC boundary contracts
+	sh $(SCRIPTS_DIR)/check-api-contract-governance.sh
+
+.PHONY: api-contract-governance-check
+api-contract-governance-check: ## Validate the REST/RPC aggregate contract gate cannot drift
+	sh $(SCRIPTS_DIR)/check-api-contract-governance.sh
 
 .PHONY: community-growth-check
 community-growth-check: ## Validate contributor, roadmap, and issue-template adoption signals

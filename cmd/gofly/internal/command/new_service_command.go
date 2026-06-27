@@ -22,15 +22,7 @@ func serviceNewCommand(args []string) error {
 	home := fs.String("home", "", "template home directory")
 	remote := fs.String("remote", "", "remote template repository")
 	branch := fs.String("branch", "", "remote template branch")
-	discovery := fs.String("discovery", "", "service discovery provider: memory, consul, or etcdv3")
-	discoveryAddress := fs.String("discovery-address", "", "service discovery address, or comma-separated endpoints for etcdv3")
-	discoveryEndpoints := fs.String("discovery-endpoints", "", "service discovery endpoints, comma-separated")
-	discoveryPrefix := fs.String("discovery-prefix", "", "service discovery key prefix for etcdv3")
-	discoveryTTL := fs.String("discovery-ttl", "", "service discovery registration TTL, e.g. 15s")
-	discoveryDialTimeout := fs.String("discovery-dial-timeout", "", "service discovery dial timeout, e.g. 5s")
-	discoveryTokenEnv := fs.String("discovery-token-env", "", "environment variable containing the Consul ACL token")
-	discoveryUsernameEnv := fs.String("discovery-username-env", "", "environment variable containing the etcd username")
-	discoveryPasswordEnv := fs.String("discovery-password-env", "", "environment variable containing the etcd password")
+	discoveryFlags := registerDiscoveryCLIFlags(fs)
 	features := fs.String("feature", "", "feature names to enable, comma-separated")
 	featuresAlias := fs.String("features", "", "alias for --feature")
 	pluginArg := fs.String("plugin", "", "plugin executable (comma-separated for multiple)")
@@ -67,17 +59,7 @@ func serviceNewCommand(args []string) error {
 		Features:       joinCSV(*features, *featuresAlias),
 		Plugins:        *pluginArg,
 		Kind:           "service",
-		Discovery: discoveryCLIFlagValues{
-			Discovery:            discovery,
-			DiscoveryAddress:     discoveryAddress,
-			DiscoveryEndpoints:   discoveryEndpoints,
-			DiscoveryPrefix:      discoveryPrefix,
-			DiscoveryTTL:         discoveryTTL,
-			DiscoveryDialTimeout: discoveryDialTimeout,
-			DiscoveryTokenEnv:    discoveryTokenEnv,
-			DiscoveryUsernameEnv: discoveryUsernameEnv,
-			DiscoveryPasswordEnv: discoveryPasswordEnv,
-		},
+		Discovery:      discoveryFlags,
 	})
 	if err != nil {
 		return err

@@ -1,6 +1,10 @@
 package command
 
-import "github.com/imajinyun/gofly/cmd/gofly/internal/generator"
+import (
+	"flag"
+
+	"github.com/imajinyun/gofly/cmd/gofly/internal/generator"
+)
 
 type discoveryCLIOverlay struct {
 	Provider    string
@@ -24,6 +28,20 @@ type discoveryCLIFlagValues struct {
 	DiscoveryTokenEnv    *string
 	DiscoveryUsernameEnv *string
 	DiscoveryPasswordEnv *string
+}
+
+func registerDiscoveryCLIFlags(fs *flag.FlagSet) discoveryCLIFlagValues {
+	return discoveryCLIFlagValues{
+		Discovery:            fs.String("discovery", "", "service discovery provider: memory, consul, or etcdv3"),
+		DiscoveryAddress:     fs.String("discovery-address", "", "service discovery address, or comma-separated endpoints for etcdv3"),
+		DiscoveryEndpoints:   fs.String("discovery-endpoints", "", "service discovery endpoints, comma-separated"),
+		DiscoveryPrefix:      fs.String("discovery-prefix", "", "service discovery key prefix for etcdv3"),
+		DiscoveryTTL:         fs.String("discovery-ttl", "", "service discovery registration TTL, e.g. 15s"),
+		DiscoveryDialTimeout: fs.String("discovery-dial-timeout", "", "service discovery dial timeout, e.g. 5s"),
+		DiscoveryTokenEnv:    fs.String("discovery-token-env", "", "environment variable containing the Consul ACL token"),
+		DiscoveryUsernameEnv: fs.String("discovery-username-env", "", "environment variable containing the etcd username"),
+		DiscoveryPasswordEnv: fs.String("discovery-password-env", "", "environment variable containing the etcd password"),
+	}
 }
 
 func discoveryCLIOverlayFromFlags(flags discoveryCLIFlagValues) discoveryCLIOverlay {

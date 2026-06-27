@@ -12,8 +12,7 @@ func apiTypesCommand(args []string) error {
 	file := fs.String("file", "", "api file")
 	api := fs.String("api", "", "api file")
 	dir := fs.String("dir", ".", "output directory")
-	output := fs.String("output", "", "output file")
-	o := fs.String("o", "", "output file")
+	output := registerOutputPathFlags(fs, "output file")
 	pkg := fs.String("package", "types", "generated Go package name")
 	remaining, err := parseInterspersedFlags(fs, args)
 	if err != nil {
@@ -25,14 +24,11 @@ func apiTypesCommand(args []string) error {
 	if *file == "" {
 		*file = leadingFile
 	}
-	if *output == "" {
-		*output = *o
-	}
 	fillNameFromArgs(file, remaining)
 	return generator.GenerateAPITypes(generator.APITypesOptions{
 		APIFile: *file,
 		Dir:     *dir,
-		Output:  *output,
+		Output:  output.resolve(),
 		Package: *pkg,
 	})
 }

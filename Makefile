@@ -209,6 +209,10 @@ dependency-upgrade-check: dependency-upgrade-evidence-check root-dependency-poli
 dependency-upgrade-evidence-check: ## Validate dependency upgrade evidence and CI delegation contract
 	sh $(SCRIPTS_DIR)/check-dependency-upgrade-evidence.sh
 
+.PHONY: cache-dependency-governance-check
+cache-dependency-governance-check: ## Validate cache bypass and remote-dependency governance gates
+	sh $(SCRIPTS_DIR)/check-cache-dependency-governance.sh
+
 .PHONY: api-example-consistency-check
 api-example-consistency-check: ## Validate public API docs, examples, and gates stay aligned
 	sh $(SCRIPTS_DIR)/check-api-example-consistency.sh

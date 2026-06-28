@@ -210,6 +210,139 @@
       }
     ]
   },
+  "remediationLoopContract": {
+    "schema": "gofly.remediation_loop_contract.v1",
+    "acceptanceGate": "make dx-troubleshooting-check",
+    "dashboardReportField": "dxSupportBundle.remediationLoopContract",
+    "purpose": "Tie doctor JSON, release check JSON, support bundle redaction, generated project failure reports, migration proof, dashboard fields, and next actions into one recoverable support workflow.",
+    "sourceContracts": [
+      {
+        "id": "doctor-json",
+        "sourceCommand": "gofly doctor --json",
+        "evidenceArtifact": "doctor.json",
+        "requiredFields": [
+          "checks",
+          "summary",
+          "nextActions"
+        ],
+        "nextActionSource": "nextActions",
+        "dashboardFields": [
+          "dxSupportBundle.surfaceCount",
+          "dxSupportBundle.remediationHintCount"
+        ],
+        "adopterAction": "Fix local toolchain or environment warnings before editing generated code or opening aiflow remediation work."
+      },
+      {
+        "id": "release-check-json",
+        "sourceCommand": "gofly release check --json --strict",
+        "evidenceArtifact": "release-check.json",
+        "requiredFields": [
+          "data.summary",
+          "data.checks",
+          "error.remediation"
+        ],
+        "nextActionSource": "error.remediation",
+        "dashboardFields": [
+          "releaseEvidence.evidenceCount",
+          "releaseAdoptionContract.supplyChainEnforcementCount"
+        ],
+        "adopterAction": "Treat strict release blockers as release governance tasks and attach remediation evidence before continuing adoption."
+      },
+      {
+        "id": "support-bundle-json",
+        "sourceCommand": "gofly bug --json",
+        "evidenceArtifact": "support-bundle.json",
+        "requiredFields": [
+          "supportBundle",
+          "supportBundle.redaction",
+          "nextActions"
+        ],
+        "nextActionSource": "nextActions",
+        "dashboardFields": [
+          "dxSupportBundle.remediationHandoff.schema",
+          "dxSupportBundle.remediationHandoff.owner"
+        ],
+        "redactionRequired": true,
+        "adopterAction": "Share only redacted support bundle evidence and keep commit ownership with the current agent or human."
+      },
+      {
+        "id": "generated-failure-report",
+        "sourceCommand": "gofly ai new --json --apply --verify",
+        "evidenceArtifact": "generated-project-failure.json",
+        "requiredFields": [
+          "data.verification",
+          "data.nextActions"
+        ],
+        "nextActionSource": "data.nextActions",
+        "dashboardFields": [
+          "generatedUpgradeDryRun.profileCount",
+          "dashboard.generatedVersionCompatibility.profileCount"
+        ],
+        "redactionRequired": true,
+        "adopterAction": "Attach bounded generated verification output and rerun only the command named by nextActions."
+      }
+    ],
+    "migrationRoutes": [
+      {
+        "id": "gin-to-gofly",
+        "source": "docs/reference/framework-gap-adopter-proof.json",
+        "example": "examples/migration-proof/gin-to-gofly",
+        "gate": "make adopter-decision-check",
+        "rollbackAction": "Keep Gin route active behind the existing router until sampled responses and metrics match.",
+        "supportBundleAction": "Attach gofly bug --json only after redaction and include sampled response, OpenAPI, and error-envelope drift evidence."
+      },
+      {
+        "id": "go-zero-to-gofly",
+        "source": "docs/reference/framework-gap-adopter-proof.json",
+        "example": "examples/migration-proof/go-zero-to-gofly",
+        "gate": "make generated-version-compat-check",
+        "rollbackAction": "Keep go-zero and gofly services addressable through discovery and switch routing back to go-zero.",
+        "supportBundleAction": "Attach gofly bug --json with generated-project failure reports and release check output when scaffold compatibility fails."
+      },
+      {
+        "id": "kratos-to-gofly",
+        "source": "docs/reference/framework-gap-adopter-proof.json",
+        "example": "examples/migration-proof/kratos-to-gofly",
+        "gate": "make cloud-native-render-check",
+        "rollbackAction": "Restore the previous Kratos deployment target while keeping shared domain services unchanged.",
+        "supportBundleAction": "Attach gofly bug --json with rendered cloud-native assets, topology output, and health or discovery drift evidence."
+      },
+      {
+        "id": "kitex-with-gofly",
+        "source": "docs/reference/framework-gap-adopter-proof.json",
+        "example": "examples/migration-proof/kitex-with-gofly",
+        "gate": "make rpc-boundary-check",
+        "rollbackAction": "Route latency-critical methods back to Kitex and retain gofly for REST ingress or governance surfaces.",
+        "supportBundleAction": "Attach gofly bug --json with RPC boundary, resolver, balancer, stream, trace, auth, and benchmark evidence before escalating."
+      }
+    ],
+    "dashboardEvidence": [
+      "dxSupportBundle.remediationHandoff.schema",
+      "dxSupportBundle.remediationHandoff.aiflowTask",
+      "dxSupportBundle.troubleshootingAdoptionLoop",
+      "releaseAdoptionContract.supplyChainEnforcementCount",
+      "generatedUpgradeDryRun.profileCount",
+      "benchmark.adopterPerformanceContract"
+    ],
+    "aiflowQueuePolicy": {
+      "taskPrefix": "GOFLY-GOV-10R7-09",
+      "allowed": [
+        "queue remediation tasks",
+        "run diagnostic commands",
+        "produce patch plans",
+        "produce bounded failure reports"
+      ],
+      "forbidden": [
+        "git commit",
+        "git push",
+        "modify docs/superpowers/",
+        "stage runtime state"
+      ],
+      "completionGate": "make dx-troubleshooting-check",
+      "commitOwner": "human-or-current-agent"
+    },
+    "nextActionPolicy": "Every remediation row must identify a source command, stable fields, nextActionSource, dashboard evidence, adopter action, gate, and rollback or handoff boundary before aiflow can queue work."
+  },
   "docs": [
     "docs/reference/cli-json-contracts.md",
     "docs/operations/troubleshooting.md"

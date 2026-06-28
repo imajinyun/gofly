@@ -775,9 +775,20 @@ def dx_support_bundle_evidence():
     generated_failure = manifest.get("generatedFailureReport") or {}
     remediation_handoff = manifest.get("remediationHandoff") or {}
     adoption_loop = manifest.get("troubleshootingAdoptionLoop") or {}
+    remediation_loop = manifest.get("remediationLoopContract") or {}
     adoption_steps = [
         item
         for item in adoption_loop.get("steps") or []
+        if isinstance(item, dict)
+    ]
+    source_contracts = [
+        item
+        for item in remediation_loop.get("sourceContracts") or []
+        if isinstance(item, dict)
+    ]
+    migration_routes = [
+        item
+        for item in remediation_loop.get("migrationRoutes") or []
         if isinstance(item, dict)
     ]
     return {
@@ -819,6 +830,19 @@ def dx_support_bundle_evidence():
             "runtimeStatePolicy": adoption_loop.get("runtimeStatePolicy", ""),
             "stepCount": len(adoption_steps),
             "steps": adoption_steps,
+        },
+        "remediationLoopContract": {
+            "schema": remediation_loop.get("schema", ""),
+            "acceptanceGate": remediation_loop.get("acceptanceGate", ""),
+            "dashboardReportField": remediation_loop.get("dashboardReportField", ""),
+            "purpose": remediation_loop.get("purpose", ""),
+            "sourceContractCount": len(source_contracts),
+            "migrationRouteCount": len(migration_routes),
+            "sourceContracts": source_contracts,
+            "migrationRoutes": migration_routes,
+            "dashboardEvidence": remediation_loop.get("dashboardEvidence", []),
+            "aiflowQueuePolicy": remediation_loop.get("aiflowQueuePolicy", {}),
+            "nextActionPolicy": remediation_loop.get("nextActionPolicy", ""),
         },
         "remediationHints": remediation_hints,
         "remediationHintCount": len(remediation_hints),
@@ -1102,6 +1126,65 @@ for step_id, command in expected_adoption_steps.items():
             missing.append(f"dx support bundle troubleshooting adoption loop {step_id}: {field} is required")
     if len(str(step.get("handoffBoundary") or "").split()) < 10:
         missing.append(f"dx support bundle troubleshooting adoption loop {step_id}: handoffBoundary must be actionable")
+remediation_loop = dx_support_bundle.get("remediationLoopContract") or {}
+if remediation_loop.get("schema") != "gofly.remediation_loop_contract.v1":
+    missing.append("dx support bundle remediation loop contract schema mismatch")
+if remediation_loop.get("acceptanceGate") != "make dx-troubleshooting-check":
+    missing.append("dx support bundle remediation loop contract acceptanceGate mismatch")
+if remediation_loop.get("dashboardReportField") != "dxSupportBundle.remediationLoopContract":
+    missing.append("dx support bundle remediation loop contract dashboardReportField mismatch")
+if remediation_loop.get("sourceContractCount") != 4:
+    missing.append("dx support bundle remediation loop contract must track 4 source contracts")
+if remediation_loop.get("migrationRouteCount") != 4:
+    missing.append("dx support bundle remediation loop contract must track 4 migration routes")
+expected_source_contracts = {
+    "doctor-json": "gofly doctor --json",
+    "release-check-json": "gofly release check --json --strict",
+    "support-bundle-json": "gofly bug --json",
+    "generated-failure-report": "gofly ai new --json --apply --verify",
+}
+source_contracts_by_id = {
+    item.get("id"): item
+    for item in remediation_loop.get("sourceContracts") or []
+    if isinstance(item, dict) and item.get("id")
+}
+if set(source_contracts_by_id) != set(expected_source_contracts):
+    missing.append("dx support bundle remediation loop source contracts mismatch")
+for source_id, command in expected_source_contracts.items():
+    item = source_contracts_by_id.get(source_id) or {}
+    if item.get("sourceCommand") != command:
+        missing.append(f"dx support bundle remediation loop {source_id}: sourceCommand mismatch")
+    for field in ("evidenceArtifact", "requiredFields", "nextActionSource", "dashboardFields", "adopterAction"):
+        if not item.get(field):
+            missing.append(f"dx support bundle remediation loop {source_id}: {field} is required")
+expected_migration_routes = {"gin-to-gofly", "go-zero-to-gofly", "kratos-to-gofly", "kitex-with-gofly"}
+migration_routes_by_id = {
+    item.get("id"): item
+    for item in remediation_loop.get("migrationRoutes") or []
+    if isinstance(item, dict) and item.get("id")
+}
+if set(migration_routes_by_id) != expected_migration_routes:
+    missing.append("dx support bundle remediation loop migration routes mismatch")
+for route_id, item in migration_routes_by_id.items():
+    for field in ("example", "gate", "rollbackAction", "supportBundleAction"):
+        if not item.get(field):
+            missing.append(f"dx support bundle remediation loop {route_id}: {field} is required")
+dashboard_evidence = set(remediation_loop.get("dashboardEvidence") or [])
+for field in (
+    "dxSupportBundle.remediationHandoff.schema",
+    "dxSupportBundle.remediationHandoff.aiflowTask",
+    "dxSupportBundle.troubleshootingAdoptionLoop",
+    "releaseAdoptionContract.supplyChainEnforcementCount",
+    "generatedUpgradeDryRun.profileCount",
+    "benchmark.adopterPerformanceContract",
+):
+    if field not in dashboard_evidence:
+        missing.append(f"dx support bundle remediation loop dashboardEvidence missing {field!r}")
+queue_policy = remediation_loop.get("aiflowQueuePolicy") or {}
+if queue_policy.get("taskPrefix") != "GOFLY-GOV-10R7-09":
+    missing.append("dx support bundle remediation loop aiflow taskPrefix mismatch")
+if queue_policy.get("commitOwner") != "human-or-current-agent":
+    missing.append("dx support bundle remediation loop commit owner mismatch")
 if (dx_support_bundle.get("controlPlaneEvidence") or {}).get("status") != "present":
     missing.append("dx support bundle control-plane evidence is missing")
 convergence = report["governanceConvergence"]
@@ -1754,6 +1837,8 @@ if ai_native_contract.get("requiredCommitOwner") != "human-or-current-agent":
     missing.append("governance dashboard aiNativeWorkflow requiredCommitOwner mismatch")
 if ai_native_contract.get("handoffReportField") != "dxSupportBundle.remediationHandoff":
     missing.append("governance dashboard aiNativeWorkflow handoffReportField mismatch")
+if ai_native_contract.get("remediationLoopReportField") != "dxSupportBundle.remediationLoopContract":
+    missing.append("governance dashboard aiNativeWorkflow remediationLoopReportField mismatch")
 for gate in ai_native_contract.get("requiredHandoffGates") or []:
     if gate not in set(handoff.get("requiredGates") or []):
         missing.append(f"governance dashboard aiNativeWorkflow requiredHandoffGates missing from report: {gate}")

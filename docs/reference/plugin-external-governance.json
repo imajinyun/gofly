@@ -113,8 +113,8 @@
     }
   ],
   "aiflowExecution": {
-    "status": "local-fallback",
-    "blocker": "aiflow CLI currently fails to compile in the adjacent aiflow checkout because harness/policy.go imports fmt without use",
-    "goflyImpact": "none; the local plugin external governance gate is self-contained"
+    "status": "aiflow-driven",
+    "driver": "go run ./cmd/aiflow status -root /Users/bytedance/Codes/go/src/github/gofly -id GOFLY-GOV-10R3-05",
+    "completionPolicy": "mark complete through aiflow after make plugin-conformance-check passes and the plugin external governance commit is created"
   }
 }

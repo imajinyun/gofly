@@ -116,6 +116,13 @@ for needle in (
     require(needle in conformance_doc, f"plugin conformance doc missing {needle!r}")
 require("gofly.plugin_publishing_ux.v1" in publishing_ux, "plugin publishing UX manifest must remain available")
 
+aiflow_execution = manifest.get("aiflowExecution") or {}
+require(aiflow_execution.get("status") == "aiflow-driven", "aiflowExecution.status must be aiflow-driven")
+require("GOFLY-GOV-10R3-05" in str(aiflow_execution.get("driver") or ""), "aiflowExecution.driver must reference GOFLY-GOV-10R3-05")
+completion_policy = str(aiflow_execution.get("completionPolicy") or "")
+require("make plugin-conformance-check" in completion_policy, "aiflowExecution.completionPolicy must require plugin-conformance-check")
+require("commit" in completion_policy, "aiflowExecution.completionPolicy must document commit policy")
+
 test_cmd = [
     "go",
     "test",

@@ -210,6 +210,12 @@ def release_evidence_consumption():
         if isinstance(item, dict)
     ]
     drift_contract = manifest.get("driftClosure") or {}
+    tag_ci_closure = manifest.get("tagCIClosure") or {}
+    tag_ci_stages = [
+        item
+        for item in tag_ci_closure.get("stages") or []
+        if isinstance(item, dict)
+    ]
     release_prerequisites = set(required_checks.get("releasePrerequisites") or [])
     covered_ids = []
     explicit_release_artifact_ids = []
@@ -259,6 +265,17 @@ def release_evidence_consumption():
             "uncoveredEvidenceIds": sorted(uncovered_ids),
             "sourceEvidenceIds": sorted(required_ids),
         },
+        "tagCIClosure": {
+            "schema": tag_ci_closure.get("schema", ""),
+            "aiflowTask": tag_ci_closure.get("aiflowTask", ""),
+            "acceptanceGate": tag_ci_closure.get("acceptanceGate", ""),
+            "dashboardReportField": tag_ci_closure.get("dashboardReportField", ""),
+            "policy": tag_ci_closure.get("policy", ""),
+            "requiredLocalGates": tag_ci_closure.get("requiredLocalGates", []),
+            "requiredEvidenceIds": tag_ci_closure.get("requiredEvidenceIds", []),
+            "stageCount": len(tag_ci_stages),
+            "stages": tag_ci_stages,
+        },
         "items": items,
     }
 
@@ -273,6 +290,11 @@ def release_adoption_contract():
     enforcement_rows = [
         item
         for item in manifest.get("supplyChainEnforcementRows") or []
+        if isinstance(item, dict)
+    ]
+    tag_ci_rows = [
+        item
+        for item in manifest.get("tagCIClosureRows") or []
         if isinstance(item, dict)
     ]
     risk_counts = {}
@@ -290,6 +312,8 @@ def release_adoption_contract():
         "policy": manifest.get("policy", ""),
         "decisionCount": len(decisions),
         "riskClassCounts": risk_counts,
+        "tagCIClosureRowCount": len(tag_ci_rows),
+        "tagCIClosureRows": tag_ci_rows,
         "supplyChainEnforcementCount": len(enforcement_rows),
         "supplyChainEnforcementRows": enforcement_rows,
         "decisions": decisions,
@@ -1551,6 +1575,91 @@ for evidence_id, source in sorted(index_by_id.items()):
     for field in ("questionAnswered", "riskClass", "consumerAction", "rollbackOrEscalation"):
         if not item.get(field):
             missing.append(f"release evidence consumption {evidence_id} missing {field}")
+tag_ci_closure = consumption.get("tagCIClosure") or {}
+if tag_ci_closure.get("schema") != "gofly.release_tag_ci_closure.v1":
+    missing.append("release evidence tag CI closure schema mismatch")
+if tag_ci_closure.get("aiflowTask") != "GOFLY-GOV-10R8-08":
+    missing.append("release evidence tag CI closure aiflowTask mismatch")
+if tag_ci_closure.get("acceptanceGate") != "make governance-report-check":
+    missing.append("release evidence tag CI closure acceptanceGate mismatch")
+if tag_ci_closure.get("dashboardReportField") != "releaseEvidenceConsumption.tagCIClosure":
+    missing.append("release evidence tag CI closure dashboardReportField mismatch")
+if len(str(tag_ci_closure.get("policy") or "").split()) < 20:
+    missing.append("release evidence tag CI closure policy must be actionable")
+expected_tag_ci_gates = {
+    "make release-snapshot",
+    "make release-artifacts-check",
+    "make required-checks-drift-check",
+    "make governance-report-check",
+}
+if set(tag_ci_closure.get("requiredLocalGates") or []) != expected_tag_ci_gates:
+    missing.append("release evidence tag CI closure requiredLocalGates mismatch")
+if set(tag_ci_closure.get("requiredEvidenceIds") or []) != set(index_by_id):
+    missing.append(
+        "release evidence tag CI closure requiredEvidenceIds mismatch: "
+        f"missing={sorted(set(index_by_id) - set(tag_ci_closure.get('requiredEvidenceIds') or []))} "
+        f"extra={sorted(set(tag_ci_closure.get('requiredEvidenceIds') or []) - set(index_by_id))}"
+    )
+expected_tag_ci_stages = {
+    "tag-trigger-and-snapshot": {
+        "producerJobs": {"release"},
+        "requiredGate": "make release-snapshot",
+        "requiredEvidenceIds": {"checksums", "archive-sbom"},
+    },
+    "artifact-integrity-and-sbom": {
+        "producerJobs": {"release"},
+        "requiredGate": "make release-artifacts-check",
+        "requiredEvidenceIds": {"checksums", "archive-sbom", "docker-sbom"},
+    },
+    "docker-digest-trivy-provenance": {
+        "producerJobs": {"release"},
+        "requiredGate": "RELEASE_REQUIRE_DOCKER_EVIDENCE=true make release-artifacts-check",
+        "requiredEvidenceIds": {"docker-digest", "trivy", "checksums-attestation", "docker-attestation"},
+    },
+    "required-checks-and-dashboard": {
+        "producerJobs": {"contract-check", "security", "governance", "bench-fuzz"},
+        "requiredGate": "make governance-report-check",
+        "requiredEvidenceIds": {"api-compat", "security", "race", "bench", "governance-dashboard"},
+    },
+}
+tag_ci_stages = {
+    item.get("id", ""): item
+    for item in tag_ci_closure.get("stages") or []
+    if isinstance(item, dict) and item.get("id")
+}
+if tag_ci_closure.get("stageCount") != len(expected_tag_ci_stages):
+    missing.append("release evidence tag CI closure stageCount mismatch")
+if set(tag_ci_stages) != set(expected_tag_ci_stages):
+    missing.append(
+        "release evidence tag CI closure stages mismatch: "
+        f"missing={sorted(set(expected_tag_ci_stages) - set(tag_ci_stages))} "
+        f"extra={sorted(set(tag_ci_stages) - set(expected_tag_ci_stages))}"
+    )
+for stage_id, expected in expected_tag_ci_stages.items():
+    stage = tag_ci_stages.get(stage_id) or {}
+    for field in (
+        "id",
+        "producerJobs",
+        "requiredGate",
+        "requiredEvidenceIds",
+        "closureInvariant",
+        "publishDecision",
+        "blockDecision",
+        "rollbackOrEscalation",
+    ):
+        if not stage.get(field):
+            missing.append(f"release evidence tag CI closure {stage_id}: {field} is required")
+    if set(stage.get("producerJobs") or []) != expected["producerJobs"]:
+        missing.append(f"release evidence tag CI closure {stage_id}: producerJobs mismatch")
+    if stage.get("requiredGate") != expected["requiredGate"]:
+        missing.append(f"release evidence tag CI closure {stage_id}: requiredGate mismatch")
+    if set(stage.get("requiredEvidenceIds") or []) != expected["requiredEvidenceIds"]:
+        missing.append(f"release evidence tag CI closure {stage_id}: requiredEvidenceIds mismatch")
+    if not set(stage.get("requiredEvidenceIds") or []).issubset(set(consumption_by_id)):
+        missing.append(f"release evidence tag CI closure {stage_id}: evidence ids must exist in release evidence consumption")
+    for field in ("closureInvariant", "publishDecision", "blockDecision", "rollbackOrEscalation"):
+        if len(str(stage.get(field) or "").split()) < 10:
+            missing.append(f"release evidence tag CI closure {stage_id}: {field} must be actionable")
 adoption_contract = report["releaseAdoptionContract"]
 if adoption_contract["schema"] != "gofly.release_adoption_contract.v1":
     missing.append("release adoption contract schema mismatch")
@@ -1606,6 +1715,52 @@ for decision_id, expected_ids in expected_release_decisions.items():
     for field in ("adopterAction", "rollbackOrEscalation"):
         if len(str(decision.get(field) or "").split()) < 10:
             missing.append(f"release adoption contract {decision_id}: {field} must be actionable")
+tag_ci_rows = {
+    item.get("id", ""): item
+    for item in adoption_contract.get("tagCIClosureRows") or []
+    if isinstance(item, dict) and item.get("id")
+}
+if adoption_contract.get("tagCIClosureRowCount") != len(expected_tag_ci_stages):
+    missing.append("release adoption contract tagCIClosureRowCount mismatch")
+if set(tag_ci_rows) != set(expected_tag_ci_stages):
+    missing.append(
+        "release adoption contract tagCIClosureRows mismatch: "
+        f"missing={sorted(set(expected_tag_ci_stages) - set(tag_ci_rows))} "
+        f"extra={sorted(set(tag_ci_rows) - set(expected_tag_ci_stages))}"
+    )
+for row_id, expected in expected_tag_ci_stages.items():
+    row = tag_ci_rows.get(row_id) or {}
+    stage = tag_ci_stages.get(row_id) or {}
+    expected_source = f"releaseEvidenceConsumption.tagCIClosure.stages[{row_id}]"
+    for field in (
+        "id",
+        "sourceStage",
+        "requiredGate",
+        "requiredEvidenceIds",
+        "artifactProducer",
+        "publishDecision",
+        "blockDecision",
+        "rollbackOrEscalation",
+    ):
+        if not row.get(field):
+            missing.append(f"release adoption contract tag CI closure {row_id}: {field} is required")
+    if row.get("sourceStage") != expected_source:
+        missing.append(f"release adoption contract tag CI closure {row_id}: sourceStage mismatch")
+    if row.get("requiredGate") != stage.get("requiredGate"):
+        missing.append(f"release adoption contract tag CI closure {row_id}: requiredGate must match release evidence stage")
+    if set(row.get("requiredEvidenceIds") or []) != set(stage.get("requiredEvidenceIds") or []):
+        missing.append(f"release adoption contract tag CI closure {row_id}: requiredEvidenceIds must match release evidence stage")
+    if set(row.get("requiredEvidenceIds") or []) != expected["requiredEvidenceIds"]:
+        missing.append(f"release adoption contract tag CI closure {row_id}: requiredEvidenceIds mismatch")
+    if not set(row.get("requiredEvidenceIds") or []).issubset(all_consumed_ids):
+        missing.append(f"release adoption contract tag CI closure {row_id}: evidence ids must exist in release evidence consumption")
+    row_text = json.dumps(row, sort_keys=True).lower()
+    for marker in ("producer", "publish", "block", "rollback"):
+        if marker not in row_text:
+            missing.append(f"release adoption contract tag CI closure {row_id}: missing marker {marker!r}")
+    for field in ("artifactProducer", "publishDecision", "blockDecision", "rollbackOrEscalation"):
+        if len(str(row.get(field) or "").split()) < 8:
+            missing.append(f"release adoption contract tag CI closure {row_id}: {field} must be actionable")
 expected_supply_chain_enforcement = {
     "archive-checksum-sbom-enforcement": {
         "producerJob": "release",
@@ -1703,8 +1858,11 @@ for field in (
     "releaseEvidenceConsumption.driftClosure.driftGate",
     "releaseEvidenceConsumption.driftClosure.requiredEvidenceCount",
     "releaseEvidenceConsumption.driftClosure.releasePrerequisiteCoverage",
+    "releaseEvidenceConsumption.tagCIClosure.stageCount",
+    "releaseEvidenceConsumption.tagCIClosure.requiredLocalGates",
     "releaseAdoptionContract.decisionCount",
     "releaseAdoptionContract.riskClassCounts",
+    "releaseAdoptionContract.tagCIClosureRowCount",
     "releaseAdoptionContract.supplyChainEnforcementCount",
     "apiSurface.tiers",
     "benchmark.regressionGate",
@@ -1755,6 +1913,10 @@ if release_consumption_contract.get("requiredCheckSource") != "docs/reference/ci
 for field in release_consumption_contract.get("requiredDashboardFields") or []:
     if field not in dashboard["summaryFields"]:
         missing.append(f"governance dashboard releaseEvidenceConsumption summaryFields missing {field!r}")
+if "releaseEvidenceConsumption.tagCIClosure.stageCount" not in release_consumption_contract.get("requiredDashboardFields", []):
+    missing.append("governance dashboard releaseEvidenceConsumption must expose tag CI closure stageCount")
+if "releaseEvidenceConsumption.tagCIClosure.requiredLocalGates" not in release_consumption_contract.get("requiredDashboardFields", []):
+    missing.append("governance dashboard releaseEvidenceConsumption must expose tag CI closure requiredLocalGates")
 release_adoption_dashboard_contract = dashboard.get("releaseAdoptionContract") or {}
 if release_adoption_dashboard_contract.get("schema") != "gofly.release_adoption_contract.v1":
     missing.append("governance dashboard releaseAdoptionContract schema mismatch")
@@ -1771,6 +1933,8 @@ if set(release_adoption_dashboard_contract.get("requiredDecisions") or []) != se
 for field in release_adoption_dashboard_contract.get("requiredDashboardFields") or []:
     if field not in dashboard["summaryFields"]:
         missing.append(f"governance dashboard releaseAdoptionContract summaryFields missing {field!r}")
+if "releaseAdoptionContract.tagCIClosureRowCount" not in release_adoption_dashboard_contract.get("requiredDashboardFields", []):
+    missing.append("governance dashboard releaseAdoptionContract must expose tag CI closure row count")
 api_contract = dashboard.get("apiTiers") or {}
 if api_contract.get("gate") != "make stable-surface-check":
     missing.append("governance dashboard apiTiers gate mismatch")
@@ -1928,6 +2092,7 @@ required_claim_ids = {
     "stable-surface-contract",
     "release-readiness",
     "release-evidence-drift-closure",
+    "release-tag-ci-closure",
     "required-checks-drift",
     "runtime-operations",
     "generated-upgrade-dry-run",

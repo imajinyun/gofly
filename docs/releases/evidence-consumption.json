@@ -29,6 +29,104 @@
       "governance-dashboard"
     ]
   },
+  "tagCIClosure": {
+    "schema": "gofly.release_tag_ci_closure.v1",
+    "aiflowTask": "GOFLY-GOV-10R8-08",
+    "acceptanceGate": "make governance-report-check",
+    "dashboardReportField": "releaseEvidenceConsumption.tagCIClosure",
+    "policy": "Version tag promotion must connect release snapshot, artifact integrity, container digest, vulnerability scan, provenance attestation, required checks, dashboard evidence, publish decision, block decision, and rollback action before adopters can mirror or deploy a release.",
+    "requiredLocalGates": [
+      "make release-snapshot",
+      "make release-artifacts-check",
+      "make required-checks-drift-check",
+      "make governance-report-check"
+    ],
+    "requiredEvidenceIds": [
+      "checksums",
+      "archive-sbom",
+      "docker-sbom",
+      "checksums-attestation",
+      "docker-attestation",
+      "docker-digest",
+      "trivy",
+      "api-compat",
+      "security",
+      "race",
+      "bench",
+      "governance-dashboard"
+    ],
+    "stages": [
+      {
+        "id": "tag-trigger-and-snapshot",
+        "producerJobs": [
+          "release"
+        ],
+        "requiredGate": "make release-snapshot",
+        "requiredEvidenceIds": [
+          "checksums",
+          "archive-sbom"
+        ],
+        "closureInvariant": "Tag CI must build the release snapshot, archives, checksums, and archive SBOM from the tagged commit before any publish decision is allowed.",
+        "publishDecision": "Continue only when release snapshot artifacts are reproducible from the tagged commit.",
+        "blockDecision": "Block promotion when snapshot, checksum, or archive SBOM output is missing or not traceable to the tag.",
+        "rollbackOrEscalation": "Keep the previous release pinned and rebuild the snapshot from the tagged commit after fixing the release configuration."
+      },
+      {
+        "id": "artifact-integrity-and-sbom",
+        "producerJobs": [
+          "release"
+        ],
+        "requiredGate": "make release-artifacts-check",
+        "requiredEvidenceIds": [
+          "checksums",
+          "archive-sbom",
+          "docker-sbom"
+        ],
+        "closureInvariant": "Archive and container SBOM evidence must stay paired with checksums so adopters can audit shipped dependency inventory before mirroring artifacts.",
+        "publishDecision": "Publish archives and image metadata only when checksum and SBOM evidence pass the local release artifact gate.",
+        "blockDecision": "Block release publication when checksum verification or SBOM evidence is absent, empty, or unexplained.",
+        "rollbackOrEscalation": "Reject the new artifact set and keep using the previous release until integrity and SBOM evidence are rebuilt."
+      },
+      {
+        "id": "docker-digest-trivy-provenance",
+        "producerJobs": [
+          "release"
+        ],
+        "requiredGate": "RELEASE_REQUIRE_DOCKER_EVIDENCE=true make release-artifacts-check",
+        "requiredEvidenceIds": [
+          "docker-digest",
+          "trivy",
+          "checksums-attestation",
+          "docker-attestation"
+        ],
+        "closureInvariant": "Release containers must be deployable by immutable digest and backed by Trivy scan output plus checksum and Docker provenance attestations.",
+        "publishDecision": "Promote only immutable image digests with passing Trivy and attestation evidence.",
+        "blockDecision": "Block image promotion when digest, Trivy, checksum attestation, or Docker attestation evidence is missing or mismatched.",
+        "rollbackOrEscalation": "Pin the previous known-good digest and rebuild or re-attest the release image from the tagged commit."
+      },
+      {
+        "id": "required-checks-and-dashboard",
+        "producerJobs": [
+          "contract-check",
+          "security",
+          "governance",
+          "bench-fuzz"
+        ],
+        "requiredGate": "make governance-report-check",
+        "requiredEvidenceIds": [
+          "api-compat",
+          "security",
+          "race",
+          "bench",
+          "governance-dashboard"
+        ],
+        "closureInvariant": "Required tag checks, branch protection expectations, release prerequisites, and dashboard evidence must stay aligned before tag promotion.",
+        "publishDecision": "Allow publication only when API compatibility, security, race, benchmark, and governance dashboard evidence are release-blocking and visible.",
+        "blockDecision": "Block promotion when any required check is skipped, removed from tag prerequisites, or missing from the governance dashboard.",
+        "rollbackOrEscalation": "Restore the missing check or pin the previous release until required-check drift and dashboard evidence are closed."
+      }
+    ]
+  },
   "items": [
     {
       "id": "checksums",

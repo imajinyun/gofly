@@ -94,6 +94,8 @@ commands:
 
 acceptance:
   criteria:
+    - root aiflow.yaml is the only committed aiflow workflow definition
+    - .aiflow contains only ignored local run evidence and temporary state
     - configured gofly governance checks pass with no persistent cache assumptions
     - aiflow report and contract validation artifacts are exported under ignored .aiflow state
     - advisory readiness is either passing or includes an explicit machine-readable warning

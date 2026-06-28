@@ -294,6 +294,15 @@ for surface_id, classification in required_surfaces.items():
             len(str(surface.get(field) or "").split()) >= 12,
             f"rpc adopterContract {surface_id}: {field} must be actionable",
         )
+    for field in ("supportBundleAction", "failureReportEvidence"):
+        require(
+            len(str(surface.get(field) or "").split()) >= 12,
+            f"rpc adopterContract {surface_id}: {field} must be actionable",
+        )
+    require(
+        "gofly bug --json" in str(surface.get("supportBundleAction") or ""),
+        f"rpc adopterContract {surface_id}: supportBundleAction must mention gofly bug --json",
+    )
 
 surface_evidence_requirements = {
     "grpc-compatibility-ready": {

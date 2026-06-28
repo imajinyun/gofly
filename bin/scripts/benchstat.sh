@@ -249,6 +249,12 @@ def validate_ratchet_policy() -> None:
     release_promotion = rpc_policy.get("releasePromotion") or {}
     rpc_candidates = rpc_policy.get("candidates") or []
     surface_policy = ratchet.get("surfacePolicy") or []
+    r8_depth = ratchet.get("r8PerformanceDepthMatrix") or {}
+    r8_surfaces = [
+        item
+        for item in r8_depth.get("surfaces") or []
+        if isinstance(item, dict)
+    ]
 
     require_policy(
         ratchet.get("schema") == "gofly.benchmark_budget_ratchet.v1",
@@ -257,6 +263,22 @@ def validate_ratchet_policy() -> None:
     require_policy(
         ratchet.get("acceptanceGate") == "make bench-regression-check",
         "budget ratchet acceptanceGate must be make bench-regression-check",
+    )
+    require_policy(
+        r8_depth.get("schema") == "gofly.benchmark_r8_performance_depth_matrix.v1",
+        "r8PerformanceDepthMatrix schema mismatch",
+    )
+    require_policy(
+        r8_depth.get("aiflowTask") == "GOFLY-GOV-10R8-09",
+        "r8PerformanceDepthMatrix aiflowTask mismatch",
+    )
+    require_policy(
+        r8_depth.get("acceptanceGate") == "make bench-regression-check",
+        "r8PerformanceDepthMatrix acceptanceGate must be make bench-regression-check",
+    )
+    require_policy(
+        len(str(r8_depth.get("policy") or "").split()) >= 25,
+        "r8PerformanceDepthMatrix policy must be actionable",
     )
     require_policy(bool(tracked), "budget ratchet trackedBenchmarks must not be empty")
     require_policy(
@@ -586,6 +608,175 @@ def validate_ratchet_policy() -> None:
             required_surface in surface_ids,
             f"surfacePolicy missing required surface {required_surface}",
         )
+
+    expected_r8_surfaces = {
+        "rest-router": {
+            "benchmark": "BenchmarkHTTPHello/gofly",
+            "status": "allocation-blocking",
+            "allocationMode": "blocking",
+            "latencyMode": "report-only",
+        },
+        "path-params": {
+            "benchmark": "BenchmarkHTTPPathParams/gofly",
+            "status": "allocation-blocking",
+            "allocationMode": "blocking",
+            "latencyMode": "report-only",
+        },
+        "json-binding": {
+            "benchmark": "BenchmarkHTTPJSONBinding/gofly",
+            "status": "allocation-blocking",
+            "allocationMode": "blocking",
+            "latencyMode": "report-only",
+        },
+        "middleware-chain": {
+            "benchmark": "BenchmarkHTTPMiddlewareChain/gofly",
+            "status": "allocation-blocking",
+            "allocationMode": "blocking",
+            "latencyMode": "report-only",
+        },
+        "openapi-disabled": {
+            "benchmark": "BenchmarkHTTPOpenAPI/disabled",
+            "status": "latency-and-allocation-blocking",
+            "allocationMode": "blocking",
+            "latencyMode": "blocking",
+        },
+        "openapi-enabled": {
+            "benchmark": "BenchmarkHTTPOpenAPI/enabled",
+            "status": "latency-and-allocation-blocking",
+            "allocationMode": "blocking",
+            "latencyMode": "blocking",
+        },
+        "governance-disabled": {
+            "benchmark": "BenchmarkHTTPGovernance/disabled",
+            "status": "latency-and-allocation-blocking",
+            "allocationMode": "blocking",
+            "latencyMode": "blocking",
+        },
+        "governance-enabled": {
+            "benchmark": "BenchmarkHTTPGovernance/enabled",
+            "status": "latency-and-allocation-blocking",
+            "allocationMode": "blocking",
+            "latencyMode": "blocking",
+        },
+        "rpc-unary": {
+            "benchmark": "BenchmarkRPCUnary/gofly_rpc",
+            "status": "candidate",
+            "allocationMode": "report-only",
+            "latencyMode": "report-only",
+        },
+        "rpc-stream-aggregate": {
+            "benchmark": "BenchmarkRPCStreamGovernance",
+            "status": "candidate",
+            "allocationMode": "report-only",
+            "latencyMode": "report-only",
+        },
+        "rpc-server-stream": {
+            "benchmark": "BenchmarkRPCServerStreamGovernance",
+            "status": "candidate",
+            "allocationMode": "report-only",
+            "latencyMode": "report-only",
+        },
+        "rpc-client-stream": {
+            "benchmark": "BenchmarkRPCClientStreamGovernance",
+            "status": "candidate",
+            "allocationMode": "report-only",
+            "latencyMode": "report-only",
+        },
+        "rpc-bidi-stream": {
+            "benchmark": "BenchmarkRPCBidiStreamGovernance",
+            "status": "candidate",
+            "allocationMode": "report-only",
+            "latencyMode": "report-only",
+        },
+        "gateway-proxy": {
+            "benchmark": "",
+            "status": "unsupported-report-only",
+            "allocationMode": "report-only",
+            "latencyMode": "report-only",
+        },
+        "cache-hot-path": {
+            "benchmark": "",
+            "status": "unsupported-report-only",
+            "allocationMode": "report-only",
+            "latencyMode": "report-only",
+        },
+    }
+    r8_by_id = {
+        item.get("id"): item
+        for item in r8_surfaces
+        if item.get("id")
+    }
+    require_policy(
+        set(r8_depth.get("requiredSurfaces") or []) == set(expected_r8_surfaces),
+        "r8PerformanceDepthMatrix requiredSurfaces mismatch",
+    )
+    require_policy(
+        set(r8_by_id) == set(expected_r8_surfaces),
+        f"r8PerformanceDepthMatrix surfaces drifted: {sorted(r8_by_id)}",
+    )
+    promoted_latency_names = set(promoted_latency)
+    rpc_candidate_names = {
+        item.get("benchmark", "")
+        for item in rpc_candidates
+        if isinstance(item, dict) and item.get("benchmark")
+    }
+    for surface_id, expected in expected_r8_surfaces.items():
+        item = r8_by_id.get(surface_id) or {}
+        for field in (
+            "id",
+            "area",
+            "status",
+            "allocationMode",
+            "latencyMode",
+            "promotionGate",
+            "evidenceState",
+            "rollbackAction",
+        ):
+            require_policy(bool(item.get(field)), f"r8PerformanceDepthMatrix {surface_id}: {field} is required")
+        for field in ("benchmark", "status", "allocationMode", "latencyMode"):
+            require_policy(
+                item.get(field, "") == expected[field],
+                f"r8PerformanceDepthMatrix {surface_id}: {field} mismatch",
+            )
+        require_policy(
+            item.get("promotionGate") == "make bench-regression-check",
+            f"r8PerformanceDepthMatrix {surface_id}: promotionGate must be make bench-regression-check",
+        )
+        benchmark = item.get("benchmark", "")
+        status = item.get("status", "")
+        if status in {"allocation-blocking", "latency-and-allocation-blocking"}:
+            require_policy(benchmark in tracked, f"r8PerformanceDepthMatrix {surface_id}: blocking benchmark must be tracked")
+            if item.get("latencyMode") == "blocking":
+                require_policy(
+                    benchmark in promoted_latency_names,
+                    f"r8PerformanceDepthMatrix {surface_id}: blocking latency benchmark must be promoted",
+                )
+            else:
+                require_policy(
+                    benchmark in report_only,
+                    f"r8PerformanceDepthMatrix {surface_id}: report-only latency benchmark must be in latencyPolicy.reportOnly",
+                )
+        elif status == "candidate":
+            require_policy(
+                benchmark in rpc_candidate_names,
+                f"r8PerformanceDepthMatrix {surface_id}: candidate benchmark must be in rpcPolicy.candidates",
+            )
+            require_policy(
+                benchmark not in tracked,
+                f"r8PerformanceDepthMatrix {surface_id}: candidate benchmark must stay out of trackedBenchmarks",
+            )
+        elif status == "unsupported-report-only":
+            require_policy(
+                not benchmark,
+                f"r8PerformanceDepthMatrix {surface_id}: unsupported surface must not name a benchmark",
+            )
+        else:
+            require_policy(False, f"r8PerformanceDepthMatrix {surface_id}: unknown status {status!r}")
+        for field in ("evidenceState", "rollbackAction"):
+            require_policy(
+                len(str(item.get(field) or "").split()) >= 10,
+                f"r8PerformanceDepthMatrix {surface_id}: {field} must be actionable",
+            )
 
 
 validate_ratchet_policy()

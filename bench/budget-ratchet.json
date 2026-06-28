@@ -1,5 +1,195 @@
 {
   "acceptanceGate": "make bench-regression-check",
+  "r8PerformanceDepthMatrix": {
+    "schema": "gofly.benchmark_r8_performance_depth_matrix.v1",
+    "aiflowTask": "GOFLY-GOV-10R8-09",
+    "acceptanceGate": "make bench-regression-check",
+    "policy": "R8 performance credibility must separate allocation-blocking REST and governance hot paths, promoted OpenAPI and governance latency, report-only HTTP latency, RPC unary and stream candidate evidence, and unsupported gateway or cache claims before release notes compare gofly with Gin, Echo, Fiber, Hertz, Kitex, or gRPC-Go.",
+    "requiredSurfaces": [
+      "rest-router",
+      "path-params",
+      "json-binding",
+      "middleware-chain",
+      "openapi-disabled",
+      "openapi-enabled",
+      "governance-disabled",
+      "governance-enabled",
+      "rpc-unary",
+      "rpc-stream-aggregate",
+      "rpc-server-stream",
+      "rpc-client-stream",
+      "rpc-bidi-stream",
+      "gateway-proxy",
+      "cache-hot-path"
+    ],
+    "surfaces": [
+      {
+        "id": "rest-router",
+        "area": "REST router",
+        "benchmark": "BenchmarkHTTPHello/gofly",
+        "status": "allocation-blocking",
+        "allocationMode": "blocking",
+        "latencyMode": "report-only",
+        "promotionGate": "make bench-regression-check",
+        "evidenceState": "tracked in baseline and current regression reports with allocs/op median blocking.",
+        "rollbackAction": "Revert route dispatch changes or pin the previous release when allocation budget evidence fails."
+      },
+      {
+        "id": "path-params",
+        "area": "REST path params",
+        "benchmark": "BenchmarkHTTPPathParams/gofly",
+        "status": "allocation-blocking",
+        "allocationMode": "blocking",
+        "latencyMode": "report-only",
+        "promotionGate": "make bench-regression-check",
+        "evidenceState": "tracked in baseline and current regression reports with path parameter allocation blocking.",
+        "rollbackAction": "Revert path extraction changes or pin the previous release when allocation budget evidence fails."
+      },
+      {
+        "id": "json-binding",
+        "area": "REST JSON binding",
+        "benchmark": "BenchmarkHTTPJSONBinding/gofly",
+        "status": "allocation-blocking",
+        "allocationMode": "blocking",
+        "latencyMode": "report-only",
+        "promotionGate": "make bench-regression-check",
+        "evidenceState": "tracked in baseline and current regression reports with JSON binding allocation blocking.",
+        "rollbackAction": "Revert binding or response changes until allocation budget evidence is restored."
+      },
+      {
+        "id": "middleware-chain",
+        "area": "HTTP middleware",
+        "benchmark": "BenchmarkHTTPMiddlewareChain/gofly",
+        "status": "allocation-blocking",
+        "allocationMode": "blocking",
+        "latencyMode": "report-only",
+        "promotionGate": "make bench-regression-check",
+        "evidenceState": "tracked in baseline and current regression reports with five-layer middleware allocation blocking.",
+        "rollbackAction": "Revert middleware chain changes or pin the previous release until allocation evidence recovers."
+      },
+      {
+        "id": "openapi-disabled",
+        "area": "OpenAPI overhead disabled",
+        "benchmark": "BenchmarkHTTPOpenAPI/disabled",
+        "status": "latency-and-allocation-blocking",
+        "allocationMode": "blocking",
+        "latencyMode": "blocking",
+        "promotionGate": "make bench-regression-check",
+        "evidenceState": "tracked with five-sample baseline and promoted latency ratio for disabled OpenAPI metadata overhead.",
+        "rollbackAction": "Revert metadata path changes when disabled OpenAPI latency or allocation budgets fail."
+      },
+      {
+        "id": "openapi-enabled",
+        "area": "OpenAPI overhead enabled",
+        "benchmark": "BenchmarkHTTPOpenAPI/enabled",
+        "status": "latency-and-allocation-blocking",
+        "allocationMode": "blocking",
+        "latencyMode": "blocking",
+        "promotionGate": "make bench-regression-check",
+        "evidenceState": "tracked with five-sample baseline and promoted latency ratio for enabled OpenAPI metadata overhead.",
+        "rollbackAction": "Revert schema or metadata path changes when OpenAPI latency or allocation budgets fail."
+      },
+      {
+        "id": "governance-disabled",
+        "area": "Governance overhead disabled",
+        "benchmark": "BenchmarkHTTPGovernance/disabled",
+        "status": "latency-and-allocation-blocking",
+        "allocationMode": "blocking",
+        "latencyMode": "blocking",
+        "promotionGate": "make bench-regression-check",
+        "evidenceState": "tracked with five-sample baseline and promoted latency ratio for disabled governance overhead.",
+        "rollbackAction": "Revert request path changes when disabled governance latency or allocation budgets fail."
+      },
+      {
+        "id": "governance-enabled",
+        "area": "Governance overhead enabled",
+        "benchmark": "BenchmarkHTTPGovernance/enabled",
+        "status": "latency-and-allocation-blocking",
+        "allocationMode": "blocking",
+        "latencyMode": "blocking",
+        "promotionGate": "make bench-regression-check",
+        "evidenceState": "tracked with five-sample baseline and promoted latency ratio for enabled governance rule matching.",
+        "rollbackAction": "Disable or revert the governance hot-path change until latency and allocation budgets recover."
+      },
+      {
+        "id": "rpc-unary",
+        "area": "RPC unary",
+        "benchmark": "BenchmarkRPCUnary/gofly_rpc",
+        "status": "candidate",
+        "allocationMode": "report-only",
+        "latencyMode": "report-only",
+        "promotionGate": "make bench-regression-check",
+        "evidenceState": "candidate evidence exists, but RPC unary stays outside trackedBenchmarks until allocation and latency promotion criteria pass.",
+        "rollbackAction": "Keep latency-critical methods on Kitex or existing gRPC paths until RPC Tier 1 evidence is promoted."
+      },
+      {
+        "id": "rpc-stream-aggregate",
+        "area": "RPC stream aggregate",
+        "benchmark": "BenchmarkRPCStreamGovernance",
+        "status": "candidate",
+        "allocationMode": "report-only",
+        "latencyMode": "report-only",
+        "promotionGate": "make bench-regression-check",
+        "evidenceState": "aggregate stream governance remains candidate evidence until mode-specific baseline and current trend samples are published.",
+        "rollbackAction": "Keep stream workloads on existing gRPC or Kitex paths until stream governance budgets are promoted."
+      },
+      {
+        "id": "rpc-server-stream",
+        "area": "RPC server stream",
+        "benchmark": "BenchmarkRPCServerStreamGovernance",
+        "status": "candidate",
+        "allocationMode": "report-only",
+        "latencyMode": "report-only",
+        "promotionGate": "make bench-regression-check",
+        "evidenceState": "server-stream governance remains candidate evidence until five-sample baseline and current trend samples are published.",
+        "rollbackAction": "Keep server-stream workloads on existing gRPC or Kitex paths until promoted budget evidence exists."
+      },
+      {
+        "id": "rpc-client-stream",
+        "area": "RPC client stream",
+        "benchmark": "BenchmarkRPCClientStreamGovernance",
+        "status": "candidate",
+        "allocationMode": "report-only",
+        "latencyMode": "report-only",
+        "promotionGate": "make bench-regression-check",
+        "evidenceState": "client-stream governance remains candidate evidence until five-sample baseline and current trend samples are published.",
+        "rollbackAction": "Keep client-stream workloads on existing gRPC or Kitex paths until promoted budget evidence exists."
+      },
+      {
+        "id": "rpc-bidi-stream",
+        "area": "RPC bidi stream",
+        "benchmark": "BenchmarkRPCBidiStreamGovernance",
+        "status": "candidate",
+        "allocationMode": "report-only",
+        "latencyMode": "report-only",
+        "promotionGate": "make bench-regression-check",
+        "evidenceState": "bidirectional stream governance remains candidate evidence until five-sample baseline and current trend samples are published.",
+        "rollbackAction": "Keep bidirectional stream workloads on existing gRPC or Kitex paths until promoted budget evidence exists."
+      },
+      {
+        "id": "gateway-proxy",
+        "area": "Gateway proxy",
+        "benchmark": "",
+        "status": "unsupported-report-only",
+        "allocationMode": "report-only",
+        "latencyMode": "report-only",
+        "promotionGate": "make bench-regression-check",
+        "evidenceState": "no dedicated gateway proxy benchmark is published in bench yet, so performance claims must stay unsupported report-only.",
+        "rollbackAction": "Downgrade gateway performance claims to functional smoke evidence until dedicated benchmarks are added."
+      },
+      {
+        "id": "cache-hot-path",
+        "area": "Cache hot path",
+        "benchmark": "",
+        "status": "unsupported-report-only",
+        "allocationMode": "report-only",
+        "latencyMode": "report-only",
+        "promotionGate": "make bench-regression-check",
+        "evidenceState": "cache behavior is covered by smoke and observability evidence, but no dedicated cache benchmark is published in bench yet.",
+        "rollbackAction": "Keep cache performance claims report-only and rely on behavior tests until dedicated benchmark evidence exists."
+      }
+    ]
+  },
   "performancePromotionEvidence": {
     "schema": "gofly.benchmark_performance_promotion_evidence.v1",
     "acceptanceGate": "make bench-regression-check",

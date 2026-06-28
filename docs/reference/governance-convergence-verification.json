@@ -1,6 +1,6 @@
 {
   "schema": "gofly.governance_convergence_verification.v1",
-  "aiflowTask": "GOFLY-GOV-10R6-10",
+  "aiflowTask": "GOFLY-GOV-10R7-10",
   "purpose": "Tie the active 10-round governance batch to final convergence gates, commit checkpoints, ignored runtime paths, skip-report policy, and release-blocking verification.",
   "acceptanceGate": "make governance-10-rounds",
   "aggregateGates": [
@@ -10,65 +10,65 @@
     "make security",
     "make cache-dependency-governance-check"
   ],
-  "activeBatch": "GOFLY-GOV-10R6",
+  "activeBatch": "GOFLY-GOV-10R7",
   "roundCommits": [
     {
       "round": 1,
-      "task": "GOFLY-GOV-10R6-01",
-      "commit": "a440ac9",
+      "task": "GOFLY-GOV-10R7-01",
+      "commit": "faebdcb",
       "gate": "make framework-gap-check"
     },
     {
       "round": 2,
-      "task": "GOFLY-GOV-10R6-02",
-      "commit": "8ecba17",
-      "gate": "make openapi-validation-check"
+      "task": "GOFLY-GOV-10R7-02",
+      "commit": "7e57d44",
+      "gate": "make adopter-decision-check"
     },
     {
       "round": 3,
-      "task": "GOFLY-GOV-10R6-03",
-      "commit": "9d8df16",
-      "gate": "make generated-upgrade-dry-run-check"
-    },
-    {
-      "round": 4,
-      "task": "GOFLY-GOV-10R6-04",
-      "commit": "688f8bf",
+      "task": "GOFLY-GOV-10R7-03",
+      "commit": "8cdef26",
       "gate": "make rpc-boundary-check"
     },
     {
+      "round": 4,
+      "task": "GOFLY-GOV-10R7-04",
+      "commit": "fa4d764",
+      "gate": "make generated-upgrade-dry-run-check"
+    },
+    {
       "round": 5,
-      "task": "GOFLY-GOV-10R6-05",
-      "commit": "7604767",
+      "task": "GOFLY-GOV-10R7-05",
+      "commit": "21acec7",
       "gate": "make required-checks-drift-check"
     },
     {
       "round": 6,
-      "task": "GOFLY-GOV-10R6-06",
-      "commit": "ad82957",
-      "gate": "make reference-app-smoke"
+      "task": "GOFLY-GOV-10R7-06",
+      "commit": "c0dfb08",
+      "gate": "make plugin-conformance-check"
     },
     {
       "round": 7,
-      "task": "GOFLY-GOV-10R6-07",
-      "commit": "bb1ad9a",
+      "task": "GOFLY-GOV-10R7-07",
+      "commit": "5a4ac7c",
       "gate": "make governance-report-check"
     },
     {
       "round": 8,
-      "task": "GOFLY-GOV-10R6-08",
-      "commit": "c84a726",
+      "task": "GOFLY-GOV-10R7-08",
+      "commit": "638d91d",
       "gate": "make bench-regression-check"
     },
     {
       "round": 9,
-      "task": "GOFLY-GOV-10R6-09",
-      "commit": "36e32f6",
-      "gate": "make adopter-decision-check"
+      "task": "GOFLY-GOV-10R7-09",
+      "commit": "d572635",
+      "gate": "make dx-troubleshooting-check"
     },
     {
       "round": 10,
-      "task": "GOFLY-GOV-10R6-10",
+      "task": "GOFLY-GOV-10R7-10",
       "commit": "self",
       "gate": "make governance-boundary-inventory-check",
       "selfReference": true
@@ -95,13 +95,13 @@
   "aiflowExecution": {
     "status": "completed",
     "blocker": "none",
-    "goflyImpact": "R6 tasks were submitted through aiflow and completed locally with per-task commits because aiflow project policy disables commit and push; the current agent or human owns commit and push."
+    "goflyImpact": "R7 tasks were submitted through aiflow and completed locally with per-task commits because aiflow project policy disables commit and push; the current agent or human owns commit and push."
   },
   "previousBatchHandoff": {
     "supersedes": [
-      "GOFLY-GOV-10R5-10"
+      "GOFLY-GOV-10R6-10"
     ],
-    "reason": "R5 convergence was carried forward into the R6 active batch convergence contract after post-R5 framework gap governance completed.",
-    "completionPolicy": "complete GOFLY-GOV-10R6-10 through aiflow after make governance-boundary-inventory-check and make governance-report-check pass, with commits owned by the current agent or human"
+    "reason": "R6 convergence was carried forward into the R7 active batch convergence contract after post-R6 framework gap governance completed.",
+    "completionPolicy": "complete GOFLY-GOV-10R7-10 through aiflow after make governance-boundary-inventory-check and make governance-report-check pass, with commits owned by the current agent or human"
   }
 }

@@ -77,6 +77,14 @@ non-community gaps after the R7 convergence batch: HTTP migration compatibility,
 generated scaffold profile trust, RPC streaming boundaries, runnable adapter
 proof, production topology drills, plugin/template publish protocol,
 release/tag CI closure, performance ratchet depth, and convergence evidence.
+The post-R8 P9 roadmap is captured in
+[`framework-gap-post-r8-roadmap.json`](framework-gap-post-r8-roadmap.json) with
+schema `gofly.framework_gap_post_r8_roadmap.v1`. It focuses on promoting
+candidate and report-only surfaces toward production-ready evidence: RPC release
+trains, historical generated fixtures, Docker-backed reference proof,
+gateway/cache benchmark ownership, hosted release CI evidence, cloud-native live
+render validation, plugin registry publishing, migration proof, CLI remediation,
+and convergence evidence.
 
 | Order | Task | Gap | Acceptance gate |
 | --- | --- | --- | --- |
@@ -176,6 +184,21 @@ release/tag CI closure, performance ratchet depth, and convergence evidence.
 | 8 | `GOFLY-GOV-10R8-08` | Tie release snapshot, tag CI, checksums, SBOM, Docker digest, Trivy, provenance, required checks, and publish/block decisions into one release contract. | `make governance-report-check` |
 | 9 | `GOFLY-GOV-10R8-09` | Promote performance credibility through budget ratchet depth while keeping unsupported latency parity claims report-only. | `make bench-regression-check` |
 | 10 | `GOFLY-GOV-10R8-10` | Record convergence evidence for all R8 tasks, commits, gates, known risks, and ignored runtime paths. | `make governance-10-rounds` |
+
+## Post-R8 P9 TODO Order
+
+| Order | Task | Gap | Acceptance gate |
+| --- | --- | --- | --- |
+| 1 | `GOFLY-GOV-10P9-01` | Turn RPC unary and streaming Tier 1 promotion blockers into release-train evidence without claiming latency parity early. | `make rpc-boundary-check` |
+| 2 | `GOFLY-GOV-10P9-02` | Move generated-project compatibility from current-profile smoke to old/current/future historical fixture generation. | `make generated-version-compat-check` |
+| 3 | `GOFLY-GOV-10P9-03` | Promote production-orders Docker mode from static topology evidence to live integration proof with explicit fallback. | `make reference-app-smoke` |
+| 4 | `GOFLY-GOV-10P9-04` | Close gateway proxy and cache hot-path unsupported report-only benchmark ownership gaps. | `make bench-regression-check` |
+| 5 | `GOFLY-GOV-10P9-05` | Upgrade local release evidence into hosted tag CI artifact, scan, provenance, and required-check closure. | `make governance-report-check` |
+| 6 | `GOFLY-GOV-10P9-06` | Prefer real Helm/Kustomize/policy rendering before static cloud-native fallback evidence is accepted. | `make cloud-native-render-check` |
+| 7 | `GOFLY-GOV-10P9-07` | Harden plugin registry publishing with compatibility, trust source, digest, permissions, malicious path, and no partial write evidence. | `make plugin-conformance-check` |
+| 8 | `GOFLY-GOV-10P9-08` | Expand Gin, go-zero, Kratos, and Kitex migration paths into runnable adopter proof. | `make adopter-decision-check` |
+| 9 | `GOFLY-GOV-10P9-09` | Connect doctor, release check, failure reports, support bundles, and aiflow handoff into actionable remediation. | `make dx-troubleshooting-check` |
+| 10 | `GOFLY-GOV-10P9-10` | Record P9 task, commit, gate, known-risk, ignored-runtime-path, and follow-up convergence evidence. | `make governance-10-rounds` |
 
 ## Adoption Risk Register
 

@@ -1,7 +1,7 @@
 {
   "schema": "gofly.governance_boundary_inventory.v1",
   "purpose": "Lightweight baseline inventory for the 10-round governance workflow before expensive full-repository gates run.",
-  "activeAiflowBatch": "GOFLY-GOV-10R8",
+  "activeAiflowBatch": "GOFLY-GOV-10P9",
   "aiflowTaskBatches": [
     {
       "id": "GOFLY-GOV-10R",
@@ -54,100 +54,107 @@
     },
     {
       "id": "GOFLY-GOV-10R8",
-      "status": "active",
+      "status": "completed",
       "taskPrefix": "GOFLY-GOV-10R8-",
       "roundCount": 10,
-      "evidence": "docs/reference/framework-gap-post-r7-roadmap.json"
+      "evidence": "docs/reference/governance-convergence-verification.json"
+    },
+    {
+      "id": "GOFLY-GOV-10P9",
+      "status": "active",
+      "taskPrefix": "GOFLY-GOV-10P9-",
+      "roundCount": 10,
+      "evidence": "docs/reference/framework-gap-post-r8-roadmap.json"
     }
   ],
   "aiflowTasks": [
     {
-      "id": "GOFLY-GOV-10R8-01",
+      "id": "GOFLY-GOV-10P9-01",
       "round": 1,
-      "title": "Post-R7 framework gap roadmap",
-      "objective": "Analyze current non-community gaps against Gin, Echo, Fiber, Hertz, go-zero, Kratos, Kitex, and gRPC-Go after R7 convergence; define the R8 smallest executable task roadmap.",
-      "deliverable": "Machine-readable R8 roadmap, boundary inventory, non-community scope, task order, acceptance gates, and claim boundaries.",
-      "gate": "make framework-gap-check",
-      "commitPolicy": "commit after the boundary inventory gate passes"
-    },
-    {
-      "id": "GOFLY-GOV-10R8-02",
-      "round": 2,
-      "title": "HTTP migration compatibility proof",
-      "objective": "Close HTTP migration compatibility gaps across route groups, path, query, header, body binding, middleware ordering, stable error envelopes, OpenAPI output, and invalid-request smoke cases.",
-      "deliverable": "HTTP migration compatibility evidence linking migration surfaces to OpenAPI/runtime golden checks, invalid request smoke, and rollback notes.",
-      "gate": "make openapi-validation-check",
-      "commitPolicy": "commit after HTTP migration compatibility gates pass"
-    },
-    {
-      "id": "GOFLY-GOV-10R8-03",
-      "round": 3,
-      "title": "Generated scaffold profile matrix",
-      "objective": "Deepen goctl and Kratos scaffold trust with REST, RPC, model, production service, import alias, generated-only dependency, repeat diff, compile smoke, and rollback evidence.",
-      "deliverable": "Generated scaffold profile matrix with deterministic output, dependency placement, compatibility, diff, compile, and rollback rows.",
-      "gate": "make generated-upgrade-dry-run-check",
-      "commitPolicy": "commit after generated scaffold profile gates pass"
-    },
-    {
-      "id": "GOFLY-GOV-10R8-04",
-      "round": 4,
-      "title": "RPC streaming boundary evidence",
-      "objective": "Keep Kitex and gRPC-Go transport gaps explicit while adding unary, server-stream, client-stream, bidi-stream, resolver, balancer, retry, deadline, auth, tracing, benchmark, and rollback evidence.",
-      "deliverable": "RPC streaming boundary evidence separating supported behavior, candidate surfaces, report-only latency, and rollback triggers.",
+      "title": "RPC Tier 1 release-train closeout",
+      "objective": "Promote RPC unary and stream surfaces from candidate and report-only evidence toward Tier 1 release-train readiness without claiming latency parity before trend evidence supports it.",
+      "deliverable": "Release-train RPC evidence for unary, server-stream, client-stream, bidi-stream, resolver, balancer, deadline, retry, auth, tracing, benchmark budget status, Kitex rollback path, and promotion blockers.",
       "gate": "make rpc-boundary-check",
-      "commitPolicy": "commit after RPC streaming boundary gates pass"
+      "commitPolicy": "commit after RPC release-train evidence and boundary gates pass"
     },
     {
-      "id": "GOFLY-GOV-10R8-05",
-      "round": 5,
-      "title": "Adapter matrix runnable proof",
-      "objective": "Make SQL, Redis/cache, and discovery adapters runnable and owned through smoke, observability, dependency trigger, fallback behavior, and rollback evidence.",
-      "deliverable": "Runnable adapter matrix for SQL, Redis, local cache, cache invalidation, etcd, Kubernetes, Consul, Nacos, DNS, static discovery, observability, and rollback.",
-      "gate": "make required-checks-drift-check",
-      "commitPolicy": "commit after adapter matrix gates pass"
+      "id": "GOFLY-GOV-10P9-02",
+      "round": 2,
+      "title": "Generated project historical fixture matrix",
+      "objective": "Move generator trust from current-profile smoke evidence to historical old, current, and future fixture generation with compile, test, repeat-diff, and explainable-diff evidence.",
+      "deliverable": "Historical .api, .proto, config, plugin profile, and generated snapshot fixtures with temporary project generation, go test smoke, repeat generation diff, and diff report evidence.",
+      "gate": "make generated-version-compat-check",
+      "commitPolicy": "commit after historical fixture and generation compatibility gates pass"
     },
     {
-      "id": "GOFLY-GOV-10R8-06",
-      "round": 6,
-      "title": "Production reference topology drill",
-      "objective": "Promote production-orders from example evidence toward reference topology drill evidence across memory mode, Docker-backed mode, SQL outbox, MQ, cache, discovery, OpenTelemetry, K8s assets, rollback, and failure evidence.",
-      "deliverable": "Production reference drill evidence that adopters can run, observe, degrade, and roll back.",
+      "id": "GOFLY-GOV-10P9-03",
+      "round": 3,
+      "title": "Reference app Docker-backed live proof",
+      "objective": "Promote production-orders Docker mode from static topology evidence to live integration proof while preserving memory mode as the default fast smoke path.",
+      "deliverable": "Reference app evidence for memory mode, Docker-backed SQL outbox, Redis cache, Kafka, RabbitMQ, Redis Stream, Consul, etcd, Nacos, OpenTelemetry collector, fallback reasons, and rollback notes.",
       "gate": "make reference-app-smoke",
-      "commitPolicy": "commit after production reference topology gates pass"
+      "commitPolicy": "commit after reference app smoke gates pass or explicit environment fallback evidence is recorded"
     },
     {
-      "id": "GOFLY-GOV-10R8-07",
-      "round": 7,
-      "title": "Plugin template publish protocol",
-      "objective": "Turn plugin and template ecosystem assets into a publish protocol with registry schema, manifest schema, digest, signature, permission minimization, source policy, template contract, malicious path, and no partial write checks.",
-      "deliverable": "Publish protocol evidence for plugin and template registry compatibility, supply-chain safety, and failure isolation.",
-      "gate": "make plugin-conformance-check",
-      "commitPolicy": "commit after plugin/template publish protocol gates pass"
-    },
-    {
-      "id": "GOFLY-GOV-10R8-08",
-      "round": 8,
-      "title": "Release evidence tag CI closure",
-      "objective": "Tie release snapshot, tag CI, checksum, SBOM, Docker digest, Trivy, provenance attestation, required checks, publish and block decisions, and rollback into one auditable release contract.",
-      "deliverable": "Release evidence and tag CI closure rows linking artifact producers, scans, provenance, checks, adopter decisions, and rollback actions.",
-      "gate": "make governance-report-check",
-      "commitPolicy": "commit after release evidence and tag CI gates pass"
-    },
-    {
-      "id": "GOFLY-GOV-10R8-09",
-      "round": 9,
-      "title": "Performance budget ratchet depth",
-      "objective": "Promote performance credibility through REST router, path params, JSON binding, middleware, OpenAPI, governance overhead, RPC unary and stream surfaces, allocation budgets, report-only latency, and unsupported-surface handling.",
-      "deliverable": "Performance ratchet evidence that keeps latency conservative and allocation blocking explicit.",
+      "id": "GOFLY-GOV-10P9-04",
+      "round": 4,
+      "title": "Gateway and cache benchmark ownership",
+      "objective": "Close gateway proxy and cache hot-path unsupported report-only gaps in the R8 performance depth matrix with benchmark ownership, allocation budgets, and rollback notes.",
+      "deliverable": "Gateway proxy and cache hot path benchmark evidence with baseline, current trend, allocation budget, report-only latency status, unsupported-surface handling, and rollback guidance.",
       "gate": "make bench-regression-check",
-      "commitPolicy": "commit after performance budget ratchet gates pass"
+      "commitPolicy": "commit after benchmark ownership and regression gates pass"
     },
     {
-      "id": "GOFLY-GOV-10R8-10",
+      "id": "GOFLY-GOV-10P9-05",
+      "round": 5,
+      "title": "Hosted release CI evidence closure",
+      "objective": "Upgrade local release evidence into hosted tag CI evidence mapping so release artifact gates cannot be skipped silently.",
+      "deliverable": "Hosted release CI evidence for artifact upload matrix, SBOM, checksums, provenance, Docker digest, Trivy, CodeQL, Scorecard, Dependency Review, required checks, and release evidence manifest.",
+      "gate": "make governance-report-check",
+      "commitPolicy": "commit after hosted release evidence and required-check drift gates pass"
+    },
+    {
+      "id": "GOFLY-GOV-10P9-06",
+      "round": 6,
+      "title": "Cloud-native live render validation",
+      "objective": "Move Helm, Kustomize, NetworkPolicy, HPA, PDB, and ServiceMonitor evidence from static fallback toward real tool rendering with explicit fallback reason contracts.",
+      "deliverable": "Helm values profiles, rendered golden YAML, optional kubeconform or kubeval report, Kustomize overlays, and explicit static fallback reason schema.",
+      "gate": "make cloud-native-render-check",
+      "commitPolicy": "commit after cloud-native render gates pass or explicit missing-tool fallback evidence is recorded"
+    },
+    {
+      "id": "GOFLY-GOV-10P9-07",
+      "round": 7,
+      "title": "Plugin registry publish hardening",
+      "objective": "Promote the plugin registry from conformance examples to a publishable protocol with trust, source, compatibility, digest, permission, and rollback evidence.",
+      "deliverable": "Plugin registry publish contract covering compatibility policy, signature trust source, digest pinning, source allowlist, template contract versioning, permission boundaries, malicious paths, and no partial writes.",
+      "gate": "make plugin-conformance-check",
+      "commitPolicy": "commit after plugin registry publish hardening gates pass"
+    },
+    {
+      "id": "GOFLY-GOV-10P9-08",
+      "round": 8,
+      "title": "Adopter migration proof expansion",
+      "objective": "Expand Gin, go-zero, Kratos, and Kitex migration paths into runnable adopter proof with rollback notes, compatibility caveats, gate commands, and boundary explanations.",
+      "deliverable": "Migration proof rows for Gin, go-zero, Kratos, and Kitex with runnable examples, examples smoke, rollback notes, compatibility caveats, performance boundaries, and governance boundary notes.",
+      "gate": "make adopter-decision-check",
+      "commitPolicy": "commit after adopter migration proof and examples smoke gates pass"
+    },
+    {
+      "id": "GOFLY-GOV-10P9-09",
+      "round": 9,
+      "title": "CLI and doctor remediation loop",
+      "objective": "Turn doctor, release check, generated failure report, support bundle, and aiflow handoff data into a remediation loop that tells adopters the next action after failures.",
+      "deliverable": "CLI remediation evidence for gofly doctor --json, gofly release check --json, generated project failure report, support bundle, CLI JSON golden fields, and aiflow handoff nextActions.",
+      "gate": "make dx-troubleshooting-check",
+      "commitPolicy": "commit after CLI remediation and JSON contract gates pass"
+    },
+    {
+      "id": "GOFLY-GOV-10P9-10",
       "round": 10,
-      "title": "R8 convergence evidence report",
-      "objective": "Close the R8 governance batch by producing convergence evidence that all submitted R8 tasks have traceable artifacts, gates, commits, known risks, and follow-up ordering without committing runtime state.",
-      "deliverable": "Final R8 convergence report with per-task commits, gate evidence, runtime ignored paths, known risks, and next-round recommendations.",
+      "title": "P9 convergence evidence report",
+      "objective": "Close the P9 governance batch by recording traceable task artifacts, gates, commits, known risks, ignored runtime paths, and follow-up ordering without committing runtime state.",
+      "deliverable": "Final P9 convergence report with per-task commits, gate evidence, runtime ignored paths, known risks, and next-round recommendations.",
       "gate": "make governance-10-rounds",
       "commitPolicy": "commit after convergence gate passes or environment-limited failures are documented"
     }

@@ -169,6 +169,14 @@ tasks, run diagnostics, and produce bounded failure reports, but the
 must not create commits, push, modify `docs/superpowers/`, or stage runtime
 state.
 
+The adopter troubleshooting loop is indexed as
+`gofly.troubleshooting_adoption_loop.v1`. It links `gofly doctor --json`,
+`gofly release check --json --strict`, `gofly bug --json`, and generated
+verification failures to evidence artifacts, required fields, redaction
+requirements, `nextActions`, and the aiflow handoff boundary. Runtime state
+such as `.aiflow`, `.harness`, `.tmp-test`, `.trae`, `coverage.out`, and
+`docs/superpowers` must remain unstaged while the loop is executed.
+
 The DX troubleshooting gate verifies this contract with real CLI output:
 
 ```sh

@@ -172,6 +172,56 @@ for needle in ("aiflow task complete", "commit", "passing gates", "no runtime st
 for step in ("run gofly doctor --json", "run gofly release check --json --strict", "run gofly bug --json"):
     if step not in set(manifest.get("supportWorkflow") or []):
         missing.append(f"dx support bundle supportWorkflow missing {step!r}")
+
+adoption_loop = manifest.get("troubleshootingAdoptionLoop") or {}
+if adoption_loop.get("schema") != "gofly.troubleshooting_adoption_loop.v1":
+    missing.append("troubleshootingAdoptionLoop.schema must be gofly.troubleshooting_adoption_loop.v1")
+if adoption_loop.get("acceptanceGate") != "make dx-troubleshooting-check":
+    missing.append("troubleshootingAdoptionLoop.acceptanceGate must be make dx-troubleshooting-check")
+if adoption_loop.get("dashboardReportField") != "dxSupportBundle.troubleshootingAdoptionLoop":
+    missing.append("troubleshootingAdoptionLoop.dashboardReportField mismatch")
+if adoption_loop.get("aiflowHandoff") != "gofly.remediation_handoff.v1":
+    missing.append("troubleshootingAdoptionLoop.aiflowHandoff must reference gofly.remediation_handoff.v1")
+if adoption_loop.get("commitOwner") != "human-or-current-agent":
+    missing.append("troubleshootingAdoptionLoop.commitOwner must keep commits outside aiflow")
+runtime_policy = str(adoption_loop.get("runtimeStatePolicy") or "")
+for needle in (".aiflow", ".harness", ".tmp-test", ".trae", "coverage.out", "docs/superpowers"):
+    if needle not in runtime_policy:
+        missing.append(f"troubleshootingAdoptionLoop.runtimeStatePolicy missing {needle!r}")
+steps = adoption_loop.get("steps") or []
+steps_by_id = {
+    item.get("id"): item for item in steps if isinstance(item, dict)
+}
+expected_steps = {
+    "diagnose-environment": "gofly doctor --json",
+    "check-release-gates": "gofly release check --json --strict",
+    "collect-support-bundle": "gofly bug --json",
+    "attach-generated-failure": "gofly ai new --json --apply --verify",
+}
+if set(steps_by_id) != set(expected_steps):
+    missing.append(
+        "troubleshootingAdoptionLoop steps mismatch: "
+        f"missing={sorted(set(expected_steps) - set(steps_by_id))} "
+        f"extra={sorted(set(steps_by_id) - set(expected_steps))}"
+    )
+surface_commands = set(surface_by_command)
+for step_id, command in expected_steps.items():
+    step = steps_by_id.get(step_id) or {}
+    if step.get("sourceCommand") != command:
+        missing.append(f"troubleshootingAdoptionLoop {step_id}: sourceCommand mismatch")
+    if command not in surface_commands:
+        missing.append(f"troubleshootingAdoptionLoop {step_id}: sourceCommand is not a declared DX surface")
+    for field in ("evidenceArtifact", "nextActionSource", "handoffBoundary"):
+        if not step.get(field):
+            missing.append(f"troubleshootingAdoptionLoop {step_id}: {field} is required")
+    if not step.get("requiredFields"):
+        missing.append(f"troubleshootingAdoptionLoop {step_id}: requiredFields is required")
+    if len(str(step.get("handoffBoundary") or "").split()) < 10:
+        missing.append(f"troubleshootingAdoptionLoop {step_id}: handoffBoundary must be actionable")
+if steps_by_id.get("collect-support-bundle", {}).get("redactionRequired") is not True:
+    missing.append("troubleshootingAdoptionLoop collect-support-bundle must require redaction")
+if steps_by_id.get("attach-generated-failure", {}).get("redactionRequired") is not True:
+    missing.append("troubleshootingAdoptionLoop attach-generated-failure must require redaction")
 for doc_path in manifest.get("docs") or []:
     if not pathlib.Path(doc_path).is_file():
         missing.append(f"dx support bundle docs path is missing: {doc_path}")
@@ -186,6 +236,7 @@ docs = {
         "outputLimitBytes",
         "rerunGuidanceField",
         "gofly.remediation_handoff.v1",
+        "gofly.troubleshooting_adoption_loop.v1",
         "commitPolicy",
     ],
     pathlib.Path("docs/operations/troubleshooting.md"): [
@@ -197,6 +248,7 @@ docs = {
         "4096 bytes",
         "nextActions",
         "gofly.remediation_handoff.v1",
+        "gofly.troubleshooting_adoption_loop.v1",
         "must not create commits",
     ],
 }

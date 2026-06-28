@@ -149,6 +149,67 @@
     "run gofly bug --json",
     "attach generated project verification failure reports when available"
   ],
+  "troubleshootingAdoptionLoop": {
+    "schema": "gofly.troubleshooting_adoption_loop.v1",
+    "acceptanceGate": "make dx-troubleshooting-check",
+    "dashboardReportField": "dxSupportBundle.troubleshootingAdoptionLoop",
+    "aiflowHandoff": "gofly.remediation_handoff.v1",
+    "commitOwner": "human-or-current-agent",
+    "runtimeStatePolicy": "Do not stage .aiflow, .harness, .tmp-test, .trae, coverage.out, or docs/superpowers while resolving troubleshooting tasks.",
+    "steps": [
+      {
+        "id": "diagnose-environment",
+        "sourceCommand": "gofly doctor --json",
+        "evidenceArtifact": "doctor.json",
+        "requiredFields": [
+          "checks",
+          "summary",
+          "nextActions"
+        ],
+        "nextActionSource": "nextActions",
+        "redactionRequired": false,
+        "handoffBoundary": "Use doctor output to decide whether to fix local toolchain state before editing generated or runtime code."
+      },
+      {
+        "id": "check-release-gates",
+        "sourceCommand": "gofly release check --json --strict",
+        "evidenceArtifact": "release-check.json",
+        "requiredFields": [
+          "data.summary",
+          "data.checks",
+          "error.remediation"
+        ],
+        "nextActionSource": "error.remediation",
+        "redactionRequired": false,
+        "handoffBoundary": "Treat strict release blockers as release governance tasks and attach remediation before opening aiflow work."
+      },
+      {
+        "id": "collect-support-bundle",
+        "sourceCommand": "gofly bug --json",
+        "evidenceArtifact": "support-bundle.json",
+        "requiredFields": [
+          "supportBundle",
+          "supportBundle.redaction",
+          "nextActions"
+        ],
+        "nextActionSource": "nextActions",
+        "redactionRequired": true,
+        "handoffBoundary": "Share only redacted support bundles and keep commit ownership outside aiflow."
+      },
+      {
+        "id": "attach-generated-failure",
+        "sourceCommand": "gofly ai new --json --apply --verify",
+        "evidenceArtifact": "generated-project-failure.json",
+        "requiredFields": [
+          "data.verification",
+          "data.nextActions"
+        ],
+        "nextActionSource": "data.nextActions",
+        "redactionRequired": true,
+        "handoffBoundary": "Attach bounded generated verification failures and rerun only the command named by nextActions."
+      }
+    ]
+  },
   "docs": [
     "docs/reference/cli-json-contracts.md",
     "docs/operations/troubleshooting.md"

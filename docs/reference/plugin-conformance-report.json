@@ -9,6 +9,88 @@
     "reportConsumer": "release evidence and adopter plugin publishing review",
     "outputContract": "registry, manifest, digest, signature, permission, compatibility, malicious-path, and failure-isolation results are represented as stable JSON cases"
   },
+  "r8PublishProtocolMatrix": {
+    "schema": "gofly.plugin_template_publish_protocol.v1",
+    "aiflowTask": "GOFLY-GOV-10R8-07",
+    "status": "blocking-contract",
+    "acceptanceGate": "make plugin-conformance-check",
+    "rows": [
+      {
+        "id": "registry-schema-protocol",
+        "surface": "plugin registry schema",
+        "publishRequirement": "Registry entries must declare name, remote, version, protocol, checksum, source, manifest, dry-run requirement, and permission evidence.",
+        "evidenceIds": [
+          "registry-schema"
+        ],
+        "gate": "make plugin-conformance-check",
+        "blockDecision": "Block publication when registry metadata, checksum, source, protocol, manifest, dry-run, or permissions are incomplete.",
+        "rollbackOrEscalation": "Keep the previous registry entry pinned until the publisher republishes a complete registry record and conformance report."
+      },
+      {
+        "id": "manifest-schema-protocol",
+        "surface": "plugin manifest schema",
+        "publishRequirement": "Manifests must declare compatibleVersions, capabilities, filesystem:write-relative permissions, requiresDryRun, and publisher rationale.",
+        "evidenceIds": [
+          "manifest-schema",
+          "permission-escape"
+        ],
+        "gate": "make plugin-conformance-check",
+        "blockDecision": "Block publication when manifest permissions, capabilities, compatibility, or dry-run declarations are unsupported.",
+        "rollbackOrEscalation": "Disable the plugin release or pin the previous manifest when permission, dry-run, compatibility, or capability evidence regresses."
+      },
+      {
+        "id": "digest-signature-source-protocol",
+        "surface": "digest, signature, and source provenance",
+        "publishRequirement": "Published plugins must provide sha256 digest, signature provenance, source repository, and release-note provenance for adopter review.",
+        "evidenceIds": [
+          "digest-mismatch",
+          "signature-provenance"
+        ],
+        "gate": "make plugin-conformance-check",
+        "blockDecision": "Reject digest mismatches and hold publication when signature provenance or source context is missing.",
+        "rollbackOrEscalation": "Disable the candidate release and keep the last digest-matched version available for rollback."
+      },
+      {
+        "id": "compatibility-protocol",
+        "surface": "old current future protocol compatibility",
+        "publishRequirement": "Protocol compatibility must cover old, current, future-plus-current, and future-only windows for a protocol 1 host.",
+        "evidenceIds": [
+          "old-protocol",
+          "current-protocol",
+          "future-plus-current-protocol",
+          "future-only-protocol"
+        ],
+        "gate": "make plugin-conformance-check",
+        "blockDecision": "Reject old-only and future-only plugins while accepting current or future-plus-current plugins only after other conformance checks pass.",
+        "rollbackOrEscalation": "Require host upgrade evidence or republish with protocol 1 compatibility before install."
+      },
+      {
+        "id": "template-contract-protocol",
+        "surface": "third-party template contract",
+        "publishRequirement": "Template directories must declare schema, name, version, protocol, entrypoints, permissions, checksum, and source.",
+        "evidenceIds": [
+          "template-directory-supply-chain"
+        ],
+        "gate": "make plugin-conformance-check",
+        "blockDecision": "Block template publication when schema, entrypoints, permission, checksum, source, or dry-run evidence is incomplete.",
+        "rollbackOrEscalation": "Keep the previous template pack pinned until template schema, entrypoint, permission, checksum, source, and isolation evidence pass."
+      },
+      {
+        "id": "failure-isolation-protocol",
+        "surface": "malicious path and no partial writes",
+        "publishRequirement": "Plugin and template effects must reject malicious paths, symlink traversal, digest mismatch, permission escape, and partial writes before host mutation.",
+        "evidenceIds": [
+          "malicious-path",
+          "permission-escape",
+          "no-partial-writes",
+          "digest-mismatch"
+        ],
+        "gate": "make plugin-conformance-check",
+        "blockDecision": "Reject filesystem escapes and partial writes as publish blockers, not warnings.",
+        "rollbackOrEscalation": "Disable plugin effects and keep the previous digest-matched artifact when failure isolation evidence regresses."
+      }
+    ]
+  },
   "adopterPublishingContract": {
     "schema": "gofly.plugin_adopter_publishing_contract.v1",
     "source": "docs/reference/plugin-conformance-report.json",

@@ -9,6 +9,71 @@
     "reportConsumer": "release evidence and adopter plugin publishing review",
     "outputContract": "registry, manifest, digest, signature, permission, compatibility, malicious-path, and failure-isolation results are represented as stable JSON cases"
   },
+  "adopterPublishingContract": {
+    "schema": "gofly.plugin_adopter_publishing_contract.v1",
+    "source": "docs/reference/plugin-conformance-report.json",
+    "publishingUX": "docs/reference/plugin-publishing-ux.json",
+    "dashboardReportField": "pluginAdoption.publishingConformance",
+    "consumers": [
+      "adopter",
+      "plugin-publisher",
+      "release-manager",
+      "ci-agent"
+    ],
+    "acceptanceGates": [
+      "make plugin-conformance-check",
+      "go test -C examples/plugin-ecosystem ./...",
+      "go run -C examples/plugin-ecosystem ."
+    ],
+    "policy": "Adopters may publish or install third-party plugins only after registry, manifest, digest, signature, permission, compatibility, malicious-path, and failure-isolation evidence all pass.",
+    "publishBlockers": [
+      {
+        "id": "registry-or-manifest-invalid",
+        "cases": [
+          "registry-schema",
+          "manifest-schema"
+        ],
+        "adopterAction": "Block publication when registry metadata, manifest fields, dry-run requirements, source, checksum, or permission declarations are incomplete.",
+        "rollbackAction": "Keep the previous registry entry pinned until the publisher republishes a complete manifest and conformance report."
+      },
+      {
+        "id": "protocol-incompatible",
+        "cases": [
+          "old-protocol",
+          "future-only-protocol"
+        ],
+        "adopterAction": "Reject plugins that do not negotiate protocol 1 with the current host, even when their registry entry is otherwise complete.",
+        "rollbackAction": "Require host upgrade evidence or republish with current protocol compatibility before install."
+      },
+      {
+        "id": "integrity-or-provenance-missing",
+        "cases": [
+          "digest-mismatch",
+          "signature-provenance"
+        ],
+        "adopterAction": "Reject digest mismatches and require signature provenance in release notes before trusting third-party plugin binaries.",
+        "rollbackAction": "Disable the plugin release and keep the last digest-matched version available for rollback."
+      },
+      {
+        "id": "permission-or-filesystem-escape",
+        "cases": [
+          "permission-escape",
+          "malicious-path",
+          "no-partial-writes"
+        ],
+        "adopterAction": "Reject plugins that request permissions outside filesystem:write-relative, attempt path escape, or leave partial writes on failure.",
+        "rollbackAction": "Keep plugin effects disabled and require a clean conformance rerun before allowing filesystem mutation."
+      }
+    ],
+    "templatePublishingRequirements": [
+      "template schema",
+      "entrypoints",
+      "permissions",
+      "checksum",
+      "source",
+      "dry-run evidence"
+    ]
+  },
   "protocol": {
     "current": "1",
     "schemaEvidence": "cmd/gofly/internal/generator/plugin.go",

@@ -43,6 +43,15 @@ The first promoted rows are `BenchmarkHTTPOpenAPI/disabled` and
 also blocking latency rows once the current ratchet confirms five baseline
 samples, no allocation drift, and a smoke run below baseline.
 
+The adopter-facing performance contract is embedded in
+`bench/budget-ratchet.json` as
+`gofly.benchmark_adopter_performance_contract.v1`. The governance dashboard
+exposes it at `benchmark.adopterPerformanceContract` and reports the counts for
+blocking, report-only, and unsupported performance surfaces. This keeps
+allocation-blocking claims, report-only latency rows, RPC candidates, and
+unsupported gateway/cache claims separate for release notes and adopter
+decisions.
+
 ## Run the benchmark suite
 
 ```sh

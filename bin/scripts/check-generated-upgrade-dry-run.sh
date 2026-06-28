@@ -346,6 +346,78 @@ for item in steps:
         require(len(str(item.get(field) or "").split()) >= 8, f"upgrade rehearsal {step}: {field} must be actionable")
 require({"baseline", "generation", "dependency", "release", "verification"} <= seen_phases, "upgrade rehearsal must cover baseline, generation, dependency, release, and verification phases")
 
+matrix_profiles = {
+    item.get("profile"): item
+    for item in (json.loads((root / "testdata/generated-compat/matrix.json").read_text(encoding="utf-8")).get("profiles") or [])
+    if isinstance(item, dict) and item.get("profile")
+}
+adopter_proof = manifest.get("adopterUpgradeProof") or {}
+require(
+    adopter_proof.get("schema") == "gofly.generated_adopter_upgrade_proof.v1",
+    "adopterUpgradeProof schema must be gofly.generated_adopter_upgrade_proof.v1",
+)
+require(
+    adopter_proof.get("source") == "docs/reference/generated-upgrade-dry-run.json",
+    "adopterUpgradeProof source mismatch",
+)
+require(
+    adopter_proof.get("compatibilityMatrix") == "testdata/generated-compat/matrix.json",
+    "adopterUpgradeProof compatibilityMatrix mismatch",
+)
+require(
+    set(adopter_proof.get("acceptanceGates") or []) == {
+        "make generated-upgrade-dry-run-check",
+        "make generated-version-compat-check",
+    },
+    "adopterUpgradeProof acceptanceGates mismatch",
+)
+require(
+    adopter_proof.get("dashboardReportField") == "generatedUpgradeDryRun.adopterUpgradeProof",
+    "adopterUpgradeProof dashboardReportField mismatch",
+)
+require(
+    len(str(adopter_proof.get("policy") or "").split()) >= 20,
+    "adopterUpgradeProof policy must be actionable",
+)
+proof_paths = adopter_proof.get("paths") or []
+proof_by_profile = {
+    item.get("profile"): item
+    for item in proof_paths
+    if isinstance(item, dict) and item.get("profile")
+}
+require(set(proof_by_profile) == profile_names, f"adopterUpgradeProof profiles mismatch: {sorted(proof_by_profile)!r}")
+for profile_name, proof in sorted(proof_by_profile.items()):
+    matrix_profile = matrix_profiles.get(profile_name) or {}
+    manifest_profile = next((item for item in profiles if item.get("profile") == profile_name), {})
+    for field in (
+        "profile",
+        "adopterDecision",
+        "compatibilityGate",
+        "dryRunGate",
+        "expectedDiff",
+        "dependencyBoundary",
+        "rollbackAction",
+    ):
+        require(proof.get(field), f"adopterUpgradeProof {profile_name}: {field} is required")
+    require(
+        proof.get("compatibilityGate") == "make generated-version-compat-check",
+        f"adopterUpgradeProof {profile_name}: compatibilityGate mismatch",
+    )
+    require(
+        proof.get("dryRunGate") == "make generated-upgrade-dry-run-check",
+        f"adopterUpgradeProof {profile_name}: dryRunGate mismatch",
+    )
+    require(
+        proof.get("expectedDiff") == matrix_profile.get("expectedDiff"),
+        f"adopterUpgradeProof {profile_name}: expectedDiff must match generated compatibility matrix",
+    )
+    require(
+        proof.get("dependencyBoundary") == (manifest_profile.get("dependencyPolicy") or {}).get("allowedLocation"),
+        f"adopterUpgradeProof {profile_name}: dependencyBoundary must match profile dependency policy",
+    )
+    for field in ("adopterDecision", "rollbackAction"):
+        require(len(str(proof.get(field) or "").split()) >= 10, f"adopterUpgradeProof {profile_name}: {field} must be actionable")
+
 target_body = make_target_body(makefile, "generated-upgrade-dry-run-check")
 contract_deps = make_target_deps(makefile, "contract-docs-check")
 require(

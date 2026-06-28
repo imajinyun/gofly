@@ -1,6 +1,6 @@
 {
   "schema": "gofly.governance_convergence_verification.v1",
-  "aiflowTask": "GOFLY-GOV-10R4-10",
+  "aiflowTask": "GOFLY-GOV-10R5-10",
   "purpose": "Tie the active 10-round governance batch to final convergence gates, commit checkpoints, ignored runtime paths, skip-report policy, and release-blocking verification.",
   "acceptanceGate": "make governance-10-rounds",
   "aggregateGates": [
@@ -10,65 +10,65 @@
     "make security",
     "make cache-dependency-governance-check"
   ],
-  "activeBatch": "GOFLY-GOV-10R4",
+  "activeBatch": "GOFLY-GOV-10R5",
   "roundCommits": [
     {
       "round": 1,
-      "task": "GOFLY-GOV-10R4-01",
-      "commit": "6f48722",
+      "task": "GOFLY-GOV-10R5-01",
+      "commit": "faaa720",
       "gate": "make governance-boundary-inventory-check"
     },
     {
       "round": 2,
-      "task": "GOFLY-GOV-10R4-02",
-      "commit": "fed8748",
-      "gate": "make release-evidence-index-check"
+      "task": "GOFLY-GOV-10R5-02",
+      "commit": "f082543",
+      "gate": "make required-checks-drift-check"
     },
     {
       "round": 3,
-      "task": "GOFLY-GOV-10R4-03",
-      "commit": "abb2f39",
+      "task": "GOFLY-GOV-10R5-03",
+      "commit": "8c2d7dd",
       "gate": "make generated-upgrade-dry-run-check"
     },
     {
       "round": 4,
-      "task": "GOFLY-GOV-10R4-04",
-      "commit": "6a0840b",
+      "task": "GOFLY-GOV-10R5-04",
+      "commit": "5cd7dfc",
       "gate": "make dx-troubleshooting-check"
     },
     {
       "round": 5,
-      "task": "GOFLY-GOV-10R4-05",
-      "commit": "d75795a",
+      "task": "GOFLY-GOV-10R5-05",
+      "commit": "22ea90f",
       "gate": "make openapi-validation-check"
     },
     {
       "round": 6,
-      "task": "GOFLY-GOV-10R4-06",
-      "commit": "fdaccf8",
+      "task": "GOFLY-GOV-10R5-06",
+      "commit": "3b8e940",
       "gate": "make rpc-boundary-check"
     },
     {
       "round": 7,
-      "task": "GOFLY-GOV-10R4-07",
-      "commit": "99a07bb",
+      "task": "GOFLY-GOV-10R5-07",
+      "commit": "f81aeeb",
       "gate": "make plugin-conformance-check"
     },
     {
       "round": 8,
-      "task": "GOFLY-GOV-10R4-08",
-      "commit": "d5d9e77",
+      "task": "GOFLY-GOV-10R5-08",
+      "commit": "a054074",
       "gate": "make cloud-native-render-check"
     },
     {
       "round": 9,
-      "task": "GOFLY-GOV-10R4-09",
-      "commit": "ec4b5a2",
+      "task": "GOFLY-GOV-10R5-09",
+      "commit": "ffcc87f",
       "gate": "make bench-regression-check"
     },
     {
       "round": 10,
-      "task": "GOFLY-GOV-10R4-10",
+      "task": "GOFLY-GOV-10R5-10",
       "commit": "self",
       "gate": "make governance-boundary-inventory-check",
       "selfReference": true
@@ -95,13 +95,13 @@
   "aiflowExecution": {
     "status": "completed",
     "blocker": "none",
-    "goflyImpact": "R4 tasks were submitted through aiflow and completed locally with per-task commits because aiflow project policy disables commit and push."
+    "goflyImpact": "R5 tasks were submitted through aiflow and completed locally with per-task commits because aiflow project policy disables commit and push."
   },
-  "legacyTaskHandoff": {
+  "previousBatchHandoff": {
     "supersedes": [
-      "GOFLY-GOV-10R3-10"
+      "GOFLY-GOV-10R4-10"
     ],
-    "reason": "R3 convergence was carried forward into the R4 active batch convergence contract instead of reverting the active governance batch.",
-    "completionPolicy": "complete GOFLY-GOV-10R3-10 through aiflow after make governance-boundary-inventory-check and make governance-report-check pass, with commits owned by the current agent or human"
+    "reason": "R4 convergence was carried forward into the R5 active batch convergence contract after production adoption evidence completed.",
+    "completionPolicy": "complete GOFLY-GOV-10R5-10 through aiflow after make governance-boundary-inventory-check and make governance-report-check pass, with commits owned by the current agent or human"
   }
 }

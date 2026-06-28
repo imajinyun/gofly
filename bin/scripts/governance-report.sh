@@ -270,6 +270,11 @@ def release_adoption_contract():
         for item in manifest.get("decisions") or []
         if isinstance(item, dict)
     ]
+    enforcement_rows = [
+        item
+        for item in manifest.get("supplyChainEnforcementRows") or []
+        if isinstance(item, dict)
+    ]
     risk_counts = {}
     for item in decisions:
         risk_class = item.get("riskClass", "")
@@ -285,6 +290,8 @@ def release_adoption_contract():
         "policy": manifest.get("policy", ""),
         "decisionCount": len(decisions),
         "riskClassCounts": risk_counts,
+        "supplyChainEnforcementCount": len(enforcement_rows),
+        "supplyChainEnforcementRows": enforcement_rows,
         "decisions": decisions,
     }
 
@@ -1516,6 +1523,70 @@ for decision_id, expected_ids in expected_release_decisions.items():
     for field in ("adopterAction", "rollbackOrEscalation"):
         if len(str(decision.get(field) or "").split()) < 10:
             missing.append(f"release adoption contract {decision_id}: {field} must be actionable")
+expected_supply_chain_enforcement = {
+    "archive-checksum-sbom-enforcement": {
+        "producerJob": "release",
+        "requiredCheck": "release-artifacts-test",
+        "requiredEvidenceIds": {"checksums", "archive-sbom"},
+    },
+    "docker-digest-trivy-enforcement": {
+        "producerJob": "release",
+        "requiredCheck": "release-artifacts-test",
+        "requiredEvidenceIds": {"docker-sbom", "docker-digest", "trivy"},
+    },
+    "provenance-attestation-enforcement": {
+        "producerJob": "release",
+        "requiredCheck": "release-artifacts-test",
+        "requiredEvidenceIds": {"checksums-attestation", "docker-attestation"},
+    },
+    "required-check-release-blocking-enforcement": {
+        "producerJob": "governance",
+        "requiredCheck": "governance gates",
+        "requiredEvidenceIds": {"api-compat", "security", "race", "bench", "governance-dashboard"},
+    },
+}
+enforcement_rows = {
+    item.get("id", ""): item
+    for item in adoption_contract.get("supplyChainEnforcementRows") or []
+    if isinstance(item, dict) and item.get("id")
+}
+if set(enforcement_rows) != set(expected_supply_chain_enforcement):
+    missing.append(
+        "release adoption contract supplyChainEnforcementRows mismatch: "
+        f"missing={sorted(set(expected_supply_chain_enforcement) - set(enforcement_rows))} "
+        f"extra={sorted(set(enforcement_rows) - set(expected_supply_chain_enforcement))}"
+    )
+if adoption_contract.get("supplyChainEnforcementCount") != len(expected_supply_chain_enforcement):
+    missing.append("release adoption contract supplyChainEnforcementCount mismatch")
+for row_id, expected in expected_supply_chain_enforcement.items():
+    row = enforcement_rows.get(row_id) or {}
+    for field in (
+        "id",
+        "producerJob",
+        "requiredCheck",
+        "requiredEvidenceIds",
+        "securityScan",
+        "provenanceEvidence",
+        "publishDecision",
+        "blockDecision",
+        "rollbackOrEscalation",
+    ):
+        if not row.get(field):
+            missing.append(f"release adoption contract supply-chain enforcement {row_id}: {field} is required")
+    for field in ("producerJob", "requiredCheck"):
+        if row.get(field) != expected[field]:
+            missing.append(f"release adoption contract supply-chain enforcement {row_id}: {field} mismatch")
+    if set(row.get("requiredEvidenceIds") or []) != expected["requiredEvidenceIds"]:
+        missing.append(f"release adoption contract supply-chain enforcement {row_id}: requiredEvidenceIds mismatch")
+    if not set(row.get("requiredEvidenceIds") or []).issubset(all_consumed_ids):
+        missing.append(f"release adoption contract supply-chain enforcement {row_id}: evidence ids must exist in release evidence consumption")
+    row_text = json.dumps(row, sort_keys=True).lower()
+    for marker in ("producer", "check", "security", "provenance", "publish", "block", "rollback"):
+        if marker not in row_text:
+            missing.append(f"release adoption contract supply-chain enforcement {row_id}: missing marker {marker!r}")
+    for field in ("securityScan", "provenanceEvidence", "publishDecision", "blockDecision", "rollbackOrEscalation"):
+        if len(str(row.get(field) or "").split()) < 8:
+            missing.append(f"release adoption contract supply-chain enforcement {row_id}: {field} must be actionable")
 readiness_score = report["release"]["readinessScore"]
 if readiness_score["schema"] != "gofly.release_readiness_score.v1":
     missing.append("release readiness score schema mismatch")
@@ -1551,6 +1622,7 @@ for field in (
     "releaseEvidenceConsumption.driftClosure.releasePrerequisiteCoverage",
     "releaseAdoptionContract.decisionCount",
     "releaseAdoptionContract.riskClassCounts",
+    "releaseAdoptionContract.supplyChainEnforcementCount",
     "apiSurface.tiers",
     "benchmark.regressionGate",
     "benchmark.trendSummaryStatus",

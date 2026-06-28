@@ -56,6 +56,13 @@ capability claim provenance.
 The `gofly.capability_claim_provenance.v1` section in that file ties each
 framework comparison or production-readiness claim to source evidence, a gate,
 risk class, adopter action, and unsupported-claim handling.
+The post-R5 R6 roadmap is captured in
+[`framework-gap-post-r5-roadmap.json`](framework-gap-post-r5-roadmap.json) with
+schema `gofly.framework_gap_post_r5_roadmap.v1`. It focuses on the remaining
+non-community gaps after the R5 convergence batch: HTTP migration DX, generated
+scaffold compatibility, RPC transport boundaries, integration ownership,
+production topology proof, release supply-chain trust, performance credibility,
+adopter decision evidence, and convergence traceability.
 
 | Order | Task | Gap | Acceptance gate |
 | --- | --- | --- | --- |
@@ -110,6 +117,21 @@ risk class, adopter action, and unsupported-claim handling.
 | 3 | `GOFLY-P7-2-UPGRADE-REHEARSAL` | Tie generated dry-run, dependency ownership, release evidence, smoke gates, and rollback steps into one rehearsal path. | `make generated-upgrade-dry-run-check` |
 | 4 | `GOFLY-P7-3-INCIDENT-DRILL-EVIDENCE` | Map runtime symptoms to SLO signals, required artifacts, rollback triggers, and post-incident evidence. | `make runtime-slo-check` |
 | 5 | `GOFLY-P7-4-CAPABILITY-CLAIM-PROVENANCE` | Prevent unsupported framework comparison or production-readiness claims from drifting beyond local evidence. | `make framework-gap-check` |
+
+## Post-R5 R6 TODO Order
+
+| Order | Task | Gap | Acceptance gate |
+| --- | --- | --- | --- |
+| 1 | `GOFLY-GOV-10R6-01` | Keep the post-R5 gap analysis, non-community scope, and aiflow task order as a machine-readable contract. | `make framework-gap-check` |
+| 2 | `GOFLY-GOV-10R6-02` | Make HTTP migration from Gin, Echo, Fiber, and Hertz easier to evaluate through route, binding, middleware, error envelope, and OpenAPI evidence. | `make openapi-validation-check` |
+| 3 | `GOFLY-GOV-10R6-03` | Continue closing go-zero and Kratos scaffold trust gaps with generated fixture, diff, dependency, and rollback evidence. | `make generated-upgrade-dry-run-check` |
+| 4 | `GOFLY-GOV-10R6-04` | Keep Kitex and gRPC-Go transport depth gaps explicit without claiming transport parity. | `make rpc-boundary-check` |
+| 5 | `GOFLY-GOV-10R6-05` | Tie SQL, Redis, MQ, discovery, gateway, RPC, and observability integrations to owners, gates, dependency triggers, and rollback notes. | `make required-checks-drift-check` |
+| 6 | `GOFLY-GOV-10R6-06` | Link reference-app topology, runtime SLO, cloud-native rollout, incident drills, and rollback evidence. | `make reference-app-smoke` |
+| 7 | `GOFLY-GOV-10R6-07` | Connect release artifacts, checksums, SBOM, Docker digest, provenance, Trivy, and required checks to adopter release decisions. | `make governance-report-check` |
+| 8 | `GOFLY-GOV-10R6-08` | Promote performance claims only through benchmark trend evidence, allocation budgets, and report-only latency boundaries. | `make bench-regression-check` |
+| 9 | `GOFLY-GOV-10R6-09` | Tie framework choice guidance to claim provenance, support bundles, dashboard evidence, caveats, gates, and rollback actions. | `make adopter-decision-check` |
+| 10 | `GOFLY-GOV-10R6-10` | Record convergence evidence for all R6 tasks, commits, gates, known risks, and ignored runtime paths. | `make governance-10-rounds` |
 
 ## Adoption Risk Register
 

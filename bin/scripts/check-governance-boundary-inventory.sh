@@ -13,7 +13,7 @@ convergence_path = root / "docs" / "reference" / "governance-convergence-verific
 p10_path = root / "docs" / "reference" / "governance-p10-roadmap.json"
 missing = []
 
-expected_active_batch = "GOFLY-GOV-10R5"
+expected_active_batch = "GOFLY-GOV-10R6"
 expected_converged_batch = "GOFLY-GOV-10R5"
 expected_tasks = [f"{expected_active_batch}-{idx:02d}" for idx in range(1, 11)]
 expected_converged_tasks = [f"{expected_converged_batch}-{idx:02d}" for idx in range(1, 11)]
@@ -41,6 +41,11 @@ expected_batches = {
     "GOFLY-GOV-10R5": {
         "status": "completed",
         "taskPrefix": "GOFLY-GOV-10R5-",
+        "roundCount": 10,
+    },
+    "GOFLY-GOV-10R6": {
+        "status": "in-progress",
+        "taskPrefix": "GOFLY-GOV-10R6-",
         "roundCount": 10,
     },
 }
@@ -168,6 +173,14 @@ for expected_round, item in enumerate(tasks, start=1):
         f"{task_id}: commitPolicy must describe the per-task commit checkpoint",
     )
     require(gate_is_known(item.get("gate", ""), targets), f"{task_id}: gate is not known: {item.get('gate')!r}")
+require(
+    tasks[0].get("gate") == "make framework-gap-check",
+    "R6 round 01 must use framework-gap-check as the roadmap acceptance gate",
+)
+require(
+    tasks[0].get("deliverable", "").lower().find("non-community") >= 0,
+    "R6 round 01 deliverable must document the non-community comparison scope",
+)
 
 surfaces = manifest.get("surfaces") or []
 actual_surfaces = {item.get("id") for item in surfaces if isinstance(item, dict)}

@@ -53,6 +53,147 @@
       }
     ]
   },
+  "r8StreamingBoundaryMatrix": {
+    "schema": "gofly.rpc_streaming_boundary_matrix.v1",
+    "aiflowTask": "GOFLY-GOV-10R8-04",
+    "status": "blocking-contract",
+    "acceptanceGate": "make rpc-boundary-check",
+    "transportParityClaim": "forbidden",
+    "summary": "R8 keeps Kitex and gRPC-Go transport depth out of scope while making gofly unary, streaming, resolver, balancer, retry, deadline, auth, tracing, benchmark, and rollback evidence machine-checkable.",
+    "rows": [
+      {
+        "id": "unary-boundary",
+        "surface": "gofly unary RPC",
+        "classification": "candidate",
+        "evidenceIds": [
+          "unary-contract",
+          "deadline-error-code-mapping",
+          "retry-balancer-contract"
+        ],
+        "gate": "BENCH_PATTERN=BenchmarkRPCUnary make bench-stat",
+        "runtimeCompatibility": "gofly unary RPC is usable for governed service glue after unary trend, error-code mapping, and retry evidence passes.",
+        "rollbackTrigger": "Route latency-critical unary calls back to Kitex or native gRPC-Go when unary allocation, latency, or retry evidence is missing or regresses.",
+        "reportEvidence": [
+          "BenchmarkRPCUnary",
+          "deadline_exceeded",
+          "invalid_argument",
+          "unavailable"
+        ]
+      },
+      {
+        "id": "server-stream-boundary",
+        "surface": "server streaming",
+        "classification": "candidate",
+        "evidenceIds": [
+          "server-stream-governance",
+          "grpc-compatibility"
+        ],
+        "gate": "BENCH_PATTERN=BenchmarkRPCServerStreamGovernance make bench-stat",
+        "runtimeCompatibility": "Server-stream adoption requires mode-specific governance overhead, auth, tracing, and compatibility evidence before replacing the existing stream path.",
+        "rollbackTrigger": "Keep server-stream workloads on Kitex or gRPC-Go when stream overhead exceeds report-only budget or metadata propagation differs.",
+        "reportEvidence": [
+          "BenchmarkRPCServerStreamGovernance",
+          "server_stream",
+          "Unauthenticated",
+          "traceparent"
+        ]
+      },
+      {
+        "id": "client-stream-boundary",
+        "surface": "client streaming",
+        "classification": "candidate",
+        "evidenceIds": [
+          "client-stream-governance",
+          "grpc-compatibility"
+        ],
+        "gate": "BENCH_PATTERN=BenchmarkRPCClientStreamGovernance make bench-stat",
+        "runtimeCompatibility": "Client-stream adoption requires upload-style stream governance, auth, tracing, and generated IDL matrix evidence.",
+        "rollbackTrigger": "Keep upload streams on the existing RPC stack when client-stream benchmark, auth, tracing, or generated IDL evidence is incomplete.",
+        "reportEvidence": [
+          "BenchmarkRPCClientStreamGovernance",
+          "client_stream",
+          "Unauthenticated",
+          "traceparent"
+        ]
+      },
+      {
+        "id": "bidi-stream-boundary",
+        "surface": "bidirectional streaming",
+        "classification": "candidate",
+        "evidenceIds": [
+          "bidi-stream-governance",
+          "grpc-compatibility"
+        ],
+        "gate": "BENCH_PATTERN=BenchmarkRPCBidiStreamGovernance make bench-stat",
+        "runtimeCompatibility": "Bidirectional streaming stays candidate-only until stream governance, metadata propagation, and rollback evidence are stable for the adopter workload.",
+        "rollbackTrigger": "Keep realtime bidirectional sessions on Kitex or native gRPC-Go when stream budget or compatibility evidence is missing.",
+        "reportEvidence": [
+          "BenchmarkRPCBidiStreamGovernance",
+          "bidi_stream",
+          "Unauthenticated",
+          "traceparent"
+        ]
+      },
+      {
+        "id": "resolver-balancer-boundary",
+        "surface": "resolver and balancer",
+        "classification": "candidate",
+        "evidenceIds": [
+          "resolver-updates",
+          "balancer-routing",
+          "retry-balancer-contract"
+        ],
+        "gate": "go test -C examples/rpc-idl-matrix ./...",
+        "runtimeCompatibility": "Resolver and balancer adoption requires discovery update, health-aware routing, and retry decision evidence for the target adapter.",
+        "rollbackTrigger": "Keep service mesh routing or the previous client balancer when resolver updates, endpoint health, or routing policy evidence diverges.",
+        "reportEvidence": [
+          "round_robin",
+          "weighted_round_robin",
+          "p2c",
+          "consistent_hash",
+          "health_aware"
+        ]
+      },
+      {
+        "id": "deadline-retry-auth-tracing-boundary",
+        "surface": "deadline, retry, auth, and tracing",
+        "classification": "tier1-ready-evidence",
+        "evidenceIds": [
+          "deadline-error-code-mapping",
+          "retry-balancer-contract",
+          "grpc-compatibility"
+        ],
+        "gate": "go test -shuffle=on ./rpc/... ./rpc/grpc/...",
+        "runtimeCompatibility": "rpc/grpc compatibility evidence is usable when deadline mapping, retryable statuses, auth failures, health, and trace metadata stay stable.",
+        "rollbackTrigger": "Keep native gRPC-Go, Kitex, or go-zero behavior when deadline taxonomy, retry policy, auth metadata, or trace propagation differs from production samples.",
+        "reportEvidence": [
+          "deadline_exceeded",
+          "codes.Unavailable",
+          "Unauthenticated",
+          "SERVING",
+          "traceparent"
+        ]
+      },
+      {
+        "id": "kitex-gozero-rollback-boundary",
+        "surface": "Kitex and go-zero coexistence",
+        "classification": "rollback-required",
+        "evidenceIds": [
+          "kitex-coexistence-rollback",
+          "gozero-coexistence-rollback"
+        ],
+        "gate": "make rpc-boundary-check",
+        "runtimeCompatibility": "Framework coexistence requires generated upgrade evidence, control-plane visibility, discovery registration, and explicit rollback routing before traffic migration.",
+        "rollbackTrigger": "Keep the original Kitex or go-zero service registered and route traffic back when generated output, control-plane, discovery, or RPC evidence diverges.",
+        "reportEvidence": [
+          "Kitex",
+          "go-zero",
+          "generated service",
+          "rollback routing"
+        ]
+      }
+    ]
+  },
   "adopterContract": {
     "schema": "gofly.rpc_adopter_contract.v1",
     "source": "docs/reference/rpc-tier1-evidence.json",

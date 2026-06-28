@@ -33,6 +33,75 @@
     "promotionPolicy": "Tier 1 promotion stays blocked until one release train attaches RPC boundary evidence and selected RPC unary or stream benchmark rows move from report-only candidates to blocking budget coverage.",
     "rollbackPolicy": "Keep Kitex or native gRPC-Go on latency-critical transport paths until benchmark, stream, resolver, balancer, deadline, retry, and release evidence all pass locally."
   },
+  "r8TransportEvidenceMatrix": {
+    "schema": "gofly.rpc_transport_r8_evidence_matrix.v1",
+    "aiflowTask": "GOFLY-GOV-10R8-04",
+    "status": "blocking-contract",
+    "source": "docs/reference/rpc-tier1-evidence.json",
+    "acceptanceGate": "make rpc-boundary-check",
+    "rows": [
+      {
+        "id": "streaming-modes",
+        "claimClass": "candidate",
+        "supportedEvidence": [
+          "server-stream-governance",
+          "client-stream-governance",
+          "bidi-stream-governance"
+        ],
+        "forbiddenClaim": "Kitex or gRPC-Go streaming transport parity",
+        "requiredGate": "BENCH_PATTERN=BenchmarkRPCStreamGovernance make bench-stat",
+        "rollbackPolicy": "Keep mode-specific streams on Kitex or gRPC-Go until each stream benchmark and compatibility row passes for the adopter workload."
+      },
+      {
+        "id": "resolver-balancer",
+        "claimClass": "candidate",
+        "supportedEvidence": [
+          "resolver-updates",
+          "balancer-routing",
+          "retry-balancer-contract"
+        ],
+        "forbiddenClaim": "service-mesh or Kitex client-side routing parity",
+        "requiredGate": "go test -C examples/rpc-idl-matrix ./...",
+        "rollbackPolicy": "Keep previous discovery, service mesh, or client balancer routing active until resolver updates and health-aware policy evidence pass."
+      },
+      {
+        "id": "deadline-retry-auth-tracing",
+        "claimClass": "tier1-ready-evidence",
+        "supportedEvidence": [
+          "deadline-error-code-mapping",
+          "retry-balancer-contract",
+          "grpc-compatibility"
+        ],
+        "forbiddenClaim": "native gRPC-Go ecosystem parity beyond tested health, auth, tracing, retry, and deadline surfaces",
+        "requiredGate": "go test -shuffle=on ./rpc/... ./rpc/grpc/...",
+        "rollbackPolicy": "Keep native gRPC-Go behavior when deadline taxonomy, retryable statuses, auth metadata, or tracing propagation differ from production samples."
+      },
+      {
+        "id": "benchmark-budget",
+        "claimClass": "report-only",
+        "supportedEvidence": [
+          "unary-contract",
+          "server-stream-governance",
+          "client-stream-governance",
+          "bidi-stream-governance"
+        ],
+        "forbiddenClaim": "blocking RPC latency or allocation budget coverage before bench-regression-check promotion",
+        "requiredGate": "make bench-regression-check",
+        "rollbackPolicy": "Keep latency-critical methods on Kitex or existing gRPC clients while RPC benchmark rows remain report-only candidates."
+      },
+      {
+        "id": "framework-rollback",
+        "claimClass": "rollback-required",
+        "supportedEvidence": [
+          "kitex-coexistence-rollback",
+          "gozero-coexistence-rollback"
+        ],
+        "forbiddenClaim": "in-place migration without parallel registration and rollback routing",
+        "requiredGate": "make generated-upgrade-dry-run-check && make rpc-boundary-check",
+        "rollbackPolicy": "Keep original Kitex or go-zero services registered and route traffic back when generated output, control-plane, discovery, or RPC evidence diverges."
+      }
+    ]
+  },
   "transportBoundaries": [
     {
       "id": "kitex-hot-path-boundary",

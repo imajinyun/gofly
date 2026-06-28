@@ -178,8 +178,9 @@
     }
   ],
   "aiflowExecution": {
-    "status": "local-fallback",
-    "blocker": "aiflow CLI currently fails to compile in the adjacent aiflow checkout because harness/policy.go imports fmt without use",
-    "goflyImpact": "none; the local observability and production-default governance gate is self-contained"
+    "status": "aiflow-driven",
+    "driver": "GOFLY-GOV-10R3-09",
+    "completionPolicy": "complete GOFLY-GOV-10R3-09 only after make governance-report-check, make runtime-slo-check, and observability example smoke pass, and the current agent or human records the commit",
+    "goflyImpact": "observability and production-default governance is driven through aiflow while commits remain owned by the current agent or human"
   }
 }

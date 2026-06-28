@@ -596,6 +596,7 @@ def observability_production_governance_contract():
         "schema": manifest.get("schema", ""),
         "manifest": "docs/reference/observability-production-governance.json",
         "aiflowTask": manifest.get("aiflowTask", ""),
+        "aiflowExecution": manifest.get("aiflowExecution", {}),
         "acceptanceGate": manifest.get("acceptanceGate", ""),
         "aggregateGates": manifest.get("aggregateGates", []),
         "surfaceCount": len(surfaces),
@@ -1028,6 +1029,15 @@ if observability_governance["schema"] != "gofly.observability_production_governa
     missing.append("observability production governance schema mismatch")
 if observability_governance["aiflowTask"] != "GOFLY-GOV-10R3-09":
     missing.append("observability production governance aiflowTask mismatch")
+observability_execution = observability_governance.get("aiflowExecution") or {}
+if observability_execution.get("status") != "aiflow-driven":
+    missing.append("observability production governance aiflowExecution.status must be aiflow-driven")
+if "GOFLY-GOV-10R3-09" not in str(observability_execution.get("driver") or ""):
+    missing.append("observability production governance aiflowExecution.driver mismatch")
+observability_completion_policy = str(observability_execution.get("completionPolicy") or "")
+for needle in ("make governance-report-check", "make runtime-slo-check", "commit"):
+    if needle not in observability_completion_policy:
+        missing.append(f"observability production governance completionPolicy missing {needle!r}")
 if observability_governance["acceptanceGate"] != "make governance-report-check":
     missing.append("observability production governance acceptanceGate mismatch")
 required_observability_gates = {

@@ -28,6 +28,8 @@ checks = {
         "BenchmarkHTTPMiddlewareChain",
         "BenchmarkHTTPOpenAPI",
         "BenchmarkHTTPGovernance",
+        "BenchmarkGatewayProxy",
+        "BenchmarkCacheHotPath",
         "allocations",
     ],
     pathlib.Path("bin/scripts/benchstat.sh"): [
@@ -44,6 +46,8 @@ checks = {
         "BenchmarkHTTPMiddlewareChain",
         "BenchmarkHTTPOpenAPI",
         "BenchmarkHTTPGovernance",
+        "BenchmarkGatewayProxy",
+        "BenchmarkCacheHotPath",
     ],
     pathlib.Path("bench/budget-ratchet.json"): [
         "gofly.benchmark_budget_ratchet.v1",
@@ -57,6 +61,8 @@ checks = {
         "unsupported-report-only",
         "gateway-proxy",
         "cache-hot-path",
+        "p9GatewayCacheOwnership",
+        "gofly.benchmark_gateway_cache_ownership.v1",
     ],
 }
 

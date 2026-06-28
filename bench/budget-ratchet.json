@@ -333,6 +333,49 @@
       }
     ]
   },
+  "p9GatewayCacheOwnership": {
+    "schema": "gofly.benchmark_gateway_cache_ownership.v1",
+    "aiflowTask": "GOFLY-GOV-10P9-04",
+    "acceptanceGate": "make bench-regression-check",
+    "status": "candidate-report-only",
+    "policy": "Gateway and cache performance claims now have dedicated public benchmark rows, but they remain report-only until five baseline samples, three current trend samples, allocation budgets, latency policy, and rollback evidence are attached.",
+    "candidateSurfaces": [
+      {
+        "id": "gateway-proxy",
+        "benchmark": "BenchmarkGatewayProxy",
+        "area": "Gateway proxy",
+        "mode": "candidate-report-only",
+        "baselineRequirement": "minimum 5 baseline samples before allocation blocking promotion",
+        "currentTrendRequirement": "minimum 3 current trend samples before promotion review",
+        "rollbackAction": "Route traffic back to the previous gateway or keep gateway performance claims report-only when proxy benchmark evidence regresses."
+      },
+      {
+        "id": "cache-hot-path",
+        "benchmark": "BenchmarkCacheHotPath",
+        "area": "Cache hot path",
+        "mode": "candidate-report-only",
+        "baselineRequirement": "minimum 5 baseline samples before allocation blocking promotion",
+        "currentTrendRequirement": "minimum 3 current trend samples before promotion review",
+        "rollbackAction": "Disable cache with GOFLY_CACHE_DISABLED or keep direct source-of-truth reads when cache benchmark evidence regresses."
+      },
+      {
+        "id": "cache-hot-path-loader-hit",
+        "benchmark": "BenchmarkCacheHotPathGetOrLoadHit",
+        "area": "Cache GetOrLoad hit path",
+        "mode": "candidate-report-only",
+        "baselineRequirement": "minimum 5 baseline samples before allocation blocking promotion",
+        "currentTrendRequirement": "minimum 3 current trend samples before promotion review",
+        "rollbackAction": "Keep cache loader-hit performance report-only until cache hit, miss, and invalidation evidence converge."
+      }
+    ],
+    "promotionCriteria": [
+      "dedicated benchmark exists in bench/",
+      "minimum 5 baseline samples",
+      "minimum 3 current trend samples",
+      "no allocation regression under bench-regression-check after promotion",
+      "latency remains report-only until maxRegressionRatio and rollback action are documented"
+    ]
+  },
   "allocationPolicy": {
     "blocking": true,
     "metric": "allocs/op median",

@@ -178,7 +178,9 @@ check_evidence() {
 		BenchmarkHTTPOpenAPI \
 		BenchmarkHTTPGovernance \
 		BenchmarkRPCUnary \
-		BenchmarkRPCStreamGovernance; do
+		BenchmarkRPCStreamGovernance \
+		BenchmarkGatewayProxy \
+		BenchmarkCacheHotPath; do
 		if ! grep -q "$benchmark" "$BASELINE_FILE"; then
 			echo "baseline is missing $benchmark"
 			exit 1
@@ -243,6 +245,7 @@ def validate_ratchet_policy() -> None:
     allocation_policy = ratchet.get("allocationPolicy") or {}
     adopter_contract = ratchet.get("adopterPerformanceContract") or {}
     promotion_evidence = ratchet.get("performancePromotionEvidence") or {}
+    p9_ownership = ratchet.get("p9GatewayCacheOwnership") or {}
     report_only = set(latency_policy.get("reportOnly") or [])
     promoted = latency_policy.get("promoted") or []
     rpc_policy = ratchet.get("rpcPolicy") or {}
@@ -328,6 +331,26 @@ def validate_ratchet_policy() -> None:
     require_policy(
         promotion_evidence.get("acceptanceGate") == "make bench-regression-check",
         "performancePromotionEvidence acceptanceGate must be make bench-regression-check",
+    )
+    require_policy(
+        p9_ownership.get("schema") == "gofly.benchmark_gateway_cache_ownership.v1",
+        "p9GatewayCacheOwnership schema mismatch",
+    )
+    require_policy(
+        p9_ownership.get("aiflowTask") == "GOFLY-GOV-10P9-04",
+        "p9GatewayCacheOwnership aiflowTask mismatch",
+    )
+    require_policy(
+        p9_ownership.get("acceptanceGate") == "make bench-regression-check",
+        "p9GatewayCacheOwnership acceptanceGate must be make bench-regression-check",
+    )
+    require_policy(
+        p9_ownership.get("status") == "candidate-report-only",
+        "p9GatewayCacheOwnership status must remain candidate-report-only",
+    )
+    require_policy(
+        len(str(p9_ownership.get("policy") or "").split()) >= 20,
+        "p9GatewayCacheOwnership policy must be actionable",
     )
 
     confidence = promotion_evidence.get("multiRunConfidence") or {}
@@ -431,6 +454,43 @@ def validate_ratchet_policy() -> None:
                 len(str(item.get(field) or "").split()) >= 10,
                 f"{action_id}: adopter action {field} must be actionable",
             )
+
+    p9_candidates = {
+        item.get("id"): item
+        for item in p9_ownership.get("candidateSurfaces") or []
+        if isinstance(item, dict) and item.get("id")
+    }
+    expected_p9_candidates = {
+        "gateway-proxy": "BenchmarkGatewayProxy",
+        "cache-hot-path": "BenchmarkCacheHotPath",
+        "cache-hot-path-loader-hit": "BenchmarkCacheHotPathGetOrLoadHit",
+    }
+    require_policy(
+        set(p9_candidates) == set(expected_p9_candidates),
+        "p9GatewayCacheOwnership candidateSurfaces mismatch",
+    )
+    benchmark_source = Path("bench/gateway_cache_bench_test.go")
+    source_text = benchmark_source.read_text(encoding="utf-8") if benchmark_source.is_file() else ""
+    require_policy(source_text, "bench/gateway_cache_bench_test.go is missing")
+    for surface_id, benchmark in expected_p9_candidates.items():
+        item = p9_candidates.get(surface_id) or {}
+        require_policy(item.get("benchmark") == benchmark, f"p9GatewayCacheOwnership {surface_id}: benchmark mismatch")
+        require_policy(item.get("mode") == "candidate-report-only", f"p9GatewayCacheOwnership {surface_id}: mode must be candidate-report-only")
+        require_policy(benchmark not in tracked, f"p9GatewayCacheOwnership {surface_id}: benchmark must stay out of trackedBenchmarks before promotion")
+        require_policy(f"func {benchmark}(" in source_text, f"bench/gateway_cache_bench_test.go missing {benchmark}")
+        for field in ("baselineRequirement", "currentTrendRequirement", "rollbackAction"):
+            require_policy(
+                len(str(item.get(field) or "").split()) >= 8,
+                f"p9GatewayCacheOwnership {surface_id}: {field} must be actionable",
+            )
+    promotion_criteria = set(p9_ownership.get("promotionCriteria") or [])
+    for criterion in (
+        "dedicated benchmark exists in bench/",
+        "minimum 5 baseline samples",
+        "minimum 3 current trend samples",
+        "no allocation regression under bench-regression-check after promotion",
+    ):
+        require_policy(criterion in promotion_criteria, f"p9GatewayCacheOwnership promotionCriteria missing {criterion!r}")
 
     for item in promoted:
         if not isinstance(item, dict):
@@ -951,6 +1011,8 @@ write_matrix() {
 		echo "| RPC server stream governance | BenchmarkRPCServerStreamGovernance | gofly RPC server stream governance | BENCH_PATTERN=BenchmarkRPCServerStreamGovernance make bench-stat | Server-stream setup, send and policy overhead |"
 		echo "| RPC client stream governance | BenchmarkRPCClientStreamGovernance | gofly RPC client stream governance | BENCH_PATTERN=BenchmarkRPCClientStreamGovernance make bench-stat | Client-stream send, response and policy overhead |"
 		echo "| RPC bidi stream governance | BenchmarkRPCBidiStreamGovernance | gofly RPC bidi stream governance | BENCH_PATTERN=BenchmarkRPCBidiStreamGovernance make bench-stat | Bidirectional stream round-trip and policy overhead |"
+		echo "| Gateway proxy | BenchmarkGatewayProxy | gofly gateway HTTP proxy | BENCH_PATTERN=BenchmarkGatewayProxy make bench-stat | Dedicated gateway proxy candidate evidence, report-only until promoted |"
+		echo "| Cache hot path | BenchmarkCacheHotPath, BenchmarkCacheHotPathGetOrLoadHit | gofly cache hit path | BENCH_PATTERN=BenchmarkCacheHotPath make bench-stat | Dedicated cache hot-path candidate evidence, report-only until promoted |"
 		echo "| RPC resolver/balancer smoke | examples/rpc-idl-matrix | gofly resolver, weighted round-robin, P2C, consistent hash, health-aware | go run -C examples/rpc-idl-matrix . | resolver/balancer smoke and Kitex boundary evidence |"
 		echo
 		echo "## Release rule"

@@ -11,6 +11,68 @@
     "docs/reference/ci-required-check-evidence.json"
   ],
   "policy": "Adopters should promote a gofly release only when release evidence, readiness score, required checks, supply-chain artifacts, and rollback decisions all point to a reproducible local or CI gate.",
+  "supplyChainEnforcementRows": [
+    {
+      "id": "archive-checksum-sbom-enforcement",
+      "producerJob": "release",
+      "requiredCheck": "release-artifacts-test",
+      "requiredEvidenceIds": [
+        "checksums",
+        "archive-sbom"
+      ],
+      "securityScan": "module checksum verification plus archive SBOM review before binary mirroring",
+      "provenanceEvidence": "dist/checksums.txt is later covered by checksums-attestation before publication.",
+      "publishDecision": "Publish archives only when checksums and archive SBOM evidence are present and release-artifacts-check passes.",
+      "blockDecision": "Block publication when archives, checksums, or SBOM artifacts are missing from the release evidence index.",
+      "rollbackOrEscalation": "Reject the release artifact, pin the previous binary release, and rebuild from the tagged commit."
+    },
+    {
+      "id": "docker-digest-trivy-enforcement",
+      "producerJob": "release",
+      "requiredCheck": "release-artifacts-test",
+      "requiredEvidenceIds": [
+        "docker-sbom",
+        "docker-digest",
+        "trivy"
+      ],
+      "securityScan": "Trivy release image scan plus release Docker SBOM review",
+      "provenanceEvidence": "release Docker digests and SBOM are paired with docker-attestation before deployment promotion.",
+      "publishDecision": "Publish or deploy release images only by immutable digest after Docker SBOM and Trivy evidence pass.",
+      "blockDecision": "Block image promotion when digest evidence is missing or Trivy reports an unexplained release-blocking finding.",
+      "rollbackOrEscalation": "Keep the previous image digest pinned until Docker evidence, Trivy results, and mitigations are accepted."
+    },
+    {
+      "id": "provenance-attestation-enforcement",
+      "producerJob": "release",
+      "requiredCheck": "release-artifacts-test",
+      "requiredEvidenceIds": [
+        "checksums-attestation",
+        "docker-attestation"
+      ],
+      "securityScan": "attestation verification for checksum and release image subjects",
+      "provenanceEvidence": "GitHub provenance attestations must bind dist/checksums.txt and release Docker image digest subjects.",
+      "publishDecision": "Publish release notes only after checksum and Docker attestation verification artifacts are uploaded.",
+      "blockDecision": "Block publication when attestations are missing, mismatched, or do not bind the expected release subjects.",
+      "rollbackOrEscalation": "Rebuild and re-attest from the tagged commit or continue using the previous attested release."
+    },
+    {
+      "id": "required-check-release-blocking-enforcement",
+      "producerJob": "governance",
+      "requiredCheck": "governance gates",
+      "requiredEvidenceIds": [
+        "api-compat",
+        "security",
+        "race",
+        "bench",
+        "governance-dashboard"
+      ],
+      "securityScan": "govulncheck, gosec, race, benchmark, API compatibility, and governance dashboard release gates",
+      "provenanceEvidence": "governance dashboard records required-check drift closure and release evidence coverage before tag promotion.",
+      "publishDecision": "Allow tag promotion only when API, security, race, benchmark, and governance dashboard evidence remain release-blocking.",
+      "blockDecision": "Block tag promotion when any required check is skipped, removed from release prerequisites, or missing dashboard evidence.",
+      "rollbackOrEscalation": "Restore the missing gate, pin the previous release, or require explicit migration and risk notes before retrying."
+    }
+  ],
   "decisions": [
     {
       "id": "upgrade",

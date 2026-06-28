@@ -10,6 +10,7 @@
     "releaseEvidenceConsumption.driftClosure.releasePrerequisiteCoverage",
     "releaseAdoptionContract.decisionCount",
     "releaseAdoptionContract.riskClassCounts",
+    "releaseAdoptionContract.supplyChainEnforcementCount",
     "apiSurface.tiers",
     "benchmark.regressionGate",
     "benchmark.regressionReport",

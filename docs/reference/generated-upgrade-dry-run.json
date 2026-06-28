@@ -184,6 +184,113 @@
       }
     ]
   },
+  "p9HistoricalFixtureMatrix": {
+    "schema": "gofly.generated_historical_fixture_matrix.v1",
+    "aiflowTask": "GOFLY-GOV-10P9-02",
+    "status": "blocking",
+    "sourceOfTruth": [
+      "testdata/generated-compat/matrix.json",
+      "docs/reference/generated-version-compat.md",
+      "docs/reference/generated-upgrade-dry-run.json"
+    ],
+    "acceptanceGates": [
+      "make generated-version-compat-check",
+      "make generated-upgrade-dry-run-check"
+    ],
+    "executionContract": {
+      "temporaryProjectRoot": "GENERATED_VERSION_COMPAT_TMPDIR or mktemp -d",
+      "generatorCommand": "go run ./cmd/gofly new service orders --module example.com/orders --dir <tmp>/<profile>/first/orders --config <copied service-config.json> --api <fixture.api> --proto <fixture.proto> --json",
+      "moduleReplacement": "go mod edit -replace github.com/imajinyun/gofly=<repo-root>",
+      "compileSmoke": "go test ./...",
+      "repeatGeneration": "generate the same profile twice into first and second directories and require diff -ru to be clean",
+      "reportSchema": "emit gofly.generated_version_compat_report.v1 from generated-version-compat-check",
+      "artifactPolicy": "temporary generated projects and reports are runtime evidence only and must not be committed"
+    },
+    "profiles": [
+      {
+        "profile": "old",
+        "fixtureSet": {
+          "api": "testdata/generated-compat/v0.1/orders.api",
+          "proto": "testdata/generated-compat/v0.1/greeter.proto",
+          "serviceConfig": "testdata/generated-compat/v0.1/service-config.json",
+          "snapshot": "testdata/generated-compat/matrix.json"
+        },
+        "expectedDiff": "compatible feature addition",
+        "requiredReportFields": [
+          "profile",
+          "generatedFiles",
+          "goTest",
+          "repeatGenerationDiff",
+          "expectedDiff",
+          "verification"
+        ],
+        "blockingChecks": [
+          "generatedFiles > 0",
+          "goTest == passed",
+          "repeatGenerationDiff == clean"
+        ],
+        "rollbackOrEscalation": "Pin the previous generator and keep the v0.1 generated snapshot serving until additive compatibility shims compile and repeat generation stays clean."
+      },
+      {
+        "profile": "current",
+        "fixtureSet": {
+          "api": "testdata/generated-compat/current/orders.api",
+          "proto": "testdata/generated-compat/current/greeter.proto",
+          "serviceConfig": "testdata/generated-compat/current/service-config.json",
+          "snapshot": "testdata/generated-compat/matrix.json"
+        },
+        "expectedDiff": "no unexplained diff",
+        "requiredReportFields": [
+          "profile",
+          "generatedFiles",
+          "goTest",
+          "repeatGenerationDiff",
+          "expectedDiff",
+          "verification"
+        ],
+        "blockingChecks": [
+          "generatedFiles > 0",
+          "goTest == passed",
+          "repeatGenerationDiff == clean"
+        ],
+        "rollbackOrEscalation": "Discard the regeneration output and keep the current generated project when repeat generation, generated smoke, or diff classification produces unexplained drift."
+      },
+      {
+        "profile": "future",
+        "fixtureSet": {
+          "api": "testdata/generated-compat/future/orders.api",
+          "proto": "testdata/generated-compat/future/greeter.proto",
+          "serviceConfig": "testdata/generated-compat/future/service-config.json",
+          "snapshot": "testdata/generated-compat/matrix.json"
+        },
+        "expectedDiff": "experimental future field ignored safely",
+        "requiredReportFields": [
+          "profile",
+          "generatedFiles",
+          "goTest",
+          "repeatGenerationDiff",
+          "expectedDiff",
+          "verification"
+        ],
+        "blockingChecks": [
+          "generatedFiles > 0",
+          "goTest == passed",
+          "repeatGenerationDiff == clean"
+        ],
+        "rollbackOrEscalation": "Treat future fixtures as preview-only evidence and pin current generation when unsupported future fields become breaking candidates."
+      }
+    ],
+    "diffExplanationPolicy": {
+      "requiredCategories": [
+        "deterministic-repeat-generation",
+        "compatible-addition",
+        "formatting-only",
+        "breaking-candidate"
+      ],
+      "blockingRule": "Any generated diff that is not a clean repeat-generation result or an explained category with a rollback note must block release promotion.",
+      "reportUse": "The gofly.generated_version_compat_report.v1 generated version compatibility report is the machine-readable source for generated file count, go test status, repeat diff status, and expected diff explanation."
+    }
+  },
   "profiles": [
     {
       "api": "testdata/generated-compat/v0.1/orders.api",

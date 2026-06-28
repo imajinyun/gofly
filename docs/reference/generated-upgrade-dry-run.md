@@ -146,6 +146,18 @@ matrix. The upgrade dry-run manifest reuses the same fixture roots so future
 automation can compare a generated project before and after a gofly upgrade
 without inventing a second source of truth.
 
+The P9 historical fixture matrix is captured in the
+`p9HistoricalFixtureMatrix` section of
+[`generated-upgrade-dry-run.json`](generated-upgrade-dry-run.json). It makes the
+old, current, and future fixture profiles release-blocking evidence rather than
+only a smoke exercise. For each profile, the gate must create temporary
+generated projects, apply the local gofly module replacement, run `go test
+./...`, generate the same profile twice, require a clean `diff -ru`, and emit a
+`gofly.generated_version_compat_report.v1` report with generated file count,
+test status, repeat diff status, and expected diff explanation. Runtime reports
+and generated project directories remain temporary evidence and must not be
+committed.
+
 ## Migration Fidelity Matrix
 
 The migration fidelity matrix ties generated upgrade expectations to adopter

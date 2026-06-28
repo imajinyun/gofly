@@ -74,6 +74,77 @@
       "dry-run evidence"
     ]
   },
+  "supplyChainRows": [
+    {
+      "id": "registry-schema-supply-chain",
+      "surface": "plugin-registry",
+      "requiredEvidence": [
+        "registry.checksum",
+        "registry.source",
+        "registry.protocol",
+        "registry.manifest"
+      ],
+      "compatibilityWindow": "Registry entries must publish current protocol compatibility and reject old-only or future-only protocol windows before plugin execution.",
+      "permissionBoundary": "Registry metadata must link to a manifest that declares least-privilege filesystem:write-relative permissions and dry-run support.",
+      "digestOrChecksum": "Registry checksum must be sha256 and must match downloaded plugin bytes before cache promotion.",
+      "sourceRequirement": "Registry source must identify the publisher repository or release source used for adopter review.",
+      "isolationRequirement": "Registry validation must fail before plugin effects run when checksum, source, protocol, manifest, or permissions are incomplete.",
+      "gate": "make plugin-conformance-check",
+      "rollbackOrEscalation": "Keep the previous registry entry pinned until checksum, source, protocol, manifest, permission, and compatibility evidence pass."
+    },
+    {
+      "id": "manifest-permission-supply-chain",
+      "surface": "plugin-manifest",
+      "requiredEvidence": [
+        "manifest.compatibleVersions",
+        "manifest.capabilities",
+        "manifest.permissions",
+        "manifest.requiresDryRun"
+      ],
+      "compatibilityWindow": "Manifest compatibility must include protocol 1 for the current host and reject future-only manifests without host upgrade evidence.",
+      "permissionBoundary": "Manifest permissions are limited to filesystem:write-relative and must include a publisher rationale before publication.",
+      "digestOrChecksum": "Manifest execution depends on registry digest verification and must not bypass checksum validation.",
+      "sourceRequirement": "Manifest review must be tied to the registry source field and publisher release notes.",
+      "isolationRequirement": "Unsupported capabilities or permission escapes must be rejected before any generated file or patch is applied.",
+      "gate": "make plugin-conformance-check",
+      "rollbackOrEscalation": "Disable the plugin release or pin the previous manifest when permission, dry-run, compatibility, or digest evidence regresses."
+    },
+    {
+      "id": "template-directory-supply-chain",
+      "surface": "third-party-template-directory",
+      "requiredEvidence": [
+        "template.schema",
+        "template.entrypoints",
+        "template.permissions",
+        "template.checksum",
+        "template.source"
+      ],
+      "compatibilityWindow": "Template directories must declare protocol 1 before being used by current gofly generators.",
+      "permissionBoundary": "Template directories may only request filesystem:write-relative and must keep outputs relative to the target project root.",
+      "digestOrChecksum": "Template checksum must be sha256 and stable for the published template directory contents.",
+      "sourceRequirement": "Template source must identify the publisher repository or release source used for adopter review.",
+      "isolationRequirement": "Template copy and generated files must reject symlink traversal, escaping paths, and partial writes on failure.",
+      "gate": "make plugin-conformance-check",
+      "rollbackOrEscalation": "Keep the previous template pack pinned until schema, entrypoint, permission, checksum, source, and isolation evidence pass."
+    },
+    {
+      "id": "failure-isolation-supply-chain",
+      "surface": "plugin-and-template-effects",
+      "requiredEvidence": [
+        "malicious path",
+        "digest mismatch",
+        "permission escape",
+        "no partial writes"
+      ],
+      "compatibilityWindow": "Failure isolation applies to old, current, and future protocol windows before any plugin effect is promoted.",
+      "permissionBoundary": "Permission escapes outside filesystem:write-relative are publish blockers and must not be downgraded to warnings.",
+      "digestOrChecksum": "Digest mismatch must fail closed before local cache promotion or generated output application.",
+      "sourceRequirement": "Failure reports must preserve source and release-note context so adopters can identify the rejected publisher artifact.",
+      "isolationRequirement": "Malicious paths, symlink traversal, digest mismatch, permission escape, and partial writes must leave no committed host changes.",
+      "gate": "make plugin-conformance-check",
+      "rollbackOrEscalation": "Disable the plugin or template release and keep the previous digest-matched version available when isolation evidence fails."
+    }
+  ],
   "protocol": {
     "current": "1",
     "schemaEvidence": "cmd/gofly/internal/generator/plugin.go",

@@ -271,6 +271,70 @@ for field in ("template schema", "entrypoints", "permissions", "checksum", "sour
             f"adopterPublishingContract templatePublishingRequirements missing {field!r}"
         )
 
+supply_chain_rows = report.get("supplyChainRows")
+if not isinstance(supply_chain_rows, list):
+    missing.append("docs/reference/plugin-conformance-report.json: supplyChainRows must be a list")
+    supply_chain_rows = []
+expected_supply_chain_rows = {
+    "registry-schema-supply-chain": {
+        "surface": "plugin-registry",
+        "requiredEvidence": {"registry.checksum", "registry.source", "registry.protocol", "registry.manifest"},
+    },
+    "manifest-permission-supply-chain": {
+        "surface": "plugin-manifest",
+        "requiredEvidence": {"manifest.compatibleVersions", "manifest.capabilities", "manifest.permissions", "manifest.requiresDryRun"},
+    },
+    "template-directory-supply-chain": {
+        "surface": "third-party-template-directory",
+        "requiredEvidence": {"template.schema", "template.entrypoints", "template.permissions", "template.checksum", "template.source"},
+    },
+    "failure-isolation-supply-chain": {
+        "surface": "plugin-and-template-effects",
+        "requiredEvidence": {"malicious path", "digest mismatch", "permission escape", "no partial writes"},
+    },
+}
+supply_chain_map = {
+    item.get("id"): item
+    for item in supply_chain_rows
+    if isinstance(item, dict) and item.get("id")
+}
+if set(supply_chain_map) != set(expected_supply_chain_rows):
+    missing.append(
+        "docs/reference/plugin-conformance-report.json: supplyChainRows drifted "
+        f"missing={sorted(set(expected_supply_chain_rows) - set(supply_chain_map))} "
+        f"extra={sorted(set(supply_chain_map) - set(expected_supply_chain_rows))}"
+    )
+for row_id, expected_row in expected_supply_chain_rows.items():
+    row = supply_chain_map.get(row_id) or {}
+    if row.get("surface") != expected_row["surface"]:
+        missing.append(f"docs/reference/plugin-conformance-report.json: supplyChainRows {row_id}: surface mismatch")
+    if row.get("gate") != "make plugin-conformance-check":
+        missing.append(f"docs/reference/plugin-conformance-report.json: supplyChainRows {row_id}: gate must be make plugin-conformance-check")
+    evidence = set(row.get("requiredEvidence") or [])
+    for required in sorted(expected_row["requiredEvidence"]):
+        if required not in evidence:
+            missing.append(f"docs/reference/plugin-conformance-report.json: supplyChainRows {row_id}: missing requiredEvidence {required!r}")
+    for field in (
+        "compatibilityWindow",
+        "permissionBoundary",
+        "digestOrChecksum",
+        "sourceRequirement",
+        "isolationRequirement",
+        "rollbackOrEscalation",
+    ):
+        if len(str(row.get(field) or "").split()) < 10:
+            missing.append(f"docs/reference/plugin-conformance-report.json: supplyChainRows {row_id}: {field} must be actionable")
+    row_text = json.dumps(row, sort_keys=True).lower()
+    for marker in ("compatibility", "permission", "checksum", "source", "isolation"):
+        if marker not in row_text:
+            missing.append(f"docs/reference/plugin-conformance-report.json: supplyChainRows {row_id}: missing marker {marker!r}")
+    rollback_text = str(row.get("rollbackOrEscalation") or "").lower()
+    if not any(marker in rollback_text for marker in ("pin", "disable", "keep", "rollback")):
+        missing.append(
+            f"docs/reference/plugin-conformance-report.json: supplyChainRows {row_id}: "
+            "rollbackOrEscalation must name pin, disable, keep, or rollback"
+        )
+
 protocol = report.get("protocol") or {}
 if protocol.get("current") != "1":
     missing.append("docs/reference/plugin-conformance-report.json: protocol.current must be 1")

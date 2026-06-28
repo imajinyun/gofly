@@ -21,6 +21,9 @@
     "runtimeSLO.incidentRehearsalCount",
     "dxSupportBundle.surfaceCount",
     "dxSupportBundle.remediationHintCount",
+    "dxSupportBundle.remediationHandoff.schema",
+    "dxSupportBundle.remediationHandoff.aiflowTask",
+    "dxSupportBundle.remediationHandoff.owner",
     "governanceConvergence.taskCount",
     "governanceConvergence.ignoredRuntimePathCount",
     "aiflow.status",
@@ -122,6 +125,14 @@
       "error.remediation",
       "data.verification",
       "data.nextActions"
+    ],
+    "requiredHandoffSchema": "gofly.remediation_handoff.v1",
+    "requiredCommitOwner": "human-or-current-agent",
+    "handoffReportField": "dxSupportBundle.remediationHandoff",
+    "requiredHandoffGates": [
+      "make dx-troubleshooting-check",
+      "make governance-report-check",
+      "go test -shuffle=on ./cmd/gofly/internal/command -run 'TestCLIJSONContractGoldens|TestCLIJSONErrorEnvelopeGolden'"
     ]
   },
   "productionReadinessScorecard": {
@@ -210,7 +221,7 @@
         "riskClass": "production-ready",
         "source": "docs/reference/dx-support-bundle.json",
         "gate": "make dx-troubleshooting-check",
-        "adopterAction": "collect doctor, release, support bundle, generated verification, and control-plane evidence before asking agents or maintainers to diagnose failures"
+        "adopterAction": "collect doctor, release, support bundle, generated verification, remediation handoff, and control-plane evidence before asking agents or maintainers to diagnose failures"
       }
     ]
   },
@@ -293,12 +304,12 @@
       },
       {
         "id": "ai-native-support-workflow",
-        "claim": "AI-native support workflows expose doctor, release, support bundle, generated failure, and control-plane remediation evidence as machine-readable contracts.",
+        "claim": "AI-native support workflows expose doctor, release, support bundle, generated failure, aiflow handoff, and control-plane remediation evidence as machine-readable contracts.",
         "sourceManifest": "docs/reference/dx-support-bundle.json",
-        "reportField": "dxSupportBundle.surfaceCount",
+        "reportField": "dxSupportBundle.remediationHandoff",
         "gate": "make dx-troubleshooting-check",
         "riskClass": "production-ready",
-        "rollbackOrEscalation": "fall back to manual troubleshooting and block agent-driven remediation when nextActions, support bundle redaction, or control-plane evidence is missing"
+        "rollbackOrEscalation": "fall back to manual troubleshooting and block agent-driven remediation when nextActions, support bundle redaction, commit ownership, or control-plane evidence is missing"
       }
     ]
   },

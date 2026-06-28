@@ -656,6 +656,7 @@ def dx_support_bundle_evidence():
                 "nextActionRequired": item.get("nextActionRequired") is True,
             })
     generated_failure = manifest.get("generatedFailureReport") or {}
+    remediation_handoff = manifest.get("remediationHandoff") or {}
     return {
         "schema": manifest.get("schema", ""),
         "manifest": "docs/reference/dx-support-bundle.json",
@@ -673,6 +674,18 @@ def dx_support_bundle_evidence():
             "boundedOutput": generated_failure.get("boundedOutput") is True,
             "redactionRequired": generated_failure.get("redactionRequired") is True,
             "rerunGuidanceField": generated_failure.get("rerunGuidanceField", ""),
+        },
+        "remediationHandoff": {
+            "schema": remediation_handoff.get("schema", ""),
+            "aiflowTask": remediation_handoff.get("aiflowTask", ""),
+            "owner": remediation_handoff.get("owner", ""),
+            "commitPolicy": remediation_handoff.get("commitPolicy", ""),
+            "allowedActions": remediation_handoff.get("allowedActions", []),
+            "forbiddenActions": remediation_handoff.get("forbiddenActions", []),
+            "inputs": remediation_handoff.get("inputs", []),
+            "requiredGates": remediation_handoff.get("requiredGates", []),
+            "outputFields": remediation_handoff.get("outputFields", []),
+            "completionPolicy": remediation_handoff.get("completionPolicy", ""),
         },
         "remediationHints": remediation_hints,
         "remediationHintCount": len(remediation_hints),
@@ -883,6 +896,30 @@ if failure_report.get("boundedOutput") is not True or failure_report.get("redact
     missing.append("dx support bundle generated failure report must keep bounded output and redaction")
 if failure_report.get("rerunGuidanceField") != "nextActions":
     missing.append("dx support bundle generated failure report rerun guidance mismatch")
+handoff = dx_support_bundle.get("remediationHandoff") or {}
+if handoff.get("schema") != "gofly.remediation_handoff.v1":
+    missing.append("dx support bundle remediation handoff schema mismatch")
+if handoff.get("aiflowTask") != "GOFLY-KG-07-AI-REMEDIATION-AIFLOW":
+    missing.append("dx support bundle remediation handoff aiflowTask mismatch")
+if handoff.get("owner") != "human-or-current-agent":
+    missing.append("dx support bundle remediation handoff owner mismatch")
+commit_policy = str(handoff.get("commitPolicy") or "")
+for needle in ("must not create commits", "current agent or human", "gates pass"):
+    if needle not in commit_policy:
+        missing.append(f"dx support bundle remediation handoff commitPolicy missing {needle!r}")
+for action in ("git commit", "git push", "modify docs/superpowers/", "stage runtime state"):
+    if action not in set(handoff.get("forbiddenActions") or []):
+        missing.append(f"dx support bundle remediation handoff forbiddenActions missing {action!r}")
+for gate in ("make dx-troubleshooting-check", "make governance-report-check"):
+    if gate not in set(handoff.get("requiredGates") or []):
+        missing.append(f"dx support bundle remediation handoff requiredGates missing {gate!r}")
+if not any("TestCLIJSONContractGoldens" in gate for gate in handoff.get("requiredGates") or []):
+    missing.append("dx support bundle remediation handoff must include CLI JSON contract tests")
+for field in ("taskId", "sourceCommand", "remediation", "nextActions", "gates", "commitPolicy"):
+    if field not in set(handoff.get("outputFields") or []):
+        missing.append(f"dx support bundle remediation handoff outputFields missing {field!r}")
+if "no runtime state staged" not in str(handoff.get("completionPolicy") or ""):
+    missing.append("dx support bundle remediation handoff completionPolicy must reject runtime state staging")
 if dx_support_bundle.get("remediationHintCount") != len(dx_support_bundle.get("remediationHints") or []):
     missing.append("dx support bundle remediationHintCount mismatch")
 if dx_support_bundle.get("remediationHintCount", 0) < 4:
@@ -1253,6 +1290,15 @@ if set(ai_native_contract.get("requiredWorkflowSteps") or []) != required_workfl
     missing.append("governance dashboard aiNativeWorkflow requiredWorkflowSteps mismatch")
 if not set(ai_native_contract.get("requiredStableFields") or []).issubset(set(dx_support_bundle.get("stableFieldRefs") or [])):
     missing.append("governance dashboard aiNativeWorkflow requiredStableFields missing from report")
+if ai_native_contract.get("requiredHandoffSchema") != "gofly.remediation_handoff.v1":
+    missing.append("governance dashboard aiNativeWorkflow requiredHandoffSchema mismatch")
+if ai_native_contract.get("requiredCommitOwner") != "human-or-current-agent":
+    missing.append("governance dashboard aiNativeWorkflow requiredCommitOwner mismatch")
+if ai_native_contract.get("handoffReportField") != "dxSupportBundle.remediationHandoff":
+    missing.append("governance dashboard aiNativeWorkflow handoffReportField mismatch")
+for gate in ai_native_contract.get("requiredHandoffGates") or []:
+    if gate not in set(handoff.get("requiredGates") or []):
+        missing.append(f"governance dashboard aiNativeWorkflow requiredHandoffGates missing from report: {gate}")
 scorecard = dashboard.get("productionReadinessScorecard") or {}
 if scorecard.get("schema") != "gofly.production_readiness_scorecard.v1":
     missing.append("production readiness scorecard schema mismatch")

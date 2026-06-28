@@ -248,6 +248,32 @@ def release_evidence_consumption():
     }
 
 
+def release_adoption_contract():
+    manifest = read_json(root / "docs/releases/adoption-contract.json") or {}
+    decisions = [
+        item
+        for item in manifest.get("decisions") or []
+        if isinstance(item, dict)
+    ]
+    risk_counts = {}
+    for item in decisions:
+        risk_class = item.get("riskClass", "")
+        risk_counts[risk_class] = risk_counts.get(risk_class, 0) + 1
+    return {
+        "schema": manifest.get("schema", ""),
+        "manifest": "docs/releases/adoption-contract.json",
+        "status": manifest.get("status", ""),
+        "sourceOfTruth": manifest.get("sourceOfTruth", ""),
+        "acceptanceGate": manifest.get("acceptanceGate", ""),
+        "dashboardReportField": manifest.get("dashboardReportField", ""),
+        "requiredEvidenceSources": manifest.get("requiredEvidenceSources", []),
+        "policy": manifest.get("policy", ""),
+        "decisionCount": len(decisions),
+        "riskClassCounts": risk_counts,
+        "decisions": decisions,
+    }
+
+
 def release_readiness_score(manifest, evidence_index, policy):
     evidence_items = [
         item
@@ -613,6 +639,7 @@ def governance_dashboard_contract():
         "summaryFields": manifest.get("summaryFields", []),
         "releaseReadiness": manifest.get("releaseReadiness", {}),
         "apiTiers": manifest.get("apiTiers", {}),
+        "releaseAdoptionContract": manifest.get("releaseAdoptionContract", {}),
         "benchmarkRatchet": manifest.get("benchmarkRatchet", {}),
         "coverage": manifest.get("coverage", {}),
         "security": manifest.get("security", {}),
@@ -838,6 +865,7 @@ report = {
     "security": security_evidence(),
     "release": release_evidence(),
     "releaseEvidenceConsumption": release_evidence_consumption(),
+    "releaseAdoptionContract": release_adoption_contract(),
     "aiflow": aiflow_queue(),
     "dashboard": governance_dashboard_contract(),
     "docs": {
@@ -879,6 +907,7 @@ md_lines = [
     f"- Release evidence schema: `{report['release']['schema']}`",
     f"- Release evidence index items: `{report['release']['evidenceCount']}`",
     f"- Release evidence consumption items: `{report['releaseEvidenceConsumption']['itemCount']}`",
+    f"- Release adoption decisions: `{report['releaseAdoptionContract']['decisionCount']}`",
     f"- Release readiness score: `{report['release']['readinessScore']['score']}/{report['release']['readinessScore']['maxScore']}` (`{report['release']['readinessScore']['status']}`)",
     f"- Production readiness surfaces: `{report['dashboard']['productionReadinessScorecard']['surfaceCount']}`",
     f"- Production default capabilities: `{report['productionDefaults']['capabilityCount']}`",
@@ -1370,6 +1399,61 @@ for evidence_id, source in sorted(index_by_id.items()):
     for field in ("questionAnswered", "riskClass", "consumerAction", "rollbackOrEscalation"):
         if not item.get(field):
             missing.append(f"release evidence consumption {evidence_id} missing {field}")
+adoption_contract = report["releaseAdoptionContract"]
+if adoption_contract["schema"] != "gofly.release_adoption_contract.v1":
+    missing.append("release adoption contract schema mismatch")
+if adoption_contract["status"] != "blocking":
+    missing.append("release adoption contract status mismatch")
+if adoption_contract["sourceOfTruth"] != "docs/releases/evidence-consumption.json":
+    missing.append("release adoption contract sourceOfTruth mismatch")
+if adoption_contract["acceptanceGate"] != "make governance-report-check":
+    missing.append("release adoption contract acceptanceGate mismatch")
+if adoption_contract["dashboardReportField"] != "releaseAdoptionContract":
+    missing.append("release adoption contract dashboardReportField mismatch")
+if len(str(adoption_contract.get("policy") or "").split()) < 20:
+    missing.append("release adoption contract policy must be actionable")
+for source in adoption_contract.get("requiredEvidenceSources") or []:
+    if not (root / source).exists():
+        missing.append(f"release adoption contract evidence source is missing: {source}")
+expected_release_decisions = {
+    "upgrade": {"api-compat", "governance-dashboard"},
+    "publish": {"checksums", "archive-sbom", "checksums-attestation", "docker-sbom", "docker-attestation", "docker-digest"},
+    "block": {"trivy", "security", "race", "bench"},
+    "rollback": {"docker-digest", "trivy", "bench", "governance-dashboard"},
+}
+decisions_by_id = {
+    item.get("id", ""): item
+    for item in adoption_contract.get("decisions") or []
+    if isinstance(item, dict) and item.get("id")
+}
+if set(decisions_by_id) != set(expected_release_decisions):
+    missing.append(
+        "release adoption contract decisions mismatch: "
+        f"missing={sorted(set(expected_release_decisions) - set(decisions_by_id))} "
+        f"extra={sorted(set(decisions_by_id) - set(expected_release_decisions))}"
+    )
+if adoption_contract.get("decisionCount") != len(expected_release_decisions):
+    missing.append("release adoption contract decisionCount mismatch")
+required_release_risk_classes = {"contract", "supply-chain", "security", "deployment"}
+if set((adoption_contract.get("riskClassCounts") or {}).keys()) != required_release_risk_classes:
+    missing.append("release adoption contract risk classes mismatch")
+all_consumed_ids = set(consumption_by_id)
+consumption_gates = {item.get("localGate", "") for item in consumption_by_id.values()}
+for decision_id, expected_ids in expected_release_decisions.items():
+    decision = decisions_by_id.get(decision_id) or {}
+    for field in ("id", "riskClass", "requiredEvidenceIds", "requiredGates", "adopterAction", "rollbackOrEscalation"):
+        if not decision.get(field):
+            missing.append(f"release adoption contract {decision_id}: {field} is required")
+    if set(decision.get("requiredEvidenceIds") or []) != expected_ids:
+        missing.append(f"release adoption contract {decision_id}: requiredEvidenceIds mismatch")
+    if not set(decision.get("requiredEvidenceIds") or []).issubset(all_consumed_ids):
+        missing.append(f"release adoption contract {decision_id}: evidence ids must exist in release evidence consumption")
+    for gate in decision.get("requiredGates") or []:
+        if gate not in consumption_gates and gate != "make governance-report-check":
+            missing.append(f"release adoption contract {decision_id}: gate {gate!r} is not backed by release evidence")
+    for field in ("adopterAction", "rollbackOrEscalation"):
+        if len(str(decision.get(field) or "").split()) < 10:
+            missing.append(f"release adoption contract {decision_id}: {field} must be actionable")
 readiness_score = report["release"]["readinessScore"]
 if readiness_score["schema"] != "gofly.release_readiness_score.v1":
     missing.append("release readiness score schema mismatch")
@@ -1403,6 +1487,8 @@ for field in (
     "releaseEvidenceConsumption.driftClosure.driftGate",
     "releaseEvidenceConsumption.driftClosure.requiredEvidenceCount",
     "releaseEvidenceConsumption.driftClosure.releasePrerequisiteCoverage",
+    "releaseAdoptionContract.decisionCount",
+    "releaseAdoptionContract.riskClassCounts",
     "apiSurface.tiers",
     "benchmark.regressionGate",
     "benchmark.trendSummaryStatus",
@@ -1449,6 +1535,22 @@ if release_consumption_contract.get("requiredCheckSource") != "docs/reference/ci
 for field in release_consumption_contract.get("requiredDashboardFields") or []:
     if field not in dashboard["summaryFields"]:
         missing.append(f"governance dashboard releaseEvidenceConsumption summaryFields missing {field!r}")
+release_adoption_dashboard_contract = dashboard.get("releaseAdoptionContract") or {}
+if release_adoption_dashboard_contract.get("schema") != "gofly.release_adoption_contract.v1":
+    missing.append("governance dashboard releaseAdoptionContract schema mismatch")
+if release_adoption_dashboard_contract.get("source") != "docs/releases/adoption-contract.json":
+    missing.append("governance dashboard releaseAdoptionContract source mismatch")
+if release_adoption_dashboard_contract.get("sourceOfTruth") != "docs/releases/evidence-consumption.json":
+    missing.append("governance dashboard releaseAdoptionContract sourceOfTruth mismatch")
+if release_adoption_dashboard_contract.get("reportField") != "releaseAdoptionContract":
+    missing.append("governance dashboard releaseAdoptionContract reportField mismatch")
+if release_adoption_dashboard_contract.get("acceptanceGate") != "make governance-report-check":
+    missing.append("governance dashboard releaseAdoptionContract acceptanceGate mismatch")
+if set(release_adoption_dashboard_contract.get("requiredDecisions") or []) != set(expected_release_decisions):
+    missing.append("governance dashboard releaseAdoptionContract requiredDecisions mismatch")
+for field in release_adoption_dashboard_contract.get("requiredDashboardFields") or []:
+    if field not in dashboard["summaryFields"]:
+        missing.append(f"governance dashboard releaseAdoptionContract summaryFields missing {field!r}")
 api_contract = dashboard.get("apiTiers") or {}
 if api_contract.get("gate") != "make stable-surface-check":
     missing.append("governance dashboard apiTiers gate mismatch")

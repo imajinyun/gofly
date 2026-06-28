@@ -41,6 +41,14 @@ embedded into the governance dashboard by `make governance-report-check`; any
 component below the configured minimum reports `blocked` and fails the
 dashboard contract check.
 
+The release adoption contract lives at
+[`docs/releases/adoption-contract.json`](adoption-contract.json). It maps
+evidence ids and gates into the adopter decisions `upgrade`, `publish`,
+`block`, and `rollback`. The governance dashboard exposes the contract through
+`releaseAdoptionContract`, so release notes can explain why a release can be
+upgraded, published, blocked, or rolled back without reinterpreting raw
+artifacts.
+
 The manifest is also the machine-readable release evidence schema. Its
 `schema_contract` lists fields that release automation must preserve, while
 `artifact_groups` maps binary archive, release container, and provenance

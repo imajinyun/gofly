@@ -1,0 +1,82 @@
+{
+  "schema": "gofly.release_adoption_contract.v1",
+  "status": "blocking",
+  "sourceOfTruth": "docs/releases/evidence-consumption.json",
+  "acceptanceGate": "make governance-report-check",
+  "dashboardReportField": "releaseAdoptionContract",
+  "requiredEvidenceSources": [
+    "docs/releases/evidence-index.json",
+    "docs/releases/evidence-consumption.json",
+    "docs/releases/readiness-score.json",
+    "docs/reference/ci-required-check-evidence.json"
+  ],
+  "policy": "Adopters should promote a gofly release only when release evidence, readiness score, required checks, supply-chain artifacts, and rollback decisions all point to a reproducible local or CI gate.",
+  "decisions": [
+    {
+      "id": "upgrade",
+      "riskClass": "contract",
+      "requiredEvidenceIds": [
+        "api-compat",
+        "governance-dashboard"
+      ],
+      "requiredGates": [
+        "make api-compat",
+        "make governance-report-check"
+      ],
+      "adopterAction": "Upgrade generated services only after API compatibility and governance dashboard evidence show stable contract surfaces.",
+      "rollbackOrEscalation": "Pin the previous gofly version and require migration notes when API or generated contract evidence fails."
+    },
+    {
+      "id": "publish",
+      "riskClass": "supply-chain",
+      "requiredEvidenceIds": [
+        "checksums",
+        "archive-sbom",
+        "checksums-attestation",
+        "docker-sbom",
+        "docker-attestation",
+        "docker-digest"
+      ],
+      "requiredGates": [
+        "make release-artifacts-check",
+        "RELEASE_REQUIRE_DOCKER_EVIDENCE=true make release-artifacts-check"
+      ],
+      "adopterAction": "Publish or mirror only immutable archives and image digests with checksum, SBOM, digest, and provenance evidence.",
+      "rollbackOrEscalation": "Reject publication and rebuild from the tagged commit when supply-chain artifacts or attestations are missing."
+    },
+    {
+      "id": "block",
+      "riskClass": "security",
+      "requiredEvidenceIds": [
+        "trivy",
+        "security",
+        "race",
+        "bench"
+      ],
+      "requiredGates": [
+        "make govulncheck && make gosec",
+        "go test -race ./...",
+        "make bench-evidence-check"
+      ],
+      "adopterAction": "Block production rollout when security, race, or ratcheted benchmark evidence reports a release-blocking failure.",
+      "rollbackOrEscalation": "Hold promotion and keep the previous deployment or digest pinned until the finding is fixed or explicitly accepted."
+    },
+    {
+      "id": "rollback",
+      "riskClass": "deployment",
+      "requiredEvidenceIds": [
+        "docker-digest",
+        "trivy",
+        "bench",
+        "governance-dashboard"
+      ],
+      "requiredGates": [
+        "RELEASE_REQUIRE_DOCKER_EVIDENCE=true make release-artifacts-check",
+        "make bench-evidence-check",
+        "make governance-report-check"
+      ],
+      "adopterAction": "Use digest, Trivy, benchmark, and governance dashboard evidence to decide whether to roll forward, pin, or restore the previous release.",
+      "rollbackOrEscalation": "Roll back to the previous known-good digest or binary release when deployment evidence cannot explain the regression."
+    }
+  ]
+}

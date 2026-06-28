@@ -61,6 +61,12 @@ if adopter_proof_path.is_file():
 else:
     adopter_proof = {}
     missing.append("docs/reference/framework-gap-adopter-proof.json is missing")
+post_r5_path = root / "docs" / "reference" / "framework-gap-post-r5-roadmap.json"
+if post_r5_path.is_file():
+    post_r5 = json.loads(post_r5_path.read_text(encoding="utf-8"))
+else:
+    post_r5 = {}
+    missing.append("docs/reference/framework-gap-post-r5-roadmap.json is missing")
 
 require(manifest.get("schema") == "gofly.framework_gap_matrix.v1", "framework gap matrix schema mismatch")
 require(next_wave.get("schema") == "gofly.framework_gap_next_wave.v1", "next-wave framework gap schema mismatch")
@@ -68,6 +74,7 @@ require(adoption_wave.get("schema") == "gofly.framework_gap_adoption_wave.v1", "
 require(adoption_risk.get("schema") == "gofly.adoption_risk_register.v1", "adoption risk register schema mismatch")
 require(long_term.get("schema") == "gofly.framework_gap_long_term_adoption.v1", "long-term adoption framework gap schema mismatch")
 require(adopter_proof.get("schema") == "gofly.framework_gap_adopter_proof.v1", "adopter proof framework gap schema mismatch")
+require(post_r5.get("schema") == "gofly.framework_gap_post_r5_roadmap.v1", "post-R5 framework gap schema mismatch")
 
 sources = manifest.get("sources") or []
 for source in sources:
@@ -388,6 +395,88 @@ adopter_proof_scope = adopter_proof.get("scope") or {}
 adopter_proof_excluded = set(adopter_proof_scope.get("excluded") or [])
 for out_of_scope in ("GitHub stars", "download counts", "community size", "brand awareness"):
     require(out_of_scope in adopter_proof_excluded, f"adopter proof scope.excluded missing {out_of_scope!r}")
+post_r5_completed = post_r5.get("completedBaseline") or []
+post_r5_completed_tasks = {item.get("task") for item in post_r5_completed if isinstance(item, dict)}
+for task in (
+    "GOFLY-P7-1-EVIDENCE-TRACEABILITY",
+    "GOFLY-P7-2-UPGRADE-REHEARSAL",
+    "GOFLY-P7-3-INCIDENT-DRILL-EVIDENCE",
+    "GOFLY-P7-4-CAPABILITY-CLAIM-PROVENANCE",
+):
+    require(task in post_r5_completed_tasks, f"post-R5 completedBaseline missing {task}")
+for item in post_r5_completed:
+    if not isinstance(item, dict):
+        missing.append(f"post-R5 completedBaseline entry must be an object: {item!r}")
+        continue
+    for evidence in item.get("evidence") or []:
+        if evidence.startswith("docs/") or evidence.startswith("bench/"):
+            require((root / evidence).exists(), f"post-R5 completed evidence path missing: {evidence}")
+
+claim_boundary = post_r5.get("claimBoundary") or {}
+for field in ("transportParityPolicy", "performanceClaimPolicy", "communityScopePolicy"):
+    require(len(str(claim_boundary.get(field) or "").split()) >= 10, f"post-R5 claimBoundary.{field} must be actionable")
+require("transport parity" in str(claim_boundary.get("transportParityPolicy") or ""), "post-R5 transportParityPolicy must name transport parity")
+require("report-only" in str(claim_boundary.get("performanceClaimPolicy") or ""), "post-R5 performanceClaimPolicy must preserve report-only latency boundaries")
+require("community" in str(claim_boundary.get("communityScopePolicy") or ""), "post-R5 communityScopePolicy must document community exclusion")
+
+post_r5_dimensions = post_r5.get("dimensions") or []
+expected_post_r5_tasks = [f"GOFLY-GOV-10R6-{idx:02d}" for idx in range(1, 11)]
+required_post_r5_dimensions = {
+    "post-r5-roadmap",
+    "http-migration-dx-parity",
+    "generated-scaffold-long-term-compatibility",
+    "rpc-transport-boundary-evidence",
+    "data-integration-ownership-matrix",
+    "production-reference-topology-proof",
+    "release-supply-chain-adoption-contract",
+    "performance-credibility-promotion",
+    "adopter-decision-claim-provenance",
+    "r6-convergence-evidence",
+}
+actual_post_r5_dimensions = {item.get("id") for item in post_r5_dimensions if isinstance(item, dict)}
+require(
+    actual_post_r5_dimensions == required_post_r5_dimensions,
+    f"post-R5 dimensions = {sorted(actual_post_r5_dimensions)!r}, want {sorted(required_post_r5_dimensions)!r}",
+)
+post_r5_tasks = []
+post_r5_frameworks = set()
+post_r5_priorities = set()
+for expected_round, item in enumerate(post_r5_dimensions, start=1):
+    if not isinstance(item, dict):
+        missing.append(f"post-R5 dimension entry must be an object: {item!r}")
+        continue
+    item_id = item.get("id", "<missing>")
+    task_id = item.get("aiflowTask", "")
+    post_r5_tasks.append(task_id)
+    post_r5_frameworks.update(item.get("referenceFrameworks") or [])
+    post_r5_priorities.add(item.get("priority", ""))
+    require(item.get("round") == expected_round, f"post-R5 dimension {item_id}: round must be {expected_round}")
+    for field in ("id", "round", "referenceFrameworks", "currentEvidence", "gap", "priority", "todo", "aiflowTask", "acceptanceGate"):
+        require(item.get(field) not in (None, "", []), f"post-R5 dimension {item_id}: {field} is required")
+    require(task_id == expected_post_r5_tasks[expected_round - 1], f"post-R5 dimension {item_id}: task must be {expected_post_r5_tasks[expected_round - 1]}")
+    gate = item.get("acceptanceGate", "")
+    if gate.startswith("make "):
+        target = gate.removeprefix("make ").split()[0]
+        makefile = read_text(root / "Makefile")
+        require(re.search(rf"^{re.escape(target)}:", makefile, re.M), f"post-R5 dimension {item_id}: gate target {target!r} missing")
+    else:
+        missing.append(f"post-R5 dimension {item_id}: acceptanceGate must be a make target")
+    for evidence in item.get("currentEvidence") or []:
+        if evidence.startswith("docs/") or evidence.startswith("examples/") or evidence.startswith("bench/") or evidence.startswith("bin/"):
+            require((root / evidence).exists(), f"post-R5 dimension {item_id}: evidence path missing: {evidence}")
+        elif evidence.startswith("make "):
+            target = evidence.removeprefix("make ").split()[0]
+            makefile = read_text(root / "Makefile")
+            require(re.search(rf"^{re.escape(target)}:", makefile, re.M), f"post-R5 dimension {item_id}: evidence target {target!r} missing")
+require(post_r5_tasks == expected_post_r5_tasks, f"post-R5 tasks must be ordered {expected_post_r5_tasks!r}; got {post_r5_tasks!r}")
+require({"P0", "P1", "P2"} <= post_r5_priorities, "post-R5 roadmap must contain P0, P1, and P2 priorities")
+require({"Gin", "Echo", "Fiber", "Hertz", "go-zero", "Kratos", "Kitex", "gRPC-Go", "Beego"} <= post_r5_frameworks, "post-R5 roadmap must cover major reference frameworks")
+post_r5_recommended = post_r5.get("recommendedOrder") or []
+require(post_r5_recommended == expected_post_r5_tasks, "post-R5 recommendedOrder must exactly match the R6 aiflow task order")
+post_r5_scope = post_r5.get("scope") or {}
+post_r5_excluded = set(post_r5_scope.get("excluded") or [])
+for out_of_scope in ("GitHub stars", "download counts", "community size", "brand awareness"):
+    require(out_of_scope in post_r5_excluded, f"post-R5 scope.excluded missing {out_of_scope!r}")
 claim_provenance = adopter_proof.get("capabilityClaimProvenance") or {}
 require(claim_provenance.get("schema") == "gofly.capability_claim_provenance.v1", "capability claim provenance schema mismatch")
 require(claim_provenance.get("sourceOfTruth") == "docs/reference/framework-gap-matrix.md", "capability claim provenance sourceOfTruth mismatch")
@@ -579,14 +668,17 @@ for needle in (
     "framework-gap-adoption-wave.json",
     "framework-gap-long-term-adoption.json",
     "framework-gap-adopter-proof.json",
+    "framework-gap-post-r5-roadmap.json",
     "adoption-risk-register.json",
     "gofly.adoption_risk_register.v1",
     "gofly.framework_gap_long_term_adoption.v1",
     "gofly.framework_gap_adopter_proof.v1",
+    "gofly.framework_gap_post_r5_roadmap.v1",
     "Next-Wave TODO Order",
     "Adoption-Wave TODO Order",
     "Long-Term Adoption TODO Order",
     "Adopter Proof TODO Order",
+    "Post-R5 R6 TODO Order",
     "Adoption Risk Register",
     "production-ready",
     "candidate",
@@ -596,6 +688,7 @@ for needle in (
     "GOFLY-P5-1-EXAMPLES-HEALTH-INDEX",
     "GOFLY-P6-1-SUPPORT-LIFECYCLE",
     "GOFLY-P7-1-EVIDENCE-TRACEABILITY",
+    "GOFLY-GOV-10R6-01",
     "Gin",
     "go-zero",
     "Kratos",

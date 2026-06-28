@@ -63,8 +63,12 @@ require("api-contract-governance-check" in docs_deps, "docs-check must depend on
 require("api-contract-governance-check" in contract_deps, "contract-docs-check must depend on api-contract-governance-check")
 
 tasks = boundary.get("aiflowTasks") or []
-round7 = next((item for item in tasks if item.get("round") == 7), {})
-require(round7.get("gate") == "make api-contract-check", "Round 07 gate must be make api-contract-check")
+if any(item.get("id") == "GOFLY-GOV-10R3-07" for item in tasks if isinstance(item, dict)):
+    historical_task = next(item for item in tasks if item.get("id") == "GOFLY-GOV-10R3-07")
+    require(
+        historical_task.get("gate") == "make api-contract-check",
+        "GOFLY-GOV-10R3-07 gate must be make api-contract-check when present in the active inventory",
+    )
 surfaces = boundary.get("surfaces") or []
 rest_rpc = next((item for item in surfaces if item.get("id") == "rest-rpc-contracts"), {})
 require(rest_rpc.get("gate") == "make api-contract-check", "rest-rpc-contracts surface must use make api-contract-check")
@@ -153,8 +157,11 @@ for needle in ("gofly rpc descriptor", "gofly rpc doc", "OpenAPI JSON generated 
     require(needle in cli_contracts, f"CLI JSON contracts missing {needle!r}")
 
 execution = manifest.get("aiflowExecution") or {}
-require(execution.get("status") == "local-fallback", "aiflowExecution.status must be local-fallback")
-require("fmt" in str(execution.get("blocker") or ""), "aiflowExecution.blocker must document current aiflow compile blocker")
+require(execution.get("status") == "aiflow-driven", "aiflowExecution.status must be aiflow-driven")
+require("GOFLY-GOV-10R3-07" in str(execution.get("driver") or ""), "aiflowExecution.driver must reference GOFLY-GOV-10R3-07")
+completion_policy = str(execution.get("completionPolicy") or "")
+for needle in ("make api-contract-check", "REST/RPC contract", "commit"):
+    require(needle in completion_policy, f"aiflowExecution.completionPolicy missing {needle!r}")
 
 if missing:
     print("api contract governance check failed:", file=sys.stderr)

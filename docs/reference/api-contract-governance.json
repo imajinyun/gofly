@@ -129,8 +129,9 @@
     }
   ],
   "aiflowExecution": {
-    "status": "local-fallback",
-    "blocker": "aiflow CLI currently fails to compile in the adjacent aiflow checkout because harness/policy.go imports fmt without use",
-    "goflyImpact": "none; the local REST/RPC/API contract governance gate is self-contained"
+    "status": "aiflow-driven",
+    "driver": "GOFLY-GOV-10R3-07",
+    "completionPolicy": "complete GOFLY-GOV-10R3-07 only after make api-contract-check passes, REST/RPC contract evidence remains release-blocking, and the current agent or human records the commit",
+    "goflyImpact": "REST/RPC/API contract governance is driven through aiflow while commits remain owned by the current agent or human"
   }
 }

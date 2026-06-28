@@ -14,7 +14,7 @@ p10_path = root / "docs" / "reference" / "governance-p10-roadmap.json"
 missing = []
 
 expected_active_batch = "GOFLY-GOV-10R5"
-expected_converged_batch = "GOFLY-GOV-10R4"
+expected_converged_batch = "GOFLY-GOV-10R5"
 expected_tasks = [f"{expected_active_batch}-{idx:02d}" for idx in range(1, 11)]
 expected_converged_tasks = [f"{expected_converged_batch}-{idx:02d}" for idx in range(1, 11)]
 expected_batches = {
@@ -39,22 +39,22 @@ expected_batches = {
         "roundCount": 10,
     },
     "GOFLY-GOV-10R5": {
-        "status": "active",
+        "status": "completed",
         "taskPrefix": "GOFLY-GOV-10R5-",
         "roundCount": 10,
     },
 }
 expected_converged_commits = {
-    "GOFLY-GOV-10R4-01": "6f48722",
-    "GOFLY-GOV-10R4-02": "fed8748",
-    "GOFLY-GOV-10R4-03": "abb2f39",
-    "GOFLY-GOV-10R4-04": "6a0840b",
-    "GOFLY-GOV-10R4-05": "d75795a",
-    "GOFLY-GOV-10R4-06": "fdaccf8",
-    "GOFLY-GOV-10R4-07": "99a07bb",
-    "GOFLY-GOV-10R4-08": "d5d9e77",
-    "GOFLY-GOV-10R4-09": "ec4b5a2",
-    "GOFLY-GOV-10R4-10": "self",
+    "GOFLY-GOV-10R5-01": "faaa720",
+    "GOFLY-GOV-10R5-02": "f082543",
+    "GOFLY-GOV-10R5-03": "8c2d7dd",
+    "GOFLY-GOV-10R5-04": "5cd7dfc",
+    "GOFLY-GOV-10R5-05": "22ea90f",
+    "GOFLY-GOV-10R5-06": "3b8e940",
+    "GOFLY-GOV-10R5-07": "f81aeeb",
+    "GOFLY-GOV-10R5-08": "a054074",
+    "GOFLY-GOV-10R5-09": "ffcc87f",
+    "GOFLY-GOV-10R5-10": "self",
 }
 expected_surfaces = {
     "cli",
@@ -199,7 +199,7 @@ require(timeout_policy.get("aiflowDefaultCommandTimeout") == "2m", "timeoutPolic
 require("governance-boundary-inventory-check" in timeout_policy.get("fallback", ""), "timeoutPolicy fallback must mention governance-boundary-inventory-check")
 
 require(convergence_manifest.get("schema") == "gofly.governance_convergence_verification.v1", "convergence verification schema mismatch")
-require(convergence_manifest.get("aiflowTask") == "GOFLY-GOV-10R4-10", "convergence verification aiflowTask mismatch")
+require(convergence_manifest.get("aiflowTask") == "GOFLY-GOV-10R5-10", "convergence verification aiflowTask mismatch")
 require(convergence_manifest.get("acceptanceGate") == "make governance-10-rounds", "convergence verification acceptanceGate mismatch")
 require(convergence_manifest.get("activeBatch") == expected_converged_batch, "convergence verification activeBatch mismatch")
 aggregate_gates = set(convergence_manifest.get("aggregateGates") or [])
@@ -249,12 +249,12 @@ execution = convergence_manifest.get("aiflowExecution") or {}
 require(execution.get("status") == "completed", "convergence verification aiflowExecution.status must be completed")
 require(execution.get("blocker") == "none", "convergence verification aiflowExecution.blocker must be none")
 require("commit and push" in str(execution.get("goflyImpact") or ""), "convergence verification aiflowExecution.goflyImpact must document aiflow commit policy")
-legacy_handoff = convergence_manifest.get("legacyTaskHandoff") or {}
-require("GOFLY-GOV-10R3-10" in set(legacy_handoff.get("supersedes") or []), "legacyTaskHandoff must supersede GOFLY-GOV-10R3-10")
-require("R4 active batch" in str(legacy_handoff.get("reason") or ""), "legacyTaskHandoff.reason must document R4 active batch handoff")
-legacy_completion_policy = str(legacy_handoff.get("completionPolicy") or "")
-for needle in ("GOFLY-GOV-10R3-10", "make governance-boundary-inventory-check", "make governance-report-check", "current agent or human"):
-    require(needle in legacy_completion_policy, f"legacyTaskHandoff.completionPolicy missing {needle!r}")
+previous_handoff = convergence_manifest.get("previousBatchHandoff") or {}
+require("GOFLY-GOV-10R4-10" in set(previous_handoff.get("supersedes") or []), "previousBatchHandoff must supersede GOFLY-GOV-10R4-10")
+require("R5 active batch" in str(previous_handoff.get("reason") or ""), "previousBatchHandoff.reason must document R5 active batch handoff")
+previous_completion_policy = str(previous_handoff.get("completionPolicy") or "")
+for needle in ("GOFLY-GOV-10R5-10", "make governance-boundary-inventory-check", "make governance-report-check", "current agent or human"):
+    require(needle in previous_completion_policy, f"previousBatchHandoff.completionPolicy missing {needle!r}")
 
 p10_rounds = p10_manifest.get("rounds") or []
 require(len(p10_rounds) == 10, "P10 roadmap must contain 10 rounds")

@@ -33,10 +33,10 @@
     },
     {
       "id": "GOFLY-GOV-10R5",
-      "status": "active",
+      "status": "completed",
       "taskPrefix": "GOFLY-GOV-10R5-",
       "roundCount": 10,
-      "evidence": "go run ./cmd/aiflow status -root /Users/bytedance/Codes/go/src/github/gofly -id GOFLY-GOV-10R5-01"
+      "evidence": "docs/reference/governance-convergence-verification.json"
     }
   ],
   "aiflowTasks": [

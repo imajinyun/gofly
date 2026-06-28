@@ -1,0 +1,132 @@
+{
+  "schema": "gofly.rpc_transport_boundary.v1",
+  "status": "blocking",
+  "blockingGate": "make rpc-boundary-check",
+  "scope": {
+    "included": [
+      "RPC transport boundary",
+      "gRPC compatibility",
+      "Kitex coexistence",
+      "stream governance evidence",
+      "resolver and balancer behavior",
+      "deadline and retry semantics",
+      "benchmark promotion blockers",
+      "rollback routing"
+    ],
+    "excluded": [
+      "Kitex transport parity",
+      "gRPC-Go transport parity",
+      "Netpoll parity",
+      "TTHeader parity",
+      "Thrift protocol parity",
+      "community size"
+    ]
+  },
+  "referenceFrameworks": [
+    "Kitex",
+    "gRPC-Go",
+    "go-zero"
+  ],
+  "claimPolicy": {
+    "transportParityClaim": "forbidden",
+    "allowedClaim": "gofly may claim governed RPC, rpc/grpc compatibility evidence, control-plane visibility, generated service integration, and coexistence rollback evidence when the listed gates pass.",
+    "promotionPolicy": "Tier 1 promotion stays blocked until one release train attaches RPC boundary evidence and selected RPC unary or stream benchmark rows move from report-only candidates to blocking budget coverage.",
+    "rollbackPolicy": "Keep Kitex or native gRPC-Go on latency-critical transport paths until benchmark, stream, resolver, balancer, deadline, retry, and release evidence all pass locally."
+  },
+  "transportBoundaries": [
+    {
+      "id": "kitex-hot-path-boundary",
+      "runtime": "Kitex",
+      "keepWhen": "the workload depends on Netpoll, TTHeader, Thrift, generated Kitex clients, or latency-critical transport behavior",
+      "goflyRole": "REST ingress, generated service glue, governance rules, control-plane evidence, release gates, and non-hot-path RPC",
+      "requiredEvidence": [
+        "docs/comparisons/kitex.md",
+        "bench/rpc_bench_test.go",
+        "docs/reference/rpc-tier1-evidence.json"
+      ],
+      "gate": "make rpc-boundary-check",
+      "rollbackOrEscalation": "Route hot methods back to Kitex whenever benchmark, stream governance, or coexistence rollback evidence is incomplete."
+    },
+    {
+      "id": "grpc-ecosystem-boundary",
+      "runtime": "gRPC-Go",
+      "keepWhen": "the workload depends on native gRPC ecosystem behavior, generated clients, health, auth, tracing, retry service config, or streaming compatibility",
+      "goflyRole": "rpc/grpc compatibility layer, governance interceptors, health/auth/tracing evidence, and generated control-plane integration",
+      "requiredEvidence": [
+        "rpc/grpc/auth_test.go",
+        "rpc/grpc/governance_test.go",
+        "docs/reference/rpc-boundary.md"
+      ],
+      "gate": "go test -shuffle=on ./rpc/grpc/...",
+      "rollbackOrEscalation": "Keep native gRPC-Go endpoints reachable until compatibility tests and release evidence pass for the target workload."
+    },
+    {
+      "id": "gozero-coexistence-boundary",
+      "runtime": "go-zero",
+      "keepWhen": "the migration depends on existing zrpc discovery, timeout, retry, breaker, rate-limit, or generated service layout semantics",
+      "goflyRole": "generated service migration, governance policy, REST/RPC shape comparison, discovery visibility, and rollback routing rehearsal",
+      "requiredEvidence": [
+        "docs/comparisons/go-zero.md",
+        "docs/reference/generated-upgrade-dry-run.json",
+        "docs/reference/rpc-tier1-evidence.json"
+      ],
+      "gate": "make generated-upgrade-dry-run-check && make rpc-boundary-check",
+      "rollbackOrEscalation": "Keep the go-zero service registered and route traffic back when generated output, control-plane, or RPC evidence diverges."
+    }
+  ],
+  "promotionBlockers": [
+    {
+      "id": "release-train-missing",
+      "source": "docs/reference/rpc-tier1-evidence.json",
+      "currentStatus": "blocked",
+      "requiredAction": "Attach at least one completed release train with RPC boundary, required-check drift, release evidence, and benchmark evidence before Tier 1 promotion.",
+      "gate": "make rpc-boundary-check"
+    },
+    {
+      "id": "budget-report-only",
+      "source": "bench/budget-ratchet.json",
+      "currentStatus": "report-only",
+      "requiredAction": "Promote selected RPC unary or stream rows into bench-regression-check blocking budget coverage only after trend confidence passes.",
+      "gate": "make bench-regression-check"
+    },
+    {
+      "id": "transport-parity-forbidden",
+      "source": "docs/reference/rpc-transport-boundary.json",
+      "currentStatus": "blocked",
+      "requiredAction": "Reject release notes or docs that imply Kitex or gRPC-Go transport parity without transport-layer benchmark, protocol, streaming, and rollback evidence.",
+      "gate": "make rpc-boundary-check"
+    }
+  ],
+  "evidenceLinks": [
+    {
+      "id": "stream-governance",
+      "evidenceIds": [
+        "server-stream-governance",
+        "client-stream-governance",
+        "bidi-stream-governance"
+      ],
+      "gate": "BENCH_PATTERN=BenchmarkRPCStreamGovernance make bench-stat",
+      "rollbackOrEscalation": "Keep stream workloads on the existing RPC stack until mode-specific stream overhead evidence and rollback notes pass."
+    },
+    {
+      "id": "resolver-balancer",
+      "evidenceIds": [
+        "resolver-updates",
+        "balancer-routing",
+        "retry-balancer-contract"
+      ],
+      "gate": "go test -C examples/rpc-idl-matrix ./...",
+      "rollbackOrEscalation": "Keep service mesh or previous client routing active until resolver updates and balancer policies are rehearsed."
+    },
+    {
+      "id": "deadline-retry",
+      "evidenceIds": [
+        "deadline-error-code-mapping",
+        "retry-balancer-contract",
+        "grpc-compatibility"
+      ],
+      "gate": "go test -shuffle=on ./rpc/... ./rpc/grpc/...",
+      "rollbackOrEscalation": "Keep existing client behavior when deadline, retryable status, auth, or unavailable mapping differs from sampled production behavior."
+    }
+  ]
+}

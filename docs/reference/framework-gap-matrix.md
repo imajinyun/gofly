@@ -70,6 +70,13 @@ adoption proof after the R6 convergence batch: migration smoke depth, RPC Tier 1
 promotion evidence, importer compatibility, DB/cache/discovery adapter proof,
 plugin/template supply-chain hardening, release CI enforcement, performance
 trend promotion, support-bundle remediation, and convergence traceability.
+The post-R7 R8 roadmap is captured in
+[`framework-gap-post-r7-roadmap.json`](framework-gap-post-r7-roadmap.json) with
+schema `gofly.framework_gap_post_r7_roadmap.v1`. It focuses on the remaining
+non-community gaps after the R7 convergence batch: HTTP migration compatibility,
+generated scaffold profile trust, RPC streaming boundaries, runnable adapter
+proof, production topology drills, plugin/template publish protocol,
+release/tag CI closure, performance ratchet depth, and convergence evidence.
 
 | Order | Task | Gap | Acceptance gate |
 | --- | --- | --- | --- |
@@ -154,6 +161,21 @@ trend promotion, support-bundle remediation, and convergence traceability.
 | 8 | `GOFLY-GOV-10R7-08` | Promote performance evidence only through multi-run trend confidence, allocation budgets, report-only latency, and unsupported-surface handling. | `make bench-regression-check` |
 | 9 | `GOFLY-GOV-10R7-09` | Link doctor, release check, support bundle, generated failure report, dashboard fields, and next actions into a remediation loop. | `make dx-troubleshooting-check` |
 | 10 | `GOFLY-GOV-10R7-10` | Record convergence evidence for all R7 tasks, commits, gates, known risks, and ignored runtime paths. | `make governance-10-rounds` |
+
+## Post-R7 R8 TODO Order
+
+| Order | Task | Gap | Acceptance gate |
+| --- | --- | --- | --- |
+| 1 | `GOFLY-GOV-10R8-01` | Keep the post-R7 gap analysis, active aiflow batch, non-community scope, and per-task commit policy as a machine-readable contract. | `make framework-gap-check` |
+| 2 | `GOFLY-GOV-10R8-02` | Close HTTP migration compatibility gaps across route groups, binding, middleware ordering, error envelopes, OpenAPI output, and invalid-request smoke. | `make openapi-validation-check` |
+| 3 | `GOFLY-GOV-10R8-03` | Deepen goctl/Kratos scaffold trust through profile matrix, generated-only dependencies, repeat diff, compile smoke, and rollback evidence. | `make generated-upgrade-dry-run-check` |
+| 4 | `GOFLY-GOV-10R8-04` | Keep Kitex/gRPC-Go transport gaps explicit while adding stream, resolver, balancer, retry, deadline, auth, tracing, and rollback evidence. | `make rpc-boundary-check` |
+| 5 | `GOFLY-GOV-10R8-05` | Make SQL, Redis/cache, and discovery adapters runnable and owned through smoke, observability, dependency, fallback, and rollback rows. | `make required-checks-drift-check` |
+| 6 | `GOFLY-GOV-10R8-06` | Promote production-orders from example evidence toward reference topology drill evidence across memory, Docker-backed, observability, K8s, and rollback paths. | `make reference-app-smoke` |
+| 7 | `GOFLY-GOV-10R8-07` | Turn plugin/template ecosystem assets into a publish protocol with manifest, digest, signature, permission, compatibility, source, and isolation checks. | `make plugin-conformance-check` |
+| 8 | `GOFLY-GOV-10R8-08` | Tie release snapshot, tag CI, checksums, SBOM, Docker digest, Trivy, provenance, required checks, and publish/block decisions into one release contract. | `make governance-report-check` |
+| 9 | `GOFLY-GOV-10R8-09` | Promote performance credibility through budget ratchet depth while keeping unsupported latency parity claims report-only. | `make bench-regression-check` |
+| 10 | `GOFLY-GOV-10R8-10` | Record convergence evidence for all R8 tasks, commits, gates, known risks, and ignored runtime paths. | `make governance-10-rounds` |
 
 ## Adoption Risk Register
 

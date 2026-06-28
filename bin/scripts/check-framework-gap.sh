@@ -73,6 +73,12 @@ if post_r6_path.is_file():
 else:
     post_r6 = {}
     missing.append("docs/reference/framework-gap-post-r6-roadmap.json is missing")
+post_r7_path = root / "docs" / "reference" / "framework-gap-post-r7-roadmap.json"
+if post_r7_path.is_file():
+    post_r7 = json.loads(post_r7_path.read_text(encoding="utf-8"))
+else:
+    post_r7 = {}
+    missing.append("docs/reference/framework-gap-post-r7-roadmap.json is missing")
 
 require(manifest.get("schema") == "gofly.framework_gap_matrix.v1", "framework gap matrix schema mismatch")
 require(next_wave.get("schema") == "gofly.framework_gap_next_wave.v1", "next-wave framework gap schema mismatch")
@@ -82,6 +88,7 @@ require(long_term.get("schema") == "gofly.framework_gap_long_term_adoption.v1", 
 require(adopter_proof.get("schema") == "gofly.framework_gap_adopter_proof.v1", "adopter proof framework gap schema mismatch")
 require(post_r5.get("schema") == "gofly.framework_gap_post_r5_roadmap.v1", "post-R5 framework gap schema mismatch")
 require(post_r6.get("schema") == "gofly.framework_gap_post_r6_roadmap.v1", "post-R6 framework gap schema mismatch")
+require(post_r7.get("schema") == "gofly.framework_gap_post_r7_roadmap.v1", "post-R7 framework gap schema mismatch")
 
 sources = manifest.get("sources") or []
 for source in sources:
@@ -568,6 +575,90 @@ post_r6_scope = post_r6.get("scope") or {}
 post_r6_excluded = set(post_r6_scope.get("excluded") or [])
 for out_of_scope in ("GitHub stars", "download counts", "community size", "brand awareness"):
     require(out_of_scope in post_r6_excluded, f"post-R6 scope.excluded missing {out_of_scope!r}")
+
+post_r7_completed = post_r7.get("completedBaseline") or []
+post_r7_completed_tasks = {item.get("task") for item in post_r7_completed if isinstance(item, dict)}
+for task in (
+    "GOFLY-GOV-10R7-01",
+    "GOFLY-GOV-10R7-03",
+    "GOFLY-GOV-10R7-09",
+    "GOFLY-GOV-10R7-10",
+):
+    require(task in post_r7_completed_tasks, f"post-R7 completedBaseline missing {task}")
+for item in post_r7_completed:
+    if not isinstance(item, dict):
+        missing.append(f"post-R7 completedBaseline entry must be an object: {item!r}")
+        continue
+    for evidence in item.get("evidence") or []:
+        if evidence.startswith("docs/") or evidence.startswith("bench/") or evidence.startswith("examples/"):
+            require((root / evidence).exists(), f"post-R7 completed evidence path missing: {evidence}")
+
+post_r7_claim_boundary = post_r7.get("claimBoundary") or {}
+for field in ("nonCommunityPolicy", "transportParityPolicy", "migrationProofPolicy", "performanceClaimPolicy"):
+    require(len(str(post_r7_claim_boundary.get(field) or "").split()) >= 10, f"post-R7 claimBoundary.{field} must be actionable")
+require("community" in str(post_r7_claim_boundary.get("nonCommunityPolicy") or ""), "post-R7 nonCommunityPolicy must document community exclusion")
+require("transport parity" in str(post_r7_claim_boundary.get("transportParityPolicy") or ""), "post-R7 transportParityPolicy must name transport parity")
+require("runnable examples" in str(post_r7_claim_boundary.get("migrationProofPolicy") or ""), "post-R7 migrationProofPolicy must require runnable examples")
+require("report-only" in str(post_r7_claim_boundary.get("performanceClaimPolicy") or ""), "post-R7 performanceClaimPolicy must preserve report-only latency boundaries")
+
+post_r7_dimensions = post_r7.get("dimensions") or []
+expected_post_r7_tasks = [f"GOFLY-GOV-10R8-{idx:02d}" for idx in range(1, 11)]
+required_post_r7_dimensions = {
+    "post-r7-roadmap",
+    "http-migration-compatibility-proof",
+    "generated-scaffold-profile-matrix",
+    "rpc-streaming-boundary-evidence",
+    "adapter-matrix-runnable-proof",
+    "production-reference-topology-drill",
+    "plugin-template-publish-protocol",
+    "release-evidence-tag-ci-closure",
+    "performance-budget-ratchet-depth",
+    "r8-convergence-evidence",
+}
+actual_post_r7_dimensions = {item.get("id") for item in post_r7_dimensions if isinstance(item, dict)}
+require(
+    actual_post_r7_dimensions == required_post_r7_dimensions,
+    f"post-R7 dimensions = {sorted(actual_post_r7_dimensions)!r}, want {sorted(required_post_r7_dimensions)!r}",
+)
+post_r7_tasks = []
+post_r7_frameworks = set()
+post_r7_priorities = set()
+for expected_round, item in enumerate(post_r7_dimensions, start=1):
+    if not isinstance(item, dict):
+        missing.append(f"post-R7 dimension entry must be an object: {item!r}")
+        continue
+    item_id = item.get("id", "<missing>")
+    task_id = item.get("aiflowTask", "")
+    post_r7_tasks.append(task_id)
+    post_r7_frameworks.update(item.get("referenceFrameworks") or [])
+    post_r7_priorities.add(item.get("priority", ""))
+    require(item.get("round") == expected_round, f"post-R7 dimension {item_id}: round must be {expected_round}")
+    for field in ("id", "round", "referenceFrameworks", "currentEvidence", "gap", "priority", "todo", "aiflowTask", "acceptanceGate"):
+        require(item.get(field) not in (None, "", []), f"post-R7 dimension {item_id}: {field} is required")
+    require(task_id == expected_post_r7_tasks[expected_round - 1], f"post-R7 dimension {item_id}: task must be {expected_post_r7_tasks[expected_round - 1]}")
+    gate = item.get("acceptanceGate", "")
+    if gate.startswith("make "):
+        target = gate.removeprefix("make ").split()[0]
+        makefile = read_text(root / "Makefile")
+        require(re.search(rf"^{re.escape(target)}:", makefile, re.M), f"post-R7 dimension {item_id}: gate target {target!r} missing")
+    else:
+        missing.append(f"post-R7 dimension {item_id}: acceptanceGate must be a make target")
+    for evidence in item.get("currentEvidence") or []:
+        if evidence.startswith("docs/") or evidence.startswith("examples/") or evidence.startswith("bench/") or evidence.startswith("bin/"):
+            require((root / evidence).exists(), f"post-R7 dimension {item_id}: evidence path missing: {evidence}")
+        elif evidence.startswith("make "):
+            target = evidence.removeprefix("make ").split()[0]
+            makefile = read_text(root / "Makefile")
+            require(re.search(rf"^{re.escape(target)}:", makefile, re.M), f"post-R7 dimension {item_id}: evidence target {target!r} missing")
+require(post_r7_tasks == expected_post_r7_tasks, f"post-R7 tasks must be ordered {expected_post_r7_tasks!r}; got {post_r7_tasks!r}")
+require({"P0", "P1", "P2"} <= post_r7_priorities, "post-R7 roadmap must contain P0, P1, and P2 priorities")
+require({"Gin", "Echo", "Fiber", "Hertz", "go-zero", "Kratos", "Kitex", "gRPC-Go", "Beego"} <= post_r7_frameworks, "post-R7 roadmap must cover major reference frameworks")
+post_r7_recommended = post_r7.get("recommendedOrder") or []
+require(post_r7_recommended == expected_post_r7_tasks, "post-R7 recommendedOrder must exactly match the R8 aiflow task order")
+post_r7_scope = post_r7.get("scope") or {}
+post_r7_excluded = set(post_r7_scope.get("excluded") or [])
+for out_of_scope in ("GitHub stars", "download counts", "community size", "brand awareness"):
+    require(out_of_scope in post_r7_excluded, f"post-R7 scope.excluded missing {out_of_scope!r}")
 claim_provenance = adopter_proof.get("capabilityClaimProvenance") or {}
 require(claim_provenance.get("schema") == "gofly.capability_claim_provenance.v1", "capability claim provenance schema mismatch")
 require(claim_provenance.get("sourceOfTruth") == "docs/reference/framework-gap-matrix.md", "capability claim provenance sourceOfTruth mismatch")
@@ -761,18 +852,21 @@ for needle in (
     "framework-gap-adopter-proof.json",
     "framework-gap-post-r5-roadmap.json",
     "framework-gap-post-r6-roadmap.json",
+    "framework-gap-post-r7-roadmap.json",
     "adoption-risk-register.json",
     "gofly.adoption_risk_register.v1",
     "gofly.framework_gap_long_term_adoption.v1",
     "gofly.framework_gap_adopter_proof.v1",
     "gofly.framework_gap_post_r5_roadmap.v1",
     "gofly.framework_gap_post_r6_roadmap.v1",
+    "gofly.framework_gap_post_r7_roadmap.v1",
     "Next-Wave TODO Order",
     "Adoption-Wave TODO Order",
     "Long-Term Adoption TODO Order",
     "Adopter Proof TODO Order",
     "Post-R5 R6 TODO Order",
     "Post-R6 R7 TODO Order",
+    "Post-R7 R8 TODO Order",
     "Adoption Risk Register",
     "production-ready",
     "candidate",
@@ -784,6 +878,7 @@ for needle in (
     "GOFLY-P7-1-EVIDENCE-TRACEABILITY",
     "GOFLY-GOV-10R6-01",
     "GOFLY-GOV-10R7-01",
+    "GOFLY-GOV-10R8-01",
     "Gin",
     "go-zero",
     "Kratos",

@@ -63,6 +63,13 @@ non-community gaps after the R5 convergence batch: HTTP migration DX, generated
 scaffold compatibility, RPC transport boundaries, integration ownership,
 production topology proof, release supply-chain trust, performance credibility,
 adopter decision evidence, and convergence traceability.
+The post-R6 R7 roadmap is captured in
+[`framework-gap-post-r6-roadmap.json`](framework-gap-post-r6-roadmap.json) with
+schema `gofly.framework_gap_post_r6_roadmap.v1`. It focuses on deeper runnable
+adoption proof after the R6 convergence batch: migration smoke depth, RPC Tier 1
+promotion evidence, importer compatibility, DB/cache/discovery adapter proof,
+plugin/template supply-chain hardening, release CI enforcement, performance
+trend promotion, support-bundle remediation, and convergence traceability.
 
 | Order | Task | Gap | Acceptance gate |
 | --- | --- | --- | --- |
@@ -132,6 +139,21 @@ adopter decision evidence, and convergence traceability.
 | 8 | `GOFLY-GOV-10R6-08` | Promote performance claims only through benchmark trend evidence, allocation budgets, and report-only latency boundaries. | `make bench-regression-check` |
 | 9 | `GOFLY-GOV-10R6-09` | Tie framework choice guidance to claim provenance, support bundles, dashboard evidence, caveats, gates, and rollback actions. | `make adopter-decision-check` |
 | 10 | `GOFLY-GOV-10R6-10` | Record convergence evidence for all R6 tasks, commits, gates, known risks, and ignored runtime paths. | `make governance-10-rounds` |
+
+## Post-R6 R7 TODO Order
+
+| Order | Task | Gap | Acceptance gate |
+| --- | --- | --- | --- |
+| 1 | `GOFLY-GOV-10R7-01` | Keep the post-R6 gap analysis, active aiflow batch, and non-community scope as a machine-readable contract. | `make framework-gap-check` |
+| 2 | `GOFLY-GOV-10R7-02` | Deepen runnable Gin, go-zero, Kratos, and Kitex migration proof with smoke, support bundle, caveat, and rollback evidence. | `make adopter-decision-check` |
+| 3 | `GOFLY-GOV-10R7-03` | Turn RPC Tier 1 promotion blockers into explicit stream, resolver, balancer, retry, deadline, auth, tracing, benchmark, and rollback rows. | `make rpc-boundary-check` |
+| 4 | `GOFLY-GOV-10R7-04` | Extend generated importer compatibility across API/proto imports, aliases, generated-only dependencies, repeat diffs, and rollback. | `make generated-upgrade-dry-run-check` |
+| 5 | `GOFLY-GOV-10R7-05` | Add DB/cache/discovery proof rows for adapters, generated-project boundaries, dependency triggers, fallback behavior, and rollback. | `make required-checks-drift-check` |
+| 6 | `GOFLY-GOV-10R7-06` | Harden plugin and template supply-chain evidence across registry, manifest, digest, permission, compatibility, malicious paths, and partial writes. | `make plugin-conformance-check` |
+| 7 | `GOFLY-GOV-10R7-07` | Tighten release CI supply-chain enforcement across artifact producers, required checks, security scans, provenance, and publish/block decisions. | `make governance-report-check` |
+| 8 | `GOFLY-GOV-10R7-08` | Promote performance evidence only through multi-run trend confidence, allocation budgets, report-only latency, and unsupported-surface handling. | `make bench-regression-check` |
+| 9 | `GOFLY-GOV-10R7-09` | Link doctor, release check, support bundle, generated failure report, dashboard fields, and next actions into a remediation loop. | `make dx-troubleshooting-check` |
+| 10 | `GOFLY-GOV-10R7-10` | Record convergence evidence for all R7 tasks, commits, gates, known risks, and ignored runtime paths. | `make governance-10-rounds` |
 
 ## Adoption Risk Register
 

@@ -1,22 +1,118 @@
 name: gofly
 root: .
 language: go
+store_path: .aiflow/store.json
+
+workspace:
+  include_globs:
+    - AGENTS.md
+    - README.md
+    - aiflow.yaml
+    - go.mod
+    - go.sum
+    - Makefile
+    - bin/scripts/*
+    - cmd/*
+    - core/*
+    - rest/*
+    - rpc/*
+    - gateway/*
+    - app/*
+    - examples/*
+    - docs/reference/*
+    - docs/guides/*
+    - docs/case-studies/*
+    - bench/*
+    - .github/workflows/*
+  exclude_globs:
+    - .git
+    - .git/*
+    - .aiflow
+    - .aiflow/*
+    - .harness
+    - .harness/*
+    - .tmp-test
+    - .tmp-test/*
+    - .trae
+    - .trae/*
+    - docs/superpowers
+    - docs/superpowers/*
+    - vendor
+    - vendor/*
+  command_allowlist:
+    - gofmt
+    - go test
+    - go vet
+    - go tool
+    - make
 
 commands:
   allowlist:
     - gofmt
+    - gofmt -w
     - go test
     - go vet
+    - go tool
+    - git diff
+    - git status
+    - make governance-10-rounds
+    - make framework-gap-check
+    - make stable-surface-check
+    - make generated-version-compat-check
+    - make release-snapshot
+    - make rpc-boundary-check
+    - make generated-upgrade-dry-run-check
+    - make p1-growth-check
+    - make reference-app-smoke
+    - make openapi-validation-check
+    - make plugin-conformance-check
+    - make cloud-native-render-check
+    - make adopter-decision-check
+    - make api-example-consistency-check
+    - make required-checks-drift-check
+    - make governance-report-check
+    - make dx-troubleshooting-check
+    - make bench-evidence-check
+    - make bench-regression-check
+    - make docs-link-check
+    - make contract-docs-check
+    - make docs-check
+    - make tidy
+  format:
+    - gofmt -w
   test:
     - go test ./...
   vet:
     - go vet ./...
+  release:
+    - make governance-10-rounds
+    - make framework-gap-check
+    - make stable-surface-check
+    - make generated-version-compat-check
+    - make governance-report-check
+    - make docs-check
 
 acceptance:
   criteria:
-    - configured project checks pass
+    - configured gofly governance checks pass with no persistent cache assumptions
+    - aiflow report and contract validation artifacts are exported under ignored .aiflow state
+    - advisory readiness is either passing or includes an explicit machine-readable warning
+    - framework gap tasks have machine-readable evidence or a documented downgrade
+    - generated output remains deterministic and root module dependencies stay clean
+    - docs/superpowers stays ignored and is never part of committed governance evidence
+  required_files:
+    - AGENTS.md
+    - Makefile
+    - aiflow.yaml
+    - docs/reference/framework-gap-matrix.md
+    - docs/reference/governance-boundary-inventory.json
+    - bin/scripts/check-framework-gap.sh
+    - bin/scripts/check-governance-boundary-inventory.sh
   required_commands:
     - go test ./...
+    - make framework-gap-check
+    - make governance-report-check
+    - make required-checks-drift-check
   require_review: false
   require_clean_diff: false
   require_fix_diff: false
@@ -25,3 +121,25 @@ permissions:
   require_plan_approval: false
   allow_commit: false
   allow_push: false
+  max_fix_attempts: 1
+  require_command_approval: true
+
+security:
+  redact_secrets: true
+  secret_patterns:
+    - (?i)authorization:\s*bearer\s+[A-Za-z0-9._~+/=-]+
+    - (?i)(api[_-]?key|token|secret|password)\s*[:=]\s*[^,\s]+
+  max_patch_bytes: 262144
+  network:
+    mode: audit
+
+mcp:
+  local-aiflow:
+    command: go
+    args:
+      - run
+      - ../aiflow/cmd/aiflow
+      - mcp
+      - serve
+      - -root
+      - .

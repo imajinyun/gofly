@@ -123,6 +123,39 @@
       "rollbackOrEscalation": "Reject scaffold promotion when api import, api route, or api diff semantics change without migration notes."
     },
     {
+      "id": "api-import-compatibility",
+      "surface": "api-imports",
+      "evidence": [
+        "cmd/gofly/internal/generator/api_parser.go",
+        "cmd/gofly/internal/command/api_import_command.go",
+        "docs/reference/goctl-generator-compatibility.json"
+      ],
+      "gate": "make goctl-generator-compat-check",
+      "rollbackOrEscalation": "Pin the previous generated API fixture and reject importer promotion when .api import handling changes route, field, or diff semantics."
+    },
+    {
+      "id": "proto-import-compatibility",
+      "surface": "proto-imports",
+      "evidence": [
+        "cmd/gofly/internal/generator/proto_codegen.go",
+        "cmd/gofly/internal/generator/grpc_codegen.go",
+        "cmd/gofly/internal/generator/protoc_plugin_test.go"
+      ],
+      "gate": "make generated-upgrade-dry-run-check",
+      "rollbackOrEscalation": "Pin native protoc or the previous generated proto snapshot when imported proto types, package names, or generated service descriptors drift."
+    },
+    {
+      "id": "alias-collision-boundary",
+      "surface": "import-aliases",
+      "evidence": [
+        "cmd/gofly/internal/generator/config_test.go",
+        "cmd/gofly/internal/generator/protoc_plugin_test.go",
+        "docs/reference/goctl-generator-compatibility.json"
+      ],
+      "gate": "make generated-upgrade-dry-run-check",
+      "rollbackOrEscalation": "Pin the previous generator when include ordering, plugin aliases, Go package aliases, or generated symbol names collide after regeneration."
+    },
+    {
       "id": "generated-dependency-boundary",
       "surface": "dependencies",
       "evidence": [
@@ -130,7 +163,18 @@
         "docs/reference/dependency-upgrade-evidence.json"
       ],
       "gate": "make dependency-upgrade-evidence-check",
-      "rollbackOrEscalation": "Remove generated-only dependencies from the root module and keep them inside the generated project go.mod or isolated temporary module."
+      "rollbackOrEscalation": "Discard root module dependency drift, remove generated-only dependencies from the root module, and keep them inside the generated project go.mod or isolated temporary module."
+    },
+    {
+      "id": "repeat-generation-diff-boundary",
+      "surface": "repeat-diff",
+      "evidence": [
+        "docs/reference/generated-upgrade-dry-run.json",
+        "testdata/generated-compat/matrix.json",
+        "docs/reference/generated-version-compat.md"
+      ],
+      "gate": "make generated-upgrade-dry-run-check",
+      "rollbackOrEscalation": "Discard generated output and keep the last known-good snapshot when repeat generation introduces unclassified diffs or missing rollback notes."
     }
   ],
   "adopterActions": [
@@ -151,6 +195,12 @@
       "command": "make goctl-generator-compat-check",
       "expectedEvidence": "gozero-compatible profile, goctl-style flags, API tooling, generated version fixtures, upgrade diff contract, and route layout boundaries remain implemented",
       "rollbackOrEscalation": "Keep goctl-compatible inputs accepted and warn on no-op behavior instead of changing command semantics."
+    },
+    {
+      "id": "importer-compatibility-review",
+      "command": "make generated-upgrade-dry-run-check",
+      "expectedEvidence": "API imports, proto imports, alias collisions, generated-only dependency boundaries, repeat-generation diffs, and rollback notes remain classified before adopter promotion",
+      "rollbackOrEscalation": "Pin the previous generator and keep the previous generated snapshot whenever importer edge cases or repeat-generation diff classification fails."
     }
   ]
 }

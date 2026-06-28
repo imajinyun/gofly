@@ -274,7 +274,11 @@ required_edge_cases = {
     "goctl-compatible-profile",
     "route-layout-boundary",
     "api-import-and-diff-format",
+    "api-import-compatibility",
+    "proto-import-compatibility",
+    "alias-collision-boundary",
     "generated-dependency-boundary",
+    "repeat-generation-diff-boundary",
 }
 actual_edge_cases = {item.get("id") for item in edge_cases if isinstance(item, dict)}
 require(actual_edge_cases == required_edge_cases, f"generated scaffold compatibility edgeCases mismatch: {sorted(actual_edge_cases)!r}")
@@ -291,8 +295,26 @@ for item in edge_cases:
         require((root / evidence).exists(), f"generated scaffold compatibility edge {edge_id}: evidence path missing: {evidence}")
     require(len(str(item.get("rollbackOrEscalation") or "").split()) >= 10, f"generated scaffold compatibility edge {edge_id}: rollbackOrEscalation must be actionable")
 
+edge_surface_expectations = {
+    "api-import-compatibility": "api-imports",
+    "proto-import-compatibility": "proto-imports",
+    "alias-collision-boundary": "import-aliases",
+    "generated-dependency-boundary": "dependencies",
+    "repeat-generation-diff-boundary": "repeat-diff",
+}
+for edge_id, surface in edge_surface_expectations.items():
+    edge = next((item for item in edge_cases if isinstance(item, dict) and item.get("id") == edge_id), {})
+    require(edge.get("surface") == surface, f"generated scaffold compatibility edge {edge_id}: surface must be {surface!r}")
+    rollback_text = str(edge.get("rollbackOrEscalation") or "").lower()
+    require("rollback" in rollback_text or "pin" in rollback_text or "discard" in rollback_text, f"generated scaffold compatibility edge {edge_id}: rollbackOrEscalation must name rollback, pin, or discard")
+
 adopter_actions = scaffold_compat.get("adopterActions") or []
-required_actions = {"temporary-project-generation", "upgrade-diff-review", "goctl-compatibility-review"}
+required_actions = {
+    "temporary-project-generation",
+    "upgrade-diff-review",
+    "goctl-compatibility-review",
+    "importer-compatibility-review",
+}
 actual_actions = {item.get("id") for item in adopter_actions if isinstance(item, dict)}
 require(actual_actions == required_actions, f"generated scaffold compatibility adopterActions mismatch: {sorted(actual_actions)!r}")
 for item in adopter_actions:

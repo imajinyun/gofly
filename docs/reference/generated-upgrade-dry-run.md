@@ -12,6 +12,12 @@ machine-readable manifest is
 Framework-specific migration fidelity evidence lives in
 [`migration-fidelity-matrix.json`](migration-fidelity-matrix.json) and is
 validated by the same gate.
+Long-term scaffold compatibility is captured in
+[`generated-scaffold-long-term-compatibility.json`](generated-scaffold-long-term-compatibility.json)
+with schema `gofly.generated_scaffold_long_term_compatibility.v1`. It binds
+old, current, and future generated profiles to go-zero and Kratos scaffold
+expectations, goctl-compatible edge cases, diff classification, generated
+project dependency boundaries, temporary-project smoke, and rollback actions.
 
 Validation:
 
@@ -166,3 +172,19 @@ Any new migration path must be added to the matrix before docs can claim it as
 adopter-ready. The gate checks that examples and docs exist, dry-run profiles are
 valid, every path includes deterministic regeneration, and rollback guidance is
 present.
+
+## Long-Term Scaffold Compatibility
+
+The long-term compatibility contract keeps generated scaffold trust aligned with
+the executable version matrix:
+
+- `old`, `current`, and `future` profiles must all keep fixture paths, expected
+  diffs, required diff categories, smoke gates, and rollback notes;
+- go-zero alignment is represented by the `gozero-compatible` profile and
+  goctl-style command compatibility;
+- Kratos alignment stays focused on generated project boundaries, lifecycle
+  evidence, and migration fidelity rather than changing import paths;
+- generated-project-only dependencies must stay in the generated module or an
+  isolated temporary module, never in the gofly root module;
+- adopters should treat unclassified diffs as `breaking-candidate` until a
+  migration note or rollback note explains the change.

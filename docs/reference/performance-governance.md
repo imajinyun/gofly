@@ -16,6 +16,8 @@ benchmark or pprof evidence first.
 | middleware | `BenchmarkHTTPMiddlewareChain` | per-chain overhead |
 | OpenAPI | `BenchmarkHTTPOpenAPI` | disabled/enabled contract metadata cost |
 | governance overhead | `BenchmarkHTTPGovernance` | disabled/enabled policy decision cost |
+| gateway proxy | `BenchmarkGatewayProxy` | candidate report-only proxy evidence |
+| cache hot path | `BenchmarkCacheHotPath`, `BenchmarkCacheHotPathGetOrLoadHit` | candidate report-only cache hit evidence |
 
 ## Regression budget
 
@@ -53,9 +55,11 @@ are met.
 The ratchet also carries a `surfacePolicy` section so unsupported performance
 claims stay machine-visible. REST route dispatch is allocation-blocking but
 latency report-only, governance rule matching has selected latency and
-allocation blocking rows, RPC unary remains a candidate, and gateway proxy plus
-cache hot path stay `unsupported-report-only` until `bench/` publishes dedicated
-baseline/current rows with enough samples to promote.
+allocation blocking rows, and RPC unary remains a candidate. P9 adds dedicated
+gateway and cache benchmark rows through `p9GatewayCacheOwnership`; those rows
+are candidate report-only evidence until the committed baseline has five
+samples, the current trend has three samples, and promotion keeps rollback
+guidance attached.
 
 Run:
 

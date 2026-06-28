@@ -155,8 +155,8 @@
     "breaking-candidate"
   ],
   "aiflowExecution": {
-    "status": "local-fallback",
-    "blocker": "aiflow CLI currently fails to compile in the adjacent aiflow checkout because harness/policy.go imports fmt without use",
-    "goflyImpact": "none; the local code-generation governance gate is self-contained"
+    "status": "aiflow-driven",
+    "driver": "go run ./cmd/aiflow status -root /Users/bytedance/Codes/go/src/github/gofly -id GOFLY-GOV-10R3-04",
+    "completionPolicy": "mark complete through aiflow after make generated-upgrade-dry-run-check passes and the code-generation governance commit is created"
   }
 }

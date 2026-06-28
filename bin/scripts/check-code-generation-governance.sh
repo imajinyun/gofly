@@ -112,6 +112,13 @@ require(diff_categories == required_categories, f"diffCategories mismatch: {sort
 for category in required_categories:
     require(category in upgrade_manifest, f"generated-upgrade-dry-run.json missing diff category {category!r}")
 
+aiflow_execution = manifest.get("aiflowExecution") or {}
+require(aiflow_execution.get("status") == "aiflow-driven", "aiflowExecution.status must be aiflow-driven")
+require("GOFLY-GOV-10R3-04" in str(aiflow_execution.get("driver") or ""), "aiflowExecution.driver must reference GOFLY-GOV-10R3-04")
+completion_policy = str(aiflow_execution.get("completionPolicy") or "")
+require("make generated-upgrade-dry-run-check" in completion_policy, "aiflowExecution.completionPolicy must require generated-upgrade-dry-run-check")
+require("commit" in completion_policy, "aiflowExecution.completionPolicy must document commit policy")
+
 test_cmd = [
     "go",
     "test",

@@ -8,10 +8,17 @@ import sys
 
 root = pathlib.Path(".").resolve()
 manifest_path = root / "docs" / "reference" / "openapi-invalid-request-smoke.json"
+http_migration_path = root / "docs" / "reference" / "http-migration-dx.json"
 checks = {
     pathlib.Path("docs/reference/openapi-validation-envelope.md"): [
         "gofly.openapi_validation_envelope.v1",
         "docs/reference/openapi-invalid-request-smoke.json",
+        "docs/reference/http-migration-dx.json",
+        "gofly.http_migration_dx.v1",
+        "Gin",
+        "Echo",
+        "Fiber",
+        "Hertz",
         "path",
         "query",
         "header",
@@ -29,6 +36,11 @@ checks = {
         "rest.Config.Validator",
         "ctx.BindRequest",
         "rest.JSONErrorResponse",
+        "docs/reference/http-migration-dx.json",
+        "Gin",
+        "Echo",
+        "Fiber",
+        "Hertz",
     ],
     pathlib.Path("docs/guides/openapi.md"): [
         "rest.StructSchema",
@@ -84,10 +96,89 @@ if manifest_path.is_file():
 else:
     manifest = {}
     missing.append("docs/reference/openapi-invalid-request-smoke.json: file is missing")
+if http_migration_path.is_file():
+    http_migration = json.loads(http_migration_path.read_text(encoding="utf-8"))
+else:
+    http_migration = {}
+    missing.append("docs/reference/http-migration-dx.json: file is missing")
 
 require(manifest.get("schema") == "gofly.openapi_invalid_request_smoke.v1", "invalid request smoke schema mismatch")
 require(manifest.get("status") == "blocking", "invalid request smoke status must be blocking")
 require(manifest.get("blockingGate") == "make openapi-validation-check", "invalid request smoke blocking gate must be make openapi-validation-check")
+require(http_migration.get("schema") == "gofly.http_migration_dx.v1", "HTTP migration DX schema mismatch")
+require(http_migration.get("status") == "blocking", "HTTP migration DX status must be blocking")
+require(http_migration.get("blockingGate") == "make openapi-validation-check", "HTTP migration DX blocking gate must be make openapi-validation-check")
+
+http_scope = http_migration.get("scope") or {}
+for excluded in ("GitHub stars", "download counts", "community size", "brand awareness", "transport-layer RPC parity"):
+    require(excluded in set(http_scope.get("excluded") or []), f"HTTP migration DX scope.excluded missing {excluded!r}")
+for included in ("route path migration", "request binding migration", "middleware chain migration", "stable error envelope migration", "OpenAPI schema migration", "invalid request smoke", "rollback guidance"):
+    require(included in set(http_scope.get("included") or []), f"HTTP migration DX scope.included missing {included!r}")
+
+required_http_frameworks = {"Gin", "Echo", "Fiber", "Hertz"}
+require(set(http_migration.get("referenceFrameworks") or []) == required_http_frameworks, "HTTP migration DX referenceFrameworks mismatch")
+require(
+    set(http_migration.get("acceptanceGates") or []) == {
+        "make openapi-validation-check",
+        "make api-example-consistency-check",
+        "make examples-smoke",
+    },
+    "HTTP migration DX acceptanceGates mismatch",
+)
+require(
+    http_migration.get("migrationOrder") == [
+        "route-paths",
+        "binding-sources",
+        "middleware-chain",
+        "error-envelope",
+        "openapi-schema",
+        "invalid-request-smoke",
+        "traffic-switch",
+    ],
+    "HTTP migration DX migrationOrder mismatch",
+)
+
+framework_rows = http_migration.get("frameworkMapping") or []
+seen_http_frameworks = set()
+for item in framework_rows:
+    if not isinstance(item, dict):
+        missing.append(f"HTTP migration DX framework row must be an object: {item!r}")
+        continue
+    framework = item.get("framework", "")
+    seen_http_frameworks.add(framework)
+    for field in ("framework", "routePattern", "bindingPattern", "middlewarePattern", "errorPattern", "openAPIPattern", "gate", "rollbackOrEscalation"):
+        require(item.get(field) not in ("", None, []), f"HTTP migration DX {framework}: {field} is required")
+    require(item.get("gate") == "make openapi-validation-check", f"HTTP migration DX {framework}: gate must be make openapi-validation-check")
+    for field in ("routePattern", "bindingPattern", "middlewarePattern", "errorPattern", "openAPIPattern", "rollbackOrEscalation"):
+        require(len(str(item.get(field) or "").split()) >= 8, f"HTTP migration DX {framework}: {field} must be actionable")
+require(seen_http_frameworks == required_http_frameworks, f"HTTP migration DX frameworkMapping mismatch: {sorted(seen_http_frameworks)!r}")
+
+step_rows = http_migration.get("migrationSteps") or []
+required_steps = {
+    "route-paths",
+    "binding-sources",
+    "middleware-chain",
+    "error-envelope",
+    "openapi-schema",
+    "traffic-switch",
+}
+seen_steps = set()
+for item in step_rows:
+    if not isinstance(item, dict):
+        missing.append(f"HTTP migration DX step must be an object: {item!r}")
+        continue
+    step_id = item.get("id", "")
+    seen_steps.add(step_id)
+    for field in ("id", "surface", "currentEvidence", "adopterAction", "gate", "rollbackOrEscalation"):
+        require(item.get(field) not in ("", None, []), f"HTTP migration DX step {step_id}: {field} is required")
+    gate = item.get("gate", "")
+    require(gate in {"make openapi-validation-check", "make examples-smoke"}, f"HTTP migration DX step {step_id}: unsupported gate {gate!r}")
+    for field in ("adopterAction", "rollbackOrEscalation"):
+        require(len(str(item.get(field) or "").split()) >= 8, f"HTTP migration DX step {step_id}: {field} must be actionable")
+    for evidence in item.get("currentEvidence") or []:
+        path = root / evidence
+        require(path.exists(), f"HTTP migration DX step {step_id}: evidence path missing: {evidence}")
+require(required_steps <= seen_steps, f"HTTP migration DX missing steps: {sorted(required_steps - seen_steps)!r}")
 
 envelope = manifest.get("runtimeEnvelope") or {}
 require(envelope.get("type") == "rest.ErrorResponse", "runtime envelope type must be rest.ErrorResponse")

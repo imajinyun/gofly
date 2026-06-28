@@ -13,6 +13,11 @@ The same manifest exposes `gofly.rest_adopter_contract.v1`, which links
 invalid request smoke, OpenAPI schema golden tests, generated-service smoke,
 and `make api-example-consistency-check` before adopters publish generated REST
 services.
+HTTP framework migration DX is governed by
+`docs/reference/http-migration-dx.json` with schema
+`gofly.http_migration_dx.v1`. It maps Gin, Echo, Fiber, and Hertz route,
+binding, middleware, error envelope, OpenAPI, invalid request smoke, and
+rollback steps into one blocking contract.
 
 ## Contract
 
@@ -36,3 +41,17 @@ go test -shuffle=on ./cmd/gofly/internal/generator -run 'Test.*Invalid.*Request|
 The generated service invalid request smoke coverage must prove that invalid
 path, query, header, body, and validator adapter failures return stable
 `rest.ErrorResponse` JSON.
+
+## HTTP Migration DX
+
+Before switching traffic from Gin, Echo, Fiber, or Hertz, run the migration DX
+contract and compare:
+
+- route path parameters, especially `:id` to `{id}` conversions;
+- `ctx.BindRequest` coverage for path, query, header, and JSON body fields;
+- middleware ordering for recovery, request id, tracing, logging, metrics,
+  browser safety, auth, validation, SSE, and WebSocket bounds;
+- stable `rest.ErrorResponse` output for bind and validation failures;
+- OpenAPI request body, parameter, response, and default error schemas;
+- rollback behavior that keeps the previous router active until local gates
+  pass.

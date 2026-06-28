@@ -129,8 +129,9 @@
     }
   ],
   "aiflowExecution": {
-    "status": "local-fallback",
-    "blocker": "aiflow CLI currently fails to compile in the adjacent aiflow checkout because harness/policy.go imports fmt without use",
-    "goflyImpact": "none; the local cache and remote-dependency governance gate is self-contained"
+    "status": "aiflow-driven",
+    "driver": "GOFLY-GOV-10R3-06 via adjacent /Users/bytedance/Codes/go/src/github/aiflow",
+    "completionPolicy": "Complete GOFLY-GOV-10R3-06 only after make cache-dependency-governance-check passes, root-module dependency hygiene remains unchanged, generated-project-only dependencies stay outside go.mod, and the governance change is committed.",
+    "goflyImpact": "aiflow drives the task queue; gofly records executable cache and remote-dependency governance evidence in repository gates"
   }
 }

@@ -168,8 +168,16 @@ for needle in (
     require(needle in dependency_manifest, f"dependency-upgrade-evidence.json missing {needle!r}")
 
 execution = manifest.get("aiflowExecution") or {}
-require(execution.get("status") == "local-fallback", "aiflowExecution.status must be local-fallback")
-require("fmt" in str(execution.get("blocker") or ""), "aiflowExecution.blocker must document current aiflow compile blocker")
+require(execution.get("status") == "aiflow-driven", "aiflowExecution.status must be aiflow-driven")
+require("GOFLY-GOV-10R3-06" in str(execution.get("driver") or ""), "aiflowExecution.driver must reference GOFLY-GOV-10R3-06")
+completion_policy = str(execution.get("completionPolicy") or "")
+for needle in (
+    "make cache-dependency-governance-check",
+    "root-module dependency hygiene",
+    "generated-project-only dependencies",
+    "committed",
+):
+    require(needle in completion_policy, f"aiflowExecution.completionPolicy missing {needle!r}")
 
 if missing:
     print("cache dependency governance check failed:", file=sys.stderr)

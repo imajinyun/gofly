@@ -244,6 +244,12 @@ execution = convergence_manifest.get("aiflowExecution") or {}
 require(execution.get("status") == "completed", "convergence verification aiflowExecution.status must be completed")
 require(execution.get("blocker") == "none", "convergence verification aiflowExecution.blocker must be none")
 require("commit and push" in str(execution.get("goflyImpact") or ""), "convergence verification aiflowExecution.goflyImpact must document aiflow commit policy")
+legacy_handoff = convergence_manifest.get("legacyTaskHandoff") or {}
+require("GOFLY-GOV-10R3-10" in set(legacy_handoff.get("supersedes") or []), "legacyTaskHandoff must supersede GOFLY-GOV-10R3-10")
+require("R4 active batch" in str(legacy_handoff.get("reason") or ""), "legacyTaskHandoff.reason must document R4 active batch handoff")
+legacy_completion_policy = str(legacy_handoff.get("completionPolicy") or "")
+for needle in ("GOFLY-GOV-10R3-10", "make governance-boundary-inventory-check", "make governance-report-check", "current agent or human"):
+    require(needle in legacy_completion_policy, f"legacyTaskHandoff.completionPolicy missing {needle!r}")
 
 p10_rounds = p10_manifest.get("rounds") or []
 require(len(p10_rounds) == 10, "P10 roadmap must contain 10 rounds")

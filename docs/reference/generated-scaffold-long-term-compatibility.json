@@ -1,0 +1,156 @@
+{
+  "schema": "gofly.generated_scaffold_long_term_compatibility.v1",
+  "status": "blocking",
+  "blockingGate": "make generated-upgrade-dry-run-check",
+  "sourceOfTruth": [
+    "docs/reference/generated-upgrade-dry-run.json",
+    "docs/reference/generated-version-compat.md",
+    "testdata/generated-compat/matrix.json",
+    "docs/reference/goctl-generator-compatibility.json",
+    "docs/reference/migration-fidelity-matrix.json"
+  ],
+  "referenceFrameworks": [
+    "go-zero",
+    "Kratos"
+  ],
+  "acceptanceGates": [
+    "make generated-upgrade-dry-run-check",
+    "make generated-version-compat-check",
+    "make goctl-generator-compat-check",
+    "make test-generated-matrix"
+  ],
+  "compatibilityPolicy": {
+    "versionProfiles": [
+      "old",
+      "current",
+      "future"
+    ],
+    "repeatGeneration": "must-pass",
+    "generatedProjectCompileSmoke": "required",
+    "diffClassification": "required",
+    "dependencyBoundary": "generated project go.mod or isolated temporary test module",
+    "rootModulePolicy": "must-not-add-generated-only-dependencies",
+    "rollbackPolicy": "Pin the previous generator, keep the previous generated snapshot serving, and block release promotion when generation, compile smoke, repeat diff, dependency boundary, or rollback evidence fails."
+  },
+  "profileMatrix": [
+    {
+      "profile": "old",
+      "frameworkAlignment": [
+        "go-zero"
+      ],
+      "fixtures": {
+        "api": "testdata/generated-compat/v0.1/orders.api",
+        "proto": "testdata/generated-compat/v0.1/greeter.proto",
+        "serviceConfig": "testdata/generated-compat/v0.1/service-config.json"
+      },
+      "expectedDiff": "compatible feature addition",
+      "requiredDiffCategories": [
+        "deterministic-repeat-generation",
+        "compatible-addition"
+      ],
+      "smokeGate": "make generated-version-compat-check",
+      "rollbackOrEscalation": "Keep the v0.1 generated snapshot and previous generator pinned until additive compatibility shims compile and repeat generation is clean."
+    },
+    {
+      "profile": "current",
+      "frameworkAlignment": [
+        "go-zero",
+        "Kratos"
+      ],
+      "fixtures": {
+        "api": "testdata/generated-compat/current/orders.api",
+        "proto": "testdata/generated-compat/current/greeter.proto",
+        "serviceConfig": "testdata/generated-compat/current/service-config.json"
+      },
+      "expectedDiff": "no unexplained diff",
+      "requiredDiffCategories": [
+        "deterministic-repeat-generation",
+        "formatting-only"
+      ],
+      "smokeGate": "make generated-upgrade-dry-run-check",
+      "rollbackOrEscalation": "Discard the regeneration output and keep the current generated project when repeat generation or compile smoke produces any unexplained diff."
+    },
+    {
+      "profile": "future",
+      "frameworkAlignment": [
+        "Kratos"
+      ],
+      "fixtures": {
+        "api": "testdata/generated-compat/future/orders.api",
+        "proto": "testdata/generated-compat/future/greeter.proto",
+        "serviceConfig": "testdata/generated-compat/future/service-config.json"
+      },
+      "expectedDiff": "experimental future field ignored safely",
+      "requiredDiffCategories": [
+        "deterministic-repeat-generation",
+        "breaking-candidate"
+      ],
+      "smokeGate": "make generated-version-compat-check",
+      "rollbackOrEscalation": "Keep future fixtures as preview-only evidence and pin current generation if experimental fields stop being safely ignored."
+    }
+  ],
+  "edgeCases": [
+    {
+      "id": "goctl-compatible-profile",
+      "surface": "profile",
+      "evidence": [
+        "docs/reference/goctl-generator-compatibility.json",
+        "cmd/gofly/internal/generator/service_scaffold_ir.go"
+      ],
+      "gate": "make goctl-generator-compat-check",
+      "rollbackOrEscalation": "Fallback to the default gofly-ai profile when gozero-compatible layered files drift."
+    },
+    {
+      "id": "route-layout-boundary",
+      "surface": "routes",
+      "evidence": [
+        "docs/reference/goctl-generator-compatibility.json",
+        "cmd/gofly/internal/generator/templates.go",
+        "cmd/gofly/internal/generator/api_codegen.go"
+      ],
+      "gate": "make test-generated-matrix",
+      "rollbackOrEscalation": "Keep default generated routes under internal/routes and keep gozero-compatible handler routes separate when layout evidence drifts."
+    },
+    {
+      "id": "api-import-and-diff-format",
+      "surface": "api-tooling",
+      "evidence": [
+        "docs/reference/goctl-generator-compatibility.json",
+        "cmd/gofly/internal/command/api_import_command.go",
+        "cmd/gofly/internal/command/api_diff_command.go"
+      ],
+      "gate": "make goctl-generator-compat-check",
+      "rollbackOrEscalation": "Reject scaffold promotion when api import, api route, or api diff semantics change without migration notes."
+    },
+    {
+      "id": "generated-dependency-boundary",
+      "surface": "dependencies",
+      "evidence": [
+        "docs/reference/generated-upgrade-dry-run.json",
+        "docs/reference/dependency-upgrade-evidence.json"
+      ],
+      "gate": "make dependency-upgrade-evidence-check",
+      "rollbackOrEscalation": "Remove generated-only dependencies from the root module and keep them inside the generated project go.mod or isolated temporary module."
+    }
+  ],
+  "adopterActions": [
+    {
+      "id": "temporary-project-generation",
+      "command": "make generated-version-compat-check",
+      "expectedEvidence": "gofly.generated_version_compat_report.v1 with generated file counts, clean repeat-generation diff, and go test status for old, current, and future profiles",
+      "rollbackOrEscalation": "Pin the previous generator and discard temporary generated output when the report status is not passed."
+    },
+    {
+      "id": "upgrade-diff-review",
+      "command": "make generated-upgrade-dry-run-check",
+      "expectedEvidence": "diffReportContract categories, adopterUpgradeProof paths, migration fidelity rows, dependency policy, and rollback notes remain aligned",
+      "rollbackOrEscalation": "Treat unclassified generated diffs as breaking candidates until the diff is classified or the generator change is reverted."
+    },
+    {
+      "id": "goctl-compatibility-review",
+      "command": "make goctl-generator-compat-check",
+      "expectedEvidence": "gozero-compatible profile, goctl-style flags, API tooling, generated version fixtures, upgrade diff contract, and route layout boundaries remain implemented",
+      "rollbackOrEscalation": "Keep goctl-compatible inputs accepted and warn on no-op behavior instead of changing command semantics."
+    }
+  ]
+}

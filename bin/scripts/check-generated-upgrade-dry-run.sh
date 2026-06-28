@@ -10,6 +10,7 @@ import sys
 
 root = pathlib.Path(".").resolve()
 manifest_path = root / "docs" / "reference" / "generated-upgrade-dry-run.json"
+scaffold_compat_path = root / "docs" / "reference" / "generated-scaffold-long-term-compatibility.json"
 missing = []
 
 
@@ -47,10 +48,24 @@ if manifest_path.is_file():
 else:
     manifest = {}
     missing.append("docs/reference/generated-upgrade-dry-run.json is missing")
+if scaffold_compat_path.is_file():
+    scaffold_compat = json.loads(scaffold_compat_path.read_text(encoding="utf-8"))
+else:
+    scaffold_compat = {}
+    missing.append("docs/reference/generated-scaffold-long-term-compatibility.json is missing")
 
 require(
     manifest.get("schema") == "gofly.generated_upgrade_dry_run.v1",
     "generated upgrade dry-run schema must be gofly.generated_upgrade_dry_run.v1",
+)
+require(
+    scaffold_compat.get("schema") == "gofly.generated_scaffold_long_term_compatibility.v1",
+    "generated scaffold long-term compatibility schema mismatch",
+)
+require(scaffold_compat.get("status") == "blocking", "generated scaffold long-term compatibility status must be blocking")
+require(
+    scaffold_compat.get("blockingGate") == "make generated-upgrade-dry-run-check",
+    "generated scaffold long-term compatibility blockingGate mismatch",
 )
 
 policy = manifest.get("artifactPolicy") or {}
@@ -182,6 +197,118 @@ require(
 profiles = manifest.get("profiles") or []
 profile_names = {item.get("profile") for item in profiles if isinstance(item, dict)}
 require(profile_names == {"old", "current", "future"}, f"profiles mismatch: {sorted(profile_names)!r}")
+
+source_of_truth = set(scaffold_compat.get("sourceOfTruth") or [])
+for source in (
+    "docs/reference/generated-upgrade-dry-run.json",
+    "docs/reference/generated-version-compat.md",
+    "testdata/generated-compat/matrix.json",
+    "docs/reference/goctl-generator-compatibility.json",
+    "docs/reference/migration-fidelity-matrix.json",
+):
+    require(source in source_of_truth, f"generated scaffold compatibility sourceOfTruth missing {source!r}")
+    require((root / source).exists(), f"generated scaffold compatibility sourceOfTruth path missing: {source}")
+require(
+    set(scaffold_compat.get("referenceFrameworks") or []) == {"go-zero", "Kratos"},
+    "generated scaffold compatibility referenceFrameworks mismatch",
+)
+require(
+    set(scaffold_compat.get("acceptanceGates") or []) == {
+        "make generated-upgrade-dry-run-check",
+        "make generated-version-compat-check",
+        "make goctl-generator-compat-check",
+        "make test-generated-matrix",
+    },
+    "generated scaffold compatibility acceptanceGates mismatch",
+)
+compat_policy = scaffold_compat.get("compatibilityPolicy") or {}
+require(set(compat_policy.get("versionProfiles") or []) == profile_names, "generated scaffold compatibility versionProfiles mismatch")
+require(compat_policy.get("repeatGeneration") == "must-pass", "generated scaffold compatibility repeatGeneration mismatch")
+require(compat_policy.get("generatedProjectCompileSmoke") == "required", "generated scaffold compatibility compile smoke must be required")
+require(compat_policy.get("diffClassification") == "required", "generated scaffold compatibility diffClassification must be required")
+require(
+    compat_policy.get("dependencyBoundary") == "generated project go.mod or isolated temporary test module",
+    "generated scaffold compatibility dependencyBoundary mismatch",
+)
+require(
+    compat_policy.get("rootModulePolicy") == "must-not-add-generated-only-dependencies",
+    "generated scaffold compatibility rootModulePolicy mismatch",
+)
+require(
+    len(str(compat_policy.get("rollbackPolicy") or "").split()) >= 16,
+    "generated scaffold compatibility rollbackPolicy must be actionable",
+)
+
+matrix_profiles_raw = json.loads((root / "testdata/generated-compat/matrix.json").read_text(encoding="utf-8")).get("profiles") or []
+matrix_by_profile = {
+    item.get("profile"): item
+    for item in matrix_profiles_raw
+    if isinstance(item, dict) and item.get("profile")
+}
+scaffold_profiles = scaffold_compat.get("profileMatrix") or []
+scaffold_by_profile = {
+    item.get("profile"): item
+    for item in scaffold_profiles
+    if isinstance(item, dict) and item.get("profile")
+}
+require(set(scaffold_by_profile) == profile_names, f"generated scaffold compatibility profileMatrix mismatch: {sorted(scaffold_by_profile)!r}")
+for profile_name, item in sorted(scaffold_by_profile.items()):
+    matrix_profile = matrix_by_profile.get(profile_name) or {}
+    manifest_profile = next((profile for profile in profiles if profile.get("profile") == profile_name), {})
+    require(item.get("expectedDiff") == matrix_profile.get("expectedDiff"), f"generated scaffold compatibility {profile_name}: expectedDiff must match version matrix")
+    fixtures = item.get("fixtures") or {}
+    for field in ("api", "proto", "serviceConfig"):
+        require(fixtures.get(field) == manifest_profile.get(field), f"generated scaffold compatibility {profile_name}: fixture {field} must match generated upgrade profile")
+        require((root / str(fixtures.get(field) or "")).is_file(), f"generated scaffold compatibility {profile_name}: fixture path missing for {field}")
+    categories = set(item.get("requiredDiffCategories") or [])
+    manifest_categories = set((manifest_profile.get("diffReport") or {}).get("categories") or [])
+    require("deterministic-repeat-generation" in categories, f"generated scaffold compatibility {profile_name}: deterministic diff category is required")
+    require(categories <= required_categories, f"generated scaffold compatibility {profile_name}: unknown diff categories {sorted(categories - required_categories)!r}")
+    require(categories <= manifest_categories or profile_name == "future", f"generated scaffold compatibility {profile_name}: categories must be covered by generated upgrade profile")
+    require(item.get("smokeGate", "").startswith("make "), f"generated scaffold compatibility {profile_name}: smokeGate must be a make target")
+    require(bool(item.get("frameworkAlignment")), f"generated scaffold compatibility {profile_name}: frameworkAlignment is required")
+    require(len(str(item.get("rollbackOrEscalation") or "").split()) >= 10, f"generated scaffold compatibility {profile_name}: rollbackOrEscalation must be actionable")
+
+edge_cases = scaffold_compat.get("edgeCases") or []
+required_edge_cases = {
+    "goctl-compatible-profile",
+    "route-layout-boundary",
+    "api-import-and-diff-format",
+    "generated-dependency-boundary",
+}
+actual_edge_cases = {item.get("id") for item in edge_cases if isinstance(item, dict)}
+require(actual_edge_cases == required_edge_cases, f"generated scaffold compatibility edgeCases mismatch: {sorted(actual_edge_cases)!r}")
+for item in edge_cases:
+    if not isinstance(item, dict):
+        missing.append(f"generated scaffold compatibility edge case must be an object: {item!r}")
+        continue
+    edge_id = item.get("id", "<missing>")
+    for field in ("id", "surface", "evidence", "gate", "rollbackOrEscalation"):
+        require(item.get(field) not in ("", None, []), f"generated scaffold compatibility edge {edge_id}: {field} is required")
+    gate = item.get("gate", "")
+    require(gate.startswith("make "), f"generated scaffold compatibility edge {edge_id}: gate must be a make target")
+    for evidence in item.get("evidence") or []:
+        require((root / evidence).exists(), f"generated scaffold compatibility edge {edge_id}: evidence path missing: {evidence}")
+    require(len(str(item.get("rollbackOrEscalation") or "").split()) >= 10, f"generated scaffold compatibility edge {edge_id}: rollbackOrEscalation must be actionable")
+
+adopter_actions = scaffold_compat.get("adopterActions") or []
+required_actions = {"temporary-project-generation", "upgrade-diff-review", "goctl-compatibility-review"}
+actual_actions = {item.get("id") for item in adopter_actions if isinstance(item, dict)}
+require(actual_actions == required_actions, f"generated scaffold compatibility adopterActions mismatch: {sorted(actual_actions)!r}")
+for item in adopter_actions:
+    if not isinstance(item, dict):
+        missing.append(f"generated scaffold compatibility adopter action must be an object: {item!r}")
+        continue
+    action_id = item.get("id", "<missing>")
+    for field in ("id", "command", "expectedEvidence", "rollbackOrEscalation"):
+        require(item.get(field) not in ("", None, []), f"generated scaffold compatibility action {action_id}: {field} is required")
+    command = item.get("command", "")
+    require(command.startswith("make "), f"generated scaffold compatibility action {action_id}: command must be a make target")
+    target = command.removeprefix("make ").split()[0]
+    makefile = read_text(root / "Makefile")
+    require(re.search(rf"^{re.escape(target)}:", makefile, re.M), f"generated scaffold compatibility action {action_id}: command target {target!r} missing")
+    for field in ("expectedEvidence", "rollbackOrEscalation"):
+        require(len(str(item.get(field) or "").split()) >= 10, f"generated scaffold compatibility action {action_id}: {field} must be actionable")
 
 for profile in profiles:
     if not isinstance(profile, dict):

@@ -158,8 +158,107 @@ for item in surfaces:
             if needle not in text:
                 missing.append(f"reference app topology surface {item_id}: {ref_path} missing {needle!r}")
 
+r8_drill = manifest.get("r8ProductionDrillMatrix") or {}
+require(
+    r8_drill.get("schema") == "gofly.reference_app_r8_production_drill.v1",
+    "reference app R8 production drill schema mismatch",
+)
+require(
+    r8_drill.get("aiflowTask") == "GOFLY-GOV-10R8-06",
+    "reference app R8 production drill aiflowTask mismatch",
+)
+require(
+    r8_drill.get("status") == "blocking-contract",
+    "reference app R8 production drill status must be blocking-contract",
+)
+require(
+    r8_drill.get("acceptanceGate") == "make reference-app-smoke",
+    "reference app R8 production drill acceptanceGate must be make reference-app-smoke",
+)
+r8_rows = {
+    item.get("id"): item
+    for item in r8_drill.get("rows") or []
+    if isinstance(item, dict) and item.get("id")
+}
+required_r8_rows = {
+    "memory-mode-drill": {
+        "mode": "memory",
+        "gate": "REFERENCE_APP_MODE=memory make reference-app-smoke",
+        "components": {"REST", "RPC", "memory MQ", "memory outbox", "memory discovery", "memory cache", "local-admin observability"},
+    },
+    "docker-backed-drill": {
+        "mode": "docker",
+        "gate": "REFERENCE_APP_MODE=docker make reference-app-smoke",
+        "components": {"Postgres SQL outbox", "Redis cache", "Kafka", "RabbitMQ", "Redis Stream", "Consul", "etcd", "Nacos", "OpenTelemetry collector"},
+    },
+    "sql-outbox-drill": {
+        "mode": "memory-and-docker",
+        "gate": "make reference-app-smoke",
+        "components": {"memory outbox", "Postgres SQL outbox", "orders.created"},
+    },
+    "mq-cache-discovery-drill": {
+        "mode": "memory-and-docker",
+        "gate": "make required-checks-drift-check",
+        "components": {"memory MQ", "Kafka", "RabbitMQ", "Redis Stream", "memory cache", "Redis cache", "memory discovery", "Consul", "etcd", "Nacos"},
+    },
+    "observability-drill": {
+        "mode": "memory-and-docker",
+        "gate": "make runtime-slo-check",
+        "components": {"local-admin observability", "OpenTelemetry collector", "metrics", "health", "trace propagation"},
+    },
+    "k8s-rollback-drill": {
+        "mode": "production-assets",
+        "gate": "make cloud-native-render-check",
+        "components": {"Helm", "Kustomize", "ServiceMonitor", "HPA", "PDB", "NetworkPolicy", "rollback"},
+    },
+    "failure-evidence-drill": {
+        "mode": "memory-and-production",
+        "gate": "make runtime-slo-check",
+        "components": {"saga compensation", "outbox retry", "rate limit", "circuit breaker", "rollback trigger"},
+    },
+}
+require(
+    set(r8_rows) == set(required_r8_rows),
+    "reference app R8 production drill rows drifted: "
+    f"missing={sorted(set(required_r8_rows) - set(r8_rows))!r} "
+    f"extra={sorted(set(r8_rows) - set(required_r8_rows))!r}",
+)
+
 makefile_text = (root / "Makefile").read_text(encoding="utf-8")
 make_targets = set(__import__("re").findall(r"^([A-Za-z0-9_.-]+):", makefile_text, __import__("re").M))
+for row_id, expected in required_r8_rows.items():
+    row = r8_rows.get(row_id) or {}
+    for field in ("id", "surface", "mode", "components", "gate", "runnableEvidence", "failureEvidence", "rollbackOrEscalation"):
+        require(row.get(field) not in ("", None, []), f"reference app R8 production drill {row_id}: {field} is required")
+    require(row.get("mode") == expected["mode"], f"reference app R8 production drill {row_id}: mode mismatch")
+    require(row.get("gate") == expected["gate"], f"reference app R8 production drill {row_id}: gate mismatch")
+    require(expected["components"] <= set(row.get("components") or []), f"reference app R8 production drill {row_id}: components missing {sorted(expected['components'] - set(row.get('components') or []))!r}")
+    gate = str(row.get("gate") or "")
+    if "make " in gate:
+        target = gate.split("make ", 1)[1].split()[0]
+        require(target in make_targets, f"reference app R8 production drill {row_id}: gate target missing: {target}")
+    for evidence in row.get("runnableEvidence") or []:
+        require((root / evidence).exists(), f"reference app R8 production drill {row_id}: runnable evidence missing: {evidence}")
+    for field in ("failureEvidence", "rollbackOrEscalation"):
+        require(
+            len(str(row.get(field) or "").split()) >= 10,
+            f"reference app R8 production drill {row_id}: {field} must be actionable",
+        )
+    require(
+        "fallback" in str(row.get("failureEvidence") or "").lower()
+        or "failure" in str(row.get("failureEvidence") or "").lower()
+        or "rollback" in str(row.get("failureEvidence") or "").lower(),
+        f"reference app R8 production drill {row_id}: failureEvidence must name failure, fallback, or rollback",
+    )
+    require(
+        "rollback" in str(row.get("rollbackOrEscalation") or "").lower()
+        or "fallback" in str(row.get("rollbackOrEscalation") or "").lower()
+        or "keep" in str(row.get("rollbackOrEscalation") or "").lower()
+        or "pin" in str(row.get("rollbackOrEscalation") or "").lower()
+        or "disable" in str(row.get("rollbackOrEscalation") or "").lower(),
+        f"reference app R8 production drill {row_id}: rollbackOrEscalation must name rollback, fallback, keep, pin, or disable",
+    )
+
 adopter_proof = manifest.get("adopterProof") or {}
 require(
     adopter_proof.get("schema") == "gofly.reference_app_adopter_proof.v1",

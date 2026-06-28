@@ -32,6 +32,105 @@
     "rootModulePolicy": "must-not-add-generated-only-dependencies",
     "rollbackPolicy": "Pin the previous generator, keep the previous generated snapshot serving, and block release promotion when generation, compile smoke, repeat diff, dependency boundary, or rollback evidence fails."
   },
+  "r8ProfileMatrix": {
+    "aiflowTask": "GOFLY-GOV-10R8-03",
+    "acceptanceGate": "make generated-upgrade-dry-run-check",
+    "profiles": [
+      {
+        "id": "rest-service",
+        "generatorSurface": "REST service scaffold",
+        "referenceFrameworks": [
+          "go-zero",
+          "Kratos"
+        ],
+        "fixtures": [
+          "testdata/generated-compat/current/orders.api",
+          "testdata/generated-compat/current/service-config.json"
+        ],
+        "generatedOnlyDependencyPolicy": "REST-only generated dependencies must stay in the generated project go.mod or an isolated temporary module.",
+        "repeatDiffPolicy": "Repeated REST service generation must be deterministic after volatile paths and timestamps are normalized.",
+        "compileSmoke": "make generated-version-compat-check",
+        "rollbackOrEscalation": "Discard the REST scaffold diff and pin the previous generator when route layout, error envelope, OpenAPI metadata, or repeat generation drifts."
+      },
+      {
+        "id": "rpc-service",
+        "generatorSurface": "RPC service scaffold",
+        "referenceFrameworks": [
+          "go-zero",
+          "Kratos"
+        ],
+        "fixtures": [
+          "testdata/generated-compat/current/greeter.proto",
+          "testdata/generated-compat/current/service-config.json"
+        ],
+        "generatedOnlyDependencyPolicy": "RPC transport and generated client dependencies must stay in generated projects unless the root module imports them directly.",
+        "repeatDiffPolicy": "Repeated RPC scaffold generation must preserve descriptor, handler, validator, and option file names without unexplained diffs.",
+        "compileSmoke": "make generated-version-compat-check",
+        "rollbackOrEscalation": "Pin the previous RPC generator or transport profile when generated descriptors, validators, or service options stop compiling."
+      },
+      {
+        "id": "model-service",
+        "generatorSurface": "model scaffold",
+        "referenceFrameworks": [
+          "go-zero"
+        ],
+        "fixtures": [
+          "testdata/generated-compat/v0.1/orders.api",
+          "testdata/generated-compat/v0.1/service-config.json"
+        ],
+        "generatedOnlyDependencyPolicy": "Model-layer database or cache dependencies belong to generated project modules and must not be added to gofly root go.mod.",
+        "repeatDiffPolicy": "Repeated model scaffold generation must classify additive fields as compatible-addition and keep root dependency policy clean.",
+        "compileSmoke": "make generated-version-compat-check",
+        "rollbackOrEscalation": "Keep the previous generated model profile when database/cache dependencies, field names, or compatibility shims drift."
+      },
+      {
+        "id": "production-service",
+        "generatorSurface": "production service scaffold",
+        "referenceFrameworks": [
+          "go-zero",
+          "Kratos"
+        ],
+        "fixtures": [
+          "testdata/generated-compat/future/orders.api",
+          "testdata/generated-compat/future/greeter.proto",
+          "testdata/generated-compat/future/service-config.json"
+        ],
+        "generatedOnlyDependencyPolicy": "Production service integration dependencies must either stay in generated project modules or be reviewed through dependency ownership evidence.",
+        "repeatDiffPolicy": "Future production scaffolds may report compatible additions, but deleted contracts or changed public generated names are breaking-candidate diffs.",
+        "compileSmoke": "make generated-upgrade-dry-run-check",
+        "rollbackOrEscalation": "Disable future production profiles and keep current generated snapshots when compile smoke, dependency boundary, or diff classification fails."
+      }
+    ],
+    "crossCuttingChecks": [
+      {
+        "id": "import-aliases",
+        "evidence": [
+          "cmd/gofly/internal/generator/config_test.go",
+          "cmd/gofly/internal/generator/protoc_plugin_test.go"
+        ],
+        "gate": "make generated-upgrade-dry-run-check",
+        "rollbackOrEscalation": "Pin the previous generator when include ordering, Go package aliases, plugin aliases, or generated public names collide."
+      },
+      {
+        "id": "generated-only-dependencies",
+        "evidence": [
+          "docs/reference/dependency-upgrade-evidence.json",
+          "docs/reference/generated-upgrade-dry-run.json"
+        ],
+        "gate": "make dependency-upgrade-evidence-check",
+        "rollbackOrEscalation": "Remove generated-only dependencies from the root module and keep them in generated project go.mod when ownership evidence fails."
+      },
+      {
+        "id": "repeat-generation-diff",
+        "evidence": [
+          "testdata/generated-compat/matrix.json",
+          "docs/reference/generated-upgrade-dry-run.json"
+        ],
+        "gate": "make generated-upgrade-dry-run-check",
+        "rollbackOrEscalation": "Discard generated output when repeated generation produces unclassified diffs or misses rollback notes."
+      }
+    ]
+  },
   "profileMatrix": [
     {
       "profile": "old",

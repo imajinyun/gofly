@@ -239,6 +239,64 @@ require(
     "generated scaffold compatibility rollbackPolicy must be actionable",
 )
 
+r8_profile_matrix = scaffold_compat.get("r8ProfileMatrix") or {}
+require(r8_profile_matrix.get("aiflowTask") == "GOFLY-GOV-10R8-03", "generated scaffold R8 profile matrix aiflowTask mismatch")
+require(
+    r8_profile_matrix.get("acceptanceGate") == "make generated-upgrade-dry-run-check",
+    "generated scaffold R8 profile matrix acceptanceGate mismatch",
+)
+r8_profiles = r8_profile_matrix.get("profiles") or []
+required_r8_profile_ids = {"rest-service", "rpc-service", "model-service", "production-service"}
+actual_r8_profile_ids = {item.get("id") for item in r8_profiles if isinstance(item, dict)}
+require(actual_r8_profile_ids == required_r8_profile_ids, f"generated scaffold R8 profile ids mismatch: {sorted(actual_r8_profile_ids)!r}")
+for item in r8_profiles:
+    if not isinstance(item, dict):
+        missing.append(f"generated scaffold R8 profile entry must be an object: {item!r}")
+        continue
+    profile_id = item.get("id", "<missing>")
+    for field in (
+        "id",
+        "generatorSurface",
+        "referenceFrameworks",
+        "fixtures",
+        "generatedOnlyDependencyPolicy",
+        "repeatDiffPolicy",
+        "compileSmoke",
+        "rollbackOrEscalation",
+    ):
+        require(item.get(field) not in ("", None, []), f"generated scaffold R8 profile {profile_id}: {field} is required")
+    frameworks = set(item.get("referenceFrameworks") or [])
+    require(frameworks <= {"go-zero", "Kratos"} and frameworks, f"generated scaffold R8 profile {profile_id}: referenceFrameworks mismatch")
+    for fixture in item.get("fixtures") or []:
+        require((root / fixture).exists(), f"generated scaffold R8 profile {profile_id}: fixture path missing: {fixture}")
+    gate = item.get("compileSmoke", "")
+    require(gate.startswith("make "), f"generated scaffold R8 profile {profile_id}: compileSmoke must be a make target")
+    target = gate.removeprefix("make ").split()[0]
+    makefile = read_text(root / "Makefile")
+    require(re.search(rf"^{re.escape(target)}:", makefile, re.M), f"generated scaffold R8 profile {profile_id}: compileSmoke target {target!r} missing")
+    for field in ("generatedOnlyDependencyPolicy", "repeatDiffPolicy", "rollbackOrEscalation"):
+        require(len(str(item.get(field) or "").split()) >= 10, f"generated scaffold R8 profile {profile_id}: {field} must be actionable")
+
+r8_cross_checks = r8_profile_matrix.get("crossCuttingChecks") or []
+required_r8_cross_check_ids = {"import-aliases", "generated-only-dependencies", "repeat-generation-diff"}
+actual_r8_cross_check_ids = {item.get("id") for item in r8_cross_checks if isinstance(item, dict)}
+require(actual_r8_cross_check_ids == required_r8_cross_check_ids, f"generated scaffold R8 cross checks mismatch: {sorted(actual_r8_cross_check_ids)!r}")
+for item in r8_cross_checks:
+    if not isinstance(item, dict):
+        missing.append(f"generated scaffold R8 cross check entry must be an object: {item!r}")
+        continue
+    check_id = item.get("id", "<missing>")
+    for field in ("id", "evidence", "gate", "rollbackOrEscalation"):
+        require(item.get(field) not in ("", None, []), f"generated scaffold R8 cross check {check_id}: {field} is required")
+    gate = item.get("gate", "")
+    require(gate.startswith("make "), f"generated scaffold R8 cross check {check_id}: gate must be a make target")
+    target = gate.removeprefix("make ").split()[0]
+    makefile = read_text(root / "Makefile")
+    require(re.search(rf"^{re.escape(target)}:", makefile, re.M), f"generated scaffold R8 cross check {check_id}: gate target {target!r} missing")
+    for evidence in item.get("evidence") or []:
+        require((root / evidence).exists(), f"generated scaffold R8 cross check {check_id}: evidence path missing: {evidence}")
+    require(len(str(item.get("rollbackOrEscalation") or "").split()) >= 10, f"generated scaffold R8 cross check {check_id}: rollbackOrEscalation must be actionable")
+
 matrix_profiles_raw = json.loads((root / "testdata/generated-compat/matrix.json").read_text(encoding="utf-8")).get("profiles") or []
 matrix_by_profile = {
     item.get("profile"): item

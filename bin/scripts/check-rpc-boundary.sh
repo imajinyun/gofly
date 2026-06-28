@@ -157,6 +157,157 @@ for field in ("allowedClaim", "promotionPolicy", "rollbackPolicy"):
 require("Tier 1" in str(claim_policy.get("promotionPolicy") or ""), "rpc transport boundary promotionPolicy must name Tier 1")
 require("Kitex" in str(claim_policy.get("rollbackPolicy") or ""), "rpc transport boundary rollbackPolicy must mention Kitex")
 
+r8_stream_matrix = manifest.get("r8StreamingBoundaryMatrix") or {}
+require(
+    r8_stream_matrix.get("schema") == "gofly.rpc_streaming_boundary_matrix.v1",
+    "rpc tier1 evidence r8StreamingBoundaryMatrix schema mismatch",
+)
+require(
+    r8_stream_matrix.get("aiflowTask") == "GOFLY-GOV-10R8-04",
+    "rpc tier1 evidence r8StreamingBoundaryMatrix aiflowTask mismatch",
+)
+require(
+    r8_stream_matrix.get("status") == "blocking-contract",
+    "rpc tier1 evidence r8StreamingBoundaryMatrix status must be blocking-contract",
+)
+require(
+    r8_stream_matrix.get("acceptanceGate") == "make rpc-boundary-check",
+    "rpc tier1 evidence r8StreamingBoundaryMatrix acceptanceGate mismatch",
+)
+require(
+    r8_stream_matrix.get("transportParityClaim") == "forbidden",
+    "rpc tier1 evidence r8StreamingBoundaryMatrix must forbid transport parity claims",
+)
+require(
+    "Kitex" in str(r8_stream_matrix.get("summary") or "") and "gRPC-Go" in str(r8_stream_matrix.get("summary") or ""),
+    "rpc tier1 evidence r8StreamingBoundaryMatrix summary must mention Kitex and gRPC-Go boundaries",
+)
+r8_rows = {
+    item.get("id"): item
+    for item in r8_stream_matrix.get("rows") or []
+    if isinstance(item, dict) and item.get("id")
+}
+required_r8_rows = {
+    "unary-boundary": {
+        "classification": "candidate",
+        "evidenceIds": {"unary-contract", "deadline-error-code-mapping", "retry-balancer-contract"},
+        "needles": {"BenchmarkRPCUnary", "deadline_exceeded", "invalid_argument", "unavailable"},
+    },
+    "server-stream-boundary": {
+        "classification": "candidate",
+        "evidenceIds": {"server-stream-governance", "grpc-compatibility"},
+        "needles": {"BenchmarkRPCServerStreamGovernance", "server_stream", "Unauthenticated", "traceparent"},
+    },
+    "client-stream-boundary": {
+        "classification": "candidate",
+        "evidenceIds": {"client-stream-governance", "grpc-compatibility"},
+        "needles": {"BenchmarkRPCClientStreamGovernance", "client_stream", "Unauthenticated", "traceparent"},
+    },
+    "bidi-stream-boundary": {
+        "classification": "candidate",
+        "evidenceIds": {"bidi-stream-governance", "grpc-compatibility"},
+        "needles": {"BenchmarkRPCBidiStreamGovernance", "bidi_stream", "Unauthenticated", "traceparent"},
+    },
+    "resolver-balancer-boundary": {
+        "classification": "candidate",
+        "evidenceIds": {"resolver-updates", "balancer-routing", "retry-balancer-contract"},
+        "needles": {"round_robin", "weighted_round_robin", "p2c", "consistent_hash", "health_aware"},
+    },
+    "deadline-retry-auth-tracing-boundary": {
+        "classification": "tier1-ready-evidence",
+        "evidenceIds": {"deadline-error-code-mapping", "retry-balancer-contract", "grpc-compatibility"},
+        "needles": {"deadline_exceeded", "codes.Unavailable", "Unauthenticated", "SERVING", "traceparent"},
+    },
+    "kitex-gozero-rollback-boundary": {
+        "classification": "rollback-required",
+        "evidenceIds": {"kitex-coexistence-rollback", "gozero-coexistence-rollback"},
+        "needles": {"Kitex", "go-zero", "generated service", "rollback routing"},
+    },
+}
+require(set(r8_rows) == set(required_r8_rows), f"rpc tier1 evidence r8StreamingBoundaryMatrix rows mismatch: {sorted(r8_rows)!r}")
+for row_id, expected in required_r8_rows.items():
+    row = r8_rows.get(row_id) or {}
+    require(row.get("classification") == expected["classification"], f"rpc tier1 evidence R8 row {row_id}: classification mismatch")
+    require(expected["evidenceIds"] <= set(row.get("evidenceIds") or []), f"rpc tier1 evidence R8 row {row_id}: evidenceIds missing {sorted(expected['evidenceIds'] - set(row.get('evidenceIds') or []))!r}")
+    require(row.get("gate"), f"rpc tier1 evidence R8 row {row_id}: gate is required")
+    require(row.get("surface"), f"rpc tier1 evidence R8 row {row_id}: surface is required")
+    for field in ("runtimeCompatibility", "rollbackTrigger"):
+        require(
+            len(str(row.get(field) or "").split()) >= 8,
+            f"rpc tier1 evidence R8 row {row_id}: {field} must be actionable",
+        )
+    report_evidence = set(row.get("reportEvidence") or [])
+    require(expected["needles"] <= report_evidence, f"rpc tier1 evidence R8 row {row_id}: reportEvidence missing {sorted(expected['needles'] - report_evidence)!r}")
+    require(
+        any(name in row.get("rollbackTrigger", "") for name in ("Kitex", "gRPC-Go", "go-zero", "service mesh", "RPC stack")),
+        f"rpc tier1 evidence R8 row {row_id}: rollbackTrigger must name the fallback runtime or routing stack",
+    )
+
+r8_transport_matrix = transport_boundary.get("r8TransportEvidenceMatrix") or {}
+require(
+    r8_transport_matrix.get("schema") == "gofly.rpc_transport_r8_evidence_matrix.v1",
+    "rpc transport boundary r8TransportEvidenceMatrix schema mismatch",
+)
+require(
+    r8_transport_matrix.get("aiflowTask") == "GOFLY-GOV-10R8-04",
+    "rpc transport boundary r8TransportEvidenceMatrix aiflowTask mismatch",
+)
+require(
+    r8_transport_matrix.get("status") == "blocking-contract",
+    "rpc transport boundary r8TransportEvidenceMatrix status must be blocking-contract",
+)
+require(
+    r8_transport_matrix.get("source") == "docs/reference/rpc-tier1-evidence.json",
+    "rpc transport boundary r8TransportEvidenceMatrix source mismatch",
+)
+require(
+    r8_transport_matrix.get("acceptanceGate") == "make rpc-boundary-check",
+    "rpc transport boundary r8TransportEvidenceMatrix acceptanceGate mismatch",
+)
+r8_transport_rows = {
+    item.get("id"): item
+    for item in r8_transport_matrix.get("rows") or []
+    if isinstance(item, dict) and item.get("id")
+}
+required_r8_transport_rows = {
+    "streaming-modes": {
+        "claimClass": "candidate",
+        "supportedEvidence": {"server-stream-governance", "client-stream-governance", "bidi-stream-governance"},
+        "forbiddenNeedle": "streaming transport parity",
+    },
+    "resolver-balancer": {
+        "claimClass": "candidate",
+        "supportedEvidence": {"resolver-updates", "balancer-routing", "retry-balancer-contract"},
+        "forbiddenNeedle": "routing parity",
+    },
+    "deadline-retry-auth-tracing": {
+        "claimClass": "tier1-ready-evidence",
+        "supportedEvidence": {"deadline-error-code-mapping", "retry-balancer-contract", "grpc-compatibility"},
+        "forbiddenNeedle": "gRPC-Go ecosystem parity",
+    },
+    "benchmark-budget": {
+        "claimClass": "report-only",
+        "supportedEvidence": {"unary-contract", "server-stream-governance", "client-stream-governance", "bidi-stream-governance"},
+        "forbiddenNeedle": "blocking RPC latency",
+    },
+    "framework-rollback": {
+        "claimClass": "rollback-required",
+        "supportedEvidence": {"kitex-coexistence-rollback", "gozero-coexistence-rollback"},
+        "forbiddenNeedle": "in-place migration",
+    },
+}
+require(set(r8_transport_rows) == set(required_r8_transport_rows), f"rpc transport boundary r8TransportEvidenceMatrix rows mismatch: {sorted(r8_transport_rows)!r}")
+for row_id, expected in required_r8_transport_rows.items():
+    row = r8_transport_rows.get(row_id) or {}
+    require(row.get("claimClass") == expected["claimClass"], f"rpc transport boundary R8 row {row_id}: claimClass mismatch")
+    require(expected["supportedEvidence"] <= set(row.get("supportedEvidence") or []), f"rpc transport boundary R8 row {row_id}: supportedEvidence missing {sorted(expected['supportedEvidence'] - set(row.get('supportedEvidence') or []))!r}")
+    require(expected["forbiddenNeedle"] in str(row.get("forbiddenClaim") or ""), f"rpc transport boundary R8 row {row_id}: forbiddenClaim must mention {expected['forbiddenNeedle']!r}")
+    require(row.get("requiredGate"), f"rpc transport boundary R8 row {row_id}: requiredGate is required")
+    require(
+        len(str(row.get("rollbackPolicy") or "").split()) >= 10,
+        f"rpc transport boundary R8 row {row_id}: rollbackPolicy must be actionable",
+    )
+
 transport_rows = transport_boundary.get("transportBoundaries") or []
 required_transport_rows = {
     "kitex-hot-path-boundary",

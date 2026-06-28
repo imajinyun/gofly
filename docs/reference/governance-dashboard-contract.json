@@ -5,6 +5,9 @@
   "summaryFields": [
     "release.readinessScore.status",
     "release.readinessScore.score",
+    "releaseEvidenceConsumption.driftClosure.driftGate",
+    "releaseEvidenceConsumption.driftClosure.requiredEvidenceCount",
+    "releaseEvidenceConsumption.driftClosure.releasePrerequisiteCoverage",
     "apiSurface.tiers",
     "benchmark.regressionGate",
     "benchmark.regressionReport",
@@ -37,6 +40,20 @@
     "requiredStatus": "ready",
     "minimumScore": 100,
     "source": "docs/releases/readiness-score.json"
+  },
+  "releaseEvidenceConsumption": {
+    "schema": "gofly.release_evidence_consumption.v1",
+    "source": "docs/releases/evidence-consumption.json",
+    "sourceOfTruth": "docs/releases/evidence-index.json",
+    "acceptanceGate": "make governance-report-check",
+    "driftGate": "make required-checks-drift-check",
+    "reportField": "releaseEvidenceConsumption.driftClosure",
+    "requiredCheckSource": "docs/reference/ci-required-check-evidence.json",
+    "requiredDashboardFields": [
+      "releaseEvidenceConsumption.driftClosure.driftGate",
+      "releaseEvidenceConsumption.driftClosure.requiredEvidenceCount",
+      "releaseEvidenceConsumption.driftClosure.releasePrerequisiteCoverage"
+    ]
   },
   "apiTiers": {
     "source": "docs/reference/api-surface.md",
@@ -247,6 +264,15 @@
         "gate": "make governance-report-check",
         "riskClass": "production-ready",
         "rollbackOrEscalation": "block release promotion when readiness score is not ready or evidence artifacts are missing"
+      },
+      {
+        "id": "release-evidence-drift-closure",
+        "claim": "Release evidence consumption is mapped to required-check drift so tag promotion cannot silently lose adopter evidence.",
+        "sourceManifest": "docs/releases/evidence-consumption.json",
+        "reportField": "releaseEvidenceConsumption.driftClosure",
+        "gate": "make required-checks-drift-check",
+        "riskClass": "production-ready",
+        "rollbackOrEscalation": "block tag promotion until every release evidence id maps to a release prerequisite or explicit release artifact producer"
       },
       {
         "id": "required-checks-drift",

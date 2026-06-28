@@ -7,6 +7,28 @@
     "release-manager",
     "ci-agent"
   ],
+  "driftClosure": {
+    "schema": "gofly.release_evidence_drift_closure.v1",
+    "requiredCheckSource": "docs/reference/ci-required-check-evidence.json",
+    "releasePrerequisiteSource": ".github/workflows/ci.yml release.needs",
+    "driftGate": "make required-checks-drift-check",
+    "dashboardReportField": "releaseEvidenceConsumption.driftClosure",
+    "policy": "Every release evidence item must map to a producer job that is either a release prerequisite or release job artifact, and every consumed artifact must stay visible in the governance dashboard before tag promotion.",
+    "requiredEvidenceIds": [
+      "checksums",
+      "archive-sbom",
+      "docker-sbom",
+      "checksums-attestation",
+      "docker-attestation",
+      "docker-digest",
+      "trivy",
+      "api-compat",
+      "security",
+      "race",
+      "bench",
+      "governance-dashboard"
+    ]
+  },
   "items": [
     {
       "id": "checksums",

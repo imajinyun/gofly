@@ -209,6 +209,68 @@ if runner.get("mode") != "make-target-json-report":
     missing.append("docs/reference/plugin-conformance-report.json: runner.mode must be make-target-json-report")
 if runner.get("command") != "make plugin-conformance-check":
     missing.append("docs/reference/plugin-conformance-report.json: runner.command must be make plugin-conformance-check")
+
+adopter_contract = report.get("adopterPublishingContract") or {}
+if adopter_contract.get("schema") != "gofly.plugin_adopter_publishing_contract.v1":
+    missing.append("docs/reference/plugin-conformance-report.json: adopterPublishingContract schema mismatch")
+if adopter_contract.get("source") != "docs/reference/plugin-conformance-report.json":
+    missing.append("docs/reference/plugin-conformance-report.json: adopterPublishingContract source mismatch")
+if adopter_contract.get("publishingUX") != "docs/reference/plugin-publishing-ux.json":
+    missing.append("docs/reference/plugin-conformance-report.json: adopterPublishingContract publishingUX mismatch")
+if adopter_contract.get("dashboardReportField") != "pluginAdoption.publishingConformance":
+    missing.append("docs/reference/plugin-conformance-report.json: adopterPublishingContract dashboardReportField mismatch")
+if set(adopter_contract.get("consumers") or []) != {"adopter", "plugin-publisher", "release-manager", "ci-agent"}:
+    missing.append("docs/reference/plugin-conformance-report.json: adopterPublishingContract consumers mismatch")
+if set(adopter_contract.get("acceptanceGates") or []) != {
+    "make plugin-conformance-check",
+    "go test -C examples/plugin-ecosystem ./...",
+    "go run -C examples/plugin-ecosystem .",
+}:
+    missing.append("docs/reference/plugin-conformance-report.json: adopterPublishingContract acceptanceGates mismatch")
+if len(str(adopter_contract.get("policy") or "").split()) < 18:
+    missing.append("docs/reference/plugin-conformance-report.json: adopterPublishingContract policy must be actionable")
+
+expected_publish_blockers = {
+    "registry-or-manifest-invalid": {"registry-schema", "manifest-schema"},
+    "protocol-incompatible": {"old-protocol", "future-only-protocol"},
+    "integrity-or-provenance-missing": {"digest-mismatch", "signature-provenance"},
+    "permission-or-filesystem-escape": {"permission-escape", "malicious-path", "no-partial-writes"},
+}
+publish_blockers = {
+    item.get("id"): item
+    for item in adopter_contract.get("publishBlockers") or []
+    if isinstance(item, dict) and item.get("id")
+}
+if set(publish_blockers) != set(expected_publish_blockers):
+    missing.append(
+        "docs/reference/plugin-conformance-report.json: adopterPublishingContract publishBlockers drifted "
+        f"missing={sorted(set(expected_publish_blockers) - set(publish_blockers))} "
+        f"extra={sorted(set(publish_blockers) - set(expected_publish_blockers))}"
+    )
+for blocker_id, expected_cases_for_blocker in expected_publish_blockers.items():
+    blocker = publish_blockers.get(blocker_id) or {}
+    actual_cases = set(blocker.get("cases") or [])
+    for case_id in expected_cases_for_blocker:
+        if case_id not in actual_cases:
+            missing.append(
+                "docs/reference/plugin-conformance-report.json: "
+                f"adopterPublishingContract {blocker_id} missing case {case_id!r}"
+            )
+    for field in ("adopterAction", "rollbackAction"):
+        if len(str(blocker.get(field) or "").split()) < 10:
+            missing.append(
+                "docs/reference/plugin-conformance-report.json: "
+                f"adopterPublishingContract {blocker_id} {field} must be actionable"
+            )
+
+template_requirements = set(adopter_contract.get("templatePublishingRequirements") or [])
+for field in ("template schema", "entrypoints", "permissions", "checksum", "source", "dry-run evidence"):
+    if field not in template_requirements:
+        missing.append(
+            "docs/reference/plugin-conformance-report.json: "
+            f"adopterPublishingContract templatePublishingRequirements missing {field!r}"
+        )
+
 protocol = report.get("protocol") or {}
 if protocol.get("current") != "1":
     missing.append("docs/reference/plugin-conformance-report.json: protocol.current must be 1")

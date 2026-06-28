@@ -243,6 +243,84 @@ for row_id, expected in required_r8_rows.items():
         f"rpc tier1 evidence R8 row {row_id}: rollbackTrigger must name the fallback runtime or routing stack",
     )
 
+p9_closeout = manifest.get("p9ReleaseTrainCloseout") or {}
+require(
+    p9_closeout.get("schema") == "gofly.rpc_tier1_release_train_closeout.v1",
+    "rpc tier1 evidence p9ReleaseTrainCloseout schema mismatch",
+)
+require(
+    p9_closeout.get("aiflowTask") == "GOFLY-GOV-10P9-01",
+    "rpc tier1 evidence p9ReleaseTrainCloseout aiflowTask mismatch",
+)
+require(
+    p9_closeout.get("status") == "blocked-with-release-train-evidence",
+    "rpc tier1 evidence p9ReleaseTrainCloseout status mismatch",
+)
+require(
+    set(p9_closeout.get("acceptanceGates") or []) == {"make rpc-boundary-check", "make bench-regression-check"},
+    "rpc tier1 evidence p9ReleaseTrainCloseout acceptanceGates mismatch",
+)
+p9_decision = p9_closeout.get("promotionDecision") or {}
+require(p9_decision.get("currentTier") == "tier2", "P9 RPC promotionDecision.currentTier must be tier2")
+require(p9_decision.get("targetTier") == "tier1", "P9 RPC promotionDecision.targetTier must be tier1")
+require(p9_decision.get("decision") == "do-not-promote", "P9 RPC promotionDecision.decision must remain do-not-promote")
+for field in ("reason", "latencyPolicy", "nextEligibleDecision"):
+    require(
+        len(str(p9_decision.get(field) or "").split()) >= 12,
+        f"P9 RPC promotionDecision.{field} must be actionable",
+    )
+require("report-only" in str(p9_decision.get("latencyPolicy") or ""), "P9 RPC latencyPolicy must preserve report-only latency")
+require("Kitex" in str(p9_decision.get("latencyPolicy") or ""), "P9 RPC latencyPolicy must mention Kitex boundary")
+
+p9_requirements = {
+    item.get("id"): item
+    for item in p9_closeout.get("releaseTrainRequirements") or []
+    if isinstance(item, dict) and item.get("id")
+}
+required_p9_requirements = {
+    "release-evidence-chain": "pending",
+    "rpc-boundary-contract": "satisfied-for-candidate",
+    "rpc-benchmark-budget": "report-only",
+}
+require(set(p9_requirements) == set(required_p9_requirements), f"P9 RPC releaseTrainRequirements mismatch: {sorted(p9_requirements)!r}")
+for req_id, status in required_p9_requirements.items():
+    req = p9_requirements.get(req_id) or {}
+    require(req.get("status") == status, f"P9 RPC requirement {req_id}: status mismatch")
+    require(req.get("gate"), f"P9 RPC requirement {req_id}: gate is required")
+    require(len(str(req.get("promotionUse") or "").split()) >= 10, f"P9 RPC requirement {req_id}: promotionUse must be actionable")
+    for evidence_path in req.get("requiredEvidence") or []:
+        require((root / evidence_path).exists(), f"P9 RPC requirement {req_id}: evidence path missing: {evidence_path}")
+
+p9_surfaces = {
+    item.get("id"): item
+    for item in p9_closeout.get("surfaceCloseout") or []
+    if isinstance(item, dict) and item.get("id")
+}
+required_p9_surfaces = {
+    "unary": "candidate",
+    "server-stream": "candidate",
+    "client-stream": "candidate",
+    "bidi-stream": "candidate",
+    "resolver-balancer": "candidate",
+    "grpc-compatibility": "tier1-ready-evidence",
+    "kitex-gozero-coexistence": "rollback-required",
+}
+require(set(p9_surfaces) == set(required_p9_surfaces), f"P9 RPC surfaceCloseout mismatch: {sorted(p9_surfaces)!r}")
+for surface_id, classification in required_p9_surfaces.items():
+    surface = p9_surfaces.get(surface_id) or {}
+    require(surface.get("classification") == classification, f"P9 RPC surface {surface_id}: classification mismatch")
+    require(surface.get("releaseTrainStatus"), f"P9 RPC surface {surface_id}: releaseTrainStatus is required")
+    require(set(surface.get("evidenceIds") or []), f"P9 RPC surface {surface_id}: evidenceIds are required")
+    for field in ("blockingGap", "rollbackAction"):
+        require(
+            len(str(surface.get(field) or "").split()) >= 10,
+            f"P9 RPC surface {surface_id}: {field} must be actionable",
+        )
+    require(
+        any(runtime in str(surface.get("rollbackAction") or "") for runtime in ("Kitex", "gRPC-Go", "go-zero", "RPC stack", "service mesh")),
+        f"P9 RPC surface {surface_id}: rollbackAction must name fallback runtime or routing stack",
+    )
+
 r8_transport_matrix = transport_boundary.get("r8TransportEvidenceMatrix") or {}
 require(
     r8_transport_matrix.get("schema") == "gofly.rpc_transport_r8_evidence_matrix.v1",
@@ -365,6 +443,71 @@ for link_id, expected_ids in required_evidence_links.items():
     link = next((item for item in evidence_links if isinstance(item, dict) and item.get("id") == link_id), {})
     require(link.get("gate"), f"rpc transport boundary link {link_id}: gate is required")
     require(len(str(link.get("rollbackOrEscalation") or "").split()) >= 10, f"rpc transport boundary link {link_id}: rollbackOrEscalation must be actionable")
+
+p9_transport_closeout = transport_boundary.get("p9ReleaseTrainTransportCloseout") or {}
+require(
+    p9_transport_closeout.get("schema") == "gofly.rpc_transport_p9_release_train_closeout.v1",
+    "rpc transport boundary p9ReleaseTrainTransportCloseout schema mismatch",
+)
+require(
+    p9_transport_closeout.get("aiflowTask") == "GOFLY-GOV-10P9-01",
+    "rpc transport boundary p9ReleaseTrainTransportCloseout aiflowTask mismatch",
+)
+require(
+    p9_transport_closeout.get("status") == "blocked-with-explicit-promotion-path",
+    "rpc transport boundary p9ReleaseTrainTransportCloseout status mismatch",
+)
+require(
+    set(p9_transport_closeout.get("acceptanceGates") or []) == {"make rpc-boundary-check", "make bench-regression-check"},
+    "rpc transport boundary p9ReleaseTrainTransportCloseout acceptanceGates mismatch",
+)
+p9_promotion_steps = {
+    item.get("id"): item
+    for item in p9_transport_closeout.get("promotionPath") or []
+    if isinstance(item, dict) and item.get("id")
+}
+required_p9_steps = {
+    "candidate-contracts-pass": "satisfied-for-candidate",
+    "release-train-attached": "pending",
+    "rpc-budget-promoted": "report-only",
+}
+require(set(p9_promotion_steps) == set(required_p9_steps), f"rpc transport boundary P9 promotionPath mismatch: {sorted(p9_promotion_steps)!r}")
+for step_id, status in required_p9_steps.items():
+    step = p9_promotion_steps.get(step_id) or {}
+    require(step.get("status") == status, f"rpc transport boundary P9 promotion step {step_id}: status mismatch")
+    require(isinstance(step.get("step"), int) and step.get("step") > 0, f"rpc transport boundary P9 promotion step {step_id}: step number is required")
+    require(step.get("requiredGate"), f"rpc transport boundary P9 promotion step {step_id}: requiredGate is required")
+    require(len(str(step.get("evidence") or "").split()) >= 10, f"rpc transport boundary P9 promotion step {step_id}: evidence must be actionable")
+
+p9_fallbacks = {
+    item.get("id"): item
+    for item in p9_transport_closeout.get("fallbackMatrix") or []
+    if isinstance(item, dict) and item.get("id")
+}
+required_p9_fallbacks = {
+    "kitex-hot-path": "Kitex",
+    "grpc-go-ecosystem": "gRPC-Go",
+    "gozero-coexistence": "go-zero",
+}
+require(set(p9_fallbacks) == set(required_p9_fallbacks), f"rpc transport boundary P9 fallbackMatrix mismatch: {sorted(p9_fallbacks)!r}")
+for fallback_id, runtime in required_p9_fallbacks.items():
+    fallback = p9_fallbacks.get(fallback_id) or {}
+    require(fallback.get("fallbackRuntime") == runtime, f"rpc transport boundary P9 fallback {fallback_id}: fallbackRuntime mismatch")
+    for field in ("trigger", "rollbackAction"):
+        require(
+            len(str(fallback.get(field) or "").split()) >= 10,
+            f"rpc transport boundary P9 fallback {fallback_id}: {field} must be actionable",
+        )
+    require(runtime in str(fallback.get("rollbackAction") or ""), f"rpc transport boundary P9 fallback {fallback_id}: rollbackAction must mention {runtime}")
+for forbidden in (
+    "Kitex transport parity",
+    "gRPC-Go transport parity",
+    "Netpoll parity",
+    "TTHeader parity",
+    "Thrift protocol parity",
+    "blocking RPC latency budget before promotion",
+):
+    require(forbidden in set(p9_transport_closeout.get("forbiddenClaims") or []), f"rpc transport boundary P9 forbiddenClaims missing {forbidden!r}")
 readiness = manifest.get("promotionReadiness") or {}
 require(readiness.get("currentTier") == "tier2", "rpc promotionReadiness.currentTier must be tier2 while candidate evidence is incomplete")
 require(readiness.get("targetTier") == "tier1", "rpc promotionReadiness.targetTier must be tier1")

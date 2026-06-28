@@ -197,5 +197,65 @@
       "gate": "go test -shuffle=on ./rpc/... ./rpc/grpc/...",
       "rollbackOrEscalation": "Keep existing client behavior when deadline, retryable status, auth, or unavailable mapping differs from sampled production behavior."
     }
-  ]
+  ],
+  "p9ReleaseTrainTransportCloseout": {
+    "schema": "gofly.rpc_transport_p9_release_train_closeout.v1",
+    "aiflowTask": "GOFLY-GOV-10P9-01",
+    "status": "blocked-with-explicit-promotion-path",
+    "acceptanceGates": [
+      "make rpc-boundary-check",
+      "make bench-regression-check"
+    ],
+    "promotionPath": [
+      {
+        "step": 1,
+        "id": "candidate-contracts-pass",
+        "requiredGate": "make rpc-boundary-check",
+        "status": "satisfied-for-candidate",
+        "evidence": "Unary, stream, resolver, balancer, deadline, retry, auth, tracing, and rollback rows are machine-checkable."
+      },
+      {
+        "step": 2,
+        "id": "release-train-attached",
+        "requiredGate": "make release-evidence-index-check",
+        "status": "pending",
+        "evidence": "One release train must attach release evidence, required-check drift evidence, RPC boundary evidence, and benchmark evidence."
+      },
+      {
+        "step": 3,
+        "id": "rpc-budget-promoted",
+        "requiredGate": "make bench-regression-check",
+        "status": "report-only",
+        "evidence": "Selected RPC unary or stream rows must move into blocking allocation budget coverage before Tier 1 promotion."
+      }
+    ],
+    "fallbackMatrix": [
+      {
+        "id": "kitex-hot-path",
+        "trigger": "latency-critical workload, Netpoll, TTHeader, Thrift, generated Kitex client, or missing RPC budget promotion",
+        "fallbackRuntime": "Kitex",
+        "rollbackAction": "Keep Kitex registered and route hot methods back until release-train and benchmark evidence both pass."
+      },
+      {
+        "id": "grpc-go-ecosystem",
+        "trigger": "native gRPC health, auth, tracing, retry service config, generated client, or streaming compatibility drift",
+        "fallbackRuntime": "gRPC-Go",
+        "rollbackAction": "Keep native gRPC-Go endpoints reachable until compatibility and release evidence pass for the adopter workload."
+      },
+      {
+        "id": "gozero-coexistence",
+        "trigger": "zrpc discovery, timeout, retry, breaker, rate-limit, generated layout, or rollback routing evidence diverges",
+        "fallbackRuntime": "go-zero",
+        "rollbackAction": "Keep the previous go-zero service registered and route traffic back while generated output or policy drift is fixed."
+      }
+    ],
+    "forbiddenClaims": [
+      "Kitex transport parity",
+      "gRPC-Go transport parity",
+      "Netpoll parity",
+      "TTHeader parity",
+      "Thrift protocol parity",
+      "blocking RPC latency budget before promotion"
+    ]
+  }
 }

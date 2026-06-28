@@ -864,6 +864,92 @@ for item in integration_rows:
         f"integration-ownership-matrix.json: {item_id}: generatedProjectBoundary must name generated projects",
     )
 
+adopter_proof_rows = integration_ownership.get("adopterProofRows")
+if not isinstance(adopter_proof_rows, list):
+    missing.append("integration-ownership-matrix.json: adopterProofRows must be a list")
+    adopter_proof_rows = []
+expected_adopter_proofs = {
+    "sql-generated-boundary-proof": {
+        "family": "sql",
+        "adapter": "SQLStore / Cluster",
+        "gate": "make db-cache-productization-check",
+        "requiredAdapters": {"mysql", "postgres", "sqlite-memory"},
+    },
+    "redis-cache-adoption-proof": {
+        "family": "redis",
+        "adapter": "Redis model cache / tiered cache",
+        "gate": "make db-cache-productization-check",
+        "requiredAdapters": {"redis-cache", "redis-stream", "typed-tiered-cache"},
+    },
+    "discovery-adapter-adoption-proof": {
+        "family": "discovery",
+        "adapter": "memory / Consul / etcdv3 discovery",
+        "gate": "make discovery-adapter-matrix-check",
+        "requiredAdapters": {"memory", "consul", "etcdv3"},
+    },
+}
+actual_adopter_proof_ids = {
+    item.get("id")
+    for item in adopter_proof_rows
+    if isinstance(item, dict) and item.get("id")
+}
+require(
+    actual_adopter_proof_ids == set(expected_adopter_proofs),
+    "integration-ownership-matrix.json: adopterProofRows drifted: "
+    f"missing={sorted(set(expected_adopter_proofs) - actual_adopter_proof_ids)} "
+    f"extra={sorted(actual_adopter_proof_ids - set(expected_adopter_proofs))}",
+)
+for item in adopter_proof_rows:
+    if not isinstance(item, dict):
+        missing.append(f"integration-ownership-matrix.json: adopterProofRows row must be an object: {item!r}")
+        continue
+    proof_id = item.get("id", "<missing>")
+    expected = expected_adopter_proofs.get(proof_id) or {}
+    for field in (
+        "id",
+        "family",
+        "adapter",
+        "supportedAdapters",
+        "generatedProjectBoundary",
+        "dependencyUpgradeTrigger",
+        "observabilityEvidence",
+        "fallbackBehavior",
+        "gate",
+        "rollbackOrEscalation",
+    ):
+        require(item.get(field) not in ("", None, []), f"integration-ownership-matrix.json: adopter proof {proof_id}: {field} is required")
+    for field in ("family", "adapter", "gate"):
+        require(item.get(field) == expected.get(field), f"integration-ownership-matrix.json: adopter proof {proof_id}: {field} mismatch")
+    gate = str(item.get("gate") or "")
+    if gate.startswith("make "):
+        gate_target = gate.split()[1]
+        require(gate_target in target_names, f"integration-ownership-matrix.json: adopter proof {proof_id}: gate target is missing: {gate_target}")
+    supported = set(item.get("supportedAdapters") or [])
+    require(
+        expected.get("requiredAdapters", set()) <= supported,
+        f"integration-ownership-matrix.json: adopter proof {proof_id}: supportedAdapters missing {sorted(expected.get('requiredAdapters', set()) - supported)}",
+    )
+    require(item.get("family") in actual_family_ids, f"integration-ownership-matrix.json: adopter proof {proof_id}: family has no integration row")
+    for field in (
+        "generatedProjectBoundary",
+        "dependencyUpgradeTrigger",
+        "observabilityEvidence",
+        "fallbackBehavior",
+        "rollbackOrEscalation",
+    ):
+        require(
+            len(str(item.get(field) or "").split()) >= 10,
+            f"integration-ownership-matrix.json: adopter proof {proof_id}: {field} must be actionable",
+        )
+    lower_boundary = str(item.get("generatedProjectBoundary") or "").lower()
+    require("generated" in lower_boundary and "dependencies" in lower_boundary, f"integration-ownership-matrix.json: adopter proof {proof_id}: generatedProjectBoundary must name generated dependencies")
+    require("fallback" in str(item.get("fallbackBehavior") or "").lower(), f"integration-ownership-matrix.json: adopter proof {proof_id}: fallbackBehavior must name fallback")
+    rollback_text = str(item.get("rollbackOrEscalation") or "").lower()
+    require(
+        "rollback" in rollback_text or "pin" in rollback_text or "disable" in rollback_text or "keep" in rollback_text,
+        f"integration-ownership-matrix.json: adopter proof {proof_id}: rollbackOrEscalation must name rollback, pin, disable, or keep",
+    )
+
 if missing:
     print("required-check drift check failed:", file=sys.stderr)
     for item in missing:

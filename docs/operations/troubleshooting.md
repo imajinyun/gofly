@@ -31,6 +31,11 @@ generated project verification failures when present. Keep `.aiflow`,
 `.harness`, `.tmp-test`, `.trae`, `coverage.out`, and `docs/superpowers`
 unstaged while executing the loop.
 
+The remediation loop contract is indexed as
+`gofly.remediation_loop_contract.v1`. It connects each command's stable fields
+and `nextActions` source to dashboard evidence, migration route evidence,
+adopter action, gate, rollback action, and the aiflow queue boundary.
+
 Redact Authorization, Cookie, Set-Cookie, token, secret, password, and provider
 credential values before sharing the bundle.
 

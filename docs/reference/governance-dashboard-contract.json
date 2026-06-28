@@ -33,6 +33,9 @@
     "dxSupportBundle.remediationHandoff.schema",
     "dxSupportBundle.remediationHandoff.aiflowTask",
     "dxSupportBundle.remediationHandoff.owner",
+    "dxSupportBundle.remediationLoopContract.schema",
+    "dxSupportBundle.remediationLoopContract.sourceContractCount",
+    "dxSupportBundle.remediationLoopContract.migrationRouteCount",
     "governanceConvergence.taskCount",
     "governanceConvergence.ignoredRuntimePathCount",
     "aiflow.status",
@@ -183,6 +186,7 @@
     "requiredHandoffSchema": "gofly.remediation_handoff.v1",
     "requiredCommitOwner": "human-or-current-agent",
     "handoffReportField": "dxSupportBundle.remediationHandoff",
+    "remediationLoopReportField": "dxSupportBundle.remediationLoopContract",
     "requiredHandoffGates": [
       "make dx-troubleshooting-check",
       "make governance-report-check",

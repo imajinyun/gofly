@@ -177,6 +177,12 @@ requirements, `nextActions`, and the aiflow handoff boundary. Runtime state
 such as `.aiflow`, `.harness`, `.tmp-test`, `.trae`, `coverage.out`, and
 `docs/superpowers` must remain unstaged while the loop is executed.
 
+The remediation loop contract is indexed as
+`gofly.remediation_loop_contract.v1`. It ties each source command to its stable
+fields, `nextActionSource`, dashboard evidence, migration route, adopter
+action, gate, rollback action, and aiflow queue boundary so automation can open
+bounded remediation work without taking over commit ownership.
+
 The DX troubleshooting gate verifies this contract with real CLI output:
 
 ```sh

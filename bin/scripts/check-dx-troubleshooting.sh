@@ -222,6 +222,106 @@ if steps_by_id.get("collect-support-bundle", {}).get("redactionRequired") is not
     missing.append("troubleshootingAdoptionLoop collect-support-bundle must require redaction")
 if steps_by_id.get("attach-generated-failure", {}).get("redactionRequired") is not True:
     missing.append("troubleshootingAdoptionLoop attach-generated-failure must require redaction")
+
+remediation_loop = manifest.get("remediationLoopContract") or {}
+if remediation_loop.get("schema") != "gofly.remediation_loop_contract.v1":
+    missing.append("remediationLoopContract.schema must be gofly.remediation_loop_contract.v1")
+if remediation_loop.get("acceptanceGate") != "make dx-troubleshooting-check":
+    missing.append("remediationLoopContract.acceptanceGate must be make dx-troubleshooting-check")
+if remediation_loop.get("dashboardReportField") != "dxSupportBundle.remediationLoopContract":
+    missing.append("remediationLoopContract.dashboardReportField mismatch")
+if len(str(remediation_loop.get("purpose") or "").split()) < 15:
+    missing.append("remediationLoopContract.purpose must describe the support workflow")
+
+source_contracts = remediation_loop.get("sourceContracts") or []
+source_by_id = {
+    item.get("id"): item for item in source_contracts if isinstance(item, dict)
+}
+expected_sources = {
+    "doctor-json": "gofly doctor --json",
+    "release-check-json": "gofly release check --json --strict",
+    "support-bundle-json": "gofly bug --json",
+    "generated-failure-report": "gofly ai new --json --apply --verify",
+}
+if set(source_by_id) != set(expected_sources):
+    missing.append(
+        "remediationLoopContract sourceContracts mismatch: "
+        f"missing={sorted(set(expected_sources) - set(source_by_id))} "
+        f"extra={sorted(set(source_by_id) - set(expected_sources))}"
+    )
+for source_id, command in expected_sources.items():
+    item = source_by_id.get(source_id) or {}
+    if item.get("sourceCommand") != command:
+        missing.append(f"remediationLoopContract {source_id}: sourceCommand mismatch")
+    if command not in surface_commands:
+        missing.append(f"remediationLoopContract {source_id}: sourceCommand is not a declared DX surface")
+    for field in ("evidenceArtifact", "requiredFields", "nextActionSource", "dashboardFields", "adopterAction"):
+        if not item.get(field):
+            missing.append(f"remediationLoopContract {source_id}: {field} is required")
+    if len(str(item.get("adopterAction") or "").split()) < 10:
+        missing.append(f"remediationLoopContract {source_id}: adopterAction must be actionable")
+    for dashboard_field in item.get("dashboardFields") or []:
+        if "." not in dashboard_field:
+            missing.append(f"remediationLoopContract {source_id}: dashboard field must be namespaced")
+if source_by_id.get("support-bundle-json", {}).get("redactionRequired") is not True:
+    missing.append("remediationLoopContract support-bundle-json must require redaction")
+if source_by_id.get("generated-failure-report", {}).get("redactionRequired") is not True:
+    missing.append("remediationLoopContract generated-failure-report must require redaction")
+
+migration_routes = remediation_loop.get("migrationRoutes") or []
+route_by_id = {
+    item.get("id"): item for item in migration_routes if isinstance(item, dict)
+}
+expected_routes = {
+    "gin-to-gofly",
+    "go-zero-to-gofly",
+    "kratos-to-gofly",
+    "kitex-with-gofly",
+}
+if set(route_by_id) != expected_routes:
+    missing.append(
+        "remediationLoopContract migrationRoutes mismatch: "
+        f"missing={sorted(expected_routes - set(route_by_id))} "
+        f"extra={sorted(set(route_by_id) - expected_routes)}"
+    )
+for route_id, item in route_by_id.items():
+    if item.get("source") != "docs/reference/framework-gap-adopter-proof.json":
+        missing.append(f"remediationLoopContract {route_id}: source mismatch")
+    for field in ("example", "gate", "rollbackAction", "supportBundleAction"):
+        if not item.get(field):
+            missing.append(f"remediationLoopContract {route_id}: {field} is required")
+    if "gofly bug --json" not in str(item.get("supportBundleAction") or ""):
+        missing.append(f"remediationLoopContract {route_id}: supportBundleAction must mention gofly bug --json")
+    if len(str(item.get("rollbackAction") or "").split()) < 8:
+        missing.append(f"remediationLoopContract {route_id}: rollbackAction must be actionable")
+
+dashboard_evidence = set(remediation_loop.get("dashboardEvidence") or [])
+for field in (
+    "dxSupportBundle.remediationHandoff.schema",
+    "dxSupportBundle.remediationHandoff.aiflowTask",
+    "dxSupportBundle.troubleshootingAdoptionLoop",
+    "releaseAdoptionContract.supplyChainEnforcementCount",
+    "generatedUpgradeDryRun.profileCount",
+    "benchmark.adopterPerformanceContract",
+):
+    if field not in dashboard_evidence:
+        missing.append(f"remediationLoopContract.dashboardEvidence missing {field!r}")
+queue_policy = remediation_loop.get("aiflowQueuePolicy") or {}
+if queue_policy.get("taskPrefix") != "GOFLY-GOV-10R7-09":
+    missing.append("remediationLoopContract.aiflowQueuePolicy.taskPrefix mismatch")
+if queue_policy.get("completionGate") != "make dx-troubleshooting-check":
+    missing.append("remediationLoopContract.aiflowQueuePolicy.completionGate mismatch")
+if queue_policy.get("commitOwner") != "human-or-current-agent":
+    missing.append("remediationLoopContract.aiflowQueuePolicy.commitOwner mismatch")
+for action in ("queue remediation tasks", "run diagnostic commands", "produce patch plans", "produce bounded failure reports"):
+    if action not in set(queue_policy.get("allowed") or []):
+        missing.append(f"remediationLoopContract.aiflowQueuePolicy.allowed missing {action!r}")
+for action in ("git commit", "git push", "modify docs/superpowers/", "stage runtime state"):
+    if action not in set(queue_policy.get("forbidden") or []):
+        missing.append(f"remediationLoopContract.aiflowQueuePolicy.forbidden missing {action!r}")
+for needle in ("source command", "nextActionSource", "dashboard evidence", "gate", "rollback"):
+    if needle not in str(remediation_loop.get("nextActionPolicy") or ""):
+        missing.append(f"remediationLoopContract.nextActionPolicy missing {needle!r}")
 for doc_path in manifest.get("docs") or []:
     if not pathlib.Path(doc_path).is_file():
         missing.append(f"dx support bundle docs path is missing: {doc_path}")
@@ -237,6 +337,7 @@ docs = {
         "rerunGuidanceField",
         "gofly.remediation_handoff.v1",
         "gofly.troubleshooting_adoption_loop.v1",
+        "gofly.remediation_loop_contract.v1",
         "commitPolicy",
     ],
     pathlib.Path("docs/operations/troubleshooting.md"): [
@@ -249,6 +350,7 @@ docs = {
         "nextActions",
         "gofly.remediation_handoff.v1",
         "gofly.troubleshooting_adoption_loop.v1",
+        "gofly.remediation_loop_contract.v1",
         "must not create commits",
     ],
 }

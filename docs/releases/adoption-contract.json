@@ -11,6 +11,66 @@
     "docs/reference/ci-required-check-evidence.json"
   ],
   "policy": "Adopters should promote a gofly release only when release evidence, readiness score, required checks, supply-chain artifacts, and rollback decisions all point to a reproducible local or CI gate.",
+  "tagCIClosureRows": [
+    {
+      "id": "tag-trigger-and-snapshot",
+      "sourceStage": "releaseEvidenceConsumption.tagCIClosure.stages[tag-trigger-and-snapshot]",
+      "requiredGate": "make release-snapshot",
+      "requiredEvidenceIds": [
+        "checksums",
+        "archive-sbom"
+      ],
+      "artifactProducer": "release job builds snapshot archives, checksums, and archive SBOM from the tagged commit.",
+      "publishDecision": "Promote release artifacts only after snapshot evidence proves archive output is reproducible from the tag.",
+      "blockDecision": "Block tag promotion when snapshot archives, checksum output, or archive SBOM evidence is absent.",
+      "rollbackOrEscalation": "Pin the previous binary release and rerun the release snapshot from the tagged commit."
+    },
+    {
+      "id": "artifact-integrity-and-sbom",
+      "sourceStage": "releaseEvidenceConsumption.tagCIClosure.stages[artifact-integrity-and-sbom]",
+      "requiredGate": "make release-artifacts-check",
+      "requiredEvidenceIds": [
+        "checksums",
+        "archive-sbom",
+        "docker-sbom"
+      ],
+      "artifactProducer": "release artifact verification links checksum and SBOM evidence for binary and container outputs.",
+      "publishDecision": "Allow mirroring only when checksum and SBOM evidence pass release artifact verification.",
+      "blockDecision": "Block publication when artifact integrity or shipped dependency inventory cannot be explained.",
+      "rollbackOrEscalation": "Reject the new artifact set and keep the previous release until integrity evidence is rebuilt."
+    },
+    {
+      "id": "docker-digest-trivy-provenance",
+      "sourceStage": "releaseEvidenceConsumption.tagCIClosure.stages[docker-digest-trivy-provenance]",
+      "requiredGate": "RELEASE_REQUIRE_DOCKER_EVIDENCE=true make release-artifacts-check",
+      "requiredEvidenceIds": [
+        "docker-digest",
+        "trivy",
+        "checksums-attestation",
+        "docker-attestation"
+      ],
+      "artifactProducer": "release job produces immutable Docker digest, Trivy results, and provenance attestations.",
+      "publishDecision": "Deploy and publish only immutable digests with scan and attestation evidence.",
+      "blockDecision": "Block image promotion when digest, Trivy, or attestation evidence is missing or mismatched.",
+      "rollbackOrEscalation": "Keep the previous known-good digest pinned and rebuild or re-attest from the tag."
+    },
+    {
+      "id": "required-checks-and-dashboard",
+      "sourceStage": "releaseEvidenceConsumption.tagCIClosure.stages[required-checks-and-dashboard]",
+      "requiredGate": "make governance-report-check",
+      "requiredEvidenceIds": [
+        "api-compat",
+        "security",
+        "race",
+        "bench",
+        "governance-dashboard"
+      ],
+      "artifactProducer": "contract, security, governance, and benchmark jobs publish release-blocking evidence into the dashboard.",
+      "publishDecision": "Publish only when required checks, release prerequisites, and governance dashboard evidence are aligned.",
+      "blockDecision": "Block tag promotion when a required check is skipped, removed, or absent from dashboard evidence.",
+      "rollbackOrEscalation": "Restore the missing gate or pin the previous release until required-check drift is closed."
+    }
+  ],
   "supplyChainEnforcementRows": [
     {
       "id": "archive-checksum-sbom-enforcement",

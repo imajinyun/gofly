@@ -8,8 +8,11 @@
     "releaseEvidenceConsumption.driftClosure.driftGate",
     "releaseEvidenceConsumption.driftClosure.requiredEvidenceCount",
     "releaseEvidenceConsumption.driftClosure.releasePrerequisiteCoverage",
+    "releaseEvidenceConsumption.tagCIClosure.stageCount",
+    "releaseEvidenceConsumption.tagCIClosure.requiredLocalGates",
     "releaseAdoptionContract.decisionCount",
     "releaseAdoptionContract.riskClassCounts",
+    "releaseAdoptionContract.tagCIClosureRowCount",
     "releaseAdoptionContract.supplyChainEnforcementCount",
     "apiSurface.tiers",
     "benchmark.regressionGate",
@@ -61,7 +64,9 @@
     "requiredDashboardFields": [
       "releaseEvidenceConsumption.driftClosure.driftGate",
       "releaseEvidenceConsumption.driftClosure.requiredEvidenceCount",
-      "releaseEvidenceConsumption.driftClosure.releasePrerequisiteCoverage"
+      "releaseEvidenceConsumption.driftClosure.releasePrerequisiteCoverage",
+      "releaseEvidenceConsumption.tagCIClosure.stageCount",
+      "releaseEvidenceConsumption.tagCIClosure.requiredLocalGates"
     ]
   },
   "releaseAdoptionContract": {
@@ -78,7 +83,8 @@
     ],
     "requiredDashboardFields": [
       "releaseAdoptionContract.decisionCount",
-      "releaseAdoptionContract.riskClassCounts"
+      "releaseAdoptionContract.riskClassCounts",
+      "releaseAdoptionContract.tagCIClosureRowCount"
     ]
   },
   "apiTiers": {
@@ -314,6 +320,15 @@
         "gate": "make required-checks-drift-check",
         "riskClass": "production-ready",
         "rollbackOrEscalation": "block tag promotion until every release evidence id maps to a release prerequisite or explicit release artifact producer"
+      },
+      {
+        "id": "release-tag-ci-closure",
+        "claim": "Release tag CI ties snapshot, checksums, SBOM, Docker digest, Trivy, provenance, required checks, publish decisions, block decisions, and rollback into one auditable chain.",
+        "sourceManifest": "docs/releases/evidence-consumption.json",
+        "reportField": "releaseEvidenceConsumption.tagCIClosure",
+        "gate": "make governance-report-check",
+        "riskClass": "production-ready",
+        "rollbackOrEscalation": "block tag promotion until tag CI closure stages and adoption rows agree on evidence, gates, publish decisions, block decisions, and rollback"
       },
       {
         "id": "required-checks-drift",

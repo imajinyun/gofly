@@ -176,6 +176,64 @@ for tool in ("kubeconform", "kubeval"):
     if tool not in schema_tools:
         missing.append(f"cloud-native policy conformance schemaValidation missing {tool!r}")
 
+adopter_proof = manifest.get("adopterRolloutProof") or {}
+if adopter_proof.get("schema") != "gofly.cloud_native_adopter_rollout_proof.v1":
+    missing.append("cloud-native policy conformance adopterRolloutProof schema mismatch")
+if adopter_proof.get("source") != "docs/reference/cloud-native-policy-conformance.json":
+    missing.append("cloud-native policy conformance adopterRolloutProof source mismatch")
+if adopter_proof.get("dashboardReportField") != "cloudNativeAdoption.rolloutProof":
+    missing.append("cloud-native policy conformance adopterRolloutProof dashboardReportField mismatch")
+if set(adopter_proof.get("acceptanceGates") or []) != {
+    "make helm-template-smoke",
+    "make cloud-native-render-check",
+    "make p1-growth-check",
+}:
+    missing.append("cloud-native policy conformance adopterRolloutProof acceptanceGates mismatch")
+if len(str(adopter_proof.get("policy") or "").split()) < 20:
+    missing.append("cloud-native policy conformance adopterRolloutProof policy must be actionable")
+
+expected_rollout_profiles = {
+    "helm-default": ("local-smoke", "make helm-template-smoke"),
+    "helm-production": ("production-candidate", "make cloud-native-render-check"),
+    "kustomize-production": ("static-fallback-evidence", "make cloud-native-render-check"),
+}
+rollout_profiles = {
+    item.get("profile"): item
+    for item in adopter_proof.get("rolloutProfiles") or []
+    if isinstance(item, dict) and item.get("profile")
+}
+if set(rollout_profiles) != set(expected_rollout_profiles):
+    missing.append(
+        "cloud-native policy conformance adopterRolloutProof rolloutProfiles drifted "
+        f"missing={sorted(set(expected_rollout_profiles) - set(rollout_profiles))} "
+        f"extra={sorted(set(rollout_profiles) - set(expected_rollout_profiles))}"
+    )
+for profile, (classification, gate) in expected_rollout_profiles.items():
+    item = rollout_profiles.get(profile) or {}
+    if item.get("classification") != classification:
+        missing.append(f"cloud-native adopterRolloutProof {profile}: classification must be {classification}")
+    if item.get("requiredGate") != gate:
+        missing.append(f"cloud-native adopterRolloutProof {profile}: requiredGate must be {gate}")
+    for field in ("renderMode", "adopterAction", "rollbackAction"):
+        if len(str(item.get(field) or "").split()) < 8:
+            missing.append(f"cloud-native adopterRolloutProof {profile}: {field} must be actionable")
+
+resource_requirements = {
+    item.get("kind"): item
+    for item in adopter_proof.get("policyResourceRequirements") or []
+    if isinstance(item, dict) and item.get("kind")
+}
+for kind in ("ServiceMonitor", "HorizontalPodAutoscaler", "PodDisruptionBudget", "NetworkPolicy"):
+    item = resource_requirements.get(kind)
+    if not item:
+        missing.append(f"cloud-native adopterRolloutProof policyResourceRequirements missing {kind!r}")
+        continue
+    for field in ("adopterAction", "rollbackAction"):
+        if len(str(item.get(field) or "").split()) < 8:
+            missing.append(f"cloud-native adopterRolloutProof {kind}: {field} must be actionable")
+if len(str(adopter_proof.get("toolFallbackPolicy") or "").split()) < 15:
+    missing.append("cloud-native adopterRolloutProof toolFallbackPolicy must be actionable")
+
 tool_policy = manifest.get("toolAvailabilityPolicy") or {}
 for tool, field in (
     ("helm", "renderMode"),

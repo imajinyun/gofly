@@ -66,6 +66,66 @@
       "fallbackReport": "tool-unavailable"
     }
   ],
+  "adopterRolloutProof": {
+    "schema": "gofly.cloud_native_adopter_rollout_proof.v1",
+    "source": "docs/reference/cloud-native-policy-conformance.json",
+    "dashboardReportField": "cloudNativeAdoption.rolloutProof",
+    "acceptanceGates": [
+      "make helm-template-smoke",
+      "make cloud-native-render-check",
+      "make p1-growth-check"
+    ],
+    "policy": "Adopters may treat cloud-native assets as production rollout evidence only when Helm or static fallback rendering, Kustomize overlays, policy resources, schema-tool status, and rollout gates are all explicit.",
+    "rolloutProfiles": [
+      {
+        "profile": "helm-default",
+        "classification": "local-smoke",
+        "renderMode": "helm-template when helm is available, static-template-render only when helm is unavailable",
+        "requiredGate": "make helm-template-smoke",
+        "adopterAction": "Render the default Helm chart locally before using generated Kubernetes assets as smoke evidence.",
+        "rollbackAction": "Keep direct Kubernetes manifests or the previous chart version active when Helm output omits required resources."
+      },
+      {
+        "profile": "helm-production",
+        "classification": "production-candidate",
+        "renderMode": "helm-template when helm is available, static-template-render only when helm is unavailable",
+        "requiredGate": "make cloud-native-render-check",
+        "adopterAction": "Render production values and verify ServiceMonitor, HPA, PDB, and NetworkPolicy before release promotion.",
+        "rollbackAction": "Pin the previous chart or disable production-only policy resources when rendered output or schema validation fails."
+      },
+      {
+        "profile": "kustomize-production",
+        "classification": "static-fallback-evidence",
+        "renderMode": "kustomize when available, checked rendered golden when unavailable",
+        "requiredGate": "make cloud-native-render-check",
+        "adopterAction": "Use the production overlay and rendered golden as fallback evidence only when tool availability is recorded.",
+        "rollbackAction": "Keep the previous overlay applied until Kustomize output and the rendered golden converge."
+      }
+    ],
+    "policyResourceRequirements": [
+      {
+        "kind": "ServiceMonitor",
+        "adopterAction": "Verify metrics port and scrape interval before enabling production monitoring.",
+        "rollbackAction": "Disable ServiceMonitor publication when metrics endpoint or labels drift from the rendered output."
+      },
+      {
+        "kind": "HorizontalPodAutoscaler",
+        "adopterAction": "Verify min replicas, max replicas, and CPU utilization target before enabling autoscaling.",
+        "rollbackAction": "Pin replica counts or disable HPA when scaling policy is incomplete."
+      },
+      {
+        "kind": "PodDisruptionBudget",
+        "adopterAction": "Verify minAvailable before allowing voluntary disruptions in production namespaces.",
+        "rollbackAction": "Remove or relax the PDB when rollout safety conflicts with cluster capacity."
+      },
+      {
+        "kind": "NetworkPolicy",
+        "adopterAction": "Verify ingress, egress, and DNS allowance before applying namespace isolation.",
+        "rollbackAction": "Apply the previous NetworkPolicy or disable isolation when required traffic is blocked."
+      }
+    ],
+    "toolFallbackPolicy": "Helm and Kustomize are required when available; kubeconform and kubeval are optional CI validators whose unavailable status must be written to the render report."
+  },
   "profiles": [
     {
       "name": "helm-default",

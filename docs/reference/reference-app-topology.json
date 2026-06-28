@@ -217,6 +217,163 @@
       ]
     }
   ],
+  "r8ProductionDrillMatrix": {
+    "schema": "gofly.reference_app_r8_production_drill.v1",
+    "aiflowTask": "GOFLY-GOV-10R8-06",
+    "status": "blocking-contract",
+    "acceptanceGate": "make reference-app-smoke",
+    "rows": [
+      {
+        "id": "memory-mode-drill",
+        "surface": "memory mode",
+        "mode": "memory",
+        "components": [
+          "REST",
+          "RPC",
+          "memory MQ",
+          "memory outbox",
+          "memory discovery",
+          "memory cache",
+          "local-admin observability"
+        ],
+        "gate": "REFERENCE_APP_MODE=memory make reference-app-smoke",
+        "runnableEvidence": [
+          "examples/production-orders/main.go",
+          "examples/production-orders/main_test.go"
+        ],
+        "failureEvidence": "Memory mode must return topology_evidence with fallback notes and keep all external dependency endpoints in memory or local-admin form.",
+        "rollbackOrEscalation": "Use memory mode as the local fallback when Docker, broker, SQL, discovery, or OpenTelemetry dependencies are unavailable."
+      },
+      {
+        "id": "docker-backed-drill",
+        "surface": "Docker-backed mode",
+        "mode": "docker",
+        "components": [
+          "Postgres SQL outbox",
+          "Redis cache",
+          "Kafka",
+          "RabbitMQ",
+          "Redis Stream",
+          "Consul",
+          "etcd",
+          "Nacos",
+          "OpenTelemetry collector"
+        ],
+        "gate": "REFERENCE_APP_MODE=docker make reference-app-smoke",
+        "runnableEvidence": [
+          "examples/production-orders/compose.yaml",
+          "examples/production-orders/scripts/smoke.sh"
+        ],
+        "failureEvidence": "Docker mode must still verify static topology and report an explicit fallback when Docker or dependency pulls are unavailable.",
+        "rollbackOrEscalation": "Keep the previous deployment active or fall back to memory mode when Docker-backed dependency evidence cannot be collected."
+      },
+      {
+        "id": "sql-outbox-drill",
+        "surface": "SQL outbox",
+        "mode": "memory-and-docker",
+        "components": [
+          "memory outbox",
+          "Postgres SQL outbox",
+          "orders.created"
+        ],
+        "gate": "make reference-app-smoke",
+        "runnableEvidence": [
+          "examples/production-orders/main.go",
+          "docs/reference/db-cache-productization.json"
+        ],
+        "failureEvidence": "Outbox drill must show enqueue, relay, retry, and fallback behavior before claiming production event delivery.",
+        "rollbackOrEscalation": "Rollback by replaying or preserving unpublished outbox entries and route events through the previous publisher when relay evidence diverges."
+      },
+      {
+        "id": "mq-cache-discovery-drill",
+        "surface": "MQ, cache, and discovery adapters",
+        "mode": "memory-and-docker",
+        "components": [
+          "memory MQ",
+          "Kafka",
+          "RabbitMQ",
+          "Redis Stream",
+          "memory cache",
+          "Redis cache",
+          "memory discovery",
+          "Consul",
+          "etcd",
+          "Nacos"
+        ],
+        "gate": "make required-checks-drift-check",
+        "runnableEvidence": [
+          "docs/reference/integration-ownership-matrix.json",
+          "docs/reference/discovery-adapter-matrix.json",
+          "examples/production-orders/compose.yaml"
+        ],
+        "failureEvidence": "Adapter drill must explain fallback to memory MQ, local cache, memory discovery, previous registry, or platform-native discovery.",
+        "rollbackOrEscalation": "Pin the previous adapter profile when MQ delivery, cache invalidation, discovery watch, or dependency ownership evidence is missing."
+      },
+      {
+        "id": "observability-drill",
+        "surface": "OpenTelemetry and local observability",
+        "mode": "memory-and-docker",
+        "components": [
+          "local-admin observability",
+          "OpenTelemetry collector",
+          "metrics",
+          "health",
+          "trace propagation"
+        ],
+        "gate": "make runtime-slo-check",
+        "runnableEvidence": [
+          "examples/production-orders/otel-collector.yaml",
+          "docs/reference/runtime-slo.json",
+          "docs/reference/observability-production-governance.json"
+        ],
+        "failureEvidence": "Observability drill must show fallback or failure boundaries for signals from local admin endpoints or OTLP collector topology.",
+        "rollbackOrEscalation": "Disable the new exporter or pin the previous telemetry profile when SLO, metric, health, or trace evidence is incomplete."
+      },
+      {
+        "id": "k8s-rollback-drill",
+        "surface": "K8s rollout and rollback",
+        "mode": "production-assets",
+        "components": [
+          "Helm",
+          "Kustomize",
+          "ServiceMonitor",
+          "HPA",
+          "PDB",
+          "NetworkPolicy",
+          "rollback"
+        ],
+        "gate": "make cloud-native-render-check",
+        "runnableEvidence": [
+          "docs/reference/cloud-native-policy-conformance.json",
+          "docs/reference/cloud-native-rendered-production.golden.yaml",
+          "charts/gofly/values-production.yaml",
+          "k8s/overlays/production/kustomization.yaml"
+        ],
+        "failureEvidence": "K8s drill must identify rendered asset or schema fallback status before adopters apply production manifests.",
+        "rollbackOrEscalation": "Keep the previous manifest, chart release, or gateway route active when rendered policy evidence or rollout health is incomplete."
+      },
+      {
+        "id": "failure-evidence-drill",
+        "surface": "failure and incident evidence",
+        "mode": "memory-and-production",
+        "components": [
+          "saga compensation",
+          "outbox retry",
+          "rate limit",
+          "circuit breaker",
+          "rollback trigger"
+        ],
+        "gate": "make runtime-slo-check",
+        "runnableEvidence": [
+          "docs/reference/operator-runbook-drills.json",
+          "docs/reference/resilience-drill.json",
+          "examples/production-orders/README.md"
+        ],
+        "failureEvidence": "Failure drill must connect observed failure, diagnosis gate, rollback trigger, and post-incident evidence before promotion.",
+        "rollbackOrEscalation": "Rollback or route back to the previous deployment when compensation, retry, breaker, or incident drill evidence is absent."
+      }
+    ]
+  },
   "adopterProof": {
     "schema": "gofly.reference_app_adopter_proof.v1",
     "status": "blocking",

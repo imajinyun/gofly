@@ -248,6 +248,110 @@
       }
     ]
   },
+  "adopterDecisionEvidence": {
+    "schema": "gofly.adopter_decision_evidence.v1",
+    "acceptanceGate": "make adopter-decision-check",
+    "guide": "docs/explanation/adopter-decision-guide.md",
+    "migrationProofCommand": "go run -C examples/migration-proof .",
+    "supportBundleSource": "docs/reference/dx-support-bundle.json",
+    "supportBundleCommand": "gofly bug --json",
+    "supportBundleSchema": "gofly.support_bundle.v1",
+    "supportBundleRequiredFields": [
+      "supportBundle",
+      "supportBundle.redaction",
+      "nextActions"
+    ],
+    "dashboardSource": "docs/reference/governance-dashboard-contract.json",
+    "decisions": [
+      {
+        "id": "gin-to-gofly",
+        "source": "gin",
+        "manualPath": "Gin to gofly",
+        "migrationProofExample": "examples/restserver",
+        "claimProvenanceIds": [
+          "http-dx-openapi-envelope",
+          "performance-credibility"
+        ],
+        "dashboardReportFields": [
+          "dashboard.evidenceTraceability.claimCount",
+          "benchmark.adopterPerformanceContract"
+        ],
+        "compatibilityCaveat": "Gin `:id` routes become gofly `{id}` routes; compare status codes, JSON names, OpenAPI schema, and the stable error envelope before switching traffic.",
+        "gateCommands": [
+          "go test -C examples/restserver ./...",
+          "make examples-smoke"
+        ],
+        "rollbackAction": "Keep Gin route active behind the existing router until sampled responses and metrics match.",
+        "supportBundleAction": "Attach `gofly bug --json` only after redaction and include sampled response, OpenAPI, and error-envelope drift evidence."
+      },
+      {
+        "id": "go-zero-to-gofly",
+        "source": "go-zero",
+        "manualPath": "go-zero to gofly",
+        "migrationProofExample": "examples/production-orders",
+        "claimProvenanceIds": [
+          "generated-scaffold-upgrade",
+          "production-reference-proof",
+          "release-trust-evidence"
+        ],
+        "dashboardReportFields": [
+          "generatedUpgradeDryRun.profileCount",
+          "releaseAdoptionContract",
+          "dashboard.productionReadinessScorecard.surfaceCount"
+        ],
+        "compatibilityCaveat": "Verify generated OpenAPI and `/admin/control-plane` before changing discovery; preserve `.api` request and response field names.",
+        "gateCommands": [
+          "make generated-version-compat-check",
+          "make reference-app-smoke"
+        ],
+        "rollbackAction": "Keep go-zero and gofly services addressable through discovery and switch routing back to go-zero.",
+        "supportBundleAction": "Attach `gofly bug --json` with generated-project failure reports and release check output when scaffold compatibility fails."
+      },
+      {
+        "id": "kratos-to-gofly",
+        "source": "kratos",
+        "manualPath": "Kratos to gofly",
+        "migrationProofExample": "examples/microshop",
+        "claimProvenanceIds": [
+          "generated-scaffold-upgrade",
+          "production-reference-proof",
+          "release-trust-evidence"
+        ],
+        "dashboardReportFields": [
+          "dashboard.evidenceTraceability.claimCount",
+          "dashboard.productionReadinessScorecard.surfaceCount"
+        ],
+        "compatibilityCaveat": "Keep domain services separate from transport wiring; compare lifecycle hooks, health checks, discovery registration, and topology output.",
+        "gateCommands": [
+          "make cloud-native-render-check",
+          "go test -C examples/microshop ./..."
+        ],
+        "rollbackAction": "Restore the previous Kratos deployment target while keeping shared domain services unchanged.",
+        "supportBundleAction": "Attach `gofly bug --json` with rendered cloud-native assets, topology output, and health or discovery drift evidence."
+      },
+      {
+        "id": "kitex-with-gofly",
+        "source": "kitex",
+        "manualPath": "Kitex with gofly",
+        "migrationProofExample": "examples/rpc-idl-matrix",
+        "claimProvenanceIds": [
+          "rpc-boundary-tier1",
+          "performance-credibility"
+        ],
+        "dashboardReportFields": [
+          "dashboard.evidenceTraceability.claimCount",
+          "benchmark.adopterPerformanceContract"
+        ],
+        "compatibilityCaveat": "Do not migrate hot methods without `bench/` evidence; compare unary and stream contracts, resolver updates, balancing, tracing, auth, and rollback behavior.",
+        "gateCommands": [
+          "make rpc-boundary-check",
+          "make bench-evidence-check"
+        ],
+        "rollbackAction": "Route latency-critical methods back to Kitex and retain gofly for REST ingress or governance surfaces.",
+        "supportBundleAction": "Attach `gofly bug --json` with RPC boundary, resolver, balancer, stream, trace, auth, and benchmark evidence before escalating."
+      }
+    ]
+  },
   "dimensions": [
     {
       "id": "evidence-traceability",

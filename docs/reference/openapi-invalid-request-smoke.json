@@ -7,6 +7,24 @@
     "status": 400,
     "code": "invalid_argument"
   },
+  "adopterContract": {
+    "schema": "gofly.rest_adopter_contract.v1",
+    "acceptanceGates": [
+      "make openapi-validation-check",
+      "make api-example-consistency-check"
+    ],
+    "dashboardReportField": "restAdoption.openapiValidation",
+    "exampleIndex": "docs/reference/api-example-consistency.json",
+    "stableEnvelopeFields": [
+      "code",
+      "text",
+      "message",
+      "status",
+      "fields"
+    ],
+    "publishPolicy": "Publish generated REST services only when invalid request smoke, OpenAPI schema golden, generated-service smoke, and example consistency evidence all pass.",
+    "rollbackPolicy": "Pin the previous generated REST scaffold or route traffic back to the existing HTTP stack when runtime envelopes, OpenAPI schema, or examples drift."
+  },
   "smokeCases": [
     {
       "id": "path-parse-failure",

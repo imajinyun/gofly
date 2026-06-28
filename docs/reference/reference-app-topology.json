@@ -216,5 +216,92 @@
         }
       ]
     }
-  ]
+  ],
+  "adopterProof": {
+    "schema": "gofly.reference_app_adopter_proof.v1",
+    "status": "blocking",
+    "blockingGate": "make reference-app-smoke",
+    "sourceEvidence": [
+      "docs/reference/reference-app-topology.json",
+      "docs/reference/runtime-slo.json",
+      "docs/reference/operator-runbook-drills.json",
+      "docs/reference/cloud-native-policy-conformance.json",
+      "docs/reference/integration-ownership-matrix.json"
+    ],
+    "proofChains": [
+      {
+        "id": "mode-proof",
+        "surface": "memory and docker topology modes",
+        "gate": "make reference-app-smoke",
+        "evidence": [
+          "examples/production-orders/main.go",
+          "examples/production-orders/main_test.go",
+          "examples/production-orders/compose.yaml"
+        ],
+        "adopterAction": "Run memory mode for local acceptance and docker mode for dependency-backed topology rehearsal before changing traffic routing.",
+        "rollbackOrEscalation": "Keep the previous deployment active when either topology mode loses required components or docker fallback cannot explain skipped dependencies."
+      },
+      {
+        "id": "dependency-topology-proof",
+        "surface": "SQL, Redis, MQ, discovery, RPC, gateway, and observability dependencies",
+        "gate": "make required-checks-drift-check",
+        "evidence": [
+          "docs/reference/integration-ownership-matrix.json",
+          "docs/reference/ci-required-check-evidence.json",
+          "examples/production-orders/compose.yaml"
+        ],
+        "adopterAction": "Check the integration ownership row for each changed dependency family before accepting a generated or reference-app migration.",
+        "rollbackOrEscalation": "Pin the previous dependency profile or generated project when owner, required check, dependency trigger, or generated-project boundary evidence is missing."
+      },
+      {
+        "id": "runtime-slo-proof",
+        "surface": "golden signals, runtime SLO, and observability example evidence",
+        "gate": "make runtime-slo-check",
+        "evidence": [
+          "docs/reference/runtime-slo.json",
+          "docs/reference/observability-production-governance.json",
+          "examples/observability/main.go"
+        ],
+        "adopterAction": "Review latency, errors, traffic, saturation, cache, governance decisions, and trace correlation before release promotion.",
+        "rollbackOrEscalation": "Rollback or hold rollout when runtime SLO evidence cannot explain latency, errors, saturation, or trace correlation regressions."
+      },
+      {
+        "id": "cloud-native-rollout-proof",
+        "surface": "Helm, Kustomize, ServiceMonitor, HPA, PDB, NetworkPolicy, and production rollout assets",
+        "gate": "make cloud-native-render-check",
+        "evidence": [
+          "docs/reference/cloud-native-policy-conformance.json",
+          "docs/reference/cloud-native-rendered-production.golden.yaml",
+          "charts/gofly/values-production.yaml",
+          "k8s/overlays/production/kustomization.yaml"
+        ],
+        "adopterAction": "Render production assets and inspect fallback status before applying Helm or Kustomize output to a cluster.",
+        "rollbackOrEscalation": "Keep the previous manifest or chart release active when rendered policy assets or schema validation evidence are missing."
+      },
+      {
+        "id": "incident-drill-proof",
+        "surface": "operator runbook drills and incident rehearsals",
+        "gate": "make runtime-slo-check",
+        "evidence": [
+          "docs/reference/operator-runbook-drills.json",
+          "docs/operations/troubleshooting.md",
+          "docs/reference/resilience-drill.json"
+        ],
+        "adopterAction": "Run the matching drill before changing runtime policy, rollout health gates, trace propagation, or release promotion decisions.",
+        "rollbackOrEscalation": "Hold rollout when the expected observation, diagnosis gate, post-incident evidence, or rollback trigger is absent."
+      },
+      {
+        "id": "rollback-proof",
+        "surface": "deployment rollback, release rollback, and generated-profile rollback",
+        "gate": "make governance-report-check",
+        "evidence": [
+          "examples/production-orders/README.md",
+          "docs/releases/evidence-consumption.json",
+          "docs/reference/adoption-risk-register.json"
+        ],
+        "adopterAction": "Use topology, release evidence, and adoption risk rows to decide whether to promote, pin, or route back to the previous deployment.",
+        "rollbackOrEscalation": "Pin the previous release, keep old routing active, or replay unpublished outbox entries when topology or release evidence blocks promotion."
+      }
+    ]
+  }
 }

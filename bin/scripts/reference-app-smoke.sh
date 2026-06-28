@@ -158,6 +158,62 @@ for item in surfaces:
             if needle not in text:
                 missing.append(f"reference app topology surface {item_id}: {ref_path} missing {needle!r}")
 
+makefile_text = (root / "Makefile").read_text(encoding="utf-8")
+make_targets = set(__import__("re").findall(r"^([A-Za-z0-9_.-]+):", makefile_text, __import__("re").M))
+adopter_proof = manifest.get("adopterProof") or {}
+require(
+    adopter_proof.get("schema") == "gofly.reference_app_adopter_proof.v1",
+    "reference app adopter proof schema mismatch",
+)
+require(
+    adopter_proof.get("status") == "blocking",
+    "reference app adopter proof status must be blocking",
+)
+require(
+    adopter_proof.get("blockingGate") == "make reference-app-smoke",
+    "reference app adopter proof blocking gate must be make reference-app-smoke",
+)
+for source in adopter_proof.get("sourceEvidence") or []:
+    require((root / source).exists(), f"reference app adopter proof source evidence missing: {source}")
+proof_chains = adopter_proof.get("proofChains")
+if not isinstance(proof_chains, list):
+    missing.append("reference app adopter proof proofChains must be a list")
+    proof_chains = []
+required_proof_chains = {
+    "mode-proof",
+    "dependency-topology-proof",
+    "runtime-slo-proof",
+    "cloud-native-rollout-proof",
+    "incident-drill-proof",
+    "rollback-proof",
+}
+actual_proof_chains = {item.get("id") for item in proof_chains if isinstance(item, dict)}
+require(
+    actual_proof_chains == required_proof_chains,
+    "reference app adopter proof chains drifted: "
+    f"missing={sorted(required_proof_chains - actual_proof_chains)!r} "
+    f"extra={sorted(actual_proof_chains - required_proof_chains)!r}",
+)
+for item in proof_chains:
+    if not isinstance(item, dict):
+        missing.append(f"reference app adopter proof chain must be an object: {item!r}")
+        continue
+    chain_id = item.get("id", "<missing>")
+    for field in ("id", "surface", "gate", "evidence", "adopterAction", "rollbackOrEscalation"):
+        require(item.get(field) not in ("", None, []), f"reference app adopter proof {chain_id}: {field} is required")
+    gate = str(item.get("gate") or "")
+    require(gate.startswith("make "), f"reference app adopter proof {chain_id}: gate must be a make target")
+    if gate.startswith("make "):
+        gate_target = gate.split()[1]
+        require(gate_target in make_targets, f"reference app adopter proof {chain_id}: gate target missing: {gate_target}")
+    for evidence in item.get("evidence") or []:
+        require((root / evidence).exists(), f"reference app adopter proof {chain_id}: evidence path missing: {evidence}")
+    for field in ("adopterAction", "rollbackOrEscalation"):
+        require(
+            len(str(item.get(field) or "").split()) >= 10,
+            f"reference app adopter proof {chain_id}: {field} must be actionable",
+        )
+
 for path, needles in checks.items():
     if not path.is_file():
         missing.append(f"{path}: file is missing")

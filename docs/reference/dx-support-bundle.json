@@ -105,6 +105,44 @@
     ],
     "ciArtifactUsage": "Attach the bounded verification result object as a CI artifact and rerun only the command named in nextActions after fixing the reported error."
   },
+  "remediationHandoff": {
+    "schema": "gofly.remediation_handoff.v1",
+    "aiflowTask": "GOFLY-KG-07-AI-REMEDIATION-AIFLOW",
+    "owner": "human-or-current-agent",
+    "commitPolicy": "aiflow may queue tasks, run diagnostics, and produce remediation plans, but it must not create commits or push; commits are made by the current agent or human after gates pass",
+    "allowedActions": [
+      "queue remediation tasks",
+      "run diagnostic commands",
+      "produce patch plans",
+      "produce bounded failure reports"
+    ],
+    "forbiddenActions": [
+      "git commit",
+      "git push",
+      "modify docs/superpowers/",
+      "stage runtime state"
+    ],
+    "inputs": [
+      "gofly doctor --json",
+      "gofly release check --json --strict",
+      "gofly bug --json",
+      "gofly.generated_project_failure_report.v1"
+    ],
+    "requiredGates": [
+      "make dx-troubleshooting-check",
+      "make governance-report-check",
+      "go test -shuffle=on ./cmd/gofly/internal/command -run 'TestCLIJSONContractGoldens|TestCLIJSONErrorEnvelopeGolden'"
+    ],
+    "outputFields": [
+      "taskId",
+      "sourceCommand",
+      "remediation",
+      "nextActions",
+      "gates",
+      "commitPolicy"
+    ],
+    "completionPolicy": "mark the aiflow task complete only after the current agent or human records a commit with passing gates and no runtime state staged"
+  },
   "supportWorkflow": [
     "run gofly doctor --json",
     "run gofly release check --json --strict",

@@ -20,6 +20,10 @@ The productized troubleshooting surface is indexed by
 `docs/reference/dx-support-bundle.json` with schema
 `gofly.dx_support_bundle.v1`.
 
+Executable remediation handoff is indexed as `gofly.remediation_handoff.v1`.
+Use it when aiflow should queue remediation tasks, run diagnostics, and return
+bounded failure reports for the current agent or human to apply. Aiflow must not create commits, push, modify `docs/superpowers/`, or stage runtime state; the current agent or human owns commits after the required gates pass.
+
 Redact Authorization, Cookie, Set-Cookie, token, secret, password, and provider
 credential values before sharing the bundle.
 

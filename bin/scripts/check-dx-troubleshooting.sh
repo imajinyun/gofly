@@ -131,6 +131,44 @@ else:
 if not failure_report.get("ciArtifactUsage"):
     missing.append("generatedFailureReport.ciArtifactUsage is required")
 
+handoff = manifest.get("remediationHandoff") or {}
+if handoff.get("schema") != "gofly.remediation_handoff.v1":
+    missing.append("remediationHandoff.schema must be gofly.remediation_handoff.v1")
+if handoff.get("aiflowTask") != "GOFLY-KG-07-AI-REMEDIATION-AIFLOW":
+    missing.append("remediationHandoff.aiflowTask must be GOFLY-KG-07-AI-REMEDIATION-AIFLOW")
+if handoff.get("owner") != "human-or-current-agent":
+    missing.append("remediationHandoff.owner must keep commit ownership outside aiflow")
+commit_policy = str(handoff.get("commitPolicy") or "")
+for needle in ("must not create commits", "current agent or human", "gates pass"):
+    if needle not in commit_policy:
+        missing.append(f"remediationHandoff.commitPolicy missing {needle!r}")
+allowed_actions = set(handoff.get("allowedActions") or [])
+for action in ("queue remediation tasks", "run diagnostic commands", "produce patch plans", "produce bounded failure reports"):
+    if action not in allowed_actions:
+        missing.append(f"remediationHandoff.allowedActions missing {action!r}")
+forbidden_actions = set(handoff.get("forbiddenActions") or [])
+for action in ("git commit", "git push", "modify docs/superpowers/", "stage runtime state"):
+    if action not in forbidden_actions:
+        missing.append(f"remediationHandoff.forbiddenActions missing {action!r}")
+handoff_inputs = set(handoff.get("inputs") or [])
+for item in ("gofly doctor --json", "gofly release check --json --strict", "gofly bug --json", "gofly.generated_project_failure_report.v1"):
+    if item not in handoff_inputs:
+        missing.append(f"remediationHandoff.inputs missing {item!r}")
+handoff_gates = set(handoff.get("requiredGates") or [])
+for gate in ("make dx-troubleshooting-check", "make governance-report-check"):
+    if gate not in handoff_gates:
+        missing.append(f"remediationHandoff.requiredGates missing {gate!r}")
+if not any("TestCLIJSONContractGoldens" in gate for gate in handoff_gates):
+    missing.append("remediationHandoff.requiredGates must include CLI JSON contract tests")
+output_fields = set(handoff.get("outputFields") or [])
+for field in ("taskId", "sourceCommand", "remediation", "nextActions", "gates", "commitPolicy"):
+    if field not in output_fields:
+        missing.append(f"remediationHandoff.outputFields missing {field!r}")
+completion_policy = str(handoff.get("completionPolicy") or "")
+for needle in ("aiflow task complete", "commit", "passing gates", "no runtime state staged"):
+    if needle not in completion_policy:
+        missing.append(f"remediationHandoff.completionPolicy missing {needle!r}")
+
 for step in ("run gofly doctor --json", "run gofly release check --json --strict", "run gofly bug --json"):
     if step not in set(manifest.get("supportWorkflow") or []):
         missing.append(f"dx support bundle supportWorkflow missing {step!r}")
@@ -147,6 +185,8 @@ docs = {
         "gofly.generated_project_failure_report.v1",
         "outputLimitBytes",
         "rerunGuidanceField",
+        "gofly.remediation_handoff.v1",
+        "commitPolicy",
     ],
     pathlib.Path("docs/operations/troubleshooting.md"): [
         "gofly doctor --json",
@@ -156,6 +196,8 @@ docs = {
         "generated project verification failure",
         "4096 bytes",
         "nextActions",
+        "gofly.remediation_handoff.v1",
+        "must not create commits",
     ],
 }
 for path, needles in docs.items():

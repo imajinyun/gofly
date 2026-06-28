@@ -162,6 +162,13 @@ The product surface records these as `outputLimitBytes: 4096` and
 `rerunGuidanceField: "nextActions"` in
 [`dx-support-bundle.json`](dx-support-bundle.json).
 
+Executable remediation handoff is described by
+`gofly.remediation_handoff.v1`. The handoff lets aiflow queue remediation
+tasks, run diagnostics, and produce bounded failure reports, but the
+`commitPolicy` keeps commit ownership with the current agent or human. Aiflow
+must not create commits, push, modify `docs/superpowers/`, or stage runtime
+state.
+
 The DX troubleshooting gate verifies this contract with real CLI output:
 
 ```sh

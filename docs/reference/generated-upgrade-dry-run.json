@@ -144,6 +144,46 @@
       }
     ]
   },
+  "adopterUpgradeProof": {
+    "schema": "gofly.generated_adopter_upgrade_proof.v1",
+    "source": "docs/reference/generated-upgrade-dry-run.json",
+    "compatibilityMatrix": "testdata/generated-compat/matrix.json",
+    "acceptanceGates": [
+      "make generated-upgrade-dry-run-check",
+      "make generated-version-compat-check"
+    ],
+    "dashboardReportField": "generatedUpgradeDryRun.adopterUpgradeProof",
+    "policy": "Each adopter upgrade path must name the fixture profile, expected diff class, repeat generation requirement, generated project smoke, dependency boundary, and rollback action before generated output is promoted.",
+    "paths": [
+      {
+        "profile": "old",
+        "adopterDecision": "Upgrade legacy generated services only when additive shims compile and repeat generation stays clean.",
+        "compatibilityGate": "make generated-version-compat-check",
+        "dryRunGate": "make generated-upgrade-dry-run-check",
+        "expectedDiff": "compatible feature addition",
+        "dependencyBoundary": "generated project go.mod or isolated temporary test module",
+        "rollbackAction": "Pin the previous generator and keep the v0.1 generated snapshot serving until compatibility shims compile."
+      },
+      {
+        "profile": "current",
+        "adopterDecision": "Regenerate current services only when the diff is empty or formatting-only and generated smoke stays green.",
+        "compatibilityGate": "make generated-version-compat-check",
+        "dryRunGate": "make generated-upgrade-dry-run-check",
+        "expectedDiff": "no unexplained diff",
+        "dependencyBoundary": "generated project go.mod or isolated temporary test module",
+        "rollbackAction": "Discard the regeneration diff and keep the current generated project when repeat generation or smoke fails."
+      },
+      {
+        "profile": "future",
+        "adopterDecision": "Use future fixtures only as tolerant preview evidence until experimental fields are promoted by a later release.",
+        "compatibilityGate": "make generated-version-compat-check",
+        "dryRunGate": "make generated-upgrade-dry-run-check",
+        "expectedDiff": "experimental future field ignored safely",
+        "dependencyBoundary": "generated project go.mod or isolated temporary test module",
+        "rollbackAction": "Disable the future profile and pin current generation when experimental fields become breaking candidates."
+      }
+    ]
+  },
   "profiles": [
     {
       "api": "testdata/generated-compat/v0.1/orders.api",

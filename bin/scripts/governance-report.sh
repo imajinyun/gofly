@@ -556,6 +556,12 @@ def generated_upgrade_dry_run_evidence():
     manifest = read_json(root / "docs/reference/generated-upgrade-dry-run.json") or {}
     profiles = manifest.get("profiles") or []
     categories = (manifest.get("diffReportContract") or {}).get("categories") or []
+    adopter_proof = manifest.get("adopterUpgradeProof") or {}
+    proof_paths = [
+        item
+        for item in adopter_proof.get("paths") or []
+        if isinstance(item, dict)
+    ]
     return {
         "schema": manifest.get("schema", ""),
         "manifest": "docs/reference/generated-upgrade-dry-run.json",
@@ -579,6 +585,21 @@ def generated_upgrade_dry_run_evidence():
             for item in profiles
             if isinstance(item, dict) and (item.get("diffReport") or {}).get("rollbackNote")
         ),
+        "adopterUpgradeProof": {
+            "schema": adopter_proof.get("schema", ""),
+            "source": adopter_proof.get("source", ""),
+            "compatibilityMatrix": adopter_proof.get("compatibilityMatrix", ""),
+            "acceptanceGates": adopter_proof.get("acceptanceGates", []),
+            "dashboardReportField": adopter_proof.get("dashboardReportField", ""),
+            "policy": adopter_proof.get("policy", ""),
+            "pathCount": len(proof_paths),
+            "profiles": [
+                item.get("profile", "")
+                for item in proof_paths
+                if item.get("profile")
+            ],
+            "paths": proof_paths,
+        },
     }
 
 
@@ -1152,6 +1173,38 @@ if report["generatedUpgradeDryRun"]["diffCategoryCount"] != 4:
     missing.append("generated upgrade dry-run diff category count mismatch")
 if report["generatedUpgradeDryRun"]["rollbackNoteCount"] != 3:
     missing.append("generated upgrade dry-run rollback note count mismatch")
+adopter_upgrade_proof = report["generatedUpgradeDryRun"].get("adopterUpgradeProof") or {}
+if adopter_upgrade_proof.get("schema") != "gofly.generated_adopter_upgrade_proof.v1":
+    missing.append("generated adopter upgrade proof schema mismatch")
+if adopter_upgrade_proof.get("source") != "docs/reference/generated-upgrade-dry-run.json":
+    missing.append("generated adopter upgrade proof source mismatch")
+if adopter_upgrade_proof.get("compatibilityMatrix") != "testdata/generated-compat/matrix.json":
+    missing.append("generated adopter upgrade proof compatibilityMatrix mismatch")
+if set(adopter_upgrade_proof.get("acceptanceGates") or []) != {
+    "make generated-upgrade-dry-run-check",
+    "make generated-version-compat-check",
+}:
+    missing.append("generated adopter upgrade proof acceptanceGates mismatch")
+if adopter_upgrade_proof.get("dashboardReportField") != "generatedUpgradeDryRun.adopterUpgradeProof":
+    missing.append("generated adopter upgrade proof dashboardReportField mismatch")
+if len(str(adopter_upgrade_proof.get("policy") or "").split()) < 20:
+    missing.append("generated adopter upgrade proof policy must be actionable")
+if adopter_upgrade_proof.get("pathCount") != 3:
+    missing.append("generated adopter upgrade proof pathCount mismatch")
+if set(adopter_upgrade_proof.get("profiles") or []) != {"old", "current", "future"}:
+    missing.append("generated adopter upgrade proof profiles mismatch")
+for proof in adopter_upgrade_proof.get("paths") or []:
+    if not isinstance(proof, dict):
+        missing.append(f"generated adopter upgrade proof path must be an object: {proof!r}")
+        continue
+    profile = proof.get("profile", "")
+    for field in ("adopterDecision", "compatibilityGate", "dryRunGate", "expectedDiff", "dependencyBoundary", "rollbackAction"):
+        if not proof.get(field):
+            missing.append(f"generated adopter upgrade proof {profile or '<missing>'}: {field} is required")
+    if proof.get("compatibilityGate") != "make generated-version-compat-check":
+        missing.append(f"generated adopter upgrade proof {profile}: compatibilityGate mismatch")
+    if proof.get("dryRunGate") != "make generated-upgrade-dry-run-check":
+        missing.append(f"generated adopter upgrade proof {profile}: dryRunGate mismatch")
 if report["benchmark"]["evidenceStatus"] != "present":
     missing.append("benchmark evidence is missing")
 if report["benchmark"]["trendSummaryStatus"] != "present":

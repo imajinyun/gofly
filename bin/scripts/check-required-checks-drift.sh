@@ -16,6 +16,7 @@ agents_path = root / "AGENTS.md"
 required_check_manifest_path = root / "docs" / "reference" / "ci-required-check-evidence.json"
 release_evidence_index_path = root / "docs" / "releases" / "evidence-index.json"
 release_evidence_consumption_path = root / "docs" / "releases" / "evidence-consumption.json"
+integration_ownership_path = root / "docs" / "reference" / "integration-ownership-matrix.json"
 
 expected_default_checks = {
     "build & test (go 1.26)",
@@ -160,6 +161,7 @@ public_api_test = (root / "bin" / "scripts" / "check-public-api-test.sh").read_t
 required_check_manifest = json.loads(required_check_manifest_path.read_text(encoding="utf-8"))
 release_evidence_index = json.loads(release_evidence_index_path.read_text(encoding="utf-8"))
 release_evidence_consumption = json.loads(release_evidence_consumption_path.read_text(encoding="utf-8"))
+integration_ownership = json.loads(integration_ownership_path.read_text(encoding="utf-8"))
 
 missing = []
 
@@ -703,6 +705,165 @@ for marker in ("go test", "go vet", "golangci-lint", "-race", "gosec", "govulnch
 for check in ("branch protection required-check audit", "release (tagged)", "release-artifacts-test"):
     require(check in checklist or check in workflow or check in makefile, f"required-check marker {check!r} is not referenced")
 
+require(
+    integration_ownership.get("schema") == "gofly.integration_ownership_matrix.v1",
+    "integration-ownership-matrix.json: schema mismatch",
+)
+require(
+    integration_ownership.get("status") == "blocking",
+    "integration-ownership-matrix.json: status must be blocking",
+)
+require(
+    integration_ownership.get("blockingGate") == "make required-checks-drift-check",
+    "integration-ownership-matrix.json: blockingGate mismatch",
+)
+for included in (
+    "SQL integration ownership",
+    "Redis integration ownership",
+    "MQ integration ownership",
+    "discovery integration ownership",
+    "gateway integration ownership",
+    "RPC integration ownership",
+    "observability integration ownership",
+    "generated-project dependency boundary",
+    "release prerequisite drift",
+    "rollback notes",
+):
+    require(
+        included in set((integration_ownership.get("scope") or {}).get("included") or []),
+        f"integration-ownership-matrix.json: scope.included missing {included!r}",
+    )
+for excluded in (
+    "community size",
+    "cluster provisioning",
+    "production credential management",
+    "framework runtime replacement claims",
+):
+    require(
+        excluded in set((integration_ownership.get("scope") or {}).get("excluded") or []),
+        f"integration-ownership-matrix.json: scope.excluded missing {excluded!r}",
+    )
+for evidence_path in integration_ownership.get("sourceEvidence") or []:
+    require((root / evidence_path).exists(), f"integration-ownership-matrix.json: sourceEvidence path missing: {evidence_path}")
+release_policy = integration_ownership.get("releasePolicy") or {}
+require(
+    release_policy.get("requiredCheckSource") == "docs/reference/ci-required-check-evidence.json",
+    "integration-ownership-matrix.json: releasePolicy.requiredCheckSource mismatch",
+)
+require(
+    release_policy.get("dependencyEvidence") == "docs/reference/dependency-upgrade-evidence.json",
+    "integration-ownership-matrix.json: releasePolicy.dependencyEvidence mismatch",
+)
+for field in ("fallbackPolicy", "generatedProjectPolicy"):
+    require(
+        len(str(release_policy.get(field) or "").split()) >= 12,
+        f"integration-ownership-matrix.json: releasePolicy.{field} must be actionable",
+    )
+
+integration_rows = integration_ownership.get("integrations")
+if not isinstance(integration_rows, list):
+    missing.append("integration-ownership-matrix.json: integrations must be a list")
+    integration_rows = []
+expected_family_checks = {
+    "sql": {
+        "requiredCheck": "integration tests (storage-mysql-postgres)",
+        "releasePrerequisite": "integration",
+        "ciJob": "integration",
+        "localGate": "make db-cache-productization-check",
+    },
+    "redis": {
+        "requiredCheck": "integration tests (mq-brokers)",
+        "releasePrerequisite": "integration",
+        "ciJob": "integration",
+        "localGate": "make db-cache-productization-check",
+    },
+    "mq": {
+        "requiredCheck": "integration tests (mq-brokers)",
+        "releasePrerequisite": "integration",
+        "ciJob": "integration",
+        "localGate": "make integration-tests",
+    },
+    "discovery": {
+        "requiredCheck": "integration tests (config-consul-nacos-etcd)",
+        "releasePrerequisite": "integration",
+        "ciJob": "integration",
+        "localGate": "make discovery-adapter-matrix-check",
+    },
+    "gateway": {
+        "requiredCheck": "integration tests (gateway-transcode)",
+        "releasePrerequisite": "integration",
+        "ciJob": "integration",
+        "localGate": "make api-contract-check",
+    },
+    "rpc": {
+        "requiredCheck": "contract / api+rpc (check + breaking)",
+        "releasePrerequisite": "contract-check",
+        "ciJob": "contract-check",
+        "localGate": "make rpc-boundary-check",
+    },
+    "observability": {
+        "requiredCheck": "governance gates",
+        "releasePrerequisite": "governance",
+        "ciJob": "governance",
+        "localGate": "make governance-report-check",
+    },
+}
+actual_family_ids = {
+    item.get("id")
+    for item in integration_rows
+    if isinstance(item, dict) and item.get("id")
+}
+require(
+    actual_family_ids == set(expected_family_checks),
+    "integration-ownership-matrix.json: integration ids drifted: "
+    f"missing={sorted(set(expected_family_checks) - actual_family_ids)} extra={sorted(actual_family_ids - set(expected_family_checks))}",
+)
+target_names = set(re.findall(r"^([A-Za-z0-9_.-]+):", makefile, re.M))
+for item in integration_rows:
+    if not isinstance(item, dict):
+        missing.append(f"integration-ownership-matrix.json: integration row must be an object: {item!r}")
+        continue
+    item_id = item.get("id", "<missing>")
+    for field in (
+        "id",
+        "family",
+        "owner",
+        "surface",
+        "supportedProfiles",
+        "localGate",
+        "ciJob",
+        "requiredCheck",
+        "releasePrerequisite",
+        "dependencyUpgradeTrigger",
+        "generatedProjectBoundary",
+        "evidence",
+        "rollbackNote",
+    ):
+        require(item.get(field) not in ("", None, []), f"integration-ownership-matrix.json: {item_id}: {field} is required")
+    expected = expected_family_checks.get(item_id) or {}
+    for field, expected_value in expected.items():
+        require(item.get(field) == expected_value, f"integration-ownership-matrix.json: {item_id}: {field} mismatch")
+    require(item.get("requiredCheck") in expected_default_checks, f"integration-ownership-matrix.json: {item_id}: requiredCheck is not branch-protected")
+    require(item.get("requiredCheck") in branch_audit_expected, f"integration-ownership-matrix.json: {item_id}: requiredCheck is not in branch audit expected set")
+    require(item.get("releasePrerequisite") in release_needs, f"integration-ownership-matrix.json: {item_id}: releasePrerequisite is not release-blocking")
+    require(item.get("ciJob") in job_ids, f"integration-ownership-matrix.json: {item_id}: ciJob is missing")
+    local_gate = str(item.get("localGate") or "")
+    if local_gate.startswith("make "):
+        gate_target = local_gate.split()[1]
+        require(gate_target in target_names, f"integration-ownership-matrix.json: {item_id}: localGate target is missing: {gate_target}")
+    require(len(item.get("supportedProfiles") or []) >= 2, f"integration-ownership-matrix.json: {item_id}: supportedProfiles must name at least two profiles")
+    for evidence_path in item.get("evidence") or []:
+        require((root / evidence_path).exists(), f"integration-ownership-matrix.json: {item_id}: evidence path missing: {evidence_path}")
+    for field in ("dependencyUpgradeTrigger", "generatedProjectBoundary", "rollbackNote"):
+        require(
+            len(str(item.get(field) or "").split()) >= 10,
+            f"integration-ownership-matrix.json: {item_id}: {field} must be actionable",
+        )
+    require(
+        "generated" in str(item.get("generatedProjectBoundary") or "").lower(),
+        f"integration-ownership-matrix.json: {item_id}: generatedProjectBoundary must name generated projects",
+    )
+
 if missing:
     print("required-check drift check failed:", file=sys.stderr)
     for item in missing:
@@ -713,6 +874,7 @@ print(
     "required-check drift ok: "
     f"{len(expected_default_checks)} default checks, {len(expected_release_needs)} release prerequisites, "
     f"{len(expected_integration_matrix)} integration matrix entries, "
+    f"{len(expected_family_checks)} integration ownership families, "
     f"{len(expected_governance_rounds)} governance rounds"
 )
 PY

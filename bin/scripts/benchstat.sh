@@ -242,6 +242,7 @@ def require_policy(condition: bool, message: str) -> None:
 def validate_ratchet_policy() -> None:
     allocation_policy = ratchet.get("allocationPolicy") or {}
     adopter_contract = ratchet.get("adopterPerformanceContract") or {}
+    promotion_evidence = ratchet.get("performancePromotionEvidence") or {}
     report_only = set(latency_policy.get("reportOnly") or [])
     promoted = latency_policy.get("promoted") or []
     rpc_policy = ratchet.get("rpcPolicy") or {}
@@ -298,6 +299,116 @@ def validate_ratchet_policy() -> None:
         isinstance(surface_policy, list) and bool(surface_policy),
         "surfacePolicy must list performance claim boundaries",
     )
+    require_policy(
+        promotion_evidence.get("schema") == "gofly.benchmark_performance_promotion_evidence.v1",
+        "performancePromotionEvidence schema mismatch",
+    )
+    require_policy(
+        promotion_evidence.get("acceptanceGate") == "make bench-regression-check",
+        "performancePromotionEvidence acceptanceGate must be make bench-regression-check",
+    )
+
+    confidence = promotion_evidence.get("multiRunConfidence") or {}
+    baseline_samples_required = int(confidence.get("baselineSamplesRequired") or 0)
+    current_samples_required = int(confidence.get("currentTrendSamplesRequired") or 0)
+    require_policy(
+        baseline_samples_required >= 5,
+        "performancePromotionEvidence multiRunConfidence requires at least five baseline samples",
+    )
+    require_policy(
+        current_samples_required >= 3,
+        "performancePromotionEvidence multiRunConfidence requires at least three current trend samples",
+    )
+    require_policy(
+        confidence.get("baselineArtifact") == "bench/baseline.txt",
+        "performancePromotionEvidence baselineArtifact must be bench/baseline.txt",
+    )
+    require_policy(
+        confidence.get("currentArtifact") == "bench/current.txt",
+        "performancePromotionEvidence currentArtifact must be bench/current.txt",
+    )
+    require_policy(
+        confidence.get("trendArtifact") == "bench/summary.md",
+        "performancePromotionEvidence trendArtifact must be bench/summary.md",
+    )
+    require_policy(
+        len(str(confidence.get("policy") or "").split()) >= 20,
+        "performancePromotionEvidence multiRunConfidence policy must be actionable",
+    )
+
+    allocation_budget_rows = {
+        item.get("benchmark"): item
+        for item in promotion_evidence.get("promotedAllocationBudgets") or []
+        if isinstance(item, dict) and item.get("benchmark")
+    }
+    require_policy(
+        set(allocation_budget_rows) == tracked,
+        "performancePromotionEvidence promotedAllocationBudgets must cover every tracked benchmark",
+    )
+    for benchmark, item in allocation_budget_rows.items():
+        require_policy(item.get("metric") == "allocs/op median", f"{benchmark}: allocation metric must be allocs/op median")
+        require_policy(item.get("mode") == "blocking", f"{benchmark}: allocation budget mode must be blocking")
+        require_policy(item.get("source") == "bench/baseline.txt", f"{benchmark}: allocation budget source must be bench/baseline.txt")
+        require_policy(
+            int(item.get("minimumBaselineSamples") or 0) >= baseline_samples_required,
+            f"{benchmark}: allocation budget must require the multi-run baseline sample count",
+        )
+        for field in ("adopterAction", "rollbackAction"):
+            require_policy(
+                len(str(item.get(field) or "").split()) >= 10,
+                f"{benchmark}: allocation budget {field} must be actionable",
+            )
+
+    latency_report_rows = {
+        item.get("benchmark"): item
+        for item in promotion_evidence.get("reportOnlyLatencyRows") or []
+        if isinstance(item, dict) and item.get("benchmark")
+    }
+    require_policy(
+        set(latency_report_rows) == report_only,
+        "performancePromotionEvidence reportOnlyLatencyRows must match latencyPolicy.reportOnly",
+    )
+    for benchmark, item in latency_report_rows.items():
+        require_policy(item.get("mode") == "report-only", f"{benchmark}: latency row mode must be report-only")
+        for field in ("promotionRequirement", "adopterAction"):
+            require_policy(
+                len(str(item.get(field) or "").split()) >= 10,
+                f"{benchmark}: report-only latency {field} must be actionable",
+            )
+
+    evidence_unsupported = {
+        item.get("id"): item
+        for item in promotion_evidence.get("unsupportedSurfaces") or []
+        if isinstance(item, dict) and item.get("id")
+    }
+    require_policy(
+        set(evidence_unsupported) == {"gateway-proxy", "cache-hot-path"},
+        "performancePromotionEvidence unsupportedSurfaces mismatch",
+    )
+    for surface_id, item in evidence_unsupported.items():
+        require_policy(
+            item.get("status") == "unsupported-report-only",
+            f"{surface_id}: performance promotion unsupported status must be unsupported-report-only",
+        )
+        for field in ("requiredEvidence", "adopterAction"):
+            require_policy(
+                len(str(item.get(field) or "").split()) >= 10,
+                f"{surface_id}: performance promotion {field} must be actionable",
+            )
+
+    adopter_actions = {
+        item.get("id"): item
+        for item in promotion_evidence.get("adopterActions") or []
+        if isinstance(item, dict) and item.get("id")
+    }
+    for action_id in ("allocation-regression", "latency-trend-regression", "unsupported-surface-claim"):
+        item = adopter_actions.get(action_id) or {}
+        require_policy(bool(item), f"performancePromotionEvidence adopterActions missing {action_id}")
+        for field in ("trigger", "action"):
+            require_policy(
+                len(str(item.get(field) or "").split()) >= 10,
+                f"{action_id}: adopter action {field} must be actionable",
+            )
 
     for item in promoted:
         if not isinstance(item, dict):
@@ -489,6 +600,7 @@ if policy_failures:
             "ratchetSchema": ratchet.get("schema", ""),
             "latencyMode": latency_policy.get("defaultMode", ""),
             "latencyBlockingBenchmarks": sorted(promoted_latency),
+            "performancePromotionEvidence": ratchet.get("performancePromotionEvidence", {}),
             "rpcPolicy": ratchet.get("rpcPolicy", {}),
             "allocTolerance": alloc_tolerance,
         },
@@ -607,6 +719,7 @@ report = {
         "ratchetSchema": ratchet.get("schema", ""),
         "latencyMode": latency_policy.get("defaultMode", "report-only"),
         "latencyBlockingBenchmarks": sorted(promoted_latency),
+        "performancePromotionEvidence": ratchet.get("performancePromotionEvidence", {}),
         "rpcPolicy": ratchet.get("rpcPolicy", {}),
         "allocTolerance": alloc_tolerance,
     },

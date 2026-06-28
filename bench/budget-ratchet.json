@@ -1,5 +1,148 @@
 {
   "acceptanceGate": "make bench-regression-check",
+  "performancePromotionEvidence": {
+    "schema": "gofly.benchmark_performance_promotion_evidence.v1",
+    "acceptanceGate": "make bench-regression-check",
+    "multiRunConfidence": {
+      "baselineSamplesRequired": 5,
+      "currentTrendSamplesRequired": 3,
+      "baselineArtifact": "bench/baseline.txt",
+      "currentArtifact": "bench/current.txt",
+      "trendArtifact": "bench/summary.md",
+      "policy": "Promote new blocking performance claims only after the baseline has at least five samples, the current trend has at least three samples, allocation budgets pass, and latency rows have an explicit ratio and rollback action."
+    },
+    "promotedAllocationBudgets": [
+      {
+        "benchmark": "BenchmarkHTTPHello/gofly",
+        "metric": "allocs/op median",
+        "mode": "blocking",
+        "minimumBaselineSamples": 5,
+        "source": "bench/baseline.txt",
+        "adopterAction": "Block release when REST route allocation median exceeds the baseline ratchet tolerance.",
+        "rollbackAction": "Revert the route hot-path change or keep the previous release until allocation evidence is restored."
+      },
+      {
+        "benchmark": "BenchmarkHTTPPathParams/gofly",
+        "metric": "allocs/op median",
+        "mode": "blocking",
+        "minimumBaselineSamples": 5,
+        "source": "bench/baseline.txt",
+        "adopterAction": "Block release when path-parameter extraction allocation median exceeds the baseline ratchet tolerance.",
+        "rollbackAction": "Revert the path-parameter change or keep the previous release until allocation evidence is restored."
+      },
+      {
+        "benchmark": "BenchmarkHTTPJSONBinding/gofly",
+        "metric": "allocs/op median",
+        "mode": "blocking",
+        "minimumBaselineSamples": 5,
+        "source": "bench/baseline.txt",
+        "adopterAction": "Block release when JSON binding allocation median exceeds the baseline ratchet tolerance.",
+        "rollbackAction": "Revert the binding change or keep the previous release until allocation evidence is restored."
+      },
+      {
+        "benchmark": "BenchmarkHTTPMiddlewareChain/gofly",
+        "metric": "allocs/op median",
+        "mode": "blocking",
+        "minimumBaselineSamples": 5,
+        "source": "bench/baseline.txt",
+        "adopterAction": "Block release when middleware-chain allocation median exceeds the baseline ratchet tolerance.",
+        "rollbackAction": "Revert the middleware change or keep the previous release until allocation evidence is restored."
+      },
+      {
+        "benchmark": "BenchmarkHTTPOpenAPI/disabled",
+        "metric": "allocs/op median",
+        "mode": "blocking",
+        "minimumBaselineSamples": 5,
+        "source": "bench/baseline.txt",
+        "adopterAction": "Block release when OpenAPI-disabled metadata allocation median exceeds the baseline ratchet tolerance.",
+        "rollbackAction": "Revert the metadata change or keep the previous release until allocation evidence is restored."
+      },
+      {
+        "benchmark": "BenchmarkHTTPOpenAPI/enabled",
+        "metric": "allocs/op median",
+        "mode": "blocking",
+        "minimumBaselineSamples": 5,
+        "source": "bench/baseline.txt",
+        "adopterAction": "Block release when OpenAPI-enabled metadata allocation median exceeds the baseline ratchet tolerance.",
+        "rollbackAction": "Revert the OpenAPI metadata change or keep the previous release until allocation evidence is restored."
+      },
+      {
+        "benchmark": "BenchmarkHTTPGovernance/disabled",
+        "metric": "allocs/op median",
+        "mode": "blocking",
+        "minimumBaselineSamples": 5,
+        "source": "bench/baseline.txt",
+        "adopterAction": "Block release when governance-disabled allocation median exceeds the baseline ratchet tolerance.",
+        "rollbackAction": "Revert the governance path change or keep the previous release until allocation evidence is restored."
+      },
+      {
+        "benchmark": "BenchmarkHTTPGovernance/enabled",
+        "metric": "allocs/op median",
+        "mode": "blocking",
+        "minimumBaselineSamples": 5,
+        "source": "bench/baseline.txt",
+        "adopterAction": "Block release when governance-enabled allocation median exceeds the baseline ratchet tolerance.",
+        "rollbackAction": "Revert the governance rule-match change or keep the previous release until allocation evidence is restored."
+      }
+    ],
+    "reportOnlyLatencyRows": [
+      {
+        "benchmark": "BenchmarkHTTPHello/gofly",
+        "mode": "report-only",
+        "promotionRequirement": "Attach three current trend samples, maxRegressionRatio, reason, and rollback action before latency becomes blocking.",
+        "adopterAction": "Use latency as trend evidence only; do not block releases on this row until promotion criteria pass."
+      },
+      {
+        "benchmark": "BenchmarkHTTPPathParams/gofly",
+        "mode": "report-only",
+        "promotionRequirement": "Attach three current trend samples, maxRegressionRatio, reason, and rollback action before latency becomes blocking.",
+        "adopterAction": "Use latency as trend evidence only; do not block releases on this row until promotion criteria pass."
+      },
+      {
+        "benchmark": "BenchmarkHTTPJSONBinding/gofly",
+        "mode": "report-only",
+        "promotionRequirement": "Attach three current trend samples, maxRegressionRatio, reason, and rollback action before latency becomes blocking.",
+        "adopterAction": "Use latency as trend evidence only; do not block releases on this row until promotion criteria pass."
+      },
+      {
+        "benchmark": "BenchmarkHTTPMiddlewareChain/gofly",
+        "mode": "report-only",
+        "promotionRequirement": "Attach three current trend samples, maxRegressionRatio, reason, and rollback action before latency becomes blocking.",
+        "adopterAction": "Use latency as trend evidence only; do not block releases on this row until promotion criteria pass."
+      }
+    ],
+    "unsupportedSurfaces": [
+      {
+        "id": "gateway-proxy",
+        "status": "unsupported-report-only",
+        "requiredEvidence": "Add a dedicated gateway proxy benchmark with five baseline samples, three current trend samples, allocation budget, latency policy, and rollback guidance.",
+        "adopterAction": "Do not claim gateway proxy performance as ratcheted until dedicated benchmark evidence is published."
+      },
+      {
+        "id": "cache-hot-path",
+        "status": "unsupported-report-only",
+        "requiredEvidence": "Add a dedicated cache hot-path benchmark with five baseline samples, three current trend samples, allocation budget, cache-mode notes, and rollback guidance.",
+        "adopterAction": "Do not claim cache hot-path performance as ratcheted until dedicated benchmark evidence is published."
+      }
+    ],
+    "adopterActions": [
+      {
+        "id": "allocation-regression",
+        "trigger": "Any tracked benchmark allocs/op median exceeds the ratchet tolerance under make bench-regression-check",
+        "action": "Block the release, attach bench/regression-report.json, and revert or pin the previous release until allocation evidence is restored."
+      },
+      {
+        "id": "latency-trend-regression",
+        "trigger": "Any report-only latency trend regresses before promotion criteria and current trend samples are attached",
+        "action": "Keep the release decision non-blocking, investigate the hot path, and require three-sample trend evidence before promoting the row."
+      },
+      {
+        "id": "unsupported-surface-claim",
+        "trigger": "gateway or cache performance is claimed without a dedicated benchmark row",
+        "action": "Downgrade the claim to report-only and require dedicated baseline, current trend, allocation budget, and rollback evidence."
+      }
+    ]
+  },
   "allocationPolicy": {
     "blocking": true,
     "metric": "allocs/op median",

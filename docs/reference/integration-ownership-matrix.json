@@ -206,5 +206,55 @@
       ],
       "rollbackNote": "Pin the previous telemetry profile or disable the new exporter until runtime SLO, dashboard, release evidence, and smoke checks pass."
     }
+  ],
+  "adopterProofRows": [
+    {
+      "id": "sql-generated-boundary-proof",
+      "family": "sql",
+      "adapter": "SQLStore / Cluster",
+      "supportedAdapters": [
+        "mysql",
+        "postgres",
+        "sqlite-memory"
+      ],
+      "generatedProjectBoundary": "Generated SQL repositories and model-only dependencies must stay in generated project go.mod files or isolated temp modules, never as unexplained root module dependencies.",
+      "dependencyUpgradeTrigger": "SQL driver, dialect, transaction, outbox, generated model, pagination, or optimistic-lock template changes require DB/cache productization and dependency evidence review.",
+      "observabilityEvidence": "SQLStore snapshots expose database, operation, transaction, and error stats that adopters can inspect before promoting generated repository output.",
+      "fallbackBehavior": "Fallback to the previous repository path or sqlite-memory smoke fixture when networked SQL dependencies are unavailable or generated compile evidence fails.",
+      "gate": "make db-cache-productization-check",
+      "rollbackOrEscalation": "Pin the previous storage driver or generated model profile until SQL, outbox, generated boundary, dependency, and integration evidence pass."
+    },
+    {
+      "id": "redis-cache-adoption-proof",
+      "family": "redis",
+      "adapter": "Redis model cache / tiered cache",
+      "supportedAdapters": [
+        "redis-cache",
+        "redis-stream",
+        "typed-tiered-cache"
+      ],
+      "generatedProjectBoundary": "Generated Redis cache repositories must keep Redis-only dependencies inside generated projects or examples unless root packages import the dependency directly.",
+      "dependencyUpgradeTrigger": "Redis client, cache invalidation, stream codec, TTL, negative-cache, generated cache template, or tiered cache behavior changes require DB/cache productization review.",
+      "observabilityEvidence": "Cache stats and Prometheus output expose hits, misses, loader errors, Redis miss semantics, and invalidation evidence for generated model cache adoption.",
+      "fallbackBehavior": "Fallback to GOFLY_CACHE_DISABLED=true, local typed cache, or direct SQL reads when Redis is unavailable or cache invalidation evidence diverges.",
+      "gate": "make db-cache-productization-check",
+      "rollbackOrEscalation": "Disable Redis-backed cache or pin the previous Redis profile until cache stats, generated boundary, dependency, and smoke evidence pass."
+    },
+    {
+      "id": "discovery-adapter-adoption-proof",
+      "family": "discovery",
+      "adapter": "memory / Consul / etcdv3 discovery",
+      "supportedAdapters": [
+        "memory",
+        "consul",
+        "etcdv3"
+      ],
+      "generatedProjectBoundary": "Generated discovery overlays may reference provider profiles, but provider client dependencies must follow root dependency policy or stay in generated modules.",
+      "dependencyUpgradeTrigger": "Discovery client, lease, watch, resolver, balancer, health filtering, metadata filtering, TLS, or generated profile changes require discovery matrix review.",
+      "observabilityEvidence": "Discovery adapter matrix records register, resolve, watch, TTL lease, health filtering, metadata filtering, failover, and release gates for adopter decisions.",
+      "fallbackBehavior": "Fallback to memory discovery, previous registry configuration, or platform-native discovery when networked registries are unavailable or watch evidence fails.",
+      "gate": "make discovery-adapter-matrix-check",
+      "rollbackOrEscalation": "Keep memory discovery or the previous registry path active until resolver, lease, watch, generated boundary, and integration evidence pass."
+    }
   ]
 }

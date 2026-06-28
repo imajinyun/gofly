@@ -89,6 +89,7 @@ def count_benchmarks():
 
 def benchmark_surface_policy():
     ratchet = read_json(root / "bench/budget-ratchet.json") or {}
+    adopter_contract = ratchet.get("adopterPerformanceContract") or {}
     surfaces = [
         item
         for item in ratchet.get("surfacePolicy") or []
@@ -107,6 +108,20 @@ def benchmark_surface_policy():
     return {
         "source": "bench/budget-ratchet.json",
         "gate": ratchet.get("acceptanceGate", "make bench-regression-check"),
+        "adopterPerformanceContract": {
+            "schema": adopter_contract.get("schema", ""),
+            "source": adopter_contract.get("source", ""),
+            "dashboardReportField": adopter_contract.get("dashboardReportField", ""),
+            "acceptanceGates": adopter_contract.get("acceptanceGates", []),
+            "policy": adopter_contract.get("policy", ""),
+            "blockingSurfaceCount": len(adopter_contract.get("blockingSurfaces") or []),
+            "reportOnlySurfaceCount": len(adopter_contract.get("reportOnlySurfaces") or []),
+            "unsupportedSurfaceCount": len(adopter_contract.get("unsupportedSurfaces") or []),
+            "promotionRules": adopter_contract.get("promotionRules", []),
+            "blockingSurfaces": adopter_contract.get("blockingSurfaces", []),
+            "reportOnlySurfaces": adopter_contract.get("reportOnlySurfaces", []),
+            "unsupportedSurfaces": adopter_contract.get("unsupportedSurfaces", []),
+        },
         "surfaceCount": len(surfaces),
         "statusCounts": status_counts,
         "latencyModeCounts": latency_mode_counts,
@@ -1304,6 +1319,53 @@ if surface_policy.get("gate") != "make bench-regression-check":
     missing.append("benchmark surface policy gate mismatch")
 if surface_policy.get("surfaceCount", 0) < 5:
     missing.append("benchmark surface policy must track REST, governance, RPC, gateway and cache surfaces")
+adopter_performance = surface_policy.get("adopterPerformanceContract") or {}
+if adopter_performance.get("schema") != "gofly.benchmark_adopter_performance_contract.v1":
+    missing.append("benchmark adopter performance contract schema mismatch")
+if adopter_performance.get("source") != "bench/budget-ratchet.json":
+    missing.append("benchmark adopter performance contract source mismatch")
+if adopter_performance.get("dashboardReportField") != "benchmark.adopterPerformanceContract":
+    missing.append("benchmark adopter performance contract dashboardReportField mismatch")
+if set(adopter_performance.get("acceptanceGates") or []) != {
+    "make bench-regression-check",
+    "make bench-evidence-check",
+    "make bench-trend",
+}:
+    missing.append("benchmark adopter performance contract acceptanceGates mismatch")
+if len(str(adopter_performance.get("policy") or "").split()) < 20:
+    missing.append("benchmark adopter performance contract policy must be actionable")
+if adopter_performance.get("blockingSurfaceCount") != 2:
+    missing.append("benchmark adopter performance contract blockingSurfaceCount mismatch")
+if adopter_performance.get("reportOnlySurfaceCount") != 2:
+    missing.append("benchmark adopter performance contract reportOnlySurfaceCount mismatch")
+if adopter_performance.get("unsupportedSurfaceCount") != 2:
+    missing.append("benchmark adopter performance contract unsupportedSurfaceCount mismatch")
+if not {"minimum 5 baseline samples", "minimum 3 current trend samples", "no allocation regression under bench-regression-check"}.issubset(set(adopter_performance.get("promotionRules") or [])):
+    missing.append("benchmark adopter performance contract promotionRules missing required gates")
+for collection, expected_ids in (
+    ("blockingSurfaces", {"rest-route-hot-path", "governance-rule-match"}),
+    ("reportOnlySurfaces", {"http-latency-report-only", "rpc-candidate-report-only"}),
+    ("unsupportedSurfaces", {"gateway-proxy", "cache-hot-path"}),
+):
+    items = [
+        item
+        for item in adopter_performance.get(collection) or []
+        if isinstance(item, dict)
+    ]
+    actual_ids = {
+        item.get("id", "")
+        for item in items
+        if item.get("id")
+    }
+    if actual_ids != expected_ids:
+        missing.append(f"benchmark adopter performance contract {collection} ids mismatch")
+    for item in items:
+        item_id = item.get("id", "")
+        for field in ("adopterAction", "rollbackAction"):
+            if len(str(item.get(field) or "").split()) < 10:
+                missing.append(f"benchmark adopter performance contract {item_id}: {field} must be actionable")
+        if collection == "unsupportedSurfaces" and len(str(item.get("requiredEvidence") or "").split()) < 8:
+            missing.append(f"benchmark adopter performance contract {item_id}: requiredEvidence must be actionable")
 required_surface_policy_statuses = {
     "allocation-blocking",
     "latency-and-allocation-blocking",
@@ -1494,6 +1556,9 @@ for field in (
     "benchmark.trendSummaryStatus",
     "benchmark.surfacePolicy.surfaceCount",
     "benchmark.surfacePolicy.statusCounts",
+    "benchmark.surfacePolicy.adopterPerformanceContract.blockingSurfaceCount",
+    "benchmark.surfacePolicy.adopterPerformanceContract.reportOnlySurfaceCount",
+    "benchmark.surfacePolicy.adopterPerformanceContract.unsupportedSurfaceCount",
     "coverage.ratchet",
     "security.gosec.blockingGate",
     "aiflow.status",

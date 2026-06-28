@@ -16,6 +16,9 @@
     "benchmark.trendSummaryStatus",
     "benchmark.surfacePolicy.surfaceCount",
     "benchmark.surfacePolicy.statusCounts",
+    "benchmark.surfacePolicy.adopterPerformanceContract.blockingSurfaceCount",
+    "benchmark.surfacePolicy.adopterPerformanceContract.reportOnlySurfaceCount",
+    "benchmark.surfacePolicy.adopterPerformanceContract.unsupportedSurfaceCount",
     "coverage.ratchet",
     "coverageTrend.policy.blockingGate",
     "security.gosec.blockingGate",
@@ -82,6 +85,20 @@
   "benchmarkRatchet": {
     "source": "bench/budget-ratchet.json",
     "gate": "make bench-regression-check",
+    "adopterPerformanceContract": {
+      "schema": "gofly.benchmark_adopter_performance_contract.v1",
+      "reportField": "benchmark.adopterPerformanceContract",
+      "requiredSurfaceCounts": {
+        "blocking": 2,
+        "reportOnly": 2,
+        "unsupported": 2
+      },
+      "requiredDashboardFields": [
+        "benchmark.surfacePolicy.adopterPerformanceContract.blockingSurfaceCount",
+        "benchmark.surfacePolicy.adopterPerformanceContract.reportOnlySurfaceCount",
+        "benchmark.surfacePolicy.adopterPerformanceContract.unsupportedSurfaceCount"
+      ]
+    },
     "requiredFields": [
       "schema",
       "trackedBenchmarks",

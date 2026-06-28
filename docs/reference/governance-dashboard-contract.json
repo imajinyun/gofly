@@ -8,6 +8,8 @@
     "releaseEvidenceConsumption.driftClosure.driftGate",
     "releaseEvidenceConsumption.driftClosure.requiredEvidenceCount",
     "releaseEvidenceConsumption.driftClosure.releasePrerequisiteCoverage",
+    "releaseAdoptionContract.decisionCount",
+    "releaseAdoptionContract.riskClassCounts",
     "apiSurface.tiers",
     "benchmark.regressionGate",
     "benchmark.regressionReport",
@@ -53,6 +55,23 @@
       "releaseEvidenceConsumption.driftClosure.driftGate",
       "releaseEvidenceConsumption.driftClosure.requiredEvidenceCount",
       "releaseEvidenceConsumption.driftClosure.releasePrerequisiteCoverage"
+    ]
+  },
+  "releaseAdoptionContract": {
+    "schema": "gofly.release_adoption_contract.v1",
+    "source": "docs/releases/adoption-contract.json",
+    "sourceOfTruth": "docs/releases/evidence-consumption.json",
+    "acceptanceGate": "make governance-report-check",
+    "reportField": "releaseAdoptionContract",
+    "requiredDecisions": [
+      "upgrade",
+      "publish",
+      "block",
+      "rollback"
+    ],
+    "requiredDashboardFields": [
+      "releaseAdoptionContract.decisionCount",
+      "releaseAdoptionContract.riskClassCounts"
     ]
   },
   "apiTiers": {

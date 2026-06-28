@@ -23,6 +23,22 @@ go run -C examples/migration-proof .
 make examples-smoke
 ```
 
+## Decision evidence contract
+
+Schema: `gofly.adopter_decision_evidence.v1`
+
+The machine-readable contract lives in
+`docs/reference/framework-gap-adopter-proof.json`. `make adopter-decision-check`
+keeps each decision row tied to claim provenance, support-bundle output,
+dashboard evidence, compatibility caveats, gate commands, and rollback actions.
+
+| Path | Claim provenance | Support bundle output | Dashboard evidence | Gate command | Rollback action |
+| --- | --- | --- | --- | --- | --- |
+| Gin to gofly | `http-dx-openapi-envelope`; `performance-credibility` | Attach `gofly bug --json` only after redaction and include sampled response, OpenAPI, and error-envelope drift evidence. | `dashboard.evidenceTraceability.claimCount`; `benchmark.adopterPerformanceContract` | `make examples-smoke` | Keep Gin route active behind the existing router until sampled responses and metrics match. |
+| go-zero to gofly | `generated-scaffold-upgrade`; `production-reference-proof`; `release-trust-evidence` | Attach `gofly bug --json` with generated-project failure reports and release check output when scaffold compatibility fails. | `generatedUpgradeDryRun.profileCount`; `releaseAdoptionContract`; `dashboard.productionReadinessScorecard.surfaceCount`; verify generated OpenAPI and `/admin/control-plane` before changing discovery. | `make generated-version-compat-check` | Keep go-zero and gofly services addressable through discovery and switch routing back to go-zero. |
+| Kratos to gofly | `generated-scaffold-upgrade`; `production-reference-proof`; `release-trust-evidence` | Attach `gofly bug --json` with rendered cloud-native assets, topology output, and health or discovery drift evidence. | `dashboard.evidenceTraceability.claimCount`; `dashboard.productionReadinessScorecard.surfaceCount` | `make cloud-native-render-check` | Restore the previous Kratos deployment target while keeping shared domain services unchanged. |
+| Kitex with gofly | `rpc-boundary-tier1`; `performance-credibility` | Attach `gofly bug --json` with RPC boundary, resolver, balancer, stream, trace, auth, and benchmark evidence before escalating. | `dashboard.evidenceTraceability.claimCount`; `benchmark.adopterPerformanceContract` | `make rpc-boundary-check` | Route latency-critical methods back to Kitex and retain gofly for REST ingress or governance surfaces. |
+
 ## When to choose gofly
 
 Choose gofly when a service needs generated structure, REST/RPC composition,

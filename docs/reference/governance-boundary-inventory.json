@@ -40,10 +40,10 @@
     },
     {
       "id": "GOFLY-GOV-10R6",
-      "status": "in-progress",
+      "status": "completed",
       "taskPrefix": "GOFLY-GOV-10R6-",
       "roundCount": 10,
-      "evidence": "docs/reference/framework-gap-post-r5-roadmap.json"
+      "evidence": "docs/reference/governance-convergence-verification.json"
     }
   ],
   "aiflowTasks": [

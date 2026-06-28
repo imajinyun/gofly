@@ -625,6 +625,98 @@ for profile_name, proof in sorted(proof_by_profile.items()):
     for field in ("adopterDecision", "rollbackAction"):
         require(len(str(proof.get(field) or "").split()) >= 10, f"adopterUpgradeProof {profile_name}: {field} must be actionable")
 
+p9_matrix = manifest.get("p9HistoricalFixtureMatrix") or {}
+require(
+    p9_matrix.get("schema") == "gofly.generated_historical_fixture_matrix.v1",
+    "p9HistoricalFixtureMatrix schema mismatch",
+)
+require(
+    p9_matrix.get("aiflowTask") == "GOFLY-GOV-10P9-02",
+    "p9HistoricalFixtureMatrix aiflowTask mismatch",
+)
+require(p9_matrix.get("status") == "blocking", "p9HistoricalFixtureMatrix status must be blocking")
+require(
+    set(p9_matrix.get("sourceOfTruth") or []) == {
+        "testdata/generated-compat/matrix.json",
+        "docs/reference/generated-version-compat.md",
+        "docs/reference/generated-upgrade-dry-run.json",
+    },
+    "p9HistoricalFixtureMatrix sourceOfTruth mismatch",
+)
+for source in p9_matrix.get("sourceOfTruth") or []:
+    require((root / source).exists(), f"p9HistoricalFixtureMatrix source path missing: {source}")
+require(
+    set(p9_matrix.get("acceptanceGates") or []) == {
+        "make generated-version-compat-check",
+        "make generated-upgrade-dry-run-check",
+    },
+    "p9HistoricalFixtureMatrix acceptanceGates mismatch",
+)
+execution_contract = p9_matrix.get("executionContract") or {}
+for field in (
+    "temporaryProjectRoot",
+    "generatorCommand",
+    "moduleReplacement",
+    "compileSmoke",
+    "repeatGeneration",
+    "reportSchema",
+    "artifactPolicy",
+):
+    require(
+        len(str(execution_contract.get(field) or "").split()) >= 3,
+        f"p9HistoricalFixtureMatrix executionContract.{field} must be actionable",
+    )
+require("gofly.generated_version_compat_report.v1" in str(execution_contract.get("reportSchema") or ""), "p9HistoricalFixtureMatrix reportSchema mismatch")
+require("diff -ru" in str(execution_contract.get("repeatGeneration") or ""), "p9HistoricalFixtureMatrix repeatGeneration must require diff -ru")
+require("go test ./..." in str(execution_contract.get("compileSmoke") or ""), "p9HistoricalFixtureMatrix compileSmoke must run go test ./...")
+
+p9_profiles = {
+    item.get("profile"): item
+    for item in p9_matrix.get("profiles") or []
+    if isinstance(item, dict) and item.get("profile")
+}
+require(set(p9_profiles) == profile_names, f"p9HistoricalFixtureMatrix profiles mismatch: {sorted(p9_profiles)!r}")
+for profile_name, item in sorted(p9_profiles.items()):
+    matrix_profile = matrix_profiles.get(profile_name) or {}
+    manifest_profile = next((profile for profile in profiles if profile.get("profile") == profile_name), {})
+    fixture_set = item.get("fixtureSet") or {}
+    for field in ("api", "proto", "serviceConfig"):
+        require(fixture_set.get(field) == manifest_profile.get(field), f"p9HistoricalFixtureMatrix {profile_name}: fixture {field} must match generated upgrade profile")
+        require((root / str(fixture_set.get(field) or "")).is_file(), f"p9HistoricalFixtureMatrix {profile_name}: fixture path missing for {field}")
+    require(
+        fixture_set.get("snapshot") == "testdata/generated-compat/matrix.json",
+        f"p9HistoricalFixtureMatrix {profile_name}: snapshot must be the generated compatibility matrix",
+    )
+    require(
+        item.get("expectedDiff") == matrix_profile.get("expectedDiff"),
+        f"p9HistoricalFixtureMatrix {profile_name}: expectedDiff must match version matrix",
+    )
+    required_report_fields = set(item.get("requiredReportFields") or [])
+    for field in ("profile", "generatedFiles", "goTest", "repeatGenerationDiff", "expectedDiff", "verification"):
+        require(field in required_report_fields, f"p9HistoricalFixtureMatrix {profile_name}: requiredReportFields missing {field!r}")
+    blocking_checks = set(item.get("blockingChecks") or [])
+    for check in ("generatedFiles > 0", "goTest == passed", "repeatGenerationDiff == clean"):
+        require(check in blocking_checks, f"p9HistoricalFixtureMatrix {profile_name}: blockingChecks missing {check!r}")
+    require(
+        len(str(item.get("rollbackOrEscalation") or "").split()) >= 12,
+        f"p9HistoricalFixtureMatrix {profile_name}: rollbackOrEscalation must be actionable",
+    )
+
+p9_diff_policy = p9_matrix.get("diffExplanationPolicy") or {}
+require(
+    set(p9_diff_policy.get("requiredCategories") or []) == required_categories,
+    "p9HistoricalFixtureMatrix diffExplanationPolicy.requiredCategories mismatch",
+)
+for field in ("blockingRule", "reportUse"):
+    require(
+        len(str(p9_diff_policy.get(field) or "").split()) >= 12,
+        f"p9HistoricalFixtureMatrix diffExplanationPolicy.{field} must be actionable",
+    )
+require(
+    "gofly.generated_version_compat_report.v1" in str(p9_diff_policy.get("reportUse") or ""),
+    "p9HistoricalFixtureMatrix diffExplanationPolicy.reportUse must reference the generated version report schema",
+)
+
 target_body = make_target_body(makefile, "generated-upgrade-dry-run-check")
 contract_deps = make_target_deps(makefile, "contract-docs-check")
 require(
@@ -645,6 +737,8 @@ for needle in (
     "formatting-only",
     "breaking-candidate",
     "rollbackNote",
+    "p9HistoricalFixtureMatrix",
+    "gofly.generated_version_compat_report.v1",
 ):
     require(needle in doc, f"docs/reference/generated-upgrade-dry-run.md missing {needle!r}")
 

@@ -11,6 +11,11 @@ Machine-readable Tier 1 promotion evidence lives in
 Each evidence row includes a `decisionBoundary` and `rollbackOrEscalation`
 entry so adopters can decide whether to use gofly RPC, `rpc/grpc`, or keep an
 existing Kitex/gRPC path for the workload.
+The transport boundary contract lives in
+`docs/reference/rpc-transport-boundary.json` with schema
+`gofly.rpc_transport_boundary.v1`. It explicitly forbids Kitex or gRPC-Go
+transport parity claims unless transport-layer benchmark, protocol, streaming,
+resolver, balancer, deadline, retry, release, and rollback evidence exists.
 
 RPC latency ratchet policy lives in `bench/budget-ratchet.json`. RPC unary and
 stream rows are listed as promotion candidates, not blocking tracked rows, until
@@ -69,6 +74,22 @@ Current promotion blockers:
 - `rpc-budget-report-only`: RPC unary and stream benchmarks remain candidates in
   `bench/budget-ratchet.json`; latency-critical methods should keep their Kitex
   or existing gRPC rollback path until blocking budget evidence exists.
+- `transport-parity-forbidden`: docs and release notes must not imply Kitex,
+  gRPC-Go, Netpoll, TTHeader, or Thrift transport parity while gofly only has
+  governed RPC and compatibility evidence.
+
+## Transport Boundary Contract
+
+gofly should be positioned as governed service glue, generated control-plane
+evidence, REST ingress, and `rpc/grpc` compatibility where the listed gates
+pass. It is not a replacement for Kitex transport internals or native gRPC-Go
+ecosystem behavior on every workload.
+
+| Boundary | Keep existing framework when | gofly role |
+| --- | --- | --- |
+| Kitex hot path | Netpoll, TTHeader, Thrift, generated Kitex clients, or latency-critical transport behavior is required. | REST ingress, generated service glue, governance, release gates, and non-hot-path RPC. |
+| gRPC-Go ecosystem | Native gRPC health, auth, tracing, retry service config, streaming, or generated clients are required. | `rpc/grpc` compatibility, governance interceptors, and control-plane integration. |
+| go-zero coexistence | zrpc discovery, timeout, retry, breaker, rate-limit, or generated layout semantics must stay active. | Generated-service migration, policy comparison, discovery visibility, and rollback routing rehearsal. |
 
 ## Deadline and error-code mapping
 

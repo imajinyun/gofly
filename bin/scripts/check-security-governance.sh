@@ -164,8 +164,11 @@ for item in manifest.get("surfaces") or []:
             require(needle in text, f"surface {surface}: {ref_path} missing {needle!r}")
 
 execution = manifest.get("aiflowExecution") or {}
-require(execution.get("status") == "local-fallback", "aiflowExecution.status must be local-fallback")
-require("fmt" in str(execution.get("blocker") or ""), "aiflowExecution.blocker must document current aiflow compile blocker")
+require(execution.get("status") == "aiflow-driven", "aiflowExecution.status must be aiflow-driven")
+require("GOFLY-GOV-10R3-08" in str(execution.get("driver") or ""), "aiflowExecution.driver must reference GOFLY-GOV-10R3-08")
+completion_policy = str(execution.get("completionPolicy") or "")
+for needle in ("make security", "govulncheck", "gosec", "commit"):
+    require(needle in completion_policy, f"aiflowExecution.completionPolicy missing {needle!r}")
 
 if missing:
     print("security governance check failed:", file=sys.stderr)

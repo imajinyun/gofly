@@ -212,8 +212,9 @@
     }
   ],
   "aiflowExecution": {
-    "status": "local-fallback",
-    "blocker": "aiflow CLI currently fails to compile in the adjacent aiflow checkout because harness/policy.go imports fmt without use",
-    "goflyImpact": "none; the local security and defensive-coding governance gate is self-contained"
+    "status": "aiflow-driven",
+    "driver": "GOFLY-GOV-10R3-08",
+    "completionPolicy": "complete GOFLY-GOV-10R3-08 only after make security runs security-governance-check, govulncheck, and gosec, and the current agent or human records the commit",
+    "goflyImpact": "security and defensive-coding governance is driven through aiflow while commits remain owned by the current agent or human"
   }
 }

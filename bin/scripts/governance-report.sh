@@ -725,6 +725,12 @@ def dx_support_bundle_evidence():
             })
     generated_failure = manifest.get("generatedFailureReport") or {}
     remediation_handoff = manifest.get("remediationHandoff") or {}
+    adoption_loop = manifest.get("troubleshootingAdoptionLoop") or {}
+    adoption_steps = [
+        item
+        for item in adoption_loop.get("steps") or []
+        if isinstance(item, dict)
+    ]
     return {
         "schema": manifest.get("schema", ""),
         "manifest": "docs/reference/dx-support-bundle.json",
@@ -754,6 +760,16 @@ def dx_support_bundle_evidence():
             "requiredGates": remediation_handoff.get("requiredGates", []),
             "outputFields": remediation_handoff.get("outputFields", []),
             "completionPolicy": remediation_handoff.get("completionPolicy", ""),
+        },
+        "troubleshootingAdoptionLoop": {
+            "schema": adoption_loop.get("schema", ""),
+            "acceptanceGate": adoption_loop.get("acceptanceGate", ""),
+            "dashboardReportField": adoption_loop.get("dashboardReportField", ""),
+            "aiflowHandoff": adoption_loop.get("aiflowHandoff", ""),
+            "commitOwner": adoption_loop.get("commitOwner", ""),
+            "runtimeStatePolicy": adoption_loop.get("runtimeStatePolicy", ""),
+            "stepCount": len(adoption_steps),
+            "steps": adoption_steps,
         },
         "remediationHints": remediation_hints,
         "remediationHintCount": len(remediation_hints),
@@ -992,6 +1008,49 @@ if dx_support_bundle.get("remediationHintCount") != len(dx_support_bundle.get("r
     missing.append("dx support bundle remediationHintCount mismatch")
 if dx_support_bundle.get("remediationHintCount", 0) < 4:
     missing.append("dx support bundle remediation hints are incomplete")
+adoption_loop = dx_support_bundle.get("troubleshootingAdoptionLoop") or {}
+if adoption_loop.get("schema") != "gofly.troubleshooting_adoption_loop.v1":
+    missing.append("dx support bundle troubleshooting adoption loop schema mismatch")
+if adoption_loop.get("acceptanceGate") != "make dx-troubleshooting-check":
+    missing.append("dx support bundle troubleshooting adoption loop acceptanceGate mismatch")
+if adoption_loop.get("dashboardReportField") != "dxSupportBundle.troubleshootingAdoptionLoop":
+    missing.append("dx support bundle troubleshooting adoption loop dashboardReportField mismatch")
+if adoption_loop.get("aiflowHandoff") != "gofly.remediation_handoff.v1":
+    missing.append("dx support bundle troubleshooting adoption loop aiflowHandoff mismatch")
+if adoption_loop.get("commitOwner") != "human-or-current-agent":
+    missing.append("dx support bundle troubleshooting adoption loop commitOwner mismatch")
+runtime_policy = str(adoption_loop.get("runtimeStatePolicy") or "")
+for needle in (".aiflow", ".harness", ".tmp-test", ".trae", "coverage.out", "docs/superpowers"):
+    if needle not in runtime_policy:
+        missing.append(f"dx support bundle troubleshooting adoption loop runtimeStatePolicy missing {needle!r}")
+expected_adoption_steps = {
+    "diagnose-environment": "gofly doctor --json",
+    "check-release-gates": "gofly release check --json --strict",
+    "collect-support-bundle": "gofly bug --json",
+    "attach-generated-failure": "gofly ai new --json --apply --verify",
+}
+steps_by_id = {
+    item.get("id"): item
+    for item in adoption_loop.get("steps") or []
+    if isinstance(item, dict) and item.get("id")
+}
+if adoption_loop.get("stepCount") != len(expected_adoption_steps):
+    missing.append("dx support bundle troubleshooting adoption loop stepCount mismatch")
+if set(steps_by_id) != set(expected_adoption_steps):
+    missing.append(
+        "dx support bundle troubleshooting adoption loop steps mismatch: "
+        f"missing={sorted(set(expected_adoption_steps) - set(steps_by_id))} "
+        f"extra={sorted(set(steps_by_id) - set(expected_adoption_steps))}"
+    )
+for step_id, command in expected_adoption_steps.items():
+    step = steps_by_id.get(step_id) or {}
+    if step.get("sourceCommand") != command:
+        missing.append(f"dx support bundle troubleshooting adoption loop {step_id}: sourceCommand mismatch")
+    for field in ("evidenceArtifact", "requiredFields", "nextActionSource", "handoffBoundary"):
+        if not step.get(field):
+            missing.append(f"dx support bundle troubleshooting adoption loop {step_id}: {field} is required")
+    if len(str(step.get("handoffBoundary") or "").split()) < 10:
+        missing.append(f"dx support bundle troubleshooting adoption loop {step_id}: handoffBoundary must be actionable")
 if (dx_support_bundle.get("controlPlaneEvidence") or {}).get("status") != "present":
     missing.append("dx support bundle control-plane evidence is missing")
 convergence = report["governanceConvergence"]

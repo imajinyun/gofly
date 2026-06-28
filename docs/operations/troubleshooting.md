@@ -24,6 +24,13 @@ Executable remediation handoff is indexed as `gofly.remediation_handoff.v1`.
 Use it when aiflow should queue remediation tasks, run diagnostics, and return
 bounded failure reports for the current agent or human to apply. Aiflow must not create commits, push, modify `docs/superpowers/`, or stage runtime state; the current agent or human owns commits after the required gates pass.
 
+The full adopter loop is indexed as
+`gofly.troubleshooting_adoption_loop.v1`: diagnose with doctor JSON, check
+release gates, collect the redacted support bundle, and attach bounded
+generated project verification failures when present. Keep `.aiflow`,
+`.harness`, `.tmp-test`, `.trae`, `coverage.out`, and `docs/superpowers`
+unstaged while executing the loop.
+
 Redact Authorization, Cookie, Set-Cookie, token, secret, password, and provider
 credential values before sharing the bundle.
 

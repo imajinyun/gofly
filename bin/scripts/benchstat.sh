@@ -241,6 +241,7 @@ def require_policy(condition: bool, message: str) -> None:
 
 def validate_ratchet_policy() -> None:
     allocation_policy = ratchet.get("allocationPolicy") or {}
+    adopter_contract = ratchet.get("adopterPerformanceContract") or {}
     report_only = set(latency_policy.get("reportOnly") or [])
     promoted = latency_policy.get("promoted") or []
     rpc_policy = ratchet.get("rpcPolicy") or {}
@@ -264,6 +265,30 @@ def validate_ratchet_policy() -> None:
     require_policy(
         allocation_policy.get("metric") == "allocs/op median",
         "allocationPolicy.metric must be allocs/op median",
+    )
+    require_policy(
+        adopter_contract.get("schema") == "gofly.benchmark_adopter_performance_contract.v1",
+        "adopterPerformanceContract schema mismatch",
+    )
+    require_policy(
+        adopter_contract.get("source") == "bench/budget-ratchet.json",
+        "adopterPerformanceContract source mismatch",
+    )
+    require_policy(
+        adopter_contract.get("dashboardReportField") == "benchmark.adopterPerformanceContract",
+        "adopterPerformanceContract dashboardReportField mismatch",
+    )
+    require_policy(
+        set(adopter_contract.get("acceptanceGates") or []) == {
+            "make bench-regression-check",
+            "make bench-evidence-check",
+            "make bench-trend",
+        },
+        "adopterPerformanceContract acceptanceGates mismatch",
+    )
+    require_policy(
+        len(str(adopter_contract.get("policy") or "").split()) >= 20,
+        "adopterPerformanceContract policy must be actionable",
     )
     require_policy(
         latency_policy.get("defaultMode") == "report-only",
@@ -297,6 +322,84 @@ def validate_ratchet_policy() -> None:
     )
     for benchmark in report_only:
         require_policy(benchmark in tracked, f"report-only latency benchmark is not tracked: {benchmark}")
+
+    adopter_blocking = {
+        item.get("id"): item
+        for item in adopter_contract.get("blockingSurfaces") or []
+        if isinstance(item, dict) and item.get("id")
+    }
+    expected_blocking = {
+        "rest-route-hot-path": "allocation-blocking",
+        "governance-rule-match": "latency-and-allocation-blocking",
+    }
+    require_policy(
+        set(adopter_blocking) == set(expected_blocking),
+        f"adopterPerformanceContract blockingSurfaces drifted: {sorted(adopter_blocking)}",
+    )
+    for surface_id, budget_scope in expected_blocking.items():
+        item = adopter_blocking.get(surface_id) or {}
+        require_policy(item.get("budgetScope") == budget_scope, f"{surface_id}: budgetScope must be {budget_scope}")
+        require_policy(item.get("benchmark") in tracked, f"{surface_id}: benchmark must be tracked")
+        for field in ("adopterAction", "rollbackAction"):
+            require_policy(
+                len(str(item.get(field) or "").split()) >= 10,
+                f"{surface_id}: adopterPerformanceContract {field} must be actionable",
+            )
+
+    adopter_report_only = {
+        item.get("id"): item
+        for item in adopter_contract.get("reportOnlySurfaces") or []
+        if isinstance(item, dict) and item.get("id")
+    }
+    require_policy(
+        set(adopter_report_only) == {"http-latency-report-only", "rpc-candidate-report-only"},
+        "adopterPerformanceContract reportOnlySurfaces mismatch",
+    )
+    http_report_only = set((adopter_report_only.get("http-latency-report-only") or {}).get("benchmarks") or [])
+    require_policy(
+        report_only <= http_report_only,
+        "adopterPerformanceContract http-latency-report-only must include all latencyPolicy.reportOnly rows",
+    )
+    rpc_report_only = set((adopter_report_only.get("rpc-candidate-report-only") or {}).get("benchmarks") or [])
+    rpc_candidate_names = {
+        item.get("benchmark", "")
+        for item in rpc_candidates
+        if isinstance(item, dict) and item.get("benchmark")
+    }
+    require_policy(
+        rpc_candidate_names <= rpc_report_only,
+        "adopterPerformanceContract rpc-candidate-report-only must include all RPC candidates",
+    )
+    for surface_id, item in adopter_report_only.items():
+        for field in ("adopterAction", "rollbackAction"):
+            require_policy(
+                len(str(item.get(field) or "").split()) >= 10,
+                f"{surface_id}: adopterPerformanceContract {field} must be actionable",
+            )
+
+    adopter_unsupported = {
+        item.get("id"): item
+        for item in adopter_contract.get("unsupportedSurfaces") or []
+        if isinstance(item, dict) and item.get("id")
+    }
+    require_policy(
+        set(adopter_unsupported) == {"gateway-proxy", "cache-hot-path"},
+        "adopterPerformanceContract unsupportedSurfaces mismatch",
+    )
+    for surface_id, item in adopter_unsupported.items():
+        for field in ("requiredEvidence", "adopterAction", "rollbackAction"):
+            require_policy(
+                len(str(item.get(field) or "").split()) >= 8,
+                f"{surface_id}: adopterPerformanceContract {field} must be actionable",
+            )
+
+    promotion_rules = set(adopter_contract.get("promotionRules") or [])
+    for rule in (
+        "minimum 5 baseline samples",
+        "minimum 3 current trend samples",
+        "no allocation regression under bench-regression-check",
+    ):
+        require_policy(rule in promotion_rules, f"adopterPerformanceContract promotionRules missing {rule!r}")
 
     require_policy(
         release_promotion.get("status") == "blocked",

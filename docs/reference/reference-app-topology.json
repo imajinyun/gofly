@@ -374,6 +374,43 @@
       }
     ]
   },
+  "p9DockerLiveProof": {
+    "schema": "gofly.reference_app_docker_live_proof.v1",
+    "aiflowTask": "GOFLY-GOV-10P9-03",
+    "status": "blocking",
+    "acceptanceGate": "make reference-app-smoke",
+    "runtimeEvidencePath": ".aiflow/reference-app-smoke-report.json",
+    "components": [
+      "Postgres SQL outbox",
+      "Redis cache",
+      "Kafka",
+      "RabbitMQ",
+      "Redis Stream",
+      "Consul",
+      "etcd",
+      "Nacos",
+      "OpenTelemetry collector"
+    ],
+    "requiredReportFields": [
+      "schema",
+      "aiflowTask",
+      "mode",
+      "status",
+      "liveCompose",
+      "fallbackReason",
+      "gate",
+      "components"
+    ],
+    "allowedFallbackReasons": [
+      "memory-mode",
+      "docker-cli-missing",
+      "docker-daemon-unavailable",
+      "compose-dependency-pull-failed"
+    ],
+    "liveSuccessPolicy": "When Docker and dependency pulls are available, reference-app-smoke must start compose, run the HTTP smoke script, and write liveCompose=true evidence.",
+    "fallbackPolicy": "When Docker, daemon access, or dependency pulls are unavailable, the gate may pass only after static topology verification and an explicit fallback reason.",
+    "rollbackOrEscalation": "Keep memory mode or the previous deployment active when live compose evidence cannot be collected or topology smoke fails."
+  },
   "adopterProof": {
     "schema": "gofly.reference_app_adopter_proof.v1",
     "status": "blocking",

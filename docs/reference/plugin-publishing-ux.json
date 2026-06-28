@@ -69,6 +69,25 @@
     "requiresDryRun": true,
     "requiresRationale": true
   },
+  "publishProtocolMatrix": {
+    "schema": "gofly.plugin_publish_protocol_matrix.v1",
+    "aiflowTask": "GOFLY-GOV-10R8-07",
+    "status": "blocking-contract",
+    "acceptanceGate": "make plugin-conformance-check",
+    "requiredSurfaces": [
+      "registry schema",
+      "manifest schema",
+      "digest sha256",
+      "signature provenance",
+      "permission minimization",
+      "source policy",
+      "template contract",
+      "malicious path rejection",
+      "no partial writes"
+    ],
+    "publisherAction": "Publishers must attach registry, manifest, digest, signature, permission, source, template, compatibility, and failure-isolation evidence before announcing a plugin.",
+    "rollbackOrEscalation": "Disable the candidate plugin or keep the previous digest-matched version pinned when any publish protocol surface fails conformance."
+  },
   "protocolCompatibility": [
     {
       "case": "old protocol",
@@ -136,6 +155,7 @@
       "schema",
       "acceptanceGate",
       "permissionReview",
+      "publishProtocolMatrix",
       "checklist",
       "publishingCommands",
       "releaseNoteFields"

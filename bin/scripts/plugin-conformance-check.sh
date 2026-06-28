@@ -29,6 +29,7 @@ checks = {
         "least permission",
         "compatibility runner",
         "failure isolation",
+        "R8 publish protocol matrix",
         "old protocol",
         "current protocol",
         "future protocol",
@@ -97,7 +98,7 @@ if manifest.get("schema") != "gofly.plugin_publishing_ux.v1":
 contract = manifest.get("schemaContract") or {}
 if contract.get("version") != "1":
     missing.append("docs/reference/plugin-publishing-ux.json: schemaContract.version must be 1")
-for field in ("schema", "acceptanceGate", "permissionReview", "checklist", "publishingCommands", "releaseNoteFields"):
+for field in ("schema", "acceptanceGate", "permissionReview", "publishProtocolMatrix", "checklist", "publishingCommands", "releaseNoteFields"):
     if field not in set(contract.get("requiredFields") or []):
         missing.append(f"docs/reference/plugin-publishing-ux.json: schemaContract.requiredFields missing {field!r}")
 if manifest.get("acceptanceGate") != "make plugin-conformance-check":
@@ -112,6 +113,33 @@ if permission_review.get("requiresDryRun") is not True:
     missing.append("docs/reference/plugin-publishing-ux.json: permissionReview.requiresDryRun must be true")
 if permission_review.get("requiresRationale") is not True:
     missing.append("docs/reference/plugin-publishing-ux.json: permissionReview.requiresRationale must be true")
+
+publish_protocol = manifest.get("publishProtocolMatrix") or {}
+if publish_protocol.get("schema") != "gofly.plugin_publish_protocol_matrix.v1":
+    missing.append("docs/reference/plugin-publishing-ux.json: publishProtocolMatrix schema mismatch")
+if publish_protocol.get("aiflowTask") != "GOFLY-GOV-10R8-07":
+    missing.append("docs/reference/plugin-publishing-ux.json: publishProtocolMatrix aiflowTask mismatch")
+if publish_protocol.get("status") != "blocking-contract":
+    missing.append("docs/reference/plugin-publishing-ux.json: publishProtocolMatrix status must be blocking-contract")
+if publish_protocol.get("acceptanceGate") != "make plugin-conformance-check":
+    missing.append("docs/reference/plugin-publishing-ux.json: publishProtocolMatrix acceptanceGate mismatch")
+required_publish_surfaces = {
+    "registry schema",
+    "manifest schema",
+    "digest sha256",
+    "signature provenance",
+    "permission minimization",
+    "source policy",
+    "template contract",
+    "malicious path rejection",
+    "no partial writes",
+}
+actual_publish_surfaces = set(publish_protocol.get("requiredSurfaces") or [])
+for surface in sorted(required_publish_surfaces - actual_publish_surfaces):
+    missing.append(f"docs/reference/plugin-publishing-ux.json: publishProtocolMatrix requiredSurfaces missing {surface!r}")
+for field in ("publisherAction", "rollbackOrEscalation"):
+    if len(str(publish_protocol.get(field) or "").split()) < 10:
+        missing.append(f"docs/reference/plugin-publishing-ux.json: publishProtocolMatrix {field} must be actionable")
 
 compatibility = manifest.get("protocolCompatibility") or []
 compatibility_by_case = {item.get("case"): item for item in compatibility if isinstance(item, dict)}
@@ -209,6 +237,73 @@ if runner.get("mode") != "make-target-json-report":
     missing.append("docs/reference/plugin-conformance-report.json: runner.mode must be make-target-json-report")
 if runner.get("command") != "make plugin-conformance-check":
     missing.append("docs/reference/plugin-conformance-report.json: runner.command must be make plugin-conformance-check")
+
+r8_protocol = report.get("r8PublishProtocolMatrix") or {}
+if r8_protocol.get("schema") != "gofly.plugin_template_publish_protocol.v1":
+    missing.append("docs/reference/plugin-conformance-report.json: r8PublishProtocolMatrix schema mismatch")
+if r8_protocol.get("aiflowTask") != "GOFLY-GOV-10R8-07":
+    missing.append("docs/reference/plugin-conformance-report.json: r8PublishProtocolMatrix aiflowTask mismatch")
+if r8_protocol.get("status") != "blocking-contract":
+    missing.append("docs/reference/plugin-conformance-report.json: r8PublishProtocolMatrix status must be blocking-contract")
+if r8_protocol.get("acceptanceGate") != "make plugin-conformance-check":
+    missing.append("docs/reference/plugin-conformance-report.json: r8PublishProtocolMatrix acceptanceGate mismatch")
+r8_rows = {
+    item.get("id"): item
+    for item in r8_protocol.get("rows") or []
+    if isinstance(item, dict) and item.get("id")
+}
+expected_r8_rows = {
+    "registry-schema-protocol": {
+        "evidenceIds": {"registry-schema"},
+        "markers": {"registry", "checksum", "source", "manifest"},
+    },
+    "manifest-schema-protocol": {
+        "evidenceIds": {"manifest-schema", "permission-escape"},
+        "markers": {"manifest", "permissions", "requiresDryRun"},
+    },
+    "digest-signature-source-protocol": {
+        "evidenceIds": {"digest-mismatch", "signature-provenance"},
+        "markers": {"sha256", "signature", "source"},
+    },
+    "compatibility-protocol": {
+        "evidenceIds": {"old-protocol", "current-protocol", "future-plus-current-protocol", "future-only-protocol"},
+        "markers": {"old", "current", "future"},
+    },
+    "template-contract-protocol": {
+        "evidenceIds": {"template-directory-supply-chain"},
+        "markers": {"template", "entrypoints", "checksum", "source"},
+    },
+    "failure-isolation-protocol": {
+        "evidenceIds": {"malicious-path", "permission-escape", "no-partial-writes", "digest-mismatch"},
+        "markers": {"malicious", "partial", "permission", "digest"},
+    },
+}
+if set(r8_rows) != set(expected_r8_rows):
+    missing.append(
+        "docs/reference/plugin-conformance-report.json: r8PublishProtocolMatrix rows drifted "
+        f"missing={sorted(set(expected_r8_rows) - set(r8_rows))} "
+        f"extra={sorted(set(r8_rows) - set(expected_r8_rows))}"
+    )
+for row_id, expected_row in expected_r8_rows.items():
+    row = r8_rows.get(row_id) or {}
+    for field in ("id", "surface", "publishRequirement", "evidenceIds", "gate", "blockDecision", "rollbackOrEscalation"):
+        if row.get(field) in ("", None, []):
+            missing.append(f"docs/reference/plugin-conformance-report.json: r8PublishProtocolMatrix {row_id}: {field} is required")
+    if row.get("gate") != "make plugin-conformance-check":
+        missing.append(f"docs/reference/plugin-conformance-report.json: r8PublishProtocolMatrix {row_id}: gate mismatch")
+    actual_evidence = set(row.get("evidenceIds") or [])
+    for evidence_id in sorted(expected_row["evidenceIds"] - actual_evidence):
+        missing.append(f"docs/reference/plugin-conformance-report.json: r8PublishProtocolMatrix {row_id}: missing evidenceId {evidence_id!r}")
+    row_text = json.dumps(row, sort_keys=True).lower()
+    for marker in expected_row["markers"]:
+        if marker.lower() not in row_text:
+            missing.append(f"docs/reference/plugin-conformance-report.json: r8PublishProtocolMatrix {row_id}: missing marker {marker!r}")
+    for field in ("publishRequirement", "blockDecision", "rollbackOrEscalation"):
+        if len(str(row.get(field) or "").split()) < 10:
+            missing.append(f"docs/reference/plugin-conformance-report.json: r8PublishProtocolMatrix {row_id}: {field} must be actionable")
+    rollback_text = str(row.get("rollbackOrEscalation") or "").lower()
+    if not any(marker in rollback_text for marker in ("pin", "disable", "keep", "rollback", "republish")):
+        missing.append(f"docs/reference/plugin-conformance-report.json: r8PublishProtocolMatrix {row_id}: rollbackOrEscalation must name pin, disable, keep, rollback, or republish")
 
 adopter_contract = report.get("adopterPublishingContract") or {}
 if adopter_contract.get("schema") != "gofly.plugin_adopter_publishing_contract.v1":

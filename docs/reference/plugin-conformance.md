@@ -51,6 +51,13 @@ the plugin protocol, registry schema, manifest fields, digest handling,
 signature provenance, permission model, path safety, or partial-write behavior
 changes.
 
+The R8 publish protocol matrix in `docs/reference/plugin-conformance-report.json`
+turns registry schema, manifest schema, digest sha256, signature provenance,
+permission minimization, source policy, template contract, malicious path
+rejection, and no partial writes into one publish/block/rollback contract. A
+plugin or template can be announced only when each row has evidence, a gate, a
+block decision, and rollback guidance.
+
 ## Required cases
 
 | Case | Expected result | Reason |

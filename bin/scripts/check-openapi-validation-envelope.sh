@@ -94,6 +94,36 @@ require(envelope.get("type") == "rest.ErrorResponse", "runtime envelope type mus
 require(envelope.get("status") == 400, "runtime envelope status must be 400")
 require(envelope.get("code") == "invalid_argument", "runtime envelope code must be invalid_argument")
 
+adopter_contract = manifest.get("adopterContract") or {}
+require(
+    adopter_contract.get("schema") == "gofly.rest_adopter_contract.v1",
+    "adopterContract schema must be gofly.rest_adopter_contract.v1",
+)
+require(
+    set(adopter_contract.get("acceptanceGates") or []) == {
+        "make openapi-validation-check",
+        "make api-example-consistency-check",
+    },
+    "adopterContract acceptanceGates mismatch",
+)
+require(
+    adopter_contract.get("dashboardReportField") == "restAdoption.openapiValidation",
+    "adopterContract dashboardReportField mismatch",
+)
+require(
+    adopter_contract.get("exampleIndex") == "docs/reference/api-example-consistency.json",
+    "adopterContract exampleIndex must point to api-example-consistency.json",
+)
+require(
+    set(adopter_contract.get("stableEnvelopeFields") or []) == {"code", "text", "message", "status", "fields"},
+    "adopterContract stableEnvelopeFields mismatch",
+)
+for field in ("publishPolicy", "rollbackPolicy"):
+    require(
+        len(str(adopter_contract.get(field) or "").split()) >= 12,
+        f"adopterContract {field} must be actionable",
+    )
+
 cases = manifest.get("smokeCases") or []
 required_cases = {
     "path-parse-failure",

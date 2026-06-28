@@ -9,6 +9,10 @@ The blocking invalid-request smoke matrix lives in
 Each smoke case records an `alignmentInvariant`, `consumerAction`, and
 `rollbackOrEscalation` entry so adopters can decide whether a generated REST
 contract is safe to publish or must stay pinned to the previous scaffold.
+The same manifest exposes `gofly.rest_adopter_contract.v1`, which links
+invalid request smoke, OpenAPI schema golden tests, generated-service smoke,
+and `make api-example-consistency-check` before adopters publish generated REST
+services.
 
 ## Contract
 

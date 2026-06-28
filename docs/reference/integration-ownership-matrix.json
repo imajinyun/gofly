@@ -1,0 +1,210 @@
+{
+  "schema": "gofly.integration_ownership_matrix.v1",
+  "status": "blocking",
+  "blockingGate": "make required-checks-drift-check",
+  "purpose": "Tie production integration families to ownership, release prerequisites, dependency triggers, generated-project boundaries, evidence, and rollback decisions.",
+  "scope": {
+    "included": [
+      "SQL integration ownership",
+      "Redis integration ownership",
+      "MQ integration ownership",
+      "discovery integration ownership",
+      "gateway integration ownership",
+      "RPC integration ownership",
+      "observability integration ownership",
+      "generated-project dependency boundary",
+      "release prerequisite drift",
+      "rollback notes"
+    ],
+    "excluded": [
+      "community size",
+      "cluster provisioning",
+      "production credential management",
+      "framework runtime replacement claims"
+    ]
+  },
+  "sourceEvidence": [
+    "docs/reference/ci-required-check-evidence.json",
+    "docs/reference/dependency-upgrade-evidence.json",
+    "docs/reference/db-cache-productization.json",
+    "docs/reference/discovery-adapter-matrix.json",
+    "docs/reference/rpc-tier1-evidence.json",
+    "docs/reference/api-contract-governance.json",
+    "docs/reference/observability-production-governance.json"
+  ],
+  "releasePolicy": {
+    "requiredCheckSource": "docs/reference/ci-required-check-evidence.json",
+    "dependencyEvidence": "docs/reference/dependency-upgrade-evidence.json",
+    "fallbackPolicy": "Block release promotion when an affected integration family lacks an owner, dependency trigger, generated-project boundary, release prerequisite, local gate, and rollback note.",
+    "generatedProjectPolicy": "Dependencies used only by generated services or examples must stay in the generated project go.mod or temporary fixture module and must not pollute the root module."
+  },
+  "integrations": [
+    {
+      "id": "sql",
+      "family": "SQL",
+      "owner": "storage-runtime",
+      "surface": "core/storage and generated model repositories",
+      "supportedProfiles": [
+        "mysql",
+        "postgres",
+        "sqlite-memory"
+      ],
+      "localGate": "make db-cache-productization-check",
+      "ciJob": "integration",
+      "requiredCheck": "integration tests (storage-mysql-postgres)",
+      "releasePrerequisite": "integration",
+      "dependencyUpgradeTrigger": "storage driver, SQL dialect, transaction, outbox, migration fixture, or generated model dependency changes",
+      "generatedProjectBoundary": "Generated SQL/model-only dependencies must be written to the generated project's go.mod or temp-module fixture, never to the gofly root go.mod.",
+      "evidence": [
+        "docs/reference/db-cache-productization.json",
+        "core/storage/sql.go",
+        "core/outbox/sql.go"
+      ],
+      "rollbackNote": "Pin the previous storage driver or generated model profile and keep the old repository path serving until SQL, outbox, dependency, and integration evidence pass."
+    },
+    {
+      "id": "redis",
+      "family": "Redis",
+      "owner": "cache-runtime",
+      "surface": "cache, core/kv/redis, and generated model cache",
+      "supportedProfiles": [
+        "redis-cache",
+        "redis-stream",
+        "tiered-cache"
+      ],
+      "localGate": "make db-cache-productization-check",
+      "ciJob": "integration",
+      "requiredCheck": "integration tests (mq-brokers)",
+      "releasePrerequisite": "integration",
+      "dependencyUpgradeTrigger": "Redis client, cache invalidation, Redis Stream codec, generated cache template, or tiered cache behavior changes",
+      "generatedProjectBoundary": "Generated Redis cache examples must keep Redis-only dependencies inside generated projects or examples, with root dependency policy evidence for any root import.",
+      "evidence": [
+        "docs/reference/db-cache-productization.json",
+        "cache/redis_model.go",
+        "core/kv/redis/client.go",
+        "core/mq/redisstream/redisstream.go"
+      ],
+      "rollbackNote": "Disable Redis-backed cache or pin the previous Redis profile when cache invalidation, stream delivery, dependency, or required integration evidence fails."
+    },
+    {
+      "id": "mq",
+      "family": "MQ",
+      "owner": "messaging-runtime",
+      "surface": "core/mq, transactional outbox, and worker examples",
+      "supportedProfiles": [
+        "kafka",
+        "rabbitmq",
+        "redis-stream"
+      ],
+      "localGate": "make integration-tests",
+      "ciJob": "integration",
+      "requiredCheck": "integration tests (mq-brokers)",
+      "releasePrerequisite": "integration",
+      "dependencyUpgradeTrigger": "producer, consumer, retry, broker client, serialization, outbox relay, or message governance changes",
+      "generatedProjectBoundary": "Broker-specific generated worker dependencies must stay in generated worker modules or examples unless a root package imports them directly.",
+      "evidence": [
+        "core/mq/kafka/kafka.go",
+        "core/mq/rabbitmq/rabbitmq.go",
+        "core/mq/redisstream/redisstream.go",
+        "examples/outbox-mq/main.go"
+      ],
+      "rollbackNote": "Keep the prior broker route or outbox relay profile active until MQ integration logs, delivery semantics, and dependency evidence converge."
+    },
+    {
+      "id": "discovery",
+      "family": "Discovery",
+      "owner": "runtime-governance",
+      "surface": "core/discovery, rpc discovery, and config discovery overlays",
+      "supportedProfiles": [
+        "memory",
+        "consul",
+        "etcdv3",
+        "nacos-config"
+      ],
+      "localGate": "make discovery-adapter-matrix-check",
+      "ciJob": "integration",
+      "requiredCheck": "integration tests (config-consul-nacos-etcd)",
+      "releasePrerequisite": "integration",
+      "dependencyUpgradeTrigger": "discovery client, lease, watch, resolver, balancer, health filtering, metadata filtering, or TLS changes",
+      "generatedProjectBoundary": "Generated discovery overlays may reference profiles, but provider client dependencies must follow root dependency policy or stay in generated modules.",
+      "evidence": [
+        "docs/reference/discovery-adapter-matrix.json",
+        "core/discovery/discovery.go",
+        "rpc/discovery.go"
+      ],
+      "rollbackNote": "Keep memory discovery or the previous registry path available until resolver updates, leases, watches, and required integration evidence pass."
+    },
+    {
+      "id": "gateway",
+      "family": "Gateway",
+      "owner": "rpc-runtime",
+      "surface": "gateway, API contracts, and HTTP transcoding descriptors",
+      "supportedProfiles": [
+        "gateway",
+        "grpc-transcode",
+        "http-transcode"
+      ],
+      "localGate": "make api-contract-check",
+      "ciJob": "integration",
+      "requiredCheck": "integration tests (gateway-transcode)",
+      "releasePrerequisite": "integration",
+      "dependencyUpgradeTrigger": "gateway route, descriptor, OpenAPI, protobuf, HTTP transcoding, resolver, or routing policy changes",
+      "generatedProjectBoundary": "Generated gateway descriptors and clients must be reproducible in generated projects and must not require root module generated-only dependencies.",
+      "evidence": [
+        "docs/reference/api-contract-governance.json",
+        "gateway/gateway.go",
+        "examples/gateway-discovery-rpc/main.go"
+      ],
+      "rollbackNote": "Route traffic back to the previous gateway or descriptor profile until routing, transcoding, resolver, and contract evidence pass."
+    },
+    {
+      "id": "rpc",
+      "family": "RPC",
+      "owner": "rpc-runtime",
+      "surface": "rpc, rpc/grpc, gateway, and generated service RPC contracts",
+      "supportedProfiles": [
+        "gofly-rpc",
+        "grpc",
+        "kitex-coexistence"
+      ],
+      "localGate": "make rpc-boundary-check",
+      "ciJob": "contract-check",
+      "requiredCheck": "contract / api+rpc (check + breaking)",
+      "releasePrerequisite": "contract-check",
+      "dependencyUpgradeTrigger": "RPC descriptor, grpc dependency, stream governance, resolver, balancer, retry, deadline, auth, or tracing changes",
+      "generatedProjectBoundary": "Generated RPC clients, descriptors, and compatibility shims must stay deterministic and keep transport-specific dependencies in the generated module when not imported by root packages.",
+      "evidence": [
+        "docs/reference/rpc-tier1-evidence.json",
+        "docs/reference/rpc-transport-boundary.json",
+        "rpc/server.go",
+        "rpc/grpc/server.go"
+      ],
+      "rollbackNote": "Keep Kitex or native gRPC-Go endpoints reachable for latency-critical or compatibility-sensitive workloads until RPC boundary evidence and release gates pass."
+    },
+    {
+      "id": "observability",
+      "family": "Observability",
+      "owner": "observability-governance",
+      "surface": "core/observability, runtime SLO, governance dashboard, and release evidence",
+      "supportedProfiles": [
+        "otel",
+        "prometheus",
+        "runtime-slo",
+        "release-evidence"
+      ],
+      "localGate": "make governance-report-check",
+      "ciJob": "governance",
+      "requiredCheck": "governance gates",
+      "releasePrerequisite": "governance",
+      "dependencyUpgradeTrigger": "OpenTelemetry exporter, Prometheus metrics, trace context, runtime SLO, governance report, or release evidence changes",
+      "generatedProjectBoundary": "Generated services may emit observability signals, but exporter-only dependencies must stay in generated projects or examples unless root packages import them.",
+      "evidence": [
+        "docs/reference/observability-production-governance.json",
+        "docs/reference/runtime-slo.json",
+        "core/observability/setup.go",
+        "examples/observability/main.go"
+      ],
+      "rollbackNote": "Pin the previous telemetry profile or disable the new exporter until runtime SLO, dashboard, release evidence, and smoke checks pass."
+    }
+  ]
+}

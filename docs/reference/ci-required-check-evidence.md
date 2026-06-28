@@ -59,6 +59,16 @@ dependency upgrade trigger, and rollback note. This keeps storage, discovery,
 message queue, gateway, RPC, observability, and release-evidence integrations
 visible before adoption.
 
+R6 integration ownership evidence lives in
+[`integration-ownership-matrix.json`](integration-ownership-matrix.json) with
+schema `gofly.integration_ownership_matrix.v1`. It expands the CI matrix into
+seven adopter-facing integration families: SQL, Redis, MQ, discovery, gateway,
+RPC, and observability. Each family must name the owner, supported profiles,
+local gate, CI job, required check, release prerequisite, dependency upgrade
+trigger, generated-project boundary, evidence paths, and rollback note.
+`make required-checks-drift-check` validates this contract against the branch
+protection checks, release prerequisites, Makefile targets, and evidence files.
+
 | Integration | Owner | Profiles | Required check | Release prerequisite |
 | --- | --- | --- | --- | --- |
 | `storage-sql` | `storage-runtime` | `mysql`, `postgres` | integration tests (storage-mysql-postgres) | `integration` |
@@ -66,6 +76,24 @@ visible before adoption.
 | `mq-brokers` | `messaging-runtime` | `kafka`, `rabbitmq`, `redis-stream` | integration tests (mq-brokers) | `integration` |
 | `gateway-transcode` | `rpc-runtime` | `gateway`, `grpc`, `rpc`, `http-transcode` | integration tests (gateway-transcode) | `integration` |
 | `observability-release` | `observability-governance` | `otel`, `prometheus`, `runtime-slo`, `release-evidence` | governance gates | `governance` |
+
+## R6 Integration Ownership
+
+The ownership contract intentionally separates Redis from the broader MQ row
+and separates RPC from gateway transcoding. This keeps framework-adoption
+decisions close to the actual blast radius: a Redis Stream change may require
+MQ integration evidence, while generated Redis cache changes must also satisfy
+DB/cache productization and generated-project dependency boundaries.
+
+| Family | Owner | Local gate | Release prerequisite |
+| --- | --- | --- | --- |
+| `sql` | `storage-runtime` | `make db-cache-productization-check` | `integration` |
+| `redis` | `cache-runtime` | `make db-cache-productization-check` | `integration` |
+| `mq` | `messaging-runtime` | `make integration-tests` | `integration` |
+| `discovery` | `runtime-governance` | `make discovery-adapter-matrix-check` | `integration` |
+| `gateway` | `rpc-runtime` | `make api-contract-check` | `integration` |
+| `rpc` | `rpc-runtime` | `make rpc-boundary-check` | `contract-check` |
+| `observability` | `observability-governance` | `make governance-report-check` | `governance` |
 
 ## Release Prerequisite Drift
 

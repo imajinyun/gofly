@@ -89,6 +89,20 @@ codes.
 
 Generated handlers and hand-written handlers should use `ctx.Error(err)` for binding and validation failures, and should document `rest.DefaultErrorResponses()` or `rest.JSONErrorResponse(...)` in route metadata.
 
+## Migrating HTTP handlers
+
+Use `docs/reference/http-migration-dx.json` as the machine-readable migration
+contract when moving routes from Gin, Echo, Fiber, or Hertz. The contract keeps
+route path conversion, request DTO binding, middleware ordering, stable
+`rest.ErrorResponse` output, OpenAPI schema publication, invalid request smoke,
+and rollback guidance in one gateable checklist.
+
+Run the gate before switching traffic:
+
+```sh
+make openapi-validation-check
+```
+
 ## Production configuration
 
 | Concern | Config |

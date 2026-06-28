@@ -1,0 +1,157 @@
+{
+  "schema": "gofly.http_migration_dx.v1",
+  "status": "blocking",
+  "blockingGate": "make openapi-validation-check",
+  "scope": {
+    "included": [
+      "route path migration",
+      "request binding migration",
+      "middleware chain migration",
+      "stable error envelope migration",
+      "OpenAPI schema migration",
+      "invalid request smoke",
+      "rollback guidance"
+    ],
+    "excluded": [
+      "GitHub stars",
+      "download counts",
+      "community size",
+      "brand awareness",
+      "transport-layer RPC parity"
+    ]
+  },
+  "referenceFrameworks": [
+    "Gin",
+    "Echo",
+    "Fiber",
+    "Hertz"
+  ],
+  "acceptanceGates": [
+    "make openapi-validation-check",
+    "make api-example-consistency-check",
+    "make examples-smoke"
+  ],
+  "migrationOrder": [
+    "route-paths",
+    "binding-sources",
+    "middleware-chain",
+    "error-envelope",
+    "openapi-schema",
+    "invalid-request-smoke",
+    "traffic-switch"
+  ],
+  "frameworkMapping": [
+    {
+      "framework": "Gin",
+      "routePattern": "Convert :id or wildcard routes to gofly {id} path parameters and verify path parsing with invalid request smoke.",
+      "bindingPattern": "Move ShouldBind-style path, query, header, and JSON body structs to ctx.BindRequest with portable validate tags.",
+      "middlewarePattern": "Port gin middleware chains one concern at a time, mapping auth, CORS, observability, CSRF, session, SSE, and WebSocket behavior to gofly middleware examples.",
+      "errorPattern": "Translate binding and validation failures to rest.ErrorResponse with code invalid_argument instead of framework-specific text parsing.",
+      "openAPIPattern": "Declare RequestBody, parameters, responses, and rest.DefaultErrorResponses before publishing /openapi.json.",
+      "gate": "make openapi-validation-check",
+      "rollbackOrEscalation": "Keep the Gin router serving traffic until sampled status codes, error envelopes, middleware behavior, and OpenAPI schema output match the migration contract."
+    },
+    {
+      "framework": "Echo",
+      "routePattern": "Convert :id routes to gofly {id} path parameters and verify route groups preserve public path shape.",
+      "bindingPattern": "Move Echo binder and validator DTOs to ctx.BindRequest, keeping query, header, path, and JSON tag names stable.",
+      "middlewarePattern": "Port Echo middleware in the same order as the gofly HTTP middleware matrix: recovery, request id, tracing, logging, metrics, browser safety, auth, and validation.",
+      "errorPattern": "Map Echo HTTPError validation responses to rest.ErrorResponse so clients rely on code, status, and fields.",
+      "openAPIPattern": "Expose equivalent parameter and body schemas through gofly route metadata before switching SDK generation.",
+      "gate": "make openapi-validation-check",
+      "rollbackOrEscalation": "Keep Echo as the serving router when parameter names, validation fields, or generated OpenAPI schema differ."
+    },
+    {
+      "framework": "Fiber",
+      "routePattern": "Convert :id routes to gofly {id} path parameters and treat Fiber wildcard or mounted routes as explicit gofly route registrations.",
+      "bindingPattern": "Move Fiber body/query/params parsing into one request DTO bound by ctx.BindRequest, preserving JSON and query names.",
+      "middlewarePattern": "Port Fiber middleware through the gofly middleware matrix and keep body size, CORS credentials, auth, sessions, metrics, SSE, and WebSocket bounds explicit.",
+      "errorPattern": "Map Fiber validation and parser errors to rest.ErrorResponse invalid_argument instead of returning raw parser text.",
+      "openAPIPattern": "Document request bodies, parameter constraints, and default error responses before moving clients to gofly OpenAPI output.",
+      "gate": "make openapi-validation-check",
+      "rollbackOrEscalation": "Keep Fiber traffic active until body parsing, CORS, auth, realtime bounds, and OpenAPI output pass local smoke."
+    },
+    {
+      "framework": "Hertz",
+      "routePattern": "Convert Hertz parameter routes to gofly {id} path parameters and verify route groups keep the same externally visible path.",
+      "bindingPattern": "Move Hertz binding and validation DTOs to ctx.BindRequest with path, query, header, body, and portable validate tags.",
+      "middlewarePattern": "Port Hertz middleware by preserving recovery, tracing, logging, metrics, timeout, auth, browser safety, streaming, and WebSocket ordering.",
+      "errorPattern": "Map Hertz bind and validate failures to the stable rest.ErrorResponse envelope before changing clients or gateways.",
+      "openAPIPattern": "Use gofly route metadata to expose equivalent request, response, and default error schemas for generated client review.",
+      "gate": "make openapi-validation-check",
+      "rollbackOrEscalation": "Keep Hertz on latency-sensitive HTTP paths until benchmark, binding, middleware, and OpenAPI evidence all justify the switch."
+    }
+  ],
+  "migrationSteps": [
+    {
+      "id": "route-paths",
+      "surface": "routing",
+      "currentEvidence": [
+        "docs/guides/rest.md",
+        "rest/server_test.go"
+      ],
+      "adopterAction": "Map every source framework route to a gofly route path, then verify path parameter names and sampled status codes before changing traffic.",
+      "gate": "make openapi-validation-check",
+      "rollbackOrEscalation": "Keep the old router active if path names, wildcard behavior, or route group prefixes diverge."
+    },
+    {
+      "id": "binding-sources",
+      "surface": "binding",
+      "currentEvidence": [
+        "docs/guides/rest.md",
+        "rest/binding_test.go",
+        "docs/reference/openapi-invalid-request-smoke.json"
+      ],
+      "adopterAction": "Move body, path, query, and header parsing into request DTOs covered by ctx.BindRequest and the invalid request smoke matrix.",
+      "gate": "make openapi-validation-check",
+      "rollbackOrEscalation": "Pin the previous handler if any binding source produces a different field name, status code, or client retry class."
+    },
+    {
+      "id": "middleware-chain",
+      "surface": "middleware",
+      "currentEvidence": [
+        "docs/reference/http-middleware-ecosystem.json",
+        "examples/http-middleware/README.md",
+        "examples/http-middleware/main_test.go"
+      ],
+      "adopterAction": "Port middleware one concern at a time using the matrix ordering, then run example smoke before switching production traffic.",
+      "gate": "make examples-smoke",
+      "rollbackOrEscalation": "Keep the previous middleware chain when auth, browser safety, observability, streaming, or WebSocket behavior drifts."
+    },
+    {
+      "id": "error-envelope",
+      "surface": "error",
+      "currentEvidence": [
+        "docs/guides/rest.md",
+        "rest/binding_test.go",
+        "docs/reference/openapi-invalid-request-smoke.json"
+      ],
+      "adopterAction": "Require clients to assert rest.ErrorResponse code, status, and fields instead of source-framework text messages.",
+      "gate": "make openapi-validation-check",
+      "rollbackOrEscalation": "Do not publish the new route if invalid input does not return rest.ErrorResponse invalid_argument."
+    },
+    {
+      "id": "openapi-schema",
+      "surface": "openapi",
+      "currentEvidence": [
+        "docs/guides/openapi.md",
+        "rest/openapi_test.go",
+        "cmd/gofly/internal/generator/service_test.go"
+      ],
+      "adopterAction": "Compare request body, parameter, response, and default error schemas before moving client generation to gofly OpenAPI output.",
+      "gate": "make openapi-validation-check",
+      "rollbackOrEscalation": "Keep clients on the previous schema source until OpenAPI golden tests and generated-service smoke pass."
+    },
+    {
+      "id": "traffic-switch",
+      "surface": "rollout",
+      "currentEvidence": [
+        "docs/explanation/adopter-decision-guide.md",
+        "examples/migration-proof"
+      ],
+      "adopterAction": "Switch traffic only after route, binding, middleware, error envelope, OpenAPI, and example smoke gates pass in the target branch.",
+      "gate": "make examples-smoke",
+      "rollbackOrEscalation": "Route traffic back to the source framework when sampled responses, metrics, trace correlation, or schema output drift."
+    }
+  ]
+}

@@ -18,7 +18,7 @@ expected_capabilities = {
     "generated-version-fixtures": "implemented",
     "upgrade-diff-contract": "implemented",
     "route-layout-boundary": "implemented",
-    "multi-language-client-generation": "planned",
+    "multi-language-client-generation": "implemented",
 }
 required_boundaries = {
     "noNewJSONEnvelopeFlags",
@@ -115,6 +115,10 @@ for capability_id, expected_status in expected_capabilities.items():
         searchable = "\n".join(read_text(root / rel) for rel in implementations + tests if (root / rel).exists())
         for anchor in evidence:
             require(str(anchor) in searchable or str(anchor) in upgrade_doc, f"{capability_id}: evidence anchor {anchor!r} is not present in implementation, tests, or upgrade docs")
+        if capability_id == "multi-language-client-generation":
+            for language in ("typescript", "javascript", "dart", "java", "kotlin"):
+                require(language in evidence, f"{capability_id}: evidence must include {language!r}")
+                require(language in searchable, f"{capability_id}: implementation or tests must mention {language!r}")
     else:
         require(not item.get("implementation"), f"{capability_id}: planned capability must not claim implementation paths")
         require(not item.get("tests"), f"{capability_id}: planned capability must not claim test paths")

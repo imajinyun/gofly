@@ -40,6 +40,64 @@
     "implemented": "Capability has repository code, behavior tests, adopter documentation, and a gate.",
     "planned": "Capability is an adoption target and must not be advertised as supported until code, tests, examples, and gates land together."
   },
+  "r8RunnableProofMatrix": {
+    "schema": "gofly.db_cache_runnable_proof_matrix.v1",
+    "aiflowTask": "GOFLY-GOV-10R8-05",
+    "status": "blocking-contract",
+    "acceptanceGate": "make db-cache-productization-check",
+    "rows": [
+      {
+        "id": "sql-transaction-proof",
+        "adapter": "SQLStore.Transact / Cluster.Transact",
+        "status": "runnable",
+        "runnableGate": "go test -shuffle=on ./core/storage/...",
+        "dependencyBoundary": "SQL driver and generated repository dependencies must be owned by root imports or generated project go.mod files, never by unexplained root-module drift.",
+        "observabilityEvidence": "SQLStore StoreSnapshot records transaction, query, exec, latency, and error counters for adopter troubleshooting.",
+        "fallbackBehavior": "Fallback to the previous repository transaction path or sqlite-memory smoke fixture when networked SQL dependencies are unavailable.",
+        "rollbackOrEscalation": "Pin the previous storage driver or repository implementation until transaction, generated compile, dependency, and integration gates pass."
+      },
+      {
+        "id": "sql-outbox-proof",
+        "adapter": "SQL outbox",
+        "status": "runnable",
+        "runnableGate": "go test -shuffle=on ./core/outbox/...",
+        "dependencyBoundary": "Outbox persistence stays in root runtime packages while broker-specific relay dependencies stay in the owning MQ packages or examples.",
+        "observabilityEvidence": "Outbox enqueue, fetch, delivery, retry, and dead-letter transitions are covered by SQL outbox behavior tests.",
+        "fallbackBehavior": "Fallback to the prior broker handoff path when outbox relay, delivery, retry, or transaction evidence diverges.",
+        "rollbackOrEscalation": "Keep the old event publication route active until SQL outbox smoke, relay, and rollback evidence pass."
+      },
+      {
+        "id": "redis-model-cache-proof",
+        "adapter": "Redis model cache",
+        "status": "runnable",
+        "runnableGate": "go test -shuffle=on ./cache ./core/kv/...",
+        "dependencyBoundary": "Generated Redis cache repositories must keep Redis-only dependencies inside generated projects or examples unless root packages import them directly.",
+        "observabilityEvidence": "Cache stats and Prometheus output expose hits, misses, loader errors, Redis miss semantics, TTL, and invalidation evidence.",
+        "fallbackBehavior": "Fallback to GOFLY_CACHE_DISABLED=true, direct SQL reads, or local typed cache when Redis is unavailable or invalidation diverges.",
+        "rollbackOrEscalation": "Disable Redis-backed generated cache or pin the previous Redis profile until cache smoke and dependency evidence pass."
+      },
+      {
+        "id": "local-tiered-cache-proof",
+        "adapter": "typed local and tiered cache",
+        "status": "runnable",
+        "runnableGate": "go test -shuffle=on ./cache",
+        "dependencyBoundary": "Local cache behavior is root-owned and must not introduce generated-project-only dependencies into the root module.",
+        "observabilityEvidence": "Cache stats, negative-cache protection, bloom-filter protection, disabled mode, and Prometheus output share one troubleshooting path.",
+        "fallbackBehavior": "Fallback to source-of-truth reads or GOFLY_CACHE_DISABLED=true when cache loader, TTL, or protection behavior diverges.",
+        "rollbackOrEscalation": "Disable the cache layer for the affected service until local cache stats and generated repository behavior converge."
+      },
+      {
+        "id": "cache-invalidation-proof",
+        "adapter": "generated cache invalidation",
+        "status": "runnable",
+        "runnableGate": "go test -shuffle=on ./cmd/gofly/internal/generator -run TestGenerateModelFromDDL",
+        "dependencyBoundary": "Generated invalidation helpers must remain deterministic and place generated-only cache dependencies in the generated module.",
+        "observabilityEvidence": "Generated UpdateWithInvalidate output and RedisCachedOrderRepo evidence make write-through invalidation reviewable before adoption.",
+        "fallbackBehavior": "Fallback to direct repository writes and explicit cache delete calls when generated invalidation output or compile smoke fails.",
+        "rollbackOrEscalation": "Keep generated cache features behind dry-run and temp-module compile gates until invalidation and dependency placement pass."
+      }
+    ]
+  },
   "workflowMatrix": [
     {
       "id": "generated-transaction-workflow",

@@ -96,5 +96,12 @@
     "status": "completed",
     "blocker": "none",
     "goflyImpact": "R4 tasks were submitted through aiflow and completed locally with per-task commits because aiflow project policy disables commit and push."
+  },
+  "legacyTaskHandoff": {
+    "supersedes": [
+      "GOFLY-GOV-10R3-10"
+    ],
+    "reason": "R3 convergence was carried forward into the R4 active batch convergence contract instead of reverting the active governance batch.",
+    "completionPolicy": "complete GOFLY-GOV-10R3-10 through aiflow after make governance-boundary-inventory-check and make governance-report-check pass, with commits owned by the current agent or human"
   }
 }

@@ -126,6 +126,98 @@ blocker_ids = {item.get("id") for item in blockers if isinstance(item, dict)}
 for blocker_id in ("rpc-release-train-missing", "rpc-budget-report-only"):
     require(blocker_id in blocker_ids, f"rpc promotionReadiness.remainingBlockers missing {blocker_id}")
 
+adopter_contract = manifest.get("adopterContract") or {}
+require(
+    adopter_contract.get("schema") == "gofly.rpc_adopter_contract.v1",
+    "rpc adopterContract schema must be gofly.rpc_adopter_contract.v1",
+)
+require(
+    adopter_contract.get("source") == "docs/reference/rpc-tier1-evidence.json",
+    "rpc adopterContract source mismatch",
+)
+require(
+    adopter_contract.get("dashboardReportField") == "rpcAdoption.tier1Evidence",
+    "rpc adopterContract dashboardReportField mismatch",
+)
+require(
+    set(adopter_contract.get("acceptanceGates") or []) == {
+        "make rpc-boundary-check",
+        "make bench-evidence-check",
+        "make bench-regression-check",
+    },
+    "rpc adopterContract acceptanceGates mismatch",
+)
+require(
+    len(str(adopter_contract.get("policy") or "").split()) >= 20,
+    "rpc adopterContract policy must be actionable",
+)
+adopter_tier_policy = adopter_contract.get("tierPolicy") or {}
+require(adopter_tier_policy.get("currentTier") == "tier2", "rpc adopterContract tierPolicy.currentTier must be tier2")
+require(adopter_tier_policy.get("targetTier") == "tier1", "rpc adopterContract tierPolicy.targetTier must be tier1")
+require(adopter_tier_policy.get("promotionStatus") == "blocked", "rpc adopterContract tierPolicy.promotionStatus must be blocked")
+for field in ("releaseTrainRequirement", "budgetRequirement"):
+    require(
+        len(str(adopter_tier_policy.get(field) or "").split()) >= 10,
+        f"rpc adopterContract tierPolicy.{field} must be actionable",
+    )
+
+surface_classes = adopter_contract.get("surfaceClasses") or []
+surface_by_id = {
+    item.get("id"): item
+    for item in surface_classes
+    if isinstance(item, dict) and item.get("id")
+}
+required_surfaces = {
+    "grpc-compatibility-ready": "tier1-ready-evidence",
+    "governed-rpc-candidate": "candidate",
+    "rpc-performance-budget-report-only": "report-only",
+    "framework-coexistence-rollback": "rollback-required",
+}
+require(set(surface_by_id) == set(required_surfaces), f"rpc adopterContract surfaceClasses mismatch: {sorted(surface_by_id)!r}")
+for surface_id, classification in required_surfaces.items():
+    surface = surface_by_id.get(surface_id) or {}
+    require(surface.get("classification") == classification, f"rpc adopterContract {surface_id}: classification mismatch")
+    require(surface.get("surface"), f"rpc adopterContract {surface_id}: surface is required")
+    evidence_ids = set(surface.get("evidenceIds") or [])
+    require(evidence_ids, f"rpc adopterContract {surface_id}: evidenceIds must not be empty")
+    for field in ("adopterDecision", "rollbackAction"):
+        require(
+            len(str(surface.get(field) or "").split()) >= 12,
+            f"rpc adopterContract {surface_id}: {field} must be actionable",
+        )
+
+surface_evidence_requirements = {
+    "grpc-compatibility-ready": {
+        "grpc-compatibility",
+        "deadline-error-code-mapping",
+        "retry-balancer-contract",
+    },
+    "governed-rpc-candidate": {
+        "unary-contract",
+        "server-stream-governance",
+        "client-stream-governance",
+        "bidi-stream-governance",
+        "resolver-updates",
+        "balancer-routing",
+    },
+    "rpc-performance-budget-report-only": {
+        "unary-contract",
+        "server-stream-governance",
+        "client-stream-governance",
+        "bidi-stream-governance",
+    },
+    "framework-coexistence-rollback": {
+        "kitex-coexistence-rollback",
+        "gozero-coexistence-rollback",
+    },
+}
+for surface_id, expected_ids in surface_evidence_requirements.items():
+    actual_ids = set((surface_by_id.get(surface_id) or {}).get("evidenceIds") or [])
+    require(
+        expected_ids <= actual_ids,
+        f"rpc adopterContract {surface_id}: evidenceIds missing {sorted(expected_ids - actual_ids)!r}",
+    )
+
 ratchet_path = root / "bench" / "budget-ratchet.json"
 if ratchet_path.is_file():
     ratchet = json.loads(ratchet_path.read_text(encoding="utf-8"))

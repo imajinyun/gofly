@@ -53,6 +53,77 @@
       }
     ]
   },
+  "adopterContract": {
+    "schema": "gofly.rpc_adopter_contract.v1",
+    "source": "docs/reference/rpc-tier1-evidence.json",
+    "dashboardReportField": "rpcAdoption.tier1Evidence",
+    "acceptanceGates": [
+      "make rpc-boundary-check",
+      "make bench-evidence-check",
+      "make bench-regression-check"
+    ],
+    "policy": "Adopters may use gofly RPC surfaces only behind the listed boundary, benchmark evidence, and rollback gates while Tier 1 promotion stays blocked by release-train and budget evidence.",
+    "tierPolicy": {
+      "currentTier": "tier2",
+      "targetTier": "tier1",
+      "promotionStatus": "blocked",
+      "releaseTrainRequirement": "At least one completed release train must attach release evidence and required-check drift evidence before Tier 1 promotion.",
+      "budgetRequirement": "RPC hot-path benchmarks remain report-only until selected unary or stream rows enter bench-regression-check blocking budget coverage."
+    },
+    "surfaceClasses": [
+      {
+        "id": "grpc-compatibility-ready",
+        "surface": "rpc/grpc compatibility",
+        "classification": "tier1-ready-evidence",
+        "evidenceIds": [
+          "grpc-compatibility",
+          "deadline-error-code-mapping",
+          "retry-balancer-contract"
+        ],
+        "adopterDecision": "Use rpc/grpc where health, auth, tracing, governance interceptors, deadline mapping, and retry semantics pass local compatibility gates.",
+        "rollbackAction": "Keep native gRPC-Go clients and servers reachable until compatibility tests and release evidence pass for the adopter workload."
+      },
+      {
+        "id": "governed-rpc-candidate",
+        "surface": "gofly unary and stream RPC",
+        "classification": "candidate",
+        "evidenceIds": [
+          "unary-contract",
+          "server-stream-governance",
+          "client-stream-governance",
+          "bidi-stream-governance",
+          "resolver-updates",
+          "balancer-routing"
+        ],
+        "adopterDecision": "Use gofly RPC for governed service glue only after unary, stream, resolver, and balancer evidence passes in the target repository.",
+        "rollbackAction": "Route hot or latency-sensitive methods back to Kitex or the existing gRPC path when benchmark evidence is missing or regresses."
+      },
+      {
+        "id": "rpc-performance-budget-report-only",
+        "surface": "RPC latency and allocation budgets",
+        "classification": "report-only",
+        "evidenceIds": [
+          "unary-contract",
+          "server-stream-governance",
+          "client-stream-governance",
+          "bidi-stream-governance"
+        ],
+        "adopterDecision": "Treat RPC benchmark rows as trend evidence until bench-regression-check promotes selected candidates into blocking budget coverage.",
+        "rollbackAction": "Block Tier 1 promotion and keep latency-critical traffic on Kitex or existing gRPC clients while budgets remain report-only."
+      },
+      {
+        "id": "framework-coexistence-rollback",
+        "surface": "Kitex and go-zero coexistence",
+        "classification": "rollback-required",
+        "evidenceIds": [
+          "kitex-coexistence-rollback",
+          "gozero-coexistence-rollback"
+        ],
+        "adopterDecision": "Plan migration with parallel registration, rollback routing, and generated upgrade dry-run evidence before cutting traffic over.",
+        "rollbackAction": "Keep the original Kitex or go-zero service registered and route traffic back when generated output, control-plane, or RPC evidence diverges."
+      }
+    ]
+  },
   "evidence": [
     {
       "id": "unary-contract",

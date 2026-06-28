@@ -25,6 +25,8 @@ type migrationCase struct {
 	Validation           []string      `json:"validation"`
 	GateCommands         []string      `json:"gateCommands"`
 	Rollback             string        `json:"rollback"`
+	SupportBundle        string        `json:"supportBundle"`
+	FailureReport        string        `json:"failureReport"`
 	Compatibility        []string      `json:"compatibility"`
 	CompatibilityCaveats []string      `json:"compatibilityCaveats"`
 	DecisionTable        decisionTable `json:"decisionTable"`
@@ -67,6 +69,8 @@ func buildReport() report {
 				"make examples-smoke",
 			},
 			Rollback:             "keep Gin route active behind the existing router until sampled responses and metrics match",
+			SupportBundle:        "attach gofly bug --json only after redaction and include sampled response, OpenAPI, and error-envelope drift evidence",
+			FailureReport:        "capture route, status-code, JSON-field, OpenAPI-schema, and stable error envelope drift before changing traffic",
 			Compatibility:        []string{"docs/comparisons/gin.md", "docs/case-studies/migrate-from-gin.md"},
 			CompatibilityCaveats: []string{"Gin :id routes become gofly {id} routes", "compare status codes, JSON field names, and error envelopes before switching traffic"},
 			DecisionTable: decisionTable{
@@ -90,6 +94,8 @@ func buildReport() report {
 				"make reference-app-smoke",
 			},
 			Rollback:             "keep go-zero and gofly services addressable through discovery and switch routing back to go-zero",
+			SupportBundle:        "attach gofly bug --json with generated-project failure reports and release check output when scaffold compatibility fails",
+			FailureReport:        "capture generated diff category, dependency boundary, OpenAPI mismatch, release-check output, and /admin/control-plane drift",
 			Compatibility:        []string{"docs/comparisons/go-zero.md"},
 			CompatibilityCaveats: []string{"preserve .api request and response field names", "verify generated OpenAPI and /admin/control-plane before changing discovery"},
 			DecisionTable: decisionTable{
@@ -112,6 +118,8 @@ func buildReport() report {
 				"go test -C examples/microshop ./...",
 			},
 			Rollback:             "restore the previous Kratos deployment target while keeping shared domain services unchanged",
+			SupportBundle:        "attach gofly bug --json with rendered cloud-native assets, topology output, and health or discovery drift evidence",
+			FailureReport:        "capture Helm or Kustomize rendering, topology, health, discovery, and lifecycle hook differences before replacing deployment targets",
 			Compatibility:        []string{"docs/comparisons/kratos.md"},
 			CompatibilityCaveats: []string{"keep domain services separate from transport wiring", "compare lifecycle hooks, health checks, discovery registration, and topology output"},
 			DecisionTable: decisionTable{
@@ -135,6 +143,8 @@ func buildReport() report {
 				"make bench-evidence-check",
 			},
 			Rollback:             "route latency-critical methods back to Kitex and retain gofly for REST ingress or governance surfaces",
+			SupportBundle:        "attach gofly bug --json with RPC boundary, resolver, balancer, stream, trace, auth, and benchmark evidence before escalating",
+			FailureReport:        "capture unary, stream, resolver, balancer, tracing, auth, and benchmark drift before moving latency-critical methods",
 			Compatibility:        []string{"docs/comparisons/kitex.md", "docs/guides/rpc.md"},
 			CompatibilityCaveats: []string{"do not migrate hot methods without bench evidence", "compare unary, stream, resolver, balancer, tracing, auth, and rollback behavior"},
 			DecisionTable: decisionTable{

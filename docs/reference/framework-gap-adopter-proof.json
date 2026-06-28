@@ -259,7 +259,8 @@
     "supportBundleRequiredFields": [
       "supportBundle",
       "supportBundle.redaction",
-      "nextActions"
+      "nextActions",
+      "generatedFailureReport"
     ],
     "dashboardSource": "docs/reference/governance-dashboard-contract.json",
     "decisions": [
@@ -282,7 +283,8 @@
           "make examples-smoke"
         ],
         "rollbackAction": "Keep Gin route active behind the existing router until sampled responses and metrics match.",
-        "supportBundleAction": "Attach `gofly bug --json` only after redaction and include sampled response, OpenAPI, and error-envelope drift evidence."
+        "supportBundleAction": "Attach `gofly bug --json` only after redaction and include sampled response, OpenAPI, and error-envelope drift evidence.",
+        "failureReportEvidence": "Capture route, status-code, JSON-field, OpenAPI-schema, and stable error envelope drift before changing traffic."
       },
       {
         "id": "go-zero-to-gofly",
@@ -305,7 +307,8 @@
           "make reference-app-smoke"
         ],
         "rollbackAction": "Keep go-zero and gofly services addressable through discovery and switch routing back to go-zero.",
-        "supportBundleAction": "Attach `gofly bug --json` with generated-project failure reports and release check output when scaffold compatibility fails."
+        "supportBundleAction": "Attach `gofly bug --json` with generated-project failure reports and release check output when scaffold compatibility fails.",
+        "failureReportEvidence": "Capture generated diff category, dependency boundary, OpenAPI mismatch, release-check output, and /admin/control-plane drift."
       },
       {
         "id": "kratos-to-gofly",
@@ -327,7 +330,8 @@
           "go test -C examples/microshop ./..."
         ],
         "rollbackAction": "Restore the previous Kratos deployment target while keeping shared domain services unchanged.",
-        "supportBundleAction": "Attach `gofly bug --json` with rendered cloud-native assets, topology output, and health or discovery drift evidence."
+        "supportBundleAction": "Attach `gofly bug --json` with rendered cloud-native assets, topology output, and health or discovery drift evidence.",
+        "failureReportEvidence": "Capture Helm or Kustomize rendering, topology, health, discovery, and lifecycle hook differences before replacing deployment targets."
       },
       {
         "id": "kitex-with-gofly",
@@ -348,7 +352,8 @@
           "make bench-evidence-check"
         ],
         "rollbackAction": "Route latency-critical methods back to Kitex and retain gofly for REST ingress or governance surfaces.",
-        "supportBundleAction": "Attach `gofly bug --json` with RPC boundary, resolver, balancer, stream, trace, auth, and benchmark evidence before escalating."
+        "supportBundleAction": "Attach `gofly bug --json` with RPC boundary, resolver, balancer, stream, trace, auth, and benchmark evidence before escalating.",
+        "failureReportEvidence": "Capture unary, stream, resolver, balancer, tracing, auth, and benchmark drift before moving latency-critical methods."
       }
     ]
   },

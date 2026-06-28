@@ -1,0 +1,285 @@
+{
+  "schema": "gofly.framework_gap_post_r7_roadmap.v1",
+  "scope": {
+    "included": [
+      "post-R7 framework gap analysis",
+      "HTTP migration compatibility proof",
+      "generated scaffold profile matrix",
+      "RPC streaming boundary evidence",
+      "DB cache and discovery runnable adapter matrix",
+      "production reference topology drill",
+      "plugin and template publish protocol enforcement",
+      "release evidence consumption and tag CI closure",
+      "performance budget ratchet depth",
+      "machine-verifiable governance"
+    ],
+    "excluded": [
+      "GitHub stars",
+      "download counts",
+      "community size",
+      "brand awareness"
+    ]
+  },
+  "completedBaseline": [
+    {
+      "task": "GOFLY-GOV-10R7-01",
+      "evidence": [
+        "docs/reference/framework-gap-post-r6-roadmap.json",
+        "make framework-gap-check"
+      ]
+    },
+    {
+      "task": "GOFLY-GOV-10R7-03",
+      "evidence": [
+        "docs/reference/rpc-boundary.md",
+        "make rpc-boundary-check"
+      ]
+    },
+    {
+      "task": "GOFLY-GOV-10R7-09",
+      "evidence": [
+        "docs/reference/dx-support-bundle.json",
+        "make dx-troubleshooting-check"
+      ]
+    },
+    {
+      "task": "GOFLY-GOV-10R7-10",
+      "evidence": [
+        "docs/reference/governance-convergence-verification.json",
+        "make governance-10-rounds"
+      ]
+    }
+  ],
+  "claimBoundary": {
+    "nonCommunityPolicy": "This roadmap compares framework product and engineering capability only; community size, GitHub stars, downloads, contributor count, and brand awareness remain excluded from prioritization.",
+    "transportParityPolicy": "Do not claim Kitex, gRPC-Go, or go-zero transport parity until streaming contracts, resolver and balancer behavior, deadline and retry semantics, auth and tracing compatibility, benchmark budgets, and rollback evidence all have blocking gates.",
+    "migrationProofPolicy": "Migration claims must stay tied to runnable examples, smoke commands, generated diff categories, support bundles, compatibility caveats, and rollback actions before appearing in adopter-facing guidance.",
+    "performanceClaimPolicy": "Latency comparisons remain report-only unless benchmark trend evidence promotes a specific surface; allocation budgets may become blocking only through the existing regression ratchet gate."
+  },
+  "dimensions": [
+    {
+      "id": "post-r7-roadmap",
+      "round": 1,
+      "priority": "P0",
+      "referenceFrameworks": [
+        "Gin",
+        "Echo",
+        "Fiber",
+        "Hertz",
+        "go-zero",
+        "Kratos",
+        "Kitex",
+        "gRPC-Go",
+        "Beego"
+      ],
+      "currentEvidence": [
+        "docs/reference/framework-gap-matrix.md",
+        "docs/reference/framework-gap-post-r7-roadmap.json",
+        "docs/reference/governance-boundary-inventory.json",
+        "make framework-gap-check",
+        "make governance-boundary-inventory-check"
+      ],
+      "gap": "After R7, the remaining non-community gap is converting broad adoption proof into smaller runnable contracts that map directly to framework migration decisions.",
+      "todo": "Publish the R8 roadmap and active aiflow batch with ordered task ids, acceptance gates, non-community claim boundaries, ignored runtime paths, and per-task commit checkpoints.",
+      "aiflowTask": "GOFLY-GOV-10R8-01",
+      "acceptanceGate": "make framework-gap-check"
+    },
+    {
+      "id": "http-migration-compatibility-proof",
+      "round": 2,
+      "priority": "P0",
+      "referenceFrameworks": [
+        "Gin",
+        "Echo",
+        "Fiber",
+        "Hertz",
+        "go-zero"
+      ],
+      "currentEvidence": [
+        "docs/reference/openapi-validation-envelope.md",
+        "docs/reference/framework-gap-matrix.md",
+        "make openapi-validation-check"
+      ],
+      "gap": "Top HTTP frameworks remain easier to evaluate because route groups, path parameters, binding, validation, middleware behavior, and error envelopes are familiar and immediately testable.",
+      "todo": "Add HTTP migration compatibility evidence for route groups, path/query/header/body binding, middleware ordering, stable error envelopes, OpenAPI schema output, and invalid-request smoke cases.",
+      "aiflowTask": "GOFLY-GOV-10R8-02",
+      "acceptanceGate": "make openapi-validation-check"
+    },
+    {
+      "id": "generated-scaffold-profile-matrix",
+      "round": 3,
+      "priority": "P0",
+      "referenceFrameworks": [
+        "go-zero",
+        "Kratos"
+      ],
+      "currentEvidence": [
+        "docs/reference/generated-version-compat.md",
+        "docs/reference/generated-upgrade-dry-run.json",
+        "make generated-version-compat-check",
+        "make generated-upgrade-dry-run-check"
+      ],
+      "gap": "goctl and Kratos scaffolds are trusted because profiles, generated layouts, dependency placement, and repeat generation behavior are predictable across versions.",
+      "todo": "Add scaffold profile matrix evidence for REST, RPC, model, production service, import aliases, generated-only dependencies, repeat generation diffs, compile smoke, and rollback notes.",
+      "aiflowTask": "GOFLY-GOV-10R8-03",
+      "acceptanceGate": "make generated-upgrade-dry-run-check"
+    },
+    {
+      "id": "rpc-streaming-boundary-evidence",
+      "round": 4,
+      "priority": "P0",
+      "referenceFrameworks": [
+        "Kitex",
+        "gRPC-Go",
+        "go-zero"
+      ],
+      "currentEvidence": [
+        "docs/reference/rpc-boundary.md",
+        "docs/reference/rpc-transport-boundary.json",
+        "make rpc-boundary-check"
+      ],
+      "gap": "Kitex and gRPC-Go retain deeper streaming and transport confidence. gofly should keep transport claims conservative while making supported RPC boundaries testable.",
+      "todo": "Add RPC streaming boundary evidence for unary, server-stream, client-stream, bidi-stream, resolver updates, balancer routing, retry and deadline behavior, auth and tracing compatibility, and Kitex rollback notes.",
+      "aiflowTask": "GOFLY-GOV-10R8-04",
+      "acceptanceGate": "make rpc-boundary-check"
+    },
+    {
+      "id": "adapter-matrix-runnable-proof",
+      "round": 5,
+      "priority": "P1",
+      "referenceFrameworks": [
+        "go-zero",
+        "Kratos"
+      ],
+      "currentEvidence": [
+        "docs/reference/db-cache-productization.json",
+        "docs/reference/discovery-adapter-matrix.json",
+        "docs/reference/integration-ownership-matrix.json",
+        "make db-cache-productization-check",
+        "make discovery-adapter-matrix-check"
+      ],
+      "gap": "Mature microservice frameworks make storage, cache, and discovery adapters feel owned through defaults, examples, observability, and fallback behavior.",
+      "todo": "Add runnable adapter matrix evidence for SQL transaction and outbox patterns, Redis and local cache behavior, cache invalidation, etcd, Kubernetes, Consul, Nacos, DNS, static discovery, observability, dependency ownership, and rollback.",
+      "aiflowTask": "GOFLY-GOV-10R8-05",
+      "acceptanceGate": "make required-checks-drift-check"
+    },
+    {
+      "id": "production-reference-topology-drill",
+      "round": 6,
+      "priority": "P1",
+      "referenceFrameworks": [
+        "go-zero",
+        "Kratos",
+        "Kitex"
+      ],
+      "currentEvidence": [
+        "examples/production-orders",
+        "docs/reference/reference-app-topology.json",
+        "docs/reference/runtime-slo.md",
+        "make reference-app-smoke"
+      ],
+      "gap": "Production-ready frameworks give adopters a reference topology they can run, observe, degrade, and roll back. gofly should deepen production-orders as proof rather than only an example.",
+      "todo": "Add production reference drill evidence for memory mode, Docker-backed mode, SQL outbox, MQ, cache, discovery, OpenTelemetry, K8s assets, rollback notes, and failure evidence.",
+      "aiflowTask": "GOFLY-GOV-10R8-06",
+      "acceptanceGate": "make reference-app-smoke"
+    },
+    {
+      "id": "plugin-template-publish-protocol",
+      "round": 7,
+      "priority": "P1",
+      "referenceFrameworks": [
+        "go-zero",
+        "Kratos"
+      ],
+      "currentEvidence": [
+        "docs/reference/plugin-conformance.md",
+        "docs/reference/plugin-conformance-report.json",
+        "examples/plugin-ecosystem",
+        "make plugin-conformance-check"
+      ],
+      "gap": "Plugin and template ecosystems need a publishable protocol, not only examples. Permissions, digests, signatures, sources, compatibility, and failure isolation must be adoption-grade.",
+      "todo": "Add plugin and template publish protocol evidence for registry schema, manifest schema, digest, signature, permission minimization, source policy, template contract, malicious paths, and no partial writes.",
+      "aiflowTask": "GOFLY-GOV-10R8-07",
+      "acceptanceGate": "make plugin-conformance-check"
+    },
+    {
+      "id": "release-evidence-tag-ci-closure",
+      "round": 8,
+      "priority": "P1",
+      "referenceFrameworks": [
+        "go-zero",
+        "Kratos"
+      ],
+      "currentEvidence": [
+        "docs/releases/adoption-contract.json",
+        "docs/releases/evidence-consumption.json",
+        "docs/reference/ci-required-check-evidence.json",
+        "make release-snapshot",
+        "make governance-report-check"
+      ],
+      "gap": "Adopters trust mature frameworks when tag CI, artifacts, checksums, SBOM, Docker digest, vulnerability scans, provenance, and release evidence are one auditable chain.",
+      "todo": "Add release evidence and tag CI closure rows covering artifact producers, release snapshot, checksum, SBOM, Docker digest, Trivy, provenance attestation, required checks, publish/block decisions, and rollback.",
+      "aiflowTask": "GOFLY-GOV-10R8-08",
+      "acceptanceGate": "make governance-report-check"
+    },
+    {
+      "id": "performance-budget-ratchet-depth",
+      "round": 9,
+      "priority": "P2",
+      "referenceFrameworks": [
+        "Gin",
+        "Echo",
+        "Fiber",
+        "Hertz",
+        "Kitex",
+        "gRPC-Go"
+      ],
+      "currentEvidence": [
+        "bench/evidence.md",
+        "bench/budget-ratchet.json",
+        "docs/reference/benchmark-matrix.md",
+        "make bench-regression-check"
+      ],
+      "gap": "HTTP and RPC leaders still have stronger performance reputations. gofly should make performance credibility evidence-driven without overstating parity.",
+      "todo": "Add performance ratchet evidence for REST router, path params, JSON binding, middleware, OpenAPI, governance overhead, RPC unary and stream surfaces, allocation budgets, report-only latency, and unsupported-surface handling.",
+      "aiflowTask": "GOFLY-GOV-10R8-09",
+      "acceptanceGate": "make bench-regression-check"
+    },
+    {
+      "id": "r8-convergence-evidence",
+      "round": 10,
+      "priority": "P2",
+      "referenceFrameworks": [
+        "Gin",
+        "Echo",
+        "Fiber",
+        "Hertz",
+        "go-zero",
+        "Kratos",
+        "Kitex",
+        "gRPC-Go",
+        "Beego"
+      ],
+      "currentEvidence": [
+        "docs/reference/governance-convergence-verification.json",
+        "make governance-10-rounds"
+      ],
+      "gap": "Each R8 task must end with commit evidence, gate evidence, known risks, ignored runtime paths, and aiflow completion so the workflow remains auditable.",
+      "todo": "Record R8 convergence with per-task commit ids, executed gates, skipped or downgraded checks, runtime ignored paths, and next-round recommendations.",
+      "aiflowTask": "GOFLY-GOV-10R8-10",
+      "acceptanceGate": "make governance-10-rounds"
+    }
+  ],
+  "recommendedOrder": [
+    "GOFLY-GOV-10R8-01",
+    "GOFLY-GOV-10R8-02",
+    "GOFLY-GOV-10R8-03",
+    "GOFLY-GOV-10R8-04",
+    "GOFLY-GOV-10R8-05",
+    "GOFLY-GOV-10R8-06",
+    "GOFLY-GOV-10R8-07",
+    "GOFLY-GOV-10R8-08",
+    "GOFLY-GOV-10R8-09",
+    "GOFLY-GOV-10R8-10"
+  ]
+}

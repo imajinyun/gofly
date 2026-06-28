@@ -27,7 +27,7 @@ make examples-copyable-check
 | Example | Purpose | Command | Ports | Verify | Expected output |
 | --- | --- | --- | --- | --- | --- |
 | `restserver` | REST routing, OpenAPI, health and metrics | `go run ./examples/restserver` | `8080` | `curl -s localhost:8080/healthz` | HTTP 200 health response and `/users/{id}` JSON payloads |
-| `middlewares` | Copyable HTTP middleware catalog for generated services | import `github.com/imajinyun/gofly/examples/middlewares` | none | `go test -C examples/middlewares ./...` | Productization catalog for JWT, CORS, CSRF, sessions, OpenTelemetry, Prometheus, SSE, WebSocket and validation |
+| `middlewares` | Copyable HTTP middleware catalog for generated services | import `github.com/imajinyun/gofly/examples/middlewares` | none | `go -C examples/middlewares test ./...` | Productization catalog for JWT, CORS, CSRF, sessions, OpenTelemetry, Prometheus, SSE, WebSocket and validation |
 | `middleware-demo` | Focused route-per-middleware demo with catalog and OpenAPI exposure | `go run ./examples/middleware-demo` | `8086` | `curl -s localhost:8086/middleware/catalog` | JSON catalog plus runnable endpoints for each reusable middleware |
 | `http-middleware` | Combined HTTP middleware chain for browser/API workloads | `go run ./examples/http-middleware` | `8085` | `curl -s localhost:8085/token` | JWT, CORS, CSRF, session, tracing, metrics, SSE, WebSocket and validation behavior |
 | `migration-proof` | Runnable migration evidence for Gin, go-zero, Kratos and Kitex adoption | `go run ./examples/migration-proof` | none | `go run -C examples/migration-proof .` | `gofly.migration_proof.v1` JSON with smoke examples, validation gates and rollback notes |
@@ -74,9 +74,9 @@ curl -s localhost:8080/users/42
 Run the HTTP middleware matrix:
 
 ```bash
-go test -C examples/middlewares ./...
-go test -C examples/middleware-demo ./...
-go run -C examples/http-middleware .
+go -C examples/middlewares test ./...
+go -C examples/middleware-demo test ./...
+go -C examples/http-middleware run .
 curl -s localhost:8085/token
 curl -s localhost:8085/openapi.json
 ```

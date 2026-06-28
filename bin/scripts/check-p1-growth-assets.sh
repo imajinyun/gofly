@@ -54,9 +54,9 @@ checks = {
         'Gin, go-zero, Kratos and Kitex',
         'Proto/thrift fixtures, unary/server-streaming/client-streaming/bidirectional streaming',
         'SPI registry, code-generation plugin, post-generation patching and third-party template directory contract',
-        'go test -C examples/middlewares ./...',
-        'go test -C examples/middleware-demo ./...',
-        'go run -C examples/http-middleware .',
+        'go -C examples/middlewares test ./...',
+        'go -C examples/middleware-demo test ./...',
+        'go -C examples/http-middleware run .',
         'go run -C examples/migration-proof .',
         'go run -C examples/rpc-idl-matrix .',
         'go run -C examples/plugin-ecosystem .',
@@ -294,6 +294,27 @@ require(middleware_policy.get('openAPIVisibilityRequired') is True, 'HTTP middle
 require(middleware_policy.get('controlPlaneVisibilityRequired') is True, 'HTTP middleware migration policy must require control-plane visibility')
 for field in ('adopterAction', 'rollbackOrEscalation'):
     require(len(str(middleware_policy.get(field) or '').split()) >= 10, f'HTTP middleware migration policy {field} must be actionable')
+
+middleware_dx = middleware_manifest.get('migrationDX') or {}
+ordering = middleware_dx.get('ordering') or []
+for step in ('recover', 'request-id', 'trace', 'metrics', 'cors', 'session', 'csrf', 'jwt', 'validation', 'handler', 'sse-websocket-bounds'):
+    require(step in ordering, f'HTTP middleware migrationDX.ordering missing {step}')
+require(ordering.index('recover') < ordering.index('handler'), 'HTTP middleware migrationDX.ordering must run recover before handler')
+require(ordering.index('cors') < ordering.index('csrf') < ordering.index('jwt') < ordering.index('validation') < ordering.index('handler'), 'HTTP middleware migrationDX.ordering must preserve browser/auth/validation order')
+framework_mapping = middleware_dx.get('frameworkMapping') or {}
+for framework in ('Gin', 'go-zero'):
+    mapping = framework_mapping.get(framework) or {}
+    for topic in ('auth', 'cors', 'csrf', 'session', 'observability', 'realtime'):
+        require(topic in mapping and len(str(mapping.get(topic) or '').split()) >= 8, f'HTTP middleware migrationDX.frameworkMapping.{framework}.{topic} must be actionable')
+for field, needles in {
+    'failureModes': ('JWT', 'CORS', 'CSRF', 'Session', 'Prometheus', 'OpenTelemetry', 'SSE', 'WebSocket'),
+    'productionDefaults': ('secret-manager', 'CORS', 'Secure', 'metrics', 'SSE', 'Gin or go-zero'),
+    'smokeReferences': ('make p1-growth-check', 'make examples-smoke', 'make api-example-consistency-check', 'go -C examples/http-middleware test ./...', 'go -C examples/middlewares test ./...', 'go -C examples/http-middleware run . --describe'),
+}.items():
+    values = middleware_dx.get(field) or []
+    joined = '\n'.join(values)
+    for needle in needles:
+        require(needle in joined, f'HTTP middleware migrationDX.{field} missing {needle!r}')
 
 modules = set(middleware_manifest.get('exampleModules') or [])
 for module in ('examples/middlewares', 'examples/middleware-demo', 'examples/http-middleware'):

@@ -22,6 +22,14 @@ import (
 	"github.com/imajinyun/gofly/rest"
 )
 
+type migrationDXReport struct {
+	Ordering           []string                     `json:"ordering"`
+	FrameworkMapping   map[string]map[string]string `json:"frameworkMapping"`
+	FailureModes       []string                     `json:"failureModes"`
+	ProductionDefaults []string                     `json:"productionDefaults"`
+	SmokeReferences    []string                     `json:"smokeReferences"`
+}
+
 var (
 	jwtSecret     = []byte("http-middleware-demo-jwt-secret-32b")
 	csrfSecret    = []byte("http-middleware-demo-csrf-secret-32")
@@ -294,6 +302,7 @@ func describeReport() map[string]any {
 	return map[string]any{
 		"schema":       "gofly.http_middleware_matrix.v1",
 		"capabilities": describe(),
+		"migrationDX":  migrationDX(),
 		"routes": map[string]string{
 			"catalog":   "/middleware/catalog",
 			"openapi":   "/openapi.json",
@@ -305,6 +314,72 @@ func describeReport() map[string]any {
 		"contracts": map[string]any{
 			"invalidRequestStatus": 400,
 			"schemaOutput":         "openapi",
+		},
+	}
+}
+
+func migrationDX() migrationDXReport {
+	return migrationDXReport{
+		Ordering: []string{
+			"recover",
+			"request-id",
+			"trace",
+			"log",
+			"metrics",
+			"security-headers",
+			"cors",
+			"max-body-bytes",
+			"timeout",
+			"session",
+			"csrf",
+			"jwt",
+			"validation",
+			"handler",
+			"sse-websocket-bounds",
+		},
+		FrameworkMapping: map[string]map[string]string{
+			"Gin": {
+				"auth":          "gin middleware that validates Authorization maps to rest.BearerAuthMiddleware or examples/middlewares.JWTMiddleware",
+				"cors":          "gin-contrib/cors settings map to rest.CORSConfig origins, headers, credentials, and max age",
+				"csrf":          "gin CSRF or custom double-submit middleware maps to rest.CSRFConfig cookie/header/TTL/SameSite",
+				"session":       "gin session store maps to signed HttpOnly session cookies or an injected session middleware before auth",
+				"observability": "Gin metrics/tracing middleware maps to MetricsMiddleware, PrometheusMetricsHandler, and TraceMiddleware",
+				"realtime":      "Gin SSE/WebSocket handlers map to rest.Context.SSE and rest.Context.WebSocket with explicit bounds",
+			},
+			"go-zero": {
+				"auth":          "go-zero JWT/AuthInterceptor policy maps to rest.BearerAuthMiddleware and route OpenAPI security metadata",
+				"cors":          "go-zero rest CORS config maps to rest.CORSConfig and must preserve credentialed preflight behavior",
+				"csrf":          "go-zero custom browser-safety middleware maps to rest.CSRFConfig before state-changing handlers",
+				"session":       "go-zero custom session middleware maps to signed HttpOnly cookies or an injected session middleware before auth",
+				"observability": "go-zero trace/log/prometheus handlers map to TraceMiddleware, LogMiddleware, MetricsMiddleware, and /metrics",
+				"realtime":      "go-zero streaming/custom upgrade endpoints map to SSE/WebSocket routes with cancellation and size limits",
+			},
+		},
+		FailureModes: []string{
+			"JWT rejects missing or invalid Authorization with a stable unauthenticated error envelope",
+			"CORS preflight preserves allowed origins, credential behavior, and exposed request-id headers",
+			"CSRF rejects missing, mismatched, or expired double-submit tokens before handlers mutate state",
+			"Session cookies stay signed, HttpOnly, SameSite, and do not silently downgrade production Secure policy",
+			"Prometheus metrics use bounded route labels and keep /metrics scrape output stable",
+			"OpenTelemetry propagates traceparent and keeps request-id correlation visible in responses",
+			"SSE keeps text/event-stream headers, event IDs, request cancellation, and trace correlation",
+			"WebSocket upgrades enforce max message bytes, read/write timeouts, and manager stats",
+		},
+		ProductionDefaults: []string{
+			"replace demo JWT, CSRF, and session secrets with secret-manager values",
+			"use exact CORS origins when credentials are enabled",
+			"keep CSRF and session cookies Secure on HTTPS production deployments",
+			"run metrics, tracing, request-id, and structured logging before handler-specific middleware",
+			"keep SSE and WebSocket routes authenticated when streams expose user data",
+			"keep old Gin or go-zero middleware active until smoke gates and OpenAPI/schema evidence pass",
+		},
+		SmokeReferences: []string{
+			"make p1-growth-check",
+			"make examples-smoke",
+			"make api-example-consistency-check",
+			"go -C examples/http-middleware test ./...",
+			"go -C examples/middlewares test ./...",
+			"go -C examples/http-middleware run . --describe",
 		},
 	}
 }

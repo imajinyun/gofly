@@ -182,10 +182,41 @@ def release_evidence():
 
 def release_evidence_consumption():
     manifest = read_json(root / "docs/releases/evidence-consumption.json") or {}
+    evidence_index = read_json(root / "docs/releases/evidence-index.json") or {}
+    required_checks = read_json(root / "docs/reference/ci-required-check-evidence.json") or {}
     items = [
         item
         for item in manifest.get("items") or []
         if isinstance(item, dict)
+    ]
+    evidence_items = [
+        item
+        for item in evidence_index.get("evidence") or []
+        if isinstance(item, dict)
+    ]
+    drift_contract = manifest.get("driftClosure") or {}
+    release_prerequisites = set(required_checks.get("releasePrerequisites") or [])
+    covered_ids = []
+    explicit_release_artifact_ids = []
+    uncovered_ids = []
+    index_by_id = {
+        item.get("id", ""): item
+        for item in evidence_items
+        if item.get("id")
+    }
+    for item in items:
+        evidence_id = item.get("id", "")
+        producer = (index_by_id.get(evidence_id) or {}).get("producerJob", "")
+        if producer in release_prerequisites:
+            covered_ids.append(evidence_id)
+        elif producer == "release":
+            explicit_release_artifact_ids.append(evidence_id)
+        else:
+            uncovered_ids.append(evidence_id)
+    required_ids = [
+        item.get("id", "")
+        for item in evidence_items
+        if item.get("id")
     ]
     return {
         "schema": manifest.get("schema", ""),
@@ -199,6 +230,20 @@ def release_evidence_consumption():
             for item in items
             if item.get("id")
         ],
+        "driftClosure": {
+            "schema": drift_contract.get("schema", ""),
+            "requiredCheckSource": drift_contract.get("requiredCheckSource", ""),
+            "releasePrerequisiteSource": drift_contract.get("releasePrerequisiteSource", ""),
+            "driftGate": drift_contract.get("driftGate", ""),
+            "dashboardReportField": drift_contract.get("dashboardReportField", ""),
+            "policy": drift_contract.get("policy", ""),
+            "requiredEvidenceIds": drift_contract.get("requiredEvidenceIds", []),
+            "requiredEvidenceCount": len(drift_contract.get("requiredEvidenceIds") or []),
+            "releasePrerequisiteCoverage": sorted(covered_ids),
+            "explicitReleaseArtifacts": sorted(explicit_release_artifact_ids),
+            "uncoveredEvidenceIds": sorted(uncovered_ids),
+            "sourceEvidenceIds": sorted(required_ids),
+        },
         "items": items,
     }
 
@@ -550,6 +595,7 @@ def governance_dashboard_contract():
         "benchmarkRatchet": manifest.get("benchmarkRatchet", {}),
         "coverage": manifest.get("coverage", {}),
         "security": manifest.get("security", {}),
+        "releaseEvidenceConsumption": manifest.get("releaseEvidenceConsumption", {}),
         "productionDefaults": manifest.get("productionDefaults", {}),
         "governanceConvergence": manifest.get("governanceConvergence", {}),
         "aiflow": manifest.get("aiflow", {}),
@@ -1155,6 +1201,17 @@ if consumption["acceptanceGate"] != "make governance-report-check":
 for consumer in ("adopter", "release-manager", "ci-agent"):
     if consumer not in consumption["consumers"]:
         missing.append(f"release evidence consumption missing consumer {consumer!r}")
+drift_closure = consumption.get("driftClosure") or {}
+if drift_closure.get("schema") != "gofly.release_evidence_drift_closure.v1":
+    missing.append("release evidence drift closure schema mismatch")
+if drift_closure.get("requiredCheckSource") != "docs/reference/ci-required-check-evidence.json":
+    missing.append("release evidence drift closure requiredCheckSource mismatch")
+if drift_closure.get("driftGate") != "make required-checks-drift-check":
+    missing.append("release evidence drift closure driftGate mismatch")
+if drift_closure.get("dashboardReportField") != "releaseEvidenceConsumption.driftClosure":
+    missing.append("release evidence drift closure dashboardReportField mismatch")
+if len(str(drift_closure.get("policy") or "").split()) < 20:
+    missing.append("release evidence drift closure policy must be actionable")
 index_by_id = {
     item.get("id", ""): item
     for item in (read_json(root / "docs/releases/evidence-index.json") or {}).get("evidence") or []
@@ -1171,6 +1228,25 @@ if set(consumption_by_id) != set(index_by_id):
         f"missing={sorted(set(index_by_id) - set(consumption_by_id))} "
         f"extra={sorted(set(consumption_by_id) - set(index_by_id))}"
     )
+if set(drift_closure.get("requiredEvidenceIds") or []) != set(index_by_id):
+    missing.append(
+        "release evidence drift closure requiredEvidenceIds mismatch: "
+        f"missing={sorted(set(index_by_id) - set(drift_closure.get('requiredEvidenceIds') or []))} "
+        f"extra={sorted(set(drift_closure.get('requiredEvidenceIds') or []) - set(index_by_id))}"
+    )
+if drift_closure.get("requiredEvidenceCount") != len(index_by_id):
+    missing.append("release evidence drift closure requiredEvidenceCount mismatch")
+covered_by_release = set(drift_closure.get("releasePrerequisiteCoverage") or []) | set(
+    drift_closure.get("explicitReleaseArtifacts") or []
+)
+if covered_by_release != set(index_by_id):
+    missing.append(
+        "release evidence drift closure coverage mismatch: "
+        f"missing={sorted(set(index_by_id) - covered_by_release)} "
+        f"extra={sorted(covered_by_release - set(index_by_id))}"
+    )
+if drift_closure.get("uncoveredEvidenceIds"):
+    missing.append(f"release evidence drift closure uncovered ids: {drift_closure['uncoveredEvidenceIds']}")
 for evidence_id, source in sorted(index_by_id.items()):
     item = consumption_by_id.get(evidence_id)
     if not item:
@@ -1212,6 +1288,9 @@ if dashboard["acceptanceGate"] != "make governance-report-check":
     missing.append("governance dashboard contract acceptanceGate mismatch")
 for field in (
     "release.readinessScore.status",
+    "releaseEvidenceConsumption.driftClosure.driftGate",
+    "releaseEvidenceConsumption.driftClosure.requiredEvidenceCount",
+    "releaseEvidenceConsumption.driftClosure.releasePrerequisiteCoverage",
     "apiSurface.tiers",
     "benchmark.regressionGate",
     "benchmark.trendSummaryStatus",
@@ -1240,6 +1319,24 @@ if release_contract.get("requiredStatus") != "ready":
     missing.append("governance dashboard releaseReadiness requiredStatus mismatch")
 if int(release_contract.get("minimumScore") or 0) != 100:
     missing.append("governance dashboard releaseReadiness minimumScore mismatch")
+release_consumption_contract = dashboard.get("releaseEvidenceConsumption") or {}
+if release_consumption_contract.get("schema") != "gofly.release_evidence_consumption.v1":
+    missing.append("governance dashboard releaseEvidenceConsumption schema mismatch")
+if release_consumption_contract.get("source") != "docs/releases/evidence-consumption.json":
+    missing.append("governance dashboard releaseEvidenceConsumption source mismatch")
+if release_consumption_contract.get("sourceOfTruth") != "docs/releases/evidence-index.json":
+    missing.append("governance dashboard releaseEvidenceConsumption sourceOfTruth mismatch")
+if release_consumption_contract.get("acceptanceGate") != "make governance-report-check":
+    missing.append("governance dashboard releaseEvidenceConsumption acceptanceGate mismatch")
+if release_consumption_contract.get("driftGate") != "make required-checks-drift-check":
+    missing.append("governance dashboard releaseEvidenceConsumption driftGate mismatch")
+if release_consumption_contract.get("reportField") != "releaseEvidenceConsumption.driftClosure":
+    missing.append("governance dashboard releaseEvidenceConsumption reportField mismatch")
+if release_consumption_contract.get("requiredCheckSource") != "docs/reference/ci-required-check-evidence.json":
+    missing.append("governance dashboard releaseEvidenceConsumption requiredCheckSource mismatch")
+for field in release_consumption_contract.get("requiredDashboardFields") or []:
+    if field not in dashboard["summaryFields"]:
+        missing.append(f"governance dashboard releaseEvidenceConsumption summaryFields missing {field!r}")
 api_contract = dashboard.get("apiTiers") or {}
 if api_contract.get("gate") != "make stable-surface-check":
     missing.append("governance dashboard apiTiers gate mismatch")
@@ -1394,6 +1491,7 @@ if traceability.get("missingSources"):
 required_claim_ids = {
     "stable-surface-contract",
     "release-readiness",
+    "release-evidence-drift-closure",
     "required-checks-drift",
     "runtime-operations",
     "generated-upgrade-dry-run",

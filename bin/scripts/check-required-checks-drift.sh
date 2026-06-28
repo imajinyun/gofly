@@ -14,6 +14,8 @@ makefile_path = root / "Makefile"
 governance_script_path = root / "bin" / "scripts" / "governance-10-rounds.sh"
 agents_path = root / "AGENTS.md"
 required_check_manifest_path = root / "docs" / "reference" / "ci-required-check-evidence.json"
+release_evidence_index_path = root / "docs" / "releases" / "evidence-index.json"
+release_evidence_consumption_path = root / "docs" / "releases" / "evidence-consumption.json"
 
 expected_default_checks = {
     "build & test (go 1.26)",
@@ -156,6 +158,8 @@ release_artifacts_test = (root / "bin" / "scripts" / "check-release-artifacts-te
 public_api_script = (root / "bin" / "scripts" / "check-public-api.sh").read_text(encoding="utf-8")
 public_api_test = (root / "bin" / "scripts" / "check-public-api-test.sh").read_text(encoding="utf-8")
 required_check_manifest = json.loads(required_check_manifest_path.read_text(encoding="utf-8"))
+release_evidence_index = json.loads(release_evidence_index_path.read_text(encoding="utf-8"))
+release_evidence_consumption = json.loads(release_evidence_consumption_path.read_text(encoding="utf-8"))
 
 missing = []
 
@@ -386,6 +390,78 @@ require(
     "ci-required-check-evidence.json: releasePrerequisiteDrift jobs drifted: "
     f"missing={sorted(expected_release_needs - release_drift_jobs)} extra={sorted(release_drift_jobs - expected_release_needs)}",
 )
+
+release_evidence_items = [
+    item
+    for item in release_evidence_index.get("evidence") or []
+    if isinstance(item, dict)
+]
+release_evidence_ids = {
+    item.get("id", "")
+    for item in release_evidence_items
+    if item.get("id")
+}
+consumption_items = [
+    item
+    for item in release_evidence_consumption.get("items") or []
+    if isinstance(item, dict)
+]
+consumption_ids = {
+    item.get("id", "")
+    for item in consumption_items
+    if item.get("id")
+}
+require(
+    release_evidence_consumption.get("schema") == "gofly.release_evidence_consumption.v1",
+    "evidence-consumption.json: schema mismatch",
+)
+drift_closure = release_evidence_consumption.get("driftClosure") or {}
+require(
+    drift_closure.get("schema") == "gofly.release_evidence_drift_closure.v1",
+    "evidence-consumption.json: driftClosure schema mismatch",
+)
+require(
+    drift_closure.get("requiredCheckSource") == "docs/reference/ci-required-check-evidence.json",
+    "evidence-consumption.json: driftClosure requiredCheckSource must point to ci-required-check-evidence.json",
+)
+require(
+    drift_closure.get("driftGate") == "make required-checks-drift-check",
+    "evidence-consumption.json: driftClosure driftGate must be make required-checks-drift-check",
+)
+require(
+    drift_closure.get("dashboardReportField") == "releaseEvidenceConsumption.driftClosure",
+    "evidence-consumption.json: driftClosure dashboardReportField mismatch",
+)
+require(
+    set(drift_closure.get("requiredEvidenceIds") or []) == release_evidence_ids,
+    "evidence-consumption.json: driftClosure requiredEvidenceIds drifted from evidence-index: "
+    f"missing={sorted(release_evidence_ids - set(drift_closure.get('requiredEvidenceIds') or []))} "
+    f"extra={sorted(set(drift_closure.get('requiredEvidenceIds') or []) - release_evidence_ids)}",
+)
+require(
+    consumption_ids == release_evidence_ids,
+    "evidence-consumption.json: consumed evidence ids drifted from evidence-index: "
+    f"missing={sorted(release_evidence_ids - consumption_ids)} extra={sorted(consumption_ids - release_evidence_ids)}",
+)
+for item in release_evidence_items:
+    evidence_id = item.get("id", "")
+    producer = item.get("producerJob", "")
+    require(
+        producer == "release" or producer in release_drift_jobs,
+        f"evidence-index.json: release evidence {evidence_id!r} producer {producer!r} is not a release prerequisite or explicit release artifact producer",
+    )
+    if producer != "release":
+        require(
+            any(entry.get("job") == producer for entry in release_drift),
+            f"evidence-index.json: release evidence {evidence_id!r} producer {producer!r} lacks releasePrerequisiteDrift coverage",
+        )
+for item in consumption_items:
+    evidence_id = item.get("id", "")
+    for field in ("questionAnswered", "consumerAction", "rollbackOrEscalation"):
+        require(
+            len(str(item.get(field) or "").split()) >= 5,
+            f"evidence-consumption.json: {evidence_id} {field} must be actionable",
+        )
 
 default_required_job_ids = expected_release_needs | {"dependency-review", "branch-protection-audit"}
 require(

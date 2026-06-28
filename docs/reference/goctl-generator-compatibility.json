@@ -154,17 +154,28 @@
     },
     {
       "id": "multi-language-client-generation",
-      "status": "planned",
-      "implementation": [],
-      "tests": [],
-      "promotionCriteria": [
-        "define supported client languages and output contracts",
-        "add generated client fixtures for old, current, and future API inputs",
-        "verify generated clients in isolated temporary projects",
-        "add compatibility notes and rollback guidance"
+      "status": "implemented",
+      "implementation": [
+        "cmd/gofly/internal/generator/api_codegen.go",
+        "cmd/gofly/internal/command/api_client_command.go",
+        "cmd/gofly/internal/command/idl_registry.go"
       ],
-      "gate": "make goctl-generator-compat-check",
-      "rollbackNote": "Keep client generation scoped to current Go artifacts until language-specific compile and compatibility gates exist."
+      "tests": [
+        "cmd/gofly/internal/generator/idl_test.go",
+        "cmd/gofly/internal/command/idl_test.go"
+      ],
+      "evidence": [
+        "GenerateAPIClient",
+        "typescript",
+        "javascript",
+        "dart",
+        "java",
+        "kotlin",
+        "TestGenerateAPIClientPathAndQueryParams",
+        "TestExecuteAPIClientGeneration"
+      ],
+      "gate": "go test -shuffle=on ./cmd/gofly/internal/generator ./cmd/gofly/internal/command -run TestGenerateAPIClientPathAndQueryParams|TestExecuteAPIClientGeneration",
+      "rollbackNote": "Keep client generation pinned to the last passing API client matrix if language-specific path, query, or command compatibility evidence regresses."
     }
   ],
   "releaseGates": [

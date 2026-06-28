@@ -3,6 +3,7 @@ set -eu
 
 mode="${REFERENCE_APP_MODE:-memory}"
 compose_file="examples/production-orders/compose.yaml"
+report_path="${REFERENCE_APP_REPORT:-.aiflow/reference-app-smoke-report.json}"
 
 python3 - "$mode" <<'PY'
 import json
@@ -93,6 +94,7 @@ if manifest_path.is_file():
 else:
     manifest = {}
     missing.append("docs/reference/reference-app-topology.json: file is missing")
+gitignore = (root / ".gitignore").read_text(encoding="utf-8")
 
 require(manifest.get("schema") == "gofly.reference_app_topology.v1", "reference app topology schema mismatch")
 require(manifest.get("status") == "blocking", "reference app topology status must be blocking")
@@ -259,6 +261,74 @@ for row_id, expected in required_r8_rows.items():
         f"reference app R8 production drill {row_id}: rollbackOrEscalation must name rollback, fallback, keep, pin, or disable",
     )
 
+p9_live_proof = manifest.get("p9DockerLiveProof") or {}
+require(
+    p9_live_proof.get("schema") == "gofly.reference_app_docker_live_proof.v1",
+    "reference app P9 docker live proof schema mismatch",
+)
+require(
+    p9_live_proof.get("aiflowTask") == "GOFLY-GOV-10P9-03",
+    "reference app P9 docker live proof aiflowTask mismatch",
+)
+require(
+    p9_live_proof.get("status") == "blocking",
+    "reference app P9 docker live proof status must be blocking",
+)
+require(
+    p9_live_proof.get("acceptanceGate") == "make reference-app-smoke",
+    "reference app P9 docker live proof acceptanceGate must be make reference-app-smoke",
+)
+require(
+    p9_live_proof.get("runtimeEvidencePath") == ".aiflow/reference-app-smoke-report.json",
+    "reference app P9 docker live proof runtimeEvidencePath mismatch",
+)
+require(
+    ".aiflow/" in gitignore,
+    "reference app P9 docker live proof runtime evidence must stay under ignored .aiflow/",
+)
+require(
+    set(p9_live_proof.get("components") or []) == {
+        "Postgres SQL outbox",
+        "Redis cache",
+        "Kafka",
+        "RabbitMQ",
+        "Redis Stream",
+        "Consul",
+        "etcd",
+        "Nacos",
+        "OpenTelemetry collector",
+    },
+    "reference app P9 docker live proof components mismatch",
+)
+require(
+    set(p9_live_proof.get("requiredReportFields") or []) == {
+        "schema",
+        "aiflowTask",
+        "mode",
+        "status",
+        "liveCompose",
+        "fallbackReason",
+        "gate",
+        "components",
+    },
+    "reference app P9 docker live proof requiredReportFields mismatch",
+)
+for field in ("liveSuccessPolicy", "fallbackPolicy", "rollbackOrEscalation"):
+    require(
+        len(str(p9_live_proof.get(field) or "").split()) >= 10,
+        f"reference app P9 docker live proof {field} must be actionable",
+    )
+fallback_reasons = set(p9_live_proof.get("allowedFallbackReasons") or [])
+require(
+    fallback_reasons == {
+        "memory-mode",
+        "docker-cli-missing",
+        "docker-daemon-unavailable",
+        "compose-dependency-pull-failed",
+    },
+    "reference app P9 docker live proof allowedFallbackReasons mismatch",
+)
+
 adopter_proof = manifest.get("adopterProof") or {}
 require(
     adopter_proof.get("schema") == "gofly.reference_app_adopter_proof.v1",
@@ -333,17 +403,59 @@ if missing:
 print(f"reference app smoke ok ({mode})")
 PY
 
+write_report() {
+	status="$1"
+	live_compose="$2"
+	fallback_reason="$3"
+	mkdir -p "$(dirname "$report_path")"
+	python3 - "$report_path" "$mode" "$status" "$live_compose" "$fallback_reason" <<'PY'
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+mode = sys.argv[2]
+status = sys.argv[3]
+live_compose = sys.argv[4] == "true"
+fallback_reason = sys.argv[5]
+report = {
+    "schema": "gofly.reference_app_smoke_report.v1",
+    "aiflowTask": "GOFLY-GOV-10P9-03",
+    "mode": mode,
+    "status": status,
+    "liveCompose": live_compose,
+    "fallbackReason": fallback_reason,
+    "gate": "make reference-app-smoke",
+    "components": [
+        "Postgres SQL outbox",
+        "Redis cache",
+        "Kafka",
+        "RabbitMQ",
+        "Redis Stream",
+        "Consul",
+        "etcd",
+        "Nacos",
+        "OpenTelemetry collector",
+    ],
+}
+path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+PY
+}
+
 if [ "$mode" = "memory" ]; then
 	(cd examples/production-orders && go test -count=1 ./...)
+	write_report "passed" "false" "memory-mode"
 	exit 0
 fi
 
 if ! command -v docker >/dev/null 2>&1; then
 	echo "reference app docker mode static topology verified; docker not found, skipping live compose smoke"
+	write_report "skipped" "false" "docker-cli-missing"
 	exit 0
 fi
 if ! docker info >/dev/null 2>&1; then
 	echo "reference app docker mode static topology verified; docker daemon unavailable, skipping live compose smoke"
+	write_report "skipped" "false" "docker-daemon-unavailable"
 	exit 0
 fi
 
@@ -352,6 +464,7 @@ if ! docker compose -f "$compose_file" up -d --build production-orders >"$compos
 	if grep -E 'docker-credential|credential helper|Pulling|pull access denied|network.*timeout|TLS handshake timeout' "$compose_log" >/dev/null 2>&1; then
 		echo "reference app docker mode static topology verified; docker compose dependency pull failed, skipping live compose smoke"
 		cat "$compose_log"
+		write_report "skipped" "false" "compose-dependency-pull-failed"
 		exit 0
 	fi
 	cat "$compose_log"
@@ -366,3 +479,4 @@ trap cleanup EXIT INT TERM
 PRODUCTION_ORDERS_URL="${PRODUCTION_ORDERS_URL:-http://127.0.0.1:18090}" \
 PRODUCTION_ORDERS_ADMIN_URL="${PRODUCTION_ORDERS_ADMIN_URL:-http://127.0.0.1:18091}" \
 	sh examples/production-orders/scripts/smoke.sh
+write_report "passed" "true" ""

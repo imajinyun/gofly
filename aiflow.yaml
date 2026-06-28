@@ -56,6 +56,7 @@ commands:
     - git diff
     - git status
     - make governance-10-rounds
+    - make governance-boundary-inventory-check
     - make framework-gap-check
     - make stable-surface-check
     - make generated-version-compat-check
@@ -107,11 +108,13 @@ acceptance:
     - Makefile
     - aiflow.yaml
     - docs/reference/framework-gap-matrix.md
+    - docs/reference/framework-gap-post-r8-roadmap.json
     - docs/reference/governance-boundary-inventory.json
     - bin/scripts/check-framework-gap.sh
     - bin/scripts/check-governance-boundary-inventory.sh
   required_commands:
     - go test ./...
+    - make governance-boundary-inventory-check
     - make framework-gap-check
     - make governance-report-check
     - make required-checks-drift-check

@@ -11,9 +11,10 @@ root = pathlib.Path(".").resolve()
 manifest_path = root / "docs" / "reference" / "governance-boundary-inventory.json"
 convergence_path = root / "docs" / "reference" / "governance-convergence-verification.json"
 p10_path = root / "docs" / "reference" / "governance-p10-roadmap.json"
+post_r8_path = root / "docs" / "reference" / "framework-gap-post-r8-roadmap.json"
 missing = []
 
-expected_active_batch = "GOFLY-GOV-10R8"
+expected_active_batch = "GOFLY-GOV-10P9"
 expected_converged_batch = "GOFLY-GOV-10R8"
 expected_tasks = [f"{expected_active_batch}-{idx:02d}" for idx in range(1, 11)]
 expected_converged_tasks = [f"{expected_converged_batch}-{idx:02d}" for idx in range(1, 11)]
@@ -54,8 +55,13 @@ expected_batches = {
         "roundCount": 10,
     },
     "GOFLY-GOV-10R8": {
-        "status": "active",
+        "status": "completed",
         "taskPrefix": "GOFLY-GOV-10R8-",
+        "roundCount": 10,
+    },
+    "GOFLY-GOV-10P9": {
+        "status": "active",
+        "taskPrefix": "GOFLY-GOV-10P9-",
         "roundCount": 10,
     },
 }
@@ -136,6 +142,11 @@ if p10_path.is_file():
 else:
     p10_manifest = {}
     missing.append("docs/reference/governance-p10-roadmap.json is missing")
+if post_r8_path.is_file():
+    post_r8 = json.loads(post_r8_path.read_text(encoding="utf-8"))
+else:
+    post_r8 = {}
+    missing.append("docs/reference/framework-gap-post-r8-roadmap.json is missing")
 
 makefile = read_text(root / "Makefile")
 gitignore = read_text(root / ".gitignore")
@@ -144,6 +155,7 @@ targets = make_target_names(makefile)
 
 require(manifest.get("schema") == "gofly.governance_boundary_inventory.v1", "schema must be gofly.governance_boundary_inventory.v1")
 require(p10_manifest.get("schema") == "gofly.governance_p10_roadmap.v1", "P10 roadmap schema mismatch")
+require(post_r8.get("schema") == "gofly.framework_gap_post_r8_roadmap.v1", "post-R8 framework gap schema mismatch")
 require(manifest.get("activeAiflowBatch") == expected_active_batch, f"activeAiflowBatch must be {expected_active_batch}")
 require("governance-boundary-inventory-check" in targets, "Makefile must expose governance-boundary-inventory-check")
 require("api-contract-check" in targets, "Makefile must expose api-contract-check")
@@ -183,13 +195,27 @@ for expected_round, item in enumerate(tasks, start=1):
         f"{task_id}: commitPolicy must describe the per-task commit checkpoint",
     )
     require(gate_is_known(item.get("gate", ""), targets), f"{task_id}: gate is not known: {item.get('gate')!r}")
+expected_task_gates = [
+    "make rpc-boundary-check",
+    "make generated-version-compat-check",
+    "make reference-app-smoke",
+    "make bench-regression-check",
+    "make governance-report-check",
+    "make cloud-native-render-check",
+    "make plugin-conformance-check",
+    "make adopter-decision-check",
+    "make dx-troubleshooting-check",
+    "make governance-10-rounds",
+]
+actual_task_gates = [item.get("gate") for item in tasks if isinstance(item, dict)]
+require(actual_task_gates == expected_task_gates, f"P9 task gates mismatch: {actual_task_gates!r}")
 require(
-    tasks[0].get("gate") == "make framework-gap-check",
-    "R8 round 01 must use framework-gap-check as the roadmap acceptance gate",
+    "release-train" in tasks[0].get("deliverable", "").lower(),
+    "P9 round 01 deliverable must document RPC release-train evidence",
 )
 require(
-    tasks[0].get("deliverable", "").lower().find("non-community") >= 0,
-    "R8 round 01 deliverable must document the non-community comparison scope",
+    "latency parity" in tasks[0].get("objective", "").lower(),
+    "P9 round 01 objective must keep latency parity claims conservative",
 )
 
 surfaces = manifest.get("surfaces") or []
@@ -220,6 +246,46 @@ for gate in baseline_gates:
 timeout_policy = manifest.get("timeoutPolicy") or {}
 require(timeout_policy.get("aiflowDefaultCommandTimeout") == "2m", "timeoutPolicy must record the aiflow 2m command timeout")
 require("governance-boundary-inventory-check" in timeout_policy.get("fallback", ""), "timeoutPolicy fallback must mention governance-boundary-inventory-check")
+
+post_r8_dimensions = post_r8.get("dimensions") or []
+expected_post_r8_ids = [
+    "rpc-tier1-release-train-closeout",
+    "generated-project-historical-fixture-matrix",
+    "reference-app-docker-backed-live-proof",
+    "gateway-cache-benchmark-ownership",
+    "hosted-release-ci-evidence-closure",
+    "cloud-native-live-render-validation",
+    "plugin-registry-publish-hardening",
+    "adopter-migration-proof-expansion",
+    "cli-doctor-remediation-loop",
+    "p9-convergence-evidence",
+]
+actual_post_r8_ids = [
+    item.get("id")
+    for item in post_r8_dimensions
+    if isinstance(item, dict)
+]
+require(actual_post_r8_ids == expected_post_r8_ids, f"post-R8 roadmap dimensions mismatch: {actual_post_r8_ids!r}")
+post_r8_order = post_r8.get("recommendedOrder") or []
+require(post_r8_order == expected_tasks, f"post-R8 recommendedOrder must match active P9 tasks: {post_r8_order!r}")
+post_r8_scope = post_r8.get("scope") or {}
+post_r8_excluded = set(post_r8_scope.get("excluded") or [])
+for out_of_scope in ("GitHub stars", "download counts", "community size", "brand awareness"):
+    require(out_of_scope in post_r8_excluded, f"post-R8 scope.excluded missing {out_of_scope!r}")
+for expected_round, item in enumerate(post_r8_dimensions, start=1):
+    if not isinstance(item, dict):
+        missing.append(f"post-R8 dimension must be an object: {item!r}")
+        continue
+    item_id = item.get("id", "<missing>")
+    require(item.get("round") == expected_round, f"{item_id}: round must be {expected_round}")
+    for field in ("id", "priority", "referenceFrameworks", "currentEvidence", "gap", "todo", "aiflowTask", "acceptanceGate"):
+        require(bool(item.get(field)), f"{item_id}: {field} is required")
+    require(item.get("aiflowTask") == expected_tasks[expected_round - 1], f"{item_id}: aiflowTask mismatch")
+    require(item.get("acceptanceGate") == expected_task_gates[expected_round - 1], f"{item_id}: acceptanceGate mismatch")
+    require(gate_is_known(item.get("acceptanceGate", ""), targets), f"{item_id}: acceptanceGate is not known: {item.get('acceptanceGate')!r}")
+    for evidence in item.get("currentEvidence") or []:
+        if evidence.startswith(("docs/", "examples/", "bench/", "charts/", "k8s/")):
+            require((root / evidence).exists(), f"{item_id}: evidence path missing: {evidence}")
 
 require(convergence_manifest.get("schema") == "gofly.governance_convergence_verification.v1", "convergence verification schema mismatch")
 require(convergence_manifest.get("aiflowTask") == "GOFLY-GOV-10R8-10", "convergence verification aiflowTask mismatch")

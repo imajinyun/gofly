@@ -5,6 +5,79 @@
     "metric": "allocs/op median",
     "tolerance": 0
   },
+  "adopterPerformanceContract": {
+    "schema": "gofly.benchmark_adopter_performance_contract.v1",
+    "source": "bench/budget-ratchet.json",
+    "dashboardReportField": "benchmark.adopterPerformanceContract",
+    "acceptanceGates": [
+      "make bench-regression-check",
+      "make bench-evidence-check",
+      "make bench-trend"
+    ],
+    "policy": "Adopters may treat only ratcheted allocation budgets and explicitly promoted latency rows as blocking; RPC, gateway, cache, and unpromoted HTTP latency rows remain trend evidence until promotion criteria pass.",
+    "blockingSurfaces": [
+      {
+        "id": "rest-route-hot-path",
+        "budgetScope": "allocation-blocking",
+        "benchmark": "BenchmarkHTTPHello/gofly",
+        "adopterAction": "Block release when allocs/op median regresses beyond the ratchet tolerance for the REST route hot path.",
+        "rollbackAction": "Revert the route hot-path change or keep the previous release until allocation evidence is restored."
+      },
+      {
+        "id": "governance-rule-match",
+        "budgetScope": "latency-and-allocation-blocking",
+        "benchmark": "BenchmarkHTTPGovernance/enabled",
+        "adopterAction": "Block release when promoted governance rule-match latency or allocation budgets regress under bench-regression-check.",
+        "rollbackAction": "Disable the new governance hot-path change or keep the previous policy implementation until benchmark evidence recovers."
+      }
+    ],
+    "reportOnlySurfaces": [
+      {
+        "id": "http-latency-report-only",
+        "benchmarks": [
+          "BenchmarkHTTPHello/gofly",
+          "BenchmarkHTTPPathParams/gofly",
+          "BenchmarkHTTPJSONBinding/gofly",
+          "BenchmarkHTTPMiddlewareChain/gofly"
+        ],
+        "adopterAction": "Use unpromoted HTTP latency rows as trend evidence, not release blockers, until the ratchet promotes a row.",
+        "rollbackAction": "Investigate trend regressions before promotion and keep allocation budgets as the blocking guardrail."
+      },
+      {
+        "id": "rpc-candidate-report-only",
+        "benchmarks": [
+          "BenchmarkRPCUnary/gofly_rpc",
+          "BenchmarkRPCStreamGovernance",
+          "BenchmarkRPCServerStreamGovernance",
+          "BenchmarkRPCClientStreamGovernance",
+          "BenchmarkRPCBidiStreamGovernance"
+        ],
+        "adopterAction": "Treat RPC rows as candidate trend evidence and keep latency-critical methods on Kitex or existing gRPC paths.",
+        "rollbackAction": "Block RPC Tier 1 promotion until release trains and blocking budget evidence are attached."
+      }
+    ],
+    "unsupportedSurfaces": [
+      {
+        "id": "gateway-proxy",
+        "requiredEvidence": "dedicated gateway proxy benchmark with five baseline samples, current trend samples, allocation budget, and rollback guidance",
+        "adopterAction": "Do not claim gateway proxy performance as ratcheted until a dedicated benchmark row is published.",
+        "rollbackAction": "Keep gateway performance claims report-only and rely on functional smoke gates for adoption."
+      },
+      {
+        "id": "cache-hot-path",
+        "requiredEvidence": "dedicated cache hot-path benchmark with five baseline samples, current trend samples, allocation budget, and cache-mode notes",
+        "adopterAction": "Do not claim cache hot-path performance as ratcheted until dedicated benchmark evidence exists.",
+        "rollbackAction": "Keep cache adoption decisions tied to behavior tests and observability until benchmark evidence is published."
+      }
+    ],
+    "promotionRules": [
+      "minimum 5 baseline samples",
+      "minimum 3 current trend samples",
+      "no allocation regression under bench-regression-check",
+      "latency rows promoted only after documented reason and maxRegressionRatio",
+      "rollback guidance remains attached for candidate RPC rows"
+    ]
+  },
   "latencyPolicy": {
     "defaultMode": "report-only",
     "promoted": [

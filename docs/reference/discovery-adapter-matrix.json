@@ -29,6 +29,84 @@
     "frameworkGapEvidence": "docs/reference/framework-gap-long-term-adoption.json",
     "dependencyEvidence": "docs/reference/dependency-upgrade-evidence.json"
   },
+  "r8RunnableProofMatrix": {
+    "schema": "gofly.discovery_runnable_proof_matrix.v1",
+    "aiflowTask": "GOFLY-GOV-10R8-05",
+    "status": "blocking-contract",
+    "acceptanceGate": "make discovery-adapter-matrix-check",
+    "rows": [
+      {
+        "id": "memory-discovery-proof",
+        "provider": "memory",
+        "classification": "runnable",
+        "runnableGate": "go test -shuffle=on ./core/discovery/...",
+        "dependencyBoundary": "Memory discovery is root-owned and must remain dependency-free for local, generated, and rollback smoke tests.",
+        "observabilityEvidence": "Matrix capabilities record register, resolve, watch, TTL lease, health filtering, metadata filtering, and watcher cleanup behavior.",
+        "fallbackBehavior": "Fallback to memory discovery for local smoke and generated examples when networked discovery providers are unavailable.",
+        "rollbackOrEscalation": "Keep memory discovery enabled as the safe rollback path until provider-specific resolver and watch evidence passes."
+      },
+      {
+        "id": "consul-discovery-proof",
+        "provider": "consul",
+        "classification": "runnable",
+        "runnableGate": "go test -shuffle=on ./core/discovery/...",
+        "dependencyBoundary": "Consul client upgrades require dependency evidence, discovery matrix review, and integration ownership before release promotion.",
+        "observabilityEvidence": "Consul matrix rows expose registration, health filtering, watch, TTL lease, metadata filters, and failover guidance.",
+        "fallbackBehavior": "Fallback to memory discovery or the previous Consul registration path when health checks or watches diverge.",
+        "rollbackOrEscalation": "Route traffic through the previous consul profile until Consul watch, health, dependency, and integration evidence pass."
+      },
+      {
+        "id": "etcdv3-discovery-proof",
+        "provider": "etcdv3",
+        "classification": "runnable",
+        "runnableGate": "go test -shuffle=on ./core/discovery/...",
+        "dependencyBoundary": "etcd client, lease, watch, resolver, and TLS upgrades require dependency evidence plus optional Docker-backed integration evidence.",
+        "observabilityEvidence": "etcdv3 unit and integration entries cover register, resolve, watch, TTL lease, health filtering, metadata filtering, and failover behavior.",
+        "fallbackBehavior": "Fallback to memory discovery or the previous etcd service registration path when lease or watch evidence fails.",
+        "rollbackOrEscalation": "Keep the previous etcdv3 registration compatible until generated services pass discovery smoke and integration gates."
+      },
+      {
+        "id": "nacos-config-only-proof",
+        "provider": "nacos",
+        "classification": "config-only",
+        "runnableGate": "make discovery-adapter-matrix-check",
+        "dependencyBoundary": "Nacos dependencies are scoped to config source ownership until a dedicated discovery adapter task adds resolver semantics.",
+        "observabilityEvidence": "The matrix records Nacos as config-only and keeps register, resolve, watch, TTL, and filtering capabilities false.",
+        "fallbackBehavior": "Fallback to existing platform discovery while Nacos remains config-only and cannot route discovery traffic.",
+        "rollbackOrEscalation": "Do not promote Nacos discovery until a core/discovery/nacos adapter, tests, integration evidence, and rollback notes exist."
+      },
+      {
+        "id": "dns-discovery-proof",
+        "provider": "dns",
+        "classification": "planned",
+        "runnableGate": "make discovery-adapter-matrix-check",
+        "dependencyBoundary": "DNS discovery must stay dependency-light and resolver-only until TTL, negative-cache, and generated profile evidence lands.",
+        "observabilityEvidence": "The planned row records missing register, watch, TTL lease, health filtering, metadata filtering, and resolver semantics.",
+        "fallbackBehavior": "Fallback to existing platform DNS or application configuration until resolver-only behavior is implemented and documented.",
+        "rollbackOrEscalation": "Keep dns-backed services on existing platform discovery until gofly DNS resolver tests and rollback guidance pass."
+      },
+      {
+        "id": "kubernetes-discovery-proof",
+        "provider": "kubernetes",
+        "classification": "planned",
+        "runnableGate": "make required-checks-drift-check",
+        "dependencyBoundary": "Kubernetes discovery must not add cluster credentials to local tests and must align with Helm, Kustomize, RBAC, and EndpointSlice evidence.",
+        "observabilityEvidence": "The planned row records Service, EndpointSlice, watch, RBAC, Helm, and Kustomize promotion criteria without claiming runtime support.",
+        "fallbackBehavior": "Fallback to native Kubernetes Service discovery until gofly adapter endpoint, policy, fixture, and optional integration evidence exists.",
+        "rollbackOrEscalation": "Use existing Kubernetes service discovery directly until adapter semantics and cloud-native production gates pass."
+      },
+      {
+        "id": "static-discovery-proof",
+        "provider": "static",
+        "classification": "planned",
+        "runnableGate": "make discovery-adapter-matrix-check",
+        "dependencyBoundary": "Static discovery must validate file path safety, reload behavior, and generated profile boundaries before any file-backed adapter lands.",
+        "observabilityEvidence": "The planned row records immutable and reloadable profile requirements, path safety, generated smoke, and rollback criteria.",
+        "fallbackBehavior": "Fallback to application configuration or memory discovery until static reload, validation, and generated smoke coverage exists.",
+        "rollbackOrEscalation": "Keep static endpoints outside gofly discovery until path validation, reload evidence, and rollback notes are machine-checked."
+      }
+    ]
+  },
   "providers": [
     {
       "id": "memory",

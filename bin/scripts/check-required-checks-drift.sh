@@ -873,19 +873,27 @@ expected_adopter_proofs = {
         "family": "sql",
         "adapter": "SQLStore / Cluster",
         "gate": "make db-cache-productization-check",
-        "requiredAdapters": {"mysql", "postgres", "sqlite-memory"},
+        "requiredAdapters": {"mysql", "postgres", "sqlite-memory", "sql-transaction", "sql-outbox"},
     },
     "redis-cache-adoption-proof": {
         "family": "redis",
         "adapter": "Redis model cache / tiered cache",
         "gate": "make db-cache-productization-check",
-        "requiredAdapters": {"redis-cache", "redis-stream", "typed-tiered-cache"},
+        "requiredAdapters": {"redis-cache", "redis-stream", "typed-tiered-cache", "local-cache", "cache-invalidation"},
     },
     "discovery-adapter-adoption-proof": {
         "family": "discovery",
         "adapter": "memory / Consul / etcdv3 discovery",
         "gate": "make discovery-adapter-matrix-check",
-        "requiredAdapters": {"memory", "consul", "etcdv3"},
+        "requiredAdapters": {
+            "memory",
+            "consul",
+            "etcdv3",
+            "nacos-config",
+            "dns-planned",
+            "kubernetes-planned",
+            "static-planned",
+        },
     },
 }
 actual_adopter_proof_ids = {

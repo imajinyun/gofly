@@ -107,6 +107,63 @@ require(
     "governanceCoverage.dependencyEvidence must point to dependency-upgrade-evidence.json",
 )
 
+r8_matrix = matrix.get("r8RunnableProofMatrix") or {}
+require(
+    r8_matrix.get("schema") == "gofly.discovery_runnable_proof_matrix.v1",
+    "r8RunnableProofMatrix.schema must be gofly.discovery_runnable_proof_matrix.v1",
+)
+require(
+    r8_matrix.get("aiflowTask") == "GOFLY-GOV-10R8-05",
+    "r8RunnableProofMatrix.aiflowTask must be GOFLY-GOV-10R8-05",
+)
+require(
+    r8_matrix.get("status") == "blocking-contract",
+    "r8RunnableProofMatrix.status must be blocking-contract",
+)
+require(
+    r8_matrix.get("acceptanceGate") == "make discovery-adapter-matrix-check",
+    "r8RunnableProofMatrix.acceptanceGate must be make discovery-adapter-matrix-check",
+)
+r8_rows = {
+    item.get("id"): item
+    for item in r8_matrix.get("rows") or []
+    if isinstance(item, dict) and item.get("id")
+}
+expected_r8_rows = {
+    "memory-discovery-proof": ("memory", "runnable", "go test -shuffle=on ./core/discovery/..."),
+    "consul-discovery-proof": ("consul", "runnable", "go test -shuffle=on ./core/discovery/..."),
+    "etcdv3-discovery-proof": ("etcdv3", "runnable", "go test -shuffle=on ./core/discovery/..."),
+    "nacos-config-only-proof": ("nacos", "config-only", "make discovery-adapter-matrix-check"),
+    "dns-discovery-proof": ("dns", "planned", "make discovery-adapter-matrix-check"),
+    "kubernetes-discovery-proof": ("kubernetes", "planned", "make required-checks-drift-check"),
+    "static-discovery-proof": ("static", "planned", "make discovery-adapter-matrix-check"),
+}
+require(
+    set(r8_rows) == set(expected_r8_rows),
+    f"r8RunnableProofMatrix rows drifted: missing={sorted(set(expected_r8_rows) - set(r8_rows))} extra={sorted(set(r8_rows) - set(expected_r8_rows))}",
+)
+for row_id, (provider, classification, gate) in expected_r8_rows.items():
+    row = r8_rows.get(row_id) or {}
+    require(row.get("provider") == provider, f"{row_id}: provider must be {provider}")
+    require(row.get("classification") == classification, f"{row_id}: classification must be {classification}")
+    require(row.get("runnableGate") == gate, f"{row_id}: runnableGate mismatch")
+    require(gate_is_known(str(row.get("runnableGate") or ""), targets), f"{row_id}: runnableGate is not known")
+    for field in ("dependencyBoundary", "observabilityEvidence", "fallbackBehavior", "rollbackOrEscalation"):
+        require(len(str(row.get(field) or "").split()) >= 10, f"{row_id}: {field} must be actionable")
+    require("Fallback" in str(row.get("fallbackBehavior") or ""), f"{row_id}: fallbackBehavior must name fallback")
+    require(
+        provider in str(row.get("rollbackOrEscalation") or "")
+        or provider in {"memory", "kubernetes", "static"},
+        f"{row_id}: rollbackOrEscalation should name the provider or platform boundary",
+    )
+    if classification == "runnable":
+        require("dependency" in str(row.get("dependencyBoundary") or "").lower(), f"{row_id}: dependencyBoundary must name dependency ownership")
+    if classification in {"planned", "config-only"}:
+        require(
+            "until" in str(row.get("rollbackOrEscalation") or "").lower(),
+            f"{row_id}: planned/config-only rollbackOrEscalation must describe promotion boundary",
+        )
+
 providers = matrix.get("providers") or []
 provider_map = {
     item.get("id"): item

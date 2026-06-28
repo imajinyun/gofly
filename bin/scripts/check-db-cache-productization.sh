@@ -109,6 +109,76 @@ status_policy = manifest.get("statusPolicy") or {}
 for status in {"implemented", "planned"}:
     require(status in status_policy, f"statusPolicy must document {status}")
 
+r8_matrix = manifest.get("r8RunnableProofMatrix") or {}
+require(
+    r8_matrix.get("schema") == "gofly.db_cache_runnable_proof_matrix.v1",
+    "r8RunnableProofMatrix.schema must be gofly.db_cache_runnable_proof_matrix.v1",
+)
+require(
+    r8_matrix.get("aiflowTask") == "GOFLY-GOV-10R8-05",
+    "r8RunnableProofMatrix.aiflowTask must be GOFLY-GOV-10R8-05",
+)
+require(
+    r8_matrix.get("status") == "blocking-contract",
+    "r8RunnableProofMatrix.status must be blocking-contract",
+)
+require(
+    r8_matrix.get("acceptanceGate") == "make db-cache-productization-check",
+    "r8RunnableProofMatrix.acceptanceGate must be make db-cache-productization-check",
+)
+r8_rows = {
+    item.get("id"): item
+    for item in r8_matrix.get("rows") or []
+    if isinstance(item, dict) and item.get("id")
+}
+expected_r8_rows = {
+    "sql-transaction-proof": {
+        "adapterNeedles": {"SQLStore.Transact", "Cluster.Transact"},
+        "gate": "go test -shuffle=on ./core/storage/...",
+        "fallbackNeedles": {"Fallback", "sqlite-memory"},
+    },
+    "sql-outbox-proof": {
+        "adapterNeedles": {"SQL outbox"},
+        "gate": "go test -shuffle=on ./core/outbox/...",
+        "fallbackNeedles": {"Fallback", "broker"},
+    },
+    "redis-model-cache-proof": {
+        "adapterNeedles": {"Redis model cache"},
+        "gate": "go test -shuffle=on ./cache ./core/kv/...",
+        "fallbackNeedles": {"Fallback", "GOFLY_CACHE_DISABLED"},
+    },
+    "local-tiered-cache-proof": {
+        "adapterNeedles": {"typed local", "tiered cache"},
+        "gate": "go test -shuffle=on ./cache",
+        "fallbackNeedles": {"Fallback", "GOFLY_CACHE_DISABLED"},
+    },
+    "cache-invalidation-proof": {
+        "adapterNeedles": {"generated cache invalidation"},
+        "gate": "go test -shuffle=on ./cmd/gofly/internal/generator -run TestGenerateModelFromDDL",
+        "fallbackNeedles": {"Fallback", "direct repository writes"},
+    },
+}
+require(
+    set(r8_rows) == set(expected_r8_rows),
+    f"r8RunnableProofMatrix rows drifted: missing={sorted(set(expected_r8_rows) - set(r8_rows))} extra={sorted(set(r8_rows) - set(expected_r8_rows))}",
+)
+for row_id, expected in expected_r8_rows.items():
+    row = r8_rows.get(row_id) or {}
+    require(row.get("status") == "runnable", f"{row_id}: status must be runnable")
+    require(row.get("runnableGate") == expected["gate"], f"{row_id}: runnableGate mismatch")
+    require(gate_is_known(str(row.get("runnableGate") or ""), targets), f"{row_id}: runnableGate is not known")
+    for needle in expected["adapterNeedles"]:
+        require(needle in str(row.get("adapter") or ""), f"{row_id}: adapter missing {needle!r}")
+    for field in ("dependencyBoundary", "observabilityEvidence", "fallbackBehavior", "rollbackOrEscalation"):
+        require(len(str(row.get(field) or "").split()) >= 10, f"{row_id}: {field} must be actionable")
+    for needle in expected["fallbackNeedles"]:
+        require(needle in str(row.get("fallbackBehavior") or ""), f"{row_id}: fallbackBehavior missing {needle!r}")
+    require(
+        "generated" in str(row.get("dependencyBoundary") or "").lower()
+        or row_id in {"sql-outbox-proof", "local-tiered-cache-proof"},
+        f"{row_id}: dependencyBoundary must name generated dependencies or root-owned runtime scope",
+    )
+
 capabilities = manifest.get("capabilities") or []
 capability_map = {
     item.get("id"): item

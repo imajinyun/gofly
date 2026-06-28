@@ -14,7 +14,7 @@ p10_path = root / "docs" / "reference" / "governance-p10-roadmap.json"
 missing = []
 
 expected_active_batch = "GOFLY-GOV-10R8"
-expected_converged_batch = "GOFLY-GOV-10R7"
+expected_converged_batch = "GOFLY-GOV-10R8"
 expected_tasks = [f"{expected_active_batch}-{idx:02d}" for idx in range(1, 11)]
 expected_converged_tasks = [f"{expected_converged_batch}-{idx:02d}" for idx in range(1, 11)]
 expected_batches = {
@@ -60,16 +60,16 @@ expected_batches = {
     },
 }
 expected_converged_commits = {
-    "GOFLY-GOV-10R7-01": "faebdcb",
-    "GOFLY-GOV-10R7-02": "7e57d44",
-    "GOFLY-GOV-10R7-03": "8cdef26",
-    "GOFLY-GOV-10R7-04": "fa4d764",
-    "GOFLY-GOV-10R7-05": "21acec7",
-    "GOFLY-GOV-10R7-06": "c0dfb08",
-    "GOFLY-GOV-10R7-07": "5a4ac7c",
-    "GOFLY-GOV-10R7-08": "638d91d",
-    "GOFLY-GOV-10R7-09": "d572635",
-    "GOFLY-GOV-10R7-10": "self",
+    "GOFLY-GOV-10R8-01": "90417ec",
+    "GOFLY-GOV-10R8-02": "19caf04",
+    "GOFLY-GOV-10R8-03": "b9f51ec",
+    "GOFLY-GOV-10R8-04": "059dcf5",
+    "GOFLY-GOV-10R8-05": "690bce2",
+    "GOFLY-GOV-10R8-06": "a2eb730",
+    "GOFLY-GOV-10R8-07": "01b1554",
+    "GOFLY-GOV-10R8-08": "44b645a",
+    "GOFLY-GOV-10R8-09": "8698e91",
+    "GOFLY-GOV-10R8-10": "self",
 }
 expected_surfaces = {
     "cli",
@@ -222,7 +222,7 @@ require(timeout_policy.get("aiflowDefaultCommandTimeout") == "2m", "timeoutPolic
 require("governance-boundary-inventory-check" in timeout_policy.get("fallback", ""), "timeoutPolicy fallback must mention governance-boundary-inventory-check")
 
 require(convergence_manifest.get("schema") == "gofly.governance_convergence_verification.v1", "convergence verification schema mismatch")
-require(convergence_manifest.get("aiflowTask") == "GOFLY-GOV-10R7-10", "convergence verification aiflowTask mismatch")
+require(convergence_manifest.get("aiflowTask") == "GOFLY-GOV-10R8-10", "convergence verification aiflowTask mismatch")
 require(convergence_manifest.get("acceptanceGate") == "make governance-10-rounds", "convergence verification acceptanceGate mismatch")
 require(convergence_manifest.get("activeBatch") == expected_converged_batch, "convergence verification activeBatch mismatch")
 aggregate_gates = set(convergence_manifest.get("aggregateGates") or [])
@@ -273,11 +273,34 @@ require(execution.get("status") == "completed", "convergence verification aiflow
 require(execution.get("blocker") == "none", "convergence verification aiflowExecution.blocker must be none")
 require("commit and push" in str(execution.get("goflyImpact") or ""), "convergence verification aiflowExecution.goflyImpact must document aiflow commit policy")
 previous_handoff = convergence_manifest.get("previousBatchHandoff") or {}
-require("GOFLY-GOV-10R6-10" in set(previous_handoff.get("supersedes") or []), "previousBatchHandoff must supersede GOFLY-GOV-10R6-10")
-require("R7 active batch" in str(previous_handoff.get("reason") or ""), "previousBatchHandoff.reason must document R7 active batch handoff")
+require("GOFLY-GOV-10R7-10" in set(previous_handoff.get("supersedes") or []), "previousBatchHandoff must supersede GOFLY-GOV-10R7-10")
+require("R8 active batch" in str(previous_handoff.get("reason") or ""), "previousBatchHandoff.reason must document R8 active batch handoff")
 previous_completion_policy = str(previous_handoff.get("completionPolicy") or "")
-for needle in ("GOFLY-GOV-10R7-10", "make governance-boundary-inventory-check", "make governance-report-check", "current agent or human"):
+for needle in ("GOFLY-GOV-10R8-10", "make governance-boundary-inventory-check", "make governance-report-check", "make governance-10-rounds", "current agent or human"):
     require(needle in previous_completion_policy, f"previousBatchHandoff.completionPolicy missing {needle!r}")
+
+known_risks = {
+    item.get("id"): item
+    for item in convergence_manifest.get("knownRisks") or []
+    if isinstance(item, dict) and item.get("id")
+}
+for risk_id in ("docker-backed-reference-app", "performance-latency-claims", "runtime-state"):
+    item = known_risks.get(risk_id) or {}
+    require(bool(item), f"knownRisks missing {risk_id}")
+    for field in ("riskClass", "evidence", "status", "followUp"):
+        require(bool(item.get(field)), f"knownRisks {risk_id}: {field} is required")
+    require(len(str(item.get("followUp") or "").split()) >= 10, f"knownRisks {risk_id}: followUp must be actionable")
+
+recommendations = {
+    item.get("id"): item
+    for item in convergence_manifest.get("nextRoundRecommendations") or []
+    if isinstance(item, dict) and item.get("id")
+}
+for rec_id in ("P9-rpc-tier1-release-train", "P9-generated-project-real-fixtures", "P9-live-production-proof"):
+    item = recommendations.get(rec_id) or {}
+    require(bool(item), f"nextRoundRecommendations missing {rec_id}")
+    require(item.get("priority") in {"P0", "P1", "P2", "P3"}, f"nextRoundRecommendations {rec_id}: priority mismatch")
+    require(len(str(item.get("action") or "").split()) >= 10, f"nextRoundRecommendations {rec_id}: action must be actionable")
 
 p10_rounds = p10_manifest.get("rounds") or []
 require(len(p10_rounds) == 10, "P10 roadmap must contain 10 rounds")

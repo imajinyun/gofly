@@ -1,7 +1,7 @@
 {
   "schema": "gofly.governance_convergence_verification.v1",
-  "aiflowTask": "GOFLY-GOV-10R7-10",
-  "purpose": "Tie the active 10-round governance batch to final convergence gates, commit checkpoints, ignored runtime paths, skip-report policy, and release-blocking verification.",
+  "aiflowTask": "GOFLY-GOV-10R8-10",
+  "purpose": "Tie the active R8 governance batch to final convergence gates, commit checkpoints, ignored runtime paths, skip-report policy, known risks, and release-blocking verification.",
   "acceptanceGate": "make governance-10-rounds",
   "aggregateGates": [
     "make governance-boundary-inventory-check",
@@ -10,67 +10,67 @@
     "make security",
     "make cache-dependency-governance-check"
   ],
-  "activeBatch": "GOFLY-GOV-10R7",
+  "activeBatch": "GOFLY-GOV-10R8",
   "roundCommits": [
     {
       "round": 1,
-      "task": "GOFLY-GOV-10R7-01",
-      "commit": "faebdcb",
+      "task": "GOFLY-GOV-10R8-01",
+      "commit": "90417ec",
       "gate": "make framework-gap-check"
     },
     {
       "round": 2,
-      "task": "GOFLY-GOV-10R7-02",
-      "commit": "7e57d44",
-      "gate": "make adopter-decision-check"
+      "task": "GOFLY-GOV-10R8-02",
+      "commit": "19caf04",
+      "gate": "make openapi-validation-check"
     },
     {
       "round": 3,
-      "task": "GOFLY-GOV-10R7-03",
-      "commit": "8cdef26",
-      "gate": "make rpc-boundary-check"
-    },
-    {
-      "round": 4,
-      "task": "GOFLY-GOV-10R7-04",
-      "commit": "fa4d764",
+      "task": "GOFLY-GOV-10R8-03",
+      "commit": "b9f51ec",
       "gate": "make generated-upgrade-dry-run-check"
     },
     {
+      "round": 4,
+      "task": "GOFLY-GOV-10R8-04",
+      "commit": "059dcf5",
+      "gate": "make rpc-boundary-check"
+    },
+    {
       "round": 5,
-      "task": "GOFLY-GOV-10R7-05",
-      "commit": "21acec7",
+      "task": "GOFLY-GOV-10R8-05",
+      "commit": "690bce2",
       "gate": "make required-checks-drift-check"
     },
     {
       "round": 6,
-      "task": "GOFLY-GOV-10R7-06",
-      "commit": "c0dfb08",
-      "gate": "make plugin-conformance-check"
+      "task": "GOFLY-GOV-10R8-06",
+      "commit": "a2eb730",
+      "gate": "make reference-app-smoke"
     },
     {
       "round": 7,
-      "task": "GOFLY-GOV-10R7-07",
-      "commit": "5a4ac7c",
-      "gate": "make governance-report-check"
+      "task": "GOFLY-GOV-10R8-07",
+      "commit": "01b1554",
+      "gate": "make plugin-conformance-check"
     },
     {
       "round": 8,
-      "task": "GOFLY-GOV-10R7-08",
-      "commit": "638d91d",
-      "gate": "make bench-regression-check"
+      "task": "GOFLY-GOV-10R8-08",
+      "commit": "44b645a",
+      "gate": "make governance-report-check"
     },
     {
       "round": 9,
-      "task": "GOFLY-GOV-10R7-09",
-      "commit": "d572635",
-      "gate": "make dx-troubleshooting-check"
+      "task": "GOFLY-GOV-10R8-09",
+      "commit": "8698e91",
+      "gate": "make bench-regression-check"
     },
     {
       "round": 10,
-      "task": "GOFLY-GOV-10R7-10",
+      "task": "GOFLY-GOV-10R8-10",
       "commit": "self",
-      "gate": "make governance-boundary-inventory-check",
+      "gate": "make governance-10-rounds",
       "selfReference": true
     }
   ],
@@ -95,13 +95,53 @@
   "aiflowExecution": {
     "status": "completed",
     "blocker": "none",
-    "goflyImpact": "R7 tasks were submitted through aiflow and completed locally with per-task commits because aiflow project policy disables commit and push; the current agent or human owns commit and push."
+    "goflyImpact": "R8 tasks were submitted through aiflow and completed locally with per-task commits because aiflow project policy disables commit and push; the current agent or human owns commit and push."
   },
   "previousBatchHandoff": {
     "supersedes": [
-      "GOFLY-GOV-10R6-10"
+      "GOFLY-GOV-10R7-10"
     ],
-    "reason": "R6 convergence was carried forward into the R7 active batch convergence contract after post-R6 framework gap governance completed.",
-    "completionPolicy": "complete GOFLY-GOV-10R7-10 through aiflow after make governance-boundary-inventory-check and make governance-report-check pass, with commits owned by the current agent or human"
-  }
+    "reason": "R7 convergence was carried forward into the R8 active batch convergence contract after post-R7 framework gap governance completed.",
+    "completionPolicy": "complete GOFLY-GOV-10R8-10 through aiflow after make governance-boundary-inventory-check, make governance-report-check, and make governance-10-rounds pass or document any environment-limited downgrade, with commits owned by the current agent or human"
+  },
+  "knownRisks": [
+    {
+      "id": "docker-backed-reference-app",
+      "riskClass": "environment-limited",
+      "evidence": "REFERENCE_APP_MODE=docker make reference-app-smoke",
+      "status": "static topology passes; live compose can be skipped when the local Docker credential helper is unavailable",
+      "followUp": "Run the Docker-backed reference app in CI or a host with docker-credential-desktop available before treating live dependency proof as complete."
+    },
+    {
+      "id": "performance-latency-claims",
+      "riskClass": "report-only",
+      "evidence": "bench/budget-ratchet.json r8PerformanceDepthMatrix",
+      "status": "REST allocations and promoted OpenAPI/governance latency are blocking; RPC, gateway, and cache performance claims remain candidate or unsupported report-only.",
+      "followUp": "Promote only after five baseline samples, three current trend samples, allocation budget evidence, explicit latency ratio, and rollback guidance exist."
+    },
+    {
+      "id": "runtime-state",
+      "riskClass": "commit-hygiene",
+      "evidence": "finalGatePolicy.runtimeIgnoredPaths",
+      "status": ".aiflow, .harness, .tmp-test, .trae, coverage.out, and docs/superpowers remain runtime or local evidence paths and must not be committed.",
+      "followUp": "Keep runtime evidence ignored and stage only durable governance contracts or source changes."
+    }
+  ],
+  "nextRoundRecommendations": [
+    {
+      "id": "P9-rpc-tier1-release-train",
+      "priority": "P1",
+      "action": "Promote selected RPC unary and stream surfaces only after one release train records resolver, balancer, stream, benchmark, and Kitex rollback evidence."
+    },
+    {
+      "id": "P9-generated-project-real-fixtures",
+      "priority": "P1",
+      "action": "Expand generated project compatibility fixtures with old, current, and future profiles that repeatedly generate, compile, test, and classify diffs."
+    },
+    {
+      "id": "P9-live-production-proof",
+      "priority": "P2",
+      "action": "Run Docker-backed reference app, cloud-native render, and release evidence gates in CI environments that provide Docker, Helm, and security scanning tools."
+    }
+  ]
 }

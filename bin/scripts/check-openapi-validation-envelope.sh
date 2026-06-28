@@ -138,6 +138,51 @@ require(
     "HTTP migration DX migrationOrder mismatch",
 )
 
+r8_matrix = http_migration.get("r8CompatibilityMatrix") or {}
+require(r8_matrix.get("aiflowTask") == "GOFLY-GOV-10R8-02", "HTTP migration DX R8 matrix aiflowTask mismatch")
+require(r8_matrix.get("acceptanceGate") == "make openapi-validation-check", "HTTP migration DX R8 matrix acceptanceGate mismatch")
+r8_surfaces = r8_matrix.get("surfaces") or []
+required_r8_surface_ids = {
+    "route-groups",
+    "path-query-header-binding",
+    "json-body-binding",
+    "middleware-ordering",
+    "error-envelope",
+    "openapi-schema",
+    "invalid-request-smoke",
+}
+actual_r8_surface_ids = {item.get("id") for item in r8_surfaces if isinstance(item, dict)}
+require(required_r8_surface_ids == actual_r8_surface_ids, f"HTTP migration DX R8 surface ids mismatch: {sorted(actual_r8_surface_ids)!r}")
+for item in r8_surfaces:
+    if not isinstance(item, dict):
+        missing.append(f"HTTP migration DX R8 surface must be an object: {item!r}")
+        continue
+    surface_id = item.get("id", "<missing>")
+    for field in (
+        "id",
+        "surface",
+        "frameworks",
+        "compatibilityInvariant",
+        "evidence",
+        "gate",
+        "adopterAction",
+        "rollbackOrEscalation",
+    ):
+        require(item.get(field) not in ("", None, []), f"HTTP migration DX R8 surface {surface_id}: {field} is required")
+    require(set(item.get("frameworks") or []) == required_http_frameworks, f"HTTP migration DX R8 surface {surface_id}: frameworks mismatch")
+    require(
+        item.get("gate") in {"make openapi-validation-check", "make examples-smoke"},
+        f"HTTP migration DX R8 surface {surface_id}: unsupported gate {item.get('gate')!r}",
+    )
+    for field in ("compatibilityInvariant", "adopterAction", "rollbackOrEscalation"):
+        require(
+            len(str(item.get(field) or "").split()) >= 10,
+            f"HTTP migration DX R8 surface {surface_id}: {field} must be actionable",
+        )
+    for evidence in item.get("evidence") or []:
+        path = root / evidence
+        require(path.exists(), f"HTTP migration DX R8 surface {surface_id}: evidence path missing: {evidence}")
+
 framework_rows = http_migration.get("frameworkMapping") or []
 seen_http_frameworks = set()
 for item in framework_rows:

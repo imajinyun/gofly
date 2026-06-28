@@ -40,6 +40,144 @@
     "invalid-request-smoke",
     "traffic-switch"
   ],
+  "r8CompatibilityMatrix": {
+    "aiflowTask": "GOFLY-GOV-10R8-02",
+    "acceptanceGate": "make openapi-validation-check",
+    "surfaces": [
+      {
+        "id": "route-groups",
+        "surface": "routing",
+        "frameworks": [
+          "Gin",
+          "Echo",
+          "Fiber",
+          "Hertz"
+        ],
+        "compatibilityInvariant": "Route group prefixes and path parameter names must keep the externally visible path shape before traffic moves from the source framework.",
+        "evidence": [
+          "docs/guides/rest.md",
+          "rest/server_test.go"
+        ],
+        "gate": "make openapi-validation-check",
+        "adopterAction": "Map each grouped route to gofly route metadata and verify sampled status codes and OpenAPI paths before switching clients.",
+        "rollbackOrEscalation": "Keep the source framework router active when route prefixes, wildcard handling, or path parameter names drift."
+      },
+      {
+        "id": "path-query-header-binding",
+        "surface": "binding",
+        "frameworks": [
+          "Gin",
+          "Echo",
+          "Fiber",
+          "Hertz"
+        ],
+        "compatibilityInvariant": "Path, query, and header tags must bind through ctx.BindRequest and fail with rest.ErrorResponse invalid_argument when required fields or numeric bounds fail.",
+        "evidence": [
+          "rest/binding_test.go",
+          "docs/reference/openapi-invalid-request-smoke.json"
+        ],
+        "gate": "make openapi-validation-check",
+        "adopterAction": "Move parameter parsing into request DTOs and assert field-level validation failures instead of framework-specific error strings.",
+        "rollbackOrEscalation": "Pin the previous handler when field names, status codes, or client retry classification diverge."
+      },
+      {
+        "id": "json-body-binding",
+        "surface": "binding",
+        "frameworks": [
+          "Gin",
+          "Echo",
+          "Fiber",
+          "Hertz"
+        ],
+        "compatibilityInvariant": "Malformed JSON and portable validate tags must share the same stable rest.ErrorResponse envelope and OpenAPI request body schema.",
+        "evidence": [
+          "rest/binding_test.go",
+          "rest/openapi_test.go",
+          "cmd/gofly/internal/generator/service_test.go"
+        ],
+        "gate": "make openapi-validation-check",
+        "adopterAction": "Compare JSON body schema, required fields, enum/range tags, and invalid payload smoke before moving SDK generation.",
+        "rollbackOrEscalation": "Route traffic back to the source framework when body decode errors or validation fields do not match the stable envelope."
+      },
+      {
+        "id": "middleware-ordering",
+        "surface": "middleware",
+        "frameworks": [
+          "Gin",
+          "Echo",
+          "Fiber",
+          "Hertz"
+        ],
+        "compatibilityInvariant": "Middleware must preserve recovery, request id, tracing, logging, metrics, browser safety, auth, validation, SSE, and WebSocket ordering documented by the HTTP middleware matrix.",
+        "evidence": [
+          "docs/reference/http-middleware-ecosystem.json",
+          "examples/http-middleware/README.md",
+          "examples/http-middleware/main_test.go"
+        ],
+        "gate": "make examples-smoke",
+        "adopterAction": "Port middleware one concern at a time and run example smoke before serving production traffic through the gofly chain.",
+        "rollbackOrEscalation": "Keep the previous middleware chain when auth, browser safety, observability, realtime, or body limit behavior drifts."
+      },
+      {
+        "id": "error-envelope",
+        "surface": "error",
+        "frameworks": [
+          "Gin",
+          "Echo",
+          "Fiber",
+          "Hertz"
+        ],
+        "compatibilityInvariant": "Binding and validation failures must return rest.ErrorResponse with code, text, message, status, and fields stable across runtime and generated services.",
+        "evidence": [
+          "rest/binding_test.go",
+          "rest/response.go",
+          "docs/reference/openapi-invalid-request-smoke.json"
+        ],
+        "gate": "make openapi-validation-check",
+        "adopterAction": "Update clients to assert the stable envelope fields and stop parsing source-framework error text.",
+        "rollbackOrEscalation": "Do not publish the migrated route when invalid input does not return rest.ErrorResponse invalid_argument."
+      },
+      {
+        "id": "openapi-schema",
+        "surface": "openapi",
+        "frameworks": [
+          "Gin",
+          "Echo",
+          "Fiber",
+          "Hertz"
+        ],
+        "compatibilityInvariant": "OpenAPI path parameters, query/header parameters, JSON request bodies, response schemas, and default error responses must match runtime binding sources.",
+        "evidence": [
+          "docs/guides/openapi.md",
+          "rest/openapi_test.go",
+          "cmd/gofly/internal/generator/service_test.go"
+        ],
+        "gate": "make openapi-validation-check",
+        "adopterAction": "Publish gofly OpenAPI output only after schema golden tests and generated-service smoke pass.",
+        "rollbackOrEscalation": "Keep clients on the previous schema source until OpenAPI golden evidence and invalid request smoke converge."
+      },
+      {
+        "id": "invalid-request-smoke",
+        "surface": "smoke",
+        "frameworks": [
+          "Gin",
+          "Echo",
+          "Fiber",
+          "Hertz"
+        ],
+        "compatibilityInvariant": "Path parse, query validation, header validation, body decode, tag validation, validator adapter, schema alignment, and generated-service invalid request cases must stay blocking.",
+        "evidence": [
+          "docs/reference/openapi-invalid-request-smoke.json",
+          "rest/binding_test.go",
+          "rest/openapi_test.go",
+          "cmd/gofly/internal/generator/service_test.go"
+        ],
+        "gate": "make openapi-validation-check",
+        "adopterAction": "Run the invalid request smoke gate as release evidence before adopting generated REST services.",
+        "rollbackOrEscalation": "Pin the previous route or generated scaffold when any invalid request smoke case loses the stable status or code."
+      }
+    ]
+  },
   "frameworkMapping": [
     {
       "framework": "Gin",

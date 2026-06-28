@@ -1,7 +1,7 @@
 {
   "schema": "gofly.governance_boundary_inventory.v1",
   "purpose": "Lightweight baseline inventory for the 10-round governance workflow before expensive full-repository gates run.",
-  "activeAiflowBatch": "GOFLY-GOV-10R4",
+  "activeAiflowBatch": "GOFLY-GOV-10R5",
   "aiflowTaskBatches": [
     {
       "id": "GOFLY-GOV-10R",
@@ -30,96 +30,103 @@
       "taskPrefix": "GOFLY-GOV-10R4-",
       "roundCount": 10,
       "evidence": "docs/reference/governance-convergence-verification.json"
+    },
+    {
+      "id": "GOFLY-GOV-10R5",
+      "status": "active",
+      "taskPrefix": "GOFLY-GOV-10R5-",
+      "roundCount": 10,
+      "evidence": "go run ./cmd/aiflow status -root /Users/bytedance/Codes/go/src/github/gofly -id GOFLY-GOV-10R5-01"
     }
   ],
   "aiflowTasks": [
     {
-      "id": "GOFLY-GOV-10R4-01",
+      "id": "GOFLY-GOV-10R5-01",
       "round": 1,
-      "title": "Baseline adoption evidence inventory",
-      "objective": "Plan the fourth aiflow-driven 10-round governance batch, map adoption evidence surfaces to gates, and keep runtime paths out of commits.",
-      "deliverable": "Machine-readable R4 boundary inventory with active batch, task map, surfaces, ignored runtime paths, timeout policy, and baseline gates.",
+      "title": "Baseline production adoption inventory",
+      "objective": "Plan the fifth aiflow-driven 10-round governance batch around production adoption closure, adopter evidence, and no-runtime-state commits.",
+      "deliverable": "Machine-readable R5 boundary inventory with active batch, task map, surfaces, ignored runtime paths, timeout policy, and baseline gates.",
       "gate": "make governance-boundary-inventory-check",
       "commitPolicy": "commit after the boundary inventory gate passes"
     },
     {
-      "id": "GOFLY-GOV-10R4-02",
+      "id": "GOFLY-GOV-10R5-02",
       "round": 2,
-      "title": "Release evidence consumption",
-      "objective": "Tie release readiness evidence, CI prerequisites, SBOM, checksums, provenance, and adopter upgrade decisions into governed release evidence.",
-      "deliverable": "Release evidence consumption contract or governance-report evidence that maps artifacts to adopter decisions and release blockers.",
-      "gate": "make release-evidence-index-check",
+      "title": "Release evidence drift closure",
+      "objective": "Deepen release evidence consumption and required-check drift evidence for adopter release decisions.",
+      "deliverable": "Release evidence or dashboard contract update linking checksums, SBOM, provenance, Docker digest, and rollback notes.",
+      "gate": "make required-checks-drift-check",
       "commitPolicy": "commit after release evidence and governance-report checks pass"
     },
     {
-      "id": "GOFLY-GOV-10R4-03",
+      "id": "GOFLY-GOV-10R5-03",
       "round": 3,
-      "title": "Generated compatibility rehearsal",
-      "objective": "Deepen old/current/future generated project fixtures, dry-run diff categories, dependency ownership, and rollback notes for generated upgrades.",
-      "deliverable": "Generated upgrade rehearsal evidence that connects version compatibility, diff classification, dependency boundaries, and rollback action.",
+      "title": "Generator adoption proof",
+      "objective": "Extend generated compatibility rehearsal from deterministic fixtures to adopter-facing upgrade proof.",
+      "deliverable": "Dry-run diff, generated matrix, rollback note, and dependency boundary evidence remain indexed.",
       "gate": "make generated-upgrade-dry-run-check",
       "commitPolicy": "commit after generated compatibility and upgrade dry-run gates pass"
     },
     {
-      "id": "GOFLY-GOV-10R4-04",
+      "id": "GOFLY-GOV-10R5-04",
       "round": 4,
-      "title": "CLI DX and support bundle",
-      "objective": "Align gofly doctor, release checks, JSON contracts, failure reports, and next-action remediation output for agent and CI users.",
-      "deliverable": "DX troubleshooting evidence or CLI JSON contract tests that keep support-bundle and remediation output stable.",
+      "title": "CLI troubleshooting adoption",
+      "objective": "Close CLI DX support-bundle adoption loop for doctor, release check, generated failure reports, and aiflow remediation handoff.",
+      "deliverable": "Docs and machine contract show next action, redaction, and no-aiflow-commit policy.",
       "gate": "make dx-troubleshooting-check",
       "commitPolicy": "commit after CLI DX and support-bundle gates pass"
     },
     {
-      "id": "GOFLY-GOV-10R4-05",
+      "id": "GOFLY-GOV-10R5-05",
       "round": 5,
-      "title": "REST API contract deepening",
-      "objective": "Strengthen OpenAPI, validation, error envelope, invalid request smoke, middleware examples, and schema/runtime alignment evidence.",
-      "deliverable": "REST contract evidence or golden tests proving invalid requests return stable envelopes and OpenAPI schemas match runtime binding.",
+      "title": "REST adoption contracts",
+      "objective": "Deepen REST/OpenAPI/validation/error-envelope adopter proof with invalid request smoke, generated service schema alignment, and middleware example discoverability.",
+      "deliverable": "REST adopter contract evidence that keeps invalid request envelopes, OpenAPI schemas, and examples aligned.",
       "gate": "make openapi-validation-check",
       "commitPolicy": "commit after OpenAPI, validation, and API example gates pass"
     },
     {
-      "id": "GOFLY-GOV-10R4-06",
+      "id": "GOFLY-GOV-10R5-06",
       "round": 6,
-      "title": "RPC Tier 1 promotion evidence",
-      "objective": "Close unary and stream benchmark evidence, resolver/balancer contracts, Kitex coexistence notes, and gRPC compatibility matrices toward Tier 1 readiness.",
-      "deliverable": "RPC boundary evidence that distinguishes Tier 1-ready behavior from candidate/report-only RPC surfaces.",
+      "title": "RPC adoption contracts",
+      "objective": "Deepen RPC Tier-1 adoption proof across unary and stream evidence, resolver and balancer behavior, gRPC compatibility, and Kitex coexistence rollback notes.",
+      "deliverable": "RPC adopter contract evidence that distinguishes Tier 1-ready, candidate, and report-only surfaces.",
       "gate": "make rpc-boundary-check",
       "commitPolicy": "commit after RPC boundary and benchmark evidence gates pass"
     },
     {
-      "id": "GOFLY-GOV-10R4-07",
+      "id": "GOFLY-GOV-10R5-07",
       "round": 7,
-      "title": "Plugin publishing protocol",
-      "objective": "Productize plugin registry, manifest schema, permissions, digest, signature, compatibility, malicious path isolation, and JSON conformance reports.",
-      "deliverable": "Plugin publishing evidence that turns registry compatibility and failure isolation into a reusable protocol contract.",
+      "title": "Plugin publishing adoption",
+      "objective": "Turn plugin protocol evidence into adopter-facing publishing guidance with conformance report, digest/signature, permission, compatibility, and failure isolation proof.",
+      "deliverable": "Plugin publishing adoption evidence with conformance JSON and operator rollback notes.",
       "gate": "make plugin-conformance-check",
       "commitPolicy": "commit after plugin conformance and publishing evidence gates pass"
     },
     {
-      "id": "GOFLY-GOV-10R4-08",
+      "id": "GOFLY-GOV-10R5-08",
       "round": 8,
-      "title": "Cloud-native policy conformance",
-      "objective": "Close Helm schema, values profiles, Kustomize overlays, ServiceMonitor, HPA, PDB, NetworkPolicy rendered goldens, and fallback reporting.",
-      "deliverable": "Cloud-native conformance evidence that separates real Helm/Kustomize rendering from static fallback status.",
+      "title": "Cloud-native adoption proof",
+      "objective": "Close cloud-native adopter proof across Helm schema, Kustomize overlays, ServiceMonitor, HPA, PDB, NetworkPolicy, fallback reporting, and production checklist links.",
+      "deliverable": "Cloud-native adoption evidence that separates real rendering from fallback status and links production checklist actions.",
       "gate": "make cloud-native-render-check",
       "commitPolicy": "commit after cloud-native render and policy conformance gates pass"
     },
     {
-      "id": "GOFLY-GOV-10R4-09",
+      "id": "GOFLY-GOV-10R5-09",
       "round": 9,
-      "title": "Performance budget ratchet",
-      "objective": "Promote trusted REST, RPC, and governance allocation budgets to blocking checks while keeping insufficient latency evidence report-only.",
-      "deliverable": "Benchmark ratchet evidence with explicit allocation blocking policy and latency report-only boundaries.",
+      "title": "Performance adoption ratchet",
+      "objective": "Promote performance evidence into adopter-facing budgets with clear allocation blocking, latency report-only boundaries, trend evidence, and rollback guidance.",
+      "deliverable": "Performance adoption ratchet evidence with budget status, trend proof, and rollback guidance.",
       "gate": "make bench-regression-check",
       "commitPolicy": "commit after benchmark regression and evidence gates pass"
     },
     {
-      "id": "GOFLY-GOV-10R4-10",
+      "id": "GOFLY-GOV-10R5-10",
       "round": 10,
-      "title": "Convergence dashboard and report",
-      "objective": "Run final R4 convergence, emit dashboard-ready governance evidence, record per-round commits, skip policy, ignored runtime paths, and follow-up recommendations.",
-      "deliverable": "Final R4 convergence report with per-round commit evidence, dashboard fields, known risks, skipped gates, and next-round recommendations.",
+      "title": "Convergence evidence report",
+      "objective": "Run final R5 convergence, record per-round commits, update governance convergence evidence, verify ignored runtime paths, and document environment-limited downgrades.",
+      "deliverable": "Final R5 convergence report with per-round commit evidence, dashboard fields, known risks, skipped gates, and next-round recommendations.",
       "gate": "make governance-10-rounds",
       "commitPolicy": "commit after convergence gate passes or environment-limited failures are documented"
     }

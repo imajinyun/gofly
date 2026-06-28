@@ -13,7 +13,7 @@ convergence_path = root / "docs" / "reference" / "governance-convergence-verific
 p10_path = root / "docs" / "reference" / "governance-p10-roadmap.json"
 missing = []
 
-expected_active_batch = "GOFLY-GOV-10R4"
+expected_active_batch = "GOFLY-GOV-10R5"
 expected_converged_batch = "GOFLY-GOV-10R4"
 expected_tasks = [f"{expected_active_batch}-{idx:02d}" for idx in range(1, 11)]
 expected_converged_tasks = [f"{expected_converged_batch}-{idx:02d}" for idx in range(1, 11)]
@@ -36,6 +36,11 @@ expected_batches = {
     "GOFLY-GOV-10R4": {
         "status": "completed",
         "taskPrefix": "GOFLY-GOV-10R4-",
+        "roundCount": 10,
+    },
+    "GOFLY-GOV-10R5": {
+        "status": "active",
+        "taskPrefix": "GOFLY-GOV-10R5-",
         "roundCount": 10,
     },
 }

@@ -81,7 +81,9 @@
           "retry-balancer-contract"
         ],
         "adopterDecision": "Use rpc/grpc where health, auth, tracing, governance interceptors, deadline mapping, and retry semantics pass local compatibility gates.",
-        "rollbackAction": "Keep native gRPC-Go clients and servers reachable until compatibility tests and release evidence pass for the adopter workload."
+        "rollbackAction": "Keep native gRPC-Go clients and servers reachable until compatibility tests and release evidence pass for the adopter workload.",
+        "supportBundleAction": "Attach gofly bug --json with rpc/grpc health, auth, tracing, governance interceptor, deadline mapping, and retry evidence before escalation.",
+        "failureReportEvidence": "Capture gRPC status code, health SERVING state, auth metadata, traceparent propagation, timeout policy, and retry decision drift."
       },
       {
         "id": "governed-rpc-candidate",
@@ -96,7 +98,9 @@
           "balancer-routing"
         ],
         "adopterDecision": "Use gofly RPC for governed service glue only after unary, stream, resolver, and balancer evidence passes in the target repository.",
-        "rollbackAction": "Route hot or latency-sensitive methods back to Kitex or the existing gRPC path when benchmark evidence is missing or regresses."
+        "rollbackAction": "Route hot or latency-sensitive methods back to Kitex or the existing gRPC path when benchmark evidence is missing or regresses.",
+        "supportBundleAction": "Attach gofly bug --json with unary, stream, resolver, balancer, governance, and benchmark evidence before moving governed RPC into production.",
+        "failureReportEvidence": "Capture unary result drift, stream mode drift, resolver update drift, balancer routing drift, governance policy output, and benchmark regression evidence."
       },
       {
         "id": "rpc-performance-budget-report-only",
@@ -109,7 +113,9 @@
           "bidi-stream-governance"
         ],
         "adopterDecision": "Treat RPC benchmark rows as trend evidence until bench-regression-check promotes selected candidates into blocking budget coverage.",
-        "rollbackAction": "Block Tier 1 promotion and keep latency-critical traffic on Kitex or existing gRPC clients while budgets remain report-only."
+        "rollbackAction": "Block Tier 1 promotion and keep latency-critical traffic on Kitex or existing gRPC clients while budgets remain report-only.",
+        "supportBundleAction": "Attach gofly bug --json with bench evidence, budget-ratchet status, release-train status, and Kitex rollback context for performance escalations.",
+        "failureReportEvidence": "Capture benchmark name, sample count, allocs/op, latency trend, ratchet classification, and rollback decision before promoting RPC budgets."
       },
       {
         "id": "framework-coexistence-rollback",
@@ -120,7 +126,9 @@
           "gozero-coexistence-rollback"
         ],
         "adopterDecision": "Plan migration with parallel registration, rollback routing, and generated upgrade dry-run evidence before cutting traffic over.",
-        "rollbackAction": "Keep the original Kitex or go-zero service registered and route traffic back when generated output, control-plane, or RPC evidence diverges."
+        "rollbackAction": "Keep the original Kitex or go-zero service registered and route traffic back when generated output, control-plane, or RPC evidence diverges.",
+        "supportBundleAction": "Attach gofly bug --json with coexistence routing, generated dry-run, discovery registration, control-plane, and rollback evidence.",
+        "failureReportEvidence": "Capture generated output drift, discovery registration drift, control-plane mismatch, routing decision, and rollback trigger for coexistence failures."
       }
     ]
   },

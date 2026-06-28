@@ -165,7 +165,7 @@ func TestRPCClientStreamMethodPolicyMetadataAndTimeout(t *testing.T) {
 			if !ok || md.Get("x-stream-policy") != "method" || md.Get("x-stream-header") != "enabled" {
 				t.Fatalf("metadata = %#v, want method rpc policy metadata and header", md)
 			}
-			time.Sleep(50 * time.Millisecond)
+			time.Sleep(300 * time.Millisecond)
 			return stream.Send(helloResp{Message: "late"})
 		},
 	}}}, nil); err != nil {
@@ -174,10 +174,10 @@ func TestRPCClientStreamMethodPolicyMetadataAndTimeout(t *testing.T) {
 	ts := httptest.NewServer(s)
 	defer ts.Close()
 	c, err := NewClient(ts.URL, WithRPCPolicy(RPCPolicy{
-		Timeout: 200 * time.Millisecond,
+		Timeout: time.Second,
 		Methods: map[string]RPCPolicy{
 			"chat/PolicyStream": {
-				Timeout:  5 * time.Millisecond,
+				Timeout:  100 * time.Millisecond,
 				Metadata: map[string]string{"x-stream-policy": "method"},
 				Headers:  map[string]string{"x-stream-header": "enabled"},
 			},

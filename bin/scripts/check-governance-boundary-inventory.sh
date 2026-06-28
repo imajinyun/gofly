@@ -14,7 +14,7 @@ p10_path = root / "docs" / "reference" / "governance-p10-roadmap.json"
 missing = []
 
 expected_active_batch = "GOFLY-GOV-10R7"
-expected_converged_batch = "GOFLY-GOV-10R6"
+expected_converged_batch = "GOFLY-GOV-10R7"
 expected_tasks = [f"{expected_active_batch}-{idx:02d}" for idx in range(1, 11)]
 expected_converged_tasks = [f"{expected_converged_batch}-{idx:02d}" for idx in range(1, 11)]
 expected_batches = {
@@ -49,22 +49,22 @@ expected_batches = {
         "roundCount": 10,
     },
     "GOFLY-GOV-10R7": {
-        "status": "in-progress",
+        "status": "completed",
         "taskPrefix": "GOFLY-GOV-10R7-",
         "roundCount": 10,
     },
 }
 expected_converged_commits = {
-    "GOFLY-GOV-10R6-01": "a440ac9",
-    "GOFLY-GOV-10R6-02": "8ecba17",
-    "GOFLY-GOV-10R6-03": "9d8df16",
-    "GOFLY-GOV-10R6-04": "688f8bf",
-    "GOFLY-GOV-10R6-05": "7604767",
-    "GOFLY-GOV-10R6-06": "ad82957",
-    "GOFLY-GOV-10R6-07": "bb1ad9a",
-    "GOFLY-GOV-10R6-08": "c84a726",
-    "GOFLY-GOV-10R6-09": "36e32f6",
-    "GOFLY-GOV-10R6-10": "self",
+    "GOFLY-GOV-10R7-01": "faebdcb",
+    "GOFLY-GOV-10R7-02": "7e57d44",
+    "GOFLY-GOV-10R7-03": "8cdef26",
+    "GOFLY-GOV-10R7-04": "fa4d764",
+    "GOFLY-GOV-10R7-05": "21acec7",
+    "GOFLY-GOV-10R7-06": "c0dfb08",
+    "GOFLY-GOV-10R7-07": "5a4ac7c",
+    "GOFLY-GOV-10R7-08": "638d91d",
+    "GOFLY-GOV-10R7-09": "d572635",
+    "GOFLY-GOV-10R7-10": "self",
 }
 expected_surfaces = {
     "cli",
@@ -217,7 +217,7 @@ require(timeout_policy.get("aiflowDefaultCommandTimeout") == "2m", "timeoutPolic
 require("governance-boundary-inventory-check" in timeout_policy.get("fallback", ""), "timeoutPolicy fallback must mention governance-boundary-inventory-check")
 
 require(convergence_manifest.get("schema") == "gofly.governance_convergence_verification.v1", "convergence verification schema mismatch")
-require(convergence_manifest.get("aiflowTask") == "GOFLY-GOV-10R6-10", "convergence verification aiflowTask mismatch")
+require(convergence_manifest.get("aiflowTask") == "GOFLY-GOV-10R7-10", "convergence verification aiflowTask mismatch")
 require(convergence_manifest.get("acceptanceGate") == "make governance-10-rounds", "convergence verification acceptanceGate mismatch")
 require(convergence_manifest.get("activeBatch") == expected_converged_batch, "convergence verification activeBatch mismatch")
 aggregate_gates = set(convergence_manifest.get("aggregateGates") or [])
@@ -268,10 +268,10 @@ require(execution.get("status") == "completed", "convergence verification aiflow
 require(execution.get("blocker") == "none", "convergence verification aiflowExecution.blocker must be none")
 require("commit and push" in str(execution.get("goflyImpact") or ""), "convergence verification aiflowExecution.goflyImpact must document aiflow commit policy")
 previous_handoff = convergence_manifest.get("previousBatchHandoff") or {}
-require("GOFLY-GOV-10R5-10" in set(previous_handoff.get("supersedes") or []), "previousBatchHandoff must supersede GOFLY-GOV-10R5-10")
-require("R6 active batch" in str(previous_handoff.get("reason") or ""), "previousBatchHandoff.reason must document R6 active batch handoff")
+require("GOFLY-GOV-10R6-10" in set(previous_handoff.get("supersedes") or []), "previousBatchHandoff must supersede GOFLY-GOV-10R6-10")
+require("R7 active batch" in str(previous_handoff.get("reason") or ""), "previousBatchHandoff.reason must document R7 active batch handoff")
 previous_completion_policy = str(previous_handoff.get("completionPolicy") or "")
-for needle in ("GOFLY-GOV-10R6-10", "make governance-boundary-inventory-check", "make governance-report-check", "current agent or human"):
+for needle in ("GOFLY-GOV-10R7-10", "make governance-boundary-inventory-check", "make governance-report-check", "current agent or human"):
     require(needle in previous_completion_policy, f"previousBatchHandoff.completionPolicy missing {needle!r}")
 
 p10_rounds = p10_manifest.get("rounds") or []

@@ -140,6 +140,7 @@ if manual.is_file():
             "compatibilityCaveat",
             "rollbackAction",
             "supportBundleAction",
+            "failureReportEvidence",
         ):
             if not item.get(field):
                 missing.append(f"{adopter_proof_path}: {source} missing {field}")
@@ -163,6 +164,9 @@ if manual.is_file():
             value = item.get(field)
             if value and not contains_normalized(text, value):
                 missing.append(f"{manual}: decision contract missing {source} {field} text")
+        failure_report = item.get("failureReportEvidence") or ""
+        if failure_report and "generatedFailureReport" not in support_bundle_text:
+            missing.append(f"{support_bundle_path}: generated failure report contract missing for {source}")
         caveat = item.get("compatibilityCaveat") or ""
         caveat_prefix = caveat.split(";")[0].rstrip(".")
         if caveat_prefix and not contains_normalized(text, caveat_prefix):
@@ -265,12 +269,18 @@ if manual.is_file():
             rollback = item.get("rollback") or ""
             if decision.get("rollbackAction") and not contains_normalized(rollback, decision["rollbackAction"]):
                 missing.append(f"examples/migration-proof {source}: rollback does not match adopter contract")
+            support_bundle = item.get("supportBundle") or ""
+            if decision.get("supportBundleAction") and not contains_normalized(support_bundle, decision["supportBundleAction"]):
+                missing.append(f"examples/migration-proof {source}: supportBundle does not match adopter contract")
+            failure_report = item.get("failureReport") or ""
+            if decision.get("failureReportEvidence") and not contains_normalized(failure_report, decision["failureReportEvidence"]):
+                missing.append(f"examples/migration-proof {source}: failureReport does not match adopter contract")
             caveats = " ".join(item.get("compatibilityCaveats") or [])
             decision_caveat = decision.get("compatibilityCaveat") or ""
             first_caveat_phrase = decision_caveat.split(";")[0].rstrip(".")
             if first_caveat_phrase and not contains_normalized(caveats, first_caveat_phrase):
                 missing.append(f"examples/migration-proof {source}: compatibility caveats do not match adopter contract")
-            for field in ("rollback", "compatibilityCaveats", "decisionTable"):
+            for field in ("rollback", "supportBundle", "failureReport", "compatibilityCaveats", "decisionTable"):
                 if not item.get(field):
                     missing.append(f"examples/migration-proof {source}: missing {field}")
             decision = item.get("decisionTable") or {}

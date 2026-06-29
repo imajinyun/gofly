@@ -13,6 +13,69 @@
     "controlPlaneVisibilityRequired": true,
     "rollbackOrEscalation": "Keep the existing Gin or go-zero middleware chain active until JWT, CORS, CSRF, session, Prometheus, OpenTelemetry, SSE, WebSocket, OpenAPI, and smoke gates pass locally."
   },
+  "migrationDX": {
+    "ordering": [
+      "recover",
+      "request-id",
+      "trace",
+      "log",
+      "metrics",
+      "security-headers",
+      "cors",
+      "max-body-bytes",
+      "timeout",
+      "session",
+      "csrf",
+      "jwt",
+      "validation",
+      "handler",
+      "sse-websocket-bounds"
+    ],
+    "frameworkMapping": {
+      "Gin": {
+        "auth": "gin middleware that validates Authorization maps to rest.BearerAuthMiddleware or examples/middlewares.JWTMiddleware",
+        "cors": "gin-contrib/cors settings map to rest.CORSConfig origins, headers, credentials, and max age",
+        "csrf": "gin CSRF or custom double-submit middleware maps to rest.CSRFConfig cookie/header/TTL/SameSite",
+        "session": "gin session store maps to signed HttpOnly session cookies or an injected session middleware before auth",
+        "observability": "Gin metrics/tracing middleware maps to MetricsMiddleware, PrometheusMetricsHandler, and TraceMiddleware",
+        "realtime": "Gin SSE/WebSocket handlers map to rest.Context.SSE and rest.Context.WebSocket with explicit bounds"
+      },
+      "go-zero": {
+        "auth": "go-zero JWT/AuthInterceptor policy maps to rest.BearerAuthMiddleware and route OpenAPI security metadata",
+        "cors": "go-zero rest CORS config maps to rest.CORSConfig and must preserve credentialed preflight behavior",
+        "csrf": "go-zero custom browser-safety middleware maps to rest.CSRFConfig before state-changing handlers",
+        "session": "go-zero custom session middleware maps to signed HttpOnly cookies or an injected session middleware before auth",
+        "observability": "go-zero trace/log/prometheus handlers map to TraceMiddleware, LogMiddleware, MetricsMiddleware, and /metrics",
+        "realtime": "go-zero streaming/custom upgrade endpoints map to SSE/WebSocket routes with cancellation and size limits"
+      }
+    },
+    "failureModes": [
+      "JWT rejects missing or invalid Authorization with a stable unauthenticated error envelope",
+      "CORS preflight preserves allowed origins, credential behavior, and exposed request-id headers",
+      "CSRF rejects missing, mismatched, or expired double-submit tokens before handlers mutate state",
+      "Session cookies stay signed, HttpOnly, SameSite, and do not silently downgrade production Secure policy",
+      "Prometheus metrics use bounded route labels and keep /metrics scrape output stable",
+      "OpenTelemetry propagates traceparent and keeps request-id correlation visible in responses",
+      "SSE keeps text/event-stream headers, event IDs, request cancellation, and trace correlation",
+      "WebSocket upgrades enforce max message bytes, read/write timeouts, and manager stats"
+    ],
+    "productionDefaults": [
+      "replace demo JWT, CSRF, and session secrets with secret-manager values",
+      "use exact CORS origins when credentials are enabled",
+      "keep CSRF and session cookies Secure on HTTPS production deployments",
+      "run metrics, tracing, request-id, and structured logging before handler-specific middleware",
+      "keep SSE and WebSocket routes authenticated when streams expose user data",
+      "keep old Gin or go-zero middleware active until smoke gates and OpenAPI/schema evidence pass"
+    ],
+    "smokeReferences": [
+      "make p1-growth-check",
+      "make examples-smoke",
+      "make api-example-consistency-check",
+      "go -C examples/http-middleware test ./...",
+      "go -C examples/middlewares test ./...",
+      "go -C examples/http-middleware run . --describe"
+    ]
+  },
   "exampleModules": [
     "examples/middlewares",
     "examples/middleware-demo",
@@ -32,8 +95,8 @@
         "examples/middlewares"
       ],
       "smokeGates": [
-        "go test -C examples/http-middleware ./...",
-        "go test -C examples/middlewares ./..."
+        "go -C examples/http-middleware test ./...",
+        "go -C examples/middlewares test ./..."
       ],
       "migration": {
         "from": [
@@ -74,8 +137,8 @@
         "examples/middlewares"
       ],
       "smokeGates": [
-        "go test -C examples/http-middleware ./...",
-        "go test -C examples/middlewares ./..."
+        "go -C examples/http-middleware test ./...",
+        "go -C examples/middlewares test ./..."
       ],
       "migration": {
         "from": [
@@ -115,8 +178,8 @@
         "examples/middlewares"
       ],
       "smokeGates": [
-        "go test -C examples/http-middleware ./...",
-        "go test -C examples/middlewares ./..."
+        "go -C examples/http-middleware test ./...",
+        "go -C examples/middlewares test ./..."
       ],
       "migration": {
         "from": [
@@ -155,7 +218,7 @@
         "examples/http-middleware"
       ],
       "smokeGates": [
-        "go test -C examples/http-middleware ./..."
+        "go -C examples/http-middleware test ./..."
       ],
       "migration": {
         "from": [
@@ -197,8 +260,8 @@
         "examples/middlewares"
       ],
       "smokeGates": [
-        "go test -C examples/http-middleware ./...",
-        "go test -C examples/middlewares ./..."
+        "go -C examples/http-middleware test ./...",
+        "go -C examples/middlewares test ./..."
       ],
       "migration": {
         "from": [
@@ -239,8 +302,8 @@
         "examples/middlewares"
       ],
       "smokeGates": [
-        "go test -C examples/http-middleware ./...",
-        "go test -C examples/middlewares ./..."
+        "go -C examples/http-middleware test ./...",
+        "go -C examples/middlewares test ./..."
       ],
       "migration": {
         "from": [
@@ -281,8 +344,8 @@
         "examples/middlewares"
       ],
       "smokeGates": [
-        "go test -C examples/http-middleware ./...",
-        "go test -C examples/middlewares ./..."
+        "go -C examples/http-middleware test ./...",
+        "go -C examples/middlewares test ./..."
       ],
       "migration": {
         "from": [
@@ -323,8 +386,8 @@
         "examples/middlewares"
       ],
       "smokeGates": [
-        "go test -C examples/http-middleware ./...",
-        "go test -C examples/middlewares ./..."
+        "go -C examples/http-middleware test ./...",
+        "go -C examples/middlewares test ./..."
       ],
       "migration": {
         "from": [

@@ -76,6 +76,15 @@ assert http_middleware['routes']['events'] == '/events', http_middleware
 assert http_middleware['routes']['websocket'] == '/ws', http_middleware
 assert http_middleware['contracts']['invalidRequestStatus'] == 400, http_middleware
 assert http_middleware['contracts']['schemaOutput'] == 'openapi', http_middleware
+middleware_dx = http_middleware['migrationDX']
+assert middleware_dx['ordering'][0] == 'recover', http_middleware
+assert {'Gin', 'go-zero'} == set(middleware_dx['frameworkMapping']), http_middleware
+for framework in ('Gin', 'go-zero'):
+    assert {'auth', 'cors', 'csrf', 'session', 'observability', 'realtime'} <= set(middleware_dx['frameworkMapping'][framework]), http_middleware
+assert any('JWT' in item for item in middleware_dx['failureModes']), http_middleware
+assert any('Gin or go-zero' in item for item in middleware_dx['productionDefaults']), http_middleware
+assert {'make p1-growth-check', 'make examples-smoke', 'make api-example-consistency-check'} <= set(middleware_dx['smokeReferences']), http_middleware
+assert {'go -C examples/http-middleware test ./...', 'go -C examples/middlewares test ./...'} <= set(middleware_dx['smokeReferences']), http_middleware
 
 with open(workdir / 'migration-proof.json', encoding='utf-8') as f:
     migration_proof = json.load(f)

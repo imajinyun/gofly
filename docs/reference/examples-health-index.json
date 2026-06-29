@@ -32,7 +32,7 @@
         8085
       ],
       "smokeCommands": [
-        "go run -C examples/http-middleware . --describe"
+        "go -C examples/http-middleware run . --describe"
       ],
       "outputSchema": "gofly.http_middleware_matrix.v1",
       "riskNotes": [

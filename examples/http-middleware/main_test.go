@@ -22,7 +22,42 @@ func TestDescribeCoversP1MiddlewareMatrix_BitsUT(t *testing.T) {
 	}
 }
 
-func TestHTTPMiddlewareServerContracts_BitsUT(t *testing.T) {
+func TestDescribeReportMigrationDX(t *testing.T) {
+	report := describeReport()
+	dx, ok := report["migrationDX"].(migrationDXReport)
+	if !ok {
+		t.Fatalf("describeReport migrationDX = %#v", report["migrationDX"])
+	}
+	if len(dx.Ordering) < 10 || dx.Ordering[0] != "recover" || dx.Ordering[len(dx.Ordering)-1] != "sse-websocket-bounds" {
+		t.Fatalf("migrationDX ordering = %#v", dx.Ordering)
+	}
+	for _, framework := range []string{"Gin", "go-zero"} {
+		mapping := dx.FrameworkMapping[framework]
+		if len(mapping) == 0 {
+			t.Fatalf("migrationDX mapping missing %s: %#v", framework, dx.FrameworkMapping)
+		}
+		for _, key := range []string{"auth", "cors", "csrf", "session", "observability", "realtime"} {
+			if mapping[key] == "" {
+				t.Fatalf("migrationDX mapping %s missing %s: %#v", framework, key, mapping)
+			}
+		}
+	}
+	for _, field := range []struct {
+		name string
+		got  []string
+		want string
+	}{
+		{name: "failureModes", got: dx.FailureModes, want: "WebSocket"},
+		{name: "productionDefaults", got: dx.ProductionDefaults, want: "Gin or go-zero"},
+		{name: "smokeReferences", got: dx.SmokeReferences, want: "make examples-smoke"},
+	} {
+		if !containsText(field.got, field.want) {
+			t.Fatalf("migrationDX %s = %#v, want %q", field.name, field.got, field.want)
+		}
+	}
+}
+
+func TestHTTPMiddlewareServerContracts(t *testing.T) {
 	srv := newHTTPMiddlewareServer()
 
 	preflight := httptest.NewRecorder()
@@ -129,6 +164,15 @@ func TestJWTAndSessionHelpers_BitsUT(t *testing.T) {
 	if _, ok := verifySession(signed+"tampered", sessionSecret); ok {
 		t.Fatalf("verifySession() accepted tampered session")
 	}
+}
+
+func containsText(items []string, want string) bool {
+	for _, item := range items {
+		if strings.Contains(item, want) {
+			return true
+		}
+	}
+	return false
 }
 
 func cookieNamed(t *testing.T, cookies []*http.Cookie, name string) *http.Cookie {

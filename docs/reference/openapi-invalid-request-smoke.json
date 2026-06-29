@@ -42,14 +42,10 @@
       "source": "query tags and BindRequest",
       "expectedStatus": 400,
       "expectedCode": "invalid_argument",
-<<<<<<< HEAD
-      "gate": "go test -shuffle=on ./rest -run TestOpenAPIValidationEnvelopeRuntimeGolden_BitsUT",
-=======
       "gate": "go test -shuffle=on ./rest -run TestOpenAPIValidationEnvelopeRuntimeGolden",
       "alignmentInvariant": "Runtime query validation failures and OpenAPI query parameter constraints must describe the same min/max boundary.",
       "consumerAction": "Use the field-level validation failure to map query errors to client-side retry guidance.",
       "rollbackOrEscalation": "Pin the previous query DTO or validation tag set until query runtime and schema evidence agree.",
->>>>>>> d75795a (chore(rest): gate openapi validation smoke actions)
       "evidenceRefs": [
         {
           "path": "rest/binding_test.go",

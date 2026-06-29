@@ -12,6 +12,23 @@ This example productizes the P1 HTTP middleware matrix for gofly. It shows how a
 - WebSocket upgrade at `/ws`
 - request binding and validation with a stable JSON error response
 
+## Migration DX
+
+Use this example when replacing Gin or go-zero HTTP middleware one concern at a time. Keep the old chain active until `go -C examples/http-middleware run . --describe`, `go -C examples/http-middleware test ./...`, `make examples-smoke`, `make api-example-consistency-check`, and `make p1-growth-check` all pass in the target branch.
+
+Recommended ordering:
+
+1. recover, request-id, trace, log, metrics
+2. security headers, CORS, max-body, timeout
+3. session, CSRF, JWT, validation
+4. handler, SSE/WebSocket bounds
+
+Gin mapping: Gin auth middleware maps to `rest.BearerAuthMiddleware`, `gin-contrib/cors` maps to `rest.CORSConfig`, Gin CSRF/session middleware maps to `rest.CSRFConfig` and the signed session middleware in this example, and Gin SSE/WebSocket handlers map to `Context.SSE` and `Context.WebSocket`.
+
+go-zero mapping: go-zero JWT, CORS, trace, log, Prometheus, and custom browser-safety middleware map to gofly route middleware plus `/metrics`, OpenAPI response schemas, and the `/middleware/catalog` control-plane surface.
+
+Failure modes to rehearse: missing JWT, credentialed CORS preflight drift, missing or mismatched CSRF token, unsigned session cookie, high-cardinality Prometheus labels, traceparent loss, SSE cancellation, and WebSocket message-size or timeout violations.
+
 ## Run
 
 From the repository root:

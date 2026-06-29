@@ -1,0 +1,124 @@
+{
+  "schema": "gofly.cli_configuration_governance.v1",
+  "aiflowTask": "GOFLY-GOV-10R3-03",
+  "purpose": "Keep cmd/gofly command flags, configuration defaults, global output controls, usage errors, and JSON contract evidence aligned without changing existing CLI semantics.",
+  "acceptanceGate": "make cli-configuration-governance-check",
+  "surfaceGate": "make cli-command-surface-check",
+  "jsonGoldenGate": "make cli-json-contract-goldens-check",
+  "sourceCode": [
+    "cmd/gofly/internal/command/config_command.go",
+    "cmd/gofly/internal/command/registry.go",
+    "cmd/gofly/internal/command/root.go",
+    "cmd/gofly/internal/command/idl_test.go",
+    "cmd/gofly/internal/command/ai_helpers_test.go",
+    "cmd/gofly/internal/command/cli_json_contract_golden_test.go",
+    "docs/reference/cli-command-surface.json",
+    "docs/reference/cli-json-contract-goldens.json"
+  ],
+  "policy": {
+    "preserveExistingSemantics": true,
+    "noImplicitJsonForConfigCommands": true,
+    "usageErrorsExitCode2": true,
+    "globalOutputJsonUsesSingleEnvelope": true,
+    "configMutationsSupportDryRunPlan": true
+  },
+  "configurationSurfaces": [
+    {
+      "id": "config-command",
+      "commands": [
+        "init",
+        "show",
+        "get",
+        "set",
+        "clean"
+      ],
+      "defaultPath": ".gofly/config.json",
+      "pathSource": "generator.DefaultConfigFile",
+      "mutationPolicy": "init, set, and clean must expose dry-run or plan evidence before filesystem mutation",
+      "jsonPolicy": "config commands remain text/plan commands until explicit JSON contracts are added and golden-tested"
+    },
+    {
+      "id": "global-output-mode",
+      "flags": [
+        "--output json",
+        "--output=json",
+        "--output text",
+        "--quiet",
+        "--verbose"
+      ],
+      "contract": "global JSON errors emit exactly one envelope to stdout and leave stderr empty"
+    },
+    {
+      "id": "usage-error-contract",
+      "exitCode": 2,
+      "contract": "invalid commands, invalid flags, missing flag values, and config usage mistakes classify as errUsage"
+    },
+    {
+      "id": "json-golden-contracts",
+      "contract": "stable JSON-capable commands are governed by docs/reference/cli-json-contract-goldens.json and TestCLIJSONContractGoldens"
+    }
+  ],
+  "coverage": [
+    {
+      "id": "config-defaults",
+      "evidence": "TestExecuteConfigInitPersistsDefaultEcosystemFeature",
+      "riskBlocked": "config init silently losing default profile features"
+    },
+    {
+      "id": "config-show-get",
+      "evidence": "TestExecuteConfigShowAndGet",
+      "riskBlocked": "config show/get drifting from saved configuration"
+    },
+    {
+      "id": "config-set-get",
+      "evidence": "TestExecuteConfigSetAndGet",
+      "riskBlocked": "config set not persisting readable values"
+    },
+    {
+      "id": "config-clean",
+      "evidence": "TestExecuteConfigClean",
+      "riskBlocked": "config clean leaving stale configuration behind"
+    },
+    {
+      "id": "config-usage-errors",
+      "evidence": "TestExecuteConfigInvalidSubcommand and TestCommandConfigFeaturePluginCoverageBuffer",
+      "riskBlocked": "config usage mistakes returning runtime failure semantics"
+    },
+    {
+      "id": "global-output-mode",
+      "evidence": "TestParseGlobalOutput, TestGlobalOutputJSONErrorsToStdoutOnly, and TestCLISTDIOExitContract",
+      "riskBlocked": "global output mode corrupting stdout/stderr automation contracts"
+    },
+    {
+      "id": "json-goldens",
+      "evidence": "TestCLIJSONContractGoldens and TestCLIJSONErrorEnvelopeGolden",
+      "riskBlocked": "JSON-capable commands drifting from stable envelopes"
+    }
+  ],
+  "evidenceTests": [
+    "TestExecuteConfigShowAndGet",
+    "TestExecuteConfigSetAndGet",
+    "TestExecuteConfigInvalidSubcommand",
+    "TestExecuteConfigClean",
+    "TestExecuteConfigInitPersistsDefaultEcosystemFeature",
+    "TestExecuteConfigSetFeaturesValidatesAndAllowsEmptyList",
+    "TestParseGlobalOutput",
+    "TestGlobalOutputJSONErrorsToStdoutOnly",
+    "TestCLISTDIOExitContract",
+    "TestCommandConfigFeaturePluginCoverageBuffer",
+    "TestCLIJSONContractGoldens",
+    "TestCLIJSONErrorEnvelopeGolden"
+  ],
+  "knownDrift": [
+    {
+      "id": "config-json-output",
+      "status": "intentional-boundary",
+      "reason": "The config command currently has no stable JSON contract. Do not add --json implicitly; add a golden contract first if product requirements change."
+    }
+  ],
+  "aiflowExecution": {
+    "status": "local-fallback",
+    "blocker": "aiflow CLI currently fails to compile in the adjacent aiflow checkout because harness/policy.go imports fmt without use",
+    "goflyImpact": "none; the local governance gate is self-contained"
+  }
+}

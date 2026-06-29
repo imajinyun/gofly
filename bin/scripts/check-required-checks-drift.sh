@@ -109,6 +109,69 @@ expected_ci_docker_build_fields = {
     "schema",
 }
 
+expected_hosted_release_evidence = {
+    "artifact-upload": {
+        "producerJob": "release",
+        "requiredCheck": "release (tagged)",
+        "workflowMarker": "Upload release verification evidence",
+        "releasePrerequisite": True,
+    },
+    "checksums": {
+        "producerJob": "release",
+        "requiredCheck": "release (tagged)",
+        "workflowMarker": "dist/checksums.txt",
+        "releasePrerequisite": True,
+    },
+    "sbom": {
+        "producerJob": "release",
+        "requiredCheck": "release (tagged)",
+        "workflowMarker": "release-evidence/docker/release-docker-sbom.spdx.json",
+        "releasePrerequisite": True,
+    },
+    "provenance": {
+        "producerJob": "release",
+        "requiredCheck": "release (tagged)",
+        "workflowMarker": "Verify release attestations",
+        "releasePrerequisite": True,
+    },
+    "docker-digest": {
+        "producerJob": "release",
+        "requiredCheck": "release (tagged)",
+        "workflowMarker": "release-evidence/docker/release-docker-digests.json",
+        "releasePrerequisite": True,
+    },
+    "trivy": {
+        "producerJob": "release",
+        "requiredCheck": "release (tagged)",
+        "workflowMarker": "Trivy release image scan",
+        "releasePrerequisite": True,
+    },
+    "codeql": {
+        "producerJob": "codeql",
+        "requiredCheck": "CodeQL security analysis",
+        "workflowMarker": "Perform CodeQL Analysis",
+        "releasePrerequisite": True,
+    },
+    "scorecard": {
+        "producerJob": "scorecard",
+        "requiredCheck": "OSSF Scorecard",
+        "workflowMarker": "Upload Scorecard SARIF",
+        "releasePrerequisite": True,
+    },
+    "dependency-review": {
+        "producerJob": "dependency-review",
+        "requiredCheck": "dependency review",
+        "workflowMarker": "Dependency Review is a pull-request-only gate",
+        "releasePrerequisite": False,
+    },
+    "required-check-drift": {
+        "producerJob": "branch-protection-audit",
+        "requiredCheck": "branch protection required-check audit",
+        "workflowMarker": "required-status-checks.json",
+        "releasePrerequisite": False,
+    },
+}
+
 expected_governance_rounds = {
     1: "baseline and module graph",
     2: "format check",
@@ -392,6 +455,90 @@ require(
     "ci-required-check-evidence.json: releasePrerequisiteDrift jobs drifted: "
     f"missing={sorted(expected_release_needs - release_drift_jobs)} extra={sorted(release_drift_jobs - expected_release_needs)}",
 )
+
+hosted_release_evidence = required_check_manifest.get("hostedReleaseEvidence")
+if not isinstance(hosted_release_evidence, dict):
+    missing.append("ci-required-check-evidence.json: hostedReleaseEvidence must be an object")
+    hosted_release_evidence = {}
+require(
+    hosted_release_evidence.get("schema") == "gofly.hosted_release_evidence.v1",
+    "ci-required-check-evidence.json: hostedReleaseEvidence schema mismatch",
+)
+require(
+    hosted_release_evidence.get("aiflowTask") == "GOFLY-GOV-10P9-05",
+    "ci-required-check-evidence.json: hostedReleaseEvidence must identify GOFLY-GOV-10P9-05",
+)
+require(
+    hosted_release_evidence.get("acceptanceGate") == "make ci-required-check-evidence-check",
+    "ci-required-check-evidence.json: hostedReleaseEvidence acceptanceGate mismatch",
+)
+require(
+    hosted_release_evidence.get("releaseJob") == "release",
+    "ci-required-check-evidence.json: hostedReleaseEvidence releaseJob must be release",
+)
+require(
+    hosted_release_evidence.get("uploadArtifact") == "release-dist-evidence",
+    "ci-required-check-evidence.json: hostedReleaseEvidence uploadArtifact must be release-dist-evidence",
+)
+require(
+    len(str(hosted_release_evidence.get("policy") or "").split()) >= 18,
+    "ci-required-check-evidence.json: hostedReleaseEvidence policy must be actionable",
+)
+hosted_rows = hosted_release_evidence.get("rows")
+if not isinstance(hosted_rows, list):
+    missing.append("ci-required-check-evidence.json: hostedReleaseEvidence rows must be a list")
+    hosted_rows = []
+hosted_by_id = {}
+for row in hosted_rows:
+    if not isinstance(row, dict):
+        missing.append(f"hostedReleaseEvidence row must be an object: {row!r}")
+        continue
+    row_id = row.get("id", "")
+    if not row_id:
+        missing.append("hostedReleaseEvidence row id is required")
+        continue
+    if row_id in hosted_by_id:
+        missing.append(f"duplicate hostedReleaseEvidence id: {row_id}")
+    hosted_by_id[row_id] = row
+require(
+    set(hosted_by_id) == set(expected_hosted_release_evidence),
+    "ci-required-check-evidence.json: hostedReleaseEvidence ids drifted: "
+    f"missing={sorted(set(expected_hosted_release_evidence) - set(hosted_by_id))} "
+    f"extra={sorted(set(hosted_by_id) - set(expected_hosted_release_evidence))}",
+)
+for row_id, expected in sorted(expected_hosted_release_evidence.items()):
+    row = hosted_by_id.get(row_id) or {}
+    for field in (
+        "id",
+        "producerJob",
+        "requiredCheck",
+        "hostedEvidence",
+        "localGate",
+        "workflowMarker",
+        "releasePrerequisite",
+        "fallbackPolicy",
+    ):
+        require(field in row and row.get(field) not in ("", None), f"hostedReleaseEvidence {row_id}: {field} is required")
+    for field, value in expected.items():
+        require(row.get(field) == value, f"hostedReleaseEvidence {row_id}: {field} mismatch: got {row.get(field)!r}, want {value!r}")
+    producer = row.get("producerJob", "")
+    required_check = row.get("requiredCheck", "")
+    local_gate = row.get("localGate", "")
+    require(producer in job_ids, f"hostedReleaseEvidence {row_id}: producer job {producer!r} is missing from workflow")
+    if row.get("releasePrerequisite") is True and producer != "release":
+        require(producer in release_needs, f"hostedReleaseEvidence {row_id}: producer {producer!r} must be a release prerequisite")
+    if required_check == "release (tagged)":
+        require(producer == "release", f"hostedReleaseEvidence {row_id}: release tagged rows must be produced by release job")
+    else:
+        require(required_check in branch_audit_expected, f"hostedReleaseEvidence {row_id}: required check {required_check!r} is not branch-protected")
+        manifest_check = manifest_checks.get(required_check) or {}
+        require(manifest_check.get("job") == producer, f"hostedReleaseEvidence {row_id}: required check job mismatch")
+        require(manifest_check.get("localGate") == local_gate, f"hostedReleaseEvidence {row_id}: local gate mismatch")
+    marker = str(row.get("workflowMarker") or "")
+    require(marker in workflow, f"hostedReleaseEvidence {row_id}: workflow marker {marker!r} is missing")
+    require(len(str(row.get("fallbackPolicy") or "").split()) >= 8, f"hostedReleaseEvidence {row_id}: fallbackPolicy must be actionable")
+require("release-dist-evidence" in workflow, "ci.yml: hosted release upload artifact release-dist-evidence is missing")
+require("if-no-files-found: error" in release_job, "ci.yml: hosted release evidence upload must fail on missing files")
 
 release_evidence_items = [
     item

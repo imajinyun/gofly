@@ -369,5 +369,115 @@
       "fallbackPolicy": "block release promotion when hosted Scorecard evidence is unavailable for the tag"
     }
   ],
+  "hostedReleaseEvidence": {
+    "schema": "gofly.hosted_release_evidence.v1",
+    "aiflowTask": "GOFLY-GOV-10P9-05",
+    "acceptanceGate": "make ci-required-check-evidence-check",
+    "releaseJob": "release",
+    "uploadArtifact": "release-dist-evidence",
+    "policy": "Hosted tag CI evidence must map artifact upload, checksums, SBOM, provenance, Docker digest, Trivy, hosted security checks, and required-check drift to a concrete workflow marker, producer job, local gate, and fallback policy before release promotion.",
+    "rows": [
+      {
+        "id": "artifact-upload",
+        "producerJob": "release",
+        "requiredCheck": "release (tagged)",
+        "hostedEvidence": "release-dist-evidence artifact upload",
+        "localGate": "make release-artifacts-check",
+        "workflowMarker": "Upload release verification evidence",
+        "releasePrerequisite": true,
+        "fallbackPolicy": "block release promotion when release-dist-evidence is absent, empty, or uploaded with if-no-files-found other than error"
+      },
+      {
+        "id": "checksums",
+        "producerJob": "release",
+        "requiredCheck": "release (tagged)",
+        "hostedEvidence": "dist/checksums.txt",
+        "localGate": "make release-artifacts-check",
+        "workflowMarker": "dist/checksums.txt",
+        "releasePrerequisite": true,
+        "fallbackPolicy": "block release promotion when checksum evidence is missing from the uploaded release artifact bundle"
+      },
+      {
+        "id": "sbom",
+        "producerJob": "release",
+        "requiredCheck": "release (tagged)",
+        "hostedEvidence": "archive and Docker SBOM artifacts",
+        "localGate": "RELEASE_REQUIRE_DOCKER_EVIDENCE=true make release-artifacts-check",
+        "workflowMarker": "release-evidence/docker/release-docker-sbom.spdx.json",
+        "releasePrerequisite": true,
+        "fallbackPolicy": "block release promotion when archive or Docker SBOM output is missing from hosted release evidence"
+      },
+      {
+        "id": "provenance",
+        "producerJob": "release",
+        "requiredCheck": "release (tagged)",
+        "hostedEvidence": "checksum and Docker provenance attestation verification",
+        "localGate": "RELEASE_REQUIRE_DOCKER_EVIDENCE=true make release-artifacts-check",
+        "workflowMarker": "Verify release attestations",
+        "releasePrerequisite": true,
+        "fallbackPolicy": "block release promotion when checksum or Docker attestation verification is missing or mismatched"
+      },
+      {
+        "id": "docker-digest",
+        "producerJob": "release",
+        "requiredCheck": "release (tagged)",
+        "hostedEvidence": "release Docker digest evidence",
+        "localGate": "RELEASE_REQUIRE_DOCKER_EVIDENCE=true make release-artifacts-check",
+        "workflowMarker": "release-evidence/docker/release-docker-digests.json",
+        "releasePrerequisite": true,
+        "fallbackPolicy": "block release promotion when immutable Docker digest evidence is missing or lacks required platforms"
+      },
+      {
+        "id": "trivy",
+        "producerJob": "release",
+        "requiredCheck": "release (tagged)",
+        "hostedEvidence": "release Trivy JSON scan",
+        "localGate": "RELEASE_REQUIRE_DOCKER_EVIDENCE=true make release-artifacts-check",
+        "workflowMarker": "Trivy release image scan",
+        "releasePrerequisite": true,
+        "fallbackPolicy": "block release promotion when release Trivy evidence is missing or reports unaccepted high or critical findings"
+      },
+      {
+        "id": "codeql",
+        "producerJob": "codeql",
+        "requiredCheck": "CodeQL security analysis",
+        "hostedEvidence": "CodeQL code scanning result",
+        "localGate": "GitHub CodeQL workflow",
+        "workflowMarker": "Perform CodeQL Analysis",
+        "releasePrerequisite": true,
+        "fallbackPolicy": "block release promotion when hosted CodeQL evidence is unavailable for the tag"
+      },
+      {
+        "id": "scorecard",
+        "producerJob": "scorecard",
+        "requiredCheck": "OSSF Scorecard",
+        "hostedEvidence": "scorecard-results SARIF upload",
+        "localGate": "OpenSSF Scorecard workflow",
+        "workflowMarker": "Upload Scorecard SARIF",
+        "releasePrerequisite": true,
+        "fallbackPolicy": "block release promotion when hosted Scorecard evidence is unavailable for the tag"
+      },
+      {
+        "id": "dependency-review",
+        "producerJob": "dependency-review",
+        "requiredCheck": "dependency review",
+        "hostedEvidence": "Dependency Review job summary",
+        "localGate": "GitHub Dependency Review workflow",
+        "workflowMarker": "Dependency Review is a pull-request-only gate",
+        "releasePrerequisite": false,
+        "fallbackPolicy": "block merge before tagging when dependency review evidence is absent for dependency-changing pull requests"
+      },
+      {
+        "id": "required-check-drift",
+        "producerJob": "branch-protection-audit",
+        "requiredCheck": "branch protection required-check audit",
+        "hostedEvidence": "required-status-checks.json",
+        "localGate": "make required-checks-drift-check",
+        "workflowMarker": "required-status-checks.json",
+        "releasePrerequisite": false,
+        "fallbackPolicy": "block release promotion when branch-protection expected checks, release needs, or evidence manifests drift"
+      }
+    ]
+  },
   "schema": "gofly.ci_required_check_evidence.v1"
 }

@@ -119,3 +119,29 @@ matrix.
 | `integration` | `integration-platform` | integration matrix areas, package lists, required checks, and dependency delegation must match. |
 | `docker` | `release-governance` | Docker build, Trivy, digest, SBOM, and provenance evidence must stay release-consumable. |
 | `scorecard` | `security-governance` | hosted Scorecard evidence must remain required for branch protection and tags. |
+
+## Hosted Release Evidence
+
+The `hostedReleaseEvidence` section records the P9 hosted tag CI closure for
+`GOFLY-GOV-10P9-05`. It ties the release job and hosted prerequisite checks to
+the uploaded `release-dist-evidence` artifact, workflow markers, local gates,
+and fallback policies. This makes the tag release path auditable without
+requiring adopters to reverse-engineer the workflow.
+
+`make ci-required-check-evidence-check` validates the row set, schema, workflow
+markers, release job, upload artifact name, and missing-file policy. `make
+required-checks-drift-check` also validates the same contract against branch
+protection and release prerequisites.
+
+| Evidence row | Producer job | Hosted evidence | Gate |
+| --- | --- | --- | --- |
+| `artifact-upload` | `release` | `release-dist-evidence` artifact upload | `make release-artifacts-check` |
+| `checksums` | `release` | `dist/checksums.txt` | `make release-artifacts-check` |
+| `sbom` | `release` | archive and Docker SBOM artifacts | `RELEASE_REQUIRE_DOCKER_EVIDENCE=true make release-artifacts-check` |
+| `provenance` | `release` | checksum and Docker attestation verification | `RELEASE_REQUIRE_DOCKER_EVIDENCE=true make release-artifacts-check` |
+| `docker-digest` | `release` | release Docker digest evidence | `RELEASE_REQUIRE_DOCKER_EVIDENCE=true make release-artifacts-check` |
+| `trivy` | `release` | release Trivy JSON scan | `RELEASE_REQUIRE_DOCKER_EVIDENCE=true make release-artifacts-check` |
+| `codeql` | `codeql` | CodeQL code scanning result | GitHub CodeQL workflow |
+| `scorecard` | `scorecard` | `scorecard-results` SARIF upload | OpenSSF Scorecard workflow |
+| `dependency-review` | `dependency-review` | Dependency Review job summary | GitHub Dependency Review workflow |
+| `required-check-drift` | `branch-protection-audit` | `required-status-checks.json` | `make required-checks-drift-check` |

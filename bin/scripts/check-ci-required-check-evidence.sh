@@ -59,6 +59,68 @@ expected_integration_matrix = {
 }
 
 expected_release_drift_jobs = expected_release_prerequisites
+expected_hosted_release_evidence = {
+    "artifact-upload": {
+        "producerJob": "release",
+        "requiredCheck": "release (tagged)",
+        "workflowMarker": "Upload release verification evidence",
+        "releasePrerequisite": True,
+    },
+    "checksums": {
+        "producerJob": "release",
+        "requiredCheck": "release (tagged)",
+        "workflowMarker": "dist/checksums.txt",
+        "releasePrerequisite": True,
+    },
+    "sbom": {
+        "producerJob": "release",
+        "requiredCheck": "release (tagged)",
+        "workflowMarker": "release-evidence/docker/release-docker-sbom.spdx.json",
+        "releasePrerequisite": True,
+    },
+    "provenance": {
+        "producerJob": "release",
+        "requiredCheck": "release (tagged)",
+        "workflowMarker": "Verify release attestations",
+        "releasePrerequisite": True,
+    },
+    "docker-digest": {
+        "producerJob": "release",
+        "requiredCheck": "release (tagged)",
+        "workflowMarker": "release-evidence/docker/release-docker-digests.json",
+        "releasePrerequisite": True,
+    },
+    "trivy": {
+        "producerJob": "release",
+        "requiredCheck": "release (tagged)",
+        "workflowMarker": "Trivy release image scan",
+        "releasePrerequisite": True,
+    },
+    "codeql": {
+        "producerJob": "codeql",
+        "requiredCheck": "CodeQL security analysis",
+        "workflowMarker": "Perform CodeQL Analysis",
+        "releasePrerequisite": True,
+    },
+    "scorecard": {
+        "producerJob": "scorecard",
+        "requiredCheck": "OSSF Scorecard",
+        "workflowMarker": "Upload Scorecard SARIF",
+        "releasePrerequisite": True,
+    },
+    "dependency-review": {
+        "producerJob": "dependency-review",
+        "requiredCheck": "dependency review",
+        "workflowMarker": "Dependency Review is a pull-request-only gate",
+        "releasePrerequisite": False,
+    },
+    "required-check-drift": {
+        "producerJob": "branch-protection-audit",
+        "requiredCheck": "branch protection required-check audit",
+        "workflowMarker": "required-status-checks.json",
+        "releasePrerequisite": False,
+    },
+}
 
 
 def read_text(path):
@@ -118,8 +180,14 @@ def extract_upload_artifact_names(workflow):
 
 
 def local_gate_exists(gate, targets):
+    normalized = gate
+    if " make " in gate:
+        normalized = "make " + gate.split(" make ", 1)[1]
     if gate.startswith("make "):
         target = gate.removeprefix("make ").split()[0]
+        return target in targets
+    if normalized.startswith("make "):
+        target = normalized.removeprefix("make ").split()[0]
         return target in targets
     return (
         gate.startswith("go test ")
@@ -285,11 +353,80 @@ for item in release_drift:
         require(len(str(item.get(field) or "").split()) >= 10, f"releasePrerequisiteDrift {job}: {field} must be actionable")
 require(release_drift_jobs == expected_release_drift_jobs, f"releasePrerequisiteDrift jobs drifted: missing={sorted(expected_release_drift_jobs - release_drift_jobs)} extra={sorted(release_drift_jobs - expected_release_drift_jobs)}")
 
+hosted = manifest.get("hostedReleaseEvidence")
+if not isinstance(hosted, dict):
+    missing.append("hostedReleaseEvidence must be an object")
+    hosted = {}
+require(hosted.get("schema") == "gofly.hosted_release_evidence.v1", "hostedReleaseEvidence schema mismatch")
+require(hosted.get("aiflowTask") == "GOFLY-GOV-10P9-05", "hostedReleaseEvidence must identify GOFLY-GOV-10P9-05")
+require(hosted.get("acceptanceGate") == "make ci-required-check-evidence-check", "hostedReleaseEvidence acceptanceGate mismatch")
+require(hosted.get("releaseJob") == "release", "hostedReleaseEvidence releaseJob must be release")
+require(hosted.get("uploadArtifact") == "release-dist-evidence", "hostedReleaseEvidence uploadArtifact must be release-dist-evidence")
+require(len(str(hosted.get("policy") or "").split()) >= 18, "hostedReleaseEvidence policy must be actionable")
+hosted_rows = hosted.get("rows")
+if not isinstance(hosted_rows, list):
+    missing.append("hostedReleaseEvidence rows must be a list")
+    hosted_rows = []
+hosted_by_id = {}
+for row in hosted_rows:
+    if not isinstance(row, dict):
+        missing.append(f"hostedReleaseEvidence row must be an object: {row!r}")
+        continue
+    row_id = row.get("id", "")
+    if not row_id:
+        missing.append("hostedReleaseEvidence row id is required")
+        continue
+    if row_id in hosted_by_id:
+        missing.append(f"duplicate hostedReleaseEvidence id: {row_id}")
+    hosted_by_id[row_id] = row
+require(set(hosted_by_id) == set(expected_hosted_release_evidence), f"hostedReleaseEvidence ids drifted: missing={sorted(set(expected_hosted_release_evidence) - set(hosted_by_id))} extra={sorted(set(hosted_by_id) - set(expected_hosted_release_evidence))}")
+
+release_job_body = extract_job_body(workflow, "release")
+for row_id, expected in sorted(expected_hosted_release_evidence.items()):
+    row = hosted_by_id.get(row_id) or {}
+    for field in (
+        "id",
+        "producerJob",
+        "requiredCheck",
+        "hostedEvidence",
+        "localGate",
+        "workflowMarker",
+        "releasePrerequisite",
+        "fallbackPolicy",
+    ):
+        require(field in row and row.get(field) not in ("", None), f"hostedReleaseEvidence {row_id}: {field} is required")
+    for field, value in expected.items():
+        require(row.get(field) == value, f"hostedReleaseEvidence {row_id}: {field} mismatch: got {row.get(field)!r}, want {value!r}")
+    producer = row.get("producerJob", "")
+    required_check = row.get("requiredCheck", "")
+    local_gate = row.get("localGate", "")
+    require(producer in job_ids, f"hostedReleaseEvidence {row_id}: producer job {producer!r} is missing from workflow")
+    if row.get("releasePrerequisite") is True:
+        if producer == "release":
+            require("if: startsWith(github.ref, 'refs/tags/v')" in release_job_body, f"hostedReleaseEvidence {row_id}: release row must stay tag-scoped")
+        else:
+            require(producer in manifest_prereqs, f"hostedReleaseEvidence {row_id}: producer {producer!r} must be a release prerequisite")
+    if required_check != "release (tagged)":
+        require(required_check in actual_checks, f"hostedReleaseEvidence {row_id}: required check {required_check!r} is not in checks")
+        matching = [entry for entry in checks if isinstance(entry, dict) and entry.get("check") == required_check]
+        if matching:
+            require(matching[0].get("job") == producer, f"hostedReleaseEvidence {row_id}: required check job mismatch")
+            require(matching[0].get("localGate") == local_gate, f"hostedReleaseEvidence {row_id}: local gate mismatch")
+    else:
+        require(producer == "release", f"hostedReleaseEvidence {row_id}: release tagged rows must be produced by release job")
+    marker = str(row.get("workflowMarker") or "")
+    require(marker in workflow, f"hostedReleaseEvidence {row_id}: workflow marker {marker!r} is missing")
+    require(local_gate_exists(local_gate, target_names), f"hostedReleaseEvidence {row_id}: localGate is not runnable or documented: {local_gate!r}")
+    require(len(str(row.get("fallbackPolicy") or "").split()) >= 8, f"hostedReleaseEvidence {row_id}: fallbackPolicy must be actionable")
+require("release-dist-evidence" in workflow, "ci.yml: hosted release upload artifact release-dist-evidence is missing")
+require("if-no-files-found: error" in release_job_body, "ci.yml: hosted release evidence upload must fail on missing files")
+
 for needle in [
     "expected_default_checks",
     "expected_release_needs",
     "expected_integration_matrix",
     "expected_docker_ci_evidence_files",
+    "expected_hosted_release_evidence",
 ]:
     require(needle in required_check_script, f"required-check drift script must keep {needle}")
 
@@ -301,6 +438,7 @@ for path_text, needles in {
         "releasePrerequisites",
         "integrationMatrix",
         "releasePrerequisiteDrift",
+        "hostedReleaseEvidence",
     ],
     "docs/index.md": ["reference/ci-required-check-evidence.md"],
     "README.md": ["docs/reference/ci-required-check-evidence.md"],

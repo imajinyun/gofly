@@ -7,6 +7,16 @@ The governed command surface is tracked in
 registered command families, aliases, help topics, JSON contract surfaces, and
 follow-up CLI governance tasks.
 
+The executable golden set is tracked in
+[`cli-json-contract-goldens.json`](cli-json-contract-goldens.json). That
+manifest lists the release-blocking JSON cases and the gate that keeps stdout
+JSON-only for machine consumers.
+
+The command surface manifest also records closed CLI governance work. The
+`stdio-error-discipline` closeout links the P9-3 aiflow subtasks to tests that
+protect stdout/stderr separation, stable usage exit code `2`, and
+`USAGE_ERROR` JSON envelopes for flag parsing failures.
+
 ## Stability rules
 
 - Existing JSON fields keep their type and meaning within a minor release line.
@@ -14,6 +24,9 @@ follow-up CLI governance tasks.
 - Field removals, renames, or type changes require a breaking-change note and a migration path.
 - Array ordering is stable only when this page names it as stable; otherwise consumers should key by identifiers such as `name`, `path`, `service`, or `method`.
 - Errors emitted while `--output json` is active use the standard error envelope.
+- Flag parsing failures, including unknown flags and missing flag values, are
+  usage errors: text mode writes the diagnostic to stderr and global JSON mode
+  writes a single `USAGE_ERROR` envelope to stdout.
 
 ## Standard envelope
 

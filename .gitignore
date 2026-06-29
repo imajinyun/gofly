@@ -71,6 +71,7 @@ go.work.sum
 .env
 
 # Editor/IDE
+.aiflow/
 .idea/
 .vscode/
 .trae/

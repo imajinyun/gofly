@@ -128,12 +128,20 @@ func TestCLICommandSurfaceManifestMatchesRegistries_BitsUT(t *testing.T) {
 		JSONContract string   `json:"jsonContract"`
 		HelpTopic    string   `json:"helpTopic"`
 	}
+	type manifestClosedGovernance struct {
+		ID       string   `json:"id"`
+		Task     string   `json:"task"`
+		Subtasks []string `json:"subtasks"`
+		Evidence []string `json:"evidence"`
+		Gates    []string `json:"gates"`
+	}
 	var manifest struct {
-		Schema           string                `json:"schema"`
-		AcceptanceGate   string                `json:"acceptanceGate"`
-		IgnoredPaths     []string              `json:"ignoredPaths"`
-		RootCommands     []manifestRootCommand `json:"rootCommands"`
-		RecommendedOrder []string              `json:"recommendedOrder"`
+		Schema           string                     `json:"schema"`
+		AcceptanceGate   string                     `json:"acceptanceGate"`
+		IgnoredPaths     []string                   `json:"ignoredPaths"`
+		RootCommands     []manifestRootCommand      `json:"rootCommands"`
+		ClosedGovernance []manifestClosedGovernance `json:"closedGovernance"`
+		RecommendedOrder []string                   `json:"recommendedOrder"`
 	}
 	if err := json.Unmarshal(data, &manifest); err != nil {
 		t.Fatalf("decode cli command surface manifest: %v", err)
@@ -209,6 +217,34 @@ func TestCLICommandSurfaceManifestMatchesRegistries_BitsUT(t *testing.T) {
 	} {
 		if !containsString(manifest.RecommendedOrder, task) {
 			t.Fatalf("recommendedOrder missing %s", task)
+		}
+	}
+	var stdio manifestClosedGovernance
+	for _, item := range manifest.ClosedGovernance {
+		if item.ID == "stdio-error-discipline" {
+			stdio = item
+			break
+		}
+	}
+	if stdio.ID == "" {
+		t.Fatal("closedGovernance missing stdio-error-discipline")
+	}
+	if stdio.Task != "GOFLY-P9-3-CLI-STDIO-AND-ERROR-DISCIPLINE" {
+		t.Fatalf("stdio closeout task = %q", stdio.Task)
+	}
+	for _, want := range []string{"GOFLY-P9-3A-CLI-STDIO-EXIT-CONTRACT", "GOFLY-P9-3B-CLI-FLAG-DIAGNOSTICS", "GOFLY-P9-3C-CLI-GOVERNANCE-MANIFEST-CLOSEOUT"} {
+		if !containsString(stdio.Subtasks, want) {
+			t.Fatalf("stdio closeout subtasks missing %s", want)
+		}
+	}
+	for _, want := range []string{"TestRunMainSTDIOExitContract", "TestRunMainFlagDiagnosticsContract", "TestCLISTDIOExitContract", "TestExecuteFlagParsingErrorsAreSilentUsageErrors", "TestCLIJSONErrorEnvelopeGolden"} {
+		if !containsString(stdio.Evidence, want) {
+			t.Fatalf("stdio closeout evidence missing %s", want)
+		}
+	}
+	for _, want := range []string{"make cli-command-surface-check", "make cli-json-contract-goldens-check"} {
+		if !containsString(stdio.Gates, want) {
+			t.Fatalf("stdio closeout gates missing %s", want)
 		}
 	}
 }

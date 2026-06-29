@@ -269,6 +269,28 @@
       "helpTopic": "ai"
     }
   ],
+  "closedGovernance": [
+    {
+      "id": "stdio-error-discipline",
+      "task": "GOFLY-P9-3-CLI-STDIO-AND-ERROR-DISCIPLINE",
+      "subtasks": [
+        "GOFLY-P9-3A-CLI-STDIO-EXIT-CONTRACT",
+        "GOFLY-P9-3B-CLI-FLAG-DIAGNOSTICS",
+        "GOFLY-P9-3C-CLI-GOVERNANCE-MANIFEST-CLOSEOUT"
+      ],
+      "evidence": [
+        "TestRunMainSTDIOExitContract",
+        "TestRunMainFlagDiagnosticsContract",
+        "TestCLISTDIOExitContract",
+        "TestExecuteFlagParsingErrorsAreSilentUsageErrors",
+        "TestCLIJSONErrorEnvelopeGolden"
+      ],
+      "gates": [
+        "make cli-command-surface-check",
+        "make cli-json-contract-goldens-check"
+      ]
+    }
+  ],
   "knownDrift": [
     {
       "id": "plugin-help-boundary",
@@ -284,11 +306,6 @@
       "id": "json-contract-goldens",
       "risk": "stable JSON outputs need golden tests beyond prose contracts",
       "followUpTask": "GOFLY-P9-2-CLI-JSON-CONTRACT-GOLDENS"
-    },
-    {
-      "id": "stdio-error-discipline",
-      "risk": "text diagnostics, JSON output, quiet mode, and exit code behavior need one CLI-wide regression suite",
-      "followUpTask": "GOFLY-P9-3-CLI-STDIO-AND-ERROR-DISCIPLINE"
     }
   ],
   "recommendedOrder": [

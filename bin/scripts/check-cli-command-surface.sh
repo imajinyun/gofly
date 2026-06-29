@@ -78,10 +78,32 @@ for item in root_commands:
         if name in {"api", "rpc", "model"}:
             require(f'Name: "{child}"' in idl_registry, f"{name} child {child!r} missing from idl_registry.go")
 
+closed_governance = manifest.get("closedGovernance") or []
+closed_ids = {item.get("id") for item in closed_governance if isinstance(item, dict)}
+require("stdio-error-discipline" in closed_ids, "cli command surface closedGovernance missing 'stdio-error-discipline'")
+stdio_closeout = next((item for item in closed_governance if isinstance(item, dict) and item.get("id") == "stdio-error-discipline"), {})
+require(stdio_closeout.get("task") == "GOFLY-P9-3-CLI-STDIO-AND-ERROR-DISCIPLINE", "stdio-error-discipline closeout task mismatch")
+for subtask in (
+    "GOFLY-P9-3A-CLI-STDIO-EXIT-CONTRACT",
+    "GOFLY-P9-3B-CLI-FLAG-DIAGNOSTICS",
+    "GOFLY-P9-3C-CLI-GOVERNANCE-MANIFEST-CLOSEOUT",
+):
+    require(subtask in (stdio_closeout.get("subtasks") or []), f"stdio-error-discipline closeout missing subtask {subtask}")
+for gate in ("make cli-command-surface-check", "make cli-json-contract-goldens-check"):
+    require(gate in (stdio_closeout.get("gates") or []), f"stdio-error-discipline closeout missing gate {gate}")
+
+main_test = read_text(root / "cmd" / "gofly" / "main_test.go")
+command_tests = read_text(root / "cmd" / "gofly" / "internal" / "command" / "idl_test.go")
+golden_tests = read_text(root / "cmd" / "gofly" / "internal" / "command" / "cli_json_contract_golden_test.go")
+test_corpus = "\n".join([main_test, command_tests, golden_tests])
+for test_name in stdio_closeout.get("evidence") or []:
+    require(test_name in test_corpus, f"stdio-error-discipline evidence test missing: {test_name}")
+
 known_drift = manifest.get("knownDrift") or []
 drift_ids = {item.get("id") for item in known_drift if isinstance(item, dict)}
-for drift in ("plugin-help-boundary", "rpc-doc-discovery", "json-contract-goldens", "stdio-error-discipline"):
+for drift in ("plugin-help-boundary", "rpc-doc-discovery", "json-contract-goldens"):
     require(drift in drift_ids, f"cli command surface knownDrift missing {drift!r}")
+require("stdio-error-discipline" not in drift_ids, "stdio-error-discipline must be tracked in closedGovernance, not knownDrift")
 
 recommended = manifest.get("recommendedOrder") or []
 for task in (

@@ -1,0 +1,159 @@
+{
+  "schema": "gofly.cli_json_contract_goldens.v1",
+  "acceptanceGate": "make cli-json-contract-goldens-check",
+  "sourceContracts": [
+    "docs/reference/cli-json-contracts.md",
+    "docs/reference/cli-command-surface.json"
+  ],
+  "testPackage": "./cmd/gofly/internal/command",
+  "testPattern": "TestCLIJSONContractGoldens|TestCLIJSONErrorEnvelopeGolden",
+  "stdoutPolicy": {
+    "jsonCommandsMustWriteOnlyJSONToStdout": true,
+    "successfulJSONCommandsMustNotWriteDiagnosticsToStderr": true,
+    "globalJSONErrorsMustWriteOneEnvelopeToStdout": true,
+    "globalJSONFlagErrorsMustUseUsageErrorCode": true
+  },
+  "cases": [
+    {
+      "id": "version-envelope",
+      "command": "gofly version --json",
+      "mode": "envelope",
+      "requiredEnvelopeFields": [
+        "ok",
+        "command",
+        "version",
+        "data"
+      ],
+      "requiredDataFields": [
+        "tool",
+        "version",
+        "commit",
+        "built_at",
+        "go_version",
+        "goos",
+        "goarch"
+      ]
+    },
+    {
+      "id": "doctor-raw",
+      "command": "gofly doctor --json",
+      "mode": "raw",
+      "requiredFields": [
+        "version",
+        "go",
+        "os",
+        "arch",
+        "checks",
+        "summary",
+        "nextActions"
+      ]
+    },
+    {
+      "id": "release-check-envelope",
+      "command": "gofly release check --json",
+      "mode": "envelope",
+      "requiredEnvelopeFields": [
+        "ok",
+        "command",
+        "version",
+        "data"
+      ],
+      "requiredDataFields": [
+        "summary",
+        "recommended_semver",
+        "checks",
+        "blocking",
+        "warnings"
+      ]
+    },
+    {
+      "id": "new-service-plan-envelope",
+      "command": "gofly new service --json --dry-run",
+      "mode": "envelope",
+      "requiredDataFields": [
+        "command",
+        "dryRun",
+        "mutatesFilesystem",
+        "inputs",
+        "actions",
+        "generatedFiles",
+        "nextActions"
+      ]
+    },
+    {
+      "id": "api-gen-envelope",
+      "command": "gofly api gen --json",
+      "mode": "envelope",
+      "requiredDataFields": [
+        "command",
+        "dryRun",
+        "mutatesFilesystem",
+        "inputs",
+        "actions",
+        "generatedFiles",
+        "nextActions"
+      ]
+    },
+    {
+      "id": "rpc-gen-envelope",
+      "command": "gofly rpc gen --json",
+      "mode": "envelope",
+      "requiredDataFields": [
+        "command",
+        "dryRun",
+        "mutatesFilesystem",
+        "inputs",
+        "actions",
+        "generatedFiles",
+        "nextActions"
+      ]
+    },
+    {
+      "id": "model-gen-envelope",
+      "command": "gofly model gen --json",
+      "mode": "envelope",
+      "requiredDataFields": [
+        "command",
+        "dryRun",
+        "mutatesFilesystem",
+        "inputs",
+        "actions",
+        "generatedFiles",
+        "nextActions"
+      ]
+    },
+    {
+      "id": "global-error-envelope",
+      "command": "gofly --output json example nonexistent",
+      "mode": "error-envelope",
+      "requiredEnvelopeFields": [
+        "ok",
+        "command",
+        "version",
+        "error"
+      ],
+      "requiredErrorFields": [
+        "code",
+        "message",
+        "retryable"
+      ]
+    },
+    {
+      "id": "global-flag-error-envelope",
+      "command": "gofly --output json version --bad",
+      "mode": "error-envelope",
+      "requiredEnvelopeFields": [
+        "ok",
+        "command",
+        "version",
+        "error"
+      ],
+      "requiredErrorFields": [
+        "code",
+        "message",
+        "retryable"
+      ],
+      "requiredErrorCode": "USAGE_ERROR"
+    }
+  ]
+}

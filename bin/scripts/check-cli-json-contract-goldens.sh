@@ -46,6 +46,7 @@ for key in (
     "jsonCommandsMustWriteOnlyJSONToStdout",
     "successfulJSONCommandsMustNotWriteDiagnosticsToStderr",
     "globalJSONErrorsMustWriteOneEnvelopeToStdout",
+    "globalJSONFlagErrorsMustUseUsageErrorCode",
 ):
     require(policy.get(key) is True, f"stdoutPolicy.{key} must be true")
 
@@ -61,6 +62,7 @@ for case_id in (
     "rpc-gen-envelope",
     "model-gen-envelope",
     "global-error-envelope",
+    "global-flag-error-envelope",
 ):
     require(case_id in case_ids, f"CLI JSON golden case missing {case_id!r}")
 
@@ -76,6 +78,11 @@ require("cli-json-contract-goldens-check" in contract_deps, "contract-docs-check
 require("cli-json-contract-goldens-check" in surface, "cli-command-surface.json must reference cli-json-contract-goldens-check")
 for test_name in ("TestCLIJSONContractGoldens_BitsUT", "TestCLIJSONErrorEnvelopeGolden_BitsUT"):
     require(test_name in test_file, f"cli_json_contract_golden_test.go missing {test_name}")
+
+flag_error_case = next((item for item in cases if isinstance(item, dict) and item.get("id") == "global-flag-error-envelope"), {})
+require(flag_error_case.get("requiredErrorCode") == "USAGE_ERROR", "global-flag-error-envelope must require USAGE_ERROR")
+require("version --bad" in str(flag_error_case.get("command") or ""), "global-flag-error-envelope command must cover flag diagnostics")
+require("TestRunMainFlagDiagnosticsContract" in (root / "cmd" / "gofly" / "main_test.go").read_text(encoding="utf-8"), "main_test.go missing TestRunMainFlagDiagnosticsContract")
 
 for item in cases:
     if not isinstance(item, dict):

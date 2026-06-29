@@ -14,7 +14,10 @@
       "source": "ctx.PathValue and path tags",
       "expectedStatus": 400,
       "expectedCode": "invalid_argument",
-      "gate": "go test -shuffle=on ./rest -run TestOpenAPIValidationEnvelopeRuntimeGolden_BitsUT",
+      "gate": "go test -shuffle=on ./rest -run TestOpenAPIValidationEnvelopeRuntimeGolden",
+      "alignmentInvariant": "Runtime path parsing failures must return rest.ErrorResponse with invalid_argument before handler success output is written.",
+      "consumerAction": "Treat malformed path identifiers as stable client errors and assert the ErrorResponse code/status instead of parsing text.",
+      "rollbackOrEscalation": "Keep the previous route binding path active until path parse failures and OpenAPI path parameters both pass the runtime golden.",
       "evidenceRefs": [
         {
           "path": "rest/binding_test.go",
@@ -39,7 +42,14 @@
       "source": "query tags and BindRequest",
       "expectedStatus": 400,
       "expectedCode": "invalid_argument",
+<<<<<<< HEAD
       "gate": "go test -shuffle=on ./rest -run TestOpenAPIValidationEnvelopeRuntimeGolden_BitsUT",
+=======
+      "gate": "go test -shuffle=on ./rest -run TestOpenAPIValidationEnvelopeRuntimeGolden",
+      "alignmentInvariant": "Runtime query validation failures and OpenAPI query parameter constraints must describe the same min/max boundary.",
+      "consumerAction": "Use the field-level validation failure to map query errors to client-side retry guidance.",
+      "rollbackOrEscalation": "Pin the previous query DTO or validation tag set until query runtime and schema evidence agree.",
+>>>>>>> d75795a (chore(rest): gate openapi validation smoke actions)
       "evidenceRefs": [
         {
           "path": "rest/binding_test.go",
@@ -64,7 +74,10 @@
       "source": "header tags and BindRequest",
       "expectedStatus": 400,
       "expectedCode": "invalid_argument",
-      "gate": "go test -shuffle=on ./rest -run TestOpenAPIValidationEnvelopeRuntimeGolden_BitsUT",
+      "gate": "go test -shuffle=on ./rest -run TestOpenAPIValidationEnvelopeRuntimeGolden",
+      "alignmentInvariant": "Required header validation must fail through rest.ErrorResponse and the OpenAPI parameter must remain required.",
+      "consumerAction": "Require clients and gateways to send the documented header before retrying the request.",
+      "rollbackOrEscalation": "Keep the previous header contract until runtime required-header checks and OpenAPI metadata converge.",
       "evidenceRefs": [
         {
           "path": "rest/binding_test.go",
@@ -88,7 +101,10 @@
       "source": "JSON body binding",
       "expectedStatus": 400,
       "expectedCode": "invalid_argument",
-      "gate": "go test -shuffle=on ./rest -run TestOpenAPIValidationEnvelopeRuntimeGolden_BitsUT",
+      "gate": "go test -shuffle=on ./rest -run TestOpenAPIValidationEnvelopeRuntimeGolden",
+      "alignmentInvariant": "JSON decode failures must use the same rest.ErrorResponse envelope as validation failures without field-level validation entries.",
+      "consumerAction": "Classify malformed JSON as a non-retryable client payload error and preserve the envelope status/code.",
+      "rollbackOrEscalation": "Route traffic to the previous decoder behavior until malformed body smoke and schema request-body evidence pass.",
       "evidenceRefs": [
         {
           "path": "rest/binding_test.go",
@@ -112,7 +128,10 @@
       "source": "portable validate tags",
       "expectedStatus": 400,
       "expectedCode": "invalid_argument",
-      "gate": "go test -shuffle=on ./rest -run TestOpenAPIValidationEnvelopeRuntimeGolden_BitsUT",
+      "gate": "go test -shuffle=on ./rest -run TestOpenAPIValidationEnvelopeRuntimeGolden",
+      "alignmentInvariant": "Portable validate tags must drive both runtime field failures and OpenAPI schema enum/range metadata.",
+      "consumerAction": "Use the fields array to surface the rejected field and allowed rule to API consumers.",
+      "rollbackOrEscalation": "Revert the DTO tag change or mark it as a breaking API change when runtime fields and OpenAPI schema diverge.",
       "evidenceRefs": [
         {
           "path": "rest/binding_test.go",
@@ -136,7 +155,10 @@
       "source": "rest.Config.Validator and Context.Validator adapters",
       "expectedStatus": 400,
       "expectedCode": "invalid_argument",
-      "gate": "go test -shuffle=on ./rest -run TestOpenAPIValidationEnvelopeRuntimeGolden_BitsUT",
+      "gate": "go test -shuffle=on ./rest -run TestOpenAPIValidationEnvelopeRuntimeGolden",
+      "alignmentInvariant": "Project validator adapters must map custom validation failures into stable ErrorResponse fields without changing the root module dependency graph.",
+      "consumerAction": "Expose adapter failures as client validation feedback while keeping project-specific validator dependencies outside gofly root.",
+      "rollbackOrEscalation": "Disable the custom adapter or pin the generated project validator until adapter failures return the stable envelope.",
       "evidenceRefs": [
         {
           "path": "rest/binding_test.go",
@@ -161,7 +183,10 @@
       "source": "rest.StructSchema, JSONBodySchema, and DefaultErrorResponses",
       "expectedStatus": 400,
       "expectedCode": "invalid_argument",
-      "gate": "go test -shuffle=on ./rest -run TestOpenAPIValidationEnvelopeSchemaGolden_BitsUT",
+      "gate": "go test -shuffle=on ./rest -run TestOpenAPIValidationEnvelopeSchemaGolden",
+      "alignmentInvariant": "OpenAPI request body, parameters, and default error responses must mirror the runtime binding sources and rest.ErrorResponse schema.",
+      "consumerAction": "Use the OpenAPI schema as the contract for SDK/client generation only after the schema golden passes.",
+      "rollbackOrEscalation": "Do not publish the generated OpenAPI document until schema golden and runtime golden both pass.",
       "evidenceRefs": [
         {
           "path": "rest/openapi_test.go",
@@ -186,7 +211,10 @@
       "source": "generated production service smoke",
       "expectedStatus": 400,
       "expectedCode": "invalid_argument",
-      "gate": "go test -shuffle=on ./cmd/gofly/internal/generator -run TestGeneratedServiceOpenAPIValidationEnvelopeContract_BitsUT",
+      "gate": "go test -shuffle=on ./cmd/gofly/internal/generator -run TestGeneratedServiceOpenAPIValidationEnvelopeContract",
+      "alignmentInvariant": "Generated production services must expose /openapi.json and return rest.ErrorResponse invalid_argument for invalid requests.",
+      "consumerAction": "Treat generated service smoke as release evidence before adopting the scaffold in production.",
+      "rollbackOrEscalation": "Keep the prior generated scaffold snapshot until OpenAPI endpoint and invalid request smoke pass together.",
       "evidenceRefs": [
         {
           "path": "cmd/gofly/internal/generator/service_test.go",

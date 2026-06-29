@@ -119,6 +119,11 @@ for item in cases:
     case_id = item.get("id", "<missing>")
     for field in ("id", "surface", "source", "expectedStatus", "expectedCode", "gate", "evidenceRefs"):
         require(item.get(field) not in ("", None, []), f"invalid request smoke {case_id}: {field} is required")
+    for field in ("alignmentInvariant", "consumerAction", "rollbackOrEscalation"):
+        require(
+            len(str(item.get(field) or "").split()) >= 8,
+            f"invalid request smoke {case_id}: {field} must be actionable",
+        )
     require(item.get("expectedStatus") == 400, f"invalid request smoke {case_id}: expectedStatus must be 400")
     require(item.get("expectedCode") == "invalid_argument", f"invalid request smoke {case_id}: expectedCode must be invalid_argument")
     refs = item.get("evidenceRefs") or []

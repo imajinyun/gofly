@@ -6,6 +6,9 @@ The generated service contract must keep runtime binding and OpenAPI schema in
 sync across path, query, header, body, tag, schema, and error code behavior.
 The blocking invalid-request smoke matrix lives in
 `docs/reference/openapi-invalid-request-smoke.json`.
+Each smoke case records an `alignmentInvariant`, `consumerAction`, and
+`rollbackOrEscalation` entry so adopters can decide whether a generated REST
+contract is safe to publish or must stay pinned to the previous scaffold.
 
 ## Contract
 

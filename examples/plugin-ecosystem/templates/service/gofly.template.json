@@ -1,5 +1,6 @@
 {
   "schema": "gofly.third_party_template_directory.v1",
+  "contractVersion": "1",
   "name": "company-service",
   "version": "v1.4.2",
   "protocol": "1",

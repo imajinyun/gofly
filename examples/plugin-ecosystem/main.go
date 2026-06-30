@@ -37,10 +37,12 @@ type registrySummary struct {
 }
 
 type publishingSummary struct {
-	ManifestFields []string `json:"manifestFields"`
-	RegistryFields []string `json:"registryFields"`
-	RequiredGates  []string `json:"requiredGates"`
-	ReleaseNotes   []string `json:"releaseNotes"`
+	ManifestFields  []string `json:"manifestFields"`
+	RegistryFields  []string `json:"registryFields"`
+	RequiredGates   []string `json:"requiredGates"`
+	ReleaseNotes    []string `json:"releaseNotes"`
+	TrustSources    []string `json:"trustSources"`
+	SourceAllowlist []string `json:"sourceAllowlist"`
 }
 
 type compatibilityCase struct {
@@ -70,15 +72,28 @@ type registryIndex struct {
 }
 
 type registryEntry struct {
-	Name        string                `json:"name"`
-	Remote      string                `json:"remote"`
-	Version     string                `json:"version"`
-	Protocol    string                `json:"protocol"`
-	Checksum    string                `json:"checksum"`
-	Source      string                `json:"source"`
-	Description string                `json:"description,omitempty"`
-	Tags        []string              `json:"tags,omitempty"`
-	Manifest    spi.GeneratorManifest `json:"manifest"`
+	Name         string                `json:"name"`
+	Remote       string                `json:"remote"`
+	Version      string                `json:"version"`
+	Protocol     string                `json:"protocol"`
+	Checksum     string                `json:"checksum"`
+	Source       string                `json:"source"`
+	SourcePolicy sourcePolicy          `json:"sourcePolicy"`
+	Signature    signatureProvenance   `json:"signature"`
+	Description  string                `json:"description,omitempty"`
+	Tags         []string              `json:"tags,omitempty"`
+	Manifest     spi.GeneratorManifest `json:"manifest"`
+}
+
+type sourcePolicy struct {
+	AllowedHosts []string `json:"allowedHosts"`
+	HTTPSOnly    bool     `json:"httpsOnly"`
+}
+
+type signatureProvenance struct {
+	TrustSource string `json:"trustSource"`
+	Provenance  string `json:"provenance"`
+	Bundle      string `json:"bundle"`
 }
 
 type fileGenerator struct{}
@@ -193,10 +208,12 @@ func buildReport(ctx context.Context) (report, error) {
 			Sources: sources,
 		},
 		Publishing: publishingSummary{
-			ManifestFields: []string{"name", "version", "compatibleVersions", "capabilities", "permissions", "requiresDryRun"},
-			RegistryFields: []string{"name", "remote", "version", "protocol", "checksum", "source", "manifest"},
-			RequiredGates:  []string{"make plugin-conformance-check", "go test -C examples/plugin-ecosystem ./...", "go run -C examples/plugin-ecosystem ."},
-			ReleaseNotes:   []string{"protocol compatibility", "digest provenance", "signature provenance", "permission rationale", "template contract", "rollback and failure isolation behavior"},
+			ManifestFields:  []string{"name", "version", "compatibleVersions", "capabilities", "permissions", "requiresDryRun"},
+			RegistryFields:  []string{"name", "remote", "version", "protocol", "checksum", "source", "sourcePolicy", "signature", "manifest"},
+			RequiredGates:   []string{"make plugin-conformance-check", "go test -C examples/plugin-ecosystem ./...", "go run -C examples/plugin-ecosystem ."},
+			ReleaseNotes:    []string{"protocol compatibility", "digest provenance", "signature provenance", "permission rationale", "template contract", "rollback and failure isolation behavior"},
+			TrustSources:    []string{"github-actions-oidc"},
+			SourceAllowlist: []string{"github.com"},
 		},
 		Compatibility: []compatibilityCase{
 			{Name: "old-protocol", CompatibleVersions: []string{"0"}, Accepted: false},
@@ -244,8 +261,11 @@ func validateRegistry(index registryIndex) error {
 		if plugin.Name == "" || plugin.Version == "" || plugin.Protocol != compatibleVersion() {
 			return fmt.Errorf("plugin %q has incomplete identity", plugin.Name)
 		}
-		if plugin.Checksum == "" || plugin.Source == "" {
-			return fmt.Errorf("plugin %q must publish checksum and source", plugin.Name)
+		if plugin.Checksum == "" || plugin.Source == "" || plugin.Signature.TrustSource == "" {
+			return fmt.Errorf("plugin %q must publish checksum, source, and signature trust source", plugin.Name)
+		}
+		if !plugin.SourcePolicy.HTTPSOnly || !contains(plugin.SourcePolicy.AllowedHosts, "github.com") {
+			return fmt.Errorf("plugin %q must use https source allowlist", plugin.Name)
 		}
 		if !contains(plugin.Manifest.CompatibleVersions, compatibleVersion()) {
 			return fmt.Errorf("plugin %q is not compatible with protocol %s", plugin.Name, compatibleVersion())

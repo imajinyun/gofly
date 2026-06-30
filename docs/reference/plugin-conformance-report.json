@@ -156,6 +156,79 @@
       "dry-run evidence"
     ]
   },
+  "p9PublishHardening": {
+    "schema": "gofly.plugin_publish_hardening_report.v1",
+    "aiflowTask": "GOFLY-GOV-10P9-07",
+    "status": "blocking-contract",
+    "acceptanceGate": "make plugin-conformance-check",
+    "source": "docs/reference/plugin-publishing-ux.json",
+    "rows": [
+      {
+        "id": "compatibility-policy",
+        "surface": "protocol compatibility policy",
+        "requiredEvidence": [
+          "old-protocol",
+          "current-protocol",
+          "future-plus-current-protocol",
+          "future-only-protocol"
+        ],
+        "blockDecision": "Reject old-only and future-only plugins before registry promotion.",
+        "rollbackOrEscalation": "Republish with protocol 1 compatibility or keep the previous plugin version pinned."
+      },
+      {
+        "id": "signature-trust-source",
+        "surface": "signature trust source",
+        "requiredEvidence": [
+          "signature.trustSource",
+          "signature.provenance",
+          "signature.bundle"
+        ],
+        "blockDecision": "Block publication when signature provenance or the trusted OIDC source is missing.",
+        "rollbackOrEscalation": "Disable the candidate release until the publisher attaches trusted signature provenance."
+      },
+      {
+        "id": "digest-pinning",
+        "surface": "sha256 digest pinning",
+        "requiredEvidence": [
+          "registry.checksum",
+          "digest-mismatch"
+        ],
+        "blockDecision": "Reject downloaded bytes when the registry checksum does not match the sha256 digest.",
+        "rollbackOrEscalation": "Keep the previous digest-matched artifact pinned and rerun conformance before cache promotion."
+      },
+      {
+        "id": "source-allowlist",
+        "surface": "source allowlist",
+        "requiredEvidence": [
+          "sourcePolicy.allowedHosts",
+          "sourcePolicy.httpsOnly"
+        ],
+        "blockDecision": "Reject sources outside the HTTPS github.com allowlist before publication.",
+        "rollbackOrEscalation": "Move the source to an allowlisted repository or keep the previous registry entry pinned."
+      },
+      {
+        "id": "template-contract-versioning",
+        "surface": "third-party template contract versioning",
+        "requiredEvidence": [
+          "template.contractVersion",
+          "template.schema",
+          "template.entrypoints"
+        ],
+        "blockDecision": "Reject template packs without contractVersion 1 or required template metadata.",
+        "rollbackOrEscalation": "Pin the previous template contract or republish with contractVersion 1."
+      },
+      {
+        "id": "no-partial-write-rollback",
+        "surface": "no partial writes rollback evidence",
+        "requiredEvidence": [
+          "no-partial-writes",
+          "TestPluginResponseApplyRejectsPartialWritesWhenPatchFails"
+        ],
+        "blockDecision": "Reject plugin effects when any path, digest, permission, or patch failure would leave partial writes.",
+        "rollbackOrEscalation": "Disable plugin effects and keep the previous digest-matched artifact active until isolation evidence passes."
+      }
+    ]
+  },
   "supplyChainRows": [
     {
       "id": "registry-schema-supply-chain",

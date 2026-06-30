@@ -58,6 +58,16 @@ rejection, and no partial writes into one publish/block/rollback contract. A
 plugin or template can be announced only when each row has evidence, a gate, a
 block decision, and rollback guidance.
 
+The P9 publish hardening contract adds the stricter release-ready layer:
+registry entries must include a trusted signature source, HTTPS source
+allowlist metadata, sha256 digest pinning, and a manifest. The source allowlist
+currently permits only HTTPS `github.com` release evidence for example
+registries. Third-party
+templates must publish `contractVersion: "1"` alongside schema, entrypoints,
+permissions, checksum, and source metadata. Compatibility, digest mismatch,
+permission escape, malicious paths, and no partial writes remain publish
+blockers with rollback guidance rather than warnings.
+
 ## Required cases
 
 | Case | Expected result | Reason |

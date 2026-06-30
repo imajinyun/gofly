@@ -36,6 +36,9 @@ checks = {
         "malicious path",
         "digest mismatch",
         "permission escape",
+        "P9 publish hardening",
+        "source allowlist",
+        "contractVersion",
     ],
     pathlib.Path("examples/plugin-ecosystem/main.go"): [
         "Publishing",
@@ -44,6 +47,8 @@ checks = {
         "RegistryFields",
         "RequiredGates",
         "ReleaseNotes",
+        "TrustSources",
+        "SourceAllowlist",
         "requiresDryRun",
         "digest provenance",
         "signature provenance",
@@ -55,6 +60,8 @@ checks = {
         "malicious-path",
         "permission-escape",
         "failure-isolation",
+        "sourcePolicy",
+        "github-actions-oidc",
     ],
     pathlib.Path("cmd/gofly/internal/generator/plugin.go"): [
         "PluginProtocolSchema",
@@ -73,6 +80,8 @@ checks = {
         "Publishing.ManifestFields",
         "Publishing.RequiredGates",
         "Publishing.ReleaseNotes",
+        "Publishing.TrustSources",
+        "Publishing.SourceAllowlist",
     ],
 }
 
@@ -101,6 +110,8 @@ if contract.get("version") != "1":
 for field in ("schema", "acceptanceGate", "permissionReview", "publishProtocolMatrix", "checklist", "publishingCommands", "releaseNoteFields"):
     if field not in set(contract.get("requiredFields") or []):
         missing.append(f"docs/reference/plugin-publishing-ux.json: schemaContract.requiredFields missing {field!r}")
+if "p9PublishHardening" not in set(contract.get("requiredFields") or []):
+    missing.append("docs/reference/plugin-publishing-ux.json: schemaContract.requiredFields missing 'p9PublishHardening'")
 if manifest.get("acceptanceGate") != "make plugin-conformance-check":
     missing.append("docs/reference/plugin-publishing-ux.json: acceptanceGate must be make plugin-conformance-check")
 
@@ -140,6 +151,49 @@ for surface in sorted(required_publish_surfaces - actual_publish_surfaces):
 for field in ("publisherAction", "rollbackOrEscalation"):
     if len(str(publish_protocol.get(field) or "").split()) < 10:
         missing.append(f"docs/reference/plugin-publishing-ux.json: publishProtocolMatrix {field} must be actionable")
+
+p9_hardening = manifest.get("p9PublishHardening") or {}
+if p9_hardening.get("schema") != "gofly.plugin_publish_hardening.v1":
+    missing.append("docs/reference/plugin-publishing-ux.json: p9PublishHardening schema mismatch")
+if p9_hardening.get("aiflowTask") != "GOFLY-GOV-10P9-07":
+    missing.append("docs/reference/plugin-publishing-ux.json: p9PublishHardening aiflowTask mismatch")
+if p9_hardening.get("status") != "blocking-contract":
+    missing.append("docs/reference/plugin-publishing-ux.json: p9PublishHardening status must be blocking-contract")
+if p9_hardening.get("acceptanceGate") != "make plugin-conformance-check":
+    missing.append("docs/reference/plugin-publishing-ux.json: p9PublishHardening acceptanceGate mismatch")
+for field in ("compatibilityPolicy", "publisherAction", "rollbackOrEscalation"):
+    if len(str(p9_hardening.get(field) or "").split()) < 12:
+        missing.append(f"docs/reference/plugin-publishing-ux.json: p9PublishHardening {field} must be actionable")
+if set(p9_hardening.get("signatureTrustSources") or []) != {"github-actions-oidc"}:
+    missing.append("docs/reference/plugin-publishing-ux.json: p9PublishHardening signatureTrustSources mismatch")
+digest_pinning = p9_hardening.get("digestPinning") or {}
+if digest_pinning.get("algorithm") != "sha256":
+    missing.append("docs/reference/plugin-publishing-ux.json: p9PublishHardening digestPinning.algorithm must be sha256")
+if digest_pinning.get("registryField") != "checksum":
+    missing.append("docs/reference/plugin-publishing-ux.json: p9PublishHardening digestPinning.registryField must be checksum")
+if digest_pinning.get("failureCase") != "digest-mismatch":
+    missing.append("docs/reference/plugin-publishing-ux.json: p9PublishHardening digestPinning.failureCase mismatch")
+source_allowlist = p9_hardening.get("sourceAllowlist") or {}
+if set(source_allowlist.get("allowedHosts") or []) != {"github.com"}:
+    missing.append("docs/reference/plugin-publishing-ux.json: p9PublishHardening sourceAllowlist.allowedHosts mismatch")
+if source_allowlist.get("httpsOnly") is not True:
+    missing.append("docs/reference/plugin-publishing-ux.json: p9PublishHardening sourceAllowlist.httpsOnly must be true")
+if source_allowlist.get("registryField") != "sourcePolicy":
+    missing.append("docs/reference/plugin-publishing-ux.json: p9PublishHardening sourceAllowlist.registryField must be sourcePolicy")
+template_versioning = p9_hardening.get("templateContractVersioning") or {}
+if template_versioning.get("field") != "contractVersion" or template_versioning.get("current") != "1":
+    missing.append("docs/reference/plugin-publishing-ux.json: p9PublishHardening templateContractVersioning must require contractVersion 1")
+if not pathlib.Path(template_versioning.get("path") or "").is_file():
+    missing.append("docs/reference/plugin-publishing-ux.json: p9PublishHardening templateContractVersioning.path is missing")
+partial_write = p9_hardening.get("noPartialWriteEvidence") or {}
+if partial_write.get("failureCase") != "no-partial-writes":
+    missing.append("docs/reference/plugin-publishing-ux.json: p9PublishHardening noPartialWriteEvidence.failureCase mismatch")
+if partial_write.get("test") != "TestPluginResponseApplyRejectsPartialWritesWhenPatchFails":
+    missing.append("docs/reference/plugin-publishing-ux.json: p9PublishHardening noPartialWriteEvidence.test mismatch")
+required_registry_fields = set(p9_hardening.get("requiredRegistryFields") or [])
+for field in ("checksum", "source", "sourcePolicy", "signature", "manifest"):
+    if field not in required_registry_fields:
+        missing.append(f"docs/reference/plugin-publishing-ux.json: p9PublishHardening requiredRegistryFields missing {field!r}")
 
 compatibility = manifest.get("protocolCompatibility") or []
 compatibility_by_case = {item.get("case"): item for item in compatibility if isinstance(item, dict)}
@@ -216,6 +270,48 @@ else:
     for field in template_contract.get("requiredFields") or []:
         if field not in template_data:
             missing.append(f"{template_path}: missing template field {field!r}")
+    if template_data.get("contractVersion") != "1":
+        missing.append(f"{template_path}: contractVersion must be 1")
+    if template_data.get("protocol") != "1":
+        missing.append(f"{template_path}: protocol must be 1")
+
+registry_path = pathlib.Path("examples/plugin-ecosystem/registry/plugins.json")
+if not registry_path.is_file():
+    missing.append("examples/plugin-ecosystem/registry/plugins.json: file is missing")
+    registry = {}
+else:
+    registry = json.loads(registry_path.read_text(encoding="utf-8"))
+registry_plugins = registry.get("plugins") or []
+for plugin in registry_plugins:
+    if not isinstance(plugin, dict):
+        missing.append(f"registry plugin entry must be an object: {plugin!r}")
+        continue
+    plugin_name = plugin.get("name", "<missing>")
+    for field in ("checksum", "source", "sourcePolicy", "signature", "manifest"):
+        if field not in plugin:
+            missing.append(f"registry plugin {plugin_name}: missing {field!r}")
+    checksum = str(plugin.get("checksum") or "")
+    if not checksum.startswith("sha256:") or len(checksum) != len("sha256:") + 64:
+        missing.append(f"registry plugin {plugin_name}: checksum must be sha256:<64 hex>")
+    source = str(plugin.get("source") or "")
+    if not source.startswith("https://github.com/"):
+        missing.append(f"registry plugin {plugin_name}: source must use https://github.com allowlist")
+    source_policy = plugin.get("sourcePolicy") or {}
+    if set(source_policy.get("allowedHosts") or []) != {"github.com"}:
+        missing.append(f"registry plugin {plugin_name}: sourcePolicy.allowedHosts must be github.com")
+    if source_policy.get("httpsOnly") is not True:
+        missing.append(f"registry plugin {plugin_name}: sourcePolicy.httpsOnly must be true")
+    signature = plugin.get("signature") or {}
+    if signature.get("trustSource") != "github-actions-oidc":
+        missing.append(f"registry plugin {plugin_name}: signature.trustSource must be github-actions-oidc")
+    for field in ("provenance", "bundle"):
+        if not str(signature.get(field) or "").startswith("https://github.com/"):
+            missing.append(f"registry plugin {plugin_name}: signature.{field} must use github release evidence")
+    manifest_data = plugin.get("manifest") or {}
+    if manifest_data.get("requiresDryRun") is not True:
+        missing.append(f"registry plugin {plugin_name}: manifest.requiresDryRun must be true")
+    if set(manifest_data.get("permissions") or []) != {"filesystem:write-relative"}:
+        missing.append(f"registry plugin {plugin_name}: manifest permissions must be filesystem:write-relative only")
 
 report_path = pathlib.Path("docs/reference/plugin-conformance-report.json")
 if not report_path.is_file():
@@ -365,6 +461,49 @@ for field in ("template schema", "entrypoints", "permissions", "checksum", "sour
             "docs/reference/plugin-conformance-report.json: "
             f"adopterPublishingContract templatePublishingRequirements missing {field!r}"
         )
+
+p9_report = report.get("p9PublishHardening") or {}
+if p9_report.get("schema") != "gofly.plugin_publish_hardening_report.v1":
+    missing.append("docs/reference/plugin-conformance-report.json: p9PublishHardening schema mismatch")
+if p9_report.get("aiflowTask") != "GOFLY-GOV-10P9-07":
+    missing.append("docs/reference/plugin-conformance-report.json: p9PublishHardening aiflowTask mismatch")
+if p9_report.get("status") != "blocking-contract":
+    missing.append("docs/reference/plugin-conformance-report.json: p9PublishHardening status must be blocking-contract")
+if p9_report.get("acceptanceGate") != "make plugin-conformance-check":
+    missing.append("docs/reference/plugin-conformance-report.json: p9PublishHardening acceptanceGate mismatch")
+if p9_report.get("source") != "docs/reference/plugin-publishing-ux.json":
+    missing.append("docs/reference/plugin-conformance-report.json: p9PublishHardening source mismatch")
+p9_rows = {
+    item.get("id"): item
+    for item in p9_report.get("rows") or []
+    if isinstance(item, dict) and item.get("id")
+}
+expected_p9_rows = {
+    "compatibility-policy": {"old-protocol", "current-protocol", "future-plus-current-protocol", "future-only-protocol"},
+    "signature-trust-source": {"signature.trustSource", "signature.provenance", "signature.bundle"},
+    "digest-pinning": {"registry.checksum", "digest-mismatch"},
+    "source-allowlist": {"sourcePolicy.allowedHosts", "sourcePolicy.httpsOnly"},
+    "template-contract-versioning": {"template.contractVersion", "template.schema", "template.entrypoints"},
+    "no-partial-write-rollback": {"no-partial-writes", "TestPluginResponseApplyRejectsPartialWritesWhenPatchFails"},
+}
+if set(p9_rows) != set(expected_p9_rows):
+    missing.append(
+        "docs/reference/plugin-conformance-report.json: p9PublishHardening rows drifted "
+        f"missing={sorted(set(expected_p9_rows) - set(p9_rows))} "
+        f"extra={sorted(set(p9_rows) - set(expected_p9_rows))}"
+    )
+for row_id, expected_evidence in expected_p9_rows.items():
+    row = p9_rows.get(row_id) or {}
+    for field in ("id", "surface", "requiredEvidence", "blockDecision", "rollbackOrEscalation"):
+        if row.get(field) in ("", None, []):
+            missing.append(f"docs/reference/plugin-conformance-report.json: p9PublishHardening {row_id}: {field} is required")
+    evidence = set(row.get("requiredEvidence") or [])
+    for required in expected_evidence:
+        if required not in evidence:
+            missing.append(f"docs/reference/plugin-conformance-report.json: p9PublishHardening {row_id}: missing evidence {required!r}")
+    for field in ("blockDecision", "rollbackOrEscalation"):
+        if len(str(row.get(field) or "").split()) < 8:
+            missing.append(f"docs/reference/plugin-conformance-report.json: p9PublishHardening {row_id}: {field} must be actionable")
 
 supply_chain_rows = report.get("supplyChainRows")
 if not isinstance(supply_chain_rows, list):

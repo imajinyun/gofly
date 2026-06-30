@@ -129,7 +129,7 @@ checks = {
         'filesystem:write-relative',
     ],
     pathlib.Path('examples/plugin-ecosystem/main_test.go'): [
-        'TestPluginEcosystemReport_BitsUT',
+        'TestPluginEcosystemReport',
         'checksum',
         'source',
         'example-file-generator',

@@ -156,6 +156,7 @@
       "acceptanceGate",
       "permissionReview",
       "publishProtocolMatrix",
+      "p9PublishHardening",
       "checklist",
       "publishingCommands",
       "releaseNoteFields"
@@ -166,6 +167,7 @@
     "path": "examples/plugin-ecosystem/templates/service/gofly.template.json",
     "requiredFields": [
       "schema",
+      "contractVersion",
       "name",
       "version",
       "protocol",
@@ -174,5 +176,48 @@
       "checksum",
       "source"
     ]
+  },
+  "p9PublishHardening": {
+    "schema": "gofly.plugin_publish_hardening.v1",
+    "aiflowTask": "GOFLY-GOV-10P9-07",
+    "status": "blocking-contract",
+    "acceptanceGate": "make plugin-conformance-check",
+    "compatibilityPolicy": "Old-only and future-only plugins are rejected; current and future-plus-current plugins may publish only when digest, signature, source allowlist, permission, template contract, and no-partial-write evidence pass.",
+    "signatureTrustSources": [
+      "github-actions-oidc"
+    ],
+    "digestPinning": {
+      "algorithm": "sha256",
+      "registryField": "checksum",
+      "failureCase": "digest-mismatch",
+      "publishRequirement": "Every published plugin and template pack must pin a sha256 digest before cache promotion or generated output application."
+    },
+    "sourceAllowlist": {
+      "allowedHosts": [
+        "github.com"
+      ],
+      "httpsOnly": true,
+      "registryField": "sourcePolicy"
+    },
+    "templateContractVersioning": {
+      "field": "contractVersion",
+      "current": "1",
+      "path": "examples/plugin-ecosystem/templates/service/gofly.template.json",
+      "rollbackOrEscalation": "Pin the previous template contract or republish with contractVersion 1 when template metadata drifts."
+    },
+    "noPartialWriteEvidence": {
+      "failureCase": "no-partial-writes",
+      "test": "TestPluginResponseApplyRejectsPartialWritesWhenPatchFails",
+      "rollbackOrEscalation": "Reject publication and keep the previous digest-matched plugin active when partial-write isolation regresses."
+    },
+    "requiredRegistryFields": [
+      "checksum",
+      "source",
+      "sourcePolicy",
+      "signature",
+      "manifest"
+    ],
+    "publisherAction": "Publishers must attach source allowlist, signature trust source, digest pinning, compatibility, permission, template contract version, and no-partial-write evidence before announcing a plugin.",
+    "rollbackOrEscalation": "Disable the candidate plugin, pin the previous digest-matched artifact, and require a clean conformance rerun when any P9 publish hardening row fails."
   }
 }

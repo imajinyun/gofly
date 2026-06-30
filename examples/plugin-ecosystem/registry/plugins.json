@@ -8,6 +8,15 @@
       "protocol": "1",
       "checksum": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
       "source": "https://github.com/example/gofly-audit-trail-generator",
+      "sourcePolicy": {
+        "allowedHosts": ["github.com"],
+        "httpsOnly": true
+      },
+      "signature": {
+        "trustSource": "github-actions-oidc",
+        "provenance": "https://github.com/example/gofly-audit-trail-generator/releases/tag/v0.3.0",
+        "bundle": "https://github.com/example/gofly-audit-trail-generator/releases/download/v0.3.0/audit-trail-generator.sigstore.json"
+      },
       "description": "Adds audit log scaffolding and route registration patches.",
       "tags": ["audit", "generator", "patch"],
       "manifest": {
@@ -26,6 +35,15 @@
       "protocol": "1",
       "checksum": "sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
       "source": "https://github.com/example/gofly-company-template-pack",
+      "sourcePolicy": {
+        "allowedHosts": ["github.com"],
+        "httpsOnly": true
+      },
+      "signature": {
+        "trustSource": "github-actions-oidc",
+        "provenance": "https://github.com/example/gofly-company-template-pack/releases/tag/v1.4.2",
+        "bundle": "https://github.com/example/gofly-company-template-pack/releases/download/v1.4.2/company-template-pack.sigstore.json"
+      },
       "description": "Publishes a third-party template directory contract for company scaffolds.",
       "tags": ["template", "directory", "starter"],
       "manifest": {

@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestPluginEcosystemReport_BitsUT(t *testing.T) {
+func TestPluginEcosystemReport(t *testing.T) {
 	report, err := buildReport(context.Background())
 	if err != nil {
 		t.Fatalf("buildReport: %v", err)
@@ -35,6 +35,12 @@ func TestPluginEcosystemReport_BitsUT(t *testing.T) {
 		if !contains(report.Publishing.ReleaseNotes, note) {
 			t.Fatalf("publishing release notes = %#v, missing %s", report.Publishing.ReleaseNotes, note)
 		}
+	}
+	if !contains(report.Publishing.TrustSources, "github-actions-oidc") {
+		t.Fatalf("publishing trust sources = %#v, missing github-actions-oidc", report.Publishing.TrustSources)
+	}
+	if !contains(report.Publishing.SourceAllowlist, "github.com") {
+		t.Fatalf("publishing source allowlist = %#v, missing github.com", report.Publishing.SourceAllowlist)
 	}
 	for _, name := range []string{"audit-trail-generator", "company-template-pack"} {
 		if !contains(report.Registry.Names, name) {

@@ -3,6 +3,7 @@ set -eu
 
 rendered="${TMPDIR:-/tmp}/gofly-helm-render-smoke.yaml"
 rendered_production="${TMPDIR:-/tmp}/gofly-helm-render-production-smoke.yaml"
+kustomize_rendered="${TMPDIR:-/tmp}/gofly-kustomize-production-render-smoke.yaml"
 report_path="${CLOUD_NATIVE_RENDER_REPORT:-.tmp-test/cloud-native-render/render-report.json}"
 mkdir -p "$(dirname -- "$report_path")"
 
@@ -19,8 +20,10 @@ else
 fi
 
 if command -v kustomize >/dev/null 2>&1; then
+	kustomize build k8s/overlays/production > "$kustomize_rendered"
 	kustomize_available="true"
 else
+	cat k8s/deployment.yaml k8s/servicemonitor.yaml k8s/hpa.yaml k8s/pdb.yaml k8s/networkpolicy.yaml > "$kustomize_rendered"
 	kustomize_available="false"
 fi
 if command -v kubeconform >/dev/null 2>&1; then
@@ -34,19 +37,48 @@ else
 	kubeval_available="false"
 fi
 
-python3 - "$rendered" "$rendered_production" "$report_path" "$render_mode" "$helm_available" "$kustomize_available" "$kubeconform_available" "$kubeval_available" <<'PY'
+kubeconform_status="tool-unavailable"
+kubeconform_output=""
+if [ "$kubeconform_available" = "true" ]; then
+	kubeconform_output="${TMPDIR:-/tmp}/gofly-kubeconform-output.txt"
+	if kubeconform -ignore-missing-schemas -summary "$rendered_production" "$kustomize_rendered" >"$kubeconform_output" 2>&1; then
+		kubeconform_status="passed"
+	else
+		cat "$kubeconform_output" >&2
+		kubeconform_status="failed"
+	fi
+fi
+
+kubeval_status="tool-unavailable"
+kubeval_output=""
+if [ "$kubeval_available" = "true" ]; then
+	kubeval_output="${TMPDIR:-/tmp}/gofly-kubeval-output.txt"
+	if kubeval --ignore-missing-schemas "$rendered_production" "$kustomize_rendered" >"$kubeval_output" 2>&1; then
+		kubeval_status="passed"
+	else
+		cat "$kubeval_output" >&2
+		kubeval_status="failed"
+	fi
+fi
+
+python3 - "$rendered" "$rendered_production" "$kustomize_rendered" "$report_path" "$render_mode" "$helm_available" "$kustomize_available" "$kubeconform_available" "$kubeval_available" "$kubeconform_status" "$kubeval_status" "$kubeconform_output" "$kubeval_output" <<'PY'
 import pathlib
 import sys
 import json
 
 rendered = pathlib.Path(sys.argv[1])
 rendered_production = pathlib.Path(sys.argv[2])
-report_path = pathlib.Path(sys.argv[3])
-render_mode = sys.argv[4]
-helm_available = sys.argv[5] == "true"
-kustomize_available = sys.argv[6] == "true"
-kubeconform_available = sys.argv[7] == "true"
-kubeval_available = sys.argv[8] == "true"
+kustomize_rendered = pathlib.Path(sys.argv[3])
+report_path = pathlib.Path(sys.argv[4])
+render_mode = sys.argv[5]
+helm_available = sys.argv[6] == "true"
+kustomize_available = sys.argv[7] == "true"
+kubeconform_available = sys.argv[8] == "true"
+kubeval_available = sys.argv[9] == "true"
+kubeconform_status = sys.argv[10]
+kubeval_status = sys.argv[11]
+kubeconform_output = sys.argv[12]
+kubeval_output = sys.argv[13]
 checks = {
     pathlib.Path("charts/gofly/values.schema.json"): [
         "networkPolicy",
@@ -89,6 +121,7 @@ checks = {
         "renderedGoldens",
         "renderReport",
         "fallbackStatus",
+        "fallbackReasons",
         "ServiceMonitor",
         "HorizontalPodAutoscaler",
         "PodDisruptionBudget",
@@ -117,6 +150,7 @@ for path, needles in checks.items():
 
 render_text = rendered.read_text(encoding="utf-8")
 production_render_text = rendered_production.read_text(encoding="utf-8")
+kustomize_render_text = kustomize_rendered.read_text(encoding="utf-8")
 for needle in ("kind: Deployment", "kind: Service", "kind: NetworkPolicy"):
     if needle not in render_text:
         missing.append(f"rendered Helm output missing {needle!r}")
@@ -128,10 +162,20 @@ for needle in (
 ):
     if needle not in production_render_text:
         missing.append(f"rendered production Helm output missing {needle!r}")
+for needle in (
+    "kind: Deployment",
+    "kind: ServiceMonitor",
+    "kind: HorizontalPodAutoscaler",
+    "kind: PodDisruptionBudget",
+    "kind: NetworkPolicy",
+):
+    if needle not in kustomize_render_text:
+        missing.append(f"rendered Kustomize output missing {needle!r}")
 
-for tool in ("kubeconform", "kubeval"):
-    # Tool execution is optional locally; documentation must state the fallback.
-    pass
+if kubeconform_status == "failed":
+    missing.append("kubeconform schema validation failed")
+if kubeval_status == "failed":
+    missing.append("kubeval schema validation failed")
 
 manifest_path = pathlib.Path("docs/reference/cloud-native-policy-conformance.json")
 if manifest_path.is_file():
@@ -159,15 +203,17 @@ required_report_fields = {
     "helm.requiredWhenAvailable",
     "helm.fallbackStatus",
     "kustomize.available",
+    "kustomize.fallbackStatus",
     "kubeconform.schemaValidationStatus",
     "kubeval.schemaValidationStatus",
+    "fallbackReasons",
     "requiredKinds",
 }
 if set(render_report.get("requiredFields") or []) != required_report_fields:
     missing.append("cloud-native policy conformance renderReport requiredFields mismatch")
 
 render_modes = {item.get("mode") for item in manifest.get("renderModes") or [] if isinstance(item, dict)}
-for mode in ("helm-template", "static-template-render"):
+for mode in ("helm-template", "static-template-render", "kustomize-build"):
     if mode not in render_modes:
         missing.append(f"cloud-native policy conformance renderModes missing {mode!r}")
 
@@ -336,14 +382,46 @@ for gate in ("make helm-template-smoke", "make cloud-native-render-check", "make
     if gate not in rollout_gates:
         missing.append(f"cloud-native policy conformance rolloutGates missing {gate!r}")
 
-schema_validation_status = {
-    "kubeconform": "tool-available-not-run" if kubeconform_available else "tool-unavailable",
-    "kubeval": "tool-available-not-run" if kubeval_available else "tool-unavailable",
-}
 fallback_status = "not-fallback" if helm_available else "static-fallback"
+kustomize_fallback_status = "not-fallback" if kustomize_available else "static-fallback"
+fallback_reasons = []
+if not helm_available:
+    fallback_reasons.append({
+        "tool": "helm",
+        "status": "static-fallback",
+        "reason": "helm binary is unavailable; static chart template concatenation was used",
+    })
+if not kustomize_available:
+    fallback_reasons.append({
+        "tool": "kustomize",
+        "status": "static-fallback",
+        "reason": "kustomize binary is unavailable; static production resource concatenation was used",
+    })
+if not kubeconform_available:
+    fallback_reasons.append({
+        "tool": "kubeconform",
+        "status": "tool-unavailable",
+        "reason": "kubeconform binary is unavailable; schema validation was not run",
+    })
+if not kubeval_available:
+    fallback_reasons.append({
+        "tool": "kubeval",
+        "status": "tool-unavailable",
+        "reason": "kubeval binary is unavailable; schema validation was not run",
+    })
+fallback_tools = {item["tool"] for item in fallback_reasons}
+for tool, available in (
+    ("helm", helm_available),
+    ("kustomize", kustomize_available),
+    ("kubeconform", kubeconform_available),
+    ("kubeval", kubeval_available),
+):
+    if not available and tool not in fallback_tools:
+        missing.append(f"{tool} is unavailable but fallbackReasons has no entry")
 report = {
     "schema": "gofly.cloud_native_render_report.v1",
     "renderMode": render_mode,
+    "fallbackReasons": fallback_reasons,
     "helm": {
         "available": helm_available,
         "requiredWhenAvailable": True,
@@ -354,15 +432,18 @@ report = {
     "kustomize": {
         "available": kustomize_available,
         "requiredWhenAvailable": True,
-        "fallbackStatus": "not-fallback" if kustomize_available else "static-fallback",
+        "fallbackStatus": kustomize_fallback_status,
+        "productionRender": str(kustomize_rendered),
     },
     "kubeconform": {
         "available": kubeconform_available,
-        "schemaValidationStatus": schema_validation_status["kubeconform"],
+        "schemaValidationStatus": kubeconform_status,
+        "output": kubeconform_output,
     },
     "kubeval": {
         "available": kubeval_available,
-        "schemaValidationStatus": schema_validation_status["kubeval"],
+        "schemaValidationStatus": kubeval_status,
+        "output": kubeval_output,
     },
     "requiredKinds": sorted(required_kinds),
     "golden": "docs/reference/cloud-native-rendered-production.golden.yaml",
@@ -373,6 +454,10 @@ if helm_available and render_mode != "helm-template":
     missing.append("helm is available, so renderMode must be helm-template")
 if not helm_available and fallback_status != "static-fallback":
     missing.append("helm is unavailable, so fallbackStatus must be static-fallback")
+if kustomize_available and kustomize_fallback_status != "not-fallback":
+    missing.append("kustomize is available, so fallbackStatus must be not-fallback")
+if not kustomize_available and kustomize_fallback_status != "static-fallback":
+    missing.append("kustomize is unavailable, so fallbackStatus must be static-fallback")
 
 if missing:
     print("cloud-native render check failed:", file=sys.stderr)

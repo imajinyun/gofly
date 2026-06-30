@@ -159,7 +159,7 @@ checks = {
         '/openapi.json',
     ],
     pathlib.Path('examples/http-middleware/main_test.go'): [
-        'TestHTTPMiddlewareServerContracts_BitsUT',
+        'TestHTTPMiddlewareServerContracts',
         'JWT',
         'CSRF',
         'text/event-stream',

@@ -21,10 +21,12 @@ and is validated by the same render gate.
 | production rendered golden | `docs/reference/cloud-native-rendered-production.golden.yaml` | Static production render evidence when Helm or Kustomize is unavailable. |
 | render golden | `make cloud-native-render-check` | Run `helm template` when available and static fallback otherwise. |
 
-When `helm` is installed, `make cloud-native-render-check` renders the chart.
-When `kubeconform` or `kubeval` is installed, CI may add schema validation on
-top of the rendered output. Without those tools, the static fallback still
-checks the required resource kinds.
+When `helm` is installed, `make cloud-native-render-check` renders the chart
+with `helm template`. When `kustomize` is installed, the same gate runs
+`kustomize build k8s/overlays/production`. When `kubeconform` or `kubeval` is
+installed, the gate runs schema validation against the rendered Helm and
+Kustomize output. Without those tools, the static fallback still checks the
+required resource kinds.
 
 Tool availability must be explicit in release evidence. Helm and Kustomize are
 required when present, while `kubeconform` and `kubeval` remain optional CI
@@ -37,9 +39,12 @@ The conformance manifest keeps the release evidence explicit:
 
 - render report: `.tmp-test/cloud-native-render/render-report.json`, schema
   `gofly.cloud_native_render_report.v1`;
-- render modes: `helm-template` and `static-template-render`;
+- render modes: `helm-template`, `kustomize-build`, and
+  `static-template-render`;
 - tool availability policy: `helm`, `kustomize`, `kubeconform`, and `kubeval`;
 - optional schema validation tools: `kubeconform` and `kubeval`;
+- fallback reasons: each unavailable render or validation tool must add a
+  `fallbackReasons` entry to the report;
 - profiles: `helm-default`, `helm-production`, and `kustomize-production`;
 - rendered goldens: `docs/reference/cloud-native-rendered-production.golden.yaml`
   with explicit fallback status;

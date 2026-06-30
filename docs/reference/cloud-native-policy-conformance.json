@@ -12,12 +12,14 @@
       "helm.requiredWhenAvailable",
       "helm.fallbackStatus",
       "kustomize.available",
+      "kustomize.fallbackStatus",
       "kubeconform.schemaValidationStatus",
       "kubeval.schemaValidationStatus",
+      "fallbackReasons",
       "requiredKinds"
     ],
-    "fallbackPolicy": "helm template is mandatory when helm is available; static-template-render is allowed only when helm is absent and the report marks helm.fallbackStatus as static-fallback",
-    "schemaValidationPolicy": "kubeconform and kubeval are optional CI validators; when absent the report must mark schemaValidationStatus as tool-unavailable"
+    "fallbackPolicy": "helm template and kustomize build are mandatory when their tools are available; static-template-render is allowed only when the corresponding tool is absent and the report records an explicit fallbackReasons entry",
+    "schemaValidationPolicy": "kubeconform and kubeval are optional CI validators; when available they must run against rendered Helm and Kustomize output, and when absent the report must mark schemaValidationStatus as tool-unavailable with a fallback reason"
   },
   "renderModes": [
     {
@@ -30,6 +32,12 @@
       "mode": "static-template-render",
       "command": "cat charts/gofly/templates/*.yaml",
       "fallbackReason": "helm not installed in the local or CI environment"
+    },
+    {
+      "mode": "kustomize-build",
+      "command": "kustomize build k8s/overlays/production",
+      "requiredWhenToolAvailable": "kustomize",
+      "fallback": "static-template-render"
     }
   ],
   "toolAvailabilityPolicy": {

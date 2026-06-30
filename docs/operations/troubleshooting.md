@@ -36,6 +36,12 @@ The remediation loop contract is indexed as
 and `nextActions` source to dashboard evidence, migration route evidence,
 adopter action, gate, rollback action, and the aiflow queue boundary.
 
+P9 closeout is indexed as `gofly.p9_remediation_closeout.v1`. It binds
+`GOFLY-GOV-10P9-09` to doctor JSON, release check JSON, support bundle JSON,
+generated project failure reports, `nextActions`, `error.remediation`, and
+`data.nextActions` so remediation tasks always have a concrete next action
+before aiflow queues work.
+
 Redact Authorization, Cookie, Set-Cookie, token, secret, password, and provider
 credential values before sharing the bundle.
 

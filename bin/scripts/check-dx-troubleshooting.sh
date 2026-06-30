@@ -134,8 +134,11 @@ if not failure_report.get("ciArtifactUsage"):
 handoff = manifest.get("remediationHandoff") or {}
 if handoff.get("schema") != "gofly.remediation_handoff.v1":
     missing.append("remediationHandoff.schema must be gofly.remediation_handoff.v1")
-if handoff.get("aiflowTask") != "GOFLY-KG-07-AI-REMEDIATION-AIFLOW":
-    missing.append("remediationHandoff.aiflowTask must be GOFLY-KG-07-AI-REMEDIATION-AIFLOW")
+if handoff.get("aiflowTask") != "GOFLY-GOV-10P9-09":
+    missing.append("remediationHandoff.aiflowTask must be GOFLY-GOV-10P9-09")
+for previous in ("GOFLY-KG-07-AI-REMEDIATION-AIFLOW", "GOFLY-GOV-10R7-09"):
+    if previous not in set(handoff.get("supersedes") or []):
+        missing.append(f"remediationHandoff.supersedes missing {previous!r}")
 if handoff.get("owner") != "human-or-current-agent":
     missing.append("remediationHandoff.owner must keep commit ownership outside aiflow")
 commit_policy = str(handoff.get("commitPolicy") or "")
@@ -172,6 +175,32 @@ for needle in ("aiflow task complete", "commit", "passing gates", "no runtime st
 for step in ("run gofly doctor --json", "run gofly release check --json --strict", "run gofly bug --json"):
     if step not in set(manifest.get("supportWorkflow") or []):
         missing.append(f"dx support bundle supportWorkflow missing {step!r}")
+
+p9_closeout = manifest.get("p9RemediationCloseout") or {}
+if p9_closeout.get("schema") != "gofly.p9_remediation_closeout.v1":
+    missing.append("p9RemediationCloseout.schema must be gofly.p9_remediation_closeout.v1")
+if p9_closeout.get("aiflowTask") != "GOFLY-GOV-10P9-09":
+    missing.append("p9RemediationCloseout.aiflowTask must be GOFLY-GOV-10P9-09")
+if p9_closeout.get("acceptanceGate") != "make dx-troubleshooting-check":
+    missing.append("p9RemediationCloseout.acceptanceGate must be make dx-troubleshooting-check")
+for command in ("gofly doctor --json", "gofly release check --json --strict", "gofly bug --json", "gofly ai new --json --apply --verify"):
+    if command not in set(p9_closeout.get("sourceCommands") or []):
+        missing.append(f"p9RemediationCloseout.sourceCommands missing {command!r}")
+for source in ("nextActions", "error.remediation", "data.nextActions"):
+    if source not in set(p9_closeout.get("requiredNextActionSources") or []):
+        missing.append(f"p9RemediationCloseout.requiredNextActionSources missing {source!r}")
+for field in ("taskId", "sourceCommand", "remediation", "nextActions", "gates", "commitPolicy"):
+    if field not in set(p9_closeout.get("handoffOutputFields") or []):
+        missing.append(f"p9RemediationCloseout.handoffOutputFields missing {field!r}")
+for needle in (".aiflow", ".harness", ".tmp-test", ".trae", "coverage.out", "docs/superpowers"):
+    if needle not in str(p9_closeout.get("runtimeStatePolicy") or ""):
+        missing.append(f"p9RemediationCloseout.runtimeStatePolicy missing {needle!r}")
+for needle in ("GOFLY-GOV-10P9-09", "dx-troubleshooting-check", "CLI JSON contract", "no runtime state"):
+    if needle not in str(p9_closeout.get("completionPolicy") or ""):
+        missing.append(f"p9RemediationCloseout.completionPolicy missing {needle!r}")
+for needle in ("doctor", "release", "generated-project", "support-bundle", "nextActions", "error.remediation"):
+    if needle not in str(p9_closeout.get("nextActionPolicy") or ""):
+        missing.append(f"p9RemediationCloseout.nextActionPolicy missing {needle!r}")
 
 adoption_loop = manifest.get("troubleshootingAdoptionLoop") or {}
 if adoption_loop.get("schema") != "gofly.troubleshooting_adoption_loop.v1":
@@ -307,8 +336,10 @@ for field in (
     if field not in dashboard_evidence:
         missing.append(f"remediationLoopContract.dashboardEvidence missing {field!r}")
 queue_policy = remediation_loop.get("aiflowQueuePolicy") or {}
-if queue_policy.get("taskPrefix") != "GOFLY-GOV-10R7-09":
+if queue_policy.get("taskPrefix") != "GOFLY-GOV-10P9-09":
     missing.append("remediationLoopContract.aiflowQueuePolicy.taskPrefix mismatch")
+if "GOFLY-GOV-10R7-09" not in set(queue_policy.get("supersedes") or []):
+    missing.append("remediationLoopContract.aiflowQueuePolicy.supersedes missing GOFLY-GOV-10R7-09")
 if queue_policy.get("completionGate") != "make dx-troubleshooting-check":
     missing.append("remediationLoopContract.aiflowQueuePolicy.completionGate mismatch")
 if queue_policy.get("commitOwner") != "human-or-current-agent":

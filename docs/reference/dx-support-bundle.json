@@ -107,7 +107,11 @@
   },
   "remediationHandoff": {
     "schema": "gofly.remediation_handoff.v1",
-    "aiflowTask": "GOFLY-KG-07-AI-REMEDIATION-AIFLOW",
+    "aiflowTask": "GOFLY-GOV-10P9-09",
+    "supersedes": [
+      "GOFLY-KG-07-AI-REMEDIATION-AIFLOW",
+      "GOFLY-GOV-10R7-09"
+    ],
     "owner": "human-or-current-agent",
     "commitPolicy": "aiflow may queue tasks, run diagnostics, and produce remediation plans, but it must not create commits or push; commits are made by the current agent or human after gates pass",
     "allowedActions": [
@@ -142,6 +146,33 @@
       "commitPolicy"
     ],
     "completionPolicy": "mark the aiflow task complete only after the current agent or human records a commit with passing gates and no runtime state staged"
+  },
+  "p9RemediationCloseout": {
+    "schema": "gofly.p9_remediation_closeout.v1",
+    "aiflowTask": "GOFLY-GOV-10P9-09",
+    "acceptanceGate": "make dx-troubleshooting-check",
+    "sourceCommands": [
+      "gofly doctor --json",
+      "gofly release check --json --strict",
+      "gofly bug --json",
+      "gofly ai new --json --apply --verify"
+    ],
+    "requiredNextActionSources": [
+      "nextActions",
+      "error.remediation",
+      "data.nextActions"
+    ],
+    "handoffOutputFields": [
+      "taskId",
+      "sourceCommand",
+      "remediation",
+      "nextActions",
+      "gates",
+      "commitPolicy"
+    ],
+    "runtimeStatePolicy": "Do not stage .aiflow, .harness, .tmp-test, .trae, coverage.out, or docs/superpowers while resolving remediation tasks.",
+    "completionPolicy": "Only mark GOFLY-GOV-10P9-09 complete after dx-troubleshooting-check and CLI JSON contract gates pass and no runtime state is staged.",
+    "nextActionPolicy": "Every failed doctor, release, generated-project, or support-bundle path must expose nextActions or error.remediation before aiflow can queue bounded remediation work."
   },
   "supportWorkflow": [
     "run gofly doctor --json",
@@ -325,7 +356,10 @@
       "benchmark.adopterPerformanceContract"
     ],
     "aiflowQueuePolicy": {
-      "taskPrefix": "GOFLY-GOV-10R7-09",
+      "taskPrefix": "GOFLY-GOV-10P9-09",
+      "supersedes": [
+        "GOFLY-GOV-10R7-09"
+      ],
       "allowed": [
         "queue remediation tasks",
         "run diagnostic commands",

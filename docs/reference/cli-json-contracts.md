@@ -183,6 +183,12 @@ fields, `nextActionSource`, dashboard evidence, migration route, adopter
 action, gate, rollback action, and aiflow queue boundary so automation can open
 bounded remediation work without taking over commit ownership.
 
+P9 remediation closeout is indexed as `gofly.p9_remediation_closeout.v1`. It
+keeps `gofly doctor --json`, `gofly release check --json --strict`,
+`gofly bug --json`, generated project failure reports, `nextActions`,
+`error.remediation`, and `data.nextActions` tied to the P9 aiflow task
+`GOFLY-GOV-10P9-09`.
+
 The DX troubleshooting gate verifies this contract with real CLI output:
 
 ```sh

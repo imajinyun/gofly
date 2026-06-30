@@ -2,7 +2,7 @@ package main
 
 import "testing"
 
-func TestMigrationProofReport_BitsUT(t *testing.T) {
+func TestMigrationProofReport(t *testing.T) {
 	report := buildReport()
 	if report.Schema != schema {
 		t.Fatalf("schema = %q, want %q", report.Schema, schema)
@@ -25,6 +25,9 @@ func TestMigrationProofReport_BitsUT(t *testing.T) {
 		}
 		if len(item.GateCommands) == 0 || len(item.CompatibilityCaveats) == 0 {
 			t.Fatalf("case %q is missing gate commands or compatibility caveats: %+v", item.Source, item)
+		}
+		if item.PerformanceBoundary == "" || item.GovernanceBoundary == "" {
+			t.Fatalf("case %q is missing performance or governance boundary: %+v", item.Source, item)
 		}
 		if item.DecisionTable.ChooseWhen == "" ||
 			item.DecisionTable.KeepSourceWhen == "" ||

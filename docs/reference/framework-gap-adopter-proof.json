@@ -278,6 +278,8 @@
           "benchmark.adopterPerformanceContract"
         ],
         "compatibilityCaveat": "Gin `:id` routes become gofly `{id}` routes; compare status codes, JSON names, OpenAPI schema, and the stable error envelope before switching traffic.",
+        "performanceBoundary": "Treat HTTP latency as report-only until route, binding, middleware, and OpenAPI overhead are measured against the adopter workload.",
+        "governanceBoundary": "Use gofly for OpenAPI, stable error envelopes, request IDs, metrics, and control-plane evidence while Gin can keep serving traffic during comparison.",
         "gateCommands": [
           "go test -C examples/restserver ./...",
           "make examples-smoke"
@@ -302,6 +304,8 @@
           "dashboard.productionReadinessScorecard.surfaceCount"
         ],
         "compatibilityCaveat": "Verify generated OpenAPI and `/admin/control-plane` before changing discovery; preserve `.api` request and response field names.",
+        "performanceBoundary": "Keep go-zero hot paths active until generated service smoke, reference-app evidence, and benchmark budgets cover the migrated traffic.",
+        "governanceBoundary": "Use gofly when generated projects need release checks, discovery evidence, control-plane snapshots, and a support bundle for failed upgrades.",
         "gateCommands": [
           "make generated-version-compat-check",
           "make reference-app-smoke"
@@ -325,6 +329,8 @@
           "dashboard.productionReadinessScorecard.surfaceCount"
         ],
         "compatibilityCaveat": "Keep domain services separate from transport wiring; compare lifecycle hooks, health checks, discovery registration, and topology output.",
+        "performanceBoundary": "Do not treat cloud-native rendering evidence as runtime performance proof; pair rollout evidence with service-specific latency and resource metrics.",
+        "governanceBoundary": "Use gofly for rendered deployment evidence, topology reports, health checks, runtime SLOs, and rollback notes before changing the serving target.",
         "gateCommands": [
           "make cloud-native-render-check",
           "go test -C examples/microshop ./..."
@@ -347,6 +353,8 @@
           "benchmark.adopterPerformanceContract"
         ],
         "compatibilityCaveat": "Do not migrate hot methods without `bench/` evidence; compare unary and stream contracts, resolver updates, balancing, tracing, auth, and rollback behavior.",
+        "performanceBoundary": "Keep Kitex on latency-critical transports until gofly RPC unary and stream budgets move from report-only to blocking evidence.",
+        "governanceBoundary": "Use gofly around REST ingress, descriptor comparison, release checks, control-plane snapshots, and governed non-hot-path service glue.",
         "gateCommands": [
           "make rpc-boundary-check",
           "make bench-evidence-check"

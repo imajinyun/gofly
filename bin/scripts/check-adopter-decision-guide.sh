@@ -138,6 +138,8 @@ if manual.is_file():
             "manualPath",
             "migrationProofExample",
             "compatibilityCaveat",
+            "performanceBoundary",
+            "governanceBoundary",
             "rollbackAction",
             "supportBundleAction",
             "failureReportEvidence",
@@ -171,6 +173,12 @@ if manual.is_file():
         caveat_prefix = caveat.split(";")[0].rstrip(".")
         if caveat_prefix and not contains_normalized(text, caveat_prefix):
             missing.append(f"{manual}: decision contract missing {source} compatibility caveat text")
+        for field in ("performanceBoundary", "governanceBoundary"):
+            value = item.get(field) or ""
+            if len(value.split()) < 10:
+                missing.append(f"{adopter_proof_path}: {source} {field} must be actionable")
+            if value and not contains_normalized(text, value):
+                missing.append(f"{manual}: decision contract missing {source} {field} text")
 
     migration_paths = {
         "Gin to gofly": [
@@ -283,6 +291,12 @@ if manual.is_file():
             for field in ("rollback", "supportBundle", "failureReport", "compatibilityCaveats", "decisionTable"):
                 if not item.get(field):
                     missing.append(f"examples/migration-proof {source}: missing {field}")
+            for field in ("performanceBoundary", "governanceBoundary"):
+                value = item.get(field) or ""
+                if not value:
+                    missing.append(f"examples/migration-proof {source}: missing {field}")
+                if decision.get(field) and not contains_normalized(value, decision[field]):
+                    missing.append(f"examples/migration-proof {source}: {field} does not match adopter contract")
             decision = item.get("decisionTable") or {}
             for field in ("chooseWhen", "keepSourceWhen", "adopterAction", "rollbackTrigger"):
                 if not decision.get(field):

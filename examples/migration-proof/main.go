@@ -29,6 +29,8 @@ type migrationCase struct {
 	FailureReport        string        `json:"failureReport"`
 	Compatibility        []string      `json:"compatibility"`
 	CompatibilityCaveats []string      `json:"compatibilityCaveats"`
+	PerformanceBoundary  string        `json:"performanceBoundary"`
+	GovernanceBoundary   string        `json:"governanceBoundary"`
 	DecisionTable        decisionTable `json:"decisionTable"`
 }
 
@@ -73,6 +75,8 @@ func buildReport() report {
 			FailureReport:        "capture route, status-code, JSON-field, OpenAPI-schema, and stable error envelope drift before changing traffic",
 			Compatibility:        []string{"docs/comparisons/gin.md", "docs/case-studies/migrate-from-gin.md"},
 			CompatibilityCaveats: []string{"Gin :id routes become gofly {id} routes", "compare status codes, JSON field names, and error envelopes before switching traffic"},
+			PerformanceBoundary:  "treat HTTP latency as report-only until route, binding, middleware, and OpenAPI overhead are measured against the adopter workload",
+			GovernanceBoundary:   "use gofly for OpenAPI, stable error envelopes, request IDs, metrics, and control-plane evidence while Gin can keep serving traffic during comparison",
 			DecisionTable: decisionTable{
 				ChooseWhen:      "the HTTP service needs OpenAPI, generated contracts, runtime governance, or control-plane state",
 				KeepSourceWhen:  "the service is a focused HTTP API without generated-contract or governance needs",
@@ -98,6 +102,8 @@ func buildReport() report {
 			FailureReport:        "capture generated diff category, dependency boundary, OpenAPI mismatch, release-check output, and /admin/control-plane drift",
 			Compatibility:        []string{"docs/comparisons/go-zero.md"},
 			CompatibilityCaveats: []string{"preserve .api request and response field names", "verify generated OpenAPI and /admin/control-plane before changing discovery"},
+			PerformanceBoundary:  "keep go-zero hot paths active until generated service smoke, reference-app evidence, and benchmark budgets cover the migrated traffic",
+			GovernanceBoundary:   "use gofly when generated projects need release checks, discovery evidence, control-plane snapshots, and a support bundle for failed upgrades",
 			DecisionTable: decisionTable{
 				ChooseWhen:      "the team wants generated services plus governance files, discovery, release gates, and admin diagnostics",
 				KeepSourceWhen:  "existing go-zero generated code owns stable production routing and generated compatibility evidence is incomplete",
@@ -122,6 +128,8 @@ func buildReport() report {
 			FailureReport:        "capture Helm or Kustomize rendering, topology, health, discovery, and lifecycle hook differences before replacing deployment targets",
 			Compatibility:        []string{"docs/comparisons/kratos.md"},
 			CompatibilityCaveats: []string{"keep domain services separate from transport wiring", "compare lifecycle hooks, health checks, discovery registration, and topology output"},
+			PerformanceBoundary:  "do not treat cloud-native rendering evidence as runtime performance proof; pair rollout evidence with service-specific latency and resource metrics",
+			GovernanceBoundary:   "use gofly for rendered deployment evidence, topology reports, health checks, runtime SLOs, and rollback notes before changing the serving target",
 			DecisionTable: decisionTable{
 				ChooseWhen:      "cloud-native operations remain important and generated governance contracts or AI-readable runtime state are needed",
 				KeepSourceWhen:  "Kratos lifecycle, deployment, and service registration behavior is the production source of truth",
@@ -147,6 +155,8 @@ func buildReport() report {
 			FailureReport:        "capture unary, stream, resolver, balancer, tracing, auth, and benchmark drift before moving latency-critical methods",
 			Compatibility:        []string{"docs/comparisons/kitex.md", "docs/guides/rpc.md"},
 			CompatibilityCaveats: []string{"do not migrate hot methods without bench evidence", "compare unary, stream, resolver, balancer, tracing, auth, and rollback behavior"},
+			PerformanceBoundary:  "keep Kitex on latency-critical transports until gofly RPC unary and stream budgets move from report-only to blocking evidence",
+			GovernanceBoundary:   "use gofly around REST ingress, descriptor comparison, release checks, control-plane snapshots, and governed non-hot-path service glue",
 			DecisionTable: decisionTable{
 				ChooseWhen:      "Kitex keeps latency-critical RPC while gofly owns REST ingress, governance, release checks, or non-hot-path service glue",
 				KeepSourceWhen:  "the method is latency-critical or depends on Kitex IDL/runtime behavior without gofly benchmark evidence",

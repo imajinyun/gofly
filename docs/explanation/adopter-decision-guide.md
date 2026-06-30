@@ -39,6 +39,19 @@ dashboard evidence, compatibility caveats, gate commands, and rollback actions.
 | Kratos to gofly | `generated-scaffold-upgrade`; `production-reference-proof`; `release-trust-evidence` | Attach `gofly bug --json` with rendered cloud-native assets, topology output, and health or discovery drift evidence. | `dashboard.evidenceTraceability.claimCount`; `dashboard.productionReadinessScorecard.surfaceCount` | `make cloud-native-render-check` | Restore the previous Kratos deployment target while keeping shared domain services unchanged. |
 | Kitex with gofly | `rpc-boundary-tier1`; `performance-credibility` | Attach `gofly bug --json` with RPC boundary, resolver, balancer, stream, trace, auth, and benchmark evidence before escalating. | `dashboard.evidenceTraceability.claimCount`; `benchmark.adopterPerformanceContract` | `make rpc-boundary-check` | Route latency-critical methods back to Kitex and retain gofly for REST ingress or governance surfaces. |
 
+## Boundary Evidence
+
+Each migration proof row includes a performance boundary and governance
+boundary. These boundaries prevent the guide from implying framework parity
+where gofly only has report-only or candidate evidence.
+
+| Path | Performance boundary | Governance boundary |
+| --- | --- | --- |
+| Gin to gofly | Treat HTTP latency as report-only until route, binding, middleware, and OpenAPI overhead are measured against the adopter workload. | Use gofly for OpenAPI, stable error envelopes, request IDs, metrics, and control-plane evidence while Gin can keep serving traffic during comparison. |
+| go-zero to gofly | Keep go-zero hot paths active until generated service smoke, reference-app evidence, and benchmark budgets cover the migrated traffic. | Use gofly when generated projects need release checks, discovery evidence, control-plane snapshots, and a support bundle for failed upgrades. |
+| Kratos to gofly | Do not treat cloud-native rendering evidence as runtime performance proof; pair rollout evidence with service-specific latency and resource metrics. | Use gofly for rendered deployment evidence, topology reports, health checks, runtime SLOs, and rollback notes before changing the serving target. |
+| Kitex with gofly | Keep Kitex on latency-critical transports until gofly RPC unary and stream budgets move from report-only to blocking evidence. | Use gofly around REST ingress, descriptor comparison, release checks, control-plane snapshots, and governed non-hot-path service glue. |
+
 ## When to choose gofly
 
 Choose gofly when a service needs generated structure, REST/RPC composition,

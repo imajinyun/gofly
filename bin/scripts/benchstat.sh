@@ -262,6 +262,7 @@ def validate_ratchet_policy() -> None:
     promotion_evidence = ratchet.get("performancePromotionEvidence") or {}
     p9_ownership = ratchet.get("p9GatewayCacheOwnership") or {}
     p10_ratchet = ratchet.get("p10PerformanceBudgetRatchet") or {}
+    p13_gateway_cache_closeout = ratchet.get("p13GatewayCacheBenchmarkCloseout") or {}
     report_only = set(latency_policy.get("reportOnly") or [])
     promoted = latency_policy.get("promoted") or []
     rpc_policy = ratchet.get("rpcPolicy") or {}
@@ -457,24 +458,31 @@ def validate_ratchet_policy() -> None:
                 f"{benchmark}: report-only latency {field} must be actionable",
             )
 
-    evidence_unsupported = {
+    evidence_candidates = {
         item.get("id"): item
-        for item in promotion_evidence.get("unsupportedSurfaces") or []
+        for item in promotion_evidence.get("candidateSurfaces") or []
         if isinstance(item, dict) and item.get("id")
     }
     require_policy(
-        set(evidence_unsupported) == {"gateway-proxy", "cache-hot-path"},
-        "performancePromotionEvidence unsupportedSurfaces mismatch",
+        set(evidence_candidates) == {"gateway-proxy", "cache-hot-path"},
+        "performancePromotionEvidence candidateSurfaces mismatch",
     )
-    for surface_id, item in evidence_unsupported.items():
+    for surface_id, item in evidence_candidates.items():
         require_policy(
-            item.get("status") == "unsupported-report-only",
-            f"{surface_id}: performance promotion unsupported status must be unsupported-report-only",
+            item.get("status") == "candidate-report-only",
+            f"{surface_id}: performance promotion candidate status must be candidate-report-only",
         )
+        benchmarks = set(item.get("benchmarks") or [])
+        require_policy(bool(benchmarks), f"{surface_id}: performance promotion candidate benchmarks are required")
+        for benchmark in benchmarks:
+            require_policy(
+                benchmark not in tracked,
+                f"{surface_id}: candidate benchmark {benchmark} must stay out of trackedBenchmarks before promotion",
+            )
         for field in ("requiredEvidence", "adopterAction"):
             require_policy(
                 len(str(item.get(field) or "").split()) >= 10,
-                f"{surface_id}: performance promotion {field} must be actionable",
+                f"{surface_id}: performance promotion candidate {field} must be actionable",
             )
 
     adopter_actions = {
@@ -482,7 +490,7 @@ def validate_ratchet_policy() -> None:
         for item in promotion_evidence.get("adopterActions") or []
         if isinstance(item, dict) and item.get("id")
     }
-    for action_id in ("allocation-regression", "latency-trend-regression", "unsupported-surface-claim"):
+    for action_id in ("allocation-regression", "latency-trend-regression", "candidate-surface-promotion"):
         item = adopter_actions.get(action_id) or {}
         require_policy(bool(item), f"performancePromotionEvidence adopterActions missing {action_id}")
         for field in ("trigger", "action"):
@@ -688,7 +696,11 @@ def validate_ratchet_policy() -> None:
         if isinstance(item, dict) and item.get("id")
     }
     require_policy(
-        set(adopter_report_only) == {"http-latency-report-only", "rpc-candidate-report-only"},
+        set(adopter_report_only) == {
+            "http-latency-report-only",
+            "rpc-candidate-report-only",
+            "gateway-cache-candidate-report-only",
+        },
         "adopterPerformanceContract reportOnlySurfaces mismatch",
     )
     http_report_only = set((adopter_report_only.get("http-latency-report-only") or {}).get("benchmarks") or [])
@@ -702,10 +714,26 @@ def validate_ratchet_policy() -> None:
         for item in rpc_candidates
         if isinstance(item, dict) and item.get("benchmark")
     }
+    gateway_cache_candidate_names = {
+        "BenchmarkGatewayProxy",
+        "BenchmarkCacheHotPath",
+        "BenchmarkCacheHotPathGetOrLoadHit",
+    }
+    candidate_benchmark_names = rpc_candidate_names | gateway_cache_candidate_names
     require_policy(
         rpc_candidate_names <= rpc_report_only,
         "adopterPerformanceContract rpc-candidate-report-only must include all RPC candidates",
     )
+    gateway_cache_report_only = set((adopter_report_only.get("gateway-cache-candidate-report-only") or {}).get("benchmarks") or [])
+    require_policy(
+        gateway_cache_report_only == gateway_cache_candidate_names,
+        "adopterPerformanceContract gateway-cache-candidate-report-only mismatch",
+    )
+    for benchmark in gateway_cache_report_only:
+        require_policy(
+            benchmark not in tracked,
+            f"{benchmark}: adopterPerformanceContract Gateway/Cache candidate must stay out of trackedBenchmarks",
+        )
     for surface_id, item in adopter_report_only.items():
         for field in ("adopterAction", "rollbackAction"):
             require_policy(
@@ -713,21 +741,10 @@ def validate_ratchet_policy() -> None:
                 f"{surface_id}: adopterPerformanceContract {field} must be actionable",
             )
 
-    adopter_unsupported = {
-        item.get("id"): item
-        for item in adopter_contract.get("unsupportedSurfaces") or []
-        if isinstance(item, dict) and item.get("id")
-    }
     require_policy(
-        set(adopter_unsupported) == {"gateway-proxy", "cache-hot-path"},
-        "adopterPerformanceContract unsupportedSurfaces mismatch",
+        not adopter_contract.get("unsupportedSurfaces"),
+        "adopterPerformanceContract unsupportedSurfaces must be empty after Gateway/Cache candidate promotion",
     )
-    for surface_id, item in adopter_unsupported.items():
-        for field in ("requiredEvidence", "adopterAction", "rollbackAction"):
-            require_policy(
-                len(str(item.get(field) or "").split()) >= 8,
-                f"{surface_id}: adopterPerformanceContract {field} must be actionable",
-            )
 
     promotion_rules = set(adopter_contract.get("promotionRules") or [])
     for rule in (
@@ -888,6 +905,101 @@ def validate_ratchet_policy() -> None:
             forbidden in set(p13_rpc_closeout.get("forbiddenUntilCleared") or []),
             f"p13RpcTier1ReleaseTrainCloseout forbiddenUntilCleared missing {forbidden!r}",
         )
+
+    require_policy(
+        p13_gateway_cache_closeout.get("schema") == "gofly.benchmark_p13_gateway_cache_closeout.v1",
+        "p13GatewayCacheBenchmarkCloseout schema mismatch",
+    )
+    require_policy(
+        p13_gateway_cache_closeout.get("aiflowTask") == "GOFLY-P13-06-GATEWAY-CACHE-BENCH-EVIDENCE",
+        "p13GatewayCacheBenchmarkCloseout aiflowTask mismatch",
+    )
+    require_policy(
+        p13_gateway_cache_closeout.get("status") == "candidate-report-only",
+        "p13GatewayCacheBenchmarkCloseout status must be candidate-report-only",
+    )
+    require_policy(
+        p13_gateway_cache_closeout.get("acceptanceGate") == "make bench-regression-check",
+        "p13GatewayCacheBenchmarkCloseout acceptanceGate mismatch",
+    )
+    for source in (
+        "bench/gateway_cache_bench_test.go",
+        "bench/matrix.md",
+        "bench/budget-ratchet.json",
+        "bench/README.md",
+    ):
+        require_policy(
+            source in set(p13_gateway_cache_closeout.get("sourceEvidence") or []),
+            f"p13GatewayCacheBenchmarkCloseout sourceEvidence missing {source!r}",
+        )
+    p13_gateway_decision = p13_gateway_cache_closeout.get("decision") or {}
+    require_policy(p13_gateway_decision.get("result") == "hold", "p13GatewayCacheBenchmarkCloseout decision.result must be hold")
+    require_policy(p13_gateway_decision.get("selectedSurface") == "none", "p13GatewayCacheBenchmarkCloseout selectedSurface must be none")
+    require_policy(
+        p13_gateway_decision.get("allocationBlockingSurface") == "none",
+        "p13GatewayCacheBenchmarkCloseout allocationBlockingSurface must be none",
+    )
+    require_policy(
+        p13_gateway_decision.get("latencyMode") == "report-only",
+        "p13GatewayCacheBenchmarkCloseout latencyMode must be report-only",
+    )
+    require_policy(
+        "make bench-regression-check" in str(p13_gateway_decision.get("nextReviewGate") or ""),
+        "p13GatewayCacheBenchmarkCloseout nextReviewGate must include make bench-regression-check",
+    )
+    for field in ("reason", "releaseNotePolicy"):
+        require_policy(
+            len(str(p13_gateway_decision.get(field) or "").split()) >= 16,
+            f"p13GatewayCacheBenchmarkCloseout decision.{field} must be actionable",
+        )
+    for forbidden_claim in ("ratcheted allocation", "blocking latency", "production performance parity"):
+        require_policy(
+            forbidden_claim in str(p13_gateway_decision.get("releaseNotePolicy") or ""),
+            f"p13GatewayCacheBenchmarkCloseout releaseNotePolicy must mention {forbidden_claim!r}",
+        )
+    p13_gateway_candidates = {
+        item.get("benchmark"): item
+        for item in p13_gateway_cache_closeout.get("candidateRows") or []
+        if isinstance(item, dict) and item.get("benchmark")
+    }
+    require_policy(
+        set(p13_gateway_candidates) == gateway_cache_candidate_names,
+        "p13GatewayCacheBenchmarkCloseout candidateRows mismatch",
+    )
+    for benchmark, item in p13_gateway_candidates.items():
+        require_policy(item.get("currentMode") == "report-only", f"{benchmark}: P13 Gateway/Cache currentMode must be report-only")
+        require_policy(item.get("proposedPromotionMode") == "allocation-blocking", f"{benchmark}: P13 Gateway/Cache proposedPromotionMode mismatch")
+        require_policy(item.get("promotionStatus") == "blocked", f"{benchmark}: P13 Gateway/Cache promotionStatus must be blocked")
+        require_policy(item.get("minimumBaselineSamples") == 5, f"{benchmark}: P13 Gateway/Cache minimumBaselineSamples mismatch")
+        require_policy(item.get("minimumCurrentTrendSamples") == 3, f"{benchmark}: P13 Gateway/Cache minimumCurrentTrendSamples mismatch")
+        require_policy(benchmark not in tracked, f"{benchmark}: P13 Gateway/Cache candidate must stay out of trackedBenchmarks")
+        require_policy(benchmark not in promoted_latency, f"{benchmark}: P13 Gateway/Cache latency must stay report-only")
+        require_policy(len(item.get("blockers") or []) >= 3, f"{benchmark}: P13 Gateway/Cache blockers must include at least three reasons")
+        require_policy(
+            len(str(item.get("rollbackAction") or "").split()) >= 12,
+            f"{benchmark}: P13 Gateway/Cache rollbackAction must be actionable",
+        )
+    p13_gateway_rules = set(p13_gateway_cache_closeout.get("blockingRules") or [])
+    for rule in (
+        "Gateway and Cache candidate rows must stay out of trackedBenchmarks before promotion",
+        "promoted Gateway and Cache rows require minimum 5 baseline samples",
+        "promoted Gateway and Cache rows require minimum 3 current trend samples",
+        "promoted Gateway and Cache rows require no allocation regression under bench-regression-check",
+        "Gateway and Cache latency remains report-only until maxRegressionRatio and rollback evidence are documented",
+    ):
+        require_policy(rule in p13_gateway_rules, f"p13GatewayCacheBenchmarkCloseout blockingRules missing {rule!r}")
+    for forbidden in (
+        "trackedBenchmarks Gateway entry",
+        "trackedBenchmarks Cache entry",
+        "blocking Gateway latency claim",
+        "blocking Cache latency claim",
+        "ratcheted Gateway performance claim",
+        "ratcheted Cache performance claim",
+    ):
+        require_policy(
+            forbidden in set(p13_gateway_cache_closeout.get("forbiddenUntilCleared") or []),
+            f"p13GatewayCacheBenchmarkCloseout forbiddenUntilCleared missing {forbidden!r}",
+        )
     p12_rules = set(p12_rpc_decision.get("blockingRules") or [])
     for rule in (
         "exactly one RPC surface may be promoted at a time",
@@ -943,6 +1055,10 @@ def validate_ratchet_policy() -> None:
             require_policy(bool(item.get("evidence")), f"{surface_id}: blocking surface evidence is required")
         elif status == "candidate":
             require_policy(bool(benchmark), f"{surface_id}: candidate surface benchmark is required")
+            require_policy(
+                benchmark in candidate_benchmark_names,
+                f"{surface_id}: candidate benchmark must be a known RPC, Gateway, or Cache candidate",
+            )
             require_policy(benchmark not in tracked, f"{surface_id}: candidate benchmark must stay out of trackedBenchmarks")
             require_policy(bool(item.get("currentBlocker")), f"{surface_id}: candidate currentBlocker is required")
         elif status == "unsupported-report-only":
@@ -1048,14 +1164,14 @@ def validate_ratchet_policy() -> None:
             "latencyMode": "report-only",
         },
         "gateway-proxy": {
-            "benchmark": "",
-            "status": "unsupported-report-only",
+            "benchmark": "BenchmarkGatewayProxy",
+            "status": "candidate",
             "allocationMode": "report-only",
             "latencyMode": "report-only",
         },
         "cache-hot-path": {
-            "benchmark": "",
-            "status": "unsupported-report-only",
+            "benchmark": "BenchmarkCacheHotPath",
+            "status": "candidate",
             "allocationMode": "report-only",
             "latencyMode": "report-only",
         },
@@ -1074,11 +1190,6 @@ def validate_ratchet_policy() -> None:
         f"r8PerformanceDepthMatrix surfaces drifted: {sorted(r8_by_id)}",
     )
     promoted_latency_names = set(promoted_latency)
-    rpc_candidate_names = {
-        item.get("benchmark", "")
-        for item in rpc_candidates
-        if isinstance(item, dict) and item.get("benchmark")
-    }
     for surface_id, expected in expected_r8_surfaces.items():
         item = r8_by_id.get(surface_id) or {}
         for field in (
@@ -1117,8 +1228,8 @@ def validate_ratchet_policy() -> None:
                 )
         elif status == "candidate":
             require_policy(
-                benchmark in rpc_candidate_names,
-                f"r8PerformanceDepthMatrix {surface_id}: candidate benchmark must be in rpcPolicy.candidates",
+                benchmark in candidate_benchmark_names,
+                f"r8PerformanceDepthMatrix {surface_id}: candidate benchmark must be in RPC or Gateway/Cache candidates",
             )
             require_policy(
                 benchmark not in tracked,

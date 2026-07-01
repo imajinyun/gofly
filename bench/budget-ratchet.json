@@ -4,7 +4,7 @@
     "schema": "gofly.benchmark_r8_performance_depth_matrix.v1",
     "aiflowTask": "GOFLY-GOV-10R8-09",
     "acceptanceGate": "make bench-regression-check",
-    "policy": "R8 performance credibility must separate allocation-blocking REST and governance hot paths, promoted OpenAPI and governance latency, report-only HTTP latency, RPC unary and stream candidate evidence, and unsupported gateway or cache claims before release notes compare gofly with Gin, Echo, Fiber, Hertz, Kitex, or gRPC-Go.",
+    "policy": "R8 performance credibility must separate allocation-blocking REST and governance hot paths, promoted OpenAPI and governance latency, report-only HTTP latency, RPC unary and stream candidate evidence, and Gateway or Cache candidate report-only evidence before release notes compare gofly with Gin, Echo, Fiber, Hertz, Kitex, or gRPC-Go.",
     "requiredSurfaces": [
       "rest-router",
       "path-params",
@@ -169,24 +169,24 @@
       {
         "id": "gateway-proxy",
         "area": "Gateway proxy",
-        "benchmark": "",
-        "status": "unsupported-report-only",
+        "benchmark": "BenchmarkGatewayProxy",
+        "status": "candidate",
         "allocationMode": "report-only",
         "latencyMode": "report-only",
         "promotionGate": "make bench-regression-check",
-        "evidenceState": "no dedicated gateway proxy benchmark is published in bench yet, so performance claims must stay unsupported report-only.",
-        "rollbackAction": "Downgrade gateway performance claims to functional smoke evidence until dedicated benchmarks are added."
+        "evidenceState": "dedicated gateway proxy benchmark evidence is published in bench/gateway_cache_bench_test.go and matrix.md, but it stays outside trackedBenchmarks until baseline, current trend, allocation budget, and rollback evidence are attached.",
+        "rollbackAction": "Keep gateway performance claims report-only and route traffic back to the previous gateway path when proxy benchmark evidence regresses before promotion."
       },
       {
         "id": "cache-hot-path",
         "area": "Cache hot path",
-        "benchmark": "",
-        "status": "unsupported-report-only",
+        "benchmark": "BenchmarkCacheHotPath",
+        "status": "candidate",
         "allocationMode": "report-only",
         "latencyMode": "report-only",
         "promotionGate": "make bench-regression-check",
-        "evidenceState": "cache behavior is covered by smoke and observability evidence, but no dedicated cache benchmark is published in bench yet.",
-        "rollbackAction": "Keep cache performance claims report-only and rely on behavior tests until dedicated benchmark evidence exists."
+        "evidenceState": "dedicated cache hot-path benchmark evidence is published in bench/gateway_cache_bench_test.go and matrix.md, but it stays outside trackedBenchmarks until baseline, current trend, allocation budget, and rollback evidence are attached.",
+        "rollbackAction": "Keep cache performance claims report-only, disable cache with GOFLY_CACHE_DISABLED, or keep source-of-truth reads when cache benchmark evidence regresses before promotion."
       }
     ]
   },
@@ -301,18 +301,25 @@
         "adopterAction": "Use latency as trend evidence only; do not block releases on this row until promotion criteria pass."
       }
     ],
-    "unsupportedSurfaces": [
+    "candidateSurfaces": [
       {
         "id": "gateway-proxy",
-        "status": "unsupported-report-only",
-        "requiredEvidence": "Add a dedicated gateway proxy benchmark with five baseline samples, three current trend samples, allocation budget, latency policy, and rollback guidance.",
-        "adopterAction": "Do not claim gateway proxy performance as ratcheted until dedicated benchmark evidence is published."
+        "status": "candidate-report-only",
+        "benchmarks": [
+          "BenchmarkGatewayProxy"
+        ],
+        "requiredEvidence": "Keep the dedicated gateway proxy benchmark outside trackedBenchmarks until five baseline samples, three current trend samples, allocation budget, latency policy, and rollback guidance are attached.",
+        "adopterAction": "Use gateway proxy benchmark output as trend evidence only; do not claim ratcheted Gateway performance until promotion criteria pass."
       },
       {
         "id": "cache-hot-path",
-        "status": "unsupported-report-only",
-        "requiredEvidence": "Add a dedicated cache hot-path benchmark with five baseline samples, three current trend samples, allocation budget, cache-mode notes, and rollback guidance.",
-        "adopterAction": "Do not claim cache hot-path performance as ratcheted until dedicated benchmark evidence is published."
+        "status": "candidate-report-only",
+        "benchmarks": [
+          "BenchmarkCacheHotPath",
+          "BenchmarkCacheHotPathGetOrLoadHit"
+        ],
+        "requiredEvidence": "Keep dedicated cache hot-path benchmarks outside trackedBenchmarks until five baseline samples, three current trend samples, allocation budget, cache-mode notes, and rollback guidance are attached.",
+        "adopterAction": "Use cache hot-path benchmark output as trend evidence only; do not claim ratcheted Cache performance until promotion criteria pass."
       }
     ],
     "adopterActions": [
@@ -327,9 +334,9 @@
         "action": "Keep the release decision non-blocking, investigate the hot path, and require three-sample trend evidence before promoting the row."
       },
       {
-        "id": "unsupported-surface-claim",
-        "trigger": "gateway or cache performance is claimed without a dedicated benchmark row",
-        "action": "Downgrade the claim to report-only and require dedicated baseline, current trend, allocation budget, and rollback evidence."
+        "id": "candidate-surface-promotion",
+        "trigger": "gateway or cache performance is promoted from candidate evidence into blocking release gates",
+        "action": "Require dedicated baseline, current trend, allocation budget, rollback evidence, and trackedBenchmarks promotion through bench-regression-check."
       }
     ]
   },
@@ -507,20 +514,16 @@
         ],
         "adopterAction": "Treat RPC rows as candidate trend evidence and keep latency-critical methods on Kitex or existing gRPC paths.",
         "rollbackAction": "Block RPC Tier 1 promotion until release trains and blocking budget evidence are attached."
-      }
-    ],
-    "unsupportedSurfaces": [
-      {
-        "id": "gateway-proxy",
-        "requiredEvidence": "dedicated gateway proxy benchmark with five baseline samples, current trend samples, allocation budget, and rollback guidance",
-        "adopterAction": "Do not claim gateway proxy performance as ratcheted until a dedicated benchmark row is published.",
-        "rollbackAction": "Keep gateway performance claims report-only and rely on functional smoke gates for adoption."
       },
       {
-        "id": "cache-hot-path",
-        "requiredEvidence": "dedicated cache hot-path benchmark with five baseline samples, current trend samples, allocation budget, and cache-mode notes",
-        "adopterAction": "Do not claim cache hot-path performance as ratcheted until dedicated benchmark evidence exists.",
-        "rollbackAction": "Keep cache adoption decisions tied to behavior tests and observability until benchmark evidence is published."
+        "id": "gateway-cache-candidate-report-only",
+        "benchmarks": [
+          "BenchmarkGatewayProxy",
+          "BenchmarkCacheHotPath",
+          "BenchmarkCacheHotPathGetOrLoadHit"
+        ],
+        "adopterAction": "Treat Gateway and Cache benchmark rows as candidate trend evidence until five baseline samples, three current trend samples, allocation budgets, and rollback guidance are attached.",
+        "rollbackAction": "Keep Gateway or Cache performance claims report-only and use existing functional smoke gates when candidate benchmark evidence regresses before promotion."
       }
     ],
     "promotionRules": [
@@ -601,24 +604,105 @@
     {
       "id": "gateway-proxy",
       "surface": "gateway proxy",
-      "benchmark": "",
-      "status": "unsupported-report-only",
+      "benchmark": "BenchmarkGatewayProxy",
+      "status": "candidate",
       "latencyMode": "report-only",
-      "currentBlocker": "bench/ does not yet publish a dedicated gateway proxy baseline/current row",
-      "requiredEvidence": "add a gateway proxy benchmark with at least five baseline samples, current trend samples, allocation budget, and rollback guidance before promotion",
+      "currentBlocker": "dedicated gateway proxy benchmark exists, but five baseline samples, three current trend samples, allocation budget, and rollback guidance are not attached yet",
       "promotionGate": "make bench-regression-check"
     },
     {
       "id": "cache-hot-path",
       "surface": "cache hot path",
-      "benchmark": "",
-      "status": "unsupported-report-only",
+      "benchmark": "BenchmarkCacheHotPath",
+      "status": "candidate",
       "latencyMode": "report-only",
-      "currentBlocker": "cache examples and smoke gates exist, but bench/ does not yet publish a dedicated cache hot-path baseline/current row",
-      "requiredEvidence": "add a cache hot-path benchmark with at least five baseline samples, current trend samples, allocation budget, and cache-mode notes before promotion",
+      "currentBlocker": "dedicated cache hot-path benchmarks exist, but five baseline samples, three current trend samples, allocation budget, cache-mode notes, and rollback guidance are not attached yet",
       "promotionGate": "make bench-regression-check"
     }
   ],
+  "p13GatewayCacheBenchmarkCloseout": {
+    "schema": "gofly.benchmark_p13_gateway_cache_closeout.v1",
+    "aiflowTask": "GOFLY-P13-06-GATEWAY-CACHE-BENCH-EVIDENCE",
+    "status": "candidate-report-only",
+    "acceptanceGate": "make bench-regression-check",
+    "sourceEvidence": [
+      "bench/gateway_cache_bench_test.go",
+      "bench/matrix.md",
+      "bench/budget-ratchet.json",
+      "bench/README.md"
+    ],
+    "decision": {
+      "result": "hold",
+      "selectedSurface": "none",
+      "allocationBlockingSurface": "none",
+      "latencyMode": "report-only",
+      "reason": "P13 recognizes dedicated Gateway and Cache benchmark sources, but does not promote them into trackedBenchmarks because committed five-sample baseline evidence, three-sample current trend evidence, allocation budgets, and rollback notes are not complete together.",
+      "nextReviewGate": "BENCH_PATTERN='BenchmarkGatewayProxy|BenchmarkCacheHotPath' BENCH_COUNT=5 make bench-stat && make bench-regression-check",
+      "releaseNotePolicy": "Release notes may describe Gateway and Cache benchmark rows as candidate trend evidence, but must not claim ratcheted allocation blocking, blocking latency, or production performance parity until promotion criteria pass."
+    },
+    "candidateRows": [
+      {
+        "surface": "gateway-proxy",
+        "benchmark": "BenchmarkGatewayProxy",
+        "currentMode": "report-only",
+        "proposedPromotionMode": "allocation-blocking",
+        "promotionStatus": "blocked",
+        "minimumBaselineSamples": 5,
+        "minimumCurrentTrendSamples": 3,
+        "blockers": [
+          "committed five-sample baseline row is not published",
+          "three-sample current trend is not published",
+          "allocation budget and rollback note are not attached to trackedBenchmarks"
+        ],
+        "rollbackAction": "Keep gateway proxy performance claims report-only and route traffic through the previous gateway path when candidate benchmark evidence regresses."
+      },
+      {
+        "surface": "cache-hot-path",
+        "benchmark": "BenchmarkCacheHotPath",
+        "currentMode": "report-only",
+        "proposedPromotionMode": "allocation-blocking",
+        "promotionStatus": "blocked",
+        "minimumBaselineSamples": 5,
+        "minimumCurrentTrendSamples": 3,
+        "blockers": [
+          "committed five-sample baseline row is not published",
+          "three-sample current trend is not published",
+          "cache-mode notes, allocation budget, and rollback note are not attached to trackedBenchmarks"
+        ],
+        "rollbackAction": "Keep cache performance claims report-only, disable cache with GOFLY_CACHE_DISABLED, or use source-of-truth reads when candidate benchmark evidence regresses."
+      },
+      {
+        "surface": "cache-hot-path-loader-hit",
+        "benchmark": "BenchmarkCacheHotPathGetOrLoadHit",
+        "currentMode": "report-only",
+        "proposedPromotionMode": "allocation-blocking",
+        "promotionStatus": "blocked",
+        "minimumBaselineSamples": 5,
+        "minimumCurrentTrendSamples": 3,
+        "blockers": [
+          "committed five-sample baseline row is not published",
+          "three-sample current trend is not published",
+          "loader-hit cache semantics need cache-mode notes before blocking promotion"
+        ],
+        "rollbackAction": "Keep cache loader-hit performance report-only until cache hit, miss, and invalidation benchmark evidence converge."
+      }
+    ],
+    "blockingRules": [
+      "Gateway and Cache candidate rows must stay out of trackedBenchmarks before promotion",
+      "promoted Gateway and Cache rows require minimum 5 baseline samples",
+      "promoted Gateway and Cache rows require minimum 3 current trend samples",
+      "promoted Gateway and Cache rows require no allocation regression under bench-regression-check",
+      "Gateway and Cache latency remains report-only until maxRegressionRatio and rollback evidence are documented"
+    ],
+    "forbiddenUntilCleared": [
+      "trackedBenchmarks Gateway entry",
+      "trackedBenchmarks Cache entry",
+      "blocking Gateway latency claim",
+      "blocking Cache latency claim",
+      "ratcheted Gateway performance claim",
+      "ratcheted Cache performance claim"
+    ]
+  },
   "p12RpcBudgetPromotionDecision": {
     "schema": "gofly.benchmark_p12_rpc_budget_promotion_decision.v1",
     "aiflowTask": "GOFLY-P12-1-RPC-BENCHMARK-BUDGET-PROMOTION",

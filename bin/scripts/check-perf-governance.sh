@@ -58,11 +58,14 @@ checks = {
         "rollbackGuidance",
         "currentBlocker",
         "surfacePolicy",
-        "unsupported-report-only",
         "gateway-proxy",
         "cache-hot-path",
         "p9GatewayCacheOwnership",
         "gofly.benchmark_gateway_cache_ownership.v1",
+        "p13GatewayCacheBenchmarkCloseout",
+        "gofly.benchmark_p13_gateway_cache_closeout.v1",
+        "candidate-report-only",
+        "Gateway and Cache candidate rows must stay out of trackedBenchmarks before promotion",
     ],
 }
 

@@ -54,18 +54,22 @@ latency-critical methods.
 The same ratchet file also lists performance claim boundaries in
 `surfacePolicy`. REST route and governance rule-match rows have concrete
 benchmark evidence; RPC unary is still a candidate; gateway proxy and cache hot
-path are explicitly `unsupported-report-only` because this workspace does not
-yet publish dedicated benchmark rows for them.
+path now have dedicated candidate benchmarks through `BenchmarkGatewayProxy`,
+`BenchmarkCacheHotPath`, and `BenchmarkCacheHotPathGetOrLoadHit`. They remain
+report-only and stay outside `trackedBenchmarks` until five baseline samples,
+three current trend samples, allocation budgets, and rollback notes are
+attached.
 
 P10 closes the current promotion decision in
 `p10PerformanceBudgetRatchet`: OpenAPI and governance rows with five baseline
 samples remain latency-and-allocation blocking, REST dispatch/path/binding and
 middleware latency remain report-only, and RPC/gateway/cache rows stay outside
 `trackedBenchmarks` until current trend confidence and rollback evidence are
-attached. Evidence checks require committed baseline rows only for published
-blocking or historical candidate benchmarks; gateway and cache candidates are
-validated through benchmark source, matrix entries, and ratchet policy until
-promotion.
+attached. P13 closes the Gateway/Cache evidence gap as candidate report-only
+evidence through `p13GatewayCacheBenchmarkCloseout`; evidence checks require
+committed baseline rows only for published blocking or historical candidate
+benchmarks, while gateway and cache candidates are validated through benchmark
+source, matrix entries, and ratchet policy until promotion.
 
 Kitex is optional. Downstream services that already carry generated Kitex fixtures can add a `kitex` sub-benchmark under `BenchmarkRPCUnary` without making Kitex a required root dependency for every gofly checkout.
 

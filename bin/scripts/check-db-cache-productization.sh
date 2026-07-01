@@ -268,6 +268,112 @@ runtime_policy = str(p10_closeout.get("runtimeArtifactPolicy") or "")
 for needle in ("runtime evidence", "ignored temporary paths"):
     require(needle in runtime_policy, f"p10StorageCacheProductization runtimeArtifactPolicy missing {needle!r}")
 
+p13_closeout = manifest.get("p13DBCacheProductization") or {}
+require(
+    p13_closeout.get("schema") == "gofly.db_cache_p13_productization.v1",
+    "p13DBCacheProductization schema mismatch",
+)
+require(
+    p13_closeout.get("aiflowTask") == "GOFLY-P13-05-DB-CACHE-PRODUCTIZATION",
+    "p13DBCacheProductization aiflowTask mismatch",
+)
+require(p13_closeout.get("status") == "blocking-contract", "p13DBCacheProductization status must be blocking-contract")
+require(
+    p13_closeout.get("acceptanceGate") == "make db-cache-productization-check",
+    "p13DBCacheProductization acceptanceGate mismatch",
+)
+for needle in ("SQL repository", "transaction", "pagination", "optimistic-lock", "read/write split", "Redis cache-aside", "cache observability", "generated DB/cache smoke", "cache hot-path candidate"):
+    require(needle in str(p13_closeout.get("objective") or ""), f"p13DBCacheProductization objective missing {needle!r}")
+expected_p13_capabilities = [
+    "sql-repository-template",
+    "transaction-sample",
+    "pagination",
+    "optimistic-lock",
+    "read-write-split",
+    "redis-cache-aside",
+    "cache-observability",
+    "generated-db-cache-smoke",
+    "cache-hot-path-candidate",
+]
+require(
+    p13_closeout.get("requiredCapabilities") == expected_p13_capabilities,
+    "p13DBCacheProductization requiredCapabilities must match the P13 contract",
+)
+p13_rows = {
+    item.get("id"): item
+    for item in p13_closeout.get("rows") or []
+    if isinstance(item, dict) and item.get("id")
+}
+require(set(p13_rows) == set(expected_p13_capabilities), f"p13DBCacheProductization rows mismatch: {sorted(p13_rows)!r}")
+p13_expected = {
+    "sql-repository-template": {
+        "status": "implemented",
+        "needles": {"type %sRepo struct", "store *storage.SQLStore", "FindWhere", "storage.SelectWhere"},
+    },
+    "transaction-sample": {
+        "status": "implemented",
+        "needles": {"OrderRepo) Transact", "SQLStore) Transact", "Cluster) Transact"},
+    },
+    "pagination": {
+        "status": "implemented",
+        "needles": {"writeSQLCursorPage", "ListAfter", "LimitOffset"},
+    },
+    "optimistic-lock": {
+        "status": "implemented",
+        "needles": {"UpdateWithVersion", "expectedVersion+1", "storage.ErrNotFound", "optimistic lock"},
+    },
+    "read-write-split": {
+        "status": "implemented",
+        "needles": {"NewCluster", "Reader", "Writer", "FOR UPDATE"},
+    },
+    "redis-cache-aside": {
+        "status": "implemented",
+        "needles": {"cache-aside", "NewRedisModel", "RedisCachedOrderRepo", "UpdateWithInvalidate", "redis.ErrNil"},
+    },
+    "cache-observability": {
+        "status": "implemented",
+        "needles": {"type Stats struct", "WritePrometheus", "cache.Stats", "gofly.cache_local.v1"},
+    },
+    "generated-db-cache-smoke": {
+        "status": "implemented",
+        "needles": {"TestGenerateModelFromDDLRedisCacheCompilesInTempModule", "writeGeneratedModule", "runGoCommand", '"test", "./..."'},
+    },
+    "cache-hot-path-candidate": {
+        "status": "candidate",
+        "needles": {"BenchmarkCacheHotPath", "BenchmarkCacheHotPathGetOrLoadHit", "cache-hot-path", "candidate evidence"},
+    },
+}
+for row_id, expected in p13_expected.items():
+    row = p13_rows.get(row_id) or {}
+    require(row.get("status") == expected["status"], f"p13DBCacheProductization {row_id}: status must be {expected['status']}")
+    for field in ("surface", "source", "tests", "evidence", "gate", "rollbackOrEscalation"):
+        require(row.get(field), f"p13DBCacheProductization {row_id}: {field} is required")
+    source = str(row.get("source") or "")
+    require((root / source).exists(), f"p13DBCacheProductization {row_id}: source path is missing: {source!r}")
+    tests = [str(path) for path in row.get("tests") or []]
+    for rel in tests:
+        require((root / rel).exists(), f"p13DBCacheProductization {row_id}: test/evidence path is missing: {rel}")
+    gate = str(row.get("gate") or "")
+    require(gate_is_known(gate, targets) or gate == "BENCH_PATTERN=BenchmarkCacheHotPath make bench-stat", f"p13DBCacheProductization {row_id}: gate is not known: {gate!r}")
+    require(len(str(row.get("rollbackOrEscalation") or "").split()) >= 10, f"p13DBCacheProductization {row_id}: rollbackOrEscalation must be actionable")
+    searchable_paths = {source, *tests}
+    searchable = "\n".join(read_text(root / rel) for rel in sorted(searchable_paths) if (root / rel).exists())
+    for anchor in row.get("evidence") or []:
+        require(str(anchor) in searchable or str(anchor) in reference_topology, f"p13DBCacheProductization {row_id}: evidence anchor {anchor!r} is not present")
+    for needle in expected["needles"]:
+        require(needle in searchable or needle in str(row.get("evidence") or []) or needle in reference_topology, f"p13DBCacheProductization {row_id}: missing required needle {needle!r}")
+    if row_id == "cache-hot-path-candidate":
+        require("P13-06" in str(row.get("promotionBoundary") or ""), "p13 cache-hot-path candidate must defer full benchmark promotion to P13-06")
+        require("five baseline samples" in str(row.get("promotionBoundary") or ""), "p13 cache-hot-path candidate must name baseline sample blocker")
+    else:
+        require(row.get("status") == "implemented", f"p13DBCacheProductization {row_id}: non-benchmark row must be implemented")
+promotion_policy = str(p13_closeout.get("promotionPolicy") or "")
+for needle in ("source", "tests", "runtime evidence", "generated evidence", "rollback notes", "cache hot-path performance remains candidate"):
+    require(needle in promotion_policy, f"p13DBCacheProductization promotionPolicy missing {needle!r}")
+root_policy = str(p13_closeout.get("rootModulePolicy") or "")
+for needle in ("Generated-project-only", "generated project go.mod", "root go.mod"):
+    require(needle in root_policy, f"p13DBCacheProductization rootModulePolicy missing {needle!r}")
+
 for capability_id, expected_status in expected_capabilities.items():
     item = capability_map.get(capability_id) or {}
     require(item.get("status") == expected_status, f"{capability_id}: status must be {expected_status}")

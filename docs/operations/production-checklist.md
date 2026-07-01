@@ -40,6 +40,7 @@ Treat these GitHub Actions jobs as branch-protection required checks for the def
 - `platform smoke (macos-latest)` and `platform smoke (windows-latest)` for cross-platform CLI/package smoke coverage.
 - `contract / api+rpc (check + breaking)`, `governance gates`, and `bench + fuzz smoke` for compatibility, governance, performance-smoke, and fuzz coverage. `make fuzz-robustness-check` keeps parser and REST binding fuzz targets synchronized with the required CI smoke commands.
 - `integration tests (storage-mysql-postgres)`, `integration tests (config-consul-nacos-etcd)`, `integration tests (mq-brokers)`, and `integration tests (gateway-transcode)` for Docker-backed subsystem coverage.
+- `cloud-native live render` for hosted Helm, Kustomize, and kubeconform render evidence uploaded as `cloud-native-live-render-evidence`.
 - `docker build + trivy` and `OSSF Scorecard` for container scan evidence and supply-chain posture.
 - `release (tagged)` for tag releases; it must depend on all tag-applicable pre-release jobs and upload release, Docker digest, Trivy, SBOM, and attestation verification evidence.
 

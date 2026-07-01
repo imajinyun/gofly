@@ -311,6 +311,7 @@ jobs:
               "integration tests (config-consul-nacos-etcd)",
               "integration tests (mq-brokers)",
               "integration tests (gateway-transcode)",
+              "cloud-native live render",
               "docker build + trivy",
               "OSSF Scorecard",
           }
@@ -605,6 +606,42 @@ jobs:
       - name: Run Docker-backed integration tests
         run: go test -tags=integration -count=1 ${{ matrix.packages }}
 
+  cloud-native-live-render:
+    name: cloud-native live render
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
+        with:
+          go-version-file: go.mod
+          check-latest: true
+          cache: true
+
+      - name: Install cloud-native render tools
+        run: |
+          go install helm.sh/helm/v3/cmd/helm@v3.18.6
+          go install sigs.k8s.io/kustomize/kustomize/v5@v5.7.1
+          go install github.com/yannh/kubeconform/cmd/kubeconform@v0.7.0
+          helm version --short
+          kustomize version
+          kubeconform -v
+
+      - name: Cloud-native render evidence gate
+        env:
+          CLOUD_NATIVE_RENDER_REPORT: .tmp-test/cloud-native-render/render-report.json
+        run: make cloud-native-render-check
+
+      - name: Upload cloud-native live render evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: cloud-native-live-render-evidence
+          path: |
+            .tmp-test/cloud-native-render/render-report.json
+          if-no-files-found: error
+
   docker:
     name: docker build + trivy
     runs-on: ubuntu-latest
@@ -680,7 +717,7 @@ jobs:
   release:
     name: release (tagged)
     if: startsWith(github.ref, 'refs/tags/v') && github.repository == 'gofly/gofly'
-    needs: [build-test, platform-smoke, lint, security, supply-chain, codeql, dependency-upgrade-validation, contract-check, governance, bench-fuzz, integration, docker, scorecard]
+    needs: [build-test, platform-smoke, lint, security, supply-chain, codeql, dependency-upgrade-validation, contract-check, governance, bench-fuzz, integration, cloud-native-live-render, docker, scorecard]
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -806,6 +843,16 @@ jobs:
           test -s release-evidence/docker/ci/trivy-results.sarif
           test -s release-evidence/docker/ci/docker-build-evidence.json
 
+      - name: Download cloud-native live render evidence
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p release-evidence/cloud-native
+          gh run download "${{ github.run_id }}" \
+            --name cloud-native-live-render-evidence \
+            --dir release-evidence/cloud-native
+          test -s release-evidence/cloud-native/render-report.json
+
       - name: Attest release checksums
         uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a
         with:
@@ -850,5 +897,6 @@ jobs:
             dist/checksums.txt
             dist/*.spdx.json
             release-evidence/*.json
+            release-evidence/cloud-native/**
             release-evidence/docker/**
           if-no-files-found: error

@@ -73,3 +73,11 @@ Fallback status must be visible rather than implicit. If Helm is unavailable,
 the static template render path remains valid evidence for local development,
 but release CI should prefer real `helm template` output and may add
 `kubeconform` or `kubeval` on top.
+
+P12 adds `p12HostedLiveCIProof` as the live CI closure for cloud-native
+rendering. The required `cloud-native live render` job installs Helm, Kustomize,
+and kubeconform, runs `make cloud-native-render-check`, uploads
+`cloud-native-live-render-evidence`, and the tagged release job downloads
+`release-evidence/cloud-native/render-report.json` before uploading
+`release-dist-evidence`. This makes hosted render evidence release-blocking
+rather than only a local fallback contract.

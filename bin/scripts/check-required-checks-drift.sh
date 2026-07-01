@@ -37,6 +37,7 @@ expected_default_checks = {
     "integration tests (config-consul-nacos-etcd)",
     "integration tests (mq-brokers)",
     "integration tests (gateway-transcode)",
+    "cloud-native live render",
     "docker build + trivy",
     "OSSF Scorecard",
 }
@@ -53,8 +54,13 @@ expected_release_needs = {
     "governance",
     "bench-fuzz",
     "integration",
+    "cloud-native-live-render",
     "docker",
     "scorecard",
+}
+
+expected_cloud_native_live_render_evidence_files = {
+    ".tmp-test/cloud-native-render/render-report.json",
 }
 
 expected_integration_matrix = {
@@ -144,6 +150,12 @@ expected_hosted_release_evidence = {
         "producerJob": "release",
         "requiredCheck": "release (tagged)",
         "workflowMarker": "Trivy release image scan",
+        "releasePrerequisite": True,
+    },
+    "cloud-native-live-render": {
+        "producerJob": "cloud-native-live-render",
+        "requiredCheck": "cloud-native live render",
+        "workflowMarker": "Download cloud-native live render evidence",
         "releasePrerequisite": True,
     },
     "codeql": {
@@ -326,6 +338,7 @@ dependency_job = extract_job_body(workflow, "dependency-upgrade-validation")
 governance_job = extract_job_body(workflow, "governance")
 bench_job = extract_job_body(workflow, "bench-fuzz")
 docker_job = extract_job_body(workflow, "docker")
+cloud_native_live_render_job = extract_job_body(workflow, "cloud-native-live-render")
 release_job = extract_job_body(workflow, "release")
 governance_target_deps = extract_make_target_deps(makefile, "governance")
 governance_10_target = extract_make_target_body(makefile, "governance-10-rounds")
@@ -335,6 +348,7 @@ bench_evidence_target = extract_make_target_body(makefile, "bench-evidence-check
 bench_regression_target = extract_make_target_body(makefile, "bench-regression-check")
 docker_upload_step = extract_step_body(docker_job, "Upload Docker and Trivy evidence")
 docker_build_step = extract_step_body(docker_job, "Build Docker image")
+cloud_native_live_render_upload_step = extract_step_body(cloud_native_live_render_job, "Upload cloud-native live render evidence")
 release_digest_step = extract_step_body(release_job, "Collect release Docker digest evidence")
 release_upload_step = extract_step_body(release_job, "Upload release verification evidence")
 
@@ -730,6 +744,42 @@ for field in sorted(expected_ci_docker_build_fields):
         f'"{field}"' in release_artifacts_script or f"{field!r}" in release_artifacts_script,
         f"check-release-artifacts.sh: missing validation for CI Docker build evidence field {field!r}",
     )
+
+cloud_native_upload_paths = extract_upload_artifact_paths(cloud_native_live_render_upload_step)
+require(
+    cloud_native_upload_paths == expected_cloud_native_live_render_evidence_files,
+    "ci.yml: cloud-native-live-render-evidence artifact file set drifted: "
+    f"missing={sorted(expected_cloud_native_live_render_evidence_files - cloud_native_upload_paths)} "
+    f"extra={sorted(cloud_native_upload_paths - expected_cloud_native_live_render_evidence_files)}",
+)
+require(
+    "name: cloud-native-live-render-evidence" in cloud_native_live_render_upload_step,
+    "ci.yml: cloud-native live render artifact name must remain cloud-native-live-render-evidence for release download",
+)
+for marker in (
+    "go install helm.sh/helm/v3/cmd/helm@",
+    "go install sigs.k8s.io/kustomize/kustomize/v5@",
+    "go install github.com/yannh/kubeconform/cmd/kubeconform@",
+    "CLOUD_NATIVE_RENDER_REPORT: .tmp-test/cloud-native-render/render-report.json",
+    "run: make cloud-native-render-check",
+):
+    require(marker in cloud_native_live_render_job, f"ci.yml: cloud-native live render job missing {marker!r}")
+require(
+    "--name cloud-native-live-render-evidence" in release_job,
+    "ci.yml: release job must download the cloud-native-live-render-evidence artifact",
+)
+require(
+    "--dir release-evidence/cloud-native" in release_job,
+    "ci.yml: release job must normalize downloaded cloud-native evidence under release-evidence/cloud-native",
+)
+require(
+    "release-evidence/cloud-native/render-report.json" in release_job,
+    "ci.yml: release job must assert downloaded cloud-native render report",
+)
+require(
+    "release-evidence/cloud-native/**" in release_upload_step,
+    "ci.yml: release-dist-evidence upload must include cloud-native render evidence",
+)
 
 release_digest_fields = extract_python_evidence_keys(release_digest_step, "gofly.release_docker_digest_evidence.v1")
 require(

@@ -30,6 +30,7 @@ expected_checks = {
     "integration tests (config-consul-nacos-etcd)",
     "integration tests (mq-brokers)",
     "integration tests (gateway-transcode)",
+    "cloud-native live render",
     "docker build + trivy",
     "OSSF Scorecard",
 }
@@ -46,6 +47,7 @@ expected_release_prerequisites = {
     "governance",
     "bench-fuzz",
     "integration",
+    "cloud-native-live-render",
     "docker",
     "scorecard",
 }
@@ -94,6 +96,12 @@ expected_hosted_release_evidence = {
         "producerJob": "release",
         "requiredCheck": "release (tagged)",
         "workflowMarker": "Trivy release image scan",
+        "releasePrerequisite": True,
+    },
+    "cloud-native-live-render": {
+        "producerJob": "cloud-native-live-render",
+        "requiredCheck": "cloud-native live render",
+        "workflowMarker": "Download cloud-native live render evidence",
         "releasePrerequisite": True,
     },
     "codeql": {

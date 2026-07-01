@@ -535,6 +535,64 @@ for needle in ("Docker-backed reference topology", "Helm rendering", "Kustomize 
     if needle not in str(p11_proof.get("promotionPolicy") or ""):
         missing.append(f"cloud-native P11 hosted proof promotionPolicy missing {needle!r}")
 
+p12_proof = manifest.get("p12HostedLiveCIProof") or {}
+if p12_proof.get("schema") != "gofly.cloud_native_p12_hosted_live_ci_proof.v1":
+    missing.append("cloud-native P12 hosted live CI proof schema mismatch")
+if p12_proof.get("aiflowTask") != "GOFLY-P12-3-HOSTED-CLOUD-NATIVE-LIVE-CI":
+    missing.append("cloud-native P12 hosted live CI proof aiflowTask mismatch")
+if p12_proof.get("status") != "release-blocking-contract":
+    missing.append("cloud-native P12 hosted live CI proof status must be release-blocking-contract")
+if p12_proof.get("requiredCheck") != "cloud-native live render":
+    missing.append("cloud-native P12 hosted live CI proof requiredCheck mismatch")
+if p12_proof.get("producerJob") != "cloud-native-live-render":
+    missing.append("cloud-native P12 hosted live CI proof producerJob mismatch")
+for source in p12_proof.get("sourceOfTruth") or []:
+    if not pathlib.Path(source).exists():
+        missing.append(f"cloud-native P12 hosted live CI source path missing: {source}")
+for gate in ("make cloud-native-render-check", "make ci-required-check-evidence-check", "make required-checks-drift-check"):
+    if gate not in set(p12_proof.get("acceptanceGates") or []):
+        missing.append(f"cloud-native P12 hosted live CI acceptanceGates missing {gate!r}")
+p12_tools = {
+    item.get("tool"): item
+    for item in p12_proof.get("hostedToolchain") or []
+    if isinstance(item, dict) and item.get("tool")
+}
+expected_p12_tools = {
+    "Helm": ("go install helm.sh/helm/v3/cmd/helm@", "helm version --short"),
+    "Kustomize": ("go install sigs.k8s.io/kustomize/kustomize/v5@", "kustomize version"),
+    "kubeconform": ("go install github.com/yannh/kubeconform/cmd/kubeconform@", "kubeconform -v"),
+}
+if set(p12_tools) != set(expected_p12_tools):
+    missing.append(
+        "cloud-native P12 hosted live CI toolchain drifted "
+        f"missing={sorted(set(expected_p12_tools) - set(p12_tools))!r} "
+        f"extra={sorted(set(p12_tools) - set(expected_p12_tools))!r}"
+    )
+for tool, (install_prefix, verify_command) in expected_p12_tools.items():
+    item = p12_tools.get(tool) or {}
+    if not str(item.get("installCommand") or "").startswith(install_prefix):
+        missing.append(f"cloud-native P12 hosted live CI {tool}: installCommand must start with {install_prefix!r}")
+    if item.get("verificationCommand") != verify_command:
+        missing.append(f"cloud-native P12 hosted live CI {tool}: verificationCommand mismatch")
+    if item.get("requiredForHostedRelease") is not True:
+        missing.append(f"cloud-native P12 hosted live CI {tool}: requiredForHostedRelease must be true")
+p12_artifact = p12_proof.get("artifactContract") or {}
+expected_artifact = {
+    "uploadArtifact": "cloud-native-live-render-evidence",
+    "runtimeReport": ".tmp-test/cloud-native-render/render-report.json",
+    "releaseDownloadPath": "release-evidence/cloud-native/render-report.json",
+    "releaseUploadArtifact": "release-dist-evidence",
+    "requiredReportSchema": "gofly.cloud_native_render_report.v1",
+}
+for field, expected in expected_artifact.items():
+    if p12_artifact.get(field) != expected:
+        missing.append(f"cloud-native P12 hosted live CI artifactContract.{field} mismatch")
+if len(str(p12_artifact.get("fallbackPolicy") or "").split()) < 15:
+    missing.append("cloud-native P12 hosted live CI artifact fallbackPolicy must be actionable")
+for field in ("releaseNeedsPolicy", "rollbackOrEscalation"):
+    if len(str(p12_proof.get(field) or "").split()) < 15:
+        missing.append(f"cloud-native P12 hosted live CI {field} must be actionable")
+
 fallback_status = "not-fallback" if helm_available else "static-fallback"
 kustomize_fallback_status = "not-fallback" if kustomize_available else "static-fallback"
 fallback_reasons = []

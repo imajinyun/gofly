@@ -109,6 +109,12 @@
       "localGate": "make integration-tests"
     },
     {
+      "artifact": "cloud-native-live-render-evidence",
+      "check": "cloud-native live render",
+      "job": "cloud-native-live-render",
+      "localGate": "make cloud-native-render-check"
+    },
+    {
       "artifact": "docker-trivy-evidence",
       "check": "docker build + trivy",
       "job": "docker",
@@ -133,6 +139,7 @@
     "governance",
     "bench-fuzz",
     "integration",
+    "cloud-native-live-render",
     "docker",
     "scorecard"
   ],
@@ -347,6 +354,17 @@
       "fallbackPolicy": "block release promotion when any integration matrix row is missing or package coverage drifts from Makefile"
     },
     {
+      "job": "cloud-native-live-render",
+      "owner": "cloud-native-governance",
+      "localGate": "make cloud-native-render-check",
+      "requiredChecks": [
+        "cloud-native live render"
+      ],
+      "artifact": "cloud-native-live-render-evidence",
+      "driftPolicy": "cloud-native live render must install Helm, Kustomize, and kubeconform, run the render gate, upload the render report, and remain a release prerequisite",
+      "fallbackPolicy": "block release promotion when hosted cloud-native render evidence is missing, the report is not uploaded, or tool fallback reasons are absent"
+    },
+    {
       "job": "docker",
       "owner": "release-governance",
       "localGate": "make docker",
@@ -436,6 +454,16 @@
         "workflowMarker": "Trivy release image scan",
         "releasePrerequisite": true,
         "fallbackPolicy": "block release promotion when release Trivy evidence is missing or reports unaccepted high or critical findings"
+      },
+      {
+        "id": "cloud-native-live-render",
+        "producerJob": "cloud-native-live-render",
+        "requiredCheck": "cloud-native live render",
+        "hostedEvidence": "cloud-native-live-render-evidence artifact with render-report.json",
+        "localGate": "make cloud-native-render-check",
+        "workflowMarker": "Download cloud-native live render evidence",
+        "releasePrerequisite": true,
+        "fallbackPolicy": "block release promotion when hosted Helm, Kustomize, kubeconform, or render-report evidence is missing or not release-downloadable"
       },
       {
         "id": "codeql",

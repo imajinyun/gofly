@@ -453,5 +453,53 @@
       "policy": "Every missing local or hosted render and schema validation tool must produce an explicit fallback reason; absent fallback reasons are treated as release evidence gaps."
     },
     "promotionPolicy": "Promote hosted cloud-native adoption claims only when Docker-backed reference topology, Helm rendering, Kustomize rendering, kube schema status, release security evidence, fallback reasons, and operator rollback gates are all attached."
+  },
+  "p12HostedLiveCIProof": {
+    "schema": "gofly.cloud_native_p12_hosted_live_ci_proof.v1",
+    "aiflowTask": "GOFLY-P12-3-HOSTED-CLOUD-NATIVE-LIVE-CI",
+    "status": "release-blocking-contract",
+    "sourceOfTruth": [
+      ".github/workflows/ci.yml",
+      "docs/reference/cloud-native-policy-conformance.json",
+      "docs/reference/ci-required-check-evidence.json",
+      "docs/reference/cloud-native-rendering.md"
+    ],
+    "requiredCheck": "cloud-native live render",
+    "producerJob": "cloud-native-live-render",
+    "acceptanceGates": [
+      "make cloud-native-render-check",
+      "make ci-required-check-evidence-check",
+      "make required-checks-drift-check"
+    ],
+    "hostedToolchain": [
+      {
+        "tool": "Helm",
+        "installCommand": "go install helm.sh/helm/v3/cmd/helm@v3.18.6",
+        "verificationCommand": "helm version --short",
+        "requiredForHostedRelease": true
+      },
+      {
+        "tool": "Kustomize",
+        "installCommand": "go install sigs.k8s.io/kustomize/kustomize/v5@v5.7.1",
+        "verificationCommand": "kustomize version",
+        "requiredForHostedRelease": true
+      },
+      {
+        "tool": "kubeconform",
+        "installCommand": "go install github.com/yannh/kubeconform/cmd/kubeconform@v0.7.0",
+        "verificationCommand": "kubeconform -v",
+        "requiredForHostedRelease": true
+      }
+    ],
+    "artifactContract": {
+      "uploadArtifact": "cloud-native-live-render-evidence",
+      "runtimeReport": ".tmp-test/cloud-native-render/render-report.json",
+      "releaseDownloadPath": "release-evidence/cloud-native/render-report.json",
+      "releaseUploadArtifact": "release-dist-evidence",
+      "requiredReportSchema": "gofly.cloud_native_render_report.v1",
+      "fallbackPolicy": "Hosted CI must upload the render report and the tagged release must download it; release promotion blocks when the artifact is missing or fallback reasons are absent."
+    },
+    "releaseNeedsPolicy": "The tagged release job must depend on cloud-native-live-render so hosted Helm, Kustomize, kubeconform, and render-report evidence is available before release-dist-evidence is uploaded.",
+    "rollbackOrEscalation": "Pin the previous chart, keep the prior manifest overlay, or block tag promotion when hosted cloud-native render evidence is unavailable, schema validation fails, or release download checks fail."
   }
 }

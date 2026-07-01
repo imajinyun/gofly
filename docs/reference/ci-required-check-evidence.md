@@ -40,6 +40,7 @@ same matrix so release notes can point to one stable source of CI evidence.
 | integration tests (config-consul-nacos-etcd) | `integration` | `make integration-tests` | integration matrix job logs |
 | integration tests (mq-brokers) | `integration` | `make integration-tests` | integration matrix job logs |
 | integration tests (gateway-transcode) | `integration` | `make integration-tests` | integration matrix job logs |
+| cloud-native live render | `cloud-native-live-render` | `make cloud-native-render-check` | `cloud-native-live-render-evidence` |
 | docker build + trivy | `docker` | `make docker` | `docker-trivy-evidence` |
 | OSSF Scorecard | `scorecard` | OpenSSF Scorecard workflow | `scorecard-results` |
 
@@ -117,6 +118,7 @@ matrix.
 | `governance` | `governance-platform` | release-blocking skips must be rejected or have explicit compensating gates. |
 | `bench-fuzz` | `performance-governance` | benchmark evidence, smoke, regression, trend, and fuzz ordering must stay stable. |
 | `integration` | `integration-platform` | integration matrix areas, package lists, required checks, and dependency delegation must match. |
+| `cloud-native-live-render` | `cloud-native-governance` | hosted Helm, Kustomize, kubeconform, render report, and release artifact download must stay aligned. |
 | `docker` | `release-governance` | Docker build, Trivy, digest, SBOM, and provenance evidence must stay release-consumable. |
 | `scorecard` | `security-governance` | hosted Scorecard evidence must remain required for branch protection and tags. |
 
@@ -141,6 +143,7 @@ protection and release prerequisites.
 | `provenance` | `release` | checksum and Docker attestation verification | `RELEASE_REQUIRE_DOCKER_EVIDENCE=true make release-artifacts-check` |
 | `docker-digest` | `release` | release Docker digest evidence | `RELEASE_REQUIRE_DOCKER_EVIDENCE=true make release-artifacts-check` |
 | `trivy` | `release` | release Trivy JSON scan | `RELEASE_REQUIRE_DOCKER_EVIDENCE=true make release-artifacts-check` |
+| `cloud-native-live-render` | `cloud-native-live-render` | `cloud-native-live-render-evidence` artifact | `make cloud-native-render-check` |
 | `codeql` | `codeql` | CodeQL code scanning result | GitHub CodeQL workflow |
 | `scorecard` | `scorecard` | `scorecard-results` SARIF upload | OpenSSF Scorecard workflow |
 | `dependency-review` | `dependency-review` | Dependency Review job summary | GitHub Dependency Review workflow |

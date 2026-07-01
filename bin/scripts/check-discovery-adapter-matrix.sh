@@ -164,6 +164,60 @@ for row_id, (provider, classification, gate) in expected_r8_rows.items():
             f"{row_id}: planned/config-only rollbackOrEscalation must describe promotion boundary",
         )
 
+p10_closeout = matrix.get("p10DiscoveryAdapterCloseout") or {}
+require(
+    p10_closeout.get("schema") == "gofly.discovery_adapter_p10_closeout.v1",
+    "p10DiscoveryAdapterCloseout schema mismatch",
+)
+require(
+    p10_closeout.get("aiflowTask") == "GOFLY-P10-5-DISCOVERY-ADAPTER-MATRIX",
+    "p10DiscoveryAdapterCloseout aiflowTask mismatch",
+)
+require(p10_closeout.get("status") == "blocking-contract", "p10DiscoveryAdapterCloseout status must be blocking-contract")
+require(
+    p10_closeout.get("acceptanceGate") == "make discovery-adapter-matrix-check",
+    "p10DiscoveryAdapterCloseout acceptanceGate mismatch",
+)
+p10_rows = {
+    item.get("id"): item
+    for item in p10_closeout.get("providers") or []
+    if isinstance(item, dict) and item.get("id")
+}
+expected_p10_classification = {
+    "memory": "implemented-local",
+    "consul": "implemented-network",
+    "etcdv3": "implemented-network",
+    "nacos": "config-only",
+    "dns": "planned",
+    "kubernetes": "planned",
+    "static": "planned",
+}
+require(set(p10_rows) == set(expected_p10_classification), f"p10DiscoveryAdapterCloseout providers mismatch: {sorted(p10_rows)!r}")
+for provider_id, classification in expected_p10_classification.items():
+    row = p10_rows.get(provider_id) or {}
+    require(row.get("classification") == classification, f"p10DiscoveryAdapterCloseout {provider_id}: classification mismatch")
+    for field in ("id", "classification", "evidence", "gate", "promotionBoundary", "rollbackOrEscalation"):
+        require(row.get(field), f"p10DiscoveryAdapterCloseout {provider_id}: {field} is required")
+    require(gate_is_known(str(row.get("gate") or ""), targets), f"p10DiscoveryAdapterCloseout {provider_id}: gate is not known")
+    require(len(str(row.get("promotionBoundary") or "").split()) >= 10, f"p10DiscoveryAdapterCloseout {provider_id}: promotionBoundary must be actionable")
+    require(len(str(row.get("rollbackOrEscalation") or "").split()) >= 8, f"p10DiscoveryAdapterCloseout {provider_id}: rollbackOrEscalation must be actionable")
+    evidence_text = " ".join(row.get("evidence") or [])
+    if classification.startswith("implemented"):
+        for capability in ("register", "resolve", "watch", "ttlLease"):
+            require(capability in evidence_text, f"p10DiscoveryAdapterCloseout {provider_id}: evidence missing {capability}")
+    if classification in {"planned", "config-only"}:
+        require(
+            "until" in str(row.get("promotionBoundary") or "").lower()
+            or "must" in str(row.get("promotionBoundary") or "").lower(),
+            f"p10DiscoveryAdapterCloseout {provider_id}: promotionBoundary must explain non-promoted status",
+        )
+policy_text = str(p10_closeout.get("promotionPolicy") or "")
+for needle in ("implementation status", "register/resolve/watch/lease", "failover", "dependency ownership", "rollback notes"):
+    require(needle in policy_text, f"p10DiscoveryAdapterCloseout promotionPolicy missing {needle!r}")
+runtime_policy = str(p10_closeout.get("runtimeArtifactPolicy") or "")
+for needle in ("runtime evidence", "must not be committed"):
+    require(needle in runtime_policy, f"p10DiscoveryAdapterCloseout runtimeArtifactPolicy missing {needle!r}")
+
 providers = matrix.get("providers") or []
 provider_map = {
     item.get("id"): item

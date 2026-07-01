@@ -40,6 +40,13 @@ capabilities, failover behavior, rollback notes, and release gates. Promote a
 planned row to implemented only after code, tests, documentation, and gates
 land together.
 
+The P10 closeout is recorded as `p10DiscoveryAdapterCloseout`. It keeps memory,
+Consul, etcdv3, Nacos, DNS, Kubernetes, and static discovery rows tied to
+provider classification, register/resolve/watch/lease capabilities, failover,
+dependency boundaries, smoke gates, and rollback notes. Planned or config-only
+providers remain non-routing evidence until implementation and integration
+criteria are met.
+
 ## Production configuration
 
 ```yaml

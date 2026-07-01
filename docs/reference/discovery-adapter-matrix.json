@@ -107,6 +107,114 @@
       }
     ]
   },
+  "p10DiscoveryAdapterCloseout": {
+    "schema": "gofly.discovery_adapter_p10_closeout.v1",
+    "aiflowTask": "GOFLY-P10-5-DISCOVERY-ADAPTER-MATRIX",
+    "status": "blocking-contract",
+    "acceptanceGate": "make discovery-adapter-matrix-check",
+    "providers": [
+      {
+        "id": "memory",
+        "classification": "implemented-local",
+        "evidence": [
+          "register",
+          "resolve",
+          "watch",
+          "ttlLease",
+          "tagVersionZoneFiltering"
+        ],
+        "gate": "go test -shuffle=on ./core/discovery/...",
+        "promotionBoundary": "Memory discovery remains the local and generated-project fallback provider, not a networked production registry.",
+        "rollbackOrEscalation": "Switch generated or local smoke tests back to memory discovery when networked registries are unavailable."
+      },
+      {
+        "id": "consul",
+        "classification": "implemented-network",
+        "evidence": [
+          "register",
+          "resolve",
+          "watch",
+          "ttlLease",
+          "healthFiltering",
+          "tagVersionZoneFiltering"
+        ],
+        "gate": "go test -shuffle=on ./core/discovery/...",
+        "promotionBoundary": "Consul promotion requires health filtering, watch behavior, dependency evidence, and deployment topology validation.",
+        "rollbackOrEscalation": "Keep memory discovery available and route traffic back to the previous Consul registration path when watches diverge."
+      },
+      {
+        "id": "etcdv3",
+        "classification": "implemented-network",
+        "evidence": [
+          "register",
+          "resolve",
+          "watch",
+          "ttlLease",
+          "healthFiltering",
+          "tagVersionZoneFiltering"
+        ],
+        "gate": "go test -shuffle=on ./core/discovery/...",
+        "promotionBoundary": "etcdv3 promotion requires lease, watch, resolver, TLS/dependency evidence, and optional Docker-backed integration evidence.",
+        "rollbackOrEscalation": "Keep the previous etcd registration path compatible until generated services pass discovery smoke and integration gates."
+      },
+      {
+        "id": "nacos",
+        "classification": "config-only",
+        "evidence": [
+          "configuration source",
+          "no discovery resolve",
+          "no registration",
+          "no watch"
+        ],
+        "gate": "make discovery-adapter-matrix-check",
+        "promotionBoundary": "Nacos remains config-only until a core/discovery/nacos adapter, tests, integration evidence, and rollback notes exist.",
+        "rollbackOrEscalation": "Do not route service discovery traffic to Nacos until discovery adapter evidence is implemented."
+      },
+      {
+        "id": "dns",
+        "classification": "planned",
+        "evidence": [
+          "resolver-only semantics",
+          "TTL behavior",
+          "negative-cache behavior",
+          "no registration"
+        ],
+        "gate": "make discovery-adapter-matrix-check",
+        "promotionBoundary": "DNS discovery must stay planned until resolver-only behavior, TTL handling, negative-cache behavior, and migration notes exist.",
+        "rollbackOrEscalation": "Keep DNS-backed services on existing platform discovery until gofly DNS resolver tests and rollback guidance pass."
+      },
+      {
+        "id": "kubernetes",
+        "classification": "planned",
+        "evidence": [
+          "Service",
+          "EndpointSlice",
+          "watch",
+          "RBAC",
+          "Helm",
+          "Kustomize"
+        ],
+        "gate": "make discovery-adapter-matrix-check",
+        "promotionBoundary": "Kubernetes discovery must avoid cluster credentials in local tests and align with Helm, Kustomize, RBAC, EndpointSlice, and optional integration evidence.",
+        "rollbackOrEscalation": "Use existing Kubernetes service discovery directly until adapter semantics and cloud-native production gates pass."
+      },
+      {
+        "id": "static",
+        "classification": "planned",
+        "evidence": [
+          "file path safety",
+          "reload behavior",
+          "immutable profile",
+          "generated smoke"
+        ],
+        "gate": "make discovery-adapter-matrix-check",
+        "promotionBoundary": "Static discovery must validate path safety, reload behavior, immutable profile semantics, and generated service smoke before implementation.",
+        "rollbackOrEscalation": "Keep static endpoints in application configuration until reload, validation, and generated-service smoke coverage exists."
+      }
+    ],
+    "promotionPolicy": "Promote discovery providers only when implementation status, register/resolve/watch/lease capability, filtering behavior, failover, dependency ownership, smoke gates, and rollback notes are all explicit.",
+    "runtimeArtifactPolicy": "Discovery integration evidence that requires Docker, cluster credentials, or external registries must remain runtime evidence and must not be committed."
+  },
   "providers": [
     {
       "id": "memory",

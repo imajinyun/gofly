@@ -444,6 +444,61 @@ for needle in ('render proof', 'reference topology proof', 'runtime SLO proof', 
 for needle in ('.tmp-test', '.aiflow', 'durable adoption proof', 'docs/reference'):
     require(needle in str(p10_cloud.get('runtimeEvidencePolicy') or ''), f'cloud-native P10 proof runtimeEvidencePolicy missing {needle!r}')
 
+p11_cloud = cloud_native_manifest.get('p11HostedCloudNativeProof') or {}
+require(p11_cloud.get('schema') == 'gofly.cloud_native_p11_hosted_proof.v1', 'cloud-native P11 hosted proof schema mismatch')
+require(p11_cloud.get('aiflowTask') == 'GOFLY-P11-3-CLOUD-NATIVE-HOSTED-PROOF', 'cloud-native P11 hosted proof aiflowTask mismatch')
+require(p11_cloud.get('status') == 'blocking-contract', 'cloud-native P11 hosted proof status must be blocking-contract')
+require(p11_cloud.get('acceptanceGate') == 'make p1-growth-check', 'cloud-native P11 hosted proof acceptanceGate mismatch')
+require(p11_cloud.get('dashboardReportField') == 'cloudNativeAdoption.p11HostedProof', 'cloud-native P11 hosted proof dashboardReportField mismatch')
+require(len(str(p11_cloud.get('policy') or '').split()) >= 20, 'cloud-native P11 hosted proof policy must be actionable')
+p11_env = p11_cloud.get('hostedEnvironment') or {}
+for tool in ('Docker', 'Helm', 'Kustomize', 'kubeconform', 'kubeval', 'Trivy'):
+    require(tool in set(p11_env.get('requiredWhenAvailable') or []), f'cloud-native P11 hosted proof requiredWhenAvailable missing {tool!r}')
+for needle in ('fallbackReasons', 'release promotion', 'hosted Docker', 'Helm', 'Trivy'):
+    require(needle in str(p11_env.get('fallbackPolicy') or ''), f'cloud-native P11 hosted proof fallbackPolicy missing {needle!r}')
+for needle in ('.aiflow', '.tmp-test', 'must not be committed'):
+    require(needle in str(p11_env.get('runtimeStatePolicy') or ''), f'cloud-native P11 hosted proof runtimeStatePolicy missing {needle!r}')
+p11_rows = {
+    item.get('id'): item
+    for item in p11_cloud.get('proofRows') or []
+    if isinstance(item, dict) and item.get('id')
+}
+expected_p11_rows = {
+    'docker-reference-app': 'REFERENCE_APP_MODE=docker make reference-app-smoke',
+    'helm-render': 'make helm-template-smoke && make cloud-native-render-check',
+    'kustomize-policy': 'make cloud-native-render-check',
+    'kube-schema-validation': 'make cloud-native-render-check',
+    'release-security-evidence': 'make governance-report-check && make required-checks-drift-check',
+    'operator-rollback': 'make governance-report-check',
+}
+require(set(p11_rows) == set(expected_p11_rows), f'cloud-native P11 hosted proof rows mismatch: {sorted(p11_rows)!r}')
+for row_id, gate in expected_p11_rows.items():
+    row = p11_rows.get(row_id) or {}
+    for field in ('id', 'surface', 'hostedEvidence', 'localGate', 'sourceEvidence', 'fallbackPolicy', 'rollbackAction'):
+        require(row.get(field), f'cloud-native P11 hosted proof {row_id}: {field} is required')
+    require(row.get('localGate') == gate, f'cloud-native P11 hosted proof {row_id}: localGate mismatch')
+    for evidence in row.get('sourceEvidence') or []:
+        require((root / evidence).exists(), f'cloud-native P11 hosted proof {row_id}: evidence missing: {evidence}')
+    for field in ('fallbackPolicy', 'rollbackAction'):
+        require(len(str(row.get(field) or '').split()) >= 12, f'cloud-native P11 hosted proof {row_id}: {field} must be actionable')
+for gate in (
+    'make helm-template-smoke',
+    'make cloud-native-render-check',
+    'make reference-app-smoke',
+    'make runtime-slo-check',
+    'make governance-report-check',
+    'make required-checks-drift-check',
+    'make p1-growth-check',
+):
+    require(gate in set(p11_cloud.get('requiredGates') or []), f'cloud-native P11 hosted proof requiredGates missing {gate!r}')
+p11_fallback = p11_cloud.get('fallbackReasonContract') or {}
+require(p11_fallback.get('renderReport') == '.tmp-test/cloud-native-render/render-report.json', 'cloud-native P11 hosted proof fallbackReasonContract renderReport mismatch')
+for field in ('fallbackReasons', 'helm.fallbackStatus', 'kustomize.fallbackStatus', 'kubeconform.schemaValidationStatus', 'kubeval.schemaValidationStatus'):
+    require(field in set(p11_fallback.get('requiredFields') or []), f'cloud-native P11 hosted proof fallbackReasonContract requiredFields missing {field!r}')
+require(len(str(p11_fallback.get('policy') or '').split()) >= 15, 'cloud-native P11 hosted proof fallbackReasonContract policy must be actionable')
+for needle in ('Docker-backed reference topology', 'Helm rendering', 'Kustomize rendering', 'release security evidence', 'fallback reasons', 'operator rollback'):
+    require(needle in str(p11_cloud.get('promotionPolicy') or ''), f'cloud-native P11 hosted proof promotionPolicy missing {needle!r}')
+
 for rel, terms in checks.items():
     path = root / rel
     if not path.is_file():

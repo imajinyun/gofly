@@ -60,6 +60,15 @@ topology, runtime SLO evidence, and rollback decisions. This keeps cloud-native
 adoption claims tied to executable checks instead of treating rendered YAML as
 production proof by itself.
 
+P11 adds `p11HostedCloudNativeProof` as the hosted CI proof contract. It maps
+Docker-backed `production-orders` topology, Helm rendering, Kustomize policy
+rendering, kubeconform or kubeval schema validation, release evidence, Docker
+digest, SBOM, provenance, Trivy scan evidence, fallback reasons, and operator
+rollback actions to the same `make p1-growth-check` adoption gate. Hosted proof
+must block release promotion when Docker, Helm, Trivy, release evidence, or
+required-check drift evidence is missing; local fallback is valid only when
+`fallbackReasons` records the missing tool explicitly.
+
 Fallback status must be visible rather than implicit. If Helm is unavailable,
 the static template render path remains valid evidence for local development,
 but release CI should prefer real `helm template` output and may add

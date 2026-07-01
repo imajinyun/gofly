@@ -448,6 +448,93 @@ for needle in ("render proof", "reference topology proof", "runtime SLO proof", 
     if needle not in str(p10_proof.get("promotionPolicy") or ""):
         missing.append(f"cloud-native P10 adoption proof promotionPolicy missing {needle!r}")
 
+p11_proof = manifest.get("p11HostedCloudNativeProof") or {}
+if p11_proof.get("schema") != "gofly.cloud_native_p11_hosted_proof.v1":
+    missing.append("cloud-native P11 hosted proof schema mismatch")
+if p11_proof.get("aiflowTask") != "GOFLY-P11-3-CLOUD-NATIVE-HOSTED-PROOF":
+    missing.append("cloud-native P11 hosted proof aiflowTask mismatch")
+if p11_proof.get("status") != "blocking-contract":
+    missing.append("cloud-native P11 hosted proof status must be blocking-contract")
+if p11_proof.get("acceptanceGate") != "make p1-growth-check":
+    missing.append("cloud-native P11 hosted proof acceptanceGate mismatch")
+if p11_proof.get("dashboardReportField") != "cloudNativeAdoption.p11HostedProof":
+    missing.append("cloud-native P11 hosted proof dashboardReportField mismatch")
+if len(str(p11_proof.get("policy") or "").split()) < 20:
+    missing.append("cloud-native P11 hosted proof policy must be actionable")
+p11_env = p11_proof.get("hostedEnvironment") or {}
+for tool in ("Docker", "Helm", "Kustomize", "kubeconform", "kubeval", "Trivy"):
+    if tool not in set(p11_env.get("requiredWhenAvailable") or []):
+        missing.append(f"cloud-native P11 hosted proof requiredWhenAvailable missing {tool!r}")
+for needle in ("fallbackReasons", "release promotion", "hosted Docker", "Helm", "Trivy"):
+    if needle not in str(p11_env.get("fallbackPolicy") or ""):
+        missing.append(f"cloud-native P11 hosted proof fallbackPolicy missing {needle!r}")
+for needle in (".aiflow", ".tmp-test", "must not be committed"):
+    if needle not in str(p11_env.get("runtimeStatePolicy") or ""):
+        missing.append(f"cloud-native P11 hosted proof runtimeStatePolicy missing {needle!r}")
+
+p11_rows = {
+    item.get("id"): item
+    for item in p11_proof.get("proofRows") or []
+    if isinstance(item, dict) and item.get("id")
+}
+expected_p11_rows = {
+    "docker-reference-app": "REFERENCE_APP_MODE=docker make reference-app-smoke",
+    "helm-render": "make helm-template-smoke && make cloud-native-render-check",
+    "kustomize-policy": "make cloud-native-render-check",
+    "kube-schema-validation": "make cloud-native-render-check",
+    "release-security-evidence": "make governance-report-check && make required-checks-drift-check",
+    "operator-rollback": "make governance-report-check",
+}
+if set(p11_rows) != set(expected_p11_rows):
+    missing.append(
+        "cloud-native P11 hosted proof rows drifted "
+        f"missing={sorted(set(expected_p11_rows) - set(p11_rows))!r} "
+        f"extra={sorted(set(p11_rows) - set(expected_p11_rows))!r}"
+    )
+for row_id, gate in expected_p11_rows.items():
+    item = p11_rows.get(row_id) or {}
+    for field in ("id", "surface", "hostedEvidence", "localGate", "sourceEvidence", "fallbackPolicy", "rollbackAction"):
+        if item.get(field) in ("", None, []):
+            missing.append(f"cloud-native P11 hosted proof {row_id}: {field} is required")
+    if item.get("localGate") != gate:
+        missing.append(f"cloud-native P11 hosted proof {row_id}: localGate must be {gate}")
+    for evidence in item.get("sourceEvidence") or []:
+        if not pathlib.Path(evidence).exists():
+            missing.append(f"cloud-native P11 hosted proof {row_id}: evidence path missing: {evidence}")
+    for field in ("fallbackPolicy", "rollbackAction"):
+        if len(str(item.get(field) or "").split()) < 12:
+            missing.append(f"cloud-native P11 hosted proof {row_id}: {field} must be actionable")
+
+p11_required_gates = set(p11_proof.get("requiredGates") or [])
+for gate in (
+    "make helm-template-smoke",
+    "make cloud-native-render-check",
+    "make reference-app-smoke",
+    "make runtime-slo-check",
+    "make governance-report-check",
+    "make required-checks-drift-check",
+    "make p1-growth-check",
+):
+    if gate not in p11_required_gates:
+        missing.append(f"cloud-native P11 hosted proof requiredGates missing {gate!r}")
+p11_fallback_contract = p11_proof.get("fallbackReasonContract") or {}
+if p11_fallback_contract.get("renderReport") != ".tmp-test/cloud-native-render/render-report.json":
+    missing.append("cloud-native P11 hosted proof fallbackReasonContract renderReport mismatch")
+for field in (
+    "fallbackReasons",
+    "helm.fallbackStatus",
+    "kustomize.fallbackStatus",
+    "kubeconform.schemaValidationStatus",
+    "kubeval.schemaValidationStatus",
+):
+    if field not in set(p11_fallback_contract.get("requiredFields") or []):
+        missing.append(f"cloud-native P11 hosted proof fallbackReasonContract requiredFields missing {field!r}")
+if len(str(p11_fallback_contract.get("policy") or "").split()) < 15:
+    missing.append("cloud-native P11 hosted proof fallbackReasonContract policy must be actionable")
+for needle in ("Docker-backed reference topology", "Helm rendering", "Kustomize rendering", "release security evidence", "fallback reasons", "operator rollback"):
+    if needle not in str(p11_proof.get("promotionPolicy") or ""):
+        missing.append(f"cloud-native P11 hosted proof promotionPolicy missing {needle!r}")
+
 fallback_status = "not-fallback" if helm_available else "static-fallback"
 kustomize_fallback_status = "not-fallback" if kustomize_available else "static-fallback"
 fallback_reasons = []

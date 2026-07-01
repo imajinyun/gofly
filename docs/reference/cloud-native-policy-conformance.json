@@ -330,5 +330,128 @@
     ],
     "runtimeEvidencePolicy": "Runtime reports under .tmp-test or .aiflow are local evidence only; durable adoption proof must stay in docs/reference manifests and committed production assets.",
     "promotionPolicy": "Promote cloud-native adoption claims only when render proof, reference topology proof, runtime SLO proof, rollback proof, and P1 growth gates all pass."
+  },
+  "p11HostedCloudNativeProof": {
+    "schema": "gofly.cloud_native_p11_hosted_proof.v1",
+    "aiflowTask": "GOFLY-P11-3-CLOUD-NATIVE-HOSTED-PROOF",
+    "status": "blocking-contract",
+    "acceptanceGate": "make p1-growth-check",
+    "dashboardReportField": "cloudNativeAdoption.p11HostedProof",
+    "policy": "P11 hosted cloud-native proof maps Docker-backed reference topology, Helm and Kustomize render validation, kube schema validation, release evidence, Trivy scan evidence, fallback reasons, and rollback actions to hosted CI expectations.",
+    "hostedEnvironment": {
+      "requiredWhenAvailable": [
+        "Docker",
+        "Helm",
+        "Kustomize",
+        "kubeconform",
+        "kubeval",
+        "Trivy"
+      ],
+      "fallbackPolicy": "Local fallback is acceptable only when the missing tool is recorded in cloud-native render report fallbackReasons or hosted evidence fallback policy; release promotion must block when hosted Docker, Helm, Trivy, or release evidence is missing.",
+      "runtimeStatePolicy": ".aiflow, .harness, .tmp-test, coverage.out, generated render reports, and Docker or Helm temporary outputs remain ignored runtime evidence and must not be committed."
+    },
+    "proofRows": [
+      {
+        "id": "docker-reference-app",
+        "surface": "Docker-backed production-orders topology",
+        "hostedEvidence": "reference-app Docker profile job logs and compose service health",
+        "localGate": "REFERENCE_APP_MODE=docker make reference-app-smoke",
+        "sourceEvidence": [
+          "docs/reference/reference-app-topology.json",
+          "examples/production-orders/compose.yaml",
+          "examples/production-orders/README.md"
+        ],
+        "fallbackPolicy": "Use memory mode only as local development fallback; hosted promotion requires Docker-backed topology evidence or an explicit environment-limited skip.",
+        "rollbackAction": "Keep the previous deployment or memory-mode rehearsal active when SQL outbox, Redis cache, MQ brokers, discovery adapters, or OTel collector evidence is unavailable."
+      },
+      {
+        "id": "helm-render",
+        "surface": "Helm default and production rendering",
+        "hostedEvidence": "helm template output for default and production values",
+        "localGate": "make helm-template-smoke && make cloud-native-render-check",
+        "sourceEvidence": [
+          "charts/gofly/values.yaml",
+          "charts/gofly/values-production.yaml",
+          "charts/gofly/values.schema.json",
+          "docs/reference/cloud-native-rendered-production.golden.yaml"
+        ],
+        "fallbackPolicy": "Static chart template rendering is local fallback only when Helm is unavailable and fallbackReasons records the missing helm binary.",
+        "rollbackAction": "Pin the previous chart release when rendered Deployment, ServiceMonitor, HPA, PDB, or NetworkPolicy output is missing or fails schema validation."
+      },
+      {
+        "id": "kustomize-policy",
+        "surface": "Kustomize production overlay and policy resources",
+        "hostedEvidence": "kustomize build output plus policy resource golden comparison",
+        "localGate": "make cloud-native-render-check",
+        "sourceEvidence": [
+          "k8s/overlays/production/kustomization.yaml",
+          "k8s/servicemonitor.yaml",
+          "k8s/hpa.yaml",
+          "k8s/pdb.yaml",
+          "k8s/networkpolicy.yaml"
+        ],
+        "fallbackPolicy": "Static concatenated Kubernetes resources are accepted only when kustomize is unavailable and fallbackReasons records that status.",
+        "rollbackAction": "Keep the previous overlay applied when Kustomize output omits ServiceMonitor, HPA, PDB, NetworkPolicy, or required probe resources."
+      },
+      {
+        "id": "kube-schema-validation",
+        "surface": "kubeconform and kubeval schema validation",
+        "hostedEvidence": "kubeconform summary and kubeval report attached to cloud-native render evidence",
+        "localGate": "make cloud-native-render-check",
+        "sourceEvidence": [
+          "docs/reference/cloud-native-policy-conformance.json",
+          "docs/reference/cloud-native-rendering.md"
+        ],
+        "fallbackPolicy": "kubeconform and kubeval remain optional local validators, but hosted CI should run them when available and must record tool-unavailable otherwise.",
+        "rollbackAction": "Block production chart or overlay promotion when schema validation fails or hosted fallback reasons are absent."
+      },
+      {
+        "id": "release-security-evidence",
+        "surface": "release evidence, Docker digest, SBOM, provenance, and Trivy",
+        "hostedEvidence": "hostedReleaseEvidence rows for docker-digest, sbom, provenance, and trivy",
+        "localGate": "make governance-report-check && make required-checks-drift-check",
+        "sourceEvidence": [
+          "docs/reference/ci-required-check-evidence.json",
+          "docs/releases/evidence-consumption.json",
+          "docs/releases/readiness-score.json"
+        ],
+        "fallbackPolicy": "Release promotion blocks when hosted Docker digest, SBOM, provenance, Trivy, or required-check drift evidence is missing.",
+        "rollbackAction": "Do not publish the release image or chart promotion when release evidence cannot prove immutable digest, SBOM, provenance, and scan status."
+      },
+      {
+        "id": "operator-rollback",
+        "surface": "operator rollback and adoption risk evidence",
+        "hostedEvidence": "operator drill, adoption risk register, and release readiness report",
+        "localGate": "make governance-report-check",
+        "sourceEvidence": [
+          "docs/reference/operator-runbook-drills.json",
+          "docs/reference/adoption-risk-register.json",
+          "docs/operations/production-checklist.md"
+        ],
+        "fallbackPolicy": "Hosted proof must include rollback notes for deployment, topology, policy resources, and release evidence before adoption claims are promoted.",
+        "rollbackAction": "Pin the previous release, disable production-only policy resources, or route traffic back when hosted proof or operator drills are incomplete."
+      }
+    ],
+    "requiredGates": [
+      "make helm-template-smoke",
+      "make cloud-native-render-check",
+      "make reference-app-smoke",
+      "make runtime-slo-check",
+      "make governance-report-check",
+      "make required-checks-drift-check",
+      "make p1-growth-check"
+    ],
+    "fallbackReasonContract": {
+      "renderReport": ".tmp-test/cloud-native-render/render-report.json",
+      "requiredFields": [
+        "fallbackReasons",
+        "helm.fallbackStatus",
+        "kustomize.fallbackStatus",
+        "kubeconform.schemaValidationStatus",
+        "kubeval.schemaValidationStatus"
+      ],
+      "policy": "Every missing local or hosted render and schema validation tool must produce an explicit fallback reason; absent fallback reasons are treated as release evidence gaps."
+    },
+    "promotionPolicy": "Promote hosted cloud-native adoption claims only when Docker-backed reference topology, Helm rendering, Kustomize rendering, kube schema status, release security evidence, fallback reasons, and operator rollback gates are all attached."
   }
 }

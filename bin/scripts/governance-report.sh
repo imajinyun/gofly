@@ -1350,17 +1350,17 @@ if convergence["gate"] != "make governance-boundary-inventory-check":
 if convergence["finalGate"] != "make governance-10-rounds":
     missing.append("governance convergence finalGate mismatch")
 if convergence["taskCount"] != 3:
-    missing.append("governance convergence must track the active P11 task set")
+    missing.append("governance convergence must track the active P12 task set")
 active_aiflow_batch = convergence.get("activeAiflowBatch", "")
 if not active_aiflow_batch:
     missing.append("governance convergence activeAiflowBatch is required")
 expected_round_ids = [
-    "GOFLY-P11-1-RPC-TIER1-PROMOTION-REVIEW",
-    "GOFLY-P11-2-GENERATED-PROJECT-LIVE-UPGRADE",
-    "GOFLY-P11-3-CLOUD-NATIVE-HOSTED-PROOF",
+    "GOFLY-P12-1-RPC-BENCHMARK-BUDGET-PROMOTION",
+    "GOFLY-P12-2-GENERATED-UPGRADE-REAL-BRANCH",
+    "GOFLY-P12-3-HOSTED-CLOUD-NATIVE-LIVE-CI",
 ]
-if active_aiflow_batch != "GOFLY-P11":
-    missing.append("governance convergence activeAiflowBatch must be GOFLY-P11")
+if active_aiflow_batch != "GOFLY-P12":
+    missing.append("governance convergence activeAiflowBatch must be GOFLY-P12")
 actual_round_ids = [
     item.get("id", "")
     for item in convergence.get("tasks") or []
@@ -1376,7 +1376,7 @@ for item in convergence.get("tasks") or []:
         missing.append(f"governance convergence task must be an object: {item!r}")
         continue
     item_id = item.get("id", "")
-    for field in ("id", "round", "title", "gate"):
+    for field in ("id", "round", "title", "gate", "verification", "commit"):
         if not item.get(field):
             missing.append(f"governance convergence {item_id or '<missing>'}: {field} is required")
 ignored_runtime_paths = set(convergence.get("ignoredRuntimePaths") or [])
@@ -2236,7 +2236,7 @@ if convergence_contract.get("gate") != "make governance-boundary-inventory-check
     missing.append("governance dashboard governanceConvergence gate mismatch")
 if int(convergence_contract.get("requiredTaskCount") or 0) != 3:
     missing.append("governance dashboard governanceConvergence requiredTaskCount mismatch")
-if convergence_contract.get("requiredActiveBatch") != "GOFLY-P11":
+if convergence_contract.get("requiredActiveBatch") != "GOFLY-P12":
     missing.append("governance dashboard governanceConvergence requiredActiveBatch mismatch")
 if set(convergence_contract.get("requiredIgnoredRuntimePaths") or []) != expected_ignored_runtime_paths:
     missing.append("governance dashboard governanceConvergence requiredIgnoredRuntimePaths mismatch")

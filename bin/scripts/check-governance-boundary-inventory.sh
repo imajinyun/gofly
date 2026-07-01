@@ -15,15 +15,19 @@ p11_path = root / "docs" / "reference" / "governance-p11-roadmap.json"
 post_r8_path = root / "docs" / "reference" / "framework-gap-post-r8-roadmap.json"
 missing = []
 
-expected_active_batch = "GOFLY-P11"
-expected_converged_batch = "GOFLY-P11"
+expected_active_batch = "GOFLY-P12"
+expected_converged_batch = "GOFLY-P12"
 expected_tasks = [
+    "GOFLY-P12-1-RPC-BENCHMARK-BUDGET-PROMOTION",
+    "GOFLY-P12-2-GENERATED-UPGRADE-REAL-BRANCH",
+    "GOFLY-P12-3-HOSTED-CLOUD-NATIVE-LIVE-CI",
+]
+expected_converged_tasks = expected_tasks
+expected_p11_tasks = [
     "GOFLY-P11-1-RPC-TIER1-PROMOTION-REVIEW",
     "GOFLY-P11-2-GENERATED-PROJECT-LIVE-UPGRADE",
     "GOFLY-P11-3-CLOUD-NATIVE-HOSTED-PROOF",
 ]
-expected_converged_tasks = expected_tasks
-expected_p11_tasks = expected_tasks
 expected_p10_tasks = [
     "GOFLY-P10-1-RPC-TIER1-CLOSEOUT",
     "GOFLY-P10-2-GOCTL-GENERATOR-FIDELITY",
@@ -93,11 +97,30 @@ expected_batches = {
         "taskPrefix": "GOFLY-P11-",
         "roundCount": 3,
     },
+    "GOFLY-P12": {
+        "status": "completed",
+        "taskPrefix": "GOFLY-P12-",
+        "roundCount": 3,
+    },
 }
 expected_converged_commits = {
-    "GOFLY-P11-1-RPC-TIER1-PROMOTION-REVIEW": "d68e130",
-    "GOFLY-P11-2-GENERATED-PROJECT-LIVE-UPGRADE": "4cb635b",
-    "GOFLY-P11-3-CLOUD-NATIVE-HOSTED-PROOF": "11fcce6",
+    "GOFLY-P12-1-RPC-BENCHMARK-BUDGET-PROMOTION": "7d0b69a",
+    "GOFLY-P12-2-GENERATED-UPGRADE-REAL-BRANCH": "d99c690",
+    "GOFLY-P12-3-HOSTED-CLOUD-NATIVE-LIVE-CI": "155fd18",
+}
+expected_converged_verification = {
+    "GOFLY-P12-1-RPC-BENCHMARK-BUDGET-PROMOTION": [
+        "make rpc-boundary-check",
+        "make bench-regression-check",
+    ],
+    "GOFLY-P12-2-GENERATED-UPGRADE-REAL-BRANCH": [
+        "make generated-upgrade-dry-run-check",
+    ],
+    "GOFLY-P12-3-HOSTED-CLOUD-NATIVE-LIVE-CI": [
+        "make cloud-native-render-check",
+        "make ci-required-check-evidence-check",
+        "make required-checks-drift-check",
+    ],
 }
 expected_surfaces = {
     "cli",
@@ -226,18 +249,25 @@ for expected_round, item in enumerate(tasks, start=1):
 expected_task_gates = [
     "make rpc-boundary-check",
     "make generated-upgrade-dry-run-check",
-    "make p1-growth-check",
+    "make cloud-native-render-check",
 ]
 actual_task_gates = [item.get("gate") for item in tasks if isinstance(item, dict)]
-require(actual_task_gates == expected_task_gates, f"P11 task gates mismatch: {actual_task_gates!r}")
+require(actual_task_gates == expected_task_gates, f"P12 task gates mismatch: {actual_task_gates!r}")
 require(
-    "promotion review" in tasks[0].get("title", "").lower(),
-    "P11 round 01 title must document RPC promotion review",
+    "budget promotion" in tasks[0].get("title", "").lower(),
+    "P12 round 01 title must document RPC budget promotion",
 )
 require(
-    "latency parity" in tasks[0].get("objective", "").lower(),
-    "P11 round 01 objective must keep latency parity claims conservative",
+    "blocking" in tasks[0].get("objective", "").lower(),
+    "P12 round 01 objective must document blocking budget promotion criteria",
 )
+for item in tasks:
+    task_id = item.get("id")
+    require(item.get("commit") == expected_converged_commits.get(task_id), f"{task_id}: commit mismatch")
+    require(
+        item.get("verification") == expected_converged_verification.get(task_id),
+        f"{task_id}: verification mismatch",
+    )
 
 surfaces = manifest.get("surfaces") or []
 actual_surfaces = {item.get("id") for item in surfaces if isinstance(item, dict)}
@@ -308,7 +338,7 @@ for expected_round, item in enumerate(post_r8_dimensions, start=1):
             require((root / evidence).exists(), f"{item_id}: evidence path missing: {evidence}")
 
 require(convergence_manifest.get("schema") == "gofly.governance_convergence_verification.v1", "convergence verification schema mismatch")
-require(convergence_manifest.get("aiflowTask") == "GOFLY-P11-CONVERGENCE-EVIDENCE", "convergence verification aiflowTask mismatch")
+require(convergence_manifest.get("aiflowTask") == "GOFLY-P12-CONVERGENCE-EVIDENCE", "convergence verification aiflowTask mismatch")
 require(convergence_manifest.get("acceptanceGate") == "make governance-10-rounds", "convergence verification acceptanceGate mismatch")
 require(convergence_manifest.get("activeBatch") == expected_converged_batch, "convergence verification activeBatch mismatch")
 aggregate_gates = set(convergence_manifest.get("aggregateGates") or [])
@@ -322,7 +352,7 @@ for gate in (
     require(gate in aggregate_gates, f"convergence verification aggregateGates missing {gate}")
 
 round_commits = convergence_manifest.get("roundCommits") or []
-require(len(round_commits) == len(expected_converged_tasks), "convergence verification must track P11 round commits")
+require(len(round_commits) == len(expected_converged_tasks), "convergence verification must track P12 round commits")
 actual_round_commit_tasks = [
     item.get("task")
     for item in round_commits
@@ -340,6 +370,10 @@ for expected_round, item in enumerate(round_commits, start=1):
     require(gate_is_known(gate, targets), f"{task_id}: roundCommit gate is not known: {gate!r}")
     expected_commit = expected_converged_commits.get(task_id)
     require(item.get("commit") == expected_commit, f"{task_id}: roundCommit commit mismatch")
+    require(
+        item.get("verification") == expected_converged_verification.get(task_id),
+        f"{task_id}: roundCommit verification mismatch",
+    )
     if expected_commit == "self":
         require(item.get("selfReference") is True, f"{task_id}: selfReference must be true for the convergence commit")
     else:
@@ -359,10 +393,10 @@ require(execution.get("status") == "completed", "convergence verification aiflow
 require("aiflow CLI status" in str(execution.get("blocker") or ""), "convergence verification aiflowExecution.blocker must document the aiflow CLI status limitation")
 require("commit and push" in str(execution.get("goflyImpact") or ""), "convergence verification aiflowExecution.goflyImpact must document aiflow commit policy")
 previous_handoff = convergence_manifest.get("previousBatchHandoff") or {}
-require("GOFLY-P10-10-CONVERGENCE-REPORT" in set(previous_handoff.get("supersedes") or []), "previousBatchHandoff must supersede GOFLY-P10-10-CONVERGENCE-REPORT")
-require("P11 active batch" in str(previous_handoff.get("reason") or ""), "previousBatchHandoff.reason must document P11 active batch handoff")
+require("GOFLY-P11-CONVERGENCE-EVIDENCE" in set(previous_handoff.get("supersedes") or []), "previousBatchHandoff must supersede GOFLY-P11-CONVERGENCE-EVIDENCE")
+require("P12 active batch" in str(previous_handoff.get("reason") or ""), "previousBatchHandoff.reason must document P12 active batch handoff")
 previous_completion_policy = str(previous_handoff.get("completionPolicy") or "")
-for needle in ("GOFLY-P11-CONVERGENCE-EVIDENCE", "make governance-boundary-inventory-check", "make governance-report-check", "current agent or human"):
+for needle in ("GOFLY-P12-CONVERGENCE-EVIDENCE", "make governance-boundary-inventory-check", "make governance-report-check", "current agent or human"):
     require(needle in previous_completion_policy, f"previousBatchHandoff.completionPolicy missing {needle!r}")
 
 known_risks = {
@@ -382,7 +416,7 @@ recommendations = {
     for item in convergence_manifest.get("nextRoundRecommendations") or []
     if isinstance(item, dict) and item.get("id")
 }
-for rec_id in ("P12-rpc-benchmark-budget-promotion", "P12-generated-upgrade-real-branch", "P12-hosted-cloud-native-live-ci"):
+for rec_id in ("P13-rpc-tier1-blocking-promotion", "P13-docker-backed-reference-app-live-integration", "P13-release-supply-chain-hosted-artifacts"):
     item = recommendations.get(rec_id) or {}
     require(bool(item), f"nextRoundRecommendations missing {rec_id}")
     require(item.get("priority") in {"P0", "P1", "P2", "P3"}, f"nextRoundRecommendations {rec_id}: priority mismatch")
@@ -431,7 +465,7 @@ actual_p11_tasks = [
 require(actual_p11_tasks == expected_p11_tasks, f"P11 roadmap task ids mismatch: {actual_p11_tasks!r}")
 submission = p11_manifest.get("aiflowSubmission") or {}
 require(submission.get("status") == "completed", "P11 aiflowSubmission.status must be completed")
-require(set(submission.get("completedTasks") or []) == set(expected_tasks), "P11 completedTasks mismatch")
+require(set(submission.get("completedTasks") or []) == set(expected_p11_tasks), "P11 completedTasks mismatch")
 require("durable docs/reference evidence" in str(submission.get("completionPolicy") or ""), "P11 completionPolicy must document durable docs/reference evidence")
 runtime_state_policy = str(submission.get("runtimeStatePolicy") or "")
 for path in (".aiflow", ".harness", ".tmp-test", ".trae", "coverage.out", "bench/regression-report.json", "docs/superpowers"):

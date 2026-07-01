@@ -1,7 +1,7 @@
 {
   "schema": "gofly.governance_convergence_verification.v1",
-  "aiflowTask": "GOFLY-P11-CONVERGENCE-EVIDENCE",
-  "purpose": "Tie the completed P11 governance batch to final convergence gates, commit checkpoints, ignored runtime paths, aiflow migration limitations, known risks, and release-blocking verification.",
+  "aiflowTask": "GOFLY-P12-CONVERGENCE-EVIDENCE",
+  "purpose": "Tie the completed P12 governance batch to final convergence gates, commit checkpoints, ignored runtime paths, aiflow migration limitations, known risks, and release-blocking verification.",
   "acceptanceGate": "make governance-10-rounds",
   "aggregateGates": [
     "make governance-boundary-inventory-check",
@@ -10,25 +10,37 @@
     "make security",
     "make cache-dependency-governance-check"
   ],
-  "activeBatch": "GOFLY-P11",
+  "activeBatch": "GOFLY-P12",
   "roundCommits": [
     {
       "round": 1,
-      "task": "GOFLY-P11-1-RPC-TIER1-PROMOTION-REVIEW",
-      "commit": "d68e130",
-      "gate": "make rpc-boundary-check"
+      "task": "GOFLY-P12-1-RPC-BENCHMARK-BUDGET-PROMOTION",
+      "commit": "7d0b69a",
+      "gate": "make rpc-boundary-check",
+      "verification": [
+        "make rpc-boundary-check",
+        "make bench-regression-check"
+      ]
     },
     {
       "round": 2,
-      "task": "GOFLY-P11-2-GENERATED-PROJECT-LIVE-UPGRADE",
-      "commit": "4cb635b",
-      "gate": "make generated-upgrade-dry-run-check"
+      "task": "GOFLY-P12-2-GENERATED-UPGRADE-REAL-BRANCH",
+      "commit": "d99c690",
+      "gate": "make generated-upgrade-dry-run-check",
+      "verification": [
+        "make generated-upgrade-dry-run-check"
+      ]
     },
     {
       "round": 3,
-      "task": "GOFLY-P11-3-CLOUD-NATIVE-HOSTED-PROOF",
-      "commit": "11fcce6",
-      "gate": "make p1-growth-check"
+      "task": "GOFLY-P12-3-HOSTED-CLOUD-NATIVE-LIVE-CI",
+      "commit": "155fd18",
+      "gate": "make cloud-native-render-check",
+      "verification": [
+        "make cloud-native-render-check",
+        "make ci-required-check-evidence-check",
+        "make required-checks-drift-check"
+      ]
     }
   ],
   "finalGatePolicy": {
@@ -52,14 +64,14 @@
   "aiflowExecution": {
     "status": "completed",
     "blocker": "aiflow CLI status is currently unavailable because the adjacent /Users/bytedance/Codes/go/src/github/aiflow repository is mid-migration and fails to compile runtime trajectory types.",
-    "goflyImpact": "P11 tasks were submitted through root aiflow.yaml and completed with durable docs/reference evidence plus per-task commits. Runtime .aiflow state remains ignored and commit and push are owned by the current agent or human."
+    "goflyImpact": "P12 tasks were submitted through root aiflow.yaml and completed with durable docs/reference evidence plus per-task commits. Runtime .aiflow state remains ignored and commit and push are owned by the current agent or human."
   },
   "previousBatchHandoff": {
     "supersedes": [
-      "GOFLY-P10-10-CONVERGENCE-REPORT"
+      "GOFLY-P11-CONVERGENCE-EVIDENCE"
     ],
-    "reason": "P10 convergence was carried forward into the P11 active batch after the P11 RPC promotion review, generated live upgrade proof, and cloud-native hosted proof completed with per-task commits.",
-    "completionPolicy": "complete GOFLY-P11-CONVERGENCE-EVIDENCE by updating governance-boundary-inventory, governance-p11-roadmap, and governance-convergence-verification, then run make governance-boundary-inventory-check and make governance-report-check, with commits owned by the current agent or human"
+    "reason": "P11 convergence was carried forward into the P12 active batch after RPC benchmark budget promotion review, generated real branch replay contract, and hosted cloud-native live CI closure completed with per-task commits.",
+    "completionPolicy": "complete GOFLY-P12-CONVERGENCE-EVIDENCE by updating governance-boundary-inventory, governance-dashboard-contract, and governance-convergence-verification, then run make governance-boundary-inventory-check and make governance-report-check, with commits owned by the current agent or human"
   },
   "knownRisks": [
     {
@@ -72,16 +84,16 @@
     {
       "id": "rpc-tier1-promotion-hold",
       "riskClass": "report-only",
-      "evidence": "docs/reference/rpc-tier1-evidence.json p11PromotionReview",
-      "status": "P11 RPC review is complete, but Tier 1 promotion remains held behind release-train evidence and blocking RPC benchmark budget gates.",
+      "evidence": "docs/reference/rpc-tier1-evidence.json p12BenchmarkBudgetPromotion",
+      "status": "P12 RPC budget promotion review is complete, but Tier 1 promotion remains held behind release-train evidence and blocking RPC benchmark budget gates.",
       "followUp": "Promote RPC surfaces only after hosted release-train evidence, resolver and balancer contracts, streaming compatibility, allocation budgets, and Kitex rollback evidence remain stable."
     },
     {
       "id": "cloud-native-hosted-tooling",
       "riskClass": "environment-limited",
-      "evidence": "docs/reference/cloud-native-policy-conformance.json p11HostedCloudNativeProof",
-      "status": "P11 hosted proof records Docker, Helm, kube validator, Trivy, release evidence, and rollback contracts, but live proof still depends on hosted tools being available.",
-      "followUp": "Run Docker-backed reference app, helm template, kubeconform or kubeval, Trivy, and release evidence upload in hosted CI before treating cloud-native proof as live verified."
+      "evidence": "docs/reference/cloud-native-policy-conformance.json p12HostedLiveCIProof",
+      "status": "P12 adds a release-blocking hosted cloud-native live render CI job, while Docker-backed reference app and full release artifact scans still depend on hosted tools being available.",
+      "followUp": "Keep hosted Helm and kube validator evidence blocking, then close the remaining Docker-backed reference app, Trivy, and release evidence artifact loops in later batches."
     },
     {
       "id": "runtime-state",
@@ -93,19 +105,19 @@
   ],
   "nextRoundRecommendations": [
     {
-      "id": "P12-rpc-benchmark-budget-promotion",
+      "id": "P13-rpc-tier1-blocking-promotion",
       "priority": "P1",
-      "action": "Turn RPC allocation budgets and streaming release-train evidence into a blocking promotion gate only for surfaces with stable hosted evidence and rollback notes."
+      "action": "Promote only RPC surfaces with stable hosted release-train evidence into allocation-blocking budgets while keeping latency claims report-only until parity data is durable."
     },
     {
-      "id": "P12-generated-upgrade-real-branch",
+      "id": "P13-docker-backed-reference-app-live-integration",
       "priority": "P1",
-      "action": "Replay the generated project live upgrade proof against a real adopter branch and require classified repeat-generation diffs before template promotion."
+      "action": "Move the reference app from topology contracts to Docker-backed live integration for SQL outbox, cache, stream, discovery, and observability dependencies."
     },
     {
-      "id": "P12-hosted-cloud-native-live-ci",
+      "id": "P13-release-supply-chain-hosted-artifacts",
       "priority": "P2",
-      "action": "Move cloud-native hosted proof from static contract plus fallback evidence to a live CI job with Docker, Helm, kube validator, Trivy, and release evidence artifacts."
+      "action": "Close hosted release supply-chain artifacts by validating SBOM, checksums, provenance, Docker digest, Trivy output, and release evidence uploads in tag CI."
     }
   ]
 }

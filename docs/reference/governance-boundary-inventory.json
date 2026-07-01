@@ -1,7 +1,7 @@
 {
   "schema": "gofly.governance_boundary_inventory.v1",
   "purpose": "Lightweight baseline inventory for the 10-round governance workflow before expensive full-repository gates run.",
-  "activeAiflowBatch": "GOFLY-P11",
+  "activeAiflowBatch": "GOFLY-P12",
   "aiflowTaskBatches": [
     {
       "id": "GOFLY-GOV-10R",
@@ -79,35 +79,57 @@
       "taskPrefix": "GOFLY-P11-",
       "roundCount": 3,
       "evidence": "docs/reference/governance-p11-roadmap.json"
+    },
+    {
+      "id": "GOFLY-P12",
+      "status": "completed",
+      "taskPrefix": "GOFLY-P12-",
+      "roundCount": 3,
+      "evidence": "docs/reference/governance-convergence-verification.json"
     }
   ],
   "aiflowTasks": [
     {
-      "id": "GOFLY-P11-1-RPC-TIER1-PROMOTION-REVIEW",
+      "id": "GOFLY-P12-1-RPC-BENCHMARK-BUDGET-PROMOTION",
       "round": 1,
-      "title": "RPC Tier 1 promotion review",
-      "objective": "Review whether P10 RPC release-train evidence is sufficient to promote unary or stream surfaces toward Tier 1 while keeping latency parity claims conservative.",
-      "deliverable": "P11 promotion review evidence for unary, server stream, client stream, bidi stream, resolver, balancer, deadline, retry, auth, tracing, benchmark budget, Kitex coexistence, and rollback status.",
+      "title": "RPC benchmark budget promotion hold",
+      "objective": "Review the RPC unary and stream benchmark rows against release-train, allocation, current trend, baseline, and rollback evidence before promoting any budget to blocking mode.",
+      "deliverable": "P12 promotion hold evidence for unary, server stream, client stream, bidi stream, tracked benchmark exclusion, allocation blockers, forbidden performance claims, and rollback actions.",
       "gate": "make rpc-boundary-check",
-      "commitPolicy": "commit after RPC promotion review evidence and rpc-boundary-check pass"
+      "verification": [
+        "make rpc-boundary-check",
+        "make bench-regression-check"
+      ],
+      "commit": "7d0b69a",
+      "commitPolicy": "commit after RPC budget promotion hold evidence, rpc-boundary-check, and bench-regression-check pass"
     },
     {
-      "id": "GOFLY-P11-2-GENERATED-PROJECT-LIVE-UPGRADE",
+      "id": "GOFLY-P12-2-GENERATED-UPGRADE-REAL-BRANCH",
       "round": 2,
-      "title": "Generated project live upgrade",
-      "objective": "Run generated project compatibility fixtures against a realistic adopter upgrade path and keep generated-project-only dependencies outside the root module.",
-      "deliverable": "P11 live upgrade proof for old, current, and future profiles with classified diffs, temporary project compile/test evidence, dependency boundary notes, and rollback actions.",
+      "title": "Generated upgrade real branch replay",
+      "objective": "Convert generated project live upgrade proof into a real adopter branch replay contract with classified repeat-generation diffs and ignored runtime worktrees.",
+      "deliverable": "P12 real branch replay evidence for old, current, and future profiles, real branch preflight, runtime artifact policy, diff classification, and rollback actions.",
       "gate": "make generated-upgrade-dry-run-check",
-      "commitPolicy": "commit after generated upgrade evidence and generated-upgrade-dry-run-check pass"
+      "verification": [
+        "make generated-upgrade-dry-run-check"
+      ],
+      "commit": "d99c690",
+      "commitPolicy": "commit after generated real branch replay evidence and generated-upgrade-dry-run-check pass"
     },
     {
-      "id": "GOFLY-P11-3-CLOUD-NATIVE-HOSTED-PROOF",
+      "id": "GOFLY-P12-3-HOSTED-CLOUD-NATIVE-LIVE-CI",
       "round": 3,
-      "title": "Cloud-native hosted proof",
-      "objective": "Prepare hosted CI proof for Docker-backed reference app, Helm rendering, kube policy validation, and release evidence gates when required tools are available.",
-      "deliverable": "P11 hosted proof contract for Docker, Helm, kubeconform or kubeval, Trivy, release evidence, fallback reasons, and operator rollback notes.",
-      "gate": "make p1-growth-check",
-      "commitPolicy": "commit after hosted cloud-native proof gates pass or explicit environment-limited fallback evidence is recorded"
+      "title": "Hosted cloud-native live CI",
+      "objective": "Turn cloud-native live render validation into a hosted release-blocking CI job with artifact upload, release prerequisites, and drift checks.",
+      "deliverable": "P12 hosted live CI proof for Helm, kubeconform or kubeval, release prerequisite wiring, artifact contracts, and CI drift validation.",
+      "gate": "make cloud-native-render-check",
+      "verification": [
+        "make cloud-native-render-check",
+        "make ci-required-check-evidence-check",
+        "make required-checks-drift-check"
+      ],
+      "commit": "155fd18",
+      "commitPolicy": "commit after hosted cloud-native live CI evidence, render check, CI required check evidence, and required-checks drift pass"
     }
   ],
   "surfaces": [

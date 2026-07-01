@@ -234,6 +234,78 @@
       "rollbackNote": "Keep generated DB/cache features out of adopter templates until temp-module compile and generated-version compatibility gates pass."
     }
   ],
+  "p10StorageCacheProductization": {
+    "schema": "gofly.db_cache_p10_productization.v1",
+    "aiflowTask": "GOFLY-P10-3-STORAGE-CACHE-PRODUCTIZATION",
+    "status": "blocking-contract",
+    "acceptanceGate": "make db-cache-productization-check",
+    "goZeroGapClosure": "Close sqlx/cache adoption gaps with SQLStore, read/write split, generated transaction helpers, SQL outbox, Redis-backed model cache contracts, cache observability, local smoke, and rollback notes without importing go-zero runtime dependencies.",
+    "rows": [
+      {
+        "id": "read-write-strategy",
+        "surface": "SQL read/write strategy",
+        "evidence": [
+          "SQLStore",
+          "NewCluster",
+          "Reader",
+          "Writer",
+          "FOR UPDATE"
+        ],
+        "gate": "go test -shuffle=on ./core/storage/...",
+        "rollbackOrEscalation": "Route all operations to the primary SQLStore or previous repository path until read/write split and transaction tests pass."
+      },
+      {
+        "id": "transaction-examples",
+        "surface": "transaction helpers and SQL outbox",
+        "evidence": [
+          "SQLStore.Transact",
+          "Cluster.Transact",
+          "SQL outbox",
+          "outbox relay"
+        ],
+        "gate": "go test -shuffle=on ./core/storage/... ./core/outbox/...",
+        "rollbackOrEscalation": "Keep existing transactional writes and broker handoff active until generated transactions and SQL outbox smoke pass."
+      },
+      {
+        "id": "generated-model-cache-contracts",
+        "surface": "generated model cache contracts",
+        "evidence": [
+          "RedisCachedOrderRepo",
+          "UpdateWithInvalidate",
+          "GenerateModelFromDDL",
+          "ensureModelGoModDependencies"
+        ],
+        "gate": "go test -shuffle=on ./cmd/gofly/internal/generator -run TestGenerateModelFromDDL",
+        "rollbackOrEscalation": "Keep generated cache features behind dry-run and temp-module compile checks until invalidation and dependency placement pass."
+      },
+      {
+        "id": "redis-cache-observability",
+        "surface": "Redis/cache observability",
+        "evidence": [
+          "Cache stats",
+          "WritePrometheus",
+          "Redis miss semantics",
+          "GOFLY_CACHE_DISABLED"
+        ],
+        "gate": "go test -shuffle=on ./cache ./core/kv/...",
+        "rollbackOrEscalation": "Disable Redis-backed cache or use GOFLY_CACHE_DISABLED=true when cache stats, miss semantics, TTL, or invalidation evidence diverge."
+      },
+      {
+        "id": "local-smoke-reference-app",
+        "surface": "local smoke and reference app evidence",
+        "evidence": [
+          "examples/cache-local",
+          "examples/production-orders",
+          "REFERENCE_APP_MODE=memory make reference-app-smoke",
+          "gofly.cache_local.v1"
+        ],
+        "gate": "make reference-app-smoke",
+        "rollbackOrEscalation": "Use memory mode as the local fallback and require Docker-backed SQL/Redis evidence before claiming production dependency proof."
+      }
+    ],
+    "promotionPolicy": "Treat SQL/cache productization as adopted only when read/write routing, transaction examples, generated model cache contracts, Redis/cache observability, local smoke, generated dependency boundaries, and rollback notes all pass.",
+    "runtimeArtifactPolicy": "Generated DB/cache smoke projects and Docker-backed reports remain runtime evidence and must stay under ignored temporary paths."
+  },
   "capabilities": [
     {
       "id": "sql-storage-core",

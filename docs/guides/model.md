@@ -47,6 +47,11 @@ read/write strategy, transaction examples, Redis-backed cache contracts,
 observability, local smoke tests, and rollback guidance connected to
 `make framework-gap-check`.
 
+The P10 closeout is recorded as `p10StorageCacheProductization` in the same
+matrix. It keeps read/write routing, transaction helpers, SQL outbox, generated
+model cache contracts, Redis/cache observability, local smoke, dependency
+boundaries, and rollback notes tied to `make db-cache-productization-check`.
+
 ## Recommendation
 
 Pair model generation with migration review and a service-level example that exercises one real read/write path.

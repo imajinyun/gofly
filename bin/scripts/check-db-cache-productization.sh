@@ -221,6 +221,53 @@ for workflow_id in sorted(expected_workflows):
     for rel in item.get("tests") or []:
         require((root / rel).exists(), f"{workflow_id}: test path is missing: {rel}")
 
+p10_closeout = manifest.get("p10StorageCacheProductization") or {}
+require(
+    p10_closeout.get("schema") == "gofly.db_cache_p10_productization.v1",
+    "p10StorageCacheProductization schema mismatch",
+)
+require(
+    p10_closeout.get("aiflowTask") == "GOFLY-P10-3-STORAGE-CACHE-PRODUCTIZATION",
+    "p10StorageCacheProductization aiflowTask mismatch",
+)
+require(p10_closeout.get("status") == "blocking-contract", "p10StorageCacheProductization status must be blocking-contract")
+require(
+    p10_closeout.get("acceptanceGate") == "make db-cache-productization-check",
+    "p10StorageCacheProductization acceptanceGate mismatch",
+)
+require(
+    len(str(p10_closeout.get("goZeroGapClosure") or "").split()) >= 18,
+    "p10StorageCacheProductization goZeroGapClosure must be actionable",
+)
+p10_rows = {
+    item.get("id"): item
+    for item in p10_closeout.get("rows") or []
+    if isinstance(item, dict) and item.get("id")
+}
+expected_p10_rows = {
+    "read-write-strategy": {"SQLStore", "NewCluster", "Reader", "Writer", "FOR UPDATE"},
+    "transaction-examples": {"SQLStore.Transact", "Cluster.Transact", "SQL outbox", "outbox relay"},
+    "generated-model-cache-contracts": {"RedisCachedOrderRepo", "UpdateWithInvalidate", "GenerateModelFromDDL", "ensureModelGoModDependencies"},
+    "redis-cache-observability": {"Cache stats", "WritePrometheus", "Redis miss semantics", "GOFLY_CACHE_DISABLED"},
+    "local-smoke-reference-app": {"examples/cache-local", "examples/production-orders", "REFERENCE_APP_MODE=memory make reference-app-smoke", "gofly.cache_local.v1"},
+}
+require(set(p10_rows) == set(expected_p10_rows), f"p10StorageCacheProductization rows mismatch: {sorted(p10_rows)!r}")
+for row_id, expected_evidence in expected_p10_rows.items():
+    row = p10_rows.get(row_id) or {}
+    for field in ("id", "surface", "evidence", "gate", "rollbackOrEscalation"):
+        require(row.get(field), f"p10StorageCacheProductization {row_id}: {field} is required")
+    evidence = set(row.get("evidence") or [])
+    require(expected_evidence <= evidence, f"p10StorageCacheProductization {row_id}: evidence missing {sorted(expected_evidence - evidence)!r}")
+    gate = str(row.get("gate") or "")
+    require(gate_is_known(gate, targets), f"p10StorageCacheProductization {row_id}: gate is not known: {gate!r}")
+    require(len(str(row.get("rollbackOrEscalation") or "").split()) >= 10, f"p10StorageCacheProductization {row_id}: rollbackOrEscalation must be actionable")
+policy_text = str(p10_closeout.get("promotionPolicy") or "")
+for needle in ("read/write routing", "transaction examples", "generated model cache contracts", "Redis/cache observability", "local smoke", "rollback notes"):
+    require(needle in policy_text, f"p10StorageCacheProductization promotionPolicy missing {needle!r}")
+runtime_policy = str(p10_closeout.get("runtimeArtifactPolicy") or "")
+for needle in ("runtime evidence", "ignored temporary paths"):
+    require(needle in runtime_policy, f"p10StorageCacheProductization runtimeArtifactPolicy missing {needle!r}")
+
 for capability_id, expected_status in expected_capabilities.items():
     item = capability_map.get(capability_id) or {}
     require(item.get("status") == expected_status, f"{capability_id}: status must be {expected_status}")
@@ -261,6 +308,7 @@ for needle in [
     "NewCluster",
     "SQL outbox",
     "Redis-backed model cache",
+    "p10StorageCacheProductization",
     "planned",
 ]:
     require(needle in model_guide or needle in cache_guide, f"cache/model guides missing {needle!r}")

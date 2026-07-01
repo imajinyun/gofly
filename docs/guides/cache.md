@@ -55,6 +55,11 @@ cache contracts, Redis/cache observability, local smoke tests, and
 `make framework-gap-check`. Keep the existing go-zero repository path active
 until those gates pass locally.
 
+The P10 closeout appears as `p10StorageCacheProductization`. It requires
+read/write strategy, transaction examples, generated model cache contracts,
+Redis/cache observability, local smoke, generated dependency boundaries, and
+rollback notes before DB/cache claims can be promoted.
+
 ## Recommendation
 
 - keep cache TTLs explicit per domain;

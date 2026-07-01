@@ -178,15 +178,30 @@ check_evidence() {
 		BenchmarkHTTPOpenAPI \
 		BenchmarkHTTPGovernance \
 		BenchmarkRPCUnary \
-		BenchmarkRPCStreamGovernance \
-		BenchmarkGatewayProxy \
-		BenchmarkCacheHotPath; do
+		BenchmarkRPCStreamGovernance; do
 		if ! grep -q "$benchmark" "$BASELINE_FILE"; then
 			echo "baseline is missing $benchmark"
 			exit 1
 		fi
 		if ! grep -q "$benchmark" "$MATRIX_FILE"; then
 			echo "matrix is missing $benchmark"
+			exit 1
+		fi
+	done
+	for benchmark in \
+		BenchmarkGatewayProxy \
+		BenchmarkCacheHotPath \
+		BenchmarkCacheHotPathGetOrLoadHit; do
+		if ! grep -q "$benchmark" "$MATRIX_FILE"; then
+			echo "matrix is missing candidate benchmark $benchmark"
+			exit 1
+		fi
+		if ! grep -q "func $benchmark(" "$BENCH_DIR/gateway_cache_bench_test.go"; then
+			echo "candidate benchmark source is missing $benchmark"
+			exit 1
+		fi
+		if ! grep -q "$benchmark" "$RATCHET_FILE"; then
+			echo "ratchet is missing candidate benchmark $benchmark"
 			exit 1
 		fi
 	done
@@ -246,6 +261,7 @@ def validate_ratchet_policy() -> None:
     adopter_contract = ratchet.get("adopterPerformanceContract") or {}
     promotion_evidence = ratchet.get("performancePromotionEvidence") or {}
     p9_ownership = ratchet.get("p9GatewayCacheOwnership") or {}
+    p10_ratchet = ratchet.get("p10PerformanceBudgetRatchet") or {}
     report_only = set(latency_policy.get("reportOnly") or [])
     promoted = latency_policy.get("promoted") or []
     rpc_policy = ratchet.get("rpcPolicy") or {}
@@ -351,6 +367,26 @@ def validate_ratchet_policy() -> None:
     require_policy(
         len(str(p9_ownership.get("policy") or "").split()) >= 20,
         "p9GatewayCacheOwnership policy must be actionable",
+    )
+    require_policy(
+        p10_ratchet.get("schema") == "gofly.benchmark_p10_performance_budget_ratchet.v1",
+        "p10PerformanceBudgetRatchet schema mismatch",
+    )
+    require_policy(
+        p10_ratchet.get("aiflowTask") == "GOFLY-P10-7-PERFORMANCE-BUDGET-RATCHET",
+        "p10PerformanceBudgetRatchet aiflowTask mismatch",
+    )
+    require_policy(
+        p10_ratchet.get("acceptanceGate") == "make bench-regression-check",
+        "p10PerformanceBudgetRatchet acceptanceGate must be make bench-regression-check",
+    )
+    require_policy(
+        p10_ratchet.get("status") == "closed-with-report-only-boundaries",
+        "p10PerformanceBudgetRatchet status must record report-only boundary closeout",
+    )
+    require_policy(
+        len(str(p10_ratchet.get("policy") or "").split()) >= 20,
+        "p10PerformanceBudgetRatchet policy must be actionable",
     )
 
     confidence = promotion_evidence.get("multiRunConfidence") or {}
@@ -508,6 +544,113 @@ def validate_ratchet_policy() -> None:
             f"{benchmark}: promoted latency maxRegressionRatio must be >= 1",
         )
         require_policy(bool(item.get("reason")), f"{benchmark}: promoted latency reason is required")
+
+    p10_blocking = {
+        item.get("benchmark"): item
+        for item in p10_ratchet.get("blockingBudgets") or []
+        if isinstance(item, dict) and item.get("benchmark")
+    }
+    expected_p10_blocking = {
+        "BenchmarkHTTPOpenAPI/disabled",
+        "BenchmarkHTTPOpenAPI/enabled",
+        "BenchmarkHTTPGovernance/disabled",
+        "BenchmarkHTTPGovernance/enabled",
+    }
+    require_policy(
+        set(p10_blocking) == expected_p10_blocking,
+        "p10PerformanceBudgetRatchet blockingBudgets mismatch",
+    )
+    require_policy(
+        set(p10_blocking) == set(promoted_latency),
+        "p10PerformanceBudgetRatchet blockingBudgets must match promoted latency rows",
+    )
+    for benchmark, item in p10_blocking.items():
+        require_policy(benchmark in tracked, f"{benchmark}: P10 blocking budget must stay tracked")
+        require_policy(
+            item.get("budgetScope") == "latency-and-allocation-blocking",
+            f"{benchmark}: P10 blocking budget scope must be latency-and-allocation-blocking",
+        )
+        for field in ("confidence", "rollbackAction"):
+            require_policy(
+                len(str(item.get(field) or "").split()) >= 8,
+                f"{benchmark}: P10 blocking budget {field} must be actionable",
+            )
+
+    p10_allocation_only = set(p10_ratchet.get("allocationOnlyBudgets") or [])
+    require_policy(
+        p10_allocation_only == report_only,
+        "p10PerformanceBudgetRatchet allocationOnlyBudgets must match latencyPolicy.reportOnly",
+    )
+    require_policy(
+        p10_allocation_only <= tracked,
+        "p10PerformanceBudgetRatchet allocationOnlyBudgets must stay tracked",
+    )
+    rpc_candidate_names_for_p10 = {
+        item.get("benchmark", "")
+        for item in rpc_candidates
+        if isinstance(item, dict) and item.get("benchmark")
+    }
+    p10_report_only = set(p10_ratchet.get("reportOnlyLatencyRows") or [])
+    p10_expected_report_only = (
+        report_only
+        | rpc_candidate_names_for_p10
+        | {
+            "BenchmarkGatewayProxy",
+            "BenchmarkCacheHotPath",
+            "BenchmarkCacheHotPathGetOrLoadHit",
+        }
+    )
+    require_policy(
+        p10_report_only == p10_expected_report_only,
+        "p10PerformanceBudgetRatchet reportOnlyLatencyRows mismatch",
+    )
+    require_policy(
+        not (p10_report_only & set(promoted_latency)),
+        "p10PerformanceBudgetRatchet report-only latency rows must not include promoted latency rows",
+    )
+    for benchmark in (
+        "BenchmarkRPCUnary/gofly_rpc",
+        "BenchmarkRPCStreamGovernance",
+        "BenchmarkRPCServerStreamGovernance",
+        "BenchmarkRPCClientStreamGovernance",
+        "BenchmarkRPCBidiStreamGovernance",
+        "BenchmarkGatewayProxy",
+        "BenchmarkCacheHotPath",
+        "BenchmarkCacheHotPathGetOrLoadHit",
+    ):
+        require_policy(
+            benchmark not in tracked,
+            f"{benchmark}: P10 report-only candidate must stay out of trackedBenchmarks before promotion",
+        )
+
+    p10_hold_reasons = {
+        item.get("surface"): item
+        for item in p10_ratchet.get("promotionHoldReasons") or []
+        if isinstance(item, dict) and item.get("surface")
+    }
+    require_policy(
+        set(p10_hold_reasons) == {
+            "REST latency except OpenAPI and governance",
+            "RPC unary and stream",
+            "gateway and cache",
+        },
+        "p10PerformanceBudgetRatchet promotionHoldReasons mismatch",
+    )
+    for surface, item in p10_hold_reasons.items():
+        for field in ("reason", "nextAction"):
+            require_policy(
+                len(str(item.get(field) or "").split()) >= 10,
+                f"{surface}: P10 promotion hold {field} must be actionable",
+            )
+
+    p10_promotion_rules = set(p10_ratchet.get("promotionRules") or [])
+    for rule in (
+        "minimum 5 baseline samples",
+        "minimum 3 current trend samples",
+        "no allocation regression under bench-regression-check",
+        "latency rows require maxRegressionRatio and rollback action before blocking promotion",
+    ):
+        require_policy(rule in p10_promotion_rules, f"p10PerformanceBudgetRatchet promotionRules missing {rule!r}")
 
     require_policy(
         not (set(promoted_latency) & report_only),
@@ -852,6 +995,7 @@ if policy_failures:
             "latencyMode": latency_policy.get("defaultMode", ""),
             "latencyBlockingBenchmarks": sorted(promoted_latency),
             "performancePromotionEvidence": ratchet.get("performancePromotionEvidence", {}),
+            "p10PerformanceBudgetRatchet": ratchet.get("p10PerformanceBudgetRatchet", {}),
             "rpcPolicy": ratchet.get("rpcPolicy", {}),
             "allocTolerance": alloc_tolerance,
         },
@@ -971,6 +1115,7 @@ report = {
         "latencyMode": latency_policy.get("defaultMode", "report-only"),
         "latencyBlockingBenchmarks": sorted(promoted_latency),
         "performancePromotionEvidence": ratchet.get("performancePromotionEvidence", {}),
+        "p10PerformanceBudgetRatchet": ratchet.get("p10PerformanceBudgetRatchet", {}),
         "rpcPolicy": ratchet.get("rpcPolicy", {}),
         "allocTolerance": alloc_tolerance,
     },

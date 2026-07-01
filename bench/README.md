@@ -57,6 +57,16 @@ benchmark evidence; RPC unary is still a candidate; gateway proxy and cache hot
 path are explicitly `unsupported-report-only` because this workspace does not
 yet publish dedicated benchmark rows for them.
 
+P10 closes the current promotion decision in
+`p10PerformanceBudgetRatchet`: OpenAPI and governance rows with five baseline
+samples remain latency-and-allocation blocking, REST dispatch/path/binding and
+middleware latency remain report-only, and RPC/gateway/cache rows stay outside
+`trackedBenchmarks` until current trend confidence and rollback evidence are
+attached. Evidence checks require committed baseline rows only for published
+blocking or historical candidate benchmarks; gateway and cache candidates are
+validated through benchmark source, matrix entries, and ratchet policy until
+promotion.
+
 Kitex is optional. Downstream services that already carry generated Kitex fixtures can add a `kitex` sub-benchmark under `BenchmarkRPCUnary` without making Kitex a required root dependency for every gofly checkout.
 
 ## Local reproduction

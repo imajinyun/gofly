@@ -61,6 +61,20 @@ are candidate report-only evidence until the committed baseline has five
 samples, the current trend has three samples, and promotion keeps rollback
 guidance attached.
 
+P10 adds `p10PerformanceBudgetRatchet` to close the current promotion decision:
+only OpenAPI and governance rows with five-sample baseline evidence stay
+latency-and-allocation blocking. REST router/path/binding/middleware latency,
+RPC unary/stream latency, gateway proxy, and cache hot-path rows remain
+report-only until they publish three current trend samples, explicit
+`maxRegressionRatio` policy, allocation promotion, and rollback notes. This
+prevents weak-signal benchmark rows from becoming release blockers while still
+making every hold reason auditable.
+
+`make bench-evidence-check` follows the same boundary: committed baseline
+evidence is required for published blocking and historical candidate rows, while
+P10 gateway/cache candidates are checked through source, matrix, and ratchet
+contract presence until they are deliberately promoted.
+
 Run:
 
 ```sh

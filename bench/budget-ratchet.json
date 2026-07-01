@@ -376,6 +376,83 @@
       "latency remains report-only until maxRegressionRatio and rollback action are documented"
     ]
   },
+  "p10PerformanceBudgetRatchet": {
+    "schema": "gofly.benchmark_p10_performance_budget_ratchet.v1",
+    "aiflowTask": "GOFLY-P10-7-PERFORMANCE-BUDGET-RATCHET",
+    "acceptanceGate": "make bench-regression-check",
+    "status": "closed-with-report-only-boundaries",
+    "policy": "P10 keeps allocation budgets blocking for established REST/OpenAPI/governance hot paths, keeps weak-signal REST and RPC latency rows report-only, and forbids promoting gateway or cache benchmark claims until baseline and current trend confidence are attached.",
+    "blockingBudgets": [
+      {
+        "benchmark": "BenchmarkHTTPOpenAPI/disabled",
+        "budgetScope": "latency-and-allocation-blocking",
+        "confidence": "five baseline samples with promoted latency maxRegressionRatio and rollback guidance",
+        "rollbackAction": "Revert OpenAPI metadata-path changes or keep the previous release when latency or allocation budgets fail."
+      },
+      {
+        "benchmark": "BenchmarkHTTPOpenAPI/enabled",
+        "budgetScope": "latency-and-allocation-blocking",
+        "confidence": "five baseline samples with promoted latency maxRegressionRatio and rollback guidance",
+        "rollbackAction": "Revert OpenAPI schema or route metadata changes until benchmark evidence recovers."
+      },
+      {
+        "benchmark": "BenchmarkHTTPGovernance/disabled",
+        "budgetScope": "latency-and-allocation-blocking",
+        "confidence": "five baseline samples with promoted latency maxRegressionRatio and rollback guidance",
+        "rollbackAction": "Revert disabled-governance hot-path changes until benchmark evidence recovers."
+      },
+      {
+        "benchmark": "BenchmarkHTTPGovernance/enabled",
+        "budgetScope": "latency-and-allocation-blocking",
+        "confidence": "five baseline samples with promoted latency maxRegressionRatio and rollback guidance",
+        "rollbackAction": "Disable or revert governance rule-match changes until benchmark evidence recovers."
+      }
+    ],
+    "allocationOnlyBudgets": [
+      "BenchmarkHTTPHello/gofly",
+      "BenchmarkHTTPPathParams/gofly",
+      "BenchmarkHTTPJSONBinding/gofly",
+      "BenchmarkHTTPMiddlewareChain/gofly"
+    ],
+    "reportOnlyLatencyRows": [
+      "BenchmarkHTTPHello/gofly",
+      "BenchmarkHTTPPathParams/gofly",
+      "BenchmarkHTTPJSONBinding/gofly",
+      "BenchmarkHTTPMiddlewareChain/gofly",
+      "BenchmarkRPCUnary/gofly_rpc",
+      "BenchmarkRPCStreamGovernance",
+      "BenchmarkRPCServerStreamGovernance",
+      "BenchmarkRPCClientStreamGovernance",
+      "BenchmarkRPCBidiStreamGovernance",
+      "BenchmarkGatewayProxy",
+      "BenchmarkCacheHotPath",
+      "BenchmarkCacheHotPathGetOrLoadHit"
+    ],
+    "promotionHoldReasons": [
+      {
+        "surface": "REST latency except OpenAPI and governance",
+        "reason": "Latency remains a weak signal until three current trend samples and a documented maxRegressionRatio exist for each row.",
+        "nextAction": "Keep allocation blocking, publish trend evidence, and promote only one row at a time after stable multi-run confidence."
+      },
+      {
+        "surface": "RPC unary and stream",
+        "reason": "RPC remains Tier 1 candidate evidence and has not completed the required release train or blocking budget promotion.",
+        "nextAction": "Keep Kitex or existing gRPC rollback guidance attached and revisit after rpc-boundary-check plus bench-regression-check pass across release trains."
+      },
+      {
+        "surface": "gateway and cache",
+        "reason": "Dedicated benchmark rows exist, but the ratchet still needs current trend confidence and explicit allocation promotion before blocking release decisions.",
+        "nextAction": "Collect at least five baseline samples, three current trend samples, allocation budgets, and rollback notes before moving into trackedBenchmarks."
+      }
+    ],
+    "promotionRules": [
+      "minimum 5 baseline samples",
+      "minimum 3 current trend samples",
+      "no allocation regression under bench-regression-check",
+      "latency rows require maxRegressionRatio and rollback action before blocking promotion",
+      "only one new latency surface should be promoted per governance round unless the evidence source is shared"
+    ]
+  },
   "allocationPolicy": {
     "blocking": true,
     "metric": "allocs/op median",

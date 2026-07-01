@@ -52,6 +52,15 @@ allocation-blocking claims, report-only latency rows, RPC candidates, and
 unsupported gateway/cache claims separate for release notes and adopter
 decisions.
 
+P10 records the current promotion closeout in
+`gofly.benchmark_p10_performance_budget_ratchet.v1`. It keeps OpenAPI and
+governance latency rows blocking, keeps REST router/path/binding/middleware
+latency report-only, and holds RPC, gateway, and cache rows outside
+`trackedBenchmarks` until multi-run confidence and rollback evidence are
+attached. Gateway and cache candidate rows are therefore validated as source,
+matrix, and ratchet contracts by `make bench-evidence-check`; they do not
+require committed baseline rows until promotion.
+
 ## Run the benchmark suite
 
 ```sh

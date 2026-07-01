@@ -1354,7 +1354,20 @@ if convergence["taskCount"] != 10:
 active_aiflow_batch = convergence.get("activeAiflowBatch", "")
 if not active_aiflow_batch:
     missing.append("governance convergence activeAiflowBatch is required")
-expected_round_ids = [f"{active_aiflow_batch}-{idx:02d}" for idx in range(1, 11)]
+expected_round_ids = [
+    "GOFLY-P10-1-RPC-TIER1-CLOSEOUT",
+    "GOFLY-P10-2-GOCTL-GENERATOR-FIDELITY",
+    "GOFLY-P10-3-STORAGE-CACHE-PRODUCTIZATION",
+    "GOFLY-P10-4-REST-MIDDLEWARE-ECOSYSTEM-MATRIX",
+    "GOFLY-P10-5-DISCOVERY-ADAPTER-MATRIX",
+    "GOFLY-P10-6-AI_NATIVE_SUPPORT_BUNDLE",
+    "GOFLY-P10-7-PERFORMANCE-BUDGET-RATCHET",
+    "GOFLY-P10-8-CLOUD-NATIVE-ADOPTION-PROOF",
+    "GOFLY-P10-9-RELEASE-DASHBOARD-CONSUMPTION",
+    "GOFLY-P10-10-CONVERGENCE-REPORT",
+]
+if active_aiflow_batch != "GOFLY-P10":
+    missing.append("governance convergence activeAiflowBatch must be GOFLY-P10")
 actual_round_ids = [
     item.get("id", "")
     for item in convergence.get("tasks") or []

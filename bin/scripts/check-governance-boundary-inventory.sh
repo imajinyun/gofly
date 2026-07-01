@@ -14,10 +14,22 @@ p10_path = root / "docs" / "reference" / "governance-p10-roadmap.json"
 post_r8_path = root / "docs" / "reference" / "framework-gap-post-r8-roadmap.json"
 missing = []
 
-expected_active_batch = "GOFLY-GOV-10P9"
-expected_converged_batch = "GOFLY-GOV-10P9"
-expected_tasks = [f"{expected_active_batch}-{idx:02d}" for idx in range(1, 11)]
-expected_converged_tasks = [f"{expected_converged_batch}-{idx:02d}" for idx in range(1, 11)]
+expected_active_batch = "GOFLY-P10"
+expected_converged_batch = "GOFLY-P10"
+expected_tasks = [
+    "GOFLY-P10-1-RPC-TIER1-CLOSEOUT",
+    "GOFLY-P10-2-GOCTL-GENERATOR-FIDELITY",
+    "GOFLY-P10-3-STORAGE-CACHE-PRODUCTIZATION",
+    "GOFLY-P10-4-REST-MIDDLEWARE-ECOSYSTEM-MATRIX",
+    "GOFLY-P10-5-DISCOVERY-ADAPTER-MATRIX",
+    "GOFLY-P10-6-AI_NATIVE_SUPPORT_BUNDLE",
+    "GOFLY-P10-7-PERFORMANCE-BUDGET-RATCHET",
+    "GOFLY-P10-8-CLOUD-NATIVE-ADOPTION-PROOF",
+    "GOFLY-P10-9-RELEASE-DASHBOARD-CONSUMPTION",
+    "GOFLY-P10-10-CONVERGENCE-REPORT",
+]
+expected_converged_tasks = expected_tasks
+expected_post_r8_tasks = [f"GOFLY-GOV-10P9-{idx:02d}" for idx in range(1, 11)]
 expected_batches = {
     "GOFLY-GOV-10R": {
         "status": "completed-with-local-fallbacks",
@@ -60,22 +72,27 @@ expected_batches = {
         "roundCount": 10,
     },
     "GOFLY-GOV-10P9": {
-        "status": "active",
+        "status": "completed",
         "taskPrefix": "GOFLY-GOV-10P9-",
+        "roundCount": 10,
+    },
+    "GOFLY-P10": {
+        "status": "active",
+        "taskPrefix": "GOFLY-P10-",
         "roundCount": 10,
     },
 }
 expected_converged_commits = {
-    "GOFLY-GOV-10P9-01": "eb7da6b",
-    "GOFLY-GOV-10P9-02": "1b13f63",
-    "GOFLY-GOV-10P9-03": "0e7948d",
-    "GOFLY-GOV-10P9-04": "6453c27",
-    "GOFLY-GOV-10P9-05": "e78d433",
-    "GOFLY-GOV-10P9-06": "2246e6b",
-    "GOFLY-GOV-10P9-07": "45aaca2",
-    "GOFLY-GOV-10P9-08": "14386e1",
-    "GOFLY-GOV-10P9-09": "76ed3d2",
-    "GOFLY-GOV-10P9-10": "self",
+    "GOFLY-P10-1-RPC-TIER1-CLOSEOUT": "48dc714",
+    "GOFLY-P10-2-GOCTL-GENERATOR-FIDELITY": "f253ee4",
+    "GOFLY-P10-3-STORAGE-CACHE-PRODUCTIZATION": "d990743",
+    "GOFLY-P10-4-REST-MIDDLEWARE-ECOSYSTEM-MATRIX": "655f98b",
+    "GOFLY-P10-5-DISCOVERY-ADAPTER-MATRIX": "c94f88f",
+    "GOFLY-P10-6-AI_NATIVE_SUPPORT_BUNDLE": "542b1e0",
+    "GOFLY-P10-7-PERFORMANCE-BUDGET-RATCHET": "148fe58",
+    "GOFLY-P10-8-CLOUD-NATIVE-ADOPTION-PROOF": "8adcc67",
+    "GOFLY-P10-9-RELEASE-DASHBOARD-CONSUMPTION": "f4d34dc",
+    "GOFLY-P10-10-CONVERGENCE-REPORT": "self",
 }
 expected_surfaces = {
     "cli",
@@ -197,25 +214,25 @@ for expected_round, item in enumerate(tasks, start=1):
     require(gate_is_known(item.get("gate", ""), targets), f"{task_id}: gate is not known: {item.get('gate')!r}")
 expected_task_gates = [
     "make rpc-boundary-check",
-    "make generated-version-compat-check",
-    "make reference-app-smoke",
-    "make bench-regression-check",
+    "make generated-upgrade-dry-run-check",
+    "make db-cache-productization-check",
+    "make p1-growth-check",
+    "make discovery-adapter-matrix-check",
     "make governance-report-check",
-    "make cloud-native-render-check",
-    "make plugin-conformance-check",
-    "make adopter-decision-check",
-    "make dx-troubleshooting-check",
+    "make bench-regression-check",
+    "make p1-growth-check",
+    "make governance-report-check",
     "make governance-10-rounds",
 ]
 actual_task_gates = [item.get("gate") for item in tasks if isinstance(item, dict)]
-require(actual_task_gates == expected_task_gates, f"P9 task gates mismatch: {actual_task_gates!r}")
+require(actual_task_gates == expected_task_gates, f"P10 task gates mismatch: {actual_task_gates!r}")
 require(
     "release-train" in tasks[0].get("deliverable", "").lower(),
-    "P9 round 01 deliverable must document RPC release-train evidence",
+    "P10 round 01 deliverable must document RPC release-train evidence",
 )
 require(
     "latency parity" in tasks[0].get("objective", "").lower(),
-    "P9 round 01 objective must keep latency parity claims conservative",
+    "P10 round 01 objective must keep latency parity claims conservative",
 )
 
 surfaces = manifest.get("surfaces") or []
@@ -267,7 +284,7 @@ actual_post_r8_ids = [
 ]
 require(actual_post_r8_ids == expected_post_r8_ids, f"post-R8 roadmap dimensions mismatch: {actual_post_r8_ids!r}")
 post_r8_order = post_r8.get("recommendedOrder") or []
-require(post_r8_order == expected_tasks, f"post-R8 recommendedOrder must match active P9 tasks: {post_r8_order!r}")
+require(post_r8_order == expected_post_r8_tasks, f"post-R8 recommendedOrder must remain historical P9 planning evidence: {post_r8_order!r}")
 post_r8_scope = post_r8.get("scope") or {}
 post_r8_excluded = set(post_r8_scope.get("excluded") or [])
 for out_of_scope in ("GitHub stars", "download counts", "community size", "brand awareness"):
@@ -280,15 +297,14 @@ for expected_round, item in enumerate(post_r8_dimensions, start=1):
     require(item.get("round") == expected_round, f"{item_id}: round must be {expected_round}")
     for field in ("id", "priority", "referenceFrameworks", "currentEvidence", "gap", "todo", "aiflowTask", "acceptanceGate"):
         require(bool(item.get(field)), f"{item_id}: {field} is required")
-    require(item.get("aiflowTask") == expected_tasks[expected_round - 1], f"{item_id}: aiflowTask mismatch")
-    require(item.get("acceptanceGate") == expected_task_gates[expected_round - 1], f"{item_id}: acceptanceGate mismatch")
+    require(item.get("aiflowTask") == expected_post_r8_tasks[expected_round - 1], f"{item_id}: aiflowTask mismatch")
     require(gate_is_known(item.get("acceptanceGate", ""), targets), f"{item_id}: acceptanceGate is not known: {item.get('acceptanceGate')!r}")
     for evidence in item.get("currentEvidence") or []:
         if evidence.startswith(("docs/", "examples/", "bench/", "charts/", "k8s/")):
             require((root / evidence).exists(), f"{item_id}: evidence path missing: {evidence}")
 
 require(convergence_manifest.get("schema") == "gofly.governance_convergence_verification.v1", "convergence verification schema mismatch")
-require(convergence_manifest.get("aiflowTask") == "GOFLY-GOV-10P9-10", "convergence verification aiflowTask mismatch")
+require(convergence_manifest.get("aiflowTask") == "GOFLY-P10-10-CONVERGENCE-REPORT", "convergence verification aiflowTask mismatch")
 require(convergence_manifest.get("acceptanceGate") == "make governance-10-rounds", "convergence verification acceptanceGate mismatch")
 require(convergence_manifest.get("activeBatch") == expected_converged_batch, "convergence verification activeBatch mismatch")
 aggregate_gates = set(convergence_manifest.get("aggregateGates") or [])
@@ -339,10 +355,10 @@ require(execution.get("status") == "completed", "convergence verification aiflow
 require(execution.get("blocker") == "none", "convergence verification aiflowExecution.blocker must be none")
 require("commit and push" in str(execution.get("goflyImpact") or ""), "convergence verification aiflowExecution.goflyImpact must document aiflow commit policy")
 previous_handoff = convergence_manifest.get("previousBatchHandoff") or {}
-require("GOFLY-GOV-10R8-10" in set(previous_handoff.get("supersedes") or []), "previousBatchHandoff must supersede GOFLY-GOV-10R8-10")
-require("P9 active batch" in str(previous_handoff.get("reason") or ""), "previousBatchHandoff.reason must document P9 active batch handoff")
+require("GOFLY-GOV-10P9-10" in set(previous_handoff.get("supersedes") or []), "previousBatchHandoff must supersede GOFLY-GOV-10P9-10")
+require("P10 active batch" in str(previous_handoff.get("reason") or ""), "previousBatchHandoff.reason must document P10 active batch handoff")
 previous_completion_policy = str(previous_handoff.get("completionPolicy") or "")
-for needle in ("GOFLY-GOV-10P9-10", "make governance-boundary-inventory-check", "make governance-report-check", "make governance-10-rounds", "current agent or human"):
+for needle in ("GOFLY-P10-10-CONVERGENCE-REPORT", "make governance-boundary-inventory-check", "make governance-report-check", "make governance-10-rounds", "current agent or human"):
     require(needle in previous_completion_policy, f"previousBatchHandoff.completionPolicy missing {needle!r}")
 
 known_risks = {
@@ -362,7 +378,7 @@ recommendations = {
     for item in convergence_manifest.get("nextRoundRecommendations") or []
     if isinstance(item, dict) and item.get("id")
 }
-for rec_id in ("P10-rpc-tier1-closeout", "P10-goctl-generator-fidelity", "P10-cloud-native-adoption-proof"):
+for rec_id in ("P11-rpc-tier1-promotion-review", "P11-generated-project-live-upgrade", "P11-cloud-native-hosted-proof"):
     item = recommendations.get(rec_id) or {}
     require(bool(item), f"nextRoundRecommendations missing {rec_id}")
     require(item.get("priority") in {"P0", "P1", "P2", "P3"}, f"nextRoundRecommendations {rec_id}: priority mismatch")

@@ -1,7 +1,7 @@
 {
   "schema": "gofly.governance_convergence_verification.v1",
-  "aiflowTask": "GOFLY-GOV-10P9-10",
-  "purpose": "Tie the active P9 governance batch to final convergence gates, commit checkpoints, ignored runtime paths, skip-report policy, known risks, and release-blocking verification.",
+  "aiflowTask": "GOFLY-P10-10-CONVERGENCE-REPORT",
+  "purpose": "Tie the active P10 governance batch to final convergence gates, commit checkpoints, ignored runtime paths, skip-report policy, known risks, and release-blocking verification.",
   "acceptanceGate": "make governance-10-rounds",
   "aggregateGates": [
     "make governance-boundary-inventory-check",
@@ -10,65 +10,65 @@
     "make security",
     "make cache-dependency-governance-check"
   ],
-  "activeBatch": "GOFLY-GOV-10P9",
+  "activeBatch": "GOFLY-P10",
   "roundCommits": [
     {
       "round": 1,
-      "task": "GOFLY-GOV-10P9-01",
-      "commit": "eb7da6b",
+      "task": "GOFLY-P10-1-RPC-TIER1-CLOSEOUT",
+      "commit": "48dc714",
       "gate": "make rpc-boundary-check"
     },
     {
       "round": 2,
-      "task": "GOFLY-GOV-10P9-02",
-      "commit": "1b13f63",
-      "gate": "make generated-version-compat-check"
+      "task": "GOFLY-P10-2-GOCTL-GENERATOR-FIDELITY",
+      "commit": "f253ee4",
+      "gate": "make generated-upgrade-dry-run-check"
     },
     {
       "round": 3,
-      "task": "GOFLY-GOV-10P9-03",
-      "commit": "0e7948d",
-      "gate": "make reference-app-smoke"
+      "task": "GOFLY-P10-3-STORAGE-CACHE-PRODUCTIZATION",
+      "commit": "d990743",
+      "gate": "make db-cache-productization-check"
     },
     {
       "round": 4,
-      "task": "GOFLY-GOV-10P9-04",
-      "commit": "6453c27",
-      "gate": "make bench-regression-check"
+      "task": "GOFLY-P10-4-REST-MIDDLEWARE-ECOSYSTEM-MATRIX",
+      "commit": "655f98b",
+      "gate": "make p1-growth-check"
     },
     {
       "round": 5,
-      "task": "GOFLY-GOV-10P9-05",
-      "commit": "e78d433",
-      "gate": "make governance-report-check"
+      "task": "GOFLY-P10-5-DISCOVERY-ADAPTER-MATRIX",
+      "commit": "c94f88f",
+      "gate": "make discovery-adapter-matrix-check"
     },
     {
       "round": 6,
-      "task": "GOFLY-GOV-10P9-06",
-      "commit": "2246e6b",
-      "gate": "make cloud-native-render-check"
+      "task": "GOFLY-P10-6-AI_NATIVE_SUPPORT_BUNDLE",
+      "commit": "542b1e0",
+      "gate": "make governance-report-check"
     },
     {
       "round": 7,
-      "task": "GOFLY-GOV-10P9-07",
-      "commit": "45aaca2",
-      "gate": "make plugin-conformance-check"
+      "task": "GOFLY-P10-7-PERFORMANCE-BUDGET-RATCHET",
+      "commit": "148fe58",
+      "gate": "make bench-regression-check"
     },
     {
       "round": 8,
-      "task": "GOFLY-GOV-10P9-08",
-      "commit": "14386e1",
-      "gate": "make adopter-decision-check"
+      "task": "GOFLY-P10-8-CLOUD-NATIVE-ADOPTION-PROOF",
+      "commit": "8adcc67",
+      "gate": "make p1-growth-check"
     },
     {
       "round": 9,
-      "task": "GOFLY-GOV-10P9-09",
-      "commit": "76ed3d2",
-      "gate": "make dx-troubleshooting-check"
+      "task": "GOFLY-P10-9-RELEASE-DASHBOARD-CONSUMPTION",
+      "commit": "f4d34dc",
+      "gate": "make governance-report-check"
     },
     {
       "round": 10,
-      "task": "GOFLY-GOV-10P9-10",
+      "task": "GOFLY-P10-10-CONVERGENCE-REPORT",
       "commit": "self",
       "gate": "make governance-10-rounds",
       "selfReference": true
@@ -95,29 +95,36 @@
   "aiflowExecution": {
     "status": "completed",
     "blocker": "none",
-    "goflyImpact": "P9 tasks were submitted through aiflow and completed locally with per-task commits because aiflow project policy disables commit and push; the current agent or human owns commit and push."
+    "goflyImpact": "P10 tasks were submitted through root aiflow.yaml and completed locally with per-task commits because aiflow project policy disables commit and push; the current agent or human owns commit and push."
   },
   "previousBatchHandoff": {
     "supersedes": [
-      "GOFLY-GOV-10R8-10"
+      "GOFLY-GOV-10P9-10"
     ],
-    "reason": "R8 convergence was carried forward into the P9 active batch convergence contract after post-R8 framework gap governance completed.",
-    "completionPolicy": "complete GOFLY-GOV-10P9-10 through aiflow after make governance-boundary-inventory-check, make governance-report-check, and make governance-10-rounds pass or document any environment-limited downgrade, with commits owned by the current agent or human"
+    "reason": "P9 convergence was carried forward into the P10 active batch convergence contract after the root aiflow.yaml workflow was rebuilt and P10 tasks completed through local ignored .aiflow runtime state.",
+    "completionPolicy": "complete GOFLY-P10-10-CONVERGENCE-REPORT through aiflow after make governance-boundary-inventory-check, make governance-report-check, and make governance-10-rounds pass or document any environment-limited downgrade, with commits owned by the current agent or human"
   },
   "knownRisks": [
     {
       "id": "docker-backed-reference-app",
       "riskClass": "environment-limited",
       "evidence": "REFERENCE_APP_MODE=docker make reference-app-smoke",
-      "status": "static topology passes; live compose can be skipped when the local Docker credential helper is unavailable",
+      "status": "P10 cloud-native adoption proof links reference app topology and runtime SLOs, but live Docker-backed dependency proof still depends on a host with Docker credential helper access.",
       "followUp": "Run the Docker-backed reference app in CI or a host with docker-credential-desktop available before treating live dependency proof as complete."
     },
     {
       "id": "performance-latency-claims",
       "riskClass": "report-only",
-      "evidence": "bench/budget-ratchet.json p9GatewayCacheOwnership",
-      "status": "REST allocations and promoted OpenAPI/governance latency are blocking; RPC latency remains report-only, while gateway and cache now have P9 ownership evidence without premature latency claims.",
+      "evidence": "bench/budget-ratchet.json p10PerformanceBudgetRatchet",
+      "status": "P10 performance budget ratchet keeps weak latency rows report-only and blocks only promoted allocation budgets until trend confidence and rollback evidence mature.",
       "followUp": "Promote only after five baseline samples, three current trend samples, allocation budget evidence, explicit latency ratio, and rollback guidance exist."
+    },
+    {
+      "id": "release-dashboard-consumption",
+      "riskClass": "contract-drift",
+      "evidence": "docs/reference/governance-dashboard-contract.json releaseDashboardConsumption",
+      "status": "P10 exposes release readiness, API tiers, security, coverage, benchmark ratchets, and aiflow task status as dashboard fields, but adoption tools must consume only the stable field list.",
+      "followUp": "Block dashboard field removals through governance-report-check and keep consumer rows synchronized before publishing release notes or upgrade guidance."
     },
     {
       "id": "runtime-state",
@@ -129,19 +136,19 @@
   ],
   "nextRoundRecommendations": [
     {
-      "id": "P10-rpc-tier1-closeout",
+      "id": "P11-rpc-tier1-promotion-review",
       "priority": "P1",
-      "action": "Promote selected RPC unary and stream surfaces only after one release train records resolver, balancer, stream, benchmark, and Kitex rollback evidence."
+      "action": "Promote selected RPC unary and stream surfaces only after P10 release-train evidence survives one hosted release cycle with resolver, balancer, benchmark, and Kitex rollback evidence."
     },
     {
-      "id": "P10-goctl-generator-fidelity",
+      "id": "P11-generated-project-live-upgrade",
       "priority": "P1",
-      "action": "Expand generated project compatibility fixtures with old, current, and future profiles that repeatedly generate, compile, test, and classify diffs."
+      "action": "Run generated project compatibility fixtures against a real adopter upgrade branch, classify diffs, and keep generated-project-only dependencies outside the root module."
     },
     {
-      "id": "P10-cloud-native-adoption-proof",
+      "id": "P11-cloud-native-hosted-proof",
       "priority": "P2",
-      "action": "Run Docker-backed reference app, cloud-native render, and release evidence gates in CI environments that provide Docker, Helm, and security scanning tools."
+      "action": "Run Docker-backed reference app, Helm rendering, kube policy validation, and release evidence gates in hosted CI with Docker, Helm, and security scanning tools available."
     }
   ]
 }

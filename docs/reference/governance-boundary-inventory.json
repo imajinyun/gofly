@@ -1,7 +1,7 @@
 {
   "schema": "gofly.governance_boundary_inventory.v1",
   "purpose": "Lightweight baseline inventory for the 10-round governance workflow before expensive full-repository gates run.",
-  "activeAiflowBatch": "GOFLY-P10",
+  "activeAiflowBatch": "GOFLY-P11",
   "aiflowTaskBatches": [
     {
       "id": "GOFLY-GOV-10R",
@@ -68,14 +68,14 @@
     },
     {
       "id": "GOFLY-P10",
-      "status": "active",
+      "status": "completed",
       "taskPrefix": "GOFLY-P10-",
       "roundCount": 10,
-      "evidence": "docs/reference/governance-p10-roadmap.json"
+      "evidence": "docs/reference/governance-convergence-verification.json"
     },
     {
       "id": "GOFLY-P11",
-      "status": "queued",
+      "status": "completed",
       "taskPrefix": "GOFLY-P11-",
       "roundCount": 3,
       "evidence": "docs/reference/governance-p11-roadmap.json"
@@ -83,94 +83,31 @@
   ],
   "aiflowTasks": [
     {
-      "id": "GOFLY-P10-1-RPC-TIER1-CLOSEOUT",
+      "id": "GOFLY-P11-1-RPC-TIER1-PROMOTION-REVIEW",
       "round": 1,
-      "title": "RPC Tier-1 closeout",
-      "objective": "Strengthen RPC release-train evidence while keeping latency parity claims conservative until resolver, balancer, stream, benchmark, and rollback data can support Tier 1 promotion.",
-      "deliverable": "P10 release-train RPC closeout evidence for unary, stream, resolver, balancer, deadline, retry, auth, tracing, Kitex rollback, and Tier 1 promotion blockers.",
+      "title": "RPC Tier 1 promotion review",
+      "objective": "Review whether P10 RPC release-train evidence is sufficient to promote unary or stream surfaces toward Tier 1 while keeping latency parity claims conservative.",
+      "deliverable": "P11 promotion review evidence for unary, server stream, client stream, bidi stream, resolver, balancer, deadline, retry, auth, tracing, benchmark budget, Kitex coexistence, and rollback status.",
       "gate": "make rpc-boundary-check",
-      "commitPolicy": "commit after RPC boundary evidence and targeted RPC tests pass"
+      "commitPolicy": "commit after RPC promotion review evidence and rpc-boundary-check pass"
     },
     {
-      "id": "GOFLY-P10-2-GOCTL-GENERATOR-FIDELITY",
+      "id": "GOFLY-P11-2-GENERATED-PROJECT-LIVE-UPGRADE",
       "round": 2,
-      "title": "goctl generator fidelity",
-      "objective": "Improve goctl-compatible scaffold trust with deterministic regeneration, diff categories, .api and proto import edge cases, generated smoke fixtures, and rollback notes.",
-      "deliverable": "P10 goctl generator fidelity contract linking historical fixtures, generated upgrade dry-run evidence, repeat generation, dependency boundaries, and rollback escalation.",
+      "title": "Generated project live upgrade",
+      "objective": "Run generated project compatibility fixtures against a realistic adopter upgrade path and keep generated-project-only dependencies outside the root module.",
+      "deliverable": "P11 live upgrade proof for old, current, and future profiles with classified diffs, temporary project compile/test evidence, dependency boundary notes, and rollback actions.",
       "gate": "make generated-upgrade-dry-run-check",
-      "commitPolicy": "commit after generated upgrade evidence and generator tests pass"
+      "commitPolicy": "commit after generated upgrade evidence and generated-upgrade-dry-run-check pass"
     },
     {
-      "id": "GOFLY-P10-3-STORAGE-CACHE-PRODUCTIZATION",
+      "id": "GOFLY-P11-3-CLOUD-NATIVE-HOSTED-PROOF",
       "round": 3,
-      "title": "Storage and cache productization",
-      "objective": "Close go-zero sqlx/cache gaps around read/write strategy, transaction examples, generated model cache contracts, Redis/cache observability, and local smoke tests.",
-      "deliverable": "P10 DB/cache productization rows for SQL, Redis, generated model cache, transactions, observability, dependency isolation, smoke evidence, and rollback paths.",
-      "gate": "make db-cache-productization-check",
-      "commitPolicy": "commit after storage/cache gates and targeted tests pass"
-    },
-    {
-      "id": "GOFLY-P10-4-REST-MIDDLEWARE-ECOSYSTEM-MATRIX",
-      "round": 4,
-      "title": "REST middleware ecosystem matrix",
-      "objective": "Make JWT, CORS, CSRF, session, Prometheus, OpenTelemetry, SSE, and WebSocket middleware coverage migratable from go-zero and Gin-style services.",
-      "deliverable": "P10 REST middleware ecosystem closeout linking example assets, migration boundaries, smoke gates, OpenAPI evidence, observability, and rollback notes.",
+      "title": "Cloud-native hosted proof",
+      "objective": "Prepare hosted CI proof for Docker-backed reference app, Helm rendering, kube policy validation, and release evidence gates when required tools are available.",
+      "deliverable": "P11 hosted proof contract for Docker, Helm, kubeconform or kubeval, Trivy, release evidence, fallback reasons, and operator rollback notes.",
       "gate": "make p1-growth-check",
-      "commitPolicy": "commit after middleware evidence and REST/API smoke gates pass"
-    },
-    {
-      "id": "GOFLY-P10-5-DISCOVERY-ADAPTER-MATRIX",
-      "round": 5,
-      "title": "Discovery adapter matrix",
-      "objective": "Move discovery from abstraction to adapter evidence across memory, static, DNS, Kubernetes, Consul, Nacos, and etcd behavior boundaries.",
-      "deliverable": "P10 discovery adapter closeout for provider classification, smoke evidence, dependency triggers, fallback behavior, promotion boundaries, and rollback escalation.",
-      "gate": "make discovery-adapter-matrix-check",
-      "commitPolicy": "commit after discovery matrix and targeted discovery tests pass"
-    },
-    {
-      "id": "GOFLY-P10-6-AI_NATIVE_SUPPORT_BUNDLE",
-      "round": 6,
-      "title": "AI-native support bundle",
-      "objective": "Turn support bundle, doctor/release JSON, governance dashboard fields, control-plane snapshots, and remediation hints into an adopter workflow.",
-      "deliverable": "P10 support bundle closeout linking doctor, release check, bug bundle, AI control-plane, generated failure reports, next actions, redaction, and handoff boundaries.",
-      "gate": "make governance-report-check",
-      "commitPolicy": "commit after dashboard/support-bundle gates pass"
-    },
-    {
-      "id": "GOFLY-P10-7-PERFORMANCE-BUDGET-RATCHET",
-      "round": 7,
-      "title": "Performance budget ratchet",
-      "objective": "Promote only benchmark rows with enough trend confidence while keeping weak-signal REST/RPC latency rows report-only.",
-      "deliverable": "P10 benchmark ratchet closeout for blocking allocation budgets, report-only latency surfaces, unsupported gateway/cache candidates, sample rules, and rollback policy.",
-      "gate": "make bench-regression-check",
-      "commitPolicy": "commit after benchmark evidence and regression gates pass"
-    },
-    {
-      "id": "GOFLY-P10-8-CLOUD-NATIVE-ADOPTION-PROOF",
-      "round": 8,
-      "title": "Cloud-native adoption proof",
-      "objective": "Connect cloud-native rendering evidence, reference app topology, runtime SLOs, and adopter rollback notes into one production adoption proof.",
-      "deliverable": "P10 cloud-native adoption proof linking rendered assets, production-orders topology, runtime SLO evidence, rollback drills, production check gates, and fallback policy.",
-      "gate": "make p1-growth-check",
-      "commitPolicy": "commit after cloud-native, reference app, and runtime SLO gates pass"
-    },
-    {
-      "id": "GOFLY-P10-9-RELEASE-DASHBOARD-CONSUMPTION",
-      "round": 9,
-      "title": "Release dashboard consumption",
-      "objective": "Expose release readiness, API tiers, security, coverage, benchmark ratchets, and aiflow task status as stable adopter-facing dashboard fields.",
-      "deliverable": "P10 release dashboard consumption contract with stable fields, consumer rows, required gates, current .aiflow state consumption, and runtime-state exclusion policy.",
-      "gate": "make governance-report-check",
-      "commitPolicy": "commit after governance report and required-check drift gates pass"
-    },
-    {
-      "id": "GOFLY-P10-10-CONVERGENCE-REPORT",
-      "round": 10,
-      "title": "P10 convergence report",
-      "objective": "Close the P10 governance batch by recording traceable task artifacts, gates, commits, known risks, ignored runtime paths, and follow-up ordering without committing runtime state.",
-      "deliverable": "Final P10 convergence report with per-task commits, gate evidence, runtime ignored paths, known risks, and next-round recommendations.",
-      "gate": "make governance-10-rounds",
-      "commitPolicy": "commit after convergence gate passes or environment-limited failures are documented"
+      "commitPolicy": "commit after hosted cloud-native proof gates pass or explicit environment-limited fallback evidence is recorded"
     }
   ],
   "surfaces": [

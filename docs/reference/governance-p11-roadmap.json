@@ -7,11 +7,13 @@
     "go run -C /Users/bytedance/Codes/go/src/github/aiflow ./cmd/aiflow status -root /Users/bytedance/Codes/go/src/github/gofly -config /Users/bytedance/Codes/go/src/github/gofly/aiflow.yaml"
   ],
   "aiflowSubmission": {
-    "status": "submitted",
+    "status": "completed",
     "submittedAt": "2026-07-01T09:08:00Z",
+    "completedAt": "2026-07-01T10:42:00Z",
     "submissionCommand": "go run -C /Users/bytedance/Codes/go/src/github/aiflow ./cmd/aiflow submit -root /Users/bytedance/Codes/go/src/github/gofly -config /Users/bytedance/Codes/go/src/github/gofly/aiflow.yaml",
-    "safetyPolicy": "P11 tasks are queued in ignored .aiflow runtime state only; durable planning stays in docs/reference/governance-p11-roadmap.json and commits remain owned by the current agent or human.",
-    "queuedTasks": [
+    "completionPolicy": "P11 task completion is recorded through durable docs/reference evidence and per-task commits because .aiflow runtime state is ignored and must not be committed.",
+    "safetyPolicy": "P11 tasks ran through ignored .aiflow runtime state only; durable planning and completion evidence stay in docs/reference/governance-p11-roadmap.json and commits remain owned by the current agent or human.",
+    "completedTasks": [
       "GOFLY-P11-1-RPC-TIER1-PROMOTION-REVIEW",
       "GOFLY-P11-2-GENERATED-PROJECT-LIVE-UPGRADE",
       "GOFLY-P11-3-CLOUD-NATIVE-HOSTED-PROOF"
@@ -22,32 +24,38 @@
     {
       "round": 1,
       "id": "GOFLY-P11-1-RPC-TIER1-PROMOTION-REVIEW",
-      "status": "queued",
+      "status": "completed",
       "title": "RPC Tier 1 promotion review",
       "objective": "Review whether P10 RPC release-train evidence is sufficient to promote any unary or stream surface toward Tier 1, while keeping latency parity claims conservative.",
       "deliverable": "Promotion review rows for unary, server stream, client stream, bidi stream, resolver, balancer, deadline, retry, auth, tracing, benchmark budget, Kitex coexistence, and rollback evidence.",
       "acceptanceGate": "make rpc-boundary-check",
-      "commitPolicy": "commit after RPC promotion review evidence and rpc-boundary-check pass"
+      "verification": "make rpc-boundary-check and make bench-regression-check passed before commit",
+      "commit": "d68e130",
+      "commitPolicy": "committed after RPC promotion review evidence and rpc-boundary-check passed"
     },
     {
       "round": 2,
       "id": "GOFLY-P11-2-GENERATED-PROJECT-LIVE-UPGRADE",
-      "status": "queued",
+      "status": "completed",
       "title": "Generated project live upgrade",
       "objective": "Run generated project compatibility fixtures against a realistic adopter upgrade path and keep generated-project-only dependencies outside the root module.",
       "deliverable": "Live upgrade proof rows for old, current, and future profiles with classified diffs, temporary project compile/test evidence, dependency boundary notes, and rollback actions.",
       "acceptanceGate": "make generated-upgrade-dry-run-check",
-      "commitPolicy": "commit after generated upgrade evidence and generated-upgrade-dry-run-check pass"
+      "verification": "make generated-upgrade-dry-run-check passed after the execution contract report schema was made actionable",
+      "commit": "4cb635b",
+      "commitPolicy": "committed after generated upgrade evidence and generated-upgrade-dry-run-check passed"
     },
     {
       "round": 3,
       "id": "GOFLY-P11-3-CLOUD-NATIVE-HOSTED-PROOF",
-      "status": "queued",
+      "status": "completed",
       "title": "Cloud-native hosted proof",
       "objective": "Prepare hosted CI proof for Docker-backed reference app, Helm rendering, kube policy validation, and release evidence gates when required tools are available.",
       "deliverable": "Hosted proof contract for Docker, Helm, kubeconform or kubeval, Trivy, release evidence, fallback reasons, and operator rollback notes.",
       "acceptanceGate": "make p1-growth-check",
-      "commitPolicy": "commit after hosted cloud-native proof gates pass or explicit environment-limited fallback evidence is recorded"
+      "verification": "make cloud-native-render-check and GOCACHE=/private/tmp/gofly-p11-gocache GOTMPDIR=/private/tmp/gofly-p11-gotmp make p1-growth-check passed",
+      "commit": "11fcce6",
+      "commitPolicy": "committed after hosted cloud-native proof gates passed with isolated Go build cache settings"
     }
   ]
 }

@@ -540,6 +540,95 @@ for benchmark, item in p12_surfaces.items():
         f"{benchmark}: P12 rollbackAction must name fallback runtime or previous RPC stack",
     )
 
+p13_closeout = manifest.get("p13Tier1ReleaseTrainCloseout") or {}
+require(
+    p13_closeout.get("schema") == "gofly.rpc_tier1_p13_release_train_closeout.v1",
+    "rpc tier1 evidence p13Tier1ReleaseTrainCloseout schema mismatch",
+)
+require(
+    p13_closeout.get("aiflowTask") == "GOFLY-P13-01-RPC-TIER1-PROMOTION-CLOSEOUT",
+    "rpc tier1 evidence p13Tier1ReleaseTrainCloseout aiflowTask mismatch",
+)
+require(
+    p13_closeout.get("status") == "blocked-with-stable-promotion-contract",
+    "rpc tier1 evidence p13Tier1ReleaseTrainCloseout status mismatch",
+)
+require(
+    set(p13_closeout.get("acceptanceGates") or []) == {"make rpc-boundary-check", "make bench-regression-check"},
+    "rpc tier1 evidence p13Tier1ReleaseTrainCloseout acceptanceGates mismatch",
+)
+p13_ref = p13_closeout.get("budgetDecisionRef") or {}
+require(p13_ref.get("path") == "bench/budget-ratchet.json", "P13 RPC budgetDecisionRef path mismatch")
+require(p13_ref.get("field") == "p13RpcTier1ReleaseTrainCloseout", "P13 RPC budgetDecisionRef field mismatch")
+require(p13_ref.get("status") == "no-surface-promoted", "P13 RPC budgetDecisionRef status mismatch")
+p13_release_train = p13_closeout.get("releaseTrainEvidence") or {}
+require(p13_release_train.get("requiredCompletedReleaseTrains") == 1, "P13 RPC releaseTrainEvidence requiredCompletedReleaseTrains mismatch")
+require(p13_release_train.get("completedReleaseTrains") == 0, "P13 RPC releaseTrainEvidence completedReleaseTrains must remain 0")
+require(p13_release_train.get("status") == "pending", "P13 RPC releaseTrainEvidence status must be pending")
+for ref_path in p13_release_train.get("requiredRefs") or []:
+    require((root / ref_path).exists(), f"P13 RPC releaseTrainEvidence required ref missing: {ref_path}")
+require(len(str(p13_release_train.get("clearanceCondition") or "").split()) >= 16, "P13 RPC releaseTrainEvidence clearanceCondition must be actionable")
+p13_decision = p13_closeout.get("promotionDecision") or {}
+require(p13_decision.get("result") == "hold", "P13 RPC promotionDecision.result must be hold")
+require(p13_decision.get("selectedSurface") == "none", "P13 RPC promotionDecision.selectedSurface must be none")
+require(p13_decision.get("allocationBlockingSurface") == "none", "P13 RPC promotionDecision.allocationBlockingSurface must be none")
+require(p13_decision.get("latencyMode") == "report-only", "P13 RPC promotionDecision.latencyMode must be report-only")
+require(
+    p13_decision.get("nextReviewGate") == "make rpc-boundary-check && make bench-regression-check",
+    "P13 RPC promotionDecision nextReviewGate mismatch",
+)
+for field in ("reason", "releaseNotePolicy"):
+    require(len(str(p13_decision.get(field) or "").split()) >= 16, f"P13 RPC promotionDecision.{field} must be actionable")
+for forbidden_claim in ("Kitex", "gRPC-Go", "blocking RPC latency", "drop-in replacement"):
+    require(
+        forbidden_claim in str(p13_decision.get("releaseNotePolicy") or ""),
+        f"P13 RPC releaseNotePolicy must mention {forbidden_claim!r}",
+    )
+criteria = set(p13_closeout.get("stableSurfaceCriteria") or [])
+for criterion in (
+    "exactly one RPC surface may be selected for allocation-blocking promotion at a time",
+    "selected RPC surface must have minimum 5 baseline samples",
+    "selected RPC surface must have minimum 3 current trend samples",
+    "selected RPC surface must pass bench-regression-check with no allocation regression",
+):
+    require(criterion in criteria, f"P13 RPC stableSurfaceCriteria missing {criterion!r}")
+p13_ratchet_path = root / "bench" / "budget-ratchet.json"
+if p13_ratchet_path.is_file():
+    p13_ratchet = json.loads(p13_ratchet_path.read_text(encoding="utf-8"))
+else:
+    p13_ratchet = {}
+    missing.append("bench/budget-ratchet.json: file is missing")
+p13_tracked_benchmarks = set(p13_ratchet.get("trackedBenchmarks") or [])
+p13_matrix = {
+    item.get("surface"): item
+    for item in p13_closeout.get("surfaceMatrix") or []
+    if isinstance(item, dict) and item.get("surface")
+}
+required_p13_surface_status = {
+    "rpc-unary": "candidate",
+    "rpc-server-stream": "candidate",
+    "rpc-client-stream": "candidate",
+    "rpc-bidi-stream": "candidate",
+    "resolver-balancer": "candidate",
+    "deadline-retry-auth-tracing": "tier1-ready-evidence",
+}
+require(set(p13_matrix) == set(required_p13_surface_status), f"P13 RPC surfaceMatrix mismatch: {sorted(p13_matrix)!r}")
+for surface, classification in required_p13_surface_status.items():
+    row = p13_matrix.get(surface) or {}
+    require(row.get("classification") == classification, f"P13 RPC {surface}: classification mismatch")
+    require(row.get("promotionStatus"), f"P13 RPC {surface}: promotionStatus is required")
+    if surface.startswith("rpc-"):
+        require(row.get("allocationMode") == "report-only", f"P13 RPC {surface}: allocationMode must be report-only")
+        require(row.get("latencyMode") == "report-only", f"P13 RPC {surface}: latencyMode must be report-only")
+        require(row.get("benchmark") not in p13_tracked_benchmarks, f"P13 RPC {surface}: benchmark must stay out of trackedBenchmarks")
+    require(len(row.get("blockers") or []) >= 3, f"P13 RPC {surface}: blockers must include at least three reasons")
+    require(
+        any(runtime in str(row.get("rollbackAction") or "") for runtime in ("Kitex", "gRPC-Go", "RPC stack", "service mesh", "client balancer")),
+        f"P13 RPC {surface}: rollbackAction must name fallback runtime or routing stack",
+    )
+for forbidden in ("Kitex transport parity", "gRPC-Go ecosystem parity", "blocking RPC latency", "drop-in RPC replacement", "Tier 1 promoted RPC surface"):
+    require(forbidden in set(p13_closeout.get("forbiddenClaims") or []), f"P13 RPC forbiddenClaims missing {forbidden!r}")
+
 r8_transport_matrix = transport_boundary.get("r8TransportEvidenceMatrix") or {}
 require(
     r8_transport_matrix.get("schema") == "gofly.rpc_transport_r8_evidence_matrix.v1",

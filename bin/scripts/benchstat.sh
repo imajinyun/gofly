@@ -799,6 +799,95 @@ def validate_ratchet_policy() -> None:
             any(runtime in str(item.get("rollbackAction") or "") for runtime in ("Kitex", "gRPC-Go", "RPC stack")),
             f"{benchmark}: P12 rollbackAction must name fallback runtime or previous RPC stack",
         )
+
+    p13_rpc_closeout = ratchet.get("p13RpcTier1ReleaseTrainCloseout") or {}
+    require_policy(
+        p13_rpc_closeout.get("schema") == "gofly.benchmark_p13_rpc_tier1_release_train_closeout.v1",
+        "p13RpcTier1ReleaseTrainCloseout schema mismatch",
+    )
+    require_policy(
+        p13_rpc_closeout.get("aiflowTask") == "GOFLY-P13-01-RPC-TIER1-PROMOTION-CLOSEOUT",
+        "p13RpcTier1ReleaseTrainCloseout aiflowTask mismatch",
+    )
+    require_policy(
+        p13_rpc_closeout.get("status") == "no-surface-promoted",
+        "p13RpcTier1ReleaseTrainCloseout status must be no-surface-promoted",
+    )
+    require_policy(
+        p13_rpc_closeout.get("acceptanceGate") == "make bench-regression-check",
+        "p13RpcTier1ReleaseTrainCloseout acceptanceGate mismatch",
+    )
+    p13_decision = p13_rpc_closeout.get("decision") or {}
+    require_policy(p13_decision.get("result") == "hold", "p13RpcTier1ReleaseTrainCloseout decision.result must be hold")
+    require_policy(p13_decision.get("selectedSurface") == "none", "p13RpcTier1ReleaseTrainCloseout selectedSurface must be none")
+    require_policy(
+        p13_decision.get("allocationBlockingSurface") == "none",
+        "p13RpcTier1ReleaseTrainCloseout allocationBlockingSurface must be none",
+    )
+    require_policy(p13_decision.get("latencyMode") == "report-only", "p13RpcTier1ReleaseTrainCloseout latencyMode must be report-only")
+    require_policy(
+        p13_decision.get("nextReviewGate") == "make rpc-boundary-check && make bench-regression-check",
+        "p13RpcTier1ReleaseTrainCloseout nextReviewGate mismatch",
+    )
+    for field in ("reason", "releaseNotePolicy"):
+        require_policy(
+            len(str(p13_decision.get(field) or "").split()) >= 16,
+            f"p13RpcTier1ReleaseTrainCloseout decision.{field} must be actionable",
+        )
+    for forbidden_claim in ("Kitex", "gRPC-Go", "blocking RPC latency", "drop-in RPC replacement"):
+        require_policy(
+            forbidden_claim in str(p13_decision.get("releaseNotePolicy") or ""),
+            f"p13RpcTier1ReleaseTrainCloseout releaseNotePolicy must mention {forbidden_claim!r}",
+        )
+    p13_candidates = {
+        item.get("benchmark"): item
+        for item in p13_rpc_closeout.get("candidateRows") or []
+        if isinstance(item, dict) and item.get("benchmark")
+    }
+    expected_p13_candidate_names = {
+        "BenchmarkRPCUnary/gofly_rpc",
+        "BenchmarkRPCServerStreamGovernance",
+        "BenchmarkRPCClientStreamGovernance",
+        "BenchmarkRPCBidiStreamGovernance",
+    }
+    require_policy(
+        set(p13_candidates) == expected_p13_candidate_names,
+        "p13RpcTier1ReleaseTrainCloseout candidateRows mismatch",
+    )
+    for benchmark, item in p13_candidates.items():
+        require_policy(item.get("currentMode") == "report-only", f"{benchmark}: P13 currentMode must be report-only")
+        require_policy(item.get("proposedPromotionMode") == "allocation-blocking", f"{benchmark}: P13 proposedPromotionMode mismatch")
+        require_policy(item.get("promotionStatus") == "blocked", f"{benchmark}: P13 promotionStatus must be blocked")
+        require_policy(item.get("minimumBaselineSamples") == 5, f"{benchmark}: P13 minimumBaselineSamples mismatch")
+        require_policy(item.get("minimumCurrentTrendSamples") == 3, f"{benchmark}: P13 minimumCurrentTrendSamples mismatch")
+        require_policy(benchmark not in tracked, f"{benchmark}: P13 candidate must stay out of trackedBenchmarks")
+        require_policy(benchmark not in promoted_latency, f"{benchmark}: P13 latency must stay report-only")
+        require_policy(len(item.get("blockers") or []) >= 3, f"{benchmark}: P13 blockers must include at least three reasons")
+        require_policy(
+            any(runtime in str(item.get("rollbackAction") or "") for runtime in ("Kitex", "gRPC-Go", "RPC stack")),
+            f"{benchmark}: P13 rollbackAction must name fallback runtime or previous RPC stack",
+        )
+    p13_rules = set(p13_rpc_closeout.get("blockingRules") or [])
+    for rule in (
+        "exactly one RPC surface may be promoted at a time",
+        "promoted RPC rows require minimum 5 baseline samples",
+        "promoted RPC rows require minimum 3 current trend samples",
+        "promoted RPC rows require no allocation regression under bench-regression-check",
+        "RPC latency remains report-only until maxRegressionRatio and two-release trend evidence are documented",
+    ):
+        require_policy(rule in p13_rules, f"p13RpcTier1ReleaseTrainCloseout blockingRules missing {rule!r}")
+    for forbidden in (
+        "trackedBenchmarks RPC entry",
+        "blocking RPC latency claim",
+        "Kitex transport parity claim",
+        "gRPC-Go ecosystem parity claim",
+        "drop-in RPC replacement claim",
+        "Tier 1 promoted RPC surface",
+    ):
+        require_policy(
+            forbidden in set(p13_rpc_closeout.get("forbiddenUntilCleared") or []),
+            f"p13RpcTier1ReleaseTrainCloseout forbiddenUntilCleared missing {forbidden!r}",
+        )
     p12_rules = set(p12_rpc_decision.get("blockingRules") or [])
     for rule in (
         "exactly one RPC surface may be promoted at a time",

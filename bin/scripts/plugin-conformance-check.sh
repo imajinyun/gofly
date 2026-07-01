@@ -4,6 +4,7 @@ set -eu
 python3 - <<'PY'
 import json
 import pathlib
+import subprocess
 import sys
 
 checks = {
@@ -49,6 +50,8 @@ checks = {
         "ReleaseNotes",
         "TrustSources",
         "SourceAllowlist",
+        "P13Publishing",
+        "p13PublishingSummary",
         "requiresDryRun",
         "digest provenance",
         "signature provenance",
@@ -62,6 +65,8 @@ checks = {
         "failure-isolation",
         "sourcePolicy",
         "github-actions-oidc",
+        "GOFLY-P13-10-PLUGIN-TEMPLATE-PUBLISH-HARDENING",
+        "no-partial-writes",
     ],
     pathlib.Path("cmd/gofly/internal/generator/plugin.go"): [
         "PluginProtocolSchema",
@@ -82,6 +87,10 @@ checks = {
         "Publishing.ReleaseNotes",
         "Publishing.TrustSources",
         "Publishing.SourceAllowlist",
+        "P13Publishing.RequiredRegistry",
+        "P13Publishing.RequiredManifest",
+        "P13Publishing.RequiredTemplate",
+        "P13Publishing.FailureCases",
     ],
 }
 
@@ -112,6 +121,8 @@ for field in ("schema", "acceptanceGate", "permissionReview", "publishProtocolMa
         missing.append(f"docs/reference/plugin-publishing-ux.json: schemaContract.requiredFields missing {field!r}")
 if "p9PublishHardening" not in set(contract.get("requiredFields") or []):
     missing.append("docs/reference/plugin-publishing-ux.json: schemaContract.requiredFields missing 'p9PublishHardening'")
+if "p13PublishHardening" not in set(contract.get("requiredFields") or []):
+    missing.append("docs/reference/plugin-publishing-ux.json: schemaContract.requiredFields missing 'p13PublishHardening'")
 if manifest.get("acceptanceGate") != "make plugin-conformance-check":
     missing.append("docs/reference/plugin-publishing-ux.json: acceptanceGate must be make plugin-conformance-check")
 
@@ -194,6 +205,49 @@ required_registry_fields = set(p9_hardening.get("requiredRegistryFields") or [])
 for field in ("checksum", "source", "sourcePolicy", "signature", "manifest"):
     if field not in required_registry_fields:
         missing.append(f"docs/reference/plugin-publishing-ux.json: p9PublishHardening requiredRegistryFields missing {field!r}")
+
+p13_hardening = manifest.get("p13PublishHardening") or {}
+if p13_hardening.get("schema") != "gofly.plugin_publish_hardening_p13.v1":
+    missing.append("docs/reference/plugin-publishing-ux.json: p13PublishHardening schema mismatch")
+if p13_hardening.get("aiflowTask") != "GOFLY-P13-10-PLUGIN-TEMPLATE-PUBLISH-HARDENING":
+    missing.append("docs/reference/plugin-publishing-ux.json: p13PublishHardening aiflowTask mismatch")
+if p13_hardening.get("status") != "blocking":
+    missing.append("docs/reference/plugin-publishing-ux.json: p13PublishHardening status must be blocking")
+if set(p13_hardening.get("acceptanceGates") or []) != {
+    "make plugin-conformance-check",
+    "go test -C examples/plugin-ecosystem ./...",
+    "go run -C examples/plugin-ecosystem .",
+}:
+    missing.append("docs/reference/plugin-publishing-ux.json: p13PublishHardening acceptanceGates mismatch")
+required_p13_registry = {"checksum", "source", "sourcePolicy", "signature", "manifest"}
+required_p13_manifest = {"compatibleVersions", "capabilities", "permissions", "requiresDryRun"}
+required_p13_template = {"schema", "contractVersion", "entrypoints", "permissions", "checksum", "source"}
+required_p13_failures = {"digest-mismatch", "malicious-path", "permission-escape", "no-partial-writes"}
+required_p13_blockers = {"old-protocol", "future-only", "digest-mismatch", "malicious-path", "permission-escape", "no-partial-writes"}
+if set(p13_hardening.get("requiredRegistryFields") or []) != required_p13_registry:
+    missing.append("docs/reference/plugin-publishing-ux.json: p13PublishHardening requiredRegistryFields mismatch")
+if set(p13_hardening.get("requiredManifestFields") or []) != required_p13_manifest:
+    missing.append("docs/reference/plugin-publishing-ux.json: p13PublishHardening requiredManifestFields mismatch")
+if set(p13_hardening.get("requiredTemplateFields") or []) != required_p13_template:
+    missing.append("docs/reference/plugin-publishing-ux.json: p13PublishHardening requiredTemplateFields mismatch")
+if set(p13_hardening.get("failureCases") or []) != required_p13_failures:
+    missing.append("docs/reference/plugin-publishing-ux.json: p13PublishHardening failureCases mismatch")
+if set(p13_hardening.get("publishBlockers") or []) != required_p13_blockers:
+    missing.append("docs/reference/plugin-publishing-ux.json: p13PublishHardening publishBlockers mismatch")
+p13_source_allowlist = p13_hardening.get("sourceAllowlist") or {}
+if set(p13_source_allowlist.get("allowedHosts") or []) != {"github.com"}:
+    missing.append("docs/reference/plugin-publishing-ux.json: p13PublishHardening sourceAllowlist.allowedHosts mismatch")
+if p13_source_allowlist.get("httpsOnly") is not True:
+    missing.append("docs/reference/plugin-publishing-ux.json: p13PublishHardening sourceAllowlist.httpsOnly must be true")
+if p13_source_allowlist.get("registryField") != "sourcePolicy":
+    missing.append("docs/reference/plugin-publishing-ux.json: p13PublishHardening sourceAllowlist.registryField mismatch")
+if set(p13_hardening.get("signatureTrustSources") or []) != {"github-actions-oidc"}:
+    missing.append("docs/reference/plugin-publishing-ux.json: p13PublishHardening signatureTrustSources mismatch")
+if p13_hardening.get("exampleOutput") != "examples/plugin-ecosystem p13Publishing":
+    missing.append("docs/reference/plugin-publishing-ux.json: p13PublishHardening exampleOutput mismatch")
+for field in ("publisherAction", "rollbackOrEscalation"):
+    if len(str(p13_hardening.get(field) or "").split()) < 14:
+        missing.append(f"docs/reference/plugin-publishing-ux.json: p13PublishHardening {field} must be actionable")
 
 compatibility = manifest.get("protocolCompatibility") or []
 compatibility_by_case = {item.get("case"): item for item in compatibility if isinstance(item, dict)}
@@ -505,6 +559,81 @@ for row_id, expected_evidence in expected_p9_rows.items():
         if len(str(row.get(field) or "").split()) < 8:
             missing.append(f"docs/reference/plugin-conformance-report.json: p9PublishHardening {row_id}: {field} must be actionable")
 
+p13_report = report.get("p13PublishHardening") or {}
+if p13_report.get("schema") != "gofly.plugin_publish_hardening_p13_report.v1":
+    missing.append("docs/reference/plugin-conformance-report.json: p13PublishHardening schema mismatch")
+if p13_report.get("aiflowTask") != "GOFLY-P13-10-PLUGIN-TEMPLATE-PUBLISH-HARDENING":
+    missing.append("docs/reference/plugin-conformance-report.json: p13PublishHardening aiflowTask mismatch")
+if p13_report.get("status") != "blocking":
+    missing.append("docs/reference/plugin-conformance-report.json: p13PublishHardening status must be blocking")
+if set(p13_report.get("acceptanceGates") or []) != set(p13_hardening.get("acceptanceGates") or []):
+    missing.append("docs/reference/plugin-conformance-report.json: p13PublishHardening acceptanceGates must match plugin-publishing-ux.json")
+if p13_report.get("source") != "docs/reference/plugin-publishing-ux.json":
+    missing.append("docs/reference/plugin-conformance-report.json: p13PublishHardening source mismatch")
+if p13_report.get("exampleOutput") != p13_hardening.get("exampleOutput"):
+    missing.append("docs/reference/plugin-conformance-report.json: p13PublishHardening exampleOutput mismatch")
+p13_rows = {
+    item.get("id"): item
+    for item in p13_report.get("rows") or []
+    if isinstance(item, dict) and item.get("id")
+}
+expected_p13_rows = {
+    "registry-manifest-contract": {
+        "registry.checksum",
+        "registry.source",
+        "registry.sourcePolicy",
+        "registry.signature",
+        "registry.manifest",
+        "manifest.compatibleVersions",
+        "manifest.permissions",
+        "manifest.requiresDryRun",
+    },
+    "source-signature-digest-contract": {
+        "sourcePolicy.allowedHosts",
+        "sourcePolicy.httpsOnly",
+        "signature.trustSource",
+        "signature.provenance",
+        "registry.checksum",
+        "digest-mismatch",
+    },
+    "template-versioning-contract": {
+        "template.schema",
+        "template.contractVersion",
+        "template.entrypoints",
+        "template.permissions",
+        "template.checksum",
+        "template.source",
+    },
+    "failure-isolation-contract": {
+        "digest-mismatch",
+        "malicious-path",
+        "permission-escape",
+        "no-partial-writes",
+        "TestPluginResponseApplyRejectsPartialWritesWhenPatchFails",
+    },
+}
+if set(p13_rows) != set(expected_p13_rows):
+    missing.append(
+        "docs/reference/plugin-conformance-report.json: p13PublishHardening rows drifted "
+        f"missing={sorted(set(expected_p13_rows) - set(p13_rows))} "
+        f"extra={sorted(set(p13_rows) - set(expected_p13_rows))}"
+    )
+for row_id, expected_evidence in expected_p13_rows.items():
+    row = p13_rows.get(row_id) or {}
+    for field in ("id", "surface", "requiredEvidence", "blockDecision", "rollbackOrEscalation"):
+        if row.get(field) in ("", None, []):
+            missing.append(f"docs/reference/plugin-conformance-report.json: p13PublishHardening {row_id}: {field} is required")
+    evidence = set(row.get("requiredEvidence") or [])
+    for required in expected_evidence:
+        if required not in evidence:
+            missing.append(f"docs/reference/plugin-conformance-report.json: p13PublishHardening {row_id}: missing evidence {required!r}")
+    for field in ("blockDecision", "rollbackOrEscalation"):
+        if len(str(row.get(field) or "").split()) < 10:
+            missing.append(f"docs/reference/plugin-conformance-report.json: p13PublishHardening {row_id}: {field} must be actionable")
+for field in ("publisherAction", "rollbackOrEscalation"):
+    if len(str(p13_report.get(field) or "").split()) < 14:
+        missing.append(f"docs/reference/plugin-conformance-report.json: p13PublishHardening {field} must be actionable")
+
 supply_chain_rows = report.get("supplyChainRows")
 if not isinstance(supply_chain_rows, list):
     missing.append("docs/reference/plugin-conformance-report.json: supplyChainRows must be a list")
@@ -620,6 +749,47 @@ for command in (
 ):
     if command not in release_gates:
         missing.append(f"docs/reference/plugin-conformance-report.json: releaseGates missing {command!r}")
+
+example = subprocess.run(
+    ["go", "run", "-C", "examples/plugin-ecosystem", "."],
+    check=False,
+    text=True,
+    stdout=subprocess.PIPE,
+    stderr=subprocess.STDOUT,
+)
+if example.returncode != 0:
+    missing.append("examples/plugin-ecosystem runnable report failed:\n" + example.stdout)
+else:
+    try:
+        example_report = json.loads(example.stdout)
+    except json.JSONDecodeError as exc:
+        missing.append(f"examples/plugin-ecosystem emitted invalid JSON: {exc}")
+        example_report = {}
+    if example_report.get("schema") != "gofly.plugin_ecosystem.v1":
+        missing.append("examples/plugin-ecosystem schema mismatch")
+    p13_example = example_report.get("p13Publishing") or {}
+    if p13_example.get("schema") != p13_hardening.get("schema"):
+        missing.append("examples/plugin-ecosystem p13Publishing schema mismatch")
+    if p13_example.get("aiflowTask") != p13_hardening.get("aiflowTask"):
+        missing.append("examples/plugin-ecosystem p13Publishing aiflowTask mismatch")
+    if p13_example.get("status") != p13_hardening.get("status"):
+        missing.append("examples/plugin-ecosystem p13Publishing status mismatch")
+    if set(p13_example.get("requiredRegistry") or []) != set(p13_hardening.get("requiredRegistryFields") or []):
+        missing.append("examples/plugin-ecosystem p13Publishing requiredRegistry mismatch")
+    if set(p13_example.get("requiredManifest") or []) != set(p13_hardening.get("requiredManifestFields") or []):
+        missing.append("examples/plugin-ecosystem p13Publishing requiredManifest mismatch")
+    if set(p13_example.get("requiredTemplate") or []) != set(p13_hardening.get("requiredTemplateFields") or []):
+        missing.append("examples/plugin-ecosystem p13Publishing requiredTemplate mismatch")
+    if set(p13_example.get("failureCases") or []) != set(p13_hardening.get("failureCases") or []):
+        missing.append("examples/plugin-ecosystem p13Publishing failureCases mismatch")
+    if set(p13_example.get("sourceAllowlist") or []) != set((p13_hardening.get("sourceAllowlist") or {}).get("allowedHosts") or []):
+        missing.append("examples/plugin-ecosystem p13Publishing sourceAllowlist mismatch")
+    if set(p13_example.get("signatureTrust") or []) != set(p13_hardening.get("signatureTrustSources") or []):
+        missing.append("examples/plugin-ecosystem p13Publishing signatureTrust mismatch")
+    if set(p13_example.get("publishBlockers") or []) != set(p13_hardening.get("publishBlockers") or []):
+        missing.append("examples/plugin-ecosystem p13Publishing publishBlockers mismatch")
+    if len(str(p13_example.get("noPartialWritePolicy") or "").split()) < 10:
+        missing.append("examples/plugin-ecosystem p13Publishing noPartialWritePolicy must be actionable")
 
 if missing:
     print("plugin conformance check failed:", file=sys.stderr)

@@ -157,6 +157,7 @@
       "permissionReview",
       "publishProtocolMatrix",
       "p9PublishHardening",
+      "p13PublishHardening",
       "checklist",
       "publishingCommands",
       "releaseNoteFields"
@@ -219,5 +220,63 @@
     ],
     "publisherAction": "Publishers must attach source allowlist, signature trust source, digest pinning, compatibility, permission, template contract version, and no-partial-write evidence before announcing a plugin.",
     "rollbackOrEscalation": "Disable the candidate plugin, pin the previous digest-matched artifact, and require a clean conformance rerun when any P9 publish hardening row fails."
+  },
+  "p13PublishHardening": {
+    "schema": "gofly.plugin_publish_hardening_p13.v1",
+    "aiflowTask": "GOFLY-P13-10-PLUGIN-TEMPLATE-PUBLISH-HARDENING",
+    "status": "blocking",
+    "acceptanceGates": [
+      "make plugin-conformance-check",
+      "go test -C examples/plugin-ecosystem ./...",
+      "go run -C examples/plugin-ecosystem ."
+    ],
+    "requiredRegistryFields": [
+      "checksum",
+      "source",
+      "sourcePolicy",
+      "signature",
+      "manifest"
+    ],
+    "requiredManifestFields": [
+      "compatibleVersions",
+      "capabilities",
+      "permissions",
+      "requiresDryRun"
+    ],
+    "requiredTemplateFields": [
+      "schema",
+      "contractVersion",
+      "entrypoints",
+      "permissions",
+      "checksum",
+      "source"
+    ],
+    "sourceAllowlist": {
+      "allowedHosts": [
+        "github.com"
+      ],
+      "httpsOnly": true,
+      "registryField": "sourcePolicy"
+    },
+    "signatureTrustSources": [
+      "github-actions-oidc"
+    ],
+    "publishBlockers": [
+      "old-protocol",
+      "future-only",
+      "digest-mismatch",
+      "malicious-path",
+      "permission-escape",
+      "no-partial-writes"
+    ],
+    "failureCases": [
+      "digest-mismatch",
+      "malicious-path",
+      "permission-escape",
+      "no-partial-writes"
+    ],
+    "exampleOutput": "examples/plugin-ecosystem p13Publishing",
+    "publisherAction": "Publishers must pass registry, manifest, template, source allowlist, signature trust, digest, permission, compatibility, and no-partial-write evidence before plugin publication.",
+    "rollbackOrEscalation": "Disable the candidate plugin or template release and keep the previous digest-matched artifact pinned when any P13 publish blocker fails."
   }
 }

@@ -42,6 +42,36 @@ func TestPluginEcosystemReport(t *testing.T) {
 	if !contains(report.Publishing.SourceAllowlist, "github.com") {
 		t.Fatalf("publishing source allowlist = %#v, missing github.com", report.Publishing.SourceAllowlist)
 	}
+	if report.P13Publishing.Schema != "gofly.plugin_publish_hardening_p13.v1" ||
+		report.P13Publishing.AiflowTask != "GOFLY-P13-10-PLUGIN-TEMPLATE-PUBLISH-HARDENING" ||
+		report.P13Publishing.Status != "blocking" {
+		t.Fatalf("P13 publishing contract = %#v, want blocking P13 schema", report.P13Publishing)
+	}
+	for _, field := range []string{"checksum", "source", "sourcePolicy", "signature", "manifest"} {
+		if !contains(report.P13Publishing.RequiredRegistry, field) {
+			t.Fatalf("P13 registry fields = %#v, missing %s", report.P13Publishing.RequiredRegistry, field)
+		}
+	}
+	for _, field := range []string{"compatibleVersions", "capabilities", "permissions", "requiresDryRun"} {
+		if !contains(report.P13Publishing.RequiredManifest, field) {
+			t.Fatalf("P13 manifest fields = %#v, missing %s", report.P13Publishing.RequiredManifest, field)
+		}
+	}
+	for _, field := range []string{"schema", "contractVersion", "entrypoints", "permissions", "checksum", "source"} {
+		if !contains(report.P13Publishing.RequiredTemplate, field) {
+			t.Fatalf("P13 template fields = %#v, missing %s", report.P13Publishing.RequiredTemplate, field)
+		}
+	}
+	for _, failure := range []string{"digest-mismatch", "malicious-path", "permission-escape", "no-partial-writes"} {
+		if !contains(report.P13Publishing.FailureCases, failure) {
+			t.Fatalf("P13 failure cases = %#v, missing %s", report.P13Publishing.FailureCases, failure)
+		}
+	}
+	if !contains(report.P13Publishing.SourceAllowlist, "github.com") ||
+		!contains(report.P13Publishing.SignatureTrust, "github-actions-oidc") ||
+		!containsText(report.P13Publishing.NoPartialWritePolicy, "partial writes") {
+		t.Fatalf("P13 publishing trust policy incomplete: %#v", report.P13Publishing)
+	}
 	for _, name := range []string{"audit-trail-generator", "company-template-pack"} {
 		if !contains(report.Registry.Names, name) {
 			t.Fatalf("registry names = %#v, missing %s", report.Registry.Names, name)

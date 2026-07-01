@@ -19,14 +19,15 @@ const (
 )
 
 type report struct {
-	Schema        string              `json:"schema"`
-	Protocol      string              `json:"protocol"`
-	Registry      registrySummary     `json:"registry"`
-	Publishing    publishingSummary   `json:"publishing"`
-	Compatibility []compatibilityCase `json:"compatibility"`
-	Conformance   []conformanceCase   `json:"conformance"`
-	Examples      []exampleSummary    `json:"examples"`
-	Security      []string            `json:"security"`
+	Schema        string               `json:"schema"`
+	Protocol      string               `json:"protocol"`
+	Registry      registrySummary      `json:"registry"`
+	Publishing    publishingSummary    `json:"publishing"`
+	P13Publishing p13PublishingSummary `json:"p13Publishing"`
+	Compatibility []compatibilityCase  `json:"compatibility"`
+	Conformance   []conformanceCase    `json:"conformance"`
+	Examples      []exampleSummary     `json:"examples"`
+	Security      []string             `json:"security"`
 }
 
 type registrySummary struct {
@@ -43,6 +44,20 @@ type publishingSummary struct {
 	ReleaseNotes    []string `json:"releaseNotes"`
 	TrustSources    []string `json:"trustSources"`
 	SourceAllowlist []string `json:"sourceAllowlist"`
+}
+
+type p13PublishingSummary struct {
+	Schema               string   `json:"schema"`
+	AiflowTask           string   `json:"aiflowTask"`
+	Status               string   `json:"status"`
+	RequiredRegistry     []string `json:"requiredRegistry"`
+	RequiredManifest     []string `json:"requiredManifest"`
+	RequiredTemplate     []string `json:"requiredTemplate"`
+	FailureCases         []string `json:"failureCases"`
+	SourceAllowlist      []string `json:"sourceAllowlist"`
+	SignatureTrust       []string `json:"signatureTrust"`
+	PublishBlockers      []string `json:"publishBlockers"`
+	NoPartialWritePolicy string   `json:"noPartialWritePolicy"`
 }
 
 type compatibilityCase struct {
@@ -214,6 +229,19 @@ func buildReport(ctx context.Context) (report, error) {
 			ReleaseNotes:    []string{"protocol compatibility", "digest provenance", "signature provenance", "permission rationale", "template contract", "rollback and failure isolation behavior"},
 			TrustSources:    []string{"github-actions-oidc"},
 			SourceAllowlist: []string{"github.com"},
+		},
+		P13Publishing: p13PublishingSummary{
+			Schema:               "gofly.plugin_publish_hardening_p13.v1",
+			AiflowTask:           "GOFLY-P13-10-PLUGIN-TEMPLATE-PUBLISH-HARDENING",
+			Status:               "blocking",
+			RequiredRegistry:     []string{"checksum", "source", "sourcePolicy", "signature", "manifest"},
+			RequiredManifest:     []string{"compatibleVersions", "capabilities", "permissions", "requiresDryRun"},
+			RequiredTemplate:     []string{"schema", "contractVersion", "entrypoints", "permissions", "checksum", "source"},
+			FailureCases:         []string{"digest-mismatch", "malicious-path", "permission-escape", "no-partial-writes"},
+			SourceAllowlist:      []string{"github.com"},
+			SignatureTrust:       []string{"github-actions-oidc"},
+			PublishBlockers:      []string{"old-protocol", "future-only", "digest-mismatch", "malicious-path", "permission-escape", "no-partial-writes"},
+			NoPartialWritePolicy: "Reject publication and keep the previous digest-matched artifact when any plugin or template effect can leave partial writes.",
 		},
 		Compatibility: []compatibilityCase{
 			{Name: "old-protocol", CompatibleVersions: []string{"0"}, Accepted: false},

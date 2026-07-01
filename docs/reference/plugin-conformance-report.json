@@ -229,6 +229,79 @@
       }
     ]
   },
+  "p13PublishHardening": {
+    "schema": "gofly.plugin_publish_hardening_p13_report.v1",
+    "aiflowTask": "GOFLY-P13-10-PLUGIN-TEMPLATE-PUBLISH-HARDENING",
+    "status": "blocking",
+    "acceptanceGates": [
+      "make plugin-conformance-check",
+      "go test -C examples/plugin-ecosystem ./...",
+      "go run -C examples/plugin-ecosystem ."
+    ],
+    "source": "docs/reference/plugin-publishing-ux.json",
+    "exampleOutput": "examples/plugin-ecosystem p13Publishing",
+    "rows": [
+      {
+        "id": "registry-manifest-contract",
+        "surface": "registry and manifest publish contract",
+        "requiredEvidence": [
+          "registry.checksum",
+          "registry.source",
+          "registry.sourcePolicy",
+          "registry.signature",
+          "registry.manifest",
+          "manifest.compatibleVersions",
+          "manifest.permissions",
+          "manifest.requiresDryRun"
+        ],
+        "blockDecision": "Block publication when registry or manifest metadata omits checksum, source, signature, compatible version, permission, or dry-run evidence.",
+        "rollbackOrEscalation": "Keep the previous registry entry pinned and require a republished manifest plus clean conformance report before enabling the plugin."
+      },
+      {
+        "id": "source-signature-digest-contract",
+        "surface": "source allowlist, signature trust, and digest pinning",
+        "requiredEvidence": [
+          "sourcePolicy.allowedHosts",
+          "sourcePolicy.httpsOnly",
+          "signature.trustSource",
+          "signature.provenance",
+          "registry.checksum",
+          "digest-mismatch"
+        ],
+        "blockDecision": "Reject sources outside the HTTPS github.com allowlist, missing GitHub Actions OIDC signature provenance, or mismatched sha256 digest.",
+        "rollbackOrEscalation": "Disable the candidate artifact and keep the previous digest-matched plugin pinned until provenance and digest evidence pass."
+      },
+      {
+        "id": "template-versioning-contract",
+        "surface": "third-party template contract versioning",
+        "requiredEvidence": [
+          "template.schema",
+          "template.contractVersion",
+          "template.entrypoints",
+          "template.permissions",
+          "template.checksum",
+          "template.source"
+        ],
+        "blockDecision": "Reject template packs without contractVersion 1, required entrypoints, least-privilege permissions, checksum, and source evidence.",
+        "rollbackOrEscalation": "Pin the previous template pack or republish with contractVersion 1 and a clean conformance report before generator use."
+      },
+      {
+        "id": "failure-isolation-contract",
+        "surface": "malicious path, permission escape, digest mismatch, and no partial writes",
+        "requiredEvidence": [
+          "digest-mismatch",
+          "malicious-path",
+          "permission-escape",
+          "no-partial-writes",
+          "TestPluginResponseApplyRejectsPartialWritesWhenPatchFails"
+        ],
+        "blockDecision": "Reject plugin and template effects when any filesystem escape, permission escape, digest mismatch, or patch failure can leave partial writes.",
+        "rollbackOrEscalation": "Keep plugin effects disabled and retain the previous digest-matched artifact until failure isolation evidence passes again."
+      }
+    ],
+    "publisherAction": "Publishers must provide registry, manifest, template, source allowlist, signature trust, digest, compatibility, permission, and no-partial-write evidence before publication.",
+    "rollbackOrEscalation": "Disable the candidate plugin or template release and keep the previous digest-matched artifact pinned when any P13 publish hardening row fails."
+  },
   "supplyChainRows": [
     {
       "id": "registry-schema-supply-chain",

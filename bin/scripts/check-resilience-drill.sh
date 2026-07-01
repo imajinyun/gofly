@@ -66,9 +66,127 @@ if commands.get("gate") != "make resilience-drill-check":
     missing.append("manifest commands.gate must be make resilience-drill-check")
 
 required = set(manifest.get("requiredEvidence") or [])
-for item in ("rate-limit rejection", "retry attempts", "breaker open", "recovery to closed"):
+for item in (
+    "rate-limit rejection",
+    "retry attempts",
+    "breaker open",
+    "recovery to closed",
+    "surface matrix",
+    "enable disable paths",
+    "invalid configuration",
+    "downgrade fallback path",
+):
     if item not in required:
         missing.append(f"manifest requiredEvidence missing {item!r}")
+
+p13 = manifest.get("p13GoZeroResilienceDefaults") or {}
+if p13.get("status") != "blocking":
+    missing.append("p13GoZeroResilienceDefaults.status must be blocking")
+if p13.get("task") != "GOFLY-P13-04-GOZERO-RESILIENCE-DEFAULTS":
+    missing.append("p13GoZeroResilienceDefaults.task must identify P13-04")
+if "go-zero" not in p13.get("goal", ""):
+    missing.append("p13GoZeroResilienceDefaults.goal must describe go-zero alignment")
+
+required_capabilities = [
+    "timeout",
+    "concurrency-limit",
+    "rate-limit",
+    "breaker",
+    "adaptive-shedding",
+    "retry",
+    "enable-disable",
+    "invalid-config",
+    "downgrade-fallback",
+]
+if p13.get("requiredCapabilities") != required_capabilities:
+    missing.append("p13GoZeroResilienceDefaults.requiredCapabilities must match the P13 matrix contract")
+
+gate_policy = p13.get("gatePolicy") or {}
+allowed_modes = set(gate_policy.get("allowedModes") or [])
+disallowed_modes = set(gate_policy.get("disallowedModes") or [])
+for mode in ("runtime-tested", "client-runtime-tested", "mixed-runtime-tested", "candidate-via-governance"):
+    if mode not in allowed_modes:
+        missing.append(f"p13 gatePolicy.allowedModes missing {mode!r}")
+for mode in ("unsupported-report-only", "documentation-only"):
+    if mode not in disallowed_modes:
+        missing.append(f"p13 gatePolicy.disallowedModes missing {mode!r}")
+if gate_policy.get("requiredSurfaceCount") != 3:
+    missing.append("p13 gatePolicy.requiredSurfaceCount must be 3")
+if gate_policy.get("requiredCapabilityCountPerSurface") != len(required_capabilities):
+    missing.append("p13 gatePolicy.requiredCapabilityCountPerSurface must match required capabilities")
+if gate_policy.get("gatewayAdaptiveSheddingBoundary") != "candidate-via-governance":
+    missing.append("p13 gatewayAdaptiveSheddingBoundary must record the current gateway boundary")
+if gate_policy.get("latencyBudget") != "report-only":
+    missing.append("p13 latencyBudget must remain report-only")
+if "blocking" not in gate_policy.get("allocationBudget", ""):
+    missing.append("p13 allocationBudget must describe blocking allocation evidence")
+
+surfaces = p13.get("surfaces") or []
+if len(surfaces) != gate_policy.get("requiredSurfaceCount", 0):
+    missing.append("p13 surfaces must contain exactly REST, RPC, and Gateway")
+
+expected_surface_modes = {
+    "rest": "runtime-tested",
+    "rpc": "runtime-tested",
+    "gateway": "mixed-runtime-tested",
+}
+seen_surfaces = set()
+for surface in surfaces:
+    if not isinstance(surface, dict):
+        missing.append(f"p13 surface entry must be an object: {surface!r}")
+        continue
+    surface_name = surface.get("name")
+    seen_surfaces.add(surface_name)
+    if surface_name not in expected_surface_modes:
+        missing.append(f"p13 surface has unknown name: {surface_name!r}")
+        continue
+    if surface.get("mode") != expected_surface_modes[surface_name]:
+        missing.append(f"p13 surface {surface_name}: mode must be {expected_surface_modes[surface_name]!r}")
+    if len(surface.get("defaultBehavior", "")) < 40:
+        missing.append(f"p13 surface {surface_name}: defaultBehavior must be descriptive")
+
+    capabilities = surface.get("capabilities") or []
+    if len(capabilities) != gate_policy.get("requiredCapabilityCountPerSurface", 0):
+        missing.append(f"p13 surface {surface_name}: capability count must be {len(required_capabilities)}")
+    capability_map = {item.get("name"): item for item in capabilities if isinstance(item, dict)}
+    for capability in required_capabilities:
+        evidence = capability_map.get(capability)
+        if not evidence:
+            missing.append(f"p13 surface {surface_name}: missing capability {capability!r}")
+            continue
+        mode = evidence.get("mode")
+        if mode in disallowed_modes:
+            missing.append(f"p13 surface {surface_name} capability {capability}: mode {mode!r} is disallowed")
+        if mode not in allowed_modes:
+            missing.append(f"p13 surface {surface_name} capability {capability}: unsupported mode {mode!r}")
+        tests = evidence.get("tests") or []
+        if not tests:
+            missing.append(f"p13 surface {surface_name} capability {capability}: tests are required")
+        for test_ref in tests:
+            if not isinstance(test_ref, str) or ":Test" not in test_ref:
+                missing.append(f"p13 surface {surface_name} capability {capability}: invalid test reference {test_ref!r}")
+                continue
+            file_name, test_name = test_ref.split(":", 1)
+            test_path = pathlib.Path(file_name)
+            if not test_path.is_file():
+                missing.append(f"p13 surface {surface_name} capability {capability}: test file missing {file_name}")
+                continue
+            test_text = test_path.read_text(encoding="utf-8")
+            if f"func {test_name}(" not in test_text:
+                missing.append(f"{file_name}: missing test function {test_name}")
+
+    gateway_adaptive = capability_map.get("adaptive-shedding")
+    if surface_name == "gateway":
+        if not gateway_adaptive or gateway_adaptive.get("mode") != "candidate-via-governance":
+            missing.append("p13 gateway adaptive-shedding must remain candidate-via-governance until dedicated limiter exists")
+        if not gateway_adaptive or "dedicated Gateway adaptive limiter" not in gateway_adaptive.get("followUp", ""):
+            missing.append("p13 gateway adaptive-shedding must record the dedicated limiter follow-up")
+    elif capability_map.get("adaptive-shedding", {}).get("mode") != "runtime-tested":
+        missing.append(f"p13 surface {surface_name}: adaptive-shedding must be runtime-tested")
+
+for surface_name in expected_surface_modes:
+    if surface_name not in seen_surfaces:
+        missing.append(f"p13 surfaces missing {surface_name!r}")
 
 reference_evidence = manifest.get("referenceAppEvidence") or []
 expected_components = {"saga compensation", "outbox retry", "topology fallback", "rollback note"}
@@ -98,6 +216,9 @@ docs = {
         "make resilience-drill-check",
         "go run -C examples/resilience . --json",
         "production-orders",
+        "GOFLY-P13-04-GOZERO-RESILIENCE-DEFAULTS",
+        "adaptive-shedding",
+        "candidate-via-governance",
     ],
     pathlib.Path("docs/concepts/governance.md"): [
         "make resilience-drill-check",

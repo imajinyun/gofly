@@ -10,8 +10,290 @@
     "rate-limit rejection",
     "retry attempts",
     "breaker open",
-    "recovery to closed"
+    "recovery to closed",
+    "surface matrix",
+    "enable disable paths",
+    "invalid configuration",
+    "downgrade fallback path"
   ],
+  "p13GoZeroResilienceDefaults": {
+    "status": "blocking",
+    "task": "GOFLY-P13-04-GOZERO-RESILIENCE-DEFAULTS",
+    "goal": "Align REST, RPC, and Gateway resilience defaults with go-zero style production expectations using machine-verifiable runtime evidence.",
+    "requiredCapabilities": [
+      "timeout",
+      "concurrency-limit",
+      "rate-limit",
+      "breaker",
+      "adaptive-shedding",
+      "retry",
+      "enable-disable",
+      "invalid-config",
+      "downgrade-fallback"
+    ],
+    "surfaces": [
+      {
+        "name": "rest",
+        "defaultBehavior": "production defaults enable recover, trace, log, timeout, metrics, health, request-id, breaker, trim, and bounded request handling",
+        "mode": "runtime-tested",
+        "capabilities": [
+          {
+            "name": "timeout",
+            "mode": "runtime-tested",
+            "tests": [
+              "rest/server_test.go:TestTimeoutMiddlewareWritesGatewayTimeout",
+              "rest/server_test.go:TestConfiguredTimeoutUsesTimeoutConfigDuration"
+            ]
+          },
+          {
+            "name": "concurrency-limit",
+            "mode": "runtime-tested",
+            "tests": [
+              "rest/server_test.go:TestWithMaxConcurrencyRejectsOverloadedRoute",
+              "rest/server_test.go:TestWithoutMaxConcurrencyDisablesGlobalRouteLimit"
+            ]
+          },
+          {
+            "name": "rate-limit",
+            "mode": "runtime-tested",
+            "tests": [
+              "rest/server_test.go:TestWithRateLimitLimitsRouteOnly",
+              "rest/server_test.go:TestWithoutRateLimitDisablesGlobalRouteLimit"
+            ]
+          },
+          {
+            "name": "breaker",
+            "mode": "runtime-tested",
+            "tests": [
+              "rest/server_test.go:TestBreakerMiddlewareOpensAfterServerErrors",
+              "rest/server_test.go:TestAdaptiveBreakerMiddleware"
+            ]
+          },
+          {
+            "name": "adaptive-shedding",
+            "mode": "runtime-tested",
+            "tests": [
+              "rest/server_test.go:TestAdaptiveRateLimitCanUseInjectedCPUSignal",
+              "rest/server_test.go:TestConfiguredAdaptiveRateLimitRejectsWhenSaturated",
+              "core/limit/adaptive_test.go:TestAdaptiveLimiterRejectsWhenCPUSignalIsOverloaded"
+            ]
+          },
+          {
+            "name": "retry",
+            "mode": "client-runtime-tested",
+            "tests": [
+              "rest/client_test.go:TestRESTClientRetryAndStatusBoundaries",
+              "rest/client_test.go:TestRESTClientRejectsRetryWithNonReplayableBody"
+            ]
+          },
+          {
+            "name": "enable-disable",
+            "mode": "runtime-tested",
+            "tests": [
+              "rest/server_test.go:TestNewServerCanDisableProductionDefaults",
+              "rest/server_test.go:TestWithoutTraceRequestIDAndMetricsDisableGlobalRoute"
+            ]
+          },
+          {
+            "name": "invalid-config",
+            "mode": "runtime-tested",
+            "tests": [
+              "rest/validation_test.go:TestValidateProductionConfigRejectsDangerousDefaults",
+              "rest/server_test.go:TestServerTimeoutAndMapCloneHelpers"
+            ]
+          },
+          {
+            "name": "downgrade-fallback",
+            "mode": "runtime-tested",
+            "tests": [
+              "rest/server_test.go:TestServerTimeoutAndMapCloneHelpers",
+              "rest/client_test.go:TestRESTClientAllowsNonReplayableBodyWhenRetryDoesNotApplyToMethod"
+            ]
+          }
+        ]
+      },
+      {
+        "name": "rpc",
+        "defaultBehavior": "HTTP RPC and gRPC governance enforce timeout, retry, breaker, balancer, load shedder, fallback, and stream contracts through runtime policy snapshots",
+        "mode": "runtime-tested",
+        "capabilities": [
+          {
+            "name": "timeout",
+            "mode": "runtime-tested",
+            "tests": [
+              "rpc/client_test.go:TestHTTPClientRPCPolicyRuntimeTimeout",
+              "rpc/stream_test.go:TestRPCStreamGovernanceRuntimeTimeoutAndMetadata",
+              "rpc/grpc/governance_test.go:TestGovernanceUnaryClientInterceptorEnforcesTimeout"
+            ]
+          },
+          {
+            "name": "concurrency-limit",
+            "mode": "runtime-tested",
+            "tests": [
+              "rpc/client_test.go:TestHTTPClientGovernanceRuleRuntimeConcurrencyLimit",
+              "rpc/stream_test.go:TestRPCStreamGovernanceRuntimeConcurrencyLimit",
+              "rpc/grpc/governance_test.go:TestGovernanceUnaryClientInterceptorEnforcesConcurrency"
+            ]
+          },
+          {
+            "name": "rate-limit",
+            "mode": "runtime-tested",
+            "tests": [
+              "rpc/client_test.go:TestHTTPClientGovernanceRuleRuntimeRateLimit",
+              "rpc/stream_test.go:TestRPCStreamGovernanceRuntimeRateLimit",
+              "rpc/grpc/governance_test.go:TestGovernanceUnaryClientInterceptorEnforcesRateLimit"
+            ]
+          },
+          {
+            "name": "breaker",
+            "mode": "runtime-tested",
+            "tests": [
+              "rpc/client_test.go:TestHTTPClientRPCPolicyRuntimeBreaker",
+              "rpc/server_test.go:TestHTTPServerAdaptiveBreakerRejectsAfterFailure",
+              "rpc/grpc/governance_test.go:TestGovernanceUnaryClientInterceptorMapsOpenBreaker"
+            ]
+          },
+          {
+            "name": "adaptive-shedding",
+            "mode": "runtime-tested",
+            "tests": [
+              "rpc/client_test.go:TestHTTPClientRPCPolicyRuntimeLoadShedder",
+              "rpc/client_test.go:TestHTTPClientRPCPolicyRuntimeLoadShedderReportsMinWindow",
+              "rpc/server_test.go:TestHTTPServerAdaptiveLimiterRejectsWhenSaturated"
+            ]
+          },
+          {
+            "name": "retry",
+            "mode": "runtime-tested",
+            "tests": [
+              "rpc/client_test.go:TestHTTPClientRPCPolicyRuntimeRetryAndCancel",
+              "rpc/grpc/governance_test.go:TestGovernanceUnaryClientInterceptorAppliesMetadataAndRetry",
+              "rpc/grpc/governance_test.go:TestGovernanceStreamClientInterceptorAppliesMetadataAndRetry"
+            ]
+          },
+          {
+            "name": "enable-disable",
+            "mode": "runtime-tested",
+            "tests": [
+              "rpc/client_test.go:TestGovernanceSuiteUsesSeparateTimeoutConfig",
+              "rpc/option_hardening_test.go:TestRPCPolicyValidateAndGovernanceMapping"
+            ]
+          },
+          {
+            "name": "invalid-config",
+            "mode": "runtime-tested",
+            "tests": [
+              "rpc/option_hardening_test.go:TestRPCPolicyValidateAndGovernanceMapping",
+              "rpc/option_hardening_test.go:TestRPCPolicyValidateAdditionalBoundaries"
+            ]
+          },
+          {
+            "name": "downgrade-fallback",
+            "mode": "runtime-tested",
+            "tests": [
+              "rpc/client_test.go:TestHTTPClientRPCPolicyRuntimeFallback",
+              "rpc/balancer_test.go:TestConsistentHashBalancerFallsBackToRoundRobinWithoutKey"
+            ]
+          }
+        ]
+      },
+      {
+        "name": "gateway",
+        "defaultBehavior": "Gateway routes enforce timeout, concurrency, rate-limit, breaker, retry budget, and passive-health fallback; adaptive shedding is currently represented by governance fallback and ejection evidence rather than a dedicated Gateway adaptive limiter.",
+        "mode": "mixed-runtime-tested",
+        "capabilities": [
+          {
+            "name": "timeout",
+            "mode": "runtime-tested",
+            "tests": [
+              "gateway/gateway_test.go:TestGatewayProxyRetryBackoffCancellation",
+              "gateway/gateway_test.go:TestRetryAfterDelayBoundaries"
+            ]
+          },
+          {
+            "name": "concurrency-limit",
+            "mode": "runtime-tested",
+            "tests": [
+              "gateway/gateway_test.go:TestGatewayGovernanceRuleSetEnforcesResiliencePolicy"
+            ]
+          },
+          {
+            "name": "rate-limit",
+            "mode": "runtime-tested",
+            "tests": [
+              "gateway/gateway_test.go:TestGatewayGovernanceRuleSetEnforcesResiliencePolicy"
+            ]
+          },
+          {
+            "name": "breaker",
+            "mode": "runtime-tested",
+            "tests": [
+              "gateway/gateway_test.go:TestGatewayBreakerOpensAfterFailures",
+              "gateway/gateway_test.go:TestGatewayGovernanceRuleSetEnforcesResiliencePolicy"
+            ]
+          },
+          {
+            "name": "adaptive-shedding",
+            "mode": "candidate-via-governance",
+            "tests": [
+              "gateway/gateway_test.go:TestGatewayPassiveHealthEjectsFailingEndpoint",
+              "gateway/gateway_test.go:TestGatewayGovernanceRuleSetEnforcesResiliencePolicy"
+            ],
+            "followUp": "Add a dedicated Gateway adaptive limiter before promoting this capability to runtime-tested."
+          },
+          {
+            "name": "retry",
+            "mode": "runtime-tested",
+            "tests": [
+              "gateway/gateway_test.go:TestGatewayRetriesOnRetryableStatus",
+              "gateway/gateway_test.go:TestGatewayRetryBudgetLimitsRetries"
+            ]
+          },
+          {
+            "name": "enable-disable",
+            "mode": "runtime-tested",
+            "tests": [
+              "gateway/gateway_test.go:TestGatewayNoShadowPoolWithoutShadowRoutes",
+              "gateway/gateway_test.go:TestGatewayGovernanceRuleSetAppliesRoutePolicy"
+            ]
+          },
+          {
+            "name": "invalid-config",
+            "mode": "runtime-tested",
+            "tests": [
+              "gateway/gateway_test.go:TestGatewayGovernanceRuleSetAppliesRoutePolicy",
+              "gateway/gateway_test.go:TestDecodeGatewayRouteConfigSuccess"
+            ]
+          },
+          {
+            "name": "downgrade-fallback",
+            "mode": "runtime-tested",
+            "tests": [
+              "gateway/gateway_test.go:TestGatewayPassiveHealthEjectsFailingEndpoint",
+              "gateway/gateway_test.go:TestGovernanceRuntimeKey"
+            ]
+          }
+        ]
+      }
+    ],
+    "gatePolicy": {
+      "requiredSurfaceCount": 3,
+      "requiredCapabilityCountPerSurface": 9,
+      "allowedModes": [
+        "runtime-tested",
+        "client-runtime-tested",
+        "mixed-runtime-tested",
+        "candidate-via-governance"
+      ],
+      "disallowedModes": [
+        "unsupported-report-only",
+        "documentation-only"
+      ],
+      "gatewayAdaptiveSheddingBoundary": "candidate-via-governance",
+      "latencyBudget": "report-only",
+      "allocationBudget": "blocking where bench evidence exists"
+    }
+  },
   "referenceAppEvidence": [
     {
       "component": "saga compensation",

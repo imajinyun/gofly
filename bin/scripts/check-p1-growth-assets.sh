@@ -162,6 +162,7 @@ checks = {
         'TestHTTPMiddlewareServerContracts',
         'JWT',
         'CSRF',
+        'TestJWTAndSessionHelpers',
         'text/event-stream',
         'gofly_requests_total',
         '/openapi.json',
@@ -175,7 +176,7 @@ checks = {
         'rollback',
     ],
     pathlib.Path('examples/migration-proof/main_test.go'): [
-        'TestMigrationProofReport_BitsUT',
+        'TestMigrationProofReport',
         'gin',
         'go-zero',
         'kratos',
@@ -358,6 +359,43 @@ for item in capabilities:
         for needle in needles:
             if needle not in text:
                 missing.append(f'HTTP middleware capability {item_id}: {ref_path} missing {needle!r}')
+
+p10_closeout = middleware_manifest.get('p10MiddlewareEcosystemCloseout') or {}
+require(p10_closeout.get('schema') == 'gofly.http_middleware_p10_closeout.v1', 'HTTP middleware P10 closeout schema mismatch')
+require(p10_closeout.get('aiflowTask') == 'GOFLY-P10-4-REST-MIDDLEWARE-ECOSYSTEM-MATRIX', 'HTTP middleware P10 closeout aiflowTask mismatch')
+require(p10_closeout.get('status') == 'blocking-contract', 'HTTP middleware P10 closeout status must be blocking-contract')
+require(p10_closeout.get('acceptanceGate') == 'make p1-growth-check', 'HTTP middleware P10 closeout acceptanceGate mismatch')
+require(set(p10_closeout.get('requiredCapabilities') or []) == required_capabilities, 'HTTP middleware P10 requiredCapabilities mismatch')
+require(set(p10_closeout.get('migrationSources') or []) == {'Gin', 'go-zero'}, 'HTTP middleware P10 migrationSources mismatch')
+p10_rows = {
+    item.get('id'): item
+    for item in p10_closeout.get('closeoutRows') or []
+    if isinstance(item, dict) and item.get('id')
+}
+expected_p10_rows = {
+    'auth-browser-safety': {'jwt', 'cors', 'csrf', 'session'},
+    'observability': {'prometheus', 'otel'},
+    'realtime': {'sse', 'websocket'},
+    'openapi-control-plane': required_capabilities,
+}
+require(set(p10_rows) == set(expected_p10_rows), f'HTTP middleware P10 rows mismatch: {sorted(p10_rows)!r}')
+for row_id, expected_caps in expected_p10_rows.items():
+    row = p10_rows.get(row_id) or {}
+    for field in ('id', 'capabilities', 'smokeGate', 'migrationBoundary', 'rollbackOrEscalation'):
+        require(row.get(field), f'HTTP middleware P10 row {row_id}: {field} is required')
+    caps = set(row.get('capabilities') or [])
+    require(caps == expected_caps, f'HTTP middleware P10 row {row_id}: capabilities mismatch')
+    require(set(row.get('capabilities') or []) <= actual_capabilities, f'HTTP middleware P10 row {row_id}: unknown capability')
+    require(len(str(row.get('migrationBoundary') or '').split()) >= 10, f'HTTP middleware P10 row {row_id}: migrationBoundary must be actionable')
+    require(len(str(row.get('rollbackOrEscalation') or '').split()) >= 10, f'HTTP middleware P10 row {row_id}: rollbackOrEscalation must be actionable')
+    gate = str(row.get('smokeGate') or '')
+    require(gate.startswith('go -C examples/') or gate.startswith('make '), f'HTTP middleware P10 row {row_id}: smokeGate must be runnable')
+policy_text = str(p10_closeout.get('promotionPolicy') or '')
+for needle in ('auth', 'browser safety', 'observability', 'realtime', 'OpenAPI', 'control-plane', 'Gin', 'go-zero'):
+    require(needle in policy_text, f'HTTP middleware P10 promotionPolicy missing {needle!r}')
+runtime_policy = str(p10_closeout.get('runtimeArtifactPolicy') or '')
+for needle in ('runtime evidence', 'durable evidence'):
+    require(needle in runtime_policy, f'HTTP middleware P10 runtimeArtifactPolicy missing {needle!r}')
 
 for rel, terms in checks.items():
     path = root / rel

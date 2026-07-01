@@ -240,7 +240,7 @@
         {
           "path": "examples/http-middleware/main_test.go",
           "contains": [
-            "TestJWTAndSessionHelpers_BitsUT",
+            "TestJWTAndSessionHelpers",
             "verifySession",
             "session_id"
           ]
@@ -415,5 +415,77 @@
         }
       ]
     }
-  ]
+  ],
+  "p10MiddlewareEcosystemCloseout": {
+    "schema": "gofly.http_middleware_p10_closeout.v1",
+    "aiflowTask": "GOFLY-P10-4-REST-MIDDLEWARE-ECOSYSTEM-MATRIX",
+    "status": "blocking-contract",
+    "acceptanceGate": "make p1-growth-check",
+    "requiredCapabilities": [
+      "jwt",
+      "cors",
+      "csrf",
+      "session",
+      "prometheus",
+      "otel",
+      "sse",
+      "websocket"
+    ],
+    "migrationSources": [
+      "Gin",
+      "go-zero"
+    ],
+    "closeoutRows": [
+      {
+        "id": "auth-browser-safety",
+        "capabilities": [
+          "jwt",
+          "cors",
+          "csrf",
+          "session"
+        ],
+        "smokeGate": "go -C examples/http-middleware test ./...",
+        "migrationBoundary": "Port browser-facing auth one concern at a time and keep previous Gin or go-zero middleware active until JWT, CORS, CSRF, and session smoke pass.",
+        "rollbackOrEscalation": "Restore the previous auth/browser middleware chain when token, preflight, cookie, or session behavior diverges from sampled production traffic."
+      },
+      {
+        "id": "observability",
+        "capabilities": [
+          "prometheus",
+          "otel"
+        ],
+        "smokeGate": "go -C examples/middlewares test ./...",
+        "migrationBoundary": "Prometheus and OpenTelemetry migration must keep low-cardinality labels, request-id correlation, and traceparent propagation stable.",
+        "rollbackOrEscalation": "Keep the previous metrics or tracing middleware when scrape output, route labels, or trace propagation differs from production samples."
+      },
+      {
+        "id": "realtime",
+        "capabilities": [
+          "sse",
+          "websocket"
+        ],
+        "smokeGate": "go -C examples/http-middleware test ./...",
+        "migrationBoundary": "SSE and WebSocket migration must preserve stream headers, request correlation, message bounds, timeouts, and connection stats.",
+        "rollbackOrEscalation": "Keep the previous realtime endpoint when stream headers, upgrade behavior, bounds, cancellation, or manager stats diverge."
+      },
+      {
+        "id": "openapi-control-plane",
+        "capabilities": [
+          "jwt",
+          "cors",
+          "csrf",
+          "session",
+          "prometheus",
+          "otel",
+          "sse",
+          "websocket"
+        ],
+        "smokeGate": "make api-example-consistency-check",
+        "migrationBoundary": "OpenAPI and control-plane visibility must stay enabled so adopters can compare the migrated middleware chain before traffic shift.",
+        "rollbackOrEscalation": "Block promotion when OpenAPI, control-plane, or example smoke evidence no longer exposes the full middleware matrix."
+      }
+    ],
+    "promotionPolicy": "Promote HTTP middleware migrations only after auth, browser safety, observability, realtime, OpenAPI, control-plane, and example smoke evidence all pass for Gin and go-zero migration paths.",
+    "runtimeArtifactPolicy": "Middleware demo reports and smoke output remain runtime evidence; durable evidence belongs in this manifest, examples, and docs."
+  }
 }

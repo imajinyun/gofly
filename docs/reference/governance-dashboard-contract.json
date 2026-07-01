@@ -258,7 +258,7 @@
     "finalGate": "make governance-10-rounds",
     "requiredTaskCount": 3,
     "requiredActiveBatch": "GOFLY-P14",
-    "latestCompletedBatch": "GOFLY-P13",
+    "latestCompletedBatch": "GOFLY-P14",
     "activeRoadmap": "docs/reference/governance-p14-roadmap.json",
     "requiredIgnoredRuntimePaths": [
       "docs/superpowers/",

@@ -1150,6 +1150,194 @@ p13_runtime_policy = str(p13_maturity.get("runtimeArtifactPolicy") or "")
 for needle in (".tmp-test", "GENERATED_VERSION_COMPAT_TMPDIR", "local temp directory", "must never be committed"):
     require(needle in p13_runtime_policy, f"p13GoctlGeneratorMaturity runtimeArtifactPolicy missing {needle!r}")
 
+p14_replay = manifest.get("p14GeneratorAdopterReplayEvidence") or {}
+require(
+    p14_replay.get("schema") == "gofly.generator_adopter_replay_evidence.v1",
+    "p14GeneratorAdopterReplayEvidence schema mismatch",
+)
+require(
+    p14_replay.get("aiflowTask") == "GOFLY-P14-03-GENERATOR-ADOPTER-REPLAY-EVIDENCE",
+    "p14GeneratorAdopterReplayEvidence aiflowTask mismatch",
+)
+require(
+    p14_replay.get("status") == "blocking-contract",
+    "p14GeneratorAdopterReplayEvidence status must be blocking-contract",
+)
+require(
+    set(p14_replay.get("sourceOfTruth") or []) == expected_p13_sources,
+    "p14GeneratorAdopterReplayEvidence sourceOfTruth mismatch",
+)
+for source in p14_replay.get("sourceOfTruth") or []:
+    require((root / source).exists(), f"p14GeneratorAdopterReplayEvidence source path missing: {source}")
+require(
+    set(p14_replay.get("acceptanceGates") or []) == {
+        "make generated-version-compat-check",
+        "make generated-upgrade-dry-run-check",
+        "make root-dependency-policy-check",
+    },
+    "p14GeneratorAdopterReplayEvidence acceptanceGates mismatch",
+)
+p14_previous_refs = {
+    item.get("field"): item
+    for item in p14_replay.get("previousContractRefs") or []
+    if isinstance(item, dict) and item.get("field")
+}
+require(
+    set(p14_previous_refs) == {"p12RealBranchReplay", "p13GoctlGeneratorMaturity"},
+    f"p14GeneratorAdopterReplayEvidence previousContractRefs mismatch: {sorted(p14_previous_refs)!r}",
+)
+for ref_name, ref in sorted(p14_previous_refs.items()):
+    require(ref.get("status") == "blocking-contract", f"p14GeneratorAdopterReplayEvidence {ref_name}: status mismatch")
+    carry_forward = set(ref.get("requiredCarryForward") or [])
+    require(len(carry_forward) >= 4, f"p14GeneratorAdopterReplayEvidence {ref_name}: requiredCarryForward must include at least four rows")
+
+p14_execution = p14_replay.get("executionPolicy") or {}
+for field in (
+    "temporaryReplayRoot",
+    "fixtureReplay",
+    "adopterReplayRows",
+    "repeatGeneration",
+    "diffClassification",
+    "temporaryProjectSmoke",
+    "dependencyBoundary",
+    "artifactPolicy",
+):
+    require(
+        len(str(p14_execution.get(field) or "").split()) >= 8,
+        f"p14GeneratorAdopterReplayEvidence executionPolicy.{field} must be actionable",
+    )
+require(
+    "gofly repository" in str(p14_execution.get("temporaryReplayRoot") or ""),
+    "p14GeneratorAdopterReplayEvidence temporaryReplayRoot must keep replay outside the gofly repository",
+)
+require("diff -ru" in str(p14_execution.get("repeatGeneration") or ""), "p14GeneratorAdopterReplayEvidence repeatGeneration must require diff -ru")
+require("go test ./..." in str(p14_execution.get("temporaryProjectSmoke") or ""), "p14GeneratorAdopterReplayEvidence temporaryProjectSmoke must run go test ./...")
+require(
+    p14_execution.get("diffReportSchema") == "gofly.generated_version_compat_report.v1",
+    "p14GeneratorAdopterReplayEvidence diffReportSchema mismatch",
+)
+require(
+    p14_execution.get("dependencyBoundary") == p13_execution.get("dependencyBoundary"),
+    "p14GeneratorAdopterReplayEvidence dependencyBoundary must match P13 execution policy",
+)
+require(
+    p14_execution.get("rootModulePolicy") == "must-not-add-generated-only-dependencies",
+    "p14GeneratorAdopterReplayEvidence rootModulePolicy mismatch",
+)
+for needle in ("runtime evidence", "must not be committed"):
+    require(needle in str(p14_execution.get("artifactPolicy") or ""), f"p14GeneratorAdopterReplayEvidence artifactPolicy missing {needle!r}")
+
+p14_rows = {
+    item.get("profile"): item
+    for item in p14_replay.get("replayRows") or []
+    if isinstance(item, dict) and item.get("profile")
+}
+require(set(p14_rows) == profile_names, f"p14GeneratorAdopterReplayEvidence replayRows profiles mismatch: {sorted(p14_rows)!r}")
+expected_branch_evidence = minimum_fields | {"smokeResult", "dependencyBoundary"}
+for profile_name, row in sorted(p14_rows.items()):
+    matrix_profile = matrix_profiles.get(profile_name) or {}
+    manifest_profile = next((profile for profile in profiles if profile.get("profile") == profile_name), {})
+    p12_profile = p12_profiles.get(profile_name) or {}
+    for field in (
+        "id",
+        "profile",
+        "adopterBranchClass",
+        "fixtureSet",
+        "expectedDiff",
+        "acceptedDiffCategories",
+        "requiredBranchEvidence",
+        "generatedProjectSmoke",
+        "repeatGeneration",
+        "dependencyBoundary",
+        "rootModulePolicy",
+        "blockingChecks",
+        "rollbackAction",
+    ):
+        require(row.get(field), f"p14GeneratorAdopterReplayEvidence {profile_name}: {field} is required")
+    fixture_set = row.get("fixtureSet") or {}
+    for field in ("api", "proto", "serviceConfig"):
+        require(
+            fixture_set.get(field) == manifest_profile.get(field),
+            f"p14GeneratorAdopterReplayEvidence {profile_name}: fixture {field} must match generated upgrade profile",
+        )
+        require(
+            (root / str(fixture_set.get(field) or "")).is_file(),
+            f"p14GeneratorAdopterReplayEvidence {profile_name}: fixture path missing for {field}",
+        )
+    require(
+        fixture_set.get("snapshot") == "testdata/generated-compat/matrix.json",
+        f"p14GeneratorAdopterReplayEvidence {profile_name}: snapshot must be the generated compatibility matrix",
+    )
+    require(
+        row.get("expectedDiff") == matrix_profile.get("expectedDiff"),
+        f"p14GeneratorAdopterReplayEvidence {profile_name}: expectedDiff must match version matrix",
+    )
+    require(
+        set(row.get("acceptedDiffCategories") or []) == set(p12_profile.get("acceptedDiffCategories") or []),
+        f"p14GeneratorAdopterReplayEvidence {profile_name}: acceptedDiffCategories must match P12 replay mapping",
+    )
+    require(
+        expected_branch_evidence == set(row.get("requiredBranchEvidence") or []),
+        f"p14GeneratorAdopterReplayEvidence {profile_name}: requiredBranchEvidence mismatch",
+    )
+    require(row.get("generatedProjectSmoke") == "go test ./...", f"p14GeneratorAdopterReplayEvidence {profile_name}: generatedProjectSmoke mismatch")
+    require(row.get("repeatGeneration") == "clean", f"p14GeneratorAdopterReplayEvidence {profile_name}: repeatGeneration must be clean")
+    require(
+        row.get("diffReportSchema") == "gofly.generated_version_compat_report.v1",
+        f"p14GeneratorAdopterReplayEvidence {profile_name}: diffReportSchema mismatch",
+    )
+    require(
+        row.get("dependencyBoundary") == p14_execution.get("dependencyBoundary"),
+        f"p14GeneratorAdopterReplayEvidence {profile_name}: dependencyBoundary mismatch",
+    )
+    require(
+        row.get("rootModulePolicy") == "must-not-add-generated-only-dependencies",
+        f"p14GeneratorAdopterReplayEvidence {profile_name}: rootModulePolicy mismatch",
+    )
+    blocking_checks = set(row.get("blockingChecks") or [])
+    for check in (
+        "fixture replay goTest == passed",
+        "repeatGenerationDiff == clean",
+        "smokeResult == passed",
+        "root module unchanged",
+    ):
+        require(check in blocking_checks, f"p14GeneratorAdopterReplayEvidence {profile_name}: blockingChecks missing {check!r}")
+    require(
+        len(str(row.get("rollbackAction") or "").split()) >= 14,
+        f"p14GeneratorAdopterReplayEvidence {profile_name}: rollbackAction must be actionable",
+    )
+
+p14_decision = p14_replay.get("promotionDecision") or {}
+require(
+    p14_decision.get("result") == "hold-until-replay-evidence-attached",
+    "p14GeneratorAdopterReplayEvidence promotionDecision.result mismatch",
+)
+require(p14_decision.get("requiredCompletedReplayRows") == 3, "p14GeneratorAdopterReplayEvidence requiredCompletedReplayRows mismatch")
+require(p14_decision.get("completedReplayRows") == 0, "p14GeneratorAdopterReplayEvidence completedReplayRows must remain 0 until real branch evidence is attached")
+require(
+    p14_decision.get("nextReviewGate") == "make generated-version-compat-check && make generated-upgrade-dry-run-check",
+    "p14GeneratorAdopterReplayEvidence nextReviewGate mismatch",
+)
+for field in ("releaseNotePolicy",):
+    require(
+        len(str(p14_decision.get(field) or "").split()) >= 18,
+        f"p14GeneratorAdopterReplayEvidence promotionDecision.{field} must be actionable",
+    )
+
+p14_promotion_policy = str(p14_replay.get("promotionPolicy") or "")
+for needle in (
+    "old, current, and future fixture replay",
+    "real adopter branch metadata",
+    "clean repeat-generation diff classification",
+    "go test ./...",
+    "root module dependency hygiene",
+    "rollback action",
+):
+    require(needle in p14_promotion_policy, f"p14GeneratorAdopterReplayEvidence promotionPolicy missing {needle!r}")
+p14_runtime_policy = str(p14_replay.get("runtimeArtifactPolicy") or "")
+for needle in (".tmp-test", "GENERATED_VERSION_COMPAT_TMPDIR", "local temp directory", "must never be committed"):
+    require(needle in p14_runtime_policy, f"p14GeneratorAdopterReplayEvidence runtimeArtifactPolicy missing {needle!r}")
+
 target_body = make_target_body(makefile, "generated-upgrade-dry-run-check")
 contract_deps = make_target_deps(makefile, "contract-docs-check")
 require(
@@ -1175,6 +1363,7 @@ for needle in (
     "p11LiveUpgradeProof",
     "p12RealBranchReplay",
     "p13GoctlGeneratorMaturity",
+    "p14GeneratorAdopterReplayEvidence",
     "gofly.generated_version_compat_report.v1",
 ):
     require(needle in doc, f"docs/reference/generated-upgrade-dry-run.md missing {needle!r}")

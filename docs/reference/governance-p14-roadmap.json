@@ -16,11 +16,10 @@
     "safetyPolicy": "P14 tasks are submitted to ignored local aiflow runtime state and mirrored here as durable docs/reference evidence; each task must be completed in order and committed by the current agent or human only after its gate passes or an environment-limited downgrade is documented.",
     "completedTasks": [
       "GOFLY-P14-01-P13-COMPLETION-HANDOFF",
-      "GOFLY-P14-02-RPC-RELEASE-TRAIN-EVIDENCE"
-    ],
-    "pendingTasks": [
+      "GOFLY-P14-02-RPC-RELEASE-TRAIN-EVIDENCE",
       "GOFLY-P14-03-GENERATOR-ADOPTER-REPLAY-EVIDENCE"
-    ]
+    ],
+    "pendingTasks": []
   },
   "previousBatchHandoff": {
     "completedBatch": "GOFLY-P13",
@@ -82,7 +81,7 @@
     {
       "round": 3,
       "id": "GOFLY-P14-03-GENERATOR-ADOPTER-REPLAY-EVIDENCE",
-      "status": "queued",
+      "status": "completed",
       "priority": 98,
       "title": "Generator adopter replay evidence",
       "objective": "Deepen goctl-compatible generator maturity with adopter branch replay, classified diffs, temporary project test smoke, and root dependency hygiene.",
@@ -91,7 +90,15 @@
         "make generated-version-compat-check",
         "make generated-upgrade-dry-run-check"
       ],
-      "commitPolicy": "commit after generator replay evidence and both generated compatibility gates pass with repeatable diffs and clean root module dependency boundaries"
+      "commitPolicy": "commit after generator replay evidence and both generated compatibility gates pass with repeatable diffs and clean root module dependency boundaries",
+      "commit": "pending-current-commit",
+      "verification": [
+        "python3 -m json.tool docs/reference/generated-upgrade-dry-run.json",
+        "sh -n bin/scripts/check-generated-upgrade-dry-run.sh",
+        "make generated-version-compat-check",
+        "make generated-upgrade-dry-run-check",
+        "git diff --check"
+      ]
     }
   ]
 }

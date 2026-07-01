@@ -201,6 +201,17 @@ worktrees, generated projects, reports, and diff outputs remain ignored evidence
 under `.tmp-test`, `GENERATED_VERSION_COMPAT_TMPDIR`, or the local temp
 directory and must never be committed.
 
+The P14 generator adopter replay evidence contract is captured in
+`p14GeneratorAdopterReplayEvidence`. It keeps the P12 and P13 contracts in
+blocking mode and adds explicit adopter replay rows for the old, current, and
+future profiles. Each replay row must name branch metadata, the fixture set,
+accepted diff categories, generated project `go test ./...` smoke, clean repeat
+generation, dependency boundary, root module policy, blocking checks, and a
+rollback action. P14 intentionally holds promotion until real branch evidence is
+attached for all replay rows; fixture replay and dry-run gates remain the
+machine-checkable contract while replay worktrees, smoke logs, dependency
+reports, and generated projects stay ignored runtime evidence.
+
 ## Migration Fidelity Matrix
 
 The migration fidelity matrix ties generated upgrade expectations to adopter

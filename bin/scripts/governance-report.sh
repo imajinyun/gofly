@@ -800,6 +800,7 @@ def dx_support_bundle_evidence():
     remediation_handoff = manifest.get("remediationHandoff") or {}
     adoption_loop = manifest.get("troubleshootingAdoptionLoop") or {}
     remediation_loop = manifest.get("remediationLoopContract") or {}
+    p10_support = manifest.get("p10AINativeSupportBundle") or {}
     adoption_steps = [
         item
         for item in adoption_loop.get("steps") or []
@@ -847,6 +848,7 @@ def dx_support_bundle_evidence():
             "completionPolicy": remediation_handoff.get("completionPolicy", ""),
         },
         "p9RemediationCloseout": manifest.get("p9RemediationCloseout", {}),
+        "p10AINativeSupportBundle": p10_support,
         "troubleshootingAdoptionLoop": {
             "schema": adoption_loop.get("schema", ""),
             "acceptanceGate": adoption_loop.get("acceptanceGate", ""),
@@ -1124,6 +1126,66 @@ if p9_closeout.get("acceptanceGate") != "make dx-troubleshooting-check":
 for source in ("nextActions", "error.remediation", "data.nextActions"):
     if source not in set(p9_closeout.get("requiredNextActionSources") or []):
         missing.append(f"dx support bundle P9 remediation closeout missing next action source {source!r}")
+
+p10_support = dx_support_bundle.get("p10AINativeSupportBundle") or {}
+if p10_support.get("schema") != "gofly.ai_native_support_bundle_p10.v1":
+    missing.append("dx support bundle P10 AI-native support schema mismatch")
+if p10_support.get("aiflowTask") != "GOFLY-P10-6-AI_NATIVE_SUPPORT_BUNDLE":
+    missing.append("dx support bundle P10 AI-native support aiflowTask mismatch")
+if p10_support.get("status") != "blocking-contract":
+    missing.append("dx support bundle P10 AI-native support status mismatch")
+if p10_support.get("acceptanceGate") != "make governance-report-check":
+    missing.append("dx support bundle P10 AI-native support acceptanceGate mismatch")
+for command in (
+    "gofly doctor --json",
+    "gofly release check --json --strict",
+    "gofly bug --json",
+    "gofly ai control-plane --json",
+    "gofly ai new --json --apply --verify",
+):
+    if command not in set(p10_support.get("sourceSurfaces") or []):
+        missing.append(f"dx support bundle P10 AI-native support sourceSurfaces missing {command!r}")
+for field in (
+    "dxSupportBundle.surfaceCount",
+    "dxSupportBundle.remediationHintCount",
+    "dxSupportBundle.remediationHandoff.schema",
+    "dxSupportBundle.p10AINativeSupportBundle.status",
+    "dashboard.evidenceTraceability.claimCount",
+    "releaseEvidence.evidenceCount",
+):
+    if field not in set(p10_support.get("dashboardFields") or []):
+        missing.append(f"dx support bundle P10 AI-native support dashboardFields missing {field!r}")
+for evidence in (
+    "docs/reference/control-plane-contracts.md",
+    "docs/case-studies/ai-control-plane-drift.md",
+    "make generated-control-plane-smoke",
+):
+    if evidence not in set(p10_support.get("controlPlaneEvidence") or []):
+        missing.append(f"dx support bundle P10 AI-native support controlPlaneEvidence missing {evidence!r}")
+workflow_rows = {
+    item.get("id"): item
+    for item in p10_support.get("workflowRows") or []
+    if isinstance(item, dict) and item.get("id")
+}
+for row_id in ("diagnose", "release-readiness", "support-bundle", "control-plane", "generated-failure"):
+    row = workflow_rows.get(row_id) or {}
+    if not row:
+        missing.append(f"dx support bundle P10 AI-native support workflowRows missing {row_id!r}")
+        continue
+    for key in ("sourceCommand", "nextActionSource", "handoffAction"):
+        if not row.get(key):
+            missing.append(f"dx support bundle P10 AI-native support {row_id}: {key} is required")
+    if len(str(row.get("handoffAction") or "").split()) < 8:
+        missing.append(f"dx support bundle P10 AI-native support {row_id}: handoffAction must be actionable")
+for needle in ("Authorization", "Cookie", "Set-Cookie", "token", "secret", "password"):
+    if needle not in str(p10_support.get("redactionPolicy") or ""):
+        missing.append(f"dx support bundle P10 AI-native support redactionPolicy missing {needle!r}")
+for needle in (".aiflow", ".harness", ".tmp-test", ".trae", "coverage.out", "docs/superpowers"):
+    if needle not in str(p10_support.get("runtimeStatePolicy") or ""):
+        missing.append(f"dx support bundle P10 AI-native support runtimeStatePolicy missing {needle!r}")
+for needle in ("aiflow", "bounded failure reports", "commits remain owned", "gates pass"):
+    if needle not in str(p10_support.get("commitPolicy") or ""):
+        missing.append(f"dx support bundle P10 AI-native support commitPolicy missing {needle!r}")
 
 adoption_loop = dx_support_bundle.get("troubleshootingAdoptionLoop") or {}
 if adoption_loop.get("schema") != "gofly.troubleshooting_adoption_loop.v1":

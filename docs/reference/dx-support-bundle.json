@@ -377,6 +377,67 @@
     },
     "nextActionPolicy": "Every remediation row must identify a source command, stable fields, nextActionSource, dashboard evidence, adopter action, gate, and rollback or handoff boundary before aiflow can queue work."
   },
+  "p10AINativeSupportBundle": {
+    "schema": "gofly.ai_native_support_bundle_p10.v1",
+    "aiflowTask": "GOFLY-P10-6-AI_NATIVE_SUPPORT_BUNDLE",
+    "status": "blocking-contract",
+    "acceptanceGate": "make governance-report-check",
+    "sourceSurfaces": [
+      "gofly doctor --json",
+      "gofly release check --json --strict",
+      "gofly bug --json",
+      "gofly ai control-plane --json",
+      "gofly ai new --json --apply --verify"
+    ],
+    "dashboardFields": [
+      "dxSupportBundle.surfaceCount",
+      "dxSupportBundle.remediationHintCount",
+      "dxSupportBundle.remediationHandoff.schema",
+      "dxSupportBundle.p10AINativeSupportBundle.status",
+      "dashboard.evidenceTraceability.claimCount",
+      "releaseEvidence.evidenceCount"
+    ],
+    "controlPlaneEvidence": [
+      "docs/reference/control-plane-contracts.md",
+      "docs/case-studies/ai-control-plane-drift.md",
+      "make generated-control-plane-smoke"
+    ],
+    "workflowRows": [
+      {
+        "id": "diagnose",
+        "sourceCommand": "gofly doctor --json",
+        "nextActionSource": "nextActions",
+        "handoffAction": "Fix local toolchain, environment, and generator preconditions before opening remediation work."
+      },
+      {
+        "id": "release-readiness",
+        "sourceCommand": "gofly release check --json --strict",
+        "nextActionSource": "error.remediation",
+        "handoffAction": "Treat release blockers as governance tasks and attach release evidence before promotion."
+      },
+      {
+        "id": "support-bundle",
+        "sourceCommand": "gofly bug --json",
+        "nextActionSource": "nextActions",
+        "handoffAction": "Share only redacted support bundles with commands, redaction policy, and next actions."
+      },
+      {
+        "id": "control-plane",
+        "sourceCommand": "gofly ai control-plane --json",
+        "nextActionSource": "data.consumerAction.nextActions",
+        "handoffAction": "Compare control-plane snapshots before changing runtime, discovery, governance, or generated project behavior."
+      },
+      {
+        "id": "generated-failure",
+        "sourceCommand": "gofly ai new --json --apply --verify",
+        "nextActionSource": "data.nextActions",
+        "handoffAction": "Attach bounded generated project verification output and rerun only the command named by nextActions."
+      }
+    ],
+    "redactionPolicy": "Support bundles and generated failure reports must redact Authorization, Cookie, Set-Cookie, token, secret, password, and provider credential values before sharing.",
+    "runtimeStatePolicy": "Do not stage .aiflow, .harness, .tmp-test, .trae, coverage.out, or docs/superpowers while resolving AI-native support tasks.",
+    "commitPolicy": "aiflow may queue remediation tasks and produce bounded failure reports, but commits remain owned by the current agent or human after gates pass."
+  },
   "docs": [
     "docs/reference/cli-json-contracts.md",
     "docs/operations/troubleshooting.md"

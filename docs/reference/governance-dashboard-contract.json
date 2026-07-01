@@ -14,6 +14,12 @@
     "releaseAdoptionContract.riskClassCounts",
     "releaseAdoptionContract.tagCIClosureRowCount",
     "releaseAdoptionContract.supplyChainEnforcementCount",
+    "dashboard.releaseDashboardConsumption.schema",
+    "dashboard.releaseDashboardConsumption.status",
+    "dashboard.releaseDashboardConsumption.aiflowTask",
+    "dashboard.releaseDashboardConsumption.stableFieldCount",
+    "dashboard.releaseDashboardConsumption.consumerRowCount",
+    "dashboard.releaseDashboardConsumption.requiredGateCount",
     "apiSurface.tiers",
     "benchmark.regressionGate",
     "benchmark.regressionReport",
@@ -86,6 +92,102 @@
       "releaseAdoptionContract.riskClassCounts",
       "releaseAdoptionContract.tagCIClosureRowCount"
     ]
+  },
+  "releaseDashboardConsumption": {
+    "schema": "gofly.release_dashboard_consumption.v1",
+    "aiflowTask": "GOFLY-P10-9-RELEASE-DASHBOARD-CONSUMPTION",
+    "status": "blocking-contract",
+    "source": "docs/reference/governance-dashboard-contract.json",
+    "sourceReport": "gofly.governance_report.v1",
+    "reportField": "dashboard.releaseDashboardConsumption",
+    "acceptanceGate": "make governance-report-check",
+    "driftGate": "make required-checks-drift-check",
+    "owner": "human-or-current-agent",
+    "policy": "Adopter-facing release dashboards must consume stable fields only. Release readiness, API tiers, security gates, coverage ratchets, benchmark ratchets, and aiflow task status must stay visible in the governance report before release promotion or upgrade decisions.",
+    "requiredGates": [
+      "make governance-report-check",
+      "make required-checks-drift-check"
+    ],
+    "requiredStableFields": [
+      "release.readinessScore.status",
+      "release.readinessScore.score",
+      "apiSurface.tiers",
+      "security.gosec.blockingGate",
+      "security.govulncheck.blockingGate",
+      "coverage.ratchet",
+      "coverageTrend.policy.blockingGate",
+      "benchmark.regressionGate",
+      "benchmark.surfacePolicy.adopterPerformanceContract.blockingSurfaceCount",
+      "benchmark.surfacePolicy.adopterPerformanceContract.reportOnlySurfaceCount",
+      "benchmark.surfacePolicy.adopterPerformanceContract.unsupportedSurfaceCount",
+      "aiflow.status",
+      "aiflow.summary"
+    ],
+    "consumerRows": [
+      {
+        "id": "release-readiness",
+        "sourceReportFields": [
+          "release.readinessScore.status",
+          "release.readinessScore.score"
+        ],
+        "gate": "make governance-report-check",
+        "adopterAction": "promote or upgrade only when the release readiness status is ready and the score reaches the configured release threshold",
+        "rollbackOrEscalation": "block release promotion and keep the previous published artifact when readiness score, evidence components, or report fields drift"
+      },
+      {
+        "id": "api-tier-consumption",
+        "sourceReportFields": [
+          "apiSurface.tiers"
+        ],
+        "gate": "make stable-surface-check",
+        "adopterAction": "consume Tier 0 and Tier 1 surfaces as stable only after the stable surface gate and deprecation evidence remain green",
+        "rollbackOrEscalation": "pin the previous API surface and require migration notes when tier rows, compatibility statements, or generated golden evidence drift"
+      },
+      {
+        "id": "security-gate-consumption",
+        "sourceReportFields": [
+          "security.gosec.blockingGate",
+          "security.govulncheck.blockingGate"
+        ],
+        "gate": "make governance-report-check",
+        "adopterAction": "treat gosec and govulncheck gates as release blockers and review baselines before accepting dependency or external input changes",
+        "rollbackOrEscalation": "block promotion until new security findings are fixed, justified with scoped exceptions, or downgraded with explicit risk ownership"
+      },
+      {
+        "id": "coverage-ratchet-consumption",
+        "sourceReportFields": [
+          "coverage.ratchet",
+          "coverageTrend.policy.blockingGate"
+        ],
+        "gate": "make coverage-trend-check",
+        "adopterAction": "treat the coverage ratchet as the minimum non-regression contract and raise it only after full governance evidence stabilizes",
+        "rollbackOrEscalation": "hold the release and restore coverage evidence when the ratchet drops, stale coverage artifacts appear, or blocking gates are bypassed"
+      },
+      {
+        "id": "benchmark-ratchet-consumption",
+        "sourceReportFields": [
+          "benchmark.regressionGate",
+          "benchmark.surfacePolicy.adopterPerformanceContract.blockingSurfaceCount",
+          "benchmark.surfacePolicy.adopterPerformanceContract.reportOnlySurfaceCount",
+          "benchmark.surfacePolicy.adopterPerformanceContract.unsupportedSurfaceCount"
+        ],
+        "gate": "make bench-regression-check",
+        "adopterAction": "block only promoted allocation budget regressions and keep weak latency or unsupported gateway/cache rows report-only until evidence matures",
+        "rollbackOrEscalation": "revert the hot-path change or keep the surface candidate when benchmark evidence, sample counts, or promotion rules are incomplete"
+      },
+      {
+        "id": "aiflow-task-status-consumption",
+        "sourceReportFields": [
+          "aiflow.status",
+          "aiflow.summary"
+        ],
+        "gate": "make governance-report-check",
+        "adopterAction": "use the aiflow status and summary as release dashboard context only; never commit local .aiflow or .harness runtime state",
+        "rollbackOrEscalation": "continue with explicit unavailable status when local aiflow state is absent, and block only if committed dashboard fields disappear"
+      }
+    ],
+    "runtimeStatePolicy": "Local .aiflow, .harness, .tmp-test, .trae, coverage.out, bench/regression-report.json, and docs/superpowers artifacts are dashboard inputs or generated evidence only and must stay ignored.",
+    "commitPolicy": "The P10 dashboard task is completed by the current agent or human only after governance-report-check and required-checks-drift-check pass; runtime state must not be staged."
   },
   "apiTiers": {
     "source": "docs/reference/api-surface.md",
@@ -160,9 +262,11 @@
     ]
   },
   "aiflow": {
-    "source": ".harness/store.json",
+    "source": ".aiflow/store.json",
+    "fallbackSource": ".harness/store.json",
     "requiredStatusField": "status",
-    "requiredSummaryField": "summary"
+    "requiredSummaryField": "summary",
+    "requiredRuntimePolicy": "runtime state is consumed as ignored local evidence and must never be committed"
   },
   "aiNativeWorkflow": {
     "schema": "gofly.dx_support_bundle.v1",

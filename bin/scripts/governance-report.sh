@@ -131,20 +131,29 @@ def benchmark_surface_policy():
 
 
 def aiflow_queue():
-    data = read_json(root / ".harness/store.json")
+    source = ".aiflow/store.json"
+    data = read_json(root / source)
     if not isinstance(data, dict):
-        return {"status": "unavailable", "reason": ".harness/store.json is not present"}
+        source = ".harness/store.json"
+        data = read_json(root / source)
+    if not isinstance(data, dict):
+        return {
+            "status": "unavailable",
+            "source": ".aiflow/store.json",
+            "fallbackSource": ".harness/store.json",
+            "reason": "neither .aiflow/store.json nor .harness/store.json is present",
+        }
     runs = data.get("runs") or data.get("Runs")
     if not isinstance(runs, dict):
         runs = data
     statuses = {}
     current = []
     for run_id, run in runs.items():
-        if not isinstance(run, dict) or not run_id.startswith("GOFLY-GAP-"):
+        if not isinstance(run, dict) or not run_id.startswith("GOFLY-"):
             continue
         status_value = run.get("Status", "unknown")
         statuses[status_value] = statuses.get(status_value, 0) + 1
-        if status_value in {"queued", "running"}:
+        if status_value in {"pending", "queued", "running"}:
             current.append({
                 "id": run_id,
                 "status": status_value,
@@ -154,6 +163,8 @@ def aiflow_queue():
     current.sort(key=lambda item: (-int(item.get("priority") or 0), item["id"]))
     return {
         "status": "present",
+        "source": source,
+        "fallbackSource": ".harness/store.json",
         "summary": statuses,
         "active": current[:10],
     }
@@ -686,6 +697,9 @@ def governance_dashboard_contract():
         "releaseReadiness": manifest.get("releaseReadiness", {}),
         "apiTiers": manifest.get("apiTiers", {}),
         "releaseAdoptionContract": manifest.get("releaseAdoptionContract", {}),
+        "releaseDashboardConsumption": release_dashboard_consumption(
+            manifest.get("releaseDashboardConsumption", {})
+        ),
         "benchmarkRatchet": manifest.get("benchmarkRatchet", {}),
         "coverage": manifest.get("coverage", {}),
         "security": manifest.get("security", {}),
@@ -697,6 +711,41 @@ def governance_dashboard_contract():
         "productionReadinessScorecard": production_readiness_scorecard(manifest.get("productionReadinessScorecard", {})),
         "evidenceTraceability": evidence_traceability(manifest.get("evidenceTraceability", {})),
         "outputs": manifest.get("outputs", []),
+    }
+
+
+def release_dashboard_consumption(contract):
+    rows = [
+        item
+        for item in contract.get("consumerRows") or []
+        if isinstance(item, dict)
+    ]
+    field_refs = sorted({
+        field
+        for item in rows
+        for field in item.get("sourceReportFields") or []
+        if field
+    })
+    return {
+        "schema": contract.get("schema", ""),
+        "aiflowTask": contract.get("aiflowTask", ""),
+        "status": contract.get("status", ""),
+        "source": contract.get("source", ""),
+        "sourceReport": contract.get("sourceReport", ""),
+        "reportField": contract.get("reportField", ""),
+        "acceptanceGate": contract.get("acceptanceGate", ""),
+        "driftGate": contract.get("driftGate", ""),
+        "owner": contract.get("owner", ""),
+        "policy": contract.get("policy", ""),
+        "requiredGates": contract.get("requiredGates", []),
+        "requiredGateCount": len(contract.get("requiredGates") or []),
+        "requiredStableFields": contract.get("requiredStableFields", []),
+        "stableFieldCount": len(contract.get("requiredStableFields") or []),
+        "consumerRowCount": len(rows),
+        "consumerRows": rows,
+        "consumerFieldRefs": field_refs,
+        "runtimeStatePolicy": contract.get("runtimeStatePolicy", ""),
+        "commitPolicy": contract.get("commitPolicy", ""),
     }
 
 
@@ -1946,6 +1995,12 @@ for field in (
     "releaseAdoptionContract.riskClassCounts",
     "releaseAdoptionContract.tagCIClosureRowCount",
     "releaseAdoptionContract.supplyChainEnforcementCount",
+    "dashboard.releaseDashboardConsumption.schema",
+    "dashboard.releaseDashboardConsumption.status",
+    "dashboard.releaseDashboardConsumption.aiflowTask",
+    "dashboard.releaseDashboardConsumption.stableFieldCount",
+    "dashboard.releaseDashboardConsumption.consumerRowCount",
+    "dashboard.releaseDashboardConsumption.requiredGateCount",
     "apiSurface.tiers",
     "benchmark.regressionGate",
     "benchmark.trendSummaryStatus",
@@ -2017,6 +2072,126 @@ for field in release_adoption_dashboard_contract.get("requiredDashboardFields") 
         missing.append(f"governance dashboard releaseAdoptionContract summaryFields missing {field!r}")
 if "releaseAdoptionContract.tagCIClosureRowCount" not in release_adoption_dashboard_contract.get("requiredDashboardFields", []):
     missing.append("governance dashboard releaseAdoptionContract must expose tag CI closure row count")
+release_dashboard_consumption = dashboard.get("releaseDashboardConsumption") or {}
+if release_dashboard_consumption.get("schema") != "gofly.release_dashboard_consumption.v1":
+    missing.append("governance dashboard releaseDashboardConsumption schema mismatch")
+if release_dashboard_consumption.get("aiflowTask") != "GOFLY-P10-9-RELEASE-DASHBOARD-CONSUMPTION":
+    missing.append("governance dashboard releaseDashboardConsumption aiflowTask mismatch")
+if release_dashboard_consumption.get("status") != "blocking-contract":
+    missing.append("governance dashboard releaseDashboardConsumption status mismatch")
+if release_dashboard_consumption.get("source") != "docs/reference/governance-dashboard-contract.json":
+    missing.append("governance dashboard releaseDashboardConsumption source mismatch")
+if release_dashboard_consumption.get("sourceReport") != "gofly.governance_report.v1":
+    missing.append("governance dashboard releaseDashboardConsumption sourceReport mismatch")
+if release_dashboard_consumption.get("reportField") != "dashboard.releaseDashboardConsumption":
+    missing.append("governance dashboard releaseDashboardConsumption reportField mismatch")
+if release_dashboard_consumption.get("acceptanceGate") != "make governance-report-check":
+    missing.append("governance dashboard releaseDashboardConsumption acceptanceGate mismatch")
+if release_dashboard_consumption.get("driftGate") != "make required-checks-drift-check":
+    missing.append("governance dashboard releaseDashboardConsumption driftGate mismatch")
+if release_dashboard_consumption.get("owner") != "human-or-current-agent":
+    missing.append("governance dashboard releaseDashboardConsumption owner mismatch")
+required_release_dashboard_gates = {
+    "make governance-report-check",
+    "make required-checks-drift-check",
+}
+if set(release_dashboard_consumption.get("requiredGates") or []) != required_release_dashboard_gates:
+    missing.append("governance dashboard releaseDashboardConsumption requiredGates mismatch")
+if release_dashboard_consumption.get("requiredGateCount") != len(required_release_dashboard_gates):
+    missing.append("governance dashboard releaseDashboardConsumption requiredGateCount mismatch")
+required_release_dashboard_fields = {
+    "release.readinessScore.status",
+    "release.readinessScore.score",
+    "apiSurface.tiers",
+    "security.gosec.blockingGate",
+    "security.govulncheck.blockingGate",
+    "coverage.ratchet",
+    "coverageTrend.policy.blockingGate",
+    "benchmark.regressionGate",
+    "benchmark.surfacePolicy.adopterPerformanceContract.blockingSurfaceCount",
+    "benchmark.surfacePolicy.adopterPerformanceContract.reportOnlySurfaceCount",
+    "benchmark.surfacePolicy.adopterPerformanceContract.unsupportedSurfaceCount",
+    "aiflow.status",
+    "aiflow.summary",
+}
+if set(release_dashboard_consumption.get("requiredStableFields") or []) != required_release_dashboard_fields:
+    missing.append("governance dashboard releaseDashboardConsumption requiredStableFields mismatch")
+if release_dashboard_consumption.get("stableFieldCount") != len(required_release_dashboard_fields):
+    missing.append("governance dashboard releaseDashboardConsumption stableFieldCount mismatch")
+if not required_release_dashboard_fields.issubset(set(dashboard["summaryFields"])):
+    missing.append("governance dashboard releaseDashboardConsumption stable fields must be summary fields")
+if not required_release_dashboard_fields.issubset(set(release_dashboard_consumption.get("consumerFieldRefs") or [])):
+    missing.append("governance dashboard releaseDashboardConsumption consumerFieldRefs missing stable fields")
+expected_release_dashboard_rows = {
+    "release-readiness": {
+        "release.readinessScore.status",
+        "release.readinessScore.score",
+    },
+    "api-tier-consumption": {"apiSurface.tiers"},
+    "security-gate-consumption": {
+        "security.gosec.blockingGate",
+        "security.govulncheck.blockingGate",
+    },
+    "coverage-ratchet-consumption": {
+        "coverage.ratchet",
+        "coverageTrend.policy.blockingGate",
+    },
+    "benchmark-ratchet-consumption": {
+        "benchmark.regressionGate",
+        "benchmark.surfacePolicy.adopterPerformanceContract.blockingSurfaceCount",
+        "benchmark.surfacePolicy.adopterPerformanceContract.reportOnlySurfaceCount",
+        "benchmark.surfacePolicy.adopterPerformanceContract.unsupportedSurfaceCount",
+    },
+    "aiflow-task-status-consumption": {
+        "aiflow.status",
+        "aiflow.summary",
+    },
+}
+release_dashboard_rows = {
+    item.get("id", ""): item
+    for item in release_dashboard_consumption.get("consumerRows") or []
+    if isinstance(item, dict) and item.get("id")
+}
+if set(release_dashboard_rows) != set(expected_release_dashboard_rows):
+    missing.append(
+        "governance dashboard releaseDashboardConsumption rows mismatch: "
+        f"missing={sorted(set(expected_release_dashboard_rows) - set(release_dashboard_rows))} "
+        f"extra={sorted(set(release_dashboard_rows) - set(expected_release_dashboard_rows))}"
+    )
+if release_dashboard_consumption.get("consumerRowCount") != len(expected_release_dashboard_rows):
+    missing.append("governance dashboard releaseDashboardConsumption consumerRowCount mismatch")
+for row_id, expected_fields in expected_release_dashboard_rows.items():
+    row = release_dashboard_rows.get(row_id) or {}
+    for field in ("id", "sourceReportFields", "gate", "adopterAction", "rollbackOrEscalation"):
+        if not row.get(field):
+            missing.append(f"governance dashboard releaseDashboardConsumption {row_id}: {field} is required")
+    if set(row.get("sourceReportFields") or []) != expected_fields:
+        missing.append(f"governance dashboard releaseDashboardConsumption {row_id}: sourceReportFields mismatch")
+    if not set(row.get("sourceReportFields") or []).issubset(set(dashboard["summaryFields"])):
+        missing.append(f"governance dashboard releaseDashboardConsumption {row_id}: sourceReportFields must be summary fields")
+    gate = str(row.get("gate") or "")
+    if gate.startswith("make "):
+        target = gate.removeprefix("make ").split()[0]
+        makefile = read_text(root / "Makefile")
+        if re.search(rf"^{re.escape(target)}:", makefile, re.M) is None:
+            missing.append(f"governance dashboard releaseDashboardConsumption {row_id}: gate target {target!r} missing")
+    else:
+        missing.append(f"governance dashboard releaseDashboardConsumption {row_id}: gate must be a make target")
+    for field in ("adopterAction", "rollbackOrEscalation"):
+        if len(str(row.get(field) or "").split()) < 10:
+            missing.append(f"governance dashboard releaseDashboardConsumption {row_id}: {field} must be actionable")
+policy_text = str(release_dashboard_consumption.get("policy") or "").lower()
+for needle in ("release readiness", "api tiers", "security gates", "coverage ratchets", "benchmark ratchets", "aiflow task status"):
+    if needle not in policy_text:
+        missing.append(f"governance dashboard releaseDashboardConsumption policy missing {needle!r}")
+runtime_policy = str(release_dashboard_consumption.get("runtimeStatePolicy") or "")
+for needle in (".aiflow", ".harness", ".tmp-test", ".trae", "coverage.out", "bench/regression-report.json", "docs/superpowers"):
+    if needle not in runtime_policy:
+        missing.append(f"governance dashboard releaseDashboardConsumption runtimeStatePolicy missing {needle!r}")
+commit_policy = str(release_dashboard_consumption.get("commitPolicy") or "")
+for needle in ("current agent or human", "governance-report-check", "required-checks-drift-check", "runtime state must not be staged"):
+    if needle not in commit_policy:
+        missing.append(f"governance dashboard releaseDashboardConsumption commitPolicy missing {needle!r}")
 api_contract = dashboard.get("apiTiers") or {}
 if api_contract.get("gate") != "make stable-surface-check":
     missing.append("governance dashboard apiTiers gate mismatch")
@@ -2058,10 +2233,16 @@ if int(convergence_contract.get("requiredTaskCount") or 0) != 10:
 if set(convergence_contract.get("requiredIgnoredRuntimePaths") or []) != expected_ignored_runtime_paths:
     missing.append("governance dashboard governanceConvergence requiredIgnoredRuntimePaths mismatch")
 aiflow_contract = dashboard.get("aiflow") or {}
+if aiflow_contract.get("source") != ".aiflow/store.json":
+    missing.append("governance dashboard aiflow source mismatch")
+if aiflow_contract.get("fallbackSource") != ".harness/store.json":
+    missing.append("governance dashboard aiflow fallbackSource mismatch")
 if aiflow_contract.get("requiredStatusField") != "status":
     missing.append("governance dashboard aiflow requiredStatusField mismatch")
 if aiflow_contract.get("requiredSummaryField") != "summary":
     missing.append("governance dashboard aiflow requiredSummaryField mismatch")
+if "never be committed" not in str(aiflow_contract.get("requiredRuntimePolicy") or ""):
+    missing.append("governance dashboard aiflow requiredRuntimePolicy must reject committed runtime state")
 ai_native_contract = dashboard.get("aiNativeWorkflow") or {}
 if ai_native_contract.get("schema") != "gofly.dx_support_bundle.v1":
     missing.append("governance dashboard aiNativeWorkflow schema mismatch")

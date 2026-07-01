@@ -1,0 +1,166 @@
+{
+  "schema": "gofly.project_layout_governance.v1",
+  "status": "blocking-contract",
+  "acceptanceGate": "make project-layout-governance-check",
+  "policy": "Do not perform broad directory moves while governance contracts, examples, and generated-output gates depend on current paths. Strengthen directory boundaries with machine checks first, then migrate one example family at a time after P10 convergence if evidence supports it.",
+  "noBigBangMove": true,
+  "runtimeIgnoredPaths": [
+    ".aiflow/",
+    ".harness/",
+    ".tmp-test/",
+    ".trae/",
+    "coverage.out",
+    "docs/superpowers/"
+  ],
+  "examplesGroupingPlan": {
+    "status": "planned-only",
+    "migrationPolicy": "Keep current examples/* paths stable until a future task migrates one family at a time and updates all gates in the same commit.",
+    "groups": [
+      {
+        "id": "http",
+        "futurePath": "examples/http/",
+        "currentExamples": [
+          "http-middleware",
+          "middleware-demo",
+          "middlewares",
+          "restserver"
+        ],
+        "gate": "make p1-growth-check"
+      },
+      {
+        "id": "rpc",
+        "futurePath": "examples/rpc/",
+        "currentExamples": [
+          "gateway-discovery-rpc",
+          "rpc-idl-matrix",
+          "rpcserver"
+        ],
+        "gate": "make rpc-boundary-check"
+      },
+      {
+        "id": "production",
+        "futurePath": "examples/production/",
+        "currentExamples": [
+          "microshop",
+          "production-orders",
+          "k8s"
+        ],
+        "gate": "make reference-app-smoke"
+      },
+      {
+        "id": "governance",
+        "futurePath": "examples/governance/",
+        "currentExamples": [
+          "ai-governed-service",
+          "migration-proof",
+          "plugin-ecosystem",
+          "resilience"
+        ],
+        "gate": "make governance-report-check"
+      },
+      {
+        "id": "data",
+        "futurePath": "examples/data/",
+        "currentExamples": [
+          "cache-local",
+          "model-gorm",
+          "model-mongo",
+          "mq-worker",
+          "observability",
+          "outbox-mq",
+          "saga",
+          "config-discovery"
+        ],
+        "gate": "make db-cache-productization-check"
+      }
+    ]
+  },
+  "commandFileFamilies": [
+    {
+      "prefix": "ai_",
+      "domain": "AI planning, manifest, governance, and project apply commands"
+    },
+    {
+      "prefix": "api_",
+      "domain": "API format, import, route, diff, codegen, docs, middleware, and client commands"
+    },
+    {
+      "prefix": "rpc_",
+      "domain": "RPC IDL, protoc, descriptor, scaffold, template, and auxiliary commands"
+    },
+    {
+      "prefix": "model_",
+      "domain": "Model DDL, datasource, Mongo, MySQL, Postgres, and output commands"
+    },
+    {
+      "prefix": "new_",
+      "domain": "New service, API, RPC, goctl compatibility, discovery overlay, and scaffold commands"
+    },
+    {
+      "prefix": "plugin_",
+      "domain": "Plugin registry, install, run, plan, and mode commands"
+    },
+    {
+      "prefix": "release",
+      "domain": "Release check, local checks, contract checks, output, and helper commands"
+    },
+    {
+      "prefix": "doctor",
+      "domain": "Doctor diagnostics, checks, tests, and support remediation output"
+    },
+    {
+      "prefix": "help",
+      "domain": "Help catalog, topics, metadata, usage, and rendering"
+    },
+    {
+      "prefix": "config",
+      "domain": "Configuration command and config field helpers"
+    }
+  ],
+  "referenceContractIndex": [
+    {
+      "id": "framework-gap",
+      "paths": [
+        "docs/reference/framework-gap-matrix.md",
+        "docs/reference/framework-gap-post-r8-roadmap.json",
+        "docs/reference/governance-p10-roadmap.json"
+      ],
+      "gate": "make framework-gap-check"
+    },
+    {
+      "id": "generated-output",
+      "paths": [
+        "docs/reference/generated-upgrade-dry-run.json",
+        "docs/reference/generated-scaffold-long-term-compatibility.json",
+        "docs/reference/goctl-generator-compatibility.json"
+      ],
+      "gate": "make generated-upgrade-dry-run-check"
+    },
+    {
+      "id": "runtime-and-release",
+      "paths": [
+        "docs/reference/governance-dashboard-contract.json",
+        "docs/reference/governance-convergence-verification.json",
+        "docs/releases/evidence-index.json"
+      ],
+      "gate": "make governance-report-check"
+    },
+    {
+      "id": "adoption-proof",
+      "paths": [
+        "docs/reference/framework-gap-adopter-proof.json",
+        "docs/reference/http-middleware-ecosystem.json",
+        "docs/reference/plugin-conformance-report.json"
+      ],
+      "gate": "make p1-growth-check"
+    }
+  ],
+  "testNamingBaseline": {
+    "forbiddenSuffixes": [
+      "BitsUT",
+      "BitsBench"
+    ],
+    "currentOccurrenceCount": 319,
+    "policy": "Historical occurrences are tracked as debt. New governance changes must not increase this count, and touched tests should be renamed opportunistically without broad churn."
+  }
+}

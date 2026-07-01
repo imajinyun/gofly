@@ -99,8 +99,38 @@ for source, item in cases.items():
     assert item['rollback'], migration_proof
     assert item['validation'], migration_proof
     assert item['compatibility'], migration_proof
+    assert item['migrationKind'], migration_proof
+    assert item['gateCommands'], migration_proof
+    assert item['compatibilityCaveats'], migration_proof
+    assert item['failureReport'], migration_proof
+    assert item['supportBundle'], migration_proof
 rollback_sources = {item['source'] for item in migration_proof['rollbacks']}
 assert rollback_sources == set(cases), migration_proof
+p13_migration = migration_proof['p13MigrationCaseUpgrade']
+assert p13_migration['schema'] == 'gofly.migration_case_upgrade_p13.v1', migration_proof
+assert p13_migration['aiflowTask'] == 'GOFLY-P13-09-MIGRATION-CASE-UPGRADE', migration_proof
+assert p13_migration['status'] == 'blocking', migration_proof
+assert {'make adopter-decision-check', 'make examples-smoke'} == set(p13_migration['acceptanceGates']), migration_proof
+p13_cases = {item['source']: item for item in p13_migration['cases']}
+assert set(p13_cases) == set(cases), migration_proof
+expected_kinds = {
+    'gin': 'gin-rest-migration',
+    'go-zero': 'gozero-api-migration',
+    'kratos': 'kratos-app-migration',
+    'kitex': 'kitex-coexistence',
+}
+for source, item in p13_cases.items():
+    assert item['migrationKind'] == expected_kinds[source], migration_proof
+    assert item['runnableExample'] == cases[source]['example'], migration_proof
+    assert item['primaryGate'] in cases[source]['gateCommands'], migration_proof
+    assert item['rollbackNote'] == cases[source]['rollback'], migration_proof
+    assert item['compatibilityCaveat'], migration_proof
+    assert item['failureReport'], migration_proof
+    assert item['supportBundle'], migration_proof
+    assert item['performanceBoundary'], migration_proof
+    assert item['governanceBoundary'], migration_proof
+assert p13_migration['publishPolicy'], migration_proof
+assert p13_migration['rollbackPolicy'], migration_proof
 
 with open(workdir / 'rpc-idl-matrix.json', encoding='utf-8') as f:
     rpc_matrix = json.load(f)

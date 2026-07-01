@@ -365,6 +365,83 @@
       }
     ]
   },
+  "p13MigrationCaseUpgrade": {
+    "schema": "gofly.migration_case_upgrade_p13.v1",
+    "aiflowTask": "GOFLY-P13-09-MIGRATION-CASE-UPGRADE",
+    "status": "blocking",
+    "acceptanceGates": [
+      "make adopter-decision-check",
+      "make examples-smoke"
+    ],
+    "cases": [
+      {
+        "source": "gin",
+        "migrationKind": "gin-rest-migration",
+        "runnableExample": "examples/restserver",
+        "primaryGate": "go test -C examples/restserver ./...",
+        "gateCommands": [
+          "go test -C examples/restserver ./...",
+          "make examples-smoke"
+        ],
+        "rollbackNote": "Keep Gin route active behind the existing router until sampled responses and metrics match.",
+        "compatibilityCaveat": "Gin `:id` routes become gofly `{id}` routes; compare status codes, JSON names, OpenAPI schema, and the stable error envelope before switching traffic.",
+        "failureReport": "Capture route, status-code, JSON-field, OpenAPI-schema, and stable error envelope drift before changing traffic.",
+        "supportBundle": "Attach `gofly bug --json` only after redaction and include sampled response, OpenAPI, and error-envelope drift evidence.",
+        "performanceBoundary": "Treat HTTP latency as report-only until route, binding, middleware, and OpenAPI overhead are measured against the adopter workload.",
+        "governanceBoundary": "Use gofly for OpenAPI, stable error envelopes, request IDs, metrics, and control-plane evidence while Gin can keep serving traffic during comparison."
+      },
+      {
+        "source": "go-zero",
+        "migrationKind": "gozero-api-migration",
+        "runnableExample": "examples/production-orders",
+        "primaryGate": "make generated-version-compat-check",
+        "gateCommands": [
+          "make generated-version-compat-check",
+          "make reference-app-smoke"
+        ],
+        "rollbackNote": "Keep go-zero and gofly services addressable through discovery and switch routing back to go-zero.",
+        "compatibilityCaveat": "Verify generated OpenAPI and `/admin/control-plane` before changing discovery; preserve `.api` request and response field names.",
+        "failureReport": "Capture generated diff category, dependency boundary, OpenAPI mismatch, release-check output, and /admin/control-plane drift.",
+        "supportBundle": "Attach `gofly bug --json` with generated-project failure reports and release check output when scaffold compatibility fails.",
+        "performanceBoundary": "Keep go-zero hot paths active until generated service smoke, reference-app evidence, and benchmark budgets cover the migrated traffic.",
+        "governanceBoundary": "Use gofly when generated projects need release checks, discovery evidence, control-plane snapshots, and a support bundle for failed upgrades."
+      },
+      {
+        "source": "kratos",
+        "migrationKind": "kratos-app-migration",
+        "runnableExample": "examples/microshop",
+        "primaryGate": "make cloud-native-render-check",
+        "gateCommands": [
+          "make cloud-native-render-check",
+          "go test -C examples/microshop ./..."
+        ],
+        "rollbackNote": "Restore the previous Kratos deployment target while keeping shared domain services unchanged.",
+        "compatibilityCaveat": "Keep domain services separate from transport wiring; compare lifecycle hooks, health checks, discovery registration, and topology output.",
+        "failureReport": "Capture Helm or Kustomize rendering, topology, health, discovery, and lifecycle hook differences before replacing deployment targets.",
+        "supportBundle": "Attach `gofly bug --json` with rendered cloud-native assets, topology output, and health or discovery drift evidence.",
+        "performanceBoundary": "Do not treat cloud-native rendering evidence as runtime performance proof; pair rollout evidence with service-specific latency and resource metrics.",
+        "governanceBoundary": "Use gofly for rendered deployment evidence, topology reports, health checks, runtime SLOs, and rollback notes before changing the serving target."
+      },
+      {
+        "source": "kitex",
+        "migrationKind": "kitex-coexistence",
+        "runnableExample": "examples/rpc-idl-matrix",
+        "primaryGate": "make rpc-boundary-check",
+        "gateCommands": [
+          "make rpc-boundary-check",
+          "make bench-evidence-check"
+        ],
+        "rollbackNote": "Route latency-critical methods back to Kitex and retain gofly for REST ingress or governance surfaces.",
+        "compatibilityCaveat": "Do not migrate hot methods without `bench/` evidence; compare unary and stream contracts, resolver updates, balancing, tracing, auth, and rollback behavior.",
+        "failureReport": "Capture unary, stream, resolver, balancer, tracing, auth, and benchmark drift before moving latency-critical methods.",
+        "supportBundle": "Attach `gofly bug --json` with RPC boundary, resolver, balancer, stream, trace, auth, and benchmark evidence before escalating.",
+        "performanceBoundary": "Keep Kitex on latency-critical transports until gofly RPC unary and stream budgets move from report-only to blocking evidence.",
+        "governanceBoundary": "Use gofly around REST ingress, descriptor comparison, release checks, control-plane snapshots, and governed non-hot-path service glue."
+      }
+    ],
+    "publishPolicy": "Each migration path must stay runnable, name a primary gate, carry compatibility caveats, and retain rollback evidence before adopter-facing promotion.",
+    "rollbackPolicy": "If any runnable case, gate command, compatibility caveat, support bundle, or failure report evidence drifts, keep the source framework path active."
+  },
   "dimensions": [
     {
       "id": "evidence-traceability",

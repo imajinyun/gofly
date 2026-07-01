@@ -836,6 +836,7 @@ def dx_support_bundle_evidence():
         "remediationHandoff": {
             "schema": remediation_handoff.get("schema", ""),
             "aiflowTask": remediation_handoff.get("aiflowTask", ""),
+            "supersedes": remediation_handoff.get("supersedes", []),
             "owner": remediation_handoff.get("owner", ""),
             "commitPolicy": remediation_handoff.get("commitPolicy", ""),
             "allowedActions": remediation_handoff.get("allowedActions", []),
@@ -845,6 +846,7 @@ def dx_support_bundle_evidence():
             "outputFields": remediation_handoff.get("outputFields", []),
             "completionPolicy": remediation_handoff.get("completionPolicy", ""),
         },
+        "p9RemediationCloseout": manifest.get("p9RemediationCloseout", {}),
         "troubleshootingAdoptionLoop": {
             "schema": adoption_loop.get("schema", ""),
             "acceptanceGate": adoption_loop.get("acceptanceGate", ""),
@@ -1079,11 +1081,15 @@ if failure_report.get("boundedOutput") is not True or failure_report.get("redact
     missing.append("dx support bundle generated failure report must keep bounded output and redaction")
 if failure_report.get("rerunGuidanceField") != "nextActions":
     missing.append("dx support bundle generated failure report rerun guidance mismatch")
+
 handoff = dx_support_bundle.get("remediationHandoff") or {}
 if handoff.get("schema") != "gofly.remediation_handoff.v1":
     missing.append("dx support bundle remediation handoff schema mismatch")
-if handoff.get("aiflowTask") != "GOFLY-KG-07-AI-REMEDIATION-AIFLOW":
+if handoff.get("aiflowTask") != "GOFLY-GOV-10P9-09":
     missing.append("dx support bundle remediation handoff aiflowTask mismatch")
+for previous in ("GOFLY-KG-07-AI-REMEDIATION-AIFLOW", "GOFLY-GOV-10R7-09"):
+    if previous not in set(handoff.get("supersedes") or []):
+        missing.append(f"dx support bundle remediation handoff supersedes missing {previous!r}")
 if handoff.get("owner") != "human-or-current-agent":
     missing.append("dx support bundle remediation handoff owner mismatch")
 commit_policy = str(handoff.get("commitPolicy") or "")
@@ -1107,6 +1113,18 @@ if dx_support_bundle.get("remediationHintCount") != len(dx_support_bundle.get("r
     missing.append("dx support bundle remediationHintCount mismatch")
 if dx_support_bundle.get("remediationHintCount", 0) < 4:
     missing.append("dx support bundle remediation hints are incomplete")
+
+p9_closeout = dx_support_bundle.get("p9RemediationCloseout") or {}
+if p9_closeout.get("schema") != "gofly.p9_remediation_closeout.v1":
+    missing.append("dx support bundle P9 remediation closeout schema mismatch")
+if p9_closeout.get("aiflowTask") != "GOFLY-GOV-10P9-09":
+    missing.append("dx support bundle P9 remediation closeout aiflowTask mismatch")
+if p9_closeout.get("acceptanceGate") != "make dx-troubleshooting-check":
+    missing.append("dx support bundle P9 remediation closeout acceptanceGate mismatch")
+for source in ("nextActions", "error.remediation", "data.nextActions"):
+    if source not in set(p9_closeout.get("requiredNextActionSources") or []):
+        missing.append(f"dx support bundle P9 remediation closeout missing next action source {source!r}")
+
 adoption_loop = dx_support_bundle.get("troubleshootingAdoptionLoop") or {}
 if adoption_loop.get("schema") != "gofly.troubleshooting_adoption_loop.v1":
     missing.append("dx support bundle troubleshooting adoption loop schema mismatch")
@@ -1205,8 +1223,10 @@ for field in (
     if field not in dashboard_evidence:
         missing.append(f"dx support bundle remediation loop dashboardEvidence missing {field!r}")
 queue_policy = remediation_loop.get("aiflowQueuePolicy") or {}
-if queue_policy.get("taskPrefix") != "GOFLY-GOV-10R7-09":
+if queue_policy.get("taskPrefix") != "GOFLY-GOV-10P9-09":
     missing.append("dx support bundle remediation loop aiflow taskPrefix mismatch")
+if "GOFLY-GOV-10R7-09" not in set(queue_policy.get("supersedes") or []):
+    missing.append("dx support bundle remediation loop aiflow supersedes mismatch")
 if queue_policy.get("commitOwner") != "human-or-current-agent":
     missing.append("dx support bundle remediation loop commit owner mismatch")
 if (dx_support_bundle.get("controlPlaneEvidence") or {}).get("status") != "present":

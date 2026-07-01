@@ -15,7 +15,7 @@ post_r8_path = root / "docs" / "reference" / "framework-gap-post-r8-roadmap.json
 missing = []
 
 expected_active_batch = "GOFLY-GOV-10P9"
-expected_converged_batch = "GOFLY-GOV-10R8"
+expected_converged_batch = "GOFLY-GOV-10P9"
 expected_tasks = [f"{expected_active_batch}-{idx:02d}" for idx in range(1, 11)]
 expected_converged_tasks = [f"{expected_converged_batch}-{idx:02d}" for idx in range(1, 11)]
 expected_batches = {
@@ -66,16 +66,16 @@ expected_batches = {
     },
 }
 expected_converged_commits = {
-    "GOFLY-GOV-10R8-01": "90417ec",
-    "GOFLY-GOV-10R8-02": "19caf04",
-    "GOFLY-GOV-10R8-03": "b9f51ec",
-    "GOFLY-GOV-10R8-04": "059dcf5",
-    "GOFLY-GOV-10R8-05": "690bce2",
-    "GOFLY-GOV-10R8-06": "a2eb730",
-    "GOFLY-GOV-10R8-07": "01b1554",
-    "GOFLY-GOV-10R8-08": "44b645a",
-    "GOFLY-GOV-10R8-09": "8698e91",
-    "GOFLY-GOV-10R8-10": "self",
+    "GOFLY-GOV-10P9-01": "eb7da6b",
+    "GOFLY-GOV-10P9-02": "1b13f63",
+    "GOFLY-GOV-10P9-03": "0e7948d",
+    "GOFLY-GOV-10P9-04": "6453c27",
+    "GOFLY-GOV-10P9-05": "e78d433",
+    "GOFLY-GOV-10P9-06": "2246e6b",
+    "GOFLY-GOV-10P9-07": "45aaca2",
+    "GOFLY-GOV-10P9-08": "14386e1",
+    "GOFLY-GOV-10P9-09": "76ed3d2",
+    "GOFLY-GOV-10P9-10": "self",
 }
 expected_surfaces = {
     "cli",
@@ -288,7 +288,7 @@ for expected_round, item in enumerate(post_r8_dimensions, start=1):
             require((root / evidence).exists(), f"{item_id}: evidence path missing: {evidence}")
 
 require(convergence_manifest.get("schema") == "gofly.governance_convergence_verification.v1", "convergence verification schema mismatch")
-require(convergence_manifest.get("aiflowTask") == "GOFLY-GOV-10R8-10", "convergence verification aiflowTask mismatch")
+require(convergence_manifest.get("aiflowTask") == "GOFLY-GOV-10P9-10", "convergence verification aiflowTask mismatch")
 require(convergence_manifest.get("acceptanceGate") == "make governance-10-rounds", "convergence verification acceptanceGate mismatch")
 require(convergence_manifest.get("activeBatch") == expected_converged_batch, "convergence verification activeBatch mismatch")
 aggregate_gates = set(convergence_manifest.get("aggregateGates") or [])
@@ -339,10 +339,10 @@ require(execution.get("status") == "completed", "convergence verification aiflow
 require(execution.get("blocker") == "none", "convergence verification aiflowExecution.blocker must be none")
 require("commit and push" in str(execution.get("goflyImpact") or ""), "convergence verification aiflowExecution.goflyImpact must document aiflow commit policy")
 previous_handoff = convergence_manifest.get("previousBatchHandoff") or {}
-require("GOFLY-GOV-10R7-10" in set(previous_handoff.get("supersedes") or []), "previousBatchHandoff must supersede GOFLY-GOV-10R7-10")
-require("R8 active batch" in str(previous_handoff.get("reason") or ""), "previousBatchHandoff.reason must document R8 active batch handoff")
+require("GOFLY-GOV-10R8-10" in set(previous_handoff.get("supersedes") or []), "previousBatchHandoff must supersede GOFLY-GOV-10R8-10")
+require("P9 active batch" in str(previous_handoff.get("reason") or ""), "previousBatchHandoff.reason must document P9 active batch handoff")
 previous_completion_policy = str(previous_handoff.get("completionPolicy") or "")
-for needle in ("GOFLY-GOV-10R8-10", "make governance-boundary-inventory-check", "make governance-report-check", "make governance-10-rounds", "current agent or human"):
+for needle in ("GOFLY-GOV-10P9-10", "make governance-boundary-inventory-check", "make governance-report-check", "make governance-10-rounds", "current agent or human"):
     require(needle in previous_completion_policy, f"previousBatchHandoff.completionPolicy missing {needle!r}")
 
 known_risks = {
@@ -362,7 +362,7 @@ recommendations = {
     for item in convergence_manifest.get("nextRoundRecommendations") or []
     if isinstance(item, dict) and item.get("id")
 }
-for rec_id in ("P9-rpc-tier1-release-train", "P9-generated-project-real-fixtures", "P9-live-production-proof"):
+for rec_id in ("P10-rpc-tier1-closeout", "P10-goctl-generator-fidelity", "P10-cloud-native-adoption-proof"):
     item = recommendations.get(rec_id) or {}
     require(bool(item), f"nextRoundRecommendations missing {rec_id}")
     require(item.get("priority") in {"P0", "P1", "P2", "P3"}, f"nextRoundRecommendations {rec_id}: priority mismatch")

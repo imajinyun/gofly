@@ -1,0 +1,88 @@
+{
+  "schema": "gofly.governance_p14_roadmap.v1",
+  "purpose": "Durable P14 aiflow queue for post-P13 convergence, keeping P13 completion evidence machine-checkable while opening the next focused governance batch.",
+  "sourceEvidence": [
+    "docs/reference/governance-p13-roadmap.json",
+    "docs/reference/governance-boundary-inventory.json",
+    "docs/reference/governance-dashboard-contract.json",
+    "go run -C /Users/bytedance/Codes/go/src/github/aiflow ./cmd/aiflow status -root /Users/bytedance/Codes/go/src/github/gofly -config /Users/bytedance/Codes/go/src/github/gofly/aiflow.yaml"
+  ],
+  "aiflowSubmission": {
+    "status": "submitted",
+    "submittedAt": "2026-07-01T23:05:34Z",
+    "submissionCommand": "go run -C /Users/bytedance/Codes/go/src/github/aiflow ./cmd/aiflow submit -root /Users/bytedance/Codes/go/src/github/gofly -config /Users/bytedance/Codes/go/src/github/gofly/aiflow.yaml",
+    "queueStatusCommand": "go run -C /Users/bytedance/Codes/go/src/github/aiflow ./cmd/aiflow status -root /Users/bytedance/Codes/go/src/github/gofly -config /Users/bytedance/Codes/go/src/github/gofly/aiflow.yaml",
+    "runtimeStatePolicy": ".aiflow, .harness, .tmp-test, .trae, coverage.out, bench/current.txt, bench/regression-report.json, bench/summary.md, bin/gofly, and docs/superpowers remain ignored local evidence and must not be committed.",
+    "safetyPolicy": "P14 tasks are submitted to ignored local aiflow runtime state and mirrored here as durable docs/reference evidence; each task must be completed in order and committed by the current agent or human only after its gate passes or an environment-limited downgrade is documented.",
+    "completedTasks": [
+      "GOFLY-P14-01-P13-COMPLETION-HANDOFF"
+    ],
+    "pendingTasks": [
+      "GOFLY-P14-02-RPC-RELEASE-TRAIN-EVIDENCE",
+      "GOFLY-P14-03-GENERATOR-ADOPTER-REPLAY-EVIDENCE"
+    ]
+  },
+  "previousBatchHandoff": {
+    "completedBatch": "GOFLY-P13",
+    "completedTaskCount": 12,
+    "completionPolicy": "P13 is treated as completed only when all twelve task rows in docs/reference/governance-p13-roadmap.json carry commit ids, verification commands, and completion status, and when aiflow status reports no pending or failed runs for that batch.",
+    "runtimeStatePolicy": "Local .aiflow queue data is runtime evidence only; durable completion evidence belongs in docs/reference/governance-p13-roadmap.json and docs/reference/governance-boundary-inventory.json."
+  },
+  "tasks": [
+    {
+      "round": 1,
+      "id": "GOFLY-P14-01-P13-COMPLETION-HANDOFF",
+      "status": "completed",
+      "priority": 100,
+      "title": "P13 completion handoff",
+      "objective": "Convert P13 from submitted queue evidence into completed durable governance evidence and open P14 as the active aiflow batch.",
+      "deliverable": "P13 completed task commits, P14 active roadmap, boundary inventory transition, dashboard convergence fields, and aiflow runtime-state exclusion proof.",
+      "acceptanceGates": [
+        "make governance-boundary-inventory-check",
+        "make governance-report-check"
+      ],
+      "commitPolicy": "commit after the P13 completion handoff and P14 active-batch evidence pass boundary inventory and governance report gates without staging ignored runtime state",
+      "commit": "pending-current-commit",
+      "verification": [
+        "python3 -m json.tool docs/reference/governance-p13-roadmap.json",
+        "python3 -m json.tool docs/reference/governance-p14-roadmap.json",
+        "python3 -m json.tool docs/reference/governance-boundary-inventory.json",
+        "python3 -m json.tool docs/reference/governance-dashboard-contract.json",
+        "sh -n bin/scripts/check-governance-boundary-inventory.sh",
+        "sh -n bin/scripts/governance-report.sh",
+        "make governance-boundary-inventory-check",
+        "make governance-report-check",
+        "go run ./cmd/aiflow status -root /Users/bytedance/Codes/go/src/github/gofly -config /Users/bytedance/Codes/go/src/github/gofly/aiflow.yaml",
+        "rg -n \"BitsUT|BitsBench\" ."
+      ]
+    },
+    {
+      "round": 2,
+      "id": "GOFLY-P14-02-RPC-RELEASE-TRAIN-EVIDENCE",
+      "status": "queued",
+      "priority": 99,
+      "title": "RPC release-train evidence",
+      "objective": "Deepen RPC Tier 1 promotion evidence for release-train, resolver, balancer, stream, deadline, retry, auth, tracing, and allocation criteria without overstating latency parity.",
+      "deliverable": "Updated RPC release-train evidence, explicit promoted or held surfaces, allocation-blocking eligibility, latency report-only status, Kitex coexistence notes, and rollback criteria.",
+      "acceptanceGates": [
+        "make rpc-boundary-check",
+        "make bench-regression-check"
+      ],
+      "commitPolicy": "commit after RPC release-train evidence and benchmark policy gates pass; latency remains report-only unless release-train data is durable"
+    },
+    {
+      "round": 3,
+      "id": "GOFLY-P14-03-GENERATOR-ADOPTER-REPLAY-EVIDENCE",
+      "status": "queued",
+      "priority": 98,
+      "title": "Generator adopter replay evidence",
+      "objective": "Deepen goctl-compatible generator maturity with adopter branch replay, classified diffs, temporary project test smoke, and root dependency hygiene.",
+      "deliverable": ".api import, format, validation, old/current/future fixture replay, adopter branch replay, classified diff report, generated project go test evidence, and generated-only dependency isolation.",
+      "acceptanceGates": [
+        "make generated-version-compat-check",
+        "make generated-upgrade-dry-run-check"
+      ],
+      "commitPolicy": "commit after generator replay evidence and both generated compatibility gates pass with repeatable diffs and clean root module dependency boundaries"
+    }
+  ]
+}

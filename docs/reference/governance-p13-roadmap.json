@@ -8,13 +8,13 @@
     "go run -C /Users/bytedance/Codes/go/src/github/aiflow ./cmd/aiflow status -root /Users/bytedance/Codes/go/src/github/gofly -config /Users/bytedance/Codes/go/src/github/gofly/aiflow.yaml"
   ],
   "aiflowSubmission": {
-    "status": "submitted",
+    "status": "completed",
     "submittedAt": "2026-07-01T13:59:06Z",
     "submissionCommand": "go run -C /Users/bytedance/Codes/go/src/github/aiflow ./cmd/aiflow submit -root /Users/bytedance/Codes/go/src/github/gofly -config /Users/bytedance/Codes/go/src/github/gofly/aiflow.yaml",
     "queueStatusCommand": "go run -C /Users/bytedance/Codes/go/src/github/aiflow ./cmd/aiflow status -root /Users/bytedance/Codes/go/src/github/gofly -config /Users/bytedance/Codes/go/src/github/gofly/aiflow.yaml",
     "runtimeStatePolicy": ".aiflow, .harness, .tmp-test, .trae, coverage.out, bench/regression-report.json, bin/gofly, and docs/superpowers remain ignored local evidence and must not be committed.",
     "safetyPolicy": "P13 tasks are submitted to ignored local aiflow runtime state and mirrored here as durable docs/reference evidence; each task must be completed in order and committed by the current agent or human only after its gate passes or an environment-limited downgrade is documented.",
-    "pendingTasks": [
+    "completedTasks": [
       "GOFLY-P13-01-RPC-TIER1-PROMOTION-CLOSEOUT",
       "GOFLY-P13-02-GOCTL-GENERATOR-MATURITY",
       "GOFLY-P13-03-REST-BINDING-VALIDATION-ENVELOPE",
@@ -27,13 +27,20 @@
       "GOFLY-P13-10-PLUGIN-TEMPLATE-PUBLISH-HARDENING",
       "GOFLY-P13-11-CLI-DOCTOR-TROUBLESHOOTING-LOOP",
       "GOFLY-P13-12-HOSTED-RELEASE-SUPPLY-CHAIN"
-    ]
+    ],
+    "queueSummary": {
+      "totalRuns": 54,
+      "pendingRuns": 0,
+      "completedRuns": 54,
+      "failedRuns": 0,
+      "observedAt": "2026-07-01T15:52:50Z"
+    }
   },
   "tasks": [
     {
       "round": 1,
       "id": "GOFLY-P13-01-RPC-TIER1-PROMOTION-CLOSEOUT",
-      "status": "queued",
+      "status": "completed",
       "priority": 100,
       "title": "RPC Tier 1 promotion closeout",
       "objective": "Move unary and stream RPC evidence from candidate or report-only toward Tier 1 promotion criteria without overstating latency parity.",
@@ -42,12 +49,17 @@
         "make rpc-boundary-check",
         "make bench-regression-check"
       ],
-      "commitPolicy": "commit after RPC promotion evidence and both rpc-boundary-check and bench-regression-check pass; latency remains report-only unless evidence is strong enough for blocking promotion"
+      "commitPolicy": "commit after RPC promotion evidence and both rpc-boundary-check and bench-regression-check pass; latency remains report-only unless evidence is strong enough for blocking promotion",
+      "commit": "581b8fb",
+      "verification": [
+        "make rpc-boundary-check",
+        "make bench-regression-check"
+      ]
     },
     {
       "round": 2,
       "id": "GOFLY-P13-02-GOCTL-GENERATOR-MATURITY",
-      "status": "queued",
+      "status": "completed",
       "priority": 99,
       "title": "goctl generator maturity",
       "objective": "Raise generator trust toward goctl-level maturity across .api import, format, validation, historical fixtures, adopter replay, and classified diffs.",
@@ -56,12 +68,17 @@
         "make generated-version-compat-check",
         "make generated-upgrade-dry-run-check"
       ],
-      "commitPolicy": "commit after generator compatibility and upgrade dry-run gates pass with explainable repeated generation diffs"
+      "commitPolicy": "commit after generator compatibility and upgrade dry-run gates pass with explainable repeated generation diffs",
+      "commit": "744e6f6",
+      "verification": [
+        "make generated-version-compat-check",
+        "make generated-upgrade-dry-run-check"
+      ]
     },
     {
       "round": 3,
       "id": "GOFLY-P13-03-REST-BINDING-VALIDATION-ENVELOPE",
-      "status": "queued",
+      "status": "completed",
       "priority": 98,
       "title": "REST binding validation envelope",
       "objective": "Deepen REST path, query, header, body, tag, schema, and error-code consistency between runtime binding and OpenAPI contracts.",
@@ -69,12 +86,16 @@
       "acceptanceGates": [
         "make openapi-validation-check"
       ],
-      "commitPolicy": "commit after OpenAPI validation gate passes and invalid requests return a stable rest.ErrorResponse"
+      "commitPolicy": "commit after OpenAPI validation gate passes and invalid requests return a stable rest.ErrorResponse",
+      "commit": "c632816",
+      "verification": [
+        "make openapi-validation-check"
+      ]
     },
     {
       "round": 4,
       "id": "GOFLY-P13-04-GOZERO-RESILIENCE-DEFAULTS",
-      "status": "queued",
+      "status": "completed",
       "priority": 97,
       "title": "go-zero resilience defaults",
       "objective": "Align default resilience capabilities with go-zero style production expectations across REST, RPC, and Gateway paths.",
@@ -82,12 +103,16 @@
       "acceptanceGates": [
         "make resilience-drill-check"
       ],
-      "commitPolicy": "commit after resilience matrix evidence and drill check pass with runtime behavior, not only governance rule documentation"
+      "commitPolicy": "commit after resilience matrix evidence and drill check pass with runtime behavior, not only governance rule documentation",
+      "commit": "01aaf32",
+      "verification": [
+        "make resilience-drill-check"
+      ]
     },
     {
       "round": 5,
       "id": "GOFLY-P13-05-DB-CACHE-PRODUCTIZATION",
-      "status": "queued",
+      "status": "completed",
       "priority": 96,
       "title": "DB and cache productization",
       "objective": "Productize data access and cache workflows so generated services have credible SQL and Redis/cache adoption paths.",
@@ -95,12 +120,16 @@
       "acceptanceGates": [
         "make db-cache-productization-check"
       ],
-      "commitPolicy": "commit after DB/cache productization gate passes and cache hot path can move from unsupported-report-only toward candidate evidence"
+      "commitPolicy": "commit after DB/cache productization gate passes and cache hot path can move from unsupported-report-only toward candidate evidence",
+      "commit": "7d1dc49",
+      "verification": [
+        "make db-cache-productization-check"
+      ]
     },
     {
       "round": 6,
       "id": "GOFLY-P13-06-GATEWAY-CACHE-BENCH-EVIDENCE",
-      "status": "queued",
+      "status": "completed",
       "priority": 95,
       "title": "Gateway and cache benchmark evidence",
       "objective": "Close unsupported-report-only benchmark gaps for gateway proxy and cache hot path surfaces.",
@@ -108,12 +137,16 @@
       "acceptanceGates": [
         "make bench-regression-check"
       ],
-      "commitPolicy": "commit after benchmark evidence and bench-regression-check pass; only allocations become blocking until latency trend evidence is stronger"
+      "commitPolicy": "commit after benchmark evidence and bench-regression-check pass; only allocations become blocking until latency trend evidence is stronger",
+      "commit": "91962b1",
+      "verification": [
+        "make bench-regression-check"
+      ]
     },
     {
       "round": 7,
       "id": "GOFLY-P13-07-DISCOVERY-FAILOVER-MATRIX",
-      "status": "queued",
+      "status": "completed",
       "priority": 94,
       "title": "Discovery adapter failover matrix",
       "objective": "Move discovery from abstraction evidence to adapter and failover behavior evidence across common registries.",
@@ -121,12 +154,16 @@
       "acceptanceGates": [
         "make discovery-adapter-matrix-check"
       ],
-      "commitPolicy": "commit after discovery adapter matrix gate passes with failover and rollback evidence"
+      "commitPolicy": "commit after discovery adapter matrix gate passes with failover and rollback evidence",
+      "commit": "e5f9e6a",
+      "verification": [
+        "make discovery-adapter-matrix-check"
+      ]
     },
     {
       "round": 8,
       "id": "GOFLY-P13-08-REFERENCE-APP-LIVE-PROOF",
-      "status": "queued",
+      "status": "completed",
       "priority": 93,
       "title": "Reference app live proof",
       "objective": "Turn production-orders into a real production topology proof with memory and Docker-backed modes.",
@@ -134,12 +171,16 @@
       "acceptanceGates": [
         "make reference-app-smoke"
       ],
-      "commitPolicy": "commit after reference-app-smoke passes in memory mode and Docker-backed behavior is live or explicitly skipped with auditable fallback evidence"
+      "commitPolicy": "commit after reference-app-smoke passes in memory mode and Docker-backed behavior is live or explicitly skipped with auditable fallback evidence",
+      "commit": "6d6e249",
+      "verification": [
+        "make reference-app-smoke"
+      ]
     },
     {
       "round": 9,
       "id": "GOFLY-P13-09-MIGRATION-CASE-UPGRADE",
-      "status": "queued",
+      "status": "completed",
       "priority": 92,
       "title": "Migration case upgrade",
       "objective": "Upgrade Kitex, go-zero, Gin, and Kratos migration proof into runnable adopter decision evidence.",
@@ -148,12 +189,17 @@
         "make adopter-decision-check",
         "make examples-smoke"
       ],
-      "commitPolicy": "commit after adopter decision and examples smoke gates pass"
+      "commitPolicy": "commit after adopter decision and examples smoke gates pass",
+      "commit": "f823962",
+      "verification": [
+        "make adopter-decision-check",
+        "make examples-smoke"
+      ]
     },
     {
       "round": 10,
       "id": "GOFLY-P13-10-PLUGIN-TEMPLATE-PUBLISH-HARDENING",
-      "status": "queued",
+      "status": "completed",
       "priority": 91,
       "title": "Plugin and template publish hardening",
       "objective": "Harden plugin registry and template publishing from example-level assets into a publishable protocol contract.",
@@ -161,12 +207,16 @@
       "acceptanceGates": [
         "make plugin-conformance-check"
       ],
-      "commitPolicy": "commit after plugin conformance gate passes across old/current/future protocol, digest mismatch, permission escape, malicious path, and no partial writes"
+      "commitPolicy": "commit after plugin conformance gate passes across old/current/future protocol, digest mismatch, permission escape, malicious path, and no partial writes",
+      "commit": "9d87f0d",
+      "verification": [
+        "make plugin-conformance-check"
+      ]
     },
     {
       "round": 11,
       "id": "GOFLY-P13-11-CLI-DOCTOR-TROUBLESHOOTING-LOOP",
-      "status": "queued",
+      "status": "completed",
       "priority": 90,
       "title": "CLI doctor troubleshooting loop",
       "objective": "Close the adopter failure loop so CI and agent-facing commands explain the next action after failure.",
@@ -175,12 +225,18 @@
         "make dx-troubleshooting-check",
         "make governance-report-check"
       ],
-      "commitPolicy": "commit after CLI JSON golden coverage and troubleshooting governance gates pass"
+      "commitPolicy": "commit after CLI JSON golden coverage and troubleshooting governance gates pass",
+      "commit": "91fa4b3",
+      "verification": [
+        "make dx-troubleshooting-check",
+        "make cli-json-contract-goldens-check",
+        "make governance-report-check"
+      ]
     },
     {
       "round": 12,
       "id": "GOFLY-P13-12-HOSTED-RELEASE-SUPPLY-CHAIN",
-      "status": "queued",
+      "status": "completed",
       "priority": 89,
       "title": "Hosted release supply-chain closure",
       "objective": "Close hosted tag-release supply-chain evidence so release artifacts are auditable and cannot bypass artifact gates.",
@@ -189,7 +245,13 @@
         "make required-checks-drift-check",
         "make governance-report-check"
       ],
-      "commitPolicy": "commit after required-check drift and governance report gates pass with hosted release artifact proof mapped into the dashboard"
+      "commitPolicy": "commit after required-check drift and governance report gates pass with hosted release artifact proof mapped into the dashboard",
+      "commit": "10d3059",
+      "verification": [
+        "make required-checks-drift-check",
+        "make ci-required-check-evidence-check",
+        "make governance-report-check"
+      ]
     }
   ]
 }

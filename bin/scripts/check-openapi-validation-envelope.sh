@@ -260,6 +260,62 @@ for field in ("publishPolicy", "rollbackPolicy"):
         f"adopterContract {field} must be actionable",
     )
 
+p13_closeout = manifest.get("p13RestValidationEnvelopeCloseout") or {}
+require(
+    p13_closeout.get("schema") == "gofly.rest_validation_envelope_p13_closeout.v1",
+    "p13RestValidationEnvelopeCloseout schema mismatch",
+)
+require(
+    p13_closeout.get("aiflowTask") == "GOFLY-P13-03-REST-BINDING-VALIDATION-ENVELOPE",
+    "p13RestValidationEnvelopeCloseout aiflowTask mismatch",
+)
+require(
+    p13_closeout.get("status") == "blocking-contract",
+    "p13RestValidationEnvelopeCloseout status must be blocking-contract",
+)
+expected_p13_sources = {
+    "docs/reference/openapi-invalid-request-smoke.json",
+    "docs/reference/openapi-validation-envelope.md",
+    "docs/reference/http-migration-dx.json",
+    "rest/binding_test.go",
+    "rest/openapi_test.go",
+    "cmd/gofly/internal/generator/service_test.go",
+}
+require(
+    set(p13_closeout.get("sourceOfTruth") or []) == expected_p13_sources,
+    "p13RestValidationEnvelopeCloseout sourceOfTruth mismatch",
+)
+for source in p13_closeout.get("sourceOfTruth") or []:
+    require((root / source).exists(), f"p13RestValidationEnvelopeCloseout source path missing: {source}")
+require(
+    p13_closeout.get("acceptanceGate") == "make openapi-validation-check",
+    "p13RestValidationEnvelopeCloseout acceptanceGate mismatch",
+)
+p13_envelope = p13_closeout.get("runtimeEnvelope") or {}
+require(p13_envelope.get("type") == envelope.get("type"), "p13 runtimeEnvelope.type must match root runtimeEnvelope")
+require(p13_envelope.get("status") == envelope.get("status"), "p13 runtimeEnvelope.status must match root runtimeEnvelope")
+require(p13_envelope.get("code") == envelope.get("code"), "p13 runtimeEnvelope.code must match root runtimeEnvelope")
+require(
+    set(p13_envelope.get("stableFields") or []) == set(adopter_contract.get("stableEnvelopeFields") or []),
+    "p13 runtimeEnvelope.stableFields must match adopter stableEnvelopeFields",
+)
+
+p13_surfaces = {
+    item.get("id"): item
+    for item in p13_closeout.get("alignmentSurfaces") or []
+    if isinstance(item, dict) and item.get("id")
+}
+expected_p13_surfaces = {
+    "path-binding",
+    "query-binding",
+    "header-binding",
+    "body-binding",
+    "tag-validation",
+    "validator-adapter",
+    "generated-service-smoke",
+}
+require(set(p13_surfaces) == expected_p13_surfaces, f"p13RestValidationEnvelopeCloseout surfaces mismatch: {sorted(p13_surfaces)!r}")
+
 cases = manifest.get("smokeCases") or []
 required_cases = {
     "path-parse-failure",
@@ -273,10 +329,69 @@ required_cases = {
 }
 actual_cases = {item.get("id") for item in cases if isinstance(item, dict)}
 require(required_cases <= actual_cases, f"invalid request smoke missing cases: {sorted(required_cases - actual_cases)!r}")
+cases_by_id = {
+    item.get("id"): item
+    for item in cases
+    if isinstance(item, dict) and item.get("id")
+}
 
 required_surfaces = {"path", "query", "header", "body", "tag", "validator", "schema", "generated-service"}
 actual_surfaces = {item.get("surface") for item in cases if isinstance(item, dict)}
 require(required_surfaces <= actual_surfaces, f"invalid request smoke missing surfaces: {sorted(required_surfaces - actual_surfaces)!r}")
+
+expected_p13_surface_mapping = {
+    "path-binding": ("path", "path-parse-failure"),
+    "query-binding": ("query", "query-validation-failure"),
+    "header-binding": ("header", "header-validation-failure"),
+    "body-binding": ("body", "body-decode-failure"),
+    "tag-validation": ("tag", "body-tag-validation-failure"),
+    "validator-adapter": ("validator", "validator-adapter-failure"),
+    "generated-service-smoke": ("generated-service", "generated-service-invalid-request"),
+}
+for surface_id, (surface_name, runtime_case_id) in expected_p13_surface_mapping.items():
+    item = p13_surfaces.get(surface_id) or {}
+    for field in ("id", "surface", "runtimeEvidence", "schemaEvidence", "gate", "rollbackOrEscalation"):
+        require(item.get(field), f"p13RestValidationEnvelopeCloseout {surface_id}: {field} is required")
+    require(item.get("surface") == surface_name, f"p13RestValidationEnvelopeCloseout {surface_id}: surface mismatch")
+    require(
+        item.get("runtimeEvidence") == runtime_case_id,
+        f"p13RestValidationEnvelopeCloseout {surface_id}: runtimeEvidence mismatch",
+    )
+    require(
+        item.get("schemaEvidence") == "openapi-schema-alignment",
+        f"p13RestValidationEnvelopeCloseout {surface_id}: schemaEvidence must be openapi-schema-alignment",
+    )
+    require(
+        runtime_case_id in cases_by_id,
+        f"p13RestValidationEnvelopeCloseout {surface_id}: runtimeEvidence case missing",
+    )
+    require(
+        "openapi-schema-alignment" in cases_by_id,
+        f"p13RestValidationEnvelopeCloseout {surface_id}: schemaEvidence case missing",
+    )
+    require(item.get("gate") == "make openapi-validation-check", f"p13RestValidationEnvelopeCloseout {surface_id}: gate mismatch")
+    require(
+        len(str(item.get("rollbackOrEscalation") or "").split()) >= 10,
+        f"p13RestValidationEnvelopeCloseout {surface_id}: rollbackOrEscalation must be actionable",
+    )
+
+p13_promotion_policy = str(p13_closeout.get("promotionPolicy") or "")
+for needle in (
+    "path",
+    "query",
+    "header",
+    "body",
+    "tag",
+    "schema",
+    "error-code",
+    "validator adapter",
+    "generated-service invalid request smoke",
+    "stable rest.ErrorResponse fields",
+):
+    require(needle in p13_promotion_policy, f"p13RestValidationEnvelopeCloseout promotionPolicy missing {needle!r}")
+p13_runtime_policy = str(p13_closeout.get("runtimeArtifactPolicy") or "")
+for needle in ("runtime evidence", "ignored temporary paths"):
+    require(needle in p13_runtime_policy, f"p13RestValidationEnvelopeCloseout runtimeArtifactPolicy missing {needle!r}")
 
 for item in cases:
     if not isinstance(item, dict):

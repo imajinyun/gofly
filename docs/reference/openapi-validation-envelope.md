@@ -18,6 +18,11 @@ HTTP framework migration DX is governed by
 `gofly.http_migration_dx.v1`. It maps Gin, Echo, Fiber, and Hertz route,
 binding, middleware, error envelope, OpenAPI, invalid request smoke, and
 rollback steps into one blocking contract.
+The P13 closeout is recorded as `p13RestValidationEnvelopeCloseout` inside
+`docs/reference/openapi-invalid-request-smoke.json`. It keeps path, query,
+header, body, tag, schema, error-code, validator adapter, generated-service
+invalid request smoke, and stable `rest.ErrorResponse` fields tied to one
+blocking `make openapi-validation-check` contract.
 
 ## Contract
 
@@ -41,6 +46,30 @@ go test -shuffle=on ./cmd/gofly/internal/generator -run 'Test.*Invalid.*Request|
 The generated service invalid request smoke coverage must prove that invalid
 path, query, header, body, and validator adapter failures return stable
 `rest.ErrorResponse` JSON.
+
+## P13 REST Validation Closeout
+
+`p13RestValidationEnvelopeCloseout` binds each runtime failure case to the
+OpenAPI schema golden:
+
+- path binding uses `path-parse-failure` plus `openapi-schema-alignment`;
+- query binding uses `query-validation-failure` plus
+  `openapi-schema-alignment`;
+- header binding uses `header-validation-failure` plus
+  `openapi-schema-alignment`;
+- body binding uses `body-decode-failure` plus `openapi-schema-alignment`;
+- tag validation uses `body-tag-validation-failure` plus
+  `openapi-schema-alignment`;
+- validator adapter failures use `validator-adapter-failure` plus
+  `openapi-schema-alignment`;
+- generated services use `generated-service-invalid-request` plus
+  `openapi-schema-alignment`.
+
+Promotion requires the root runtime envelope and P13 envelope to agree on
+`rest.ErrorResponse`, HTTP `400`, `invalid_argument`, and the stable fields
+`code`, `text`, `message`, `status`, and `fields`. If any surface drifts, keep
+the previous handler, DTO, validator adapter, or generated scaffold serving
+until the runtime and schema evidence converge again.
 
 ## HTTP Migration DX
 

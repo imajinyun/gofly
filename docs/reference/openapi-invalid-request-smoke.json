@@ -25,6 +25,92 @@
     "publishPolicy": "Publish generated REST services only when invalid request smoke, OpenAPI schema golden, generated-service smoke, and example consistency evidence all pass.",
     "rollbackPolicy": "Pin the previous generated REST scaffold or route traffic back to the existing HTTP stack when runtime envelopes, OpenAPI schema, or examples drift."
   },
+  "p13RestValidationEnvelopeCloseout": {
+    "schema": "gofly.rest_validation_envelope_p13_closeout.v1",
+    "aiflowTask": "GOFLY-P13-03-REST-BINDING-VALIDATION-ENVELOPE",
+    "status": "blocking-contract",
+    "sourceOfTruth": [
+      "docs/reference/openapi-invalid-request-smoke.json",
+      "docs/reference/openapi-validation-envelope.md",
+      "docs/reference/http-migration-dx.json",
+      "rest/binding_test.go",
+      "rest/openapi_test.go",
+      "cmd/gofly/internal/generator/service_test.go"
+    ],
+    "acceptanceGate": "make openapi-validation-check",
+    "runtimeEnvelope": {
+      "type": "rest.ErrorResponse",
+      "status": 400,
+      "code": "invalid_argument",
+      "stableFields": [
+        "code",
+        "text",
+        "message",
+        "status",
+        "fields"
+      ]
+    },
+    "alignmentSurfaces": [
+      {
+        "id": "path-binding",
+        "surface": "path",
+        "runtimeEvidence": "path-parse-failure",
+        "schemaEvidence": "openapi-schema-alignment",
+        "gate": "make openapi-validation-check",
+        "rollbackOrEscalation": "Keep the previous route binding active when path parsing and OpenAPI path parameter evidence no longer agree."
+      },
+      {
+        "id": "query-binding",
+        "surface": "query",
+        "runtimeEvidence": "query-validation-failure",
+        "schemaEvidence": "openapi-schema-alignment",
+        "gate": "make openapi-validation-check",
+        "rollbackOrEscalation": "Pin the previous query DTO or validation tags when runtime query failures and schema constraints diverge."
+      },
+      {
+        "id": "header-binding",
+        "surface": "header",
+        "runtimeEvidence": "header-validation-failure",
+        "schemaEvidence": "openapi-schema-alignment",
+        "gate": "make openapi-validation-check",
+        "rollbackOrEscalation": "Keep the previous header contract until required-header runtime behavior and OpenAPI metadata converge."
+      },
+      {
+        "id": "body-binding",
+        "surface": "body",
+        "runtimeEvidence": "body-decode-failure",
+        "schemaEvidence": "openapi-schema-alignment",
+        "gate": "make openapi-validation-check",
+        "rollbackOrEscalation": "Route traffic to the previous body decoder when malformed JSON handling and request-body schema evidence drift."
+      },
+      {
+        "id": "tag-validation",
+        "surface": "tag",
+        "runtimeEvidence": "body-tag-validation-failure",
+        "schemaEvidence": "openapi-schema-alignment",
+        "gate": "make openapi-validation-check",
+        "rollbackOrEscalation": "Treat DTO tag changes as breaking candidates when runtime validation fields and OpenAPI enum or range metadata diverge."
+      },
+      {
+        "id": "validator-adapter",
+        "surface": "validator",
+        "runtimeEvidence": "validator-adapter-failure",
+        "schemaEvidence": "openapi-schema-alignment",
+        "gate": "make openapi-validation-check",
+        "rollbackOrEscalation": "Disable the custom validator adapter or pin the generated validator when adapter failures do not return stable ErrorResponse fields."
+      },
+      {
+        "id": "generated-service-smoke",
+        "surface": "generated-service",
+        "runtimeEvidence": "generated-service-invalid-request",
+        "schemaEvidence": "openapi-schema-alignment",
+        "gate": "make openapi-validation-check",
+        "rollbackOrEscalation": "Keep the previous generated scaffold snapshot until invalid request smoke and /openapi.json exposure pass together."
+      }
+    ],
+    "promotionPolicy": "P13 REST validation promotion requires path, query, header, body, tag, schema, error-code, validator adapter, generated-service invalid request smoke, and stable rest.ErrorResponse fields to pass the OpenAPI validation gate together.",
+    "runtimeArtifactPolicy": "P13 REST validation reports and generated service smoke output are runtime evidence only and must stay in ignored temporary paths."
+  },
   "smokeCases": [
     {
       "id": "path-parse-failure",

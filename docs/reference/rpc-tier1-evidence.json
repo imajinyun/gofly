@@ -645,6 +645,83 @@
       }
     ]
   },
+  "p12BenchmarkBudgetPromotion": {
+    "schema": "gofly.rpc_tier1_p12_benchmark_budget_promotion.v1",
+    "aiflowTask": "GOFLY-P12-1-RPC-BENCHMARK-BUDGET-PROMOTION",
+    "status": "promotion-held-report-only",
+    "acceptanceGates": [
+      "make rpc-boundary-check",
+      "make bench-regression-check"
+    ],
+    "budgetDecisionRef": {
+      "path": "bench/budget-ratchet.json",
+      "field": "p12RpcBudgetPromotionDecision",
+      "status": "promotion-held-report-only"
+    },
+    "decision": {
+      "result": "hold",
+      "reason": "P12 keeps RPC unary and stream benchmark rows as report-only candidate evidence because no row currently satisfies release-train, multi-run baseline, current trend, allocation, and rollback criteria together.",
+      "nextReviewGate": "make bench-regression-check && make rpc-boundary-check",
+      "releaseNotePolicy": "Release notes must not claim RPC Tier 1 replacement readiness, blocking RPC latency, Kitex transport parity, or gRPC-Go ecosystem parity until a selected RPC row is promoted through the benchmark ratchet."
+    },
+    "promotionPath": [
+      {
+        "step": "select-one-rpc-surface",
+        "gate": "make rpc-boundary-check",
+        "requiredEvidence": "Choose exactly one unary or stream surface and keep all other RPC rows report-only.",
+        "rollbackAction": "Keep all RPC workloads on their existing Kitex, native gRPC-Go, or previous RPC stack while no surface is selected."
+      },
+      {
+        "step": "attach-benchmark-trend",
+        "gate": "make bench-regression-check",
+        "requiredEvidence": "Attach at least five baseline samples, three current trend samples, allocation budget evidence, and explicit latency report-only status before promotion.",
+        "rollbackAction": "Do not add the RPC benchmark to trackedBenchmarks when any trend, allocation, or latency evidence is missing."
+      },
+      {
+        "step": "attach-release-train",
+        "gate": "make release-evidence-index-check",
+        "requiredEvidence": "Attach one release train with RPC boundary, required-check drift, release evidence, benchmark evidence, and rollback guidance.",
+        "rollbackAction": "Keep the Tier 1 promotion blocked when release evidence or required-check drift evidence is absent."
+      }
+    ],
+    "candidateSurfaces": [
+      {
+        "surface": "rpc-unary",
+        "benchmark": "BenchmarkRPCUnary/gofly_rpc",
+        "currentMode": "report-only",
+        "promotionStatus": "blocked",
+        "rollbackAction": "Keep latency-critical unary methods on Kitex or native gRPC-Go until unary allocation evidence is stable enough for blocking promotion."
+      },
+      {
+        "surface": "rpc-stream-aggregate",
+        "benchmark": "BenchmarkRPCStreamGovernance",
+        "currentMode": "report-only",
+        "promotionStatus": "blocked",
+        "rollbackAction": "Keep stream workloads on existing gRPC or Kitex paths until mode-specific stream budgets are promoted."
+      },
+      {
+        "surface": "rpc-server-stream",
+        "benchmark": "BenchmarkRPCServerStreamGovernance",
+        "currentMode": "report-only",
+        "promotionStatus": "blocked",
+        "rollbackAction": "Keep server-stream workloads on Kitex or native gRPC-Go until server-stream allocation evidence is stable."
+      },
+      {
+        "surface": "rpc-client-stream",
+        "benchmark": "BenchmarkRPCClientStreamGovernance",
+        "currentMode": "report-only",
+        "promotionStatus": "blocked",
+        "rollbackAction": "Keep upload-style client streams on the previous RPC stack until client-stream budget evidence is promoted."
+      },
+      {
+        "surface": "rpc-bidi-stream",
+        "benchmark": "BenchmarkRPCBidiStreamGovernance",
+        "currentMode": "report-only",
+        "promotionStatus": "blocked",
+        "rollbackAction": "Keep realtime bidirectional sessions on Kitex or native gRPC-Go until bidirectional stream evidence is promoted."
+      }
+    ]
+  },
   "evidence": [
     {
       "id": "unary-contract",

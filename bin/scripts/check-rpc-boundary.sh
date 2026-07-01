@@ -468,6 +468,78 @@ for blocker_id, status in required_p11_blockers.items():
     for evidence_path in blocker.get("requiredEvidence") or []:
         require((root / evidence_path).exists(), f"P11 RPC blocker {blocker_id}: evidence path missing: {evidence_path}")
 
+p12_budget = manifest.get("p12BenchmarkBudgetPromotion") or {}
+require(
+    p12_budget.get("schema") == "gofly.rpc_tier1_p12_benchmark_budget_promotion.v1",
+    "rpc tier1 evidence p12BenchmarkBudgetPromotion schema mismatch",
+)
+require(
+    p12_budget.get("aiflowTask") == "GOFLY-P12-1-RPC-BENCHMARK-BUDGET-PROMOTION",
+    "rpc tier1 evidence p12BenchmarkBudgetPromotion aiflowTask mismatch",
+)
+require(
+    p12_budget.get("status") == "promotion-held-report-only",
+    "rpc tier1 evidence p12BenchmarkBudgetPromotion status must be promotion-held-report-only",
+)
+require(
+    set(p12_budget.get("acceptanceGates") or []) == {"make rpc-boundary-check", "make bench-regression-check"},
+    "rpc tier1 evidence p12BenchmarkBudgetPromotion acceptanceGates mismatch",
+)
+p12_ref = p12_budget.get("budgetDecisionRef") or {}
+require(p12_ref.get("path") == "bench/budget-ratchet.json", "P12 RPC budgetDecisionRef path mismatch")
+require(p12_ref.get("field") == "p12RpcBudgetPromotionDecision", "P12 RPC budgetDecisionRef field mismatch")
+require(p12_ref.get("status") == "promotion-held-report-only", "P12 RPC budgetDecisionRef status mismatch")
+p12_decision = p12_budget.get("decision") or {}
+require(p12_decision.get("result") == "hold", "P12 RPC budget decision.result must be hold")
+require(
+    p12_decision.get("nextReviewGate") == "make bench-regression-check && make rpc-boundary-check",
+    "P12 RPC budget nextReviewGate mismatch",
+)
+for field in ("reason", "releaseNotePolicy"):
+    require(len(str(p12_decision.get(field) or "").split()) >= 16, f"P12 RPC budget decision.{field} must be actionable")
+for forbidden_claim in ("Tier 1 replacement", "blocking RPC latency", "Kitex", "gRPC-Go"):
+    require(
+        forbidden_claim in str(p12_decision.get("releaseNotePolicy") or ""),
+        f"P12 RPC budget releaseNotePolicy must mention {forbidden_claim!r}",
+    )
+p12_path = [
+    item.get("step")
+    for item in p12_budget.get("promotionPath") or []
+    if isinstance(item, dict) and item.get("step")
+]
+require(
+    p12_path == ["select-one-rpc-surface", "attach-benchmark-trend", "attach-release-train"],
+    f"P12 RPC budget promotionPath mismatch: {p12_path!r}",
+)
+for item in p12_budget.get("promotionPath") or []:
+    if not isinstance(item, dict):
+        missing.append(f"P12 RPC budget promotionPath item must be an object: {item!r}")
+        continue
+    step = item.get("step", "<missing>")
+    require(item.get("gate"), f"P12 RPC budget promotionPath {step}: gate is required")
+    for field in ("requiredEvidence", "rollbackAction"):
+        require(len(str(item.get(field) or "").split()) >= 10, f"P12 RPC budget promotionPath {step}: {field} must be actionable")
+p12_surfaces = {
+    item.get("benchmark"): item
+    for item in p12_budget.get("candidateSurfaces") or []
+    if isinstance(item, dict) and item.get("benchmark")
+}
+expected_p12_surfaces = {
+    "BenchmarkRPCUnary/gofly_rpc",
+    "BenchmarkRPCStreamGovernance",
+    "BenchmarkRPCServerStreamGovernance",
+    "BenchmarkRPCClientStreamGovernance",
+    "BenchmarkRPCBidiStreamGovernance",
+}
+require(set(p12_surfaces) == expected_p12_surfaces, f"P12 RPC budget candidateSurfaces mismatch: {sorted(p12_surfaces)!r}")
+for benchmark, item in p12_surfaces.items():
+    require(item.get("currentMode") == "report-only", f"{benchmark}: P12 currentMode must be report-only")
+    require(item.get("promotionStatus") == "blocked", f"{benchmark}: P12 promotionStatus must be blocked")
+    require(
+        any(runtime in str(item.get("rollbackAction") or "") for runtime in ("Kitex", "gRPC-Go", "RPC stack")),
+        f"{benchmark}: P12 rollbackAction must name fallback runtime or previous RPC stack",
+    )
+
 r8_transport_matrix = transport_boundary.get("r8TransportEvidenceMatrix") or {}
 require(
     r8_transport_matrix.get("schema") == "gofly.rpc_transport_r8_evidence_matrix.v1",

@@ -619,6 +619,106 @@
       "promotionGate": "make bench-regression-check"
     }
   ],
+  "p12RpcBudgetPromotionDecision": {
+    "schema": "gofly.benchmark_p12_rpc_budget_promotion_decision.v1",
+    "aiflowTask": "GOFLY-P12-1-RPC-BENCHMARK-BUDGET-PROMOTION",
+    "status": "promotion-held-report-only",
+    "acceptanceGate": "make bench-regression-check",
+    "sourceEvidence": [
+      "docs/reference/rpc-tier1-evidence.json",
+      "bench/budget-ratchet.json",
+      "bench/rpc_bench_test.go"
+    ],
+    "decision": {
+      "result": "hold",
+      "selectedSurface": "none",
+      "reason": "P12 keeps all RPC unary and stream benchmarks outside trackedBenchmarks because release-train evidence is still missing and no RPC row has enough baseline, current trend, allocation, and rollback evidence for blocking promotion.",
+      "nextReviewGate": "make bench-regression-check && make rpc-boundary-check",
+      "releaseNotePolicy": "Release notes must describe RPC benchmark rows as candidate report-only evidence until one selected surface passes the P12 promotion criteria and enters trackedBenchmarks through bench-regression-check."
+    },
+    "candidateRows": [
+      {
+        "surface": "rpc-unary",
+        "benchmark": "BenchmarkRPCUnary/gofly_rpc",
+        "currentMode": "report-only",
+        "proposedPromotionMode": "allocation-blocking",
+        "promotionStatus": "blocked",
+        "blockers": [
+          "latest smoke exceeded allocation baseline",
+          "release-train evidence is not attached",
+          "rollback note must stay linked to Kitex or native gRPC-Go"
+        ],
+        "rollbackAction": "Keep latency-critical unary methods on Kitex or native gRPC-Go until unary allocation evidence is stable enough for blocking promotion."
+      },
+      {
+        "surface": "rpc-stream-aggregate",
+        "benchmark": "BenchmarkRPCStreamGovernance",
+        "currentMode": "report-only",
+        "proposedPromotionMode": "allocation-blocking",
+        "promotionStatus": "blocked",
+        "blockers": [
+          "aggregate stream evidence may hide mode-specific regressions",
+          "server, client, and bidirectional stream rows need separate baseline evidence",
+          "release-train evidence is not attached"
+        ],
+        "rollbackAction": "Keep stream workloads on existing gRPC or Kitex paths until mode-specific stream budgets are promoted."
+      },
+      {
+        "surface": "rpc-server-stream",
+        "benchmark": "BenchmarkRPCServerStreamGovernance",
+        "currentMode": "report-only",
+        "proposedPromotionMode": "allocation-blocking",
+        "promotionStatus": "blocked",
+        "blockers": [
+          "five-sample baseline is not published",
+          "three-sample current trend is not published",
+          "release-train evidence is not attached"
+        ],
+        "rollbackAction": "Keep server-stream workloads on Kitex or native gRPC-Go until server-stream allocation evidence is stable."
+      },
+      {
+        "surface": "rpc-client-stream",
+        "benchmark": "BenchmarkRPCClientStreamGovernance",
+        "currentMode": "report-only",
+        "proposedPromotionMode": "allocation-blocking",
+        "promotionStatus": "blocked",
+        "blockers": [
+          "five-sample baseline is not published",
+          "upload-style current trend is not published",
+          "release-train evidence is not attached"
+        ],
+        "rollbackAction": "Keep upload-style client streams on the previous RPC stack until client-stream budget evidence is promoted."
+      },
+      {
+        "surface": "rpc-bidi-stream",
+        "benchmark": "BenchmarkRPCBidiStreamGovernance",
+        "currentMode": "report-only",
+        "proposedPromotionMode": "allocation-blocking",
+        "promotionStatus": "blocked",
+        "blockers": [
+          "five-sample baseline is not published",
+          "realtime current trend is not published",
+          "release-train evidence is not attached"
+        ],
+        "rollbackAction": "Keep realtime bidirectional sessions on Kitex or native gRPC-Go until bidirectional stream evidence is promoted."
+      }
+    ],
+    "blockingRules": [
+      "exactly one RPC surface may be promoted at a time",
+      "promoted RPC rows must enter trackedBenchmarks only through bench-regression-check",
+      "promoted RPC rows require minimum 5 baseline samples",
+      "promoted RPC rows require minimum 3 current trend samples",
+      "promoted RPC rows require no allocation regression under bench-regression-check",
+      "promoted RPC rows require a rollback action naming Kitex, native gRPC-Go, or the previous RPC stack"
+    ],
+    "forbiddenUntilCleared": [
+      "trackedBenchmarks RPC entry",
+      "blocking RPC latency claim",
+      "Kitex transport parity claim",
+      "gRPC-Go ecosystem parity claim",
+      "release note Tier 1 replacement claim"
+    ]
+  },
   "rpcPolicy": {
     "releasePromotion": {
       "status": "blocked",

@@ -751,6 +751,73 @@ def validate_ratchet_policy() -> None:
     )
     require_policy(rpc_policy.get("status") == "report-only", "rpcPolicy.status must remain report-only")
 
+    p12_rpc_decision = ratchet.get("p12RpcBudgetPromotionDecision") or {}
+    require_policy(
+        p12_rpc_decision.get("schema") == "gofly.benchmark_p12_rpc_budget_promotion_decision.v1",
+        "p12RpcBudgetPromotionDecision schema mismatch",
+    )
+    require_policy(
+        p12_rpc_decision.get("aiflowTask") == "GOFLY-P12-1-RPC-BENCHMARK-BUDGET-PROMOTION",
+        "p12RpcBudgetPromotionDecision aiflowTask mismatch",
+    )
+    require_policy(
+        p12_rpc_decision.get("status") == "promotion-held-report-only",
+        "p12RpcBudgetPromotionDecision status must be promotion-held-report-only",
+    )
+    require_policy(
+        p12_rpc_decision.get("acceptanceGate") == "make bench-regression-check",
+        "p12RpcBudgetPromotionDecision acceptanceGate mismatch",
+    )
+    p12_decision = p12_rpc_decision.get("decision") or {}
+    require_policy(p12_decision.get("result") == "hold", "p12RpcBudgetPromotionDecision decision.result must be hold")
+    require_policy(p12_decision.get("selectedSurface") == "none", "p12RpcBudgetPromotionDecision selectedSurface must be none")
+    require_policy(
+        p12_decision.get("nextReviewGate") == "make bench-regression-check && make rpc-boundary-check",
+        "p12RpcBudgetPromotionDecision nextReviewGate mismatch",
+    )
+    for field in ("reason", "releaseNotePolicy"):
+        require_policy(
+            len(str(p12_decision.get(field) or "").split()) >= 16,
+            f"p12RpcBudgetPromotionDecision decision.{field} must be actionable",
+        )
+    p12_candidates = {
+        item.get("benchmark"): item
+        for item in p12_rpc_decision.get("candidateRows") or []
+        if isinstance(item, dict) and item.get("benchmark")
+    }
+    require_policy(
+        set(p12_candidates) == rpc_candidate_names,
+        "p12RpcBudgetPromotionDecision candidateRows must match rpcPolicy candidates",
+    )
+    for benchmark, item in p12_candidates.items():
+        require_policy(item.get("currentMode") == "report-only", f"{benchmark}: P12 currentMode must be report-only")
+        require_policy(item.get("proposedPromotionMode") == "allocation-blocking", f"{benchmark}: P12 proposedPromotionMode mismatch")
+        require_policy(item.get("promotionStatus") == "blocked", f"{benchmark}: P12 promotionStatus must be blocked")
+        require_policy(benchmark not in tracked, f"{benchmark}: P12 candidate must stay out of trackedBenchmarks")
+        require_policy(len(item.get("blockers") or []) >= 3, f"{benchmark}: P12 blockers must include at least three reasons")
+        require_policy(
+            any(runtime in str(item.get("rollbackAction") or "") for runtime in ("Kitex", "gRPC-Go", "RPC stack")),
+            f"{benchmark}: P12 rollbackAction must name fallback runtime or previous RPC stack",
+        )
+    p12_rules = set(p12_rpc_decision.get("blockingRules") or [])
+    for rule in (
+        "exactly one RPC surface may be promoted at a time",
+        "promoted RPC rows must enter trackedBenchmarks only through bench-regression-check",
+        "promoted RPC rows require minimum 5 baseline samples",
+        "promoted RPC rows require minimum 3 current trend samples",
+        "promoted RPC rows require no allocation regression under bench-regression-check",
+    ):
+        require_policy(rule in p12_rules, f"p12RpcBudgetPromotionDecision blockingRules missing {rule!r}")
+    p12_forbidden = set(p12_rpc_decision.get("forbiddenUntilCleared") or [])
+    for forbidden in (
+        "trackedBenchmarks RPC entry",
+        "blocking RPC latency claim",
+        "Kitex transport parity claim",
+        "gRPC-Go ecosystem parity claim",
+        "release note Tier 1 replacement claim",
+    ):
+        require_policy(forbidden in p12_forbidden, f"p12RpcBudgetPromotionDecision forbiddenUntilCleared missing {forbidden!r}")
+
     for item in rpc_candidates:
         if not isinstance(item, dict):
             require_policy(False, f"rpcPolicy candidate must be an object: {item!r}")

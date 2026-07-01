@@ -378,9 +378,75 @@ for item in policy_resources:
         missing.append(f"cloud-native policy resource {kind}: requiredSignals is required")
 
 rollout_gates = set(manifest.get("rolloutGates") or [])
-for gate in ("make helm-template-smoke", "make cloud-native-render-check", "make p1-growth-check"):
+for gate in (
+    "make helm-template-smoke",
+    "make cloud-native-render-check",
+    "make reference-app-smoke",
+    "make runtime-slo-check",
+    "make p1-growth-check",
+):
     if gate not in rollout_gates:
         missing.append(f"cloud-native policy conformance rolloutGates missing {gate!r}")
+
+p10_proof = manifest.get("p10CloudNativeAdoptionProof") or {}
+if p10_proof.get("schema") != "gofly.cloud_native_p10_adoption_proof.v1":
+    missing.append("cloud-native P10 adoption proof schema mismatch")
+if p10_proof.get("aiflowTask") != "GOFLY-P10-8-CLOUD-NATIVE-ADOPTION-PROOF":
+    missing.append("cloud-native P10 adoption proof aiflowTask mismatch")
+if p10_proof.get("status") != "blocking-contract":
+    missing.append("cloud-native P10 adoption proof status must be blocking-contract")
+if p10_proof.get("acceptanceGate") != "make p1-growth-check":
+    missing.append("cloud-native P10 adoption proof acceptanceGate mismatch")
+if p10_proof.get("dashboardReportField") != "cloudNativeAdoption.p10Proof":
+    missing.append("cloud-native P10 adoption proof dashboardReportField mismatch")
+if len(str(p10_proof.get("policy") or "").split()) < 20:
+    missing.append("cloud-native P10 adoption proof policy must be actionable")
+
+p10_required_gates = {
+    "make helm-template-smoke",
+    "make cloud-native-render-check",
+    "make reference-app-smoke",
+    "make runtime-slo-check",
+    "make p1-growth-check",
+}
+if set(p10_proof.get("requiredGates") or []) != p10_required_gates:
+    missing.append("cloud-native P10 adoption proof requiredGates mismatch")
+
+p10_chains = {
+    item.get("id"): item
+    for item in p10_proof.get("proofChains") or []
+    if isinstance(item, dict) and item.get("id")
+}
+expected_p10_chains = {
+    "render-proof": "make cloud-native-render-check",
+    "reference-topology-proof": "make reference-app-smoke",
+    "runtime-slo-proof": "make runtime-slo-check",
+    "rollback-proof": "make governance-report-check",
+}
+if set(p10_chains) != set(expected_p10_chains):
+    missing.append(
+        "cloud-native P10 adoption proof chains drifted "
+        f"missing={sorted(set(expected_p10_chains) - set(p10_chains))!r} "
+        f"extra={sorted(set(p10_chains) - set(expected_p10_chains))!r}"
+    )
+for chain_id, gate in expected_p10_chains.items():
+    item = p10_chains.get(chain_id) or {}
+    for field in ("id", "surface", "gate", "evidence", "adopterAction", "rollbackOrEscalation"):
+        if item.get(field) in ("", None, []):
+            missing.append(f"cloud-native P10 adoption proof {chain_id}: {field} is required")
+    if item.get("gate") != gate:
+        missing.append(f"cloud-native P10 adoption proof {chain_id}: gate must be {gate}")
+    for evidence in item.get("evidence") or []:
+        if not pathlib.Path(evidence).exists():
+            missing.append(f"cloud-native P10 adoption proof {chain_id}: evidence path missing: {evidence}")
+    for field in ("adopterAction", "rollbackOrEscalation"):
+        if len(str(item.get(field) or "").split()) < 10:
+            missing.append(f"cloud-native P10 adoption proof {chain_id}: {field} must be actionable")
+if len(str(p10_proof.get("runtimeEvidencePolicy") or "").split()) < 15:
+    missing.append("cloud-native P10 adoption proof runtimeEvidencePolicy must be actionable")
+for needle in ("render proof", "reference topology proof", "runtime SLO proof", "rollback proof", "P1 growth gates"):
+    if needle not in str(p10_proof.get("promotionPolicy") or ""):
+        missing.append(f"cloud-native P10 adoption proof promotionPolicy missing {needle!r}")
 
 fallback_status = "not-fallback" if helm_available else "static-fallback"
 kustomize_fallback_status = "not-fallback" if kustomize_available else "static-fallback"

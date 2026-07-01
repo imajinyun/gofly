@@ -8,6 +8,7 @@ import sys
 
 root = pathlib.Path('.').resolve()
 middleware_manifest_path = root / 'docs' / 'reference' / 'http-middleware-ecosystem.json'
+cloud_native_manifest_path = root / 'docs' / 'reference' / 'cloud-native-policy-conformance.json'
 
 checks = {
     pathlib.Path('docs/reference/p1-growth-roadmap.md'): [
@@ -284,6 +285,11 @@ if middleware_manifest_path.is_file():
 else:
     middleware_manifest = {}
     missing.append('docs/reference/http-middleware-ecosystem.json: file is missing')
+if cloud_native_manifest_path.is_file():
+    cloud_native_manifest = json.loads(cloud_native_manifest_path.read_text(encoding='utf-8'))
+else:
+    cloud_native_manifest = {}
+    missing.append('docs/reference/cloud-native-policy-conformance.json: file is missing')
 
 require(middleware_manifest.get('schema') == 'gofly.http_middleware_ecosystem.v1', 'HTTP middleware ecosystem schema mismatch')
 require(middleware_manifest.get('status') == 'blocking', 'HTTP middleware ecosystem status must be blocking')
@@ -396,6 +402,47 @@ for needle in ('auth', 'browser safety', 'observability', 'realtime', 'OpenAPI',
 runtime_policy = str(p10_closeout.get('runtimeArtifactPolicy') or '')
 for needle in ('runtime evidence', 'durable evidence'):
     require(needle in runtime_policy, f'HTTP middleware P10 runtimeArtifactPolicy missing {needle!r}')
+
+p10_cloud = cloud_native_manifest.get('p10CloudNativeAdoptionProof') or {}
+require(p10_cloud.get('schema') == 'gofly.cloud_native_p10_adoption_proof.v1', 'cloud-native P10 adoption proof schema mismatch')
+require(p10_cloud.get('aiflowTask') == 'GOFLY-P10-8-CLOUD-NATIVE-ADOPTION-PROOF', 'cloud-native P10 adoption proof aiflowTask mismatch')
+require(p10_cloud.get('status') == 'blocking-contract', 'cloud-native P10 adoption proof status must be blocking-contract')
+require(p10_cloud.get('acceptanceGate') == 'make p1-growth-check', 'cloud-native P10 adoption proof acceptanceGate mismatch')
+require(p10_cloud.get('dashboardReportField') == 'cloudNativeAdoption.p10Proof', 'cloud-native P10 adoption proof dashboardReportField mismatch')
+require(len(str(p10_cloud.get('policy') or '').split()) >= 20, 'cloud-native P10 adoption proof policy must be actionable')
+required_cloud_gates = {
+    'make helm-template-smoke',
+    'make cloud-native-render-check',
+    'make reference-app-smoke',
+    'make runtime-slo-check',
+    'make p1-growth-check',
+}
+require(set(p10_cloud.get('requiredGates') or []) == required_cloud_gates, 'cloud-native P10 adoption proof requiredGates mismatch')
+cloud_chains = {
+    item.get('id'): item
+    for item in p10_cloud.get('proofChains') or []
+    if isinstance(item, dict) and item.get('id')
+}
+expected_cloud_chains = {
+    'render-proof': 'make cloud-native-render-check',
+    'reference-topology-proof': 'make reference-app-smoke',
+    'runtime-slo-proof': 'make runtime-slo-check',
+    'rollback-proof': 'make governance-report-check',
+}
+require(set(cloud_chains) == set(expected_cloud_chains), f'cloud-native P10 proof chains mismatch: {sorted(cloud_chains)!r}')
+for chain_id, gate in expected_cloud_chains.items():
+    row = cloud_chains.get(chain_id) or {}
+    for field in ('id', 'surface', 'gate', 'evidence', 'adopterAction', 'rollbackOrEscalation'):
+        require(row.get(field), f'cloud-native P10 proof {chain_id}: {field} is required')
+    require(row.get('gate') == gate, f'cloud-native P10 proof {chain_id}: gate mismatch')
+    for evidence in row.get('evidence') or []:
+        require((root / evidence).exists(), f'cloud-native P10 proof {chain_id}: evidence missing: {evidence}')
+    for field in ('adopterAction', 'rollbackOrEscalation'):
+        require(len(str(row.get(field) or '').split()) >= 10, f'cloud-native P10 proof {chain_id}: {field} must be actionable')
+for needle in ('render proof', 'reference topology proof', 'runtime SLO proof', 'rollback proof', 'P1 growth gates'):
+    require(needle in str(p10_cloud.get('promotionPolicy') or ''), f'cloud-native P10 proof promotionPolicy missing {needle!r}')
+for needle in ('.tmp-test', '.aiflow', 'durable adoption proof', 'docs/reference'):
+    require(needle in str(p10_cloud.get('runtimeEvidencePolicy') or ''), f'cloud-native P10 proof runtimeEvidencePolicy missing {needle!r}')
 
 for rel, terms in checks.items():
     path = root / rel

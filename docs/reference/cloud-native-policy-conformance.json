@@ -256,6 +256,79 @@
   "rolloutGates": [
     "make helm-template-smoke",
     "make cloud-native-render-check",
+    "make reference-app-smoke",
+    "make runtime-slo-check",
     "make p1-growth-check"
-  ]
+  ],
+  "p10CloudNativeAdoptionProof": {
+    "schema": "gofly.cloud_native_p10_adoption_proof.v1",
+    "aiflowTask": "GOFLY-P10-8-CLOUD-NATIVE-ADOPTION-PROOF",
+    "status": "blocking-contract",
+    "acceptanceGate": "make p1-growth-check",
+    "dashboardReportField": "cloudNativeAdoption.p10Proof",
+    "policy": "P10 treats cloud-native adoption proof as a joined contract across rendered Kubernetes assets, production-orders topology, runtime SLO evidence, and rollback notes. Rendered YAML alone is not enough for production adoption.",
+    "proofChains": [
+      {
+        "id": "render-proof",
+        "surface": "Helm, Kustomize, ServiceMonitor, HPA, PDB, and NetworkPolicy render evidence",
+        "gate": "make cloud-native-render-check",
+        "evidence": [
+          "docs/reference/cloud-native-policy-conformance.json",
+          "docs/reference/cloud-native-rendered-production.golden.yaml",
+          "charts/gofly/values-production.yaml",
+          "k8s/overlays/production/kustomization.yaml"
+        ],
+        "adopterAction": "Render production assets, inspect explicit fallback reasons, and verify policy resources before applying Helm or Kustomize output.",
+        "rollbackOrEscalation": "Keep the previous chart release or manifest active when render output, schema validation, or required policy resources are missing."
+      },
+      {
+        "id": "reference-topology-proof",
+        "surface": "production-orders memory and Docker-backed reference topology",
+        "gate": "make reference-app-smoke",
+        "evidence": [
+          "docs/reference/reference-app-topology.json",
+          "examples/production-orders/main.go",
+          "examples/production-orders/compose.yaml",
+          "examples/production-orders/README.md"
+        ],
+        "adopterAction": "Run memory smoke locally and Docker-backed topology rehearsal when dependencies are available before changing traffic routing.",
+        "rollbackOrEscalation": "Keep memory mode or the previous deployment active when dependency topology evidence is skipped or cannot explain fallback."
+      },
+      {
+        "id": "runtime-slo-proof",
+        "surface": "golden signals, ServiceMonitor scrape evidence, runtime SLOs, and trace correlation",
+        "gate": "make runtime-slo-check",
+        "evidence": [
+          "docs/reference/runtime-slo.json",
+          "docs/reference/runtime-slo.md",
+          "examples/observability/README.md",
+          "k8s/servicemonitor.yaml"
+        ],
+        "adopterAction": "Review latency, errors, traffic, saturation, cache, governance decisions, and trace correlation before promotion.",
+        "rollbackOrEscalation": "Hold rollout or route back to the previous deployment when SLO evidence cannot explain runtime regressions."
+      },
+      {
+        "id": "rollback-proof",
+        "surface": "adopter rollback decision across deployment, topology, and incident evidence",
+        "gate": "make governance-report-check",
+        "evidence": [
+          "docs/reference/adoption-risk-register.json",
+          "docs/reference/operator-runbook-drills.json",
+          "docs/operations/production-checklist.md",
+          "examples/production-orders/README.md"
+        ],
+        "adopterAction": "Use adoption risk, runbook drills, topology output, and release evidence to decide whether to promote, pin, or route back.",
+        "rollbackOrEscalation": "Pin the previous release, keep old routing active, or disable new policy resources when adoption proof is incomplete."
+      }
+    ],
+    "requiredGates": [
+      "make helm-template-smoke",
+      "make cloud-native-render-check",
+      "make reference-app-smoke",
+      "make runtime-slo-check",
+      "make p1-growth-check"
+    ],
+    "runtimeEvidencePolicy": "Runtime reports under .tmp-test or .aiflow are local evidence only; durable adoption proof must stay in docs/reference manifests and committed production assets.",
+    "promotionPolicy": "Promote cloud-native adoption claims only when render proof, reference topology proof, runtime SLO proof, rollback proof, and P1 growth gates all pass."
+  }
 }

@@ -51,7 +51,14 @@ The conformance manifest keeps the release evidence explicit:
 - policy resources: `ServiceMonitor`, `HorizontalPodAutoscaler`,
   `PodDisruptionBudget`, and `NetworkPolicy`;
 - rollout gates: `make helm-template-smoke`, `make cloud-native-render-check`,
-  and `make p1-growth-check`.
+  `make reference-app-smoke`, `make runtime-slo-check`, and
+  `make p1-growth-check`.
+
+P10 adds `p10CloudNativeAdoptionProof` as the production adoption closeout. The
+proof chains connect rendered assets, the `production-orders` reference
+topology, runtime SLO evidence, and rollback decisions. This keeps cloud-native
+adoption claims tied to executable checks instead of treating rendered YAML as
+production proof by itself.
 
 Fallback status must be visible rather than implicit. If Helm is unavailable,
 the static template render path remains valid evidence for local development,

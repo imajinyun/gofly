@@ -39,6 +39,12 @@ The starter assets include liveness, readiness, and startup probes, Prometheus s
 
 Generated production services also include `deploy/observability/prometheus.yaml`, `deploy/observability/otel-collector.yaml`, `deploy/observability/grafana-dashboard.json`, `deploy/observability/logs-correlation.yaml`, and `bin/production-check.sh`. Run the generated `make production-check` after replacing placeholder secrets to verify Kubernetes, Helm, metrics, tracing, dashboard, and log-correlation assets stay in sync.
 
+For production adoption proof, use
+[`cloud-native-policy-conformance.json`](../reference/cloud-native-policy-conformance.json).
+Its P10 contract links Helm/Kustomize render evidence, the `production-orders`
+reference topology, runtime SLO checks, and rollback decisions. Run
+`make p1-growth-check` before treating rendered assets as production-ready.
+
 ## Production configuration checklist
 
 | Area | What to configure |

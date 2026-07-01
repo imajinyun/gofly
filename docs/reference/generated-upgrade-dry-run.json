@@ -374,6 +374,110 @@
     "promotionPolicy": "Generated scaffold promotion requires goctl-compatible profile evidence, accepted goctl-style flags, API import/diff/route fidelity, proto import compatibility, alias-collision checks, generated dependency boundaries, repeat diff classification, and rollback notes.",
     "runtimeArtifactPolicy": "Generated projects and dry-run reports remain volatile runtime evidence under .tmp-test or temporary directories and must not be committed."
   },
+  "p11LiveUpgradeProof": {
+    "schema": "gofly.generated_live_upgrade_proof.v1",
+    "aiflowTask": "GOFLY-P11-2-GENERATED-PROJECT-LIVE-UPGRADE",
+    "status": "blocking-contract",
+    "sourceOfTruth": [
+      "testdata/generated-compat/matrix.json",
+      "docs/reference/generated-upgrade-dry-run.json",
+      "docs/reference/generated-version-compat.md",
+      "docs/reference/generated-scaffold-long-term-compatibility.json"
+    ],
+    "acceptanceGates": [
+      "make generated-upgrade-dry-run-check",
+      "make generated-version-compat-check"
+    ],
+    "executionContract": {
+      "temporaryProjectRoot": "GENERATED_VERSION_COMPAT_TMPDIR or mktemp -d under the local temp directory",
+      "generatorCommand": "go run ./cmd/gofly new service orders --module example.com/orders --dir <tmp>/<profile>/upgrade/orders --config <service-config.json> --api <orders.api> --proto <greeter.proto> --json",
+      "moduleReplacement": "go mod edit -replace github.com/imajinyun/gofly=<repo-root> inside the generated project only",
+      "compileSmoke": "go test ./... inside the generated project after go mod tidy",
+      "repeatGeneration": "generate the same profile twice and require clean normalized diff output before classifying adopter upgrade diffs",
+      "reportSchema": "emit gofly.generated_version_compat_report.v1 with generated file count, go test status, repeat diff status, and expected diff explanation",
+      "artifactPolicy": "temporary generated projects, diff reports, and smoke outputs are runtime evidence and must not be committed"
+    },
+    "profiles": [
+      {
+        "profile": "old",
+        "fixtureSet": {
+          "api": "testdata/generated-compat/v0.1/orders.api",
+          "proto": "testdata/generated-compat/v0.1/greeter.proto",
+          "serviceConfig": "testdata/generated-compat/v0.1/service-config.json",
+          "snapshot": "testdata/generated-compat/matrix.json"
+        },
+        "upgradePath": "legacy adopter regenerates a v0.1 service with the current gofly binary and reviews additive compatibility shims before rollout",
+        "expectedDiff": "compatible feature addition",
+        "diffCategories": [
+          "deterministic-repeat-generation",
+          "compatible-addition"
+        ],
+        "generatedProjectSmoke": "go test ./...",
+        "repeatGeneration": "clean",
+        "dependencyBoundary": "generated project go.mod or isolated temporary test module",
+        "rootModulePolicy": "must-not-add-generated-only-dependencies",
+        "verificationGates": [
+          "make generated-version-compat-check",
+          "make generated-upgrade-dry-run-check",
+          "make root-dependency-policy-check"
+        ],
+        "rollbackAction": "Pin the previous generator and keep the v0.1 generated snapshot serving if additive shims fail to compile or repeat generation drifts."
+      },
+      {
+        "profile": "current",
+        "fixtureSet": {
+          "api": "testdata/generated-compat/current/orders.api",
+          "proto": "testdata/generated-compat/current/greeter.proto",
+          "serviceConfig": "testdata/generated-compat/current/service-config.json",
+          "snapshot": "testdata/generated-compat/matrix.json"
+        },
+        "upgradePath": "current adopter regenerates the service and accepts only empty, deterministic, or formatting-only diffs after generated smoke passes",
+        "expectedDiff": "no unexplained diff",
+        "diffCategories": [
+          "deterministic-repeat-generation",
+          "formatting-only"
+        ],
+        "generatedProjectSmoke": "go test ./...",
+        "repeatGeneration": "clean",
+        "dependencyBoundary": "generated project go.mod or isolated temporary test module",
+        "rootModulePolicy": "must-not-add-generated-only-dependencies",
+        "verificationGates": [
+          "make generated-version-compat-check",
+          "make generated-upgrade-dry-run-check",
+          "make root-dependency-policy-check"
+        ],
+        "rollbackAction": "Discard the regenerated output and keep the current generated project when smoke, repeat generation, or diff classification produces unexplained drift."
+      },
+      {
+        "profile": "future",
+        "fixtureSet": {
+          "api": "testdata/generated-compat/future/orders.api",
+          "proto": "testdata/generated-compat/future/greeter.proto",
+          "serviceConfig": "testdata/generated-compat/future/service-config.json",
+          "snapshot": "testdata/generated-compat/matrix.json"
+        },
+        "upgradePath": "future adopter uses the profile as preview-only evidence and validates that unsupported fields are ignored or classified before promotion",
+        "expectedDiff": "experimental future field ignored safely",
+        "diffCategories": [
+          "deterministic-repeat-generation",
+          "compatible-addition",
+          "breaking-candidate"
+        ],
+        "generatedProjectSmoke": "go test ./...",
+        "repeatGeneration": "clean",
+        "dependencyBoundary": "generated project go.mod or isolated temporary test module",
+        "rootModulePolicy": "must-not-add-generated-only-dependencies",
+        "verificationGates": [
+          "make generated-version-compat-check",
+          "make generated-upgrade-dry-run-check",
+          "make dependency-upgrade-evidence-check"
+        ],
+        "rollbackAction": "Disable the future profile or pin current generation when experimental fields become breaking candidates or generated dependencies escape the generated module."
+      }
+    ],
+    "promotionPolicy": "Generated live upgrade promotion requires old, current, and future profiles to generate into temporary projects, compile with go test ./..., repeat cleanly, keep generated-only dependencies outside the root module, and provide rollback actions.",
+    "runtimeArtifactPolicy": "P11 live upgrade projects, reports, and diff outputs remain local runtime evidence under ignored temporary paths and must never be committed."
+  },
   "profiles": [
     {
       "api": "testdata/generated-compat/v0.1/orders.api",

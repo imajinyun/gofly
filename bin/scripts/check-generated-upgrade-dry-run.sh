@@ -771,6 +771,104 @@ runtime_policy = str(p10_fidelity.get("runtimeArtifactPolicy") or "")
 for needle in (".tmp-test", "temporary directories", "must not be committed"):
     require(needle in runtime_policy, f"p10GoctlGeneratorFidelity runtimeArtifactPolicy missing {needle!r}")
 
+p11_proof = manifest.get("p11LiveUpgradeProof") or {}
+require(
+    p11_proof.get("schema") == "gofly.generated_live_upgrade_proof.v1",
+    "p11LiveUpgradeProof schema mismatch",
+)
+require(
+    p11_proof.get("aiflowTask") == "GOFLY-P11-2-GENERATED-PROJECT-LIVE-UPGRADE",
+    "p11LiveUpgradeProof aiflowTask mismatch",
+)
+require(p11_proof.get("status") == "blocking-contract", "p11LiveUpgradeProof status must be blocking-contract")
+require(
+    set(p11_proof.get("sourceOfTruth") or []) == {
+        "testdata/generated-compat/matrix.json",
+        "docs/reference/generated-upgrade-dry-run.json",
+        "docs/reference/generated-version-compat.md",
+        "docs/reference/generated-scaffold-long-term-compatibility.json",
+    },
+    "p11LiveUpgradeProof sourceOfTruth mismatch",
+)
+for source in p11_proof.get("sourceOfTruth") or []:
+    require((root / source).exists(), f"p11LiveUpgradeProof source path missing: {source}")
+require(
+    set(p11_proof.get("acceptanceGates") or []) == {
+        "make generated-upgrade-dry-run-check",
+        "make generated-version-compat-check",
+    },
+    "p11LiveUpgradeProof acceptanceGates mismatch",
+)
+p11_execution = p11_proof.get("executionContract") or {}
+for field in (
+    "temporaryProjectRoot",
+    "generatorCommand",
+    "moduleReplacement",
+    "compileSmoke",
+    "repeatGeneration",
+    "reportSchema",
+    "artifactPolicy",
+):
+    require(
+        len(str(p11_execution.get(field) or "").split()) >= 5,
+        f"p11LiveUpgradeProof executionContract.{field} must be actionable",
+    )
+require("go run ./cmd/gofly new service" in str(p11_execution.get("generatorCommand") or ""), "p11LiveUpgradeProof generatorCommand must run gofly new service")
+require("go mod edit -replace" in str(p11_execution.get("moduleReplacement") or ""), "p11LiveUpgradeProof moduleReplacement must use a generated-project replace")
+require("go test ./..." in str(p11_execution.get("compileSmoke") or ""), "p11LiveUpgradeProof compileSmoke must run go test ./...")
+require("gofly.generated_version_compat_report.v1" in str(p11_execution.get("reportSchema") or ""), "p11LiveUpgradeProof reportSchema mismatch")
+for forbidden in ("must not be committed", "runtime evidence"):
+    require(forbidden in str(p11_execution.get("artifactPolicy") or ""), f"p11LiveUpgradeProof artifactPolicy missing {forbidden!r}")
+
+p11_profiles = {
+    item.get("profile"): item
+    for item in p11_proof.get("profiles") or []
+    if isinstance(item, dict) and item.get("profile")
+}
+require(set(p11_profiles) == profile_names, f"p11LiveUpgradeProof profiles mismatch: {sorted(p11_profiles)!r}")
+for profile_name, item in sorted(p11_profiles.items()):
+    matrix_profile = matrix_profiles.get(profile_name) or {}
+    manifest_profile = next((profile for profile in profiles if profile.get("profile") == profile_name), {})
+    fixture_set = item.get("fixtureSet") or {}
+    for field in ("api", "proto", "serviceConfig"):
+        require(fixture_set.get(field) == manifest_profile.get(field), f"p11LiveUpgradeProof {profile_name}: fixture {field} must match generated upgrade profile")
+        require((root / str(fixture_set.get(field) or "")).is_file(), f"p11LiveUpgradeProof {profile_name}: fixture path missing for {field}")
+    require(
+        fixture_set.get("snapshot") == "testdata/generated-compat/matrix.json",
+        f"p11LiveUpgradeProof {profile_name}: snapshot must be the generated compatibility matrix",
+    )
+    require(item.get("expectedDiff") == matrix_profile.get("expectedDiff"), f"p11LiveUpgradeProof {profile_name}: expectedDiff must match version matrix")
+    require(item.get("generatedProjectSmoke") == "go test ./...", f"p11LiveUpgradeProof {profile_name}: generatedProjectSmoke mismatch")
+    require(item.get("repeatGeneration") == "clean", f"p11LiveUpgradeProof {profile_name}: repeatGeneration must be clean")
+    dependency_policy = manifest_profile.get("dependencyPolicy") or {}
+    require(
+        item.get("dependencyBoundary") == dependency_policy.get("allowedLocation"),
+        f"p11LiveUpgradeProof {profile_name}: dependencyBoundary must match profile dependency policy",
+    )
+    require(
+        item.get("rootModulePolicy") == "must-not-add-generated-only-dependencies",
+        f"p11LiveUpgradeProof {profile_name}: rootModulePolicy mismatch",
+    )
+    require(
+        set(item.get("diffCategories") or []) <= required_categories,
+        f"p11LiveUpgradeProof {profile_name}: diffCategories contain unsupported values",
+    )
+    require(
+        "deterministic-repeat-generation" in set(item.get("diffCategories") or []),
+        f"p11LiveUpgradeProof {profile_name}: deterministic-repeat-generation category is required",
+    )
+    for gate in ("make generated-version-compat-check", "make generated-upgrade-dry-run-check"):
+        require(gate in set(item.get("verificationGates") or []), f"p11LiveUpgradeProof {profile_name}: verificationGates missing {gate!r}")
+    for field in ("upgradePath", "rollbackAction"):
+        require(len(str(item.get(field) or "").split()) >= 12, f"p11LiveUpgradeProof {profile_name}: {field} must be actionable")
+
+p11_promotion_policy = str(p11_proof.get("promotionPolicy") or "")
+for needle in ("old", "current", "future", "temporary projects", "go test ./...", "generated-only dependencies", "rollback actions"):
+    require(needle in p11_promotion_policy, f"p11LiveUpgradeProof promotionPolicy missing {needle!r}")
+p11_runtime_policy = str(p11_proof.get("runtimeArtifactPolicy") or "")
+for needle in ("runtime evidence", "ignored temporary paths", "must never be committed"):
+    require(needle in p11_runtime_policy, f"p11LiveUpgradeProof runtimeArtifactPolicy missing {needle!r}")
+
 target_body = make_target_body(makefile, "generated-upgrade-dry-run-check")
 contract_deps = make_target_deps(makefile, "contract-docs-check")
 require(
@@ -793,6 +891,7 @@ for needle in (
     "rollbackNote",
     "p9HistoricalFixtureMatrix",
     "p10GoctlGeneratorFidelity",
+    "p11LiveUpgradeProof",
     "gofly.generated_version_compat_report.v1",
 ):
     require(needle in doc, f"docs/reference/generated-upgrade-dry-run.md missing {needle!r}")

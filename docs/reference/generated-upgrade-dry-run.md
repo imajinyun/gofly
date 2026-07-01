@@ -167,6 +167,15 @@ boundaries, and rollback notes into one blocking contract. Promotion requires
 runtime generated projects must remain volatile evidence under `.tmp-test` or
 temporary directories.
 
+The P11 live upgrade proof is captured in `p11LiveUpgradeProof`. It keeps the
+old, current, and future profiles tied to a realistic adopter upgrade path:
+generate a temporary service project, apply the local module replacement inside
+that generated project only, run `go test ./...`, generate the same profile
+twice, require a clean repeat diff, classify adopter-facing diffs, and keep
+generated-only dependencies out of the root module. P11 does not commit live
+generated projects or reports; those artifacts remain runtime evidence under
+ignored temporary paths.
+
 ## Migration Fidelity Matrix
 
 The migration fidelity matrix ties generated upgrade expectations to adopter

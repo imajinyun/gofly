@@ -38,7 +38,7 @@ func TestKitexInterceptorMiddlewareChainsInDeclarationOrder(t *testing.T) {
 	}
 }
 
-func TestKitexEndpointChainAndOptions_BitsUT(t *testing.T) {
+func TestKitexEndpointChainAndOptions(t *testing.T) {
 	var order []string
 	first := func(next KitexEndpoint) KitexEndpoint {
 		return func(ctx context.Context, req any) (any, error) {
@@ -117,7 +117,7 @@ func TestKitexObservabilityInterceptorRecordsMetricsAndErrors(t *testing.T) {
 	}
 }
 
-func TestKitexObservabilityInterceptorRecordsSuccessWithDefaults_BitsUT(t *testing.T) {
+func TestKitexObservabilityInterceptorRecordsSuccessWithDefaults(t *testing.T) {
 	interceptor := KitexObservabilityInterceptor("", nil, nil)
 	ep := KitexInterceptorMiddleware(interceptor)(func(ctx context.Context, req any) (any, error) {
 		return "ok", nil

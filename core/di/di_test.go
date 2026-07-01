@@ -153,7 +153,7 @@ type failingCloser struct{ err error }
 
 func (c *failingCloser) Close() error { return c.err }
 
-func TestContainerBoundaryErrors_BitsUT(t *testing.T) {
+func TestContainerBoundaryErrors(t *testing.T) {
 	c := New()
 	if err := Provide[*repo](c, nil); err == nil || !strings.Contains(err.Error(), "provider is nil") {
 		t.Fatalf("Provide nil error = %v, want provider nil", err)

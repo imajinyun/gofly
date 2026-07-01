@@ -466,7 +466,7 @@ func TestCachePrometheusNilCache(t *testing.T) {
 	}
 }
 
-func TestCacheWritePrometheusBoundaries_BitsUT(t *testing.T) {
+func TestCacheWritePrometheusBoundaries(t *testing.T) {
 	c := New[string](WithName[string]("api\\cache\nquoted\"name"))
 	c.Set("k", "v")
 	c.recordMiss()
@@ -594,7 +594,7 @@ func TestCacheFirstLoader(t *testing.T) {
 	}
 }
 
-func TestCacheDeadlinesOverrideAndZeroTTL_BitsUT(t *testing.T) {
+func TestCacheDeadlinesOverrideAndZeroTTL(t *testing.T) {
 	c := New[string](WithDefaultTTL[string](time.Hour), WithStaleWhileRevalidate[string](time.Minute))
 	expiresAt, staleUntil := c.deadlines(25 * time.Millisecond)
 	remaining := time.Until(expiresAt)

@@ -72,7 +72,7 @@ func TestNilServerOpenAPI(t *testing.T) {
 	}
 }
 
-func TestOpenAPISchemaFromTypeAndCloneBoundaries_BitsUT(t *testing.T) {
+func TestOpenAPISchemaFromTypeAndCloneBoundaries(t *testing.T) {
 	type nested struct {
 		Name string `json:"name" validate:"required,min=2,max=10"`
 	}
@@ -121,7 +121,7 @@ func TestOpenAPISchemaFromTypeAndCloneBoundaries_BitsUT(t *testing.T) {
 	}
 }
 
-func TestCloneHeadersDefensiveCopy_BitsUT(t *testing.T) {
+func TestCloneHeadersDefensiveCopy(t *testing.T) {
 	if got := cloneHeaders(nil); got != nil {
 		t.Fatalf("cloneHeaders(nil) = %#v, want nil", got)
 	}
@@ -196,7 +196,7 @@ func TestOpenAPISchemaHelpers(t *testing.T) {
 	}
 }
 
-func TestStructSchemaLinksValidationTags_BitsUT(t *testing.T) {
+func TestStructSchemaLinksValidationTags(t *testing.T) {
 	type Embedded struct {
 		Tenant string `json:"tenant" validate:"required"`
 	}
@@ -237,7 +237,7 @@ func TestStructSchemaLinksValidationTags_BitsUT(t *testing.T) {
 	}
 }
 
-func TestDefaultErrorResponsesDocumentStableEnvelope_BitsUT(t *testing.T) {
+func TestDefaultErrorResponsesDocumentStableEnvelope(t *testing.T) {
 	schema := ErrorResponseSchema()
 	for _, name := range []string{"code", "text", "message", "status", "fields"} {
 		if _, ok := schema.Properties[name]; !ok {
@@ -262,7 +262,7 @@ func TestDefaultErrorResponsesDocumentStableEnvelope_BitsUT(t *testing.T) {
 	}
 }
 
-func TestOpenAPIExportsDefaultErrorResponses_BitsUT(t *testing.T) {
+func TestOpenAPIExportsDefaultErrorResponses(t *testing.T) {
 	s := MustNewServer(Config{Name: "orders"})
 	responses := DefaultErrorResponses()
 	responses["200"] = JSONResponse("OK", StructSchema(struct {
@@ -280,7 +280,7 @@ func TestOpenAPIExportsDefaultErrorResponses_BitsUT(t *testing.T) {
 	}
 }
 
-func TestOpenAPIValidationEnvelopeSchemaGolden_BitsUT(t *testing.T) {
+func TestOpenAPIValidationEnvelopeSchemaGolden(t *testing.T) {
 	type createOrderRequest struct {
 		Tenant   string   `json:"-" header:"X-Tenant" validate:"required"`
 		ID       int      `json:"-" path:"id" validate:"min=1"`

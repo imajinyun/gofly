@@ -353,7 +353,7 @@ print("AI runtime control-plane source watch OK")
 }
 
 round_generated_project_matrix_tests() {
-	"$go_cmd" test $testflags ./cmd/gofly/internal/command -run 'TestAINewGeneratedProjectVerificationMatrix_BitsUT'
+	"$go_cmd" test $testflags ./cmd/gofly/internal/command -run 'TestAINewGeneratedProjectVerificationMatrix'
 }
 
 round_generated_output_governance() {
@@ -514,7 +514,7 @@ if [ "${GOVERNANCE_SKIP_GENERATED_MATRIX:-false}" = "true" ]; then
 	printf 'skipped because GOVERNANCE_SKIP_GENERATED_MATRIX=true; CI must run make test-generated-matrix separately\n'
 	record_skip 12 "generated project verification matrix" GOVERNANCE_SKIP_GENERATED_MATRIX "GOVERNANCE_SKIP_GENERATED_MATRIX=true" "generated project regressions may be missed in this job" "make test-generated-matrix in build-test job" false
 else
-	assert_go_tests_match ./cmd/gofly/internal/command 'TestAINewGeneratedProjectVerificationMatrix_BitsUT' 1
+	assert_go_tests_match ./cmd/gofly/internal/command 'TestAINewGeneratedProjectVerificationMatrix' 1
 	run_round 12 "generated project verification matrix" round_generated_project_matrix_tests
 fi
 if [ "${GOVERNANCE_SKIP_GENERATED_CONTROL_PLANE_SMOKE:-false}" = "true" ]; then

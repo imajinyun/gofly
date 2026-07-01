@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func BenchmarkGatewayHTTPProxy_BitsBench(b *testing.B) {
+func BenchmarkGatewayHTTPProxy(b *testing.B) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, `{"ok":true}`)
 	}))

@@ -68,7 +68,7 @@ func (bitsUTDiscoveryResolver) Watch(context.Context, string, ...discovery.Resol
 	return make(chan discovery.Event), nil
 }
 
-func TestGatewayOptionBoundaryBranches_BitsUT(t *testing.T) {
+func TestGatewayOptionBoundaryBranches(t *testing.T) {
 	routes := []Route{{PathPrefix: "/api", Targets: []string{"http://127.0.0.1:1"}}}
 	g, err := New(routes,
 		WithBalancer(nil),
@@ -207,7 +207,7 @@ func TestGatewayGovernanceSuiteProvidesRules(t *testing.T) {
 	}
 }
 
-func TestApplyGovernancePolicyBoundaries_BitsUT(t *testing.T) {
+func TestApplyGovernancePolicyBoundaries(t *testing.T) {
 	route := Route{
 		Name:      "orders",
 		Headers:   map[string]string{"X-Original": "true"},
@@ -249,7 +249,7 @@ func TestApplyGovernancePolicyBoundaries_BitsUT(t *testing.T) {
 	}
 }
 
-func TestGatewaySnapshotAndPrometheusBoundaries_BitsUT(t *testing.T) {
+func TestGatewaySnapshotAndPrometheusBoundaries(t *testing.T) {
 	if err := (*Stats)(nil).WritePrometheus(&bytes.Buffer{}); err != nil {
 		t.Fatalf("nil Stats WritePrometheus error = %v, want nil", err)
 	}
@@ -297,7 +297,7 @@ func TestGatewaySnapshotAndPrometheusBoundaries_BitsUT(t *testing.T) {
 	}
 }
 
-func TestGatewayWritePrometheusErrorBoundaries_BitsUT(t *testing.T) {
+func TestGatewayWritePrometheusErrorBoundaries(t *testing.T) {
 	stats := NewStats()
 	stats.Observe("GET /alpha", http.StatusOK, time.Millisecond)
 	stats.Observe("POST /zeta", http.StatusBadGateway, 3*time.Millisecond)
@@ -670,7 +670,7 @@ func TestGatewayNewFromConfigUsesNamedResolver(t *testing.T) {
 	}
 }
 
-func TestGatewayNewFromConfigCoverageBuffer_BitsUT(t *testing.T) {
+func TestGatewayNewFromConfigCoverageBuffer(t *testing.T) {
 	resolver := rpc.NewStaticResolver("http://127.0.0.1:1")
 	g, err := NewFromConfig(Config{
 		Timeout:              50 * time.Millisecond,
@@ -890,7 +890,7 @@ func TestGatewayRegisterAdminExposesFullGovernanceAdminParity(t *testing.T) {
 	}
 }
 
-func TestGatewayAdminRouteMutationAndAuditCoverageBuffer_BitsUT(t *testing.T) {
+func TestGatewayAdminRouteMutationAndAuditCoverageBuffer(t *testing.T) {
 	var nilGateway *Gateway
 	nilGateway.RegisterAdmin(nil, "", "")
 
@@ -992,7 +992,7 @@ func TestGatewayAdminRouteMutationAndAuditCoverageBuffer_BitsUT(t *testing.T) {
 	}
 }
 
-func TestGatewayHTTPProxyErrorBranchesCoverageBuffer_BitsUT(t *testing.T) {
+func TestGatewayHTTPProxyErrorBranchesCoverageBuffer(t *testing.T) {
 	g, err := New([]Route{{PathPrefix: "/api", Targets: []string{"http://127.0.0.1:1"}}}, WithHTTPClient(&http.Client{Transport: gatewayRoundTripFunc(func(*http.Request) (*http.Response, error) {
 		return nil, errors.New("dial failed")
 	})}))
@@ -1022,7 +1022,7 @@ func TestGatewayHTTPProxyErrorBranchesCoverageBuffer_BitsUT(t *testing.T) {
 
 	req.TLS = &tls.ConnectionState{}
 	req.Header.Set(HeaderForwardedFor, "203.0.113.7")
-	out, err := cloneProxyRequest(req, mustParseGatewayURLBitsUT(t, "http://upstream.local/base"), Route{Name: "orders", Service: "orders-svc", PreserveHost: true, Headers: map[string]string{"X-Route": "hot"}}, []byte("body"))
+	out, err := cloneProxyRequest(req, mustParseGatewayURL(t, "http://upstream.local/base"), Route{Name: "orders", Service: "orders-svc", PreserveHost: true, Headers: map[string]string{"X-Route": "hot"}}, []byte("body"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1043,7 +1043,7 @@ func TestGatewayHTTPProxyErrorBranchesCoverageBuffer_BitsUT(t *testing.T) {
 	}
 }
 
-func mustParseGatewayURLBitsUT(t *testing.T, raw string) *url.URL {
+func mustParseGatewayURL(t *testing.T, raw string) *url.URL {
 	t.Helper()
 	u, err := url.Parse(raw)
 	if err != nil {
@@ -1297,7 +1297,7 @@ func TestGatewayRetryBudgetLimitsRetries(t *testing.T) {
 	}
 }
 
-func TestGatewayProxyRetryBackoffCancellation_BitsUT(t *testing.T) {
+func TestGatewayProxyRetryBackoffCancellation(t *testing.T) {
 	var cancel context.CancelFunc
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Retry-After", "60")
@@ -1791,7 +1791,7 @@ func (f *fakeGenericClient) CallRaw(ctx context.Context, method string, request 
 	return append(json.RawMessage(nil), f.payload...), metadata.MD{"trace": "abc"}, nil
 }
 
-func TestGatewayPureProxyAndTranscodeBranches_BitsUT(t *testing.T) {
+func TestGatewayPureProxyAndTranscodeBranches(t *testing.T) {
 	if (*Gateway)(nil).Routes() != nil || (*Gateway)(nil).Descriptors() != nil {
 		t.Fatal("nil gateway snapshots should return nil")
 	}
@@ -2415,7 +2415,7 @@ func TestCloneDescriptorEmpty(t *testing.T) {
 	}
 }
 
-func TestGatewayMutationAndSnapshotCoverageBuffer_BitsUT(t *testing.T) {
+func TestGatewayMutationAndSnapshotCoverageBuffer(t *testing.T) {
 	if got := (*Gateway)(nil).Snapshot(); len(got.Routes) != 0 || len(got.Discovery) != 0 {
 		t.Fatalf("nil gateway snapshot = %+v, want empty", got)
 	}

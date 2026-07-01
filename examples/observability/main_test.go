@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestCallUserRPCAndSchema_BitsUT(t *testing.T) {
+func TestCallUserRPCAndSchema(t *testing.T) {
 	resp, err := callUserRPC(context.Background(), "42")
 	if err != nil {
 		t.Fatalf("callUserRPC: %v", err)
@@ -22,7 +22,7 @@ func TestCallUserRPCAndSchema_BitsUT(t *testing.T) {
 	}
 }
 
-func TestNewObservabilityDemoHandlers_BitsUT(t *testing.T) {
+func TestNewObservabilityDemoHandlers(t *testing.T) {
 	admin, srv := newObservabilityDemo()
 	if admin == nil || admin.Handler == nil || srv == nil {
 		t.Fatalf("newObservabilityDemo returned admin=%v srv=%v, want handlers", admin, srv)

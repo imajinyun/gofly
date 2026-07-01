@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestGeneratedFileSafeTargetValidation_BitsUT(t *testing.T) {
+func TestGeneratedFileSafeTargetValidation(t *testing.T) {
 	t.Run("rejects missing root or target", func(t *testing.T) {
 		if _, err := SafeTarget("", "service.go", "generated file"); err == nil || !strings.Contains(err.Error(), "root is required") {
 			t.Fatalf("SafeTarget empty root err = %v, want root required", err)
@@ -42,7 +42,7 @@ func TestGeneratedFileSafeTargetValidation_BitsUT(t *testing.T) {
 	})
 }
 
-func TestGeneratedFileSafeRelativeTargetValidation_BitsUT(t *testing.T) {
+func TestGeneratedFileSafeRelativeTargetValidation(t *testing.T) {
 	root := t.TempDir()
 	tests := []struct {
 		name       string
@@ -64,7 +64,7 @@ func TestGeneratedFileSafeRelativeTargetValidation_BitsUT(t *testing.T) {
 	}
 }
 
-func TestGeneratedFileRootReadWriteAndCopy_BitsUT(t *testing.T) {
+func TestGeneratedFileRootReadWriteAndCopy(t *testing.T) {
 	t.Run("ensure directory creates root and rejects symlink root", func(t *testing.T) {
 		base := t.TempDir()
 		root := filepath.Join(base, "service")
@@ -157,7 +157,7 @@ func TestGeneratedFileRootReadWriteAndCopy_BitsUT(t *testing.T) {
 	})
 }
 
-func TestGeneratedFileCopyRejectsSymlinkTargets_BitsUT(t *testing.T) {
+func TestGeneratedFileCopyRejectsSymlinkTargets(t *testing.T) {
 	t.Run("copy under root rejects symlink destination leaf", func(t *testing.T) {
 		srcRoot := t.TempDir()
 		dstRoot := t.TempDir()

@@ -11,7 +11,7 @@ import (
 	"github.com/imajinyun/gofly/core/governance"
 )
 
-func TestSnapshotContributorFuncBoundaries_BitsUT(t *testing.T) {
+func TestSnapshotContributorFuncBoundaries(t *testing.T) {
 	ctx := context.Background()
 	var snapshot Snapshot
 	var nilContributor SnapshotContributorFunc
@@ -39,7 +39,7 @@ func TestSnapshotContributorFuncBoundaries_BitsUT(t *testing.T) {
 	}
 }
 
-func TestControlPlanePureOrderingAndClassification_BitsUT(t *testing.T) {
+func TestControlPlanePureOrderingAndClassification(t *testing.T) {
 	rules := []governance.Rule{
 		{Name: "same", Priority: 1, Service: "users", Method: "List"},
 		{Name: "same", Priority: 1, Service: "orders", Method: "Update"},
@@ -80,7 +80,7 @@ func TestControlPlanePureOrderingAndClassification_BitsUT(t *testing.T) {
 	}
 }
 
-func TestControlPlaneProviderSourceAndWatchBoundaries_BitsUT(t *testing.T) {
+func TestControlPlaneProviderSourceAndWatchBoundaries(t *testing.T) {
 	if got := (CompositeProvider{}).Source(); got != "runtime" {
 		t.Fatalf("CompositeProvider default source = %q, want runtime", got)
 	}
@@ -121,7 +121,7 @@ func TestControlPlaneProviderSourceAndWatchBoundaries_BitsUT(t *testing.T) {
 	}
 }
 
-func TestControlPlaneProviderLoadBoundaries_BitsUT(t *testing.T) {
+func TestControlPlaneProviderLoadBoundaries(t *testing.T) {
 	var nilCtx context.Context
 	snapshot, err := (CompositeProvider{Contributors: []SnapshotContributor{nil}}).Load(nilCtx)
 	if err != nil {

@@ -14,13 +14,13 @@ run_go_test() {
 	GOCACHE="${GOCACHE:-$tmp_root/gocache}" GOTMPDIR="${GOTMPDIR:-$tmp_root/gotmp}" "$go_cmd" test $testflags "$pkg" -run "$pattern"
 }
 
-run_go_test ./cmd/gofly/internal/generator 'TestGeneratedFile(SafeTargetValidation|SafeRelativeTargetValidation|RootReadWriteAndCopy|CopyRejectsSymlinkTargets)_BitsUT'
+run_go_test ./cmd/gofly/internal/generator 'TestGeneratedFile(SafeTargetValidation|SafeRelativeTargetValidation|RootReadWriteAndCopy|CopyRejectsSymlinkTargets)'
 run_go_test ./cmd/gofly/internal/generator 'TestBuildServiceScaffoldIR.*Profile|TestGenerationProfile'
 run_go_test ./cmd/gofly/internal/command 'TestExecuteAPINew(WithGoZeroCompatibleProfile|UsesConfigProfileDefault|RejectsUnknownProfile)$'
-run_go_test ./cmd/gofly/internal/command 'TestExecuteAPINewAcceptsGoctlReservedFlags|TestIDLGenerateCommandsEmitJSONEnvelope_BitsUT'
+run_go_test ./cmd/gofly/internal/command 'TestExecuteAPINewAcceptsGoctlReservedFlags|TestIDLGenerateCommandsEmitJSONEnvelope'
 run_go_test ./cmd/gofly/internal/generator 'Test(PluginResponseWriteFilesRejectsEscapingPaths|PluginResponseRejectsSymlinkParentTraversal|PluginResponseRejectsSymlinkLeaf|PluginSymlinkParentBoundaries)'
 run_go_test ./cmd/gofly/internal/generator 'Test(ApplyTemplateExtensionRejectsSymlinkTemplate|CopyDirRejectsSymlinkSourceEntry)'
 run_go_test ./cmd/gofly/internal/generator 'Test(GenerateModelFromDDLGORMStyle|GenerateModelFromDDLGoZeroStyleDoesNotRequireGORM|GenerateModelFromDDLGORMStyleFindsParentGoMod|GenerateMongoModelDriverStyle)$'
-run_go_test ./cmd/gofly/internal/command 'Test(AINewGeneratedArtifactsAreDeterministicAndIdempotent|AINewGeneratedProjectVerificationMatrix|NewServiceGeneratedProjectSmokeMatrix)_BitsUT'
+run_go_test ./cmd/gofly/internal/command 'Test(AINewGeneratedArtifactsAreDeterministicAndIdempotent|AINewGeneratedProjectVerificationMatrix|NewServiceGeneratedProjectSmokeMatrix)'
 
 printf 'generated-output governance ok\n'

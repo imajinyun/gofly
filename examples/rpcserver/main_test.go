@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestGreeterAndDescriptor_BitsUT(t *testing.T) {
+func TestGreeterAndDescriptor(t *testing.T) {
 	resp, err := (greeter{}).SayHello(context.Background(), nil)
 	if err != nil || resp.Message != "hello world" {
 		t.Fatalf("SayHello nil = %#v/%v, want hello world", resp, err)

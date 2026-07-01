@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestMainVersionCommandReturnsWithoutExit_BitsUT(t *testing.T) {
+func TestMainVersionCommandReturnsWithoutExit(t *testing.T) {
 	t.Setenv("GOFLY_PLUGIN_MODE", "")
 	oldArgs := os.Args
 	t.Cleanup(func() { os.Args = oldArgs })

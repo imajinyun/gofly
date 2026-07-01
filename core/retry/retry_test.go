@@ -27,7 +27,7 @@ func TestDoHonorsRetryBudget(t *testing.T) {
 	}
 }
 
-func TestDoPolicyBoundaryCases_BitsUT(t *testing.T) {
+func TestDoPolicyBoundaryCases(t *testing.T) {
 	boom := errors.New("boom")
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -141,7 +141,7 @@ func TestBackoffBoundaryCases(t *testing.T) {
 	}
 }
 
-func TestBackoffHelpersBoundaries_BitsUT(t *testing.T) {
+func TestBackoffHelpersBoundaries(t *testing.T) {
 	if got := FixedBackoff(7 * time.Millisecond)(99); got != 7*time.Millisecond {
 		t.Fatalf("FixedBackoff = %v, want 7ms", got)
 	}

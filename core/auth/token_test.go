@@ -87,7 +87,7 @@ func TestJWTSignVerifyAndValidator(t *testing.T) {
 	}
 }
 
-func TestJWTValidationAndHeaderHelpers_BitsUT(t *testing.T) {
+func TestJWTValidationAndHeaderHelpers(t *testing.T) {
 	now := time.Unix(1000, 0)
 	for _, tt := range []struct {
 		name   string
@@ -169,7 +169,7 @@ func TestRequestSignature(t *testing.T) {
 	}
 }
 
-func TestVerifyRequestSignatureBoundaries_BitsUT(t *testing.T) {
+func TestVerifyRequestSignatureBoundaries(t *testing.T) {
 	secret := []byte("secret")
 	body := []byte(`{"name":"gofly"}`)
 	now := time.Unix(1000, 0)

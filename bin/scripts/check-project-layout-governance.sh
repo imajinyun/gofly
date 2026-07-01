@@ -113,7 +113,7 @@ require(
     "project-specific" in str(baseline.get("forbiddenSuffixPolicy") or ""),
     "testNamingBaseline forbiddenSuffixPolicy must reject project-specific test suffixes",
 )
-require(baseline.get("currentOccurrenceCount") == 319, "testNamingBaseline currentOccurrenceCount must be 319")
+require(baseline.get("currentOccurrenceCount") == 0, "testNamingBaseline currentOccurrenceCount must be 0")
 legacy_unit_suffix = "Bits" + "UT"
 legacy_bench_suffix = "Bits" + "Bench"
 legacy_suffix_pattern = legacy_unit_suffix + "|" + legacy_bench_suffix
@@ -142,8 +142,9 @@ if rg.returncode not in {0, 1}:
     missing.append(f"rg legacy test suffix scan failed: {rg.stderr.strip()}")
 else:
     count = len([line for line in rg.stdout.splitlines() if line.strip()])
-    require(count <= int(baseline.get("currentOccurrenceCount") or -1), f"legacy test suffix occurrence count increased: {count}")
-    require("Historical occurrences are tracked as debt" in str(baseline.get("policy") or ""), "testNamingBaseline policy must document historical debt")
+    expected_count = baseline.get("currentOccurrenceCount")
+    require(count == int(expected_count), f"legacy test suffix occurrence count must be 0, got {count}")
+    require("not allowed" in str(baseline.get("policy") or ""), "testNamingBaseline policy must reject reintroduction")
 
 if missing:
     print("project layout governance check failed:", file=sys.stderr)

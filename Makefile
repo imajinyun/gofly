@@ -90,7 +90,7 @@ test-short: ## Run fast unit tests (no race)
 
 .PHONY: test-generated-matrix
 test-generated-matrix: ## Verify generated project templates and service contract input matrix end-to-end
-	GOFLY_FRAMEWORK_PATH=$(CURDIR) $(GO) test $(TESTFLAGS) ./cmd/gofly/internal/command -run 'Test(AINewGeneratedProjectVerificationMatrix|NewServiceGeneratedProjectSmokeMatrix|NewServiceContractInputMatrix)_BitsUT'
+	GOFLY_FRAMEWORK_PATH=$(CURDIR) $(GO) test $(TESTFLAGS) ./cmd/gofly/internal/command -run 'Test(AINewGeneratedProjectVerificationMatrix|NewServiceGeneratedProjectSmokeMatrix|NewServiceContractInputMatrix)'
 
 .PHONY: generated-output-governance
 generated-output-governance: ## Verify generated output determinism, path safety, and dependency placement

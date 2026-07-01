@@ -82,7 +82,7 @@ func TestIsRetryableLLMError(t *testing.T) {
 	}
 }
 
-func TestCommandHelpSubcommandBoundaries_BitsUT(t *testing.T) {
+func TestCommandHelpSubcommandBoundaries(t *testing.T) {
 	tests := []struct {
 		name string
 		fn   func(string) bool
@@ -115,7 +115,7 @@ func TestCommandHelpSubcommandBoundaries_BitsUT(t *testing.T) {
 	}
 }
 
-func TestCLICommandSurfaceManifestMatchesRegistries_BitsUT(t *testing.T) {
+func TestCLICommandSurfaceManifestMatchesRegistries(t *testing.T) {
 	repoRoot := filepath.Join("..", "..", "..", "..")
 	data, err := os.ReadFile(filepath.Join(repoRoot, "docs", "reference", "cli-command-surface.json"))
 	if err != nil {
@@ -289,7 +289,7 @@ func containsString(values []string, want string) bool {
 	return false
 }
 
-func TestNewServicePlanAndFlagParsingBoundaries_BitsUT(t *testing.T) {
+func TestNewServicePlanAndFlagParsingBoundaries(t *testing.T) {
 	invalidConfigs := []struct {
 		name string
 		cfg  *generator.Config
@@ -349,7 +349,7 @@ func TestNewServicePlanAndFlagParsingBoundaries_BitsUT(t *testing.T) {
 	}
 }
 
-func TestNewServiceContractCopySafety_BitsUT(t *testing.T) {
+func TestNewServiceContractCopySafety(t *testing.T) {
 	t.Run("copies explicit contract inside output root", func(t *testing.T) {
 		tmp := t.TempDir()
 		root := filepath.Join(tmp, "orders")
@@ -479,7 +479,7 @@ func TestNewServiceContractCopySafety_BitsUT(t *testing.T) {
 	})
 }
 
-func TestCommandIOAndAIDoctorBoundaries_BitsUT(t *testing.T) {
+func TestCommandIOAndAIDoctorBoundaries(t *testing.T) {
 	var out bytes.Buffer
 	var errOut bytes.Buffer
 	verbose := true
@@ -546,7 +546,7 @@ func TestCommandIOAndAIDoctorBoundaries_BitsUT(t *testing.T) {
 	}
 }
 
-func TestAIExecutionFailoverAndPlanHelpers_BitsUT(t *testing.T) {
+func TestAIExecutionFailoverAndPlanHelpers(t *testing.T) {
 	ctx, cancel := aiExecutionContext(aiCompleteConfig{})
 	cancel()
 	if err := ctx.Err(); err != nil {
@@ -602,7 +602,7 @@ func TestAIExecutionFailoverAndPlanHelpers_BitsUT(t *testing.T) {
 	}
 }
 
-func TestAIStreamPlanJSONBoundary_BitsUT(t *testing.T) {
+func TestAIStreamPlanJSONBoundary(t *testing.T) {
 	var out bytes.Buffer
 	err := withCommandIO(IOStreams{Out: &out}, outputJSON, verbosityNormal, func() error {
 		return printAIStreamPlanFor("ai.stream", "ai stream", aiCompleteConfig{
@@ -630,7 +630,7 @@ func TestAIStreamPlanJSONBoundary_BitsUT(t *testing.T) {
 	}
 }
 
-func TestRootControlVersionAndHelpBoundaries_BitsUT(t *testing.T) {
+func TestRootControlVersionAndHelpBoundaries(t *testing.T) {
 	output, verbosity, remaining, err := parseGlobalControls([]string{"--output=json", "-v", "version"})
 	if err != nil || output != outputJSON || verbosity != verbosityVerbose || strings.Join(remaining, ",") != "version" {
 		t.Fatalf("parseGlobalControls json verbose = output=%q verbosity=%d remaining=%v err=%v", output, verbosity, remaining, err)
@@ -697,7 +697,7 @@ func TestRootControlVersionAndHelpBoundaries_BitsUT(t *testing.T) {
 	}
 }
 
-func TestDoctorExampleAndRootHelperBoundaries_BitsUT(t *testing.T) {
+func TestDoctorExampleAndRootHelperBoundaries(t *testing.T) {
 	if got := checkGoModule(); got.Status != "ok" {
 		t.Fatalf("checkGoModule default = %#v, want ok", got)
 	}
@@ -815,7 +815,7 @@ func TestDoctorExampleAndRootHelperBoundaries_BitsUT(t *testing.T) {
 	}
 }
 
-func TestLooksLikeShellScriptBoundaries_BitsUT(t *testing.T) {
+func TestLooksLikeShellScriptBoundaries(t *testing.T) {
 	dir := t.TempDir()
 	if looksLikeShellScript("") || looksLikeShellScript(filepath.Join(dir, "missing")) || looksLikeShellScript(dir) {
 		t.Fatal("empty, missing, or directory path should not look like shell script")
@@ -839,7 +839,7 @@ func TestLooksLikeShellScriptBoundaries_BitsUT(t *testing.T) {
 	}
 }
 
-func TestPluginPlanAndConfigHelpers_BitsUT(t *testing.T) {
+func TestPluginPlanAndConfigHelpers(t *testing.T) {
 	plan := pluginRunPlan("generate", "/tmp/app", "orders", "example.com/orders", "https://example.test/plugin", "./plugin.so", []string{"a", "b"})
 	if !plan.DryRun || !plan.MutatesFilesystem || plan.Command != "plugin run" || plan.Inputs["plugins"] != "a,b" || len(plan.Actions) != 3 || len(plan.Warnings) == 0 || len(plan.NextActions) == 0 {
 		t.Fatalf("pluginRunPlan = %#v, want dry-run filesystem plan with actions", plan)
@@ -907,7 +907,7 @@ func TestPluginPlanAndConfigHelpers_BitsUT(t *testing.T) {
 	}
 }
 
-func TestAIDoctorNextActionsBoundaries_BitsUT(t *testing.T) {
+func TestAIDoctorNextActionsBoundaries(t *testing.T) {
 	tests := []struct {
 		name string
 		item aiDoctorItem
@@ -935,7 +935,7 @@ func TestAIDoctorNextActionsBoundaries_BitsUT(t *testing.T) {
 	}
 }
 
-func TestAIDoctorConfigAndLoadOverlayBoundaries_BitsUT(t *testing.T) {
+func TestAIDoctorConfigAndLoadOverlayBoundaries(t *testing.T) {
 	workDir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(workDir, ".gofly"), 0o755); err != nil {
 		t.Fatal(err)
@@ -1242,7 +1242,7 @@ func TestAINewPlansAndAppliesSelectedTemplate(t *testing.T) {
 	})
 }
 
-func TestAINewFlagValidationBoundaries_BitsUT(t *testing.T) {
+func TestAINewFlagValidationBoundaries(t *testing.T) {
 	baseArgs := []string{"ai", "new", "--template", "go-rest-minimal", "--name", "hello", "--module", "example.com/hello", "--dir", filepath.Join(t.TempDir(), "hello")}
 	tests := []struct {
 		name    string
@@ -1322,7 +1322,7 @@ func TestAINewFlagValidationBoundaries_BitsUT(t *testing.T) {
 	})
 }
 
-func TestAINewFeatureLibrary_BitsUT(t *testing.T) {
+func TestAINewFeatureLibrary(t *testing.T) {
 	t.Run("apply rag reports and writes concrete feature plugins", func(t *testing.T) {
 		outDir := filepath.Join(t.TempDir(), "rag")
 		var stdout bytes.Buffer
@@ -1403,7 +1403,7 @@ func TestAINewFeatureLibrary_BitsUT(t *testing.T) {
 	})
 }
 
-func TestAINewTextHelpAndManifestContract_BitsUT(t *testing.T) {
+func TestAINewTextHelpAndManifestContract(t *testing.T) {
 	t.Run("text dry-run prints plan", func(t *testing.T) {
 		var stdout bytes.Buffer
 		args := []string{"ai", "new", "create a cli", "--kind", "cli", "--name", "tool", "--module", "example.com/tool", "--dir", "tool", "--format", "text"}
@@ -1922,7 +1922,7 @@ func TestAINewTextHelpAndManifestContract_BitsUT(t *testing.T) {
 	})
 }
 
-func TestAIProjectApplyHelperErrorAndTextBranches_BitsUT(t *testing.T) {
+func TestAIProjectApplyHelperErrorAndTextBranches(t *testing.T) {
 	t.Run("text apply reports command and next actions", func(t *testing.T) {
 		outDir := filepath.Join(t.TempDir(), "text-apply")
 		var stdout bytes.Buffer
@@ -2060,7 +2060,7 @@ func TestAIProjectApplyHelperErrorAndTextBranches_BitsUT(t *testing.T) {
 	})
 }
 
-func TestCommandConfigFeaturePluginCoverageBuffer_BitsUT(t *testing.T) {
+func TestCommandConfigFeaturePluginCoverageBuffer(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	serviceDir := t.TempDir()
 
@@ -2256,7 +2256,7 @@ func TestCommandConfigFeaturePluginCoverageBuffer_BitsUT(t *testing.T) {
 	})
 }
 
-func TestAIControlPlaneTextAndErrorCoverageBuffer_BitsUT(t *testing.T) {
+func TestAIControlPlaneTextAndErrorCoverageBuffer(t *testing.T) {
 	t.Run("text snapshot prints metadata guidance and checksum diff", func(t *testing.T) {
 		checksum := defaultAIControlPlaneSnapshot().StableChecksum()
 		var stdout bytes.Buffer
@@ -2313,7 +2313,7 @@ func TestAIControlPlaneTextAndErrorCoverageBuffer_BitsUT(t *testing.T) {
 	})
 }
 
-func TestConfigFieldCoverageBuffer_BitsUT(t *testing.T) {
+func TestConfigFieldCoverageBuffer(t *testing.T) {
 	cfg := &generator.Config{}
 	setters := map[string]string{
 		"service":                 "orders",
@@ -2393,7 +2393,7 @@ func TestConfigFieldCoverageBuffer_BitsUT(t *testing.T) {
 	}
 }
 
-func TestAINewGeneratedArtifactsAreDeterministicAndIdempotent_BitsUT(t *testing.T) {
+func TestAINewGeneratedArtifactsAreDeterministicAndIdempotent(t *testing.T) {
 	firstDir := filepath.Join(t.TempDir(), "first")
 	secondDir := filepath.Join(t.TempDir(), "second")
 	first := applyAINewAndSnapshot(t, firstDir)
@@ -2408,7 +2408,7 @@ func TestAINewGeneratedArtifactsAreDeterministicAndIdempotent_BitsUT(t *testing.
 	}
 }
 
-func TestAIProjectFeatureAggregationBoundaries_BitsUT(t *testing.T) {
+func TestAIProjectFeatureAggregationBoundaries(t *testing.T) {
 	features := []generator.ProjectFeatureResult{
 		{
 			Plugin:         "one",
@@ -2449,7 +2449,7 @@ func TestAIProjectFeatureAggregationBoundaries_BitsUT(t *testing.T) {
 	}
 }
 
-func TestAINewGeneratedProjectVerificationMatrix_BitsUT(t *testing.T) {
+func TestAINewGeneratedProjectVerificationMatrix(t *testing.T) {
 	withFrameworkPath(t, func() {
 		for _, tt := range []struct {
 			name                  string
@@ -2588,7 +2588,7 @@ func TestAINewGeneratedProjectVerificationMatrix_BitsUT(t *testing.T) {
 	})
 }
 
-func TestNewServiceGeneratedProjectSmokeMatrix_BitsUT(t *testing.T) {
+func TestNewServiceGeneratedProjectSmokeMatrix(t *testing.T) {
 	withFrameworkPath(t, func() {
 		outDir := filepath.Join(t.TempDir(), "orders")
 		if err := Execute([]string{"new", "service", "orders", "--module", "example.com/orders", "--dir", outDir}); err != nil {
@@ -2615,7 +2615,7 @@ func TestNewServiceGeneratedProjectSmokeMatrix_BitsUT(t *testing.T) {
 	})
 }
 
-func TestNewServiceContractInputMatrix_BitsUT(t *testing.T) {
+func TestNewServiceContractInputMatrix(t *testing.T) {
 	withFrameworkPath(t, func() {
 		for _, tt := range []struct {
 			name      string
@@ -2737,7 +2737,7 @@ func applyAINewAndSnapshot(t *testing.T, outDir string) map[string]string {
 	return snapshot
 }
 
-func TestAIProjectApplyVerificationScaffoldBoundaries_BitsUT(t *testing.T) {
+func TestAIProjectApplyVerificationScaffoldBoundaries(t *testing.T) {
 	t.Run("apply verify compiles rpc and gateway templates", func(t *testing.T) {
 		withFrameworkPath(t, func() {
 			for _, tt := range []struct {
@@ -2852,7 +2852,7 @@ func commandRepositoryRoot(t *testing.T) string {
 	return root
 }
 
-func TestAIProjectVerificationHelpers_BitsUT(t *testing.T) {
+func TestAIProjectVerificationHelpers(t *testing.T) {
 	t.Run("all template verify commands are supported", func(t *testing.T) {
 		withFrameworkPath(t, func() {
 			for _, tmpl := range generator.ListProjectTemplates() {
@@ -2925,7 +2925,7 @@ func TestAIProjectVerificationHelpers_BitsUT(t *testing.T) {
 	})
 }
 
-func TestAIPlanAndTemplateCatalogHelperBoundaries_BitsUT(t *testing.T) {
+func TestAIPlanAndTemplateCatalogHelperBoundaries(t *testing.T) {
 	templates := generator.ListProjectTemplates()
 	if len(templates) == 0 {
 		t.Fatal("ListProjectTemplates returned no templates")
@@ -3016,7 +3016,7 @@ func TestAIPlanAndTemplateCatalogHelperBoundaries_BitsUT(t *testing.T) {
 	}
 }
 
-func TestTemplateCatalogTextAndUsageBranches_BitsUT(t *testing.T) {
+func TestTemplateCatalogTextAndUsageBranches(t *testing.T) {
 	var out bytes.Buffer
 	if err := withCommandIO(IOStreams{Out: &out}, outputText, verbosityNormal, func() error {
 		return templateCommand([]string{"list", "--category", "rag", "--name", "rag"})
@@ -3044,7 +3044,7 @@ func TestTemplateCatalogTextAndUsageBranches_BitsUT(t *testing.T) {
 	}
 }
 
-func TestCommandCLIHelperBoundaries_BitsUT(t *testing.T) {
+func TestCommandCLIHelperBoundaries(t *testing.T) {
 	if err := completeCommand(nil); !errors.Is(err, errUsage) || !strings.Contains(err.Error(), "complete handler") {
 		t.Fatalf("completeCommand nil error = %v, want usage", err)
 	}
@@ -3112,7 +3112,7 @@ func TestCommandCLIHelperBoundaries_BitsUT(t *testing.T) {
 	}
 }
 
-func TestRootUtilityCommandsGenerateArtifactsAndReports_BitsUT(t *testing.T) {
+func TestRootUtilityCommandsGenerateArtifactsAndReports(t *testing.T) {
 	dir := t.TempDir()
 	var out bytes.Buffer
 
@@ -3194,7 +3194,7 @@ func TestRootUtilityCommandsGenerateArtifactsAndReports_BitsUT(t *testing.T) {
 	}
 }
 
-func TestIDLCommandHelperBoundaries_BitsUT(t *testing.T) {
+func TestIDLCommandHelperBoundaries(t *testing.T) {
 	if err := rpcDepsCommand(nil); !errors.Is(err, errUsage) || !strings.Contains(err.Error(), "idl file is required") {
 		t.Fatalf("rpcDepsCommand nil error = %v, want idl usage", err)
 	}
@@ -3329,7 +3329,7 @@ printf '%s' '{"version":"1","message":"post ok","files":[{"path":"generated.txt"
 	}
 }
 
-func TestCommandRegistryBoundaries_BitsUT(t *testing.T) {
+func TestCommandRegistryBoundaries(t *testing.T) {
 	var calls []string
 	registry := newCommandRegistry(
 		commandSpec{Name: "", Run: func([]string) error { return nil }},
@@ -3399,7 +3399,7 @@ func TestCommandRegistryBoundaries_BitsUT(t *testing.T) {
 	}
 }
 
-func TestFillNameAndEnrichPluginRequestIDL_BitsUT(t *testing.T) {
+func TestFillNameAndEnrichPluginRequestIDL(t *testing.T) {
 	fillNameFromArgs(nil, []string{"ignored"})
 	existing := "kept"
 	fillNameFromArgs(&existing, []string{"new"})
@@ -3439,7 +3439,7 @@ func TestFillNameAndEnrichPluginRequestIDL_BitsUT(t *testing.T) {
 	}
 }
 
-func TestPluginCommandUsageBoundaries_BitsUT(t *testing.T) {
+func TestPluginCommandUsageBoundaries(t *testing.T) {
 	tests := []struct {
 		name string
 		fn   func([]string) error
@@ -3462,7 +3462,7 @@ func TestPluginCommandUsageBoundaries_BitsUT(t *testing.T) {
 	}
 }
 
-func TestCommandHelpForTopicBoundaries_BitsUT(t *testing.T) {
+func TestCommandHelpForTopicBoundaries(t *testing.T) {
 	tests := []struct {
 		name  string
 		input string
@@ -3575,7 +3575,7 @@ func TestCommandHelpForTopicBoundaries_BitsUT(t *testing.T) {
 	}
 }
 
-func TestRPCDescriptorURLAndAIDoctorConfigBoundaries_BitsUT(t *testing.T) {
+func TestRPCDescriptorURLAndAIDoctorConfigBoundaries(t *testing.T) {
 	urlTests := []struct {
 		name        string
 		raw         string

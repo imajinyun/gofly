@@ -49,7 +49,7 @@ checks = {
         "oneof",
     ],
     pathlib.Path("rest/binding_test.go"): [
-        "TestOpenAPIValidationEnvelopeRuntimeGolden_BitsUT",
+        "TestOpenAPIValidationEnvelopeRuntimeGolden",
         "BindRequest",
         "path",
         "query",
@@ -60,7 +60,7 @@ checks = {
         "coreerrors.CodeInvalidArgument",
     ],
     pathlib.Path("rest/openapi_test.go"): [
-        "TestOpenAPIValidationEnvelopeSchemaGolden_BitsUT",
+        "TestOpenAPIValidationEnvelopeSchemaGolden",
         "OpenAPI",
         "required",
         "ErrorResponse",
@@ -72,7 +72,7 @@ checks = {
         "oneof=pending paid canceled",
     ],
     pathlib.Path("cmd/gofly/internal/generator/service_test.go"): [
-        "TestGeneratedServiceOpenAPIValidationEnvelopeContract_BitsUT",
+        "TestGeneratedServiceOpenAPIValidationEnvelopeContract",
         "assertInvalidRequestEnvelope(t)",
         "waitOpenAPI(t, ctx",
         "invalid request",

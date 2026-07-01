@@ -83,7 +83,7 @@ func TestRPCInterceptorFuncWrapsEndpoint(t *testing.T) {
 	}
 }
 
-func TestMiddlewareAdaptersNilPassThrough_BitsUT(t *testing.T) {
+func TestMiddlewareAdaptersNilPassThrough(t *testing.T) {
 	httpHandler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusAccepted)
 	})

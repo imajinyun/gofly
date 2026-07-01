@@ -600,7 +600,7 @@ func TestMQAdaptiveBreakerFromPolicy(t *testing.T) {
 	}
 }
 
-func TestTraceInjectExtractBoundaries_BitsUT(t *testing.T) {
+func TestTraceInjectExtractBoundaries(t *testing.T) {
 	msg := Message{}
 	InjectTrace(context.Background(), &msg)
 	if msg.Headers != nil {
@@ -626,7 +626,7 @@ func TestTraceInjectExtractBoundaries_BitsUT(t *testing.T) {
 	}
 }
 
-func TestGovernanceBrokerPureBoundaryBranches_BitsUT(t *testing.T) {
+func TestGovernanceBrokerPureBoundaryBranches(t *testing.T) {
 	if _, err := NewGovernanceBroker(nil); err == nil {
 		t.Fatal("NewGovernanceBroker should reject nil broker")
 	}
@@ -660,7 +660,7 @@ func TestGovernanceBrokerPureBoundaryBranches_BitsUT(t *testing.T) {
 	}
 }
 
-func TestMQStatusAndRuntimeKeyBoundaries_BitsUT(t *testing.T) {
+func TestMQStatusAndRuntimeKeyBoundaries(t *testing.T) {
 	statusTests := []struct {
 		name string
 		err  error
@@ -706,7 +706,7 @@ func TestMQStatusAndRuntimeKeyBoundaries_BitsUT(t *testing.T) {
 	}
 }
 
-func TestGovernanceBrokerRunTimeoutBreakerAndRetryBoundaries_BitsUT(t *testing.T) {
+func TestGovernanceBrokerRunTimeoutBreakerAndRetryBoundaries(t *testing.T) {
 	broker, err := NewGovernanceBroker(&governanceFakeBroker{})
 	if err != nil {
 		t.Fatal(err)

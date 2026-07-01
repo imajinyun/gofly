@@ -73,7 +73,7 @@ func TestOAuth2RejectsBadSecretAndScope(t *testing.T) {
 	}
 }
 
-func TestOAuth2ErrorStringAndServerDefaults_BitsUT(t *testing.T) {
+func TestOAuth2ErrorStringAndServerDefaults(t *testing.T) {
 	if got := (&OAuth2Error{Code: "invalid_client"}).Error(); got != "invalid_client" {
 		t.Fatalf("OAuth2Error without description = %q, want invalid_client", got)
 	}

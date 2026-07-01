@@ -122,7 +122,7 @@ func TestRESTClientGovernanceManagerOverridesLaterSuite(t *testing.T) {
 	}
 }
 
-func TestRESTClientRetryAndStatusBoundaries_BitsUT(t *testing.T) {
+func TestRESTClientRetryAndStatusBoundaries(t *testing.T) {
 	statusErr := restStatusError{status: http.StatusBadGateway, method: http.MethodPost, url: "http://example.test/orders"}
 	if got := statusErr.Error(); !strings.Contains(got, "POST") || !strings.Contains(got, "502") || !strings.Contains(got, "http://example.test/orders") {
 		t.Fatalf("restStatusError.Error() = %q, want method/url/status", got)
@@ -388,7 +388,7 @@ func TestRESTClientNormalizeContextError(t *testing.T) {
 	}
 }
 
-func TestRESTClientConstructionAndRequestBoundaries_BitsUT(t *testing.T) {
+func TestRESTClientConstructionAndRequestBoundaries(t *testing.T) {
 	if _, err := NewClient(""); err == nil || !strings.Contains(err.Error(), "base url is required") {
 		t.Fatalf("NewClient blank base error = %v, want base url required", err)
 	}
@@ -442,7 +442,7 @@ func TestRESTClientConstructionAndRequestBoundaries_BitsUT(t *testing.T) {
 	}
 }
 
-func TestRESTClientPostSetsContentType_BitsUT(t *testing.T) {
+func TestRESTClientPostSetsContentType(t *testing.T) {
 	transport := &captureHeaderRoundTripper{}
 	client := MustNewClient("http://example.test", WithClientHTTPClient(&http.Client{Transport: transport}))
 	resp, err := client.Post(context.Background(), "/orders", "application/json", strings.NewReader(`{}`))
@@ -455,7 +455,7 @@ func TestRESTClientPostSetsContentType_BitsUT(t *testing.T) {
 	}
 }
 
-func TestRESTClientPrepareRequestCanaryAndRetryHelpers_BitsUT(t *testing.T) {
+func TestRESTClientPrepareRequestCanaryAndRetryHelpers(t *testing.T) {
 	client := MustNewClient("http://example.test")
 	req, err := http.NewRequest(http.MethodPost, "http://example.test/orders", strings.NewReader("body"))
 	if err != nil {

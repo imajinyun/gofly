@@ -78,14 +78,14 @@ PY
 
 run_check "public Go API compatibility" sh "$scripts_dir/check-public-api.sh"
 
-run_check "CLI JSON golden contracts" "$go_cmd" test $testflags ./cmd/gofly/internal/command -run 'Test(NewCommandsEmitJSONEnvelope_BitsUT|IDLGenerateCommandsEmitJSONEnvelope_BitsUT|VersionCommandJSONEnvelope|ExecuteAIManifestJSONEnvelope|DoctorCommandJSON|ReleaseCheckCommandJSONAndChangelogBlocker_BitsUT|ReleaseCheckGlobalJSONDoesNotDuplicateError_BitsUT|RPCDescriptorCommandJSONCompatible)$'
+run_check "CLI JSON golden contracts" "$go_cmd" test $testflags ./cmd/gofly/internal/command -run 'Test(NewCommandsEmitJSONEnvelope|IDLGenerateCommandsEmitJSONEnvelope|VersionCommandJSONEnvelope|ExecuteAIManifestJSONEnvelope|DoctorCommandJSON|ReleaseCheckCommandJSONAndChangelogBlocker|ReleaseCheckGlobalJSONDoesNotDuplicateError|RPCDescriptorCommandJSONCompatible)$'
 
-run_check "control-plane golden contracts" "$go_cmd" test $testflags ./core/controlplane -run 'TestControlPlane(PureOrderingAndClassification|ProviderSourceAndWatchBoundaries|ProviderLoadBoundaries)_BitsUT'
+run_check "control-plane golden contracts" "$go_cmd" test $testflags ./core/controlplane -run 'TestControlPlane(PureOrderingAndClassification|ProviderSourceAndWatchBoundaries|ProviderLoadBoundaries)'
 
-run_check "REST OpenAPI and control-plane golden contracts" "$go_cmd" test $testflags ./rest -run 'Test(ServerOpenAPIExportsRegisteredRoutes|ServerRouteOptionAndOpenAPIBoundaries_BitsUT|OpenAPIExportsDefaultErrorResponses_BitsUT|ControlPlaneRuntimeSnapshotGoldenContractAndSemanticDiff)$'
+run_check "REST OpenAPI and control-plane golden contracts" "$go_cmd" test $testflags ./rest -run 'Test(ServerOpenAPIExportsRegisteredRoutes|ServerRouteOptionAndOpenAPIBoundaries|OpenAPIExportsDefaultErrorResponses|ControlPlaneRuntimeSnapshotGoldenContractAndSemanticDiff)$'
 
-run_check "generated production service compile smoke" "$go_cmd" test $testflags ./cmd/gofly/internal/command -run 'TestNewServiceGeneratedProjectSmokeMatrix_BitsUT'
+run_check "generated production service compile smoke" "$go_cmd" test $testflags ./cmd/gofly/internal/command -run 'TestNewServiceGeneratedProjectSmokeMatrix'
 
-run_check "generated production service OpenAPI envelope fixture" "$go_cmd" test $testflags ./cmd/gofly/internal/generator -run 'TestGeneratedServiceOpenAPIValidationEnvelopeContract_BitsUT'
+run_check "generated production service OpenAPI envelope fixture" "$go_cmd" test $testflags ./cmd/gofly/internal/generator -run 'TestGeneratedServiceOpenAPIValidationEnvelopeContract'
 
 printf '\nstable surface release-blocking contracts ok\n'

@@ -157,7 +157,7 @@
   ],
   "testNamingBaseline": {
     "forbiddenSuffixPolicy": "No project-specific unit-test or benchmark suffixes are allowed in newly generated or touched tests.",
-    "currentOccurrenceCount": 319,
-    "policy": "Historical occurrences are tracked as debt. New governance changes must not increase this count, and touched tests should be renamed opportunistically without broad churn."
+    "currentOccurrenceCount": 0,
+    "policy": "Project-specific test and benchmark suffixes are not allowed. Any reintroduction must fail project-layout-governance-check."
   }
 }

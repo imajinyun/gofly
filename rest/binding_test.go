@@ -44,7 +44,7 @@ func TestContextBindRequest(t *testing.T) {
 	}
 }
 
-func TestValidationFailuresErrorAndDefensiveCopy_BitsUT(t *testing.T) {
+func TestValidationFailuresErrorAndDefensiveCopy(t *testing.T) {
 	var empty ValidationFailures
 	if got := empty.Error(); got != "validation failed" {
 		t.Fatalf("empty ValidationFailures.Error() = %q, want validation failed", got)
@@ -63,7 +63,7 @@ func TestValidationFailuresErrorAndDefensiveCopy_BitsUT(t *testing.T) {
 	}
 }
 
-func TestBindingScalarAndNumericBoundaries_BitsUT(t *testing.T) {
+func TestBindingScalarAndNumericBoundaries(t *testing.T) {
 	type sample struct {
 		Name    string
 		Enabled bool
@@ -123,7 +123,7 @@ func TestBindingScalarAndNumericBoundaries_BitsUT(t *testing.T) {
 	}
 }
 
-func TestBindingTargetValidationAndJSONErrors_BitsUT(t *testing.T) {
+func TestBindingTargetValidationAndJSONErrors(t *testing.T) {
 	t.Run("invalid bind targets", func(t *testing.T) {
 		if err := BindQuery(httptest.NewRequest(http.MethodGet, "/", nil), nil); err == nil || !strings.Contains(err.Error(), "bind target is nil") {
 			t.Fatalf("BindQuery nil target error = %v, want nil target", err)
@@ -159,7 +159,7 @@ func TestBindingTargetValidationAndJSONErrors_BitsUT(t *testing.T) {
 	})
 }
 
-func TestBindValuesEmbeddedPointerSliceAndParseBranches_BitsUT(t *testing.T) {
+func TestBindValuesEmbeddedPointerSliceAndParseBranches(t *testing.T) {
 	type Embedded struct {
 		Trace string `query:"trace"`
 	}
@@ -235,7 +235,7 @@ func TestBindValuesEmbeddedPointerSliceAndParseBranches_BitsUT(t *testing.T) {
 	}
 }
 
-func TestBindRequestSourceOrderingAndMethodBodyBranches_BitsUT(t *testing.T) {
+func TestBindRequestSourceOrderingAndMethodBodyBranches(t *testing.T) {
 	type request struct {
 		ID    int    `path:"id" validate:"min=1"`
 		Name  string `json:"name" query:"name" validate:"required"`
@@ -344,7 +344,7 @@ func TestValidationErrorError(t *testing.T) {
 	}
 }
 
-func TestValidationFailuresOfAndAdapter_BitsUT(t *testing.T) {
+func TestValidationFailuresOfAndAdapter(t *testing.T) {
 	custom := ValidationFailures{{Field: "name", Rule: "custom", Message: "name is reserved"}}
 	got := ValidationFailuresOf(custom)
 	if len(got) != 1 || got[0].Field != "name" || got[0].Rule != "custom" || got[0].Message != "name is reserved" {
@@ -374,7 +374,7 @@ func TestValidationFailuresOfAndAdapter_BitsUT(t *testing.T) {
 	}
 }
 
-func TestContextErrorWritesValidationFields_BitsUT(t *testing.T) {
+func TestContextErrorWritesValidationFields(t *testing.T) {
 	rec := httptest.NewRecorder()
 	ctx := &Context{Response: rec, Request: httptest.NewRequest(http.MethodGet, "/", nil)}
 	ctx.Error(&ValidationError{Field: "quantity", Rule: "min=1"})
@@ -391,7 +391,7 @@ func TestContextErrorWritesValidationFields_BitsUT(t *testing.T) {
 	}
 }
 
-func TestContextErrorWritesBindingFailuresAsInvalidArgument_BitsUT(t *testing.T) {
+func TestContextErrorWritesBindingFailuresAsInvalidArgument(t *testing.T) {
 	tests := []struct {
 		name   string
 		method string
@@ -441,7 +441,7 @@ func TestContextErrorWritesBindingFailuresAsInvalidArgument_BitsUT(t *testing.T)
 	}
 }
 
-func TestOpenAPIValidationEnvelopeRuntimeGolden_BitsUT(t *testing.T) {
+func TestOpenAPIValidationEnvelopeRuntimeGolden(t *testing.T) {
 	type createOrderRequest struct {
 		Tenant   string   `header:"X-Tenant" validate:"required"`
 		ID       int      `path:"id" validate:"min=1"`

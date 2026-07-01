@@ -148,7 +148,7 @@ func TestObserveHandlerJSONDisabled(t *testing.T) {
 	}
 }
 
-func TestObserveHandlerPprofBoundary_BitsUT(t *testing.T) {
+func TestObserveHandlerPprofBoundary(t *testing.T) {
 	enabled := NewObserve(ObserverConfig{Service: "svc", Pprof: true})
 	rec := httptest.NewRecorder()
 	enabled.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/pprof/", nil))
@@ -199,7 +199,7 @@ func TestNewLoggerRotateFallback(t *testing.T) {
 	}
 }
 
-func TestNewLoggerJSONSetGlobalBoundary_BitsUT(t *testing.T) {
+func TestNewLoggerJSONSetGlobalBoundary(t *testing.T) {
 	old := slog.Default()
 	t.Cleanup(func() { slog.SetDefault(old) })
 	var buf bytes.Buffer
@@ -293,7 +293,7 @@ func TestRotateWriterRotatesAndPrunesBackups(t *testing.T) {
 	}
 }
 
-func TestRotateWriterPrunesBackupsByAge_BitsUT(t *testing.T) {
+func TestRotateWriterPrunesBackupsByAge(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "app.log")
 	stale := filepath.Join(dir, "app.log.2000-01-01T00-00-00.000")

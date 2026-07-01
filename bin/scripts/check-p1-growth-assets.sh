@@ -93,7 +93,7 @@ checks = {
         'NewHealthBalancer',
     ],
     pathlib.Path('examples/rpc-idl-matrix/main_test.go'): [
-        'TestRPCIDLMatrixReport_BitsUT',
+        'TestRPCIDLMatrixReport',
         'server_stream',
         'client_stream',
         'bidi_stream',
@@ -147,14 +147,14 @@ checks = {
         '/middleware/catalog',
     ],
     pathlib.Path('examples/middlewares/matrix_test.go'): [
-        'TestMiddlewareCatalogProductization_BitsUT',
+        'TestMiddlewareCatalogProductization',
         'catalog item is not fully productized',
         'JWT',
         'OpenTelemetry trace',
         'adaptive limit',
     ],
     pathlib.Path('examples/middleware-demo/main_test.go'): [
-        'TestMiddlewareDemoCatalogAndOpenAPI_BitsUT',
+        'TestMiddlewareDemoCatalogAndOpenAPI',
         '/middleware/catalog',
         '/openapi.json',
     ],

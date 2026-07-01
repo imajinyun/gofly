@@ -205,7 +205,7 @@
         {
           "path": "rest/openapi_test.go",
           "contains": [
-            "TestOpenAPIValidationEnvelopeSchemaGolden_BitsUT",
+            "TestOpenAPIValidationEnvelopeSchemaGolden",
             "DefaultErrorResponses",
             "ErrorResponse"
           ]
@@ -233,7 +233,7 @@
         {
           "path": "cmd/gofly/internal/generator/service_test.go",
           "contains": [
-            "TestGeneratedServiceOpenAPIValidationEnvelopeContract_BitsUT",
+            "TestGeneratedServiceOpenAPIValidationEnvelopeContract",
             "assertInvalidRequestEnvelope(t)",
             "waitOpenAPI(t, ctx"
           ]

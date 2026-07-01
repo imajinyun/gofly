@@ -193,7 +193,7 @@ func TestDialectLimitOffsetContracts(t *testing.T) {
 	}
 }
 
-func TestDialectMethodsDelegateToHelpers_BitsUT(t *testing.T) {
+func TestDialectMethodsDelegateToHelpers(t *testing.T) {
 	if got := DialectPostgres.Placeholder(3); got != "$3" {
 		t.Fatalf("Dialect.Placeholder postgres = %q, want $3", got)
 	}
@@ -452,7 +452,7 @@ func TestValidateIdentifierRejectsUnsafeInput(t *testing.T) {
 	}
 }
 
-func TestSQLBuilderErrorBoundaries_BitsUT(t *testing.T) {
+func TestSQLBuilderErrorBoundaries(t *testing.T) {
 	errorCases := []struct {
 		name string
 		fn   func() error
@@ -514,7 +514,7 @@ func TestSQLBuilderErrorBoundaries_BitsUT(t *testing.T) {
 	}
 }
 
-func TestSelectForUpdateAndCountAllBoundaries_BitsUT(t *testing.T) {
+func TestSelectForUpdateAndCountAllBoundaries(t *testing.T) {
 	query, err := SelectForUpdate("jobs", []string{"id", "state"}, "id", DialectPostgres, true)
 	if err != nil {
 		t.Fatalf("SelectForUpdate postgres skip locked error = %v", err)
@@ -542,7 +542,7 @@ func TestSelectForUpdateAndCountAllBoundaries_BitsUT(t *testing.T) {
 	}
 }
 
-func TestWhereBuilderInternalBoundaries_BitsUT(t *testing.T) {
+func TestWhereBuilderInternalBoundaries(t *testing.T) {
 	if clause, args, err := ((*Where)(nil)).Build(DialectPostgres, 0); err != nil || clause != "" || args != nil {
 		t.Fatalf("nil Where Build = %q %#v %v, want zero", clause, args, err)
 	}
@@ -660,7 +660,7 @@ func TestSQLStoreTransactHonorsCanceledContextAndRecordsStats(t *testing.T) {
 	}
 }
 
-func TestSQLStoreTransactRollsBackOnCallbackError_BitsUT(t *testing.T) {
+func TestSQLStoreTransactRollsBackOnCallbackError(t *testing.T) {
 	store := NewSQLStore(fakeDB(t))
 	boom := errors.New("boom")
 	err := store.Transact(context.Background(), nil, func(context.Context, *sql.Tx) error {

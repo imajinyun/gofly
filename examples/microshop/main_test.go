@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestServiceByNameAndPrimaryPath_BitsUT(t *testing.T) {
+func TestServiceByNameAndPrimaryPath(t *testing.T) {
 	spec, ok := serviceByName("gateway")
 	if !ok || primaryPath(spec) != "/v1/checkout" {
 		t.Fatalf("gateway spec = %#v ok=%v, want /v1/checkout", spec, ok)
@@ -17,7 +17,7 @@ func TestServiceByNameAndPrimaryPath_BitsUT(t *testing.T) {
 	}
 }
 
-func TestBuildMicroshopServerExposesRouteAndControlPlane_BitsUT(t *testing.T) {
+func TestBuildMicroshopServerExposesRouteAndControlPlane(t *testing.T) {
 	spec, _ := serviceByName("users")
 	server := buildMicroshopServer(spec, 0)
 

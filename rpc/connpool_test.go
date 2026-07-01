@@ -152,7 +152,7 @@ func TestConnPoolPutAndDiscardNilAreNoops(t *testing.T) {
 	}
 }
 
-func TestConnPoolDefaultAndNilDialerBoundaries_BitsUT(t *testing.T) {
+func TestConnPoolDefaultAndNilDialerBoundaries(t *testing.T) {
 	pool := NewConnPoolWithDialer(nil, ConnPoolConfig{MaxIdle: -1, MaxActive: -1, WaitInterval: -time.Second})
 	if pool.conf.MaxIdle != DefaultConnPoolConfig().MaxIdle || pool.conf.MaxActive != DefaultConnPoolConfig().MaxActive {
 		t.Fatalf("normalized pool config = %#v, want defaults for non-positive limits", pool.conf)
@@ -168,7 +168,7 @@ func TestConnPoolDefaultAndNilDialerBoundaries_BitsUT(t *testing.T) {
 	}
 }
 
-func TestNewConnPoolConfiguresDefaultDialer_BitsUT(t *testing.T) {
+func TestNewConnPoolConfiguresDefaultDialer(t *testing.T) {
 	pool := NewConnPool("tcp", "127.0.0.1:1", ConnPoolConfig{DialTimeout: time.Millisecond})
 	defer pool.Close()
 	if pool == nil || pool.dial == nil {
@@ -179,7 +179,7 @@ func TestNewConnPoolConfiguresDefaultDialer_BitsUT(t *testing.T) {
 	}
 }
 
-func TestHTTPServerGovernanceSnapshotBoundaries_BitsUT(t *testing.T) {
+func TestHTTPServerGovernanceSnapshotBoundaries(t *testing.T) {
 	server := NewServer(WithServerAdaptiveBreaker(nil))
 	snapshot := server.Governance()
 	if len(snapshot.Components) != 1 {
@@ -233,7 +233,7 @@ func TestPooledConnTransport(t *testing.T) {
 	}
 }
 
-func TestConnPoolDialFailureReleasesActiveSlot_BitsUT(t *testing.T) {
+func TestConnPoolDialFailureReleasesActiveSlot(t *testing.T) {
 	wantErr := errors.New("dial failed")
 	pool := NewConnPoolWithDialer(func(context.Context) (net.Conn, error) {
 		return nil, wantErr
@@ -247,7 +247,7 @@ func TestConnPoolDialFailureReleasesActiveSlot_BitsUT(t *testing.T) {
 	}
 }
 
-func TestConnPoolExpiredIdleIsClosedAndRedialed_BitsUT(t *testing.T) {
+func TestConnPoolExpiredIdleIsClosedAndRedialed(t *testing.T) {
 	pool, cleanup, created, closed := newTestConnPool(ConnPoolConfig{MaxIdle: 1, MaxActive: 1, IdleTimeout: time.Minute})
 	defer cleanup()
 
@@ -278,7 +278,7 @@ func TestConnPoolExpiredIdleIsClosedAndRedialed_BitsUT(t *testing.T) {
 	_ = replacement.Close()
 }
 
-func TestConnPoolMaxIdleAndNilSnapshot_BitsUT(t *testing.T) {
+func TestConnPoolMaxIdleAndNilSnapshot(t *testing.T) {
 	pool, cleanup, _, closed := newTestConnPool(ConnPoolConfig{MaxIdle: 1, MaxActive: 2})
 	defer cleanup()
 

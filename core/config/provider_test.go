@@ -215,7 +215,7 @@ func TestCompositeProviderAllFailAndNoProviders(t *testing.T) {
 	}
 }
 
-func TestFileProviderAndMustLoadErrorBoundaries_BitsUT(t *testing.T) {
+func TestFileProviderAndMustLoadErrorBoundaries(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	provider := NewFileProvider[testConfig](filepath.Join(t.TempDir(), "missing.json"))

@@ -121,7 +121,7 @@ contract_deps = next((line for line in makefile.splitlines() if line.startswith(
 require("cli-command-surface-check" in contract_deps, "contract-docs-check must depend on cli-command-surface-check")
 require("cli-command-surface.json" in cli_json, "cli-json-contracts.md must link cli-command-surface.json")
 
-test_cmd = ["go", "test", "-count=1", "./cmd/gofly/internal/command", "-run", "TestCLICommandSurfaceManifestMatchesRegistries_BitsUT|TestCommandHelpSubcommandBoundaries_BitsUT"]
+test_cmd = ["go", "test", "-count=1", "./cmd/gofly/internal/command", "-run", "TestCLICommandSurfaceManifestMatchesRegistries|TestCommandHelpSubcommandBoundaries"]
 test = subprocess.run(test_cmd, cwd=root, check=False, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 if test.returncode != 0:
     missing.append("targeted CLI command surface tests failed:\n" + test.stdout)

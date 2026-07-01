@@ -105,7 +105,7 @@ func TestKubernetesResolverWatch(t *testing.T) {
 	}
 }
 
-func TestKubernetesResolverConfigAndNilBoundaries_BitsUT(t *testing.T) {
+func TestKubernetesResolverConfigAndNilBoundaries(t *testing.T) {
 	if _, err := NewKubernetesResolver(KubernetesResolverConfig{}); err == nil || !strings.Contains(err.Error(), "base url is required") {
 		t.Fatalf("empty config error = %v, want base url required", err)
 	}
@@ -128,7 +128,7 @@ func TestKubernetesResolverConfigAndNilBoundaries_BitsUT(t *testing.T) {
 	}
 }
 
-func TestKubernetesResolverErrorResponses_BitsUT(t *testing.T) {
+func TestKubernetesResolverErrorResponses(t *testing.T) {
 	tests := []struct {
 		name   string
 		status int
@@ -159,7 +159,7 @@ func TestKubernetesResolverErrorResponses_BitsUT(t *testing.T) {
 	}
 }
 
-func TestKubernetesResolverHelpers_BitsUT(t *testing.T) {
+func TestKubernetesResolverHelpers(t *testing.T) {
 	r := &KubernetesResolver{scheme: "grpc", port: 7777}
 	if got := r.selectPort(nil); got != 7777 {
 		t.Fatalf("select explicit port = %d, want 7777", got)

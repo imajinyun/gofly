@@ -263,6 +263,7 @@ def validate_ratchet_policy() -> None:
     p9_ownership = ratchet.get("p9GatewayCacheOwnership") or {}
     p10_ratchet = ratchet.get("p10PerformanceBudgetRatchet") or {}
     p13_gateway_cache_closeout = ratchet.get("p13GatewayCacheBenchmarkCloseout") or {}
+    p15_gateway_cache_attachment = ratchet.get("p15GatewayCacheBudgetAttachment") or {}
     report_only = set(latency_policy.get("reportOnly") or [])
     promoted = latency_policy.get("promoted") or []
     rpc_policy = ratchet.get("rpcPolicy") or {}
@@ -1195,6 +1196,105 @@ def validate_ratchet_policy() -> None:
         require_policy(
             forbidden in set(p13_gateway_cache_closeout.get("forbiddenUntilCleared") or []),
             f"p13GatewayCacheBenchmarkCloseout forbiddenUntilCleared missing {forbidden!r}",
+        )
+
+    require_policy(
+        p15_gateway_cache_attachment.get("schema") == "gofly.benchmark_p15_gateway_cache_budget_attachment.v1",
+        "p15GatewayCacheBudgetAttachment schema mismatch",
+    )
+    require_policy(
+        p15_gateway_cache_attachment.get("aiflowTask") == "GOFLY-P15-03-GATEWAY-CACHE-BUDGET-ATTACHMENT",
+        "p15GatewayCacheBudgetAttachment aiflowTask mismatch",
+    )
+    require_policy(
+        p15_gateway_cache_attachment.get("status") == "hold-no-gateway-cache-budget-attachment",
+        "p15GatewayCacheBudgetAttachment status mismatch",
+    )
+    require_policy(
+        p15_gateway_cache_attachment.get("acceptanceGate") == "make bench-regression-check",
+        "p15GatewayCacheBudgetAttachment acceptanceGate mismatch",
+    )
+    for source in (
+        "bench/gateway_cache_bench_test.go",
+        "bench/matrix.md",
+        "bench/budget-ratchet.json",
+        "bench/README.md",
+    ):
+        require_policy(
+            source in set(p15_gateway_cache_attachment.get("sourceEvidence") or []),
+            f"p15GatewayCacheBudgetAttachment sourceEvidence missing {source!r}",
+        )
+    p15_gateway_decision = p15_gateway_cache_attachment.get("decision") or {}
+    require_policy(p15_gateway_decision.get("result") == "hold", "p15GatewayCacheBudgetAttachment decision.result must be hold")
+    require_policy(p15_gateway_decision.get("selectedSurface") == "none", "p15GatewayCacheBudgetAttachment selectedSurface must be none")
+    require_policy(
+        p15_gateway_decision.get("allocationBlockingSurface") == "none",
+        "p15GatewayCacheBudgetAttachment allocationBlockingSurface must be none",
+    )
+    require_policy(p15_gateway_decision.get("latencyMode") == "report-only", "p15GatewayCacheBudgetAttachment latencyMode must be report-only")
+    require_policy(
+        p15_gateway_decision.get("budgetAttachmentStatus") == "not-attached",
+        "p15GatewayCacheBudgetAttachment budgetAttachmentStatus must be not-attached",
+    )
+    require_policy(
+        p15_gateway_decision.get("nextReviewGate")
+        == "BENCH_PATTERN='BenchmarkGatewayProxy|BenchmarkCacheHotPath' BENCH_COUNT=5 make bench-stat && make bench-regression-check",
+        "p15GatewayCacheBudgetAttachment nextReviewGate mismatch",
+    )
+    for field in ("reason", "releaseNotePolicy"):
+        require_policy(
+            len(str(p15_gateway_decision.get(field) or "").split()) >= 20,
+            f"p15GatewayCacheBudgetAttachment decision.{field} must be actionable",
+        )
+    for forbidden_claim in ("ratcheted allocation blocking", "blocking latency", "production performance parity"):
+        require_policy(
+            forbidden_claim in str(p15_gateway_decision.get("releaseNotePolicy") or ""),
+            f"p15GatewayCacheBudgetAttachment releaseNotePolicy must mention {forbidden_claim!r}",
+        )
+    p15_gateway_candidates = {
+        item.get("benchmark"): item
+        for item in p15_gateway_cache_attachment.get("candidateRows") or []
+        if isinstance(item, dict) and item.get("benchmark")
+    }
+    require_policy(
+        set(p15_gateway_candidates) == gateway_cache_candidate_names,
+        "p15GatewayCacheBudgetAttachment candidateRows mismatch",
+    )
+    for benchmark, item in p15_gateway_candidates.items():
+        require_policy(item.get("currentMode") == "report-only", f"{benchmark}: P15 Gateway/Cache currentMode must be report-only")
+        require_policy(item.get("proposedPromotionMode") == "allocation-blocking", f"{benchmark}: P15 Gateway/Cache proposedPromotionMode mismatch")
+        require_policy(item.get("promotionStatus") == "blocked", f"{benchmark}: P15 Gateway/Cache promotionStatus must be blocked")
+        require_policy(item.get("minimumBaselineSamples") == 5, f"{benchmark}: P15 Gateway/Cache minimumBaselineSamples mismatch")
+        require_policy(item.get("minimumCurrentTrendSamples") == 3, f"{benchmark}: P15 Gateway/Cache minimumCurrentTrendSamples mismatch")
+        require_policy(item.get("budgetAttachment") == "blocked", f"{benchmark}: P15 Gateway/Cache budgetAttachment must be blocked")
+        require_policy(benchmark not in tracked, f"{benchmark}: P15 Gateway/Cache candidate must stay out of trackedBenchmarks")
+        require_policy(benchmark not in promoted_latency, f"{benchmark}: P15 Gateway/Cache latency must stay report-only")
+        require_policy(len(item.get("blockers") or []) >= 3, f"{benchmark}: P15 Gateway/Cache blockers must include at least three reasons")
+        require_policy(
+            len(str(item.get("rollbackAction") or "").split()) >= 12,
+            f"{benchmark}: P15 Gateway/Cache rollbackAction must be actionable",
+        )
+    p15_gateway_rules = set(p15_gateway_cache_attachment.get("attachmentRules") or [])
+    for rule in (
+        "Gateway and Cache candidate rows must stay out of trackedBenchmarks before budget attachment",
+        "P15 may attach at most one Gateway or Cache allocation-blocking surface per release train",
+        "attached Gateway and Cache rows require minimum 5 baseline samples",
+        "attached Gateway and Cache rows require minimum 3 current trend samples",
+        "attached Gateway and Cache rows require no allocation regression under bench-regression-check",
+        "Gateway and Cache latency remains report-only until maxRegressionRatio and rollback evidence are documented",
+    ):
+        require_policy(rule in p15_gateway_rules, f"p15GatewayCacheBudgetAttachment attachmentRules missing {rule!r}")
+    for forbidden in (
+        "trackedBenchmarks Gateway entry",
+        "trackedBenchmarks Cache entry",
+        "blocking Gateway latency claim",
+        "blocking Cache latency claim",
+        "ratcheted Gateway performance claim",
+        "ratcheted Cache performance claim",
+    ):
+        require_policy(
+            forbidden in set(p15_gateway_cache_attachment.get("forbiddenUntilCleared") or []),
+            f"p15GatewayCacheBudgetAttachment forbiddenUntilCleared missing {forbidden!r}",
         )
     p12_rules = set(p12_rpc_decision.get("blockingRules") or [])
     for rule in (

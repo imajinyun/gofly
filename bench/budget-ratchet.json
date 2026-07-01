@@ -703,6 +703,94 @@
       "ratcheted Cache performance claim"
     ]
   },
+  "p15GatewayCacheBudgetAttachment": {
+    "schema": "gofly.benchmark_p15_gateway_cache_budget_attachment.v1",
+    "aiflowTask": "GOFLY-P15-03-GATEWAY-CACHE-BUDGET-ATTACHMENT",
+    "status": "hold-no-gateway-cache-budget-attachment",
+    "acceptanceGate": "make bench-regression-check",
+    "sourceEvidence": [
+      "bench/gateway_cache_bench_test.go",
+      "bench/matrix.md",
+      "bench/budget-ratchet.json",
+      "bench/README.md"
+    ],
+    "decision": {
+      "result": "hold",
+      "selectedSurface": "none",
+      "allocationBlockingSurface": "none",
+      "latencyMode": "report-only",
+      "budgetAttachmentStatus": "not-attached",
+      "reason": "P15 keeps Gateway and Cache budget attachment blocked because five baseline samples, three current trend samples, allocation budget, cache-mode notes, and rollback evidence are not attached together.",
+      "nextReviewGate": "BENCH_PATTERN='BenchmarkGatewayProxy|BenchmarkCacheHotPath' BENCH_COUNT=5 make bench-stat && make bench-regression-check",
+      "releaseNotePolicy": "Release notes may describe Gateway and Cache benchmark rows as candidate trend evidence only and must not claim ratcheted allocation blocking, blocking latency, or production performance parity until promotion criteria pass."
+    },
+    "candidateRows": [
+      {
+        "surface": "gateway-proxy",
+        "benchmark": "BenchmarkGatewayProxy",
+        "currentMode": "report-only",
+        "proposedPromotionMode": "allocation-blocking",
+        "promotionStatus": "blocked",
+        "minimumBaselineSamples": 5,
+        "minimumCurrentTrendSamples": 3,
+        "budgetAttachment": "blocked",
+        "blockers": [
+          "committed five-sample baseline row is not published",
+          "three-sample current trend is not published",
+          "allocation budget and rollback note are not attached to trackedBenchmarks"
+        ],
+        "rollbackAction": "Keep gateway proxy performance claims report-only and route traffic through the previous gateway path when candidate benchmark evidence regresses."
+      },
+      {
+        "surface": "cache-hot-path",
+        "benchmark": "BenchmarkCacheHotPath",
+        "currentMode": "report-only",
+        "proposedPromotionMode": "allocation-blocking",
+        "promotionStatus": "blocked",
+        "minimumBaselineSamples": 5,
+        "minimumCurrentTrendSamples": 3,
+        "budgetAttachment": "blocked",
+        "blockers": [
+          "committed five-sample baseline row is not published",
+          "three-sample current trend is not published",
+          "cache-mode notes, allocation budget, and rollback note are not attached to trackedBenchmarks"
+        ],
+        "rollbackAction": "Keep cache performance claims report-only, disable cache with GOFLY_CACHE_DISABLED, or use source-of-truth reads when candidate benchmark evidence regresses."
+      },
+      {
+        "surface": "cache-hot-path-loader-hit",
+        "benchmark": "BenchmarkCacheHotPathGetOrLoadHit",
+        "currentMode": "report-only",
+        "proposedPromotionMode": "allocation-blocking",
+        "promotionStatus": "blocked",
+        "minimumBaselineSamples": 5,
+        "minimumCurrentTrendSamples": 3,
+        "budgetAttachment": "blocked",
+        "blockers": [
+          "committed five-sample baseline row is not published",
+          "three-sample current trend is not published",
+          "loader-hit cache semantics need cache-mode notes before blocking promotion"
+        ],
+        "rollbackAction": "Keep cache loader-hit performance report-only until cache hit, miss, and invalidation benchmark evidence converge."
+      }
+    ],
+    "attachmentRules": [
+      "Gateway and Cache candidate rows must stay out of trackedBenchmarks before budget attachment",
+      "P15 may attach at most one Gateway or Cache allocation-blocking surface per release train",
+      "attached Gateway and Cache rows require minimum 5 baseline samples",
+      "attached Gateway and Cache rows require minimum 3 current trend samples",
+      "attached Gateway and Cache rows require no allocation regression under bench-regression-check",
+      "Gateway and Cache latency remains report-only until maxRegressionRatio and rollback evidence are documented"
+    ],
+    "forbiddenUntilCleared": [
+      "trackedBenchmarks Gateway entry",
+      "trackedBenchmarks Cache entry",
+      "blocking Gateway latency claim",
+      "blocking Cache latency claim",
+      "ratcheted Gateway performance claim",
+      "ratcheted Cache performance claim"
+    ]
+  },
   "p12RpcBudgetPromotionDecision": {
     "schema": "gofly.benchmark_p12_rpc_budget_promotion_decision.v1",
     "aiflowTask": "GOFLY-P12-1-RPC-BENCHMARK-BUDGET-PROMOTION",

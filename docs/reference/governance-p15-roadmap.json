@@ -20,11 +20,10 @@
     "safetyPolicy": "P15 tasks are submitted to ignored local aiflow runtime state and mirrored here as durable docs/reference evidence; each task must be completed in order and committed by the current agent or human only after its gate passes or an environment-limited downgrade is documented.",
     "completedTasks": [
       "GOFLY-P15-01-P14-COMPLETION-HANDOFF",
-      "GOFLY-P15-02-RPC-RELEASE-TRAIN-ATTACHMENT"
-    ],
-    "pendingTasks": [
+      "GOFLY-P15-02-RPC-RELEASE-TRAIN-ATTACHMENT",
       "GOFLY-P15-03-GATEWAY-CACHE-BUDGET-ATTACHMENT"
-    ]
+    ],
+    "pendingTasks": []
   },
   "previousBatchHandoff": {
     "completedBatch": "GOFLY-P14",
@@ -85,7 +84,7 @@
     {
       "round": 3,
       "id": "GOFLY-P15-03-GATEWAY-CACHE-BUDGET-ATTACHMENT",
-      "status": "queued",
+      "status": "completed",
       "priority": 98,
       "title": "Gateway cache budget attachment",
       "objective": "Promote gateway proxy and cache hot path benchmark evidence from candidate report-only toward allocation budget attachment only when baseline samples, current trend samples, and rollback notes are present.",
@@ -93,7 +92,13 @@
       "acceptanceGates": [
         "make bench-regression-check"
       ],
-      "commitPolicy": "commit after gateway/cache budget attachment evidence passes bench-regression-check without overstating unsupported or weak latency rows"
+      "commitPolicy": "commit after gateway/cache budget attachment evidence passes bench-regression-check without overstating unsupported or weak latency rows",
+      "commit": "pending-current-commit",
+      "verification": [
+        "python3 -m json.tool bench/budget-ratchet.json",
+        "sh -n bin/scripts/benchstat.sh",
+        "make bench-regression-check"
+      ]
     }
   ]
 }

@@ -1002,6 +1002,106 @@ def validate_ratchet_policy() -> None:
             f"p14RpcReleaseTrainEvidenceReview forbiddenUntilCleared missing {forbidden!r}",
         )
 
+    p15_rpc_attachment = ratchet.get("p15RpcReleaseTrainAttachment") or {}
+    require_policy(
+        p15_rpc_attachment.get("schema") == "gofly.benchmark_p15_rpc_release_train_attachment.v1",
+        "p15RpcReleaseTrainAttachment schema mismatch",
+    )
+    require_policy(
+        p15_rpc_attachment.get("aiflowTask") == "GOFLY-P15-02-RPC-RELEASE-TRAIN-ATTACHMENT",
+        "p15RpcReleaseTrainAttachment aiflowTask mismatch",
+    )
+    require_policy(
+        p15_rpc_attachment.get("status") == "hold-no-rpc-budget-attachment",
+        "p15RpcReleaseTrainAttachment status mismatch",
+    )
+    require_policy(
+        p15_rpc_attachment.get("acceptanceGate") == "make bench-regression-check",
+        "p15RpcReleaseTrainAttachment acceptanceGate mismatch",
+    )
+    for source in (
+        "docs/reference/rpc-tier1-evidence.json",
+        "bench/budget-ratchet.json",
+        "bench/rpc_bench_test.go",
+        "docs/releases/evidence-index.json",
+        "docs/reference/ci-required-check-evidence.json",
+    ):
+        require_policy(
+            source in set(p15_rpc_attachment.get("sourceEvidence") or []),
+            f"p15RpcReleaseTrainAttachment sourceEvidence missing {source!r}",
+        )
+    p15_budget_decision = p15_rpc_attachment.get("decision") or {}
+    require_policy(p15_budget_decision.get("result") == "hold", "p15RpcReleaseTrainAttachment decision.result must be hold")
+    require_policy(p15_budget_decision.get("selectedSurface") == "none", "p15RpcReleaseTrainAttachment selectedSurface must be none")
+    require_policy(
+        p15_budget_decision.get("allocationBlockingSurface") == "none",
+        "p15RpcReleaseTrainAttachment allocationBlockingSurface must be none",
+    )
+    require_policy(p15_budget_decision.get("latencyMode") == "report-only", "p15RpcReleaseTrainAttachment latencyMode must be report-only")
+    require_policy(
+        p15_budget_decision.get("releaseTrainAttachmentStatus") == "not-attached",
+        "p15RpcReleaseTrainAttachment releaseTrainAttachmentStatus must be not-attached",
+    )
+    require_policy(
+        p15_budget_decision.get("nextReviewGate") == "make rpc-boundary-check && make bench-regression-check",
+        "p15RpcReleaseTrainAttachment nextReviewGate mismatch",
+    )
+    for field in ("reason", "releaseNotePolicy"):
+        require_policy(
+            len(str(p15_budget_decision.get(field) or "").split()) >= 20,
+            f"p15RpcReleaseTrainAttachment decision.{field} must be actionable",
+        )
+    for forbidden_claim in ("Kitex", "gRPC-Go", "blocking RPC latency", "drop-in replacement", "Tier 1 promoted"):
+        require_policy(
+            forbidden_claim in str(p15_budget_decision.get("releaseNotePolicy") or ""),
+            f"p15RpcReleaseTrainAttachment releaseNotePolicy must mention {forbidden_claim!r}",
+        )
+    p15_candidates = {
+        item.get("benchmark"): item
+        for item in p15_rpc_attachment.get("candidateRows") or []
+        if isinstance(item, dict) and item.get("benchmark")
+    }
+    require_policy(
+        set(p15_candidates) == expected_p13_candidate_names,
+        "p15RpcReleaseTrainAttachment candidateRows mismatch",
+    )
+    for benchmark, item in p15_candidates.items():
+        require_policy(item.get("currentMode") == "report-only", f"{benchmark}: P15 currentMode must be report-only")
+        require_policy(item.get("proposedPromotionMode") == "allocation-blocking", f"{benchmark}: P15 proposedPromotionMode mismatch")
+        require_policy(item.get("promotionStatus") == "blocked", f"{benchmark}: P15 promotionStatus must be blocked")
+        require_policy(item.get("minimumBaselineSamples") == 5, f"{benchmark}: P15 minimumBaselineSamples mismatch")
+        require_policy(item.get("minimumCurrentTrendSamples") == 3, f"{benchmark}: P15 minimumCurrentTrendSamples mismatch")
+        require_policy(item.get("releaseTrainStatus") == "not-attached", f"{benchmark}: P15 releaseTrainStatus must be not-attached")
+        require_policy(benchmark not in tracked, f"{benchmark}: P15 candidate must stay out of trackedBenchmarks")
+        require_policy(benchmark not in promoted_latency, f"{benchmark}: P15 latency must stay report-only")
+        require_policy(len(item.get("blockers") or []) >= 3, f"{benchmark}: P15 blockers must include at least three reasons")
+        require_policy(
+            any(runtime in str(item.get("rollbackAction") or "") for runtime in ("Kitex", "gRPC-Go", "RPC stack")),
+            f"{benchmark}: P15 rollbackAction must name fallback runtime or previous RPC stack",
+        )
+    p15_rules = set(p15_rpc_attachment.get("blockingRules") or [])
+    for rule in (
+        "P15 must not add RPC rows to trackedBenchmarks until release-train evidence is attached",
+        "P15 may attach at most one allocation-blocking RPC surface per release train",
+        "attached RPC rows require minimum 5 baseline samples",
+        "attached RPC rows require minimum 3 current trend samples",
+        "attached RPC rows require no allocation regression under bench-regression-check",
+        "RPC latency remains report-only until two-release trend evidence is documented",
+    ):
+        require_policy(rule in p15_rules, f"p15RpcReleaseTrainAttachment blockingRules missing {rule!r}")
+    for forbidden in (
+        "trackedBenchmarks RPC entry",
+        "blocking RPC latency claim",
+        "Kitex transport parity claim",
+        "gRPC-Go ecosystem parity claim",
+        "drop-in RPC replacement claim",
+        "Tier 1 promoted RPC surface",
+    ):
+        require_policy(
+            forbidden in set(p15_rpc_attachment.get("forbiddenUntilCleared") or []),
+            f"p15RpcReleaseTrainAttachment forbiddenUntilCleared missing {forbidden!r}",
+        )
+
     require_policy(
         p13_gateway_cache_closeout.get("schema") == "gofly.benchmark_p13_gateway_cache_closeout.v1",
         "p13GatewayCacheBenchmarkCloseout schema mismatch",

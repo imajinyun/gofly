@@ -641,8 +641,8 @@ actual_p15_tasks = [
 require(actual_p15_tasks == expected_tasks, f"P15 roadmap task ids mismatch: {actual_p15_tasks!r}")
 p15_submission = p15_manifest.get("aiflowSubmission") or {}
 require(p15_submission.get("status") == "submitted", "P15 aiflowSubmission.status must be submitted")
-require(p15_submission.get("completedTasks") == expected_tasks[:1], "P15 completedTasks must contain the handoff task")
-require(p15_submission.get("pendingTasks") == expected_tasks[1:], "P15 pendingTasks must match the remaining queue order")
+require(p15_submission.get("completedTasks") == expected_tasks[:2], "P15 completedTasks must contain the handoff and RPC attachment tasks")
+require(p15_submission.get("pendingTasks") == expected_tasks[2:], "P15 pendingTasks must match the remaining queue order")
 submission_commands = p15_submission.get("submissionCommands") or []
 require(len(submission_commands) == 3, "P15 submissionCommands must document all three aiflow submit calls")
 for task_id in expected_tasks:
@@ -665,6 +665,8 @@ for expected_round, item in enumerate(p15_tasks, start=1):
     task_id = item.get("id", "<missing>")
     require(item.get("round") == expected_round, f"{task_id}: round must be {expected_round}")
     expected_status = "completed" if expected_round == 1 else "queued"
+    if expected_round == 2:
+        expected_status = "completed"
     require(item.get("status") == expected_status, f"{task_id}: status must be {expected_status}")
     require(item.get("priority") == 101 - expected_round, f"{task_id}: priority mismatch")
     for field in ("id", "title", "objective", "deliverable", "acceptanceGates", "commitPolicy"):
@@ -674,7 +676,7 @@ for expected_round, item in enumerate(p15_tasks, start=1):
     for gate in gates:
         require(gate_is_known(gate, targets), f"{task_id}: acceptanceGate is not known: {gate!r}")
     require("commit" in item.get("commitPolicy", "").lower(), f"{task_id}: commitPolicy must mention commit")
-    if expected_round == 1:
+    if expected_round in (1, 2):
         require(item.get("commit") == "pending-current-commit", f"{task_id}: completed task must record pending current commit")
         require(bool(item.get("verification")), f"{task_id}: completed task must record verification")
     else:

@@ -960,6 +960,158 @@
       "Tier 1 promoted RPC surface"
     ]
   },
+  "p15ReleaseTrainAttachmentReview": {
+    "schema": "gofly.rpc_tier1_p15_release_train_attachment.v1",
+    "aiflowTask": "GOFLY-P15-02-RPC-RELEASE-TRAIN-ATTACHMENT",
+    "status": "attachment-held-no-release-train",
+    "acceptanceGates": [
+      "make rpc-boundary-check",
+      "make bench-regression-check"
+    ],
+    "previousReviewRef": {
+      "path": "docs/reference/rpc-tier1-evidence.json",
+      "field": "p14ReleaseTrainEvidenceReview",
+      "status": "blocked-no-surface-promoted"
+    },
+    "budgetDecisionRef": {
+      "path": "bench/budget-ratchet.json",
+      "field": "p15RpcReleaseTrainAttachment",
+      "status": "hold-no-rpc-budget-attachment"
+    },
+    "attachmentDecision": {
+      "result": "hold",
+      "selectedSurface": "none",
+      "allocationBlockingSurface": "none",
+      "latencyMode": "report-only",
+      "releaseTrainAttachmentStatus": "not-attached",
+      "reason": "P15 keeps RPC release-train attachment blocked because release evidence, required-check drift, benchmark trend samples, allocation budget, and rollback notes are still not present together.",
+      "nextReviewGate": "make rpc-boundary-check && make bench-regression-check",
+      "releaseNotePolicy": "Release notes must keep RPC attachment as blocked candidate evidence and must not claim Kitex transport parity, gRPC-Go ecosystem parity, blocking RPC latency, drop-in replacement, or Tier 1 promoted readiness."
+    },
+    "blockerDiffFromP14": {
+      "resolvedEvidence": [
+        "candidate boundary contracts remain enforced by make rpc-boundary-check",
+        "RPC benchmark source rows remain present in bench/rpc_bench_test.go",
+        "Kitex and gRPC-Go rollback wording remains attached to every RPC runtime surface"
+      ],
+      "remainingBlockers": [
+        "release evidence manifest row for the selected RPC surface is still missing",
+        "required-check drift evidence making RPC gates release prerequisites is still missing",
+        "five baseline samples and three current trend samples are still not attached together",
+        "allocation budget evidence is still outside trackedBenchmarks for RPC rows",
+        "operator rollback note is still not tied to a concrete release train"
+      ],
+      "narrowingPolicy": "P15 may only remove a blocker when the corresponding evidence path, gate, surface, and rollback note are present in the same release-train attachment."
+    },
+    "surfaceAttachments": [
+      {
+        "surface": "rpc-unary",
+        "benchmark": "BenchmarkRPCUnary/gofly_rpc",
+        "classification": "candidate",
+        "releaseTrainStatus": "not-attached",
+        "allocationMode": "report-only",
+        "latencyMode": "report-only",
+        "budgetAttachment": "blocked",
+        "blockingEvidenceMissing": [
+          "release evidence manifest row",
+          "required-check drift release prerequisite",
+          "stable allocation trend below budget"
+        ],
+        "rollbackAction": "Keep latency-critical unary methods on Kitex or native gRPC-Go until unary release-train and allocation evidence are attached together."
+      },
+      {
+        "surface": "rpc-server-stream",
+        "benchmark": "BenchmarkRPCServerStreamGovernance",
+        "classification": "candidate",
+        "releaseTrainStatus": "not-attached",
+        "allocationMode": "report-only",
+        "latencyMode": "report-only",
+        "budgetAttachment": "blocked",
+        "blockingEvidenceMissing": [
+          "server-stream five-sample baseline",
+          "server-stream three-sample current trend",
+          "release evidence manifest row"
+        ],
+        "rollbackAction": "Keep server-stream workloads on Kitex or native gRPC-Go until server-stream release-train and allocation evidence are attached together."
+      },
+      {
+        "surface": "rpc-client-stream",
+        "benchmark": "BenchmarkRPCClientStreamGovernance",
+        "classification": "candidate",
+        "releaseTrainStatus": "not-attached",
+        "allocationMode": "report-only",
+        "latencyMode": "report-only",
+        "budgetAttachment": "blocked",
+        "blockingEvidenceMissing": [
+          "client-stream five-sample baseline",
+          "client-stream three-sample current trend",
+          "release evidence manifest row"
+        ],
+        "rollbackAction": "Keep upload-style client streams on the previous RPC stack until client-stream release-train evidence is attached together."
+      },
+      {
+        "surface": "rpc-bidi-stream",
+        "benchmark": "BenchmarkRPCBidiStreamGovernance",
+        "classification": "candidate",
+        "releaseTrainStatus": "not-attached",
+        "allocationMode": "report-only",
+        "latencyMode": "report-only",
+        "budgetAttachment": "blocked",
+        "blockingEvidenceMissing": [
+          "bidi-stream five-sample baseline",
+          "bidi-stream three-sample current trend",
+          "release evidence manifest row"
+        ],
+        "rollbackAction": "Keep realtime bidirectional sessions on Kitex or native gRPC-Go until bidirectional stream release-train evidence is attached together."
+      },
+      {
+        "surface": "resolver-balancer",
+        "benchmark": "examples/rpc-idl-matrix resolver and balancer smoke",
+        "classification": "candidate",
+        "releaseTrainStatus": "candidate-ready",
+        "allocationMode": "not-applicable",
+        "latencyMode": "not-applicable",
+        "budgetAttachment": "not-applicable",
+        "blockingEvidenceMissing": [
+          "release evidence manifest row",
+          "required-check drift release prerequisite",
+          "operator rollback note for routing policy drift"
+        ],
+        "rollbackAction": "Keep service mesh routing or the previous client balancer active until resolver and balancer evidence are attached to the release train."
+      },
+      {
+        "surface": "grpc-compatibility",
+        "benchmark": "rpc/grpc compatibility tests",
+        "classification": "tier1-ready-evidence",
+        "releaseTrainStatus": "ready-evidence-release-blocked",
+        "allocationMode": "not-applicable",
+        "latencyMode": "not-applicable",
+        "budgetAttachment": "not-applicable",
+        "blockingEvidenceMissing": [
+          "release evidence manifest row",
+          "required-check drift release prerequisite",
+          "operator rollback note for gRPC compatibility drift"
+        ],
+        "rollbackAction": "Keep native gRPC-Go endpoints reachable when health, auth, tracing, retry, or deadline semantics drift during release-train validation."
+      }
+    ],
+    "attachmentRules": [
+      "P15 must not add RPC rows to trackedBenchmarks until release-train evidence is attached",
+      "P15 may attach at most one allocation-blocking RPC surface per release train",
+      "attached RPC rows require minimum 5 baseline samples",
+      "attached RPC rows require minimum 3 current trend samples",
+      "attached RPC rows require no allocation regression under bench-regression-check",
+      "RPC latency remains report-only until two-release trend evidence is documented"
+    ],
+    "forbiddenClaims": [
+      "trackedBenchmarks RPC entry",
+      "blocking RPC latency claim",
+      "Kitex transport parity claim",
+      "gRPC-Go ecosystem parity claim",
+      "drop-in RPC replacement claim",
+      "Tier 1 promoted RPC surface"
+    ]
+  },
   "evidence": [
     {
       "id": "unary-contract",

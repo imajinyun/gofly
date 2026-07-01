@@ -700,6 +700,95 @@ for surface, row in p14_rows.items():
 for forbidden in ("Kitex transport parity", "gRPC-Go ecosystem parity", "blocking RPC latency", "drop-in RPC replacement", "Tier 1 promoted RPC surface"):
     require(forbidden in set(p14_review.get("forbiddenClaims") or []), f"P14 RPC forbiddenClaims missing {forbidden!r}")
 
+p15_attachment = manifest.get("p15ReleaseTrainAttachmentReview") or {}
+require(
+    p15_attachment.get("schema") == "gofly.rpc_tier1_p15_release_train_attachment.v1",
+    "rpc tier1 evidence p15ReleaseTrainAttachmentReview schema mismatch",
+)
+require(
+    p15_attachment.get("aiflowTask") == "GOFLY-P15-02-RPC-RELEASE-TRAIN-ATTACHMENT",
+    "rpc tier1 evidence p15ReleaseTrainAttachmentReview aiflowTask mismatch",
+)
+require(
+    p15_attachment.get("status") == "attachment-held-no-release-train",
+    "rpc tier1 evidence p15ReleaseTrainAttachmentReview status mismatch",
+)
+require(
+    set(p15_attachment.get("acceptanceGates") or []) == {"make rpc-boundary-check", "make bench-regression-check"},
+    "rpc tier1 evidence p15ReleaseTrainAttachmentReview acceptanceGates mismatch",
+)
+p15_previous = p15_attachment.get("previousReviewRef") or {}
+require(p15_previous.get("field") == "p14ReleaseTrainEvidenceReview", "P15 RPC previousReviewRef field mismatch")
+require(p15_previous.get("status") == "blocked-no-surface-promoted", "P15 RPC previousReviewRef status mismatch")
+p15_budget_ref = p15_attachment.get("budgetDecisionRef") or {}
+require(p15_budget_ref.get("path") == "bench/budget-ratchet.json", "P15 RPC budgetDecisionRef path mismatch")
+require(p15_budget_ref.get("field") == "p15RpcReleaseTrainAttachment", "P15 RPC budgetDecisionRef field mismatch")
+require(p15_budget_ref.get("status") == "hold-no-rpc-budget-attachment", "P15 RPC budgetDecisionRef status mismatch")
+p15_decision = p15_attachment.get("attachmentDecision") or {}
+require(p15_decision.get("result") == "hold", "P15 RPC attachmentDecision.result must be hold")
+require(p15_decision.get("selectedSurface") == "none", "P15 RPC attachmentDecision.selectedSurface must be none")
+require(p15_decision.get("allocationBlockingSurface") == "none", "P15 RPC attachmentDecision.allocationBlockingSurface must be none")
+require(p15_decision.get("latencyMode") == "report-only", "P15 RPC attachmentDecision.latencyMode must be report-only")
+require(p15_decision.get("releaseTrainAttachmentStatus") == "not-attached", "P15 RPC releaseTrainAttachmentStatus must be not-attached")
+require(
+    p15_decision.get("nextReviewGate") == "make rpc-boundary-check && make bench-regression-check",
+    "P15 RPC attachmentDecision nextReviewGate mismatch",
+)
+for field in ("reason", "releaseNotePolicy"):
+    require(len(str(p15_decision.get(field) or "").split()) >= 20, f"P15 RPC attachmentDecision.{field} must be actionable")
+for forbidden_claim in ("Kitex", "gRPC-Go", "blocking RPC latency", "drop-in replacement", "Tier 1 promoted"):
+    require(
+        forbidden_claim in str(p15_decision.get("releaseNotePolicy") or ""),
+        f"P15 RPC releaseNotePolicy must mention {forbidden_claim!r}",
+    )
+p15_diff = p15_attachment.get("blockerDiffFromP14") or {}
+require(len(p15_diff.get("resolvedEvidence") or []) >= 3, "P15 RPC blockerDiffFromP14.resolvedEvidence must include at least three rows")
+require(len(p15_diff.get("remainingBlockers") or []) >= 5, "P15 RPC blockerDiffFromP14.remainingBlockers must include at least five rows")
+require(len(str(p15_diff.get("narrowingPolicy") or "").split()) >= 14, "P15 RPC blockerDiffFromP14.narrowingPolicy must be actionable")
+p15_rows = {
+    item.get("surface"): item
+    for item in p15_attachment.get("surfaceAttachments") or []
+    if isinstance(item, dict) and item.get("surface")
+}
+required_p15_surfaces = {
+    "rpc-unary": "candidate",
+    "rpc-server-stream": "candidate",
+    "rpc-client-stream": "candidate",
+    "rpc-bidi-stream": "candidate",
+    "resolver-balancer": "candidate",
+    "grpc-compatibility": "tier1-ready-evidence",
+}
+require(set(p15_rows) == set(required_p15_surfaces), f"P15 RPC surfaceAttachments mismatch: {sorted(p15_rows)!r}")
+for surface, classification in required_p15_surfaces.items():
+    row = p15_rows.get(surface) or {}
+    require(row.get("classification") == classification, f"P15 RPC {surface}: classification mismatch")
+    require(row.get("releaseTrainStatus") in {"not-attached", "candidate-ready", "ready-evidence-release-blocked"}, f"P15 RPC {surface}: releaseTrainStatus mismatch")
+    require(row.get("allocationMode") in {"report-only", "not-applicable"}, f"P15 RPC {surface}: allocationMode mismatch")
+    require(row.get("latencyMode") in {"report-only", "not-applicable"}, f"P15 RPC {surface}: latencyMode mismatch")
+    require(row.get("budgetAttachment") in {"blocked", "not-applicable"}, f"P15 RPC {surface}: budgetAttachment mismatch")
+    require(len(row.get("blockingEvidenceMissing") or []) >= 3, f"P15 RPC {surface}: blockingEvidenceMissing must include at least three rows")
+    if surface.startswith("rpc-"):
+        require(row.get("releaseTrainStatus") == "not-attached", f"P15 RPC {surface}: releaseTrainStatus must be not-attached")
+        require(row.get("allocationMode") == "report-only", f"P15 RPC {surface}: allocationMode must be report-only")
+        require(row.get("latencyMode") == "report-only", f"P15 RPC {surface}: latencyMode must be report-only")
+        require(row.get("budgetAttachment") == "blocked", f"P15 RPC {surface}: budgetAttachment must be blocked")
+        require(row.get("benchmark") not in p13_tracked_benchmarks, f"P15 RPC {surface}: benchmark must stay out of trackedBenchmarks")
+    require(
+        any(runtime in str(row.get("rollbackAction") or "") for runtime in ("Kitex", "gRPC-Go", "RPC stack", "service mesh", "client balancer")),
+        f"P15 RPC {surface}: rollbackAction must name fallback runtime or routing stack",
+    )
+p15_rules = set(p15_attachment.get("attachmentRules") or [])
+for rule in (
+    "P15 must not add RPC rows to trackedBenchmarks until release-train evidence is attached",
+    "P15 may attach at most one allocation-blocking RPC surface per release train",
+    "attached RPC rows require minimum 5 baseline samples",
+    "attached RPC rows require minimum 3 current trend samples",
+    "attached RPC rows require no allocation regression under bench-regression-check",
+):
+    require(rule in p15_rules, f"P15 RPC attachmentRules missing {rule!r}")
+for forbidden in ("trackedBenchmarks RPC entry", "blocking RPC latency claim", "Kitex transport parity claim", "gRPC-Go ecosystem parity claim", "drop-in RPC replacement claim", "Tier 1 promoted RPC surface"):
+    require(forbidden in set(p15_attachment.get("forbiddenClaims") or []), f"P15 RPC forbiddenClaims missing {forbidden!r}")
+
 r8_transport_matrix = transport_boundary.get("r8TransportEvidenceMatrix") or {}
 require(
     r8_transport_matrix.get("schema") == "gofly.rpc_transport_r8_evidence_matrix.v1",

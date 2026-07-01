@@ -19,10 +19,10 @@
     "runtimeStatePolicy": ".aiflow, .harness, .tmp-test, .trae, coverage.out, bench/current.txt, bench/regression-report.json, bench/summary.md, bin/gofly, and docs/superpowers remain ignored local evidence and must not be committed.",
     "safetyPolicy": "P15 tasks are submitted to ignored local aiflow runtime state and mirrored here as durable docs/reference evidence; each task must be completed in order and committed by the current agent or human only after its gate passes or an environment-limited downgrade is documented.",
     "completedTasks": [
-      "GOFLY-P15-01-P14-COMPLETION-HANDOFF"
+      "GOFLY-P15-01-P14-COMPLETION-HANDOFF",
+      "GOFLY-P15-02-RPC-RELEASE-TRAIN-ATTACHMENT"
     ],
     "pendingTasks": [
-      "GOFLY-P15-02-RPC-RELEASE-TRAIN-ATTACHMENT",
       "GOFLY-P15-03-GATEWAY-CACHE-BUDGET-ATTACHMENT"
     ]
   },
@@ -62,7 +62,7 @@
     {
       "round": 2,
       "id": "GOFLY-P15-02-RPC-RELEASE-TRAIN-ATTACHMENT",
-      "status": "queued",
+      "status": "completed",
       "priority": 99,
       "title": "RPC release-train attachment",
       "objective": "Attach the first concrete RPC release-train evidence bundle or keep promotion held with a narrower blocker inventory across unary, stream, resolver, balancer, rollback, and budget rows.",
@@ -71,7 +71,16 @@
         "make rpc-boundary-check",
         "make bench-regression-check"
       ],
-      "commitPolicy": "commit after RPC release-train attachment evidence and benchmark gates pass; keep latency report-only unless release-train data is durable"
+      "commitPolicy": "commit after RPC release-train attachment evidence and benchmark gates pass; keep latency report-only unless release-train data is durable",
+      "commit": "pending-current-commit",
+      "verification": [
+        "python3 -m json.tool docs/reference/rpc-tier1-evidence.json",
+        "python3 -m json.tool bench/budget-ratchet.json",
+        "sh -n bin/scripts/check-rpc-boundary.sh",
+        "sh -n bin/scripts/benchstat.sh",
+        "make rpc-boundary-check",
+        "make bench-regression-check"
+      ]
     },
     {
       "round": 3,

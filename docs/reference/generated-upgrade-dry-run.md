@@ -158,6 +158,15 @@ test status, repeat diff status, and expected diff explanation. Runtime reports
 and generated project directories remain temporary evidence and must not be
 committed.
 
+The P10 goctl generator fidelity closeout is captured in
+`p10GoctlGeneratorFidelity`. It links the gozero-compatible scaffold profile,
+goctl-style flags, `.api` import/route/diff behavior, proto import handling,
+alias collision boundaries, repeat-diff classification, generated dependency
+boundaries, and rollback notes into one blocking contract. Promotion requires
+`make generated-upgrade-dry-run-check` plus the goctl compatibility gate, and
+runtime generated projects must remain volatile evidence under `.tmp-test` or
+temporary directories.
+
 ## Migration Fidelity Matrix
 
 The migration fidelity matrix ties generated upgrade expectations to adopter

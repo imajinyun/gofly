@@ -291,6 +291,89 @@
       "reportUse": "The gofly.generated_version_compat_report.v1 generated version compatibility report is the machine-readable source for generated file count, go test status, repeat diff status, and expected diff explanation."
     }
   },
+  "p10GoctlGeneratorFidelity": {
+    "schema": "gofly.goctl_generator_fidelity_closeout.v1",
+    "aiflowTask": "GOFLY-P10-2-GOCTL-GENERATOR-FIDELITY",
+    "status": "blocking-contract",
+    "acceptanceGate": "make generated-upgrade-dry-run-check",
+    "sourceOfTruth": [
+      "docs/reference/goctl-generator-compatibility.json",
+      "docs/reference/generated-scaffold-long-term-compatibility.json",
+      "testdata/generated-compat/matrix.json"
+    ],
+    "fidelityRows": [
+      {
+        "id": "gozero-compatible-profile",
+        "surface": "goctl-compatible scaffold profile",
+        "evidence": [
+          "ProfileGoZeroCompatible",
+          "goctl-layout",
+          "route-layout-boundary"
+        ],
+        "gate": "make goctl-generator-compat-check",
+        "rollbackOrEscalation": "Fallback to the default gofly-ai profile or pin the previous generator when gozero-compatible layered files drift."
+      },
+      {
+        "id": "goctl-compatible-flags",
+        "surface": "goctl-style CLI inputs",
+        "evidence": [
+          "name-from-filename",
+          "go_opt",
+          "go-grpc_opt",
+          "go_grpc_opt"
+        ],
+        "gate": "make goctl-generator-compat-check",
+        "rollbackOrEscalation": "Keep goctl-style flags accepted with no-op warnings instead of changing positional parsing semantics."
+      },
+      {
+        "id": "api-import-diff-route",
+        "surface": ".api import, route, and diff tooling",
+        "evidence": [
+          "api import",
+          "api route",
+          "api diff",
+          "api-import-compatibility"
+        ],
+        "gate": "make goctl-generator-compat-check",
+        "rollbackOrEscalation": "Pin the previous generated API fixture and reject importer promotion when .api import handling changes route, field, or diff semantics."
+      },
+      {
+        "id": "proto-import-compatibility",
+        "surface": "proto import and descriptor generation",
+        "evidence": [
+          "proto-import-compatibility",
+          "protoc plugin",
+          "generated service descriptors"
+        ],
+        "gate": "make generated-upgrade-dry-run-check",
+        "rollbackOrEscalation": "Pin native protoc or the previous generated proto snapshot when imported proto types, package names, or generated service descriptors drift."
+      },
+      {
+        "id": "alias-collision-boundary",
+        "surface": "import aliases and generated symbol names",
+        "evidence": [
+          "alias-collision-boundary",
+          "Go package aliases",
+          "generated symbol names"
+        ],
+        "gate": "make generated-upgrade-dry-run-check",
+        "rollbackOrEscalation": "Pin the previous generator when include ordering, plugin aliases, Go package aliases, or generated symbol names collide after regeneration."
+      },
+      {
+        "id": "repeat-diff-rollback",
+        "surface": "repeat generation and rollback notes",
+        "evidence": [
+          "deterministic-repeat-generation",
+          "diffReportContract",
+          "rollbackNote"
+        ],
+        "gate": "make generated-upgrade-dry-run-check",
+        "rollbackOrEscalation": "Discard generated output and keep the last known-good snapshot when repeat generation introduces unclassified diffs or missing rollback notes."
+      }
+    ],
+    "promotionPolicy": "Generated scaffold promotion requires goctl-compatible profile evidence, accepted goctl-style flags, API import/diff/route fidelity, proto import compatibility, alias-collision checks, generated dependency boundaries, repeat diff classification, and rollback notes.",
+    "runtimeArtifactPolicy": "Generated projects and dry-run reports remain volatile runtime evidence under .tmp-test or temporary directories and must not be committed."
+  },
   "profiles": [
     {
       "api": "testdata/generated-compat/v0.1/orders.api",

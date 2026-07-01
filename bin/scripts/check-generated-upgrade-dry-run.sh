@@ -717,6 +717,60 @@ require(
     "p9HistoricalFixtureMatrix diffExplanationPolicy.reportUse must reference the generated version report schema",
 )
 
+p10_fidelity = manifest.get("p10GoctlGeneratorFidelity") or {}
+require(
+    p10_fidelity.get("schema") == "gofly.goctl_generator_fidelity_closeout.v1",
+    "p10GoctlGeneratorFidelity schema mismatch",
+)
+require(
+    p10_fidelity.get("aiflowTask") == "GOFLY-P10-2-GOCTL-GENERATOR-FIDELITY",
+    "p10GoctlGeneratorFidelity aiflowTask mismatch",
+)
+require(p10_fidelity.get("status") == "blocking-contract", "p10GoctlGeneratorFidelity status must be blocking-contract")
+require(
+    p10_fidelity.get("acceptanceGate") == "make generated-upgrade-dry-run-check",
+    "p10GoctlGeneratorFidelity acceptanceGate mismatch",
+)
+for source in (
+    "docs/reference/goctl-generator-compatibility.json",
+    "docs/reference/generated-scaffold-long-term-compatibility.json",
+    "testdata/generated-compat/matrix.json",
+):
+    require(source in set(p10_fidelity.get("sourceOfTruth") or []), f"p10GoctlGeneratorFidelity sourceOfTruth missing {source!r}")
+    require((root / source).exists(), f"p10GoctlGeneratorFidelity source path missing: {source}")
+p10_rows = {
+    item.get("id"): item
+    for item in p10_fidelity.get("fidelityRows") or []
+    if isinstance(item, dict) and item.get("id")
+}
+expected_p10_rows = {
+    "gozero-compatible-profile": {"ProfileGoZeroCompatible", "goctl-layout", "route-layout-boundary"},
+    "goctl-compatible-flags": {"name-from-filename", "go_opt", "go-grpc_opt", "go_grpc_opt"},
+    "api-import-diff-route": {"api import", "api route", "api diff", "api-import-compatibility"},
+    "proto-import-compatibility": {"proto-import-compatibility", "protoc plugin", "generated service descriptors"},
+    "alias-collision-boundary": {"alias-collision-boundary", "Go package aliases", "generated symbol names"},
+    "repeat-diff-rollback": {"deterministic-repeat-generation", "diffReportContract", "rollbackNote"},
+}
+require(set(p10_rows) == set(expected_p10_rows), f"p10GoctlGeneratorFidelity rows mismatch: {sorted(p10_rows)!r}")
+for row_id, expected_evidence in expected_p10_rows.items():
+    row = p10_rows.get(row_id) or {}
+    for field in ("id", "surface", "evidence", "gate", "rollbackOrEscalation"):
+        require(row.get(field), f"p10GoctlGeneratorFidelity {row_id}: {field} is required")
+    evidence = set(row.get("evidence") or [])
+    require(expected_evidence <= evidence, f"p10GoctlGeneratorFidelity {row_id}: evidence missing {sorted(expected_evidence - evidence)!r}")
+    gate = str(row.get("gate") or "")
+    require(gate.startswith("make "), f"p10GoctlGeneratorFidelity {row_id}: gate must be a make target")
+    if gate.startswith("make "):
+        target = gate.removeprefix("make ").split()[0]
+        require(re.search(rf"^{re.escape(target)}:", makefile, re.M), f"p10GoctlGeneratorFidelity {row_id}: gate target {target!r} missing")
+    require(len(str(row.get("rollbackOrEscalation") or "").split()) >= 10, f"p10GoctlGeneratorFidelity {row_id}: rollbackOrEscalation must be actionable")
+promotion_policy = str(p10_fidelity.get("promotionPolicy") or "")
+for needle in ("goctl-compatible profile", "goctl-style flags", "API import", "proto import", "alias-collision", "rollback notes"):
+    require(needle in promotion_policy, f"p10GoctlGeneratorFidelity promotionPolicy missing {needle!r}")
+runtime_policy = str(p10_fidelity.get("runtimeArtifactPolicy") or "")
+for needle in (".tmp-test", "temporary directories", "must not be committed"):
+    require(needle in runtime_policy, f"p10GoctlGeneratorFidelity runtimeArtifactPolicy missing {needle!r}")
+
 target_body = make_target_body(makefile, "generated-upgrade-dry-run-check")
 contract_deps = make_target_deps(makefile, "contract-docs-check")
 require(
@@ -738,6 +792,7 @@ for needle in (
     "breaking-candidate",
     "rollbackNote",
     "p9HistoricalFixtureMatrix",
+    "p10GoctlGeneratorFidelity",
     "gofly.generated_version_compat_report.v1",
 ):
     require(needle in doc, f"docs/reference/generated-upgrade-dry-run.md missing {needle!r}")

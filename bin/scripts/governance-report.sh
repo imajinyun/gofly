@@ -1349,18 +1349,27 @@ if convergence["gate"] != "make governance-boundary-inventory-check":
     missing.append("governance convergence gate mismatch")
 if convergence["finalGate"] != "make governance-10-rounds":
     missing.append("governance convergence finalGate mismatch")
-if convergence["taskCount"] != 3:
-    missing.append("governance convergence must track the active P12 task set")
+if convergence["taskCount"] != 12:
+    missing.append("governance convergence must track the active P13 task set")
 active_aiflow_batch = convergence.get("activeAiflowBatch", "")
 if not active_aiflow_batch:
     missing.append("governance convergence activeAiflowBatch is required")
 expected_round_ids = [
-    "GOFLY-P12-1-RPC-BENCHMARK-BUDGET-PROMOTION",
-    "GOFLY-P12-2-GENERATED-UPGRADE-REAL-BRANCH",
-    "GOFLY-P12-3-HOSTED-CLOUD-NATIVE-LIVE-CI",
+    "GOFLY-P13-01-RPC-TIER1-PROMOTION-CLOSEOUT",
+    "GOFLY-P13-02-GOCTL-GENERATOR-MATURITY",
+    "GOFLY-P13-03-REST-BINDING-VALIDATION-ENVELOPE",
+    "GOFLY-P13-04-GOZERO-RESILIENCE-DEFAULTS",
+    "GOFLY-P13-05-DB-CACHE-PRODUCTIZATION",
+    "GOFLY-P13-06-GATEWAY-CACHE-BENCH-EVIDENCE",
+    "GOFLY-P13-07-DISCOVERY-FAILOVER-MATRIX",
+    "GOFLY-P13-08-REFERENCE-APP-LIVE-PROOF",
+    "GOFLY-P13-09-MIGRATION-CASE-UPGRADE",
+    "GOFLY-P13-10-PLUGIN-TEMPLATE-PUBLISH-HARDENING",
+    "GOFLY-P13-11-CLI-DOCTOR-TROUBLESHOOTING-LOOP",
+    "GOFLY-P13-12-HOSTED-RELEASE-SUPPLY-CHAIN",
 ]
-if active_aiflow_batch != "GOFLY-P12":
-    missing.append("governance convergence activeAiflowBatch must be GOFLY-P12")
+if active_aiflow_batch != "GOFLY-P13":
+    missing.append("governance convergence activeAiflowBatch must be GOFLY-P13")
 actual_round_ids = [
     item.get("id", "")
     for item in convergence.get("tasks") or []
@@ -1376,7 +1385,7 @@ for item in convergence.get("tasks") or []:
         missing.append(f"governance convergence task must be an object: {item!r}")
         continue
     item_id = item.get("id", "")
-    for field in ("id", "round", "title", "gate", "verification", "commit"):
+    for field in ("id", "round", "title", "gate", "status", "priority", "commitPolicy"):
         if not item.get(field):
             missing.append(f"governance convergence {item_id or '<missing>'}: {field} is required")
 ignored_runtime_paths = set(convergence.get("ignoredRuntimePaths") or [])
@@ -2234,10 +2243,14 @@ if convergence_contract.get("schema") != "gofly.governance_boundary_inventory.v1
     missing.append("governance dashboard governanceConvergence schema mismatch")
 if convergence_contract.get("gate") != "make governance-boundary-inventory-check":
     missing.append("governance dashboard governanceConvergence gate mismatch")
-if int(convergence_contract.get("requiredTaskCount") or 0) != 3:
+if int(convergence_contract.get("requiredTaskCount") or 0) != 12:
     missing.append("governance dashboard governanceConvergence requiredTaskCount mismatch")
-if convergence_contract.get("requiredActiveBatch") != "GOFLY-P12":
+if convergence_contract.get("requiredActiveBatch") != "GOFLY-P13":
     missing.append("governance dashboard governanceConvergence requiredActiveBatch mismatch")
+if convergence_contract.get("latestCompletedBatch") != "GOFLY-P12":
+    missing.append("governance dashboard governanceConvergence latestCompletedBatch mismatch")
+if convergence_contract.get("activeRoadmap") != "docs/reference/governance-p13-roadmap.json":
+    missing.append("governance dashboard governanceConvergence activeRoadmap mismatch")
 if set(convergence_contract.get("requiredIgnoredRuntimePaths") or []) != expected_ignored_runtime_paths:
     missing.append("governance dashboard governanceConvergence requiredIgnoredRuntimePaths mismatch")
 aiflow_contract = dashboard.get("aiflow") or {}

@@ -1,320 +1,195 @@
 {
-  "schema": "gofly.governance_boundary_inventory.v1",
-  "purpose": "Lightweight baseline inventory for the 10-round governance workflow before expensive full-repository gates run.",
-  "activeAiflowBatch": "GOFLY-P13",
-  "aiflowTaskBatches": [
-    {
-      "id": "GOFLY-GOV-10R",
-      "status": "completed-with-local-fallbacks",
-      "taskPrefix": "GOFLY-GOV-10R-",
-      "roundCount": 10,
-      "evidence": "git log --oneline -n 10"
-    },
-    {
-      "id": "GOFLY-GOV-10R2",
-      "status": "completed-with-local-fallbacks",
-      "taskPrefix": "GOFLY-GOV-10R2-",
-      "roundCount": 10,
-      "evidence": "go run ./cmd/aiflow status -root /Users/bytedance/Codes/go/src/github/gofly -id GOFLY-GOV-10R2-01"
-    },
-    {
-      "id": "GOFLY-GOV-10R3",
-      "status": "completed-with-local-fallbacks",
-      "taskPrefix": "GOFLY-GOV-10R3-",
-      "roundCount": 10,
-      "evidence": "docs/reference/governance-convergence-verification.json"
-    },
-    {
-      "id": "GOFLY-GOV-10R4",
-      "status": "completed",
-      "taskPrefix": "GOFLY-GOV-10R4-",
-      "roundCount": 10,
-      "evidence": "docs/reference/governance-convergence-verification.json"
-    },
-    {
-      "id": "GOFLY-GOV-10R5",
-      "status": "completed",
-      "taskPrefix": "GOFLY-GOV-10R5-",
-      "roundCount": 10,
-      "evidence": "docs/reference/governance-convergence-verification.json"
-    },
-    {
-      "id": "GOFLY-GOV-10R6",
-      "status": "completed",
-      "taskPrefix": "GOFLY-GOV-10R6-",
-      "roundCount": 10,
-      "evidence": "docs/reference/governance-convergence-verification.json"
-    },
-    {
-      "id": "GOFLY-GOV-10R7",
-      "status": "completed",
-      "taskPrefix": "GOFLY-GOV-10R7-",
-      "roundCount": 10,
-      "evidence": "docs/reference/governance-convergence-verification.json"
-    },
-    {
-      "id": "GOFLY-GOV-10R8",
-      "status": "completed",
-      "taskPrefix": "GOFLY-GOV-10R8-",
-      "roundCount": 10,
-      "evidence": "docs/reference/governance-convergence-verification.json"
-    },
-    {
-      "id": "GOFLY-GOV-10P9",
-      "status": "completed",
-      "taskPrefix": "GOFLY-GOV-10P9-",
-      "roundCount": 10,
-      "evidence": "docs/reference/framework-gap-post-r8-roadmap.json"
-    },
-    {
-      "id": "GOFLY-P10",
-      "status": "completed",
-      "taskPrefix": "GOFLY-P10-",
-      "roundCount": 10,
-      "evidence": "docs/reference/governance-convergence-verification.json"
-    },
-    {
-      "id": "GOFLY-P11",
-      "status": "completed",
-      "taskPrefix": "GOFLY-P11-",
-      "roundCount": 3,
-      "evidence": "docs/reference/governance-p11-roadmap.json"
-    },
-    {
-      "id": "GOFLY-P12",
-      "status": "completed",
-      "taskPrefix": "GOFLY-P12-",
-      "roundCount": 3,
-      "evidence": "docs/reference/governance-convergence-verification.json"
-    },
-    {
-      "id": "GOFLY-P13",
-      "status": "submitted",
-      "taskPrefix": "GOFLY-P13-",
-      "roundCount": 12,
-      "evidence": "docs/reference/governance-p13-roadmap.json"
-    }
+  "schema": "gofly.governance_p13_roadmap.v1",
+  "purpose": "Durable P13 aiflow queue for Kitex and go-zero gap closure, keeping .aiflow runtime state ignored while making the active governance plan machine-checkable.",
+  "sourceEvidence": [
+    "docs/reference/governance-convergence-verification.json",
+    "docs/reference/governance-boundary-inventory.json",
+    "docs/reference/framework-gap-matrix.json",
+    "go run -C /Users/bytedance/Codes/go/src/github/aiflow ./cmd/aiflow status -root /Users/bytedance/Codes/go/src/github/gofly -config /Users/bytedance/Codes/go/src/github/gofly/aiflow.yaml"
   ],
-  "aiflowTasks": [
+  "aiflowSubmission": {
+    "status": "submitted",
+    "submittedAt": "2026-07-01T13:59:06Z",
+    "submissionCommand": "go run -C /Users/bytedance/Codes/go/src/github/aiflow ./cmd/aiflow submit -root /Users/bytedance/Codes/go/src/github/gofly -config /Users/bytedance/Codes/go/src/github/gofly/aiflow.yaml",
+    "queueStatusCommand": "go run -C /Users/bytedance/Codes/go/src/github/aiflow ./cmd/aiflow status -root /Users/bytedance/Codes/go/src/github/gofly -config /Users/bytedance/Codes/go/src/github/gofly/aiflow.yaml",
+    "runtimeStatePolicy": ".aiflow, .harness, .tmp-test, .trae, coverage.out, bench/regression-report.json, bin/gofly, and docs/superpowers remain ignored local evidence and must not be committed.",
+    "safetyPolicy": "P13 tasks are submitted to ignored local aiflow runtime state and mirrored here as durable docs/reference evidence; each task must be completed in order and committed by the current agent or human only after its gate passes or an environment-limited downgrade is documented.",
+    "pendingTasks": [
+      "GOFLY-P13-01-RPC-TIER1-PROMOTION-CLOSEOUT",
+      "GOFLY-P13-02-GOCTL-GENERATOR-MATURITY",
+      "GOFLY-P13-03-REST-BINDING-VALIDATION-ENVELOPE",
+      "GOFLY-P13-04-GOZERO-RESILIENCE-DEFAULTS",
+      "GOFLY-P13-05-DB-CACHE-PRODUCTIZATION",
+      "GOFLY-P13-06-GATEWAY-CACHE-BENCH-EVIDENCE",
+      "GOFLY-P13-07-DISCOVERY-FAILOVER-MATRIX",
+      "GOFLY-P13-08-REFERENCE-APP-LIVE-PROOF",
+      "GOFLY-P13-09-MIGRATION-CASE-UPGRADE",
+      "GOFLY-P13-10-PLUGIN-TEMPLATE-PUBLISH-HARDENING",
+      "GOFLY-P13-11-CLI-DOCTOR-TROUBLESHOOTING-LOOP",
+      "GOFLY-P13-12-HOSTED-RELEASE-SUPPLY-CHAIN"
+    ]
+  },
+  "tasks": [
     {
-      "id": "GOFLY-P13-01-RPC-TIER1-PROMOTION-CLOSEOUT",
       "round": 1,
+      "id": "GOFLY-P13-01-RPC-TIER1-PROMOTION-CLOSEOUT",
       "status": "queued",
       "priority": 100,
       "title": "RPC Tier 1 promotion closeout",
       "objective": "Move unary and stream RPC evidence from candidate or report-only toward Tier 1 promotion criteria without overstating latency parity.",
       "deliverable": "Release-train evidence for unary, server-stream, client-stream, bidi-stream, resolver, balancer, deadline, retry, auth, tracing, Kitex coexistence, rollback, and allocation-blocking promotion decisions.",
-      "gate": "make rpc-boundary-check",
+      "acceptanceGates": [
+        "make rpc-boundary-check",
+        "make bench-regression-check"
+      ],
       "commitPolicy": "commit after RPC promotion evidence and both rpc-boundary-check and bench-regression-check pass; latency remains report-only unless evidence is strong enough for blocking promotion"
     },
     {
-      "id": "GOFLY-P13-02-GOCTL-GENERATOR-MATURITY",
       "round": 2,
+      "id": "GOFLY-P13-02-GOCTL-GENERATOR-MATURITY",
       "status": "queued",
       "priority": 99,
       "title": "goctl generator maturity",
       "objective": "Raise generator trust toward goctl-level maturity across .api import, format, validation, historical fixtures, adopter replay, and classified diffs.",
       "deliverable": ".api compatibility rows, old/current/future fixtures, real adopter branch replay, multi-language client planning, temporary project go test evidence, and repeat-generation diff classification.",
-      "gate": "make generated-version-compat-check",
+      "acceptanceGates": [
+        "make generated-version-compat-check",
+        "make generated-upgrade-dry-run-check"
+      ],
       "commitPolicy": "commit after generator compatibility and upgrade dry-run gates pass with explainable repeated generation diffs"
     },
     {
-      "id": "GOFLY-P13-03-REST-BINDING-VALIDATION-ENVELOPE",
       "round": 3,
+      "id": "GOFLY-P13-03-REST-BINDING-VALIDATION-ENVELOPE",
       "status": "queued",
       "priority": 98,
       "title": "REST binding validation envelope",
       "objective": "Deepen REST path, query, header, body, tag, schema, and error-code consistency between runtime binding and OpenAPI contracts.",
       "deliverable": "Golden coverage for binding and schema surfaces, validator adapter evidence, invalid request smoke, and stable rest.ErrorResponse behavior.",
-      "gate": "make openapi-validation-check",
+      "acceptanceGates": [
+        "make openapi-validation-check"
+      ],
       "commitPolicy": "commit after OpenAPI validation gate passes and invalid requests return a stable rest.ErrorResponse"
     },
     {
-      "id": "GOFLY-P13-04-GOZERO-RESILIENCE-DEFAULTS",
       "round": 4,
+      "id": "GOFLY-P13-04-GOZERO-RESILIENCE-DEFAULTS",
       "status": "queued",
       "priority": 97,
       "title": "go-zero resilience defaults",
       "objective": "Align default resilience capabilities with go-zero style production expectations across REST, RPC, and Gateway paths.",
       "deliverable": "Unified configuration and runtime evidence for timeout, concurrency limit, rate limit, breaker, adaptive shedding, retry, enable/disable paths, invalid configuration, and downgrade behavior.",
-      "gate": "make resilience-drill-check",
+      "acceptanceGates": [
+        "make resilience-drill-check"
+      ],
       "commitPolicy": "commit after resilience matrix evidence and drill check pass with runtime behavior, not only governance rule documentation"
     },
     {
-      "id": "GOFLY-P13-05-DB-CACHE-PRODUCTIZATION",
       "round": 5,
+      "id": "GOFLY-P13-05-DB-CACHE-PRODUCTIZATION",
       "status": "queued",
       "priority": 96,
       "title": "DB and cache productization",
       "objective": "Productize data access and cache workflows so generated services have credible SQL and Redis/cache adoption paths.",
       "deliverable": "SQL repository templates, transaction samples, pagination, optimistic locking, read/write routing strategy, Redis cache-aside templates, cache observability, and generated service DB/cache smoke evidence.",
-      "gate": "make db-cache-productization-check",
+      "acceptanceGates": [
+        "make db-cache-productization-check"
+      ],
       "commitPolicy": "commit after DB/cache productization gate passes and cache hot path can move from unsupported-report-only toward candidate evidence"
     },
     {
-      "id": "GOFLY-P13-06-GATEWAY-CACHE-BENCH-EVIDENCE",
       "round": 6,
+      "id": "GOFLY-P13-06-GATEWAY-CACHE-BENCH-EVIDENCE",
       "status": "queued",
       "priority": 95,
       "title": "Gateway and cache benchmark evidence",
       "objective": "Close unsupported-report-only benchmark gaps for gateway proxy and cache hot path surfaces.",
       "deliverable": "BenchmarkGatewayProxy, BenchmarkCacheHotPath, five baseline samples, three current trend samples, allocation budgets, latency report-only policy, and rollback notes.",
-      "gate": "make bench-regression-check",
+      "acceptanceGates": [
+        "make bench-regression-check"
+      ],
       "commitPolicy": "commit after benchmark evidence and bench-regression-check pass; only allocations become blocking until latency trend evidence is stronger"
     },
     {
-      "id": "GOFLY-P13-07-DISCOVERY-FAILOVER-MATRIX",
       "round": 7,
+      "id": "GOFLY-P13-07-DISCOVERY-FAILOVER-MATRIX",
       "status": "queued",
       "priority": 94,
       "title": "Discovery adapter failover matrix",
       "objective": "Move discovery from abstraction evidence to adapter and failover behavior evidence across common registries.",
       "deliverable": "Adapter matrix for etcd, Consul, Nacos, Kubernetes, DNS, and static providers with watch, lease, zone/tag/version filtering, failover, stale endpoint, unavailable registry, resolver update, and rollback notes.",
-      "gate": "make discovery-adapter-matrix-check",
+      "acceptanceGates": [
+        "make discovery-adapter-matrix-check"
+      ],
       "commitPolicy": "commit after discovery adapter matrix gate passes with failover and rollback evidence"
     },
     {
-      "id": "GOFLY-P13-08-REFERENCE-APP-LIVE-PROOF",
       "round": 8,
+      "id": "GOFLY-P13-08-REFERENCE-APP-LIVE-PROOF",
       "status": "queued",
       "priority": 93,
       "title": "Reference app live proof",
       "objective": "Turn production-orders into a real production topology proof with memory and Docker-backed modes.",
       "deliverable": "Memory mode and Docker-backed profiles for SQL outbox, Redis cache, Kafka/RabbitMQ/Redis Stream, Consul/etcd/Nacos discovery, OTel collector, and explicit fallback evidence when local tools are unavailable.",
-      "gate": "make reference-app-smoke",
+      "acceptanceGates": [
+        "make reference-app-smoke"
+      ],
       "commitPolicy": "commit after reference-app-smoke passes in memory mode and Docker-backed behavior is live or explicitly skipped with auditable fallback evidence"
     },
     {
-      "id": "GOFLY-P13-09-MIGRATION-CASE-UPGRADE",
       "round": 9,
+      "id": "GOFLY-P13-09-MIGRATION-CASE-UPGRADE",
       "status": "queued",
       "priority": 92,
       "title": "Migration case upgrade",
       "objective": "Upgrade Kitex, go-zero, Gin, and Kratos migration proof into runnable adopter decision evidence.",
       "deliverable": "Runnable Kitex coexistence, go-zero .api migration, Gin REST migration, and Kratos app migration cases, each with rollback notes, compatibility caveats, and gate commands.",
-      "gate": "make adopter-decision-check",
+      "acceptanceGates": [
+        "make adopter-decision-check",
+        "make examples-smoke"
+      ],
       "commitPolicy": "commit after adopter decision and examples smoke gates pass"
     },
     {
-      "id": "GOFLY-P13-10-PLUGIN-TEMPLATE-PUBLISH-HARDENING",
       "round": 10,
+      "id": "GOFLY-P13-10-PLUGIN-TEMPLATE-PUBLISH-HARDENING",
       "status": "queued",
       "priority": 91,
       "title": "Plugin and template publish hardening",
       "objective": "Harden plugin registry and template publishing from example-level assets into a publishable protocol contract.",
       "deliverable": "Registry manifest, digest and signature checks, source allowlist, least-privilege permissions, template contract versioning, malicious path coverage, and partial-write rollback evidence.",
-      "gate": "make plugin-conformance-check",
+      "acceptanceGates": [
+        "make plugin-conformance-check"
+      ],
       "commitPolicy": "commit after plugin conformance gate passes across old/current/future protocol, digest mismatch, permission escape, malicious path, and no partial writes"
     },
     {
-      "id": "GOFLY-P13-11-CLI-DOCTOR-TROUBLESHOOTING-LOOP",
       "round": 11,
+      "id": "GOFLY-P13-11-CLI-DOCTOR-TROUBLESHOOTING-LOOP",
       "status": "queued",
       "priority": 90,
       "title": "CLI doctor troubleshooting loop",
       "objective": "Close the adopter failure loop so CI and agent-facing commands explain the next action after failure.",
       "deliverable": "gofly doctor --json, gofly release check --json, generated project failure report, support bundle, nextActions, and CLI JSON golden coverage.",
-      "gate": "make dx-troubleshooting-check",
+      "acceptanceGates": [
+        "make dx-troubleshooting-check",
+        "make governance-report-check"
+      ],
       "commitPolicy": "commit after CLI JSON golden coverage and troubleshooting governance gates pass"
     },
     {
-      "id": "GOFLY-P13-12-HOSTED-RELEASE-SUPPLY-CHAIN",
       "round": 12,
+      "id": "GOFLY-P13-12-HOSTED-RELEASE-SUPPLY-CHAIN",
       "status": "queued",
       "priority": 89,
       "title": "Hosted release supply-chain closure",
       "objective": "Close hosted tag-release supply-chain evidence so release artifacts are auditable and cannot bypass artifact gates.",
       "deliverable": "Tag CI artifact proof for SBOM, checksums, provenance, Docker digest, Trivy, release evidence manifest, and non-skippable release artifact gates.",
-      "gate": "make required-checks-drift-check",
+      "acceptanceGates": [
+        "make required-checks-drift-check",
+        "make governance-report-check"
+      ],
       "commitPolicy": "commit after required-check drift and governance report gates pass with hosted release artifact proof mapped into the dashboard"
     }
-  ],
-  "surfaces": [
-    {
-      "id": "cli",
-      "paths": [
-        "cmd/gofly",
-        "docs/reference/cli-command-surface.json",
-        "docs/reference/cli-json-contract-goldens.json"
-      ],
-      "gate": "make cli-command-surface-check"
-    },
-    {
-      "id": "generator",
-      "paths": [
-        "cmd/gofly/internal/generator",
-        "docs/reference/generated-version-compat.md",
-        "docs/reference/generated-upgrade-dry-run.json"
-      ],
-      "gate": "make generated-upgrade-dry-run-check"
-    },
-    {
-      "id": "runtime",
-      "paths": [
-        "core/runtime",
-        "core/governance",
-        "core/controlplane",
-        "docs/reference/control-plane-contracts.md"
-      ],
-      "gate": "make governance-report-check"
-    },
-    {
-      "id": "rest-rpc-contracts",
-      "paths": [
-        "rest",
-        "rpc",
-        "gateway",
-        "docs/reference/openapi-validation-envelope.md",
-        "docs/reference/rpc-boundary.md"
-      ],
-      "gate": "make api-contract-check"
-    },
-    {
-      "id": "plugin-template-security",
-      "paths": [
-        "spi",
-        "cmd/gofly/internal/generator",
-        "docs/reference/plugin-conformance.md"
-      ],
-      "gate": "make plugin-conformance-check"
-    },
-    {
-      "id": "cloud-native-production",
-      "paths": [
-        "charts/gofly",
-        "k8s",
-        "docs/reference/cloud-native-rendering.md",
-        "docs/reference/runtime-slo.md"
-      ],
-      "gate": "make p1-growth-check"
-    },
-    {
-      "id": "release-governance",
-      "paths": [
-        ".github/workflows",
-        ".goreleaser.yaml",
-        "bin/scripts",
-        "docs/reference/ci-required-check-evidence.json"
-      ],
-      "gate": "make required-checks-drift-check"
-    }
-  ],
-  "ignoredRuntimePaths": [
-    "docs/superpowers/",
-    ".aiflow/",
-    ".harness/",
-    ".tmp-test/",
-    ".trae/",
-    "coverage.out"
-  ],
-  "baselineGates": [
-    "make governance-boundary-inventory-check",
-    "go list ./...",
-    "make framework-gap-check",
-    "make governance-report-check"
-  ],
-  "timeoutPolicy": {
-    "aiflowDefaultCommandTimeout": "2m",
-    "fallback": "Use governance-boundary-inventory-check for Round 01 evidence before running full go test ./..."
-  }
+  ]
 }

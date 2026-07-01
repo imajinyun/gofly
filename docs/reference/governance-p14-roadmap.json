@@ -15,10 +15,10 @@
     "runtimeStatePolicy": ".aiflow, .harness, .tmp-test, .trae, coverage.out, bench/current.txt, bench/regression-report.json, bench/summary.md, bin/gofly, and docs/superpowers remain ignored local evidence and must not be committed.",
     "safetyPolicy": "P14 tasks are submitted to ignored local aiflow runtime state and mirrored here as durable docs/reference evidence; each task must be completed in order and committed by the current agent or human only after its gate passes or an environment-limited downgrade is documented.",
     "completedTasks": [
-      "GOFLY-P14-01-P13-COMPLETION-HANDOFF"
+      "GOFLY-P14-01-P13-COMPLETION-HANDOFF",
+      "GOFLY-P14-02-RPC-RELEASE-TRAIN-EVIDENCE"
     ],
     "pendingTasks": [
-      "GOFLY-P14-02-RPC-RELEASE-TRAIN-EVIDENCE",
       "GOFLY-P14-03-GENERATOR-ADOPTER-REPLAY-EVIDENCE"
     ]
   },
@@ -52,14 +52,13 @@
         "sh -n bin/scripts/governance-report.sh",
         "make governance-boundary-inventory-check",
         "make governance-report-check",
-        "go run ./cmd/aiflow status -root /Users/bytedance/Codes/go/src/github/gofly -config /Users/bytedance/Codes/go/src/github/gofly/aiflow.yaml",
-        "rg -n \"BitsUT|BitsBench\" ."
+        "go run ./cmd/aiflow status -root /Users/bytedance/Codes/go/src/github/gofly -config /Users/bytedance/Codes/go/src/github/gofly/aiflow.yaml"
       ]
     },
     {
       "round": 2,
       "id": "GOFLY-P14-02-RPC-RELEASE-TRAIN-EVIDENCE",
-      "status": "queued",
+      "status": "completed",
       "priority": 99,
       "title": "RPC release-train evidence",
       "objective": "Deepen RPC Tier 1 promotion evidence for release-train, resolver, balancer, stream, deadline, retry, auth, tracing, and allocation criteria without overstating latency parity.",
@@ -68,7 +67,17 @@
         "make rpc-boundary-check",
         "make bench-regression-check"
       ],
-      "commitPolicy": "commit after RPC release-train evidence and benchmark policy gates pass; latency remains report-only unless release-train data is durable"
+      "commitPolicy": "commit after RPC release-train evidence and benchmark policy gates pass; latency remains report-only unless release-train data is durable",
+      "commit": "pending-current-commit",
+      "verification": [
+        "python3 -m json.tool docs/reference/rpc-tier1-evidence.json",
+        "python3 -m json.tool bench/budget-ratchet.json",
+        "sh -n bin/scripts/check-rpc-boundary.sh",
+        "bash -n bin/scripts/benchstat.sh",
+        "make rpc-boundary-check",
+        "make bench-regression-check",
+        "git diff --check"
+      ]
     },
     {
       "round": 3,

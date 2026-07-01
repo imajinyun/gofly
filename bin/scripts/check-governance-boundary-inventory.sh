@@ -587,8 +587,8 @@ actual_p14_tasks = [
 require(actual_p14_tasks == expected_tasks, f"P14 roadmap task ids mismatch: {actual_p14_tasks!r}")
 p14_submission = p14_manifest.get("aiflowSubmission") or {}
 require(p14_submission.get("status") == "submitted", "P14 aiflowSubmission.status must be submitted")
-require(p14_submission.get("completedTasks") == [expected_tasks[0]], "P14 completedTasks must contain the handoff task")
-require(p14_submission.get("pendingTasks") == expected_tasks[1:], "P14 pendingTasks must match the remaining queue order")
+require(p14_submission.get("completedTasks") == expected_tasks[:2], "P14 completedTasks must contain the first two tasks")
+require(p14_submission.get("pendingTasks") == expected_tasks[2:], "P14 pendingTasks must match the remaining queue order")
 require("aiflow submit" in str(p14_submission.get("submissionCommand") or ""), "P14 submissionCommand must document aiflow submit")
 require("aiflow status" in str(p14_submission.get("queueStatusCommand") or ""), "P14 queueStatusCommand must document aiflow status")
 p14_handoff = p14_manifest.get("previousBatchHandoff") or {}
@@ -604,7 +604,7 @@ for expected_round, item in enumerate(p14_tasks, start=1):
         continue
     task_id = item.get("id", "<missing>")
     require(item.get("round") == expected_round, f"{task_id}: round must be {expected_round}")
-    expected_status = "completed" if expected_round == 1 else "queued"
+    expected_status = "completed" if expected_round <= 2 else "queued"
     require(item.get("status") == expected_status, f"{task_id}: status must be {expected_status}")
     require(item.get("priority") == 101 - expected_round, f"{task_id}: priority mismatch")
     for field in ("id", "title", "objective", "deliverable", "acceptanceGates", "commitPolicy"):
@@ -614,9 +614,9 @@ for expected_round, item in enumerate(p14_tasks, start=1):
     for gate in gates:
         require(gate_is_known(gate, targets), f"{task_id}: acceptanceGate is not known: {gate!r}")
     require("commit" in item.get("commitPolicy", "").lower(), f"{task_id}: commitPolicy must mention commit")
-    if expected_round == 1:
-        require(item.get("commit") == "pending-current-commit", f"{task_id}: completed handoff must record pending current commit")
-        require(bool(item.get("verification")), f"{task_id}: completed handoff must record verification")
+    if expected_round <= 2:
+        require(item.get("commit") == "pending-current-commit", f"{task_id}: completed task must record pending current commit")
+        require(bool(item.get("verification")), f"{task_id}: completed task must record verification")
     else:
         require("commit" not in item or item.get("commit") in ("", None), f"{task_id}: queued P14 task must not claim a completed commit")
         require("verification" not in item or item.get("verification") in ("", None), f"{task_id}: queued P14 task must not claim completed verification")

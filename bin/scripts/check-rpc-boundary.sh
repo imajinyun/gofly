@@ -629,6 +629,77 @@ for surface, classification in required_p13_surface_status.items():
 for forbidden in ("Kitex transport parity", "gRPC-Go ecosystem parity", "blocking RPC latency", "drop-in RPC replacement", "Tier 1 promoted RPC surface"):
     require(forbidden in set(p13_closeout.get("forbiddenClaims") or []), f"P13 RPC forbiddenClaims missing {forbidden!r}")
 
+p14_review = manifest.get("p14ReleaseTrainEvidenceReview") or {}
+require(
+    p14_review.get("schema") == "gofly.rpc_tier1_p14_release_train_review.v1",
+    "rpc tier1 evidence p14ReleaseTrainEvidenceReview schema mismatch",
+)
+require(
+    p14_review.get("aiflowTask") == "GOFLY-P14-02-RPC-RELEASE-TRAIN-EVIDENCE",
+    "rpc tier1 evidence p14ReleaseTrainEvidenceReview aiflowTask mismatch",
+)
+require(
+    p14_review.get("status") == "blocked-no-surface-promoted",
+    "rpc tier1 evidence p14ReleaseTrainEvidenceReview status mismatch",
+)
+require(
+    set(p14_review.get("acceptanceGates") or []) == {"make rpc-boundary-check", "make bench-regression-check"},
+    "rpc tier1 evidence p14ReleaseTrainEvidenceReview acceptanceGates mismatch",
+)
+p14_previous = p14_review.get("previousCloseoutRef") or {}
+require(p14_previous.get("field") == "p13Tier1ReleaseTrainCloseout", "P14 RPC previousCloseoutRef field mismatch")
+require(p14_previous.get("status") == "blocked-with-stable-promotion-contract", "P14 RPC previousCloseoutRef status mismatch")
+p14_budget_ref = p14_review.get("budgetDecisionRef") or {}
+require(p14_budget_ref.get("path") == "bench/budget-ratchet.json", "P14 RPC budgetDecisionRef path mismatch")
+require(p14_budget_ref.get("field") == "p14RpcReleaseTrainEvidenceReview", "P14 RPC budgetDecisionRef field mismatch")
+require(p14_budget_ref.get("status") == "hold-no-tracked-rpc-benchmark", "P14 RPC budgetDecisionRef status mismatch")
+p14_release_train = p14_review.get("releaseTrainEvidence") or {}
+require(p14_release_train.get("requiredCompletedReleaseTrains") == 1, "P14 RPC releaseTrainEvidence requiredCompletedReleaseTrains mismatch")
+require(p14_release_train.get("completedReleaseTrains") == 0, "P14 RPC releaseTrainEvidence completedReleaseTrains must remain 0")
+require(p14_release_train.get("status") == "not-attached", "P14 RPC releaseTrainEvidence status must be not-attached")
+require(len(p14_release_train.get("blockingEvidence") or []) >= 5, "P14 RPC releaseTrainEvidence blockingEvidence must include at least five rows")
+require(len(str(p14_release_train.get("clearanceCondition") or "").split()) >= 18, "P14 RPC releaseTrainEvidence clearanceCondition must be actionable")
+p14_decision = p14_review.get("promotionDecision") or {}
+require(p14_decision.get("result") == "hold", "P14 RPC promotionDecision.result must be hold")
+require(p14_decision.get("selectedSurface") == "none", "P14 RPC promotionDecision.selectedSurface must be none")
+require(p14_decision.get("allocationBlockingSurface") == "none", "P14 RPC promotionDecision.allocationBlockingSurface must be none")
+require(p14_decision.get("latencyMode") == "report-only", "P14 RPC promotionDecision.latencyMode must be report-only")
+require(
+    p14_decision.get("nextReviewGate") == "make rpc-boundary-check && make bench-regression-check",
+    "P14 RPC promotionDecision nextReviewGate mismatch",
+)
+for field in ("reason", "releaseNotePolicy"):
+    require(len(str(p14_decision.get(field) or "").split()) >= 18, f"P14 RPC promotionDecision.{field} must be actionable")
+for forbidden_claim in ("Kitex", "gRPC-Go", "blocking RPC latency", "drop-in RPC replacement", "Tier 1 promoted RPC"):
+    require(
+        forbidden_claim in str(p14_decision.get("releaseNotePolicy") or ""),
+        f"P14 RPC releaseNotePolicy must mention {forbidden_claim!r}",
+    )
+p14_rows = {
+    item.get("surface"): item
+    for item in p14_review.get("reviewRows") or []
+    if isinstance(item, dict) and item.get("surface")
+}
+required_p14_surfaces = {
+    "rpc-unary",
+    "rpc-server-stream",
+    "rpc-client-stream",
+    "rpc-bidi-stream",
+}
+require(set(p14_rows) == required_p14_surfaces, f"P14 RPC reviewRows mismatch: {sorted(p14_rows)!r}")
+for surface, row in p14_rows.items():
+    require(row.get("releaseTrainStatus") == "blocked", f"P14 RPC {surface}: releaseTrainStatus must be blocked")
+    require(row.get("allocationMode") == "report-only", f"P14 RPC {surface}: allocationMode must be report-only")
+    require(row.get("latencyMode") == "report-only", f"P14 RPC {surface}: latencyMode must be report-only")
+    require(row.get("benchmark") not in p13_tracked_benchmarks, f"P14 RPC {surface}: benchmark must stay out of trackedBenchmarks")
+    require(len(row.get("blockingEvidenceMissing") or []) >= 3, f"P14 RPC {surface}: blockingEvidenceMissing must include at least three rows")
+    require(
+        any(runtime in str(row.get("rollbackAction") or "") for runtime in ("Kitex", "gRPC-Go", "RPC stack")),
+        f"P14 RPC {surface}: rollbackAction must name fallback runtime or previous RPC stack",
+    )
+for forbidden in ("Kitex transport parity", "gRPC-Go ecosystem parity", "blocking RPC latency", "drop-in RPC replacement", "Tier 1 promoted RPC surface"):
+    require(forbidden in set(p14_review.get("forbiddenClaims") or []), f"P14 RPC forbiddenClaims missing {forbidden!r}")
+
 r8_transport_matrix = transport_boundary.get("r8TransportEvidenceMatrix") or {}
 require(
     r8_transport_matrix.get("schema") == "gofly.rpc_transport_r8_evidence_matrix.v1",

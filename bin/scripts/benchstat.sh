@@ -906,6 +906,102 @@ def validate_ratchet_policy() -> None:
             f"p13RpcTier1ReleaseTrainCloseout forbiddenUntilCleared missing {forbidden!r}",
         )
 
+    p14_rpc_review = ratchet.get("p14RpcReleaseTrainEvidenceReview") or {}
+    require_policy(
+        p14_rpc_review.get("schema") == "gofly.benchmark_p14_rpc_release_train_review.v1",
+        "p14RpcReleaseTrainEvidenceReview schema mismatch",
+    )
+    require_policy(
+        p14_rpc_review.get("aiflowTask") == "GOFLY-P14-02-RPC-RELEASE-TRAIN-EVIDENCE",
+        "p14RpcReleaseTrainEvidenceReview aiflowTask mismatch",
+    )
+    require_policy(
+        p14_rpc_review.get("status") == "hold-no-tracked-rpc-benchmark",
+        "p14RpcReleaseTrainEvidenceReview status mismatch",
+    )
+    require_policy(
+        p14_rpc_review.get("acceptanceGate") == "make bench-regression-check",
+        "p14RpcReleaseTrainEvidenceReview acceptanceGate mismatch",
+    )
+    for source in (
+        "docs/reference/rpc-tier1-evidence.json",
+        "bench/budget-ratchet.json",
+        "bench/rpc_bench_test.go",
+        "docs/releases/evidence-index.json",
+        "docs/reference/ci-required-check-evidence.json",
+    ):
+        require_policy(
+            source in set(p14_rpc_review.get("sourceEvidence") or []),
+            f"p14RpcReleaseTrainEvidenceReview sourceEvidence missing {source!r}",
+        )
+    p14_decision = p14_rpc_review.get("decision") or {}
+    require_policy(p14_decision.get("result") == "hold", "p14RpcReleaseTrainEvidenceReview decision.result must be hold")
+    require_policy(p14_decision.get("selectedSurface") == "none", "p14RpcReleaseTrainEvidenceReview selectedSurface must be none")
+    require_policy(
+        p14_decision.get("allocationBlockingSurface") == "none",
+        "p14RpcReleaseTrainEvidenceReview allocationBlockingSurface must be none",
+    )
+    require_policy(p14_decision.get("latencyMode") == "report-only", "p14RpcReleaseTrainEvidenceReview latencyMode must be report-only")
+    require_policy(
+        p14_decision.get("nextReviewGate") == "make rpc-boundary-check && make bench-regression-check",
+        "p14RpcReleaseTrainEvidenceReview nextReviewGate mismatch",
+    )
+    for field in ("reason", "releaseNotePolicy"):
+        require_policy(
+            len(str(p14_decision.get(field) or "").split()) >= 18,
+            f"p14RpcReleaseTrainEvidenceReview decision.{field} must be actionable",
+        )
+    for forbidden_claim in ("Kitex", "gRPC-Go", "blocking RPC latency", "drop-in RPC replacement", "Tier 1 promoted RPC"):
+        require_policy(
+            forbidden_claim in str(p14_decision.get("releaseNotePolicy") or ""),
+            f"p14RpcReleaseTrainEvidenceReview releaseNotePolicy must mention {forbidden_claim!r}",
+        )
+    p14_candidates = {
+        item.get("benchmark"): item
+        for item in p14_rpc_review.get("candidateRows") or []
+        if isinstance(item, dict) and item.get("benchmark")
+    }
+    require_policy(
+        set(p14_candidates) == expected_p13_candidate_names,
+        "p14RpcReleaseTrainEvidenceReview candidateRows mismatch",
+    )
+    for benchmark, item in p14_candidates.items():
+        require_policy(item.get("currentMode") == "report-only", f"{benchmark}: P14 currentMode must be report-only")
+        require_policy(item.get("proposedPromotionMode") == "allocation-blocking", f"{benchmark}: P14 proposedPromotionMode mismatch")
+        require_policy(item.get("promotionStatus") == "blocked", f"{benchmark}: P14 promotionStatus must be blocked")
+        require_policy(item.get("minimumBaselineSamples") == 5, f"{benchmark}: P14 minimumBaselineSamples mismatch")
+        require_policy(item.get("minimumCurrentTrendSamples") == 3, f"{benchmark}: P14 minimumCurrentTrendSamples mismatch")
+        require_policy(item.get("releaseTrainStatus") == "not-attached", f"{benchmark}: P14 releaseTrainStatus must be not-attached")
+        require_policy(benchmark not in tracked, f"{benchmark}: P14 candidate must stay out of trackedBenchmarks")
+        require_policy(benchmark not in promoted_latency, f"{benchmark}: P14 latency must stay report-only")
+        require_policy(len(item.get("blockers") or []) >= 3, f"{benchmark}: P14 blockers must include at least three reasons")
+        require_policy(
+            any(runtime in str(item.get("rollbackAction") or "") for runtime in ("Kitex", "gRPC-Go", "RPC stack")),
+            f"{benchmark}: P14 rollbackAction must name fallback runtime or previous RPC stack",
+        )
+    p14_rules = set(p14_rpc_review.get("blockingRules") or [])
+    for rule in (
+        "P14 must not add RPC rows to trackedBenchmarks until release-train evidence is attached",
+        "P14 may promote at most one RPC surface at a time",
+        "promoted RPC rows require minimum 5 baseline samples",
+        "promoted RPC rows require minimum 3 current trend samples",
+        "promoted RPC rows require no allocation regression under bench-regression-check",
+        "RPC latency remains report-only until two-release trend evidence is documented",
+    ):
+        require_policy(rule in p14_rules, f"p14RpcReleaseTrainEvidenceReview blockingRules missing {rule!r}")
+    for forbidden in (
+        "trackedBenchmarks RPC entry",
+        "blocking RPC latency claim",
+        "Kitex transport parity claim",
+        "gRPC-Go ecosystem parity claim",
+        "drop-in RPC replacement claim",
+        "Tier 1 promoted RPC surface",
+    ):
+        require_policy(
+            forbidden in set(p14_rpc_review.get("forbiddenUntilCleared") or []),
+            f"p14RpcReleaseTrainEvidenceReview forbiddenUntilCleared missing {forbidden!r}",
+        )
+
     require_policy(
         p13_gateway_cache_closeout.get("schema") == "gofly.benchmark_p13_gateway_cache_closeout.v1",
         "p13GatewayCacheBenchmarkCloseout schema mismatch",

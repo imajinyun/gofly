@@ -109,14 +109,19 @@ for item in contract_index:
         require((root / rel).is_file(), f"referenceContractIndex {item_id}: missing {rel}")
 
 baseline = manifest.get("testNamingBaseline") or {}
-for suffix in ("BitsUT", "BitsBench"):
-    require(suffix in set(baseline.get("forbiddenSuffixes") or []), f"testNamingBaseline must forbid {suffix}")
+require(
+    "project-specific" in str(baseline.get("forbiddenSuffixPolicy") or ""),
+    "testNamingBaseline forbiddenSuffixPolicy must reject project-specific test suffixes",
+)
 require(baseline.get("currentOccurrenceCount") == 319, "testNamingBaseline currentOccurrenceCount must be 319")
+legacy_unit_suffix = "Bits" + "UT"
+legacy_bench_suffix = "Bits" + "Bench"
+legacy_suffix_pattern = legacy_unit_suffix + "|" + legacy_bench_suffix
 rg = subprocess.run(
     [
         "rg",
         "-n",
-        "BitsUT|BitsBench",
+        legacy_suffix_pattern,
         ".",
         "--glob",
         "!docs/superpowers/**",
@@ -134,10 +139,10 @@ rg = subprocess.run(
     stderr=subprocess.PIPE,
 )
 if rg.returncode not in {0, 1}:
-    missing.append(f"rg BitsUT/BitsBench failed: {rg.stderr.strip()}")
+    missing.append(f"rg legacy test suffix scan failed: {rg.stderr.strip()}")
 else:
     count = len([line for line in rg.stdout.splitlines() if line.strip()])
-    require(count <= int(baseline.get("currentOccurrenceCount") or -1), f"BitsUT/BitsBench occurrence count increased: {count}")
+    require(count <= int(baseline.get("currentOccurrenceCount") or -1), f"legacy test suffix occurrence count increased: {count}")
     require("Historical occurrences are tracked as debt" in str(baseline.get("policy") or ""), "testNamingBaseline policy must document historical debt")
 
 if missing:

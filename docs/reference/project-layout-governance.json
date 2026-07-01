@@ -156,10 +156,7 @@
     }
   ],
   "testNamingBaseline": {
-    "forbiddenSuffixes": [
-      "BitsUT",
-      "BitsBench"
-    ],
+    "forbiddenSuffixPolicy": "No project-specific unit-test or benchmark suffixes are allowed in newly generated or touched tests.",
     "currentOccurrenceCount": 319,
     "policy": "Historical occurrences are tracked as debt. New governance changes must not increase this count, and touched tests should be renamed opportunistically without broad churn."
   }

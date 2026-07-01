@@ -16,7 +16,7 @@ import (
 	"github.com/imajinyun/gofly/core/mq"
 )
 
-func TestKafkaIntegration_PublishSubscribe(t *testing.T) {
+func TestKafkaIntegrationPublishSubscribe(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
@@ -58,7 +58,7 @@ func TestKafkaIntegration_PublishSubscribe(t *testing.T) {
 	}
 }
 
-func TestKafkaIntegration_DeadLetterSuccess(t *testing.T) {
+func TestKafkaIntegrationDeadLetterSuccess(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
@@ -115,7 +115,7 @@ func TestKafkaIntegration_DeadLetterSuccess(t *testing.T) {
 	}
 }
 
-func TestKafkaIntegration_RetryThenSuccess(t *testing.T) {
+func TestKafkaIntegrationRetryThenSuccess(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 

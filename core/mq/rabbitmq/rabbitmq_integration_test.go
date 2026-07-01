@@ -15,7 +15,7 @@ import (
 	"github.com/imajinyun/gofly/core/mq"
 )
 
-func TestRabbitMQBrokerIntegration_PublishSubscribeAck(t *testing.T) {
+func TestRabbitMQBrokerIntegrationPublishSubscribeAck(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
@@ -60,7 +60,7 @@ func TestRabbitMQBrokerIntegration_PublishSubscribeAck(t *testing.T) {
 	}
 }
 
-func TestRabbitMQBrokerIntegration_CloseConsumerChannel(t *testing.T) {
+func TestRabbitMQBrokerIntegrationCloseConsumerChannel(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
@@ -84,7 +84,7 @@ func TestRabbitMQBrokerIntegration_CloseConsumerChannel(t *testing.T) {
 	}
 }
 
-func TestRabbitMQBrokerIntegration_DeadLetterSuccess(t *testing.T) {
+func TestRabbitMQBrokerIntegrationDeadLetterSuccess(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 

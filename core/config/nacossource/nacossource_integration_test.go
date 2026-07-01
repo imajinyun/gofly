@@ -15,7 +15,7 @@ import (
 	"github.com/imajinyun/gofly/core/config"
 )
 
-func TestNacosSourceIntegration_GetAndWatch(t *testing.T) {
+func TestNacosSourceIntegrationGetAndWatch(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 

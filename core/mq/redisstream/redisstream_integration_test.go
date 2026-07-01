@@ -15,7 +15,7 @@ import (
 	"github.com/imajinyun/gofly/core/mq"
 )
 
-func TestRedisStreamBrokerIntegration_PublishSubscribeAck(t *testing.T) {
+func TestRedisStreamBrokerIntegrationPublishSubscribeAck(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 

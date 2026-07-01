@@ -15,7 +15,7 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
-func TestSQLStoreIntegration_MySQLAndPostgres(t *testing.T) {
+func TestSQLStoreIntegrationMySQLAndPostgres(t *testing.T) {
 	tests := []struct {
 		name   string
 		driver string

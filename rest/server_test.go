@@ -28,7 +28,7 @@ import (
 	controladmin "github.com/imajinyun/gofly/ops/admin"
 )
 
-func TestServer_AddRoute(t *testing.T) {
+func TestServerAddRoute(t *testing.T) {
 	s := MustNewServer(Config{})
 	s.AddRoute(Route{Method: http.MethodGet, Path: "/ping", Handler: func(ctx *Context) { ctx.JSON(200, map[string]string{"message": "pong"}) }})
 	req := httptest.NewRequest(http.MethodGet, "/ping", nil)

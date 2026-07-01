@@ -16,7 +16,7 @@ import (
 	"github.com/imajinyun/gofly/core/discovery"
 )
 
-func TestEtcdRegistryIntegration_RegisterResolveDeregister(t *testing.T) {
+func TestEtcdRegistryIntegrationRegisterResolveDeregister(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 

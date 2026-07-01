@@ -16,7 +16,7 @@ import (
 	"github.com/imajinyun/gofly/core/config"
 )
 
-func TestConsulSourceIntegration_GetAndWatch(t *testing.T) {
+func TestConsulSourceIntegrationGetAndWatch(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 

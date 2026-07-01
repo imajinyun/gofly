@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestDoctorRun_AllChecksPresent(t *testing.T) {
+func TestDoctorRunAllChecksPresent(t *testing.T) {
 	report := runDoctor()
 	if report.Version == "" {
 		t.Error("expected Version to be set")
@@ -36,7 +36,7 @@ func TestDoctorRun_AllChecksPresent(t *testing.T) {
 	}
 }
 
-func TestDoctorRun_Summary(t *testing.T) {
+func TestDoctorRunSummary(t *testing.T) {
 	report := runDoctor()
 	if report.Summary == "" {
 		t.Error("expected non-empty summary")

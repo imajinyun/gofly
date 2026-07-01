@@ -113,6 +113,10 @@ require(
     "project-specific" in str(baseline.get("forbiddenSuffixPolicy") or ""),
     "testNamingBaseline forbiddenSuffixPolicy must reject project-specific test suffixes",
 )
+require(
+    "underscore-delimited" in str(baseline.get("forbiddenSuffixPolicy") or ""),
+    "testNamingBaseline forbiddenSuffixPolicy must reject underscore-delimited test function names",
+)
 require(baseline.get("currentOccurrenceCount") == 0, "testNamingBaseline currentOccurrenceCount must be 0")
 legacy_unit_suffix = "Bits" + "UT"
 legacy_bench_suffix = "Bits" + "Bench"
@@ -145,6 +149,33 @@ else:
     expected_count = baseline.get("currentOccurrenceCount")
     require(count == int(expected_count), f"legacy test suffix occurrence count must be 0, got {count}")
     require("not allowed" in str(baseline.get("policy") or ""), "testNamingBaseline policy must reject reintroduction")
+
+underscore_tests = subprocess.run(
+    [
+        "rg",
+        "-n",
+        r"^func (Test|Benchmark|Fuzz)[A-Za-z0-9]+_",
+        ".",
+        "--glob",
+        "*_test.go",
+        "--glob",
+        "!docs/superpowers/**",
+        "--glob",
+        "!vendor/**",
+    ],
+    cwd=root,
+    check=False,
+    text=True,
+    stdout=subprocess.PIPE,
+    stderr=subprocess.PIPE,
+)
+if underscore_tests.returncode not in {0, 1}:
+    missing.append(f"rg underscore-delimited test scan failed: {underscore_tests.stderr.strip()}")
+else:
+    require(
+        not [line for line in underscore_tests.stdout.splitlines() if line.strip()],
+        "underscore-delimited test or benchmark function names are not allowed",
+    )
 
 if missing:
     print("project layout governance check failed:", file=sys.stderr)

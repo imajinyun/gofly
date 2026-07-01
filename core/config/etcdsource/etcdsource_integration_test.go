@@ -16,7 +16,7 @@ import (
 	"github.com/imajinyun/gofly/core/config"
 )
 
-func TestEtcdSourceIntegration_GetAndWatch(t *testing.T) {
+func TestEtcdSourceIntegrationGetAndWatch(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 

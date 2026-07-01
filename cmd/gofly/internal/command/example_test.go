@@ -18,20 +18,20 @@ func TestExampleCommandBranches(t *testing.T) {
 	}
 }
 
-func TestExampleListCommand_Text(t *testing.T) {
+func TestExampleListCommandText(t *testing.T) {
 	// Just verify it does not error.
 	if err := exampleListCommand([]string{}); err != nil {
 		t.Fatalf("exampleListCommand: %v", err)
 	}
 }
 
-func TestExampleListCommand_JSON(t *testing.T) {
+func TestExampleListCommandJSON(t *testing.T) {
 	if err := exampleListCommand([]string{"--json"}); err != nil {
 		t.Fatalf("exampleListCommand --json: %v", err)
 	}
 }
 
-func TestExampleRunCommand_Success(t *testing.T) {
+func TestExampleRunCommandSuccess(t *testing.T) {
 	tmpDir := t.TempDir()
 	outDir := filepath.Join(tmpDir, "obs-demo")
 	if err := exampleRunCommand([]string{"observability", "--dir", outDir}); err != nil {
@@ -43,14 +43,14 @@ func TestExampleRunCommand_Success(t *testing.T) {
 	}
 }
 
-func TestExampleRunCommand_UnknownExample(t *testing.T) {
+func TestExampleRunCommandUnknownExample(t *testing.T) {
 	err := exampleRunCommand([]string{"nonexistent-example"})
 	if err == nil {
 		t.Fatal("expected error for unknown example")
 	}
 }
 
-func TestExampleRunCommand_MissingName(t *testing.T) {
+func TestExampleRunCommandMissingName(t *testing.T) {
 	err := exampleRunCommand([]string{})
 	if err == nil {
 		t.Fatal("expected error when name is missing")

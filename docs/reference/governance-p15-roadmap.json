@@ -1,0 +1,90 @@
+{
+  "schema": "gofly.governance_p15_roadmap.v1",
+  "purpose": "Durable P15 aiflow queue for post-P14 evidence attachment, keeping P14 completion evidence machine-checkable while opening the next focused governance batch.",
+  "sourceEvidence": [
+    "docs/reference/governance-p14-roadmap.json",
+    "docs/reference/governance-boundary-inventory.json",
+    "docs/reference/governance-dashboard-contract.json",
+    "go run -C /Users/bytedance/Codes/go/src/github/aiflow ./cmd/aiflow status -root /Users/bytedance/Codes/go/src/github/gofly -config /Users/bytedance/Codes/go/src/github/gofly/aiflow.yaml"
+  ],
+  "aiflowSubmission": {
+    "status": "submitted",
+    "submittedAt": "2026-07-01T23:34:07Z",
+    "submissionCommands": [
+      "go run -C /Users/bytedance/Codes/go/src/github/aiflow ./cmd/aiflow submit -root /Users/bytedance/Codes/go/src/github/gofly -config /Users/bytedance/Codes/go/src/github/gofly/aiflow.yaml -id GOFLY-P15-01-P14-COMPLETION-HANDOFF",
+      "go run -C /Users/bytedance/Codes/go/src/github/aiflow ./cmd/aiflow submit -root /Users/bytedance/Codes/go/src/github/gofly -config /Users/bytedance/Codes/go/src/github/gofly/aiflow.yaml -id GOFLY-P15-02-RPC-RELEASE-TRAIN-ATTACHMENT",
+      "go run -C /Users/bytedance/Codes/go/src/github/aiflow ./cmd/aiflow submit -root /Users/bytedance/Codes/go/src/github/gofly -config /Users/bytedance/Codes/go/src/github/gofly/aiflow.yaml -id GOFLY-P15-03-GATEWAY-CACHE-BUDGET-ATTACHMENT"
+    ],
+    "queueStatusCommand": "go run -C /Users/bytedance/Codes/go/src/github/aiflow ./cmd/aiflow status -root /Users/bytedance/Codes/go/src/github/gofly -config /Users/bytedance/Codes/go/src/github/gofly/aiflow.yaml",
+    "runtimeStatePolicy": ".aiflow, .harness, .tmp-test, .trae, coverage.out, bench/current.txt, bench/regression-report.json, bench/summary.md, bin/gofly, and docs/superpowers remain ignored local evidence and must not be committed.",
+    "safetyPolicy": "P15 tasks are submitted to ignored local aiflow runtime state and mirrored here as durable docs/reference evidence; each task must be completed in order and committed by the current agent or human only after its gate passes or an environment-limited downgrade is documented.",
+    "completedTasks": [
+      "GOFLY-P15-01-P14-COMPLETION-HANDOFF"
+    ],
+    "pendingTasks": [
+      "GOFLY-P15-02-RPC-RELEASE-TRAIN-ATTACHMENT",
+      "GOFLY-P15-03-GATEWAY-CACHE-BUDGET-ATTACHMENT"
+    ]
+  },
+  "previousBatchHandoff": {
+    "completedBatch": "GOFLY-P14",
+    "completedTaskCount": 3,
+    "completionPolicy": "P14 is treated as completed only when all three task rows in docs/reference/governance-p14-roadmap.json carry completion status, verification commands, and pending-current-commit placeholders owned by their per-task commits.",
+    "runtimeStatePolicy": "Local .aiflow queue data is runtime evidence only; durable completion evidence belongs in docs/reference/governance-p14-roadmap.json and docs/reference/governance-boundary-inventory.json."
+  },
+  "tasks": [
+    {
+      "round": 1,
+      "id": "GOFLY-P15-01-P14-COMPLETION-HANDOFF",
+      "status": "completed",
+      "priority": 100,
+      "title": "P14 completion handoff",
+      "objective": "Convert P14 from active completed roadmap evidence into the latest completed governance batch and open P15 as the next active aiflow batch.",
+      "deliverable": "P14 completed task evidence, P15 active roadmap, boundary inventory transition, dashboard convergence fields, and aiflow runtime-state exclusion proof.",
+      "acceptanceGates": [
+        "make governance-boundary-inventory-check",
+        "make governance-report-check"
+      ],
+      "commitPolicy": "commit after the P14 completion handoff and P15 active-batch evidence pass boundary inventory and governance report gates without staging ignored runtime state",
+      "commit": "pending-current-commit",
+      "verification": [
+        "python3 -m json.tool docs/reference/governance-p14-roadmap.json",
+        "python3 -m json.tool docs/reference/governance-p15-roadmap.json",
+        "python3 -m json.tool docs/reference/governance-boundary-inventory.json",
+        "python3 -m json.tool docs/reference/governance-dashboard-contract.json",
+        "sh -n bin/scripts/check-governance-boundary-inventory.sh",
+        "sh -n bin/scripts/governance-report.sh",
+        "make governance-boundary-inventory-check",
+        "make governance-report-check",
+        "go run ./cmd/aiflow status -root /Users/bytedance/Codes/go/src/github/gofly -config /Users/bytedance/Codes/go/src/github/gofly/aiflow.yaml"
+      ]
+    },
+    {
+      "round": 2,
+      "id": "GOFLY-P15-02-RPC-RELEASE-TRAIN-ATTACHMENT",
+      "status": "queued",
+      "priority": 99,
+      "title": "RPC release-train attachment",
+      "objective": "Attach the first concrete RPC release-train evidence bundle or keep promotion held with a narrower blocker inventory across unary, stream, resolver, balancer, rollback, and budget rows.",
+      "deliverable": "RPC release-train attachment policy, promoted or held surface inventory, blocker diff from P14, Kitex rollback evidence, and benchmark budget decision.",
+      "acceptanceGates": [
+        "make rpc-boundary-check",
+        "make bench-regression-check"
+      ],
+      "commitPolicy": "commit after RPC release-train attachment evidence and benchmark gates pass; keep latency report-only unless release-train data is durable"
+    },
+    {
+      "round": 3,
+      "id": "GOFLY-P15-03-GATEWAY-CACHE-BUDGET-ATTACHMENT",
+      "status": "queued",
+      "priority": 98,
+      "title": "Gateway cache budget attachment",
+      "objective": "Promote gateway proxy and cache hot path benchmark evidence from candidate report-only toward allocation budget attachment only when baseline samples, current trend samples, and rollback notes are present.",
+      "deliverable": "Gateway/cache benchmark budget attachment decision, baseline and current trend evidence policy, allocation mode, latency report-only boundary, and rollback note.",
+      "acceptanceGates": [
+        "make bench-regression-check"
+      ],
+      "commitPolicy": "commit after gateway/cache budget attachment evidence passes bench-regression-check without overstating unsupported or weak latency rows"
+    }
+  ]
+}

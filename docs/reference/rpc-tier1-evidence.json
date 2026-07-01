@@ -406,6 +406,107 @@
       }
     ]
   },
+  "p10Tier1Closeout": {
+    "schema": "gofly.rpc_tier1_p10_closeout.v1",
+    "aiflowTask": "GOFLY-P10-1-RPC-TIER1-CLOSEOUT",
+    "status": "tier1-not-promoted",
+    "acceptanceGate": "make rpc-boundary-check",
+    "decision": {
+      "currentTier": "tier2",
+      "targetTier": "tier1",
+      "result": "hold",
+      "reason": "gRPC compatibility, stream governance, deadline/error-code, retry/balancer, and coexistence evidence are machine-checkable, but release train evidence and blocking RPC benchmark budgets are still incomplete.",
+      "nextReviewGate": "make rpc-boundary-check && make bench-regression-check",
+      "releaseNotePolicy": "Do not claim Kitex, gRPC-Go, Netpoll, TTHeader, Thrift, or blocking RPC latency parity until the P10 closeout prerequisites are satisfied."
+    },
+    "closeoutRows": [
+      {
+        "id": "grpc-compatibility",
+        "status": "ready-evidence",
+        "evidenceIds": [
+          "grpc-compatibility",
+          "deadline-error-code-mapping",
+          "retry-balancer-contract"
+        ],
+        "requiredGate": "go test -shuffle=on ./rpc/grpc/...",
+        "promotionGap": "Compatibility is ready for adopter review, but Tier 1 promotion still requires release train and benchmark budget evidence.",
+        "rollbackAction": "Keep native gRPC-Go endpoints reachable when health, auth, tracing, retry, or deadline semantics drift."
+      },
+      {
+        "id": "streaming-behavior",
+        "status": "candidate",
+        "evidenceIds": [
+          "server-stream-governance",
+          "client-stream-governance",
+          "bidi-stream-governance"
+        ],
+        "requiredGate": "BENCH_PATTERN=BenchmarkRPCStreamGovernance make bench-stat",
+        "promotionGap": "Streaming governance evidence exists, but mode-specific stream baselines are not promoted into blocking budget coverage.",
+        "rollbackAction": "Keep server, client, or bidirectional streams on Kitex or native gRPC-Go until mode-specific evidence is promoted."
+      },
+      {
+        "id": "deadline-error-code-mapping",
+        "status": "ready-evidence",
+        "evidenceIds": [
+          "deadline-error-code-mapping"
+        ],
+        "requiredGate": "go test -shuffle=on ./rpc/... ./rpc/grpc/...",
+        "promotionGap": "Deadline and error-code mappings are stable evidence, but replacement decisions still require sampled adopter workload validation.",
+        "rollbackAction": "Keep existing gRPC-Go, Kitex, or go-zero error taxonomy when sampled production behavior requires a different mapping."
+      },
+      {
+        "id": "retry-balancer-contract",
+        "status": "candidate",
+        "evidenceIds": [
+          "retry-balancer-contract",
+          "resolver-updates",
+          "balancer-routing"
+        ],
+        "requiredGate": "go test -shuffle=on ./rpc/... ./rpc/grpc/... && go test -C examples/rpc-idl-matrix ./...",
+        "promotionGap": "Retry and balancer behavior is rehearsed, but target discovery adapter evidence must pass before traffic migration.",
+        "rollbackAction": "Keep service mesh or previous client-side routing active when retry status lists, endpoint health, or balancer policy evidence diverges."
+      },
+      {
+        "id": "kitex-gozero-coexistence",
+        "status": "rollback-required",
+        "evidenceIds": [
+          "kitex-coexistence-rollback",
+          "gozero-coexistence-rollback"
+        ],
+        "requiredGate": "make generated-upgrade-dry-run-check && make rpc-boundary-check",
+        "promotionGap": "Coexistence remains mandatory because gofly does not claim Kitex or go-zero transport/runtime parity.",
+        "rollbackAction": "Keep original Kitex or go-zero services registered and route traffic back when generated output, control-plane, discovery, or RPC evidence diverges."
+      }
+    ],
+    "promotionPrerequisites": [
+      {
+        "id": "release-train-attached",
+        "status": "pending",
+        "gate": "make release-evidence-index-check",
+        "requiredEvidence": [
+          "docs/releases/evidence-index.json",
+          "docs/reference/ci-required-check-evidence.json"
+        ]
+      },
+      {
+        "id": "rpc-budget-promoted",
+        "status": "report-only",
+        "gate": "make bench-regression-check",
+        "requiredEvidence": [
+          "bench/budget-ratchet.json",
+          "bench/rpc_bench_test.go"
+        ]
+      },
+      {
+        "id": "transport-parity-forbidden",
+        "status": "blocking",
+        "gate": "make rpc-boundary-check",
+        "requiredEvidence": [
+          "docs/reference/rpc-transport-boundary.json"
+        ]
+      }
+    ]
+  },
   "evidence": [
     {
       "id": "unary-contract",

@@ -321,6 +321,77 @@ for surface_id, classification in required_p9_surfaces.items():
         f"P9 RPC surface {surface_id}: rollbackAction must name fallback runtime or routing stack",
     )
 
+p10_closeout = manifest.get("p10Tier1Closeout") or {}
+require(
+    p10_closeout.get("schema") == "gofly.rpc_tier1_p10_closeout.v1",
+    "rpc tier1 evidence p10Tier1Closeout schema mismatch",
+)
+require(
+    p10_closeout.get("aiflowTask") == "GOFLY-P10-1-RPC-TIER1-CLOSEOUT",
+    "rpc tier1 evidence p10Tier1Closeout aiflowTask mismatch",
+)
+require(
+    p10_closeout.get("status") == "tier1-not-promoted",
+    "rpc tier1 evidence p10Tier1Closeout status must be tier1-not-promoted",
+)
+require(
+    p10_closeout.get("acceptanceGate") == "make rpc-boundary-check",
+    "rpc tier1 evidence p10Tier1Closeout acceptanceGate mismatch",
+)
+p10_decision = p10_closeout.get("decision") or {}
+require(p10_decision.get("currentTier") == "tier2", "P10 RPC decision.currentTier must be tier2")
+require(p10_decision.get("targetTier") == "tier1", "P10 RPC decision.targetTier must be tier1")
+require(p10_decision.get("result") == "hold", "P10 RPC decision.result must be hold")
+for field in ("reason", "releaseNotePolicy"):
+    require(len(str(p10_decision.get(field) or "").split()) >= 12, f"P10 RPC decision.{field} must be actionable")
+require("Kitex" in str(p10_decision.get("releaseNotePolicy") or ""), "P10 RPC releaseNotePolicy must mention Kitex boundary")
+require("gRPC-Go" in str(p10_decision.get("releaseNotePolicy") or ""), "P10 RPC releaseNotePolicy must mention gRPC-Go boundary")
+require(
+    p10_decision.get("nextReviewGate") == "make rpc-boundary-check && make bench-regression-check",
+    "P10 RPC nextReviewGate mismatch",
+)
+p10_rows = {
+    item.get("id"): item
+    for item in p10_closeout.get("closeoutRows") or []
+    if isinstance(item, dict) and item.get("id")
+}
+required_p10_rows = {
+    "grpc-compatibility": "ready-evidence",
+    "streaming-behavior": "candidate",
+    "deadline-error-code-mapping": "ready-evidence",
+    "retry-balancer-contract": "candidate",
+    "kitex-gozero-coexistence": "rollback-required",
+}
+require(set(p10_rows) == set(required_p10_rows), f"P10 RPC closeoutRows mismatch: {sorted(p10_rows)!r}")
+for row_id, status in required_p10_rows.items():
+    row = p10_rows.get(row_id) or {}
+    require(row.get("status") == status, f"P10 RPC closeout row {row_id}: status mismatch")
+    require(row.get("requiredGate"), f"P10 RPC closeout row {row_id}: requiredGate is required")
+    require(set(row.get("evidenceIds") or []), f"P10 RPC closeout row {row_id}: evidenceIds are required")
+    for field in ("promotionGap", "rollbackAction"):
+        require(len(str(row.get(field) or "").split()) >= 10, f"P10 RPC closeout row {row_id}: {field} must be actionable")
+    require(
+        any(runtime in str(row.get("rollbackAction") or "") for runtime in ("Kitex", "gRPC-Go", "go-zero", "service mesh", "client-side routing")),
+        f"P10 RPC closeout row {row_id}: rollbackAction must name fallback runtime or routing stack",
+    )
+p10_prereqs = {
+    item.get("id"): item
+    for item in p10_closeout.get("promotionPrerequisites") or []
+    if isinstance(item, dict) and item.get("id")
+}
+required_p10_prereqs = {
+    "release-train-attached": "pending",
+    "rpc-budget-promoted": "report-only",
+    "transport-parity-forbidden": "blocking",
+}
+require(set(p10_prereqs) == set(required_p10_prereqs), f"P10 RPC promotionPrerequisites mismatch: {sorted(p10_prereqs)!r}")
+for prereq_id, status in required_p10_prereqs.items():
+    prereq = p10_prereqs.get(prereq_id) or {}
+    require(prereq.get("status") == status, f"P10 RPC prerequisite {prereq_id}: status mismatch")
+    require(prereq.get("gate"), f"P10 RPC prerequisite {prereq_id}: gate is required")
+    for evidence_path in prereq.get("requiredEvidence") or []:
+        require((root / evidence_path).exists(), f"P10 RPC prerequisite {prereq_id}: evidence path missing: {evidence_path}")
+
 r8_transport_matrix = transport_boundary.get("r8TransportEvidenceMatrix") or {}
 require(
     r8_transport_matrix.get("schema") == "gofly.rpc_transport_r8_evidence_matrix.v1",

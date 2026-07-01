@@ -78,6 +78,25 @@ Current promotion blockers:
   gRPC-Go, Netpoll, TTHeader, or Thrift transport parity while gofly only has
   governed RPC and compatibility evidence.
 
+## P10 Tier 1 closeout
+
+`p10Tier1Closeout` in `docs/reference/rpc-tier1-evidence.json` records the P10
+decision for `GOFLY-P10-1-RPC-TIER1-CLOSEOUT`. The closeout keeps the Tier 1
+promotion result at `hold`: gRPC compatibility, streaming behavior,
+deadline/error-code mapping, retry/balancer behavior, and Kitex/go-zero
+coexistence are machine-checkable, but the release train and blocking RPC
+benchmark budget prerequisites are still incomplete.
+
+The next review gate remains:
+
+```sh
+make rpc-boundary-check
+make bench-regression-check
+```
+
+Release notes must not claim Kitex, gRPC-Go, Netpoll, TTHeader, Thrift, or
+blocking RPC latency parity until those prerequisites are satisfied.
+
 ## Transport Boundary Contract
 
 gofly should be positioned as governed service glue, generated control-plane

@@ -49,6 +49,10 @@ REFERENCE_APP_MODE=docker make reference-app-smoke
 When Docker is available, the smoke gate starts `examples/production-orders/compose.yaml`
 and runs the HTTP smoke script. When Docker is unavailable, the gate still
 verifies the static production topology contract and reports the fallback.
+The runtime evidence is written under the ignored `.aiflow/` directory as
+`gofly.reference_app_smoke_report.v1`; Docker mode is considered live proof
+only when `liveCompose=true`, while tool or dependency skips must keep an
+explicit fallback reason and must not be used as deployment-promotion evidence.
 
 ## Run
 

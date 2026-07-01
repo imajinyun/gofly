@@ -411,6 +411,96 @@
     "fallbackPolicy": "When Docker, daemon access, or dependency pulls are unavailable, the gate may pass only after static topology verification and an explicit fallback reason.",
     "rollbackOrEscalation": "Keep memory mode or the previous deployment active when live compose evidence cannot be collected or topology smoke fails."
   },
+  "p13ReferenceAppLiveProof": {
+    "schema": "gofly.reference_app_p13_live_proof.v1",
+    "aiflowTask": "GOFLY-P13-08-REFERENCE-APP-LIVE-PROOF",
+    "status": "blocking",
+    "acceptanceGates": [
+      "REFERENCE_APP_MODE=memory make reference-app-smoke",
+      "REFERENCE_APP_MODE=docker make reference-app-smoke"
+    ],
+    "runtimeEvidencePath": ".aiflow/reference-app-smoke-report.json",
+    "requiredRuntimeReportFields": [
+      "schema",
+      "aiflowTask",
+      "p13AiflowTask",
+      "mode",
+      "status",
+      "liveCompose",
+      "liveProofState",
+      "fallbackReason",
+      "gate",
+      "components",
+      "dependencyFamilies",
+      "validatedModes"
+    ],
+    "validatedModes": [
+      "memory",
+      "docker"
+    ],
+    "dependencyFamilies": [
+      "SQL outbox",
+      "Redis cache",
+      "Kafka",
+      "RabbitMQ",
+      "Redis Stream",
+      "Consul",
+      "etcd",
+      "Nacos",
+      "OpenTelemetry collector"
+    ],
+    "allowedFallbackReasons": [
+      "memory-mode",
+      "docker-cli-missing",
+      "docker-daemon-unavailable",
+      "compose-dependency-pull-failed"
+    ],
+    "proofRows": [
+      {
+        "id": "memory-live-proof",
+        "mode": "memory",
+        "expectedStatus": "passed",
+        "liveProofState": "memory-fallback",
+        "fallbackReason": "memory-mode",
+        "gate": "REFERENCE_APP_MODE=memory make reference-app-smoke",
+        "evidence": [
+          "examples/production-orders/main.go",
+          "examples/production-orders/main_test.go"
+        ],
+        "rollbackOrEscalation": "Use memory mode as the local acceptance fallback while Docker-backed dependencies are unavailable or still under investigation."
+      },
+      {
+        "id": "docker-compose-live-proof",
+        "mode": "docker",
+        "expectedStatus": "passed",
+        "liveProofState": "live-compose",
+        "fallbackReason": "",
+        "gate": "REFERENCE_APP_MODE=docker make reference-app-smoke",
+        "evidence": [
+          "examples/production-orders/compose.yaml",
+          "examples/production-orders/scripts/smoke.sh",
+          "examples/production-orders/otel-collector.yaml"
+        ],
+        "rollbackOrEscalation": "Keep the previous deployment or route active when live compose starts but HTTP, topology, OpenAPI, or control-plane smoke fails."
+      },
+      {
+        "id": "docker-explicit-skip-proof",
+        "mode": "docker",
+        "expectedStatus": "skipped",
+        "liveProofState": "explicit-fallback",
+        "fallbackReason": "docker-cli-missing|docker-daemon-unavailable|compose-dependency-pull-failed",
+        "gate": "REFERENCE_APP_MODE=docker make reference-app-smoke",
+        "evidence": [
+          "bin/scripts/reference-app-smoke.sh",
+          "docs/reference/reference-app-topology.json"
+        ],
+        "rollbackOrEscalation": "Do not promote Docker-backed topology from skipped evidence; keep memory mode or the previous deployment until live compose proof is collected."
+      }
+    ],
+    "liveSuccessPolicy": "Docker mode is considered live proof only when compose starts production-orders, the HTTP smoke script passes, and the report records liveCompose=true.",
+    "fallbackPolicy": "Memory mode and Docker environment skips may pass only with an allowed fallback reason, static topology verification, and no claim of live compose proof.",
+    "rollbackOrEscalation": "Hold promotion or route back to the previous deployment when dependency live proof is skipped, incomplete, or fails after compose startup."
+  },
   "adopterProof": {
     "schema": "gofly.reference_app_adopter_proof.v1",
     "status": "blocking",

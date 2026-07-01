@@ -329,6 +329,127 @@ require(
     "reference app P9 docker live proof allowedFallbackReasons mismatch",
 )
 
+p13_live_proof = manifest.get("p13ReferenceAppLiveProof") or {}
+require(
+    p13_live_proof.get("schema") == "gofly.reference_app_p13_live_proof.v1",
+    "reference app P13 live proof schema mismatch",
+)
+require(
+    p13_live_proof.get("aiflowTask") == "GOFLY-P13-08-REFERENCE-APP-LIVE-PROOF",
+    "reference app P13 live proof aiflowTask mismatch",
+)
+require(
+    p13_live_proof.get("status") == "blocking",
+    "reference app P13 live proof status must be blocking",
+)
+require(
+    set(p13_live_proof.get("acceptanceGates") or []) == {
+        "REFERENCE_APP_MODE=memory make reference-app-smoke",
+        "REFERENCE_APP_MODE=docker make reference-app-smoke",
+    },
+    "reference app P13 live proof acceptanceGates mismatch",
+)
+require(
+    p13_live_proof.get("runtimeEvidencePath") == ".aiflow/reference-app-smoke-report.json",
+    "reference app P13 live proof runtimeEvidencePath mismatch",
+)
+require(
+    ".aiflow/" in gitignore,
+    "reference app P13 live proof runtime evidence must stay under ignored .aiflow/",
+)
+require(
+    set(p13_live_proof.get("requiredRuntimeReportFields") or []) == {
+        "schema",
+        "aiflowTask",
+        "p13AiflowTask",
+        "mode",
+        "status",
+        "liveCompose",
+        "liveProofState",
+        "fallbackReason",
+        "gate",
+        "components",
+        "dependencyFamilies",
+        "validatedModes",
+    },
+    "reference app P13 live proof requiredRuntimeReportFields mismatch",
+)
+dependency_families = {
+    "SQL outbox",
+    "Redis cache",
+    "Kafka",
+    "RabbitMQ",
+    "Redis Stream",
+    "Consul",
+    "etcd",
+    "Nacos",
+    "OpenTelemetry collector",
+}
+require(
+    set(p13_live_proof.get("dependencyFamilies") or []) == dependency_families,
+    "reference app P13 live proof dependencyFamilies mismatch",
+)
+require(
+    set(p13_live_proof.get("validatedModes") or []) == {"memory", "docker"},
+    "reference app P13 live proof validatedModes mismatch",
+)
+require(
+    set(p13_live_proof.get("allowedFallbackReasons") or []) == fallback_reasons,
+    "reference app P13 live proof allowedFallbackReasons must match P9 live proof",
+)
+p13_rows = {
+    item.get("id"): item
+    for item in p13_live_proof.get("proofRows") or []
+    if isinstance(item, dict) and item.get("id")
+}
+required_p13_rows = {
+    "memory-live-proof": {
+        "mode": "memory",
+        "expectedStatus": "passed",
+        "liveProofState": "memory-fallback",
+        "fallbackReason": "memory-mode",
+    },
+    "docker-compose-live-proof": {
+        "mode": "docker",
+        "expectedStatus": "passed",
+        "liveProofState": "live-compose",
+        "fallbackReason": "",
+    },
+    "docker-explicit-skip-proof": {
+        "mode": "docker",
+        "expectedStatus": "skipped",
+        "liveProofState": "explicit-fallback",
+        "fallbackReason": "docker-cli-missing|docker-daemon-unavailable|compose-dependency-pull-failed",
+    },
+}
+require(
+    set(p13_rows) == set(required_p13_rows),
+    "reference app P13 live proof rows drifted: "
+    f"missing={sorted(set(required_p13_rows) - set(p13_rows))!r} "
+    f"extra={sorted(set(p13_rows) - set(required_p13_rows))!r}",
+)
+for row_id, expected in required_p13_rows.items():
+    row = p13_rows.get(row_id) or {}
+    for field in ("id", "mode", "expectedStatus", "liveProofState", "gate", "evidence", "rollbackOrEscalation"):
+        require(row.get(field) not in ("", None, []), f"reference app P13 live proof {row_id}: {field} is required")
+    for field, value in expected.items():
+        require(row.get(field) == value, f"reference app P13 live proof {row_id}: {field} mismatch")
+    require(
+        row.get("gate") in set(p13_live_proof.get("acceptanceGates") or []),
+        f"reference app P13 live proof {row_id}: gate must be an acceptance gate",
+    )
+    for evidence in row.get("evidence") or []:
+        require((root / evidence).exists(), f"reference app P13 live proof {row_id}: evidence path missing: {evidence}")
+    require(
+        len(str(row.get("rollbackOrEscalation") or "").split()) >= 10,
+        f"reference app P13 live proof {row_id}: rollbackOrEscalation must be actionable",
+    )
+for field in ("liveSuccessPolicy", "fallbackPolicy", "rollbackOrEscalation"):
+    require(
+        len(str(p13_live_proof.get(field) or "").split()) >= 10,
+        f"reference app P13 live proof {field} must be actionable",
+    )
+
 adopter_proof = manifest.get("adopterProof") or {}
 require(
     adopter_proof.get("schema") == "gofly.reference_app_adopter_proof.v1",
@@ -418,26 +539,58 @@ mode = sys.argv[2]
 status = sys.argv[3]
 live_compose = sys.argv[4] == "true"
 fallback_reason = sys.argv[5]
+dependency_families = [
+    "SQL outbox",
+    "Redis cache",
+    "Kafka",
+    "RabbitMQ",
+    "Redis Stream",
+    "Consul",
+    "etcd",
+    "Nacos",
+    "OpenTelemetry collector",
+]
+if live_compose:
+    live_proof_state = "live-compose"
+elif mode == "memory":
+    live_proof_state = "memory-fallback"
+else:
+    live_proof_state = "explicit-fallback"
 report = {
     "schema": "gofly.reference_app_smoke_report.v1",
     "aiflowTask": "GOFLY-GOV-10P9-03",
+    "p13AiflowTask": "GOFLY-P13-08-REFERENCE-APP-LIVE-PROOF",
     "mode": mode,
     "status": status,
     "liveCompose": live_compose,
+    "liveProofState": live_proof_state,
     "fallbackReason": fallback_reason,
     "gate": "make reference-app-smoke",
-    "components": [
-        "Postgres SQL outbox",
-        "Redis cache",
-        "Kafka",
-        "RabbitMQ",
-        "Redis Stream",
-        "Consul",
-        "etcd",
-        "Nacos",
-        "OpenTelemetry collector",
-    ],
+    "components": dependency_families,
+    "dependencyFamilies": dependency_families,
+    "validatedModes": ["memory", "docker"],
 }
+manifest_path = pathlib.Path("docs/reference/reference-app-topology.json")
+if manifest_path.is_file():
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    p13 = manifest.get("p13ReferenceAppLiveProof") or {}
+    required = set(p13.get("requiredRuntimeReportFields") or [])
+    missing = sorted(required - set(report))
+    if missing:
+        raise SystemExit(f"reference app smoke report missing P13 fields: {missing!r}")
+    allowed = set(p13.get("allowedFallbackReasons") or [])
+    if fallback_reason and fallback_reason not in allowed:
+        raise SystemExit(f"reference app smoke fallback reason is not allowed: {fallback_reason!r}")
+    if set(report["dependencyFamilies"]) != set(p13.get("dependencyFamilies") or []):
+        raise SystemExit("reference app smoke dependencyFamilies drifted from P13 contract")
+    if set(report["validatedModes"]) != set(p13.get("validatedModes") or []):
+        raise SystemExit("reference app smoke validatedModes drifted from P13 contract")
+if mode == "docker" and status == "passed" and not live_compose:
+    raise SystemExit("docker reference app smoke cannot pass without liveCompose=true")
+if mode == "docker" and status == "skipped" and live_compose:
+    raise SystemExit("docker reference app smoke skip cannot claim liveCompose=true")
+if mode == "memory" and fallback_reason != "memory-mode":
+    raise SystemExit("memory reference app smoke must report fallbackReason=memory-mode")
 path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 PY
 }

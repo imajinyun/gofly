@@ -507,5 +507,183 @@
       }
     ]
   },
+  "p13HostedReleaseSupplyChainClosure": {
+    "schema": "gofly.hosted_release_supply_chain_p13.v1",
+    "aiflowTask": "GOFLY-P13-12-HOSTED-RELEASE-SUPPLY-CHAIN",
+    "status": "release-blocking-contract",
+    "acceptanceGates": [
+      "make required-checks-drift-check",
+      "make governance-report-check"
+    ],
+    "sourceContracts": [
+      "hostedReleaseEvidence",
+      "releasePrerequisiteDrift",
+      "docs/releases/evidence-index.json",
+      "docs/releases/evidence-consumption.json",
+      "docs/releases/adoption-contract.json"
+    ],
+    "releaseJob": "release",
+    "uploadArtifact": "release-dist-evidence",
+    "requiredArtifactFamilies": [
+      "checksums",
+      "sbom",
+      "provenance",
+      "docker-digest",
+      "trivy",
+      "release-evidence-manifest",
+      "required-check-drift"
+    ],
+    "rows": [
+      {
+        "id": "checksums",
+        "hostedEvidenceRows": [
+          "artifact-upload",
+          "checksums"
+        ],
+        "releaseEvidenceIds": [
+          "checksums"
+        ],
+        "producerJobs": [
+          "release"
+        ],
+        "localGate": "make release-artifacts-check",
+        "workflowMarkers": [
+          "Upload release verification evidence",
+          "dist/checksums.txt"
+        ],
+        "blockDecision": "Block tag promotion when the hosted release artifact upload is missing, empty, or lacks checksum evidence from dist/checksums.txt.",
+        "rollbackOrEscalation": "Keep the previous binary release pinned and rebuild archives plus checksums from the tagged commit."
+      },
+      {
+        "id": "sbom",
+        "hostedEvidenceRows": [
+          "sbom"
+        ],
+        "releaseEvidenceIds": [
+          "archive-sbom",
+          "docker-sbom"
+        ],
+        "producerJobs": [
+          "release"
+        ],
+        "localGate": "RELEASE_REQUIRE_DOCKER_EVIDENCE=true make release-artifacts-check",
+        "workflowMarkers": [
+          "release-evidence/docker/release-docker-sbom.spdx.json"
+        ],
+        "blockDecision": "Block release publication when archive or Docker SBOM evidence is absent from hosted tag CI output.",
+        "rollbackOrEscalation": "Reject the artifact set and keep the previous release until dependency inventory evidence is rebuilt."
+      },
+      {
+        "id": "provenance",
+        "hostedEvidenceRows": [
+          "provenance"
+        ],
+        "releaseEvidenceIds": [
+          "checksums-attestation",
+          "docker-attestation"
+        ],
+        "producerJobs": [
+          "release"
+        ],
+        "localGate": "RELEASE_REQUIRE_DOCKER_EVIDENCE=true make release-artifacts-check",
+        "workflowMarkers": [
+          "Verify release attestations"
+        ],
+        "blockDecision": "Block publication when checksum or Docker provenance attestation verification is missing or mismatched.",
+        "rollbackOrEscalation": "Rebuild and re-attest from the tagged commit or continue using the previous attested release."
+      },
+      {
+        "id": "docker-digest",
+        "hostedEvidenceRows": [
+          "docker-digest"
+        ],
+        "releaseEvidenceIds": [
+          "docker-digest"
+        ],
+        "producerJobs": [
+          "release"
+        ],
+        "localGate": "RELEASE_REQUIRE_DOCKER_EVIDENCE=true make release-artifacts-check",
+        "workflowMarkers": [
+          "release-evidence/docker/release-docker-digests.json"
+        ],
+        "blockDecision": "Block image promotion when immutable Docker digest evidence is missing or does not map to release manifests.",
+        "rollbackOrEscalation": "Pin the previous known-good digest until the release image digest evidence is regenerated and verified."
+      },
+      {
+        "id": "trivy",
+        "hostedEvidenceRows": [
+          "trivy"
+        ],
+        "releaseEvidenceIds": [
+          "trivy"
+        ],
+        "producerJobs": [
+          "release"
+        ],
+        "localGate": "RELEASE_REQUIRE_DOCKER_EVIDENCE=true make release-artifacts-check",
+        "workflowMarkers": [
+          "Trivy release image scan"
+        ],
+        "blockDecision": "Block release promotion when hosted Trivy evidence is absent or reports an unaccepted high or critical finding.",
+        "rollbackOrEscalation": "Hold the release and publish only after the finding is fixed, mitigated, or explicitly accepted with evidence."
+      },
+      {
+        "id": "release-evidence-manifest",
+        "hostedEvidenceRows": [
+          "cloud-native-live-render",
+          "codeql",
+          "scorecard"
+        ],
+        "releaseEvidenceIds": [
+          "governance-dashboard",
+          "security"
+        ],
+        "producerJobs": [
+          "cloud-native-live-render",
+          "codeql",
+          "scorecard",
+          "governance"
+        ],
+        "localGate": "make governance-report-check",
+        "workflowMarkers": [
+          "Download cloud-native live render evidence",
+          "Perform CodeQL Analysis",
+          "Upload Scorecard SARIF"
+        ],
+        "blockDecision": "Block tag promotion when hosted cloud-native, CodeQL, Scorecard, or governance dashboard evidence is not visible to release consumers.",
+        "rollbackOrEscalation": "Restore the missing hosted prerequisite or keep the previous release pinned until the evidence manifest is complete."
+      },
+      {
+        "id": "required-check-drift",
+        "hostedEvidenceRows": [
+          "required-check-drift"
+        ],
+        "releaseEvidenceIds": [
+          "api-compat",
+          "security",
+          "race",
+          "bench",
+          "governance-dashboard"
+        ],
+        "producerJobs": [
+          "branch-protection-audit",
+          "contract-check",
+          "security",
+          "governance",
+          "bench-fuzz"
+        ],
+        "localGate": "make required-checks-drift-check",
+        "workflowMarkers": [
+          "required-status-checks.json"
+        ],
+        "blockDecision": "Block release promotion when branch-protection expected checks, release needs, or evidence manifests drift.",
+        "rollbackOrEscalation": "Restore the missing required check, release prerequisite, or evidence row before retrying the tag release."
+      }
+    ],
+    "forbiddenSkipPolicy": "Tag release CI must not skip release artifact upload, checksums, SBOM, provenance, Docker digest, Trivy, required-check drift, or governance dashboard evidence; a missing hosted tool must fail with explicit evidence rather than silently publishing.",
+    "dashboardReportField": "ciRequiredChecks.p13HostedReleaseSupplyChainClosure",
+    "completionPolicy": "Mark GOFLY-P13-12-HOSTED-RELEASE-SUPPLY-CHAIN complete only after required-checks-drift-check and governance-report-check pass with hosted release artifact proof mapped into the dashboard."
+  },
   "schema": "gofly.ci_required_check_evidence.v1"
 }

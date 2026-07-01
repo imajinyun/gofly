@@ -492,6 +492,12 @@ def coverage_evidence():
 def ci_required_check_evidence():
     manifest = read_json(root / "docs/reference/ci-required-check-evidence.json") or {}
     checks = manifest.get("checks") or []
+    p13_closure = manifest.get("p13HostedReleaseSupplyChainClosure") or {}
+    p13_rows = [
+        item
+        for item in p13_closure.get("rows") or []
+        if isinstance(item, dict)
+    ]
     artifacts = sorted({
         item.get("artifact", "")
         for item in checks
@@ -505,6 +511,22 @@ def ci_required_check_evidence():
         "checkCount": len(checks),
         "releasePrerequisiteCount": len(manifest.get("releasePrerequisites") or []),
         "artifacts": artifacts,
+        "p13HostedReleaseSupplyChainClosure": {
+            "schema": p13_closure.get("schema", ""),
+            "aiflowTask": p13_closure.get("aiflowTask", ""),
+            "status": p13_closure.get("status", ""),
+            "acceptanceGates": p13_closure.get("acceptanceGates", []),
+            "sourceContracts": p13_closure.get("sourceContracts", []),
+            "releaseJob": p13_closure.get("releaseJob", ""),
+            "uploadArtifact": p13_closure.get("uploadArtifact", ""),
+            "requiredArtifactFamilies": p13_closure.get("requiredArtifactFamilies", []),
+            "artifactFamilyCount": len(p13_closure.get("requiredArtifactFamilies") or []),
+            "rowCount": len(p13_rows),
+            "rows": p13_rows,
+            "forbiddenSkipPolicy": p13_closure.get("forbiddenSkipPolicy", ""),
+            "dashboardReportField": p13_closure.get("dashboardReportField", ""),
+            "completionPolicy": p13_closure.get("completionPolicy", ""),
+        },
     }
 
 
@@ -1087,6 +1109,66 @@ if report["ciRequiredChecks"]["checkCount"] < 20:
     missing.append("CI required-check evidence is incomplete")
 if report["ciRequiredChecks"]["releasePrerequisiteCount"] < 13:
     missing.append("CI release prerequisite evidence is incomplete")
+p13_supply_chain = report["ciRequiredChecks"].get("p13HostedReleaseSupplyChainClosure") or {}
+if p13_supply_chain.get("schema") != "gofly.hosted_release_supply_chain_p13.v1":
+    missing.append("CI required-check P13 hosted release supply-chain schema mismatch")
+if p13_supply_chain.get("aiflowTask") != "GOFLY-P13-12-HOSTED-RELEASE-SUPPLY-CHAIN":
+    missing.append("CI required-check P13 hosted release supply-chain aiflowTask mismatch")
+if p13_supply_chain.get("status") != "release-blocking-contract":
+    missing.append("CI required-check P13 hosted release supply-chain status mismatch")
+for gate in ("make required-checks-drift-check", "make governance-report-check"):
+    if gate not in set(p13_supply_chain.get("acceptanceGates") or []):
+        missing.append(f"CI required-check P13 hosted release supply-chain acceptanceGates missing {gate!r}")
+expected_p13_artifact_families = {
+    "checksums",
+    "sbom",
+    "provenance",
+    "docker-digest",
+    "trivy",
+    "release-evidence-manifest",
+    "required-check-drift",
+}
+if set(p13_supply_chain.get("requiredArtifactFamilies") or []) != expected_p13_artifact_families:
+    missing.append("CI required-check P13 hosted release supply-chain requiredArtifactFamilies mismatch")
+if p13_supply_chain.get("artifactFamilyCount") != len(expected_p13_artifact_families):
+    missing.append("CI required-check P13 hosted release supply-chain artifactFamilyCount mismatch")
+if p13_supply_chain.get("rowCount") != len(expected_p13_artifact_families):
+    missing.append("CI required-check P13 hosted release supply-chain rowCount mismatch")
+if p13_supply_chain.get("releaseJob") != "release":
+    missing.append("CI required-check P13 hosted release supply-chain releaseJob mismatch")
+if p13_supply_chain.get("uploadArtifact") != "release-dist-evidence":
+    missing.append("CI required-check P13 hosted release supply-chain uploadArtifact mismatch")
+if p13_supply_chain.get("dashboardReportField") != "ciRequiredChecks.p13HostedReleaseSupplyChainClosure":
+    missing.append("CI required-check P13 hosted release supply-chain dashboardReportField mismatch")
+for contract in (
+    "hostedReleaseEvidence",
+    "releasePrerequisiteDrift",
+    "docs/releases/evidence-index.json",
+    "docs/releases/evidence-consumption.json",
+    "docs/releases/adoption-contract.json",
+):
+    if contract not in set(p13_supply_chain.get("sourceContracts") or []):
+        missing.append(f"CI required-check P13 hosted release supply-chain sourceContracts missing {contract!r}")
+p13_rows = {
+    item.get("id"): item
+    for item in p13_supply_chain.get("rows") or []
+    if isinstance(item, dict) and item.get("id")
+}
+if set(p13_rows) != expected_p13_artifact_families:
+    missing.append("CI required-check P13 hosted release supply-chain rows mismatch")
+for row_id, row in p13_rows.items():
+    for field in ("hostedEvidenceRows", "releaseEvidenceIds", "producerJobs", "localGate", "workflowMarkers", "blockDecision", "rollbackOrEscalation"):
+        if not row.get(field):
+            missing.append(f"CI required-check P13 hosted release supply-chain {row_id}: {field} is required")
+    for field in ("blockDecision", "rollbackOrEscalation"):
+        if len(str(row.get(field) or "").split()) < 10:
+            missing.append(f"CI required-check P13 hosted release supply-chain {row_id}: {field} must be actionable")
+for needle in ("Tag release CI", "release artifact upload", "checksums", "SBOM", "provenance", "Docker digest", "Trivy", "required-check drift", "governance dashboard"):
+    if needle not in str(p13_supply_chain.get("forbiddenSkipPolicy") or ""):
+        missing.append(f"CI required-check P13 hosted release supply-chain forbiddenSkipPolicy missing {needle!r}")
+for needle in ("GOFLY-P13-12-HOSTED-RELEASE-SUPPLY-CHAIN", "required-checks-drift-check", "governance-report-check", "hosted release artifact proof", "dashboard"):
+    if needle not in str(p13_supply_chain.get("completionPolicy") or ""):
+        missing.append(f"CI required-check P13 hosted release supply-chain completionPolicy missing {needle!r}")
 if report["runtimeSLO"]["schema"] != "gofly.runtime_slo.v1":
     missing.append("runtime SLO evidence schema mismatch")
 if report["runtimeSLO"]["signalCount"] < 7:
@@ -2066,6 +2148,9 @@ for field in (
     "releaseEvidenceConsumption.driftClosure.releasePrerequisiteCoverage",
     "releaseEvidenceConsumption.tagCIClosure.stageCount",
     "releaseEvidenceConsumption.tagCIClosure.requiredLocalGates",
+    "ciRequiredChecks.p13HostedReleaseSupplyChainClosure.status",
+    "ciRequiredChecks.p13HostedReleaseSupplyChainClosure.aiflowTask",
+    "ciRequiredChecks.p13HostedReleaseSupplyChainClosure.artifactFamilyCount",
     "releaseAdoptionContract.decisionCount",
     "releaseAdoptionContract.riskClassCounts",
     "releaseAdoptionContract.tagCIClosureRowCount",

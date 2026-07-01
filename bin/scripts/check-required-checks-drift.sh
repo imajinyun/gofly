@@ -184,6 +184,51 @@ expected_hosted_release_evidence = {
     },
 }
 
+expected_p13_hosted_release_supply_chain = {
+    "checksums": {
+        "hostedEvidenceRows": {"artifact-upload", "checksums"},
+        "releaseEvidenceIds": {"checksums"},
+        "producerJobs": {"release"},
+        "localGate": "make release-artifacts-check",
+    },
+    "sbom": {
+        "hostedEvidenceRows": {"sbom"},
+        "releaseEvidenceIds": {"archive-sbom", "docker-sbom"},
+        "producerJobs": {"release"},
+        "localGate": "RELEASE_REQUIRE_DOCKER_EVIDENCE=true make release-artifacts-check",
+    },
+    "provenance": {
+        "hostedEvidenceRows": {"provenance"},
+        "releaseEvidenceIds": {"checksums-attestation", "docker-attestation"},
+        "producerJobs": {"release"},
+        "localGate": "RELEASE_REQUIRE_DOCKER_EVIDENCE=true make release-artifacts-check",
+    },
+    "docker-digest": {
+        "hostedEvidenceRows": {"docker-digest"},
+        "releaseEvidenceIds": {"docker-digest"},
+        "producerJobs": {"release"},
+        "localGate": "RELEASE_REQUIRE_DOCKER_EVIDENCE=true make release-artifacts-check",
+    },
+    "trivy": {
+        "hostedEvidenceRows": {"trivy"},
+        "releaseEvidenceIds": {"trivy"},
+        "producerJobs": {"release"},
+        "localGate": "RELEASE_REQUIRE_DOCKER_EVIDENCE=true make release-artifacts-check",
+    },
+    "release-evidence-manifest": {
+        "hostedEvidenceRows": {"cloud-native-live-render", "codeql", "scorecard"},
+        "releaseEvidenceIds": {"governance-dashboard", "security"},
+        "producerJobs": {"cloud-native-live-render", "codeql", "scorecard", "governance"},
+        "localGate": "make governance-report-check",
+    },
+    "required-check-drift": {
+        "hostedEvidenceRows": {"required-check-drift"},
+        "releaseEvidenceIds": {"api-compat", "security", "race", "bench", "governance-dashboard"},
+        "producerJobs": {"branch-protection-audit", "contract-check", "security", "governance", "bench-fuzz"},
+        "localGate": "make required-checks-drift-check",
+    },
+}
+
 expected_governance_rounds = {
     1: "baseline and module graph",
     2: "format check",
@@ -553,6 +598,126 @@ for row_id, expected in sorted(expected_hosted_release_evidence.items()):
     require(len(str(row.get("fallbackPolicy") or "").split()) >= 8, f"hostedReleaseEvidence {row_id}: fallbackPolicy must be actionable")
 require("release-dist-evidence" in workflow, "ci.yml: hosted release upload artifact release-dist-evidence is missing")
 require("if-no-files-found: error" in release_job, "ci.yml: hosted release evidence upload must fail on missing files")
+
+p13_release_evidence_ids = {
+    item.get("id", "")
+    for item in release_evidence_index.get("evidence") or []
+    if isinstance(item, dict) and item.get("id")
+}
+p13_closure = required_check_manifest.get("p13HostedReleaseSupplyChainClosure")
+if not isinstance(p13_closure, dict):
+    missing.append("ci-required-check-evidence.json: p13HostedReleaseSupplyChainClosure must be an object")
+    p13_closure = {}
+require(
+    p13_closure.get("schema") == "gofly.hosted_release_supply_chain_p13.v1",
+    "ci-required-check-evidence.json: P13 hosted release supply-chain schema mismatch",
+)
+require(
+    p13_closure.get("aiflowTask") == "GOFLY-P13-12-HOSTED-RELEASE-SUPPLY-CHAIN",
+    "ci-required-check-evidence.json: P13 hosted release supply-chain aiflowTask mismatch",
+)
+require(
+    p13_closure.get("status") == "release-blocking-contract",
+    "ci-required-check-evidence.json: P13 hosted release supply-chain status mismatch",
+)
+for gate in ("make required-checks-drift-check", "make governance-report-check"):
+    require(
+        gate in set(p13_closure.get("acceptanceGates") or []),
+        f"ci-required-check-evidence.json: P13 hosted release supply-chain acceptanceGates missing {gate!r}",
+    )
+for contract in (
+    "hostedReleaseEvidence",
+    "releasePrerequisiteDrift",
+    "docs/releases/evidence-index.json",
+    "docs/releases/evidence-consumption.json",
+    "docs/releases/adoption-contract.json",
+):
+    require(
+        contract in set(p13_closure.get("sourceContracts") or []),
+        f"ci-required-check-evidence.json: P13 hosted release supply-chain sourceContracts missing {contract!r}",
+    )
+require(p13_closure.get("releaseJob") == "release", "P13 hosted release supply-chain releaseJob must be release")
+require(
+    p13_closure.get("uploadArtifact") == "release-dist-evidence",
+    "P13 hosted release supply-chain uploadArtifact must be release-dist-evidence",
+)
+require(
+    set(p13_closure.get("requiredArtifactFamilies") or []) == set(expected_p13_hosted_release_supply_chain),
+    "P13 hosted release supply-chain requiredArtifactFamilies drifted: "
+    f"missing={sorted(set(expected_p13_hosted_release_supply_chain) - set(p13_closure.get('requiredArtifactFamilies') or []))} "
+    f"extra={sorted(set(p13_closure.get('requiredArtifactFamilies') or []) - set(expected_p13_hosted_release_supply_chain))}",
+)
+p13_rows = {
+    item.get("id", ""): item
+    for item in p13_closure.get("rows") or []
+    if isinstance(item, dict) and item.get("id")
+}
+require(
+    set(p13_rows) == set(expected_p13_hosted_release_supply_chain),
+    "P13 hosted release supply-chain rows drifted: "
+    f"missing={sorted(set(expected_p13_hosted_release_supply_chain) - set(p13_rows))} "
+    f"extra={sorted(set(p13_rows) - set(expected_p13_hosted_release_supply_chain))}",
+)
+for row_id, expected in sorted(expected_p13_hosted_release_supply_chain.items()):
+    row = p13_rows.get(row_id) or {}
+    for field in (
+        "id",
+        "hostedEvidenceRows",
+        "releaseEvidenceIds",
+        "producerJobs",
+        "localGate",
+        "workflowMarkers",
+        "blockDecision",
+        "rollbackOrEscalation",
+    ):
+        require(field in row and row.get(field) not in ("", None, []), f"P13 hosted release supply-chain {row_id}: {field} is required")
+    require(
+        set(row.get("hostedEvidenceRows") or []) == expected["hostedEvidenceRows"],
+        f"P13 hosted release supply-chain {row_id}: hostedEvidenceRows mismatch",
+    )
+    require(
+        set(row.get("releaseEvidenceIds") or []) == expected["releaseEvidenceIds"],
+        f"P13 hosted release supply-chain {row_id}: releaseEvidenceIds mismatch",
+    )
+    require(
+        set(row.get("producerJobs") or []) == expected["producerJobs"],
+        f"P13 hosted release supply-chain {row_id}: producerJobs mismatch",
+    )
+    require(row.get("localGate") == expected["localGate"], f"P13 hosted release supply-chain {row_id}: localGate mismatch")
+    for hosted_id in row.get("hostedEvidenceRows") or []:
+        require(hosted_id in hosted_by_id, f"P13 hosted release supply-chain {row_id}: hosted evidence row {hosted_id!r} is missing")
+    for evidence_id in row.get("releaseEvidenceIds") or []:
+        require(evidence_id in p13_release_evidence_ids, f"P13 hosted release supply-chain {row_id}: release evidence id {evidence_id!r} is missing")
+    for producer in row.get("producerJobs") or []:
+        require(producer in job_ids, f"P13 hosted release supply-chain {row_id}: producer job {producer!r} is missing")
+    for marker in row.get("workflowMarkers") or []:
+        require(marker in workflow, f"P13 hosted release supply-chain {row_id}: workflow marker {marker!r} is missing")
+    for field in ("blockDecision", "rollbackOrEscalation"):
+        require(len(str(row.get(field) or "").split()) >= 10, f"P13 hosted release supply-chain {row_id}: {field} must be actionable")
+for needle in (
+    "Tag release CI",
+    "release artifact upload",
+    "checksums",
+    "SBOM",
+    "provenance",
+    "Docker digest",
+    "Trivy",
+    "required-check drift",
+    "governance dashboard",
+):
+    require(needle in str(p13_closure.get("forbiddenSkipPolicy") or ""), f"P13 hosted release supply-chain forbiddenSkipPolicy missing {needle!r}")
+require(
+    p13_closure.get("dashboardReportField") == "ciRequiredChecks.p13HostedReleaseSupplyChainClosure",
+    "P13 hosted release supply-chain dashboardReportField mismatch",
+)
+for needle in (
+    "GOFLY-P13-12-HOSTED-RELEASE-SUPPLY-CHAIN",
+    "required-checks-drift-check",
+    "governance-report-check",
+    "hosted release artifact proof",
+    "dashboard",
+):
+    require(needle in str(p13_closure.get("completionPolicy") or ""), f"P13 hosted release supply-chain completionPolicy missing {needle!r}")
 
 release_evidence_items = [
     item

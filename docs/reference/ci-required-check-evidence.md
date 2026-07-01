@@ -135,6 +135,18 @@ markers, release job, upload artifact name, and missing-file policy. `make
 required-checks-drift-check` also validates the same contract against branch
 protection and release prerequisites.
 
+P13 hosted release supply-chain closeout is indexed as
+`gofly.hosted_release_supply_chain_p13.v1` for
+`GOFLY-P13-12-HOSTED-RELEASE-SUPPLY-CHAIN`. It promotes the P9 hosted evidence
+rows into a release-blocking artifact-family contract covering checksums,
+SBOM, provenance, Docker digest, Trivy, release evidence manifest visibility,
+and required-check drift. Tag CI must not skip release artifact upload,
+checksums, SBOM, provenance, Docker digest, Trivy, required-check drift, or
+governance dashboard evidence. The closeout is complete only after
+`make required-checks-drift-check` and `make governance-report-check` pass and
+the dashboard exposes
+`ciRequiredChecks.p13HostedReleaseSupplyChainClosure`.
+
 | Evidence row | Producer job | Hosted evidence | Gate |
 | --- | --- | --- | --- |
 | `artifact-upload` | `release` | `release-dist-evidence` artifact upload | `make release-artifacts-check` |

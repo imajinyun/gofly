@@ -97,6 +97,33 @@ make bench-regression-check
 Release notes must not claim Kitex, gRPC-Go, Netpoll, TTHeader, Thrift, or
 blocking RPC latency parity until those prerequisites are satisfied.
 
+## P11 promotion review
+
+`p11PromotionReview` in `docs/reference/rpc-tier1-evidence.json` records
+`GOFLY-P11-1-RPC-TIER1-PROMOTION-REVIEW`. The review is complete, but the
+promotion result remains `hold`: unary RPC, stream governance,
+resolver/balancer behavior, deadline/error-code mapping, retry semantics,
+`rpc/grpc` compatibility, and Kitex/go-zero coexistence all have machine-readable
+evidence, but that evidence still does not satisfy the release-train and
+blocking-budget prerequisites for Tier 1.
+
+P11 keeps three blockers explicit:
+
+- `release-train-attached`: at least one release train must attach RPC boundary,
+  required-check drift, release evidence, and benchmark evidence.
+- `rpc-budget-promoted`: selected unary or stream benchmarks must move from
+  report-only candidates into blocking allocation budget coverage.
+- `transport-parity-forbidden`: release notes and docs must keep Kitex,
+  gRPC-Go, Netpoll, TTHeader, Thrift, and generic transport parity claims out of
+  scope until the boundary evidence changes.
+
+The P11 review does not weaken rollback boundaries. Latency-critical unary
+methods stay on Kitex or native gRPC-Go while budgets are report-only, streaming
+workloads keep their existing stream path until mode-specific evidence is
+promoted, resolver/balancer rollout keeps service mesh or previous client
+routing available, and go-zero migrations keep rollback routing plus generated
+upgrade dry-run evidence.
+
 ## Transport Boundary Contract
 
 gofly should be positioned as governed service glue, generated control-plane

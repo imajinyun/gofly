@@ -392,6 +392,82 @@ for prereq_id, status in required_p10_prereqs.items():
     for evidence_path in prereq.get("requiredEvidence") or []:
         require((root / evidence_path).exists(), f"P10 RPC prerequisite {prereq_id}: evidence path missing: {evidence_path}")
 
+p11_review = manifest.get("p11PromotionReview") or {}
+require(
+    p11_review.get("schema") == "gofly.rpc_tier1_p11_promotion_review.v1",
+    "rpc tier1 evidence p11PromotionReview schema mismatch",
+)
+require(
+    p11_review.get("aiflowTask") == "GOFLY-P11-1-RPC-TIER1-PROMOTION-REVIEW",
+    "rpc tier1 evidence p11PromotionReview aiflowTask mismatch",
+)
+require(
+    p11_review.get("status") == "review-complete-promotion-held",
+    "rpc tier1 evidence p11PromotionReview status must be review-complete-promotion-held",
+)
+require(
+    set(p11_review.get("acceptanceGates") or []) == {"make rpc-boundary-check", "make bench-regression-check"},
+    "rpc tier1 evidence p11PromotionReview acceptanceGates mismatch",
+)
+p11_decision = p11_review.get("decision") or {}
+require(p11_decision.get("currentTier") == "tier2", "P11 RPC decision.currentTier must be tier2")
+require(p11_decision.get("targetTier") == "tier1", "P11 RPC decision.targetTier must be tier1")
+require(p11_decision.get("result") == "hold", "P11 RPC decision.result must be hold")
+require(
+    p11_decision.get("nextReviewGate") == "make rpc-boundary-check && make bench-regression-check",
+    "P11 RPC nextReviewGate mismatch",
+)
+for field in ("reason", "releaseNotePolicy"):
+    require(len(str(p11_decision.get(field) or "").split()) >= 14, f"P11 RPC decision.{field} must be actionable")
+for forbidden_claim in ("Kitex", "gRPC-Go", "Netpoll", "TTHeader", "Thrift"):
+    require(
+        forbidden_claim in str(p11_decision.get("releaseNotePolicy") or ""),
+        f"P11 RPC releaseNotePolicy must mention {forbidden_claim} boundary",
+    )
+p11_rows = {
+    item.get("id"): item
+    for item in p11_review.get("reviewRows") or []
+    if isinstance(item, dict) and item.get("id")
+}
+required_p11_rows = {
+    "unary": "candidate",
+    "server-stream": "candidate",
+    "client-stream": "candidate",
+    "bidi-stream": "candidate",
+    "resolver-balancer": "candidate",
+    "grpc-compatibility": "tier1-ready-evidence",
+    "kitex-gozero-coexistence": "rollback-required",
+}
+require(set(p11_rows) == set(required_p11_rows), f"P11 RPC reviewRows mismatch: {sorted(p11_rows)!r}")
+for row_id, classification in required_p11_rows.items():
+    row = p11_rows.get(row_id) or {}
+    require(row.get("classification") == classification, f"P11 RPC review row {row_id}: classification mismatch")
+    require(set(row.get("requiredEvidenceIds") or []), f"P11 RPC review row {row_id}: requiredEvidenceIds are required")
+    for field in ("promotionFinding", "requiredAction", "rollbackAction"):
+        require(len(str(row.get(field) or "").split()) >= 10, f"P11 RPC review row {row_id}: {field} must be actionable")
+    require(
+        any(runtime in str(row.get("rollbackAction") or "") for runtime in ("Kitex", "gRPC-Go", "go-zero", "RPC stack", "service mesh", "client balancer")),
+        f"P11 RPC review row {row_id}: rollbackAction must name fallback runtime or routing stack",
+    )
+p11_blockers = {
+    item.get("id"): item
+    for item in p11_review.get("promotionBlockers") or []
+    if isinstance(item, dict) and item.get("id")
+}
+required_p11_blockers = {
+    "release-train-attached": "pending",
+    "rpc-budget-promoted": "report-only",
+    "transport-parity-forbidden": "blocking",
+}
+require(set(p11_blockers) == set(required_p11_blockers), f"P11 RPC promotionBlockers mismatch: {sorted(p11_blockers)!r}")
+for blocker_id, status in required_p11_blockers.items():
+    blocker = p11_blockers.get(blocker_id) or {}
+    require(blocker.get("status") == status, f"P11 RPC blocker {blocker_id}: status mismatch")
+    require(blocker.get("requiredGate"), f"P11 RPC blocker {blocker_id}: requiredGate is required")
+    require(len(str(blocker.get("clearanceCondition") or "").split()) >= 10, f"P11 RPC blocker {blocker_id}: clearanceCondition must be actionable")
+    for evidence_path in blocker.get("requiredEvidence") or []:
+        require((root / evidence_path).exists(), f"P11 RPC blocker {blocker_id}: evidence path missing: {evidence_path}")
+
 r8_transport_matrix = transport_boundary.get("r8TransportEvidenceMatrix") or {}
 require(
     r8_transport_matrix.get("schema") == "gofly.rpc_transport_r8_evidence_matrix.v1",

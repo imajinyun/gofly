@@ -983,6 +983,173 @@ p12_runtime_policy = str(p12_replay.get("runtimeArtifactPolicy") or "")
 for needle in ("runtime evidence", "ignored temporary paths", "must never be committed"):
     require(needle in p12_runtime_policy, f"p12RealBranchReplay runtimeArtifactPolicy missing {needle!r}")
 
+p13_maturity = manifest.get("p13GoctlGeneratorMaturity") or {}
+require(
+    p13_maturity.get("schema") == "gofly.goctl_generator_maturity_closeout.v1",
+    "p13GoctlGeneratorMaturity schema mismatch",
+)
+require(
+    p13_maturity.get("aiflowTask") == "GOFLY-P13-02-GOCTL-GENERATOR-MATURITY",
+    "p13GoctlGeneratorMaturity aiflowTask mismatch",
+)
+require(p13_maturity.get("status") == "blocking-contract", "p13GoctlGeneratorMaturity status must be blocking-contract")
+expected_p13_sources = {
+    "docs/reference/generated-upgrade-dry-run.json",
+    "docs/reference/generated-version-compat.md",
+    "docs/reference/goctl-generator-compatibility.json",
+    "docs/reference/generated-scaffold-long-term-compatibility.json",
+    "testdata/generated-compat/matrix.json",
+}
+require(
+    set(p13_maturity.get("sourceOfTruth") or []) == expected_p13_sources,
+    "p13GoctlGeneratorMaturity sourceOfTruth mismatch",
+)
+for source in p13_maturity.get("sourceOfTruth") or []:
+    require((root / source).exists(), f"p13GoctlGeneratorMaturity source path missing: {source}")
+require(
+    set(p13_maturity.get("acceptanceGates") or []) == {
+        "make generated-version-compat-check",
+        "make generated-upgrade-dry-run-check",
+        "make goctl-generator-compat-check",
+    },
+    "p13GoctlGeneratorMaturity acceptanceGates mismatch",
+)
+p13_execution = p13_maturity.get("executionPolicy") or {}
+for field in (
+    "temporaryProjectSmoke",
+    "repeatGeneration",
+    "dependencyBoundary",
+    "artifactPolicy",
+):
+    require(
+        len(str(p13_execution.get(field) or "").split()) >= 4,
+        f"p13GoctlGeneratorMaturity executionPolicy.{field} must be actionable",
+    )
+require("go test ./..." in str(p13_execution.get("temporaryProjectSmoke") or ""), "p13GoctlGeneratorMaturity temporaryProjectSmoke must run go test ./...")
+require("diff -ru" in str(p13_execution.get("repeatGeneration") or ""), "p13GoctlGeneratorMaturity repeatGeneration must require diff -ru")
+require(
+    p13_execution.get("diffReportSchema") == "gofly.generated_version_compat_report.v1",
+    "p13GoctlGeneratorMaturity diffReportSchema mismatch",
+)
+require(
+    p13_execution.get("dependencyBoundary") == "generated project go.mod or isolated temporary test module",
+    "p13GoctlGeneratorMaturity dependencyBoundary mismatch",
+)
+require(
+    p13_execution.get("rootModulePolicy") == "must-not-add-generated-only-dependencies",
+    "p13GoctlGeneratorMaturity rootModulePolicy mismatch",
+)
+for needle in ("runtime evidence", "must not be committed"):
+    require(needle in str(p13_execution.get("artifactPolicy") or ""), f"p13GoctlGeneratorMaturity artifactPolicy missing {needle!r}")
+
+p13_surfaces = {
+    item.get("id"): item
+    for item in p13_maturity.get("maturitySurfaces") or []
+    if isinstance(item, dict) and item.get("id")
+}
+expected_p13_surfaces = {
+    "api-import-format-validation",
+    "historical-fixture-matrix",
+    "real-adopter-branch-replay",
+    "multi-language-client-contract",
+    "generated-diff-classification",
+    "generated-dependency-boundary",
+}
+require(set(p13_surfaces) == expected_p13_surfaces, f"p13GoctlGeneratorMaturity surfaces mismatch: {sorted(p13_surfaces)!r}")
+for surface_id, item in sorted(p13_surfaces.items()):
+    for field in ("id", "capability", "surface", "gate", "rollbackOrEscalation"):
+        require(item.get(field), f"p13GoctlGeneratorMaturity {surface_id}: {field} is required")
+    gate = str(item.get("gate") or "")
+    require(gate.startswith("make "), f"p13GoctlGeneratorMaturity {surface_id}: gate must be a make target")
+    if gate.startswith("make "):
+        target = gate.removeprefix("make ").split()[0]
+        require(re.search(rf"^{re.escape(target)}:", makefile, re.M), f"p13GoctlGeneratorMaturity {surface_id}: gate target {target!r} missing")
+    require(
+        len(str(item.get("rollbackOrEscalation") or "").split()) >= 12,
+        f"p13GoctlGeneratorMaturity {surface_id}: rollbackOrEscalation must be actionable",
+    )
+
+api_surface = p13_surfaces.get("api-import-format-validation") or {}
+require(api_surface.get("capability") == "api-tooling-compatibility", "p13 API surface capability mismatch")
+api_capability = goctl_capabilities.get("api-tooling-compatibility") or {}
+api_evidence = set(api_capability.get("evidence") or [])
+required_api_evidence = set(api_surface.get("requiredEvidence") or [])
+require(
+    required_api_evidence <= api_evidence,
+    f"p13 API surface evidence missing from goctl capability: {sorted(required_api_evidence - api_evidence)!r}",
+)
+
+fixture_surface = p13_surfaces.get("historical-fixture-matrix") or {}
+require(fixture_surface.get("capability") == "generated-version-fixtures", "p13 historical fixture capability mismatch")
+require(set(fixture_surface.get("profiles") or []) == profile_names, "p13 historical fixture profiles mismatch")
+required_report_fields = set(fixture_surface.get("requiredReportFields") or [])
+for field in ("profile", "generatedFiles", "goTest", "repeatGenerationDiff", "expectedDiff", "verification"):
+    require(field in required_report_fields, f"p13 historical fixture requiredReportFields missing {field!r}")
+fixture_capability = goctl_capabilities.get("generated-version-fixtures") or {}
+require(fixture_capability.get("status") == "implemented", "p13 historical fixture capability must be implemented")
+require(fixture_surface.get("gate") == "make generated-version-compat-check", "p13 historical fixture gate mismatch")
+
+branch_surface = p13_surfaces.get("real-adopter-branch-replay") or {}
+require(branch_surface.get("capability") == "p12RealBranchReplay", "p13 branch replay capability mismatch")
+branch_evidence = set(branch_surface.get("requiredEvidence") or [])
+require(
+    branch_evidence == minimum_fields,
+    f"p13 branch replay requiredEvidence must match p12 minimumFields: {sorted(branch_evidence ^ minimum_fields)!r}",
+)
+require(branch_surface.get("gate") == "make generated-upgrade-dry-run-check", "p13 branch replay gate mismatch")
+
+client_surface = p13_surfaces.get("multi-language-client-contract") or {}
+require(client_surface.get("capability") == "multi-language-client-generation", "p13 client surface capability mismatch")
+client_capability = goctl_capabilities.get("multi-language-client-generation") or {}
+require(client_capability.get("status") == "implemented", "p13 client capability must be implemented")
+client_languages = set(client_surface.get("languages") or [])
+for language in ("typescript", "javascript", "dart", "java", "kotlin"):
+    require(language in client_languages, f"p13 client surface languages missing {language!r}")
+    require(language in set(client_capability.get("evidence") or []), f"p13 client capability evidence missing language {language!r}")
+client_evidence = set(client_capability.get("evidence") or [])
+required_client_evidence = set(client_surface.get("requiredEvidence") or [])
+require(
+    required_client_evidence <= client_evidence,
+    f"p13 client surface evidence missing from goctl capability: {sorted(required_client_evidence - client_evidence)!r}",
+)
+
+diff_surface = p13_surfaces.get("generated-diff-classification") or {}
+require(diff_surface.get("capability") == "upgrade-diff-contract", "p13 diff surface capability mismatch")
+require(
+    set(diff_surface.get("requiredCategories") or []) == required_categories,
+    "p13 diff surface requiredCategories mismatch",
+)
+diff_capability = goctl_capabilities.get("upgrade-diff-contract") or {}
+require(diff_capability.get("status") == "implemented", "p13 diff contract capability must be implemented")
+
+dependency_surface = p13_surfaces.get("generated-dependency-boundary") or {}
+require(dependency_surface.get("capability") == "generated-project-dependencies", "p13 dependency surface capability mismatch")
+dependency_evidence = set(dependency_surface.get("requiredEvidence") or [])
+for needle in ("generated project go.mod", "isolated temporary test module", "root module unchanged", "must-not-add-generated-only-dependencies"):
+    require(needle in dependency_evidence, f"p13 dependency surface requiredEvidence missing {needle!r}")
+for profile_name, profile in sorted(proof_by_profile.items()):
+    require(
+        profile.get("dependencyBoundary") == p13_execution.get("dependencyBoundary"),
+        f"p13 dependency boundary must match adopter proof for {profile_name}",
+    )
+
+p13_promotion_policy = str(p13_maturity.get("promotionPolicy") or "")
+for needle in (
+    ".api import",
+    ".api format",
+    ".api validation",
+    "old/current/future fixtures",
+    "real adopter branch replay",
+    "multi-language client evidence",
+    "go test ./...",
+    "clean repeat-generation diff classification",
+    "root module dependency hygiene",
+):
+    require(needle in p13_promotion_policy, f"p13GoctlGeneratorMaturity promotionPolicy missing {needle!r}")
+p13_runtime_policy = str(p13_maturity.get("runtimeArtifactPolicy") or "")
+for needle in (".tmp-test", "GENERATED_VERSION_COMPAT_TMPDIR", "local temp directory", "must never be committed"):
+    require(needle in p13_runtime_policy, f"p13GoctlGeneratorMaturity runtimeArtifactPolicy missing {needle!r}")
+
 target_body = make_target_body(makefile, "generated-upgrade-dry-run-check")
 contract_deps = make_target_deps(makefile, "contract-docs-check")
 require(
@@ -1007,6 +1174,7 @@ for needle in (
     "p10GoctlGeneratorFidelity",
     "p11LiveUpgradeProof",
     "p12RealBranchReplay",
+    "p13GoctlGeneratorMaturity",
     "gofly.generated_version_compat_report.v1",
 ):
     require(needle in doc, f"docs/reference/generated-upgrade-dry-run.md missing {needle!r}")

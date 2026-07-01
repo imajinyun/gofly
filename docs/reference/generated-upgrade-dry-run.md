@@ -188,6 +188,19 @@ diffs as `breaking-candidate` until a migration note or rollback note explains
 the change. Branch worktrees, generated projects, replay reports, and diff
 outputs remain ignored runtime evidence and must never be committed.
 
+The P13 goctl generator maturity closeout is captured in
+`p13GoctlGeneratorMaturity`. It turns the goctl-level generator claim into a
+blocking contract across `.api` import, `.api` format, `.api` validation,
+historical old/current/future fixtures, real adopter branch replay,
+multi-language client generation, generated project `go test ./...`, clean
+repeat-generation diff classification, and root module dependency hygiene. The
+section cross-checks the goctl compatibility capability matrix, P12 branch replay
+minimum fields, diff categories, generated version report fields, and generated
+dependency boundary before generator maturity can be promoted. P13 runtime
+worktrees, generated projects, reports, and diff outputs remain ignored evidence
+under `.tmp-test`, `GENERATED_VERSION_COMPAT_TMPDIR`, or the local temp
+directory and must never be committed.
+
 ## Migration Fidelity Matrix
 
 The migration fidelity matrix ties generated upgrade expectations to adopter

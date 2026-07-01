@@ -591,6 +591,133 @@
     "promotionPolicy": "Generated template promotion requires a real branch replay record with traceable branch baseline, temporary worktree regeneration, classified repeat diff, generated project smoke, root dependency boundary, and rollback action.",
     "runtimeArtifactPolicy": "P12 real branch worktrees, generated projects, reports, and diff outputs are local runtime evidence under ignored temporary paths and must never be committed."
   },
+  "p13GoctlGeneratorMaturity": {
+    "schema": "gofly.goctl_generator_maturity_closeout.v1",
+    "aiflowTask": "GOFLY-P13-02-GOCTL-GENERATOR-MATURITY",
+    "status": "blocking-contract",
+    "sourceOfTruth": [
+      "docs/reference/generated-upgrade-dry-run.json",
+      "docs/reference/generated-version-compat.md",
+      "docs/reference/goctl-generator-compatibility.json",
+      "docs/reference/generated-scaffold-long-term-compatibility.json",
+      "testdata/generated-compat/matrix.json"
+    ],
+    "acceptanceGates": [
+      "make generated-version-compat-check",
+      "make generated-upgrade-dry-run-check",
+      "make goctl-generator-compat-check"
+    ],
+    "executionPolicy": {
+      "temporaryProjectSmoke": "generated-version-compat-check must create temporary old, current, and future projects and run go test ./... inside each generated module",
+      "repeatGeneration": "generate each profile twice and require a clean diff -ru before any adopter-facing diff can be classified",
+      "diffReportSchema": "gofly.generated_version_compat_report.v1",
+      "dependencyBoundary": "generated project go.mod or isolated temporary test module",
+      "rootModulePolicy": "must-not-add-generated-only-dependencies",
+      "artifactPolicy": "temporary generated projects, branch replay worktrees, diff outputs, and generated smoke reports are runtime evidence and must not be committed"
+    },
+    "maturitySurfaces": [
+      {
+        "id": "api-import-format-validation",
+        "capability": "api-tooling-compatibility",
+        "surface": ".api import, format, route, diff, and validation compatibility",
+        "requiredEvidence": [
+          "api format",
+          "api import",
+          "api route",
+          "api diff",
+          "unsupported api diff format",
+          "unsupported api route format"
+        ],
+        "gate": "make goctl-generator-compat-check",
+        "rollbackOrEscalation": "Pin the previous generator and reject API importer promotion when .api import, format, route, diff, or validation semantics drift without migration notes."
+      },
+      {
+        "id": "historical-fixture-matrix",
+        "capability": "generated-version-fixtures",
+        "surface": "old, current, and future generated compatibility fixtures",
+        "profiles": [
+          "old",
+          "current",
+          "future"
+        ],
+        "requiredReportFields": [
+          "profile",
+          "generatedFiles",
+          "goTest",
+          "repeatGenerationDiff",
+          "expectedDiff",
+          "verification"
+        ],
+        "gate": "make generated-version-compat-check",
+        "rollbackOrEscalation": "Pin the previous generator when old, current, or future fixtures stop generating, compiling, repeating cleanly, or reporting explainable diffs."
+      },
+      {
+        "id": "real-adopter-branch-replay",
+        "capability": "p12RealBranchReplay",
+        "surface": "real adopter branch replay contract",
+        "requiredEvidence": [
+          "repository",
+          "branch",
+          "baseCommit",
+          "profile",
+          "generatorVersion",
+          "previousGeneratedSnapshot",
+          "replayWorktree",
+          "diffReport",
+          "rollbackAction"
+        ],
+        "gate": "make generated-upgrade-dry-run-check",
+        "rollbackOrEscalation": "Discard temporary replay output and keep the adopter branch on the previous generated snapshot when branch replay lacks baseline, smoke, diff, or rollback evidence."
+      },
+      {
+        "id": "multi-language-client-contract",
+        "capability": "multi-language-client-generation",
+        "surface": "generated client contract for API adopters",
+        "languages": [
+          "typescript",
+          "javascript",
+          "dart",
+          "java",
+          "kotlin"
+        ],
+        "requiredEvidence": [
+          "GenerateAPIClient",
+          "TestGenerateAPIClientPathAndQueryParams",
+          "TestExecuteAPIClientGeneration"
+        ],
+        "gate": "make goctl-generator-compat-check",
+        "rollbackOrEscalation": "Keep client generation pinned to the last passing language matrix when path, query, command, or language-specific generated output compatibility regresses."
+      },
+      {
+        "id": "generated-diff-classification",
+        "capability": "upgrade-diff-contract",
+        "surface": "repeat generation and generated upgrade diff classification",
+        "requiredCategories": [
+          "deterministic-repeat-generation",
+          "compatible-addition",
+          "formatting-only",
+          "breaking-candidate"
+        ],
+        "gate": "make generated-upgrade-dry-run-check",
+        "rollbackOrEscalation": "Treat every unclassified generated diff as a breaking candidate until a migration note, rollback note, or generator fix explains the output change."
+      },
+      {
+        "id": "generated-dependency-boundary",
+        "capability": "generated-project-dependencies",
+        "surface": "generated project dependency ownership and root module hygiene",
+        "requiredEvidence": [
+          "generated project go.mod",
+          "isolated temporary test module",
+          "root module unchanged",
+          "must-not-add-generated-only-dependencies"
+        ],
+        "gate": "make generated-upgrade-dry-run-check",
+        "rollbackOrEscalation": "Reject generated scaffold promotion when generated-only dependencies escape into the gofly root module or temporary project dependency ownership cannot be explained."
+      }
+    ],
+    "promotionPolicy": "P13 generator maturity requires .api import, .api format, .api validation, old/current/future fixtures, real adopter branch replay, multi-language client evidence, go test ./... generated project smoke, clean repeat-generation diff classification, and root module dependency hygiene before goctl-level maturity can be claimed.",
+    "runtimeArtifactPolicy": "P13 generator maturity worktrees, generated projects, reports, and diff outputs are ignored runtime evidence under .tmp-test, GENERATED_VERSION_COMPAT_TMPDIR, or the local temp directory and must never be committed."
+  },
   "profiles": [
     {
       "api": "testdata/generated-compat/v0.1/orders.api",

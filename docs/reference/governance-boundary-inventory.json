@@ -72,6 +72,13 @@
       "taskPrefix": "GOFLY-P10-",
       "roundCount": 10,
       "evidence": "docs/reference/governance-p10-roadmap.json"
+    },
+    {
+      "id": "GOFLY-P11",
+      "status": "queued",
+      "taskPrefix": "GOFLY-P11-",
+      "roundCount": 3,
+      "evidence": "docs/reference/governance-p11-roadmap.json"
     }
   ],
   "aiflowTasks": [

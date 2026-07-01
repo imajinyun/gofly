@@ -11,6 +11,7 @@ root = pathlib.Path(".").resolve()
 manifest_path = root / "docs" / "reference" / "governance-boundary-inventory.json"
 convergence_path = root / "docs" / "reference" / "governance-convergence-verification.json"
 p10_path = root / "docs" / "reference" / "governance-p10-roadmap.json"
+p11_path = root / "docs" / "reference" / "governance-p11-roadmap.json"
 post_r8_path = root / "docs" / "reference" / "framework-gap-post-r8-roadmap.json"
 missing = []
 
@@ -80,6 +81,11 @@ expected_batches = {
         "status": "active",
         "taskPrefix": "GOFLY-P10-",
         "roundCount": 10,
+    },
+    "GOFLY-P11": {
+        "status": "queued",
+        "taskPrefix": "GOFLY-P11-",
+        "roundCount": 3,
     },
 }
 expected_converged_commits = {
@@ -159,6 +165,11 @@ if p10_path.is_file():
 else:
     p10_manifest = {}
     missing.append("docs/reference/governance-p10-roadmap.json is missing")
+if p11_path.is_file():
+    p11_manifest = json.loads(p11_path.read_text(encoding="utf-8"))
+else:
+    p11_manifest = {}
+    missing.append("docs/reference/governance-p11-roadmap.json is missing")
 if post_r8_path.is_file():
     post_r8 = json.loads(post_r8_path.read_text(encoding="utf-8"))
 else:
@@ -172,6 +183,7 @@ targets = make_target_names(makefile)
 
 require(manifest.get("schema") == "gofly.governance_boundary_inventory.v1", "schema must be gofly.governance_boundary_inventory.v1")
 require(p10_manifest.get("schema") == "gofly.governance_p10_roadmap.v1", "P10 roadmap schema mismatch")
+require(p11_manifest.get("schema") == "gofly.governance_p11_roadmap.v1", "P11 roadmap schema mismatch")
 require(post_r8.get("schema") == "gofly.framework_gap_post_r8_roadmap.v1", "post-R8 framework gap schema mismatch")
 require(manifest.get("activeAiflowBatch") == expected_active_batch, f"activeAiflowBatch must be {expected_active_batch}")
 require("governance-boundary-inventory-check" in targets, "Makefile must expose governance-boundary-inventory-check")
@@ -419,6 +431,42 @@ for expected_round, item in enumerate(p10_rounds, start=1):
         require(bool(item.get(field)), f"{item_id}: {field} is required")
     require(gate_is_known(item.get("acceptanceGate", ""), targets), f"{item_id}: acceptanceGate is not known: {item.get('acceptanceGate')!r}")
     require("commit" in item.get("commitPolicy", "").lower(), f"{item_id}: commitPolicy must mention commit")
+
+p11_tasks = p11_manifest.get("tasks") or []
+expected_p11_tasks = [
+    "GOFLY-P11-1-RPC-TIER1-PROMOTION-REVIEW",
+    "GOFLY-P11-2-GENERATED-PROJECT-LIVE-UPGRADE",
+    "GOFLY-P11-3-CLOUD-NATIVE-HOSTED-PROOF",
+]
+expected_p11_gates = [
+    "make rpc-boundary-check",
+    "make generated-upgrade-dry-run-check",
+    "make p1-growth-check",
+]
+actual_p11_tasks = [
+    item.get("id")
+    for item in p11_tasks
+    if isinstance(item, dict)
+]
+require(actual_p11_tasks == expected_p11_tasks, f"P11 roadmap task ids mismatch: {actual_p11_tasks!r}")
+submission = p11_manifest.get("aiflowSubmission") or {}
+require(submission.get("status") in {"submitted", "blocked"}, "P11 aiflowSubmission.status must be submitted or blocked")
+require(set(submission.get("queuedTasks") or []) == set(expected_p11_tasks), "P11 queuedTasks mismatch")
+runtime_state_policy = str(submission.get("runtimeStatePolicy") or "")
+for path in (".aiflow", ".harness", ".tmp-test", ".trae", "coverage.out", "bench/regression-report.json", "docs/superpowers"):
+    require(path in runtime_state_policy, f"P11 runtimeStatePolicy missing {path!r}")
+for expected_round, item in enumerate(p11_tasks, start=1):
+    if not isinstance(item, dict):
+        missing.append(f"P11 roadmap task must be an object: {item!r}")
+        continue
+    task_id = item.get("id", "<missing>")
+    require(item.get("round") == expected_round, f"{task_id}: round must be {expected_round}")
+    for field in ("id", "status", "title", "objective", "deliverable", "acceptanceGate", "commitPolicy"):
+        require(bool(item.get(field)), f"{task_id}: {field} is required")
+    require(item.get("status") == "queued", f"{task_id}: status must be queued")
+    require(item.get("acceptanceGate") == expected_p11_gates[expected_round - 1], f"{task_id}: acceptanceGate mismatch")
+    require(gate_is_known(item.get("acceptanceGate", ""), targets), f"{task_id}: acceptanceGate is not known: {item.get('acceptanceGate')!r}")
+    require("commit" in item.get("commitPolicy", "").lower(), f"{task_id}: commitPolicy must mention commit")
 
 if missing:
     print("governance boundary inventory check failed:", file=sys.stderr)

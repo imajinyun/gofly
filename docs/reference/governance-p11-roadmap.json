@@ -1,0 +1,53 @@
+{
+  "schema": "gofly.governance_p11_roadmap.v1",
+  "purpose": "Plan the next P11 aiflow-driven governance wave after P10 convergence.",
+  "sourceEvidence": [
+    "docs/reference/governance-convergence-verification.json",
+    "docs/reference/governance-boundary-inventory.json",
+    "go run -C /Users/bytedance/Codes/go/src/github/aiflow ./cmd/aiflow status -root /Users/bytedance/Codes/go/src/github/gofly -config /Users/bytedance/Codes/go/src/github/gofly/aiflow.yaml"
+  ],
+  "aiflowSubmission": {
+    "status": "submitted",
+    "submittedAt": "2026-07-01T09:08:00Z",
+    "submissionCommand": "go run -C /Users/bytedance/Codes/go/src/github/aiflow ./cmd/aiflow submit -root /Users/bytedance/Codes/go/src/github/gofly -config /Users/bytedance/Codes/go/src/github/gofly/aiflow.yaml",
+    "safetyPolicy": "P11 tasks are queued in ignored .aiflow runtime state only; durable planning stays in docs/reference/governance-p11-roadmap.json and commits remain owned by the current agent or human.",
+    "queuedTasks": [
+      "GOFLY-P11-1-RPC-TIER1-PROMOTION-REVIEW",
+      "GOFLY-P11-2-GENERATED-PROJECT-LIVE-UPGRADE",
+      "GOFLY-P11-3-CLOUD-NATIVE-HOSTED-PROOF"
+    ],
+    "runtimeStatePolicy": ".aiflow, .harness, .tmp-test, .trae, coverage.out, bench/regression-report.json, and docs/superpowers remain ignored local evidence and must not be committed."
+  },
+  "tasks": [
+    {
+      "round": 1,
+      "id": "GOFLY-P11-1-RPC-TIER1-PROMOTION-REVIEW",
+      "status": "queued",
+      "title": "RPC Tier 1 promotion review",
+      "objective": "Review whether P10 RPC release-train evidence is sufficient to promote any unary or stream surface toward Tier 1, while keeping latency parity claims conservative.",
+      "deliverable": "Promotion review rows for unary, server stream, client stream, bidi stream, resolver, balancer, deadline, retry, auth, tracing, benchmark budget, Kitex coexistence, and rollback evidence.",
+      "acceptanceGate": "make rpc-boundary-check",
+      "commitPolicy": "commit after RPC promotion review evidence and rpc-boundary-check pass"
+    },
+    {
+      "round": 2,
+      "id": "GOFLY-P11-2-GENERATED-PROJECT-LIVE-UPGRADE",
+      "status": "queued",
+      "title": "Generated project live upgrade",
+      "objective": "Run generated project compatibility fixtures against a realistic adopter upgrade path and keep generated-project-only dependencies outside the root module.",
+      "deliverable": "Live upgrade proof rows for old, current, and future profiles with classified diffs, temporary project compile/test evidence, dependency boundary notes, and rollback actions.",
+      "acceptanceGate": "make generated-upgrade-dry-run-check",
+      "commitPolicy": "commit after generated upgrade evidence and generated-upgrade-dry-run-check pass"
+    },
+    {
+      "round": 3,
+      "id": "GOFLY-P11-3-CLOUD-NATIVE-HOSTED-PROOF",
+      "status": "queued",
+      "title": "Cloud-native hosted proof",
+      "objective": "Prepare hosted CI proof for Docker-backed reference app, Helm rendering, kube policy validation, and release evidence gates when required tools are available.",
+      "deliverable": "Hosted proof contract for Docker, Helm, kubeconform or kubeval, Trivy, release evidence, fallback reasons, and operator rollback notes.",
+      "acceptanceGate": "make p1-growth-check",
+      "commitPolicy": "commit after hosted cloud-native proof gates pass or explicit environment-limited fallback evidence is recorded"
+    }
+  ]
+}

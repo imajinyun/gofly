@@ -478,6 +478,119 @@
     "promotionPolicy": "Generated live upgrade promotion requires old, current, and future profiles to generate into temporary projects, compile with go test ./..., repeat cleanly, keep generated-only dependencies outside the root module, and provide rollback actions.",
     "runtimeArtifactPolicy": "P11 live upgrade projects, reports, and diff outputs remain local runtime evidence under ignored temporary paths and must never be committed."
   },
+  "p12RealBranchReplay": {
+    "schema": "gofly.generated_real_branch_replay.v1",
+    "aiflowTask": "GOFLY-P12-2-GENERATED-UPGRADE-REAL-BRANCH",
+    "status": "blocking-contract",
+    "sourceOfTruth": [
+      "docs/reference/generated-upgrade-dry-run.json",
+      "docs/reference/generated-version-compat.md",
+      "docs/reference/goctl-generator-compatibility.json",
+      "testdata/generated-compat/matrix.json"
+    ],
+    "acceptanceGates": [
+      "make generated-upgrade-dry-run-check",
+      "make generated-version-compat-check",
+      "make root-dependency-policy-check"
+    ],
+    "branchContract": {
+      "source": "real adopter branch or exported branch snapshot outside the gofly repository",
+      "minimumFields": [
+        "repository",
+        "branch",
+        "baseCommit",
+        "profile",
+        "generatorVersion",
+        "previousGeneratedSnapshot",
+        "replayWorktree",
+        "diffReport",
+        "rollbackAction"
+      ],
+      "worktreePolicy": "Replay must use a temporary worktree under GENERATED_VERSION_COMPAT_TMPDIR or the local temp directory and must not write generated runtime artifacts into the gofly repository.",
+      "cleanupPolicy": "Temporary worktrees, generated projects, branch replay reports, and diff outputs are runtime evidence only and must stay ignored.",
+      "auditPolicy": "Each replay record must name the adopter branch, base commit, fixture profile, generator version, generated snapshot source, normalized diff categories, smoke result, and rollback action before template promotion."
+    },
+    "replaySteps": [
+      {
+        "id": "capture-branch-baseline",
+        "phase": "baseline",
+        "gate": "make generated-version-compat-check",
+        "requiredEvidence": [
+          "repository",
+          "branch",
+          "baseCommit",
+          "previousGeneratedSnapshot"
+        ],
+        "rollbackOrEscalation": "Pin the previous generator and do not replay the branch when the baseline commit, generated snapshot, or profile cannot be traced."
+      },
+      {
+        "id": "replay-in-temp-worktree",
+        "phase": "generation",
+        "gate": "make generated-upgrade-dry-run-check",
+        "requiredEvidence": [
+          "temporary worktree",
+          "go run ./cmd/gofly new service",
+          "go mod edit -replace github.com/imajinyun/gofly=<repo-root>"
+        ],
+        "rollbackOrEscalation": "Discard the temporary worktree and keep the branch on the previous generated snapshot when regeneration writes outside the replay root."
+      },
+      {
+        "id": "classify-repeat-diff",
+        "phase": "diff",
+        "gate": "make generated-upgrade-dry-run-check",
+        "requiredEvidence": [
+          "deterministic-repeat-generation",
+          "compatible-addition",
+          "formatting-only",
+          "breaking-candidate"
+        ],
+        "rollbackOrEscalation": "Treat every unclassified branch diff as a breaking-candidate until a migration note or rollback note explains the change."
+      },
+      {
+        "id": "run-branch-smoke",
+        "phase": "verification",
+        "gate": "go test ./...",
+        "requiredEvidence": [
+          "go test ./...",
+          "generated project go.mod",
+          "root module unchanged"
+        ],
+        "rollbackOrEscalation": "Keep the adopter branch on the previous generated snapshot when branch smoke fails or generated-only dependencies escape the generated module."
+      }
+    ],
+    "profileMapping": [
+      {
+        "profile": "old",
+        "branchUseCase": "legacy go-zero style service branch replay with additive compatibility shims",
+        "acceptedDiffCategories": [
+          "deterministic-repeat-generation",
+          "compatible-addition"
+        ],
+        "rollbackAction": "Keep the legacy branch on the previous generator and previous generated snapshot until additive shim smoke and repeat diff evidence pass."
+      },
+      {
+        "profile": "current",
+        "branchUseCase": "current service branch replay that should accept only deterministic or formatting-only generated diffs",
+        "acceptedDiffCategories": [
+          "deterministic-repeat-generation",
+          "formatting-only"
+        ],
+        "rollbackAction": "Discard the branch replay output and keep the current generated snapshot when any semantic or unclassified diff appears."
+      },
+      {
+        "profile": "future",
+        "branchUseCase": "preview branch replay for future tolerant fields before release promotion",
+        "acceptedDiffCategories": [
+          "deterministic-repeat-generation",
+          "compatible-addition",
+          "breaking-candidate"
+        ],
+        "rollbackAction": "Disable future replay promotion and pin the current profile when branch output contains breaking candidates without migration notes."
+      }
+    ],
+    "promotionPolicy": "Generated template promotion requires a real branch replay record with traceable branch baseline, temporary worktree regeneration, classified repeat diff, generated project smoke, root dependency boundary, and rollback action.",
+    "runtimeArtifactPolicy": "P12 real branch worktrees, generated projects, reports, and diff outputs are local runtime evidence under ignored temporary paths and must never be committed."
+  },
   "profiles": [
     {
       "api": "testdata/generated-compat/v0.1/orders.api",

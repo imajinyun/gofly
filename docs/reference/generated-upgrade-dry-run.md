@@ -176,6 +176,18 @@ generated-only dependencies out of the root module. P11 does not commit live
 generated projects or reports; those artifacts remain runtime evidence under
 ignored temporary paths.
 
+The P12 real branch replay contract is captured in `p12RealBranchReplay`. It
+raises the dry-run expectation from temporary project generation to a traceable
+adopter branch replay: record the repository, branch, base commit, selected
+profile, generator version, previous generated snapshot, replay worktree,
+classified diff report, smoke result, and rollback action before template
+promotion. The replay must run in a temporary worktree under
+`GENERATED_VERSION_COMPAT_TMPDIR` or the local temp directory, must keep generated
+runtime artifacts out of the gofly repository, and must treat unclassified branch
+diffs as `breaking-candidate` until a migration note or rollback note explains
+the change. Branch worktrees, generated projects, replay reports, and diff
+outputs remain ignored runtime evidence and must never be committed.
+
 ## Migration Fidelity Matrix
 
 The migration fidelity matrix ties generated upgrade expectations to adopter

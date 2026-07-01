@@ -869,6 +869,120 @@ p11_runtime_policy = str(p11_proof.get("runtimeArtifactPolicy") or "")
 for needle in ("runtime evidence", "ignored temporary paths", "must never be committed"):
     require(needle in p11_runtime_policy, f"p11LiveUpgradeProof runtimeArtifactPolicy missing {needle!r}")
 
+p12_replay = manifest.get("p12RealBranchReplay") or {}
+require(
+    p12_replay.get("schema") == "gofly.generated_real_branch_replay.v1",
+    "p12RealBranchReplay schema mismatch",
+)
+require(
+    p12_replay.get("aiflowTask") == "GOFLY-P12-2-GENERATED-UPGRADE-REAL-BRANCH",
+    "p12RealBranchReplay aiflowTask mismatch",
+)
+require(p12_replay.get("status") == "blocking-contract", "p12RealBranchReplay status must be blocking-contract")
+require(
+    set(p12_replay.get("sourceOfTruth") or []) == {
+        "docs/reference/generated-upgrade-dry-run.json",
+        "docs/reference/generated-version-compat.md",
+        "docs/reference/goctl-generator-compatibility.json",
+        "testdata/generated-compat/matrix.json",
+    },
+    "p12RealBranchReplay sourceOfTruth mismatch",
+)
+for source in p12_replay.get("sourceOfTruth") or []:
+    require((root / source).exists(), f"p12RealBranchReplay source path missing: {source}")
+require(
+    set(p12_replay.get("acceptanceGates") or []) == {
+        "make generated-upgrade-dry-run-check",
+        "make generated-version-compat-check",
+        "make root-dependency-policy-check",
+    },
+    "p12RealBranchReplay acceptanceGates mismatch",
+)
+p12_branch = p12_replay.get("branchContract") or {}
+for field in ("source", "worktreePolicy", "cleanupPolicy", "auditPolicy"):
+    require(len(str(p12_branch.get(field) or "").split()) >= 10, f"p12RealBranchReplay branchContract.{field} must be actionable")
+for needle in ("temporary worktree", "must not write", "gofly repository"):
+    require(needle in str(p12_branch.get("worktreePolicy") or ""), f"p12RealBranchReplay worktreePolicy missing {needle!r}")
+for needle in ("runtime evidence", "ignored"):
+    require(needle in str(p12_branch.get("cleanupPolicy") or ""), f"p12RealBranchReplay cleanupPolicy missing {needle!r}")
+minimum_fields = set(p12_branch.get("minimumFields") or [])
+for field in (
+    "repository",
+    "branch",
+    "baseCommit",
+    "profile",
+    "generatorVersion",
+    "previousGeneratedSnapshot",
+    "replayWorktree",
+    "diffReport",
+    "rollbackAction",
+):
+    require(field in minimum_fields, f"p12RealBranchReplay branchContract.minimumFields missing {field!r}")
+
+p12_steps = {
+    item.get("id"): item
+    for item in p12_replay.get("replaySteps") or []
+    if isinstance(item, dict) and item.get("id")
+}
+expected_p12_steps = {
+    "capture-branch-baseline": {
+        "phase": "baseline",
+        "gate": "make generated-version-compat-check",
+        "evidence": {"repository", "branch", "baseCommit", "previousGeneratedSnapshot"},
+    },
+    "replay-in-temp-worktree": {
+        "phase": "generation",
+        "gate": "make generated-upgrade-dry-run-check",
+        "evidence": {
+            "temporary worktree",
+            "go run ./cmd/gofly new service",
+            "go mod edit -replace github.com/imajinyun/gofly=<repo-root>",
+        },
+    },
+    "classify-repeat-diff": {
+        "phase": "diff",
+        "gate": "make generated-upgrade-dry-run-check",
+        "evidence": required_categories,
+    },
+    "run-branch-smoke": {
+        "phase": "verification",
+        "gate": "go test ./...",
+        "evidence": {"go test ./...", "generated project go.mod", "root module unchanged"},
+    },
+}
+require(set(p12_steps) == set(expected_p12_steps), f"p12RealBranchReplay replaySteps mismatch: {sorted(p12_steps)!r}")
+for step_id, expected in expected_p12_steps.items():
+    step = p12_steps.get(step_id) or {}
+    require(step.get("phase") == expected["phase"], f"p12RealBranchReplay {step_id}: phase mismatch")
+    require(step.get("gate") == expected["gate"], f"p12RealBranchReplay {step_id}: gate mismatch")
+    require(expected["evidence"] <= set(step.get("requiredEvidence") or []), f"p12RealBranchReplay {step_id}: requiredEvidence missing {sorted(expected['evidence'] - set(step.get('requiredEvidence') or []))!r}")
+    require(
+        len(str(step.get("rollbackOrEscalation") or "").split()) >= 12,
+        f"p12RealBranchReplay {step_id}: rollbackOrEscalation must be actionable",
+    )
+
+p12_profiles = {
+    item.get("profile"): item
+    for item in p12_replay.get("profileMapping") or []
+    if isinstance(item, dict) and item.get("profile")
+}
+require(set(p12_profiles) == profile_names, f"p12RealBranchReplay profileMapping mismatch: {sorted(p12_profiles)!r}")
+for profile_name, item in sorted(p12_profiles.items()):
+    p11_profile = p11_profiles.get(profile_name) or {}
+    require(
+        set(item.get("acceptedDiffCategories") or []) == set(p11_profile.get("diffCategories") or []),
+        f"p12RealBranchReplay {profile_name}: acceptedDiffCategories must match p11LiveUpgradeProof diffCategories",
+    )
+    for field in ("branchUseCase", "rollbackAction"):
+        require(len(str(item.get(field) or "").split()) >= 10, f"p12RealBranchReplay {profile_name}: {field} must be actionable")
+
+p12_promotion_policy = str(p12_replay.get("promotionPolicy") or "")
+for needle in ("real branch replay", "temporary worktree", "classified repeat diff", "root dependency boundary", "rollback action"):
+    require(needle in p12_promotion_policy, f"p12RealBranchReplay promotionPolicy missing {needle!r}")
+p12_runtime_policy = str(p12_replay.get("runtimeArtifactPolicy") or "")
+for needle in ("runtime evidence", "ignored temporary paths", "must never be committed"):
+    require(needle in p12_runtime_policy, f"p12RealBranchReplay runtimeArtifactPolicy missing {needle!r}")
+
 target_body = make_target_body(makefile, "generated-upgrade-dry-run-check")
 contract_deps = make_target_deps(makefile, "contract-docs-check")
 require(
@@ -892,6 +1006,7 @@ for needle in (
     "p9HistoricalFixtureMatrix",
     "p10GoctlGeneratorFidelity",
     "p11LiveUpgradeProof",
+    "p12RealBranchReplay",
     "gofly.generated_version_compat_report.v1",
 ):
     require(needle in doc, f"docs/reference/generated-upgrade-dry-run.md missing {needle!r}")

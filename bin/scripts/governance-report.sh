@@ -850,6 +850,7 @@ def dx_support_bundle_evidence():
     adoption_loop = manifest.get("troubleshootingAdoptionLoop") or {}
     remediation_loop = manifest.get("remediationLoopContract") or {}
     p10_support = manifest.get("p10AINativeSupportBundle") or {}
+    p13_closeout = manifest.get("p13CliDoctorTroubleshootingLoop") or {}
     adoption_steps = [
         item
         for item in adoption_loop.get("steps") or []
@@ -898,6 +899,7 @@ def dx_support_bundle_evidence():
         },
         "p9RemediationCloseout": manifest.get("p9RemediationCloseout", {}),
         "p10AINativeSupportBundle": p10_support,
+        "p13CliDoctorTroubleshootingLoop": p13_closeout,
         "troubleshootingAdoptionLoop": {
             "schema": adoption_loop.get("schema", ""),
             "acceptanceGate": adoption_loop.get("acceptanceGate", ""),
@@ -1235,6 +1237,65 @@ for needle in (".aiflow", ".harness", ".tmp-test", ".trae", "coverage.out", "doc
 for needle in ("aiflow", "bounded failure reports", "commits remain owned", "gates pass"):
     if needle not in str(p10_support.get("commitPolicy") or ""):
         missing.append(f"dx support bundle P10 AI-native support commitPolicy missing {needle!r}")
+
+p13_closeout = dx_support_bundle.get("p13CliDoctorTroubleshootingLoop") or {}
+if p13_closeout.get("schema") != "gofly.cli_doctor_troubleshooting_p13.v1":
+    missing.append("dx support bundle P13 CLI doctor troubleshooting schema mismatch")
+if p13_closeout.get("aiflowTask") != "GOFLY-P13-11-CLI-DOCTOR-TROUBLESHOOTING-LOOP":
+    missing.append("dx support bundle P13 CLI doctor troubleshooting aiflowTask mismatch")
+if p13_closeout.get("status") != "blocking-contract":
+    missing.append("dx support bundle P13 CLI doctor troubleshooting status mismatch")
+for gate in ("make dx-troubleshooting-check", "make cli-json-contract-goldens-check", "make governance-report-check"):
+    if gate not in set(p13_closeout.get("acceptanceGates") or []):
+        missing.append(f"dx support bundle P13 CLI doctor troubleshooting acceptanceGates missing {gate!r}")
+for command in required_dx_commands:
+    if command not in set(p13_closeout.get("requiredSourceSurfaces") or []):
+        missing.append(f"dx support bundle P13 CLI doctor troubleshooting requiredSourceSurfaces missing {command!r}")
+for source in ("nextActions", "error.remediation", "data.nextActions"):
+    if source not in set(p13_closeout.get("requiredNextActionSources") or []):
+        missing.append(f"dx support bundle P13 CLI doctor troubleshooting requiredNextActionSources missing {source!r}")
+runtime_evidence = " ".join(p13_closeout.get("runtimeEvidence") or [])
+for needle in ("fix_hint", "error.remediation", "gofly.support_bundle.v1", "bounded output", "data.nextActions"):
+    if needle not in runtime_evidence:
+        missing.append(f"dx support bundle P13 CLI doctor troubleshooting runtimeEvidence missing {needle!r}")
+p13_rows = {
+    item.get("id"): item
+    for item in p13_closeout.get("rows") or []
+    if isinstance(item, dict) and item.get("id")
+}
+expected_p13_rows = {
+    "doctor-json": ("gofly doctor --json", "nextActions", "make dx-troubleshooting-check"),
+    "release-check-json": ("gofly release check --json --strict", "error.remediation", "make dx-troubleshooting-check"),
+    "support-bundle-json": ("gofly bug --json", "nextActions", "make dx-troubleshooting-check"),
+    "generated-failure-report": ("gofly ai new --json --apply --verify", "data.nextActions", "make cli-json-contract-goldens-check"),
+}
+if set(p13_rows) != set(expected_p13_rows):
+    missing.append("dx support bundle P13 CLI doctor troubleshooting rows mismatch")
+for row_id, (command, next_source, gate) in expected_p13_rows.items():
+    row = p13_rows.get(row_id) or {}
+    if row.get("sourceCommand") != command:
+        missing.append(f"dx support bundle P13 CLI doctor troubleshooting {row_id}: sourceCommand mismatch")
+    if row.get("nextActionSource") != next_source:
+        missing.append(f"dx support bundle P13 CLI doctor troubleshooting {row_id}: nextActionSource mismatch")
+    if row.get("gate") != gate:
+        missing.append(f"dx support bundle P13 CLI doctor troubleshooting {row_id}: gate mismatch")
+    for field in ("stableFields", "failureMode", "remediation"):
+        if not row.get(field):
+            missing.append(f"dx support bundle P13 CLI doctor troubleshooting {row_id}: {field} is required")
+p13_handoff = p13_closeout.get("aiflowHandoff") or {}
+if p13_handoff.get("schema") != "gofly.remediation_handoff.v1":
+    missing.append("dx support bundle P13 CLI doctor troubleshooting handoff schema mismatch")
+if p13_handoff.get("owner") != "human-or-current-agent":
+    missing.append("dx support bundle P13 CLI doctor troubleshooting handoff owner mismatch")
+for action in ("git commit", "git push", "modify docs/superpowers/", "stage runtime state"):
+    if action not in set(p13_handoff.get("forbiddenActions") or []):
+        missing.append(f"dx support bundle P13 CLI doctor troubleshooting forbiddenActions missing {action!r}")
+for needle in (".aiflow", ".harness", ".tmp-test", ".trae", "coverage.out", "bench/current.txt", "bench/regression-report.json", "bench/summary.md", "bin/gofly", "docs/superpowers"):
+    if needle not in str(p13_closeout.get("runtimeStatePolicy") or ""):
+        missing.append(f"dx support bundle P13 CLI doctor troubleshooting runtimeStatePolicy missing {needle!r}")
+for needle in ("GOFLY-P13-11-CLI-DOCTOR-TROUBLESHOOTING-LOOP", "dx-troubleshooting-check", "CLI JSON golden", "governance-report-check", "no runtime state"):
+    if needle not in str(p13_closeout.get("completionPolicy") or ""):
+        missing.append(f"dx support bundle P13 CLI doctor troubleshooting completionPolicy missing {needle!r}")
 
 adoption_loop = dx_support_bundle.get("troubleshootingAdoptionLoop") or {}
 if adoption_loop.get("schema") != "gofly.troubleshooting_adoption_loop.v1":
@@ -1596,16 +1657,16 @@ if len(str(adopter_performance.get("policy") or "").split()) < 20:
     missing.append("benchmark adopter performance contract policy must be actionable")
 if adopter_performance.get("blockingSurfaceCount") != 2:
     missing.append("benchmark adopter performance contract blockingSurfaceCount mismatch")
-if adopter_performance.get("reportOnlySurfaceCount") != 2:
+if adopter_performance.get("reportOnlySurfaceCount") != 3:
     missing.append("benchmark adopter performance contract reportOnlySurfaceCount mismatch")
-if adopter_performance.get("unsupportedSurfaceCount") != 2:
+if adopter_performance.get("unsupportedSurfaceCount") != 0:
     missing.append("benchmark adopter performance contract unsupportedSurfaceCount mismatch")
 if not {"minimum 5 baseline samples", "minimum 3 current trend samples", "no allocation regression under bench-regression-check"}.issubset(set(adopter_performance.get("promotionRules") or [])):
     missing.append("benchmark adopter performance contract promotionRules missing required gates")
 for collection, expected_ids in (
     ("blockingSurfaces", {"rest-route-hot-path", "governance-rule-match"}),
-    ("reportOnlySurfaces", {"http-latency-report-only", "rpc-candidate-report-only"}),
-    ("unsupportedSurfaces", {"gateway-proxy", "cache-hot-path"}),
+    ("reportOnlySurfaces", {"http-latency-report-only", "rpc-candidate-report-only", "gateway-cache-candidate-report-only"}),
+    ("unsupportedSurfaces", set()),
 ):
     items = [
         item
@@ -1630,12 +1691,11 @@ required_surface_policy_statuses = {
     "allocation-blocking",
     "latency-and-allocation-blocking",
     "candidate",
-    "unsupported-report-only",
 }
 if not required_surface_policy_statuses.issubset(set((surface_policy.get("statusCounts") or {}).keys())):
     missing.append("benchmark surface policy statusCounts missing required status classes")
-if len(surface_policy.get("unsupportedReportOnly") or []) < 2:
-    missing.append("benchmark surface policy must keep unsupported gateway/cache surfaces report-only")
+if surface_policy.get("unsupportedReportOnly"):
+    missing.append("benchmark surface policy unsupported surfaces must be promoted or removed after P13-06")
 for item in surface_policy.get("surfaces") or []:
     if not isinstance(item, dict):
         missing.append(f"benchmark surface policy item must be an object: {item!r}")
@@ -2033,6 +2093,8 @@ for field in (
     "runtimeSLO.incidentRehearsalCount",
     "dxSupportBundle.surfaceCount",
     "dxSupportBundle.remediationHintCount",
+    "dxSupportBundle.p13CliDoctorTroubleshootingLoop.status",
+    "dxSupportBundle.p13CliDoctorTroubleshootingLoop.aiflowTask",
     "governanceConvergence.taskCount",
     "governanceConvergence.ignoredRuntimePathCount",
     "dashboard.productionReadinessScorecard.surfaceCount",

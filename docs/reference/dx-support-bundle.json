@@ -174,6 +174,107 @@
     "completionPolicy": "Only mark GOFLY-GOV-10P9-09 complete after dx-troubleshooting-check and CLI JSON contract gates pass and no runtime state is staged.",
     "nextActionPolicy": "Every failed doctor, release, generated-project, or support-bundle path must expose nextActions or error.remediation before aiflow can queue bounded remediation work."
   },
+  "p13CliDoctorTroubleshootingLoop": {
+    "schema": "gofly.cli_doctor_troubleshooting_p13.v1",
+    "aiflowTask": "GOFLY-P13-11-CLI-DOCTOR-TROUBLESHOOTING-LOOP",
+    "status": "blocking-contract",
+    "acceptanceGates": [
+      "make dx-troubleshooting-check",
+      "make cli-json-contract-goldens-check",
+      "make governance-report-check"
+    ],
+    "objective": "Close the CI and agent troubleshooting loop so doctor, release, support bundle, and generated project failure surfaces always expose concrete next actions.",
+    "requiredSourceSurfaces": [
+      "gofly doctor --json",
+      "gofly release check --json --strict",
+      "gofly bug --json",
+      "gofly ai new --json --apply --verify"
+    ],
+    "requiredNextActionSources": [
+      "nextActions",
+      "error.remediation",
+      "data.nextActions"
+    ],
+    "runtimeEvidence": [
+      "doctor checks with warn or fail status must include fix_hint or nextActions",
+      "release check strict blockers must emit error.remediation",
+      "support bundle output must include gofly.support_bundle.v1 commands, redaction, and nextActions",
+      "generated project verification failures must include bounded output and data.nextActions"
+    ],
+    "rows": [
+      {
+        "id": "doctor-json",
+        "sourceCommand": "gofly doctor --json",
+        "stableFields": [
+          "checks",
+          "summary",
+          "nextActions"
+        ],
+        "nextActionSource": "nextActions",
+        "gate": "make dx-troubleshooting-check",
+        "failureMode": "warn or fail checks without actionable guidance",
+        "remediation": "Fix the named doctor check first, then rerun gofly doctor --json before changing generated code or release assets."
+      },
+      {
+        "id": "release-check-json",
+        "sourceCommand": "gofly release check --json --strict",
+        "stableFields": [
+          "data.summary",
+          "data.checks",
+          "error.remediation"
+        ],
+        "nextActionSource": "error.remediation",
+        "gate": "make dx-troubleshooting-check",
+        "failureMode": "strict release blocker without structured remediation",
+        "remediation": "Treat the blocker as release governance work and attach the release check JSON when queueing aiflow remediation."
+      },
+      {
+        "id": "support-bundle-json",
+        "sourceCommand": "gofly bug --json",
+        "stableFields": [
+          "supportBundle",
+          "supportBundle.redaction",
+          "nextActions"
+        ],
+        "nextActionSource": "nextActions",
+        "gate": "make dx-troubleshooting-check",
+        "failureMode": "support bundle without redaction policy, commands, or next actions",
+        "remediation": "Collect only the redacted support bundle and keep commit ownership with the current agent or human."
+      },
+      {
+        "id": "generated-failure-report",
+        "sourceCommand": "gofly ai new --json --apply --verify",
+        "stableFields": [
+          "data.verification",
+          "data.verifyRan",
+          "data.verifyPassed",
+          "data.nextActions"
+        ],
+        "nextActionSource": "data.nextActions",
+        "gate": "make cli-json-contract-goldens-check",
+        "failureMode": "generated project verification failure without bounded rerun guidance",
+        "remediation": "Attach the bounded generated failure report and rerun only the command named by data.nextActions after fixing the cause."
+      }
+    ],
+    "aiflowHandoff": {
+      "schema": "gofly.remediation_handoff.v1",
+      "owner": "human-or-current-agent",
+      "allowedActions": [
+        "queue remediation tasks",
+        "run diagnostic commands",
+        "produce patch plans",
+        "produce bounded failure reports"
+      ],
+      "forbiddenActions": [
+        "git commit",
+        "git push",
+        "modify docs/superpowers/",
+        "stage runtime state"
+      ]
+    },
+    "runtimeStatePolicy": "Do not stage .aiflow, .harness, .tmp-test, .trae, coverage.out, bench/current.txt, bench/regression-report.json, bench/summary.md, bin/gofly, or docs/superpowers while resolving P13 CLI troubleshooting tasks.",
+    "completionPolicy": "Mark GOFLY-P13-11-CLI-DOCTOR-TROUBLESHOOTING-LOOP complete only after dx-troubleshooting-check, CLI JSON golden tests, governance-report-check, and git status review prove no runtime state is staged."
+  },
   "supportWorkflow": [
     "run gofly doctor --json",
     "run gofly release check --json --strict",

@@ -42,6 +42,15 @@ generated project failure reports, `nextActions`, `error.remediation`, and
 `data.nextActions` so remediation tasks always have a concrete next action
 before aiflow queues work.
 
+P13 closeout is indexed as `gofly.cli_doctor_troubleshooting_p13.v1`. It makes
+the troubleshooting loop release-blocking for CI and agent users: doctor
+warnings or failures need `fix_hint` or `nextActions`, strict release blockers
+need `error.remediation`, support bundles need redaction plus `nextActions`,
+and generated project verification failures need bounded output plus
+`data.nextActions`. Run `make dx-troubleshooting-check`,
+`make cli-json-contract-goldens-check`, and `make governance-report-check`
+before marking `GOFLY-P13-11-CLI-DOCTOR-TROUBLESHOOTING-LOOP` complete.
+
 Redact Authorization, Cookie, Set-Cookie, token, secret, password, and provider
 credential values before sharing the bundle.
 

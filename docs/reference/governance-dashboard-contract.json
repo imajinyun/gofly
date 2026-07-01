@@ -45,6 +45,8 @@
     "dxSupportBundle.remediationLoopContract.schema",
     "dxSupportBundle.remediationLoopContract.sourceContractCount",
     "dxSupportBundle.remediationLoopContract.migrationRouteCount",
+    "dxSupportBundle.p13CliDoctorTroubleshootingLoop.status",
+    "dxSupportBundle.p13CliDoctorTroubleshootingLoop.aiflowTask",
     "governanceConvergence.taskCount",
     "governanceConvergence.ignoredRuntimePathCount",
     "aiflow.status",

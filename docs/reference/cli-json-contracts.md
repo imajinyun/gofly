@@ -189,6 +189,16 @@ keeps `gofly doctor --json`, `gofly release check --json --strict`,
 `error.remediation`, and `data.nextActions` tied to the P9 aiflow task
 `GOFLY-GOV-10P9-09`.
 
+P13 CLI troubleshooting closeout is indexed as
+`gofly.cli_doctor_troubleshooting_p13.v1`. It makes doctor JSON, strict
+release check JSON, support bundle JSON, and generated project verification
+reports a release-blocking troubleshooting loop: doctor warnings or failures
+need `fix_hint` or `nextActions`, strict release blockers need
+`error.remediation`, support bundles need redaction and next actions, and
+generated project failures need bounded output plus `data.nextActions`. The
+closeout is guarded by `make dx-troubleshooting-check`,
+`make cli-json-contract-goldens-check`, and `make governance-report-check`.
+
 The DX troubleshooting gate verifies this contract with real CLI output:
 
 ```sh

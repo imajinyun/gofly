@@ -202,6 +202,89 @@ for needle in ("doctor", "release", "generated-project", "support-bundle", "next
     if needle not in str(p9_closeout.get("nextActionPolicy") or ""):
         missing.append(f"p9RemediationCloseout.nextActionPolicy missing {needle!r}")
 
+p13_closeout = manifest.get("p13CliDoctorTroubleshootingLoop") or {}
+if p13_closeout.get("schema") != "gofly.cli_doctor_troubleshooting_p13.v1":
+    missing.append("p13CliDoctorTroubleshootingLoop.schema must be gofly.cli_doctor_troubleshooting_p13.v1")
+if p13_closeout.get("aiflowTask") != "GOFLY-P13-11-CLI-DOCTOR-TROUBLESHOOTING-LOOP":
+    missing.append("p13CliDoctorTroubleshootingLoop.aiflowTask mismatch")
+if p13_closeout.get("status") != "blocking-contract":
+    missing.append("p13CliDoctorTroubleshootingLoop.status must be blocking-contract")
+for gate in ("make dx-troubleshooting-check", "make cli-json-contract-goldens-check", "make governance-report-check"):
+    if gate not in set(p13_closeout.get("acceptanceGates") or []):
+        missing.append(f"p13CliDoctorTroubleshootingLoop.acceptanceGates missing {gate!r}")
+for command in (
+    "gofly doctor --json",
+    "gofly release check --json --strict",
+    "gofly bug --json",
+    "gofly ai new --json --apply --verify",
+):
+    if command not in set(p13_closeout.get("requiredSourceSurfaces") or []):
+        missing.append(f"p13CliDoctorTroubleshootingLoop.requiredSourceSurfaces missing {command!r}")
+    if command not in surface_by_command:
+        missing.append(f"p13CliDoctorTroubleshootingLoop.requiredSourceSurfaces has undeclared surface {command!r}")
+for source in ("nextActions", "error.remediation", "data.nextActions"):
+    if source not in set(p13_closeout.get("requiredNextActionSources") or []):
+        missing.append(f"p13CliDoctorTroubleshootingLoop.requiredNextActionSources missing {source!r}")
+runtime_evidence = " ".join(p13_closeout.get("runtimeEvidence") or [])
+for needle in ("fix_hint", "error.remediation", "gofly.support_bundle.v1", "bounded output", "data.nextActions"):
+    if needle not in runtime_evidence:
+        missing.append(f"p13CliDoctorTroubleshootingLoop.runtimeEvidence missing {needle!r}")
+p13_rows = {
+    item.get("id"): item for item in p13_closeout.get("rows") or [] if isinstance(item, dict)
+}
+expected_p13_rows = {
+    "doctor-json": ("gofly doctor --json", "nextActions", "make dx-troubleshooting-check"),
+    "release-check-json": ("gofly release check --json --strict", "error.remediation", "make dx-troubleshooting-check"),
+    "support-bundle-json": ("gofly bug --json", "nextActions", "make dx-troubleshooting-check"),
+    "generated-failure-report": ("gofly ai new --json --apply --verify", "data.nextActions", "make cli-json-contract-goldens-check"),
+}
+if set(p13_rows) != set(expected_p13_rows):
+    missing.append(
+        "p13CliDoctorTroubleshootingLoop rows mismatch: "
+        f"missing={sorted(set(expected_p13_rows) - set(p13_rows))!r} "
+        f"extra={sorted(set(p13_rows) - set(expected_p13_rows))!r}"
+    )
+for row_id, (command, next_source, gate) in expected_p13_rows.items():
+    row = p13_rows.get(row_id) or {}
+    if row.get("sourceCommand") != command:
+        missing.append(f"p13CliDoctorTroubleshootingLoop {row_id}: sourceCommand mismatch")
+    if row.get("nextActionSource") != next_source:
+        missing.append(f"p13CliDoctorTroubleshootingLoop {row_id}: nextActionSource mismatch")
+    if row.get("gate") != gate:
+        missing.append(f"p13CliDoctorTroubleshootingLoop {row_id}: gate mismatch")
+    for field in ("stableFields", "failureMode", "remediation"):
+        if not row.get(field):
+            missing.append(f"p13CliDoctorTroubleshootingLoop {row_id}: {field} is required")
+    if len(str(row.get("remediation") or "").split()) < 10:
+        missing.append(f"p13CliDoctorTroubleshootingLoop {row_id}: remediation must be actionable")
+    stable = set(row.get("stableFields") or [])
+    surface = surface_by_command.get(command) or {}
+    surface_stable = set(surface.get("stableFields") or [])
+    undeclared = [
+        field
+        for field in stable
+        if field not in surface_stable and field.split(".", 1)[0] not in surface_stable
+    ]
+    if undeclared:
+        missing.append(f"p13CliDoctorTroubleshootingLoop {row_id}: stableFields must be declared by surface: {undeclared!r}")
+handoff = p13_closeout.get("aiflowHandoff") or {}
+if handoff.get("schema") != "gofly.remediation_handoff.v1":
+    missing.append("p13CliDoctorTroubleshootingLoop.aiflowHandoff schema mismatch")
+if handoff.get("owner") != "human-or-current-agent":
+    missing.append("p13CliDoctorTroubleshootingLoop.aiflowHandoff owner mismatch")
+for action in ("queue remediation tasks", "run diagnostic commands", "produce patch plans", "produce bounded failure reports"):
+    if action not in set(handoff.get("allowedActions") or []):
+        missing.append(f"p13CliDoctorTroubleshootingLoop.aiflowHandoff.allowedActions missing {action!r}")
+for action in ("git commit", "git push", "modify docs/superpowers/", "stage runtime state"):
+    if action not in set(handoff.get("forbiddenActions") or []):
+        missing.append(f"p13CliDoctorTroubleshootingLoop.aiflowHandoff.forbiddenActions missing {action!r}")
+for needle in (".aiflow", ".harness", ".tmp-test", ".trae", "coverage.out", "bench/current.txt", "bench/regression-report.json", "bench/summary.md", "bin/gofly", "docs/superpowers"):
+    if needle not in str(p13_closeout.get("runtimeStatePolicy") or ""):
+        missing.append(f"p13CliDoctorTroubleshootingLoop.runtimeStatePolicy missing {needle!r}")
+for needle in ("GOFLY-P13-11-CLI-DOCTOR-TROUBLESHOOTING-LOOP", "dx-troubleshooting-check", "CLI JSON golden", "governance-report-check", "no runtime state"):
+    if needle not in str(p13_closeout.get("completionPolicy") or ""):
+        missing.append(f"p13CliDoctorTroubleshootingLoop.completionPolicy missing {needle!r}")
+
 adoption_loop = manifest.get("troubleshootingAdoptionLoop") or {}
 if adoption_loop.get("schema") != "gofly.troubleshooting_adoption_loop.v1":
     missing.append("troubleshootingAdoptionLoop.schema must be gofly.troubleshooting_adoption_loop.v1")

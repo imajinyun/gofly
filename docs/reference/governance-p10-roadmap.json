@@ -8,9 +8,10 @@
     "go run ./cmd/aiflow status -root /Users/bytedance/Codes/go/src/github/gofly"
   ],
   "aiflowSubmission": {
-    "status": "blocked",
-    "blockedBy": "Adjacent aiflow checkout does not compile because harness/policy.go imports strings without use.",
-    "safetyPolicy": "Do not edit the adjacent aiflow repository without explicit permission because it is outside the gofly writable root and has unrelated dirty files.",
+    "status": "submitted",
+    "submittedAt": "2026-07-01T00:13:24Z",
+    "submissionCommand": "go run -C /Users/bytedance/Codes/go/src/github/aiflow ./cmd/aiflow submit -root /Users/bytedance/Codes/go/src/github/gofly -config /Users/bytedance/Codes/go/src/github/gofly/aiflow.yaml",
+    "safetyPolicy": "P10 tasks are queued in gofly .aiflow runtime state only; commits remain owned by the current agent or human and runtime state remains ignored.",
     "existingQueuedRounds": [
       "GOFLY-P10-1-RPC-TIER1-CLOSEOUT",
       "GOFLY-P10-2-GOCTL-GENERATOR-FIDELITY",
@@ -18,13 +19,12 @@
       "GOFLY-P10-4-REST-MIDDLEWARE-ECOSYSTEM-MATRIX",
       "GOFLY-P10-5-DISCOVERY-ADAPTER-MATRIX",
       "GOFLY-P10-6-AI_NATIVE_SUPPORT_BUNDLE",
-      "GOFLY-P10-7-PERFORMANCE-BUDGET-RATCHET"
-    ],
-    "pendingSubmissionRounds": [
+      "GOFLY-P10-7-PERFORMANCE-BUDGET-RATCHET",
       "GOFLY-P10-8-CLOUD-NATIVE-ADOPTION-PROOF",
       "GOFLY-P10-9-RELEASE-DASHBOARD-CONSUMPTION",
       "GOFLY-P10-10-CONVERGENCE-REPORT"
-    ]
+    ],
+    "pendingSubmissionRounds": []
   },
   "rounds": [
     {

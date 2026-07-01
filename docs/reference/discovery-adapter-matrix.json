@@ -215,6 +215,166 @@
     "promotionPolicy": "Promote discovery providers only when implementation status, register/resolve/watch/lease capability, filtering behavior, failover, dependency ownership, smoke gates, and rollback notes are all explicit.",
     "runtimeArtifactPolicy": "Discovery integration evidence that requires Docker, cluster credentials, or external registries must remain runtime evidence and must not be committed."
   },
+  "p13DiscoveryFailoverCloseout": {
+    "schema": "gofly.discovery_p13_failover_closeout.v1",
+    "aiflowTask": "GOFLY-P13-07-DISCOVERY-FAILOVER-MATRIX",
+    "status": "blocking-contract",
+    "acceptanceGate": "make discovery-adapter-matrix-check",
+    "requiredScenarios": [
+      "resolver-update",
+      "stale-endpoint",
+      "registry-unavailable",
+      "zone-tag-version-filtering",
+      "rollback-note"
+    ],
+    "providerRows": [
+      {
+        "id": "memory",
+        "classification": "implemented-local",
+        "routingStatus": "runnable-fallback",
+        "scenarios": {
+          "resolver-update": "Watch emits snapshot, registered, updated, and removed change sets for in-process resolver refresh.",
+          "stale-endpoint": "TTL expiry and deregistration remove stale endpoints and return ErrNoInstances for empty healthy sets.",
+          "registry-unavailable": "Memory is the local fallback when networked registries are unavailable and does not depend on external registry availability.",
+          "zone-tag-version-filtering": "Resolve options cover version, zone, tag filtering, unhealthy exclusion, and defensive clones.",
+          "rollback-note": "Roll back generated, local, and smoke profiles to memory discovery when networked registry evidence is unavailable."
+        },
+        "evidenceTests": [
+          "TestMemoryRegistryWatchEventsIncludeChanges",
+          "TestMemoryRegistryWatchLeaseAndTTL",
+          "TestMemoryRegistryResolveExpiredInstance",
+          "TestMemoryRegistryResolveFiltersAndClonesInstances"
+        ],
+        "evidenceFiles": [
+          "core/discovery/discovery_test.go",
+          "core/discovery/memory_test.go"
+        ],
+        "gate": "go test -shuffle=on ./core/discovery/...",
+        "promotionBoundary": "Memory remains the fallback and local Tier 1 provider; it is not a networked production registry replacement.",
+        "rollbackNote": "Switch generated projects, local smoke tests, and fallback profiles to memory discovery when Consul, etcd, or future registry adapters are unavailable."
+      },
+      {
+        "id": "consul",
+        "classification": "implemented-network",
+        "routingStatus": "runnable-network",
+        "scenarios": {
+          "resolver-update": "Blocking watch emits an initial snapshot and a follow-up resolver update when Consul health index changes.",
+          "stale-endpoint": "Health-service filtering skips empty endpoints and metadata filters can remove stale or incompatible instances before routing.",
+          "registry-unavailable": "Temporary Consul health-service errors are retried by the blocking watch path without promoting a bad endpoint snapshot.",
+          "zone-tag-version-filtering": "Tags round-trip version, zone, and custom tag metadata, and Resolve filters them before returning instances.",
+          "rollback-note": "Keep memory discovery and the previous Consul registration path available until deployment topology validates watches and health checks."
+        },
+        "evidenceTests": [
+          "TestWatchEmitsSnapshotAndBlockingUpdate",
+          "TestWatchValidationAndBlockingWatchErrorRecovery",
+          "TestResolveReadsHealthServiceAndFilters",
+          "TestTagsRoundTrip"
+        ],
+        "evidenceFiles": [
+          "core/discovery/consul/consul_test.go"
+        ],
+        "gate": "go test -shuffle=on ./core/discovery/...",
+        "promotionBoundary": "Consul can be used only when health filtering, watch behavior, dependency evidence, and deployment-specific failover proof pass.",
+        "rollbackNote": "Route traffic back to memory discovery or the previous Consul registration profile when Consul health checks, watches, or dependency evidence diverge."
+      },
+      {
+        "id": "etcdv3",
+        "classification": "implemented-network",
+        "routingStatus": "runnable-network",
+        "scenarios": {
+          "resolver-update": "Watch lifecycle maps put and delete events to discovery events and closes cleanly on cancellation or watch shutdown.",
+          "stale-endpoint": "Deregister removes keys, empty endpoints are skipped, and Resolve returns ErrNoInstances after deregistration in integration evidence.",
+          "registry-unavailable": "Canceled, disconnected, and auth-failure paths return explicit errors without advertising stale endpoint snapshots.",
+          "zone-tag-version-filtering": "Fake-client and integration evidence register normalized instances and filter version, zone, and tag metadata.",
+          "rollback-note": "Keep the previous etcd registration path compatible until generated service smoke and optional Docker-backed integration evidence pass."
+        },
+        "evidenceTests": [
+          "TestForwardStopsOnLifecycleSignals",
+          "TestRegisterResolveWithFakeClient",
+          "TestResolveDeregisterAndWatchReturnContextCancellation",
+          "TestEtcdRegistryIntegrationRegisterResolveDeregister"
+        ],
+        "evidenceFiles": [
+          "core/discovery/etcdv3/etcdv3_test.go",
+          "core/discovery/etcdv3/etcdv3_integration_test.go"
+        ],
+        "gate": "go test -shuffle=on ./core/discovery/...",
+        "promotionBoundary": "etcdv3 can be promoted only when lease, watch, resolver, TLS/dependency evidence, and optional Docker-backed integration evidence are current.",
+        "rollbackNote": "Keep the previous etcd registration path or memory discovery active when lease renewal, watch, resolver update, or integration evidence fails."
+      },
+      {
+        "id": "nacos",
+        "classification": "config-only",
+        "routingStatus": "not-routable",
+        "scenarios": {
+          "resolver-update": "No resolver-update behavior is advertised because Nacos is currently a configuration source only.",
+          "stale-endpoint": "No stale-endpoint routing behavior is advertised until a dedicated discovery adapter exists.",
+          "registry-unavailable": "Registry unavailable behavior remains outside discovery because Nacos is not a discovery registry in gofly.",
+          "zone-tag-version-filtering": "No discovery filtering semantics are advertised until a core/discovery/nacos adapter lands.",
+          "rollback-note": "Keep service discovery on the existing platform provider until Nacos discovery implementation and integration evidence pass."
+        },
+        "evidenceTests": [],
+        "evidenceFiles": [
+          "core/config/nacossource"
+        ],
+        "gate": "make discovery-adapter-matrix-check",
+        "promotionBoundary": "Nacos must stay config-only until register, resolve, watch, lease, filtering, failover, and rollback tests exist.",
+        "rollbackNote": "Do not route discovery traffic through Nacos; continue using the existing registry or memory fallback until discovery evidence lands."
+      },
+      {
+        "id": "dns",
+        "classification": "planned",
+        "routingStatus": "not-routable",
+        "scenarios": {
+          "resolver-update": "Resolver-update behavior is planned and must cover TTL refresh and negative-cache behavior before support is advertised.",
+          "stale-endpoint": "Stale endpoint handling is planned and must define TTL expiry and empty answer behavior before promotion.",
+          "registry-unavailable": "DNS unavailable behavior is planned and must define timeout, NXDOMAIN, and SERVFAIL handling before promotion.",
+          "zone-tag-version-filtering": "DNS has no tag, version, or zone filtering support until explicit profile semantics are implemented.",
+          "rollback-note": "Keep DNS-backed services on existing platform discovery until resolver-only tests and rollback guidance pass."
+        },
+        "evidenceTests": [],
+        "evidenceFiles": [],
+        "gate": "make discovery-adapter-matrix-check",
+        "promotionBoundary": "DNS must remain planned until resolver-only implementation, TTL tests, negative-cache tests, generated profile docs, and rollback notes land.",
+        "rollbackNote": "Use platform DNS or application configuration directly until gofly DNS resolver behavior is machine-checked."
+      },
+      {
+        "id": "kubernetes",
+        "classification": "planned",
+        "routingStatus": "not-routable",
+        "scenarios": {
+          "resolver-update": "Resolver-update behavior is planned and must cover Service or EndpointSlice watch updates before support is advertised.",
+          "stale-endpoint": "Stale endpoint handling is planned and must cover deleted, not-ready, and terminating endpoints before promotion.",
+          "registry-unavailable": "Cluster API unavailable behavior is planned and must define RBAC, timeout, and fallback handling before promotion.",
+          "zone-tag-version-filtering": "Kubernetes filtering is planned and must map labels, namespaces, topology zones, and versions explicitly before promotion.",
+          "rollback-note": "Use native Kubernetes Service discovery directly until adapter semantics and cloud-native production gates pass."
+        },
+        "evidenceTests": [],
+        "evidenceFiles": [],
+        "gate": "make required-checks-drift-check",
+        "promotionBoundary": "Kubernetes must remain planned until EndpointSlice or Service semantics, RBAC, Helm/Kustomize wiring, fixtures, and optional integration evidence exist.",
+        "rollbackNote": "Keep workloads on native Kubernetes Service discovery until gofly endpoint watch and policy evidence pass."
+      },
+      {
+        "id": "static",
+        "classification": "planned",
+        "routingStatus": "not-routable",
+        "scenarios": {
+          "resolver-update": "Resolver-update behavior is planned and must define immutable and reloadable profile semantics before support is advertised.",
+          "stale-endpoint": "Stale endpoint handling is planned and must validate removed endpoints, malformed files, and reload rollback before promotion.",
+          "registry-unavailable": "Registry unavailable behavior maps to missing or unreadable configuration files and must be path-safe before promotion.",
+          "zone-tag-version-filtering": "Static provider filtering is planned and must validate tag, version, and zone fields from safe config sources.",
+          "rollback-note": "Keep static endpoints in application configuration or memory discovery until reload, validation, and generated smoke evidence pass."
+        },
+        "evidenceTests": [],
+        "evidenceFiles": [],
+        "gate": "make discovery-adapter-matrix-check",
+        "promotionBoundary": "Static discovery must remain planned until path validation, reload semantics, generated-service smoke, and rollback evidence are machine-checked.",
+        "rollbackNote": "Keep static endpoint lists outside gofly discovery until path safety and reload behavior are proven."
+      }
+    ],
+    "releasePolicy": "P13 release notes may claim implemented discovery failover only for memory, Consul, and etcdv3 evidence rows; Nacos, DNS, Kubernetes, and static rows must stay config-only or planned until their promotion boundaries pass."
+  },
   "providers": [
     {
       "id": "memory",

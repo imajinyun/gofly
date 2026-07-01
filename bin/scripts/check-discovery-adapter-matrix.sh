@@ -218,6 +218,124 @@ runtime_policy = str(p10_closeout.get("runtimeArtifactPolicy") or "")
 for needle in ("runtime evidence", "must not be committed"):
     require(needle in runtime_policy, f"p10DiscoveryAdapterCloseout runtimeArtifactPolicy missing {needle!r}")
 
+p13_closeout = matrix.get("p13DiscoveryFailoverCloseout") or {}
+require(
+    p13_closeout.get("schema") == "gofly.discovery_p13_failover_closeout.v1",
+    "p13DiscoveryFailoverCloseout schema mismatch",
+)
+require(
+    p13_closeout.get("aiflowTask") == "GOFLY-P13-07-DISCOVERY-FAILOVER-MATRIX",
+    "p13DiscoveryFailoverCloseout aiflowTask mismatch",
+)
+require(
+    p13_closeout.get("status") == "blocking-contract",
+    "p13DiscoveryFailoverCloseout status must be blocking-contract",
+)
+require(
+    p13_closeout.get("acceptanceGate") == "make discovery-adapter-matrix-check",
+    "p13DiscoveryFailoverCloseout acceptanceGate mismatch",
+)
+expected_p13_scenarios = {
+    "resolver-update",
+    "stale-endpoint",
+    "registry-unavailable",
+    "zone-tag-version-filtering",
+    "rollback-note",
+}
+require(
+    set(p13_closeout.get("requiredScenarios") or []) == expected_p13_scenarios,
+    "p13DiscoveryFailoverCloseout requiredScenarios mismatch",
+)
+p13_rows = {
+    item.get("id"): item
+    for item in p13_closeout.get("providerRows") or []
+    if isinstance(item, dict) and item.get("id")
+}
+expected_p13_classification = {
+    "memory": ("implemented-local", "runnable-fallback"),
+    "consul": ("implemented-network", "runnable-network"),
+    "etcdv3": ("implemented-network", "runnable-network"),
+    "nacos": ("config-only", "not-routable"),
+    "dns": ("planned", "not-routable"),
+    "kubernetes": ("planned", "not-routable"),
+    "static": ("planned", "not-routable"),
+}
+require(
+    set(p13_rows) == set(expected_p13_classification),
+    f"p13DiscoveryFailoverCloseout providerRows mismatch: {sorted(p13_rows)!r}",
+)
+expected_p13_tests = {
+    "memory": {
+        "TestMemoryRegistryWatchEventsIncludeChanges",
+        "TestMemoryRegistryWatchLeaseAndTTL",
+        "TestMemoryRegistryResolveExpiredInstance",
+        "TestMemoryRegistryResolveFiltersAndClonesInstances",
+    },
+    "consul": {
+        "TestWatchEmitsSnapshotAndBlockingUpdate",
+        "TestWatchValidationAndBlockingWatchErrorRecovery",
+        "TestResolveReadsHealthServiceAndFilters",
+        "TestTagsRoundTrip",
+    },
+    "etcdv3": {
+        "TestForwardStopsOnLifecycleSignals",
+        "TestRegisterResolveWithFakeClient",
+        "TestResolveDeregisterAndWatchReturnContextCancellation",
+        "TestEtcdRegistryIntegrationRegisterResolveDeregister",
+    },
+}
+for provider_id, (classification, routing_status) in expected_p13_classification.items():
+    row = p13_rows.get(provider_id) or {}
+    require(row.get("classification") == classification, f"p13DiscoveryFailoverCloseout {provider_id}: classification mismatch")
+    require(row.get("routingStatus") == routing_status, f"p13DiscoveryFailoverCloseout {provider_id}: routingStatus mismatch")
+    scenarios = row.get("scenarios") or {}
+    require(set(scenarios) == expected_p13_scenarios, f"p13DiscoveryFailoverCloseout {provider_id}: scenarios mismatch")
+    for scenario_id, text in scenarios.items():
+        require(
+            len(str(text or "").split()) >= 8,
+            f"p13DiscoveryFailoverCloseout {provider_id}: {scenario_id} scenario must be actionable",
+        )
+    gate = str(row.get("gate") or "")
+    require(gate_is_known(gate, targets), f"p13DiscoveryFailoverCloseout {provider_id}: gate is not known")
+    require(len(str(row.get("promotionBoundary") or "").split()) >= 10, f"p13DiscoveryFailoverCloseout {provider_id}: promotionBoundary must be actionable")
+    require(len(str(row.get("rollbackNote") or "").split()) >= 10, f"p13DiscoveryFailoverCloseout {provider_id}: rollbackNote must be actionable")
+    evidence_files = row.get("evidenceFiles") or []
+    evidence_tests = set(row.get("evidenceTests") or [])
+    if classification.startswith("implemented"):
+        require(evidence_files, f"p13DiscoveryFailoverCloseout {provider_id}: implemented provider requires evidenceFiles")
+        require(
+            evidence_tests == expected_p13_tests[provider_id],
+            f"p13DiscoveryFailoverCloseout {provider_id}: evidenceTests mismatch",
+        )
+        for evidence_file in evidence_files:
+            path = root / evidence_file
+            require(path.is_file(), f"p13DiscoveryFailoverCloseout {provider_id}: evidence file is missing: {evidence_file}")
+            text = path.read_text(encoding="utf-8") if path.is_file() else ""
+            for test_name in expected_p13_tests[provider_id]:
+                if provider_id == "memory" and evidence_file == "core/discovery/memory_test.go" and test_name.startswith("TestMemoryRegistryWatchEvents"):
+                    continue
+                if provider_id == "memory" and evidence_file == "core/discovery/discovery_test.go" and test_name.startswith("TestMemoryRegistryResolveFilters"):
+                    continue
+                require(
+                    test_name in text or any((root / candidate).is_file() and test_name in (root / candidate).read_text(encoding="utf-8") for candidate in evidence_files),
+                    f"p13DiscoveryFailoverCloseout {provider_id}: evidence test {test_name} is not present",
+                )
+        require(
+            gate == "go test -shuffle=on ./core/discovery/...",
+            f"p13DiscoveryFailoverCloseout {provider_id}: implemented provider gate must run discovery tests",
+        )
+    elif classification == "config-only":
+        require(not evidence_tests, f"p13DiscoveryFailoverCloseout {provider_id}: config-only provider must not claim tests")
+        require("not-routable" == routing_status, f"p13DiscoveryFailoverCloseout {provider_id}: config-only provider must stay not-routable")
+        require("config" in " ".join(evidence_files).lower(), f"p13DiscoveryFailoverCloseout {provider_id}: evidenceFiles must stay config-scoped")
+    else:
+        require(not evidence_tests, f"p13DiscoveryFailoverCloseout {provider_id}: planned provider must not claim tests")
+        require(not evidence_files, f"p13DiscoveryFailoverCloseout {provider_id}: planned provider must not claim evidenceFiles")
+        require("planned" in str(row.get("promotionBoundary") or "").lower(), f"p13DiscoveryFailoverCloseout {provider_id}: promotionBoundary must explain planned status")
+release_policy = str(p13_closeout.get("releasePolicy") or "")
+for needle in ("memory", "Consul", "etcdv3", "Nacos", "DNS", "Kubernetes", "static", "planned"):
+    require(needle in release_policy, f"p13DiscoveryFailoverCloseout releasePolicy missing {needle!r}")
+
 providers = matrix.get("providers") or []
 provider_map = {
     item.get("id"): item

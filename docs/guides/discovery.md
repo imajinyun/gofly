@@ -47,6 +47,13 @@ dependency boundaries, smoke gates, and rollback notes. Planned or config-only
 providers remain non-routing evidence until implementation and integration
 criteria are met.
 
+The P13 closeout is recorded as `p13DiscoveryFailoverCloseout`. It makes
+resolver update, stale endpoint, registry unavailable, zone/tag/version
+filtering, and rollback-note evidence release-blocking for the matrix. Memory,
+Consul, and etcdv3 rows are backed by concrete tests. Nacos remains config-only,
+while DNS, Kubernetes, and static discovery remain planned and must not be
+advertised as routable providers until their promotion boundaries pass.
+
 ## Production configuration
 
 ```yaml

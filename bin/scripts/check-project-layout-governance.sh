@@ -238,15 +238,36 @@ require(sorted(grouped_examples) == actual_examples, "examplesGroupingPlan must 
 
 command_dir = root / "cmd" / "gofly" / "internal" / "command"
 families = manifest.get("commandFileFamilies") or []
+command_files = sorted(path.name for path in command_dir.glob("*.go"))
+declared_command_files = []
 for family in families:
     if not isinstance(family, dict):
         missing.append(f"commandFileFamilies entry must be object: {family!r}")
         continue
     prefix = family.get("prefix", "")
-    require(prefix, "commandFileFamilies prefix is required")
+    explicit_files = family.get("files") or []
+    require(prefix or explicit_files, "commandFileFamilies prefix or files are required")
     require(len(str(family.get("domain") or "").split()) >= 3, f"command family {prefix}: domain must be descriptive")
-    matching = [path for path in command_dir.glob(f"{prefix}*.go")]
-    require(matching, f"command family {prefix}: no files match prefix in cmd/gofly/internal/command")
+    if prefix:
+        matching = [path.name for path in command_dir.glob(f"{prefix}*.go")]
+        require(matching, f"command family {prefix}: no files match prefix in cmd/gofly/internal/command")
+        require(not explicit_files, f"command family {prefix}: prefix families must not also declare explicit files")
+        declared_command_files.extend(matching)
+    else:
+        require(explicit_files, "explicit command family files are required when prefix is empty")
+        for filename in explicit_files:
+            require("/" not in filename, f"explicit command file must be relative to command root: {filename!r}")
+            require((command_dir / filename).is_file(), f"explicit command file is missing: {filename}")
+            declared_command_files.append(filename)
+require(
+    sorted(declared_command_files) == command_files,
+    "commandFileFamilies must account for every cmd/gofly/internal/command/*.go file exactly once: "
+    f"declared={sorted(declared_command_files)!r}, actual={command_files!r}",
+)
+require(
+    len(declared_command_files) == len(set(declared_command_files)),
+    "commandFileFamilies must not contain duplicate command files",
+)
 
 reference_boundary = manifest.get("referenceFileBoundaries") or {}
 require(reference_boundary.get("status") == "blocking-contract", "referenceFileBoundaries.status must be blocking-contract")

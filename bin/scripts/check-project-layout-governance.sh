@@ -56,6 +56,8 @@ docs_check = next((line for line in makefile.splitlines() if line.startswith("do
 require("project-layout-governance-check" in docs_check, "docs-check must depend on project-layout-governance-check")
 require("command-family-dependency-map-check" in targets, "Makefile must expose command-family-dependency-map-check")
 require("command-family-dependency-map-check" in docs_check, "docs-check must depend on command-family-dependency-map-check")
+require("command-split-readiness-check" in targets, "Makefile must expose command-split-readiness-check")
+require("command-split-readiness-check" in docs_check, "docs-check must depend on command-split-readiness-check")
 require("check-project-layout-governance.sh" in makefile, "Makefile must call check-project-layout-governance.sh")
 
 top_level_boundary = manifest.get("topLevelDirectoryBoundaries") or {}
@@ -782,6 +784,48 @@ require(
     {item.get("id") for item in command_dependency_map.get("nextCandidates") or [] if isinstance(item, dict)}
     == {"doctor", "help"},
     "command family dependency map nextCandidates must identify doctor and help",
+)
+
+command_split_readiness_path = root / "docs" / "reference" / "command-split-readiness.json"
+if command_split_readiness_path.is_file():
+    command_split_readiness = json.loads(command_split_readiness_path.read_text(encoding="utf-8"))
+else:
+    command_split_readiness = {}
+    missing.append("docs/reference/command-split-readiness.json is missing")
+require(
+    command_split_readiness.get("schema") == "gofly.command_split_readiness.v1",
+    "command split readiness schema mismatch",
+)
+require(
+    command_split_readiness.get("status") == "candidate-preflight",
+    "command split readiness status must be candidate-preflight",
+)
+require(
+    command_split_readiness.get("acceptanceGate") == "make command-split-readiness-check",
+    "command split readiness acceptanceGate mismatch",
+)
+require(
+    [item.get("id") for item in command_split_readiness.get("candidateFamilies") or [] if isinstance(item, dict)]
+    == ["help", "doctor"],
+    "command split readiness candidateFamilies must identify help and doctor in order",
+)
+require(
+    {item.get("id") for item in command_split_readiness.get("blockedFamilies") or [] if isinstance(item, dict)}
+    == {"ai", "shared"},
+    "command split readiness blockedFamilies must identify ai and shared",
+)
+require(
+    set(command_split_readiness.get("deferredFamilies") or []) == {"api", "rpc", "model", "new", "plugin", "release", "config"},
+    "command split readiness deferredFamilies mismatch",
+)
+require(
+    (command_split_readiness.get("releaseBlockerFix") or {}).get("regressionTest")
+    == "TestGenerateModelFromDDLGORMStyleDoesNotPolluteGoflyRootModule",
+    "command split readiness must record the root module pollution regression test",
+)
+require(
+    command_split_readiness.get("nextStep", {}).get("id") == "P22-07-help-split-dry-run",
+    "command split readiness nextStep mismatch",
 )
 
 reference_boundary = manifest.get("referenceFileBoundaries") or {}

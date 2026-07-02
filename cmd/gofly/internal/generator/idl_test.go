@@ -1,6 +1,7 @@
 package generator
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -3133,6 +3134,46 @@ func TestGenerateModelFromDDLGORMStyleFindsParentGoMod(t *testing.T) {
 	}
 	if !strings.Contains(string(repoData), `"example.com/shop/internal/model/entity"`) {
 		t.Fatalf("repo should import entity relative to parent module root:\n%s", repoData)
+	}
+}
+
+func TestGenerateModelFromDDLGORMStyleDoesNotPolluteGoflyRootModule(t *testing.T) {
+	repoRoot := repositoryRoot(t)
+	goModPath := filepath.Join(repoRoot, "go.mod")
+	before, err := os.ReadFile(goModPath)
+	if err != nil {
+		t.Fatalf("read gofly go.mod: %v", err)
+	}
+	dir := filepath.Join(repoRoot, ".tmp-test", "model-gorm-root-pollution", t.Name())
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ddlPath := filepath.Join(dir, "schema.sql")
+	ddl := `CREATE TABLE books (
+  id bigint primary key,
+  title varchar(128) not null
+);`
+	if err := os.WriteFile(ddlPath, []byte(ddl), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outDir := filepath.Join(dir, "out")
+	if err := GenerateModelFromDDL(ModelOptions{DDLFile: ddlPath, Dir: outDir, Package: "model", Style: "gorm"}); err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.ReadFile(goModPath)
+	if err != nil {
+		t.Fatalf("read gofly go.mod after generation: %v", err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Fatalf("gofly root go.mod changed during generated-project dependency update:\n%s", after)
+	}
+	repoData, err := os.ReadFile(filepath.Join(outDir, "model", "repo", "book.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(repoData), `"gorm.io/gorm"`) {
+		t.Fatalf("generated gorm repo should still import gorm:\n%s", repoData)
 	}
 }
 

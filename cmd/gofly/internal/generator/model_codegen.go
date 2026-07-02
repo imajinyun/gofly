@@ -231,7 +231,15 @@ func ensureGoModDependencyIfPresent(dir string, module string, version string) e
 		}
 		return err
 	}
+	if isGoflyRootModule(path) {
+		return nil
+	}
 	return ensureGoModRequire(path, module, version)
+}
+
+func isGoflyRootModule(path string) bool {
+	module, err := readGoModModule(path)
+	return err == nil && module == "github.com/imajinyun/gofly"
 }
 
 func inferModelModule(dir string) (string, error) {

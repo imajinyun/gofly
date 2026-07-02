@@ -1,0 +1,96 @@
+{
+  "schema": "gofly.command_split_readiness.v1",
+  "status": "candidate-preflight",
+  "package": "cmd/gofly/internal/command",
+  "acceptanceGate": "make command-split-readiness-check",
+  "purpose": "Record the current command package split readiness baseline after fixing generated-project dependency pollution and proving full command package shuffle tests pass.",
+  "policy": "Do not split command families until command package tests, CLI surface gates, dependency map gates, and candidate-specific golden contracts pass from a clean root module.",
+  "releaseBlockerFix": {
+    "status": "fixed",
+    "rootCause": "GORM and Mongo generated-project dependency updates could find the gofly root go.mod when tests generated models under repository-local temporary directories, which made release check fail the go mod tidy gate later in shuffled test order.",
+    "fix": "Generated-project dependency updates now skip the gofly root module and only write to generated project modules or explicit parent modules.",
+    "regressionTest": "TestGenerateModelFromDDLGORMStyleDoesNotPolluteGoflyRootModule",
+    "proofGates": [
+      "GOCACHE=$PWD/.tmp-test/gocache GOTMPDIR=$PWD/.tmp-test/gotmp go test -shuffle=on ./cmd/gofly/internal/generator -run 'TestGenerateModelFromDDLGORMStyle(DoesNotPolluteGoflyRootModule|FindsParentGoMod|$)' -count=1",
+      "GOCACHE=$PWD/.tmp-test/gocache GOTMPDIR=$PWD/.tmp-test/gotmp go test -shuffle=on ./cmd/gofly/internal/command -run TestReleaseCheckCommandJSONAndChangelogBlocker -count=1",
+      "GOCACHE=$PWD/.tmp-test/gocache GOTMPDIR=$PWD/.tmp-test/gotmp go test -shuffle=on ./cmd/gofly/internal/command/..."
+    ]
+  },
+  "candidateFamilies": [
+    {
+      "id": "help",
+      "status": "candidate-after-golden",
+      "reason": "The help family has only standard library imports and a narrow rendering surface, but it still needs golden output coverage before physical package movement.",
+      "requiredPreSplitActions": [
+        "pin help topic and usage output with golden tests",
+        "define a small metadata adapter for command registration",
+        "prove docs-check still covers every help topic after extraction"
+      ],
+      "requiredGates": [
+        "make command-family-dependency-map-check",
+        "make command-split-readiness-check",
+        "make cli-command-surface-check",
+        "make docs-check",
+        "GOCACHE=$PWD/.tmp-test/gocache GOTMPDIR=$PWD/.tmp-test/gotmp go test -shuffle=on ./cmd/gofly/internal/command/..."
+      ],
+      "rollbackRequirement": "Restore help files to cmd/gofly/internal/command if help text, usage output, topic routing, or docs synchronization changes."
+    },
+    {
+      "id": "doctor",
+      "status": "candidate-after-json-golden",
+      "reason": "The doctor family has only standard library imports and focused diagnostics, but it still shares JSON/output helpers and must preserve stdout/stderr discipline.",
+      "requiredPreSplitActions": [
+        "pin doctor --json output and nextActions with golden tests",
+        "define a package-local adapter for JSON and output helpers",
+        "prove support bundle and remediation wording remain stable after extraction"
+      ],
+      "requiredGates": [
+        "make command-family-dependency-map-check",
+        "make command-split-readiness-check",
+        "make cli-command-surface-check",
+        "make cli-json-contract-goldens-check",
+        "GOCACHE=$PWD/.tmp-test/gocache GOTMPDIR=$PWD/.tmp-test/gotmp go test -shuffle=on ./cmd/gofly/internal/command/..."
+      ],
+      "rollbackRequirement": "Restore doctor files to cmd/gofly/internal/command if diagnostics, JSON fields, stdout, stderr, or support bundle contracts change."
+    }
+  ],
+  "blockedFamilies": [
+    {
+      "id": "ai",
+      "reason": "AI commands remain too large and depend on core breaker, control-plane, LLM governance, manifest, stream, failover, and project apply helpers."
+    },
+    {
+      "id": "shared",
+      "reason": "Shared files still own root command wiring, JSON errors, IO, path flags, IDL helpers, template helpers, compatibility commands, and package-wide tests."
+    }
+  ],
+  "deferredFamilies": [
+    "api",
+    "rpc",
+    "model",
+    "new",
+    "plugin",
+    "release",
+    "config"
+  ],
+  "requiredCleanRootSignals": [
+    "go.mod has no generated-project-only dependency drift after command and generator tests",
+    "go.sum has no unexplained generated-project-only checksum drift",
+    "release check focused test passes after model generator tests",
+    "full cmd/gofly/internal/command shuffle test passes from repository-local temporary caches"
+  ],
+  "requiredGates": [
+    "make command-family-dependency-map-check",
+    "make command-split-readiness-check",
+    "make project-layout-governance-check",
+    "GOCACHE=$PWD/.tmp-test/gocache GOTMPDIR=$PWD/.tmp-test/gotmp go test -shuffle=on ./cmd/gofly/internal/generator -run 'TestGenerateModelFromDDLGORMStyle(DoesNotPolluteGoflyRootModule|FindsParentGoMod|$)' -count=1",
+    "GOCACHE=$PWD/.tmp-test/gocache GOTMPDIR=$PWD/.tmp-test/gotmp go test -shuffle=on ./cmd/gofly/internal/command/...",
+    "GOCACHE=$PWD/.tmp-test/gocache GOTMPDIR=$PWD/.tmp-test/gotmp go vet ./cmd/gofly/internal/command/...",
+    "GOCACHE=$PWD/.tmp-test/gocache GOTMPDIR=$PWD/.tmp-test/gotmp make cli-command-surface-check",
+    "git diff --check"
+  ],
+  "nextStep": {
+    "id": "P22-07-help-split-dry-run",
+    "action": "Add help family golden output and dry-run extraction evidence before any physical package split."
+  }
+}

@@ -1096,6 +1096,7 @@
           "plugin-conformance-report.json",
           "plugin-external-governance.json",
           "plugin-publishing-ux.json",
+          "project-layout-convergence-p21.json",
           "project-layout-governance.json",
           "reference-app-topology.json",
           "resilience-drill.json",

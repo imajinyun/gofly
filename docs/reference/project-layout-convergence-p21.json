@@ -1,0 +1,192 @@
+{
+  "schema": "gofly.project_layout_convergence_p21.v1",
+  "status": "completed",
+  "activeBatch": "GOFLY-P21",
+  "acceptanceGate": "make project-layout-governance-check",
+  "purpose": "Record the P21 project layout governance convergence evidence, commit checkpoints, covered boundaries, verification gates, deferred physical migrations, and admission criteria for future examples grouping.",
+  "roundCommits": [
+    {
+      "round": 1,
+      "commit": "03d2afa",
+      "title": "chore(layout): enforce top-level directory boundaries",
+      "boundary": "topLevelDirectoryBoundaries",
+      "gate": "make project-layout-governance-check",
+      "coverage": "Every tracked top-level directory has an explicit category, purpose, and known validation gate."
+    },
+    {
+      "round": 2,
+      "commit": "b6720dd",
+      "title": "chore(layout): classify governance script families",
+      "boundary": "scriptFamilyBoundaries",
+      "gate": "make project-layout-governance-check",
+      "coverage": "Every tracked bin/scripts file belongs to exactly one script family while physical script moves remain deferred."
+    },
+    {
+      "round": 3,
+      "commit": "d887636",
+      "title": "chore(layout): index reference governance files",
+      "boundary": "referenceFileBoundaries",
+      "gate": "make project-layout-governance-check",
+      "coverage": "Every tracked docs/reference file belongs to a reference family with category, owner, purpose, and gate."
+    },
+    {
+      "round": 4,
+      "commit": "081cdcb",
+      "title": "chore(layout): gate command file families",
+      "boundary": "commandFileFamilies",
+      "gate": "make project-layout-governance-check",
+      "coverage": "Every cmd/gofly/internal/command Go file is covered by a prefix family or explicit shared-file family."
+    },
+    {
+      "round": 5,
+      "commit": "9475780",
+      "title": "chore(layout): require examples readiness metadata",
+      "boundary": "examplesGroupingPlan.readinessContract",
+      "gate": "make examples-smoke",
+      "coverage": "Every examples directory declares kind, command, verify command, ports, dependency mode, copyable state, smoke gate, README source, and rollback note."
+    },
+    {
+      "round": 6,
+      "commit": "46e7fcb",
+      "title": "chore(layout): block ignored artifact drift",
+      "boundary": "ignoredArtifactBoundary",
+      "gate": "make project-layout-governance-check",
+      "coverage": "Runtime state, generated top-level docs, benchmark transients, coverage output, and local binaries remain ignored and untracked."
+    },
+    {
+      "round": 7,
+      "commit": "bea64f0",
+      "title": "chore(layout): own tracked root files",
+      "boundary": "rootFileBoundaries",
+      "gate": "make project-layout-governance-check",
+      "coverage": "Every tracked root-level file belongs to exactly one module, governance, release, container, or documentation ownership family."
+    },
+    {
+      "round": 8,
+      "commit": "31eb2a1",
+      "title": "chore(layout): gate docs taxonomy boundaries",
+      "boundary": "docsTaxonomyBoundaries",
+      "gate": "make docs-taxonomy-check",
+      "coverage": "Every tracked docs subdirectory belongs to a documentation taxonomy family while docs/superpowers remains local-only."
+    },
+    {
+      "round": 9,
+      "commit": "5c8cb4e",
+      "title": "chore(layout): classify deploy asset families",
+      "boundary": "deployAssetBoundary.families",
+      "gate": "make cloud-native-render-check",
+      "coverage": "Every tracked deploy file belongs to a Helm or Kustomize asset family and renders through the cloud-native gate."
+    }
+  ],
+  "coveredBoundaries": [
+    "topLevelDirectoryBoundaries",
+    "rootFileBoundaries",
+    "scriptFamilyBoundaries",
+    "referenceFileBoundaries",
+    "commandFileFamilies",
+    "deployAssetBoundary",
+    "ignoredArtifactBoundary",
+    "docsTaxonomyBoundaries",
+    "examplesGroupingPlan",
+    "testNamingBaseline"
+  ],
+  "verificationGates": [
+    {
+      "command": "make project-layout-governance-check",
+      "status": "passed",
+      "scope": "Primary blocking layout contract covering directory, root file, scripts, reference docs, command files, deploy assets, ignored artifacts, docs taxonomy, examples readiness, and test naming policy."
+    },
+    {
+      "command": "make governance-boundary-inventory-check",
+      "status": "passed",
+      "scope": "Confirms durable governance inventory remains coherent with active project governance evidence."
+    },
+    {
+      "command": "make docs-taxonomy-check",
+      "status": "passed",
+      "scope": "Confirms Diataxis-style documentation navigation and taxonomy entrypoints still render as expected."
+    },
+    {
+      "command": "make cloud-native-render-check",
+      "status": "passed",
+      "scope": "Confirms deploy asset families still render through Helm/Kustomize or explicit static fallback."
+    },
+    {
+      "command": "GOCACHE=$PWD/.tmp-test/gocache GOTMPDIR=$PWD/.tmp-test/gotmp make examples-smoke",
+      "status": "passed-with-environment-noise",
+      "scope": "Confirms examples readiness metadata remains aligned with runnable examples; Go module stat-cache write warnings are local sandbox noise and did not affect the exit code."
+    },
+    {
+      "command": "git diff --check",
+      "status": "passed",
+      "scope": "Confirms committed layout contract changes do not introduce whitespace errors."
+    }
+  ],
+  "deferredMigrations": [
+    {
+      "path": "examples/",
+      "status": "not-moved",
+      "reason": "Examples now have grouping and readiness contracts, but physical grouping would touch many gates and user-facing paths. Keep current paths stable until one family qualifies and migrates in a dedicated commit.",
+      "futurePolicy": "Move at most one examples family per migration, update README, Makefile gates, smoke scripts, module replace paths, and rollback notes in the same commit."
+    },
+    {
+      "path": "bin/scripts/",
+      "status": "not-moved",
+      "reason": "Script ownership is now classified, but the flat script directory remains compatible with Makefile and CI entrypoints.",
+      "futurePolicy": "Move one script family only after its Makefile target and every direct script reference are updated and shell syntax checks pass."
+    },
+    {
+      "path": "docs/reference/",
+      "status": "not-moved",
+      "reason": "Reference docs and evidence are now indexed by family, but existing docs-check and release references assume the flat docs/reference layout.",
+      "futurePolicy": "Prefer adding contract index coverage before any physical split; migrate one reference family only when downstream docs and scripts are updated."
+    },
+    {
+      "path": "cmd/gofly/internal/command/",
+      "status": "not-split",
+      "reason": "Command files now have family ownership, but package splitting would affect CLI wiring, tests, internal imports, and JSON contract goldens.",
+      "futurePolicy": "Split only when a command family has isolated dependencies and contract tests proving CLI behavior is unchanged."
+    }
+  ],
+  "examplesPhysicalMigrationAdmission": {
+    "status": "blocked-until-ready",
+    "policy": "Do not physically group examples until one family can move without breaking copyable modules, smoke scripts, docs links, or generated path expectations.",
+    "requiredSignals": [
+      "examplesGroupingPlan.status remains planned-only until the target family is selected",
+      "target family has a dedicated migration issue or task id",
+      "all examples in the target family pass make examples-smoke before and after the move",
+      "go.mod module paths and local replace directives are updated for moved examples",
+      "examples/README.md matrix and commands are updated in the same commit",
+      "all direct script, docs, and Makefile references to moved paths are updated",
+      "rollback note documents how to restore the old path or route users during the transition",
+      "migration moves exactly one examples family and does not combine unrelated layout changes"
+    ],
+    "requiredGates": [
+      "make project-layout-governance-check",
+      "make examples-smoke",
+      "make examples-copyable-check",
+      "make docs-check",
+      "git diff --check"
+    ]
+  },
+  "runtimeIgnoredPolicy": {
+    "status": "enforced",
+    "ignoredPaths": [
+      ".aiflow/",
+      ".harness/",
+      ".tmp-test/",
+      ".trae/",
+      "bench/current.txt",
+      "bench/regression-report.json",
+      "bench/summary.md",
+      "bin/gofly",
+      "coverage.out",
+      "docs/superpowers/"
+    ],
+    "rule": "Runtime evidence and generated local artifacts remain ignored; commit only durable source, docs/reference contracts, scripts, and release evidence."
+  },
+  "nextRecommendation": {
+    "id": "P22-layout-contract-ratchet",
+    "action": "Keep P22 focused on ratcheting the existing layout contracts and only consider one-family examples migration after the admission gates pass without path drift."
+  }
+}

@@ -694,6 +694,122 @@ require(
     "referenceFileBoundaries must not contain duplicate reference files",
 )
 
+convergence_path = root / "docs" / "reference" / "project-layout-convergence-p21.json"
+if convergence_path.is_file():
+    convergence = json.loads(convergence_path.read_text(encoding="utf-8"))
+else:
+    convergence = {}
+    missing.append("docs/reference/project-layout-convergence-p21.json is missing")
+require(
+    convergence.get("schema") == "gofly.project_layout_convergence_p21.v1",
+    "P21 layout convergence schema mismatch",
+)
+require(convergence.get("status") == "completed", "P21 layout convergence status must be completed")
+require(convergence.get("activeBatch") == "GOFLY-P21", "P21 layout convergence activeBatch mismatch")
+require(
+    convergence.get("acceptanceGate") == "make project-layout-governance-check",
+    "P21 layout convergence acceptanceGate mismatch",
+)
+expected_p21_commits = [
+    "03d2afa",
+    "b6720dd",
+    "d887636",
+    "081cdcb",
+    "9475780",
+    "46e7fcb",
+    "bea64f0",
+    "31eb2a1",
+    "5c8cb4e",
+]
+round_commits = convergence.get("roundCommits") or []
+require(len(round_commits) == 9, "P21 layout convergence must record 9 round commits")
+require(
+    [item.get("commit") for item in round_commits if isinstance(item, dict)] == expected_p21_commits,
+    "P21 layout convergence commit sequence mismatch",
+)
+for expected_round, item in enumerate(round_commits, start=1):
+    if not isinstance(item, dict):
+        missing.append(f"P21 layout convergence round commit must be object: {item!r}")
+        continue
+    require(item.get("round") == expected_round, f"P21 layout convergence round {expected_round}: round number mismatch")
+    require(gate_is_known(str(item.get("gate") or ""), targets), f"P21 layout convergence round {expected_round}: gate is not known")
+    require(len(str(item.get("title") or "").split()) >= 2, f"P21 layout convergence round {expected_round}: title is required")
+    require(len(str(item.get("coverage") or "").split()) >= 10, f"P21 layout convergence round {expected_round}: coverage must be descriptive")
+expected_p21_boundaries = {
+    "topLevelDirectoryBoundaries",
+    "rootFileBoundaries",
+    "scriptFamilyBoundaries",
+    "referenceFileBoundaries",
+    "commandFileFamilies",
+    "deployAssetBoundary",
+    "ignoredArtifactBoundary",
+    "docsTaxonomyBoundaries",
+    "examplesGroupingPlan",
+    "testNamingBaseline",
+}
+require(
+    set(convergence.get("coveredBoundaries") or []) == expected_p21_boundaries,
+    "P21 layout convergence coveredBoundaries mismatch",
+)
+verification_commands = {item.get("command") for item in convergence.get("verificationGates") or [] if isinstance(item, dict)}
+for command in (
+    "make project-layout-governance-check",
+    "make governance-boundary-inventory-check",
+    "make docs-taxonomy-check",
+    "make cloud-native-render-check",
+    "GOCACHE=$PWD/.tmp-test/gocache GOTMPDIR=$PWD/.tmp-test/gotmp make examples-smoke",
+    "git diff --check",
+):
+    require(command in verification_commands, f"P21 layout convergence verificationGates missing {command!r}")
+deferred_paths = {item.get("path") for item in convergence.get("deferredMigrations") or [] if isinstance(item, dict)}
+require(
+    deferred_paths == {"examples/", "bin/scripts/", "docs/reference/", "cmd/gofly/internal/command/"},
+    "P21 layout convergence deferredMigrations mismatch",
+)
+for item in convergence.get("deferredMigrations") or []:
+    if not isinstance(item, dict):
+        missing.append(f"P21 deferred migration entry must be object: {item!r}")
+        continue
+    require(item.get("status") in {"not-moved", "not-split"}, f"P21 deferred migration {item.get('path')}: status mismatch")
+    require(len(str(item.get("reason") or "").split()) >= 12, f"P21 deferred migration {item.get('path')}: reason must be descriptive")
+    require(len(str(item.get("futurePolicy") or "").split()) >= 12, f"P21 deferred migration {item.get('path')}: futurePolicy must be descriptive")
+admission = convergence.get("examplesPhysicalMigrationAdmission") or {}
+require(
+    admission.get("status") == "blocked-until-ready",
+    "P21 examples physical migration admission status mismatch",
+)
+require(
+    "one family" in str(admission.get("policy") or ""),
+    "P21 examples physical migration admission policy must require one-family migration",
+)
+required_admission_gates = {
+    "make project-layout-governance-check",
+    "make examples-smoke",
+    "make examples-copyable-check",
+    "make docs-check",
+    "git diff --check",
+}
+require(
+    set(admission.get("requiredGates") or []) == required_admission_gates,
+    "P21 examples physical migration requiredGates mismatch",
+)
+required_signals = admission.get("requiredSignals") or []
+require(len(required_signals) >= 8, "P21 examples physical migration admission must require at least 8 signals")
+for phrase in ("one examples family", "examples/README.md", "go.mod", "rollback note"):
+    require(
+        any(phrase in str(signal) for signal in required_signals),
+        f"P21 examples physical migration admission missing signal phrase {phrase!r}",
+    )
+runtime_policy = convergence.get("runtimeIgnoredPolicy") or {}
+require(runtime_policy.get("status") == "enforced", "P21 runtimeIgnoredPolicy status mismatch")
+for path in expected_ignored_artifacts:
+    if path != "docs/*":
+        require(path in set(runtime_policy.get("ignoredPaths") or []), f"P21 runtimeIgnoredPolicy missing {path}")
+require(
+    "P22" in str((convergence.get("nextRecommendation") or {}).get("id") or ""),
+    "P21 nextRecommendation must point to P22",
+)
+
 contract_index = manifest.get("referenceContractIndex") or []
 for item in contract_index:
     if not isinstance(item, dict):

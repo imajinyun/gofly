@@ -181,12 +181,12 @@
         "id": "cache-hot-path",
         "area": "Cache hot path",
         "benchmark": "BenchmarkCacheHotPath",
-        "status": "candidate",
-        "allocationMode": "report-only",
+        "status": "allocation-blocking",
+        "allocationMode": "blocking",
         "latencyMode": "report-only",
         "promotionGate": "make bench-regression-check",
-        "evidenceState": "dedicated cache hot-path benchmark evidence is published in bench/gateway_cache_bench_test.go and matrix.md, but it stays outside trackedBenchmarks until baseline, current trend, allocation budget, and rollback evidence are attached.",
-        "rollbackAction": "Keep cache performance claims report-only, disable cache with GOFLY_CACHE_DISABLED, or keep source-of-truth reads when cache benchmark evidence regresses before promotion."
+        "evidenceState": "P17 promotes the in-memory cache Get hit path into tracked allocation blocking after five baseline samples, current trend evidence, zero allocation budget, and rollback guidance are attached.",
+        "rollbackAction": "Disable cache with GOFLY_CACHE_DISABLED or keep source-of-truth reads when the cache hot-path allocation budget regresses."
       }
     ]
   },
@@ -273,6 +273,15 @@
         "source": "bench/baseline.txt",
         "adopterAction": "Block release when governance-enabled allocation median exceeds the baseline ratchet tolerance.",
         "rollbackAction": "Revert the governance rule-match change or keep the previous release until allocation evidence is restored."
+      },
+      {
+        "benchmark": "BenchmarkCacheHotPath",
+        "metric": "allocs/op median",
+        "mode": "blocking",
+        "minimumBaselineSamples": 5,
+        "source": "bench/baseline.txt",
+        "adopterAction": "Block release when cache hot-path allocation median exceeds the zero-allocation baseline ratchet tolerance.",
+        "rollbackAction": "Disable cache with GOFLY_CACHE_DISABLED or keep direct source-of-truth reads until allocation evidence is restored."
       }
     ],
     "reportOnlyLatencyRows": [
@@ -299,6 +308,12 @@
         "mode": "report-only",
         "promotionRequirement": "Attach three current trend samples, maxRegressionRatio, reason, and rollback action before latency becomes blocking.",
         "adopterAction": "Use latency as trend evidence only; do not block releases on this row until promotion criteria pass."
+      },
+      {
+        "benchmark": "BenchmarkCacheHotPath",
+        "mode": "report-only",
+        "promotionRequirement": "Keep cache latency report-only until maxRegressionRatio, trend history, and cache-mode rollback evidence are documented.",
+        "adopterAction": "Use cache hot-path latency as trend evidence only; block releases only on allocs/op until latency promotion criteria pass."
       }
     ],
     "candidateSurfaces": [
@@ -313,13 +328,12 @@
       },
       {
         "id": "cache-hot-path",
-        "status": "candidate-report-only",
+        "status": "allocation-blocking-latency-report-only",
         "benchmarks": [
-          "BenchmarkCacheHotPath",
           "BenchmarkCacheHotPathGetOrLoadHit"
         ],
-        "requiredEvidence": "Keep dedicated cache hot-path benchmarks outside trackedBenchmarks until five baseline samples, three current trend samples, allocation budget, cache-mode notes, and rollback guidance are attached.",
-        "adopterAction": "Use cache hot-path benchmark output as trend evidence only; do not claim ratcheted Cache performance until promotion criteria pass."
+        "requiredEvidence": "Keep the loader-hit cache benchmark outside trackedBenchmarks until it has separate five-sample baseline, current trend, cache-mode, and rollback evidence after the Get hit path promotion.",
+        "adopterAction": "Use loader-hit cache benchmark output as trend evidence only; the P17 blocking cache claim covers only BenchmarkCacheHotPath allocs/op."
       }
     ],
     "adopterActions": [
@@ -419,7 +433,8 @@
       "BenchmarkHTTPHello/gofly",
       "BenchmarkHTTPPathParams/gofly",
       "BenchmarkHTTPJSONBinding/gofly",
-      "BenchmarkHTTPMiddlewareChain/gofly"
+      "BenchmarkHTTPMiddlewareChain/gofly",
+      "BenchmarkCacheHotPath"
     ],
     "reportOnlyLatencyRows": [
       "BenchmarkHTTPHello/gofly",
@@ -448,8 +463,8 @@
       },
       {
         "surface": "gateway and cache",
-        "reason": "Dedicated benchmark rows exist, but the ratchet still needs current trend confidence and explicit allocation promotion before blocking release decisions.",
-        "nextAction": "Collect at least five baseline samples, three current trend samples, allocation budgets, and rollback notes before moving into trackedBenchmarks."
+        "reason": "Gateway proxy and cache loader-hit rows remain report-only, while P17 promotes only the in-memory cache Get hit path into allocation blocking.",
+        "nextAction": "Keep Gateway and loader-hit candidates report-only, collect separate evidence, and do not promote additional Gateway or Cache rows without a new decision block."
       }
     ],
     "promotionRules": [
@@ -474,7 +489,7 @@
       "make bench-evidence-check",
       "make bench-trend"
     ],
-    "policy": "Adopters may treat only ratcheted allocation budgets and explicitly promoted latency rows as blocking; RPC, gateway, cache, and unpromoted HTTP latency rows remain trend evidence until promotion criteria pass.",
+    "policy": "Adopters may treat only ratcheted allocation budgets and explicitly promoted latency rows as blocking; RPC, gateway, cache loader-hit, and unpromoted HTTP latency rows remain trend evidence until promotion criteria pass.",
     "blockingSurfaces": [
       {
         "id": "rest-route-hot-path",
@@ -489,6 +504,13 @@
         "benchmark": "BenchmarkHTTPGovernance/enabled",
         "adopterAction": "Block release when promoted governance rule-match latency or allocation budgets regress under bench-regression-check.",
         "rollbackAction": "Disable the new governance hot-path change or keep the previous policy implementation until benchmark evidence recovers."
+      },
+      {
+        "id": "cache-hot-path",
+        "budgetScope": "allocation-blocking",
+        "benchmark": "BenchmarkCacheHotPath",
+        "adopterAction": "Block release when cache hot-path allocs/op median regresses beyond the zero-allocation ratchet tolerance.",
+        "rollbackAction": "Disable cache with GOFLY_CACHE_DISABLED or keep direct source-of-truth reads until allocation evidence is restored."
       }
     ],
     "reportOnlySurfaces": [
@@ -519,11 +541,10 @@
         "id": "gateway-cache-candidate-report-only",
         "benchmarks": [
           "BenchmarkGatewayProxy",
-          "BenchmarkCacheHotPath",
           "BenchmarkCacheHotPathGetOrLoadHit"
         ],
-        "adopterAction": "Treat Gateway and Cache benchmark rows as candidate trend evidence until five baseline samples, three current trend samples, allocation budgets, and rollback guidance are attached.",
-        "rollbackAction": "Keep Gateway or Cache performance claims report-only and use existing functional smoke gates when candidate benchmark evidence regresses before promotion."
+        "adopterAction": "Treat Gateway proxy and cache loader-hit rows as candidate trend evidence until separate baseline, current trend, allocation budget, and rollback guidance are attached.",
+        "rollbackAction": "Keep Gateway proxy or loader-hit performance claims report-only and use existing functional smoke gates when candidate benchmark evidence regresses before promotion."
       }
     ],
     "promotionRules": [
@@ -570,7 +591,8 @@
       "BenchmarkHTTPHello/gofly",
       "BenchmarkHTTPPathParams/gofly",
       "BenchmarkHTTPJSONBinding/gofly",
-      "BenchmarkHTTPMiddlewareChain/gofly"
+      "BenchmarkHTTPMiddlewareChain/gofly",
+      "BenchmarkCacheHotPath"
     ]
   },
   "surfacePolicy": [
@@ -614,9 +636,9 @@
       "id": "cache-hot-path",
       "surface": "cache hot path",
       "benchmark": "BenchmarkCacheHotPath",
-      "status": "candidate",
+      "status": "allocation-blocking",
       "latencyMode": "report-only",
-      "currentBlocker": "dedicated cache hot-path benchmarks exist, but five baseline samples, three current trend samples, allocation budget, cache-mode notes, and rollback guidance are not attached yet",
+      "evidence": "P17 attaches five baseline samples, current trend evidence, zero-allocation budget, cache-mode note, and rollback guidance for the in-memory cache Get hit path",
       "promotionGate": "make bench-regression-check"
     }
   ],
@@ -1116,6 +1138,108 @@
       "production Cache performance parity claim"
     ]
   },
+  "p17GatewayCacheAllocationPromotionDecision": {
+    "schema": "gofly.benchmark_p17_gateway_cache_allocation_promotion_decision.v1",
+    "aiflowTask": "GOFLY-P17-03-GATEWAY-CACHE-ALLOCATION-PROMOTION-DECISION",
+    "status": "cache-hot-path-allocation-promoted",
+    "acceptanceGate": "make bench-regression-check",
+    "decidedAt": "2026-07-02T01:42:00Z",
+    "sourceEvidence": [
+      "bench/budget-ratchet.json",
+      "bench/baseline.txt",
+      "bench/current.txt",
+      "bench/gateway_cache_bench_test.go",
+      "bench/matrix.md",
+      "docs/reference/governance-p17-roadmap.json"
+    ],
+    "decision": {
+      "result": "promote-one-surface",
+      "selectedSurface": "cache-hot-path",
+      "allocationBlockingSurface": "BenchmarkCacheHotPath",
+      "latencyMode": "report-only",
+      "promotionClass": "allocation-only",
+      "baselineAttachmentStatus": "attached",
+      "currentTrendAttachmentStatus": "attached",
+      "trackedBenchmarkPromotion": "promoted",
+      "promotionStatus": "promoted",
+      "nextReviewGate": "make bench-regression-check",
+      "reason": "P17 promotes only BenchmarkCacheHotPath because it has five baseline samples, current trend evidence, zero B/op, zero allocs/op, a narrow in-memory Get hit-path scope, and explicit cache rollback guidance; Gateway proxy and loader-hit rows remain broader candidate evidence.",
+      "releaseNotePolicy": "Release notes may describe BenchmarkCacheHotPath allocs/op as allocation-blocking evidence, but must not claim blocking cache latency, Gateway performance parity, loader-hit coverage, cache miss coverage, invalidation coverage, or production performance parity until separate promotion criteria pass."
+    },
+    "selectedBudget": {
+      "surface": "cache-hot-path",
+      "benchmark": "BenchmarkCacheHotPath",
+      "promotionMode": "allocation-blocking",
+      "latencyMode": "report-only",
+      "baselineSampleCount": 5,
+      "currentTrendSampleCount": 5,
+      "baselineAllocsPerOpMedian": 0,
+      "currentAllocsPerOpMedian": 0,
+      "allocationBudget": 0,
+      "allocationTolerance": 0,
+      "baselineBytesPerOpMedian": 0,
+      "currentBytesPerOpMedian": 0,
+      "baselineNsPerOpMedian": 53.66,
+      "currentNsPerOpMedian": 54.17,
+      "cacheModeNote": "This promoted budget covers only the in-memory L1 Get hit path and does not cover loader hits, misses, invalidation, remote cache, or eviction behavior.",
+      "rollbackAction": "Set GOFLY_CACHE_DISABLED=true, bypass the cache layer, or keep direct source-of-truth reads until BenchmarkCacheHotPath allocation evidence returns to zero."
+    },
+    "heldRows": [
+      {
+        "surface": "gateway-proxy",
+        "benchmark": "BenchmarkGatewayProxy",
+        "promotionDecision": "hold",
+        "currentMode": "report-only",
+        "latencyMode": "report-only",
+        "baselineSampleCount": 5,
+        "currentTrendSampleCount": 5,
+        "baselineAllocsPerOpMedian": 154,
+        "currentAllocsPerOpMedian": 154,
+        "blockers": [
+          "gateway proxy is a broader HTTP proxy path and should not share the cache hot-path promotion",
+          "154 allocs/op remains too high to promote without a dedicated reduction target and rollback threshold",
+          "latency remains report-only and needs a separate maxRegressionRatio before any blocking claim"
+        ],
+        "rollbackAction": "Keep Gateway proxy performance claims report-only and route traffic through the previous gateway path when benchmark evidence regresses."
+      },
+      {
+        "surface": "cache-hot-path-loader-hit",
+        "benchmark": "BenchmarkCacheHotPathGetOrLoadHit",
+        "promotionDecision": "hold",
+        "currentMode": "report-only",
+        "latencyMode": "report-only",
+        "baselineSampleCount": 5,
+        "currentTrendSampleCount": 5,
+        "baselineAllocsPerOpMedian": 0,
+        "currentAllocsPerOpMedian": 0,
+        "blockers": [
+          "loader-hit behavior is distinct from plain Get hit behavior and needs its own promotion decision",
+          "cache miss and invalidation behavior remain outside this benchmark row",
+          "latency remains report-only and needs separate cache-mode rollback evidence before promotion"
+        ],
+        "rollbackAction": "Keep loader-hit performance claims report-only and require separate hit, miss, invalidation, and loader fallback evidence before blocking promotion."
+      }
+    ],
+    "promotionRules": [
+      "P17 may promote exactly one Gateway or Cache allocation surface",
+      "P17 promoted Cache row must be present in trackedBenchmarks",
+      "P17 promoted Cache row must be present in bench/baseline.txt",
+      "P17 promoted Cache row must stay report-only for latency",
+      "P17 Gateway proxy and loader-hit rows must stay out of trackedBenchmarks",
+      "P17 release notes must not claim production Gateway or Cache performance parity"
+    ],
+    "forbiddenUntilCleared": [
+      "trackedBenchmarks Gateway entry",
+      "trackedBenchmarks Cache loader-hit entry",
+      "blocking Gateway latency claim",
+      "blocking Cache latency claim",
+      "Gateway performance parity claim",
+      "cache miss performance parity claim",
+      "cache invalidation performance parity claim",
+      "production Gateway performance parity claim",
+      "production Cache performance parity claim"
+    ]
+  },
   "p12RpcBudgetPromotionDecision": {
     "schema": "gofly.benchmark_p12_rpc_budget_promotion_decision.v1",
     "aiflowTask": "GOFLY-P12-1-RPC-BENCHMARK-BUDGET-PROMOTION",
@@ -1589,6 +1713,7 @@
     "BenchmarkHTTPOpenAPI/disabled",
     "BenchmarkHTTPOpenAPI/enabled",
     "BenchmarkHTTPGovernance/disabled",
-    "BenchmarkHTTPGovernance/enabled"
+    "BenchmarkHTTPGovernance/enabled",
+    "BenchmarkCacheHotPath"
   ]
 }

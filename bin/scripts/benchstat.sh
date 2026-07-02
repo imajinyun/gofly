@@ -267,6 +267,13 @@ def validate_ratchet_policy() -> None:
     p16_gateway_cache_samples = ratchet.get("p16GatewayCacheTrendSampleAttachment") or {}
     p16_gateway_cache_promotion_review = ratchet.get("p16GatewayCacheAllocationPromotionReview") or {}
     p17_gateway_cache_baseline = ratchet.get("p17GatewayCacheBaselineRowAttachment") or {}
+    p17_gateway_cache_promotion_decision = ratchet.get("p17GatewayCacheAllocationPromotionDecision") or {}
+    p17_selected_allocation_benchmark = str(
+        (p17_gateway_cache_promotion_decision.get("decision") or {}).get("allocationBlockingSurface") or ""
+    )
+    p17_gateway_cache_tracked_exceptions = {
+        p17_selected_allocation_benchmark,
+    } if p17_selected_allocation_benchmark else set()
     report_only = set(latency_policy.get("reportOnly") or [])
     promoted = latency_policy.get("promoted") or []
     rpc_policy = ratchet.get("rpcPolicy") or {}
@@ -472,16 +479,17 @@ def validate_ratchet_policy() -> None:
         "performancePromotionEvidence candidateSurfaces mismatch",
     )
     for surface_id, item in evidence_candidates.items():
+        expected_status = "allocation-blocking-latency-report-only" if surface_id == "cache-hot-path" else "candidate-report-only"
         require_policy(
-            item.get("status") == "candidate-report-only",
-            f"{surface_id}: performance promotion candidate status must be candidate-report-only",
+            item.get("status") == expected_status,
+            f"{surface_id}: performance promotion candidate status must be {expected_status}",
         )
         benchmarks = set(item.get("benchmarks") or [])
         require_policy(bool(benchmarks), f"{surface_id}: performance promotion candidate benchmarks are required")
         for benchmark in benchmarks:
             require_policy(
-                benchmark not in tracked,
-                f"{surface_id}: candidate benchmark {benchmark} must stay out of trackedBenchmarks before promotion",
+                benchmark not in tracked or benchmark in p17_gateway_cache_tracked_exceptions,
+                f"{surface_id}: candidate benchmark {benchmark} must stay out of trackedBenchmarks unless P17 promotes it",
             )
         for field in ("requiredEvidence", "adopterAction"):
             require_policy(
@@ -524,7 +532,10 @@ def validate_ratchet_policy() -> None:
         item = p9_candidates.get(surface_id) or {}
         require_policy(item.get("benchmark") == benchmark, f"p9GatewayCacheOwnership {surface_id}: benchmark mismatch")
         require_policy(item.get("mode") == "candidate-report-only", f"p9GatewayCacheOwnership {surface_id}: mode must be candidate-report-only")
-        require_policy(benchmark not in tracked, f"p9GatewayCacheOwnership {surface_id}: benchmark must stay out of trackedBenchmarks before promotion")
+        require_policy(
+            benchmark not in tracked or benchmark in p17_gateway_cache_tracked_exceptions,
+            f"p9GatewayCacheOwnership {surface_id}: benchmark must stay out of trackedBenchmarks unless P17 promotes it",
+        )
         require_policy(f"func {benchmark}(" in source_text, f"bench/gateway_cache_bench_test.go missing {benchmark}")
         for field in ("baselineRequirement", "currentTrendRequirement", "rollbackAction"):
             require_policy(
@@ -631,8 +642,8 @@ def validate_ratchet_policy() -> None:
         "BenchmarkCacheHotPathGetOrLoadHit",
     ):
         require_policy(
-            benchmark not in tracked,
-            f"{benchmark}: P10 report-only candidate must stay out of trackedBenchmarks before promotion",
+            benchmark not in tracked or benchmark in p17_gateway_cache_tracked_exceptions,
+            f"{benchmark}: P10 report-only candidate must stay out of trackedBenchmarks unless P17 promotes it",
         )
 
     p10_hold_reasons = {
@@ -679,6 +690,7 @@ def validate_ratchet_policy() -> None:
     expected_blocking = {
         "rest-route-hot-path": "allocation-blocking",
         "governance-rule-match": "latency-and-allocation-blocking",
+        "cache-hot-path": "allocation-blocking",
     }
     require_policy(
         set(adopter_blocking) == set(expected_blocking),
@@ -708,9 +720,15 @@ def validate_ratchet_policy() -> None:
         "adopterPerformanceContract reportOnlySurfaces mismatch",
     )
     http_report_only = set((adopter_report_only.get("http-latency-report-only") or {}).get("benchmarks") or [])
+    expected_http_report_only = {
+        "BenchmarkHTTPHello/gofly",
+        "BenchmarkHTTPPathParams/gofly",
+        "BenchmarkHTTPJSONBinding/gofly",
+        "BenchmarkHTTPMiddlewareChain/gofly",
+    }
     require_policy(
-        report_only <= http_report_only,
-        "adopterPerformanceContract http-latency-report-only must include all latencyPolicy.reportOnly rows",
+        http_report_only == expected_http_report_only,
+        "adopterPerformanceContract http-latency-report-only must include only HTTP latency rows",
     )
     rpc_report_only = set((adopter_report_only.get("rpc-candidate-report-only") or {}).get("benchmarks") or [])
     rpc_candidate_names = {
@@ -723,6 +741,9 @@ def validate_ratchet_policy() -> None:
         "BenchmarkCacheHotPath",
         "BenchmarkCacheHotPathGetOrLoadHit",
     }
+    p17_unpromoted_gateway_cache_candidate_names = (
+        gateway_cache_candidate_names - p17_gateway_cache_tracked_exceptions
+    )
     candidate_benchmark_names = rpc_candidate_names | gateway_cache_candidate_names
     require_policy(
         rpc_candidate_names <= rpc_report_only,
@@ -730,7 +751,7 @@ def validate_ratchet_policy() -> None:
     )
     gateway_cache_report_only = set((adopter_report_only.get("gateway-cache-candidate-report-only") or {}).get("benchmarks") or [])
     require_policy(
-        gateway_cache_report_only == gateway_cache_candidate_names,
+        gateway_cache_report_only == p17_unpromoted_gateway_cache_candidate_names,
         "adopterPerformanceContract gateway-cache-candidate-report-only mismatch",
     )
     for benchmark in gateway_cache_report_only:
@@ -1172,7 +1193,10 @@ def validate_ratchet_policy() -> None:
         require_policy(item.get("promotionStatus") == "blocked", f"{benchmark}: P13 Gateway/Cache promotionStatus must be blocked")
         require_policy(item.get("minimumBaselineSamples") == 5, f"{benchmark}: P13 Gateway/Cache minimumBaselineSamples mismatch")
         require_policy(item.get("minimumCurrentTrendSamples") == 3, f"{benchmark}: P13 Gateway/Cache minimumCurrentTrendSamples mismatch")
-        require_policy(benchmark not in tracked, f"{benchmark}: P13 Gateway/Cache candidate must stay out of trackedBenchmarks")
+        require_policy(
+            benchmark not in tracked or benchmark in p17_gateway_cache_tracked_exceptions,
+            f"{benchmark}: P13 Gateway/Cache candidate must stay out of trackedBenchmarks unless P17 promotes it",
+        )
         require_policy(benchmark not in promoted_latency, f"{benchmark}: P13 Gateway/Cache latency must stay report-only")
         require_policy(len(item.get("blockers") or []) >= 3, f"{benchmark}: P13 Gateway/Cache blockers must include at least three reasons")
         require_policy(
@@ -1270,7 +1294,10 @@ def validate_ratchet_policy() -> None:
         require_policy(item.get("minimumBaselineSamples") == 5, f"{benchmark}: P15 Gateway/Cache minimumBaselineSamples mismatch")
         require_policy(item.get("minimumCurrentTrendSamples") == 3, f"{benchmark}: P15 Gateway/Cache minimumCurrentTrendSamples mismatch")
         require_policy(item.get("budgetAttachment") == "blocked", f"{benchmark}: P15 Gateway/Cache budgetAttachment must be blocked")
-        require_policy(benchmark not in tracked, f"{benchmark}: P15 Gateway/Cache candidate must stay out of trackedBenchmarks")
+        require_policy(
+            benchmark not in tracked or benchmark in p17_gateway_cache_tracked_exceptions,
+            f"{benchmark}: P15 Gateway/Cache candidate must stay out of trackedBenchmarks unless P17 promotes it",
+        )
         require_policy(benchmark not in promoted_latency, f"{benchmark}: P15 Gateway/Cache latency must stay report-only")
         require_policy(len(item.get("blockers") or []) >= 3, f"{benchmark}: P15 Gateway/Cache blockers must include at least three reasons")
         require_policy(
@@ -1398,7 +1425,10 @@ def validate_ratchet_policy() -> None:
         require_policy(item.get("baselineSamplesAttached") == 0, f"{benchmark}: P16 Gateway/Cache baselineSamplesAttached must remain zero")
         require_policy(item.get("minimumBaselineSamples") == 5, f"{benchmark}: P16 Gateway/Cache minimumBaselineSamples mismatch")
         require_policy(item.get("minimumCurrentTrendSamples") == 3, f"{benchmark}: P16 Gateway/Cache minimumCurrentTrendSamples mismatch")
-        require_policy(benchmark not in tracked, f"{benchmark}: P16 Gateway/Cache candidate must stay out of trackedBenchmarks")
+        require_policy(
+            benchmark not in tracked or benchmark in p17_gateway_cache_tracked_exceptions,
+            f"{benchmark}: P16 Gateway/Cache candidate must stay out of trackedBenchmarks unless P17 promotes it",
+        )
         require_policy(benchmark not in promoted_latency, f"{benchmark}: P16 Gateway/Cache latency must stay report-only")
         for field in ("cacheModeNote", "rollbackAction"):
             require_policy(
@@ -1544,7 +1574,10 @@ def validate_ratchet_policy() -> None:
         require_policy(item.get("proposedPromotionMode") == "allocation-blocking", f"{benchmark}: P16 promotion review proposedPromotionMode mismatch")
         require_policy(item.get("promotionDecision") == "hold", f"{benchmark}: P16 promotion review promotionDecision must be hold")
         require_policy(item.get("latencyMode") == "report-only", f"{benchmark}: P16 promotion review latencyMode must be report-only")
-        require_policy(benchmark not in tracked, f"{benchmark}: P16 promotion review candidate must stay out of trackedBenchmarks")
+        require_policy(
+            benchmark not in tracked or benchmark in p17_gateway_cache_tracked_exceptions,
+            f"{benchmark}: P16 promotion review candidate must stay out of trackedBenchmarks unless P17 promotes it",
+        )
         require_policy(benchmark not in promoted_latency, f"{benchmark}: P16 promotion review latency must stay report-only")
         blockers = item.get("blockers") or []
         require_policy(len(blockers) >= 3, f"{benchmark}: P16 promotion review blockers must explain the hold")
@@ -1685,7 +1718,10 @@ def validate_ratchet_policy() -> None:
         require_policy(item.get("promotionStatus") == "blocked", f"{benchmark}: P17 baseline promotionStatus must be blocked")
         require_policy(item.get("minimumBaselineSamples") == 5, f"{benchmark}: P17 baseline minimumBaselineSamples mismatch")
         require_policy(item.get("minimumCurrentTrendSamples") == 3, f"{benchmark}: P17 baseline minimumCurrentTrendSamples mismatch")
-        require_policy(benchmark not in tracked, f"{benchmark}: P17 baseline candidate must stay out of trackedBenchmarks")
+        require_policy(
+            benchmark not in tracked or benchmark in p17_gateway_cache_tracked_exceptions,
+            f"{benchmark}: P17 baseline candidate must stay out of trackedBenchmarks unless P17 promotes it",
+        )
         require_policy(benchmark not in promoted_latency, f"{benchmark}: P17 baseline latency must stay report-only")
         for field in ("cacheModeNote", "rollbackAction"):
             require_policy(
@@ -1714,6 +1750,178 @@ def validate_ratchet_policy() -> None:
         require_policy(
             forbidden in set(p17_gateway_cache_baseline.get("forbiddenUntilCleared") or []),
             f"p17GatewayCacheBaselineRowAttachment forbiddenUntilCleared missing {forbidden!r}",
+        )
+
+    require_policy(
+        p17_gateway_cache_promotion_decision.get("schema")
+        == "gofly.benchmark_p17_gateway_cache_allocation_promotion_decision.v1",
+        "p17GatewayCacheAllocationPromotionDecision schema mismatch",
+    )
+    require_policy(
+        p17_gateway_cache_promotion_decision.get("aiflowTask")
+        == "GOFLY-P17-03-GATEWAY-CACHE-ALLOCATION-PROMOTION-DECISION",
+        "p17GatewayCacheAllocationPromotionDecision aiflowTask mismatch",
+    )
+    require_policy(
+        p17_gateway_cache_promotion_decision.get("status") == "cache-hot-path-allocation-promoted",
+        "p17GatewayCacheAllocationPromotionDecision status mismatch",
+    )
+    require_policy(
+        p17_gateway_cache_promotion_decision.get("acceptanceGate") == "make bench-regression-check",
+        "p17GatewayCacheAllocationPromotionDecision acceptanceGate mismatch",
+    )
+    for source in (
+        "bench/budget-ratchet.json",
+        "bench/baseline.txt",
+        "bench/current.txt",
+        "bench/gateway_cache_bench_test.go",
+        "bench/matrix.md",
+        "docs/reference/governance-p17-roadmap.json",
+    ):
+        require_policy(
+            source in set(p17_gateway_cache_promotion_decision.get("sourceEvidence") or []),
+            f"p17GatewayCacheAllocationPromotionDecision sourceEvidence missing {source!r}",
+        )
+    p17_promotion_decision = p17_gateway_cache_promotion_decision.get("decision") or {}
+    require_policy(
+        p17_promotion_decision.get("result") == "promote-one-surface",
+        "p17GatewayCacheAllocationPromotionDecision decision.result mismatch",
+    )
+    require_policy(
+        p17_promotion_decision.get("selectedSurface") == "cache-hot-path",
+        "p17GatewayCacheAllocationPromotionDecision selectedSurface mismatch",
+    )
+    require_policy(
+        p17_promotion_decision.get("allocationBlockingSurface") == "BenchmarkCacheHotPath",
+        "p17GatewayCacheAllocationPromotionDecision allocationBlockingSurface mismatch",
+    )
+    require_policy(
+        p17_selected_allocation_benchmark == "BenchmarkCacheHotPath",
+        "P17 selected allocation benchmark must be BenchmarkCacheHotPath",
+    )
+    require_policy(
+        p17_promotion_decision.get("latencyMode") == "report-only",
+        "p17GatewayCacheAllocationPromotionDecision latencyMode must be report-only",
+    )
+    require_policy(
+        p17_promotion_decision.get("promotionClass") == "allocation-only",
+        "p17GatewayCacheAllocationPromotionDecision promotionClass mismatch",
+    )
+    require_policy(
+        p17_promotion_decision.get("trackedBenchmarkPromotion") == "promoted",
+        "p17GatewayCacheAllocationPromotionDecision trackedBenchmarkPromotion mismatch",
+    )
+    require_policy(
+        p17_promotion_decision.get("promotionStatus") == "promoted",
+        "p17GatewayCacheAllocationPromotionDecision promotionStatus mismatch",
+    )
+    require_policy(
+        p17_promotion_decision.get("nextReviewGate") == "make bench-regression-check",
+        "p17GatewayCacheAllocationPromotionDecision nextReviewGate mismatch",
+    )
+    for field in ("reason", "releaseNotePolicy"):
+        require_policy(
+            len(str(p17_promotion_decision.get(field) or "").split()) >= 20,
+            f"p17GatewayCacheAllocationPromotionDecision decision.{field} must be actionable",
+        )
+    for forbidden_claim in (
+        "blocking cache latency",
+        "Gateway performance parity",
+        "loader-hit coverage",
+        "cache miss coverage",
+        "invalidation coverage",
+        "production performance parity",
+    ):
+        require_policy(
+            forbidden_claim in str(p17_promotion_decision.get("releaseNotePolicy") or ""),
+            f"p17GatewayCacheAllocationPromotionDecision releaseNotePolicy must mention {forbidden_claim!r}",
+        )
+    require_policy("BenchmarkCacheHotPath" in tracked, "BenchmarkCacheHotPath must be tracked after P17 promotion")
+    require_policy("BenchmarkCacheHotPath" in allocation_budget_rows, "BenchmarkCacheHotPath allocation budget is required")
+    require_policy("BenchmarkCacheHotPath" in p17_baseline_rows, "BenchmarkCacheHotPath P17 baseline row is required")
+    require_policy("BenchmarkCacheHotPath" in report_only, "BenchmarkCacheHotPath latency must remain report-only")
+    require_policy("BenchmarkCacheHotPath" not in promoted_latency, "BenchmarkCacheHotPath latency must not be promoted")
+    for benchmark in ("BenchmarkGatewayProxy", "BenchmarkCacheHotPathGetOrLoadHit"):
+        require_policy(
+            benchmark not in tracked,
+            f"{benchmark}: P17 must keep unselected Gateway/Cache row out of trackedBenchmarks",
+        )
+        require_policy(
+            benchmark not in promoted_latency,
+            f"{benchmark}: P17 must keep unselected Gateway/Cache latency report-only",
+        )
+    p17_selected_budget = p17_gateway_cache_promotion_decision.get("selectedBudget") or {}
+    require_policy(
+        p17_selected_budget.get("benchmark") == "BenchmarkCacheHotPath",
+        "p17GatewayCacheAllocationPromotionDecision selectedBudget benchmark mismatch",
+    )
+    require_policy(
+        p17_selected_budget.get("promotionMode") == "allocation-blocking",
+        "p17GatewayCacheAllocationPromotionDecision selectedBudget promotionMode mismatch",
+    )
+    require_policy(
+        p17_selected_budget.get("latencyMode") == "report-only",
+        "p17GatewayCacheAllocationPromotionDecision selectedBudget latencyMode mismatch",
+    )
+    for field in ("baselineSampleCount", "currentTrendSampleCount"):
+        require_policy(
+            int(p17_selected_budget.get(field) or 0) >= 5,
+            f"p17GatewayCacheAllocationPromotionDecision selectedBudget {field} must be at least five",
+        )
+    for field in ("baselineAllocsPerOpMedian", "currentAllocsPerOpMedian", "allocationBudget", "allocationTolerance"):
+        require_policy(
+            float(p17_selected_budget.get(field) or 0) == 0,
+            f"p17GatewayCacheAllocationPromotionDecision selectedBudget {field} must remain zero",
+        )
+    for field in ("cacheModeNote", "rollbackAction"):
+        require_policy(
+            len(str(p17_selected_budget.get(field) or "").split()) >= 12,
+            f"p17GatewayCacheAllocationPromotionDecision selectedBudget {field} must be actionable",
+        )
+    p17_held_rows = {
+        item.get("benchmark"): item
+        for item in p17_gateway_cache_promotion_decision.get("heldRows") or []
+        if isinstance(item, dict) and item.get("benchmark")
+    }
+    require_policy(
+        set(p17_held_rows) == {"BenchmarkGatewayProxy", "BenchmarkCacheHotPathGetOrLoadHit"},
+        "p17GatewayCacheAllocationPromotionDecision heldRows mismatch",
+    )
+    for benchmark, item in p17_held_rows.items():
+        require_policy(item.get("promotionDecision") == "hold", f"{benchmark}: P17 held row decision must be hold")
+        require_policy(item.get("currentMode") == "report-only", f"{benchmark}: P17 held row currentMode must be report-only")
+        require_policy(item.get("latencyMode") == "report-only", f"{benchmark}: P17 held row latencyMode must be report-only")
+        require_policy(item.get("baselineSampleCount") == 5, f"{benchmark}: P17 held row baselineSampleCount must be five")
+        require_policy(item.get("currentTrendSampleCount") == 5, f"{benchmark}: P17 held row currentTrendSampleCount must be five")
+        require_policy(len(item.get("blockers") or []) >= 3, f"{benchmark}: P17 held row blockers must explain the hold")
+        require_policy(
+            len(str(item.get("rollbackAction") or "").split()) >= 12,
+            f"{benchmark}: P17 held row rollbackAction must be actionable",
+        )
+    p17_promotion_rules = set(p17_gateway_cache_promotion_decision.get("promotionRules") or [])
+    for rule in (
+        "P17 may promote exactly one Gateway or Cache allocation surface",
+        "P17 promoted Cache row must be present in trackedBenchmarks",
+        "P17 promoted Cache row must be present in bench/baseline.txt",
+        "P17 promoted Cache row must stay report-only for latency",
+        "P17 Gateway proxy and loader-hit rows must stay out of trackedBenchmarks",
+        "P17 release notes must not claim production Gateway or Cache performance parity",
+    ):
+        require_policy(rule in p17_promotion_rules, f"p17GatewayCacheAllocationPromotionDecision promotionRules missing {rule!r}")
+    for forbidden in (
+        "trackedBenchmarks Gateway entry",
+        "trackedBenchmarks Cache loader-hit entry",
+        "blocking Gateway latency claim",
+        "blocking Cache latency claim",
+        "Gateway performance parity claim",
+        "cache miss performance parity claim",
+        "cache invalidation performance parity claim",
+        "production Gateway performance parity claim",
+        "production Cache performance parity claim",
+    ):
+        require_policy(
+            forbidden in set(p17_gateway_cache_promotion_decision.get("forbiddenUntilCleared") or []),
+            f"p17GatewayCacheAllocationPromotionDecision forbiddenUntilCleared missing {forbidden!r}",
         )
     p12_rules = set(p12_rpc_decision.get("blockingRules") or [])
     for rule in (
@@ -1774,7 +1982,10 @@ def validate_ratchet_policy() -> None:
                 benchmark in candidate_benchmark_names,
                 f"{surface_id}: candidate benchmark must be a known RPC, Gateway, or Cache candidate",
             )
-            require_policy(benchmark not in tracked, f"{surface_id}: candidate benchmark must stay out of trackedBenchmarks")
+            require_policy(
+                benchmark not in tracked,
+                f"{surface_id}: candidate benchmark must stay out of trackedBenchmarks",
+            )
             require_policy(bool(item.get("currentBlocker")), f"{surface_id}: candidate currentBlocker is required")
         elif status == "unsupported-report-only":
             require_policy(not benchmark, f"{surface_id}: unsupported report-only surface must not name a benchmark")
@@ -1886,8 +2097,8 @@ def validate_ratchet_policy() -> None:
         },
         "cache-hot-path": {
             "benchmark": "BenchmarkCacheHotPath",
-            "status": "candidate",
-            "allocationMode": "report-only",
+            "status": "allocation-blocking",
+            "allocationMode": "blocking",
             "latencyMode": "report-only",
         },
     }

@@ -1728,7 +1728,7 @@ if set(adopter_performance.get("acceptanceGates") or []) != {
     missing.append("benchmark adopter performance contract acceptanceGates mismatch")
 if len(str(adopter_performance.get("policy") or "").split()) < 20:
     missing.append("benchmark adopter performance contract policy must be actionable")
-if adopter_performance.get("blockingSurfaceCount") != 2:
+if adopter_performance.get("blockingSurfaceCount") != 3:
     missing.append("benchmark adopter performance contract blockingSurfaceCount mismatch")
 if adopter_performance.get("reportOnlySurfaceCount") != 3:
     missing.append("benchmark adopter performance contract reportOnlySurfaceCount mismatch")
@@ -1737,7 +1737,7 @@ if adopter_performance.get("unsupportedSurfaceCount") != 0:
 if not {"minimum 5 baseline samples", "minimum 3 current trend samples", "no allocation regression under bench-regression-check"}.issubset(set(adopter_performance.get("promotionRules") or [])):
     missing.append("benchmark adopter performance contract promotionRules missing required gates")
 for collection, expected_ids in (
-    ("blockingSurfaces", {"rest-route-hot-path", "governance-rule-match"}),
+    ("blockingSurfaces", {"rest-route-hot-path", "governance-rule-match", "cache-hot-path"}),
     ("reportOnlySurfaces", {"http-latency-report-only", "rpc-candidate-report-only", "gateway-cache-candidate-report-only"}),
     ("unsupportedSurfaces", set()),
 ):

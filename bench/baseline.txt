@@ -2,6 +2,11 @@ goos: darwin
 goarch: arm64
 pkg: github.com/imajinyun/gofly/bench
 cpu: Apple M4 Pro
+BenchmarkCacheHotPath-14                 	21298429	        53.26 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCacheHotPath-14                 	21447192	        53.66 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCacheHotPath-14                 	21340725	        53.88 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCacheHotPath-14                 	21211954	        54.46 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCacheHotPath-14                 	21420647	        53.32 ns/op	       0 B/op	       0 allocs/op
 BenchmarkHTTPHello/net_http-14     	  749396	      1502 ns/op	    6188 B/op	      21 allocs/op
 BenchmarkHTTPHello/net_http-14     	  800820	      1508 ns/op	    6188 B/op	      21 allocs/op
 BenchmarkHTTPHello/net_http-14     	  840986	      1497 ns/op	    6188 B/op	      21 allocs/op

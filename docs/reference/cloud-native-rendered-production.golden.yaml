@@ -1,10 +1,10 @@
 # Static production render golden for environments without helm or kustomize.
 # Source inputs:
-# - k8s/deployment.yaml
-# - k8s/servicemonitor.yaml
-# - k8s/hpa.yaml
-# - k8s/pdb.yaml
-# - k8s/networkpolicy.yaml
+# - deploy/k8s/deployment.yaml
+# - deploy/k8s/servicemonitor.yaml
+# - deploy/k8s/hpa.yaml
+# - deploy/k8s/pdb.yaml
+# - deploy/k8s/networkpolicy.yaml
 apiVersion: v1
 kind: Service
 metadata:

@@ -15,24 +15,24 @@ curl http://127.0.0.1:9090/admin/control-plane
 See:
 
 - `examples/k8s`
-- `k8s/deployment.yaml`
-- `k8s/kustomization.yaml`
-- `k8s/servicemonitor.yaml`
-- `k8s/hpa.yaml`
-- `k8s/pdb.yaml`
-- `charts/gofly`
+- `deploy/k8s/deployment.yaml`
+- `deploy/k8s/kustomization.yaml`
+- `deploy/k8s/servicemonitor.yaml`
+- `deploy/k8s/hpa.yaml`
+- `deploy/k8s/pdb.yaml`
+- `deploy/helm/gofly`
 
 Direct YAML users can apply the static assets:
 
 ```sh
-kubectl apply -k k8s
+kubectl apply -k deploy/k8s
 ```
 
 Helm users can render or install the starter chart:
 
 ```sh
-helm template gofly charts/gofly
-helm install gofly charts/gofly
+helm template gofly deploy/helm/gofly
+helm install gofly deploy/helm/gofly
 ```
 
 The starter assets include liveness, readiness, and startup probes, Prometheus scrape annotations, optional ServiceMonitor support, HPA, and PodDisruptionBudget.

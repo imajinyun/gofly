@@ -234,11 +234,11 @@ assets = {
         "otlp",
         "debug",
     ],
-    "k8s/servicemonitor.yaml": [
+    "deploy/k8s/servicemonitor.yaml": [
         "kind: ServiceMonitor",
         "port: metrics",
     ],
-    "charts/gofly/templates/servicemonitor.yaml": [
+    "deploy/helm/gofly/templates/servicemonitor.yaml": [
         "kind: ServiceMonitor",
         ".Values.serviceMonitor.enabled",
     ],

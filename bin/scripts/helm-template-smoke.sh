@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 set -eu
 
-chart_dir="charts/gofly"
+chart_dir="deploy/helm/gofly"
 workdir="$(mktemp -d)"
 trap 'rm -rf "$workdir"' EXIT
 

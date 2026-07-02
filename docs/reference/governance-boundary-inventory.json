@@ -252,8 +252,8 @@
     {
       "id": "cloud-native-production",
       "paths": [
-        "charts/gofly",
-        "k8s",
+        "deploy/helm/gofly",
+        "deploy/k8s",
         "docs/reference/cloud-native-rendering.md",
         "docs/reference/runtime-slo.md"
       ],

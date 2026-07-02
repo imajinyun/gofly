@@ -192,7 +192,7 @@ for item in next_dimensions:
         makefile = read_text(root / "Makefile")
         require(re.search(rf"^{re.escape(target)}:", makefile, re.M), f"next-wave dimension {item_id}: gate target {target!r} missing")
     for evidence in item.get("currentEvidence") or []:
-        if evidence.startswith("docs/") or evidence.startswith("examples/") or evidence.startswith("bench/") or evidence.startswith("charts/") or evidence.startswith("k8s/"):
+        if evidence.startswith("docs/") or evidence.startswith("examples/") or evidence.startswith("bench/") or evidence.startswith("deploy/helm/") or evidence.startswith("deploy/k8s/"):
             require((root / evidence).exists(), f"next-wave dimension {item_id}: evidence path missing: {evidence}")
 
 next_recommended = next_wave.get("recommendedOrder") or []
@@ -737,7 +737,7 @@ for expected_round, item in enumerate(post_r8_dimensions, start=1):
     else:
         missing.append(f"post-R8 dimension {item_id}: acceptanceGate must be a make target")
     for evidence in item.get("currentEvidence") or []:
-        if evidence.startswith("docs/") or evidence.startswith("examples/") or evidence.startswith("bench/") or evidence.startswith("bin/") or evidence.startswith("charts/") or evidence.startswith("k8s/"):
+        if evidence.startswith("docs/") or evidence.startswith("examples/") or evidence.startswith("bench/") or evidence.startswith("bin/") or evidence.startswith("deploy/helm/") or evidence.startswith("deploy/k8s/"):
             require((root / evidence).exists(), f"post-R8 dimension {item_id}: evidence path missing: {evidence}")
         elif evidence.startswith("make "):
             target = evidence.removeprefix("make ").split()[0]

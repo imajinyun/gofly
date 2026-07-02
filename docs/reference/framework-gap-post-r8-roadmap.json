@@ -174,8 +174,8 @@
         "Kratos"
       ],
       "currentEvidence": [
-        "charts/gofly",
-        "k8s",
+        "deploy/helm/gofly",
+        "deploy/k8s",
         "docs/reference/cloud-native-rendering.md",
         "make cloud-native-render-check"
       ],

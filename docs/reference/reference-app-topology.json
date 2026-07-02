@@ -189,11 +189,11 @@
     {
       "id": "cloud-native",
       "name": "K8s and rollback",
-      "route": "k8s and charts",
+      "route": "deploy/k8s and deploy/helm",
       "gate": "make p1-growth-check",
       "evidenceRefs": [
         {
-          "path": "k8s/deployment.yaml",
+          "path": "deploy/k8s/deployment.yaml",
           "contains": [
             "kind: Deployment",
             "livenessProbe:",
@@ -201,7 +201,7 @@
           ]
         },
         {
-          "path": "charts/gofly/Chart.yaml",
+          "path": "deploy/helm/gofly/Chart.yaml",
           "contains": [
             "apiVersion: v2",
             "name: gofly"
@@ -346,8 +346,8 @@
         "runnableEvidence": [
           "docs/reference/cloud-native-policy-conformance.json",
           "docs/reference/cloud-native-rendered-production.golden.yaml",
-          "charts/gofly/values-production.yaml",
-          "k8s/overlays/production/kustomization.yaml"
+          "deploy/helm/gofly/values-production.yaml",
+          "deploy/k8s/overlays/production/kustomization.yaml"
         ],
         "failureEvidence": "K8s drill must identify rendered asset or schema fallback status before adopters apply production manifests.",
         "rollbackOrEscalation": "Keep the previous manifest, chart release, or gateway route active when rendered policy evidence or rollout health is incomplete."
@@ -556,8 +556,8 @@
         "evidence": [
           "docs/reference/cloud-native-policy-conformance.json",
           "docs/reference/cloud-native-rendered-production.golden.yaml",
-          "charts/gofly/values-production.yaml",
-          "k8s/overlays/production/kustomization.yaml"
+          "deploy/helm/gofly/values-production.yaml",
+          "deploy/k8s/overlays/production/kustomization.yaml"
         ],
         "adopterAction": "Render production assets and inspect fallback status before applying Helm or Kustomize output to a cluster.",
         "rollbackOrEscalation": "Keep the previous manifest or chart release active when rendered policy assets or schema validation evidence are missing."

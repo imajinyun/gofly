@@ -24,18 +24,18 @@
   "renderModes": [
     {
       "mode": "helm-template",
-      "command": "helm template gofly charts/gofly",
+      "command": "helm template gofly deploy/helm/gofly",
       "requiredWhenToolAvailable": "helm",
       "fallback": "static-template-render"
     },
     {
       "mode": "static-template-render",
-      "command": "cat charts/gofly/templates/*.yaml",
+      "command": "cat deploy/helm/gofly/templates/*.yaml",
       "fallbackReason": "helm not installed in the local or CI environment"
     },
     {
       "mode": "kustomize-build",
-      "command": "kustomize build k8s/overlays/production",
+      "command": "kustomize build deploy/k8s/overlays/production",
       "requiredWhenToolAvailable": "kustomize",
       "fallback": "static-template-render"
     }
@@ -137,15 +137,15 @@
   "profiles": [
     {
       "name": "helm-default",
-      "values": "charts/gofly/values.yaml",
-      "schema": "charts/gofly/values.schema.json",
+      "values": "deploy/helm/gofly/values.yaml",
+      "schema": "deploy/helm/gofly/values.schema.json",
       "templates": [
-        "charts/gofly/templates/deployment.yaml",
-        "charts/gofly/templates/service.yaml",
-        "charts/gofly/templates/servicemonitor.yaml",
-        "charts/gofly/templates/hpa.yaml",
-        "charts/gofly/templates/pdb.yaml",
-        "charts/gofly/templates/networkpolicy.yaml"
+        "deploy/helm/gofly/templates/deployment.yaml",
+        "deploy/helm/gofly/templates/service.yaml",
+        "deploy/helm/gofly/templates/servicemonitor.yaml",
+        "deploy/helm/gofly/templates/hpa.yaml",
+        "deploy/helm/gofly/templates/pdb.yaml",
+        "deploy/helm/gofly/templates/networkpolicy.yaml"
       ],
       "requiredKinds": [
         "Deployment",
@@ -158,15 +158,15 @@
     },
     {
       "name": "helm-production",
-      "values": "charts/gofly/values-production.yaml",
-      "schema": "charts/gofly/values.schema.json",
+      "values": "deploy/helm/gofly/values-production.yaml",
+      "schema": "deploy/helm/gofly/values.schema.json",
       "templates": [
-        "charts/gofly/templates/deployment.yaml",
-        "charts/gofly/templates/service.yaml",
-        "charts/gofly/templates/servicemonitor.yaml",
-        "charts/gofly/templates/hpa.yaml",
-        "charts/gofly/templates/pdb.yaml",
-        "charts/gofly/templates/networkpolicy.yaml"
+        "deploy/helm/gofly/templates/deployment.yaml",
+        "deploy/helm/gofly/templates/service.yaml",
+        "deploy/helm/gofly/templates/servicemonitor.yaml",
+        "deploy/helm/gofly/templates/hpa.yaml",
+        "deploy/helm/gofly/templates/pdb.yaml",
+        "deploy/helm/gofly/templates/networkpolicy.yaml"
       ],
       "requiredKinds": [
         "Deployment",
@@ -179,13 +179,13 @@
     },
     {
       "name": "kustomize-production",
-      "overlay": "k8s/overlays/production/kustomization.yaml",
+      "overlay": "deploy/k8s/overlays/production/kustomization.yaml",
       "resources": [
-        "k8s/deployment.yaml",
-        "k8s/servicemonitor.yaml",
-        "k8s/hpa.yaml",
-        "k8s/pdb.yaml",
-        "k8s/networkpolicy.yaml"
+        "deploy/k8s/deployment.yaml",
+        "deploy/k8s/servicemonitor.yaml",
+        "deploy/k8s/hpa.yaml",
+        "deploy/k8s/pdb.yaml",
+        "deploy/k8s/networkpolicy.yaml"
       ],
       "requiredKinds": [
         "Deployment",
@@ -202,7 +202,7 @@
       "profile": "kustomize-production",
       "mode": "static-template-render",
       "path": "docs/reference/cloud-native-rendered-production.golden.yaml",
-      "producedBy": "cat k8s/deployment.yaml k8s/servicemonitor.yaml k8s/hpa.yaml k8s/pdb.yaml k8s/networkpolicy.yaml",
+      "producedBy": "cat deploy/k8s/deployment.yaml deploy/k8s/servicemonitor.yaml deploy/k8s/hpa.yaml deploy/k8s/pdb.yaml deploy/k8s/networkpolicy.yaml",
       "fallbackStatus": "tool-unavailable-explicit",
       "requiredKinds": [
         "Deployment",
@@ -217,8 +217,8 @@
   "policyResources": [
     {
       "kind": "ServiceMonitor",
-      "helmTemplate": "charts/gofly/templates/servicemonitor.yaml",
-      "kustomizeResource": "k8s/servicemonitor.yaml",
+      "helmTemplate": "deploy/helm/gofly/templates/servicemonitor.yaml",
+      "kustomizeResource": "deploy/k8s/servicemonitor.yaml",
       "requiredSignals": [
         "metrics port",
         "scrape interval"
@@ -226,8 +226,8 @@
     },
     {
       "kind": "HorizontalPodAutoscaler",
-      "helmTemplate": "charts/gofly/templates/hpa.yaml",
-      "kustomizeResource": "k8s/hpa.yaml",
+      "helmTemplate": "deploy/helm/gofly/templates/hpa.yaml",
+      "kustomizeResource": "deploy/k8s/hpa.yaml",
       "requiredSignals": [
         "min replicas",
         "max replicas",
@@ -236,16 +236,16 @@
     },
     {
       "kind": "PodDisruptionBudget",
-      "helmTemplate": "charts/gofly/templates/pdb.yaml",
-      "kustomizeResource": "k8s/pdb.yaml",
+      "helmTemplate": "deploy/helm/gofly/templates/pdb.yaml",
+      "kustomizeResource": "deploy/k8s/pdb.yaml",
       "requiredSignals": [
         "minAvailable"
       ]
     },
     {
       "kind": "NetworkPolicy",
-      "helmTemplate": "charts/gofly/templates/networkpolicy.yaml",
-      "kustomizeResource": "k8s/networkpolicy.yaml",
+      "helmTemplate": "deploy/helm/gofly/templates/networkpolicy.yaml",
+      "kustomizeResource": "deploy/k8s/networkpolicy.yaml",
       "requiredSignals": [
         "Ingress",
         "Egress",
@@ -275,8 +275,8 @@
         "evidence": [
           "docs/reference/cloud-native-policy-conformance.json",
           "docs/reference/cloud-native-rendered-production.golden.yaml",
-          "charts/gofly/values-production.yaml",
-          "k8s/overlays/production/kustomization.yaml"
+          "deploy/helm/gofly/values-production.yaml",
+          "deploy/k8s/overlays/production/kustomization.yaml"
         ],
         "adopterAction": "Render production assets, inspect explicit fallback reasons, and verify policy resources before applying Helm or Kustomize output.",
         "rollbackOrEscalation": "Keep the previous chart release or manifest active when render output, schema validation, or required policy resources are missing."
@@ -302,7 +302,7 @@
           "docs/reference/runtime-slo.json",
           "docs/reference/runtime-slo.md",
           "examples/observability/README.md",
-          "k8s/servicemonitor.yaml"
+          "deploy/k8s/servicemonitor.yaml"
         ],
         "adopterAction": "Review latency, errors, traffic, saturation, cache, governance decisions, and trace correlation before promotion.",
         "rollbackOrEscalation": "Hold rollout or route back to the previous deployment when SLO evidence cannot explain runtime regressions."
@@ -370,9 +370,9 @@
         "hostedEvidence": "helm template output for default and production values",
         "localGate": "make helm-template-smoke && make cloud-native-render-check",
         "sourceEvidence": [
-          "charts/gofly/values.yaml",
-          "charts/gofly/values-production.yaml",
-          "charts/gofly/values.schema.json",
+          "deploy/helm/gofly/values.yaml",
+          "deploy/helm/gofly/values-production.yaml",
+          "deploy/helm/gofly/values.schema.json",
           "docs/reference/cloud-native-rendered-production.golden.yaml"
         ],
         "fallbackPolicy": "Static chart template rendering is local fallback only when Helm is unavailable and fallbackReasons records the missing helm binary.",
@@ -384,11 +384,11 @@
         "hostedEvidence": "kustomize build output plus policy resource golden comparison",
         "localGate": "make cloud-native-render-check",
         "sourceEvidence": [
-          "k8s/overlays/production/kustomization.yaml",
-          "k8s/servicemonitor.yaml",
-          "k8s/hpa.yaml",
-          "k8s/pdb.yaml",
-          "k8s/networkpolicy.yaml"
+          "deploy/k8s/overlays/production/kustomization.yaml",
+          "deploy/k8s/servicemonitor.yaml",
+          "deploy/k8s/hpa.yaml",
+          "deploy/k8s/pdb.yaml",
+          "deploy/k8s/networkpolicy.yaml"
         ],
         "fallbackPolicy": "Static concatenated Kubernetes resources are accepted only when kustomize is unavailable and fallbackReasons records that status.",
         "rollbackAction": "Keep the previous overlay applied when Kustomize output omits ServiceMonitor, HPA, PDB, NetworkPolicy, or required probe resources."

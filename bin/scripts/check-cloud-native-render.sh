@@ -8,22 +8,22 @@ report_path="${CLOUD_NATIVE_RENDER_REPORT:-.tmp-test/cloud-native-render/render-
 mkdir -p "$(dirname -- "$report_path")"
 
 if command -v helm >/dev/null 2>&1; then
-	helm template gofly charts/gofly > "$rendered"
-	helm template gofly charts/gofly -f charts/gofly/values-production.yaml > "$rendered_production"
+	helm template gofly deploy/helm/gofly > "$rendered"
+	helm template gofly deploy/helm/gofly -f deploy/helm/gofly/values-production.yaml > "$rendered_production"
 	render_mode="helm-template"
 	helm_available="true"
 else
-	cat charts/gofly/templates/*.yaml > "$rendered"
-	cat charts/gofly/templates/*.yaml > "$rendered_production"
+	cat deploy/helm/gofly/templates/*.yaml > "$rendered"
+	cat deploy/helm/gofly/templates/*.yaml > "$rendered_production"
 	render_mode="static-template-render"
 	helm_available="false"
 fi
 
 if command -v kustomize >/dev/null 2>&1; then
-	kustomize build k8s/overlays/production > "$kustomize_rendered"
+	kustomize build deploy/k8s/overlays/production > "$kustomize_rendered"
 	kustomize_available="true"
 else
-	cat k8s/deployment.yaml k8s/servicemonitor.yaml k8s/hpa.yaml k8s/pdb.yaml k8s/networkpolicy.yaml > "$kustomize_rendered"
+	cat deploy/k8s/deployment.yaml deploy/k8s/servicemonitor.yaml deploy/k8s/hpa.yaml deploy/k8s/pdb.yaml deploy/k8s/networkpolicy.yaml > "$kustomize_rendered"
 	kustomize_available="false"
 fi
 if command -v kubeconform >/dev/null 2>&1; then
@@ -80,20 +80,20 @@ kubeval_status = sys.argv[11]
 kubeconform_output = sys.argv[12]
 kubeval_output = sys.argv[13]
 checks = {
-    pathlib.Path("charts/gofly/values.schema.json"): [
+    pathlib.Path("deploy/helm/gofly/values.schema.json"): [
         "networkPolicy",
         "serviceMonitor",
         "autoscaling",
         "podDisruptionBudget",
     ],
-    pathlib.Path("charts/gofly/values-production.yaml"): [
+    pathlib.Path("deploy/helm/gofly/values-production.yaml"): [
         "networkPolicy:",
         "serviceMonitor:",
         "autoscaling:",
         "podDisruptionBudget:",
     ],
-    pathlib.Path("k8s/overlays/production/kustomization.yaml"): [
-        "../../../",
+    pathlib.Path("deploy/k8s/overlays/production/kustomization.yaml"): [
+        "../../deployment.yaml",
         "networkpolicy.yaml",
     ],
     pathlib.Path("docs/reference/cloud-native-rendering.md"): [

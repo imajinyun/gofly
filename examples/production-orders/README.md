@@ -15,7 +15,7 @@ This example composes the main gofly runtime capabilities into one service:
 - Limiter, retry, and circuit breaker protection
 - observability through metrics, health probes, pprof, structured logs, and
   trace propagation
-- K8s deployment assets and rollback notes in the root `k8s/` and `charts/`
+- K8s deployment assets and rollback notes in the root `deploy/k8s/` and `deploy/helm/`
   directories
 
 The example is dependency-free: it uses in-memory adapters so it can run in CI

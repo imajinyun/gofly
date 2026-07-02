@@ -56,6 +56,23 @@ docs_check = next((line for line in makefile.splitlines() if line.startswith("do
 require("project-layout-governance-check" in docs_check, "docs-check must depend on project-layout-governance-check")
 require("check-project-layout-governance.sh" in makefile, "Makefile must call check-project-layout-governance.sh")
 
+deploy_boundary = manifest.get("deployAssetBoundary") or {}
+require(deploy_boundary.get("status") == "blocking-contract", "deployAssetBoundary.status must be blocking-contract")
+require("deploy/" in str(deploy_boundary.get("policy") or ""), "deployAssetBoundary policy must require deploy/")
+require(gate_is_known(str(deploy_boundary.get("gate") or ""), targets), "deployAssetBoundary gate is not known")
+for rel in deploy_boundary.get("requiredPaths") or []:
+    require((root / rel).is_dir(), f"deployAssetBoundary missing required path: {rel}")
+for rel in deploy_boundary.get("forbiddenTopLevelPaths") or []:
+    require(not (root / rel).exists(), f"retired top-level deploy asset path must not exist: {rel}")
+require(
+    deploy_boundary.get("requiredPaths") == ["deploy/k8s", "deploy/helm/gofly"],
+    "deployAssetBoundary requiredPaths must pin deploy/k8s and deploy/helm/gofly",
+)
+require(
+    deploy_boundary.get("forbiddenTopLevelPaths") == ["k8s", "charts"],
+    "deployAssetBoundary forbiddenTopLevelPaths must retire k8s and charts",
+)
+
 ignored = set(manifest.get("runtimeIgnoredPaths") or [])
 expected_ignored = {".aiflow/", ".harness/", ".tmp-test/", ".trae/", "coverage.out", "docs/superpowers/"}
 require(ignored == expected_ignored, f"runtimeIgnoredPaths mismatch: {sorted(ignored)!r}")

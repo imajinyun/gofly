@@ -15,15 +15,15 @@ and is validated by the same render gate.
 
 | Asset | Path | Purpose |
 | --- | --- | --- |
-| Helm schema | `charts/gofly/values.schema.json` | Validate chart values shape. |
-| production values profiles | `charts/gofly/values-production.yaml` | Enable production HPA, PDB, ServiceMonitor, and NetworkPolicy. |
-| Kustomize overlays | `k8s/overlays/production/kustomization.yaml` | Direct YAML production profile. |
+| Helm schema | `deploy/helm/gofly/values.schema.json` | Validate chart values shape. |
+| production values profiles | `deploy/helm/gofly/values-production.yaml` | Enable production HPA, PDB, ServiceMonitor, and NetworkPolicy. |
+| Kustomize overlays | `deploy/k8s/overlays/production/kustomization.yaml` | Direct YAML production profile. |
 | production rendered golden | `docs/reference/cloud-native-rendered-production.golden.yaml` | Static production render evidence when Helm or Kustomize is unavailable. |
 | render golden | `make cloud-native-render-check` | Run `helm template` when available and static fallback otherwise. |
 
 When `helm` is installed, `make cloud-native-render-check` renders the chart
 with `helm template`. When `kustomize` is installed, the same gate runs
-`kustomize build k8s/overlays/production`. When `kubeconform` or `kubeval` is
+`kustomize build deploy/k8s/overlays/production`. When `kubeconform` or `kubeval` is
 installed, the gate runs schema validation against the rendered Helm and
 Kustomize output. Without those tools, the static fallback still checks the
 required resource kinds.

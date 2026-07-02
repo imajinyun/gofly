@@ -66,8 +66,8 @@
       "aiflowTask": "GOFLY-P4-4-CLOUD-NATIVE-POLICY-CONFORMANCE",
       "currentEvidence": [
         "docs/reference/cloud-native-rendering.md",
-        "charts/gofly/values.schema.json",
-        "k8s/overlays/production/kustomization.yaml",
+        "deploy/helm/gofly/values.schema.json",
+        "deploy/k8s/overlays/production/kustomization.yaml",
         "make cloud-native-render-check"
       ],
       "gap": "Kratos and go-zero are still easier to trust for production deployment conventions. gofly renders Helm and Kustomize assets, but policy conformance and fallback reporting are not yet captured as one machine-readable release artifact.",

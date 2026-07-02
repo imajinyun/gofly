@@ -6,7 +6,7 @@
 #  - preStop hook gives in-flight requests 30s to drain before SIGTERM.
 #
 # Apply with:
-#   kubectl apply -f k8s/deployment.yaml
+#   kubectl apply -f deploy/k8s/deployment.yaml
 
 apiVersion: v1
 kind: Service

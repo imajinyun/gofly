@@ -4,6 +4,19 @@
   "acceptanceGate": "make project-layout-governance-check",
   "policy": "Do not perform broad directory moves while governance contracts, examples, and generated-output gates depend on current paths. Strengthen directory boundaries with machine checks first, then migrate one example family at a time after P10 convergence if evidence supports it.",
   "noBigBangMove": true,
+  "deployAssetBoundary": {
+    "status": "blocking-contract",
+    "policy": "Repository-level Kubernetes and Helm assets live only under deploy/. Top-level k8s/ and charts/ directories are retired and must not be reintroduced.",
+    "requiredPaths": [
+      "deploy/k8s",
+      "deploy/helm/gofly"
+    ],
+    "forbiddenTopLevelPaths": [
+      "k8s",
+      "charts"
+    ],
+    "gate": "make project-layout-governance-check"
+  },
   "runtimeIgnoredPaths": [
     ".aiflow/",
     ".harness/",

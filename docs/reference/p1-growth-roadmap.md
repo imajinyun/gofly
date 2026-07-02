@@ -62,8 +62,8 @@ Definition of done: the RPC example matrix can be copied out of the repository a
 
 The growth goal is a deployable baseline similar to Kratos and go-zero starter charts.
 
-- Static YAML assets live under `k8s/` for direct `kubectl apply` and Kustomize users.
-- Helm assets live under `charts/gofly/` for release packaging.
+- Static YAML assets live under `deploy/k8s/` for direct `kubectl apply` and Kustomize users.
+- Helm assets live under `deploy/helm/gofly/` for release packaging.
 - Probes must include liveness, readiness, and startup checks.
 - Observability must include Prometheus scrape annotations and ServiceMonitor support.
 - Availability must include HPA and PodDisruptionBudget support.

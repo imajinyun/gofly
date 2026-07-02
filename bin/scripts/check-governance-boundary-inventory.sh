@@ -520,7 +520,7 @@ for expected_round, item in enumerate(post_r8_dimensions, start=1):
     require(item.get("aiflowTask") == expected_post_r8_tasks[expected_round - 1], f"{item_id}: aiflowTask mismatch")
     require(gate_is_known(item.get("acceptanceGate", ""), targets), f"{item_id}: acceptanceGate is not known: {item.get('acceptanceGate')!r}")
     for evidence in item.get("currentEvidence") or []:
-        if evidence.startswith(("docs/", "examples/", "bench/", "charts/", "k8s/")):
+        if evidence.startswith(("docs/", "examples/", "bench/", "deploy/helm/", "deploy/k8s/")):
             require((root / evidence).exists(), f"{item_id}: evidence path missing: {evidence}")
 
 require(convergence_manifest.get("schema") == "gofly.governance_convergence_verification.v1", "convergence verification schema mismatch")

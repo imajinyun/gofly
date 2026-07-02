@@ -216,6 +216,124 @@ for path in expected_ignored:
     else:
         require(path in gitignore, f".gitignore must cover {path}")
 
+ignored_boundary = manifest.get("ignoredArtifactBoundary") or {}
+require(
+    ignored_boundary.get("status") == "blocking-contract",
+    "ignoredArtifactBoundary.status must be blocking-contract",
+)
+require(
+    ignored_boundary.get("forbidTrackedArtifacts") is True,
+    "ignoredArtifactBoundary must forbid tracked artifacts",
+)
+require(
+    ".aiflow/" in str(ignored_boundary.get("policy") or "") and "Root aiflow.yaml" in str(ignored_boundary.get("policy") or ""),
+    "ignoredArtifactBoundary policy must preserve root aiflow.yaml and local .aiflow/ split",
+)
+allowed_ignored_categories = {
+    "benchmark-transient",
+    "binary-artifact",
+    "coverage-artifact",
+    "generated-docs",
+    "runtime-state",
+}
+expected_ignored_artifacts = {
+    ".aiflow/",
+    ".harness/",
+    ".tmp-test/",
+    ".trae/",
+    "bench/current.txt",
+    "bench/regression-report.json",
+    "bench/summary.md",
+    "bin/gofly",
+    "coverage.out",
+    "docs/*",
+    "docs/superpowers/",
+}
+ignored_artifacts = ignored_boundary.get("artifacts") or []
+declared_ignored_artifacts = []
+for artifact in ignored_artifacts:
+    if not isinstance(artifact, dict):
+        missing.append(f"ignoredArtifactBoundary artifact must be object: {artifact!r}")
+        continue
+    artifact_path = artifact.get("path", "")
+    declared_ignored_artifacts.append(artifact_path)
+    require(artifact_path, "ignored artifact path is required")
+    require(
+        artifact.get("category") in allowed_ignored_categories,
+        f"ignored artifact {artifact_path}: unknown category {artifact.get('category')!r}",
+    )
+    require(len(str(artifact.get("reason") or "").split()) >= 8, f"ignored artifact {artifact_path}: reason must be descriptive")
+    ignore_pattern = str(artifact.get("ignorePattern") or "")
+    require(ignore_pattern, f"ignored artifact {artifact_path}: ignorePattern is required")
+    require(ignore_pattern in gitignore, f"ignored artifact {artifact_path}: .gitignore must contain {ignore_pattern!r}")
+    if artifact_path == "docs/*":
+        allowed_exceptions = set(artifact.get("allowedTrackedExceptions") or [])
+        require(allowed_exceptions == {"docs/index.md"}, "ignored artifact docs/* must only allow tracked docs/index.md")
+        tracked_top_docs = [
+            rel
+            for rel in subprocess.run(
+                ["git", "ls-files", "docs"],
+                cwd=root,
+                check=True,
+                text=True,
+                stdout=subprocess.PIPE,
+            ).stdout.splitlines()
+            if rel.startswith("docs/") and "/" not in rel.removeprefix("docs/")
+        ]
+        require(
+            set(tracked_top_docs) <= allowed_exceptions,
+            f"ignored artifact docs/*: tracked top-level docs are forbidden except docs/index.md: {tracked_top_docs!r}",
+        )
+        sample_ignored_paths = artifact.get("sampleIgnoredPaths") or []
+        require(sample_ignored_paths, "ignored artifact docs/* must provide sampleIgnoredPaths")
+        for sample in sample_ignored_paths:
+            require(str(sample).startswith("docs/"), f"ignored artifact docs/* sample must stay under docs/: {sample!r}")
+            check_ignore = subprocess.run(
+                ["git", "check-ignore", str(sample)],
+                cwd=root,
+                check=False,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            require(check_ignore.returncode == 0, f"ignored artifact docs/* sample {sample}: git check-ignore must match")
+    elif any(ch in artifact_path for ch in "*?[]"):
+        tracked_matches = subprocess.run(
+            ["git", "ls-files", artifact_path],
+            cwd=root,
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+        ).stdout.splitlines()
+        require(not tracked_matches, f"ignored artifact pattern {artifact_path}: tracked files are forbidden: {tracked_matches!r}")
+    else:
+        tracked_matches = subprocess.run(
+            ["git", "ls-files", artifact_path],
+            cwd=root,
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+        ).stdout.splitlines()
+        require(not tracked_matches, f"ignored artifact {artifact_path}: must not be tracked")
+        check_ignore = subprocess.run(
+            ["git", "check-ignore", artifact_path.rstrip("/")],
+            cwd=root,
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        require(check_ignore.returncode == 0, f"ignored artifact {artifact_path}: git check-ignore must match")
+require(
+    set(declared_ignored_artifacts) == expected_ignored_artifacts,
+    "ignoredArtifactBoundary must pin runtime, docs, benchmark, binary, and coverage artifacts: "
+    f"declared={sorted(declared_ignored_artifacts)!r}",
+)
+require(
+    len(declared_ignored_artifacts) == len(set(declared_ignored_artifacts)),
+    "ignoredArtifactBoundary must not contain duplicate artifact paths",
+)
+
 examples_plan = manifest.get("examplesGroupingPlan") or {}
 require(examples_plan.get("status") == "planned-only", "examplesGroupingPlan.status must be planned-only")
 require(examples_plan.get("admissionGate") == "make project-layout-governance-check", "examplesGroupingPlan admissionGate mismatch")

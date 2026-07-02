@@ -102,7 +102,10 @@ for family in readiness.get("candidateFamilies") or []:
     family_id = family.get("id", "<missing>")
     mapped = family_by_id.get(family_id) or {}
     require(mapped.get("splitRecommendation") == "candidate", f"candidate {family_id}: dependency map must recommend candidate")
-    require(family.get("status") in {"candidate-after-golden", "candidate-after-json-golden"}, f"candidate {family_id}: status mismatch")
+    require(
+        family.get("status") in {"candidate-after-golden", "candidate-after-json-golden", "candidate-after-dry-run"},
+        f"candidate {family_id}: status mismatch",
+    )
     require(len(str(family.get("reason") or "").split()) >= 12, f"candidate {family_id}: reason must be descriptive")
     require(len(family.get("requiredPreSplitActions") or []) >= 3, f"candidate {family_id}: requiredPreSplitActions must be actionable")
     for gate in family.get("requiredGates") or []:
@@ -137,14 +140,15 @@ for gate in required_gates:
     require(gate_is_known(str(gate), targets), f"required gate is not known: {gate}")
 
 next_step = readiness.get("nextStep") or {}
-require(next_step.get("id") == "P22-07-help-split-dry-run", "nextStep id mismatch")
-require("help" in str(next_step.get("action") or ""), "nextStep action must keep help split as next dry run")
+require(next_step.get("id") == "P22-08-doctor-split-dry-run", "nextStep id mismatch")
+require("doctor" in str(next_step.get("action") or ""), "nextStep action must keep doctor split as next dry run")
 
 reference_files = []
 for family in (layout.get("referenceFileBoundaries") or {}).get("families") or []:
     if isinstance(family, dict):
         reference_files.extend(family.get("files") or [])
 require("command-split-readiness.json" in reference_files, "referenceFileBoundaries must index command-split-readiness.json")
+require("command-help-split-dry-run.json" in reference_files, "referenceFileBoundaries must index command-help-split-dry-run.json")
 
 if missing:
     print("command split readiness check failed:")

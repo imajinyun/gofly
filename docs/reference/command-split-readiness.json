@@ -19,16 +19,17 @@
   "candidateFamilies": [
     {
       "id": "help",
-      "status": "candidate-after-golden",
-      "reason": "The help family has only standard library imports and a narrow rendering surface, but it still needs golden output coverage before physical package movement.",
+      "status": "candidate-after-dry-run",
+      "reason": "The help family has only standard library imports, golden output coverage, and dry-run extraction evidence, but physical movement still needs an output adapter boundary.",
       "requiredPreSplitActions": [
-        "pin help topic and usage output with golden tests",
+        "introduce a package-local output adapter before moving printHelp out of the shared command package",
         "define a small metadata adapter for command registration",
         "prove docs-check still covers every help topic after extraction"
       ],
       "requiredGates": [
         "make command-family-dependency-map-check",
         "make command-split-readiness-check",
+        "make command-help-split-dry-run-check",
         "make cli-command-surface-check",
         "make docs-check",
         "GOCACHE=$PWD/.tmp-test/gocache GOTMPDIR=$PWD/.tmp-test/gotmp go test -shuffle=on ./cmd/gofly/internal/command/..."
@@ -90,7 +91,7 @@
     "git diff --check"
   ],
   "nextStep": {
-    "id": "P22-07-help-split-dry-run",
-    "action": "Add help family golden output and dry-run extraction evidence before any physical package split."
+    "id": "P22-08-doctor-split-dry-run",
+    "action": "Add doctor family JSON golden output, support-bundle contract coverage, and dry-run extraction evidence before any physical package split."
   }
 }

@@ -58,6 +58,8 @@ require("command-family-dependency-map-check" in targets, "Makefile must expose 
 require("command-family-dependency-map-check" in docs_check, "docs-check must depend on command-family-dependency-map-check")
 require("command-split-readiness-check" in targets, "Makefile must expose command-split-readiness-check")
 require("command-split-readiness-check" in docs_check, "docs-check must depend on command-split-readiness-check")
+require("command-help-split-dry-run-check" in targets, "Makefile must expose command-help-split-dry-run-check")
+require("command-help-split-dry-run-check" in docs_check, "docs-check must depend on command-help-split-dry-run-check")
 require("check-project-layout-governance.sh" in makefile, "Makefile must call check-project-layout-governance.sh")
 
 top_level_boundary = manifest.get("topLevelDirectoryBoundaries") or {}
@@ -824,8 +826,44 @@ require(
     "command split readiness must record the root module pollution regression test",
 )
 require(
-    command_split_readiness.get("nextStep", {}).get("id") == "P22-07-help-split-dry-run",
+    command_split_readiness.get("nextStep", {}).get("id") == "P22-08-doctor-split-dry-run",
     "command split readiness nextStep mismatch",
+)
+candidate_status = {
+    item.get("id"): item.get("status")
+    for item in command_split_readiness.get("candidateFamilies") or []
+    if isinstance(item, dict)
+}
+require(candidate_status.get("help") == "candidate-after-dry-run", "command split readiness help candidate must be after dry-run")
+require(candidate_status.get("doctor") == "candidate-after-json-golden", "command split readiness doctor candidate status mismatch")
+
+command_help_split_path = root / "docs" / "reference" / "command-help-split-dry-run.json"
+if command_help_split_path.is_file():
+    command_help_split = json.loads(command_help_split_path.read_text(encoding="utf-8"))
+else:
+    command_help_split = {}
+    missing.append("docs/reference/command-help-split-dry-run.json is missing")
+require(
+    command_help_split.get("schema") == "gofly.command_help_split_dry_run.v1",
+    "command help split dry-run schema mismatch",
+)
+require(
+    command_help_split.get("status") == "completed-preflight",
+    "command help split dry-run status must be completed-preflight",
+)
+require(
+    command_help_split.get("acceptanceGate") == "make command-help-split-dry-run-check",
+    "command help split dry-run acceptanceGate mismatch",
+)
+require(command_help_split.get("dryRunOnly") is True, "command help split dry-run must be dryRunOnly")
+require(command_help_split.get("noPhysicalMove") is True, "command help split dry-run must forbid physical move")
+require(
+    set(command_help_split.get("goldenTopics") or []) == {"doctor", "api", "rpc gen", "plugin run"},
+    "command help split dry-run goldenTopics mismatch",
+)
+require(
+    command_help_split.get("physicalSplitAdmission", {}).get("status") == "candidate-after-dry-run",
+    "command help split dry-run physicalSplitAdmission mismatch",
 )
 
 reference_boundary = manifest.get("referenceFileBoundaries") or {}

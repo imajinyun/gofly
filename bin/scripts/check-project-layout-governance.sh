@@ -54,6 +54,8 @@ require(len(str(manifest.get("policy") or "").split()) >= 20, "project layout go
 require("project-layout-governance-check" in targets, "Makefile must expose project-layout-governance-check")
 docs_check = next((line for line in makefile.splitlines() if line.startswith("docs-check:")), "")
 require("project-layout-governance-check" in docs_check, "docs-check must depend on project-layout-governance-check")
+require("command-family-dependency-map-check" in targets, "Makefile must expose command-family-dependency-map-check")
+require("command-family-dependency-map-check" in docs_check, "docs-check must depend on command-family-dependency-map-check")
 require("check-project-layout-governance.sh" in makefile, "Makefile must call check-project-layout-governance.sh")
 
 top_level_boundary = manifest.get("topLevelDirectoryBoundaries") or {}
@@ -739,6 +741,47 @@ require(
 require(
     len(declared_command_files) == len(set(declared_command_files)),
     "commandFileFamilies must not contain duplicate command files",
+)
+
+command_dependency_map_path = root / "docs" / "reference" / "command-family-dependency-map.json"
+if command_dependency_map_path.is_file():
+    command_dependency_map = json.loads(command_dependency_map_path.read_text(encoding="utf-8"))
+else:
+    command_dependency_map = {}
+    missing.append("docs/reference/command-family-dependency-map.json is missing")
+require(
+    command_dependency_map.get("schema") == "gofly.command_family_dependency_map.v1",
+    "command family dependency map schema mismatch",
+)
+require(
+    command_dependency_map.get("status") == "blocking-contract",
+    "command family dependency map status must be blocking-contract",
+)
+require(
+    command_dependency_map.get("acceptanceGate") == "make command-family-dependency-map-check",
+    "command family dependency map acceptanceGate mismatch",
+)
+map_family_ids = [item.get("id") for item in command_dependency_map.get("families") or [] if isinstance(item, dict)]
+require(
+    sorted(map_family_ids) == [
+        "ai",
+        "api",
+        "config",
+        "doctor",
+        "help",
+        "model",
+        "new",
+        "plugin",
+        "release",
+        "rpc",
+        "shared",
+    ],
+    "command family dependency map family ids mismatch",
+)
+require(
+    {item.get("id") for item in command_dependency_map.get("nextCandidates") or [] if isinstance(item, dict)}
+    == {"doctor", "help"},
+    "command family dependency map nextCandidates must identify doctor and help",
 )
 
 reference_boundary = manifest.get("referenceFileBoundaries") or {}

@@ -20,10 +20,10 @@
     "runtimeStatePolicy": ".aiflow, .harness, .tmp-test, .trae, coverage.out, bench/current.txt, bench/regression-report.json, bench/summary.md, bin/gofly, and docs/superpowers remain ignored local evidence and must not be committed.",
     "safetyPolicy": "P17 tasks are submitted to ignored local aiflow runtime state and mirrored here as durable docs/reference evidence; each task must be completed in order and committed by the current agent or human only after its gate passes or an environment-limited downgrade is documented.",
     "completedTasks": [
-      "GOFLY-P17-01-P16-COMPLETION-HANDOFF"
+      "GOFLY-P17-01-P16-COMPLETION-HANDOFF",
+      "GOFLY-P17-02-GATEWAY-CACHE-BASELINE-ROW-ATTACHMENT"
     ],
     "pendingTasks": [
-      "GOFLY-P17-02-GATEWAY-CACHE-BASELINE-ROW-ATTACHMENT",
       "GOFLY-P17-03-GATEWAY-CACHE-ALLOCATION-PROMOTION-DECISION"
     ]
   },
@@ -62,7 +62,7 @@
     {
       "round": 2,
       "id": "GOFLY-P17-02-GATEWAY-CACHE-BASELINE-ROW-ATTACHMENT",
-      "status": "queued",
+      "status": "completed",
       "priority": 99,
       "title": "Gateway cache baseline row attachment",
       "objective": "Attach committed Gateway and Cache baseline rows so allocation deltas can be compared without using ignored local benchmark output as durable evidence.",
@@ -70,7 +70,16 @@
       "acceptanceGates": [
         "make bench-regression-check"
       ],
-      "commitPolicy": "commit after Gateway/Cache baseline row evidence passes bench-regression-check and remains outside trackedBenchmarks unless every promotion prerequisite is present"
+      "commitPolicy": "commit after Gateway/Cache baseline row evidence passes bench-regression-check and remains outside trackedBenchmarks unless every promotion prerequisite is present",
+      "commit": "pending-current-commit",
+      "verification": [
+        "python3 -m json.tool bench/budget-ratchet.json",
+        "python3 -m json.tool docs/reference/governance-p17-roadmap.json",
+        "sh -n bin/scripts/benchstat.sh",
+        "make bench-regression-check",
+        "make governance-boundary-inventory-check",
+        "make governance-report-check"
+      ]
     },
     {
       "round": 3,

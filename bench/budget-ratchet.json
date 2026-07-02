@@ -1003,6 +1003,119 @@
       "production Cache performance parity claim"
     ]
   },
+  "p17GatewayCacheBaselineRowAttachment": {
+    "schema": "gofly.benchmark_p17_gateway_cache_baseline_row_attachment.v1",
+    "aiflowTask": "GOFLY-P17-02-GATEWAY-CACHE-BASELINE-ROW-ATTACHMENT",
+    "status": "baseline-attached-promotion-held",
+    "acceptanceGate": "make bench-regression-check",
+    "capturedAt": "2026-07-02T01:06:17Z",
+    "sourceEvidence": [
+      "bench/budget-ratchet.json",
+      "bench/gateway_cache_bench_test.go",
+      "bench/matrix.md",
+      "docs/reference/governance-p17-roadmap.json"
+    ],
+    "capture": {
+      "command": "GOCACHE=/private/tmp/gofly-p17-gocache GOTMPDIR=/private/tmp/gofly-p17-gotmp BENCH_PATTERN='BenchmarkGatewayProxy|BenchmarkCacheHotPath' BENCH_COUNT=5 BENCH_PKGS='./bench/' BENCH_DIR=/private/tmp/gofly-p17-bench bash bin/scripts/benchstat.sh --baseline",
+      "sampleType": "baseline",
+      "sampleCount": 5,
+      "baselineSource": "/private/tmp/gofly-p17-bench/baseline.txt",
+      "baselineSourcePolicy": "Gateway/Cache targeted baseline was captured in an isolated temporary bench directory so the existing tracked REST baseline file remains unchanged.",
+      "currentTrendSource": "p16GatewayCacheTrendSampleAttachment",
+      "currentTrendStatus": "attached"
+    },
+    "decision": {
+      "result": "hold",
+      "selectedSurface": "none",
+      "allocationBlockingSurface": "none",
+      "latencyMode": "report-only",
+      "baselineAttachmentStatus": "attached",
+      "currentTrendAttachmentStatus": "attached",
+      "promotionStatus": "blocked",
+      "reason": "P17 attaches five-sample Gateway and Cache baseline summaries without promoting them because the tracked regression file still excludes these candidate rows and P17-03 must make the explicit one-surface allocation promotion decision.",
+      "nextReviewGate": "make bench-regression-check",
+      "releaseNotePolicy": "Release notes may describe the P17 Gateway and Cache baseline attachment as report-only baseline evidence, but must not claim allocation-blocking coverage, blocking latency, or production performance parity until P17 promotion criteria pass."
+    },
+    "baselineRows": [
+      {
+        "surface": "gateway-proxy",
+        "benchmark": "BenchmarkGatewayProxy",
+        "sampleCount": 5,
+        "nsPerOpMedian": 71245,
+        "nsPerOpMin": 68296,
+        "nsPerOpMax": 75326,
+        "bytesPerOpMedian": 18471,
+        "bytesPerOpMin": 18422,
+        "bytesPerOpMax": 18526,
+        "allocsPerOpMedian": 154,
+        "allocsPerOpMin": 154,
+        "allocsPerOpMax": 154,
+        "currentMode": "report-only",
+        "promotionStatus": "blocked",
+        "minimumBaselineSamples": 5,
+        "minimumCurrentTrendSamples": 3,
+        "cacheModeNote": "gateway proxy benchmark covers HTTP proxy overhead and remains separate from cache hit-path semantics",
+        "rollbackAction": "Keep gateway proxy benchmark claims report-only until P17-03 selects one surface and bench-regression-check validates the allocation budget."
+      },
+      {
+        "surface": "cache-hot-path",
+        "benchmark": "BenchmarkCacheHotPath",
+        "sampleCount": 5,
+        "nsPerOpMedian": 53.66,
+        "nsPerOpMin": 53.26,
+        "nsPerOpMax": 54.46,
+        "bytesPerOpMedian": 0,
+        "bytesPerOpMin": 0,
+        "bytesPerOpMax": 0,
+        "allocsPerOpMedian": 0,
+        "allocsPerOpMin": 0,
+        "allocsPerOpMax": 0,
+        "currentMode": "report-only",
+        "promotionStatus": "blocked",
+        "minimumBaselineSamples": 5,
+        "minimumCurrentTrendSamples": 3,
+        "cacheModeNote": "cache hot-path benchmark measures in-memory L1 Get hit behavior and does not cover misses or invalidation",
+        "rollbackAction": "Keep cache hit-path benchmark claims report-only, use GOFLY_CACHE_DISABLED for runtime rollback, and promote only after P17-03 selects the budget surface."
+      },
+      {
+        "surface": "cache-hot-path-loader-hit",
+        "benchmark": "BenchmarkCacheHotPathGetOrLoadHit",
+        "sampleCount": 5,
+        "nsPerOpMedian": 51.6,
+        "nsPerOpMin": 51.39,
+        "nsPerOpMax": 55.79,
+        "bytesPerOpMedian": 0,
+        "bytesPerOpMin": 0,
+        "bytesPerOpMax": 0,
+        "allocsPerOpMedian": 0,
+        "allocsPerOpMin": 0,
+        "allocsPerOpMax": 0,
+        "currentMode": "report-only",
+        "promotionStatus": "blocked",
+        "minimumBaselineSamples": 5,
+        "minimumCurrentTrendSamples": 3,
+        "cacheModeNote": "cache GetOrLoad hit benchmark measures a warmed loader-backed key and does not prove miss or invalidation behavior",
+        "rollbackAction": "Keep loader-hit benchmark claims report-only and require separate cache hit, miss, and invalidation evidence before any blocking promotion."
+      }
+    ],
+    "attachmentRules": [
+      "P17 baseline attachment must include exactly five samples for each Gateway and Cache candidate row",
+      "P17 baseline attachment must not add Gateway or Cache rows to trackedBenchmarks",
+      "P17 baseline attachment must keep Gateway and Cache latency report-only",
+      "P17 baseline attachment must keep promotion blocked until P17-03 selects at most one allocation surface",
+      "P17 baseline attachment must not overwrite the existing tracked REST baseline artifact with a Gateway/Cache-only baseline"
+    ],
+    "forbiddenUntilCleared": [
+      "trackedBenchmarks Gateway entry",
+      "trackedBenchmarks Cache entry",
+      "blocking Gateway latency claim",
+      "blocking Cache latency claim",
+      "allocation-blocking Gateway claim",
+      "allocation-blocking Cache claim",
+      "production Gateway performance parity claim",
+      "production Cache performance parity claim"
+    ]
+  },
   "p12RpcBudgetPromotionDecision": {
     "schema": "gofly.benchmark_p12_rpc_budget_promotion_decision.v1",
     "aiflowTask": "GOFLY-P12-1-RPC-BENCHMARK-BUDGET-PROMOTION",

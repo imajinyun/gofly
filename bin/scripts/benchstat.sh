@@ -266,6 +266,7 @@ def validate_ratchet_policy() -> None:
     p15_gateway_cache_attachment = ratchet.get("p15GatewayCacheBudgetAttachment") or {}
     p16_gateway_cache_samples = ratchet.get("p16GatewayCacheTrendSampleAttachment") or {}
     p16_gateway_cache_promotion_review = ratchet.get("p16GatewayCacheAllocationPromotionReview") or {}
+    p17_gateway_cache_baseline = ratchet.get("p17GatewayCacheBaselineRowAttachment") or {}
     report_only = set(latency_policy.get("reportOnly") or [])
     promoted = latency_policy.get("promoted") or []
     rpc_policy = ratchet.get("rpcPolicy") or {}
@@ -1579,6 +1580,140 @@ def validate_ratchet_policy() -> None:
         require_policy(
             forbidden in set(p16_gateway_cache_promotion_review.get("forbiddenUntilCleared") or []),
             f"p16GatewayCacheAllocationPromotionReview forbiddenUntilCleared missing {forbidden!r}",
+        )
+
+    require_policy(
+        p17_gateway_cache_baseline.get("schema") == "gofly.benchmark_p17_gateway_cache_baseline_row_attachment.v1",
+        "p17GatewayCacheBaselineRowAttachment schema mismatch",
+    )
+    require_policy(
+        p17_gateway_cache_baseline.get("aiflowTask") == "GOFLY-P17-02-GATEWAY-CACHE-BASELINE-ROW-ATTACHMENT",
+        "p17GatewayCacheBaselineRowAttachment aiflowTask mismatch",
+    )
+    require_policy(
+        p17_gateway_cache_baseline.get("status") == "baseline-attached-promotion-held",
+        "p17GatewayCacheBaselineRowAttachment status mismatch",
+    )
+    require_policy(
+        p17_gateway_cache_baseline.get("acceptanceGate") == "make bench-regression-check",
+        "p17GatewayCacheBaselineRowAttachment acceptanceGate mismatch",
+    )
+    for source in (
+        "bench/budget-ratchet.json",
+        "bench/gateway_cache_bench_test.go",
+        "bench/matrix.md",
+        "docs/reference/governance-p17-roadmap.json",
+    ):
+        require_policy(
+            source in set(p17_gateway_cache_baseline.get("sourceEvidence") or []),
+            f"p17GatewayCacheBaselineRowAttachment sourceEvidence missing {source!r}",
+        )
+    p17_capture = p17_gateway_cache_baseline.get("capture") or {}
+    require_policy(
+        "BENCH_PATTERN='BenchmarkGatewayProxy|BenchmarkCacheHotPath'" in str(p17_capture.get("command") or ""),
+        "p17GatewayCacheBaselineRowAttachment capture.command must include Gateway/Cache benchmark pattern",
+    )
+    require_policy(p17_capture.get("sampleType") == "baseline", "p17GatewayCacheBaselineRowAttachment sampleType mismatch")
+    require_policy(p17_capture.get("sampleCount") == 5, "p17GatewayCacheBaselineRowAttachment sampleCount must be five")
+    require_policy(
+        str(p17_capture.get("baselineSource") or "").startswith("/private/tmp/"),
+        "p17GatewayCacheBaselineRowAttachment baselineSource must be an isolated temporary path",
+    )
+    require_policy(
+        "existing tracked REST baseline file remains unchanged" in str(p17_capture.get("baselineSourcePolicy") or ""),
+        "p17GatewayCacheBaselineRowAttachment baselineSourcePolicy must protect tracked REST baseline",
+    )
+    require_policy(
+        p17_capture.get("currentTrendStatus") == "attached",
+        "p17GatewayCacheBaselineRowAttachment currentTrendStatus must be attached",
+    )
+    p17_baseline_decision = p17_gateway_cache_baseline.get("decision") or {}
+    require_policy(p17_baseline_decision.get("result") == "hold", "p17GatewayCacheBaselineRowAttachment decision.result must be hold")
+    require_policy(p17_baseline_decision.get("selectedSurface") == "none", "p17GatewayCacheBaselineRowAttachment selectedSurface must be none")
+    require_policy(
+        p17_baseline_decision.get("allocationBlockingSurface") == "none",
+        "p17GatewayCacheBaselineRowAttachment allocationBlockingSurface must be none",
+    )
+    require_policy(p17_baseline_decision.get("latencyMode") == "report-only", "p17GatewayCacheBaselineRowAttachment latencyMode must be report-only")
+    require_policy(
+        p17_baseline_decision.get("baselineAttachmentStatus") == "attached",
+        "p17GatewayCacheBaselineRowAttachment baselineAttachmentStatus must be attached",
+    )
+    require_policy(
+        p17_baseline_decision.get("currentTrendAttachmentStatus") == "attached",
+        "p17GatewayCacheBaselineRowAttachment currentTrendAttachmentStatus must be attached",
+    )
+    require_policy(
+        p17_baseline_decision.get("promotionStatus") == "blocked",
+        "p17GatewayCacheBaselineRowAttachment promotionStatus must be blocked",
+    )
+    require_policy(
+        p17_baseline_decision.get("nextReviewGate") == "make bench-regression-check",
+        "p17GatewayCacheBaselineRowAttachment nextReviewGate mismatch",
+    )
+    for field in ("reason", "releaseNotePolicy"):
+        require_policy(
+            len(str(p17_baseline_decision.get(field) or "").split()) >= 20,
+            f"p17GatewayCacheBaselineRowAttachment decision.{field} must be actionable",
+        )
+    for forbidden_claim in ("allocation-blocking coverage", "blocking latency", "production performance parity"):
+        require_policy(
+            forbidden_claim in str(p17_baseline_decision.get("releaseNotePolicy") or ""),
+            f"p17GatewayCacheBaselineRowAttachment releaseNotePolicy must mention {forbidden_claim!r}",
+        )
+    p17_baseline_rows = {
+        item.get("benchmark"): item
+        for item in p17_gateway_cache_baseline.get("baselineRows") or []
+        if isinstance(item, dict) and item.get("benchmark")
+    }
+    require_policy(
+        set(p17_baseline_rows) == gateway_cache_candidate_names,
+        "p17GatewayCacheBaselineRowAttachment baselineRows mismatch",
+    )
+    for benchmark, item in p17_baseline_rows.items():
+        require_policy(item.get("sampleCount") == 5, f"{benchmark}: P17 baseline sampleCount must be five")
+        require_policy(float(item.get("nsPerOpMedian") or 0) > 0, f"{benchmark}: P17 baseline nsPerOpMedian must be positive")
+        require_policy(float(item.get("nsPerOpMin") or 0) > 0, f"{benchmark}: P17 baseline nsPerOpMin must be positive")
+        require_policy(float(item.get("nsPerOpMax") or 0) >= float(item.get("nsPerOpMedian") or 0), f"{benchmark}: P17 baseline nsPerOpMax must cover median")
+        require_policy(float(item.get("bytesPerOpMedian") or 0) >= 0, f"{benchmark}: P17 baseline bytesPerOpMedian must be non-negative")
+        require_policy(float(item.get("bytesPerOpMin") or 0) >= 0, f"{benchmark}: P17 baseline bytesPerOpMin must be non-negative")
+        require_policy(float(item.get("bytesPerOpMax") or 0) >= float(item.get("bytesPerOpMedian") or 0), f"{benchmark}: P17 baseline bytesPerOpMax must cover median")
+        require_policy(float(item.get("allocsPerOpMedian") or 0) >= 0, f"{benchmark}: P17 baseline allocsPerOpMedian must be non-negative")
+        require_policy(float(item.get("allocsPerOpMin") or 0) >= 0, f"{benchmark}: P17 baseline allocsPerOpMin must be non-negative")
+        require_policy(float(item.get("allocsPerOpMax") or 0) >= float(item.get("allocsPerOpMedian") or 0), f"{benchmark}: P17 baseline allocsPerOpMax must cover median")
+        require_policy(item.get("currentMode") == "report-only", f"{benchmark}: P17 baseline currentMode must be report-only")
+        require_policy(item.get("promotionStatus") == "blocked", f"{benchmark}: P17 baseline promotionStatus must be blocked")
+        require_policy(item.get("minimumBaselineSamples") == 5, f"{benchmark}: P17 baseline minimumBaselineSamples mismatch")
+        require_policy(item.get("minimumCurrentTrendSamples") == 3, f"{benchmark}: P17 baseline minimumCurrentTrendSamples mismatch")
+        require_policy(benchmark not in tracked, f"{benchmark}: P17 baseline candidate must stay out of trackedBenchmarks")
+        require_policy(benchmark not in promoted_latency, f"{benchmark}: P17 baseline latency must stay report-only")
+        for field in ("cacheModeNote", "rollbackAction"):
+            require_policy(
+                len(str(item.get(field) or "").split()) >= 10,
+                f"{benchmark}: P17 baseline {field} must be actionable",
+            )
+    p17_baseline_rules = set(p17_gateway_cache_baseline.get("attachmentRules") or [])
+    for rule in (
+        "P17 baseline attachment must include exactly five samples for each Gateway and Cache candidate row",
+        "P17 baseline attachment must not add Gateway or Cache rows to trackedBenchmarks",
+        "P17 baseline attachment must keep Gateway and Cache latency report-only",
+        "P17 baseline attachment must keep promotion blocked until P17-03 selects at most one allocation surface",
+        "P17 baseline attachment must not overwrite the existing tracked REST baseline artifact with a Gateway/Cache-only baseline",
+    ):
+        require_policy(rule in p17_baseline_rules, f"p17GatewayCacheBaselineRowAttachment attachmentRules missing {rule!r}")
+    for forbidden in (
+        "trackedBenchmarks Gateway entry",
+        "trackedBenchmarks Cache entry",
+        "blocking Gateway latency claim",
+        "blocking Cache latency claim",
+        "allocation-blocking Gateway claim",
+        "allocation-blocking Cache claim",
+        "production Gateway performance parity claim",
+        "production Cache performance parity claim",
+    ):
+        require_policy(
+            forbidden in set(p17_gateway_cache_baseline.get("forbiddenUntilCleared") or []),
+            f"p17GatewayCacheBaselineRowAttachment forbiddenUntilCleared missing {forbidden!r}",
         )
     p12_rules = set(p12_rpc_decision.get("blockingRules") or [])
     for rule in (

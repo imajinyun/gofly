@@ -143,13 +143,19 @@
     {
       "id": "GOFLY-P17-02-GATEWAY-CACHE-BASELINE-ROW-ATTACHMENT",
       "round": 2,
-      "status": "queued",
+      "status": "completed",
       "priority": 99,
       "title": "Gateway cache baseline row attachment",
       "objective": "Attach committed Gateway and Cache baseline rows so allocation deltas can be compared without using ignored local benchmark output as durable evidence.",
       "deliverable": "Gateway/cache baseline row attachment policy, five-sample baseline inventory, repeated current-trend compatibility note, and no-promotion guardrail.",
       "gate": "make bench-regression-check",
-      "commitPolicy": "commit after Gateway/Cache baseline row evidence passes bench-regression-check and remains outside trackedBenchmarks unless every promotion prerequisite is present"
+      "commitPolicy": "commit after Gateway/Cache baseline row evidence passes bench-regression-check and remains outside trackedBenchmarks unless every promotion prerequisite is present",
+      "commit": "pending-current-commit",
+      "verification": [
+        "make bench-regression-check",
+        "make governance-boundary-inventory-check",
+        "make governance-report-check"
+      ]
     },
     {
       "id": "GOFLY-P17-03-GATEWAY-CACHE-ALLOCATION-PROMOTION-DECISION",

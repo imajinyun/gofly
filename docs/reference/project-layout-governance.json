@@ -107,6 +107,74 @@
       }
     ]
   },
+  "rootFileBoundaries": {
+    "status": "blocking-contract",
+    "policy": "Every tracked root-level file must belong to exactly one ownership family. New root files are not allowed until this manifest and project-layout-governance-check are updated in the same change.",
+    "forbidUnknownRootFiles": true,
+    "families": [
+      {
+        "id": "module-definition",
+        "category": "module",
+        "purpose": "Go module identity, root dependency graph, pinned tool directives, and module checksum integrity.",
+        "gate": "make tidy",
+        "files": [
+          "go.mod",
+          "go.sum"
+        ]
+      },
+      {
+        "id": "developer-governance",
+        "category": "governance",
+        "purpose": "Repository automation workflow, agent operating rules, local quality targets, and developer editor conventions.",
+        "gate": "make project-layout-governance-check",
+        "files": [
+          ".editorconfig",
+          ".gitignore",
+          ".golangci.yml",
+          "AGENTS.md",
+          "Makefile",
+          "aiflow.yaml"
+        ]
+      },
+      {
+        "id": "release-supply-chain",
+        "category": "release",
+        "purpose": "Release packaging, distribution metadata, ownership review routing, changelog, and supply-chain security policy.",
+        "gate": "make release-snapshot",
+        "files": [
+          ".goreleaser.yaml",
+          ".goreleaser.yml",
+          "CHANGELOG.md",
+          "CODEOWNERS",
+          "SECURITY.md"
+        ]
+      },
+      {
+        "id": "container-build",
+        "category": "container",
+        "purpose": "Container build context, ignored Docker inputs, and image construction policy for release and CI evidence.",
+        "gate": "make release-config-check",
+        "files": [
+          ".dockerignore",
+          "Dockerfile"
+        ]
+      },
+      {
+        "id": "project-docs",
+        "category": "documentation",
+        "purpose": "Root-level project overview, roadmap, license, and contributor-facing community documentation.",
+        "gate": "make docs-check",
+        "files": [
+          "CODE_OF_CONDUCT.md",
+          "CONTRIBUTING.md",
+          "LICENSE",
+          "README.CN.md",
+          "README.md",
+          "ROADMAP.md"
+        ]
+      }
+    ]
+  },
   "scriptFamilyBoundaries": {
     "status": "blocking-contract",
     "root": "bin/scripts",

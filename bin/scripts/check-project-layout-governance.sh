@@ -130,6 +130,61 @@ require(
     "topLevelDirectoryBoundaries must not contain duplicate directory ids",
 )
 
+root_file_boundary = manifest.get("rootFileBoundaries") or {}
+require(root_file_boundary.get("status") == "blocking-contract", "rootFileBoundaries.status must be blocking-contract")
+require(
+    root_file_boundary.get("forbidUnknownRootFiles") is True,
+    "rootFileBoundaries must forbid unknown root files",
+)
+require(
+    "Every tracked root-level file" in str(root_file_boundary.get("policy") or ""),
+    "rootFileBoundaries policy must describe tracked root-level file handling",
+)
+tracked_root_files = sorted(
+    rel
+    for rel in subprocess.run(
+        ["git", "ls-files"],
+        cwd=root,
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+    ).stdout.splitlines()
+    if "/" not in rel
+)
+root_file_families = root_file_boundary.get("families") or []
+declared_root_files = []
+allowed_root_file_categories = {
+    "container",
+    "documentation",
+    "governance",
+    "module",
+    "release",
+}
+for family in root_file_families:
+    if not isinstance(family, dict):
+        missing.append(f"rootFileBoundaries family must be object: {family!r}")
+        continue
+    family_id = family.get("id", "")
+    files = family.get("files") or []
+    require(family_id, "root file family id is required")
+    require(family.get("category") in allowed_root_file_categories, f"root file family {family_id}: unknown category {family.get('category')!r}")
+    require(len(str(family.get("purpose") or "").split()) >= 8, f"root file family {family_id}: purpose must be descriptive")
+    require(gate_is_known(str(family.get("gate") or ""), targets), f"root file family {family_id}: gate is not known")
+    require(files, f"root file family {family_id}: files are required")
+    for filename in files:
+        declared_root_files.append(filename)
+        require("/" not in filename, f"root file family {family_id}: file must be a root-level path: {filename!r}")
+        require((root / filename).is_file(), f"root file family {family_id}: missing {filename}")
+require(
+    sorted(declared_root_files) == tracked_root_files,
+    "rootFileBoundaries must account for every tracked root-level file exactly once: "
+    f"declared={sorted(declared_root_files)!r}, actual={tracked_root_files!r}",
+)
+require(
+    len(declared_root_files) == len(set(declared_root_files)),
+    "rootFileBoundaries must not contain duplicate root files",
+)
+
 script_boundary = manifest.get("scriptFamilyBoundaries") or {}
 require(script_boundary.get("status") == "blocking-contract", "scriptFamilyBoundaries.status must be blocking-contract")
 require(script_boundary.get("root") == "bin/scripts", "scriptFamilyBoundaries.root must be bin/scripts")

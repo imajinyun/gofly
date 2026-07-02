@@ -1,0 +1,18 @@
+Name: billing-api
+Host: 0.0.0.0
+Port: 8082
+Timeout: 3000
+Auth:
+  AccessSecret: billing-replay-secret
+  AccessExpire: 3600
+InternalAuth:
+  AccessSecret: billing-internal-replay-secret
+  AccessExpire: 900
+DataSource: billing
+Cache:
+  Enabled: true
+  Redis:
+    Host: 127.0.0.1:6379
+Telemetry:
+  Trace:
+    Enabled: true

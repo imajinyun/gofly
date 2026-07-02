@@ -1,20 +1,20 @@
 syntax = "v1"
 
-type CreateOrderReq {
+type CreateOrderRequest {
   BuyerName string `json:"buyerName"`
   AmountCents int64 `json:"amountCents"`
 }
 
-type CreateOrderResp {
+type CreateOrderResponse {
   ID int64 `json:"id"`
   Status string `json:"status"`
 }
 
-type GetOrderReq {
+type GetOrderRequest {
   ID int64 `path:"id"`
 }
 
-type GetOrderResp {
+type GetOrderResponse {
   ID int64 `json:"id"`
   BuyerName string `json:"buyerName"`
   Status string `json:"status"`
@@ -23,8 +23,8 @@ type GetOrderResp {
 @server(group: orders prefix: /api/v1 jwt: Auth middlewares: auth,trace)
 service orders-api {
   @handler createOrder
-  post /orders (CreateOrderReq) returns (CreateOrderResp)
+  post /orders (CreateOrderRequest) returns (CreateOrderResponse)
 
   @handler getOrder
-  get /orders/:id (GetOrderReq) returns (GetOrderResp)
+  get /orders/:id (GetOrderRequest) returns (GetOrderResponse)
 }

@@ -30,9 +30,9 @@ func TestHTTPClientCall(t *testing.T) {
 	s := NewServer()
 	if err := s.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{
 		Name:       "SayHello",
-		NewRequest: func() any { return new(helloReq) },
+		NewRequest: func() any { return new(helloRequest) },
 		Handler: func(ctx context.Context, req any) (any, error) {
-			return helloResp{Message: "hello " + req.(*helloReq).Name}, nil
+			return helloResponse{Message: "hello " + req.(*helloRequest).Name}, nil
 		},
 	}}}, nil); err != nil {
 		t.Fatal(err)
@@ -43,8 +43,8 @@ func TestHTTPClientCall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var resp helloResp
-	if err := c.Call(context.Background(), "greeter/SayHello", helloReq{Name: "client"}, &resp); err != nil {
+	var resp helloResponse
+	if err := c.Call(context.Background(), "greeter/SayHello", helloRequest{Name: "client"}, &resp); err != nil {
 		t.Fatal(err)
 	}
 	if resp.Message != "hello client" {
@@ -56,9 +56,9 @@ func TestHTTPClientRuntimeSnapshotIncludesCallPhaseStats(t *testing.T) {
 	s := NewServer()
 	if err := s.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{
 		Name:       "Stats",
-		NewRequest: func() any { return new(helloReq) },
+		NewRequest: func() any { return new(helloRequest) },
 		Handler: func(ctx context.Context, req any) (any, error) {
-			return helloResp{Message: "stats"}, nil
+			return helloResponse{Message: "stats"}, nil
 		},
 	}}}, nil); err != nil {
 		t.Fatal(err)
@@ -69,8 +69,8 @@ func TestHTTPClientRuntimeSnapshotIncludesCallPhaseStats(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var resp helloResp
-	if err := c.Call(context.Background(), "greeter/Stats", helloReq{Name: "gofly"}, &resp); err != nil {
+	var resp helloResponse
+	if err := c.Call(context.Background(), "greeter/Stats", helloRequest{Name: "gofly"}, &resp); err != nil {
 		t.Fatal(err)
 	}
 	snapshot := c.RuntimeSnapshot()
@@ -91,9 +91,9 @@ func TestHTTPClientCallWithMetadata(t *testing.T) {
 	}))
 	if err := s.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{
 		Name:       "SayHello",
-		NewRequest: func() any { return new(helloReq) },
+		NewRequest: func() any { return new(helloRequest) },
 		Handler: func(ctx context.Context, req any) (any, error) {
-			return helloResp{Message: "hello " + req.(*helloReq).Name}, nil
+			return helloResponse{Message: "hello " + req.(*helloRequest).Name}, nil
 		},
 	}}}, nil); err != nil {
 		t.Fatal(err)
@@ -104,8 +104,8 @@ func TestHTTPClientCallWithMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var resp helloResp
-	md, err := c.CallWithMetadata(context.Background(), "greeter/SayHello", helloReq{Name: "client"}, &resp)
+	var resp helloResponse
+	md, err := c.CallWithMetadata(context.Background(), "greeter/SayHello", helloRequest{Name: "client"}, &resp)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,9 +126,9 @@ func TestHTTPClientCallRaw(t *testing.T) {
 	}))
 	if err := s.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{
 		Name:       "SayHello",
-		NewRequest: func() any { return new(helloReq) },
+		NewRequest: func() any { return new(helloRequest) },
 		Handler: func(ctx context.Context, req any) (any, error) {
-			return helloResp{Message: "hello " + req.(*helloReq).Name}, nil
+			return helloResponse{Message: "hello " + req.(*helloRequest).Name}, nil
 		},
 	}}}, nil); err != nil {
 		t.Fatal(err)
@@ -139,11 +139,11 @@ func TestHTTPClientCallRaw(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	payload, md, err := c.CallRaw(context.Background(), "greeter/SayHello", helloReq{Name: "raw"})
+	payload, md, err := c.CallRaw(context.Background(), "greeter/SayHello", helloRequest{Name: "raw"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	var resp helloResp
+	var resp helloResponse
 	if err := json.Unmarshal(payload, &resp); err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +159,7 @@ func TestHTTPClientCallRawReturnsRPCError(t *testing.T) {
 	s := NewServer()
 	if err := s.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{
 		Name:       "Missing",
-		NewRequest: func() any { return new(helloReq) },
+		NewRequest: func() any { return new(helloRequest) },
 		Handler: func(ctx context.Context, req any) (any, error) {
 			return nil, NewError(CodeNotFound, "missing")
 		},
@@ -172,7 +172,7 @@ func TestHTTPClientCallRawReturnsRPCError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	payload, md, err := c.CallRaw(context.Background(), "greeter/Missing", helloReq{})
+	payload, md, err := c.CallRaw(context.Background(), "greeter/Missing", helloRequest{})
 	if payload != nil || md != nil {
 		t.Fatalf("payload=%s metadata=%v, want nil results on error", string(payload), md)
 	}
@@ -188,11 +188,11 @@ func TestHTTPClientSingleflightDeduplicatesConcurrentCalls(t *testing.T) {
 	s := NewServer()
 	if err := s.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{
 		Name:       "SayHello",
-		NewRequest: func() any { return new(helloReq) },
+		NewRequest: func() any { return new(helloRequest) },
 		Handler: func(ctx context.Context, req any) (any, error) {
 			calls.Add(1)
 			<-gate
-			return helloResp{Message: "hello " + req.(*helloReq).Name}, nil
+			return helloResponse{Message: "hello " + req.(*helloRequest).Name}, nil
 		},
 	}}}, nil); err != nil {
 		t.Fatal(err)
@@ -201,7 +201,7 @@ func TestHTTPClientSingleflightDeduplicatesConcurrentCalls(t *testing.T) {
 	defer ts.Close()
 	c, err := NewClient(ts.URL,
 		WithClientSingleflightKey(func(ctx context.Context, method string, request any) (string, error) {
-			return method + ":" + request.(helloReq).Name, nil
+			return method + ":" + request.(helloRequest).Name, nil
 		}),
 	)
 	if err != nil {
@@ -210,13 +210,13 @@ func TestHTTPClientSingleflightDeduplicatesConcurrentCalls(t *testing.T) {
 
 	const workers = 12
 	var wg sync.WaitGroup
-	responses := make(chan helloResp, workers)
+	responses := make(chan helloResponse, workers)
 	for i := 0; i < workers; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			var resp helloResp
-			if err := c.Call(context.Background(), "greeter/SayHello", helloReq{Name: "shared"}, &resp); err != nil {
+			var resp helloResponse
+			if err := c.Call(context.Background(), "greeter/SayHello", helloRequest{Name: "shared"}, &resp); err != nil {
 				t.Errorf("Call: %v", err)
 				return
 			}
@@ -244,7 +244,7 @@ func TestHTTPClientMaxConcurrencyRejectsLocalOverload(t *testing.T) {
 	s := NewServer()
 	if err := s.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{
 		Name:       "Slow",
-		NewRequest: func() any { return new(helloReq) },
+		NewRequest: func() any { return new(helloRequest) },
 		Handler: func(ctx context.Context, req any) (any, error) {
 			calls.Add(1)
 			select {
@@ -252,7 +252,7 @@ func TestHTTPClientMaxConcurrencyRejectsLocalOverload(t *testing.T) {
 			default:
 			}
 			<-release
-			return helloResp{Message: "hello " + req.(*helloReq).Name}, nil
+			return helloResponse{Message: "hello " + req.(*helloRequest).Name}, nil
 		},
 	}}}, nil); err != nil {
 		t.Fatal(err)
@@ -266,13 +266,13 @@ func TestHTTPClientMaxConcurrencyRejectsLocalOverload(t *testing.T) {
 
 	firstErr := make(chan error, 1)
 	go func() {
-		var resp helloResp
-		firstErr <- c.Call(context.Background(), "greeter/Slow", helloReq{Name: "first"}, &resp)
+		var resp helloResponse
+		firstErr <- c.Call(context.Background(), "greeter/Slow", helloRequest{Name: "first"}, &resp)
 	}()
 	<-entered
 
-	var resp helloResp
-	err = c.Call(context.Background(), "greeter/Slow", helloReq{Name: "second"}, &resp)
+	var resp helloResponse
+	err = c.Call(context.Background(), "greeter/Slow", helloRequest{Name: "second"}, &resp)
 	var rpcErr *Error
 	if !errors.As(err, &rpcErr) || rpcErr.Code != CodeUnavailable {
 		t.Fatalf("second error = %v, want unavailable rpc error", err)
@@ -292,14 +292,14 @@ func TestHTTPServerMaxConcurrencyRejectsOverload(t *testing.T) {
 	s := NewServer(WithServerMaxConcurrency(1))
 	if err := s.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{
 		Name:       "Slow",
-		NewRequest: func() any { return new(helloReq) },
+		NewRequest: func() any { return new(helloRequest) },
 		Handler: func(ctx context.Context, req any) (any, error) {
 			select {
 			case entered <- struct{}{}:
 			default:
 			}
 			<-release
-			return helloResp{Message: "hello " + req.(*helloReq).Name}, nil
+			return helloResponse{Message: "hello " + req.(*helloRequest).Name}, nil
 		},
 	}}}, nil); err != nil {
 		t.Fatal(err)
@@ -313,13 +313,13 @@ func TestHTTPServerMaxConcurrencyRejectsOverload(t *testing.T) {
 
 	firstErr := make(chan error, 1)
 	go func() {
-		var resp helloResp
-		firstErr <- c.Call(context.Background(), "greeter/Slow", helloReq{Name: "first"}, &resp)
+		var resp helloResponse
+		firstErr <- c.Call(context.Background(), "greeter/Slow", helloRequest{Name: "first"}, &resp)
 	}()
 	<-entered
 
-	var resp helloResp
-	err = c.Call(context.Background(), "greeter/Slow", helloReq{Name: "second"}, &resp)
+	var resp helloResponse
+	err = c.Call(context.Background(), "greeter/Slow", helloRequest{Name: "second"}, &resp)
 	var rpcErr *Error
 	if !errors.As(err, &rpcErr) || rpcErr.Code != CodeUnavailable {
 		t.Fatalf("second error = %v, want unavailable rpc error", err)
@@ -334,7 +334,7 @@ func TestHTTPClientReceivesRPCErrorCode(t *testing.T) {
 	s := NewServer()
 	if err := s.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{
 		Name:       "Missing",
-		NewRequest: func() any { return new(helloReq) },
+		NewRequest: func() any { return new(helloRequest) },
 		Handler: func(ctx context.Context, req any) (any, error) {
 			return nil, NewError(CodeNotFound, "missing")
 		},
@@ -347,8 +347,8 @@ func TestHTTPClientReceivesRPCErrorCode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var resp helloResp
-	err = c.Call(context.Background(), "greeter/Missing", helloReq{Name: "client"}, &resp)
+	var resp helloResponse
+	err = c.Call(context.Background(), "greeter/Missing", helloRequest{Name: "client"}, &resp)
 	var rpcErr *Error
 	if !errors.As(err, &rpcErr) {
 		t.Fatalf("error = %T, want *Error", err)
@@ -367,7 +367,7 @@ func TestHTTPClientTraceMiddlewareSendsTraceMetadata(t *testing.T) {
 			t.Fatal(err)
 		}
 		got = env.Metadata
-		_ = json.NewEncoder(w).Encode(responseEnvelope{Payload: helloResp{Message: "ok"}, Code: CodeOK})
+		_ = json.NewEncoder(w).Encode(responseEnvelope{Payload: helloResponse{Message: "ok"}, Code: CodeOK})
 	}))
 	defer ts.Close()
 
@@ -376,8 +376,8 @@ func TestHTTPClientTraceMiddlewareSendsTraceMetadata(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := metadata.Append(context.Background(), trace.TraceParentHeader, parent)
-	var resp helloResp
-	if err := c.Call(ctx, "greeter/SayHello", helloReq{Name: "client"}, &resp); err != nil {
+	var resp helloResponse
+	if err := c.Call(ctx, "greeter/SayHello", helloRequest{Name: "client"}, &resp); err != nil {
 		t.Fatal(err)
 	}
 	traceParent := got.Get(trace.TraceParentHeader)
@@ -481,9 +481,9 @@ func TestHTTPClientHealthBalancerFailover(t *testing.T) {
 	success := NewServer()
 	if err := success.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{
 		Name:       "SayHello",
-		NewRequest: func() any { return new(helloReq) },
+		NewRequest: func() any { return new(helloRequest) },
 		Handler: func(ctx context.Context, req any) (any, error) {
-			return helloResp{Message: "hello " + req.(*helloReq).Name}, nil
+			return helloResponse{Message: "hello " + req.(*helloRequest).Name}, nil
 		},
 	}}}, nil); err != nil {
 		t.Fatal(err)
@@ -500,8 +500,8 @@ func TestHTTPClientHealthBalancerFailover(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var resp helloResp
-	if err := client.Call(context.Background(), "greeter/SayHello", helloReq{Name: "gofly"}, &resp); err != nil {
+	var resp helloResponse
+	if err := client.Call(context.Background(), "greeter/SayHello", helloRequest{Name: "gofly"}, &resp); err != nil {
 		t.Fatal(err)
 	}
 	if resp.Message != "hello gofly" {
@@ -517,13 +517,13 @@ func TestHTTPClientGovernanceRuleSetAppliesMetadataAndRetry(t *testing.T) {
 	s := NewServer()
 	if err := s.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{
 		Name:       "SayHello",
-		NewRequest: func() any { return new(helloReq) },
+		NewRequest: func() any { return new(helloRequest) },
 		Handler: func(ctx context.Context, req any) (any, error) {
 			if calls.Add(1) == 1 {
 				return nil, NewError(CodeUnavailable, "try again")
 			}
 			md, _ := metadata.FromContext(ctx)
-			return helloResp{Message: md.Get("x-governance")}, nil
+			return helloResponse{Message: md.Get("x-governance")}, nil
 		},
 	}}}, nil); err != nil {
 		t.Fatal(err)
@@ -543,8 +543,8 @@ func TestHTTPClientGovernanceRuleSetAppliesMetadataAndRetry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var resp helloResp
-	if err := c.Call(context.Background(), "greeter/SayHello", helloReq{Name: "gofly"}, &resp); err != nil {
+	var resp helloResponse
+	if err := c.Call(context.Background(), "greeter/SayHello", helloRequest{Name: "gofly"}, &resp); err != nil {
 		t.Fatal(err)
 	}
 	if resp.Message != "on" || calls.Load() != 2 {
@@ -562,8 +562,8 @@ func TestHTTPClientGovernanceRuleSetAppliesMetadataAndRetry(t *testing.T) {
 			Metadata: map[string]string{"x-governance": "hot"},
 		},
 	})
-	resp = helloResp{}
-	if err := c.Call(context.Background(), "greeter/SayHello", helloReq{Name: "gofly"}, &resp); err != nil {
+	resp = helloResponse{}
+	if err := c.Call(context.Background(), "greeter/SayHello", helloRequest{Name: "gofly"}, &resp); err != nil {
 		t.Fatal(err)
 	}
 	if resp.Message != "hot" {
@@ -575,10 +575,10 @@ func TestHTTPClientGovernanceRuleSetMatchesClientTags(t *testing.T) {
 	s := NewServer()
 	if err := s.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{
 		Name:       "SayHello",
-		NewRequest: func() any { return new(helloReq) },
+		NewRequest: func() any { return new(helloRequest) },
 		Handler: func(ctx context.Context, req any) (any, error) {
 			md, _ := metadata.FromContext(ctx)
-			return helloResp{Message: md.Get("x-client-rule")}, nil
+			return helloResponse{Message: md.Get("x-client-rule")}, nil
 		},
 	}}}, nil); err != nil {
 		t.Fatal(err)
@@ -602,8 +602,8 @@ func TestHTTPClientGovernanceRuleSetMatchesClientTags(t *testing.T) {
 	}
 	tags["env"] = "staging"
 
-	var resp helloResp
-	if err := c.Call(context.Background(), "greeter/SayHello", helloReq{Name: "gofly"}, &resp); err != nil {
+	var resp helloResponse
+	if err := c.Call(context.Background(), "greeter/SayHello", helloRequest{Name: "gofly"}, &resp); err != nil {
 		t.Fatal(err)
 	}
 	if resp.Message != "tagged" {
@@ -615,10 +615,10 @@ func TestHTTPClientGovernanceCanaryMatchesOutgoingMetadata(t *testing.T) {
 	s := NewServer()
 	if err := s.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{
 		Name:       "SayHello",
-		NewRequest: func() any { return new(helloReq) },
+		NewRequest: func() any { return new(helloRequest) },
 		Handler: func(ctx context.Context, req any) (any, error) {
 			md, _ := metadata.FromContext(ctx)
-			return helloResp{Message: md.Get(governance.HeaderCanary) + ":" + md.Get("x-lane")}, nil
+			return helloResponse{Message: md.Get(governance.HeaderCanary) + ":" + md.Get("x-lane")}, nil
 		},
 	}}}, nil); err != nil {
 		t.Fatal(err)
@@ -643,8 +643,8 @@ func TestHTTPClientGovernanceCanaryMatchesOutgoingMetadata(t *testing.T) {
 	}
 
 	ctx := metadata.Append(context.Background(), "x-tenant", "beta")
-	var resp helloResp
-	if err := c.Call(ctx, "greeter/SayHello", helloReq{Name: "gofly"}, &resp); err != nil {
+	var resp helloResponse
+	if err := c.Call(ctx, "greeter/SayHello", helloRequest{Name: "gofly"}, &resp); err != nil {
 		t.Fatal(err)
 	}
 	if resp.Message != "true:beta" {
@@ -657,10 +657,10 @@ func TestHTTPClientGovernanceRuleRuntimeRateLimit(t *testing.T) {
 	s := NewServer()
 	if err := s.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{
 		Name:       "SayHello",
-		NewRequest: func() any { return new(helloReq) },
+		NewRequest: func() any { return new(helloRequest) },
 		Handler: func(ctx context.Context, req any) (any, error) {
 			calls.Add(1)
-			return helloResp{Message: "hello"}, nil
+			return helloResponse{Message: "hello"}, nil
 		},
 	}}}, nil); err != nil {
 		t.Fatal(err)
@@ -681,11 +681,11 @@ func TestHTTPClientGovernanceRuleRuntimeRateLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var resp helloResp
-	if err := c.Call(context.Background(), "greeter/SayHello", helloReq{Name: "first"}, &resp); err != nil {
+	var resp helloResponse
+	if err := c.Call(context.Background(), "greeter/SayHello", helloRequest{Name: "first"}, &resp); err != nil {
 		t.Fatalf("first call: %v", err)
 	}
-	err = c.Call(context.Background(), "greeter/SayHello", helloReq{Name: "second"}, &resp)
+	err = c.Call(context.Background(), "greeter/SayHello", helloRequest{Name: "second"}, &resp)
 	var rpcErr *Error
 	if !errors.As(err, &rpcErr) || rpcErr.Code != CodeResourceExhausted {
 		t.Fatalf("second error = %v, want resource exhausted rpc error", err)
@@ -702,7 +702,7 @@ func TestHTTPClientGovernanceRuleRuntimeConcurrencyLimit(t *testing.T) {
 	s := NewServer()
 	if err := s.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{
 		Name:       "Slow",
-		NewRequest: func() any { return new(helloReq) },
+		NewRequest: func() any { return new(helloRequest) },
 		Handler: func(ctx context.Context, req any) (any, error) {
 			calls.Add(1)
 			select {
@@ -710,7 +710,7 @@ func TestHTTPClientGovernanceRuleRuntimeConcurrencyLimit(t *testing.T) {
 			default:
 			}
 			<-release
-			return helloResp{Message: "hello"}, nil
+			return helloResponse{Message: "hello"}, nil
 		},
 	}}}, nil); err != nil {
 		t.Fatal(err)
@@ -733,8 +733,8 @@ func TestHTTPClientGovernanceRuleRuntimeConcurrencyLimit(t *testing.T) {
 
 	firstErr := make(chan error, 1)
 	go func() {
-		var resp helloResp
-		firstErr <- c.Call(context.Background(), "greeter/Slow", helloReq{Name: "first"}, &resp)
+		var resp helloResponse
+		firstErr <- c.Call(context.Background(), "greeter/Slow", helloRequest{Name: "first"}, &resp)
 	}()
 	select {
 	case <-entered:
@@ -743,8 +743,8 @@ func TestHTTPClientGovernanceRuleRuntimeConcurrencyLimit(t *testing.T) {
 		t.Fatal("timed out waiting for first request to enter handler")
 	}
 
-	var resp helloResp
-	err = c.Call(context.Background(), "greeter/Slow", helloReq{Name: "second"}, &resp)
+	var resp helloResponse
+	err = c.Call(context.Background(), "greeter/Slow", helloRequest{Name: "second"}, &resp)
 	var rpcErr *Error
 	if !errors.As(err, &rpcErr) || rpcErr.Code != CodeUnavailable {
 		close(release)
@@ -765,7 +765,7 @@ func TestHTTPClientGovernanceRuleRuntimeBreaker(t *testing.T) {
 	s := NewServer()
 	if err := s.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{
 		Name:       "Unstable",
-		NewRequest: func() any { return new(helloReq) },
+		NewRequest: func() any { return new(helloRequest) },
 		Handler: func(ctx context.Context, req any) (any, error) {
 			calls.Add(1)
 			return nil, NewError(CodeInternal, "boom")
@@ -789,15 +789,15 @@ func TestHTTPClientGovernanceRuleRuntimeBreaker(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var resp helloResp
+	var resp helloResponse
 	for i := 1; i <= 2; i++ {
-		err = c.Call(context.Background(), "greeter/Unstable", helloReq{Name: "gofly"}, &resp)
+		err = c.Call(context.Background(), "greeter/Unstable", helloRequest{Name: "gofly"}, &resp)
 		var rpcErr *Error
 		if !errors.As(err, &rpcErr) || rpcErr.Code != CodeInternal {
 			t.Fatalf("call %d error = %v, want internal rpc error", i, err)
 		}
 	}
-	err = c.Call(context.Background(), "greeter/Unstable", helloReq{Name: "gofly"}, &resp)
+	err = c.Call(context.Background(), "greeter/Unstable", helloRequest{Name: "gofly"}, &resp)
 	var rpcErr *Error
 	if !errors.As(err, &rpcErr) || rpcErr.Code != CodeUnavailable {
 		t.Fatalf("third error = %v, want unavailable rpc error", err)
@@ -812,7 +812,7 @@ func TestHTTPClientGovernanceRuleRuntimeTimeout(t *testing.T) {
 	s := NewServer()
 	if err := s.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{
 		Name:       "Slow",
-		NewRequest: func() any { return new(helloReq) },
+		NewRequest: func() any { return new(helloRequest) },
 		Handler: func(ctx context.Context, req any) (any, error) {
 			select {
 			case <-started:
@@ -841,8 +841,8 @@ func TestHTTPClientGovernanceRuleRuntimeTimeout(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var resp helloResp
-	err = c.Call(context.Background(), "greeter/Slow", helloReq{Name: "gofly"}, &resp)
+	var resp helloResponse
+	err = c.Call(context.Background(), "greeter/Slow", helloRequest{Name: "gofly"}, &resp)
 	var rpcErr *Error
 	if !errors.As(err, &rpcErr) || rpcErr.Code != CodeDeadlineExceeded {
 		t.Fatalf("error = %v, want deadline exceeded rpc error", err)
@@ -859,7 +859,7 @@ func TestHTTPClientRPCPolicyRuntimeTimeout(t *testing.T) {
 	s := NewServer()
 	if err := s.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{
 		Name:       "SlowPolicy",
-		NewRequest: func() any { return new(helloReq) },
+		NewRequest: func() any { return new(helloRequest) },
 		Handler: func(ctx context.Context, req any) (any, error) {
 			select {
 			case <-started:
@@ -882,8 +882,8 @@ func TestHTTPClientRPCPolicyRuntimeTimeout(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var resp helloResp
-	err = c.Call(context.Background(), "greeter/SlowPolicy", helloReq{Name: "gofly"}, &resp)
+	var resp helloResponse
+	err = c.Call(context.Background(), "greeter/SlowPolicy", helloRequest{Name: "gofly"}, &resp)
 	var rpcErr *Error
 	if !errors.As(err, &rpcErr) || rpcErr.Code != CodeDeadlineExceeded {
 		t.Fatalf("error = %v, want deadline exceeded rpc error", err)
@@ -901,12 +901,12 @@ func TestHTTPClientRPCPolicyRuntimeRetryAndCancel(t *testing.T) {
 		s := NewServer()
 		if err := s.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{
 			Name:       "RetryPolicy",
-			NewRequest: func() any { return new(helloReq) },
+			NewRequest: func() any { return new(helloRequest) },
 			Handler: func(ctx context.Context, req any) (any, error) {
 				if calls.Add(1) == 1 {
 					return nil, NewError(CodeUnavailable, "try again")
 				}
-				return helloResp{Message: "ok"}, nil
+				return helloResponse{Message: "ok"}, nil
 			},
 		}}}, nil); err != nil {
 			t.Fatal(err)
@@ -921,8 +921,8 @@ func TestHTTPClientRPCPolicyRuntimeRetryAndCancel(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		var resp helloResp
-		if err := c.Call(context.Background(), "greeter/RetryPolicy", helloReq{Name: "gofly"}, &resp); err != nil {
+		var resp helloResponse
+		if err := c.Call(context.Background(), "greeter/RetryPolicy", helloRequest{Name: "gofly"}, &resp); err != nil {
 			t.Fatalf("Call: %v", err)
 		}
 		if resp.Message != "ok" || calls.Load() != 2 {
@@ -935,12 +935,12 @@ func TestHTTPClientRPCPolicyRuntimeRetryAndCancel(t *testing.T) {
 		s := NewServer()
 		if err := s.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{
 			Name:       "MethodRetryPolicy",
-			NewRequest: func() any { return new(helloReq) },
+			NewRequest: func() any { return new(helloRequest) },
 			Handler: func(ctx context.Context, req any) (any, error) {
 				if calls.Add(1) == 1 {
 					return nil, NewError(CodeUnavailable, "try again")
 				}
-				return helloResp{Message: "method ok"}, nil
+				return helloResponse{Message: "method ok"}, nil
 			},
 		}}}, nil); err != nil {
 			t.Fatal(err)
@@ -961,8 +961,8 @@ func TestHTTPClientRPCPolicyRuntimeRetryAndCancel(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		var resp helloResp
-		if err := c.Call(context.Background(), "/greeter/MethodRetryPolicy", helloReq{Name: "gofly"}, &resp); err != nil {
+		var resp helloResponse
+		if err := c.Call(context.Background(), "/greeter/MethodRetryPolicy", helloRequest{Name: "gofly"}, &resp); err != nil {
 			t.Fatalf("Call: %v", err)
 		}
 		if resp.Message != "method ok" || calls.Load() != 2 {
@@ -975,7 +975,7 @@ func TestHTTPClientRPCPolicyRuntimeRetryAndCancel(t *testing.T) {
 		s := NewServer()
 		if err := s.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{
 			Name:       "CancelRetryPolicy",
-			NewRequest: func() any { return new(helloReq) },
+			NewRequest: func() any { return new(helloRequest) },
 			Handler: func(ctx context.Context, req any) (any, error) {
 				calls.Add(1)
 				return nil, NewError(CodeUnavailable, "try again")
@@ -995,8 +995,8 @@ func TestHTTPClientRPCPolicyRuntimeRetryAndCancel(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		time.AfterFunc(10*time.Millisecond, cancel)
-		var resp helloResp
-		err = c.Call(ctx, "greeter/CancelRetryPolicy", helloReq{Name: "gofly"}, &resp)
+		var resp helloResponse
+		err = c.Call(ctx, "greeter/CancelRetryPolicy", helloRequest{Name: "gofly"}, &resp)
 		var rpcErr *Error
 		if !errors.As(err, &rpcErr) || rpcErr.Code != CodeCanceled {
 			t.Fatalf("error = %v, want canceled rpc error", err)
@@ -1012,7 +1012,7 @@ func TestHTTPClientRPCPolicyRuntimeBreaker(t *testing.T) {
 	s := NewServer()
 	if err := s.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{
 		Name:       "BreakerPolicy",
-		NewRequest: func() any { return new(helloReq) },
+		NewRequest: func() any { return new(helloRequest) },
 		Handler: func(ctx context.Context, req any) (any, error) {
 			calls.Add(1)
 			return nil, NewError(CodeInternal, "boom")
@@ -1030,15 +1030,15 @@ func TestHTTPClientRPCPolicyRuntimeBreaker(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var resp helloResp
+	var resp helloResponse
 	for i := 1; i <= 2; i++ {
-		err = c.Call(context.Background(), "greeter/BreakerPolicy", helloReq{Name: "gofly"}, &resp)
+		err = c.Call(context.Background(), "greeter/BreakerPolicy", helloRequest{Name: "gofly"}, &resp)
 		var rpcErr *Error
 		if !errors.As(err, &rpcErr) || rpcErr.Code != CodeInternal {
 			t.Fatalf("call %d error = %v, want internal rpc error", i, err)
 		}
 	}
-	err = c.Call(context.Background(), "greeter/BreakerPolicy", helloReq{Name: "gofly"}, &resp)
+	err = c.Call(context.Background(), "greeter/BreakerPolicy", helloRequest{Name: "gofly"}, &resp)
 	var rpcErr *Error
 	if !errors.As(err, &rpcErr) || rpcErr.Code != CodeUnavailable {
 		t.Fatalf("third error = %v, want unavailable rpc error", err)
@@ -1052,9 +1052,9 @@ func TestHTTPClientRPCPolicyRuntimeWeightedBalancer(t *testing.T) {
 	serverA := NewServer()
 	if err := serverA.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{
 		Name:       "BalancePolicy",
-		NewRequest: func() any { return new(helloReq) },
+		NewRequest: func() any { return new(helloRequest) },
 		Handler: func(ctx context.Context, req any) (any, error) {
-			return helloResp{Message: "a"}, nil
+			return helloResponse{Message: "a"}, nil
 		},
 	}}}, nil); err != nil {
 		t.Fatal(err)
@@ -1065,9 +1065,9 @@ func TestHTTPClientRPCPolicyRuntimeWeightedBalancer(t *testing.T) {
 	serverB := NewServer()
 	if err := serverB.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{
 		Name:       "BalancePolicy",
-		NewRequest: func() any { return new(helloReq) },
+		NewRequest: func() any { return new(helloRequest) },
 		Handler: func(ctx context.Context, req any) (any, error) {
-			return helloResp{Message: "b"}, nil
+			return helloResponse{Message: "b"}, nil
 		},
 	}}}, nil); err != nil {
 		t.Fatal(err)
@@ -1088,8 +1088,8 @@ func TestHTTPClientRPCPolicyRuntimeWeightedBalancer(t *testing.T) {
 
 	counts := map[string]int{}
 	for i := 0; i < 4; i++ {
-		var resp helloResp
-		if err := c.Call(context.Background(), "greeter/BalancePolicy", helloReq{Name: "gofly"}, &resp); err != nil {
+		var resp helloResponse
+		if err := c.Call(context.Background(), "greeter/BalancePolicy", helloRequest{Name: "gofly"}, &resp); err != nil {
 			t.Fatalf("Call %d: %v", i, err)
 		}
 		counts[resp.Message]++
@@ -1105,7 +1105,7 @@ func TestHTTPClientRPCPolicyRuntimeLoadShedder(t *testing.T) {
 	s := NewServer()
 	if err := s.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{
 		Name:       "LoadShedPolicy",
-		NewRequest: func() any { return new(helloReq) },
+		NewRequest: func() any { return new(helloRequest) },
 		Handler: func(ctx context.Context, req any) (any, error) {
 			select {
 			case <-started:
@@ -1114,7 +1114,7 @@ func TestHTTPClientRPCPolicyRuntimeLoadShedder(t *testing.T) {
 			}
 			select {
 			case <-release:
-				return helloResp{Message: "ok"}, nil
+				return helloResponse{Message: "ok"}, nil
 			case <-ctx.Done():
 				return nil, ctx.Err()
 			}
@@ -1133,16 +1133,16 @@ func TestHTTPClientRPCPolicyRuntimeLoadShedder(t *testing.T) {
 
 	firstErr := make(chan error, 1)
 	go func() {
-		var resp helloResp
-		firstErr <- c.Call(context.Background(), "greeter/LoadShedPolicy", helloReq{Name: "first"}, &resp)
+		var resp helloResponse
+		firstErr <- c.Call(context.Background(), "greeter/LoadShedPolicy", helloRequest{Name: "first"}, &resp)
 	}()
 	select {
 	case <-started:
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for first call")
 	}
-	var resp helloResp
-	err = c.Call(context.Background(), "greeter/LoadShedPolicy", helloReq{Name: "second"}, &resp)
+	var resp helloResponse
+	err = c.Call(context.Background(), "greeter/LoadShedPolicy", helloRequest{Name: "second"}, &resp)
 	var rpcErr *Error
 	if !errors.As(err, &rpcErr) || rpcErr.Code != CodeResourceExhausted {
 		t.Fatalf("second error = %v, want resource exhausted load shedding error", err)
@@ -1183,10 +1183,10 @@ func TestHTTPClientRPCPolicyRuntimeFallback(t *testing.T) {
 	fallback := NewServer()
 	if err := fallback.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{
 		Name:       "FallbackPolicy",
-		NewRequest: func() any { return new(helloReq) },
+		NewRequest: func() any { return new(helloRequest) },
 		Handler: func(ctx context.Context, req any) (any, error) {
 			fallbackCalls.Add(1)
-			return helloResp{Message: "fallback"}, nil
+			return helloResponse{Message: "fallback"}, nil
 		},
 	}}}, nil); err != nil {
 		t.Fatal(err)
@@ -1201,8 +1201,8 @@ func TestHTTPClientRPCPolicyRuntimeFallback(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var resp helloResp
-	if err := c.Call(context.Background(), "greeter/FallbackPolicy", helloReq{Name: "gofly"}, &resp); err != nil {
+	var resp helloResponse
+	if err := c.Call(context.Background(), "greeter/FallbackPolicy", helloRequest{Name: "gofly"}, &resp); err != nil {
 		t.Fatalf("Call: %v", err)
 	}
 	if resp.Message != "fallback" || fallbackCalls.Load() != 1 {
@@ -1219,17 +1219,17 @@ func TestHTTPClientRPCPolicyRuntimeHedge(t *testing.T) {
 	s := NewServer()
 	if err := s.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{
 		Name:       "HedgePolicy",
-		NewRequest: func() any { return new(helloReq) },
+		NewRequest: func() any { return new(helloRequest) },
 		Handler: func(ctx context.Context, req any) (any, error) {
 			if calls.Add(1) == 1 {
 				select {
 				case <-time.After(100 * time.Millisecond):
-					return helloResp{Message: "primary"}, nil
+					return helloResponse{Message: "primary"}, nil
 				case <-ctx.Done():
 					return nil, ctx.Err()
 				}
 			}
-			return helloResp{Message: "hedge"}, nil
+			return helloResponse{Message: "hedge"}, nil
 		},
 	}}}, nil); err != nil {
 		t.Fatal(err)
@@ -1243,8 +1243,8 @@ func TestHTTPClientRPCPolicyRuntimeHedge(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var resp helloResp
-	if err := c.Call(context.Background(), "greeter/HedgePolicy", helloReq{Name: "gofly"}, &resp); err != nil {
+	var resp helloResponse
+	if err := c.Call(context.Background(), "greeter/HedgePolicy", helloRequest{Name: "gofly"}, &resp); err != nil {
 		t.Fatalf("Call: %v", err)
 	}
 	if resp.Message != "hedge" || calls.Load() < 2 {
@@ -1378,7 +1378,7 @@ func TestHTTPClientDynamicRPCPolicyProviderOverridesRuntime(t *testing.T) {
 	s := NewServer()
 	if err := s.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{
 		Name:       "DynamicPolicy",
-		NewRequest: func() any { return new(helloReq) },
+		NewRequest: func() any { return new(helloRequest) },
 		Handler: func(ctx context.Context, req any) (any, error) {
 			select {
 			case <-started:
@@ -1410,8 +1410,8 @@ func TestHTTPClientDynamicRPCPolicyProviderOverridesRuntime(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var resp helloResp
-	err = c.Call(context.Background(), "greeter/DynamicPolicy", helloReq{Name: "gofly"}, &resp)
+	var resp helloResponse
+	err = c.Call(context.Background(), "greeter/DynamicPolicy", helloRequest{Name: "gofly"}, &resp)
 	var rpcErr *Error
 	if !errors.As(err, &rpcErr) || rpcErr.Code != CodeDeadlineExceeded {
 		t.Fatalf("error = %v, want deadline exceeded from dynamic policy", err)
@@ -2074,9 +2074,9 @@ func TestRPCAuthMiddleware(t *testing.T) {
 	s := NewServer(WithServerMiddleware(ServerAuthMiddleware(auth.StaticTokenValidator("secret", "rpc-user"))))
 	if err := s.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{
 		Name:       "WhoAmI",
-		NewRequest: func() any { return new(helloReq) },
+		NewRequest: func() any { return new(helloRequest) },
 		Handler: func(ctx context.Context, req any) (any, error) {
-			return helloResp{Message: auth.SubjectFromContext(ctx)}, nil
+			return helloResponse{Message: auth.SubjectFromContext(ctx)}, nil
 		},
 	}}}, nil); err != nil {
 		t.Fatal(err)
@@ -2087,8 +2087,8 @@ func TestRPCAuthMiddleware(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var resp helloResp
-	err = unauthorized.Call(context.Background(), "greeter/WhoAmI", helloReq{}, &resp)
+	var resp helloResponse
+	err = unauthorized.Call(context.Background(), "greeter/WhoAmI", helloRequest{}, &resp)
 	var rpcErr *Error
 	if !errors.As(err, &rpcErr) || rpcErr.Code != CodeUnauthenticated {
 		t.Fatalf("unauthorized error = %v, want unauthenticated", err)
@@ -2097,7 +2097,7 @@ func TestRPCAuthMiddleware(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := authorized.Call(context.Background(), "greeter/WhoAmI", helloReq{}, &resp); err != nil {
+	if err := authorized.Call(context.Background(), "greeter/WhoAmI", helloRequest{}, &resp); err != nil {
 		t.Fatal(err)
 	}
 	if resp.Message != "rpc-user" {
@@ -2117,7 +2117,7 @@ func TestGovernanceSuiteAddsRequestIDTraceAndAuth(t *testing.T) {
 	s := NewServer(WithServerSuite(suite))
 	if err := s.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{
 		Name:       "WhoAmI",
-		NewRequest: func() any { return new(helloReq) },
+		NewRequest: func() any { return new(helloRequest) },
 		Handler: func(ctx context.Context, req any) (any, error) {
 			if metadata.RequestIDFromContext(ctx) == "" {
 				t.Fatal("request id should be set")
@@ -2125,7 +2125,7 @@ func TestGovernanceSuiteAddsRequestIDTraceAndAuth(t *testing.T) {
 			if _, ok := trace.FromContext(ctx); !ok {
 				t.Fatal("trace context should be set")
 			}
-			return helloResp{Message: auth.SubjectFromContext(ctx)}, nil
+			return helloResponse{Message: auth.SubjectFromContext(ctx)}, nil
 		},
 	}}}, nil); err != nil {
 		t.Fatal(err)
@@ -2136,8 +2136,8 @@ func TestGovernanceSuiteAddsRequestIDTraceAndAuth(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var resp helloResp
-	md, err := c.CallWithMetadata(context.Background(), "greeter/WhoAmI", helloReq{}, &resp)
+	var resp helloResponse
+	md, err := c.CallWithMetadata(context.Background(), "greeter/WhoAmI", helloRequest{}, &resp)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2162,7 +2162,7 @@ func TestGovernanceSuiteCanWireAdaptiveBreaker(t *testing.T) {
 	s := NewServer(WithServerSuite(suite))
 	if err := s.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{
 		Name:       "Unstable",
-		NewRequest: func() any { return new(helloReq) },
+		NewRequest: func() any { return new(helloRequest) },
 		Handler: func(ctx context.Context, req any) (any, error) {
 			return nil, NewError(CodeInternal, "boom")
 		},
@@ -2175,11 +2175,11 @@ func TestGovernanceSuiteCanWireAdaptiveBreaker(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var resp helloResp
-	if err := c.Call(context.Background(), "greeter/Unstable", helloReq{}, &resp); err == nil || CodeOf(err) != CodeInternal {
+	var resp helloResponse
+	if err := c.Call(context.Background(), "greeter/Unstable", helloRequest{}, &resp); err == nil || CodeOf(err) != CodeInternal {
 		t.Fatalf("first error = %v, want internal", err)
 	}
-	if err := c.Call(context.Background(), "greeter/Unstable", helloReq{}, &resp); err == nil || CodeOf(err) != CodeUnavailable {
+	if err := c.Call(context.Background(), "greeter/Unstable", helloRequest{}, &resp); err == nil || CodeOf(err) != CodeUnavailable {
 		t.Fatalf("second error = %v, want unavailable", err)
 	}
 }
@@ -2229,9 +2229,9 @@ func TestRPCMetadataPropagationAndSuite(t *testing.T) {
 	s := NewServer(WithServerSuite(suite))
 	if err := s.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{
 		Name:       "SayHello",
-		NewRequest: func() any { return new(helloReq) },
+		NewRequest: func() any { return new(helloRequest) },
 		Handler: func(ctx context.Context, req any) (any, error) {
-			return helloResp{Message: metadata.RequestIDFromContext(ctx)}, nil
+			return helloResponse{Message: metadata.RequestIDFromContext(ctx)}, nil
 		},
 	}}}, nil); err != nil {
 		t.Fatal(err)
@@ -2243,8 +2243,8 @@ func TestRPCMetadataPropagationAndSuite(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := metadata.Append(context.Background(), metadata.RequestIDKey, "rid-rpc")
-	var resp helloResp
-	if err := c.Call(ctx, "greeter/SayHello", helloReq{}, &resp); err != nil {
+	var resp helloResponse
+	if err := c.Call(ctx, "greeter/SayHello", helloRequest{}, &resp); err != nil {
 		t.Fatal(err)
 	}
 	if resp.Message != "rid-rpc" {
@@ -2260,7 +2260,7 @@ func TestHTTPClientAdaptiveBreaker(t *testing.T) {
 	s := NewServer()
 	if err := s.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{
 		Name:       "Fail",
-		NewRequest: func() any { return new(helloReq) },
+		NewRequest: func() any { return new(helloRequest) },
 		Handler: func(ctx context.Context, req any) (any, error) {
 			calls++
 			return nil, NewError(CodeInternal, "boom")
@@ -2281,11 +2281,11 @@ func TestHTTPClientAdaptiveBreaker(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var resp helloResp
-	if err := c.Call(context.Background(), "greeter/Fail", helloReq{}, &resp); err == nil {
+	var resp helloResponse
+	if err := c.Call(context.Background(), "greeter/Fail", helloRequest{}, &resp); err == nil {
 		t.Fatal("first call error is nil, want failure")
 	}
-	err = c.Call(context.Background(), "greeter/Fail", helloReq{}, &resp)
+	err = c.Call(context.Background(), "greeter/Fail", helloRequest{}, &resp)
 	var rpcErr *Error
 	if !errors.As(err, &rpcErr) || rpcErr.Code != CodeUnavailable {
 		t.Fatalf("second error = %v, want unavailable rpc error", err)

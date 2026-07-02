@@ -197,26 +197,26 @@ func TestReleaseCheckCommandAPIAndRPCPassAndErrorBranches(t *testing.T) {
 	}
 	baseAPI := filepath.Join(dir, "base.api")
 	targetAPI := filepath.Join(dir, "target.api")
-	if err := os.WriteFile(baseAPI, []byte(`type PingResp {
+	if err := os.WriteFile(baseAPI, []byte(`type PingResponse {
   Message string
 }
 service ping-api {
   @handler ping
-  get /ping returns (PingResp)
+  get /ping returns (PingResponse)
 }`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(targetAPI, []byte(`type PingResp {
+	if err := os.WriteFile(targetAPI, []byte(`type PingResponse {
   Message string
 }
-type PongResp {
+type PongResponse {
   Message string
 }
 service ping-api {
   @handler ping
-  get /ping returns (PingResp)
+  get /ping returns (PingResponse)
   @handler pong
-  get /pong returns (PongResp)
+  get /pong returns (PongResponse)
 }`), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -224,21 +224,21 @@ service ping-api {
 	targetProto := filepath.Join(dir, "target.proto")
 	if err := os.WriteFile(baseProto, []byte(`syntax = "proto3";
 package demo;
-message PingReq { string name = 1; }
-message PingResp { string message = 1; }
-service Greeter { rpc Ping (PingReq) returns (PingResp); }
+message PingRequest { string name = 1; }
+message PingResponse { string message = 1; }
+service Greeter { rpc Ping (PingRequest) returns (PingResponse); }
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(targetProto, []byte(`syntax = "proto3";
 package demo;
-message PingReq { string name = 1; }
-message PingResp { string message = 1; }
-message PongReq { string name = 1; }
-message PongResp { string message = 1; }
+message PingRequest { string name = 1; }
+message PingResponse { string message = 1; }
+message PongRequest { string name = 1; }
+message PongResponse { string message = 1; }
 service Greeter {
-  rpc Ping (PingReq) returns (PingResp);
-  rpc Pong (PongReq) returns (PongResp);
+  rpc Ping (PingRequest) returns (PingResponse);
+  rpc Pong (PongRequest) returns (PongResponse);
 }
 `), 0o644); err != nil {
 		t.Fatal(err)
@@ -257,8 +257,8 @@ service Greeter {
 	removedProto := filepath.Join(dir, "removed.proto")
 	if err := os.WriteFile(removedProto, []byte(`syntax = "proto3";
 package demo;
-message PingReq { string name = 1; }
-message PingResp { string message = 1; }
+message PingRequest { string name = 1; }
+message PingResponse { string message = 1; }
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}

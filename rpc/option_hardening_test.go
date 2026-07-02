@@ -85,11 +85,11 @@ func TestRPCClientInternalHelpersHardeningContracts(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := metadataContext("tenant", "gofly")
-	first, err := c.singleflightKey(ctx, "svc/Unary", helloReq{Name: "one"})
+	first, err := c.singleflightKey(ctx, "svc/Unary", helloRequest{Name: "one"})
 	if err != nil {
 		t.Fatalf("singleflightKey first: %v", err)
 	}
-	second, err := c.singleflightKey(ctx, "svc/Unary", helloReq{Name: "one"})
+	second, err := c.singleflightKey(ctx, "svc/Unary", helloRequest{Name: "one"})
 	if err != nil {
 		t.Fatalf("singleflightKey second: %v", err)
 	}
@@ -108,7 +108,7 @@ func TestRPCClientInternalHelpersHardeningContracts(t *testing.T) {
 		t.Fatal("cloneCallResult(nil) should return nil")
 	}
 
-	var resp helloResp
+	var resp helloResponse
 	if err := c.unmarshalResponsePayload(nil, &resp); err != nil {
 		t.Fatalf("unmarshal nil payload: %v", err)
 	}

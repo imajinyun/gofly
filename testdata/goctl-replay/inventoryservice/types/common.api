@@ -5,12 +5,12 @@ type AuditMeta {
   OperatorID string `header:"X-Operator-ID"`
 }
 
-type PageReq {
+type PageRequest {
   Cursor int64 `form:"cursor"`
   Limit int `form:"limit"`
 }
 
-type PageResp {
+type PageResponse {
   NextCursor int64 `json:"nextCursor"`
   HasMore bool `json:"hasMore"`
 }

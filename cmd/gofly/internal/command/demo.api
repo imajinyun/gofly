@@ -1,12 +1,12 @@
-type PingReq {
+type PingRequest {
   Name string
 }
 
-type PingResp {
+type PingResponse {
   Message string
 }
 
 service demo {
   @handler Ping
-  get /api/v1/ping (PingReq) returns (PingResp)
+  get /api/v1/ping (PingRequest) returns (PingResponse)
 }

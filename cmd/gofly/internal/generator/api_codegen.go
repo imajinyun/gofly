@@ -1247,7 +1247,7 @@ func parseOpenAPIToIDL(content []byte, serviceName string) (IDLDocument, error) 
 				messageByName[response] = openAPISchemaToMessage(response, schema, components)
 			}
 			if response == "" {
-				response = "EmptyResp"
+				response = "EmptyResponse"
 				if _, ok := messageByName[response]; !ok {
 					messageByName[response] = IDLMessage{Name: response}
 				}
@@ -1399,17 +1399,17 @@ func openAPIRequestName(handler string, operation openAPIOperation) string {
 	hasParams := hasOpenAPIRequestParams(operation.Parameters)
 	if schema, ok := openAPIRequestSchema(operation); ok {
 		if hasParams {
-			return exportName(handler) + "Req"
+			return exportName(handler) + "Request"
 		}
 		if schema.Ref != "" {
 			return exportName(openAPIRefName(schema.Ref))
 		}
 		if len(schema.Properties) > 0 {
-			return exportName(handler) + "Req"
+			return exportName(handler) + "Request"
 		}
 	}
 	if hasParams {
-		return exportName(handler) + "Req"
+		return exportName(handler) + "Request"
 	}
 	return ""
 }
@@ -1423,7 +1423,7 @@ func openAPIResponseName(handler string, operation openAPIOperation) string {
 		return exportName(openAPIRefName(schema.Ref))
 	}
 	if len(schema.Properties) > 0 {
-		return exportName(handler) + "Resp"
+		return exportName(handler) + "Response"
 	}
 	return ""
 }
@@ -3045,9 +3045,16 @@ func writeRESTGatewayConverters(b *bytes.Buffer, msg IDLMessage, rpcAlias string
 func writeAPIMessage(b *bytes.Buffer, msg IDLMessage) {
 	fprintf(b, "type %s struct {\n", exportName(msg.Name))
 	for _, field := range msg.Fields {
-		fprintf(b, "\t%s %s `json:\"%s,omitempty\"`\n", exportName(field.Name), apiGoType(field.Type), lowerCamel(field.Name))
+		fprintf(b, "\t%s %s `%s`\n", exportName(field.Name), apiGoType(field.Type), apiFieldStructTag(field))
 	}
 	fprintf(b, "}\n\n")
+}
+
+func apiFieldStructTag(field IDLField) string {
+	if strings.TrimSpace(field.Tag) != "" {
+		return field.Tag
+	}
+	return fmt.Sprintf("json:%q", lowerCamel(field.Name)+",omitempty")
 }
 
 func writeRESTService(b *bytes.Buffer, svc IDLService) {

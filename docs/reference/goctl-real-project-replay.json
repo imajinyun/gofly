@@ -5,7 +5,8 @@
     "docs/reference/goctl-generator-compatibility.json",
     "docs/reference/generated-upgrade-dry-run.json",
     "testdata/goctl-replay/orderservice/replay.json",
-    "testdata/goctl-replay/inventoryservice/replay.json"
+    "testdata/goctl-replay/inventoryservice/replay.json",
+    "testdata/goctl-replay/billingservice/replay.json"
   ],
   "acceptanceGate": "make goctl-real-project-replay-check",
   "scope": {
@@ -15,14 +16,19 @@
     "policy": "This replay closes adoption trust gaps with fixture replay, not new commands or flags."
   },
   "matrix": {
-    "minimumFixtures": 2,
+    "minimumFixtures": 3,
     "requiredCapabilities": [
       "api-import",
+      "transitive-api-import",
       "multi-service-group",
       "multi-middleware",
+      "api-comments-tags",
+      "nested-type-composition",
+      "request-response-naming",
       "complex-model",
       "soft-delete",
       "optimistic-lock",
+      "single-column-unique-key",
       "composite-unique-key",
       "cache-template"
     ],
@@ -96,6 +102,55 @@
           "model/entity/inventory_item_gen.go",
           "model/repo/inventory_item.go"
         ]
+      },
+      {
+        "id": "billingservice-transitive-import-replay",
+        "profile": "gozero-compatible",
+        "module": "example.com/billingservice",
+        "style": "minimal",
+        "cache": true,
+        "manifest": "testdata/goctl-replay/billingservice/replay.json",
+        "files": [
+          "testdata/goctl-replay/billingservice/billing.api",
+          "testdata/goctl-replay/billingservice/types/domain/invoice.api",
+          "testdata/goctl-replay/billingservice/types/domain/shared/common.api",
+          "testdata/goctl-replay/billingservice/etc/billing-api.yaml",
+          "testdata/goctl-replay/billingservice/model/billing.sql",
+          "testdata/goctl-replay/billingservice/replay.json",
+          "testdata/goctl-replay/billingservice/rollback.md"
+        ],
+        "capabilities": [
+          "api-import",
+          "transitive-api-import",
+          "multi-service-group",
+          "multi-middleware",
+          "api-comments-tags",
+          "nested-type-composition",
+          "request-response-naming",
+          "complex-model",
+          "soft-delete",
+          "optimistic-lock",
+          "single-column-unique-key",
+          "composite-unique-key",
+          "cache-template"
+        ],
+        "expectedArtifacts": [
+          "cmd/billing-api/main.go",
+          "internal/handler/routes.go",
+          "internal/logic/pinglogic.go",
+          "internal/svc/servicecontext.go",
+          "internal/types/types.go",
+          "internal/api/v1/types.go",
+          "internal/api/v1/billing_api/routes.go",
+          "internal/api/v1/billing_api/service.go",
+          "internal/api/v1/billing_api/create_invoice.go",
+          "internal/api/v1/billing_api/list_invoices.go",
+          "internal/api/v1/capture_api/routes.go",
+          "internal/api/v1/capture_api/service.go",
+          "internal/api/v1/capture_api/capture_invoice.go",
+          "model/entity/invoice_gen.go",
+          "model/repo/invoice.go"
+        ]
       }
     ]
   },
@@ -122,7 +177,7 @@
   ],
   "status": {
     "goctlCommandSurface": "unchanged",
-    "fixtureMatrixDepth": "imported-multigroup-complex-model",
-    "modelCacheTemplateDepth": "covered-by-replay-matrix"
+    "fixtureMatrixDepth": "transitive-import-comments-tags-nested-model",
+    "modelCacheTemplateDepth": "covered-by-three-fixture-replay-matrix"
   }
 }

@@ -19,6 +19,7 @@ expected_capabilities = {
     "upgrade-diff-contract": "implemented",
     "route-layout-boundary": "implemented",
     "multi-language-client-generation": "implemented",
+    "real-project-replay-matrix": "implemented",
 }
 required_boundaries = {
     "noNewJSONEnvelopeFlags",
@@ -29,6 +30,7 @@ required_boundaries = {
 }
 required_release_gates = {
     "make goctl-generator-compat-check",
+    "make goctl-real-project-replay-check",
     "make generated-version-compat-check",
     "make generated-upgrade-dry-run-check",
     "make test-generated-matrix",

@@ -8,14 +8,14 @@ import (
 func TestGenerateGRPCBindingCodeSupportsStreaming(t *testing.T) {
 	doc, err := ParseProto(`syntax = "proto3";
 package chat.v1;
-message ChatReq {
+message ChatRequest {
   string text = 1;
 }
-message ChatResp {
+message ChatResponse {
   string text = 1;
 }
 service Chat {
-  rpc Talk(stream ChatReq) returns (stream ChatResp);
+  rpc Talk(stream ChatRequest) returns (stream ChatResponse);
 }`)
 	if err != nil {
 		t.Fatal(err)

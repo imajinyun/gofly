@@ -24,11 +24,11 @@ func TestGenericInvokerInvoke(t *testing.T) {
 	}))
 	if err := s.RegisterService(ServiceDesc{Name: "generic", Methods: []MethodDesc{
 		GenericMethod("Echo", func(ctx context.Context, raw json.RawMessage) (any, error) {
-			var req helloReq
+			var req helloRequest
 			if err := json.Unmarshal(raw, &req); err != nil {
 				return nil, err
 			}
-			return helloResp{Message: "hello " + req.Name}, nil
+			return helloResponse{Message: "hello " + req.Name}, nil
 		}),
 	}}, nil); err != nil {
 		t.Fatal(err)
@@ -47,7 +47,7 @@ func TestGenericInvokerInvoke(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Invoke: %v", err)
 	}
-	decoded, err := DecodeJSONPayload[helloResp](resp.Payload)
+	decoded, err := DecodeJSONPayload[helloResponse](resp.Payload)
 	if err != nil {
 		t.Fatalf("DecodeJSONPayload: %v", err)
 	}
@@ -67,9 +67,9 @@ func TestGenericInvokerInvokeMethodUsesDescriptor(t *testing.T) {
 	}
 	desc := ServiceDesc{Name: "greeter.v1.Greeter", Methods: []MethodDesc{{
 		Name:       "SayHello",
-		NewRequest: func() any { return new(helloReq) },
+		NewRequest: func() any { return new(helloRequest) },
 	}}}
-	resp, err := invoker.InvokeMethod(context.Background(), desc, "SayHello", helloReq{Name: "gofly"})
+	resp, err := invoker.InvokeMethod(context.Background(), desc, "SayHello", helloRequest{Name: "gofly"})
 	if err != nil {
 		t.Fatalf("InvokeMethod: %v", err)
 	}
@@ -87,16 +87,16 @@ func TestGenericInvokerInvokeMethodUsesDescriptor(t *testing.T) {
 func TestBindGenericHandlers(t *testing.T) {
 	desc := ServiceDesc{Name: "/generic/", Methods: []MethodDesc{{
 		Name:       "/Echo/",
-		NewRequest: func() any { return new(helloReq) },
-		Metadata:   map[string]string{"request": "helloReq"},
+		NewRequest: func() any { return new(helloRequest) },
+		Metadata:   map[string]string{"request": "helloRequest"},
 	}}}
 	bound, err := BindGenericHandlers(desc, map[string]GenericHandler{
 		" /Echo/ ": func(ctx context.Context, raw json.RawMessage) (any, error) {
-			var req helloReq
+			var req helloRequest
 			if err := json.Unmarshal(raw, &req); err != nil {
 				return nil, err
 			}
-			return helloResp{Message: "hello " + req.Name}, nil
+			return helloResponse{Message: "hello " + req.Name}, nil
 		},
 	})
 	if err != nil {
@@ -118,21 +118,21 @@ func TestBindGenericHandlers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generic handler: %v", err)
 	}
-	if got := resp.(helloResp).Message; got != "hello raw" {
+	if got := resp.(helloResponse).Message; got != "hello raw" {
 		t.Fatalf("generic response = %q, want hello raw", got)
 	}
 	if _, err := BindGenericHandlers(desc, nil); err == nil {
 		t.Fatal("BindGenericHandlers without handler succeeded, want error")
 	}
 	if _, err := BindGenericHandlers(desc, map[string]GenericHandler{
-		"Echo": func(context.Context, json.RawMessage) (any, error) { return helloResp{}, nil },
-		"Typo": func(context.Context, json.RawMessage) (any, error) { return helloResp{}, nil },
+		"Echo": func(context.Context, json.RawMessage) (any, error) { return helloResponse{}, nil },
+		"Typo": func(context.Context, json.RawMessage) (any, error) { return helloResponse{}, nil },
 	}); err == nil || !strings.Contains(err.Error(), "undeclared method generic/Typo") {
 		t.Fatalf("BindGenericHandlers extra handler error = %v, want undeclared method", err)
 	}
 	if _, err := BindGenericHandlers(desc, map[string]GenericHandler{
-		"Echo":   func(context.Context, json.RawMessage) (any, error) { return helloResp{}, nil },
-		"/Echo/": func(context.Context, json.RawMessage) (any, error) { return helloResp{}, nil },
+		"Echo":   func(context.Context, json.RawMessage) (any, error) { return helloResponse{}, nil },
+		"/Echo/": func(context.Context, json.RawMessage) (any, error) { return helloResponse{}, nil },
 	}); err == nil || !strings.Contains(err.Error(), "duplicated") {
 		t.Fatalf("BindGenericHandlers duplicate canonical handler error = %v, want duplicated", err)
 	}
@@ -163,7 +163,7 @@ func TestGenericInvokerErrors(t *testing.T) {
 }
 
 func TestServiceDescMethodPathContract(t *testing.T) {
-	desc := ServiceDesc{Name: "/greeter.v1.Greeter/", Methods: []MethodDesc{{Name: "/SayHello/", NewRequest: func() any { return new(helloReq) }}}}
+	desc := ServiceDesc{Name: "/greeter.v1.Greeter/", Methods: []MethodDesc{{Name: "/SayHello/", NewRequest: func() any { return new(helloRequest) }}}}
 	path, err := desc.MethodPath(" /SayHello/ ")
 	if err != nil {
 		t.Fatal(err)
@@ -177,13 +177,13 @@ func TestServiceDescMethodPathContract(t *testing.T) {
 	if _, err := desc.MethodPath("Missing"); err == nil || !strings.Contains(err.Error(), "not declared in service greeter.v1.Greeter") {
 		t.Fatalf("missing method error = %v", err)
 	}
-	if err := (ServiceDesc{Name: "svc", Methods: []MethodDesc{{Name: "Call", NewRequest: func() any { return new(helloReq) }}, {Name: " /Call/ ", NewRequest: func() any { return new(helloReq) }}}}).Validate(); err == nil {
+	if err := (ServiceDesc{Name: "svc", Methods: []MethodDesc{{Name: "Call", NewRequest: func() any { return new(helloRequest) }}, {Name: " /Call/ ", NewRequest: func() any { return new(helloRequest) }}}}).Validate(); err == nil {
 		t.Fatal("Validate accepted duplicate canonical method names, want error")
 	}
 }
 
 func TestServiceDescStreamPathContract(t *testing.T) {
-	desc := ServiceDesc{Name: "/greeter.v1.Greeter/", Streams: []StreamDesc{{Name: "/Chat/", NewMessage: func() any { return new(helloReq) }}}}
+	desc := ServiceDesc{Name: "/greeter.v1.Greeter/", Streams: []StreamDesc{{Name: "/Chat/", NewMessage: func() any { return new(helloRequest) }}}}
 	path, err := desc.StreamPath(" /Chat/ ")
 	if err != nil {
 		t.Fatal(err)
@@ -201,17 +201,17 @@ func TestServiceDescStreamPathContract(t *testing.T) {
 	if _, err := desc.StreamPath("Missing"); err == nil || !strings.Contains(err.Error(), "not declared in service greeter.v1.Greeter") {
 		t.Fatalf("missing stream error = %v", err)
 	}
-	if err := (ServiceDesc{Name: "svc", Streams: []StreamDesc{{Name: "Chat", NewMessage: func() any { return new(helloReq) }}, {Name: " /Chat/ ", NewMessage: func() any { return new(helloReq) }}}}).Validate(); err == nil {
+	if err := (ServiceDesc{Name: "svc", Streams: []StreamDesc{{Name: "Chat", NewMessage: func() any { return new(helloRequest) }}, {Name: " /Chat/ ", NewMessage: func() any { return new(helloRequest) }}}}).Validate(); err == nil {
 		t.Fatal("Validate accepted duplicate canonical stream names, want error")
 	}
 }
 
 func TestGenericJSONPayloadHelpers(t *testing.T) {
-	payload, err := EncodeJSONPayload(helloReq{Name: "helper"})
+	payload, err := EncodeJSONPayload(helloRequest{Name: "helper"})
 	if err != nil {
 		t.Fatalf("EncodeJSONPayload: %v", err)
 	}
-	decoded, err := DecodeJSONPayload[helloReq](payload)
+	decoded, err := DecodeJSONPayload[helloRequest](payload)
 	if err != nil {
 		t.Fatalf("DecodeJSONPayload: %v", err)
 	}
@@ -269,11 +269,11 @@ func TestGenericPathAndJSONErrorBoundaries(t *testing.T) {
 	if got := canonicalRPCName(" /svc/Call/ "); got != "svc/Call" {
 		t.Fatalf("canonical name = %q, want svc/Call", got)
 	}
-	if _, err := DecodeJSONPayload[helloReq](json.RawMessage(`{"name":`)); err == nil || !strings.Contains(err.Error(), "unmarshal generic json payload") {
+	if _, err := DecodeJSONPayload[helloRequest](json.RawMessage(`{"name":`)); err == nil || !strings.Contains(err.Error(), "unmarshal generic json payload") {
 		t.Fatalf("DecodeJSONPayload invalid error = %v, want wrapped unmarshal error", err)
 	}
-	var decoded *helloReq
-	decoded, err = DecodeJSONPayload[*helloReq](nil)
+	var decoded *helloRequest
+	decoded, err = DecodeJSONPayload[*helloRequest](nil)
 	if err != nil {
 		t.Fatalf("DecodeJSONPayload nil payload: %v", err)
 	}
@@ -288,10 +288,10 @@ func TestGenericPathAndJSONErrorBoundaries(t *testing.T) {
 func TestServiceDescHelpers(t *testing.T) {
 	desc := ServiceDesc{Name: "greeter.v1.Greeter", Methods: []MethodDesc{{
 		Name:       "SayHello",
-		NewRequest: func() any { return new(helloReq) },
-		Request:    "helloReq",
-		Response:   "helloResp",
-		Metadata:   map[string]string{"request": "helloReq"},
+		NewRequest: func() any { return new(helloRequest) },
+		Request:    "helloRequest",
+		Response:   "helloResponse",
+		Metadata:   map[string]string{"request": "helloRequest"},
 	}}}
 	if err := desc.Validate(); err != nil {
 		t.Fatalf("Validate: %v", err)
@@ -308,20 +308,20 @@ func TestServiceDescHelpers(t *testing.T) {
 		t.Fatal("Method returned false, want true")
 	}
 	method.Metadata["request"] = "mutated"
-	if desc.Methods[0].Metadata["request"] != "helloReq" {
+	if desc.Methods[0].Metadata["request"] != "helloRequest" {
 		t.Fatalf("Method should return cloned metadata, got %q", desc.Methods[0].Metadata["request"])
 	}
 	cloned := CloneServiceDesc(desc)
 	cloned.Methods[0].Metadata["request"] = "cloned"
-	if desc.Methods[0].Metadata["request"] != "helloReq" {
+	if desc.Methods[0].Metadata["request"] != "helloRequest" {
 		t.Fatalf("CloneServiceDesc should deep clone metadata, got %q", desc.Methods[0].Metadata["request"])
 	}
 	descriptor := desc.Descriptor()
-	if descriptor.Name != "greeter.v1.Greeter" || len(descriptor.Methods) != 1 || descriptor.Methods[0].Request != "helloReq" || descriptor.Methods[0].Response != "helloResp" {
+	if descriptor.Name != "greeter.v1.Greeter" || len(descriptor.Methods) != 1 || descriptor.Methods[0].Request != "helloRequest" || descriptor.Methods[0].Response != "helloResponse" {
 		t.Fatalf("Descriptor = %#v", descriptor)
 	}
 	descriptor.Methods[0].Metadata["request"] = "descriptor-mutated"
-	if desc.Methods[0].Metadata["request"] != "helloReq" {
+	if desc.Methods[0].Metadata["request"] != "helloRequest" {
 		t.Fatalf("Descriptor should deep clone metadata, got %q", desc.Methods[0].Metadata["request"])
 	}
 	if _, err := desc.MethodPath("Unknown"); err == nil {
@@ -334,14 +334,14 @@ func TestServiceDescDescriptorPrefersExplicitTypeFields(t *testing.T) {
 		Name: "greeter.v1.Greeter",
 		Methods: []MethodDesc{{
 			Name:       "SayHello",
-			NewRequest: func() any { return new(helloReq) },
+			NewRequest: func() any { return new(helloRequest) },
 			Request:    "HelloRequest",
 			Response:   "HelloResponse",
 			Metadata:   map[string]string{"request": "legacyReq", "response": "legacyResp"},
 		}},
 		Streams: []StreamDesc{{
 			Name:       "Watch",
-			NewMessage: func() any { return new(helloReq) },
+			NewMessage: func() any { return new(helloRequest) },
 			Message:    "WatchMessage",
 			Metadata:   map[string]string{"message": "legacyMessage"},
 		}},
@@ -360,12 +360,12 @@ func TestServiceDescDescriptorSortsMethodsAndStreams(t *testing.T) {
 	desc := ServiceDesc{
 		Name: "greeter.v1.Greeter",
 		Methods: []MethodDesc{
-			{Name: "Zeta", NewRequest: func() any { return new(helloReq) }},
-			{Name: "Alpha", NewRequest: func() any { return new(helloReq) }},
+			{Name: "Zeta", NewRequest: func() any { return new(helloRequest) }},
+			{Name: "Alpha", NewRequest: func() any { return new(helloRequest) }},
 		},
 		Streams: []StreamDesc{
-			{Name: "WatchZeta", NewMessage: func() any { return new(helloReq) }},
-			{Name: "WatchAlpha", NewMessage: func() any { return new(helloReq) }},
+			{Name: "WatchZeta", NewMessage: func() any { return new(helloRequest) }},
+			{Name: "WatchAlpha", NewMessage: func() any { return new(helloRequest) }},
 		},
 	}
 
@@ -383,15 +383,15 @@ func TestServiceDescDescriptorUsesStrongContractFields(t *testing.T) {
 		Name: "greeter.v1.Greeter",
 		Methods: []MethodDesc{{
 			Name:       "SayHello",
-			NewRequest: func() any { return new(helloReq) },
-			Request:    "HelloReq",
-			Response:   "HelloResp",
+			NewRequest: func() any { return new(helloRequest) },
+			Request:    "HelloRequest",
+			Response:   "HelloResponse",
 			Codec:      "proto",
 			HTTP:       HTTPBinding{Method: http.MethodPost, Path: "/v1/hello", Body: "*", ResponseBody: "message"},
 		}},
 		Streams: []StreamDesc{{
 			Name:       "Watch",
-			NewMessage: func() any { return new(helloReq) },
+			NewMessage: func() any { return new(helloRequest) },
 			Message:    "WatchEvent",
 			Codec:      "json",
 			Mode:       StreamModeServerStream,
@@ -399,7 +399,7 @@ func TestServiceDescDescriptorUsesStrongContractFields(t *testing.T) {
 	}
 
 	descriptor := desc.Descriptor()
-	if got := descriptor.Methods[0]; got.Request != "HelloReq" || got.Response != "HelloResp" || got.Codec != "proto" || got.HTTP == nil || got.HTTP.Path != "/v1/hello" {
+	if got := descriptor.Methods[0]; got.Request != "HelloRequest" || got.Response != "HelloResponse" || got.Codec != "proto" || got.HTTP == nil || got.HTTP.Path != "/v1/hello" {
 		t.Fatalf("method descriptor = %#v, want strong contract fields", got)
 	}
 	if got := descriptor.Streams[0]; got.Message != "WatchEvent" || got.Codec != "json" || got.Mode != StreamModeServerStream {
@@ -412,10 +412,10 @@ func TestServiceDescDescriptorKeepsMetadataFallbackCompatibility(t *testing.T) {
 		Name: "greeter.v1.Greeter",
 		Methods: []MethodDesc{{
 			Name:       "SayHello",
-			NewRequest: func() any { return new(helloReq) },
+			NewRequest: func() any { return new(helloRequest) },
 			Metadata: map[string]string{
-				"request":           "HelloReq",
-				"response":          "HelloResp",
+				"request":           "HelloRequest",
+				"response":          "HelloResponse",
 				"codec":             "json",
 				"http.method":       http.MethodGet,
 				"http.path":         "/v1/hello/{name}",
@@ -424,13 +424,13 @@ func TestServiceDescDescriptorKeepsMetadataFallbackCompatibility(t *testing.T) {
 		}},
 		Streams: []StreamDesc{{
 			Name:       "Watch",
-			NewMessage: func() any { return new(helloReq) },
+			NewMessage: func() any { return new(helloRequest) },
 			Metadata:   map[string]string{"message": "WatchEvent", "clientStream": "true", "serverStream": "true"},
 		}},
 	}
 
 	descriptor := desc.Descriptor()
-	if got := descriptor.Methods[0]; got.Request != "HelloReq" || got.Response != "HelloResp" || got.Codec != "json" || got.HTTP == nil || got.HTTP.Method != http.MethodGet {
+	if got := descriptor.Methods[0]; got.Request != "HelloRequest" || got.Response != "HelloResponse" || got.Codec != "json" || got.HTTP == nil || got.HTTP.Method != http.MethodGet {
 		t.Fatalf("method descriptor fallback = %#v, want metadata-derived fields", got)
 	}
 	if got := descriptor.Streams[0]; got.Message != "WatchEvent" || got.Mode != StreamModeBidiStream {
@@ -536,7 +536,7 @@ func TestServiceDescValidateChecksDescriptorContractFields(t *testing.T) {
 		Name: "svc",
 		Methods: []MethodDesc{{
 			Name:       "Call",
-			NewRequest: func() any { return new(helloReq) },
+			NewRequest: func() any { return new(helloRequest) },
 			Codec:      "xml",
 		}},
 	}
@@ -551,8 +551,8 @@ func TestCompareDescriptors(t *testing.T) {
 		Name:    "greeter.v1.Greeter",
 		Version: "v1",
 		Methods: []MethodDescriptor{
-			{Name: "SayHello", Request: "HelloReq", Response: "HelloResp", Timeout: time.Second},
-			{Name: "Legacy", Request: "LegacyReq", Response: "LegacyResp"},
+			{Name: "SayHello", Request: "HelloRequest", Response: "HelloResponse", Timeout: time.Second},
+			{Name: "Legacy", Request: "LegacyRequest", Response: "LegacyResponse"},
 		},
 		Streams: []StreamDescriptor{{Name: "Watch", Message: "WatchEvent", Timeout: 2 * time.Second}},
 	}
@@ -560,8 +560,8 @@ func TestCompareDescriptors(t *testing.T) {
 		Name:    "greeter.v1.Greeter",
 		Version: "v2",
 		Methods: []MethodDescriptor{
-			{Name: "SayHello", Request: "HelloReq", Response: "HelloRespV2", Timeout: 500 * time.Millisecond},
-			{Name: "Create", Request: "CreateReq", Response: "CreateResp"},
+			{Name: "SayHello", Request: "HelloRequest", Response: "HelloRespV2", Timeout: 500 * time.Millisecond},
+			{Name: "Create", Request: "CreateRequest", Response: "CreateResponse"},
 		},
 		Streams: []StreamDescriptor{{Name: "Watch", Message: "WatchEventV2", Timeout: 3 * time.Second}},
 	}
@@ -579,8 +579,8 @@ func TestCompareDescriptors(t *testing.T) {
 }
 
 func TestCompareDescriptorsCompatibleAdditions(t *testing.T) {
-	base := Descriptor{Name: "greeter", Methods: []MethodDescriptor{{Name: "SayHello", Request: "HelloReq", Response: "HelloResp"}}}
-	target := Descriptor{Name: "greeter", Methods: []MethodDescriptor{{Name: "SayHello", Request: "HelloReq", Response: "HelloResp"}, {Name: "Health", Request: "HealthReq", Response: "HealthResp"}}}
+	base := Descriptor{Name: "greeter", Methods: []MethodDescriptor{{Name: "SayHello", Request: "HelloRequest", Response: "HelloResponse"}}}
+	target := Descriptor{Name: "greeter", Methods: []MethodDescriptor{{Name: "SayHello", Request: "HelloRequest", Response: "HelloResponse"}, {Name: "Health", Request: "HealthRequest", Response: "HealthResponse"}}}
 
 	report := CompareDescriptors(base, target)
 	if report.HasBreaking() || !report.IsCompatible() {
@@ -692,7 +692,7 @@ func TestCompareDescriptorsBoundaryBranches(t *testing.T) {
 				HTTP:     &HTTPBinding{Path: "/v2/changed", Body: "request"},
 				Timeout:  3 * time.Second,
 			},
-			{Name: "AddedTypes", Request: "AddedReq", Response: "AddedResp", Codec: "thrift", HTTP: &HTTPBinding{Method: http.MethodGet, Path: "/v1/added"}},
+			{Name: "AddedTypes", Request: "AddedRequest", Response: "AddedResponse", Codec: "thrift", HTTP: &HTTPBinding{Method: http.MethodGet, Path: "/v1/added"}},
 		},
 		Streams: []StreamDescriptor{
 			{Name: "ModeChanged", Message: "Event", Timeout: time.Second},
@@ -746,7 +746,7 @@ func TestDescriptorStreamModeMetadataBoundaries(t *testing.T) {
 }
 
 func TestServiceDescMustPathPanics(t *testing.T) {
-	desc := ServiceDesc{Name: "greeter", Methods: []MethodDesc{{Name: "SayHello", NewRequest: func() any { return new(helloReq) }}}, Streams: []StreamDesc{{Name: "Chat", NewMessage: func() any { return new(helloReq) }}}}
+	desc := ServiceDesc{Name: "greeter", Methods: []MethodDesc{{Name: "SayHello", NewRequest: func() any { return new(helloRequest) }}}, Streams: []StreamDesc{{Name: "Chat", NewMessage: func() any { return new(helloRequest) }}}}
 	if got := desc.MustMethodPath("SayHello"); got != "greeter/SayHello" {
 		t.Fatalf("MustMethodPath = %q, want greeter/SayHello", got)
 	}
@@ -785,7 +785,7 @@ func TestServiceDescValidateErrors(t *testing.T) {
 		{name: "empty service", desc: ServiceDesc{}},
 		{name: "empty method", desc: ServiceDesc{Name: "svc", Methods: []MethodDesc{{}}}},
 		{name: "missing request factory", desc: ServiceDesc{Name: "svc", Methods: []MethodDesc{{Name: "Call"}}}},
-		{name: "duplicated method", desc: ServiceDesc{Name: "svc", Methods: []MethodDesc{{Name: "Call", NewRequest: func() any { return new(helloReq) }}, {Name: "Call", NewRequest: func() any { return new(helloReq) }}}}},
+		{name: "duplicated method", desc: ServiceDesc{Name: "svc", Methods: []MethodDesc{{Name: "Call", NewRequest: func() any { return new(helloRequest) }}, {Name: "Call", NewRequest: func() any { return new(helloRequest) }}}}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

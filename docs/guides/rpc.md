@@ -37,9 +37,9 @@ _ = server.RegisterService(rpc.ServiceDesc{
     Name: "greeter",
     Methods: []rpc.MethodDesc{{
         Name:       "SayHello",
-        NewRequest: func() any { return new(helloReq) },
+        NewRequest: func() any { return new(helloRequest) },
         Handler: func(ctx context.Context, req any) (any, error) {
-            return helloResp{Message: "hello " + req.(*helloReq).Name}, nil
+            return helloResponse{Message: "hello " + req.(*helloRequest).Name}, nil
         },
     }},
 }, nil)

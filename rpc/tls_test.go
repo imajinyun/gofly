@@ -28,9 +28,9 @@ func TestHTTPClientMutualTLSRoundTrip(t *testing.T) {
 	s := NewServer()
 	if err := s.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{
 		Name:       "SayHello",
-		NewRequest: func() any { return new(helloReq) },
+		NewRequest: func() any { return new(helloRequest) },
 		Handler: func(ctx context.Context, req any) (any, error) {
-			return helloResp{Message: "hello " + req.(*helloReq).Name}, nil
+			return helloResponse{Message: "hello " + req.(*helloRequest).Name}, nil
 		},
 	}}}, nil); err != nil {
 		t.Fatal(err)
@@ -48,8 +48,8 @@ func TestHTTPClientMutualTLSRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("client without cert: %v", err)
 	}
-	var resp helloResp
-	if err := noCert.Call(context.Background(), "greeter/SayHello", helloReq{Name: "client"}, &resp); err == nil {
+	var resp helloResponse
+	if err := noCert.Call(context.Background(), "greeter/SayHello", helloRequest{Name: "client"}, &resp); err == nil {
 		t.Fatal("expected mutual TLS to reject client without certificate")
 	}
 
@@ -62,7 +62,7 @@ func TestHTTPClientMutualTLSRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("client with cert: %v", err)
 	}
-	if err := mtls.Call(context.Background(), "greeter/SayHello", helloReq{Name: "client"}, &resp); err != nil {
+	if err := mtls.Call(context.Background(), "greeter/SayHello", helloRequest{Name: "client"}, &resp); err != nil {
 		t.Fatalf("mutual TLS rpc call: %v", err)
 	}
 	if resp.Message != "hello client" {
@@ -80,13 +80,13 @@ func TestHTTPClientStreamMutualTLSRoundTrip(t *testing.T) {
 	s := NewServer()
 	if err := s.RegisterService(ServiceDesc{Name: "chat", Streams: []StreamDesc{{
 		Name:       "Echo",
-		NewMessage: func() any { return new(helloReq) },
+		NewMessage: func() any { return new(helloRequest) },
 		Handler: func(ctx context.Context, stream *Stream) error {
-			var req helloReq
+			var req helloRequest
 			if err := stream.Recv(&req); err != nil {
 				return err
 			}
-			return stream.Send(helloResp{Message: "hello " + req.Name})
+			return stream.Send(helloResponse{Message: "hello " + req.Name})
 		},
 	}}}, nil); err != nil {
 		t.Fatal(err)
@@ -122,10 +122,10 @@ func TestHTTPClientStreamMutualTLSRoundTrip(t *testing.T) {
 		t.Fatalf("mutual TLS stream: %v", err)
 	}
 	defer stream.Close()
-	if err := stream.Send(helloReq{Name: "client"}); err != nil {
+	if err := stream.Send(helloRequest{Name: "client"}); err != nil {
 		t.Fatalf("stream send: %v", err)
 	}
-	var resp helloResp
+	var resp helloResponse
 	if err := stream.Recv(&resp); err != nil {
 		t.Fatalf("stream recv: %v", err)
 	}

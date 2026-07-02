@@ -23,10 +23,10 @@ import (
 	"github.com/imajinyun/gofly/rpc/endpoint"
 )
 
-type helloReq struct {
+type helloRequest struct {
 	Name string `json:"name"`
 }
-type helloResp struct {
+type helloResponse struct {
 	Message string `json:"message"`
 }
 
@@ -34,9 +34,9 @@ func TestHTTPServerServeHTTP(t *testing.T) {
 	s := NewServer()
 	err := s.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{
 		Name:       "SayHello",
-		NewRequest: func() any { return new(helloReq) },
+		NewRequest: func() any { return new(helloRequest) },
 		Handler: func(ctx context.Context, req any) (any, error) {
-			return helloResp{Message: "hello " + req.(*helloReq).Name}, nil
+			return helloResponse{Message: "hello " + req.(*helloRequest).Name}, nil
 		},
 	}}}, nil)
 	if err != nil {
@@ -186,9 +186,9 @@ func TestHTTPServerServeHTTPRejectsNilBody(t *testing.T) {
 	s := NewServer()
 	if err := s.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{
 		Name:       "SayHello",
-		NewRequest: func() any { return new(helloReq) },
+		NewRequest: func() any { return new(helloRequest) },
 		Handler: func(ctx context.Context, req any) (any, error) {
-			return helloResp{Message: "hello"}, nil
+			return helloResponse{Message: "hello"}, nil
 		},
 	}}}, nil); err != nil {
 		t.Fatal(err)
@@ -209,9 +209,9 @@ func TestHTTPServerServiceNamesAreDeterministic(t *testing.T) {
 	for _, service := range []string{"zeta", "alpha", "middle"} {
 		if err := s.RegisterService(ServiceDesc{Name: service, Methods: []MethodDesc{{
 			Name:       "Ping",
-			NewRequest: func() any { return new(helloReq) },
+			NewRequest: func() any { return new(helloRequest) },
 			Handler: func(ctx context.Context, req any) (any, error) {
-				return helloResp{Message: "pong"}, nil
+				return helloResponse{Message: "pong"}, nil
 			},
 		}}}, nil); err != nil {
 			t.Fatal(err)
@@ -275,7 +275,7 @@ func TestHTTPServerRegistryLifecycleBoundaries(t *testing.T) {
 	registrar := &fakeLifecycleRegistrar{}
 	s := NewServer(WithRegistry(registrar, "", ""), WithRegistryTTL(time.Minute), WithRegistryRefreshInterval(time.Millisecond))
 	for _, service := range []string{"zeta", "alpha"} {
-		if err := s.RegisterService(ServiceDesc{Name: service, Methods: []MethodDesc{{Name: "Ping", NewRequest: func() any { return new(helloReq) }, Handler: func(context.Context, any) (any, error) { return helloResp{}, nil }}}}, nil); err != nil {
+		if err := s.RegisterService(ServiceDesc{Name: service, Methods: []MethodDesc{{Name: "Ping", NewRequest: func() any { return new(helloRequest) }, Handler: func(context.Context, any) (any, error) { return helloResponse{}, nil }}}}, nil); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -333,7 +333,7 @@ func TestHTTPServerStopTimeoutAndRegisterError(t *testing.T) {
 
 	registrar := &fakeLifecycleRegistrar{registerErr: errors.New("boom")}
 	failing := NewServer(WithRegistry(registrar, "", ""))
-	if err := failing.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{Name: "Ping", NewRequest: func() any { return new(helloReq) }, Handler: func(context.Context, any) (any, error) { return helloResp{}, nil }}}}, nil); err != nil {
+	if err := failing.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{Name: "Ping", NewRequest: func() any { return new(helloRequest) }, Handler: func(context.Context, any) (any, error) { return helloResponse{}, nil }}}}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := failing.register(context.Background(), "127.0.0.1:9000"); err == nil || !strings.Contains(err.Error(), "register rpc service greeter") || !strings.Contains(err.Error(), "boom") {
@@ -455,10 +455,10 @@ func TestHTTPServerAdaptiveLimiterRejectsWhenSaturated(t *testing.T) {
 	s := NewServer(WithServerAdaptiveLimiter(limiter))
 	if err := s.RegisterService(ServiceDesc{Name: "greeter", Version: "v1", Metadata: map[string]string{"owner": "platform"}, Methods: []MethodDesc{{
 		Name:       "SayHello",
-		NewRequest: func() any { return new(helloReq) },
-		Metadata:   map[string]string{"request": "helloReq", "response": "helloResp"},
+		NewRequest: func() any { return new(helloRequest) },
+		Metadata:   map[string]string{"request": "helloRequest", "response": "helloResponse"},
 		Handler: func(ctx context.Context, req any) (any, error) {
-			return helloResp{Message: "hello"}, nil
+			return helloResponse{Message: "hello"}, nil
 		},
 	}}}, nil); err != nil {
 		t.Fatal(err)
@@ -480,7 +480,7 @@ func TestHTTPServerAdaptiveBreakerRejectsAfterFailure(t *testing.T) {
 	)))
 	if err := s.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{
 		Name:       "Unstable",
-		NewRequest: func() any { return new(helloReq) },
+		NewRequest: func() any { return new(helloRequest) },
 		Handler: func(ctx context.Context, req any) (any, error) {
 			return nil, NewError(CodeInternal, "boom")
 		},
@@ -505,7 +505,7 @@ func TestHTTPServerServiceInfosAndErrorCode(t *testing.T) {
 	s := NewServer()
 	if err := s.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{
 		Name:       "Missing",
-		NewRequest: func() any { return new(helloReq) },
+		NewRequest: func() any { return new(helloRequest) },
 		Handler: func(ctx context.Context, req any) (any, error) {
 			return nil, NewError(CodeNotFound, "hello not found")
 		},
@@ -541,7 +541,7 @@ func TestHTTPServerMethodMetadataAndMiddleware(t *testing.T) {
 		Metadata: map[string]string{"service-owner": "platform", "shared": "service"},
 		Methods: []MethodDesc{{
 			Name:        "SayHello",
-			NewRequest:  func() any { return new(helloReq) },
+			NewRequest:  func() any { return new(helloRequest) },
 			Metadata:    map[string]string{"method-kind": "read", "shared": "method"},
 			Middlewares: []endpoint.Middleware{methodMiddleware},
 			Handler: func(ctx context.Context, req any) (any, error) {
@@ -549,7 +549,7 @@ func TestHTTPServerMethodMetadataAndMiddleware(t *testing.T) {
 				if md.Get("method-middleware") != "seen" || md.Get("rpc.service.version") != "v1" {
 					return nil, NewError(CodeInternal, "method middleware not applied")
 				}
-				return helloResp{Message: "hello " + req.(*helloReq).Name}, nil
+				return helloResponse{Message: "hello " + req.(*helloRequest).Name}, nil
 			},
 		}},
 	}, nil); err != nil {
@@ -574,7 +574,7 @@ func TestHTTPServerMethodTimeoutAndServiceSnapshot(t *testing.T) {
 		Metadata: serviceMetadata,
 		Methods: []MethodDesc{{
 			Name:       "Slow",
-			NewRequest: func() any { return new(helloReq) },
+			NewRequest: func() any { return new(helloRequest) },
 			Timeout:    time.Millisecond,
 			Metadata:   methodMetadata,
 			Handler: func(ctx context.Context, req any) (any, error) {
@@ -584,7 +584,7 @@ func TestHTTPServerMethodTimeoutAndServiceSnapshot(t *testing.T) {
 		}},
 		Streams: []StreamDesc{{
 			Name:        "Chat",
-			NewMessage:  func() any { return new(helloReq) },
+			NewMessage:  func() any { return new(helloRequest) },
 			Timeout:     2 * time.Second,
 			Metadata:    streamMetadata,
 			Middlewares: []StreamMiddleware{StreamRequestIDMiddleware()},
@@ -626,7 +626,7 @@ func TestHTTPServerGovernanceRuleRuntimeRateLimit(t *testing.T) {
 		},
 	})
 	s := newGovernedGreeterServer(t, rules, func(ctx context.Context, req any) (any, error) {
-		return helloResp{Message: "hello"}, nil
+		return helloResponse{Message: "hello"}, nil
 	})
 
 	first := httptest.NewRecorder()
@@ -668,7 +668,7 @@ func TestHTTPServerGovernanceRuleRuntimeConcurrencyLimit(t *testing.T) {
 			close(entered)
 		}
 		<-release
-		return helloResp{Message: "hello"}, nil
+		return helloResponse{Message: "hello"}, nil
 	})
 
 	done := make(chan *httptest.ResponseRecorder, 1)
@@ -785,7 +785,7 @@ func TestHTTPServerGovernanceRuleRuntimeMaxBodyBytes(t *testing.T) {
 		},
 	})
 	s := newGovernedGreeterServer(t, rules, func(ctx context.Context, req any) (any, error) {
-		return helloResp{Message: "hello"}, nil
+		return helloResponse{Message: "hello"}, nil
 	})
 
 	rec := httptest.NewRecorder()
@@ -800,7 +800,7 @@ func newGovernedGreeterServer(t *testing.T, rules *coregovernance.RuleSet, handl
 	s := NewServer(WithServerRuleSet(rules))
 	if err := s.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{
 		Name:       "SayHello",
-		NewRequest: func() any { return new(helloReq) },
+		NewRequest: func() any { return new(helloRequest) },
 		Handler:    handler,
 	}}}, nil); err != nil {
 		t.Fatal(err)
@@ -813,10 +813,10 @@ func TestHTTPServerAdminEndpoints(t *testing.T) {
 	s := NewServer(WithServerAdminToken("secret"), WithServerAdaptiveLimiter(limit.NewAdaptiveLimiter(limit.WithAdaptiveLimits(1, 1))), WithServerRuleSet(rules))
 	if err := s.RegisterService(ServiceDesc{Name: "greeter", Version: "v1", Metadata: map[string]string{"owner": "platform"}, Methods: []MethodDesc{{
 		Name:       "SayHello",
-		NewRequest: func() any { return new(helloReq) },
-		Metadata:   map[string]string{"request": "helloReq", "response": "helloResp"},
+		NewRequest: func() any { return new(helloRequest) },
+		Metadata:   map[string]string{"request": "helloRequest", "response": "helloResponse"},
 		Handler: func(ctx context.Context, req any) (any, error) {
-			return helloResp{Message: "hello"}, nil
+			return helloResponse{Message: "hello"}, nil
 		},
 	}}}, nil); err != nil {
 		t.Fatal(err)
@@ -873,7 +873,7 @@ func TestHTTPServerAdminEndpoints(t *testing.T) {
 	if !ok || desc.Name != "greeter" || desc.Version != "v1" || desc.Metadata["owner"] != "platform" {
 		t.Fatalf("descriptors = %#v, want greeter v1 descriptor", descriptors)
 	}
-	if len(desc.Methods) != 1 || desc.Methods[0].Name != "SayHello" || desc.Methods[0].Request != "helloReq" || desc.Methods[0].Response != "helloResp" {
+	if len(desc.Methods) != 1 || desc.Methods[0].Name != "SayHello" || desc.Methods[0].Request != "helloRequest" || desc.Methods[0].Response != "helloResponse" {
 		t.Fatalf("descriptor methods = %#v, want SayHello request/response contract", desc.Methods)
 	}
 
@@ -888,7 +888,7 @@ func TestHTTPServerAdminEndpoints(t *testing.T) {
 	if err := json.NewDecoder(descriptorRec.Body).Decode(&single); err != nil {
 		t.Fatal(err)
 	}
-	if single.Name != "greeter" || len(single.Methods) != 1 || single.Methods[0].Request != "helloReq" {
+	if single.Name != "greeter" || len(single.Methods) != 1 || single.Methods[0].Request != "helloRequest" {
 		t.Fatalf("single descriptor = %#v, want greeter contract", single)
 	}
 
@@ -917,7 +917,7 @@ func TestHTTPServerAdminEndpoints(t *testing.T) {
 	}
 
 	candidate := single
-	candidate.Methods[0].Response = "ChangedResp"
+	candidate.Methods[0].Response = "ChangedResponse"
 	candidateData, err := json.Marshal(candidate)
 	if err != nil {
 		t.Fatal(err)
@@ -940,7 +940,7 @@ func TestHTTPServerAdminEndpoints(t *testing.T) {
 	invalidTargetReq := httptest.NewRequest(
 		http.MethodPost,
 		"/rpc/admin/descriptors/greeter/compatibility",
-		strings.NewReader(`{"methods":[{"name":"SayHello","request":"helloReq","response":"helloResp"}]}`),
+		strings.NewReader(`{"methods":[{"name":"SayHello","request":"helloRequest","response":"helloResponse"}]}`),
 	)
 	invalidTargetReq.Header.Set("Authorization", "Bearer secret")
 	invalidTargetRec := httptest.NewRecorder()
@@ -1069,7 +1069,7 @@ func TestHTTPServerTraceMiddlewarePropagatesMetadata(t *testing.T) {
 	s := NewServer(WithServerMiddleware(TraceMiddleware("greeter.server")))
 	if err := s.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{
 		Name:       "Trace",
-		NewRequest: func() any { return new(helloReq) },
+		NewRequest: func() any { return new(helloRequest) },
 		Handler: func(ctx context.Context, req any) (any, error) {
 			sc, ok := trace.FromContext(ctx)
 			if !ok {
@@ -1082,7 +1082,7 @@ func TestHTTPServerTraceMiddlewarePropagatesMetadata(t *testing.T) {
 			if !ok || md.Get(trace.TraceParentHeader) == "" {
 				t.Fatalf("metadata = %#v, want traceparent", md)
 			}
-			return helloResp{Message: sc.TraceID}, nil
+			return helloResponse{Message: sc.TraceID}, nil
 		},
 	}}}, nil); err != nil {
 		t.Fatal(err)
@@ -1107,7 +1107,7 @@ func TestHTTPServerTraceMiddlewareCanSampleOut(t *testing.T) {
 	s := NewServer(WithServerMiddleware(TraceMiddlewareWithSampler("greeter.server", trace.NeverSampler())))
 	if err := s.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{
 		Name:       "Trace",
-		NewRequest: func() any { return new(helloReq) },
+		NewRequest: func() any { return new(helloRequest) },
 		Handler: func(ctx context.Context, req any) (any, error) {
 			sc, ok := trace.FromContext(ctx)
 			if !ok {
@@ -1120,7 +1120,7 @@ func TestHTTPServerTraceMiddlewareCanSampleOut(t *testing.T) {
 			if !ok || md.Get(trace.SampledKey) != "false" {
 				t.Fatalf("metadata = %#v, want sampled=false", md)
 			}
-			return helloResp{Message: md.Get(trace.TraceParentHeader)}, nil
+			return helloResponse{Message: md.Get(trace.TraceParentHeader)}, nil
 		},
 	}}}, nil); err != nil {
 		t.Fatal(err)
@@ -1135,7 +1135,7 @@ func TestHTTPServerTraceMiddlewareCanSampleOut(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&env); err != nil {
 		t.Fatal(err)
 	}
-	var resp helloResp
+	var resp helloResponse
 	data, _ := json.Marshal(env.Payload)
 	if err := json.Unmarshal(data, &resp); err != nil {
 		t.Fatal(err)
@@ -1154,10 +1154,10 @@ func TestHTTPServerRegistersAndDeregisters(t *testing.T) {
 	s := NewServer(WithAddress("127.0.0.1:0"), WithRegistry(registry, "", ""))
 	if err := s.RegisterService(ServiceDesc{Name: "greeter", Version: "v1", Metadata: map[string]string{"owner": "platform"}, Methods: []MethodDesc{{
 		Name:       "SayHello",
-		NewRequest: func() any { return new(helloReq) },
-		Metadata:   map[string]string{"request": "helloReq", "response": "helloResp"},
+		NewRequest: func() any { return new(helloRequest) },
+		Metadata:   map[string]string{"request": "helloRequest", "response": "helloResponse"},
 		Handler: func(ctx context.Context, req any) (any, error) {
-			return helloResp{Message: "hello"}, nil
+			return helloResponse{Message: "hello"}, nil
 		},
 	}}}, nil); err != nil {
 		t.Fatal(err)
@@ -1198,9 +1198,9 @@ func TestHTTPServerRegistryTTLKeepalive(t *testing.T) {
 	)
 	if err := s.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{
 		Name:       "SayHello",
-		NewRequest: func() any { return new(helloReq) },
+		NewRequest: func() any { return new(helloRequest) },
 		Handler: func(ctx context.Context, req any) (any, error) {
-			return helloResp{Message: "hello"}, nil
+			return helloResponse{Message: "hello"}, nil
 		},
 	}}}, nil); err != nil {
 		t.Fatal(err)
@@ -1242,9 +1242,9 @@ func TestHTTPServerStateTransitions(t *testing.T) {
 	}
 	if err := s.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{
 		Name:       "SayHello",
-		NewRequest: func() any { return new(helloReq) },
+		NewRequest: func() any { return new(helloRequest) },
 		Handler: func(ctx context.Context, req any) (any, error) {
-			return helloResp{Message: "hello"}, nil
+			return helloResponse{Message: "hello"}, nil
 		},
 	}}}, nil); err != nil {
 		t.Fatal(err)

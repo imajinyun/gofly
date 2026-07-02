@@ -1065,16 +1065,16 @@ func TestHandlerCompleterBoundaries(t *testing.T) {
 
 	dir := t.TempDir()
 	apiPath := filepath.Join(dir, "users.api")
-	api := `type LoginReq {
+	api := `type LoginRequest {
   Username string
 }
-type LoginResp {
+type LoginResponse {
   Token string
 }
 service user-api {
   @handler login
-  post /login (LoginReq) returns (LoginResp)
-  get /health returns (LoginResp)
+  post /login (LoginRequest) returns (LoginResponse)
+  get /health returns (LoginResponse)
 }
 `
 	if err := os.WriteFile(apiPath, []byte(api), 0o644); err != nil {
@@ -2019,7 +2019,7 @@ func TestGenerateServiceScaffoldGoZeroCompatibleLayeredOutput(t *testing.T) {
 		"package logic",
 		"type PingLogic struct",
 		"func NewPingLogic(ctx context.Context, svcCtx *svc.ServiceContext) *PingLogic",
-		`return &types.PingResp{Message: "hello " + name}, nil`,
+		`return &types.PingResponse{Message: "hello " + name}, nil`,
 	} {
 		if !strings.Contains(string(logicData), want) {
 			t.Fatalf("pinglogic.go missing %q:\n%s", want, logicData)
@@ -2032,8 +2032,8 @@ func TestGenerateServiceScaffoldGoZeroCompatibleLayeredOutput(t *testing.T) {
 	}
 	for _, want := range []string{
 		"package types",
-		"type PingReq struct",
-		"type PingResp struct",
+		"type PingRequest struct",
+		"type PingResponse struct",
 		`json:"name,optional" form:"name,optional"`,
 	} {
 		if !strings.Contains(string(typesData), want) {

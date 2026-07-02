@@ -9,22 +9,22 @@ import (
 	"github.com/imajinyun/gofly/rpc"
 )
 
-type helloReq struct {
+type helloRequest struct {
 	Name string `json:"name,omitempty"`
 }
 
-type helloResp struct {
+type helloResponse struct {
 	Message string `json:"message,omitempty"`
 }
 
 type greeter struct{}
 
-func (greeter) SayHello(ctx context.Context, req *helloReq) (*helloResp, error) {
+func (greeter) SayHello(ctx context.Context, req *helloRequest) (*helloResponse, error) {
 	name := "world"
 	if req != nil && req.Name != "" {
 		name = req.Name
 	}
-	return &helloResp{Message: "hello " + name}, nil
+	return &helloResponse{Message: "hello " + name}, nil
 }
 
 func main() {
@@ -46,10 +46,10 @@ func greeterServiceDesc(impl greeter) rpc.ServiceDesc {
 		Version: "v1",
 		Methods: []rpc.MethodDesc{{
 			Name:       "SayHello",
-			NewRequest: func() any { return new(helloReq) },
-			Metadata:   map[string]string{"request": "helloReq", "response": "helloResp"},
+			NewRequest: func() any { return new(helloRequest) },
+			Metadata:   map[string]string{"request": "helloRequest", "response": "helloResponse"},
 			Handler: func(ctx context.Context, req any) (any, error) {
-				typed, ok := req.(*helloReq)
+				typed, ok := req.(*helloRequest)
 				if !ok {
 					return nil, fmt.Errorf("unexpected request type %T", req)
 				}

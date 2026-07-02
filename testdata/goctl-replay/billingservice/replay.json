@@ -1,0 +1,51 @@
+{
+  "schema": "gofly.goctl_real_project_fixture.v1",
+  "id": "billingservice-transitive-import-replay",
+  "module": "example.com/billingservice",
+  "serviceName": "billing-api",
+  "profile": "gozero-compatible",
+  "style": "minimal",
+  "api": "billing.api",
+  "config": "etc/billing-api.yaml",
+  "ddl": "model/billing.sql",
+  "cache": true,
+  "capabilities": [
+    "api-import",
+    "transitive-api-import",
+    "multi-service-group",
+    "multi-middleware",
+    "api-comments-tags",
+    "nested-type-composition",
+    "request-response-naming",
+    "complex-model",
+    "soft-delete",
+    "optimistic-lock",
+    "single-column-unique-key",
+    "composite-unique-key",
+    "cache-template"
+  ],
+  "diffCategories": [
+    "deterministic-repeat-generation",
+    "compatible-addition",
+    "generated-cache-template",
+    "breaking-candidate"
+  ],
+  "expectedArtifacts": [
+    "cmd/billing-api/main.go",
+    "internal/handler/routes.go",
+    "internal/logic/pinglogic.go",
+    "internal/svc/servicecontext.go",
+    "internal/types/types.go",
+    "internal/api/v1/types.go",
+    "internal/api/v1/billing_api/routes.go",
+    "internal/api/v1/billing_api/service.go",
+    "internal/api/v1/billing_api/create_invoice.go",
+    "internal/api/v1/billing_api/list_invoices.go",
+    "internal/api/v1/capture_api/routes.go",
+    "internal/api/v1/capture_api/service.go",
+    "internal/api/v1/capture_api/capture_invoice.go",
+    "model/entity/invoice_gen.go",
+    "model/repo/invoice.go"
+  ],
+  "rollbackNote": "rollback.md"
+}

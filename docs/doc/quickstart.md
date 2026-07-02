@@ -134,13 +134,13 @@ import (
 	"github.com/imajinyun/gofly/rpc"
 )
 
-type helloReq struct{ Name string }
-type helloResp struct{ Message string }
+type helloRequest struct{ Name string }
+type helloResponse struct{ Message string }
 
 type greeter struct{}
 
-func (greeter) SayHello(ctx context.Context, req *helloReq) (*helloResp, error) {
-	return &helloResp{Message: "hello " + req.Name}, nil
+func (greeter) SayHello(ctx context.Context, req *helloRequest) (*helloResponse, error) {
+	return &helloResponse{Message: "hello " + req.Name}, nil
 }
 
 func main() {
@@ -153,9 +153,9 @@ func main() {
 		Name: "examples.greeter.Greeter",
 		Methods: []rpc.MethodDesc{{
 			Name:       "SayHello",
-			NewRequest: func() any { return new(helloReq) },
+			NewRequest: func() any { return new(helloRequest) },
 			Handler: func(ctx context.Context, req any) (any, error) {
-				return greeter{}.SayHello(ctx, req.(*helloReq))
+				return greeter{}.SayHello(ctx, req.(*helloRequest))
 			},
 		}},
 	}, nil)

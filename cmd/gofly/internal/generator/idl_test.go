@@ -106,12 +106,12 @@ service Greeter {
 		doc  IDLDocument
 		want string
 	}{
-		{name: "no service", doc: IDLDocument{Messages: []IDLMessage{{Name: "Req"}}}, want: "service is required"},
-		{name: "empty message", doc: IDLDocument{Services: []IDLService{{Name: "S", Methods: []IDLMethod{{Name: "M", Request: "Req", Response: "Resp"}}}}, Messages: []IDLMessage{{Name: " "}}}, want: "message name"},
-		{name: "no methods", doc: IDLDocument{Services: []IDLService{{Name: "S"}}, Messages: []IDLMessage{{Name: "Req"}}}, want: "method is required"},
-		{name: "missing request response", doc: IDLDocument{Services: []IDLService{{Name: "S", Methods: []IDLMethod{{Name: "M"}}}}, Messages: []IDLMessage{{Name: "Req"}}}, want: "request and response"},
-		{name: "unknown request", doc: IDLDocument{Kind: "proto", Services: []IDLService{{Name: "S", Methods: []IDLMethod{{Name: "M", Request: "Missing", Response: "Resp"}}}}, Messages: []IDLMessage{{Name: "Resp"}}}, want: "request message Missing not found"},
-		{name: "unknown response", doc: IDLDocument{Kind: "proto", Services: []IDLService{{Name: "S", Methods: []IDLMethod{{Name: "M", Request: "Req", Response: "Missing"}}}}, Messages: []IDLMessage{{Name: "Req"}}}, want: "response message Missing not found"},
+		{name: "no service", doc: IDLDocument{Messages: []IDLMessage{{Name: "Request"}}}, want: "service is required"},
+		{name: "empty message", doc: IDLDocument{Services: []IDLService{{Name: "S", Methods: []IDLMethod{{Name: "M", Request: "Request", Response: "Response"}}}}, Messages: []IDLMessage{{Name: " "}}}, want: "message name"},
+		{name: "no methods", doc: IDLDocument{Services: []IDLService{{Name: "S"}}, Messages: []IDLMessage{{Name: "Request"}}}, want: "method is required"},
+		{name: "missing request response", doc: IDLDocument{Services: []IDLService{{Name: "S", Methods: []IDLMethod{{Name: "M"}}}}, Messages: []IDLMessage{{Name: "Request"}}}, want: "request and response"},
+		{name: "unknown request", doc: IDLDocument{Kind: "proto", Services: []IDLService{{Name: "S", Methods: []IDLMethod{{Name: "M", Request: "Missing", Response: "Response"}}}}, Messages: []IDLMessage{{Name: "Response"}}}, want: "request message Missing not found"},
+		{name: "unknown response", doc: IDLDocument{Kind: "proto", Services: []IDLService{{Name: "S", Methods: []IDLMethod{{Name: "M", Request: "Request", Response: "Missing"}}}}, Messages: []IDLMessage{{Name: "Request"}}}, want: "response message Missing not found"},
 	}
 	for _, tt := range lintCases {
 		t.Run(tt.name, func(t *testing.T) {
@@ -122,7 +122,7 @@ service Greeter {
 	}
 
 	badProto := filepath.Join(t.TempDir(), "bad.proto")
-	if err := os.WriteFile(badProto, []byte("syntax = \"proto3\";\nservice S { rpc M (Missing) returns (Resp); }"), 0o644); err != nil {
+	if err := os.WriteFile(badProto, []byte("syntax = \"proto3\";\nservice S { rpc M (Missing) returns (Response); }"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := GenerateRPCClient(RPCScaffoldOptions{IDLFile: badProto, Dir: t.TempDir()}); err == nil || !strings.Contains(err.Error(), "request message Missing not found") {
@@ -133,18 +133,18 @@ service Greeter {
 	}
 }
 
-const testAPI = `type LoginReq {
+const testAPI = `type LoginRequest {
     Username string ` + "`json:\"username\"`" + `
     Password string ` + "`json:\"password\"`" + `
 }
 
-type LoginResp {
+type LoginResponse {
     Token string ` + "`json:\"token\"`" + `
 }
 
 service user-api {
     @handler login
-    post /api/login (LoginReq) returns (LoginResp)
+    post /api/login (LoginRequest) returns (LoginResponse)
 }
 `
 
@@ -265,8 +265,8 @@ func TestRPCAndOpenAPIHelperBoundaries(t *testing.T) {
 		want       string
 	}{
 		{name: "empty params", methodName: "say_hello", params: "", want: "SayHelloRequest"},
-		{name: "typed param", methodName: "ignored", params: "1: UserReq req", want: "UserReq"},
-		{name: "namespaced param", methodName: "ignored", params: "1: user.UserReq req", want: "UserReq"},
+		{name: "typed param", methodName: "ignored", params: "1: UserRequest req", want: "UserRequest"},
+		{name: "namespaced param", methodName: "ignored", params: "1: user.UserRequest req", want: "UserRequest"},
 	}
 	for _, tt := range requestTests {
 		t.Run("request/"+tt.name, func(t *testing.T) {
@@ -505,12 +505,12 @@ func TestFormatAPIDiffMarkdownBoundaries(t *testing.T) {
 	}
 
 	diff := APIDiffResult{
-		AddedRoutes:   []APIRouteInfo{{Method: "get", Path: "/users", Response: "UserResp"}},
-		RemovedRoutes: []APIRouteInfo{{Method: "delete", Path: "/users/{id}", Request: "DeleteReq", Response: "DeleteResp"}},
+		AddedRoutes:   []APIRouteInfo{{Method: "get", Path: "/users", Response: "UserResponse"}},
+		RemovedRoutes: []APIRouteInfo{{Method: "delete", Path: "/users/{id}", Request: "DeleteRequest", Response: "DeleteResponse"}},
 		ChangedRoutes: []APIRouteChange{{
 			Key:    "GET /users",
-			Base:   APIRouteInfo{Service: "user-api", Method: "get", Path: "/users", Handler: "list", Response: "OldResp"},
-			Target: APIRouteInfo{Service: "user-api", Method: "get", Path: "/users", Handler: "listUsers", Response: "UserResp"},
+			Base:   APIRouteInfo{Service: "user-api", Method: "get", Path: "/users", Handler: "list", Response: "OldResponse"},
+			Target: APIRouteInfo{Service: "user-api", Method: "get", Path: "/users", Handler: "listUsers", Response: "UserResponse"},
 		}},
 		AddedTypes:   []IDLMessage{{Name: "User", Fields: []IDLField{{Name: "Name", Type: "string"}}}},
 		RemovedTypes: []IDLMessage{{Name: "Legacy", Fields: []IDLField{{Name: "ID", Type: "int64"}}}},
@@ -523,9 +523,9 @@ func TestFormatAPIDiffMarkdownBoundaries(t *testing.T) {
 	out := string(formatAPIDiffMarkdown(diff))
 	for _, want := range []string{
 		"## Added routes",
-		"| get | `/users` | `-` | `UserResp` |",
+		"| get | `/users` | `-` | `UserResponse` |",
 		"## Removed routes",
-		"| delete | `/users/{id}` | `DeleteReq` | `DeleteResp` |",
+		"| delete | `/users/{id}` | `DeleteRequest` | `DeleteResponse` |",
 		"## Changed routes",
 		"GET /users",
 		"## Added types",
@@ -547,15 +547,15 @@ func TestWriteRESTFilesBoundaries(t *testing.T) {
 
 	doc := IDLDocument{
 		Messages: []IDLMessage{
-			{Name: "ListUsersReq", Fields: []IDLField{{Name: "Page", Type: "int32"}}},
-			{Name: "ListUsersResp", Fields: []IDLField{{Name: "Names", Type: "[]string"}}},
+			{Name: "ListUsersRequest", Fields: []IDLField{{Name: "Page", Type: "int32"}}},
+			{Name: "ListUsersResponse", Fields: []IDLField{{Name: "Names", Type: "[]string"}}},
 		},
 		Services: []IDLService{{
 			Name: "user-api",
 			Methods: []IDLMethod{{
 				Name:       "ListUsers",
-				Request:    "ListUsersReq",
-				Response:   "ListUsersResp",
+				Request:    "ListUsersRequest",
+				Response:   "ListUsersResponse",
 				HTTPMethod: "post",
 				HTTPPath:   "/users/list",
 			}},
@@ -567,8 +567,8 @@ func TestWriteRESTFilesBoundaries(t *testing.T) {
 	}
 	base := filepath.Join(dir, "v1")
 	for _, rel := range []string{
-		"types_list_users_req.go",
-		"types_list_users_resp.go",
+		"types_list_users_request.go",
+		"types_list_users_response.go",
 		"converters.go",
 		filepath.Join("user_api", "types.go"),
 		filepath.Join("user_api", "service.go"),
@@ -603,7 +603,7 @@ func TestWriteRESTFilesBoundaries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(convertersData), "func toRPCListUsersReq") || !strings.Contains(string(convertersData), "rpcpb.ListUsersResp") {
+	if !strings.Contains(string(convertersData), "func toRPCListUsersRequest") || !strings.Contains(string(convertersData), "rpcpb.ListUsersResponse") {
 		t.Fatalf("converters.go missing rpc converters:\n%s", convertersData)
 	}
 }
@@ -618,9 +618,9 @@ func TestProtoBreakingDescriptorBoundaries(t *testing.T) {
 	targetPath := filepath.Join(dir, "target.proto")
 	if err := os.WriteFile(targetPath, []byte(`syntax = "proto3";
 package demo.v1;
-message PingReq { string name = 1; }
-message PingResp { string message = 1; }
-service Greeter { rpc Ping(PingReq) returns (PingResp); }
+message PingRequest { string name = 1; }
+message PingResponse { string message = 1; }
+service Greeter { rpc Ping(PingRequest) returns (PingResponse); }
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -631,16 +631,16 @@ service Greeter { rpc Ping(PingReq) returns (PingResp); }
 	baseProto := `syntax = "proto3";
 package demo.v1;
 enum Status { STATUS_UNKNOWN = 0; STATUS_ACTIVE = 1; STATUS_DISABLED = 2; }
-message PingReq { string name = 1; int64 legacy_id = 2; string stable = 3; Status status = 4; }
-message PingResp { string message = 1; }
+message PingRequest { string name = 1; int64 legacy_id = 2; string stable = 3; Status status = 4; }
+message PingResponse { string message = 1; }
 message RemovedWire { string id = 1; }
-message PongResp { string message = 1; }
-service Greeter { rpc Ping(PingReq) returns (PingResp); }
-service Removed { rpc Gone(PingReq) returns (PingResp); }
+message PongResponse { string message = 1; }
+service Greeter { rpc Ping(PingRequest) returns (PingResponse); }
+service Removed { rpc Gone(PingRequest) returns (PingResponse); }
 service Streams {
-  rpc Upload(stream PingReq) returns (PingResp);
-  rpc Watch(PingReq) returns (stream PingResp);
-  rpc Chat(stream PingReq) returns (stream PingResp);
+  rpc Upload(stream PingRequest) returns (PingResponse);
+  rpc Watch(PingRequest) returns (stream PingResponse);
+  rpc Chat(stream PingRequest) returns (stream PingResponse);
 }
 `
 	if err := os.WriteFile(basePath, []byte(baseProto), 0o644); err != nil {
@@ -653,12 +653,12 @@ service Streams {
 package demo.v1;
 enum Status { STATUS_UNKNOWN = 0; STATUS_ACTIVE = 11; STATUS_LOCKED = 2; STATUS_PENDING = 3; }
 enum AddedStatus { ADDED_STATUS_UNKNOWN = 0; }
-message PingReq { int64 name = 1; string stable = 5; string alias = 2; string added = 6; Status status = 4; }
-message PingResp { string message = 1; string extra = 2; }
+message PingRequest { int64 name = 1; string stable = 5; string alias = 2; string added = 6; Status status = 4; }
+message PingResponse { string message = 1; string extra = 2; }
 message AddedWire { string id = 1; }
-message PongResp { string message = 1; }
-service Greeter { rpc Ping(PingReq) returns (PongResp); }
-service Added { rpc Record(PingReq) returns (PongResp); }
+message PongResponse { string message = 1; }
+service Greeter { rpc Ping(PingRequest) returns (PongResponse); }
+service Added { rpc Record(PingRequest) returns (PongResponse); }
 `
 	if err := os.WriteFile(targetPath, []byte(targetProto), 0o644); err != nil {
 		t.Fatal(err)
@@ -681,16 +681,16 @@ service Added { rpc Record(PingReq) returns (PongResp); }
 		if change.Category == rpc.DescriptorChangeSignature && change.Severity == rpc.DescriptorChangeBreaking && strings.Contains(change.Subject, "response") {
 			sawSignature = true
 		}
-		if change.Category == rpc.DescriptorChangeField && change.Severity == rpc.DescriptorChangeBreaking && change.Subject == "PingReq.name" && strings.Contains(change.Description, "type changed") {
+		if change.Category == rpc.DescriptorChangeField && change.Severity == rpc.DescriptorChangeBreaking && change.Subject == "PingRequest.name" && strings.Contains(change.Description, "type changed") {
 			sawFieldType = true
 		}
-		if change.Category == rpc.DescriptorChangeField && change.Severity == rpc.DescriptorChangeBreaking && change.Subject == "PingReq.stable" && strings.Contains(change.Description, "number changed") {
+		if change.Category == rpc.DescriptorChangeField && change.Severity == rpc.DescriptorChangeBreaking && change.Subject == "PingRequest.stable" && strings.Contains(change.Description, "number changed") {
 			sawFieldNumber = true
 		}
-		if change.Category == rpc.DescriptorChangeField && change.Severity == rpc.DescriptorChangeBreaking && change.Subject == "PingReq.2" && strings.Contains(change.Description, "reused") {
+		if change.Category == rpc.DescriptorChangeField && change.Severity == rpc.DescriptorChangeBreaking && change.Subject == "PingRequest.2" && strings.Contains(change.Description, "reused") {
 			sawFieldReuse = true
 		}
-		if change.Category == rpc.DescriptorChangeField && change.Severity == rpc.DescriptorChangeInfo && change.Subject == "PingReq.added" {
+		if change.Category == rpc.DescriptorChangeField && change.Severity == rpc.DescriptorChangeInfo && change.Subject == "PingRequest.added" {
 			sawAddedField = true
 		}
 		if change.Category == rpc.DescriptorChangeType && change.Severity == rpc.DescriptorChangeBreaking && change.Subject == "message RemovedWire" {
@@ -722,7 +722,7 @@ service Added { rpc Record(PingReq) returns (PongResp); }
 	}
 	var sawBreakingField, sawInfoEnum bool
 	for _, change := range breakingReport.Changes {
-		if change.Category == CategoryField && change.Severity == SeverityBreaking && change.Subject == "PingReq.name" {
+		if change.Category == CategoryField && change.Severity == SeverityBreaking && change.Subject == "PingRequest.name" {
 			sawBreakingField = true
 		}
 		if change.Category == CategoryEnum && change.Severity == SeverityInfo && change.Subject == "Status.STATUS_PENDING" {
@@ -785,7 +785,7 @@ func TestGenerateGRPCFromProtoBoundaries(t *testing.T) {
 	noService := filepath.Join(dir, "empty.proto")
 	if err := os.WriteFile(noService, []byte(`syntax = "proto3";
 package demo.v1;
-message PingReq { string name = 1; }
+message PingRequest { string name = 1; }
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -796,9 +796,9 @@ message PingReq { string name = 1; }
 	protoContent := `syntax = "proto3";
 package demo.v1;
 option go_package = "example.com/demo/v1;demov1";
-message PingReq { string name = 1; }
-message PingResp { string message = 1; }
-service Greeter { rpc Ping(PingReq) returns (PingResp); }
+message PingRequest { string name = 1; }
+message PingResponse { string message = 1; }
+service Greeter { rpc Ping(PingRequest) returns (PingResponse); }
 `
 	if err := os.WriteFile(protoPath, []byte(protoContent), 0o644); err != nil {
 		t.Fatal(err)
@@ -859,16 +859,16 @@ func TestParseThriftAndRPCTooling(t *testing.T) {
 	thrift := `namespace go example.com/greeter
 include "base.thrift"
 
-struct SayHelloReq {
+struct SayHelloRequest {
   1: required string name
 }
 
-struct SayHelloResp {
+struct SayHelloResponse {
   1: string message
 }
 
 service Greeter {
-  SayHelloResp SayHello(1: SayHelloReq req)
+  SayHelloResponse SayHello(1: SayHelloRequest req)
 }`
 	doc, err := ParseThrift(thrift)
 	if err != nil {
@@ -892,7 +892,7 @@ service Greeter {
 		t.Fatalf("rpc idl json report = %s", out)
 	}
 	proto := string(ThriftAsProto(doc))
-	for _, want := range []string{"syntax = \"proto3\";", "message SayHelloReq", "service Greeter", "rpc SayHello(SayHelloReq) returns (SayHelloResp);"} {
+	for _, want := range []string{"syntax = \"proto3\";", "message SayHelloRequest", "service Greeter", "rpc SayHello(SayHelloRequest) returns (SayHelloResponse);"} {
 		if !strings.Contains(proto, want) {
 			t.Fatalf("thrift proto missing %q:\n%s", want, proto)
 		}
@@ -903,15 +903,15 @@ func TestRPCToolingTextThriftGenerationAndNewScaffold(t *testing.T) {
 	dir := t.TempDir()
 	thriftPath := filepath.Join(dir, "chat.thrift")
 	thrift := `namespace go example.com/chat
-struct ChatReq {
+struct ChatRequest {
   1: required string text
   2: list<i64> ids
 }
-struct ChatResp {
+struct ChatResponse {
   1: bool ok
 }
 service Chat {
-  ChatResp Talk(1: ChatReq req)
+  ChatResponse Talk(1: ChatRequest req)
 }`
 	if err := os.WriteFile(thriftPath, []byte(thrift), 0o644); err != nil {
 		t.Fatal(err)
@@ -942,7 +942,7 @@ service Chat {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"package example.com/chat;", "repeated int64 ids", "rpc Talk(ChatReq) returns (ChatResp);"} {
+	for _, want := range []string{"package example.com/chat;", "repeated int64 ids", "rpc Talk(ChatRequest) returns (ChatResponse);"} {
 		if !strings.Contains(string(protoData), want) {
 			t.Fatalf("generated thrift proto missing %q:\n%s", want, protoData)
 		}
@@ -1071,14 +1071,14 @@ func TestGenerateRPCCode(t *testing.T) {
 func TestGenerateRPCCodeSupportsStreaming(t *testing.T) {
 	doc, err := ParseProto(`syntax = "proto3";
 package greeter.v1;
-message Req {
+message WatchRequest {
   string name = 1;
 }
-message Resp {
+message WatchResponse {
   string message = 1;
 }
 service Greeter { 
-  rpc Watch(Req) returns (stream Resp);
+  rpc Watch(WatchRequest) returns (stream WatchResponse);
 }
 `)
 	if err != nil {
@@ -1093,7 +1093,7 @@ service Greeter {
 		"Watch(ctx context.Context, stream *rpc.Stream) error",
 		"Streams: []rpc.StreamDesc",
 		`Name: "Watch"`,
-		`Metadata: map[string]string{"request": "Req", "response": "Resp", "clientStream": "false", "serverStream": "true"}`,
+		`Metadata: map[string]string{"request": "WatchRequest", "response": "WatchResponse", "clientStream": "false", "serverStream": "true"}`,
 		"desc.Streams[0].Handler",
 		`c.desc.StreamPath("Watch")`,
 		"return c.cc.Stream(ctx, method)",
@@ -1149,17 +1149,17 @@ func TestGenerateRPCFromProtoMultipleAndStreamVariants(t *testing.T) {
 	protoPath := filepath.Join(dir, "chat.proto")
 	proto := `syntax = "proto3";
 package chat.v1;
-message UploadReq {
+message UploadRequest {
   string data = 1;
 }
-message UploadResp {
+message UploadResponse {
   string id = 1;
 }
 message ChatMsg {
   string text = 1;
 }
 service Uploader {
-  rpc Upload(stream UploadReq) returns (UploadResp);
+  rpc Upload(stream UploadRequest) returns (UploadResponse);
 }
 service Chat {
   rpc Talk(stream ChatMsg) returns (stream ChatMsg);
@@ -1186,7 +1186,7 @@ service Chat {
 	for _, want := range []string{
 		"func UploaderDescriptor() rpc.ServiceDesc",
 		"Streams: []rpc.StreamDesc",
-		`Metadata: map[string]string{"request": "UploadReq", "response": "UploadResp", "clientStream": "true", "serverStream": "false"}`,
+		`Metadata: map[string]string{"request": "UploadRequest", "response": "UploadResponse", "clientStream": "true", "serverStream": "false"}`,
 		"func UploaderRPCServerOptions(options ...UploaderServerOption) []rpc.ServerOption",
 		"rpc.WithServerMiddleware(rpc.RecoverMiddleware())",
 	} {
@@ -1216,14 +1216,14 @@ service Chat {
 func TestGenerateRPCCodeInfersPackageAndOmitsOptions(t *testing.T) {
 	doc, err := ParseProto(`syntax = "proto3";
 package billing.v1;
-message PayReq {
+message PayRequest {
   int64 cents = 1;
 }
-message PayResp {
+message PayResponse {
   bool ok = 1;
 }
 service Billing {
-  rpc Pay(PayReq) returns (PayResp);
+  rpc Pay(PayRequest) returns (PayResponse);
 }`)
 	if err != nil {
 		t.Fatal(err)
@@ -1260,7 +1260,7 @@ func TestGenerateRESTCode(t *testing.T) {
 	}
 	out := string(code)
 	for _, want := range []string{
-		"type LoginReq struct",
+		"type LoginRequest struct",
 		"type UserApi interface",
 		"func RegisterUserApiRoutes",
 		`Path: "/api/login"`,
@@ -1276,18 +1276,18 @@ func TestGenerateRESTCode(t *testing.T) {
 func TestGenerateAPIDocOpenAPIIncludesSchemasAndParameters(t *testing.T) {
 	dir := t.TempDir()
 	apiPath := filepath.Join(dir, "user.api")
-	api := `type ListUsersReq {
+	api := `type ListUsersRequest {
 	  Id string
   Page int
   Tags []string
 }
-type UserResp {
+type UserResponse {
   Id string
   Age int64
 }
 service user-api {
   @handler listUsers
-  get /users/{id} (ListUsersReq) returns (UserResp)
+  get /users/{id} (ListUsersRequest) returns (UserResponse)
 }`
 	if err := os.WriteFile(apiPath, []byte(api), 0o644); err != nil {
 		t.Fatal(err)
@@ -1318,25 +1318,25 @@ service user-api {
 	}
 	components := spec["components"].(map[string]any)
 	schemas := components["schemas"].(map[string]any)
-	user := schemas["UserResp"].(map[string]any)
+	user := schemas["UserResponse"].(map[string]any)
 	props := user["properties"].(map[string]any)
 	if props["age"].(map[string]any)["format"] != "int64" {
-		t.Fatalf("UserResp schema = %#v, want int64 age", user)
+		t.Fatalf("UserResponse schema = %#v, want int64 age", user)
 	}
 }
 
 func TestGenerateAPIDocOpenAPIYAML(t *testing.T) {
 	dir := t.TempDir()
 	apiPath := filepath.Join(dir, "user.api")
-	api := `type ListUsersReq {
+	api := `type ListUsersRequest {
   Page int
 }
-type UserResp {
+type UserResponse {
   Id string
 }
 service user-api {
   @handler listUsers
-  get /users/{id} (ListUsersReq) returns (UserResp)
+  get /users/{id} (ListUsersRequest) returns (UserResponse)
 }`
 	if err := os.WriteFile(apiPath, []byte(api), 0o644); err != nil {
 		t.Fatal(err)
@@ -1354,7 +1354,7 @@ service user-api {
 		"title: UserApi API",
 		"/users/{id}:",
 		"operationId: ListUsers",
-		"$ref: '#/components/schemas/UserResp'",
+		"$ref: '#/components/schemas/UserResponse'",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("openapi yaml missing %q:\n%s", want, out)
@@ -1365,19 +1365,19 @@ service user-api {
 func TestGenerateAPIDocOpenAPIAdvancedServerAuthAndExamples(t *testing.T) {
 	dir := t.TempDir()
 	apiPath := filepath.Join(dir, "admin.api")
-	api := `type CreateUserReq {
+	api := `type CreateUserRequest {
   Id int64 ` + "`json:\"id\" example:\"42\"`" + `
   Name string ` + "`json:\"name\" example:\"Ada\"`" + `
   Password string ` + "`json:\"-\"`" + `
 }
-type UserResp {
+type UserResponse {
   Id int64 ` + "`json:\"id\" example:\"42\"`" + `
   Name string ` + "`json:\"name\" example:\"Ada\"`" + `
 }
 @server(group: admin prefix: /api/v1 jwt: Auth)
 service user-api {
   @handler createUser
-  post /users/{id} (CreateUserReq) returns (UserResp)
+  post /users/{id} (CreateUserRequest) returns (UserResponse)
 }`
 	if err := os.WriteFile(apiPath, []byte(api), 0o644); err != nil {
 		t.Fatal(err)
@@ -1420,8 +1420,8 @@ service user-api {
 		t.Fatalf("request example = %#v", bodyMedia["example"])
 	}
 	schemas := components["schemas"].(map[string]any)
-	createReq := schemas["CreateUserReq"].(map[string]any)
-	props := createReq["properties"].(map[string]any)
+	createRequest := schemas["CreateUserRequest"].(map[string]any)
+	props := createRequest["properties"].(map[string]any)
 	if _, ok := props["-"]; ok {
 		t.Fatalf("schema should ignore json '-' field: %#v", props)
 	}
@@ -1433,17 +1433,17 @@ service user-api {
 func TestGenerateAPIClientPathAndQueryParams(t *testing.T) {
 	dir := t.TempDir()
 	apiPath := filepath.Join(dir, "user.api")
-	api := `type ListUsersReq {
+	api := `type ListUsersRequest {
   Id string
   Page int
   Tags []string
 }
-type UserResp {
+type UserResponse {
   Id string
 }
 service user-api {
   @handler listUsers
-  get /users/{id} (ListUsersReq) returns (UserResp)
+  get /users/{id} (ListUsersRequest) returns (UserResponse)
 }`
 	if err := os.WriteFile(apiPath, []byte(api), 0o644); err != nil {
 		t.Fatal(err)
@@ -1563,13 +1563,13 @@ service user-api {
 func TestGenerateAPIRoutes(t *testing.T) {
 	dir := t.TempDir()
 	apiPath := filepath.Join(dir, "user.api")
-	api := `type PingResp {
+	api := `type PingResponse {
   Message string
 }
 service user-api {
   @server(group: admin prefix: /api jwt: required middlewares: auth,trace)
   @handler ping
-  get /ping returns (PingResp)
+  get /ping returns (PingResponse)
 }`
 	if err := os.WriteFile(apiPath, []byte(api), 0o644); err != nil {
 		t.Fatal(err)
@@ -1611,21 +1611,21 @@ func TestGenerateAPIFromOpenAPI(t *testing.T) {
           {"name": "id", "in": "path", "required": true, "schema": {"type": "string"}},
           {"name": "verbose", "in": "query", "schema": {"type": "boolean"}}
         ],
-        "responses": {"200": {"content": {"application/json": {"schema": {"$ref": "#/components/schemas/UserResp"}}}}}
+        "responses": {"200": {"content": {"application/json": {"schema": {"$ref": "#/components/schemas/UserResponse"}}}}}
       }
     },
     "/users": {
       "post": {
         "operationId": "createUser",
-        "requestBody": {"content": {"application/json": {"schema": {"$ref": "#/components/schemas/CreateUserReq"}}}},
-        "responses": {"201": {"content": {"application/json": {"schema": {"$ref": "#/components/schemas/UserResp"}}}}}
+        "requestBody": {"content": {"application/json": {"schema": {"$ref": "#/components/schemas/CreateUserRequest"}}}},
+        "responses": {"201": {"content": {"application/json": {"schema": {"$ref": "#/components/schemas/UserResponse"}}}}}
       }
     }
   },
   "components": {
     "schemas": {
-      "CreateUserReq": {"type": "object", "properties": {"name": {"type": "string"}, "age": {"type": "integer", "format": "int32"}}},
-      "UserResp": {"type": "object", "properties": {"id": {"type": "string"}, "age": {"type": "integer", "format": "int64"}, "tags": {"type": "array", "items": {"type": "string"}}}}
+      "CreateUserRequest": {"type": "object", "properties": {"name": {"type": "string"}, "age": {"type": "integer", "format": "int32"}}},
+      "UserResponse": {"type": "object", "properties": {"id": {"type": "string"}, "age": {"type": "integer", "format": "int64"}, "tags": {"type": "array", "items": {"type": "string"}}}}
     }
   }
 }`
@@ -1642,17 +1642,17 @@ func TestGenerateAPIFromOpenAPI(t *testing.T) {
 	}
 	out := string(data)
 	for _, want := range []string{
-		"type CreateUserReq {",
+		"type CreateUserRequest {",
 		"Age int",
-		"type GetUserReq {",
+		"type GetUserRequest {",
 		"Verbose bool",
-		"type UserResp {",
+		"type UserResponse {",
 		"Age int64",
 		"Tags []string",
 		"service user_api {",
 		"@handler GetUser",
-		"get /users/{id} (GetUserReq) returns (UserResp)",
-		"post /users (CreateUserReq) returns (UserResp)",
+		"get /users/{id} (GetUserRequest) returns (UserResponse)",
+		"post /users (CreateUserRequest) returns (UserResponse)",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("imported api missing %q:\n%s", want, out)
@@ -1685,7 +1685,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ItemResp"
+                $ref: "#/components/schemas/ItemResponse"
   /items:
     post:
       operationId: createItem
@@ -1693,16 +1693,16 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/CreateItemReq"
+              $ref: "#/components/schemas/CreateItemRequest"
       responses:
         "201":
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ItemResp"
+                $ref: "#/components/schemas/ItemResponse"
 components:
   schemas:
-    CreateItemReq:
+    CreateItemRequest:
       type: object
       properties:
         name:
@@ -1710,7 +1710,7 @@ components:
         count:
           type: integer
           format: int32
-    ItemResp:
+    ItemResponse:
       type: object
       properties:
         id:
@@ -1736,17 +1736,17 @@ components:
 	}
 	out := string(data)
 	for _, want := range []string{
-		"type CreateItemReq {",
+		"type CreateItemRequest {",
 		"Count int",
-		"type GetItemReq {",
+		"type GetItemRequest {",
 		"Verbose bool",
-		"type ItemResp {",
+		"type ItemResponse {",
 		"Count int64",
 		"Labels []string",
 		"service inventory_api {",
 		"@handler GetItem",
-		"get /items/{id} (GetItemReq) returns (ItemResp)",
-		"post /items (CreateItemReq) returns (ItemResp)",
+		"get /items/{id} (GetItemRequest) returns (ItemResponse)",
+		"post /items (CreateItemRequest) returns (ItemResponse)",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("imported yaml api missing %q:\n%s", want, out)
@@ -1777,7 +1777,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ItemResp"
+                $ref: "#/components/schemas/ItemResponse"
     put:
       operationId: updateItem
       requestBody:
@@ -1790,7 +1790,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ItemResp"
+                $ref: "#/components/schemas/ItemResponse"
 components:
   parameters:
     OrgIDParam:
@@ -1814,7 +1814,7 @@ components:
         count:
           type: integer
           format: int32
-    ItemResp:
+    ItemResponse:
       type: object
       properties:
         id:
@@ -1835,14 +1835,14 @@ components:
 	}
 	out := string(data)
 	for _, want := range []string{
-		"type GetItemReq {",
+		"type GetItemRequest {",
 		"Id string",
 		"OrgId string",
 		"Verbose bool",
-		"type UpdateItemReq {",
+		"type UpdateItemRequest {",
 		"Count int",
 		"Name string",
-		"put /orgs/{orgId}/items/{id} (UpdateItemReq) returns (ItemResp)",
+		"put /orgs/{orgId}/items/{id} (UpdateItemRequest) returns (ItemResponse)",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("imported api with parameters missing %q:\n%s", want, out)
@@ -1854,31 +1854,31 @@ func TestGenerateAPIDiff(t *testing.T) {
 	dir := t.TempDir()
 	basePath := filepath.Join(dir, "base.api")
 	targetPath := filepath.Join(dir, "target.api")
-	base := `type PingReq {
+	base := `type PingRequest {
   Name string
 }
-type PingResp {
+type PingResponse {
   Message string
 }
 service user-api {
   @handler ping
-  get /ping (PingReq) returns (PingResp)
+  get /ping (PingRequest) returns (PingResponse)
 }`
-	target := `type PingReq {
+	target := `type PingRequest {
   Name string
   Age int
 }
-type PingResp {
+type PingResponse {
   Message string
 }
-type PongResp {
+type PongResponse {
   Ok bool
 }
 service user-api {
   @handler ping
-  get /ping (PingReq) returns (PingResp)
+  get /ping (PingRequest) returns (PingResponse)
   @handler pong
-  post /pong returns (PongResp)
+  post /pong returns (PongResponse)
 }`
 	if err := os.WriteFile(basePath, []byte(base), 0o644); err != nil {
 		t.Fatal(err)
@@ -1901,11 +1901,11 @@ service user-api {
 	if len(diff.AddedRoutes) != 1 || diff.AddedRoutes[0].Path != "/pong" {
 		t.Fatalf("added routes = %#v, want /pong", diff.AddedRoutes)
 	}
-	if len(diff.ChangedTypes) != 1 || diff.ChangedTypes[0].Name != "PingReq" {
-		t.Fatalf("changed types = %#v, want PingReq", diff.ChangedTypes)
+	if len(diff.ChangedTypes) != 1 || diff.ChangedTypes[0].Name != "PingRequest" {
+		t.Fatalf("changed types = %#v, want PingRequest", diff.ChangedTypes)
 	}
-	if len(diff.AddedTypes) != 1 || diff.AddedTypes[0].Name != "PongResp" {
-		t.Fatalf("added types = %#v, want PongResp", diff.AddedTypes)
+	if len(diff.AddedTypes) != 1 || diff.AddedTypes[0].Name != "PongResponse" {
+		t.Fatalf("added types = %#v, want PongResponse", diff.AddedTypes)
 	}
 }
 
@@ -1917,7 +1917,7 @@ func TestDiffAPIUsesServerPrefixInRouteContract(t *testing.T) {
 			Name:       "Ping",
 			HTTPMethod: http.MethodGet,
 			HTTPPath:   "/ping",
-			Response:   "PingResp",
+			Response:   "PingResponse",
 		}},
 	}}}
 	target := IDLDocument{Services: []IDLService{{
@@ -1927,7 +1927,7 @@ func TestDiffAPIUsesServerPrefixInRouteContract(t *testing.T) {
 			Name:       "Ping",
 			HTTPMethod: http.MethodGet,
 			HTTPPath:   "/ping",
-			Response:   "PingResp",
+			Response:   "PingResponse",
 		}},
 	}}}
 
@@ -1944,32 +1944,32 @@ func TestBreakingDetectionForAPIAndProtoContracts(t *testing.T) {
 	dir := t.TempDir()
 	baseAPIPath := filepath.Join(dir, "base.api")
 	targetAPIPath := filepath.Join(dir, "target.api")
-	baseAPI := `type PingReq {
+	baseAPI := `type PingRequest {
   Name string
   Age int
 }
-type PingResp {
+type PingResponse {
   Message string
 }
 service user-api {
   @handler ping
-  get /ping (PingReq) returns (PingResp)
+  get /ping (PingRequest) returns (PingResponse)
 }`
-	targetAPI := `type PingReq {
+	targetAPI := `type PingRequest {
   Name int64
   Trace string
 }
-type PingResp {
+type PingResponse {
   Message string
 }
-type AuditResp {
+type AuditResponse {
   Ok bool
 }
 service user-api {
   @handler ping
-  post /ping/v2 (PingReq) returns (PingResp)
+  post /ping/v2 (PingRequest) returns (PingResponse)
   @handler audit
-  get /audit returns (AuditResp)
+  get /audit returns (AuditResponse)
 }`
 	if err := os.WriteFile(baseAPIPath, []byte(baseAPI), 0o644); err != nil {
 		t.Fatal(err)
@@ -1985,7 +1985,7 @@ service user-api {
 		t.Fatalf("api report = %+v, want breaking changes", apiReport)
 	}
 	apiText := string(FormatBreakingText(apiReport))
-	for _, want := range []string{"[BREAKING] route", "GET /ping → POST /ping/v2", "[BREAKING] field", "PingReq.Name", "[INFO] method", "UserApi.Audit", "[INFO] type", "type AuditResp"} {
+	for _, want := range []string{"[BREAKING] route", "GET /ping → POST /ping/v2", "[BREAKING] field", "PingRequest.Name", "[INFO] method", "UserApi.Audit", "[INFO] type", "type AuditResponse"} {
 		if !strings.Contains(apiText, want) {
 			t.Fatalf("api breaking text missing %q:\n%s", want, apiText)
 		}
@@ -2000,21 +2000,21 @@ service user-api {
 	baseProto, err := ParseProto(`syntax = "proto3";
 package old.v1;
 enum Status { STATUS_UNSPECIFIED = 0; STATUS_OK = 1; }
-message PingReq { string name = 1; int64 age = 2; }
-message PingResp { string message = 1; }
-service Greeter { rpc Ping(PingReq) returns (PingResp); }
-service Legacy { rpc Old(PingReq) returns (PingResp); }`)
+message PingRequest { string name = 1; int64 age = 2; }
+message PingResponse { string message = 1; }
+service Greeter { rpc Ping(PingRequest) returns (PingResponse); }
+service Legacy { rpc Old(PingRequest) returns (PingResponse); }`)
 	if err != nil {
 		t.Fatal(err)
 	}
 	targetProto, err := ParseProto(`syntax = "proto3";
 package new.v1;
 enum Status { STATUS_UNSPECIFIED = 0; STATUS_OK = 2; STATUS_NEW = 3; }
-message PingReq { int64 name = 3; string trace = 4; }
-message PingResp { string message = 1; }
-message ExtraResp { bool ok = 1; }
-service Greeter { rpc Ping(stream PingReq) returns (PingResp); rpc Extra(PingReq) returns (ExtraResp); }
-service Audit { rpc Check(PingReq) returns (PingResp); }`)
+message PingRequest { int64 name = 3; string trace = 4; }
+message PingResponse { string message = 1; }
+message ExtraResponse { bool ok = 1; }
+service Greeter { rpc Ping(stream PingRequest) returns (PingResponse); rpc Extra(PingRequest) returns (ExtraResponse); }
+service Audit { rpc Check(PingRequest) returns (PingResponse); }`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2023,7 +2023,7 @@ service Audit { rpc Check(PingReq) returns (PingResp); }`)
 		t.Fatalf("proto report = %+v, want breaking changes", protoReport)
 	}
 	protoText := string(FormatBreakingText(protoReport))
-	for _, want := range []string{"package \"old.v1\" → \"new.v1\"", "service Legacy", "Greeter.Ping streaming", "PingReq.name", "字段 number 从 1 变更为 3", "Status.STATUS_OK", "[INFO] service"} {
+	for _, want := range []string{"package \"old.v1\" → \"new.v1\"", "service Legacy", "Greeter.Ping streaming", "PingRequest.name", "字段 number 从 1 变更为 3", "Status.STATUS_OK", "[INFO] service"} {
 		if !strings.Contains(protoText, want) {
 			t.Fatalf("proto breaking text missing %q:\n%s", want, protoText)
 		}
@@ -2033,12 +2033,12 @@ service Audit { rpc Check(PingReq) returns (PingResp); }`)
 func TestProtoRuntimeDescriptorMapSeparatesStreams(t *testing.T) {
 	doc, err := ParseProto(`syntax = "proto3";
 package demo.v1;
-message PingReq { string name = 1; }
-message PingResp { string message = 1; }
+message PingRequest { string name = 1; }
+message PingResponse { string message = 1; }
 service Greeter {
-  rpc Ping(PingReq) returns (PingResp);
-  rpc Watch(PingReq) returns (stream PingResp);
-  rpc Chat(stream PingReq) returns (stream PingResp);
+  rpc Ping(PingRequest) returns (PingResponse);
+  rpc Watch(PingRequest) returns (stream PingResponse);
+  rpc Chat(stream PingRequest) returns (stream PingResponse);
 }`)
 	if err != nil {
 		t.Fatal(err)
@@ -2059,8 +2059,8 @@ service Greeter {
 		t.Fatalf("second stream = %#v, want Watch server stream", desc.Streams[1])
 	}
 	report := reportProtoDescriptorChanges(
-		IDLDocument{Services: []IDLService{{Name: "Greeter", Methods: []IDLMethod{{Name: "Watch", Request: "PingReq", Response: "PingResp"}}}}},
-		IDLDocument{Services: []IDLService{{Name: "Greeter", Methods: []IDLMethod{{Name: "Watch", Request: "PingReq", Response: "PingResp", ServerStream: true}}}}},
+		IDLDocument{Services: []IDLService{{Name: "Greeter", Methods: []IDLMethod{{Name: "Watch", Request: "PingRequest", Response: "PingResponse"}}}}},
+		IDLDocument{Services: []IDLService{{Name: "Greeter", Methods: []IDLMethod{{Name: "Watch", Request: "PingRequest", Response: "PingResponse", ServerStream: true}}}}},
 	)
 	if !report.HasBreaking() {
 		t.Fatalf("stream signature report = %+v, want breaking change", report)
@@ -2070,16 +2070,16 @@ service Greeter {
 func TestAPIToolingFormatsDocsTypesRoutesAndDiffs(t *testing.T) {
 	dir := t.TempDir()
 	apiPath := filepath.Join(dir, "user.api")
-	api := `type PingReq {
+	api := `type PingRequest {
   Name string
   Tags []string
 }
-type PingResp {
+type PingResponse {
   Message string
 }
 service user-api {
   @handler ping
-  get /ping (PingReq) returns (PingResp)
+  get /ping (PingRequest) returns (PingResponse)
 }`
 	if err := os.WriteFile(apiPath, []byte(api), 0o644); err != nil {
 		t.Fatal(err)
@@ -2090,7 +2090,7 @@ service user-api {
 	if err != nil {
 		t.Fatalf("FormatAPIFromFile output: %v", err)
 	}
-	if !strings.Contains(string(formatted), "type PingReq") {
+	if !strings.Contains(string(formatted), "type PingRequest") {
 		t.Fatalf("formatted api = %s", formatted)
 	}
 	lastFormatted, err := FormatAPIFromFile(APIFormatOptions{Dir: dir, Write: true})
@@ -2109,7 +2109,7 @@ service user-api {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"# UserApi API", "| GET | `/ping` | `Ping` | `PingReq` | `PingResp` |", "### PingReq"} {
+	for _, want := range []string{"# UserApi API", "| GET | `/ping` | `Ping` | `PingRequest` | `PingResponse` |", "### PingRequest"} {
 		if !strings.Contains(string(markdownData), want) {
 			t.Fatalf("api markdown missing %q:\n%s", want, markdownData)
 		}
@@ -2123,7 +2123,7 @@ service user-api {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(typesData), "type PingReq struct") || !strings.Contains(string(typesData), "Tags []string") {
+	if !strings.Contains(string(typesData), "type PingRequest struct") || !strings.Contains(string(typesData), "Tags []string") {
 		t.Fatalf("generated api types = %s", typesData)
 	}
 
@@ -2133,7 +2133,7 @@ service user-api {
 		want   string
 	}{
 		{format: "text", file: "routes.txt", want: "METHOD\tPATH\tHANDLER\tREQUEST\tRESPONSE\tSERVICE"},
-		{format: "markdown", file: "routes.md", want: "| GET | `/ping` | `Ping` | `PingReq` | `PingResp` | `user-api` |"},
+		{format: "markdown", file: "routes.md", want: "| GET | `/ping` | `Ping` | `PingRequest` | `PingResponse` | `user-api` |"},
 	} {
 		t.Run("routes "+tt.format, func(t *testing.T) {
 			output := filepath.Join(dir, tt.file)
@@ -2151,21 +2151,21 @@ service user-api {
 	}
 
 	targetPath := filepath.Join(dir, "target.api")
-	target := `type PingReq {
+	target := `type PingRequest {
   Name string
   Age int
 }
-type PingResp {
+type PingResponse {
   Message string
 }
-type PongResp {
+type PongResponse {
   Ok bool
 }
 service user-api {
   @handler ping
-  get /ping (PingReq) returns (PingResp)
+  get /ping (PingRequest) returns (PingResponse)
   @handler pong
-  post /pong returns (PongResp)
+  post /pong returns (PongResponse)
 }`
 	if err := os.WriteFile(targetPath, []byte(target), 0o644); err != nil {
 		t.Fatal(err)
@@ -2211,16 +2211,16 @@ service user-api {
 func TestGenerateRESTFromAPIWritesGatewayTypeGroupsAndRouteTests(t *testing.T) {
 	dir := t.TempDir()
 	apiPath := filepath.Join(dir, "gateway.api")
-	api := `type LoginReq {
+	api := `type LoginRequest {
   Username string
 }
-type LoginResp {
+type LoginResponse {
   Token string
 }
 @server(prefix: /api/v1)
 service user-api {
   @handler login
-  post /login (LoginReq) returns (LoginResp)
+  post /login (LoginRequest) returns (LoginResponse)
 }`
 	if err := os.WriteFile(apiPath, []byte(api), 0o644); err != nil {
 		t.Fatal(err)
@@ -2243,10 +2243,10 @@ service user-api {
 		path string
 		want []string
 	}{
-		{path: filepath.Join(baseDir, "types_login_req.go"), want: []string{"type LoginReq struct", "Username string"}},
-		{path: filepath.Join(baseDir, "converters.go"), want: []string{"func toRPCLoginReq", "func fromRPCLoginResp"}},
+		{path: filepath.Join(baseDir, "types_login_request.go"), want: []string{"type LoginRequest struct", "Username string"}},
+		{path: filepath.Join(baseDir, "converters.go"), want: []string{"func toRPCLoginRequest", "func fromRPCLoginResponse"}},
 		{path: filepath.Join(serviceDir, "gateway.go"), want: []string{"type UserApiGateway struct", "func NewUserApiGateway"}},
-		{path: filepath.Join(serviceDir, "login_gateway.go"), want: []string{"func (g *UserApiGateway) Login", "g.client.Login(ctx, toRPCLoginReq(req))"}},
+		{path: filepath.Join(serviceDir, "login_gateway.go"), want: []string{"func (g *UserApiGateway) Login", "g.client.Login(ctx, toRPCLoginRequest(req))"}},
 		{path: filepath.Join(serviceDir, "routes.go"), want: []string{"func RegisterUserApiGatewayRoutes", "NewUserApiGateway(cc)"}},
 		{path: filepath.Join(serviceDir, "routes_test.go"), want: []string{"func TestUserApiRoutesGenerated"}},
 	}
@@ -2271,7 +2271,7 @@ func TestDiffAPIServiceScopedRoutes(t *testing.T) {
 				Name:       "Ping",
 				HTTPMethod: http.MethodGet,
 				HTTPPath:   "/ping",
-				Response:   "PingResp",
+				Response:   "PingResponse",
 			}},
 		},
 		{
@@ -2280,7 +2280,7 @@ func TestDiffAPIServiceScopedRoutes(t *testing.T) {
 				Name:       "PingAdmin",
 				HTTPMethod: http.MethodGet,
 				HTTPPath:   "/ping",
-				Response:   "PingResp",
+				Response:   "PingResponse",
 			}},
 		},
 	}}
@@ -2291,7 +2291,7 @@ func TestDiffAPIServiceScopedRoutes(t *testing.T) {
 				Name:       "Ping",
 				HTTPMethod: http.MethodGet,
 				HTTPPath:   "/ping",
-				Response:   "PingResp",
+				Response:   "PingResponse",
 			}},
 		},
 		{
@@ -2300,7 +2300,7 @@ func TestDiffAPIServiceScopedRoutes(t *testing.T) {
 				Name:       "PingAdmin",
 				HTTPMethod: http.MethodGet,
 				HTTPPath:   "/ping",
-				Response:   "AdminPingResp",
+				Response:   "AdminPingResponse",
 			}},
 		},
 	}}
@@ -2310,7 +2310,7 @@ func TestDiffAPIServiceScopedRoutes(t *testing.T) {
 		t.Fatalf("changed routes = %#v, want exactly one admin route change", diff.ChangedRoutes)
 	}
 	change := diff.ChangedRoutes[0]
-	if change.Key != "admin-api GET /ping" || change.Target.Response != "AdminPingResp" {
+	if change.Key != "admin-api GET /ping" || change.Target.Response != "AdminPingResponse" {
 		t.Fatalf("route change = %#v, want admin-api GET /ping response change", change)
 	}
 }
@@ -2319,21 +2319,21 @@ func TestValidateAPI(t *testing.T) {
 	valid := IDLDocument{
 		Messages: []IDLMessage{
 			{
-				Name: "PingReq",
+				Name: "PingRequest",
 				Fields: []IDLField{
 					{Name: "Name", Type: "string"},
 					{Name: "Tags", Type: "[]string"},
 				},
 			},
-			{Name: "PingResp", Fields: []IDLField{{Name: "Message", Type: "string"}}},
+			{Name: "PingResponse", Fields: []IDLField{{Name: "Message", Type: "string"}}},
 		},
 		Services: []IDLService{{
 			Name: "user-api",
 			Methods: []IDLMethod{{
 				Name:       "Ping",
 				Handler:    "ping",
-				Request:    "PingReq",
-				Response:   "PingResp",
+				Request:    "PingRequest",
+				Response:   "PingResponse",
 				HTTPMethod: http.MethodGet,
 				HTTPPath:   "/ping",
 			}},
@@ -2345,8 +2345,8 @@ func TestValidateAPI(t *testing.T) {
 
 	invalid := IDLDocument{
 		Messages: []IDLMessage{
-			{Name: "PingReq", Fields: []IDLField{{Name: "Name", Type: "MissingType"}}},
-			{Name: "PingReq", Fields: []IDLField{{Name: "Other", Type: "string"}}},
+			{Name: "PingRequest", Fields: []IDLField{{Name: "Name", Type: "MissingType"}}},
+			{Name: "PingRequest", Fields: []IDLField{{Name: "Other", Type: "string"}}},
 			{Name: "DupField", Fields: []IDLField{{Name: "Name", Type: "string"}, {Name: "Name", Type: "string"}}},
 		},
 		Services: []IDLService{{
@@ -2355,15 +2355,15 @@ func TestValidateAPI(t *testing.T) {
 				{
 					Name:       "Ping",
 					Handler:    "ping",
-					Request:    "MissingReq",
-					Response:   "MissingResp",
+					Request:    "MissingRequest",
+					Response:   "MissingResponse",
 					HTTPMethod: http.MethodGet,
 					HTTPPath:   "/ping",
 				},
 				{
 					Name:       "PingAgain",
 					Handler:    "ping",
-					Response:   "PingReq",
+					Response:   "PingRequest",
 					HTTPMethod: http.MethodGet,
 					HTTPPath:   "/ping",
 				},
@@ -2375,11 +2375,11 @@ func TestValidateAPI(t *testing.T) {
 		t.Fatal("ValidateAPI(invalid) succeeded, want semantic validation error")
 	}
 	for _, want := range []string{
-		"duplicate type PingReq",
+		"duplicate type PingRequest",
 		"duplicate field DupField.Name",
-		"unknown field type PingReq.Name MissingType",
-		"route Ping references unknown request type MissingReq",
-		"route Ping references unknown response type MissingResp",
+		"unknown field type PingRequest.Name MissingType",
+		"route Ping references unknown request type MissingRequest",
+		"route Ping references unknown response type MissingResponse",
 		"duplicate route GET /ping",
 		"duplicate handler Ping",
 	} {
@@ -2392,16 +2392,16 @@ func TestValidateAPI(t *testing.T) {
 func TestValidateAPIRejectsUnsafePathParams(t *testing.T) {
 	invalid := IDLDocument{
 		Messages: []IDLMessage{
-			{Name: "PingReq", Fields: []IDLField{{Name: "ID", Type: "string"}}},
-			{Name: "PingResp", Fields: []IDLField{{Name: "Message", Type: "string"}}},
+			{Name: "PingRequest", Fields: []IDLField{{Name: "ID", Type: "string"}}},
+			{Name: "PingResponse", Fields: []IDLField{{Name: "Message", Type: "string"}}},
 		},
 		Services: []IDLService{{
 			Name: "user-api",
 			Methods: []IDLMethod{{
 				Name:       "Ping",
 				Handler:    "ping",
-				Request:    "PingReq",
-				Response:   "PingResp",
+				Request:    "PingRequest",
+				Response:   "PingResponse",
 				HTTPMethod: http.MethodGet,
 				HTTPPath:   `/users/{id);console.log("x");//}`,
 			}},
@@ -2493,8 +2493,8 @@ func TestOpenAPIResponseName(t *testing.T) {
 	if got := openAPIResponseName("GetUser", openAPIOperation{Responses: map[string]openAPIResponse{"200": {Content: map[string]openAPIMediaType{"application/json": {Schema: openAPISpecSchema{Ref: "#/components/schemas/User"}}}}}}); got != "User" {
 		t.Fatalf("ref response = %q, want User", got)
 	}
-	if got := openAPIResponseName("GetUser", openAPIOperation{Responses: map[string]openAPIResponse{"200": {Content: map[string]openAPIMediaType{"application/json": {Schema: openAPISpecSchema{Properties: map[string]openAPISpecSchema{"id": {}}}}}}}}); got != "GetUserResp" {
-		t.Fatalf("properties response = %q, want GetUserResp", got)
+	if got := openAPIResponseName("GetUser", openAPIOperation{Responses: map[string]openAPIResponse{"200": {Content: map[string]openAPIMediaType{"application/json": {Schema: openAPISpecSchema{Properties: map[string]openAPISpecSchema{"id": {}}}}}}}}); got != "GetUserResponse" {
+		t.Fatalf("properties response = %q, want GetUserResponse", got)
 	}
 }
 
@@ -2564,11 +2564,11 @@ func TestGenerateRESTFromAPI(t *testing.T) {
 func TestGenerateRESTFromAPIResolvesLocalImports(t *testing.T) {
 	dir := t.TempDir()
 	sharedPath := filepath.Join(dir, "types.api")
-	if err := os.WriteFile(sharedPath, []byte(`type SharedReq {
+	if err := os.WriteFile(sharedPath, []byte(`type SharedRequest {
   ID int64 `+"`path:\"id\"`"+`
 }
 
-type SharedResp {
+type SharedResponse {
   Name string `+"`json:\"name\"`"+`
 }
 `), 0o644); err != nil {
@@ -2581,7 +2581,7 @@ import "types.api"
 @server(group: inventory prefix: /api/v1 middlewares: auth,trace)
 service inventory-api {
   @handler getInventory
-  get /inventory/:id (SharedReq) returns (SharedResp)
+  get /inventory/:id (SharedRequest) returns (SharedResponse)
 }
 `), 0o644); err != nil {
 		t.Fatal(err)
@@ -2594,7 +2594,7 @@ service inventory-api {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"type SharedReq struct", "type SharedResp struct"} {
+	for _, want := range []string{"type SharedRequest struct", "type SharedResponse struct"} {
 		if !strings.Contains(string(typesData), want) {
 			t.Fatalf("generated imported type missing %q:\n%s", want, typesData)
 		}
@@ -2625,7 +2625,7 @@ func TestGenerateRESTFromAPIRejectsUnsafeImports(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			apiPath := filepath.Join(dir, strings.ReplaceAll(tt.name, " ", "_")+".api")
-			content := "syntax = \"v1\"\nimport \"" + filepath.ToSlash(tt.importRef) + "\"\nservice inventory-api {\n  @handler ping\n  get /ping returns (PingResp)\n}\n\ntype PingResp {\n  Message string\n}\n"
+			content := "syntax = \"v1\"\nimport \"" + filepath.ToSlash(tt.importRef) + "\"\nservice inventory-api {\n  @handler ping\n  get /ping returns (PingResponse)\n}\n\ntype PingResponse {\n  Message string\n}\n"
 			if err := os.WriteFile(apiPath, []byte(content), 0o644); err != nil {
 				t.Fatal(err)
 			}
@@ -2647,7 +2647,7 @@ func TestGenerateRESTFromAPITypeGroup(t *testing.T) {
 	if err := GenerateRESTFromAPI(APIOptions{APIFile: apiPath, Dir: outDir, Package: "handler", TypeGroup: true}); err != nil {
 		t.Fatal(err)
 	}
-	data, err := os.ReadFile(filepath.Join(outDir, "internal", "api", "v1", "types_login_req.go"))
+	data, err := os.ReadFile(filepath.Join(outDir, "internal", "api", "v1", "types_login_request.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -3390,17 +3390,17 @@ func TestGenerateRPCFromProtoNoClientAndMultiple(t *testing.T) {
 	protoPath := filepath.Join(dir, "multi.proto")
 	protoContent := `syntax = "proto3";
 package demo.v1;
-message PingReq {
+message PingRequest {
   string name = 1;
 }
-message PingResp {
+message PingResponse {
   string message = 1;
 }
 service Greeter {
-  rpc Ping(PingReq) returns (PingResp);
+  rpc Ping(PingRequest) returns (PingResponse);
 }
 service Health {
-  rpc Check(PingReq) returns (PingResp);
+  rpc Check(PingRequest) returns (PingResponse);
 }
 `
 	if err := os.WriteFile(protoPath, []byte(protoContent), 0o644); err != nil {
@@ -3633,17 +3633,17 @@ type Extra {
 func TestGenerateAPITypesAndClient(t *testing.T) {
 	dir := t.TempDir()
 	apiFile := filepath.Join(dir, "types.api")
-	api := `type UserReq {
+	api := `type UserRequest {
     Name string
 }
 
-type UserResp {
+type UserResponse {
     Id int64
 }
 
 service user-api {
     @handler GetUser
-    get /users/:id (UserReq) returns (UserResp)
+    get /users/:id (UserRequest) returns (UserResponse)
 }
 `
 	if err := os.WriteFile(apiFile, []byte(api), 0o644); err != nil {

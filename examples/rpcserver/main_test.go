@@ -11,7 +11,7 @@ func TestGreeterAndDescriptor(t *testing.T) {
 	if err != nil || resp.Message != "hello world" {
 		t.Fatalf("SayHello nil = %#v/%v, want hello world", resp, err)
 	}
-	resp, err = (greeter{}).SayHello(context.Background(), &helloReq{Name: "gofly"})
+	resp, err = (greeter{}).SayHello(context.Background(), &helloRequest{Name: "gofly"})
 	if err != nil || resp.Message != "hello gofly" {
 		t.Fatalf("SayHello named = %#v/%v, want hello gofly", resp, err)
 	}

@@ -23,39 +23,39 @@ import (
 
 const commandTestProto = `syntax = "proto3";
 package greeter.v1;
-message HelloReq {
+message HelloRequest {
   string name = 1;
 }
-message HelloResp {
+message HelloResponse {
   string message = 1;
 }
 service Greeter {
-  rpc Hello(HelloReq) returns (HelloResp);
+  rpc Hello(HelloRequest) returns (HelloResponse);
 }
 `
 
 const commandStreamingProto = `syntax = "proto3";
 package chat.v1;
-message ChatReq {
+message ChatRequest {
   string text = 1;
 }
-message ChatResp {
+message ChatResponse {
   string text = 1;
 }
 service Chat {
-  rpc Talk(stream ChatReq) returns (stream ChatResp);
+  rpc Talk(stream ChatRequest) returns (stream ChatResponse);
 }
 `
 
-const commandTestAPI = `type PingReq {
+const commandTestAPI = `type PingRequest {
   Name string
 }
-type PingResp {
+type PingResponse {
   Message string
 }
 service user-api {
   @handler ping
-  post /ping (PingReq) returns (PingResp)
+  post /ping (PingRequest) returns (PingResponse)
 }
 `
 
@@ -725,17 +725,17 @@ func TestExecuteRPCGenGoflyNoClientAndMultiple(t *testing.T) {
 	protoPath := filepath.Join(dir, "multi.proto")
 	protoContent := `syntax = "proto3";
 package demo.v1;
-message PingReq {
+message PingRequest {
   string name = 1;
 }
-message PingResp {
+message PingResponse {
   string message = 1;
 }
 service Greeter {
-  rpc Ping(PingReq) returns (PingResp);
+  rpc Ping(PingRequest) returns (PingResponse);
 }
 service Health {
-  rpc Check(PingReq) returns (PingResp);
+  rpc Check(PingRequest) returns (PingResponse);
 }
 `
 	if err := os.WriteFile(protoPath, []byte(protoContent), 0o644); err != nil {
@@ -817,7 +817,7 @@ func TestExecuteRPCGenWithGoflyTransportSupportsStreamingAndOptions(t *testing.T
 	for _, want := range []string{
 		"Talk(ctx context.Context, stream *rpc.Stream) error",
 		"Streams: []rpc.StreamDesc",
-		`Metadata: map[string]string{"request": "ChatReq", "response": "ChatResp", "clientStream": "true", "serverStream": "true"}`,
+		`Metadata: map[string]string{"request": "ChatRequest", "response": "ChatResponse", "clientStream": "true", "serverStream": "true"}`,
 		"func ChatInterceptorChain(middlewares ...endpoint.Middleware) endpoint.Middleware",
 		"func WithChatRecovery() ChatServerOption",
 		"func WithChatValidator(validator ChatValidator) ChatServerOption",
@@ -923,16 +923,16 @@ func TestExecuteRPCThriftAndDeps(t *testing.T) {
 	thrift := `namespace go example.com/greeter
 include "base.thrift"
 
-struct SayHelloReq {
+struct SayHelloRequest {
   1: string name
 }
 
-struct SayHelloResp {
+struct SayHelloResponse {
   1: string message
 }
 
 service Greeter {
-  SayHelloResp SayHello(1: SayHelloReq req)
+  SayHelloResponse SayHello(1: SayHelloRequest req)
 }`
 	if err := os.WriteFile(thriftPath, []byte(thrift), 0o644); err != nil {
 		t.Fatal(err)
@@ -1250,15 +1250,15 @@ func TestExecuteAPIRPCTemplateEntrypoints(t *testing.T) {
 func TestExecuteAPICheck(t *testing.T) {
 	dir := t.TempDir()
 	apiPath := filepath.Join(dir, "user.api")
-	api := `type PingReq {
+	api := `type PingRequest {
   Name string
 }
-type PingResp {
+type PingResponse {
   Message string
 }
 service user-api {
   @handler ping
-  get /ping (PingReq) returns (PingResp)
+  get /ping (PingRequest) returns (PingResponse)
 }
 `
 	if err := os.WriteFile(apiPath, []byte(api), 0o644); err != nil {
@@ -1272,12 +1272,12 @@ service user-api {
 func TestExecuteAPIValidateRejectsSemanticErrors(t *testing.T) {
 	dir := t.TempDir()
 	apiPath := filepath.Join(dir, "bad.api")
-	api := `type PingReq {
+	api := `type PingRequest {
   Name MissingType
 }
 service user-api {
   @handler ping
-  get /ping (PingReq) returns (MissingResp)
+  get /ping (PingRequest) returns (MissingResponse)
 }
 `
 	if err := os.WriteFile(apiPath, []byte(api), 0o644); err != nil {
@@ -1288,8 +1288,8 @@ service user-api {
 		t.Fatal("api validate succeeded, want semantic validation error")
 	}
 	for _, want := range []string{
-		"unknown field type PingReq.Name MissingType",
-		"route Ping references unknown response type MissingResp",
+		"unknown field type PingRequest.Name MissingType",
+		"route Ping references unknown response type MissingResponse",
 	} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("api validate error missing %q:\n%v", want, err)
@@ -1300,15 +1300,15 @@ service user-api {
 func TestExecuteAPIGen(t *testing.T) {
 	dir := t.TempDir()
 	apiPath := filepath.Join(dir, "user.api")
-	api := `type PingReq {
+	api := `type PingRequest {
   Name string
 }
-type PingResp {
+type PingResponse {
   Message string
 }
 service user-api {
   @handler ping
-  post /ping (PingReq) returns (PingResp)
+  post /ping (PingRequest) returns (PingResponse)
 }
 `
 	if err := os.WriteFile(apiPath, []byte(api), 0o644); err != nil {
@@ -1326,15 +1326,15 @@ service user-api {
 func TestExecuteAPIGoAlias(t *testing.T) {
 	dir := t.TempDir()
 	apiPath := filepath.Join(dir, "user.api")
-	api := `type PingReq {
+	api := `type PingRequest {
   Name string
 }
-type PingResp {
+type PingResponse {
   Message string
 }
 service user-api {
   @handler ping
-  get /ping (PingReq) returns (PingResp)
+  get /ping (PingRequest) returns (PingResponse)
 }
 `
 	if err := os.WriteFile(apiPath, []byte(api), 0o644); err != nil {
@@ -1352,15 +1352,15 @@ service user-api {
 func TestExecuteAPIGoAcceptsGoctlSingleDashFlags(t *testing.T) {
 	dir := t.TempDir()
 	apiPath := filepath.Join(dir, "user.api")
-	api := `type PingReq {
+	api := `type PingRequest {
   Name string
 }
-type PingResp {
+type PingResponse {
   Message string
 }
 service user-api {
   @handler ping
-  get /ping (PingReq) returns (PingResp)
+  get /ping (PingRequest) returns (PingResponse)
 }
 `
 	if err := os.WriteFile(apiPath, []byte(api), 0o644); err != nil {
@@ -1385,15 +1385,15 @@ service user-api {
 func TestExecuteAPIGenAcceptsGoctlTemplateFlags(t *testing.T) {
 	dir := t.TempDir()
 	apiPath := filepath.Join(dir, "user.api")
-	api := `type PingReq {
+	api := `type PingRequest {
   Name string
 }
-type PingResp {
+type PingResponse {
   Message string
 }
 service user-api {
   @handler ping
-  post /ping (PingReq) returns (PingResp)
+  post /ping (PingRequest) returns (PingResponse)
 }
 `
 	if err := os.WriteFile(apiPath, []byte(api), 0o644); err != nil {
@@ -1416,8 +1416,8 @@ service user-api {
 		t.Fatal(err)
 	}
 	for _, rel := range []string{
-		filepath.Join("internal", "api", "v1", "types_ping_req.go"),
-		filepath.Join("internal", "api", "v1", "types_ping_resp.go"),
+		filepath.Join("internal", "api", "v1", "types_ping_request.go"),
+		filepath.Join("internal", "api", "v1", "types_ping_response.go"),
 		filepath.Join("internal", "api", "v1", "user_api", "routes_test.go"),
 	} {
 		if _, err := os.Stat(filepath.Join(outDir, rel)); err != nil {
@@ -1432,16 +1432,16 @@ service user-api {
 func TestExecuteAPICommandsAcceptLeadingPositionalFile(t *testing.T) {
 	dir := t.TempDir()
 	apiPath := filepath.Join(dir, "user.api")
-	api := `type ListReq {
+	api := `type ListRequest {
   Id string
   Page int
 }
-type UserResp {
+type UserResponse {
   Id string
 }
 service user-api {
   @handler listUser
-  get /users/{id} (ListReq) returns (UserResp)
+  get /users/{id} (ListRequest) returns (UserResponse)
 }
 `
 	if err := os.WriteFile(apiPath, []byte(api), 0o644); err != nil {
@@ -2754,12 +2754,12 @@ func TestIDLGenerateCommandsEmitJSONEnvelope(t *testing.T) {
 	t.Run("api gen", func(t *testing.T) {
 		dir := t.TempDir()
 		apiPath := filepath.Join(dir, "user.api")
-		api := `type PingResp {
+		api := `type PingResponse {
   Message string
 }
 service user-api {
   @handler ping
-  get /ping returns (PingResp)
+  get /ping returns (PingResponse)
 }
 `
 		if err := os.WriteFile(apiPath, []byte(api), 0o644); err != nil {
@@ -2779,12 +2779,12 @@ service user-api {
 	t.Run("api gen profile", func(t *testing.T) {
 		dir := t.TempDir()
 		apiPath := filepath.Join(dir, "user.api")
-		api := `type PingResp {
+		api := `type PingResponse {
   Message string
 }
 service user-api {
   @handler ping
-  get /ping returns (PingResp)
+  get /ping returns (PingResponse)
 }
 `
 		if err := os.WriteFile(apiPath, []byte(api), 0o644); err != nil {
@@ -3870,15 +3870,15 @@ func TestExecuteRPCNewAcceptsGoctlReservedFlags(t *testing.T) {
 func TestExecuteAPIGenWithRPCPackage(t *testing.T) {
 	dir := t.TempDir()
 	apiPath := filepath.Join(dir, "greeter.api")
-	api := `type HelloReq {
+	api := `type HelloRequest {
   Name string
 }
-type HelloResp {
+type HelloResponse {
   Message string
 }
 service greeter {
   @handler Hello
-  post /hello (HelloReq) returns (HelloResp)
+  post /hello (HelloRequest) returns (HelloResponse)
 }
 `
 	if err := os.WriteFile(apiPath, []byte(api), 0o644); err != nil {
@@ -4450,15 +4450,15 @@ func TestExecuteModelMongoDriverStyle(t *testing.T) {
 func TestExecuteAPIFormatAndDoc(t *testing.T) {
 	dir := t.TempDir()
 	apiPath := filepath.Join(dir, "user.api")
-	api := `type PingReq {
+	api := `type PingRequest {
 Name string
 }
-type PingResp {
+type PingResponse {
 Message string
 }
 service user-api {
 @handler ping
-get /ping (PingReq) returns (PingResp)
+get /ping (PingRequest) returns (PingResponse)
 }
 `
 	if err := os.WriteFile(apiPath, []byte(api), 0o644); err != nil {
@@ -4527,12 +4527,12 @@ get /ping (PingReq) returns (PingResp)
 
 func TestAPIFormatStdinAndControlPlaneVerificationCoverageBuffer(t *testing.T) {
 	dir := t.TempDir()
-	api := `type PingResp {
+	api := `type PingResponse {
 Message string
 }
 service user-api {
 @handler ping
-get /ping returns (PingResp)
+get /ping returns (PingResponse)
 }
 `
 
@@ -4620,12 +4620,12 @@ func TestControlPlaneSnapshotExposesGeneratedContract(t *testing.T) {
 func TestExecuteAPISwaggerAliasDefaultsOpenAPI(t *testing.T) {
 	dir := t.TempDir()
 	apiPath := filepath.Join(dir, "user.api")
-	api := `type PingResp {
+	api := `type PingResponse {
   Message string
 }
 service user-api {
   @handler ping
-  get /ping returns (PingResp)
+  get /ping returns (PingResponse)
 }
 `
 	if err := os.WriteFile(apiPath, []byte(api), 0o644); err != nil {
@@ -4665,12 +4665,12 @@ service user-api {
 func TestExecuteAPIRoute(t *testing.T) {
 	dir := t.TempDir()
 	apiPath := filepath.Join(dir, "user.api")
-	api := `type PingResp {
+	api := `type PingResponse {
   Message string
 }
 service user-api {
   @handler ping
-  get /ping returns (PingResp)
+  get /ping returns (PingResponse)
 }
 `
 	if err := os.WriteFile(apiPath, []byte(api), 0o644); err != nil {
@@ -4700,11 +4700,11 @@ func TestExecuteAPIImport(t *testing.T) {
       "get": {
         "operationId": "getPet",
         "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}],
-        "responses": {"200": {"content": {"application/json": {"schema": {"$ref": "#/components/schemas/PetResp"}}}}}
+        "responses": {"200": {"content": {"application/json": {"schema": {"$ref": "#/components/schemas/PetResponse"}}}}}
       }
     }
   },
-  "components": {"schemas": {"PetResp": {"type": "object", "properties": {"name": {"type": "string"}}}}}
+  "components": {"schemas": {"PetResponse": {"type": "object", "properties": {"name": {"type": "string"}}}}}
 }`
 	if err := os.WriteFile(openAPIPath, []byte(spec), 0o644); err != nil {
 		t.Fatal(err)
@@ -4717,7 +4717,7 @@ func TestExecuteAPIImport(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), "get /pets/{id} (GetPetReq) returns (PetResp)") {
+	if !strings.Contains(string(data), "get /pets/{id} (GetPetRequest) returns (PetResponse)") {
 		t.Fatalf("api import output = %s", data)
 	}
 
@@ -4742,25 +4742,25 @@ func TestExecuteAPIDiff(t *testing.T) {
 	dir := t.TempDir()
 	basePath := filepath.Join(dir, "base.api")
 	targetPath := filepath.Join(dir, "target.api")
-	base := `type PingResp {
+	base := `type PingResponse {
   Message string
 }
 service user-api {
   @handler ping
-  get /ping returns (PingResp)
+  get /ping returns (PingResponse)
 }
 `
-	target := `type PingResp {
+	target := `type PingResponse {
   Message string
 }
-type PongResp {
+type PongResponse {
   Ok bool
 }
 service user-api {
   @handler ping
-  get /ping returns (PingResp)
+  get /ping returns (PingResponse)
   @handler pong
-  post /pong returns (PongResp)
+  post /pong returns (PongResponse)
 }
 `
 	if err := os.WriteFile(basePath, []byte(base), 0o644); err != nil {
@@ -4810,20 +4810,20 @@ func TestExecuteBreakingAcceptsMixedPositionalsAndFlags(t *testing.T) {
 	dir := t.TempDir()
 	baseAPIPath := filepath.Join(dir, "base.api")
 	targetAPIPath := filepath.Join(dir, "target.api")
-	baseAPI := `type PingResp {
+	baseAPI := `type PingResponse {
   Message string
 }
 service user-api {
   @handler ping
-  get /ping returns (PingResp)
+  get /ping returns (PingResponse)
 }
 `
-	targetAPI := `type PingResp {
+	targetAPI := `type PingResponse {
   Message string
 }
 service user-api {
   @handler ping
-  get /ping returns (PingResp)
+  get /ping returns (PingResponse)
 }
 `
 	if err := os.WriteFile(baseAPIPath, []byte(baseAPI), 0o644); err != nil {
@@ -4845,14 +4845,14 @@ service user-api {
 	targetProtoPath := filepath.Join(dir, "target.proto")
 	baseProto := `syntax = "proto3";
 package greeter.v1;
-message HelloReq {
+message HelloRequest {
   string name = 1;
 }
-message HelloResp {
+message HelloResponse {
   string message = 1;
 }
 service Greeter {
-  rpc Hello(HelloReq) returns (HelloResp);
+  rpc Hello(HelloRequest) returns (HelloResponse);
 }
 `
 	targetProto := baseProto
@@ -4877,10 +4877,10 @@ func TestExecuteRPCDocGeneratesOpenAPIFromProto(t *testing.T) {
 	protoPath := filepath.Join(dir, "greeter.proto")
 	if err := os.WriteFile(protoPath, []byte(`syntax = "proto3";
 package greeter.v1;
-message HelloReq { string name = 1; }
-message HelloResp { string message = 1; }
+message HelloRequest { string name = 1; }
+message HelloResponse { string message = 1; }
 service Greeter {
-  rpc Hello(HelloReq) returns (HelloResp) {
+  rpc Hello(HelloRequest) returns (HelloResponse) {
     option (google.api.http) = {
       get: "/v1/hello/{name}"
     };
@@ -4896,7 +4896,7 @@ service Greeter {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`"openapi": "3.0.3"`, `"/v1/hello/{name}"`, `"get"`, `"HelloReq"`, `"HelloResp"`} {
+	for _, want := range []string{`"openapi": "3.0.3"`, `"/v1/hello/{name}"`, `"get"`, `"HelloRequest"`, `"HelloResponse"`} {
 		if !strings.Contains(string(data), want) {
 			t.Fatalf("rpc doc output missing %q:\n%s", want, data)
 		}
@@ -4907,8 +4907,8 @@ func TestExecuteRPCDescriptorCommand(t *testing.T) {
 	dir := t.TempDir()
 	basePath := filepath.Join(dir, "base.json")
 	targetPath := filepath.Join(dir, "target.json")
-	base := `{"name":"greeter","version":"v1","methods":[{"name":"SayHello","request":"HelloReq","response":"HelloResp","timeout":1000000000},{"name":"Legacy","request":"LegacyReq","response":"LegacyResp"}]}`
-	target := `{"name":"greeter","version":"v2","methods":[{"name":"SayHello","request":"HelloReq","response":"HelloRespV2","timeout":500000000},{"name":"Health","request":"HealthReq","response":"HealthResp"}]}`
+	base := `{"name":"greeter","version":"v1","methods":[{"name":"SayHello","request":"HelloRequest","response":"HelloResponse","timeout":1000000000},{"name":"Legacy","request":"LegacyRequest","response":"LegacyResponse"}]}`
+	target := `{"name":"greeter","version":"v2","methods":[{"name":"SayHello","request":"HelloRequest","response":"HelloRespV2","timeout":500000000},{"name":"Health","request":"HealthRequest","response":"HealthResponse"}]}`
 	if err := os.WriteFile(basePath, []byte(base), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -4950,27 +4950,27 @@ func TestExecuteRPCBreakingUsesRuntimeDescriptorRules(t *testing.T) {
 	targetPath := filepath.Join(dir, "target.proto")
 	base := `syntax = "proto3";
 package greeter.v1;
-message HelloReq {
+message HelloRequest {
   string name = 1;
 }
-message HelloResp {
+message HelloResponse {
   string message = 1;
 }
 service Greeter {
-  rpc Hello(HelloReq) returns (HelloResp);
+  rpc Hello(HelloRequest) returns (HelloResponse);
 }
 `
 	target := `syntax = "proto3";
 package greeter.v1;
-message HelloReq {
+message HelloRequest {
   string name = 1;
 }
 message HelloRespV2 {
   string message = 1;
 }
 service Greeter {
-  rpc Hello(HelloReq) returns (HelloRespV2);
-  rpc Health(HelloReq) returns (HelloRespV2);
+  rpc Hello(HelloRequest) returns (HelloRespV2);
+  rpc Health(HelloRequest) returns (HelloRespV2);
 }
 `
 	if err := os.WriteFile(basePath, []byte(base), 0o644); err != nil {
@@ -4986,7 +4986,7 @@ service Greeter {
 			t.Fatalf("rpc breaking error = %v, want ErrBreakingChanges", err)
 		}
 	})
-	if !strings.Contains(out, "Descriptor compatibility: 2 breaking") || !strings.Contains(out, "greeter.v1.Greeter/Hello response") || !strings.Contains(out, "greeter.v1.Greeter/Health") || !strings.Contains(out, "message HelloResp") {
+	if !strings.Contains(out, "Descriptor compatibility: 2 breaking") || !strings.Contains(out, "greeter.v1.Greeter/Hello response") || !strings.Contains(out, "greeter.v1.Greeter/Health") || !strings.Contains(out, "message HelloResponse") {
 		t.Fatalf("rpc breaking descriptor output = %s", out)
 	}
 }
@@ -4994,15 +4994,15 @@ service Greeter {
 func TestExecuteAPIClientGeneration(t *testing.T) {
 	dir := t.TempDir()
 	apiPath := filepath.Join(dir, "user.api")
-	api := `type PingReq {
+	api := `type PingRequest {
   Name string
 }
-type PingResp {
+type PingResponse {
   Message string
 }
 service user-api {
   @handler ping
-  post /ping (PingReq) returns (PingResp)
+  post /ping (PingRequest) returns (PingResponse)
 }
 `
 	if err := os.WriteFile(apiPath, []byte(api), 0o644); err != nil {
@@ -5031,7 +5031,7 @@ service user-api {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(tsData), "export interface PingReq") || !strings.Contains(string(tsData), "async ping") {
+	if !strings.Contains(string(tsData), "export interface PingRequest") || !strings.Contains(string(tsData), "async ping") {
 		t.Fatalf("generated typescript client = %s", tsData)
 	}
 	if _, err := os.Stat(filepath.Join(outDir, "user_client.js")); err != nil {
@@ -5047,15 +5047,15 @@ service user-api {
 func TestExecuteAPITypes(t *testing.T) {
 	dir := t.TempDir()
 	apiPath := filepath.Join(dir, "user.api")
-	api := `type PingReq {
+	api := `type PingRequest {
   Name string
 }
-type PingResp {
+type PingResponse {
   Message string
 }
 service user-api {
   @handler ping
-  post /ping (PingReq) returns (PingResp)
+  post /ping (PingRequest) returns (PingResponse)
 }
 `
 	if err := os.WriteFile(apiPath, []byte(api), 0o644); err != nil {
@@ -5069,7 +5069,7 @@ service user-api {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), "package dto") || !strings.Contains(string(data), "type PingReq struct") {
+	if !strings.Contains(string(data), "package dto") || !strings.Contains(string(data), "type PingRequest struct") {
 		t.Fatalf("generated api types = %s", data)
 	}
 }
@@ -5077,12 +5077,12 @@ service user-api {
 func TestExecuteAPIPlugin(t *testing.T) {
 	dir := t.TempDir()
 	apiPath := filepath.Join(dir, "user.api")
-	api := `type PingResp {
+	api := `type PingResponse {
   Message string
 }
 service user-api {
   @handler ping
-  get /ping returns (PingResp)
+  get /ping returns (PingResponse)
 }
 `
 	if err := os.WriteFile(apiPath, []byte(api), 0o644); err != nil {
@@ -5416,12 +5416,12 @@ func TestExecuteAPIMiddlewareFromAPI(t *testing.T) {
 	api := `@server(
   middleware: Auth, AuditLog
 )
-type PingResp {
+type PingResponse {
   Message string
 }
 service user-api {
   @handler ping
-  get /ping returns (PingResp)
+  get /ping returns (PingResponse)
 }
 `
 	if err := os.WriteFile(apiPath, []byte(api), 0o644); err != nil {
@@ -5445,12 +5445,12 @@ func TestExecuteAPIMiddlewareFromPluralAPI(t *testing.T) {
 	dir := t.TempDir()
 	apiPath := filepath.Join(dir, "user.api")
 	api := `@server(middlewares: Auth, AuditLog)
-type PingResp {
+type PingResponse {
   Message string
 }
 service user-api {
   @handler ping
-  get /ping returns (PingResp)
+  get /ping returns (PingResponse)
 }
 `
 	if err := os.WriteFile(apiPath, []byte(api), 0o644); err != nil {
@@ -5479,12 +5479,12 @@ func TestMiddlewareNamesFromLine(t *testing.T) {
 func TestExecuteAPIValidateAlias(t *testing.T) {
 	dir := t.TempDir()
 	apiPath := filepath.Join(dir, "user.api")
-	api := `type PingResp {
+	api := `type PingResponse {
   Message string
 }
 service user-api {
   @handler ping
-  get /ping returns (PingResp)
+  get /ping returns (PingResponse)
 }
 `
 	if err := os.WriteFile(apiPath, []byte(api), 0o644); err != nil {
@@ -6396,12 +6396,12 @@ func TestDockerUsesLocalTemplateSource(t *testing.T) {
 func TestHandlerCompleteFromAPIIDL(t *testing.T) {
 	dir := t.TempDir()
 	apiPath := filepath.Join(dir, "user.api")
-	api := `type PingResp {
+	api := `type PingResponse {
   Message string
 }
 service user-api {
   @handler Ping
-  get /ping returns (PingResp)
+  get /ping returns (PingResponse)
 }
 `
 	if err := os.WriteFile(apiPath, []byte(api), 0o644); err != nil {
@@ -6424,10 +6424,10 @@ func TestRPCDescriptorCommandReportsBreaking(t *testing.T) {
 	dir := t.TempDir()
 	base := filepath.Join(dir, "base.json")
 	target := filepath.Join(dir, "target.json")
-	if err := os.WriteFile(base, []byte(`{"name":"greeter","methods":[{"name":"SayHello","request":"HelloReq","response":"HelloResp"}]}`), 0o644); err != nil {
+	if err := os.WriteFile(base, []byte(`{"name":"greeter","methods":[{"name":"SayHello","request":"HelloRequest","response":"HelloResponse"}]}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(target, []byte(`{"name":"greeter","methods":[{"name":"SayHello","request":"HelloReq","response":"HelloRespV2"}]}`), 0o644); err != nil {
+	if err := os.WriteFile(target, []byte(`{"name":"greeter","methods":[{"name":"SayHello","request":"HelloRequest","response":"HelloRespV2"}]}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -6446,10 +6446,10 @@ func TestRPCDescriptorCommandJSONCompatible(t *testing.T) {
 	dir := t.TempDir()
 	base := filepath.Join(dir, "base.json")
 	target := filepath.Join(dir, "target.json")
-	if err := os.WriteFile(base, []byte(`{"name":"greeter","methods":[{"name":"SayHello","request":"HelloReq","response":"HelloResp"}]}`), 0o644); err != nil {
+	if err := os.WriteFile(base, []byte(`{"name":"greeter","methods":[{"name":"SayHello","request":"HelloRequest","response":"HelloResponse"}]}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(target, []byte(`{"name":"greeter","methods":[{"name":"SayHello","request":"HelloReq","response":"HelloResp"},{"name":"Health","request":"HealthReq","response":"HealthResp"}]}`), 0o644); err != nil {
+	if err := os.WriteFile(target, []byte(`{"name":"greeter","methods":[{"name":"SayHello","request":"HelloRequest","response":"HelloResponse"},{"name":"Health","request":"HealthRequest","response":"HealthResponse"}]}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -6488,8 +6488,8 @@ func TestRPCDescriptorCommandRejectsInvalidDescriptor(t *testing.T) {
 }
 
 func TestRPCDescriptorCommandReadsDescriptorURLs(t *testing.T) {
-	basePayload := `{"name":"greeter","methods":[{"name":"SayHello","request":"HelloReq","response":"HelloResp"}]}`
-	targetPayload := `{"name":"greeter","methods":[{"name":"SayHello","request":"HelloReq","response":"HelloResp"},{"name":"Health","request":"HealthReq","response":"HealthResp"}]}`
+	basePayload := `{"name":"greeter","methods":[{"name":"SayHello","request":"HelloRequest","response":"HelloResponse"}]}`
+	targetPayload := `{"name":"greeter","methods":[{"name":"SayHello","request":"HelloRequest","response":"HelloResponse"},{"name":"Health","request":"HealthRequest","response":"HealthResponse"}]}`
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer secret" {
 			http.Error(w, "missing token", http.StatusUnauthorized)
@@ -6517,8 +6517,8 @@ func TestRPCDescriptorCommandReadsDescriptorURLs(t *testing.T) {
 }
 
 func TestRPCDescriptorCommandReadsAdminBaseURL(t *testing.T) {
-	basePayload := `{"name":"greeter","methods":[{"name":"SayHello","request":"HelloReq","response":"HelloResp"}]}`
-	targetPayload := `{"name":"greeter","methods":[{"name":"SayHello","request":"HelloReq","response":"HelloRespV2"}]}`
+	basePayload := `{"name":"greeter","methods":[{"name":"SayHello","request":"HelloRequest","response":"HelloResponse"}]}`
+	targetPayload := `{"name":"greeter","methods":[{"name":"SayHello","request":"HelloRequest","response":"HelloRespV2"}]}`
 	targetPath := filepath.Join(t.TempDir(), "target.json")
 	if err := os.WriteFile(targetPath, []byte(targetPayload), 0o644); err != nil {
 		t.Fatal(err)

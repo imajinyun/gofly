@@ -2628,13 +2628,13 @@ func TestNewServiceContractInputMatrix(t *testing.T) {
 				name: "api-first-api",
 				flag: "--api",
 				ext:  ".api",
-				contract: `type PingResp {
+				contract: `type PingResponse {
   Message string
 }
 
 service user-api {
   @handler ping
-  get /ping returns (PingResp)
+  get /ping returns (PingResponse)
 }
 `,
 				wantFiles: []string{filepath.Join("internal", "api", "v1", "user_api", "routes.go"), filepath.Join("internal", "api", "v1", "user_api", "routes_test.go")},
@@ -2643,7 +2643,7 @@ service user-api {
 				name:      "api-first-openapi",
 				flag:      "--openapi",
 				ext:       ".json",
-				contract:  `{"openapi":"3.0.3","info":{"title":"orders","version":"1.0.0"},"paths":{"/orders":{"get":{"operationId":"ListOrders","responses":{"200":{"description":"OK","content":{"application/json":{"schema":{"$ref":"#/components/schemas/OrderResp"}}}}}}}},"components":{"schemas":{"OrderResp":{"type":"object","properties":{"id":{"type":"string"}}}}}}`,
+				contract:  `{"openapi":"3.0.3","info":{"title":"orders","version":"1.0.0"},"paths":{"/orders":{"get":{"operationId":"ListOrders","responses":{"200":{"description":"OK","content":{"application/json":{"schema":{"$ref":"#/components/schemas/OrderResponse"}}}}}}}},"components":{"schemas":{"OrderResponse":{"type":"object","properties":{"id":{"type":"string"}}}}}}`,
 				wantFiles: []string{"orders.api", filepath.Join("internal", "api", "v1", "orders", "routes.go")},
 			},
 			{
@@ -2652,9 +2652,9 @@ service user-api {
 				ext:  ".proto",
 				contract: `syntax = "proto3";
 package demo;
-message HelloReq { string name = 1; }
-message HelloResp { string message = 1; }
-service Greeter { rpc SayHello (HelloReq) returns (HelloResp); }
+message HelloRequest { string name = 1; }
+message HelloResponse { string message = 1; }
+service Greeter { rpc SayHello (HelloRequest) returns (HelloResponse); }
 `,
 				wantFiles: []string{"orders.proto", filepath.Join("internal", "rpc", "orders.gofly.go")},
 			},
@@ -2663,14 +2663,14 @@ service Greeter { rpc SayHello (HelloReq) returns (HelloResp); }
 				flag: "--thrift",
 				ext:  ".thrift",
 				contract: `namespace go example.com/orders
-struct HelloReq {
+struct HelloRequest {
   1: string name
 }
-struct HelloResp {
+struct HelloResponse {
   1: string message
 }
 service Greeter {
-  HelloResp SayHello(1: HelloReq req)
+  HelloResponse SayHello(1: HelloRequest req)
 }
 `,
 				wantFiles: []string{"orders.proto", filepath.Join("internal", "rpc", "orders.gofly.go")},
@@ -3203,9 +3203,9 @@ func TestIDLCommandHelperBoundaries(t *testing.T) {
 	proto := `syntax = "proto3";
 package demo;
 import "google/protobuf/timestamp.proto";
-message HelloReq { string name = 1; }
-message HelloResp { string message = 1; }
-service Greeter { rpc SayHello (HelloReq) returns (HelloResp); }
+message HelloRequest { string name = 1; }
+message HelloResponse { string message = 1; }
+service Greeter { rpc SayHello (HelloRequest) returns (HelloResponse); }
 `
 	if err := os.WriteFile(protoPath, []byte(proto), 0o644); err != nil {
 		t.Fatal(err)
@@ -3233,12 +3233,12 @@ service Greeter { rpc SayHello (HelloReq) returns (HelloResp); }
 	}
 
 	apiPath := filepath.Join(dir, "user.api")
-	api := `type PingResp {
+	api := `type PingResponse {
 Message string
 }
 service user-api {
   @handler ping
-  get /ping returns (PingResp)
+  get /ping returns (PingResponse)
 }
 `
 	if err := os.WriteFile(apiPath, []byte(api), 0o644); err != nil {

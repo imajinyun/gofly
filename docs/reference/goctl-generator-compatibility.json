@@ -3,7 +3,8 @@
   "sourceOfTruth": [
     "docs/reference/generated-upgrade-dry-run.json",
     "testdata/generated-compat/matrix.json",
-    "docs/reference/migration-fidelity-matrix.json"
+    "docs/reference/migration-fidelity-matrix.json",
+    "docs/reference/goctl-real-project-replay.json"
   ],
   "acceptanceGate": "make goctl-generator-compat-check",
   "compatibilityBoundaries": {
@@ -176,10 +177,37 @@
       ],
       "gate": "go test -shuffle=on ./cmd/gofly/internal/generator ./cmd/gofly/internal/command -run TestGenerateAPIClientPathAndQueryParams|TestExecuteAPIClientGeneration",
       "rollbackNote": "Keep client generation pinned to the last passing API client matrix if language-specific path, query, or command compatibility evidence regresses."
+    },
+    {
+      "id": "real-project-replay-matrix",
+      "status": "implemented",
+      "implementation": [
+        "docs/reference/goctl-real-project-replay.json",
+        "testdata/goctl-replay/orderservice/replay.json",
+        "testdata/goctl-replay/inventoryservice/replay.json",
+        "testdata/goctl-replay/billingservice/replay.json"
+      ],
+      "tests": [
+        "cmd/gofly/internal/generator/goctl_replay_test.go",
+        "bin/scripts/check-goctl-real-project-replay.sh"
+      ],
+      "evidence": [
+        "orderservice-goctl-replay",
+        "inventoryservice-imported-multigroup-replay",
+        "billingservice-transitive-import-replay",
+        "transitive-api-import",
+        "api-comments-tags",
+        "nested-type-composition",
+        "request-response-naming",
+        "single-column-unique-key"
+      ],
+      "gate": "make goctl-real-project-replay-check",
+      "rollbackNote": "Pin the previous gozero-compatible generator profile when realistic replay fixtures stop compiling, repeat-generation hashes drift, or Request/Response naming regresses."
     }
   ],
   "releaseGates": [
     "make goctl-generator-compat-check",
+    "make goctl-real-project-replay-check",
     "make generated-version-compat-check",
     "make generated-upgrade-dry-run-check",
     "make test-generated-matrix"

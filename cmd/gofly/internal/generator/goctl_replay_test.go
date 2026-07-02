@@ -180,6 +180,8 @@ func assertGoctlReplayArtifacts(t *testing.T, outDir string, fixture goctlReplay
 		assertOrdersGoctlReplayArtifacts(t, outDir)
 	case "inventoryservice-imported-multigroup-replay":
 		assertInventoryGoctlReplayArtifacts(t, outDir, fixture)
+	case "billingservice-transitive-import-replay":
+		assertBillingGoctlReplayArtifacts(t, outDir, fixture)
 	default:
 		t.Fatalf("missing replay artifact assertions for fixture %q", fixture.ID)
 	}
@@ -247,14 +249,14 @@ func assertInventoryGoctlReplayArtifacts(t *testing.T, outDir string, fixture go
 	typesData := readReplayFile(t, outDir, filepath.Join("internal", "api", "v1", "types.go"))
 	for _, want := range []string{
 		"type AuditMeta struct",
-		"type PageReq struct",
-		"type PageResp struct",
-		"type CreateInventoryReq struct",
+		"type PageRequest struct",
+		"type PageResponse struct",
+		"type CreateInventoryRequest struct",
 		"Meta",
 		"AuditMeta",
 		"Page",
-		"PageResp",
-		"Items []GetInventoryResp",
+		"PageResponse",
+		"Items []GetInventoryResponse",
 	} {
 		if !strings.Contains(typesData, want) {
 			t.Fatalf("generated imported/matrix types missing %q:\n%s", want, typesData)
@@ -325,6 +327,121 @@ func assertInventoryGoctlReplayArtifacts(t *testing.T, outDir string, fixture go
 	} {
 		if !strings.Contains(entity, want) {
 			t.Fatalf("generated inventory entity missing %q:\n%s", want, entity)
+		}
+	}
+}
+
+func assertBillingGoctlReplayArtifacts(t *testing.T, outDir string, fixture goctlReplayFixture) {
+	t.Helper()
+	requireGoctlReplayCapabilities(t, fixture, []string{
+		"api-import",
+		"transitive-api-import",
+		"multi-service-group",
+		"multi-middleware",
+		"api-comments-tags",
+		"nested-type-composition",
+		"request-response-naming",
+		"complex-model",
+		"soft-delete",
+		"optimistic-lock",
+		"single-column-unique-key",
+		"composite-unique-key",
+		"cache-template",
+	})
+	typesData := readReplayFile(t, outDir, filepath.Join("internal", "api", "v1", "types.go"))
+	for _, want := range []string{
+		"type RequestMeta struct",
+		"type MoneyAmount struct",
+		"type InvoiceLine struct",
+		"type InvoiceSummary struct",
+		"type CreateInvoiceRequest struct",
+		"type CreateInvoiceResponse struct",
+		"[]InvoiceLine",
+		"RequestMeta",
+		"InvoiceSummary",
+		"CursorPageResponse",
+		"`header:\"X-Request-ID\"`",
+		"`path:\"id\"`",
+		"`form:\"customerId\"`",
+		"`form:\"status,optional\"`",
+	} {
+		if !strings.Contains(typesData, want) {
+			t.Fatalf("generated billing imported/nested types missing %q:\n%s", want, typesData)
+		}
+	}
+	for _, unexpected := range []string{
+		"type CreateInvoiceR" + "eq struct",
+		"type CreateInvoiceR" + "esp struct",
+		"type CaptureInvoiceR" + "eq struct",
+		"type CaptureInvoiceR" + "esp struct",
+	} {
+		if strings.Contains(typesData, unexpected) {
+			t.Fatalf("generated billing types should use Request/Response names, found %q:\n%s", unexpected, typesData)
+		}
+	}
+	billingRoutes := readReplayFile(t, outDir, filepath.Join("internal", "api", "v1", "billing_api", "routes.go"))
+	for _, want := range []string{
+		"RegisterBillingApiRoutes",
+		"RegisterCreateInvoiceRoute",
+		"RegisterGetInvoiceRoute",
+		"RegisterListInvoicesRoute",
+	} {
+		if !strings.Contains(billingRoutes, want) {
+			t.Fatalf("generated billing routes missing %q:\n%s", want, billingRoutes)
+		}
+	}
+	captureRoutes := readReplayFile(t, outDir, filepath.Join("internal", "api", "v1", "capture_api", "routes.go"))
+	for _, want := range []string{
+		"RegisterCaptureApiRoutes",
+		"RegisterCaptureInvoiceRoute",
+	} {
+		if !strings.Contains(captureRoutes, want) {
+			t.Fatalf("generated capture routes missing %q:\n%s", want, captureRoutes)
+		}
+	}
+	captureRoute := readReplayFile(t, outDir, filepath.Join("internal", "api", "v1", "capture_api", "capture_invoice.go"))
+	for _, want := range []string{`Path: "/invoices/:id/capture"`, "ctx.BindRequest(&req)"} {
+		if !strings.Contains(captureRoute, want) {
+			t.Fatalf("generated capture invoice route missing %q:\n%s", want, captureRoute)
+		}
+	}
+	repo := readReplayFile(t, outDir, filepath.Join("model", "repo", "invoice.go"))
+	for _, want := range []string{
+		"func NewCachedInvoiceRepo",
+		"func NewConsistentCachedInvoiceRepo",
+		"func NewRedisCachedInvoiceRepo",
+		"func NewInvoiceRepoWithCluster",
+		"func (r *InvoiceRepo) FindByInvoiceNo(ctx context.Context, invoiceNo string) (*entity.Invoice, error)",
+		"func (r *InvoiceRepo) UpdateWithVersion",
+		"func (r *InvoiceRepo) ListAfter",
+		`AND deleted_at IS NULL LIMIT 1`,
+		`query += " AND deleted_at IS NULL"`,
+		"func (c *RedisCachedInvoiceRepo) UpdateWithInvalidate",
+	} {
+		if !strings.Contains(repo, want) {
+			t.Fatalf("generated billing model/cache repo missing %q:\n%s", want, repo)
+		}
+	}
+	for _, unexpected := range []string{
+		"func (r *InvoiceRepo) FindByTenantID",
+		"func (r *InvoiceRepo) FindByCustomerID",
+		"func (r *InvoiceRepo) FindByStatus",
+	} {
+		if strings.Contains(repo, unexpected) {
+			t.Fatalf("generated billing repo should not create single-column finders for composite unique key %q:\n%s", unexpected, repo)
+		}
+	}
+	entity := readReplayFile(t, outDir, filepath.Join("model", "entity", "invoice_gen.go"))
+	for _, want := range []string{
+		"type Invoice struct",
+		"InvoiceNo",
+		"Version",
+		`db:"invoice_no"`,
+		`db:"version"`,
+		`const InvoiceTable = "invoices"`,
+	} {
+		if !strings.Contains(entity, want) {
+			t.Fatalf("generated billing entity missing %q:\n%s", want, entity)
 		}
 	}
 }

@@ -541,17 +541,17 @@ func TestAdminDiagnostics(t *testing.T) {
 }
 `
 
-const apiNewTemplate = `type PingReq {
+const apiNewTemplate = `type PingRequest {
   Name string
 }
 
-type PingResp {
+type PingResponse {
   Message string
 }
 
 service {{.Name}} {
   @handler Ping
-  get /api/v1/ping (PingReq) returns (PingResp)
+  get /api/v1/ping (PingRequest) returns (PingResponse)
 }
 `
 
@@ -559,16 +559,16 @@ const rpcNewTemplate = `syntax = "proto3";
 
 package {{.Name}}.v1;
 
-message SayHelloReq {
+message SayHelloRequest {
   string name = 1;
 }
 
-message SayHelloResp {
+message SayHelloResponse {
   string message = 1;
 }
 
 service Greeter {
-  rpc SayHello(SayHelloReq) returns (SayHelloResp);
+  rpc SayHello(SayHelloRequest) returns (SayHelloResponse);
 }
 `
 
@@ -2328,11 +2328,11 @@ func (s *ServiceContext) CurrentConfig() config.Config {
 
 const goZeroTypesTemplate = `package types
 
-type PingReq struct {
+type PingRequest struct {
 	Name string ` + "`json:\"name,optional\" form:\"name,optional\"`" + `
 }
 
-type PingResp struct {
+type PingResponse struct {
 	Message string ` + "`json:\"message\"`" + `
 }
 `
@@ -2356,12 +2356,12 @@ func NewPingLogic(ctx context.Context, svcCtx *svc.ServiceContext) *PingLogic {
 	return &PingLogic{ctx: ctx, svcCtx: svcCtx}
 }
 
-func (l *PingLogic) Ping(req *types.PingReq) (*types.PingResp, error) {
+func (l *PingLogic) Ping(req *types.PingRequest) (*types.PingResponse, error) {
 	name := "world"
 	if req != nil && strings.TrimSpace(req.Name) != "" {
 		name = strings.TrimSpace(req.Name)
 	}
-	return &types.PingResp{Message: "hello " + name}, nil
+	return &types.PingResponse{Message: "hello " + name}, nil
 }
 `
 
@@ -2379,7 +2379,7 @@ import (
 
 func PingHandler(svcCtx *svc.ServiceContext) rest.HandlerFunc {
 	return func(ctx *rest.Context) {
-		var req types.PingReq
+		var req types.PingRequest
 		if err := ctx.BindQuery(&req); err != nil {
 			ctx.Error(err)
 			return

@@ -21,15 +21,15 @@ func TestGenerateProtocPluginResponse(t *testing.T) {
 			Package: proto.String("demo.hello"),
 			Options: &descriptorpb.FileOptions{GoPackage: proto.String("example.com/demo/hello;hellopb")},
 			MessageType: []*descriptorpb.DescriptorProto{
-				{Name: proto.String("PingReq")},
-				{Name: proto.String("PingResp")},
+				{Name: proto.String("PingRequest")},
+				{Name: proto.String("PingResponse")},
 			},
 			Service: []*descriptorpb.ServiceDescriptorProto{{
 				Name: proto.String("Greeter"),
 				Method: []*descriptorpb.MethodDescriptorProto{{
 					Name:       proto.String("Ping"),
-					InputType:  proto.String(".demo.hello.PingReq"),
-					OutputType: proto.String(".demo.hello.PingResp"),
+					InputType:  proto.String(".demo.hello.PingRequest"),
+					OutputType: proto.String(".demo.hello.PingResponse"),
 				}},
 			}},
 		}},
@@ -52,12 +52,12 @@ func TestGenerateProtocPluginResponse(t *testing.T) {
 		"// Module: example.com/app",
 		"func GreeterGoflyDescriptor() rpc.ServiceDesc",
 		`Name: "demo.hello.Greeter"`,
-		`Request: "PingReq", Response: "PingResp"`,
+		`Request: "PingRequest", Response: "PingResponse"`,
 		"func GreeterGoflyRuntimeDescriptor() rpc.Descriptor",
 		"type GreeterGoflyService interface",
 		"func GreeterGoflyServiceDesc(impl GreeterGoflyService) rpc.ServiceDesc",
 		"desc.Methods[0].Handler = func(ctx context.Context, req any) (any, error)",
-		"typed, ok := req.(*PingReq)",
+		"typed, ok := req.(*PingRequest)",
 		`return nil, rpc.NewError(rpc.CodeInvalidArgument, "unexpected request type for Ping")`,
 		"return impl.Ping(ctx, typed)",
 		"func BindGreeterGoflyGenericHandlers(handlers map[string]rpc.GenericHandler) (rpc.ServiceDesc, error)",
@@ -75,7 +75,7 @@ func TestGenerateProtocPluginResponse(t *testing.T) {
 		"func NewGreeterGoflyGenericClient(client rpc.GenericClient) (*GreeterGoflyGenericClient, error)",
 		"func NewGreeterGoflyGenericHTTPClient(target string, opts ...rpc.ClientOption) (*GreeterGoflyGenericClient, error)",
 		"func (c *GreeterGoflyGenericClient) Invoke(ctx context.Context, method string, req any) (rpc.GenericResponse, error)",
-		"Ping(ctx context.Context, req *PingReq) (*PingResp, error)",
+		"Ping(ctx context.Context, req *PingRequest) (*PingResponse, error)",
 	} {
 		if !strings.Contains(content, want) {
 			t.Fatalf("content missing %q:\n%s", want, content)
@@ -90,15 +90,15 @@ func TestGenerateProtocPluginResponseSupportsStreaming(t *testing.T) {
 			Name:    proto.String("stream.proto"),
 			Package: proto.String("demo.stream"),
 			MessageType: []*descriptorpb.DescriptorProto{
-				{Name: proto.String("ChatReq")},
-				{Name: proto.String("ChatResp")},
+				{Name: proto.String("ChatRequest")},
+				{Name: proto.String("ChatResponse")},
 			},
 			Service: []*descriptorpb.ServiceDescriptorProto{{
 				Name: proto.String("Greeter"),
 				Method: []*descriptorpb.MethodDescriptorProto{{
 					Name:            proto.String("Chat"),
-					InputType:       proto.String(".demo.stream.ChatReq"),
-					OutputType:      proto.String(".demo.stream.ChatResp"),
+					InputType:       proto.String(".demo.stream.ChatRequest"),
+					OutputType:      proto.String(".demo.stream.ChatResponse"),
 					ClientStreaming: proto.Bool(true),
 				}},
 			}},
@@ -115,9 +115,9 @@ func TestGenerateProtocPluginResponseSupportsStreaming(t *testing.T) {
 	for _, want := range []string{
 		"Streams: []rpc.StreamDesc",
 		`Name: "Chat"`,
-		`NewMessage: func() any { return new(ChatReq) }`,
+		`NewMessage: func() any { return new(ChatRequest) }`,
 		`Mode: rpc.StreamModeClientStream`,
-		`Metadata: map[string]string{"request": "ChatReq", "response": "ChatResp", "clientStream": "true", "serverStream": "false"}`,
+		`Metadata: map[string]string{"request": "ChatRequest", "response": "ChatResponse", "clientStream": "true", "serverStream": "false"}`,
 		"Chat(ctx context.Context, stream *rpc.Stream) error",
 		"desc.Streams[0].Handler = func(ctx context.Context, stream *rpc.Stream) error",
 		"return impl.Chat(ctx, stream)",
@@ -141,14 +141,14 @@ func TestGenerateProtocPluginResponseRejectsExternalMessageType(t *testing.T) {
 				Name: proto.String("Greeter"),
 				Method: []*descriptorpb.MethodDescriptorProto{{
 					Name:       proto.String("Ping"),
-					InputType:  proto.String(".demo.common.PingReq"),
-					OutputType: proto.String(".demo.hello.PingResp"),
+					InputType:  proto.String(".demo.common.PingRequest"),
+					OutputType: proto.String(".demo.hello.PingResponse"),
 				}},
 			}},
 		}},
 	}
 	_, err := GenerateProtocPluginResponse(req, ProtocPluginOptions{})
-	if err == nil || !strings.Contains(err.Error(), `external proto type "demo.common.PingReq" is not supported`) {
+	if err == nil || !strings.Contains(err.Error(), `external proto type "demo.common.PingRequest" is not supported`) {
 		t.Fatalf("external type error = %v", err)
 	}
 }
@@ -163,8 +163,8 @@ func TestGenerateProtocPluginResponseSanitizesModuleComment(t *testing.T) {
 				Name: proto.String("Greeter"),
 				Method: []*descriptorpb.MethodDescriptorProto{{
 					Name:       proto.String("Ping"),
-					InputType:  proto.String(".demo.hello.PingReq"),
-					OutputType: proto.String(".demo.hello.PingResp"),
+					InputType:  proto.String(".demo.hello.PingRequest"),
+					OutputType: proto.String(".demo.hello.PingResponse"),
 				}},
 			}},
 		}},
@@ -206,10 +206,10 @@ func TestProtocLocalGoType(t *testing.T) {
 		want      string
 		wantErr   string
 	}{
-		{name: "same package message", protoType: ".demo.hello.PingReq", want: "PingReq"},
+		{name: "same package message", protoType: ".demo.hello.PingRequest", want: "PingRequest"},
 		{name: "same package nested message", protoType: ".demo.hello.Outer.Inner", want: "Outer_Inner"},
-		{name: "relative local message", protoType: "PingReq", want: "PingReq"},
-		{name: "external package", protoType: ".demo.common.PingReq", wantErr: `external proto type "demo.common.PingReq" is not supported`},
+		{name: "relative local message", protoType: "PingRequest", want: "PingRequest"},
+		{name: "external package", protoType: ".demo.common.PingRequest", wantErr: `external proto type "demo.common.PingRequest" is not supported`},
 		{name: "package without message", protoType: ".demo.hello", wantErr: `proto type "demo.hello" is invalid`},
 		{name: "empty type", protoType: " ", wantErr: "proto type is empty"},
 	}
@@ -283,8 +283,8 @@ func TestGenerateProtocPluginResponseGeneratedCodeCompiles(t *testing.T) {
 				Name: proto.String("Greeter"),
 				Method: []*descriptorpb.MethodDescriptorProto{{
 					Name:       proto.String("Ping"),
-					InputType:  proto.String(".demo.hello.PingReq"),
-					OutputType: proto.String(".demo.hello.PingResp"),
+					InputType:  proto.String(".demo.hello.PingRequest"),
+					OutputType: proto.String(".demo.hello.PingResponse"),
 				}},
 			}},
 		}},
@@ -319,11 +319,11 @@ replace github.com/imajinyun/gofly => %s
 	}
 	if err := os.WriteFile(filepath.Join(dir, "types.go"), []byte(`package hellopb
 
-type PingReq struct {
+type PingRequest struct {
 	Message string
 }
 
-type PingResp struct {
+type PingResponse struct {
 	Message string
 }
 `), 0o644); err != nil {
@@ -342,8 +342,8 @@ import (
 
 type fakeService struct{}
 
-func (fakeService) Ping(ctx context.Context, req *PingReq) (*PingResp, error) {
-	return &PingResp{Message: req.Message}, nil
+func (fakeService) Ping(ctx context.Context, req *PingRequest) (*PingResponse, error) {
+	return &PingResponse{Message: req.Message}, nil
 }
 
 type fakeUnaryClient struct{}
@@ -352,7 +352,7 @@ func (fakeUnaryClient) Call(ctx context.Context, method string, request any, res
 	if method != "demo.hello.Greeter/Ping" {
 		return rpc.NewError(rpc.CodeInvalidArgument, "unexpected method")
 	}
-	out, ok := response.(*PingResp)
+	out, ok := response.(*PingResponse)
 	if !ok || out == nil {
 		return rpc.NewError(rpc.CodeInvalidArgument, "unexpected response type")
 	}
@@ -379,11 +379,11 @@ func TestGeneratedPluginUsage(t *testing.T) {
 		t.Fatalf("validate runtime descriptor: %v", err)
 	}
 	bound := GreeterGoflyServiceDesc(fakeService{})
-	if _, err := bound.Methods[0].Handler(context.Background(), PingReq{}); rpc.CodeOf(err) != rpc.CodeInvalidArgument {
+	if _, err := bound.Methods[0].Handler(context.Background(), PingRequest{}); rpc.CodeOf(err) != rpc.CodeInvalidArgument {
 		t.Fatalf("handler error code = %v, want %v", rpc.CodeOf(err), rpc.CodeInvalidArgument)
 	}
 	client := NewGreeterGoflyClient(fakeUnaryClient{})
-	resp, err := client.Ping(context.Background(), &PingReq{Message: "ping"})
+	resp, err := client.Ping(context.Background(), &PingRequest{Message: "ping"})
 	if err != nil {
 		t.Fatalf("typed client ping: %v", err)
 	}
@@ -394,7 +394,7 @@ func TestGeneratedPluginUsage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new generic client: %v", err)
 	}
-	if _, err := genericClient.Invoke(context.Background(), "Ping", &PingReq{Message: "ping"}); err != nil {
+	if _, err := genericClient.Invoke(context.Background(), "Ping", &PingRequest{Message: "ping"}); err != nil {
 		t.Fatalf("generic invoke: %v", err)
 	}
 }
@@ -416,8 +416,8 @@ func TestMarshalProtocPluginResponse(t *testing.T) {
 				Name: proto.String("Echo"),
 				Method: []*descriptorpb.MethodDescriptorProto{{
 					Name:       proto.String("Say"),
-					InputType:  proto.String(".demo.SayReq"),
-					OutputType: proto.String(".demo.SayResp"),
+					InputType:  proto.String(".demo.SayRequest"),
+					OutputType: proto.String(".demo.SayResponse"),
 				}},
 			}},
 		}},
@@ -447,24 +447,24 @@ func TestGenerateProtocPluginResponseNoClientMultiple(t *testing.T) {
 			Name:    proto.String("multi.proto"),
 			Package: proto.String("demo.multi"),
 			MessageType: []*descriptorpb.DescriptorProto{
-				{Name: proto.String("PingReq")},
-				{Name: proto.String("PingResp")},
+				{Name: proto.String("PingRequest")},
+				{Name: proto.String("PingResponse")},
 			},
 			Service: []*descriptorpb.ServiceDescriptorProto{
 				{
 					Name: proto.String("Greeter"),
 					Method: []*descriptorpb.MethodDescriptorProto{{
 						Name:       proto.String("Ping"),
-						InputType:  proto.String(".demo.multi.PingReq"),
-						OutputType: proto.String(".demo.multi.PingResp"),
+						InputType:  proto.String(".demo.multi.PingRequest"),
+						OutputType: proto.String(".demo.multi.PingResponse"),
 					}},
 				},
 				{
 					Name: proto.String("Health"),
 					Method: []*descriptorpb.MethodDescriptorProto{{
 						Name:       proto.String("Check"),
-						InputType:  proto.String(".demo.multi.PingReq"),
-						OutputType: proto.String(".demo.multi.PingResp"),
+						InputType:  proto.String(".demo.multi.PingRequest"),
+						OutputType: proto.String(".demo.multi.PingResponse"),
 					}},
 				},
 			},

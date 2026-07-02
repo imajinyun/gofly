@@ -1,24 +1,24 @@
 syntax = "v1"
 import "types/common.api"
 
-type CreateInventoryReq {
+type CreateInventoryRequest {
   Sku string `json:"sku"`
   WarehouseID int64 `json:"warehouseId"`
   Available int64 `json:"available"`
   Meta AuditMeta `json:"meta"`
 }
 
-type CreateInventoryResp {
+type CreateInventoryResponse {
   ID int64 `json:"id"`
   Version int64 `json:"version"`
 }
 
-type GetInventoryReq {
+type GetInventoryRequest {
   ID int64 `path:"id"`
   RequestID string `header:"X-Request-ID"`
 }
 
-type GetInventoryResp {
+type GetInventoryResponse {
   ID int64 `json:"id"`
   Sku string `json:"sku"`
   WarehouseID int64 `json:"warehouseId"`
@@ -27,24 +27,24 @@ type GetInventoryResp {
   Version int64 `json:"version"`
 }
 
-type ListInventoryReq {
-  Page PageReq `json:"page"`
+type ListInventoryRequest {
+  Page PageRequest `json:"page"`
   WarehouseID int64 `form:"warehouseId"`
 }
 
-type ListInventoryResp {
-  Items []GetInventoryResp `json:"items"`
-  Page PageResp `json:"page"`
+type ListInventoryResponse {
+  Items []GetInventoryResponse `json:"items"`
+  Page PageResponse `json:"page"`
 }
 
-type AdjustInventoryReq {
+type AdjustInventoryRequest {
   ID int64 `path:"id"`
   Delta int64 `json:"delta"`
   ExpectedVersion int64 `json:"expectedVersion"`
   Meta AuditMeta `json:"meta"`
 }
 
-type AdjustInventoryResp {
+type AdjustInventoryResponse {
   ID int64 `json:"id"`
   Available int64 `json:"available"`
   Version int64 `json:"version"`
@@ -53,17 +53,17 @@ type AdjustInventoryResp {
 @server(group: inventory prefix: /api/v1 jwt: Auth middlewares: auth,trace,audit)
 service inventory-api {
   @handler createInventory
-  post /inventory (CreateInventoryReq) returns (CreateInventoryResp)
+  post /inventory (CreateInventoryRequest) returns (CreateInventoryResponse)
 
   @handler getInventory
-  get /inventory/:id (GetInventoryReq) returns (GetInventoryResp)
+  get /inventory/:id (GetInventoryRequest) returns (GetInventoryResponse)
 
   @handler listInventory
-  get /inventory (ListInventoryReq) returns (ListInventoryResp)
+  get /inventory (ListInventoryRequest) returns (ListInventoryResponse)
 }
 
 @server(group: admin prefix: /api/admin/v1 jwt: AdminAuth middlewares: adminAuth,trace)
 service admin-api {
   @handler adjustInventory
-  patch /inventory/:id/adjust (AdjustInventoryReq) returns (AdjustInventoryResp)
+  patch /inventory/:id/adjust (AdjustInventoryRequest) returns (AdjustInventoryResponse)
 }

@@ -28,13 +28,13 @@ func TestRPCStreamEcho(t *testing.T) {
 	s := NewServer()
 	if err := s.RegisterService(ServiceDesc{Name: "chat", Streams: []StreamDesc{{
 		Name:       "Echo",
-		NewMessage: func() any { return new(helloReq) },
+		NewMessage: func() any { return new(helloRequest) },
 		Handler: func(ctx context.Context, stream *Stream) error {
-			var req helloReq
+			var req helloRequest
 			if err := stream.Recv(&req); err != nil {
 				return err
 			}
-			return stream.Send(helloResp{Message: "hello " + req.Name})
+			return stream.Send(helloResponse{Message: "hello " + req.Name})
 		},
 	}}}, nil); err != nil {
 		t.Fatal(err)
@@ -50,10 +50,10 @@ func TestRPCStreamEcho(t *testing.T) {
 		t.Fatalf("Stream: %v", err)
 	}
 	defer stream.Close()
-	if err := stream.Send(helloReq{Name: "gofly"}); err != nil {
+	if err := stream.Send(helloRequest{Name: "gofly"}); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
-	var resp helloResp
+	var resp helloResponse
 	if err := stream.Recv(&resp); err != nil {
 		t.Fatalf("Recv: %v", err)
 	}
@@ -66,17 +66,17 @@ func TestRPCStreamPropagatesClientMetadata(t *testing.T) {
 	s := NewServer()
 	if err := s.RegisterService(ServiceDesc{Name: "chat", Streams: []StreamDesc{{
 		Name:       "EchoMetadata",
-		NewMessage: func() any { return new(helloReq) },
+		NewMessage: func() any { return new(helloRequest) },
 		Handler: func(ctx context.Context, stream *Stream) error {
 			md, ok := metadata.FromContext(ctx)
 			if !ok || md.Get("x-tenant") != "beta" || md.Get(metadata.RequestIDKey) != "rid-stream" {
 				t.Fatalf("metadata = %#v, want propagated tenant and request id", md)
 			}
-			var req helloReq
+			var req helloRequest
 			if err := stream.Recv(&req); err != nil {
 				return err
 			}
-			return stream.Send(helloResp{Message: md.Get("x-tenant") + ":" + md.Get(metadata.RequestIDKey)})
+			return stream.Send(helloResponse{Message: md.Get("x-tenant") + ":" + md.Get(metadata.RequestIDKey)})
 		},
 	}}}, nil); err != nil {
 		t.Fatal(err)
@@ -93,10 +93,10 @@ func TestRPCStreamPropagatesClientMetadata(t *testing.T) {
 		t.Fatalf("Stream: %v", err)
 	}
 	defer stream.Close()
-	if err := stream.Send(helloReq{Name: "gofly"}); err != nil {
+	if err := stream.Send(helloRequest{Name: "gofly"}); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
-	var resp helloResp
+	var resp helloResponse
 	if err := stream.Recv(&resp); err != nil {
 		t.Fatalf("Recv: %v", err)
 	}
@@ -125,11 +125,11 @@ func TestRPCStreamGovernanceMatchesIncomingMetadata(t *testing.T) {
 		if !ok || md.Get("x-tenant") != "beta" || md.Get("x-policy") != "enabled" || md.Get(coregovernance.HeaderCanary) != "true" || md.Get(coregovernance.HeaderCanaryService) != "chat-canary" || md.Get("x-lane") != "blue" {
 			t.Fatalf("metadata = %#v, want incoming metadata plus governance canary metadata", md)
 		}
-		var req helloReq
+		var req helloRequest
 		if err := stream.Recv(&req); err != nil {
 			return err
 		}
-		return stream.Send(helloResp{Message: md.Get("x-policy") + ":" + md.Get("x-lane")})
+		return stream.Send(helloResponse{Message: md.Get("x-policy") + ":" + md.Get("x-lane")})
 	})
 	ts := httptest.NewServer(s)
 	defer ts.Close()
@@ -143,10 +143,10 @@ func TestRPCStreamGovernanceMatchesIncomingMetadata(t *testing.T) {
 		t.Fatalf("Stream: %v", err)
 	}
 	defer stream.Close()
-	if err := stream.Send(helloReq{Name: "gofly"}); err != nil {
+	if err := stream.Send(helloRequest{Name: "gofly"}); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
-	var resp helloResp
+	var resp helloResponse
 	if err := stream.Recv(&resp); err != nil {
 		t.Fatalf("Recv: %v", err)
 	}
@@ -159,14 +159,14 @@ func TestRPCClientStreamMethodPolicyMetadataAndTimeout(t *testing.T) {
 	s := NewServer()
 	if err := s.RegisterService(ServiceDesc{Name: "chat", Streams: []StreamDesc{{
 		Name:       "PolicyStream",
-		NewMessage: func() any { return new(helloReq) },
+		NewMessage: func() any { return new(helloRequest) },
 		Handler: func(ctx context.Context, stream *Stream) error {
 			md, ok := metadata.FromContext(ctx)
 			if !ok || md.Get("x-stream-policy") != "method" || md.Get("x-stream-header") != "enabled" {
 				t.Fatalf("metadata = %#v, want method rpc policy metadata and header", md)
 			}
 			time.Sleep(300 * time.Millisecond)
-			return stream.Send(helloResp{Message: "late"})
+			return stream.Send(helloResponse{Message: "late"})
 		},
 	}}}, nil); err != nil {
 		t.Fatal(err)
@@ -192,7 +192,7 @@ func TestRPCClientStreamMethodPolicyMetadataAndTimeout(t *testing.T) {
 		t.Fatalf("Stream: %v", err)
 	}
 	defer stream.Close()
-	if err := stream.Recv(&helloResp{}); CodeOf(err) != CodeDeadlineExceeded {
+	if err := stream.Recv(&helloResponse{}); CodeOf(err) != CodeDeadlineExceeded {
 		t.Fatalf("Recv = %v, want deadline_exceeded from method stream policy", err)
 	}
 }
@@ -214,18 +214,18 @@ func TestRPCStreamMiddlewareChain(t *testing.T) {
 	s := NewServer(WithServerStreamMiddleware(globalMiddleware))
 	if err := s.RegisterService(ServiceDesc{Name: "chat", Streams: []StreamDesc{{
 		Name:        "EchoMiddleware",
-		NewMessage:  func() any { return new(helloReq) },
+		NewMessage:  func() any { return new(helloRequest) },
 		Middlewares: []StreamMiddleware{methodMiddleware},
 		Handler: func(ctx context.Context, stream *Stream) error {
 			md, _ := metadata.FromContext(ctx)
 			if md.Get("stream-chain") != "global:method" {
 				return NewError(CodeInternal, "stream middleware chain not applied")
 			}
-			var req helloReq
+			var req helloRequest
 			if err := stream.Recv(&req); err != nil {
 				return err
 			}
-			return stream.Send(helloResp{Message: md.Get("stream-chain")})
+			return stream.Send(helloResponse{Message: md.Get("stream-chain")})
 		},
 	}}}, nil); err != nil {
 		t.Fatal(err)
@@ -241,10 +241,10 @@ func TestRPCStreamMiddlewareChain(t *testing.T) {
 		t.Fatalf("Stream: %v", err)
 	}
 	defer stream.Close()
-	if err := stream.Send(helloReq{Name: "gofly"}); err != nil {
+	if err := stream.Send(helloRequest{Name: "gofly"}); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
-	var resp helloResp
+	var resp helloResponse
 	if err := stream.Recv(&resp); err != nil {
 		t.Fatalf("Recv: %v", err)
 	}
@@ -257,17 +257,17 @@ func TestRPCClientStreamMiddlewareChain(t *testing.T) {
 	s := NewServer()
 	if err := s.RegisterService(ServiceDesc{Name: "chat", Streams: []StreamDesc{{
 		Name:       "EchoClientMiddleware",
-		NewMessage: func() any { return new(helloReq) },
+		NewMessage: func() any { return new(helloRequest) },
 		Handler: func(ctx context.Context, stream *Stream) error {
 			md, _ := metadata.FromContext(ctx)
 			if md.Get("client-stream-chain") != "client:stream" {
 				return NewError(CodeInternal, "client stream middleware chain not applied")
 			}
-			var req helloReq
+			var req helloRequest
 			if err := stream.Recv(&req); err != nil {
 				return err
 			}
-			return stream.Send(helloResp{Message: md.Get("client-stream-chain")})
+			return stream.Send(helloResponse{Message: md.Get("client-stream-chain")})
 		},
 	}}}, nil); err != nil {
 		t.Fatal(err)
@@ -296,10 +296,10 @@ func TestRPCClientStreamMiddlewareChain(t *testing.T) {
 		t.Fatalf("Stream: %v", err)
 	}
 	defer stream.Close()
-	if err := stream.Send(helloReq{Name: "gofly"}); err != nil {
+	if err := stream.Send(helloRequest{Name: "gofly"}); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
-	var resp helloResp
+	var resp helloResponse
 	if err := stream.Recv(&resp); err != nil {
 		t.Fatalf("Recv: %v", err)
 	}
@@ -395,7 +395,7 @@ func TestRPCStreamMetadataHeaderBoundaries(t *testing.T) {
 
 func TestRPCStreamPureFrameAndCloseBoundaries(t *testing.T) {
 	var nilStream *Stream
-	if err := nilStream.Send(helloReq{Name: "gofly"}); !errors.Is(err, ErrStreamClosed) {
+	if err := nilStream.Send(helloRequest{Name: "gofly"}); !errors.Is(err, ErrStreamClosed) {
 		t.Fatalf("nil Send error = %v, want ErrStreamClosed", err)
 	}
 	if err := nilStream.Close(); err != nil {
@@ -411,7 +411,7 @@ func TestRPCStreamPureFrameAndCloseBoundaries(t *testing.T) {
 		t.Fatalf("default stream codec = %q, want json", clientStream.codec.Name())
 	}
 	go func() { _ = clientStream.SendError("", "boom") }()
-	if err := serverStream.Recv(&helloResp{}); CodeOf(err) != CodeInternal {
+	if err := serverStream.Recv(&helloResponse{}); CodeOf(err) != CodeInternal {
 		t.Fatalf("Recv SendError error = %v, want internal", err)
 	}
 
@@ -423,7 +423,7 @@ func TestRPCStreamPureFrameAndCloseBoundaries(t *testing.T) {
 		var header [4]byte
 		_, _ = zeroServer.Write(header[:])
 	}()
-	if err := zeroStream.Recv(&helloReq{}); err == nil || !strings.Contains(err.Error(), "invalid rpc stream frame size") {
+	if err := zeroStream.Recv(&helloRequest{}); err == nil || !strings.Contains(err.Error(), "invalid rpc stream frame size") {
 		t.Fatalf("zero frame Recv error = %v, want invalid frame size", err)
 	}
 
@@ -444,7 +444,7 @@ func TestRPCStreamPureFrameAndCloseBoundaries(t *testing.T) {
 
 func TestRPCStreamEnvelopeErrorBoundaries(t *testing.T) {
 	marshalStream := newStream(newNoopConn(), bufio.NewReadWriter(bufio.NewReader(&bytes.Buffer{}), bufio.NewWriter(io.Discard)), errCodec{})
-	if err := marshalStream.Send(helloReq{Name: "gofly"}); err == nil || !strings.Contains(err.Error(), "marshal stream message") {
+	if err := marshalStream.Send(helloRequest{Name: "gofly"}); err == nil || !strings.Contains(err.Error(), "marshal stream message") {
 		t.Fatalf("Send marshal error = %v, want wrapped marshal error", err)
 	}
 
@@ -459,7 +459,7 @@ func TestRPCStreamEnvelopeErrorBoundaries(t *testing.T) {
 		_, _ = invalidServer.Write(header[:])
 		_, _ = invalidServer.Write(payload)
 	}()
-	if err := invalidStream.Recv(&helloReq{}); err == nil || !strings.Contains(err.Error(), "unexpected end") {
+	if err := invalidStream.Recv(&helloRequest{}); err == nil || !strings.Contains(err.Error(), "unexpected end") {
 		t.Fatalf("Recv invalid JSON error = %v, want JSON decode error", err)
 	}
 
@@ -791,9 +791,9 @@ func TestRPCClientStreamMiddlewareSuiteAuth(t *testing.T) {
 	})))
 	if err := s.RegisterService(ServiceDesc{Name: "chat", Streams: []StreamDesc{{
 		Name:       "Auth",
-		NewMessage: func() any { return new(helloReq) },
+		NewMessage: func() any { return new(helloRequest) },
 		Handler: func(ctx context.Context, stream *Stream) error {
-			return stream.Send(helloResp{Message: "ok"})
+			return stream.Send(helloResponse{Message: "ok"})
 		},
 	}}}, nil); err != nil {
 		t.Fatal(err)
@@ -809,7 +809,7 @@ func TestRPCClientStreamMiddlewareSuiteAuth(t *testing.T) {
 		t.Fatalf("unauthorized Stream: %v", err)
 	}
 	defer unauthorizedStream.Close()
-	if err := unauthorizedStream.Recv(&helloResp{}); CodeOf(err) != CodeUnauthenticated {
+	if err := unauthorizedStream.Recv(&helloResponse{}); CodeOf(err) != CodeUnauthenticated {
 		t.Fatalf("unauthorized Recv error = %v, want unauthenticated", err)
 	}
 	authorized, err := NewClient(ts.URL, WithClientSuite(GovernanceSuite("chat", GovernanceConfig{ClientToken: "secret"})))
@@ -821,7 +821,7 @@ func TestRPCClientStreamMiddlewareSuiteAuth(t *testing.T) {
 		t.Fatalf("authorized Stream: %v", err)
 	}
 	defer authorizedStream.Close()
-	var resp helloResp
+	var resp helloResponse
 	if err := authorizedStream.Recv(&resp); err != nil {
 		t.Fatalf("authorized Recv: %v", err)
 	}
@@ -834,7 +834,7 @@ func TestRPCStreamRecoverMiddleware(t *testing.T) {
 	s := NewServer(WithServerStreamMiddleware(StreamRecoverMiddleware()))
 	if err := s.RegisterService(ServiceDesc{Name: "chat", Streams: []StreamDesc{{
 		Name:       "Panic",
-		NewMessage: func() any { return new(helloReq) },
+		NewMessage: func() any { return new(helloRequest) },
 		Handler: func(ctx context.Context, stream *Stream) error {
 			panic("boom")
 		},
@@ -852,7 +852,7 @@ func TestRPCStreamRecoverMiddleware(t *testing.T) {
 		t.Fatalf("Stream: %v", err)
 	}
 	defer stream.Close()
-	if err := stream.Recv(&helloResp{}); CodeOf(err) != CodeInternal {
+	if err := stream.Recv(&helloResponse{}); CodeOf(err) != CodeInternal {
 		t.Fatalf("Recv error = %v, want internal recovered panic", err)
 	}
 }
@@ -861,7 +861,7 @@ func TestRPCStreamServerError(t *testing.T) {
 	s := NewServer()
 	if err := s.RegisterService(ServiceDesc{Name: "chat", Streams: []StreamDesc{{
 		Name:       "Fail",
-		NewMessage: func() any { return new(helloReq) },
+		NewMessage: func() any { return new(helloRequest) },
 		Handler: func(ctx context.Context, stream *Stream) error {
 			return NewError(CodeInvalidArgument, "bad stream")
 		},
@@ -879,7 +879,7 @@ func TestRPCStreamServerError(t *testing.T) {
 		t.Fatalf("Stream: %v", err)
 	}
 	defer stream.Close()
-	var resp helloResp
+	var resp helloResponse
 	if err := stream.Recv(&resp); CodeOf(err) != CodeInvalidArgument {
 		t.Fatalf("Recv error = %v, want invalid_argument", err)
 	}
@@ -889,9 +889,9 @@ func TestRPCStreamCodecMismatch(t *testing.T) {
 	s := NewServer()
 	if err := s.RegisterService(ServiceDesc{Name: "chat", Streams: []StreamDesc{{
 		Name:       "Echo",
-		NewMessage: func() any { return new(helloReq) },
+		NewMessage: func() any { return new(helloRequest) },
 		Handler: func(ctx context.Context, stream *Stream) error {
-			var req helloReq
+			var req helloRequest
 			return stream.Recv(&req)
 		},
 	}}}, nil); err != nil {
@@ -908,10 +908,10 @@ func TestRPCStreamCodecMismatch(t *testing.T) {
 		t.Fatalf("Stream: %v", err)
 	}
 	defer stream.Close()
-	if err := stream.Send(helloReq{Name: "gofly"}); err != nil {
+	if err := stream.Send(helloRequest{Name: "gofly"}); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
-	if err := stream.Recv(&helloResp{}); CodeOf(err) != CodeInvalidArgument {
+	if err := stream.Recv(&helloResponse{}); CodeOf(err) != CodeInvalidArgument {
 		t.Fatalf("Recv error = %v, want invalid_argument codec mismatch", err)
 	}
 }
@@ -921,7 +921,7 @@ func TestRPCStreamClientOperationTimeout(t *testing.T) {
 	s := NewServer()
 	if err := s.RegisterService(ServiceDesc{Name: "chat", Streams: []StreamDesc{{
 		Name:       "Wait",
-		NewMessage: func() any { return new(helloReq) },
+		NewMessage: func() any { return new(helloRequest) },
 		Handler: func(ctx context.Context, stream *Stream) error {
 			close(entered)
 			<-ctx.Done()
@@ -946,7 +946,7 @@ func TestRPCStreamClientOperationTimeout(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for stream handler to start")
 	}
-	if err := stream.Recv(&helloResp{}); CodeOf(err) != CodeDeadlineExceeded {
+	if err := stream.Recv(&helloResponse{}); CodeOf(err) != CodeDeadlineExceeded {
 		t.Fatalf("Recv error = %v, want deadline_exceeded", err)
 	}
 }
@@ -973,7 +973,7 @@ func TestRPCStreamMissingAndOversizedFrame(t *testing.T) {
 		_, _ = server.Write(header[:])
 		_, _ = server.Write([]byte("12345"))
 	}()
-	var msg helloReq
+	var msg helloRequest
 	if err := stream.Recv(&msg); err == nil {
 		t.Fatal("Recv oversized frame succeeded, want error")
 	}
@@ -1096,7 +1096,7 @@ func TestRPCStreamGovernanceRuntimeBreaker(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first stream: %v", err)
 	}
-	if err := first.Recv(&helloResp{}); CodeOf(err) != CodeInternal {
+	if err := first.Recv(&helloResponse{}); CodeOf(err) != CodeInternal {
 		t.Fatalf("first recv = %v, want internal", err)
 	}
 	_ = first.Close()
@@ -1104,7 +1104,7 @@ func TestRPCStreamGovernanceRuntimeBreaker(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second stream: %v", err)
 	}
-	if err := second.Recv(&helloResp{}); CodeOf(err) != CodeInternal {
+	if err := second.Recv(&helloResponse{}); CodeOf(err) != CodeInternal {
 		t.Fatalf("second recv = %v, want internal", err)
 	}
 	_ = second.Close()
@@ -1150,7 +1150,7 @@ func TestRPCStreamGovernanceRuntimeTimeoutAndMetadata(t *testing.T) {
 		t.Fatalf("Stream: %v", err)
 	}
 	defer stream.Close()
-	if err := stream.Recv(&helloResp{}); CodeOf(err) != CodeDeadlineExceeded {
+	if err := stream.Recv(&helloResponse{}); CodeOf(err) != CodeDeadlineExceeded {
 		t.Fatalf("Recv = %v, want deadline_exceeded", err)
 	}
 }
@@ -1165,7 +1165,7 @@ func newGovernedStreamServerWithName(t *testing.T, rules *coregovernance.RuleSet
 	s := NewServer(WithServerRuleSet(rules))
 	if err := s.RegisterService(ServiceDesc{Name: "chat", Streams: []StreamDesc{{
 		Name:       name,
-		NewMessage: func() any { return new(helloReq) },
+		NewMessage: func() any { return new(helloRequest) },
 		Handler:    handler,
 	}}}, nil); err != nil {
 		t.Fatal(err)

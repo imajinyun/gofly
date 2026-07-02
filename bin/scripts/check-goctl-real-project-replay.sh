@@ -24,11 +24,16 @@ required_diff_categories = {
 }
 required_matrix_capabilities = {
     "api-import",
+    "transitive-api-import",
     "multi-service-group",
     "multi-middleware",
+    "api-comments-tags",
+    "nested-type-composition",
+    "request-response-naming",
     "complex-model",
     "soft-delete",
     "optimistic-lock",
+    "single-column-unique-key",
     "composite-unique-key",
     "cache-template",
 }
@@ -82,6 +87,7 @@ for source in (
     "docs/reference/generated-upgrade-dry-run.json",
     "testdata/goctl-replay/orderservice/replay.json",
     "testdata/goctl-replay/inventoryservice/replay.json",
+    "testdata/goctl-replay/billingservice/replay.json",
 ):
     require(source in source_of_truth, f"sourceOfTruth missing {source!r}")
     require((root / source).exists(), f"sourceOfTruth path is missing: {source}")
@@ -93,7 +99,7 @@ require("goctl" in str(scope.get("referenceFramework") or "").lower(), "scope.re
 
 matrix = manifest.get("matrix") or {}
 fixtures = matrix.get("fixtures") or []
-require(matrix.get("minimumFixtures") == 2, "matrix.minimumFixtures must be 2")
+require(matrix.get("minimumFixtures") == 3, "matrix.minimumFixtures must be 3")
 require(len(fixtures) >= matrix.get("minimumFixtures", 0), "matrix must contain at least minimumFixtures entries")
 require(set(matrix.get("requiredCapabilities") or []) == required_matrix_capabilities, "matrix.requiredCapabilities drifted")
 
@@ -121,7 +127,14 @@ for entry in fixtures:
     matrix_capabilities.update(entry.get("capabilities") or [])
     matrix_capabilities.update(fixture_manifest.get("capabilities") or [])
 
-require({"orderservice-goctl-replay", "inventoryservice-imported-multigroup-replay"}.issubset(fixture_ids), f"fixture ids drifted: {sorted(fixture_ids)!r}")
+require(
+    {
+        "orderservice-goctl-replay",
+        "inventoryservice-imported-multigroup-replay",
+        "billingservice-transitive-import-replay",
+    }.issubset(fixture_ids),
+    f"fixture ids drifted: {sorted(fixture_ids)!r}",
+)
 missing_capabilities = required_matrix_capabilities - matrix_capabilities
 require(not missing_capabilities, f"matrix capabilities missing: {sorted(missing_capabilities)!r}")
 require((root / "testdata/goctl-replay/inventoryservice/types/common.api").is_file(), "inventory imported common.api is missing")
@@ -137,6 +150,30 @@ for needle in (
 inventory_sql = read_text(root / "testdata/goctl-replay/inventoryservice/model/inventory.sql")
 for needle in ("UNIQUE KEY uk_inventory_tenant_sku_warehouse", "version bigint", "deleted_at timestamp", "KEY idx_inventory_status_updated"):
     require(needle in inventory_sql, f"inventory SQL fixture missing {needle!r}")
+billing_api = read_text(root / "testdata/goctl-replay/billingservice/billing.api")
+for needle in (
+    'import "types/domain/invoice.api"',
+    "Billing replay exercises comments",
+    "Lines []InvoiceLine",
+    "Meta RequestMeta",
+    "Status string `form:\"status,optional\"`",
+    "type CreateInvoiceRequest",
+    "type CreateInvoiceResponse",
+    "service billing-api",
+    "service capture-api",
+    "middlewares: auth,trace,audit",
+    "middlewares: internalAuth,trace",
+):
+    require(needle in billing_api, f"billing API fixture missing {needle!r}")
+billing_domain_api = read_text(root / "testdata/goctl-replay/billingservice/types/domain/invoice.api")
+for needle in ('import "shared/common.api"', "type MoneyAmount", "type InvoiceLine", "type InvoiceSummary", "Meta RequestMeta"):
+    require(needle in billing_domain_api, f"billing domain API fixture missing {needle!r}")
+billing_common_api = read_text(root / "testdata/goctl-replay/billingservice/types/domain/shared/common.api")
+for needle in ("type RequestMeta", "type CursorPageRequest", "type CursorPageResponse"):
+    require(needle in billing_common_api, f"billing common API fixture missing {needle!r}")
+billing_sql = read_text(root / "testdata/goctl-replay/billingservice/model/billing.sql")
+for needle in ("invoice_no varchar(64) unique", "UNIQUE KEY uk_invoice_tenant_customer_status", "version bigint", "deleted_at timestamp"):
+    require(needle in billing_sql, f"billing SQL fixture missing {needle!r}")
 
 diff_contract = manifest.get("diffContract") or {}
 categories = set(diff_contract.get("categories") or [])
@@ -157,15 +194,21 @@ for gate in release_gates:
 
 status = manifest.get("status") or {}
 require(status.get("goctlCommandSurface") == "unchanged", "status.goctlCommandSurface must remain unchanged")
-require(status.get("fixtureMatrixDepth") == "imported-multigroup-complex-model", "status.fixtureMatrixDepth mismatch")
-require(status.get("modelCacheTemplateDepth") == "covered-by-replay-matrix", "status.modelCacheTemplateDepth mismatch")
+require(status.get("fixtureMatrixDepth") == "transitive-import-comments-tags-nested-model", "status.fixtureMatrixDepth mismatch")
+require(status.get("modelCacheTemplateDepth") == "covered-by-three-fixture-replay-matrix", "status.modelCacheTemplateDepth mismatch")
 
 for needle in (
     "goctl-real-project-replay-check",
     "orderservice-goctl-replay",
     "inventoryservice-imported-multigroup-replay",
+    "billingservice-transitive-import-replay",
     "api-import",
+    "transitive-api-import",
+    "api-comments-tags",
+    "nested-type-composition",
+    "request-response-naming",
     "multi-service-group",
+    "single-column-unique-key",
     "composite-unique-key",
     "deterministic-repeat-generation",
     "compatible-addition",

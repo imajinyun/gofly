@@ -1,0 +1,66 @@
+syntax = "v1"
+import "types/domain/invoice.api"
+
+/*
+Billing replay exercises comments, transitive imports, nested message fields,
+header/form/path/json tags, and Request/Response naming without expanding the
+CLI command surface.
+*/
+type CreateInvoiceRequest {
+  CustomerID int64 `json:"customerId"`
+  Lines []InvoiceLine `json:"lines"`
+  Meta RequestMeta `json:"meta"`
+}
+
+type CreateInvoiceResponse {
+  Invoice InvoiceSummary `json:"invoice"`
+}
+
+type GetInvoiceRequest {
+  ID int64 `path:"id"`
+  RequestID string `header:"X-Request-ID"`
+}
+
+type GetInvoiceResponse {
+  Invoice InvoiceSummary `json:"invoice"`
+  Lines []InvoiceLine `json:"lines"`
+}
+
+type ListInvoicesRequest {
+  Page CursorPageRequest `json:"page"`
+  CustomerID int64 `form:"customerId"`
+  Status string `form:"status,optional"`
+}
+
+type ListInvoicesResponse {
+  Items []InvoiceSummary `json:"items"`
+  Page CursorPageResponse `json:"page"`
+}
+
+type CaptureInvoiceRequest {
+  ID int64 `path:"id"`
+  ExpectedVersion int64 `json:"expectedVersion"`
+  Meta RequestMeta `json:"meta"`
+}
+
+type CaptureInvoiceResponse {
+  Invoice InvoiceSummary `json:"invoice"`
+}
+
+@server(group: billing prefix: /api/v1 jwt: Auth middlewares: auth,trace,audit)
+service billing-api {
+  @handler createInvoice
+  post /invoices (CreateInvoiceRequest) returns (CreateInvoiceResponse)
+
+  @handler getInvoice
+  get /invoices/:id (GetInvoiceRequest) returns (GetInvoiceResponse)
+
+  @handler listInvoices
+  get /invoices (ListInvoicesRequest) returns (ListInvoicesResponse)
+}
+
+@server(group: capture prefix: /api/internal/v1 jwt: InternalAuth middlewares: internalAuth,trace)
+service capture-api {
+  @handler captureInvoice
+  patch /invoices/:id/capture (CaptureInvoiceRequest) returns (CaptureInvoiceResponse)
+}

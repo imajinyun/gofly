@@ -56,6 +56,80 @@ docs_check = next((line for line in makefile.splitlines() if line.startswith("do
 require("project-layout-governance-check" in docs_check, "docs-check must depend on project-layout-governance-check")
 require("check-project-layout-governance.sh" in makefile, "Makefile must call check-project-layout-governance.sh")
 
+top_level_boundary = manifest.get("topLevelDirectoryBoundaries") or {}
+require(
+    top_level_boundary.get("status") == "blocking-contract",
+    "topLevelDirectoryBoundaries.status must be blocking-contract",
+)
+require(
+    top_level_boundary.get("forbidUnknownTrackedDirectories") is True,
+    "topLevelDirectoryBoundaries must forbid unknown tracked directories",
+)
+require(
+    "tracked top-level" in str(top_level_boundary.get("policy") or ""),
+    "topLevelDirectoryBoundaries policy must describe tracked top-level directory handling",
+)
+tracked_top_level_dirs = sorted(
+    {
+        rel.split("/", 1)[0]
+        for rel in subprocess.run(
+            ["git", "ls-files"],
+            cwd=root,
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+        ).stdout.splitlines()
+        if "/" in rel
+    }
+)
+directory_entries = top_level_boundary.get("directories") or []
+declared_top_level_dirs = []
+allowed_categories = {
+    "adoption-proof",
+    "automation",
+    "cli",
+    "deployment",
+    "documentation",
+    "extension-api",
+    "fixtures",
+    "framework-api",
+    "framework-runtime",
+    "operations",
+    "performance-evidence",
+    "tooling",
+}
+for entry in directory_entries:
+    if not isinstance(entry, dict):
+        missing.append(f"topLevelDirectoryBoundaries entry must be object: {entry!r}")
+        continue
+    item_id = entry.get("id", "")
+    declared_top_level_dirs.append(item_id)
+    require(item_id, "topLevelDirectoryBoundaries entry id is required")
+    require("/" not in item_id, f"top-level directory id must not contain slash: {item_id!r}")
+    require((root / item_id).is_dir(), f"top-level directory does not exist: {item_id}")
+    require(entry.get("category") in allowed_categories, f"top-level directory {item_id}: unknown category {entry.get('category')!r}")
+    require(len(str(entry.get("purpose") or "").split()) >= 6, f"top-level directory {item_id}: purpose must be descriptive")
+    require(gate_is_known(str(entry.get("gate") or ""), targets), f"top-level directory {item_id}: gate is not known")
+    require(
+        any(rel == item_id or rel.startswith(item_id + "/") for rel in subprocess.run(
+            ["git", "ls-files", item_id],
+            cwd=root,
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+        ).stdout.splitlines()),
+        f"top-level directory {item_id}: no tracked files found",
+    )
+require(
+    sorted(declared_top_level_dirs) == tracked_top_level_dirs,
+    "topLevelDirectoryBoundaries must account for every tracked top-level directory exactly once: "
+    f"declared={sorted(declared_top_level_dirs)!r}, actual={tracked_top_level_dirs!r}",
+)
+require(
+    len(declared_top_level_dirs) == len(set(declared_top_level_dirs)),
+    "topLevelDirectoryBoundaries must not contain duplicate directory ids",
+)
+
 deploy_boundary = manifest.get("deployAssetBoundary") or {}
 require(deploy_boundary.get("status") == "blocking-contract", "deployAssetBoundary.status must be blocking-contract")
 require("deploy/" in str(deploy_boundary.get("policy") or ""), "deployAssetBoundary policy must require deploy/")

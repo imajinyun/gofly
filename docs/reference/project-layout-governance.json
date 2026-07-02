@@ -4,6 +4,109 @@
   "acceptanceGate": "make project-layout-governance-check",
   "policy": "Do not perform broad directory moves while governance contracts, examples, and generated-output gates depend on current paths. Strengthen directory boundaries with machine checks first, then migrate one example family at a time after P10 convergence if evidence supports it.",
   "noBigBangMove": true,
+  "topLevelDirectoryBoundaries": {
+    "status": "blocking-contract",
+    "policy": "Every tracked top-level directory must have an explicit responsibility, category, and validation gate. New tracked top-level directories are not allowed until this manifest and project-layout-governance-check are updated in the same change.",
+    "forbidUnknownTrackedDirectories": true,
+    "directories": [
+      {
+        "id": ".github",
+        "category": "automation",
+        "purpose": "GitHub workflows, issue templates, dependency automation, and CodeQL configuration.",
+        "gate": "make required-checks-drift-check"
+      },
+      {
+        "id": "app",
+        "category": "framework-runtime",
+        "purpose": "Application bootstrap, service profile, validation, and runtime setup helpers.",
+        "gate": "make governance-report-check"
+      },
+      {
+        "id": "bench",
+        "category": "performance-evidence",
+        "purpose": "Benchmark sources, baselines, budget ratchets, trend reports, and benchmark publishing evidence.",
+        "gate": "make bench-evidence-check"
+      },
+      {
+        "id": "bin",
+        "category": "tooling",
+        "purpose": "Local binary output and tracked governance scripts under bin/scripts.",
+        "gate": "make project-layout-governance-check"
+      },
+      {
+        "id": "cache",
+        "category": "framework-runtime",
+        "purpose": "Public cache APIs, local and remote cache layers, and generated cache model helpers.",
+        "gate": "make cache-dependency-governance-check"
+      },
+      {
+        "id": "cmd",
+        "category": "cli",
+        "purpose": "gofly CLI entry point, command implementation, and internal code generators.",
+        "gate": "make cli-command-surface-check"
+      },
+      {
+        "id": "core",
+        "category": "framework-runtime",
+        "purpose": "Shared governance, control-plane, discovery, storage, messaging, security, and runtime primitives.",
+        "gate": "make governance-report-check"
+      },
+      {
+        "id": "deploy",
+        "category": "deployment",
+        "purpose": "Repository-level Kubernetes, Helm, and production deployment assets.",
+        "gate": "make cloud-native-render-check"
+      },
+      {
+        "id": "docs",
+        "category": "documentation",
+        "purpose": "User documentation, reference contracts, release evidence, migration guidance, and governance manifests.",
+        "gate": "make docs-check"
+      },
+      {
+        "id": "examples",
+        "category": "adoption-proof",
+        "purpose": "Runnable examples, migration proof, production reference app, and smoke-testable adoption scenarios.",
+        "gate": "make examples-smoke"
+      },
+      {
+        "id": "gateway",
+        "category": "framework-runtime",
+        "purpose": "Gateway engine, HTTP proxying, REST adaptation, governance, and transcoding runtime.",
+        "gate": "make api-contract-check"
+      },
+      {
+        "id": "ops",
+        "category": "operations",
+        "purpose": "Administrative operations endpoints and operational control-plane helpers.",
+        "gate": "make runtime-slo-check"
+      },
+      {
+        "id": "rest",
+        "category": "framework-api",
+        "purpose": "REST server, binding, validation, middleware, OpenAPI, SSE, WebSocket, and response contracts.",
+        "gate": "make openapi-validation-check"
+      },
+      {
+        "id": "rpc",
+        "category": "framework-api",
+        "purpose": "RPC client and server runtime, streaming, resolver, balancer, gRPC, and Kitex coexistence boundaries.",
+        "gate": "make rpc-boundary-check"
+      },
+      {
+        "id": "spi",
+        "category": "extension-api",
+        "purpose": "Service provider interfaces and plugin-facing extension contracts.",
+        "gate": "make plugin-conformance-check"
+      },
+      {
+        "id": "testdata",
+        "category": "fixtures",
+        "purpose": "Generated compatibility fixtures, goctl replay fixtures, and long-term scaffold test inputs.",
+        "gate": "make generated-version-compat-check"
+      }
+    ]
+  },
   "deployAssetBoundary": {
     "status": "blocking-contract",
     "policy": "Repository-level Kubernetes and Helm assets live only under deploy/. Top-level k8s/ and charts/ directories are retired and must not be reintroduced.",

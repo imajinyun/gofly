@@ -20,10 +20,10 @@
     "runtimeStatePolicy": ".aiflow, .harness, .tmp-test, .trae, coverage.out, bench/current.txt, bench/regression-report.json, bench/summary.md, bin/gofly, and docs/superpowers remain ignored local evidence and must not be committed.",
     "safetyPolicy": "P16 tasks are submitted to ignored local aiflow runtime state and mirrored here as durable docs/reference evidence; each task must be completed in order and committed by the current agent or human only after its gate passes or an environment-limited downgrade is documented.",
     "completedTasks": [
-      "GOFLY-P16-01-P15-COMPLETION-HANDOFF"
+      "GOFLY-P16-01-P15-COMPLETION-HANDOFF",
+      "GOFLY-P16-02-GATEWAY-CACHE-TREND-SAMPLE-ATTACHMENT"
     ],
     "pendingTasks": [
-      "GOFLY-P16-02-GATEWAY-CACHE-TREND-SAMPLE-ATTACHMENT",
       "GOFLY-P16-03-GATEWAY-CACHE-ALLOCATION-PROMOTION-REVIEW"
     ]
   },
@@ -62,7 +62,7 @@
     {
       "round": 2,
       "id": "GOFLY-P16-02-GATEWAY-CACHE-TREND-SAMPLE-ATTACHMENT",
-      "status": "queued",
+      "status": "completed",
       "priority": 99,
       "title": "Gateway cache trend sample attachment",
       "objective": "Attach durable Gateway and Cache five-sample baseline, three-sample current trend, cache-mode notes, and rollback evidence without promoting weak latency claims.",
@@ -70,7 +70,14 @@
       "acceptanceGates": [
         "make bench-regression-check"
       ],
-      "commitPolicy": "commit after Gateway/Cache trend sample evidence passes bench-regression-check and remains outside trackedBenchmarks unless every promotion prerequisite is present"
+      "commitPolicy": "commit after Gateway/Cache trend sample evidence passes bench-regression-check and remains outside trackedBenchmarks unless every promotion prerequisite is present",
+      "commit": "pending-current-commit",
+      "verification": [
+        "python3 -m json.tool bench/budget-ratchet.json",
+        "sh -n bin/scripts/benchstat.sh",
+        "make bench-smoke",
+        "make bench-regression-check"
+      ]
     },
     {
       "round": 3,

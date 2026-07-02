@@ -136,13 +136,18 @@
     {
       "id": "GOFLY-P16-02-GATEWAY-CACHE-TREND-SAMPLE-ATTACHMENT",
       "round": 2,
-      "status": "queued",
+      "status": "completed",
       "priority": 99,
       "title": "Gateway cache trend sample attachment",
       "objective": "Attach durable Gateway and Cache five-sample baseline, three-sample current trend, cache-mode notes, and rollback evidence without promoting weak latency claims.",
       "deliverable": "Gateway/cache sample attachment policy, benchmark trend evidence inventory, cache-mode notes, allocation-only candidate boundary, and rollback evidence.",
       "gate": "make bench-regression-check",
-      "commitPolicy": "commit after Gateway/Cache trend sample evidence passes bench-regression-check and remains outside trackedBenchmarks unless every promotion prerequisite is present"
+      "commitPolicy": "commit after Gateway/Cache trend sample evidence passes bench-regression-check and remains outside trackedBenchmarks unless every promotion prerequisite is present",
+      "commit": "pending-current-commit",
+      "verification": [
+        "make bench-smoke",
+        "make bench-regression-check"
+      ]
     },
     {
       "id": "GOFLY-P16-03-GATEWAY-CACHE-ALLOCATION-PROMOTION-REVIEW",

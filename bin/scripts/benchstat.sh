@@ -264,6 +264,7 @@ def validate_ratchet_policy() -> None:
     p10_ratchet = ratchet.get("p10PerformanceBudgetRatchet") or {}
     p13_gateway_cache_closeout = ratchet.get("p13GatewayCacheBenchmarkCloseout") or {}
     p15_gateway_cache_attachment = ratchet.get("p15GatewayCacheBudgetAttachment") or {}
+    p16_gateway_cache_samples = ratchet.get("p16GatewayCacheTrendSampleAttachment") or {}
     report_only = set(latency_policy.get("reportOnly") or [])
     promoted = latency_policy.get("promoted") or []
     rpc_policy = ratchet.get("rpcPolicy") or {}
@@ -1295,6 +1296,135 @@ def validate_ratchet_policy() -> None:
         require_policy(
             forbidden in set(p15_gateway_cache_attachment.get("forbiddenUntilCleared") or []),
             f"p15GatewayCacheBudgetAttachment forbiddenUntilCleared missing {forbidden!r}",
+        )
+
+    require_policy(
+        p16_gateway_cache_samples.get("schema") == "gofly.benchmark_p16_gateway_cache_trend_sample_attachment.v1",
+        "p16GatewayCacheTrendSampleAttachment schema mismatch",
+    )
+    require_policy(
+        p16_gateway_cache_samples.get("aiflowTask") == "GOFLY-P16-02-GATEWAY-CACHE-TREND-SAMPLE-ATTACHMENT",
+        "p16GatewayCacheTrendSampleAttachment aiflowTask mismatch",
+    )
+    require_policy(
+        p16_gateway_cache_samples.get("status") == "current-trend-attached-baseline-held",
+        "p16GatewayCacheTrendSampleAttachment status mismatch",
+    )
+    require_policy(
+        p16_gateway_cache_samples.get("acceptanceGate") == "make bench-regression-check",
+        "p16GatewayCacheTrendSampleAttachment acceptanceGate mismatch",
+    )
+    for source in (
+        "bench/current.txt",
+        "bench/gateway_cache_bench_test.go",
+        "bench/budget-ratchet.json",
+        "bench/matrix.md",
+    ):
+        require_policy(
+            source in set(p16_gateway_cache_samples.get("sourceEvidence") or []),
+            f"p16GatewayCacheTrendSampleAttachment sourceEvidence missing {source!r}",
+        )
+    p16_capture = p16_gateway_cache_samples.get("capture") or {}
+    require_policy(
+        p16_capture.get("command")
+        == "BENCH_PATTERN='BenchmarkGatewayProxy|BenchmarkCacheHotPath' BENCH_COUNT=5 BENCH_PKGS='./bench/' bash bin/scripts/benchstat.sh",
+        "p16GatewayCacheTrendSampleAttachment capture.command mismatch",
+    )
+    require_policy(p16_capture.get("sampleType") == "current-trend", "p16GatewayCacheTrendSampleAttachment sampleType mismatch")
+    require_policy(p16_capture.get("sampleCount") == 5, "p16GatewayCacheTrendSampleAttachment sampleCount must be five")
+    require_policy(
+        p16_capture.get("baselineStatus") == "missing-gateway-cache-rows",
+        "p16GatewayCacheTrendSampleAttachment baselineStatus must hold promotion",
+    )
+    require_policy(
+        "ignored local runtime evidence" in str(p16_capture.get("currentSourcePolicy") or ""),
+        "p16GatewayCacheTrendSampleAttachment currentSourcePolicy must keep bench/current.txt uncommitted",
+    )
+    p16_gateway_decision = p16_gateway_cache_samples.get("decision") or {}
+    require_policy(p16_gateway_decision.get("result") == "hold", "p16GatewayCacheTrendSampleAttachment decision.result must be hold")
+    require_policy(p16_gateway_decision.get("selectedSurface") == "none", "p16GatewayCacheTrendSampleAttachment selectedSurface must be none")
+    require_policy(
+        p16_gateway_decision.get("allocationBlockingSurface") == "none",
+        "p16GatewayCacheTrendSampleAttachment allocationBlockingSurface must be none",
+    )
+    require_policy(p16_gateway_decision.get("latencyMode") == "report-only", "p16GatewayCacheTrendSampleAttachment latencyMode must be report-only")
+    require_policy(
+        p16_gateway_decision.get("currentTrendAttachmentStatus") == "attached",
+        "p16GatewayCacheTrendSampleAttachment currentTrendAttachmentStatus must be attached",
+    )
+    require_policy(
+        p16_gateway_decision.get("baselineAttachmentStatus") == "not-attached",
+        "p16GatewayCacheTrendSampleAttachment baselineAttachmentStatus must be not-attached",
+    )
+    require_policy(
+        p16_gateway_decision.get("promotionStatus") == "blocked",
+        "p16GatewayCacheTrendSampleAttachment promotionStatus must be blocked",
+    )
+    require_policy(
+        p16_gateway_decision.get("nextReviewGate")
+        == "BENCH_PATTERN='BenchmarkGatewayProxy|BenchmarkCacheHotPath' BENCH_COUNT=5 make bench-baseline && make bench-regression-check",
+        "p16GatewayCacheTrendSampleAttachment nextReviewGate mismatch",
+    )
+    for field in ("reason", "releaseNotePolicy"):
+        require_policy(
+            len(str(p16_gateway_decision.get(field) or "").split()) >= 20,
+            f"p16GatewayCacheTrendSampleAttachment decision.{field} must be actionable",
+        )
+    for forbidden_claim in ("allocation-blocking coverage", "blocking latency", "production performance parity"):
+        require_policy(
+            forbidden_claim in str(p16_gateway_decision.get("releaseNotePolicy") or ""),
+            f"p16GatewayCacheTrendSampleAttachment releaseNotePolicy must mention {forbidden_claim!r}",
+        )
+    p16_gateway_rows = {
+        item.get("benchmark"): item
+        for item in p16_gateway_cache_samples.get("currentTrendRows") or []
+        if isinstance(item, dict) and item.get("benchmark")
+    }
+    require_policy(
+        set(p16_gateway_rows) == gateway_cache_candidate_names,
+        "p16GatewayCacheTrendSampleAttachment currentTrendRows mismatch",
+    )
+    for benchmark, item in p16_gateway_rows.items():
+        require_policy(item.get("sampleCount") == 5, f"{benchmark}: P16 Gateway/Cache sampleCount must be five")
+        require_policy(float(item.get("nsPerOpMedian") or 0) > 0, f"{benchmark}: P16 Gateway/Cache nsPerOpMedian must be positive")
+        require_policy(float(item.get("nsPerOpMin") or 0) > 0, f"{benchmark}: P16 Gateway/Cache nsPerOpMin must be positive")
+        require_policy(float(item.get("nsPerOpMax") or 0) >= float(item.get("nsPerOpMedian") or 0), f"{benchmark}: P16 Gateway/Cache nsPerOpMax must cover median")
+        require_policy(float(item.get("bytesPerOpMedian") or 0) >= 0, f"{benchmark}: P16 Gateway/Cache bytesPerOpMedian must be non-negative")
+        require_policy(float(item.get("allocsPerOpMedian") or 0) >= 0, f"{benchmark}: P16 Gateway/Cache allocsPerOpMedian must be non-negative")
+        require_policy(item.get("currentMode") == "report-only", f"{benchmark}: P16 Gateway/Cache currentMode must be report-only")
+        require_policy(item.get("promotionStatus") == "blocked", f"{benchmark}: P16 Gateway/Cache promotionStatus must be blocked")
+        require_policy(item.get("baselineSamplesAttached") == 0, f"{benchmark}: P16 Gateway/Cache baselineSamplesAttached must remain zero")
+        require_policy(item.get("minimumBaselineSamples") == 5, f"{benchmark}: P16 Gateway/Cache minimumBaselineSamples mismatch")
+        require_policy(item.get("minimumCurrentTrendSamples") == 3, f"{benchmark}: P16 Gateway/Cache minimumCurrentTrendSamples mismatch")
+        require_policy(benchmark not in tracked, f"{benchmark}: P16 Gateway/Cache candidate must stay out of trackedBenchmarks")
+        require_policy(benchmark not in promoted_latency, f"{benchmark}: P16 Gateway/Cache latency must stay report-only")
+        for field in ("cacheModeNote", "rollbackAction"):
+            require_policy(
+                len(str(item.get(field) or "").split()) >= 10,
+                f"{benchmark}: P16 Gateway/Cache {field} must be actionable",
+            )
+    p16_rules = set(p16_gateway_cache_samples.get("attachmentRules") or [])
+    for rule in (
+        "P16 current trend attachment must include exactly five samples for each Gateway and Cache candidate row",
+        "P16 current trend attachment must not add Gateway or Cache rows to trackedBenchmarks",
+        "P16 current trend attachment must keep Gateway and Cache latency report-only",
+        "P16 promotion remains blocked until committed baseline rows contain at least five samples per candidate row",
+        "P16 promotion remains blocked until cache-mode notes and rollback evidence are attached with the allocation budget",
+    ):
+        require_policy(rule in p16_rules, f"p16GatewayCacheTrendSampleAttachment attachmentRules missing {rule!r}")
+    for forbidden in (
+        "trackedBenchmarks Gateway entry",
+        "trackedBenchmarks Cache entry",
+        "blocking Gateway latency claim",
+        "blocking Cache latency claim",
+        "allocation-blocking Gateway claim",
+        "allocation-blocking Cache claim",
+        "production Gateway performance parity claim",
+        "production Cache performance parity claim",
+    ):
+        require_policy(
+            forbidden in set(p16_gateway_cache_samples.get("forbiddenUntilCleared") or []),
+            f"p16GatewayCacheTrendSampleAttachment forbiddenUntilCleared missing {forbidden!r}",
         )
     p12_rules = set(p12_rpc_decision.get("blockingRules") or [])
     for rule in (

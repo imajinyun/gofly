@@ -791,6 +791,110 @@
       "ratcheted Cache performance claim"
     ]
   },
+  "p16GatewayCacheTrendSampleAttachment": {
+    "schema": "gofly.benchmark_p16_gateway_cache_trend_sample_attachment.v1",
+    "aiflowTask": "GOFLY-P16-02-GATEWAY-CACHE-TREND-SAMPLE-ATTACHMENT",
+    "status": "current-trend-attached-baseline-held",
+    "acceptanceGate": "make bench-regression-check",
+    "sourceEvidence": [
+      "bench/current.txt",
+      "bench/gateway_cache_bench_test.go",
+      "bench/budget-ratchet.json",
+      "bench/matrix.md"
+    ],
+    "capture": {
+      "capturedAt": "2026-07-02T00:48:40Z",
+      "command": "BENCH_PATTERN='BenchmarkGatewayProxy|BenchmarkCacheHotPath' BENCH_COUNT=5 BENCH_PKGS='./bench/' bash bin/scripts/benchstat.sh",
+      "sampleType": "current-trend",
+      "sampleCount": 5,
+      "baselineSource": "bench/baseline.txt",
+      "baselineStatus": "missing-gateway-cache-rows",
+      "currentSource": "bench/current.txt",
+      "currentSourcePolicy": "bench/current.txt is ignored local runtime evidence; committed promotion decisions must use this machine-readable attachment and must not commit local benchmark output."
+    },
+    "decision": {
+      "result": "hold",
+      "selectedSurface": "none",
+      "allocationBlockingSurface": "none",
+      "latencyMode": "report-only",
+      "currentTrendAttachmentStatus": "attached",
+      "baselineAttachmentStatus": "not-attached",
+      "promotionStatus": "blocked",
+      "reason": "P16 attaches a five-sample Gateway and Cache current trend, but keeps promotion held because committed baseline rows, allocation budgets, cache-mode notes, and release rollback evidence are not all attached together.",
+      "nextReviewGate": "BENCH_PATTERN='BenchmarkGatewayProxy|BenchmarkCacheHotPath' BENCH_COUNT=5 make bench-baseline && make bench-regression-check",
+      "releaseNotePolicy": "Release notes may mention the P16 Gateway and Cache current trend as report-only evidence, but must not claim allocation-blocking coverage, blocking latency, or production performance parity until baseline and promotion criteria pass."
+    },
+    "currentTrendRows": [
+      {
+        "surface": "gateway-proxy",
+        "benchmark": "BenchmarkGatewayProxy",
+        "sampleCount": 5,
+        "nsPerOpMedian": 75117,
+        "nsPerOpMin": 71130,
+        "nsPerOpMax": 81107,
+        "bytesPerOpMedian": 18496,
+        "allocsPerOpMedian": 154,
+        "currentMode": "report-only",
+        "promotionStatus": "blocked",
+        "baselineSamplesAttached": 0,
+        "minimumBaselineSamples": 5,
+        "minimumCurrentTrendSamples": 3,
+        "cacheModeNote": "gateway proxy benchmark exercises httptest upstream proxying and remains a Gateway candidate, not a Cache mode claim",
+        "rollbackAction": "Keep gateway proxy performance claims report-only and route traffic through the previous gateway path when candidate benchmark evidence regresses."
+      },
+      {
+        "surface": "cache-hot-path",
+        "benchmark": "BenchmarkCacheHotPath",
+        "sampleCount": 5,
+        "nsPerOpMedian": 54.17,
+        "nsPerOpMin": 53.6,
+        "nsPerOpMax": 55.11,
+        "bytesPerOpMedian": 0,
+        "allocsPerOpMedian": 0,
+        "currentMode": "report-only",
+        "promotionStatus": "blocked",
+        "baselineSamplesAttached": 0,
+        "minimumBaselineSamples": 5,
+        "minimumCurrentTrendSamples": 3,
+        "cacheModeNote": "cache hit path measures in-memory L1 Get hit behavior with no loader execution",
+        "rollbackAction": "Keep cache performance claims report-only, disable cache with GOFLY_CACHE_DISABLED, or use source-of-truth reads when candidate benchmark evidence regresses."
+      },
+      {
+        "surface": "cache-hot-path-loader-hit",
+        "benchmark": "BenchmarkCacheHotPathGetOrLoadHit",
+        "sampleCount": 5,
+        "nsPerOpMedian": 52.69,
+        "nsPerOpMin": 52.47,
+        "nsPerOpMax": 54,
+        "bytesPerOpMedian": 0,
+        "allocsPerOpMedian": 0,
+        "currentMode": "report-only",
+        "promotionStatus": "blocked",
+        "baselineSamplesAttached": 0,
+        "minimumBaselineSamples": 5,
+        "minimumCurrentTrendSamples": 3,
+        "cacheModeNote": "cache GetOrLoad hit path measures loader-backed key after warmup and does not exercise miss or invalidation behavior",
+        "rollbackAction": "Keep cache loader-hit performance report-only until cache hit, miss, and invalidation benchmark evidence converge."
+      }
+    ],
+    "attachmentRules": [
+      "P16 current trend attachment must include exactly five samples for each Gateway and Cache candidate row",
+      "P16 current trend attachment must not add Gateway or Cache rows to trackedBenchmarks",
+      "P16 current trend attachment must keep Gateway and Cache latency report-only",
+      "P16 promotion remains blocked until committed baseline rows contain at least five samples per candidate row",
+      "P16 promotion remains blocked until cache-mode notes and rollback evidence are attached with the allocation budget"
+    ],
+    "forbiddenUntilCleared": [
+      "trackedBenchmarks Gateway entry",
+      "trackedBenchmarks Cache entry",
+      "blocking Gateway latency claim",
+      "blocking Cache latency claim",
+      "allocation-blocking Gateway claim",
+      "allocation-blocking Cache claim",
+      "production Gateway performance parity claim",
+      "production Cache performance parity claim"
+    ]
+  },
   "p12RpcBudgetPromotionDecision": {
     "schema": "gofly.benchmark_p12_rpc_budget_promotion_decision.v1",
     "aiflowTask": "GOFLY-P12-1-RPC-BENCHMARK-BUDGET-PROMOTION",

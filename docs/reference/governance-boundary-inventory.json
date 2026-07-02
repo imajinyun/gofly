@@ -1,7 +1,7 @@
 {
   "schema": "gofly.governance_boundary_inventory.v1",
   "purpose": "Lightweight baseline inventory for the 10-round governance workflow before expensive full-repository gates run.",
-  "activeAiflowBatch": "GOFLY-P15",
+  "activeAiflowBatch": "GOFLY-P16",
   "aiflowTaskBatches": [
     {
       "id": "GOFLY-GOV-10R",
@@ -103,23 +103,30 @@
     },
     {
       "id": "GOFLY-P15",
-      "status": "submitted",
+      "status": "completed",
       "taskPrefix": "GOFLY-P15-",
       "roundCount": 3,
       "evidence": "docs/reference/governance-p15-roadmap.json"
+    },
+    {
+      "id": "GOFLY-P16",
+      "status": "submitted",
+      "taskPrefix": "GOFLY-P16-",
+      "roundCount": 3,
+      "evidence": "docs/reference/governance-p16-roadmap.json"
     }
   ],
   "aiflowTasks": [
     {
-      "id": "GOFLY-P15-01-P14-COMPLETION-HANDOFF",
+      "id": "GOFLY-P16-01-P15-COMPLETION-HANDOFF",
       "round": 1,
       "status": "completed",
       "priority": 100,
-      "title": "P14 completion handoff",
-      "objective": "Convert P14 from active completed roadmap evidence into the latest completed governance batch and open P15 as the next active aiflow batch.",
-      "deliverable": "P14 completed task evidence, P15 active roadmap, boundary inventory transition, dashboard convergence fields, and aiflow runtime-state exclusion proof.",
+      "title": "P15 completion handoff",
+      "objective": "Convert P15 from active completed roadmap evidence into the latest completed governance batch and open P16 as the next active aiflow batch.",
+      "deliverable": "P15 completed task evidence, P16 active roadmap, boundary inventory transition, dashboard convergence fields, and aiflow runtime-state exclusion proof.",
       "gate": "make governance-boundary-inventory-check",
-      "commitPolicy": "commit after the P14 completion handoff and P15 active-batch evidence pass boundary inventory and governance report gates without staging ignored runtime state",
+      "commitPolicy": "commit after the P15 completion handoff and P16 active-batch evidence pass boundary inventory and governance report gates without staging ignored runtime state",
       "commit": "pending-current-commit",
       "verification": [
         "make governance-boundary-inventory-check",
@@ -127,35 +134,26 @@
       ]
     },
     {
-      "id": "GOFLY-P15-02-RPC-RELEASE-TRAIN-ATTACHMENT",
+      "id": "GOFLY-P16-02-GATEWAY-CACHE-TREND-SAMPLE-ATTACHMENT",
       "round": 2,
-      "status": "completed",
+      "status": "queued",
       "priority": 99,
-      "title": "RPC release-train attachment",
-      "objective": "Attach the first concrete RPC release-train evidence bundle or keep promotion held with a narrower blocker inventory across unary, stream, resolver, balancer, rollback, and budget rows.",
-      "deliverable": "RPC release-train attachment policy, promoted or held surface inventory, blocker diff from P14, Kitex rollback evidence, and benchmark budget decision.",
-      "gate": "make rpc-boundary-check",
-      "commitPolicy": "commit after RPC release-train attachment evidence and benchmark gates pass; keep latency report-only unless release-train data is durable",
-      "commit": "pending-current-commit",
-      "verification": [
-        "make rpc-boundary-check",
-        "make bench-regression-check"
-      ]
+      "title": "Gateway cache trend sample attachment",
+      "objective": "Attach durable Gateway and Cache five-sample baseline, three-sample current trend, cache-mode notes, and rollback evidence without promoting weak latency claims.",
+      "deliverable": "Gateway/cache sample attachment policy, benchmark trend evidence inventory, cache-mode notes, allocation-only candidate boundary, and rollback evidence.",
+      "gate": "make bench-regression-check",
+      "commitPolicy": "commit after Gateway/Cache trend sample evidence passes bench-regression-check and remains outside trackedBenchmarks unless every promotion prerequisite is present"
     },
     {
-      "id": "GOFLY-P15-03-GATEWAY-CACHE-BUDGET-ATTACHMENT",
+      "id": "GOFLY-P16-03-GATEWAY-CACHE-ALLOCATION-PROMOTION-REVIEW",
       "round": 3,
-      "status": "completed",
+      "status": "queued",
       "priority": 98,
-      "title": "Gateway cache budget attachment",
-      "objective": "Promote gateway proxy and cache hot path benchmark evidence from candidate report-only toward allocation budget attachment only when baseline samples, current trend samples, and rollback notes are present.",
-      "deliverable": "Gateway/cache benchmark budget attachment decision, baseline and current trend evidence policy, allocation mode, latency report-only boundary, and rollback note.",
+      "title": "Gateway cache allocation promotion review",
+      "objective": "Review whether exactly one Gateway or Cache surface can enter allocation-blocking coverage, or keep promotion held with narrowed blockers.",
+      "deliverable": "Promotion decision for one selected Gateway/Cache surface or an explicit hold decision with blocker diff, release note policy, and rollback guardrails.",
       "gate": "make bench-regression-check",
-      "commitPolicy": "commit after gateway/cache budget attachment evidence passes bench-regression-check without overstating unsupported or weak latency rows",
-      "commit": "pending-current-commit",
-      "verification": [
-        "make bench-regression-check"
-      ]
+      "commitPolicy": "commit after allocation promotion review passes bench-regression-check and keeps latency report-only unless maxRegressionRatio and rollback evidence are durable"
     }
   ],
   "surfaces": [

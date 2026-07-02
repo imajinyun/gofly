@@ -1,0 +1,89 @@
+{
+  "schema": "gofly.governance_p16_roadmap.v1",
+  "purpose": "Durable P16 aiflow queue for post-P15 Gateway and Cache benchmark convergence, keeping P15 completion evidence machine-checkable while opening the next focused governance batch.",
+  "sourceEvidence": [
+    "docs/reference/governance-p15-roadmap.json",
+    "docs/reference/governance-boundary-inventory.json",
+    "docs/reference/governance-dashboard-contract.json",
+    "bench/budget-ratchet.json",
+    "go run -C /Users/bytedance/Codes/go/src/github/aiflow ./cmd/aiflow status -root /Users/bytedance/Codes/go/src/github/gofly -config /Users/bytedance/Codes/go/src/github/gofly/aiflow.yaml"
+  ],
+  "aiflowSubmission": {
+    "status": "submitted",
+    "submittedAt": "2026-07-02T00:41:47Z",
+    "submissionCommands": [
+      "go run -C /Users/bytedance/Codes/go/src/github/aiflow ./cmd/aiflow submit -root /Users/bytedance/Codes/go/src/github/gofly -config /Users/bytedance/Codes/go/src/github/gofly/aiflow.yaml -id GOFLY-P16-01-P15-COMPLETION-HANDOFF",
+      "go run -C /Users/bytedance/Codes/go/src/github/aiflow ./cmd/aiflow submit -root /Users/bytedance/Codes/go/src/github/gofly -config /Users/bytedance/Codes/go/src/github/gofly/aiflow.yaml -id GOFLY-P16-02-GATEWAY-CACHE-TREND-SAMPLE-ATTACHMENT",
+      "go run -C /Users/bytedance/Codes/go/src/github/aiflow ./cmd/aiflow submit -root /Users/bytedance/Codes/go/src/github/gofly -config /Users/bytedance/Codes/go/src/github/gofly/aiflow.yaml -id GOFLY-P16-03-GATEWAY-CACHE-ALLOCATION-PROMOTION-REVIEW"
+    ],
+    "queueStatusCommand": "go run -C /Users/bytedance/Codes/go/src/github/aiflow ./cmd/aiflow status -root /Users/bytedance/Codes/go/src/github/gofly -config /Users/bytedance/Codes/go/src/github/gofly/aiflow.yaml",
+    "runtimeStatePolicy": ".aiflow, .harness, .tmp-test, .trae, coverage.out, bench/current.txt, bench/regression-report.json, bench/summary.md, bin/gofly, and docs/superpowers remain ignored local evidence and must not be committed.",
+    "safetyPolicy": "P16 tasks are submitted to ignored local aiflow runtime state and mirrored here as durable docs/reference evidence; each task must be completed in order and committed by the current agent or human only after its gate passes or an environment-limited downgrade is documented.",
+    "completedTasks": [
+      "GOFLY-P16-01-P15-COMPLETION-HANDOFF"
+    ],
+    "pendingTasks": [
+      "GOFLY-P16-02-GATEWAY-CACHE-TREND-SAMPLE-ATTACHMENT",
+      "GOFLY-P16-03-GATEWAY-CACHE-ALLOCATION-PROMOTION-REVIEW"
+    ]
+  },
+  "previousBatchHandoff": {
+    "completedBatch": "GOFLY-P15",
+    "completedTaskCount": 3,
+    "completionPolicy": "P15 is treated as completed only when all three task rows in docs/reference/governance-p15-roadmap.json carry completion status, verification commands, and pending-current-commit placeholders owned by their per-task commits.",
+    "runtimeStatePolicy": "Local .aiflow queue data is runtime evidence only; durable completion evidence belongs in docs/reference/governance-p15-roadmap.json and docs/reference/governance-boundary-inventory.json."
+  },
+  "tasks": [
+    {
+      "round": 1,
+      "id": "GOFLY-P16-01-P15-COMPLETION-HANDOFF",
+      "status": "completed",
+      "priority": 100,
+      "title": "P15 completion handoff",
+      "objective": "Convert P15 from active completed roadmap evidence into the latest completed governance batch and open P16 as the next active aiflow batch.",
+      "deliverable": "P15 completed task evidence, P16 active roadmap, boundary inventory transition, dashboard convergence fields, and aiflow runtime-state exclusion proof.",
+      "acceptanceGates": [
+        "make governance-boundary-inventory-check",
+        "make governance-report-check"
+      ],
+      "commitPolicy": "commit after the P15 completion handoff and P16 active-batch evidence pass boundary inventory and governance report gates without staging ignored runtime state",
+      "commit": "pending-current-commit",
+      "verification": [
+        "python3 -m json.tool docs/reference/governance-p15-roadmap.json",
+        "python3 -m json.tool docs/reference/governance-p16-roadmap.json",
+        "python3 -m json.tool docs/reference/governance-boundary-inventory.json",
+        "python3 -m json.tool docs/reference/governance-dashboard-contract.json",
+        "sh -n bin/scripts/check-governance-boundary-inventory.sh",
+        "sh -n bin/scripts/governance-report.sh",
+        "make governance-boundary-inventory-check",
+        "make governance-report-check"
+      ]
+    },
+    {
+      "round": 2,
+      "id": "GOFLY-P16-02-GATEWAY-CACHE-TREND-SAMPLE-ATTACHMENT",
+      "status": "queued",
+      "priority": 99,
+      "title": "Gateway cache trend sample attachment",
+      "objective": "Attach durable Gateway and Cache five-sample baseline, three-sample current trend, cache-mode notes, and rollback evidence without promoting weak latency claims.",
+      "deliverable": "Gateway/cache sample attachment policy, benchmark trend evidence inventory, cache-mode notes, allocation-only candidate boundary, and rollback evidence.",
+      "acceptanceGates": [
+        "make bench-regression-check"
+      ],
+      "commitPolicy": "commit after Gateway/Cache trend sample evidence passes bench-regression-check and remains outside trackedBenchmarks unless every promotion prerequisite is present"
+    },
+    {
+      "round": 3,
+      "id": "GOFLY-P16-03-GATEWAY-CACHE-ALLOCATION-PROMOTION-REVIEW",
+      "status": "queued",
+      "priority": 98,
+      "title": "Gateway cache allocation promotion review",
+      "objective": "Review whether exactly one Gateway or Cache surface can enter allocation-blocking coverage, or keep promotion held with narrowed blockers.",
+      "deliverable": "Promotion decision for one selected Gateway/Cache surface or an explicit hold decision with blocker diff, release note policy, and rollback guardrails.",
+      "acceptanceGates": [
+        "make bench-regression-check"
+      ],
+      "commitPolicy": "commit after allocation promotion review passes bench-regression-check and keeps latency report-only unless maxRegressionRatio and rollback evidence are durable"
+    }
+  ]
+}

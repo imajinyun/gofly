@@ -2561,6 +2561,82 @@ func TestGenerateRESTFromAPI(t *testing.T) {
 	}
 }
 
+func TestGenerateRESTFromAPIResolvesLocalImports(t *testing.T) {
+	dir := t.TempDir()
+	sharedPath := filepath.Join(dir, "types.api")
+	if err := os.WriteFile(sharedPath, []byte(`type SharedReq {
+  ID int64 `+"`path:\"id\"`"+`
+}
+
+type SharedResp {
+  Name string `+"`json:\"name\"`"+`
+}
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	apiPath := filepath.Join(dir, "inventory.api")
+	if err := os.WriteFile(apiPath, []byte(`syntax = "v1"
+import "types.api"
+
+@server(group: inventory prefix: /api/v1 middlewares: auth,trace)
+service inventory-api {
+  @handler getInventory
+  get /inventory/:id (SharedReq) returns (SharedResp)
+}
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outDir := filepath.Join(dir, "out")
+	if err := GenerateRESTFromAPI(APIOptions{APIFile: apiPath, Dir: outDir, Package: "api"}); err != nil {
+		t.Fatal(err)
+	}
+	typesData, err := os.ReadFile(filepath.Join(outDir, "internal", "api", "v1", "types.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"type SharedReq struct", "type SharedResp struct"} {
+		if !strings.Contains(string(typesData), want) {
+			t.Fatalf("generated imported type missing %q:\n%s", want, typesData)
+		}
+	}
+	doc, err := readAPIFileWithImports(apiPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(doc.Imports, ","); got != "types.api" {
+		t.Fatalf("imports = %q, want types.api", got)
+	}
+	if len(doc.Messages) != 2 || len(doc.Services) != 1 {
+		t.Fatalf("doc messages=%d services=%d, want 2 and 1", len(doc.Messages), len(doc.Services))
+	}
+}
+
+func TestGenerateRESTFromAPIRejectsUnsafeImports(t *testing.T) {
+	dir := t.TempDir()
+	tests := []struct {
+		name      string
+		importRef string
+		want      string
+	}{
+		{name: "parent traversal", importRef: "../types.api", want: "stay under api directory"},
+		{name: "absolute", importRef: filepath.Join(dir, "types.api"), want: "must be relative"},
+		{name: "wrong extension", importRef: "types.txt", want: "must reference .api file"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			apiPath := filepath.Join(dir, strings.ReplaceAll(tt.name, " ", "_")+".api")
+			content := "syntax = \"v1\"\nimport \"" + filepath.ToSlash(tt.importRef) + "\"\nservice inventory-api {\n  @handler ping\n  get /ping returns (PingResp)\n}\n\ntype PingResp {\n  Message string\n}\n"
+			if err := os.WriteFile(apiPath, []byte(content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			err := GenerateRESTFromAPI(APIOptions{APIFile: apiPath, Dir: filepath.Join(dir, tt.name), Package: "api"})
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("GenerateRESTFromAPI import error = %v, want %q", err, tt.want)
+			}
+		})
+	}
+}
+
 func TestGenerateRESTFromAPITypeGroup(t *testing.T) {
 	dir := t.TempDir()
 	apiPath := filepath.Join(dir, "user.api")

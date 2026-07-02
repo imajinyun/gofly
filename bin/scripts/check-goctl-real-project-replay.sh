@@ -11,13 +11,6 @@ root = pathlib.Path(".").resolve()
 manifest_path = root / "docs" / "reference" / "goctl-real-project-replay.json"
 missing = []
 
-required_fixture_files = {
-    "testdata/goctl-replay/orderservice/orders.api",
-    "testdata/goctl-replay/orderservice/etc/orders-api.yaml",
-    "testdata/goctl-replay/orderservice/model/orders.sql",
-    "testdata/goctl-replay/orderservice/replay.json",
-    "testdata/goctl-replay/orderservice/rollback.md",
-}
 required_gates = {
     "make goctl-real-project-replay-check",
     "make goctl-generator-compat-check",
@@ -29,17 +22,15 @@ required_diff_categories = {
     "generated-cache-template",
     "breaking-candidate",
 }
-required_artifacts = {
-    "cmd/orders-api/main.go",
-    "internal/handler/routes.go",
-    "internal/logic/pinglogic.go",
-    "internal/svc/servicecontext.go",
-    "internal/types/types.go",
-    "internal/api/v1/types.go",
-    "internal/api/v1/orders_api/routes.go",
-    "internal/api/v1/orders_api/service.go",
-    "model/entity/order_gen.go",
-    "model/repo/order.go",
+required_matrix_capabilities = {
+    "api-import",
+    "multi-service-group",
+    "multi-middleware",
+    "complex-model",
+    "soft-delete",
+    "optimistic-lock",
+    "composite-unique-key",
+    "cache-template",
 }
 
 
@@ -90,28 +81,62 @@ for source in (
     "docs/reference/goctl-generator-compatibility.json",
     "docs/reference/generated-upgrade-dry-run.json",
     "testdata/goctl-replay/orderservice/replay.json",
+    "testdata/goctl-replay/inventoryservice/replay.json",
 ):
     require(source in source_of_truth, f"sourceOfTruth missing {source!r}")
     require((root / source).exists(), f"sourceOfTruth path is missing: {source}")
 
 scope = manifest.get("scope") or {}
 require(scope.get("expandsCLICommandSurface") is False, "scope.expandsCLICommandSurface must be false")
-require(scope.get("fixtureClass") == "realistic-gozero-goctl-project", "scope.fixtureClass mismatch")
+require(scope.get("fixtureClass") == "realistic-gozero-goctl-project-matrix", "scope.fixtureClass mismatch")
 require("goctl" in str(scope.get("referenceFramework") or "").lower(), "scope.referenceFramework must mention goctl")
 
-fixture_files = set(manifest.get("fixtureFiles") or [])
-require(fixture_files == required_fixture_files, f"fixtureFiles drifted: missing={sorted(required_fixture_files - fixture_files)} extra={sorted(fixture_files - required_fixture_files)}")
-for rel in sorted(required_fixture_files):
-    require((root / rel).is_file(), f"fixture file is missing: {rel}")
+matrix = manifest.get("matrix") or {}
+fixtures = matrix.get("fixtures") or []
+require(matrix.get("minimumFixtures") == 2, "matrix.minimumFixtures must be 2")
+require(len(fixtures) >= matrix.get("minimumFixtures", 0), "matrix must contain at least minimumFixtures entries")
+require(set(matrix.get("requiredCapabilities") or []) == required_matrix_capabilities, "matrix.requiredCapabilities drifted")
 
-replay = manifest.get("replay") or {}
-require(replay.get("id") == "orderservice-goctl-replay", "replay.id mismatch")
-require(replay.get("profile") == "gozero-compatible", "replay.profile must be gozero-compatible")
-require(replay.get("module") == "example.com/orderservice", "replay.module mismatch")
-require(replay.get("style") == "minimal", "replay.style mismatch")
-require(replay.get("cache") is True, "replay.cache must be true")
-expected_artifacts = set(replay.get("expectedArtifacts") or [])
-require(expected_artifacts == required_artifacts, f"expectedArtifacts drifted: missing={sorted(required_artifacts - expected_artifacts)} extra={sorted(expected_artifacts - required_artifacts)}")
+fixture_ids = set()
+matrix_capabilities = set()
+for entry in fixtures:
+    fixture_id = entry.get("id")
+    fixture_ids.add(fixture_id)
+    require(fixture_id, "matrix fixture id is required")
+    require(entry.get("profile") == "gozero-compatible", f"{fixture_id}: profile must be gozero-compatible")
+    require(entry.get("style") == "minimal", f"{fixture_id}: style mismatch")
+    require(entry.get("cache") is True, f"{fixture_id}: cache must be true")
+    manifest_rel = entry.get("manifest")
+    require(manifest_rel in source_of_truth, f"{fixture_id}: manifest missing from sourceOfTruth")
+    manifest_file = root / manifest_rel if manifest_rel else root / "__missing__"
+    require(manifest_file.is_file(), f"{fixture_id}: manifest path is missing: {manifest_rel}")
+    fixture_manifest = json.loads(manifest_file.read_text(encoding="utf-8")) if manifest_file.is_file() else {}
+    for field in ("id", "module", "profile", "style", "cache", "expectedArtifacts"):
+        require(fixture_manifest.get(field) == entry.get(field), f"{fixture_id}: matrix field {field} drifted from replay.json")
+    for rel in entry.get("files") or []:
+        require((root / rel).is_file(), f"{fixture_id}: fixture file is missing: {rel}")
+    expected_artifacts = set(entry.get("expectedArtifacts") or [])
+    require(expected_artifacts, f"{fixture_id}: expectedArtifacts are required")
+    require(expected_artifacts == set(fixture_manifest.get("expectedArtifacts") or []), f"{fixture_id}: expectedArtifacts drifted from replay.json")
+    matrix_capabilities.update(entry.get("capabilities") or [])
+    matrix_capabilities.update(fixture_manifest.get("capabilities") or [])
+
+require({"orderservice-goctl-replay", "inventoryservice-imported-multigroup-replay"}.issubset(fixture_ids), f"fixture ids drifted: {sorted(fixture_ids)!r}")
+missing_capabilities = required_matrix_capabilities - matrix_capabilities
+require(not missing_capabilities, f"matrix capabilities missing: {sorted(missing_capabilities)!r}")
+require((root / "testdata/goctl-replay/inventoryservice/types/common.api").is_file(), "inventory imported common.api is missing")
+inventory_api = read_text(root / "testdata/goctl-replay/inventoryservice/inventory.api")
+for needle in (
+    'import "types/common.api"',
+    "service inventory-api",
+    "service admin-api",
+    "middlewares: auth,trace,audit",
+    "middlewares: adminAuth,trace",
+):
+    require(needle in inventory_api, f"inventory API fixture missing {needle!r}")
+inventory_sql = read_text(root / "testdata/goctl-replay/inventoryservice/model/inventory.sql")
+for needle in ("UNIQUE KEY uk_inventory_tenant_sku_warehouse", "version bigint", "deleted_at timestamp", "KEY idx_inventory_status_updated"):
+    require(needle in inventory_sql, f"inventory SQL fixture missing {needle!r}")
 
 diff_contract = manifest.get("diffContract") or {}
 categories = set(diff_contract.get("categories") or [])
@@ -132,11 +157,16 @@ for gate in release_gates:
 
 status = manifest.get("status") or {}
 require(status.get("goctlCommandSurface") == "unchanged", "status.goctlCommandSurface must remain unchanged")
-require(status.get("modelCacheTemplateDepth") == "candidate-next-task", "status.modelCacheTemplateDepth must point to next task")
+require(status.get("fixtureMatrixDepth") == "imported-multigroup-complex-model", "status.fixtureMatrixDepth mismatch")
+require(status.get("modelCacheTemplateDepth") == "covered-by-replay-matrix", "status.modelCacheTemplateDepth mismatch")
 
 for needle in (
     "goctl-real-project-replay-check",
     "orderservice-goctl-replay",
+    "inventoryservice-imported-multigroup-replay",
+    "api-import",
+    "multi-service-group",
+    "composite-unique-key",
     "deterministic-repeat-generation",
     "compatible-addition",
     "generated-cache-template",

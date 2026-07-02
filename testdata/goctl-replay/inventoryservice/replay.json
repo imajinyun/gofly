@@ -1,0 +1,46 @@
+{
+  "schema": "gofly.goctl_real_project_fixture.v1",
+  "id": "inventoryservice-imported-multigroup-replay",
+  "module": "example.com/inventoryservice",
+  "serviceName": "inventory-api",
+  "profile": "gozero-compatible",
+  "style": "minimal",
+  "api": "inventory.api",
+  "config": "etc/inventory-api.yaml",
+  "ddl": "model/inventory.sql",
+  "cache": true,
+  "capabilities": [
+    "api-import",
+    "multi-service-group",
+    "multi-middleware",
+    "complex-model",
+    "soft-delete",
+    "optimistic-lock",
+    "composite-unique-key",
+    "cache-template"
+  ],
+  "diffCategories": [
+    "deterministic-repeat-generation",
+    "compatible-addition",
+    "generated-cache-template",
+    "breaking-candidate"
+  ],
+  "expectedArtifacts": [
+    "cmd/inventory-api/main.go",
+    "internal/handler/routes.go",
+    "internal/logic/pinglogic.go",
+    "internal/svc/servicecontext.go",
+    "internal/types/types.go",
+    "internal/api/v1/types.go",
+    "internal/api/v1/inventory_api/routes.go",
+    "internal/api/v1/inventory_api/service.go",
+    "internal/api/v1/inventory_api/create_inventory.go",
+    "internal/api/v1/inventory_api/list_inventory.go",
+    "internal/api/v1/admin_api/routes.go",
+    "internal/api/v1/admin_api/service.go",
+    "internal/api/v1/admin_api/adjust_inventory.go",
+    "model/entity/inventory_item_gen.go",
+    "model/repo/inventory_item.go"
+  ],
+  "rollbackNote": "rollback.md"
+}

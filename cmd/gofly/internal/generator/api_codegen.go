@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -129,11 +130,7 @@ func GenerateRESTFromAPI(opts APIOptions) error {
 	if opts.Dir == "" {
 		opts.Dir = "."
 	}
-	content, err := os.ReadFile(opts.APIFile)
-	if err != nil {
-		return fmt.Errorf("read api file: %w", err)
-	}
-	doc, err := ParseAPI(string(content))
+	doc, err := readAPIFileWithImports(opts.APIFile)
 	if err != nil {
 		return err
 	}
@@ -341,16 +338,127 @@ func GenerateAPIDiff(opts APIDiffOptions) error {
 }
 
 func readAPIFile(path string) (IDLDocument, error) {
+	return readAPIFileWithImports(path)
+}
+
+func readAPIFileWithImports(path string) (IDLDocument, error) {
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return IDLDocument{}, fmt.Errorf("resolve api file: %w", err)
+	}
+	return readAPIFileWithImportsSeen(absPath, map[string]struct{}{})
+}
+
+func readAPIFileWithImportsSeen(path string, seen map[string]struct{}) (IDLDocument, error) {
+	if _, ok := seen[path]; ok {
+		return IDLDocument{Kind: "api"}, nil
+	}
+	seen[path] = struct{}{}
 	// #nosec G304 -- API files are explicit generator inputs from CLI flags or caller options.
 	content, err := os.ReadFile(path)
 	if err != nil {
-		return IDLDocument{}, err
+		return IDLDocument{}, fmt.Errorf("read api file: %w", err)
 	}
 	doc, err := ParseAPI(string(content))
 	if err != nil {
 		return IDLDocument{}, err
 	}
+	imports := apiImportPaths(string(content))
+	doc.Imports = append([]string(nil), imports...)
+	if len(imports) == 0 {
+		return doc, nil
+	}
+	importedMessages := make([]IDLMessage, 0)
+	for _, imp := range imports {
+		importPath, err := resolveAPIImport(path, imp)
+		if err != nil {
+			return IDLDocument{}, err
+		}
+		imported, err := readAPIFileWithImportsSeen(importPath, seen)
+		if err != nil {
+			return IDLDocument{}, err
+		}
+		importedMessages = append(importedMessages, imported.Messages...)
+	}
+	doc.Messages = mergeAPIMessages(importedMessages, doc.Messages)
 	return doc, nil
+}
+
+var apiImportRE = regexp.MustCompile(`(?m)^\s*import\s+"([^"]+)"\s*$`)
+
+func apiImportPaths(content string) []string {
+	matches := apiImportRE.FindAllStringSubmatch(content, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(matches))
+	for _, match := range matches {
+		if len(match) == 2 {
+			out = append(out, strings.TrimSpace(match[1]))
+		}
+	}
+	return out
+}
+
+func resolveAPIImport(owner string, importPath string) (string, error) {
+	if strings.TrimSpace(importPath) == "" {
+		return "", errors.New("api import path is required")
+	}
+	if filepath.IsAbs(importPath) {
+		return "", fmt.Errorf("api import must be relative: %s", importPath)
+	}
+	if filepath.Clean(importPath) != importPath || strings.HasPrefix(importPath, "..") {
+		return "", fmt.Errorf("api import must stay under api directory: %s", importPath)
+	}
+	if filepath.Ext(importPath) != ".api" {
+		return "", fmt.Errorf("api import must reference .api file: %s", importPath)
+	}
+	baseDir := filepath.Dir(owner)
+	candidate := filepath.Join(baseDir, importPath)
+	absBase, err := filepath.Abs(baseDir)
+	if err != nil {
+		return "", fmt.Errorf("resolve api import base: %w", err)
+	}
+	absCandidate, err := filepath.Abs(candidate)
+	if err != nil {
+		return "", fmt.Errorf("resolve api import: %w", err)
+	}
+	rel, err := filepath.Rel(absBase, absCandidate)
+	if err != nil {
+		return "", fmt.Errorf("resolve api import relation: %w", err)
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("api import escapes api directory: %s", importPath)
+	}
+	return absCandidate, nil
+}
+
+func mergeAPIMessages(imported []IDLMessage, local []IDLMessage) []IDLMessage {
+	out := make([]IDLMessage, 0, len(imported)+len(local))
+	seen := make(map[string]struct{}, len(imported)+len(local))
+	for _, msg := range imported {
+		name := exportName(msg.Name)
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		out = append(out, msg)
+	}
+	for _, msg := range local {
+		name := exportName(msg.Name)
+		if _, ok := seen[name]; ok {
+			for idx := range out {
+				if exportName(out[idx].Name) == name {
+					out[idx] = msg
+					break
+				}
+			}
+			continue
+		}
+		seen[name] = struct{}{}
+		out = append(out, msg)
+	}
+	return out
 }
 
 func DiffAPI(base, target IDLDocument) APIDiffResult {

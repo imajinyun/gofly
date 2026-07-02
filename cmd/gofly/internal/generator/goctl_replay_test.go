@@ -23,40 +23,69 @@ type goctlReplayFixture struct {
 	Config            string   `json:"config"`
 	DDL               string   `json:"ddl"`
 	Cache             bool     `json:"cache"`
+	Capabilities      []string `json:"capabilities"`
 	DiffCategories    []string `json:"diffCategories"`
 	ExpectedArtifacts []string `json:"expectedArtifacts"`
 	RollbackNote      string   `json:"rollbackNote"`
 }
 
 func TestGoctlRealProjectFixtureReplay(t *testing.T) {
-	fixtureDir := filepath.Join(repositoryRoot(t), "testdata", "goctl-replay", "orderservice")
-	fixture := readGoctlReplayFixture(t, fixtureDir)
-	if fixture.Schema != "gofly.goctl_real_project_fixture.v1" {
-		t.Fatalf("fixture schema = %q, want gofly.goctl_real_project_fixture.v1", fixture.Schema)
-	}
-	if fixture.ID != "orderservice-goctl-replay" {
-		t.Fatalf("fixture id = %q, want orderservice-goctl-replay", fixture.ID)
-	}
+	fixtureRoot := filepath.Join(repositoryRoot(t), "testdata", "goctl-replay")
+	for _, fixtureDir := range goctlReplayFixtureDirs(t, fixtureRoot) {
+		fixture := readGoctlReplayFixture(t, fixtureDir)
+		t.Run(fixture.ID, func(t *testing.T) {
+			if fixture.Schema != "gofly.goctl_real_project_fixture.v1" {
+				t.Fatalf("fixture schema = %q, want gofly.goctl_real_project_fixture.v1", fixture.Schema)
+			}
+			if fixture.ID == "" {
+				t.Fatalf("fixture id is required for %s", fixtureDir)
+			}
 
-	firstDir := filepath.Join(t.TempDir(), "first")
-	secondDir := filepath.Join(t.TempDir(), "second")
-	firstHashes := replayGoctlFixture(t, fixtureDir, fixture, firstDir)
-	secondHashes := replayGoctlFixture(t, fixtureDir, fixture, secondDir)
-	if got, want := firstHashes, secondHashes; strings.Join(hashPairs(got), "\n") != strings.Join(hashPairs(want), "\n") {
-		t.Fatalf("replay hashes drifted:\nfirst:\n%s\nsecond:\n%s", strings.Join(hashPairs(got), "\n"), strings.Join(hashPairs(want), "\n"))
-	}
+			firstDir := filepath.Join(t.TempDir(), "first")
+			secondDir := filepath.Join(t.TempDir(), "second")
+			firstHashes := replayGoctlFixture(t, fixtureDir, fixture, firstDir)
+			secondHashes := replayGoctlFixture(t, fixtureDir, fixture, secondDir)
+			if got, want := firstHashes, secondHashes; strings.Join(hashPairs(got), "\n") != strings.Join(hashPairs(want), "\n") {
+				t.Fatalf("replay hashes drifted:\nfirst:\n%s\nsecond:\n%s", strings.Join(hashPairs(got), "\n"), strings.Join(hashPairs(want), "\n"))
+			}
 
-	report := classifyGoctlReplayDiff(fixture)
-	for _, want := range []string{
-		"deterministic-repeat-generation",
-		"compatible-addition",
-		"generated-cache-template",
-		"breaking-candidate",
-	} {
-		if !strings.Contains(report, want) {
-			t.Fatalf("replay diff report missing %q:\n%s", want, report)
+			report := classifyGoctlReplayDiff(fixture)
+			for _, want := range []string{
+				"deterministic-repeat-generation",
+				"compatible-addition",
+				"generated-cache-template",
+				"breaking-candidate",
+			} {
+				if !strings.Contains(report, want) {
+					t.Fatalf("replay diff report missing %q:\n%s", want, report)
+				}
+			}
+		})
+	}
+}
+
+func goctlReplayFixtureDirs(t *testing.T, fixtureRoot string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(fixtureRoot)
+	if err != nil {
+		t.Fatalf("read goctl replay fixtures: %v", err)
+	}
+	dirs := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
 		}
+		dir := filepath.Join(fixtureRoot, entry.Name())
+		if _, err := os.Stat(filepath.Join(dir, "replay.json")); err != nil {
+			continue
+		}
+		dirs = append(dirs, dir)
 	}
+	sort.Strings(dirs)
+	if len(dirs) < 2 {
+		t.Fatalf("goctl replay fixture matrix needs at least 2 fixtures, got %d", len(dirs))
+	}
+	return dirs
 }
 
 func readGoctlReplayFixture(t *testing.T, fixtureDir string) goctlReplayFixture {
@@ -127,14 +156,14 @@ func replayGoctlFixture(t *testing.T, fixtureDir string, fixture goctlReplayFixt
 			t.Fatalf("replay expected artifact %s: %v", rel, err)
 		}
 	}
-	assertGoctlReplayArtifacts(t, outDir)
+	assertGoctlReplayArtifacts(t, outDir, fixture)
 	assertReplayRollbackNote(t, fixtureDir, fixture.RollbackNote)
 	runGoCommand(t, outDir, 3*time.Minute, "mod", "tidy")
 	runGoCommand(t, outDir, 3*time.Minute, "test", "./...")
 	return hashReplayArtifacts(t, outDir, fixture.ExpectedArtifacts)
 }
 
-func assertGoctlReplayArtifacts(t *testing.T, outDir string) {
+func assertGoctlReplayArtifacts(t *testing.T, outDir string, fixture goctlReplayFixture) {
 	t.Helper()
 	handler := readReplayFile(t, outDir, filepath.Join("internal", "handler", "routes.go"))
 	for _, want := range []string{"package handler", "RegisterHandlers", `Path: "/ping"`, `rest.WithPrefix("/api/v1")`} {
@@ -142,6 +171,22 @@ func assertGoctlReplayArtifacts(t *testing.T, outDir string) {
 			t.Fatalf("goctl handler routes missing %q:\n%s", want, handler)
 		}
 	}
+	goMod := readReplayFile(t, outDir, "go.mod")
+	if !strings.Contains(goMod, "replace github.com/imajinyun/gofly =>") {
+		t.Fatalf("generated module missing local gofly replace:\n%s", goMod)
+	}
+	switch fixture.ID {
+	case "orderservice-goctl-replay":
+		assertOrdersGoctlReplayArtifacts(t, outDir)
+	case "inventoryservice-imported-multigroup-replay":
+		assertInventoryGoctlReplayArtifacts(t, outDir, fixture)
+	default:
+		t.Fatalf("missing replay artifact assertions for fixture %q", fixture.ID)
+	}
+}
+
+func assertOrdersGoctlReplayArtifacts(t *testing.T, outDir string) {
+	t.Helper()
 	apiRoutes := readReplayFile(t, outDir, filepath.Join("internal", "api", "v1", "orders_api", "routes.go"))
 	for _, want := range []string{
 		"RegisterOrdersApiRoutes",
@@ -185,9 +230,115 @@ func assertGoctlReplayArtifacts(t *testing.T, outDir string) {
 			t.Fatalf("generated model/cache repo missing %q:\n%s", want, repo)
 		}
 	}
-	goMod := readReplayFile(t, outDir, "go.mod")
-	if !strings.Contains(goMod, "replace github.com/imajinyun/gofly =>") {
-		t.Fatalf("generated module missing local gofly replace:\n%s", goMod)
+}
+
+func assertInventoryGoctlReplayArtifacts(t *testing.T, outDir string, fixture goctlReplayFixture) {
+	t.Helper()
+	requireGoctlReplayCapabilities(t, fixture, []string{
+		"api-import",
+		"multi-service-group",
+		"multi-middleware",
+		"complex-model",
+		"soft-delete",
+		"optimistic-lock",
+		"composite-unique-key",
+		"cache-template",
+	})
+	typesData := readReplayFile(t, outDir, filepath.Join("internal", "api", "v1", "types.go"))
+	for _, want := range []string{
+		"type AuditMeta struct",
+		"type PageReq struct",
+		"type PageResp struct",
+		"type CreateInventoryReq struct",
+		"Meta",
+		"AuditMeta",
+		"Page",
+		"PageResp",
+		"Items []GetInventoryResp",
+	} {
+		if !strings.Contains(typesData, want) {
+			t.Fatalf("generated imported/matrix types missing %q:\n%s", want, typesData)
+		}
+	}
+	inventoryRoutes := readReplayFile(t, outDir, filepath.Join("internal", "api", "v1", "inventory_api", "routes.go"))
+	for _, want := range []string{
+		"RegisterInventoryApiRoutes",
+		"RegisterCreateInventoryRoute",
+		"RegisterGetInventoryRoute",
+		"RegisterListInventoryRoute",
+	} {
+		if !strings.Contains(inventoryRoutes, want) {
+			t.Fatalf("generated inventory routes missing %q:\n%s", want, inventoryRoutes)
+		}
+	}
+	adminRoutes := readReplayFile(t, outDir, filepath.Join("internal", "api", "v1", "admin_api", "routes.go"))
+	for _, want := range []string{
+		"RegisterAdminApiRoutes",
+		"RegisterAdjustInventoryRoute",
+	} {
+		if !strings.Contains(adminRoutes, want) {
+			t.Fatalf("generated admin routes missing %q:\n%s", want, adminRoutes)
+		}
+	}
+	adjustRoute := readReplayFile(t, outDir, filepath.Join("internal", "api", "v1", "admin_api", "adjust_inventory.go"))
+	for _, want := range []string{`Path: "/inventory/:id/adjust"`, "ctx.BindRequest(&req)"} {
+		if !strings.Contains(adjustRoute, want) {
+			t.Fatalf("generated adjust inventory route missing %q:\n%s", want, adjustRoute)
+		}
+	}
+	repo := readReplayFile(t, outDir, filepath.Join("model", "repo", "inventory_item.go"))
+	for _, want := range []string{
+		"func NewCachedInventoryItemRepo",
+		"func NewConsistentCachedInventoryItemRepo",
+		"func NewRedisCachedInventoryItemRepo",
+		"func NewInventoryItemRepoWithCluster",
+		"cluster *storage.Cluster",
+		"func (r *InventoryItemRepo) Transact",
+		"func (r *InventoryItemRepo) UpdateWithVersion",
+		"func (r *InventoryItemRepo) ListAfter",
+		`AND deleted_at IS NULL LIMIT 1`,
+		`query += " AND deleted_at IS NULL"`,
+		"return r.cluster.Transact(ctx, opts",
+		"store := r.cluster.Writer()",
+		"store := r.cluster.ForQuery(query)",
+		"func (c *RedisCachedInventoryItemRepo) UpdateWithInvalidate",
+	} {
+		if !strings.Contains(repo, want) {
+			t.Fatalf("generated inventory model/cache repo missing %q:\n%s", want, repo)
+		}
+	}
+	for _, unexpected := range []string{
+		"func (r *InventoryItemRepo) FindByTenantID",
+		"func (r *InventoryItemRepo) FindBySku",
+		"func (r *InventoryItemRepo) FindByWarehouseID",
+	} {
+		if strings.Contains(repo, unexpected) {
+			t.Fatalf("generated inventory repo should not create single-column finders for composite unique key %q:\n%s", unexpected, repo)
+		}
+	}
+	entity := readReplayFile(t, outDir, filepath.Join("model", "entity", "inventory_item_gen.go"))
+	for _, want := range []string{
+		"type InventoryItem struct",
+		"Version",
+		`db:"version"`,
+		`const InventoryItemTable = "inventory_items"`,
+	} {
+		if !strings.Contains(entity, want) {
+			t.Fatalf("generated inventory entity missing %q:\n%s", want, entity)
+		}
+	}
+}
+
+func requireGoctlReplayCapabilities(t *testing.T, fixture goctlReplayFixture, required []string) {
+	t.Helper()
+	capabilities := make(map[string]struct{}, len(fixture.Capabilities))
+	for _, capability := range fixture.Capabilities {
+		capabilities[capability] = struct{}{}
+	}
+	for _, capability := range required {
+		if _, ok := capabilities[capability]; !ok {
+			t.Fatalf("fixture %s missing capability %q", fixture.ID, capability)
+		}
 	}
 }
 

@@ -1,0 +1,18 @@
+Name: inventory-api
+Host: 0.0.0.0
+Port: 8081
+Timeout: 3000
+Auth:
+  AccessSecret: inventory-replay-secret
+  AccessExpire: 3600
+AdminAuth:
+  AccessSecret: inventory-admin-replay-secret
+  AccessExpire: 1800
+DataSource: inventory
+Cache:
+  Enabled: true
+  Redis:
+    Host: 127.0.0.1:6379
+Telemetry:
+  Trace:
+    Enabled: true

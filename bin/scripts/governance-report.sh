@@ -1493,17 +1493,17 @@ if convergence["gate"] != "make governance-boundary-inventory-check":
 if convergence["finalGate"] != "make governance-10-rounds":
     missing.append("governance convergence finalGate mismatch")
 if convergence["taskCount"] != 3:
-    missing.append("governance convergence must track the active P18 task set")
+    missing.append("governance convergence must track the active P20 task set")
 active_aiflow_batch = convergence.get("activeAiflowBatch", "")
 if not active_aiflow_batch:
     missing.append("governance convergence activeAiflowBatch is required")
 expected_round_ids = [
-    "GOFLY-P19-01-P18-COMPLETION-HANDOFF",
-    "GOFLY-P19-02-RPC-RELEASE-TRAIN-EVIDENCE-ATTACHMENT",
-    "GOFLY-P19-03-RPC-BUDGET-PROMOTION-BLOCKER-REVIEW",
+    "GOFLY-P20-01-P19-COMPLETION-HANDOFF",
+    "GOFLY-P20-02-GOCTL-REAL-PROJECT-FIXTURE-REPLAY",
+    "GOFLY-P20-03-MODEL-CACHE-TEMPLATE-DEPTH",
 ]
-if active_aiflow_batch != "GOFLY-P19":
-    missing.append("governance convergence activeAiflowBatch must be GOFLY-P19")
+if active_aiflow_batch != "GOFLY-P20":
+    missing.append("governance convergence activeAiflowBatch must be GOFLY-P20")
 actual_round_ids = [
     item.get("id", "")
     for item in convergence.get("tasks") or []
@@ -2383,11 +2383,11 @@ if convergence_contract.get("gate") != "make governance-boundary-inventory-check
     missing.append("governance dashboard governanceConvergence gate mismatch")
 if int(convergence_contract.get("requiredTaskCount") or 0) != 3:
     missing.append("governance dashboard governanceConvergence requiredTaskCount mismatch")
-if convergence_contract.get("requiredActiveBatch") != "GOFLY-P19":
+if convergence_contract.get("requiredActiveBatch") != "GOFLY-P20":
     missing.append("governance dashboard governanceConvergence requiredActiveBatch mismatch")
-if convergence_contract.get("latestCompletedBatch") != "GOFLY-P18":
+if convergence_contract.get("latestCompletedBatch") != "GOFLY-P19":
     missing.append("governance dashboard governanceConvergence latestCompletedBatch mismatch")
-if convergence_contract.get("activeRoadmap") != "docs/reference/governance-p19-roadmap.json":
+if convergence_contract.get("activeRoadmap") != "docs/reference/governance-p20-roadmap.json":
     missing.append("governance dashboard governanceConvergence activeRoadmap mismatch")
 if set(convergence_contract.get("requiredIgnoredRuntimePaths") or []) != expected_ignored_runtime_paths:
     missing.append("governance dashboard governanceConvergence requiredIgnoredRuntimePaths mismatch")

@@ -1,0 +1,110 @@
+{
+  "schema": "gofly.governance_p20_roadmap.v1",
+  "purpose": "Durable P20 aiflow queue for goctl real-project fixture replay and model/cache template depth, after P19 completed RPC release-train evidence and budget hold review. P20 intentionally prioritizes replayable go-zero/goctl project adoption evidence and DB/cache template smoke over expanding the CLI command surface.",
+  "sourceEvidence": [
+    "docs/reference/governance-p19-roadmap.json",
+    "docs/reference/governance-boundary-inventory.json",
+    "docs/reference/goctl-generator-compatibility.json",
+    "docs/reference/generated-upgrade-dry-run.json",
+    "docs/reference/db-cache-productization.json",
+    "go run -C /Users/bytedance/Codes/go/src/github/aiflow ./cmd/aiflow status -root /Users/bytedance/Codes/go/src/github/gofly -config /Users/bytedance/Codes/go/src/github/gofly/aiflow.yaml"
+  ],
+  "aiflowSubmission": {
+    "status": "mirrored-after-aiflow-build-blocker",
+    "attemptedAt": "2026-07-02T10:18:00Z",
+    "submissionCommands": [
+      "go run -C /Users/bytedance/Codes/go/src/github/aiflow ./cmd/aiflow submit -root /Users/bytedance/Codes/go/src/github/gofly -config /Users/bytedance/Codes/go/src/github/gofly/aiflow.yaml -id GOFLY-P20-01-P19-COMPLETION-HANDOFF -title \"P19 completion handoff\" -description \"Mark P19 as the latest completed governance batch and open P20 for goctl real-project fixture replay and model/cache template depth.\" -kind governance -priority 100",
+      "go run -C /Users/bytedance/Codes/go/src/github/aiflow ./cmd/aiflow submit -root /Users/bytedance/Codes/go/src/github/gofly -config /Users/bytedance/Codes/go/src/github/gofly/aiflow.yaml -id GOFLY-P20-02-GOCTL-REAL-PROJECT-FIXTURE-REPLAY -title \"goctl real-project fixture replay\" -description \"Add a realistic go-zero/goctl-style project fixture replay contract, generated artifact smoke, deterministic repeat report, and gate.\" -kind governance -priority 99",
+      "go run -C /Users/bytedance/Codes/go/src/github/aiflow ./cmd/aiflow submit -root /Users/bytedance/Codes/go/src/github/gofly -config /Users/bytedance/Codes/go/src/github/gofly/aiflow.yaml -id GOFLY-P20-03-MODEL-CACHE-TEMPLATE-DEPTH -title \"model cache template depth\" -description \"Deepen generated SQL repository and cache-aside templates with transaction, pagination, optimistic lock, read/write split, Redis cache, smoke, and rollback evidence.\" -kind governance -priority 98"
+    ],
+    "queueStatusCommand": "go run -C /Users/bytedance/Codes/go/src/github/aiflow ./cmd/aiflow status -root /Users/bytedance/Codes/go/src/github/gofly -config /Users/bytedance/Codes/go/src/github/gofly/aiflow.yaml",
+    "runtimeBlocker": {
+      "class": "adjacent-aiflow-build",
+      "evidence": "go run -C /Users/bytedance/Codes/go/src/github/aiflow ./cmd/aiflow --help fails while aiflow is mid-migration because advisory report types diverge between controller, harness, and runtime packages.",
+      "goflyFallback": "Keep .aiflow as ignored runtime state, mirror the task queue here, and require each task to pass its gofly gate before commit."
+    },
+    "runtimeStatePolicy": ".aiflow, .harness, .tmp-test, .trae, coverage.out, bench/current.txt, bench/regression-report.json, bench/summary.md, bin/gofly, and docs/superpowers remain ignored local evidence and must not be committed.",
+    "safetyPolicy": "P20 tasks are mirrored as durable docs/reference evidence while adjacent aiflow is unavailable; each task must be completed in order and committed by the current agent or human only after its gate passes or an environment-limited downgrade is documented.",
+    "completedTasks": [
+      "GOFLY-P20-01-P19-COMPLETION-HANDOFF",
+      "GOFLY-P20-02-GOCTL-REAL-PROJECT-FIXTURE-REPLAY"
+    ],
+    "pendingTasks": [
+      "GOFLY-P20-03-MODEL-CACHE-TEMPLATE-DEPTH"
+    ]
+  },
+  "previousBatchHandoff": {
+    "completedBatch": "GOFLY-P19",
+    "completedTaskCount": 3,
+    "completionPolicy": "P19 is treated as completed only when all three task rows in docs/reference/governance-p19-roadmap.json carry completion status, verification commands, and pending-current-commit placeholders owned by their per-task commits.",
+    "runtimeStatePolicy": "Local .aiflow queue data is runtime evidence only; durable completion evidence belongs in docs/reference/governance-p19-roadmap.json and docs/reference/governance-boundary-inventory.json."
+  },
+  "tasks": [
+    {
+      "round": 1,
+      "id": "GOFLY-P20-01-P19-COMPLETION-HANDOFF",
+      "status": "completed",
+      "priority": 100,
+      "title": "P19 completion handoff",
+      "objective": "Convert P19 from active RPC release-train evidence into the latest completed governance batch and open P20 as the next active aiflow batch for goctl replay and model/cache template depth.",
+      "deliverable": "P19 completed task evidence, P20 active roadmap, boundary inventory transition, dashboard convergence fields, and adjacent-aiflow build blocker evidence.",
+      "acceptanceGates": [
+        "make governance-boundary-inventory-check",
+        "make governance-report-check"
+      ],
+      "commitPolicy": "commit after the P19 completion handoff and P20 active-batch evidence pass boundary inventory and governance report gates without staging ignored runtime state",
+      "commit": "pending-current-commit",
+      "verification": [
+        "python3 -m json.tool docs/reference/governance-p19-roadmap.json",
+        "python3 -m json.tool docs/reference/governance-p20-roadmap.json",
+        "python3 -m json.tool docs/reference/governance-boundary-inventory.json",
+        "python3 -m json.tool docs/reference/governance-dashboard-contract.json",
+        "sh -n bin/scripts/check-governance-boundary-inventory.sh",
+        "sh -n bin/scripts/governance-report.sh",
+        "make governance-boundary-inventory-check",
+        "make governance-report-check"
+      ]
+    },
+    {
+      "round": 2,
+      "id": "GOFLY-P20-02-GOCTL-REAL-PROJECT-FIXTURE-REPLAY",
+      "status": "completed",
+      "priority": 99,
+      "title": "goctl real-project fixture replay",
+      "objective": "Move goctl compatibility from command and profile coverage into a realistic go-zero/goctl-style project replay fixture with deterministic generation, classified diffs, compile smoke, and rollback evidence.",
+      "deliverable": "Real-project replay manifest, fixture inputs, generated artifact assertions, repeat replay report classification, temporary module compile smoke, and a dedicated make gate.",
+      "acceptanceGates": [
+        "make goctl-real-project-replay-check",
+        "make goctl-generator-compat-check",
+        "make generated-version-compat-check"
+      ],
+      "commitPolicy": "commit after the replay fixture gate and goctl compatibility gate pass without changing unrelated CLI command surface",
+      "commit": "pending-current-commit",
+      "verification": [
+        "python3 -m json.tool docs/reference/goctl-real-project-replay.json",
+        "python3 -m json.tool testdata/goctl-replay/orderservice/replay.json",
+        "sh -n bin/scripts/check-goctl-real-project-replay.sh",
+        "go test -shuffle=on ./cmd/gofly/internal/generator -run TestGoctlRealProjectFixtureReplay",
+        "make goctl-real-project-replay-check",
+        "make goctl-generator-compat-check",
+        "make governance-boundary-inventory-check",
+        "make governance-report-check"
+      ]
+    },
+    {
+      "round": 3,
+      "id": "GOFLY-P20-03-MODEL-CACHE-TEMPLATE-DEPTH",
+      "status": "submitted",
+      "priority": 98,
+      "title": "model cache template depth",
+      "objective": "Deepen model/cache generation around go-zero sqlx/cache adoption expectations: transaction sample, bounded pagination, optimistic lock, read/write split, Redis cache-aside, observability, and generated project smoke.",
+      "deliverable": "Generated model/cache template evidence, focused tests, db-cache productization contract updates, smoke gate wiring, and rollback notes.",
+      "acceptanceGates": [
+        "make db-cache-productization-check",
+        "go test -shuffle=on ./cmd/gofly/internal/generator -run TestGenerateModelFromDDL"
+      ],
+      "commitPolicy": "commit after model/cache template tests and db-cache productization gate pass without adding generated-only dependencies to the root module",
+      "verification": []
+    }
+  ]
+}

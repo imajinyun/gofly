@@ -253,6 +253,10 @@ db-cache-productization-check: ## Validate DB/cache productization evidence, gap
 goctl-generator-compat-check: ## Validate goctl-compatible generator surface, fixtures, and upgrade gates
 	sh $(SCRIPTS_DIR)/check-goctl-generator-compat.sh
 
+.PHONY: goctl-real-project-replay-check
+goctl-real-project-replay-check: ## Validate goctl real-project fixture replay evidence and generated smoke gates
+	sh $(SCRIPTS_DIR)/check-goctl-real-project-replay.sh
+
 .PHONY: framework-gap-check
 framework-gap-check: ## Validate framework gap matrix and executable TODO roadmap
 	sh $(SCRIPTS_DIR)/check-framework-gap.sh
@@ -296,7 +300,7 @@ examples-smoke: ## Run runnable example smoke tests and machine-readable output 
 	sh $(SCRIPTS_DIR)/examples-smoke.sh
 
 .PHONY: docs-check
-docs-check: docs-link-check docs-taxonomy-check migration-docs-check p1-growth-check community-growth-check contract-docs-check dx-troubleshooting-check governance-report-check fuzz-robustness-check dependency-upgrade-evidence-check cache-dependency-governance-check api-contract-governance-check api-example-consistency-check coverage-trend-check ci-required-check-evidence-check runtime-slo-check governance-boundary-inventory-check context-lifecycle-governance-check discovery-adapter-matrix-check db-cache-productization-check goctl-generator-compat-check framework-gap-check cli-command-surface-check cli-configuration-governance-check project-layout-governance-check doc-manifest-sync-check required-checks-drift-check ## Compile Go code blocks in Markdown docs
+docs-check: docs-link-check docs-taxonomy-check migration-docs-check p1-growth-check community-growth-check contract-docs-check dx-troubleshooting-check governance-report-check fuzz-robustness-check dependency-upgrade-evidence-check cache-dependency-governance-check api-contract-governance-check api-example-consistency-check coverage-trend-check ci-required-check-evidence-check runtime-slo-check governance-boundary-inventory-check context-lifecycle-governance-check discovery-adapter-matrix-check db-cache-productization-check goctl-generator-compat-check goctl-real-project-replay-check framework-gap-check cli-command-surface-check cli-configuration-governance-check project-layout-governance-check doc-manifest-sync-check required-checks-drift-check ## Compile Go code blocks in Markdown docs
 	$(GO) env GOMOD >/dev/null
 	sh $(SCRIPTS_DIR)/check-doc-go-snippets.sh
 

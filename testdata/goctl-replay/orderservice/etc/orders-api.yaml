@@ -1,0 +1,12 @@
+Name: orders-api
+Host: 0.0.0.0
+Port: 8080
+Timeout: 3000
+Auth:
+  AccessSecret: replay-secret
+  AccessExpire: 3600
+DataSource: orders
+Cache:
+  Enabled: true
+  Redis:
+    Host: 127.0.0.1:6379

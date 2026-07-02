@@ -1,0 +1,31 @@
+{
+  "schema": "gofly.goctl_real_project_fixture.v1",
+  "id": "orderservice-goctl-replay",
+  "module": "example.com/orderservice",
+  "serviceName": "orders-api",
+  "profile": "gozero-compatible",
+  "style": "minimal",
+  "api": "orders.api",
+  "config": "etc/orders-api.yaml",
+  "ddl": "model/orders.sql",
+  "cache": true,
+  "diffCategories": [
+    "deterministic-repeat-generation",
+    "compatible-addition",
+    "generated-cache-template",
+    "breaking-candidate"
+  ],
+  "expectedArtifacts": [
+    "cmd/orders-api/main.go",
+    "internal/handler/routes.go",
+    "internal/logic/pinglogic.go",
+    "internal/svc/servicecontext.go",
+    "internal/types/types.go",
+    "internal/api/v1/types.go",
+    "internal/api/v1/orders_api/routes.go",
+    "internal/api/v1/orders_api/service.go",
+    "model/entity/order_gen.go",
+    "model/repo/order.go"
+  ],
+  "rollbackNote": "rollback.md"
+}

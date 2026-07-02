@@ -1,7 +1,7 @@
 {
   "schema": "gofly.governance_boundary_inventory.v1",
   "purpose": "Lightweight baseline inventory for the 10-round governance workflow before expensive full-repository gates run.",
-  "activeAiflowBatch": "GOFLY-P19",
+  "activeAiflowBatch": "GOFLY-P20",
   "aiflowTaskBatches": [
     {
       "id": "GOFLY-GOV-10R",
@@ -131,23 +131,30 @@
     },
     {
       "id": "GOFLY-P19",
-      "status": "submitted",
+      "status": "completed",
       "taskPrefix": "GOFLY-P19-",
       "roundCount": 3,
       "evidence": "docs/reference/governance-p19-roadmap.json"
+    },
+    {
+      "id": "GOFLY-P20",
+      "status": "mirrored-after-aiflow-build-blocker",
+      "taskPrefix": "GOFLY-P20-",
+      "roundCount": 3,
+      "evidence": "docs/reference/governance-p20-roadmap.json"
     }
   ],
   "aiflowTasks": [
     {
-      "id": "GOFLY-P19-01-P18-COMPLETION-HANDOFF",
+      "id": "GOFLY-P20-01-P19-COMPLETION-HANDOFF",
       "round": 1,
       "status": "completed",
       "priority": 100,
-      "title": "P18 completion handoff",
-      "objective": "Convert P18 from active completed roadmap evidence into the latest completed governance batch and open P19 as the next active aiflow batch for RPC Tier 1 release-train convergence.",
-      "deliverable": "P18 completed task evidence, P19 active roadmap, boundary inventory transition, dashboard convergence fields, and aiflow runtime-state exclusion proof.",
+      "title": "P19 completion handoff",
+      "objective": "Convert P19 from active RPC release-train evidence into the latest completed governance batch and open P20 as the next active aiflow batch for goctl replay and model/cache template depth.",
+      "deliverable": "P19 completed task evidence, P20 active roadmap, boundary inventory transition, dashboard convergence fields, and adjacent-aiflow build blocker evidence.",
       "gate": "make governance-boundary-inventory-check",
-      "commitPolicy": "commit after the P18 completion handoff and P19 active-batch evidence pass boundary inventory and governance report gates without staging ignored runtime state",
+      "commitPolicy": "commit after the P19 completion handoff and P20 active-batch evidence pass boundary inventory and governance report gates without staging ignored runtime state",
       "commit": "pending-current-commit",
       "verification": [
         "make governance-boundary-inventory-check",
@@ -155,40 +162,35 @@
       ]
     },
     {
-      "id": "GOFLY-P19-02-RPC-RELEASE-TRAIN-EVIDENCE-ATTACHMENT",
+      "id": "GOFLY-P20-02-GOCTL-REAL-PROJECT-FIXTURE-REPLAY",
       "round": 2,
       "status": "completed",
       "priority": 99,
-      "title": "RPC release-train evidence attachment",
-      "objective": "Attach release-train evidence for unary, server-stream, client-stream, and bidi-stream RPC surfaces while preserving Tier 2 classification until budget evidence converges.",
-      "deliverable": "RPC release-train evidence references, resolver and balancer contract coverage, deadline retry auth tracing matrix, and Kitex coexistence rollback path.",
-      "gate": "make rpc-boundary-check",
-      "commitPolicy": "commit after RPC release-train evidence passes rpc-boundary-check and bench-regression-check without claiming Tier 1 promotion",
+      "title": "goctl real-project fixture replay",
+      "objective": "Move goctl compatibility from command and profile coverage into a realistic go-zero/goctl-style project replay fixture with deterministic generation, classified diffs, compile smoke, and rollback evidence.",
+      "deliverable": "Real-project replay manifest, fixture inputs, generated artifact assertions, repeat replay report classification, temporary module compile smoke, and a dedicated make gate.",
+      "gate": "make goctl-real-project-replay-check",
+      "commitPolicy": "commit after the replay fixture gate and goctl compatibility gate pass without changing unrelated CLI command surface",
       "commit": "pending-current-commit",
       "verification": [
-        "make rpc-boundary-check",
-        "make bench-regression-check",
+        "make goctl-real-project-replay-check",
+        "make goctl-generator-compat-check",
+        "go test -shuffle=on ./cmd/gofly/internal/generator -run TestGoctlRealProjectFixtureReplay",
         "make governance-boundary-inventory-check",
         "make governance-report-check"
       ]
     },
     {
-      "id": "GOFLY-P19-03-RPC-BUDGET-PROMOTION-BLOCKER-REVIEW",
+      "id": "GOFLY-P20-03-MODEL-CACHE-TEMPLATE-DEPTH",
       "round": 3,
-      "status": "completed",
+      "status": "submitted",
       "priority": 98,
-      "title": "RPC budget promotion blocker review",
-      "objective": "Review RPC benchmark budget blockers and decide whether any unary or streaming allocation row can move toward blocking coverage while latency remains report-only.",
-      "deliverable": "RPC budget promotion blocker review, allocation blocking candidate policy, rollback note, and report-only latency release guardrail.",
-      "gate": "make bench-regression-check",
-      "commitPolicy": "commit after RPC budget review passes bench-regression-check and rpc-boundary-check with any promotion or hold decision recorded",
-      "commit": "pending-current-commit",
-      "verification": [
-        "make bench-regression-check",
-        "make rpc-boundary-check",
-        "make governance-boundary-inventory-check",
-        "make governance-report-check"
-      ]
+      "title": "model cache template depth",
+      "objective": "Deepen model/cache generation around go-zero sqlx/cache adoption expectations: transaction sample, bounded pagination, optimistic lock, read/write split, Redis cache-aside, observability, and generated project smoke.",
+      "deliverable": "Generated model/cache template evidence, focused tests, db-cache productization contract updates, smoke gate wiring, and rollback notes.",
+      "gate": "make db-cache-productization-check",
+      "commitPolicy": "commit after model/cache template tests and db-cache productization gate pass without adding generated-only dependencies to the root module",
+      "verification": []
     }
   ],
   "surfaces": [

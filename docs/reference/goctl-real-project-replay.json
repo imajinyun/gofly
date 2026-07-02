@@ -1,0 +1,67 @@
+{
+  "schema": "gofly.goctl_real_project_replay.v1",
+  "purpose": "Make goctl alignment adoption-proof by replaying a realistic go-zero/goctl-style project fixture through gofly generators, deterministic diff classification, generated model/cache output, and temporary generated-module smoke.",
+  "sourceOfTruth": [
+    "docs/reference/goctl-generator-compatibility.json",
+    "docs/reference/generated-upgrade-dry-run.json",
+    "testdata/goctl-replay/orderservice/replay.json"
+  ],
+  "acceptanceGate": "make goctl-real-project-replay-check",
+  "scope": {
+    "referenceFramework": "go-zero goctl service layout and model workflow",
+    "fixtureClass": "realistic-gozero-goctl-project",
+    "expandsCLICommandSurface": false,
+    "policy": "This replay closes adoption trust gaps with fixture replay, not new commands or flags."
+  },
+  "fixtureFiles": [
+    "testdata/goctl-replay/orderservice/orders.api",
+    "testdata/goctl-replay/orderservice/etc/orders-api.yaml",
+    "testdata/goctl-replay/orderservice/model/orders.sql",
+    "testdata/goctl-replay/orderservice/replay.json",
+    "testdata/goctl-replay/orderservice/rollback.md"
+  ],
+  "replay": {
+    "id": "orderservice-goctl-replay",
+    "profile": "gozero-compatible",
+    "module": "example.com/orderservice",
+    "style": "minimal",
+    "cache": true,
+    "expectedArtifacts": [
+      "cmd/orders-api/main.go",
+      "internal/handler/routes.go",
+      "internal/logic/pinglogic.go",
+      "internal/svc/servicecontext.go",
+      "internal/types/types.go",
+      "internal/api/v1/types.go",
+      "internal/api/v1/orders_api/routes.go",
+      "internal/api/v1/orders_api/service.go",
+      "model/entity/order_gen.go",
+      "model/repo/order.go"
+    ]
+  },
+  "diffContract": {
+    "repeatGeneration": "The same fixture replayed twice in independent temporary directories must produce the same generated artifact set and stable content hash for tracked artifacts.",
+    "diffReport": "Replay diff reports must classify deterministic repeat output separately from compatible additions, generated cache template changes, and breaking candidates.",
+    "rollbackNote": "If replay changes are unclassified or generated projects stop compiling, pin the previous goctl-compatible generator profile and keep the previous model/cache template until a migration note explains the diff.",
+    "categories": [
+      "deterministic-repeat-generation",
+      "compatible-addition",
+      "generated-cache-template",
+      "breaking-candidate"
+    ]
+  },
+  "smoke": {
+    "goTest": "Replay creates an isolated temporary module and runs go test ./... after replacing github.com/imajinyun/gofly with the local checkout.",
+    "repeatReplay": "Replay runs twice and compares tracked artifact hashes so generated output is deterministic.",
+    "rootDependencyPolicy": "Generated-only model/cache dependencies must stay in the replayed project's go.mod and must not be added to the gofly root go.mod."
+  },
+  "releaseGates": [
+    "make goctl-real-project-replay-check",
+    "make goctl-generator-compat-check",
+    "make generated-version-compat-check"
+  ],
+  "status": {
+    "goctlCommandSurface": "unchanged",
+    "modelCacheTemplateDepth": "candidate-next-task"
+  }
+}

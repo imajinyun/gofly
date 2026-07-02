@@ -248,6 +248,57 @@ for family in families:
     matching = [path for path in command_dir.glob(f"{prefix}*.go")]
     require(matching, f"command family {prefix}: no files match prefix in cmd/gofly/internal/command")
 
+reference_boundary = manifest.get("referenceFileBoundaries") or {}
+require(reference_boundary.get("status") == "blocking-contract", "referenceFileBoundaries.status must be blocking-contract")
+require(reference_boundary.get("root") == "docs/reference", "referenceFileBoundaries.root must be docs/reference")
+require(
+    reference_boundary.get("forbidUnknownReferenceFiles") is True,
+    "referenceFileBoundaries must forbid unknown reference files",
+)
+require(
+    "Every tracked file under docs/reference" in str(reference_boundary.get("policy") or ""),
+    "referenceFileBoundaries policy must describe tracked docs/reference file handling",
+)
+tracked_reference_files = sorted(
+    rel.removeprefix("docs/reference/")
+    for rel in subprocess.run(
+        ["git", "ls-files", "docs/reference"],
+        cwd=root,
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+    ).stdout.splitlines()
+    if rel.startswith("docs/reference/")
+)
+reference_families = reference_boundary.get("families") or []
+declared_reference_files = []
+allowed_reference_categories = {"contract", "evidence", "golden", "matrix", "roadmap"}
+for family in reference_families:
+    if not isinstance(family, dict):
+        missing.append(f"referenceFileBoundaries family must be object: {family!r}")
+        continue
+    family_id = family.get("id", "")
+    files = family.get("files") or []
+    require(family_id, "reference family id is required")
+    require(family.get("category") in allowed_reference_categories, f"reference family {family_id}: unknown category {family.get('category')!r}")
+    require(len(str(family.get("owner") or "").split()) >= 1, f"reference family {family_id}: owner is required")
+    require(len(str(family.get("purpose") or "").split()) >= 8, f"reference family {family_id}: purpose must be descriptive")
+    require(gate_is_known(str(family.get("gate") or ""), targets), f"reference family {family_id}: gate is not known")
+    require(files, f"reference family {family_id}: files are required")
+    for filename in files:
+        declared_reference_files.append(filename)
+        require("/" not in filename, f"reference family {family_id}: file must be relative to docs/reference root: {filename!r}")
+        require((root / "docs" / "reference" / filename).is_file(), f"reference family {family_id}: missing docs/reference/{filename}")
+require(
+    sorted(declared_reference_files) == tracked_reference_files,
+    "referenceFileBoundaries must account for every tracked docs/reference file exactly once: "
+    f"declared={sorted(declared_reference_files)!r}, actual={tracked_reference_files!r}",
+)
+require(
+    len(declared_reference_files) == len(set(declared_reference_files)),
+    "referenceFileBoundaries must not contain duplicate reference files",
+)
+
 contract_index = manifest.get("referenceContractIndex") or []
 for item in contract_index:
     if not isinstance(item, dict):

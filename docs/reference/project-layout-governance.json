@@ -378,6 +378,146 @@
       "domain": "Configuration command and config field helpers"
     }
   ],
+  "referenceFileBoundaries": {
+    "status": "blocking-contract",
+    "root": "docs/reference",
+    "policy": "Every tracked file under docs/reference must belong to exactly one reference family with a category, owner, purpose, and validation gate. New reference files are not allowed until this index and project-layout-governance-check are updated in the same change.",
+    "forbidUnknownReferenceFiles": true,
+    "families": [
+      {
+        "id": "human-contracts",
+        "category": "contract",
+        "owner": "docs-governance",
+        "purpose": "Human-readable stable contracts, compatibility policies, public API guides, and runtime boundary documentation.",
+        "gate": "make contract-docs-check",
+        "files": [
+          "api-example-consistency.md",
+          "api-surface.md",
+          "ci-required-check-evidence.md",
+          "cli-json-contracts.md",
+          "cloud-native-rendering.md",
+          "compatibility.md",
+          "control-plane-contracts.md",
+          "coverage-trend.md",
+          "dependency-upgrade-evidence.md",
+          "deprecation-lifecycle.md",
+          "fuzz-robustness.md",
+          "generated-upgrade-dry-run.md",
+          "generated-version-compat.md",
+          "openapi-validation-envelope.md",
+          "performance-governance.md",
+          "plugin-conformance.md",
+          "resilience-drill.md",
+          "rpc-boundary.md",
+          "runtime-slo.md",
+          "stable-surface.md"
+        ]
+      },
+      {
+        "id": "machine-evidence",
+        "category": "evidence",
+        "owner": "governance-scripts",
+        "purpose": "Machine-readable evidence contracts consumed by Makefile gates, release checks, examples smoke tests, and governance reports.",
+        "gate": "make governance-report-check",
+        "files": [
+          "adoption-risk-register.json",
+          "api-contract-governance.json",
+          "api-example-consistency.json",
+          "cache-dependency-governance.json",
+          "ci-required-check-evidence.json",
+          "cli-command-surface.json",
+          "cli-configuration-governance.json",
+          "cli-json-contract-goldens.json",
+          "cloud-native-policy-conformance.json",
+          "code-generation-governance.json",
+          "context-lifecycle-governance.json",
+          "coverage-trend.json",
+          "db-cache-productization.json",
+          "dependency-upgrade-evidence.json",
+          "deprecation-lifecycle.json",
+          "dx-support-bundle.json",
+          "examples-health-index.json",
+          "fuzz-robustness.json",
+          "generated-scaffold-long-term-compatibility.json",
+          "generated-upgrade-dry-run.json",
+          "goctl-generator-compatibility.json",
+          "goctl-real-project-replay.json",
+          "governance-boundary-inventory.json",
+          "governance-convergence-verification.json",
+          "governance-dashboard-contract.json",
+          "http-middleware-ecosystem.json",
+          "http-migration-dx.json",
+          "observability-production-governance.json",
+          "openapi-invalid-request-smoke.json",
+          "operator-runbook-drills.json",
+          "plugin-conformance-report.json",
+          "plugin-external-governance.json",
+          "plugin-publishing-ux.json",
+          "project-layout-governance.json",
+          "reference-app-topology.json",
+          "resilience-drill.json",
+          "rpc-tier1-evidence.json",
+          "rpc-transport-boundary.json",
+          "runtime-slo.json",
+          "security-defensive-governance.json",
+          "template-profile-trust.json"
+        ]
+      },
+      {
+        "id": "roadmaps",
+        "category": "roadmap",
+        "owner": "governance-planning",
+        "purpose": "Framework gap roadmaps, governance batch plans, growth roadmaps, and future adoption planning evidence.",
+        "gate": "make framework-gap-check",
+        "files": [
+          "framework-gap-adopter-proof.json",
+          "framework-gap-adoption-wave.json",
+          "framework-gap-long-term-adoption.json",
+          "framework-gap-next-wave.json",
+          "framework-gap-post-r5-roadmap.json",
+          "framework-gap-post-r6-roadmap.json",
+          "framework-gap-post-r7-roadmap.json",
+          "framework-gap-post-r8-roadmap.json",
+          "governance-p10-roadmap.json",
+          "governance-p11-roadmap.json",
+          "governance-p13-roadmap.json",
+          "governance-p14-roadmap.json",
+          "governance-p15-roadmap.json",
+          "governance-p16-roadmap.json",
+          "governance-p17-roadmap.json",
+          "governance-p18-roadmap.json",
+          "governance-p19-roadmap.json",
+          "governance-p20-roadmap.json",
+          "p1-growth-roadmap.md"
+        ]
+      },
+      {
+        "id": "matrices",
+        "category": "matrix",
+        "owner": "framework-comparison",
+        "purpose": "Framework comparison, integration ownership, migration fidelity, discovery adapter, and benchmark matrix evidence.",
+        "gate": "make framework-gap-check",
+        "files": [
+          "benchmark-matrix.md",
+          "discovery-adapter-matrix.json",
+          "framework-gap-matrix.json",
+          "framework-gap-matrix.md",
+          "integration-ownership-matrix.json",
+          "migration-fidelity-matrix.json"
+        ]
+      },
+      {
+        "id": "goldens",
+        "category": "golden",
+        "owner": "cloud-native-governance",
+        "purpose": "Golden rendered assets and deterministic snapshots used by cloud-native rendering gates.",
+        "gate": "make cloud-native-render-check",
+        "files": [
+          "cloud-native-rendered-production.golden.yaml"
+        ]
+      }
+    ]
+  },
   "referenceContractIndex": [
     {
       "id": "framework-gap",

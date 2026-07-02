@@ -786,6 +786,10 @@ def validate_ratchet_policy() -> None:
         "rpcPolicy.releasePromotion.status must remain blocked until Tier 1 criteria are met",
     )
     require_policy(
+        release_promotion.get("completedReleaseTrains") == 1,
+        "rpcPolicy.releasePromotion.completedReleaseTrains must be 1 after P19 attachment",
+    )
+    require_policy(
         release_promotion.get("requiredBlockingGate") == "make bench-regression-check",
         "rpcPolicy.releasePromotion.requiredBlockingGate must be make bench-regression-check",
     )
@@ -1127,6 +1131,117 @@ def validate_ratchet_policy() -> None:
         require_policy(
             forbidden in set(p15_rpc_attachment.get("forbiddenUntilCleared") or []),
             f"p15RpcReleaseTrainAttachment forbiddenUntilCleared missing {forbidden!r}",
+        )
+
+    p19_rpc_attachment = ratchet.get("p19RpcReleaseTrainAttachment") or {}
+    require_policy(
+        p19_rpc_attachment.get("schema") == "gofly.benchmark_p19_rpc_release_train_attachment.v1",
+        "p19RpcReleaseTrainAttachment schema mismatch",
+    )
+    require_policy(
+        p19_rpc_attachment.get("aiflowTask") == "GOFLY-P19-02-RPC-RELEASE-TRAIN-EVIDENCE-ATTACHMENT",
+        "p19RpcReleaseTrainAttachment aiflowTask mismatch",
+    )
+    require_policy(
+        p19_rpc_attachment.get("status") == "release-train-attached-budget-held",
+        "p19RpcReleaseTrainAttachment status mismatch",
+    )
+    require_policy(
+        p19_rpc_attachment.get("acceptanceGate") == "make bench-regression-check",
+        "p19RpcReleaseTrainAttachment acceptanceGate mismatch",
+    )
+    for source in (
+        "docs/reference/rpc-tier1-evidence.json",
+        "bench/budget-ratchet.json",
+        "bench/rpc_bench_test.go",
+        "bench/baseline.txt",
+        "docs/releases/evidence-index.json",
+        "docs/reference/ci-required-check-evidence.json",
+    ):
+        require_policy(
+            source in set(p19_rpc_attachment.get("sourceEvidence") or []),
+            f"p19RpcReleaseTrainAttachment sourceEvidence missing {source!r}",
+        )
+    p19_budget_decision = p19_rpc_attachment.get("decision") or {}
+    require_policy(p19_budget_decision.get("result") == "hold", "p19RpcReleaseTrainAttachment decision.result must be hold")
+    require_policy(p19_budget_decision.get("selectedSurface") == "none", "p19RpcReleaseTrainAttachment selectedSurface must be none")
+    require_policy(
+        p19_budget_decision.get("allocationBlockingSurface") == "none",
+        "p19RpcReleaseTrainAttachment allocationBlockingSurface must be none",
+    )
+    require_policy(p19_budget_decision.get("latencyMode") == "report-only", "p19RpcReleaseTrainAttachment latencyMode must be report-only")
+    require_policy(
+        p19_budget_decision.get("releaseTrainAttachmentStatus") == "attached",
+        "p19RpcReleaseTrainAttachment releaseTrainAttachmentStatus must be attached",
+    )
+    require_policy(
+        p19_budget_decision.get("budgetAttachmentStatus") == "not-promoted",
+        "p19RpcReleaseTrainAttachment budgetAttachmentStatus must be not-promoted",
+    )
+    require_policy(
+        p19_budget_decision.get("nextReviewGate") == "make rpc-boundary-check && make bench-regression-check",
+        "p19RpcReleaseTrainAttachment nextReviewGate mismatch",
+    )
+    for field in ("reason", "releaseNotePolicy"):
+        require_policy(
+            len(str(p19_budget_decision.get(field) or "").split()) >= 20,
+            f"p19RpcReleaseTrainAttachment decision.{field} must be actionable",
+        )
+    for forbidden_claim in ("Kitex", "gRPC-Go", "blocking RPC latency", "drop-in replacement", "Tier 1 promoted"):
+        require_policy(
+            forbidden_claim in str(p19_budget_decision.get("releaseNotePolicy") or ""),
+            f"p19RpcReleaseTrainAttachment releaseNotePolicy must mention {forbidden_claim!r}",
+        )
+    p19_candidates = {
+        item.get("benchmark"): item
+        for item in p19_rpc_attachment.get("candidateRows") or []
+        if isinstance(item, dict) and item.get("benchmark")
+    }
+    p19_candidate_names = {
+        "BenchmarkRPCUnary/gofly_rpc",
+        "BenchmarkRPCServerStreamGovernance",
+        "BenchmarkRPCClientStreamGovernance",
+        "BenchmarkRPCBidiStreamGovernance",
+    }
+    require_policy(
+        set(p19_candidates) == p19_candidate_names,
+        "p19RpcReleaseTrainAttachment candidateRows mismatch",
+    )
+    for benchmark, item in p19_candidates.items():
+        require_policy(item.get("currentMode") == "report-only", f"{benchmark}: P19 currentMode must be report-only")
+        require_policy(item.get("proposedPromotionMode") == "allocation-blocking", f"{benchmark}: P19 proposedPromotionMode mismatch")
+        require_policy(item.get("promotionStatus") == "blocked", f"{benchmark}: P19 promotionStatus must be blocked")
+        require_policy(item.get("minimumBaselineSamples") == 5, f"{benchmark}: P19 minimumBaselineSamples mismatch")
+        require_policy(item.get("minimumCurrentTrendSamples") == 3, f"{benchmark}: P19 minimumCurrentTrendSamples mismatch")
+        require_policy(item.get("releaseTrainStatus") == "attached", f"{benchmark}: P19 releaseTrainStatus must be attached")
+        require_policy(benchmark not in tracked, f"{benchmark}: P19 candidate must stay out of trackedBenchmarks")
+        require_policy(benchmark not in promoted_latency, f"{benchmark}: P19 latency must stay report-only")
+        require_policy(len(item.get("blockers") or []) >= 3, f"{benchmark}: P19 blockers must include at least three reasons")
+        require_policy(
+            any(runtime in str(item.get("rollbackAction") or "") for runtime in ("Kitex", "gRPC-Go", "RPC stack")),
+            f"{benchmark}: P19 rollbackAction must name fallback runtime or previous RPC stack",
+        )
+    p19_rules = set(p19_rpc_attachment.get("blockingRules") or [])
+    for rule in (
+        "P19 release train attachment must not add RPC rows to trackedBenchmarks",
+        "P19 release train attachment must keep RPC latency report-only",
+        "P19 release train attachment may select no allocation-blocking surface until P19-03 budget review",
+        "attached RPC rows require minimum 5 baseline samples before budget promotion",
+        "attached RPC rows require minimum 3 current trend samples before budget promotion",
+        "attached RPC rows require no allocation regression under bench-regression-check before promotion",
+    ):
+        require_policy(rule in p19_rules, f"p19RpcReleaseTrainAttachment blockingRules missing {rule!r}")
+    for forbidden in (
+        "trackedBenchmarks RPC entry",
+        "blocking RPC latency claim",
+        "Kitex transport parity claim",
+        "gRPC-Go ecosystem parity claim",
+        "drop-in RPC replacement claim",
+        "Tier 1 promoted RPC surface",
+    ):
+        require_policy(
+            forbidden in set(p19_rpc_attachment.get("forbiddenUntilCleared") or []),
+            f"p19RpcReleaseTrainAttachment forbiddenUntilCleared missing {forbidden!r}",
         )
 
     require_policy(

@@ -157,13 +157,20 @@
     {
       "id": "GOFLY-P19-02-RPC-RELEASE-TRAIN-EVIDENCE-ATTACHMENT",
       "round": 2,
-      "status": "submitted",
+      "status": "completed",
       "priority": 99,
       "title": "RPC release-train evidence attachment",
       "objective": "Attach release-train evidence for unary, server-stream, client-stream, and bidi-stream RPC surfaces while preserving Tier 2 classification until budget evidence converges.",
       "deliverable": "RPC release-train evidence references, resolver and balancer contract coverage, deadline retry auth tracing matrix, and Kitex coexistence rollback path.",
       "gate": "make rpc-boundary-check",
-      "commitPolicy": "commit after RPC release-train evidence passes rpc-boundary-check and bench-regression-check without claiming Tier 1 promotion"
+      "commitPolicy": "commit after RPC release-train evidence passes rpc-boundary-check and bench-regression-check without claiming Tier 1 promotion",
+      "commit": "pending-current-commit",
+      "verification": [
+        "make rpc-boundary-check",
+        "make bench-regression-check",
+        "make governance-boundary-inventory-check",
+        "make governance-report-check"
+      ]
     },
     {
       "id": "GOFLY-P19-03-RPC-BUDGET-PROMOTION-BLOCKER-REVIEW",

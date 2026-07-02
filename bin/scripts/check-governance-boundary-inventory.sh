@@ -423,8 +423,8 @@ require("p18 completion" in tasks[0].get("title", "").lower(), "P19 round 01 tit
 require("p19" in tasks[0].get("objective", "").lower(), "P19 round 01 objective must document P19 active batch handoff")
 for expected_round, item in enumerate(tasks, start=1):
     task_id = item.get("id")
-    expected_status = "completed" if expected_round == 1 else "submitted"
-    require(item.get("status") == expected_status, f"{task_id}: active P18 task status must be {expected_status}")
+    expected_status = "completed" if expected_round <= 2 else "submitted"
+    require(item.get("status") == expected_status, f"{task_id}: active P19 task status must be {expected_status}")
     require(item.get("priority"), f"{task_id}: priority is required")
     if expected_status == "completed":
         require(item.get("commit") == "pending-current-commit", f"{task_id}: completed P19 task must record pending current commit")
@@ -923,12 +923,12 @@ require(actual_p19_tasks == expected_p19_tasks, f"P19 roadmap task ids mismatch:
 p19_submission = p19_manifest.get("aiflowSubmission") or {}
 require(p19_submission.get("status") == "submitted", "P19 aiflowSubmission.status must be submitted")
 require(
-    p19_submission.get("completedTasks") == expected_p19_tasks[:1],
-    "P19 completedTasks must contain only the completion handoff task",
+    p19_submission.get("completedTasks") == expected_p19_tasks[:2],
+    "P19 completedTasks must contain the handoff and RPC release-train evidence tasks",
 )
 require(
-    p19_submission.get("pendingTasks") == expected_p19_tasks[1:],
-    "P19 pendingTasks must contain the remaining RPC convergence tasks",
+    p19_submission.get("pendingTasks") == expected_p19_tasks[2:],
+    "P19 pendingTasks must contain only the remaining RPC budget convergence task",
 )
 p19_submission_commands = p19_submission.get("submissionCommands") or []
 require(len(p19_submission_commands) == 3, "P19 submissionCommands must document all three aiflow submit calls")
@@ -951,7 +951,7 @@ for expected_round, item in enumerate(p19_tasks, start=1):
         continue
     task_id = item.get("id", "<missing>")
     require(item.get("round") == expected_round, f"{task_id}: round must be {expected_round}")
-    expected_status = "completed" if expected_round == 1 else "submitted"
+    expected_status = "completed" if expected_round <= 2 else "submitted"
     require(item.get("status") == expected_status, f"{task_id}: status must be {expected_status}")
     require(item.get("priority") == 101 - expected_round, f"{task_id}: priority mismatch")
     for field in ("id", "title", "objective", "deliverable", "acceptanceGates", "commitPolicy"):

@@ -1474,7 +1474,7 @@
       "status": "blocked",
       "tier1Manifest": "docs/reference/rpc-tier1-evidence.json",
       "requiredCompletedReleaseTrains": 1,
-      "completedReleaseTrains": 0,
+      "completedReleaseTrains": 1,
       "requiredBlockingGate": "make bench-regression-check",
       "rollbackGuidance": "keep latency-critical methods on Kitex or existing gRPC paths until RPC candidates have blocking budget evidence"
     },
@@ -1813,6 +1813,113 @@
       "attached RPC rows require minimum 3 current trend samples",
       "attached RPC rows require no allocation regression under bench-regression-check",
       "RPC latency remains report-only until two-release trend evidence is documented"
+    ],
+    "forbiddenUntilCleared": [
+      "trackedBenchmarks RPC entry",
+      "blocking RPC latency claim",
+      "Kitex transport parity claim",
+      "gRPC-Go ecosystem parity claim",
+      "drop-in RPC replacement claim",
+      "Tier 1 promoted RPC surface"
+    ]
+  },
+  "p19RpcReleaseTrainAttachment": {
+    "schema": "gofly.benchmark_p19_rpc_release_train_attachment.v1",
+    "aiflowTask": "GOFLY-P19-02-RPC-RELEASE-TRAIN-EVIDENCE-ATTACHMENT",
+    "status": "release-train-attached-budget-held",
+    "acceptanceGate": "make bench-regression-check",
+    "sourceEvidence": [
+      "docs/reference/rpc-tier1-evidence.json",
+      "bench/budget-ratchet.json",
+      "bench/rpc_bench_test.go",
+      "bench/baseline.txt",
+      "docs/releases/evidence-index.json",
+      "docs/reference/ci-required-check-evidence.json"
+    ],
+    "decision": {
+      "result": "hold",
+      "selectedSurface": "none",
+      "allocationBlockingSurface": "none",
+      "latencyMode": "report-only",
+      "releaseTrainAttachmentStatus": "attached",
+      "budgetAttachmentStatus": "not-promoted",
+      "reason": "P19 attaches one RPC release train to release evidence, required-check evidence, RPC boundary evidence, and benchmark ratchet evidence, but keeps all RPC benchmark rows out of trackedBenchmarks because no selected row has cleared allocation budget promotion.",
+      "nextReviewGate": "make rpc-boundary-check && make bench-regression-check",
+      "releaseNotePolicy": "Release notes may describe RPC release-train evidence as attached candidate evidence, but must not claim Kitex transport parity, gRPC-Go ecosystem parity, blocking RPC latency, drop-in replacement, or Tier 1 promoted readiness until budget promotion clears."
+    },
+    "candidateRows": [
+      {
+        "surface": "rpc-unary",
+        "benchmark": "BenchmarkRPCUnary/gofly_rpc",
+        "currentMode": "report-only",
+        "proposedPromotionMode": "allocation-blocking",
+        "promotionStatus": "blocked",
+        "minimumBaselineSamples": 5,
+        "minimumCurrentTrendSamples": 3,
+        "releaseTrainStatus": "attached",
+        "blockers": [
+          "selected surface has not been approved by P19-03 budget review",
+          "latest allocation evidence is not promoted into trackedBenchmarks",
+          "latency remains report-only without two-release trend confidence"
+        ],
+        "rollbackAction": "Keep latency-critical unary methods on Kitex or native gRPC-Go until unary allocation evidence is promoted into blocking coverage."
+      },
+      {
+        "surface": "rpc-server-stream",
+        "benchmark": "BenchmarkRPCServerStreamGovernance",
+        "currentMode": "report-only",
+        "proposedPromotionMode": "allocation-blocking",
+        "promotionStatus": "blocked",
+        "minimumBaselineSamples": 5,
+        "minimumCurrentTrendSamples": 3,
+        "releaseTrainStatus": "attached",
+        "blockers": [
+          "selected surface has not been approved by P19-03 budget review",
+          "server-stream allocation budget is not promoted into trackedBenchmarks",
+          "latency remains report-only without two-release trend confidence"
+        ],
+        "rollbackAction": "Keep server-stream workloads on Kitex or native gRPC-Go until server-stream allocation evidence is promoted."
+      },
+      {
+        "surface": "rpc-client-stream",
+        "benchmark": "BenchmarkRPCClientStreamGovernance",
+        "currentMode": "report-only",
+        "proposedPromotionMode": "allocation-blocking",
+        "promotionStatus": "blocked",
+        "minimumBaselineSamples": 5,
+        "minimumCurrentTrendSamples": 3,
+        "releaseTrainStatus": "attached",
+        "blockers": [
+          "selected surface has not been approved by P19-03 budget review",
+          "client-stream allocation budget is not promoted into trackedBenchmarks",
+          "latency remains report-only without two-release trend confidence"
+        ],
+        "rollbackAction": "Keep upload-style client streams on the previous RPC stack until client-stream allocation evidence is promoted."
+      },
+      {
+        "surface": "rpc-bidi-stream",
+        "benchmark": "BenchmarkRPCBidiStreamGovernance",
+        "currentMode": "report-only",
+        "proposedPromotionMode": "allocation-blocking",
+        "promotionStatus": "blocked",
+        "minimumBaselineSamples": 5,
+        "minimumCurrentTrendSamples": 3,
+        "releaseTrainStatus": "attached",
+        "blockers": [
+          "selected surface has not been approved by P19-03 budget review",
+          "bidi-stream allocation budget is not promoted into trackedBenchmarks",
+          "latency remains report-only without two-release trend confidence"
+        ],
+        "rollbackAction": "Keep realtime bidirectional sessions on Kitex or native gRPC-Go until bidirectional stream allocation evidence is promoted."
+      }
+    ],
+    "blockingRules": [
+      "P19 release train attachment must not add RPC rows to trackedBenchmarks",
+      "P19 release train attachment must keep RPC latency report-only",
+      "P19 release train attachment may select no allocation-blocking surface until P19-03 budget review",
+      "attached RPC rows require minimum 5 baseline samples before budget promotion",
+      "attached RPC rows require minimum 3 current trend samples before budget promotion",
+      "attached RPC rows require no allocation regression under bench-regression-check before promotion"
     ],
     "forbiddenUntilCleared": [
       "trackedBenchmarks RPC entry",

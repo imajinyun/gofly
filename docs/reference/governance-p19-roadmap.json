@@ -22,10 +22,10 @@
     "runtimeStatePolicy": ".aiflow, .harness, .tmp-test, .trae, coverage.out, bench/current.txt, bench/regression-report.json, bench/summary.md, bin/gofly, and docs/superpowers remain ignored local evidence and must not be committed.",
     "safetyPolicy": "P19 tasks are submitted to ignored local aiflow runtime state and mirrored here as durable docs/reference evidence; each task must be completed in order and committed by the current agent or human only after its gate passes or an environment-limited downgrade is documented.",
     "completedTasks": [
-      "GOFLY-P19-01-P18-COMPLETION-HANDOFF"
+      "GOFLY-P19-01-P18-COMPLETION-HANDOFF",
+      "GOFLY-P19-02-RPC-RELEASE-TRAIN-EVIDENCE-ATTACHMENT"
     ],
     "pendingTasks": [
-      "GOFLY-P19-02-RPC-RELEASE-TRAIN-EVIDENCE-ATTACHMENT",
       "GOFLY-P19-03-RPC-BUDGET-PROMOTION-BLOCKER-REVIEW"
     ]
   },
@@ -64,7 +64,7 @@
     {
       "round": 2,
       "id": "GOFLY-P19-02-RPC-RELEASE-TRAIN-EVIDENCE-ATTACHMENT",
-      "status": "submitted",
+      "status": "completed",
       "priority": 99,
       "title": "RPC release-train evidence attachment",
       "objective": "Attach release-train evidence for unary, server-stream, client-stream, and bidi-stream RPC surfaces while preserving Tier 2 classification until budget evidence converges.",
@@ -73,7 +73,19 @@
         "make rpc-boundary-check",
         "make bench-regression-check"
       ],
-      "commitPolicy": "commit after RPC release-train evidence passes rpc-boundary-check and bench-regression-check without claiming Tier 1 promotion"
+      "commitPolicy": "commit after RPC release-train evidence passes rpc-boundary-check and bench-regression-check without claiming Tier 1 promotion",
+      "commit": "pending-current-commit",
+      "verification": [
+        "python3 -m json.tool docs/reference/rpc-tier1-evidence.json",
+        "python3 -m json.tool bench/budget-ratchet.json",
+        "python3 -m json.tool docs/reference/governance-p19-roadmap.json",
+        "sh -n bin/scripts/check-rpc-boundary.sh",
+        "sh -n bin/scripts/benchstat.sh",
+        "make rpc-boundary-check",
+        "make bench-regression-check",
+        "make governance-boundary-inventory-check",
+        "make governance-report-check"
+      ]
     },
     {
       "round": 3,

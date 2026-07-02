@@ -20,15 +20,16 @@ resolver, balancer, deadline, retry, release, and rollback evidence exists.
 RPC latency ratchet policy lives in `bench/budget-ratchet.json`. RPC unary and
 stream rows are listed as promotion candidates, not blocking tracked rows, until
 the policy has enough trend confidence to promote a specific benchmark. The
-current blocker is explicit: the latest unary smoke exceeded the allocation
-baseline, and mode-specific stream rows do not yet have published five-sample
-baselines. HTTP/OpenAPI budget rows remain the blocking regression surface.
+current blocker is explicit: P19 has attached one RPC release train, but no RPC
+unary or stream row has been selected into `trackedBenchmarks` for blocking
+allocation coverage. HTTP/OpenAPI budget rows remain the blocking regression
+surface.
 
 `promotionReadiness` in the Tier 1 evidence manifest keeps the current state
 machine-readable: `rpc`, `rpc/grpc`, `gateway`, and `app` are still Tier 2
-surfaces targeting Tier 1. Promotion is blocked until one complete release train
-attaches RPC boundary and benchmark evidence, and until at least one RPC unary or
-stream row moves from `rpcPolicy.candidates` into blocking budget coverage.
+surfaces targeting Tier 1. P19 attaches the release-train evidence, but
+promotion remains blocked until at least one RPC unary or stream row moves from
+`rpcPolicy.candidates` into blocking budget coverage.
 
 ## Decision table
 
@@ -67,10 +68,11 @@ at least one release train:
 | Retry and balancer contract | retryable statuses, resolver updates, and routing policies are rehearsed before migration | `go test -shuffle=on ./rpc/... ./rpc/grpc/... && go test -C examples/rpc-idl-matrix ./...` |
 | go-zero coexistence | generated service migration keeps policy, discovery, rollback routing, and control-plane evidence visible | `make generated-upgrade-dry-run-check && make rpc-boundary-check` |
 
-Current promotion blockers:
+Current promotion state:
 
-- `rpc-release-train-missing`: no completed release train has attached the full
-  RPC boundary and benchmark evidence set yet.
+- `rpc-release-train-attached`: P19 attaches the release evidence,
+  required-check drift evidence, RPC boundary evidence, benchmark ratchet
+  evidence, and rollback boundaries as candidate evidence.
 - `rpc-budget-report-only`: RPC unary and stream benchmarks remain candidates in
   `bench/budget-ratchet.json`; latency-critical methods should keep their Kitex
   or existing gRPC rollback path until blocking budget evidence exists.

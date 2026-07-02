@@ -107,6 +107,151 @@
       }
     ]
   },
+  "scriptFamilyBoundaries": {
+    "status": "blocking-contract",
+    "root": "bin/scripts",
+    "policy": "Every tracked file under bin/scripts must belong to exactly one script family. Physical script moves are deferred; this manifest is the source of truth for script ownership and future one-family-at-a-time migrations.",
+    "forbidUnknownScripts": true,
+    "families": [
+      {
+        "id": "benchmark-performance",
+        "category": "performance-evidence",
+        "purpose": "Benchmark execution, trend evidence, allocation budgets, coverage trend, and bounded fuzz governance.",
+        "gate": "make bench-evidence-check",
+        "files": [
+          "benchstat.sh",
+          "check-benchmark-publishing.sh",
+          "check-coverage-trend.sh",
+          "check-fuzz-robustness.sh",
+          "check-perf-governance.sh",
+          "coverage-check.sh"
+        ]
+      },
+      {
+        "id": "ci-release-supply-chain",
+        "category": "release-governance",
+        "purpose": "CI required checks, release artifacts, public API compatibility, security scans, and supply-chain evidence.",
+        "gate": "make required-checks-drift-check",
+        "files": [
+          "check-actions-pinned.sh",
+          "check-ci-required-check-evidence.sh",
+          "check-deprecation-lifecycle.sh",
+          "check-public-api-test.sh",
+          "check-public-api.sh",
+          "check-release-artifacts-test.sh",
+          "check-release-artifacts.sh",
+          "check-release-config.sh",
+          "check-release-evidence-index.sh",
+          "check-required-checks-drift.sh",
+          "check-security-governance.sh",
+          "check-stable-surface.sh",
+          "gosec-exception-baseline.json",
+          "gosec-exception-inventory.sh"
+        ]
+      },
+      {
+        "id": "dependency-cache",
+        "category": "dependency-governance",
+        "purpose": "Module tidy, dependency upgrade evidence, root dependency policy, and cache dependency governance.",
+        "gate": "make cache-dependency-governance-check",
+        "files": [
+          "check-cache-dependency-governance.sh",
+          "check-dependency-upgrade-evidence.sh",
+          "check-mod-tidy.sh",
+          "check-root-dependency-policy.sh",
+          "root-dependency-policy.tsv"
+        ]
+      },
+      {
+        "id": "docs-community",
+        "category": "documentation",
+        "purpose": "Documentation taxonomy, links, snippets, migration guidance, contract docs, community growth, and adopter decisions.",
+        "gate": "make docs-check",
+        "files": [
+          "check-adopter-decision-guide.sh",
+          "check-community-growth.sh",
+          "check-contract-docs.sh",
+          "check-doc-go-snippets.sh",
+          "check-doc-links.sh",
+          "check-doc-manifest-sync.sh",
+          "check-doc-taxonomy.sh",
+          "check-dx-troubleshooting.sh",
+          "check-migration-docs.sh"
+        ]
+      },
+      {
+        "id": "examples-growth-cloud",
+        "category": "adoption-proof",
+        "purpose": "Examples, P1 growth assets, cloud-native rendering, Helm smoke, reference app, resilience, and API example consistency.",
+        "gate": "make p1-growth-check",
+        "files": [
+          "check-api-example-consistency.sh",
+          "check-cloud-native-render.sh",
+          "check-examples-copyable.sh",
+          "check-p1-growth-assets.sh",
+          "check-resilience-drill.sh",
+          "examples-smoke.sh",
+          "helm-template-smoke.sh",
+          "reference-app-smoke.sh"
+        ]
+      },
+      {
+        "id": "codegen-goctl",
+        "category": "code-generation",
+        "purpose": "Generated output determinism, goctl compatibility, upgrade dry-run evidence, and DB/cache generated project productization.",
+        "gate": "make generated-upgrade-dry-run-check",
+        "files": [
+          "check-code-generation-governance.sh",
+          "check-db-cache-productization.sh",
+          "check-generated-output-governance.sh",
+          "check-generated-upgrade-dry-run.sh",
+          "check-generated-version-compat.sh",
+          "check-goctl-generator-compat.sh",
+          "check-goctl-real-project-replay.sh"
+        ]
+      },
+      {
+        "id": "api-runtime-contracts",
+        "category": "framework-api",
+        "purpose": "REST/OpenAPI, RPC, runtime SLO, context lifecycle, and discovery adapter contract evidence.",
+        "gate": "make api-contract-check",
+        "files": [
+          "check-api-contract-governance.sh",
+          "check-context-lifecycle-governance.sh",
+          "check-discovery-adapter-matrix.sh",
+          "check-openapi-validation-envelope.sh",
+          "check-rpc-boundary.sh",
+          "check-runtime-slo.sh"
+        ]
+      },
+      {
+        "id": "cli-layout-governance",
+        "category": "tooling",
+        "purpose": "CLI command surface, configuration, JSON contracts, framework gap reports, governance boundary inventory, layout checks, and aggregate governance reports.",
+        "gate": "make governance-boundary-inventory-check",
+        "files": [
+          "check-cli-command-surface.sh",
+          "check-cli-configuration-governance.sh",
+          "check-cli-json-contract-goldens.sh",
+          "check-framework-gap.sh",
+          "check-governance-boundary-inventory.sh",
+          "check-project-layout-governance.sh",
+          "governance-10-rounds.sh",
+          "governance-report.sh"
+        ]
+      },
+      {
+        "id": "plugin-extension",
+        "category": "extension-api",
+        "purpose": "Plugin external process governance, registry conformance, permission checks, and failure isolation.",
+        "gate": "make plugin-conformance-check",
+        "files": [
+          "check-plugin-external-governance.sh",
+          "plugin-conformance-check.sh"
+        ]
+      }
+    ]
+  },
   "deployAssetBoundary": {
     "status": "blocking-contract",
     "policy": "Repository-level Kubernetes and Helm assets live only under deploy/. Top-level k8s/ and charts/ directories are retired and must not be reintroduced.",

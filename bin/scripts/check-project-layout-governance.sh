@@ -130,6 +130,66 @@ require(
     "topLevelDirectoryBoundaries must not contain duplicate directory ids",
 )
 
+script_boundary = manifest.get("scriptFamilyBoundaries") or {}
+require(script_boundary.get("status") == "blocking-contract", "scriptFamilyBoundaries.status must be blocking-contract")
+require(script_boundary.get("root") == "bin/scripts", "scriptFamilyBoundaries.root must be bin/scripts")
+require(
+    script_boundary.get("forbidUnknownScripts") is True,
+    "scriptFamilyBoundaries must forbid unknown scripts",
+)
+require(
+    "one-family-at-a-time" in str(script_boundary.get("policy") or ""),
+    "scriptFamilyBoundaries policy must preserve one-family-at-a-time migration",
+)
+tracked_script_files = sorted(
+    rel.removeprefix("bin/scripts/")
+    for rel in subprocess.run(
+        ["git", "ls-files", "bin/scripts"],
+        cwd=root,
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+    ).stdout.splitlines()
+    if rel.startswith("bin/scripts/")
+)
+script_families = script_boundary.get("families") or []
+declared_script_files = []
+allowed_script_categories = {
+    "adoption-proof",
+    "code-generation",
+    "dependency-governance",
+    "documentation",
+    "extension-api",
+    "framework-api",
+    "performance-evidence",
+    "release-governance",
+    "tooling",
+}
+for family in script_families:
+    if not isinstance(family, dict):
+        missing.append(f"scriptFamilyBoundaries family must be object: {family!r}")
+        continue
+    family_id = family.get("id", "")
+    files = family.get("files") or []
+    require(family_id, "script family id is required")
+    require(family.get("category") in allowed_script_categories, f"script family {family_id}: unknown category {family.get('category')!r}")
+    require(len(str(family.get("purpose") or "").split()) >= 8, f"script family {family_id}: purpose must be descriptive")
+    require(gate_is_known(str(family.get("gate") or ""), targets), f"script family {family_id}: gate is not known")
+    require(files, f"script family {family_id}: files are required")
+    for filename in files:
+        declared_script_files.append(filename)
+        require("/" not in filename, f"script family {family_id}: file must be relative to bin/scripts root: {filename!r}")
+        require((root / "bin" / "scripts" / filename).is_file(), f"script family {family_id}: missing bin/scripts/{filename}")
+require(
+    sorted(declared_script_files) == tracked_script_files,
+    "scriptFamilyBoundaries must account for every tracked bin/scripts file exactly once: "
+    f"declared={sorted(declared_script_files)!r}, actual={tracked_script_files!r}",
+)
+require(
+    len(declared_script_files) == len(set(declared_script_files)),
+    "scriptFamilyBoundaries must not contain duplicate script files",
+)
+
 deploy_boundary = manifest.get("deployAssetBoundary") or {}
 require(deploy_boundary.get("status") == "blocking-contract", "deployAssetBoundary.status must be blocking-contract")
 require("deploy/" in str(deploy_boundary.get("policy") or ""), "deployAssetBoundary policy must require deploy/")

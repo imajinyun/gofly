@@ -211,7 +211,7 @@ expected_batches = {
         "roundCount": 3,
     },
     "GOFLY-P18": {
-        "status": "submitted",
+        "status": "completed",
         "taskPrefix": "GOFLY-P18-",
         "roundCount": 3,
     },
@@ -401,7 +401,7 @@ require("p17 completion" in tasks[0].get("title", "").lower(), "P18 round 01 tit
 require("p18" in tasks[0].get("objective", "").lower(), "P18 round 01 objective must document P18 active batch handoff")
 for expected_round, item in enumerate(tasks, start=1):
     task_id = item.get("id")
-    expected_status = "completed" if expected_round <= 2 else "queued"
+    expected_status = "completed"
     require(item.get("status") == expected_status, f"{task_id}: active P18 task status must be {expected_status}")
     require(item.get("priority"), f"{task_id}: priority is required")
     if expected_status == "completed":
@@ -851,8 +851,8 @@ actual_p18_tasks = [
 require(actual_p18_tasks == expected_p18_tasks, f"P18 roadmap task ids mismatch: {actual_p18_tasks!r}")
 p18_submission = p18_manifest.get("aiflowSubmission") or {}
 require(p18_submission.get("status") == "submitted", "P18 aiflowSubmission.status must be submitted")
-require(p18_submission.get("completedTasks") == expected_p18_tasks[:2], "P18 completedTasks must contain completed P18 handoff and Gateway hold tasks")
-require(p18_submission.get("pendingTasks") == expected_p18_tasks[2:], "P18 pendingTasks must match the remaining queue order")
+require(p18_submission.get("completedTasks") == expected_p18_tasks, "P18 completedTasks must contain all completed P18 tasks")
+require(p18_submission.get("pendingTasks") == [], "P18 pendingTasks must be empty after P18 closeout")
 p18_submission_commands = p18_submission.get("submissionCommands") or []
 require(len(p18_submission_commands) == 3, "P18 submissionCommands must document all three aiflow submit calls")
 for task_id in expected_p18_tasks:
@@ -874,7 +874,7 @@ for expected_round, item in enumerate(p18_tasks, start=1):
         continue
     task_id = item.get("id", "<missing>")
     require(item.get("round") == expected_round, f"{task_id}: round must be {expected_round}")
-    expected_status = "completed" if expected_round <= 2 else "queued"
+    expected_status = "completed"
     require(item.get("status") == expected_status, f"{task_id}: status must be {expected_status}")
     require(item.get("priority") == 101 - expected_round, f"{task_id}: priority mismatch")
     for field in ("id", "title", "objective", "deliverable", "acceptanceGates", "commitPolicy"):

@@ -124,7 +124,7 @@
     },
     {
       "id": "GOFLY-P18",
-      "status": "submitted",
+      "status": "completed",
       "taskPrefix": "GOFLY-P18-",
       "roundCount": 3,
       "evidence": "docs/reference/governance-p18-roadmap.json"
@@ -167,13 +167,19 @@
     {
       "id": "GOFLY-P18-03-CACHE-LOADER-HIT-PROMOTION-PRECHECK",
       "round": 3,
-      "status": "queued",
+      "status": "completed",
       "priority": 98,
       "title": "Cache loader hit promotion precheck",
       "objective": "Keep BenchmarkCacheHotPathGetOrLoadHit separate from the promoted Get hit path and define promotion prerequisites for loader, miss, invalidation, and rollback behavior.",
       "deliverable": "Loader-hit cache promotion precheck, scope separation from BenchmarkCacheHotPath, miss/invalidation blockers, and report-only release note policy.",
       "gate": "make bench-regression-check",
-      "commitPolicy": "commit after loader-hit precheck passes bench-regression-check and keeps loader-hit outside trackedBenchmarks"
+      "commitPolicy": "commit after loader-hit precheck passes bench-regression-check and keeps loader-hit outside trackedBenchmarks",
+      "commit": "pending-current-commit",
+      "verification": [
+        "make bench-regression-check",
+        "make governance-boundary-inventory-check",
+        "make governance-report-check"
+      ]
     }
   ],
   "surfaces": [

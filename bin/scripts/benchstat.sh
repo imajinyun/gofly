@@ -269,6 +269,7 @@ def validate_ratchet_policy() -> None:
     p17_gateway_cache_baseline = ratchet.get("p17GatewayCacheBaselineRowAttachment") or {}
     p17_gateway_cache_promotion_decision = ratchet.get("p17GatewayCacheAllocationPromotionDecision") or {}
     p18_gateway_proxy_hold = ratchet.get("p18GatewayProxyAllocationHoldEvidence") or {}
+    p18_cache_loader_hit_precheck = ratchet.get("p18CacheLoaderHitPromotionPrecheck") or {}
     p17_selected_allocation_benchmark = str(
         (p17_gateway_cache_promotion_decision.get("decision") or {}).get("allocationBlockingSurface") or ""
     )
@@ -2053,6 +2054,158 @@ def validate_ratchet_policy() -> None:
         require_policy(
             forbidden in set(p18_gateway_proxy_hold.get("forbiddenUntilCleared") or []),
             f"p18GatewayProxyAllocationHoldEvidence forbiddenUntilCleared missing {forbidden!r}",
+        )
+
+    require_policy(
+        p18_cache_loader_hit_precheck.get("schema")
+        == "gofly.benchmark_p18_cache_loader_hit_promotion_precheck.v1",
+        "p18CacheLoaderHitPromotionPrecheck schema mismatch",
+    )
+    require_policy(
+        p18_cache_loader_hit_precheck.get("aiflowTask")
+        == "GOFLY-P18-03-CACHE-LOADER-HIT-PROMOTION-PRECHECK",
+        "p18CacheLoaderHitPromotionPrecheck aiflowTask mismatch",
+    )
+    require_policy(
+        p18_cache_loader_hit_precheck.get("status") == "loader-hit-promotion-held",
+        "p18CacheLoaderHitPromotionPrecheck status mismatch",
+    )
+    require_policy(
+        p18_cache_loader_hit_precheck.get("acceptanceGate") == "make bench-regression-check",
+        "p18CacheLoaderHitPromotionPrecheck acceptanceGate mismatch",
+    )
+    for source in (
+        "bench/budget-ratchet.json",
+        "bench/baseline.txt",
+        "bench/current.txt",
+        "bench/gateway_cache_bench_test.go",
+        "bench/matrix.md",
+        "docs/reference/governance-p18-roadmap.json",
+    ):
+        require_policy(
+            source in set(p18_cache_loader_hit_precheck.get("sourceEvidence") or []),
+            f"p18CacheLoaderHitPromotionPrecheck sourceEvidence missing {source!r}",
+        )
+    p18_loader_decision = p18_cache_loader_hit_precheck.get("decision") or {}
+    require_policy(p18_loader_decision.get("result") == "hold", "p18CacheLoaderHitPromotionPrecheck decision.result mismatch")
+    require_policy(
+        p18_loader_decision.get("selectedSurface") == "cache-hot-path-loader-hit",
+        "p18CacheLoaderHitPromotionPrecheck selectedSurface mismatch",
+    )
+    require_policy(
+        p18_loader_decision.get("allocationBlockingSurface") == "none",
+        "p18CacheLoaderHitPromotionPrecheck allocationBlockingSurface must remain none",
+    )
+    require_policy(
+        p18_loader_decision.get("latencyMode") == "report-only",
+        "p18CacheLoaderHitPromotionPrecheck latencyMode must remain report-only",
+    )
+    require_policy(
+        p18_loader_decision.get("trackedBenchmarkPromotion") == "not-promoted",
+        "p18CacheLoaderHitPromotionPrecheck trackedBenchmarkPromotion mismatch",
+    )
+    require_policy(
+        p18_loader_decision.get("promotionStatus") == "blocked",
+        "p18CacheLoaderHitPromotionPrecheck promotionStatus mismatch",
+    )
+    require_policy(
+        p18_loader_decision.get("nextReviewGate") == "make bench-regression-check",
+        "p18CacheLoaderHitPromotionPrecheck nextReviewGate mismatch",
+    )
+    for field in ("reason", "releaseNotePolicy"):
+        require_policy(
+            len(str(p18_loader_decision.get(field) or "").split()) >= 20,
+            f"p18CacheLoaderHitPromotionPrecheck decision.{field} must be actionable",
+        )
+    for forbidden_claim in (
+        "loader-hit allocation-blocking claim",
+        "blocking cache loader-hit latency",
+        "cache miss coverage",
+        "invalidation coverage",
+        "production cache performance parity",
+    ):
+        require_policy(
+            forbidden_claim in str(p18_loader_decision.get("releaseNotePolicy") or ""),
+            f"p18CacheLoaderHitPromotionPrecheck releaseNotePolicy must mention {forbidden_claim!r}",
+        )
+    require_policy(
+        "BenchmarkCacheHotPathGetOrLoadHit" not in tracked,
+        "BenchmarkCacheHotPathGetOrLoadHit must stay out of trackedBenchmarks after P18 precheck",
+    )
+    require_policy(
+        "BenchmarkCacheHotPathGetOrLoadHit" not in promoted_latency,
+        "BenchmarkCacheHotPathGetOrLoadHit latency must stay report-only after P18 precheck",
+    )
+    p18_loader_budget = p18_cache_loader_hit_precheck.get("precheckBudget") or {}
+    require_policy(
+        p18_loader_budget.get("benchmark") == "BenchmarkCacheHotPathGetOrLoadHit",
+        "p18CacheLoaderHitPromotionPrecheck precheckBudget benchmark mismatch",
+    )
+    require_policy(
+        p18_loader_budget.get("promotionMode") == "report-only",
+        "p18CacheLoaderHitPromotionPrecheck precheckBudget promotionMode mismatch",
+    )
+    require_policy(
+        p18_loader_budget.get("latencyMode") == "report-only",
+        "p18CacheLoaderHitPromotionPrecheck precheckBudget latencyMode mismatch",
+    )
+    require_policy(
+        int(p18_loader_budget.get("baselineSampleCount") or 0) >= 5,
+        "p18CacheLoaderHitPromotionPrecheck precheckBudget baselineSampleCount must be at least five",
+    )
+    require_policy(
+        int(p18_loader_budget.get("currentTrendSampleCount") or 0) >= 5,
+        "p18CacheLoaderHitPromotionPrecheck precheckBudget currentTrendSampleCount must be at least five",
+    )
+    for field in ("baselineAllocsPerOpMedian", "currentAllocsPerOpMedian", "allocationTargetAllocsPerOp", "allocationTolerance"):
+        require_policy(
+            float(p18_loader_budget.get(field) or 0) == 0,
+            f"p18CacheLoaderHitPromotionPrecheck precheckBudget {field} must remain zero",
+        )
+    for field in ("scopeBoundary", "rollbackBoundary"):
+        require_policy(
+            len(str(p18_loader_budget.get(field) or "").split()) >= 12,
+            f"p18CacheLoaderHitPromotionPrecheck precheckBudget {field} must be actionable",
+        )
+    p18_loader_missing = {
+        item.get("id"): item
+        for item in p18_cache_loader_hit_precheck.get("missingEvidence") or []
+        if isinstance(item, dict) and item.get("id")
+    }
+    require_policy(
+        set(p18_loader_missing) == {"cache-miss", "invalidation", "loader-fallback"},
+        "p18CacheLoaderHitPromotionPrecheck missingEvidence mismatch",
+    )
+    for item_id, item in p18_loader_missing.items():
+        for field in ("requiredBenchmark", "blockingReason"):
+            require_policy(
+                len(str(item.get(field) or "").split()) >= 3,
+                f"p18CacheLoaderHitPromotionPrecheck missingEvidence {item_id}: {field} must be actionable",
+            )
+        require_policy(
+            item.get("gate") == "make bench-regression-check",
+            f"p18CacheLoaderHitPromotionPrecheck missingEvidence {item_id}: gate mismatch",
+        )
+    p18_loader_rules = set(p18_cache_loader_hit_precheck.get("blockingRules") or [])
+    for rule in (
+        "P18 loader-hit must stay out of trackedBenchmarks",
+        "P18 loader-hit latency must remain report-only",
+        "P18 loader-hit promotion requires cache miss evidence",
+        "P18 loader-hit promotion requires invalidation evidence",
+        "P18 loader-hit promotion requires loader fallback evidence",
+    ):
+        require_policy(rule in p18_loader_rules, f"p18CacheLoaderHitPromotionPrecheck blockingRules missing {rule!r}")
+    for forbidden in (
+        "trackedBenchmarks Cache loader-hit entry",
+        "blocking Cache loader-hit latency claim",
+        "loader-hit allocation-blocking claim",
+        "cache miss performance parity claim",
+        "cache invalidation performance parity claim",
+        "production Cache performance parity claim",
+    ):
+        require_policy(
+            forbidden in set(p18_cache_loader_hit_precheck.get("forbiddenUntilCleared") or []),
+            f"p18CacheLoaderHitPromotionPrecheck forbiddenUntilCleared missing {forbidden!r}",
         )
     p12_rules = set(p12_rpc_decision.get("blockingRules") or [])
     for rule in (

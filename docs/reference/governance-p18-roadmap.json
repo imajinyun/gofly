@@ -21,11 +21,10 @@
     "safetyPolicy": "P18 tasks are submitted to ignored local aiflow runtime state and mirrored here as durable docs/reference evidence; each task must be completed in order and committed by the current agent or human only after its gate passes or an environment-limited downgrade is documented.",
     "completedTasks": [
       "GOFLY-P18-01-P17-COMPLETION-HANDOFF",
-      "GOFLY-P18-02-GATEWAY-PROXY-ALLOCATION-HOLD-EVIDENCE"
-    ],
-    "pendingTasks": [
+      "GOFLY-P18-02-GATEWAY-PROXY-ALLOCATION-HOLD-EVIDENCE",
       "GOFLY-P18-03-CACHE-LOADER-HIT-PROMOTION-PRECHECK"
-    ]
+    ],
+    "pendingTasks": []
   },
   "previousBatchHandoff": {
     "completedBatch": "GOFLY-P17",
@@ -86,7 +85,7 @@
     {
       "round": 3,
       "id": "GOFLY-P18-03-CACHE-LOADER-HIT-PROMOTION-PRECHECK",
-      "status": "queued",
+      "status": "completed",
       "priority": 98,
       "title": "Cache loader hit promotion precheck",
       "objective": "Keep BenchmarkCacheHotPathGetOrLoadHit separate from the promoted Get hit path and define promotion prerequisites for loader, miss, invalidation, and rollback behavior.",
@@ -94,7 +93,18 @@
       "acceptanceGates": [
         "make bench-regression-check"
       ],
-      "commitPolicy": "commit after loader-hit precheck passes bench-regression-check and keeps loader-hit outside trackedBenchmarks"
+      "commitPolicy": "commit after loader-hit precheck passes bench-regression-check and keeps loader-hit outside trackedBenchmarks",
+      "commit": "pending-current-commit",
+      "verification": [
+        "python3 -m json.tool bench/budget-ratchet.json",
+        "python3 -m json.tool docs/reference/governance-p18-roadmap.json",
+        "python3 -m json.tool docs/reference/governance-boundary-inventory.json",
+        "sh -n bin/scripts/benchstat.sh",
+        "sh -n bin/scripts/check-governance-boundary-inventory.sh",
+        "make bench-regression-check",
+        "make governance-boundary-inventory-check",
+        "make governance-report-check"
+      ]
     }
   ]
 }

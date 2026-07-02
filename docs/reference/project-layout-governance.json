@@ -862,6 +862,230 @@
         }
       ]
     },
+    "physicalMigrationAdmission": {
+      "status": "blocked-until-ready",
+      "policy": "Examples may move only after one planned family proves copyable modules, smoke commands, docs links, Makefile targets, scripts, and rollback notes can be updated in a single dedicated migration commit.",
+      "selectedGroup": "",
+      "requiredSignals": [
+        "one examples family is selected before any path move starts",
+        "target family has a dedicated task id and rollback owner",
+        "pre-move gates pass with the current examples/* paths",
+        "post-move gates pass with the new grouped path",
+        "examples/README.md commands and matrix are updated",
+        "each moved go.mod module path and local replace directive is updated",
+        "bin/scripts and Makefile references to moved paths are updated",
+        "docs links and reference evidence point to the new paths",
+        "rollback note explains how to restore the old path without losing user guidance"
+      ],
+      "requiredGates": [
+        "make project-layout-governance-check",
+        "make examples-smoke",
+        "make examples-copyable-check",
+        "make docs-check",
+        "git diff --check"
+      ],
+      "familyAssessments": [
+        {
+          "id": "http",
+          "status": "blocked",
+          "candidate": false,
+          "futurePath": "examples/http/",
+          "currentExamples": [
+            "http-middleware",
+            "middleware-demo",
+            "middlewares",
+            "restserver"
+          ],
+          "blockers": [
+            "server examples expose user-facing curl paths that still reference flat examples/* commands",
+            "middleware smoke coverage is shared with p1-growth-check and must move as a single explicit family"
+          ],
+          "requiredPathUpdates": [
+            "examples/README.md",
+            "examples/*/go.mod",
+            "bin/scripts/",
+            "Makefile",
+            "docs/",
+            "docs/reference/project-layout-governance.json"
+          ],
+          "preMoveGates": [
+            "make p1-growth-check",
+            "make examples-smoke",
+            "make examples-copyable-check"
+          ],
+          "postMoveGates": [
+            "make project-layout-governance-check",
+            "make p1-growth-check",
+            "make examples-smoke",
+            "make examples-copyable-check",
+            "make docs-check",
+            "git diff --check"
+          ],
+          "rollbackRequirement": "Restore the previous flat examples paths and route users through examples/README.md until HTTP smoke and copyable checks pass again."
+        },
+        {
+          "id": "rpc",
+          "status": "blocked",
+          "candidate": false,
+          "futurePath": "examples/rpc/",
+          "currentExamples": [
+            "gateway-discovery-rpc",
+            "rpc-idl-matrix",
+            "rpcserver"
+          ],
+          "blockers": [
+            "RPC examples are tied to boundary evidence and generated IDL paths that must stay explainable",
+            "copyable module paths need a dedicated before-and-after replay for resolver and streaming examples"
+          ],
+          "requiredPathUpdates": [
+            "examples/README.md",
+            "examples/*/go.mod",
+            "bin/scripts/",
+            "Makefile",
+            "docs/",
+            "docs/reference/project-layout-governance.json"
+          ],
+          "preMoveGates": [
+            "make rpc-boundary-check",
+            "make examples-smoke",
+            "make examples-copyable-check"
+          ],
+          "postMoveGates": [
+            "make project-layout-governance-check",
+            "make rpc-boundary-check",
+            "make examples-smoke",
+            "make examples-copyable-check",
+            "make docs-check",
+            "git diff --check"
+          ],
+          "rollbackRequirement": "Restore the previous RPC example paths and keep the old command matrix documented until resolver, stream, and copyable evidence pass."
+        },
+        {
+          "id": "production",
+          "status": "blocked",
+          "candidate": false,
+          "futurePath": "examples/production/",
+          "currentExamples": [
+            "microshop",
+            "production-orders",
+            "k8s"
+          ],
+          "blockers": [
+            "production examples span cloud-native assets, reference app smoke, and multi-service ports",
+            "Docker-backed and static fallback evidence must stay readable during any path move"
+          ],
+          "requiredPathUpdates": [
+            "examples/README.md",
+            "examples/*/go.mod",
+            "bin/scripts/",
+            "Makefile",
+            "docs/",
+            "docs/reference/project-layout-governance.json"
+          ],
+          "preMoveGates": [
+            "make reference-app-smoke",
+            "make cloud-native-render-check",
+            "make examples-copyable-check"
+          ],
+          "postMoveGates": [
+            "make project-layout-governance-check",
+            "make reference-app-smoke",
+            "make cloud-native-render-check",
+            "make examples-smoke",
+            "make examples-copyable-check",
+            "make docs-check",
+            "git diff --check"
+          ],
+          "rollbackRequirement": "Restore the previous production example paths and keep deployment notes pointing to the flat layout until live and fallback checks pass."
+        },
+        {
+          "id": "governance",
+          "status": "blocked",
+          "candidate": false,
+          "futurePath": "examples/governance/",
+          "currentExamples": [
+            "ai-governed-service",
+            "migration-proof",
+            "plugin-ecosystem",
+            "resilience"
+          ],
+          "blockers": [
+            "governance examples are referenced by adoption, plugin, migration, and resilience reports",
+            "moving them requires synchronized evidence updates across multiple docs/reference contracts"
+          ],
+          "requiredPathUpdates": [
+            "examples/README.md",
+            "examples/*/go.mod",
+            "bin/scripts/",
+            "Makefile",
+            "docs/",
+            "docs/reference/project-layout-governance.json"
+          ],
+          "preMoveGates": [
+            "make governance-report-check",
+            "make plugin-conformance-check",
+            "make adopter-decision-check",
+            "make resilience-drill-check",
+            "make examples-copyable-check"
+          ],
+          "postMoveGates": [
+            "make project-layout-governance-check",
+            "make governance-report-check",
+            "make plugin-conformance-check",
+            "make adopter-decision-check",
+            "make resilience-drill-check",
+            "make examples-smoke",
+            "make examples-copyable-check",
+            "make docs-check",
+            "git diff --check"
+          ],
+          "rollbackRequirement": "Restore the previous governance example paths and keep evidence manifests on the old paths until all governance gates pass."
+        },
+        {
+          "id": "data",
+          "status": "blocked",
+          "candidate": false,
+          "futurePath": "examples/data/",
+          "currentExamples": [
+            "cache-local",
+            "model-gorm",
+            "model-mongo",
+            "mq-worker",
+            "observability",
+            "outbox-mq",
+            "saga",
+            "config-discovery"
+          ],
+          "blockers": [
+            "data examples cover several dependency modes and generated-project dependency boundaries",
+            "the family is too broad to move before cache, model, MQ, and observability path references are isolated"
+          ],
+          "requiredPathUpdates": [
+            "examples/README.md",
+            "examples/*/go.mod",
+            "bin/scripts/",
+            "Makefile",
+            "docs/",
+            "docs/reference/project-layout-governance.json"
+          ],
+          "preMoveGates": [
+            "make db-cache-productization-check",
+            "make discovery-adapter-matrix-check",
+            "make examples-copyable-check"
+          ],
+          "postMoveGates": [
+            "make project-layout-governance-check",
+            "make db-cache-productization-check",
+            "make discovery-adapter-matrix-check",
+            "make examples-smoke",
+            "make examples-copyable-check",
+            "make docs-check",
+            "git diff --check"
+          ],
+          "rollbackRequirement": "Restore the previous data example paths and keep model, cache, MQ, and discovery instructions on the flat layout until gates pass."
+        }
+      ]
+    },
     "groups": [
       {
         "id": "http",

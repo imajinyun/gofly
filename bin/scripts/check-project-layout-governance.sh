@@ -510,6 +510,104 @@ actual_examples = sorted(path.name for path in (root / "examples").iterdir() if 
 require(sorted(grouped_examples) == actual_examples, "examplesGroupingPlan must account for every examples/* directory exactly once")
 require(len(grouped_examples) == len(set(grouped_examples)), "examplesGroupingPlan must not contain duplicate example directories")
 
+physical_admission = examples_plan.get("physicalMigrationAdmission") or {}
+require(
+    physical_admission.get("status") == "blocked-until-ready",
+    "examples physicalMigrationAdmission.status must be blocked-until-ready",
+)
+require(
+    "single dedicated migration commit" in str(physical_admission.get("policy") or ""),
+    "examples physicalMigrationAdmission policy must require a dedicated migration commit",
+)
+require(
+    physical_admission.get("selectedGroup") in ("", None),
+    "examples physicalMigrationAdmission.selectedGroup must stay empty until a family is selected",
+)
+required_physical_signals = physical_admission.get("requiredSignals") or []
+require(
+    len(required_physical_signals) >= 8,
+    "examples physicalMigrationAdmission must require at least 8 readiness signals",
+)
+for phrase in ("one examples family", "pre-move gates", "post-move gates", "examples/README.md", "go.mod", "rollback note"):
+    require(
+        any(phrase in str(signal) for signal in required_physical_signals),
+        f"examples physicalMigrationAdmission missing required signal phrase {phrase!r}",
+    )
+expected_physical_gates = {
+    "make project-layout-governance-check",
+    "make examples-smoke",
+    "make examples-copyable-check",
+    "make docs-check",
+    "git diff --check",
+}
+require(
+    set(physical_admission.get("requiredGates") or []) == expected_physical_gates,
+    "examples physicalMigrationAdmission.requiredGates mismatch",
+)
+for gate in physical_admission.get("requiredGates") or []:
+    require(gate == "git diff --check" or gate_is_known(str(gate), targets), f"examples physicalMigrationAdmission gate is not known: {gate}")
+assessments = physical_admission.get("familyAssessments") or []
+group_by_id = {group.get("id"): group for group in groups if isinstance(group, dict)}
+assessment_ids = []
+allowed_required_path_updates = {
+    "examples/README.md",
+    "examples/*/go.mod",
+    "bin/scripts/",
+    "Makefile",
+    "docs/",
+    "docs/reference/project-layout-governance.json",
+}
+for assessment in assessments:
+    if not isinstance(assessment, dict):
+        missing.append(f"examples physical migration assessment must be object: {assessment!r}")
+        continue
+    assessment_id = assessment.get("id", "<missing>")
+    assessment_ids.append(assessment_id)
+    group = group_by_id.get(assessment_id)
+    require(group is not None, f"examples physical migration assessment {assessment_id}: group does not exist")
+    require(assessment.get("status") == "blocked", f"examples physical migration assessment {assessment_id}: status must be blocked")
+    require(assessment.get("candidate") is False, f"examples physical migration assessment {assessment_id}: candidate must be false")
+    if group:
+        require(
+            assessment.get("futurePath") == group.get("futurePath"),
+            f"examples physical migration assessment {assessment_id}: futurePath mismatch",
+        )
+        require(
+            sorted(assessment.get("currentExamples") or []) == sorted(group.get("currentExamples") or []),
+            f"examples physical migration assessment {assessment_id}: currentExamples mismatch",
+        )
+    blockers = assessment.get("blockers") or []
+    require(len(blockers) >= 2, f"examples physical migration assessment {assessment_id}: at least 2 blockers required")
+    require(
+        all(len(str(blocker).split()) >= 6 for blocker in blockers),
+        f"examples physical migration assessment {assessment_id}: blockers must be descriptive",
+    )
+    require(
+        set(assessment.get("requiredPathUpdates") or []) == allowed_required_path_updates,
+        f"examples physical migration assessment {assessment_id}: requiredPathUpdates mismatch",
+    )
+    for gate in assessment.get("preMoveGates") or []:
+        require(gate_is_known(str(gate), targets), f"examples physical migration assessment {assessment_id}: unknown preMoveGate {gate!r}")
+    post_move_gates = assessment.get("postMoveGates") or []
+    require(
+        expected_physical_gates <= set(post_move_gates),
+        f"examples physical migration assessment {assessment_id}: postMoveGates must include common physical migration gates",
+    )
+    for gate in post_move_gates:
+        require(gate == "git diff --check" or gate_is_known(str(gate), targets), f"examples physical migration assessment {assessment_id}: unknown postMoveGate {gate!r}")
+    require(
+        "Restore the previous" in str(assessment.get("rollbackRequirement") or ""),
+        f"examples physical migration assessment {assessment_id}: rollbackRequirement must describe restore path",
+    )
+require(
+    sorted(assessment_ids) == sorted(group_by_id),
+    "examples physicalMigrationAdmission.familyAssessments must account for every planned examples group exactly once",
+)
+require(
+    len(assessment_ids) == len(set(assessment_ids)),
+    "examples physicalMigrationAdmission.familyAssessments must not contain duplicate ids",
+)
+
 readiness = examples_plan.get("readinessContract") or {}
 require(
     readiness.get("status") == "blocking-contract",

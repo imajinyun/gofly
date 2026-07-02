@@ -275,7 +275,325 @@
   ],
   "examplesGroupingPlan": {
     "status": "planned-only",
+    "admissionGate": "make project-layout-governance-check",
     "migrationPolicy": "Keep current examples/* paths stable until a future task migrates one family at a time and updates all gates in the same commit.",
+    "readinessContract": {
+      "status": "blocking-contract",
+      "policy": "Every current example must declare its runnable kind, command, verification command, dependency mode, copyable module state, smoke gate, README source, and rollback note before any future physical grouping is allowed.",
+      "requiredFields": [
+        "id",
+        "kind",
+        "command",
+        "verify",
+        "ports",
+        "dependencyMode",
+        "copyable",
+        "smokeGate",
+        "readmeSource",
+        "rollbackNote"
+      ],
+      "allowedKinds": [
+        "command",
+        "deployment-checklist",
+        "library",
+        "matrix",
+        "server"
+      ],
+      "allowedDependencyModes": [
+        "local-only",
+        "optional-docker",
+        "simulated-external"
+      ],
+      "entries": [
+        {
+          "id": "ai-governed-service",
+          "kind": "server",
+          "command": "go run ./examples/ai-governed-service",
+          "verify": "curl -s -H 'Authorization: Bearer ai-token' localhost:8200/admin/control-plane",
+          "ports": [
+            8200
+          ],
+          "dependencyMode": "local-only",
+          "copyable": true,
+          "smokeGate": "make examples-smoke",
+          "readmeSource": "examples/ai-governed-service/README.md",
+          "rollbackNote": "Keep the previous governance surface active until control-plane checksum and authorization smoke evidence pass."
+        },
+        {
+          "id": "cache-local",
+          "kind": "command",
+          "command": "go run ./examples/cache-local",
+          "verify": "go run -C examples/cache-local .",
+          "ports": [],
+          "dependencyMode": "local-only",
+          "copyable": true,
+          "smokeGate": "make examples-smoke",
+          "readmeSource": "examples/README.md",
+          "rollbackNote": "Keep the previous cache profile until loader, negative-cache, bloom, tiered, and disabled-mode evidence pass."
+        },
+        {
+          "id": "config-discovery",
+          "kind": "command",
+          "command": "go run ./examples/config-discovery",
+          "verify": "go run -C examples/config-discovery .",
+          "ports": [],
+          "dependencyMode": "simulated-external",
+          "copyable": true,
+          "smokeGate": "make examples-smoke",
+          "readmeSource": "examples/README.md",
+          "rollbackNote": "Keep the previous config or discovery profile until merged config and endpoint resolution evidence pass."
+        },
+        {
+          "id": "gateway-discovery-rpc",
+          "kind": "command",
+          "command": "go run ./examples/gateway-discovery-rpc",
+          "verify": "go run -C examples/gateway-discovery-rpc .",
+          "ports": [],
+          "dependencyMode": "simulated-external",
+          "copyable": true,
+          "smokeGate": "make examples-smoke",
+          "readmeSource": "examples/README.md",
+          "rollbackNote": "Keep the previous gateway route table until discovery snapshot and RPC target summary evidence pass."
+        },
+        {
+          "id": "http-middleware",
+          "kind": "server",
+          "command": "go run ./examples/http-middleware",
+          "verify": "curl -s localhost:8085/token",
+          "ports": [
+            8085
+          ],
+          "dependencyMode": "local-only",
+          "copyable": true,
+          "smokeGate": "make p1-growth-check",
+          "readmeSource": "examples/http-middleware/README.md",
+          "rollbackNote": "Keep the previous middleware chain active until auth, browser, observability, realtime, and validation smoke evidence pass."
+        },
+        {
+          "id": "k8s",
+          "kind": "deployment-checklist",
+          "command": "go run ./examples/k8s",
+          "verify": "go run -C examples/k8s .",
+          "ports": [],
+          "dependencyMode": "simulated-external",
+          "copyable": true,
+          "smokeGate": "make cloud-native-render-check",
+          "readmeSource": "examples/README.md",
+          "rollbackNote": "Keep the previous deployment profile until Kubernetes resolver and manifest checklist evidence pass."
+        },
+        {
+          "id": "microshop",
+          "kind": "server",
+          "command": "go run ./examples/microshop describe",
+          "verify": "go run ./examples/microshop gateway",
+          "ports": [
+            8100,
+            8101,
+            8102,
+            8103,
+            8104
+          ],
+          "dependencyMode": "local-only",
+          "copyable": true,
+          "smokeGate": "make examples-smoke",
+          "readmeSource": "examples/microshop/README.md",
+          "rollbackNote": "Keep the previous shop topology until gateway and per-service control-plane smoke evidence pass."
+        },
+        {
+          "id": "middleware-demo",
+          "kind": "server",
+          "command": "go run ./examples/middleware-demo",
+          "verify": "curl -s localhost:8086/middleware/catalog",
+          "ports": [
+            8086
+          ],
+          "dependencyMode": "local-only",
+          "copyable": true,
+          "smokeGate": "make p1-growth-check",
+          "readmeSource": "examples/README.md",
+          "rollbackNote": "Keep the previous middleware catalog route until catalog JSON and OpenAPI exposure evidence pass."
+        },
+        {
+          "id": "middlewares",
+          "kind": "library",
+          "command": "go test -C examples/middlewares ./...",
+          "verify": "go test -C examples/middlewares ./...",
+          "ports": [],
+          "dependencyMode": "local-only",
+          "copyable": true,
+          "smokeGate": "make examples-smoke",
+          "readmeSource": "examples/README.md",
+          "rollbackNote": "Keep the previous reusable middleware catalog until generated-service import and package tests pass."
+        },
+        {
+          "id": "migration-proof",
+          "kind": "matrix",
+          "command": "go run ./examples/migration-proof",
+          "verify": "go run -C examples/migration-proof .",
+          "ports": [],
+          "dependencyMode": "local-only",
+          "copyable": true,
+          "smokeGate": "make adopter-decision-check",
+          "readmeSource": "examples/README.md",
+          "rollbackNote": "Keep the source framework path active until every migration case, gate command, and caveat evidence passes."
+        },
+        {
+          "id": "model-gorm",
+          "kind": "command",
+          "command": "go run ./examples/model-gorm",
+          "verify": "go run -C examples/model-gorm .",
+          "ports": [],
+          "dependencyMode": "simulated-external",
+          "copyable": true,
+          "smokeGate": "make db-cache-productization-check",
+          "readmeSource": "examples/README.md",
+          "rollbackNote": "Keep the previous model generator profile until GORM repository checklist and dependency boundary evidence pass."
+        },
+        {
+          "id": "model-mongo",
+          "kind": "command",
+          "command": "go run ./examples/model-mongo",
+          "verify": "go run -C examples/model-mongo .",
+          "ports": [],
+          "dependencyMode": "simulated-external",
+          "copyable": true,
+          "smokeGate": "make db-cache-productization-check",
+          "readmeSource": "examples/README.md",
+          "rollbackNote": "Keep the previous model generator profile until Mongo repository checklist and dependency boundary evidence pass."
+        },
+        {
+          "id": "mq-worker",
+          "kind": "command",
+          "command": "go run ./examples/mq-worker",
+          "verify": "go run -C examples/mq-worker .",
+          "ports": [],
+          "dependencyMode": "simulated-external",
+          "copyable": true,
+          "smokeGate": "make examples-smoke",
+          "readmeSource": "examples/README.md",
+          "rollbackNote": "Keep the previous broker profile until publish, retry consume, and stats snapshot evidence pass."
+        },
+        {
+          "id": "observability",
+          "kind": "server",
+          "command": "go run ./examples/observability",
+          "verify": "curl -s localhost:8081/debug/metrics.json",
+          "ports": [
+            8080,
+            8081
+          ],
+          "dependencyMode": "optional-docker",
+          "copyable": true,
+          "smokeGate": "make examples-smoke",
+          "readmeSource": "examples/observability/README.md",
+          "rollbackNote": "Keep the previous telemetry profile until health, metrics, admin, and trace smoke evidence pass."
+        },
+        {
+          "id": "outbox-mq",
+          "kind": "command",
+          "command": "go run ./examples/outbox-mq",
+          "verify": "go run -C examples/outbox-mq .",
+          "ports": [],
+          "dependencyMode": "simulated-external",
+          "copyable": true,
+          "smokeGate": "make examples-smoke",
+          "readmeSource": "examples/README.md",
+          "rollbackNote": "Keep the previous outbox publisher profile until transactional publish evidence and broker output pass."
+        },
+        {
+          "id": "plugin-ecosystem",
+          "kind": "matrix",
+          "command": "go run ./examples/plugin-ecosystem",
+          "verify": "go run -C examples/plugin-ecosystem .",
+          "ports": [],
+          "dependencyMode": "local-only",
+          "copyable": true,
+          "smokeGate": "make plugin-conformance-check",
+          "readmeSource": "examples/README.md",
+          "rollbackNote": "Keep the previous plugin protocol active until registry, digest, permission, template, and isolation evidence pass."
+        },
+        {
+          "id": "production-orders",
+          "kind": "server",
+          "command": "go run ./examples/production-orders",
+          "verify": "curl -s -X POST localhost:8090/orders -d '{\"sku\":\"coffee\",\"quantity\":2}'",
+          "ports": [
+            8090,
+            8091,
+            8092
+          ],
+          "dependencyMode": "optional-docker",
+          "copyable": true,
+          "smokeGate": "make reference-app-smoke",
+          "readmeSource": "examples/production-orders/README.md",
+          "rollbackNote": "Keep the previous production topology active until REST, RPC, MQ, outbox, saga, and observability smoke evidence pass."
+        },
+        {
+          "id": "resilience",
+          "kind": "matrix",
+          "command": "go run ./examples/resilience",
+          "verify": "go run -C examples/resilience . --json",
+          "ports": [],
+          "dependencyMode": "local-only",
+          "copyable": true,
+          "smokeGate": "make resilience-drill-check",
+          "readmeSource": "examples/README.md",
+          "rollbackNote": "Keep the previous resilience policy until limiter, retry, breaker-open, and recovery evidence pass."
+        },
+        {
+          "id": "restserver",
+          "kind": "server",
+          "command": "go run ./examples/restserver",
+          "verify": "curl -s localhost:8080/healthz",
+          "ports": [
+            8080
+          ],
+          "dependencyMode": "local-only",
+          "copyable": true,
+          "smokeGate": "make examples-smoke",
+          "readmeSource": "examples/README.md",
+          "rollbackNote": "Keep the previous REST example active until health, OpenAPI, and user route smoke evidence pass."
+        },
+        {
+          "id": "rpc-idl-matrix",
+          "kind": "matrix",
+          "command": "go run ./examples/rpc-idl-matrix",
+          "verify": "go run -C examples/rpc-idl-matrix .",
+          "ports": [],
+          "dependencyMode": "local-only",
+          "copyable": true,
+          "smokeGate": "make rpc-boundary-check",
+          "readmeSource": "examples/README.md",
+          "rollbackNote": "Keep the previous RPC IDL profile until streaming, interceptor, resolver, and balancing evidence pass."
+        },
+        {
+          "id": "rpcserver",
+          "kind": "server",
+          "command": "go run ./examples/rpcserver",
+          "verify": "curl -s -X POST localhost:8081/examples.greeter.Greeter/SayHello -d '{\"name\":\"gofly\"}'",
+          "ports": [
+            8081
+          ],
+          "dependencyMode": "local-only",
+          "copyable": true,
+          "smokeGate": "make rpc-boundary-check",
+          "readmeSource": "examples/README.md",
+          "rollbackNote": "Keep the previous RPC service example active until registration and transport smoke evidence pass."
+        },
+        {
+          "id": "saga",
+          "kind": "command",
+          "command": "go run ./examples/saga",
+          "verify": "go run -C examples/saga .",
+          "ports": [],
+          "dependencyMode": "simulated-external",
+          "copyable": true,
+          "smokeGate": "make examples-smoke",
+          "readmeSource": "examples/README.md",
+          "rollbackNote": "Keep the previous saga workflow profile until compensation output and error-path evidence pass."
+        }
+      ]
+    },
     "groups": [
       {
         "id": "http",

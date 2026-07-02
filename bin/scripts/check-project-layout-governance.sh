@@ -218,6 +218,7 @@ for path in expected_ignored:
 
 examples_plan = manifest.get("examplesGroupingPlan") or {}
 require(examples_plan.get("status") == "planned-only", "examplesGroupingPlan.status must be planned-only")
+require(examples_plan.get("admissionGate") == "make project-layout-governance-check", "examplesGroupingPlan admissionGate mismatch")
 require("one family at a time" in str(examples_plan.get("migrationPolicy") or ""), "examplesGroupingPlan migrationPolicy must require one-family migration")
 groups = examples_plan.get("groups") or []
 grouped_examples = []
@@ -235,6 +236,107 @@ for group in groups:
         require((root / "examples" / example).is_dir(), f"examples group {group_id}: missing examples/{example}")
 actual_examples = sorted(path.name for path in (root / "examples").iterdir() if path.is_dir())
 require(sorted(grouped_examples) == actual_examples, "examplesGroupingPlan must account for every examples/* directory exactly once")
+require(len(grouped_examples) == len(set(grouped_examples)), "examplesGroupingPlan must not contain duplicate example directories")
+
+readiness = examples_plan.get("readinessContract") or {}
+require(
+    readiness.get("status") == "blocking-contract",
+    "examplesGroupingPlan.readinessContract.status must be blocking-contract",
+)
+require(
+    "Every current example" in str(readiness.get("policy") or ""),
+    "examples readiness policy must describe every current example",
+)
+required_example_fields = [
+    "id",
+    "kind",
+    "command",
+    "verify",
+    "ports",
+    "dependencyMode",
+    "copyable",
+    "smokeGate",
+    "readmeSource",
+    "rollbackNote",
+]
+require(
+    readiness.get("requiredFields") == required_example_fields,
+    "examples readiness requiredFields must pin the complete admission contract",
+)
+allowed_example_kinds = {"command", "deployment-checklist", "library", "matrix", "server"}
+allowed_dependency_modes = {"local-only", "optional-docker", "simulated-external"}
+require(
+    set(readiness.get("allowedKinds") or []) == allowed_example_kinds,
+    "examples readiness allowedKinds mismatch",
+)
+require(
+    set(readiness.get("allowedDependencyModes") or []) == allowed_dependency_modes,
+    "examples readiness allowedDependencyModes mismatch",
+)
+readiness_entries = readiness.get("entries") or []
+readiness_ids = []
+for entry in readiness_entries:
+    if not isinstance(entry, dict):
+        missing.append(f"examples readiness entry must be object: {entry!r}")
+        continue
+    example_id = entry.get("id", "<missing>")
+    readiness_ids.append(example_id)
+    for field in required_example_fields:
+        if field == "ports":
+            require(field in entry and isinstance(entry.get(field), list), f"examples readiness {example_id}: ports list is required")
+        elif field == "copyable":
+            require(entry.get(field) is True, f"examples readiness {example_id}: copyable must be true")
+        else:
+            require(entry.get(field), f"examples readiness {example_id}: {field} is required")
+    require(example_id in actual_examples, f"examples readiness {example_id}: example directory does not exist")
+    require(entry.get("kind") in allowed_example_kinds, f"examples readiness {example_id}: unknown kind {entry.get('kind')!r}")
+    require(
+        entry.get("dependencyMode") in allowed_dependency_modes,
+        f"examples readiness {example_id}: unknown dependencyMode {entry.get('dependencyMode')!r}",
+    )
+    require(gate_is_known(str(entry.get("smokeGate") or ""), targets), f"examples readiness {example_id}: smokeGate is not known")
+    require(str(entry.get("command") or "").startswith(("go ", "make ")), f"examples readiness {example_id}: command must be a Go or make command")
+    require(str(entry.get("verify") or "").startswith(("go ", "make ", "curl ")), f"examples readiness {example_id}: verify must be go, make, or curl")
+    ports = entry.get("ports") or []
+    require(
+        all(isinstance(port, int) and 0 < port < 65536 for port in ports),
+        f"examples readiness {example_id}: ports must be valid TCP port numbers",
+    )
+    if entry.get("kind") == "server":
+        require(ports, f"examples readiness {example_id}: server examples must declare listening ports")
+    else:
+        require(not ports, f"examples readiness {example_id}: non-server examples must not declare ports")
+    readme_source = str(entry.get("readmeSource") or "")
+    require(
+        readme_source == "examples/README.md" or readme_source == f"examples/{example_id}/README.md",
+        f"examples readiness {example_id}: readmeSource must be examples/README.md or the example README",
+    )
+    require((root / readme_source).is_file(), f"examples readiness {example_id}: missing {readme_source}")
+    require(
+        len(str(entry.get("rollbackNote") or "").split()) >= 8,
+        f"examples readiness {example_id}: rollbackNote must be actionable",
+    )
+    gomod = root / "examples" / example_id / "go.mod"
+    require(gomod.is_file(), f"examples readiness {example_id}: go.mod is required for copyable examples")
+    if gomod.is_file():
+        gomod_text = gomod.read_text(encoding="utf-8")
+        require(
+            f"module github.com/imajinyun/gofly/examples/{example_id}" in gomod_text,
+            f"examples readiness {example_id}: go.mod module path mismatch",
+        )
+        require(
+            "replace github.com/imajinyun/gofly => ../.." in gomod_text,
+            f"examples readiness {example_id}: go.mod must replace root module for copyable local smoke",
+        )
+require(
+    sorted(readiness_ids) == actual_examples,
+    "examples readiness entries must account for every examples/* directory exactly once: "
+    f"declared={sorted(readiness_ids)!r}, actual={actual_examples!r}",
+)
+require(
+    len(readiness_ids) == len(set(readiness_ids)),
+    "examples readiness entries must not contain duplicate example ids",
+)
 
 command_dir = root / "cmd" / "gofly" / "internal" / "command"
 families = manifest.get("commandFileFamilies") or []

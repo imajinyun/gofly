@@ -389,6 +389,65 @@ require(
     "ignoredArtifactBoundary must not contain duplicate artifact paths",
 )
 
+docs_taxonomy = manifest.get("docsTaxonomyBoundaries") or {}
+require(docs_taxonomy.get("status") == "blocking-contract", "docsTaxonomyBoundaries.status must be blocking-contract")
+require(docs_taxonomy.get("root") == "docs", "docsTaxonomyBoundaries.root must be docs")
+require(
+    docs_taxonomy.get("forbidUnknownTrackedDocDirectories") is True,
+    "docsTaxonomyBoundaries must forbid unknown tracked doc directories",
+)
+require(
+    "docs/superpowers" in str(docs_taxonomy.get("policy") or ""),
+    "docsTaxonomyBoundaries policy must keep docs/superpowers local-only",
+)
+tracked_doc_dirs = sorted(
+    {
+        rel.split("/", 2)[1]
+        for rel in subprocess.run(
+            ["git", "ls-files", "docs"],
+            cwd=root,
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+        ).stdout.splitlines()
+        if rel.startswith("docs/") and "/" in rel.removeprefix("docs/")
+    }
+)
+doc_families = docs_taxonomy.get("families") or []
+declared_doc_dirs = []
+allowed_doc_categories = {
+    "case-study",
+    "explanation",
+    "how-to",
+    "learning-path",
+    "reference",
+}
+for family in doc_families:
+    if not isinstance(family, dict):
+        missing.append(f"docsTaxonomyBoundaries family must be object: {family!r}")
+        continue
+    family_id = family.get("id", "")
+    dirs = family.get("directories") or []
+    require(family_id, "docs taxonomy family id is required")
+    require(family.get("category") in allowed_doc_categories, f"docs taxonomy family {family_id}: unknown category {family.get('category')!r}")
+    require(len(str(family.get("purpose") or "").split()) >= 8, f"docs taxonomy family {family_id}: purpose must be descriptive")
+    require(gate_is_known(str(family.get("gate") or ""), targets), f"docs taxonomy family {family_id}: gate is not known")
+    require(dirs, f"docs taxonomy family {family_id}: directories are required")
+    for dirname in dirs:
+        declared_doc_dirs.append(dirname)
+        require("/" not in dirname, f"docs taxonomy family {family_id}: directory must be relative to docs/: {dirname!r}")
+        require(dirname != "superpowers", "docs/superpowers must not be declared as a tracked docs taxonomy directory")
+        require((root / "docs" / dirname).is_dir(), f"docs taxonomy family {family_id}: missing docs/{dirname}")
+require(
+    sorted(declared_doc_dirs) == tracked_doc_dirs,
+    "docsTaxonomyBoundaries must account for every tracked docs subdirectory exactly once: "
+    f"declared={sorted(declared_doc_dirs)!r}, actual={tracked_doc_dirs!r}",
+)
+require(
+    len(declared_doc_dirs) == len(set(declared_doc_dirs)),
+    "docsTaxonomyBoundaries must not contain duplicate docs directories",
+)
+
 examples_plan = manifest.get("examplesGroupingPlan") or {}
 require(examples_plan.get("status") == "planned-only", "examplesGroupingPlan.status must be planned-only")
 require(examples_plan.get("admissionGate") == "make project-layout-governance-check", "examplesGroupingPlan admissionGate mismatch")

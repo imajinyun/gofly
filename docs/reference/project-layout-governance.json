@@ -421,6 +421,66 @@
       }
     ]
   },
+  "docsTaxonomyBoundaries": {
+    "status": "blocking-contract",
+    "root": "docs",
+    "policy": "Every tracked docs subdirectory must belong to exactly one documentation taxonomy family. Generated top-level docs remain ignored, docs/superpowers remains local-only, and new tracked docs subdirectories require this manifest plus project-layout-governance-check updates.",
+    "forbidUnknownTrackedDocDirectories": true,
+    "families": [
+      {
+        "id": "getting-started",
+        "category": "learning-path",
+        "purpose": "First-run installation, quickstart, and initial service creation guidance for new adopters.",
+        "gate": "make docs-taxonomy-check",
+        "directories": [
+          "getting-started",
+          "tutorials"
+        ]
+      },
+      {
+        "id": "task-guides",
+        "category": "how-to",
+        "purpose": "Task-oriented usage guides for services, runtime capabilities, examples, and operational recipes.",
+        "gate": "make docs-check",
+        "directories": [
+          "guides",
+          "how-to",
+          "operations"
+        ]
+      },
+      {
+        "id": "conceptual-explanation",
+        "category": "explanation",
+        "purpose": "Architecture concepts, governance rationale, adoption model, and framework comparison narratives.",
+        "gate": "make docs-check",
+        "directories": [
+          "concepts",
+          "explanation",
+          "comparisons"
+        ]
+      },
+      {
+        "id": "reference-contracts",
+        "category": "reference",
+        "purpose": "Machine-readable and human-readable contracts, matrices, evidence, and release reference material.",
+        "gate": "make project-layout-governance-check",
+        "directories": [
+          "reference",
+          "releases"
+        ]
+      },
+      {
+        "id": "adoption-proof",
+        "category": "case-study",
+        "purpose": "Runnable case studies, legacy documentation compatibility, and adopter proof narratives.",
+        "gate": "make migration-docs-check",
+        "directories": [
+          "case-studies",
+          "doc"
+        ]
+      }
+    ]
+  },
   "examplesGroupingPlan": {
     "status": "planned-only",
     "admissionGate": "make project-layout-governance-check",

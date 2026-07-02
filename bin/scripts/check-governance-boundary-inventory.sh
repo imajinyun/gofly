@@ -16,10 +16,11 @@ p13_path = root / "docs" / "reference" / "governance-p13-roadmap.json"
 p14_path = root / "docs" / "reference" / "governance-p14-roadmap.json"
 p15_path = root / "docs" / "reference" / "governance-p15-roadmap.json"
 p16_path = root / "docs" / "reference" / "governance-p16-roadmap.json"
+p17_path = root / "docs" / "reference" / "governance-p17-roadmap.json"
 post_r8_path = root / "docs" / "reference" / "framework-gap-post-r8-roadmap.json"
 missing = []
 
-expected_active_batch = "GOFLY-P16"
+expected_active_batch = "GOFLY-P17"
 expected_converged_batch = "GOFLY-P12"
 expected_p13_tasks = [
     "GOFLY-P13-01-RPC-TIER1-PROMOTION-CLOSEOUT",
@@ -50,9 +51,9 @@ expected_p13_task_gates = [
     "make required-checks-drift-check",
 ]
 expected_tasks = [
-    "GOFLY-P16-01-P15-COMPLETION-HANDOFF",
-    "GOFLY-P16-02-GATEWAY-CACHE-TREND-SAMPLE-ATTACHMENT",
-    "GOFLY-P16-03-GATEWAY-CACHE-ALLOCATION-PROMOTION-REVIEW",
+    "GOFLY-P17-01-P16-COMPLETION-HANDOFF",
+    "GOFLY-P17-02-GATEWAY-CACHE-BASELINE-ROW-ATTACHMENT",
+    "GOFLY-P17-03-GATEWAY-CACHE-ALLOCATION-PROMOTION-DECISION",
 ]
 expected_task_gates = [
     "make governance-boundary-inventory-check",
@@ -67,6 +68,16 @@ expected_p15_tasks = [
 expected_p15_task_gates = [
     "make governance-boundary-inventory-check",
     "make rpc-boundary-check",
+    "make bench-regression-check",
+]
+expected_p16_tasks = [
+    "GOFLY-P16-01-P15-COMPLETION-HANDOFF",
+    "GOFLY-P16-02-GATEWAY-CACHE-TREND-SAMPLE-ATTACHMENT",
+    "GOFLY-P16-03-GATEWAY-CACHE-ALLOCATION-PROMOTION-REVIEW",
+]
+expected_p16_task_gates = [
+    "make governance-boundary-inventory-check",
+    "make bench-regression-check",
     "make bench-regression-check",
 ]
 expected_p14_tasks = [
@@ -179,8 +190,13 @@ expected_batches = {
         "roundCount": 3,
     },
     "GOFLY-P16": {
-        "status": "submitted",
+        "status": "completed",
         "taskPrefix": "GOFLY-P16-",
+        "roundCount": 3,
+    },
+    "GOFLY-P17": {
+        "status": "submitted",
+        "taskPrefix": "GOFLY-P17-",
         "roundCount": 3,
     },
 }
@@ -293,6 +309,11 @@ if p16_path.is_file():
 else:
     p16_manifest = {}
     missing.append("docs/reference/governance-p16-roadmap.json is missing")
+if p17_path.is_file():
+    p17_manifest = json.loads(p17_path.read_text(encoding="utf-8"))
+else:
+    p17_manifest = {}
+    missing.append("docs/reference/governance-p17-roadmap.json is missing")
 if post_r8_path.is_file():
     post_r8 = json.loads(post_r8_path.read_text(encoding="utf-8"))
 else:
@@ -311,6 +332,7 @@ require(p13_manifest.get("schema") == "gofly.governance_p13_roadmap.v1", "P13 ro
 require(p14_manifest.get("schema") == "gofly.governance_p14_roadmap.v1", "P14 roadmap schema mismatch")
 require(p15_manifest.get("schema") == "gofly.governance_p15_roadmap.v1", "P15 roadmap schema mismatch")
 require(p16_manifest.get("schema") == "gofly.governance_p16_roadmap.v1", "P16 roadmap schema mismatch")
+require(p17_manifest.get("schema") == "gofly.governance_p17_roadmap.v1", "P17 roadmap schema mismatch")
 require(post_r8.get("schema") == "gofly.framework_gap_post_r8_roadmap.v1", "post-R8 framework gap schema mismatch")
 require(manifest.get("activeAiflowBatch") == expected_active_batch, f"activeAiflowBatch must be {expected_active_batch}")
 require("governance-boundary-inventory-check" in targets, "Makefile must expose governance-boundary-inventory-check")
@@ -352,16 +374,20 @@ for expected_round, item in enumerate(tasks, start=1):
     )
     require(gate_is_known(item.get("gate", ""), targets), f"{task_id}: gate is not known: {item.get('gate')!r}")
 actual_task_gates = [item.get("gate") for item in tasks if isinstance(item, dict)]
-require(actual_task_gates == expected_task_gates, f"P16 task gates mismatch: {actual_task_gates!r}")
-require("p15 completion" in tasks[0].get("title", "").lower(), "P16 round 01 title must document P15 completion handoff")
-require("p16" in tasks[0].get("objective", "").lower(), "P16 round 01 objective must document P16 active batch handoff")
+require(actual_task_gates == expected_task_gates, f"P17 task gates mismatch: {actual_task_gates!r}")
+require("p16 completion" in tasks[0].get("title", "").lower(), "P17 round 01 title must document P16 completion handoff")
+require("p17" in tasks[0].get("objective", "").lower(), "P17 round 01 objective must document P17 active batch handoff")
 for expected_round, item in enumerate(tasks, start=1):
     task_id = item.get("id")
-    expected_status = "completed"
-    require(item.get("status") == expected_status, f"{task_id}: active P16 task status must be {expected_status}")
+    expected_status = "completed" if expected_round == 1 else "queued"
+    require(item.get("status") == expected_status, f"{task_id}: active P17 task status must be {expected_status}")
     require(item.get("priority"), f"{task_id}: priority is required")
-    require(item.get("commit") == "pending-current-commit", f"{task_id}: completed P16 task must record pending current commit")
-    require(bool(item.get("verification")), f"{task_id}: completed P16 task must record verification")
+    if expected_status == "completed":
+        require(item.get("commit") == "pending-current-commit", f"{task_id}: completed P17 task must record pending current commit")
+        require(bool(item.get("verification")), f"{task_id}: completed P17 task must record verification")
+    else:
+        require("commit" not in item or item.get("commit") in ("", None), f"{task_id}: queued P17 task must not claim a completed commit")
+        require("verification" not in item or item.get("verification") in ("", None), f"{task_id}: queued P17 task must not claim completed verification")
 
 surfaces = manifest.get("surfaces") or []
 actual_surfaces = {item.get("id") for item in surfaces if isinstance(item, dict)}
@@ -706,14 +732,14 @@ actual_p16_tasks = [
     for item in p16_tasks
     if isinstance(item, dict)
 ]
-require(actual_p16_tasks == expected_tasks, f"P16 roadmap task ids mismatch: {actual_p16_tasks!r}")
+require(actual_p16_tasks == expected_p16_tasks, f"P16 roadmap task ids mismatch: {actual_p16_tasks!r}")
 p16_submission = p16_manifest.get("aiflowSubmission") or {}
 require(p16_submission.get("status") == "submitted", "P16 aiflowSubmission.status must be submitted")
-require(p16_submission.get("completedTasks") == expected_tasks, "P16 completedTasks must contain all active batch tasks")
+require(p16_submission.get("completedTasks") == expected_p16_tasks, "P16 completedTasks must contain all active batch tasks")
 require(p16_submission.get("pendingTasks") == [], "P16 pendingTasks must be empty after allocation promotion review")
 p16_submission_commands = p16_submission.get("submissionCommands") or []
 require(len(p16_submission_commands) == 3, "P16 submissionCommands must document all three aiflow submit calls")
-for task_id in expected_tasks:
+for task_id in expected_p16_tasks:
     require(
         any(task_id in command and "aiflow submit" in command for command in p16_submission_commands),
         f"P16 submissionCommands missing {task_id}",
@@ -738,12 +764,61 @@ for expected_round, item in enumerate(p16_tasks, start=1):
     for field in ("id", "title", "objective", "deliverable", "acceptanceGates", "commitPolicy"):
         require(bool(item.get(field)), f"{task_id}: {field} is required")
     gates = item.get("acceptanceGates") or []
-    require(gates[0] == expected_task_gates[expected_round - 1], f"{task_id}: first acceptance gate mismatch")
+    require(gates[0] == expected_p16_task_gates[expected_round - 1], f"{task_id}: first acceptance gate mismatch")
     for gate in gates:
         require(gate_is_known(gate, targets), f"{task_id}: acceptanceGate is not known: {gate!r}")
     require("commit" in item.get("commitPolicy", "").lower(), f"{task_id}: commitPolicy must mention commit")
     require(item.get("commit") == "pending-current-commit", f"{task_id}: completed task must record pending current commit")
     require(bool(item.get("verification")), f"{task_id}: completed task must record verification")
+
+p17_tasks = p17_manifest.get("tasks") or []
+actual_p17_tasks = [
+    item.get("id")
+    for item in p17_tasks
+    if isinstance(item, dict)
+]
+require(actual_p17_tasks == expected_tasks, f"P17 roadmap task ids mismatch: {actual_p17_tasks!r}")
+p17_submission = p17_manifest.get("aiflowSubmission") or {}
+require(p17_submission.get("status") == "submitted", "P17 aiflowSubmission.status must be submitted")
+require(p17_submission.get("completedTasks") == expected_tasks[:1], "P17 completedTasks must contain the handoff task only")
+require(p17_submission.get("pendingTasks") == expected_tasks[1:], "P17 pendingTasks must match the remaining queue order")
+p17_submission_commands = p17_submission.get("submissionCommands") or []
+require(len(p17_submission_commands) == 3, "P17 submissionCommands must document all three aiflow submit calls")
+for task_id in expected_tasks:
+    require(
+        any(task_id in command and "aiflow submit" in command for command in p17_submission_commands),
+        f"P17 submissionCommands missing {task_id}",
+    )
+require("aiflow status" in str(p17_submission.get("queueStatusCommand") or ""), "P17 queueStatusCommand must document aiflow status")
+p17_handoff = p17_manifest.get("previousBatchHandoff") or {}
+require(p17_handoff.get("completedBatch") == "GOFLY-P16", "P17 previousBatchHandoff.completedBatch must be GOFLY-P16")
+require(p17_handoff.get("completedTaskCount") == 3, "P17 previousBatchHandoff.completedTaskCount must be 3")
+p17_runtime_policy = str(p17_submission.get("runtimeStatePolicy") or "")
+for path in (".aiflow", ".harness", ".tmp-test", ".trae", "coverage.out", "bench/current.txt", "bench/regression-report.json", "bench/summary.md", "bin/gofly", "docs/superpowers"):
+    require(path in p17_runtime_policy, f"P17 runtimeStatePolicy missing {path!r}")
+require("committed by the current agent or human" in str(p17_submission.get("safetyPolicy") or ""), "P17 safetyPolicy must document commit ownership")
+for expected_round, item in enumerate(p17_tasks, start=1):
+    if not isinstance(item, dict):
+        missing.append(f"P17 roadmap task must be an object: {item!r}")
+        continue
+    task_id = item.get("id", "<missing>")
+    require(item.get("round") == expected_round, f"{task_id}: round must be {expected_round}")
+    expected_status = "completed" if expected_round == 1 else "queued"
+    require(item.get("status") == expected_status, f"{task_id}: status must be {expected_status}")
+    require(item.get("priority") == 101 - expected_round, f"{task_id}: priority mismatch")
+    for field in ("id", "title", "objective", "deliverable", "acceptanceGates", "commitPolicy"):
+        require(bool(item.get(field)), f"{task_id}: {field} is required")
+    gates = item.get("acceptanceGates") or []
+    require(gates[0] == expected_task_gates[expected_round - 1], f"{task_id}: first acceptance gate mismatch")
+    for gate in gates:
+        require(gate_is_known(gate, targets), f"{task_id}: acceptanceGate is not known: {gate!r}")
+    require("commit" in item.get("commitPolicy", "").lower(), f"{task_id}: commitPolicy must mention commit")
+    if expected_status == "completed":
+        require(item.get("commit") == "pending-current-commit", f"{task_id}: completed task must record pending current commit")
+        require(bool(item.get("verification")), f"{task_id}: completed task must record verification")
+    else:
+        require("commit" not in item or item.get("commit") in ("", None), f"{task_id}: queued task must not claim a completed commit")
+        require("verification" not in item or item.get("verification") in ("", None), f"{task_id}: queued task must not claim completed verification")
 
 if missing:
     print("governance boundary inventory check failed:", file=sys.stderr)

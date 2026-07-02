@@ -257,9 +257,9 @@
     "gate": "make governance-boundary-inventory-check",
     "finalGate": "make governance-10-rounds",
     "requiredTaskCount": 3,
-    "requiredActiveBatch": "GOFLY-P16",
-    "latestCompletedBatch": "GOFLY-P15",
-    "activeRoadmap": "docs/reference/governance-p16-roadmap.json",
+    "requiredActiveBatch": "GOFLY-P17",
+    "latestCompletedBatch": "GOFLY-P16",
+    "activeRoadmap": "docs/reference/governance-p17-roadmap.json",
     "requiredIgnoredRuntimePaths": [
       "docs/superpowers/",
       ".aiflow/",

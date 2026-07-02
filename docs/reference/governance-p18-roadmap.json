@@ -20,10 +20,10 @@
     "runtimeStatePolicy": ".aiflow, .harness, .tmp-test, .trae, coverage.out, bench/current.txt, bench/regression-report.json, bench/summary.md, bin/gofly, and docs/superpowers remain ignored local evidence and must not be committed.",
     "safetyPolicy": "P18 tasks are submitted to ignored local aiflow runtime state and mirrored here as durable docs/reference evidence; each task must be completed in order and committed by the current agent or human only after its gate passes or an environment-limited downgrade is documented.",
     "completedTasks": [
-      "GOFLY-P18-01-P17-COMPLETION-HANDOFF"
+      "GOFLY-P18-01-P17-COMPLETION-HANDOFF",
+      "GOFLY-P18-02-GATEWAY-PROXY-ALLOCATION-HOLD-EVIDENCE"
     ],
     "pendingTasks": [
-      "GOFLY-P18-02-GATEWAY-PROXY-ALLOCATION-HOLD-EVIDENCE",
       "GOFLY-P18-03-CACHE-LOADER-HIT-PROMOTION-PRECHECK"
     ]
   },
@@ -62,7 +62,7 @@
     {
       "round": 2,
       "id": "GOFLY-P18-02-GATEWAY-PROXY-ALLOCATION-HOLD-EVIDENCE",
-      "status": "queued",
+      "status": "completed",
       "priority": 99,
       "title": "Gateway proxy allocation hold evidence",
       "objective": "Keep BenchmarkGatewayProxy outside tracked allocation blocking while recording the concrete reduction target, rollback boundary, and release note guardrails required before promotion.",
@@ -70,7 +70,18 @@
       "acceptanceGates": [
         "make bench-regression-check"
       ],
-      "commitPolicy": "commit after Gateway proxy hold evidence passes bench-regression-check and still forbids trackedBenchmarks promotion"
+      "commitPolicy": "commit after Gateway proxy hold evidence passes bench-regression-check and still forbids trackedBenchmarks promotion",
+      "commit": "pending-current-commit",
+      "verification": [
+        "python3 -m json.tool bench/budget-ratchet.json",
+        "python3 -m json.tool docs/reference/governance-p18-roadmap.json",
+        "python3 -m json.tool docs/reference/governance-boundary-inventory.json",
+        "sh -n bin/scripts/benchstat.sh",
+        "sh -n bin/scripts/check-governance-boundary-inventory.sh",
+        "make bench-regression-check",
+        "make governance-boundary-inventory-check",
+        "make governance-report-check"
+      ]
     },
     {
       "round": 3,

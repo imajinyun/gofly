@@ -268,6 +268,7 @@ def validate_ratchet_policy() -> None:
     p16_gateway_cache_promotion_review = ratchet.get("p16GatewayCacheAllocationPromotionReview") or {}
     p17_gateway_cache_baseline = ratchet.get("p17GatewayCacheBaselineRowAttachment") or {}
     p17_gateway_cache_promotion_decision = ratchet.get("p17GatewayCacheAllocationPromotionDecision") or {}
+    p18_gateway_proxy_hold = ratchet.get("p18GatewayProxyAllocationHoldEvidence") or {}
     p17_selected_allocation_benchmark = str(
         (p17_gateway_cache_promotion_decision.get("decision") or {}).get("allocationBlockingSurface") or ""
     )
@@ -1922,6 +1923,136 @@ def validate_ratchet_policy() -> None:
         require_policy(
             forbidden in set(p17_gateway_cache_promotion_decision.get("forbiddenUntilCleared") or []),
             f"p17GatewayCacheAllocationPromotionDecision forbiddenUntilCleared missing {forbidden!r}",
+        )
+
+    require_policy(
+        p18_gateway_proxy_hold.get("schema")
+        == "gofly.benchmark_p18_gateway_proxy_allocation_hold_evidence.v1",
+        "p18GatewayProxyAllocationHoldEvidence schema mismatch",
+    )
+    require_policy(
+        p18_gateway_proxy_hold.get("aiflowTask")
+        == "GOFLY-P18-02-GATEWAY-PROXY-ALLOCATION-HOLD-EVIDENCE",
+        "p18GatewayProxyAllocationHoldEvidence aiflowTask mismatch",
+    )
+    require_policy(
+        p18_gateway_proxy_hold.get("status") == "gateway-proxy-allocation-hold",
+        "p18GatewayProxyAllocationHoldEvidence status mismatch",
+    )
+    require_policy(
+        p18_gateway_proxy_hold.get("acceptanceGate") == "make bench-regression-check",
+        "p18GatewayProxyAllocationHoldEvidence acceptanceGate mismatch",
+    )
+    for source in (
+        "bench/budget-ratchet.json",
+        "bench/baseline.txt",
+        "bench/current.txt",
+        "bench/gateway_cache_bench_test.go",
+        "bench/matrix.md",
+        "docs/reference/governance-p18-roadmap.json",
+    ):
+        require_policy(
+            source in set(p18_gateway_proxy_hold.get("sourceEvidence") or []),
+            f"p18GatewayProxyAllocationHoldEvidence sourceEvidence missing {source!r}",
+        )
+    p18_gateway_decision = p18_gateway_proxy_hold.get("decision") or {}
+    require_policy(p18_gateway_decision.get("result") == "hold", "p18GatewayProxyAllocationHoldEvidence decision.result mismatch")
+    require_policy(
+        p18_gateway_decision.get("selectedSurface") == "gateway-proxy",
+        "p18GatewayProxyAllocationHoldEvidence selectedSurface mismatch",
+    )
+    require_policy(
+        p18_gateway_decision.get("allocationBlockingSurface") == "none",
+        "p18GatewayProxyAllocationHoldEvidence allocationBlockingSurface must remain none",
+    )
+    require_policy(
+        p18_gateway_decision.get("latencyMode") == "report-only",
+        "p18GatewayProxyAllocationHoldEvidence latencyMode must remain report-only",
+    )
+    require_policy(
+        p18_gateway_decision.get("trackedBenchmarkPromotion") == "not-promoted",
+        "p18GatewayProxyAllocationHoldEvidence trackedBenchmarkPromotion mismatch",
+    )
+    require_policy(
+        p18_gateway_decision.get("promotionStatus") == "blocked",
+        "p18GatewayProxyAllocationHoldEvidence promotionStatus mismatch",
+    )
+    require_policy(
+        p18_gateway_decision.get("nextReviewGate") == "make bench-regression-check",
+        "p18GatewayProxyAllocationHoldEvidence nextReviewGate mismatch",
+    )
+    for field in ("reason", "releaseNotePolicy"):
+        require_policy(
+            len(str(p18_gateway_decision.get(field) or "").split()) >= 20,
+            f"p18GatewayProxyAllocationHoldEvidence decision.{field} must be actionable",
+        )
+    for forbidden_claim in (
+        "allocation-blocking Gateway claim",
+        "blocking Gateway latency",
+        "Gateway performance parity",
+        "production Gateway performance parity",
+    ):
+        require_policy(
+            forbidden_claim in str(p18_gateway_decision.get("releaseNotePolicy") or ""),
+            f"p18GatewayProxyAllocationHoldEvidence releaseNotePolicy must mention {forbidden_claim!r}",
+        )
+    require_policy("BenchmarkGatewayProxy" not in tracked, "BenchmarkGatewayProxy must stay out of trackedBenchmarks after P18 hold")
+    require_policy("BenchmarkGatewayProxy" not in promoted_latency, "BenchmarkGatewayProxy latency must stay report-only after P18 hold")
+    p18_gateway_budget = p18_gateway_proxy_hold.get("holdBudget") or {}
+    require_policy(
+        p18_gateway_budget.get("benchmark") == "BenchmarkGatewayProxy",
+        "p18GatewayProxyAllocationHoldEvidence holdBudget benchmark mismatch",
+    )
+    require_policy(
+        p18_gateway_budget.get("promotionMode") == "report-only",
+        "p18GatewayProxyAllocationHoldEvidence holdBudget promotionMode mismatch",
+    )
+    require_policy(
+        p18_gateway_budget.get("latencyMode") == "report-only",
+        "p18GatewayProxyAllocationHoldEvidence holdBudget latencyMode mismatch",
+    )
+    require_policy(
+        int(p18_gateway_budget.get("baselineSampleCount") or 0) >= 5,
+        "p18GatewayProxyAllocationHoldEvidence holdBudget baselineSampleCount must be at least five",
+    )
+    require_policy(
+        int(p18_gateway_budget.get("currentTrendSampleCount") or 0) >= 5,
+        "p18GatewayProxyAllocationHoldEvidence holdBudget currentTrendSampleCount must be at least five",
+    )
+    require_policy(
+        float(p18_gateway_budget.get("currentAllocsPerOpMedian") or 0)
+        <= float(p18_gateway_budget.get("baselineAllocsPerOpMedian") or 0),
+        "p18GatewayProxyAllocationHoldEvidence current alloc median must not exceed baseline for hold evidence",
+    )
+    require_policy(
+        float(p18_gateway_budget.get("allocationTargetAllocsPerOp") or 0)
+        < float(p18_gateway_budget.get("baselineAllocsPerOpMedian") or 0),
+        "p18GatewayProxyAllocationHoldEvidence allocation target must be below current baseline",
+    )
+    for field in ("targetRationale", "rollbackBoundary"):
+        require_policy(
+            len(str(p18_gateway_budget.get(field) or "").split()) >= 12,
+            f"p18GatewayProxyAllocationHoldEvidence holdBudget {field} must be actionable",
+        )
+    p18_gateway_rules = set(p18_gateway_proxy_hold.get("blockingRules") or [])
+    for rule in (
+        "P18 Gateway proxy must stay out of trackedBenchmarks",
+        "P18 Gateway proxy latency must remain report-only",
+        "P18 Gateway proxy promotion requires allocation target clearance",
+        "P18 Gateway proxy promotion requires rollback boundary evidence",
+        "P18 Gateway proxy release notes must forbid Gateway performance parity claims",
+    ):
+        require_policy(rule in p18_gateway_rules, f"p18GatewayProxyAllocationHoldEvidence blockingRules missing {rule!r}")
+    for forbidden in (
+        "trackedBenchmarks Gateway entry",
+        "blocking Gateway latency claim",
+        "allocation-blocking Gateway claim",
+        "Gateway performance parity claim",
+        "production Gateway performance parity claim",
+    ):
+        require_policy(
+            forbidden in set(p18_gateway_proxy_hold.get("forbiddenUntilCleared") or []),
+            f"p18GatewayProxyAllocationHoldEvidence forbiddenUntilCleared missing {forbidden!r}",
         )
     p12_rules = set(p12_rpc_decision.get("blockingRules") or [])
     for rule in (

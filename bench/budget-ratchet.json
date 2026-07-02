@@ -1240,6 +1240,60 @@
       "production Cache performance parity claim"
     ]
   },
+  "p18GatewayProxyAllocationHoldEvidence": {
+    "schema": "gofly.benchmark_p18_gateway_proxy_allocation_hold_evidence.v1",
+    "aiflowTask": "GOFLY-P18-02-GATEWAY-PROXY-ALLOCATION-HOLD-EVIDENCE",
+    "status": "gateway-proxy-allocation-hold",
+    "acceptanceGate": "make bench-regression-check",
+    "decidedAt": "2026-07-02T02:12:00Z",
+    "sourceEvidence": [
+      "bench/budget-ratchet.json",
+      "bench/baseline.txt",
+      "bench/current.txt",
+      "bench/gateway_cache_bench_test.go",
+      "bench/matrix.md",
+      "docs/reference/governance-p18-roadmap.json"
+    ],
+    "decision": {
+      "result": "hold",
+      "selectedSurface": "gateway-proxy",
+      "allocationBlockingSurface": "none",
+      "latencyMode": "report-only",
+      "trackedBenchmarkPromotion": "not-promoted",
+      "promotionStatus": "blocked",
+      "nextReviewGate": "make bench-regression-check",
+      "reason": "P18 keeps BenchmarkGatewayProxy outside blocking allocation coverage because the row is stable enough for trend visibility but still carries 154 allocs/op on the proxy path, which is too high for a release-blocking Gateway claim without a lower target and rollback boundary.",
+      "releaseNotePolicy": "Release notes may describe BenchmarkGatewayProxy as Gateway proxy report-only evidence, but must not claim allocation-blocking Gateway claim, blocking Gateway latency, Gateway performance parity, or production Gateway performance parity until the allocation target and rollback boundary pass."
+    },
+    "holdBudget": {
+      "surface": "gateway-proxy",
+      "benchmark": "BenchmarkGatewayProxy",
+      "promotionMode": "report-only",
+      "latencyMode": "report-only",
+      "baselineSampleCount": 5,
+      "currentTrendSampleCount": 5,
+      "baselineAllocsPerOpMedian": 154,
+      "currentAllocsPerOpMedian": 154,
+      "allocationTargetAllocsPerOp": 128,
+      "allocationTolerance": 0,
+      "targetRationale": "Gateway proxy promotion requires a measurable allocation reduction below the current 154 allocs/op baseline before the row can become a release blocker.",
+      "rollbackBoundary": "Keep Gateway proxy claims report-only and route traffic through the previous gateway path when current trend evidence exceeds baseline or the allocation target is missed."
+    },
+    "blockingRules": [
+      "P18 Gateway proxy must stay out of trackedBenchmarks",
+      "P18 Gateway proxy latency must remain report-only",
+      "P18 Gateway proxy promotion requires allocation target clearance",
+      "P18 Gateway proxy promotion requires rollback boundary evidence",
+      "P18 Gateway proxy release notes must forbid Gateway performance parity claims"
+    ],
+    "forbiddenUntilCleared": [
+      "trackedBenchmarks Gateway entry",
+      "blocking Gateway latency claim",
+      "allocation-blocking Gateway claim",
+      "Gateway performance parity claim",
+      "production Gateway performance parity claim"
+    ]
+  },
   "p12RpcBudgetPromotionDecision": {
     "schema": "gofly.benchmark_p12_rpc_budget_promotion_decision.v1",
     "aiflowTask": "GOFLY-P12-1-RPC-BENCHMARK-BUDGET-PROMOTION",

@@ -150,13 +150,19 @@
     {
       "id": "GOFLY-P18-02-GATEWAY-PROXY-ALLOCATION-HOLD-EVIDENCE",
       "round": 2,
-      "status": "queued",
+      "status": "completed",
       "priority": 99,
       "title": "Gateway proxy allocation hold evidence",
       "objective": "Keep BenchmarkGatewayProxy outside tracked allocation blocking while recording the concrete reduction target, rollback boundary, and release note guardrails required before promotion.",
       "deliverable": "Gateway proxy hold evidence, allocation target, rollback note, report-only release policy, and bench-regression-check guardrails.",
       "gate": "make bench-regression-check",
-      "commitPolicy": "commit after Gateway proxy hold evidence passes bench-regression-check and still forbids trackedBenchmarks promotion"
+      "commitPolicy": "commit after Gateway proxy hold evidence passes bench-regression-check and still forbids trackedBenchmarks promotion",
+      "commit": "pending-current-commit",
+      "verification": [
+        "make bench-regression-check",
+        "make governance-boundary-inventory-check",
+        "make governance-report-check"
+      ]
     },
     {
       "id": "GOFLY-P18-03-CACHE-LOADER-HIT-PROMOTION-PRECHECK",

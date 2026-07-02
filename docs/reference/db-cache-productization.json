@@ -109,6 +109,7 @@
       ],
       "generatedEvidence": [
         "func (r *OrderRepo) Transact(ctx context.Context, opts *sql.TxOptions, fn func(context.Context, *OrderRepo) error) error",
+        "return r.cluster.Transact(ctx, opts",
         "return r.store.Transact(ctx, opts"
       ],
       "tests": [
@@ -166,7 +167,7 @@
     {
       "id": "read-write-split-workflow",
       "status": "implemented",
-      "source": "core/storage/cluster.go",
+      "source": "cmd/gofly/internal/generator/model_codegen.go",
       "runtimeEvidence": [
         "func NewCluster(primary *SQLStore, replicas ...*SQLStore) (*Cluster, error)",
         "func (c *Cluster) Reader() *SQLStore",
@@ -175,17 +176,20 @@
         "FOR UPDATE"
       ],
       "generatedEvidence": [
-        "store *storage.SQLStore",
-        "return r.store.Transact(ctx, opts"
+        "cluster *storage.Cluster",
+        "func NewOrderRepoWithCluster(cluster *storage.Cluster, dialect ...storage.Dialect) *OrderRepo",
+        "store := r.cluster.ForQuery(query)"
       ],
       "tests": [
         "core/storage/cluster_test.go",
+        "core/storage/cluster.go",
         "cmd/gofly/internal/generator/model_codegen.go",
-        "cmd/gofly/internal/generator/idl_test.go"
+        "cmd/gofly/internal/generator/idl_test.go",
+        "cmd/gofly/internal/generator/goctl_replay_test.go"
       ],
-      "observability": "Primary and replica SQLStore instances expose independent StoreSnapshot database and operation stats.",
-      "gate": "go test -shuffle=on ./core/storage/...",
-      "rollbackNote": "Route all operations to the primary SQLStore until read/write split tests and topology evidence pass."
+      "observability": "Generated repository read and write paths route through Cluster-backed SQLStore instances, preserving independent StoreSnapshot database and operation stats.",
+      "gate": "go test -shuffle=on ./cmd/gofly/internal/generator -run TestGenerateModelFromDDL",
+      "rollbackNote": "Use NewOrderRepo with the primary SQLStore until generated cluster-aware repository output, storage routing tests, and replay smoke pass."
     },
     {
       "id": "redis-sql-observability-workflow",
@@ -249,7 +253,10 @@
           "NewCluster",
           "Reader",
           "Writer",
-          "FOR UPDATE"
+          "FOR UPDATE",
+          "NewOrderRepoWithCluster",
+          "cluster *storage.Cluster",
+          "ForQuery(query)"
         ],
         "gate": "go test -shuffle=on ./core/storage/...",
         "rollbackOrEscalation": "Route all operations to the primary SQLStore or previous repository path until read/write split and transaction tests pass."
@@ -511,7 +518,8 @@
         ],
         "evidence": [
           "type %sRepo struct",
-          "store *storage.SQLStore",
+          "store   *storage.SQLStore",
+          "cluster *storage.Cluster",
           "func (r *OrderRepo) FindWhere(ctx context.Context, where *storage.Where) ([]entity.Order, error)",
           "storage.SelectWhere(entity.OrderTable, entity.OrderColumns, where, r.dialect)"
         ],
@@ -577,9 +585,12 @@
       {
         "id": "read-write-split",
         "status": "implemented",
-        "surface": "SQL read/write routing strategy",
-        "source": "core/storage/cluster.go",
+        "surface": "generated SQL read/write routing strategy",
+        "source": "cmd/gofly/internal/generator/model_codegen.go",
         "tests": [
+          "cmd/gofly/internal/generator/idl_test.go",
+          "cmd/gofly/internal/generator/goctl_replay_test.go",
+          "core/storage/cluster.go",
           "core/storage/cluster_test.go",
           "core/storage/sql_test.go"
         ],
@@ -587,10 +598,13 @@
           "func NewCluster(primary *SQLStore, replicas ...*SQLStore) (*Cluster, error)",
           "func (c *Cluster) Reader() *SQLStore",
           "func (c *Cluster) Writer() *SQLStore",
-          "FOR UPDATE"
+          "FOR UPDATE",
+          "NewOrderRepoWithCluster",
+          "cluster *storage.Cluster",
+          "ForQuery(query)"
         ],
-        "gate": "go test -shuffle=on ./core/storage/...",
-        "rollbackOrEscalation": "Route all reads and writes to the primary SQLStore until read/write split tests and topology evidence pass for the service."
+        "gate": "go test -shuffle=on ./cmd/gofly/internal/generator -run TestGenerateModelFromDDL",
+        "rollbackOrEscalation": "Use NewOrderRepo with the primary SQLStore until generated cluster-aware repository output, storage routing tests, and replay smoke pass for the service."
       },
       {
         "id": "redis-cache-aside",

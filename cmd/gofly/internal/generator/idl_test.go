@@ -2652,9 +2652,15 @@ func TestGenerateModelFromDDL(t *testing.T) {
 		t.Fatalf("generated repo should not include cache helpers unless cache is enabled = %s", repo)
 	}
 	for _, want := range []string{
+		"store   *storage.SQLStore",
+		"cluster *storage.Cluster",
 		"tx      *sql.Tx",
+		"func NewOrderRepoWithCluster(cluster *storage.Cluster, dialect ...storage.Dialect) *OrderRepo",
 		"func (r *OrderRepo) WithTx(tx *sql.Tx) *OrderRepo",
 		"func (r *OrderRepo) Transact(ctx context.Context, opts *sql.TxOptions, fn func(context.Context, *OrderRepo) error) error",
+		"return r.cluster.Transact(ctx, opts",
+		"store := r.cluster.Writer()",
+		"store := r.cluster.ForQuery(query)",
 		"func (r *OrderRepo) FindWhere(ctx context.Context, where *storage.Where) ([]entity.Order, error)",
 		"func (r *OrderRepo) CountWhere(ctx context.Context, where *storage.Where) (int64, error)",
 		"func (r *OrderRepo) InsertMany(ctx context.Context, items []*entity.Order) error",

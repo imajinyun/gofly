@@ -138,7 +138,7 @@
     },
     {
       "id": "GOFLY-P20",
-      "status": "mirrored-after-aiflow-build-blocker",
+      "status": "completed-with-local-fallbacks",
       "taskPrefix": "GOFLY-P20-",
       "roundCount": 3,
       "evidence": "docs/reference/governance-p20-roadmap.json"
@@ -183,14 +183,21 @@
     {
       "id": "GOFLY-P20-03-MODEL-CACHE-TEMPLATE-DEPTH",
       "round": 3,
-      "status": "submitted",
+      "status": "completed",
       "priority": 98,
       "title": "model cache template depth",
       "objective": "Deepen model/cache generation around go-zero sqlx/cache adoption expectations: transaction sample, bounded pagination, optimistic lock, read/write split, Redis cache-aside, observability, and generated project smoke.",
       "deliverable": "Generated model/cache template evidence, focused tests, db-cache productization contract updates, smoke gate wiring, and rollback notes.",
       "gate": "make db-cache-productization-check",
       "commitPolicy": "commit after model/cache template tests and db-cache productization gate pass without adding generated-only dependencies to the root module",
-      "verification": []
+      "commit": "pending-current-commit",
+      "verification": [
+        "go test -shuffle=on ./cmd/gofly/internal/generator -run TestGenerateModelFromDDL",
+        "go test -shuffle=on ./cmd/gofly/internal/generator -run TestGoctlRealProjectFixtureReplay",
+        "make db-cache-productization-check",
+        "make governance-boundary-inventory-check",
+        "make governance-report-check"
+      ]
     }
   ],
   "surfaces": [

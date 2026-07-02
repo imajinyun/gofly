@@ -324,7 +324,7 @@ p13_expected = {
     },
     "read-write-split": {
         "status": "implemented",
-        "needles": {"NewCluster", "Reader", "Writer", "FOR UPDATE"},
+        "needles": {"NewCluster", "Reader", "Writer", "FOR UPDATE", "NewOrderRepoWithCluster", "cluster *storage.Cluster", "ForQuery(query)"},
     },
     "redis-cache-aside": {
         "status": "implemented",

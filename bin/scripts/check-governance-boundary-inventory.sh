@@ -243,7 +243,7 @@ expected_batches = {
         "roundCount": 3,
     },
     "GOFLY-P20": {
-        "status": "mirrored-after-aiflow-build-blocker",
+        "status": "completed-with-local-fallbacks",
         "taskPrefix": "GOFLY-P20-",
         "roundCount": 3,
     },
@@ -445,7 +445,7 @@ require("p19 completion" in tasks[0].get("title", "").lower(), "P20 round 01 tit
 require("p20" in tasks[0].get("objective", "").lower(), "P20 round 01 objective must document P20 active batch handoff")
 for expected_round, item in enumerate(tasks, start=1):
     task_id = item.get("id")
-    expected_status = "submitted" if expected_round == 3 else "completed"
+    expected_status = "completed"
     require(item.get("status") == expected_status, f"{task_id}: active P20 task status must be {expected_status}")
     require(item.get("priority"), f"{task_id}: priority is required")
     if expected_status == "completed":
@@ -989,6 +989,59 @@ for expected_round, item in enumerate(p19_tasks, start=1):
     else:
         require("commit" not in item or item.get("commit") in ("", None), f"{task_id}: submitted task must not claim a completed commit")
         require("verification" not in item or item.get("verification") in ("", None), f"{task_id}: submitted task must not claim completed verification")
+
+p20_tasks = p20_manifest.get("tasks") or []
+actual_p20_tasks = [
+    item.get("id")
+    for item in p20_tasks
+    if isinstance(item, dict)
+]
+require(actual_p20_tasks == expected_p20_tasks, f"P20 roadmap task ids mismatch: {actual_p20_tasks!r}")
+p20_submission = p20_manifest.get("aiflowSubmission") or {}
+require(
+    p20_submission.get("status") == "mirrored-after-aiflow-build-blocker",
+    "P20 aiflowSubmission.status must document adjacent aiflow build fallback",
+)
+require(
+    p20_submission.get("completedTasks") == expected_p20_tasks,
+    "P20 completedTasks must contain all active batch tasks",
+)
+require(
+    p20_submission.get("pendingTasks") == [],
+    "P20 pendingTasks must be empty after model/cache template depth closeout",
+)
+p20_submission_commands = p20_submission.get("submissionCommands") or []
+require(len(p20_submission_commands) == 3, "P20 submissionCommands must document all three aiflow submit calls")
+for task_id in expected_p20_tasks:
+    require(
+        any(task_id in command and "aiflow submit" in command for command in p20_submission_commands),
+        f"P20 submissionCommands missing {task_id}",
+    )
+require("aiflow status" in str(p20_submission.get("queueStatusCommand") or ""), "P20 queueStatusCommand must document aiflow status")
+p20_handoff = p20_manifest.get("previousBatchHandoff") or {}
+require(p20_handoff.get("completedBatch") == "GOFLY-P19", "P20 previousBatchHandoff.completedBatch must be GOFLY-P19")
+require(p20_handoff.get("completedTaskCount") == 3, "P20 previousBatchHandoff.completedTaskCount must be 3")
+p20_runtime_policy = str(p20_submission.get("runtimeStatePolicy") or "")
+for path in (".aiflow", ".harness", ".tmp-test", ".trae", "coverage.out", "bench/current.txt", "bench/regression-report.json", "bench/summary.md", "bin/gofly", "docs/superpowers"):
+    require(path in p20_runtime_policy, f"P20 runtimeStatePolicy missing {path!r}")
+require("committed by the current agent or human" in str(p20_submission.get("safetyPolicy") or ""), "P20 safetyPolicy must document commit ownership")
+for expected_round, item in enumerate(p20_tasks, start=1):
+    if not isinstance(item, dict):
+        missing.append(f"P20 roadmap task must be an object: {item!r}")
+        continue
+    task_id = item.get("id", "<missing>")
+    require(item.get("round") == expected_round, f"{task_id}: round must be {expected_round}")
+    require(item.get("status") == "completed", f"{task_id}: status must be completed")
+    require(item.get("priority") == 101 - expected_round, f"{task_id}: priority mismatch")
+    for field in ("id", "title", "objective", "deliverable", "acceptanceGates", "commitPolicy"):
+        require(bool(item.get(field)), f"{task_id}: {field} is required")
+    gates = item.get("acceptanceGates") or []
+    require(gates[0] == expected_p20_task_gates[expected_round - 1], f"{task_id}: first acceptance gate mismatch")
+    for gate in gates:
+        require(gate_is_known(gate, targets), f"{task_id}: acceptanceGate is not known: {gate!r}")
+    require("commit" in item.get("commitPolicy", "").lower(), f"{task_id}: commitPolicy must mention commit")
+    require(item.get("commit") == "pending-current-commit", f"{task_id}: completed task must record pending current commit")
+    require(bool(item.get("verification")), f"{task_id}: completed task must record verification")
 
 if missing:
     print("governance boundary inventory check failed:", file=sys.stderr)

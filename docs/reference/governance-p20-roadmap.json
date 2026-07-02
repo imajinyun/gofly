@@ -27,11 +27,10 @@
     "safetyPolicy": "P20 tasks are mirrored as durable docs/reference evidence while adjacent aiflow is unavailable; each task must be completed in order and committed by the current agent or human only after its gate passes or an environment-limited downgrade is documented.",
     "completedTasks": [
       "GOFLY-P20-01-P19-COMPLETION-HANDOFF",
-      "GOFLY-P20-02-GOCTL-REAL-PROJECT-FIXTURE-REPLAY"
-    ],
-    "pendingTasks": [
+      "GOFLY-P20-02-GOCTL-REAL-PROJECT-FIXTURE-REPLAY",
       "GOFLY-P20-03-MODEL-CACHE-TEMPLATE-DEPTH"
-    ]
+    ],
+    "pendingTasks": []
   },
   "previousBatchHandoff": {
     "completedBatch": "GOFLY-P19",
@@ -94,7 +93,7 @@
     {
       "round": 3,
       "id": "GOFLY-P20-03-MODEL-CACHE-TEMPLATE-DEPTH",
-      "status": "submitted",
+      "status": "completed",
       "priority": 98,
       "title": "model cache template depth",
       "objective": "Deepen model/cache generation around go-zero sqlx/cache adoption expectations: transaction sample, bounded pagination, optimistic lock, read/write split, Redis cache-aside, observability, and generated project smoke.",
@@ -104,7 +103,15 @@
         "go test -shuffle=on ./cmd/gofly/internal/generator -run TestGenerateModelFromDDL"
       ],
       "commitPolicy": "commit after model/cache template tests and db-cache productization gate pass without adding generated-only dependencies to the root module",
-      "verification": []
+      "commit": "pending-current-commit",
+      "verification": [
+        "python3 -m json.tool docs/reference/db-cache-productization.json",
+        "go test -shuffle=on ./cmd/gofly/internal/generator -run TestGenerateModelFromDDL",
+        "go test -shuffle=on ./cmd/gofly/internal/generator -run TestGoctlRealProjectFixtureReplay",
+        "make db-cache-productization-check",
+        "make governance-boundary-inventory-check",
+        "make governance-report-check"
+      ]
     }
   ]
 }

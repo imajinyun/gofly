@@ -2385,7 +2385,7 @@ if int(convergence_contract.get("requiredTaskCount") or 0) != 3:
     missing.append("governance dashboard governanceConvergence requiredTaskCount mismatch")
 if convergence_contract.get("requiredActiveBatch") != "GOFLY-P20":
     missing.append("governance dashboard governanceConvergence requiredActiveBatch mismatch")
-if convergence_contract.get("latestCompletedBatch") != "GOFLY-P19":
+if convergence_contract.get("latestCompletedBatch") != "GOFLY-P20":
     missing.append("governance dashboard governanceConvergence latestCompletedBatch mismatch")
 if convergence_contract.get("activeRoadmap") != "docs/reference/governance-p20-roadmap.json":
     missing.append("governance dashboard governanceConvergence activeRoadmap mismatch")

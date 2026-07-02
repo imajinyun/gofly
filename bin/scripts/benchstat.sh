@@ -1244,6 +1244,148 @@ def validate_ratchet_policy() -> None:
             f"p19RpcReleaseTrainAttachment forbiddenUntilCleared missing {forbidden!r}",
         )
 
+    p19_rpc_budget_review = ratchet.get("p19RpcBudgetPromotionBlockerReview") or {}
+    require_policy(
+        p19_rpc_budget_review.get("schema") == "gofly.benchmark_p19_rpc_budget_promotion_blocker_review.v1",
+        "p19RpcBudgetPromotionBlockerReview schema mismatch",
+    )
+    require_policy(
+        p19_rpc_budget_review.get("aiflowTask") == "GOFLY-P19-03-RPC-BUDGET-PROMOTION-BLOCKER-REVIEW",
+        "p19RpcBudgetPromotionBlockerReview aiflowTask mismatch",
+    )
+    require_policy(
+        p19_rpc_budget_review.get("status") == "promotion-held-budget-evidence-insufficient",
+        "p19RpcBudgetPromotionBlockerReview status mismatch",
+    )
+    require_policy(
+        p19_rpc_budget_review.get("acceptanceGate") == "make bench-regression-check",
+        "p19RpcBudgetPromotionBlockerReview acceptanceGate mismatch",
+    )
+    for source in (
+        "bench/budget-ratchet.json",
+        "bench/baseline.txt",
+        "bench/current.txt",
+        "bench/regression-report.json",
+        "docs/reference/rpc-tier1-evidence.json",
+    ):
+        require_policy(
+            source in set(p19_rpc_budget_review.get("sourceEvidence") or []),
+            f"p19RpcBudgetPromotionBlockerReview sourceEvidence missing {source!r}",
+        )
+    runtime_policy = str(p19_rpc_budget_review.get("runtimeEvidencePolicy") or "")
+    for ignored_artifact in ("bench/current.txt", "bench/regression-report.json", "bench/summary.md"):
+        require_policy(
+            ignored_artifact in runtime_policy,
+            f"p19RpcBudgetPromotionBlockerReview runtimeEvidencePolicy missing {ignored_artifact!r}",
+        )
+    p19_review_decision = p19_rpc_budget_review.get("decision") or {}
+    require_policy(p19_review_decision.get("result") == "hold", "p19RpcBudgetPromotionBlockerReview decision.result must be hold")
+    require_policy(p19_review_decision.get("selectedSurface") == "none", "p19RpcBudgetPromotionBlockerReview selectedSurface must be none")
+    require_policy(
+        p19_review_decision.get("allocationBlockingSurface") == "none",
+        "p19RpcBudgetPromotionBlockerReview allocationBlockingSurface must be none",
+    )
+    require_policy(
+        p19_review_decision.get("trackedBenchmarkPromotion") == "not-promoted",
+        "p19RpcBudgetPromotionBlockerReview trackedBenchmarkPromotion must be not-promoted",
+    )
+    require_policy(p19_review_decision.get("latencyMode") == "report-only", "p19RpcBudgetPromotionBlockerReview latencyMode must be report-only")
+    require_policy(p19_review_decision.get("promotionClass") == "none", "p19RpcBudgetPromotionBlockerReview promotionClass must be none")
+    require_policy(p19_review_decision.get("promotionStatus") == "blocked", "p19RpcBudgetPromotionBlockerReview promotionStatus must be blocked")
+    require_policy(
+        p19_review_decision.get("nextReviewGate") == "make bench-regression-check && make rpc-boundary-check",
+        "p19RpcBudgetPromotionBlockerReview nextReviewGate mismatch",
+    )
+    for field in ("reason", "releaseNotePolicy"):
+        require_policy(
+            len(str(p19_review_decision.get(field) or "").split()) >= 20,
+            f"p19RpcBudgetPromotionBlockerReview decision.{field} must be actionable",
+        )
+    for forbidden_claim in (
+        "blocking RPC allocation",
+        "blocking RPC latency",
+        "Kitex",
+        "gRPC-Go",
+        "drop-in replacement",
+        "Tier 1 promoted",
+    ):
+        require_policy(
+            forbidden_claim in str(p19_review_decision.get("releaseNotePolicy") or ""),
+            f"p19RpcBudgetPromotionBlockerReview releaseNotePolicy must mention {forbidden_claim!r}",
+        )
+    p19_reviewed_rows = {
+        item.get("benchmark"): item
+        for item in p19_rpc_budget_review.get("reviewedRows") or []
+        if isinstance(item, dict) and item.get("benchmark")
+    }
+    p19_reviewed_names = {
+        "BenchmarkRPCUnary/gofly_rpc",
+        "BenchmarkRPCStreamGovernance",
+        "BenchmarkRPCServerStreamGovernance",
+        "BenchmarkRPCClientStreamGovernance",
+        "BenchmarkRPCBidiStreamGovernance",
+    }
+    require_policy(
+        set(p19_reviewed_rows) == p19_reviewed_names,
+        "p19RpcBudgetPromotionBlockerReview reviewedRows mismatch",
+    )
+    for benchmark, item in p19_reviewed_rows.items():
+        require_policy(item.get("releaseTrainStatus") == "attached", f"{benchmark}: P19-03 releaseTrainStatus must be attached")
+        require_policy(item.get("promotionDecision") == "hold", f"{benchmark}: P19-03 promotionDecision must be hold")
+        require_policy(item.get("promotionMode") == "report-only", f"{benchmark}: P19-03 promotionMode must be report-only")
+        require_policy(benchmark not in tracked, f"{benchmark}: P19-03 reviewed row must stay out of trackedBenchmarks")
+        require_policy(benchmark not in promoted_latency, f"{benchmark}: P19-03 reviewed row latency must stay report-only")
+        require_policy(len(item.get("blockers") or []) >= 3, f"{benchmark}: P19-03 blockers must include at least three reasons")
+        require_policy(
+            item.get("committedCurrentTrendSamples") == 0,
+            f"{benchmark}: P19-03 committedCurrentTrendSamples must remain zero",
+        )
+        require_policy(
+            any(runtime in str(item.get("rollbackAction") or "") for runtime in ("Kitex", "gRPC-Go", "RPC stack")),
+            f"{benchmark}: P19-03 rollbackAction must name fallback runtime or previous RPC stack",
+        )
+    unary_review = p19_reviewed_rows.get("BenchmarkRPCUnary/gofly_rpc") or {}
+    require_policy(unary_review.get("baselineSamplesAttached") == 5, "P19-03 unary baselineSamplesAttached mismatch")
+    require_policy(unary_review.get("latestLocalCurrentSamples") == 1, "P19-03 unary latestLocalCurrentSamples mismatch")
+    require_policy(unary_review.get("baselineAllocsOp") == 161, "P19-03 unary baselineAllocsOp mismatch")
+    require_policy(unary_review.get("latestLocalAllocsOp") == 170, "P19-03 unary latestLocalAllocsOp mismatch")
+    require_policy(unary_review.get("allocationRegression") is True, "P19-03 unary allocationRegression must be true")
+    for benchmark in (
+        "BenchmarkRPCServerStreamGovernance",
+        "BenchmarkRPCClientStreamGovernance",
+        "BenchmarkRPCBidiStreamGovernance",
+    ):
+        item = p19_reviewed_rows.get(benchmark) or {}
+        require_policy(item.get("baselineSamplesAttached") == 0, f"{benchmark}: P19-03 mode-specific baselineSamplesAttached must be zero")
+        require_policy(item.get("latestLocalCurrentSamples") == 1, f"{benchmark}: P19-03 latestLocalCurrentSamples mismatch")
+        require_policy(item.get("allocationRegression") == "not-evaluated", f"{benchmark}: P19-03 allocationRegression must be not-evaluated")
+    aggregate_review = p19_reviewed_rows.get("BenchmarkRPCStreamGovernance") or {}
+    require_policy(aggregate_review.get("baselineSamplesAttached") == 5, "P19-03 aggregate baselineSamplesAttached mismatch")
+    require_policy(aggregate_review.get("latestLocalCurrentSamples") == 0, "P19-03 aggregate latestLocalCurrentSamples mismatch")
+    p19_review_rules = set(p19_rpc_budget_review.get("blockingRules") or [])
+    for rule in (
+        "P19-03 must not add RPC rows to trackedBenchmarks",
+        "P19-03 must keep RPC latency report-only",
+        "P19-03 must keep RPC allocation report-only when unary allocation exceeds baseline",
+        "P19-03 must keep mode-specific stream rows report-only until five-sample baselines are committed",
+        "P19-03 requires three committed current trend samples before any RPC allocation promotion",
+        "P19-03 requires bench-regression-check and rpc-boundary-check before any future trackedBenchmarks update",
+    ):
+        require_policy(rule in p19_review_rules, f"p19RpcBudgetPromotionBlockerReview blockingRules missing {rule!r}")
+    for forbidden in (
+        "trackedBenchmarks RPC entry",
+        "blocking RPC allocation claim",
+        "blocking RPC latency claim",
+        "Kitex transport parity claim",
+        "gRPC-Go ecosystem parity claim",
+        "drop-in RPC replacement claim",
+        "Tier 1 promoted RPC surface",
+    ):
+        require_policy(
+            forbidden in set(p19_rpc_budget_review.get("forbiddenUntilCleared") or []),
+            f"p19RpcBudgetPromotionBlockerReview forbiddenUntilCleared missing {forbidden!r}",
+        )
+
     require_policy(
         p13_gateway_cache_closeout.get("schema") == "gofly.benchmark_p13_gateway_cache_closeout.v1",
         "p13GatewayCacheBenchmarkCloseout schema mismatch",

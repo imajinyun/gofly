@@ -890,6 +890,97 @@ for rule in (
 for forbidden in ("trackedBenchmarks RPC entry", "blocking RPC latency claim", "Kitex transport parity claim", "gRPC-Go ecosystem parity claim", "drop-in RPC replacement claim", "Tier 1 promoted RPC surface"):
     require(forbidden in set(p19_attachment.get("forbiddenClaims") or []), f"P19 RPC forbiddenClaims missing {forbidden!r}")
 
+p19_budget_review = manifest.get("p19BudgetPromotionBlockerReview") or {}
+require(
+    p19_budget_review.get("schema") == "gofly.rpc_tier1_p19_budget_promotion_blocker_review.v1",
+    "rpc tier1 evidence p19BudgetPromotionBlockerReview schema mismatch",
+)
+require(
+    p19_budget_review.get("aiflowTask") == "GOFLY-P19-03-RPC-BUDGET-PROMOTION-BLOCKER-REVIEW",
+    "rpc tier1 evidence p19BudgetPromotionBlockerReview aiflowTask mismatch",
+)
+require(
+    p19_budget_review.get("status") == "promotion-held-budget-evidence-insufficient",
+    "rpc tier1 evidence p19BudgetPromotionBlockerReview status mismatch",
+)
+require(
+    set(p19_budget_review.get("acceptanceGates") or []) == {"make bench-regression-check", "make rpc-boundary-check"},
+    "rpc tier1 evidence p19BudgetPromotionBlockerReview acceptanceGates mismatch",
+)
+p19_review_ref = p19_budget_review.get("budgetDecisionRef") or {}
+require(p19_review_ref.get("path") == "bench/budget-ratchet.json", "P19 RPC budget review ref path mismatch")
+require(p19_review_ref.get("field") == "p19RpcBudgetPromotionBlockerReview", "P19 RPC budget review ref field mismatch")
+require(p19_review_ref.get("status") == "promotion-held-budget-evidence-insufficient", "P19 RPC budget review ref status mismatch")
+p19_review_decision = p19_budget_review.get("reviewDecision") or {}
+require(p19_review_decision.get("result") == "hold", "P19 RPC budget review result must be hold")
+require(p19_review_decision.get("selectedSurface") == "none", "P19 RPC budget review selectedSurface must be none")
+require(p19_review_decision.get("allocationBlockingSurface") == "none", "P19 RPC budget review allocationBlockingSurface must be none")
+require(p19_review_decision.get("trackedBenchmarkPromotion") == "not-promoted", "P19 RPC trackedBenchmarkPromotion must be not-promoted")
+require(p19_review_decision.get("latencyMode") == "report-only", "P19 RPC budget review latencyMode must be report-only")
+require(p19_review_decision.get("promotionStatus") == "blocked", "P19 RPC budget review promotionStatus must be blocked")
+require(
+    p19_review_decision.get("nextReviewGate") == "make bench-regression-check && make rpc-boundary-check",
+    "P19 RPC budget review nextReviewGate mismatch",
+)
+for field in ("reason", "releaseNotePolicy"):
+    require(len(str(p19_review_decision.get(field) or "").split()) >= 20, f"P19 RPC budget review {field} must be actionable")
+for forbidden_claim in ("tracked RPC allocation", "blocking RPC latency", "Kitex", "gRPC-Go", "drop-in replacement", "Tier 1 promoted"):
+    require(
+        forbidden_claim in str(p19_review_decision.get("releaseNotePolicy") or ""),
+        f"P19 RPC budget review releaseNotePolicy must mention {forbidden_claim!r}",
+    )
+p19_reviewed_surfaces = {
+    item.get("benchmark"): item
+    for item in p19_budget_review.get("reviewedSurfaces") or []
+    if isinstance(item, dict) and item.get("benchmark")
+}
+required_p19_review_benchmarks = {
+    "BenchmarkRPCUnary/gofly_rpc",
+    "BenchmarkRPCStreamGovernance",
+    "BenchmarkRPCServerStreamGovernance",
+    "BenchmarkRPCClientStreamGovernance",
+    "BenchmarkRPCBidiStreamGovernance",
+}
+require(
+    set(p19_reviewed_surfaces) == required_p19_review_benchmarks,
+    f"P19 RPC budget review reviewedSurfaces mismatch: {sorted(p19_reviewed_surfaces)!r}",
+)
+for benchmark, row in p19_reviewed_surfaces.items():
+    require(row.get("releaseTrainStatus") == "attached", f"P19 RPC budget review {benchmark}: releaseTrainStatus must be attached")
+    require(row.get("promotionDecision") == "hold", f"P19 RPC budget review {benchmark}: promotionDecision must be hold")
+    require(row.get("allocationMode") == "report-only", f"P19 RPC budget review {benchmark}: allocationMode must be report-only")
+    require(row.get("latencyMode") == "report-only", f"P19 RPC budget review {benchmark}: latencyMode must be report-only")
+    require(row.get("committedCurrentTrendSamples") == 0, f"P19 RPC budget review {benchmark}: committedCurrentTrendSamples must be 0")
+    require(benchmark not in p13_tracked_benchmarks, f"P19 RPC budget review {benchmark}: benchmark must stay out of trackedBenchmarks")
+    require(len(row.get("blockers") or []) >= 3, f"P19 RPC budget review {benchmark}: blockers must explain hold")
+    require(
+        any(runtime in str(row.get("rollbackAction") or "") for runtime in ("Kitex", "gRPC-Go", "RPC stack")),
+        f"P19 RPC budget review {benchmark}: rollbackAction must name fallback runtime or previous RPC stack",
+    )
+unary_budget_row = p19_reviewed_surfaces.get("BenchmarkRPCUnary/gofly_rpc") or {}
+require(unary_budget_row.get("baselineSamplesAttached") == 5, "P19 RPC budget review unary baselineSamplesAttached mismatch")
+require(unary_budget_row.get("baselineAllocsOp") == 161, "P19 RPC budget review unary baselineAllocsOp mismatch")
+require(unary_budget_row.get("latestLocalAllocsOp") == 170, "P19 RPC budget review unary latestLocalAllocsOp mismatch")
+for benchmark in (
+    "BenchmarkRPCServerStreamGovernance",
+    "BenchmarkRPCClientStreamGovernance",
+    "BenchmarkRPCBidiStreamGovernance",
+):
+    row = p19_reviewed_surfaces.get(benchmark) or {}
+    require(row.get("baselineSamplesAttached") == 0, f"P19 RPC budget review {benchmark}: baselineSamplesAttached must be 0")
+p19_budget_rules = set(p19_budget_review.get("blockingRules") or [])
+for rule in (
+    "P19-03 must not add RPC rows to trackedBenchmarks",
+    "P19-03 must keep RPC allocation report-only when unary allocation exceeds baseline",
+    "P19-03 must keep mode-specific stream rows report-only until five-sample baselines are committed",
+    "P19-03 requires three committed current trend samples before any RPC allocation promotion",
+    "P19-03 must keep RPC latency report-only",
+    "P19-03 requires bench-regression-check and rpc-boundary-check before any future trackedBenchmarks update",
+):
+    require(rule in p19_budget_rules, f"P19 RPC budget review blockingRules missing {rule!r}")
+for forbidden in ("trackedBenchmarks RPC entry", "blocking RPC allocation claim", "blocking RPC latency claim", "Kitex transport parity claim", "gRPC-Go ecosystem parity claim", "drop-in RPC replacement claim", "Tier 1 promoted RPC surface"):
+    require(forbidden in set(p19_budget_review.get("forbiddenClaims") or []), f"P19 RPC budget review forbiddenClaims missing {forbidden!r}")
+
 r8_transport_matrix = transport_boundary.get("r8TransportEvidenceMatrix") or {}
 require(
     r8_transport_matrix.get("schema") == "gofly.rpc_transport_r8_evidence_matrix.v1",

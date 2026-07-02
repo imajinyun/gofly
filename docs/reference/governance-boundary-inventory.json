@@ -175,13 +175,20 @@
     {
       "id": "GOFLY-P19-03-RPC-BUDGET-PROMOTION-BLOCKER-REVIEW",
       "round": 3,
-      "status": "submitted",
+      "status": "completed",
       "priority": 98,
       "title": "RPC budget promotion blocker review",
       "objective": "Review RPC benchmark budget blockers and decide whether any unary or streaming allocation row can move toward blocking coverage while latency remains report-only.",
       "deliverable": "RPC budget promotion blocker review, allocation blocking candidate policy, rollback note, and report-only latency release guardrail.",
       "gate": "make bench-regression-check",
-      "commitPolicy": "commit after RPC budget review passes bench-regression-check and rpc-boundary-check with any promotion or hold decision recorded"
+      "commitPolicy": "commit after RPC budget review passes bench-regression-check and rpc-boundary-check with any promotion or hold decision recorded",
+      "commit": "pending-current-commit",
+      "verification": [
+        "make bench-regression-check",
+        "make rpc-boundary-check",
+        "make governance-boundary-inventory-check",
+        "make governance-report-check"
+      ]
     }
   ],
   "surfaces": [

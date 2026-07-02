@@ -1481,27 +1481,27 @@
     "candidates": [
       {
         "benchmark": "BenchmarkRPCUnary/gofly_rpc",
-        "currentBlocker": "latest smoke exceeded allocation baseline, so it cannot enter trackedBenchmarks yet",
+        "currentBlocker": "P19-03 keeps unary out of trackedBenchmarks because the attached five-sample baseline has 161 allocs/op while the latest local current sample has 170 allocs/op, and committed three-sample current trend evidence is still missing",
         "mode": "candidate"
       },
       {
         "benchmark": "BenchmarkRPCStreamGovernance",
-        "currentBlocker": "current scoped run may use mode-specific stream rows instead of the aggregate benchmark",
+        "currentBlocker": "P19-03 keeps the aggregate stream row out of trackedBenchmarks because the current scoped run uses mode-specific stream rows and no committed three-sample aggregate current trend is attached",
         "mode": "candidate"
       },
       {
         "benchmark": "BenchmarkRPCServerStreamGovernance",
-        "currentBlocker": "mode-specific stream baseline is not yet published with five samples",
+        "currentBlocker": "P19-03 keeps server stream out of trackedBenchmarks because mode-specific five-sample baseline evidence is not committed",
         "mode": "candidate"
       },
       {
         "benchmark": "BenchmarkRPCClientStreamGovernance",
-        "currentBlocker": "mode-specific stream baseline is not yet published with five samples",
+        "currentBlocker": "P19-03 keeps client stream out of trackedBenchmarks because mode-specific five-sample baseline evidence is not committed",
         "mode": "candidate"
       },
       {
         "benchmark": "BenchmarkRPCBidiStreamGovernance",
-        "currentBlocker": "mode-specific stream baseline is not yet published with five samples",
+        "currentBlocker": "P19-03 keeps bidirectional stream out of trackedBenchmarks because mode-specific five-sample baseline evidence is not committed",
         "mode": "candidate"
       }
     ],
@@ -1923,6 +1923,138 @@
     ],
     "forbiddenUntilCleared": [
       "trackedBenchmarks RPC entry",
+      "blocking RPC latency claim",
+      "Kitex transport parity claim",
+      "gRPC-Go ecosystem parity claim",
+      "drop-in RPC replacement claim",
+      "Tier 1 promoted RPC surface"
+    ]
+  },
+  "p19RpcBudgetPromotionBlockerReview": {
+    "schema": "gofly.benchmark_p19_rpc_budget_promotion_blocker_review.v1",
+    "aiflowTask": "GOFLY-P19-03-RPC-BUDGET-PROMOTION-BLOCKER-REVIEW",
+    "status": "promotion-held-budget-evidence-insufficient",
+    "acceptanceGate": "make bench-regression-check",
+    "sourceEvidence": [
+      "bench/budget-ratchet.json",
+      "bench/baseline.txt",
+      "bench/current.txt",
+      "bench/regression-report.json",
+      "docs/reference/rpc-tier1-evidence.json"
+    ],
+    "runtimeEvidencePolicy": "bench/current.txt, bench/regression-report.json, and bench/summary.md are ignored local runtime evidence; committed promotion decisions must record only summarized blocker evidence and must not commit local benchmark output.",
+    "decision": {
+      "result": "hold",
+      "selectedSurface": "none",
+      "allocationBlockingSurface": "none",
+      "trackedBenchmarkPromotion": "not-promoted",
+      "latencyMode": "report-only",
+      "promotionClass": "none",
+      "promotionStatus": "blocked",
+      "reason": "P19-03 reviews the attached RPC release train and keeps every RPC benchmark out of trackedBenchmarks because unary allocation is above its committed baseline, mode-specific stream baselines are not committed with five samples, and no RPC row has three committed current trend samples.",
+      "nextReviewGate": "make bench-regression-check && make rpc-boundary-check",
+      "releaseNotePolicy": "Release notes may describe the RPC budget review as an explicit hold decision, but must not claim blocking RPC allocation coverage, blocking RPC latency, Kitex transport parity, gRPC-Go ecosystem parity, drop-in replacement, or Tier 1 promoted readiness."
+    },
+    "reviewedRows": [
+      {
+        "surface": "rpc-unary",
+        "benchmark": "BenchmarkRPCUnary/gofly_rpc",
+        "releaseTrainStatus": "attached",
+        "baselineSamplesAttached": 5,
+        "committedCurrentTrendSamples": 0,
+        "latestLocalCurrentSamples": 1,
+        "baselineAllocsOp": 161,
+        "latestLocalAllocsOp": 170,
+        "allocationRegression": true,
+        "promotionDecision": "hold",
+        "promotionMode": "report-only",
+        "blockers": [
+          "latest local current allocation sample is above the committed baseline allocation budget",
+          "three committed current trend samples are not attached",
+          "latency remains report-only without two-release trend confidence"
+        ],
+        "rollbackAction": "Keep latency-critical unary methods on Kitex or native gRPC-Go until unary allocation and current trend evidence clear the promotion gate."
+      },
+      {
+        "surface": "rpc-stream-aggregate",
+        "benchmark": "BenchmarkRPCStreamGovernance",
+        "releaseTrainStatus": "attached",
+        "baselineSamplesAttached": 5,
+        "committedCurrentTrendSamples": 0,
+        "latestLocalCurrentSamples": 0,
+        "allocationRegression": "not-evaluated",
+        "promotionDecision": "hold",
+        "promotionMode": "report-only",
+        "blockers": [
+          "current scoped run uses mode-specific stream rows instead of the aggregate stream benchmark",
+          "three committed current trend samples are not attached",
+          "mode-specific stream rows must be reviewed separately before blocking promotion"
+        ],
+        "rollbackAction": "Keep streaming workloads on Kitex, native gRPC-Go, or the previous RPC stack until stream budget evidence is promoted."
+      },
+      {
+        "surface": "rpc-server-stream",
+        "benchmark": "BenchmarkRPCServerStreamGovernance",
+        "releaseTrainStatus": "attached",
+        "baselineSamplesAttached": 0,
+        "committedCurrentTrendSamples": 0,
+        "latestLocalCurrentSamples": 1,
+        "allocationRegression": "not-evaluated",
+        "promotionDecision": "hold",
+        "promotionMode": "report-only",
+        "blockers": [
+          "mode-specific five-sample baseline is not committed",
+          "three committed current trend samples are not attached",
+          "latency remains report-only without two-release trend confidence"
+        ],
+        "rollbackAction": "Keep server-stream workloads on Kitex or native gRPC-Go until server-stream baseline and current trend evidence are promoted."
+      },
+      {
+        "surface": "rpc-client-stream",
+        "benchmark": "BenchmarkRPCClientStreamGovernance",
+        "releaseTrainStatus": "attached",
+        "baselineSamplesAttached": 0,
+        "committedCurrentTrendSamples": 0,
+        "latestLocalCurrentSamples": 1,
+        "allocationRegression": "not-evaluated",
+        "promotionDecision": "hold",
+        "promotionMode": "report-only",
+        "blockers": [
+          "mode-specific five-sample baseline is not committed",
+          "three committed current trend samples are not attached",
+          "latency remains report-only without two-release trend confidence"
+        ],
+        "rollbackAction": "Keep upload-style client streams on the previous RPC stack until client-stream budget evidence is promoted."
+      },
+      {
+        "surface": "rpc-bidi-stream",
+        "benchmark": "BenchmarkRPCBidiStreamGovernance",
+        "releaseTrainStatus": "attached",
+        "baselineSamplesAttached": 0,
+        "committedCurrentTrendSamples": 0,
+        "latestLocalCurrentSamples": 1,
+        "allocationRegression": "not-evaluated",
+        "promotionDecision": "hold",
+        "promotionMode": "report-only",
+        "blockers": [
+          "mode-specific five-sample baseline is not committed",
+          "three committed current trend samples are not attached",
+          "latency remains report-only without two-release trend confidence"
+        ],
+        "rollbackAction": "Keep realtime bidirectional sessions on Kitex or native gRPC-Go until bidirectional stream budget evidence is promoted."
+      }
+    ],
+    "blockingRules": [
+      "P19-03 must not add RPC rows to trackedBenchmarks",
+      "P19-03 must keep RPC latency report-only",
+      "P19-03 must keep RPC allocation report-only when unary allocation exceeds baseline",
+      "P19-03 must keep mode-specific stream rows report-only until five-sample baselines are committed",
+      "P19-03 requires three committed current trend samples before any RPC allocation promotion",
+      "P19-03 requires bench-regression-check and rpc-boundary-check before any future trackedBenchmarks update"
+    ],
+    "forbiddenUntilCleared": [
+      "trackedBenchmarks RPC entry",
+      "blocking RPC allocation claim",
       "blocking RPC latency claim",
       "Kitex transport parity claim",
       "gRPC-Go ecosystem parity claim",

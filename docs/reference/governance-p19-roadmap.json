@@ -23,11 +23,10 @@
     "safetyPolicy": "P19 tasks are submitted to ignored local aiflow runtime state and mirrored here as durable docs/reference evidence; each task must be completed in order and committed by the current agent or human only after its gate passes or an environment-limited downgrade is documented.",
     "completedTasks": [
       "GOFLY-P19-01-P18-COMPLETION-HANDOFF",
-      "GOFLY-P19-02-RPC-RELEASE-TRAIN-EVIDENCE-ATTACHMENT"
-    ],
-    "pendingTasks": [
+      "GOFLY-P19-02-RPC-RELEASE-TRAIN-EVIDENCE-ATTACHMENT",
       "GOFLY-P19-03-RPC-BUDGET-PROMOTION-BLOCKER-REVIEW"
-    ]
+    ],
+    "pendingTasks": []
   },
   "previousBatchHandoff": {
     "completedBatch": "GOFLY-P18",
@@ -90,7 +89,7 @@
     {
       "round": 3,
       "id": "GOFLY-P19-03-RPC-BUDGET-PROMOTION-BLOCKER-REVIEW",
-      "status": "submitted",
+      "status": "completed",
       "priority": 98,
       "title": "RPC budget promotion blocker review",
       "objective": "Review RPC benchmark budget blockers and decide whether any unary or streaming allocation row can move toward blocking coverage while latency remains report-only.",
@@ -99,7 +98,21 @@
         "make bench-regression-check",
         "make rpc-boundary-check"
       ],
-      "commitPolicy": "commit after RPC budget review passes bench-regression-check and rpc-boundary-check with any promotion or hold decision recorded"
+      "commitPolicy": "commit after RPC budget review passes bench-regression-check and rpc-boundary-check with any promotion or hold decision recorded",
+      "commit": "pending-current-commit",
+      "verification": [
+        "python3 -m json.tool bench/budget-ratchet.json",
+        "python3 -m json.tool docs/reference/rpc-tier1-evidence.json",
+        "python3 -m json.tool docs/reference/governance-p19-roadmap.json",
+        "python3 -m json.tool docs/reference/governance-boundary-inventory.json",
+        "sh -n bin/scripts/benchstat.sh",
+        "sh -n bin/scripts/check-rpc-boundary.sh",
+        "sh -n bin/scripts/check-governance-boundary-inventory.sh",
+        "make bench-regression-check",
+        "make rpc-boundary-check",
+        "make governance-boundary-inventory-check",
+        "make governance-report-check"
+      ]
     }
   ]
 }

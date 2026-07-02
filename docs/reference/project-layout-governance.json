@@ -331,7 +331,67 @@
       "k8s",
       "charts"
     ],
-    "gate": "make project-layout-governance-check"
+    "gate": "make project-layout-governance-check",
+    "forbidUnknownDeployFiles": true,
+    "families": [
+      {
+        "id": "helm-chart-metadata",
+        "category": "helm",
+        "purpose": "Helm chart identity and values schema used by release rendering and adopter validation.",
+        "gate": "make cloud-native-render-check",
+        "files": [
+          "deploy/helm/gofly/Chart.yaml",
+          "deploy/helm/gofly/values.schema.json"
+        ]
+      },
+      {
+        "id": "helm-values-profiles",
+        "category": "helm",
+        "purpose": "Default and production Helm values profiles for local smoke and production candidate rendering.",
+        "gate": "make helm-template-smoke",
+        "files": [
+          "deploy/helm/gofly/values.yaml",
+          "deploy/helm/gofly/values-production.yaml"
+        ]
+      },
+      {
+        "id": "helm-workload-templates",
+        "category": "helm",
+        "purpose": "Helm workload, service, scaling, disruption, monitoring, and network policy templates.",
+        "gate": "make cloud-native-render-check",
+        "files": [
+          "deploy/helm/gofly/templates/deployment.yaml",
+          "deploy/helm/gofly/templates/hpa.yaml",
+          "deploy/helm/gofly/templates/networkpolicy.yaml",
+          "deploy/helm/gofly/templates/pdb.yaml",
+          "deploy/helm/gofly/templates/service.yaml",
+          "deploy/helm/gofly/templates/servicemonitor.yaml"
+        ]
+      },
+      {
+        "id": "kustomize-base",
+        "category": "kustomize",
+        "purpose": "Direct Kubernetes manifests for deployment, monitoring, autoscaling, disruption, and network policy fallback rendering.",
+        "gate": "make cloud-native-render-check",
+        "files": [
+          "deploy/k8s/deployment.yaml",
+          "deploy/k8s/hpa.yaml",
+          "deploy/k8s/kustomization.yaml",
+          "deploy/k8s/networkpolicy.yaml",
+          "deploy/k8s/pdb.yaml",
+          "deploy/k8s/servicemonitor.yaml"
+        ]
+      },
+      {
+        "id": "kustomize-production-overlay",
+        "category": "kustomize",
+        "purpose": "Production Kustomize overlay entrypoint used by cloud-native render validation.",
+        "gate": "make cloud-native-render-check",
+        "files": [
+          "deploy/k8s/overlays/production/kustomization.yaml"
+        ]
+      }
+    ]
   },
   "runtimeIgnoredPaths": [
     ".aiflow/",

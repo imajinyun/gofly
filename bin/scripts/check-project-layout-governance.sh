@@ -261,6 +261,46 @@ require(
     deploy_boundary.get("forbiddenTopLevelPaths") == ["k8s", "charts"],
     "deployAssetBoundary forbiddenTopLevelPaths must retire k8s and charts",
 )
+require(
+    deploy_boundary.get("forbidUnknownDeployFiles") is True,
+    "deployAssetBoundary must forbid unknown deploy files",
+)
+tracked_deploy_files = sorted(
+    subprocess.run(
+        ["git", "ls-files", "deploy"],
+        cwd=root,
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+    ).stdout.splitlines()
+)
+deploy_families = deploy_boundary.get("families") or []
+declared_deploy_files = []
+allowed_deploy_categories = {"helm", "kustomize"}
+for family in deploy_families:
+    if not isinstance(family, dict):
+        missing.append(f"deployAssetBoundary family must be object: {family!r}")
+        continue
+    family_id = family.get("id", "")
+    files = family.get("files") or []
+    require(family_id, "deploy asset family id is required")
+    require(family.get("category") in allowed_deploy_categories, f"deploy asset family {family_id}: unknown category {family.get('category')!r}")
+    require(len(str(family.get("purpose") or "").split()) >= 8, f"deploy asset family {family_id}: purpose must be descriptive")
+    require(gate_is_known(str(family.get("gate") or ""), targets), f"deploy asset family {family_id}: gate is not known")
+    require(files, f"deploy asset family {family_id}: files are required")
+    for rel in files:
+        declared_deploy_files.append(rel)
+        require(str(rel).startswith("deploy/"), f"deploy asset family {family_id}: file must stay under deploy/: {rel!r}")
+        require((root / rel).is_file(), f"deploy asset family {family_id}: missing {rel}")
+require(
+    sorted(declared_deploy_files) == tracked_deploy_files,
+    "deployAssetBoundary must account for every tracked deploy file exactly once: "
+    f"declared={sorted(declared_deploy_files)!r}, actual={tracked_deploy_files!r}",
+)
+require(
+    len(declared_deploy_files) == len(set(declared_deploy_files)),
+    "deployAssetBoundary must not contain duplicate deploy files",
+)
 
 ignored = set(manifest.get("runtimeIgnoredPaths") or [])
 expected_ignored = {".aiflow/", ".harness/", ".tmp-test/", ".trae/", "coverage.out", "docs/superpowers/"}

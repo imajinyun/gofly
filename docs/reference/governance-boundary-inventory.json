@@ -152,13 +152,19 @@
     {
       "id": "GOFLY-P16-03-GATEWAY-CACHE-ALLOCATION-PROMOTION-REVIEW",
       "round": 3,
-      "status": "queued",
+      "status": "completed",
       "priority": 98,
       "title": "Gateway cache allocation promotion review",
       "objective": "Review whether exactly one Gateway or Cache surface can enter allocation-blocking coverage, or keep promotion held with narrowed blockers.",
       "deliverable": "Promotion decision for one selected Gateway/Cache surface or an explicit hold decision with blocker diff, release note policy, and rollback guardrails.",
       "gate": "make bench-regression-check",
-      "commitPolicy": "commit after allocation promotion review passes bench-regression-check and keeps latency report-only unless maxRegressionRatio and rollback evidence are durable"
+      "commitPolicy": "commit after allocation promotion review passes bench-regression-check and keeps latency report-only unless maxRegressionRatio and rollback evidence are durable",
+      "commit": "pending-current-commit",
+      "verification": [
+        "make bench-regression-check",
+        "make governance-boundary-inventory-check",
+        "make governance-report-check"
+      ]
     }
   ],
   "surfaces": [

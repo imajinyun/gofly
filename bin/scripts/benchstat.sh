@@ -265,6 +265,7 @@ def validate_ratchet_policy() -> None:
     p13_gateway_cache_closeout = ratchet.get("p13GatewayCacheBenchmarkCloseout") or {}
     p15_gateway_cache_attachment = ratchet.get("p15GatewayCacheBudgetAttachment") or {}
     p16_gateway_cache_samples = ratchet.get("p16GatewayCacheTrendSampleAttachment") or {}
+    p16_gateway_cache_promotion_review = ratchet.get("p16GatewayCacheAllocationPromotionReview") or {}
     report_only = set(latency_policy.get("reportOnly") or [])
     promoted = latency_policy.get("promoted") or []
     rpc_policy = ratchet.get("rpcPolicy") or {}
@@ -1425,6 +1426,159 @@ def validate_ratchet_policy() -> None:
         require_policy(
             forbidden in set(p16_gateway_cache_samples.get("forbiddenUntilCleared") or []),
             f"p16GatewayCacheTrendSampleAttachment forbiddenUntilCleared missing {forbidden!r}",
+        )
+
+    require_policy(
+        p16_gateway_cache_promotion_review.get("schema")
+        == "gofly.benchmark_p16_gateway_cache_allocation_promotion_review.v1",
+        "p16GatewayCacheAllocationPromotionReview schema mismatch",
+    )
+    require_policy(
+        p16_gateway_cache_promotion_review.get("aiflowTask")
+        == "GOFLY-P16-03-GATEWAY-CACHE-ALLOCATION-PROMOTION-REVIEW",
+        "p16GatewayCacheAllocationPromotionReview aiflowTask mismatch",
+    )
+    require_policy(
+        p16_gateway_cache_promotion_review.get("status") == "promotion-held-baseline-missing",
+        "p16GatewayCacheAllocationPromotionReview status mismatch",
+    )
+    require_policy(
+        p16_gateway_cache_promotion_review.get("acceptanceGate") == "make bench-regression-check",
+        "p16GatewayCacheAllocationPromotionReview acceptanceGate mismatch",
+    )
+    for source in (
+        "bench/budget-ratchet.json",
+        "bench/gateway_cache_bench_test.go",
+        "bench/matrix.md",
+        "bench/current.txt",
+        "docs/reference/governance-p16-roadmap.json",
+    ):
+        require_policy(
+            source in set(p16_gateway_cache_promotion_review.get("sourceEvidence") or []),
+            f"p16GatewayCacheAllocationPromotionReview sourceEvidence missing {source!r}",
+        )
+    p16_snapshot = p16_gateway_cache_promotion_review.get("prerequisiteSnapshot") or {}
+    require_policy(
+        p16_snapshot.get("currentTrendAttachment") == "attached",
+        "p16GatewayCacheAllocationPromotionReview currentTrendAttachment mismatch",
+    )
+    require_policy(
+        p16_snapshot.get("baselineStatus") == "missing-gateway-cache-rows",
+        "p16GatewayCacheAllocationPromotionReview baselineStatus mismatch",
+    )
+    require_policy(
+        p16_snapshot.get("baselineSamplesAttached") == 0,
+        "p16GatewayCacheAllocationPromotionReview baselineSamplesAttached must remain zero",
+    )
+    require_policy(
+        p16_snapshot.get("minimumBaselineSamples") == 5,
+        "p16GatewayCacheAllocationPromotionReview minimumBaselineSamples mismatch",
+    )
+    require_policy(
+        p16_snapshot.get("minimumCurrentTrendSamples") == 3,
+        "p16GatewayCacheAllocationPromotionReview minimumCurrentTrendSamples mismatch",
+    )
+    require_policy(
+        p16_snapshot.get("trackedBenchmarkPromotion") == "not-promoted",
+        "p16GatewayCacheAllocationPromotionReview trackedBenchmarkPromotion mismatch",
+    )
+    require_policy(
+        p16_snapshot.get("latencyMode") == "report-only",
+        "p16GatewayCacheAllocationPromotionReview latencyMode mismatch",
+    )
+    p16_review_decision = p16_gateway_cache_promotion_review.get("decision") or {}
+    require_policy(
+        p16_review_decision.get("result") == "hold",
+        "p16GatewayCacheAllocationPromotionReview decision.result must be hold",
+    )
+    require_policy(
+        p16_review_decision.get("selectedSurface") == "none",
+        "p16GatewayCacheAllocationPromotionReview selectedSurface must be none",
+    )
+    require_policy(
+        p16_review_decision.get("allocationBlockingSurface") == "none",
+        "p16GatewayCacheAllocationPromotionReview allocationBlockingSurface must be none",
+    )
+    require_policy(
+        p16_review_decision.get("promotionClass") == "none",
+        "p16GatewayCacheAllocationPromotionReview promotionClass must be none",
+    )
+    require_policy(
+        p16_review_decision.get("promotionStatus") == "blocked",
+        "p16GatewayCacheAllocationPromotionReview promotionStatus must be blocked",
+    )
+    require_policy(
+        p16_review_decision.get("latencyMode") == "report-only",
+        "p16GatewayCacheAllocationPromotionReview decision.latencyMode must be report-only",
+    )
+    require_policy(
+        p16_review_decision.get("nextReviewGate")
+        == "BENCH_PATTERN='BenchmarkGatewayProxy|BenchmarkCacheHotPath' BENCH_COUNT=5 make bench-baseline && make bench-regression-check",
+        "p16GatewayCacheAllocationPromotionReview nextReviewGate mismatch",
+    )
+    for field in ("reason", "releaseNotePolicy"):
+        require_policy(
+            len(str(p16_review_decision.get(field) or "").split()) >= 20,
+            f"p16GatewayCacheAllocationPromotionReview decision.{field} must be actionable",
+        )
+    for forbidden_claim in ("allocation-blocking coverage", "blocking latency", "production performance parity"):
+        require_policy(
+            forbidden_claim in str(p16_review_decision.get("releaseNotePolicy") or ""),
+            f"p16GatewayCacheAllocationPromotionReview releaseNotePolicy must mention {forbidden_claim!r}",
+        )
+    p16_review_rows = {
+        item.get("benchmark"): item
+        for item in p16_gateway_cache_promotion_review.get("reviewedSurfaces") or []
+        if isinstance(item, dict) and item.get("benchmark")
+    }
+    require_policy(
+        set(p16_review_rows) == gateway_cache_candidate_names,
+        "p16GatewayCacheAllocationPromotionReview reviewedSurfaces mismatch",
+    )
+    for benchmark, item in p16_review_rows.items():
+        require_policy(item.get("currentTrendSampleCount") == 5, f"{benchmark}: P16 promotion review currentTrendSampleCount must be five")
+        require_policy(item.get("baselineSamplesAttached") == 0, f"{benchmark}: P16 promotion review baselineSamplesAttached must remain zero")
+        require_policy(item.get("minimumBaselineSamples") == 5, f"{benchmark}: P16 promotion review minimumBaselineSamples mismatch")
+        require_policy(item.get("minimumCurrentTrendSamples") == 3, f"{benchmark}: P16 promotion review minimumCurrentTrendSamples mismatch")
+        require_policy(item.get("proposedPromotionMode") == "allocation-blocking", f"{benchmark}: P16 promotion review proposedPromotionMode mismatch")
+        require_policy(item.get("promotionDecision") == "hold", f"{benchmark}: P16 promotion review promotionDecision must be hold")
+        require_policy(item.get("latencyMode") == "report-only", f"{benchmark}: P16 promotion review latencyMode must be report-only")
+        require_policy(benchmark not in tracked, f"{benchmark}: P16 promotion review candidate must stay out of trackedBenchmarks")
+        require_policy(benchmark not in promoted_latency, f"{benchmark}: P16 promotion review latency must stay report-only")
+        blockers = item.get("blockers") or []
+        require_policy(len(blockers) >= 3, f"{benchmark}: P16 promotion review blockers must explain the hold")
+        require_policy(
+            any("baseline" in str(blocker).lower() for blocker in blockers),
+            f"{benchmark}: P16 promotion review blockers must mention baseline",
+        )
+        for field in ("cacheModeNote", "rollbackGuardrail"):
+            require_policy(
+                len(str(item.get(field) or "").split()) >= 10,
+                f"{benchmark}: P16 promotion review {field} must be actionable",
+            )
+    p16_review_rules = set(p16_gateway_cache_promotion_review.get("blockingRules") or [])
+    for rule in (
+        "P16 allocation promotion review must not add Gateway or Cache rows to trackedBenchmarks",
+        "P16 allocation promotion review must keep Gateway and Cache latency report-only",
+        "P16 allocation promotion review may promote at most one Gateway or Cache surface per release train",
+        "P16 allocation promotion review requires committed five-sample baseline rows before allocation blocking",
+        "P16 allocation promotion review requires rollback guardrails and cache-mode notes before promotion",
+        "P16 allocation promotion review requires bench-regression-check before any trackedBenchmarks update",
+    ):
+        require_policy(rule in p16_review_rules, f"p16GatewayCacheAllocationPromotionReview blockingRules missing {rule!r}")
+    for forbidden in (
+        "trackedBenchmarks Gateway entry",
+        "trackedBenchmarks Cache entry",
+        "blocking Gateway latency claim",
+        "blocking Cache latency claim",
+        "allocation-blocking Gateway claim",
+        "allocation-blocking Cache claim",
+        "production Gateway performance parity claim",
+        "production Cache performance parity claim",
+    ):
+        require_policy(
+            forbidden in set(p16_gateway_cache_promotion_review.get("forbiddenUntilCleared") or []),
+            f"p16GatewayCacheAllocationPromotionReview forbiddenUntilCleared missing {forbidden!r}",
         )
     p12_rules = set(p12_rpc_decision.get("blockingRules") or [])
     for rule in (

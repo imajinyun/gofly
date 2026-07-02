@@ -21,11 +21,10 @@
     "safetyPolicy": "P16 tasks are submitted to ignored local aiflow runtime state and mirrored here as durable docs/reference evidence; each task must be completed in order and committed by the current agent or human only after its gate passes or an environment-limited downgrade is documented.",
     "completedTasks": [
       "GOFLY-P16-01-P15-COMPLETION-HANDOFF",
-      "GOFLY-P16-02-GATEWAY-CACHE-TREND-SAMPLE-ATTACHMENT"
-    ],
-    "pendingTasks": [
+      "GOFLY-P16-02-GATEWAY-CACHE-TREND-SAMPLE-ATTACHMENT",
       "GOFLY-P16-03-GATEWAY-CACHE-ALLOCATION-PROMOTION-REVIEW"
-    ]
+    ],
+    "pendingTasks": []
   },
   "previousBatchHandoff": {
     "completedBatch": "GOFLY-P15",
@@ -82,7 +81,7 @@
     {
       "round": 3,
       "id": "GOFLY-P16-03-GATEWAY-CACHE-ALLOCATION-PROMOTION-REVIEW",
-      "status": "queued",
+      "status": "completed",
       "priority": 98,
       "title": "Gateway cache allocation promotion review",
       "objective": "Review whether exactly one Gateway or Cache surface can enter allocation-blocking coverage, or keep promotion held with narrowed blockers.",
@@ -90,7 +89,16 @@
       "acceptanceGates": [
         "make bench-regression-check"
       ],
-      "commitPolicy": "commit after allocation promotion review passes bench-regression-check and keeps latency report-only unless maxRegressionRatio and rollback evidence are durable"
+      "commitPolicy": "commit after allocation promotion review passes bench-regression-check and keeps latency report-only unless maxRegressionRatio and rollback evidence are durable",
+      "commit": "pending-current-commit",
+      "verification": [
+        "python3 -m json.tool bench/budget-ratchet.json",
+        "python3 -m json.tool docs/reference/governance-p16-roadmap.json",
+        "sh -n bin/scripts/benchstat.sh",
+        "make bench-regression-check",
+        "make governance-boundary-inventory-check",
+        "make governance-report-check"
+      ]
     }
   ]
 }

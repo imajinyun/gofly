@@ -357,15 +357,11 @@ require("p15 completion" in tasks[0].get("title", "").lower(), "P16 round 01 tit
 require("p16" in tasks[0].get("objective", "").lower(), "P16 round 01 objective must document P16 active batch handoff")
 for expected_round, item in enumerate(tasks, start=1):
     task_id = item.get("id")
-    expected_status = "completed" if expected_round <= 2 else "queued"
+    expected_status = "completed"
     require(item.get("status") == expected_status, f"{task_id}: active P16 task status must be {expected_status}")
     require(item.get("priority"), f"{task_id}: priority is required")
-    if expected_status == "completed":
-        require(item.get("commit") == "pending-current-commit", f"{task_id}: completed P16 task must record pending current commit")
-        require(bool(item.get("verification")), f"{task_id}: completed P16 task must record verification")
-    else:
-        require("commit" not in item or item.get("commit") in ("", None), f"{task_id}: queued P16 task must not claim a completed commit")
-        require("verification" not in item or item.get("verification") in ("", None), f"{task_id}: queued P16 task must not claim completed verification")
+    require(item.get("commit") == "pending-current-commit", f"{task_id}: completed P16 task must record pending current commit")
+    require(bool(item.get("verification")), f"{task_id}: completed P16 task must record verification")
 
 surfaces = manifest.get("surfaces") or []
 actual_surfaces = {item.get("id") for item in surfaces if isinstance(item, dict)}
@@ -713,8 +709,8 @@ actual_p16_tasks = [
 require(actual_p16_tasks == expected_tasks, f"P16 roadmap task ids mismatch: {actual_p16_tasks!r}")
 p16_submission = p16_manifest.get("aiflowSubmission") or {}
 require(p16_submission.get("status") == "submitted", "P16 aiflowSubmission.status must be submitted")
-require(p16_submission.get("completedTasks") == expected_tasks[:2], "P16 completedTasks must contain the handoff and trend sample tasks")
-require(p16_submission.get("pendingTasks") == expected_tasks[2:], "P16 pendingTasks must match the remaining queue order")
+require(p16_submission.get("completedTasks") == expected_tasks, "P16 completedTasks must contain all active batch tasks")
+require(p16_submission.get("pendingTasks") == [], "P16 pendingTasks must be empty after allocation promotion review")
 p16_submission_commands = p16_submission.get("submissionCommands") or []
 require(len(p16_submission_commands) == 3, "P16 submissionCommands must document all three aiflow submit calls")
 for task_id in expected_tasks:
@@ -736,7 +732,7 @@ for expected_round, item in enumerate(p16_tasks, start=1):
         continue
     task_id = item.get("id", "<missing>")
     require(item.get("round") == expected_round, f"{task_id}: round must be {expected_round}")
-    expected_status = "completed" if expected_round <= 2 else "queued"
+    expected_status = "completed"
     require(item.get("status") == expected_status, f"{task_id}: status must be {expected_status}")
     require(item.get("priority") == 101 - expected_round, f"{task_id}: priority mismatch")
     for field in ("id", "title", "objective", "deliverable", "acceptanceGates", "commitPolicy"):
@@ -746,12 +742,8 @@ for expected_round, item in enumerate(p16_tasks, start=1):
     for gate in gates:
         require(gate_is_known(gate, targets), f"{task_id}: acceptanceGate is not known: {gate!r}")
     require("commit" in item.get("commitPolicy", "").lower(), f"{task_id}: commitPolicy must mention commit")
-    if expected_status == "completed":
-        require(item.get("commit") == "pending-current-commit", f"{task_id}: completed task must record pending current commit")
-        require(bool(item.get("verification")), f"{task_id}: completed task must record verification")
-    else:
-        require("commit" not in item or item.get("commit") in ("", None), f"{task_id}: queued task must not claim a completed commit")
-        require("verification" not in item or item.get("verification") in ("", None), f"{task_id}: queued task must not claim completed verification")
+    require(item.get("commit") == "pending-current-commit", f"{task_id}: completed task must record pending current commit")
+    require(bool(item.get("verification")), f"{task_id}: completed task must record verification")
 
 if missing:
     print("governance boundary inventory check failed:", file=sys.stderr)

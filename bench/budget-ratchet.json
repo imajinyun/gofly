@@ -895,6 +895,114 @@
       "production Cache performance parity claim"
     ]
   },
+  "p16GatewayCacheAllocationPromotionReview": {
+    "schema": "gofly.benchmark_p16_gateway_cache_allocation_promotion_review.v1",
+    "aiflowTask": "GOFLY-P16-03-GATEWAY-CACHE-ALLOCATION-PROMOTION-REVIEW",
+    "status": "promotion-held-baseline-missing",
+    "acceptanceGate": "make bench-regression-check",
+    "reviewedAt": "2026-07-02T00:54:35Z",
+    "sourceEvidence": [
+      "bench/budget-ratchet.json",
+      "bench/gateway_cache_bench_test.go",
+      "bench/matrix.md",
+      "bench/current.txt",
+      "docs/reference/governance-p16-roadmap.json"
+    ],
+    "prerequisiteSnapshot": {
+      "currentTrendAttachment": "attached",
+      "baselineStatus": "missing-gateway-cache-rows",
+      "baselineSamplesAttached": 0,
+      "minimumBaselineSamples": 5,
+      "minimumCurrentTrendSamples": 3,
+      "trackedBenchmarkPromotion": "not-promoted",
+      "latencyMode": "report-only"
+    },
+    "decision": {
+      "result": "hold",
+      "selectedSurface": "none",
+      "allocationBlockingSurface": "none",
+      "promotionClass": "none",
+      "promotionStatus": "blocked",
+      "latencyMode": "report-only",
+      "reason": "P16 allocation promotion review keeps Gateway and Cache out of blocking coverage because current trend samples exist but committed baseline rows are still missing, so allocation deltas cannot be compared by bench-regression-check.",
+      "nextReviewGate": "BENCH_PATTERN='BenchmarkGatewayProxy|BenchmarkCacheHotPath' BENCH_COUNT=5 make bench-baseline && make bench-regression-check",
+      "releaseNotePolicy": "Release notes may describe the P16 Gateway and Cache allocation promotion review as a hold decision with report-only trend evidence, but must not claim allocation-blocking coverage, blocking latency, or production performance parity until committed baseline rows pass the gate."
+    },
+    "reviewedSurfaces": [
+      {
+        "surface": "gateway-proxy",
+        "benchmark": "BenchmarkGatewayProxy",
+        "currentTrendSampleCount": 5,
+        "baselineSamplesAttached": 0,
+        "minimumBaselineSamples": 5,
+        "minimumCurrentTrendSamples": 3,
+        "proposedPromotionMode": "allocation-blocking",
+        "promotionDecision": "hold",
+        "latencyMode": "report-only",
+        "blockers": [
+          "committed five-sample Gateway baseline row is not published",
+          "allocation budget cannot be compared without baseline data",
+          "trackedBenchmarks entry would create a false blocking signal"
+        ],
+        "cacheModeNote": "gateway proxy benchmark exercises HTTP proxying and is reviewed separately from cache hit-path semantics",
+        "rollbackGuardrail": "Keep gateway proxy benchmark claims report-only and avoid trackedBenchmarks promotion until baseline evidence can be compared by bench-regression-check."
+      },
+      {
+        "surface": "cache-hot-path",
+        "benchmark": "BenchmarkCacheHotPath",
+        "currentTrendSampleCount": 5,
+        "baselineSamplesAttached": 0,
+        "minimumBaselineSamples": 5,
+        "minimumCurrentTrendSamples": 3,
+        "proposedPromotionMode": "allocation-blocking",
+        "promotionDecision": "hold",
+        "latencyMode": "report-only",
+        "blockers": [
+          "committed five-sample Cache baseline row is not published",
+          "cache hit-path allocation budget cannot be compared without baseline data",
+          "trackedBenchmarks entry would create a false blocking signal"
+        ],
+        "cacheModeNote": "cache hot-path benchmark measures in-memory L1 Get hit behavior and does not cover misses or invalidation",
+        "rollbackGuardrail": "Keep cache hit-path benchmark claims report-only, use GOFLY_CACHE_DISABLED for runtime rollback, and promote only after baseline evidence passes bench-regression-check."
+      },
+      {
+        "surface": "cache-hot-path-loader-hit",
+        "benchmark": "BenchmarkCacheHotPathGetOrLoadHit",
+        "currentTrendSampleCount": 5,
+        "baselineSamplesAttached": 0,
+        "minimumBaselineSamples": 5,
+        "minimumCurrentTrendSamples": 3,
+        "proposedPromotionMode": "allocation-blocking",
+        "promotionDecision": "hold",
+        "latencyMode": "report-only",
+        "blockers": [
+          "committed five-sample loader-hit baseline row is not published",
+          "loader-hit allocation budget cannot be compared without baseline data",
+          "cache miss and invalidation semantics remain outside this benchmark row"
+        ],
+        "cacheModeNote": "cache GetOrLoad hit benchmark measures a warmed loader-backed key and does not prove miss or invalidation behavior",
+        "rollbackGuardrail": "Keep loader-hit benchmark claims report-only and require separate cache hit, miss, and invalidation evidence before blocking promotion."
+      }
+    ],
+    "blockingRules": [
+      "P16 allocation promotion review must not add Gateway or Cache rows to trackedBenchmarks",
+      "P16 allocation promotion review must keep Gateway and Cache latency report-only",
+      "P16 allocation promotion review may promote at most one Gateway or Cache surface per release train",
+      "P16 allocation promotion review requires committed five-sample baseline rows before allocation blocking",
+      "P16 allocation promotion review requires rollback guardrails and cache-mode notes before promotion",
+      "P16 allocation promotion review requires bench-regression-check before any trackedBenchmarks update"
+    ],
+    "forbiddenUntilCleared": [
+      "trackedBenchmarks Gateway entry",
+      "trackedBenchmarks Cache entry",
+      "blocking Gateway latency claim",
+      "blocking Cache latency claim",
+      "allocation-blocking Gateway claim",
+      "allocation-blocking Cache claim",
+      "production Gateway performance parity claim",
+      "production Cache performance parity claim"
+    ]
+  },
   "p12RpcBudgetPromotionDecision": {
     "schema": "gofly.benchmark_p12_rpc_budget_promotion_decision.v1",
     "aiflowTask": "GOFLY-P12-1-RPC-BENCHMARK-BUDGET-PROMOTION",

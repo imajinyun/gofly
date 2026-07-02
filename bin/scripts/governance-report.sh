@@ -1498,12 +1498,12 @@ active_aiflow_batch = convergence.get("activeAiflowBatch", "")
 if not active_aiflow_batch:
     missing.append("governance convergence activeAiflowBatch is required")
 expected_round_ids = [
-    "GOFLY-P18-01-P17-COMPLETION-HANDOFF",
-    "GOFLY-P18-02-GATEWAY-PROXY-ALLOCATION-HOLD-EVIDENCE",
-    "GOFLY-P18-03-CACHE-LOADER-HIT-PROMOTION-PRECHECK",
+    "GOFLY-P19-01-P18-COMPLETION-HANDOFF",
+    "GOFLY-P19-02-RPC-RELEASE-TRAIN-EVIDENCE-ATTACHMENT",
+    "GOFLY-P19-03-RPC-BUDGET-PROMOTION-BLOCKER-REVIEW",
 ]
-if active_aiflow_batch != "GOFLY-P18":
-    missing.append("governance convergence activeAiflowBatch must be GOFLY-P18")
+if active_aiflow_batch != "GOFLY-P19":
+    missing.append("governance convergence activeAiflowBatch must be GOFLY-P19")
 actual_round_ids = [
     item.get("id", "")
     for item in convergence.get("tasks") or []
@@ -2383,11 +2383,11 @@ if convergence_contract.get("gate") != "make governance-boundary-inventory-check
     missing.append("governance dashboard governanceConvergence gate mismatch")
 if int(convergence_contract.get("requiredTaskCount") or 0) != 3:
     missing.append("governance dashboard governanceConvergence requiredTaskCount mismatch")
-if convergence_contract.get("requiredActiveBatch") != "GOFLY-P18":
+if convergence_contract.get("requiredActiveBatch") != "GOFLY-P19":
     missing.append("governance dashboard governanceConvergence requiredActiveBatch mismatch")
-if convergence_contract.get("latestCompletedBatch") != "GOFLY-P17":
+if convergence_contract.get("latestCompletedBatch") != "GOFLY-P18":
     missing.append("governance dashboard governanceConvergence latestCompletedBatch mismatch")
-if convergence_contract.get("activeRoadmap") != "docs/reference/governance-p18-roadmap.json":
+if convergence_contract.get("activeRoadmap") != "docs/reference/governance-p19-roadmap.json":
     missing.append("governance dashboard governanceConvergence activeRoadmap mismatch")
 if set(convergence_contract.get("requiredIgnoredRuntimePaths") or []) != expected_ignored_runtime_paths:
     missing.append("governance dashboard governanceConvergence requiredIgnoredRuntimePaths mismatch")

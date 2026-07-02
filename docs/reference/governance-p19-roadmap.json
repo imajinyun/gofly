@@ -1,0 +1,93 @@
+{
+  "schema": "gofly.governance_p19_roadmap.v1",
+  "purpose": "Durable P19 aiflow queue for RPC Tier 1 release-train convergence after P18 completed Gateway and Cache remaining candidate evidence. P19 keeps Tier 1 promotion blocked until release-train and benchmark-budget evidence are attached by separate task commits.",
+  "sourceEvidence": [
+    "docs/reference/governance-p18-roadmap.json",
+    "docs/reference/governance-boundary-inventory.json",
+    "docs/reference/governance-dashboard-contract.json",
+    "docs/reference/rpc-boundary.md",
+    "docs/reference/rpc-tier1-evidence.json",
+    "bench/budget-ratchet.json",
+    "go run -C /Users/bytedance/Codes/go/src/github/aiflow ./cmd/aiflow status -root /Users/bytedance/Codes/go/src/github/gofly -config /Users/bytedance/Codes/go/src/github/gofly/aiflow.yaml"
+  ],
+  "aiflowSubmission": {
+    "status": "submitted",
+    "submittedAt": "2026-07-02T02:32:03Z",
+    "submissionCommands": [
+      "go run -C /Users/bytedance/Codes/go/src/github/aiflow ./cmd/aiflow submit -root /Users/bytedance/Codes/go/src/github/gofly -config /Users/bytedance/Codes/go/src/github/gofly/aiflow.yaml -id GOFLY-P19-01-P18-COMPLETION-HANDOFF -title \"P18 completion handoff\" -description \"Mark P18 as the latest completed governance batch and open P19 for RPC Tier 1 release-train convergence.\" -kind governance -priority 100",
+      "go run -C /Users/bytedance/Codes/go/src/github/aiflow ./cmd/aiflow submit -root /Users/bytedance/Codes/go/src/github/gofly -config /Users/bytedance/Codes/go/src/github/gofly/aiflow.yaml -id GOFLY-P19-02-RPC-RELEASE-TRAIN-EVIDENCE-ATTACHMENT -title \"RPC release-train evidence attachment\" -description \"Attach RPC unary and streaming release-train evidence, resolver and balancer contracts, deadline retry auth tracing matrix, and Kitex rollback boundaries without promoting Tier 1 prematurely.\" -kind governance -priority 99",
+      "go run -C /Users/bytedance/Codes/go/src/github/aiflow ./cmd/aiflow submit -root /Users/bytedance/Codes/go/src/github/gofly -config /Users/bytedance/Codes/go/src/github/gofly/aiflow.yaml -id GOFLY-P19-03-RPC-BUDGET-PROMOTION-BLOCKER-REVIEW -title \"RPC budget promotion blocker review\" -description \"Review RPC benchmark budget promotion blockers and keep latency report-only unless allocation evidence clears bench-regression-check promotion criteria.\" -kind governance -priority 98"
+    ],
+    "queueStatusCommand": "go run -C /Users/bytedance/Codes/go/src/github/aiflow ./cmd/aiflow status -root /Users/bytedance/Codes/go/src/github/gofly -config /Users/bytedance/Codes/go/src/github/gofly/aiflow.yaml",
+    "runtimeStatePolicy": ".aiflow, .harness, .tmp-test, .trae, coverage.out, bench/current.txt, bench/regression-report.json, bench/summary.md, bin/gofly, and docs/superpowers remain ignored local evidence and must not be committed.",
+    "safetyPolicy": "P19 tasks are submitted to ignored local aiflow runtime state and mirrored here as durable docs/reference evidence; each task must be completed in order and committed by the current agent or human only after its gate passes or an environment-limited downgrade is documented.",
+    "completedTasks": [
+      "GOFLY-P19-01-P18-COMPLETION-HANDOFF"
+    ],
+    "pendingTasks": [
+      "GOFLY-P19-02-RPC-RELEASE-TRAIN-EVIDENCE-ATTACHMENT",
+      "GOFLY-P19-03-RPC-BUDGET-PROMOTION-BLOCKER-REVIEW"
+    ]
+  },
+  "previousBatchHandoff": {
+    "completedBatch": "GOFLY-P18",
+    "completedTaskCount": 3,
+    "completionPolicy": "P18 is treated as completed only when all three task rows in docs/reference/governance-p18-roadmap.json carry completion status, verification commands, and pending-current-commit placeholders owned by their per-task commits.",
+    "runtimeStatePolicy": "Local .aiflow queue data is runtime evidence only; durable completion evidence belongs in docs/reference/governance-p18-roadmap.json and docs/reference/governance-boundary-inventory.json."
+  },
+  "tasks": [
+    {
+      "round": 1,
+      "id": "GOFLY-P19-01-P18-COMPLETION-HANDOFF",
+      "status": "completed",
+      "priority": 100,
+      "title": "P18 completion handoff",
+      "objective": "Convert P18 from active completed roadmap evidence into the latest completed governance batch and open P19 as the next active aiflow batch for RPC Tier 1 release-train convergence.",
+      "deliverable": "P18 completed task evidence, P19 active roadmap, boundary inventory transition, dashboard convergence fields, and aiflow runtime-state exclusion proof.",
+      "acceptanceGates": [
+        "make governance-boundary-inventory-check",
+        "make governance-report-check"
+      ],
+      "commitPolicy": "commit after the P18 completion handoff and P19 active-batch evidence pass boundary inventory and governance report gates without staging ignored runtime state",
+      "commit": "pending-current-commit",
+      "verification": [
+        "python3 -m json.tool docs/reference/governance-p18-roadmap.json",
+        "python3 -m json.tool docs/reference/governance-p19-roadmap.json",
+        "python3 -m json.tool docs/reference/governance-boundary-inventory.json",
+        "python3 -m json.tool docs/reference/governance-dashboard-contract.json",
+        "sh -n bin/scripts/check-governance-boundary-inventory.sh",
+        "sh -n bin/scripts/governance-report.sh",
+        "make governance-boundary-inventory-check",
+        "make governance-report-check"
+      ]
+    },
+    {
+      "round": 2,
+      "id": "GOFLY-P19-02-RPC-RELEASE-TRAIN-EVIDENCE-ATTACHMENT",
+      "status": "submitted",
+      "priority": 99,
+      "title": "RPC release-train evidence attachment",
+      "objective": "Attach release-train evidence for unary, server-stream, client-stream, and bidi-stream RPC surfaces while preserving Tier 2 classification until budget evidence converges.",
+      "deliverable": "RPC release-train evidence references, resolver and balancer contract coverage, deadline retry auth tracing matrix, and Kitex coexistence rollback path.",
+      "acceptanceGates": [
+        "make rpc-boundary-check",
+        "make bench-regression-check"
+      ],
+      "commitPolicy": "commit after RPC release-train evidence passes rpc-boundary-check and bench-regression-check without claiming Tier 1 promotion"
+    },
+    {
+      "round": 3,
+      "id": "GOFLY-P19-03-RPC-BUDGET-PROMOTION-BLOCKER-REVIEW",
+      "status": "submitted",
+      "priority": 98,
+      "title": "RPC budget promotion blocker review",
+      "objective": "Review RPC benchmark budget blockers and decide whether any unary or streaming allocation row can move toward blocking coverage while latency remains report-only.",
+      "deliverable": "RPC budget promotion blocker review, allocation blocking candidate policy, rollback note, and report-only latency release guardrail.",
+      "acceptanceGates": [
+        "make bench-regression-check",
+        "make rpc-boundary-check"
+      ],
+      "commitPolicy": "commit after RPC budget review passes bench-regression-check and rpc-boundary-check with any promotion or hold decision recorded"
+    }
+  ]
+}

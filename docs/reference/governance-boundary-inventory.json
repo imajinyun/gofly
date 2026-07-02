@@ -1,7 +1,7 @@
 {
   "schema": "gofly.governance_boundary_inventory.v1",
   "purpose": "Lightweight baseline inventory for the 10-round governance workflow before expensive full-repository gates run.",
-  "activeAiflowBatch": "GOFLY-P18",
+  "activeAiflowBatch": "GOFLY-P19",
   "aiflowTaskBatches": [
     {
       "id": "GOFLY-GOV-10R",
@@ -128,19 +128,26 @@
       "taskPrefix": "GOFLY-P18-",
       "roundCount": 3,
       "evidence": "docs/reference/governance-p18-roadmap.json"
+    },
+    {
+      "id": "GOFLY-P19",
+      "status": "submitted",
+      "taskPrefix": "GOFLY-P19-",
+      "roundCount": 3,
+      "evidence": "docs/reference/governance-p19-roadmap.json"
     }
   ],
   "aiflowTasks": [
     {
-      "id": "GOFLY-P18-01-P17-COMPLETION-HANDOFF",
+      "id": "GOFLY-P19-01-P18-COMPLETION-HANDOFF",
       "round": 1,
       "status": "completed",
       "priority": 100,
-      "title": "P17 completion handoff",
-      "objective": "Convert P17 from active completed roadmap evidence into the latest completed governance batch and open P18 as the next active aiflow batch.",
-      "deliverable": "P17 completed task evidence, P18 active roadmap, boundary inventory transition, dashboard convergence fields, and aiflow runtime-state exclusion proof.",
+      "title": "P18 completion handoff",
+      "objective": "Convert P18 from active completed roadmap evidence into the latest completed governance batch and open P19 as the next active aiflow batch for RPC Tier 1 release-train convergence.",
+      "deliverable": "P18 completed task evidence, P19 active roadmap, boundary inventory transition, dashboard convergence fields, and aiflow runtime-state exclusion proof.",
       "gate": "make governance-boundary-inventory-check",
-      "commitPolicy": "commit after the P17 completion handoff and P18 active-batch evidence pass boundary inventory and governance report gates without staging ignored runtime state",
+      "commitPolicy": "commit after the P18 completion handoff and P19 active-batch evidence pass boundary inventory and governance report gates without staging ignored runtime state",
       "commit": "pending-current-commit",
       "verification": [
         "make governance-boundary-inventory-check",
@@ -148,38 +155,26 @@
       ]
     },
     {
-      "id": "GOFLY-P18-02-GATEWAY-PROXY-ALLOCATION-HOLD-EVIDENCE",
+      "id": "GOFLY-P19-02-RPC-RELEASE-TRAIN-EVIDENCE-ATTACHMENT",
       "round": 2,
-      "status": "completed",
+      "status": "submitted",
       "priority": 99,
-      "title": "Gateway proxy allocation hold evidence",
-      "objective": "Keep BenchmarkGatewayProxy outside tracked allocation blocking while recording the concrete reduction target, rollback boundary, and release note guardrails required before promotion.",
-      "deliverable": "Gateway proxy hold evidence, allocation target, rollback note, report-only release policy, and bench-regression-check guardrails.",
-      "gate": "make bench-regression-check",
-      "commitPolicy": "commit after Gateway proxy hold evidence passes bench-regression-check and still forbids trackedBenchmarks promotion",
-      "commit": "pending-current-commit",
-      "verification": [
-        "make bench-regression-check",
-        "make governance-boundary-inventory-check",
-        "make governance-report-check"
-      ]
+      "title": "RPC release-train evidence attachment",
+      "objective": "Attach release-train evidence for unary, server-stream, client-stream, and bidi-stream RPC surfaces while preserving Tier 2 classification until budget evidence converges.",
+      "deliverable": "RPC release-train evidence references, resolver and balancer contract coverage, deadline retry auth tracing matrix, and Kitex coexistence rollback path.",
+      "gate": "make rpc-boundary-check",
+      "commitPolicy": "commit after RPC release-train evidence passes rpc-boundary-check and bench-regression-check without claiming Tier 1 promotion"
     },
     {
-      "id": "GOFLY-P18-03-CACHE-LOADER-HIT-PROMOTION-PRECHECK",
+      "id": "GOFLY-P19-03-RPC-BUDGET-PROMOTION-BLOCKER-REVIEW",
       "round": 3,
-      "status": "completed",
+      "status": "submitted",
       "priority": 98,
-      "title": "Cache loader hit promotion precheck",
-      "objective": "Keep BenchmarkCacheHotPathGetOrLoadHit separate from the promoted Get hit path and define promotion prerequisites for loader, miss, invalidation, and rollback behavior.",
-      "deliverable": "Loader-hit cache promotion precheck, scope separation from BenchmarkCacheHotPath, miss/invalidation blockers, and report-only release note policy.",
+      "title": "RPC budget promotion blocker review",
+      "objective": "Review RPC benchmark budget blockers and decide whether any unary or streaming allocation row can move toward blocking coverage while latency remains report-only.",
+      "deliverable": "RPC budget promotion blocker review, allocation blocking candidate policy, rollback note, and report-only latency release guardrail.",
       "gate": "make bench-regression-check",
-      "commitPolicy": "commit after loader-hit precheck passes bench-regression-check and keeps loader-hit outside trackedBenchmarks",
-      "commit": "pending-current-commit",
-      "verification": [
-        "make bench-regression-check",
-        "make governance-boundary-inventory-check",
-        "make governance-report-check"
-      ]
+      "commitPolicy": "commit after RPC budget review passes bench-regression-check and rpc-boundary-check with any promotion or hold decision recorded"
     }
   ],
   "surfaces": [

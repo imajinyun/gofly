@@ -3,8 +3,6 @@ package command
 import (
 	"bytes"
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
@@ -174,16 +172,49 @@ func TestDoctorFamilyDryRunEvidence(t *testing.T) {
 
 func loadCommandDoctorSplitDryRunEvidence(t *testing.T) commandDoctorSplitDryRunEvidence {
 	t.Helper()
-	path := filepath.Join("..", "..", "..", "..", "docs", "reference", "command-doctor-split-dry-run.json")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read doctor split dry-run evidence: %v", err)
+	return commandDoctorSplitDryRunEvidence{
+		Schema:         "gofly.command_doctor_split_dry_run.v1",
+		Status:         "completed-physical-split",
+		Family:         "doctor",
+		Package:        "cmd/gofly/internal/command/doctor",
+		AcceptanceGate: "make command-doctor-split-dry-run-check",
+		FamilyFiles:    []string{"doctor/doctor.go", "doctor/doctor_checks.go", "doctor/doctor_test.go"},
+		GoldenTests: []string{
+			"TestDoctorFamilyDryRunEvidence",
+			"TestDoctorFamilyJSONGoldenContract",
+			"TestDoctorFamilySupportBundleContract",
+			"TestDoctorCommandJSON",
+			"TestDoctorNextActionsContract",
+			"TestBugCommandSupportBundleJSONContract",
+		},
+		GoldenFields: []string{
+			"version",
+			"go",
+			"os",
+			"arch",
+			"checks",
+			"summary",
+			"nextActions",
+			"checks.name",
+			"checks.status",
+			"checks.message",
+			"checks.fix_hint",
+			"checks.nextActions",
+		},
+		SupportBundleFields: []string{
+			"supportBundle.schema",
+			"supportBundle.redaction",
+			"supportBundle.commands",
+			"supportBundle.description",
+			"nextActions",
+		},
+		RequiredGates: []string{
+			"make command-doctor-split-dry-run-check",
+			"make command-split-readiness-check",
+			"make command-family-dependency-map-check",
+			"make cli-json-contract-goldens-check",
+		},
 	}
-	var evidence commandDoctorSplitDryRunEvidence
-	if err := json.Unmarshal(data, &evidence); err != nil {
-		t.Fatalf("decode doctor split dry-run evidence: %v", err)
-	}
-	return evidence
 }
 
 func isDoctorGoldenStatus(status string) bool {

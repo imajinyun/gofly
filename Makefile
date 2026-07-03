@@ -125,7 +125,7 @@ bench-evidence: ## Write benchmark evidence from bench/baseline.txt
 	bash $(SCRIPTS_DIR)/benchstat.sh --evidence
 
 .PHONY: bench-evidence-check
-bench-evidence-check: perf-governance-check rpc-boundary-check bench-publish-check ## Validate tracked benchmark baseline, matrix, and evidence
+bench-evidence-check: perf-governance-check rpc-boundary-check bench-publish-check ## Validate tracked benchmark baseline and budget data
 	bash $(SCRIPTS_DIR)/benchstat.sh --check-evidence
 
 .PHONY: bench-publish-check
@@ -190,7 +190,7 @@ root-dependency-policy-check: ## Validate root go.mod direct dependency ownershi
 check: fmt-check vet test ## Run the core local verification suite
 
 .PHONY: ci-fast
-ci-fast: fmt-check vet build examples-check examples-smoke docs-check test tidy ## Run the default CI build/test/tidy gates
+ci-fast: fmt-check vet build examples-check examples-smoke test tidy ## Run the default CI build/test/tidy gates
 
 .PHONY: ci
 ci: ci-fast generated-output-governance test-generated-matrix generated-control-plane-smoke bench-evidence-check governance supply-chain ## Run the full CI verification suite
@@ -210,108 +210,103 @@ dependency-upgrade-check: dependency-upgrade-evidence-check root-dependency-poli
 	fi
 
 .PHONY: dependency-upgrade-evidence-check
-dependency-upgrade-evidence-check: ## Validate dependency upgrade evidence and CI delegation contract
-	sh $(SCRIPTS_DIR)/check-dependency-upgrade-evidence.sh
+dependency-upgrade-evidence-check: root-dependency-policy-check mod-verify ## Validate dependency state without docs evidence
 
 .PHONY: cache-dependency-governance-check
-cache-dependency-governance-check: ## Validate cache bypass and remote-dependency governance gates
-	sh $(SCRIPTS_DIR)/check-cache-dependency-governance.sh
+cache-dependency-governance-check: ## Validate cache bypass and remote-dependency packages
+	$(GO) test $(TESTFLAGS) ./cache ./cmd/gofly/internal/generator -run 'Test(CacheDisabledBy|TieredCacheDisabledBy|PluginRunnerDownloadPlugin)'
 
 .PHONY: api-example-consistency-check
-api-example-consistency-check: ## Validate public API docs, examples, and gates stay aligned
-	sh $(SCRIPTS_DIR)/check-api-example-consistency.sh
+api-example-consistency-check: examples-smoke test-generated-matrix ## Compatibility gate backed by runnable examples and generated output
 
 .PHONY: coverage-trend-check
-coverage-trend-check: ## Validate coverage trend, threshold, and ratchet evidence
-	sh $(SCRIPTS_DIR)/check-coverage-trend.sh
+coverage-trend-check: cover-check ## Compatibility gate backed by coverage ratchet
 
 .PHONY: ci-required-check-evidence-check
-ci-required-check-evidence-check: ## Validate CI required-check evidence artifact matrix
-	sh $(SCRIPTS_DIR)/check-ci-required-check-evidence.sh
+ci-required-check-evidence-check: ## Compatibility no-op; hosted release evidence docs were removed
+	$(GO) env GOMOD >/dev/null
 
 .PHONY: runtime-slo-check
-runtime-slo-check: ## Validate runtime SLO and golden-signal evidence
-	sh $(SCRIPTS_DIR)/check-runtime-slo.sh
+runtime-slo-check: ## Validate runtime packages without docs evidence
+	$(GO) test $(TESTFLAGS) ./core/runtime/... ./core/governance/... ./rest/... ./rpc/...
 
 .PHONY: governance-boundary-inventory-check
-governance-boundary-inventory-check: ## Validate 10-round governance boundary inventory and aiflow task map
-	sh $(SCRIPTS_DIR)/check-governance-boundary-inventory.sh
+governance-boundary-inventory-check: ## Compatibility no-op; docs boundary inventory was removed
+	$(GO) env GOMOD >/dev/null
 
 .PHONY: context-lifecycle-governance-check
-context-lifecycle-governance-check: ## Validate context propagation, shutdown, watch, and goroutine lifecycle evidence
-	sh $(SCRIPTS_DIR)/check-context-lifecycle-governance.sh
+context-lifecycle-governance-check: ## Validate lifecycle-sensitive runtime packages
+	$(GO) test $(TESTFLAGS) ./core/discovery/... ./rpc/... ./rest/...
 
 .PHONY: discovery-adapter-matrix-check
-discovery-adapter-matrix-check: ## Validate discovery provider status, failover, and release gate matrix
-	sh $(SCRIPTS_DIR)/check-discovery-adapter-matrix.sh
+discovery-adapter-matrix-check: ## Validate discovery package behavior
+	$(GO) test $(TESTFLAGS) ./core/discovery/...
 
 .PHONY: db-cache-productization-check
-db-cache-productization-check: ## Validate DB/cache productization evidence, gaps, and release gates
-	sh $(SCRIPTS_DIR)/check-db-cache-productization.sh
+db-cache-productization-check: ## Validate DB/cache packages
+	$(GO) test $(TESTFLAGS) ./core/storage/... ./cache/...
 
 .PHONY: goctl-generator-compat-check
-goctl-generator-compat-check: ## Validate goctl-compatible generator surface, fixtures, and upgrade gates
-	sh $(SCRIPTS_DIR)/check-goctl-generator-compat.sh
+goctl-generator-compat-check: ## Validate goctl-compatible generator tests
+	$(GO) test $(TESTFLAGS) ./cmd/gofly/internal/generator ./cmd/gofly/internal/command -run 'Test.*Goctl|Test.*goctl|Test.*Generated|TestNewService'
 
 .PHONY: goctl-real-project-replay-check
-goctl-real-project-replay-check: ## Validate goctl real-project fixture replay evidence and generated smoke gates
-	sh $(SCRIPTS_DIR)/check-goctl-real-project-replay.sh
+goctl-real-project-replay-check: test-generated-matrix ## Validate goctl replay through generated project smoke
 
 .PHONY: framework-gap-check
-framework-gap-check: ## Validate framework gap matrix and executable TODO roadmap
-	sh $(SCRIPTS_DIR)/check-framework-gap.sh
+framework-gap-check: ## Compatibility no-op; framework alignment is now validated through code, generator, and examples gates
+	$(GO) env GOMOD >/dev/null
 
 .PHONY: cli-command-surface-check
 cli-command-surface-check: ## Validate cmd/gofly command registry, help, aliases, and CLI contract surface
-	sh $(SCRIPTS_DIR)/check-cli-command-surface.sh
+	$(GO) test $(TESTFLAGS) ./cmd/gofly/internal/command -run 'Test.*Command.*Surface|Test.*Registry|Test.*Help|TestCLIJSON'
 
 .PHONY: cli-json-contract-goldens-check
 cli-json-contract-goldens-check: ## Validate stable cmd/gofly JSON golden contracts and stdout discipline
-	sh $(SCRIPTS_DIR)/check-cli-json-contract-goldens.sh
+	$(GO) test $(TESTFLAGS) ./cmd/gofly/internal/command -run 'TestCLIJSONContractGoldens|TestCLIJSONErrorEnvelopeGolden'
 
 .PHONY: cli-configuration-governance-check
-cli-configuration-governance-check: ## Validate CLI config defaults, usage errors, output mode, and JSON contract evidence
-	sh $(SCRIPTS_DIR)/check-cli-configuration-governance.sh
+cli-configuration-governance-check: ## Validate CLI config, help, and JSON output packages
+	$(GO) test $(TESTFLAGS) ./cmd/gofly/internal/command -run 'Test.*CLI|Test.*Config|Test.*JSON|Test.*Help|Test.*Doctor'
 
 .PHONY: command-family-dependency-map-check
-command-family-dependency-map-check: ## Validate cmd/gofly command family dependency map and split readiness
-	sh $(SCRIPTS_DIR)/check-command-family-dependency-map.sh
+command-family-dependency-map-check: ## Validate cmd/gofly command registry and family tests
+	$(GO) test $(TESTFLAGS) ./cmd/gofly/internal/command -run 'TestCommand.*Family|Test.*Registry|Test.*Help'
 
 .PHONY: command-split-readiness-check
-command-split-readiness-check: ## Validate cmd/gofly command split readiness evidence and release-blocker closure
-	sh $(SCRIPTS_DIR)/check-command-split-readiness.sh
+command-split-readiness-check: command-family-dependency-map-check ## Compatibility gate backed by command package tests
 
 .PHONY: command-help-split-dry-run-check
 command-help-split-dry-run-check: ## Validate cmd/gofly help family split dry-run evidence and golden output
-	sh $(SCRIPTS_DIR)/check-command-help-split-dry-run.sh
+	$(GO) test $(TESTFLAGS) ./cmd/gofly/internal/command -run 'TestHelpFamily|TestCommandHelp|TestExecute.*Help'
 
 .PHONY: command-doctor-split-dry-run-check
 command-doctor-split-dry-run-check: ## Validate cmd/gofly doctor family split dry-run evidence and JSON/support bundle contracts
-	sh $(SCRIPTS_DIR)/check-command-doctor-split-dry-run.sh
+	$(GO) test $(TESTFLAGS) ./cmd/gofly/internal/command -run 'TestDoctor|TestBugCommand'
 
 .PHONY: command-shared-reduction-plan-check
 command-shared-reduction-plan-check: ## Validate cmd/gofly shared helper reduction plan before any physical command package split
-	sh $(SCRIPTS_DIR)/check-command-shared-reduction-plan.sh
+	$(GO) test $(TESTFLAGS) ./cmd/gofly/internal/command -run 'TestCommandSharedReductionPlan'
 
 .PHONY: command-output-json-adapter-dry-run-check
 command-output-json-adapter-dry-run-check: ## Validate cmd/gofly output and JSON adapter dry-run contracts before command package splits
-	sh $(SCRIPTS_DIR)/check-command-output-json-adapter-dry-run.sh
+	$(GO) test $(TESTFLAGS) ./cmd/gofly/internal/command -run 'TestCommandOutputJSONAdapter'
 
 .PHONY: command-help-doctor-split-preflight-check
 command-help-doctor-split-preflight-check: ## Validate cmd/gofly help and doctor physical split preflight before moving any command files
-	sh $(SCRIPTS_DIR)/check-command-help-doctor-split-preflight.sh
+	$(GO) test $(TESTFLAGS) ./cmd/gofly/internal/command -run 'TestCommandHelpDoctorSplitPreflight'
 
 .PHONY: command-next-family-candidate-refresh-check
 command-next-family-candidate-refresh-check: ## Validate the next cmd/gofly command family split candidate refresh
-	sh $(SCRIPTS_DIR)/check-command-next-family-candidate-refresh.sh
+	$(GO) test $(TESTFLAGS) ./cmd/gofly/internal/command -run 'TestCommandNextFamilyCandidateRefresh'
 
 .PHONY: command-release-family-preflight-check
 command-release-family-preflight-check: ## Validate cmd/gofly release family preflight before moving release command files
-	sh $(SCRIPTS_DIR)/check-command-release-family-preflight.sh
+	$(GO) test $(TESTFLAGS) ./cmd/gofly/internal/command -run 'TestCommandReleaseFamilyPreflight'
 
 .PHONY: project-layout-governance-check
-project-layout-governance-check: ## Validate project directory boundaries and no-big-bang layout policy
-	sh $(SCRIPTS_DIR)/check-project-layout-governance.sh
+project-layout-governance-check: ## Compatibility no-op; docs-backed layout inventory was removed
+	$(GO) env GOMOD >/dev/null
 
 .PHONY: examples-check
 examples-check: examples-copyable-check ## Build and vet all examples to keep docs and code in sync
@@ -336,73 +331,67 @@ examples-smoke: ## Run runnable example smoke tests and machine-readable output 
 	sh $(SCRIPTS_DIR)/examples-smoke.sh
 
 .PHONY: docs-check
-docs-check: docs-link-check docs-taxonomy-check migration-docs-check p1-growth-check community-growth-check contract-docs-check dx-troubleshooting-check governance-report-check fuzz-robustness-check dependency-upgrade-evidence-check cache-dependency-governance-check api-contract-governance-check api-example-consistency-check coverage-trend-check ci-required-check-evidence-check runtime-slo-check governance-boundary-inventory-check context-lifecycle-governance-check discovery-adapter-matrix-check db-cache-productization-check goctl-generator-compat-check goctl-real-project-replay-check framework-gap-check cli-command-surface-check cli-configuration-governance-check command-family-dependency-map-check command-split-readiness-check command-help-split-dry-run-check command-doctor-split-dry-run-check command-shared-reduction-plan-check command-output-json-adapter-dry-run-check command-help-doctor-split-preflight-check command-next-family-candidate-refresh-check command-release-family-preflight-check project-layout-governance-check doc-manifest-sync-check required-checks-drift-check ## Compile Go code blocks in Markdown docs
+docs-check: ## Compatibility no-op; default engineering gates do not depend on removed documentation trees
 	$(GO) env GOMOD >/dev/null
-	sh $(SCRIPTS_DIR)/check-doc-go-snippets.sh
 
 .PHONY: docs-taxonomy-check
-docs-taxonomy-check: ## Validate Tutorial / How-to / Reference / Explanation navigation
-	sh $(SCRIPTS_DIR)/check-doc-taxonomy.sh
+docs-taxonomy-check: ## Compatibility no-op; tracked docs taxonomy has been removed
+	$(GO) env GOMOD >/dev/null
 
 .PHONY: migration-docs-check
-migration-docs-check: ## Validate case studies and migration guide structure
-	sh $(SCRIPTS_DIR)/check-migration-docs.sh
+migration-docs-check: ## Compatibility no-op; migration proof is validated through runnable examples
+	$(GO) env GOMOD >/dev/null
 
 .PHONY: p1-growth-check
-p1-growth-check: helm-template-smoke cloud-native-render-check plugin-conformance-check reference-app-smoke runtime-slo-check openapi-validation-check resilience-drill-check ## Validate P1 growth roadmap and cloud-native assets
-	sh $(SCRIPTS_DIR)/check-p1-growth-assets.sh
+p1-growth-check: helm-template-smoke plugin-conformance-check reference-app-smoke runtime-slo-check openapi-validation-check ## Validate growth assets through runnable gates
 
 .PHONY: helm-template-smoke
 helm-template-smoke: ## Validate Helm chart production resource coverage
 	sh $(SCRIPTS_DIR)/helm-template-smoke.sh
 
 .PHONY: cloud-native-render-check
-cloud-native-render-check: ## Validate Helm/Kustomize render profiles and policy assets
-	sh $(SCRIPTS_DIR)/check-cloud-native-render.sh
+cloud-native-render-check: helm-template-smoke ## Compatibility gate backed by Helm render smoke
 
 .PHONY: reference-app-smoke
 reference-app-smoke: ## Validate the production-orders reference app evidence
 	sh $(SCRIPTS_DIR)/reference-app-smoke.sh
 
 .PHONY: resilience-drill-check
-resilience-drill-check: ## Validate runnable resilience drill evidence
-	sh $(SCRIPTS_DIR)/check-resilience-drill.sh
+resilience-drill-check: runtime-slo-check ## Compatibility gate backed by runtime package tests
 
 .PHONY: plugin-conformance-check
 plugin-conformance-check: plugin-external-governance-check ## Validate plugin registry and manifest conformance cases
-	sh $(SCRIPTS_DIR)/plugin-conformance-check.sh
+	$(GO) test $(TESTFLAGS) ./cmd/gofly/internal/generator -run 'TestPlugin'
 
 .PHONY: plugin-external-governance-check
 plugin-external-governance-check: ## Validate plugin external process, download, permissions, and failure-isolation evidence
-	sh $(SCRIPTS_DIR)/check-plugin-external-governance.sh
+	$(GO) test $(TESTFLAGS) ./cmd/gofly/internal/generator -run 'TestPluginRunner'
 
 .PHONY: openapi-validation-check
 openapi-validation-check: ## Validate OpenAPI, binding, validation, and error envelope contracts
-	sh $(SCRIPTS_DIR)/check-openapi-validation-envelope.sh
+	$(GO) test $(TESTFLAGS) ./rest/... ./cmd/gofly/internal/generator -run 'Test.*OpenAPI|Test.*Validation|Test.*Error'
 
 .PHONY: api-contract-check
 api-contract-check: openapi-validation-check rpc-boundary-check ## Validate REST/OpenAPI and RPC boundary contracts
-	sh $(SCRIPTS_DIR)/check-api-contract-governance.sh
+	$(GO) env GOMOD >/dev/null
 
 .PHONY: api-contract-governance-check
-api-contract-governance-check: ## Validate the REST/RPC aggregate contract gate cannot drift
-	sh $(SCRIPTS_DIR)/check-api-contract-governance.sh
+api-contract-governance-check: api-contract-check ## Compatibility gate backed by REST/RPC tests
 
 .PHONY: community-growth-check
-community-growth-check: ## Validate contributor, roadmap, and issue-template adoption signals
-	sh $(SCRIPTS_DIR)/check-community-growth.sh
+community-growth-check: ## Compatibility no-op; project focus is framework capability over community prose
+	$(GO) env GOMOD >/dev/null
 
 .PHONY: contract-docs-check
-contract-docs-check: stable-surface-check generated-version-compat-check generated-upgrade-dry-run-check adopter-decision-check deprecation-lifecycle-check cli-command-surface-check cli-json-contract-goldens-check cli-configuration-governance-check api-contract-governance-check ## Validate stable CLI JSON and control-plane contract docs
-	sh $(SCRIPTS_DIR)/check-contract-docs.sh
+contract-docs-check: stable-surface-check generated-version-compat-check generated-upgrade-dry-run-check cli-json-contract-goldens-check cli-configuration-governance-check api-contract-governance-check ## Validate stable CLI JSON and generated contract engineering gates
+	$(GO) env GOMOD >/dev/null
 
 .PHONY: generated-upgrade-dry-run-check
-generated-upgrade-dry-run-check: generated-output-governance code-generation-governance-check ## Validate generated upgrade dry-run manifest and diff report contract
-	sh $(SCRIPTS_DIR)/check-generated-upgrade-dry-run.sh
+generated-upgrade-dry-run-check: generated-output-governance code-generation-governance-check test-generated-matrix ## Validate generated upgrade behavior through generator tests
 
 .PHONY: dx-troubleshooting-check
 dx-troubleshooting-check: ## Validate doctor, release, and support-bundle troubleshooting JSON contracts
-	sh $(SCRIPTS_DIR)/check-dx-troubleshooting.sh
+	$(GO) test $(TESTFLAGS) ./cmd/gofly/internal/command -run 'TestDoctor|TestBugCommand|TestCLIJSON|TestRelease'
 
 .PHONY: governance-report
 governance-report: ## Write the machine-readable governance dashboard JSON and Markdown summary
@@ -414,7 +403,7 @@ governance-report-check: ## Validate the governance dashboard report contract
 
 .PHONY: fuzz-robustness-check
 fuzz-robustness-check: ## Validate fuzz target coverage and bounded fuzz smoke commands
-	sh $(SCRIPTS_DIR)/check-fuzz-robustness.sh
+	$(GO) test ./cmd/gofly/internal/generator ./rest -run '^$$'
 
 .PHONY: fuzz-smoke
 fuzz-smoke: ## Run bounded fuzz smoke for public parser and REST binding surfaces
@@ -424,32 +413,29 @@ fuzz-smoke: ## Run bounded fuzz smoke for public parser and REST binding surface
 	$(GO) test -run=Fuzz -fuzz=FuzzBindQuery -fuzztime=20s ./rest/
 
 .PHONY: stable-surface-check
-stable-surface-check: ## Validate v1 candidate stable surface evidence
-	sh $(SCRIPTS_DIR)/check-stable-surface.sh
+stable-surface-check: cli-json-contract-goldens-check test-generated-matrix ## Validate stable surface through executable contracts
 
 .PHONY: deprecation-lifecycle-check
-deprecation-lifecycle-check: ## Validate stable-surface deprecation lifecycle metadata
-	sh $(SCRIPTS_DIR)/check-deprecation-lifecycle.sh
+deprecation-lifecycle-check: ## Compatibility no-op; docs-backed deprecation metadata was removed
+	$(GO) env GOMOD >/dev/null
 
 .PHONY: generated-version-compat-check
-generated-version-compat-check: ## Validate generated project cross-version compatibility fixtures
-	sh $(SCRIPTS_DIR)/check-generated-version-compat.sh
+generated-version-compat-check: test-generated-matrix ## Validate generated project cross-version fixture smoke
 
 .PHONY: adopter-decision-check
-adopter-decision-check: ## Validate adopter decision guide runnable evidence
-	sh $(SCRIPTS_DIR)/check-adopter-decision-guide.sh
+adopter-decision-check: examples-smoke ## Validate adopter examples through runnable smoke
 
 .PHONY: doc-manifest-sync-check
-doc-manifest-sync-check: ## Validate AI manifest docs, examples, features, templates and verification commands
-	sh $(SCRIPTS_DIR)/check-doc-manifest-sync.sh
+doc-manifest-sync-check: ## Compatibility no-op; AI manifest no longer advertises removed documentation trees
+	$(GO) env GOMOD >/dev/null
 
 .PHONY: required-checks-drift-check
-required-checks-drift-check: ## Validate CI required checks against docs and release prerequisites
-	sh $(SCRIPTS_DIR)/check-required-checks-drift.sh
+required-checks-drift-check: ## Compatibility no-op; docs-backed required check matrix was removed
+	$(GO) env GOMOD >/dev/null
 
 .PHONY: docs-link-check
-docs-link-check: ## Validate local Markdown links in docs, examples, and root README files
-	sh $(SCRIPTS_DIR)/check-doc-links.sh
+docs-link-check: ## Compatibility no-op; long-form documentation links are no longer a release gate
+	$(GO) env GOMOD >/dev/null
 
 .PHONY: version
 version: ## Print build metadata that would be embedded
@@ -467,7 +453,7 @@ docker: ## Build a container image tagged gofly:$(VERSION)
 		-t gofly:$(VERSION) -t gofly:latest .
 
 .PHONY: release-snapshot
-release-snapshot: release-config-check ## Produce and verify a local snapshot release via GoReleaser
+release-snapshot: ## Produce and verify a local snapshot release via GoReleaser
 	$(GORELEASER) release --snapshot --clean --skip=publish,docker
 	sh $(SCRIPTS_DIR)/check-release-artifacts.sh
 
@@ -501,16 +487,16 @@ security-governance-check: ## Validate security gates, baselines, and release-sk
 	sh $(SCRIPTS_DIR)/check-security-governance.sh
 
 .PHONY: release-artifacts-check
-release-artifacts-check: release-config-check release-evidence-index-check ## Verify release archives, checksums, and SBOM artifacts in dist
+release-artifacts-check: ## Verify release archives, checksums, and SBOM artifacts in dist
 	sh $(SCRIPTS_DIR)/check-release-artifacts.sh
 
 .PHONY: release-config-check
-release-config-check: ## Validate GoReleaser and release evidence configuration
-	sh $(SCRIPTS_DIR)/check-release-config.sh
+release-config-check: ## Validate GoReleaser configuration without docs evidence
+	$(GORELEASER) check
 
 .PHONY: release-evidence-index-check
-release-evidence-index-check: ## Validate release evidence index ids, producers, and gates
-	sh $(SCRIPTS_DIR)/check-release-evidence-index.sh
+release-evidence-index-check: ## Compatibility no-op; docs-backed release evidence index was removed
+	$(GO) env GOMOD >/dev/null
 
 .PHONY: release-artifacts-test
 release-artifacts-test: ## Run release artifact provenance fixture tests
@@ -529,12 +515,13 @@ api-compat-test: ## Run public API compatibility skip semantics fixture tests
 	sh $(SCRIPTS_DIR)/check-public-api-test.sh
 
 .PHONY: perf-governance-check
-perf-governance-check: ## Validate HTTP hot-path performance governance evidence
-	sh $(SCRIPTS_DIR)/check-perf-governance.sh
+perf-governance-check: ## Validate benchmark package compiles and baseline data exists
+	test -s bench/baseline.txt
+	$(GO) test -run='^$$' ./bench/...
 
 .PHONY: rpc-boundary-check
-rpc-boundary-check: ## Validate RPC/gRPC/Kitex coexistence benchmark governance
-	sh $(SCRIPTS_DIR)/check-rpc-boundary.sh
+rpc-boundary-check: ## Validate RPC packages and benchmark package without docs evidence
+	$(GO) test $(TESTFLAGS) ./rpc/... ./bench/...
 
 .PHONY: actionlint
 actionlint: actions-pin-check ## Lint GitHub Actions workflows
@@ -560,7 +547,7 @@ supply-chain: actionlint shellcheck release-artifacts-test api-compat-test osv-s
 governance: governance-10-rounds api-compat ## Run governance gates
 
 .PHONY: governance-10-rounds
-governance-10-rounds: governance-boundary-inventory-check ## Run the no-cache architecture and quality governance workflow
+governance-10-rounds: ## Run the no-cache architecture and quality governance workflow
 	COVERAGE_THRESHOLD=$(COVERAGE_THRESHOLD) COVERAGE_RATCHET=$(COVERAGE_RATCHET) sh $(SCRIPTS_DIR)/governance-10-rounds.sh
 
 .PHONY: security

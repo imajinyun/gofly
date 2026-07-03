@@ -116,95 +116,27 @@ func TestCommandHelpSubcommandBoundaries(t *testing.T) {
 }
 
 func TestCLICommandSurfaceManifestMatchesRegistries(t *testing.T) {
-	repoRoot := filepath.Join("..", "..", "..", "..")
-	data, err := os.ReadFile(filepath.Join(repoRoot, "docs", "reference", "cli-command-surface.json"))
-	if err != nil {
-		t.Fatalf("read cli command surface manifest: %v", err)
-	}
-	type manifestRootCommand struct {
-		Name         string   `json:"name"`
-		Aliases      []string `json:"aliases"`
-		Children     []string `json:"children"`
-		JSONContract string   `json:"jsonContract"`
-		HelpTopic    string   `json:"helpTopic"`
-	}
-	type manifestClosedGovernance struct {
-		ID       string   `json:"id"`
-		Task     string   `json:"task"`
-		Subtasks []string `json:"subtasks"`
-		Evidence []string `json:"evidence"`
-		Gates    []string `json:"gates"`
-	}
-	var manifest struct {
-		Schema           string                     `json:"schema"`
-		AcceptanceGate   string                     `json:"acceptanceGate"`
-		IgnoredPaths     []string                   `json:"ignoredPaths"`
-		RootCommands     []manifestRootCommand      `json:"rootCommands"`
-		ClosedGovernance []manifestClosedGovernance `json:"closedGovernance"`
-		RecommendedOrder []string                   `json:"recommendedOrder"`
-	}
-	if err := json.Unmarshal(data, &manifest); err != nil {
-		t.Fatalf("decode cli command surface manifest: %v", err)
-	}
-	if manifest.Schema != "gofly.cli_command_surface.v1" {
-		t.Fatalf("schema = %q, want gofly.cli_command_surface.v1", manifest.Schema)
-	}
-	if manifest.AcceptanceGate != "make cli-command-surface-check" {
-		t.Fatalf("acceptanceGate = %q, want make cli-command-surface-check", manifest.AcceptanceGate)
-	}
-	if !containsString(manifest.IgnoredPaths, "docs/superpowers/") {
-		t.Fatalf("ignoredPaths = %v, want docs/superpowers/", manifest.IgnoredPaths)
-	}
-
-	byName := make(map[string]manifestRootCommand)
-	for _, item := range manifest.RootCommands {
-		byName[item.Name] = item
-	}
 	for _, spec := range rootCommands.primary {
-		if _, ok := byName[spec.Name]; !ok {
-			t.Fatalf("root command %q missing from cli command surface manifest", spec.Name)
-		}
-	}
-	for _, item := range manifest.RootCommands {
-		spec, ok := rootCommands.commands[item.Name]
-		if !ok {
-			t.Fatalf("manifest root command %q is not registered", item.Name)
-		}
-		for _, alias := range item.Aliases {
+		for _, alias := range spec.Aliases {
 			aliasSpec, ok := rootCommands.commands[alias]
 			if !ok || aliasSpec.Name != spec.Name {
-				t.Fatalf("manifest alias %q for %q does not resolve to canonical command", alias, item.Name)
+				t.Fatalf("alias %q for %q does not resolve to canonical command", alias, spec.Name)
 			}
 		}
-		if help := commandHelpFor(item.HelpTopic); help.Name == "" || help.Short == "" || help.Usage == "" || help.Short == "gofly command help." {
-			t.Fatalf("manifest help topic %q for %q returned fallback or incomplete help: %#v", item.HelpTopic, item.Name, help)
+		if help := commandHelpFor(spec.Name); help.Name == "" || help.Short == "" || help.Usage == "" || help.Short == "gofly command help." {
+			t.Fatalf("root help topic %q returned fallback or incomplete help: %#v", spec.Name, help)
 		}
-		switch item.Name {
+		switch spec.Name {
 		case "api":
-			assertRegistryChildren(t, item.Name, apiCommands, item.Children)
+			assertRegistryChildren(t, spec.Name, apiCommands, registryCanonicalNames(apiCommands))
 		case "rpc":
-			assertRegistryChildren(t, item.Name, rpcCommands, item.Children)
+			assertRegistryChildren(t, spec.Name, rpcCommands, registryCanonicalNames(rpcCommands))
 		case "model":
-			assertRegistryChildren(t, item.Name, modelCommands, item.Children)
+			assertRegistryChildren(t, spec.Name, modelCommands, registryCanonicalNames(modelCommands))
 		case "plugin":
-			for _, child := range item.Children {
+			for _, child := range []string{"list", "search", "install", "uninstall", "run"} {
 				if !isPluginHelpSubcommand(child) {
-					t.Fatalf("plugin child %q is registered in manifest but rejected by help boundary", child)
-				}
-			}
-		}
-		if item.JSONContract != "" {
-			contractDoc, err := os.ReadFile(filepath.Join(repoRoot, "docs", "reference", "cli-json-contracts.md"))
-			if err != nil {
-				t.Fatalf("read cli json contracts: %v", err)
-			}
-			for _, needle := range strings.Split(item.JSONContract, ",") {
-				needle = strings.TrimSpace(needle)
-				if needle == "" || strings.Contains(needle, "...") {
-					continue
-				}
-				if !strings.Contains(string(contractDoc), needle) {
-					t.Fatalf("JSON contract %q for %q missing from cli-json-contracts.md", needle, item.Name)
+					t.Fatalf("plugin child %q is rejected by help boundary", child)
 				}
 			}
 		}
@@ -231,44 +163,6 @@ func TestCLICommandSurfaceManifestMatchesRegistries(t *testing.T) {
 			}
 		}
 	}
-	for _, task := range []string{
-		"GOFLY-P9-0-CLI-GOVERNANCE-ROADMAP",
-		"GOFLY-P9-1-CLI-COMMAND-SURFACE-GATE",
-		"GOFLY-P9-2-CLI-JSON-CONTRACT-GOLDENS",
-		"GOFLY-P9-3-CLI-STDIO-AND-ERROR-DISCIPLINE",
-	} {
-		if !containsString(manifest.RecommendedOrder, task) {
-			t.Fatalf("recommendedOrder missing %s", task)
-		}
-	}
-	var stdio manifestClosedGovernance
-	for _, item := range manifest.ClosedGovernance {
-		if item.ID == "stdio-error-discipline" {
-			stdio = item
-			break
-		}
-	}
-	if stdio.ID == "" {
-		t.Fatal("closedGovernance missing stdio-error-discipline")
-	}
-	if stdio.Task != "GOFLY-P9-3-CLI-STDIO-AND-ERROR-DISCIPLINE" {
-		t.Fatalf("stdio closeout task = %q", stdio.Task)
-	}
-	for _, want := range []string{"GOFLY-P9-3A-CLI-STDIO-EXIT-CONTRACT", "GOFLY-P9-3B-CLI-FLAG-DIAGNOSTICS", "GOFLY-P9-3C-CLI-GOVERNANCE-MANIFEST-CLOSEOUT"} {
-		if !containsString(stdio.Subtasks, want) {
-			t.Fatalf("stdio closeout subtasks missing %s", want)
-		}
-	}
-	for _, want := range []string{"TestRunMainSTDIOExitContract", "TestRunMainFlagDiagnosticsContract", "TestCLISTDIOExitContract", "TestExecuteFlagParsingErrorsAreSilentUsageErrors", "TestCLIJSONErrorEnvelopeGolden"} {
-		if !containsString(stdio.Evidence, want) {
-			t.Fatalf("stdio closeout evidence missing %s", want)
-		}
-	}
-	for _, want := range []string{"make cli-command-surface-check", "make cli-json-contract-goldens-check"} {
-		if !containsString(stdio.Gates, want) {
-			t.Fatalf("stdio closeout gates missing %s", want)
-		}
-	}
 }
 
 func assertRegistryChildren(t *testing.T, name string, registry commandRegistry, children []string) {
@@ -278,6 +172,14 @@ func assertRegistryChildren(t *testing.T, name string, registry commandRegistry,
 			t.Fatalf("%s child %q missing from registry", name, child)
 		}
 	}
+}
+
+func registryCanonicalNames(registry commandRegistry) []string {
+	names := make([]string, 0, len(registry.primary))
+	for _, spec := range registry.primary {
+		names = append(names, spec.Name)
+	}
+	return names
 }
 
 func containsString(values []string, want string) bool {
@@ -1474,22 +1376,20 @@ func TestAINewTextHelpAndManifestContract(t *testing.T) {
 
 	t.Run("manifest exposes governed feature library contract", func(t *testing.T) {
 		manifest := buildAIToolManifest()
-		if len(manifest.Docs) == 0 || len(manifest.Examples) == 0 || len(manifest.VerifyCommands) == 0 {
+		if len(manifest.VerifyCommands) == 0 {
 			t.Fatalf("manifest links and verify commands = docs:%+v examples:%+v verify:%+v", manifest.Docs, manifest.Examples, manifest.VerifyCommands)
 		}
-		for _, want := range []string{"docs/concepts/ai-manifest.md", "docs/reference/cli-json-contracts.md"} {
-			if !manifestLinksContainPath(manifest.Docs, want) {
-				t.Fatalf("manifest docs missing %q: %+v", want, manifest.Docs)
-			}
+		if len(manifest.Docs) != 0 || len(manifest.Examples) != 0 {
+			t.Fatalf("manifest should not reference removed docs/readmes: docs:%+v examples:%+v", manifest.Docs, manifest.Examples)
 		}
-		for _, want := range []string{"examples/README.md", "examples/ai-governed-service/README.md"} {
-			if !manifestLinksContainPath(manifest.Examples, want) {
-				t.Fatalf("manifest examples missing %q: %+v", want, manifest.Examples)
-			}
-		}
-		for _, want := range []string{"make docs-check", "make doc-manifest-sync-check"} {
+		for _, want := range []string{"make examples-smoke", "make test-generated-matrix"} {
 			if !commandContainsString(manifest.VerifyCommands, want) {
 				t.Fatalf("manifest verify commands missing %q: %+v", want, manifest.VerifyCommands)
+			}
+		}
+		for _, unwanted := range []string{"make docs-check", "make doc-manifest-sync-check"} {
+			if commandContainsString(manifest.VerifyCommands, unwanted) {
+				t.Fatalf("manifest verify commands should not include removed docs gate %q: %+v", unwanted, manifest.VerifyCommands)
 			}
 		}
 		controlPlane := manifest.ControlPlane

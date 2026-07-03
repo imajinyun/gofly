@@ -4037,7 +4037,7 @@ CREATE TABLE ` + "`message`" + ` (
 	}
 	for _, want := range []string{
 		"type Message struct",
-		"MessageId     int64",
+		"MessageID     int64",
 		"MessageExtra  *string",
 		"gorm:\"column:message_id;primaryKey\"",
 		"func (Message) TableName() string",

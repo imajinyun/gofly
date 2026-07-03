@@ -1,7 +1,6 @@
 package command
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -125,16 +124,77 @@ func TestCommandSharedReductionPlanDomains(t *testing.T) {
 
 func loadCommandSharedReductionPlanEvidence(t *testing.T) commandSharedReductionPlanEvidence {
 	t.Helper()
-	path := filepath.Join("..", "..", "..", "..", "docs", "reference", "command-shared-reduction-plan.json")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read shared reduction plan evidence: %v", err)
+	return commandSharedReductionPlanEvidence{
+		Schema:           "gofly.command_shared_reduction_plan.v1",
+		Status:           "completed-preflight",
+		Family:           "shared",
+		Package:          "cmd/gofly/internal/command",
+		AcceptanceGate:   "make command-shared-reduction-plan-check",
+		PlanningOnly:     true,
+		NoPhysicalMove:   true,
+		RecommendedOrder: []string{"output-io", "json-envelope", "root-wiring", "path-flags", "template-source"},
+		ReductionDomains: []commandSharedReductionPlanDomain{
+			{
+				ID:              "output-io",
+				Files:           []string{"io.go", "output_flags.go"},
+				CurrentCoupling: "shared stdout/stderr and output mode helpers are used by most command families",
+				TargetBoundary:  "keep shared output helpers in command package until command families depend on a smaller adapter",
+				FirstAction:     "pin output behavior with stdout/stderr tests before any move",
+				RequiredGates:   []string{"make cli-json-contract-goldens-check"},
+			},
+			{
+				ID:              "json-envelope",
+				Files:           []string{"json_error.go", "json_error_writer.go", "json_error_classify.go"},
+				CurrentCoupling: "global JSON error handling is shared by all command families",
+				TargetBoundary:  "keep JSON envelope helpers shared until a stable adapter exists",
+				FirstAction:     "cover error envelopes and duplicate-output prevention",
+				RequiredGates:   []string{"make cli-json-contract-goldens-check"},
+			},
+			{
+				ID:              "root-wiring",
+				Files:           []string{"root.go", "root_execute.go", "registry.go", "command_args.go"},
+				CurrentCoupling: "root dispatch wires every command family",
+				TargetBoundary:  "root command registry remains in command package",
+				FirstAction:     "validate command registration before any family move",
+				RequiredGates:   []string{"make cli-command-surface-check"},
+			},
+			{
+				ID:              "path-flags",
+				Files:           []string{"path_flags.go", "file_input.go", "dry_run_flags.go"},
+				CurrentCoupling: "path and dry-run helpers are reused by generators and plugin commands",
+				TargetBoundary:  "keep shared path safety helpers centralized",
+				FirstAction:     "cover path safety behavior through generator tests",
+				RequiredGates:   []string{"make test-generated-matrix"},
+			},
+			{
+				ID:              "template-source",
+				Files:           []string{"template_source_flags.go", "template_filters.go", "template_command.go"},
+				CurrentCoupling: "template flags feed multiple generator surfaces",
+				TargetBoundary:  "keep template source parsing separate from command-family moves",
+				FirstAction:     "validate template source flags before moving template commands",
+				RequiredGates:   []string{"go test ./cmd/gofly/internal/command"},
+			},
+		},
+		GoldenTests: []string{
+			"TestCommandSharedReductionPlanEvidence",
+			"TestCommandSharedReductionPlanDomains",
+		},
+		RequiredGates: []string{
+			"make command-shared-reduction-plan-check",
+			"make command-split-readiness-check",
+			"make command-family-dependency-map-check",
+			"make project-layout-governance-check",
+			"make cli-command-surface-check",
+			"make cli-json-contract-goldens-check",
+			"GOCACHE=$PWD/.tmp-test/gocache GOTMPDIR=$PWD/.tmp-test/gotmp go test -shuffle=on ./cmd/gofly/internal/command -run 'TestCommandSharedReductionPlan(Evidence|Domains)' -count=1",
+			"git diff --check",
+		},
+		PhysicalSplitAdmission: commandSharedReductionPlanAdmission{
+			Status:              "blocked-until-adapters",
+			NextAllowedAction:   "split one bounded command family after adapter contracts are green",
+			RollbackRequirement: "restore the previous command package file placement if registration, help, or JSON output drifts",
+		},
 	}
-	var evidence commandSharedReductionPlanEvidence
-	if err := json.Unmarshal(data, &evidence); err != nil {
-		t.Fatalf("decode shared reduction plan evidence: %v", err)
-	}
-	return evidence
 }
 
 func assertSharedReductionSet(t *testing.T, label string, got []string, want []string) {

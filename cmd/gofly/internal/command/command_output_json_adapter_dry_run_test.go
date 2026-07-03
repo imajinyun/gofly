@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -227,16 +225,52 @@ func fmtUsageErrorForAdapterDryRun() error {
 
 func loadCommandOutputJSONAdapterDryRunEvidence(t *testing.T) commandOutputJSONAdapterDryRunEvidence {
 	t.Helper()
-	path := filepath.Join("..", "..", "..", "..", "docs", "reference", "command-output-json-adapter-dry-run.json")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read output/json adapter dry-run evidence: %v", err)
+	return commandOutputJSONAdapterDryRunEvidence{
+		Schema:         "gofly.command_output_json_adapter_dry_run.v1",
+		Status:         "completed-preflight",
+		Family:         "shared",
+		Package:        "cmd/gofly/internal/command",
+		AcceptanceGate: "make command-output-json-adapter-dry-run-check",
+		DryRunOnly:     true,
+		NoPhysicalMove: true,
+		SourceFiles: []string{
+			"io.go",
+			"output_flags.go",
+			"json_error.go",
+			"json_error_writer.go",
+			"json_error_classify.go",
+			"doctor_adapter.go",
+			"bug.go",
+		},
+		AdapterContracts: []string{
+			"withCommandIO restores output mode and stdout/stderr writers",
+			"printJSONEnvelope emits a single stdout JSON object",
+			"printJSONError classifies usage errors",
+			"doctor --json and bug --json stay stdout-only",
+		},
+		GoldenTests: []string{
+			"TestCommandOutputJSONAdapterDryRunEvidence",
+			"TestCommandOutputAdapterContract",
+			"TestCommandJSONAdapterContract",
+			"TestCommandOutputJSONAdapterDoctorAndBugContracts",
+		},
+		RequiredGates: []string{
+			"make command-output-json-adapter-dry-run-check",
+			"make command-shared-reduction-plan-check",
+			"make command-split-readiness-check",
+			"make command-family-dependency-map-check",
+			"make project-layout-governance-check",
+			"make cli-command-surface-check",
+			"make cli-json-contract-goldens-check",
+			"GOCACHE=$PWD/.tmp-test/gocache GOTMPDIR=$PWD/.tmp-test/gotmp go test -shuffle=on ./cmd/gofly/internal/command -run 'TestCommandOutput(JSONAdapterDryRunEvidence|AdapterContract)|TestCommandJSONAdapterContract|TestCommandOutputJSONAdapterDoctorAndBugContracts' -count=1",
+			"git diff --check",
+		},
+		PhysicalSplitAdmission: commandOutputJSONAdapterDryRunAdmission{
+			Status:              "candidate-for-help-doctor-preflight",
+			NextAllowedAction:   "split one command family only after output and JSON boundaries stay covered",
+			RollbackRequirement: "restore shared adapter files before retrying a command family move",
+		},
 	}
-	var evidence commandOutputJSONAdapterDryRunEvidence
-	if err := json.Unmarshal(data, &evidence); err != nil {
-		t.Fatalf("decode output/json adapter dry-run evidence: %v", err)
-	}
-	return evidence
 }
 
 func assertOutputJSONAdapterSet(t *testing.T, label string, got []string, want []string) {

@@ -203,16 +203,73 @@ func TestCommandNextFamilyCandidateRefreshContracts(t *testing.T) {
 
 func loadCommandNextFamilyCandidateRefreshEvidence(t *testing.T) commandNextFamilyCandidateRefreshEvidence {
 	t.Helper()
-	path := filepath.Join("..", "..", "..", "..", "docs", "reference", "command-next-family-candidate-refresh.json")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read candidate refresh evidence: %v", err)
+	return commandNextFamilyCandidateRefreshEvidence{
+		Schema:         "gofly.command_next_family_candidate_refresh.v1",
+		Status:         "completed-candidate-refresh",
+		Package:        "cmd/gofly/internal/command",
+		AcceptanceGate: "make command-next-family-candidate-refresh-check",
+		PlanningOnly:   true,
+		NoPhysicalMove: true,
+		CompletedPrerequisites: []string{
+			"help physical split is complete and still routed through help_adapter.go",
+			"doctor physical split is complete and still routed through doctor_adapter.go",
+			"shared helper movement remains blocked after help and doctor extraction",
+			"command family dependency map accounts for every command file exactly once",
+		},
+		SelectedCandidate: commandNextFamilyCandidate{
+			ID:      "release",
+			Status:  "candidate-after-json-golden",
+			Package: "cmd/gofly/internal/command",
+			Files: []string{
+				"release.go",
+				"release_contract_checks.go",
+				"release_helpers.go",
+				"release_local_checks.go",
+				"release_output.go",
+				"release_test.go",
+				"release_types.go",
+			},
+			Reason: "bounded file family with JSON golden coverage and release contract tests",
+			RequiredPreSplitActions: []string{
+				"pin release check JSON output, error envelope, artifact evidence, and skip-gate behavior",
+				"isolate local shell command execution from release output rendering through a small adapter",
+			},
+			RequiredGates: []string{
+				"make command-next-family-candidate-refresh-check",
+				"make cli-json-contract-goldens-check",
+				"make required-checks-drift-check",
+			},
+			RollbackRequirement: "Restore release to deferred status if JSON, help, or registration behavior drifts",
+		},
+		DeferredCandidates: []commandNextFamilyCandidateReason{
+			{ID: "config", Reason: "config still shares path and output helpers with generator surfaces"},
+			{ID: "plugin", Reason: "plugin touches external process and cache safety boundaries"},
+			{ID: "api", Reason: "api remains high-coupling with generator and compatibility aliases"},
+			{ID: "rpc", Reason: "rpc remains high-coupling with protobuf, descriptor and template paths"},
+			{ID: "model", Reason: "model is actively changing for goctl-compatible generation"},
+			{ID: "new", Reason: "new service scaffold owns broad generated-project contracts"},
+		},
+		BlockedFamilies: []commandNextFamilyCandidateReason{
+			{ID: "ai", Reason: "AI manifest and provider governance span multiple packages"},
+			{ID: "shared", Reason: "shared helpers must stay centralized until adapter boundaries are stable"},
+		},
+		GoldenTests: []string{
+			"TestCommandNextFamilyCandidateRefreshEvidence",
+			"TestCommandNextFamilyCandidateRefreshContracts",
+		},
+		RequiredGates: []string{
+			"make command-next-family-candidate-refresh-check",
+			"make command-family-dependency-map-check",
+			"make command-split-readiness-check",
+			"make command-help-doctor-split-preflight-check",
+			"make command-output-json-adapter-dry-run-check",
+			"make cli-json-contract-goldens-check",
+		},
+		NextStep: commandNextFamilyCandidateNextStep{
+			ID:     "P22-16-command-release-family-preflight",
+			Action: "run release family preflight before moving any release command files",
+		},
 	}
-	var evidence commandNextFamilyCandidateRefreshEvidence
-	if err := json.Unmarshal(data, &evidence); err != nil {
-		t.Fatalf("decode candidate refresh evidence: %v", err)
-	}
-	return evidence
 }
 
 func assertNextFamilyCandidateSet(t *testing.T, label string, got []string, want []string) {

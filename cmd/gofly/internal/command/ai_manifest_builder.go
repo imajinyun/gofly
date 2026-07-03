@@ -1,22 +1,11 @@
 package command
 
 func buildAIManifestDocs() []aiManifestLink {
-	return []aiManifestLink{
-		{Title: "AI manifest", Path: "docs/concepts/ai-manifest.md"},
-		{Title: "CLI JSON contracts", Path: "docs/reference/cli-json-contracts.md"},
-		{Title: "Stable API surface", Path: "docs/reference/api-surface.md"},
-		{Title: "Compatibility policy", Path: "docs/reference/compatibility.md"},
-		{Title: "P1 growth roadmap", Path: "docs/reference/p1-growth-roadmap.md"},
-	}
+	return nil
 }
 
 func buildAIManifestExamples() []aiManifestLink {
-	return []aiManifestLink{
-		{Title: "Examples catalog", Path: "examples/README.md"},
-		{Title: "AI governed service", Path: "examples/ai-governed-service/README.md"},
-		{Title: "Microshop", Path: "examples/microshop/README.md"},
-		{Title: "Production orders", Path: "examples/production-orders/README.md"},
-	}
+	return nil
 }
 
 func aiManifestOutputContract() *aiOutputContract {

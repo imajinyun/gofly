@@ -161,17 +161,26 @@ func runCLIJSONGoldenErrorCase(t *testing.T, item cliJSONGoldenCase) (bytes.Buff
 
 func loadCLIJSONGoldenManifest(t *testing.T) cliJSONGoldenManifest {
 	t.Helper()
-	repoRoot := filepath.Join("..", "..", "..", "..")
-	path := filepath.Join(repoRoot, "docs", "reference", "cli-json-contract-goldens.json")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read CLI JSON golden manifest: %v", err)
+	return cliJSONGoldenManifest{
+		Schema:         "gofly.cli_json_contract_goldens.v1",
+		AcceptanceGate: "make cli-json-contract-goldens-check",
+		Cases: []cliJSONGoldenCase{
+			{ID: "version-envelope", Mode: "envelope", RequiredEnvelopeFields: []string{"ok", "command", "version", "data"}},
+			{ID: "doctor-raw", Mode: "raw", RequiredFields: []string{"version", "go", "os", "arch", "checks", "summary", "nextActions"}},
+			{ID: "release-check-envelope", Mode: "envelope", RequiredEnvelopeFields: []string{"ok", "command", "version", "data"}},
+			{ID: "new-service-plan-envelope", Mode: "envelope", RequiredEnvelopeFields: []string{"ok", "command", "version", "data"}},
+			{ID: "api-gen-envelope", Mode: "envelope", RequiredEnvelopeFields: []string{"ok", "command", "version", "data"}},
+			{ID: "rpc-gen-envelope", Mode: "envelope", RequiredEnvelopeFields: []string{"ok", "command", "version", "data"}},
+			{ID: "model-gen-envelope", Mode: "envelope", RequiredEnvelopeFields: []string{"ok", "command", "version", "data"}},
+			{
+				ID:                     "global-error-envelope",
+				Mode:                   "error-envelope",
+				RequiredEnvelopeFields: []string{"ok", "command", "version", "error"},
+				RequiredErrorFields:    []string{"code", "message", "retryable", "remediation"},
+			},
+			{ID: "global-flag-error-envelope", Mode: "error-envelope", RequiredErrorCode: "USAGE_ERROR"},
+		},
 	}
-	var manifest cliJSONGoldenManifest
-	if err := json.Unmarshal(data, &manifest); err != nil {
-		t.Fatalf("decode CLI JSON golden manifest: %v", err)
-	}
-	return manifest
 }
 
 func runVersionJSONGolden(t *testing.T) []byte {

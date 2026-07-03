@@ -14,10 +14,8 @@ func buildAIToolManifest() aiToolManifest {
 		Docs:          buildAIManifestDocs(),
 		Examples:      buildAIManifestExamples(),
 		VerifyCommands: []string{
-			"make docs-check",
 			"make examples-smoke",
 			"make test-generated-matrix",
-			"make doc-manifest-sync-check",
 		},
 		Output: aiOutputSchema{
 			Mode:        "json-envelope when --output json, --json or --format json is used",

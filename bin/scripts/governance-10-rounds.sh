@@ -118,7 +118,6 @@ round_baseline() {
 	assert_coverage_ratchet_alignment
 	"$go_cmd" version
 	"$go_cmd" list ./... >/dev/null
-	sh "$root/bin/scripts/check-governance-boundary-inventory.sh"
 }
 
 assert_coverage_ratchet_alignment() {
@@ -147,8 +146,8 @@ round_tidy_check() {
 	sh "$root/bin/scripts/check-mod-tidy.sh"
 }
 
-round_docs_check() {
-	sh "$root/bin/scripts/check-doc-go-snippets.sh"
+round_engineering_smoke() {
+	"$go_cmd" test $testflags ./examples/... ./bench/...
 }
 
 round_golangci_lint() {
@@ -448,7 +447,7 @@ round_final_package_listing() {
 }
 
 round_final_convergence() {
-	round_docs_check
+	round_engineering_smoke
 	round_coverage_check
 	if [ "${GOVERNANCE_SKIP_SECURITY:-false}" = "true" ]; then
 		assert_not_release_skip GOVERNANCE_SKIP_SECURITY
@@ -525,7 +524,7 @@ if [ "${GOVERNANCE_SKIP_GENERATED_CONTROL_PLANE_SMOKE:-false}" = "true" ]; then
 else
 	run_round 13 "generated project runtime control-plane smoke" round_generated_project_control_plane_smoke
 fi
-run_round 14 "docs, coverage, security, and final package listing" round_final_convergence
+run_round 14 "engineering smoke, coverage, security, and final package listing" round_final_convergence
 
 printf '\nGovernance skip report: %s\n' "$skip_report"
 printf '\nGovernance workflow completed successfully.\n'

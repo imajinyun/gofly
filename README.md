@@ -1,7 +1,5 @@
 # 🪽 gofly
 
-**English** | [简体中文](README.CN.md)
-
 `gofly` is an **AI-native Go microservice framework** for teams that want more than an HTTP router: **codegen + runtime governance + control-plane** in one Go-native toolkit.
 
 It is designed for platform, backend, and AI-agent-assisted engineering teams who need to generate services quickly, run them with production defaults, and keep runtime behavior observable and governable after deployment.
@@ -75,7 +73,7 @@ curl http://127.0.0.1:8080/healthz
 curl http://127.0.0.1:9090/admin/control-plane
 ```
 
-📖 Need runnable examples or full code snippets? See [Quickstart Examples](docs/doc/quickstart.md) and the [Examples Catalog](examples/README.md).
+For runnable references, use the checked-in example directories and the CLI help output.
 
 ---
 
@@ -115,35 +113,6 @@ Run `gofly help` for the full command list.
 
 ---
 
-## 📚 Documentation
-
-| Topic | Link |
-| --- | --- |
-| 📘 Documentation home | [docs/index.md](docs/index.md) |
-| 🧭 From zero to production | [docs/tutorials/zero-to-production.md](docs/tutorials/zero-to-production.md) |
-| 🚀 Golden-path quickstart | [docs/getting-started/quickstart.md](docs/getting-started/quickstart.md) |
-| 🧩 API stability | [docs/reference/api-surface.md](docs/reference/api-surface.md), [docs/reference/compatibility.md](docs/reference/compatibility.md), [CLI JSON](docs/reference/cli-json-contracts.md), [control-plane](docs/reference/control-plane-contracts.md) |
-| 🧭 Framework gap matrix | [docs/reference/framework-gap-matrix.md](docs/reference/framework-gap-matrix.md) |
-| 🧪 API example consistency | [docs/reference/api-example-consistency.md](docs/reference/api-example-consistency.md) |
-| 📊 Benchmark and coverage evidence | [docs/reference/benchmark-matrix.md](docs/reference/benchmark-matrix.md), [docs/reference/coverage-trend.md](docs/reference/coverage-trend.md), [bench/evidence.md](bench/evidence.md), [bench/README.md](bench/README.md) |
-| ✅ CI required checks | [docs/reference/ci-required-check-evidence.md](docs/reference/ci-required-check-evidence.md), [docs/operations/production-checklist.md](docs/operations/production-checklist.md) |
-| 🧾 Release evidence index | [docs/releases/evidence-index.json](docs/releases/evidence-index.json), [docs/releases/evidence-manifest.json](docs/releases/evidence-manifest.json) |
-| 📡 Runtime SLO evidence | [docs/reference/runtime-slo.md](docs/reference/runtime-slo.md), [docs/operations/observability.md](docs/operations/observability.md), [examples/observability](examples/observability) |
-| 🔁 Generated upgrade dry-run | [docs/reference/generated-upgrade-dry-run.md](docs/reference/generated-upgrade-dry-run.md) |
-| 📈 P1 growth roadmap | [docs/reference/p1-growth-roadmap.md](docs/reference/p1-growth-roadmap.md) |
-| 🧭 Concepts | [docs/concepts/architecture.md](docs/concepts/architecture.md) |
-| 🧠 Adoption model | [docs/explanation/adopter-decision-guide.md](docs/explanation/adopter-decision-guide.md), [docs/explanation/adoption-model.md](docs/explanation/adoption-model.md) |
-| 🌐 REST / RPC / Gateway guides | [docs/guides/rest.md](docs/guides/rest.md), [docs/guides/rpc.md](docs/guides/rpc.md), [docs/guides/gateway.md](docs/guides/gateway.md) |
-| ⚙️ Production operations | [docs/operations/production-checklist.md](docs/operations/production-checklist.md) |
-| 📦 Stable releases | [docs/releases/stable.md](docs/releases/stable.md) |
-| 🧪 Runnable examples | [examples/README.md](examples/README.md) |
-| 📚 Case studies | [orders service](docs/case-studies/build-orders-service.md), [AI drift](docs/case-studies/ai-control-plane-drift.md), [Gin migration](docs/case-studies/migrate-from-gin.md) |
-| 🔁 Migration guides | [docs/comparisons/gin.md](docs/comparisons/gin.md), [docs/comparisons/go-zero.md](docs/comparisons/go-zero.md), [docs/comparisons/kratos.md](docs/comparisons/kratos.md), [docs/comparisons/kitex.md](docs/comparisons/kitex.md) |
-| 🤝 Community | [CONTRIBUTING.md](CONTRIBUTING.md), [ROADMAP.md](ROADMAP.md), [SECURITY.md](SECURITY.md) |
-| 🧪 Local development | [Development](#-development) |
-
----
-
 ## 🗂️ Layout
 
 ```text
@@ -175,7 +144,6 @@ make test           # run tests
 make lint           # run golangci-lint
 make cover-check    # enforce coverage threshold and ratchet
 make bench-smoke    # run one benchmark iteration for PR smoke checks
-make bench-trend    # write bench/summary.md for release trend notes
 make governance     # run repository governance checks
 gofly release check --strict
 ```

@@ -7,9 +7,9 @@
 #   bash bin/scripts/benchstat.sh --smoke      # run one iteration for CI smoke
 #   bash bin/scripts/benchstat.sh --trend      # write bench/summary.md from the current run
 #   bash bin/scripts/benchstat.sh --matrix     # print the authoritative benchmark matrix
-#   bash bin/scripts/benchstat.sh --baseline   # refresh bench/baseline.txt and bench/evidence.md
-#   bash bin/scripts/benchstat.sh --evidence   # write bench/evidence.md from bench/baseline.txt
-#   bash bin/scripts/benchstat.sh --check-evidence # validate tracked benchmark evidence
+#   bash bin/scripts/benchstat.sh --baseline   # refresh bench/baseline.txt
+#   bash bin/scripts/benchstat.sh --evidence   # write local bench/evidence.md from bench/baseline.txt
+#   bash bin/scripts/benchstat.sh --check-evidence # validate tracked benchmark baseline and budgets
 #   bash bin/scripts/benchstat.sh --regression-check # block HTTP hot-path budget regressions
 
 set -eu
@@ -160,14 +160,14 @@ write_evidence() {
 }
 
 check_evidence() {
-	for file in "$BASELINE_FILE" "$MATRIX_FILE" "$EVIDENCE_FILE"; do
+	for file in "$BASELINE_FILE" "$RATCHET_FILE" "$BENCH_DIR/publishing.json"; do
 		if [ ! -f "$file" ]; then
 			echo "missing benchmark artifact: $file"
 			exit 1
 		fi
 	done
-	if grep -Eq '(^|[[:space:]])(FAIL|--- FAIL|panic:|exit status)' "$BASELINE_FILE" "$EVIDENCE_FILE"; then
-		echo "benchmark evidence contains failed run output"
+	if grep -Eq '(^|[[:space:]])(FAIL|--- FAIL|panic:|exit status)' "$BASELINE_FILE"; then
+		echo "benchmark baseline contains failed run output"
 		exit 1
 	fi
 	for benchmark in \
@@ -183,8 +183,8 @@ check_evidence() {
 			echo "baseline is missing $benchmark"
 			exit 1
 		fi
-		if ! grep -q "$benchmark" "$MATRIX_FILE"; then
-			echo "matrix is missing $benchmark"
+		if ! grep -q "$benchmark" "$RATCHET_FILE"; then
+			echo "ratchet is missing $benchmark"
 			exit 1
 		fi
 	done
@@ -192,10 +192,6 @@ check_evidence() {
 		BenchmarkGatewayProxy \
 		BenchmarkCacheHotPath \
 		BenchmarkCacheHotPathGetOrLoadHit; do
-		if ! grep -q "$benchmark" "$MATRIX_FILE"; then
-			echo "matrix is missing candidate benchmark $benchmark"
-			exit 1
-		fi
 		if ! grep -q "func $benchmark(" "$BENCH_DIR/gateway_cache_bench_test.go"; then
 			echo "candidate benchmark source is missing $benchmark"
 			exit 1
@@ -205,8 +201,8 @@ check_evidence() {
 			exit 1
 		fi
 	done
-	if ! grep -q 'BENCH_COUNT=' "$EVIDENCE_FILE"; then
-		echo "evidence is missing reproduction command"
+	if ! grep -q 'bench/baseline.txt' "$BENCH_DIR/publishing.json"; then
+		echo "benchmark publishing manifest must use bench/baseline.txt"
 		exit 1
 	fi
 	echo "benchmark evidence ok"

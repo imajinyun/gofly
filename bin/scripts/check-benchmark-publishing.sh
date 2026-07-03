@@ -24,7 +24,7 @@ required_artifacts = {
     "trendSummary": ("make bench-trend", "bench/summary.md"),
     "regressionReport": ("make bench-regression-check", "bench/regression-report.json"),
     "budgetRatchet": ("make bench-regression-check", "bench/budget-ratchet.json"),
-    "publicBaseline": ("make bench-baseline", "bench/evidence.md"),
+    "publicBaseline": ("make bench-baseline", "bench/baseline.txt"),
 }
 for name, (command, path) in required_artifacts.items():
     item = artifacts.get(name) or {}
@@ -42,7 +42,7 @@ for term in [
     "raw output from make bench-stat",
     "bench/summary.md from make bench-trend",
     "bench/regression-report.json from make bench-regression-check",
-    "bench/evidence.md when publishing a new public baseline",
+    "bench/baseline.txt when publishing a new public baseline",
 ]:
     if term not in release_rule.get("attach", []):
         missing.append(f"releaseRule.attach missing {term!r}")
@@ -53,27 +53,17 @@ for note in ["include significant benchstat rows", "state allocation regression 
     if note not in release_rule.get("notes", []):
         missing.append(f"releaseRule.notes missing {note!r}")
 
-docs = {
-    pathlib.Path("docs/reference/benchmark-matrix.md"): [
-        "gofly.benchmark_publishing.v1",
-        "bench/publishing.json",
-        "bench/budget-ratchet.json",
-        "make bench-regression-check",
-        "bench/regression-report.json",
+engineering_contracts = {
+    pathlib.Path("bench/baseline.txt"): [],
+    pathlib.Path("bench/budget-ratchet.json"): [
         "gofly.benchmark_budget_ratchet.v1",
-    ],
-    pathlib.Path("docs/releases/stable.md"): [
-        "bench/publishing.json",
-        "make bench-regression-check",
-        "bench/regression-report.json",
-        "gofly.benchmark_publishing.v1",
     ],
     pathlib.Path("Makefile"): [
         "bench-publish-check",
         "check-benchmark-publishing.sh",
     ],
 }
-for path, needles in docs.items():
+for path, needles in engineering_contracts.items():
     if not path.is_file():
         missing.append(f"{path}: file is missing")
         continue

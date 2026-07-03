@@ -27,8 +27,9 @@ func BenchmarkRPCUnary(b *testing.B) {
 	b.Run("gofly_rpc", benchmarkGoflyRPCUnary)
 	b.Run("grpc_go", benchmarkGRPCGoUnary)
 	// Kitex is intentionally optional for this suite because gofly does not
-	// carry generated Kitex fixtures yet; see bench/README.md for the
-	// extension point used by downstream projects that already depend on Kitex.
+	// carry generated Kitex fixtures yet. Downstream projects that already
+	// depend on Kitex can add transport-specific benchmark rows beside this
+	// package without forcing Kitex into the root module.
 }
 
 func BenchmarkRPCStreamGovernance(b *testing.B) {

@@ -284,16 +284,67 @@ func TestCommandHelpDoctorSplitPhysicalBoundary(t *testing.T) {
 
 func loadCommandHelpDoctorSplitPreflightEvidence(t *testing.T) commandHelpDoctorSplitPreflightEvidence {
 	t.Helper()
-	path := filepath.Join("..", "..", "..", "..", "docs", "reference", "command-help-doctor-split-preflight.json")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read help/doctor split preflight evidence: %v", err)
+	return commandHelpDoctorSplitPreflightEvidence{
+		Schema:                   "gofly.command_help_doctor_split_preflight.v1",
+		Status:                   "help-and-doctor-physical-split-completed",
+		Package:                  "cmd/gofly/internal/command",
+		AcceptanceGate:           "make command-help-doctor-split-preflight-check",
+		HelpPhysicalSplitDone:    true,
+		HelpPackage:              "cmd/gofly/internal/command/help",
+		CommandAdapter:           "help_adapter.go",
+		DoctorPhysicalSplitDone:  true,
+		DoctorPackage:            "cmd/gofly/internal/command/doctor",
+		DoctorCommandAdapter:     "doctor_adapter.go",
+		SelectedNextFamily:       "release",
+		CompletedNextFamily:      "doctor",
+		DoctorPreflightRefreshed: true,
+		HelpFiles: []string{
+			"help.go",
+			"help_catalog.go",
+			"help_catalog_ai.go",
+			"help_catalog_api.go",
+			"help_catalog_model.go",
+			"help_catalog_plugin.go",
+			"help_catalog_rpc.go",
+			"help_metadata.go",
+			"help_render.go",
+			"help_topics.go",
+			"help_usage.go",
+		},
+		DoctorFiles: []string{
+			"doctor/doctor.go",
+			"doctor/doctor_checks.go",
+			"doctor/doctor_test.go",
+		},
+		PreflightContracts: []string{
+			"help remains reachable through root help dispatch and command-specific help routing",
+			"help output stays stdout-only through the command output adapter",
+			"doctor remains reachable through root command dispatch",
+			"doctor --json stays stdout-only with stable nextActions fields",
+			"bug --json supportBundle remains available for doctor remediation guidance",
+			"only help and doctor files moved into dedicated subpackages; shared files remain in the command package",
+		},
+		GoldenTests: []string{
+			"TestCommandHelpDoctorSplitPreflightEvidence",
+			"TestCommandHelpDoctorSplitPreflightContracts",
+			"TestCommandHelpDoctorSplitPhysicalBoundary",
+		},
+		RequiredGates: []string{
+			"make command-help-doctor-split-preflight-check",
+			"make command-output-json-adapter-dry-run-check",
+			"make command-help-split-dry-run-check",
+			"make command-doctor-split-dry-run-check",
+			"make command-split-readiness-check",
+			"make command-family-dependency-map-check",
+			"make project-layout-governance-check",
+		},
+		PhysicalSplitAdmission: commandHelpDoctorSplitPreflightAdmission{
+			Status:              "completed-help-and-doctor-single-family-splits",
+			NextAllowedAction:   "run release family preflight before moving any release command files",
+			BlockedAction:       "Do not move shared helpers before command output and JSON boundaries are isolated",
+			RollbackRequirement: "keep help_adapter.go and doctor_adapter.go restoring root dispatch while moving one family at a time",
+		},
 	}
-	var evidence commandHelpDoctorSplitPreflightEvidence
-	if err := json.Unmarshal(data, &evidence); err != nil {
-		t.Fatalf("decode help/doctor split preflight evidence: %v", err)
-	}
-	return evidence
 }
 
 func assertHelpDoctorPreflightSet(t *testing.T, label string, got []string, want []string) {

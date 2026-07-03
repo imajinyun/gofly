@@ -7,7 +7,7 @@
     },
     "publicBaseline": {
       "command": "make bench-baseline",
-      "path": "bench/evidence.md",
+      "path": "bench/baseline.txt",
       "tracked": true
     },
     "regressionReport": {
@@ -33,7 +33,7 @@
       "raw output from make bench-stat",
       "bench/summary.md from make bench-trend",
       "bench/regression-report.json from make bench-regression-check",
-      "bench/evidence.md when publishing a new public baseline"
+      "bench/baseline.txt when publishing a new public baseline"
     ],
     "changedAreas": [
       "REST",
@@ -45,7 +45,7 @@
     ],
     "notes": [
       "include significant benchstat rows",
-      "state environment from bench/evidence.md",
+      "state environment from bench/baseline.txt",
       "state allocation regression status",
       "state latency ratchet status from bench/budget-ratchet.json"
     ]

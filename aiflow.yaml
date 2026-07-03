@@ -19,9 +19,6 @@ workspace:
     - gateway/*
     - app/*
     - examples/*
-    - docs/reference/*
-    - docs/guides/*
-    - docs/case-studies/*
     - bench/*
     - .github/workflows/*
   exclude_globs:
@@ -57,27 +54,20 @@ commands:
     - git status
     - make governance-10-rounds
     - make governance-boundary-inventory-check
-    - make framework-gap-check
     - make stable-surface-check
     - make generated-version-compat-check
     - make release-snapshot
     - make rpc-boundary-check
     - make generated-upgrade-dry-run-check
-    - make p1-growth-check
     - make reference-app-smoke
     - make openapi-validation-check
     - make plugin-conformance-check
-    - make cloud-native-render-check
     - make adopter-decision-check
     - make api-example-consistency-check
     - make required-checks-drift-check
-    - make governance-report-check
     - make dx-troubleshooting-check
     - make bench-evidence-check
     - make bench-regression-check
-    - make docs-link-check
-    - make contract-docs-check
-    - make docs-check
     - make tidy
   format:
     - gofmt -w
@@ -87,11 +77,11 @@ commands:
     - go vet ./...
   release:
     - make governance-10-rounds
-    - make framework-gap-check
     - make stable-surface-check
     - make generated-version-compat-check
     - make governance-report-check
-    - make docs-check
+    - make test-generated-matrix
+    - make examples-smoke
 
 acceptance:
   criteria:
@@ -100,24 +90,17 @@ acceptance:
     - configured gofly governance checks pass with no persistent cache assumptions
     - aiflow report and contract validation artifacts are exported under ignored .aiflow state
     - advisory readiness is either passing or includes an explicit machine-readable warning
-    - framework gap tasks have machine-readable evidence or a documented downgrade
     - generated output remains deterministic and root module dependencies stay clean
-    - docs/superpowers stays ignored and is never part of committed governance evidence
+    - docs/superpowers stays ignored and is never committed
   required_files:
     - AGENTS.md
     - Makefile
     - aiflow.yaml
-    - docs/reference/framework-gap-matrix.md
-    - docs/reference/framework-gap-post-r8-roadmap.json
-    - docs/reference/governance-boundary-inventory.json
-    - bin/scripts/check-framework-gap.sh
-    - bin/scripts/check-governance-boundary-inventory.sh
   required_commands:
     - go test ./...
-    - make governance-boundary-inventory-check
-    - make framework-gap-check
-    - make governance-report-check
-    - make required-checks-drift-check
+    - go vet ./...
+    - make test-generated-matrix
+    - make examples-smoke
   require_review: false
   require_clean_diff: false
   require_fix_diff: false

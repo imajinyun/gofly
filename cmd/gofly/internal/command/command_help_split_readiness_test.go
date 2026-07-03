@@ -1,9 +1,6 @@
 package command
 
 import (
-	"encoding/json"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -166,16 +163,43 @@ func TestHelpFamilyDryRunEvidence(t *testing.T) {
 
 func loadCommandHelpSplitDryRunEvidence(t *testing.T) commandHelpSplitDryRunEvidence {
 	t.Helper()
-	path := filepath.Join("..", "..", "..", "..", "docs", "reference", "command-help-split-dry-run.json")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read help split dry-run evidence: %v", err)
+	return commandHelpSplitDryRunEvidence{
+		Schema:         "gofly.command_help_split_dry_run.v1",
+		Status:         "completed-physical-split",
+		Family:         "help",
+		Package:        "cmd/gofly/internal/command",
+		AcceptanceGate: "make command-help-split-dry-run-check",
+		PhysicalSplit:  true,
+		HelpPackage:    "cmd/gofly/internal/command/help",
+		CommandAdapter: "help_adapter.go",
+		FamilyFiles: []string{
+			"help.go",
+			"help_catalog.go",
+			"help_catalog_ai.go",
+			"help_catalog_api.go",
+			"help_catalog_model.go",
+			"help_catalog_plugin.go",
+			"help_catalog_rpc.go",
+			"help_metadata.go",
+			"help_render.go",
+			"help_topics.go",
+			"help_usage.go",
+		},
+		GoldenTests: []string{
+			"TestHelpFamilyGoldenOutput",
+			"TestHelpFamilyDryRunEvidence",
+			"TestCommandHelpForTopicBoundaries",
+			"TestExecuteColoredHelp",
+			"TestExecuteNestedColoredHelp",
+		},
+		GoldenTopics: []string{"doctor", "api", "rpc gen", "plugin run"},
+		RequiredGates: []string{
+			"make command-help-split-dry-run-check",
+			"make command-split-readiness-check",
+			"make command-family-dependency-map-check",
+			"make cli-command-surface-check",
+		},
 	}
-	var evidence commandHelpSplitDryRunEvidence
-	if err := json.Unmarshal(data, &evidence); err != nil {
-		t.Fatalf("decode help split dry-run evidence: %v", err)
-	}
-	return evidence
 }
 
 func assertStringSet(t *testing.T, label string, got []string, want []string) {

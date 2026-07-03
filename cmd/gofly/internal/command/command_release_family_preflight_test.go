@@ -249,16 +249,95 @@ func TestCommandReleaseFamilyPreflightContracts(t *testing.T) {
 
 func loadCommandReleaseFamilyPreflightEvidence(t *testing.T) commandReleaseFamilyPreflightEvidence {
 	t.Helper()
-	path := filepath.Join("..", "..", "..", "..", "docs", "reference", "command-release-family-preflight.json")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read release preflight evidence: %v", err)
+	return commandReleaseFamilyPreflightEvidence{
+		Schema:         "gofly.command_release_family_preflight.v1",
+		Status:         "completed-release-family-preflight",
+		Package:        "cmd/gofly/internal/command",
+		AcceptanceGate: "make command-release-family-preflight-check",
+		PreflightOnly:  true,
+		NoPhysicalMove: true,
+		SelectedFamily: commandReleaseFamilyPreflightFamily{
+			ID:             "release",
+			Status:         "ready-for-release-single-family-split",
+			CurrentPackage: "cmd/gofly/internal/command",
+			FuturePackage:  "cmd/gofly/internal/command/release",
+			Files: []string{
+				"release.go",
+				"release_contract_checks.go",
+				"release_helpers.go",
+				"release_local_checks.go",
+				"release_output.go",
+				"release_test.go",
+				"release_types.go",
+			},
+			BlockedMoves: []string{
+				"do not move JSON error helpers",
+				"do not move global output or IO helpers",
+				"do not move any non-release command family",
+			},
+			RollbackRequirement: "Restore release files to cmd/gofly/internal/command if registration, help, or JSON behavior drifts",
+		},
+		Contracts: commandReleaseFamilyPreflightContract{
+			CommandRegistration: commandReleaseFamilyCommandRegistration{
+				RootCommand:   "release",
+				ChildCommands: []string{"check"},
+				ManifestEntry: "release",
+			},
+			HelpRouting: commandReleaseFamilyHelpRouting{
+				Topics:     []string{"release", "release check"},
+				Usage:      "gofly release check [--json]",
+				StdoutOnly: true,
+			},
+			JSONEnvelope: commandReleaseFamilyJSONEnvelope{
+				Command:                "release.check",
+				ErrorCode:              "RELEASE_CHECK_FAILED",
+				RequiredEnvelopeFields: []string{"ok", "command", "version", "data", "error"},
+				RequiredDataFields:     []string{"version", "summary", "checks", "blocking", "warnings", "recommended"},
+				NoDuplicateGlobalJSON:  true,
+			},
+			ReleaseChecks: []string{
+				"api-breaking",
+				"rpc-breaking",
+				"go-api-compat",
+				"changelog-version",
+				"go-mod-tidy",
+			},
+			LocalExecutionBoundary: commandReleaseFamilyLocalBoundary{
+				Status:         "file-separated-before-package-split",
+				RunnerFiles:    []string{"release_helpers.go", "release_local_checks.go"},
+				RenderingFiles: []string{"release_output.go"},
+			},
+			OutputDiscipline: commandReleaseFamilyOutputDiscipline{
+				JSONStdoutOnly:               true,
+				ErrorsDoNotEmitDuplicateJSON: true,
+				TextOutputUsesCommandIO:      true,
+			},
+		},
+		PhysicalSplitAdmission: commandReleaseFamilyPhysicalAdmission{
+			Status:   "ready-for-single-family-split",
+			NextStep: "move only release files after this preflight remains green",
+			RequiredSignals: []string{
+				"release command remains registered",
+				"release check JSON remains stdout-only",
+			},
+			RequiredGates: []string{"go test ./cmd/gofly/internal/command"},
+		},
+		GoldenTests: []string{
+			"TestCommandReleaseFamilyPreflightEvidence",
+			"TestCommandReleaseFamilyPreflightContracts",
+		},
+		RequiredGates: []string{
+			"make command-release-family-preflight-check",
+			"make command-next-family-candidate-refresh-check",
+			"make command-family-dependency-map-check",
+			"make cli-json-contract-goldens-check",
+			"make required-checks-drift-check",
+		},
+		NextStep: commandReleaseFamilyNextStep{
+			ID:     "P22-17-command-release-single-family-split",
+			Action: "move release command files only after registration, help, JSON and local execution boundaries stay green",
+		},
 	}
-	var evidence commandReleaseFamilyPreflightEvidence
-	if err := json.Unmarshal(data, &evidence); err != nil {
-		t.Fatalf("decode release preflight evidence: %v", err)
-	}
-	return evidence
 }
 
 func rootRegistryContains(name string) bool {

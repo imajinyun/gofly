@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 
@@ -44,41 +43,33 @@ func TestOrderStoreAndInventoryBoundaries(t *testing.T) {
 }
 
 func TestProductionOrderReferenceAppContract(t *testing.T) {
-	readme, err := os.ReadFile("README.md")
-	if err != nil {
-		t.Fatalf("read README.md: %v", err)
+	cfg := mustLoadConfig()
+	if cfg.REST.Port == 0 || cfg.RPC.Port == 0 || cfg.Admin.Port == 0 {
+		t.Fatalf("config ports = rest:%d rpc:%d admin:%d, want production topology ports", cfg.REST.Port, cfg.RPC.Port, cfg.Admin.Port)
 	}
-	text := string(readme)
-	for _, want := range []string{
-		"gofly.reference_app.v1",
-		"REST",
-		"RPC",
-		"MQ",
-		"outbox",
-		"saga",
-		"config",
-		"discovery",
-		"cache",
-		"observability",
-		"K8s",
-		"rollback",
-		"SQL outbox",
-		"Redis cache",
-		"Kafka",
-		"RabbitMQ",
-		"Redis Stream",
-		"Consul",
-		"etcd",
-		"Nacos",
-		"OpenTelemetry collector",
-		"REFERENCE_APP_MODE=memory make reference-app-smoke",
-		"REFERENCE_APP_MODE=docker make reference-app-smoke",
-		"topology_evidence",
-		"fallback note",
-	} {
-		if !strings.Contains(text, want) {
-			t.Fatalf("README.md missing %q", want)
+	if cfg.Resilience.RateLimit <= 0 || cfg.Resilience.Burst <= 0 {
+		t.Fatalf("resilience config = %#v, want positive rate limit and burst", cfg.Resilience)
+	}
+
+	topology := loadProductionTopology()
+	if topology.Mode != topologyMemory {
+		t.Fatalf("topology mode = %q, want memory by default", topology.Mode)
+	}
+	for _, want := range []string{"memory"} {
+		if !contains(topology.MQ, want) {
+			t.Fatalf("topology MQ = %#v, missing %q", topology.MQ, want)
 		}
+	}
+	assertTopologyEvidence(t, topology, []string{"SQL outbox", "Redis cache", "MQ", "Discovery", "OpenTelemetry collector"})
+
+	reqSchema := orderRequestSchema()
+	respSchema := orderResponseSchema()
+	topoSchema := topologySchema()
+	if reqSchema.Type != "object" || respSchema.Type != "object" || topoSchema.Type != "object" {
+		t.Fatalf("schemas = request:%#v response:%#v topology:%#v, want object schemas", reqSchema, respSchema, topoSchema)
+	}
+	if len(reqSchema.Required) == 0 || len(respSchema.Required) == 0 || len(topoSchema.Required) == 0 {
+		t.Fatalf("schemas must expose required fields: request:%#v response:%#v topology:%#v", reqSchema.Required, respSchema.Required, topoSchema.Required)
 	}
 }
 

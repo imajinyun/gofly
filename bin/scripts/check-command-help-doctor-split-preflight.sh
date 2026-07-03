@@ -56,7 +56,7 @@ docs_check = next((line for line in makefile.splitlines() if line.startswith("do
 test_source = test_path.read_text(encoding="utf-8") if test_path.is_file() else ""
 
 require(evidence.get("schema") == "gofly.command_help_doctor_split_preflight.v1", "help/doctor split preflight schema mismatch")
-require(evidence.get("status") == "help-family-physical-split-completed", "help/doctor split evidence status must be help-family-physical-split-completed")
+require(evidence.get("status") == "help-and-doctor-physical-split-completed", "help/doctor split evidence status must be help-and-doctor-physical-split-completed")
 require(evidence.get("package") == "cmd/gofly/internal/command", "help/doctor split preflight package mismatch")
 require(
     evidence.get("acceptanceGate") == "make command-help-doctor-split-preflight-check",
@@ -67,14 +67,17 @@ require(evidence.get("noPhysicalMove") is False, "help/doctor split evidence mus
 require(evidence.get("helpPhysicalSplitDone") is True, "help/doctor split evidence must record helpPhysicalSplitDone=true")
 require(evidence.get("helpPackage") == "cmd/gofly/internal/command/help", "help/doctor split evidence helpPackage mismatch")
 require(evidence.get("commandAdapter") == "help_adapter.go", "help/doctor split evidence commandAdapter mismatch")
-require(evidence.get("selectedNextFamily") == "help", "selectedNextFamily must be help")
-require(evidence.get("deferredNextFamily") == "doctor", "deferredNextFamily must be doctor")
+require(evidence.get("doctorPhysicalSplitDone") is True, "doctorPhysicalSplitDone must be true after P22-14")
+require(evidence.get("doctorPackage") == "cmd/gofly/internal/command/doctor", "doctorPackage mismatch")
+require(evidence.get("doctorCommandAdapter") == "doctor_adapter.go", "doctorCommandAdapter mismatch")
+require(evidence.get("selectedNextFamily") == "doctor", "selectedNextFamily must be doctor")
+require(evidence.get("deferredNextFamily") == "", "deferredNextFamily must be empty after P22-14")
 require(evidence.get("doctorPreflightRefreshed") is True, "doctorPreflightRefreshed must be true after P22-13")
 require("command-help-doctor-split-preflight-check" in targets, "Makefile must expose command-help-doctor-split-preflight-check")
 require("command-help-doctor-split-preflight-check" in docs_check, "docs-check must depend on command-help-doctor-split-preflight-check")
 
 expected_help_files = sorted(path.name for path in (command_dir / "help").glob("*.go"))
-expected_doctor_files = ["doctor.go", "doctor_checks.go", "doctor_test.go"]
+expected_doctor_files = ["doctor/doctor.go", "doctor/doctor_checks.go", "doctor/doctor_test.go"]
 require(sorted(evidence.get("helpFiles") or []) == expected_help_files, "helpFiles must match current help*.go files")
 require(sorted(evidence.get("doctorFiles") or []) == expected_doctor_files, "doctorFiles mismatch")
 for filename in evidence.get("helpFiles") or []:
@@ -82,7 +85,9 @@ for filename in evidence.get("helpFiles") or []:
 for filename in evidence.get("doctorFiles") or []:
     require((command_dir / filename).is_file(), f"doctor file is missing from command package: {filename}")
 require((command_dir / "help_adapter.go").is_file(), "help command adapter is missing")
+require((command_dir / "doctor_adapter.go").is_file(), "doctor command adapter is missing")
 require(not (command_dir / "help.go").exists(), "root help.go must be moved into help subpackage after P22-12")
+require(not (command_dir / "doctor.go").exists(), "root doctor.go must be moved into doctor subpackage after P22-14")
 
 contracts = set(evidence.get("preflightContracts") or [])
 expected_contracts = {
@@ -91,7 +96,7 @@ expected_contracts = {
     "doctor remains reachable through root command dispatch",
     "doctor --json stays stdout-only with stable nextActions fields",
     "bug --json supportBundle remains available for doctor remediation guidance",
-    "only help files moved into the help subpackage; doctor and shared files remain in the command package",
+    "only help and doctor files moved into dedicated subpackages; shared files remain in the command package",
 }
 require(contracts == expected_contracts, "preflightContracts mismatch")
 for token in ("ExecuteWithIO", "printCommandHelp", "doctorCommand", "bugCommand", "commandUsage", "supportBundle"):
@@ -113,27 +118,22 @@ require(
     "requiredGates must include command-help-doctor-split-preflight-check",
 )
 
-candidate_by_id = {
-    item.get("id"): item
-    for item in readiness.get("candidateFamilies") or []
-    if isinstance(item, dict)
-}
 completed_by_id = {
     item.get("id"): item
     for item in readiness.get("completedFamilies") or []
     if isinstance(item, dict)
 }
 help_candidate = completed_by_id.get("help") or {}
-doctor_candidate = candidate_by_id.get("doctor") or {}
+doctor_completed = completed_by_id.get("doctor") or {}
 require(help_candidate.get("status") == "physical-split-completed", "help family must record physical split completion")
-require(doctor_candidate.get("status") == "ready-for-doctor-single-family-split", "doctor candidate must be ready for the next single-family split")
+require(doctor_completed.get("status") == "physical-split-completed", "doctor family must record physical split completion")
 require(
     "make command-help-doctor-split-preflight-check" in set(help_candidate.get("requiredGates") or []),
     "help candidate gates must include help/doctor split preflight check",
 )
 require(
-    "make command-help-doctor-split-preflight-check" in set(doctor_candidate.get("requiredGates") or []),
-    "doctor candidate gates must include help/doctor split preflight check",
+    "make command-help-doctor-split-preflight-check" in set(doctor_completed.get("requiredGates") or []),
+    "doctor completed gates must include help/doctor split preflight check",
 )
 
 blocked_by_id = {
@@ -142,16 +142,16 @@ blocked_by_id = {
     if isinstance(item, dict)
 }
 shared_blocked = blocked_by_id.get("shared") or {}
-require(shared_blocked.get("status") == "blocked-during-doctor-single-family-split", "shared blocked status mismatch")
+require(shared_blocked.get("status") == "blocked-after-help-doctor-single-family-splits", "shared blocked status mismatch")
 require(
     "make command-help-doctor-split-preflight-check" in set(shared_blocked.get("requiredGates") or []),
     "shared blocked gates must include help/doctor split preflight check",
 )
 
 next_step = readiness.get("nextStep") or {}
-require(next_step.get("id") == "P22-14-command-doctor-single-family-split", "readiness nextStep must move only doctor")
+require(next_step.get("id") == "P22-15-command-next-family-candidate-refresh", "readiness nextStep must refresh next candidate")
 next_action = str(next_step.get("action") or "")
-require("Move only the doctor family" in next_action, "nextStep action must move only doctor")
+require("Refresh the next command family candidate" in next_action, "nextStep action must refresh next candidate")
 
 family_by_id = {
     family.get("id"): family
@@ -178,10 +178,10 @@ for family in (layout.get("scriptFamilyBoundaries") or {}).get("families") or []
 require("check-command-help-doctor-split-preflight.sh" in script_files, "scriptFamilyBoundaries must index check-command-help-doctor-split-preflight.sh")
 
 admission = evidence.get("physicalSplitAdmission") or {}
-require(admission.get("status") == "completed-help-single-family-split", "physicalSplitAdmission status mismatch")
-require("P22-14" in str(admission.get("nextAllowedAction") or ""), "nextAllowedAction must admit P22-14 doctor split")
+require(admission.get("status") == "completed-help-and-doctor-single-family-splits", "physicalSplitAdmission status mismatch")
+require("Refresh the next command family candidate" in str(admission.get("nextAllowedAction") or ""), "nextAllowedAction must refresh next candidate")
 require("Do not move shared helpers" in str(admission.get("blockedAction") or ""), "blockedAction must block shared movement")
-require("Restore all help files" in str(admission.get("rollbackRequirement") or ""), "rollbackRequirement must describe help restore path")
+require("Restore help or doctor files" in str(admission.get("rollbackRequirement") or ""), "rollbackRequirement must describe help/doctor restore path")
 
 if missing:
     print("command help/doctor split preflight check failed:")

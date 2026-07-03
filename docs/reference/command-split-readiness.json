@@ -1,6 +1,6 @@
 {
   "schema": "gofly.command_split_readiness.v1",
-  "status": "doctor-preflight-refreshed",
+  "status": "doctor-physical-split-completed",
   "package": "cmd/gofly/internal/command",
   "acceptanceGate": "make command-split-readiness-check",
   "purpose": "Record the current command package split readiness baseline after fixing generated-project dependency pollution and proving full command package shuffle tests pass.",
@@ -38,19 +38,16 @@
         "GOCACHE=$PWD/.tmp-test/gocache GOTMPDIR=$PWD/.tmp-test/gotmp go test -shuffle=on ./cmd/gofly/internal/command/..."
       ],
       "rollbackRequirement": "Restore help files to cmd/gofly/internal/command if help text, usage output, topic routing, or docs synchronization changes."
-    }
-  ],
-  "candidateFamilies": [
+    },
     {
       "id": "doctor",
-      "status": "ready-for-doctor-single-family-split",
-      "reason": "The doctor family has JSON golden coverage, support bundle contract coverage, refreshed dry-run extraction evidence, output/JSON adapter dry-run coverage, help split validation, and command registration coverage. It is ready for a dedicated next commit that moves only the doctor family.",
+      "status": "physical-split-completed",
+      "reason": "The doctor family has been physically split into cmd/gofly/internal/command/doctor with a command package adapter preserving diagnostics, support bundle JSON, stdout/stderr behavior, help routing, and command registration.",
       "requiredPreSplitActions": [
-        "move only doctor.go, doctor_checks.go, and doctor_test.go in the next dedicated commit",
-        "introduce the minimum package-local JSON/output adapter required by doctorCommand",
-        "preserve bug --json support bundle schema, redaction, commands, and nextActions references",
-        "prove support bundle and remediation wording remain stable after extraction",
-        "do not move shared helpers, root wiring, JSON helpers, output helpers, help adapter, or bug support bundle code in the doctor split commit"
+        "move only the doctor family in a dedicated commit after P22-13 preflight completion",
+        "define a small JSON/output/help adapter for command registration",
+        "prove doctor --json and bug --json support bundle contracts remain stable",
+        "do not move shared helpers, root wiring, JSON helpers, output helpers, help adapter, or bug support bundle code in the same commit"
       ],
       "requiredGates": [
         "make command-family-dependency-map-check",
@@ -62,9 +59,10 @@
         "make cli-json-contract-goldens-check",
         "GOCACHE=$PWD/.tmp-test/gocache GOTMPDIR=$PWD/.tmp-test/gotmp go test -shuffle=on ./cmd/gofly/internal/command/..."
       ],
-      "rollbackRequirement": "Restore doctor files to cmd/gofly/internal/command if diagnostics, JSON fields, stdout, stderr, or support bundle contracts change."
+      "rollbackRequirement": "Move doctor files back to cmd/gofly/internal/command and remove doctor_adapter.go if diagnostics, JSON fields, stdout, stderr, or support bundle contracts change."
     }
   ],
+  "candidateFamilies": [],
   "blockedFamilies": [
     {
       "id": "ai",
@@ -72,8 +70,8 @@
     },
     {
       "id": "shared",
-      "status": "blocked-during-doctor-single-family-split",
-      "reason": "Shared files still own root command wiring, JSON errors, IO, path flags, IDL helpers, template helpers, compatibility commands, and package-wide tests. P22-13 refreshed doctor preflight, but shared helper movement remains blocked while the next commit may move only doctor files.",
+      "status": "blocked-after-help-doctor-single-family-splits",
+      "reason": "Shared files still own root command wiring, JSON errors, IO, path flags, IDL helpers, template helpers, compatibility commands, adapters, and package-wide tests. P22-14 completed the doctor split, but shared helper movement remains blocked until the next candidate refresh proves a narrower boundary.",
       "requiredGates": [
         "make command-shared-reduction-plan-check",
         "make command-output-json-adapter-dry-run-check",
@@ -91,7 +89,8 @@
     "plugin",
     "release",
     "config",
-    "help"
+    "help",
+    "doctor"
   ],
   "requiredCleanRootSignals": [
     "go.mod has no generated-project-only dependency drift after command and generator tests",
@@ -113,7 +112,7 @@
     "git diff --check"
   ],
   "nextStep": {
-    "id": "P22-14-command-doctor-single-family-split",
-    "action": "Move only the doctor family in a dedicated commit; preserve diagnostics, support bundle JSON, stdout/stderr behavior, help routing, and command registration."
+    "id": "P22-15-command-next-family-candidate-refresh",
+    "action": "Refresh the next command family candidate after help and doctor physical splits; do not move another family until the new candidate has focused preflight evidence."
   }
 }

@@ -811,8 +811,8 @@ require(
 )
 require(
 	{item.get("id") for item in command_dependency_map.get("nextCandidates") or [] if isinstance(item, dict)}
-	== {"doctor"},
-	"command family dependency map nextCandidates must identify doctor after help split",
+	== set(),
+	"command family dependency map nextCandidates must be empty after doctor split",
 )
 
 command_split_readiness_path = root / "docs" / "reference" / "command-split-readiness.json"
@@ -826,8 +826,8 @@ require(
     "command split readiness schema mismatch",
 )
 require(
-    command_split_readiness.get("status") == "doctor-preflight-refreshed",
-    "command split readiness status must be doctor-preflight-refreshed",
+    command_split_readiness.get("status") == "doctor-physical-split-completed",
+    "command split readiness status must be doctor-physical-split-completed",
 )
 require(
     command_split_readiness.get("acceptanceGate") == "make command-split-readiness-check",
@@ -835,13 +835,13 @@ require(
 )
 require(
 	[item.get("id") for item in command_split_readiness.get("candidateFamilies") or [] if isinstance(item, dict)]
-	== ["doctor"],
-	"command split readiness candidateFamilies must identify doctor after help split",
+	== [],
+	"command split readiness candidateFamilies must be empty after doctor split",
 )
 require(
 	{item.get("id") for item in command_split_readiness.get("completedFamilies") or [] if isinstance(item, dict)}
-	== {"help"},
-	"command split readiness completedFamilies must identify help",
+	== {"help", "doctor"},
+	"command split readiness completedFamilies must identify help and doctor",
 )
 require(
     {item.get("id") for item in command_split_readiness.get("blockedFamilies") or [] if isinstance(item, dict)}
@@ -849,7 +849,7 @@ require(
     "command split readiness blockedFamilies must identify ai and shared",
 )
 require(
-	set(command_split_readiness.get("deferredFamilies") or []) == {"api", "rpc", "model", "new", "plugin", "release", "config", "help"},
+	set(command_split_readiness.get("deferredFamilies") or []) == {"api", "rpc", "model", "new", "plugin", "release", "config", "help", "doctor"},
 	"command split readiness deferredFamilies mismatch",
 )
 require(
@@ -858,7 +858,7 @@ require(
     "command split readiness must record the root module pollution regression test",
 )
 require(
-	command_split_readiness.get("nextStep", {}).get("id") == "P22-14-command-doctor-single-family-split",
+	command_split_readiness.get("nextStep", {}).get("id") == "P22-15-command-next-family-candidate-refresh",
 	"command split readiness nextStep mismatch",
 )
 completed_status = {
@@ -872,7 +872,7 @@ candidate_status = {
 	if isinstance(item, dict)
 }
 require(completed_status.get("help") == "physical-split-completed", "command split readiness help family must be completed")
-require(candidate_status.get("doctor") == "ready-for-doctor-single-family-split", "command split readiness doctor candidate must be ready after P22-13 preflight refresh")
+require(completed_status.get("doctor") == "physical-split-completed", "command split readiness doctor family must be completed")
 
 command_help_split_path = root / "docs" / "reference" / "command-help-split-dry-run.json"
 if command_help_split_path.is_file():
@@ -917,22 +917,22 @@ require(
     "command doctor split dry-run schema mismatch",
 )
 require(
-    command_doctor_split.get("status") == "doctor-preflight-refreshed",
-    "command doctor split dry-run status must be doctor-preflight-refreshed",
+    command_doctor_split.get("status") == "completed-physical-split",
+    "command doctor split dry-run status must be completed-physical-split",
 )
 require(
     command_doctor_split.get("acceptanceGate") == "make command-doctor-split-dry-run-check",
     "command doctor split dry-run acceptanceGate mismatch",
 )
-require(command_doctor_split.get("dryRunOnly") is True, "command doctor split dry-run must be dryRunOnly")
-require(command_doctor_split.get("noPhysicalMove") is True, "command doctor split dry-run must forbid physical move")
+require(command_doctor_split.get("dryRunOnly") is False, "command doctor split dry-run must no longer be dryRunOnly after P22-14")
+require(command_doctor_split.get("noPhysicalMove") is False, "command doctor split dry-run must allow completed physical move")
 require(
     set(command_doctor_split.get("supportBundleFields") or [])
     == {"supportBundle.schema", "supportBundle.redaction", "supportBundle.commands", "supportBundle.description", "nextActions"},
     "command doctor split dry-run supportBundleFields mismatch",
 )
 require(
-    command_doctor_split.get("physicalSplitAdmission", {}).get("status") == "ready-for-doctor-single-family-split",
+    command_doctor_split.get("physicalSplitAdmission", {}).get("status") == "completed-doctor-single-family-split",
     "command doctor split dry-run physicalSplitAdmission mismatch",
 )
 
@@ -1015,8 +1015,8 @@ require(
     "command help/doctor split preflight schema mismatch",
 )
 require(
-    command_help_doctor_preflight.get("status") == "help-family-physical-split-completed",
-    "command help/doctor split evidence status must be help-family-physical-split-completed",
+    command_help_doctor_preflight.get("status") == "help-and-doctor-physical-split-completed",
+    "command help/doctor split evidence status must be help-and-doctor-physical-split-completed",
 )
 require(
     command_help_doctor_preflight.get("acceptanceGate") == "make command-help-doctor-split-preflight-check",
@@ -1027,8 +1027,11 @@ require(command_help_doctor_preflight.get("noPhysicalMove") is False, "command h
 require(command_help_doctor_preflight.get("helpPhysicalSplitDone") is True, "command help/doctor split evidence must record helpPhysicalSplitDone=true")
 require(command_help_doctor_preflight.get("helpPackage") == "cmd/gofly/internal/command/help", "command help/doctor split evidence helpPackage mismatch")
 require(command_help_doctor_preflight.get("commandAdapter") == "help_adapter.go", "command help/doctor split evidence commandAdapter mismatch")
-require(command_help_doctor_preflight.get("selectedNextFamily") == "help", "command help/doctor split preflight selectedNextFamily mismatch")
-require(command_help_doctor_preflight.get("deferredNextFamily") == "doctor", "command help/doctor split preflight deferredNextFamily mismatch")
+require(command_help_doctor_preflight.get("doctorPhysicalSplitDone") is True, "command help/doctor split evidence must record doctorPhysicalSplitDone=true")
+require(command_help_doctor_preflight.get("doctorPackage") == "cmd/gofly/internal/command/doctor", "command help/doctor split evidence doctorPackage mismatch")
+require(command_help_doctor_preflight.get("doctorCommandAdapter") == "doctor_adapter.go", "command help/doctor split evidence doctorCommandAdapter mismatch")
+require(command_help_doctor_preflight.get("selectedNextFamily") == "doctor", "command help/doctor split preflight selectedNextFamily mismatch")
+require(command_help_doctor_preflight.get("deferredNextFamily") == "", "command help/doctor split preflight deferredNextFamily mismatch")
 require(command_help_doctor_preflight.get("doctorPreflightRefreshed") is True, "command help/doctor split preflight must record doctorPreflightRefreshed=true")
 require(
     set(command_help_doctor_preflight.get("preflightContracts") or [])
@@ -1038,13 +1041,13 @@ require(
         "doctor remains reachable through root command dispatch",
         "doctor --json stays stdout-only with stable nextActions fields",
         "bug --json supportBundle remains available for doctor remediation guidance",
-        "only help files moved into the help subpackage; doctor and shared files remain in the command package",
+        "only help and doctor files moved into dedicated subpackages; shared files remain in the command package",
     },
     "command help/doctor split preflight contracts mismatch",
 )
 require(
     command_help_doctor_preflight.get("physicalSplitAdmission", {}).get("status")
-    == "completed-help-single-family-split",
+    == "completed-help-and-doctor-single-family-splits",
     "command help/doctor split preflight physicalSplitAdmission mismatch",
 )
 

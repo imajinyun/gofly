@@ -54,7 +54,7 @@ func TestCommandOutputJSONAdapterDryRunEvidence(t *testing.T) {
 		"json_error.go",
 		"json_error_writer.go",
 		"json_error_classify.go",
-		"doctor.go",
+		"doctor_adapter.go",
 		"bug.go",
 	})
 	assertOutputJSONAdapterSet(t, "golden tests", evidence.GoldenTests, []string{

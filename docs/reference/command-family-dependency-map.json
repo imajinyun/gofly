@@ -450,13 +450,13 @@
     },
     {
       "id": "doctor",
-      "prefix": "doctor",
+      "prefix": "doctor/",
       "domain": "Doctor diagnostics, checks, tests, and support remediation output",
       "fileCount": 3,
       "files": [
-        "doctor.go",
-        "doctor_checks.go",
-        "doctor_test.go"
+        "doctor/doctor.go",
+        "doctor/doctor_checks.go",
+        "doctor/doctor_test.go"
       ],
       "dependencyBuckets": {
         "stdlibOrThirdParty": [
@@ -472,16 +472,16 @@
           "testing"
         ]
       },
-      "splitRecommendation": "candidate",
+      "splitRecommendation": "defer",
       "splitRisk": "low",
       "blockers": [
-        "Doctor commands still share package-level JSON error and output helpers with the root command package, so the physical split must add a narrow adapter.",
-        "The next split must prove diagnostics remain on stderr/stdout boundaries, JSON output keeps the same field contract, and support bundle references remain stable."
+        "Doctor is already extracted through P22-14 and should not move again until adapter usage is reduced.",
+        "Future doctor work must preserve diagnostics, JSON output fields, stdout/stderr boundaries, support bundle references, and command registration."
       ],
       "requiredPreSplitActions": [
-        "move only doctor.go, doctor_checks.go, and doctor_test.go in the next dedicated commit",
-        "add the minimum package-local adapter for shared JSON and output helpers",
-        "prove support bundle, next action wording, stdout/stderr, and command registration remain stable"
+        "keep doctor diagnostics and next action wording pinned with golden coverage",
+        "keep the command package doctor adapter minimal until shared helpers are reduced",
+        "verify CLI JSON, support bundle, stdout/stderr, and command registration gates after future doctor edits"
       ],
       "requiredGates": [
         "make command-family-dependency-map-check",
@@ -589,7 +589,7 @@
       "id": "shared",
       "prefix": "",
       "domain": "Shared root command wiring, CLI helpers, compatibility commands, IDL helpers, template helpers, example commands, and low-level command utilities without a stable prefix.",
-      "fileCount": 57,
+      "fileCount": 58,
       "files": [
         "aidoctor.go",
         "aidoctor_checks.go",
@@ -609,6 +609,7 @@
         "compat_command.go",
         "complete.go",
         "completion_command.go",
+        "doctor_adapter.go",
         "docker_command.go",
         "dry_run_flags.go",
         "env.go",
@@ -657,6 +658,7 @@
           "github.com/imajinyun/gofly/cmd/gofly/internal/generator"
         ],
         "otherGofly": [
+          "github.com/imajinyun/gofly/cmd/gofly/internal/command/doctor",
           "github.com/imajinyun/gofly/cmd/gofly/internal/command/help"
         ],
         "stdlibOrThirdParty": [
@@ -691,7 +693,7 @@
       ],
       "requiredPreSplitActions": [
         "extract root wiring, JSON output, file input, and template helper subdomains into smaller file families",
-        "keep shared helpers in place while moving only doctor files in the next single-family split",
+        "keep shared helpers in place while refreshing the next single-family candidate",
         "pin full CLI help, JSON error, and generated-output contracts"
       ],
       "requiredGates": [
@@ -707,12 +709,7 @@
       "rollbackRequirement": "Restore shared files to the command package and keep root command registration, JSON errors, IDL helpers, and template behavior unchanged."
     }
   ],
-  "nextCandidates": [
-    {
-      "id": "doctor",
-      "reason": "The doctor family has only standard library imports, refreshed P22-13 preflight evidence, JSON golden coverage, support bundle coverage, and stdout/stderr contracts pinned, so it is the next single-family physical split candidate."
-    }
-  ],
+  "nextCandidates": [],
   "deferredFamilies": [
     "api",
     "rpc",
@@ -721,7 +718,8 @@
     "plugin",
     "release",
     "config",
-    "help"
+    "help",
+    "doctor"
   ],
   "blockedFamilies": [
     "ai",

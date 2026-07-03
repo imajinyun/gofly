@@ -1,17 +1,19 @@
 {
   "schema": "gofly.command_doctor_split_dry_run.v1",
-  "status": "doctor-preflight-refreshed",
+  "status": "completed-physical-split",
   "family": "doctor",
-  "package": "cmd/gofly/internal/command",
+  "package": "cmd/gofly/internal/command/doctor",
   "acceptanceGate": "make command-doctor-split-dry-run-check",
-  "purpose": "Record the P22-13 doctor command family preflight refresh after the help family physical split completed.",
-  "policy": "The doctor family may only move in a later single-family commit after JSON golden checks, nextActions coverage, support bundle contract coverage, stdout/stderr discipline, command registration, and rollback evidence pass from the current command package layout.",
-  "dryRunOnly": true,
-  "noPhysicalMove": true,
+  "purpose": "Record the P22-14 doctor command family physical split completion after the P22-13 preflight refresh.",
+  "policy": "The doctor family is physically split into cmd/gofly/internal/command/doctor. The command package keeps only a thin doctor_adapter.go for help routing, flag parsing, JSON output, stdout/stderr rendering, command registration, and compatibility test entry points.",
+  "dryRunOnly": false,
+  "noPhysicalMove": false,
+  "doctorPackage": "cmd/gofly/internal/command/doctor",
+  "commandAdapter": "doctor_adapter.go",
   "familyFiles": [
-    "doctor.go",
-    "doctor_checks.go",
-    "doctor_test.go"
+    "doctor/doctor.go",
+    "doctor/doctor_checks.go",
+    "doctor/doctor_test.go"
   ],
   "relatedSharedContracts": [
     {
@@ -58,8 +60,8 @@
   "dryRunFindings": [
     {
       "id": "json-output-adapter",
-      "status": "required-during-physical-move",
-      "finding": "doctorCommand still writes JSON through package-level printJSON and shared IO helpers, so the physical extraction commit must introduce a small JSON/output adapter without changing the JSON envelope."
+      "status": "covered-by-command-adapter",
+      "finding": "doctorCommand now delegates to the doctor package through doctor_adapter.go, preserving package-level printJSON and shared IO helpers without moving JSON/output helpers."
     },
     {
       "id": "support-bundle-coupling",
@@ -80,12 +82,12 @@
     "make command-help-doctor-split-preflight-check",
     "make project-layout-governance-check",
     "make cli-json-contract-goldens-check",
-    "GOCACHE=$PWD/.tmp-test/gocache GOTMPDIR=$PWD/.tmp-test/gotmp go test -shuffle=on ./cmd/gofly/internal/command -run 'TestDoctor(FamilyDryRunEvidence|FamilyJSONGoldenContract|FamilySupportBundleContract|CommandJSON|NextActionsContract)|TestBugCommandSupportBundleJSONContract' -count=1",
+    "GOCACHE=$PWD/.tmp-test/gocache GOTMPDIR=$PWD/.tmp-test/gotmp go test -shuffle=on ./cmd/gofly/internal/command/... -run 'TestDoctor(FamilyDryRunEvidence|FamilyJSONGoldenContract|FamilySupportBundleContract|CommandJSON|NextActionsContract)|TestBugCommandSupportBundleJSONContract' -count=1",
     "git diff --check"
   ],
   "physicalSplitAdmission": {
-    "status": "ready-for-doctor-single-family-split",
-    "nextAllowedAction": "In P22-14, move only doctor.go, doctor_checks.go, and doctor_test.go in a dedicated commit while introducing the minimum JSON/output adapter needed to preserve support bundle contracts.",
-    "rollbackRequirement": "Restore doctor.go, doctor_checks.go, and doctor_test.go to cmd/gofly/internal/command in one commit if diagnostics, JSON fields, stdout/stderr discipline, support bundle references, or nextActions regress."
+    "status": "completed-doctor-single-family-split",
+    "nextAllowedAction": "Refresh the command family dependency map after the doctor split and choose the next single-family candidate without moving shared helpers.",
+    "rollbackRequirement": "Restore doctor/doctor.go, doctor/doctor_checks.go, and doctor/doctor_test.go back to cmd/gofly/internal/command and remove doctor_adapter.go in one commit if diagnostics, JSON fields, stdout/stderr discipline, support bundle references, or nextActions regress."
   }
 }

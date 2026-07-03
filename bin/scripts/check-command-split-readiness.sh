@@ -51,7 +51,7 @@ targets = make_target_names(makefile)
 docs_check = next((line for line in makefile.splitlines() if line.startswith("docs-check:")), "")
 
 require(readiness.get("schema") == "gofly.command_split_readiness.v1", "command split readiness schema mismatch")
-require(readiness.get("status") == "doctor-preflight-refreshed", "command split readiness status must be doctor-preflight-refreshed")
+require(readiness.get("status") == "doctor-physical-split-completed", "command split readiness status must be doctor-physical-split-completed")
 require(readiness.get("package") == "cmd/gofly/internal/command", "command split readiness package mismatch")
 require(
     readiness.get("acceptanceGate") == "make command-split-readiness-check",
@@ -101,6 +101,13 @@ require("cmd/gofly/internal/command/help" in str(help_completed.get("reason") or
 for gate in help_completed.get("requiredGates") or []:
     require(gate_is_known(str(gate), targets), f"completed help family: unknown required gate {gate}")
 require("Restore" in str(help_completed.get("rollbackRequirement") or ""), "completed help family rollbackRequirement must describe restore path")
+
+doctor_completed = completed_by_id.get("doctor") or {}
+require(doctor_completed.get("status") == "physical-split-completed", "completed doctor family status mismatch")
+require("cmd/gofly/internal/command/doctor" in str(doctor_completed.get("reason") or ""), "completed doctor family reason must mention doctor subpackage")
+for gate in doctor_completed.get("requiredGates") or []:
+    require(gate_is_known(str(gate), targets), f"completed doctor family: unknown required gate {gate}")
+require("Move doctor files back" in str(doctor_completed.get("rollbackRequirement") or ""), "completed doctor family rollbackRequirement must describe restore path")
 
 family_by_id = {
     family.get("id"): family
@@ -168,15 +175,15 @@ blocked_by_id = {
     if isinstance(item, dict)
 }
 shared_blocked = blocked_by_id.get("shared") or {}
-require(shared_blocked.get("status") == "blocked-during-doctor-single-family-split", "shared blocked status mismatch")
+require(shared_blocked.get("status") == "blocked-after-help-doctor-single-family-splits", "shared blocked status mismatch")
 require("make command-shared-reduction-plan-check" in set(shared_blocked.get("requiredGates") or []), "shared blocked gates must include shared reduction plan check")
 require("make command-output-json-adapter-dry-run-check" in set(shared_blocked.get("requiredGates") or []), "shared blocked gates must include output/json adapter dry-run check")
 require("make command-help-doctor-split-preflight-check" in set(shared_blocked.get("requiredGates") or []), "shared blocked gates must include help/doctor split preflight check")
 
 next_step = readiness.get("nextStep") or {}
-require(next_step.get("id") == "P22-14-command-doctor-single-family-split", "nextStep id mismatch")
+require(next_step.get("id") == "P22-15-command-next-family-candidate-refresh", "nextStep id mismatch")
 next_action = str(next_step.get("action") or "")
-require("Move only the doctor family" in next_action, "nextStep action must move only doctor")
+require("Refresh the next command family candidate" in next_action, "nextStep action must refresh the next candidate")
 
 reference_files = []
 for family in (layout.get("referenceFileBoundaries") or {}).get("families") or []:

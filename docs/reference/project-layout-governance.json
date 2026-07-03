@@ -1183,8 +1183,14 @@
       "domain": "Release check, local checks, contract checks, output, and helper commands"
     },
     {
+      "id": "doctor",
       "prefix": "doctor",
-      "domain": "Doctor diagnostics, checks, tests, and support remediation output"
+      "domain": "Doctor diagnostics, checks, tests, and support remediation output extracted into a dedicated subpackage.",
+      "files": [
+        "doctor/doctor.go",
+        "doctor/doctor_checks.go",
+        "doctor/doctor_test.go"
+      ]
     },
     {
       "id": "help",
@@ -1243,6 +1249,7 @@
         "handler_complete_command.go",
         "handler_test.go",
         "help_adapter.go",
+        "doctor_adapter.go",
         "idl_generate_shared.go",
         "idl_registry.go",
         "idl_test.go",

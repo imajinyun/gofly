@@ -116,12 +116,12 @@ require("make command-help-split-dry-run-check" in set(help_completed.get("requi
 require("make command-output-json-adapter-dry-run-check" in set(help_completed.get("requiredGates") or []), "help completed gates must include output/json adapter dry-run check")
 require("make command-help-doctor-split-preflight-check" in set(help_completed.get("requiredGates") or []), "help completed gates must include help/doctor split preflight check")
 require("cmd/gofly/internal/command/help" in str(help_completed.get("reason") or ""), "help completed reason must mention help subpackage")
-require(readiness.get("nextStep", {}).get("id") == "P22-14-command-doctor-single-family-split", "command split readiness nextStep must move only doctor")
-doctor_candidate = candidate_by_id.get("doctor") or {}
-require(doctor_candidate.get("status") == "ready-for-doctor-single-family-split", "doctor candidate must be ready after P22-13 preflight refresh")
+require(readiness.get("nextStep", {}).get("id") == "P22-15-command-next-family-candidate-refresh", "command split readiness nextStep must refresh next candidate")
+doctor_completed = completed_by_id.get("doctor") or {}
+require(doctor_completed.get("status") == "physical-split-completed", "doctor completed must be recorded after P22-14")
 
 map_candidates = [item.get("id") for item in dependency_map.get("nextCandidates") or [] if isinstance(item, dict)]
-require(map_candidates == ["doctor"], "command dependency map must keep doctor as the next candidate after help split")
+require(map_candidates == [], "command dependency map must clear doctor as next candidate after P22-14")
 
 reference_files = []
 for family in (layout.get("referenceFileBoundaries") or {}).get("families") or []:

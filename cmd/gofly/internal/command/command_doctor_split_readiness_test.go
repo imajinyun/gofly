@@ -114,19 +114,19 @@ func TestDoctorFamilyDryRunEvidence(t *testing.T) {
 	if evidence.Schema != "gofly.command_doctor_split_dry_run.v1" {
 		t.Fatalf("schema = %q, want gofly.command_doctor_split_dry_run.v1", evidence.Schema)
 	}
-	if evidence.Status != "doctor-preflight-refreshed" {
-		t.Fatalf("status = %q, want doctor-preflight-refreshed", evidence.Status)
+	if evidence.Status != "completed-physical-split" {
+		t.Fatalf("status = %q, want completed-physical-split", evidence.Status)
 	}
-	if evidence.Family != "doctor" || evidence.Package != "cmd/gofly/internal/command" {
-		t.Fatalf("family/package = %q/%q, want doctor/cmd/gofly/internal/command", evidence.Family, evidence.Package)
+	if evidence.Family != "doctor" || evidence.Package != "cmd/gofly/internal/command/doctor" {
+		t.Fatalf("family/package = %q/%q, want doctor/cmd/gofly/internal/command/doctor", evidence.Family, evidence.Package)
 	}
 	if evidence.AcceptanceGate != "make command-doctor-split-dry-run-check" {
 		t.Fatalf("acceptanceGate = %q, want make command-doctor-split-dry-run-check", evidence.AcceptanceGate)
 	}
-	if !evidence.DryRunOnly || !evidence.NoPhysicalMove {
-		t.Fatalf("dry-run evidence must not authorize a physical move: dryRunOnly=%t noPhysicalMove=%t", evidence.DryRunOnly, evidence.NoPhysicalMove)
+	if evidence.DryRunOnly || evidence.NoPhysicalMove {
+		t.Fatalf("P22-14 evidence must record completed physical move: dryRunOnly=%t noPhysicalMove=%t", evidence.DryRunOnly, evidence.NoPhysicalMove)
 	}
-	assertDoctorSplitSet(t, "family files", evidence.FamilyFiles, []string{"doctor.go", "doctor_checks.go", "doctor_test.go"})
+	assertDoctorSplitSet(t, "family files", evidence.FamilyFiles, []string{"doctor/doctor.go", "doctor/doctor_checks.go", "doctor/doctor_test.go"})
 	assertDoctorSplitSet(t, "golden fields", evidence.GoldenFields, []string{
 		"version",
 		"go",

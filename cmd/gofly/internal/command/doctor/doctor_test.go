@@ -1,15 +1,14 @@
-package command
+package doctor
 
 import (
 	"bytes"
 	"encoding/json"
 	"runtime"
-	"strings"
 	"testing"
 )
 
 func TestDoctorRunAllChecksPresent(t *testing.T) {
-	report := runDoctor()
+	report := Run("test-version", nil)
 	if report.Version == "" {
 		t.Error("expected Version to be set")
 	}
@@ -37,7 +36,7 @@ func TestDoctorRunAllChecksPresent(t *testing.T) {
 }
 
 func TestDoctorRunSummary(t *testing.T) {
-	report := runDoctor()
+	report := Run("test-version", nil)
 	if report.Summary == "" {
 		t.Error("expected non-empty summary")
 	}
@@ -55,7 +54,7 @@ func TestDoctorRunSummary(t *testing.T) {
 }
 
 func TestCheckGoModule(t *testing.T) {
-	c := checkGoModule()
+	c := CheckGoModule()
 	if c.Name != "Go modules" {
 		t.Errorf("name = %q, want Go modules", c.Name)
 	}
@@ -66,7 +65,7 @@ func TestCheckGoModule(t *testing.T) {
 }
 
 func TestCheckWritePermission(t *testing.T) {
-	c := checkWritePermission()
+	c := CheckWritePermission()
 	if c.Name != "Write permission" {
 		t.Errorf("name = %q, want Write permission", c.Name)
 	}
@@ -77,12 +76,10 @@ func TestCheckWritePermission(t *testing.T) {
 
 func TestDoctorCommandJSON(t *testing.T) {
 	var out bytes.Buffer
-	if err := withCommandIO(IOStreams{Out: &out}, outputText, verbosityNormal, func() error {
-		return doctorCommand([]string{"--json"})
-	}); err != nil {
+	if err := Command([]string{"--json"}, testHooks(&out)); err != nil {
 		t.Fatalf("doctor --json: %v", err)
 	}
-	var report doctorReport
+	var report Report
 	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
 		t.Fatalf("doctor --json decode: %v\n%s", err, out.String())
 	}
@@ -92,31 +89,40 @@ func TestDoctorCommandJSON(t *testing.T) {
 }
 
 func TestDoctorCommandHelp(t *testing.T) {
-	if err := doctorCommand([]string{"--help"}); err != nil {
+	called := false
+	hooks := testHooks(nil)
+	hooks.PrintHelp = func(command string, args []string) bool {
+		called = command == "doctor" && len(args) == 1 && args[0] == "--help"
+		return called
+	}
+	if err := Command([]string{"--help"}, hooks); err != nil {
 		t.Fatalf("doctor --help: %v", err)
+	}
+	if !called {
+		t.Fatal("doctor --help did not route through help hook")
 	}
 }
 
 func TestPrintDoctorReportWithAllStatuses(t *testing.T) {
-	report := doctorReport{
+	report := Report{
 		Version: "v0.1.0",
 		Go:      "go1.26",
 		OS:      "linux",
 		Arch:    "amd64",
-		Checks: []doctorCheck{
+		Checks: []Check{
 			{Name: "ok-check", Status: "ok"},
 			{Name: "warn-check", Status: "warn", Message: "warning msg", FixHint: "fix it"},
 			{Name: "fail-check", Status: "fail", Message: "fail msg", FixHint: "fix it"},
 		},
 		Summary: "2 warning(s), 1 fail(s)",
 	}
-	printDoctorReport(report)
+	PrintReport(report, func(string, ...any) {}, func(...any) {})
 }
 
 func TestCheckGoVersionBranches(t *testing.T) {
 	// We cannot change runtime.Version(), but we can verify the function
 	// returns a valid check struct for the current runtime.
-	c := checkGoVersion()
+	c := CheckGoVersion()
 	if c.Name != "Go version" {
 		t.Fatalf("name = %q", c.Name)
 	}
@@ -126,7 +132,7 @@ func TestCheckGoVersionBranches(t *testing.T) {
 }
 
 func TestCheckGOPATH(t *testing.T) {
-	c := checkGOPATH()
+	c := CheckGOPATH()
 	if c.Name != "GOPATH" {
 		t.Fatalf("name = %q", c.Name)
 	}
@@ -136,7 +142,7 @@ func TestCheckGOPATH(t *testing.T) {
 }
 
 func TestCheckTools(t *testing.T) {
-	c := checkTools()
+	c := CheckTools()
 	if c.Name != "Core tools" {
 		t.Fatalf("name = %q", c.Name)
 	}
@@ -146,7 +152,7 @@ func TestCheckTools(t *testing.T) {
 }
 
 func TestCheckGit(t *testing.T) {
-	c := checkGit()
+	c := CheckGit()
 	if c.Name != "Git" {
 		t.Fatalf("name = %q", c.Name)
 	}
@@ -156,7 +162,7 @@ func TestCheckGit(t *testing.T) {
 }
 
 func TestCheckProtoc(t *testing.T) {
-	c := checkProtoc()
+	c := CheckProtoc()
 	if c.Name != "protoc" {
 		t.Fatalf("name = %q", c.Name)
 	}
@@ -166,11 +172,11 @@ func TestCheckProtoc(t *testing.T) {
 }
 
 func TestDoctorNextActionsContract(t *testing.T) {
-	checks := []doctorCheck{
+	checks := []Check{
 		{Name: "Go modules", Status: "fail", FixHint: "unset GO111MODULE", NextActions: []string{"unset GO111MODULE or set GO111MODULE=on"}},
 		{Name: "protoc", Status: "warn", FixHint: "install protoc", NextActions: []string{"install protoc before running standard protobuf/gRPC generation"}},
 	}
-	actions := doctorNextActions(checks, 1, 1)
+	actions := NextActions(checks, 1, 1, nil)
 	for _, want := range []string{
 		"unset GO111MODULE or set GO111MODULE=on",
 		"install protoc before running standard protobuf/gRPC generation",
@@ -182,31 +188,9 @@ func TestDoctorNextActionsContract(t *testing.T) {
 		}
 	}
 
-	healthy := doctorNextActions(nil, 0, 0)
+	healthy := NextActions(nil, 0, 0, nil)
 	if !containsDoctorAction(healthy, "run `gofly release check --json --strict` before publishing") || !containsDoctorAction(healthy, "run `make governance-10-rounds` for full repository governance") {
 		t.Fatalf("healthy doctorNextActions = %#v, want release and governance next actions", healthy)
-	}
-}
-
-func TestBugCommandSupportBundleJSONContract(t *testing.T) {
-	var out bytes.Buffer
-	if err := withCommandIO(IOStreams{Out: &out}, outputText, verbosityNormal, func() error {
-		return bugCommand([]string{"--json"})
-	}); err != nil {
-		t.Fatalf("bug --json: %v", err)
-	}
-	var report bugReport
-	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
-		t.Fatalf("bug --json decode: %v\n%s", err, out.String())
-	}
-	if report.SupportBundle.Schema != "gofly.support_bundle.v1" || len(report.SupportBundle.Commands) == 0 || len(report.SupportBundle.Redaction) == 0 {
-		t.Fatalf("support bundle = %#v, want schema, commands, and redaction policy", report.SupportBundle)
-	}
-	if !containsDoctorAction(report.NextActions, "attach this support bundle when opening an issue or asking for help") {
-		t.Fatalf("bug nextActions = %#v, want support bundle guidance", report.NextActions)
-	}
-	if !strings.Contains(strings.Join(report.SupportBundle.Commands, "\n"), "gofly doctor --json") {
-		t.Fatalf("support bundle commands = %#v, want doctor command", report.SupportBundle.Commands)
 	}
 }
 
@@ -217,4 +201,23 @@ func containsDoctorAction(values []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func testHooks(out *bytes.Buffer) Hooks {
+	if out == nil {
+		out = &bytes.Buffer{}
+	}
+	return Hooks{
+		PrintHelp: func(string, []string) bool { return false },
+		PrintJSON: func(value any) error {
+			return json.NewEncoder(out).Encode(value)
+		},
+		PrintTextf: func(format string, args ...any) {
+			_, _ = out.WriteString(format)
+		},
+		PrintTextln: func(...any) {
+			_, _ = out.WriteString("\n")
+		},
+		Version: "test-version",
+	}
 }

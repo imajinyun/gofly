@@ -1,6 +1,6 @@
 {
   "schema": "gofly.command_split_readiness.v1",
-  "status": "next-family-candidate-refreshed",
+  "status": "release-family-preflight-completed",
   "package": "cmd/gofly/internal/command",
   "acceptanceGate": "make command-split-readiness-check",
   "purpose": "Record the current command package split readiness baseline after fixing generated-project dependency pollution and proving full command package shuffle tests pass.",
@@ -65,15 +65,17 @@
   "candidateFamilies": [
     {
       "id": "release",
-      "status": "candidate-after-json-golden",
-      "reason": "Release is the next preflight candidate because it has a bounded file family, existing JSON golden coverage, release contract tests, and no direct runtime, spinner, or extracted command package dependency.",
+      "status": "ready-for-release-single-family-split",
+      "reason": "Release has completed focused preflight evidence for command registration, help routing, JSON envelope behavior, stdout/stderr discipline, release evidence fields, and required-check drift before any physical package movement.",
       "requiredPreSplitActions": [
-        "add a release-family preflight evidence file before any physical move",
-        "pin release check JSON output, error envelope, artifact evidence, and skip-gate behavior",
-        "isolate local shell command execution from release output rendering through a small adapter",
-        "prove command registration, help output, stdout/stderr, and release check JSON contracts remain stable"
+        "move only the release family in a dedicated commit after P22-16 preflight completion",
+        "define a small command package adapter if package movement requires one",
+        "preserve release check JSON output, error envelope, artifact evidence, and skip-gate behavior",
+        "do not move shared helpers, root wiring, JSON helpers, output helpers, help adapter, doctor adapter, or any non-release command family in the same commit"
       ],
       "requiredGates": [
+        "make project-layout-governance-check",
+        "make command-release-family-preflight-check",
         "make command-next-family-candidate-refresh-check",
         "make command-family-dependency-map-check",
         "make command-split-readiness-check",
@@ -83,7 +85,7 @@
         "make required-checks-drift-check",
         "GOCACHE=$PWD/.tmp-test/gocache GOTMPDIR=$PWD/.tmp-test/gotmp go test -shuffle=on ./cmd/gofly/internal/command -run 'TestRelease(CheckCommandJSONAndChangelogBlocker|CheckCommandJSONAlreadyReportedOnce)' -count=1"
       ],
-      "rollbackRequirement": "Restore release to deferred status and clear release from nextCandidates if release JSON, artifact evidence, command registration, stdout, stderr, or required-check drift behavior changes."
+      "rollbackRequirement": "Restore release files to cmd/gofly/internal/command and clear release from nextCandidates if release check JSON, help output, command registration, stdout, stderr, or required-check drift behavior changes."
     }
   ],
   "blockedFamilies": [
@@ -127,6 +129,7 @@
     "make command-output-json-adapter-dry-run-check",
     "make command-help-doctor-split-preflight-check",
     "make command-next-family-candidate-refresh-check",
+    "make command-release-family-preflight-check",
     "make project-layout-governance-check",
     "GOCACHE=$PWD/.tmp-test/gocache GOTMPDIR=$PWD/.tmp-test/gotmp go test -shuffle=on ./cmd/gofly/internal/generator -run 'TestGenerateModelFromDDLGORMStyle(DoesNotPolluteGoflyRootModule|FindsParentGoMod|$)' -count=1",
     "GOCACHE=$PWD/.tmp-test/gocache GOTMPDIR=$PWD/.tmp-test/gotmp go test -shuffle=on ./cmd/gofly/internal/command/...",
@@ -135,7 +138,7 @@
     "git diff --check"
   ],
   "nextStep": {
-    "id": "P22-16-command-release-family-preflight",
-    "action": "Create focused release family preflight evidence and tests before moving any release command files."
+    "id": "P22-17-command-release-single-family-split",
+    "action": "Move only the release command family after the release preflight gate passes."
   }
 }

@@ -70,6 +70,8 @@ require("command-help-doctor-split-preflight-check" in targets, "Makefile must e
 require("command-help-doctor-split-preflight-check" in docs_check, "docs-check must depend on command-help-doctor-split-preflight-check")
 require("command-next-family-candidate-refresh-check" in targets, "Makefile must expose command-next-family-candidate-refresh-check")
 require("command-next-family-candidate-refresh-check" in docs_check, "docs-check must depend on command-next-family-candidate-refresh-check")
+require("command-release-family-preflight-check" in targets, "Makefile must expose command-release-family-preflight-check")
+require("command-release-family-preflight-check" in docs_check, "docs-check must depend on command-release-family-preflight-check")
 require("check-project-layout-governance.sh" in makefile, "Makefile must call check-project-layout-governance.sh")
 
 top_level_boundary = manifest.get("topLevelDirectoryBoundaries") or {}
@@ -814,7 +816,19 @@ require(
 require(
 	[item.get("id") for item in command_dependency_map.get("nextCandidates") or [] if isinstance(item, dict)]
 	== ["release"],
-	"command family dependency map nextCandidates must contain release after P22-15",
+	"command family dependency map nextCandidates must contain release after P22-16",
+)
+release_next_candidate = next(
+    (item for item in command_dependency_map.get("nextCandidates") or [] if isinstance(item, dict) and item.get("id") == "release"),
+    {},
+)
+require(
+    release_next_candidate.get("status") == "ready-for-release-single-family-split",
+    "command family dependency map release nextCandidate status mismatch",
+)
+require(
+    release_next_candidate.get("requiredGate") == "make command-release-family-preflight-check",
+    "command family dependency map release nextCandidate requiredGate mismatch",
 )
 
 command_split_readiness_path = root / "docs" / "reference" / "command-split-readiness.json"
@@ -828,8 +842,8 @@ require(
     "command split readiness schema mismatch",
 )
 require(
-    command_split_readiness.get("status") == "next-family-candidate-refreshed",
-    "command split readiness status must be next-family-candidate-refreshed",
+    command_split_readiness.get("status") == "release-family-preflight-completed",
+    "command split readiness status must be release-family-preflight-completed",
 )
 require(
     command_split_readiness.get("acceptanceGate") == "make command-split-readiness-check",
@@ -838,7 +852,7 @@ require(
 require(
 	[item.get("id") for item in command_split_readiness.get("candidateFamilies") or [] if isinstance(item, dict)]
 	== ["release"],
-	"command split readiness candidateFamilies must contain release after P22-15",
+	"command split readiness candidateFamilies must contain release after P22-16",
 )
 require(
 	{item.get("id") for item in command_split_readiness.get("completedFamilies") or [] if isinstance(item, dict)}
@@ -860,7 +874,7 @@ require(
     "command split readiness must record the root module pollution regression test",
 )
 require(
-	command_split_readiness.get("nextStep", {}).get("id") == "P22-16-command-release-family-preflight",
+	command_split_readiness.get("nextStep", {}).get("id") == "P22-17-command-release-single-family-split",
 	"command split readiness nextStep mismatch",
 )
 completed_status = {
@@ -875,7 +889,7 @@ candidate_status = {
 }
 require(completed_status.get("help") == "physical-split-completed", "command split readiness help family must be completed")
 require(completed_status.get("doctor") == "physical-split-completed", "command split readiness doctor family must be completed")
-require(candidate_status.get("release") == "candidate-after-json-golden", "command split readiness release family must be next candidate")
+require(candidate_status.get("release") == "ready-for-release-single-family-split", "command split readiness release family must be ready for split")
 
 command_help_split_path = root / "docs" / "reference" / "command-help-split-dry-run.json"
 if command_help_split_path.is_file():
@@ -1091,10 +1105,49 @@ require(
     ],
     "command next family candidate refresh release files mismatch",
 )
-require(not (root / "cmd" / "gofly" / "internal" / "command" / "release").exists(), "release subpackage must not exist during P22-15")
+require(not (root / "cmd" / "gofly" / "internal" / "command" / "release").exists(), "release subpackage must not exist during P22-16 preflight")
 require(
     command_next_candidate.get("nextStep", {}).get("id") == "P22-16-command-release-family-preflight",
     "command next family candidate refresh nextStep mismatch",
+)
+
+command_release_preflight_path = root / "docs" / "reference" / "command-release-family-preflight.json"
+if command_release_preflight_path.is_file():
+    command_release_preflight = json.loads(command_release_preflight_path.read_text(encoding="utf-8"))
+else:
+    command_release_preflight = {}
+    missing.append("docs/reference/command-release-family-preflight.json is missing")
+require(
+    command_release_preflight.get("schema") == "gofly.command_release_family_preflight.v1",
+    "command release family preflight schema mismatch",
+)
+require(
+    command_release_preflight.get("status") == "completed-release-family-preflight",
+    "command release family preflight status mismatch",
+)
+require(
+    command_release_preflight.get("acceptanceGate") == "make command-release-family-preflight-check",
+    "command release family preflight acceptanceGate mismatch",
+)
+require(command_release_preflight.get("preflightOnly") is True, "command release family preflight must be preflightOnly")
+require(command_release_preflight.get("noPhysicalMove") is True, "command release family preflight must forbid physical movement")
+release_preflight_family = command_release_preflight.get("selectedFamily") or {}
+require(release_preflight_family.get("id") == "release", "command release family preflight selectedFamily mismatch")
+require(
+    release_preflight_family.get("status") == "ready-for-release-single-family-split",
+    "command release family preflight selectedFamily status mismatch",
+)
+require(
+    release_preflight_family.get("futurePackage") == "cmd/gofly/internal/command/release",
+    "command release family preflight futurePackage mismatch",
+)
+require(
+    command_release_preflight.get("physicalSplitAdmission", {}).get("status") == "ready-for-single-family-split",
+    "command release family preflight physicalSplitAdmission mismatch",
+)
+require(
+    command_release_preflight.get("nextStep", {}).get("id") == "P22-17-command-release-single-family-split",
+    "command release family preflight nextStep mismatch",
 )
 
 reference_boundary = manifest.get("referenceFileBoundaries") or {}

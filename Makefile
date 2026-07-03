@@ -305,6 +305,10 @@ command-help-doctor-split-preflight-check: ## Validate cmd/gofly help and doctor
 command-next-family-candidate-refresh-check: ## Validate the next cmd/gofly command family split candidate refresh
 	sh $(SCRIPTS_DIR)/check-command-next-family-candidate-refresh.sh
 
+.PHONY: command-release-family-preflight-check
+command-release-family-preflight-check: ## Validate cmd/gofly release family preflight before moving release command files
+	sh $(SCRIPTS_DIR)/check-command-release-family-preflight.sh
+
 .PHONY: project-layout-governance-check
 project-layout-governance-check: ## Validate project directory boundaries and no-big-bang layout policy
 	sh $(SCRIPTS_DIR)/check-project-layout-governance.sh
@@ -332,7 +336,7 @@ examples-smoke: ## Run runnable example smoke tests and machine-readable output 
 	sh $(SCRIPTS_DIR)/examples-smoke.sh
 
 .PHONY: docs-check
-docs-check: docs-link-check docs-taxonomy-check migration-docs-check p1-growth-check community-growth-check contract-docs-check dx-troubleshooting-check governance-report-check fuzz-robustness-check dependency-upgrade-evidence-check cache-dependency-governance-check api-contract-governance-check api-example-consistency-check coverage-trend-check ci-required-check-evidence-check runtime-slo-check governance-boundary-inventory-check context-lifecycle-governance-check discovery-adapter-matrix-check db-cache-productization-check goctl-generator-compat-check goctl-real-project-replay-check framework-gap-check cli-command-surface-check cli-configuration-governance-check command-family-dependency-map-check command-split-readiness-check command-help-split-dry-run-check command-doctor-split-dry-run-check command-shared-reduction-plan-check command-output-json-adapter-dry-run-check command-help-doctor-split-preflight-check command-next-family-candidate-refresh-check project-layout-governance-check doc-manifest-sync-check required-checks-drift-check ## Compile Go code blocks in Markdown docs
+docs-check: docs-link-check docs-taxonomy-check migration-docs-check p1-growth-check community-growth-check contract-docs-check dx-troubleshooting-check governance-report-check fuzz-robustness-check dependency-upgrade-evidence-check cache-dependency-governance-check api-contract-governance-check api-example-consistency-check coverage-trend-check ci-required-check-evidence-check runtime-slo-check governance-boundary-inventory-check context-lifecycle-governance-check discovery-adapter-matrix-check db-cache-productization-check goctl-generator-compat-check goctl-real-project-replay-check framework-gap-check cli-command-surface-check cli-configuration-governance-check command-family-dependency-map-check command-split-readiness-check command-help-split-dry-run-check command-doctor-split-dry-run-check command-shared-reduction-plan-check command-output-json-adapter-dry-run-check command-help-doctor-split-preflight-check command-next-family-candidate-refresh-check command-release-family-preflight-check project-layout-governance-check doc-manifest-sync-check required-checks-drift-check ## Compile Go code blocks in Markdown docs
 	$(GO) env GOMOD >/dev/null
 	sh $(SCRIPTS_DIR)/check-doc-go-snippets.sh
 

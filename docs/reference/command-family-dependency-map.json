@@ -22,6 +22,7 @@
     ],
     "requiredSplitGates": [
       "make command-family-dependency-map-check",
+      "make command-release-family-preflight-check",
       "make command-help-doctor-split-preflight-check",
       "make project-layout-governance-check",
       "make cli-command-surface-check",
@@ -432,15 +433,15 @@
       "splitRisk": "low",
       "blockers": [
         "Release commands own artifact, contract, local check, and JSON output evidence used by CI and release governance.",
-        "Package movement must not change release evidence fields or skip-gate behavior."
+        "Package movement must preserve release evidence fields, skip-gate behavior, command registration, help routing, stdout, and stderr discipline."
       ],
       "requiredPreSplitActions": [
-        "add a release-family preflight evidence file before any physical move",
-        "pin release check JSON output with golden tests",
-        "isolate local shell command execution from output rendering",
-        "prove release artifact gate evidence remains unchanged"
+        "move only the release family after command-release-family-preflight-check passes",
+        "keep local shell command execution separate from output rendering during extraction",
+        "prove release artifact gate evidence and CLI JSON envelope remain unchanged after extraction"
       ],
       "requiredGates": [
+        "make command-release-family-preflight-check",
         "make command-next-family-candidate-refresh-check",
         "make command-family-dependency-map-check",
         "make cli-command-surface-check",
@@ -448,7 +449,7 @@
         "make required-checks-drift-check",
         "go test -shuffle=on ./cmd/gofly/internal/command/..."
       ],
-      "rollbackRequirement": "Restore release command files if release check JSON, artifact evidence, command registration, stdout, stderr, or required-check drift output changes."
+      "rollbackRequirement": "Restore release command files to the command package if release check JSON, artifact evidence, command registration, stdout, stderr, or required-check drift output changes."
     },
     {
       "id": "doctor",
@@ -591,7 +592,7 @@
       "id": "shared",
       "prefix": "",
       "domain": "Shared root command wiring, CLI helpers, compatibility commands, IDL helpers, template helpers, example commands, and low-level command utilities without a stable prefix.",
-      "fileCount": 59,
+      "fileCount": 60,
       "files": [
         "aidoctor.go",
         "aidoctor_checks.go",
@@ -608,6 +609,7 @@
         "command_help_doctor_split_preflight_test.go",
         "command_next_family_candidate_refresh_test.go",
         "command_output_json_adapter_dry_run_test.go",
+        "command_release_family_preflight_test.go",
         "command_shared_reduction_plan_test.go",
         "compat_command.go",
         "complete.go",
@@ -715,10 +717,10 @@
   "nextCandidates": [
     {
       "id": "release",
-      "status": "candidate-after-json-golden",
-      "reason": "Release is selected as the next preflight candidate because it has a bounded file family, existing JSON golden coverage, release contract tests, and no direct runtime, spinner, or extracted command package dependency.",
-      "requiredGate": "make command-next-family-candidate-refresh-check",
-      "nextStep": "P22-16-command-release-family-preflight"
+      "status": "ready-for-release-single-family-split",
+      "reason": "Release is selected for the next single-family split because P22-16 preflight pins command registration, help routing, JSON envelope behavior, stdout/stderr discipline, release evidence fields, and required-check drift while keeping shared helpers in place.",
+      "requiredGate": "make command-release-family-preflight-check",
+      "nextStep": "P22-17-command-release-single-family-split"
     }
   ],
   "deferredFamilies": [

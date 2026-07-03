@@ -130,6 +130,7 @@ require(
 require(len(split_policy.get("candidateRequirements") or []) >= 5, "splitPolicy.candidateRequirements must be descriptive")
 expected_split_gates = {
     "make command-family-dependency-map-check",
+    "make command-release-family-preflight-check",
     "make command-help-doctor-split-preflight-check",
     "make project-layout-governance-check",
     "make cli-command-surface-check",

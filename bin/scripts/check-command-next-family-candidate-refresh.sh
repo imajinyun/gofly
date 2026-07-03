@@ -124,14 +124,18 @@ require(
     "requiredGates must include command-next-family-candidate-refresh-check",
 )
 
-require(readiness.get("status") == "next-family-candidate-refreshed", "readiness status must record candidate refresh")
+require(
+    readiness.get("status") == "release-family-preflight-completed",
+    "readiness status must record release preflight completion after candidate refresh",
+)
 readiness_candidates = [item for item in readiness.get("candidateFamilies") or [] if isinstance(item, dict)]
 require([item.get("id") for item in readiness_candidates] == ["release"], "readiness candidateFamilies must contain release only")
 readiness_release = readiness_candidates[0] if readiness_candidates else {}
-require(readiness_release.get("status") == "candidate-after-json-golden", "readiness release status mismatch")
+require(readiness_release.get("status") == "ready-for-release-single-family-split", "readiness release status mismatch")
 require("make command-next-family-candidate-refresh-check" in set(readiness_release.get("requiredGates") or []), "readiness release gates must include candidate refresh")
+require("make command-release-family-preflight-check" in set(readiness_release.get("requiredGates") or []), "readiness release gates must include release preflight")
 require("release" not in set(readiness.get("deferredFamilies") or []), "release must not remain deferred after candidate refresh")
-require(readiness.get("nextStep", {}).get("id") == "P22-16-command-release-family-preflight", "readiness nextStep mismatch")
+require(readiness.get("nextStep", {}).get("id") == "P22-17-command-release-single-family-split", "readiness nextStep mismatch")
 
 family_by_id = {
     family.get("id"): family
@@ -147,6 +151,9 @@ require(
     [item.get("id") for item in dependency_map.get("nextCandidates") or [] if isinstance(item, dict)] == ["release"],
     "dependency map nextCandidates must contain release only",
 )
+next_candidate = (dependency_map.get("nextCandidates") or [{}])[0]
+require(next_candidate.get("status") == "ready-for-release-single-family-split", "dependency map release next candidate status mismatch")
+require(next_candidate.get("requiredGate") == "make command-release-family-preflight-check", "dependency map release next candidate requiredGate mismatch")
 require("release" not in set(dependency_map.get("deferredFamilies") or []), "dependency map deferredFamilies must not include release")
 require(set(dependency_map.get("blockedFamilies") or []) == {"ai", "shared"}, "dependency map blockedFamilies mismatch")
 

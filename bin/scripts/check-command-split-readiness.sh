@@ -51,7 +51,7 @@ targets = make_target_names(makefile)
 docs_check = next((line for line in makefile.splitlines() if line.startswith("docs-check:")), "")
 
 require(readiness.get("schema") == "gofly.command_split_readiness.v1", "command split readiness schema mismatch")
-require(readiness.get("status") == "next-family-candidate-refreshed", "command split readiness status must be next-family-candidate-refreshed")
+require(readiness.get("status") == "release-family-preflight-completed", "command split readiness status must be release-family-preflight-completed")
 require(readiness.get("package") == "cmd/gofly/internal/command", "command split readiness package mismatch")
 require(
     readiness.get("acceptanceGate") == "make command-split-readiness-check",
@@ -95,14 +95,18 @@ completed_by_id = {
     for entry in readiness.get("completedFamilies") or []
     if isinstance(entry, dict)
 }
-require(candidate_ids == ["release"], "candidateFamilies must contain release after P22-15 refresh")
+require(candidate_ids == ["release"], "candidateFamilies must contain release after P22-16 preflight")
 release_candidate = (readiness.get("candidateFamilies") or [{}])[0]
-require(release_candidate.get("status") == "candidate-after-json-golden", "release candidate status mismatch")
+require(release_candidate.get("status") == "ready-for-release-single-family-split", "release candidate status mismatch")
 require(
     "make command-next-family-candidate-refresh-check" in set(release_candidate.get("requiredGates") or []),
     "release candidate gates must include command-next-family-candidate-refresh-check",
 )
-require("Restore release to deferred status" in str(release_candidate.get("rollbackRequirement") or ""), "release candidate rollbackRequirement mismatch")
+require(
+    "make command-release-family-preflight-check" in set(release_candidate.get("requiredGates") or []),
+    "release candidate gates must include command-release-family-preflight-check",
+)
+require("Restore release files" in str(release_candidate.get("rollbackRequirement") or ""), "release candidate rollbackRequirement mismatch")
 help_completed = completed_by_id.get("help") or {}
 require(help_completed.get("status") == "physical-split-completed", "completed help family status mismatch")
 require("cmd/gofly/internal/command/help" in str(help_completed.get("reason") or ""), "completed help family reason must mention help subpackage")
@@ -138,6 +142,7 @@ for family in readiness.get("candidateFamilies") or []:
             "candidate-after-adapter-dry-run",
             "ready-for-single-family-split",
             "ready-for-doctor-single-family-split",
+            "ready-for-release-single-family-split",
         },
         f"candidate {family_id}: status mismatch",
     )
@@ -171,6 +176,7 @@ expected_required = {
     "make command-output-json-adapter-dry-run-check",
     "make command-help-doctor-split-preflight-check",
     "make command-next-family-candidate-refresh-check",
+    "make command-release-family-preflight-check",
     "make project-layout-governance-check",
     "git diff --check",
 }
@@ -190,9 +196,9 @@ require("make command-output-json-adapter-dry-run-check" in set(shared_blocked.g
 require("make command-help-doctor-split-preflight-check" in set(shared_blocked.get("requiredGates") or []), "shared blocked gates must include help/doctor split preflight check")
 
 next_step = readiness.get("nextStep") or {}
-require(next_step.get("id") == "P22-16-command-release-family-preflight", "nextStep id mismatch")
+require(next_step.get("id") == "P22-17-command-release-single-family-split", "nextStep id mismatch")
 next_action = str(next_step.get("action") or "")
-require("release family preflight" in next_action, "nextStep action must create release preflight")
+require("release command family" in next_action, "nextStep action must move release family")
 
 reference_files = []
 for family in (layout.get("referenceFileBoundaries") or {}).get("families") or []:
@@ -205,6 +211,7 @@ require("command-shared-reduction-plan.json" in reference_files, "referenceFileB
 require("command-output-json-adapter-dry-run.json" in reference_files, "referenceFileBoundaries must index command-output-json-adapter-dry-run.json")
 require("command-help-doctor-split-preflight.json" in reference_files, "referenceFileBoundaries must index command-help-doctor-split-preflight.json")
 require("command-next-family-candidate-refresh.json" in reference_files, "referenceFileBoundaries must index command-next-family-candidate-refresh.json")
+require("command-release-family-preflight.json" in reference_files, "referenceFileBoundaries must index command-release-family-preflight.json")
 
 if missing:
     print("command split readiness check failed:")

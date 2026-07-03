@@ -54,6 +54,11 @@ func (c *fakeDatasourceConn) QueryContext(_ context.Context, query string, _ []d
 			return &fakeDatasourceRows{columns: fakeDatasourceIndexColumnNames()}, nil
 		}
 		return &fakeDatasourceRows{columns: fakeDatasourceColumnNames()}, nil
+	case "multi-table":
+		if isFakeDatasourceIndexQuery(query) {
+			return fakeDatasourceMultiTableIndexRows(), nil
+		}
+		return fakeDatasourceMultiTableColumnRows(), nil
 	default:
 		if isFakeDatasourceIndexQuery(query) {
 			return fakeDatasourceIndexRows(), nil
@@ -117,6 +122,52 @@ func fakeDatasourceIndexRows() driver.Rows {
 			{"users", "idx_users_name_created", "name", int64(1), int64(1)},
 			{"users", "idx_users_name_created", "created_at", int64(1), int64(2)},
 			{"audit_logs", "idx_audit_created", "created_at", int64(1), int64(1)},
+		},
+	}
+}
+
+func fakeDatasourceMultiTableColumnRows() driver.Rows {
+	return &fakeDatasourceRows{
+		columns: fakeDatasourceColumnNames(),
+		values: [][]driver.Value{
+			{"app_customers", "id", "BIGINT", "PRI", "NO", int64(1)},
+			{"app_customers", "tenant_id", "BIGINT", "", "NO", int64(2)},
+			{"app_customers", "external_id", "VARCHAR", "", "NO", int64(3)},
+			{"app_customers", "email", "VARCHAR", "", "YES", int64(4)},
+			{"app_customers", "name", "VARCHAR", "", "NO", int64(5)},
+			{"app_customers", "version", "BIGINT", "", "NO", int64(6)},
+			{"app_customers", "deleted_at", "TIMESTAMP", "", "YES", int64(7)},
+			{"app_customers", "created_by", "VARCHAR", "", "YES", int64(8)},
+			{"app_customers", "updated_by", "VARCHAR", "", "YES", int64(9)},
+			{"app_orders", "id", "BIGINT", "PRI", "NO", int64(1)},
+			{"app_orders", "tenant_id", "BIGINT", "", "NO", int64(2)},
+			{"app_orders", "customer_id", "BIGINT", "", "NO", int64(3)},
+			{"app_orders", "order_no", "VARCHAR", "", "NO", int64(4)},
+			{"app_orders", "status", "VARCHAR", "", "NO", int64(5)},
+			{"app_orders", "total_amount", "DECIMAL", "", "NO", int64(6)},
+			{"app_orders", "version", "BIGINT", "", "NO", int64(7)},
+			{"app_orders", "deleted_at", "TIMESTAMP", "", "YES", int64(8)},
+			{"app_orders", "created_by", "VARCHAR", "", "YES", int64(9)},
+			{"app_orders", "updated_by", "VARCHAR", "", "YES", int64(10)},
+		},
+	}
+}
+
+func fakeDatasourceMultiTableIndexRows() driver.Rows {
+	return &fakeDatasourceRows{
+		columns: fakeDatasourceIndexColumnNames(),
+		values: [][]driver.Value{
+			{"app_customers", "idx_customer_tenant_email", "tenant_id", int64(1), int64(1)},
+			{"app_customers", "idx_customer_tenant_email", "email", int64(1), int64(2)},
+			{"app_customers", "uk_customer_tenant_external", "tenant_id", int64(0), int64(1)},
+			{"app_customers", "uk_customer_tenant_external", "external_id", int64(0), int64(2)},
+			{"app_orders", "idx_order_customer_status", "customer_id", int64(1), int64(1)},
+			{"app_orders", "idx_order_customer_status", "status", int64(1), int64(2)},
+			{"app_orders", "idx_order_tenant_status_id", "tenant_id", int64(1), int64(1)},
+			{"app_orders", "idx_order_tenant_status_id", "status", int64(1), int64(2)},
+			{"app_orders", "idx_order_tenant_status_id", "id", int64(1), int64(3)},
+			{"app_orders", "uk_order_tenant_order_no", "tenant_id", int64(0), int64(1)},
+			{"app_orders", "uk_order_tenant_order_no", "order_no", int64(0), int64(2)},
 		},
 	}
 }
@@ -449,6 +500,127 @@ func TestDatasourceIntrospectionGeneratesIndexAndCacheTemplates(t *testing.T) {
 			t.Fatalf("generated datasource model/cache repo missing %q:\n%s", want, repoOut)
 		}
 	}
+	runGoCommand(t, dir, 3*time.Minute, "mod", "tidy")
+	runGoCommand(t, dir, 3*time.Minute, "test", "./...")
+}
+
+func TestDatasourceIntrospectionMultiTableGoctlCacheReplay(t *testing.T) {
+	db, err := sql.Open(fakeModelDatasourceDriver, "multi-table")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	tables, err := introspectSQLTables(context.Background(), db, datasourceIntrospectionOptions{
+		Driver: "mysql",
+		Tables: []string{"app_customers", "app_orders"},
+	})
+	if err != nil {
+		t.Fatalf("introspectSQLTables: %v", err)
+	}
+	if len(tables) != 2 {
+		t.Fatalf("tables = %#v, want two datasource tables", tables)
+	}
+	customers := tables[0]
+	if customers.Name != "app_customers" || customers.PrimaryKey != "id" {
+		t.Fatalf("customers table = %#v, want app_customers with id primary key", customers)
+	}
+	if len(customers.UniqueIndexes) != 1 || strings.Join(customers.UniqueIndexes[0].Columns, ",") != "tenant_id,external_id" {
+		t.Fatalf("customers unique indexes = %#v, want tenant_id,external_id", customers.UniqueIndexes)
+	}
+	if len(customers.Indexes) != 1 || strings.Join(customers.Indexes[0].Columns, ",") != "tenant_id,email" {
+		t.Fatalf("customers indexes = %#v, want tenant_id,email", customers.Indexes)
+	}
+	orders := tables[1]
+	if orders.Name != "app_orders" || orders.PrimaryKey != "id" {
+		t.Fatalf("orders table = %#v, want app_orders with id primary key", orders)
+	}
+	if len(orders.UniqueIndexes) != 1 || strings.Join(orders.UniqueIndexes[0].Columns, ",") != "tenant_id,order_no" {
+		t.Fatalf("orders unique indexes = %#v, want tenant_id,order_no", orders.UniqueIndexes)
+	}
+	if len(orders.Indexes) != 2 {
+		t.Fatalf("orders indexes = %#v, want two non-unique indexes", orders.Indexes)
+	}
+
+	tables, err = prepareModelTables(tables, modelGenerationOptions{
+		Tables:        []string{"app_customers", "app_orders"},
+		Prefix:        "app_",
+		IgnoreColumns: []string{"created_by", "updated_by"},
+		Strict:        true,
+	})
+	if err != nil {
+		t.Fatalf("prepareModelTables: %v", err)
+	}
+	dir := t.TempDir()
+	writeGeneratedModule(t, dir, "example.com/datasource-multi")
+	if err := writeModelFiles(tables, dir, "model", "example.com/datasource-multi", modelStyleSQL, true); err != nil {
+		t.Fatalf("writeModelFiles: %v", err)
+	}
+
+	customerEntity, err := os.ReadFile(filepath.Join(dir, "model", "entity", "customer_gen.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	customerEntityOut := string(customerEntity)
+	for _, want := range []string{
+		`const CustomerTable = "customers"`,
+		`db:"email" json:"email"`,
+		`db:"version" json:"version"`,
+	} {
+		if !strings.Contains(customerEntityOut, want) {
+			t.Fatalf("generated datasource customer entity missing %q:\n%s", want, customerEntityOut)
+		}
+	}
+	for _, unexpected := range []string{"CreatedBy", "UpdatedBy"} {
+		if strings.Contains(customerEntityOut, unexpected) {
+			t.Fatalf("generated datasource customer entity should ignore %q:\n%s", unexpected, customerEntityOut)
+		}
+	}
+
+	customerRepo, err := os.ReadFile(filepath.Join(dir, "model", "repo", "customer.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	customerRepoOut := string(customerRepo)
+	for _, want := range []string{
+		"func (r *CustomerRepo) FindByTenantIDAndExternalID(ctx context.Context, tenantID int64, externalID string) (*entity.Customer, error)",
+		"func (r *CustomerRepo) FindByTenantID(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.Customer, error)",
+		"func (r *CustomerRepo) CountByTenantID(ctx context.Context, tenantID int64) (int64, error)",
+		"func (c *CachedCustomerRepo) FindByTenantIDAndExternalIDCached(ctx context.Context, tenantID int64, externalID string) (*entity.Customer, error)",
+		"func (c *CachedCustomerRepo) PageByTenantIDCached(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.Customer, int64, error)",
+		"func (c *RedisCachedCustomerRepo) PageByTenantIDCached(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.Customer, int64, error)",
+		"key := redisCustomerIndexListCacheKey(version, indexListKeyByTenantID(tenantID, limit, offset))",
+		"c.listVersionByTenantID.Set(ctx, \"current\", redisCustomerIndexListVersionValue())",
+		`query += " AND deleted_at IS NULL"`,
+	} {
+		if !strings.Contains(customerRepoOut, want) {
+			t.Fatalf("generated datasource customer repo missing %q:\n%s", want, customerRepoOut)
+		}
+	}
+
+	orderRepo, err := os.ReadFile(filepath.Join(dir, "model", "repo", "order.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	orderRepoOut := string(orderRepo)
+	for _, want := range []string{
+		"func (r *OrderRepo) FindByTenantIDAndOrderNo(ctx context.Context, tenantID int64, orderNo string) (*entity.Order, error)",
+		"func (r *OrderRepo) FindByCustomerID(ctx context.Context, customerID int64, limit int, offset int) ([]entity.Order, error)",
+		"func (r *OrderRepo) CountByCustomerID(ctx context.Context, customerID int64) (int64, error)",
+		"func (r *OrderRepo) FindByTenantIDAndStatus(ctx context.Context, tenantID int64, status string, limit int, offset int) ([]entity.Order, error)",
+		"func (c *CachedOrderRepo) PageByCustomerIDCached(ctx context.Context, customerID int64, limit int, offset int) ([]entity.Order, int64, error)",
+		"func (c *CachedOrderRepo) PageByTenantIDAndStatusCached(ctx context.Context, tenantID int64, status string, limit int, offset int) ([]entity.Order, int64, error)",
+		"func (c *RedisCachedOrderRepo) PageByTenantIDAndStatusCached(ctx context.Context, tenantID int64, status string, limit int, offset int) ([]entity.Order, int64, error)",
+		"key := redisOrderIndexListCacheKey(version, indexListKeyByCustomerID(customerID, limit, offset))",
+		"key := redisOrderIndexListCacheKey(version, indexListKeyByTenantIDAndStatus(tenantID, status, limit, offset))",
+		"c.listVersionByCustomerID.Set(ctx, \"current\", redisOrderIndexListVersionValue())",
+		"c.listVersionByTenantIDAndStatus.Set(ctx, \"current\", redisOrderIndexListVersionValue())",
+	} {
+		if !strings.Contains(orderRepoOut, want) {
+			t.Fatalf("generated datasource order repo missing %q:\n%s", want, orderRepoOut)
+		}
+	}
+
 	runGoCommand(t, dir, 3*time.Minute, "mod", "tidy")
 	runGoCommand(t, dir, 3*time.Minute, "test", "./...")
 }

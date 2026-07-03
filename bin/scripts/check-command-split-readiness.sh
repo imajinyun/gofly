@@ -90,6 +90,18 @@ map_candidate_ids = [entry.get("id") for entry in dependency_map.get("nextCandid
 require(candidate_ids == map_candidate_ids, "candidateFamilies must match command dependency map nextCandidates order")
 require(set(readiness.get("deferredFamilies") or []) == set(dependency_map.get("deferredFamilies") or []), "deferredFamilies mismatch")
 
+completed_by_id = {
+    entry.get("id"): entry
+    for entry in readiness.get("completedFamilies") or []
+    if isinstance(entry, dict)
+}
+help_completed = completed_by_id.get("help") or {}
+require(help_completed.get("status") == "physical-split-completed", "completed help family status mismatch")
+require("cmd/gofly/internal/command/help" in str(help_completed.get("reason") or ""), "completed help family reason must mention help subpackage")
+for gate in help_completed.get("requiredGates") or []:
+    require(gate_is_known(str(gate), targets), f"completed help family: unknown required gate {gate}")
+require("Restore" in str(help_completed.get("rollbackRequirement") or ""), "completed help family rollbackRequirement must describe restore path")
+
 family_by_id = {
     family.get("id"): family
     for family in dependency_map.get("families") or []
@@ -162,9 +174,9 @@ require("make command-output-json-adapter-dry-run-check" in set(shared_blocked.g
 require("make command-help-doctor-split-preflight-check" in set(shared_blocked.get("requiredGates") or []), "shared blocked gates must include help/doctor split preflight check")
 
 next_step = readiness.get("nextStep") or {}
-require(next_step.get("id") == "P22-12-command-help-single-family-split", "nextStep id mismatch")
+require(next_step.get("id") == "P22-13-command-doctor-single-family-preflight-refresh", "nextStep id mismatch")
 next_action = str(next_step.get("action") or "")
-require("help" in next_action and "Do not move doctor" in next_action, "nextStep action must allow only help split")
+require("doctor" in next_action and "without moving doctor" in next_action, "nextStep action must refresh doctor without moving it")
 
 reference_files = []
 for family in (layout.get("referenceFileBoundaries") or {}).get("families") or []:

@@ -16,6 +16,9 @@ type commandHelpDoctorSplitPreflightEvidence struct {
 	AcceptanceGate         string                                   `json:"acceptanceGate"`
 	DryRunOnly             bool                                     `json:"dryRunOnly"`
 	NoPhysicalMove         bool                                     `json:"noPhysicalMove"`
+	HelpPhysicalSplitDone  bool                                     `json:"helpPhysicalSplitDone"`
+	HelpPackage            string                                   `json:"helpPackage"`
+	CommandAdapter         string                                   `json:"commandAdapter"`
 	SelectedNextFamily     string                                   `json:"selectedNextFamily"`
 	DeferredNextFamily     string                                   `json:"deferredNextFamily"`
 	HelpFiles              []string                                 `json:"helpFiles"`
@@ -38,8 +41,8 @@ func TestCommandHelpDoctorSplitPreflightEvidence(t *testing.T) {
 	if evidence.Schema != "gofly.command_help_doctor_split_preflight.v1" {
 		t.Fatalf("schema = %q, want gofly.command_help_doctor_split_preflight.v1", evidence.Schema)
 	}
-	if evidence.Status != "completed-preflight" {
-		t.Fatalf("status = %q, want completed-preflight", evidence.Status)
+	if evidence.Status != "help-family-physical-split-completed" {
+		t.Fatalf("status = %q, want help-family-physical-split-completed", evidence.Status)
 	}
 	if evidence.Package != "cmd/gofly/internal/command" {
 		t.Fatalf("package = %q, want cmd/gofly/internal/command", evidence.Package)
@@ -47,8 +50,14 @@ func TestCommandHelpDoctorSplitPreflightEvidence(t *testing.T) {
 	if evidence.AcceptanceGate != "make command-help-doctor-split-preflight-check" {
 		t.Fatalf("acceptanceGate = %q, want make command-help-doctor-split-preflight-check", evidence.AcceptanceGate)
 	}
-	if !evidence.DryRunOnly || !evidence.NoPhysicalMove {
-		t.Fatalf("preflight must not authorize immediate physical movement: dryRunOnly=%t noPhysicalMove=%t", evidence.DryRunOnly, evidence.NoPhysicalMove)
+	if evidence.DryRunOnly || evidence.NoPhysicalMove || !evidence.HelpPhysicalSplitDone {
+		t.Fatalf("P22-12 evidence must record help physical split completion: dryRunOnly=%t noPhysicalMove=%t helpPhysicalSplitDone=%t", evidence.DryRunOnly, evidence.NoPhysicalMove, evidence.HelpPhysicalSplitDone)
+	}
+	if evidence.HelpPackage != "cmd/gofly/internal/command/help" {
+		t.Fatalf("helpPackage = %q, want cmd/gofly/internal/command/help", evidence.HelpPackage)
+	}
+	if evidence.CommandAdapter != "help_adapter.go" {
+		t.Fatalf("commandAdapter = %q, want help_adapter.go", evidence.CommandAdapter)
 	}
 	if evidence.SelectedNextFamily != "help" || evidence.DeferredNextFamily != "doctor" {
 		t.Fatalf("family sequence = %q/%q, want help/doctor", evidence.SelectedNextFamily, evidence.DeferredNextFamily)
@@ -77,12 +86,12 @@ func TestCommandHelpDoctorSplitPreflightEvidence(t *testing.T) {
 		"doctor remains reachable through root command dispatch",
 		"doctor --json stays stdout-only with stable nextActions fields",
 		"bug --json supportBundle remains available for doctor remediation guidance",
-		"no command files move during this preflight",
+		"only help files moved into the help subpackage; doctor and shared files remain in the command package",
 	})
 	assertHelpDoctorPreflightSet(t, "golden tests", evidence.GoldenTests, []string{
 		"TestCommandHelpDoctorSplitPreflightEvidence",
 		"TestCommandHelpDoctorSplitPreflightContracts",
-		"TestCommandHelpDoctorSplitPreflightNoPhysicalMove",
+		"TestCommandHelpDoctorSplitPhysicalBoundary",
 	})
 	for _, want := range []string{
 		"make command-help-doctor-split-preflight-check",
@@ -97,11 +106,11 @@ func TestCommandHelpDoctorSplitPreflightEvidence(t *testing.T) {
 			t.Fatalf("requiredGates missing %q: %v", want, evidence.RequiredGates)
 		}
 	}
-	if evidence.PhysicalSplitAdmission.Status != "ready-for-help-single-family-split" {
-		t.Fatalf("physicalSplitAdmission.status = %q, want ready-for-help-single-family-split", evidence.PhysicalSplitAdmission.Status)
+	if evidence.PhysicalSplitAdmission.Status != "completed-help-single-family-split" {
+		t.Fatalf("physicalSplitAdmission.status = %q, want completed-help-single-family-split", evidence.PhysicalSplitAdmission.Status)
 	}
-	if !strings.Contains(evidence.PhysicalSplitAdmission.NextAllowedAction, "Move only the help family") {
-		t.Fatalf("nextAllowedAction = %q, want help-only movement", evidence.PhysicalSplitAdmission.NextAllowedAction)
+	if !strings.Contains(evidence.PhysicalSplitAdmission.NextAllowedAction, "Validate help split") {
+		t.Fatalf("nextAllowedAction = %q, want help split validation", evidence.PhysicalSplitAdmission.NextAllowedAction)
 	}
 	if !strings.Contains(evidence.PhysicalSplitAdmission.BlockedAction, "Do not move doctor") {
 		t.Fatalf("blockedAction = %q, want doctor movement blocked", evidence.PhysicalSplitAdmission.BlockedAction)
@@ -226,20 +235,27 @@ func TestCommandHelpDoctorSplitPreflightContracts(t *testing.T) {
 	}
 }
 
-func TestCommandHelpDoctorSplitPreflightNoPhysicalMove(t *testing.T) {
+func TestCommandHelpDoctorSplitPhysicalBoundary(t *testing.T) {
 	evidence := loadCommandHelpDoctorSplitPreflightEvidence(t)
 	commandDir := filepath.Join("..", "..", "..", "..", "cmd", "gofly", "internal", "command")
-	for _, filename := range append(append([]string{}, evidence.HelpFiles...), evidence.DoctorFiles...) {
-		path := filepath.Join(commandDir, filename)
+	helpDir := filepath.Join(commandDir, "help")
+	for _, filename := range evidence.HelpFiles {
+		path := filepath.Join(helpDir, filename)
 		if _, err := os.Stat(path); err != nil {
-			t.Fatalf("expected %s to remain in command package during preflight: %v", filename, err)
+			t.Fatalf("expected %s to exist in help subpackage after P22-12 split: %v", filename, err)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(commandDir, "help.go")); err != nil {
-		t.Fatalf("help.go moved before help-only split admission: %v", err)
+	for _, filename := range evidence.DoctorFiles {
+		path := filepath.Join(commandDir, filename)
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("expected %s to remain in command package during help-only split: %v", filename, err)
+		}
 	}
-	if _, err := os.Stat(filepath.Join(commandDir, "doctor.go")); err != nil {
-		t.Fatalf("doctor.go moved during help/doctor preflight: %v", err)
+	if _, err := os.Stat(filepath.Join(commandDir, evidence.CommandAdapter)); err != nil {
+		t.Fatalf("expected command help adapter after help-only split: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(commandDir, "help.go")); !os.IsNotExist(err) {
+		t.Fatalf("expected root help.go to move into help subpackage, stat err=%v", err)
 	}
 }
 

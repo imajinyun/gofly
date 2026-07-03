@@ -724,30 +724,49 @@ require(
 
 command_dir = root / "cmd" / "gofly" / "internal" / "command"
 families = manifest.get("commandFileFamilies") or []
-command_files = sorted(path.name for path in command_dir.glob("*.go"))
+command_files = sorted(str(path.relative_to(command_dir)) for path in command_dir.rglob("*.go"))
 declared_command_files = []
 for family in families:
     if not isinstance(family, dict):
         missing.append(f"commandFileFamilies entry must be object: {family!r}")
         continue
+    family_id = family.get("id", "")
     prefix = family.get("prefix", "")
     explicit_files = family.get("files") or []
     require(prefix or explicit_files, "commandFileFamilies prefix or files are required")
     require(len(str(family.get("domain") or "").split()) >= 3, f"command family {prefix}: domain must be descriptive")
-    if prefix:
-        matching = [path.name for path in command_dir.glob(f"{prefix}*.go")]
+    if explicit_files and family_id and prefix:
+        matching = explicit_files
+        for filename in matching:
+            require((command_dir / filename).is_file(), f"explicit command file is missing: {filename}")
+        declared_command_files.extend(matching)
+    elif prefix:
+        if prefix.endswith("/"):
+            matching = [
+                str(path.relative_to(command_dir))
+                for path in (command_dir / prefix.rstrip("/")).rglob("*.go")
+            ]
+        else:
+            matching = [
+                str(path.relative_to(command_dir))
+                for path in command_dir.rglob("*.go")
+                if path.name.startswith(prefix)
+            ]
         require(matching, f"command family {prefix}: no files match prefix in cmd/gofly/internal/command")
         require(not explicit_files, f"command family {prefix}: prefix families must not also declare explicit files")
         declared_command_files.extend(matching)
     else:
         require(explicit_files, "explicit command family files are required when prefix is empty")
         for filename in explicit_files:
-            require("/" not in filename, f"explicit command file must be relative to command root: {filename!r}")
+            require(
+                not str(filename).startswith("help/"),
+                f"explicit shared command file must not include extracted help subpackage file: {filename!r}",
+            )
             require((command_dir / filename).is_file(), f"explicit command file is missing: {filename}")
             declared_command_files.append(filename)
 require(
     sorted(declared_command_files) == command_files,
-    "commandFileFamilies must account for every cmd/gofly/internal/command/*.go file exactly once: "
+    "commandFileFamilies must account for every cmd/gofly/internal/command/**/*.go file exactly once: "
     f"declared={sorted(declared_command_files)!r}, actual={command_files!r}",
 )
 require(
@@ -791,9 +810,9 @@ require(
     "command family dependency map family ids mismatch",
 )
 require(
-    {item.get("id") for item in command_dependency_map.get("nextCandidates") or [] if isinstance(item, dict)}
-    == {"doctor", "help"},
-    "command family dependency map nextCandidates must identify doctor and help",
+	{item.get("id") for item in command_dependency_map.get("nextCandidates") or [] if isinstance(item, dict)}
+	== {"doctor"},
+	"command family dependency map nextCandidates must identify doctor after help split",
 )
 
 command_split_readiness_path = root / "docs" / "reference" / "command-split-readiness.json"
@@ -815,9 +834,14 @@ require(
     "command split readiness acceptanceGate mismatch",
 )
 require(
-    [item.get("id") for item in command_split_readiness.get("candidateFamilies") or [] if isinstance(item, dict)]
-    == ["help", "doctor"],
-    "command split readiness candidateFamilies must identify help and doctor in order",
+	[item.get("id") for item in command_split_readiness.get("candidateFamilies") or [] if isinstance(item, dict)]
+	== ["doctor"],
+	"command split readiness candidateFamilies must identify doctor after help split",
+)
+require(
+	{item.get("id") for item in command_split_readiness.get("completedFamilies") or [] if isinstance(item, dict)}
+	== {"help"},
+	"command split readiness completedFamilies must identify help",
 )
 require(
     {item.get("id") for item in command_split_readiness.get("blockedFamilies") or [] if isinstance(item, dict)}
@@ -825,8 +849,8 @@ require(
     "command split readiness blockedFamilies must identify ai and shared",
 )
 require(
-    set(command_split_readiness.get("deferredFamilies") or []) == {"api", "rpc", "model", "new", "plugin", "release", "config"},
-    "command split readiness deferredFamilies mismatch",
+	set(command_split_readiness.get("deferredFamilies") or []) == {"api", "rpc", "model", "new", "plugin", "release", "config", "help"},
+	"command split readiness deferredFamilies mismatch",
 )
 require(
     (command_split_readiness.get("releaseBlockerFix") or {}).get("regressionTest")
@@ -834,15 +858,20 @@ require(
     "command split readiness must record the root module pollution regression test",
 )
 require(
-    command_split_readiness.get("nextStep", {}).get("id") == "P22-12-command-help-single-family-split",
-    "command split readiness nextStep mismatch",
+	command_split_readiness.get("nextStep", {}).get("id") == "P22-13-command-doctor-single-family-preflight-refresh",
+	"command split readiness nextStep mismatch",
 )
-candidate_status = {
-    item.get("id"): item.get("status")
-    for item in command_split_readiness.get("candidateFamilies") or []
-    if isinstance(item, dict)
+completed_status = {
+	item.get("id"): item.get("status")
+	for item in command_split_readiness.get("completedFamilies") or []
+	if isinstance(item, dict)
 }
-require(candidate_status.get("help") == "ready-for-single-family-split", "command split readiness help candidate must be ready for single-family split")
+candidate_status = {
+	item.get("id"): item.get("status")
+	for item in command_split_readiness.get("candidateFamilies") or []
+	if isinstance(item, dict)
+}
+require(completed_status.get("help") == "physical-split-completed", "command split readiness help family must be completed")
 require(candidate_status.get("doctor") == "deferred-until-help-split-validation", "command split readiness doctor candidate must be deferred until help split validation")
 
 command_help_split_path = root / "docs" / "reference" / "command-help-split-dry-run.json"
@@ -856,21 +885,24 @@ require(
     "command help split dry-run schema mismatch",
 )
 require(
-    command_help_split.get("status") == "completed-preflight",
-    "command help split dry-run status must be completed-preflight",
+    command_help_split.get("status") == "completed-physical-split",
+    "command help split evidence status must be completed-physical-split",
 )
 require(
     command_help_split.get("acceptanceGate") == "make command-help-split-dry-run-check",
     "command help split dry-run acceptanceGate mismatch",
 )
-require(command_help_split.get("dryRunOnly") is True, "command help split dry-run must be dryRunOnly")
-require(command_help_split.get("noPhysicalMove") is True, "command help split dry-run must forbid physical move")
+require(command_help_split.get("dryRunOnly") is False, "command help split evidence must no longer be dryRunOnly after P22-12")
+require(command_help_split.get("noPhysicalMove") is False, "command help split evidence must allow the completed help physical move")
+require(command_help_split.get("physicalSplit") is True, "command help split evidence must record physicalSplit=true")
+require(command_help_split.get("helpPackage") == "cmd/gofly/internal/command/help", "command help split evidence helpPackage mismatch")
+require(command_help_split.get("commandAdapter") == "help_adapter.go", "command help split evidence commandAdapter mismatch")
 require(
     set(command_help_split.get("goldenTopics") or []) == {"doctor", "api", "rpc gen", "plugin run"},
     "command help split dry-run goldenTopics mismatch",
 )
 require(
-    command_help_split.get("physicalSplitAdmission", {}).get("status") == "candidate-after-dry-run",
+    command_help_split.get("physicalSplitAdmission", {}).get("status") == "completed-help-single-family-split",
     "command help split dry-run physicalSplitAdmission mismatch",
 )
 
@@ -983,15 +1015,18 @@ require(
     "command help/doctor split preflight schema mismatch",
 )
 require(
-    command_help_doctor_preflight.get("status") == "completed-preflight",
-    "command help/doctor split preflight status must be completed-preflight",
+    command_help_doctor_preflight.get("status") == "help-family-physical-split-completed",
+    "command help/doctor split evidence status must be help-family-physical-split-completed",
 )
 require(
     command_help_doctor_preflight.get("acceptanceGate") == "make command-help-doctor-split-preflight-check",
     "command help/doctor split preflight acceptanceGate mismatch",
 )
-require(command_help_doctor_preflight.get("dryRunOnly") is True, "command help/doctor split preflight must be dryRunOnly")
-require(command_help_doctor_preflight.get("noPhysicalMove") is True, "command help/doctor split preflight must forbid physical move")
+require(command_help_doctor_preflight.get("dryRunOnly") is False, "command help/doctor split evidence must no longer be dryRunOnly after P22-12")
+require(command_help_doctor_preflight.get("noPhysicalMove") is False, "command help/doctor split evidence must allow the completed help physical move")
+require(command_help_doctor_preflight.get("helpPhysicalSplitDone") is True, "command help/doctor split evidence must record helpPhysicalSplitDone=true")
+require(command_help_doctor_preflight.get("helpPackage") == "cmd/gofly/internal/command/help", "command help/doctor split evidence helpPackage mismatch")
+require(command_help_doctor_preflight.get("commandAdapter") == "help_adapter.go", "command help/doctor split evidence commandAdapter mismatch")
 require(command_help_doctor_preflight.get("selectedNextFamily") == "help", "command help/doctor split preflight selectedNextFamily mismatch")
 require(command_help_doctor_preflight.get("deferredNextFamily") == "doctor", "command help/doctor split preflight deferredNextFamily mismatch")
 require(
@@ -1002,13 +1037,13 @@ require(
         "doctor remains reachable through root command dispatch",
         "doctor --json stays stdout-only with stable nextActions fields",
         "bug --json supportBundle remains available for doctor remediation guidance",
-        "no command files move during this preflight",
+        "only help files moved into the help subpackage; doctor and shared files remain in the command package",
     },
     "command help/doctor split preflight contracts mismatch",
 )
 require(
     command_help_doctor_preflight.get("physicalSplitAdmission", {}).get("status")
-    == "ready-for-help-single-family-split",
+    == "completed-help-single-family-split",
     "command help/doctor split preflight physicalSplitAdmission mismatch",
 )
 

@@ -572,8 +572,8 @@ def production_defaults_evidence():
         "examples/observability/prometheus.yaml",
         "examples/observability/otel-collector.yaml",
         "examples/observability/grafana-dashboard.json",
-        "k8s/servicemonitor.yaml",
-        "charts/gofly/templates/servicemonitor.yaml",
+        "deploy/k8s/servicemonitor.yaml",
+        "deploy/helm/gofly/templates/servicemonitor.yaml",
         "docs/operations/observability.md",
         "docs/operations/production-checklist.md",
     ]

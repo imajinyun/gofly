@@ -106,10 +106,10 @@ require("gofly.cli_json_contract_goldens.v1" in cli_goldens, "CLI JSON golden ma
 surfaces = {item.get("id"): item for item in manifest.get("configurationSurfaces") or [] if isinstance(item, dict)}
 help_surface = surfaces.get("help-alias-contract") or {}
 require(bool(help_surface), "configurationSurfaces must include help-alias-contract")
-require(help_surface.get("source") == "cmd/gofly/internal/command/help_metadata.go", "help-alias-contract source mismatch")
+require(help_surface.get("source") == "cmd/gofly/internal/command/help/help_metadata.go", "help-alias-contract source mismatch")
 require(help_surface.get("surfaceManifest") == "docs/reference/cli-command-surface.json", "help-alias-contract surfaceManifest mismatch")
-require("topLevelHelpAliases" in read_text(root / "cmd" / "gofly" / "internal" / "command" / "help_metadata.go"), "help alias metadata missing topLevelHelpAliases")
-require("nestedHelpAliases" in read_text(root / "cmd" / "gofly" / "internal" / "command" / "help_metadata.go"), "help alias metadata missing nestedHelpAliases")
+require("topLevelHelpAliases" in read_text(root / "cmd" / "gofly" / "internal" / "command" / "help" / "help_metadata.go"), "help alias metadata missing topLevelHelpAliases")
+require("nestedHelpAliases" in read_text(root / "cmd" / "gofly" / "internal" / "command" / "help" / "help_metadata.go"), "help alias metadata missing nestedHelpAliases")
 require("TestCLICommandSurfaceManifestMatchesRegistries" in test_corpus, "help alias evidence missing TestCLICommandSurfaceManifestMatchesRegistries")
 require("TestCommandHelpSubcommandBoundaries" in test_corpus, "help alias evidence missing TestCommandHelpSubcommandBoundaries")
 aiflow_execution = manifest.get("aiflowExecution") or {}

@@ -134,10 +134,10 @@ require("make command-doctor-split-dry-run-check" in set(doctor_candidate.get("r
 require("make command-output-json-adapter-dry-run-check" in set(doctor_candidate.get("requiredGates") or []), "doctor candidate gates must include output/json adapter dry-run check")
 require("make command-help-doctor-split-preflight-check" in set(doctor_candidate.get("requiredGates") or []), "doctor candidate gates must include help/doctor split preflight check")
 require("wait until the help family split passes" in " ".join(doctor_candidate.get("requiredPreSplitActions") or []), "doctor candidate must wait for help split validation")
-require(readiness.get("nextStep", {}).get("id") == "P22-12-command-help-single-family-split", "command split readiness nextStep must move to help single-family split")
+require(readiness.get("nextStep", {}).get("id") == "P22-13-command-doctor-single-family-preflight-refresh", "command split readiness nextStep must refresh doctor preflight")
 
 map_candidates = [item.get("id") for item in dependency_map.get("nextCandidates") or [] if isinstance(item, dict)]
-require(map_candidates[:2] == ["help", "doctor"], "command dependency map must keep help and doctor as next candidates")
+require(map_candidates == ["doctor"], "command dependency map must keep doctor as the next candidate after help split")
 
 reference_files = []
 for family in (layout.get("referenceFileBoundaries") or {}).get("families") or []:

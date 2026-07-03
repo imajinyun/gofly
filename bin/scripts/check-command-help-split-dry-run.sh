@@ -54,19 +54,24 @@ docs_check = next((line for line in makefile.splitlines() if line.startswith("do
 test_source = test_path.read_text(encoding="utf-8") if test_path.is_file() else ""
 
 require(evidence.get("schema") == "gofly.command_help_split_dry_run.v1", "help split dry-run schema mismatch")
-require(evidence.get("status") == "completed-preflight", "help split dry-run status must be completed-preflight")
+require(evidence.get("status") == "completed-physical-split", "help split dry-run status must be completed-physical-split")
 require(evidence.get("family") == "help", "help split dry-run family mismatch")
 require(evidence.get("package") == "cmd/gofly/internal/command", "help split dry-run package mismatch")
 require(evidence.get("acceptanceGate") == "make command-help-split-dry-run-check", "help split dry-run acceptanceGate mismatch")
-require(evidence.get("dryRunOnly") is True, "help split dry-run must be marked dryRunOnly")
-require(evidence.get("noPhysicalMove") is True, "help split dry-run must be marked noPhysicalMove")
+require(evidence.get("dryRunOnly") is False, "help split evidence must no longer be dryRunOnly after P22-12")
+require(evidence.get("noPhysicalMove") is False, "help split evidence must allow the completed P22-12 physical move")
+require(evidence.get("physicalSplit") is True, "help split evidence must record physicalSplit=true")
+require(evidence.get("helpPackage") == "cmd/gofly/internal/command/help", "help split evidence helpPackage mismatch")
+require(evidence.get("commandAdapter") == "help_adapter.go", "help split evidence commandAdapter mismatch")
 require("command-help-split-dry-run-check" in targets, "Makefile must expose command-help-split-dry-run-check")
 require("command-help-split-dry-run-check" in docs_check, "docs-check must depend on command-help-split-dry-run-check")
 
-expected_files = sorted(path.name for path in command_dir.glob("help*.go"))
-require(sorted(evidence.get("familyFiles") or []) == expected_files, "help family file list must match cmd/gofly/internal/command/help*.go")
+expected_files = sorted(path.name for path in (command_dir / "help").glob("*.go"))
+require(sorted(evidence.get("familyFiles") or []) == expected_files, "help family file list must match cmd/gofly/internal/command/help/*.go")
 for filename in evidence.get("familyFiles") or []:
-    require((command_dir / filename).is_file(), f"help family file is missing: {filename}")
+    require((command_dir / "help" / filename).is_file(), f"help family file is missing: {filename}")
+require((command_dir / "help_adapter.go").is_file(), "help command adapter is missing")
+require(not (command_dir / "help.go").exists(), "root help.go must be moved into help subpackage after P22-12")
 
 required_tests = {
     "TestHelpFamilyGoldenOutput",
@@ -100,16 +105,23 @@ candidate_by_id = {
     for item in readiness.get("candidateFamilies") or []
     if isinstance(item, dict)
 }
-help_candidate = candidate_by_id.get("help") or {}
-require(help_candidate.get("status") == "ready-for-single-family-split", "command split readiness must mark help ready for single-family split")
-require("make command-help-split-dry-run-check" in set(help_candidate.get("requiredGates") or []), "help candidate gates must include help split dry-run check")
-require("make command-output-json-adapter-dry-run-check" in set(help_candidate.get("requiredGates") or []), "help candidate gates must include output/json adapter dry-run check")
-require("make command-help-doctor-split-preflight-check" in set(help_candidate.get("requiredGates") or []), "help candidate gates must include help/doctor split preflight check")
-require("move only the help family" in " ".join(help_candidate.get("requiredPreSplitActions") or []).lower(), "help candidate must limit physical split to help")
-require(readiness.get("nextStep", {}).get("id") == "P22-12-command-help-single-family-split", "command split readiness nextStep must move to help single-family split")
+completed_by_id = {
+    item.get("id"): item
+    for item in readiness.get("completedFamilies") or []
+    if isinstance(item, dict)
+}
+help_completed = completed_by_id.get("help") or {}
+require(help_completed.get("status") == "physical-split-completed", "command split readiness must mark help physical split completed")
+require("make command-help-split-dry-run-check" in set(help_completed.get("requiredGates") or []), "help completed gates must include help split check")
+require("make command-output-json-adapter-dry-run-check" in set(help_completed.get("requiredGates") or []), "help completed gates must include output/json adapter dry-run check")
+require("make command-help-doctor-split-preflight-check" in set(help_completed.get("requiredGates") or []), "help completed gates must include help/doctor split preflight check")
+require("cmd/gofly/internal/command/help" in str(help_completed.get("reason") or ""), "help completed reason must mention help subpackage")
+require(readiness.get("nextStep", {}).get("id") == "P22-13-command-doctor-single-family-preflight-refresh", "command split readiness nextStep must refresh doctor preflight")
+doctor_candidate = candidate_by_id.get("doctor") or {}
+require(doctor_candidate.get("status") == "deferred-until-help-split-validation", "doctor candidate must stay deferred until help split validation")
 
 map_candidates = [item.get("id") for item in dependency_map.get("nextCandidates") or [] if isinstance(item, dict)]
-require(map_candidates[:2] == ["help", "doctor"], "command dependency map must keep help and doctor as next candidates")
+require(map_candidates == ["doctor"], "command dependency map must keep doctor as the next candidate after help split")
 
 reference_files = []
 for family in (layout.get("referenceFileBoundaries") or {}).get("families") or []:
@@ -118,7 +130,7 @@ for family in (layout.get("referenceFileBoundaries") or {}).get("families") or [
 require("command-help-split-dry-run.json" in reference_files, "referenceFileBoundaries must index command-help-split-dry-run.json")
 
 admission = evidence.get("physicalSplitAdmission") or {}
-require(admission.get("status") == "candidate-after-dry-run", "physicalSplitAdmission status mismatch")
+require(admission.get("status") == "completed-help-single-family-split", "physicalSplitAdmission status mismatch")
 require("Restore" in str(admission.get("rollbackRequirement") or ""), "physicalSplitAdmission rollbackRequirement must describe restore path")
 
 if missing:

@@ -494,21 +494,21 @@
     },
     {
       "id": "help",
-      "prefix": "help",
+      "prefix": "help/",
       "domain": "Help catalog, topics, metadata, usage, and rendering",
       "fileCount": 11,
       "files": [
-        "help.go",
-        "help_catalog.go",
-        "help_catalog_ai.go",
-        "help_catalog_api.go",
-        "help_catalog_model.go",
-        "help_catalog_plugin.go",
-        "help_catalog_rpc.go",
-        "help_metadata.go",
-        "help_render.go",
-        "help_topics.go",
-        "help_usage.go"
+        "help/help.go",
+        "help/help_catalog.go",
+        "help/help_catalog_ai.go",
+        "help/help_catalog_api.go",
+        "help/help_catalog_model.go",
+        "help/help_catalog_plugin.go",
+        "help/help_catalog_rpc.go",
+        "help/help_metadata.go",
+        "help/help_render.go",
+        "help/help_topics.go",
+        "help/help_usage.go"
       ],
       "dependencyBuckets": {
         "stdlibOrThirdParty": [
@@ -517,16 +517,16 @@
           "strings"
         ]
       },
-      "splitRecommendation": "candidate",
+      "splitRecommendation": "defer",
       "splitRisk": "low",
       "blockers": [
-        "Help rendering still uses package-level command metadata and must preserve exact user-facing text and topics.",
-        "A split needs focused help output tests so docs and CLI help remain synchronized."
+        "Help is already extracted through P22-12 and should not be moved again until adapter usage is reduced.",
+        "Future help work must preserve exact user-facing text, topic aliases, stdout routing, and docs synchronization."
       ],
       "requiredPreSplitActions": [
-        "pin help command output and topic rendering with golden coverage",
-        "define a small command metadata adapter before moving files",
-        "verify docs-check still covers every help topic"
+        "keep help output and topic rendering pinned with golden coverage",
+        "keep the command package help adapter minimal until shared helpers are reduced",
+        "verify docs-check still covers every help topic after future help edits"
       ],
       "requiredGates": [
         "make command-family-dependency-map-check",
@@ -535,7 +535,7 @@
         "make docs-check",
         "go test -shuffle=on ./cmd/gofly/internal/command/..."
       ],
-      "rollbackRequirement": "Restore help files to the command package if help text, topic routing, usage output, or docs synchronization changes."
+      "rollbackRequirement": "Restore help files to the command package and remove help_adapter.go if help text, topic routing, usage output, or docs synchronization changes."
     },
     {
       "id": "config",
@@ -586,7 +586,7 @@
       "id": "shared",
       "prefix": "",
       "domain": "Shared root command wiring, CLI helpers, compatibility commands, IDL helpers, template helpers, example commands, and low-level command utilities without a stable prefix.",
-      "fileCount": 56,
+      "fileCount": 57,
       "files": [
         "aidoctor.go",
         "aidoctor_checks.go",
@@ -618,6 +618,7 @@
         "handler.go",
         "handler_complete_command.go",
         "handler_test.go",
+        "help_adapter.go",
         "idl_generate_shared.go",
         "idl_registry.go",
         "idl_test.go",
@@ -651,6 +652,9 @@
         ],
         "internalGenerator": [
           "github.com/imajinyun/gofly/cmd/gofly/internal/generator"
+        ],
+        "otherGofly": [
+          "github.com/imajinyun/gofly/cmd/gofly/internal/command/help"
         ],
         "stdlibOrThirdParty": [
           "bytes",
@@ -702,10 +706,6 @@
   ],
   "nextCandidates": [
     {
-      "id": "help",
-      "reason": "The help family has only standard library imports and a narrow user-facing rendering surface, so it is the lowest-risk split candidate after golden coverage is pinned."
-    },
-    {
       "id": "doctor",
       "reason": "The doctor family has only standard library imports and focused diagnostic behavior, so it can be considered after JSON and stdout/stderr contracts are pinned."
     }
@@ -717,7 +717,8 @@
     "new",
     "plugin",
     "release",
-    "config"
+    "config",
+    "help"
   ],
   "blockedFamilies": [
     "ai",

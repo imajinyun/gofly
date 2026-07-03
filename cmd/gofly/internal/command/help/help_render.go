@@ -1,4 +1,4 @@
-package command
+package help
 
 import (
 	"fmt"
@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-func renderCommandHelp(topic commandHelp) string {
+func renderCommandHelp(topic Topic) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s\n\n", topic.Short)
 	fmt.Fprintf(&b, "%s\n  %s\n", helpBlue("Usage:"), helpColoredCommandLine(topic.Usage))
@@ -105,9 +105,17 @@ func ansiColor(code string, text string) string {
 	return "\x1b[" + code + "m" + text + "\x1b[0m"
 }
 
+func ANSIColor(code string, text string) string {
+	return ansiColor(code, text)
+}
+
 func rightPad(text string, padding int) string {
 	if len(text) >= padding {
 		return text
 	}
 	return text + strings.Repeat(" ", padding-len(text))
+}
+
+func RightPad(text string, padding int) string {
+	return rightPad(text, padding)
 }

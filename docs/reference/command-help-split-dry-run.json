@@ -1,13 +1,16 @@
 {
   "schema": "gofly.command_help_split_dry_run.v1",
-  "status": "completed-preflight",
+  "status": "completed-physical-split",
   "family": "help",
   "package": "cmd/gofly/internal/command",
   "acceptanceGate": "make command-help-split-dry-run-check",
-  "purpose": "Record the help command family dry-run extraction proof before any physical package split.",
-  "policy": "The help family may only move after golden output tests, topic alias checks, docs-check wiring, and rollback evidence pass from the current single-package layout.",
-  "dryRunOnly": true,
-  "noPhysicalMove": true,
+  "purpose": "Record the P22-12 help command family physical split proof after moving help files into a dedicated subpackage.",
+  "policy": "The help family is physically split, but command registration, topic routing, stdout/stderr behavior, and docs-check coverage must remain stable through the command package adapter.",
+  "dryRunOnly": false,
+  "noPhysicalMove": false,
+  "physicalSplit": true,
+  "helpPackage": "cmd/gofly/internal/command/help",
+  "commandAdapter": "help_adapter.go",
   "familyFiles": [
     "help.go",
     "help_catalog.go",
@@ -37,8 +40,8 @@
   "dryRunFindings": [
     {
       "id": "shared-output-adapter",
-      "status": "required-before-physical-move",
-      "finding": "printHelp still writes through package-level cliOutputln, so physical extraction should introduce a small output adapter instead of moving global IO helpers."
+      "status": "implemented",
+      "finding": "printHelp now writes through a small commandHelpPrinter adapter, so help extraction does not move global IO helpers."
     },
     {
       "id": "topic-alias-contract",
@@ -60,8 +63,8 @@
     "git diff --check"
   ],
   "physicalSplitAdmission": {
-    "status": "candidate-after-dry-run",
-    "nextAllowedAction": "Move the help family only in a dedicated commit after introducing an output adapter and preserving all golden output.",
-    "rollbackRequirement": "Restore all help_*.go files and help.go to cmd/gofly/internal/command in one commit if topic routing, help rendering, docs-check, or CLI surface gates regress."
+    "status": "completed-help-single-family-split",
+    "nextAllowedAction": "Validate the completed help split with docs-check, CLI surface, topic routing, and command package tests before starting any doctor split.",
+    "rollbackRequirement": "Restore all help/*.go files to cmd/gofly/internal/command and remove help_adapter.go in one commit if topic routing, help rendering, docs-check, or CLI surface gates regress."
   }
 }

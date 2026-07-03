@@ -60,7 +60,7 @@
     {
       "id": "help-alias-contract",
       "contract": "top-level and nested help aliases must resolve to canonical help topics without falling back to generic help text",
-      "source": "cmd/gofly/internal/command/help_metadata.go",
+      "source": "cmd/gofly/internal/command/help/help_metadata.go",
       "surfaceManifest": "docs/reference/cli-command-surface.json",
       "evidence": "TestCLICommandSurfaceManifestMatchesRegistries and TestCommandHelpSubcommandBoundaries"
     }

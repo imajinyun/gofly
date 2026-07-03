@@ -1,4 +1,4 @@
-package command
+package help
 
 var topLevelHelpAliases = map[string]string{
 	"generate":  "gen",
@@ -52,4 +52,24 @@ var nestedHelpAliases = map[string]map[string]string{
 	"completion": {
 		"pwsh": "powershell",
 	},
+}
+
+func TopLevelAliases() map[string]string {
+	aliases := make(map[string]string, len(topLevelHelpAliases))
+	for alias, canonical := range topLevelHelpAliases {
+		aliases[alias] = canonical
+	}
+	return aliases
+}
+
+func NestedAliases() map[string]map[string]string {
+	aliases := make(map[string]map[string]string, len(nestedHelpAliases))
+	for parent, nested := range nestedHelpAliases {
+		nestedCopy := make(map[string]string, len(nested))
+		for alias, canonical := range nested {
+			nestedCopy[alias] = canonical
+		}
+		aliases[parent] = nestedCopy
+	}
+	return aliases
 }

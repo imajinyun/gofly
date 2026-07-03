@@ -1,4 +1,4 @@
-package command
+package help
 
 import "strings"
 
@@ -6,11 +6,19 @@ var completionShells = []string{"bash", "zsh", "fish", "powershell", "pwsh"}
 
 const completionShellUsage = "bash|zsh|fish|powershell|pwsh"
 
-func commandUsage(command string) string {
-	return renderCommandHelp(commandHelpFor(command))
+const CompletionShellUsage = completionShellUsage
+
+func CompletionShells() []string {
+	shells := make([]string, len(completionShells))
+	copy(shells, completionShells)
+	return shells
 }
 
-func canonicalHelpTopic(command string) string {
+func CommandUsage(command string) string {
+	return renderCommandHelp(For(command))
+}
+
+func CanonicalTopic(command string) string {
 	parts := strings.Fields(command)
 	if len(parts) == 0 {
 		return ""
@@ -136,6 +144,10 @@ func isGenHelpSubcommand(command string) bool {
 	}
 }
 
+func IsGenHelpSubcommand(command string) bool {
+	return isGenHelpSubcommand(command)
+}
+
 func isAPIHelpSubcommand(command string) bool {
 	switch command {
 	case "go", "check", "format", "swagger", "doc", "route":
@@ -151,6 +163,10 @@ func isAPIHelpSubcommand(command string) bool {
 	}
 }
 
+func IsAPIHelpSubcommand(command string) bool {
+	return isAPIHelpSubcommand(command)
+}
+
 func isRPCHelpSubcommand(command string) bool {
 	switch command {
 	case "idl", "thrift", "client", "server", "middleware", "lint", "deps":
@@ -162,6 +178,10 @@ func isRPCHelpSubcommand(command string) bool {
 	}
 }
 
+func IsRPCHelpSubcommand(command string) bool {
+	return isRPCHelpSubcommand(command)
+}
+
 func isModelDriverHelpSubcommand(driver string, command string) bool {
 	switch driver {
 	case "mysql", "pg":
@@ -169,6 +189,10 @@ func isModelDriverHelpSubcommand(driver string, command string) bool {
 	default:
 		return false
 	}
+}
+
+func IsModelDriverHelpSubcommand(driver string, command string) bool {
+	return isModelDriverHelpSubcommand(driver, command)
 }
 
 func isModelHelpSubcommand(command string) bool {
@@ -180,6 +204,10 @@ func isModelHelpSubcommand(command string) bool {
 	}
 }
 
+func IsModelHelpSubcommand(command string) bool {
+	return isModelHelpSubcommand(command)
+}
+
 func isConfigHelpSubcommand(command string) bool {
 	switch command {
 	case "init", "show", "get", "set", "clean":
@@ -187,6 +215,10 @@ func isConfigHelpSubcommand(command string) bool {
 	default:
 		return false
 	}
+}
+
+func IsConfigHelpSubcommand(command string) bool {
+	return isConfigHelpSubcommand(command)
 }
 
 func isFeatureHelpSubcommand(command string) bool {
@@ -198,6 +230,10 @@ func isFeatureHelpSubcommand(command string) bool {
 	}
 }
 
+func IsFeatureHelpSubcommand(command string) bool {
+	return isFeatureHelpSubcommand(command)
+}
+
 func isPluginHelpSubcommand(command string) bool {
 	switch command {
 	case "list", "search", "install", "uninstall", "run":
@@ -205,6 +241,10 @@ func isPluginHelpSubcommand(command string) bool {
 	default:
 		return false
 	}
+}
+
+func IsPluginHelpSubcommand(command string) bool {
+	return isPluginHelpSubcommand(command)
 }
 
 func isKubeHelpSubcommand(command string) bool {
@@ -216,6 +256,10 @@ func isKubeHelpSubcommand(command string) bool {
 	}
 }
 
+func IsKubeHelpSubcommand(command string) bool {
+	return isKubeHelpSubcommand(command)
+}
+
 func isTemplateHelpSubcommand(command string) bool {
 	switch command {
 	case "init", "list", "clean", "update", "revert":
@@ -225,20 +269,40 @@ func isTemplateHelpSubcommand(command string) bool {
 	}
 }
 
+func IsTemplateHelpSubcommand(command string) bool {
+	return isTemplateHelpSubcommand(command)
+}
+
 func isEnvHelpSubcommand(command string) bool {
 	return command == "check" || command == "install"
+}
+
+func IsEnvHelpSubcommand(command string) bool {
+	return isEnvHelpSubcommand(command)
 }
 
 func isCompletionHelpSubcommand(command string) bool {
 	return isCompletionShell(command)
 }
 
+func IsCompletionHelpSubcommand(command string) bool {
+	return isCompletionHelpSubcommand(command)
+}
+
 func isAIHelpSubcommand(command string) bool {
 	return command == "manifest" || command == "plan" || command == "new" || command == "complete" || command == "stream" || command == "doctor" || command == "control-plane"
 }
 
+func IsAIHelpSubcommand(command string) bool {
+	return isAIHelpSubcommand(command)
+}
+
 func isCompleteHandlerShell(command string) bool {
 	return isCompletionShell(command)
+}
+
+func IsCompleteHandlerShell(command string) bool {
+	return isCompleteHandlerShell(command)
 }
 
 func isCompletionShell(shell string) bool {
@@ -249,4 +313,8 @@ func isCompletionShell(shell string) bool {
 		}
 	}
 	return false
+}
+
+func IsCompletionShell(shell string) bool {
+	return isCompletionShell(shell)
 }

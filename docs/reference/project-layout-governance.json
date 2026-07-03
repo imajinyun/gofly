@@ -1187,8 +1187,22 @@
       "domain": "Doctor diagnostics, checks, tests, and support remediation output"
     },
     {
-      "prefix": "help",
-      "domain": "Help catalog, topics, metadata, usage, and rendering"
+      "id": "help",
+      "prefix": "help/",
+      "domain": "Help catalog, topics, metadata, usage, and rendering extracted into a dedicated subpackage.",
+      "files": [
+        "help/help.go",
+        "help/help_catalog.go",
+        "help/help_catalog_ai.go",
+        "help/help_catalog_api.go",
+        "help/help_catalog_model.go",
+        "help/help_catalog_plugin.go",
+        "help/help_catalog_rpc.go",
+        "help/help_metadata.go",
+        "help/help_render.go",
+        "help/help_topics.go",
+        "help/help_usage.go"
+      ]
     },
     {
       "prefix": "config",
@@ -1228,6 +1242,7 @@
         "handler.go",
         "handler_complete_command.go",
         "handler_test.go",
+        "help_adapter.go",
         "idl_generate_shared.go",
         "idl_registry.go",
         "idl_test.go",

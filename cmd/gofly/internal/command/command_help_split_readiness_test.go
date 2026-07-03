@@ -16,6 +16,9 @@ type commandHelpSplitDryRunEvidence struct {
 	AcceptanceGate string   `json:"acceptanceGate"`
 	DryRunOnly     bool     `json:"dryRunOnly"`
 	NoPhysicalMove bool     `json:"noPhysicalMove"`
+	PhysicalSplit  bool     `json:"physicalSplit"`
+	HelpPackage    string   `json:"helpPackage"`
+	CommandAdapter string   `json:"commandAdapter"`
 	FamilyFiles    []string `json:"familyFiles"`
 	GoldenTests    []string `json:"goldenTests"`
 	GoldenTopics   []string `json:"goldenTopics"`
@@ -105,8 +108,8 @@ func TestHelpFamilyDryRunEvidence(t *testing.T) {
 	if evidence.Schema != "gofly.command_help_split_dry_run.v1" {
 		t.Fatalf("schema = %q, want gofly.command_help_split_dry_run.v1", evidence.Schema)
 	}
-	if evidence.Status != "completed-preflight" {
-		t.Fatalf("status = %q, want completed-preflight", evidence.Status)
+	if evidence.Status != "completed-physical-split" {
+		t.Fatalf("status = %q, want completed-physical-split", evidence.Status)
 	}
 	if evidence.Family != "help" || evidence.Package != "cmd/gofly/internal/command" {
 		t.Fatalf("family/package = %q/%q, want help/cmd/gofly/internal/command", evidence.Family, evidence.Package)
@@ -114,8 +117,14 @@ func TestHelpFamilyDryRunEvidence(t *testing.T) {
 	if evidence.AcceptanceGate != "make command-help-split-dry-run-check" {
 		t.Fatalf("acceptanceGate = %q, want make command-help-split-dry-run-check", evidence.AcceptanceGate)
 	}
-	if !evidence.DryRunOnly || !evidence.NoPhysicalMove {
-		t.Fatalf("dry-run evidence must not authorize a physical move: dryRunOnly=%t noPhysicalMove=%t", evidence.DryRunOnly, evidence.NoPhysicalMove)
+	if evidence.DryRunOnly || evidence.NoPhysicalMove || !evidence.PhysicalSplit {
+		t.Fatalf("P22-12 evidence must record physical split completion: dryRunOnly=%t noPhysicalMove=%t physicalSplit=%t", evidence.DryRunOnly, evidence.NoPhysicalMove, evidence.PhysicalSplit)
+	}
+	if evidence.HelpPackage != "cmd/gofly/internal/command/help" {
+		t.Fatalf("helpPackage = %q, want cmd/gofly/internal/command/help", evidence.HelpPackage)
+	}
+	if evidence.CommandAdapter != "help_adapter.go" {
+		t.Fatalf("commandAdapter = %q, want help_adapter.go", evidence.CommandAdapter)
 	}
 
 	assertStringSet(t, "family files", evidence.FamilyFiles, []string{

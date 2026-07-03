@@ -1,6 +1,6 @@
-package command
+package help
 
-func usage() string {
+func Usage() string {
 	return colorizeHelpText(`gofly is the flycli-style Go microservice framework toolkit.
 
 Usage:
@@ -145,16 +145,16 @@ Aliases:
     upgrade --json --version latest`)
 }
 
-type helpCommand struct {
+type Command struct {
 	Name  string
 	Short string
 }
 
-type commandHelp struct {
+type Topic struct {
 	Name     string
 	Short    string
 	Usage    string
-	Commands []helpCommand
+	Commands []Command
 	Flags    []string
 	Examples []string
 }

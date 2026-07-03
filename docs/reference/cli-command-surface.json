@@ -4,7 +4,7 @@
     "cmd/gofly/internal/command/registry.go",
     "cmd/gofly/internal/command/idl_registry.go",
     "cmd/gofly/internal/command/root.go",
-    "cmd/gofly/internal/command/help_metadata.go"
+    "cmd/gofly/internal/command/help/help_metadata.go"
   ],
   "acceptanceGate": "make cli-command-surface-check",
   "ignoredPaths": [

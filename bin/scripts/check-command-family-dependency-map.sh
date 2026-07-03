@@ -142,16 +142,32 @@ require(set(split_policy.get("requiredSplitGates") or []) == expected_split_gate
 for gate in split_policy.get("requiredSplitGates") or []:
     require(gate_is_known(str(gate), targets), f"splitPolicy required gate is not known: {gate}")
 
-command_files = sorted(path.name for path in command_dir.glob("*.go"))
+command_files = sorted(str(path.relative_to(command_dir)) for path in command_dir.rglob("*.go"))
 family_entries = manifest.get("commandFileFamilies") or []
 expected_family_files = {}
 for family in family_entries:
     if not isinstance(family, dict):
         continue
+    family_id = family.get("id", "")
     prefix = family.get("prefix", "")
-    if prefix:
-        family_id = prefix.rstrip("_") if prefix.endswith("_") else prefix
-        expected_family_files[family_id] = sorted(path.name for path in command_dir.glob(f"{prefix}*.go"))
+    explicit_files = sorted(family.get("files") or [])
+    if explicit_files and family_id and prefix:
+        expected_family_files[family_id] = explicit_files
+    elif explicit_files and family_id:
+        expected_family_files[family_id] = explicit_files
+    elif prefix:
+        family_id = family_id or (prefix.rstrip("_") if prefix.endswith("_") else prefix.rstrip("/"))
+        if prefix.endswith("/"):
+            expected_family_files[family_id] = sorted(
+                str(path.relative_to(command_dir))
+                for path in (command_dir / prefix.rstrip("/")).rglob("*.go")
+            )
+        else:
+            expected_family_files[family_id] = sorted(
+                str(path.relative_to(command_dir))
+                for path in command_dir.rglob("*.go")
+                if path.name.startswith(prefix)
+            )
     else:
         expected_family_files["shared"] = sorted(family.get("files") or [])
 
@@ -177,6 +193,8 @@ for family in map_families:
     for filename in files:
         path = command_dir / filename
         require(path.is_file(), f"command family dependency map {family_id}: missing command file {filename}")
+        if family_id == "help":
+            require(str(filename).startswith("help/"), "command family dependency map help: files must stay under help/ subpackage")
         for import_path in file_imports(path):
             actual_buckets.setdefault(import_bucket(import_path), set()).add(import_path)
     normalized_actual = {key: sorted(values) for key, values in sorted(actual_buckets.items())}

@@ -16,11 +16,11 @@
       "GOCACHE=$PWD/.tmp-test/gocache GOTMPDIR=$PWD/.tmp-test/gotmp go test -shuffle=on ./cmd/gofly/internal/command/..."
     ]
   },
-  "candidateFamilies": [
+  "completedFamilies": [
     {
       "id": "help",
-      "status": "ready-for-single-family-split",
-      "reason": "The help family has only standard library imports, golden output coverage, dry-run extraction evidence, output adapter dry-run coverage, and help/doctor split preflight evidence. It is the only family admitted for the next physical split.",
+      "status": "physical-split-completed",
+      "reason": "The help family has been physically split into cmd/gofly/internal/command/help with a command package adapter preserving help output, topic routing, docs-check coverage, stdout/stderr behavior, and command registration.",
       "requiredPreSplitActions": [
         "move only the help family in a dedicated commit after P22-11 preflight completion",
         "define a small metadata adapter for command registration",
@@ -38,7 +38,9 @@
         "GOCACHE=$PWD/.tmp-test/gocache GOTMPDIR=$PWD/.tmp-test/gotmp go test -shuffle=on ./cmd/gofly/internal/command/..."
       ],
       "rollbackRequirement": "Restore help files to cmd/gofly/internal/command if help text, usage output, topic routing, or docs synchronization changes."
-    },
+    }
+  ],
+  "candidateFamilies": [
     {
       "id": "doctor",
       "status": "deferred-until-help-split-validation",
@@ -87,7 +89,8 @@
     "new",
     "plugin",
     "release",
-    "config"
+    "config",
+    "help"
   ],
   "requiredCleanRootSignals": [
     "go.mod has no generated-project-only dependency drift after command and generator tests",
@@ -109,7 +112,7 @@
     "git diff --check"
   ],
   "nextStep": {
-    "id": "P22-12-command-help-single-family-split",
-    "action": "Move only the help family in one dedicated commit, preserving command registration, output adapters, help topics, docs-check coverage, stdout, and stderr behavior. Do not move doctor or shared helper files in the same commit."
+    "id": "P22-13-command-doctor-single-family-preflight-refresh",
+    "action": "After the P22-12 help split gates pass, refresh doctor split readiness without moving doctor yet; preserve diagnostics, support bundle JSON, stdout/stderr behavior, and command registration."
   }
 }

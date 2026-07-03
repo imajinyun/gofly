@@ -1,21 +1,25 @@
-package command
+package help
 
 import "strings"
 
-func isHelpArg(arg string) bool {
+type Printer interface {
+	Println(args ...any)
+}
+
+func IsArg(arg string) bool {
 	return arg == "-h" || arg == "--help"
 }
 
-func printCommandHelp(command string, args []string) bool {
-	topic, ok := commandHelpTopic(command, args)
+func PrintCommandHelp(printer Printer, command string, args []string) bool {
+	topic, ok := CommandHelpTopic(command, args)
 	if !ok {
 		return false
 	}
-	printHelp(topic)
+	Print(printer, topic)
 	return true
 }
 
-func commandHelpTopic(command string, args []string) (string, bool) {
+func CommandHelpTopic(command string, args []string) (string, bool) {
 	if len(args) == 0 {
 		return "", false
 	}
@@ -23,11 +27,15 @@ func commandHelpTopic(command string, args []string) (string, bool) {
 		return joinHelpTopic(command, leadingHelpTopicArgs(args[1:])), true
 	}
 	for i, arg := range args {
-		if isHelpArg(arg) {
+		if IsArg(arg) {
 			return joinHelpTopic(command, leadingHelpTopicArgs(args[:i])), true
 		}
 	}
 	return "", false
+}
+
+func LeadingTopicArgs(args []string) []string {
+	return leadingHelpTopicArgs(args)
 }
 
 func leadingHelpTopicArgs(args []string) []string {
@@ -41,6 +49,10 @@ func leadingHelpTopicArgs(args []string) []string {
 	return parts
 }
 
+func JoinTopic(command string, parts []string) string {
+	return joinHelpTopic(command, parts)
+}
+
 func joinHelpTopic(command string, parts []string) string {
 	if len(parts) == 0 {
 		return command
@@ -48,10 +60,10 @@ func joinHelpTopic(command string, parts []string) string {
 	return command + " " + strings.Join(parts, " ")
 }
 
-func printHelp(command string) {
+func Print(printer Printer, command string) {
 	if command == "" {
-		cliOutputln(usage())
+		printer.Println(Usage())
 		return
 	}
-	cliOutputln(commandUsage(command))
+	printer.Println(CommandUsage(command))
 }

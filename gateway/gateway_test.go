@@ -54,17 +54,17 @@ func (r errorReadCloser) Read([]byte) (int, error) { return 0, r.err }
 
 func (r errorReadCloser) Close() error { return nil }
 
-type bitsUTBalancer struct{}
+type fakeBalancer struct{}
 
-func (bitsUTBalancer) Pick(context.Context, []string) (string, error) { return "picked", nil }
+func (fakeBalancer) Pick(context.Context, []string) (string, error) { return "picked", nil }
 
-type bitsUTDiscoveryResolver struct{}
+type fakeDiscoveryResolver struct{}
 
-func (bitsUTDiscoveryResolver) Resolve(context.Context, string, ...discovery.ResolveOption) ([]discovery.Instance, error) {
+func (fakeDiscoveryResolver) Resolve(context.Context, string, ...discovery.ResolveOption) ([]discovery.Instance, error) {
 	return []discovery.Instance{{Endpoint: "http://127.0.0.1:1", Status: discovery.StatusHealthy}}, nil
 }
 
-func (bitsUTDiscoveryResolver) Watch(context.Context, string, ...discovery.ResolveOption) (<-chan discovery.Event, error) {
+func (fakeDiscoveryResolver) Watch(context.Context, string, ...discovery.ResolveOption) (<-chan discovery.Event, error) {
 	return make(chan discovery.Event), nil
 }
 
@@ -75,7 +75,7 @@ func TestGatewayOptionBoundaryBranches(t *testing.T) {
 		WithResolvers(nil),
 		WithResolvers(map[string]rpc.Resolver{"": rpc.ResolverFunc(func(context.Context) ([]string, error) { return nil, nil }), "nil": nil}),
 		WithDiscoveryResolvers(nil),
-		WithDiscoveryResolvers(map[string]discovery.Resolver{"": bitsUTDiscoveryResolver{}, "nil": nil}),
+		WithDiscoveryResolvers(map[string]discovery.Resolver{"": fakeDiscoveryResolver{}, "nil": nil}),
 		WithShadowPool(0, -1),
 	)
 	if err != nil {
@@ -95,17 +95,17 @@ func TestGatewayOptionBoundaryBranches(t *testing.T) {
 
 	resolver := rpc.ResolverFunc(func(context.Context) ([]string, error) { return []string{"http://127.0.0.1:2"}, nil })
 	g, err = New(routes,
-		WithBalancer(bitsUTBalancer{}),
+		WithBalancer(fakeBalancer{}),
 		WithResolvers(map[string]rpc.Resolver{"orders": resolver}),
-		WithDiscoveryResolvers(map[string]discovery.Resolver{"catalog": bitsUTDiscoveryResolver{}}),
+		WithDiscoveryResolvers(map[string]discovery.Resolver{"catalog": fakeDiscoveryResolver{}}),
 	)
 	if err != nil {
 		t.Fatalf("New gateway with resolvers returned error: %v", err)
 	}
 	secondGateway := g
 	t.Cleanup(func() { _ = secondGateway.Close() })
-	if _, ok := g.balancer.(bitsUTBalancer); !ok {
-		t.Fatalf("gateway balancer = %T, want bitsUTBalancer", g.balancer)
+	if _, ok := g.balancer.(fakeBalancer); !ok {
+		t.Fatalf("gateway balancer = %T, want fakeBalancer", g.balancer)
 	}
 	if len(g.resolvers) != 2 || g.resolvers["orders"] == nil || g.resolvers["catalog"] == nil {
 		t.Fatalf("registered resolvers = %#v, want orders and catalog", g.resolvers)

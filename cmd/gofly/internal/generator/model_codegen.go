@@ -78,6 +78,7 @@ type SQLTable struct {
 	PrimaryKey       string
 	SoftDeleteColumn string
 	UniqueIndexes    []SQLUniqueIndex
+	Indexes          []SQLIndex
 }
 
 type SQLColumn struct {
@@ -93,8 +94,17 @@ type SQLUniqueIndex struct {
 	Columns []string
 }
 
+type SQLIndex struct {
+	Columns []string
+}
+
 type modelUniqueIndex struct {
 	Columns []SQLColumn
+}
+
+type modelIndexPrefix struct {
+	Columns      []SQLColumn
+	OrderColumns []SQLColumn
 }
 
 var createTableStartRE = regexp.MustCompile(
@@ -448,6 +458,9 @@ func introspectSQLTables(ctx context.Context, db *sql.DB, opts datasourceIntrosp
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate datasource schema: %w", err)
 	}
+	if err := introspectSQLIndexes(ctx, db, opts, byName); err != nil {
+		return nil, err
+	}
 	tables := make([]SQLTable, 0, len(order))
 	for _, name := range order {
 		table := byName[name]
@@ -464,6 +477,81 @@ func introspectSQLTables(ctx context.Context, db *sql.DB, opts datasourceIntrosp
 		return nil, errors.New("model table is required")
 	}
 	return tables, nil
+}
+
+func introspectSQLIndexes(ctx context.Context, db *sql.DB, opts datasourceIntrospectionOptions, byName map[string]*SQLTable) error {
+	query, args, err := datasourceIndexesQueryWithScope(opts)
+	if err != nil {
+		return err
+	}
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return fmt.Errorf("query datasource indexes: %w", err)
+	}
+	defer rows.Close()
+	type indexKey struct {
+		table string
+		name  string
+	}
+	type indexState struct {
+		columns []string
+		unique  bool
+	}
+	indexes := make(map[indexKey]*indexState)
+	var order []indexKey
+	for rows.Next() {
+		var tableName, indexName, columnName string
+		var nonUnique, seq int
+		if err := rows.Scan(&tableName, &indexName, &columnName, &nonUnique, &seq); err != nil {
+			return fmt.Errorf("scan datasource index: %w", err)
+		}
+		if seq <= 0 || strings.TrimSpace(columnName) == "" {
+			continue
+		}
+		if _, ok := byName[tableName]; !ok {
+			continue
+		}
+		key := indexKey{table: tableName, name: indexName}
+		state := indexes[key]
+		if state == nil {
+			state = &indexState{unique: nonUnique == 0}
+			indexes[key] = state
+			order = append(order, key)
+		}
+		state.columns = append(state.columns, columnName)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate datasource indexes: %w", err)
+	}
+	for _, key := range order {
+		table := byName[key.table]
+		state := indexes[key]
+		if table == nil || state == nil || len(state.columns) == 0 {
+			continue
+		}
+		if state.unique {
+			if len(state.columns) == 1 {
+				markSQLColumnUnique(table, state.columns[0])
+			} else {
+				table.UniqueIndexes = append(table.UniqueIndexes, SQLUniqueIndex{Columns: append([]string(nil), state.columns...)})
+			}
+			continue
+		}
+		table.Indexes = append(table.Indexes, SQLIndex{Columns: append([]string(nil), state.columns...)})
+	}
+	return nil
+}
+
+func markSQLColumnUnique(table *SQLTable, name string) {
+	if table == nil {
+		return
+	}
+	for i := range table.Columns {
+		if table.Columns[i].Name == name && !table.Columns[i].PrimaryKey {
+			table.Columns[i].Unique = true
+			return
+		}
+	}
 }
 
 func datasourceColumnsQuery(driver string, tables []string) (string, []any, error) {
@@ -522,6 +610,63 @@ WHERE c.table_schema = current_schema()`
 			query += " AND c.table_name IN (" + strings.Join(placeholders, ",") + ")"
 		}
 		query += " ORDER BY c.table_name, c.ordinal_position"
+		return query, args, nil
+	default:
+		return "", nil, fmt.Errorf("unsupported datasource driver %q", opts.Driver)
+	}
+}
+
+func datasourceIndexesQueryWithScope(opts datasourceIntrospectionOptions) (string, []any, error) {
+	tables := cleanTableNames(opts.Tables)
+	database := strings.TrimSpace(opts.Database)
+	schema := strings.TrimSpace(opts.Schema)
+	switch strings.ToLower(strings.TrimSpace(opts.Driver)) {
+	case "mysql":
+		query := `SELECT table_name, index_name, column_name, non_unique, seq_in_index
+FROM information_schema.statistics
+WHERE table_schema = DATABASE() AND index_name <> 'PRIMARY'`
+		args := make([]any, 0, len(tables)+1)
+		if database != "" {
+			query = strings.Replace(query, "table_schema = DATABASE()", "table_schema = ?", 1)
+			args = append(args, database)
+		}
+		if len(tables) > 0 {
+			query += " AND table_name IN (" + strings.TrimRight(strings.Repeat("?,", len(tables)), ",") + ")"
+			for _, table := range tables {
+				args = append(args, table)
+			}
+		}
+		query += " ORDER BY table_name, index_name, seq_in_index"
+		return query, args, nil
+	case "pg", "postgres", "postgresql":
+		query := `SELECT t.relname AS table_name, i.relname AS index_name, a.attname AS column_name,
+       CASE WHEN ix.indisunique THEN 0 ELSE 1 END AS non_unique,
+       k.ordinality AS seq_in_index
+FROM pg_class t
+JOIN pg_namespace ns ON ns.oid = t.relnamespace
+JOIN pg_index ix ON t.oid = ix.indrelid
+JOIN pg_class i ON i.oid = ix.indexrelid
+JOIN LATERAL unnest(ix.indkey) WITH ORDINALITY AS k(attnum, ordinality) ON true
+JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = k.attnum
+WHERE ns.nspname = current_schema()
+  AND t.relkind IN ('r', 'p')
+  AND NOT ix.indisprimary`
+		args := make([]any, 0, len(tables)+1)
+		placeholderOffset := 0
+		if schema != "" {
+			query = strings.Replace(query, "ns.nspname = current_schema()", "ns.nspname = $1", 1)
+			args = append(args, schema)
+			placeholderOffset = 1
+		}
+		if len(tables) > 0 {
+			placeholders := make([]string, 0, len(tables))
+			for i, table := range tables {
+				placeholders = append(placeholders, fmt.Sprintf("$%d", i+1+placeholderOffset))
+				args = append(args, table)
+			}
+			query += " AND t.relname IN (" + strings.Join(placeholders, ",") + ")"
+		}
+		query += " ORDER BY t.relname, i.relname, k.ordinality"
 		return query, args, nil
 	default:
 		return "", nil, fmt.Errorf("unsupported datasource driver %q", opts.Driver)
@@ -620,7 +765,6 @@ func prepareModelTables(tables []SQLTable, opts modelGenerationOptions) ([]SQLTa
 				prepared.PrimaryKey = ""
 			}
 		}
-		prepared.UniqueIndexes = filterUniqueIndexes(prepared.UniqueIndexes, prepared.Columns)
 		if len(prepared.Columns) == 0 {
 			return nil, fmt.Errorf("model table %q has no columns after applying filters", table.Name)
 		}
@@ -628,6 +772,8 @@ func prepareModelTables(tables []SQLTable, opts modelGenerationOptions) ([]SQLTa
 			prepared.PrimaryKey = prepared.Columns[0].Name
 			prepared.Columns[0].PrimaryKey = true
 		}
+		prepared.UniqueIndexes = filterUniqueIndexes(prepared.UniqueIndexes, prepared.Columns)
+		prepared.Indexes = filterSQLIndexes(prepared.Indexes, prepared.Columns, prepared.PrimaryKey)
 		prepared.SoftDeleteColumn = detectSoftDeleteColumn(prepared.Columns)
 		out = append(out, prepared)
 	}
@@ -666,6 +812,43 @@ func filterUniqueIndexes(indexes []SQLUniqueIndex, columns []SQLColumn) []SQLUni
 		}
 		seen[key] = struct{}{}
 		out = append(out, SQLUniqueIndex{Columns: filtered})
+	}
+	return out
+}
+
+func filterSQLIndexes(indexes []SQLIndex, columns []SQLColumn, primaryKey string) []SQLIndex {
+	if len(indexes) == 0 {
+		return nil
+	}
+	available := make(map[string]struct{}, len(columns))
+	for _, column := range columns {
+		available[column.Name] = struct{}{}
+	}
+	out := make([]SQLIndex, 0, len(indexes))
+	seen := make(map[string]struct{}, len(indexes))
+	for _, index := range indexes {
+		filtered := make([]string, 0, len(index.Columns))
+		valid := true
+		for _, column := range index.Columns {
+			column = strings.TrimSpace(column)
+			if column == "" {
+				continue
+			}
+			if _, ok := available[column]; !ok {
+				valid = false
+				break
+			}
+			filtered = append(filtered, column)
+		}
+		if !valid || len(filtered) == 0 || filtered[0] == primaryKey {
+			continue
+		}
+		key := strings.Join(filtered, "\x00")
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, SQLIndex{Columns: filtered})
 	}
 	return out
 }
@@ -926,17 +1109,20 @@ func writeRepoFile(dir string, table SQLTable, pkg string, module string, style 
 	}
 	typeName := exportName(singularize(table.Name))
 	repoName := typeName + "Repo"
+	uniqueIndexes := cacheableUniqueIndexes(table)
+	indexPrefixes := modelIndexPrefixes(table)
+	needsCacheKeyHelpers := cacheEnabled && (len(uniqueIndexes) > 0 || len(indexPrefixes) > 0)
 	var b bytes.Buffer
 	fprintf(&b, "package repo\n\n")
 	fprintf(&b, "import (\n")
 	fprintf(&b, "\t\"context\"\n")
 	fprintf(&b, "\t\"database/sql\"\n")
 	fprintf(&b, "\t\"errors\"\n")
-	if cacheEnabled && len(cacheableUniqueIndexes(table)) > 0 {
+	if needsCacheKeyHelpers {
 		fprintf(&b, "\t\"fmt\"\n")
 	}
 	fprintf(&b, "\t\"sort\"\n")
-	if cacheEnabled && len(cacheableUniqueIndexes(table)) > 0 {
+	if needsCacheKeyHelpers {
 		fprintf(&b, "\t\"strconv\"\n")
 	}
 	fprintf(&b, "\t\"strings\"\n")
@@ -976,7 +1162,8 @@ func writeRepoFile(dir string, table SQLTable, pkg string, module string, style 
 	if cacheEnabled {
 		writeConsistentCachedRepo(&b, table, typeName, repoName)
 		writeRedisCachedRepo(&b, table, typeName, repoName)
-		writeUniqueCacheKeyFuncs(&b, cacheableUniqueIndexes(table))
+		writeUniqueCacheKeyFuncs(&b, uniqueIndexes)
+		writeIndexListCacheKeyFuncs(&b, indexPrefixes)
 	}
 	formatted, err := format.Source(b.Bytes())
 	if err != nil {
@@ -989,12 +1176,15 @@ func writeRepoFile(dir string, table SQLTable, pkg string, module string, style 
 func writeGORMRepoFile(dir string, table SQLTable, module string, cacheEnabled bool) error {
 	typeName := exportName(singularize(table.Name))
 	repoName := typeName + "Repo"
+	uniqueIndexes := cacheableUniqueIndexes(table)
+	indexPrefixes := modelIndexPrefixes(table)
+	needsCacheKeyHelpers := cacheEnabled && (len(uniqueIndexes) > 0 || len(indexPrefixes) > 0)
 	var b bytes.Buffer
 	fprintf(&b, "package repo\n\n")
 	fprintf(&b, "import (\n")
 	fprintf(&b, "\t\"context\"\n")
 	fprintf(&b, "\t\"errors\"\n")
-	if cacheEnabled && len(cacheableUniqueIndexes(table)) > 0 {
+	if needsCacheKeyHelpers {
 		fprintf(&b, "\t\"fmt\"\n")
 		fprintf(&b, "\t\"strconv\"\n")
 		fprintf(&b, "\t\"strings\"\n")
@@ -1042,7 +1232,8 @@ func writeGORMRepoFile(dir string, table SQLTable, module string, cacheEnabled b
 	if cacheEnabled {
 		writeConsistentCachedRepo(&b, table, typeName, repoName)
 		writeRedisCachedRepo(&b, table, typeName, repoName)
-		writeUniqueCacheKeyFuncs(&b, cacheableUniqueIndexes(table))
+		writeUniqueCacheKeyFuncs(&b, uniqueIndexes)
+		writeIndexListCacheKeyFuncs(&b, indexPrefixes)
 	}
 	formatted, err := format.Source(b.Bytes())
 	if err != nil {
@@ -1111,6 +1302,7 @@ func writeWhereMethods(b *bytes.Buffer, table SQLTable, typeName, receiverName s
 func writeAdvancedSQLRepoMethods(b *bytes.Buffer, table SQLTable, typeName, receiverName string) {
 	pk := primaryColumn(table)
 	writeUniqueFinders(b, table, typeName, receiverName)
+	writeIndexListFinders(b, table, typeName, receiverName)
 	fprintf(b, "func (r *%s) InsertMany(ctx context.Context, items []*entity.%s) error {\n", receiverName, typeName)
 	fprintf(b, "\tfor _, item := range items {\n\t\tif err := r.Insert(ctx, item); err != nil {\n\t\t\treturn err\n\t\t}\n\t}\n\treturn nil\n}\n\n")
 	fprintf(b, "func (r *%s) UpdateMany(ctx context.Context, items []*entity.%s) error {\n", receiverName, typeName)
@@ -1160,6 +1352,45 @@ func writeCompositeUniqueFinders(b *bytes.Buffer, table SQLTable, typeName, rece
 		fprintf(b, "\tif err := r.queryOne(ctx, query, func(row *sql.Row) error {\n\t\treturn row.Scan(%s)\n\t}, %s); err != nil {\n", scanArgs("out", table.Columns), uniqueFinderArgs(columns))
 		fprintf(b, "\t\tif errors.Is(err, sql.ErrNoRows) {\n\t\t\treturn nil, storage.ErrNotFound\n\t\t}\n\t\treturn nil, err\n\t}\n")
 		fprintf(b, "\treturn &out, nil\n}\n\n")
+	}
+}
+
+func writeIndexListFinders(b *bytes.Buffer, table SQLTable, typeName, receiverName string) {
+	for _, index := range modelIndexPrefixes(table) {
+		name := uniqueFinderName(index.Columns)
+		fprintf(b, "func (r *%s) FindBy%s(ctx context.Context, %s, limit int, offset int) ([]entity.%s, error) {\n", receiverName, name, uniqueFinderParams(index.Columns), typeName)
+		fprintf(b, "\twhere := storage.NewWhere()\n")
+		writeSQLIndexWhereFilters(b, index.Columns)
+		if hasSoftDelete(table) {
+			fprintf(b, "\twhere = where.IsNull(%q)\n", table.SoftDeleteColumn)
+		}
+		for _, column := range index.OrderColumns {
+			fprintf(b, "\twhere = where.OrderBy(%q)\n", column.Name)
+		}
+		fprintf(b, "\twhere = where.Limit(limit).Offset(offset)\n")
+		fprintf(b, "\tquery, args, err := storage.SelectWhere(entity.%sTable, entity.%sColumns, where, r.dialect)\n", typeName, typeName)
+		fprintf(b, "\tif err != nil {\n\t\treturn nil, err\n\t}\n")
+		fprintf(b, "\tout := make([]entity.%s, 0)\n", typeName)
+		fprintf(b, "\tif err := r.queryAll(ctx, query, func(rows *sql.Rows) error {\n")
+		fprintf(b, "\t\tfor rows.Next() {\n\t\t\tvar item entity.%s\n\t\t\tif err := rows.Scan(%s); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t\tout = append(out, item)\n\t\t}\n\t\treturn nil\n\t}, args...); err != nil {\n\t\treturn nil, err\n\t}\n", typeName, scanArgs("item", table.Columns))
+		fprintf(b, "\treturn out, nil\n}\n\n")
+		fprintf(b, "func (r *%s) CountBy%s(ctx context.Context, %s) (int64, error) {\n", receiverName, name, uniqueFinderParams(index.Columns))
+		fprintf(b, "\twhere := storage.NewWhere()\n")
+		writeSQLIndexWhereFilters(b, index.Columns)
+		if hasSoftDelete(table) {
+			fprintf(b, "\twhere = where.IsNull(%q)\n", table.SoftDeleteColumn)
+		}
+		fprintf(b, "\tquery, args, err := storage.CountWhere(entity.%sTable, where, r.dialect)\n", typeName)
+		fprintf(b, "\tif err != nil {\n\t\treturn 0, err\n\t}\n")
+		fprintf(b, "\tvar count int64\n")
+		fprintf(b, "\tif err := r.queryOne(ctx, query, func(row *sql.Row) error {\n\t\treturn row.Scan(&count)\n\t}, args...); err != nil {\n\t\treturn 0, err\n\t}\n")
+		fprintf(b, "\treturn count, nil\n}\n\n")
+	}
+}
+
+func writeSQLIndexWhereFilters(b *bytes.Buffer, columns []SQLColumn) {
+	for _, column := range columns {
+		fprintf(b, "\twhere = where.Eq(%q, %s)\n", column.Name, modelArgName(column.Name))
 	}
 }
 
@@ -1225,34 +1456,33 @@ func writeConsistentCachedRepo(b *bytes.Buffer, table SQLTable, typeName, repoNa
 	pkArg := modelArgName(pk.Name)
 	pkField := modelFieldName(pk.Name)
 	uniqueIndexes := cacheableUniqueIndexes(table)
-	if len(uniqueIndexes) > 0 {
-		fprintf(b, "type %s struct {\n\trepo *%s\n\tcache *cache.ModelCache[*entity.%s, %s]\n", cachedName, repoName, typeName, columnGoType(pk))
-		for _, index := range uniqueIndexes {
-			fprintf(b, "\t%s *cache.ModelCache[*entity.%s, string]\n", uniqueCacheFieldName(index.Columns), typeName)
-		}
-		fprintf(b, "}\n\n")
-	} else {
-		fprintf(b, "type %s struct {\n\trepo *%s\n\tcache *cache.ModelCache[*entity.%s, %s]\n}\n\n", cachedName, repoName, typeName, columnGoType(pk))
+	indexPrefixes := modelIndexPrefixes(table)
+	fprintf(b, "type %s struct {\n\trepo *%s\n\tcache *cache.ModelCache[*entity.%s, %s]\n", cachedName, repoName, typeName, columnGoType(pk))
+	for _, index := range uniqueIndexes {
+		fprintf(b, "\t%s *cache.ModelCache[*entity.%s, string]\n", uniqueCacheFieldName(index.Columns), typeName)
 	}
+	for _, index := range indexPrefixes {
+		fprintf(b, "\t%s *cache.Cache[[]entity.%s]\n", indexListCacheFieldName(index.Columns), typeName)
+	}
+	fprintf(b, "}\n\n")
 	fprintf(b, "func NewConsistentCached%s(repo *%s, opts ...cache.ModelOption[*entity.%s, %s]) *%s {\n", repoName, repoName, typeName, columnGoType(pk), cachedName)
 	fprintf(b, "\tloader := func(ctx context.Context, id %s) (*entity.%s, error) {\n\t\tif repo == nil {\n\t\t\treturn nil, errors.New(%q)\n\t\t}\n\t\treturn repo.FindOne(ctx, id)\n\t}\n", columnGoType(pk), typeName, lowerCamel(typeName)+" repo is nil")
-	if len(uniqueIndexes) > 0 {
-		fprintf(b, "\tout := &%s{repo: repo, cache: cache.NewModel(loader, opts...)}\n", cachedName)
-		writeUniqueModelCacheInitializers(b, uniqueIndexes, typeName, "repo", false)
-		fprintf(b, "\treturn out\n}\n\n")
-	} else {
-		fprintf(b, "\treturn &%s{repo: repo, cache: cache.NewModel(loader, opts...)}\n}\n\n", cachedName)
-	}
+	fprintf(b, "\tout := &%s{repo: repo, cache: cache.NewModel(loader, opts...)}\n", cachedName)
+	writeUniqueModelCacheInitializers(b, uniqueIndexes, typeName, "repo", false)
+	writeIndexListCacheInitializers(b, indexPrefixes, typeName, "repo")
+	fprintf(b, "\treturn out\n}\n\n")
 	fprintf(b, "func (c *%s) FindOne(ctx context.Context, %s %s) (*entity.%s, error) {\n", cachedName, modelArgName(pk.Name), columnGoType(pk), typeName)
 	fprintf(b, "\treturn c.FindByIDCached(ctx, %s)\n}\n\n", pkArg)
 	fprintf(b, "func (c *%s) FindByIDCached(ctx context.Context, %s %s) (*entity.%s, error) {\n", cachedName, pkArg, columnGoType(pk), typeName)
 	fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn nil, errors.New(%q)\n\t}\n", lowerCamel(typeName)+" cached repo is nil")
 	fprintf(b, "\tif c.cache == nil {\n\t\treturn c.repo.FindOne(ctx, %s)\n\t}\n\treturn c.cache.Get(ctx, %s)\n}\n\n", pkArg, pkArg)
 	writeUniqueCachedFinders(b, uniqueIndexes, typeName, cachedName, false)
+	writeIndexListCachedFinders(b, indexPrefixes, typeName, cachedName)
 	fprintf(b, "func (c *%s) Insert(ctx context.Context, in *entity.%s) error {\n", cachedName, typeName)
 	fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn errors.New(%q)\n\t}\n", lowerCamel(typeName)+" cached repo is nil")
 	fprintf(b, "\tif err := c.repo.Insert(ctx, in); err != nil {\n\t\treturn err\n\t}\n\tif c.cache != nil && in != nil {\n\t\tc.cache.Set(in.%s, in)\n\t}\n", pkField)
 	writeUniqueCacheSetAfterMutation(b, uniqueIndexes, false)
+	writeIndexListCacheClearAfterMutation(b, indexPrefixes)
 	fprintf(b, "\treturn nil\n}\n\n")
 	fprintf(b, "func (c *%s) Update(ctx context.Context, in *entity.%s) error {\n", cachedName, typeName)
 	fprintf(b, "\treturn c.UpdateWithInvalidate(ctx, in)\n}\n\n")
@@ -1265,6 +1495,7 @@ func writeConsistentCachedRepo(b *bytes.Buffer, table SQLTable, typeName, repoNa
 	fprintf(b, "\tif err := c.repo.Update(ctx, in); err != nil {\n\t\treturn err\n\t}\n\tif c.cache != nil && in != nil {\n\t\tc.cache.Invalidate(in.%s)\n\t}\n", pkField)
 	writeUniqueCacheInvalidateAfterMutation(b, uniqueIndexes, "old", false)
 	writeUniqueCacheSetAfterMutation(b, uniqueIndexes, false)
+	writeIndexListCacheClearAfterMutation(b, indexPrefixes)
 	fprintf(b, "\treturn nil\n}\n\n")
 	writeConsistentCachedUpdateFields(b, table, typeName, cachedName, uniqueIndexes)
 	writeConsistentCachedUpdateWithVersion(b, table, typeName, cachedName, uniqueIndexes)
@@ -1275,6 +1506,7 @@ func writeConsistentCachedRepo(b *bytes.Buffer, table SQLTable, typeName, repoNa
 	}
 	fprintf(b, "\tif err := c.repo.Delete(ctx, %s); err != nil {\n\t\treturn err\n\t}\n\tif c.cache != nil {\n\t\tc.cache.Invalidate(%s)\n\t}\n", pkArg, pkArg)
 	writeUniqueCacheInvalidateAfterMutation(b, uniqueIndexes, "old", false)
+	writeIndexListCacheClearAfterMutation(b, indexPrefixes)
 	fprintf(b, "\treturn nil\n}\n\n")
 }
 
@@ -1312,6 +1544,7 @@ func writeRedisCachedRepo(b *bytes.Buffer, table SQLTable, typeName, repoName st
 func writeConsistentCachedUpdateFields(b *bytes.Buffer, table SQLTable, typeName, cachedName string, indexes []modelUniqueIndex) {
 	pk := primaryColumn(table)
 	pkArg := modelArgName(pk.Name)
+	indexPrefixes := modelIndexPrefixes(table)
 	fprintf(b, "func (c *%s) UpdateFields(ctx context.Context, %s %s, fields map[string]any) error {\n", cachedName, pkArg, columnGoType(pk))
 	fprintf(b, "\treturn c.UpdateFieldsWithInvalidate(ctx, %s, fields)\n}\n\n", pkArg)
 	fprintf(b, "func (c *%s) UpdateFieldsWithInvalidate(ctx context.Context, %s %s, fields map[string]any) error {\n", cachedName, pkArg, columnGoType(pk))
@@ -1323,6 +1556,7 @@ func writeConsistentCachedUpdateFields(b *bytes.Buffer, table SQLTable, typeName
 	fprintf(b, "\tif err := c.repo.UpdateFields(ctx, %s, fields); err != nil {\n\t\treturn err\n\t}\n", pkArg)
 	fprintf(b, "\tif c.cache != nil {\n\t\tc.cache.Invalidate(%s)\n\t}\n", pkArg)
 	writeUniqueCacheInvalidateAfterMutation(b, indexes, "old", false)
+	writeIndexListCacheClearAfterMutation(b, indexPrefixes)
 	fprintf(b, "\treturn nil\n}\n\n")
 }
 
@@ -1333,6 +1567,7 @@ func writeConsistentCachedUpdateWithVersion(b *bytes.Buffer, table SQLTable, typ
 	}
 	pk := primaryColumn(table)
 	pkField := modelFieldName(pk.Name)
+	indexPrefixes := modelIndexPrefixes(table)
 	fprintf(b, "func (c *%s) UpdateWithVersion(ctx context.Context, in *entity.%s, expectedVersion %s) error {\n", cachedName, typeName, columnGoType(version))
 	fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn errors.New(%q)\n\t}\n", lowerCamel(typeName)+" cached repo is nil")
 	if len(indexes) > 0 {
@@ -1344,6 +1579,7 @@ func writeConsistentCachedUpdateWithVersion(b *bytes.Buffer, table SQLTable, typ
 	fprintf(b, "\tif c.cache != nil && in != nil {\n\t\tc.cache.Invalidate(in.%s)\n\t}\n", pkField)
 	writeUniqueCacheInvalidateAfterMutation(b, indexes, "old", false)
 	writeUniqueCacheSetAfterMutation(b, indexes, false)
+	writeIndexListCacheClearAfterMutation(b, indexPrefixes)
 	fprintf(b, "\treturn nil\n}\n\n")
 }
 
@@ -1405,6 +1641,37 @@ func writeUniqueCachedFinders(b *bytes.Buffer, indexes []modelUniqueIndex, typeN
 	}
 }
 
+func writeIndexListCacheInitializers(b *bytes.Buffer, indexes []modelIndexPrefix, typeName, repoValue string) {
+	for _, index := range indexes {
+		fieldName := indexListCacheFieldName(index.Columns)
+		finderName := uniqueFinderName(index.Columns)
+		cacheName := "list:" + indexListCachePrefix(index.Columns)
+		fprintf(b, "\tout.%s = cache.New[[]entity.%s](cache.WithName[[]entity.%s](%q))\n", fieldName, typeName, typeName, cacheName)
+		fprintf(b, "\t_ = %s.FindBy%s\n", repoValue, finderName)
+	}
+}
+
+func writeIndexListCachedFinders(b *bytes.Buffer, indexes []modelIndexPrefix, typeName, cachedName string) {
+	for _, index := range indexes {
+		columns := index.Columns
+		fieldName := indexListCacheFieldName(columns)
+		finderName := uniqueFinderName(columns)
+		params := uniqueFinderParams(columns)
+		args := uniqueFinderArgs(columns)
+		if args != "" {
+			args += ", "
+		}
+		keyExpr := indexListCacheKeyCall(columns, args+"limit, offset")
+		fprintf(b, "func (c *%s) FindBy%sCached(ctx context.Context, %s, limit int, offset int) ([]entity.%s, error) {\n", cachedName, finderName, params, typeName)
+		fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn nil, errors.New(%q)\n\t}\n", lowerCamel(typeName)+" cached repo is nil")
+		fprintf(b, "\tkey := %s\n", keyExpr)
+		fprintf(b, "\tif c.%s == nil {\n\t\treturn c.repo.FindBy%s(ctx, %s, limit, offset)\n\t}\n", fieldName, finderName, strings.TrimSuffix(args, ", "))
+		fprintf(b, "\tif cached, ok := c.%s.Get(key); ok {\n\t\treturn cached, nil\n\t}\n", fieldName)
+		fprintf(b, "\tout, err := c.repo.FindBy%s(ctx, %s, limit, offset)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n", finderName, strings.TrimSuffix(args, ", "))
+		fprintf(b, "\tc.%s.Set(key, out)\n\treturn out, nil\n}\n\n", fieldName)
+	}
+}
+
 func writeUniqueCacheSetAfterMutation(b *bytes.Buffer, indexes []modelUniqueIndex, redis bool) {
 	if redis {
 		return
@@ -1424,6 +1691,13 @@ func writeUniqueCacheInvalidateAfterMutation(b *bytes.Buffer, indexes []modelUni
 		fieldName := uniqueCacheFieldName(index.Columns)
 		keyExpr := uniqueCacheKeyFromEntityCall(index.Columns, valueName)
 		fprintf(b, "\tif c.%s != nil && c.%s.Cache() != nil && %s != nil {\n\t\tc.%s.Cache().Delete(%s)\n\t}\n", fieldName, fieldName, valueName, fieldName, keyExpr)
+	}
+}
+
+func writeIndexListCacheClearAfterMutation(b *bytes.Buffer, indexes []modelIndexPrefix) {
+	for _, index := range indexes {
+		fieldName := indexListCacheFieldName(index.Columns)
+		fprintf(b, "\tif c.%s != nil {\n\t\tc.%s.Clear()\n\t}\n", fieldName, fieldName)
 	}
 }
 
@@ -1549,7 +1823,13 @@ func parseSQLTable(name string, body string) (SQLTable, error) {
 			}
 			continue
 		}
-		if strings.HasPrefix(lower, "key ") || strings.HasPrefix(lower, "index ") || strings.HasPrefix(lower, "constraint ") {
+		if strings.HasPrefix(lower, "key ") || strings.HasPrefix(lower, "index ") {
+			if columns := parseSQLIndexColumns(part); len(columns) > 0 {
+				table.Indexes = append(table.Indexes, SQLIndex{Columns: columns})
+			}
+			continue
+		}
+		if strings.HasPrefix(lower, "constraint ") {
 			continue
 		}
 		column := parseSQLColumn(part)
@@ -1576,6 +1856,8 @@ func parseSQLTable(name string, body string) (SQLTable, error) {
 		}
 	}
 	table.UniqueIndexes = filterUniqueIndexes(table.UniqueIndexes, table.Columns)
+	table.SoftDeleteColumn = detectSoftDeleteColumn(table.Columns)
+	table.Indexes = filterSQLIndexes(table.Indexes, table.Columns, table.PrimaryKey)
 	return table, nil
 }
 
@@ -1597,6 +1879,10 @@ func parseSQLColumn(def string) SQLColumn {
 }
 
 func parseUniqueIndexColumns(def string) []string {
+	return parseSQLIndexColumns(def)
+}
+
+func parseSQLIndexColumns(def string) []string {
 	start := strings.Index(def, "(")
 	end := strings.LastIndex(def, ")")
 	if start < 0 || end <= start+1 {
@@ -1609,12 +1895,20 @@ func parseUniqueIndexColumns(def string) []string {
 		if len(fields) == 0 {
 			continue
 		}
-		column := cleanSQLIdent(fields[0])
+		column := cleanSQLIndexColumnIdent(fields[0])
 		if column != "" {
 			columns = append(columns, column)
 		}
 	}
 	return columns
+}
+
+func cleanSQLIndexColumnIdent(value string) string {
+	value = cleanSQLIdent(value)
+	if idx := strings.Index(value, "("); idx >= 0 {
+		value = value[:idx]
+	}
+	return cleanSQLIdent(value)
 }
 
 func parseTablePrimaryKey(def string) string {
@@ -1948,6 +2242,7 @@ func writeAdvancedGORMRepoMethods(b *bytes.Buffer, table SQLTable, typeName, rec
 		fprintf(b, "\tif err := db.Where(%q, %s).First(&out).Error; err != nil {\n\t\tif errors.Is(err, gorm.ErrRecordNotFound) {\n\t\t\treturn nil, storage.ErrNotFound\n\t\t}\n\t\treturn nil, err\n\t}\n\treturn &out, nil\n}\n\n", column.Name+" = ?", modelArgName(column.Name))
 	}
 	writeCompositeGORMUniqueFinders(b, table, typeName, receiverName)
+	writeGORMIndexListFinders(b, table, typeName, receiverName)
 	fprintf(b, "func (r *%s) InsertMany(ctx context.Context, items []*entity.%s) error {\n", receiverName, typeName)
 	fprintf(b, "\tdb, err := r.dbWithContext(ctx)\n\tif err != nil {\n\t\treturn err\n\t}\n\treturn db.Create(&items).Error\n}\n\n")
 	fprintf(b, "func (r *%s) UpdateMany(ctx context.Context, items []*entity.%s) error {\n", receiverName, typeName)
@@ -1985,6 +2280,36 @@ func writeAdvancedGORMRepoMethods(b *bytes.Buffer, table SQLTable, typeName, rec
 		fprintf(b, "\tdb = db.Where(%q)\n", table.SoftDeleteColumn+" IS NULL")
 	}
 	fprintf(b, "\tif err := db.Where(%q, after).Order(%q).Limit(limit).Find(&out).Error; err != nil {\n\t\treturn nil, err\n\t}\n\treturn out, nil\n}\n\n", pk.Name+" > ?", pk.Name+" ASC")
+}
+
+func writeGORMIndexListFinders(b *bytes.Buffer, table SQLTable, typeName, receiverName string) {
+	for _, index := range modelIndexPrefixes(table) {
+		name := uniqueFinderName(index.Columns)
+		fprintf(b, "func (r *%s) FindBy%s(ctx context.Context, %s, limit int, offset int) ([]entity.%s, error) {\n", receiverName, name, uniqueFinderParams(index.Columns), typeName)
+		fprintf(b, "\tdb, err := r.dbWithContext(ctx)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n")
+		fprintf(b, "\tout := make([]entity.%s, 0)\n", typeName)
+		if hasSoftDelete(table) {
+			fprintf(b, "\tdb = db.Where(%q)\n", table.SoftDeleteColumn+" IS NULL")
+		}
+		for _, column := range index.Columns {
+			fprintf(b, "\tdb = db.Where(%q, %s)\n", column.Name+" = ?", modelArgName(column.Name))
+		}
+		for _, column := range index.OrderColumns {
+			fprintf(b, "\tdb = db.Order(%q)\n", column.Name+" ASC")
+		}
+		fprintf(b, "\tif err := db.Limit(limit).Offset(offset).Find(&out).Error; err != nil {\n\t\treturn nil, err\n\t}\n\treturn out, nil\n}\n\n")
+		fprintf(b, "func (r *%s) CountBy%s(ctx context.Context, %s) (int64, error) {\n", receiverName, name, uniqueFinderParams(index.Columns))
+		fprintf(b, "\tdb, err := r.dbWithContext(ctx)\n\tif err != nil {\n\t\treturn 0, err\n\t}\n")
+		if hasSoftDelete(table) {
+			fprintf(b, "\tdb = db.Where(%q)\n", table.SoftDeleteColumn+" IS NULL")
+		}
+		for _, column := range index.Columns {
+			fprintf(b, "\tdb = db.Where(%q, %s)\n", column.Name+" = ?", modelArgName(column.Name))
+		}
+		fprintf(b, "\tvar count int64\n")
+		fprintf(b, "\tif err := db.Model(&entity.%s{}).Count(&count).Error; err != nil {\n\t\treturn 0, err\n\t}\n", typeName)
+		fprintf(b, "\treturn count, nil\n}\n\n")
+	}
 }
 
 func writeCompositeGORMUniqueFinders(b *bytes.Buffer, table SQLTable, typeName, receiverName string) {
@@ -2145,6 +2470,88 @@ func cacheableUniqueColumn(column SQLColumn) bool {
 	return strings.TrimPrefix(columnGoType(column), "*") != "[]byte"
 }
 
+func modelIndexPrefixes(table SQLTable) []modelIndexPrefix {
+	if len(table.Indexes) == 0 {
+		return nil
+	}
+	reserved := uniqueFinderNameSet(table)
+	pk := primaryColumn(table)
+	out := make([]modelIndexPrefix, 0, len(table.Indexes))
+	seen := make(map[string]struct{}, len(table.Indexes))
+	for _, index := range table.Indexes {
+		columns, ok := indexColumns(table, index)
+		if !ok {
+			continue
+		}
+		filterCount := len(columns)
+		if filterCount > 1 {
+			filterCount--
+		}
+		filterColumns := append([]SQLColumn(nil), columns[:filterCount]...)
+		if len(filterColumns) == 0 || filterColumns[0].Name == pk.Name || filterColumns[0].Name == table.SoftDeleteColumn {
+			continue
+		}
+		name := uniqueFinderName(filterColumns)
+		if _, ok := reserved[name]; ok {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		orderColumns := append([]SQLColumn(nil), columns[filterCount:]...)
+		if !modelColumnsContain(orderColumns, pk.Name) {
+			orderColumns = append(orderColumns, pk)
+		}
+		out = append(out, modelIndexPrefix{Columns: filterColumns, OrderColumns: orderColumns})
+	}
+	return out
+}
+
+func uniqueFinderNameSet(table SQLTable) map[string]struct{} {
+	out := make(map[string]struct{})
+	for _, column := range table.Columns {
+		if column.Unique && !column.PrimaryKey {
+			out[uniqueFinderName([]SQLColumn{column})] = struct{}{}
+		}
+	}
+	for _, index := range table.UniqueIndexes {
+		columns, ok := uniqueIndexColumns(table, index)
+		if ok {
+			out[uniqueFinderName(columns)] = struct{}{}
+		}
+	}
+	return out
+}
+
+func indexColumns(table SQLTable, index SQLIndex) ([]SQLColumn, bool) {
+	if len(index.Columns) == 0 {
+		return nil, false
+	}
+	byName := make(map[string]SQLColumn, len(table.Columns))
+	for _, column := range table.Columns {
+		byName[column.Name] = column
+	}
+	columns := make([]SQLColumn, 0, len(index.Columns))
+	for _, name := range index.Columns {
+		column, ok := byName[name]
+		if !ok {
+			return nil, false
+		}
+		columns = append(columns, column)
+	}
+	return columns, true
+}
+
+func modelColumnsContain(columns []SQLColumn, name string) bool {
+	for _, column := range columns {
+		if column.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
 func uniqueFinderName(columns []SQLColumn) string {
 	parts := make([]string, 0, len(columns))
 	for _, column := range columns {
@@ -2173,7 +2580,19 @@ func uniqueCacheFieldName(columns []SQLColumn) string {
 	return "cacheBy" + uniqueFinderName(columns)
 }
 
+func indexListCacheFieldName(columns []SQLColumn) string {
+	return "listCacheBy" + uniqueFinderName(columns)
+}
+
 func uniqueCachePrefix(columns []SQLColumn) string {
+	names := make([]string, 0, len(columns))
+	for _, column := range columns {
+		names = append(names, column.Name)
+	}
+	return "by:" + strings.Join(names, ":")
+}
+
+func indexListCachePrefix(columns []SQLColumn) string {
 	names := make([]string, 0, len(columns))
 	for _, column := range columns {
 		names = append(names, column.Name)
@@ -2183,6 +2602,10 @@ func uniqueCachePrefix(columns []SQLColumn) string {
 
 func uniqueCacheKeyCall(columns []SQLColumn, args string) string {
 	return uniqueCacheKeyFuncName(columns) + "(" + args + ")"
+}
+
+func indexListCacheKeyCall(columns []SQLColumn, args string) string {
+	return indexListCacheKeyFuncName(columns) + "(" + args + ")"
 }
 
 func uniqueCacheKeyFromEntityCall(columns []SQLColumn, receiver string) string {
@@ -2197,6 +2620,10 @@ func uniqueCacheKeyFuncName(columns []SQLColumn) string {
 	return "uniqueKeyBy" + uniqueFinderName(columns)
 }
 
+func indexListCacheKeyFuncName(columns []SQLColumn) string {
+	return "indexListKeyBy" + uniqueFinderName(columns)
+}
+
 func writeUniqueCacheKeyFuncs(b *bytes.Buffer, indexes []modelUniqueIndex) {
 	for _, index := range indexes {
 		columns := index.Columns
@@ -2205,6 +2632,23 @@ func writeUniqueCacheKeyFuncs(b *bytes.Buffer, indexes []modelUniqueIndex) {
 		for _, column := range columns {
 			parts = append(parts, "strconv.Quote(fmt.Sprint("+modelArgName(column.Name)+"))")
 		}
+		fprintf(b, "\treturn strings.Join([]string{%s}, \"|\")\n}\n\n", strings.Join(parts, ", "))
+	}
+}
+
+func writeIndexListCacheKeyFuncs(b *bytes.Buffer, indexes []modelIndexPrefix) {
+	for _, index := range indexes {
+		columns := index.Columns
+		params := uniqueFinderParams(columns)
+		if params != "" {
+			params += ", "
+		}
+		fprintf(b, "func %s(%slimit int, offset int) string {\n", indexListCacheKeyFuncName(columns), params)
+		parts := make([]string, 0, len(columns)+2)
+		for _, column := range columns {
+			parts = append(parts, "strconv.Quote(fmt.Sprint("+modelArgName(column.Name)+"))")
+		}
+		parts = append(parts, "\"limit=\"+strconv.Itoa(limit)", "\"offset=\"+strconv.Itoa(offset)")
 		fprintf(b, "\treturn strings.Join([]string{%s}, \"|\")\n}\n\n", strings.Join(parts, ", "))
 	}
 }

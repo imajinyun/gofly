@@ -15,19 +15,19 @@ import (
 	"time"
 )
 
-type bitsUTInternalPlugin struct{ name string }
+type fakeInternalPlugin struct{ name string }
 
-func (p bitsUTInternalPlugin) Name() string { return p.name }
+func (p fakeInternalPlugin) Name() string { return p.name }
 
-func (p bitsUTInternalPlugin) Generate(req PluginRequest) (PluginResponse, error) {
+func (p fakeInternalPlugin) Generate(req PluginRequest) (PluginResponse, error) {
 	return PluginResponse{Version: pluginVersion, Message: req.Service}, nil
 }
 
-type bitsUTScaffoldPlugin struct{ name string }
+type fakeScaffoldPlugin struct{ name string }
 
-func (p bitsUTScaffoldPlugin) Name() string { return p.name }
+func (p fakeScaffoldPlugin) Name() string { return p.name }
 
-func (p bitsUTScaffoldPlugin) Generate(req PluginRequest) (PluginResponse, error) {
+func (p fakeScaffoldPlugin) Generate(req PluginRequest) (PluginResponse, error) {
 	return PluginResponse{
 		Version: pluginVersion,
 		Message: req.Service + ":" + req.Input["kind"],
@@ -1498,11 +1498,11 @@ esac
 }
 
 func TestInternalPluginRegistryAndRunner(t *testing.T) {
-	name := "bits-ut-" + strings.ReplaceAll(t.Name(), "/", "-")
-	if !RegisterInternalPlugin(bitsUTInternalPlugin{name: name}) {
+	name := "fake-" + strings.ReplaceAll(t.Name(), "/", "-")
+	if !RegisterInternalPlugin(fakeInternalPlugin{name: name}) {
 		t.Fatal("RegisterInternalPlugin first registration returned false")
 	}
-	if RegisterInternalPlugin(bitsUTInternalPlugin{name: name}) {
+	if RegisterInternalPlugin(fakeInternalPlugin{name: name}) {
 		t.Fatal("RegisterInternalPlugin duplicate returned true")
 	}
 	if RegisterInternalPlugin(nil) {
@@ -1529,8 +1529,8 @@ func TestInternalPluginRegistryAndRunner(t *testing.T) {
 }
 
 func TestServiceFilesystemSinkRunPluginsWritesFilesPatchesAndMessages(t *testing.T) {
-	name := "bits-ut-scaffold-" + strings.ReplaceAll(t.Name(), "/", "-")
-	if !RegisterInternalPlugin(bitsUTScaffoldPlugin{name: name}) {
+	name := "fake-scaffold-" + strings.ReplaceAll(t.Name(), "/", "-")
+	if !RegisterInternalPlugin(fakeScaffoldPlugin{name: name}) {
 		t.Fatal("RegisterInternalPlugin scaffold plugin returned false")
 	}
 	dir := t.TempDir()

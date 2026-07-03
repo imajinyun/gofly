@@ -2147,8 +2147,8 @@ func TestGenerateServiceScaffoldRejectsRemovedCompatibilityAliases(t *testing.T)
 
 func TestApplyFeatureNamesPreservesExplicitOrder(t *testing.T) {
 	const (
-		firstFeature  = "bits-ut-order-first"
-		secondFeature = "bits-ut-order-second"
+		firstFeature  = "fake-order-first"
+		secondFeature = "fake-order-second"
 	)
 	if !RegisterFeature(firstFeature, func(scope ExtensionScope) ExtensionPatch {
 		return ExtensionPatch{DataMerge: map[string]string{"Order": "first"}}

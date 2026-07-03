@@ -11,12 +11,12 @@ func TestExtensionFeatureBoundaries(t *testing.T) {
 	if RegisterFeature("", func(ExtensionScope) ExtensionPatch { return ExtensionPatch{} }) {
 		t.Fatal("RegisterFeature blank name = true, want false")
 	}
-	if RegisterFeature("bits-ut-nil", nil) {
+	if RegisterFeature("fake-nil", nil) {
 		t.Fatal("RegisterFeature nil function = true, want false")
 	}
 
-	firstName := "bits-ut-feature-a"
-	secondName := "bits-ut-feature-b"
+	firstName := "fake-feature-a"
+	secondName := "fake-feature-b"
 	if !HasFeature(firstName) {
 		if ok := RegisterFeature(firstName, func(scope ExtensionScope) ExtensionPatch {
 			return ExtensionPatch{

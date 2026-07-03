@@ -2818,6 +2818,51 @@ func TestGenerateModelFromDDLCacheOptionControlsSQLRepoHelpers(t *testing.T) {
 	}
 }
 
+func TestGenerateModelFromDDLCacheOptionCachesIndexListFinders(t *testing.T) {
+	dir := t.TempDir()
+	ddlPath := filepath.Join(dir, "schema.sql")
+	ddl := `CREATE TABLE invoices (
+  id bigint primary key,
+  invoice_no varchar(64) unique not null,
+  customer_id bigint not null,
+  status varchar(32) not null,
+  updated_at timestamp,
+  deleted_at timestamp,
+  version bigint not null,
+  KEY idx_invoice_customer_updated (customer_id, updated_at)
+);`
+	if err := os.WriteFile(ddlPath, []byte(ddl), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outDir := filepath.Join(dir, "out")
+	if err := GenerateModelFromDDL(ModelOptions{DDLFile: ddlPath, Dir: outDir, Package: "model", Cache: true}); err != nil {
+		t.Fatal(err)
+	}
+	repo, err := os.ReadFile(filepath.Join(outDir, "model", "repo", "invoice.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	repoOut := string(repo)
+	for _, want := range []string{
+		"func (r *InvoiceRepo) FindByCustomerID(ctx context.Context, customerID int64, limit int, offset int) ([]entity.Invoice, error)",
+		"listCacheByCustomerID",
+		"*cache.Cache[[]entity.Invoice]",
+		`cache.New[[]entity.Invoice](cache.WithName[[]entity.Invoice]("list:by:customer_id"))`,
+		"func (c *CachedInvoiceRepo) FindByCustomerIDCached(ctx context.Context, customerID int64, limit int, offset int) ([]entity.Invoice, error)",
+		"key := indexListKeyByCustomerID(customerID, limit, offset)",
+		"if cached, ok := c.listCacheByCustomerID.Get(key); ok",
+		"c.listCacheByCustomerID.Set(key, out)",
+		"func indexListKeyByCustomerID(customerID int64, limit int, offset int) string",
+		`"limit=" + strconv.Itoa(limit)`,
+		`"offset=" + strconv.Itoa(offset)`,
+		"c.listCacheByCustomerID.Clear()",
+	} {
+		if !strings.Contains(repoOut, want) {
+			t.Fatalf("generated cached index-list repo missing %q:\n%s", want, repoOut)
+		}
+	}
+}
+
 func TestGenerateModelFromDDLRedisCacheCompilesInTempModule(t *testing.T) {
 	dir := t.TempDir()
 	ddlPath := filepath.Join(dir, "schema.sql")
@@ -3447,6 +3492,34 @@ func TestDatasourceColumnsQueryWithScope(t *testing.T) {
 	}
 	if len(args) != 3 || args[0] != "public" || args[1] != "accounts" || args[2] != "users" {
 		t.Fatalf("postgres scoped args = %#v", args)
+	}
+}
+
+func TestDatasourceIndexesQueryWithScope(t *testing.T) {
+	query, args, err := datasourceIndexesQueryWithScope(datasourceIntrospectionOptions{Driver: "mysql", Database: "app", Tables: []string{"users"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(query, "information_schema.statistics") || !strings.Contains(query, "table_schema = ?") || !strings.Contains(query, "index_name <> 'PRIMARY'") {
+		t.Fatalf("mysql index scoped query = %s", query)
+	}
+	if len(args) != 2 || args[0] != "app" || args[1] != "users" {
+		t.Fatalf("mysql index scoped args = %#v", args)
+	}
+
+	query, args, err = datasourceIndexesQueryWithScope(datasourceIntrospectionOptions{Driver: "postgres", Schema: "public", Tables: []string{"accounts", "users"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(query, "pg_index") || !strings.Contains(query, "ns.nspname = $1") || !strings.Contains(query, "t.relname IN ($2,$3)") || !strings.Contains(query, "NOT ix.indisprimary") {
+		t.Fatalf("postgres index scoped query = %s", query)
+	}
+	if len(args) != 3 || args[0] != "public" || args[1] != "accounts" || args[2] != "users" {
+		t.Fatalf("postgres index scoped args = %#v", args)
+	}
+
+	if _, _, err := datasourceIndexesQueryWithScope(datasourceIntrospectionOptions{Driver: "sqlite"}); err == nil || !strings.Contains(err.Error(), "unsupported datasource driver") {
+		t.Fatalf("unsupported index query error = %v", err)
 	}
 }
 

@@ -12,66 +12,112 @@ import (
 	"testing"
 )
 
-const bitsUTModelDatasourceDriver = "bitsut-model-datasource"
+const fakeModelDatasourceDriver = "fake-model-datasource"
 
 func init() {
-	sql.Register(bitsUTModelDatasourceDriver, bitsUTDatasourceDriver{})
+	sql.Register(fakeModelDatasourceDriver, fakeDatasourceDriver{})
 }
 
-type bitsUTDatasourceDriver struct{}
+type fakeDatasourceDriver struct{}
 
-func (bitsUTDatasourceDriver) Open(name string) (driver.Conn, error) {
-	return &bitsUTDatasourceConn{dsn: name}, nil
+func (fakeDatasourceDriver) Open(name string) (driver.Conn, error) {
+	return &fakeDatasourceConn{dsn: name}, nil
 }
 
-type bitsUTDatasourceConn struct {
+type fakeDatasourceConn struct {
 	dsn string
 }
 
-func (c *bitsUTDatasourceConn) Prepare(string) (driver.Stmt, error) { return nil, driver.ErrSkip }
-func (c *bitsUTDatasourceConn) Close() error                        { return nil }
-func (c *bitsUTDatasourceConn) Begin() (driver.Tx, error)           { return nil, driver.ErrSkip }
+func (c *fakeDatasourceConn) Prepare(string) (driver.Stmt, error) { return nil, driver.ErrSkip }
+func (c *fakeDatasourceConn) Close() error                        { return nil }
+func (c *fakeDatasourceConn) Begin() (driver.Tx, error)           { return nil, driver.ErrSkip }
 
-func (c *bitsUTDatasourceConn) Ping(context.Context) error {
+func (c *fakeDatasourceConn) Ping(context.Context) error {
 	if c.dsn == "ping-error" {
 		return io.ErrUnexpectedEOF
 	}
 	return nil
 }
 
-func (c *bitsUTDatasourceConn) QueryContext(context.Context, string, []driver.NamedValue) (driver.Rows, error) {
+func (c *fakeDatasourceConn) QueryContext(_ context.Context, query string, _ []driver.NamedValue) (driver.Rows, error) {
 	switch c.dsn {
 	case "query-error":
 		return nil, io.ErrClosedPipe
+	case "index-query-error":
+		if isFakeDatasourceIndexQuery(query) {
+			return nil, io.ErrClosedPipe
+		}
+		return fakeDatasourceColumnRows(), nil
 	case "query-empty":
-		return &bitsUTDatasourceRows{}, nil
+		if isFakeDatasourceIndexQuery(query) {
+			return &fakeDatasourceRows{columns: fakeDatasourceIndexColumnNames()}, nil
+		}
+		return &fakeDatasourceRows{columns: fakeDatasourceColumnNames()}, nil
 	default:
-		return &bitsUTDatasourceRows{values: [][]driver.Value{
-			{"users", "id", "BIGINT", "PRI", "NO", int64(1)},
-			{"users", "email", "character varying", "", "YES", int64(2)},
-			{"audit_logs", "created_at", "timestamp with time zone", "", "NO", int64(1)},
-		}}, nil
+		if isFakeDatasourceIndexQuery(query) {
+			return fakeDatasourceIndexRows(), nil
+		}
+		return fakeDatasourceColumnRows(), nil
 	}
 }
 
-type bitsUTDatasourceRows struct {
-	values [][]driver.Value
-	idx    int
+type fakeDatasourceRows struct {
+	columns []string
+	values  [][]driver.Value
+	idx     int
 }
 
-func (r *bitsUTDatasourceRows) Columns() []string {
-	return []string{"table_name", "column_name", "data_type", "column_key", "is_nullable", "ordinal_position"}
+func (r *fakeDatasourceRows) Columns() []string {
+	return append([]string(nil), r.columns...)
 }
 
-func (r *bitsUTDatasourceRows) Close() error { return nil }
+func (r *fakeDatasourceRows) Close() error { return nil }
 
-func (r *bitsUTDatasourceRows) Next(dest []driver.Value) error {
+func (r *fakeDatasourceRows) Next(dest []driver.Value) error {
 	if r.idx >= len(r.values) {
 		return io.EOF
 	}
 	copy(dest, r.values[r.idx])
 	r.idx++
 	return nil
+}
+
+func fakeDatasourceColumnNames() []string {
+	return []string{"table_name", "column_name", "data_type", "column_key", "is_nullable", "ordinal_position"}
+}
+
+func fakeDatasourceIndexColumnNames() []string {
+	return []string{"table_name", "index_name", "column_name", "non_unique", "seq_in_index"}
+}
+
+func isFakeDatasourceIndexQuery(query string) bool {
+	query = strings.ToLower(query)
+	return strings.Contains(query, "information_schema.statistics") || strings.Contains(query, "pg_index")
+}
+
+func fakeDatasourceColumnRows() driver.Rows {
+	return &fakeDatasourceRows{
+		columns: fakeDatasourceColumnNames(),
+		values: [][]driver.Value{
+			{"users", "id", "BIGINT", "PRI", "NO", int64(1)},
+			{"users", "email", "character varying", "", "YES", int64(2)},
+			{"users", "name", "varchar", "", "NO", int64(3)},
+			{"users", "created_at", "timestamp", "", "NO", int64(4)},
+			{"audit_logs", "created_at", "timestamp with time zone", "", "NO", int64(1)},
+		},
+	}
+}
+
+func fakeDatasourceIndexRows() driver.Rows {
+	return &fakeDatasourceRows{
+		columns: fakeDatasourceIndexColumnNames(),
+		values: [][]driver.Value{
+			{"users", "uk_users_email", "email", int64(0), int64(1)},
+			{"users", "idx_users_name_created", "name", int64(1), int64(1)},
+			{"users", "idx_users_name_created", "created_at", int64(1), int64(2)},
+			{"audit_logs", "idx_audit_created", "created_at", int64(1), int64(1)},
+		},
+	}
 }
 
 func TestModelHelperBoundaries(t *testing.T) {
@@ -158,8 +204,10 @@ func TestModelCodegenAdvancedRepoBoundaries(t *testing.T) {
 			{Name: "email", Type: "varchar(128)", Unique: true},
 			{Name: "name", Type: "varchar(64)"},
 			{Name: "version", Type: "int"},
+			{Name: "created_at", Type: "datetime"},
 			{Name: "deleted_at", Type: "datetime", Nullable: true},
 		},
+		Indexes: []SQLIndex{{Columns: []string{"name", "created_at"}}},
 	}
 
 	version, ok := versionColumn(table)
@@ -188,6 +236,22 @@ func TestModelCodegenAdvancedRepoBoundaries(t *testing.T) {
 			t.Fatalf("writeSQLOptimisticLock output missing %q:\n%s", want, sqlOut)
 		}
 	}
+	var indexedSQL bytes.Buffer
+	writeIndexListFinders(&indexedSQL, table, "User", "UserRepo")
+	indexedSQLOut := indexedSQL.String()
+	for _, want := range []string{
+		"FindByName(ctx context.Context, name string, limit int, offset int) ([]entity.User, error)",
+		"CountByName(ctx context.Context, name string) (int64, error)",
+		`where = where.Eq("name", name)`,
+		`where = where.OrderBy("created_at")`,
+		`where = where.OrderBy("id")`,
+		"storage.SelectWhere",
+		"storage.CountWhere",
+	} {
+		if !strings.Contains(indexedSQLOut, want) {
+			t.Fatalf("writeIndexListFinders output missing %q:\n%s", want, indexedSQLOut)
+		}
+	}
 	var noVersion bytes.Buffer
 	writeSQLOptimisticLock(&noVersion, SQLTable{PrimaryKey: "id", Columns: table.Columns[:3]}, "User", "UserRepo")
 	if noVersion.Len() != 0 {
@@ -197,7 +261,7 @@ func TestModelCodegenAdvancedRepoBoundaries(t *testing.T) {
 	var gorm bytes.Buffer
 	writeAdvancedGORMRepoMethods(&gorm, table, "User", "UserRepo")
 	gormOut := gorm.String()
-	for _, want := range []string{"FindByEmail", "InsertMany", "UpdateFields", "UpdateWithVersion", "ListAfter", "deleted_at IS NULL", `"version": expectedVersion + 1`} {
+	for _, want := range []string{"FindByEmail", "FindByName", "CountByName", "InsertMany", "UpdateFields", "UpdateWithVersion", "ListAfter", "deleted_at IS NULL", `"version": expectedVersion + 1`} {
 		if !strings.Contains(gormOut, want) {
 			t.Fatalf("writeAdvancedGORMRepoMethods output missing %q:\n%s", want, gormOut)
 		}
@@ -206,6 +270,46 @@ func TestModelCodegenAdvancedRepoBoundaries(t *testing.T) {
 	writeAdvancedGORMRepoMethods(&gormNoVersion, SQLTable{PrimaryKey: "id", Columns: table.Columns[:3]}, "User", "UserRepo")
 	if strings.Contains(gormNoVersion.String(), "UpdateWithVersion") {
 		t.Fatalf("writeAdvancedGORMRepoMethods without version emitted optimistic lock:\n%s", gormNoVersion.String())
+	}
+}
+
+func TestParseSQLModelsKeepsNonUniqueIndexes(t *testing.T) {
+	const ddl = `CREATE TABLE invoices (
+  id bigint primary key,
+  invoice_no varchar(64) unique not null,
+  customer_id bigint not null,
+  updated_at timestamp,
+  deleted_at timestamp,
+  UNIQUE KEY uk_invoice_no (invoice_no),
+  KEY idx_invoice_customer_updated (customer_id, updated_at),
+  INDEX idx_invoice_deleted (deleted_at),
+  KEY idx_invoice_id (id)
+);`
+
+	tables, err := ParseSQLModels(ddl)
+	if err != nil {
+		t.Fatalf("ParseSQLModels: %v", err)
+	}
+	if len(tables) != 1 {
+		t.Fatalf("tables = %d, want 1", len(tables))
+	}
+	table := tables[0]
+	if len(table.Indexes) != 2 {
+		t.Fatalf("table indexes = %#v, want customer+updated and deleted indexes", table.Indexes)
+	}
+	if got := strings.Join(table.Indexes[0].Columns, ","); got != "customer_id,updated_at" {
+		t.Fatalf("first index columns = %q, want customer_id,updated_at", got)
+	}
+	if got := strings.Join(table.Indexes[1].Columns, ","); got != "deleted_at" {
+		t.Fatalf("second index columns = %q, want deleted_at", got)
+	}
+
+	prefixes := modelIndexPrefixes(table)
+	if len(prefixes) != 1 {
+		t.Fatalf("model index prefixes = %#v, want one non-soft-delete prefix", prefixes)
+	}
+	if got := uniqueFinderName(prefixes[0].Columns); got != "CustomerID" {
+		t.Fatalf("first prefix name = %q, want CustomerID", got)
 	}
 }
 
@@ -220,19 +324,19 @@ func TestModelDatasourceGenerationBoundaries(t *testing.T) {
 	if err := GenerateModelFromDatasource(ModelDatasourceOptions{DSN: "ok"}); err == nil || !strings.Contains(err.Error(), "datasource driver is required") {
 		t.Fatalf("GenerateModelFromDatasource missing driver error = %v, want driver required", err)
 	}
-	if err := GenerateModelFromDatasource(ModelDatasourceOptions{Driver: bitsUTModelDatasourceDriver}); err == nil || !strings.Contains(err.Error(), "datasource dsn is required") {
+	if err := GenerateModelFromDatasource(ModelDatasourceOptions{Driver: fakeModelDatasourceDriver}); err == nil || !strings.Contains(err.Error(), "datasource dsn is required") {
 		t.Fatalf("GenerateModelFromDatasource missing dsn error = %v, want dsn required", err)
 	}
-	if err := GenerateModelFromDatasource(ModelDatasourceOptions{Driver: bitsUTModelDatasourceDriver, DSN: "ping-error"}); err == nil || !strings.Contains(err.Error(), "ping datasource") {
+	if err := GenerateModelFromDatasource(ModelDatasourceOptions{Driver: fakeModelDatasourceDriver, DSN: "ping-error"}); err == nil || !strings.Contains(err.Error(), "ping datasource") {
 		t.Fatalf("GenerateModelFromDatasource ping error = %v, want ping datasource", err)
 	}
-	if err := GenerateModelFromDatasource(ModelDatasourceOptions{Driver: bitsUTModelDatasourceDriver, DSN: "ok", Dir: t.TempDir()}); err == nil || !strings.Contains(err.Error(), "unsupported datasource driver") {
+	if err := GenerateModelFromDatasource(ModelDatasourceOptions{Driver: fakeModelDatasourceDriver, DSN: "ok", Dir: t.TempDir()}); err == nil || !strings.Contains(err.Error(), "unsupported datasource driver") {
 		t.Fatalf("GenerateModelFromDatasource unsupported driver error = %v, want introspection driver error", err)
 	}
 }
 
 func TestIntrospectSQLTablesWithFakeDatasource(t *testing.T) {
-	db, err := sql.Open(bitsUTModelDatasourceDriver, "ok")
+	db, err := sql.Open(fakeModelDatasourceDriver, "ok")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -245,17 +349,21 @@ func TestIntrospectSQLTablesWithFakeDatasource(t *testing.T) {
 	if len(tables) != 2 {
 		t.Fatalf("tables = %#v, want two tables", tables)
 	}
-	if tables[0].Name != "users" || tables[0].PrimaryKey != "id" || len(tables[0].Columns) != 2 {
-		t.Fatalf("users table = %#v, want id primary key and two columns", tables[0])
+	if tables[0].Name != "users" || tables[0].PrimaryKey != "id" || len(tables[0].Columns) != 4 {
+		t.Fatalf("users table = %#v, want id primary key and four columns", tables[0])
 	}
-	if tables[0].Columns[1].Type != "varchar" || !tables[0].Columns[1].Nullable {
+	users := tables[0]
+	if users.Columns[1].Name != "email" || users.Columns[1].Type != "varchar" || !users.Columns[1].Nullable || !users.Columns[1].Unique {
 		t.Fatalf("email column = %#v, want normalized nullable varchar", tables[0].Columns[1])
+	}
+	if len(users.Indexes) != 1 || strings.Join(users.Indexes[0].Columns, ",") != "name,created_at" {
+		t.Fatalf("users indexes = %#v, want name,created_at index", users.Indexes)
 	}
 	if tables[1].PrimaryKey != "created_at" || !tables[1].Columns[0].PrimaryKey || tables[1].Columns[0].Type != "timestamptz" {
 		t.Fatalf("audit table = %#v, want fallback primary key with normalized timestamptz", tables[1])
 	}
 
-	emptyDB, err := sql.Open(bitsUTModelDatasourceDriver, "query-empty")
+	emptyDB, err := sql.Open(fakeModelDatasourceDriver, "query-empty")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -264,13 +372,22 @@ func TestIntrospectSQLTablesWithFakeDatasource(t *testing.T) {
 		t.Fatalf("introspectSQLTables empty error = %v, want model table required", err)
 	}
 
-	queryErrDB, err := sql.Open(bitsUTModelDatasourceDriver, "query-error")
+	queryErrDB, err := sql.Open(fakeModelDatasourceDriver, "query-error")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = queryErrDB.Close() })
 	if _, err := introspectSQLTables(context.Background(), queryErrDB, datasourceIntrospectionOptions{Driver: "mysql"}); err == nil || !strings.Contains(err.Error(), "query datasource schema") {
 		t.Fatalf("introspectSQLTables query error = %v, want query datasource schema", err)
+	}
+
+	indexQueryErrDB, err := sql.Open(fakeModelDatasourceDriver, "index-query-error")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = indexQueryErrDB.Close() })
+	if _, err := introspectSQLTables(context.Background(), indexQueryErrDB, datasourceIntrospectionOptions{Driver: "mysql"}); err == nil || !strings.Contains(err.Error(), "query datasource indexes") {
+		t.Fatalf("introspectSQLTables index query error = %v, want query datasource indexes", err)
 	}
 }
 

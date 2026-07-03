@@ -2762,6 +2762,7 @@ func TestGenerateModelFromDDLCacheOptionControlsSQLRepoHelpers(t *testing.T) {
 	ddlPath := filepath.Join(dir, "schema.sql")
 	ddl := `CREATE TABLE orders (
   id bigint primary key,
+  order_no varchar(64) unique not null,
   buyer_name varchar(128)
 );`
 	if err := os.WriteFile(ddlPath, []byte(ddl), 0o644); err != nil {
@@ -2784,6 +2785,12 @@ func TestGenerateModelFromDDLCacheOptionControlsSQLRepoHelpers(t *testing.T) {
 		"type CachedOrderRepo struct",
 		"func NewConsistentCachedOrderRepo",
 		"func (c *CachedOrderRepo) FindByIDCached(ctx context.Context, id int64) (*entity.Order, error)",
+		"cacheByOrderNo",
+		"*cache.ModelCache[*entity.Order, string]",
+		"func (c *CachedOrderRepo) FindByOrderNoCached(ctx context.Context, orderNo string) (*entity.Order, error)",
+		"func uniqueKeyByOrderNo(orderNo string) string",
+		"c.cacheByOrderNo.Cache().Set(uniqueKeyByOrderNo(in.OrderNo), in)",
+		"c.cacheByOrderNo.Cache().Delete(uniqueKeyByOrderNo(old.OrderNo))",
 		"func (c *CachedOrderRepo) UpdateWithInvalidate(ctx context.Context, in *entity.Order) error",
 		"return c.FindByIDCached(ctx, id)",
 		"return c.UpdateWithInvalidate(ctx, in)",
@@ -2872,7 +2879,7 @@ func TestGenerateModelFromDDLGORMCompositeUniqueCreatesCompositeFinderOnly(t *te
 		t.Fatal(err)
 	}
 	outDir := filepath.Join(dir, "out")
-	if err := GenerateModelFromDDL(ModelOptions{DDLFile: ddlPath, Dir: outDir, Package: "model", Style: "gorm"}); err != nil {
+	if err := GenerateModelFromDDL(ModelOptions{DDLFile: ddlPath, Dir: outDir, Package: "model", Style: "gorm", Cache: true}); err != nil {
 		t.Fatal(err)
 	}
 	repo, err := os.ReadFile(filepath.Join(outDir, "model", "repo", "user.go"))
@@ -2880,9 +2887,19 @@ func TestGenerateModelFromDDLGORMCompositeUniqueCreatesCompositeFinderOnly(t *te
 		t.Fatal(err)
 	}
 	repoOut := string(repo)
-	want := "func (r *UserRepo) FindByTenantIDAndEmail(ctx context.Context, tenantID int64, email string) (*entity.User, error)"
-	if !strings.Contains(repoOut, want) {
-		t.Fatalf("generated gorm repo missing composite unique finder %q:\n%s", want, repoOut)
+	for _, want := range []string{
+		`"fmt"`,
+		`"strconv"`,
+		`"strings"`,
+		"func (r *UserRepo) FindByTenantIDAndEmail(ctx context.Context, tenantID int64, email string) (*entity.User, error)",
+		"cacheByTenantIDAndEmail",
+		"*cache.ModelCache[*entity.User, string]",
+		"func (c *CachedUserRepo) FindByTenantIDAndEmailCached(ctx context.Context, tenantID int64, email string) (*entity.User, error)",
+		"func uniqueKeyByTenantIDAndEmail(tenantID int64, email string) string",
+	} {
+		if !strings.Contains(repoOut, want) {
+			t.Fatalf("generated gorm repo missing composite unique cache/finder %q:\n%s", want, repoOut)
+		}
 	}
 	for _, unexpected := range []string{
 		"func (r *UserRepo) FindByTenantID(ctx context.Context",

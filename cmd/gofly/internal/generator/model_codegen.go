@@ -93,6 +93,10 @@ type SQLUniqueIndex struct {
 	Columns []string
 }
 
+type modelUniqueIndex struct {
+	Columns []SQLColumn
+}
+
 var createTableStartRE = regexp.MustCompile(
 	`(?is)create\s+table\s+(?:if\s+not\s+exists\s+)?` +
 		`(?:[\x60"]?[A-Za-z_][A-Za-z0-9_]*[\x60"]?\.)?` +
@@ -928,7 +932,13 @@ func writeRepoFile(dir string, table SQLTable, pkg string, module string, style 
 	fprintf(&b, "\t\"context\"\n")
 	fprintf(&b, "\t\"database/sql\"\n")
 	fprintf(&b, "\t\"errors\"\n")
+	if cacheEnabled && len(cacheableUniqueIndexes(table)) > 0 {
+		fprintf(&b, "\t\"fmt\"\n")
+	}
 	fprintf(&b, "\t\"sort\"\n")
+	if cacheEnabled && len(cacheableUniqueIndexes(table)) > 0 {
+		fprintf(&b, "\t\"strconv\"\n")
+	}
 	fprintf(&b, "\t\"strings\"\n")
 	if hasSoftDelete(table) {
 		fprintf(&b, "\t\"time\"\n")
@@ -966,6 +976,7 @@ func writeRepoFile(dir string, table SQLTable, pkg string, module string, style 
 	if cacheEnabled {
 		writeConsistentCachedRepo(&b, table, typeName, repoName)
 		writeRedisCachedRepo(&b, table, typeName, repoName)
+		writeUniqueCacheKeyFuncs(&b, cacheableUniqueIndexes(table))
 	}
 	formatted, err := format.Source(b.Bytes())
 	if err != nil {
@@ -983,6 +994,11 @@ func writeGORMRepoFile(dir string, table SQLTable, module string, cacheEnabled b
 	fprintf(&b, "import (\n")
 	fprintf(&b, "\t\"context\"\n")
 	fprintf(&b, "\t\"errors\"\n")
+	if cacheEnabled && len(cacheableUniqueIndexes(table)) > 0 {
+		fprintf(&b, "\t\"fmt\"\n")
+		fprintf(&b, "\t\"strconv\"\n")
+		fprintf(&b, "\t\"strings\"\n")
+	}
 	if hasSoftDelete(table) {
 		fprintf(&b, "\t\"time\"\n")
 	}
@@ -1024,7 +1040,9 @@ func writeGORMRepoFile(dir string, table SQLTable, module string, cacheEnabled b
 	writeGORMWhereMethods(&b, table, typeName, repoName)
 	writeAdvancedGORMRepoMethods(&b, table, typeName, repoName)
 	if cacheEnabled {
+		writeConsistentCachedRepo(&b, table, typeName, repoName)
 		writeRedisCachedRepo(&b, table, typeName, repoName)
+		writeUniqueCacheKeyFuncs(&b, cacheableUniqueIndexes(table))
 	}
 	formatted, err := format.Source(b.Bytes())
 	if err != nil {
@@ -1206,26 +1224,56 @@ func writeConsistentCachedRepo(b *bytes.Buffer, table SQLTable, typeName, repoNa
 	cachedName := "Cached" + repoName
 	pkArg := modelArgName(pk.Name)
 	pkField := modelFieldName(pk.Name)
-	fprintf(b, "type %s struct {\n\trepo *%s\n\tcache *cache.ModelCache[*entity.%s, %s]\n}\n\n", cachedName, repoName, typeName, columnGoType(pk))
+	uniqueIndexes := cacheableUniqueIndexes(table)
+	if len(uniqueIndexes) > 0 {
+		fprintf(b, "type %s struct {\n\trepo *%s\n\tcache *cache.ModelCache[*entity.%s, %s]\n", cachedName, repoName, typeName, columnGoType(pk))
+		for _, index := range uniqueIndexes {
+			fprintf(b, "\t%s *cache.ModelCache[*entity.%s, string]\n", uniqueCacheFieldName(index.Columns), typeName)
+		}
+		fprintf(b, "}\n\n")
+	} else {
+		fprintf(b, "type %s struct {\n\trepo *%s\n\tcache *cache.ModelCache[*entity.%s, %s]\n}\n\n", cachedName, repoName, typeName, columnGoType(pk))
+	}
 	fprintf(b, "func NewConsistentCached%s(repo *%s, opts ...cache.ModelOption[*entity.%s, %s]) *%s {\n", repoName, repoName, typeName, columnGoType(pk), cachedName)
 	fprintf(b, "\tloader := func(ctx context.Context, id %s) (*entity.%s, error) {\n\t\tif repo == nil {\n\t\t\treturn nil, errors.New(%q)\n\t\t}\n\t\treturn repo.FindOne(ctx, id)\n\t}\n", columnGoType(pk), typeName, lowerCamel(typeName)+" repo is nil")
-	fprintf(b, "\treturn &%s{repo: repo, cache: cache.NewModel(loader, opts...)}\n}\n\n", cachedName)
+	if len(uniqueIndexes) > 0 {
+		fprintf(b, "\tout := &%s{repo: repo, cache: cache.NewModel(loader, opts...)}\n", cachedName)
+		writeUniqueModelCacheInitializers(b, uniqueIndexes, typeName, "repo", false)
+		fprintf(b, "\treturn out\n}\n\n")
+	} else {
+		fprintf(b, "\treturn &%s{repo: repo, cache: cache.NewModel(loader, opts...)}\n}\n\n", cachedName)
+	}
 	fprintf(b, "func (c *%s) FindOne(ctx context.Context, %s %s) (*entity.%s, error) {\n", cachedName, modelArgName(pk.Name), columnGoType(pk), typeName)
 	fprintf(b, "\treturn c.FindByIDCached(ctx, %s)\n}\n\n", pkArg)
 	fprintf(b, "func (c *%s) FindByIDCached(ctx context.Context, %s %s) (*entity.%s, error) {\n", cachedName, pkArg, columnGoType(pk), typeName)
 	fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn nil, errors.New(%q)\n\t}\n", lowerCamel(typeName)+" cached repo is nil")
 	fprintf(b, "\tif c.cache == nil {\n\t\treturn c.repo.FindOne(ctx, %s)\n\t}\n\treturn c.cache.Get(ctx, %s)\n}\n\n", pkArg, pkArg)
+	writeUniqueCachedFinders(b, uniqueIndexes, typeName, cachedName, false)
 	fprintf(b, "func (c *%s) Insert(ctx context.Context, in *entity.%s) error {\n", cachedName, typeName)
 	fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn errors.New(%q)\n\t}\n", lowerCamel(typeName)+" cached repo is nil")
-	fprintf(b, "\tif err := c.repo.Insert(ctx, in); err != nil {\n\t\treturn err\n\t}\n\tif c.cache != nil && in != nil {\n\t\tc.cache.Set(in.%s, in)\n\t}\n\treturn nil\n}\n\n", pkField)
+	fprintf(b, "\tif err := c.repo.Insert(ctx, in); err != nil {\n\t\treturn err\n\t}\n\tif c.cache != nil && in != nil {\n\t\tc.cache.Set(in.%s, in)\n\t}\n", pkField)
+	writeUniqueCacheSetAfterMutation(b, uniqueIndexes, false)
+	fprintf(b, "\treturn nil\n}\n\n")
 	fprintf(b, "func (c *%s) Update(ctx context.Context, in *entity.%s) error {\n", cachedName, typeName)
 	fprintf(b, "\treturn c.UpdateWithInvalidate(ctx, in)\n}\n\n")
 	fprintf(b, "func (c *%s) UpdateWithInvalidate(ctx context.Context, in *entity.%s) error {\n", cachedName, typeName)
 	fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn errors.New(%q)\n\t}\n", lowerCamel(typeName)+" cached repo is nil")
-	fprintf(b, "\tif err := c.repo.Update(ctx, in); err != nil {\n\t\treturn err\n\t}\n\tif c.cache != nil && in != nil {\n\t\tc.cache.Invalidate(in.%s)\n\t}\n\treturn nil\n}\n\n", pkField)
+	if len(uniqueIndexes) > 0 {
+		fprintf(b, "\tvar old *entity.%s\n", typeName)
+		fprintf(b, "\tif in != nil {\n\t\told, _ = c.repo.FindOne(ctx, in.%s)\n\t}\n", pkField)
+	}
+	fprintf(b, "\tif err := c.repo.Update(ctx, in); err != nil {\n\t\treturn err\n\t}\n\tif c.cache != nil && in != nil {\n\t\tc.cache.Invalidate(in.%s)\n\t}\n", pkField)
+	writeUniqueCacheInvalidateAfterMutation(b, uniqueIndexes, "old", false)
+	writeUniqueCacheSetAfterMutation(b, uniqueIndexes, false)
+	fprintf(b, "\treturn nil\n}\n\n")
 	fprintf(b, "func (c *%s) Delete(ctx context.Context, %s %s) error {\n", cachedName, modelArgName(pk.Name), columnGoType(pk))
 	fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn errors.New(%q)\n\t}\n", lowerCamel(typeName)+" cached repo is nil")
-	fprintf(b, "\tif err := c.repo.Delete(ctx, %s); err != nil {\n\t\treturn err\n\t}\n\tif c.cache != nil {\n\t\tc.cache.Invalidate(%s)\n\t}\n\treturn nil\n}\n\n", pkArg, pkArg)
+	if len(uniqueIndexes) > 0 {
+		fprintf(b, "\told, _ := c.repo.FindOne(ctx, %s)\n", pkArg)
+	}
+	fprintf(b, "\tif err := c.repo.Delete(ctx, %s); err != nil {\n\t\treturn err\n\t}\n\tif c.cache != nil {\n\t\tc.cache.Invalidate(%s)\n\t}\n", pkArg, pkArg)
+	writeUniqueCacheInvalidateAfterMutation(b, uniqueIndexes, "old", false)
+	fprintf(b, "\treturn nil\n}\n\n")
 }
 
 func writeRedisCachedRepo(b *bytes.Buffer, table SQLTable, typeName, repoName string) {
@@ -1255,6 +1303,64 @@ func writeRedisCachedRepo(b *bytes.Buffer, table SQLTable, typeName, repoName st
 	fprintf(b, "func (c *%s) Delete(ctx context.Context, %s %s) error {\n", cachedName, pkArg, pkType)
 	fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn errors.New(%q)\n\t}\n", lowerCamel(typeName)+" redis cached repo is nil")
 	fprintf(b, "\tif err := c.repo.Delete(ctx, %s); err != nil {\n\t\treturn err\n\t}\n\tif c.cache != nil {\n\t\treturn c.cache.Invalidate(ctx, %s)\n\t}\n\treturn nil\n}\n\n", pkArg, pkArg)
+}
+
+func writeUniqueModelCacheInitializers(b *bytes.Buffer, indexes []modelUniqueIndex, typeName, repoValue string, redis bool) {
+	if redis {
+		return
+	}
+	for _, index := range indexes {
+		fieldName := uniqueCacheFieldName(index.Columns)
+		finderName := uniqueFinderName(index.Columns)
+		keyPrefix := uniqueCachePrefix(index.Columns)
+		fprintf(b, "\tout.%s = cache.NewModel(func(ctx context.Context, key string) (*entity.%s, error) {\n", fieldName, typeName)
+		fprintf(b, "\t\treturn nil, cache.ErrNotFound\n")
+		fprintf(b, "\t}, cache.WithModelKeyPrefix[*entity.%s, string](%q))\n", typeName, keyPrefix)
+		fprintf(b, "\t_ = %s.FindBy%s\n", repoValue, finderName)
+	}
+}
+
+func writeUniqueCachedFinders(b *bytes.Buffer, indexes []modelUniqueIndex, typeName, cachedName string, redis bool) {
+	if redis {
+		return
+	}
+	for _, index := range indexes {
+		columns := index.Columns
+		fieldName := uniqueCacheFieldName(columns)
+		finderName := uniqueFinderName(columns)
+		params := uniqueFinderParams(columns)
+		args := uniqueFinderArgs(columns)
+		keyExpr := uniqueCacheKeyCall(columns, args)
+		fprintf(b, "func (c *%s) FindBy%sCached(ctx context.Context, %s) (*entity.%s, error) {\n", cachedName, finderName, params, typeName)
+		fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn nil, errors.New(%q)\n\t}\n", lowerCamel(typeName)+" cached repo is nil")
+		fprintf(b, "\tkey := %s\n", keyExpr)
+		fprintf(b, "\tif c.%s == nil || c.%s.Cache() == nil {\n\t\treturn c.repo.FindBy%s(ctx, %s)\n\t}\n", fieldName, fieldName, finderName, args)
+		fprintf(b, "\tif cached, ok := c.%s.Cache().Get(key); ok {\n\t\treturn cached, nil\n\t}\n", fieldName)
+		fprintf(b, "\tout, err := c.repo.FindBy%s(ctx, %s)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n", finderName, args)
+		fprintf(b, "\tc.%s.Cache().Set(key, out)\n\treturn out, nil\n}\n\n", fieldName)
+	}
+}
+
+func writeUniqueCacheSetAfterMutation(b *bytes.Buffer, indexes []modelUniqueIndex, redis bool) {
+	if redis {
+		return
+	}
+	for _, index := range indexes {
+		fieldName := uniqueCacheFieldName(index.Columns)
+		keyExpr := uniqueCacheKeyFromEntityCall(index.Columns, "in")
+		fprintf(b, "\tif c.%s != nil && c.%s.Cache() != nil && in != nil {\n\t\tc.%s.Cache().Set(%s, in)\n\t}\n", fieldName, fieldName, fieldName, keyExpr)
+	}
+}
+
+func writeUniqueCacheInvalidateAfterMutation(b *bytes.Buffer, indexes []modelUniqueIndex, valueName string, redis bool) {
+	if redis {
+		return
+	}
+	for _, index := range indexes {
+		fieldName := uniqueCacheFieldName(index.Columns)
+		keyExpr := uniqueCacheKeyFromEntityCall(index.Columns, valueName)
+		fprintf(b, "\tif c.%s != nil && c.%s.Cache() != nil && %s != nil {\n\t\tc.%s.Cache().Delete(%s)\n\t}\n", fieldName, fieldName, valueName, fieldName, keyExpr)
+	}
 }
 
 func writeGORMWhereMethods(b *bytes.Buffer, table SQLTable, typeName, receiverName string) {
@@ -1944,6 +2050,37 @@ func uniqueIndexColumns(table SQLTable, index SQLUniqueIndex) ([]SQLColumn, bool
 	return columns, true
 }
 
+func cacheableUniqueIndexes(table SQLTable) []modelUniqueIndex {
+	indexes := make([]modelUniqueIndex, 0)
+	for _, column := range table.Columns {
+		if !column.Unique || column.PrimaryKey || !cacheableUniqueColumn(column) {
+			continue
+		}
+		indexes = append(indexes, modelUniqueIndex{Columns: []SQLColumn{column}})
+	}
+	for _, index := range table.UniqueIndexes {
+		columns, ok := uniqueIndexColumns(table, index)
+		if !ok {
+			continue
+		}
+		cacheable := true
+		for _, column := range columns {
+			if !cacheableUniqueColumn(column) {
+				cacheable = false
+				break
+			}
+		}
+		if cacheable {
+			indexes = append(indexes, modelUniqueIndex{Columns: columns})
+		}
+	}
+	return indexes
+}
+
+func cacheableUniqueColumn(column SQLColumn) bool {
+	return strings.TrimPrefix(columnGoType(column), "*") != "[]byte"
+}
+
 func uniqueFinderName(columns []SQLColumn) string {
 	parts := make([]string, 0, len(columns))
 	for _, column := range columns {
@@ -1966,6 +2103,46 @@ func uniqueFinderArgs(columns []SQLColumn) string {
 		args = append(args, modelArgName(column.Name))
 	}
 	return strings.Join(args, ", ")
+}
+
+func uniqueCacheFieldName(columns []SQLColumn) string {
+	return "cacheBy" + uniqueFinderName(columns)
+}
+
+func uniqueCachePrefix(columns []SQLColumn) string {
+	names := make([]string, 0, len(columns))
+	for _, column := range columns {
+		names = append(names, column.Name)
+	}
+	return "by:" + strings.Join(names, ":")
+}
+
+func uniqueCacheKeyCall(columns []SQLColumn, args string) string {
+	return uniqueCacheKeyFuncName(columns) + "(" + args + ")"
+}
+
+func uniqueCacheKeyFromEntityCall(columns []SQLColumn, receiver string) string {
+	args := make([]string, 0, len(columns))
+	for _, column := range columns {
+		args = append(args, receiver+"."+modelFieldName(column.Name))
+	}
+	return uniqueCacheKeyCall(columns, strings.Join(args, ", "))
+}
+
+func uniqueCacheKeyFuncName(columns []SQLColumn) string {
+	return "uniqueKeyBy" + uniqueFinderName(columns)
+}
+
+func writeUniqueCacheKeyFuncs(b *bytes.Buffer, indexes []modelUniqueIndex) {
+	for _, index := range indexes {
+		columns := index.Columns
+		fprintf(b, "func %s(%s) string {\n", uniqueCacheKeyFuncName(index.Columns), uniqueFinderParams(columns))
+		parts := make([]string, 0, len(columns))
+		for _, column := range columns {
+			parts = append(parts, "strconv.Quote(fmt.Sprint("+modelArgName(column.Name)+"))")
+		}
+		fprintf(b, "\treturn strings.Join([]string{%s}, \"|\")\n}\n\n", strings.Join(parts, ", "))
+	}
 }
 
 func sqlUniqueWhereParts(columns []SQLColumn) string {

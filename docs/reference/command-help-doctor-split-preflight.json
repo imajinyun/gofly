@@ -13,7 +13,8 @@
   "doctorPhysicalSplitDone": true,
   "doctorPackage": "cmd/gofly/internal/command/doctor",
   "doctorCommandAdapter": "doctor_adapter.go",
-  "selectedNextFamily": "doctor",
+  "selectedNextFamily": "release",
+  "completedNextFamily": "doctor",
   "deferredNextFamily": "",
   "doctorPreflightRefreshed": true,
   "helpFiles": [
@@ -63,7 +64,7 @@
   ],
   "physicalSplitAdmission": {
     "status": "completed-help-and-doctor-single-family-splits",
-    "nextAllowedAction": "Refresh the next command family candidate after preserving diagnostics, support bundle JSON, stdout/stderr behavior, help routing, and command registration.",
+    "nextAllowedAction": "Create focused release family preflight evidence after preserving diagnostics, support bundle JSON, stdout/stderr behavior, help routing, and command registration.",
     "blockedAction": "Do not move shared helpers, root wiring, JSON helpers, output helpers, help adapter, doctor adapter, or bug support bundle code in the next split commit.",
     "rollbackRequirement": "Restore help or doctor files to cmd/gofly/internal/command in one commit if help output, topic routing, diagnostics, support bundle JSON, command registration, stdout, or stderr behavior changes."
   }

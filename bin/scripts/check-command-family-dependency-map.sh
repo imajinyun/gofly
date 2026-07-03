@@ -122,7 +122,7 @@ require("command-family-dependency-map-check" in docs_check, "docs-check must de
 
 split_policy = dependency_map.get("splitPolicy") or {}
 require(split_policy.get("status") == "planned-only", "splitPolicy.status must be planned-only")
-require(split_policy.get("selectedFamily") in ("", None), "splitPolicy.selectedFamily must stay empty until a family is selected")
+require(split_policy.get("selectedFamily") == "release", "splitPolicy.selectedFamily must be release after P22-15")
 require(
     set(split_policy.get("allowedRecommendations") or []) == {"candidate", "defer", "blocked"},
     "splitPolicy.allowedRecommendations mismatch",

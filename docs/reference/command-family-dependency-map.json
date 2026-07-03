@@ -7,7 +7,7 @@
   "policy": "Do not split cmd/gofly/internal/command by package until a family has stable file ownership, isolated imports, CLI JSON and help contract coverage, and a rollback path. Package splits must move one family at a time.",
   "splitPolicy": {
     "status": "planned-only",
-    "selectedFamily": "",
+    "selectedFamily": "release",
     "allowedRecommendations": [
       "candidate",
       "defer",
@@ -428,25 +428,27 @@
           "testing"
         ]
       },
-      "splitRecommendation": "defer",
-      "splitRisk": "medium",
+      "splitRecommendation": "candidate",
+      "splitRisk": "low",
       "blockers": [
         "Release commands own artifact, contract, local check, and JSON output evidence used by CI and release governance.",
         "Package movement must not change release evidence fields or skip-gate behavior."
       ],
       "requiredPreSplitActions": [
+        "add a release-family preflight evidence file before any physical move",
         "pin release check JSON output with golden tests",
         "isolate local shell command execution from output rendering",
         "prove release artifact gate evidence remains unchanged"
       ],
       "requiredGates": [
+        "make command-next-family-candidate-refresh-check",
         "make command-family-dependency-map-check",
         "make cli-command-surface-check",
         "make cli-json-contract-goldens-check",
         "make required-checks-drift-check",
         "go test -shuffle=on ./cmd/gofly/internal/command/..."
       ],
-      "rollbackRequirement": "Restore release command files if release check JSON, artifact evidence, or required-check drift output changes."
+      "rollbackRequirement": "Restore release command files if release check JSON, artifact evidence, command registration, stdout, stderr, or required-check drift output changes."
     },
     {
       "id": "doctor",
@@ -589,7 +591,7 @@
       "id": "shared",
       "prefix": "",
       "domain": "Shared root command wiring, CLI helpers, compatibility commands, IDL helpers, template helpers, example commands, and low-level command utilities without a stable prefix.",
-      "fileCount": 58,
+      "fileCount": 59,
       "files": [
         "aidoctor.go",
         "aidoctor_checks.go",
@@ -604,6 +606,7 @@
         "command_doctor_split_readiness_test.go",
         "command_help_split_readiness_test.go",
         "command_help_doctor_split_preflight_test.go",
+        "command_next_family_candidate_refresh_test.go",
         "command_output_json_adapter_dry_run_test.go",
         "command_shared_reduction_plan_test.go",
         "compat_command.go",
@@ -709,14 +712,21 @@
       "rollbackRequirement": "Restore shared files to the command package and keep root command registration, JSON errors, IDL helpers, and template behavior unchanged."
     }
   ],
-  "nextCandidates": [],
+  "nextCandidates": [
+    {
+      "id": "release",
+      "status": "candidate-after-json-golden",
+      "reason": "Release is selected as the next preflight candidate because it has a bounded file family, existing JSON golden coverage, release contract tests, and no direct runtime, spinner, or extracted command package dependency.",
+      "requiredGate": "make command-next-family-candidate-refresh-check",
+      "nextStep": "P22-16-command-release-family-preflight"
+    }
+  ],
   "deferredFamilies": [
     "api",
     "rpc",
     "model",
     "new",
     "plugin",
-    "release",
     "config",
     "help",
     "doctor"

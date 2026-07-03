@@ -132,8 +132,8 @@ require("make command-output-json-adapter-dry-run-check" in set(shared_blocked.g
 require("make command-help-doctor-split-preflight-check" in set(shared_blocked.get("requiredGates") or []), "shared blocked gates must include help/doctor split preflight check")
 
 next_step = readiness.get("nextStep") or {}
-require(next_step.get("id") == "P22-15-command-next-family-candidate-refresh", "readiness nextStep must refresh next candidate")
-require("Refresh the next command family candidate" in str(next_step.get("action") or ""), "readiness nextStep action must refresh next candidate")
+require(next_step.get("id") == "P22-16-command-release-family-preflight", "readiness nextStep must move to release preflight")
+require("release family preflight" in str(next_step.get("action") or ""), "readiness nextStep action must create release preflight")
 
 family_by_id = {
     family.get("id"): family

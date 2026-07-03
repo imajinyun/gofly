@@ -70,7 +70,8 @@ require(evidence.get("commandAdapter") == "help_adapter.go", "help/doctor split 
 require(evidence.get("doctorPhysicalSplitDone") is True, "doctorPhysicalSplitDone must be true after P22-14")
 require(evidence.get("doctorPackage") == "cmd/gofly/internal/command/doctor", "doctorPackage mismatch")
 require(evidence.get("doctorCommandAdapter") == "doctor_adapter.go", "doctorCommandAdapter mismatch")
-require(evidence.get("selectedNextFamily") == "doctor", "selectedNextFamily must be doctor")
+require(evidence.get("selectedNextFamily") == "release", "selectedNextFamily must be release after P22-15")
+require(evidence.get("completedNextFamily") == "doctor", "completedNextFamily must record completed doctor split")
 require(evidence.get("deferredNextFamily") == "", "deferredNextFamily must be empty after P22-14")
 require(evidence.get("doctorPreflightRefreshed") is True, "doctorPreflightRefreshed must be true after P22-13")
 require("command-help-doctor-split-preflight-check" in targets, "Makefile must expose command-help-doctor-split-preflight-check")
@@ -149,9 +150,9 @@ require(
 )
 
 next_step = readiness.get("nextStep") or {}
-require(next_step.get("id") == "P22-15-command-next-family-candidate-refresh", "readiness nextStep must refresh next candidate")
+require(next_step.get("id") == "P22-16-command-release-family-preflight", "readiness nextStep must move to release preflight")
 next_action = str(next_step.get("action") or "")
-require("Refresh the next command family candidate" in next_action, "nextStep action must refresh next candidate")
+require("release family preflight" in next_action, "nextStep action must create release preflight")
 
 family_by_id = {
     family.get("id"): family
@@ -179,7 +180,7 @@ require("check-command-help-doctor-split-preflight.sh" in script_files, "scriptF
 
 admission = evidence.get("physicalSplitAdmission") or {}
 require(admission.get("status") == "completed-help-and-doctor-single-family-splits", "physicalSplitAdmission status mismatch")
-require("Refresh the next command family candidate" in str(admission.get("nextAllowedAction") or ""), "nextAllowedAction must refresh next candidate")
+require("release family preflight" in str(admission.get("nextAllowedAction") or ""), "nextAllowedAction must create release preflight")
 require("Do not move shared helpers" in str(admission.get("blockedAction") or ""), "blockedAction must block shared movement")
 require("Restore help or doctor files" in str(admission.get("rollbackRequirement") or ""), "rollbackRequirement must describe help/doctor restore path")
 

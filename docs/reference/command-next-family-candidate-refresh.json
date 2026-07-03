@@ -1,0 +1,106 @@
+{
+  "schema": "gofly.command_next_family_candidate_refresh.v1",
+  "status": "completed-candidate-refresh",
+  "package": "cmd/gofly/internal/command",
+  "acceptanceGate": "make command-next-family-candidate-refresh-check",
+  "purpose": "Record the P22-15 command family candidate refresh after the help and doctor physical splits completed.",
+  "policy": "This evidence selects the next preflight candidate only. It does not authorize moving release files, shared helpers, root wiring, JSON helpers, output helpers, adapters, or any other command family.",
+  "planningOnly": true,
+  "noPhysicalMove": true,
+  "completedPrerequisites": [
+    "help physical split is complete and still routed through help_adapter.go",
+    "doctor physical split is complete and still routed through doctor_adapter.go",
+    "shared helper movement remains blocked after help and doctor extraction",
+    "command family dependency map accounts for every command file exactly once"
+  ],
+  "selectedCandidate": {
+    "id": "release",
+    "status": "candidate-after-json-golden",
+    "package": "cmd/gofly/internal/command",
+    "files": [
+      "release.go",
+      "release_contract_checks.go",
+      "release_helpers.go",
+      "release_local_checks.go",
+      "release_output.go",
+      "release_test.go",
+      "release_types.go"
+    ],
+    "reason": "Release is the next best preflight candidate because it has a bounded file family, existing JSON golden coverage, release contract tests, and no direct runtime, spinner, or extracted command package dependency.",
+    "requiredPreSplitActions": [
+      "add a release-family preflight evidence file before any physical move",
+      "pin release check JSON output, error envelope, artifact evidence, and skip-gate behavior",
+      "isolate local shell command execution from release output rendering through a small adapter",
+      "prove command registration, help output, stdout/stderr, and release check JSON contracts remain stable"
+    ],
+    "requiredGates": [
+      "make command-next-family-candidate-refresh-check",
+      "make command-family-dependency-map-check",
+      "make command-split-readiness-check",
+      "make command-output-json-adapter-dry-run-check",
+      "make cli-command-surface-check",
+      "make cli-json-contract-goldens-check",
+      "make required-checks-drift-check",
+      "GOCACHE=$PWD/.tmp-test/gocache GOTMPDIR=$PWD/.tmp-test/gotmp go test -shuffle=on ./cmd/gofly/internal/command -run 'TestRelease(CheckCommandJSONAndChangelogBlocker|CheckCommandJSONAlreadyReportedOnce)' -count=1",
+      "GOCACHE=$PWD/.tmp-test/gocache GOTMPDIR=$PWD/.tmp-test/gotmp go test -shuffle=on ./cmd/gofly/internal/command/... -count=1",
+      "git diff --check"
+    ],
+    "rollbackRequirement": "Restore release to deferred status and clear release from nextCandidates if release JSON, artifact evidence, command registration, stdout, stderr, or required-check drift behavior changes."
+  },
+  "deferredCandidates": [
+    {
+      "id": "config",
+      "reason": "Config remains deferred because it is small but still directly mutates generator config structures; first isolate config mutation from CLI parsing and output rendering."
+    },
+    {
+      "id": "plugin",
+      "reason": "Plugin remains deferred because registry, install, run, digest, permissions, and external process boundaries are security-sensitive and need conformance evidence before any package movement."
+    },
+    {
+      "id": "api",
+      "reason": "API remains deferred because format, import, diff, docs, middleware, and client outputs are broad external contracts tied to generator behavior."
+    },
+    {
+      "id": "rpc",
+      "reason": "RPC remains deferred because descriptor, protoc, scaffold, template, runtime RPC, and spinner behavior need focused golden coverage before extraction."
+    },
+    {
+      "id": "model",
+      "reason": "Model remains deferred because datasource options and generated dependency hygiene must stay stable before command package movement."
+    },
+    {
+      "id": "new",
+      "reason": "New remains deferred because service, API, RPC, goctl compatibility, profile, contract, and scaffold outputs form one generated-output surface."
+    }
+  ],
+  "blockedFamilies": [
+    {
+      "id": "ai",
+      "reason": "AI remains blocked because it is large and still couples control-plane, LLM governance, failover, streaming, manifest, project apply, and JSON output helpers."
+    },
+    {
+      "id": "shared",
+      "reason": "Shared remains blocked because root wiring, JSON errors, IO, path flags, IDL helpers, template helpers, adapters, and package-wide tests are dependency sources for other command families."
+    }
+  ],
+  "goldenTests": [
+    "TestCommandNextFamilyCandidateRefreshEvidence",
+    "TestCommandNextFamilyCandidateRefreshContracts"
+  ],
+  "requiredGates": [
+    "make command-next-family-candidate-refresh-check",
+    "make command-family-dependency-map-check",
+    "make command-split-readiness-check",
+    "make command-help-doctor-split-preflight-check",
+    "make command-output-json-adapter-dry-run-check",
+    "make project-layout-governance-check",
+    "make cli-command-surface-check",
+    "make cli-json-contract-goldens-check",
+    "GOCACHE=$PWD/.tmp-test/gocache GOTMPDIR=$PWD/.tmp-test/gotmp go test -shuffle=on ./cmd/gofly/internal/command -run 'TestCommandNextFamilyCandidateRefresh(Evidence|Contracts)' -count=1",
+    "git diff --check"
+  ],
+  "nextStep": {
+    "id": "P22-16-command-release-family-preflight",
+    "action": "Create focused release family preflight evidence and tests before moving any release command files."
+  }
+}

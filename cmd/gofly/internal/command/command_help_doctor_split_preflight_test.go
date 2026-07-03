@@ -23,6 +23,7 @@ type commandHelpDoctorSplitPreflightEvidence struct {
 	DoctorPackage            string                                   `json:"doctorPackage"`
 	DoctorCommandAdapter     string                                   `json:"doctorCommandAdapter"`
 	SelectedNextFamily       string                                   `json:"selectedNextFamily"`
+	CompletedNextFamily      string                                   `json:"completedNextFamily"`
 	DeferredNextFamily       string                                   `json:"deferredNextFamily"`
 	DoctorPreflightRefreshed bool                                     `json:"doctorPreflightRefreshed"`
 	HelpFiles                []string                                 `json:"helpFiles"`
@@ -72,8 +73,8 @@ func TestCommandHelpDoctorSplitPreflightEvidence(t *testing.T) {
 	if evidence.DoctorCommandAdapter != "doctor_adapter.go" {
 		t.Fatalf("doctorCommandAdapter = %q, want doctor_adapter.go", evidence.DoctorCommandAdapter)
 	}
-	if evidence.SelectedNextFamily != "doctor" || evidence.DeferredNextFamily != "" {
-		t.Fatalf("family sequence = %q/%q, want doctor/<empty>", evidence.SelectedNextFamily, evidence.DeferredNextFamily)
+	if evidence.SelectedNextFamily != "release" || evidence.CompletedNextFamily != "doctor" || evidence.DeferredNextFamily != "" {
+		t.Fatalf("family sequence = %q/%q/%q, want release/doctor/<empty>", evidence.SelectedNextFamily, evidence.CompletedNextFamily, evidence.DeferredNextFamily)
 	}
 	if !evidence.DoctorPreflightRefreshed {
 		t.Fatal("doctorPreflightRefreshed = false, want P22-13 doctor preflight refresh recorded")
@@ -125,8 +126,8 @@ func TestCommandHelpDoctorSplitPreflightEvidence(t *testing.T) {
 	if evidence.PhysicalSplitAdmission.Status != "completed-help-and-doctor-single-family-splits" {
 		t.Fatalf("physicalSplitAdmission.status = %q, want completed-help-and-doctor-single-family-splits", evidence.PhysicalSplitAdmission.Status)
 	}
-	if !strings.Contains(evidence.PhysicalSplitAdmission.NextAllowedAction, "Refresh the next command family candidate") {
-		t.Fatalf("nextAllowedAction = %q, want next candidate refresh", evidence.PhysicalSplitAdmission.NextAllowedAction)
+	if !strings.Contains(evidence.PhysicalSplitAdmission.NextAllowedAction, "release family preflight") {
+		t.Fatalf("nextAllowedAction = %q, want release family preflight", evidence.PhysicalSplitAdmission.NextAllowedAction)
 	}
 	if !strings.Contains(evidence.PhysicalSplitAdmission.BlockedAction, "Do not move shared helpers") {
 		t.Fatalf("blockedAction = %q, want shared movement blocked", evidence.PhysicalSplitAdmission.BlockedAction)

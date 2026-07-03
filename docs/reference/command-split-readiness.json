@@ -1,6 +1,6 @@
 {
   "schema": "gofly.command_split_readiness.v1",
-  "status": "doctor-physical-split-completed",
+  "status": "next-family-candidate-refreshed",
   "package": "cmd/gofly/internal/command",
   "acceptanceGate": "make command-split-readiness-check",
   "purpose": "Record the current command package split readiness baseline after fixing generated-project dependency pollution and proving full command package shuffle tests pass.",
@@ -62,7 +62,30 @@
       "rollbackRequirement": "Move doctor files back to cmd/gofly/internal/command and remove doctor_adapter.go if diagnostics, JSON fields, stdout, stderr, or support bundle contracts change."
     }
   ],
-  "candidateFamilies": [],
+  "candidateFamilies": [
+    {
+      "id": "release",
+      "status": "candidate-after-json-golden",
+      "reason": "Release is the next preflight candidate because it has a bounded file family, existing JSON golden coverage, release contract tests, and no direct runtime, spinner, or extracted command package dependency.",
+      "requiredPreSplitActions": [
+        "add a release-family preflight evidence file before any physical move",
+        "pin release check JSON output, error envelope, artifact evidence, and skip-gate behavior",
+        "isolate local shell command execution from release output rendering through a small adapter",
+        "prove command registration, help output, stdout/stderr, and release check JSON contracts remain stable"
+      ],
+      "requiredGates": [
+        "make command-next-family-candidate-refresh-check",
+        "make command-family-dependency-map-check",
+        "make command-split-readiness-check",
+        "make command-output-json-adapter-dry-run-check",
+        "make cli-command-surface-check",
+        "make cli-json-contract-goldens-check",
+        "make required-checks-drift-check",
+        "GOCACHE=$PWD/.tmp-test/gocache GOTMPDIR=$PWD/.tmp-test/gotmp go test -shuffle=on ./cmd/gofly/internal/command -run 'TestRelease(CheckCommandJSONAndChangelogBlocker|CheckCommandJSONAlreadyReportedOnce)' -count=1"
+      ],
+      "rollbackRequirement": "Restore release to deferred status and clear release from nextCandidates if release JSON, artifact evidence, command registration, stdout, stderr, or required-check drift behavior changes."
+    }
+  ],
   "blockedFamilies": [
     {
       "id": "ai",
@@ -87,7 +110,6 @@
     "model",
     "new",
     "plugin",
-    "release",
     "config",
     "help",
     "doctor"
@@ -104,6 +126,7 @@
     "make command-shared-reduction-plan-check",
     "make command-output-json-adapter-dry-run-check",
     "make command-help-doctor-split-preflight-check",
+    "make command-next-family-candidate-refresh-check",
     "make project-layout-governance-check",
     "GOCACHE=$PWD/.tmp-test/gocache GOTMPDIR=$PWD/.tmp-test/gotmp go test -shuffle=on ./cmd/gofly/internal/generator -run 'TestGenerateModelFromDDLGORMStyle(DoesNotPolluteGoflyRootModule|FindsParentGoMod|$)' -count=1",
     "GOCACHE=$PWD/.tmp-test/gocache GOTMPDIR=$PWD/.tmp-test/gotmp go test -shuffle=on ./cmd/gofly/internal/command/...",
@@ -112,7 +135,7 @@
     "git diff --check"
   ],
   "nextStep": {
-    "id": "P22-15-command-next-family-candidate-refresh",
-    "action": "Refresh the next command family candidate after help and doctor physical splits; do not move another family until the new candidate has focused preflight evidence."
+    "id": "P22-16-command-release-family-preflight",
+    "action": "Create focused release family preflight evidence and tests before moving any release command files."
   }
 }

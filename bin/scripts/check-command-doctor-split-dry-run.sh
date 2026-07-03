@@ -137,10 +137,10 @@ require("make command-doctor-split-dry-run-check" in set(doctor_completed.get("r
 require("make command-output-json-adapter-dry-run-check" in set(doctor_completed.get("requiredGates") or []), "doctor completed gates must include output/json adapter dry-run check")
 require("make command-help-doctor-split-preflight-check" in set(doctor_completed.get("requiredGates") or []), "doctor completed gates must include help/doctor split preflight check")
 require("cmd/gofly/internal/command/doctor" in str(doctor_completed.get("reason") or ""), "doctor completed reason must mention doctor subpackage")
-require(readiness.get("nextStep", {}).get("id") == "P22-15-command-next-family-candidate-refresh", "command split readiness nextStep must refresh next candidate")
+require(readiness.get("nextStep", {}).get("id") == "P22-16-command-release-family-preflight", "command split readiness nextStep must move to release preflight")
 
 map_candidates = [item.get("id") for item in dependency_map.get("nextCandidates") or [] if isinstance(item, dict)]
-require(map_candidates == [], "command dependency map must not keep doctor as a next candidate after P22-14")
+require(map_candidates == ["release"], "command dependency map must keep release as next candidate after P22-15")
 
 reference_files = []
 for family in (layout.get("referenceFileBoundaries") or {}).get("families") or []:

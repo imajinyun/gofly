@@ -1126,7 +1126,7 @@ func writeRepoFile(dir string, table SQLTable, pkg string, module string, style 
 		fprintf(&b, "\t\"strconv\"\n")
 	}
 	fprintf(&b, "\t\"strings\"\n")
-	if hasSoftDelete(table) {
+	if hasSoftDelete(table) || (cacheEnabled && len(indexPrefixes) > 0) {
 		fprintf(&b, "\t\"time\"\n")
 	}
 	fprintf(&b, "\n")
@@ -1160,8 +1160,8 @@ func writeRepoFile(dir string, table SQLTable, pkg string, module string, style 
 	writeWhereMethods(&b, table, typeName, repoName)
 	writeAdvancedSQLRepoMethods(&b, table, typeName, repoName)
 	if cacheEnabled {
-		writeConsistentCachedRepo(&b, table, typeName, repoName)
-		writeRedisCachedRepo(&b, table, typeName, repoName)
+		writeConsistentCachedRepo(&b, table, typeName, repoName, modelStyleSQL)
+		writeRedisCachedRepo(&b, table, typeName, repoName, modelStyleSQL)
 		writeUniqueCacheKeyFuncs(&b, uniqueIndexes)
 		writeIndexListCacheKeyFuncs(&b, indexPrefixes)
 	}
@@ -1189,7 +1189,7 @@ func writeGORMRepoFile(dir string, table SQLTable, module string, cacheEnabled b
 		fprintf(&b, "\t\"strconv\"\n")
 		fprintf(&b, "\t\"strings\"\n")
 	}
-	if hasSoftDelete(table) {
+	if hasSoftDelete(table) || (cacheEnabled && len(indexPrefixes) > 0) {
 		fprintf(&b, "\t\"time\"\n")
 	}
 	fprintf(&b, "\n")
@@ -1230,8 +1230,8 @@ func writeGORMRepoFile(dir string, table SQLTable, module string, cacheEnabled b
 	writeGORMWhereMethods(&b, table, typeName, repoName)
 	writeAdvancedGORMRepoMethods(&b, table, typeName, repoName)
 	if cacheEnabled {
-		writeConsistentCachedRepo(&b, table, typeName, repoName)
-		writeRedisCachedRepo(&b, table, typeName, repoName)
+		writeConsistentCachedRepo(&b, table, typeName, repoName, modelStyleGORM)
+		writeRedisCachedRepo(&b, table, typeName, repoName, modelStyleGORM)
 		writeUniqueCacheKeyFuncs(&b, uniqueIndexes)
 		writeIndexListCacheKeyFuncs(&b, indexPrefixes)
 	}
@@ -1303,6 +1303,7 @@ func writeAdvancedSQLRepoMethods(b *bytes.Buffer, table SQLTable, typeName, rece
 	pk := primaryColumn(table)
 	writeUniqueFinders(b, table, typeName, receiverName)
 	writeIndexListFinders(b, table, typeName, receiverName)
+	writeSQLFindByIDs(b, table, typeName, receiverName)
 	fprintf(b, "func (r *%s) InsertMany(ctx context.Context, items []*entity.%s) error {\n", receiverName, typeName)
 	fprintf(b, "\tfor _, item := range items {\n\t\tif err := r.Insert(ctx, item); err != nil {\n\t\t\treturn err\n\t\t}\n\t}\n\treturn nil\n}\n\n")
 	fprintf(b, "func (r *%s) UpdateMany(ctx context.Context, items []*entity.%s) error {\n", receiverName, typeName)
@@ -1312,6 +1313,28 @@ func writeAdvancedSQLRepoMethods(b *bytes.Buffer, table SQLTable, typeName, rece
 	writeSQLUpdateFields(b, table, typeName, receiverName)
 	writeSQLOptimisticLock(b, table, typeName, receiverName)
 	writeSQLCursorPage(b, table, typeName, receiverName)
+}
+
+func writeSQLFindByIDs(b *bytes.Buffer, table SQLTable, typeName, receiverName string) {
+	pk := primaryColumn(table)
+	pkArg := "ids"
+	pkField := modelFieldName(pk.Name)
+	fprintf(b, "func (r *%s) FindByIDs(ctx context.Context, %s []%s) ([]entity.%s, error) {\n", receiverName, pkArg, columnGoType(pk), typeName)
+	fprintf(b, "\tif len(%s) == 0 {\n\t\treturn []entity.%s{}, nil\n\t}\n", pkArg, typeName)
+	fprintf(b, "\tvalues := make([]any, 0, len(%s))\n", pkArg)
+	fprintf(b, "\tfor _, id := range %s {\n\t\tvalues = append(values, id)\n\t}\n", pkArg)
+	fprintf(b, "\twhere := storage.NewWhere().In(%q, values...).OrderBy(%q)\n", pk.Name, pk.Name)
+	if hasSoftDelete(table) {
+		fprintf(b, "\twhere = where.IsNull(%q)\n", table.SoftDeleteColumn)
+	}
+	fprintf(b, "\tquery, args, err := storage.SelectWhere(entity.%sTable, entity.%sColumns, where, r.dialect)\n", typeName, typeName)
+	fprintf(b, "\tif err != nil {\n\t\treturn nil, err\n\t}\n")
+	fprintf(b, "\tfound := make(map[%s]entity.%s, len(%s))\n", columnGoType(pk), typeName, pkArg)
+	fprintf(b, "\tif err := r.queryAll(ctx, query, func(rows *sql.Rows) error {\n")
+	fprintf(b, "\t\tfor rows.Next() {\n\t\t\tvar item entity.%s\n\t\t\tif err := rows.Scan(%s); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t\tfound[item.%s] = item\n\t\t}\n\t\treturn nil\n\t}, args...); err != nil {\n\t\treturn nil, err\n\t}\n", typeName, scanArgs("item", table.Columns), pkField)
+	fprintf(b, "\tout := make([]entity.%s, 0, len(found))\n", typeName)
+	fprintf(b, "\tfor _, id := range %s {\n\t\tif item, ok := found[id]; ok {\n\t\t\tout = append(out, item)\n\t\t}\n\t}\n", pkArg)
+	fprintf(b, "\treturn out, nil\n}\n\n")
 }
 
 func writeUniqueFinders(b *bytes.Buffer, table SQLTable, typeName, receiverName string) {
@@ -1450,19 +1473,20 @@ func writeSQLCursorPage(b *bytes.Buffer, table SQLTable, typeName, receiverName 
 	fprintf(b, "\treturn out, nil\n}\n\n")
 }
 
-func writeConsistentCachedRepo(b *bytes.Buffer, table SQLTable, typeName, repoName string) {
+func writeConsistentCachedRepo(b *bytes.Buffer, table SQLTable, typeName, repoName string, style string) {
 	pk := primaryColumn(table)
 	cachedName := "Cached" + repoName
 	pkArg := modelArgName(pk.Name)
 	pkField := modelFieldName(pk.Name)
 	uniqueIndexes := cacheableUniqueIndexes(table)
 	indexPrefixes := modelIndexPrefixes(table)
-	fprintf(b, "type %s struct {\n\trepo *%s\n\tcache *cache.ModelCache[*entity.%s, %s]\n", cachedName, repoName, typeName, columnGoType(pk))
+	fprintf(b, "type %s struct {\n\trepo *%s\n\tcache *cache.ModelCache[*entity.%s, %s]\n\tafterCommit *[]func(context.Context) error\n", cachedName, repoName, typeName, columnGoType(pk))
 	for _, index := range uniqueIndexes {
 		fprintf(b, "\t%s *cache.ModelCache[*entity.%s, string]\n", uniqueCacheFieldName(index.Columns), typeName)
 	}
 	for _, index := range indexPrefixes {
 		fprintf(b, "\t%s *cache.Cache[[]entity.%s]\n", indexListCacheFieldName(index.Columns), typeName)
+		fprintf(b, "\t%s *cache.Cache[int64]\n", indexCountCacheFieldName(index.Columns))
 	}
 	fprintf(b, "}\n\n")
 	fprintf(b, "func NewConsistentCached%s(repo *%s, opts ...cache.ModelOption[*entity.%s, %s]) *%s {\n", repoName, repoName, typeName, columnGoType(pk), cachedName)
@@ -1471,93 +1495,286 @@ func writeConsistentCachedRepo(b *bytes.Buffer, table SQLTable, typeName, repoNa
 	writeUniqueModelCacheInitializers(b, uniqueIndexes, typeName, "repo", false)
 	writeIndexListCacheInitializers(b, indexPrefixes, typeName, "repo")
 	fprintf(b, "\treturn out\n}\n\n")
+	writeConsistentCachedTxHelpers(b, typeName, repoName, cachedName, style)
 	fprintf(b, "func (c *%s) FindOne(ctx context.Context, %s %s) (*entity.%s, error) {\n", cachedName, modelArgName(pk.Name), columnGoType(pk), typeName)
 	fprintf(b, "\treturn c.FindByIDCached(ctx, %s)\n}\n\n", pkArg)
 	fprintf(b, "func (c *%s) FindByIDCached(ctx context.Context, %s %s) (*entity.%s, error) {\n", cachedName, pkArg, columnGoType(pk), typeName)
 	fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn nil, errors.New(%q)\n\t}\n", lowerCamel(typeName)+" cached repo is nil")
 	fprintf(b, "\tif c.cache == nil {\n\t\treturn c.repo.FindOne(ctx, %s)\n\t}\n\treturn c.cache.Get(ctx, %s)\n}\n\n", pkArg, pkArg)
+	writeConsistentCachedFindByIDs(b, table, typeName, cachedName)
 	writeUniqueCachedFinders(b, uniqueIndexes, typeName, cachedName, false)
 	writeIndexListCachedFinders(b, indexPrefixes, typeName, cachedName)
 	fprintf(b, "func (c *%s) Insert(ctx context.Context, in *entity.%s) error {\n", cachedName, typeName)
 	fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn errors.New(%q)\n\t}\n", lowerCamel(typeName)+" cached repo is nil")
-	fprintf(b, "\tif err := c.repo.Insert(ctx, in); err != nil {\n\t\treturn err\n\t}\n\tif c.cache != nil && in != nil {\n\t\tc.cache.Set(in.%s, in)\n\t}\n", pkField)
-	writeUniqueCacheSetAfterMutation(b, uniqueIndexes, false)
-	writeIndexListCacheClearAfterMutation(b, indexPrefixes)
-	fprintf(b, "\treturn nil\n}\n\n")
+	fprintf(b, "\tif err := c.repo.Insert(ctx, in); err != nil {\n\t\treturn err\n\t}\n")
+	fprintf(b, "\treturn c.deferOrRunAfterCommit(ctx, func(ctx context.Context) error {\n\t\treturn c.afterInsertCommit(ctx, in)\n\t})\n}\n\n")
 	fprintf(b, "func (c *%s) Update(ctx context.Context, in *entity.%s) error {\n", cachedName, typeName)
 	fprintf(b, "\treturn c.UpdateWithInvalidate(ctx, in)\n}\n\n")
 	fprintf(b, "func (c *%s) UpdateWithInvalidate(ctx context.Context, in *entity.%s) error {\n", cachedName, typeName)
 	fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn errors.New(%q)\n\t}\n", lowerCamel(typeName)+" cached repo is nil")
+	fprintf(b, "\tvar old *entity.%s\n", typeName)
 	if len(uniqueIndexes) > 0 {
-		fprintf(b, "\tvar old *entity.%s\n", typeName)
 		fprintf(b, "\tif in != nil {\n\t\told, _ = c.repo.FindOne(ctx, in.%s)\n\t}\n", pkField)
 	}
-	fprintf(b, "\tif err := c.repo.Update(ctx, in); err != nil {\n\t\treturn err\n\t}\n\tif c.cache != nil && in != nil {\n\t\tc.cache.Invalidate(in.%s)\n\t}\n", pkField)
-	writeUniqueCacheInvalidateAfterMutation(b, uniqueIndexes, "old", false)
-	writeUniqueCacheSetAfterMutation(b, uniqueIndexes, false)
-	writeIndexListCacheClearAfterMutation(b, indexPrefixes)
-	fprintf(b, "\treturn nil\n}\n\n")
+	fprintf(b, "\tif err := c.repo.Update(ctx, in); err != nil {\n\t\treturn err\n\t}\n")
+	fprintf(b, "\treturn c.deferOrRunAfterCommit(ctx, func(ctx context.Context) error {\n\t\treturn c.afterUpdateCommit(ctx, in, old)\n\t})\n}\n\n")
 	writeConsistentCachedUpdateFields(b, table, typeName, cachedName, uniqueIndexes)
 	writeConsistentCachedUpdateWithVersion(b, table, typeName, cachedName, uniqueIndexes)
 	fprintf(b, "func (c *%s) Delete(ctx context.Context, %s %s) error {\n", cachedName, modelArgName(pk.Name), columnGoType(pk))
 	fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn errors.New(%q)\n\t}\n", lowerCamel(typeName)+" cached repo is nil")
+	fprintf(b, "\tvar old *entity.%s\n", typeName)
 	if len(uniqueIndexes) > 0 {
-		fprintf(b, "\told, _ := c.repo.FindOne(ctx, %s)\n", pkArg)
+		fprintf(b, "\told, _ = c.repo.FindOne(ctx, %s)\n", pkArg)
 	}
-	fprintf(b, "\tif err := c.repo.Delete(ctx, %s); err != nil {\n\t\treturn err\n\t}\n\tif c.cache != nil {\n\t\tc.cache.Invalidate(%s)\n\t}\n", pkArg, pkArg)
-	writeUniqueCacheInvalidateAfterMutation(b, uniqueIndexes, "old", false)
-	writeIndexListCacheClearAfterMutation(b, indexPrefixes)
-	fprintf(b, "\treturn nil\n}\n\n")
+	fprintf(b, "\tif err := c.repo.Delete(ctx, %s); err != nil {\n\t\treturn err\n\t}\n", pkArg)
+	fprintf(b, "\treturn c.deferOrRunAfterCommit(ctx, func(ctx context.Context) error {\n\t\treturn c.afterDeleteCommit(ctx, %s, old)\n\t})\n}\n\n", pkArg)
+	writeConsistentCachedAfterCommitMethods(b, table, typeName, cachedName, uniqueIndexes)
 }
 
-func writeRedisCachedRepo(b *bytes.Buffer, table SQLTable, typeName, repoName string) {
+func writeRedisCachedRepo(b *bytes.Buffer, table SQLTable, typeName, repoName string, style string) {
 	pk := primaryColumn(table)
 	cachedName := "RedisCached" + repoName
 	pkType := columnGoType(pk)
 	pkArg := modelArgName(pk.Name)
-	pkField := modelFieldName(pk.Name)
-	fprintf(b, "type %s struct {\n\trepo *%s\n\tcache *cache.RedisModelCache[*entity.%s, %s]\n}\n\n", cachedName, repoName, typeName, pkType)
+	indexPrefixes := modelIndexPrefixes(table)
+	fprintf(b, "type %s struct {\n\trepo *%s\n\tcache *cache.RedisModelCache[*entity.%s, %s]\n\tafterCommit *[]func(context.Context) error\n", cachedName, repoName, typeName, pkType)
+	for _, index := range indexPrefixes {
+		fprintf(b, "\t%s *cache.RedisModelCache[[]entity.%s, string]\n", indexListCacheFieldName(index.Columns), typeName)
+		fprintf(b, "\t%s *cache.RedisModelCache[int64, string]\n", indexCountCacheFieldName(index.Columns))
+		fprintf(b, "\t%s *cache.RedisModelCache[string, string]\n", indexListVersionFieldName(index.Columns))
+	}
+	fprintf(b, "}\n\n")
 	fprintf(b, "func NewRedisCached%s(repo *%s, client *redis.Client, opts ...cache.RedisModelOption[*entity.%s, %s]) *%s {\n", repoName, repoName, typeName, pkType, cachedName)
 	fprintf(b, "\tloader := func(ctx context.Context, id %s) (*entity.%s, error) {\n\t\tif repo == nil {\n\t\t\treturn nil, errors.New(%q)\n\t\t}\n\t\treturn repo.FindOne(ctx, id)\n\t}\n", pkType, typeName, lowerCamel(typeName)+" repo is nil")
 	fprintf(b, "\toptions := append([]cache.RedisModelOption[*entity.%s, %s]{cache.WithRedisModelNotFound[*entity.%s, %s](redis.ErrNil), cache.WithRedisModelKeyPrefix[*entity.%s, %s](entity.%sTable)}, opts...)\n", typeName, pkType, typeName, pkType, typeName, pkType, typeName)
-	fprintf(b, "\treturn &%s{repo: repo, cache: cache.NewRedisModel(loader, client, options...)}\n}\n\n", cachedName)
+	fprintf(b, "\tout := &%s{repo: repo, cache: cache.NewRedisModel(loader, client, options...)}\n", cachedName)
+	writeRedisIndexListCacheInitializers(b, indexPrefixes, typeName, "repo")
+	fprintf(b, "\treturn out\n}\n\n")
+	writeRedisCachedTxHelpers(b, typeName, repoName, cachedName, style)
 	fprintf(b, "func (c *%s) FindOne(ctx context.Context, %s %s) (*entity.%s, error) {\n", cachedName, pkArg, pkType, typeName)
 	fprintf(b, "\treturn c.FindByIDCached(ctx, %s)\n}\n\n", pkArg)
 	fprintf(b, "func (c *%s) FindByIDCached(ctx context.Context, %s %s) (*entity.%s, error) {\n", cachedName, pkArg, pkType, typeName)
 	fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn nil, errors.New(%q)\n\t}\n", lowerCamel(typeName)+" redis cached repo is nil")
 	fprintf(b, "\tif c.cache == nil {\n\t\treturn c.repo.FindOne(ctx, %s)\n\t}\n\treturn c.cache.Get(ctx, %s)\n}\n\n", pkArg, pkArg)
+	writeRedisCachedFindByIDs(b, table, typeName, cachedName)
+	writeRedisIndexListCachedFinders(b, indexPrefixes, typeName, cachedName)
 	fprintf(b, "func (c *%s) Insert(ctx context.Context, in *entity.%s) error {\n", cachedName, typeName)
 	fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn errors.New(%q)\n\t}\n", lowerCamel(typeName)+" redis cached repo is nil")
-	fprintf(b, "\tif err := c.repo.Insert(ctx, in); err != nil {\n\t\treturn err\n\t}\n\tif c.cache != nil && in != nil {\n\t\treturn c.cache.Set(ctx, in.%s, in)\n\t}\n\treturn nil\n}\n\n", pkField)
+	fprintf(b, "\tif err := c.repo.Insert(ctx, in); err != nil {\n\t\treturn err\n\t}\n")
+	fprintf(b, "\treturn c.deferOrRunAfterCommit(ctx, func(ctx context.Context) error {\n\t\treturn c.afterInsertCommit(ctx, in)\n\t})\n}\n\n")
 	fprintf(b, "func (c *%s) Update(ctx context.Context, in *entity.%s) error {\n", cachedName, typeName)
 	fprintf(b, "\treturn c.UpdateWithInvalidate(ctx, in)\n}\n\n")
 	fprintf(b, "func (c *%s) UpdateWithInvalidate(ctx context.Context, in *entity.%s) error {\n", cachedName, typeName)
 	fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn errors.New(%q)\n\t}\n", lowerCamel(typeName)+" redis cached repo is nil")
-	fprintf(b, "\tif err := c.repo.Update(ctx, in); err != nil {\n\t\treturn err\n\t}\n\tif c.cache != nil && in != nil {\n\t\treturn c.cache.Invalidate(ctx, in.%s)\n\t}\n\treturn nil\n}\n\n", pkField)
+	fprintf(b, "\tif err := c.repo.Update(ctx, in); err != nil {\n\t\treturn err\n\t}\n")
+	fprintf(b, "\treturn c.deferOrRunAfterCommit(ctx, func(ctx context.Context) error {\n\t\treturn c.afterUpdateCommit(ctx, in)\n\t})\n}\n\n")
 	writeRedisCachedUpdateFields(b, table, typeName, cachedName)
 	writeRedisCachedUpdateWithVersion(b, table, typeName, cachedName)
 	fprintf(b, "func (c *%s) Delete(ctx context.Context, %s %s) error {\n", cachedName, pkArg, pkType)
 	fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn errors.New(%q)\n\t}\n", lowerCamel(typeName)+" redis cached repo is nil")
-	fprintf(b, "\tif err := c.repo.Delete(ctx, %s); err != nil {\n\t\treturn err\n\t}\n\tif c.cache != nil {\n\t\treturn c.cache.Invalidate(ctx, %s)\n\t}\n\treturn nil\n}\n\n", pkArg, pkArg)
+	fprintf(b, "\tif err := c.repo.Delete(ctx, %s); err != nil {\n\t\treturn err\n\t}\n", pkArg)
+	fprintf(b, "\treturn c.deferOrRunAfterCommit(ctx, func(ctx context.Context) error {\n\t\treturn c.afterDeleteCommit(ctx, %s)\n\t})\n}\n\n", pkArg)
+	writeRedisCachedAfterCommitMethods(b, table, typeName, cachedName)
+}
+
+func writeConsistentCachedTxHelpers(b *bytes.Buffer, typeName, repoName, cachedName string, style string) {
+	fprintf(b, "func (c *%s) cloneWithRepo(repo *%s, afterCommit *[]func(context.Context) error) *%s {\n", cachedName, repoName, cachedName)
+	fprintf(b, "\tif c == nil {\n\t\treturn nil\n\t}\n")
+	fprintf(b, "\tclone := *c\n\tclone.repo = repo\n\tclone.afterCommit = afterCommit\n\treturn &clone\n}\n\n")
+	if style == modelStyleGORM {
+		fprintf(b, "func (c *%s) WithDB(db *gorm.DB) *%s {\n", cachedName, cachedName)
+		fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn nil\n\t}\n")
+		fprintf(b, "\tafterCommit := make([]func(context.Context) error, 0)\n")
+		fprintf(b, "\treturn c.cloneWithRepo(c.repo.WithDB(db), &afterCommit)\n}\n\n")
+		fprintf(b, "func (c *%s) Transact(ctx context.Context, fn func(context.Context, *%s) error) error {\n", cachedName, cachedName)
+		fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn errors.New(%q)\n\t}\n", lowerCamel(typeName)+" cached repo is nil")
+		fprintf(b, "\tif fn == nil {\n\t\treturn errors.New(\"transaction function is required\")\n\t}\n")
+		fprintf(b, "\tafterCommit := make([]func(context.Context) error, 0)\n")
+		fprintf(b, "\tif err := c.repo.Transact(ctx, func(ctx context.Context, txRepo *%s) error {\n\t\treturn fn(ctx, c.cloneWithRepo(txRepo, &afterCommit))\n\t}); err != nil {\n\t\treturn err\n\t}\n", repoName)
+		fprintf(b, "\ttxCached := c.cloneWithRepo(c.repo, &afterCommit)\n")
+		fprintf(b, "\treturn txCached.FlushAfterCommit(ctx)\n}\n\n")
+	} else {
+		fprintf(b, "func (c *%s) WithTx(tx *sql.Tx) *%s {\n", cachedName, cachedName)
+		fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn nil\n\t}\n")
+		fprintf(b, "\tafterCommit := make([]func(context.Context) error, 0)\n")
+		fprintf(b, "\treturn c.cloneWithRepo(c.repo.WithTx(tx), &afterCommit)\n}\n\n")
+		fprintf(b, "func (c *%s) Transact(ctx context.Context, opts *sql.TxOptions, fn func(context.Context, *%s) error) error {\n", cachedName, cachedName)
+		fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn errors.New(%q)\n\t}\n", lowerCamel(typeName)+" cached repo is nil")
+		fprintf(b, "\tif fn == nil {\n\t\treturn errors.New(\"transaction function is required\")\n\t}\n")
+		fprintf(b, "\tafterCommit := make([]func(context.Context) error, 0)\n")
+		fprintf(b, "\tif err := c.repo.Transact(ctx, opts, func(ctx context.Context, txRepo *%s) error {\n\t\treturn fn(ctx, c.cloneWithRepo(txRepo, &afterCommit))\n\t}); err != nil {\n\t\treturn err\n\t}\n", repoName)
+		fprintf(b, "\ttxCached := c.cloneWithRepo(c.repo, &afterCommit)\n")
+		fprintf(b, "\treturn txCached.FlushAfterCommit(ctx)\n}\n\n")
+	}
+	fprintf(b, "func (c *%s) FlushAfterCommit(ctx context.Context) error {\n", cachedName)
+	fprintf(b, "\tif c == nil || c.afterCommit == nil {\n\t\treturn nil\n\t}\n")
+	fprintf(b, "\tfor _, flush := range *c.afterCommit {\n\t\tif err := flush(ctx); err != nil {\n\t\t\treturn err\n\t\t}\n\t}\n")
+	fprintf(b, "\t*c.afterCommit = nil\n\treturn nil\n}\n\n")
+	fprintf(b, "func (c *%s) DiscardAfterCommit() {\n", cachedName)
+	fprintf(b, "\tif c == nil || c.afterCommit == nil {\n\t\treturn\n\t}\n")
+	fprintf(b, "\t*c.afterCommit = nil\n}\n\n")
+	fprintf(b, "func (c *%s) deferOrRunAfterCommit(ctx context.Context, fn func(context.Context) error) error {\n", cachedName)
+	fprintf(b, "\tif fn == nil {\n\t\treturn nil\n\t}\n")
+	fprintf(b, "\tif c != nil && c.afterCommit != nil {\n\t\t*c.afterCommit = append(*c.afterCommit, fn)\n\t\treturn nil\n\t}\n")
+	fprintf(b, "\treturn fn(ctx)\n}\n\n")
+}
+
+func writeRedisCachedTxHelpers(b *bytes.Buffer, typeName, repoName, cachedName string, style string) {
+	fprintf(b, "func (c *%s) cloneWithRepo(repo *%s, afterCommit *[]func(context.Context) error) *%s {\n", cachedName, repoName, cachedName)
+	fprintf(b, "\tif c == nil {\n\t\treturn nil\n\t}\n")
+	fprintf(b, "\tclone := *c\n\tclone.repo = repo\n\tclone.afterCommit = afterCommit\n\treturn &clone\n}\n\n")
+	if style == modelStyleGORM {
+		fprintf(b, "func (c *%s) WithDB(db *gorm.DB) *%s {\n", cachedName, cachedName)
+		fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn nil\n\t}\n")
+		fprintf(b, "\tafterCommit := make([]func(context.Context) error, 0)\n")
+		fprintf(b, "\treturn c.cloneWithRepo(c.repo.WithDB(db), &afterCommit)\n}\n\n")
+		fprintf(b, "func (c *%s) Transact(ctx context.Context, fn func(context.Context, *%s) error) error {\n", cachedName, cachedName)
+		fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn errors.New(%q)\n\t}\n", lowerCamel(typeName)+" redis cached repo is nil")
+		fprintf(b, "\tif fn == nil {\n\t\treturn errors.New(\"transaction function is required\")\n\t}\n")
+		fprintf(b, "\tafterCommit := make([]func(context.Context) error, 0)\n")
+		fprintf(b, "\tif err := c.repo.Transact(ctx, func(ctx context.Context, txRepo *%s) error {\n\t\treturn fn(ctx, c.cloneWithRepo(txRepo, &afterCommit))\n\t}); err != nil {\n\t\treturn err\n\t}\n", repoName)
+		fprintf(b, "\ttxCached := c.cloneWithRepo(c.repo, &afterCommit)\n")
+		fprintf(b, "\treturn txCached.FlushAfterCommit(ctx)\n}\n\n")
+	} else {
+		fprintf(b, "func (c *%s) WithTx(tx *sql.Tx) *%s {\n", cachedName, cachedName)
+		fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn nil\n\t}\n")
+		fprintf(b, "\tafterCommit := make([]func(context.Context) error, 0)\n")
+		fprintf(b, "\treturn c.cloneWithRepo(c.repo.WithTx(tx), &afterCommit)\n}\n\n")
+		fprintf(b, "func (c *%s) Transact(ctx context.Context, opts *sql.TxOptions, fn func(context.Context, *%s) error) error {\n", cachedName, cachedName)
+		fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn errors.New(%q)\n\t}\n", lowerCamel(typeName)+" redis cached repo is nil")
+		fprintf(b, "\tif fn == nil {\n\t\treturn errors.New(\"transaction function is required\")\n\t}\n")
+		fprintf(b, "\tafterCommit := make([]func(context.Context) error, 0)\n")
+		fprintf(b, "\tif err := c.repo.Transact(ctx, opts, func(ctx context.Context, txRepo *%s) error {\n\t\treturn fn(ctx, c.cloneWithRepo(txRepo, &afterCommit))\n\t}); err != nil {\n\t\treturn err\n\t}\n", repoName)
+		fprintf(b, "\ttxCached := c.cloneWithRepo(c.repo, &afterCommit)\n")
+		fprintf(b, "\treturn txCached.FlushAfterCommit(ctx)\n}\n\n")
+	}
+	fprintf(b, "func (c *%s) FlushAfterCommit(ctx context.Context) error {\n", cachedName)
+	fprintf(b, "\tif c == nil || c.afterCommit == nil {\n\t\treturn nil\n\t}\n")
+	fprintf(b, "\tfor _, flush := range *c.afterCommit {\n\t\tif err := flush(ctx); err != nil {\n\t\t\treturn err\n\t\t}\n\t}\n")
+	fprintf(b, "\t*c.afterCommit = nil\n\treturn nil\n}\n\n")
+	fprintf(b, "func (c *%s) DiscardAfterCommit() {\n", cachedName)
+	fprintf(b, "\tif c == nil || c.afterCommit == nil {\n\t\treturn\n\t}\n")
+	fprintf(b, "\t*c.afterCommit = nil\n}\n\n")
+	fprintf(b, "func (c *%s) deferOrRunAfterCommit(ctx context.Context, fn func(context.Context) error) error {\n", cachedName)
+	fprintf(b, "\tif fn == nil {\n\t\treturn nil\n\t}\n")
+	fprintf(b, "\tif c != nil && c.afterCommit != nil {\n\t\t*c.afterCommit = append(*c.afterCommit, fn)\n\t\treturn nil\n\t}\n")
+	fprintf(b, "\treturn fn(ctx)\n}\n\n")
+}
+
+func writeConsistentCachedFindByIDs(b *bytes.Buffer, table SQLTable, typeName, cachedName string) {
+	pk := primaryColumn(table)
+	pkArg := "ids"
+	pkField := modelFieldName(pk.Name)
+	pkType := columnGoType(pk)
+	fprintf(b, "func (c *%s) FindByIDsCached(ctx context.Context, %s []%s) ([]entity.%s, error) {\n", cachedName, pkArg, pkType, typeName)
+	fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn nil, errors.New(%q)\n\t}\n", lowerCamel(typeName)+" cached repo is nil")
+	fprintf(b, "\tif len(%s) == 0 {\n\t\treturn []entity.%s{}, nil\n\t}\n", pkArg, typeName)
+	fprintf(b, "\tif c.cache == nil {\n\t\treturn c.repo.FindByIDs(ctx, %s)\n\t}\n", pkArg)
+	fprintf(b, "\tfound := make(map[%s]*entity.%s, len(%s))\n", pkType, typeName, pkArg)
+	fprintf(b, "\tmissing := make([]%s, 0)\n", pkType)
+	fprintf(b, "\tseenMissing := make(map[%s]struct{})\n", pkType)
+	fprintf(b, "\tfor _, id := range %s {\n", pkArg)
+	fprintf(b, "\t\tif _, ok := found[id]; ok {\n\t\t\tcontinue\n\t\t}\n")
+	fprintf(b, "\t\tif item, ok := c.cache.Peek(id); ok {\n\t\t\tfound[id] = item\n\t\t\tcontinue\n\t\t}\n")
+	fprintf(b, "\t\tif _, ok := seenMissing[id]; !ok {\n\t\t\tmissing = append(missing, id)\n\t\t\tseenMissing[id] = struct{}{}\n\t\t}\n\t}\n")
+	fprintf(b, "\tif len(missing) > 0 {\n")
+	fprintf(b, "\t\titems, err := c.repo.FindByIDs(ctx, missing)\n\t\tif err != nil {\n\t\t\treturn nil, err\n\t\t}\n")
+	fprintf(b, "\t\tfor i := range items {\n\t\t\titem := items[i]\n\t\t\tfound[item.%s] = &item\n\t\t\tc.cache.Set(item.%s, &item)\n\t\t}\n\t}\n", pkField, pkField)
+	fprintf(b, "\tout := make([]entity.%s, 0, len(found))\n", typeName)
+	fprintf(b, "\tfor _, id := range %s {\n\t\tif item, ok := found[id]; ok && item != nil {\n\t\t\tout = append(out, *item)\n\t\t}\n\t}\n", pkArg)
+	fprintf(b, "\treturn out, nil\n}\n\n")
+}
+
+func writeRedisCachedFindByIDs(b *bytes.Buffer, table SQLTable, typeName, cachedName string) {
+	pk := primaryColumn(table)
+	pkArg := "ids"
+	pkField := modelFieldName(pk.Name)
+	pkType := columnGoType(pk)
+	fprintf(b, "func (c *%s) FindByIDsCached(ctx context.Context, %s []%s) ([]entity.%s, error) {\n", cachedName, pkArg, pkType, typeName)
+	fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn nil, errors.New(%q)\n\t}\n", lowerCamel(typeName)+" redis cached repo is nil")
+	fprintf(b, "\tif len(%s) == 0 {\n\t\treturn []entity.%s{}, nil\n\t}\n", pkArg, typeName)
+	fprintf(b, "\tif c.cache == nil {\n\t\treturn c.repo.FindByIDs(ctx, %s)\n\t}\n", pkArg)
+	fprintf(b, "\tfound := make(map[%s]*entity.%s, len(%s))\n", pkType, typeName, pkArg)
+	fprintf(b, "\tmissing := make([]%s, 0)\n", pkType)
+	fprintf(b, "\tseenMissing := make(map[%s]struct{})\n", pkType)
+	fprintf(b, "\tfor _, id := range %s {\n", pkArg)
+	fprintf(b, "\t\tif _, ok := found[id]; ok {\n\t\t\tcontinue\n\t\t}\n")
+	fprintf(b, "\t\titem, ok, err := c.cache.Peek(ctx, id)\n")
+	fprintf(b, "\t\tif err != nil {\n\t\t\treturn nil, err\n\t\t}\n")
+	fprintf(b, "\t\tif ok {\n\t\t\tfound[id] = item\n\t\t\tcontinue\n\t\t}\n")
+	fprintf(b, "\t\tif _, ok := seenMissing[id]; !ok {\n\t\t\tmissing = append(missing, id)\n\t\t\tseenMissing[id] = struct{}{}\n\t\t}\n\t}\n")
+	fprintf(b, "\tif len(missing) > 0 {\n")
+	fprintf(b, "\t\titems, err := c.repo.FindByIDs(ctx, missing)\n\t\tif err != nil {\n\t\t\treturn nil, err\n\t\t}\n")
+	fprintf(b, "\t\tfor i := range items {\n\t\t\titem := items[i]\n\t\t\tfound[item.%s] = &item\n\t\t\tif err := c.cache.Set(ctx, item.%s, &item); err != nil {\n\t\t\t\treturn nil, err\n\t\t\t}\n\t\t}\n\t}\n", pkField, pkField)
+	fprintf(b, "\tout := make([]entity.%s, 0, len(found))\n", typeName)
+	fprintf(b, "\tfor _, id := range %s {\n\t\tif item, ok := found[id]; ok && item != nil {\n\t\t\tout = append(out, *item)\n\t\t}\n\t}\n", pkArg)
+	fprintf(b, "\treturn out, nil\n}\n\n")
+}
+
+func writeConsistentCachedAfterCommitMethods(b *bytes.Buffer, table SQLTable, typeName, cachedName string, indexes []modelUniqueIndex) {
+	pk := primaryColumn(table)
+	pkField := modelFieldName(pk.Name)
+	indexPrefixes := modelIndexPrefixes(table)
+	fprintf(b, "func (c *%s) afterInsertCommit(ctx context.Context, in *entity.%s) error {\n", cachedName, typeName)
+	fprintf(b, "\tif c.cache != nil && in != nil {\n\t\tc.cache.Set(in.%s, in)\n\t}\n", pkField)
+	writeUniqueCacheSetAfterMutation(b, indexes, false)
+	writeIndexListCacheClearAfterMutation(b, indexPrefixes)
+	fprintf(b, "\treturn nil\n}\n\n")
+	fprintf(b, "func (c *%s) afterUpdateCommit(ctx context.Context, in *entity.%s, old *entity.%s) error {\n", cachedName, typeName, typeName)
+	fprintf(b, "\tif c.cache != nil && in != nil {\n\t\tc.cache.Invalidate(in.%s)\n\t}\n", pkField)
+	writeUniqueCacheInvalidateAfterMutation(b, indexes, "old", false)
+	writeUniqueCacheSetAfterMutation(b, indexes, false)
+	writeIndexListCacheClearAfterMutation(b, indexPrefixes)
+	fprintf(b, "\treturn nil\n}\n\n")
+	fprintf(b, "func (c *%s) afterUpdateFieldsCommit(ctx context.Context, %s %s, old *entity.%s) error {\n", cachedName, modelArgName(pk.Name), columnGoType(pk), typeName)
+	fprintf(b, "\tif c.cache != nil {\n\t\tc.cache.Invalidate(%s)\n\t}\n", modelArgName(pk.Name))
+	writeUniqueCacheInvalidateAfterMutation(b, indexes, "old", false)
+	writeIndexListCacheClearAfterMutation(b, indexPrefixes)
+	fprintf(b, "\treturn nil\n}\n\n")
+	fprintf(b, "func (c *%s) afterDeleteCommit(ctx context.Context, %s %s, old *entity.%s) error {\n", cachedName, modelArgName(pk.Name), columnGoType(pk), typeName)
+	fprintf(b, "\tif c.cache != nil {\n\t\tc.cache.Invalidate(%s)\n\t}\n", modelArgName(pk.Name))
+	writeUniqueCacheInvalidateAfterMutation(b, indexes, "old", false)
+	writeIndexListCacheClearAfterMutation(b, indexPrefixes)
+	fprintf(b, "\treturn nil\n}\n\n")
+}
+
+func writeRedisCachedAfterCommitMethods(b *bytes.Buffer, table SQLTable, typeName, cachedName string) {
+	pk := primaryColumn(table)
+	pkArg := modelArgName(pk.Name)
+	pkField := modelFieldName(pk.Name)
+	indexPrefixes := modelIndexPrefixes(table)
+	fprintf(b, "func (c *%s) afterInsertCommit(ctx context.Context, in *entity.%s) error {\n", cachedName, typeName)
+	fprintf(b, "\tif c.cache != nil && in != nil {\n\t\tif err := c.cache.Set(ctx, in.%s, in); err != nil {\n\t\t\treturn err\n\t\t}\n\t}\n", pkField)
+	writeRedisIndexListCacheBumpAfterMutation(b, indexPrefixes)
+	fprintf(b, "\treturn nil\n}\n\n")
+	fprintf(b, "func (c *%s) afterUpdateCommit(ctx context.Context, in *entity.%s) error {\n", cachedName, typeName)
+	fprintf(b, "\tif c.cache != nil && in != nil {\n\t\tif err := c.cache.Invalidate(ctx, in.%s); err != nil {\n\t\t\treturn err\n\t\t}\n\t}\n", pkField)
+	writeRedisIndexListCacheBumpAfterMutation(b, indexPrefixes)
+	fprintf(b, "\treturn nil\n}\n\n")
+	fprintf(b, "func (c *%s) afterUpdateFieldsCommit(ctx context.Context, %s %s) error {\n", cachedName, pkArg, columnGoType(pk))
+	fprintf(b, "\tif c.cache != nil {\n\t\tif err := c.cache.Invalidate(ctx, %s); err != nil {\n\t\t\treturn err\n\t\t}\n\t}\n", pkArg)
+	writeRedisIndexListCacheBumpAfterMutation(b, indexPrefixes)
+	fprintf(b, "\treturn nil\n}\n\n")
+	fprintf(b, "func (c *%s) afterDeleteCommit(ctx context.Context, %s %s) error {\n", cachedName, pkArg, columnGoType(pk))
+	fprintf(b, "\tif c.cache != nil {\n\t\tif err := c.cache.Invalidate(ctx, %s); err != nil {\n\t\t\treturn err\n\t\t}\n\t}\n", pkArg)
+	writeRedisIndexListCacheBumpAfterMutation(b, indexPrefixes)
+	fprintf(b, "\treturn nil\n}\n\n")
 }
 
 func writeConsistentCachedUpdateFields(b *bytes.Buffer, table SQLTable, typeName, cachedName string, indexes []modelUniqueIndex) {
 	pk := primaryColumn(table)
 	pkArg := modelArgName(pk.Name)
-	indexPrefixes := modelIndexPrefixes(table)
 	fprintf(b, "func (c *%s) UpdateFields(ctx context.Context, %s %s, fields map[string]any) error {\n", cachedName, pkArg, columnGoType(pk))
 	fprintf(b, "\treturn c.UpdateFieldsWithInvalidate(ctx, %s, fields)\n}\n\n", pkArg)
 	fprintf(b, "func (c *%s) UpdateFieldsWithInvalidate(ctx context.Context, %s %s, fields map[string]any) error {\n", cachedName, pkArg, columnGoType(pk))
 	fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn errors.New(%q)\n\t}\n", lowerCamel(typeName)+" cached repo is nil")
 	fprintf(b, "\tif len(fields) == 0 {\n\t\treturn nil\n\t}\n")
+	fprintf(b, "\tvar old *entity.%s\n", typeName)
 	if len(indexes) > 0 {
-		fprintf(b, "\told, _ := c.repo.FindOne(ctx, %s)\n", pkArg)
+		fprintf(b, "\told, _ = c.repo.FindOne(ctx, %s)\n", pkArg)
 	}
 	fprintf(b, "\tif err := c.repo.UpdateFields(ctx, %s, fields); err != nil {\n\t\treturn err\n\t}\n", pkArg)
-	fprintf(b, "\tif c.cache != nil {\n\t\tc.cache.Invalidate(%s)\n\t}\n", pkArg)
-	writeUniqueCacheInvalidateAfterMutation(b, indexes, "old", false)
-	writeIndexListCacheClearAfterMutation(b, indexPrefixes)
-	fprintf(b, "\treturn nil\n}\n\n")
+	fprintf(b, "\treturn c.deferOrRunAfterCommit(ctx, func(ctx context.Context) error {\n\t\treturn c.afterUpdateFieldsCommit(ctx, %s, old)\n\t})\n}\n\n", pkArg)
 }
 
 func writeConsistentCachedUpdateWithVersion(b *bytes.Buffer, table SQLTable, typeName, cachedName string, indexes []modelUniqueIndex) {
@@ -1567,20 +1784,15 @@ func writeConsistentCachedUpdateWithVersion(b *bytes.Buffer, table SQLTable, typ
 	}
 	pk := primaryColumn(table)
 	pkField := modelFieldName(pk.Name)
-	indexPrefixes := modelIndexPrefixes(table)
 	fprintf(b, "func (c *%s) UpdateWithVersion(ctx context.Context, in *entity.%s, expectedVersion %s) error {\n", cachedName, typeName, columnGoType(version))
 	fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn errors.New(%q)\n\t}\n", lowerCamel(typeName)+" cached repo is nil")
+	fprintf(b, "\tvar old *entity.%s\n", typeName)
 	if len(indexes) > 0 {
-		fprintf(b, "\tvar old *entity.%s\n", typeName)
 		fprintf(b, "\tif in != nil {\n\t\told, _ = c.repo.FindOne(ctx, in.%s)\n\t}\n", pkField)
 	}
 	fprintf(b, "\tif err := c.repo.UpdateWithVersion(ctx, in, expectedVersion); err != nil {\n\t\treturn err\n\t}\n")
 	fprintf(b, "\tif in != nil {\n\t\tin.%s = expectedVersion + 1\n\t}\n", modelFieldName(version.Name))
-	fprintf(b, "\tif c.cache != nil && in != nil {\n\t\tc.cache.Invalidate(in.%s)\n\t}\n", pkField)
-	writeUniqueCacheInvalidateAfterMutation(b, indexes, "old", false)
-	writeUniqueCacheSetAfterMutation(b, indexes, false)
-	writeIndexListCacheClearAfterMutation(b, indexPrefixes)
-	fprintf(b, "\treturn nil\n}\n\n")
+	fprintf(b, "\treturn c.deferOrRunAfterCommit(ctx, func(ctx context.Context) error {\n\t\treturn c.afterUpdateCommit(ctx, in, old)\n\t})\n}\n\n")
 }
 
 func writeRedisCachedUpdateFields(b *bytes.Buffer, table SQLTable, typeName, cachedName string) {
@@ -1590,7 +1802,7 @@ func writeRedisCachedUpdateFields(b *bytes.Buffer, table SQLTable, typeName, cac
 	fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn errors.New(%q)\n\t}\n", lowerCamel(typeName)+" redis cached repo is nil")
 	fprintf(b, "\tif len(fields) == 0 {\n\t\treturn nil\n\t}\n")
 	fprintf(b, "\tif err := c.repo.UpdateFields(ctx, %s, fields); err != nil {\n\t\treturn err\n\t}\n", pkArg)
-	fprintf(b, "\tif c.cache != nil {\n\t\treturn c.cache.Invalidate(ctx, %s)\n\t}\n\treturn nil\n}\n\n", pkArg)
+	fprintf(b, "\treturn c.deferOrRunAfterCommit(ctx, func(ctx context.Context) error {\n\t\treturn c.afterUpdateFieldsCommit(ctx, %s)\n\t})\n}\n\n", pkArg)
 }
 
 func writeRedisCachedUpdateWithVersion(b *bytes.Buffer, table SQLTable, typeName, cachedName string) {
@@ -1598,11 +1810,10 @@ func writeRedisCachedUpdateWithVersion(b *bytes.Buffer, table SQLTable, typeName
 	if !ok {
 		return
 	}
-	pkField := modelFieldName(primaryColumn(table).Name)
 	fprintf(b, "func (c *%s) UpdateWithVersion(ctx context.Context, in *entity.%s, expectedVersion %s) error {\n", cachedName, typeName, columnGoType(version))
 	fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn errors.New(%q)\n\t}\n", lowerCamel(typeName)+" redis cached repo is nil")
 	fprintf(b, "\tif err := c.repo.UpdateWithVersion(ctx, in, expectedVersion); err != nil {\n\t\treturn err\n\t}\n")
-	fprintf(b, "\tif c.cache != nil && in != nil {\n\t\treturn c.cache.Invalidate(ctx, in.%s)\n\t}\n\treturn nil\n}\n\n", pkField)
+	fprintf(b, "\treturn c.deferOrRunAfterCommit(ctx, func(ctx context.Context) error {\n\t\treturn c.afterUpdateCommit(ctx, in)\n\t})\n}\n\n")
 }
 
 func writeUniqueModelCacheInitializers(b *bytes.Buffer, indexes []modelUniqueIndex, typeName, repoValue string, redis bool) {
@@ -1644,10 +1855,35 @@ func writeUniqueCachedFinders(b *bytes.Buffer, indexes []modelUniqueIndex, typeN
 func writeIndexListCacheInitializers(b *bytes.Buffer, indexes []modelIndexPrefix, typeName, repoValue string) {
 	for _, index := range indexes {
 		fieldName := indexListCacheFieldName(index.Columns)
+		countFieldName := indexCountCacheFieldName(index.Columns)
 		finderName := uniqueFinderName(index.Columns)
-		cacheName := "list:" + indexListCachePrefix(index.Columns)
-		fprintf(b, "\tout.%s = cache.New[[]entity.%s](cache.WithName[[]entity.%s](%q))\n", fieldName, typeName, typeName, cacheName)
+		cachePrefix := indexListCachePrefix(index.Columns)
+		fprintf(b, "\tout.%s = cache.New[[]entity.%s](cache.WithName[[]entity.%s](%q))\n", fieldName, typeName, typeName, "list:"+cachePrefix)
+		fprintf(b, "\tout.%s = cache.New[int64](cache.WithName[int64](%q))\n", countFieldName, "count:"+cachePrefix)
 		fprintf(b, "\t_ = %s.FindBy%s\n", repoValue, finderName)
+		fprintf(b, "\t_ = %s.CountBy%s\n", repoValue, finderName)
+	}
+}
+
+func writeRedisIndexListCacheInitializers(b *bytes.Buffer, indexes []modelIndexPrefix, typeName, repoValue string) {
+	for _, index := range indexes {
+		fieldName := indexListCacheFieldName(index.Columns)
+		countFieldName := indexCountCacheFieldName(index.Columns)
+		versionFieldName := indexListVersionFieldName(index.Columns)
+		finderName := uniqueFinderName(index.Columns)
+		cachePrefix := indexListCachePrefix(index.Columns)
+		fprintf(b, "\tout.%s = cache.NewRedisModel(func(ctx context.Context, key string) ([]entity.%s, error) {\n", fieldName, typeName)
+		fprintf(b, "\t\treturn nil, cache.ErrNotFound\n")
+		fprintf(b, "\t}, client, cache.WithRedisModelNotFound[[]entity.%s, string](redis.ErrNil), cache.WithRedisModelKeyPrefix[[]entity.%s, string](%q))\n", typeName, typeName, "list:"+cachePrefix)
+		fprintf(b, "\tout.%s = cache.NewRedisModel(func(ctx context.Context, key string) (int64, error) {\n", countFieldName)
+		fprintf(b, "\t\treturn 0, cache.ErrNotFound\n")
+		fprintf(b, "\t}, client, cache.WithRedisModelNotFound[int64, string](redis.ErrNil), cache.WithRedisModelKeyPrefix[int64, string](%q))\n", "count:"+cachePrefix)
+		fprintf(b, "\tout.%s = cache.NewRedisModel(func(ctx context.Context, key string) (string, error) {\n", versionFieldName)
+		fprintf(b, "\t\tversion := redisIndexListVersionValue()\n")
+		fprintf(b, "\t\treturn version, out.%s.Set(ctx, key, version)\n", versionFieldName)
+		fprintf(b, "\t}, client, cache.WithRedisModelNotFound[string, string](redis.ErrNil), cache.WithRedisModelKeyPrefix[string, string](%q))\n", "list-version:"+cachePrefix)
+		fprintf(b, "\t_ = %s.FindBy%s\n", repoValue, finderName)
+		fprintf(b, "\t_ = %s.CountBy%s\n", repoValue, finderName)
 	}
 }
 
@@ -1655,6 +1891,7 @@ func writeIndexListCachedFinders(b *bytes.Buffer, indexes []modelIndexPrefix, ty
 	for _, index := range indexes {
 		columns := index.Columns
 		fieldName := indexListCacheFieldName(columns)
+		countFieldName := indexCountCacheFieldName(columns)
 		finderName := uniqueFinderName(columns)
 		params := uniqueFinderParams(columns)
 		args := uniqueFinderArgs(columns)
@@ -1662,13 +1899,68 @@ func writeIndexListCachedFinders(b *bytes.Buffer, indexes []modelIndexPrefix, ty
 			args += ", "
 		}
 		keyExpr := indexListCacheKeyCall(columns, args+"limit, offset")
+		countKeyExpr := indexCountCacheKeyCall(columns, strings.TrimSuffix(args, ", "))
+		finderArgs := strings.TrimSuffix(args, ", ")
 		fprintf(b, "func (c *%s) FindBy%sCached(ctx context.Context, %s, limit int, offset int) ([]entity.%s, error) {\n", cachedName, finderName, params, typeName)
 		fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn nil, errors.New(%q)\n\t}\n", lowerCamel(typeName)+" cached repo is nil")
 		fprintf(b, "\tkey := %s\n", keyExpr)
-		fprintf(b, "\tif c.%s == nil {\n\t\treturn c.repo.FindBy%s(ctx, %s, limit, offset)\n\t}\n", fieldName, finderName, strings.TrimSuffix(args, ", "))
+		fprintf(b, "\tif c.%s == nil {\n\t\treturn c.repo.FindBy%s(ctx, %s, limit, offset)\n\t}\n", fieldName, finderName, finderArgs)
 		fprintf(b, "\tif cached, ok := c.%s.Get(key); ok {\n\t\treturn cached, nil\n\t}\n", fieldName)
-		fprintf(b, "\tout, err := c.repo.FindBy%s(ctx, %s, limit, offset)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n", finderName, strings.TrimSuffix(args, ", "))
+		fprintf(b, "\tout, err := c.repo.FindBy%s(ctx, %s, limit, offset)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n", finderName, finderArgs)
 		fprintf(b, "\tc.%s.Set(key, out)\n\treturn out, nil\n}\n\n", fieldName)
+		fprintf(b, "func (c *%s) CountBy%sCached(ctx context.Context, %s) (int64, error) {\n", cachedName, finderName, params)
+		fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn 0, errors.New(%q)\n\t}\n", lowerCamel(typeName)+" cached repo is nil")
+		fprintf(b, "\tkey := %s\n", countKeyExpr)
+		fprintf(b, "\tif c.%s == nil {\n\t\treturn c.repo.CountBy%s(ctx, %s)\n\t}\n", countFieldName, finderName, finderArgs)
+		fprintf(b, "\tif cached, ok := c.%s.Get(key); ok {\n\t\treturn cached, nil\n\t}\n", countFieldName)
+		fprintf(b, "\ttotal, err := c.repo.CountBy%s(ctx, %s)\n\tif err != nil {\n\t\treturn 0, err\n\t}\n", finderName, finderArgs)
+		fprintf(b, "\tc.%s.Set(key, total)\n\treturn total, nil\n}\n\n", countFieldName)
+		fprintf(b, "func (c *%s) PageBy%sCached(ctx context.Context, %s, limit int, offset int) ([]entity.%s, int64, error) {\n", cachedName, finderName, params, typeName)
+		fprintf(b, "\titems, err := c.FindBy%sCached(ctx, %s, limit, offset)\n\tif err != nil {\n\t\treturn nil, 0, err\n\t}\n", finderName, finderArgs)
+		fprintf(b, "\ttotal, err := c.CountBy%sCached(ctx, %s)\n\tif err != nil {\n\t\treturn nil, 0, err\n\t}\n", finderName, finderArgs)
+		fprintf(b, "\treturn items, total, nil\n}\n\n")
+	}
+}
+
+func writeRedisIndexListCachedFinders(b *bytes.Buffer, indexes []modelIndexPrefix, typeName, cachedName string) {
+	for _, index := range indexes {
+		columns := index.Columns
+		fieldName := indexListCacheFieldName(columns)
+		countFieldName := indexCountCacheFieldName(columns)
+		versionFieldName := indexListVersionFieldName(columns)
+		finderName := uniqueFinderName(columns)
+		params := uniqueFinderParams(columns)
+		args := uniqueFinderArgs(columns)
+		if args != "" {
+			args += ", "
+		}
+		baseKeyExpr := indexListCacheKeyCall(columns, args+"limit, offset")
+		baseCountKeyExpr := indexCountCacheKeyCall(columns, strings.TrimSuffix(args, ", "))
+		finderArgs := strings.TrimSuffix(args, ", ")
+		fprintf(b, "func (c *%s) FindBy%sCached(ctx context.Context, %s, limit int, offset int) ([]entity.%s, error) {\n", cachedName, finderName, params, typeName)
+		fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn nil, errors.New(%q)\n\t}\n", lowerCamel(typeName)+" redis cached repo is nil")
+		fprintf(b, "\tif c.%s == nil || c.%s == nil {\n\t\treturn c.repo.FindBy%s(ctx, %s, limit, offset)\n\t}\n", fieldName, versionFieldName, finderName, finderArgs)
+		fprintf(b, "\tversion, err := c.%s.Get(ctx, \"current\")\n\tif err != nil {\n\t\treturn nil, err\n\t}\n", versionFieldName)
+		fprintf(b, "\tkey := redisIndexListCacheKey(version, %s)\n", baseKeyExpr)
+		fprintf(b, "\tout, err := c.%s.Get(ctx, key)\n\tif err == nil {\n\t\treturn out, nil\n\t}\n", fieldName)
+		fprintf(b, "\tif !errors.Is(err, cache.ErrNotFound) {\n\t\treturn nil, err\n\t}\n")
+		fprintf(b, "\tout, err = c.repo.FindBy%s(ctx, %s, limit, offset)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n", finderName, finderArgs)
+		fprintf(b, "\tif err := c.%s.Set(ctx, key, out); err != nil {\n\t\treturn nil, err\n\t}\n", fieldName)
+		fprintf(b, "\treturn out, nil\n}\n\n")
+		fprintf(b, "func (c *%s) CountBy%sCached(ctx context.Context, %s) (int64, error) {\n", cachedName, finderName, params)
+		fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn 0, errors.New(%q)\n\t}\n", lowerCamel(typeName)+" redis cached repo is nil")
+		fprintf(b, "\tif c.%s == nil || c.%s == nil {\n\t\treturn c.repo.CountBy%s(ctx, %s)\n\t}\n", countFieldName, versionFieldName, finderName, finderArgs)
+		fprintf(b, "\tversion, err := c.%s.Get(ctx, \"current\")\n\tif err != nil {\n\t\treturn 0, err\n\t}\n", versionFieldName)
+		fprintf(b, "\tkey := redisIndexListCacheKey(version, %s)\n", baseCountKeyExpr)
+		fprintf(b, "\ttotal, err := c.%s.Get(ctx, key)\n\tif err == nil {\n\t\treturn total, nil\n\t}\n", countFieldName)
+		fprintf(b, "\tif !errors.Is(err, cache.ErrNotFound) {\n\t\treturn 0, err\n\t}\n")
+		fprintf(b, "\ttotal, err = c.repo.CountBy%s(ctx, %s)\n\tif err != nil {\n\t\treturn 0, err\n\t}\n", finderName, finderArgs)
+		fprintf(b, "\tif err := c.%s.Set(ctx, key, total); err != nil {\n\t\treturn 0, err\n\t}\n", countFieldName)
+		fprintf(b, "\treturn total, nil\n}\n\n")
+		fprintf(b, "func (c *%s) PageBy%sCached(ctx context.Context, %s, limit int, offset int) ([]entity.%s, int64, error) {\n", cachedName, finderName, params, typeName)
+		fprintf(b, "\titems, err := c.FindBy%sCached(ctx, %s, limit, offset)\n\tif err != nil {\n\t\treturn nil, 0, err\n\t}\n", finderName, finderArgs)
+		fprintf(b, "\ttotal, err := c.CountBy%sCached(ctx, %s)\n\tif err != nil {\n\t\treturn nil, 0, err\n\t}\n", finderName, finderArgs)
+		fprintf(b, "\treturn items, total, nil\n}\n\n")
 	}
 }
 
@@ -1697,7 +1989,16 @@ func writeUniqueCacheInvalidateAfterMutation(b *bytes.Buffer, indexes []modelUni
 func writeIndexListCacheClearAfterMutation(b *bytes.Buffer, indexes []modelIndexPrefix) {
 	for _, index := range indexes {
 		fieldName := indexListCacheFieldName(index.Columns)
+		countFieldName := indexCountCacheFieldName(index.Columns)
 		fprintf(b, "\tif c.%s != nil {\n\t\tc.%s.Clear()\n\t}\n", fieldName, fieldName)
+		fprintf(b, "\tif c.%s != nil {\n\t\tc.%s.Clear()\n\t}\n", countFieldName, countFieldName)
+	}
+}
+
+func writeRedisIndexListCacheBumpAfterMutation(b *bytes.Buffer, indexes []modelIndexPrefix) {
+	for _, index := range indexes {
+		fieldName := indexListVersionFieldName(index.Columns)
+		fprintf(b, "\tif c.%s != nil {\n\t\tif err := c.%s.Set(ctx, \"current\", redisIndexListVersionValue()); err != nil {\n\t\t\treturn err\n\t\t}\n\t}\n", fieldName, fieldName)
 	}
 }
 
@@ -2243,6 +2544,7 @@ func writeAdvancedGORMRepoMethods(b *bytes.Buffer, table SQLTable, typeName, rec
 	}
 	writeCompositeGORMUniqueFinders(b, table, typeName, receiverName)
 	writeGORMIndexListFinders(b, table, typeName, receiverName)
+	writeGORMFindByIDs(b, table, typeName, receiverName)
 	fprintf(b, "func (r *%s) InsertMany(ctx context.Context, items []*entity.%s) error {\n", receiverName, typeName)
 	fprintf(b, "\tdb, err := r.dbWithContext(ctx)\n\tif err != nil {\n\t\treturn err\n\t}\n\treturn db.Create(&items).Error\n}\n\n")
 	fprintf(b, "func (r *%s) UpdateMany(ctx context.Context, items []*entity.%s) error {\n", receiverName, typeName)
@@ -2280,6 +2582,25 @@ func writeAdvancedGORMRepoMethods(b *bytes.Buffer, table SQLTable, typeName, rec
 		fprintf(b, "\tdb = db.Where(%q)\n", table.SoftDeleteColumn+" IS NULL")
 	}
 	fprintf(b, "\tif err := db.Where(%q, after).Order(%q).Limit(limit).Find(&out).Error; err != nil {\n\t\treturn nil, err\n\t}\n\treturn out, nil\n}\n\n", pk.Name+" > ?", pk.Name+" ASC")
+}
+
+func writeGORMFindByIDs(b *bytes.Buffer, table SQLTable, typeName, receiverName string) {
+	pk := primaryColumn(table)
+	pkArg := "ids"
+	pkField := modelFieldName(pk.Name)
+	fprintf(b, "func (r *%s) FindByIDs(ctx context.Context, %s []%s) ([]entity.%s, error) {\n", receiverName, pkArg, columnGoType(pk), typeName)
+	fprintf(b, "\tif len(%s) == 0 {\n\t\treturn []entity.%s{}, nil\n\t}\n", pkArg, typeName)
+	fprintf(b, "\tdb, err := r.dbWithContext(ctx)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n")
+	if hasSoftDelete(table) {
+		fprintf(b, "\tdb = db.Where(%q)\n", table.SoftDeleteColumn+" IS NULL")
+	}
+	fprintf(b, "\tout := make([]entity.%s, 0, len(%s))\n", typeName, pkArg)
+	fprintf(b, "\tif err := db.Where(%q, %s).Order(%q).Find(&out).Error; err != nil {\n\t\treturn nil, err\n\t}\n", pk.Name+" IN ?", pkArg, pk.Name+" ASC")
+	fprintf(b, "\tfound := make(map[%s]entity.%s, len(out))\n", columnGoType(pk), typeName)
+	fprintf(b, "\tfor _, item := range out {\n\t\tfound[item.%s] = item\n\t}\n", pkField)
+	fprintf(b, "\tordered := make([]entity.%s, 0, len(found))\n", typeName)
+	fprintf(b, "\tfor _, id := range %s {\n\t\tif item, ok := found[id]; ok {\n\t\t\tordered = append(ordered, item)\n\t\t}\n\t}\n", pkArg)
+	fprintf(b, "\treturn ordered, nil\n}\n\n")
 }
 
 func writeGORMIndexListFinders(b *bytes.Buffer, table SQLTable, typeName, receiverName string) {
@@ -2584,6 +2905,14 @@ func indexListCacheFieldName(columns []SQLColumn) string {
 	return "listCacheBy" + uniqueFinderName(columns)
 }
 
+func indexCountCacheFieldName(columns []SQLColumn) string {
+	return "countCacheBy" + uniqueFinderName(columns)
+}
+
+func indexListVersionFieldName(columns []SQLColumn) string {
+	return "listVersionBy" + uniqueFinderName(columns)
+}
+
 func uniqueCachePrefix(columns []SQLColumn) string {
 	names := make([]string, 0, len(columns))
 	for _, column := range columns {
@@ -2608,6 +2937,10 @@ func indexListCacheKeyCall(columns []SQLColumn, args string) string {
 	return indexListCacheKeyFuncName(columns) + "(" + args + ")"
 }
 
+func indexCountCacheKeyCall(columns []SQLColumn, args string) string {
+	return indexCountCacheKeyFuncName(columns) + "(" + args + ")"
+}
+
 func uniqueCacheKeyFromEntityCall(columns []SQLColumn, receiver string) string {
 	args := make([]string, 0, len(columns))
 	for _, column := range columns {
@@ -2622,6 +2955,10 @@ func uniqueCacheKeyFuncName(columns []SQLColumn) string {
 
 func indexListCacheKeyFuncName(columns []SQLColumn) string {
 	return "indexListKeyBy" + uniqueFinderName(columns)
+}
+
+func indexCountCacheKeyFuncName(columns []SQLColumn) string {
+	return "indexCountKeyBy" + uniqueFinderName(columns)
 }
 
 func writeUniqueCacheKeyFuncs(b *bytes.Buffer, indexes []modelUniqueIndex) {
@@ -2640,16 +2977,31 @@ func writeIndexListCacheKeyFuncs(b *bytes.Buffer, indexes []modelIndexPrefix) {
 	for _, index := range indexes {
 		columns := index.Columns
 		params := uniqueFinderParams(columns)
-		if params != "" {
-			params += ", "
+		listParams := params
+		if listParams != "" {
+			listParams += ", "
 		}
-		fprintf(b, "func %s(%slimit int, offset int) string {\n", indexListCacheKeyFuncName(columns), params)
+		fprintf(b, "func %s(%slimit int, offset int) string {\n", indexListCacheKeyFuncName(columns), listParams)
 		parts := make([]string, 0, len(columns)+2)
 		for _, column := range columns {
 			parts = append(parts, "strconv.Quote(fmt.Sprint("+modelArgName(column.Name)+"))")
 		}
 		parts = append(parts, "\"limit=\"+strconv.Itoa(limit)", "\"offset=\"+strconv.Itoa(offset)")
 		fprintf(b, "\treturn strings.Join([]string{%s}, \"|\")\n}\n\n", strings.Join(parts, ", "))
+		fprintf(b, "func %s(%s) string {\n", indexCountCacheKeyFuncName(columns), params)
+		countParts := make([]string, 0, len(columns))
+		for _, column := range columns {
+			countParts = append(countParts, "strconv.Quote(fmt.Sprint("+modelArgName(column.Name)+"))")
+		}
+		fprintf(b, "\treturn strings.Join([]string{%s}, \"|\")\n}\n\n", strings.Join(countParts, ", "))
+	}
+	if len(indexes) > 0 {
+		fprintf(b, "func redisIndexListVersionValue() string {\n")
+		fprintf(b, "\treturn strconv.FormatInt(time.Now().UnixNano(), 10)\n")
+		fprintf(b, "}\n\n")
+		fprintf(b, "func redisIndexListCacheKey(version string, key string) string {\n")
+		fprintf(b, "\treturn version + \"|\" + key\n")
+		fprintf(b, "}\n\n")
 	}
 }
 

@@ -140,6 +140,27 @@ func (m *RedisModelCache[T, K]) Set(ctx context.Context, id K, value T) error {
 	return nil
 }
 
+func (m *RedisModelCache[T, K]) Peek(ctx context.Context, id K) (T, bool, error) {
+	ctx = core.Context(ctx)
+	var zero T
+	if m == nil || m.client == nil {
+		return zero, false, errors.New("redis model cache client is nil")
+	}
+	key := m.cacheKey(id)
+	data, err := m.client.Get(ctx, key)
+	if err == nil {
+		var value T
+		if err := json.Unmarshal(data, &value); err != nil {
+			return zero, false, fmt.Errorf("decode redis model cache %q: %w", key, err)
+		}
+		return value, true, nil
+	}
+	if errors.Is(err, m.notFoundErr) {
+		return zero, false, nil
+	}
+	return zero, false, fmt.Errorf("get redis model cache %q: %w", key, err)
+}
+
 func (m *RedisModelCache[T, K]) Invalidate(ctx context.Context, id K) error {
 	ctx = core.Context(ctx)
 	if m == nil || m.client == nil {

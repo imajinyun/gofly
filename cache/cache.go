@@ -299,6 +299,14 @@ func (m *ModelCache[T, K]) Set(id K, value T, ttl ...time.Duration) {
 	m.cache.Set(m.cacheKey(id), value, ttl...)
 }
 
+func (m *ModelCache[T, K]) Peek(id K) (T, bool) {
+	var zero T
+	if m == nil || m.cache == nil {
+		return zero, false
+	}
+	return m.cache.Get(m.cacheKey(id))
+}
+
 func (m *ModelCache[T, K]) Invalidate(id K) bool {
 	if m == nil || m.cache == nil {
 		return false

@@ -106,6 +106,41 @@ func TestRedisModelCacheInvalidateDeletesKey(t *testing.T) {
 	}
 }
 
+func TestRedisModelCachePeekDoesNotLoad(t *testing.T) {
+	client := newFakeRedisModelClient()
+	loads := 0
+	c := NewRedisModel(func(ctx context.Context, id int64) (string, error) {
+		loads++
+		return "loaded", nil
+	}, client,
+		WithRedisModelNotFound[string, int64](errRedisMiss),
+		WithRedisModelKeyPrefix[string, int64]("users"),
+	)
+	got, ok, err := c.Peek(context.Background(), 42)
+	if err != nil {
+		t.Fatalf("Peek miss returned error: %v", err)
+	}
+	if ok || got != "" {
+		t.Fatalf("Peek miss = %q, %v, want zero false", got, ok)
+	}
+	if loads != 0 {
+		t.Fatalf("Peek miss loader calls = %d, want 0", loads)
+	}
+	if err := c.Set(context.Background(), 42, "cached"); err != nil {
+		t.Fatalf("Set returned error: %v", err)
+	}
+	got, ok, err = c.Peek(context.Background(), 42)
+	if err != nil {
+		t.Fatalf("Peek hit returned error: %v", err)
+	}
+	if !ok || got != "cached" {
+		t.Fatalf("Peek hit = %q, %v, want cached true", got, ok)
+	}
+	if loads != 0 {
+		t.Fatalf("Peek hit loader calls = %d, want 0", loads)
+	}
+}
+
 func TestRedisModelCacheWithCustomKey(t *testing.T) {
 	client := newFakeRedisModelClient()
 	c := NewRedisModel(func(ctx context.Context, id int64) (string, error) {

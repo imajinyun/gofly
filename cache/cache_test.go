@@ -254,6 +254,27 @@ func TestModelCacheLoaderErrors(t *testing.T) {
 	}
 }
 
+func TestModelCachePeekDoesNotLoad(t *testing.T) {
+	var loads atomic.Int64
+	m := NewModel(func(ctx context.Context, id int64) (string, error) {
+		loads.Add(1)
+		return "loaded", nil
+	})
+	if got, ok := m.Peek(42); ok || got != "" {
+		t.Fatalf("Peek miss = %q, %v, want zero false", got, ok)
+	}
+	if loads.Load() != 0 {
+		t.Fatalf("Peek miss loader calls = %d, want 0", loads.Load())
+	}
+	m.Set(42, "cached")
+	if got, ok := m.Peek(42); !ok || got != "cached" {
+		t.Fatalf("Peek hit = %q, %v, want cached true", got, ok)
+	}
+	if loads.Load() != 0 {
+		t.Fatalf("Peek hit loader calls = %d, want 0", loads.Load())
+	}
+}
+
 func TestCacheClear(t *testing.T) {
 	c := New[string]()
 	c.Set("a", "one")

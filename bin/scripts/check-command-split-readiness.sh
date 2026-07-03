@@ -103,7 +103,7 @@ for family in readiness.get("candidateFamilies") or []:
     mapped = family_by_id.get(family_id) or {}
     require(mapped.get("splitRecommendation") == "candidate", f"candidate {family_id}: dependency map must recommend candidate")
     require(
-        family.get("status") in {"candidate-after-golden", "candidate-after-json-golden", "candidate-after-dry-run"},
+        family.get("status") in {"candidate-after-golden", "candidate-after-json-golden", "candidate-after-dry-run", "candidate-after-adapter-dry-run"},
         f"candidate {family_id}: status mismatch",
     )
     require(len(str(family.get("reason") or "").split()) >= 12, f"candidate {family_id}: reason must be descriptive")
@@ -133,6 +133,7 @@ expected_required = {
     "make command-family-dependency-map-check",
     "make command-split-readiness-check",
     "make command-shared-reduction-plan-check",
+    "make command-output-json-adapter-dry-run-check",
     "make project-layout-governance-check",
     "git diff --check",
 }
@@ -146,13 +147,14 @@ blocked_by_id = {
     if isinstance(item, dict)
 }
 shared_blocked = blocked_by_id.get("shared") or {}
-require(shared_blocked.get("status") == "blocked-until-reduced", "shared blocked status mismatch")
+require(shared_blocked.get("status") == "blocked-until-physical-split-preflight", "shared blocked status mismatch")
 require("make command-shared-reduction-plan-check" in set(shared_blocked.get("requiredGates") or []), "shared blocked gates must include shared reduction plan check")
+require("make command-output-json-adapter-dry-run-check" in set(shared_blocked.get("requiredGates") or []), "shared blocked gates must include output/json adapter dry-run check")
 
 next_step = readiness.get("nextStep") or {}
-require(next_step.get("id") == "P22-10-command-output-json-adapter-dry-run", "nextStep id mismatch")
+require(next_step.get("id") == "P22-11-command-help-doctor-split-preflight", "nextStep id mismatch")
 next_action = str(next_step.get("action") or "")
-require("output" in next_action and "JSON" in next_action, "nextStep action must move to output and JSON adapter dry-run")
+require("help" in next_action and "doctor" in next_action, "nextStep action must move to help and doctor split preflight")
 
 reference_files = []
 for family in (layout.get("referenceFileBoundaries") or {}).get("families") or []:
@@ -162,6 +164,7 @@ require("command-split-readiness.json" in reference_files, "referenceFileBoundar
 require("command-help-split-dry-run.json" in reference_files, "referenceFileBoundaries must index command-help-split-dry-run.json")
 require("command-doctor-split-dry-run.json" in reference_files, "referenceFileBoundaries must index command-doctor-split-dry-run.json")
 require("command-shared-reduction-plan.json" in reference_files, "referenceFileBoundaries must index command-shared-reduction-plan.json")
+require("command-output-json-adapter-dry-run.json" in reference_files, "referenceFileBoundaries must index command-output-json-adapter-dry-run.json")
 
 if missing:
     print("command split readiness check failed:")

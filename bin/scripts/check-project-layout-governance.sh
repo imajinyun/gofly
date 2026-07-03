@@ -64,6 +64,8 @@ require("command-doctor-split-dry-run-check" in targets, "Makefile must expose c
 require("command-doctor-split-dry-run-check" in docs_check, "docs-check must depend on command-doctor-split-dry-run-check")
 require("command-shared-reduction-plan-check" in targets, "Makefile must expose command-shared-reduction-plan-check")
 require("command-shared-reduction-plan-check" in docs_check, "docs-check must depend on command-shared-reduction-plan-check")
+require("command-output-json-adapter-dry-run-check" in targets, "Makefile must expose command-output-json-adapter-dry-run-check")
+require("command-output-json-adapter-dry-run-check" in docs_check, "docs-check must depend on command-output-json-adapter-dry-run-check")
 require("check-project-layout-governance.sh" in makefile, "Makefile must call check-project-layout-governance.sh")
 
 top_level_boundary = manifest.get("topLevelDirectoryBoundaries") or {}
@@ -830,7 +832,7 @@ require(
     "command split readiness must record the root module pollution regression test",
 )
 require(
-    command_split_readiness.get("nextStep", {}).get("id") == "P22-10-command-output-json-adapter-dry-run",
+    command_split_readiness.get("nextStep", {}).get("id") == "P22-11-command-help-doctor-split-preflight",
     "command split readiness nextStep mismatch",
 )
 candidate_status = {
@@ -838,8 +840,8 @@ candidate_status = {
     for item in command_split_readiness.get("candidateFamilies") or []
     if isinstance(item, dict)
 }
-require(candidate_status.get("help") == "candidate-after-dry-run", "command split readiness help candidate must be after dry-run")
-require(candidate_status.get("doctor") == "candidate-after-dry-run", "command split readiness doctor candidate must be after dry-run")
+require(candidate_status.get("help") == "candidate-after-adapter-dry-run", "command split readiness help candidate must be after adapter dry-run")
+require(candidate_status.get("doctor") == "candidate-after-adapter-dry-run", "command split readiness doctor candidate must be after adapter dry-run")
 
 command_help_split_path = root / "docs" / "reference" / "command-help-split-dry-run.json"
 if command_help_split_path.is_file():
@@ -927,6 +929,45 @@ require(
 require(
     command_shared_reduction.get("physicalSplitAdmission", {}).get("status") == "blocked-until-adapters",
     "command shared reduction plan physicalSplitAdmission mismatch",
+)
+
+command_output_json_adapter_path = root / "docs" / "reference" / "command-output-json-adapter-dry-run.json"
+if command_output_json_adapter_path.is_file():
+    command_output_json_adapter = json.loads(command_output_json_adapter_path.read_text(encoding="utf-8"))
+else:
+    command_output_json_adapter = {}
+    missing.append("docs/reference/command-output-json-adapter-dry-run.json is missing")
+require(
+    command_output_json_adapter.get("schema") == "gofly.command_output_json_adapter_dry_run.v1",
+    "command output/json adapter dry-run schema mismatch",
+)
+require(
+    command_output_json_adapter.get("status") == "completed-preflight",
+    "command output/json adapter dry-run status must be completed-preflight",
+)
+require(
+    command_output_json_adapter.get("acceptanceGate") == "make command-output-json-adapter-dry-run-check",
+    "command output/json adapter dry-run acceptanceGate mismatch",
+)
+require(command_output_json_adapter.get("dryRunOnly") is True, "command output/json adapter dry-run must be dryRunOnly")
+require(command_output_json_adapter.get("noPhysicalMove") is True, "command output/json adapter dry-run must forbid physical move")
+require(
+    set(command_output_json_adapter.get("adapterContracts") or [])
+    == {
+        "withCommandIO restores output mode and stdout/stderr writers",
+        "quiet mode suppresses stdout helpers without suppressing stderr errors",
+        "verbose mode writes diagnostic output to stderr",
+        "printJSONEnvelope keeps ok command version and data fields",
+        "printJSONError keeps error code retryable remediation and nextActions fields",
+        "WriteErrorJSON keeps the legacy error envelope",
+        "doctor --json stays stdout-only with stable nextActions",
+        "bug --json supportBundle stays stdout-only with redaction guidance",
+    },
+    "command output/json adapter dry-run adapterContracts mismatch",
+)
+require(
+    command_output_json_adapter.get("physicalSplitAdmission", {}).get("status") == "candidate-for-help-doctor-preflight",
+    "command output/json adapter dry-run physicalSplitAdmission mismatch",
 )
 
 reference_boundary = manifest.get("referenceFileBoundaries") or {}

@@ -19,10 +19,10 @@
   "candidateFamilies": [
     {
       "id": "help",
-      "status": "candidate-after-dry-run",
-      "reason": "The help family has only standard library imports, golden output coverage, and dry-run extraction evidence, but physical movement still needs an output adapter boundary.",
+      "status": "candidate-after-adapter-dry-run",
+      "reason": "The help family has only standard library imports, golden output coverage, dry-run extraction evidence, and output adapter dry-run coverage, but physical movement still needs a dedicated split preflight.",
       "requiredPreSplitActions": [
-        "introduce a package-local output adapter before moving printHelp out of the shared command package",
+        "run a dedicated help physical split preflight before moving printHelp out of the shared command package",
         "define a small metadata adapter for command registration",
         "prove docs-check still covers every help topic after extraction"
       ],
@@ -30,6 +30,7 @@
         "make command-family-dependency-map-check",
         "make command-split-readiness-check",
         "make command-help-split-dry-run-check",
+        "make command-output-json-adapter-dry-run-check",
         "make cli-command-surface-check",
         "make docs-check",
         "GOCACHE=$PWD/.tmp-test/gocache GOTMPDIR=$PWD/.tmp-test/gotmp go test -shuffle=on ./cmd/gofly/internal/command/..."
@@ -38,10 +39,10 @@
     },
     {
       "id": "doctor",
-      "status": "candidate-after-dry-run",
-      "reason": "The doctor family has only standard library imports, JSON golden coverage, support bundle contract coverage, and dry-run extraction evidence, but physical movement still needs JSON/output adapters.",
+      "status": "candidate-after-adapter-dry-run",
+      "reason": "The doctor family has only standard library imports, JSON golden coverage, support bundle contract coverage, dry-run extraction evidence, and output/JSON adapter dry-run coverage, but physical movement still needs a dedicated split preflight.",
       "requiredPreSplitActions": [
-        "introduce a package-local JSON/output adapter before moving doctorCommand out of the shared command package",
+        "run a dedicated doctor physical split preflight before moving doctorCommand out of the shared command package",
         "preserve bug --json support bundle schema, redaction, commands, and nextActions references",
         "prove support bundle and remediation wording remain stable after extraction"
       ],
@@ -49,6 +50,7 @@
         "make command-family-dependency-map-check",
         "make command-split-readiness-check",
         "make command-doctor-split-dry-run-check",
+        "make command-output-json-adapter-dry-run-check",
         "make cli-command-surface-check",
         "make cli-json-contract-goldens-check",
         "GOCACHE=$PWD/.tmp-test/gocache GOTMPDIR=$PWD/.tmp-test/gotmp go test -shuffle=on ./cmd/gofly/internal/command/..."
@@ -63,10 +65,11 @@
     },
     {
       "id": "shared",
-      "status": "blocked-until-reduced",
-      "reason": "Shared files still own root command wiring, JSON errors, IO, path flags, IDL helpers, template helpers, compatibility commands, and package-wide tests. P22-09 completed the reduction plan, but physical moves remain blocked until output and JSON adapters pass a dedicated dry-run.",
+      "status": "blocked-until-physical-split-preflight",
+      "reason": "Shared files still own root command wiring, JSON errors, IO, path flags, IDL helpers, template helpers, compatibility commands, and package-wide tests. P22-10 completed the output and JSON adapter dry-run, but physical moves remain blocked until help and doctor split preflight evidence is complete.",
       "requiredGates": [
         "make command-shared-reduction-plan-check",
+        "make command-output-json-adapter-dry-run-check",
         "make command-family-dependency-map-check",
         "make project-layout-governance-check"
       ]
@@ -91,6 +94,7 @@
     "make command-family-dependency-map-check",
     "make command-split-readiness-check",
     "make command-shared-reduction-plan-check",
+    "make command-output-json-adapter-dry-run-check",
     "make project-layout-governance-check",
     "GOCACHE=$PWD/.tmp-test/gocache GOTMPDIR=$PWD/.tmp-test/gotmp go test -shuffle=on ./cmd/gofly/internal/generator -run 'TestGenerateModelFromDDLGORMStyle(DoesNotPolluteGoflyRootModule|FindsParentGoMod|$)' -count=1",
     "GOCACHE=$PWD/.tmp-test/gocache GOTMPDIR=$PWD/.tmp-test/gotmp go test -shuffle=on ./cmd/gofly/internal/command/...",
@@ -99,7 +103,7 @@
     "git diff --check"
   ],
   "nextStep": {
-    "id": "P22-10-command-output-json-adapter-dry-run",
-    "action": "Perform an output and JSON adapter dry-run before any physical package split, preserving help, doctor, support bundle, CLI JSON, stdout, and stderr contracts."
+    "id": "P22-11-command-help-doctor-split-preflight",
+    "action": "Run help and doctor physical split preflight before moving files, preserving command registration, output adapters, JSON contracts, support bundle, stdout, and stderr behavior."
   }
 }

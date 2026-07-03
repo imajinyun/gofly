@@ -101,10 +101,11 @@ candidate_by_id = {
     if isinstance(item, dict)
 }
 help_candidate = candidate_by_id.get("help") or {}
-require(help_candidate.get("status") == "candidate-after-dry-run", "command split readiness must mark help candidate after dry-run")
+require(help_candidate.get("status") == "candidate-after-adapter-dry-run", "command split readiness must mark help candidate after adapter dry-run")
 require("make command-help-split-dry-run-check" in set(help_candidate.get("requiredGates") or []), "help candidate gates must include help split dry-run check")
-require("output adapter" in " ".join(help_candidate.get("requiredPreSplitActions") or []), "help candidate must keep output adapter as pre-split action")
-require(readiness.get("nextStep", {}).get("id") == "P22-10-command-output-json-adapter-dry-run", "command split readiness nextStep must move to output/json adapter dry-run")
+require("make command-output-json-adapter-dry-run-check" in set(help_candidate.get("requiredGates") or []), "help candidate gates must include output/json adapter dry-run check")
+require("physical split preflight" in " ".join(help_candidate.get("requiredPreSplitActions") or []), "help candidate must keep physical split preflight as pre-split action")
+require(readiness.get("nextStep", {}).get("id") == "P22-11-command-help-doctor-split-preflight", "command split readiness nextStep must move to help/doctor split preflight")
 
 map_candidates = [item.get("id") for item in dependency_map.get("nextCandidates") or [] if isinstance(item, dict)]
 require(map_candidates[:2] == ["help", "doctor"], "command dependency map must keep help and doctor as next candidates")

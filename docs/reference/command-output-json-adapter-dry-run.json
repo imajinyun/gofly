@@ -1,0 +1,52 @@
+{
+  "schema": "gofly.command_output_json_adapter_dry_run.v1",
+  "status": "completed-preflight",
+  "family": "shared",
+  "package": "cmd/gofly/internal/command",
+  "acceptanceGate": "make command-output-json-adapter-dry-run-check",
+  "purpose": "Record the output and JSON adapter dry-run before any help, doctor, or shared command package split.",
+  "policy": "Help and doctor may only proceed to physical split preflight after output mode, stdout/stderr, JSON envelope, support bundle, and CLI JSON contracts are pinned by executable tests.",
+  "dryRunOnly": true,
+  "noPhysicalMove": true,
+  "sourceFiles": [
+    "io.go",
+    "output_flags.go",
+    "json_error.go",
+    "json_error_writer.go",
+    "json_error_classify.go",
+    "doctor.go",
+    "bug.go"
+  ],
+  "adapterContracts": [
+    "withCommandIO restores output mode and stdout/stderr writers",
+    "quiet mode suppresses stdout helpers without suppressing stderr errors",
+    "verbose mode writes diagnostic output to stderr",
+    "printJSONEnvelope keeps ok command version and data fields",
+    "printJSONError keeps error code retryable remediation and nextActions fields",
+    "WriteErrorJSON keeps the legacy error envelope",
+    "doctor --json stays stdout-only with stable nextActions",
+    "bug --json supportBundle stays stdout-only with redaction guidance"
+  ],
+  "goldenTests": [
+    "TestCommandOutputJSONAdapterDryRunEvidence",
+    "TestCommandOutputAdapterContract",
+    "TestCommandJSONAdapterContract",
+    "TestCommandOutputJSONAdapterDoctorAndBugContracts"
+  ],
+  "requiredGates": [
+    "make command-output-json-adapter-dry-run-check",
+    "make command-shared-reduction-plan-check",
+    "make command-split-readiness-check",
+    "make command-family-dependency-map-check",
+    "make project-layout-governance-check",
+    "make cli-command-surface-check",
+    "make cli-json-contract-goldens-check",
+    "GOCACHE=$PWD/.tmp-test/gocache GOTMPDIR=$PWD/.tmp-test/gotmp go test -shuffle=on ./cmd/gofly/internal/command -run 'TestCommandOutput(JSONAdapterDryRunEvidence|AdapterContract)|TestCommandJSONAdapterContract|TestCommandOutputJSONAdapterDoctorAndBugContracts' -count=1",
+    "git diff --check"
+  ],
+  "physicalSplitAdmission": {
+    "status": "candidate-for-help-doctor-preflight",
+    "nextAllowedAction": "Run a dedicated help and doctor physical split preflight before moving files or changing package boundaries.",
+    "rollbackRequirement": "Restore the current shared IO and JSON helper behavior if output mode, stdout, stderr, JSON fields, support bundle redaction, or CLI JSON contract gates regress."
+  }
+}

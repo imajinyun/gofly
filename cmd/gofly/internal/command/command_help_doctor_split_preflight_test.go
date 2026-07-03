@@ -10,23 +10,24 @@ import (
 )
 
 type commandHelpDoctorSplitPreflightEvidence struct {
-	Schema                 string                                   `json:"schema"`
-	Status                 string                                   `json:"status"`
-	Package                string                                   `json:"package"`
-	AcceptanceGate         string                                   `json:"acceptanceGate"`
-	DryRunOnly             bool                                     `json:"dryRunOnly"`
-	NoPhysicalMove         bool                                     `json:"noPhysicalMove"`
-	HelpPhysicalSplitDone  bool                                     `json:"helpPhysicalSplitDone"`
-	HelpPackage            string                                   `json:"helpPackage"`
-	CommandAdapter         string                                   `json:"commandAdapter"`
-	SelectedNextFamily     string                                   `json:"selectedNextFamily"`
-	DeferredNextFamily     string                                   `json:"deferredNextFamily"`
-	HelpFiles              []string                                 `json:"helpFiles"`
-	DoctorFiles            []string                                 `json:"doctorFiles"`
-	PreflightContracts     []string                                 `json:"preflightContracts"`
-	GoldenTests            []string                                 `json:"goldenTests"`
-	RequiredGates          []string                                 `json:"requiredGates"`
-	PhysicalSplitAdmission commandHelpDoctorSplitPreflightAdmission `json:"physicalSplitAdmission"`
+	Schema                   string                                   `json:"schema"`
+	Status                   string                                   `json:"status"`
+	Package                  string                                   `json:"package"`
+	AcceptanceGate           string                                   `json:"acceptanceGate"`
+	DryRunOnly               bool                                     `json:"dryRunOnly"`
+	NoPhysicalMove           bool                                     `json:"noPhysicalMove"`
+	HelpPhysicalSplitDone    bool                                     `json:"helpPhysicalSplitDone"`
+	HelpPackage              string                                   `json:"helpPackage"`
+	CommandAdapter           string                                   `json:"commandAdapter"`
+	SelectedNextFamily       string                                   `json:"selectedNextFamily"`
+	DeferredNextFamily       string                                   `json:"deferredNextFamily"`
+	DoctorPreflightRefreshed bool                                     `json:"doctorPreflightRefreshed"`
+	HelpFiles                []string                                 `json:"helpFiles"`
+	DoctorFiles              []string                                 `json:"doctorFiles"`
+	PreflightContracts       []string                                 `json:"preflightContracts"`
+	GoldenTests              []string                                 `json:"goldenTests"`
+	RequiredGates            []string                                 `json:"requiredGates"`
+	PhysicalSplitAdmission   commandHelpDoctorSplitPreflightAdmission `json:"physicalSplitAdmission"`
 }
 
 type commandHelpDoctorSplitPreflightAdmission struct {
@@ -61,6 +62,9 @@ func TestCommandHelpDoctorSplitPreflightEvidence(t *testing.T) {
 	}
 	if evidence.SelectedNextFamily != "help" || evidence.DeferredNextFamily != "doctor" {
 		t.Fatalf("family sequence = %q/%q, want help/doctor", evidence.SelectedNextFamily, evidence.DeferredNextFamily)
+	}
+	if !evidence.DoctorPreflightRefreshed {
+		t.Fatal("doctorPreflightRefreshed = false, want P22-13 doctor preflight refresh recorded")
 	}
 	assertHelpDoctorPreflightSet(t, "help files", evidence.HelpFiles, []string{
 		"help.go",
@@ -109,11 +113,11 @@ func TestCommandHelpDoctorSplitPreflightEvidence(t *testing.T) {
 	if evidence.PhysicalSplitAdmission.Status != "completed-help-single-family-split" {
 		t.Fatalf("physicalSplitAdmission.status = %q, want completed-help-single-family-split", evidence.PhysicalSplitAdmission.Status)
 	}
-	if !strings.Contains(evidence.PhysicalSplitAdmission.NextAllowedAction, "Validate help split") {
-		t.Fatalf("nextAllowedAction = %q, want help split validation", evidence.PhysicalSplitAdmission.NextAllowedAction)
+	if !strings.Contains(evidence.PhysicalSplitAdmission.NextAllowedAction, "P22-14") {
+		t.Fatalf("nextAllowedAction = %q, want P22-14 doctor split admission", evidence.PhysicalSplitAdmission.NextAllowedAction)
 	}
-	if !strings.Contains(evidence.PhysicalSplitAdmission.BlockedAction, "Do not move doctor") {
-		t.Fatalf("blockedAction = %q, want doctor movement blocked", evidence.PhysicalSplitAdmission.BlockedAction)
+	if !strings.Contains(evidence.PhysicalSplitAdmission.BlockedAction, "Do not move shared helpers") {
+		t.Fatalf("blockedAction = %q, want shared movement blocked", evidence.PhysicalSplitAdmission.BlockedAction)
 	}
 }
 

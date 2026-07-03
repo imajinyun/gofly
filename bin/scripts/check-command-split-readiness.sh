@@ -51,7 +51,7 @@ targets = make_target_names(makefile)
 docs_check = next((line for line in makefile.splitlines() if line.startswith("docs-check:")), "")
 
 require(readiness.get("schema") == "gofly.command_split_readiness.v1", "command split readiness schema mismatch")
-require(readiness.get("status") == "candidate-preflight", "command split readiness status must be candidate-preflight")
+require(readiness.get("status") == "doctor-preflight-refreshed", "command split readiness status must be doctor-preflight-refreshed")
 require(readiness.get("package") == "cmd/gofly/internal/command", "command split readiness package mismatch")
 require(
     readiness.get("acceptanceGate") == "make command-split-readiness-check",
@@ -122,7 +122,7 @@ for family in readiness.get("candidateFamilies") or []:
             "candidate-after-dry-run",
             "candidate-after-adapter-dry-run",
             "ready-for-single-family-split",
-            "deferred-until-help-split-validation",
+            "ready-for-doctor-single-family-split",
         },
         f"candidate {family_id}: status mismatch",
     )
@@ -168,15 +168,15 @@ blocked_by_id = {
     if isinstance(item, dict)
 }
 shared_blocked = blocked_by_id.get("shared") or {}
-require(shared_blocked.get("status") == "blocked-during-help-single-family-split", "shared blocked status mismatch")
+require(shared_blocked.get("status") == "blocked-during-doctor-single-family-split", "shared blocked status mismatch")
 require("make command-shared-reduction-plan-check" in set(shared_blocked.get("requiredGates") or []), "shared blocked gates must include shared reduction plan check")
 require("make command-output-json-adapter-dry-run-check" in set(shared_blocked.get("requiredGates") or []), "shared blocked gates must include output/json adapter dry-run check")
 require("make command-help-doctor-split-preflight-check" in set(shared_blocked.get("requiredGates") or []), "shared blocked gates must include help/doctor split preflight check")
 
 next_step = readiness.get("nextStep") or {}
-require(next_step.get("id") == "P22-13-command-doctor-single-family-preflight-refresh", "nextStep id mismatch")
+require(next_step.get("id") == "P22-14-command-doctor-single-family-split", "nextStep id mismatch")
 next_action = str(next_step.get("action") or "")
-require("doctor" in next_action and "without moving doctor" in next_action, "nextStep action must refresh doctor without moving it")
+require("Move only the doctor family" in next_action, "nextStep action must move only doctor")
 
 reference_files = []
 for family in (layout.get("referenceFileBoundaries") or {}).get("families") or []:

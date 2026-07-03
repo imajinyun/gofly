@@ -475,17 +475,20 @@
       "splitRecommendation": "candidate",
       "splitRisk": "low",
       "blockers": [
-        "Doctor commands still share package-level JSON error and output helpers with the root command package.",
-        "A split must prove diagnostics remain on stderr/stdout boundaries and JSON output keeps the same field contract."
+        "Doctor commands still share package-level JSON error and output helpers with the root command package, so the physical split must add a narrow adapter.",
+        "The next split must prove diagnostics remain on stderr/stdout boundaries, JSON output keeps the same field contract, and support bundle references remain stable."
       ],
       "requiredPreSplitActions": [
-        "add a package-local adapter for shared JSON and output helpers",
-        "pin doctor help and JSON output before moving files",
-        "prove support bundle and next action wording remain stable"
+        "move only doctor.go, doctor_checks.go, and doctor_test.go in the next dedicated commit",
+        "add the minimum package-local adapter for shared JSON and output helpers",
+        "prove support bundle, next action wording, stdout/stderr, and command registration remain stable"
       ],
       "requiredGates": [
         "make command-family-dependency-map-check",
+        "make command-doctor-split-dry-run-check",
+        "make command-output-json-adapter-dry-run-check",
         "make command-help-doctor-split-preflight-check",
+        "make project-layout-governance-check",
         "make cli-command-surface-check",
         "make cli-json-contract-goldens-check",
         "go test -shuffle=on ./cmd/gofly/internal/command/..."
@@ -688,7 +691,7 @@
       ],
       "requiredPreSplitActions": [
         "extract root wiring, JSON output, file input, and template helper subdomains into smaller file families",
-        "complete the output/json adapter dry-run before moving help, doctor, or shared helper files",
+        "keep shared helpers in place while moving only doctor files in the next single-family split",
         "pin full CLI help, JSON error, and generated-output contracts"
       ],
       "requiredGates": [
@@ -707,7 +710,7 @@
   "nextCandidates": [
     {
       "id": "doctor",
-      "reason": "The doctor family has only standard library imports and focused diagnostic behavior, so it can be considered after JSON and stdout/stderr contracts are pinned."
+      "reason": "The doctor family has only standard library imports, refreshed P22-13 preflight evidence, JSON golden coverage, support bundle coverage, and stdout/stderr contracts pinned, so it is the next single-family physical split candidate."
     }
   ],
   "deferredFamilies": [

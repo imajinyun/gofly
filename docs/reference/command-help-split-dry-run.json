@@ -64,7 +64,7 @@
   ],
   "physicalSplitAdmission": {
     "status": "completed-help-single-family-split",
-    "nextAllowedAction": "Validate the completed help split with docs-check, CLI surface, topic routing, and command package tests before starting any doctor split.",
+    "nextAllowedAction": "After P22-13 doctor preflight refresh, proceed to P22-14 by moving only the doctor family in a dedicated commit.",
     "rollbackRequirement": "Restore all help/*.go files to cmd/gofly/internal/command and remove help_adapter.go in one commit if topic routing, help rendering, docs-check, or CLI surface gates regress."
   }
 }

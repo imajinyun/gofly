@@ -1,6 +1,6 @@
 {
   "schema": "gofly.command_split_readiness.v1",
-  "status": "candidate-preflight",
+  "status": "doctor-preflight-refreshed",
   "package": "cmd/gofly/internal/command",
   "acceptanceGate": "make command-split-readiness-check",
   "purpose": "Record the current command package split readiness baseline after fixing generated-project dependency pollution and proving full command package shuffle tests pass.",
@@ -43,13 +43,14 @@
   "candidateFamilies": [
     {
       "id": "doctor",
-      "status": "deferred-until-help-split-validation",
-      "reason": "The doctor family has JSON golden coverage, support bundle contract coverage, dry-run extraction evidence, output/JSON adapter dry-run coverage, and help/doctor split preflight evidence, but it remains deferred until the lower-risk help split proves the physical movement path.",
+      "status": "ready-for-doctor-single-family-split",
+      "reason": "The doctor family has JSON golden coverage, support bundle contract coverage, refreshed dry-run extraction evidence, output/JSON adapter dry-run coverage, help split validation, and command registration coverage. It is ready for a dedicated next commit that moves only the doctor family.",
       "requiredPreSplitActions": [
-        "wait until the help family split passes command, JSON, docs, and layout gates",
+        "move only doctor.go, doctor_checks.go, and doctor_test.go in the next dedicated commit",
+        "introduce the minimum package-local JSON/output adapter required by doctorCommand",
         "preserve bug --json support bundle schema, redaction, commands, and nextActions references",
         "prove support bundle and remediation wording remain stable after extraction",
-        "run a dedicated doctor physical split preflight refresh before moving doctorCommand out of the shared command package"
+        "do not move shared helpers, root wiring, JSON helpers, output helpers, help adapter, or bug support bundle code in the doctor split commit"
       ],
       "requiredGates": [
         "make command-family-dependency-map-check",
@@ -71,8 +72,8 @@
     },
     {
       "id": "shared",
-      "status": "blocked-during-help-single-family-split",
-      "reason": "Shared files still own root command wiring, JSON errors, IO, path flags, IDL helpers, template helpers, compatibility commands, and package-wide tests. P22-11 completed help/doctor split preflight, but shared helper movement remains blocked while the next commit may move only help files.",
+      "status": "blocked-during-doctor-single-family-split",
+      "reason": "Shared files still own root command wiring, JSON errors, IO, path flags, IDL helpers, template helpers, compatibility commands, and package-wide tests. P22-13 refreshed doctor preflight, but shared helper movement remains blocked while the next commit may move only doctor files.",
       "requiredGates": [
         "make command-shared-reduction-plan-check",
         "make command-output-json-adapter-dry-run-check",
@@ -112,7 +113,7 @@
     "git diff --check"
   ],
   "nextStep": {
-    "id": "P22-13-command-doctor-single-family-preflight-refresh",
-    "action": "After the P22-12 help split gates pass, refresh doctor split readiness without moving doctor yet; preserve diagnostics, support bundle JSON, stdout/stderr behavior, and command registration."
+    "id": "P22-14-command-doctor-single-family-split",
+    "action": "Move only the doctor family in a dedicated commit; preserve diagnostics, support bundle JSON, stdout/stderr behavior, help routing, and command registration."
   }
 }

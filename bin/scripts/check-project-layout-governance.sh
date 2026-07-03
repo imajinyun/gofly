@@ -826,8 +826,8 @@ require(
     "command split readiness schema mismatch",
 )
 require(
-    command_split_readiness.get("status") == "candidate-preflight",
-    "command split readiness status must be candidate-preflight",
+    command_split_readiness.get("status") == "doctor-preflight-refreshed",
+    "command split readiness status must be doctor-preflight-refreshed",
 )
 require(
     command_split_readiness.get("acceptanceGate") == "make command-split-readiness-check",
@@ -858,7 +858,7 @@ require(
     "command split readiness must record the root module pollution regression test",
 )
 require(
-	command_split_readiness.get("nextStep", {}).get("id") == "P22-13-command-doctor-single-family-preflight-refresh",
+	command_split_readiness.get("nextStep", {}).get("id") == "P22-14-command-doctor-single-family-split",
 	"command split readiness nextStep mismatch",
 )
 completed_status = {
@@ -872,7 +872,7 @@ candidate_status = {
 	if isinstance(item, dict)
 }
 require(completed_status.get("help") == "physical-split-completed", "command split readiness help family must be completed")
-require(candidate_status.get("doctor") == "deferred-until-help-split-validation", "command split readiness doctor candidate must be deferred until help split validation")
+require(candidate_status.get("doctor") == "ready-for-doctor-single-family-split", "command split readiness doctor candidate must be ready after P22-13 preflight refresh")
 
 command_help_split_path = root / "docs" / "reference" / "command-help-split-dry-run.json"
 if command_help_split_path.is_file():
@@ -917,8 +917,8 @@ require(
     "command doctor split dry-run schema mismatch",
 )
 require(
-    command_doctor_split.get("status") == "completed-preflight",
-    "command doctor split dry-run status must be completed-preflight",
+    command_doctor_split.get("status") == "doctor-preflight-refreshed",
+    "command doctor split dry-run status must be doctor-preflight-refreshed",
 )
 require(
     command_doctor_split.get("acceptanceGate") == "make command-doctor-split-dry-run-check",
@@ -932,7 +932,7 @@ require(
     "command doctor split dry-run supportBundleFields mismatch",
 )
 require(
-    command_doctor_split.get("physicalSplitAdmission", {}).get("status") == "candidate-after-dry-run",
+    command_doctor_split.get("physicalSplitAdmission", {}).get("status") == "ready-for-doctor-single-family-split",
     "command doctor split dry-run physicalSplitAdmission mismatch",
 )
 
@@ -1029,6 +1029,7 @@ require(command_help_doctor_preflight.get("helpPackage") == "cmd/gofly/internal/
 require(command_help_doctor_preflight.get("commandAdapter") == "help_adapter.go", "command help/doctor split evidence commandAdapter mismatch")
 require(command_help_doctor_preflight.get("selectedNextFamily") == "help", "command help/doctor split preflight selectedNextFamily mismatch")
 require(command_help_doctor_preflight.get("deferredNextFamily") == "doctor", "command help/doctor split preflight deferredNextFamily mismatch")
+require(command_help_doctor_preflight.get("doctorPreflightRefreshed") is True, "command help/doctor split preflight must record doctorPreflightRefreshed=true")
 require(
     set(command_help_doctor_preflight.get("preflightContracts") or [])
     == {

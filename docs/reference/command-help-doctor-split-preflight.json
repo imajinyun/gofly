@@ -3,8 +3,8 @@
   "status": "help-family-physical-split-completed",
   "package": "cmd/gofly/internal/command",
   "acceptanceGate": "make command-help-doctor-split-preflight-check",
-  "purpose": "Record the P22-12 help family physical split completion while keeping the doctor family deferred in the shared command package.",
-  "policy": "This evidence does not authorize a broad command package split. The help family is the only moved family in P22-12; doctor, shared helpers, root wiring, JSON helpers, and output helpers remain in the command package.",
+  "purpose": "Record the P22-12 help family physical split completion and the P22-13 doctor preflight refresh while keeping doctor files in the shared command package.",
+  "policy": "This evidence does not authorize a broad command package split. The help family is already moved, and P22-13 refreshes the doctor preflight only; doctor, shared helpers, root wiring, JSON helpers, and output helpers remain in the command package until a dedicated P22-14 doctor split.",
   "dryRunOnly": false,
   "noPhysicalMove": false,
   "helpPhysicalSplitDone": true,
@@ -12,6 +12,7 @@
   "commandAdapter": "help_adapter.go",
   "selectedNextFamily": "help",
   "deferredNextFamily": "doctor",
+  "doctorPreflightRefreshed": true,
   "helpFiles": [
     "help.go",
     "help_catalog.go",
@@ -59,8 +60,8 @@
   ],
   "physicalSplitAdmission": {
     "status": "completed-help-single-family-split",
-    "nextAllowedAction": "Validate help split output, topic aliases, docs-check coverage, and command registration before starting any doctor split.",
-    "blockedAction": "Do not move doctor, shared helpers, root wiring, JSON helpers, or output helpers in the help split commit.",
+    "nextAllowedAction": "In P22-14, move only the doctor family after preserving diagnostics, support bundle JSON, stdout/stderr behavior, help routing, and command registration.",
+    "blockedAction": "Do not move shared helpers, root wiring, JSON helpers, output helpers, help adapter, or bug support bundle code in the doctor split commit.",
     "rollbackRequirement": "Restore all help files to cmd/gofly/internal/command in one commit if help output, topic routing, docs-check, command registration, stdout, or stderr behavior changes."
   }
 }

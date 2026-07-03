@@ -54,7 +54,7 @@ docs_check = next((line for line in makefile.splitlines() if line.startswith("do
 test_source = test_path.read_text(encoding="utf-8") if test_path.is_file() else ""
 
 require(evidence.get("schema") == "gofly.command_doctor_split_dry_run.v1", "doctor split dry-run schema mismatch")
-require(evidence.get("status") == "completed-preflight", "doctor split dry-run status must be completed-preflight")
+require(evidence.get("status") == "doctor-preflight-refreshed", "doctor split dry-run status must be doctor-preflight-refreshed")
 require(evidence.get("family") == "doctor", "doctor split dry-run family mismatch")
 require(evidence.get("package") == "cmd/gofly/internal/command", "doctor split dry-run package mismatch")
 require(evidence.get("acceptanceGate") == "make command-doctor-split-dry-run-check", "doctor split dry-run acceptanceGate mismatch")
@@ -129,12 +129,12 @@ candidate_by_id = {
     if isinstance(item, dict)
 }
 doctor_candidate = candidate_by_id.get("doctor") or {}
-require(doctor_candidate.get("status") == "deferred-until-help-split-validation", "command split readiness must defer doctor until help split validation")
+require(doctor_candidate.get("status") == "ready-for-doctor-single-family-split", "command split readiness must mark doctor ready for single-family split")
 require("make command-doctor-split-dry-run-check" in set(doctor_candidate.get("requiredGates") or []), "doctor candidate gates must include doctor split dry-run check")
 require("make command-output-json-adapter-dry-run-check" in set(doctor_candidate.get("requiredGates") or []), "doctor candidate gates must include output/json adapter dry-run check")
 require("make command-help-doctor-split-preflight-check" in set(doctor_candidate.get("requiredGates") or []), "doctor candidate gates must include help/doctor split preflight check")
-require("wait until the help family split passes" in " ".join(doctor_candidate.get("requiredPreSplitActions") or []), "doctor candidate must wait for help split validation")
-require(readiness.get("nextStep", {}).get("id") == "P22-13-command-doctor-single-family-preflight-refresh", "command split readiness nextStep must refresh doctor preflight")
+require("move only doctor.go" in " ".join(doctor_candidate.get("requiredPreSplitActions") or []), "doctor candidate must constrain the next split to doctor files")
+require(readiness.get("nextStep", {}).get("id") == "P22-14-command-doctor-single-family-split", "command split readiness nextStep must move only doctor")
 
 map_candidates = [item.get("id") for item in dependency_map.get("nextCandidates") or [] if isinstance(item, dict)]
 require(map_candidates == ["doctor"], "command dependency map must keep doctor as the next candidate after help split")
@@ -146,7 +146,7 @@ for family in (layout.get("referenceFileBoundaries") or {}).get("families") or [
 require("command-doctor-split-dry-run.json" in reference_files, "referenceFileBoundaries must index command-doctor-split-dry-run.json")
 
 admission = evidence.get("physicalSplitAdmission") or {}
-require(admission.get("status") == "candidate-after-dry-run", "physicalSplitAdmission status mismatch")
+require(admission.get("status") == "ready-for-doctor-single-family-split", "physicalSplitAdmission status mismatch")
 require("Restore" in str(admission.get("rollbackRequirement") or ""), "physicalSplitAdmission rollbackRequirement must describe restore path")
 
 if missing:

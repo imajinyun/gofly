@@ -1,11 +1,11 @@
 {
   "schema": "gofly.command_doctor_split_dry_run.v1",
-  "status": "completed-preflight",
+  "status": "doctor-preflight-refreshed",
   "family": "doctor",
   "package": "cmd/gofly/internal/command",
   "acceptanceGate": "make command-doctor-split-dry-run-check",
-  "purpose": "Record the doctor command family dry-run extraction proof before any physical package split.",
-  "policy": "The doctor family may only move after JSON golden checks, nextActions coverage, support bundle contract coverage, stdout/stderr discipline, and rollback evidence pass from the current single-package layout.",
+  "purpose": "Record the P22-13 doctor command family preflight refresh after the help family physical split completed.",
+  "policy": "The doctor family may only move in a later single-family commit after JSON golden checks, nextActions coverage, support bundle contract coverage, stdout/stderr discipline, command registration, and rollback evidence pass from the current command package layout.",
   "dryRunOnly": true,
   "noPhysicalMove": true,
   "familyFiles": [
@@ -58,8 +58,8 @@
   "dryRunFindings": [
     {
       "id": "json-output-adapter",
-      "status": "required-before-physical-move",
-      "finding": "doctorCommand still writes JSON through package-level printJSON and shared IO helpers, so physical extraction should introduce a small JSON/output adapter."
+      "status": "required-during-physical-move",
+      "finding": "doctorCommand still writes JSON through package-level printJSON and shared IO helpers, so the physical extraction commit must introduce a small JSON/output adapter without changing the JSON envelope."
     },
     {
       "id": "support-bundle-coupling",
@@ -76,13 +76,16 @@
     "make command-doctor-split-dry-run-check",
     "make command-split-readiness-check",
     "make command-family-dependency-map-check",
+    "make command-output-json-adapter-dry-run-check",
+    "make command-help-doctor-split-preflight-check",
+    "make project-layout-governance-check",
     "make cli-json-contract-goldens-check",
     "GOCACHE=$PWD/.tmp-test/gocache GOTMPDIR=$PWD/.tmp-test/gotmp go test -shuffle=on ./cmd/gofly/internal/command -run 'TestDoctor(FamilyDryRunEvidence|FamilyJSONGoldenContract|FamilySupportBundleContract|CommandJSON|NextActionsContract)|TestBugCommandSupportBundleJSONContract' -count=1",
     "git diff --check"
   ],
   "physicalSplitAdmission": {
-    "status": "candidate-after-dry-run",
-    "nextAllowedAction": "Move the doctor family only in a dedicated commit after introducing JSON/output adapters and preserving support bundle contracts.",
+    "status": "ready-for-doctor-single-family-split",
+    "nextAllowedAction": "In P22-14, move only doctor.go, doctor_checks.go, and doctor_test.go in a dedicated commit while introducing the minimum JSON/output adapter needed to preserve support bundle contracts.",
     "rollbackRequirement": "Restore doctor.go, doctor_checks.go, and doctor_test.go to cmd/gofly/internal/command in one commit if diagnostics, JSON fields, stdout/stderr discipline, support bundle references, or nextActions regress."
   }
 }

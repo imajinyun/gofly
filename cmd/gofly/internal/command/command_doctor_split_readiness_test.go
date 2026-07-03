@@ -114,8 +114,8 @@ func TestDoctorFamilyDryRunEvidence(t *testing.T) {
 	if evidence.Schema != "gofly.command_doctor_split_dry_run.v1" {
 		t.Fatalf("schema = %q, want gofly.command_doctor_split_dry_run.v1", evidence.Schema)
 	}
-	if evidence.Status != "completed-preflight" {
-		t.Fatalf("status = %q, want completed-preflight", evidence.Status)
+	if evidence.Status != "doctor-preflight-refreshed" {
+		t.Fatalf("status = %q, want doctor-preflight-refreshed", evidence.Status)
 	}
 	if evidence.Family != "doctor" || evidence.Package != "cmd/gofly/internal/command" {
 		t.Fatalf("family/package = %q/%q, want doctor/cmd/gofly/internal/command", evidence.Family, evidence.Package)

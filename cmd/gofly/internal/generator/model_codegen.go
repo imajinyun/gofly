@@ -1266,6 +1266,8 @@ func writeConsistentCachedRepo(b *bytes.Buffer, table SQLTable, typeName, repoNa
 	writeUniqueCacheInvalidateAfterMutation(b, uniqueIndexes, "old", false)
 	writeUniqueCacheSetAfterMutation(b, uniqueIndexes, false)
 	fprintf(b, "\treturn nil\n}\n\n")
+	writeConsistentCachedUpdateFields(b, table, typeName, cachedName, uniqueIndexes)
+	writeConsistentCachedUpdateWithVersion(b, table, typeName, cachedName, uniqueIndexes)
 	fprintf(b, "func (c *%s) Delete(ctx context.Context, %s %s) error {\n", cachedName, modelArgName(pk.Name), columnGoType(pk))
 	fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn errors.New(%q)\n\t}\n", lowerCamel(typeName)+" cached repo is nil")
 	if len(uniqueIndexes) > 0 {
@@ -1300,9 +1302,71 @@ func writeRedisCachedRepo(b *bytes.Buffer, table SQLTable, typeName, repoName st
 	fprintf(b, "func (c *%s) UpdateWithInvalidate(ctx context.Context, in *entity.%s) error {\n", cachedName, typeName)
 	fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn errors.New(%q)\n\t}\n", lowerCamel(typeName)+" redis cached repo is nil")
 	fprintf(b, "\tif err := c.repo.Update(ctx, in); err != nil {\n\t\treturn err\n\t}\n\tif c.cache != nil && in != nil {\n\t\treturn c.cache.Invalidate(ctx, in.%s)\n\t}\n\treturn nil\n}\n\n", pkField)
+	writeRedisCachedUpdateFields(b, table, typeName, cachedName)
+	writeRedisCachedUpdateWithVersion(b, table, typeName, cachedName)
 	fprintf(b, "func (c *%s) Delete(ctx context.Context, %s %s) error {\n", cachedName, pkArg, pkType)
 	fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn errors.New(%q)\n\t}\n", lowerCamel(typeName)+" redis cached repo is nil")
 	fprintf(b, "\tif err := c.repo.Delete(ctx, %s); err != nil {\n\t\treturn err\n\t}\n\tif c.cache != nil {\n\t\treturn c.cache.Invalidate(ctx, %s)\n\t}\n\treturn nil\n}\n\n", pkArg, pkArg)
+}
+
+func writeConsistentCachedUpdateFields(b *bytes.Buffer, table SQLTable, typeName, cachedName string, indexes []modelUniqueIndex) {
+	pk := primaryColumn(table)
+	pkArg := modelArgName(pk.Name)
+	fprintf(b, "func (c *%s) UpdateFields(ctx context.Context, %s %s, fields map[string]any) error {\n", cachedName, pkArg, columnGoType(pk))
+	fprintf(b, "\treturn c.UpdateFieldsWithInvalidate(ctx, %s, fields)\n}\n\n", pkArg)
+	fprintf(b, "func (c *%s) UpdateFieldsWithInvalidate(ctx context.Context, %s %s, fields map[string]any) error {\n", cachedName, pkArg, columnGoType(pk))
+	fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn errors.New(%q)\n\t}\n", lowerCamel(typeName)+" cached repo is nil")
+	fprintf(b, "\tif len(fields) == 0 {\n\t\treturn nil\n\t}\n")
+	if len(indexes) > 0 {
+		fprintf(b, "\told, _ := c.repo.FindOne(ctx, %s)\n", pkArg)
+	}
+	fprintf(b, "\tif err := c.repo.UpdateFields(ctx, %s, fields); err != nil {\n\t\treturn err\n\t}\n", pkArg)
+	fprintf(b, "\tif c.cache != nil {\n\t\tc.cache.Invalidate(%s)\n\t}\n", pkArg)
+	writeUniqueCacheInvalidateAfterMutation(b, indexes, "old", false)
+	fprintf(b, "\treturn nil\n}\n\n")
+}
+
+func writeConsistentCachedUpdateWithVersion(b *bytes.Buffer, table SQLTable, typeName, cachedName string, indexes []modelUniqueIndex) {
+	version, ok := versionColumn(table)
+	if !ok {
+		return
+	}
+	pk := primaryColumn(table)
+	pkField := modelFieldName(pk.Name)
+	fprintf(b, "func (c *%s) UpdateWithVersion(ctx context.Context, in *entity.%s, expectedVersion %s) error {\n", cachedName, typeName, columnGoType(version))
+	fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn errors.New(%q)\n\t}\n", lowerCamel(typeName)+" cached repo is nil")
+	if len(indexes) > 0 {
+		fprintf(b, "\tvar old *entity.%s\n", typeName)
+		fprintf(b, "\tif in != nil {\n\t\told, _ = c.repo.FindOne(ctx, in.%s)\n\t}\n", pkField)
+	}
+	fprintf(b, "\tif err := c.repo.UpdateWithVersion(ctx, in, expectedVersion); err != nil {\n\t\treturn err\n\t}\n")
+	fprintf(b, "\tif in != nil {\n\t\tin.%s = expectedVersion + 1\n\t}\n", modelFieldName(version.Name))
+	fprintf(b, "\tif c.cache != nil && in != nil {\n\t\tc.cache.Invalidate(in.%s)\n\t}\n", pkField)
+	writeUniqueCacheInvalidateAfterMutation(b, indexes, "old", false)
+	writeUniqueCacheSetAfterMutation(b, indexes, false)
+	fprintf(b, "\treturn nil\n}\n\n")
+}
+
+func writeRedisCachedUpdateFields(b *bytes.Buffer, table SQLTable, typeName, cachedName string) {
+	pk := primaryColumn(table)
+	pkArg := modelArgName(pk.Name)
+	fprintf(b, "func (c *%s) UpdateFields(ctx context.Context, %s %s, fields map[string]any) error {\n", cachedName, pkArg, columnGoType(pk))
+	fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn errors.New(%q)\n\t}\n", lowerCamel(typeName)+" redis cached repo is nil")
+	fprintf(b, "\tif len(fields) == 0 {\n\t\treturn nil\n\t}\n")
+	fprintf(b, "\tif err := c.repo.UpdateFields(ctx, %s, fields); err != nil {\n\t\treturn err\n\t}\n", pkArg)
+	fprintf(b, "\tif c.cache != nil {\n\t\treturn c.cache.Invalidate(ctx, %s)\n\t}\n\treturn nil\n}\n\n", pkArg)
+}
+
+func writeRedisCachedUpdateWithVersion(b *bytes.Buffer, table SQLTable, typeName, cachedName string) {
+	version, ok := versionColumn(table)
+	if !ok {
+		return
+	}
+	pkField := modelFieldName(primaryColumn(table).Name)
+	fprintf(b, "func (c *%s) UpdateWithVersion(ctx context.Context, in *entity.%s, expectedVersion %s) error {\n", cachedName, typeName, columnGoType(version))
+	fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn errors.New(%q)\n\t}\n", lowerCamel(typeName)+" redis cached repo is nil")
+	fprintf(b, "\tif err := c.repo.UpdateWithVersion(ctx, in, expectedVersion); err != nil {\n\t\treturn err\n\t}\n")
+	fprintf(b, "\tif c.cache != nil && in != nil {\n\t\treturn c.cache.Invalidate(ctx, in.%s)\n\t}\n\treturn nil\n}\n\n", pkField)
 }
 
 func writeUniqueModelCacheInitializers(b *bytes.Buffer, indexes []modelUniqueIndex, typeName, repoValue string, redis bool) {

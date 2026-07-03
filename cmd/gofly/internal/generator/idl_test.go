@@ -2763,7 +2763,8 @@ func TestGenerateModelFromDDLCacheOptionControlsSQLRepoHelpers(t *testing.T) {
 	ddl := `CREATE TABLE orders (
   id bigint primary key,
   order_no varchar(64) unique not null,
-  buyer_name varchar(128)
+  buyer_name varchar(128),
+  version bigint not null
 );`
 	if err := os.WriteFile(ddlPath, []byte(ddl), 0o644); err != nil {
 		t.Fatal(err)
@@ -2792,16 +2793,24 @@ func TestGenerateModelFromDDLCacheOptionControlsSQLRepoHelpers(t *testing.T) {
 		"c.cacheByOrderNo.Cache().Set(uniqueKeyByOrderNo(in.OrderNo), in)",
 		"c.cacheByOrderNo.Cache().Delete(uniqueKeyByOrderNo(old.OrderNo))",
 		"func (c *CachedOrderRepo) UpdateWithInvalidate(ctx context.Context, in *entity.Order) error",
+		"func (c *CachedOrderRepo) UpdateFieldsWithInvalidate(ctx context.Context, id int64, fields map[string]any) error",
+		"func (c *CachedOrderRepo) UpdateWithVersion(ctx context.Context, in *entity.Order, expectedVersion int64) error",
+		"if err := c.repo.UpdateWithVersion(ctx, in, expectedVersion); err != nil",
+		"in.Version = expectedVersion + 1",
 		"return c.FindByIDCached(ctx, id)",
 		"return c.UpdateWithInvalidate(ctx, in)",
 		"c.cache.Invalidate(in.ID)",
+		"c.cache.Invalidate(id)",
 		"type RedisCachedOrderRepo struct",
 		"func NewRedisCachedOrderRepo",
 		"cache.RedisModelCache[*entity.Order, int64]",
 		"cache.WithRedisModelNotFound[*entity.Order, int64](redis.ErrNil)",
 		"func (c *RedisCachedOrderRepo) FindByIDCached(ctx context.Context, id int64) (*entity.Order, error)",
 		"func (c *RedisCachedOrderRepo) UpdateWithInvalidate(ctx context.Context, in *entity.Order) error",
+		"func (c *RedisCachedOrderRepo) UpdateFields(ctx context.Context, id int64, fields map[string]any) error",
+		"func (c *RedisCachedOrderRepo) UpdateWithVersion(ctx context.Context, in *entity.Order, expectedVersion int64) error",
 		"return c.cache.Invalidate(ctx, in.ID)",
+		"return c.cache.Invalidate(ctx, id)",
 	} {
 		if !strings.Contains(repoOut, want) {
 			t.Fatalf("generated cached repo missing %q:\n%s", want, repoOut)

@@ -298,6 +298,7 @@ func assertInventoryGoctlReplayArtifacts(t *testing.T, outDir string, fixture go
 		"func (r *InventoryItemRepo) Transact",
 		"func (r *InventoryItemRepo) UpdateWithVersion",
 		"func (r *InventoryItemRepo) ListAfter",
+		"func (r *InventoryItemRepo) FindByTenantIDAndSkuAndWarehouseID(ctx context.Context, tenantID int64, sku string, warehouseID int64) (*entity.InventoryItem, error)",
 		`AND deleted_at IS NULL LIMIT 1`,
 		`query += " AND deleted_at IS NULL"`,
 		"return r.cluster.Transact(ctx, opts",
@@ -310,9 +311,9 @@ func assertInventoryGoctlReplayArtifacts(t *testing.T, outDir string, fixture go
 		}
 	}
 	for _, unexpected := range []string{
-		"func (r *InventoryItemRepo) FindByTenantID",
-		"func (r *InventoryItemRepo) FindBySku",
-		"func (r *InventoryItemRepo) FindByWarehouseID",
+		"func (r *InventoryItemRepo) FindByTenantID(ctx context.Context",
+		"func (r *InventoryItemRepo) FindBySku(ctx context.Context",
+		"func (r *InventoryItemRepo) FindByWarehouseID(ctx context.Context",
 	} {
 		if strings.Contains(repo, unexpected) {
 			t.Fatalf("generated inventory repo should not create single-column finders for composite unique key %q:\n%s", unexpected, repo)
@@ -412,6 +413,7 @@ func assertBillingGoctlReplayArtifacts(t *testing.T, outDir string, fixture goct
 		"func NewRedisCachedInvoiceRepo",
 		"func NewInvoiceRepoWithCluster",
 		"func (r *InvoiceRepo) FindByInvoiceNo(ctx context.Context, invoiceNo string) (*entity.Invoice, error)",
+		"func (r *InvoiceRepo) FindByTenantIDAndCustomerIDAndStatus(ctx context.Context, tenantID int64, customerID int64, status string) (*entity.Invoice, error)",
 		"func (r *InvoiceRepo) UpdateWithVersion",
 		"func (r *InvoiceRepo) ListAfter",
 		`AND deleted_at IS NULL LIMIT 1`,
@@ -423,9 +425,9 @@ func assertBillingGoctlReplayArtifacts(t *testing.T, outDir string, fixture goct
 		}
 	}
 	for _, unexpected := range []string{
-		"func (r *InvoiceRepo) FindByTenantID",
-		"func (r *InvoiceRepo) FindByCustomerID",
-		"func (r *InvoiceRepo) FindByStatus",
+		"func (r *InvoiceRepo) FindByTenantID(ctx context.Context",
+		"func (r *InvoiceRepo) FindByCustomerID(ctx context.Context",
+		"func (r *InvoiceRepo) FindByStatus(ctx context.Context",
 	} {
 		if strings.Contains(repo, unexpected) {
 			t.Fatalf("generated billing repo should not create single-column finders for composite unique key %q:\n%s", unexpected, repo)

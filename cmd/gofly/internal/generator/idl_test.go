@@ -2824,7 +2824,7 @@ func TestGenerateModelFromDDLRedisCacheCompilesInTempModule(t *testing.T) {
 	runGoCommand(t, outDir, 3*time.Minute, "test", "./...")
 }
 
-func TestGenerateModelFromDDLCompositeUniqueDoesNotCreateSingleColumnFinders(t *testing.T) {
+func TestGenerateModelFromDDLCompositeUniqueCreatesCompositeFinderOnly(t *testing.T) {
 	dir := t.TempDir()
 	ddlPath := filepath.Join(dir, "schema.sql")
 	ddl := `CREATE TABLE users (
@@ -2845,12 +2845,51 @@ func TestGenerateModelFromDDLCompositeUniqueDoesNotCreateSingleColumnFinders(t *
 		t.Fatal(err)
 	}
 	repoOut := string(repo)
+	want := "func (r *UserRepo) FindByTenantIDAndEmail(ctx context.Context, tenantID int64, email string) (*entity.User, error)"
+	if !strings.Contains(repoOut, want) {
+		t.Fatalf("generated repo missing composite unique finder %q:\n%s", want, repoOut)
+	}
 	for _, unexpected := range []string{
-		"func (r *UserRepo) FindByTenantID",
-		"func (r *UserRepo) FindByEmail",
+		"func (r *UserRepo) FindByTenantID(ctx context.Context",
+		"func (r *UserRepo) FindByEmail(ctx context.Context",
 	} {
 		if strings.Contains(repoOut, unexpected) {
 			t.Fatalf("generated repo should not treat composite unique index as single-column unique finder %q:\n%s", unexpected, repoOut)
+		}
+	}
+}
+
+func TestGenerateModelFromDDLGORMCompositeUniqueCreatesCompositeFinderOnly(t *testing.T) {
+	dir := t.TempDir()
+	ddlPath := filepath.Join(dir, "schema.sql")
+	ddl := `CREATE TABLE users (
+  id bigint primary key,
+  tenant_id bigint not null,
+  email varchar(128) not null,
+  UNIQUE KEY uk_tenant_email (tenant_id, email)
+);`
+	if err := os.WriteFile(ddlPath, []byte(ddl), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outDir := filepath.Join(dir, "out")
+	if err := GenerateModelFromDDL(ModelOptions{DDLFile: ddlPath, Dir: outDir, Package: "model", Style: "gorm"}); err != nil {
+		t.Fatal(err)
+	}
+	repo, err := os.ReadFile(filepath.Join(outDir, "model", "repo", "user.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	repoOut := string(repo)
+	want := "func (r *UserRepo) FindByTenantIDAndEmail(ctx context.Context, tenantID int64, email string) (*entity.User, error)"
+	if !strings.Contains(repoOut, want) {
+		t.Fatalf("generated gorm repo missing composite unique finder %q:\n%s", want, repoOut)
+	}
+	for _, unexpected := range []string{
+		"func (r *UserRepo) FindByTenantID(ctx context.Context",
+		"func (r *UserRepo) FindByEmail(ctx context.Context",
+	} {
+		if strings.Contains(repoOut, unexpected) {
+			t.Fatalf("generated gorm repo should not treat composite unique index as single-column unique finder %q:\n%s", unexpected, repoOut)
 		}
 	}
 }

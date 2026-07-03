@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -76,6 +77,7 @@ type SQLTable struct {
 	Columns          []SQLColumn
 	PrimaryKey       string
 	SoftDeleteColumn string
+	UniqueIndexes    []SQLUniqueIndex
 }
 
 type SQLColumn struct {
@@ -85,6 +87,10 @@ type SQLColumn struct {
 	Nullable   bool
 	Unique     bool
 	GoType     string
+}
+
+type SQLUniqueIndex struct {
+	Columns []string
 }
 
 var createTableStartRE = regexp.MustCompile(
@@ -610,6 +616,7 @@ func prepareModelTables(tables []SQLTable, opts modelGenerationOptions) ([]SQLTa
 				prepared.PrimaryKey = ""
 			}
 		}
+		prepared.UniqueIndexes = filterUniqueIndexes(prepared.UniqueIndexes, prepared.Columns)
 		if len(prepared.Columns) == 0 {
 			return nil, fmt.Errorf("model table %q has no columns after applying filters", table.Name)
 		}
@@ -621,6 +628,42 @@ func prepareModelTables(tables []SQLTable, opts modelGenerationOptions) ([]SQLTa
 		out = append(out, prepared)
 	}
 	return out, nil
+}
+
+func filterUniqueIndexes(indexes []SQLUniqueIndex, columns []SQLColumn) []SQLUniqueIndex {
+	if len(indexes) == 0 {
+		return nil
+	}
+	available := make(map[string]struct{}, len(columns))
+	for _, column := range columns {
+		available[column.Name] = struct{}{}
+	}
+	out := make([]SQLUniqueIndex, 0, len(indexes))
+	seen := make(map[string]struct{}, len(indexes))
+	for _, index := range indexes {
+		if len(index.Columns) < 2 {
+			continue
+		}
+		filtered := make([]string, 0, len(index.Columns))
+		valid := true
+		for _, column := range index.Columns {
+			if _, ok := available[column]; !ok {
+				valid = false
+				break
+			}
+			filtered = append(filtered, column)
+		}
+		if !valid {
+			continue
+		}
+		key := strings.Join(filtered, "\x00")
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, SQLUniqueIndex{Columns: filtered})
+	}
+	return out
 }
 
 func detectSoftDeleteColumn(columns []SQLColumn) string {
@@ -1066,7 +1109,7 @@ func writeUniqueFinders(b *bytes.Buffer, table SQLTable, typeName, receiverName 
 		if !column.Unique || column.PrimaryKey {
 			continue
 		}
-		fprintf(b, "func (r *%s) FindBy%s(ctx context.Context, %s %s) (*entity.%s, error) {\n", receiverName, modelFieldName(column.Name), lowerCamel(column.Name), columnGoType(column), typeName)
+		fprintf(b, "func (r *%s) FindBy%s(ctx context.Context, %s %s) (*entity.%s, error) {\n", receiverName, modelFieldName(column.Name), modelArgName(column.Name), columnGoType(column), typeName)
 		fprintf(b, "\tcolumns, err := storage.JoinIdentifiers(entity.%sColumns)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n", typeName)
 		fprintf(b, "\tquery := \"SELECT \" + columns + \" FROM \" + entity.%sTable + \" WHERE %s = \" + storage.Placeholder(r.dialect, 1)", typeName, column.Name)
 		if hasSoftDelete(table) {
@@ -1074,7 +1117,29 @@ func writeUniqueFinders(b *bytes.Buffer, table SQLTable, typeName, receiverName 
 		}
 		fprintf(b, " + \" LIMIT 1\"\n")
 		fprintf(b, "\tvar out entity.%s\n", typeName)
-		fprintf(b, "\tif err := r.queryOne(ctx, query, func(row *sql.Row) error {\n\t\treturn row.Scan(%s)\n\t}, %s); err != nil {\n", scanArgs("out", table.Columns), lowerCamel(column.Name))
+		fprintf(b, "\tif err := r.queryOne(ctx, query, func(row *sql.Row) error {\n\t\treturn row.Scan(%s)\n\t}, %s); err != nil {\n", scanArgs("out", table.Columns), modelArgName(column.Name))
+		fprintf(b, "\t\tif errors.Is(err, sql.ErrNoRows) {\n\t\t\treturn nil, storage.ErrNotFound\n\t\t}\n\t\treturn nil, err\n\t}\n")
+		fprintf(b, "\treturn &out, nil\n}\n\n")
+	}
+	writeCompositeUniqueFinders(b, table, typeName, receiverName)
+}
+
+func writeCompositeUniqueFinders(b *bytes.Buffer, table SQLTable, typeName, receiverName string) {
+	for _, index := range table.UniqueIndexes {
+		columns, ok := uniqueIndexColumns(table, index)
+		if !ok {
+			continue
+		}
+		fprintf(b, "func (r *%s) FindBy%s(ctx context.Context, %s) (*entity.%s, error) {\n", receiverName, uniqueFinderName(columns), uniqueFinderParams(columns), typeName)
+		fprintf(b, "\tcolumns, err := storage.JoinIdentifiers(entity.%sColumns)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n", typeName)
+		fprintf(b, "\twhereParts := []string{%s}\n", sqlUniqueWhereParts(columns))
+		fprintf(b, "\tquery := \"SELECT \" + columns + \" FROM \" + entity.%sTable + \" WHERE \" + strings.Join(whereParts, \" AND \")", typeName)
+		if hasSoftDelete(table) {
+			fprintf(b, " + \" AND %s IS NULL\"", table.SoftDeleteColumn)
+		}
+		fprintf(b, " + \" LIMIT 1\"\n")
+		fprintf(b, "\tvar out entity.%s\n", typeName)
+		fprintf(b, "\tif err := r.queryOne(ctx, query, func(row *sql.Row) error {\n\t\treturn row.Scan(%s)\n\t}, %s); err != nil {\n", scanArgs("out", table.Columns), uniqueFinderArgs(columns))
 		fprintf(b, "\t\tif errors.Is(err, sql.ErrNoRows) {\n\t\t\treturn nil, storage.ErrNotFound\n\t\t}\n\t\treturn nil, err\n\t}\n")
 		fprintf(b, "\treturn &out, nil\n}\n\n")
 	}
@@ -1083,7 +1148,7 @@ func writeUniqueFinders(b *bytes.Buffer, table SQLTable, typeName, receiverName 
 func writeSQLUpdateFields(b *bytes.Buffer, table SQLTable, typeName, receiverName string) {
 	pk := primaryColumn(table)
 	columns := updateColumns(table)
-	fprintf(b, "func (r *%s) UpdateFields(ctx context.Context, %s %s, fields map[string]any) error {\n", receiverName, lowerCamel(pk.Name), columnGoType(pk))
+	fprintf(b, "func (r *%s) UpdateFields(ctx context.Context, %s %s, fields map[string]any) error {\n", receiverName, modelArgName(pk.Name), columnGoType(pk))
 	fprintf(b, "\tif len(fields) == 0 {\n\t\treturn nil\n\t}\n")
 	fprintf(b, "\tallowed := map[string]struct{}{%s}\n", columnSetLiteral(columns))
 	fprintf(b, "\tfieldNames := make([]string, 0, len(fields))\n")
@@ -1091,7 +1156,7 @@ func writeSQLUpdateFields(b *bytes.Buffer, table SQLTable, typeName, receiverNam
 	fprintf(b, "\tsort.Strings(fieldNames)\n")
 	fprintf(b, "\tsetParts := make([]string, 0, len(fieldNames))\n\targs := make([]any, 0, len(fieldNames)+1)\n\tidx := 1\n")
 	fprintf(b, "\tfor _, column := range fieldNames {\n\t\tsetParts = append(setParts, column+\" = \"+storage.Placeholder(r.dialect, idx))\n\t\targs = append(args, fields[column])\n\t\tidx++\n\t}\n")
-	fprintf(b, "\targs = append(args, %s)\n", lowerCamel(pk.Name))
+	fprintf(b, "\targs = append(args, %s)\n", modelArgName(pk.Name))
 	fprintf(b, "\tquery := \"UPDATE \" + entity.%sTable + \" SET \" + strings.Join(setParts, \", \") + \" WHERE %s = \" + storage.Placeholder(r.dialect, idx)\n", typeName, pk.Name)
 	if hasSoftDelete(table) {
 		fprintf(b, "\tquery += \" AND %s IS NULL\"\n", table.SoftDeleteColumn)
@@ -1139,13 +1204,13 @@ func writeSQLCursorPage(b *bytes.Buffer, table SQLTable, typeName, receiverName 
 func writeConsistentCachedRepo(b *bytes.Buffer, table SQLTable, typeName, repoName string) {
 	pk := primaryColumn(table)
 	cachedName := "Cached" + repoName
-	pkArg := lowerCamel(pk.Name)
+	pkArg := modelArgName(pk.Name)
 	pkField := modelFieldName(pk.Name)
 	fprintf(b, "type %s struct {\n\trepo *%s\n\tcache *cache.ModelCache[*entity.%s, %s]\n}\n\n", cachedName, repoName, typeName, columnGoType(pk))
 	fprintf(b, "func NewConsistentCached%s(repo *%s, opts ...cache.ModelOption[*entity.%s, %s]) *%s {\n", repoName, repoName, typeName, columnGoType(pk), cachedName)
 	fprintf(b, "\tloader := func(ctx context.Context, id %s) (*entity.%s, error) {\n\t\tif repo == nil {\n\t\t\treturn nil, errors.New(%q)\n\t\t}\n\t\treturn repo.FindOne(ctx, id)\n\t}\n", columnGoType(pk), typeName, lowerCamel(typeName)+" repo is nil")
 	fprintf(b, "\treturn &%s{repo: repo, cache: cache.NewModel(loader, opts...)}\n}\n\n", cachedName)
-	fprintf(b, "func (c *%s) FindOne(ctx context.Context, %s %s) (*entity.%s, error) {\n", cachedName, lowerCamel(pk.Name), columnGoType(pk), typeName)
+	fprintf(b, "func (c *%s) FindOne(ctx context.Context, %s %s) (*entity.%s, error) {\n", cachedName, modelArgName(pk.Name), columnGoType(pk), typeName)
 	fprintf(b, "\treturn c.FindByIDCached(ctx, %s)\n}\n\n", pkArg)
 	fprintf(b, "func (c *%s) FindByIDCached(ctx context.Context, %s %s) (*entity.%s, error) {\n", cachedName, pkArg, columnGoType(pk), typeName)
 	fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn nil, errors.New(%q)\n\t}\n", lowerCamel(typeName)+" cached repo is nil")
@@ -1158,7 +1223,7 @@ func writeConsistentCachedRepo(b *bytes.Buffer, table SQLTable, typeName, repoNa
 	fprintf(b, "func (c *%s) UpdateWithInvalidate(ctx context.Context, in *entity.%s) error {\n", cachedName, typeName)
 	fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn errors.New(%q)\n\t}\n", lowerCamel(typeName)+" cached repo is nil")
 	fprintf(b, "\tif err := c.repo.Update(ctx, in); err != nil {\n\t\treturn err\n\t}\n\tif c.cache != nil && in != nil {\n\t\tc.cache.Invalidate(in.%s)\n\t}\n\treturn nil\n}\n\n", pkField)
-	fprintf(b, "func (c *%s) Delete(ctx context.Context, %s %s) error {\n", cachedName, lowerCamel(pk.Name), columnGoType(pk))
+	fprintf(b, "func (c *%s) Delete(ctx context.Context, %s %s) error {\n", cachedName, modelArgName(pk.Name), columnGoType(pk))
 	fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn errors.New(%q)\n\t}\n", lowerCamel(typeName)+" cached repo is nil")
 	fprintf(b, "\tif err := c.repo.Delete(ctx, %s); err != nil {\n\t\treturn err\n\t}\n\tif c.cache != nil {\n\t\tc.cache.Invalidate(%s)\n\t}\n\treturn nil\n}\n\n", pkArg, pkArg)
 }
@@ -1167,7 +1232,7 @@ func writeRedisCachedRepo(b *bytes.Buffer, table SQLTable, typeName, repoName st
 	pk := primaryColumn(table)
 	cachedName := "RedisCached" + repoName
 	pkType := columnGoType(pk)
-	pkArg := lowerCamel(pk.Name)
+	pkArg := modelArgName(pk.Name)
 	pkField := modelFieldName(pk.Name)
 	fprintf(b, "type %s struct {\n\trepo *%s\n\tcache *cache.RedisModelCache[*entity.%s, %s]\n}\n\n", cachedName, repoName, typeName, pkType)
 	fprintf(b, "func NewRedisCached%s(repo *%s, client *redis.Client, opts ...cache.RedisModelOption[*entity.%s, %s]) *%s {\n", repoName, repoName, typeName, pkType, cachedName)
@@ -1309,6 +1374,8 @@ func parseSQLTable(name string, body string) (SQLTable, error) {
 			columns := parseUniqueIndexColumns(part)
 			if len(columns) == 1 {
 				uniqueColumns[columns[0]] = struct{}{}
+			} else if len(columns) > 1 {
+				table.UniqueIndexes = append(table.UniqueIndexes, SQLUniqueIndex{Columns: columns})
 			}
 			continue
 		}
@@ -1338,6 +1405,7 @@ func parseSQLTable(name string, body string) (SQLTable, error) {
 			table.Columns[i].Unique = true
 		}
 	}
+	table.UniqueIndexes = filterUniqueIndexes(table.UniqueIndexes, table.Columns)
 	return table, nil
 }
 
@@ -1460,7 +1528,7 @@ func writeSQLModel(b *bytes.Buffer, table SQLTable) {
 
 func writeLegacyFindOne(b *bytes.Buffer, table SQLTable, typeName, modelName string) {
 	pk := primaryColumn(table)
-	fprintf(b, "func (m *%s) FindOne(ctx context.Context, %s %s) (*%s, error) {\n", modelName, lowerCamel(pk.Name), columnGoType(pk), typeName)
+	fprintf(b, "func (m *%s) FindOne(ctx context.Context, %s %s) (*%s, error) {\n", modelName, modelArgName(pk.Name), columnGoType(pk), typeName)
 	if hasSoftDelete(table) {
 		fprintf(b, "\tcolumns, err := storage.JoinIdentifiers(%sColumns)\n", lowerCamel(typeName))
 		fprintf(b, "\tif err != nil {\n\t\treturn nil, err\n\t}\n")
@@ -1470,7 +1538,7 @@ func writeLegacyFindOne(b *bytes.Buffer, table SQLTable, typeName, modelName str
 		fprintf(b, "\tif err != nil {\n\t\treturn nil, err\n\t}\n")
 	}
 	fprintf(b, "\tvar out %s\n", typeName)
-	fprintf(b, "\tif err := m.store.QueryOne(ctx, query, func(row *sql.Row) error {\n\t\treturn row.Scan(%s)\n\t}, %s); err != nil {\n", scanArgs("out", table.Columns), lowerCamel(pk.Name))
+	fprintf(b, "\tif err := m.store.QueryOne(ctx, query, func(row *sql.Row) error {\n\t\treturn row.Scan(%s)\n\t}, %s); err != nil {\n", scanArgs("out", table.Columns), modelArgName(pk.Name))
 	fprintf(b, "\t\tif errors.Is(err, sql.ErrNoRows) {\n\t\t\treturn nil, storage.ErrNotFound\n\t\t}\n\t\treturn nil, err\n\t}\n")
 	fprintf(b, "\treturn &out, nil\n}\n\n")
 }
@@ -1500,14 +1568,14 @@ func writeLegacyUpdate(b *bytes.Buffer, table SQLTable, typeName, modelName stri
 
 func writeLegacyDelete(b *bytes.Buffer, table SQLTable, typeName, modelName string) {
 	pk := primaryColumn(table)
-	fprintf(b, "func (m *%s) Delete(ctx context.Context, %s %s) error {\n", modelName, lowerCamel(pk.Name), columnGoType(pk))
+	fprintf(b, "func (m *%s) Delete(ctx context.Context, %s %s) error {\n", modelName, modelArgName(pk.Name), columnGoType(pk))
 	if hasSoftDelete(table) {
 		fprintf(b, "\tquery := \"UPDATE \" + %sTable + \" SET %s = \" + storage.Placeholder(m.dialect, 1) + \" WHERE %s = \" + storage.Placeholder(m.dialect, 2) + \" AND %s IS NULL\"\n", lowerCamel(typeName), table.SoftDeleteColumn, pk.Name, table.SoftDeleteColumn)
-		fprintf(b, "\tif _, err := m.store.Exec(ctx, query, %s, %s); err != nil {\n\t\treturn err\n\t}\n", softDeleteValueExpr(table), lowerCamel(pk.Name))
+		fprintf(b, "\tif _, err := m.store.Exec(ctx, query, %s, %s); err != nil {\n\t\treturn err\n\t}\n", softDeleteValueExpr(table), modelArgName(pk.Name))
 	} else {
 		fprintf(b, "\tquery, err := storage.DeleteByID(%sTable, %q, m.dialect)\n", lowerCamel(typeName), pk.Name)
 		fprintf(b, "\tif err != nil {\n\t\treturn err\n\t}\n")
-		fprintf(b, "\tif _, err := m.store.Exec(ctx, query, %s); err != nil {\n\t\treturn err\n\t}\n", lowerCamel(pk.Name))
+		fprintf(b, "\tif _, err := m.store.Exec(ctx, query, %s); err != nil {\n\t\treturn err\n\t}\n", modelArgName(pk.Name))
 	}
 	fprintf(b, "\treturn nil\n}\n\n")
 }
@@ -1544,7 +1612,7 @@ func writeLegacyCount(b *bytes.Buffer, table SQLTable, typeName, modelName strin
 
 func writeFindOne(b *bytes.Buffer, table SQLTable, typeName, receiverName string) {
 	pk := primaryColumn(table)
-	fprintf(b, "func (r *%s) FindOne(ctx context.Context, %s %s) (*entity.%s, error) {\n", receiverName, lowerCamel(pk.Name), columnGoType(pk), typeName)
+	fprintf(b, "func (r *%s) FindOne(ctx context.Context, %s %s) (*entity.%s, error) {\n", receiverName, modelArgName(pk.Name), columnGoType(pk), typeName)
 	if hasSoftDelete(table) {
 		fprintf(b, "\tcolumns, err := storage.JoinIdentifiers(entity.%sColumns)\n", typeName)
 		fprintf(b, "\tif err != nil {\n\t\treturn nil, err\n\t}\n")
@@ -1554,7 +1622,7 @@ func writeFindOne(b *bytes.Buffer, table SQLTable, typeName, receiverName string
 		fprintf(b, "\tif err != nil {\n\t\treturn nil, err\n\t}\n")
 	}
 	fprintf(b, "\tvar out entity.%s\n", typeName)
-	fprintf(b, "\tif err := r.queryOne(ctx, query, func(row *sql.Row) error {\n\t\treturn row.Scan(%s)\n\t}, %s); err != nil {\n", scanArgs("out", table.Columns), lowerCamel(pk.Name))
+	fprintf(b, "\tif err := r.queryOne(ctx, query, func(row *sql.Row) error {\n\t\treturn row.Scan(%s)\n\t}, %s); err != nil {\n", scanArgs("out", table.Columns), modelArgName(pk.Name))
 	fprintf(b, "\t\tif errors.Is(err, sql.ErrNoRows) {\n\t\t\treturn nil, storage.ErrNotFound\n\t\t}\n\t\treturn nil, err\n\t}\n")
 	fprintf(b, "\treturn &out, nil\n}\n\n")
 }
@@ -1584,14 +1652,14 @@ func writeUpdate(b *bytes.Buffer, table SQLTable, typeName, receiverName string)
 
 func writeDelete(b *bytes.Buffer, table SQLTable, typeName, receiverName string) {
 	pk := primaryColumn(table)
-	fprintf(b, "func (r *%s) Delete(ctx context.Context, %s %s) error {\n", receiverName, lowerCamel(pk.Name), columnGoType(pk))
+	fprintf(b, "func (r *%s) Delete(ctx context.Context, %s %s) error {\n", receiverName, modelArgName(pk.Name), columnGoType(pk))
 	if hasSoftDelete(table) {
 		fprintf(b, "\tquery := \"UPDATE \" + entity.%sTable + \" SET %s = \" + storage.Placeholder(r.dialect, 1) + \" WHERE %s = \" + storage.Placeholder(r.dialect, 2) + \" AND %s IS NULL\"\n", typeName, table.SoftDeleteColumn, pk.Name, table.SoftDeleteColumn)
-		fprintf(b, "\tif _, err := r.exec(ctx, query, %s, %s); err != nil {\n\t\treturn err\n\t}\n", softDeleteValueExpr(table), lowerCamel(pk.Name))
+		fprintf(b, "\tif _, err := r.exec(ctx, query, %s, %s); err != nil {\n\t\treturn err\n\t}\n", softDeleteValueExpr(table), modelArgName(pk.Name))
 	} else {
 		fprintf(b, "\tquery, err := storage.DeleteByID(entity.%sTable, %q, r.dialect)\n", typeName, pk.Name)
 		fprintf(b, "\tif err != nil {\n\t\treturn err\n\t}\n")
-		fprintf(b, "\tif _, err := r.exec(ctx, query, %s); err != nil {\n\t\treturn err\n\t}\n", lowerCamel(pk.Name))
+		fprintf(b, "\tif _, err := r.exec(ctx, query, %s); err != nil {\n\t\treturn err\n\t}\n", modelArgName(pk.Name))
 	}
 	fprintf(b, "\treturn nil\n}\n\n")
 }
@@ -1628,13 +1696,13 @@ func writeCount(b *bytes.Buffer, table SQLTable, typeName, receiverName string) 
 
 func writeGORMFindOne(b *bytes.Buffer, table SQLTable, typeName, receiverName string) {
 	pk := primaryColumn(table)
-	fprintf(b, "func (r *%s) FindOne(ctx context.Context, %s %s) (*entity.%s, error) {\n", receiverName, lowerCamel(pk.Name), columnGoType(pk), typeName)
+	fprintf(b, "func (r *%s) FindOne(ctx context.Context, %s %s) (*entity.%s, error) {\n", receiverName, modelArgName(pk.Name), columnGoType(pk), typeName)
 	fprintf(b, "\tdb, err := r.dbWithContext(ctx)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n")
 	fprintf(b, "\tvar out entity.%s\n", typeName)
 	if hasSoftDelete(table) {
 		fprintf(b, "\tdb = db.Where(%q)\n", table.SoftDeleteColumn+" IS NULL")
 	}
-	fprintf(b, "\tif err := db.Where(%q, %s).First(&out).Error; err != nil {\n\t\tif errors.Is(err, gorm.ErrRecordNotFound) {\n\t\t\treturn nil, storage.ErrNotFound\n\t\t}\n\t\treturn nil, err\n\t}\n", pk.Name+" = ?", lowerCamel(pk.Name))
+	fprintf(b, "\tif err := db.Where(%q, %s).First(&out).Error; err != nil {\n\t\tif errors.Is(err, gorm.ErrRecordNotFound) {\n\t\t\treturn nil, storage.ErrNotFound\n\t\t}\n\t\treturn nil, err\n\t}\n", pk.Name+" = ?", modelArgName(pk.Name))
 	fprintf(b, "\treturn &out, nil\n}\n\n")
 }
 
@@ -1663,13 +1731,13 @@ func writeGORMUpdate(b *bytes.Buffer, table SQLTable, typeName, receiverName str
 
 func writeGORMDelete(b *bytes.Buffer, table SQLTable, typeName, receiverName string) {
 	pk := primaryColumn(table)
-	fprintf(b, "func (r *%s) Delete(ctx context.Context, %s %s) error {\n", receiverName, lowerCamel(pk.Name), columnGoType(pk))
+	fprintf(b, "func (r *%s) Delete(ctx context.Context, %s %s) error {\n", receiverName, modelArgName(pk.Name), columnGoType(pk))
 	fprintf(b, "\tdb, err := r.dbWithContext(ctx)\n\tif err != nil {\n\t\treturn err\n\t}\n")
 	if hasSoftDelete(table) {
-		fprintf(b, "\treturn db.Model(&entity.%s{}).Where(%q, %s).Where(%q).Update(%q, %s).Error\n}\n\n", typeName, pk.Name+" = ?", lowerCamel(pk.Name), table.SoftDeleteColumn+" IS NULL", table.SoftDeleteColumn, softDeleteValueExpr(table))
+		fprintf(b, "\treturn db.Model(&entity.%s{}).Where(%q, %s).Where(%q).Update(%q, %s).Error\n}\n\n", typeName, pk.Name+" = ?", modelArgName(pk.Name), table.SoftDeleteColumn+" IS NULL", table.SoftDeleteColumn, softDeleteValueExpr(table))
 		return
 	}
-	fprintf(b, "\treturn db.Where(%q, %s).Delete(&entity.%s{}).Error\n}\n\n", pk.Name+" = ?", lowerCamel(pk.Name), typeName)
+	fprintf(b, "\treturn db.Where(%q, %s).Delete(&entity.%s{}).Error\n}\n\n", pk.Name+" = ?", modelArgName(pk.Name), typeName)
 }
 
 func writeGORMList(b *bytes.Buffer, table SQLTable, typeName, receiverName string) {
@@ -1701,21 +1769,22 @@ func writeAdvancedGORMRepoMethods(b *bytes.Buffer, table SQLTable, typeName, rec
 		if !column.Unique || column.PrimaryKey {
 			continue
 		}
-		fprintf(b, "func (r *%s) FindBy%s(ctx context.Context, %s %s) (*entity.%s, error) {\n", receiverName, modelFieldName(column.Name), lowerCamel(column.Name), columnGoType(column), typeName)
+		fprintf(b, "func (r *%s) FindBy%s(ctx context.Context, %s %s) (*entity.%s, error) {\n", receiverName, modelFieldName(column.Name), modelArgName(column.Name), columnGoType(column), typeName)
 		fprintf(b, "\tdb, err := r.dbWithContext(ctx)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n")
 		fprintf(b, "\tvar out entity.%s\n", typeName)
 		if hasSoftDelete(table) {
 			fprintf(b, "\tdb = db.Where(%q)\n", table.SoftDeleteColumn+" IS NULL")
 		}
-		fprintf(b, "\tif err := db.Where(%q, %s).First(&out).Error; err != nil {\n\t\tif errors.Is(err, gorm.ErrRecordNotFound) {\n\t\t\treturn nil, storage.ErrNotFound\n\t\t}\n\t\treturn nil, err\n\t}\n\treturn &out, nil\n}\n\n", column.Name+" = ?", lowerCamel(column.Name))
+		fprintf(b, "\tif err := db.Where(%q, %s).First(&out).Error; err != nil {\n\t\tif errors.Is(err, gorm.ErrRecordNotFound) {\n\t\t\treturn nil, storage.ErrNotFound\n\t\t}\n\t\treturn nil, err\n\t}\n\treturn &out, nil\n}\n\n", column.Name+" = ?", modelArgName(column.Name))
 	}
+	writeCompositeGORMUniqueFinders(b, table, typeName, receiverName)
 	fprintf(b, "func (r *%s) InsertMany(ctx context.Context, items []*entity.%s) error {\n", receiverName, typeName)
 	fprintf(b, "\tdb, err := r.dbWithContext(ctx)\n\tif err != nil {\n\t\treturn err\n\t}\n\treturn db.Create(&items).Error\n}\n\n")
 	fprintf(b, "func (r *%s) UpdateMany(ctx context.Context, items []*entity.%s) error {\n", receiverName, typeName)
 	fprintf(b, "\tfor _, item := range items {\n\t\tif err := r.Update(ctx, item); err != nil {\n\t\t\treturn err\n\t\t}\n\t}\n\treturn nil\n}\n\n")
 	fprintf(b, "func (r *%s) DeleteMany(ctx context.Context, ids ...%s) error {\n", receiverName, columnGoType(pk))
 	fprintf(b, "\tfor _, id := range ids {\n\t\tif err := r.Delete(ctx, id); err != nil {\n\t\t\treturn err\n\t\t}\n\t}\n\treturn nil\n}\n\n")
-	fprintf(b, "func (r *%s) UpdateFields(ctx context.Context, %s %s, fields map[string]any) error {\n", receiverName, lowerCamel(pk.Name), columnGoType(pk))
+	fprintf(b, "func (r *%s) UpdateFields(ctx context.Context, %s %s, fields map[string]any) error {\n", receiverName, modelArgName(pk.Name), columnGoType(pk))
 	fprintf(b, "\tif len(fields) == 0 {\n\t\treturn nil\n\t}\n")
 	fprintf(b, "\tdb, err := r.dbWithContext(ctx)\n\tif err != nil {\n\t\treturn err\n\t}\n")
 	if hasSoftDelete(table) {
@@ -1723,7 +1792,7 @@ func writeAdvancedGORMRepoMethods(b *bytes.Buffer, table SQLTable, typeName, rec
 	}
 	fprintf(b, "\tallowed := map[string]struct{}{%s}\n", columnSetLiteral(updateColumns(table)))
 	fprintf(b, "\tfor column := range fields {\n\t\tif _, ok := allowed[column]; !ok {\n\t\t\treturn errors.New(\"field is not updatable: \" + column)\n\t\t}\n\t}\n")
-	fprintf(b, "\treturn db.Model(&entity.%s{}).Where(%q, %s).Updates(fields).Error\n}\n\n", typeName, pk.Name+" = ?", lowerCamel(pk.Name))
+	fprintf(b, "\treturn db.Model(&entity.%s{}).Where(%q, %s).Updates(fields).Error\n}\n\n", typeName, pk.Name+" = ?", modelArgName(pk.Name))
 	if version, ok := versionColumn(table); ok {
 		fprintf(b, "func (r *%s) UpdateWithVersion(ctx context.Context, in *entity.%s, expectedVersion %s) error {\n", receiverName, typeName, columnGoType(version))
 		fprintf(b, "\tif in == nil {\n\t\treturn errors.New(\"%s is nil\")\n\t}\n", lowerCamel(typeName))
@@ -1746,6 +1815,24 @@ func writeAdvancedGORMRepoMethods(b *bytes.Buffer, table SQLTable, typeName, rec
 		fprintf(b, "\tdb = db.Where(%q)\n", table.SoftDeleteColumn+" IS NULL")
 	}
 	fprintf(b, "\tif err := db.Where(%q, after).Order(%q).Limit(limit).Find(&out).Error; err != nil {\n\t\treturn nil, err\n\t}\n\treturn out, nil\n}\n\n", pk.Name+" > ?", pk.Name+" ASC")
+}
+
+func writeCompositeGORMUniqueFinders(b *bytes.Buffer, table SQLTable, typeName, receiverName string) {
+	for _, index := range table.UniqueIndexes {
+		columns, ok := uniqueIndexColumns(table, index)
+		if !ok {
+			continue
+		}
+		fprintf(b, "func (r *%s) FindBy%s(ctx context.Context, %s) (*entity.%s, error) {\n", receiverName, uniqueFinderName(columns), uniqueFinderParams(columns), typeName)
+		fprintf(b, "\tdb, err := r.dbWithContext(ctx)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n")
+		fprintf(b, "\tvar out entity.%s\n", typeName)
+		if hasSoftDelete(table) {
+			fprintf(b, "\tdb = db.Where(%q)\n", table.SoftDeleteColumn+" IS NULL")
+		}
+		fprintf(b, "\tif err := db.Where(%q, %s).First(&out).Error; err != nil {\n", gormUniqueWhere(columns), uniqueFinderArgs(columns))
+		fprintf(b, "\t\tif errors.Is(err, gorm.ErrRecordNotFound) {\n\t\t\treturn nil, storage.ErrNotFound\n\t\t}\n\t\treturn nil, err\n\t}\n")
+		fprintf(b, "\treturn &out, nil\n}\n\n")
+	}
 }
 
 func primaryColumn(table SQLTable) SQLColumn {
@@ -1838,6 +1925,65 @@ func updateColumnsExcept(table SQLTable, excluded ...string) []SQLColumn {
 	return out
 }
 
+func uniqueIndexColumns(table SQLTable, index SQLUniqueIndex) ([]SQLColumn, bool) {
+	if len(index.Columns) < 2 {
+		return nil, false
+	}
+	byName := make(map[string]SQLColumn, len(table.Columns))
+	for _, column := range table.Columns {
+		byName[column.Name] = column
+	}
+	columns := make([]SQLColumn, 0, len(index.Columns))
+	for _, name := range index.Columns {
+		column, ok := byName[name]
+		if !ok {
+			return nil, false
+		}
+		columns = append(columns, column)
+	}
+	return columns, true
+}
+
+func uniqueFinderName(columns []SQLColumn) string {
+	parts := make([]string, 0, len(columns))
+	for _, column := range columns {
+		parts = append(parts, modelFieldName(column.Name))
+	}
+	return strings.Join(parts, "And")
+}
+
+func uniqueFinderParams(columns []SQLColumn) string {
+	params := make([]string, 0, len(columns))
+	for _, column := range columns {
+		params = append(params, modelArgName(column.Name)+" "+columnGoType(column))
+	}
+	return strings.Join(params, ", ")
+}
+
+func uniqueFinderArgs(columns []SQLColumn) string {
+	args := make([]string, 0, len(columns))
+	for _, column := range columns {
+		args = append(args, modelArgName(column.Name))
+	}
+	return strings.Join(args, ", ")
+}
+
+func sqlUniqueWhereParts(columns []SQLColumn) string {
+	parts := make([]string, 0, len(columns))
+	for i, column := range columns {
+		parts = append(parts, fmt.Sprintf("%q + storage.Placeholder(r.dialect, %d)", column.Name+" = ", i+1))
+	}
+	return strings.Join(parts, ", ")
+}
+
+func gormUniqueWhere(columns []SQLColumn) string {
+	parts := make([]string, 0, len(columns))
+	for _, column := range columns {
+		parts = append(parts, column.Name+" = ?")
+	}
+	return strings.Join(parts, " AND ")
+}
+
 func versionColumn(table SQLTable) (SQLColumn, bool) {
 	for _, column := range table.Columns {
 		if strings.EqualFold(column.Name, "version") {
@@ -1888,10 +2034,37 @@ func gormColumnTag(column SQLColumn) string {
 }
 
 func modelFieldName(name string) string {
-	if strings.EqualFold(name, "id") {
-		return "ID"
+	parts := strings.FieldsFunc(name, func(r rune) bool {
+		return r == '_' || r == '-' || r == '.' || r == '/'
+	})
+	if len(parts) == 0 {
+		return "X"
 	}
-	return exportName(name)
+	var b strings.Builder
+	for _, part := range parts {
+		if strings.EqualFold(part, "id") {
+			b.WriteString("ID")
+			continue
+		}
+		b.WriteString(exportName(part))
+	}
+	if b.Len() == 0 {
+		return "X"
+	}
+	return b.String()
+}
+
+func modelArgName(name string) string {
+	fieldName := modelFieldName(name)
+	runes := []rune(fieldName)
+	if len(runes) == 0 {
+		return ""
+	}
+	if fieldName == "ID" {
+		return "id"
+	}
+	runes[0] = unicode.ToLower(runes[0])
+	return string(runes)
 }
 
 func modelsNeedTime(tables []SQLTable) bool {

@@ -38,16 +38,17 @@
     },
     {
       "id": "doctor",
-      "status": "candidate-after-json-golden",
-      "reason": "The doctor family has only standard library imports and focused diagnostics, but it still shares JSON/output helpers and must preserve stdout/stderr discipline.",
+      "status": "candidate-after-dry-run",
+      "reason": "The doctor family has only standard library imports, JSON golden coverage, support bundle contract coverage, and dry-run extraction evidence, but physical movement still needs JSON/output adapters.",
       "requiredPreSplitActions": [
-        "pin doctor --json output and nextActions with golden tests",
-        "define a package-local adapter for JSON and output helpers",
+        "introduce a package-local JSON/output adapter before moving doctorCommand out of the shared command package",
+        "preserve bug --json support bundle schema, redaction, commands, and nextActions references",
         "prove support bundle and remediation wording remain stable after extraction"
       ],
       "requiredGates": [
         "make command-family-dependency-map-check",
         "make command-split-readiness-check",
+        "make command-doctor-split-dry-run-check",
         "make cli-command-surface-check",
         "make cli-json-contract-goldens-check",
         "GOCACHE=$PWD/.tmp-test/gocache GOTMPDIR=$PWD/.tmp-test/gotmp go test -shuffle=on ./cmd/gofly/internal/command/..."
@@ -91,7 +92,7 @@
     "git diff --check"
   ],
   "nextStep": {
-    "id": "P22-08-doctor-split-dry-run",
-    "action": "Add doctor family JSON golden output, support-bundle contract coverage, and dry-run extraction evidence before any physical package split."
+    "id": "P22-09-command-shared-reduction-plan",
+    "action": "Plan shared command helper reduction before any physical package split, focusing on output, JSON, root wiring, path flags, and template helpers."
   }
 }

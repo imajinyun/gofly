@@ -104,7 +104,7 @@ help_candidate = candidate_by_id.get("help") or {}
 require(help_candidate.get("status") == "candidate-after-dry-run", "command split readiness must mark help candidate after dry-run")
 require("make command-help-split-dry-run-check" in set(help_candidate.get("requiredGates") or []), "help candidate gates must include help split dry-run check")
 require("output adapter" in " ".join(help_candidate.get("requiredPreSplitActions") or []), "help candidate must keep output adapter as pre-split action")
-require(readiness.get("nextStep", {}).get("id") == "P22-08-doctor-split-dry-run", "command split readiness nextStep must move to doctor dry-run")
+require(readiness.get("nextStep", {}).get("id") == "P22-09-command-shared-reduction-plan", "command split readiness nextStep must move to shared reduction plan after doctor dry-run")
 
 map_candidates = [item.get("id") for item in dependency_map.get("nextCandidates") or [] if isinstance(item, dict)]
 require(map_candidates[:2] == ["help", "doctor"], "command dependency map must keep help and doctor as next candidates")

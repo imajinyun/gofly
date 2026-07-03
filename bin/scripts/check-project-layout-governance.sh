@@ -60,6 +60,8 @@ require("command-split-readiness-check" in targets, "Makefile must expose comman
 require("command-split-readiness-check" in docs_check, "docs-check must depend on command-split-readiness-check")
 require("command-help-split-dry-run-check" in targets, "Makefile must expose command-help-split-dry-run-check")
 require("command-help-split-dry-run-check" in docs_check, "docs-check must depend on command-help-split-dry-run-check")
+require("command-doctor-split-dry-run-check" in targets, "Makefile must expose command-doctor-split-dry-run-check")
+require("command-doctor-split-dry-run-check" in docs_check, "docs-check must depend on command-doctor-split-dry-run-check")
 require("check-project-layout-governance.sh" in makefile, "Makefile must call check-project-layout-governance.sh")
 
 top_level_boundary = manifest.get("topLevelDirectoryBoundaries") or {}
@@ -826,7 +828,7 @@ require(
     "command split readiness must record the root module pollution regression test",
 )
 require(
-    command_split_readiness.get("nextStep", {}).get("id") == "P22-08-doctor-split-dry-run",
+    command_split_readiness.get("nextStep", {}).get("id") == "P22-09-command-shared-reduction-plan",
     "command split readiness nextStep mismatch",
 )
 candidate_status = {
@@ -835,7 +837,7 @@ candidate_status = {
     if isinstance(item, dict)
 }
 require(candidate_status.get("help") == "candidate-after-dry-run", "command split readiness help candidate must be after dry-run")
-require(candidate_status.get("doctor") == "candidate-after-json-golden", "command split readiness doctor candidate status mismatch")
+require(candidate_status.get("doctor") == "candidate-after-dry-run", "command split readiness doctor candidate must be after dry-run")
 
 command_help_split_path = root / "docs" / "reference" / "command-help-split-dry-run.json"
 if command_help_split_path.is_file():
@@ -864,6 +866,36 @@ require(
 require(
     command_help_split.get("physicalSplitAdmission", {}).get("status") == "candidate-after-dry-run",
     "command help split dry-run physicalSplitAdmission mismatch",
+)
+
+command_doctor_split_path = root / "docs" / "reference" / "command-doctor-split-dry-run.json"
+if command_doctor_split_path.is_file():
+    command_doctor_split = json.loads(command_doctor_split_path.read_text(encoding="utf-8"))
+else:
+    command_doctor_split = {}
+    missing.append("docs/reference/command-doctor-split-dry-run.json is missing")
+require(
+    command_doctor_split.get("schema") == "gofly.command_doctor_split_dry_run.v1",
+    "command doctor split dry-run schema mismatch",
+)
+require(
+    command_doctor_split.get("status") == "completed-preflight",
+    "command doctor split dry-run status must be completed-preflight",
+)
+require(
+    command_doctor_split.get("acceptanceGate") == "make command-doctor-split-dry-run-check",
+    "command doctor split dry-run acceptanceGate mismatch",
+)
+require(command_doctor_split.get("dryRunOnly") is True, "command doctor split dry-run must be dryRunOnly")
+require(command_doctor_split.get("noPhysicalMove") is True, "command doctor split dry-run must forbid physical move")
+require(
+    set(command_doctor_split.get("supportBundleFields") or [])
+    == {"supportBundle.schema", "supportBundle.redaction", "supportBundle.commands", "supportBundle.description", "nextActions"},
+    "command doctor split dry-run supportBundleFields mismatch",
+)
+require(
+    command_doctor_split.get("physicalSplitAdmission", {}).get("status") == "candidate-after-dry-run",
+    "command doctor split dry-run physicalSplitAdmission mismatch",
 )
 
 reference_boundary = manifest.get("referenceFileBoundaries") or {}

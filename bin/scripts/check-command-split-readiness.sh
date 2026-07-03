@@ -140,8 +140,8 @@ for gate in required_gates:
     require(gate_is_known(str(gate), targets), f"required gate is not known: {gate}")
 
 next_step = readiness.get("nextStep") or {}
-require(next_step.get("id") == "P22-08-doctor-split-dry-run", "nextStep id mismatch")
-require("doctor" in str(next_step.get("action") or ""), "nextStep action must keep doctor split as next dry run")
+require(next_step.get("id") == "P22-09-command-shared-reduction-plan", "nextStep id mismatch")
+require("shared command helper" in str(next_step.get("action") or ""), "nextStep action must move to shared command helper reduction")
 
 reference_files = []
 for family in (layout.get("referenceFileBoundaries") or {}).get("families") or []:
@@ -149,6 +149,7 @@ for family in (layout.get("referenceFileBoundaries") or {}).get("families") or [
         reference_files.extend(family.get("files") or [])
 require("command-split-readiness.json" in reference_files, "referenceFileBoundaries must index command-split-readiness.json")
 require("command-help-split-dry-run.json" in reference_files, "referenceFileBoundaries must index command-help-split-dry-run.json")
+require("command-doctor-split-dry-run.json" in reference_files, "referenceFileBoundaries must index command-doctor-split-dry-run.json")
 
 if missing:
     print("command split readiness check failed:")

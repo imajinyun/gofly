@@ -583,7 +583,7 @@
       "id": "shared",
       "prefix": "",
       "domain": "Shared root command wiring, CLI helpers, compatibility commands, IDL helpers, template helpers, example commands, and low-level command utilities without a stable prefix.",
-      "fileCount": 52,
+      "fileCount": 53,
       "files": [
         "aidoctor.go",
         "aidoctor_checks.go",
@@ -595,6 +595,7 @@
         "cli_json_contract_golden_test.go",
         "cli_plan.go",
         "command_args.go",
+        "command_doctor_split_readiness_test.go",
         "command_help_split_readiness_test.go",
         "compat_command.go",
         "complete.go",

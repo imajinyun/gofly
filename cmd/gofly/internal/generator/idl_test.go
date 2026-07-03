@@ -2791,6 +2791,12 @@ func TestGenerateModelFromDDLCacheOptionControlsSQLRepoHelpers(t *testing.T) {
 		"if item, ok := c.cache.Peek(id); ok",
 		"items, err := c.repo.FindByIDs(ctx, missing)",
 		"c.cache.Set(item.ID, &item)",
+		"func (c *CachedOrderRepo) InsertMany(ctx context.Context, items []*entity.Order) error",
+		"func (c *CachedOrderRepo) UpdateManyWithInvalidate(ctx context.Context, items []*entity.Order) error",
+		"func (c *CachedOrderRepo) DeleteMany(ctx context.Context, ids ...int64) error",
+		"if err := c.afterInsertCommit(ctx, item); err != nil",
+		"if err := c.afterUpdateCommit(ctx, item, old); err != nil",
+		"if err := c.afterDeleteCommit(ctx, id, old); err != nil",
 		"cacheByOrderNo",
 		"*cache.ModelCache[*entity.Order, string]",
 		"func (c *CachedOrderRepo) FindByOrderNoCached(ctx context.Context, orderNo string) (*entity.Order, error)",
@@ -2820,6 +2826,9 @@ func TestGenerateModelFromDDLCacheOptionControlsSQLRepoHelpers(t *testing.T) {
 		"func (c *RedisCachedOrderRepo) FindByIDsCached(ctx context.Context, ids []int64) ([]entity.Order, error)",
 		"item, ok, err := c.cache.Peek(ctx, id)",
 		"if err := c.cache.Set(ctx, item.ID, &item); err != nil",
+		"func (c *RedisCachedOrderRepo) InsertMany(ctx context.Context, items []*entity.Order) error",
+		"func (c *RedisCachedOrderRepo) UpdateManyWithInvalidate(ctx context.Context, items []*entity.Order) error",
+		"func (c *RedisCachedOrderRepo) DeleteMany(ctx context.Context, ids ...int64) error",
 		"func (c *RedisCachedOrderRepo) UpdateWithInvalidate(ctx context.Context, in *entity.Order) error",
 		"func (c *RedisCachedOrderRepo) UpdateFields(ctx context.Context, id int64, fields map[string]any) error",
 		"func (c *RedisCachedOrderRepo) UpdateWithVersion(ctx context.Context, in *entity.Order, expectedVersion int64) error",
@@ -2871,6 +2880,9 @@ func TestGenerateModelFromDDLCacheOptionCachesIndexListFinders(t *testing.T) {
 		`cache.New[[]entity.Invoice](cache.WithName[[]entity.Invoice]("list:by:customer_id"))`,
 		`cache.New[int64](cache.WithName[int64]("count:by:customer_id"))`,
 		"func (c *CachedInvoiceRepo) FindByCustomerIDCached(ctx context.Context, customerID int64, limit int, offset int) ([]entity.Invoice, error)",
+		"func (c *CachedInvoiceRepo) InsertMany(ctx context.Context, items []*entity.Invoice) error",
+		"func (c *CachedInvoiceRepo) UpdateManyWithInvalidate(ctx context.Context, items []*entity.Invoice) error",
+		"func (c *CachedInvoiceRepo) DeleteMany(ctx context.Context, ids ...int64) error",
 		"func (c *CachedInvoiceRepo) CountByCustomerIDCached(ctx context.Context, customerID int64) (int64, error)",
 		"func (c *CachedInvoiceRepo) PageByCustomerIDCached(ctx context.Context, customerID int64, limit int, offset int) ([]entity.Invoice, int64, error)",
 		"key := indexListKeyByCustomerID(customerID, limit, offset)",
@@ -2893,21 +2905,24 @@ func TestGenerateModelFromDDLCacheOptionCachesIndexListFinders(t *testing.T) {
 		`cache.WithRedisModelKeyPrefix[int64, string]("count:by:customer_id")`,
 		`cache.WithRedisModelKeyPrefix[string, string]("list-version:by:customer_id")`,
 		"func (c *RedisCachedInvoiceRepo) FindByCustomerIDCached(ctx context.Context, customerID int64, limit int, offset int) ([]entity.Invoice, error)",
+		"func (c *RedisCachedInvoiceRepo) InsertMany(ctx context.Context, items []*entity.Invoice) error",
+		"func (c *RedisCachedInvoiceRepo) UpdateManyWithInvalidate(ctx context.Context, items []*entity.Invoice) error",
+		"func (c *RedisCachedInvoiceRepo) DeleteMany(ctx context.Context, ids ...int64) error",
 		"func (c *RedisCachedInvoiceRepo) CountByCustomerIDCached(ctx context.Context, customerID int64) (int64, error)",
 		"func (c *RedisCachedInvoiceRepo) PageByCustomerIDCached(ctx context.Context, customerID int64, limit int, offset int) ([]entity.Invoice, int64, error)",
 		"version, err := c.listVersionByCustomerID.Get(ctx, \"current\")",
-		"key := redisIndexListCacheKey(version, indexListKeyByCustomerID(customerID, limit, offset))",
-		"key := redisIndexListCacheKey(version, indexCountKeyByCustomerID(customerID))",
+		"key := redisInvoiceIndexListCacheKey(version, indexListKeyByCustomerID(customerID, limit, offset))",
+		"key := redisInvoiceIndexListCacheKey(version, indexCountKeyByCustomerID(customerID))",
 		"if !errors.Is(err, cache.ErrNotFound)",
 		"c.listCacheByCustomerID.Set(ctx, key, out)",
 		"c.countCacheByCustomerID.Set(ctx, key, total)",
-		"c.listVersionByCustomerID.Set(ctx, \"current\", redisIndexListVersionValue())",
+		"c.listVersionByCustomerID.Set(ctx, \"current\", redisInvoiceIndexListVersionValue())",
 		"func (c *CachedInvoiceRepo) Transact(ctx context.Context, opts *sql.TxOptions, fn func(context.Context, *CachedInvoiceRepo) error) error",
 		"func (c *CachedInvoiceRepo) afterUpdateFieldsCommit(ctx context.Context, id int64, old *entity.Invoice) error",
 		"func (c *RedisCachedInvoiceRepo) Transact(ctx context.Context, opts *sql.TxOptions, fn func(context.Context, *RedisCachedInvoiceRepo) error) error",
 		"func (c *RedisCachedInvoiceRepo) afterUpdateFieldsCommit(ctx context.Context, id int64) error",
-		"func redisIndexListVersionValue() string",
-		"func redisIndexListCacheKey(version string, key string) string",
+		"func redisInvoiceIndexListVersionValue() string",
+		"func redisInvoiceIndexListCacheKey(version string, key string) string",
 	} {
 		if !strings.Contains(repoOut, want) {
 			t.Fatalf("generated cached index-list repo missing %q:\n%s", want, repoOut)
@@ -2932,6 +2947,83 @@ func TestGenerateModelFromDDLRedisCacheCompilesInTempModule(t *testing.T) {
 	writeGeneratedModule(t, outDir, "example.com/shop")
 	if err := GenerateModelFromDDL(ModelOptions{DDLFile: ddlPath, Dir: outDir, Package: "model", Module: "example.com/shop", Cache: true}); err != nil {
 		t.Fatal(err)
+	}
+	runGoCommand(t, outDir, 3*time.Minute, "mod", "tidy")
+	runGoCommand(t, outDir, 3*time.Minute, "test", "./...")
+}
+
+func TestGenerateModelFromDDLComplexGoctlModelCacheFixtureCompiles(t *testing.T) {
+	dir := t.TempDir()
+	ddlPath := filepath.Join(dir, "schema.sql")
+	ddl := `CREATE TABLE payment_events (
+  id bigint primary key,
+  tenant_id bigint not null,
+  biz_id varchar(64) not null,
+  region varchar(32) null,
+  status varchar(32) not null,
+  account_id bigint null,
+  event_time timestamp not null,
+  version bigint not null,
+  deleted_at timestamp null,
+  UNIQUE KEY uk_payment_tenant_biz_region (tenant_id, biz_id, region),
+  KEY idx_payment_tenant_status_time (tenant_id, status, event_time),
+  KEY idx_payment_account_time (account_id, event_time),
+  KEY idx_payment_deleted_at (deleted_at)
+);`
+	if err := os.WriteFile(ddlPath, []byte(ddl), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outDir := filepath.Join(dir, "out")
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeGeneratedModule(t, outDir, "example.com/payments")
+	if err := GenerateModelFromDDL(ModelOptions{DDLFile: ddlPath, Dir: outDir, Package: "model", Module: "example.com/payments", Cache: true}); err != nil {
+		t.Fatal(err)
+	}
+	repo, err := os.ReadFile(filepath.Join(outDir, "model", "repo", "payment_event.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	repoOut := string(repo)
+	for _, want := range []string{
+		"func (r *PaymentEventRepo) FindByTenantIDAndBizIDAndRegion(ctx context.Context, tenantID int64, bizID string, region *string) (*entity.PaymentEvent, error)",
+		"func (r *PaymentEventRepo) FindByTenantIDAndStatus(ctx context.Context, tenantID int64, status string, limit int, offset int) ([]entity.PaymentEvent, error)",
+		"func (r *PaymentEventRepo) CountByTenantIDAndStatus(ctx context.Context, tenantID int64, status string) (int64, error)",
+		"func (r *PaymentEventRepo) FindByAccountID(ctx context.Context, accountID *int64, limit int, offset int) ([]entity.PaymentEvent, error)",
+		"func (r *PaymentEventRepo) CountByAccountID(ctx context.Context, accountID *int64) (int64, error)",
+		"func (r *PaymentEventRepo) UpdateWithVersion(ctx context.Context, in *entity.PaymentEvent, expectedVersion int64) error",
+		`query += " AND deleted_at IS NULL"`,
+		"cacheByTenantIDAndBizIDAndRegion",
+		"func (c *CachedPaymentEventRepo) FindByTenantIDAndBizIDAndRegionCached(ctx context.Context, tenantID int64, bizID string, region *string) (*entity.PaymentEvent, error)",
+		"func uniqueKeyByTenantIDAndBizIDAndRegion(tenantID int64, bizID string, region *string) string",
+		"func (c *CachedPaymentEventRepo) FindByTenantIDAndStatusCached(ctx context.Context, tenantID int64, status string, limit int, offset int) ([]entity.PaymentEvent, error)",
+		"func (c *CachedPaymentEventRepo) CountByTenantIDAndStatusCached(ctx context.Context, tenantID int64, status string) (int64, error)",
+		"func (c *CachedPaymentEventRepo) PageByTenantIDAndStatusCached(ctx context.Context, tenantID int64, status string, limit int, offset int) ([]entity.PaymentEvent, int64, error)",
+		"func (c *CachedPaymentEventRepo) FindByAccountIDCached(ctx context.Context, accountID *int64, limit int, offset int) ([]entity.PaymentEvent, error)",
+		"func (c *CachedPaymentEventRepo) CountByAccountIDCached(ctx context.Context, accountID *int64) (int64, error)",
+		"func (c *CachedPaymentEventRepo) PageByAccountIDCached(ctx context.Context, accountID *int64, limit int, offset int) ([]entity.PaymentEvent, int64, error)",
+		"func (c *CachedPaymentEventRepo) UpdateManyWithInvalidate(ctx context.Context, items []*entity.PaymentEvent) error",
+		"func (c *CachedPaymentEventRepo) DeleteMany(ctx context.Context, ids ...int64) error",
+		"c.cacheByTenantIDAndBizIDAndRegion.Cache().Delete(uniqueKeyByTenantIDAndBizIDAndRegion(old.TenantID, old.BizID, old.Region))",
+		"c.listCacheByTenantIDAndStatus.Clear()",
+		"c.countCacheByTenantIDAndStatus.Clear()",
+		"c.listCacheByAccountID.Clear()",
+		"c.countCacheByAccountID.Clear()",
+		"func (c *RedisCachedPaymentEventRepo) FindByTenantIDAndStatusCached(ctx context.Context, tenantID int64, status string, limit int, offset int) ([]entity.PaymentEvent, error)",
+		"func (c *RedisCachedPaymentEventRepo) CountByTenantIDAndStatusCached(ctx context.Context, tenantID int64, status string) (int64, error)",
+		"func (c *RedisCachedPaymentEventRepo) PageByTenantIDAndStatusCached(ctx context.Context, tenantID int64, status string, limit int, offset int) ([]entity.PaymentEvent, int64, error)",
+		"func (c *RedisCachedPaymentEventRepo) FindByAccountIDCached(ctx context.Context, accountID *int64, limit int, offset int) ([]entity.PaymentEvent, error)",
+		"func (c *RedisCachedPaymentEventRepo) CountByAccountIDCached(ctx context.Context, accountID *int64) (int64, error)",
+		"func (c *RedisCachedPaymentEventRepo) PageByAccountIDCached(ctx context.Context, accountID *int64, limit int, offset int) ([]entity.PaymentEvent, int64, error)",
+		"func (c *RedisCachedPaymentEventRepo) UpdateManyWithInvalidate(ctx context.Context, items []*entity.PaymentEvent) error",
+		"func (c *RedisCachedPaymentEventRepo) DeleteMany(ctx context.Context, ids ...int64) error",
+		"c.listVersionByTenantIDAndStatus.Set(ctx, \"current\", redisPaymentEventIndexListVersionValue())",
+		"c.listVersionByAccountID.Set(ctx, \"current\", redisPaymentEventIndexListVersionValue())",
+	} {
+		if !strings.Contains(repoOut, want) {
+			t.Fatalf("generated complex model/cache repo missing %q:\n%s", want, repoOut)
+		}
 	}
 	runGoCommand(t, outDir, 3*time.Minute, "mod", "tidy")
 	runGoCommand(t, outDir, 3*time.Minute, "test", "./...")
@@ -3054,6 +3146,150 @@ func TestGenerateModelFromDDLGoctlOptions(t *testing.T) {
 	if err := GenerateModelFromDDL(ModelOptions{DDLFile: ddlPath, Dir: filepath.Join(dir, "pk"), IgnoreColumns: []string{"id"}, Strict: true}); err == nil || !strings.Contains(err.Error(), "primary key column") {
 		t.Fatalf("strict ignored primary key error = %v", err)
 	}
+}
+
+func TestGenerateModelFromDDLMultiTableGoctlOptionsCacheReplay(t *testing.T) {
+	dir := t.TempDir()
+	ddlPath := filepath.Join(dir, "schema.sql")
+	ddl := `CREATE TABLE app_customers (
+  id bigint primary key,
+  tenant_id bigint not null,
+  external_id varchar(64) not null,
+  email varchar(128) null,
+  name varchar(128) not null,
+  version bigint not null,
+  deleted_at timestamp null,
+  created_by varchar(64),
+  updated_by varchar(64),
+  UNIQUE KEY uk_customer_tenant_external (tenant_id, external_id),
+  KEY idx_customer_tenant_email (tenant_id, email)
+);
+
+CREATE TABLE app_orders (
+  id bigint primary key,
+  tenant_id bigint not null,
+  customer_id bigint not null,
+  order_no varchar(64) not null,
+  status varchar(32) not null,
+  total_amount decimal(10,2) not null,
+  version bigint not null,
+  deleted_at timestamp null,
+  created_by varchar(64),
+  updated_by varchar(64),
+  UNIQUE KEY uk_order_tenant_order_no (tenant_id, order_no),
+  KEY idx_order_customer_status (customer_id, status),
+  KEY idx_order_tenant_status_id (tenant_id, status, id)
+);`
+	if err := os.WriteFile(ddlPath, []byte(ddl), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outDir := filepath.Join(dir, "out")
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeGeneratedModule(t, outDir, "example.com/multimodel")
+	if err := GenerateModelFromDDL(ModelOptions{
+		DDLFile:       ddlPath,
+		Dir:           outDir,
+		Package:       "model",
+		Module:        "example.com/multimodel",
+		Tables:        []string{"app_customers", "app_orders"},
+		Prefix:        "app_",
+		IgnoreColumns: []string{"created_by", "updated_by"},
+		Strict:        true,
+		Cache:         true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	customerEntity, err := os.ReadFile(filepath.Join(outDir, "model", "entity", "customer_gen.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	customerEntityOut := string(customerEntity)
+	for _, want := range []string{
+		`const CustomerTable = "customers"`,
+		`db:"email" json:"email"`,
+		`db:"version" json:"version"`,
+	} {
+		if !strings.Contains(customerEntityOut, want) {
+			t.Fatalf("generated customer entity missing %q:\n%s", want, customerEntityOut)
+		}
+	}
+	for _, unexpected := range []string{"CreatedBy", "UpdatedBy"} {
+		if strings.Contains(customerEntityOut, unexpected) {
+			t.Fatalf("generated customer entity should ignore audit column %q:\n%s", unexpected, customerEntityOut)
+		}
+	}
+
+	customerRepo, err := os.ReadFile(filepath.Join(outDir, "model", "repo", "customer.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	customerRepoOut := string(customerRepo)
+	for _, want := range []string{
+		"func (r *CustomerRepo) FindByTenantIDAndExternalID(ctx context.Context, tenantID int64, externalID string) (*entity.Customer, error)",
+		"func (r *CustomerRepo) FindByTenantID(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.Customer, error)",
+		"func (r *CustomerRepo) CountByTenantID(ctx context.Context, tenantID int64) (int64, error)",
+		"func (r *CustomerRepo) UpdateWithVersion(ctx context.Context, in *entity.Customer, expectedVersion int64) error",
+		"func (c *CachedCustomerRepo) FindByTenantIDAndExternalIDCached(ctx context.Context, tenantID int64, externalID string) (*entity.Customer, error)",
+		"func (c *CachedCustomerRepo) PageByTenantIDCached(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.Customer, int64, error)",
+		"func (c *CachedCustomerRepo) UpdateManyWithInvalidate(ctx context.Context, items []*entity.Customer) error",
+		"func (c *RedisCachedCustomerRepo) PageByTenantIDCached(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.Customer, int64, error)",
+		"c.listVersionByTenantID.Set(ctx, \"current\", redisCustomerIndexListVersionValue())",
+		`query += " AND deleted_at IS NULL"`,
+	} {
+		if !strings.Contains(customerRepoOut, want) {
+			t.Fatalf("generated customer repo missing %q:\n%s", want, customerRepoOut)
+		}
+	}
+
+	orderEntity, err := os.ReadFile(filepath.Join(outDir, "model", "entity", "order_gen.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	orderEntityOut := string(orderEntity)
+	for _, want := range []string{
+		`const OrderTable = "orders"`,
+		`db:"customer_id" json:"customerId"`,
+		`db:"total_amount" json:"totalAmount"`,
+	} {
+		if !strings.Contains(orderEntityOut, want) {
+			t.Fatalf("generated order entity missing %q:\n%s", want, orderEntityOut)
+		}
+	}
+	for _, unexpected := range []string{"CreatedBy", "UpdatedBy"} {
+		if strings.Contains(orderEntityOut, unexpected) {
+			t.Fatalf("generated order entity should ignore audit column %q:\n%s", unexpected, orderEntityOut)
+		}
+	}
+
+	orderRepo, err := os.ReadFile(filepath.Join(outDir, "model", "repo", "order.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	orderRepoOut := string(orderRepo)
+	for _, want := range []string{
+		"func (r *OrderRepo) FindByTenantIDAndOrderNo(ctx context.Context, tenantID int64, orderNo string) (*entity.Order, error)",
+		"func (r *OrderRepo) FindByCustomerID(ctx context.Context, customerID int64, limit int, offset int) ([]entity.Order, error)",
+		"func (r *OrderRepo) CountByCustomerID(ctx context.Context, customerID int64) (int64, error)",
+		"func (r *OrderRepo) FindByTenantIDAndStatus(ctx context.Context, tenantID int64, status string, limit int, offset int) ([]entity.Order, error)",
+		"func (r *OrderRepo) CountByTenantIDAndStatus(ctx context.Context, tenantID int64, status string) (int64, error)",
+		"func (c *CachedOrderRepo) FindByTenantIDAndOrderNoCached(ctx context.Context, tenantID int64, orderNo string) (*entity.Order, error)",
+		"func (c *CachedOrderRepo) PageByCustomerIDCached(ctx context.Context, customerID int64, limit int, offset int) ([]entity.Order, int64, error)",
+		"func (c *CachedOrderRepo) PageByTenantIDAndStatusCached(ctx context.Context, tenantID int64, status string, limit int, offset int) ([]entity.Order, int64, error)",
+		"func (c *CachedOrderRepo) DeleteMany(ctx context.Context, ids ...int64) error",
+		"func (c *RedisCachedOrderRepo) PageByTenantIDAndStatusCached(ctx context.Context, tenantID int64, status string, limit int, offset int) ([]entity.Order, int64, error)",
+		"c.listVersionByCustomerID.Set(ctx, \"current\", redisOrderIndexListVersionValue())",
+		"c.listVersionByTenantIDAndStatus.Set(ctx, \"current\", redisOrderIndexListVersionValue())",
+	} {
+		if !strings.Contains(orderRepoOut, want) {
+			t.Fatalf("generated order repo missing %q:\n%s", want, orderRepoOut)
+		}
+	}
+
+	runGoCommand(t, outDir, 3*time.Minute, "mod", "tidy")
+	runGoCommand(t, outDir, 3*time.Minute, "test", "./...")
 }
 
 func TestGenerateModelFromDDLSoftDeleteStrictAndTabler(t *testing.T) {

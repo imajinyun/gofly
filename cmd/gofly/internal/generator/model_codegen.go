@@ -1163,7 +1163,7 @@ func writeRepoFile(dir string, table SQLTable, pkg string, module string, style 
 		writeConsistentCachedRepo(&b, table, typeName, repoName, modelStyleSQL)
 		writeRedisCachedRepo(&b, table, typeName, repoName, modelStyleSQL)
 		writeUniqueCacheKeyFuncs(&b, uniqueIndexes)
-		writeIndexListCacheKeyFuncs(&b, indexPrefixes)
+		writeIndexListCacheKeyFuncs(&b, indexPrefixes, typeName)
 	}
 	formatted, err := format.Source(b.Bytes())
 	if err != nil {
@@ -1233,7 +1233,7 @@ func writeGORMRepoFile(dir string, table SQLTable, module string, cacheEnabled b
 		writeConsistentCachedRepo(&b, table, typeName, repoName, modelStyleGORM)
 		writeRedisCachedRepo(&b, table, typeName, repoName, modelStyleGORM)
 		writeUniqueCacheKeyFuncs(&b, uniqueIndexes)
-		writeIndexListCacheKeyFuncs(&b, indexPrefixes)
+		writeIndexListCacheKeyFuncs(&b, indexPrefixes, typeName)
 	}
 	formatted, err := format.Source(b.Bytes())
 	if err != nil {
@@ -1508,6 +1508,7 @@ func writeConsistentCachedRepo(b *bytes.Buffer, table SQLTable, typeName, repoNa
 	fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn errors.New(%q)\n\t}\n", lowerCamel(typeName)+" cached repo is nil")
 	fprintf(b, "\tif err := c.repo.Insert(ctx, in); err != nil {\n\t\treturn err\n\t}\n")
 	fprintf(b, "\treturn c.deferOrRunAfterCommit(ctx, func(ctx context.Context) error {\n\t\treturn c.afterInsertCommit(ctx, in)\n\t})\n}\n\n")
+	writeConsistentCachedBatchMutations(b, table, typeName, cachedName, uniqueIndexes)
 	fprintf(b, "func (c *%s) Update(ctx context.Context, in *entity.%s) error {\n", cachedName, typeName)
 	fprintf(b, "\treturn c.UpdateWithInvalidate(ctx, in)\n}\n\n")
 	fprintf(b, "func (c *%s) UpdateWithInvalidate(ctx context.Context, in *entity.%s) error {\n", cachedName, typeName)
@@ -1562,6 +1563,7 @@ func writeRedisCachedRepo(b *bytes.Buffer, table SQLTable, typeName, repoName st
 	fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn errors.New(%q)\n\t}\n", lowerCamel(typeName)+" redis cached repo is nil")
 	fprintf(b, "\tif err := c.repo.Insert(ctx, in); err != nil {\n\t\treturn err\n\t}\n")
 	fprintf(b, "\treturn c.deferOrRunAfterCommit(ctx, func(ctx context.Context) error {\n\t\treturn c.afterInsertCommit(ctx, in)\n\t})\n}\n\n")
+	writeRedisCachedBatchMutations(b, table, typeName, cachedName)
 	fprintf(b, "func (c *%s) Update(ctx context.Context, in *entity.%s) error {\n", cachedName, typeName)
 	fprintf(b, "\treturn c.UpdateWithInvalidate(ctx, in)\n}\n\n")
 	fprintf(b, "func (c *%s) UpdateWithInvalidate(ctx context.Context, in *entity.%s) error {\n", cachedName, typeName)
@@ -1711,6 +1713,73 @@ func writeRedisCachedFindByIDs(b *bytes.Buffer, table SQLTable, typeName, cached
 	fprintf(b, "\treturn out, nil\n}\n\n")
 }
 
+func writeConsistentCachedBatchMutations(b *bytes.Buffer, table SQLTable, typeName, cachedName string, indexes []modelUniqueIndex) {
+	pk := primaryColumn(table)
+	pkField := modelFieldName(pk.Name)
+	pkType := columnGoType(pk)
+	fprintf(b, "func (c *%s) InsertMany(ctx context.Context, items []*entity.%s) error {\n", cachedName, typeName)
+	fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn errors.New(%q)\n\t}\n", lowerCamel(typeName)+" cached repo is nil")
+	fprintf(b, "\tif len(items) == 0 {\n\t\treturn nil\n\t}\n")
+	fprintf(b, "\tif err := c.repo.InsertMany(ctx, items); err != nil {\n\t\treturn err\n\t}\n")
+	fprintf(b, "\treturn c.deferOrRunAfterCommit(ctx, func(ctx context.Context) error {\n")
+	fprintf(b, "\t\tfor _, item := range items {\n\t\t\tif err := c.afterInsertCommit(ctx, item); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t}\n")
+	fprintf(b, "\t\treturn nil\n\t})\n}\n\n")
+	fprintf(b, "func (c *%s) UpdateMany(ctx context.Context, items []*entity.%s) error {\n", cachedName, typeName)
+	fprintf(b, "\treturn c.UpdateManyWithInvalidate(ctx, items)\n}\n\n")
+	fprintf(b, "func (c *%s) UpdateManyWithInvalidate(ctx context.Context, items []*entity.%s) error {\n", cachedName, typeName)
+	fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn errors.New(%q)\n\t}\n", lowerCamel(typeName)+" cached repo is nil")
+	fprintf(b, "\tif len(items) == 0 {\n\t\treturn nil\n\t}\n")
+	fprintf(b, "\tvar oldByID map[%s]*entity.%s\n", pkType, typeName)
+	if len(indexes) > 0 {
+		fprintf(b, "\toldByID = make(map[%s]*entity.%s, len(items))\n", pkType, typeName)
+		fprintf(b, "\tfor _, item := range items {\n\t\tif item == nil {\n\t\t\tcontinue\n\t\t}\n\t\told, _ := c.repo.FindOne(ctx, item.%s)\n\t\toldByID[item.%s] = old\n\t}\n", pkField, pkField)
+	}
+	fprintf(b, "\tif err := c.repo.UpdateMany(ctx, items); err != nil {\n\t\treturn err\n\t}\n")
+	fprintf(b, "\treturn c.deferOrRunAfterCommit(ctx, func(ctx context.Context) error {\n")
+	fprintf(b, "\t\tfor _, item := range items {\n\t\t\tvar old *entity.%s\n\t\t\tif item != nil && oldByID != nil {\n\t\t\t\told = oldByID[item.%s]\n\t\t\t}\n\t\t\tif err := c.afterUpdateCommit(ctx, item, old); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t}\n", typeName, pkField)
+	fprintf(b, "\t\treturn nil\n\t})\n}\n\n")
+	fprintf(b, "func (c *%s) DeleteMany(ctx context.Context, ids ...%s) error {\n", cachedName, pkType)
+	fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn errors.New(%q)\n\t}\n", lowerCamel(typeName)+" cached repo is nil")
+	fprintf(b, "\tif len(ids) == 0 {\n\t\treturn nil\n\t}\n")
+	fprintf(b, "\tvar oldByID map[%s]*entity.%s\n", pkType, typeName)
+	if len(indexes) > 0 {
+		fprintf(b, "\toldByID = make(map[%s]*entity.%s, len(ids))\n", pkType, typeName)
+		fprintf(b, "\tfor _, id := range ids {\n\t\told, _ := c.repo.FindOne(ctx, id)\n\t\toldByID[id] = old\n\t}\n")
+	}
+	fprintf(b, "\tif err := c.repo.DeleteMany(ctx, ids...); err != nil {\n\t\treturn err\n\t}\n")
+	fprintf(b, "\treturn c.deferOrRunAfterCommit(ctx, func(ctx context.Context) error {\n")
+	fprintf(b, "\t\tfor _, id := range ids {\n\t\t\tvar old *entity.%s\n\t\t\tif oldByID != nil {\n\t\t\t\told = oldByID[id]\n\t\t\t}\n\t\t\tif err := c.afterDeleteCommit(ctx, id, old); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t}\n", typeName)
+	fprintf(b, "\t\treturn nil\n\t})\n}\n\n")
+}
+
+func writeRedisCachedBatchMutations(b *bytes.Buffer, table SQLTable, typeName, cachedName string) {
+	pk := primaryColumn(table)
+	pkType := columnGoType(pk)
+	fprintf(b, "func (c *%s) InsertMany(ctx context.Context, items []*entity.%s) error {\n", cachedName, typeName)
+	fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn errors.New(%q)\n\t}\n", lowerCamel(typeName)+" redis cached repo is nil")
+	fprintf(b, "\tif len(items) == 0 {\n\t\treturn nil\n\t}\n")
+	fprintf(b, "\tif err := c.repo.InsertMany(ctx, items); err != nil {\n\t\treturn err\n\t}\n")
+	fprintf(b, "\treturn c.deferOrRunAfterCommit(ctx, func(ctx context.Context) error {\n")
+	fprintf(b, "\t\tfor _, item := range items {\n\t\t\tif err := c.afterInsertCommit(ctx, item); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t}\n")
+	fprintf(b, "\t\treturn nil\n\t})\n}\n\n")
+	fprintf(b, "func (c *%s) UpdateMany(ctx context.Context, items []*entity.%s) error {\n", cachedName, typeName)
+	fprintf(b, "\treturn c.UpdateManyWithInvalidate(ctx, items)\n}\n\n")
+	fprintf(b, "func (c *%s) UpdateManyWithInvalidate(ctx context.Context, items []*entity.%s) error {\n", cachedName, typeName)
+	fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn errors.New(%q)\n\t}\n", lowerCamel(typeName)+" redis cached repo is nil")
+	fprintf(b, "\tif len(items) == 0 {\n\t\treturn nil\n\t}\n")
+	fprintf(b, "\tif err := c.repo.UpdateMany(ctx, items); err != nil {\n\t\treturn err\n\t}\n")
+	fprintf(b, "\treturn c.deferOrRunAfterCommit(ctx, func(ctx context.Context) error {\n")
+	fprintf(b, "\t\tfor _, item := range items {\n\t\t\tif err := c.afterUpdateCommit(ctx, item); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t}\n")
+	fprintf(b, "\t\treturn nil\n\t})\n}\n\n")
+	fprintf(b, "func (c *%s) DeleteMany(ctx context.Context, ids ...%s) error {\n", cachedName, pkType)
+	fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn errors.New(%q)\n\t}\n", lowerCamel(typeName)+" redis cached repo is nil")
+	fprintf(b, "\tif len(ids) == 0 {\n\t\treturn nil\n\t}\n")
+	fprintf(b, "\tif err := c.repo.DeleteMany(ctx, ids...); err != nil {\n\t\treturn err\n\t}\n")
+	fprintf(b, "\treturn c.deferOrRunAfterCommit(ctx, func(ctx context.Context) error {\n")
+	fprintf(b, "\t\tfor _, id := range ids {\n\t\t\tif err := c.afterDeleteCommit(ctx, id); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t}\n")
+	fprintf(b, "\t\treturn nil\n\t})\n}\n\n")
+}
+
 func writeConsistentCachedAfterCommitMethods(b *bytes.Buffer, table SQLTable, typeName, cachedName string, indexes []modelUniqueIndex) {
 	pk := primaryColumn(table)
 	pkField := modelFieldName(pk.Name)
@@ -1745,19 +1814,19 @@ func writeRedisCachedAfterCommitMethods(b *bytes.Buffer, table SQLTable, typeNam
 	indexPrefixes := modelIndexPrefixes(table)
 	fprintf(b, "func (c *%s) afterInsertCommit(ctx context.Context, in *entity.%s) error {\n", cachedName, typeName)
 	fprintf(b, "\tif c.cache != nil && in != nil {\n\t\tif err := c.cache.Set(ctx, in.%s, in); err != nil {\n\t\t\treturn err\n\t\t}\n\t}\n", pkField)
-	writeRedisIndexListCacheBumpAfterMutation(b, indexPrefixes)
+	writeRedisIndexListCacheBumpAfterMutation(b, indexPrefixes, typeName)
 	fprintf(b, "\treturn nil\n}\n\n")
 	fprintf(b, "func (c *%s) afterUpdateCommit(ctx context.Context, in *entity.%s) error {\n", cachedName, typeName)
 	fprintf(b, "\tif c.cache != nil && in != nil {\n\t\tif err := c.cache.Invalidate(ctx, in.%s); err != nil {\n\t\t\treturn err\n\t\t}\n\t}\n", pkField)
-	writeRedisIndexListCacheBumpAfterMutation(b, indexPrefixes)
+	writeRedisIndexListCacheBumpAfterMutation(b, indexPrefixes, typeName)
 	fprintf(b, "\treturn nil\n}\n\n")
 	fprintf(b, "func (c *%s) afterUpdateFieldsCommit(ctx context.Context, %s %s) error {\n", cachedName, pkArg, columnGoType(pk))
 	fprintf(b, "\tif c.cache != nil {\n\t\tif err := c.cache.Invalidate(ctx, %s); err != nil {\n\t\t\treturn err\n\t\t}\n\t}\n", pkArg)
-	writeRedisIndexListCacheBumpAfterMutation(b, indexPrefixes)
+	writeRedisIndexListCacheBumpAfterMutation(b, indexPrefixes, typeName)
 	fprintf(b, "\treturn nil\n}\n\n")
 	fprintf(b, "func (c *%s) afterDeleteCommit(ctx context.Context, %s %s) error {\n", cachedName, pkArg, columnGoType(pk))
 	fprintf(b, "\tif c.cache != nil {\n\t\tif err := c.cache.Invalidate(ctx, %s); err != nil {\n\t\t\treturn err\n\t\t}\n\t}\n", pkArg)
-	writeRedisIndexListCacheBumpAfterMutation(b, indexPrefixes)
+	writeRedisIndexListCacheBumpAfterMutation(b, indexPrefixes, typeName)
 	fprintf(b, "\treturn nil\n}\n\n")
 }
 
@@ -1866,6 +1935,7 @@ func writeIndexListCacheInitializers(b *bytes.Buffer, indexes []modelIndexPrefix
 }
 
 func writeRedisIndexListCacheInitializers(b *bytes.Buffer, indexes []modelIndexPrefix, typeName, repoValue string) {
+	versionFunc := redisIndexListVersionValueFuncName(typeName)
 	for _, index := range indexes {
 		fieldName := indexListCacheFieldName(index.Columns)
 		countFieldName := indexCountCacheFieldName(index.Columns)
@@ -1879,7 +1949,7 @@ func writeRedisIndexListCacheInitializers(b *bytes.Buffer, indexes []modelIndexP
 		fprintf(b, "\t\treturn 0, cache.ErrNotFound\n")
 		fprintf(b, "\t}, client, cache.WithRedisModelNotFound[int64, string](redis.ErrNil), cache.WithRedisModelKeyPrefix[int64, string](%q))\n", "count:"+cachePrefix)
 		fprintf(b, "\tout.%s = cache.NewRedisModel(func(ctx context.Context, key string) (string, error) {\n", versionFieldName)
-		fprintf(b, "\t\tversion := redisIndexListVersionValue()\n")
+		fprintf(b, "\t\tversion := %s()\n", versionFunc)
 		fprintf(b, "\t\treturn version, out.%s.Set(ctx, key, version)\n", versionFieldName)
 		fprintf(b, "\t}, client, cache.WithRedisModelNotFound[string, string](redis.ErrNil), cache.WithRedisModelKeyPrefix[string, string](%q))\n", "list-version:"+cachePrefix)
 		fprintf(b, "\t_ = %s.FindBy%s\n", repoValue, finderName)
@@ -1923,6 +1993,7 @@ func writeIndexListCachedFinders(b *bytes.Buffer, indexes []modelIndexPrefix, ty
 }
 
 func writeRedisIndexListCachedFinders(b *bytes.Buffer, indexes []modelIndexPrefix, typeName, cachedName string) {
+	cacheKeyFunc := redisIndexListCacheKeyFuncName(typeName)
 	for _, index := range indexes {
 		columns := index.Columns
 		fieldName := indexListCacheFieldName(columns)
@@ -1941,7 +2012,7 @@ func writeRedisIndexListCachedFinders(b *bytes.Buffer, indexes []modelIndexPrefi
 		fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn nil, errors.New(%q)\n\t}\n", lowerCamel(typeName)+" redis cached repo is nil")
 		fprintf(b, "\tif c.%s == nil || c.%s == nil {\n\t\treturn c.repo.FindBy%s(ctx, %s, limit, offset)\n\t}\n", fieldName, versionFieldName, finderName, finderArgs)
 		fprintf(b, "\tversion, err := c.%s.Get(ctx, \"current\")\n\tif err != nil {\n\t\treturn nil, err\n\t}\n", versionFieldName)
-		fprintf(b, "\tkey := redisIndexListCacheKey(version, %s)\n", baseKeyExpr)
+		fprintf(b, "\tkey := %s(version, %s)\n", cacheKeyFunc, baseKeyExpr)
 		fprintf(b, "\tout, err := c.%s.Get(ctx, key)\n\tif err == nil {\n\t\treturn out, nil\n\t}\n", fieldName)
 		fprintf(b, "\tif !errors.Is(err, cache.ErrNotFound) {\n\t\treturn nil, err\n\t}\n")
 		fprintf(b, "\tout, err = c.repo.FindBy%s(ctx, %s, limit, offset)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n", finderName, finderArgs)
@@ -1951,7 +2022,7 @@ func writeRedisIndexListCachedFinders(b *bytes.Buffer, indexes []modelIndexPrefi
 		fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn 0, errors.New(%q)\n\t}\n", lowerCamel(typeName)+" redis cached repo is nil")
 		fprintf(b, "\tif c.%s == nil || c.%s == nil {\n\t\treturn c.repo.CountBy%s(ctx, %s)\n\t}\n", countFieldName, versionFieldName, finderName, finderArgs)
 		fprintf(b, "\tversion, err := c.%s.Get(ctx, \"current\")\n\tif err != nil {\n\t\treturn 0, err\n\t}\n", versionFieldName)
-		fprintf(b, "\tkey := redisIndexListCacheKey(version, %s)\n", baseCountKeyExpr)
+		fprintf(b, "\tkey := %s(version, %s)\n", cacheKeyFunc, baseCountKeyExpr)
 		fprintf(b, "\ttotal, err := c.%s.Get(ctx, key)\n\tif err == nil {\n\t\treturn total, nil\n\t}\n", countFieldName)
 		fprintf(b, "\tif !errors.Is(err, cache.ErrNotFound) {\n\t\treturn 0, err\n\t}\n")
 		fprintf(b, "\ttotal, err = c.repo.CountBy%s(ctx, %s)\n\tif err != nil {\n\t\treturn 0, err\n\t}\n", finderName, finderArgs)
@@ -1995,10 +2066,11 @@ func writeIndexListCacheClearAfterMutation(b *bytes.Buffer, indexes []modelIndex
 	}
 }
 
-func writeRedisIndexListCacheBumpAfterMutation(b *bytes.Buffer, indexes []modelIndexPrefix) {
+func writeRedisIndexListCacheBumpAfterMutation(b *bytes.Buffer, indexes []modelIndexPrefix, typeName string) {
+	versionFunc := redisIndexListVersionValueFuncName(typeName)
 	for _, index := range indexes {
 		fieldName := indexListVersionFieldName(index.Columns)
-		fprintf(b, "\tif c.%s != nil {\n\t\tif err := c.%s.Set(ctx, \"current\", redisIndexListVersionValue()); err != nil {\n\t\t\treturn err\n\t\t}\n\t}\n", fieldName, fieldName)
+		fprintf(b, "\tif c.%s != nil {\n\t\tif err := c.%s.Set(ctx, \"current\", %s()); err != nil {\n\t\t\treturn err\n\t\t}\n\t}\n", fieldName, fieldName, versionFunc)
 	}
 }
 
@@ -2973,7 +3045,7 @@ func writeUniqueCacheKeyFuncs(b *bytes.Buffer, indexes []modelUniqueIndex) {
 	}
 }
 
-func writeIndexListCacheKeyFuncs(b *bytes.Buffer, indexes []modelIndexPrefix) {
+func writeIndexListCacheKeyFuncs(b *bytes.Buffer, indexes []modelIndexPrefix, typeName string) {
 	for _, index := range indexes {
 		columns := index.Columns
 		params := uniqueFinderParams(columns)
@@ -2996,13 +3068,21 @@ func writeIndexListCacheKeyFuncs(b *bytes.Buffer, indexes []modelIndexPrefix) {
 		fprintf(b, "\treturn strings.Join([]string{%s}, \"|\")\n}\n\n", strings.Join(countParts, ", "))
 	}
 	if len(indexes) > 0 {
-		fprintf(b, "func redisIndexListVersionValue() string {\n")
+		fprintf(b, "func %s() string {\n", redisIndexListVersionValueFuncName(typeName))
 		fprintf(b, "\treturn strconv.FormatInt(time.Now().UnixNano(), 10)\n")
 		fprintf(b, "}\n\n")
-		fprintf(b, "func redisIndexListCacheKey(version string, key string) string {\n")
+		fprintf(b, "func %s(version string, key string) string {\n", redisIndexListCacheKeyFuncName(typeName))
 		fprintf(b, "\treturn version + \"|\" + key\n")
 		fprintf(b, "}\n\n")
 	}
+}
+
+func redisIndexListVersionValueFuncName(typeName string) string {
+	return "redis" + exportName(typeName) + "IndexListVersionValue"
+}
+
+func redisIndexListCacheKeyFuncName(typeName string) string {
+	return "redis" + exportName(typeName) + "IndexListCacheKey"
 }
 
 func sqlUniqueWhereParts(columns []SQLColumn) string {

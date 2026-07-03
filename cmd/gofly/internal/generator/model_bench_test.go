@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 const fakeModelDatasourceDriver = "fake-model-datasource"
@@ -389,6 +390,67 @@ func TestIntrospectSQLTablesWithFakeDatasource(t *testing.T) {
 	if _, err := introspectSQLTables(context.Background(), indexQueryErrDB, datasourceIntrospectionOptions{Driver: "mysql"}); err == nil || !strings.Contains(err.Error(), "query datasource indexes") {
 		t.Fatalf("introspectSQLTables index query error = %v, want query datasource indexes", err)
 	}
+}
+
+func TestDatasourceIntrospectionGeneratesIndexAndCacheTemplates(t *testing.T) {
+	db, err := sql.Open(fakeModelDatasourceDriver, "ok")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	tables, err := introspectSQLTables(context.Background(), db, datasourceIntrospectionOptions{Driver: "mysql", Tables: []string{"users"}})
+	if err != nil {
+		t.Fatalf("introspectSQLTables: %v", err)
+	}
+	tables, err = prepareModelTables(tables, modelGenerationOptions{Tables: []string{"users"}})
+	if err != nil {
+		t.Fatalf("prepareModelTables: %v", err)
+	}
+	dir := t.TempDir()
+	writeGeneratedModule(t, dir, "example.com/datasource")
+	if err := writeModelFiles(tables, dir, "model", "example.com/datasource", modelStyleSQL, true); err != nil {
+		t.Fatalf("writeModelFiles: %v", err)
+	}
+	repo, err := os.ReadFile(filepath.Join(dir, "model", "repo", "user.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	repoOut := string(repo)
+	for _, want := range []string{
+		"func (r *UserRepo) FindByEmail(ctx context.Context, email *string) (*entity.User, error)",
+		"func (r *UserRepo) FindByName(ctx context.Context, name string, limit int, offset int) ([]entity.User, error)",
+		"func (r *UserRepo) CountByName(ctx context.Context, name string) (int64, error)",
+		"func (c *CachedUserRepo) FindByEmailCached(ctx context.Context, email *string) (*entity.User, error)",
+		"func (c *CachedUserRepo) FindByNameCached(ctx context.Context, name string, limit int, offset int) ([]entity.User, error)",
+		"func (c *CachedUserRepo) CountByNameCached(ctx context.Context, name string) (int64, error)",
+		"func (c *CachedUserRepo) PageByNameCached(ctx context.Context, name string, limit int, offset int) ([]entity.User, int64, error)",
+		"func (c *CachedUserRepo) InsertMany(ctx context.Context, items []*entity.User) error",
+		"func (c *CachedUserRepo) UpdateManyWithInvalidate(ctx context.Context, items []*entity.User) error",
+		"func (c *CachedUserRepo) DeleteMany(ctx context.Context, ids ...int64) error",
+		"cacheByEmail",
+		"listCacheByName",
+		"countCacheByName",
+		"c.cacheByEmail.Cache().Delete(uniqueKeyByEmail(old.Email))",
+		"c.listCacheByName.Clear()",
+		"c.countCacheByName.Clear()",
+		"func (c *RedisCachedUserRepo) FindByNameCached(ctx context.Context, name string, limit int, offset int) ([]entity.User, error)",
+		"func (c *RedisCachedUserRepo) CountByNameCached(ctx context.Context, name string) (int64, error)",
+		"func (c *RedisCachedUserRepo) PageByNameCached(ctx context.Context, name string, limit int, offset int) ([]entity.User, int64, error)",
+		"func (c *RedisCachedUserRepo) InsertMany(ctx context.Context, items []*entity.User) error",
+		"func (c *RedisCachedUserRepo) UpdateManyWithInvalidate(ctx context.Context, items []*entity.User) error",
+		"func (c *RedisCachedUserRepo) DeleteMany(ctx context.Context, ids ...int64) error",
+		"listVersionByName",
+		"key := redisUserIndexListCacheKey(version, indexListKeyByName(name, limit, offset))",
+		"key := redisUserIndexListCacheKey(version, indexCountKeyByName(name))",
+		"c.listVersionByName.Set(ctx, \"current\", redisUserIndexListVersionValue())",
+	} {
+		if !strings.Contains(repoOut, want) {
+			t.Fatalf("generated datasource model/cache repo missing %q:\n%s", want, repoOut)
+		}
+	}
+	runGoCommand(t, dir, 3*time.Minute, "mod", "tidy")
+	runGoCommand(t, dir, 3*time.Minute, "test", "./...")
 }
 
 func TestGenerateModelFromDatasourceViaMySQLDriverRejectsInvalidDSN(t *testing.T) {

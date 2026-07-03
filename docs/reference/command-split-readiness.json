@@ -63,7 +63,13 @@
     },
     {
       "id": "shared",
-      "reason": "Shared files still own root command wiring, JSON errors, IO, path flags, IDL helpers, template helpers, compatibility commands, and package-wide tests."
+      "status": "blocked-until-reduced",
+      "reason": "Shared files still own root command wiring, JSON errors, IO, path flags, IDL helpers, template helpers, compatibility commands, and package-wide tests. P22-09 completed the reduction plan, but physical moves remain blocked until output and JSON adapters pass a dedicated dry-run.",
+      "requiredGates": [
+        "make command-shared-reduction-plan-check",
+        "make command-family-dependency-map-check",
+        "make project-layout-governance-check"
+      ]
     }
   ],
   "deferredFamilies": [
@@ -84,6 +90,7 @@
   "requiredGates": [
     "make command-family-dependency-map-check",
     "make command-split-readiness-check",
+    "make command-shared-reduction-plan-check",
     "make project-layout-governance-check",
     "GOCACHE=$PWD/.tmp-test/gocache GOTMPDIR=$PWD/.tmp-test/gotmp go test -shuffle=on ./cmd/gofly/internal/generator -run 'TestGenerateModelFromDDLGORMStyle(DoesNotPolluteGoflyRootModule|FindsParentGoMod|$)' -count=1",
     "GOCACHE=$PWD/.tmp-test/gocache GOTMPDIR=$PWD/.tmp-test/gotmp go test -shuffle=on ./cmd/gofly/internal/command/...",
@@ -92,7 +99,7 @@
     "git diff --check"
   ],
   "nextStep": {
-    "id": "P22-09-command-shared-reduction-plan",
-    "action": "Plan shared command helper reduction before any physical package split, focusing on output, JSON, root wiring, path flags, and template helpers."
+    "id": "P22-10-command-output-json-adapter-dry-run",
+    "action": "Perform an output and JSON adapter dry-run before any physical package split, preserving help, doctor, support bundle, CLI JSON, stdout, and stderr contracts."
   }
 }

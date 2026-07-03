@@ -132,6 +132,7 @@ required_gates = readiness.get("requiredGates") or []
 expected_required = {
     "make command-family-dependency-map-check",
     "make command-split-readiness-check",
+    "make command-shared-reduction-plan-check",
     "make project-layout-governance-check",
     "git diff --check",
 }
@@ -139,9 +140,19 @@ require(expected_required.issubset(set(required_gates)), "requiredGates missing 
 for gate in required_gates:
     require(gate_is_known(str(gate), targets), f"required gate is not known: {gate}")
 
+blocked_by_id = {
+    item.get("id"): item
+    for item in readiness.get("blockedFamilies") or []
+    if isinstance(item, dict)
+}
+shared_blocked = blocked_by_id.get("shared") or {}
+require(shared_blocked.get("status") == "blocked-until-reduced", "shared blocked status mismatch")
+require("make command-shared-reduction-plan-check" in set(shared_blocked.get("requiredGates") or []), "shared blocked gates must include shared reduction plan check")
+
 next_step = readiness.get("nextStep") or {}
-require(next_step.get("id") == "P22-09-command-shared-reduction-plan", "nextStep id mismatch")
-require("shared command helper" in str(next_step.get("action") or ""), "nextStep action must move to shared command helper reduction")
+require(next_step.get("id") == "P22-10-command-output-json-adapter-dry-run", "nextStep id mismatch")
+next_action = str(next_step.get("action") or "")
+require("output" in next_action and "JSON" in next_action, "nextStep action must move to output and JSON adapter dry-run")
 
 reference_files = []
 for family in (layout.get("referenceFileBoundaries") or {}).get("families") or []:
@@ -150,6 +161,7 @@ for family in (layout.get("referenceFileBoundaries") or {}).get("families") or [
 require("command-split-readiness.json" in reference_files, "referenceFileBoundaries must index command-split-readiness.json")
 require("command-help-split-dry-run.json" in reference_files, "referenceFileBoundaries must index command-help-split-dry-run.json")
 require("command-doctor-split-dry-run.json" in reference_files, "referenceFileBoundaries must index command-doctor-split-dry-run.json")
+require("command-shared-reduction-plan.json" in reference_files, "referenceFileBoundaries must index command-shared-reduction-plan.json")
 
 if missing:
     print("command split readiness check failed:")

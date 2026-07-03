@@ -62,6 +62,8 @@ require("command-help-split-dry-run-check" in targets, "Makefile must expose com
 require("command-help-split-dry-run-check" in docs_check, "docs-check must depend on command-help-split-dry-run-check")
 require("command-doctor-split-dry-run-check" in targets, "Makefile must expose command-doctor-split-dry-run-check")
 require("command-doctor-split-dry-run-check" in docs_check, "docs-check must depend on command-doctor-split-dry-run-check")
+require("command-shared-reduction-plan-check" in targets, "Makefile must expose command-shared-reduction-plan-check")
+require("command-shared-reduction-plan-check" in docs_check, "docs-check must depend on command-shared-reduction-plan-check")
 require("check-project-layout-governance.sh" in makefile, "Makefile must call check-project-layout-governance.sh")
 
 top_level_boundary = manifest.get("topLevelDirectoryBoundaries") or {}
@@ -828,7 +830,7 @@ require(
     "command split readiness must record the root module pollution regression test",
 )
 require(
-    command_split_readiness.get("nextStep", {}).get("id") == "P22-09-command-shared-reduction-plan",
+    command_split_readiness.get("nextStep", {}).get("id") == "P22-10-command-output-json-adapter-dry-run",
     "command split readiness nextStep mismatch",
 )
 candidate_status = {
@@ -896,6 +898,35 @@ require(
 require(
     command_doctor_split.get("physicalSplitAdmission", {}).get("status") == "candidate-after-dry-run",
     "command doctor split dry-run physicalSplitAdmission mismatch",
+)
+
+command_shared_reduction_path = root / "docs" / "reference" / "command-shared-reduction-plan.json"
+if command_shared_reduction_path.is_file():
+    command_shared_reduction = json.loads(command_shared_reduction_path.read_text(encoding="utf-8"))
+else:
+    command_shared_reduction = {}
+    missing.append("docs/reference/command-shared-reduction-plan.json is missing")
+require(
+    command_shared_reduction.get("schema") == "gofly.command_shared_reduction_plan.v1",
+    "command shared reduction plan schema mismatch",
+)
+require(
+    command_shared_reduction.get("status") == "completed-preflight",
+    "command shared reduction plan status must be completed-preflight",
+)
+require(
+    command_shared_reduction.get("acceptanceGate") == "make command-shared-reduction-plan-check",
+    "command shared reduction plan acceptanceGate mismatch",
+)
+require(command_shared_reduction.get("planningOnly") is True, "command shared reduction plan must be planningOnly")
+require(command_shared_reduction.get("noPhysicalMove") is True, "command shared reduction plan must forbid physical move")
+require(
+    command_shared_reduction.get("recommendedOrder") == ["output-io", "json-envelope", "root-wiring", "path-flags", "template-source"],
+    "command shared reduction plan recommendedOrder mismatch",
+)
+require(
+    command_shared_reduction.get("physicalSplitAdmission", {}).get("status") == "blocked-until-adapters",
+    "command shared reduction plan physicalSplitAdmission mismatch",
 )
 
 reference_boundary = manifest.get("referenceFileBoundaries") or {}

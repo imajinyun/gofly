@@ -583,7 +583,7 @@
       "id": "shared",
       "prefix": "",
       "domain": "Shared root command wiring, CLI helpers, compatibility commands, IDL helpers, template helpers, example commands, and low-level command utilities without a stable prefix.",
-      "fileCount": 53,
+      "fileCount": 54,
       "files": [
         "aidoctor.go",
         "aidoctor_checks.go",
@@ -597,6 +597,7 @@
         "command_args.go",
         "command_doctor_split_readiness_test.go",
         "command_help_split_readiness_test.go",
+        "command_shared_reduction_plan_test.go",
         "compat_command.go",
         "complete.go",
         "completion_command.go",
@@ -678,11 +679,12 @@
       ],
       "requiredPreSplitActions": [
         "extract root wiring, JSON output, file input, and template helper subdomains into smaller file families",
-        "move only after command family dependency map shows no shared helper drift",
+        "complete the output/json adapter dry-run before moving help, doctor, or shared helper files",
         "pin full CLI help, JSON error, and generated-output contracts"
       ],
       "requiredGates": [
         "make command-family-dependency-map-check",
+        "make command-shared-reduction-plan-check",
         "make project-layout-governance-check",
         "make cli-command-surface-check",
         "make cli-json-contract-goldens-check",

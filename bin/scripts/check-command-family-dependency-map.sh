@@ -37,6 +37,8 @@ def gate_is_known(gate, targets):
         return True
     if gate.startswith("make "):
         return gate.removeprefix("make ").split()[0] in targets
+    if gate.startswith("GOCACHE="):
+        return " go test " in gate or " go vet " in gate or " make " in gate
     if gate.startswith("go test ") or gate.startswith("go vet "):
         return True
     return False
@@ -128,6 +130,7 @@ require(
 require(len(split_policy.get("candidateRequirements") or []) >= 5, "splitPolicy.candidateRequirements must be descriptive")
 expected_split_gates = {
     "make command-family-dependency-map-check",
+    "make command-help-doctor-split-preflight-check",
     "make project-layout-governance-check",
     "make cli-command-surface-check",
     "make cli-json-contract-goldens-check",

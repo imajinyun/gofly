@@ -113,9 +113,14 @@ candidate_by_id = {
 }
 for family_id in ("help", "doctor"):
     candidate = candidate_by_id.get(family_id) or {}
-    require(candidate.get("status") == "candidate-after-adapter-dry-run", f"{family_id} candidate must remain after adapter dry-run")
+    expected_status = {
+        "help": "ready-for-single-family-split",
+        "doctor": "deferred-until-help-split-validation",
+    }[family_id]
+    require(candidate.get("status") == expected_status, f"{family_id} candidate status mismatch after split preflight")
     joined = " ".join(candidate.get("requiredPreSplitActions") or [])
-    require("physical split preflight" in joined, f"{family_id} candidate must still require physical split preflight before moving")
+    require("help" in joined, f"{family_id} candidate actions must reference the help split sequence")
+    require("make command-help-doctor-split-preflight-check" in set(candidate.get("requiredGates") or []), f"{family_id} candidate gates must include help/doctor split preflight")
 
 blocked = {
     item.get("id"): item
@@ -123,13 +128,14 @@ blocked = {
     if isinstance(item, dict)
 }
 shared_blocked = blocked.get("shared") or {}
-require(shared_blocked.get("status") == "blocked-until-physical-split-preflight", "shared blocked status mismatch")
+require(shared_blocked.get("status") == "blocked-during-help-single-family-split", "shared blocked status mismatch")
 require("make command-shared-reduction-plan-check" in set(shared_blocked.get("requiredGates") or []), "shared blocked gates must include shared reduction plan check")
 require("make command-output-json-adapter-dry-run-check" in set(shared_blocked.get("requiredGates") or []), "shared blocked gates must include output/json adapter dry-run check")
+require("make command-help-doctor-split-preflight-check" in set(shared_blocked.get("requiredGates") or []), "shared blocked gates must include help/doctor split preflight check")
 
 next_step = readiness.get("nextStep") or {}
-require(next_step.get("id") == "P22-11-command-help-doctor-split-preflight", "readiness nextStep must move to help/doctor split preflight")
-require("help" in str(next_step.get("action") or "") and "doctor" in str(next_step.get("action") or ""), "readiness nextStep action must mention help and doctor")
+require(next_step.get("id") == "P22-12-command-help-single-family-split", "readiness nextStep must move to help single-family split")
+require("Move only the help family" in str(next_step.get("action") or ""), "readiness nextStep action must limit movement to help")
 
 family_by_id = {
     family.get("id"): family
@@ -147,6 +153,7 @@ for family in (layout.get("referenceFileBoundaries") or {}).get("families") or [
         reference_files.extend(family.get("files") or [])
 require("command-shared-reduction-plan.json" in reference_files, "referenceFileBoundaries must index command-shared-reduction-plan.json")
 require("command-output-json-adapter-dry-run.json" in reference_files, "referenceFileBoundaries must index command-output-json-adapter-dry-run.json")
+require("command-help-doctor-split-preflight.json" in reference_files, "referenceFileBoundaries must index command-help-doctor-split-preflight.json")
 
 script_files = []
 for family in (layout.get("scriptFamilyBoundaries") or {}).get("families") or []:

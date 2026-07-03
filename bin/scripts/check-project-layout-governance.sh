@@ -66,6 +66,8 @@ require("command-shared-reduction-plan-check" in targets, "Makefile must expose 
 require("command-shared-reduction-plan-check" in docs_check, "docs-check must depend on command-shared-reduction-plan-check")
 require("command-output-json-adapter-dry-run-check" in targets, "Makefile must expose command-output-json-adapter-dry-run-check")
 require("command-output-json-adapter-dry-run-check" in docs_check, "docs-check must depend on command-output-json-adapter-dry-run-check")
+require("command-help-doctor-split-preflight-check" in targets, "Makefile must expose command-help-doctor-split-preflight-check")
+require("command-help-doctor-split-preflight-check" in docs_check, "docs-check must depend on command-help-doctor-split-preflight-check")
 require("check-project-layout-governance.sh" in makefile, "Makefile must call check-project-layout-governance.sh")
 
 top_level_boundary = manifest.get("topLevelDirectoryBoundaries") or {}
@@ -832,7 +834,7 @@ require(
     "command split readiness must record the root module pollution regression test",
 )
 require(
-    command_split_readiness.get("nextStep", {}).get("id") == "P22-11-command-help-doctor-split-preflight",
+    command_split_readiness.get("nextStep", {}).get("id") == "P22-12-command-help-single-family-split",
     "command split readiness nextStep mismatch",
 )
 candidate_status = {
@@ -840,8 +842,8 @@ candidate_status = {
     for item in command_split_readiness.get("candidateFamilies") or []
     if isinstance(item, dict)
 }
-require(candidate_status.get("help") == "candidate-after-adapter-dry-run", "command split readiness help candidate must be after adapter dry-run")
-require(candidate_status.get("doctor") == "candidate-after-adapter-dry-run", "command split readiness doctor candidate must be after adapter dry-run")
+require(candidate_status.get("help") == "ready-for-single-family-split", "command split readiness help candidate must be ready for single-family split")
+require(candidate_status.get("doctor") == "deferred-until-help-split-validation", "command split readiness doctor candidate must be deferred until help split validation")
 
 command_help_split_path = root / "docs" / "reference" / "command-help-split-dry-run.json"
 if command_help_split_path.is_file():
@@ -968,6 +970,46 @@ require(
 require(
     command_output_json_adapter.get("physicalSplitAdmission", {}).get("status") == "candidate-for-help-doctor-preflight",
     "command output/json adapter dry-run physicalSplitAdmission mismatch",
+)
+
+command_help_doctor_preflight_path = root / "docs" / "reference" / "command-help-doctor-split-preflight.json"
+if command_help_doctor_preflight_path.is_file():
+    command_help_doctor_preflight = json.loads(command_help_doctor_preflight_path.read_text(encoding="utf-8"))
+else:
+    command_help_doctor_preflight = {}
+    missing.append("docs/reference/command-help-doctor-split-preflight.json is missing")
+require(
+    command_help_doctor_preflight.get("schema") == "gofly.command_help_doctor_split_preflight.v1",
+    "command help/doctor split preflight schema mismatch",
+)
+require(
+    command_help_doctor_preflight.get("status") == "completed-preflight",
+    "command help/doctor split preflight status must be completed-preflight",
+)
+require(
+    command_help_doctor_preflight.get("acceptanceGate") == "make command-help-doctor-split-preflight-check",
+    "command help/doctor split preflight acceptanceGate mismatch",
+)
+require(command_help_doctor_preflight.get("dryRunOnly") is True, "command help/doctor split preflight must be dryRunOnly")
+require(command_help_doctor_preflight.get("noPhysicalMove") is True, "command help/doctor split preflight must forbid physical move")
+require(command_help_doctor_preflight.get("selectedNextFamily") == "help", "command help/doctor split preflight selectedNextFamily mismatch")
+require(command_help_doctor_preflight.get("deferredNextFamily") == "doctor", "command help/doctor split preflight deferredNextFamily mismatch")
+require(
+    set(command_help_doctor_preflight.get("preflightContracts") or [])
+    == {
+        "help remains reachable through root help dispatch and command-specific help routing",
+        "help output stays stdout-only through the command output adapter",
+        "doctor remains reachable through root command dispatch",
+        "doctor --json stays stdout-only with stable nextActions fields",
+        "bug --json supportBundle remains available for doctor remediation guidance",
+        "no command files move during this preflight",
+    },
+    "command help/doctor split preflight contracts mismatch",
+)
+require(
+    command_help_doctor_preflight.get("physicalSplitAdmission", {}).get("status")
+    == "ready-for-help-single-family-split",
+    "command help/doctor split preflight physicalSplitAdmission mismatch",
 )
 
 reference_boundary = manifest.get("referenceFileBoundaries") or {}

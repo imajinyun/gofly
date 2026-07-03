@@ -1,0 +1,63 @@
+{
+  "schema": "gofly.command_help_doctor_split_preflight.v1",
+  "status": "completed-preflight",
+  "package": "cmd/gofly/internal/command",
+  "acceptanceGate": "make command-help-doctor-split-preflight-check",
+  "purpose": "Record the physical split preflight for the help and doctor command families before any files are moved out of the shared command package.",
+  "policy": "This preflight does not authorize a broad command package split. The next physical action may move only the help family in a dedicated commit after all listed gates pass; doctor remains deferred until the help split is validated.",
+  "dryRunOnly": true,
+  "noPhysicalMove": true,
+  "selectedNextFamily": "help",
+  "deferredNextFamily": "doctor",
+  "helpFiles": [
+    "help.go",
+    "help_catalog.go",
+    "help_catalog_ai.go",
+    "help_catalog_api.go",
+    "help_catalog_model.go",
+    "help_catalog_plugin.go",
+    "help_catalog_rpc.go",
+    "help_metadata.go",
+    "help_render.go",
+    "help_topics.go",
+    "help_usage.go"
+  ],
+  "doctorFiles": [
+    "doctor.go",
+    "doctor_checks.go",
+    "doctor_test.go"
+  ],
+  "preflightContracts": [
+    "help remains reachable through root help dispatch and command-specific help routing",
+    "help output stays stdout-only through the command output adapter",
+    "doctor remains reachable through root command dispatch",
+    "doctor --json stays stdout-only with stable nextActions fields",
+    "bug --json supportBundle remains available for doctor remediation guidance",
+    "no command files move during this preflight"
+  ],
+  "goldenTests": [
+    "TestCommandHelpDoctorSplitPreflightEvidence",
+    "TestCommandHelpDoctorSplitPreflightContracts",
+    "TestCommandHelpDoctorSplitPreflightNoPhysicalMove"
+  ],
+  "requiredGates": [
+    "make command-help-doctor-split-preflight-check",
+    "make command-output-json-adapter-dry-run-check",
+    "make command-help-split-dry-run-check",
+    "make command-doctor-split-dry-run-check",
+    "make command-split-readiness-check",
+    "make command-family-dependency-map-check",
+    "make project-layout-governance-check",
+    "make cli-command-surface-check",
+    "make cli-json-contract-goldens-check",
+    "GOCACHE=$PWD/.tmp-test/gocache GOTMPDIR=$PWD/.tmp-test/gotmp go test -shuffle=on ./cmd/gofly/internal/command -run 'TestCommandHelpDoctorSplitPreflight(Evidence|Contracts|NoPhysicalMove)' -count=1",
+    "GOCACHE=$PWD/.tmp-test/gocache GOTMPDIR=$PWD/.tmp-test/gotmp go vet ./cmd/gofly/internal/command/...",
+    "git diff --check"
+  ],
+  "physicalSplitAdmission": {
+    "status": "ready-for-help-single-family-split",
+    "nextAllowedAction": "Move only the help family in a dedicated P22-12 commit, preserving help output, topic aliases, docs-check coverage, and command registration.",
+    "blockedAction": "Do not move doctor, shared helpers, root wiring, JSON helpers, or output helpers in the help split commit.",
+    "rollbackRequirement": "Restore all help files to cmd/gofly/internal/command in one commit if help output, topic routing, docs-check, command registration, stdout, or stderr behavior changes."
+  }
+}

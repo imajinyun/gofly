@@ -22,6 +22,7 @@
     ],
     "requiredSplitGates": [
       "make command-family-dependency-map-check",
+      "make command-help-doctor-split-preflight-check",
       "make project-layout-governance-check",
       "make cli-command-surface-check",
       "make cli-json-contract-goldens-check",
@@ -484,6 +485,7 @@
       ],
       "requiredGates": [
         "make command-family-dependency-map-check",
+        "make command-help-doctor-split-preflight-check",
         "make cli-command-surface-check",
         "make cli-json-contract-goldens-check",
         "go test -shuffle=on ./cmd/gofly/internal/command/..."
@@ -528,6 +530,7 @@
       ],
       "requiredGates": [
         "make command-family-dependency-map-check",
+        "make command-help-doctor-split-preflight-check",
         "make cli-command-surface-check",
         "make docs-check",
         "go test -shuffle=on ./cmd/gofly/internal/command/..."
@@ -583,7 +586,7 @@
       "id": "shared",
       "prefix": "",
       "domain": "Shared root command wiring, CLI helpers, compatibility commands, IDL helpers, template helpers, example commands, and low-level command utilities without a stable prefix.",
-      "fileCount": 55,
+      "fileCount": 56,
       "files": [
         "aidoctor.go",
         "aidoctor_checks.go",
@@ -597,6 +600,7 @@
         "command_args.go",
         "command_doctor_split_readiness_test.go",
         "command_help_split_readiness_test.go",
+        "command_help_doctor_split_preflight_test.go",
         "command_output_json_adapter_dry_run_test.go",
         "command_shared_reduction_plan_test.go",
         "compat_command.go",
@@ -687,6 +691,7 @@
         "make command-family-dependency-map-check",
         "make command-shared-reduction-plan-check",
         "make command-output-json-adapter-dry-run-check",
+        "make command-help-doctor-split-preflight-check",
         "make project-layout-governance-check",
         "make cli-command-surface-check",
         "make cli-json-contract-goldens-check",

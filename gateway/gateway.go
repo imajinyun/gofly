@@ -395,12 +395,13 @@ type endpointHealth struct {
 }
 
 type proxyResult struct {
-	Endpoint string
-	Status   int
-	Header   http.Header
-	Body     []byte
-	Retries  int
-	Err      error
+	Endpoint   string
+	Status     int
+	Header     http.Header
+	Body       []byte
+	BodyStream io.ReadCloser
+	Retries    int
+	Err        error
 }
 
 type routeMatch struct {

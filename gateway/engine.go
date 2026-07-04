@@ -121,9 +121,37 @@ func (g *Gateway) serveRoute(w http.ResponseWriter, r *http.Request, match route
 	}
 	copyResponseHeaders(w.Header(), result.Header, effectiveRoute.Header)
 	w.WriteHeader(result.Status)
+	if result.BodyStream != nil {
+		defer result.BodyStream.Close()
+		if err := copyStreamingResponse(w, result.BodyStream); err != nil && g.logger != nil {
+			g.logger.ErrorContext(r.Context(), "gateway stream proxy response failed", "error", err)
+		}
+		return
+	}
 	if _, err := w.Write(result.Body); err != nil {
 		if g.logger != nil {
 			g.logger.ErrorContext(r.Context(), "gateway write proxy response failed", "error", err)
+		}
+	}
+}
+
+func copyStreamingResponse(w http.ResponseWriter, body io.Reader) error {
+	buf := make([]byte, 32*1024)
+	for {
+		n, readErr := body.Read(buf)
+		if n > 0 {
+			if _, err := w.Write(buf[:n]); err != nil {
+				return err
+			}
+			if flusher, ok := w.(http.Flusher); ok {
+				flusher.Flush()
+			}
+		}
+		if readErr != nil {
+			if errors.Is(readErr, io.EOF) {
+				return nil
+			}
+			return readErr
 		}
 	}
 }
@@ -164,6 +192,9 @@ func (g *Gateway) proxyWithRetry(r *http.Request, route Route, body []byte) (pro
 				continue
 			}
 			return last, err
+		}
+		if result.BodyStream != nil {
+			return last, nil
 		}
 		if !policy.shouldRetryStatus(result.Status) || attempt+1 >= policy.Attempts {
 			return last, nil

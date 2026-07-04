@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/tls"
@@ -14,6 +15,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -167,6 +169,64 @@ func TestGatewayReverseProxyRewritesPathAndHeaders(t *testing.T) {
 	if len(snapshot.Routes) != 1 || snapshot.Routes[0].Requests != 1 {
 		t.Fatalf("snapshot = %+v", snapshot)
 	}
+}
+
+func TestGatewayReverseProxyStreamsServerSentEvents(t *testing.T) {
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		if _, err := io.WriteString(w, "data: ready\n\n"); err != nil {
+			t.Errorf("write sse event: %v", err)
+			return
+		}
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		<-release
+	}))
+
+	g, err := New([]Route{{Method: http.MethodGet, PathPrefix: "/events", Targets: []string{upstream.URL}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(g)
+	t.Cleanup(func() {
+		releaseOnce.Do(func() { close(release) })
+		server.Close()
+		upstream.Close()
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL+"/events", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || !strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream") {
+		t.Fatalf("sse response status=%d content-type=%q", resp.StatusCode, resp.Header.Get("Content-Type"))
+	}
+	lineCh := make(chan string, 1)
+	go func() {
+		reader := bufio.NewReader(resp.Body)
+		line, _ := reader.ReadString('\n')
+		lineCh <- line
+	}()
+	select {
+	case line := <-lineCh:
+		if line != "data: ready\n" {
+			t.Fatalf("first sse line = %q, want data: ready", line)
+		}
+	case <-time.After(300 * time.Millisecond):
+		t.Fatal("timed out waiting for streamed sse line before upstream close")
+	}
+	releaseOnce.Do(func() { close(release) })
 }
 
 func TestGatewayGovernanceManagerOverridesExplicitRuleSet(t *testing.T) {

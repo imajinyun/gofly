@@ -54,6 +54,18 @@ func (g *Gateway) proxyHTTPOnce(r *http.Request, route Route, endpoint string, b
 		}
 		return proxyResult{Endpoint: endpoint, Err: err}, err
 	}
+	if resp.StatusCode < http.StatusInternalServerError && isStreamingResponse(resp.Header) {
+		success := resp.StatusCode < http.StatusInternalServerError
+		g.reportEndpoint(route, endpoint, success)
+		if brk != nil {
+			if success {
+				brk.MarkSuccess()
+			} else {
+				brk.MarkFailure()
+			}
+		}
+		return proxyResult{Endpoint: endpoint, Status: resp.StatusCode, Header: cloneHeader(resp.Header), BodyStream: resp.Body}, nil
+	}
 	defer resp.Body.Close()
 	respBody, copyErr := io.ReadAll(resp.Body)
 	success := resp.StatusCode < http.StatusInternalServerError && copyErr == nil
@@ -66,6 +78,11 @@ func (g *Gateway) proxyHTTPOnce(r *http.Request, route Route, endpoint string, b
 		}
 	}
 	return proxyResult{Endpoint: endpoint, Status: resp.StatusCode, Header: cloneHeader(resp.Header), Body: respBody, Err: copyErr}, copyErr
+}
+
+func isStreamingResponse(header http.Header) bool {
+	contentType := strings.ToLower(strings.TrimSpace(header.Get("Content-Type")))
+	return strings.HasPrefix(contentType, "text/event-stream")
 }
 
 func cloneProxyRequest(r *http.Request, target *url.URL, route Route, body []byte) (*http.Request, error) {

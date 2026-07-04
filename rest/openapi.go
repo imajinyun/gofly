@@ -195,6 +195,32 @@ func JSONBodySchema(schema Schema, required bool) *RequestBody {
 	return &RequestBody{Required: required, Content: map[string]MediaType{"application/json": {Schema: cloneSchemaPtr(&schema)}}}
 }
 
+// BodySchemaFromStruct derives an OpenAPI JSON body schema from the JSON-bound
+// fields of a BindRequest target while excluding path, query, and header fields.
+func BodySchemaFromStruct(value any) Schema {
+	typeOf := reflect.TypeOf(value)
+	for typeOf != nil && typeOf.Kind() == reflect.Pointer {
+		typeOf = typeOf.Elem()
+	}
+	if typeOf == nil || typeOf.Kind() != reflect.Struct {
+		return Schema{Type: "object"}
+	}
+	return bodySchemaFromStructType(typeOf)
+}
+
+// ParametersFromStruct derives OpenAPI path, query, and header parameters from
+// the same struct tags used by BindRequest.
+func ParametersFromStruct(value any) []Parameter {
+	typeOf := reflect.TypeOf(value)
+	for typeOf != nil && typeOf.Kind() == reflect.Pointer {
+		typeOf = typeOf.Elem()
+	}
+	if typeOf == nil || typeOf.Kind() != reflect.Struct {
+		return nil
+	}
+	return parametersFromStructType(typeOf)
+}
+
 // StructSchema derives a JSON OpenAPI schema from exported struct fields and
 // gofly validate tags. It intentionally covers the portable subset supported
 // by the built-in binder: required, min, max, and oneof.
@@ -207,6 +233,88 @@ func StructSchema(value any) Schema {
 		return Schema{Type: "object"}
 	}
 	return schemaFromStructType(typeOf)
+}
+
+func bodySchemaFromStructType(typeOf reflect.Type) Schema {
+	schema := Schema{Type: "object", Properties: map[string]Schema{}}
+	for i := 0; i < typeOf.NumField(); i++ {
+		field := typeOf.Field(i)
+		if field.PkgPath != "" {
+			continue
+		}
+		if field.Anonymous && indirectType(field.Type).Kind() == reflect.Struct {
+			embedded := bodySchemaFromStructType(indirectType(field.Type))
+			for name, property := range embedded.Properties {
+				schema.Properties[name] = property
+			}
+			schema.Required = append(schema.Required, embedded.Required...)
+			continue
+		}
+		if parameterTagged(field) {
+			continue
+		}
+		name, ok := jsonFieldName(field)
+		if !ok {
+			continue
+		}
+		property := schemaFromType(field.Type)
+		applyValidationRules(&property, field.Tag.Get("validate"))
+		schema.Properties[name] = property
+		if hasValidationRule(field.Tag.Get("validate"), "required") {
+			schema.Required = append(schema.Required, name)
+		}
+	}
+	if len(schema.Properties) == 0 {
+		schema.Properties = nil
+	}
+	return schema
+}
+
+func parametersFromStructType(typeOf reflect.Type) []Parameter {
+	var out []Parameter
+	for i := 0; i < typeOf.NumField(); i++ {
+		field := typeOf.Field(i)
+		if field.PkgPath != "" {
+			continue
+		}
+		if field.Anonymous && indirectType(field.Type).Kind() == reflect.Struct {
+			out = append(out, parametersFromStructType(indirectType(field.Type))...)
+			continue
+		}
+		schema := schemaFromType(field.Type)
+		applyValidationRules(&schema, field.Tag.Get("validate"))
+		if name, ok := parameterFieldName(field, BindSourcePath); ok {
+			out = append(out, Parameter{Name: name, In: "path", Required: true, Schema: cloneSchemaPtr(&schema)})
+		}
+		if name, ok := parameterFieldName(field, BindSourceQuery); ok {
+			out = append(out, Parameter{Name: name, In: "query", Required: hasValidationRule(field.Tag.Get("validate"), "required"), Schema: cloneSchemaPtr(&schema)})
+		}
+		if name, ok := parameterFieldName(field, BindSourceHeader); ok {
+			out = append(out, Parameter{Name: name, In: "header", Required: hasValidationRule(field.Tag.Get("validate"), "required"), Schema: cloneSchemaPtr(&schema)})
+		}
+	}
+	return out
+}
+
+func parameterTagged(field reflect.StructField) bool {
+	for _, source := range []BindSource{BindSourcePath, BindSourceQuery, BindSourceHeader} {
+		if _, ok := parameterFieldName(field, source); ok {
+			return true
+		}
+	}
+	return false
+}
+
+func parameterFieldName(field reflect.StructField, source BindSource) (string, bool) {
+	tag := field.Tag.Get(string(source))
+	if tag == "" && source == BindSourceQuery {
+		tag = field.Tag.Get("form")
+	}
+	if tag == "" || tag == "-" {
+		return "", false
+	}
+	name := strings.Split(tag, ",")[0]
+	return name, name != ""
 }
 
 func JSONResponse(description string, schema Schema) Response {

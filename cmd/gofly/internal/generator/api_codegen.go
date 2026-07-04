@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"go/format"
+	"net/http"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -2826,13 +2827,23 @@ func writeMethodFile(dir string, method IDLMethod, svc IDLService, pkg, rpcAlias
 	serviceName := exportName(svc.Name)
 	methodName := exportName(method.Name)
 	requestName := exportName(method.Request)
+	responseName := exportName(method.Response)
 	fprintf(&b, "package %s\n\n", pkg)
 	fprintf(&b, "import (\n")
 	fprintf(&b, "\t\"net/http\"\n\n")
 	fprintf(&b, "\t\"github.com/imajinyun/gofly/rest\"\n")
 	fprintf(&b, ")\n\n")
 	fprintf(&b, "func Register%sRoute(s *rest.Server, impl %s) {\n", methodName, serviceName)
-	fprintf(&b, "\ts.AddRoute(rest.Route{Method: http.Method%s, Path: %q, Handler: func(ctx *rest.Context) {\n", exportName(strings.ToLower(method.HTTPMethod)), method.HTTPPath)
+	fprintf(&b, "\tresponses := rest.DefaultErrorResponses()\n")
+	fprintf(&b, "\tresponses[\"200\"] = rest.JSONResponse(\"OK\", rest.StructSchema(%s{}))\n", responseName)
+	fprintf(&b, "\troute := rest.Route{Method: http.Method%s, Path: %q, Responses: responses", exportName(strings.ToLower(method.HTTPMethod)), method.HTTPPath)
+	if method.Request != "" {
+		fprintf(&b, ", Parameters: rest.ParametersFromStruct(%s{})", requestName)
+		if strings.ToUpper(method.HTTPMethod) != http.MethodGet && strings.ToUpper(method.HTTPMethod) != http.MethodDelete {
+			fprintf(&b, ", RequestBody: rest.JSONBodySchema(rest.BodySchemaFromStruct(%s{}), true)", requestName)
+		}
+	}
+	fprintf(&b, ", Handler: func(ctx *rest.Context) {\n")
 	if method.Request != "" {
 		fprintf(&b, "\t\tvar req %s\n", requestName)
 		fprintf(&b, "\t\tif err := ctx.BindRequest(&req); err != nil {\n")
@@ -2848,7 +2859,8 @@ func writeMethodFile(dir string, method IDLMethod, svc IDLService, pkg, rpcAlias
 	fprintf(&b, "\t\t\treturn\n")
 	fprintf(&b, "\t\t}\n")
 	fprintf(&b, "\t\tctx.JSON(http.StatusOK, resp)\n")
-	fprintf(&b, "\t}})\n")
+	fprintf(&b, "\t}}\n")
+	fprintf(&b, "\ts.AddRoute(route)\n")
 	fprintf(&b, "}\n")
 	formatted, err := format.Source(b.Bytes())
 	if err != nil {
@@ -3078,18 +3090,28 @@ func writeRESTService(b *bytes.Buffer, svc IDLService) {
 
 func writeRESTRoute(b *bytes.Buffer, method IDLMethod) {
 	methodName := exportName(method.Name)
-	fprintf(b, "\ts.AddRoute(rest.Route{Method: http.Method%s, Path: %q, Handler: func(ctx *rest.Context) {\n", exportName(strings.ToLower(method.HTTPMethod)), method.HTTPPath)
+	responseName := exportName(method.Response)
+	fprintf(b, "\tresponses%s := rest.DefaultErrorResponses()\n", methodName)
+	fprintf(b, "\tresponses%s[\"200\"] = rest.JSONResponse(\"OK\", rest.StructSchema(%s{}))\n", methodName, responseName)
+	fprintf(b, "\troute%s := rest.Route{Method: http.Method%s, Path: %q, Responses: responses%s", methodName, exportName(strings.ToLower(method.HTTPMethod)), method.HTTPPath, methodName)
 	if method.Request != "" {
 		requestName := exportName(method.Request)
+		fprintf(b, ", Parameters: rest.ParametersFromStruct(%s{})", requestName)
+		if strings.ToUpper(method.HTTPMethod) != http.MethodGet && strings.ToUpper(method.HTTPMethod) != http.MethodDelete {
+			fprintf(b, ", RequestBody: rest.JSONBodySchema(rest.BodySchemaFromStruct(%s{}), true)", requestName)
+		}
+		fprintf(b, ", Handler: func(ctx *rest.Context) {\n")
 		fprintf(b, "\t\tvar req %s\n", requestName)
 		fprintf(b, "\t\tif err := ctx.BindRequest(&req); err != nil {\n\t\t\tctx.Error(err)\n\t\t\treturn\n\t\t}\n")
 		fprintf(b, "\t\tresp, err := impl.%s(ctx.Request.Context(), &req)\n", methodName)
 	} else {
+		fprintf(b, ", Handler: func(ctx *rest.Context) {\n")
 		fprintf(b, "\t\tresp, err := impl.%s(ctx.Request.Context())\n", methodName)
 	}
 	fprintf(b, "\t\tif err != nil {\n\t\t\tctx.JSON(http.StatusInternalServerError, map[string]string{\"error\": err.Error()})\n\t\t\treturn\n\t\t}\n")
 	fprintf(b, "\t\tctx.JSON(http.StatusOK, resp)\n")
-	fprintf(b, "\t}})\n")
+	fprintf(b, "\t}}\n")
+	fprintf(b, "\ts.AddRoute(route%s)\n", methodName)
 }
 
 func apiGoType(apiType string) string {

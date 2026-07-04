@@ -1265,11 +1265,56 @@ func TestGenerateRESTCode(t *testing.T) {
 		"type UserApi interface",
 		"func RegisterUserApiRoutes",
 		`Path: "/api/login"`,
+		"rest.DefaultErrorResponses()",
+		`responsesLogin["200"] = rest.JSONResponse("OK", rest.StructSchema(LoginResponse{}))`,
+		"Parameters: rest.ParametersFromStruct(LoginRequest{})",
+		"RequestBody: rest.JSONBodySchema(rest.BodySchemaFromStruct(LoginRequest{}), true)",
 		"ctx.BindRequest(&req)",
 		"ctx.Error(err)",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("generated REST code missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestGenerateAPIPhysicalRoutesAttachOpenAPIContracts(t *testing.T) {
+	dir := t.TempDir()
+	apiPath := filepath.Join(dir, "orders.api")
+	api := `type CreateOrderRequest {
+  TenantID string ` + "`path:\"tenantID\" validate:\"required\"`" + `
+  Trace string ` + "`header:\"X-Trace\" validate:\"required\"`" + `
+  Page int ` + "`form:\"page\" validate:\"min=1\"`" + `
+  SKU string ` + "`json:\"sku\" validate:\"required,min=3\"`" + `
+}
+type CreateOrderResponse {
+  Id string ` + "`json:\"id\"`" + `
+}
+service orders-api {
+  @handler createOrder
+  post /tenants/{tenantID}/orders (CreateOrderRequest) returns (CreateOrderResponse)
+}`
+	if err := os.WriteFile(apiPath, []byte(api), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := GenerateRESTFromAPI(APIOptions{APIFile: apiPath, Dir: filepath.Join(dir, "out"), Package: "api"}); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "out", "internal", "api", "v1", "orders_api", "create_order.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := string(data)
+	for _, want := range []string{
+		"responses := rest.DefaultErrorResponses()",
+		`responses["200"] = rest.JSONResponse("OK", rest.StructSchema(CreateOrderResponse{}))`,
+		"Parameters: rest.ParametersFromStruct(CreateOrderRequest{})",
+		"RequestBody: rest.JSONBodySchema(rest.BodySchemaFromStruct(CreateOrderRequest{}), true)",
+		"ctx.BindRequest(&req)",
+		"ctx.Error(err)",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("generated physical route missing %q:\n%s", want, out)
 		}
 	}
 }

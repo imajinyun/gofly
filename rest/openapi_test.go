@@ -237,6 +237,96 @@ func TestStructSchemaLinksValidationTags(t *testing.T) {
 	}
 }
 
+func TestParametersFromStructLinksBindRequestTags(t *testing.T) {
+	type Embedded struct {
+		Trace string `header:"X-Trace" validate:"required,min=8,max=64"`
+	}
+	type listOrdersRequest struct {
+		Embedded
+		TenantID string `path:"tenantID" validate:"required"`
+		Page     int    `query:"page" validate:"min=1,max=100"`
+		Status   string `form:"status" validate:"oneof=pending paid canceled"`
+		Ignored  string `query:"-"`
+		BodyOnly string `json:"bodyOnly" validate:"required"`
+	}
+
+	params := ParametersFromStruct(listOrdersRequest{})
+	if len(params) != 4 {
+		t.Fatalf("ParametersFromStruct = %#v, want header, path, query, and form/query parameters", params)
+	}
+	assertParam := func(name string, in string) Parameter {
+		t.Helper()
+		for _, param := range params {
+			if param.Name == name && param.In == in {
+				if param.Schema == nil {
+					t.Fatalf("%s %s parameter schema is nil", in, name)
+				}
+				return param
+			}
+		}
+		t.Fatalf("parameters = %#v, missing %s %s", params, in, name)
+		return Parameter{}
+	}
+	trace := assertParam("X-Trace", "header")
+	if !trace.Required || trace.Schema.MinLength == nil || *trace.Schema.MinLength != 8 || trace.Schema.MaxLength == nil || *trace.Schema.MaxLength != 64 {
+		t.Fatalf("trace parameter = %#v, want required string with min/max length", trace)
+	}
+	tenant := assertParam("tenantID", "path")
+	if !tenant.Required || tenant.Schema.Type != "string" {
+		t.Fatalf("tenant path parameter = %#v, want required string", tenant)
+	}
+	page := assertParam("page", "query")
+	if page.Required || page.Schema.Type != "integer" || page.Schema.Minimum == nil || *page.Schema.Minimum != 1 || page.Schema.Maximum == nil || *page.Schema.Maximum != 100 {
+		t.Fatalf("page query parameter = %#v, want optional integer with min/max", page)
+	}
+	status := assertParam("status", "query")
+	if status.Required || len(status.Schema.Enum) != 3 || status.Schema.Enum[2] != "canceled" {
+		t.Fatalf("status query parameter = %#v, want optional enum from form fallback", status)
+	}
+}
+
+func TestBodySchemaFromStructExcludesBoundParameters(t *testing.T) {
+	type Embedded struct {
+		Trace string `header:"X-Trace" validate:"required"`
+		Note  string `json:"note" validate:"max=128"`
+	}
+	type createOrderRequest struct {
+		Embedded
+		TenantID string `path:"tenantID" validate:"required"`
+		Page     int    `query:"page" validate:"min=1,max=100"`
+		SKU      string `json:"sku" validate:"required,min=3,max=64"`
+		Quantity int    `json:"quantity" validate:"min=1,max=100"`
+		Ignored  string `json:"-"`
+	}
+
+	schema := BodySchemaFromStruct(createOrderRequest{})
+	for _, excluded := range []string{"Trace", "tenantID", "page", "Ignored"} {
+		if _, ok := schema.Properties[excluded]; ok {
+			t.Fatalf("BodySchemaFromStruct included non-body field %q in %#v", excluded, schema.Properties)
+		}
+	}
+	if _, ok := schema.Properties["sku"]; !ok {
+		t.Fatalf("BodySchemaFromStruct properties = %#v, missing sku", schema.Properties)
+	}
+	if _, ok := schema.Properties["quantity"]; !ok {
+		t.Fatalf("BodySchemaFromStruct properties = %#v, missing quantity", schema.Properties)
+	}
+	if _, ok := schema.Properties["note"]; !ok {
+		t.Fatalf("BodySchemaFromStruct properties = %#v, missing embedded body field note", schema.Properties)
+	}
+	if !containsString(schema.Required, "sku") {
+		t.Fatalf("BodySchemaFromStruct required = %#v, missing sku", schema.Required)
+	}
+	sku := schema.Properties["sku"]
+	if sku.MinLength == nil || *sku.MinLength != 3 || sku.MaxLength == nil || *sku.MaxLength != 64 {
+		t.Fatalf("sku schema = %#v, want min/max length", sku)
+	}
+	quantity := schema.Properties["quantity"]
+	if quantity.Minimum == nil || *quantity.Minimum != 1 || quantity.Maximum == nil || *quantity.Maximum != 100 {
+		t.Fatalf("quantity schema = %#v, want min/max numeric range", quantity)
+	}
+}
+
 func TestDefaultErrorResponsesDocumentStableEnvelope(t *testing.T) {
 	schema := ErrorResponseSchema()
 	for _, name := range []string{"code", "text", "message", "status", "fields"} {

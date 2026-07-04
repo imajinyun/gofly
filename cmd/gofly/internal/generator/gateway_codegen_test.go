@@ -52,6 +52,8 @@ func TestGenerateGatewayWiresGovernanceManager(t *testing.T) {
 		"gateway.WithGovernanceManager(governanceManager)",
 		"rest.WithGovernanceManager(governanceManager)",
 		"svc.NewServiceContext(c, mqBroker)",
+		"gatewayConf, err := c.GatewayConfig(ctx)",
+		"gateway.NewFromConfig(gatewayConf, nil",
 	} {
 		if !strings.Contains(string(mainData), want) {
 			t.Fatalf("main.go missing governance wiring %q:\n%s", want, mainData)
@@ -64,9 +66,34 @@ func TestGenerateGatewayWiresGovernanceManager(t *testing.T) {
 	if !strings.Contains(string(configData), "Governance") || !strings.Contains(string(configData), "governance.Config") || !strings.Contains(string(configData), "app.ServiceConf") || !strings.Contains(string(configData), "MQConfig") {
 		t.Fatalf("config.go missing governance config:\n%s", configData)
 	}
-	for _, want := range []string{"Service      app.ServiceConf", "func ConfigPaths(name string) []string", "func ResolveConfigPath(name string) string", `paths := []string{"config.yaml", "config.yml", "config.toml", "config.json"}`, "func (c Config) ServiceConf() app.ServiceConf", "func Validate(c Config) error", "app.ValidateProductionConfig", "rest.ValidateProductionConfig", "production gateway admin requires"} {
+	for _, want := range []string{"Service        app.ServiceConf", "func ConfigPaths(name string) []string", "func ResolveConfigPath(name string) string", `paths := []string{"config.yaml", "config.yml", "config.toml", "config.json"}`, "func (c Config) ServiceConf() app.ServiceConf", "func Validate(c Config) error", "app.ValidateProductionConfig", "rest.ValidateProductionConfig", "production gateway admin requires"} {
 		if !strings.Contains(string(configData), want) {
 			t.Fatalf("gateway config.go missing production validator %q:\n%s", want, configData)
+		}
+	}
+	for _, want := range []string{
+		"OpenAPIImports []OpenAPIImportConfig",
+		"func (c Config) GatewayConfig(ctx context.Context) (gateway.Config, error)",
+		"gateway.RouteConfigsFromOpenAPIURL",
+		"type OpenAPIImportConfig struct",
+		"type OpenAPIImportGroupConfig struct",
+	} {
+		if !strings.Contains(string(configData), want) {
+			t.Fatalf("gateway config.go missing OpenAPI import profile %q:\n%s", want, configData)
+		}
+	}
+	configTestData, err := os.ReadFile(filepath.Join(dir, "internal", "config", "config_test.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"TestGatewayConfigLoadsOpenAPIImportProfile",
+		"TestGatewayConfigSkipsDisabledOpenAPIImportProfile",
+		"httptest.NewServer",
+		"GatewayConfig(context.Background())",
+	} {
+		if !strings.Contains(string(configTestData), want) {
+			t.Fatalf("gateway config_test.go missing OpenAPI import smoke %q:\n%s", want, configTestData)
 		}
 	}
 	jsonData, err := os.ReadFile(filepath.Join(dir, "etc", "edge.json"))
@@ -90,6 +117,11 @@ func TestGenerateGatewayWiresGovernanceManager(t *testing.T) {
 		`"pathPrefix": "/ws"`,
 		`"pathPrefix": "/bff"`,
 		`"aggregation": {"enabled": true`,
+		`"openapiImports": [`,
+		`"enabled": false`,
+		`"url": "http://127.0.0.1:8081/openapi.json"`,
+		`"gatewayPrefix": "/contract"`,
+		`"matchTags": ["orders"]`,
 		`"retry": {"attempts": 2, "backoff": 100000000, "statuses": [502, 503, 504], "methods": ["GET", "HEAD"]}`,
 		`"rateLimit": {"rate": 100, "burst": 100}`,
 		`"concurrency": {"limit": 64}`,
@@ -129,10 +161,16 @@ func TestGenerateGatewayDefaultResilienceProfileReachesRuntime(t *testing.T) {
 		t.Fatal(err)
 	}
 	var generated struct {
-		Gateway gateway.Config `json:"gateway"`
+		Gateway        gateway.Config `json:"gateway"`
+		OpenAPIImports []struct {
+			Enabled bool `json:"enabled"`
+		} `json:"openapiImports"`
 	}
 	if err := json.Unmarshal(configData, &generated); err != nil {
 		t.Fatalf("decode generated gateway config: %v\n%s", err, configData)
+	}
+	if len(generated.OpenAPIImports) != 1 || generated.OpenAPIImports[0].Enabled {
+		t.Fatalf("generated openapi import profile = %#v, want one disabled profile", generated.OpenAPIImports)
 	}
 	var apiCalls atomic.Int64
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

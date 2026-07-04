@@ -58,6 +58,64 @@ type Stream struct {
 	closed       chan struct{}
 }
 
+type rpcStreamTransportRuntime struct {
+	mu            sync.Mutex
+	active        int64
+	dials         int64
+	closes        int64
+	lastTarget    string
+	lastDialedAt  time.Time
+	lastClosedAt  time.Time
+	lastCloseCode Code
+}
+
+func newRPCStreamTransportRuntime() *rpcStreamTransportRuntime {
+	return &rpcStreamTransportRuntime{}
+}
+
+func (r *rpcStreamTransportRuntime) recordDial(target string) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.active++
+	r.dials++
+	r.lastTarget = target
+	r.lastDialedAt = time.Now()
+}
+
+func (r *rpcStreamTransportRuntime) recordClose(code Code) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.active > 0 {
+		r.active--
+	}
+	r.closes++
+	r.lastClosedAt = time.Now()
+	r.lastCloseCode = code
+}
+
+func (r *rpcStreamTransportRuntime) Snapshot() RPCStreamTransportSnapshot {
+	if r == nil {
+		return RPCStreamTransportSnapshot{}
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return RPCStreamTransportSnapshot{
+		Active:        r.active,
+		Dials:         r.dials,
+		Closes:        r.closes,
+		LastTarget:    r.lastTarget,
+		LastDialedAt:  r.lastDialedAt,
+		LastClosedAt:  r.lastClosedAt,
+		LastCloseCode: r.lastCloseCode,
+	}
+}
+
 func (s *HTTPServer) serveStream(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet || !strings.EqualFold(r.Header.Get("Upgrade"), streamUpgradeToken) {
 		writeRPCError(w, http.StatusBadRequest, CodeInvalidArgument, "invalid stream upgrade")
@@ -368,7 +426,8 @@ func (c *HTTPClient) openStream(ctx context.Context, method string) (stream *Str
 			addr += ":80"
 		}
 	}
-	dialer := &net.Dialer{}
+	transport := normalizeTransportConfig(c.opts.transport)
+	dialer := &net.Dialer{Timeout: transport.DialTimeout, KeepAlive: transport.KeepAlive}
 	conn, err := c.dialStream(ctx, dialer, u.Scheme, addr)
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
@@ -409,9 +468,19 @@ func (c *HTTPClient) openStream(ctx context.Context, method string) (stream *Str
 		return nil, err
 	}
 	_ = resp.Body.Close()
+	if c.streams != nil {
+		c.streams.recordDial(target)
+	}
 	stream = newStream(conn, rw, c.opts.codec)
 	stream.readTimeout = streamTimeout
 	stream.writeTimeout = streamTimeout
+	stream.onClose(func() {
+		code := CodeOK
+		if err != nil {
+			code = CodeOf(err)
+		}
+		c.streams.recordClose(code)
+	})
 	if len(releaseLimiters) > 0 {
 		releases := append([]func(){}, releaseLimiters...)
 		stream.onClose(func() {
@@ -555,6 +624,9 @@ func (c *HTTPClient) dialStream(ctx context.Context, dialer *net.Dialer, scheme 
 			return nil, fmt.Errorf("configure rpc stream tls: %w", err)
 		}
 		cfg = clientTLS
+	}
+	if cfg == nil {
+		cfg = normalizeTransportConfig(c.opts.transport).TLSClientConfig
 	}
 	if cfg == nil {
 		host, _, err := net.SplitHostPort(addr)

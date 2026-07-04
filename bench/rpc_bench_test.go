@@ -2,8 +2,11 @@ package bench
 
 import (
 	"context"
+	"encoding/json"
 	"net"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	flyrpc "github.com/imajinyun/gofly/rpc"
@@ -48,6 +51,116 @@ func BenchmarkRPCClientStreamGovernance(b *testing.B) {
 
 func BenchmarkRPCBidiStreamGovernance(b *testing.B) {
 	benchmarkGoflyRPCBidiStreamGovernance(b)
+}
+
+func BenchmarkRPCStreamTransportOpenClose(b *testing.B) {
+	server := flyrpc.NewServer()
+	if err := server.RegisterService(flyrpc.ServiceDesc{Name: "streamer", Streams: []flyrpc.StreamDesc{{
+		Name:       "OpenClose",
+		NewMessage: func() any { return new(rpcBenchRequest) },
+		Mode:       flyrpc.StreamModeServerStream,
+		Handler: func(ctx context.Context, stream *flyrpc.Stream) error {
+			return nil
+		},
+	}}}, nil); err != nil {
+		b.Fatal(err)
+	}
+	upstream := httptest.NewServer(server)
+	defer upstream.Close()
+
+	client, err := flyrpc.NewClient(upstream.URL)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer client.Close()
+
+	b.ReportAllocs()
+	var opened int64
+	for b.Loop() {
+		stream, err := client.Stream(context.Background(), "streamer/OpenClose")
+		if err != nil {
+			b.Fatal(err)
+		}
+		opened++
+		if err := stream.Close(); err != nil {
+			b.Fatal(err)
+		}
+	}
+	snapshot := client.RuntimeSnapshot().Transport.Stream
+	if snapshot.Active != 0 || snapshot.Dials != opened || snapshot.Closes != opened {
+		b.Fatalf("stream transport snapshot = %+v, want dials/closes=%d and no active streams", snapshot, opened)
+	}
+	if snapshot.LastTarget != upstream.URL || snapshot.LastDialedAt.IsZero() || snapshot.LastClosedAt.IsZero() {
+		b.Fatalf("stream transport snapshot = %+v, want lifecycle target and timestamps", snapshot)
+	}
+}
+
+func TestRPCStreamTransportEvidenceContract(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("rpc_stream_transport_evidence.json"))
+	if err != nil {
+		t.Fatalf("read stream transport evidence: %v", err)
+	}
+	var evidence struct {
+		Schema    string `json:"schema"`
+		Benchmark string `json:"benchmark"`
+		Status    string `json:"status"`
+		Baseline  struct {
+			SampleCount       int `json:"sampleCount"`
+			AllocsPerOpMedian int `json:"allocsPerOpMedian"`
+		} `json:"baseline"`
+		Current struct {
+			SampleCount       int `json:"sampleCount"`
+			AllocsPerOpMedian int `json:"allocsPerOpMedian"`
+		} `json:"current"`
+		Decision struct {
+			Result                    string   `json:"result"`
+			AllocationMode            string   `json:"allocationMode"`
+			LatencyMode               string   `json:"latencyMode"`
+			CandidateAllocationBudget int      `json:"candidateAllocationBudget"`
+			PromotionStatus           string   `json:"promotionStatus"`
+			ForbiddenClaims           []string `json:"forbiddenClaims"`
+		} `json:"decision"`
+	}
+	if err := json.Unmarshal(data, &evidence); err != nil {
+		t.Fatalf("decode stream transport evidence: %v", err)
+	}
+	if evidence.Schema != "gofly.benchmark_rpc_stream_transport_evidence.v1" ||
+		evidence.Benchmark != "BenchmarkRPCStreamTransportOpenClose" ||
+		evidence.Status != "candidate-report-only" {
+		t.Fatalf("stream transport evidence identity = %+v, want candidate report-only benchmark evidence", evidence)
+	}
+	if evidence.Baseline.SampleCount != 5 || evidence.Current.SampleCount != 3 {
+		t.Fatalf("stream transport sample counts baseline=%d current=%d, want 5 and 3", evidence.Baseline.SampleCount, evidence.Current.SampleCount)
+	}
+	if evidence.Baseline.AllocsPerOpMedian != 117 ||
+		evidence.Current.AllocsPerOpMedian != 117 ||
+		evidence.Decision.CandidateAllocationBudget != 117 {
+		t.Fatalf("stream transport alloc evidence = baseline %d current %d budget %d, want 117",
+			evidence.Baseline.AllocsPerOpMedian,
+			evidence.Current.AllocsPerOpMedian,
+			evidence.Decision.CandidateAllocationBudget,
+		)
+	}
+	if evidence.Decision.Result != "hold" ||
+		evidence.Decision.AllocationMode != "candidate-report-only" ||
+		evidence.Decision.LatencyMode != "report-only" ||
+		evidence.Decision.PromotionStatus != "blocked" {
+		t.Fatalf("stream transport promotion decision = %+v, want hold/report-only/blocked", evidence.Decision)
+	}
+	for _, forbidden := range []string{"Kitex transport parity", "gRPC-Go transport parity", "Tier 1 replacement claim"} {
+		if !containsString(evidence.Decision.ForbiddenClaims, forbidden) {
+			t.Fatalf("stream transport forbidden claims = %#v, missing %q", evidence.Decision.ForbiddenClaims, forbidden)
+		}
+	}
+}
+
+func containsString(items []string, want string) bool {
+	for _, item := range items {
+		if item == want {
+			return true
+		}
+	}
+	return false
 }
 
 func benchmarkGoflyRPCServerStreamGovernance(b *testing.B) {

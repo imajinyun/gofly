@@ -62,6 +62,7 @@ type HTTPClient struct {
 	opts        clientOptions
 	runtime     *ruleRuntime
 	discovery   *clientDiscoveryRuntime
+	streams     *rpcStreamTransportRuntime
 	stats       *callstats.Registry
 	warmupMu    sync.Mutex
 	warmup      RPCWarmupSnapshot
@@ -73,7 +74,7 @@ func NewClient(target string, opts ...ClientOption) (*HTTPClient, error) {
 	if target == "" {
 		return nil, errors.New("target is required")
 	}
-	o := clientOptions{codec: JSONCodec{}, timeout: 3 * time.Second, retry: 1, balancer: &RoundRobinBalancer{}}
+	o := clientOptions{codec: JSONCodec{}, transport: DefaultTransportConfig(), timeout: 3 * time.Second, retry: 1, balancer: &RoundRobinBalancer{}}
 	for _, opt := range opts {
 		opt(&o)
 	}
@@ -110,6 +111,7 @@ func NewClient(target string, opts ...ClientOption) (*HTTPClient, error) {
 		opts:      o,
 		runtime:   newRuleRuntime(),
 		discovery: newClientDiscoveryRuntime(o.resolver),
+		streams:   newRPCStreamTransportRuntime(),
 		stats:     callstats.NewRegistry(),
 	}
 	client.startResolverWatch()

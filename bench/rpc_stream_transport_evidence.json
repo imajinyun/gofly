@@ -1,0 +1,51 @@
+{
+  "schema": "gofly.benchmark_rpc_stream_transport_evidence.v1",
+  "benchmark": "BenchmarkRPCStreamTransportOpenClose",
+  "status": "candidate-report-only",
+  "acceptanceGate": "make bench-regression-check",
+  "sourcePolicy": "Collected with an isolated BENCH_DIR under /private/tmp so the tracked global bench/baseline.txt remains unchanged.",
+  "capture": {
+    "baselineCommand": "GOCACHE=/private/tmp/gofly-gocache GOTMPDIR=/private/tmp/gofly-gotmp BENCH_DIR=/private/tmp/gofly-rpc-stream-transport-bench BENCH_PATTERN='^BenchmarkRPCStreamTransportOpenClose$' BENCH_COUNT=5 bash bin/scripts/benchstat.sh --baseline",
+    "currentCommand": "GOCACHE=/private/tmp/gofly-gocache GOTMPDIR=/private/tmp/gofly-gotmp BENCH_DIR=/private/tmp/gofly-rpc-stream-transport-bench BENCH_PATTERN='^BenchmarkRPCStreamTransportOpenClose$' BENCH_COUNT=3 bash bin/scripts/benchstat.sh",
+    "goos": "darwin",
+    "goarch": "arm64",
+    "cpu": "Apple M4 Pro"
+  },
+  "baseline": {
+    "sampleCount": 5,
+    "nsPerOp": [347048, 317935, 327910, 310308, 322912],
+    "bytesPerOp": [25055, 25029, 25012, 25031, 25017],
+    "allocsPerOp": [117, 117, 117, 117, 117],
+    "nsPerOpMedian": 322912,
+    "bytesPerOpMedian": 25029,
+    "allocsPerOpMedian": 117
+  },
+  "current": {
+    "sampleCount": 3,
+    "nsPerOp": [343319, 311100, 317948],
+    "bytesPerOp": [25044, 25023, 25030],
+    "allocsPerOp": [117, 117, 117],
+    "nsPerOpMedian": 317948,
+    "bytesPerOpMedian": 25030,
+    "allocsPerOpMedian": 117
+  },
+  "decision": {
+    "result": "hold",
+    "allocationMode": "candidate-report-only",
+    "latencyMode": "report-only",
+    "candidateAllocationBudget": 117,
+    "promotionStatus": "blocked",
+    "promotionBlockers": [
+      "not yet attached to the global tracked bench/baseline.txt",
+      "needs at least one more release-train review before becoming allocation-blocking",
+      "latency remains noisy and report-only"
+    ],
+    "forbiddenClaims": [
+      "blocking RPC stream transport latency",
+      "Kitex transport parity",
+      "gRPC-Go transport parity",
+      "Tier 1 replacement claim"
+    ],
+    "nextReviewGate": "BENCH_PATTERN='^BenchmarkRPCStreamTransportOpenClose$' BENCH_COUNT=5 make bench-stat && make rpc-boundary-check && make bench-regression-check"
+  }
+}

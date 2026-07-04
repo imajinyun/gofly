@@ -65,6 +65,7 @@ type serverOptions struct {
 type clientOptions struct {
 	codec             Codec
 	httpClient        *http.Client
+	transport         TransportConfig
 	timeout           time.Duration
 	streamTimeout     time.Duration
 	retry             int
@@ -133,6 +134,23 @@ func IsZeroTransportConfig(conf TransportConfig) bool {
 }
 
 func NewHTTPClient(conf TransportConfig) *http.Client {
+	conf = normalizeTransportConfig(conf)
+	return &http.Client{Timeout: conf.Timeout, Transport: &http.Transport{
+		Proxy:                 conf.Proxy,
+		DialContext:           (&net.Dialer{Timeout: conf.DialTimeout, KeepAlive: conf.KeepAlive}).DialContext,
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          conf.MaxIdleConns,
+		MaxIdleConnsPerHost:   conf.MaxIdleConnsPerHost,
+		MaxConnsPerHost:       conf.MaxConnsPerHost,
+		IdleConnTimeout:       conf.IdleConnTimeout,
+		TLSHandshakeTimeout:   conf.TLSHandshakeTimeout,
+		ResponseHeaderTimeout: conf.ResponseHeaderTimeout,
+		ExpectContinueTimeout: conf.ExpectContinueTimeout,
+		TLSClientConfig:       conf.TLSClientConfig,
+	}}
+}
+
+func normalizeTransportConfig(conf TransportConfig) TransportConfig {
 	if conf.Timeout <= 0 {
 		conf.Timeout = 30 * time.Second
 	}
@@ -161,19 +179,8 @@ func NewHTTPClient(conf TransportConfig) *http.Client {
 	if proxy == nil {
 		proxy = http.ProxyFromEnvironment
 	}
-	return &http.Client{Timeout: conf.Timeout, Transport: &http.Transport{
-		Proxy:                 proxy,
-		DialContext:           (&net.Dialer{Timeout: conf.DialTimeout, KeepAlive: conf.KeepAlive}).DialContext,
-		ForceAttemptHTTP2:     true,
-		MaxIdleConns:          conf.MaxIdleConns,
-		MaxIdleConnsPerHost:   conf.MaxIdleConnsPerHost,
-		MaxConnsPerHost:       conf.MaxConnsPerHost,
-		IdleConnTimeout:       conf.IdleConnTimeout,
-		TLSHandshakeTimeout:   conf.TLSHandshakeTimeout,
-		ResponseHeaderTimeout: conf.ResponseHeaderTimeout,
-		ExpectContinueTimeout: conf.ExpectContinueTimeout,
-		TLSClientConfig:       conf.TLSClientConfig,
-	}}
+	conf.Proxy = proxy
+	return conf
 }
 
 func WithAddress(addr string) ServerOption {
@@ -354,6 +361,7 @@ func WithHTTPClient(client *http.Client) ClientOption {
 
 func WithTransportConfig(conf TransportConfig) ClientOption {
 	return func(o *clientOptions) {
+		o.transport = normalizeTransportConfig(conf)
 		o.httpClient = NewHTTPClient(conf)
 	}
 }

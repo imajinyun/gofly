@@ -124,8 +124,19 @@ type RPCEndpointChainSnapshot struct {
 }
 
 type RPCHTTPTransportSnapshot struct {
-	Timeout             time.Duration `json:"timeout,omitempty"`
-	CloseIdleOnEndpoint bool          `json:"closeIdleOnEndpointChange"`
+	Timeout             time.Duration              `json:"timeout,omitempty"`
+	CloseIdleOnEndpoint bool                       `json:"closeIdleOnEndpointChange"`
+	Stream              RPCStreamTransportSnapshot `json:"stream,omitempty"`
+}
+
+type RPCStreamTransportSnapshot struct {
+	Active        int64     `json:"active,omitempty"`
+	Dials         int64     `json:"dials,omitempty"`
+	Closes        int64     `json:"closes,omitempty"`
+	LastTarget    string    `json:"lastTarget,omitempty"`
+	LastDialedAt  time.Time `json:"lastDialedAt,omitempty"`
+	LastClosedAt  time.Time `json:"lastClosedAt,omitempty"`
+	LastCloseCode Code      `json:"lastCloseCode,omitempty"`
 }
 
 type RPCResolverRuntimeSnapshot struct {
@@ -386,6 +397,9 @@ func (c *HTTPClient) httpTransportSnapshot() RPCHTTPTransportSnapshot {
 	}
 	snapshot := RPCHTTPTransportSnapshot{CloseIdleOnEndpoint: c.watchCancel != nil}
 	snapshot.Timeout = c.hc.Timeout
+	if c.streams != nil {
+		snapshot.Stream = c.streams.Snapshot()
+	}
 	return snapshot
 }
 

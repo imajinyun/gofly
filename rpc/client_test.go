@@ -2204,6 +2204,62 @@ func TestHTTPClientTransportOptions(t *testing.T) {
 	if transport.MaxIdleConnsPerHost != 7 {
 		t.Fatalf("MaxIdleConnsPerHost = %d, want 7", transport.MaxIdleConnsPerHost)
 	}
+	if configured.opts.transport.MaxIdleConnsPerHost != 7 || configured.opts.transport.DialTimeout != 30*time.Second || configured.opts.transport.KeepAlive != 30*time.Second {
+		t.Fatalf("stored transport = %+v, want normalized stream transport defaults with custom idle host limit", configured.opts.transport)
+	}
+}
+
+func TestHTTPClientStreamUsesTransportTLSConfig(t *testing.T) {
+	s := NewServer()
+	if err := s.RegisterService(ServiceDesc{Name: "chat", Streams: []StreamDesc{{
+		Name:       "Watch",
+		Mode:       StreamModeServerStream,
+		NewMessage: func() any { return new(helloResponse) },
+		Handler: func(ctx context.Context, stream *Stream) error {
+			return stream.Send(helloResponse{Message: "secure"})
+		},
+	}}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewTLSServer(s)
+	defer ts.Close()
+
+	transport, ok := ts.Client().Transport.(*http.Transport)
+	if !ok || transport.TLSClientConfig == nil {
+		t.Fatalf("test TLS transport = %T, want *http.Transport with TLS config", ts.Client().Transport)
+	}
+	c, err := NewClient(ts.URL, WithTransportConfig(TransportConfig{
+		TLSClientConfig: transport.TLSClientConfig.Clone(),
+		DialTimeout:     50 * time.Millisecond,
+		KeepAlive:       75 * time.Millisecond,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	stream, err := c.Stream(context.Background(), "chat/Watch")
+	if err != nil {
+		t.Fatalf("Stream with transport TLS config: %v", err)
+	}
+	snapshot := c.RuntimeSnapshot().Transport.Stream
+	if snapshot.Active != 1 || snapshot.Dials != 1 || snapshot.Closes != 0 || snapshot.LastTarget != ts.URL || snapshot.LastDialedAt.IsZero() {
+		t.Fatalf("stream transport snapshot after dial = %+v, want one active dial for %s", snapshot, ts.URL)
+	}
+	var got helloResponse
+	if err := stream.Recv(&got); err != nil {
+		t.Fatalf("Recv: %v", err)
+	}
+	if got.Message != "secure" {
+		t.Fatalf("message = %q, want secure", got.Message)
+	}
+	if err := stream.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	snapshot = c.RuntimeSnapshot().Transport.Stream
+	if snapshot.Active != 0 || snapshot.Dials != 1 || snapshot.Closes != 1 || snapshot.LastCloseCode != CodeOK || snapshot.LastClosedAt.IsZero() {
+		t.Fatalf("stream transport snapshot after close = %+v, want closed lifecycle evidence", snapshot)
+	}
 }
 
 func TestRPCMetadataPropagationAndSuite(t *testing.T) {

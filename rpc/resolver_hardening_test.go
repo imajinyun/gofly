@@ -82,6 +82,117 @@ func TestCachedResolverConstructionAndSnapshotBoundaries(t *testing.T) {
 	}
 }
 
+func TestFailoverResolverKeepsLastHealthyEndpoints(t *testing.T) {
+	if _, err := NewFailoverResolver(nil); err == nil {
+		t.Fatal("NewFailoverResolver nil source succeeded, want error")
+	}
+
+	source := &mutableResolver{endpoints: []string{" http://a/ ", "http://b"}}
+	resolver, err := NewFailoverResolver(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	endpoints, err := resolver.Resolve(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(endpoints) != 2 || endpoints[0] != "http://a" || endpoints[1] != "http://b" {
+		t.Fatalf("resolved endpoints = %#v, want normalized source endpoints", endpoints)
+	}
+
+	source.err = errors.New("registry unavailable")
+	stale, err := resolver.Resolve(context.Background())
+	if err != nil {
+		t.Fatalf("stale resolve error = %v, want cached endpoints", err)
+	}
+	if len(stale) != 2 || stale[0] != "http://a" || stale[1] != "http://b" {
+		t.Fatalf("stale endpoints = %#v, want last healthy endpoints", stale)
+	}
+	snapshot := resolver.Snapshot()
+	if !snapshot.Stale || snapshot.Fallbacks != 1 || snapshot.Error != "registry unavailable" {
+		t.Fatalf("failover snapshot = %#v, want stale fallback state", snapshot)
+	}
+	stale[0] = "mutated"
+	cached, err := resolver.Resolve(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cached[0] != "http://a" {
+		t.Fatalf("cached endpoints = %#v, want defensive copy", cached)
+	}
+
+	source.err = nil
+	source.endpoints = []string{"http://c"}
+	recovered, err := resolver.Resolve(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recovered) != 1 || recovered[0] != "http://c" {
+		t.Fatalf("recovered endpoints = %#v, want refreshed source endpoint", recovered)
+	}
+	snapshot = resolver.Snapshot()
+	if snapshot.Stale || snapshot.Error != "" || len(snapshot.Removed) != 2 {
+		t.Fatalf("recovered snapshot = %#v, want fresh state with removed endpoints", snapshot)
+	}
+}
+
+func TestFailoverResolverSeedAndWatchRecovery(t *testing.T) {
+	source := &mutableWatchResolver{
+		mutableResolver: mutableResolver{err: errors.New("registry down")},
+		updates:         make(chan []string, 2),
+	}
+	resolver, err := NewFailoverResolver(source, "http://seed/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	updates, err := resolver.Watch(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	initial := <-updates
+	if len(initial) != 1 || initial[0] != "http://seed" {
+		t.Fatalf("initial failover update = %#v, want seed", initial)
+	}
+
+	source.updates <- nil
+	select {
+	case got := <-updates:
+		if len(got) != 1 || got[0] != "http://seed" {
+			t.Fatalf("empty source update = %#v, want stale seed", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for stale failover update")
+	}
+	if snapshot := resolver.Snapshot(); !snapshot.Stale || snapshot.Fallbacks == 0 {
+		t.Fatalf("snapshot after empty update = %#v, want stale fallback", snapshot)
+	}
+
+	source.updates <- []string{"http://live/"}
+	select {
+	case got := <-updates:
+		if len(got) != 1 || got[0] != "http://live" {
+			t.Fatalf("recovery update = %#v, want live endpoint", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for recovery update")
+	}
+	if snapshot := resolver.Snapshot(); snapshot.Stale || snapshot.Error != "" || len(snapshot.Endpoints) != 1 || snapshot.Endpoints[0] != "http://live" {
+		t.Fatalf("snapshot after recovery = %#v, want fresh live endpoint", snapshot)
+	}
+
+	cancel()
+	select {
+	case _, ok := <-updates:
+		if ok {
+			t.Fatal("updates channel still open after context cancellation")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for failover watch close")
+	}
+}
+
 func TestRegistryResolverHardeningBoundaries(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -142,4 +253,38 @@ func (r hardeningWatchResolver) Watch(ctx context.Context) (<-chan []string, err
 		return r.updates, nil
 	}
 	return make(chan []string), nil
+}
+
+type mutableResolver struct {
+	endpoints []string
+	err       error
+}
+
+func (r *mutableResolver) Resolve(ctx context.Context) ([]string, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if r.err != nil {
+		return nil, r.err
+	}
+	return append([]string(nil), r.endpoints...), nil
+}
+
+type mutableWatchResolver struct {
+	mutableResolver
+	updates  chan []string
+	watchErr error
+}
+
+func (r *mutableWatchResolver) Watch(ctx context.Context) (<-chan []string, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if r.watchErr != nil {
+		return nil, r.watchErr
+	}
+	if r.updates == nil {
+		r.updates = make(chan []string)
+	}
+	return r.updates, nil
 }

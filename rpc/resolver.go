@@ -61,7 +61,212 @@ type ResolverSnapshot struct {
 	Error       string    `json:"error,omitempty"`
 	Watchers    int       `json:"watchers"`
 	Updates     int64     `json:"updates"`
+	Fallbacks   int64     `json:"fallbacks,omitempty"`
+	Stale       bool      `json:"stale,omitempty"`
 	LastUpdated time.Time `json:"lastUpdated,omitempty"`
+}
+
+// FailoverResolver wraps another resolver and serves the last successful
+// endpoint set while the source registry is temporarily unavailable.
+type FailoverResolver struct {
+	source Resolver
+
+	mu          sync.RWMutex
+	endpoints   []string
+	removed     []string
+	err         error
+	stale       bool
+	watchers    map[chan []string]struct{}
+	updates     int64
+	fallbacks   int64
+	lastUpdated time.Time
+}
+
+func NewFailoverResolver(source Resolver, seed ...string) (*FailoverResolver, error) {
+	if source == nil {
+		return nil, errors.New("resolver is required")
+	}
+	r := &FailoverResolver{source: source, watchers: make(map[chan []string]struct{})}
+	if endpoints := normalizeEndpoints(seed); len(endpoints) > 0 {
+		r.set(endpoints, nil, false)
+	}
+	return r, nil
+}
+
+func (r *FailoverResolver) Resolve(ctx context.Context) ([]string, error) {
+	if r == nil || r.source == nil {
+		return nil, errors.New("resolver is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	endpoints, err := r.source.Resolve(ctx)
+	endpoints = normalizeEndpoints(endpoints)
+	if err == nil && len(endpoints) > 0 {
+		r.set(endpoints, nil, false)
+		return endpoints, nil
+	}
+	if err == nil {
+		err = errors.New("no rpc endpoints resolved")
+	}
+	if cached := r.fallback(err); len(cached) > 0 {
+		return cached, nil
+	}
+	return nil, err
+}
+
+func (r *FailoverResolver) Watch(ctx context.Context) (<-chan []string, error) {
+	if r == nil || r.source == nil {
+		return nil, errors.New("resolver is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	initial, err := r.Resolve(ctx)
+	if err != nil && len(r.cached()) == 0 {
+		return nil, err
+	}
+
+	ch := make(chan []string, 1)
+	r.addWatcher(ch)
+	if len(initial) > 0 {
+		ch <- initial
+	}
+
+	watcher, ok := r.source.(WatchResolver)
+	if !ok {
+		go func() {
+			<-ctx.Done()
+			r.removeWatcher(ch)
+		}()
+		return ch, nil
+	}
+	updates, err := watcher.Watch(ctx)
+	if err != nil {
+		if len(r.cached()) == 0 {
+			r.removeWatcher(ch)
+			return nil, err
+		}
+		r.fallback(err)
+		go func() {
+			<-ctx.Done()
+			r.removeWatcher(ch)
+		}()
+		return ch, nil
+	}
+	go r.watch(ctx, ch, updates)
+	return ch, nil
+}
+
+func (r *FailoverResolver) Snapshot() ResolverSnapshot {
+	if r == nil {
+		return ResolverSnapshot{}
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	snapshot := ResolverSnapshot{
+		Endpoints:   append([]string(nil), r.endpoints...),
+		Removed:     append([]string(nil), r.removed...),
+		Watchers:    len(r.watchers),
+		Updates:     r.updates,
+		Fallbacks:   r.fallbacks,
+		Stale:       r.stale,
+		LastUpdated: r.lastUpdated,
+	}
+	if r.err != nil {
+		snapshot.Error = r.err.Error()
+	}
+	return snapshot
+}
+
+func (r *FailoverResolver) watch(ctx context.Context, ch chan []string, updates <-chan []string) {
+	defer r.removeWatcher(ch)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case endpoints, ok := <-updates:
+			if !ok {
+				r.fallback(errors.New("resolver watch closed"))
+				return
+			}
+			endpoints = normalizeEndpoints(endpoints)
+			if len(endpoints) == 0 {
+				r.fallback(errors.New("no rpc endpoints resolved"))
+				continue
+			}
+			r.set(endpoints, nil, false)
+		}
+	}
+}
+
+func (r *FailoverResolver) addWatcher(ch chan []string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.watchers == nil {
+		r.watchers = make(map[chan []string]struct{})
+	}
+	r.watchers[ch] = struct{}{}
+}
+
+func (r *FailoverResolver) removeWatcher(ch chan []string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.watchers[ch]; !ok {
+		return
+	}
+	delete(r.watchers, ch)
+	close(ch)
+}
+
+func (r *FailoverResolver) cached() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return append([]string(nil), r.endpoints...)
+}
+
+func (r *FailoverResolver) fallback(err error) []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.err = err
+	if len(r.endpoints) == 0 {
+		return nil
+	}
+	r.stale = true
+	r.fallbacks++
+	endpoints := append([]string(nil), r.endpoints...)
+	r.broadcastLocked(endpoints)
+	return endpoints
+}
+
+func (r *FailoverResolver) set(endpoints []string, err error, stale bool) {
+	endpoints = normalizeEndpoints(endpoints)
+	r.mu.Lock()
+	r.removed = removedEndpoints(r.endpoints, endpoints)
+	r.endpoints = endpoints
+	r.err = err
+	r.stale = stale
+	r.updates++
+	r.lastUpdated = time.Now()
+	r.broadcastLocked(endpoints)
+	r.mu.Unlock()
+}
+
+func (r *FailoverResolver) broadcastLocked(endpoints []string) {
+	for watcher := range r.watchers {
+		select {
+		case watcher <- append([]string(nil), endpoints...):
+		default:
+			select {
+			case <-watcher:
+			default:
+			}
+			select {
+			case watcher <- append([]string(nil), endpoints...):
+			default:
+			}
+		}
+	}
 }
 
 func NewCachedResolver(ctx context.Context, source WatchResolver) (*CachedResolver, error) {

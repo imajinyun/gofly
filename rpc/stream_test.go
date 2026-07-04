@@ -1022,6 +1022,101 @@ func TestRPCStreamUpgradeErrorPreservesRPCCode(t *testing.T) {
 	})
 }
 
+func TestRPCClientStreamRetryPreservesDeadlineAuthAndTrace(t *testing.T) {
+	const traceParent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+	attempts := make(chan string, 2)
+	var sawAuth bool
+	var sawTrace bool
+
+	s := NewServer(
+		WithServerStreamMiddleware(StreamTraceMiddleware("chat.server")),
+		WithServerStreamMiddleware(StreamServerAuthMiddleware(auth.StaticTokenValidator("secret", "rpc-user"))),
+	)
+	if err := s.RegisterService(ServiceDesc{Name: "chat", Streams: []StreamDesc{{
+		Name:       "TraceAuth",
+		NewMessage: func() any { return new(helloRequest) },
+		Handler: func(ctx context.Context, stream *Stream) error {
+			md, ok := metadata.FromContext(ctx)
+			if !ok || md.Get(auth.MetadataKey) != auth.BearerValue("secret") {
+				return NewError(CodeUnauthenticated, "missing stream auth metadata")
+			}
+			sawAuth = true
+			if md.Get(trace.TraceParentHeader) == "" {
+				return NewError(CodeInvalidArgument, "missing traceparent metadata")
+			}
+			if sc, ok := trace.FromContext(ctx); !ok || sc.TraceID != "4bf92f3577b34da6a3ce929d0e0e4736" {
+				return NewError(CodeInvalidArgument, "missing stream trace context")
+			}
+			sawTrace = true
+			return stream.Send(helloResponse{Message: "ok"})
+		},
+	}}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	okServer := httptest.NewServer(s)
+	defer okServer.Close()
+	failServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts <- "fail"
+		writeRPCError(w, http.StatusServiceUnavailable, CodeUnavailable, "temporary stream outage")
+	}))
+	defer failServer.Close()
+
+	resolver := ResolverFunc(func(ctx context.Context) ([]string, error) {
+		return []string{failServer.URL, okServer.URL}, nil
+	})
+	c, err := NewClient(okServer.URL,
+		WithResolver(resolver),
+		WithBalancer(&RoundRobinBalancer{}),
+		WithRPCPolicy(RPCPolicy{Retry: coregovernance.RetryPolicy{Attempts: 2, Backoff: time.Nanosecond}}),
+		WithClientSuite(GovernanceSuite("chat", GovernanceConfig{
+			Trace:        true,
+			TraceSampler: trace.NeverSampler(),
+			ClientToken:  "secret",
+		})),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(metadata.Append(context.Background(), trace.TraceParentHeader, traceParent), time.Second)
+	defer cancel()
+	stream, err := c.Stream(ctx, "chat/TraceAuth")
+	if err != nil {
+		t.Fatalf("Stream retry: %v", err)
+	}
+	defer stream.Close()
+	attempts <- "ok"
+	var resp helloResponse
+	if err := stream.Recv(&resp); err != nil {
+		t.Fatalf("Recv after stream retry: %v", err)
+	}
+	if resp.Message != "ok" {
+		t.Fatalf("response = %q, want ok", resp.Message)
+	}
+	gotAttempts := []string{<-attempts, <-attempts}
+	if strings.Join(gotAttempts, ",") != "fail,ok" {
+		t.Fatalf("attempt order = %v, want fail then ok", gotAttempts)
+	}
+	if !sawAuth || !sawTrace {
+		t.Fatalf("saw auth=%v trace=%v, want both preserved across stream retry", sawAuth, sawTrace)
+	}
+}
+
+func TestRPCClientStreamRetryHonorsContextDeadline(t *testing.T) {
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeRPCError(w, http.StatusServiceUnavailable, CodeUnavailable, "temporary stream outage")
+	}))
+	defer s.Close()
+	c, err := NewClient(s.URL, WithRPCPolicy(RPCPolicy{Retry: coregovernance.RetryPolicy{Attempts: 3, Backoff: time.Second}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
+	defer cancel()
+	if _, err := c.Stream(ctx, "chat/Echo"); CodeOf(err) != CodeDeadlineExceeded {
+		t.Fatalf("Stream retry deadline error = %v, want deadline_exceeded", err)
+	}
+}
+
 func TestRPCStreamContextCancellation(t *testing.T) {
 	s := NewServer()
 	ts := httptest.NewServer(s)

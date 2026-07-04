@@ -25,6 +25,7 @@ import (
 	"github.com/imajinyun/gofly/core/breaker"
 	"github.com/imajinyun/gofly/core/governance"
 	"github.com/imajinyun/gofly/core/metadata"
+	"github.com/imajinyun/gofly/core/retry"
 )
 
 const (
@@ -236,7 +237,48 @@ func streamContextError(ctx context.Context) error {
 
 func (c *HTTPClient) Stream(ctx context.Context, method string) (*Stream, error) {
 	handler := chainClientStreamMiddlewares(c.opts.streamMiddlewares...)(c.openStream)
-	return handler(ctx, method)
+	policy := c.streamRetryPolicy()
+	if policy.Attempts <= 1 {
+		return handler(ctx, method)
+	}
+	var stream *Stream
+	err := retry.Do(ctx, policy, func() error {
+		var openErr error
+		stream, openErr = handler(ctx, method)
+		return openErr
+	})
+	if err != nil {
+		return nil, normalizeContextError(ctx, err)
+	}
+	return stream, nil
+}
+
+func (c *HTTPClient) streamRetryPolicy() retry.Policy {
+	if c == nil {
+		return retry.Policy{Attempts: 1, ShouldRetry: isRetryable}
+	}
+	policy := c.opts.retryPolicy
+	if policy.Attempts <= 0 {
+		policy.Attempts = c.opts.retry
+	}
+	if c.opts.rpcPolicy != nil {
+		if c.opts.rpcPolicy.Retry.Attempts > 0 {
+			policy.Attempts = c.opts.rpcPolicy.Retry.Attempts
+		}
+		if c.opts.rpcPolicy.Retry.Backoff > 0 {
+			policy.Backoff = c.opts.rpcPolicy.Retry.Backoff
+		}
+	}
+	if policy.Attempts <= 0 {
+		policy.Attempts = 1
+	}
+	if policy.Backoff <= 0 && policy.BackoffFunc == nil {
+		policy.Backoff = 10 * time.Millisecond
+	}
+	if policy.ShouldRetry == nil {
+		policy.ShouldRetry = isRetryable
+	}
+	return policy
 }
 
 func (c *HTTPClient) openStream(ctx context.Context, method string) (stream *Stream, err error) {

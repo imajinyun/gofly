@@ -358,6 +358,16 @@ func TestGenerateService(t *testing.T) {
 		"var descriptor rpc.Descriptor",
 		"var report rpc.DescriptorCompatibilityReport",
 		"report.IsCompatible()",
+		"serviceConf := cfg.ServiceConf()",
+		"server := rpc.NewServer(serviceConf.RPCServerOptions()...)",
+		"clientOptions := append(serviceConf.RPCClientOptions()",
+		"runtimeState := client.PolicyRuntimeSnapshot().State",
+		"runtimeState.RetryAttempts != 2 || runtimeState.RetryBackoff != 100*time.Millisecond",
+		"clientRuntime := client.RuntimeSnapshot()",
+		"clientRuntime.Middlewares.Unary == 0 || clientRuntime.Middlewares.Stream == 0",
+		"generatedServiceConfFixture() app.ServiceConf",
+		"RPCTransport: rpc.TransportConfig",
+		"clientRuntime.Transport.Timeout != 30*time.Second",
 	} {
 		if !strings.Contains(string(greeterClientTestData), want) {
 			t.Fatalf("greeter_client_test.go missing descriptor self-validation %q:\n%s", want, greeterClientTestData)

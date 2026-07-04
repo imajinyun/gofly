@@ -10,6 +10,7 @@ import (
 	coregovernance "github.com/imajinyun/gofly/core/governance"
 	coretrace "github.com/imajinyun/gofly/core/observability/trace"
 	coreproc "github.com/imajinyun/gofly/core/proc"
+	coreretry "github.com/imajinyun/gofly/core/retry"
 	"github.com/imajinyun/gofly/rest"
 	"github.com/imajinyun/gofly/rpc"
 )
@@ -413,13 +414,19 @@ func (c ServiceConf) RPCServerOptions() []rpc.ServerOption {
 // rpc.ClientOption. When governance is disabled, returns an empty slice.
 func (c ServiceConf) RPCClientOptions() []rpc.ClientOption {
 	c = c.WithDefaults(c.Name)
-	opts := make([]rpc.ClientOption, 0, 4)
+	opts := make([]rpc.ClientOption, 0, 5)
 	if !c.Governance.Disabled {
 		opts = append(opts,
 			rpc.WithTimeout(c.Governance.Timeout),
 			rpc.WithTransportConfig(c.Governance.rpcTransportConfig()),
 			rpc.WithClientSuite(c.RPCSuite()),
 		)
+		if c.Governance.Retry.Attempts > 0 || c.Governance.Retry.Backoff > 0 {
+			opts = append(opts, rpc.WithRetryPolicy(coreretry.Policy{
+				Attempts: c.Governance.Retry.Attempts,
+				Backoff:  c.Governance.Retry.Backoff,
+			}))
+		}
 	}
 	return opts
 }

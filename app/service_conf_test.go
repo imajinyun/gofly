@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/imajinyun/gofly/rest"
+	"github.com/imajinyun/gofly/rpc"
 )
 
 func TestServiceConfWithDefaultsWiresRuntimePrimitives(t *testing.T) {
@@ -147,7 +148,13 @@ func TestServiceConfRESTConfigWiresDefaultGovernance(t *testing.T) {
 }
 
 func TestServiceConfRPCOptionsWireDefaultGovernance(t *testing.T) {
-	conf := ServiceConf{Name: "orders", Governance: ServiceGovernance{MaxConcurrency: 16}}.WithDefaults("")
+	conf := ServiceConf{
+		Name: "orders",
+		Governance: ServiceGovernance{
+			MaxConcurrency: 16,
+			Retry:          ServiceRetry{Attempts: 4, Backoff: 250 * time.Millisecond},
+		},
+	}.WithDefaults("")
 	gov := conf.RPCGovernanceConfig()
 	if !gov.Recover || !gov.RequestID || !gov.Trace || !gov.Log || !gov.Metrics || !gov.Breaker {
 		t.Fatalf("rpc governance flags = %+v", gov)
@@ -157,6 +164,25 @@ func TestServiceConfRPCOptionsWireDefaultGovernance(t *testing.T) {
 	}
 	if len(conf.RPCServerOptions()) == 0 || len(conf.RPCClientOptions()) == 0 || conf.RPCSuite() == nil {
 		t.Fatal("rpc options/suite should be populated by default governance")
+	}
+	client, err := rpc.NewClient("http://127.0.0.1:1", conf.RPCClientOptions()...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = client.Close() }()
+	state := client.PolicyRuntimeSnapshot().State
+	if !state.TimeoutEnforced || state.EffectiveTimeout != 3*time.Second {
+		t.Fatalf("rpc client timeout state = %+v, want default timeout", state)
+	}
+	if state.RetryAttempts != 4 || state.RetryBackoff != 250*time.Millisecond {
+		t.Fatalf("rpc client retry state = %+v, want service retry", state)
+	}
+	if !state.BreakerEnabled {
+		t.Fatalf("rpc client resilience state = %+v, want breaker", state)
+	}
+	runtimeState := client.RuntimeSnapshot()
+	if runtimeState.Middlewares.Unary == 0 || runtimeState.Middlewares.Stream == 0 {
+		t.Fatalf("rpc client middleware state = %+v, want generated governance middleware", runtimeState.Middlewares)
 	}
 }
 

@@ -2907,7 +2907,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
+	"github.com/imajinyun/gofly/app"
 	"github.com/imajinyun/gofly/core/metadata"
 	"github.com/imajinyun/gofly/rpc"
 	"{{.Module}}/internal/config"
@@ -2915,8 +2917,10 @@ import (
 )
 
 func TestGreeterRPCClient(t *testing.T) {
-	server := rpc.NewServer()
-	if err := server.RegisterService(GreeterService(svc.NewServiceContext(config.Config{})), nil); err != nil {
+	cfg := config.Config{Service: generatedServiceConfFixture()}
+	serviceConf := cfg.ServiceConf()
+	server := rpc.NewServer(serviceConf.RPCServerOptions()...)
+	if err := server.RegisterService(GreeterService(svc.NewServiceContext(cfg)), nil); err != nil {
 		t.Fatal(err)
 	}
 	httpServer := httptest.NewServer(server)
@@ -2961,15 +2965,31 @@ func TestGreeterRPCClient(t *testing.T) {
 	if err := registry.RegisterService(context.Background(), "greeter", httpServer.URL); err != nil {
 		t.Fatal(err)
 	}
-	client, err := rpc.NewClient(
-		httpServer.URL,
-		rpc.WithRetry(2),
+	clientOptions := append(serviceConf.RPCClientOptions(),
 		rpc.WithResolver(registry.Resolver("greeter")),
 		rpc.WithBalancer(rpc.NewHealthBalancer()),
-		rpc.WithClientSuite(rpc.ObservabilitySuite("hello", 0)),
 	)
+	client, err := rpc.NewClient(httpServer.URL, clientOptions...)
 	if err != nil {
 		t.Fatal(err)
+	}
+	defer func() { _ = client.Close() }()
+	runtimeState := client.PolicyRuntimeSnapshot().State
+	if !runtimeState.TimeoutEnforced || runtimeState.EffectiveTimeout != 3*time.Second {
+		t.Fatalf("rpc client timeout state = %+v, want generated service timeout", runtimeState)
+	}
+	if runtimeState.RetryAttempts != 2 || runtimeState.RetryBackoff != 100*time.Millisecond {
+		t.Fatalf("rpc client retry state = %+v, want generated service retry profile", runtimeState)
+	}
+	if !runtimeState.BreakerEnabled || runtimeState.Balancer != rpc.RPCBalancerHealth {
+		t.Fatalf("rpc client resilience state = %+v, want breaker/health balancer", runtimeState)
+	}
+	clientRuntime := client.RuntimeSnapshot()
+	if clientRuntime.Middlewares.Unary == 0 || clientRuntime.Middlewares.Stream == 0 {
+		t.Fatalf("rpc client middleware state = %+v, want generated governance middleware", clientRuntime.Middlewares)
+	}
+	if clientRuntime.Transport.Timeout != 30*time.Second {
+		t.Fatalf("rpc client transport timeout = %s, want generated transport timeout", clientRuntime.Transport.Timeout)
 	}
 	var resp SayHelloResponse
 	ctx := metadata.Append(context.Background(), metadata.RequestIDKey, "test-request-id")
@@ -2978,6 +2998,34 @@ func TestGreeterRPCClient(t *testing.T) {
 	}
 	if resp.Message != "hello client" {
 		t.Fatalf("message = %q, want hello client", resp.Message)
+	}
+}
+
+func generatedServiceConfFixture() app.ServiceConf {
+	return app.ServiceConf{
+		Name:        "hello",
+		Mode:        "dev",
+		Environment: "development",
+		Governance: app.ServiceGovernance{
+			Timeout:           3 * time.Second,
+			ReadHeaderTimeout: 3 * time.Second,
+			Breaker:           true,
+			Retry:             app.ServiceRetry{Attempts: 2, Backoff: 100 * time.Millisecond},
+			RateLimit:         app.ServiceRateLimit{Rate: 100, Burst: 100},
+			MaxConcurrency:    64,
+			AdaptiveLimit:     true,
+			RPCTimeout:        rpc.RPCTimeoutConfig{Server: 3 * time.Second, Client: 3 * time.Second},
+			RPCTransport: rpc.TransportConfig{
+				Timeout:               30 * time.Second,
+				MaxIdleConns:          200,
+				MaxIdleConnsPerHost:   100,
+				DialTimeout:           30 * time.Second,
+				KeepAlive:             30 * time.Second,
+				IdleConnTimeout:       90 * time.Second,
+				TLSHandshakeTimeout:   10 * time.Second,
+				ExpectContinueTimeout: time.Second,
+			},
+		},
 	}
 }
 `

@@ -23,7 +23,10 @@ func GenerateGateway(opts GatewayOptions) error {
 	if opts.Dir == "" {
 		opts.Dir = filepath.Join(".", opts.Name)
 	}
-	data := map[string]string{"Name": opts.Name, "Module": opts.Module, "ReplaceBlock": frameworkReplaceBlock("")}
+	data := withGeneratedResilienceTemplateData(
+		map[string]string{"Name": opts.Name, "Module": opts.Module, "ReplaceBlock": frameworkReplaceBlock("")},
+		opts.Name,
+	)
 	files := map[string]string{
 		"go.mod": gatewayGoModTemplate,
 		filepath.Join("cmd", opts.Name, "main.go"):       gatewayMainTemplate,
@@ -136,19 +139,16 @@ const gatewayConfigTemplate = `{
     "name": "{{.Name}}",
     "host": "127.0.0.1",
     "port": 8080,
-    "middlewares": {"recover": true, "trace": true, "log": true, "timeout": true, "timeoutConfig": {"duration": 3000000000, "readHeaderTimeout": 3000000000, "healthTimeout": 1000000000}, "breaker": true, "breakerConfig": {"openTimeout": 5000000000, "window": 10000000000, "buckets": 10, "minRequests": 20, "failureRatio": 0.5}, "metrics": true, "health": true, "requestId": true}
+    "middlewares": {"recover": true, "trace": true, "log": true, "timeout": true, "timeoutConfig": {{.RestTimeoutConfigJSON}}, "breaker": true, "breakerConfig": {{.RestBreakerConfigJSON}}, "metrics": true, "health": true, "requestId": true}
   },
   "gateway": {
     "timeout": 3000000000,
     "routes": [
-      {"name": "example", "method": "GET", "pathPrefix": "/api", "upstreamPrefix": "/", "targets": ["http://127.0.0.1:8081"], "timeout": 5000000000, "retry": {"attempts": 2, "backoff": 100000000, "statuses": [502, 503, 504], "methods": ["GET", "HEAD"]}, "breaker": {"enabled": true, "openTimeout": 5000000000, "window": 30000000000, "buckets": 10, "minRequests": 20, "failureRatio": 0.5}, "rateLimit": {"rate": 100, "burst": 100}, "concurrency": {"limit": 64}}
+      {"name": "example", "method": "GET", "pathPrefix": "/api", "upstreamPrefix": "/", "targets": ["http://127.0.0.1:8081"], "timeout": 5000000000, "retry": {{.GatewayRetryJSON}}, "breaker": {{.GatewayBreakerJSON}}, "rateLimit": {{.RestRateLimitConfigJSON}}, "concurrency": {{.RestMaxConcurrencyConfigJSON}}}
     ]
   },
   "governance": {
-    "rules": [
-      {"name": "gateway-default", "transport": "gateway", "path": "/api/*", "policy": {"timeout": 5000000000, "retry": {"attempts": 2, "backoff": 100000000, "statuses": [502, 503, 504], "methods": ["GET", "HEAD"]}, "breaker": {"enabled": true, "openTimeout": 5000000000, "window": 30000000000, "buckets": 10, "minRequests": 20, "failureRatio": 0.5}, "rateLimit": {"rate": 100, "burst": 100}, "concurrency": {"limit": 64}}},
-      {"name": "mq-default", "transport": "mq", "service": "{{.Name}}", "policy": {"timeout": 3000000000, "retry": {"attempts": 2, "backoff": 100000000}, "breaker": {"enabled": true, "failureRatio": 0.5, "minRequests": 20}}}
-    ]
+    "rules": {{.GatewayGovernanceRulesJSON}}
   },
   "gatewayAdmin": {"enabled": true, "pathPrefix": "/_gofly/gateway", "token": ""}
 }

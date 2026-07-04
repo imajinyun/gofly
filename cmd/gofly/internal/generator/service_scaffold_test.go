@@ -1,6 +1,7 @@
 package generator
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -306,6 +307,63 @@ func TestBuildServiceScaffoldIRNormalizesInputs(t *testing.T) {
 	}
 	if ir.Files["extra.txt"] != "{{.Name}}" {
 		t.Fatalf("IR files missing extra file: %#v", ir.Files)
+	}
+}
+
+func TestGeneratedResilienceTemplateDataFeedsServiceAndGatewayScaffolds(t *testing.T) {
+	data := serviceScaffoldData(ServiceScaffoldOptions{Name: "edge", Module: "example.com/edge"})
+	for _, key := range []string{
+		"ServiceGovernanceFullJSON",
+		"ServiceGovernanceMinimalJSON",
+		"RestTimeoutConfigJSON",
+		"RestBreakerConfigJSON",
+		"RestRateLimitConfigJSON",
+		"RestAdaptiveLimitConfigJSON",
+		"RestMaxConcurrencyConfigJSON",
+		"GovernanceRulesJSON",
+		"GatewayGovernanceRulesJSON",
+		"GatewayRetryJSON",
+		"GatewayBreakerJSON",
+	} {
+		if strings.TrimSpace(data[key]) == "" {
+			t.Fatalf("generated resilience template data missing %s in %#v", key, data)
+		}
+		if !json.Valid([]byte(data[key])) {
+			t.Fatalf("generated resilience template data %s is not valid JSON: %s", key, data[key])
+		}
+	}
+
+	serviceConfig := render(configTemplate, data)
+	gatewayConfig := render(gatewayConfigTemplate, data)
+	for name, content := range map[string]string{"service": serviceConfig, "gateway": gatewayConfig} {
+		if strings.Contains(content, "{{.") {
+			t.Fatalf("%s config still has unresolved template placeholder:\n%s", name, content)
+		}
+		if !json.Valid([]byte(content)) {
+			t.Fatalf("%s config is not valid JSON:\n%s", name, content)
+		}
+	}
+	for _, want := range []string{
+		`"timeout": 3000000000`,
+		`"retry": {"attempts": 2, "backoff": 100000000}`,
+		`"rateLimit": {"rate": 100, "burst": 100}`,
+		`"concurrency": {"limit": 64}`,
+		`"name": "gateway-default"`,
+		`"statuses": [502, 503, 504]`,
+	} {
+		if !strings.Contains(serviceConfig, want) {
+			t.Fatalf("service config missing shared resilience default %q:\n%s", want, serviceConfig)
+		}
+	}
+	for _, want := range []string{
+		`"timeoutConfig": {"duration": 3000000000`,
+		`"breakerConfig": {"openTimeout": 5000000000`,
+		`"retry": {"attempts": 2, "backoff": 100000000, "statuses": [502, 503, 504], "methods": ["GET", "HEAD"]}`,
+		`"concurrency": {"limit": 64}`,
+	} {
+		if !strings.Contains(gatewayConfig, want) {
+			t.Fatalf("gateway config missing shared resilience default %q:\n%s", want, gatewayConfig)
+		}
 	}
 }
 

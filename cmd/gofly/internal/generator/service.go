@@ -35,7 +35,7 @@ func GenerateService(opts ServiceOptions) error {
 	if err != nil {
 		return err
 	}
-	data := map[string]string{
+	data := withGeneratedResilienceTemplateData(map[string]string{
 		"Name":             opts.Name,
 		"Module":           opts.Module,
 		"ReplaceBlock":     frameworkReplaceBlock(opts.FrameworkPath),
@@ -59,7 +59,7 @@ func GenerateService(opts ServiceOptions) error {
 		"ServiceType":      "",
 		"NodePort":         "",
 		"Autoscale":        kubeAutoscale(opts.Name, "default", "2", "6"),
-	}
+	}, opts.Name)
 	if err := cleanupLegacyServiceFiles(opts.Dir); err != nil {
 		return err
 	}

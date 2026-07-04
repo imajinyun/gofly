@@ -188,7 +188,7 @@ func serviceScaffoldRuntimeFeatures(profile GenerationProfile, kind string) []se
 }
 
 func serviceScaffoldData(opts ServiceScaffoldOptions) map[string]string {
-	return map[string]string{
+	return withGeneratedResilienceTemplateData(map[string]string{
 		"Name":             opts.Name,
 		"Module":           opts.Module,
 		"ReplaceBlock":     frameworkReplaceBlock(opts.FrameworkPath),
@@ -212,7 +212,7 @@ func serviceScaffoldData(opts ServiceScaffoldOptions) map[string]string {
 		"ServiceType":      "",
 		"NodePort":         "",
 		"Autoscale":        kubeAutoscale(opts.Name, "default", "2", "6"),
-	}
+	}, opts.Name)
 }
 
 func mergeServiceScaffoldExtras(files map[string]string, opts ServiceScaffoldOptions) {

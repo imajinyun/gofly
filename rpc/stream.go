@@ -355,25 +355,18 @@ func (c *HTTPClient) openStream(ctx context.Context, method string) (stream *Str
 		_ = conn.Close() // best-effort cleanup after handshake failure
 		return nil, err
 	}
-	status, err := rw.ReadString('\n')
+	resp, err := http.ReadResponse(rw.Reader, nil)
 	if err != nil {
 		_ = conn.Close() // best-effort cleanup after handshake failure
 		return nil, err
 	}
-	if !strings.Contains(status, "101") {
+	if resp.StatusCode != http.StatusSwitchingProtocols {
+		err := streamUpgradeError(resp)
+		_ = resp.Body.Close()
 		_ = conn.Close() // best-effort cleanup after handshake failure
-		return nil, NewError(CodeUnavailable, strings.TrimSpace(status))
+		return nil, err
 	}
-	for {
-		line, err := rw.ReadString('\n')
-		if err != nil {
-			_ = conn.Close() // best-effort cleanup after handshake failure
-			return nil, err
-		}
-		if line == "\r\n" {
-			break
-		}
-	}
+	_ = resp.Body.Close()
 	stream = newStream(conn, rw, c.opts.codec)
 	stream.readTimeout = streamTimeout
 	stream.writeTimeout = streamTimeout
@@ -387,6 +380,60 @@ func (c *HTTPClient) openStream(ctx context.Context, method string) (stream *Str
 		releaseLimiters = nil
 	}
 	return stream, nil
+}
+
+func streamUpgradeError(resp *http.Response) error {
+	if resp == nil {
+		return NewError(CodeUnavailable, "rpc stream upgrade failed")
+	}
+	msg := strings.TrimSpace(resp.Status)
+	code := codeFromHTTPStatus(resp.StatusCode)
+	if resp.Body != nil {
+		data, err := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+		if err == nil && len(data) > 0 {
+			var env responseEnvelope
+			if json.Unmarshal(data, &env) == nil && env.Error != "" {
+				if env.Code != "" {
+					code = env.Code
+				}
+				msg = env.Error
+			} else if text := strings.TrimSpace(string(data)); text != "" {
+				msg = text
+			}
+		}
+	}
+	if msg == "" {
+		msg = http.StatusText(resp.StatusCode)
+	}
+	return NewError(code, msg)
+}
+
+func codeFromHTTPStatus(status int) Code {
+	switch status {
+	case http.StatusBadRequest, http.StatusRequestEntityTooLarge:
+		return CodeInvalidArgument
+	case http.StatusUnauthorized:
+		return CodeUnauthenticated
+	case http.StatusForbidden:
+		return CodePermissionDenied
+	case http.StatusNotFound:
+		return CodeNotFound
+	case http.StatusConflict:
+		return CodeAborted
+	case http.StatusTooManyRequests:
+		return CodeResourceExhausted
+	case http.StatusGatewayTimeout:
+		return CodeDeadlineExceeded
+	case http.StatusNotImplemented:
+		return CodeUnimplemented
+	case http.StatusServiceUnavailable, http.StatusBadGateway:
+		return CodeUnavailable
+	default:
+		if status >= http.StatusInternalServerError {
+			return CodeInternal
+		}
+		return CodeUnavailable
+	}
 }
 
 func writeStreamMetadataHeaders(w *bufio.ReadWriter, ctx context.Context) error {

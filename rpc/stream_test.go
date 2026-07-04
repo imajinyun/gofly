@@ -959,8 +959,8 @@ func TestRPCStreamMissingAndOversizedFrame(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.Stream(context.Background(), "missing/Stream"); CodeOf(err) != CodeUnavailable {
-		t.Fatalf("missing stream error = %v, want unavailable", err)
+	if _, err := c.Stream(context.Background(), "missing/Stream"); CodeOf(err) != CodeNotFound {
+		t.Fatalf("missing stream error = %v, want not_found", err)
 	}
 	client, server := net.Pipe()
 	defer client.Close()
@@ -977,6 +977,49 @@ func TestRPCStreamMissingAndOversizedFrame(t *testing.T) {
 	if err := stream.Recv(&msg); err == nil {
 		t.Fatal("Recv oversized frame succeeded, want error")
 	}
+}
+
+func TestRPCStreamUpgradeErrorPreservesRPCCode(t *testing.T) {
+	t.Run("rate limit", func(t *testing.T) {
+		rules := coregovernance.NewRuleSet(coregovernance.Rule{
+			Name:      "stream-rate",
+			Transport: coregovernance.TransportRPC,
+			Service:   "chat",
+			Method:    "Echo",
+			Policy:    coregovernance.Policy{RateLimit: coregovernance.RateLimitPolicy{Rate: 1, Burst: 1}},
+		})
+		s := newGovernedStreamServer(t, rules, func(ctx context.Context, stream *Stream) error {
+			return nil
+		})
+		ts := httptest.NewServer(s)
+		defer ts.Close()
+		c, err := NewClient(ts.URL)
+		if err != nil {
+			t.Fatal(err)
+		}
+		first, err := c.Stream(context.Background(), "chat/Echo")
+		if err != nil {
+			t.Fatalf("first stream: %v", err)
+		}
+		defer first.Close()
+		if _, err := c.Stream(context.Background(), "chat/Echo"); CodeOf(err) != CodeResourceExhausted {
+			t.Fatalf("second stream error = %v, want resource_exhausted", err)
+		}
+	})
+
+	t.Run("plain text response fallback", func(t *testing.T) {
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "upstream maintenance", http.StatusServiceUnavailable)
+		}))
+		defer ts.Close()
+		c, err := NewClient(ts.URL)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := c.Stream(context.Background(), "chat/Echo"); CodeOf(err) != CodeUnavailable || !strings.Contains(err.Error(), "upstream maintenance") {
+			t.Fatalf("stream error = %v, want unavailable with upstream body", err)
+		}
+	})
 }
 
 func TestRPCStreamContextCancellation(t *testing.T) {

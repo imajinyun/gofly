@@ -18,6 +18,7 @@ import (
 	"github.com/imajinyun/gofly/core/governance"
 	coreruntime "github.com/imajinyun/gofly/core/runtime"
 	"github.com/imajinyun/gofly/rest"
+	"github.com/imajinyun/gofly/rpc"
 )
 
 func TestGenerateService(t *testing.T) {
@@ -1030,6 +1031,60 @@ func TestGenerateNewServiceVariantsBoundaries(t *testing.T) {
 		t.Fatalf("generated kitex-compatible rpc proto package not normalized:\n%s", kitexProtoData)
 	}
 	assertGeneratedProjectCompiles(t, kitexDir)
+}
+
+func TestGenerateRPCNewDefaultResilienceProfileReachesRPCRuntime(t *testing.T) {
+	dir := t.TempDir()
+	if err := GenerateRPCNew(RPCNewOptions{Name: "Greeter", Module: "example.com/greeter", Dir: dir}); err != nil {
+		t.Fatal(err)
+	}
+	configData, err := os.ReadFile(filepath.Join(dir, "etc", "Greeter.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var generated struct {
+		Service app.ServiceConf `json:"service"`
+	}
+	if err := json.Unmarshal(configData, &generated); err != nil {
+		t.Fatalf("decode generated rpc config: %v\n%s", err, configData)
+	}
+
+	serviceConf := generated.Service.WithDefaults("Greeter")
+	gov := serviceConf.RPCGovernanceConfig()
+	if !gov.Recover || !gov.RequestID || !gov.Trace || !gov.Log || !gov.Metrics || !gov.Breaker {
+		t.Fatalf("generated rpc governance flags = %+v, want production defaults", gov)
+	}
+	if gov.Timeout != 3*time.Second || gov.TimeoutConfig.Server != 3*time.Second || gov.TimeoutConfig.Client != 3*time.Second {
+		t.Fatalf("generated rpc timeout governance = %+v, want shared 3s defaults", gov)
+	}
+	if gov.MaxConcurrency != 64 || !gov.AdaptiveLimit {
+		t.Fatalf("generated rpc concurrency governance = %+v, want shared resilience defaults", gov)
+	}
+
+	client, err := rpc.NewClient("http://127.0.0.1:1", serviceConf.RPCClientOptions()...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = client.Close() }()
+
+	policyState := client.PolicyRuntimeSnapshot().State
+	if !policyState.TimeoutEnforced || policyState.EffectiveTimeout != 3*time.Second {
+		t.Fatalf("generated rpc client timeout state = %+v, want generated 3s timeout", policyState)
+	}
+	if policyState.RetryAttempts != 2 || policyState.RetryBackoff != 100*time.Millisecond {
+		t.Fatalf("generated rpc client retry state = %+v, want generated retry profile", policyState)
+	}
+	if !policyState.BreakerEnabled {
+		t.Fatalf("generated rpc client policy state = %+v, want breaker enabled", policyState)
+	}
+
+	runtimeState := client.RuntimeSnapshot()
+	if runtimeState.Middlewares.Unary == 0 || runtimeState.Middlewares.Stream == 0 {
+		t.Fatalf("generated rpc client middleware state = %+v, want unary and stream governance middleware", runtimeState.Middlewares)
+	}
+	if runtimeState.Transport.Timeout != 30*time.Second {
+		t.Fatalf("generated rpc transport timeout = %s, want 30s", runtimeState.Transport.Timeout)
+	}
 }
 
 func TestGenerateMigrationBoundaries(t *testing.T) {

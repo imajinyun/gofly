@@ -3341,8 +3341,9 @@ func TestGenerateModelFromDDLSoftDeleteStrictAndTabler(t *testing.T) {
 	repoOut := string(repoData)
 	for _, want := range []string{
 		`"time"`,
-		`AND deleted_at IS NULL LIMIT 1`,
-		`query += " AND deleted_at IS NULL"`,
+		`where := storage.NewWhere().Eq("name", name).IsNull("deleted_at").Limit(1)`,
+		`query, args, err := storage.SelectWhere(entity.UserTable, entity.UserColumns, where, r.dialect)`,
+		`args...); err != nil`,
 		`UPDATE " + entity.UserTable + " SET deleted_at = " + storage.Placeholder(r.dialect, 1)`,
 		`time.Now()`,
 		`WHERE deleted_at IS NULL ORDER BY id LIMIT`,

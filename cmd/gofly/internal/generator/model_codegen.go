@@ -1421,14 +1421,15 @@ func writeUniqueFinders(b *bytes.Buffer, table SQLTable, typeName, receiverName 
 			continue
 		}
 		fprintf(b, "func (r *%s) FindBy%s(ctx context.Context, %s %s) (*entity.%s, error) {\n", receiverName, modelFieldName(column.Name), modelArgName(column.Name), columnGoType(column), typeName)
-		fprintf(b, "\tcolumns, err := storage.JoinIdentifiers(entity.%sColumns)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n", typeName)
-		fprintf(b, "\tquery := \"SELECT \" + columns + \" FROM \" + entity.%sTable + \" WHERE %s = \" + storage.Placeholder(r.dialect, 1)", typeName, column.Name)
+		fprintf(b, "\twhere := storage.NewWhere().Eq(%q, %s)", column.Name, modelArgName(column.Name))
 		if hasSoftDelete(table) {
-			fprintf(b, " + \" AND %s IS NULL\"", table.SoftDeleteColumn)
+			fprintf(b, ".IsNull(%q)", table.SoftDeleteColumn)
 		}
-		fprintf(b, " + \" LIMIT 1\"\n")
+		fprintf(b, ".Limit(1)\n")
+		fprintf(b, "\tquery, args, err := storage.SelectWhere(entity.%sTable, entity.%sColumns, where, r.dialect)\n", typeName, typeName)
+		fprintf(b, "\tif err != nil {\n\t\treturn nil, err\n\t}\n")
 		fprintf(b, "\tvar out entity.%s\n", typeName)
-		fprintf(b, "\tif err := r.queryOne(ctx, query, func(row *sql.Row) error {\n\t\treturn row.Scan(%s)\n\t}, %s); err != nil {\n", scanArgs("out", table.Columns), modelArgName(column.Name))
+		fprintf(b, "\tif err := r.queryOne(ctx, query, func(row *sql.Row) error {\n\t\treturn row.Scan(%s)\n\t}, args...); err != nil {\n", scanArgs("out", table.Columns))
 		fprintf(b, "\t\tif errors.Is(err, sql.ErrNoRows) {\n\t\t\treturn nil, storage.ErrNotFound\n\t\t}\n\t\treturn nil, err\n\t}\n")
 		fprintf(b, "\treturn &out, nil\n}\n\n")
 	}
@@ -1461,18 +1462,19 @@ func writeUniqueForUpdateFinder(b *bytes.Buffer, table SQLTable, typeName, recei
 		{suffix: "ForUpdateSkipLocked", skipLocked: true},
 	} {
 		fprintf(b, "func (r *%s) FindBy%s%s(ctx context.Context, %s) (*entity.%s, error) {\n", receiverName, name, method.suffix, uniqueFinderParams(columns), typeName)
-		fprintf(b, "\tcolumns, err := storage.JoinIdentifiers(entity.%sColumns)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n", typeName)
-		fprintf(b, "\twhereParts := []string{%s}\n", sqlUniqueWhereParts(columns))
-		fprintf(b, "\tquery := \"SELECT \" + columns + \" FROM \" + entity.%sTable + \" WHERE \" + strings.Join(whereParts, \" AND \")", typeName)
+		fprintf(b, "\twhere := storage.NewWhere()\n")
+		writeSQLIndexWhereFilters(b, columns)
 		if hasSoftDelete(table) {
-			fprintf(b, " + \" AND %s IS NULL\"", table.SoftDeleteColumn)
+			fprintf(b, "\twhere = where.IsNull(%q)\n", table.SoftDeleteColumn)
 		}
-		fprintf(b, " + \" FOR UPDATE\"\n")
+		fprintf(b, "\tquery, args, err := storage.SelectWhere(entity.%sTable, entity.%sColumns, where, r.dialect)\n", typeName, typeName)
+		fprintf(b, "\tif err != nil {\n\t\treturn nil, err\n\t}\n")
+		fprintf(b, "\tquery += \" FOR UPDATE\"\n")
 		if method.skipLocked {
 			fprintf(b, "\tquery += \" SKIP LOCKED\"\n")
 		}
 		fprintf(b, "\tvar out entity.%s\n", typeName)
-		fprintf(b, "\tif err := r.queryOne(ctx, query, func(row *sql.Row) error {\n\t\treturn row.Scan(%s)\n\t}, %s); err != nil {\n", scanArgs("out", table.Columns), uniqueFinderArgs(columns))
+		fprintf(b, "\tif err := r.queryOne(ctx, query, func(row *sql.Row) error {\n\t\treturn row.Scan(%s)\n\t}, args...); err != nil {\n", scanArgs("out", table.Columns))
 		fprintf(b, "\t\tif errors.Is(err, sql.ErrNoRows) {\n\t\t\treturn nil, storage.ErrNotFound\n\t\t}\n\t\treturn nil, err\n\t}\n")
 		fprintf(b, "\treturn &out, nil\n}\n\n")
 	}
@@ -1485,15 +1487,16 @@ func writeCompositeUniqueFinders(b *bytes.Buffer, table SQLTable, typeName, rece
 			continue
 		}
 		fprintf(b, "func (r *%s) FindBy%s(ctx context.Context, %s) (*entity.%s, error) {\n", receiverName, uniqueFinderName(columns), uniqueFinderParams(columns), typeName)
-		fprintf(b, "\tcolumns, err := storage.JoinIdentifiers(entity.%sColumns)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n", typeName)
-		fprintf(b, "\twhereParts := []string{%s}\n", sqlUniqueWhereParts(columns))
-		fprintf(b, "\tquery := \"SELECT \" + columns + \" FROM \" + entity.%sTable + \" WHERE \" + strings.Join(whereParts, \" AND \")", typeName)
+		fprintf(b, "\twhere := storage.NewWhere()\n")
+		writeSQLIndexWhereFilters(b, columns)
 		if hasSoftDelete(table) {
-			fprintf(b, " + \" AND %s IS NULL\"", table.SoftDeleteColumn)
+			fprintf(b, "\twhere = where.IsNull(%q)\n", table.SoftDeleteColumn)
 		}
-		fprintf(b, " + \" LIMIT 1\"\n")
+		fprintf(b, "\twhere = where.Limit(1)\n")
+		fprintf(b, "\tquery, args, err := storage.SelectWhere(entity.%sTable, entity.%sColumns, where, r.dialect)\n", typeName, typeName)
+		fprintf(b, "\tif err != nil {\n\t\treturn nil, err\n\t}\n")
 		fprintf(b, "\tvar out entity.%s\n", typeName)
-		fprintf(b, "\tif err := r.queryOne(ctx, query, func(row *sql.Row) error {\n\t\treturn row.Scan(%s)\n\t}, %s); err != nil {\n", scanArgs("out", table.Columns), uniqueFinderArgs(columns))
+		fprintf(b, "\tif err := r.queryOne(ctx, query, func(row *sql.Row) error {\n\t\treturn row.Scan(%s)\n\t}, args...); err != nil {\n", scanArgs("out", table.Columns))
 		fprintf(b, "\t\tif errors.Is(err, sql.ErrNoRows) {\n\t\t\treturn nil, storage.ErrNotFound\n\t\t}\n\t\treturn nil, err\n\t}\n")
 		fprintf(b, "\treturn &out, nil\n}\n\n")
 	}
@@ -3514,14 +3517,6 @@ func redisIndexListVersionValueFuncName(typeName string) string {
 
 func redisIndexListCacheKeyFuncName(typeName string) string {
 	return "redis" + exportName(typeName) + "IndexListCacheKey"
-}
-
-func sqlUniqueWhereParts(columns []SQLColumn) string {
-	parts := make([]string, 0, len(columns))
-	for i, column := range columns {
-		parts = append(parts, fmt.Sprintf("%q + storage.Placeholder(r.dialect, %d)", column.Name+" = ", i+1))
-	}
-	return strings.Join(parts, ", ")
 }
 
 func gormUniqueWhere(columns []SQLColumn) string {

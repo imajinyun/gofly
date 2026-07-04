@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,7 +14,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/imajinyun/gofly/app"
 	"github.com/imajinyun/gofly/core/governance"
+	coreruntime "github.com/imajinyun/gofly/core/runtime"
+	"github.com/imajinyun/gofly/rest"
 )
 
 func TestGenerateService(t *testing.T) {
@@ -483,6 +488,73 @@ func TestGenerateService(t *testing.T) {
 		}
 	}
 	assertGeneratedProjectCompiles(t, dir)
+}
+
+func TestGenerateServiceDefaultResilienceProfileReachesRESTRuntime(t *testing.T) {
+	dir := t.TempDir()
+	if err := GenerateService(ServiceOptions{Name: "hello", Module: "example.com/hello", Dir: dir}); err != nil {
+		t.Fatal(err)
+	}
+	configData, err := os.ReadFile(filepath.Join(dir, "etc", "hello.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var generated struct {
+		Service app.ServiceConf `json:"service"`
+		Rest    rest.Config     `json:"rest"`
+	}
+	if err := json.Unmarshal(configData, &generated); err != nil {
+		t.Fatalf("decode generated service config: %v\n%s", err, configData)
+	}
+	restConf := generated.Service.RESTConfig(generated.Rest)
+	if restConf.Name != "hello" || restConf.Timeout != 3*time.Second {
+		t.Fatalf("generated rest config identity/timeout = %+v", restConf)
+	}
+	mw := restConf.Middlewares
+	if !mw.Timeout || mw.TimeoutConfig.Duration != 3*time.Second || mw.TimeoutConfig.ReadHeaderTimeout != 3*time.Second {
+		t.Fatalf("generated rest timeout middleware = %+v", mw)
+	}
+	if !mw.RateLimit || mw.RateLimitConfig.Rate != 100 || mw.RateLimitConfig.Burst != 100 {
+		t.Fatalf("generated rest rate limit = %+v", mw.RateLimitConfig)
+	}
+	if !mw.MaxConcurrency || mw.MaxConcurrencyConfig.Limit != 64 || !mw.AdaptiveRateLimit {
+		t.Fatalf("generated rest concurrency/adaptive = %+v", mw)
+	}
+	if !mw.Breaker || mw.BreakerConfig.OpenTimeout != 5*time.Second || mw.BreakerConfig.Window != 10*time.Second {
+		t.Fatalf("generated rest breaker = %+v", mw.BreakerConfig)
+	}
+
+	server := rest.MustNewServer(restConf)
+	server.AddRoute(rest.Route{Method: http.MethodGet, Path: "/runtime", Handler: func(ctx *rest.Context) {
+		ctx.String(http.StatusOK, "ok")
+	}})
+	runtime := server.ControlPlaneRuntime()
+	if runtime.Service != "hello" || !runtime.Middlewares.RateLimit || !runtime.Middlewares.MaxConcurrency || !runtime.Middlewares.Breaker || !runtime.Middlewares.AdaptiveRateLimit {
+		t.Fatalf("generated rest runtime = %+v, want resilience middleware enabled", runtime)
+	}
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/runtime", nil))
+	if rec.Code != http.StatusOK || strings.TrimSpace(rec.Body.String()) != "ok" {
+		t.Fatalf("generated rest response = %d body = %q, want ok", rec.Code, rec.Body.String())
+	}
+	runtimeSnapshot := server.RuntimeSnapshot(context.Background())
+	if len(runtimeSnapshot.Components) != 1 || runtimeSnapshot.Components[0].Middleware == nil {
+		t.Fatalf("generated rest runtime snapshot = %+v, want middleware component", runtimeSnapshot)
+	}
+	for _, want := range []string{"rate_limit", "adaptive_rate_limit", "max_concurrency", "breaker", "timeout"} {
+		if !hasRuntimeMiddlewareLayer(runtimeSnapshot.Components[0].Middleware.Unary, want) {
+			t.Fatalf("generated rest middleware chain = %+v, missing %q", runtimeSnapshot.Components[0].Middleware.Unary, want)
+		}
+	}
+}
+
+func hasRuntimeMiddlewareLayer(layers []coreruntime.MiddlewareLayer, name string) bool {
+	for _, layer := range layers {
+		if layer.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 func TestGeneratedServiceOpenAPIValidationEnvelopeContract(t *testing.T) {

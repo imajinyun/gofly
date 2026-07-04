@@ -885,6 +885,43 @@ func TestRPCStreamServerError(t *testing.T) {
 	}
 }
 
+func TestHTTPClientStreamRuntimeSnapshotRecordsRemoteErrorCode(t *testing.T) {
+	s := NewServer()
+	if err := s.RegisterService(ServiceDesc{Name: "chat", Streams: []StreamDesc{{
+		Name:       "Fail",
+		NewMessage: func() any { return new(helloRequest) },
+		Handler: func(ctx context.Context, stream *Stream) error {
+			return NewError(CodeInvalidArgument, "bad stream")
+		},
+	}}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(s)
+	defer ts.Close()
+	c, err := NewClient(ts.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	stream, err := c.Stream(context.Background(), "chat/Fail")
+	if err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+	if err := stream.Recv(&helloResponse{}); CodeOf(err) != CodeInvalidArgument {
+		t.Fatalf("Recv error = %v, want invalid_argument", err)
+	}
+	if err := stream.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	snapshot := c.RuntimeSnapshot().Transport.Stream
+	if snapshot.Active != 0 || snapshot.Dials != 1 || snapshot.Closes != 1 ||
+		snapshot.LastCloseCode != CodeInvalidArgument || snapshot.LastClosedAt.IsZero() {
+		t.Fatalf("stream runtime snapshot = %+v, want closed invalid_argument lifecycle", snapshot)
+	}
+}
+
 func TestRPCStreamCodecMismatch(t *testing.T) {
 	s := NewServer()
 	if err := s.RegisterService(ServiceDesc{Name: "chat", Streams: []StreamDesc{{

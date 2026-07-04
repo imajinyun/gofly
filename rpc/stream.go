@@ -51,6 +51,8 @@ type Stream struct {
 	maxFrame     int64
 	readTimeout  time.Duration
 	writeTimeout time.Duration
+	stateMu      sync.Mutex
+	terminalCode Code
 	writeMu      sync.Mutex
 	closeMu      sync.Mutex
 	closeHooks   []func()
@@ -479,7 +481,7 @@ func (c *HTTPClient) openStream(ctx context.Context, method string) (stream *Str
 		if err != nil {
 			code = CodeOf(err)
 		}
-		c.streams.recordClose(code)
+		c.streams.recordClose(stream.closeCode(code))
 	})
 	if len(releaseLimiters) > 0 {
 		releases := append([]func(){}, releaseLimiters...)
@@ -667,18 +669,23 @@ func (s *Stream) SendError(code Code, text string) error {
 	if code == "" {
 		code = CodeInternal
 	}
+	s.markTerminalCode(code)
 	return s.writeEnvelope(streamEnvelope{Code: code, Error: text, End: true})
 }
 
 func (s *Stream) Recv(v any) error {
 	env, err := s.readEnvelope()
 	if err != nil {
+		s.markTerminalError(err)
 		return err
 	}
 	if env.Error != "" {
-		return NewError(env.Code, env.Error)
+		err := NewError(env.Code, env.Error)
+		s.markTerminalError(err)
+		return err
 	}
 	if env.End {
+		s.markTerminalCode(CodeOK)
 		return io.EOF
 	}
 	payload := []byte(env.Payload)
@@ -686,15 +693,55 @@ func (s *Stream) Recv(v any) error {
 		payload = env.PayloadBytes
 	}
 	if env.Codec != "" && env.Codec != s.codec.Name() {
-		return NewError(CodeInvalidArgument, fmt.Sprintf("rpc stream codec mismatch: got %q, want %q", env.Codec, s.codec.Name()))
+		err := NewError(CodeInvalidArgument, fmt.Sprintf("rpc stream codec mismatch: got %q, want %q", env.Codec, s.codec.Name()))
+		s.markTerminalError(err)
+		return err
 	}
 	if v == nil {
 		return nil
 	}
 	if err := s.codec.Unmarshal(payload, v); err != nil {
-		return fmt.Errorf("unmarshal stream message: %w", err)
+		err = fmt.Errorf("unmarshal stream message: %w", err)
+		s.markTerminalError(err)
+		return err
 	}
 	return nil
+}
+
+func (s *Stream) markTerminalError(err error) {
+	if err == nil {
+		return
+	}
+	if errors.Is(err, io.EOF) || errors.Is(err, ErrStreamClosed) {
+		return
+	}
+	s.markTerminalCode(CodeOf(err))
+}
+
+func (s *Stream) markTerminalCode(code Code) {
+	if s == nil || code == "" {
+		return
+	}
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
+	if s.terminalCode == "" || s.terminalCode == CodeOK {
+		s.terminalCode = code
+	}
+}
+
+func (s *Stream) closeCode(defaultCode Code) Code {
+	if s == nil {
+		return defaultCode
+	}
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
+	if s.terminalCode != "" {
+		return s.terminalCode
+	}
+	if defaultCode == "" {
+		return CodeOK
+	}
+	return defaultCode
 }
 
 func (s *Stream) Close() error {

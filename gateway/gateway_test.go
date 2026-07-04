@@ -1694,6 +1694,120 @@ func TestRoutesFromOpenAPIProxyRuntime(t *testing.T) {
 	}
 }
 
+func TestRoutesFromOpenAPIURLGroupsOperationsByTag(t *testing.T) {
+	var ordersSeen atomic.Int64
+	ordersUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ordersSeen.Add(1)
+		if r.URL.Path != "/orders-api/orders/42" || r.Header.Get("X-Backend") != "orders" || r.Header.Get("X-Base") != "edge" {
+			t.Errorf("orders upstream request path=%q headers=%q/%q", r.URL.Path, r.Header.Get("X-Backend"), r.Header.Get("X-Base"))
+		}
+		_, _ = fmt.Fprint(w, `{"backend":"orders"}`)
+	}))
+	t.Cleanup(ordersUpstream.Close)
+
+	var inventorySeen atomic.Int64
+	inventoryUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		inventorySeen.Add(1)
+		if r.URL.Path != "/inventory-api/inventory/sku-1" || r.Header.Get("X-Backend") != "inventory" || r.Header.Get("X-Base") != "edge" {
+			t.Errorf("inventory upstream request path=%q headers=%q/%q", r.URL.Path, r.Header.Get("X-Backend"), r.Header.Get("X-Base"))
+		}
+		_, _ = fmt.Fprint(w, `{"backend":"inventory"}`)
+	}))
+	t.Cleanup(inventoryUpstream.Close)
+
+	doc := rest.OpenAPIDocument{
+		OpenAPI: "3.0.3",
+		Info:    rest.OpenAPIInfo{Title: "edge contract", Version: "1.0.0"},
+		Paths: map[string]map[string]rest.Operation{
+			"/inventory/{sku}": {
+				"get": {OperationID: "getInventory", Tags: []string{"inventory"}, Responses: map[string]rest.Response{"200": {Description: "ok"}}},
+			},
+			"/orders/{id}": {
+				"get": {OperationID: "getOrder", Tags: []string{"orders"}, Responses: map[string]rest.Response{"200": {Description: "ok"}}},
+			},
+		},
+	}
+	openAPIServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/openapi.json" || r.Header.Get("X-Contract-Token") != "test-token" {
+			t.Errorf("openapi request path=%q token=%q", r.URL.Path, r.Header.Get("X-Contract-Token"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(doc); err != nil {
+			t.Errorf("encode openapi doc: %v", err)
+		}
+	}))
+	t.Cleanup(openAPIServer.Close)
+
+	routes, err := RoutesFromOpenAPIURL(context.Background(), OpenAPIURLSource{
+		URL:     openAPIServer.URL + "/openapi.json",
+		Headers: map[string]string{"X-Contract-Token": "test-token"},
+	}, OpenAPIRouteOptions{
+		GatewayPrefix: "/edge",
+		Headers:       map[string]string{"X-Base": "edge"},
+		Groups: []OpenAPIRouteGroup{
+			{
+				Name:           "orders",
+				MatchTags:      []string{"orders"},
+				UpstreamPrefix: "/orders-api",
+				Targets:        []string{ordersUpstream.URL},
+				Headers:        map[string]string{"X-Backend": "orders"},
+			},
+			{
+				Name:           "inventory",
+				MatchTags:      []string{"inventory"},
+				UpstreamPrefix: "/inventory-api",
+				Targets:        []string{inventoryUpstream.URL},
+				Headers:        map[string]string{"X-Backend": "inventory"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("RoutesFromOpenAPIURL: %v", err)
+	}
+	g, err := New(routes)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = g.Close() })
+
+	orders := httptest.NewRecorder()
+	g.ServeHTTP(orders, httptest.NewRequest(http.MethodGet, "/edge/orders/42", nil))
+	if orders.Code != http.StatusOK || strings.TrimSpace(orders.Body.String()) != `{"backend":"orders"}` {
+		t.Fatalf("orders response = %d %q", orders.Code, orders.Body.String())
+	}
+	inventory := httptest.NewRecorder()
+	g.ServeHTTP(inventory, httptest.NewRequest(http.MethodGet, "/edge/inventory/sku-1", nil))
+	if inventory.Code != http.StatusOK || strings.TrimSpace(inventory.Body.String()) != `{"backend":"inventory"}` {
+		t.Fatalf("inventory response = %d %q", inventory.Code, inventory.Body.String())
+	}
+	if ordersSeen.Load() != 1 || inventorySeen.Load() != 1 {
+		t.Fatalf("upstream calls orders=%d inventory=%d", ordersSeen.Load(), inventorySeen.Load())
+	}
+}
+
+func TestFetchOpenAPIDocumentValidation(t *testing.T) {
+	if _, err := FetchOpenAPIDocument(nil, OpenAPIURLSource{URL: "http://127.0.0.1/openapi.json"}); err == nil || !strings.Contains(err.Error(), "context is required") {
+		t.Fatalf("nil context error = %v", err)
+	}
+	if _, err := FetchOpenAPIDocument(context.Background(), OpenAPIURLSource{URL: "file:///tmp/openapi.json"}); err == nil || !strings.Contains(err.Error(), "scheme must be http or https") {
+		t.Fatalf("bad scheme error = %v", err)
+	}
+	largeServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `{"openapi":"3.0.3","paths":{}}`)
+	}))
+	t.Cleanup(largeServer.Close)
+	if _, err := FetchOpenAPIDocument(context.Background(), OpenAPIURLSource{URL: largeServer.URL, MaxBytes: 8}); err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("max bytes error = %v", err)
+	}
+	failingServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "missing", http.StatusNotFound)
+	}))
+	t.Cleanup(failingServer.Close)
+	if _, err := FetchOpenAPIDocument(context.Background(), OpenAPIURLSource{URL: failingServer.URL}); err == nil || !strings.Contains(err.Error(), "status = 404") {
+		t.Fatalf("status error = %v", err)
+	}
+}
+
 func TestRouteConfigsFromOpenAPIValidation(t *testing.T) {
 	_, err := RouteConfigsFromOpenAPI(rest.OpenAPIDocument{}, OpenAPIRouteOptions{Targets: []string{"http://127.0.0.1:1"}})
 	if !errors.Is(err, ErrOpenAPIPathsRequired) {

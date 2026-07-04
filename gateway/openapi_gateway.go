@@ -1,15 +1,21 @@
 package gateway
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/imajinyun/gofly/rest"
 )
+
+const defaultOpenAPIImportMaxBytes int64 = 2 << 20
 
 // ErrOpenAPIPathsRequired reports that an OpenAPI document has no importable paths.
 var ErrOpenAPIPathsRequired = errors.New("openapi paths are required")
@@ -32,6 +38,27 @@ type OpenAPIRouteOptions struct {
 	AllowedHosts   []string
 	Tags           map[string]string
 	Headers        map[string]string
+	Groups         []OpenAPIRouteGroup
+}
+
+// OpenAPIRouteGroup overrides upstream routing for matching OpenAPI operations.
+type OpenAPIRouteGroup struct {
+	Name           string
+	MatchTags      []string
+	NamePrefix     string
+	GatewayPrefix  string
+	UpstreamPrefix string
+	Service        string
+	Targets        []string
+	Headers        map[string]string
+}
+
+// OpenAPIURLSource describes a remote OpenAPI contract endpoint.
+type OpenAPIURLSource struct {
+	URL      string
+	Client   *http.Client
+	MaxBytes int64
+	Headers  map[string]string
 }
 
 // RouteConfigsFromOpenAPI imports OpenAPI paths as JSON-friendly gateway routes.
@@ -39,7 +66,7 @@ func RouteConfigsFromOpenAPI(doc rest.OpenAPIDocument, opts OpenAPIRouteOptions)
 	if len(doc.Paths) == 0 {
 		return nil, ErrOpenAPIPathsRequired
 	}
-	if len(opts.Targets) == 0 && strings.TrimSpace(opts.Service) == "" {
+	if !openAPIOptionsHaveAnyUpstream(opts) {
 		return nil, ErrRouteRequired
 	}
 	paths := sortedOpenAPIPaths(doc.Paths)
@@ -56,7 +83,12 @@ func RouteConfigsFromOpenAPI(doc rest.OpenAPIDocument, opts OpenAPIRouteOptions)
 			if err != nil {
 				return nil, err
 			}
-			route := openAPIRouteConfig(httpMethod, path, staticPrefix, doc.Paths[path][method], opts)
+			op := doc.Paths[path][method]
+			routeOpts := openAPIRouteOptionsForOperation(opts, op)
+			if len(routeOpts.Targets) == 0 && strings.TrimSpace(routeOpts.Service) == "" {
+				return nil, fmt.Errorf("openapi route %s %s: %w", httpMethod, path, ErrRouteRequired)
+			}
+			route := openAPIRouteConfig(httpMethod, path, staticPrefix, op, routeOpts)
 			key := route.Method + " " + route.PathPrefix
 			if _, ok := seen[key]; ok {
 				continue
@@ -71,6 +103,15 @@ func RouteConfigsFromOpenAPI(doc rest.OpenAPIDocument, opts OpenAPIRouteOptions)
 	return out, nil
 }
 
+// RouteConfigsFromOpenAPIURL fetches an OpenAPI document endpoint and imports gateway routes.
+func RouteConfigsFromOpenAPIURL(ctx context.Context, source OpenAPIURLSource, opts OpenAPIRouteOptions) ([]RouteConfig, error) {
+	doc, err := FetchOpenAPIDocument(ctx, source)
+	if err != nil {
+		return nil, err
+	}
+	return RouteConfigsFromOpenAPI(doc, opts)
+}
+
 // RoutesFromOpenAPI imports OpenAPI paths as runtime gateway routes.
 func RoutesFromOpenAPI(doc rest.OpenAPIDocument, opts OpenAPIRouteOptions) ([]Route, error) {
 	configs, err := RouteConfigsFromOpenAPI(doc, opts)
@@ -82,6 +123,65 @@ func RoutesFromOpenAPI(doc rest.OpenAPIDocument, opts OpenAPIRouteOptions) ([]Ro
 		routes = append(routes, routeFromConfig(config))
 	}
 	return routes, nil
+}
+
+// RoutesFromOpenAPIURL fetches an OpenAPI document endpoint and imports runtime gateway routes.
+func RoutesFromOpenAPIURL(ctx context.Context, source OpenAPIURLSource, opts OpenAPIRouteOptions) ([]Route, error) {
+	configs, err := RouteConfigsFromOpenAPIURL(ctx, source, opts)
+	if err != nil {
+		return nil, err
+	}
+	routes := make([]Route, 0, len(configs))
+	for _, config := range configs {
+		routes = append(routes, routeFromConfig(config))
+	}
+	return routes, nil
+}
+
+// FetchOpenAPIDocument loads and decodes an OpenAPI document from a trusted endpoint.
+func FetchOpenAPIDocument(ctx context.Context, source OpenAPIURLSource) (rest.OpenAPIDocument, error) {
+	if ctx == nil {
+		return rest.OpenAPIDocument{}, errors.New("openapi fetch context is required")
+	}
+	endpoint, err := parseOpenAPIURL(source.URL)
+	if err != nil {
+		return rest.OpenAPIDocument{}, err
+	}
+	client := source.Client
+	if client == nil {
+		client = &http.Client{Timeout: 10 * time.Second}
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil) // #nosec G107 -- endpoint is an explicit control-plane OpenAPI source validated by parseOpenAPIURL.
+	if err != nil {
+		return rest.OpenAPIDocument{}, fmt.Errorf("build openapi request: %w", err)
+	}
+	for key, value := range source.Headers {
+		req.Header.Set(key, value)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return rest.OpenAPIDocument{}, fmt.Errorf("fetch openapi document: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return rest.OpenAPIDocument{}, fmt.Errorf("fetch openapi document status = %d", resp.StatusCode)
+	}
+	maxBytes := source.MaxBytes
+	if maxBytes <= 0 {
+		maxBytes = defaultOpenAPIImportMaxBytes
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBytes+1))
+	if err != nil {
+		return rest.OpenAPIDocument{}, fmt.Errorf("read openapi document: %w", err)
+	}
+	if int64(len(body)) > maxBytes {
+		return rest.OpenAPIDocument{}, fmt.Errorf("openapi document exceeds %d bytes", maxBytes)
+	}
+	var doc rest.OpenAPIDocument
+	if err := json.Unmarshal(body, &doc); err != nil {
+		return rest.OpenAPIDocument{}, fmt.Errorf("decode openapi document: %w", err)
+	}
+	return doc, nil
 }
 
 func openAPIRouteConfig(method, path, staticPrefix string, op rest.Operation, opts OpenAPIRouteOptions) RouteConfig {
@@ -104,6 +204,78 @@ func openAPIRouteConfig(method, path, staticPrefix string, op rest.Operation, op
 		Tags:           cloneMap(opts.Tags),
 		Headers:        cloneMap(opts.Headers),
 	}
+}
+
+func openAPIOptionsHaveAnyUpstream(opts OpenAPIRouteOptions) bool {
+	if len(opts.Targets) > 0 || strings.TrimSpace(opts.Service) != "" {
+		return true
+	}
+	for _, group := range opts.Groups {
+		if len(group.Targets) > 0 || strings.TrimSpace(group.Service) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func openAPIRouteOptionsForOperation(opts OpenAPIRouteOptions, op rest.Operation) OpenAPIRouteOptions {
+	for _, group := range opts.Groups {
+		if !openAPIGroupMatchesOperation(group, op) {
+			continue
+		}
+		selected := opts
+		if group.NamePrefix != "" {
+			selected.NamePrefix = group.NamePrefix
+		} else if group.Name != "" {
+			selected.NamePrefix = strings.Trim(group.Name, "-") + "-"
+		}
+		if group.GatewayPrefix != "" {
+			selected.GatewayPrefix = group.GatewayPrefix
+		}
+		if group.UpstreamPrefix != "" {
+			selected.UpstreamPrefix = group.UpstreamPrefix
+		}
+		if group.Service != "" {
+			selected.Service = group.Service
+		}
+		if len(group.Targets) > 0 {
+			selected.Targets = append([]string(nil), group.Targets...)
+		}
+		selected.Headers = mergeOpenAPIStringMaps(opts.Headers, group.Headers)
+		selected.Groups = nil
+		return selected
+	}
+	opts.Headers = cloneMap(opts.Headers)
+	opts.Groups = nil
+	return opts
+}
+
+func openAPIGroupMatchesOperation(group OpenAPIRouteGroup, op rest.Operation) bool {
+	if len(group.MatchTags) == 0 {
+		return false
+	}
+	for _, want := range group.MatchTags {
+		for _, got := range op.Tags {
+			if strings.EqualFold(strings.TrimSpace(want), strings.TrimSpace(got)) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func mergeOpenAPIStringMaps(base, override map[string]string) map[string]string {
+	if len(base) == 0 && len(override) == 0 {
+		return nil
+	}
+	out := cloneMap(base)
+	if out == nil {
+		out = make(map[string]string, len(override))
+	}
+	for key, value := range override {
+		out[key] = value
+	}
+	return out
 }
 
 func sortedOpenAPIPaths(paths map[string]map[string]rest.Operation) []string {
@@ -143,6 +315,20 @@ func openAPIHTTPMethod(method string) (string, bool) {
 	default:
 		return "", false
 	}
+}
+
+func parseOpenAPIURL(rawURL string) (*url.URL, error) {
+	endpoint, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil {
+		return nil, fmt.Errorf("parse openapi url: %w", err)
+	}
+	if endpoint.Scheme != "http" && endpoint.Scheme != "https" {
+		return nil, fmt.Errorf("openapi url scheme must be http or https: %s", rawURL)
+	}
+	if endpoint.Host == "" {
+		return nil, fmt.Errorf("openapi url host is required: %s", rawURL)
+	}
+	return endpoint, nil
 }
 
 func openAPIStaticPrefix(path string) (string, error) {

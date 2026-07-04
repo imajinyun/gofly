@@ -131,8 +131,14 @@ func applyConfigDefaults(c Config) (Config, error) {
 	if c.MaxBodyBytes == 0 && c.Middlewares.MaxBodyBytesConfig.Limit == 0 {
 		c.MaxBodyBytes = defaultMaxBodyBytes
 	}
-	if preset == PresetProduction && c.Middlewares.SecurityHeaders == nil {
-		c.Middlewares.SecurityHeaders = &SecurityHeadersConfig{}
+	if preset == PresetProduction {
+		c.Middlewares.Breaker = true
+		c.Middlewares.RateLimit = true
+		c.Middlewares.AdaptiveRateLimit = true
+		c.Middlewares.MaxConcurrency = true
+		if c.Middlewares.SecurityHeaders == nil {
+			c.Middlewares.SecurityHeaders = &SecurityHeadersConfig{}
+		}
 	}
 	return c, nil
 }

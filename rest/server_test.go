@@ -206,11 +206,21 @@ func TestNewServerAppliesProductionSafeMiddlewareDefaults(t *testing.T) {
 	if !s.conf.Middlewares.Recover || !s.conf.Middlewares.Log || !s.conf.Middlewares.Metrics || !s.conf.Middlewares.Health || !s.conf.Middlewares.RequestID || !s.conf.Middlewares.Timeout {
 		t.Fatalf("default middlewares = %#v, want recover/log/metrics/health/request-id/timeout enabled", s.conf.Middlewares)
 	}
+	if !s.conf.Middlewares.Breaker || !s.conf.Middlewares.RateLimit || !s.conf.Middlewares.AdaptiveRateLimit || !s.conf.Middlewares.MaxConcurrency {
+		t.Fatalf("production resilience defaults = %#v, want breaker/rate/adaptive/concurrency enabled", s.conf.Middlewares)
+	}
 	if s.conf.Middlewares.SecurityHeaders == nil {
 		t.Fatalf("production preset should install security headers")
 	}
 	if s.conf.MaxBodyBytes != defaultMaxBodyBytes {
 		t.Fatalf("MaxBodyBytes = %d, want %d", s.conf.MaxBodyBytes, defaultMaxBodyBytes)
+	}
+	rate, burst := defaultRateLimit(s.conf.Middlewares.RateLimitConfig)
+	if rate != 100 || burst != 100 {
+		t.Fatalf("default rate limit = %d/%d, want 100/100", rate, burst)
+	}
+	if got := defaultMaxConcurrency(s.conf.Middlewares.MaxConcurrencyConfig); got != 1000 {
+		t.Fatalf("default max concurrency = %d, want 1000", got)
 	}
 
 	rec := httptest.NewRecorder()
@@ -227,6 +237,217 @@ func TestNewServerAppliesProductionSafeMiddlewareDefaults(t *testing.T) {
 	}
 }
 
+func TestProductionResilienceDefaultsAreRunnableAndOverridable(t *testing.T) {
+	s := MustNewServer(Config{Name: "orders", Middlewares: MiddlewaresConfig{
+		RateLimitConfig:      RateLimitConfig{Rate: 1, Burst: 1},
+		MaxConcurrencyConfig: MaxConcurrencyConfig{Limit: 1},
+		AdaptiveLimitConfig:  AdaptiveLimitConfig{MinLimit: 1, MaxLimit: 1, InitialLimit: 1},
+		BreakerConfig:        BreakerConfig{MinRequests: 1, FailureRatio: 0.1, K: 1, OpenTimeout: time.Second},
+		MaxBodyBytesConfig:   MaxBodyBytesConfig{Limit: 4},
+		SecurityHeaders:      &SecurityHeadersConfig{},
+	}})
+	s.AddRoute(Route{Method: http.MethodGet, Path: "/limited", Handler: func(ctx *Context) {
+		ctx.String(http.StatusOK, "limited")
+	}})
+	s.AddRoute(Route{Method: http.MethodGet, Path: "/open", Handler: func(ctx *Context) {
+		ctx.String(http.StatusOK, "open")
+	}}, WithoutRateLimit(), WithoutMaxConcurrency(), WithoutAdaptiveRateLimit(), WithoutBreaker())
+
+	first := httptest.NewRecorder()
+	s.Handler().ServeHTTP(first, httptest.NewRequest(http.MethodGet, "/limited", nil))
+	if first.Code != http.StatusOK {
+		t.Fatalf("first limited status = %d, want %d", first.Code, http.StatusOK)
+	}
+	second := httptest.NewRecorder()
+	s.Handler().ServeHTTP(second, httptest.NewRequest(http.MethodGet, "/limited", nil))
+	if second.Code != http.StatusTooManyRequests {
+		t.Fatalf("second limited status = %d, want %d", second.Code, http.StatusTooManyRequests)
+	}
+
+	openFirst := httptest.NewRecorder()
+	s.Handler().ServeHTTP(openFirst, httptest.NewRequest(http.MethodGet, "/open", nil))
+	if openFirst.Code != http.StatusOK {
+		t.Fatalf("open first status = %d, want %d", openFirst.Code, http.StatusOK)
+	}
+	openSecond := httptest.NewRecorder()
+	s.Handler().ServeHTTP(openSecond, httptest.NewRequest(http.MethodGet, "/open", nil))
+	if openSecond.Code != http.StatusOK {
+		t.Fatalf("open second status = %d, want %d", openSecond.Code, http.StatusOK)
+	}
+
+	layers := s.runtimeMiddlewareChain()
+	for _, want := range []string{"rate_limit", "adaptive_rate_limit", "max_concurrency", "breaker", "timeout", "max_body_bytes"} {
+		if !hasRuntimeMiddlewareLayer(layers, want) {
+			t.Fatalf("runtime middleware layers = %#v, missing %s", layers, want)
+		}
+	}
+}
+
+func TestProductionResilienceRuntimeMatrix(t *testing.T) {
+	newProductionServer := func(config MiddlewaresConfig) *Server {
+		if config.RateLimitConfig.Rate == 0 {
+			config.RateLimitConfig = RateLimitConfig{Rate: 1000, Burst: 1000}
+		}
+		if config.MaxConcurrencyConfig.Limit == 0 {
+			config.MaxConcurrencyConfig = MaxConcurrencyConfig{Limit: 1000}
+		}
+		if config.AdaptiveLimitConfig.MaxLimit == 0 {
+			config.AdaptiveLimitConfig = AdaptiveLimitConfig{MinLimit: 1000, MaxLimit: 1000, InitialLimit: 1000}
+		}
+		if config.BreakerConfig.MinRequests == 0 {
+			config.BreakerConfig = BreakerConfig{MinRequests: 1000, FailureRatio: 1, K: 1, OpenTimeout: time.Second}
+		}
+		return MustNewServer(Config{
+			Name:        "orders",
+			Timeout:     50 * time.Millisecond,
+			Middlewares: config,
+		})
+	}
+
+	t.Run("timeout", func(t *testing.T) {
+		s := newProductionServer(MiddlewaresConfig{
+			TimeoutConfig: TimeoutConfig{Duration: time.Millisecond},
+		})
+		s.AddRoute(Route{Method: http.MethodGet, Path: "/slow", Handler: func(ctx *Context) {
+			<-ctx.Request.Context().Done()
+			time.Sleep(10 * time.Millisecond)
+			ctx.String(http.StatusOK, "late")
+		}})
+
+		rec := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/slow", nil))
+		if rec.Code != http.StatusGatewayTimeout {
+			t.Fatalf("timeout status = %d, want %d", rec.Code, http.StatusGatewayTimeout)
+		}
+	})
+
+	t.Run("rate limit", func(t *testing.T) {
+		s := newProductionServer(MiddlewaresConfig{
+			RateLimitConfig: RateLimitConfig{Rate: 1, Burst: 1},
+		})
+		s.AddRoute(Route{Method: http.MethodGet, Path: "/limited", Handler: func(ctx *Context) {
+			ctx.String(http.StatusOK, "ok")
+		}})
+
+		first := httptest.NewRecorder()
+		s.Handler().ServeHTTP(first, httptest.NewRequest(http.MethodGet, "/limited", nil))
+		if first.Code != http.StatusOK {
+			t.Fatalf("first status = %d, want %d", first.Code, http.StatusOK)
+		}
+		second := httptest.NewRecorder()
+		s.Handler().ServeHTTP(second, httptest.NewRequest(http.MethodGet, "/limited", nil))
+		if second.Code != http.StatusTooManyRequests {
+			t.Fatalf("second status = %d, want %d", second.Code, http.StatusTooManyRequests)
+		}
+	})
+
+	t.Run("concurrency limit", func(t *testing.T) {
+		s := newProductionServer(MiddlewaresConfig{
+			MaxConcurrencyConfig: MaxConcurrencyConfig{Limit: 1},
+		})
+		started := make(chan struct{})
+		release := make(chan struct{})
+		s.AddRoute(Route{Method: http.MethodGet, Path: "/busy", Handler: func(ctx *Context) {
+			close(started)
+			<-release
+			ctx.String(http.StatusOK, "ok")
+		}})
+
+		done := make(chan int, 1)
+		go func() {
+			rec := httptest.NewRecorder()
+			s.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/busy", nil))
+			done <- rec.Code
+		}()
+		select {
+		case <-started:
+		case <-time.After(time.Second):
+			t.Fatal("timed out waiting for in-flight request")
+		}
+		rejected := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rejected, httptest.NewRequest(http.MethodGet, "/busy", nil))
+		close(release)
+		if rejected.Code != http.StatusServiceUnavailable {
+			t.Fatalf("concurrency status = %d, want %d", rejected.Code, http.StatusServiceUnavailable)
+		}
+		if code := <-done; code != http.StatusOK {
+			t.Fatalf("first status = %d, want %d", code, http.StatusOK)
+		}
+	})
+
+	t.Run("adaptive shedding", func(t *testing.T) {
+		s := newProductionServer(MiddlewaresConfig{
+			AdaptiveLimitConfig: AdaptiveLimitConfig{MinLimit: 1, MaxLimit: 1, InitialLimit: 1},
+		})
+		started := make(chan struct{})
+		release := make(chan struct{})
+		s.AddRoute(Route{Method: http.MethodGet, Path: "/adaptive", Handler: func(ctx *Context) {
+			close(started)
+			<-release
+			ctx.String(http.StatusOK, "ok")
+		}})
+
+		done := make(chan int, 1)
+		go func() {
+			rec := httptest.NewRecorder()
+			s.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/adaptive", nil))
+			done <- rec.Code
+		}()
+		select {
+		case <-started:
+		case <-time.After(time.Second):
+			t.Fatal("timed out waiting for adaptive in-flight request")
+		}
+		rejected := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rejected, httptest.NewRequest(http.MethodGet, "/adaptive", nil))
+		close(release)
+		if rejected.Code != http.StatusTooManyRequests {
+			t.Fatalf("adaptive status = %d, want %d", rejected.Code, http.StatusTooManyRequests)
+		}
+		if code := <-done; code != http.StatusOK {
+			t.Fatalf("first status = %d, want %d", code, http.StatusOK)
+		}
+	})
+
+	t.Run("breaker", func(t *testing.T) {
+		s := newProductionServer(MiddlewaresConfig{
+			BreakerConfig: BreakerConfig{MinRequests: 1, FailureRatio: 0.1, K: 1, OpenTimeout: time.Second},
+		})
+		s.AddRoute(Route{Method: http.MethodGet, Path: "/unstable", Handler: func(ctx *Context) {
+			http.Error(ctx.Response, "failed", http.StatusInternalServerError)
+		}})
+
+		first := httptest.NewRecorder()
+		s.Handler().ServeHTTP(first, httptest.NewRequest(http.MethodGet, "/unstable", nil))
+		if first.Code != http.StatusInternalServerError {
+			t.Fatalf("first status = %d, want %d", first.Code, http.StatusInternalServerError)
+		}
+		second := httptest.NewRecorder()
+		s.Handler().ServeHTTP(second, httptest.NewRequest(http.MethodGet, "/unstable", nil))
+		if second.Code != http.StatusServiceUnavailable {
+			t.Fatalf("breaker status = %d, want %d", second.Code, http.StatusServiceUnavailable)
+		}
+	})
+}
+
+func hasRuntimeMiddlewareLayer(layers []coreruntime.MiddlewareLayer, name string) bool {
+	for _, layer := range layers {
+		if layer.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func hasGovernanceComponentKind(components []governance.ComponentSnapshot, kind string) bool {
+	for _, component := range components {
+		if component.Kind == kind {
+			return true
+		}
+	}
+	return false
+}
+
 func TestNewServerDevelopmentPresetKeepsLowFrictionDefaults(t *testing.T) {
 	s := MustNewServer(Config{Preset: PresetDevelopment})
 	if s.conf.Preset != PresetDevelopment {
@@ -234,6 +455,9 @@ func TestNewServerDevelopmentPresetKeepsLowFrictionDefaults(t *testing.T) {
 	}
 	if !s.conf.Middlewares.Recover || !s.conf.Middlewares.Log || !s.conf.Middlewares.Metrics || !s.conf.Middlewares.Health || !s.conf.Middlewares.RequestID || !s.conf.Middlewares.Timeout {
 		t.Fatalf("development middlewares = %#v, want core developer defaults", s.conf.Middlewares)
+	}
+	if s.conf.Middlewares.Breaker || s.conf.Middlewares.RateLimit || s.conf.Middlewares.AdaptiveRateLimit || s.conf.Middlewares.MaxConcurrency {
+		t.Fatalf("development resilience defaults = %#v, want explicit opt-in", s.conf.Middlewares)
 	}
 	if s.conf.Middlewares.SecurityHeaders != nil {
 		t.Fatalf("development preset security headers = %#v, want nil unless explicitly configured", s.conf.Middlewares.SecurityHeaders)
@@ -253,9 +477,23 @@ func TestNewServerRejectsUnknownPreset(t *testing.T) {
 	}
 }
 
+func TestNewServerCustomPresetKeepsResilienceExplicit(t *testing.T) {
+	s := MustNewServer(Config{Preset: PresetCustom})
+	if s.conf.Preset != PresetCustom {
+		t.Fatalf("preset = %q, want custom", s.conf.Preset)
+	}
+	if s.conf.Middlewares.Recover || s.conf.Middlewares.Timeout || s.conf.Middlewares.Breaker || s.conf.Middlewares.RateLimit || s.conf.Middlewares.AdaptiveRateLimit || s.conf.Middlewares.MaxConcurrency {
+		t.Fatalf("custom middlewares = %#v, want caller-owned resilience profile", s.conf.Middlewares)
+	}
+	if s.conf.MaxBodyBytes != defaultMaxBodyBytes {
+		t.Fatalf("custom MaxBodyBytes = %d, want default body safety limit", s.conf.MaxBodyBytes)
+	}
+}
+
 func TestNewServerCanDisableProductionDefaults(t *testing.T) {
 	s := MustNewServer(Config{DisableDefaultMiddlewares: true})
-	if s.conf.Middlewares.Recover || s.conf.Middlewares.Log || s.conf.Middlewares.Metrics || s.conf.Middlewares.Health || s.conf.Middlewares.RequestID || s.conf.Middlewares.Timeout {
+	if s.conf.Middlewares.Recover || s.conf.Middlewares.Log || s.conf.Middlewares.Metrics || s.conf.Middlewares.Health || s.conf.Middlewares.RequestID || s.conf.Middlewares.Timeout ||
+		s.conf.Middlewares.Breaker || s.conf.Middlewares.RateLimit || s.conf.Middlewares.AdaptiveRateLimit || s.conf.Middlewares.MaxConcurrency {
 		t.Fatalf("default-disabled middlewares = %#v, want all false", s.conf.Middlewares)
 	}
 
@@ -1927,7 +2165,7 @@ func TestConfiguredAdaptiveRateLimitRejectsWhenSaturated(t *testing.T) {
 		t.Fatalf("status = %d, want 429", resp.StatusCode)
 	}
 	snapshot := s.Governance()
-	if len(snapshot.Components) == 0 || snapshot.Components[0].Kind != "adaptive_limiter" {
+	if !hasGovernanceComponentKind(snapshot.Components, "adaptive_limiter") {
 		t.Fatalf("governance = %#v, want adaptive limiter component", snapshot)
 	}
 }

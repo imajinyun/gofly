@@ -1331,6 +1331,7 @@ func writeAdvancedSQLRepoMethods(b *bytes.Buffer, table SQLTable, typeName, rece
 	pk := primaryColumn(table)
 	writeUniqueFinders(b, table, typeName, receiverName)
 	writeIndexListFinders(b, table, typeName, receiverName)
+	writeSQLClaimUpdateHelpers(b, table, typeName, receiverName)
 	writeSQLFindByIDs(b, table, typeName, receiverName)
 	writeSQLUpsertMethods(b, table, typeName, receiverName)
 	writeSQLForUpdateMethods(b, table, typeName, receiverName)
@@ -1568,6 +1569,8 @@ func writeIndexListClaimFinder(b *bytes.Buffer, table SQLTable, index modelIndex
 		return
 	}
 	pk := primaryColumn(table)
+	pkField := modelFieldName(pk.Name)
+	pkType := columnGoType(pk)
 	name := uniqueFinderName(index.Columns)
 	nextArg := "next" + modelFieldName(claimColumn.Name)
 	fprintf(b, "func (r *%s) ClaimBy%sSkipLocked(ctx context.Context, %s, %s %s, limit int) ([]entity.%s, error) {\n", receiverName, name, uniqueFinderParams(index.Columns), nextArg, columnGoType(claimColumn), typeName)
@@ -1576,12 +1579,51 @@ func writeIndexListClaimFinder(b *bytes.Buffer, table SQLTable, index modelIndex
 	fprintf(b, "\tif err := r.Transact(ctx, nil, func(ctx context.Context, txRepo *%s) error {\n", receiverName)
 	fprintf(b, "\t\titems, err := txRepo.FindBy%sForUpdateSkipLocked(ctx, %s, limit, 0)\n", name, uniqueFinderArgs(index.Columns))
 	fprintf(b, "\t\tif err != nil {\n\t\t\treturn err\n\t\t}\n")
+	fprintf(b, "\t\tids := make([]%s, 0, len(items))\n", pkType)
 	fprintf(b, "\t\tfor i := range items {\n")
-	fprintf(b, "\t\t\tif err := txRepo.UpdateFields(ctx, items[i].%s, map[string]any{%q: %s}); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n", modelFieldName(pk.Name), claimColumn.Name, nextArg)
+	fprintf(b, "\t\t\tids = append(ids, items[i].%s)\n", pkField)
+	fprintf(b, "\t\t}\n")
+	fprintf(b, "\t\tif err := txRepo.%s(ctx, ids, %s); err != nil {\n\t\t\treturn err\n\t\t}\n", claimUpdateMethodName(claimColumn, pk), nextArg)
+	fprintf(b, "\t\tfor i := range items {\n")
 	fprintf(b, "\t\t\titems[i].%s = %s\n", modelFieldName(claimColumn.Name), nextArg)
 	fprintf(b, "\t\t}\n")
 	fprintf(b, "\t\tclaimed = items\n\t\treturn nil\n\t}); err != nil {\n\t\treturn nil, err\n\t}\n")
 	fprintf(b, "\treturn claimed, nil\n}\n\n")
+}
+
+func writeSQLClaimUpdateHelpers(b *bytes.Buffer, table SQLTable, typeName, receiverName string) {
+	pk := primaryColumn(table)
+	seen := make(map[string]struct{})
+	for _, index := range modelIndexPrefixes(table) {
+		claimColumn, ok := claimableStatusColumn(index.Columns)
+		if !ok {
+			continue
+		}
+		if _, ok := seen[claimColumn.Name]; ok {
+			continue
+		}
+		seen[claimColumn.Name] = struct{}{}
+		nextArg := "next" + modelFieldName(claimColumn.Name)
+		fprintf(b, "func (r *%s) %s(ctx context.Context, ids []%s, %s %s) error {\n", receiverName, claimUpdateMethodName(claimColumn, pk), columnGoType(pk), nextArg, columnGoType(claimColumn))
+		fprintf(b, "\tif len(ids) == 0 {\n\t\treturn nil\n\t}\n")
+		fprintf(b, "\targs := make([]any, 0, len(ids)+1)\n")
+		fprintf(b, "\targs = append(args, %s)\n", nextArg)
+		fprintf(b, "\tplaceholders := make([]string, 0, len(ids))\n")
+		fprintf(b, "\tfor i, id := range ids {\n")
+		fprintf(b, "\t\tplaceholders = append(placeholders, storage.Placeholder(r.dialect, i+2))\n")
+		fprintf(b, "\t\targs = append(args, id)\n")
+		fprintf(b, "\t}\n")
+		fprintf(b, "\tquery := \"UPDATE \" + entity.%sTable + \" SET %s = \" + storage.Placeholder(r.dialect, 1) + \" WHERE %s IN (\" + strings.Join(placeholders, \", \") + \")\"\n", typeName, claimColumn.Name, pk.Name)
+		if hasSoftDelete(table) {
+			fprintf(b, "\tquery += \" AND %s IS NULL\"\n", table.SoftDeleteColumn)
+		}
+		fprintf(b, "\t_, err := r.exec(ctx, query, args...)\n")
+		fprintf(b, "\treturn err\n}\n\n")
+	}
+}
+
+func claimUpdateMethodName(claimColumn SQLColumn, pk SQLColumn) string {
+	return "updateClaimed" + modelFieldName(claimColumn.Name) + "By" + modelFieldName(pk.Name)
 }
 
 func writeSQLIndexWhereFilters(b *bytes.Buffer, columns []SQLColumn) {
@@ -1964,6 +2006,7 @@ func writeCachedIndexListForUpdateFinders(b *bytes.Buffer, indexes []modelIndexP
 func writeCachedIndexListClaimFinders(b *bytes.Buffer, table SQLTable, typeName, cachedName, nilMessage string, redis bool) {
 	pk := primaryColumn(table)
 	pkField := modelFieldName(pk.Name)
+	pkType := columnGoType(pk)
 	for _, index := range modelIndexPrefixes(table) {
 		claimColumn, ok := claimableStatusColumn(index.Columns)
 		if !ok {
@@ -1993,11 +2036,15 @@ func writeCachedIndexListClaimFinders(b *bytes.Buffer, table SQLTable, typeName,
 		if !redis {
 			fprintf(b, "\toldItems := make([]entity.%s, len(items))\n", typeName)
 		}
+		fprintf(b, "\tids := make([]%s, 0, len(items))\n", pkType)
 		fprintf(b, "\tfor i := range items {\n")
 		if !redis {
 			fprintf(b, "\t\toldItems[i] = items[i]\n")
 		}
-		fprintf(b, "\t\tif err := c.repo.UpdateFields(ctx, items[i].%s, map[string]any{%q: %s}); err != nil {\n\t\t\treturn nil, err\n\t\t}\n", pkField, claimColumn.Name, nextArg)
+		fprintf(b, "\t\tids = append(ids, items[i].%s)\n", pkField)
+		fprintf(b, "\t}\n")
+		fprintf(b, "\tif err := c.repo.%s(ctx, ids, %s); err != nil {\n\t\treturn nil, err\n\t}\n", claimUpdateMethodName(claimColumn, pk), nextArg)
+		fprintf(b, "\tfor i := range items {\n")
 		fprintf(b, "\t\titems[i].%s = %s\n", modelFieldName(claimColumn.Name), nextArg)
 		fprintf(b, "\t}\n")
 		fprintf(b, "\tupdatedItems := append([]entity.%s(nil), items...)\n", typeName)

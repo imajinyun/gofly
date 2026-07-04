@@ -5,7 +5,7 @@ GO_CMD="${GO:-go}"
 workdir="$(mktemp -d)"
 trap 'rm -rf "$workdir"' EXIT INT TERM
 
-(cd examples/resilience && "$GO_CMD" run . --json) >"$workdir/resilience-drill.json"
+(cd examples/microservices/resilience && "$GO_CMD" run . --json) >"$workdir/resilience-drill.json"
 
 python3 - "$workdir/resilience-drill.json" <<'PY'
 import json
@@ -54,13 +54,13 @@ else:
 
 if manifest.get("schema") != "gofly.resilience_drill_evidence.v1":
     missing.append("manifest schema must be gofly.resilience_drill_evidence.v1")
-if manifest.get("example") != "examples/resilience":
-    missing.append("manifest example must be examples/resilience")
+if manifest.get("example") != "examples/microservices/resilience":
+    missing.append("manifest example must be examples/microservices/resilience")
 if manifest.get("reportSchema") != "gofly.resilience_drill.v1":
     missing.append("manifest reportSchema must be gofly.resilience_drill.v1")
 
 commands = manifest.get("commands") or {}
-if commands.get("drill") != "go run -C examples/resilience . --json":
+if commands.get("drill") != "go run -C examples/microservices/resilience . --json":
     missing.append("manifest commands.drill must run the JSON drill")
 if commands.get("gate") != "make resilience-drill-check":
     missing.append("manifest commands.gate must be make resilience-drill-check")
@@ -214,7 +214,7 @@ docs = {
         "gofly.resilience_drill_evidence.v1",
         "gofly.resilience_drill.v1",
         "make resilience-drill-check",
-        "go run -C examples/resilience . --json",
+        "go run -C examples/microservices/resilience . --json",
         "production-orders",
         "GOFLY-P13-04-GOZERO-RESILIENCE-DEFAULTS",
         "adaptive-shedding",
@@ -225,7 +225,7 @@ docs = {
         "gofly.resilience_drill.v1",
     ],
     pathlib.Path("examples/README.md"): [
-        "go run -C examples/resilience . --json",
+        "go run -C examples/microservices/resilience . --json",
         "gofly.resilience_drill.v1",
     ],
     pathlib.Path("Makefile"): [

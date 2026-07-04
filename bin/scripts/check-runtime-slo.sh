@@ -101,7 +101,7 @@ for item in signals:
 
 verification = manifest.get("verification") or {}
 require(verification.get("gate") == "make runtime-slo-check", "verification.gate must be make runtime-slo-check")
-require(verification.get("observabilityExample") == "go test -C examples/observability ./...", "observability example gate mismatch")
+require(verification.get("observabilityExample") == "go test -C examples/http/observability ./...", "observability example gate mismatch")
 require(verification.get("productionGate") == "make p1-growth-check", "production gate mismatch")
 
 for needle in [
@@ -221,16 +221,16 @@ for needle in [
     require(needle in example_readme or needle in example_main, f"observability example missing {needle!r}")
 
 assets = {
-	"examples/observability/grafana-dashboard.json": [
+	"examples/http/observability/grafana-dashboard.json": [
 		"Request Rate",
 		"Error Ratio",
 		"Route Latency P95",
 	],
-	"examples/observability/prometheus.yaml": [
+	"examples/http/observability/prometheus.yaml": [
 		"host.docker.internal:8081",
 		"/debug/metrics",
 	],
-    "examples/observability/otel-collector.yaml": [
+    "examples/http/observability/otel-collector.yaml": [
         "otlp",
         "debug",
     ],
@@ -255,7 +255,7 @@ for path_text, needles in {
         "operator-runbook-drills.json",
         "gofly.operator_runbook_drills.v1",
         "make runtime-slo-check",
-        "go test -C examples/observability ./...",
+        "go test -C examples/http/observability ./...",
         "make p1-growth-check",
     ],
     "docs/index.md": ["reference/runtime-slo.md"],

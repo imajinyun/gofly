@@ -44,37 +44,19 @@ checks = {
         'checksum',
         'source',
     ],
-    pathlib.Path('examples/README.md'): [
-        '`middlewares`',
-        '`middleware-demo`',
-        '`http-middleware`',
-        '`migration-proof`',
-        '`rpc-idl-matrix`',
-        '`plugin-ecosystem`',
-        'JWT, CORS, CSRF, sessions, OpenTelemetry, Prometheus, SSE, WebSocket and validation',
-        'Gin, go-zero, Kratos and Kitex',
-        'Proto/thrift fixtures, unary/server-streaming/client-streaming/bidirectional streaming',
-        'SPI registry, code-generation plugin, post-generation patching and third-party template directory contract',
-        'go -C examples/middlewares test ./...',
-        'go -C examples/middleware-demo test ./...',
-        'go -C examples/http-middleware run .',
-        'go run -C examples/migration-proof .',
-        'go run -C examples/rpc-idl-matrix .',
-        'go run -C examples/plugin-ecosystem .',
-    ],
-    pathlib.Path('examples/rpc-idl-matrix/contracts/greeter.proto'): [
+    pathlib.Path('examples/microservices/rpc-idl-matrix/contracts/greeter.proto'): [
         'service MatrixGreeter',
         'rpc SayHello(HelloRequest) returns (HelloResponse);',
         'rpc WatchHello(HelloRequest) returns (stream HelloResponse);',
         'rpc CollectHello(stream HelloRequest) returns (HelloResponse);',
         'rpc Chat(stream ChatMessage) returns (stream ChatMessage);',
     ],
-    pathlib.Path('examples/rpc-idl-matrix/contracts/greeter.thrift'): [
+    pathlib.Path('examples/microservices/rpc-idl-matrix/contracts/greeter.thrift'): [
         'service MatrixGreeter',
         'HelloResponse SayHello',
         'HelloResponse CollectHello',
     ],
-    pathlib.Path('examples/rpc-idl-matrix/main.go'): [
+    pathlib.Path('examples/microservices/rpc-idl-matrix/main.go'): [
         'gofly.rpc_idl_matrix.v1',
         'contracts/greeter.proto',
         'contracts/greeter.thrift',
@@ -93,7 +75,7 @@ checks = {
         'NewConsistentHashBalancer',
         'NewHealthBalancer',
     ],
-    pathlib.Path('examples/rpc-idl-matrix/main_test.go'): [
+    pathlib.Path('examples/microservices/rpc-idl-matrix/main_test.go'): [
         'TestRPCIDLMatrixReport',
         'server_stream',
         'client_stream',
@@ -102,7 +84,7 @@ checks = {
         'consistent_hash',
         'health_aware',
     ],
-    pathlib.Path('examples/plugin-ecosystem/registry/plugins.json'): [
+    pathlib.Path('examples/ecosystem/plugin-ecosystem/registry/plugins.json'): [
         'audit-trail-generator',
         'company-template-pack',
         '"protocol": "1"',
@@ -112,14 +94,14 @@ checks = {
         '"capabilities": ["generate:file", "generate:patch"]',
         '"permissions": ["filesystem:write-relative"]',
     ],
-    pathlib.Path('examples/plugin-ecosystem/templates/service/gofly.template.json'): [
+    pathlib.Path('examples/ecosystem/plugin-ecosystem/templates/service/gofly.template.json'): [
         'gofly.third_party_template_directory.v1',
         '"protocol": "1"',
         '"permissions": ["filesystem:write-relative"]',
         '"checksum": "sha256:',
         '"source": "https://github.com/example/gofly-company-template-pack"',
     ],
-    pathlib.Path('examples/plugin-ecosystem/main.go'): [
+    pathlib.Path('examples/ecosystem/plugin-ecosystem/main.go'): [
         'gofly.plugin_ecosystem.v1',
         'registry/plugins.json',
         'templates/service/gofly.template.json',
@@ -129,7 +111,7 @@ checks = {
         'future-plus-current',
         'filesystem:write-relative',
     ],
-    pathlib.Path('examples/plugin-ecosystem/main_test.go'): [
+    pathlib.Path('examples/ecosystem/plugin-ecosystem/main_test.go'): [
         'TestPluginEcosystemReport',
         'checksum',
         'source',
@@ -137,7 +119,7 @@ checks = {
         'example-patch-generator',
         'third-party-template-directory',
     ],
-    pathlib.Path('examples/middlewares/catalog.go'): [
+    pathlib.Path('examples/http/middlewares/catalog.go'): [
         'MiddlewareCatalog',
         'JWT',
         'CORS',
@@ -147,19 +129,14 @@ checks = {
         'OpenAPIExpose',
         '/middleware/catalog',
     ],
-    pathlib.Path('examples/middlewares/matrix_test.go'): [
+    pathlib.Path('examples/http/middlewares/matrix_test.go'): [
         'TestMiddlewareCatalogProductization',
         'catalog item is not fully productized',
         'JWT',
         'OpenTelemetry trace',
         'adaptive limit',
     ],
-    pathlib.Path('examples/middleware-demo/main_test.go'): [
-        'TestMiddlewareDemoCatalogAndOpenAPI',
-        '/middleware/catalog',
-        '/openapi.json',
-    ],
-    pathlib.Path('examples/http-middleware/main_test.go'): [
+    pathlib.Path('examples/http/http-middleware/main_test.go'): [
         'TestHTTPMiddlewareServerContracts',
         'JWT',
         'CSRF',
@@ -168,15 +145,15 @@ checks = {
         'gofly_requests_total',
         '/openapi.json',
     ],
-    pathlib.Path('examples/migration-proof/main.go'): [
+    pathlib.Path('examples/migration/migration-proof/main.go'): [
         'gofly.migration_proof.v1',
-        'examples/restserver',
-        'examples/production-orders',
-        'examples/microshop',
-        'examples/rpc-idl-matrix',
+        'examples/getting-started/restserver',
+        'examples/production/production-orders',
+        'examples/production/microshop',
+        'examples/microservices/rpc-idl-matrix',
         'rollback',
     ],
-    pathlib.Path('examples/migration-proof/main_test.go'): [
+    pathlib.Path('examples/migration/migration-proof/main_test.go'): [
         'TestMigrationProofReport',
         'gin',
         'go-zero',
@@ -248,8 +225,8 @@ checks = {
         'schemaOutput',
         'migration-proof.json',
         'gofly.migration_proof.v1',
-        'examples/production-orders',
-        'examples/rpc-idl-matrix',
+        'examples/production/production-orders',
+        'examples/microservices/rpc-idl-matrix',
         'rpc-idl-matrix.json',
         'gofly.rpc_idl_matrix.v1',
         'server_stream',
@@ -267,7 +244,7 @@ checks = {
         'checksum',
         'source',
         'Compatibility matrix',
-        'examples/plugin-ecosystem',
+        'examples/ecosystem/plugin-ecosystem',
         'third-party template directory',
     ],
 }
@@ -316,7 +293,7 @@ for framework in ('Gin', 'go-zero'):
 for field, needles in {
     'failureModes': ('JWT', 'CORS', 'CSRF', 'Session', 'Prometheus', 'OpenTelemetry', 'SSE', 'WebSocket'),
     'productionDefaults': ('secret-manager', 'CORS', 'Secure', 'metrics', 'SSE', 'Gin or go-zero'),
-    'smokeReferences': ('make p1-growth-check', 'make examples-smoke', 'make api-example-consistency-check', 'go -C examples/http-middleware test ./...', 'go -C examples/middlewares test ./...', 'go -C examples/http-middleware run . --describe'),
+    'smokeReferences': ('make p1-growth-check', 'make examples-smoke', 'make api-example-consistency-check', 'go -C examples/http/http-middleware test ./...', 'go -C examples/http/middlewares test ./...', 'go -C examples/http/http-middleware run . --describe'),
 }.items():
     values = middleware_dx.get(field) or []
     joined = '\n'.join(values)
@@ -324,7 +301,7 @@ for field, needles in {
         require(needle in joined, f'HTTP middleware migrationDX.{field} missing {needle!r}')
 
 modules = set(middleware_manifest.get('exampleModules') or [])
-for module in ('examples/middlewares', 'examples/middleware-demo', 'examples/http-middleware'):
+for module in ('examples/http/middlewares', 'examples/http/http-middleware'):
     require(module in modules, f'HTTP middleware ecosystem missing example module {module}')
 
 capabilities = middleware_manifest.get('capabilities') or []

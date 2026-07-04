@@ -17,16 +17,25 @@ type exampleInfo struct {
 }
 
 var builtInExamples = []exampleInfo{
-	{Name: "gateway-discovery-rpc", Path: "examples/gateway-discovery-rpc", Description: "API gateway with service discovery and RPC backend"},
-	{Name: "k8s", Path: "examples/k8s", Description: "Kubernetes deployment and service manifests"},
-	{Name: "model-gorm", Path: "examples/model-gorm", Description: "GORM-style SQL model generation"},
-	{Name: "model-mongo", Path: "examples/model-mongo", Description: "MongoDB repository skeleton"},
-	{Name: "observability", Path: "examples/observability", Description: "Trace, metrics and structured logging demo"},
-	{Name: "outbox-mq", Path: "examples/outbox-mq", Description: "Transactional outbox with message queue"},
-	{Name: "resilience", Path: "examples/resilience", Description: "Circuit breaker, rate limiter and timeout patterns"},
-	{Name: "restserver", Path: "examples/restserver", Description: "REST server with routing and middleware"},
-	{Name: "rpcserver", Path: "examples/rpcserver", Description: "gRPC server with gofly RPC runtime"},
-	{Name: "saga", Path: "examples/saga", Description: "Saga orchestration and compensation demo"},
+	{Name: "ai-governed-service", Path: "examples/ai-first/ai-governed-service", Description: "AI-first service contract and control-plane example"},
+	{Name: "cache-local", Path: "examples/goctl-model/cache-local", Description: "Local cache and cache-aside model capability example"},
+	{Name: "config-discovery", Path: "examples/microservices/config-discovery", Description: "Configuration and service discovery example"},
+	{Name: "gateway-discovery-rpc", Path: "examples/microservices/gateway-discovery-rpc", Description: "API gateway with service discovery and RPC backend"},
+	{Name: "http-middleware", Path: "examples/http/http-middleware", Description: "Productized HTTP middleware matrix"},
+	{Name: "k8s", Path: "examples/deploy/k8s", Description: "Kubernetes deployment and service manifests"},
+	{Name: "microshop", Path: "examples/production/microshop", Description: "Production microservice topology example"},
+	{Name: "migration-proof", Path: "examples/migration/migration-proof", Description: "Gin, go-zero, Kratos and Kitex migration proof cases"},
+	{Name: "model-gorm", Path: "examples/goctl-model/model-gorm", Description: "GORM-style SQL model generation"},
+	{Name: "mq-worker", Path: "examples/microservices/mq-worker", Description: "Message queue worker example"},
+	{Name: "observability", Path: "examples/http/observability", Description: "Trace, metrics and structured logging demo"},
+	{Name: "outbox-mq", Path: "examples/microservices/outbox-mq", Description: "Transactional outbox with message queue"},
+	{Name: "plugin-ecosystem", Path: "examples/ecosystem/plugin-ecosystem", Description: "Plugin registry and template ecosystem example"},
+	{Name: "production-orders", Path: "examples/production/production-orders", Description: "Reference production orders service topology"},
+	{Name: "resilience", Path: "examples/microservices/resilience", Description: "Circuit breaker, rate limiter and timeout patterns"},
+	{Name: "restserver", Path: "examples/getting-started/restserver", Description: "REST server with routing and middleware"},
+	{Name: "rpc-idl-matrix", Path: "examples/microservices/rpc-idl-matrix", Description: "RPC proto, thrift and streaming compatibility matrix"},
+	{Name: "rpcserver", Path: "examples/getting-started/rpcserver", Description: "gRPC server with gofly RPC runtime"},
+	{Name: "saga", Path: "examples/microservices/saga", Description: "Saga orchestration and compensation demo"},
 }
 
 func exampleCommand(args []string) error {

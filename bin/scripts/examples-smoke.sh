@@ -4,10 +4,13 @@ set -eu
 GO_CMD="${GO:-go}"
 workdir="$(mktemp -d)"
 trap 'rm -rf "$workdir"' EXIT
+mkdir -p "$workdir/gocache" "$workdir/gotmp"
+export GOCACHE="$workdir/gocache"
+export GOTMPDIR="$workdir/gotmp"
 
 missing_mods=""
-for example in examples/*; do
-	if [ -d "$example" ] && find "$example" -maxdepth 1 -name '*.go' | grep -q . && [ ! -f "$example/go.mod" ]; then
+for example in $(find examples -mindepth 2 -maxdepth 3 -type f -name '*.go' -exec dirname {} \; | sort -u); do
+	if [ -d "$example" ] && [ ! -f "$example/go.mod" ]; then
 		missing_mods="${missing_mods}${example}\n"
 	fi
 done
@@ -17,20 +20,20 @@ if [ -n "$missing_mods" ]; then
 	exit 1
 fi
 
-for mod in examples/*/go.mod; do
+find examples -mindepth 2 -maxdepth 3 -name go.mod -print | sort | while IFS= read -r mod; do
 	dir="$(dirname "$mod")"
 	(cd "$dir" && "$GO_CMD" test -count=1 ./...)
 	(cd "$dir" && "$GO_CMD" build -o "$workdir/$(basename "$dir")" ./...)
 done
 
-(cd examples/microshop && "$GO_CMD" run . describe) >"$workdir/microshop-topology.json"
-(cd examples/ai-governed-service && "$GO_CMD" run . expected) >"$workdir/ai-governed-contract.json"
-(cd examples/cache-local && "$GO_CMD" run .) >"$workdir/cache-local.json"
-(cd examples/http-middleware && "$GO_CMD" run . --describe) >"$workdir/http-middleware.json"
-(cd examples/migration-proof && "$GO_CMD" run .) >"$workdir/migration-proof.json"
-(cd examples/rpc-idl-matrix && "$GO_CMD" run .) >"$workdir/rpc-idl-matrix.json"
-(cd examples/plugin-ecosystem && "$GO_CMD" run .) >"$workdir/plugin-ecosystem.json"
-(cd examples/resilience && "$GO_CMD" run . --json) >"$workdir/resilience-drill.json"
+(cd examples/production/microshop && "$GO_CMD" run . describe) >"$workdir/microshop-topology.json"
+(cd examples/ai-first/ai-governed-service && "$GO_CMD" run . expected) >"$workdir/ai-governed-contract.json"
+(cd examples/goctl-model/cache-local && "$GO_CMD" run .) >"$workdir/cache-local.json"
+(cd examples/http/http-middleware && "$GO_CMD" run . --describe) >"$workdir/http-middleware.json"
+(cd examples/migration/migration-proof && "$GO_CMD" run .) >"$workdir/migration-proof.json"
+(cd examples/microservices/rpc-idl-matrix && "$GO_CMD" run .) >"$workdir/rpc-idl-matrix.json"
+(cd examples/ecosystem/plugin-ecosystem && "$GO_CMD" run .) >"$workdir/plugin-ecosystem.json"
+(cd examples/microservices/resilience && "$GO_CMD" run . --json) >"$workdir/resilience-drill.json"
 
 python3 - "$workdir" <<'PY'
 import json
@@ -84,17 +87,17 @@ for framework in ('Gin', 'go-zero'):
 assert any('JWT' in item for item in middleware_dx['failureModes']), http_middleware
 assert any('Gin or go-zero' in item for item in middleware_dx['productionDefaults']), http_middleware
 assert {'make p1-growth-check', 'make examples-smoke', 'make api-example-consistency-check'} <= set(middleware_dx['smokeReferences']), http_middleware
-assert {'go -C examples/http-middleware test ./...', 'go -C examples/middlewares test ./...'} <= set(middleware_dx['smokeReferences']), http_middleware
+assert {'go -C examples/http/http-middleware test ./...', 'go -C examples/http/middlewares test ./...'} <= set(middleware_dx['smokeReferences']), http_middleware
 
 with open(workdir / 'migration-proof.json', encoding='utf-8') as f:
     migration_proof = json.load(f)
 assert migration_proof['schema'] == 'gofly.migration_proof.v1', migration_proof
 cases = {item['source']: item for item in migration_proof['cases']}
 assert set(cases) == {'gin', 'go-zero', 'kratos', 'kitex'}, migration_proof
-assert cases['gin']['example'] == 'examples/restserver', migration_proof
-assert cases['go-zero']['example'] == 'examples/production-orders', migration_proof
-assert cases['kratos']['example'] == 'examples/microshop', migration_proof
-assert cases['kitex']['example'] == 'examples/rpc-idl-matrix', migration_proof
+assert cases['gin']['example'] == 'examples/getting-started/restserver', migration_proof
+assert cases['go-zero']['example'] == 'examples/production/production-orders', migration_proof
+assert cases['kratos']['example'] == 'examples/production/microshop', migration_proof
+assert cases['kitex']['example'] == 'examples/microservices/rpc-idl-matrix', migration_proof
 for source, item in cases.items():
     assert item['rollback'], migration_proof
     assert item['validation'], migration_proof

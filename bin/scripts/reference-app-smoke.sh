@@ -2,7 +2,7 @@
 set -eu
 
 mode="${REFERENCE_APP_MODE:-memory}"
-compose_file="examples/production-orders/compose.yaml"
+compose_file="examples/production/production-orders/compose.yaml"
 report_path="${REFERENCE_APP_REPORT:-.aiflow/reference-app-smoke-report.json}"
 
 python3 - "$mode" <<'PY'
@@ -14,7 +14,7 @@ mode = sys.argv[1]
 root = pathlib.Path(".").resolve()
 manifest_path = root / "docs" / "reference" / "reference-app-topology.json"
 checks = {
-    pathlib.Path("examples/production-orders/README.md"): [
+    pathlib.Path("examples/production/production-orders/README.md"): [
         "gofly.reference_app.v1",
         "REST",
         "RPC",
@@ -41,7 +41,7 @@ checks = {
         "topology_evidence",
         "fallback note",
     ],
-    pathlib.Path("examples/production-orders/main.go"): [
+    pathlib.Path("examples/production/production-orders/main.go"): [
         "REST API accepts order creation requests",
         "RPC service reserves inventory",
         "profile config and memory discovery",
@@ -52,7 +52,7 @@ checks = {
         "/topology",
         "topologyEvidence",
     ],
-    pathlib.Path("examples/production-orders/main_test.go"): [
+    pathlib.Path("examples/production/production-orders/main_test.go"): [
         "TestCreateOrderSuccessPublishesOutbox",
         "TestBuildRESTServerOrderRouteBoundaries",
         "TestProductionOrderReferenceAppContract",
@@ -63,7 +63,7 @@ checks = {
         "MQ",
         "rollback",
     ],
-    pathlib.Path("examples/production-orders/compose.yaml"): [
+    pathlib.Path("examples/production/production-orders/compose.yaml"): [
         "postgres",
         "redis",
         "kafka",
@@ -74,7 +74,7 @@ checks = {
         "otel-collector",
         "REFERENCE_APP_MODE: docker",
     ],
-    pathlib.Path("examples/production-orders/otel-collector.yaml"): [
+    pathlib.Path("examples/production/production-orders/otel-collector.yaml"): [
         "receivers",
         "otlp",
         "debug",
@@ -98,7 +98,7 @@ gitignore = (root / ".gitignore").read_text(encoding="utf-8")
 
 require(manifest.get("schema") == "gofly.reference_app_topology.v1", "reference app topology schema mismatch")
 require(manifest.get("status") == "blocking", "reference app topology status must be blocking")
-require(manifest.get("referenceApp") == "examples/production-orders", "reference app topology must target examples/production-orders")
+require(manifest.get("referenceApp") == "examples/production/production-orders", "reference app topology must target examples/production/production-orders")
 require(manifest.get("blockingGate") == "make reference-app-smoke", "reference app topology blocking gate must be make reference-app-smoke")
 
 modes = manifest.get("modes") or []
@@ -596,7 +596,7 @@ PY
 }
 
 if [ "$mode" = "memory" ]; then
-	(cd examples/production-orders && go test -count=1 ./...)
+	(cd examples/production/production-orders && go test -count=1 ./...)
 	write_report "passed" "false" "memory-mode"
 	exit 0
 fi
@@ -631,5 +631,5 @@ trap cleanup EXIT INT TERM
 
 PRODUCTION_ORDERS_URL="${PRODUCTION_ORDERS_URL:-http://127.0.0.1:18090}" \
 PRODUCTION_ORDERS_ADMIN_URL="${PRODUCTION_ORDERS_ADMIN_URL:-http://127.0.0.1:18091}" \
-	sh examples/production-orders/scripts/smoke.sh
+	sh examples/production/production-orders/scripts/smoke.sh
 write_report "passed" "true" ""

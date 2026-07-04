@@ -5,22 +5,17 @@ GO_CMD="${GO:-go}"
 root="$(pwd)"
 workdir="$(mktemp -d)"
 trap 'rm -rf "$workdir"' EXIT
+mkdir -p "$workdir/gocache" "$workdir/gotmp"
+export GOCACHE="$workdir/gocache"
+export GOTMPDIR="$workdir/gotmp"
 
-for mod in examples/*/go.mod; do
+find examples -mindepth 2 -maxdepth 3 -name go.mod -print | sort | while IFS= read -r mod; do
 	dir="$(dirname "$mod")"
-	name="$(basename "$dir")"
-	copy="$workdir/$name"
+	rel="${dir#examples/}"
+	name="$(printf '%s' "$rel" | tr '/.' '--')"
+	copy="$workdir/examples/$rel"
+	mkdir -p "$(dirname "$copy")"
 	cp -R "$dir" "$copy"
-	while IFS= read -r sibling; do
-		[ -n "$sibling" ] || continue
-		src="examples/$sibling"
-		dst="$workdir/$sibling"
-		if [ -d "$src" ] && [ ! -e "$dst" ]; then
-			cp -R "$src" "$dst"
-		fi
-	done <<EOF
-$(sed -n 's/.*=> \.\.\/\([^[:space:]]*\).*/\1/p' "$copy/go.mod")
-EOF
 	(
 		cd "$copy"
 		"$GO_CMD" mod edit -replace "github.com/imajinyun/gofly=$root"

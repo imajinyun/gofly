@@ -19,8 +19,8 @@ checks = {
         "`name`, `remote`, `version`",
         "`compatibleVersions`, `capabilities`, `permissions`, and",
         "make plugin-conformance-check",
-        "go test -C examples/plugin-ecosystem ./...",
-        "go run -C examples/plugin-ecosystem .",
+        "go test -C examples/ecosystem/plugin-ecosystem ./...",
+        "go run -C examples/ecosystem/plugin-ecosystem .",
         "protocol compatibility",
         "digest provenance",
         "permission rationale",
@@ -41,7 +41,7 @@ checks = {
         "source allowlist",
         "contractVersion",
     ],
-    pathlib.Path("examples/plugin-ecosystem/main.go"): [
+    pathlib.Path("examples/ecosystem/plugin-ecosystem/main.go"): [
         "Publishing",
         "publishingSummary",
         "ManifestFields",
@@ -81,7 +81,7 @@ checks = {
         "requiresDryRun must be true",
         "permissions are required",
     ],
-    pathlib.Path("examples/plugin-ecosystem/main_test.go"): [
+    pathlib.Path("examples/ecosystem/plugin-ecosystem/main_test.go"): [
         "Publishing.ManifestFields",
         "Publishing.RequiredGates",
         "Publishing.ReleaseNotes",
@@ -215,8 +215,8 @@ if p13_hardening.get("status") != "blocking":
     missing.append("docs/reference/plugin-publishing-ux.json: p13PublishHardening status must be blocking")
 if set(p13_hardening.get("acceptanceGates") or []) != {
     "make plugin-conformance-check",
-    "go test -C examples/plugin-ecosystem ./...",
-    "go run -C examples/plugin-ecosystem .",
+    "go test -C examples/ecosystem/plugin-ecosystem ./...",
+    "go run -C examples/ecosystem/plugin-ecosystem .",
 }:
     missing.append("docs/reference/plugin-publishing-ux.json: p13PublishHardening acceptanceGates mismatch")
 required_p13_registry = {"checksum", "source", "sourcePolicy", "signature", "manifest"}
@@ -243,7 +243,7 @@ if p13_source_allowlist.get("registryField") != "sourcePolicy":
     missing.append("docs/reference/plugin-publishing-ux.json: p13PublishHardening sourceAllowlist.registryField mismatch")
 if set(p13_hardening.get("signatureTrustSources") or []) != {"github-actions-oidc"}:
     missing.append("docs/reference/plugin-publishing-ux.json: p13PublishHardening signatureTrustSources mismatch")
-if p13_hardening.get("exampleOutput") != "examples/plugin-ecosystem p13Publishing":
+if p13_hardening.get("exampleOutput") != "examples/ecosystem/plugin-ecosystem p13Publishing":
     missing.append("docs/reference/plugin-publishing-ux.json: p13PublishHardening exampleOutput mismatch")
 for field in ("publisherAction", "rollbackOrEscalation"):
     if len(str(p13_hardening.get(field) or "").split()) < 14:
@@ -307,7 +307,7 @@ for item_id, expected_evidence in expected_checklist.items():
         missing.append(f"docs/reference/plugin-publishing-ux.json: checklist {item_id!r} missing evidence {evidence!r}")
 
 commands = set(manifest.get("publishingCommands") or [])
-for command in ("make plugin-conformance-check", "go test -C examples/plugin-ecosystem ./...", "go run -C examples/plugin-ecosystem ."):
+for command in ("make plugin-conformance-check", "go test -C examples/ecosystem/plugin-ecosystem ./...", "go run -C examples/ecosystem/plugin-ecosystem ."):
     if command not in commands:
         missing.append(f"docs/reference/plugin-publishing-ux.json: publishingCommands missing {command!r}")
 release_note_fields = set(manifest.get("releaseNoteFields") or [])
@@ -329,9 +329,9 @@ else:
     if template_data.get("protocol") != "1":
         missing.append(f"{template_path}: protocol must be 1")
 
-registry_path = pathlib.Path("examples/plugin-ecosystem/registry/plugins.json")
+registry_path = pathlib.Path("examples/ecosystem/plugin-ecosystem/registry/plugins.json")
 if not registry_path.is_file():
-    missing.append("examples/plugin-ecosystem/registry/plugins.json: file is missing")
+    missing.append("examples/ecosystem/plugin-ecosystem/registry/plugins.json: file is missing")
     registry = {}
 else:
     registry = json.loads(registry_path.read_text(encoding="utf-8"))
@@ -468,8 +468,8 @@ if set(adopter_contract.get("consumers") or []) != {"adopter", "plugin-publisher
     missing.append("docs/reference/plugin-conformance-report.json: adopterPublishingContract consumers mismatch")
 if set(adopter_contract.get("acceptanceGates") or []) != {
     "make plugin-conformance-check",
-    "go test -C examples/plugin-ecosystem ./...",
-    "go run -C examples/plugin-ecosystem .",
+    "go test -C examples/ecosystem/plugin-ecosystem ./...",
+    "go run -C examples/ecosystem/plugin-ecosystem .",
 }:
     missing.append("docs/reference/plugin-conformance-report.json: adopterPublishingContract acceptanceGates mismatch")
 if len(str(adopter_contract.get("policy") or "").split()) < 18:
@@ -744,52 +744,52 @@ for case_id, (category, expected, required_tests) in expected_cases.items():
 release_gates = set(report.get("releaseGates") or [])
 for command in (
     "make plugin-conformance-check",
-    "go test -C examples/plugin-ecosystem ./...",
-    "go run -C examples/plugin-ecosystem .",
+    "go test -C examples/ecosystem/plugin-ecosystem ./...",
+    "go run -C examples/ecosystem/plugin-ecosystem .",
 ):
     if command not in release_gates:
         missing.append(f"docs/reference/plugin-conformance-report.json: releaseGates missing {command!r}")
 
 example = subprocess.run(
-    ["go", "run", "-C", "examples/plugin-ecosystem", "."],
+    ["go", "run", "-C", "examples/ecosystem/plugin-ecosystem", "."],
     check=False,
     text=True,
     stdout=subprocess.PIPE,
     stderr=subprocess.STDOUT,
 )
 if example.returncode != 0:
-    missing.append("examples/plugin-ecosystem runnable report failed:\n" + example.stdout)
+    missing.append("examples/ecosystem/plugin-ecosystem runnable report failed:\n" + example.stdout)
 else:
     try:
         example_report = json.loads(example.stdout)
     except json.JSONDecodeError as exc:
-        missing.append(f"examples/plugin-ecosystem emitted invalid JSON: {exc}")
+        missing.append(f"examples/ecosystem/plugin-ecosystem emitted invalid JSON: {exc}")
         example_report = {}
     if example_report.get("schema") != "gofly.plugin_ecosystem.v1":
-        missing.append("examples/plugin-ecosystem schema mismatch")
+        missing.append("examples/ecosystem/plugin-ecosystem schema mismatch")
     p13_example = example_report.get("p13Publishing") or {}
     if p13_example.get("schema") != p13_hardening.get("schema"):
-        missing.append("examples/plugin-ecosystem p13Publishing schema mismatch")
+        missing.append("examples/ecosystem/plugin-ecosystem p13Publishing schema mismatch")
     if p13_example.get("aiflowTask") != p13_hardening.get("aiflowTask"):
-        missing.append("examples/plugin-ecosystem p13Publishing aiflowTask mismatch")
+        missing.append("examples/ecosystem/plugin-ecosystem p13Publishing aiflowTask mismatch")
     if p13_example.get("status") != p13_hardening.get("status"):
-        missing.append("examples/plugin-ecosystem p13Publishing status mismatch")
+        missing.append("examples/ecosystem/plugin-ecosystem p13Publishing status mismatch")
     if set(p13_example.get("requiredRegistry") or []) != set(p13_hardening.get("requiredRegistryFields") or []):
-        missing.append("examples/plugin-ecosystem p13Publishing requiredRegistry mismatch")
+        missing.append("examples/ecosystem/plugin-ecosystem p13Publishing requiredRegistry mismatch")
     if set(p13_example.get("requiredManifest") or []) != set(p13_hardening.get("requiredManifestFields") or []):
-        missing.append("examples/plugin-ecosystem p13Publishing requiredManifest mismatch")
+        missing.append("examples/ecosystem/plugin-ecosystem p13Publishing requiredManifest mismatch")
     if set(p13_example.get("requiredTemplate") or []) != set(p13_hardening.get("requiredTemplateFields") or []):
-        missing.append("examples/plugin-ecosystem p13Publishing requiredTemplate mismatch")
+        missing.append("examples/ecosystem/plugin-ecosystem p13Publishing requiredTemplate mismatch")
     if set(p13_example.get("failureCases") or []) != set(p13_hardening.get("failureCases") or []):
-        missing.append("examples/plugin-ecosystem p13Publishing failureCases mismatch")
+        missing.append("examples/ecosystem/plugin-ecosystem p13Publishing failureCases mismatch")
     if set(p13_example.get("sourceAllowlist") or []) != set((p13_hardening.get("sourceAllowlist") or {}).get("allowedHosts") or []):
-        missing.append("examples/plugin-ecosystem p13Publishing sourceAllowlist mismatch")
+        missing.append("examples/ecosystem/plugin-ecosystem p13Publishing sourceAllowlist mismatch")
     if set(p13_example.get("signatureTrust") or []) != set(p13_hardening.get("signatureTrustSources") or []):
-        missing.append("examples/plugin-ecosystem p13Publishing signatureTrust mismatch")
+        missing.append("examples/ecosystem/plugin-ecosystem p13Publishing signatureTrust mismatch")
     if set(p13_example.get("publishBlockers") or []) != set(p13_hardening.get("publishBlockers") or []):
-        missing.append("examples/plugin-ecosystem p13Publishing publishBlockers mismatch")
+        missing.append("examples/ecosystem/plugin-ecosystem p13Publishing publishBlockers mismatch")
     if len(str(p13_example.get("noPartialWritePolicy") or "").split()) < 10:
-        missing.append("examples/plugin-ecosystem p13Publishing noPartialWritePolicy must be actionable")
+        missing.append("examples/ecosystem/plugin-ecosystem p13Publishing noPartialWritePolicy must be actionable")
 
 if missing:
     print("plugin conformance check failed:", file=sys.stderr)

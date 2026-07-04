@@ -314,12 +314,13 @@ examples-check: examples-copyable-check ## Build and vet all examples to keep do
 		echo "examples/ not present or empty; skipping examples-check"; \
 		exit 0; \
 	fi
-	@for mod in examples/*/go.mod; do \
+	@find examples -mindepth 2 -maxdepth 3 -name go.mod -print | sort | while IFS= read -r mod; do \
 		dir=$$(dirname $$mod); \
 		out=$$(mktemp -d); \
 		trap 'rm -rf $$out' EXIT; \
+		mkdir -p $$out/gocache $$out/gotmp; \
 		echo "checking $$dir"; \
-		(cd $$dir && $(GO) build -o $$out/$$(basename $$dir) ./... && $(GO) vet ./...); \
+		(cd $$dir && GOCACHE=$$out/gocache GOTMPDIR=$$out/gotmp $(GO) build -o $$out/$$(basename $$dir) ./... && GOCACHE=$$out/gocache GOTMPDIR=$$out/gotmp $(GO) vet ./...); \
 	done
 
 .PHONY: examples-copyable-check

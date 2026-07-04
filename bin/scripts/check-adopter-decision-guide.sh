@@ -31,8 +31,8 @@ checks = {
         "Compatibility caveat",
         "rollback note",
         "Gate command",
-        "go test -C examples/migration-proof ./...",
-        "go run -C examples/migration-proof .",
+        "go test -C examples/migration/migration-proof ./...",
+        "go run -C examples/migration/migration-proof .",
         "make examples-smoke",
         "make docs-check",
     ],
@@ -44,19 +44,19 @@ checks = {
     ],
     pathlib.Path("docs/comparisons/gin.md"): [
         "rollback note",
-        "examples/restserver",
+        "examples/getting-started/restserver",
     ],
     pathlib.Path("docs/comparisons/go-zero.md"): [
         "rollback note",
-        "examples/production-orders",
+        "examples/production/production-orders",
     ],
     pathlib.Path("docs/comparisons/kratos.md"): [
         "rollback note",
-        "examples/microshop",
+        "examples/production/microshop",
     ],
     pathlib.Path("docs/comparisons/kitex.md"): [
         "rollback note",
-        "examples/rpc-idl-matrix",
+        "examples/microservices/rpc-idl-matrix",
     ],
 }
 
@@ -102,7 +102,7 @@ if manual.is_file():
         missing.append(f"{adopter_proof_path}: adopterDecisionEvidence acceptanceGate mismatch")
     if decision_contract.get("guide") != str(manual):
         missing.append(f"{adopter_proof_path}: adopterDecisionEvidence guide must be {manual}")
-    if decision_contract.get("migrationProofCommand") != "go run -C examples/migration-proof .":
+    if decision_contract.get("migrationProofCommand") != "go run -C examples/migration/migration-proof .":
         missing.append(f"{adopter_proof_path}: adopterDecisionEvidence migrationProofCommand mismatch")
     if decision_contract.get("supportBundleSource") != str(support_bundle_path):
         missing.append(f"{adopter_proof_path}: supportBundleSource mismatch")
@@ -250,25 +250,25 @@ if manual.is_file():
 
     migration_paths = {
         "Gin to gofly": [
-            "examples/restserver",
+            "examples/getting-started/restserver",
             "Gin `:id` routes become gofly `{id}` routes",
-            "go test -C examples/restserver ./...",
+            "go test -C examples/getting-started/restserver ./...",
             "Keep the Gin route active",
         ],
         "go-zero to gofly": [
-            "examples/production-orders",
+            "examples/production/production-orders",
             "Preserve `.api` request/response field names",
             "make generated-version-compat-check",
             "Keep the go-zero endpoint addressable",
         ],
         "Kratos to gofly": [
-            "examples/microshop",
+            "examples/production/microshop",
             "compare lifecycle hooks",
             "make cloud-native-render-check",
             "Restore the previous Kratos deployment target",
         ],
         "Kitex with gofly": [
-            "examples/rpc-idl-matrix",
+            "examples/microservices/rpc-idl-matrix",
             "Do not migrate hot methods without `bench/` evidence",
             "make rpc-boundary-check",
             "Route latency-critical methods back to Kitex",
@@ -283,54 +283,54 @@ if manual.is_file():
                 missing.append(f"{manual}: migration path {name!r} missing {term!r}")
 
     proof = subprocess.run(
-        ["go", "run", "-C", "examples/migration-proof", "."],
+        ["go", "run", "-C", "examples/migration/migration-proof", "."],
         check=False,
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
     )
     if proof.returncode != 0:
-        missing.append("examples/migration-proof runnable case failed:\n" + proof.stdout)
+        missing.append("examples/migration/migration-proof runnable case failed:\n" + proof.stdout)
     else:
         try:
             report = json.loads(proof.stdout)
         except json.JSONDecodeError as exc:
-            missing.append(f"examples/migration-proof emitted invalid JSON: {exc}")
+            missing.append(f"examples/migration/migration-proof emitted invalid JSON: {exc}")
             report = {}
         if report.get("schema") != "gofly.migration_proof.v1":
-            missing.append("examples/migration-proof schema mismatch")
+            missing.append("examples/migration/migration-proof schema mismatch")
         cases = {item.get("source"): item for item in report.get("cases") or [] if isinstance(item, dict)}
         expected_cases = {
             "gin": {
                 "manualPath": "Gin to gofly",
-                "example": "examples/restserver",
-                "gate": "go test -C examples/restserver ./...",
+                "example": "examples/getting-started/restserver",
+                "gate": "go test -C examples/getting-started/restserver ./...",
             },
             "go-zero": {
                 "manualPath": "go-zero to gofly",
-                "example": "examples/production-orders",
+                "example": "examples/production/production-orders",
                 "gate": "make generated-version-compat-check",
             },
             "kratos": {
                 "manualPath": "Kratos to gofly",
-                "example": "examples/microshop",
+                "example": "examples/production/microshop",
                 "gate": "make cloud-native-render-check",
             },
             "kitex": {
                 "manualPath": "Kitex with gofly",
-                "example": "examples/rpc-idl-matrix",
+                "example": "examples/microservices/rpc-idl-matrix",
                 "gate": "make rpc-boundary-check",
             },
         }
         if set(cases) != set(expected_cases):
-            missing.append(f"examples/migration-proof sources = {sorted(cases)}, want {sorted(expected_cases)}")
+            missing.append(f"examples/migration/migration-proof sources = {sorted(cases)}, want {sorted(expected_cases)}")
         for source, expected in expected_cases.items():
             item = cases.get(source) or {}
             decision = adopter_decisions.get(source) or {}
             if not decision:
                 missing.append(f"{adopter_proof_path}: adopterDecisionEvidence missing {source!r}")
             if item.get("example") != expected["example"]:
-                missing.append(f"examples/migration-proof {source}: example = {item.get('example')!r}, want {expected['example']!r}")
+                missing.append(f"examples/migration/migration-proof {source}: example = {item.get('example')!r}, want {expected['example']!r}")
             if decision.get("manualPath") != expected["manualPath"]:
                 missing.append(f"{adopter_proof_path}: {source} manualPath = {decision.get('manualPath')!r}, want {expected['manualPath']!r}")
             if decision.get("migrationProofExample") != expected["example"]:
@@ -338,48 +338,48 @@ if manual.is_file():
             if expected["manualPath"] not in text:
                 missing.append(f"{manual}: missing decision table row {expected['manualPath']!r}")
             if expected["gate"] not in (item.get("gateCommands") or []):
-                missing.append(f"examples/migration-proof {source}: gateCommands missing {expected['gate']!r}")
+                missing.append(f"examples/migration/migration-proof {source}: gateCommands missing {expected['gate']!r}")
             for gate in decision.get("gateCommands") or []:
                 if gate not in (item.get("gateCommands") or []):
-                    missing.append(f"examples/migration-proof {source}: gateCommands missing adopter contract gate {gate!r}")
+                    missing.append(f"examples/migration/migration-proof {source}: gateCommands missing adopter contract gate {gate!r}")
             rollback = item.get("rollback") or ""
             if decision.get("rollbackAction") and not contains_normalized(rollback, decision["rollbackAction"]):
-                missing.append(f"examples/migration-proof {source}: rollback does not match adopter contract")
+                missing.append(f"examples/migration/migration-proof {source}: rollback does not match adopter contract")
             support_bundle = item.get("supportBundle") or ""
             if decision.get("supportBundleAction") and not contains_normalized(support_bundle, decision["supportBundleAction"]):
-                missing.append(f"examples/migration-proof {source}: supportBundle does not match adopter contract")
+                missing.append(f"examples/migration/migration-proof {source}: supportBundle does not match adopter contract")
             failure_report = item.get("failureReport") or ""
             if decision.get("failureReportEvidence") and not contains_normalized(failure_report, decision["failureReportEvidence"]):
-                missing.append(f"examples/migration-proof {source}: failureReport does not match adopter contract")
+                missing.append(f"examples/migration/migration-proof {source}: failureReport does not match adopter contract")
             caveats = " ".join(item.get("compatibilityCaveats") or [])
             decision_caveat = decision.get("compatibilityCaveat") or ""
             first_caveat_phrase = decision_caveat.split(";")[0].rstrip(".")
             if first_caveat_phrase and not contains_normalized(caveats, first_caveat_phrase):
-                missing.append(f"examples/migration-proof {source}: compatibility caveats do not match adopter contract")
+                missing.append(f"examples/migration/migration-proof {source}: compatibility caveats do not match adopter contract")
             for field in ("rollback", "supportBundle", "failureReport", "compatibilityCaveats", "decisionTable"):
                 if not item.get(field):
-                    missing.append(f"examples/migration-proof {source}: missing {field}")
+                    missing.append(f"examples/migration/migration-proof {source}: missing {field}")
             for field in ("performanceBoundary", "governanceBoundary"):
                 value = item.get(field) or ""
                 if not value:
-                    missing.append(f"examples/migration-proof {source}: missing {field}")
+                    missing.append(f"examples/migration/migration-proof {source}: missing {field}")
                 if decision.get(field) and not contains_normalized(value, decision[field]):
-                    missing.append(f"examples/migration-proof {source}: {field} does not match adopter contract")
+                    missing.append(f"examples/migration/migration-proof {source}: {field} does not match adopter contract")
             decision = item.get("decisionTable") or {}
             for field in ("chooseWhen", "keepSourceWhen", "adopterAction", "rollbackTrigger"):
                 if not decision.get(field):
-                    missing.append(f"examples/migration-proof {source}: decisionTable missing {field}")
+                    missing.append(f"examples/migration/migration-proof {source}: decisionTable missing {field}")
             if not item.get("validation"):
-                missing.append(f"examples/migration-proof {source}: validation must include smoke commands")
+                missing.append(f"examples/migration/migration-proof {source}: validation must include smoke commands")
         p13_report = report.get("p13MigrationCaseUpgrade") or {}
         if p13_report.get("schema") != p13_upgrade.get("schema"):
-            missing.append("examples/migration-proof p13MigrationCaseUpgrade schema mismatch")
+            missing.append("examples/migration/migration-proof p13MigrationCaseUpgrade schema mismatch")
         if p13_report.get("aiflowTask") != "GOFLY-P13-09-MIGRATION-CASE-UPGRADE":
-            missing.append("examples/migration-proof p13MigrationCaseUpgrade aiflowTask mismatch")
+            missing.append("examples/migration/migration-proof p13MigrationCaseUpgrade aiflowTask mismatch")
         if p13_report.get("status") != "blocking":
-            missing.append("examples/migration-proof p13MigrationCaseUpgrade status must be blocking")
+            missing.append("examples/migration/migration-proof p13MigrationCaseUpgrade status must be blocking")
         if set(p13_report.get("acceptanceGates") or []) != set(p13_upgrade.get("acceptanceGates") or []):
-            missing.append("examples/migration-proof p13MigrationCaseUpgrade acceptanceGates mismatch")
+            missing.append("examples/migration/migration-proof p13MigrationCaseUpgrade acceptanceGates mismatch")
         p13_report_cases = {
             item.get("source"): item
             for item in p13_report.get("cases") or []
@@ -387,7 +387,7 @@ if manual.is_file():
         }
         if set(p13_report_cases) != set(p13_contract_cases):
             missing.append(
-                "examples/migration-proof p13MigrationCaseUpgrade sources drifted: "
+                "examples/migration/migration-proof p13MigrationCaseUpgrade sources drifted: "
                 f"missing={sorted(set(p13_contract_cases) - set(p13_report_cases))!r} "
                 f"extra={sorted(set(p13_report_cases) - set(p13_contract_cases))!r}"
             )
@@ -407,18 +407,18 @@ if manual.is_file():
                 "governanceBoundary",
             ):
                 if item.get(field) != contract.get(field):
-                    missing.append(f"examples/migration-proof p13MigrationCaseUpgrade {source}: {field} does not match adopter proof contract")
+                    missing.append(f"examples/migration/migration-proof p13MigrationCaseUpgrade {source}: {field} does not match adopter proof contract")
             if case.get("migrationKind") != item.get("migrationKind"):
-                missing.append(f"examples/migration-proof {source}: migrationKind does not match P13 case")
+                missing.append(f"examples/migration/migration-proof {source}: migrationKind does not match P13 case")
             if case.get("example") != item.get("runnableExample"):
-                missing.append(f"examples/migration-proof {source}: example does not match P13 runnableExample")
+                missing.append(f"examples/migration/migration-proof {source}: example does not match P13 runnableExample")
             if case.get("rollback") != item.get("rollbackNote"):
-                missing.append(f"examples/migration-proof {source}: rollback does not match P13 rollbackNote")
+                missing.append(f"examples/migration/migration-proof {source}: rollback does not match P13 rollbackNote")
             if item.get("primaryGate") not in (case.get("gateCommands") or []):
-                missing.append(f"examples/migration-proof {source}: P13 primaryGate missing from gateCommands")
+                missing.append(f"examples/migration/migration-proof {source}: P13 primaryGate missing from gateCommands")
         for field in ("publishPolicy", "rollbackPolicy"):
             if p13_report.get(field) != p13_upgrade.get(field):
-                missing.append(f"examples/migration-proof p13MigrationCaseUpgrade {field} does not match adopter proof contract")
+                missing.append(f"examples/migration/migration-proof p13MigrationCaseUpgrade {field} does not match adopter proof contract")
 
 for path, needles in checks.items():
     if not path.is_file():

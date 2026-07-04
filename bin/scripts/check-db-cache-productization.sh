@@ -94,7 +94,7 @@ expected_gozero_evidence = {
     "transaction examples through SQLStore.Transact and SQL outbox",
     "generated model cache contracts through RedisCachedOrderRepo and UpdateWithInvalidate",
     "Redis/cache observability through cache stats and WritePrometheus",
-    "local smoke tests through examples/cache-local and reference-app-smoke",
+    "local smoke tests through examples/goctl-model/cache-local and reference-app-smoke",
 }
 actual_gozero_evidence = set(gozero.get("requiredEvidence") or [])
 require(
@@ -249,7 +249,7 @@ expected_p10_rows = {
     "transaction-examples": {"SQLStore.Transact", "Cluster.Transact", "SQL outbox", "outbox relay"},
     "generated-model-cache-contracts": {"RedisCachedOrderRepo", "UpdateWithInvalidate", "GenerateModelFromDDL", "ensureModelGoModDependencies"},
     "redis-cache-observability": {"Cache stats", "WritePrometheus", "Redis miss semantics", "GOFLY_CACHE_DISABLED"},
-    "local-smoke-reference-app": {"examples/cache-local", "examples/production-orders", "REFERENCE_APP_MODE=memory make reference-app-smoke", "gofly.cache_local.v1"},
+    "local-smoke-reference-app": {"examples/goctl-model/cache-local", "examples/production/production-orders", "REFERENCE_APP_MODE=memory make reference-app-smoke", "gofly.cache_local.v1"},
 }
 require(set(p10_rows) == set(expected_p10_rows), f"p10StorageCacheProductization rows mismatch: {sorted(p10_rows)!r}")
 for row_id, expected_evidence in expected_p10_rows.items():

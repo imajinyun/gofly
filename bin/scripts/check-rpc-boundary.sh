@@ -81,7 +81,7 @@ checks = {
         "Rollback plan",
         "discovery",
     ],
-    pathlib.Path("examples/rpc-idl-matrix/main_test.go"): [
+    pathlib.Path("examples/microservices/rpc-idl-matrix/main_test.go"): [
         "server_stream",
         "client_stream",
         "bidi_stream",

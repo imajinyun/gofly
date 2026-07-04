@@ -31,6 +31,31 @@ func TestExampleListCommandJSON(t *testing.T) {
 	}
 }
 
+func TestBuiltInExamplesPointToExistingCategorizedDirs(t *testing.T) {
+	seen := map[string]bool{}
+	for _, example := range builtInExamples {
+		if seen[example.Name] {
+			t.Fatalf("duplicate example name %q", example.Name)
+		}
+		seen[example.Name] = true
+		if example.Path == "" || example.Description == "" {
+			t.Fatalf("example %q has incomplete metadata: %#v", example.Name, example)
+		}
+		src, err := resolveExampleSourceDir(example.Path)
+		if err != nil {
+			t.Fatalf("resolve %s: %v", example.Name, err)
+		}
+		if _, err := os.Stat(filepath.Join(src, "go.mod")); err != nil {
+			t.Fatalf("example %s missing go.mod at %s: %v", example.Name, src, err)
+		}
+	}
+	for _, name := range []string{"restserver", "rpcserver", "cache-local", "http-middleware", "production-orders", "plugin-ecosystem", "migration-proof", "rpc-idl-matrix"} {
+		if !seen[name] {
+			t.Fatalf("built-in examples missing %q", name)
+		}
+	}
+}
+
 func TestExampleRunCommandSuccess(t *testing.T) {
 	tmpDir := t.TempDir()
 	outDir := filepath.Join(tmpDir, "obs-demo")
@@ -58,7 +83,7 @@ func TestExampleRunCommandMissingName(t *testing.T) {
 }
 
 func TestResolveExampleSourceDir(t *testing.T) {
-	src, err := resolveExampleSourceDir("examples/observability")
+	src, err := resolveExampleSourceDir("examples/http/observability")
 	if err != nil {
 		t.Fatalf("resolveExampleSourceDir: %v", err)
 	}
@@ -69,7 +94,7 @@ func TestResolveExampleSourceDir(t *testing.T) {
 }
 
 func TestCopyExampleDir(t *testing.T) {
-	src, err := resolveExampleSourceDir("examples/restserver")
+	src, err := resolveExampleSourceDir("examples/getting-started/restserver")
 	if err != nil {
 		t.Fatalf("resolveExampleSourceDir: %v", err)
 	}

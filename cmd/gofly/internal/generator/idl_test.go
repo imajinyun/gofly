@@ -2997,12 +2997,16 @@ func TestGenerateModelFromDDLComplexGoctlModelCacheFixtureCompiles(t *testing.T)
 		"cacheByTenantIDAndBizIDAndRegion",
 		"func (c *CachedPaymentEventRepo) FindByTenantIDAndBizIDAndRegionCached(ctx context.Context, tenantID int64, bizID string, region *string) (*entity.PaymentEvent, error)",
 		"func uniqueKeyByTenantIDAndBizIDAndRegion(tenantID int64, bizID string, region *string) string",
+		`regionCacheKey := "nil:region"`,
+		`regionCacheKey = "val:" + strconv.Quote(fmt.Sprint(*region))`,
 		"func (c *CachedPaymentEventRepo) FindByTenantIDAndStatusCached(ctx context.Context, tenantID int64, status string, limit int, offset int) ([]entity.PaymentEvent, error)",
 		"func (c *CachedPaymentEventRepo) CountByTenantIDAndStatusCached(ctx context.Context, tenantID int64, status string) (int64, error)",
 		"func (c *CachedPaymentEventRepo) PageByTenantIDAndStatusCached(ctx context.Context, tenantID int64, status string, limit int, offset int) ([]entity.PaymentEvent, int64, error)",
 		"func (c *CachedPaymentEventRepo) FindByAccountIDCached(ctx context.Context, accountID *int64, limit int, offset int) ([]entity.PaymentEvent, error)",
 		"func (c *CachedPaymentEventRepo) CountByAccountIDCached(ctx context.Context, accountID *int64) (int64, error)",
 		"func (c *CachedPaymentEventRepo) PageByAccountIDCached(ctx context.Context, accountID *int64, limit int, offset int) ([]entity.PaymentEvent, int64, error)",
+		`accountIDCacheKey := "nil:account_id"`,
+		`accountIDCacheKey = "val:" + strconv.Quote(fmt.Sprint(*accountID))`,
 		"func (c *CachedPaymentEventRepo) UpdateManyWithInvalidate(ctx context.Context, items []*entity.PaymentEvent) error",
 		"func (c *CachedPaymentEventRepo) DeleteMany(ctx context.Context, ids ...int64) error",
 		"c.cacheByTenantIDAndBizIDAndRegion.Cache().Delete(uniqueKeyByTenantIDAndBizIDAndRegion(old.TenantID, old.BizID, old.Region))",
@@ -3023,6 +3027,14 @@ func TestGenerateModelFromDDLComplexGoctlModelCacheFixtureCompiles(t *testing.T)
 	} {
 		if !strings.Contains(repoOut, want) {
 			t.Fatalf("generated complex model/cache repo missing %q:\n%s", want, repoOut)
+		}
+	}
+	for _, unexpected := range []string{
+		"strconv.Quote(fmt.Sprint(region))",
+		"strconv.Quote(fmt.Sprint(accountID))",
+	} {
+		if strings.Contains(repoOut, unexpected) {
+			t.Fatalf("generated complex model/cache repo should not encode pointer addresses in cache keys %q:\n%s", unexpected, repoOut)
 		}
 	}
 	runGoCommand(t, outDir, 3*time.Minute, "mod", "tidy")

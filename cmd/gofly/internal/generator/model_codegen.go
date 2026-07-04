@@ -3039,7 +3039,7 @@ func writeUniqueCacheKeyFuncs(b *bytes.Buffer, indexes []modelUniqueIndex) {
 		fprintf(b, "func %s(%s) string {\n", uniqueCacheKeyFuncName(index.Columns), uniqueFinderParams(columns))
 		parts := make([]string, 0, len(columns))
 		for _, column := range columns {
-			parts = append(parts, "strconv.Quote(fmt.Sprint("+modelArgName(column.Name)+"))")
+			parts = append(parts, writeCacheKeyPart(b, column))
 		}
 		fprintf(b, "\treturn strings.Join([]string{%s}, \"|\")\n}\n\n", strings.Join(parts, ", "))
 	}
@@ -3056,14 +3056,14 @@ func writeIndexListCacheKeyFuncs(b *bytes.Buffer, indexes []modelIndexPrefix, ty
 		fprintf(b, "func %s(%slimit int, offset int) string {\n", indexListCacheKeyFuncName(columns), listParams)
 		parts := make([]string, 0, len(columns)+2)
 		for _, column := range columns {
-			parts = append(parts, "strconv.Quote(fmt.Sprint("+modelArgName(column.Name)+"))")
+			parts = append(parts, writeCacheKeyPart(b, column))
 		}
 		parts = append(parts, "\"limit=\"+strconv.Itoa(limit)", "\"offset=\"+strconv.Itoa(offset)")
 		fprintf(b, "\treturn strings.Join([]string{%s}, \"|\")\n}\n\n", strings.Join(parts, ", "))
 		fprintf(b, "func %s(%s) string {\n", indexCountCacheKeyFuncName(columns), params)
 		countParts := make([]string, 0, len(columns))
 		for _, column := range columns {
-			countParts = append(countParts, "strconv.Quote(fmt.Sprint("+modelArgName(column.Name)+"))")
+			countParts = append(countParts, writeCacheKeyPart(b, column))
 		}
 		fprintf(b, "\treturn strings.Join([]string{%s}, \"|\")\n}\n\n", strings.Join(countParts, ", "))
 	}
@@ -3075,6 +3075,19 @@ func writeIndexListCacheKeyFuncs(b *bytes.Buffer, indexes []modelIndexPrefix, ty
 		fprintf(b, "\treturn version + \"|\" + key\n")
 		fprintf(b, "}\n\n")
 	}
+}
+
+func writeCacheKeyPart(b *bytes.Buffer, column SQLColumn) string {
+	arg := modelArgName(column.Name)
+	if !column.Nullable || column.PrimaryKey || !strings.HasPrefix(columnGoType(column), "*") {
+		return "strconv.Quote(fmt.Sprint(" + arg + "))"
+	}
+	keyVar := arg + "CacheKey"
+	fprintf(b, "\t%s := \"nil:%s\"\n", keyVar, column.Name)
+	fprintf(b, "\tif %s != nil {\n", arg)
+	fprintf(b, "\t\t%s = \"val:\" + strconv.Quote(fmt.Sprint(*%s))\n", keyVar, arg)
+	fprintf(b, "\t}\n")
+	return keyVar
 }
 
 func redisIndexListVersionValueFuncName(typeName string) string {

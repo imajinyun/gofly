@@ -21,6 +21,9 @@ func (d gatewayRouteDispatcher) proxy(
 	body []byte,
 	brk *breaker.AdaptiveBreaker,
 ) (proxyResult, error) {
+	if route.Aggregation.Enabled {
+		return d.gateway.aggregateOnce(r, route, endpoint, body, brk)
+	}
 	if route.Transcode.Enabled {
 		return d.gateway.transcodeOnce(r, route, endpoint, body, brk)
 	}

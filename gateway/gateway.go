@@ -7,6 +7,7 @@ package gateway
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -75,6 +76,7 @@ type RouteConfig struct {
 	Shadow         []ShadowRoute     `json:"shadow,omitempty"`
 	AllowedHosts   []string          `json:"allowedHosts,omitempty"`
 	Transcode      TranscodeConfig   `json:"transcode,omitempty"`
+	Aggregation    AggregationConfig `json:"aggregation,omitempty"`
 	Tags           map[string]string `json:"tags,omitempty"`
 	Headers        map[string]string `json:"headers,omitempty"`
 }
@@ -89,6 +91,25 @@ type TranscodeConfig struct {
 	Method           string `json:"method,omitempty"`
 	Descriptor       string `json:"descriptor,omitempty"`
 	DescriptorMethod string `json:"descriptorMethod,omitempty"`
+}
+
+// AggregationConfig enables BFF-style fan-out aggregation for a route. When
+// enabled, the gateway issues each step as an upstream HTTP request and returns
+// a JSON envelope keyed by step name.
+type AggregationConfig struct {
+	Enabled bool              `json:"enabled,omitempty"`
+	Steps   []AggregationStep `json:"steps,omitempty"`
+}
+
+// AggregationStep describes one upstream HTTP request in an aggregation route.
+type AggregationStep struct {
+	Name     string            `json:"name"`
+	Method   string            `json:"method,omitempty"`
+	Path     string            `json:"path"`
+	Target   string            `json:"target,omitempty"`
+	Required bool              `json:"required,omitempty"`
+	Headers  map[string]string `json:"headers,omitempty"`
+	Body     json.RawMessage   `json:"body,omitempty"`
 }
 
 // RetryPolicy configures per-route retry behavior.
@@ -205,6 +226,7 @@ type Route struct {
 	Shadow         []ShadowRoute
 	AllowedHosts   []string
 	Transcode      TranscodeConfig
+	Aggregation    AggregationConfig
 	Tags           map[string]string
 	Headers        map[string]string
 	governanceKey  string
@@ -302,6 +324,7 @@ type RouteRuntimeSnapshot struct {
 	CanaryCount      int               `json:"canaryCount,omitempty"`
 	ShadowCount      int               `json:"shadowCount,omitempty"`
 	Transcode        TranscodeConfig   `json:"transcode,omitempty"`
+	Aggregation      AggregationConfig `json:"aggregation,omitempty"`
 }
 
 // RuntimeCacheSnapshot reports lazily materialized gateway policy primitives.
@@ -983,6 +1006,7 @@ func (g *Gateway) routeRuntimeSnapshot(route Route) RouteRuntimeSnapshot {
 		CanaryCount:      len(route.Canary),
 		ShadowCount:      len(route.Shadow),
 		Transcode:        route.Transcode,
+		Aggregation:      cloneAggregationConfig(route.Aggregation),
 	}
 }
 
@@ -1487,6 +1511,7 @@ func normalizeRoute(route Route) (Route, error) {
 	route.Header = cloneHeaderPolicy(route.Header)
 	route.Canary = cloneCanaryRoutes(route.Canary)
 	route.Shadow = cloneShadowRoutes(route.Shadow)
+	route.Aggregation = normalizeAggregationConfig(route.Aggregation)
 	route.AllowedHosts = normalizeHosts(route.AllowedHosts)
 	route.Tags = cloneMap(route.Tags)
 	route.Headers = cloneMap(route.Headers)
@@ -1548,6 +1573,7 @@ func routeFromConfig(route RouteConfig) Route {
 		Shadow:         cloneShadowRoutes(route.Shadow),
 		AllowedHosts:   append([]string(nil), route.AllowedHosts...),
 		Transcode:      route.Transcode,
+		Aggregation:    cloneAggregationConfig(route.Aggregation),
 		Tags:           cloneMap(route.Tags),
 		Headers:        cloneMap(route.Headers),
 	}
@@ -1573,6 +1599,7 @@ func routeConfigFromRoute(route Route) RouteConfig {
 		Shadow:         cloneShadowRoutes(route.Shadow),
 		AllowedHosts:   append([]string(nil), route.AllowedHosts...),
 		Transcode:      route.Transcode,
+		Aggregation:    cloneAggregationConfig(route.Aggregation),
 		Tags:           cloneMap(route.Tags),
 		Headers:        cloneMap(route.Headers),
 	}
@@ -1583,6 +1610,7 @@ func cloneRoute(route Route) Route {
 	route.Header = cloneHeaderPolicy(route.Header)
 	route.Canary = cloneCanaryRoutes(route.Canary)
 	route.Shadow = cloneShadowRoutes(route.Shadow)
+	route.Aggregation = cloneAggregationConfig(route.Aggregation)
 	route.AllowedHosts = append([]string(nil), route.AllowedHosts...)
 	route.Tags = cloneMap(route.Tags)
 	route.Headers = cloneMap(route.Headers)

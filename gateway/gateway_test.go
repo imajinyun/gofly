@@ -280,6 +280,133 @@ func TestGatewayReverseProxyTunnelsWebSocket(t *testing.T) {
 	}
 }
 
+func TestGatewayAggregatesBFFRoute(t *testing.T) {
+	var gotProfileHeader string
+	var gotOrdersHeader string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/profile":
+			gotProfileHeader = r.Header.Get(HeaderGatewayService)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"id":"u1"}`)
+		case "/orders":
+			gotOrdersHeader = r.Header.Get("X-Step")
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `[{"id":"o1"}]`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(upstream.Close)
+
+	g, err := New([]Route{{
+		Name:       "bff",
+		Method:     http.MethodGet,
+		PathPrefix: "/bff",
+		Service:    "bff",
+		Targets:    []string{upstream.URL},
+		Aggregation: AggregationConfig{
+			Enabled: true,
+			Steps: []AggregationStep{
+				{Name: "profile", Path: "/profile", Required: true},
+				{Name: "orders", Path: "/orders", Headers: map[string]string{"X-Step": "orders"}},
+			},
+		},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rr := httptest.NewRecorder()
+	g.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/bff/home", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %s", rr.Code, rr.Body.String())
+	}
+	if !strings.HasPrefix(rr.Header().Get("Content-Type"), "application/json") {
+		t.Fatalf("content-type = %q, want json", rr.Header().Get("Content-Type"))
+	}
+	var envelope struct {
+		Data struct {
+			Profile json.RawMessage `json:"profile"`
+			Orders  json.RawMessage `json:"orders"`
+		} `json:"data"`
+		Errors map[string]string `json:"errors,omitempty"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode aggregation envelope: %v\n%s", err, rr.Body.String())
+	}
+	if string(envelope.Data.Profile) != `{"id":"u1"}` || string(envelope.Data.Orders) != `[{"id":"o1"}]` {
+		t.Fatalf("aggregation data profile=%s orders=%s", envelope.Data.Profile, envelope.Data.Orders)
+	}
+	if len(envelope.Errors) != 0 {
+		t.Fatalf("aggregation errors = %#v, want none", envelope.Errors)
+	}
+	if gotProfileHeader != "bff" || gotOrdersHeader != "orders" {
+		t.Fatalf("aggregation headers service=%q step=%q", gotProfileHeader, gotOrdersHeader)
+	}
+
+	routes := g.RouteConfigs()
+	if len(routes) != 1 || !routes[0].Aggregation.Enabled || len(routes[0].Aggregation.Steps) != 2 {
+		t.Fatalf("route configs aggregation = %#v", routes)
+	}
+	runtime := g.RuntimeSnapshot()
+	if len(runtime.Routes) != 1 || !runtime.Routes[0].Aggregation.Enabled {
+		t.Fatalf("runtime aggregation = %#v", runtime.Routes)
+	}
+}
+
+func TestGatewayAggregationRequiredStepFailure(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/ok":
+			_, _ = io.WriteString(w, `{"ok":true}`)
+		case "/required":
+			http.Error(w, "required down", http.StatusServiceUnavailable)
+		case "/optional":
+			http.Error(w, "optional down", http.StatusServiceUnavailable)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(upstream.Close)
+
+	g, err := New([]Route{{
+		Method:     http.MethodGet,
+		PathPrefix: "/bff",
+		Targets:    []string{upstream.URL},
+		Aggregation: AggregationConfig{
+			Enabled: true,
+			Steps: []AggregationStep{
+				{Name: "ok", Path: "/ok"},
+				{Name: "required", Path: "/required", Required: true},
+				{Name: "optional", Path: "/optional"},
+			},
+		},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rr := httptest.NewRecorder()
+	g.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/bff/home", nil))
+	if rr.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d body = %s", rr.Code, rr.Body.String())
+	}
+	var envelope struct {
+		Data   map[string]json.RawMessage `json:"data"`
+		Errors map[string]string          `json:"errors"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode aggregation envelope: %v\n%s", err, rr.Body.String())
+	}
+	if string(envelope.Data["ok"]) != `{"ok":true}` {
+		t.Fatalf("ok data = %s", envelope.Data["ok"])
+	}
+	if !strings.Contains(envelope.Errors["required"], "503") || !strings.Contains(envelope.Errors["optional"], "503") {
+		t.Fatalf("aggregation errors = %#v, want required and optional 503", envelope.Errors)
+	}
+}
+
 func TestGatewayGovernanceManagerOverridesExplicitRuleSet(t *testing.T) {
 	stale := governance.NewRuleSet(governance.Rule{Name: "stale", Transport: governance.TransportGateway, Path: "/api/*"})
 	manager, err := governance.NewManager(governance.Config{Rules: []governance.Rule{{
@@ -1763,7 +1890,7 @@ func TestGatewayGovernanceRuleSetEnforcesResiliencePolicy(t *testing.T) {
 			Service:   "orders",
 			Method:    http.MethodGet,
 			Path:      "/api/*",
-			Policy:    governance.Policy{Timeout: time.Millisecond},
+			Policy:    governance.Policy{Timeout: 25 * time.Millisecond},
 		})
 		g, err := New([]Route{{Method: http.MethodGet, PathPrefix: "/api", Service: "orders", Targets: []string{upstream.URL}, Timeout: time.Second}}, WithGovernanceRuleSet(rules))
 		if err != nil {

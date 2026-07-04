@@ -5,6 +5,7 @@
 package gateway
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -400,6 +401,7 @@ type proxyResult struct {
 	Header     http.Header
 	Body       []byte
 	BodyStream io.ReadCloser
+	Hijacked   bool
 	Retries    int
 	Err        error
 }
@@ -2044,8 +2046,9 @@ func cloneMap(values map[string]string) map[string]string {
 
 type statusRecorder struct {
 	http.ResponseWriter
-	status int
-	wrote  bool
+	status   int
+	wrote    bool
+	hijacked bool
 }
 
 func (w *statusRecorder) WriteHeader(status int) {
@@ -2068,6 +2071,18 @@ func (w *statusRecorder) Flush() {
 	if flusher, ok := w.ResponseWriter.(http.Flusher); ok {
 		flusher.Flush()
 	}
+}
+
+func (w *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	hijacker, ok := w.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, errors.New("response writer does not support hijacking")
+	}
+	conn, rw, err := hijacker.Hijack()
+	if err == nil {
+		w.hijacked = true
+	}
+	return conn, rw, err
 }
 
 func (w *statusRecorder) Unwrap() http.ResponseWriter {

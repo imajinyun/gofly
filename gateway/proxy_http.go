@@ -3,7 +3,9 @@
 package gateway
 
 import (
+	"bufio"
 	"bytes"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -11,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 
 	"github.com/imajinyun/gofly/core/breaker"
 	"github.com/imajinyun/gofly/core/observability/trace"
@@ -32,6 +35,171 @@ func (g *Gateway) proxyOnce(r *http.Request, route Route, body []byte) (proxyRes
 		return proxyResult{Err: err}, err
 	}
 	return gatewayRouteDispatcher{gateway: g}.proxy(r, route, endpoint, body, brk)
+}
+
+func (g *Gateway) proxyWebSocket(w http.ResponseWriter, r *http.Request, route Route) (proxyResult, error) {
+	brk := g.breakerFor(route)
+	if brk != nil {
+		if err := brk.Allow(); err != nil {
+			return proxyResult{Err: err}, err
+		}
+	}
+	endpoint, err := g.pickEndpoint(r.Context(), route)
+	if err != nil {
+		if brk != nil {
+			brk.MarkFailure()
+		}
+		return proxyResult{Err: err}, err
+	}
+	target, err := buildTargetURL(endpoint, route, r.URL)
+	if err != nil {
+		if brk != nil {
+			brk.MarkFailure()
+		}
+		return proxyResult{Endpoint: endpoint, Err: err}, err
+	}
+	upstream, upstreamRW, upstreamResp, err := dialWebSocketUpstream(r, target, route)
+	if err != nil {
+		g.reportEndpoint(route, endpoint, false)
+		if brk != nil {
+			brk.MarkFailure()
+		}
+		return proxyResult{Endpoint: endpoint, Err: err}, err
+	}
+	downstream, downstreamRW, err := hijackGatewayWebSocket(w)
+	if err != nil {
+		_ = upstream.Close()
+		g.reportEndpoint(route, endpoint, false)
+		if brk != nil {
+			brk.MarkFailure()
+		}
+		return proxyResult{Endpoint: endpoint, Err: err}, err
+	}
+	if err := upstreamResp.Write(downstreamRW); err != nil {
+		_ = downstream.Close()
+		_ = upstream.Close()
+		return proxyResult{Endpoint: endpoint, Status: http.StatusSwitchingProtocols, Hijacked: true, Err: err}, err
+	}
+	if err := downstreamRW.Flush(); err != nil {
+		_ = downstream.Close()
+		_ = upstream.Close()
+		return proxyResult{Endpoint: endpoint, Status: http.StatusSwitchingProtocols, Hijacked: true, Err: err}, err
+	}
+	g.reportEndpoint(route, endpoint, true)
+	if brk != nil {
+		brk.MarkSuccess()
+	}
+	go tunnelWebSocket(downstream, downstreamRW, upstream, upstreamRW)
+	return proxyResult{Endpoint: endpoint, Status: http.StatusSwitchingProtocols, Hijacked: true}, nil
+}
+
+func dialWebSocketUpstream(r *http.Request, target *url.URL, route Route) (net.Conn, *bufio.ReadWriter, *http.Response, error) {
+	address := target.Host
+	if address == "" {
+		return nil, nil, nil, errors.New("websocket upstream host is required")
+	}
+	if _, _, err := net.SplitHostPort(address); err != nil {
+		switch target.Scheme {
+		case "http", "ws":
+			address = net.JoinHostPort(address, "80")
+		case "https", "wss":
+			address = net.JoinHostPort(address, "443")
+		default:
+			return nil, nil, nil, fmt.Errorf("unsupported websocket upstream scheme %q", target.Scheme)
+		}
+	}
+	dialer := net.Dialer{}
+	var conn net.Conn
+	var err error
+	if target.Scheme == "https" || target.Scheme == "wss" {
+		conn, err = tls.DialWithDialer(&dialer, "tcp", address, &tls.Config{
+			MinVersion: tls.VersionTLS12,
+			ServerName: target.Hostname(),
+		})
+	} else {
+		conn, err = dialer.DialContext(r.Context(), "tcp", address)
+	}
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("dial websocket upstream: %w", err)
+	}
+	rw := bufio.NewReadWriter(bufio.NewReader(conn), bufio.NewWriter(conn))
+	upstreamReq := r.Clone(r.Context())
+	upstreamReq.URL = target
+	upstreamReq.RequestURI = ""
+	upstreamReq.Host = target.Host
+	upstreamReq.Body = nil
+	upstreamReq.GetBody = nil
+	upstreamReq.ContentLength = 0
+	upstreamReq.Header = cloneHeader(r.Header)
+	applyHeaderPolicy(upstreamReq.Header, route.Header)
+	setForwardHeaders(upstreamReq, r, route)
+	if err := upstreamReq.Write(rw); err != nil {
+		_ = conn.Close()
+		return nil, nil, nil, fmt.Errorf("write websocket upstream request: %w", err)
+	}
+	if err := rw.Flush(); err != nil {
+		_ = conn.Close()
+		return nil, nil, nil, fmt.Errorf("flush websocket upstream request: %w", err)
+	}
+	resp, err := http.ReadResponse(rw.Reader, upstreamReq)
+	if err != nil {
+		_ = conn.Close()
+		return nil, nil, nil, fmt.Errorf("read websocket upstream response: %w", err)
+	}
+	if resp.StatusCode != http.StatusSwitchingProtocols {
+		_ = resp.Body.Close()
+		_ = conn.Close()
+		return nil, nil, nil, fmt.Errorf("websocket upstream status = %d", resp.StatusCode)
+	}
+	if err := resp.Body.Close(); err != nil {
+		_ = conn.Close()
+		return nil, nil, nil, fmt.Errorf("close websocket upstream response: %w", err)
+	}
+	return conn, rw, resp, nil
+}
+
+func hijackGatewayWebSocket(w http.ResponseWriter) (net.Conn, *bufio.ReadWriter, error) {
+	hijacker, ok := w.(http.Hijacker)
+	if !ok {
+		return nil, nil, errors.New("response writer does not support hijacking")
+	}
+	conn, rw, err := hijacker.Hijack()
+	if err != nil {
+		return nil, nil, fmt.Errorf("hijack websocket downstream: %w", err)
+	}
+	return conn, rw, nil
+}
+
+func tunnelWebSocket(downstream net.Conn, downstreamRW *bufio.ReadWriter, upstream net.Conn, upstreamRW *bufio.ReadWriter) {
+	defer downstream.Close()
+	defer upstream.Close()
+	var once sync.Once
+	closeBoth := func() {
+		_ = downstream.Close()
+		_ = upstream.Close()
+	}
+	go func() {
+		_, _ = io.Copy(upstream, downstreamRW.Reader)
+		once.Do(closeBoth)
+	}()
+	_, _ = io.Copy(downstream, upstreamRW.Reader)
+	once.Do(closeBoth)
+}
+
+func isWebSocketUpgrade(r *http.Request) bool {
+	return r != nil &&
+		r.Method == http.MethodGet &&
+		headerContainsToken(r.Header.Get("Connection"), "upgrade") &&
+		strings.EqualFold(r.Header.Get("Upgrade"), "websocket")
+}
+
+func headerContainsToken(value string, token string) bool {
+	for _, part := range strings.Split(value, ",") {
+		if strings.EqualFold(strings.TrimSpace(part), token) {
+			return true
+		}
+	}
+	return false
 }
 
 func (g *Gateway) proxyHTTPOnce(r *http.Request, route Route, endpoint string, body []byte, brk *breaker.AdaptiveBreaker) (proxyResult, error) {

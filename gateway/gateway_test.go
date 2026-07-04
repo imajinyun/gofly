@@ -4,12 +4,16 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha1" // #nosec G505 -- RFC 6455 requires SHA-1 for Sec-WebSocket-Accept in tests.
 	"crypto/tls"
+	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -227,6 +231,53 @@ func TestGatewayReverseProxyStreamsServerSentEvents(t *testing.T) {
 		t.Fatal("timed out waiting for streamed sse line before upstream close")
 	}
 	releaseOnce.Do(func() { close(release) })
+}
+
+func TestGatewayReverseProxyTunnelsWebSocket(t *testing.T) {
+	var gotService string
+	var gotForwardedHost string
+	var gotPolicyHeader string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotService = r.Header.Get(HeaderGatewayService)
+		gotForwardedHost = r.Header.Get(HeaderForwardedHost)
+		gotPolicyHeader = r.Header.Get("X-Gateway-Policy")
+		ctx := &rest.Context{Response: w, Request: r}
+		_ = ctx.WebSocket(func(_ context.Context, conn *rest.WebSocketConn) {
+			messageType, payload, err := conn.ReadMessage()
+			if err != nil {
+				t.Errorf("upstream read websocket: %v", err)
+				return
+			}
+			if err := conn.WriteMessage(messageType, append([]byte("echo:"), payload...)); err != nil {
+				t.Errorf("upstream write websocket: %v", err)
+			}
+		})
+	}))
+	t.Cleanup(upstream.Close)
+
+	g, err := New([]Route{{
+		Method:     http.MethodGet,
+		PathPrefix: "/ws",
+		Service:    "chat",
+		Targets:    []string{upstream.URL},
+		Header:     HeaderPolicy{SetRequest: map[string]string{"X-Gateway-Policy": "on"}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(g)
+	t.Cleanup(server.Close)
+
+	conn, rw := dialGatewayWebSocket(t, server.URL, "/ws")
+	defer conn.Close()
+	writeGatewayClientFrame(t, rw, 1, []byte("hello"))
+	messageType, payload := readGatewayServerFrame(t, rw)
+	if messageType != 1 || string(payload) != "echo:hello" {
+		t.Fatalf("websocket frame type=%d payload=%q, want echo", messageType, payload)
+	}
+	if gotService != "chat" || gotForwardedHost == "" || gotPolicyHeader != "on" {
+		t.Fatalf("upstream websocket headers service=%q forwarded-host=%q policy=%q", gotService, gotForwardedHost, gotPolicyHeader)
+	}
 }
 
 func TestGatewayGovernanceManagerOverridesExplicitRuleSet(t *testing.T) {
@@ -2722,4 +2773,124 @@ func TestSetForwardHeadersNoTraceContext(t *testing.T) {
 	if out.Header.Get(trace.TraceParentHeader) != "" {
 		t.Fatalf("traceparent header should be empty when no trace context")
 	}
+}
+
+func dialGatewayWebSocket(t *testing.T, serverURL, path string) (net.Conn, *bufio.ReadWriter) {
+	t.Helper()
+	u, err := url.Parse(serverURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn, err := net.Dial("tcp", u.Host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rw := bufio.NewReadWriter(bufio.NewReader(conn), bufio.NewWriter(conn))
+	key := base64.StdEncoding.EncodeToString([]byte("gofly-gateway-ws"))
+	for _, line := range []string{
+		"GET " + path + " HTTP/1.1\r\n",
+		"Host: " + u.Host + "\r\n",
+		"Upgrade: websocket\r\n",
+		"Connection: Upgrade\r\n",
+		"Sec-WebSocket-Version: 13\r\n",
+		"Sec-WebSocket-Key: " + key + "\r\n\r\n",
+	} {
+		if _, err := rw.WriteString(line); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := rw.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	status, err := rw.ReadString('\n')
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(status, "101") {
+		t.Fatalf("handshake status = %q, want switching protocols", status)
+	}
+	wantAccept := gatewayWebSocketAccept(key)
+	foundAccept := false
+	for {
+		line, err := rw.ReadString('\n')
+		if err != nil {
+			t.Fatal(err)
+		}
+		if line == "\r\n" {
+			break
+		}
+		if strings.EqualFold(strings.TrimSpace(line), "Sec-WebSocket-Accept: "+wantAccept) {
+			foundAccept = true
+		}
+	}
+	if !foundAccept {
+		t.Fatal("missing websocket accept header")
+	}
+	return conn, rw
+}
+
+func writeGatewayClientFrame(t *testing.T, rw *bufio.ReadWriter, messageType int, payload []byte) {
+	t.Helper()
+	if err := rw.WriteByte(0x80 | byte(messageType)); err != nil {
+		t.Fatal(err)
+	}
+	mask := [4]byte{1, 2, 3, 4}
+	length := len(payload)
+	switch {
+	case length < 126:
+		if err := rw.WriteByte(0x80 | byte(length)); err != nil {
+			t.Fatal(err)
+		}
+	case length <= 65535:
+		if err := rw.WriteByte(0x80 | 126); err != nil {
+			t.Fatal(err)
+		}
+		var buf [2]byte
+		binary.BigEndian.PutUint16(buf[:], uint16(length))
+		if _, err := rw.Write(buf[:]); err != nil {
+			t.Fatal(err)
+		}
+	default:
+		t.Fatal("test frame too large")
+	}
+	if _, err := rw.Write(mask[:]); err != nil {
+		t.Fatal(err)
+	}
+	masked := append([]byte(nil), payload...)
+	for i := range masked {
+		masked[i] ^= mask[i%4]
+	}
+	if _, err := rw.Write(masked); err != nil {
+		t.Fatal(err)
+	}
+	if err := rw.Flush(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func readGatewayServerFrame(t *testing.T, rw *bufio.ReadWriter) (int, []byte) {
+	t.Helper()
+	header := make([]byte, 2)
+	if _, err := io.ReadFull(rw, header); err != nil {
+		t.Fatal(err)
+	}
+	messageType := int(header[0] & 0x0f)
+	length := int(header[1] & 0x7f)
+	if length == 126 {
+		var buf [2]byte
+		if _, err := io.ReadFull(rw, buf[:]); err != nil {
+			t.Fatal(err)
+		}
+		length = int(binary.BigEndian.Uint16(buf[:]))
+	}
+	payload := make([]byte, length)
+	if _, err := io.ReadFull(rw, payload); err != nil {
+		t.Fatal(err)
+	}
+	return messageType, payload
+}
+
+func gatewayWebSocketAccept(key string) string {
+	sum := sha1.Sum([]byte(key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"))
+	return base64.StdEncoding.EncodeToString(sum[:])
 }

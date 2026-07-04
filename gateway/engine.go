@@ -42,6 +42,9 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	recorder := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 	g.serveRoute(recorder, r, match)
+	if recorder.hijacked {
+		return
+	}
 	duration := time.Since(start)
 	if g.stats != nil {
 		g.stats.Observe(routeKey(match.route), recorder.status, duration)
@@ -97,6 +100,22 @@ func (g *Gateway) serveRoute(w http.ResponseWriter, r *http.Request, match route
 	if !route.hostAllowed(r.Host) {
 		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
 		return
+	}
+	if isWebSocketUpgrade(r) {
+		result, err := g.proxyWebSocket(w, r, route)
+		if err != nil {
+			if !result.Hijacked {
+				http.Error(w, http.StatusText(http.StatusBadGateway), http.StatusBadGateway)
+			}
+			return
+		}
+		if result.Hijacked {
+			if recorder, ok := w.(*statusRecorder); ok {
+				recorder.status = http.StatusSwitchingProtocols
+				recorder.hijacked = true
+			}
+			return
+		}
 	}
 	body, err := reusableBody(r)
 	if err != nil {

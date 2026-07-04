@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/imajinyun/gofly/core/storage"
 )
 
 const fakeModelDatasourceDriver = "fake-model-datasource"
@@ -417,7 +419,7 @@ func TestParseSQLModelsKeepsNonUniqueIndexes(t *testing.T) {
 }
 
 func TestWriteModelFilesEmptyTablesBoundary(t *testing.T) {
-	err := writeModelFiles(nil, t.TempDir(), "model", "example.com/orders", ServiceStyleBasic, false)
+	err := writeModelFiles(nil, t.TempDir(), "model", "example.com/orders", ServiceStyleBasic, false, storage.DialectQuestion)
 	if err == nil || !strings.Contains(err.Error(), "model table is required") {
 		t.Fatalf("writeModelFiles(nil) error = %v, want model table required", err)
 	}
@@ -511,7 +513,7 @@ func TestDatasourceIntrospectionGeneratesIndexAndCacheTemplates(t *testing.T) {
 	}
 	dir := t.TempDir()
 	writeGeneratedModule(t, dir, "example.com/datasource")
-	if err := writeModelFiles(tables, dir, "model", "example.com/datasource", modelStyleSQL, true); err != nil {
+	if err := writeModelFiles(tables, dir, "model", "example.com/datasource", modelStyleSQL, true, storage.DialectQuestion); err != nil {
 		t.Fatalf("writeModelFiles: %v", err)
 	}
 	repo, err := os.ReadFile(filepath.Join(dir, "model", "repo", "user.go"))
@@ -604,7 +606,7 @@ func TestDatasourceIntrospectionMultiTableGoctlCacheReplay(t *testing.T) {
 	}
 	dir := t.TempDir()
 	writeGeneratedModule(t, dir, "example.com/datasource-multi")
-	if err := writeModelFiles(tables, dir, "model", "example.com/datasource-multi", modelStyleSQL, true); err != nil {
+	if err := writeModelFiles(tables, dir, "model", "example.com/datasource-multi", modelStyleSQL, true, storage.DialectQuestion); err != nil {
 		t.Fatalf("writeModelFiles: %v", err)
 	}
 
@@ -732,7 +734,7 @@ func TestPostgresDatasourceIntrospectionMultiSchemaCacheReplay(t *testing.T) {
 	}
 	dir := t.TempDir()
 	writeGeneratedModule(t, dir, "example.com/postgres-datasource")
-	if err := writeModelFiles(tables, dir, "model", "example.com/postgres-datasource", modelStyleSQL, true); err != nil {
+	if err := writeModelFiles(tables, dir, "model", "example.com/postgres-datasource", modelStyleSQL, true, storage.DialectPostgres); err != nil {
 		t.Fatalf("writeModelFiles postgres: %v", err)
 	}
 
@@ -764,6 +766,7 @@ func TestPostgresDatasourceIntrospectionMultiSchemaCacheReplay(t *testing.T) {
 	}
 	accountRepoOut := string(accountRepo)
 	for _, want := range []string{
+		"d := storage.DialectPostgres",
 		"func (r *AccountRepo) FindByTenantIDAndExternalRef(ctx context.Context, tenantID int64, externalRef string) (*entity.Account, error)",
 		"func (r *AccountRepo) FindByTenantID(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.Account, error)",
 		"func (c *CachedAccountRepo) FindByTenantIDAndExternalRefCached(ctx context.Context, tenantID int64, externalRef string) (*entity.Account, error)",
@@ -800,6 +803,7 @@ func TestPostgresDatasourceIntrospectionMultiSchemaCacheReplay(t *testing.T) {
 	}
 	eventRepoOut := string(eventRepo)
 	for _, want := range []string{
+		"d := storage.DialectPostgres",
 		"func (r *EventRepo) FindByTenantIDAndEventNo(ctx context.Context, tenantID int64, eventNo string) (*entity.Event, error)",
 		"func (r *EventRepo) FindByAccountID(ctx context.Context, accountID int64, limit int, offset int) ([]entity.Event, error)",
 		"func (r *EventRepo) FindByTenantIDAndStatus(ctx context.Context, tenantID int64, status string, limit int, offset int) ([]entity.Event, error)",

@@ -16,6 +16,7 @@ import (
 	"unicode"
 
 	_ "github.com/go-sql-driver/mysql"
+	"github.com/imajinyun/gofly/core/storage"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
@@ -155,7 +156,7 @@ func GenerateModelFromDDL(opts ModelOptions) error {
 		}
 	}
 	style := normalizeModelStyle(opts.Style)
-	if err := writeModelFiles(tables, opts.Dir, pkg, module, style, opts.Cache); err != nil {
+	if err := writeModelFiles(tables, opts.Dir, pkg, module, style, opts.Cache, storage.DialectQuestion); err != nil {
 		return err
 	}
 	return ensureModelGoModDependencies(opts.Dir, style)
@@ -221,10 +222,36 @@ func GenerateModelFromDatasource(opts ModelDatasourceOptions) error {
 		}
 	}
 	style := normalizeModelStyle(opts.Style)
-	if err := writeModelFiles(tables, opts.Dir, pkg, module, style, opts.Cache); err != nil {
+	if err := writeModelFiles(tables, opts.Dir, pkg, module, style, opts.Cache, modelDefaultDialect(opts.Driver)); err != nil {
 		return err
 	}
 	return ensureModelGoModDependencies(opts.Dir, style)
+}
+
+func modelDefaultDialect(driver string) storage.Dialect {
+	switch strings.ToLower(strings.TrimSpace(driver)) {
+	case "pg", "postgres", "postgresql":
+		return storage.DialectPostgres
+	case "mysql", "mariadb":
+		return storage.DialectMySQL
+	case "sqlite", "sqlite3":
+		return storage.DialectSQLite
+	default:
+		return storage.DialectQuestion
+	}
+}
+
+func modelDialectConstName(dialect storage.Dialect) string {
+	switch storage.NormalizeDialect(dialect) {
+	case storage.DialectPostgres:
+		return "DialectPostgres"
+	case storage.DialectMySQL:
+		return "DialectMySQL"
+	case storage.DialectSQLite:
+		return "DialectSQLite"
+	default:
+		return "DialectQuestion"
+	}
 }
 
 func normalizeModelStyle(style string) string {
@@ -1035,7 +1062,7 @@ func generateMongoDriverModel(opts MongoModelOptions, pkg string) error {
 	return ensureGoModDependencyIfPresent(opts.Dir, mongoModulePath, mongoModuleVersion)
 }
 
-func writeModelFiles(tables []SQLTable, dir string, pkg string, module string, style string, cacheEnabled bool) error {
+func writeModelFiles(tables []SQLTable, dir string, pkg string, module string, style string, cacheEnabled bool, defaultDialect storage.Dialect) error {
 	if len(tables) == 0 {
 		return errors.New("model table is required")
 	}
@@ -1054,7 +1081,7 @@ func writeModelFiles(tables []SQLTable, dir string, pkg string, module string, s
 		if err := writeEntityFile(entityDir, table, pkg, style); err != nil {
 			return err
 		}
-		if err := writeRepoFile(repoDir, table, pkg, module, style, cacheEnabled); err != nil {
+		if err := writeRepoFile(repoDir, table, pkg, module, style, cacheEnabled, defaultDialect); err != nil {
 			return err
 		}
 	}
@@ -1103,10 +1130,11 @@ func writeEntityFile(dir string, table SQLTable, pkg string, style string) error
 	return writeGeneratedFile(filepath.Join(dir, filename), formatted)
 }
 
-func writeRepoFile(dir string, table SQLTable, pkg string, module string, style string, cacheEnabled bool) error {
+func writeRepoFile(dir string, table SQLTable, pkg string, module string, style string, cacheEnabled bool, defaultDialect storage.Dialect) error {
 	if style == modelStyleGORM {
 		return writeGORMRepoFile(dir, table, module, cacheEnabled)
 	}
+	defaultDialect = storage.NormalizeDialect(defaultDialect)
 	typeName := exportName(singularize(table.Name))
 	repoName := typeName + "Repo"
 	uniqueIndexes := cacheableUniqueIndexes(table)
@@ -1139,9 +1167,9 @@ func writeRepoFile(dir string, table SQLTable, pkg string, module string, style 
 	fprintf(&b, ")\n\n")
 	fprintf(&b, "type %s struct {\n\tstore   *storage.SQLStore\n\tcluster *storage.Cluster\n\ttx      *sql.Tx\n\tdialect storage.Dialect\n}\n\n", repoName)
 	fprintf(&b, "func New%s(store *storage.SQLStore, dialect ...storage.Dialect) *%s {\n", repoName, repoName)
-	fprintf(&b, "\td := storage.DialectQuestion\n\tif len(dialect) > 0 {\n\t\td = dialect[0]\n\t}\n\treturn &%s{store: store, dialect: d}\n}\n\n", repoName)
+	fprintf(&b, "\td := storage.%s\n\tif len(dialect) > 0 {\n\t\td = dialect[0]\n\t}\n\treturn &%s{store: store, dialect: d}\n}\n\n", modelDialectConstName(defaultDialect), repoName)
 	fprintf(&b, "func New%sWithCluster(cluster *storage.Cluster, dialect ...storage.Dialect) *%s {\n", repoName, repoName)
-	fprintf(&b, "\td := storage.DialectQuestion\n\tif len(dialect) > 0 {\n\t\td = dialect[0]\n\t}\n")
+	fprintf(&b, "\td := storage.%s\n\tif len(dialect) > 0 {\n\t\td = dialect[0]\n\t}\n", modelDialectConstName(defaultDialect))
 	fprintf(&b, "\tvar store *storage.SQLStore\n\tif cluster != nil {\n\t\tstore = cluster.Writer()\n\t}\n")
 	fprintf(&b, "\treturn &%s{store: store, cluster: cluster, dialect: d}\n}\n\n", repoName)
 	writeSQLRepoRuntimeHelpers(&b, repoName)

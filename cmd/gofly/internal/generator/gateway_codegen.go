@@ -141,12 +141,12 @@ const gatewayConfigTemplate = `{
   "gateway": {
     "timeout": 3000000000,
     "routes": [
-      {"name": "example", "method": "GET", "pathPrefix": "/api", "upstreamPrefix": "/", "targets": ["http://127.0.0.1:8081"]}
+      {"name": "example", "method": "GET", "pathPrefix": "/api", "upstreamPrefix": "/", "targets": ["http://127.0.0.1:8081"], "timeout": 5000000000, "retry": {"attempts": 2, "backoff": 100000000, "statuses": [502, 503, 504], "methods": ["GET", "HEAD"]}, "breaker": {"enabled": true, "openTimeout": 5000000000, "window": 30000000000, "buckets": 10, "minRequests": 20, "failureRatio": 0.5}, "rateLimit": {"rate": 100, "burst": 100}, "concurrency": {"limit": 64}}
     ]
   },
   "governance": {
     "rules": [
-      {"name": "gateway-default", "transport": "gateway", "path": "/api/*", "policy": {"retry": {"attempts": 2, "backoff": 100000000}, "breaker": {"enabled": true, "failureRatio": 0.5, "minRequests": 20}}},
+      {"name": "gateway-default", "transport": "gateway", "path": "/api/*", "policy": {"timeout": 5000000000, "retry": {"attempts": 2, "backoff": 100000000, "statuses": [502, 503, 504], "methods": ["GET", "HEAD"]}, "breaker": {"enabled": true, "openTimeout": 5000000000, "window": 30000000000, "buckets": 10, "minRequests": 20, "failureRatio": 0.5}, "rateLimit": {"rate": 100, "burst": 100}, "concurrency": {"limit": 64}}},
       {"name": "mq-default", "transport": "mq", "service": "{{.Name}}", "policy": {"timeout": 3000000000, "retry": {"attempts": 2, "backoff": 100000000}, "breaker": {"enabled": true, "failureRatio": 0.5, "minRequests": 20}}}
     ]
   },

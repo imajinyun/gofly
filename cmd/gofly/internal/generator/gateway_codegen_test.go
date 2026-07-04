@@ -56,7 +56,24 @@ func TestGenerateGatewayWiresGovernanceManager(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`"environment": "development"`, `"service": {"name": "edge"`, `"startupTimeout": 5000000000`, `"timeoutConfig": {"duration": 3000000000`, `"breakerConfig": {"openTimeout": 5000000000`, `"metrics": {"enabled": true}`, `"mq": {"enabled": true`, `"driver": "memory"`, `"transport": "mq"`} {
+	for _, want := range []string{
+		`"environment": "development"`,
+		`"service": {"name": "edge"`,
+		`"startupTimeout": 5000000000`,
+		`"timeoutConfig": {"duration": 3000000000`,
+		`"breakerConfig": {"openTimeout": 5000000000`,
+		`"metrics": {"enabled": true}`,
+		`"mq": {"enabled": true`,
+		`"driver": "memory"`,
+		`"transport": "mq"`,
+		`"gateway": {`,
+		`"timeout": 3000000000`,
+		`"pathPrefix": "/api"`,
+		`"retry": {"attempts": 2, "backoff": 100000000, "statuses": [502, 503, 504], "methods": ["GET", "HEAD"]}`,
+		`"rateLimit": {"rate": 100, "burst": 100}`,
+		`"concurrency": {"limit": 64}`,
+		`"transport": "gateway"`,
+	} {
 		if !strings.Contains(string(jsonData), want) {
 			t.Fatalf("gateway config missing %q:\n%s", want, jsonData)
 		}

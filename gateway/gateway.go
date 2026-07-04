@@ -269,6 +269,63 @@ type Snapshot struct {
 	RuleEvents []governance.RuleSetEvent `json:"ruleEvents,omitempty"`
 }
 
+// RuntimeSnapshot exposes the gateway outbound policy wiring that affects
+// upstream requests.
+type RuntimeSnapshot struct {
+	DefaultTimeout      time.Duration           `json:"defaultTimeout,omitempty"`
+	HTTPClientTimeout   time.Duration           `json:"httpClientTimeout,omitempty"`
+	MaxBodyBytes        int64                   `json:"maxBodyBytes,omitempty"`
+	MaxExpandedEndpoint int                     `json:"maxExpandedEndpoint,omitempty"`
+	RouteCount          int                     `json:"routeCount"`
+	Routes              []RouteRuntimeSnapshot  `json:"routes,omitempty"`
+	Cache               RuntimeCacheSnapshot    `json:"cache,omitempty"`
+	PassiveHealth       *PassiveRuntimeSnapshot `json:"passiveHealth,omitempty"`
+	ActiveHealth        ActiveHealthConfig      `json:"activeHealth,omitempty"`
+	ShadowPool          *ShadowRuntimeSnapshot  `json:"shadowPool,omitempty"`
+	GovernanceBacked    bool                    `json:"governanceBacked"`
+}
+
+// RouteRuntimeSnapshot holds the normalized outbound policy for one gateway route.
+type RouteRuntimeSnapshot struct {
+	Name             string            `json:"name,omitempty"`
+	Method           string            `json:"method,omitempty"`
+	PathPrefix       string            `json:"pathPrefix"`
+	Service          string            `json:"service,omitempty"`
+	TargetCount      int               `json:"targetCount,omitempty"`
+	Timeout          time.Duration     `json:"timeout,omitempty"`
+	EffectiveTimeout time.Duration     `json:"effectiveTimeout,omitempty"`
+	Retry            RetryPolicy       `json:"retry"`
+	Breaker          BreakerConfig     `json:"breaker,omitempty"`
+	RateLimit        RateLimitConfig   `json:"rateLimit,omitempty"`
+	Concurrency      ConcurrencyConfig `json:"concurrency,omitempty"`
+	CanaryCount      int               `json:"canaryCount,omitempty"`
+	ShadowCount      int               `json:"shadowCount,omitempty"`
+	Transcode        TranscodeConfig   `json:"transcode,omitempty"`
+}
+
+// RuntimeCacheSnapshot reports lazily materialized gateway policy primitives.
+type RuntimeCacheSnapshot struct {
+	RateLimiters        int `json:"rateLimiters,omitempty"`
+	ConcurrencyLimiters int `json:"concurrencyLimiters,omitempty"`
+	Breakers            int `json:"breakers,omitempty"`
+	RetryRouteBudgets   int `json:"retryRouteBudgets,omitempty"`
+	RetryUpstreamBudget int `json:"retryUpstreamBudgets,omitempty"`
+	Transcoders         int `json:"transcoders,omitempty"`
+	Descriptors         int `json:"descriptors,omitempty"`
+}
+
+// PassiveRuntimeSnapshot reports passive health runtime state.
+type PassiveRuntimeSnapshot struct {
+	FailureThreshold int `json:"failureThreshold"`
+	EndpointCount    int `json:"endpointCount"`
+}
+
+// ShadowRuntimeSnapshot reports shadow worker runtime capacity.
+type ShadowRuntimeSnapshot struct {
+	QueueCapacity int `json:"queueCapacity"`
+	Queued        int `json:"queued"`
+}
+
 // RouteSnapshot holds request metrics for a single route.
 type RouteSnapshot struct {
 	Name          string        `json:"name,omitempty"`
@@ -872,6 +929,110 @@ func (g *Gateway) Snapshot() Snapshot {
 		snapshot.RuleEvents = g.rules.History()
 	}
 	return snapshot
+}
+
+// RuntimeSnapshot returns the normalized gateway outbound runtime state.
+func (g *Gateway) RuntimeSnapshot() RuntimeSnapshot {
+	if g == nil {
+		return RuntimeSnapshot{}
+	}
+	routes := g.Routes()
+	snapshot := RuntimeSnapshot{
+		DefaultTimeout:      g.timeout,
+		HTTPClientTimeout:   gatewayHTTPClientTimeout(g.client),
+		MaxBodyBytes:        g.maxBodyBytes,
+		MaxExpandedEndpoint: g.maxExpandedEndpoint,
+		RouteCount:          len(routes),
+		Routes:              make([]RouteRuntimeSnapshot, 0, len(routes)),
+		Cache:               g.runtimeCacheSnapshot(),
+		ActiveHealth:        g.activeHealth,
+		GovernanceBacked:    g.manager != nil || g.rules != nil,
+	}
+	if g.passive != nil {
+		snapshot.PassiveHealth = g.passive.runtimeSnapshot()
+	}
+	if g.shadowPool != nil {
+		snapshot.ShadowPool = g.shadowPool.runtimeSnapshot()
+	}
+	for _, route := range routes {
+		snapshot.Routes = append(snapshot.Routes, g.routeRuntimeSnapshot(route))
+	}
+	return snapshot
+}
+
+func (g *Gateway) routeRuntimeSnapshot(route Route) RouteRuntimeSnapshot {
+	effectiveTimeout := route.Timeout
+	if effectiveTimeout <= 0 && g != nil {
+		effectiveTimeout = g.timeout
+	}
+	return RouteRuntimeSnapshot{
+		Name:             route.Name,
+		Method:           route.Method,
+		PathPrefix:       route.PathPrefix,
+		Service:          route.Service,
+		TargetCount:      len(route.Targets),
+		Timeout:          route.Timeout,
+		EffectiveTimeout: effectiveTimeout,
+		Retry:            normalizeRetryPolicy(route.Retry),
+		Breaker:          route.Breaker,
+		RateLimit:        route.RateLimit,
+		Concurrency:      route.Concurrency,
+		CanaryCount:      len(route.Canary),
+		ShadowCount:      len(route.Shadow),
+		Transcode:        route.Transcode,
+	}
+}
+
+func (g *Gateway) runtimeCacheSnapshot() RuntimeCacheSnapshot {
+	if g == nil {
+		return RuntimeCacheSnapshot{}
+	}
+	snapshot := RuntimeCacheSnapshot{}
+	if g.ruleRuntime != nil {
+		g.ruleRuntime.mu.Lock()
+		snapshot.RateLimiters = len(g.ruleRuntime.rateLimits)
+		snapshot.ConcurrencyLimiters = len(g.ruleRuntime.concurrency)
+		g.ruleRuntime.mu.Unlock()
+	}
+	g.mu.RLock()
+	snapshot.Breakers = len(g.breakers)
+	g.mu.RUnlock()
+	if g.retryRuntime != nil {
+		g.retryRuntime.mu.Lock()
+		snapshot.RetryRouteBudgets = len(g.retryRuntime.route)
+		snapshot.RetryUpstreamBudget = len(g.retryRuntime.upstream)
+		g.retryRuntime.mu.Unlock()
+	}
+	g.transcoderMu.Lock()
+	snapshot.Transcoders = len(g.transcoders)
+	g.transcoderMu.Unlock()
+	g.mu.RLock()
+	snapshot.Descriptors = len(g.descriptors)
+	g.mu.RUnlock()
+	return snapshot
+}
+
+func gatewayHTTPClientTimeout(client *http.Client) time.Duration {
+	if client == nil {
+		return 0
+	}
+	return client.Timeout
+}
+
+func (p *passiveHealth) runtimeSnapshot() *PassiveRuntimeSnapshot {
+	if p == nil {
+		return nil
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return &PassiveRuntimeSnapshot{FailureThreshold: p.failureThreshold, EndpointCount: len(p.endpoints)}
+}
+
+func (p *shadowPool) runtimeSnapshot() *ShadowRuntimeSnapshot {
+	if p == nil {
+		return nil
+	}
+	return &ShadowRuntimeSnapshot{QueueCapacity: cap(p.tasks), Queued: len(p.tasks)}
 }
 
 func (g *Gateway) snapshotResolveTimeout() time.Duration {

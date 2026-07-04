@@ -1297,6 +1297,75 @@ func TestGatewayRetryBudgetLimitsRetries(t *testing.T) {
 	}
 }
 
+func TestGatewayRuntimeSnapshotExposesOutboundResilience(t *testing.T) {
+	var calls atomic.Int64
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if calls.Add(1) == 1 {
+			http.Error(w, "retry", http.StatusBadGateway)
+			return
+		}
+		_, _ = fmt.Fprint(w, "ok")
+	}))
+	t.Cleanup(upstream.Close)
+
+	g, err := NewFromConfig(Config{
+		Timeout:      3 * time.Second,
+		MaxBodyBytes: 4096,
+		Routes: []RouteConfig{{
+			Name:       "orders",
+			Method:     http.MethodGet,
+			PathPrefix: "/api",
+			Service:    "orders",
+			Targets:    []string{upstream.URL},
+			Timeout:    5 * time.Second,
+			Retry: RetryPolicy{
+				Attempts:     2,
+				Backoff:      time.Millisecond,
+				Statuses:     []int{http.StatusBadGateway},
+				Methods:      []string{http.MethodGet},
+				BudgetRate:   1,
+				BudgetBurst:  1,
+				MaxBodyBytes: 1024,
+			},
+			Breaker:     BreakerConfig{Enabled: true, OpenTimeout: time.Second, Window: time.Minute, Buckets: 2, MinRequests: 1, FailureRatio: 0.5},
+			RateLimit:   RateLimitConfig{Rate: 100, Burst: 100},
+			Concurrency: ConcurrencyConfig{Limit: 64},
+		}},
+	}, nil, WithGovernanceRuleSet(governance.NewRuleSet(governance.Rule{Name: "gateway-default", Transport: governance.TransportGateway, Path: "/api/*"})))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = g.Close() })
+
+	before := g.RuntimeSnapshot()
+	if !before.GovernanceBacked || before.DefaultTimeout != 3*time.Second || before.MaxBodyBytes != 4096 || before.RouteCount != 1 || len(before.Routes) != 1 {
+		t.Fatalf("runtime snapshot = %+v, want governed gateway defaults and one route", before)
+	}
+	route := before.Routes[0]
+	if route.Name != "orders" || route.Method != http.MethodGet || route.PathPrefix != "/api" || route.Service != "orders" || route.TargetCount != 1 {
+		t.Fatalf("route runtime identity = %+v", route)
+	}
+	if route.Timeout != 5*time.Second || route.EffectiveTimeout != 5*time.Second {
+		t.Fatalf("route timeout = %+v, want explicit 5s", route)
+	}
+	if route.Retry.Attempts != 2 || route.Retry.Backoff != time.Millisecond || route.Retry.BudgetRate != 1 || route.Retry.BudgetBurst != 1 || route.Retry.MaxBodyBytes != 1024 || !route.Retry.shouldRetryStatus(http.StatusBadGateway) || !route.Retry.matchesMethod(http.MethodGet) {
+		t.Fatalf("route retry = %+v, want generated outbound retry policy", route.Retry)
+	}
+	if !route.Breaker.Enabled || route.RateLimit.Rate != 100 || route.Concurrency.Limit != 64 {
+		t.Fatalf("route resilience = breaker %+v rate %+v concurrency %+v", route.Breaker, route.RateLimit, route.Concurrency)
+	}
+
+	rec := httptest.NewRecorder()
+	g.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/orders", nil))
+	if rec.Code != http.StatusOK || strings.TrimSpace(rec.Body.String()) != "ok" || calls.Load() != 2 {
+		t.Fatalf("gateway status = %d body = %q calls = %d, want retry success", rec.Code, rec.Body.String(), calls.Load())
+	}
+	after := g.RuntimeSnapshot()
+	if after.Cache.RateLimiters != 1 || after.Cache.ConcurrencyLimiters != 1 || after.Cache.Breakers != 1 || after.Cache.RetryRouteBudgets != 1 || after.Cache.RetryUpstreamBudget != 1 {
+		t.Fatalf("runtime cache = %+v, want materialized outbound resilience primitives", after.Cache)
+	}
+}
+
 func TestGatewayProxyRetryBackoffCancellation(t *testing.T) {
 	var cancel context.CancelFunc
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

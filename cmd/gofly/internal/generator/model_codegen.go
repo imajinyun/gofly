@@ -1519,6 +1519,7 @@ func writeIndexListFinders(b *bytes.Buffer, table SQLTable, typeName, receiverNa
 		fprintf(b, "\treturn out, nil\n}\n\n")
 		writeIndexListForUpdateFinder(b, table, index, typeName, receiverName, false)
 		writeIndexListForUpdateFinder(b, table, index, typeName, receiverName, true)
+		writeIndexListClaimFinder(b, table, index, typeName, receiverName)
 		fprintf(b, "func (r *%s) CountBy%s(ctx context.Context, %s) (int64, error) {\n", receiverName, name, uniqueFinderParams(index.Columns))
 		fprintf(b, "\twhere := storage.NewWhere()\n")
 		writeSQLIndexWhereFilters(b, index.Columns)
@@ -1561,10 +1562,42 @@ func writeIndexListForUpdateFinder(b *bytes.Buffer, table SQLTable, index modelI
 	fprintf(b, "\treturn out, nil\n}\n\n")
 }
 
+func writeIndexListClaimFinder(b *bytes.Buffer, table SQLTable, index modelIndexPrefix, typeName, receiverName string) {
+	claimColumn, ok := claimableStatusColumn(index.Columns)
+	if !ok {
+		return
+	}
+	pk := primaryColumn(table)
+	name := uniqueFinderName(index.Columns)
+	nextArg := "next" + modelFieldName(claimColumn.Name)
+	fprintf(b, "func (r *%s) ClaimBy%sSkipLocked(ctx context.Context, %s, %s %s, limit int) ([]entity.%s, error) {\n", receiverName, name, uniqueFinderParams(index.Columns), nextArg, columnGoType(claimColumn), typeName)
+	fprintf(b, "\tif limit <= 0 {\n\t\treturn []entity.%s{}, nil\n\t}\n", typeName)
+	fprintf(b, "\tclaimed := make([]entity.%s, 0)\n", typeName)
+	fprintf(b, "\tif err := r.Transact(ctx, nil, func(ctx context.Context, txRepo *%s) error {\n", receiverName)
+	fprintf(b, "\t\titems, err := txRepo.FindBy%sForUpdateSkipLocked(ctx, %s, limit, 0)\n", name, uniqueFinderArgs(index.Columns))
+	fprintf(b, "\t\tif err != nil {\n\t\t\treturn err\n\t\t}\n")
+	fprintf(b, "\t\tfor i := range items {\n")
+	fprintf(b, "\t\t\tif err := txRepo.UpdateFields(ctx, items[i].%s, map[string]any{%q: %s}); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n", modelFieldName(pk.Name), claimColumn.Name, nextArg)
+	fprintf(b, "\t\t\titems[i].%s = %s\n", modelFieldName(claimColumn.Name), nextArg)
+	fprintf(b, "\t\t}\n")
+	fprintf(b, "\t\tclaimed = items\n\t\treturn nil\n\t}); err != nil {\n\t\treturn nil, err\n\t}\n")
+	fprintf(b, "\treturn claimed, nil\n}\n\n")
+}
+
 func writeSQLIndexWhereFilters(b *bytes.Buffer, columns []SQLColumn) {
 	for _, column := range columns {
 		fprintf(b, "\twhere = where.Eq(%q, %s)\n", column.Name, modelArgName(column.Name))
 	}
+}
+
+func claimableStatusColumn(columns []SQLColumn) (SQLColumn, bool) {
+	for _, column := range columns {
+		switch strings.ToLower(column.Name) {
+		case "status", "state":
+			return column, true
+		}
+	}
+	return SQLColumn{}, false
 }
 
 func writeSQLUpdateFields(b *bytes.Buffer, table SQLTable, typeName, receiverName string) {

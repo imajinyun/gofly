@@ -59,6 +59,11 @@ func (c *fakeDatasourceConn) QueryContext(_ context.Context, query string, _ []d
 			return fakeDatasourceMultiTableIndexRows(), nil
 		}
 		return fakeDatasourceMultiTableColumnRows(), nil
+	case "postgres-multi-schema":
+		if isFakeDatasourceIndexQuery(query) {
+			return fakeDatasourcePostgresMultiSchemaIndexRows(), nil
+		}
+		return fakeDatasourcePostgresMultiSchemaColumnRows(), nil
 	default:
 		if isFakeDatasourceIndexQuery(query) {
 			return fakeDatasourceIndexRows(), nil
@@ -168,6 +173,52 @@ func fakeDatasourceMultiTableIndexRows() driver.Rows {
 			{"app_orders", "idx_order_tenant_status_id", "id", int64(1), int64(3)},
 			{"app_orders", "uk_order_tenant_order_no", "tenant_id", int64(0), int64(1)},
 			{"app_orders", "uk_order_tenant_order_no", "order_no", int64(0), int64(2)},
+		},
+	}
+}
+
+func fakeDatasourcePostgresMultiSchemaColumnRows() driver.Rows {
+	return &fakeDatasourceRows{
+		columns: fakeDatasourceColumnNames(),
+		values: [][]driver.Value{
+			{"billing_accounts", "id", "bigint", "PRI", "NO", int64(1)},
+			{"billing_accounts", "tenant_id", "bigint", "", "NO", int64(2)},
+			{"billing_accounts", "external_ref", "uuid", "", "NO", int64(3)},
+			{"billing_accounts", "email", "character varying", "", "YES", int64(4)},
+			{"billing_accounts", "metadata", "jsonb", "", "YES", int64(5)},
+			{"billing_accounts", "version", "integer", "", "NO", int64(6)},
+			{"billing_accounts", "deleted_at", "timestamp with time zone", "", "YES", int64(7)},
+			{"billing_accounts", "created_by", "character varying", "", "YES", int64(8)},
+			{"billing_accounts", "updated_by", "character varying", "", "YES", int64(9)},
+			{"billing_events", "id", "bigint", "PRI", "NO", int64(1)},
+			{"billing_events", "tenant_id", "bigint", "", "NO", int64(2)},
+			{"billing_events", "account_id", "bigint", "", "NO", int64(3)},
+			{"billing_events", "event_no", "character varying", "", "NO", int64(4)},
+			{"billing_events", "status", "character varying", "", "NO", int64(5)},
+			{"billing_events", "amount", "numeric", "", "NO", int64(6)},
+			{"billing_events", "occurred_at", "timestamp without time zone", "", "NO", int64(7)},
+			{"billing_events", "deleted_at", "timestamp with time zone", "", "YES", int64(8)},
+			{"billing_events", "created_by", "character varying", "", "YES", int64(9)},
+			{"billing_events", "updated_by", "character varying", "", "YES", int64(10)},
+		},
+	}
+}
+
+func fakeDatasourcePostgresMultiSchemaIndexRows() driver.Rows {
+	return &fakeDatasourceRows{
+		columns: fakeDatasourceIndexColumnNames(),
+		values: [][]driver.Value{
+			{"billing_accounts", "idx_billing_accounts_tenant_email", "tenant_id", int64(1), int64(1)},
+			{"billing_accounts", "idx_billing_accounts_tenant_email", "email", int64(1), int64(2)},
+			{"billing_accounts", "uk_billing_accounts_tenant_external", "tenant_id", int64(0), int64(1)},
+			{"billing_accounts", "uk_billing_accounts_tenant_external", "external_ref", int64(0), int64(2)},
+			{"billing_events", "idx_billing_events_account_status", "account_id", int64(1), int64(1)},
+			{"billing_events", "idx_billing_events_account_status", "status", int64(1), int64(2)},
+			{"billing_events", "idx_billing_events_tenant_status_occurred", "tenant_id", int64(1), int64(1)},
+			{"billing_events", "idx_billing_events_tenant_status_occurred", "status", int64(1), int64(2)},
+			{"billing_events", "idx_billing_events_tenant_status_occurred", "occurred_at", int64(1), int64(3)},
+			{"billing_events", "uk_billing_events_tenant_event_no", "tenant_id", int64(0), int64(1)},
+			{"billing_events", "uk_billing_events_tenant_event_no", "event_no", int64(0), int64(2)},
 		},
 	}
 }
@@ -618,6 +669,150 @@ func TestDatasourceIntrospectionMultiTableGoctlCacheReplay(t *testing.T) {
 	} {
 		if !strings.Contains(orderRepoOut, want) {
 			t.Fatalf("generated datasource order repo missing %q:\n%s", want, orderRepoOut)
+		}
+	}
+
+	runGoCommand(t, dir, 3*time.Minute, "mod", "tidy")
+	runGoCommand(t, dir, 3*time.Minute, "test", "./...")
+}
+
+func TestPostgresDatasourceIntrospectionMultiSchemaCacheReplay(t *testing.T) {
+	db, err := sql.Open(fakeModelDatasourceDriver, "postgres-multi-schema")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	tables, err := introspectSQLTables(context.Background(), db, datasourceIntrospectionOptions{
+		Driver: "postgres",
+		Schema: "billing",
+		Tables: []string{"billing_accounts", "billing_events"},
+	})
+	if err != nil {
+		t.Fatalf("introspectSQLTables postgres: %v", err)
+	}
+	if len(tables) != 2 {
+		t.Fatalf("postgres tables = %#v, want two datasource tables", tables)
+	}
+	accounts := tables[0]
+	if accounts.Name != "billing_accounts" || accounts.PrimaryKey != "id" {
+		t.Fatalf("accounts table = %#v, want billing_accounts with id primary key", accounts)
+	}
+	if accounts.Columns[3].Type != "varchar" || !accounts.Columns[3].Nullable {
+		t.Fatalf("accounts email column = %#v, want nullable normalized varchar", accounts.Columns[3])
+	}
+	if accounts.Columns[4].Type != "jsonb" || accounts.Columns[6].Type != "timestamptz" {
+		t.Fatalf("accounts postgres types = %#v, want jsonb and timestamptz normalization", accounts.Columns)
+	}
+	if len(accounts.UniqueIndexes) != 1 || strings.Join(accounts.UniqueIndexes[0].Columns, ",") != "tenant_id,external_ref" {
+		t.Fatalf("accounts unique indexes = %#v, want tenant_id,external_ref", accounts.UniqueIndexes)
+	}
+	if len(accounts.Indexes) != 1 || strings.Join(accounts.Indexes[0].Columns, ",") != "tenant_id,email" {
+		t.Fatalf("accounts indexes = %#v, want tenant_id,email", accounts.Indexes)
+	}
+	events := tables[1]
+	if events.Columns[5].Type != "numeric" || events.Columns[6].Type != "timestamp" || events.Columns[7].Type != "timestamptz" {
+		t.Fatalf("events postgres types = %#v, want numeric, timestamp and timestamptz normalization", events.Columns)
+	}
+	if len(events.UniqueIndexes) != 1 || strings.Join(events.UniqueIndexes[0].Columns, ",") != "tenant_id,event_no" {
+		t.Fatalf("events unique indexes = %#v, want tenant_id,event_no", events.UniqueIndexes)
+	}
+	if len(events.Indexes) != 2 {
+		t.Fatalf("events indexes = %#v, want two non-unique indexes", events.Indexes)
+	}
+
+	tables, err = prepareModelTables(tables, modelGenerationOptions{
+		Tables:        []string{"billing_accounts", "billing_events"},
+		Prefix:        "billing_",
+		IgnoreColumns: []string{"created_by", "updated_by"},
+		Strict:        true,
+	})
+	if err != nil {
+		t.Fatalf("prepareModelTables postgres: %v", err)
+	}
+	dir := t.TempDir()
+	writeGeneratedModule(t, dir, "example.com/postgres-datasource")
+	if err := writeModelFiles(tables, dir, "model", "example.com/postgres-datasource", modelStyleSQL, true); err != nil {
+		t.Fatalf("writeModelFiles postgres: %v", err)
+	}
+
+	accountEntity, err := os.ReadFile(filepath.Join(dir, "model", "entity", "account_gen.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	accountEntityOut := string(accountEntity)
+	for _, want := range []string{
+		`const AccountTable = "accounts"`,
+		`ExternalRef string`,
+		`db:"email" json:"email"`,
+		`db:"metadata" json:"metadata"`,
+		`db:"deleted_at" json:"deletedAt"`,
+	} {
+		if !strings.Contains(accountEntityOut, want) {
+			t.Fatalf("generated postgres account entity missing %q:\n%s", want, accountEntityOut)
+		}
+	}
+	for _, unexpected := range []string{"CreatedBy", "UpdatedBy"} {
+		if strings.Contains(accountEntityOut, unexpected) {
+			t.Fatalf("generated postgres account entity should ignore %q:\n%s", unexpected, accountEntityOut)
+		}
+	}
+
+	accountRepo, err := os.ReadFile(filepath.Join(dir, "model", "repo", "account.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	accountRepoOut := string(accountRepo)
+	for _, want := range []string{
+		"func (r *AccountRepo) FindByTenantIDAndExternalRef(ctx context.Context, tenantID int64, externalRef string) (*entity.Account, error)",
+		"func (r *AccountRepo) FindByTenantID(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.Account, error)",
+		"func (c *CachedAccountRepo) FindByTenantIDAndExternalRefCached(ctx context.Context, tenantID int64, externalRef string) (*entity.Account, error)",
+		"func (c *CachedAccountRepo) PageByTenantIDCached(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.Account, int64, error)",
+		"func (c *RedisCachedAccountRepo) PageByTenantIDCached(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.Account, int64, error)",
+		"key := redisAccountIndexListCacheKey(version, indexListKeyByTenantID(tenantID, limit, offset))",
+		"c.listVersionByTenantID.Set(ctx, \"current\", redisAccountIndexListVersionValue())",
+		`query += " AND deleted_at IS NULL"`,
+	} {
+		if !strings.Contains(accountRepoOut, want) {
+			t.Fatalf("generated postgres account repo missing %q:\n%s", want, accountRepoOut)
+		}
+	}
+
+	eventEntity, err := os.ReadFile(filepath.Join(dir, "model", "entity", "event_gen.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	eventEntityOut := string(eventEntity)
+	for _, want := range []string{
+		`const EventTable = "events"`,
+		`db:"amount" json:"amount"`,
+		`db:"occurred_at" json:"occurredAt"`,
+		`db:"deleted_at" json:"deletedAt"`,
+	} {
+		if !strings.Contains(eventEntityOut, want) {
+			t.Fatalf("generated postgres event entity missing %q:\n%s", want, eventEntityOut)
+		}
+	}
+
+	eventRepo, err := os.ReadFile(filepath.Join(dir, "model", "repo", "event.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	eventRepoOut := string(eventRepo)
+	for _, want := range []string{
+		"func (r *EventRepo) FindByTenantIDAndEventNo(ctx context.Context, tenantID int64, eventNo string) (*entity.Event, error)",
+		"func (r *EventRepo) FindByAccountID(ctx context.Context, accountID int64, limit int, offset int) ([]entity.Event, error)",
+		"func (r *EventRepo) FindByTenantIDAndStatus(ctx context.Context, tenantID int64, status string, limit int, offset int) ([]entity.Event, error)",
+		"func (c *CachedEventRepo) PageByAccountIDCached(ctx context.Context, accountID int64, limit int, offset int) ([]entity.Event, int64, error)",
+		"func (c *CachedEventRepo) PageByTenantIDAndStatusCached(ctx context.Context, tenantID int64, status string, limit int, offset int) ([]entity.Event, int64, error)",
+		"func (c *RedisCachedEventRepo) PageByTenantIDAndStatusCached(ctx context.Context, tenantID int64, status string, limit int, offset int) ([]entity.Event, int64, error)",
+		"key := redisEventIndexListCacheKey(version, indexListKeyByAccountID(accountID, limit, offset))",
+		"key := redisEventIndexListCacheKey(version, indexListKeyByTenantIDAndStatus(tenantID, status, limit, offset))",
+		"c.listVersionByAccountID.Set(ctx, \"current\", redisEventIndexListVersionValue())",
+		"c.listVersionByTenantIDAndStatus.Set(ctx, \"current\", redisEventIndexListVersionValue())",
+	} {
+		if !strings.Contains(eventRepoOut, want) {
+			t.Fatalf("generated postgres event repo missing %q:\n%s", want, eventRepoOut)
 		}
 	}
 

@@ -1604,6 +1604,118 @@ func TestGatewayRuntimeSnapshotExposesOutboundResilience(t *testing.T) {
 	}
 }
 
+func TestRouteConfigsFromOpenAPIImportsDeterministicGatewayRoutes(t *testing.T) {
+	doc := rest.OpenAPIDocument{
+		OpenAPI: "3.0.3",
+		Info:    rest.OpenAPIInfo{Title: "orders API", Version: "1.0.0"},
+		Paths: map[string]map[string]rest.Operation{
+			"/orders": {
+				"post": {OperationID: "createOrder", Tags: []string{"orders"}, Responses: map[string]rest.Response{"201": {Description: "created"}}},
+			},
+			"/orders/{id}": {
+				"get": {OperationID: "getOrder", Tags: []string{"orders"}, Responses: map[string]rest.Response{"200": {Description: "ok"}}},
+			},
+		},
+	}
+	routes, err := RouteConfigsFromOpenAPI(doc, OpenAPIRouteOptions{
+		NamePrefix:     "edge-",
+		GatewayPrefix:  "/edge",
+		UpstreamPrefix: "/internal",
+		Targets:        []string{"http://127.0.0.1:1"},
+		Timeout:        time.Second,
+		Retry:          RetryPolicy{Attempts: 2, Methods: []string{http.MethodGet}},
+		Headers:        map[string]string{"X-Gateway-Contract": "openapi"},
+	})
+	if err != nil {
+		t.Fatalf("RouteConfigsFromOpenAPI: %v", err)
+	}
+	if len(routes) != 2 {
+		t.Fatalf("routes length = %d, want 2", len(routes))
+	}
+	first, second := routes[0], routes[1]
+	if first.Name != "edge-createOrder" || first.Method != http.MethodPost || first.PathPrefix != "/edge/orders" || first.UpstreamPrefix != "/internal/orders" {
+		t.Fatalf("first route = %+v", first)
+	}
+	if second.Name != "edge-getOrder" || second.Method != http.MethodGet || second.PathPrefix != "/edge/orders" || second.UpstreamPrefix != "/internal/orders" {
+		t.Fatalf("second route = %+v", second)
+	}
+	if second.Retry.Attempts != 2 || !second.Retry.matchesMethod(http.MethodGet) || second.Headers["X-Gateway-Contract"] != "openapi" {
+		t.Fatalf("second route policies = retry %+v headers %+v", second.Retry, second.Headers)
+	}
+}
+
+func TestRoutesFromOpenAPIProxyRuntime(t *testing.T) {
+	var seen atomic.Int64
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen.Add(1)
+		if r.Method != http.MethodGet || r.URL.Path != "/internal/orders/42" || r.URL.Query().Get("expand") != "items" {
+			t.Errorf("upstream request = %s %s?%s", r.Method, r.URL.Path, r.URL.RawQuery)
+		}
+		if r.Header.Get("X-Gateway-Contract") != "openapi" {
+			t.Errorf("X-Gateway-Contract = %q, want openapi", r.Header.Get("X-Gateway-Contract"))
+		}
+		_, _ = fmt.Fprint(w, `{"id":"42"}`)
+	}))
+	t.Cleanup(upstream.Close)
+
+	doc := rest.OpenAPIDocument{
+		OpenAPI: "3.0.3",
+		Info:    rest.OpenAPIInfo{Title: "orders API", Version: "1.0.0"},
+		Paths: map[string]map[string]rest.Operation{
+			"/orders/{id}": {
+				"get": {OperationID: "getOrder", Responses: map[string]rest.Response{"200": {Description: "ok"}}},
+			},
+		},
+	}
+	routes, err := RoutesFromOpenAPI(doc, OpenAPIRouteOptions{
+		GatewayPrefix:  "/edge",
+		UpstreamPrefix: "/internal",
+		Service:        "orders",
+		Targets:        []string{upstream.URL},
+		Headers:        map[string]string{"X-Gateway-Contract": "openapi"},
+	})
+	if err != nil {
+		t.Fatalf("RoutesFromOpenAPI: %v", err)
+	}
+	g, err := New(routes)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = g.Close() })
+
+	rec := httptest.NewRecorder()
+	g.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/edge/orders/42?expand=items", nil))
+	if rec.Code != http.StatusOK || strings.TrimSpace(rec.Body.String()) != `{"id":"42"}` || seen.Load() != 1 {
+		t.Fatalf("gateway response code = %d body = %q seen = %d", rec.Code, rec.Body.String(), seen.Load())
+	}
+	snapshot := g.RuntimeSnapshot()
+	if snapshot.RouteCount != 1 || snapshot.Routes[0].Name != "getOrder" || snapshot.Routes[0].Service != "orders" {
+		t.Fatalf("runtime snapshot = %+v", snapshot)
+	}
+}
+
+func TestRouteConfigsFromOpenAPIValidation(t *testing.T) {
+	_, err := RouteConfigsFromOpenAPI(rest.OpenAPIDocument{}, OpenAPIRouteOptions{Targets: []string{"http://127.0.0.1:1"}})
+	if !errors.Is(err, ErrOpenAPIPathsRequired) {
+		t.Fatalf("empty paths error = %v, want ErrOpenAPIPathsRequired", err)
+	}
+	doc := rest.OpenAPIDocument{Paths: map[string]map[string]rest.Operation{"/orders": {"get": {}}}}
+	_, err = RouteConfigsFromOpenAPI(doc, OpenAPIRouteOptions{})
+	if !errors.Is(err, ErrRouteRequired) {
+		t.Fatalf("missing upstream error = %v, want ErrRouteRequired", err)
+	}
+	doc = rest.OpenAPIDocument{Paths: map[string]map[string]rest.Operation{"/orders": {"trace": {}}}}
+	_, err = RouteConfigsFromOpenAPI(doc, OpenAPIRouteOptions{Targets: []string{"http://127.0.0.1:1"}})
+	if err == nil || !strings.Contains(err.Error(), "unsupported openapi method") {
+		t.Fatalf("unsupported method error = %v", err)
+	}
+	doc = rest.OpenAPIDocument{Paths: map[string]map[string]rest.Operation{"orders": {"get": {}}}}
+	_, err = RouteConfigsFromOpenAPI(doc, OpenAPIRouteOptions{Targets: []string{"http://127.0.0.1:1"}})
+	if err == nil || !strings.Contains(err.Error(), "must start with /") {
+		t.Fatalf("unsafe path error = %v", err)
+	}
+}
+
 func TestGatewayProxyRetryBackoffCancellation(t *testing.T) {
 	var cancel context.CancelFunc
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

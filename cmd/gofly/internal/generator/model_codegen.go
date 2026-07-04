@@ -1881,6 +1881,7 @@ func writeCachedForUpdateMethods(b *bytes.Buffer, table SQLTable, typeName, cach
 		fprintf(b, "\treturn c.repo.%s(ctx, %s)\n}\n\n", method, pkArg)
 	}
 	writeCachedUniqueForUpdateFinders(b, table, typeName, cachedName, nilMessage)
+	writeCachedIndexListForUpdateFinders(b, modelIndexPrefixes(table), typeName, cachedName, nilMessage)
 }
 
 func writeCachedUniqueForUpdateFinders(b *bytes.Buffer, table SQLTable, typeName, cachedName, nilMessage string) {
@@ -1907,6 +1908,22 @@ func writeCachedUniqueForUpdateFinder(b *bytes.Buffer, typeName, cachedName, nil
 		fprintf(b, "func (c *%s) FindBy%s%s(ctx context.Context, %s) (*entity.%s, error) {\n", cachedName, name, suffix, params, typeName)
 		fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn nil, errors.New(%q)\n\t}\n", nilMessage)
 		fprintf(b, "\treturn c.repo.FindBy%s%s(ctx, %s)\n}\n\n", name, suffix, args)
+	}
+}
+
+func writeCachedIndexListForUpdateFinders(b *bytes.Buffer, indexes []modelIndexPrefix, typeName, cachedName, nilMessage string) {
+	for _, index := range indexes {
+		name := uniqueFinderName(index.Columns)
+		params := uniqueFinderParams(index.Columns)
+		args := uniqueFinderArgs(index.Columns)
+		if args != "" {
+			args += ", "
+		}
+		for _, suffix := range []string{"ForUpdate", "ForUpdateSkipLocked"} {
+			fprintf(b, "func (c *%s) FindBy%s%s(ctx context.Context, %s, limit int, offset int) ([]entity.%s, error) {\n", cachedName, name, suffix, params, typeName)
+			fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn nil, errors.New(%q)\n\t}\n", nilMessage)
+			fprintf(b, "\treturn c.repo.FindBy%s%s(ctx, %slimit, offset)\n}\n\n", name, suffix, args)
+		}
 	}
 }
 

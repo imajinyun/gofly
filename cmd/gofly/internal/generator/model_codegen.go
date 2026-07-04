@@ -1624,6 +1624,9 @@ func writeConsistentCachedRepo(b *bytes.Buffer, table SQLTable, typeName, repoNa
 	writeConsistentCachedFindByIDs(b, table, typeName, cachedName)
 	writeUniqueCachedFinders(b, uniqueIndexes, typeName, cachedName, false)
 	writeIndexListCachedFinders(b, indexPrefixes, typeName, cachedName)
+	if style == modelStyleSQL {
+		writeCachedForUpdateMethods(b, table, typeName, cachedName, lowerCamel(typeName)+" cached repo is nil")
+	}
 	writeConsistentCachedUpsertMethods(b, table, typeName, cachedName)
 	fprintf(b, "func (c *%s) Insert(ctx context.Context, in *entity.%s) error {\n", cachedName, typeName)
 	fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn errors.New(%q)\n\t}\n", lowerCamel(typeName)+" cached repo is nil")
@@ -1680,6 +1683,9 @@ func writeRedisCachedRepo(b *bytes.Buffer, table SQLTable, typeName, repoName st
 	fprintf(b, "\tif c.cache == nil {\n\t\treturn c.repo.FindOne(ctx, %s)\n\t}\n\treturn c.cache.Get(ctx, %s)\n}\n\n", pkArg, pkArg)
 	writeRedisCachedFindByIDs(b, table, typeName, cachedName)
 	writeRedisIndexListCachedFinders(b, indexPrefixes, typeName, cachedName)
+	if style == modelStyleSQL {
+		writeCachedForUpdateMethods(b, table, typeName, cachedName, lowerCamel(typeName)+" redis cached repo is nil")
+	}
 	writeRedisCachedUpsertMethods(b, table, typeName, cachedName)
 	fprintf(b, "func (c *%s) Insert(ctx context.Context, in *entity.%s) error {\n", cachedName, typeName)
 	fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn errors.New(%q)\n\t}\n", lowerCamel(typeName)+" redis cached repo is nil")
@@ -1833,6 +1839,45 @@ func writeRedisCachedFindByIDs(b *bytes.Buffer, table SQLTable, typeName, cached
 	fprintf(b, "\tout := make([]entity.%s, 0, len(found))\n", typeName)
 	fprintf(b, "\tfor _, id := range %s {\n\t\tif item, ok := found[id]; ok && item != nil {\n\t\t\tout = append(out, *item)\n\t\t}\n\t}\n", pkArg)
 	fprintf(b, "\treturn out, nil\n}\n\n")
+}
+
+func writeCachedForUpdateMethods(b *bytes.Buffer, table SQLTable, typeName, cachedName, nilMessage string) {
+	pk := primaryColumn(table)
+	pkArg := modelArgName(pk.Name)
+	pkType := columnGoType(pk)
+	for _, method := range []string{"FindOneForUpdate", "FindOneForUpdateSkipLocked"} {
+		fprintf(b, "func (c *%s) %s(ctx context.Context, %s %s) (*entity.%s, error) {\n", cachedName, method, pkArg, pkType, typeName)
+		fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn nil, errors.New(%q)\n\t}\n", nilMessage)
+		fprintf(b, "\treturn c.repo.%s(ctx, %s)\n}\n\n", method, pkArg)
+	}
+	writeCachedUniqueForUpdateFinders(b, table, typeName, cachedName, nilMessage)
+}
+
+func writeCachedUniqueForUpdateFinders(b *bytes.Buffer, table SQLTable, typeName, cachedName, nilMessage string) {
+	for _, column := range table.Columns {
+		if !column.Unique || column.PrimaryKey {
+			continue
+		}
+		writeCachedUniqueForUpdateFinder(b, typeName, cachedName, nilMessage, []SQLColumn{column})
+	}
+	for _, index := range table.UniqueIndexes {
+		columns, ok := uniqueIndexColumns(table, index)
+		if !ok {
+			continue
+		}
+		writeCachedUniqueForUpdateFinder(b, typeName, cachedName, nilMessage, columns)
+	}
+}
+
+func writeCachedUniqueForUpdateFinder(b *bytes.Buffer, typeName, cachedName, nilMessage string, columns []SQLColumn) {
+	name := uniqueFinderName(columns)
+	params := uniqueFinderParams(columns)
+	args := uniqueFinderArgs(columns)
+	for _, suffix := range []string{"ForUpdate", "ForUpdateSkipLocked"} {
+		fprintf(b, "func (c *%s) FindBy%s%s(ctx context.Context, %s) (*entity.%s, error) {\n", cachedName, name, suffix, params, typeName)
+		fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn nil, errors.New(%q)\n\t}\n", nilMessage)
+		fprintf(b, "\treturn c.repo.FindBy%s%s(ctx, %s)\n}\n\n", name, suffix, args)
+	}
 }
 
 func writeConsistentCachedUpsertMethods(b *bytes.Buffer, table SQLTable, typeName, cachedName string) {

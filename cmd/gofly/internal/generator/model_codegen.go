@@ -1332,8 +1332,20 @@ func writeAdvancedSQLRepoMethods(b *bytes.Buffer, table SQLTable, typeName, rece
 	writeUniqueFinders(b, table, typeName, receiverName)
 	writeIndexListFinders(b, table, typeName, receiverName)
 	writeSQLFindByIDs(b, table, typeName, receiverName)
+	writeSQLUpsertMethods(b, table, typeName, receiverName)
 	fprintf(b, "func (r *%s) InsertMany(ctx context.Context, items []*entity.%s) error {\n", receiverName, typeName)
-	fprintf(b, "\tfor _, item := range items {\n\t\tif err := r.Insert(ctx, item); err != nil {\n\t\t\treturn err\n\t\t}\n\t}\n\treturn nil\n}\n\n")
+	fprintf(b, "\tif len(items) == 0 {\n\t\treturn nil\n\t}\n")
+	fprintf(b, "\targs := make([]any, 0, len(items)*len(entity.%sColumns))\n", typeName)
+	fprintf(b, "\trows := 0\n")
+	fprintf(b, "\tfor _, item := range items {\n")
+	fprintf(b, "\t\tif item == nil {\n\t\t\tcontinue\n\t\t}\n")
+	fprintf(b, "\t\targs = append(args, %s)\n", valueArgs("item", table.Columns))
+	fprintf(b, "\t\trows++\n")
+	fprintf(b, "\t}\n")
+	fprintf(b, "\tif rows == 0 {\n\t\treturn nil\n\t}\n")
+	fprintf(b, "\tquery, err := storage.BatchInsert(entity.%sTable, entity.%sColumns, rows, r.dialect)\n", typeName, typeName)
+	fprintf(b, "\tif err != nil {\n\t\treturn err\n\t}\n")
+	fprintf(b, "\t_, err = r.exec(ctx, query, args...)\n\treturn err\n}\n\n")
 	fprintf(b, "func (r *%s) UpdateMany(ctx context.Context, items []*entity.%s) error {\n", receiverName, typeName)
 	fprintf(b, "\tfor _, item := range items {\n\t\tif err := r.Update(ctx, item); err != nil {\n\t\t\treturn err\n\t\t}\n\t}\n\treturn nil\n}\n\n")
 	fprintf(b, "func (r *%s) DeleteMany(ctx context.Context, ids ...%s) error {\n", receiverName, columnGoType(pk))
@@ -1363,6 +1375,21 @@ func writeSQLFindByIDs(b *bytes.Buffer, table SQLTable, typeName, receiverName s
 	fprintf(b, "\tout := make([]entity.%s, 0, len(found))\n", typeName)
 	fprintf(b, "\tfor _, id := range %s {\n\t\tif item, ok := found[id]; ok {\n\t\t\tout = append(out, item)\n\t\t}\n\t}\n", pkArg)
 	fprintf(b, "\treturn out, nil\n}\n\n")
+}
+
+func writeSQLUpsertMethods(b *bytes.Buffer, table SQLTable, typeName, receiverName string) {
+	for _, index := range modelUpsertIndexes(table) {
+		updateColumns := upsertUpdateColumns(table, index.Columns)
+		if len(updateColumns) == 0 {
+			continue
+		}
+		name := uniqueFinderName(index.Columns)
+		fprintf(b, "func (r *%s) UpsertBy%s(ctx context.Context, in *entity.%s) error {\n", receiverName, name, typeName)
+		fprintf(b, "\tif in == nil {\n\t\treturn errors.New(\"%s is nil\")\n\t}\n", lowerCamel(typeName))
+		fprintf(b, "\tquery, err := storage.Upsert(entity.%sTable, entity.%sColumns, []string{%s}, []string{%s}, r.dialect)\n", typeName, typeName, quotedColumnList(index.Columns), quotedColumnList(updateColumns))
+		fprintf(b, "\tif err != nil {\n\t\treturn err\n\t}\n")
+		fprintf(b, "\t_, err = r.exec(ctx, query, %s)\n\treturn err\n}\n\n", valueArgs("in", table.Columns))
+	}
 }
 
 func writeUniqueFinders(b *bytes.Buffer, table SQLTable, typeName, receiverName string) {
@@ -1532,6 +1559,7 @@ func writeConsistentCachedRepo(b *bytes.Buffer, table SQLTable, typeName, repoNa
 	writeConsistentCachedFindByIDs(b, table, typeName, cachedName)
 	writeUniqueCachedFinders(b, uniqueIndexes, typeName, cachedName, false)
 	writeIndexListCachedFinders(b, indexPrefixes, typeName, cachedName)
+	writeConsistentCachedUpsertMethods(b, table, typeName, cachedName)
 	fprintf(b, "func (c *%s) Insert(ctx context.Context, in *entity.%s) error {\n", cachedName, typeName)
 	fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn errors.New(%q)\n\t}\n", lowerCamel(typeName)+" cached repo is nil")
 	fprintf(b, "\tif err := c.repo.Insert(ctx, in); err != nil {\n\t\treturn err\n\t}\n")
@@ -1587,6 +1615,7 @@ func writeRedisCachedRepo(b *bytes.Buffer, table SQLTable, typeName, repoName st
 	fprintf(b, "\tif c.cache == nil {\n\t\treturn c.repo.FindOne(ctx, %s)\n\t}\n\treturn c.cache.Get(ctx, %s)\n}\n\n", pkArg, pkArg)
 	writeRedisCachedFindByIDs(b, table, typeName, cachedName)
 	writeRedisIndexListCachedFinders(b, indexPrefixes, typeName, cachedName)
+	writeRedisCachedUpsertMethods(b, table, typeName, cachedName)
 	fprintf(b, "func (c *%s) Insert(ctx context.Context, in *entity.%s) error {\n", cachedName, typeName)
 	fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn errors.New(%q)\n\t}\n", lowerCamel(typeName)+" redis cached repo is nil")
 	fprintf(b, "\tif err := c.repo.Insert(ctx, in); err != nil {\n\t\treturn err\n\t}\n")
@@ -1741,6 +1770,37 @@ func writeRedisCachedFindByIDs(b *bytes.Buffer, table SQLTable, typeName, cached
 	fprintf(b, "\treturn out, nil\n}\n\n")
 }
 
+func writeConsistentCachedUpsertMethods(b *bytes.Buffer, table SQLTable, typeName, cachedName string) {
+	indexes := cacheableUniqueIndexes(table)
+	for _, index := range modelUpsertIndexes(table) {
+		if len(upsertUpdateColumns(table, index.Columns)) == 0 {
+			continue
+		}
+		name := uniqueFinderName(index.Columns)
+		fprintf(b, "func (c *%s) UpsertBy%s(ctx context.Context, in *entity.%s) error {\n", cachedName, name, typeName)
+		fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn errors.New(%q)\n\t}\n", lowerCamel(typeName)+" cached repo is nil")
+		fprintf(b, "\tvar old *entity.%s\n", typeName)
+		if len(indexes) > 0 {
+			fprintf(b, "\tif in != nil {\n\t\told, _ = c.repo.FindBy%s(ctx, %s)\n\t}\n", name, uniqueFinderEntityArgs(index.Columns, "in"))
+		}
+		fprintf(b, "\tif err := c.repo.UpsertBy%s(ctx, in); err != nil {\n\t\treturn err\n\t}\n", name)
+		fprintf(b, "\treturn c.deferOrRunAfterCommit(ctx, func(ctx context.Context) error {\n\t\treturn c.afterUpdateCommit(ctx, in, old)\n\t})\n}\n\n")
+	}
+}
+
+func writeRedisCachedUpsertMethods(b *bytes.Buffer, table SQLTable, typeName, cachedName string) {
+	for _, index := range modelUpsertIndexes(table) {
+		if len(upsertUpdateColumns(table, index.Columns)) == 0 {
+			continue
+		}
+		name := uniqueFinderName(index.Columns)
+		fprintf(b, "func (c *%s) UpsertBy%s(ctx context.Context, in *entity.%s) error {\n", cachedName, name, typeName)
+		fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn errors.New(%q)\n\t}\n", lowerCamel(typeName)+" redis cached repo is nil")
+		fprintf(b, "\tif err := c.repo.UpsertBy%s(ctx, in); err != nil {\n\t\treturn err\n\t}\n", name)
+		fprintf(b, "\treturn c.deferOrRunAfterCommit(ctx, func(ctx context.Context) error {\n\t\treturn c.afterUpdateCommit(ctx, in)\n\t})\n}\n\n")
+	}
+}
+
 func writeConsistentCachedBatchMutations(b *bytes.Buffer, table SQLTable, typeName, cachedName string, indexes []modelUniqueIndex) {
 	pk := primaryColumn(table)
 	pkField := modelFieldName(pk.Name)
@@ -1750,7 +1810,7 @@ func writeConsistentCachedBatchMutations(b *bytes.Buffer, table SQLTable, typeNa
 	fprintf(b, "\tif len(items) == 0 {\n\t\treturn nil\n\t}\n")
 	fprintf(b, "\tif err := c.repo.InsertMany(ctx, items); err != nil {\n\t\treturn err\n\t}\n")
 	fprintf(b, "\treturn c.deferOrRunAfterCommit(ctx, func(ctx context.Context) error {\n")
-	fprintf(b, "\t\tfor _, item := range items {\n\t\t\tif err := c.afterInsertCommit(ctx, item); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t}\n")
+	fprintf(b, "\t\tfor _, item := range items {\n\t\t\tif item == nil {\n\t\t\t\tcontinue\n\t\t\t}\n\t\t\tif err := c.afterInsertCommit(ctx, item); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t}\n")
 	fprintf(b, "\t\treturn nil\n\t})\n}\n\n")
 	fprintf(b, "func (c *%s) UpdateMany(ctx context.Context, items []*entity.%s) error {\n", cachedName, typeName)
 	fprintf(b, "\treturn c.UpdateManyWithInvalidate(ctx, items)\n}\n\n")
@@ -1764,7 +1824,7 @@ func writeConsistentCachedBatchMutations(b *bytes.Buffer, table SQLTable, typeNa
 	}
 	fprintf(b, "\tif err := c.repo.UpdateMany(ctx, items); err != nil {\n\t\treturn err\n\t}\n")
 	fprintf(b, "\treturn c.deferOrRunAfterCommit(ctx, func(ctx context.Context) error {\n")
-	fprintf(b, "\t\tfor _, item := range items {\n\t\t\tvar old *entity.%s\n\t\t\tif item != nil && oldByID != nil {\n\t\t\t\told = oldByID[item.%s]\n\t\t\t}\n\t\t\tif err := c.afterUpdateCommit(ctx, item, old); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t}\n", typeName, pkField)
+	fprintf(b, "\t\tfor _, item := range items {\n\t\t\tif item == nil {\n\t\t\t\tcontinue\n\t\t\t}\n\t\t\tvar old *entity.%s\n\t\t\tif oldByID != nil {\n\t\t\t\told = oldByID[item.%s]\n\t\t\t}\n\t\t\tif err := c.afterUpdateCommit(ctx, item, old); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t}\n", typeName, pkField)
 	fprintf(b, "\t\treturn nil\n\t})\n}\n\n")
 	fprintf(b, "func (c *%s) DeleteMany(ctx context.Context, ids ...%s) error {\n", cachedName, pkType)
 	fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn errors.New(%q)\n\t}\n", lowerCamel(typeName)+" cached repo is nil")
@@ -1788,7 +1848,7 @@ func writeRedisCachedBatchMutations(b *bytes.Buffer, table SQLTable, typeName, c
 	fprintf(b, "\tif len(items) == 0 {\n\t\treturn nil\n\t}\n")
 	fprintf(b, "\tif err := c.repo.InsertMany(ctx, items); err != nil {\n\t\treturn err\n\t}\n")
 	fprintf(b, "\treturn c.deferOrRunAfterCommit(ctx, func(ctx context.Context) error {\n")
-	fprintf(b, "\t\tfor _, item := range items {\n\t\t\tif err := c.afterInsertCommit(ctx, item); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t}\n")
+	fprintf(b, "\t\tfor _, item := range items {\n\t\t\tif item == nil {\n\t\t\t\tcontinue\n\t\t\t}\n\t\t\tif err := c.afterInsertCommit(ctx, item); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t}\n")
 	fprintf(b, "\t\treturn nil\n\t})\n}\n\n")
 	fprintf(b, "func (c *%s) UpdateMany(ctx context.Context, items []*entity.%s) error {\n", cachedName, typeName)
 	fprintf(b, "\treturn c.UpdateManyWithInvalidate(ctx, items)\n}\n\n")
@@ -1797,7 +1857,7 @@ func writeRedisCachedBatchMutations(b *bytes.Buffer, table SQLTable, typeName, c
 	fprintf(b, "\tif len(items) == 0 {\n\t\treturn nil\n\t}\n")
 	fprintf(b, "\tif err := c.repo.UpdateMany(ctx, items); err != nil {\n\t\treturn err\n\t}\n")
 	fprintf(b, "\treturn c.deferOrRunAfterCommit(ctx, func(ctx context.Context) error {\n")
-	fprintf(b, "\t\tfor _, item := range items {\n\t\t\tif err := c.afterUpdateCommit(ctx, item); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t}\n")
+	fprintf(b, "\t\tfor _, item := range items {\n\t\t\tif item == nil {\n\t\t\t\tcontinue\n\t\t\t}\n\t\t\tif err := c.afterUpdateCommit(ctx, item); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t}\n")
 	fprintf(b, "\t\treturn nil\n\t})\n}\n\n")
 	fprintf(b, "func (c *%s) DeleteMany(ctx context.Context, ids ...%s) error {\n", cachedName, pkType)
 	fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn errors.New(%q)\n\t}\n", lowerCamel(typeName)+" redis cached repo is nil")
@@ -2891,6 +2951,38 @@ func cacheableUniqueColumn(column SQLColumn) bool {
 	return strings.TrimPrefix(columnGoType(column), "*") != "[]byte"
 }
 
+func modelUpsertIndexes(table SQLTable) []modelUniqueIndex {
+	indexes := make([]modelUniqueIndex, 0)
+	for _, column := range table.Columns {
+		if column.Unique && !column.PrimaryKey {
+			indexes = append(indexes, modelUniqueIndex{Columns: []SQLColumn{column}})
+		}
+	}
+	for _, index := range table.UniqueIndexes {
+		columns, ok := uniqueIndexColumns(table, index)
+		if ok {
+			indexes = append(indexes, modelUniqueIndex{Columns: columns})
+		}
+	}
+	return indexes
+}
+
+func upsertUpdateColumns(table SQLTable, conflictColumns []SQLColumn) []SQLColumn {
+	conflicts := make(map[string]struct{}, len(conflictColumns))
+	for _, column := range conflictColumns {
+		conflicts[column.Name] = struct{}{}
+	}
+	columns := updateColumns(table)
+	out := columns[:0]
+	for _, column := range columns {
+		if _, ok := conflicts[column.Name]; ok {
+			continue
+		}
+		out = append(out, column)
+	}
+	return out
+}
+
 func modelIndexPrefixes(table SQLTable) []modelIndexPrefix {
 	if len(table.Indexes) == 0 {
 		return nil
@@ -2993,6 +3085,14 @@ func uniqueFinderArgs(columns []SQLColumn) string {
 	args := make([]string, 0, len(columns))
 	for _, column := range columns {
 		args = append(args, modelArgName(column.Name))
+	}
+	return strings.Join(args, ", ")
+}
+
+func uniqueFinderEntityArgs(columns []SQLColumn, receiver string) string {
+	args := make([]string, 0, len(columns))
+	for _, column := range columns {
+		args = append(args, receiver+"."+modelFieldName(column.Name))
 	}
 	return strings.Join(args, ", ")
 }

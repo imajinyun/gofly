@@ -606,7 +606,7 @@ func TestDatasourceIntrospectionMultiTableGoctlCacheReplay(t *testing.T) {
 	}
 	dir := t.TempDir()
 	writeGeneratedModule(t, dir, "example.com/datasource-multi")
-	if err := writeModelFiles(tables, dir, "model", "example.com/datasource-multi", modelStyleSQL, true, storage.DialectQuestion); err != nil {
+	if err := writeModelFiles(tables, dir, "model", "example.com/datasource-multi", modelStyleSQL, true, storage.DialectMySQL); err != nil {
 		t.Fatalf("writeModelFiles: %v", err)
 	}
 
@@ -636,11 +636,18 @@ func TestDatasourceIntrospectionMultiTableGoctlCacheReplay(t *testing.T) {
 	}
 	customerRepoOut := string(customerRepo)
 	for _, want := range []string{
+		"d := storage.DialectMySQL",
 		"func (r *CustomerRepo) FindByTenantIDAndExternalID(ctx context.Context, tenantID int64, externalID string) (*entity.Customer, error)",
 		"func (r *CustomerRepo) FindByTenantID(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.Customer, error)",
 		"func (r *CustomerRepo) CountByTenantID(ctx context.Context, tenantID int64) (int64, error)",
+		"func (r *CustomerRepo) UpsertByTenantIDAndExternalID(ctx context.Context, in *entity.Customer) error",
+		"storage.Upsert(entity.CustomerTable, entity.CustomerColumns, []string{\"tenant_id\", \"external_id\"}",
+		"args := make([]any, 0, len(items)*len(entity.CustomerColumns))",
+		"query, err := storage.BatchInsert(entity.CustomerTable, entity.CustomerColumns, rows, r.dialect)",
 		"func (c *CachedCustomerRepo) FindByTenantIDAndExternalIDCached(ctx context.Context, tenantID int64, externalID string) (*entity.Customer, error)",
+		"func (c *CachedCustomerRepo) UpsertByTenantIDAndExternalID(ctx context.Context, in *entity.Customer) error",
 		"func (c *CachedCustomerRepo) PageByTenantIDCached(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.Customer, int64, error)",
+		"func (c *RedisCachedCustomerRepo) UpsertByTenantIDAndExternalID(ctx context.Context, in *entity.Customer) error",
 		"func (c *RedisCachedCustomerRepo) PageByTenantIDCached(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.Customer, int64, error)",
 		"key := redisCustomerIndexListCacheKey(version, indexListKeyByTenantID(tenantID, limit, offset))",
 		"c.listVersionByTenantID.Set(ctx, \"current\", redisCustomerIndexListVersionValue())",
@@ -657,12 +664,19 @@ func TestDatasourceIntrospectionMultiTableGoctlCacheReplay(t *testing.T) {
 	}
 	orderRepoOut := string(orderRepo)
 	for _, want := range []string{
+		"d := storage.DialectMySQL",
 		"func (r *OrderRepo) FindByTenantIDAndOrderNo(ctx context.Context, tenantID int64, orderNo string) (*entity.Order, error)",
 		"func (r *OrderRepo) FindByCustomerID(ctx context.Context, customerID int64, limit int, offset int) ([]entity.Order, error)",
 		"func (r *OrderRepo) CountByCustomerID(ctx context.Context, customerID int64) (int64, error)",
+		"func (r *OrderRepo) UpsertByTenantIDAndOrderNo(ctx context.Context, in *entity.Order) error",
+		"storage.Upsert(entity.OrderTable, entity.OrderColumns, []string{\"tenant_id\", \"order_no\"}",
+		"args := make([]any, 0, len(items)*len(entity.OrderColumns))",
+		"query, err := storage.BatchInsert(entity.OrderTable, entity.OrderColumns, rows, r.dialect)",
 		"func (r *OrderRepo) FindByTenantIDAndStatus(ctx context.Context, tenantID int64, status string, limit int, offset int) ([]entity.Order, error)",
+		"func (c *CachedOrderRepo) UpsertByTenantIDAndOrderNo(ctx context.Context, in *entity.Order) error",
 		"func (c *CachedOrderRepo) PageByCustomerIDCached(ctx context.Context, customerID int64, limit int, offset int) ([]entity.Order, int64, error)",
 		"func (c *CachedOrderRepo) PageByTenantIDAndStatusCached(ctx context.Context, tenantID int64, status string, limit int, offset int) ([]entity.Order, int64, error)",
+		"func (c *RedisCachedOrderRepo) UpsertByTenantIDAndOrderNo(ctx context.Context, in *entity.Order) error",
 		"func (c *RedisCachedOrderRepo) PageByTenantIDAndStatusCached(ctx context.Context, tenantID int64, status string, limit int, offset int) ([]entity.Order, int64, error)",
 		"key := redisOrderIndexListCacheKey(version, indexListKeyByCustomerID(customerID, limit, offset))",
 		"key := redisOrderIndexListCacheKey(version, indexListKeyByTenantIDAndStatus(tenantID, status, limit, offset))",
@@ -769,8 +783,14 @@ func TestPostgresDatasourceIntrospectionMultiSchemaCacheReplay(t *testing.T) {
 		"d := storage.DialectPostgres",
 		"func (r *AccountRepo) FindByTenantIDAndExternalRef(ctx context.Context, tenantID int64, externalRef string) (*entity.Account, error)",
 		"func (r *AccountRepo) FindByTenantID(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.Account, error)",
+		"func (r *AccountRepo) UpsertByTenantIDAndExternalRef(ctx context.Context, in *entity.Account) error",
+		"storage.Upsert(entity.AccountTable, entity.AccountColumns, []string{\"tenant_id\", \"external_ref\"}",
+		"args := make([]any, 0, len(items)*len(entity.AccountColumns))",
+		"query, err := storage.BatchInsert(entity.AccountTable, entity.AccountColumns, rows, r.dialect)",
 		"func (c *CachedAccountRepo) FindByTenantIDAndExternalRefCached(ctx context.Context, tenantID int64, externalRef string) (*entity.Account, error)",
+		"func (c *CachedAccountRepo) UpsertByTenantIDAndExternalRef(ctx context.Context, in *entity.Account) error",
 		"func (c *CachedAccountRepo) PageByTenantIDCached(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.Account, int64, error)",
+		"func (c *RedisCachedAccountRepo) UpsertByTenantIDAndExternalRef(ctx context.Context, in *entity.Account) error",
 		"func (c *RedisCachedAccountRepo) PageByTenantIDCached(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.Account, int64, error)",
 		"key := redisAccountIndexListCacheKey(version, indexListKeyByTenantID(tenantID, limit, offset))",
 		"c.listVersionByTenantID.Set(ctx, \"current\", redisAccountIndexListVersionValue())",
@@ -807,8 +827,14 @@ func TestPostgresDatasourceIntrospectionMultiSchemaCacheReplay(t *testing.T) {
 		"func (r *EventRepo) FindByTenantIDAndEventNo(ctx context.Context, tenantID int64, eventNo string) (*entity.Event, error)",
 		"func (r *EventRepo) FindByAccountID(ctx context.Context, accountID int64, limit int, offset int) ([]entity.Event, error)",
 		"func (r *EventRepo) FindByTenantIDAndStatus(ctx context.Context, tenantID int64, status string, limit int, offset int) ([]entity.Event, error)",
+		"func (r *EventRepo) UpsertByTenantIDAndEventNo(ctx context.Context, in *entity.Event) error",
+		"storage.Upsert(entity.EventTable, entity.EventColumns, []string{\"tenant_id\", \"event_no\"}",
+		"args := make([]any, 0, len(items)*len(entity.EventColumns))",
+		"query, err := storage.BatchInsert(entity.EventTable, entity.EventColumns, rows, r.dialect)",
+		"func (c *CachedEventRepo) UpsertByTenantIDAndEventNo(ctx context.Context, in *entity.Event) error",
 		"func (c *CachedEventRepo) PageByAccountIDCached(ctx context.Context, accountID int64, limit int, offset int) ([]entity.Event, int64, error)",
 		"func (c *CachedEventRepo) PageByTenantIDAndStatusCached(ctx context.Context, tenantID int64, status string, limit int, offset int) ([]entity.Event, int64, error)",
+		"func (c *RedisCachedEventRepo) UpsertByTenantIDAndEventNo(ctx context.Context, in *entity.Event) error",
 		"func (c *RedisCachedEventRepo) PageByTenantIDAndStatusCached(ctx context.Context, tenantID int64, status string, limit int, offset int) ([]entity.Event, int64, error)",
 		"key := redisEventIndexListCacheKey(version, indexListKeyByAccountID(accountID, limit, offset))",
 		"key := redisEventIndexListCacheKey(version, indexListKeyByTenantIDAndStatus(tenantID, status, limit, offset))",

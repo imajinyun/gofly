@@ -1688,7 +1688,7 @@ func writeConsistentCachedRepo(b *bytes.Buffer, table SQLTable, typeName, repoNa
 	writeUniqueCachedFinders(b, uniqueIndexes, typeName, cachedName, false)
 	writeIndexListCachedFinders(b, indexPrefixes, typeName, cachedName)
 	if style == modelStyleSQL {
-		writeCachedForUpdateMethods(b, table, typeName, cachedName, lowerCamel(typeName)+" cached repo is nil")
+		writeCachedForUpdateMethods(b, table, typeName, cachedName, lowerCamel(typeName)+" cached repo is nil", false)
 	}
 	writeConsistentCachedUpsertMethods(b, table, typeName, cachedName)
 	fprintf(b, "func (c *%s) Insert(ctx context.Context, in *entity.%s) error {\n", cachedName, typeName)
@@ -1747,7 +1747,7 @@ func writeRedisCachedRepo(b *bytes.Buffer, table SQLTable, typeName, repoName st
 	writeRedisCachedFindByIDs(b, table, typeName, cachedName)
 	writeRedisIndexListCachedFinders(b, indexPrefixes, typeName, cachedName)
 	if style == modelStyleSQL {
-		writeCachedForUpdateMethods(b, table, typeName, cachedName, lowerCamel(typeName)+" redis cached repo is nil")
+		writeCachedForUpdateMethods(b, table, typeName, cachedName, lowerCamel(typeName)+" redis cached repo is nil", true)
 	}
 	writeRedisCachedUpsertMethods(b, table, typeName, cachedName)
 	fprintf(b, "func (c *%s) Insert(ctx context.Context, in *entity.%s) error {\n", cachedName, typeName)
@@ -1904,7 +1904,7 @@ func writeRedisCachedFindByIDs(b *bytes.Buffer, table SQLTable, typeName, cached
 	fprintf(b, "\treturn out, nil\n}\n\n")
 }
 
-func writeCachedForUpdateMethods(b *bytes.Buffer, table SQLTable, typeName, cachedName, nilMessage string) {
+func writeCachedForUpdateMethods(b *bytes.Buffer, table SQLTable, typeName, cachedName, nilMessage string, redis bool) {
 	pk := primaryColumn(table)
 	pkArg := modelArgName(pk.Name)
 	pkType := columnGoType(pk)
@@ -1915,6 +1915,7 @@ func writeCachedForUpdateMethods(b *bytes.Buffer, table SQLTable, typeName, cach
 	}
 	writeCachedUniqueForUpdateFinders(b, table, typeName, cachedName, nilMessage)
 	writeCachedIndexListForUpdateFinders(b, modelIndexPrefixes(table), typeName, cachedName, nilMessage)
+	writeCachedIndexListClaimFinders(b, table, typeName, cachedName, nilMessage, redis)
 }
 
 func writeCachedUniqueForUpdateFinders(b *bytes.Buffer, table SQLTable, typeName, cachedName, nilMessage string) {
@@ -1957,6 +1958,58 @@ func writeCachedIndexListForUpdateFinders(b *bytes.Buffer, indexes []modelIndexP
 			fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn nil, errors.New(%q)\n\t}\n", nilMessage)
 			fprintf(b, "\treturn c.repo.FindBy%s%s(ctx, %slimit, offset)\n}\n\n", name, suffix, args)
 		}
+	}
+}
+
+func writeCachedIndexListClaimFinders(b *bytes.Buffer, table SQLTable, typeName, cachedName, nilMessage string, redis bool) {
+	pk := primaryColumn(table)
+	pkField := modelFieldName(pk.Name)
+	for _, index := range modelIndexPrefixes(table) {
+		claimColumn, ok := claimableStatusColumn(index.Columns)
+		if !ok {
+			continue
+		}
+		name := uniqueFinderName(index.Columns)
+		params := uniqueFinderParams(index.Columns)
+		args := uniqueFinderArgs(index.Columns)
+		nextArg := "next" + modelFieldName(claimColumn.Name)
+		nextType := columnGoType(claimColumn)
+		if args != "" {
+			args += ", "
+		}
+		fprintf(b, "func (c *%s) ClaimBy%sSkipLocked(ctx context.Context, %s, %s %s, limit int) ([]entity.%s, error) {\n", cachedName, name, params, nextArg, nextType, typeName)
+		fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn nil, errors.New(%q)\n\t}\n", nilMessage)
+		fprintf(b, "\tif limit <= 0 {\n\t\treturn []entity.%s{}, nil\n\t}\n", typeName)
+		fprintf(b, "\tif c.afterCommit != nil {\n\t\treturn c.claimBy%sSkipLocked(ctx, %s%s, limit)\n\t}\n", name, args, nextArg)
+		fprintf(b, "\tclaimed := make([]entity.%s, 0)\n", typeName)
+		fprintf(b, "\tif err := c.Transact(ctx, nil, func(ctx context.Context, txRepo *%s) error {\n", cachedName)
+		fprintf(b, "\t\titems, err := txRepo.claimBy%sSkipLocked(ctx, %s%s, limit)\n", name, args, nextArg)
+		fprintf(b, "\t\tif err != nil {\n\t\t\treturn err\n\t\t}\n")
+		fprintf(b, "\t\tclaimed = items\n\t\treturn nil\n\t}); err != nil {\n\t\treturn nil, err\n\t}\n")
+		fprintf(b, "\treturn claimed, nil\n}\n\n")
+		fprintf(b, "func (c *%s) claimBy%sSkipLocked(ctx context.Context, %s, %s %s, limit int) ([]entity.%s, error) {\n", cachedName, name, params, nextArg, nextType, typeName)
+		fprintf(b, "\titems, err := c.repo.FindBy%sForUpdateSkipLocked(ctx, %slimit, 0)\n", name, args)
+		fprintf(b, "\tif err != nil {\n\t\treturn nil, err\n\t}\n")
+		if !redis {
+			fprintf(b, "\toldItems := make([]entity.%s, len(items))\n", typeName)
+		}
+		fprintf(b, "\tfor i := range items {\n")
+		if !redis {
+			fprintf(b, "\t\toldItems[i] = items[i]\n")
+		}
+		fprintf(b, "\t\tif err := c.repo.UpdateFields(ctx, items[i].%s, map[string]any{%q: %s}); err != nil {\n\t\t\treturn nil, err\n\t\t}\n", pkField, claimColumn.Name, nextArg)
+		fprintf(b, "\t\titems[i].%s = %s\n", modelFieldName(claimColumn.Name), nextArg)
+		fprintf(b, "\t}\n")
+		fprintf(b, "\tupdatedItems := append([]entity.%s(nil), items...)\n", typeName)
+		fprintf(b, "\tif err := c.deferOrRunAfterCommit(ctx, func(ctx context.Context) error {\n")
+		fprintf(b, "\t\tfor i := range updatedItems {\n")
+		if redis {
+			fprintf(b, "\t\t\tif err := c.afterUpdateCommit(ctx, &updatedItems[i]); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n")
+		} else {
+			fprintf(b, "\t\t\tif err := c.afterUpdateCommit(ctx, &updatedItems[i], &oldItems[i]); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n")
+		}
+		fprintf(b, "\t\t}\n\t\treturn nil\n\t}); err != nil {\n\t\treturn nil, err\n\t}\n")
+		fprintf(b, "\treturn items, nil\n}\n\n")
 	}
 }
 

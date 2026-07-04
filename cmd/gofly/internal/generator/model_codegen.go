@@ -1517,6 +1517,8 @@ func writeIndexListFinders(b *bytes.Buffer, table SQLTable, typeName, receiverNa
 		fprintf(b, "\tif err := r.queryAll(ctx, query, func(rows *sql.Rows) error {\n")
 		fprintf(b, "\t\tfor rows.Next() {\n\t\t\tvar item entity.%s\n\t\t\tif err := rows.Scan(%s); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t\tout = append(out, item)\n\t\t}\n\t\treturn nil\n\t}, args...); err != nil {\n\t\treturn nil, err\n\t}\n", typeName, scanArgs("item", table.Columns))
 		fprintf(b, "\treturn out, nil\n}\n\n")
+		writeIndexListForUpdateFinder(b, table, index, typeName, receiverName, false)
+		writeIndexListForUpdateFinder(b, table, index, typeName, receiverName, true)
 		fprintf(b, "func (r *%s) CountBy%s(ctx context.Context, %s) (int64, error) {\n", receiverName, name, uniqueFinderParams(index.Columns))
 		fprintf(b, "\twhere := storage.NewWhere()\n")
 		writeSQLIndexWhereFilters(b, index.Columns)
@@ -1529,6 +1531,34 @@ func writeIndexListFinders(b *bytes.Buffer, table SQLTable, typeName, receiverNa
 		fprintf(b, "\tif err := r.queryOne(ctx, query, func(row *sql.Row) error {\n\t\treturn row.Scan(&count)\n\t}, args...); err != nil {\n\t\treturn 0, err\n\t}\n")
 		fprintf(b, "\treturn count, nil\n}\n\n")
 	}
+}
+
+func writeIndexListForUpdateFinder(b *bytes.Buffer, table SQLTable, index modelIndexPrefix, typeName, receiverName string, skipLocked bool) {
+	name := uniqueFinderName(index.Columns)
+	suffix := "ForUpdate"
+	if skipLocked {
+		suffix = "ForUpdateSkipLocked"
+	}
+	fprintf(b, "func (r *%s) FindBy%s%s(ctx context.Context, %s, limit int, offset int) ([]entity.%s, error) {\n", receiverName, name, suffix, uniqueFinderParams(index.Columns), typeName)
+	fprintf(b, "\twhere := storage.NewWhere()\n")
+	writeSQLIndexWhereFilters(b, index.Columns)
+	if hasSoftDelete(table) {
+		fprintf(b, "\twhere = where.IsNull(%q)\n", table.SoftDeleteColumn)
+	}
+	for _, column := range index.OrderColumns {
+		fprintf(b, "\twhere = where.OrderBy(%q)\n", column.Name)
+	}
+	fprintf(b, "\twhere = where.Limit(limit).Offset(offset)\n")
+	fprintf(b, "\tquery, args, err := storage.SelectWhere(entity.%sTable, entity.%sColumns, where, r.dialect)\n", typeName, typeName)
+	fprintf(b, "\tif err != nil {\n\t\treturn nil, err\n\t}\n")
+	fprintf(b, "\tquery += \" FOR UPDATE\"\n")
+	if skipLocked {
+		fprintf(b, "\tquery += \" SKIP LOCKED\"\n")
+	}
+	fprintf(b, "\tout := make([]entity.%s, 0)\n", typeName)
+	fprintf(b, "\tif err := r.queryAll(ctx, query, func(rows *sql.Rows) error {\n")
+	fprintf(b, "\t\tfor rows.Next() {\n\t\t\tvar item entity.%s\n\t\t\tif err := rows.Scan(%s); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t\tout = append(out, item)\n\t\t}\n\t\treturn nil\n\t}, args...); err != nil {\n\t\treturn nil, err\n\t}\n", typeName, scanArgs("item", table.Columns))
+	fprintf(b, "\treturn out, nil\n}\n\n")
 }
 
 func writeSQLIndexWhereFilters(b *bytes.Buffer, columns []SQLColumn) {

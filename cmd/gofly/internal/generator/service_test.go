@@ -1537,6 +1537,50 @@ func TestGenerateAPINewSupportsProductionStyle(t *testing.T) {
 	}
 }
 
+func TestGenerateAPINewDefaultStyleReachesRESTRuntime(t *testing.T) {
+	dir := t.TempDir()
+	if err := GenerateAPINew(APINewOptions{Name: "orders", Module: "example.com/orders", Dir: dir}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "orders.api")); err != nil {
+		t.Fatalf("expected generated api spec: %v", err)
+	}
+	configData, err := os.ReadFile(filepath.Join(dir, "etc", "orders.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var generated struct {
+		Service app.ServiceConf `json:"service"`
+		Rest    rest.Config     `json:"rest"`
+	}
+	if err := json.Unmarshal(configData, &generated); err != nil {
+		t.Fatalf("decode generated api config: %v\n%s", err, configData)
+	}
+	restConf := generated.Service.RESTConfig(generated.Rest)
+	server := rest.MustNewServer(restConf)
+	server.AddRoute(rest.Route{Method: http.MethodGet, Path: "/runtime", Handler: func(ctx *rest.Context) {
+		ctx.String(http.StatusOK, "ok")
+	}})
+	runtime := server.ControlPlaneRuntime()
+	if runtime.Service != "orders" || !runtime.Middlewares.RateLimit || !runtime.Middlewares.MaxConcurrency || !runtime.Middlewares.Breaker || !runtime.Middlewares.AdaptiveRateLimit {
+		t.Fatalf("generated api rest runtime = %+v, want default resilience middleware enabled", runtime)
+	}
+	if runtime.Middlewares.TimeoutConfig.Duration != 3*time.Second || runtime.Middlewares.MaxConcurrencyConfig.Limit != 64 {
+		t.Fatalf("generated api rest runtime middleware config = %+v, want shared defaults", runtime.Middlewares)
+	}
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/runtime", nil))
+	if rec.Code != http.StatusOK || strings.TrimSpace(rec.Body.String()) != "ok" {
+		t.Fatalf("generated api rest response = %d body = %q, want ok", rec.Code, rec.Body.String())
+	}
+	layers := server.RuntimeSnapshot(context.Background()).Components[0].Middleware.Unary
+	for _, want := range []string{"rate_limit", "adaptive_rate_limit", "max_concurrency", "breaker", "timeout"} {
+		if !hasRuntimeMiddlewareLayer(layers, want) {
+			t.Fatalf("generated api rest middleware chain = %+v, missing %q", layers, want)
+		}
+	}
+}
+
 func TestGenerateAPINewCanSkipAPISpec(t *testing.T) {
 	dir := t.TempDir()
 	if err := GenerateAPINew(APINewOptions{Name: "hello", Module: "example.com/hello", Dir: dir, SkipAPISpec: true}); err != nil {

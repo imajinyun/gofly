@@ -2891,6 +2891,58 @@ func TestGenerateModelFromDDLCacheOptionControlsSQLRepoHelpers(t *testing.T) {
 	}
 }
 
+func TestGenerateModelFromDDLKeywordIndexColumnUsesSafeArgName(t *testing.T) {
+	dir := t.TempDir()
+	ddlPath := filepath.Join(dir, "tablepro.sql")
+	ddl := `-- TablePro SQL Export
+DROP TABLE IF EXISTS ` + "`auditlogs`" + ` CASCADE;
+
+CREATE TABLE ` + "`auditlogs`" + ` (
+  ` + "`auditlog_id`" + ` bigint(20) unsigned NOT NULL AUTO_INCREMENT COMMENT '自增主键',
+  ` + "`type`" + ` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '日志类型',
+  ` + "`code`" + ` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '事件编码',
+  ` + "`status`" + ` int(11) NOT NULL DEFAULT '0' COMMENT '状态',
+  ` + "`is_deleted`" + ` tinyint(1) NOT NULL DEFAULT '0' COMMENT '删除状态',
+  PRIMARY KEY (` + "`auditlog_id`" + `),
+  UNIQUE KEY ` + "`uk_auditlogs_type_code`" + ` (` + "`type`" + `,` + "`code`" + `),
+  KEY ` + "`idx_auditlogs_type`" + ` (` + "`type`" + `),
+  KEY ` + "`idx_auditlogs_status`" + ` (` + "`status`" + `)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='连接器审计日志表';`
+	if err := os.WriteFile(ddlPath, []byte(ddl), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outDir := filepath.Join(dir, "out")
+	if err := GenerateModelFromDDL(ModelOptions{DDLFile: ddlPath, Dir: outDir, Package: "model", Module: "example.com/audit", Cache: true}); err != nil {
+		t.Fatal(err)
+	}
+	repo, err := os.ReadFile(filepath.Join(outDir, "model", "repo", "auditlog.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	repoOut := string(repo)
+	for _, want := range []string{
+		"func (r *AuditlogRepo) FindByTypeAndCode(ctx context.Context, typeValue string, code string) (*entity.Auditlog, error)",
+		"func (r *AuditlogRepo) FindByType(ctx context.Context, typeValue string, limit int, offset int) ([]entity.Auditlog, error)",
+		"func uniqueKeyByTypeAndCode(typeValue string, code string) string",
+		"func indexListKeyByType(typeValue string, limit int, offset int) string",
+		"func (c *CachedAuditlogRepo) FindByTypeAndCodeCached(ctx context.Context, typeValue string, code string) (*entity.Auditlog, error)",
+		"func (c *CachedAuditlogRepo) FindByTypeCached(ctx context.Context, typeValue string, limit int, offset int) ([]entity.Auditlog, error)",
+	} {
+		if !strings.Contains(repoOut, want) {
+			t.Fatalf("generated repo missing %q:\n%s", want, repoOut)
+		}
+	}
+	for _, bad := range []string{
+		"ctx context.Context, type string",
+		"func uniqueKeyByTypeAndCode(type string",
+		"func indexListKeyByType(type string",
+	} {
+		if strings.Contains(repoOut, bad) {
+			t.Fatalf("generated repo still contains invalid keyword arg %q:\n%s", bad, repoOut)
+		}
+	}
+}
+
 func TestGenerateModelFromDDLCacheOptionCachesIndexListFinders(t *testing.T) {
 	dir := t.TempDir()
 	ddlPath := filepath.Join(dir, "schema.sql")

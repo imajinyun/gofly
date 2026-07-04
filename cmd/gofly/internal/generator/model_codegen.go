@@ -1193,11 +1193,11 @@ func writeRepoFile(dir string, table SQLTable, pkg string, module string, style 
 		writeUniqueCacheKeyFuncs(&b, uniqueIndexes)
 		writeIndexListCacheKeyFuncs(&b, indexPrefixes, typeName)
 	}
+	filename := lowerSnake(singularize(table.Name)) + ".go"
 	formatted, err := format.Source(b.Bytes())
 	if err != nil {
-		return fmt.Errorf("format repo file: %w", err)
+		return fmt.Errorf("format repo file %s: %w", filename, err)
 	}
-	filename := lowerSnake(singularize(table.Name)) + ".go"
 	return writeGeneratedFile(filepath.Join(dir, filename), formatted)
 }
 
@@ -1263,11 +1263,11 @@ func writeGORMRepoFile(dir string, table SQLTable, module string, cacheEnabled b
 		writeUniqueCacheKeyFuncs(&b, uniqueIndexes)
 		writeIndexListCacheKeyFuncs(&b, indexPrefixes, typeName)
 	}
+	filename := lowerSnake(singularize(table.Name)) + ".go"
 	formatted, err := format.Source(b.Bytes())
 	if err != nil {
-		return fmt.Errorf("format gorm repo file: %w", err)
+		return fmt.Errorf("format gorm repo file %s: %w", filename, err)
 	}
-	filename := lowerSnake(singularize(table.Name)) + ".go"
 	return writeGeneratedFile(filepath.Join(dir, filename), formatted)
 }
 
@@ -3607,7 +3607,44 @@ func modelArgName(name string) string {
 		return "id"
 	}
 	runes[0] = unicode.ToLower(runes[0])
-	return string(runes)
+	arg := string(runes)
+	if isGoKeyword(arg) {
+		return arg + "Value"
+	}
+	return arg
+}
+
+func isGoKeyword(name string) bool {
+	_, ok := goKeywords[name]
+	return ok
+}
+
+var goKeywords = map[string]struct{}{
+	"break":       {},
+	"default":     {},
+	"func":        {},
+	"interface":   {},
+	"select":      {},
+	"case":        {},
+	"defer":       {},
+	"go":          {},
+	"map":         {},
+	"struct":      {},
+	"chan":        {},
+	"else":        {},
+	"goto":        {},
+	"package":     {},
+	"switch":      {},
+	"const":       {},
+	"fallthrough": {},
+	"if":          {},
+	"range":       {},
+	"type":        {},
+	"continue":    {},
+	"for":         {},
+	"import":      {},
+	"return":      {},
+	"var":         {},
 }
 
 func modelsNeedTime(tables []SQLTable) bool {

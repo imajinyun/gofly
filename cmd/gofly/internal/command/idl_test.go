@@ -4102,6 +4102,39 @@ func TestExecuteModelMySQLDDL(t *testing.T) {
 	}
 }
 
+func TestExecuteModelMySQLDDLHandlesKeywordIndexColumns(t *testing.T) {
+	dir := t.TempDir()
+	ddlPath := filepath.Join(dir, "tablepro.sql")
+	ddl := `-- TablePro SQL Export
+DROP TABLE IF EXISTS ` + "`auditlogs`" + ` CASCADE;
+
+CREATE TABLE ` + "`auditlogs`" + ` (
+  ` + "`auditlog_id`" + ` bigint(20) unsigned NOT NULL AUTO_INCREMENT COMMENT '自增主键',
+  ` + "`type`" + ` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '日志类型',
+  ` + "`code`" + ` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '事件编码',
+  PRIMARY KEY (` + "`auditlog_id`" + `),
+  KEY ` + "`idx_auditlogs_type`" + ` (` + "`type`" + `)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='连接器审计日志表';`
+	if err := os.WriteFile(ddlPath, []byte(ddl), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outDir := filepath.Join(dir, "out")
+	if err := Execute([]string{"model", "mysql", "ddl", "--src", ddlPath, "--dir", outDir, "--package", "model", "--module", "example.com/audit"}); err != nil {
+		t.Fatal(err)
+	}
+	repo, err := os.ReadFile(filepath.Join(outDir, "model", "repo", "auditlog.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	repoOut := string(repo)
+	if !strings.Contains(repoOut, "func (r *AuditlogRepo) FindByType(ctx context.Context, typeValue string, limit int, offset int)") {
+		t.Fatalf("generated repo should use safe arg name for keyword column:\n%s", repoOut)
+	}
+	if strings.Contains(repoOut, "ctx context.Context, type string") {
+		t.Fatalf("generated repo still contains invalid keyword arg:\n%s", repoOut)
+	}
+}
+
 func TestExecuteModelPostgresDDL(t *testing.T) {
 	dir := t.TempDir()
 	ddlPath := filepath.Join(dir, "schema.sql")

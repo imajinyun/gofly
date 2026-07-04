@@ -1786,8 +1786,8 @@ func TestRoutesFromOpenAPIURLGroupsOperationsByTag(t *testing.T) {
 }
 
 func TestFetchOpenAPIDocumentValidation(t *testing.T) {
-	if _, err := FetchOpenAPIDocument(nil, OpenAPIURLSource{URL: "http://127.0.0.1/openapi.json"}); err == nil || !strings.Contains(err.Error(), "context is required") {
-		t.Fatalf("nil context error = %v", err)
+	if _, err := FetchOpenAPIDocument(context.TODO(), OpenAPIURLSource{URL: "://bad"}); err == nil || !strings.Contains(err.Error(), "parse openapi url") {
+		t.Fatalf("bad url error = %v", err)
 	}
 	if _, err := FetchOpenAPIDocument(context.Background(), OpenAPIURLSource{URL: "file:///tmp/openapi.json"}); err == nil || !strings.Contains(err.Error(), "scheme must be http or https") {
 		t.Fatalf("bad scheme error = %v", err)

@@ -16,8 +16,9 @@ import (
 	"unicode"
 
 	_ "github.com/go-sql-driver/mysql"
-	"github.com/imajinyun/gofly/core/storage"
 	_ "github.com/jackc/pgx/v5/stdlib"
+
+	"github.com/imajinyun/gofly/core/storage"
 )
 
 type ModelOptions struct {

@@ -159,24 +159,24 @@ func NextActions(checks []Check, fails int, warns int, appendMissing func([]stri
 		if check.Status == "ok" {
 			continue
 		}
-		actions = appendMissingStrings(actions, check.NextActions...)
+		actions = appendMissing(actions, check.NextActions...)
 		if check.FixHint != "" {
-			actions = appendMissingStrings(actions, check.FixHint)
+			actions = appendMissing(actions, check.FixHint)
 		}
 	}
 	switch {
 	case fails > 0:
-		actions = appendMissingStrings(actions,
+		actions = appendMissing(actions,
 			"fix failed doctor checks before generating or releasing services",
 			"run `gofly bug --json` to collect a support bundle for issue reports",
 		)
 	case warns > 0:
-		actions = appendMissingStrings(actions,
+		actions = appendMissing(actions,
 			"review warning checks before running release gates",
 			"run `gofly release check --json --strict` before publishing",
 		)
 	default:
-		actions = appendMissingStrings(actions,
+		actions = appendMissing(actions,
 			"run `gofly release check --json --strict` before publishing",
 			"run `make governance-10-rounds` for full repository governance",
 		)

@@ -66,6 +66,7 @@ func (g *Gateway) proxyWebSocket(w http.ResponseWriter, r *http.Request, route R
 		}
 		return proxyResult{Endpoint: endpoint, Err: err}, err
 	}
+	defer upstreamResp.Body.Close()
 	downstream, downstreamRW, err := hijackGatewayWebSocket(w)
 	if err != nil {
 		_ = upstream.Close()
@@ -150,10 +151,6 @@ func dialWebSocketUpstream(r *http.Request, target *url.URL, route Route) (net.C
 		_ = resp.Body.Close()
 		_ = conn.Close()
 		return nil, nil, nil, fmt.Errorf("websocket upstream status = %d", resp.StatusCode)
-	}
-	if err := resp.Body.Close(); err != nil {
-		_ = conn.Close()
-		return nil, nil, nil, fmt.Errorf("close websocket upstream response: %w", err)
 	}
 	return conn, rw, resp, nil
 }

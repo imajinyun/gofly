@@ -37,7 +37,7 @@ governance-report/
 governance-report.*
 
 # Local agent planning docs. Do not commit this tree.
-docs/superpowers/
+docs/*
 
 # Dependency directories (remove the comment below to include it)
 vendor/

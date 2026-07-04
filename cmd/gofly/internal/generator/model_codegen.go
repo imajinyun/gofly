@@ -1333,6 +1333,7 @@ func writeAdvancedSQLRepoMethods(b *bytes.Buffer, table SQLTable, typeName, rece
 	writeIndexListFinders(b, table, typeName, receiverName)
 	writeSQLFindByIDs(b, table, typeName, receiverName)
 	writeSQLUpsertMethods(b, table, typeName, receiverName)
+	writeSQLForUpdateMethods(b, table, typeName, receiverName)
 	fprintf(b, "func (r *%s) InsertMany(ctx context.Context, items []*entity.%s) error {\n", receiverName, typeName)
 	fprintf(b, "\tif len(items) == 0 {\n\t\treturn nil\n\t}\n")
 	fprintf(b, "\targs := make([]any, 0, len(items)*len(entity.%sColumns))\n", typeName)
@@ -1392,6 +1393,27 @@ func writeSQLUpsertMethods(b *bytes.Buffer, table SQLTable, typeName, receiverNa
 	}
 }
 
+func writeSQLForUpdateMethods(b *bytes.Buffer, table SQLTable, typeName, receiverName string) {
+	pk := primaryColumn(table)
+	pkArg := modelArgName(pk.Name)
+	for _, method := range []struct {
+		name       string
+		skipLocked bool
+	}{
+		{name: "FindOneForUpdate"},
+		{name: "FindOneForUpdateSkipLocked", skipLocked: true},
+	} {
+		fprintf(b, "func (r *%s) %s(ctx context.Context, %s %s) (*entity.%s, error) {\n", receiverName, method.name, pkArg, columnGoType(pk), typeName)
+		fprintf(b, "\tquery, err := storage.SelectForUpdate(entity.%sTable, entity.%sColumns, %q, r.dialect, %t)\n", typeName, typeName, pk.Name, method.skipLocked)
+		fprintf(b, "\tif err != nil {\n\t\treturn nil, err\n\t}\n")
+		fprintf(b, "\tvar out entity.%s\n", typeName)
+		fprintf(b, "\tif err := r.queryOne(ctx, query, func(row *sql.Row) error {\n\t\treturn row.Scan(%s)\n\t}, %s); err != nil {\n", scanArgs("out", table.Columns), pkArg)
+		fprintf(b, "\t\tif errors.Is(err, sql.ErrNoRows) {\n\t\t\treturn nil, storage.ErrNotFound\n\t\t}\n\t\treturn nil, err\n\t}\n")
+		fprintf(b, "\treturn &out, nil\n}\n\n")
+	}
+	writeUniqueForUpdateFinders(b, table, typeName, receiverName)
+}
+
 func writeUniqueFinders(b *bytes.Buffer, table SQLTable, typeName, receiverName string) {
 	for _, column := range table.Columns {
 		if !column.Unique || column.PrimaryKey {
@@ -1410,6 +1432,49 @@ func writeUniqueFinders(b *bytes.Buffer, table SQLTable, typeName, receiverName 
 		fprintf(b, "\treturn &out, nil\n}\n\n")
 	}
 	writeCompositeUniqueFinders(b, table, typeName, receiverName)
+}
+
+func writeUniqueForUpdateFinders(b *bytes.Buffer, table SQLTable, typeName, receiverName string) {
+	for _, column := range table.Columns {
+		if !column.Unique || column.PrimaryKey {
+			continue
+		}
+		writeUniqueForUpdateFinder(b, table, typeName, receiverName, []SQLColumn{column})
+	}
+	for _, index := range table.UniqueIndexes {
+		columns, ok := uniqueIndexColumns(table, index)
+		if !ok {
+			continue
+		}
+		writeUniqueForUpdateFinder(b, table, typeName, receiverName, columns)
+	}
+}
+
+func writeUniqueForUpdateFinder(b *bytes.Buffer, table SQLTable, typeName, receiverName string, columns []SQLColumn) {
+	name := uniqueFinderName(columns)
+	for _, method := range []struct {
+		suffix     string
+		skipLocked bool
+	}{
+		{suffix: "ForUpdate"},
+		{suffix: "ForUpdateSkipLocked", skipLocked: true},
+	} {
+		fprintf(b, "func (r *%s) FindBy%s%s(ctx context.Context, %s) (*entity.%s, error) {\n", receiverName, name, method.suffix, uniqueFinderParams(columns), typeName)
+		fprintf(b, "\tcolumns, err := storage.JoinIdentifiers(entity.%sColumns)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n", typeName)
+		fprintf(b, "\twhereParts := []string{%s}\n", sqlUniqueWhereParts(columns))
+		fprintf(b, "\tquery := \"SELECT \" + columns + \" FROM \" + entity.%sTable + \" WHERE \" + strings.Join(whereParts, \" AND \")", typeName)
+		if hasSoftDelete(table) {
+			fprintf(b, " + \" AND %s IS NULL\"", table.SoftDeleteColumn)
+		}
+		fprintf(b, " + \" FOR UPDATE\"\n")
+		if method.skipLocked {
+			fprintf(b, "\tquery += \" SKIP LOCKED\"\n")
+		}
+		fprintf(b, "\tvar out entity.%s\n", typeName)
+		fprintf(b, "\tif err := r.queryOne(ctx, query, func(row *sql.Row) error {\n\t\treturn row.Scan(%s)\n\t}, %s); err != nil {\n", scanArgs("out", table.Columns), uniqueFinderArgs(columns))
+		fprintf(b, "\t\tif errors.Is(err, sql.ErrNoRows) {\n\t\t\treturn nil, storage.ErrNotFound\n\t\t}\n\t\treturn nil, err\n\t}\n")
+		fprintf(b, "\treturn &out, nil\n}\n\n")
+	}
 }
 
 func writeCompositeUniqueFinders(b *bytes.Buffer, table SQLTable, typeName, receiverName string) {

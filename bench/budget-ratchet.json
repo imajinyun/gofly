@@ -334,6 +334,15 @@
         ],
         "requiredEvidence": "Keep the loader-hit cache benchmark outside trackedBenchmarks until it has separate five-sample baseline, current trend, cache-mode, and rollback evidence after the Get hit path promotion.",
         "adopterAction": "Use loader-hit cache benchmark output as trend evidence only; the P17 blocking cache claim covers only BenchmarkCacheHotPath allocs/op."
+      },
+      {
+        "id": "rpc-stream-transport",
+        "status": "candidate-report-only",
+        "benchmarks": [
+          "BenchmarkRPCStreamTransportOpenClose"
+        ],
+        "requiredEvidence": "Keep stream transport open/close outside trackedBenchmarks until its 117 allocs/op candidate budget passes another release-train review with rpc-boundary-check and bench-regression-check.",
+        "adopterAction": "Use RPC stream transport open/close output as trend evidence only; do not block releases on this row until allocation promotion is explicitly approved."
       }
     ],
     "adopterActions": [
@@ -2060,6 +2069,52 @@
       "gRPC-Go ecosystem parity claim",
       "drop-in RPC replacement claim",
       "Tier 1 promoted RPC surface"
+    ]
+  },
+  "rpcStreamTransportCandidateBudget": {
+    "schema": "gofly.benchmark_rpc_stream_transport_candidate_budget.v1",
+    "acceptanceGate": "make bench-regression-check",
+    "status": "candidate-report-only",
+    "sourceEvidence": [
+      "bench/rpc_stream_transport_evidence.json",
+      "bench/rpc_bench_test.go",
+      "bench/budget-ratchet.json"
+    ],
+    "benchmark": "BenchmarkRPCStreamTransportOpenClose",
+    "decision": {
+      "result": "hold",
+      "allocationMode": "candidate-report-only",
+      "latencyMode": "report-only",
+      "candidateAllocationBudget": 117,
+      "trackedBenchmarkPromotion": "not-promoted",
+      "promotionStatus": "blocked",
+      "nextReviewGate": "BENCH_PATTERN='^BenchmarkRPCStreamTransportOpenClose$' BENCH_COUNT=5 make bench-stat && make rpc-boundary-check && make bench-regression-check",
+      "reason": "Stream transport open/close has committed baseline and current trend samples, but the row is not promoted because latency remains report-only and allocation blocking needs one more release-train review."
+    },
+    "baseline": {
+      "sampleCount": 5,
+      "nsPerOpMedian": 322912,
+      "bytesPerOpMedian": 25029,
+      "allocsPerOpMedian": 117
+    },
+    "current": {
+      "sampleCount": 3,
+      "nsPerOpMedian": 317948,
+      "bytesPerOpMedian": 25030,
+      "allocsPerOpMedian": 117
+    },
+    "blockingRules": [
+      "RPC stream transport candidate must stay out of trackedBenchmarks",
+      "RPC stream transport latency must remain report-only",
+      "RPC stream transport allocation budget is candidate-report-only until a later release-train review",
+      "RPC stream transport promotion requires rpc-boundary-check and bench-regression-check"
+    ],
+    "forbiddenUntilCleared": [
+      "trackedBenchmarks RPC stream transport entry",
+      "blocking RPC stream transport latency claim",
+      "Kitex transport parity claim",
+      "gRPC-Go transport parity claim",
+      "Tier 1 replacement claim"
     ]
   },
   "schema": "gofly.benchmark_budget_ratchet.v1",

@@ -266,6 +266,7 @@ def validate_ratchet_policy() -> None:
     p17_gateway_cache_promotion_decision = ratchet.get("p17GatewayCacheAllocationPromotionDecision") or {}
     p18_gateway_proxy_hold = ratchet.get("p18GatewayProxyAllocationHoldEvidence") or {}
     p18_cache_loader_hit_precheck = ratchet.get("p18CacheLoaderHitPromotionPrecheck") or {}
+    rpc_stream_transport_budget = ratchet.get("rpcStreamTransportCandidateBudget") or {}
     p17_selected_allocation_benchmark = str(
         (p17_gateway_cache_promotion_decision.get("decision") or {}).get("allocationBlockingSurface") or ""
     )
@@ -473,7 +474,7 @@ def validate_ratchet_policy() -> None:
         if isinstance(item, dict) and item.get("id")
     }
     require_policy(
-        set(evidence_candidates) == {"gateway-proxy", "cache-hot-path"},
+        set(evidence_candidates) == {"gateway-proxy", "cache-hot-path", "rpc-stream-transport"},
         "performancePromotionEvidence candidateSurfaces mismatch",
     )
     for surface_id, item in evidence_candidates.items():
@@ -494,6 +495,11 @@ def validate_ratchet_policy() -> None:
                 len(str(item.get(field) or "").split()) >= 10,
                 f"{surface_id}: performance promotion candidate {field} must be actionable",
             )
+    rpc_stream_candidate_benchmarks = set((evidence_candidates.get("rpc-stream-transport") or {}).get("benchmarks") or [])
+    require_policy(
+        rpc_stream_candidate_benchmarks == {"BenchmarkRPCStreamTransportOpenClose"},
+        "performancePromotionEvidence rpc-stream-transport benchmark mismatch",
+    )
 
     adopter_actions = {
         item.get("id"): item
@@ -1380,6 +1386,99 @@ def validate_ratchet_policy() -> None:
         require_policy(
             forbidden in set(p19_rpc_budget_review.get("forbiddenUntilCleared") or []),
             f"p19RpcBudgetPromotionBlockerReview forbiddenUntilCleared missing {forbidden!r}",
+        )
+
+    require_policy(
+        rpc_stream_transport_budget.get("schema") == "gofly.benchmark_rpc_stream_transport_candidate_budget.v1",
+        "rpcStreamTransportCandidateBudget schema mismatch",
+    )
+    require_policy(
+        rpc_stream_transport_budget.get("status") == "candidate-report-only",
+        "rpcStreamTransportCandidateBudget status must remain candidate-report-only",
+    )
+    require_policy(
+        rpc_stream_transport_budget.get("acceptanceGate") == "make bench-regression-check",
+        "rpcStreamTransportCandidateBudget acceptanceGate mismatch",
+    )
+    require_policy(
+        rpc_stream_transport_budget.get("benchmark") == "BenchmarkRPCStreamTransportOpenClose",
+        "rpcStreamTransportCandidateBudget benchmark mismatch",
+    )
+    for source in (
+        "bench/rpc_stream_transport_evidence.json",
+        "bench/rpc_bench_test.go",
+        "bench/budget-ratchet.json",
+    ):
+        require_policy(
+            source in set(rpc_stream_transport_budget.get("sourceEvidence") or []),
+            f"rpcStreamTransportCandidateBudget sourceEvidence missing {source!r}",
+        )
+    stream_transport_decision = rpc_stream_transport_budget.get("decision") or {}
+    require_policy(stream_transport_decision.get("result") == "hold", "rpcStreamTransportCandidateBudget decision.result must be hold")
+    require_policy(
+        stream_transport_decision.get("allocationMode") == "candidate-report-only",
+        "rpcStreamTransportCandidateBudget allocationMode must be candidate-report-only",
+    )
+    require_policy(
+        stream_transport_decision.get("latencyMode") == "report-only",
+        "rpcStreamTransportCandidateBudget latencyMode must be report-only",
+    )
+    require_policy(
+        stream_transport_decision.get("candidateAllocationBudget") == 117,
+        "rpcStreamTransportCandidateBudget candidateAllocationBudget must be 117",
+    )
+    require_policy(
+        stream_transport_decision.get("trackedBenchmarkPromotion") == "not-promoted",
+        "rpcStreamTransportCandidateBudget trackedBenchmarkPromotion must be not-promoted",
+    )
+    require_policy(
+        stream_transport_decision.get("promotionStatus") == "blocked",
+        "rpcStreamTransportCandidateBudget promotionStatus must be blocked",
+    )
+    require_policy(
+        "BenchmarkRPCStreamTransportOpenClose" not in tracked,
+        "BenchmarkRPCStreamTransportOpenClose must stay out of trackedBenchmarks",
+    )
+    require_policy(
+        "BenchmarkRPCStreamTransportOpenClose" not in promoted_latency,
+        "BenchmarkRPCStreamTransportOpenClose latency must stay report-only",
+    )
+    for sample_type, expected_count in (("baseline", 5), ("current", 3)):
+        sample = rpc_stream_transport_budget.get(sample_type) or {}
+        require_policy(
+            sample.get("sampleCount") == expected_count,
+            f"rpcStreamTransportCandidateBudget {sample_type}.sampleCount mismatch",
+        )
+        require_policy(
+            sample.get("allocsPerOpMedian") == 117,
+            f"rpcStreamTransportCandidateBudget {sample_type}.allocsPerOpMedian must be 117",
+        )
+        require_policy(
+            float(sample.get("nsPerOpMedian") or 0) > 0,
+            f"rpcStreamTransportCandidateBudget {sample_type}.nsPerOpMedian must be positive",
+        )
+        require_policy(
+            float(sample.get("bytesPerOpMedian") or 0) > 0,
+            f"rpcStreamTransportCandidateBudget {sample_type}.bytesPerOpMedian must be positive",
+        )
+    stream_transport_rules = set(rpc_stream_transport_budget.get("blockingRules") or [])
+    for rule in (
+        "RPC stream transport candidate must stay out of trackedBenchmarks",
+        "RPC stream transport latency must remain report-only",
+        "RPC stream transport allocation budget is candidate-report-only until a later release-train review",
+        "RPC stream transport promotion requires rpc-boundary-check and bench-regression-check",
+    ):
+        require_policy(rule in stream_transport_rules, f"rpcStreamTransportCandidateBudget blockingRules missing {rule!r}")
+    for forbidden in (
+        "trackedBenchmarks RPC stream transport entry",
+        "blocking RPC stream transport latency claim",
+        "Kitex transport parity claim",
+        "gRPC-Go transport parity claim",
+        "Tier 1 replacement claim",
+    ):
+        require_policy(
+            forbidden in set(rpc_stream_transport_budget.get("forbiddenUntilCleared") or []),
+            f"rpcStreamTransportCandidateBudget forbiddenUntilCleared missing {forbidden!r}",
         )
 
     require_policy(

@@ -2497,12 +2497,32 @@ func TestNewServiceGeneratedProjectSmokeMatrix(t *testing.T) {
 		for _, rel := range []string{
 			"go.mod",
 			filepath.Join("cmd", "orders", "main.go"),
+			filepath.Join("etc", "orders.json"),
+			filepath.Join("etc", "governance.json"),
 			filepath.Join("internal", "smoke", "service_smoke_test.go"),
 			filepath.Join("internal", "admin", "admin.go"),
 			filepath.Join("internal", "discovery", "registry.go"),
 		} {
 			if _, err := os.Stat(filepath.Join(outDir, rel)); err != nil {
 				t.Fatalf("new service missing generated file %s: %v", rel, err)
+			}
+		}
+		configData, err := os.ReadFile(filepath.Join(outDir, "etc", "orders.json"))
+		if err != nil {
+			t.Fatalf("read generated service config: %v", err)
+		}
+		for _, want := range []string{`"governance": {"timeout": 3000000000`, `"retry": {"attempts": 2, "backoff": 100000000}`, `"rateLimit": {"rate": 100, "burst": 100}`, `"maxConcurrency": 64`, `"adaptiveLimit": true`} {
+			if !strings.Contains(string(configData), want) {
+				t.Fatalf("new service config missing resilience profile %q:\n%s", want, configData)
+			}
+		}
+		smokeData, err := os.ReadFile(filepath.Join(outDir, "internal", "smoke", "service_smoke_test.go"))
+		if err != nil {
+			t.Fatalf("read generated service smoke: %v", err)
+		}
+		for _, want := range []string{"assertControlPlaneResilience(t, controlPlane)", `"timeout", "rateLimit", "concurrency", "breaker", "retry"`} {
+			if !strings.Contains(string(smokeData), want) {
+				t.Fatalf("new service smoke missing resilience runtime assertion %q:\n%s", want, smokeData)
 			}
 		}
 		results, passed, err := runAIProjectVerification(outDir, []string{"go mod tidy", "go test ./..."}, 3*time.Minute)

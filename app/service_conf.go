@@ -55,6 +55,7 @@ type ServiceGovernance struct {
 	Timeout           time.Duration        `json:"timeout,omitempty"`
 	ReadHeaderTimeout time.Duration        `json:"readHeaderTimeout,omitempty"`
 	Breaker           bool                 `json:"breaker"`
+	Retry             ServiceRetry         `json:"retry,omitempty"`
 	RateLimit         ServiceRateLimit     `json:"rateLimit,omitempty"`
 	MaxConcurrency    int                  `json:"maxConcurrency,omitempty"`
 	AdaptiveLimit     bool                 `json:"adaptiveLimit,omitempty"`
@@ -71,6 +72,13 @@ type ServiceRateLimit struct {
 	Rate int `json:"rate,omitempty"`
 	// Burst is the maximum burst size.
 	Burst int `json:"burst,omitempty"`
+}
+
+// ServiceRetry configures default retry behavior for outbound governed
+// transports and generated project policy rules.
+type ServiceRetry struct {
+	Attempts int           `json:"attempts,omitempty"`
+	Backoff  time.Duration `json:"backoff,omitempty"`
 }
 
 // DefaultServiceConf returns a production-ready baseline that callers can
@@ -249,6 +257,12 @@ func (g ServiceGovernance) ProductionDefaultsConfig(service string) coregovernan
 	if g.RateLimit.Rate > 0 {
 		conf.RateLimit = g.RateLimit.Rate
 		conf.RateBurst = g.RateLimit.Burst
+	}
+	if g.Retry.Attempts > 0 {
+		conf.RetryAttempts = g.Retry.Attempts
+	}
+	if g.Retry.Backoff > 0 {
+		conf.RetryBackoff = g.Retry.Backoff
 	}
 	if g.MaxConcurrency > 0 {
 		conf.ConcurrencyLimit = g.MaxConcurrency

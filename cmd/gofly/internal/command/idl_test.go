@@ -1559,6 +1559,15 @@ func TestExecuteAPINew(t *testing.T) {
 			t.Fatalf("api new basic should not generate production-only file %s", rel)
 		}
 	}
+	configData, err := os.ReadFile(filepath.Join(dir, "etc", "hello.json"))
+	if err != nil {
+		t.Fatalf("read api new config: %v", err)
+	}
+	for _, want := range []string{`"governance": {"timeout": 3000000000`, `"retry": {"attempts": 2`, `"rateLimit": {"rate": 100`, `"maxConcurrency": 64`, `"adaptiveLimit": true`, `"adaptiveRateLimit": true`, `"maxConcurrencyConfig": {"limit": 64}`} {
+		if !strings.Contains(string(configData), want) {
+			t.Fatalf("api new config missing default resilience %q:\n%s", want, configData)
+		}
+	}
 }
 
 func TestExecuteAPINewWithGoZeroCompatibleProfile(t *testing.T) {
@@ -3790,10 +3799,29 @@ func TestExecuteRPCNew(t *testing.T) {
 		"greeter.proto",
 		filepath.Join("internal", "rpc", "greeter.go"),
 		"Dockerfile",
+		filepath.Join("etc", "greeter.json"),
+		filepath.Join("etc", "governance.json"),
+		filepath.Join("internal", "smoke", "service_smoke_test.go"),
 	} {
 		if _, err := os.Stat(filepath.Join(dir, rel)); err != nil {
 			t.Fatalf("expected rpc new file %s: %v", rel, err)
 		}
+	}
+	configData, err := os.ReadFile(filepath.Join(dir, "etc", "greeter.json"))
+	if err != nil {
+		t.Fatalf("read rpc new config: %v", err)
+	}
+	for _, want := range []string{`"governance": {"timeout": 3000000000`, `"retry": {"attempts": 2`, `"rateLimit": {"rate": 100`, `"maxConcurrency": 64`, `"rpcTimeout": {"server": 3000000000`, `"adaptiveRateLimit": true`, `"maxConcurrencyConfig": {"limit": 64}`} {
+		if !strings.Contains(string(configData), want) {
+			t.Fatalf("rpc new config missing default resilience %q:\n%s", want, configData)
+		}
+	}
+	smokeData, err := os.ReadFile(filepath.Join(dir, "internal", "smoke", "service_smoke_test.go"))
+	if err != nil {
+		t.Fatalf("read rpc new smoke: %v", err)
+	}
+	if !strings.Contains(string(smokeData), "assertControlPlaneResilience(t, controlPlane)") {
+		t.Fatalf("rpc new smoke missing resilience runtime assertion:\n%s", smokeData)
 	}
 }
 

@@ -166,6 +166,7 @@ func TestServiceConfProductionGovernanceConfigUsesSharedDefaults(t *testing.T) {
 		Governance: ServiceGovernance{
 			Timeout:        4 * time.Second,
 			RateLimit:      ServiceRateLimit{Rate: 90, Burst: 120},
+			Retry:          ServiceRetry{Attempts: 4, Backoff: 250 * time.Millisecond},
 			MaxConcurrency: 32,
 		},
 	}.WithDefaults("")
@@ -173,8 +174,8 @@ func TestServiceConfProductionGovernanceConfigUsesSharedDefaults(t *testing.T) {
 	if gov.Service != "orders" || gov.RESTTimeout != 4*time.Second || gov.RPCTimeout != 4*time.Second || gov.MQTimeout != 4*time.Second {
 		t.Fatalf("production governance timeouts = %+v", gov)
 	}
-	if gov.GatewayTimeout != 5*time.Second || gov.RetryAttempts != 2 || gov.RetryBackoff != 100*time.Millisecond {
-		t.Fatalf("production governance shared defaults = %+v", gov)
+	if gov.GatewayTimeout != 5*time.Second || gov.RetryAttempts != 4 || gov.RetryBackoff != 250*time.Millisecond {
+		t.Fatalf("production governance retry/gateway = %+v", gov)
 	}
 	if gov.RateLimit != 90 || gov.RateBurst != 120 || gov.ConcurrencyLimit != 32 || !gov.Breaker.Enabled {
 		t.Fatalf("production governance policies = %+v", gov)

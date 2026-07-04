@@ -137,10 +137,18 @@ func TestGenerateService(t *testing.T) {
 		`"scaffold": {"features": ["ecosystem-compat"]}`,
 		`"discovery": {"provider": "memory", "ttl": "15s", "prefix": "/gofly/services", "dialTimeout": "5s"}`,
 		`"openapi": {"enabled": true, "title": "hello API", "version": "1.0.0"`,
+		`"governance": {"timeout": 3000000000`,
+		`"retry": {"attempts": 2, "backoff": 100000000}`,
+		`"rateLimit": {"rate": 100, "burst": 100}`,
+		`"maxConcurrency": 64`,
+		`"adaptiveLimit": true`,
+		`"rpcTimeout": {"server": 3000000000, "client": 3000000000}`,
 		`"startupTimeout": 5000000000`,
 		`"shutdownTimeout": 10000000000`,
 		`"timeoutConfig": {"duration": 3000000000`,
 		`"breakerConfig": {"openTimeout": 5000000000`,
+		`"adaptiveRateLimit": true`,
+		`"maxConcurrencyConfig": {"limit": 64}`,
 		`"securityHeaders": {"contentSecurityPolicy": "default-src 'self'"`,
 		`"logRedaction": {"headers": ["Authorization", "Cookie", "Set-Cookie"]`,
 		`"token": "change-me-admin-token"`,
@@ -170,11 +178,22 @@ func TestGenerateService(t *testing.T) {
 	if serviceJSON["name"] != "hello" || serviceJSON["startupTimeout"] != float64(5*time.Second) || serviceJSON["shutdownTimeout"] != float64(10*time.Second) {
 		t.Fatalf("service config = %#v, want normalized service identity and lifecycle", serviceJSON)
 	}
+	governanceJSON, ok := serviceJSON["governance"].(map[string]any)
+	if !ok {
+		t.Fatalf("service governance config = %#v, want generated resilience profile", serviceJSON["governance"])
+	}
+	retryJSON, ok := governanceJSON["retry"].(map[string]any)
+	if !ok || retryJSON["attempts"] != float64(2) || retryJSON["backoff"] != float64(100*time.Millisecond) {
+		t.Fatalf("service retry config = %#v, want generated retry profile", governanceJSON["retry"])
+	}
+	if governanceJSON["timeout"] != float64(3*time.Second) || governanceJSON["maxConcurrency"] != float64(64) || governanceJSON["adaptiveLimit"] != true {
+		t.Fatalf("service governance profile = %#v, want timeout/concurrency/adaptive defaults", governanceJSON)
+	}
 	governanceData, err := os.ReadFile(filepath.Join(dir, "etc", "governance.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`"name": "rpc-sayhello"`, `"method": "SAYHELLO"`, `"canary"`, `"concurrency"`, `"name": "mq-default"`, `"transport": "mq"`} {
+	for _, want := range []string{`"name": "rest-default"`, `"name": "rpc-default"`, `"name": "rpc-sayhello"`, `"method": "SAYHELLO"`, `"canary"`, `"concurrency"`, `"rateLimit"`, `"breaker"`, `"name": "mq-default"`, `"transport": "mq"`, `"name": "gateway-default"`, `"statuses": [502, 503, 504]`} {
 		if !strings.Contains(string(governanceData), want) {
 			t.Fatalf("governance.json missing %q:\n%s", want, governanceData)
 		}
@@ -216,6 +235,9 @@ func TestGenerateService(t *testing.T) {
 		`/admin/control-plane`,
 		`generated.project.runtime`,
 		`service,rest,rpc,governance,discovery`,
+		`generated.project.resilience`,
+		`assertControlPlaneResilience(t, controlPlane)`,
+		`"timeout", "rateLimit", "concurrency", "breaker", "retry"`,
 	} {
 		if !strings.Contains(string(smokeData), want) {
 			t.Fatalf("service_smoke_test.go missing %q:\n%s", want, smokeData)
@@ -1210,7 +1232,17 @@ func TestGenerateServiceMinimalStyle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(configData), "Governance") || strings.Contains(string(configData), "RPC") {
+	for _, forbidden := range []string{
+		`Governance governance.Config`,
+		`RPC     RPCConfig`,
+		"governance.NewManager",
+		"rpc.NewServer",
+	} {
+		if strings.Contains(string(configData), forbidden) {
+			t.Fatalf("minimal config contains production-only field/wiring %q:\n%s", forbidden, configData)
+		}
+	}
+	if strings.Contains(string(configData), "RPCEnabled:    true") || strings.Contains(string(configData), "GatewayEnabled: true") {
 		t.Fatalf("minimal config contains production-only fields:\n%s", configData)
 	}
 	if strings.Contains(string(configData), "app.MetricsConfig") || strings.Contains(string(configData), "Log  app.LogConfig") {
@@ -1226,6 +1258,8 @@ func TestGenerateServiceMinimalStyle(t *testing.T) {
 		"func (c Config) ControlPlaneSnapshot(ctx context.Context) (controlplane.Snapshot, error)",
 		"func (c ControlPlaneContributor) ContributeSnapshot(ctx context.Context, snapshot *controlplane.Snapshot) error",
 		`"generated.project.runtime"] = "service,rest"`,
+		"func (c Config) ResilienceProfile() ResilienceProfile",
+		`"generated.project.resilience"] = "timeout,rate,concurrency,breaker,retry"`,
 		"func (c Config) OpenAPIEnabled() bool",
 		"func (c Config) OpenAPIInfo() rest.OpenAPIInfo",
 		"func ValidateOpenAPIConfig(c Config) error",

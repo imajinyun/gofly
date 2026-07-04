@@ -1323,6 +1323,64 @@ func TestHTTPClientRPCPolicyRuntimeSnapshotContributor(t *testing.T) {
 	}
 }
 
+func TestHTTPClientOutboundResilienceRuntimeMatrix(t *testing.T) {
+	policy := RPCPolicy{
+		Timeout:     25 * time.Millisecond,
+		Retry:       governance.RetryPolicy{Attempts: 3, Backoff: time.Millisecond},
+		Breaker:     governance.BreakerPolicy{Enabled: true, MinRequests: 1, FailureRatio: 0.1, OpenTimeout: time.Second},
+		LoadShedder: RPCLoadShedderPolicy{Enabled: true, MaxConcurrency: 1},
+	}
+	rules := governance.NewRuleSet(governance.Rule{
+		Name:      "rpc-outbound-matrix",
+		Transport: governance.TransportRPC,
+		Service:   "greeter",
+		Method:    "Matrix",
+		Policy: governance.Policy{
+			RateLimit:   governance.RateLimitPolicy{Rate: 1, Burst: 1},
+			Concurrency: governance.ConcurrencyPolicy{Limit: 1},
+			Retry:       governance.RetryPolicy{Attempts: 2, Backoff: time.Millisecond},
+		},
+	})
+	c, err := NewClient("http://matrix.example",
+		WithRPCPolicy(policy),
+		WithClientGovernanceRuleSet(rules),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decision := c.governanceDecision(context.Background(), governance.Request{
+		Transport: governance.TransportRPC,
+		Service:   "greeter",
+		Method:    "Matrix",
+		Path:      "/greeter/Matrix",
+	})
+	runtimeKey := governanceRuntimeKey(decision, "greeter/Matrix")
+	if c.ruleRateLimiter(runtimeKey, decision.Policy.RateLimit) == nil {
+		t.Fatal("rate limiter was not created from governance policy")
+	}
+	if c.ruleConcurrencyLimiter(runtimeKey, decision.Policy.Concurrency) == nil {
+		t.Fatal("concurrency limiter was not created from governance policy")
+	}
+	if c.ruleLoadShedderLimiter(runtimeKey, policy.LoadShedder) == nil {
+		t.Fatal("load shedder limiter was not created from RPC policy")
+	}
+	if c.ruleBreaker(runtimeKey, policy.Breaker) == nil {
+		t.Fatal("breaker was not created from RPC policy")
+	}
+
+	effective := c.EffectivePolicySnapshot(context.Background(), "/greeter/Matrix")
+	if effective.GovernanceRule != "rpc-outbound-matrix" || effective.State.RetryAttempts != 2 || effective.State.RetryBackoff != time.Millisecond {
+		t.Fatalf("effective policy = %+v, want governance retry over client default retry", effective)
+	}
+	if !effective.State.TimeoutEnforced || effective.State.EffectiveTimeout != 25*time.Millisecond || !effective.State.BreakerEnabled || !effective.State.LoadShedderEnabled || effective.State.LoadShedderLimit != 1 {
+		t.Fatalf("effective state = %+v, want timeout/breaker/load shedder enabled", effective.State)
+	}
+	runtimeSnapshot := c.PolicyRuntimeSnapshot()
+	if runtimeSnapshot.Cache.RateLimiters != 1 || runtimeSnapshot.Cache.ConcurrencyLimiters != 2 || runtimeSnapshot.Cache.Breakers != 1 {
+		t.Fatalf("runtime cache = %+v, want rate, concurrency, load-shedder and breaker evidence", runtimeSnapshot.Cache)
+	}
+}
+
 func TestHTTPClientEffectivePolicySnapshotExplainsMethodPriority(t *testing.T) {
 	rules := governance.NewRuleSet(governance.Rule{
 		Name:      "orders-governance",

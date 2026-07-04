@@ -1570,6 +1570,38 @@ func TestGatewayGovernanceRuleSetAppliesRoutePolicy(t *testing.T) {
 }
 
 func TestGatewayGovernanceRuleSetEnforcesResiliencePolicy(t *testing.T) {
+	t.Run("timeout", func(t *testing.T) {
+		started := make(chan struct{})
+		upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			close(started)
+			<-r.Context().Done()
+		}))
+		t.Cleanup(upstream.Close)
+		rules := governance.NewRuleSet(governance.Rule{
+			Name:      "gateway-timeout",
+			Transport: governance.TransportGateway,
+			Service:   "orders",
+			Method:    http.MethodGet,
+			Path:      "/api/*",
+			Policy:    governance.Policy{Timeout: time.Millisecond},
+		})
+		g, err := New([]Route{{Method: http.MethodGet, PathPrefix: "/api", Service: "orders", Targets: []string{upstream.URL}, Timeout: time.Second}}, WithGovernanceRuleSet(rules))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		rec := httptest.NewRecorder()
+		g.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/list", nil))
+		if rec.Code != http.StatusServiceUnavailable {
+			t.Fatalf("timeout status = %d, want %d", rec.Code, http.StatusServiceUnavailable)
+		}
+		select {
+		case <-started:
+		case <-time.After(time.Second):
+			t.Fatal("timed out waiting for upstream request")
+		}
+	})
+
 	t.Run("rate limit", func(t *testing.T) {
 		upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			_, _ = fmt.Fprint(w, "ok")
@@ -1597,6 +1629,10 @@ func TestGatewayGovernanceRuleSetEnforcesResiliencePolicy(t *testing.T) {
 		g.ServeHTTP(second, httptest.NewRequest(http.MethodGet, "/api/list", nil))
 		if second.Code != http.StatusTooManyRequests {
 			t.Fatalf("second status = %d, want %d", second.Code, http.StatusTooManyRequests)
+		}
+		snapshot := g.Snapshot()
+		if len(snapshot.RuleStats) != 1 || snapshot.RuleStats[0].Hits != 2 {
+			t.Fatalf("snapshot rule stats = %+v, want two rate-limit hits", snapshot.RuleStats)
 		}
 	})
 
@@ -1638,6 +1674,43 @@ func TestGatewayGovernanceRuleSetEnforcesResiliencePolicy(t *testing.T) {
 		<-done
 		if first.Code != http.StatusOK {
 			t.Fatalf("first status = %d, want %d", first.Code, http.StatusOK)
+		}
+	})
+
+	t.Run("retry", func(t *testing.T) {
+		var calls atomic.Int64
+		upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if calls.Add(1) == 1 {
+				http.Error(w, "bad", http.StatusBadGateway)
+				return
+			}
+			_, _ = fmt.Fprint(w, "ok")
+		}))
+		t.Cleanup(upstream.Close)
+		rules := governance.NewRuleSet(governance.Rule{
+			Name:      "gateway-retry",
+			Transport: governance.TransportGateway,
+			Service:   "orders",
+			Method:    http.MethodGet,
+			Path:      "/api/*",
+			Policy: governance.Policy{Retry: governance.RetryPolicy{
+				Attempts: 2,
+				Statuses: []int{http.StatusBadGateway},
+				Methods:  []string{http.MethodGet},
+			}},
+		})
+		g, err := New([]Route{{Method: http.MethodGet, PathPrefix: "/api", Service: "orders", Targets: []string{upstream.URL}}}, WithGovernanceRuleSet(rules))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		rec := httptest.NewRecorder()
+		g.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/list", nil))
+		if rec.Code != http.StatusOK || strings.TrimSpace(rec.Body.String()) != "ok" || calls.Load() != 2 {
+			t.Fatalf("retry status = %d body = %q calls = %d, want retry success", rec.Code, rec.Body.String(), calls.Load())
+		}
+		if got := g.Snapshot().Routes[0].Retries; got != 1 {
+			t.Fatalf("retry snapshot = %d, want one retry", got)
 		}
 	})
 

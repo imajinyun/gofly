@@ -161,9 +161,12 @@ const gatewayConfigTemplate = `{
       {"name": "events-stream", "method": "GET", "pathPrefix": "/events", "upstreamPrefix": "/events", "service": "orders", "targets": ["http://127.0.0.1:8081"], "timeout": 5000000000, "retry": {"attempts": 1}, "breaker": {{.GatewayBreakerJSON}}},
       {"name": "websocket-tunnel", "method": "GET", "pathPrefix": "/ws", "upstreamPrefix": "/ws", "service": "orders", "targets": ["http://127.0.0.1:8081"], "timeout": 5000000000, "retry": {"attempts": 1}, "breaker": {{.GatewayBreakerJSON}}},
       {"name": "bff-home", "method": "GET", "pathPrefix": "/bff", "service": "orders", "targets": ["http://127.0.0.1:8081"], "timeout": 5000000000, "retry": {"attempts": 1}, "breaker": {{.GatewayBreakerJSON}}, "aggregation": {"enabled": true, "steps": [{"name": "profile", "path": "/profile", "required": true, "fallback": {"id": "anonymous"}}, {"name": "orders", "path": "/orders", "fallback": []}]}},
-      {"name": "rpc-orders", "method": "POST", "pathPrefix": "/rpc/orders", "service": "orders-rpc", "targets": ["http://127.0.0.1:8082"], "timeout": 5000000000, "retry": {"attempts": 1}, "breaker": {{.GatewayBreakerJSON}}, "transcode": {"enabled": true, "service": "orders.OrderService", "method": "GetOrder"}}
+      {"name": "rpc-orders", "method": "POST", "pathPrefix": "/rpc/orders", "service": "orders-rpc", "targets": ["http://127.0.0.1:8082"], "timeout": 5000000000, "retry": {"attempts": 1}, "breaker": {{.GatewayBreakerJSON}}, "transcode": {"enabled": true, "descriptor": "orders.OrderService", "descriptorMethod": "GetOrder", "payload": {"mode": "profile", "mergeBodyObject": true}}}
     ]
   },
+  "transcodeProfiles": [
+    {"descriptor": "orders.OrderService", "descriptorMethod": "GetOrder", "requestMappings": [{"source": "body.id", "target": "order.id"}, {"source": "body.trace", "target": "meta.trace"}, {"target": "meta.region", "default": "cn"}], "responseMappings": [{"source": "body.id", "target": "data.id"}, {"source": "body.source", "target": "meta.source"}, {"target": "meta.profile", "default": "descriptor"}]}
+  ],
   "openapiImports": [
     {"enabled": false, "url": "http://127.0.0.1:8081/openapi.json", "gatewayPrefix": "/contract", "maxBytes": 2097152, "groups": [{"name": "orders", "matchTags": ["orders"], "service": "orders-rpc", "targets": ["http://127.0.0.1:8082"], "upstreamPrefix": "/orders-api", "transcode": {"enabled": true, "descriptor": "orders.OrderService", "methodFromOperationId": true}}]}
   ],
@@ -200,6 +203,7 @@ type Config struct {
 	MQ           MQConfig          ` + "`json:\"mq\"`" + `
 	Rest         rest.Config       ` + "`json:\"rest\"`" + `
 	Gateway      gateway.Config    ` + "`json:\"gateway\"`" + `
+	TranscodeProfiles []gateway.TranscodeProfile ` + "`json:\"transcodeProfiles,omitempty\"`" + `
 	OpenAPIImports []OpenAPIImportConfig ` + "`json:\"openapiImports,omitempty\"`" + `
 	GatewayDiscovery GatewayDiscoveryConfig ` + "`json:\"gatewayDiscovery,omitempty\"`" + `
 	Governance   governance.Config ` + "`json:\"governance\"`" + `
@@ -266,6 +270,9 @@ func (c Config) GatewayOptions() []gateway.Option {
 	var opts []gateway.Option
 	if c.GatewayDiscovery.Failover {
 		opts = append(opts, gateway.WithDiscoveryFailover())
+	}
+	if len(c.TranscodeProfiles) > 0 {
+		opts = append(opts, gateway.WithTranscodeProfiles(c.TranscodeProfiles...))
 	}
 	return opts
 }

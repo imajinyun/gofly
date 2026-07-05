@@ -77,7 +77,10 @@ func TestGenerateGatewayWiresGovernanceManager(t *testing.T) {
 	for _, want := range []string{
 		"OpenAPIImports",
 		"[]OpenAPIImportConfig",
-		"GatewayDiscovery GatewayDiscoveryConfig",
+		"TranscodeProfiles []gateway.TranscodeProfile",
+		"gateway.WithTranscodeProfiles(c.TranscodeProfiles...)",
+		"GatewayDiscovery",
+		"GatewayDiscoveryConfig",
 		"func (c Config) GatewayConfig(ctx context.Context) (gateway.Config, error)",
 		"func (c Config) GatewayOptions() []gateway.Option",
 		"func (c Config) GatewayResolvers() (map[string]rpc.Resolver, error)",
@@ -167,8 +170,12 @@ func TestGenerateGatewayWiresGovernanceManager(t *testing.T) {
 		`"pathPrefix": "/bff"`,
 		`"pathPrefix": "/rpc/orders"`,
 		`"transcode": {"enabled": true`,
-		`"service": "orders.OrderService"`,
-		`"method": "GetOrder"`,
+		`"descriptor": "orders.OrderService"`,
+		`"descriptorMethod": "GetOrder"`,
+		`"payload": {"mode": "profile", "mergeBodyObject": true}`,
+		`"transcodeProfiles": [`,
+		`"requestMappings": [{"source": "body.id", "target": "order.id"}`,
+		`"responseMappings": [{"source": "body.id", "target": "data.id"}`,
 		`"aggregation": {"enabled": true`,
 		`"fallback": {"id": "anonymous"}`,
 		`"fallback": []`,
@@ -219,8 +226,9 @@ func TestGenerateGatewayDefaultResilienceProfileReachesRuntime(t *testing.T) {
 		t.Fatal(err)
 	}
 	var generated struct {
-		Gateway          gateway.Config `json:"gateway"`
-		GatewayDiscovery struct {
+		Gateway           gateway.Config             `json:"gateway"`
+		TranscodeProfiles []gateway.TranscodeProfile `json:"transcodeProfiles"`
+		GatewayDiscovery  struct {
 			Failover bool `json:"failover"`
 		} `json:"gatewayDiscovery"`
 		OpenAPIImports []struct {
@@ -235,6 +243,13 @@ func TestGenerateGatewayDefaultResilienceProfileReachesRuntime(t *testing.T) {
 	}
 	if generated.GatewayDiscovery.Failover {
 		t.Fatalf("generated gateway discovery failover = true, want opt-in disabled by default")
+	}
+	if len(generated.TranscodeProfiles) != 1 ||
+		generated.TranscodeProfiles[0].Descriptor != "orders.OrderService" ||
+		generated.TranscodeProfiles[0].DescriptorMethod != "GetOrder" ||
+		len(generated.TranscodeProfiles[0].RequestMappings) != 3 ||
+		len(generated.TranscodeProfiles[0].ResponseMappings) != 3 {
+		t.Fatalf("generated transcode profiles = %#v, want descriptor profile with request/response mappings", generated.TranscodeProfiles)
 	}
 	var apiCalls atomic.Int64
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -296,17 +311,17 @@ func TestGenerateGatewayDefaultResilienceProfileReachesRuntime(t *testing.T) {
 		t.Fatalf("generated bff fallback steps = %#v", bffRoute.Aggregation.Steps)
 	}
 	rpcRoute := generatedGatewayRouteByName(t, generated.Gateway.Routes, "rpc-orders")
-	if !rpcRoute.Transcode.Enabled || rpcRoute.Transcode.Service != "orders.OrderService" || rpcRoute.Transcode.Method != "GetOrder" {
+	if !rpcRoute.Transcode.Enabled || rpcRoute.Transcode.Descriptor != "orders.OrderService" || rpcRoute.Transcode.DescriptorMethod != "GetOrder" || rpcRoute.Transcode.Payload.Mode != "profile" {
 		t.Fatalf("generated rpc bridge route = %#v", rpcRoute)
 	}
-	gw, err := gateway.NewFromConfig(generated.Gateway, nil)
+	gw, err := gateway.NewFromConfig(generated.Gateway, nil, gateway.WithDescriptors(rpc.Descriptor{Name: "orders.OrderService", Methods: []rpc.MethodDescriptor{{Name: "GetOrder"}}}), gateway.WithTranscodeProfiles(generated.TranscodeProfiles...))
 	if err != nil {
 		t.Fatalf("build gateway from generated config: %v", err)
 	}
 	t.Cleanup(func() { _ = gw.Close() })
 
 	before := gw.RuntimeSnapshot()
-	if before.DefaultTimeout != 3*time.Second || before.RouteCount != 5 || len(before.Routes) != 5 {
+	if before.DefaultTimeout != 3*time.Second || before.RouteCount != 5 || len(before.Routes) != 5 || before.Cache.TranscodeProfiles != 1 {
 		t.Fatalf("gateway runtime = %+v, want generated default timeout and five routes", before)
 	}
 	route := generatedGatewayRuntimeRoute(t, before.Routes, "api-proxy")
@@ -348,8 +363,8 @@ func TestGenerateGatewayDefaultResilienceProfileReachesRuntime(t *testing.T) {
 		t.Fatalf("generated gateway bff partial response = %d body = %q", bff.Code, bff.Body.String())
 	}
 	rpcBridge := httptest.NewRecorder()
-	gw.ServeHTTP(rpcBridge, httptest.NewRequest(http.MethodPost, "/rpc/orders", bytes.NewReader([]byte(`{"id":"o42"}`))))
-	if rpcBridge.Code != http.StatusOK || !strings.Contains(rpcBridge.Body.String(), `"id":"o42"`) || !strings.Contains(rpcBridge.Body.String(), `"source":"rpc"`) {
+	gw.ServeHTTP(rpcBridge, httptest.NewRequest(http.MethodPost, "/rpc/orders", bytes.NewReader([]byte(`{"id":"o42","trace":"t1"}`))))
+	if rpcBridge.Code != http.StatusOK || !strings.Contains(rpcBridge.Body.String(), `"data":{"id":"o42"}`) || !strings.Contains(rpcBridge.Body.String(), `"meta":{"profile":"descriptor","source":"rpc"}`) {
 		t.Fatalf("generated gateway rpc bridge response = %d body = %q", rpcBridge.Code, rpcBridge.Body.String())
 	}
 	after := gw.RuntimeSnapshot()
@@ -365,12 +380,18 @@ func newGeneratedOrdersRPCServer(t *testing.T) *httptest.Server {
 		Methods: []rpc.MethodDesc{rpc.GenericMethod("GetOrder",
 			func(_ context.Context, raw json.RawMessage) (any, error) {
 				var request struct {
-					ID string `json:"id"`
+					Order struct {
+						ID string `json:"id"`
+					} `json:"order"`
+					Meta struct {
+						Trace  string `json:"trace"`
+						Region string `json:"region"`
+					} `json:"meta"`
 				}
 				if err := json.Unmarshal(raw, &request); err != nil {
 					return nil, err
 				}
-				return map[string]string{"id": request.ID, "source": "rpc"}, nil
+				return map[string]string{"id": request.Order.ID, "source": "rpc", "trace": request.Meta.Trace, "region": request.Meta.Region}, nil
 			})},
 	}
 	server := rpc.NewServer()

@@ -23,6 +23,7 @@ import (
 
 	"github.com/imajinyun/gofly/gateway"
 	"github.com/imajinyun/gofly/rest"
+	"github.com/imajinyun/gofly/rpc"
 )
 
 func TestGenerateGatewayWiresGovernanceManager(t *testing.T) {
@@ -142,6 +143,10 @@ func TestGenerateGatewayWiresGovernanceManager(t *testing.T) {
 		`"pathPrefix": "/events"`,
 		`"pathPrefix": "/ws"`,
 		`"pathPrefix": "/bff"`,
+		`"pathPrefix": "/rpc/orders"`,
+		`"transcode": {"enabled": true`,
+		`"service": "orders.OrderService"`,
+		`"method": "GetOrder"`,
 		`"aggregation": {"enabled": true`,
 		`"fallback": {"id": "anonymous"}`,
 		`"fallback": []`,
@@ -247,17 +252,28 @@ func TestGenerateGatewayDefaultResilienceProfileReachesRuntime(t *testing.T) {
 		}
 	}))
 	t.Cleanup(upstream.Close)
-	if len(generated.Gateway.Routes) != 4 {
-		t.Fatalf("generated gateway routes = %#v, want four default routes", generated.Gateway.Routes)
+	if len(generated.Gateway.Routes) != 5 {
+		t.Fatalf("generated gateway routes = %#v, want five default routes", generated.Gateway.Routes)
 	}
 	for i := range generated.Gateway.Routes {
 		generated.Gateway.Routes[i].Targets = []string{upstream.URL}
+	}
+	rpcUpstream := newGeneratedOrdersRPCServer(t)
+	for i := range generated.Gateway.Routes {
+		if generated.Gateway.Routes[i].Name == "rpc-orders" {
+			generated.Gateway.Routes[i].Targets = []string{rpcUpstream.URL}
+			break
+		}
 	}
 	bffRoute := generatedGatewayRouteByName(t, generated.Gateway.Routes, "bff-home")
 	if len(bffRoute.Aggregation.Steps) != 2 ||
 		compactGeneratedRawJSON(t, bffRoute.Aggregation.Steps[0].Fallback) != `{"id":"anonymous"}` ||
 		compactGeneratedRawJSON(t, bffRoute.Aggregation.Steps[1].Fallback) != `[]` {
 		t.Fatalf("generated bff fallback steps = %#v", bffRoute.Aggregation.Steps)
+	}
+	rpcRoute := generatedGatewayRouteByName(t, generated.Gateway.Routes, "rpc-orders")
+	if !rpcRoute.Transcode.Enabled || rpcRoute.Transcode.Service != "orders.OrderService" || rpcRoute.Transcode.Method != "GetOrder" {
+		t.Fatalf("generated rpc bridge route = %#v", rpcRoute)
 	}
 	gw, err := gateway.NewFromConfig(generated.Gateway, nil)
 	if err != nil {
@@ -266,8 +282,8 @@ func TestGenerateGatewayDefaultResilienceProfileReachesRuntime(t *testing.T) {
 	t.Cleanup(func() { _ = gw.Close() })
 
 	before := gw.RuntimeSnapshot()
-	if before.DefaultTimeout != 3*time.Second || before.RouteCount != 4 || len(before.Routes) != 4 {
-		t.Fatalf("gateway runtime = %+v, want generated default timeout and four routes", before)
+	if before.DefaultTimeout != 3*time.Second || before.RouteCount != 5 || len(before.Routes) != 5 {
+		t.Fatalf("gateway runtime = %+v, want generated default timeout and five routes", before)
 	}
 	route := generatedGatewayRuntimeRoute(t, before.Routes, "api-proxy")
 	if route.Timeout != 5*time.Second || route.EffectiveTimeout != 5*time.Second {
@@ -307,10 +323,39 @@ func TestGenerateGatewayDefaultResilienceProfileReachesRuntime(t *testing.T) {
 		!strings.Contains(bff.Body.String(), `"errors":{"orders":"upstream status 502"}`) {
 		t.Fatalf("generated gateway bff partial response = %d body = %q", bff.Code, bff.Body.String())
 	}
+	rpcBridge := httptest.NewRecorder()
+	gw.ServeHTTP(rpcBridge, httptest.NewRequest(http.MethodPost, "/rpc/orders", bytes.NewReader([]byte(`{"id":"o42"}`))))
+	if rpcBridge.Code != http.StatusOK || !strings.Contains(rpcBridge.Body.String(), `"id":"o42"`) || !strings.Contains(rpcBridge.Body.String(), `"source":"rpc"`) {
+		t.Fatalf("generated gateway rpc bridge response = %d body = %q", rpcBridge.Code, rpcBridge.Body.String())
+	}
 	after := gw.RuntimeSnapshot()
-	if after.Cache.RateLimiters != 1 || after.Cache.ConcurrencyLimiters != 1 || after.Cache.Breakers != 4 {
+	if after.Cache.RateLimiters != 1 || after.Cache.ConcurrencyLimiters != 1 || after.Cache.Breakers != 5 {
 		t.Fatalf("generated gateway runtime cache = %+v, want materialized web adaptive primitives", after.Cache)
 	}
+}
+
+func newGeneratedOrdersRPCServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	desc := rpc.ServiceDesc{
+		Name: "orders.OrderService",
+		Methods: []rpc.MethodDesc{rpc.GenericMethod("GetOrder",
+			func(_ context.Context, raw json.RawMessage) (any, error) {
+				var request struct {
+					ID string `json:"id"`
+				}
+				if err := json.Unmarshal(raw, &request); err != nil {
+					return nil, err
+				}
+				return map[string]string{"id": request.ID, "source": "rpc"}, nil
+			})},
+	}
+	server := rpc.NewServer()
+	if err := server.RegisterService(desc, nil); err != nil {
+		t.Fatalf("register generated orders rpc service: %v", err)
+	}
+	rpcServer := httptest.NewServer(server)
+	t.Cleanup(rpcServer.Close)
+	return rpcServer
 }
 
 func compactGeneratedRawJSON(t *testing.T, raw json.RawMessage) string {

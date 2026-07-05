@@ -165,7 +165,7 @@ const gatewayConfigTemplate = `{
     ]
   },
   "openapiImports": [
-    {"enabled": false, "url": "http://127.0.0.1:8081/openapi.json", "gatewayPrefix": "/contract", "maxBytes": 2097152, "groups": [{"name": "orders", "matchTags": ["orders"], "service": "orders", "targets": ["http://127.0.0.1:8081"], "upstreamPrefix": "/orders-api"}]}
+    {"enabled": false, "url": "http://127.0.0.1:8081/openapi.json", "gatewayPrefix": "/contract", "maxBytes": 2097152, "groups": [{"name": "orders", "matchTags": ["orders"], "service": "orders-rpc", "targets": ["http://127.0.0.1:8082"], "upstreamPrefix": "/orders-api", "transcode": {"enabled": true, "descriptor": "orders.OrderService", "methodFromOperationId": true}}]}
   ],
   "gatewayDiscovery": {"failover": false, "services": [{"enabled": false, "service": "orders", "provider": "dns", "host": "orders.service.local", "port": 8081, "scheme": "http", "watchInterval": 5000000000}]},
   "governance": {
@@ -405,6 +405,7 @@ type OpenAPIImportConfig struct {
 	AllowedHosts []string ` + "`json:\"allowedHosts,omitempty\"`" + `
 	Tags map[string]string ` + "`json:\"tags,omitempty\"`" + `
 	Headers map[string]string ` + "`json:\"headers,omitempty\"`" + `
+	Transcode OpenAPIImportTranscodeConfig ` + "`json:\"transcode,omitempty\"`" + `
 	Groups []OpenAPIImportGroupConfig ` + "`json:\"groups,omitempty\"`" + `
 }
 
@@ -430,7 +431,28 @@ func (c OpenAPIImportConfig) RouteOptions() gateway.OpenAPIRouteOptions {
 		AllowedHosts: append([]string(nil), c.AllowedHosts...),
 		Tags: cloneStringMap(c.Tags),
 		Headers: cloneStringMap(c.Headers),
+		Transcode: c.Transcode.RouteOptions(),
 		Groups: groups,
+	}
+}
+
+type OpenAPIImportTranscodeConfig struct {
+	Enabled bool ` + "`json:\"enabled,omitempty\"`" + `
+	Descriptor string ` + "`json:\"descriptor,omitempty\"`" + `
+	DescriptorMethod string ` + "`json:\"descriptorMethod,omitempty\"`" + `
+	Service string ` + "`json:\"service,omitempty\"`" + `
+	Method string ` + "`json:\"method,omitempty\"`" + `
+	MethodFromOperationID bool ` + "`json:\"methodFromOperationId,omitempty\"`" + `
+}
+
+func (c OpenAPIImportTranscodeConfig) RouteOptions() gateway.OpenAPITranscodeOptions {
+	return gateway.OpenAPITranscodeOptions{
+		Enabled: c.Enabled,
+		Descriptor: strings.TrimSpace(c.Descriptor),
+		DescriptorMethod: strings.TrimSpace(c.DescriptorMethod),
+		Service: strings.TrimSpace(c.Service),
+		Method: strings.TrimSpace(c.Method),
+		MethodFromOperationID: c.MethodFromOperationID,
 	}
 }
 
@@ -443,6 +465,7 @@ type OpenAPIImportGroupConfig struct {
 	Service string ` + "`json:\"service,omitempty\"`" + `
 	Targets []string ` + "`json:\"targets,omitempty\"`" + `
 	Headers map[string]string ` + "`json:\"headers,omitempty\"`" + `
+	Transcode OpenAPIImportTranscodeConfig ` + "`json:\"transcode,omitempty\"`" + `
 }
 
 func (c OpenAPIImportGroupConfig) RouteGroup() gateway.OpenAPIRouteGroup {
@@ -455,6 +478,7 @@ func (c OpenAPIImportGroupConfig) RouteGroup() gateway.OpenAPIRouteGroup {
 		Service: c.Service,
 		Targets: append([]string(nil), c.Targets...),
 		Headers: cloneStringMap(c.Headers),
+		Transcode: c.Transcode.RouteOptions(),
 	}
 }
 
@@ -526,6 +550,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -583,6 +608,11 @@ func TestGatewayConfigLoadsOpenAPIImportProfile(t *testing.T) {
 				UpstreamPrefix: "/orders-api",
 				Targets: []string{"http://127.0.0.1:8081"},
 				Headers: map[string]string{"X-Backend": "orders"},
+				Transcode: OpenAPIImportTranscodeConfig{
+					Enabled: true,
+					Descriptor: "orders.OrderService",
+					MethodFromOperationID: true,
+				},
 			}},
 		}},
 	}
@@ -600,6 +630,9 @@ func TestGatewayConfigLoadsOpenAPIImportProfile(t *testing.T) {
 	if imported.Headers["X-Base"] != "edge" || imported.Headers["X-Backend"] != "orders" {
 		t.Fatalf("imported headers = %#v", imported.Headers)
 	}
+	if !imported.Transcode.Enabled || imported.Transcode.Descriptor != "orders.OrderService" || imported.Transcode.DescriptorMethod != "GetOrder" {
+		t.Fatalf("imported transcode = %#v, want descriptor-driven GetOrder", imported.Transcode)
+	}
 	if imported.Targets[0] != "http://127.0.0.1:8081" {
 		t.Fatalf("imported targets = %#v", imported.Targets)
 	}
@@ -610,8 +643,8 @@ func TestGatewayGeneratedOpenAPIImportProfileIsRunnable(t *testing.T) {
 		OpenAPI: "3.0.3",
 		Info: rest.OpenAPIInfo{Title: "{{.Name}} upstream", Version: "1.0.0"},
 		Paths: map[string]map[string]rest.Operation{
-			"/orders/{id}": {
-				"get": {
+			"/orders": {
+				"post": {
 					OperationID: "getOrder",
 					Tags: []string{"orders"},
 					Responses: map[string]rest.Response{"200": {Description: "OK"}},
@@ -638,6 +671,23 @@ func TestGatewayGeneratedOpenAPIImportProfileIsRunnable(t *testing.T) {
 		}
 	}))
 	t.Cleanup(upstream.Close)
+	rpcServer := rpc.NewServer()
+	if err := rpcServer.RegisterService(rpc.ServiceDesc{
+		Name: "orders.OrderService",
+		Methods: []rpc.MethodDesc{rpc.GenericMethod("GetOrder", func(_ context.Context, raw json.RawMessage) (any, error) {
+			var request struct {
+				ID string ` + "`json:\"id\"`" + `
+			}
+			if err := json.Unmarshal(raw, &request); err != nil {
+				return nil, err
+			}
+			return map[string]string{"id": request.ID, "source": "rpc"}, nil
+		})},
+	}, nil); err != nil {
+		t.Fatalf("register generated OpenAPI RPC service: %v", err)
+	}
+	rpcUpstream := httptest.NewServer(rpcServer)
+	t.Cleanup(rpcUpstream.Close)
 
 	c := Config{
 		OpenAPIImports: []OpenAPIImportConfig{{
@@ -650,9 +700,14 @@ func TestGatewayGeneratedOpenAPIImportProfileIsRunnable(t *testing.T) {
 			Groups: []OpenAPIImportGroupConfig{{
 				Name: "orders",
 				MatchTags: []string{"orders"},
-				Service: "orders",
-				UpstreamPrefix: "/orders-api",
+				Service: "orders-rpc",
+				Targets: []string{rpcUpstream.URL},
 				Headers: map[string]string{"X-Backend": "orders"},
+				Transcode: OpenAPIImportTranscodeConfig{
+					Enabled: true,
+					Descriptor: "orders.OrderService",
+					MethodFromOperationID: true,
+				},
 			}},
 		}},
 	}
@@ -660,16 +715,16 @@ func TestGatewayGeneratedOpenAPIImportProfileIsRunnable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GatewayConfig: %v", err)
 	}
-	gw, err := gateway.NewFromConfig(conf, map[string]rpc.Resolver{"orders": rpc.NewStaticResolver(upstream.URL)})
+	gw, err := gateway.NewFromConfig(conf, nil, gateway.WithDescriptors(rpc.Descriptor{Name: "orders.OrderService", Methods: []rpc.MethodDescriptor{{Name: "GetOrder"}}}))
 	if err != nil {
 		t.Fatalf("NewFromConfig: %v", err)
 	}
 	t.Cleanup(func() { _ = gw.Close() })
 
 	rr := httptest.NewRecorder()
-	gw.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/contract/orders/42", nil))
-	if rr.Code != http.StatusOK || rr.Body.String() != "order:42" {
-		t.Fatalf("generated OpenAPI gateway response = %d %q, want imported route proxy success", rr.Code, rr.Body.String())
+	gw.ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/contract/orders", strings.NewReader("{\"id\":\"o42\"}")))
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), "\"id\":\"o42\"") || !strings.Contains(rr.Body.String(), "\"source\":\"rpc\"") {
+		t.Fatalf("generated OpenAPI gateway response = %d %q, want imported RPC transcode success", rr.Code, rr.Body.String())
 	}
 }
 

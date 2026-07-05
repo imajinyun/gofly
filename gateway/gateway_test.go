@@ -2181,6 +2181,69 @@ func TestRoutesFromOpenAPIURLGroupsOperationsByTag(t *testing.T) {
 	}
 }
 
+func TestRoutesFromOpenAPIMapsDescriptorDrivenTranscode(t *testing.T) {
+	doc := rest.OpenAPIDocument{
+		OpenAPI: "3.0.3",
+		Info:    rest.OpenAPIInfo{Title: "orders RPC contract", Version: "1.0.0"},
+		Paths: map[string]map[string]rest.Operation{
+			"/orders": {
+				"post": {OperationID: "getOrder", Tags: []string{"orders"}, Responses: map[string]rest.Response{"200": {Description: "ok"}}},
+			},
+		},
+	}
+	routes, err := RoutesFromOpenAPI(doc, OpenAPIRouteOptions{
+		GatewayPrefix: "/contract",
+		Groups: []OpenAPIRouteGroup{{
+			Name:      "orders",
+			MatchTags: []string{"orders"},
+			Service:   "orders-rpc",
+			Targets:   []string{"http://orders-rpc"},
+			Transcode: OpenAPITranscodeOptions{
+				Enabled:               true,
+				Descriptor:            "orders.OrderService",
+				MethodFromOperationID: true,
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("RoutesFromOpenAPI: %v", err)
+	}
+	if len(routes) != 1 {
+		t.Fatalf("routes length = %d, want 1", len(routes))
+	}
+	route := routes[0]
+	if route.Name != "orders-getOrder" || route.Method != http.MethodPost || route.PathPrefix != "/contract/orders" {
+		t.Fatalf("imported transcode route = %+v", route)
+	}
+	if !route.Transcode.Enabled || route.Transcode.Descriptor != "orders.OrderService" || route.Transcode.DescriptorMethod != "GetOrder" {
+		t.Fatalf("imported transcode config = %+v", route.Transcode)
+	}
+
+	fake := &fakeGenericClient{payload: json.RawMessage(`{"id":"o42","source":"openapi"}`)}
+	g, err := New(routes,
+		WithDescriptors(rpc.Descriptor{Name: "orders.OrderService", Methods: []rpc.MethodDescriptor{{Name: "GetOrder"}}}),
+		WithTranscoderFactory(func(endpoint string, route Route) (rpc.GenericClient, error) {
+			if endpoint != "http://orders-rpc" || route.Service != "orders-rpc" {
+				t.Fatalf("transcoder endpoint=%q route service=%q", endpoint, route.Service)
+			}
+			return fake, nil
+		}),
+	)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = g.Close() })
+
+	rr := httptest.NewRecorder()
+	g.ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/contract/orders", strings.NewReader(`{"id":"o42"}`)))
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"source":"openapi"`) {
+		t.Fatalf("openapi transcode response = %d %q", rr.Code, rr.Body.String())
+	}
+	if fake.method != "orders.OrderService/GetOrder" || string(fake.request) != `{"id":"o42"}` {
+		t.Fatalf("generic call method=%q request=%s", fake.method, fake.request)
+	}
+}
+
 func TestFetchOpenAPIDocumentValidation(t *testing.T) {
 	if _, err := FetchOpenAPIDocument(context.TODO(), OpenAPIURLSource{URL: "://bad"}); err == nil || !strings.Contains(err.Error(), "parse openapi url") {
 		t.Fatalf("bad url error = %v", err)

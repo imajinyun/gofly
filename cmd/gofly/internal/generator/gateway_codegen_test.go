@@ -92,6 +92,8 @@ func TestGenerateGatewayWiresGovernanceManager(t *testing.T) {
 		"[]string",
 		"type OpenAPIImportConfig struct",
 		"type OpenAPIImportGroupConfig struct",
+		"type OpenAPIImportTranscodeConfig struct",
+		"func (c OpenAPIImportTranscodeConfig) RouteOptions() gateway.OpenAPITranscodeOptions",
 	} {
 		if !strings.Contains(string(configData), want) {
 			t.Fatalf("gateway config.go missing OpenAPI import profile %q:\n%s", want, configData)
@@ -113,10 +115,14 @@ func TestGenerateGatewayWiresGovernanceManager(t *testing.T) {
 		"gateway.WithDiscoveryResolvers",
 		"httptest.NewServer",
 		"GatewayConfig(context.Background())",
-		"rpc.NewStaticResolver",
+		"gateway.WithDescriptors",
+		"rpc.GenericMethod",
 		`Service: "orders"`,
-		"/contract/orders/42",
-		"/orders-api/orders/42",
+		"/contract/orders",
+		`Descriptor:`,
+		`"orders.OrderService"`,
+		"MethodFromOperationID: true",
+		"imported RPC transcode success",
 	} {
 		if !strings.Contains(string(configTestData), want) {
 			t.Fatalf("gateway config_test.go missing OpenAPI import smoke %q:\n%s", want, configTestData)
@@ -155,6 +161,8 @@ func TestGenerateGatewayWiresGovernanceManager(t *testing.T) {
 		`"url": "http://127.0.0.1:8081/openapi.json"`,
 		`"gatewayPrefix": "/contract"`,
 		`"matchTags": ["orders"]`,
+		`"descriptor": "orders.OrderService"`,
+		`"methodFromOperationId": true`,
 		`"gatewayDiscovery": {"failover": false, "services": [{"enabled": false, "service": "orders", "provider": "dns"`,
 		`"retry": {"attempts": 2, "backoff": 100000000, "statuses": [502, 503, 504], "methods": ["GET", "HEAD"]}`,
 		`"rateLimit": {"rate": 100, "burst": 100}`,

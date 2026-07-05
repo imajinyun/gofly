@@ -11,6 +11,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/imajinyun/gofly/rest"
 )
@@ -38,6 +40,7 @@ type OpenAPIRouteOptions struct {
 	AllowedHosts   []string
 	Tags           map[string]string
 	Headers        map[string]string
+	Transcode      OpenAPITranscodeOptions
 	Groups         []OpenAPIRouteGroup
 }
 
@@ -51,6 +54,17 @@ type OpenAPIRouteGroup struct {
 	Service        string
 	Targets        []string
 	Headers        map[string]string
+	Transcode      OpenAPITranscodeOptions
+}
+
+// OpenAPITranscodeOptions maps imported OpenAPI operations to RPC transcode routes.
+type OpenAPITranscodeOptions struct {
+	Enabled               bool
+	Descriptor            string
+	DescriptorMethod      string
+	Service               string
+	Method                string
+	MethodFromOperationID bool
 }
 
 // OpenAPIURLSource describes a remote OpenAPI contract endpoint.
@@ -203,6 +217,7 @@ func openAPIRouteConfig(method, path, staticPrefix string, op rest.Operation, op
 		AllowedHosts:   append([]string(nil), opts.AllowedHosts...),
 		Tags:           cloneMap(opts.Tags),
 		Headers:        cloneMap(opts.Headers),
+		Transcode:      openAPITranscodeConfig(op, opts.Transcode),
 	}
 }
 
@@ -242,6 +257,9 @@ func openAPIRouteOptionsForOperation(opts OpenAPIRouteOptions, op rest.Operation
 			selected.Targets = append([]string(nil), group.Targets...)
 		}
 		selected.Headers = mergeOpenAPIStringMaps(opts.Headers, group.Headers)
+		if openAPITranscodeOptionsConfigured(group.Transcode) {
+			selected.Transcode = group.Transcode
+		}
 		selected.Groups = nil
 		return selected
 	}
@@ -276,6 +294,54 @@ func mergeOpenAPIStringMaps(base, override map[string]string) map[string]string 
 		out[key] = value
 	}
 	return out
+}
+
+func openAPITranscodeConfig(op rest.Operation, opts OpenAPITranscodeOptions) TranscodeConfig {
+	if !opts.Enabled {
+		return TranscodeConfig{}
+	}
+	method := strings.TrimSpace(opts.Method)
+	descriptorMethod := strings.TrimSpace(opts.DescriptorMethod)
+	if opts.MethodFromOperationID {
+		operationMethod := openAPITranscodeMethodFromOperationID(op.OperationID)
+		if method == "" {
+			method = operationMethod
+		}
+		if descriptorMethod == "" {
+			descriptorMethod = operationMethod
+		}
+	}
+	return TranscodeConfig{
+		Enabled:          true,
+		Descriptor:       strings.TrimSpace(opts.Descriptor),
+		DescriptorMethod: descriptorMethod,
+		Service:          strings.TrimSpace(opts.Service),
+		Method:           method,
+	}
+}
+
+func openAPITranscodeOptionsConfigured(opts OpenAPITranscodeOptions) bool {
+	return opts.Enabled ||
+		strings.TrimSpace(opts.Descriptor) != "" ||
+		strings.TrimSpace(opts.DescriptorMethod) != "" ||
+		strings.TrimSpace(opts.Service) != "" ||
+		strings.TrimSpace(opts.Method) != "" ||
+		opts.MethodFromOperationID
+}
+
+func openAPITranscodeMethodFromOperationID(operationID string) string {
+	operationID = strings.TrimSpace(operationID)
+	if operationID == "" {
+		return ""
+	}
+	first, size := utf8.DecodeRuneInString(operationID)
+	if first == utf8.RuneError && size == 0 {
+		return ""
+	}
+	if first == utf8.RuneError {
+		return operationID
+	}
+	return string(unicode.ToUpper(first)) + operationID[size:]
 }
 
 func sortedOpenAPIPaths(paths map[string]map[string]rest.Operation) []string {

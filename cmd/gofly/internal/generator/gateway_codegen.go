@@ -119,7 +119,8 @@ func main() {
 		slog.Error("load gateway config", "error", err)
 		return
 	}
-	gw, err := gateway.NewFromConfig(gatewayConf, nil, gateway.WithGovernanceManager(governanceManager))
+	gatewayOptions := append(c.GatewayOptions(), gateway.WithGovernanceManager(governanceManager))
+	gw, err := gateway.NewFromConfig(gatewayConf, nil, gatewayOptions...)
 	if err != nil {
 		slog.Error("setup gateway", "error", err)
 		return
@@ -159,6 +160,7 @@ const gatewayConfigTemplate = `{
   "openapiImports": [
     {"enabled": false, "url": "http://127.0.0.1:8081/openapi.json", "gatewayPrefix": "/contract", "maxBytes": 2097152, "groups": [{"name": "orders", "matchTags": ["orders"], "targets": ["http://127.0.0.1:8081"], "upstreamPrefix": "/orders-api"}]}
   ],
+  "gatewayDiscovery": {"failover": false},
   "governance": {
     "rules": {{.GatewayGovernanceRulesJSON}}
   },
@@ -190,6 +192,7 @@ type Config struct {
 	Rest         rest.Config       ` + "`json:\"rest\"`" + `
 	Gateway      gateway.Config    ` + "`json:\"gateway\"`" + `
 	OpenAPIImports []OpenAPIImportConfig ` + "`json:\"openapiImports,omitempty\"`" + `
+	GatewayDiscovery GatewayDiscoveryConfig ` + "`json:\"gatewayDiscovery,omitempty\"`" + `
 	Governance   governance.Config ` + "`json:\"governance\"`" + `
 	GatewayAdmin GatewayAdminConfig ` + "`json:\"gatewayAdmin\"`" + `
 }
@@ -250,6 +253,14 @@ func (c Config) GatewayConfig(ctx context.Context) (gateway.Config, error) {
 	return conf, nil
 }
 
+func (c Config) GatewayOptions() []gateway.Option {
+	var opts []gateway.Option
+	if c.GatewayDiscovery.Failover {
+		opts = append(opts, gateway.WithDiscoveryFailover())
+	}
+	return opts
+}
+
 func Validate(c Config) error {
 	service := c.ServiceConf()
 	if !isProduction(service.Environment) {
@@ -284,6 +295,10 @@ type GatewayAdminConfig struct {
 	Enabled    bool   ` + "`json:\"enabled\"`" + `
 	PathPrefix string ` + "`json:\"pathPrefix\"`" + `
 	Token      string ` + "`json:\"token\"`" + `
+}
+
+type GatewayDiscoveryConfig struct {
+	Failover bool ` + "`json:\"failover,omitempty\"`" + `
 }
 
 type OpenAPIImportConfig struct {
@@ -429,6 +444,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/imajinyun/gofly/core/discovery"
 	"github.com/imajinyun/gofly/gateway"
 	"github.com/imajinyun/gofly/rest"
 )
@@ -518,6 +534,63 @@ func TestGatewayConfigSkipsDisabledOpenAPIImportProfile(t *testing.T) {
 	}
 	if conf.Timeout != time.Second || len(conf.Routes) != 1 || conf.Routes[0].Name != "static" {
 		t.Fatalf("gateway config = %#v, want unchanged static config", conf)
+	}
+}
+
+func TestGatewayOptionsEnableDiscoveryFailover(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/orders/42" {
+			t.Fatalf("upstream path = %q, want /orders/42", r.URL.Path)
+		}
+		_, _ = w.Write([]byte("ok"))
+	}))
+	t.Cleanup(upstream.Close)
+	registry := discovery.NewMemoryRegistry()
+	lease, err := registry.Register(context.Background(), discovery.Instance{Service: "orders", ID: "orders-a", Endpoint: upstream.URL})
+	if err != nil {
+		t.Fatalf("register discovery instance: %v", err)
+	}
+
+	c := Config{
+		Gateway: gateway.Config{Routes: []gateway.RouteConfig{{
+			Name: "orders",
+			Method: http.MethodGet,
+			PathPrefix: "/api",
+			UpstreamPrefix: "",
+			Service: "orders",
+		}}},
+		GatewayDiscovery: GatewayDiscoveryConfig{Failover: true},
+	}
+	conf, err := c.GatewayConfig(context.Background())
+	if err != nil {
+		t.Fatalf("GatewayConfig: %v", err)
+	}
+	opts := append(c.GatewayOptions(), gateway.WithDiscoveryResolvers(map[string]discovery.Resolver{"orders": registry}))
+	gw, err := gateway.NewFromConfig(conf, nil, opts...)
+	if err != nil {
+		t.Fatalf("NewFromConfig: %v", err)
+	}
+	t.Cleanup(func() { _ = gw.Close() })
+
+	first := httptest.NewRecorder()
+	gw.ServeHTTP(first, httptest.NewRequest(http.MethodGet, "/api/orders/42", nil))
+	if first.Code != http.StatusOK || first.Body.String() != "ok" {
+		t.Fatalf("first gateway response = %d %q, want discovery success", first.Code, first.Body.String())
+	}
+	if err := lease.Close(context.Background()); err != nil {
+		t.Fatalf("close discovery lease: %v", err)
+	}
+	second := httptest.NewRecorder()
+	gw.ServeHTTP(second, httptest.NewRequest(http.MethodGet, "/api/orders/42", nil))
+	if second.Code != http.StatusOK || second.Body.String() != "ok" {
+		t.Fatalf("second gateway response = %d %q, want failover success", second.Code, second.Body.String())
+	}
+	snapshot := gw.Snapshot()
+	if len(snapshot.Discovery) != 1 || !snapshot.Discovery[0].Stale || snapshot.Discovery[0].Fallbacks == 0 || snapshot.Discovery[0].Error == "" {
+		t.Fatalf("discovery snapshot = %+v, want stale failover evidence", snapshot.Discovery)
+	}
+	if len(snapshot.Discovery[0].Instances) != 1 || snapshot.Discovery[0].Instances[0].Endpoint != upstream.URL {
+		t.Fatalf("stale discovery instances = %+v, want last known endpoint", snapshot.Discovery[0].Instances)
 	}
 }
 `

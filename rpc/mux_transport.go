@@ -29,6 +29,8 @@ const (
 	experimentalMuxFramePong       byte = 8
 	experimentalMuxFrameGoAway     byte = 9
 	experimentalMuxFrameWindowConn byte = 10
+	experimentalMuxFrameDataFrag   byte = 11
+	experimentalMuxFrameDataEnd    byte = 12
 )
 
 var (
@@ -48,6 +50,7 @@ type ExperimentalMuxTransport struct {
 	conn              net.Conn
 	role              string
 	maxFrame          int64
+	maxMessage        int64
 	receiveQueueSize  int
 	connectionWindow  int
 	maxStreams        int
@@ -77,6 +80,8 @@ type ExperimentalMuxTransport struct {
 	framesOut                 atomic.Int64
 	dataFramesIn              atomic.Int64
 	dataFramesOut             atomic.Int64
+	fragmentFramesIn          atomic.Int64
+	fragmentFramesOut         atomic.Int64
 	openFramesIn              atomic.Int64
 	openFramesOut             atomic.Int64
 	closeFramesIn             atomic.Int64
@@ -153,6 +158,8 @@ type ExperimentalMuxTransportSnapshot struct {
 	GoAwayFramesOut           int64         `json:"goAwayFramesOut,omitempty"`
 	BytesIn                   int64         `json:"bytesIn,omitempty"`
 	BytesOut                  int64         `json:"bytesOut,omitempty"`
+	FragmentFramesIn          int64         `json:"fragmentFramesIn,omitempty"`
+	FragmentFramesOut         int64         `json:"fragmentFramesOut,omitempty"`
 	HalfClosedStreams         int64         `json:"halfClosedStreams,omitempty"`
 	BackpressureEvents        int64         `json:"backpressureEvents,omitempty"`
 	CreditWaits               int64         `json:"creditWaits,omitempty"`
@@ -163,6 +170,7 @@ type ExperimentalMuxTransportSnapshot struct {
 	DrainRejects              int64         `json:"drainRejects,omitempty"`
 	ReceiveQueueSize          int           `json:"receiveQueueSize,omitempty"`
 	ConnectionWindow          int           `json:"connectionWindow,omitempty"`
+	MaxMessageBytes           int64         `json:"maxMessageBytes,omitempty"`
 	MaxStreams                int           `json:"maxStreams,omitempty"`
 	KeepaliveInterval         time.Duration `json:"keepaliveInterval,omitempty"`
 	KeepaliveIdle             time.Duration `json:"keepaliveIdle,omitempty"`
@@ -196,6 +204,7 @@ type ExperimentalMuxStream struct {
 	remoteDone  bool
 	localDone   bool
 	aborted     bool
+	fragments   []byte
 }
 
 type experimentalMuxStreamEvent struct {
@@ -239,6 +248,9 @@ func NewExperimentalMuxTransport(conn net.Conn, opts ...ExperimentalMuxTransport
 	}
 	if t.maxFrame <= 0 {
 		t.maxFrame = DefaultMaxFrameBytes
+	}
+	if t.maxMessage <= 0 {
+		t.maxMessage = t.maxFrame * 16
 	}
 	if t.payload == nil {
 		t.payload = NoopPayloadCodec{}
@@ -303,6 +315,15 @@ func WithExperimentalMuxMaxFrameBytes(max int64) ExperimentalMuxTransportOption 
 	return func(t *ExperimentalMuxTransport) {
 		if max > 0 {
 			t.maxFrame = max
+		}
+	}
+}
+
+// WithExperimentalMuxMaxMessageBytes caps reassembled logical messages.
+func WithExperimentalMuxMaxMessageBytes(max int64) ExperimentalMuxTransportOption {
+	return func(t *ExperimentalMuxTransport) {
+		if max > 0 {
+			t.maxMessage = max
 		}
 	}
 }
@@ -490,6 +511,8 @@ func (t *ExperimentalMuxTransport) Snapshot() ExperimentalMuxTransportSnapshot {
 		FramesOut:                 t.framesOut.Load(),
 		DataFramesIn:              t.dataFramesIn.Load(),
 		DataFramesOut:             t.dataFramesOut.Load(),
+		FragmentFramesIn:          t.fragmentFramesIn.Load(),
+		FragmentFramesOut:         t.fragmentFramesOut.Load(),
 		OpenFramesIn:              t.openFramesIn.Load(),
 		OpenFramesOut:             t.openFramesOut.Load(),
 		CloseFramesIn:             t.closeFramesIn.Load(),
@@ -520,6 +543,7 @@ func (t *ExperimentalMuxTransport) Snapshot() ExperimentalMuxTransportSnapshot {
 		DrainRejects:              t.drainRejects.Load(),
 		ReceiveQueueSize:          t.receiveQueueSize,
 		ConnectionWindow:          t.connectionWindow,
+		MaxMessageBytes:           t.maxMessage,
 		MaxStreams:                t.maxStreams,
 		KeepaliveInterval:         t.keepaliveInterval,
 		KeepaliveIdle:             t.keepaliveIdle,
@@ -587,12 +611,11 @@ func (s *ExperimentalMuxStream) Send(ctx context.Context, msg Message) error {
 		s.releaseCredit()
 		return err
 	}
-	if err := s.t.writeFrame(ctx, experimentalMuxFrame{typ: experimentalMuxFrameData, streamID: s.id, payload: data}); err != nil {
+	if err := s.t.writeDataFrames(ctx, s.id, data); err != nil {
 		s.t.releaseConnectionCredit()
 		s.releaseCredit()
 		return err
 	}
-	s.t.dataFramesOut.Add(1)
 	return nil
 }
 
@@ -746,23 +769,25 @@ func (t *ExperimentalMuxTransport) dispatchFrame(frame experimentalMuxFrame) err
 		t.openFramesIn.Add(1)
 		_ = t.getOrAcceptStream(frame.streamID, true)
 	case experimentalMuxFrameData:
-		t.dataFramesIn.Add(1)
+		return t.dispatchDataPayload(frame.streamID, frame.payload)
+	case experimentalMuxFrameDataFrag:
+		t.fragmentFramesIn.Add(1)
 		stream := t.getOrAcceptStream(frame.streamID, true)
 		if stream == nil {
 			return nil
 		}
-		msg, err := t.frame.Unmarshal(frame.payload)
+		return stream.appendFragment(frame.payload)
+	case experimentalMuxFrameDataEnd:
+		t.fragmentFramesIn.Add(1)
+		stream := t.getOrAcceptStream(frame.streamID, true)
+		if stream == nil {
+			return nil
+		}
+		payload, err := stream.finishFragments(frame.payload)
 		if err != nil {
 			return err
 		}
-		if msg.Codec == t.payload.Name() {
-			decoded, err := t.payload.Decode(msg.Payload)
-			if err != nil {
-				return err
-			}
-			msg.Payload = decoded
-		}
-		stream.deliver(experimentalMuxStreamEvent{msg: msg})
+		return t.dispatchDataPayload(frame.streamID, payload)
 	case experimentalMuxFrameClose:
 		t.closeFramesIn.Add(1)
 		t.closedStreams.Add(1)
@@ -1055,6 +1080,27 @@ func (t *ExperimentalMuxTransport) sendWindowUpdateAsync(streamID uint64, delta 
 	}()
 }
 
+func (t *ExperimentalMuxTransport) dispatchDataPayload(streamID uint64, payload []byte) error {
+	stream := t.getOrAcceptStream(streamID, true)
+	if stream == nil {
+		return nil
+	}
+	t.dataFramesIn.Add(1)
+	msg, err := t.frame.Unmarshal(payload)
+	if err != nil {
+		return err
+	}
+	if msg.Codec == t.payload.Name() {
+		decoded, err := t.payload.Decode(msg.Payload)
+		if err != nil {
+			return err
+		}
+		msg.Payload = decoded
+	}
+	stream.deliver(experimentalMuxStreamEvent{msg: msg})
+	return nil
+}
+
 func (t *ExperimentalMuxTransport) sendConnectionWindowUpdate(ctx context.Context, delta uint32) error {
 	if delta == 0 {
 		return nil
@@ -1167,6 +1213,36 @@ func (t *ExperimentalMuxTransport) addConnectionCredit(delta uint32) {
 	}
 }
 
+func (s *ExperimentalMuxStream) appendFragment(payload []byte) error {
+	if s == nil || s.t == nil {
+		return ErrExperimentalMuxStreamClosed
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if int64(len(s.fragments)+len(payload)) > s.t.maxMessage {
+		return ErrFrameTooLarge
+	}
+	s.fragments = append(s.fragments, payload...)
+	return nil
+}
+
+func (s *ExperimentalMuxStream) finishFragments(payload []byte) ([]byte, error) {
+	if s == nil || s.t == nil {
+		return nil, ErrExperimentalMuxStreamClosed
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if int64(len(s.fragments)+len(payload)) > s.t.maxMessage {
+		s.fragments = nil
+		return nil, ErrFrameTooLarge
+	}
+	out := make([]byte, 0, len(s.fragments)+len(payload))
+	out = append(out, s.fragments...)
+	out = append(out, payload...)
+	s.fragments = nil
+	return out, nil
+}
+
 func (s *ExperimentalMuxStream) acquireCredit(ctx context.Context) error {
 	if s == nil {
 		return ErrExperimentalMuxStreamClosed
@@ -1251,6 +1327,60 @@ func (t *ExperimentalMuxTransport) writeFrame(ctx context.Context, frame experim
 	t.framesOut.Add(1)
 	t.bytesOut.Add(int64(4 + len(data)))
 	return nil
+}
+
+func (t *ExperimentalMuxTransport) writeDataFrames(ctx context.Context, streamID uint64, payload []byte) error {
+	if int64(len(payload)) > t.maxMessage {
+		return ErrFrameTooLarge
+	}
+	if !t.shouldFragment(payload) {
+		if err := t.writeFrame(ctx, experimentalMuxFrame{typ: experimentalMuxFrameData, streamID: streamID, payload: payload}); err != nil {
+			return err
+		}
+		t.dataFramesOut.Add(1)
+		return nil
+	}
+	chunkSize, err := t.fragmentPayloadSize(streamID)
+	if err != nil {
+		return err
+	}
+	for offset := 0; offset < len(payload); {
+		end := offset + chunkSize
+		if end > len(payload) {
+			end = len(payload)
+		}
+		typ := experimentalMuxFrameDataFrag
+		if end == len(payload) {
+			typ = experimentalMuxFrameDataEnd
+		}
+		if err := t.writeFrame(ctx, experimentalMuxFrame{typ: typ, streamID: streamID, payload: payload[offset:end]}); err != nil {
+			return err
+		}
+		t.fragmentFramesOut.Add(1)
+		offset = end
+	}
+	t.dataFramesOut.Add(1)
+	return nil
+}
+
+func (t *ExperimentalMuxTransport) shouldFragment(payload []byte) bool {
+	encoded, err := encodeExperimentalMuxFrame(experimentalMuxFrame{typ: experimentalMuxFrameData, streamID: 1, payload: payload})
+	return err == nil && int64(len(encoded)) > t.maxFrame
+}
+
+func (t *ExperimentalMuxTransport) fragmentPayloadSize(streamID uint64) (int, error) {
+	if t.maxFrame > int64(math.MaxInt) {
+		return math.MaxInt, nil
+	}
+	encodedEmpty, err := encodeExperimentalMuxFrame(experimentalMuxFrame{typ: experimentalMuxFrameDataFrag, streamID: streamID})
+	if err != nil {
+		return 0, err
+	}
+	headroom := int(t.maxFrame) - len(encodedEmpty) - 1
+	if headroom <= 0 {
+		return 0, ErrFrameTooLarge
+	}
+	return headroom, nil
 }
 
 func (t *ExperimentalMuxTransport) readFrame() (experimentalMuxFrame, int64, error) {

@@ -417,6 +417,64 @@ func BenchmarkRPCExperimentalMuxTransportConnectionWindow(b *testing.B) {
 	}
 }
 
+func BenchmarkRPCExperimentalMuxTransportLargePayloadFragmentation(b *testing.B) {
+	clientConn, serverConn := net.Pipe()
+	client := flyrpc.NewExperimentalMuxTransport(
+		clientConn,
+		flyrpc.WithExperimentalMuxMaxFrameBytes(128),
+		flyrpc.WithExperimentalMuxMaxMessageBytes(4096),
+	)
+	server := flyrpc.NewExperimentalMuxTransport(
+		serverConn,
+		flyrpc.WithExperimentalMuxServerRole(),
+		flyrpc.WithExperimentalMuxMaxFrameBytes(128),
+		flyrpc.WithExperimentalMuxMaxMessageBytes(4096),
+	)
+	defer client.Close()
+	defer server.Close()
+
+	ctx := context.Background()
+	payload := []byte("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+	b.ReportAllocs()
+	for b.Loop() {
+		stream, err := client.OpenStream(ctx)
+		if err != nil {
+			b.Fatal(err)
+		}
+		serverStream, err := server.AcceptStream(ctx)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if err := stream.Send(ctx, flyrpc.Message{Payload: payload}); err != nil {
+			b.Fatal(err)
+		}
+		msg, err := serverStream.Receive(ctx)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if string(msg.Payload) != string(payload) {
+			b.Fatalf("fragmented payload = %q, want %q", msg.Payload, payload)
+		}
+		if err := serverStream.Close(ctx, "ok"); err != nil {
+			b.Fatal(err)
+		}
+		if _, err := stream.Receive(ctx); !errors.Is(err, io.EOF) {
+			b.Fatal(err)
+		}
+		waitMuxBenchIdle(b, client, server)
+	}
+	clientSnapshot := client.Snapshot()
+	serverSnapshot := server.Snapshot()
+	if clientSnapshot.FragmentFramesOut == 0 ||
+		serverSnapshot.FragmentFramesIn != clientSnapshot.FragmentFramesOut ||
+		clientSnapshot.DataFramesOut == 0 ||
+		serverSnapshot.DataFramesIn != clientSnapshot.DataFramesOut ||
+		clientSnapshot.ActiveStreams != 0 ||
+		serverSnapshot.ActiveStreams != 0 {
+		b.Fatalf("large-payload snapshots client=%+v server=%+v, want matched fragments, data messages and no active streams", clientSnapshot, serverSnapshot)
+	}
+}
+
 func BenchmarkRPCExperimentalMuxTransportDrainGoAway(b *testing.B) {
 	ctx := context.Background()
 	b.ReportAllocs()

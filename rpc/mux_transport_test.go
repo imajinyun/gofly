@@ -338,6 +338,84 @@ func TestExperimentalMuxTransportConnectionWindowLimitsAcrossStreams(t *testing.
 	}
 }
 
+func TestExperimentalMuxTransportFragmentsLargePayload(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	client := NewExperimentalMuxTransport(
+		clientConn,
+		WithExperimentalMuxMaxFrameBytes(96),
+		WithExperimentalMuxMaxMessageBytes(1024),
+	)
+	server := NewExperimentalMuxTransport(
+		serverConn,
+		WithExperimentalMuxServerRole(),
+		WithExperimentalMuxMaxFrameBytes(96),
+		WithExperimentalMuxMaxMessageBytes(1024),
+	)
+	defer client.Close()
+	defer server.Close()
+
+	ctx := context.Background()
+	stream, err := client.OpenStream(ctx)
+	if err != nil {
+		t.Fatalf("OpenStream: %v", err)
+	}
+	serverStream, err := server.AcceptStream(ctx)
+	if err != nil {
+		t.Fatalf("AcceptStream: %v", err)
+	}
+	payload := []byte(strings.Repeat("payload-", 40))
+	if err := stream.Send(ctx, Message{Payload: payload}); err != nil {
+		t.Fatalf("Send fragmented payload: %v", err)
+	}
+	msg, err := serverStream.Receive(muxTestTimeoutContext(t))
+	if err != nil {
+		t.Fatalf("Receive fragmented payload: %v", err)
+	}
+	if string(msg.Payload) != string(payload) {
+		t.Fatalf("fragmented payload = %q, want %q", msg.Payload, payload)
+	}
+
+	clientSnapshot := client.Snapshot()
+	serverSnapshot := server.Snapshot()
+	if clientSnapshot.FragmentFramesOut < 2 ||
+		serverSnapshot.FragmentFramesIn != clientSnapshot.FragmentFramesOut ||
+		clientSnapshot.DataFramesOut != 1 ||
+		serverSnapshot.DataFramesIn != 1 ||
+		clientSnapshot.MaxMessageBytes != 1024 ||
+		serverSnapshot.MaxMessageBytes != 1024 {
+		t.Fatalf("fragment snapshots client=%+v server=%+v, want fragmented wire frames for one logical data message", clientSnapshot, serverSnapshot)
+	}
+}
+
+func TestExperimentalMuxTransportRejectsOversizedReassembledPayload(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	client := NewExperimentalMuxTransport(
+		clientConn,
+		WithExperimentalMuxMaxFrameBytes(96),
+		WithExperimentalMuxMaxMessageBytes(128),
+	)
+	server := NewExperimentalMuxTransport(
+		serverConn,
+		WithExperimentalMuxServerRole(),
+		WithExperimentalMuxMaxFrameBytes(96),
+		WithExperimentalMuxMaxMessageBytes(128),
+	)
+	defer client.Close()
+	defer server.Close()
+
+	ctx := context.Background()
+	stream, err := client.OpenStream(ctx)
+	if err != nil {
+		t.Fatalf("OpenStream: %v", err)
+	}
+	if _, err := server.AcceptStream(ctx); err != nil {
+		t.Fatalf("AcceptStream: %v", err)
+	}
+	if err := stream.Send(ctx, Message{Payload: []byte(strings.Repeat("x", 256))}); !errors.Is(err, ErrFrameTooLarge) {
+		t.Fatalf("Send oversized logical payload error = %v, want ErrFrameTooLarge", err)
+	}
+}
+
 func TestExperimentalMuxTransportKeepalivePingPongSnapshot(t *testing.T) {
 	clientConn, serverConn := net.Pipe()
 	client := NewExperimentalMuxTransport(clientConn, WithExperimentalMuxKeepalive(5*time.Millisecond, time.Second))

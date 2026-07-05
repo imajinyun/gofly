@@ -3,6 +3,7 @@
 package rest
 
 import (
+	"encoding/json"
 	"net/http"
 	"reflect"
 	"strconv"
@@ -33,6 +34,59 @@ type Operation struct {
 	Parameters  []Parameter         `json:"parameters,omitempty"`
 	RequestBody *RequestBody        `json:"requestBody,omitempty"`
 	Responses   map[string]Response `json:"responses"`
+	Extensions  map[string]any      `json:"-"`
+}
+
+// MarshalJSON preserves OpenAPI x-* operation extensions while keeping the
+// typed Operation fields as the source of truth for standard fields.
+func (op Operation) MarshalJSON() ([]byte, error) {
+	type operationAlias Operation
+	base, err := json.Marshal(operationAlias(op))
+	if err != nil {
+		return nil, err
+	}
+	if len(op.Extensions) == 0 {
+		return base, nil
+	}
+	var out map[string]any
+	if err := json.Unmarshal(base, &out); err != nil {
+		return nil, err
+	}
+	for key, value := range op.Extensions {
+		if strings.HasPrefix(strings.ToLower(strings.TrimSpace(key)), "x-") {
+			out[key] = value
+		}
+	}
+	return json.Marshal(out)
+}
+
+// UnmarshalJSON decodes standard operation fields and preserves x-* extension
+// fields for framework-level routing and transcoding metadata.
+func (op *Operation) UnmarshalJSON(data []byte) error {
+	type operationAlias Operation
+	var decoded operationAlias
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*op = Operation(decoded)
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	for key, value := range raw {
+		if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(key)), "x-") {
+			continue
+		}
+		var extension any
+		if err := json.Unmarshal(value, &extension); err != nil {
+			return err
+		}
+		if op.Extensions == nil {
+			op.Extensions = map[string]any{}
+		}
+		op.Extensions[key] = extension
+	}
+	return nil
 }
 
 // Response describes an operation response.

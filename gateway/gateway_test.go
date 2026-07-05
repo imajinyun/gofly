@@ -2214,6 +2214,21 @@ func TestRoutesFromOpenAPIMapsDescriptorDrivenTranscode(t *testing.T) {
 						},
 					}, false),
 					Responses: map[string]rest.Response{"200": {Description: "ok"}},
+					Extensions: map[string]any{
+						"x-gofly-transcode": map[string]any{
+							"payloadMappings": []any{
+								map[string]any{"source": "path.id", "target": "order.id"},
+								map[string]any{"source": "path.item_id", "target": "order.itemID"},
+								map[string]any{"source": "query.include_history", "target": "options.includeHistory"},
+								map[string]any{"source": "query.tags", "target": "options.tags"},
+								map[string]any{"source": "query.score", "target": "options.score"},
+								map[string]any{"source": "body.trace", "target": "meta.trace"},
+								map[string]any{"source": "body.items", "target": "order.lines"},
+								map[string]any{"source": "body.metadata.source", "target": "meta.source"},
+								map[string]any{"target": "meta.region", "default": "cn"},
+							},
+						},
+					},
 				},
 			},
 		},
@@ -2257,6 +2272,9 @@ func TestRoutesFromOpenAPIMapsDescriptorDrivenTranscode(t *testing.T) {
 	if route.Transcode.Payload.BodySchema == nil || route.Transcode.Payload.BodySchema.Type != "object" || strings.Join(route.Transcode.Payload.BodySchema.Required, ",") != "trace,items" || len(route.Transcode.Payload.BodySchema.Properties) != 4 {
 		t.Fatalf("imported body schema = %+v", route.Transcode.Payload.BodySchema)
 	}
+	if len(route.Transcode.Payload.Mappings) != 9 || route.Transcode.Payload.Mappings[0].Source != "path.id" || route.Transcode.Payload.Mappings[0].Target != "order.id" {
+		t.Fatalf("imported payload mappings = %+v", route.Transcode.Payload.Mappings)
+	}
 
 	fake := &fakeGenericClient{payload: json.RawMessage(`{"id":"o42","source":"openapi"}`)}
 	g, err := New(routes,
@@ -2282,23 +2300,38 @@ func TestRoutesFromOpenAPIMapsDescriptorDrivenTranscode(t *testing.T) {
 	if err := json.Unmarshal(fake.request, &request); err != nil {
 		t.Fatalf("decode generic request %s: %v", fake.request, err)
 	}
-	tags, ok := request["tags"].([]any)
-	if !ok || len(tags) != 3 || tags[0] != float64(1) || tags[1] != float64(2) || tags[2] != float64(3) {
-		t.Fatalf("generic typed tags = %#v from request=%s", request["tags"], fake.request)
+	order, ok := request["order"].(map[string]any)
+	if !ok {
+		t.Fatalf("mapped order = %#v from request=%s", request["order"], fake.request)
 	}
-	items, ok := request["items"].([]any)
+	options, ok := request["options"].(map[string]any)
+	if !ok {
+		t.Fatalf("mapped options = %#v from request=%s", request["options"], fake.request)
+	}
+	meta, ok := request["meta"].(map[string]any)
+	if !ok {
+		t.Fatalf("mapped meta = %#v from request=%s", request["meta"], fake.request)
+	}
+	tags, ok := options["tags"].([]any)
+	if !ok || len(tags) != 3 || tags[0] != float64(1) || tags[1] != float64(2) || tags[2] != float64(3) {
+		t.Fatalf("generic typed tags = %#v from request=%s", options["tags"], fake.request)
+	}
+	items, ok := order["lines"].([]any)
 	if !ok || len(items) != 1 {
-		t.Fatalf("generic typed body items = %#v from request=%s", request["items"], fake.request)
+		t.Fatalf("generic typed body items = %#v from request=%s", order["lines"], fake.request)
 	}
 	firstItem, ok := items[0].(map[string]any)
 	if !ok || firstItem["sku"] != "sku-1" || firstItem["quantity"] != float64(2) {
 		t.Fatalf("generic typed body first item = %#v from request=%s", items[0], fake.request)
 	}
-	metadata, ok := request["metadata"].(map[string]any)
-	if !ok || metadata["source"] != "web" || metadata["urgent"] != true {
-		t.Fatalf("generic typed body metadata = %#v from request=%s", request["metadata"], fake.request)
-	}
-	if fake.method != "orders.OrderService/GetOrder" || request["id"] != float64(42) || request["item_id"] != "sku-1" || request["include_history"] != true || request["score"] != 98.5 || request["trace"] != "t1" {
+	if fake.method != "orders.OrderService/GetOrder" ||
+		order["id"] != float64(42) ||
+		order["itemID"] != "sku-1" ||
+		options["includeHistory"] != true ||
+		options["score"] != 98.5 ||
+		meta["trace"] != "t1" ||
+		meta["source"] != "web" ||
+		meta["region"] != "cn" {
 		t.Fatalf("generic call method=%q request=%s", fake.method, fake.request)
 	}
 

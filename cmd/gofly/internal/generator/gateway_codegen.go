@@ -664,6 +664,18 @@ func TestGatewayGeneratedOpenAPIImportProfileIsRunnable(t *testing.T) {
 						},
 					}, false),
 					Responses: map[string]rest.Response{"200": {Description: "OK"}},
+					Extensions: map[string]any{
+						"x-gofly-transcode": map[string]any{
+							"payloadMappings": []any{
+								map[string]any{"source": "path.id", "target": "order.id"},
+								map[string]any{"source": "query.include_history", "target": "options.includeHistory"},
+								map[string]any{"source": "query.tags", "target": "options.tags"},
+								map[string]any{"source": "body.trace", "target": "meta.trace"},
+								map[string]any{"source": "body.items", "target": "order.lines"},
+								map[string]any{"target": "meta.region", "default": "cn"},
+							},
+						},
+					},
 				},
 			},
 		},
@@ -692,19 +704,26 @@ func TestGatewayGeneratedOpenAPIImportProfileIsRunnable(t *testing.T) {
 		Name: "orders.OrderService",
 		Methods: []rpc.MethodDesc{rpc.GenericMethod("GetOrder", func(_ context.Context, raw json.RawMessage) (any, error) {
 			var request struct {
-				ID int64 ` + "`json:\"id\"`" + `
-				IncludeHistory bool ` + "`json:\"include_history\"`" + `
-				Tags []int64 ` + "`json:\"tags\"`" + `
-				Trace string ` + "`json:\"trace\"`" + `
-				Items []struct {
-					SKU string ` + "`json:\"sku\"`" + `
-					Quantity int64 ` + "`json:\"quantity\"`" + `
-				} ` + "`json:\"items\"`" + `
+				Order struct {
+					ID int64 ` + "`json:\"id\"`" + `
+					Lines []struct {
+						SKU string ` + "`json:\"sku\"`" + `
+						Quantity int64 ` + "`json:\"quantity\"`" + `
+					} ` + "`json:\"lines\"`" + `
+				} ` + "`json:\"order\"`" + `
+				Options struct {
+					IncludeHistory bool ` + "`json:\"includeHistory\"`" + `
+					Tags []int64 ` + "`json:\"tags\"`" + `
+				} ` + "`json:\"options\"`" + `
+				Meta struct {
+					Trace string ` + "`json:\"trace\"`" + `
+					Region string ` + "`json:\"region\"`" + `
+				} ` + "`json:\"meta\"`" + `
 			}
 			if err := json.Unmarshal(raw, &request); err != nil {
 				return nil, err
 			}
-			return map[string]any{"id": request.ID, "include_history": request.IncludeHistory, "tags": request.Tags, "trace": request.Trace, "items": request.Items, "source": "rpc"}, nil
+			return map[string]any{"id": request.Order.ID, "include_history": request.Options.IncludeHistory, "tags": request.Options.Tags, "trace": request.Meta.Trace, "region": request.Meta.Region, "items": request.Order.Lines, "source": "rpc"}, nil
 		})},
 	}, nil); err != nil {
 		t.Fatalf("register generated OpenAPI RPC service: %v", err)
@@ -746,7 +765,7 @@ func TestGatewayGeneratedOpenAPIImportProfileIsRunnable(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 	gw.ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/contract/orders/42?include_history=true&tags=1,2&tags=3", strings.NewReader("{\"trace\":\"t1\",\"items\":[{\"sku\":\"sku-1\",\"quantity\":2}]}")))
-	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), "\"id\":42") || !strings.Contains(rr.Body.String(), "\"include_history\":true") || !strings.Contains(rr.Body.String(), "\"tags\":[1,2,3]") || !strings.Contains(rr.Body.String(), "\"trace\":\"t1\"") || !strings.Contains(rr.Body.String(), "\"quantity\":2") || !strings.Contains(rr.Body.String(), "\"source\":\"rpc\"") {
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), "\"id\":42") || !strings.Contains(rr.Body.String(), "\"include_history\":true") || !strings.Contains(rr.Body.String(), "\"tags\":[1,2,3]") || !strings.Contains(rr.Body.String(), "\"trace\":\"t1\"") || !strings.Contains(rr.Body.String(), "\"region\":\"cn\"") || !strings.Contains(rr.Body.String(), "\"quantity\":2") || !strings.Contains(rr.Body.String(), "\"source\":\"rpc\"") {
 		t.Fatalf("generated OpenAPI gateway response = %d %q, want imported RPC transcode success", rr.Code, rr.Body.String())
 	}
 

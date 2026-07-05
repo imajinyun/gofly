@@ -18,6 +18,7 @@ import (
 )
 
 const defaultOpenAPIImportMaxBytes int64 = 2 << 20
+const openAPITranscodeExtensionKey = "x-gofly-transcode"
 
 // ErrOpenAPIPathsRequired reports that an OpenAPI document has no importable paths.
 var ErrOpenAPIPathsRequired = errors.New("openapi paths are required")
@@ -65,6 +66,10 @@ type OpenAPITranscodeOptions struct {
 	Service               string
 	Method                string
 	MethodFromOperationID bool
+}
+
+type openAPITranscodeExtension struct {
+	PayloadMappings []TranscodePayloadMapping `json:"payloadMappings"`
 }
 
 // OpenAPIURLSource describes a remote OpenAPI contract endpoint.
@@ -351,6 +356,9 @@ func openAPITranscodePayloadConfig(path string, op rest.Operation, opts OpenAPIT
 		payload.BodyRequired = op.RequestBody.Required
 		payload.BodySchema = openAPITranscodeBodySchema(op.RequestBody)
 	}
+	if extension, ok := openAPITranscodeExtensionFromOperation(op); ok {
+		payload.Mappings = append(payload.Mappings, extension.PayloadMappings...)
+	}
 	return payload
 }
 
@@ -409,6 +417,39 @@ func openAPITranscodeSchemaConfig(schema *rest.Schema) *TranscodeSchemaConfig {
 				out.Properties[name] = *propertySchema
 			}
 		}
+	}
+	return out
+}
+
+func openAPITranscodeExtensionFromOperation(op rest.Operation) (openAPITranscodeExtension, bool) {
+	raw, ok := op.Extensions[openAPITranscodeExtensionKey]
+	if !ok {
+		return openAPITranscodeExtension{}, false
+	}
+	data, err := json.Marshal(raw)
+	if err != nil {
+		return openAPITranscodeExtension{}, false
+	}
+	var extension openAPITranscodeExtension
+	if err := json.Unmarshal(data, &extension); err != nil {
+		return openAPITranscodeExtension{}, false
+	}
+	extension.PayloadMappings = normalizeTranscodePayloadMappings(extension.PayloadMappings)
+	return extension, len(extension.PayloadMappings) > 0
+}
+
+func normalizeTranscodePayloadMappings(mappings []TranscodePayloadMapping) []TranscodePayloadMapping {
+	if len(mappings) == 0 {
+		return nil
+	}
+	out := make([]TranscodePayloadMapping, 0, len(mappings))
+	for _, mapping := range mappings {
+		mapping.Source = strings.TrimSpace(mapping.Source)
+		mapping.Target = strings.TrimSpace(mapping.Target)
+		if mapping.Target == "" {
+			continue
+		}
+		out = append(out, mapping)
 	}
 	return out
 }

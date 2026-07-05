@@ -223,9 +223,9 @@ func transcodeRequestPayload(r *http.Request, route Route, body []byte) (json.Ra
 }
 
 func transcodeMappedRequestPayload(r *http.Request, route Route, body []byte) (json.RawMessage, error) {
-	payload := map[string]any{}
+	source := transcodePayloadSource{Body: map[string]any{}}
 	if route.Transcode.Payload.MergeBodyObject {
-		if err := mergeTranscodeBody(payload, body, route.Transcode.Payload.BodyField, route.Transcode.Payload.BodyRequired, route.Transcode.Payload.BodySchema); err != nil {
+		if err := mergeTranscodeBody(source.Body, body, route.Transcode.Payload.BodyField, route.Transcode.Payload.BodyRequired, route.Transcode.Payload.BodySchema); err != nil {
 			return nil, err
 		}
 	}
@@ -234,21 +234,136 @@ func transcodeMappedRequestPayload(r *http.Request, route Route, body []byte) (j
 	if err != nil {
 		return nil, err
 	}
-	for key, value := range typedPath {
-		payload[key] = value
-	}
+	source.Path = typedPath
 	queryValues, err := transcodeQueryValues(r.URL.Query(), route.Transcode.Payload.QueryParams, route.Transcode.Payload.QueryParameters)
 	if err != nil {
 		return nil, err
 	}
-	for key, value := range queryValues {
-		payload[key] = value
+	source.Query = queryValues
+	payload, err := mappedTranscodePayload(source, route.Transcode.Payload)
+	if err != nil {
+		return nil, err
 	}
 	data, err := json.Marshal(payload)
 	if err != nil {
 		return json.RawMessage("{}"), nil
 	}
 	return json.RawMessage(data), nil
+}
+
+type transcodePayloadSource struct {
+	Body  map[string]any
+	Path  map[string]any
+	Query map[string]any
+}
+
+func mappedTranscodePayload(source transcodePayloadSource, config TranscodePayloadConfig) (map[string]any, error) {
+	if len(config.Mappings) > 0 {
+		return transcodePayloadFromMappings(source, config.Mappings)
+	}
+	payload := make(map[string]any, len(source.Body)+len(source.Path)+len(source.Query))
+	for key, value := range source.Body {
+		payload[key] = value
+	}
+	for key, value := range source.Path {
+		payload[key] = value
+	}
+	for key, value := range source.Query {
+		payload[key] = value
+	}
+	return payload, nil
+}
+
+func transcodePayloadFromMappings(source transcodePayloadSource, mappings []TranscodePayloadMapping) (map[string]any, error) {
+	payload := map[string]any{}
+	for _, mapping := range mappings {
+		targetPath := strings.TrimSpace(mapping.Target)
+		if targetPath == "" {
+			continue
+		}
+		value, ok, err := transcodeMappingSourceValue(source, mapping.Source)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			if mapping.Default == nil {
+				continue
+			}
+			value = cloneTranscodeMappingDefault(mapping.Default)
+		}
+		if err := setTranscodeMappingTarget(payload, targetPath, value); err != nil {
+			return nil, err
+		}
+	}
+	return payload, nil
+}
+
+func transcodeMappingSourceValue(source transcodePayloadSource, path string) (any, bool, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return nil, false, nil
+	}
+	parts := strings.Split(path, ".")
+	if len(parts) == 0 {
+		return nil, false, nil
+	}
+	var current any
+	switch parts[0] {
+	case "body":
+		current = source.Body
+	case "path":
+		current = source.Path
+	case "query":
+		current = source.Query
+	default:
+		return nil, false, fmt.Errorf("transcode mapping source %s must start with body, path, or query", path)
+	}
+	for _, part := range parts[1:] {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			return nil, false, fmt.Errorf("transcode mapping source %s has empty segment", path)
+		}
+		object, ok := current.(map[string]any)
+		if !ok {
+			return nil, false, nil
+		}
+		current, ok = object[part]
+		if !ok {
+			return nil, false, nil
+		}
+	}
+	return current, true, nil
+}
+
+func setTranscodeMappingTarget(payload map[string]any, path string, value any) error {
+	parts := strings.Split(strings.TrimSpace(path), ".")
+	if len(parts) == 0 {
+		return nil
+	}
+	current := payload
+	for index, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			return fmt.Errorf("transcode mapping target %s has empty segment", path)
+		}
+		if index == len(parts)-1 {
+			current[part] = cloneTranscodeMappingDefault(value)
+			return nil
+		}
+		next, ok := current[part]
+		if !ok {
+			child := map[string]any{}
+			current[part] = child
+			current = child
+			continue
+		}
+		child, ok := next.(map[string]any)
+		if !ok {
+			return fmt.Errorf("transcode mapping target %s conflicts with existing scalar", path)
+		}
+		current = child
+	}
+	return nil
 }
 
 func mergeTranscodeBody(payload map[string]any, body []byte, bodyField string, required bool, schema *TranscodeSchemaConfig) error {

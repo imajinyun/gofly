@@ -106,6 +106,7 @@ type TranscodePayloadConfig struct {
 	BodyField       string                     `json:"bodyField,omitempty"`
 	BodyRequired    bool                       `json:"bodyRequired,omitempty"`
 	BodySchema      *TranscodeSchemaConfig     `json:"bodySchema,omitempty"`
+	Mappings        []TranscodePayloadMapping  `json:"mappings,omitempty"`
 	MergeBodyObject bool                       `json:"mergeBodyObject,omitempty"`
 }
 
@@ -126,6 +127,15 @@ type TranscodeSchemaConfig struct {
 	Items      *TranscodeSchemaConfig           `json:"items,omitempty"`
 	Properties map[string]TranscodeSchemaConfig `json:"properties,omitempty"`
 	Required   []string                         `json:"required,omitempty"`
+}
+
+// TranscodePayloadMapping projects a validated HTTP request value into the RPC
+// payload. Source paths are rooted at body, path, or query, and target paths are
+// object paths in the generated RPC JSON payload.
+type TranscodePayloadMapping struct {
+	Source  string `json:"source,omitempty"`
+	Target  string `json:"target,omitempty"`
+	Default any    `json:"default,omitempty"`
 }
 
 // AggregationConfig enables BFF-style fan-out aggregation for a route. When
@@ -1712,6 +1722,7 @@ func cloneTranscodeConfig(config TranscodeConfig) TranscodeConfig {
 	config.Payload.PathParameters = cloneTranscodeParameters(config.Payload.PathParameters)
 	config.Payload.QueryParameters = cloneTranscodeParameters(config.Payload.QueryParameters)
 	config.Payload.BodySchema = cloneTranscodeSchema(config.Payload.BodySchema)
+	config.Payload.Mappings = cloneTranscodePayloadMappings(config.Payload.Mappings)
 	return config
 }
 
@@ -1754,6 +1765,37 @@ func cloneTranscodeSchema(schema *TranscodeSchemaConfig) *TranscodeSchemaConfig 
 		}
 	}
 	return &out
+}
+
+func cloneTranscodePayloadMappings(mappings []TranscodePayloadMapping) []TranscodePayloadMapping {
+	if len(mappings) == 0 {
+		return nil
+	}
+	out := make([]TranscodePayloadMapping, len(mappings))
+	for i, mapping := range mappings {
+		out[i] = mapping
+		out[i].Default = cloneTranscodeMappingDefault(mapping.Default)
+	}
+	return out
+}
+
+func cloneTranscodeMappingDefault(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(typed))
+		for key, item := range typed {
+			out[key] = cloneTranscodeMappingDefault(item)
+		}
+		return out
+	case []any:
+		out := make([]any, len(typed))
+		for i, item := range typed {
+			out[i] = cloneTranscodeMappingDefault(item)
+		}
+		return out
+	default:
+		return typed
+	}
 }
 
 func cloneDescriptor(desc rpc.Descriptor) rpc.Descriptor {

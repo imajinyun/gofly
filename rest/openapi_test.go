@@ -64,6 +64,46 @@ func TestServerOpenAPIExportsRegisteredRoutes(t *testing.T) {
 	}
 }
 
+func TestOpenAPIOperationPreservesExtensions(t *testing.T) {
+	raw := []byte(`{
+		"operationId": "getOrder",
+		"responses": {"200": {"description": "OK"}},
+		"x-gofly-transcode": {
+			"payloadMappings": [
+				{"source": "path.id", "target": "order.id"},
+				{"target": "options.region", "default": "cn"}
+			]
+		},
+		"vendor": "ignored"
+	}`)
+	var op Operation
+	if err := json.Unmarshal(raw, &op); err != nil {
+		t.Fatalf("unmarshal operation with extension: %v", err)
+	}
+	if op.OperationID != "getOrder" || len(op.Extensions) != 1 {
+		t.Fatalf("operation = %#v, want operation id and one x-* extension", op)
+	}
+	extension, ok := op.Extensions["x-gofly-transcode"].(map[string]any)
+	if !ok || len(extension) == 0 {
+		t.Fatalf("extension = %#v, want decoded map", op.Extensions["x-gofly-transcode"])
+	}
+
+	data, err := json.Marshal(op)
+	if err != nil {
+		t.Fatalf("marshal operation with extension: %v", err)
+	}
+	var encoded map[string]any
+	if err := json.Unmarshal(data, &encoded); err != nil {
+		t.Fatalf("decode marshaled operation: %v", err)
+	}
+	if _, ok := encoded["x-gofly-transcode"]; !ok {
+		t.Fatalf("encoded operation = %#v, missing x-gofly-transcode", encoded)
+	}
+	if _, ok := encoded["vendor"]; ok {
+		t.Fatalf("encoded operation = %#v, should not preserve non x-* unknown fields", encoded)
+	}
+}
+
 func TestNilServerOpenAPI(t *testing.T) {
 	var s *Server
 	doc := s.OpenAPI(OpenAPIInfo{})

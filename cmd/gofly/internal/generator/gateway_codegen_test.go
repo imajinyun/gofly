@@ -53,7 +53,8 @@ func TestGenerateGatewayWiresGovernanceManager(t *testing.T) {
 		"rest.WithGovernanceManager(governanceManager)",
 		"svc.NewServiceContext(c, mqBroker)",
 		"gatewayConf, err := c.GatewayConfig(ctx)",
-		"gateway.NewFromConfig(gatewayConf, nil",
+		"gatewayResolvers, err := c.GatewayResolvers()",
+		"gateway.NewFromConfig(gatewayConf, gatewayResolvers",
 	} {
 		if !strings.Contains(string(mainData), want) {
 			t.Fatalf("main.go missing governance wiring %q:\n%s", want, mainData)
@@ -77,9 +78,13 @@ func TestGenerateGatewayWiresGovernanceManager(t *testing.T) {
 		"GatewayDiscovery GatewayDiscoveryConfig",
 		"func (c Config) GatewayConfig(ctx context.Context) (gateway.Config, error)",
 		"func (c Config) GatewayOptions() []gateway.Option",
+		"func (c Config) GatewayResolvers() (map[string]rpc.Resolver, error)",
+		"rpc.NewDNSResolver",
+		"rpc.NewFailoverResolver",
 		"gateway.WithDiscoveryFailover()",
 		"gateway.RouteConfigsFromOpenAPIURL",
 		"type GatewayDiscoveryConfig struct",
+		"type GatewayDiscoveryServiceConfig struct",
 		"type OpenAPIImportConfig struct",
 		"type OpenAPIImportGroupConfig struct",
 	} {
@@ -95,6 +100,7 @@ func TestGenerateGatewayWiresGovernanceManager(t *testing.T) {
 		"TestGatewayConfigLoadsOpenAPIImportProfile",
 		"TestGatewayConfigSkipsDisabledOpenAPIImportProfile",
 		"TestGatewayOptionsEnableDiscoveryFailover",
+		"TestGatewayDNSDiscoveryConfigBuildsResolverWithFailover",
 		"gateway.WithDiscoveryResolvers",
 		"httptest.NewServer",
 		"GatewayConfig(context.Background())",
@@ -129,7 +135,7 @@ func TestGenerateGatewayWiresGovernanceManager(t *testing.T) {
 		`"url": "http://127.0.0.1:8081/openapi.json"`,
 		`"gatewayPrefix": "/contract"`,
 		`"matchTags": ["orders"]`,
-		`"gatewayDiscovery": {"failover": false}`,
+		`"gatewayDiscovery": {"failover": false, "services": [{"enabled": false, "service": "orders", "provider": "dns"`,
 		`"retry": {"attempts": 2, "backoff": 100000000, "statuses": [502, 503, 504], "methods": ["GET", "HEAD"]}`,
 		`"rateLimit": {"rate": 100, "burst": 100}`,
 		`"concurrency": {"limit": 64}`,

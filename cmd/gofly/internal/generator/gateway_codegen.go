@@ -119,8 +119,13 @@ func main() {
 		slog.Error("load gateway config", "error", err)
 		return
 	}
+	gatewayResolvers, err := c.GatewayResolvers()
+	if err != nil {
+		slog.Error("load gateway discovery resolvers", "error", err)
+		return
+	}
 	gatewayOptions := append(c.GatewayOptions(), gateway.WithGovernanceManager(governanceManager))
-	gw, err := gateway.NewFromConfig(gatewayConf, nil, gatewayOptions...)
+	gw, err := gateway.NewFromConfig(gatewayConf, gatewayResolvers, gatewayOptions...)
 	if err != nil {
 		slog.Error("setup gateway", "error", err)
 		return
@@ -160,7 +165,7 @@ const gatewayConfigTemplate = `{
   "openapiImports": [
     {"enabled": false, "url": "http://127.0.0.1:8081/openapi.json", "gatewayPrefix": "/contract", "maxBytes": 2097152, "groups": [{"name": "orders", "matchTags": ["orders"], "targets": ["http://127.0.0.1:8081"], "upstreamPrefix": "/orders-api"}]}
   ],
-  "gatewayDiscovery": {"failover": false},
+  "gatewayDiscovery": {"failover": false, "services": [{"enabled": false, "service": "orders", "provider": "dns", "host": "orders.service.local", "port": 8081, "scheme": "http", "watchInterval": 5000000000}]},
   "governance": {
     "rules": {{.GatewayGovernanceRulesJSON}}
   },
@@ -174,6 +179,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -183,6 +189,7 @@ import (
 	"github.com/imajinyun/gofly/core/governance"
 	"github.com/imajinyun/gofly/gateway"
 	"github.com/imajinyun/gofly/rest"
+	"github.com/imajinyun/gofly/rpc"
 )
 
 type Config struct {
@@ -261,6 +268,52 @@ func (c Config) GatewayOptions() []gateway.Option {
 	return opts
 }
 
+func (c Config) GatewayResolvers() (map[string]rpc.Resolver, error) {
+	return c.gatewayResolvers(nil)
+}
+
+func (c Config) gatewayResolvers(lookupIP func(context.Context, string) ([]net.IP, error)) (map[string]rpc.Resolver, error) {
+	resolvers := make(map[string]rpc.Resolver)
+	for _, item := range c.GatewayDiscovery.Services {
+		if !item.Enabled {
+			continue
+		}
+		service := strings.TrimSpace(item.Service)
+		if service == "" {
+			return nil, errors.New("gateway discovery service is required")
+		}
+		provider := strings.ToLower(strings.TrimSpace(item.Provider))
+		switch provider {
+		case "dns":
+			resolver, err := rpc.NewDNSResolver(rpc.DNSResolverConfig{
+				Host: item.Host,
+				Port: item.Port,
+				Scheme: item.Scheme,
+				LookupIP: lookupIP,
+				WatchInterval: item.WatchInterval,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("create dns gateway resolver for %q: %w", service, err)
+			}
+			var runtimeResolver rpc.Resolver = resolver
+			if c.GatewayDiscovery.Failover {
+				failover, err := rpc.NewFailoverResolver(resolver)
+				if err != nil {
+					return nil, fmt.Errorf("create failover gateway resolver for %q: %w", service, err)
+				}
+				runtimeResolver = failover
+			}
+			resolvers[service] = runtimeResolver
+		default:
+			return nil, fmt.Errorf("unsupported gateway discovery provider %q", item.Provider)
+		}
+	}
+	if len(resolvers) == 0 {
+		return nil, nil
+	}
+	return resolvers, nil
+}
+
 func Validate(c Config) error {
 	service := c.ServiceConf()
 	if !isProduction(service.Environment) {
@@ -299,6 +352,17 @@ type GatewayAdminConfig struct {
 
 type GatewayDiscoveryConfig struct {
 	Failover bool ` + "`json:\"failover,omitempty\"`" + `
+	Services []GatewayDiscoveryServiceConfig ` + "`json:\"services,omitempty\"`" + `
+}
+
+type GatewayDiscoveryServiceConfig struct {
+	Enabled bool ` + "`json:\"enabled,omitempty\"`" + `
+	Service string ` + "`json:\"service,omitempty\"`" + `
+	Provider string ` + "`json:\"provider,omitempty\"`" + `
+	Host string ` + "`json:\"host,omitempty\"`" + `
+	Port int ` + "`json:\"port,omitempty\"`" + `
+	Scheme string ` + "`json:\"scheme,omitempty\"`" + `
+	WatchInterval time.Duration ` + "`json:\"watchInterval,omitempty\"`" + `
 }
 
 type OpenAPIImportConfig struct {
@@ -439,6 +503,8 @@ const gatewayConfigTestTemplate = `package config
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -591,6 +657,76 @@ func TestGatewayOptionsEnableDiscoveryFailover(t *testing.T) {
 	}
 	if len(snapshot.Discovery[0].Instances) != 1 || snapshot.Discovery[0].Instances[0].Endpoint != upstream.URL {
 		t.Fatalf("stale discovery instances = %+v, want last known endpoint", snapshot.Discovery[0].Instances)
+	}
+}
+
+func TestGatewayDNSDiscoveryConfigBuildsResolverWithFailover(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/orders/42" {
+			t.Fatalf("upstream path = %q, want /orders/42", r.URL.Path)
+		}
+		_, _ = w.Write([]byte("ok"))
+	}))
+	t.Cleanup(upstream.Close)
+	host, portText, err := net.SplitHostPort(upstream.Listener.Addr().String())
+	if err != nil {
+		t.Fatalf("split upstream address: %v", err)
+	}
+	var port int
+	if _, err := fmt.Sscanf(portText, "%d", &port); err != nil {
+		t.Fatalf("parse upstream port %q: %v", portText, err)
+	}
+
+	c := Config{
+		Gateway: gateway.Config{Routes: []gateway.RouteConfig{{
+			Name: "orders",
+			Method: http.MethodGet,
+			PathPrefix: "/api",
+			Service: "orders",
+		}}},
+		GatewayDiscovery: GatewayDiscoveryConfig{
+			Failover: true,
+			Services: []GatewayDiscoveryServiceConfig{{
+				Enabled: true,
+				Service: "orders",
+				Provider: "dns",
+				Host: "orders.service.local",
+				Port: port,
+				Scheme: "http",
+				WatchInterval: time.Millisecond,
+			}},
+		},
+	}
+	conf, err := c.GatewayConfig(context.Background())
+	if err != nil {
+		t.Fatalf("GatewayConfig: %v", err)
+	}
+	lookupFail := false
+	resolvers, err := c.gatewayResolvers(func(context.Context, string) ([]net.IP, error) {
+		if lookupFail {
+			return nil, fmt.Errorf("dns unavailable")
+		}
+		return []net.IP{net.ParseIP(host)}, nil
+	})
+	if err != nil {
+		t.Fatalf("GatewayResolvers: %v", err)
+	}
+	gw, err := gateway.NewFromConfig(conf, resolvers, c.GatewayOptions()...)
+	if err != nil {
+		t.Fatalf("NewFromConfig: %v", err)
+	}
+	t.Cleanup(func() { _ = gw.Close() })
+
+	first := httptest.NewRecorder()
+	gw.ServeHTTP(first, httptest.NewRequest(http.MethodGet, "/api/orders/42", nil))
+	if first.Code != http.StatusOK || first.Body.String() != "ok" {
+		t.Fatalf("first DNS gateway response = %d %q", first.Code, first.Body.String())
+	}
+	lookupFail = true
+	second := httptest.NewRecorder()
+	gw.ServeHTTP(second, httptest.NewRequest(http.MethodGet, "/api/orders/42", nil))
+	if second.Code != http.StatusOK || second.Body.String() != "ok" {
+		t.Fatalf("stale DNS gateway response = %d %q", second.Code, second.Body.String())
 	}
 }
 `

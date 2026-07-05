@@ -101,6 +101,7 @@ func TestGenerateGatewayWiresGovernanceManager(t *testing.T) {
 	}
 	for _, want := range []string{
 		"TestGatewayConfigLoadsOpenAPIImportProfile",
+		"TestGatewayGeneratedOpenAPIImportProfileIsRunnable",
 		"TestGatewayConfigSkipsDisabledOpenAPIImportProfile",
 		"TestGatewayOptionsEnableDiscoveryFailover",
 		"TestGatewayDNSDiscoveryConfigBuildsResolverWithFailover",
@@ -110,6 +111,10 @@ func TestGenerateGatewayWiresGovernanceManager(t *testing.T) {
 		"gateway.WithDiscoveryResolvers",
 		"httptest.NewServer",
 		"GatewayConfig(context.Background())",
+		"rpc.NewStaticResolver",
+		`Service: "orders"`,
+		"/contract/orders/42",
+		"/orders-api/orders/42",
 	} {
 		if !strings.Contains(string(configTestData), want) {
 			t.Fatalf("gateway config_test.go missing OpenAPI import smoke %q:\n%s", want, configTestData)

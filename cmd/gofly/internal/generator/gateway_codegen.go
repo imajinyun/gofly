@@ -164,7 +164,7 @@ const gatewayConfigTemplate = `{
     ]
   },
   "openapiImports": [
-    {"enabled": false, "url": "http://127.0.0.1:8081/openapi.json", "gatewayPrefix": "/contract", "maxBytes": 2097152, "groups": [{"name": "orders", "matchTags": ["orders"], "targets": ["http://127.0.0.1:8081"], "upstreamPrefix": "/orders-api"}]}
+    {"enabled": false, "url": "http://127.0.0.1:8081/openapi.json", "gatewayPrefix": "/contract", "maxBytes": 2097152, "groups": [{"name": "orders", "matchTags": ["orders"], "service": "orders", "targets": ["http://127.0.0.1:8081"], "upstreamPrefix": "/orders-api"}]}
   ],
   "gatewayDiscovery": {"failover": false, "services": [{"enabled": false, "service": "orders", "provider": "dns", "host": "orders.service.local", "port": 8081, "scheme": "http", "watchInterval": 5000000000}]},
   "governance": {
@@ -531,6 +531,7 @@ import (
 	"github.com/imajinyun/gofly/core/discovery"
 	"github.com/imajinyun/gofly/gateway"
 	"github.com/imajinyun/gofly/rest"
+	"github.com/imajinyun/gofly/rpc"
 )
 
 func TestGatewayConfigLoadsOpenAPIImportProfile(t *testing.T) {
@@ -577,6 +578,7 @@ func TestGatewayConfigLoadsOpenAPIImportProfile(t *testing.T) {
 			Groups: []OpenAPIImportGroupConfig{{
 				Name: "orders",
 				MatchTags: []string{"orders"},
+				Service: "orders",
 				UpstreamPrefix: "/orders-api",
 				Targets: []string{"http://127.0.0.1:8081"},
 				Headers: map[string]string{"X-Backend": "orders"},
@@ -591,7 +593,7 @@ func TestGatewayConfigLoadsOpenAPIImportProfile(t *testing.T) {
 		t.Fatalf("routes = %#v, want static plus imported route", conf.Routes)
 	}
 	imported := conf.Routes[1]
-	if imported.Name != "orders-getOrder" || imported.Method != http.MethodGet || imported.PathPrefix != "/contract/orders" || imported.UpstreamPrefix != "/orders-api/orders" {
+	if imported.Name != "orders-getOrder" || imported.Method != http.MethodGet || imported.PathPrefix != "/contract/orders" || imported.UpstreamPrefix != "/orders-api/orders" || imported.Service != "orders" {
 		t.Fatalf("imported route = %#v", imported)
 	}
 	if imported.Headers["X-Base"] != "edge" || imported.Headers["X-Backend"] != "orders" {
@@ -599,6 +601,74 @@ func TestGatewayConfigLoadsOpenAPIImportProfile(t *testing.T) {
 	}
 	if imported.Targets[0] != "http://127.0.0.1:8081" {
 		t.Fatalf("imported targets = %#v", imported.Targets)
+	}
+}
+
+func TestGatewayGeneratedOpenAPIImportProfileIsRunnable(t *testing.T) {
+	doc := rest.OpenAPIDocument{
+		OpenAPI: "3.0.3",
+		Info: rest.OpenAPIInfo{Title: "{{.Name}} upstream", Version: "1.0.0"},
+		Paths: map[string]map[string]rest.Operation{
+			"/orders/{id}": {
+				"get": {
+					OperationID: "getOrder",
+					Tags: []string{"orders"},
+					Responses: map[string]rest.Response{"200": {Description: "OK"}},
+				},
+			},
+		},
+	}
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/openapi.json":
+			if r.Header.Get("X-Contract-Token") != "test-token" {
+				t.Fatalf("openapi source token = %q, want test-token", r.Header.Get("X-Contract-Token"))
+			}
+			if err := json.NewEncoder(w).Encode(doc); err != nil {
+				t.Fatalf("encode openapi doc: %v", err)
+			}
+		case "/orders-api/orders/42":
+			if r.Header.Get("X-Base") != "edge" || r.Header.Get("X-Backend") != "orders" {
+				t.Fatalf("upstream headers X-Base=%q X-Backend=%q, want generated OpenAPI group headers", r.Header.Get("X-Base"), r.Header.Get("X-Backend"))
+			}
+			_, _ = fmt.Fprint(w, "order:42")
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(upstream.Close)
+
+	c := Config{
+		OpenAPIImports: []OpenAPIImportConfig{{
+			Enabled: true,
+			URL: upstream.URL + "/openapi.json",
+			SourceHeaders: map[string]string{"X-Contract-Token": "test-token"},
+			MaxBytes: 1 << 20,
+			GatewayPrefix: "/contract",
+			Headers: map[string]string{"X-Base": "edge"},
+			Groups: []OpenAPIImportGroupConfig{{
+				Name: "orders",
+				MatchTags: []string{"orders"},
+				Service: "orders",
+				UpstreamPrefix: "/orders-api",
+				Headers: map[string]string{"X-Backend": "orders"},
+			}},
+		}},
+	}
+	conf, err := c.GatewayConfig(context.Background())
+	if err != nil {
+		t.Fatalf("GatewayConfig: %v", err)
+	}
+	gw, err := gateway.NewFromConfig(conf, map[string]rpc.Resolver{"orders": rpc.NewStaticResolver(upstream.URL)})
+	if err != nil {
+		t.Fatalf("NewFromConfig: %v", err)
+	}
+	t.Cleanup(func() { _ = gw.Close() })
+
+	rr := httptest.NewRecorder()
+	gw.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/contract/orders/42", nil))
+	if rr.Code != http.StatusOK || rr.Body.String() != "order:42" {
+		t.Fatalf("generated OpenAPI gateway response = %d %q, want imported route proxy success", rr.Code, rr.Body.String())
 	}
 }
 

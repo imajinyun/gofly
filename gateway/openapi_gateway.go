@@ -334,14 +334,38 @@ func openAPITranscodePayloadConfig(path string, op rest.Operation, opts OpenAPIT
 		switch strings.ToLower(strings.TrimSpace(parameter.In)) {
 		case "path":
 			payload.PathParams = append(payload.PathParams, name)
+			payload.PathParameters = append(payload.PathParameters, openAPITranscodeParameterConfig(name, parameter.Schema))
 		case "query":
 			payload.QueryParams = append(payload.QueryParams, name)
+			payload.QueryParameters = append(payload.QueryParameters, openAPITranscodeParameterConfig(name, parameter.Schema))
 		}
 	}
 	if len(payload.PathParams) == 0 {
 		payload.PathParams = openAPIPathTemplateParamNames(path)
+		payload.PathParameters = make([]TranscodeParameterConfig, 0, len(payload.PathParams))
+		for _, name := range payload.PathParams {
+			payload.PathParameters = append(payload.PathParameters, TranscodeParameterConfig{Name: name, Type: "string"})
+		}
 	}
 	return payload
+}
+
+func openAPITranscodeParameterConfig(name string, schema *rest.Schema) TranscodeParameterConfig {
+	parameter := TranscodeParameterConfig{Name: strings.TrimSpace(name)}
+	if schema == nil {
+		parameter.Type = "string"
+		return parameter
+	}
+	parameter.Type = strings.ToLower(strings.TrimSpace(schema.Type))
+	parameter.Format = strings.TrimSpace(schema.Format)
+	if parameter.Type == "" {
+		parameter.Type = "string"
+	}
+	if schema.Items != nil {
+		item := openAPITranscodeParameterConfig("", schema.Items)
+		parameter.Items = &item
+	}
+	return parameter
 }
 
 func openAPIPathTemplateParamNames(path string) []string {

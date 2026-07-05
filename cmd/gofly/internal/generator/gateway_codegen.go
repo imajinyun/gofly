@@ -648,8 +648,9 @@ func TestGatewayGeneratedOpenAPIImportProfileIsRunnable(t *testing.T) {
 					OperationID: "getOrder",
 					Tags: []string{"orders"},
 					Parameters: []rest.Parameter{
-						{Name: "id", In: "path", Required: true, Schema: rest.StringSchema()},
-						{Name: "expand", In: "query", Schema: rest.StringSchema()},
+						{Name: "id", In: "path", Required: true, Schema: rest.IntegerSchema()},
+						{Name: "include_history", In: "query", Schema: rest.BooleanSchema()},
+						{Name: "tags", In: "query", Schema: rest.ArraySchema(rest.Schema{Type: "integer"})},
 					},
 					RequestBody: rest.JSONBodySchema(rest.Schema{Type: "object", Properties: map[string]rest.Schema{"trace": {Type: "string"}}}, false),
 					Responses: map[string]rest.Response{"200": {Description: "OK"}},
@@ -681,14 +682,15 @@ func TestGatewayGeneratedOpenAPIImportProfileIsRunnable(t *testing.T) {
 		Name: "orders.OrderService",
 		Methods: []rpc.MethodDesc{rpc.GenericMethod("GetOrder", func(_ context.Context, raw json.RawMessage) (any, error) {
 			var request struct {
-				ID string ` + "`json:\"id\"`" + `
-				Expand string ` + "`json:\"expand\"`" + `
+				ID int64 ` + "`json:\"id\"`" + `
+				IncludeHistory bool ` + "`json:\"include_history\"`" + `
+				Tags []int64 ` + "`json:\"tags\"`" + `
 				Trace string ` + "`json:\"trace\"`" + `
 			}
 			if err := json.Unmarshal(raw, &request); err != nil {
 				return nil, err
 			}
-			return map[string]string{"id": request.ID, "expand": request.Expand, "trace": request.Trace, "source": "rpc"}, nil
+			return map[string]any{"id": request.ID, "include_history": request.IncludeHistory, "tags": request.Tags, "trace": request.Trace, "source": "rpc"}, nil
 		})},
 	}, nil); err != nil {
 		t.Fatalf("register generated OpenAPI RPC service: %v", err)
@@ -729,8 +731,8 @@ func TestGatewayGeneratedOpenAPIImportProfileIsRunnable(t *testing.T) {
 	t.Cleanup(func() { _ = gw.Close() })
 
 	rr := httptest.NewRecorder()
-	gw.ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/contract/orders/o42?expand=items", strings.NewReader("{\"trace\":\"t1\"}")))
-	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), "\"id\":\"o42\"") || !strings.Contains(rr.Body.String(), "\"expand\":\"items\"") || !strings.Contains(rr.Body.String(), "\"trace\":\"t1\"") || !strings.Contains(rr.Body.String(), "\"source\":\"rpc\"") {
+	gw.ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/contract/orders/42?include_history=true&tags=1,2&tags=3", strings.NewReader("{\"trace\":\"t1\"}")))
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), "\"id\":42") || !strings.Contains(rr.Body.String(), "\"include_history\":true") || !strings.Contains(rr.Body.String(), "\"tags\":[1,2,3]") || !strings.Contains(rr.Body.String(), "\"trace\":\"t1\"") || !strings.Contains(rr.Body.String(), "\"source\":\"rpc\"") {
 		t.Fatalf("generated OpenAPI gateway response = %d %q, want imported RPC transcode success", rr.Code, rr.Body.String())
 	}
 }

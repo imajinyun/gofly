@@ -7,8 +7,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/imajinyun/gofly/core/breaker"
@@ -34,6 +36,16 @@ func (g *Gateway) transcodeOnce(r *http.Request, route Route, endpoint string, b
 		}
 		return proxyResult{Endpoint: endpoint, Err: err}, err
 	}
+	payload, err := transcodeRequestPayload(r, route, body)
+	if err != nil {
+		callErr := rpc.NewError(rpc.CodeInvalidArgument, err.Error())
+		return proxyResult{
+			Endpoint: endpoint,
+			Status:   http.StatusBadRequest,
+			Header:   transcodeResponseHeader(nil),
+			Body:     transcodeErrorBody(callErr),
+		}, nil
+	}
 	client, err := g.transcoderFor(endpoint, route)
 	if err != nil {
 		if brk != nil {
@@ -41,7 +53,6 @@ func (g *Gateway) transcodeOnce(r *http.Request, route Route, endpoint string, b
 		}
 		return proxyResult{Endpoint: endpoint, Err: err}, err
 	}
-	payload := transcodeRequestPayload(r, route, body)
 	ctx := transcodeContext(r.Context(), r, route)
 	methodPath, err := rpc.MethodPath(target.service, target.method)
 	if err != nil {
@@ -200,32 +211,41 @@ func transcodeMethodFromPath(path, prefix string) string {
 	return trimmed
 }
 
-func transcodeRequestPayload(r *http.Request, route Route, body []byte) json.RawMessage {
+func transcodeRequestPayload(r *http.Request, route Route, body []byte) (json.RawMessage, error) {
 	if route.Transcode.Payload.Mode != "" {
 		return transcodeMappedRequestPayload(r, route, body)
 	}
 	if len(bytes.TrimSpace(body)) == 0 {
-		return json.RawMessage("null")
+		return json.RawMessage("null"), nil
 	}
-	return json.RawMessage(append([]byte(nil), body...))
+	return json.RawMessage(append([]byte(nil), body...)), nil
 }
 
-func transcodeMappedRequestPayload(r *http.Request, route Route, body []byte) json.RawMessage {
+func transcodeMappedRequestPayload(r *http.Request, route Route, body []byte) (json.RawMessage, error) {
 	payload := map[string]any{}
 	if route.Transcode.Payload.MergeBodyObject {
 		mergeTranscodeBody(payload, body, route.Transcode.Payload.BodyField)
 	}
-	for key, value := range transcodePathValues(r.URL.Path, route.PathPrefix, route.Transcode.Payload.PathTemplate, route.Transcode.Payload.PathParams) {
+	pathValues := transcodePathValues(r.URL.Path, route.PathPrefix, route.Transcode.Payload.PathTemplate, route.Transcode.Payload.PathParams)
+	typedPath, err := transcodeTypedPathValues(pathValues, route.Transcode.Payload.PathParameters)
+	if err != nil {
+		return nil, err
+	}
+	for key, value := range typedPath {
 		payload[key] = value
 	}
-	for key, value := range transcodeQueryValues(r.URL.Query(), route.Transcode.Payload.QueryParams) {
+	queryValues, err := transcodeQueryValues(r.URL.Query(), route.Transcode.Payload.QueryParams, route.Transcode.Payload.QueryParameters)
+	if err != nil {
+		return nil, err
+	}
+	for key, value := range queryValues {
 		payload[key] = value
 	}
 	data, err := json.Marshal(payload)
 	if err != nil {
-		return json.RawMessage("{}")
+		return json.RawMessage("{}"), nil
 	}
-	return json.RawMessage(data)
+	return json.RawMessage(data), nil
 }
 
 func mergeTranscodeBody(payload map[string]any, body []byte, bodyField string) {
@@ -313,8 +333,22 @@ func transcodePathValues(path, routePrefix, template string, names []string) map
 	return out
 }
 
-func transcodeQueryValues(values url.Values, names []string) map[string]any {
+func transcodeTypedPathValues(values map[string]string, parameters []TranscodeParameterConfig) (map[string]any, error) {
+	out := make(map[string]any, len(values))
+	byName := transcodeParameterByName(parameters)
+	for name, value := range values {
+		converted, err := convertTranscodeParameterValue(value, byName[name])
+		if err != nil {
+			return nil, err
+		}
+		out[name] = converted
+	}
+	return out, nil
+}
+
+func transcodeQueryValues(values url.Values, names []string, parameters []TranscodeParameterConfig) (map[string]any, error) {
 	out := map[string]any{}
+	byName := transcodeParameterByName(parameters)
 	for _, name := range names {
 		name = strings.TrimSpace(name)
 		if name == "" {
@@ -324,16 +358,104 @@ func transcodeQueryValues(values url.Values, names []string) map[string]any {
 		if !ok {
 			continue
 		}
-		switch len(items) {
-		case 0:
-			out[name] = ""
-		case 1:
-			out[name] = items[0]
-		default:
-			out[name] = append([]string(nil), items...)
+		converted, err := convertTranscodeQueryValues(items, byName[name])
+		if err != nil {
+			return nil, err
+		}
+		out[name] = converted
+	}
+	return out, nil
+}
+
+func transcodeParameterByName(parameters []TranscodeParameterConfig) map[string]TranscodeParameterConfig {
+	out := make(map[string]TranscodeParameterConfig, len(parameters))
+	for _, parameter := range parameters {
+		name := strings.TrimSpace(parameter.Name)
+		if name != "" {
+			out[name] = parameter
 		}
 	}
 	return out
+}
+
+func convertTranscodeQueryValues(values []string, parameter TranscodeParameterConfig) (any, error) {
+	if len(values) == 0 {
+		return convertTranscodeParameterValue("", parameter)
+	}
+	if strings.EqualFold(strings.TrimSpace(parameter.Type), "array") {
+		items := flattenTranscodeArrayValues(values)
+		out := make([]any, 0, len(items))
+		itemSchema := TranscodeParameterConfig{Type: "string"}
+		if parameter.Items != nil {
+			itemSchema = *parameter.Items
+		}
+		for _, item := range items {
+			converted, err := convertTranscodeParameterValue(item, itemSchema)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, converted)
+		}
+		return out, nil
+	}
+	if len(values) > 1 {
+		out := make([]any, 0, len(values))
+		for _, value := range values {
+			converted, err := convertTranscodeParameterValue(value, parameter)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, converted)
+		}
+		return out, nil
+	}
+	return convertTranscodeParameterValue(values[0], parameter)
+}
+
+func flattenTranscodeArrayValues(values []string) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		parts := strings.Split(value, ",")
+		for _, part := range parts {
+			out = append(out, strings.TrimSpace(part))
+		}
+	}
+	return out
+}
+
+func convertTranscodeParameterValue(value string, parameter TranscodeParameterConfig) (any, error) {
+	switch strings.ToLower(strings.TrimSpace(parameter.Type)) {
+	case "integer":
+		parsed, err := strconv.ParseInt(value, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("transcode parameter %s must be integer", transcodeParameterName(parameter))
+		}
+		return parsed, nil
+	case "number":
+		parsed, err := strconv.ParseFloat(value, 64)
+		if err != nil {
+			return nil, fmt.Errorf("transcode parameter %s must be number", transcodeParameterName(parameter))
+		}
+		return parsed, nil
+	case "boolean":
+		parsed, err := strconv.ParseBool(value)
+		if err != nil {
+			return nil, fmt.Errorf("transcode parameter %s must be boolean", transcodeParameterName(parameter))
+		}
+		return parsed, nil
+	case "array":
+		return convertTranscodeQueryValues([]string{value}, parameter)
+	default:
+		return value, nil
+	}
+}
+
+func transcodeParameterName(parameter TranscodeParameterConfig) string {
+	name := strings.TrimSpace(parameter.Name)
+	if name == "" {
+		return "value"
+	}
+	return name
 }
 
 func transcodeContext(ctx context.Context, r *http.Request, route Route) context.Context {

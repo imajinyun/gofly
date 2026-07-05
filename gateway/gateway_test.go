@@ -2186,13 +2186,16 @@ func TestRoutesFromOpenAPIMapsDescriptorDrivenTranscode(t *testing.T) {
 		OpenAPI: "3.0.3",
 		Info:    rest.OpenAPIInfo{Title: "orders RPC contract", Version: "1.0.0"},
 		Paths: map[string]map[string]rest.Operation{
-			"/orders/{id}": {
+			"/orders/{id}/items/{item_id}": {
 				"post": {
 					OperationID: "getOrder",
 					Tags:        []string{"orders"},
 					Parameters: []rest.Parameter{
-						{Name: "id", In: "path", Required: true, Schema: rest.StringSchema()},
-						{Name: "expand", In: "query", Schema: rest.StringSchema()},
+						{Name: "id", In: "path", Required: true, Schema: rest.IntegerSchema()},
+						{Name: "item_id", In: "path", Required: true, Schema: rest.StringSchema()},
+						{Name: "include_history", In: "query", Schema: rest.BooleanSchema()},
+						{Name: "tags", In: "query", Schema: rest.ArraySchema(rest.Schema{Type: "integer"})},
+						{Name: "score", In: "query", Schema: rest.NumberSchema()},
 					},
 					RequestBody: rest.JSONBodySchema(rest.Schema{
 						Type:       "object",
@@ -2230,8 +2233,14 @@ func TestRoutesFromOpenAPIMapsDescriptorDrivenTranscode(t *testing.T) {
 	if !route.Transcode.Enabled || route.Transcode.Descriptor != "orders.OrderService" || route.Transcode.DescriptorMethod != "GetOrder" {
 		t.Fatalf("imported transcode config = %+v", route.Transcode)
 	}
-	if route.Transcode.Payload.Mode != "openapi" || route.Transcode.Payload.PathTemplate != "/orders/{id}" || strings.Join(route.Transcode.Payload.PathParams, ",") != "id" || strings.Join(route.Transcode.Payload.QueryParams, ",") != "expand" {
+	if route.Transcode.Payload.Mode != "openapi" || route.Transcode.Payload.PathTemplate != "/orders/{id}/items/{item_id}" || strings.Join(route.Transcode.Payload.PathParams, ",") != "id,item_id" || strings.Join(route.Transcode.Payload.QueryParams, ",") != "include_history,tags,score" {
 		t.Fatalf("imported transcode payload = %+v", route.Transcode.Payload)
+	}
+	if len(route.Transcode.Payload.PathParameters) != 2 || route.Transcode.Payload.PathParameters[0].Type != "integer" || route.Transcode.Payload.PathParameters[1].Type != "string" {
+		t.Fatalf("imported path parameter schemas = %+v", route.Transcode.Payload.PathParameters)
+	}
+	if len(route.Transcode.Payload.QueryParameters) != 3 || route.Transcode.Payload.QueryParameters[0].Type != "boolean" || route.Transcode.Payload.QueryParameters[1].Type != "array" || route.Transcode.Payload.QueryParameters[1].Items == nil || route.Transcode.Payload.QueryParameters[1].Items.Type != "integer" || route.Transcode.Payload.QueryParameters[2].Type != "number" {
+		t.Fatalf("imported query parameter schemas = %+v", route.Transcode.Payload.QueryParameters)
 	}
 
 	fake := &fakeGenericClient{payload: json.RawMessage(`{"id":"o42","source":"openapi"}`)}
@@ -2250,7 +2259,7 @@ func TestRoutesFromOpenAPIMapsDescriptorDrivenTranscode(t *testing.T) {
 	t.Cleanup(func() { _ = g.Close() })
 
 	rr := httptest.NewRecorder()
-	g.ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/contract/orders/o42?expand=items", strings.NewReader(`{"trace":"t1"}`)))
+	g.ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/contract/orders/42/items/sku-1?include_history=true&tags=1,2&tags=3&score=98.5", strings.NewReader(`{"trace":"t1"}`)))
 	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"source":"openapi"`) {
 		t.Fatalf("openapi transcode response = %d %q", rr.Code, rr.Body.String())
 	}
@@ -2258,8 +2267,22 @@ func TestRoutesFromOpenAPIMapsDescriptorDrivenTranscode(t *testing.T) {
 	if err := json.Unmarshal(fake.request, &request); err != nil {
 		t.Fatalf("decode generic request %s: %v", fake.request, err)
 	}
-	if fake.method != "orders.OrderService/GetOrder" || request["id"] != "o42" || request["expand"] != "items" || request["trace"] != "t1" {
+	tags, ok := request["tags"].([]any)
+	if !ok || len(tags) != 3 || tags[0] != float64(1) || tags[1] != float64(2) || tags[2] != float64(3) {
+		t.Fatalf("generic typed tags = %#v from request=%s", request["tags"], fake.request)
+	}
+	if fake.method != "orders.OrderService/GetOrder" || request["id"] != float64(42) || request["item_id"] != "sku-1" || request["include_history"] != true || request["score"] != 98.5 || request["trace"] != "t1" {
 		t.Fatalf("generic call method=%q request=%s", fake.method, fake.request)
+	}
+
+	fake.request = nil
+	invalid := httptest.NewRecorder()
+	g.ServeHTTP(invalid, httptest.NewRequest(http.MethodPost, "/contract/orders/not-int/items/sku-1?include_history=true", strings.NewReader(`{"trace":"t1"}`)))
+	if invalid.Code != http.StatusBadRequest || !strings.Contains(invalid.Body.String(), `"code":"invalid_argument"`) || !strings.Contains(invalid.Body.String(), "id must be integer") {
+		t.Fatalf("invalid typed transcode response = %d %q", invalid.Code, invalid.Body.String())
+	}
+	if len(fake.request) != 0 {
+		t.Fatalf("invalid typed transcode called backend with request=%s", fake.request)
 	}
 }
 

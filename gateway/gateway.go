@@ -97,12 +97,23 @@ type TranscodeConfig struct {
 // TranscodePayloadConfig controls how HTTP request parts are assembled into
 // the generic RPC request payload.
 type TranscodePayloadConfig struct {
-	Mode            string   `json:"mode,omitempty"`
-	PathTemplate    string   `json:"pathTemplate,omitempty"`
-	PathParams      []string `json:"pathParams,omitempty"`
-	QueryParams     []string `json:"queryParams,omitempty"`
-	BodyField       string   `json:"bodyField,omitempty"`
-	MergeBodyObject bool     `json:"mergeBodyObject,omitempty"`
+	Mode            string                     `json:"mode,omitempty"`
+	PathTemplate    string                     `json:"pathTemplate,omitempty"`
+	PathParams      []string                   `json:"pathParams,omitempty"`
+	QueryParams     []string                   `json:"queryParams,omitempty"`
+	PathParameters  []TranscodeParameterConfig `json:"pathParameters,omitempty"`
+	QueryParameters []TranscodeParameterConfig `json:"queryParameters,omitempty"`
+	BodyField       string                     `json:"bodyField,omitempty"`
+	MergeBodyObject bool                       `json:"mergeBodyObject,omitempty"`
+}
+
+// TranscodeParameterConfig describes a schema-aware HTTP parameter mapping for
+// REST-to-RPC transcoding.
+type TranscodeParameterConfig struct {
+	Name   string                    `json:"name"`
+	Type   string                    `json:"type,omitempty"`
+	Format string                    `json:"format,omitempty"`
+	Items  *TranscodeParameterConfig `json:"items,omitempty"`
 }
 
 // AggregationConfig enables BFF-style fan-out aggregation for a route. When
@@ -1686,7 +1697,32 @@ func cloneRoute(route Route) Route {
 func cloneTranscodeConfig(config TranscodeConfig) TranscodeConfig {
 	config.Payload.PathParams = append([]string(nil), config.Payload.PathParams...)
 	config.Payload.QueryParams = append([]string(nil), config.Payload.QueryParams...)
+	config.Payload.PathParameters = cloneTranscodeParameters(config.Payload.PathParameters)
+	config.Payload.QueryParameters = cloneTranscodeParameters(config.Payload.QueryParameters)
 	return config
+}
+
+func cloneTranscodeParameters(parameters []TranscodeParameterConfig) []TranscodeParameterConfig {
+	if len(parameters) == 0 {
+		return nil
+	}
+	out := make([]TranscodeParameterConfig, len(parameters))
+	for i, parameter := range parameters {
+		out[i] = parameter
+		if parameter.Items != nil {
+			item := cloneTranscodeParameter(*parameter.Items)
+			out[i].Items = &item
+		}
+	}
+	return out
+}
+
+func cloneTranscodeParameter(parameter TranscodeParameterConfig) TranscodeParameterConfig {
+	if parameter.Items != nil {
+		item := cloneTranscodeParameter(*parameter.Items)
+		parameter.Items = &item
+	}
+	return parameter
 }
 
 func cloneDescriptor(desc rpc.Descriptor) rpc.Descriptor {

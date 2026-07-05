@@ -2,6 +2,7 @@ package rpc
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net"
@@ -73,6 +74,22 @@ func TestExperimentalMuxAdapterDispatchesMultipleStreams(t *testing.T) {
 		clientSnapshot.Transport.OpenedStreams != 2 ||
 		serverSnapshot.Transport.AcceptedStreams != 2 {
 		t.Fatalf("adapter snapshots client=%+v server=%+v, want two dispatched streams", clientSnapshot, serverSnapshot)
+	}
+	diagnosis := server.DiagnosisSnapshot()
+	if !diagnosis.Enabled ||
+		diagnosis.Mode != "experimental_mux" ||
+		diagnosis.Adapter.AcceptedStreams != 2 ||
+		diagnosis.FlowControl.ConnectionWindow != 4 ||
+		diagnosis.Transport.AcceptedStreams != 2 ||
+		diagnosis.Keepalive.Liveness == "" {
+		t.Fatalf("mux diagnosis = %+v, want adapter, flow-control and transport evidence", diagnosis)
+	}
+	component := server.RuntimeComponentSnapshot(context.Background())
+	if component.Name != "rpc.mux.server" || component.Kind != "server" || component.Owner != "rpc" || component.Status == "" {
+		t.Fatalf("mux runtime component = %+v, want rpc mux server component", component)
+	}
+	if _, err := json.Marshal(component.Details); err != nil {
+		t.Fatalf("marshal mux runtime details: %v", err)
 	}
 
 	cancel()

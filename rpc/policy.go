@@ -158,10 +158,58 @@ type RPCStreamConnPolicySnapshot struct {
 
 type RPCDiagnosisSnapshot struct {
 	Transport RPCHTTPTransportSnapshot     `json:"transport,omitempty"`
+	Mux       RPCMuxTransportDiagnosis     `json:"mux,omitempty"`
 	ConnPool  ConnPoolManagerSnapshot      `json:"connPool,omitempty"`
 	Retry     RPCRetryDiagnosisSnapshot    `json:"retry,omitempty"`
 	Resolver  RPCResolverRuntimeSnapshot   `json:"resolver,omitempty"`
 	Balancer  RPCBalancerDiagnosisSnapshot `json:"balancer,omitempty"`
+}
+
+type RPCMuxTransportDiagnosis struct {
+	Enabled     bool                             `json:"enabled"`
+	Mode        string                           `json:"mode,omitempty"`
+	Adapter     ExperimentalMuxAdapterSnapshot   `json:"adapter,omitempty"`
+	Transport   ExperimentalMuxTransportSnapshot `json:"transport,omitempty"`
+	FlowControl RPCMuxFlowControlDiagnosis       `json:"flowControl,omitempty"`
+	Keepalive   RPCMuxKeepaliveDiagnosis         `json:"keepalive,omitempty"`
+	Drain       RPCMuxDrainDiagnosis             `json:"drain,omitempty"`
+}
+
+type RPCMuxFlowControlDiagnosis struct {
+	ReceiveQueueSize      int   `json:"receiveQueueSize,omitempty"`
+	ConnectionWindow      int   `json:"connectionWindow,omitempty"`
+	ConnectionCreditWaits int64 `json:"connectionCreditWaits,omitempty"`
+	StreamCreditWaits     int64 `json:"streamCreditWaits,omitempty"`
+	WindowFramesIn        int64 `json:"windowFramesIn,omitempty"`
+	WindowFramesOut       int64 `json:"windowFramesOut,omitempty"`
+	ConnectionWindowIn    int64 `json:"connectionWindowIn,omitempty"`
+	ConnectionWindowOut   int64 `json:"connectionWindowOut,omitempty"`
+	BackpressureEvents    int64 `json:"backpressureEvents,omitempty"`
+}
+
+type RPCMuxKeepaliveDiagnosis struct {
+	Liveness           string        `json:"liveness,omitempty"`
+	Interval           time.Duration `json:"interval,omitempty"`
+	Idle               time.Duration `json:"idle,omitempty"`
+	PingFramesIn       int64         `json:"pingFramesIn,omitempty"`
+	PingFramesOut      int64         `json:"pingFramesOut,omitempty"`
+	PongFramesIn       int64         `json:"pongFramesIn,omitempty"`
+	PongFramesOut      int64         `json:"pongFramesOut,omitempty"`
+	IdleTimeouts       int64         `json:"idleTimeouts,omitempty"`
+	LastPingAt         time.Time     `json:"lastPingAt,omitempty"`
+	LastPongAt         time.Time     `json:"lastPongAt,omitempty"`
+	LastFrameReadAt    time.Time     `json:"lastFrameReadAt,omitempty"`
+	LastFrameWrittenAt time.Time     `json:"lastFrameWrittenAt,omitempty"`
+}
+
+type RPCMuxDrainDiagnosis struct {
+	Draining          bool   `json:"draining,omitempty"`
+	RemoteDraining    bool   `json:"remoteDraining,omitempty"`
+	DrainReason       string `json:"drainReason,omitempty"`
+	RemoteDrainReason string `json:"remoteDrainReason,omitempty"`
+	GoAwayFramesIn    int64  `json:"goAwayFramesIn,omitempty"`
+	GoAwayFramesOut   int64  `json:"goAwayFramesOut,omitempty"`
+	DrainRejects      int64  `json:"drainRejects,omitempty"`
 }
 
 type RPCRetryDiagnosisSnapshot struct {

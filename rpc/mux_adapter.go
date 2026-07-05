@@ -11,6 +11,7 @@ import (
 	"time"
 
 	core "github.com/imajinyun/gofly/core"
+	coreruntime "github.com/imajinyun/gofly/core/runtime"
 )
 
 const experimentalMuxRouteService = "_gofly_mux"
@@ -105,6 +106,32 @@ func (a *ExperimentalMuxClientAdapter) Snapshot() ExperimentalMuxAdapterSnapshot
 	return ExperimentalMuxAdapterSnapshot{Role: "client", Transport: a.transport.Snapshot()}
 }
 
+// DiagnosisSnapshot returns client-side mux transport diagnosis.
+func (a *ExperimentalMuxClientAdapter) DiagnosisSnapshot() RPCMuxTransportDiagnosis {
+	return muxDiagnosisFromAdapterSnapshot(a.Snapshot())
+}
+
+// RuntimeComponentSnapshot returns an AI-readable runtime component snapshot.
+func (a *ExperimentalMuxClientAdapter) RuntimeComponentSnapshot(ctx context.Context) coreruntime.ComponentSnapshot {
+	if err := ctx.Err(); err != nil {
+		return coreruntime.ComponentSnapshot{
+			Name:   "rpc.mux.client",
+			Kind:   "client",
+			Owner:  "rpc",
+			Status: "error",
+			Error:  err.Error(),
+		}
+	}
+	snapshot := a.Snapshot()
+	return coreruntime.ComponentSnapshot{
+		Name:    "rpc.mux.client",
+		Kind:    "client",
+		Owner:   "rpc",
+		Status:  muxAdapterStatus(snapshot),
+		Details: a.DiagnosisSnapshot(),
+	}
+}
+
 // RegisterStream registers an opt-in mux stream handler.
 func (a *ExperimentalMuxServerAdapter) RegisterStream(method string, handler ExperimentalMuxStreamHandler) error {
 	if a == nil {
@@ -171,6 +198,32 @@ func (a *ExperimentalMuxServerAdapter) Snapshot() ExperimentalMuxAdapterSnapshot
 	}
 }
 
+// DiagnosisSnapshot returns server-side mux transport diagnosis.
+func (a *ExperimentalMuxServerAdapter) DiagnosisSnapshot() RPCMuxTransportDiagnosis {
+	return muxDiagnosisFromAdapterSnapshot(a.Snapshot())
+}
+
+// RuntimeComponentSnapshot returns an AI-readable runtime component snapshot.
+func (a *ExperimentalMuxServerAdapter) RuntimeComponentSnapshot(ctx context.Context) coreruntime.ComponentSnapshot {
+	if err := ctx.Err(); err != nil {
+		return coreruntime.ComponentSnapshot{
+			Name:   "rpc.mux.server",
+			Kind:   "server",
+			Owner:  "rpc",
+			Status: "error",
+			Error:  err.Error(),
+		}
+	}
+	snapshot := a.Snapshot()
+	return coreruntime.ComponentSnapshot{
+		Name:    "rpc.mux.server",
+		Kind:    "server",
+		Owner:   "rpc",
+		Status:  muxAdapterStatus(snapshot),
+		Details: a.DiagnosisSnapshot(),
+	}
+}
+
 func (a *ExperimentalMuxServerAdapter) handleStream(ctx context.Context, stream *ExperimentalMuxStream) {
 	route, err := stream.Receive(ctx)
 	if err != nil {
@@ -225,4 +278,58 @@ func (a *ExperimentalMuxServerAdapter) rememberError(method string, err error) {
 
 func normalizeExperimentalMuxMethod(method string) string {
 	return strings.Trim(strings.TrimSpace(method), "/")
+}
+
+func muxDiagnosisFromAdapterSnapshot(snapshot ExperimentalMuxAdapterSnapshot) RPCMuxTransportDiagnosis {
+	transport := snapshot.Transport
+	return RPCMuxTransportDiagnosis{
+		Enabled:   !transport.Closed,
+		Mode:      "experimental_mux",
+		Adapter:   snapshot,
+		Transport: transport,
+		FlowControl: RPCMuxFlowControlDiagnosis{
+			ReceiveQueueSize:      transport.ReceiveQueueSize,
+			ConnectionWindow:      transport.ConnectionWindow,
+			ConnectionCreditWaits: transport.ConnectionCreditWaits,
+			StreamCreditWaits:     transport.CreditWaits,
+			WindowFramesIn:        transport.WindowFramesIn,
+			WindowFramesOut:       transport.WindowFramesOut,
+			ConnectionWindowIn:    transport.ConnectionWindowFramesIn,
+			ConnectionWindowOut:   transport.ConnectionWindowFramesOut,
+			BackpressureEvents:    transport.BackpressureEvents,
+		},
+		Keepalive: RPCMuxKeepaliveDiagnosis{
+			Liveness:           transport.Liveness,
+			Interval:           transport.KeepaliveInterval,
+			Idle:               transport.KeepaliveIdle,
+			PingFramesIn:       transport.PingFramesIn,
+			PingFramesOut:      transport.PingFramesOut,
+			PongFramesIn:       transport.PongFramesIn,
+			PongFramesOut:      transport.PongFramesOut,
+			IdleTimeouts:       transport.IdleTimeouts,
+			LastPingAt:         transport.LastPingAt,
+			LastPongAt:         transport.LastPongAt,
+			LastFrameReadAt:    transport.LastFrameReadAt,
+			LastFrameWrittenAt: transport.LastFrameWrittenAt,
+		},
+		Drain: RPCMuxDrainDiagnosis{
+			Draining:          transport.Draining,
+			RemoteDraining:    transport.RemoteDraining,
+			DrainReason:       transport.DrainReason,
+			RemoteDrainReason: transport.RemoteDrainReason,
+			GoAwayFramesIn:    transport.GoAwayFramesIn,
+			GoAwayFramesOut:   transport.GoAwayFramesOut,
+			DrainRejects:      transport.DrainRejects,
+		},
+	}
+}
+
+func muxAdapterStatus(snapshot ExperimentalMuxAdapterSnapshot) string {
+	if snapshot.Transport.Closed {
+		return "closed"
+	}
+	if snapshot.Transport.Liveness != "" {
+		return snapshot.Transport.Liveness
+	}
+	return "ok"
 }

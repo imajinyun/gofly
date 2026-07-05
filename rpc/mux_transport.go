@@ -715,7 +715,7 @@ func (s *ExperimentalMuxStream) CloseWithCode(ctx context.Context, code Code, re
 	s.localClosed = true
 	s.mu.Unlock()
 	typ := experimentalMuxFrameClose
-	if code == CodeCanceled {
+	if code != "" && code != CodeOK {
 		typ = experimentalMuxFrameCancel
 	}
 	if reason == "" {

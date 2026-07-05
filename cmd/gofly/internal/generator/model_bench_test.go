@@ -573,6 +573,8 @@ func TestDatasourceIntrospectionGeneratesIndexAndCacheTemplates(t *testing.T) {
 		"return c.repo.FindByEmailForUpdate(ctx, email)",
 		"func (c *CachedUserRepo) FindByEmailForUpdateSkipLocked(ctx context.Context, email *string) (*entity.User, error)",
 		"cacheByEmail",
+		"cache.WithNegativeCache[*entity.User](30*time.Second, storage.ErrNotFound)",
+		"c.cacheByEmail.Cache().GetOrLoad(ctx, key, func(ctx context.Context, key string) (*entity.User, error) {",
 		"listCacheByName",
 		"countCacheByName",
 		"c.cacheByEmail.Cache().Delete(uniqueKeyByEmail(old.Email))",

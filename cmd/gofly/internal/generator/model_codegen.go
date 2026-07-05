@@ -1162,7 +1162,7 @@ func writeRepoFile(dir string, table SQLTable, pkg string, module string, style 
 		fprintf(&b, "\t\"strconv\"\n")
 	}
 	fprintf(&b, "\t\"strings\"\n")
-	if hasSoftDelete(table) || (cacheEnabled && len(indexPrefixes) > 0) {
+	if hasSoftDelete(table) || cacheEnabled {
 		fprintf(&b, "\t\"time\"\n")
 	}
 	fprintf(&b, "\n")
@@ -1183,7 +1183,8 @@ func writeRepoFile(dir string, table SQLTable, pkg string, module string, style 
 	writeSQLRepoRuntimeHelpers(&b, repoName)
 	if cacheEnabled {
 		fprintf(&b, "func NewCached%s(repo *%s, opts ...cache.ModelOption[*entity.%s, %s]) *cache.ModelCache[*entity.%s, %s] {\n", repoName, repoName, typeName, primaryKeyType(table), typeName, primaryKeyType(table))
-		fprintf(&b, "\treturn cache.NewModel(repo.FindOne, opts...)\n}\n\n")
+		fprintf(&b, "\toptions := append([]cache.ModelOption[*entity.%s, %s]{cache.WithModelOptions[*entity.%s, %s](cache.WithNegativeCache[*entity.%s](30*time.Second, storage.ErrNotFound))}, opts...)\n", typeName, primaryKeyType(table), typeName, primaryKeyType(table), typeName)
+		fprintf(&b, "\treturn cache.NewModel(repo.FindOne, options...)\n}\n\n")
 	}
 	fprintf(&b, "func (r *%s) TableName() string { return entity.%sTable }\n\n", repoName, typeName)
 	fprintf(&b, "func (r *%s) Columns() []string { return append([]string(nil), entity.%sColumns...) }\n\n", repoName, typeName)
@@ -1225,7 +1226,7 @@ func writeGORMRepoFile(dir string, table SQLTable, module string, cacheEnabled b
 		fprintf(&b, "\t\"strconv\"\n")
 		fprintf(&b, "\t\"strings\"\n")
 	}
-	if hasSoftDelete(table) || (cacheEnabled && len(indexPrefixes) > 0) {
+	if hasSoftDelete(table) || cacheEnabled {
 		fprintf(&b, "\t\"time\"\n")
 	}
 	fprintf(&b, "\n")
@@ -1242,7 +1243,8 @@ func writeGORMRepoFile(dir string, table SQLTable, module string, cacheEnabled b
 	fprintf(&b, "\treturn &%s{db: db}\n}\n\n", repoName)
 	if cacheEnabled {
 		fprintf(&b, "func NewCached%s(repo *%s, opts ...cache.ModelOption[*entity.%s, %s]) *cache.ModelCache[*entity.%s, %s] {\n", repoName, repoName, typeName, primaryKeyType(table), typeName, primaryKeyType(table))
-		fprintf(&b, "\treturn cache.NewModel(repo.FindOne, opts...)\n}\n\n")
+		fprintf(&b, "\toptions := append([]cache.ModelOption[*entity.%s, %s]{cache.WithModelOptions[*entity.%s, %s](cache.WithNegativeCache[*entity.%s](30*time.Second, storage.ErrNotFound))}, opts...)\n", typeName, primaryKeyType(table), typeName, primaryKeyType(table), typeName)
+		fprintf(&b, "\treturn cache.NewModel(repo.FindOne, options...)\n}\n\n")
 	}
 	fprintf(&b, "func (r *%s) DB() *gorm.DB {\n", repoName)
 	fprintf(&b, "\tif r == nil {\n\t\treturn nil\n\t}\n\treturn r.db\n}\n\n")
@@ -1727,7 +1729,8 @@ func writeConsistentCachedRepo(b *bytes.Buffer, table SQLTable, typeName, repoNa
 	fprintf(b, "}\n\n")
 	fprintf(b, "func NewConsistentCached%s(repo *%s, opts ...cache.ModelOption[*entity.%s, %s]) *%s {\n", repoName, repoName, typeName, columnGoType(pk), cachedName)
 	fprintf(b, "\tloader := func(ctx context.Context, id %s) (*entity.%s, error) {\n\t\tif repo == nil {\n\t\t\treturn nil, errors.New(%q)\n\t\t}\n\t\treturn repo.FindOne(ctx, id)\n\t}\n", columnGoType(pk), typeName, lowerCamel(typeName)+" repo is nil")
-	fprintf(b, "\tout := &%s{repo: repo, cache: cache.NewModel(loader, opts...)}\n", cachedName)
+	fprintf(b, "\toptions := append([]cache.ModelOption[*entity.%s, %s]{cache.WithModelOptions[*entity.%s, %s](cache.WithNegativeCache[*entity.%s](30*time.Second, storage.ErrNotFound))}, opts...)\n", typeName, columnGoType(pk), typeName, columnGoType(pk), typeName)
+	fprintf(b, "\tout := &%s{repo: repo, cache: cache.NewModel(loader, options...)}\n", cachedName)
 	writeUniqueModelCacheInitializers(b, uniqueIndexes, typeName, "repo", false)
 	writeIndexListCacheInitializers(b, indexPrefixes, typeName, "repo")
 	fprintf(b, "\treturn out\n}\n\n")
@@ -2284,7 +2287,7 @@ func writeUniqueModelCacheInitializers(b *bytes.Buffer, indexes []modelUniqueInd
 		keyPrefix := uniqueCachePrefix(index.Columns)
 		fprintf(b, "\tout.%s = cache.NewModel(func(ctx context.Context, key string) (*entity.%s, error) {\n", fieldName, typeName)
 		fprintf(b, "\t\treturn nil, cache.ErrNotFound\n")
-		fprintf(b, "\t}, cache.WithModelKeyPrefix[*entity.%s, string](%q))\n", typeName, keyPrefix)
+		fprintf(b, "\t}, cache.WithModelOptions[*entity.%s, string](cache.WithNegativeCache[*entity.%s](30*time.Second, storage.ErrNotFound)), cache.WithModelKeyPrefix[*entity.%s, string](%q))\n", typeName, typeName, typeName, keyPrefix)
 		fprintf(b, "\t_ = %s.FindBy%s\n", repoValue, finderName)
 	}
 }
@@ -2304,9 +2307,9 @@ func writeUniqueCachedFinders(b *bytes.Buffer, indexes []modelUniqueIndex, typeN
 		fprintf(b, "\tif c == nil || c.repo == nil {\n\t\treturn nil, errors.New(%q)\n\t}\n", lowerCamel(typeName)+" cached repo is nil")
 		fprintf(b, "\tkey := %s\n", keyExpr)
 		fprintf(b, "\tif c.%s == nil || c.%s.Cache() == nil {\n\t\treturn c.repo.FindBy%s(ctx, %s)\n\t}\n", fieldName, fieldName, finderName, args)
-		fprintf(b, "\tif cached, ok := c.%s.Cache().Get(key); ok {\n\t\treturn cached, nil\n\t}\n", fieldName)
-		fprintf(b, "\tout, err := c.repo.FindBy%s(ctx, %s)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n", finderName, args)
-		fprintf(b, "\tc.%s.Cache().Set(key, out)\n\treturn out, nil\n}\n\n", fieldName)
+		fprintf(b, "\tout, err := c.%s.Cache().GetOrLoad(ctx, key, func(ctx context.Context, key string) (*entity.%s, error) {\n\t\treturn c.repo.FindBy%s(ctx, %s)\n\t})\n", fieldName, typeName, finderName, args)
+		fprintf(b, "\tif err != nil {\n\t\treturn nil, err\n\t}\n")
+		fprintf(b, "\treturn out, nil\n}\n\n")
 	}
 }
 

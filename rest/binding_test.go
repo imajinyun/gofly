@@ -449,6 +449,7 @@ func TestOpenAPIValidationEnvelopeRuntimeGolden(t *testing.T) {
 		SKU      string   `json:"sku" validate:"required,min=3,max=64"`
 		Status   string   `json:"status" validate:"oneof=pending paid canceled"`
 		Email    string   `json:"email" validate:"email"`
+		Callback string   `json:"callback" validate:"url"`
 		Quantity int      `json:"quantity" validate:"min=1,max=100"`
 		Labels   []string `json:"labels" validate:"min=1,max=3"`
 	}
@@ -472,7 +473,7 @@ func TestOpenAPIValidationEnvelopeRuntimeGolden(t *testing.T) {
 			target:    "/orders/not-int?page=1",
 			pathValue: "not-int",
 			header:    "tenant-a",
-			body:      `{"sku":"ABC","status":"pending","email":"buyer@example.com","quantity":1,"labels":["new"]}`,
+			body:      `{"sku":"ABC","status":"pending","email":"buyer@example.com","callback":"https://example.com/hooks/orders","quantity":1,"labels":["new"]}`,
 			wantText:  "bind path field ID",
 		},
 		{
@@ -481,7 +482,7 @@ func TestOpenAPIValidationEnvelopeRuntimeGolden(t *testing.T) {
 			target:    "/orders/7?page=0",
 			pathValue: "7",
 			header:    "tenant-a",
-			body:      `{"sku":"ABC","status":"pending","email":"buyer@example.com","quantity":1,"labels":["new"]}`,
+			body:      `{"sku":"ABC","status":"pending","email":"buyer@example.com","callback":"https://example.com/hooks/orders","quantity":1,"labels":["new"]}`,
 			wantText:  "field Page failed min=1 validation",
 			wantField: "Page",
 			wantRule:  "min=1",
@@ -491,7 +492,7 @@ func TestOpenAPIValidationEnvelopeRuntimeGolden(t *testing.T) {
 			method:    http.MethodPost,
 			target:    "/orders/7?page=1",
 			pathValue: "7",
-			body:      `{"sku":"ABC","status":"pending","email":"buyer@example.com","quantity":1,"labels":["new"]}`,
+			body:      `{"sku":"ABC","status":"pending","email":"buyer@example.com","callback":"https://example.com/hooks/orders","quantity":1,"labels":["new"]}`,
 			wantText:  "field Tenant failed required validation",
 			wantField: "Tenant",
 			wantRule:  "required",
@@ -502,7 +503,7 @@ func TestOpenAPIValidationEnvelopeRuntimeGolden(t *testing.T) {
 			target:    "/orders/7?page=1",
 			pathValue: "7",
 			header:    "tenant-a",
-			body:      `{"sku":"ABC","status":"pending","email":"buyer@example.com","quantity":"many","labels":["new"]}`,
+			body:      `{"sku":"ABC","status":"pending","email":"buyer@example.com","callback":"https://example.com/hooks/orders","quantity":"many","labels":["new"]}`,
 			wantText:  "decode json body",
 		},
 		{
@@ -511,7 +512,7 @@ func TestOpenAPIValidationEnvelopeRuntimeGolden(t *testing.T) {
 			target:    "/orders/7?page=1",
 			pathValue: "7",
 			header:    "tenant-a",
-			body:      `{"sku":"ABC","status":"shipped","email":"buyer@example.com","quantity":1,"labels":["new"]}`,
+			body:      `{"sku":"ABC","status":"shipped","email":"buyer@example.com","callback":"https://example.com/hooks/orders","quantity":1,"labels":["new"]}`,
 			wantText:  "field Status failed oneof=pending paid canceled validation",
 			wantField: "Status",
 			wantRule:  "oneof=pending paid canceled",
@@ -522,11 +523,23 @@ func TestOpenAPIValidationEnvelopeRuntimeGolden(t *testing.T) {
 			target:    "/orders/7?page=1",
 			pathValue: "7",
 			header:    "tenant-a",
-			body:      `{"sku":"ABC","status":"pending","email":"not-an-email","quantity":1,"labels":["new"]}`,
+			body:      `{"sku":"ABC","status":"pending","email":"not-an-email","callback":"https://example.com/hooks/orders","quantity":1,"labels":["new"]}`,
 			wantText:  "field Email failed email validation",
 			wantField: "Email",
 			wantRule:  "email",
 			wantCode:  "invalid_email",
+		},
+		{
+			name:      "body tag url validation failure",
+			method:    http.MethodPost,
+			target:    "/orders/7?page=1",
+			pathValue: "7",
+			header:    "tenant-a",
+			body:      `{"sku":"ABC","status":"pending","email":"buyer@example.com","callback":"/local/path","quantity":1,"labels":["new"]}`,
+			wantText:  "field Callback failed url validation",
+			wantField: "Callback",
+			wantRule:  "url",
+			wantCode:  "invalid_url",
 		},
 		{
 			name:      "validator adapter field failure",
@@ -534,7 +547,7 @@ func TestOpenAPIValidationEnvelopeRuntimeGolden(t *testing.T) {
 			target:    "/orders/7?page=1",
 			pathValue: "7",
 			header:    "tenant-a",
-			body:      `{"sku":"BLOCKED","status":"pending","email":"buyer@example.com","quantity":1,"labels":["new"]}`,
+			body:      `{"sku":"BLOCKED","status":"pending","email":"buyer@example.com","callback":"https://example.com/hooks/orders","quantity":1,"labels":["new"]}`,
 			validator: ValidatorFunc(func(value any) error {
 				req, ok := value.(*createOrderRequest)
 				if !ok || req.SKU != "BLOCKED" {

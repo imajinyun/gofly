@@ -74,8 +74,9 @@ func TestNilServerOpenAPI(t *testing.T) {
 
 func TestOpenAPISchemaFromTypeAndCloneBoundaries(t *testing.T) {
 	type nested struct {
-		Name  string `json:"name" validate:"required,min=2,max=10"`
-		Email string `json:"email" validate:"email"`
+		Name     string `json:"name" validate:"required,min=2,max=10"`
+		Email    string `json:"email" validate:"email"`
+		Callback string `json:"callback" validate:"url"`
 	}
 	tests := []struct {
 		name     string
@@ -97,7 +98,7 @@ func TestOpenAPISchemaFromTypeAndCloneBoundaries(t *testing.T) {
 		})
 	}
 	arraySchema := schemaFromType(reflect.TypeOf([]nested{}))
-	if arraySchema.Type != "array" || arraySchema.Items == nil || arraySchema.Items.Properties["name"].Type != "string" || arraySchema.Items.Properties["email"].Format != "email" {
+	if arraySchema.Type != "array" || arraySchema.Items == nil || arraySchema.Items.Properties["name"].Type != "string" || arraySchema.Items.Properties["email"].Format != "email" || arraySchema.Items.Properties["callback"].Format != "uri" {
 		t.Fatalf("array schema = %#v, want nested object items", arraySchema)
 	}
 	mapSchema := schemaFromType(reflect.TypeOf(map[string][]int{}))
@@ -105,8 +106,8 @@ func TestOpenAPISchemaFromTypeAndCloneBoundaries(t *testing.T) {
 		t.Fatalf("map schema = %#v, want array additional properties", mapSchema)
 	}
 	objectSchema := schemaFromType(reflect.TypeOf(nested{}))
-	if objectSchema.Type != "object" || len(objectSchema.Required) != 1 || objectSchema.Required[0] != "name" || objectSchema.Properties["name"].MinLength == nil || objectSchema.Properties["name"].MaxLength == nil || objectSchema.Properties["email"].Format != "email" {
-		t.Fatalf("object schema = %#v, want required validation metadata and email format", objectSchema)
+	if objectSchema.Type != "object" || len(objectSchema.Required) != 1 || objectSchema.Required[0] != "name" || objectSchema.Properties["name"].MinLength == nil || objectSchema.Properties["name"].MaxLength == nil || objectSchema.Properties["email"].Format != "email" || objectSchema.Properties["callback"].Format != "uri" {
+		t.Fatalf("object schema = %#v, want required validation metadata and string formats", objectSchema)
 	}
 
 	minimum := 1.5
@@ -205,6 +206,7 @@ func TestStructSchemaLinksValidationTags(t *testing.T) {
 		Embedded
 		SKU      string   `json:"sku" validate:"required,min=3,max=64"`
 		Email    string   `json:"email" validate:"email"`
+		Callback string   `json:"callback" validate:"url"`
 		Quantity int      `json:"quantity" validate:"required,min=1,max=100"`
 		Status   string   `json:"status" validate:"oneof=pending paid canceled"`
 		Labels   []string `json:"labels" validate:"min=1,max=3"`
@@ -225,6 +227,10 @@ func TestStructSchemaLinksValidationTags(t *testing.T) {
 	email := schema.Properties["email"]
 	if email.Type != "string" || email.Format != "email" {
 		t.Fatalf("email schema = %#v, want string email format", email)
+	}
+	callback := schema.Properties["callback"]
+	if callback.Type != "string" || callback.Format != "uri" {
+		t.Fatalf("callback schema = %#v, want string uri format", callback)
 	}
 	quantity := schema.Properties["quantity"]
 	if quantity.Type != "integer" || quantity.Minimum == nil || *quantity.Minimum != 1 || quantity.Maximum == nil || *quantity.Maximum != 100 {
@@ -383,6 +389,7 @@ func TestOpenAPIValidationEnvelopeSchemaGolden(t *testing.T) {
 		Page     int      `json:"-" query:"page" validate:"min=1,max=100"`
 		SKU      string   `json:"sku" validate:"required,min=3,max=64"`
 		Email    string   `json:"email" validate:"email"`
+		Callback string   `json:"callback" validate:"url"`
 		Status   string   `json:"status" validate:"oneof=pending paid canceled"`
 		Quantity int      `json:"quantity" validate:"min=1,max=100"`
 		Labels   []string `json:"labels" validate:"min=1,max=3"`
@@ -456,6 +463,10 @@ func TestOpenAPIValidationEnvelopeSchemaGolden(t *testing.T) {
 	email := schema.Properties["email"]
 	if email.Type != "string" || email.Format != "email" {
 		t.Fatalf("email schema = %#v, want string email format", email)
+	}
+	callback := schema.Properties["callback"]
+	if callback.Type != "string" || callback.Format != "uri" {
+		t.Fatalf("callback schema = %#v, want string uri format", callback)
 	}
 	quantity := schema.Properties["quantity"]
 	if quantity.Minimum == nil || *quantity.Minimum != 1 || quantity.Maximum == nil || *quantity.Maximum != 100 {

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/mail"
+	"net/url"
 	"reflect"
 	"strconv"
 	"strings"
@@ -409,6 +410,15 @@ func validateField(name string, field reflect.Value, rule string) error {
 		}
 		if _, err := mail.ParseAddress(value); err != nil {
 			return &ValidationError{Field: name, Rule: rule, Code: "invalid_email"}
+		}
+	case rule == "url":
+		value := strings.TrimSpace(fmt.Sprint(fieldValue(field)))
+		if value == "" {
+			return nil
+		}
+		parsed, err := url.ParseRequestURI(value)
+		if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+			return &ValidationError{Field: name, Rule: rule, Code: "invalid_url"}
 		}
 	}
 	return nil

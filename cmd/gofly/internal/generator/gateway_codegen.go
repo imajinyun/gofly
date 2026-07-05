@@ -27,6 +27,7 @@ func GenerateGateway(opts GatewayOptions) error {
 		map[string]string{"Name": opts.Name, "Module": opts.Module, "ReplaceBlock": frameworkReplaceBlock("")},
 		opts.Name,
 	)
+	data["GatewayConfigJSON"] = render(gatewayConfigTemplate, data)
 	files := map[string]string{
 		"go.mod": gatewayGoModTemplate,
 		filepath.Join("cmd", opts.Name, "main.go"):            gatewayMainTemplate,
@@ -156,10 +157,10 @@ const gatewayConfigTemplate = `{
   "gateway": {
     "timeout": 3000000000,
     "routes": [
-      {"name": "api-proxy", "method": "GET", "pathPrefix": "/api", "upstreamPrefix": "/", "targets": ["http://127.0.0.1:8081"], "timeout": 5000000000, "retry": {{.GatewayRetryJSON}}, "breaker": {{.GatewayBreakerJSON}}, "rateLimit": {{.RestRateLimitConfigJSON}}, "concurrency": {{.RestMaxConcurrencyConfigJSON}}},
-      {"name": "events-stream", "method": "GET", "pathPrefix": "/events", "upstreamPrefix": "/events", "targets": ["http://127.0.0.1:8081"], "timeout": 5000000000, "retry": {"attempts": 1}, "breaker": {{.GatewayBreakerJSON}}},
-      {"name": "websocket-tunnel", "method": "GET", "pathPrefix": "/ws", "upstreamPrefix": "/ws", "targets": ["http://127.0.0.1:8081"], "timeout": 5000000000, "retry": {"attempts": 1}, "breaker": {{.GatewayBreakerJSON}}},
-      {"name": "bff-home", "method": "GET", "pathPrefix": "/bff", "targets": ["http://127.0.0.1:8081"], "timeout": 5000000000, "retry": {"attempts": 1}, "breaker": {{.GatewayBreakerJSON}}, "aggregation": {"enabled": true, "steps": [{"name": "profile", "path": "/profile", "required": true}, {"name": "orders", "path": "/orders"}]}}
+      {"name": "api-proxy", "method": "GET", "pathPrefix": "/api", "upstreamPrefix": "/", "service": "orders", "targets": ["http://127.0.0.1:8081"], "timeout": 5000000000, "retry": {{.GatewayRetryJSON}}, "breaker": {{.GatewayBreakerJSON}}, "rateLimit": {{.RestRateLimitConfigJSON}}, "concurrency": {{.RestMaxConcurrencyConfigJSON}}},
+      {"name": "events-stream", "method": "GET", "pathPrefix": "/events", "upstreamPrefix": "/events", "service": "orders", "targets": ["http://127.0.0.1:8081"], "timeout": 5000000000, "retry": {"attempts": 1}, "breaker": {{.GatewayBreakerJSON}}},
+      {"name": "websocket-tunnel", "method": "GET", "pathPrefix": "/ws", "upstreamPrefix": "/ws", "service": "orders", "targets": ["http://127.0.0.1:8081"], "timeout": 5000000000, "retry": {"attempts": 1}, "breaker": {{.GatewayBreakerJSON}}},
+      {"name": "bff-home", "method": "GET", "pathPrefix": "/bff", "service": "orders", "targets": ["http://127.0.0.1:8081"], "timeout": 5000000000, "retry": {"attempts": 1}, "breaker": {{.GatewayBreakerJSON}}, "aggregation": {"enabled": true, "steps": [{"name": "profile", "path": "/profile", "required": true}, {"name": "orders", "path": "/orders"}]}}
     ]
   },
   "openapiImports": [
@@ -727,6 +728,63 @@ func TestGatewayDNSDiscoveryConfigBuildsResolverWithFailover(t *testing.T) {
 	gw.ServeHTTP(second, httptest.NewRequest(http.MethodGet, "/api/orders/42", nil))
 	if second.Code != http.StatusOK || second.Body.String() != "ok" {
 		t.Fatalf("stale DNS gateway response = %d %q", second.Code, second.Body.String())
+	}
+}
+
+func TestGatewayGeneratedDNSDiscoveryProfileIsRunnable(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/orders/42" {
+			t.Fatalf("upstream path = %q, want /orders/42", r.URL.Path)
+		}
+		_, _ = w.Write([]byte("ok"))
+	}))
+	t.Cleanup(upstream.Close)
+	host, portText, err := net.SplitHostPort(upstream.Listener.Addr().String())
+	if err != nil {
+		t.Fatalf("split upstream address: %v", err)
+	}
+	var port int
+	if _, err := fmt.Sscanf(portText, "%d", &port); err != nil {
+		t.Fatalf("parse upstream port %q: %v", portText, err)
+	}
+
+	var c Config
+	if err := json.Unmarshal([]byte(` + "`" + `{{.GatewayConfigJSON}}` + "`" + `), &c); err != nil {
+		t.Fatalf("decode generated config: %v", err)
+	}
+	if len(c.Gateway.Routes) == 0 || c.Gateway.Routes[0].Service != "orders" {
+		t.Fatalf("generated gateway route service = %#v, want orders service", c.Gateway.Routes)
+	}
+	if c.GatewayDiscovery.Failover || len(c.GatewayDiscovery.Services) != 1 || c.GatewayDiscovery.Services[0].Enabled {
+		t.Fatalf("default gateway discovery = %#v, want disabled opt-in profile", c.GatewayDiscovery)
+	}
+	c.GatewayDiscovery.Failover = true
+	c.GatewayDiscovery.Services[0].Enabled = true
+	c.GatewayDiscovery.Services[0].Host = "orders.service.local"
+	c.GatewayDiscovery.Services[0].Port = port
+	c.GatewayDiscovery.Services[0].Scheme = "http"
+	c.GatewayDiscovery.Services[0].WatchInterval = time.Millisecond
+
+	conf, err := c.GatewayConfig(context.Background())
+	if err != nil {
+		t.Fatalf("GatewayConfig: %v", err)
+	}
+	resolvers, err := c.gatewayResolvers(func(context.Context, string) ([]net.IP, error) {
+		return []net.IP{net.ParseIP(host)}, nil
+	})
+	if err != nil {
+		t.Fatalf("GatewayResolvers: %v", err)
+	}
+	gw, err := gateway.NewFromConfig(conf, resolvers, c.GatewayOptions()...)
+	if err != nil {
+		t.Fatalf("NewFromConfig: %v", err)
+	}
+	t.Cleanup(func() { _ = gw.Close() })
+
+	rr := httptest.NewRecorder()
+	gw.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/orders/42", nil))
+	if rr.Code != http.StatusOK || rr.Body.String() != "ok" {
+		t.Fatalf("generated DNS gateway response = %d %q", rr.Code, rr.Body.String())
 	}
 }
 `

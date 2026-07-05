@@ -66,6 +66,11 @@ func (c *fakeDatasourceConn) QueryContext(_ context.Context, query string, _ []d
 			return fakeDatasourcePostgresMultiSchemaIndexRows(), nil
 		}
 		return fakeDatasourcePostgresMultiSchemaColumnRows(), nil
+	case "postgres-expression-index":
+		if isFakeDatasourceIndexQuery(query) {
+			return fakeDatasourcePostgresExpressionIndexRows(), nil
+		}
+		return fakeDatasourcePostgresExpressionColumnRows(), nil
 	default:
 		if isFakeDatasourceIndexQuery(query) {
 			return fakeDatasourceIndexRows(), nil
@@ -221,6 +226,33 @@ func fakeDatasourcePostgresMultiSchemaIndexRows() driver.Rows {
 			{"billing_events", "idx_billing_events_tenant_status_occurred", "occurred_at", int64(1), int64(3)},
 			{"billing_events", "uk_billing_events_tenant_event_no", "tenant_id", int64(0), int64(1)},
 			{"billing_events", "uk_billing_events_tenant_event_no", "event_no", int64(0), int64(2)},
+		},
+	}
+}
+
+func fakeDatasourcePostgresExpressionColumnRows() driver.Rows {
+	return &fakeDatasourceRows{
+		columns: fakeDatasourceColumnNames(),
+		values: [][]driver.Value{
+			{"billing_jobs", "id", "bigint", "PRI", "NO", int64(1)},
+			{"billing_jobs", "tenant_id", "bigint", "", "NO", int64(2)},
+			{"billing_jobs", "status", "character varying", "", "NO", int64(3)},
+			{"billing_jobs", "email", "character varying", "", "YES", int64(4)},
+			{"billing_jobs", "deleted_at", "timestamp with time zone", "", "YES", int64(5)},
+		},
+	}
+}
+
+func fakeDatasourcePostgresExpressionIndexRows() driver.Rows {
+	return &fakeDatasourceRows{
+		columns: fakeDatasourceIndexColumnNames(),
+		values: [][]driver.Value{
+			{"billing_jobs", "idx_jobs_tenant_status", "tenant_id", int64(1), int64(1)},
+			{"billing_jobs", "idx_jobs_tenant_status", "status", int64(1), int64(2)},
+			{"billing_jobs", "idx_jobs_lower_email", nil, int64(1), int64(1)},
+			{"billing_jobs", "idx_jobs_partial_status", "status", int64(1), int64(0)},
+			{"billing_jobs", "uk_jobs_expr_tenant_email", "tenant_id", int64(0), int64(1)},
+			{"billing_jobs", "uk_jobs_expr_tenant_email", nil, int64(0), int64(2)},
 		},
 	}
 }
@@ -959,6 +991,92 @@ func TestPostgresDatasourceIntrospectionMultiSchemaCacheReplay(t *testing.T) {
 
 	runGoCommand(t, dir, 3*time.Minute, "mod", "tidy")
 	runGoCommand(t, dir, 3*time.Minute, "test", "./...")
+}
+
+func TestPostgresDatasourceIntrospectionSkipsExpressionAndPartialIndexes(t *testing.T) {
+	db, err := sql.Open(fakeModelDatasourceDriver, "postgres-expression-index")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	tables, err := introspectSQLTables(context.Background(), db, datasourceIntrospectionOptions{
+		Driver: "postgres",
+		Schema: "billing",
+		Tables: []string{"billing_jobs"},
+	})
+	if err != nil {
+		t.Fatalf("introspectSQLTables postgres expression indexes: %v", err)
+	}
+	if len(tables) != 1 {
+		t.Fatalf("tables = %#v, want billing_jobs", tables)
+	}
+	table := tables[0]
+	if len(table.UniqueIndexes) != 0 {
+		t.Fatalf("unique indexes = %#v, want expression-backed unique indexes skipped", table.UniqueIndexes)
+	}
+	if len(table.Indexes) != 1 || strings.Join(table.Indexes[0].Columns, ",") != "tenant_id,status" {
+		t.Fatalf("indexes = %#v, want only tenant_id,status ordinary index", table.Indexes)
+	}
+
+	tables, err = prepareModelTables(tables, modelGenerationOptions{
+		Tables: []string{"billing_jobs"},
+		Prefix: "billing_",
+		Strict: true,
+	})
+	if err != nil {
+		t.Fatalf("prepareModelTables postgres expression indexes: %v", err)
+	}
+	dir := t.TempDir()
+	writeGeneratedModule(t, dir, "example.com/postgres-expression")
+	if err := writeModelFiles(tables, dir, "model", "example.com/postgres-expression", modelStyleSQL, true, storage.DialectPostgres); err != nil {
+		t.Fatalf("writeModelFiles postgres expression indexes: %v", err)
+	}
+	repo, err := os.ReadFile(filepath.Join(dir, "model", "repo", "job.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	repoOut := string(repo)
+	for _, want := range []string{
+		"func (r *JobRepo) FindByTenantID(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.Job, error)",
+		`where = where.OrderBy("status")`,
+		"func (c *CachedJobRepo) PageByTenantIDCached(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.Job, int64, error)",
+		"key := redisJobIndexListCacheKey(version, indexListKeyByTenantID(tenantID, limit, offset))",
+	} {
+		if !strings.Contains(repoOut, want) {
+			t.Fatalf("generated postgres expression repo missing %q:\n%s", want, repoOut)
+		}
+	}
+	for _, unexpected := range []string{
+		"FindByEmail",
+		"FindByTenantIDAndEmail",
+		"FindByTenantIDAndStatus",
+		"UpsertByTenantIDAndEmail",
+		"indexListKeyByEmail",
+		"indexListKeyByTenantIDAndStatus",
+	} {
+		if strings.Contains(repoOut, unexpected) {
+			t.Fatalf("generated postgres expression repo should not include %q from expression or partial indexes:\n%s", unexpected, repoOut)
+		}
+	}
+	runGoCommand(t, dir, 3*time.Minute, "mod", "tidy")
+	runGoCommand(t, dir, 3*time.Minute, "test", "./...")
+}
+
+func TestPostgresDatasourceIndexQueryFiltersUnsafeIndexShapes(t *testing.T) {
+	query, _, err := datasourceIndexesQueryWithScope(datasourceIntrospectionOptions{Driver: "postgres", Schema: "billing"})
+	if err != nil {
+		t.Fatalf("datasourceIndexesQueryWithScope postgres: %v", err)
+	}
+	for _, want := range []string{
+		"ix.indexprs IS NULL",
+		"ix.indpred IS NULL",
+		"k.ordinality <= ix.indnkeyatts",
+	} {
+		if !strings.Contains(query, want) {
+			t.Fatalf("postgres index query missing %q:\n%s", want, query)
+		}
+	}
 }
 
 func TestGenerateModelFromDatasourceViaMySQLDriverRejectsInvalidDSN(t *testing.T) {

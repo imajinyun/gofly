@@ -523,18 +523,17 @@ func introspectSQLIndexes(ctx context.Context, db *sql.DB, opts datasourceIntros
 	}
 	type indexState struct {
 		columns []string
+		invalid bool
 		unique  bool
 	}
 	indexes := make(map[indexKey]*indexState)
 	var order []indexKey
 	for rows.Next() {
-		var tableName, indexName, columnName string
+		var tableName, indexName string
+		var columnName sql.NullString
 		var nonUnique, seq int
 		if err := rows.Scan(&tableName, &indexName, &columnName, &nonUnique, &seq); err != nil {
 			return fmt.Errorf("scan datasource index: %w", err)
-		}
-		if seq <= 0 || strings.TrimSpace(columnName) == "" {
-			continue
 		}
 		if _, ok := byName[tableName]; !ok {
 			continue
@@ -546,7 +545,12 @@ func introspectSQLIndexes(ctx context.Context, db *sql.DB, opts datasourceIntros
 			indexes[key] = state
 			order = append(order, key)
 		}
-		state.columns = append(state.columns, columnName)
+		column := strings.TrimSpace(columnName.String)
+		if seq <= 0 || !columnName.Valid || column == "" {
+			state.invalid = true
+			continue
+		}
+		state.columns = append(state.columns, column)
 	}
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("iterate datasource indexes: %w", err)
@@ -554,7 +558,7 @@ func introspectSQLIndexes(ctx context.Context, db *sql.DB, opts datasourceIntros
 	for _, key := range order {
 		table := byName[key.table]
 		state := indexes[key]
-		if table == nil || state == nil || len(state.columns) == 0 {
+		if table == nil || state == nil || state.invalid || len(state.columns) == 0 {
 			continue
 		}
 		if state.unique {
@@ -678,7 +682,10 @@ JOIN LATERAL unnest(ix.indkey) WITH ORDINALITY AS k(attnum, ordinality) ON true
 JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = k.attnum
 WHERE ns.nspname = current_schema()
   AND t.relkind IN ('r', 'p')
-  AND NOT ix.indisprimary`
+  AND NOT ix.indisprimary
+  AND ix.indexprs IS NULL
+  AND ix.indpred IS NULL
+  AND k.ordinality <= ix.indnkeyatts`
 		args := make([]any, 0, len(tables)+1)
 		placeholderOffset := 0
 		if schema != "" {

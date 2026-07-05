@@ -747,6 +747,159 @@ func TestExperimentalMuxFrameCodecRejectsMalformedFrames(t *testing.T) {
 	}
 }
 
+func TestExperimentalMuxTransportDefensiveBoundaries(t *testing.T) {
+	var nilTransport *ExperimentalMuxTransport
+	if _, err := nilTransport.OpenStream(context.Background()); !errors.Is(err, ErrExperimentalMuxTransportClosed) {
+		t.Fatalf("nil transport OpenStream error = %v, want ErrExperimentalMuxTransportClosed", err)
+	}
+	if err := nilTransport.Drain(context.Background(), ""); !errors.Is(err, ErrExperimentalMuxTransportClosed) {
+		t.Fatalf("nil transport Drain error = %v, want ErrExperimentalMuxTransportClosed", err)
+	}
+	if _, err := nilTransport.AcceptStream(context.Background()); !errors.Is(err, ErrExperimentalMuxTransportClosed) {
+		t.Fatalf("nil transport AcceptStream error = %v, want ErrExperimentalMuxTransportClosed", err)
+	}
+	if err := nilTransport.Close(); err != nil {
+		t.Fatalf("nil transport Close error = %v, want nil", err)
+	}
+	if snapshot := nilTransport.Snapshot(); !snapshot.Closed {
+		t.Fatalf("nil transport snapshot = %+v, want closed", snapshot)
+	}
+
+	oversizedWindowClientConn, oversizedWindowServerConn := net.Pipe()
+	oversizedWindowTransport := NewExperimentalMuxTransport(
+		oversizedWindowClientConn,
+		WithExperimentalMuxReceiveQueueSize(int(^uint32(0))+1),
+		WithExperimentalMuxConnectionWindow(int(^uint32(0))+1),
+	)
+	t.Cleanup(func() {
+		_ = oversizedWindowTransport.Close()
+		_ = oversizedWindowServerConn.Close()
+	})
+	oversizedWindowSnapshot := oversizedWindowTransport.Snapshot()
+	if oversizedWindowSnapshot.ReceiveQueueSize != experimentalMuxMaxWindowSlots ||
+		oversizedWindowSnapshot.ConnectionWindow != experimentalMuxMaxWindowSlots {
+		t.Fatalf("oversized window snapshot = %+v, want max window clamp", oversizedWindowSnapshot)
+	}
+
+	var nilStream *ExperimentalMuxStream
+	if nilStream.ID() != 0 {
+		t.Fatalf("nil stream ID = %d, want 0", nilStream.ID())
+	}
+	if err := nilStream.Send(context.Background(), Message{}); !errors.Is(err, ErrExperimentalMuxStreamClosed) {
+		t.Fatalf("nil stream Send error = %v, want ErrExperimentalMuxStreamClosed", err)
+	}
+	if _, err := nilStream.Receive(context.Background()); !errors.Is(err, ErrExperimentalMuxStreamClosed) {
+		t.Fatalf("nil stream Receive error = %v, want ErrExperimentalMuxStreamClosed", err)
+	}
+	if err := nilStream.CloseSend(context.Background(), ""); !errors.Is(err, ErrExperimentalMuxStreamClosed) {
+		t.Fatalf("nil stream CloseSend error = %v, want ErrExperimentalMuxStreamClosed", err)
+	}
+	if err := nilStream.CloseWithCode(context.Background(), CodeCanceled, ""); !errors.Is(err, ErrExperimentalMuxStreamClosed) {
+		t.Fatalf("nil stream CloseWithCode error = %v, want ErrExperimentalMuxStreamClosed", err)
+	}
+
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	clientConn, serverConn := net.Pipe()
+	defer clientConn.Close()
+	defer serverConn.Close()
+	client := NewExperimentalMuxTransport(clientConn)
+	defer client.Close()
+	if _, err := client.OpenStream(canceled); !errors.Is(err, context.Canceled) {
+		t.Fatalf("OpenStream canceled error = %v, want context.Canceled", err)
+	}
+	if err := client.Drain(canceled, ""); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Drain canceled error = %v, want context.Canceled", err)
+	}
+	if _, err := client.AcceptStream(canceled); !errors.Is(err, context.Canceled) {
+		t.Fatalf("AcceptStream canceled error = %v, want context.Canceled", err)
+	}
+}
+
+func TestExperimentalMuxTransportClosedStreamBoundaries(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	client := NewExperimentalMuxTransport(clientConn)
+	server := NewExperimentalMuxTransport(serverConn, WithExperimentalMuxServerRole())
+	defer client.Close()
+	defer server.Close()
+
+	stream, err := client.OpenStream(context.Background())
+	if err != nil {
+		t.Fatalf("OpenStream: %v", err)
+	}
+	accepted, err := server.AcceptStream(muxTestTimeoutContext(t))
+	if err != nil {
+		t.Fatalf("AcceptStream: %v", err)
+	}
+	if err := stream.Close(context.Background(), "done"); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if _, err := accepted.Receive(muxTestTimeoutContext(t)); !errors.Is(err, io.EOF) {
+		t.Fatalf("accepted Receive after close error = %v, want EOF", err)
+	}
+	if err := stream.Send(context.Background(), Message{Payload: []byte("late")}); !errors.Is(err, ErrExperimentalMuxStreamClosed) {
+		t.Fatalf("Send after Close error = %v, want ErrExperimentalMuxStreamClosed", err)
+	}
+	if err := stream.CloseSend(context.Background(), "again"); err != nil {
+		t.Fatalf("CloseSend after Close error = %v, want nil", err)
+	}
+	if err := stream.CloseWithCode(context.Background(), CodeCanceled, "again"); err != nil {
+		t.Fatalf("CloseWithCode after Close error = %v, want nil", err)
+	}
+	if _, err := stream.Receive(muxTestTimeoutContext(t)); !errors.Is(err, ErrExperimentalMuxStreamClosed) {
+		t.Fatalf("local Receive after Close error = %v, want ErrExperimentalMuxStreamClosed", err)
+	}
+}
+
+func TestExperimentalMuxTransportCustomCodecsAndClosedConnection(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	client := NewExperimentalMuxTransport(
+		clientConn,
+		WithExperimentalMuxPayloadCodec(NoopPayloadCodec{}),
+		WithExperimentalMuxFrameCodec(BinaryFrameCodec{}),
+	)
+	server := NewExperimentalMuxTransport(
+		serverConn,
+		WithExperimentalMuxServerRole(),
+		WithExperimentalMuxPayloadCodec(NoopPayloadCodec{}),
+		WithExperimentalMuxFrameCodec(BinaryFrameCodec{}),
+	)
+	defer client.Close()
+	defer server.Close()
+
+	stream, err := client.OpenStream(context.Background())
+	if err != nil {
+		t.Fatalf("OpenStream: %v", err)
+	}
+	accepted, err := server.AcceptStream(muxTestTimeoutContext(t))
+	if err != nil {
+		t.Fatalf("AcceptStream: %v", err)
+	}
+	if err := stream.Send(context.Background(), Message{Payload: []byte("plain")}); err != nil {
+		t.Fatalf("Send custom codec payload: %v", err)
+	}
+	msg, err := accepted.Receive(muxTestTimeoutContext(t))
+	if err != nil {
+		t.Fatalf("Receive custom codec payload: %v", err)
+	}
+	if string(msg.Payload) != "plain" || msg.Codec != (NoopPayloadCodec{}).Name() {
+		t.Fatalf("Receive custom codec message = %+v, want raw plain payload", msg)
+	}
+
+	if err := client.Close(); err != nil {
+		t.Fatalf("Close client: %v", err)
+	}
+	if _, err := client.OpenStream(context.Background()); !errors.Is(err, ErrExperimentalMuxTransportClosed) {
+		t.Fatalf("OpenStream after Close error = %v, want ErrExperimentalMuxTransportClosed", err)
+	}
+	if _, err := client.AcceptStream(context.Background()); !errors.Is(err, ErrExperimentalMuxTransportClosed) {
+		t.Fatalf("AcceptStream after Close error = %v, want ErrExperimentalMuxTransportClosed", err)
+	}
+	if err := client.Drain(context.Background(), "closed"); !errors.Is(err, ErrExperimentalMuxTransportClosed) {
+		t.Fatalf("Drain after Close error = %v, want ErrExperimentalMuxTransportClosed", err)
+	}
+}
+
 func assertMuxPayload(t *testing.T, stream *ExperimentalMuxStream, want string) {
 	t.Helper()
 	msg, err := stream.Receive(muxTestTimeoutContext(t))

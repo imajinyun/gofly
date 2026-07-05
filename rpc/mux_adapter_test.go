@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"strings"
 	"testing"
 )
 
@@ -125,6 +126,158 @@ func TestExperimentalMuxAdapterRejectsUnknownMethod(t *testing.T) {
 			snapshot.LastMethod == "orders/Missing" &&
 			snapshot.LastError != ""
 	}, "mux adapter rejected unknown method")
+
+	cancel()
+	if err := <-serveDone; err != nil {
+		t.Fatalf("Serve returned error after cancel: %v", err)
+	}
+}
+
+func TestExperimentalMuxAdapterDefensiveBoundaries(t *testing.T) {
+	var nilClient *ExperimentalMuxClientAdapter
+	if _, err := nilClient.OpenStream(context.Background(), "orders/Watch"); !errors.Is(err, ErrExperimentalMuxTransportClosed) {
+		t.Fatalf("nil client OpenStream error = %v, want ErrExperimentalMuxTransportClosed", err)
+	}
+	if err := nilClient.Close(); err != nil {
+		t.Fatalf("nil client Close error = %v, want nil", err)
+	}
+	nilClientSnapshot := nilClient.Snapshot()
+	if nilClientSnapshot.Role != "client" || !nilClientSnapshot.Transport.Closed {
+		t.Fatalf("nil client snapshot = %+v, want closed client", nilClientSnapshot)
+	}
+	clientComponent := nilClient.RuntimeComponentSnapshot(context.Background())
+	if clientComponent.Status != "closed" {
+		t.Fatalf("nil client runtime status = %q, want closed", clientComponent.Status)
+	}
+
+	var nilServer *ExperimentalMuxServerAdapter
+	if err := nilServer.RegisterStream("orders/Watch", func(context.Context, *ExperimentalMuxStream) error { return nil }); !errors.Is(err, ErrExperimentalMuxTransportClosed) {
+		t.Fatalf("nil server RegisterStream error = %v, want ErrExperimentalMuxTransportClosed", err)
+	}
+	if err := nilServer.Serve(context.Background()); !errors.Is(err, ErrExperimentalMuxTransportClosed) {
+		t.Fatalf("nil server Serve error = %v, want ErrExperimentalMuxTransportClosed", err)
+	}
+	if err := nilServer.Close(); err != nil {
+		t.Fatalf("nil server Close error = %v, want nil", err)
+	}
+	nilServerSnapshot := nilServer.Snapshot()
+	if nilServerSnapshot.Role != "server" || !nilServerSnapshot.Transport.Closed {
+		t.Fatalf("nil server snapshot = %+v, want closed server", nilServerSnapshot)
+	}
+
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	clientComponent = nilClient.RuntimeComponentSnapshot(canceled)
+	if clientComponent.Status != "error" || clientComponent.Error == "" {
+		t.Fatalf("canceled client component = %+v, want error status", clientComponent)
+	}
+	serverComponent := nilServer.RuntimeComponentSnapshot(canceled)
+	if serverComponent.Status != "error" || serverComponent.Error == "" {
+		t.Fatalf("canceled server component = %+v, want error status", serverComponent)
+	}
+}
+
+func TestExperimentalMuxAdapterRegistrationValidation(t *testing.T) {
+	_, serverConn := net.Pipe()
+	server := NewExperimentalMuxServerAdapter(serverConn)
+	defer server.Close()
+
+	if err := server.RegisterStream(" ", func(context.Context, *ExperimentalMuxStream) error { return nil }); CodeOf(err) != CodeInvalidArgument {
+		t.Fatalf("RegisterStream blank method error = %v, want CodeInvalidArgument", err)
+	}
+	if err := server.RegisterStream("orders/Watch", nil); CodeOf(err) != CodeInvalidArgument {
+		t.Fatalf("RegisterStream nil handler error = %v, want CodeInvalidArgument", err)
+	}
+	handler := func(context.Context, *ExperimentalMuxStream) error { return nil }
+	if err := server.RegisterStream("/orders/Watch/", handler); err != nil {
+		t.Fatalf("RegisterStream first: %v", err)
+	}
+	if err := server.RegisterStream("orders/Watch", handler); CodeOf(err) != CodeAlreadyExists {
+		t.Fatalf("RegisterStream duplicate error = %v, want CodeAlreadyExists", err)
+	}
+	if got := normalizeExperimentalMuxMethod(" /orders/Watch/ "); got != "orders/Watch" {
+		t.Fatalf("normalizeExperimentalMuxMethod = %q, want orders/Watch", got)
+	}
+}
+
+func TestExperimentalMuxAdapterRejectsInvalidRouteFrame(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	clientTransport := NewExperimentalMuxTransport(clientConn)
+	server := NewExperimentalMuxServerAdapter(serverConn)
+	defer clientTransport.Close()
+	defer server.Close()
+
+	serveCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	serveDone := make(chan error, 1)
+	go func() {
+		serveDone <- server.Serve(serveCtx)
+	}()
+
+	stream, err := clientTransport.OpenStream(context.Background())
+	if err != nil {
+		t.Fatalf("OpenStream raw transport: %v", err)
+	}
+	if err := stream.Send(context.Background(), Message{Service: "wrong", Method: "orders/Watch"}); err != nil {
+		t.Fatalf("Send invalid route: %v", err)
+	}
+	if _, err := stream.Receive(muxTestTimeoutContext(t)); CodeOf(err) != CodeInvalidArgument {
+		t.Fatalf("Receive invalid route error = %v, want CodeInvalidArgument", err)
+	}
+	assertEventually(t, func() bool {
+		snapshot := server.Snapshot()
+		return snapshot.RejectedStreams == 1 && snapshot.LastError != ""
+	}, "mux adapter invalid route rejection")
+
+	cancel()
+	if err := <-serveDone; err != nil {
+		t.Fatalf("Serve returned error after cancel: %v", err)
+	}
+}
+
+func TestExperimentalMuxAdapterRecordsHandlerError(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	client := NewExperimentalMuxClientAdapter(clientConn)
+	server := NewExperimentalMuxServerAdapter(serverConn)
+	defer client.Close()
+	defer server.Close()
+
+	handlerErr := NewError(CodeAborted, "handler aborted")
+	if err := server.RegisterStream("orders/Watch", func(context.Context, *ExperimentalMuxStream) error {
+		return handlerErr
+	}); err != nil {
+		t.Fatalf("RegisterStream: %v", err)
+	}
+	serveCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	serveDone := make(chan error, 1)
+	go func() {
+		serveDone <- server.Serve(serveCtx)
+	}()
+
+	stream, err := client.OpenStream(context.Background(), "orders/Watch")
+	if err != nil {
+		t.Fatalf("OpenStream: %v", err)
+	}
+	if _, err := stream.Receive(muxTestTimeoutContext(t)); CodeOf(err) != CodeAborted {
+		t.Fatalf("Receive handler error = %v, want CodeAborted", err)
+	}
+	assertEventually(t, func() bool {
+		snapshot := server.Snapshot()
+		return snapshot.AcceptedStreams == 1 &&
+			snapshot.HandlerErrors == 1 &&
+			snapshot.LastMethod == "orders/Watch" &&
+			strings.Contains(snapshot.LastError, "handler aborted")
+	}, "mux adapter handler error snapshot")
+
+	component := client.RuntimeComponentSnapshot(context.Background())
+	if component.Name != "rpc.mux.client" || component.Kind != "client" || component.Owner != "rpc" || component.Status == "" {
+		t.Fatalf("client runtime component = %+v, want rpc mux client component", component)
+	}
+	diagnosis := client.DiagnosisSnapshot()
+	if diagnosis.Mode != "experimental_mux" || !diagnosis.Enabled || diagnosis.Transport.OpenedStreams != 1 {
+		t.Fatalf("client diagnosis = %+v, want enabled experimental mux transport", diagnosis)
+	}
 
 	cancel()
 	if err := <-serveDone; err != nil {

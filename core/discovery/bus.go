@@ -48,7 +48,11 @@ func (b *Bus) Subscribe(ctx context.Context, service string, buffer int) (<-chan
 	var once sync.Once
 	cancel := func() {
 		once.Do(func() {
+			shouldClose := true
 			b.mu.Lock()
+			if b.closed {
+				shouldClose = false
+			}
 			if subs := b.subscribers[service]; subs != nil {
 				delete(subs, ch)
 				if len(subs) == 0 {
@@ -56,7 +60,9 @@ func (b *Bus) Subscribe(ctx context.Context, service string, buffer int) (<-chan
 				}
 			}
 			b.mu.Unlock()
-			close(ch)
+			if shouldClose {
+				close(ch)
+			}
 		})
 	}
 	go func() {

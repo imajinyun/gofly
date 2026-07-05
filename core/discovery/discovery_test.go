@@ -100,6 +100,43 @@ func TestDiffInstancesClassifiesChanges(t *testing.T) {
 	}
 }
 
+func TestChangeSetEmptyAndDiffOrdering(t *testing.T) {
+	if !((ChangeSet{}).Empty()) {
+		t.Fatal("zero ChangeSet should be empty")
+	}
+	if (ChangeSet{Unchanged: []Instance{{Service: "orders", ID: "a", Endpoint: "http://a"}}}).Empty() {
+		t.Fatal("ChangeSet with unchanged instances should not be empty")
+	}
+
+	previous := []Instance{
+		{Service: "payments", ID: "z", Endpoint: "http://z"},
+		{Service: "orders", ID: "b", Endpoint: "http://b"},
+		{Service: "orders", ID: "a", Endpoint: "http://a"},
+		{Service: "", ID: "", Endpoint: ""},
+	}
+	current := []Instance{
+		{Service: "orders", ID: "d", Endpoint: "http://d"},
+		{Service: "orders", ID: "c", Endpoint: "http://c"},
+		{Service: "payments", ID: "p", Endpoint: "http://payments-p"},
+		{Service: "", ID: "", Endpoint: ""},
+	}
+	changes := DiffInstances(previous, current)
+	if len(changes.Added) != 3 {
+		t.Fatalf("added = %#v, want 3 non-empty instances", changes.Added)
+	}
+	gotAdded := []string{
+		changes.Added[0].Service + "/" + changes.Added[0].ID,
+		changes.Added[1].Service + "/" + changes.Added[1].ID,
+		changes.Added[2].Service + "/" + changes.Added[2].ID,
+	}
+	wantAdded := []string{"orders/c", "orders/d", "payments/p"}
+	for i := range wantAdded {
+		if gotAdded[i] != wantAdded[i] {
+			t.Fatalf("added order = %v, want %v", gotAdded, wantAdded)
+		}
+	}
+}
+
 func TestBusPublishSubscribeAndClose(t *testing.T) {
 	bus := NewBus()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -136,6 +173,40 @@ func TestBusPublishSubscribeAndClose(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("timeout waiting for bus close")
+	}
+}
+
+func TestBusNilClosedAndBackpressure(t *testing.T) {
+	var nilBus *Bus
+	nilBus.Publish(Event{Type: EventAdded, Service: "orders"})
+	nilBus.Close()
+	closed, unsubscribe := nilBus.Subscribe(context.Background(), "orders", 1)
+	defer unsubscribe()
+	if _, ok := <-closed; ok {
+		t.Fatal("nil bus subscription should be closed")
+	}
+
+	bus := NewBus()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	events, unsubscribe := bus.Subscribe(ctx, "orders", 1)
+	defer unsubscribe()
+	bus.Publish(Event{Type: EventAdded, Service: "orders", Instance: Instance{ID: "old"}})
+	bus.Publish(Event{Type: EventUpdated, Service: "orders", Instance: Instance{ID: "new"}})
+	select {
+	case event := <-events:
+		if event.Type != EventUpdated || event.Instance.ID != "new" {
+			t.Fatalf("backpressure event = %#v, want latest update", event)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for backpressure event")
+	}
+
+	bus.Close()
+	bus.Publish(Event{Type: EventRemoved, Service: "orders", Instance: Instance{ID: "ignored"}})
+	afterClose, _ := bus.Subscribe(context.Background(), "orders", 1)
+	if _, ok := <-afterClose; ok {
+		t.Fatal("subscription after bus close should be closed")
 	}
 }
 

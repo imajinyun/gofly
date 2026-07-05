@@ -31,6 +31,8 @@ const (
 	experimentalMuxFrameWindowConn byte = 10
 	experimentalMuxFrameDataFrag   byte = 11
 	experimentalMuxFrameDataEnd    byte = 12
+
+	experimentalMuxMaxWindowSlots = 64 * 1024
 )
 
 var (
@@ -246,6 +248,8 @@ func NewExperimentalMuxTransport(conn net.Conn, opts ...ExperimentalMuxTransport
 	if t.connectionWindow <= 0 {
 		t.connectionWindow = t.receiveQueueSize
 	}
+	t.receiveQueueSize = clampExperimentalMuxWindow(t.receiveQueueSize)
+	t.connectionWindow = clampExperimentalMuxWindow(t.connectionWindow)
 	if t.maxFrame <= 0 {
 		t.maxFrame = DefaultMaxFrameBytes
 	}
@@ -262,7 +266,7 @@ func NewExperimentalMuxTransport(conn net.Conn, opts ...ExperimentalMuxTransport
 		t.nextID = 2
 	}
 	t.connCredit = make(chan struct{}, t.connectionWindow)
-	t.addConnectionCredit(uint32(t.connectionWindow))
+	t.addConnectionCreditSlots(t.connectionWindow)
 	t.lastCloseCode.Store(CodeOK)
 	t.lastCloseReason.Store("")
 	now := time.Now()
@@ -299,6 +303,16 @@ func WithExperimentalMuxConnectionWindow(size int) ExperimentalMuxTransportOptio
 			t.connectionWindow = size
 		}
 	}
+}
+
+func clampExperimentalMuxWindow(size int) int {
+	if size <= 0 {
+		return 1
+	}
+	if size > experimentalMuxMaxWindowSlots {
+		return experimentalMuxMaxWindowSlots
+	}
+	return size
 }
 
 // WithExperimentalMuxMaxConcurrentStreams limits active logical streams per connection.
@@ -845,6 +859,9 @@ func (t *ExperimentalMuxTransport) dispatchFrame(frame experimentalMuxFrame) err
 func (t *ExperimentalMuxTransport) registerStream(streamID uint64, enforceLimit bool) (*ExperimentalMuxStream, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	if t.closed {
+		return nil, ErrExperimentalMuxTransportClosed
+	}
 	if stream := t.streams[streamID]; stream != nil {
 		return stream, nil
 	}
@@ -864,7 +881,7 @@ func (t *ExperimentalMuxTransport) registerStream(streamID uint64, enforceLimit 
 		credit: make(chan struct{}, t.receiveQueueSize),
 		done:   make(chan struct{}),
 	}
-	stream.addCredit(uint32(t.receiveQueueSize))
+	stream.addCreditSlots(t.receiveQueueSize)
 	t.streams[streamID] = stream
 	return stream, nil
 }
@@ -897,7 +914,7 @@ func (t *ExperimentalMuxTransport) getOrAcceptStream(streamID uint64, rejectWhen
 		credit: make(chan struct{}, t.receiveQueueSize),
 		done:   make(chan struct{}),
 	}
-	stream.addCredit(uint32(t.receiveQueueSize))
+	stream.addCreditSlots(t.receiveQueueSize)
 	t.streams[streamID] = stream
 	closed := t.closed
 	t.mu.Unlock()
@@ -1213,6 +1230,15 @@ func (t *ExperimentalMuxTransport) addConnectionCredit(delta uint32) {
 	}
 }
 
+func (t *ExperimentalMuxTransport) addConnectionCreditSlots(delta int) {
+	if t == nil || delta <= 0 {
+		return
+	}
+	for range delta {
+		t.releaseConnectionCredit()
+	}
+}
+
 func (s *ExperimentalMuxStream) appendFragment(payload []byte) error {
 	if s == nil || s.t == nil {
 		return ErrExperimentalMuxStreamClosed
@@ -1274,6 +1300,15 @@ func (s *ExperimentalMuxStream) releaseCredit() {
 
 func (s *ExperimentalMuxStream) addCredit(delta uint32) {
 	if s == nil || delta == 0 {
+		return
+	}
+	for range delta {
+		s.releaseCredit()
+	}
+}
+
+func (s *ExperimentalMuxStream) addCreditSlots(delta int) {
+	if s == nil || delta <= 0 {
 		return
 	}
 	for range delta {

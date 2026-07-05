@@ -52,3 +52,42 @@ func TestNilRegistrySnapshotIsSafe(t *testing.T) {
 		t.Fatalf("nil snapshot = %#v, want generated empty snapshot", snapshot)
 	}
 }
+
+func TestRegistrySnapshotPreservesRegistrationMetadata(t *testing.T) {
+	reg := NewRegistry()
+	reg.Register("", "server", func(context.Context) ComponentSnapshot {
+		return ComponentSnapshot{Name: "ignored", Kind: "server"}
+	})
+	reg.Register("missing-kind", "", func(context.Context) ComponentSnapshot {
+		return ComponentSnapshot{Name: "ignored", Kind: "server"}
+	})
+	reg.Register("missing-dump", "server", nil)
+	reg.Register("fallback", "worker", func(context.Context) ComponentSnapshot {
+		return ComponentSnapshot{Status: "ok"}
+	}, nil, WithOwner("  rpc  "), WithTarget("  orders  "))
+	reg.Register("ctx", "client", func(ctx context.Context) ComponentSnapshot {
+		if ctx == nil {
+			t.Fatal("snapshot context must be normalized")
+		}
+		return ComponentSnapshot{Name: "ctx", Kind: "client", Owner: "rpc", Target: "client", Status: "ok"}
+	})
+
+	var nilContext context.Context
+	snapshot := reg.Snapshot(nilContext)
+	if len(snapshot.Components) != 2 {
+		t.Fatalf("components = %d, want 2 valid registrations", len(snapshot.Components))
+	}
+	var fallback ComponentSnapshot
+	for _, component := range snapshot.Components {
+		if component.Name == "fallback" {
+			fallback = component
+		}
+	}
+	if fallback.Name != "fallback" ||
+		fallback.Kind != "worker" ||
+		fallback.Owner != "rpc" ||
+		fallback.Target != "orders" ||
+		fallback.Status != "ok" {
+		t.Fatalf("fallback component = %#v, want registration metadata restored", fallback)
+	}
+}

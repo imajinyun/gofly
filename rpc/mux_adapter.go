@@ -167,7 +167,11 @@ func (a *ExperimentalMuxServerAdapter) Serve(ctx context.Context) error {
 			}
 			return err
 		}
-		go a.handleStream(ctx, stream)
+		streamCtx, cancel := context.WithCancel(ctx)
+		go func() {
+			defer cancel()
+			a.handleStream(streamCtx, stream)
+		}()
 	}
 }
 

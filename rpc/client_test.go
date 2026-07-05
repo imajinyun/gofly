@@ -1546,6 +1546,76 @@ func TestHTTPClientRuntimeSnapshotAndResolverWatchCloseIdle(t *testing.T) {
 	}
 }
 
+func TestHTTPClientRuntimeComponentSnapshot(t *testing.T) {
+	c, err := NewClient(
+		"http://a",
+		WithClientMiddleware(func(next endpoint.Endpoint) endpoint.Endpoint { return next }),
+		WithClientStreamMiddleware(func(next ClientStreamHandler) ClientStreamHandler { return next }),
+		WithRPCPolicy(RPCPolicy{Retry: governance.RetryPolicy{Attempts: 2}, Breaker: governance.BreakerPolicy{Enabled: true}}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	component := c.RuntimeComponentSnapshot(context.Background())
+	if component.Name != "rpc.http.client" ||
+		component.Kind != "client" ||
+		component.Owner != "rpc" ||
+		component.Target != "http://a" ||
+		component.Status != "ok" {
+		t.Fatalf("runtime component = %+v, want rpc http client component", component)
+	}
+	if component.Middleware == nil ||
+		len(component.Middleware.Unary) != 1 ||
+		len(component.Middleware.Stream) != 1 {
+		t.Fatalf("runtime component middleware = %+v, want unary and stream layers", component.Middleware)
+	}
+	if component.Retry != 2 || component.Breaker != true {
+		t.Fatalf("runtime component retry/breaker = %v/%v, want retry 2 and breaker enabled", component.Retry, component.Breaker)
+	}
+	if component.Details == nil || component.Governance == nil {
+		t.Fatalf("runtime component details/governance missing: %+v", component)
+	}
+
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	component = c.RuntimeComponentSnapshot(canceled)
+	if component.Status != "error" || component.Error == "" || component.Target != "http://a" {
+		t.Fatalf("canceled runtime component = %+v, want error status with target", component)
+	}
+}
+
+func TestRPCRuntimeContributorsHandleNilAndCanceledInputs(t *testing.T) {
+	c, err := NewClient("http://a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	if err := (RPCPolicyRuntimeContributor{Name: "nil-snapshot", Client: c}).ContributeSnapshot(context.Background(), nil); err != nil {
+		t.Fatalf("policy contributor nil snapshot: %v", err)
+	}
+	if err := (RPCPolicyRuntimeContributor{Name: "nil-client"}).ContributeSnapshot(context.Background(), &controlplane.Snapshot{}); err != nil {
+		t.Fatalf("policy contributor nil client: %v", err)
+	}
+	if err := (RPCRuntimeContributor{Name: "nil-snapshot", Client: c}).ContributeSnapshot(context.Background(), nil); err != nil {
+		t.Fatalf("runtime contributor nil snapshot: %v", err)
+	}
+	if err := (RPCRuntimeContributor{Name: "nil-client"}).ContributeSnapshot(context.Background(), &controlplane.Snapshot{}); err != nil {
+		t.Fatalf("runtime contributor nil client: %v", err)
+	}
+
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := (RPCPolicyRuntimeContributor{Name: "canceled", Client: c}).ContributeSnapshot(canceled, &controlplane.Snapshot{}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("policy contributor canceled error = %v, want context.Canceled", err)
+	}
+	if err := (RPCRuntimeContributor{Name: "canceled", Client: c}).ContributeSnapshot(canceled, &controlplane.Snapshot{}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("runtime contributor canceled error = %v, want context.Canceled", err)
+	}
+}
+
 func TestHTTPClientRuntimeSnapshotRecordsDiscoveryEvents(t *testing.T) {
 	registry := discovery.NewMemoryRegistry()
 	if _, err := registry.Register(context.Background(), discovery.Instance{Service: "orders", ID: "a", Endpoint: "http://a", Weight: 1}); err != nil {

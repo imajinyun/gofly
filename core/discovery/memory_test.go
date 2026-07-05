@@ -113,3 +113,153 @@ func TestMemoryRegistryWatchLeaseAndTTL(t *testing.T) {
 		t.Fatalf("watchers = %d, want 0", watchers)
 	}
 }
+
+func TestMemoryRegistryValidationAndSnapshotCopies(t *testing.T) {
+	registry := NewMemoryRegistry()
+	if _, err := registry.Register(context.Background(), Instance{Service: "", Endpoint: "http://127.0.0.1:8081"}); err == nil {
+		t.Fatal("Register without service should fail")
+	}
+	if _, err := registry.Register(context.Background(), Instance{Service: "orders", Endpoint: ""}); err == nil {
+		t.Fatal("Register without endpoint should fail")
+	}
+
+	if _, err := registry.Register(context.Background(), Instance{
+		Service:  "orders",
+		Endpoint: "http://127.0.0.1:8081",
+		Tags:     map[string]string{"role": "primary"},
+		Metadata: map[string]string{"owner": "checkout"},
+	}); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	snapshot := registry.Snapshot()
+	snapshot["orders"][0].Tags["role"] = "mutated"
+	snapshot["orders"][0].Metadata["owner"] = "mutated"
+	again := registry.Snapshot()
+	if again["orders"][0].Tags["role"] != "primary" || again["orders"][0].Metadata["owner"] != "checkout" {
+		t.Fatalf("snapshot leaked mutable internals: %#v", again["orders"][0])
+	}
+
+	if err := registry.Deregister(context.Background(), Instance{}); err != nil {
+		t.Fatalf("empty deregister should be no-op: %v", err)
+	}
+	if _, err := registry.Resolve(context.Background(), "missing"); !errors.Is(err, ErrNoInstances) {
+		t.Fatalf("missing resolve err = %v, want ErrNoInstances", err)
+	}
+}
+
+func TestMemoryRegistryRegisterSurvivesExpiredServiceMapCleanup(t *testing.T) {
+	registry := NewMemoryRegistry()
+	if _, err := registry.Register(context.Background(), Instance{Service: "orders", ID: "old", Endpoint: "http://old"}, WithTTL(time.Millisecond)); err != nil {
+		t.Fatalf("register old: %v", err)
+	}
+	time.Sleep(2 * time.Millisecond)
+	if _, err := registry.Register(context.Background(), Instance{Service: "orders", ID: "new", Endpoint: "http://new"}); err != nil {
+		t.Fatalf("register new after expired cleanup: %v", err)
+	}
+	instances, err := registry.Resolve(context.Background(), "orders")
+	if err != nil {
+		t.Fatalf("resolve after expired cleanup: %v", err)
+	}
+	if len(instances) != 1 || instances[0].ID != "new" {
+		t.Fatalf("instances after expired cleanup = %#v, want only new", instances)
+	}
+}
+
+func TestMemoryLeaseKeepAliveBoundaries(t *testing.T) {
+	registry := NewMemoryRegistry()
+	noTTLLease, err := registry.Register(context.Background(), Instance{Service: "orders", ID: "no-ttl", Endpoint: "http://127.0.0.1:8080"})
+	if err != nil {
+		t.Fatalf("register no ttl: %v", err)
+	}
+	if err := noTTLLease.KeepAlive(context.Background()); err != nil {
+		t.Fatalf("KeepAlive without ttl = %v, want nil", err)
+	}
+	if expiresAt := noTTLLease.ExpiresAt(); !expiresAt.IsZero() {
+		t.Fatalf("no ttl ExpiresAt = %s, want zero", expiresAt)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	events, err := registry.Watch(ctx, "orders")
+	if err != nil {
+		t.Fatalf("watch: %v", err)
+	}
+	<-events
+	defer cancel()
+
+	lease, err := registry.Register(context.Background(), Instance{Service: "orders", ID: "ttl", Endpoint: "http://127.0.0.1:8081"}, WithTTL(time.Hour))
+	if err != nil {
+		t.Fatalf("register ttl: %v", err)
+	}
+	<-events
+	before := lease.ExpiresAt()
+	if before.IsZero() {
+		t.Fatal("ttl lease expiration should be set")
+	}
+	time.Sleep(time.Millisecond)
+	if err := lease.KeepAlive(context.Background()); err != nil {
+		t.Fatalf("KeepAlive: %v", err)
+	}
+	updated := <-events
+	if updated.Type != EventUpdated || len(updated.Changes.Updated) != 1 || updated.Changes.Updated[0].ID != "ttl" {
+		t.Fatalf("keepalive event = %#v, want updated ttl lease", updated)
+	}
+	if after := lease.ExpiresAt(); !after.After(before) {
+		t.Fatalf("KeepAlive did not extend ttl: before=%s after=%s", before, after)
+	}
+
+	canceled, stop := context.WithCancel(context.Background())
+	stop()
+	if err := lease.KeepAlive(canceled); !errors.Is(err, context.Canceled) {
+		t.Fatalf("KeepAlive canceled err = %v, want context.Canceled", err)
+	}
+
+	missing := &memoryLease{
+		registry: registry,
+		instance: Instance{Service: "orders", ID: "missing", Endpoint: "http://missing"},
+		ttl:      time.Hour,
+	}
+	if err := missing.KeepAlive(context.Background()); err != nil {
+		t.Fatalf("missing lease KeepAlive should be no-op: %v", err)
+	}
+}
+
+func TestMemoryRegistryWatchFiltersAndBackpressure(t *testing.T) {
+	registry := NewMemoryRegistry()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	events, err := registry.Watch(ctx, "orders", WithTag("role", "primary"))
+	if err != nil {
+		t.Fatalf("watch: %v", err)
+	}
+	<-events
+
+	if _, err := registry.Register(context.Background(), Instance{Service: "orders", ID: "secondary", Endpoint: "http://secondary", Tags: map[string]string{"role": "secondary"}}); err != nil {
+		t.Fatalf("register secondary: %v", err)
+	}
+	secondary := nextMemoryDiscoveryEvent(t, events)
+	if len(secondary.Instances) != 0 {
+		t.Fatalf("filtered watcher instances = %#v, want none", secondary.Instances)
+	}
+
+	if _, err := registry.Register(context.Background(), Instance{Service: "orders", ID: "old", Endpoint: "http://old", Tags: map[string]string{"role": "primary"}}); err != nil {
+		t.Fatalf("register old: %v", err)
+	}
+	if _, err := registry.Register(context.Background(), Instance{Service: "orders", ID: "new", Endpoint: "http://new", Tags: map[string]string{"role": "primary"}}); err != nil {
+		t.Fatalf("register new: %v", err)
+	}
+	latest := nextMemoryDiscoveryEvent(t, events)
+	if latest.Type != EventRegistered || latest.Instance.ID != "new" || len(latest.Instances) != 2 {
+		t.Fatalf("backpressure watcher event = %#v, want latest primary registration", latest)
+	}
+}
+
+func nextMemoryDiscoveryEvent(t *testing.T, ch <-chan Event) Event {
+	t.Helper()
+	select {
+	case event := <-ch:
+		return event
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for memory discovery event")
+	}
+	return Event{}
+}

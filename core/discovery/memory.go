@@ -75,6 +75,9 @@ func (r *MemoryRegistry) Register(ctx context.Context, instance Instance, opts .
 		r.services[instance.Service] = make(map[string]memoryEntry)
 	}
 	previous := r.resolveLocked(instance.Service, resolveOptions{includeUnhealthy: true}, time.Now(), nil)
+	if r.services[instance.Service] == nil {
+		r.services[instance.Service] = make(map[string]memoryEntry)
+	}
 	r.services[instance.Service][instance.ID] = entry
 	current := r.resolveLocked(instance.Service, resolveOptions{includeUnhealthy: true}, time.Now(), nil)
 	r.mu.Unlock()

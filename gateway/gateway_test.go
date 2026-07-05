@@ -1830,6 +1830,82 @@ func TestRouteConfigsFromOpenAPIValidation(t *testing.T) {
 	}
 }
 
+func TestRouteConfigsFromOpenAPIEdgeCases(t *testing.T) {
+	doc := rest.OpenAPIDocument{Paths: map[string]map[string]rest.Operation{
+		"/": {
+			"HEAD":    {Tags: []string{"root"}},
+			"options": {OperationID: "rootOptions", Tags: []string{"root"}},
+		},
+		"/files/{path}": {
+			"patch": {Tags: []string{"files"}},
+		},
+	}}
+	routes, err := RouteConfigsFromOpenAPI(doc, OpenAPIRouteOptions{
+		NamePrefix:    "edge",
+		GatewayPrefix: "/gw",
+		Service:       "default",
+		Headers:       map[string]string{"X-Base": "edge"},
+		Groups: []OpenAPIRouteGroup{{
+			Name:      "files",
+			MatchTags: []string{"FILES"},
+			Targets:   []string{"http://127.0.0.1:1"},
+			Headers:   map[string]string{"X-Group": "files"},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("RouteConfigsFromOpenAPI edge cases: %v", err)
+	}
+	if len(routes) != 3 {
+		t.Fatalf("routes length = %d, want 3", len(routes))
+	}
+	byMethod := make(map[string]RouteConfig, len(routes))
+	for _, route := range routes {
+		byMethod[route.Method] = route
+	}
+	if head := byMethod[http.MethodHead]; head.Name != "edge-head-root" || head.PathPrefix != "/gw" || head.UpstreamPrefix != "" || head.Service != "default" {
+		t.Fatalf("head route = %+v, want root defaults", head)
+	}
+	if options := byMethod[http.MethodOptions]; options.Name != "edgerootOptions" || options.PathPrefix != "/gw" {
+		t.Fatalf("options route = %+v, want operation id name and root path", options)
+	}
+	if patch := byMethod[http.MethodPatch]; patch.Name != "files--patch-files-wildcard" || patch.PathPrefix != "/gw/files" || patch.UpstreamPrefix != "/files" || patch.Headers["X-Base"] != "edge" || patch.Headers["X-Group"] != "files" || len(patch.Targets) != 1 {
+		t.Fatalf("patch route = %+v, want group override and wildcard name", patch)
+	}
+
+	_, err = RouteConfigsFromOpenAPI(
+		rest.OpenAPIDocument{Paths: map[string]map[string]rest.Operation{"/orders": {"get": {Tags: []string{"orders"}}}}},
+		OpenAPIRouteOptions{Groups: []OpenAPIRouteGroup{{MatchTags: []string{"orders"}}}},
+	)
+	if !errors.Is(err, ErrRouteRequired) {
+		t.Fatalf("matched group without upstream error = %v, want ErrRouteRequired", err)
+	}
+
+	_, err = RouteConfigsFromOpenAPI(
+		rest.OpenAPIDocument{Paths: map[string]map[string]rest.Operation{"/orders//items": {"get": {}}}},
+		OpenAPIRouteOptions{Targets: []string{"http://127.0.0.1:1"}},
+	)
+	if err == nil || !strings.Contains(err.Error(), "empty segment") {
+		t.Fatalf("empty segment error = %v", err)
+	}
+}
+
+func TestFetchOpenAPIDocumentDecodeAndContextValidation(t *testing.T) {
+	var nilContext context.Context
+	if _, err := FetchOpenAPIDocument(nilContext, OpenAPIURLSource{URL: "http://127.0.0.1/openapi.json"}); err == nil || !strings.Contains(err.Error(), "context is required") {
+		t.Fatalf("nil context error = %v", err)
+	}
+	if _, err := FetchOpenAPIDocument(context.Background(), OpenAPIURLSource{URL: "http:///openapi.json"}); err == nil || !strings.Contains(err.Error(), "host is required") {
+		t.Fatalf("missing host error = %v", err)
+	}
+	invalidJSONServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{`)
+	}))
+	t.Cleanup(invalidJSONServer.Close)
+	if _, err := FetchOpenAPIDocument(context.Background(), OpenAPIURLSource{URL: invalidJSONServer.URL}); err == nil || !strings.Contains(err.Error(), "decode openapi document") {
+		t.Fatalf("decode error = %v", err)
+	}
+}
+
 func TestGatewayProxyRetryBackoffCancellation(t *testing.T) {
 	var cancel context.CancelFunc
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

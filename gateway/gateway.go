@@ -138,6 +138,15 @@ type TranscodePayloadMapping struct {
 	Default any    `json:"default,omitempty"`
 }
 
+// TranscodeProfile binds descriptor methods to request and response mapping
+// contracts that can be reused by multiple gateway routes.
+type TranscodeProfile struct {
+	Descriptor       string                    `json:"descriptor"`
+	DescriptorMethod string                    `json:"descriptorMethod"`
+	RequestMappings  []TranscodePayloadMapping `json:"requestMappings,omitempty"`
+	ResponseMappings []TranscodePayloadMapping `json:"responseMappings,omitempty"`
+}
+
 // AggregationConfig enables BFF-style fan-out aggregation for a route. When
 // enabled, the gateway issues each step as an upstream HTTP request and returns
 // a JSON envelope keyed by step name.
@@ -300,6 +309,7 @@ type Gateway struct {
 	transcoderMu        sync.Mutex
 	transcoderFactory   TranscoderFactory
 	descriptors         map[string]rpc.Descriptor
+	transcodeProfiles   map[string]TranscodeProfile
 	activeHealth        ActiveHealthConfig
 	shadowPool          *shadowPool
 	logger              *slog.Logger
@@ -348,6 +358,7 @@ type RuntimeSnapshot struct {
 	MaxBodyBytes        int64                   `json:"maxBodyBytes,omitempty"`
 	MaxExpandedEndpoint int                     `json:"maxExpandedEndpoint,omitempty"`
 	RouteCount          int                     `json:"routeCount"`
+	TranscodeProfiles   []TranscodeProfile      `json:"transcodeProfiles,omitempty"`
 	Routes              []RouteRuntimeSnapshot  `json:"routes,omitempty"`
 	Cache               RuntimeCacheSnapshot    `json:"cache,omitempty"`
 	PassiveHealth       *PassiveRuntimeSnapshot `json:"passiveHealth,omitempty"`
@@ -384,6 +395,7 @@ type RuntimeCacheSnapshot struct {
 	RetryUpstreamBudget int `json:"retryUpstreamBudgets,omitempty"`
 	Transcoders         int `json:"transcoders,omitempty"`
 	Descriptors         int `json:"descriptors,omitempty"`
+	TranscodeProfiles   int `json:"transcodeProfiles,omitempty"`
 }
 
 // PassiveRuntimeSnapshot reports passive health runtime state.
@@ -621,6 +633,15 @@ func WithDescriptors(descriptors ...rpc.Descriptor) Option {
 	return func(g *Gateway) {
 		for _, desc := range descriptors {
 			_ = g.RegisterDescriptor(desc)
+		}
+	}
+}
+
+// WithTranscodeProfiles registers descriptor/method transcode mapping profiles.
+func WithTranscodeProfiles(profiles ...TranscodeProfile) Option {
+	return func(g *Gateway) {
+		for _, profile := range profiles {
+			_ = g.RegisterTranscodeProfile(profile)
 		}
 	}
 }
@@ -880,6 +901,30 @@ func (g *Gateway) RegisterDescriptor(desc rpc.Descriptor) error {
 	return nil
 }
 
+// RegisterTranscodeProfile registers a descriptor/method-level mapping profile.
+func (g *Gateway) RegisterTranscodeProfile(profile TranscodeProfile) error {
+	if g == nil {
+		return errors.New("gateway is nil")
+	}
+	profile.Descriptor = strings.TrimSpace(profile.Descriptor)
+	profile.DescriptorMethod = strings.Trim(strings.TrimSpace(profile.DescriptorMethod), "/")
+	if profile.Descriptor == "" {
+		return errors.New("transcode profile descriptor is required")
+	}
+	if profile.DescriptorMethod == "" {
+		return errors.New("transcode profile descriptor method is required")
+	}
+	profile.RequestMappings = normalizeTranscodePayloadMappings(profile.RequestMappings)
+	profile.ResponseMappings = normalizeTranscodePayloadMappings(profile.ResponseMappings)
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.transcodeProfiles == nil {
+		g.transcodeProfiles = make(map[string]TranscodeProfile)
+	}
+	g.transcodeProfiles[transcodeProfileKey(profile.Descriptor, profile.DescriptorMethod)] = cloneTranscodeProfile(profile)
+	return nil
+}
+
 // Descriptors returns the registered RPC descriptors keyed by service name.
 func (g *Gateway) Descriptors() map[string]rpc.Descriptor {
 	if g == nil {
@@ -891,6 +936,23 @@ func (g *Gateway) Descriptors() map[string]rpc.Descriptor {
 	for name, desc := range g.descriptors {
 		out[name] = cloneDescriptor(desc)
 	}
+	return out
+}
+
+// TranscodeProfiles returns registered descriptor/method mapping profiles.
+func (g *Gateway) TranscodeProfiles() []TranscodeProfile {
+	if g == nil {
+		return nil
+	}
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	out := make([]TranscodeProfile, 0, len(g.transcodeProfiles))
+	for _, profile := range g.transcodeProfiles {
+		out = append(out, cloneTranscodeProfile(profile))
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return transcodeProfileKey(out[i].Descriptor, out[i].DescriptorMethod) < transcodeProfileKey(out[j].Descriptor, out[j].DescriptorMethod)
+	})
 	return out
 }
 
@@ -1038,6 +1100,7 @@ func (g *Gateway) RuntimeSnapshot() RuntimeSnapshot {
 		MaxBodyBytes:        g.maxBodyBytes,
 		MaxExpandedEndpoint: g.maxExpandedEndpoint,
 		RouteCount:          len(routes),
+		TranscodeProfiles:   g.TranscodeProfiles(),
 		Routes:              make([]RouteRuntimeSnapshot, 0, len(routes)),
 		Cache:               g.runtimeCacheSnapshot(),
 		ActiveHealth:        g.activeHealth,
@@ -1104,6 +1167,7 @@ func (g *Gateway) runtimeCacheSnapshot() RuntimeCacheSnapshot {
 	g.transcoderMu.Unlock()
 	g.mu.RLock()
 	snapshot.Descriptors = len(g.descriptors)
+	snapshot.TranscodeProfiles = len(g.transcodeProfiles)
 	g.mu.RUnlock()
 	return snapshot
 }
@@ -1777,6 +1841,16 @@ func cloneTranscodePayloadMappings(mappings []TranscodePayloadMapping) []Transco
 		out[i].Default = cloneTranscodeMappingDefault(mapping.Default)
 	}
 	return out
+}
+
+func cloneTranscodeProfile(profile TranscodeProfile) TranscodeProfile {
+	profile.RequestMappings = cloneTranscodePayloadMappings(profile.RequestMappings)
+	profile.ResponseMappings = cloneTranscodePayloadMappings(profile.ResponseMappings)
+	return profile
+}
+
+func transcodeProfileKey(descriptor, method string) string {
+	return strings.TrimSpace(descriptor) + "/" + strings.Trim(strings.TrimSpace(method), "/")
 }
 
 func cloneTranscodeMappingDefault(value any) any {

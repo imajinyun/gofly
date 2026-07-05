@@ -37,7 +37,7 @@ func (g *Gateway) transcodeOnce(r *http.Request, route Route, endpoint string, b
 		}
 		return proxyResult{Endpoint: endpoint, Err: err}, err
 	}
-	payload, err := transcodeRequestPayload(r, route, body)
+	payload, err := transcodeRequestPayload(r, route, body, target.profile)
 	if err != nil {
 		callErr := rpc.NewError(rpc.CodeInvalidArgument, err.Error())
 		return proxyResult{
@@ -87,11 +87,21 @@ func (g *Gateway) transcodeOnce(r *http.Request, route Route, endpoint string, b
 	if brk != nil {
 		brk.MarkSuccess()
 	}
+	responseBody, err := transcodeResponsePayload(raw, target.profile)
+	if err != nil {
+		callErr := rpc.NewError(rpc.CodeInvalidArgument, err.Error())
+		return proxyResult{
+			Endpoint: endpoint,
+			Status:   http.StatusBadRequest,
+			Header:   transcodeResponseHeader(nil),
+			Body:     transcodeErrorBody(callErr),
+		}, nil
+	}
 	return proxyResult{
 		Endpoint: endpoint,
 		Status:   http.StatusOK,
 		Header:   transcodeResponseHeader(md),
-		Body:     append([]byte(nil), raw...),
+		Body:     responseBody,
 	}, nil
 }
 
@@ -127,6 +137,7 @@ func defaultTranscoderFactory(endpoint string, route Route) (rpc.GenericClient, 
 type transcodeResolvedTarget struct {
 	service string
 	method  string
+	profile *TranscodeProfile
 }
 
 func (g *Gateway) transcodeTarget(r *http.Request, route Route) (transcodeResolvedTarget, error) {
@@ -161,7 +172,7 @@ func (g *Gateway) transcodeDescriptorTarget(r *http.Request, route Route, descri
 	if !descriptorHasMethod(desc, method) {
 		return transcodeResolvedTarget{}, errors.New("transcode descriptor method not found")
 	}
-	return transcodeResolvedTarget{service: desc.Name, method: method}, nil
+	return transcodeResolvedTarget{service: desc.Name, method: method, profile: g.transcodeProfile(desc.Name, method)}, nil
 }
 
 func (g *Gateway) descriptor(name string) (rpc.Descriptor, bool) {
@@ -188,6 +199,20 @@ func descriptorHasMethod(desc rpc.Descriptor, name string) bool {
 	return false
 }
 
+func (g *Gateway) transcodeProfile(descriptor, method string) *TranscodeProfile {
+	if g == nil {
+		return nil
+	}
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	profile, ok := g.transcodeProfiles[transcodeProfileKey(descriptor, method)]
+	if !ok {
+		return nil
+	}
+	cloned := cloneTranscodeProfile(profile)
+	return &cloned
+}
+
 func transcodeTarget(r *http.Request, route Route) (string, string, error) {
 	service := strings.Trim(strings.TrimSpace(route.Transcode.Service), "/")
 	if service == "" {
@@ -212,9 +237,9 @@ func transcodeMethodFromPath(path, prefix string) string {
 	return trimmed
 }
 
-func transcodeRequestPayload(r *http.Request, route Route, body []byte) (json.RawMessage, error) {
+func transcodeRequestPayload(r *http.Request, route Route, body []byte, profile *TranscodeProfile) (json.RawMessage, error) {
 	if route.Transcode.Payload.Mode != "" {
-		return transcodeMappedRequestPayload(r, route, body)
+		return transcodeMappedRequestPayload(r, route, body, profile)
 	}
 	if len(bytes.TrimSpace(body)) == 0 {
 		return json.RawMessage("null"), nil
@@ -222,7 +247,7 @@ func transcodeRequestPayload(r *http.Request, route Route, body []byte) (json.Ra
 	return json.RawMessage(append([]byte(nil), body...)), nil
 }
 
-func transcodeMappedRequestPayload(r *http.Request, route Route, body []byte) (json.RawMessage, error) {
+func transcodeMappedRequestPayload(r *http.Request, route Route, body []byte, profile *TranscodeProfile) (json.RawMessage, error) {
 	source := transcodePayloadSource{Body: map[string]any{}}
 	if route.Transcode.Payload.MergeBodyObject {
 		if err := mergeTranscodeBody(source.Body, body, route.Transcode.Payload.BodyField, route.Transcode.Payload.BodyRequired, route.Transcode.Payload.BodySchema); err != nil {
@@ -240,7 +265,11 @@ func transcodeMappedRequestPayload(r *http.Request, route Route, body []byte) (j
 		return nil, err
 	}
 	source.Query = queryValues
-	payload, err := mappedTranscodePayload(source, route.Transcode.Payload)
+	payloadConfig := route.Transcode.Payload
+	if len(payloadConfig.Mappings) == 0 && profile != nil {
+		payloadConfig.Mappings = profile.RequestMappings
+	}
+	payload, err := mappedTranscodePayload(source, payloadConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -364,6 +393,28 @@ func setTranscodeMappingTarget(payload map[string]any, path string, value any) e
 		current = child
 	}
 	return nil
+}
+
+func transcodeResponsePayload(raw json.RawMessage, profile *TranscodeProfile) ([]byte, error) {
+	if profile == nil || len(profile.ResponseMappings) == 0 {
+		return append([]byte(nil), raw...), nil
+	}
+	var body any
+	if len(bytes.TrimSpace(raw)) == 0 {
+		body = nil
+	} else if err := json.Unmarshal(raw, &body); err != nil {
+		return nil, errors.New("transcode response body must be valid json")
+	}
+	object, _ := body.(map[string]any)
+	payload, err := transcodePayloadFromMappings(transcodePayloadSource{Body: object}, profile.ResponseMappings)
+	if err != nil {
+		return nil, err
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	return data, nil
 }
 
 func mergeTranscodeBody(payload map[string]any, body []byte, bodyField string, required bool, schema *TranscodeSchemaConfig) error {

@@ -3047,11 +3047,24 @@ func (f *fakeGenericClient) CallRaw(ctx context.Context, method string, request 
 }
 
 func TestGatewayPureProxyAndTranscodeBranches(t *testing.T) {
-	if (*Gateway)(nil).Routes() != nil || (*Gateway)(nil).Descriptors() != nil {
+	if (*Gateway)(nil).Routes() != nil || (*Gateway)(nil).Descriptors() != nil || (*Gateway)(nil).TranscodeProfiles() != nil {
 		t.Fatal("nil gateway snapshots should return nil")
 	}
 	if err := (*Gateway)(nil).RegisterDescriptor(rpc.Descriptor{Name: "svc"}); err == nil || !strings.Contains(err.Error(), "gateway is nil") {
 		t.Fatalf("nil RegisterDescriptor error = %v, want gateway is nil", err)
+	}
+	if err := (*Gateway)(nil).RegisterTranscodeProfile(TranscodeProfile{Descriptor: "svc", DescriptorMethod: "Get"}); err == nil || !strings.Contains(err.Error(), "gateway is nil") {
+		t.Fatalf("nil RegisterTranscodeProfile error = %v, want gateway is nil", err)
+	}
+	profileGateway, err := New([]Route{{PathPrefix: "/api", Targets: []string{"http://127.0.0.1:1"}}})
+	if err != nil {
+		t.Fatalf("New gateway: %v", err)
+	}
+	if err := profileGateway.RegisterTranscodeProfile(TranscodeProfile{DescriptorMethod: "Get"}); err == nil || !strings.Contains(err.Error(), "descriptor is required") {
+		t.Fatalf("missing descriptor profile error = %v", err)
+	}
+	if err := profileGateway.RegisterTranscodeProfile(TranscodeProfile{Descriptor: "svc"}); err == nil || !strings.Contains(err.Error(), "descriptor method is required") {
+		t.Fatalf("missing method profile error = %v", err)
 	}
 	if err := (*Gateway)(nil).AddRoute(Route{}); !errors.Is(err, ErrRouteRequired) {
 		t.Fatalf("nil AddRoute error = %v, want ErrRouteRequired", err)
@@ -3236,6 +3249,113 @@ func TestGatewayDescriptorDrivenTranscode(t *testing.T) {
 	descriptors[desc.Name].Methods[0].Name = "Mutated"
 	if !descriptorHasMethod(g.Descriptors()[desc.Name], "SayHello") {
 		t.Fatal("descriptor registry returned mutable internal state")
+	}
+}
+
+func TestGatewayDescriptorTranscodeProfileMapsRequestAndResponse(t *testing.T) {
+	fake := &fakeGenericClient{payload: json.RawMessage(`{"message":"hello ada","meta":{"trace":"r1"},"debug":"hidden"}`)}
+	desc := rpc.Descriptor{
+		Name: "examples.greeter.Greeter",
+		Methods: []rpc.MethodDescriptor{{
+			Name:     "SayHello",
+			Request:  "examples.greeter.HelloRequest",
+			Response: "examples.greeter.HelloResponse",
+		}},
+	}
+	profile := TranscodeProfile{
+		Descriptor:       "examples.greeter.Greeter",
+		DescriptorMethod: "SayHello",
+		RequestMappings: []TranscodePayloadMapping{
+			{Source: "body.name", Target: "person.name"},
+			{Source: "body.trace", Target: "meta.trace"},
+			{Target: "meta.region", Default: "cn"},
+		},
+		ResponseMappings: []TranscodePayloadMapping{
+			{Source: "body.message", Target: "data.message"},
+			{Source: "body.meta.trace", Target: "meta.trace"},
+			{Target: "meta.source", Default: "rpc"},
+		},
+	}
+	g, err := New([]Route{{
+		PathPrefix: "/gw/greeter",
+		Targets:    []string{"http://upstream"},
+		Transcode: TranscodeConfig{
+			Enabled:          true,
+			Descriptor:       "examples.greeter.Greeter",
+			DescriptorMethod: "SayHello",
+			Payload: TranscodePayloadConfig{
+				Mode:            "openapi",
+				MergeBodyObject: true,
+				BodySchema: &TranscodeSchemaConfig{
+					Type:       "object",
+					Required:   []string{"name"},
+					Properties: map[string]TranscodeSchemaConfig{"name": {Type: "string"}, "trace": {Type: "string"}},
+				},
+			},
+		},
+	}}, WithDescriptors(desc), WithTranscodeProfiles(profile), WithTranscoderFactory(func(endpoint string, route Route) (rpc.GenericClient, error) {
+		return fake, nil
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rr := httptest.NewRecorder()
+	g.ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/gw/greeter", strings.NewReader(`{"name":"ada","trace":"t1"}`)))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %s", rr.Code, rr.Body.String())
+	}
+	if fake.method != "examples.greeter.Greeter/SayHello" {
+		t.Fatalf("rpc method = %q", fake.method)
+	}
+	var rpcRequest map[string]any
+	if err := json.Unmarshal(fake.request, &rpcRequest); err != nil {
+		t.Fatalf("decode rpc request %s: %v", fake.request, err)
+	}
+	person, ok := rpcRequest["person"].(map[string]any)
+	if !ok {
+		t.Fatalf("mapped person = %#v from request %s", rpcRequest["person"], fake.request)
+	}
+	meta, ok := rpcRequest["meta"].(map[string]any)
+	if !ok {
+		t.Fatalf("mapped meta = %#v from request %s", rpcRequest["meta"], fake.request)
+	}
+	if person["name"] != "ada" || meta["trace"] != "t1" || meta["region"] != "cn" {
+		t.Fatalf("mapped rpc request = %s", fake.request)
+	}
+	if strings.Contains(string(fake.request), "debug") {
+		t.Fatalf("mapped rpc request leaked unmapped fields: %s", fake.request)
+	}
+	var httpResponse map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &httpResponse); err != nil {
+		t.Fatalf("decode http response %s: %v", rr.Body.String(), err)
+	}
+	data, ok := httpResponse["data"].(map[string]any)
+	if !ok {
+		t.Fatalf("mapped response data = %#v from response %s", httpResponse["data"], rr.Body.String())
+	}
+	responseMeta, ok := httpResponse["meta"].(map[string]any)
+	if !ok {
+		t.Fatalf("mapped response meta = %#v from response %s", httpResponse["meta"], rr.Body.String())
+	}
+	if data["message"] != "hello ada" || responseMeta["trace"] != "r1" || responseMeta["source"] != "rpc" {
+		t.Fatalf("mapped http response = %s", rr.Body.String())
+	}
+	if strings.Contains(rr.Body.String(), "hidden") {
+		t.Fatalf("mapped response leaked unmapped field: %s", rr.Body.String())
+	}
+
+	profiles := g.TranscodeProfiles()
+	if len(profiles) != 1 || profiles[0].Descriptor != "examples.greeter.Greeter" || len(profiles[0].RequestMappings) != 3 || len(profiles[0].ResponseMappings) != 3 {
+		t.Fatalf("profiles = %+v", profiles)
+	}
+	profiles[0].RequestMappings[0].Target = "mutated"
+	if g.TranscodeProfiles()[0].RequestMappings[0].Target != "person.name" {
+		t.Fatal("transcode profiles returned mutable internal state")
+	}
+	runtime := g.RuntimeSnapshot()
+	if runtime.Cache.TranscodeProfiles != 1 || len(runtime.TranscodeProfiles) != 1 {
+		t.Fatalf("runtime snapshot = %+v, want one transcode profile", runtime)
 	}
 }
 

@@ -1688,6 +1688,113 @@ func TestHTTPClientRuntimeSnapshotRecordsDiscoveryEvents(t *testing.T) {
 	}
 }
 
+func TestHTTPClientResolverUpdateRefreshesBalancerEndpointSetAndCloseIdle(t *testing.T) {
+	firstServer := NewServer()
+	if err := firstServer.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{
+		Name:       "Route",
+		NewRequest: func() any { return new(helloRequest) },
+		Handler: func(context.Context, any) (any, error) {
+			return helloResponse{Message: "first"}, nil
+		},
+	}}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	first := httptest.NewServer(firstServer)
+	t.Cleanup(first.Close)
+
+	secondServer := NewServer()
+	if err := secondServer.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{
+		Name:       "Route",
+		NewRequest: func() any { return new(helloRequest) },
+		Handler: func(context.Context, any) (any, error) {
+			return helloResponse{Message: "second"}, nil
+		},
+	}}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	second := httptest.NewServer(secondServer)
+	t.Cleanup(second.Close)
+
+	registry := discovery.NewMemoryRegistry()
+	if _, err := registry.Register(context.Background(), discovery.Instance{Service: "greeter", ID: "first", Endpoint: first.URL}); err != nil {
+		t.Fatalf("register first: %v", err)
+	}
+	var removed []string
+	var mu sync.Mutex
+	manager := NewConnPoolManager(func(context.Context, string) (net.Conn, error) {
+		client, server := net.Pipe()
+		t.Cleanup(func() { _ = server.Close() })
+		return client, nil
+	}, ConnPoolConfig{MaxIdle: 1, MaxActive: 1, OnClose: func(endpoint string, reason string, _ ConnPoolStats) {
+		mu.Lock()
+		defer mu.Unlock()
+		removed = append(removed, endpoint+":"+reason)
+	}})
+	conn, err := manager.Get(context.Background(), first.URL)
+	if err != nil {
+		t.Fatalf("pool Get: %v", err)
+	}
+	if err := conn.Close(); err != nil {
+		t.Fatalf("pool Close: %v", err)
+	}
+
+	c, err := NewClient(first.URL, WithResolver(NewDiscoveryResolver(registry, "greeter")), WithConnPoolManager(manager))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	var resp helloResponse
+	if err := c.Call(context.Background(), "greeter/Route", helloRequest{Name: "before"}, &resp); err != nil {
+		t.Fatalf("first call: %v", err)
+	}
+	if resp.Message != "first" {
+		t.Fatalf("first response = %q, want first", resp.Message)
+	}
+
+	if err := registry.Deregister(context.Background(), discovery.Instance{Service: "greeter", ID: "first", Endpoint: first.URL}); err != nil {
+		t.Fatalf("deregister first: %v", err)
+	}
+	if !waitForRPCSnapshot(t, time.Second, func() bool {
+		snapshot := c.RuntimeSnapshot()
+		return slices.Equal(snapshot.Discovery.Removed, []string{first.URL}) &&
+			snapshot.Discovery.CloseIdleCalls > 0
+	}) {
+		t.Fatalf("runtime snapshot after resolver remove = %+v, want removed first endpoint and idle close", c.RuntimeSnapshot())
+	}
+	if _, err := registry.Register(context.Background(), discovery.Instance{Service: "greeter", ID: "second", Endpoint: second.URL}); err != nil {
+		t.Fatalf("register second: %v", err)
+	}
+	if !waitForRPCSnapshot(t, time.Second, func() bool {
+		snapshot := c.RuntimeSnapshot()
+		return slices.Equal(snapshot.Discovery.Endpoints, []string{second.URL}) &&
+			snapshot.Discovery.CloseIdleCalls > 0
+	}) {
+		t.Fatalf("runtime snapshot after resolver update = %+v, want only second endpoint and idle close", c.RuntimeSnapshot())
+	}
+
+	for i := 0; i < 3; i++ {
+		resp = helloResponse{}
+		if err := c.Call(context.Background(), "greeter/Route", helloRequest{Name: "after"}, &resp); err != nil {
+			t.Fatalf("call after update %d: %v", i, err)
+		}
+		if resp.Message != "second" {
+			t.Fatalf("call after update %d response = %q, want second", i, resp.Message)
+		}
+	}
+	mu.Lock()
+	gotRemoved := append([]string(nil), removed...)
+	mu.Unlock()
+	if len(gotRemoved) != 1 || gotRemoved[0] != first.URL+":endpoint_removed" {
+		t.Fatalf("connpool removed callbacks = %#v, want first endpoint removed", gotRemoved)
+	}
+	if snapshot := c.RuntimeSnapshot(); slices.ContainsFunc(snapshot.ConnPool.Endpoints, func(stats ConnPoolStats) bool {
+		return stats.Endpoint == first.URL
+	}) {
+		t.Fatalf("connpool snapshot = %+v, want removed endpoint closed", snapshot.ConnPool)
+	}
+}
+
 func TestHTTPClientWarmupResolvesBalancerAndConnPool(t *testing.T) {
 	var warmed []string
 	var mu sync.Mutex

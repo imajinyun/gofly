@@ -1056,6 +1056,56 @@ func TestGatewayDiscoveryResolverReflectsRegistryChanges(t *testing.T) {
 	}
 }
 
+func TestGatewayDiscoveryResolverUpdateRefreshesBalancerEndpointSet(t *testing.T) {
+	var firstHits atomic.Int64
+	first := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		firstHits.Add(1)
+		_, _ = fmt.Fprint(w, "first")
+	}))
+	t.Cleanup(first.Close)
+	var secondHits atomic.Int64
+	second := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		secondHits.Add(1)
+		_, _ = fmt.Fprint(w, "second")
+	}))
+	t.Cleanup(second.Close)
+
+	registry := discovery.NewMemoryRegistry()
+	lease, err := registry.Register(context.Background(), discovery.Instance{Service: "users", Endpoint: first.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	g, err := New([]Route{{PathPrefix: "/api", Service: "users"}}, WithDiscoveryResolvers(map[string]discovery.Resolver{"users": registry}))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for i := 0; i < 3; i++ {
+		assertGatewayBody(t, g, "/api/ping", http.StatusOK, "first")
+	}
+	if firstHits.Load() != 3 || secondHits.Load() != 0 {
+		t.Fatalf("before update hits first=%d second=%d, want only first", firstHits.Load(), secondHits.Load())
+	}
+
+	if err := lease.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := registry.Register(context.Background(), discovery.Instance{Service: "users", Endpoint: second.URL}); err != nil {
+		t.Fatal(err)
+	}
+
+	for i := 0; i < 5; i++ {
+		assertGatewayBody(t, g, "/api/ping", http.StatusOK, "second")
+	}
+	if firstHits.Load() != 3 || secondHits.Load() != 5 {
+		t.Fatalf("after update hits first=%d second=%d, want removed endpoint excluded from balancer set", firstHits.Load(), secondHits.Load())
+	}
+	snapshot := g.Snapshot()
+	if len(snapshot.Discovery) != 1 || !slices.Equal(snapshot.Discovery[0].Endpoints, []string{second.URL}) {
+		t.Fatalf("discovery snapshot = %+v, want only new endpoint", snapshot.Discovery)
+	}
+}
+
 func TestGatewayCanaryUsesDiscoveryResolver(t *testing.T) {
 	primary := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = fmt.Fprint(w, "primary")

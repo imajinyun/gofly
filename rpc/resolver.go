@@ -395,6 +395,9 @@ func NewStaticResolver(endpoints ...string) StaticResolver {
 }
 
 func (r StaticResolver) Resolve(ctx context.Context) ([]string, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	endpoints := normalizeEndpoints(r.Endpoints)
 	if len(endpoints) == 0 {
 		return nil, errors.New("no rpc endpoints resolved")

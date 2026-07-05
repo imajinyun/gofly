@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -810,6 +811,210 @@ func TestGatewayDiscoveryFailoverKeepsLastKnownGoodEndpoint(t *testing.T) {
 				t.Fatalf("weighted stale endpoints = %+v, want weight-expanded last known endpoints", routeSnapshot.Endpoints)
 			}
 		})
+	}
+}
+
+func TestGatewayDiscoveryAdapterMatrix(t *testing.T) {
+	t.Run("memory stale fallback update empty and cancel", func(t *testing.T) {
+		first := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = fmt.Fprint(w, "memory-first")
+		}))
+		t.Cleanup(first.Close)
+		second := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = fmt.Fprint(w, "memory-second")
+		}))
+		t.Cleanup(second.Close)
+
+		registry := discovery.NewMemoryRegistry()
+		lease, err := registry.Register(context.Background(), discovery.Instance{Service: "users", Endpoint: first.URL})
+		if err != nil {
+			t.Fatal(err)
+		}
+		g, err := New(
+			[]Route{{PathPrefix: "/api", Service: "users"}},
+			WithDiscoveryFailover(),
+			WithDiscoveryResolvers(map[string]discovery.Resolver{"users": registry}),
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		assertGatewayBody(t, g, "/api/ping", http.StatusOK, "memory-first")
+		if err := lease.Close(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		assertGatewayBody(t, g, "/api/ping", http.StatusOK, "memory-first")
+		assertGatewayDiscoverySnapshot(t, g, "users", true, first.URL)
+
+		if _, err := registry.Register(context.Background(), discovery.Instance{Service: "users", Endpoint: second.URL}); err != nil {
+			t.Fatal(err)
+		}
+		assertGatewayBody(t, g, "/api/ping", http.StatusOK, "memory-second")
+		assertGatewayDiscoverySnapshot(t, g, "users", false, second.URL)
+
+		empty := discovery.NewMemoryRegistry()
+		emptyGateway, err := New([]Route{{PathPrefix: "/api", Service: "users"}}, WithDiscoveryResolvers(map[string]discovery.Resolver{"users": empty}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := emptyGateway.HealthCheck(context.Background()); err == nil || !strings.Contains(err.Error(), "no service instances resolved") {
+			t.Fatalf("memory empty health error = %v, want no service instances resolved", err)
+		}
+		canceled, cancel := context.WithCancel(context.Background())
+		cancel()
+		if err := g.HealthCheck(canceled); !errors.Is(err, context.Canceled) {
+			t.Fatalf("memory canceled health error = %v, want context.Canceled", err)
+		}
+	})
+
+	t.Run("dns stale fallback update empty and cancel", func(t *testing.T) {
+		upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = fmt.Fprint(w, "dns-first")
+		}))
+		t.Cleanup(upstream.Close)
+		host, portText, err := net.SplitHostPort(upstream.Listener.Addr().String())
+		if err != nil {
+			t.Fatalf("split upstream address: %v", err)
+		}
+		ip := net.ParseIP(host)
+		if ip == nil {
+			t.Fatalf("upstream host %q is not an IP address", host)
+		}
+		port, err := strconv.Atoi(portText)
+		if err != nil {
+			t.Fatalf("parse upstream port %q: %v", portText, err)
+		}
+
+		var lookupMu sync.Mutex
+		lookupIPs := []net.IP{ip}
+		lookupErr := error(nil)
+		dnsResolver, err := rpc.NewDNSResolver(rpc.DNSResolverConfig{
+			Host: "users.service.local",
+			Port: port,
+			LookupIP: func(ctx context.Context, host string) ([]net.IP, error) {
+				if err := ctx.Err(); err != nil {
+					return nil, err
+				}
+				lookupMu.Lock()
+				defer lookupMu.Unlock()
+				if lookupErr != nil {
+					return nil, lookupErr
+				}
+				return append([]net.IP(nil), lookupIPs...), nil
+			},
+			WatchInterval: time.Millisecond,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		failover, err := rpc.NewFailoverResolver(dnsResolver)
+		if err != nil {
+			t.Fatal(err)
+		}
+		g, err := NewFromConfig(
+			Config{Routes: []RouteConfig{{PathPrefix: "/api", Service: "users"}}},
+			map[string]rpc.Resolver{"users": failover},
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		assertGatewayBody(t, g, "/api/ping", http.StatusOK, "dns-first")
+		lookupMu.Lock()
+		lookupErr = errors.New("dns unavailable")
+		lookupMu.Unlock()
+		assertGatewayBody(t, g, "/api/ping", http.StatusOK, "dns-first")
+		assertGatewayDiscoverySnapshot(t, g, "users", true, upstream.URL)
+
+		lookupMu.Lock()
+		lookupErr = nil
+		lookupIPs = []net.IP{net.ParseIP("127.0.0.2")}
+		lookupMu.Unlock()
+		snapshot := g.Snapshot()
+		if len(snapshot.Discovery) != 1 || !slices.Contains(snapshot.Discovery[0].Endpoints, "http://127.0.0.2:"+portText) {
+			t.Fatalf("dns update snapshot = %+v, want updated DNS endpoint", snapshot.Discovery)
+		}
+
+		emptyResolver, err := rpc.NewDNSResolver(rpc.DNSResolverConfig{
+			Host: "empty.service.local",
+			Port: port,
+			LookupIP: func(context.Context, string) ([]net.IP, error) {
+				return nil, nil
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		emptyGateway, err := NewFromConfig(
+			Config{Routes: []RouteConfig{{PathPrefix: "/api", Service: "users"}}},
+			map[string]rpc.Resolver{"users": emptyResolver},
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := emptyGateway.HealthCheck(context.Background()); err == nil || !strings.Contains(err.Error(), "no rpc endpoints resolved") {
+			t.Fatalf("dns empty health error = %v, want no rpc endpoints resolved", err)
+		}
+		canceled, cancel := context.WithCancel(context.Background())
+		cancel()
+		if err := g.HealthCheck(canceled); !errors.Is(err, context.Canceled) {
+			t.Fatalf("dns canceled health error = %v, want context.Canceled", err)
+		}
+	})
+
+	t.Run("static update empty and cancel", func(t *testing.T) {
+		first := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = fmt.Fprint(w, "static-first")
+		}))
+		t.Cleanup(first.Close)
+		second := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = fmt.Fprint(w, "static-second")
+		}))
+		t.Cleanup(second.Close)
+
+		g, err := New([]Route{{PathPrefix: "/api", Targets: []string{first.URL}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertGatewayBody(t, g, "/api/ping", http.StatusOK, "static-first")
+		if err := g.SetRoutes([]Route{{PathPrefix: "/api", Targets: []string{second.URL}}}); err != nil {
+			t.Fatalf("static SetRoutes update: %v", err)
+		}
+		assertGatewayBody(t, g, "/api/ping", http.StatusOK, "static-second")
+
+		emptyGateway, err := New([]Route{{PathPrefix: "/api", Resolver: rpc.NewStaticResolver()}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := emptyGateway.HealthCheck(context.Background()); err == nil || !strings.Contains(err.Error(), "no rpc endpoints resolved") {
+			t.Fatalf("static empty health error = %v, want no rpc endpoints resolved", err)
+		}
+		canceled, cancel := context.WithCancel(context.Background())
+		cancel()
+		if err := g.HealthCheck(canceled); !errors.Is(err, context.Canceled) {
+			t.Fatalf("static canceled health error = %v, want context.Canceled", err)
+		}
+	})
+}
+
+func assertGatewayBody(t *testing.T, g *Gateway, path string, wantCode int, wantBody string) {
+	t.Helper()
+	rr := httptest.NewRecorder()
+	g.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, path, nil))
+	if rr.Code != wantCode || strings.TrimSpace(rr.Body.String()) != wantBody {
+		t.Fatalf("gateway response = %d/%q, want %d/%q", rr.Code, rr.Body.String(), wantCode, wantBody)
+	}
+}
+
+func assertGatewayDiscoverySnapshot(t *testing.T, g *Gateway, service string, stale bool, endpoint string) {
+	t.Helper()
+	snapshot := g.Snapshot()
+	if len(snapshot.Discovery) != 1 {
+		t.Fatalf("discovery snapshot = %+v, want one route snapshot", snapshot.Discovery)
+	}
+	routeSnapshot := snapshot.Discovery[0]
+	if routeSnapshot.Service != service || routeSnapshot.Stale != stale || !slices.Contains(routeSnapshot.Endpoints, endpoint) {
+		t.Fatalf("discovery snapshot = %+v, want service=%q stale=%v endpoint=%q", routeSnapshot, service, stale, endpoint)
 	}
 }
 

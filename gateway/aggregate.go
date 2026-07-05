@@ -59,6 +59,10 @@ func (g *Gateway) aggregateOnce(r *http.Request, route Route, endpoint string, b
 				message = fmt.Sprintf("upstream status %d", result.status)
 			}
 			failures[result.name] = message
+			if len(step.Fallback) > 0 {
+				data[result.name] = normalizeAggregationBody(step.Fallback)
+				continue
+			}
 			if step.Required {
 				requiredFailed = true
 			}
@@ -194,6 +198,7 @@ func cloneAggregationSteps(steps []AggregationStep) []AggregationStep {
 	for i, step := range steps {
 		step.Headers = cloneMap(step.Headers)
 		step.Body = append(json.RawMessage(nil), step.Body...)
+		step.Fallback = append(json.RawMessage(nil), step.Fallback...)
 		out[i] = step
 	}
 	return out

@@ -160,7 +160,7 @@ const gatewayConfigTemplate = `{
       {"name": "api-proxy", "method": "GET", "pathPrefix": "/api", "upstreamPrefix": "/", "service": "orders", "targets": ["http://127.0.0.1:8081"], "timeout": 5000000000, "retry": {{.GatewayRetryJSON}}, "breaker": {{.GatewayBreakerJSON}}, "rateLimit": {{.RestRateLimitConfigJSON}}, "concurrency": {{.RestMaxConcurrencyConfigJSON}}},
       {"name": "events-stream", "method": "GET", "pathPrefix": "/events", "upstreamPrefix": "/events", "service": "orders", "targets": ["http://127.0.0.1:8081"], "timeout": 5000000000, "retry": {"attempts": 1}, "breaker": {{.GatewayBreakerJSON}}},
       {"name": "websocket-tunnel", "method": "GET", "pathPrefix": "/ws", "upstreamPrefix": "/ws", "service": "orders", "targets": ["http://127.0.0.1:8081"], "timeout": 5000000000, "retry": {"attempts": 1}, "breaker": {{.GatewayBreakerJSON}}},
-      {"name": "bff-home", "method": "GET", "pathPrefix": "/bff", "service": "orders", "targets": ["http://127.0.0.1:8081"], "timeout": 5000000000, "retry": {"attempts": 1}, "breaker": {{.GatewayBreakerJSON}}, "aggregation": {"enabled": true, "steps": [{"name": "profile", "path": "/profile", "required": true}, {"name": "orders", "path": "/orders"}]}}
+      {"name": "bff-home", "method": "GET", "pathPrefix": "/bff", "service": "orders", "targets": ["http://127.0.0.1:8081"], "timeout": 5000000000, "retry": {"attempts": 1}, "breaker": {{.GatewayBreakerJSON}}, "aggregation": {"enabled": true, "steps": [{"name": "profile", "path": "/profile", "required": true, "fallback": {"id": "anonymous"}}, {"name": "orders", "path": "/orders", "fallback": []}]}}
     ]
   },
   "openapiImports": [

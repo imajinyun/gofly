@@ -408,6 +408,65 @@ func TestGatewayAggregationRequiredStepFailure(t *testing.T) {
 	}
 }
 
+func TestGatewayAggregationUsesStepFallbacksForPartialResponse(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/profile":
+			http.Error(w, "profile down", http.StatusServiceUnavailable)
+		case "/orders":
+			http.Error(w, "orders down", http.StatusBadGateway)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(upstream.Close)
+
+	g, err := New([]Route{{
+		Method:     http.MethodGet,
+		PathPrefix: "/bff",
+		Targets:    []string{upstream.URL},
+		Aggregation: AggregationConfig{
+			Enabled: true,
+			Steps: []AggregationStep{
+				{Name: "profile", Path: "/profile", Required: true, Fallback: json.RawMessage(`{"id":"anonymous"}`)},
+				{Name: "orders", Path: "/orders", Fallback: json.RawMessage(`[]`)},
+			},
+		},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rr := httptest.NewRecorder()
+	g.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/bff/home", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %s, want fallback partial success", rr.Code, rr.Body.String())
+	}
+	var envelope struct {
+		Data   map[string]json.RawMessage `json:"data"`
+		Errors map[string]string          `json:"errors"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode aggregation fallback envelope: %v\n%s", err, rr.Body.String())
+	}
+	if string(envelope.Data["profile"]) != `{"id":"anonymous"}` || string(envelope.Data["orders"]) != `[]` {
+		t.Fatalf("fallback data = %#v", envelope.Data)
+	}
+	if !strings.Contains(envelope.Errors["profile"], "503") || !strings.Contains(envelope.Errors["orders"], "502") {
+		t.Fatalf("fallback errors = %#v, want retained upstream failures", envelope.Errors)
+	}
+
+	routes := g.RouteConfigs()
+	if string(routes[0].Aggregation.Steps[0].Fallback) != `{"id":"anonymous"}` || string(routes[0].Aggregation.Steps[1].Fallback) != `[]` {
+		t.Fatalf("route config fallback = %#v", routes[0].Aggregation.Steps)
+	}
+	routes[0].Aggregation.Steps[0].Fallback[1] = 'x'
+	runtime := g.RuntimeSnapshot()
+	if string(runtime.Routes[0].Aggregation.Steps[0].Fallback) != `{"id":"anonymous"}` {
+		t.Fatalf("runtime fallback mutated through route config alias: %s", runtime.Routes[0].Aggregation.Steps[0].Fallback)
+	}
+}
+
 func TestGatewayGovernanceManagerOverridesExplicitRuleSet(t *testing.T) {
 	stale := governance.NewRuleSet(governance.Rule{Name: "stale", Transport: governance.TransportGateway, Path: "/api/*"})
 	manager, err := governance.NewManager(governance.Config{Rules: []governance.Rule{{
@@ -1728,10 +1787,10 @@ func TestGatewayAdminHotUpdatesRoutes(t *testing.T) {
 		t.Fatalf("routes status = %d body = %s", listRec.Code, listRec.Body.String())
 	}
 
-	deleteReq := httptest.NewRequest(http.MethodDelete, "/admin/gateway/routes?method=POST&pathPrefix=/hot", nil)
-	deleteReq.Header.Set(auth.AuthorizationHeader, "Bearer secret")
+	deleteRequest := httptest.NewRequest(http.MethodDelete, "/admin/gateway/routes?method=POST&pathPrefix=/hot", nil)
+	deleteRequest.Header.Set(auth.AuthorizationHeader, "Bearer secret")
 	deleteRec := httptest.NewRecorder()
-	s.Handler().ServeHTTP(deleteRec, deleteReq)
+	s.Handler().ServeHTTP(deleteRec, deleteRequest)
 	if deleteRec.Code != http.StatusOK {
 		t.Fatalf("delete route status = %d body = %s", deleteRec.Code, deleteRec.Body.String())
 	}

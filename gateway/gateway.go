@@ -110,6 +110,7 @@ type AggregationStep struct {
 	Required bool              `json:"required,omitempty"`
 	Headers  map[string]string `json:"headers,omitempty"`
 	Body     json.RawMessage   `json:"body,omitempty"`
+	Fallback json.RawMessage   `json:"fallback,omitempty"`
 }
 
 // RetryPolicy configures per-route retry behavior.

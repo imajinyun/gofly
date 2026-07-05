@@ -2,6 +2,7 @@ package generator
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/sha1" // #nosec G505 -- RFC 6455 requires SHA-1 for Sec-WebSocket-Accept in tests.
 	"encoding/base64"
@@ -142,6 +143,8 @@ func TestGenerateGatewayWiresGovernanceManager(t *testing.T) {
 		`"pathPrefix": "/ws"`,
 		`"pathPrefix": "/bff"`,
 		`"aggregation": {"enabled": true`,
+		`"fallback": {"id": "anonymous"}`,
+		`"fallback": []`,
 		`"openapiImports": [`,
 		`"enabled": false`,
 		`"url": "http://127.0.0.1:8081/openapi.json"`,
@@ -208,6 +211,10 @@ func TestGenerateGatewayDefaultResilienceProfileReachesRuntime(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/orders":
+			if r.Header.Get(gateway.HeaderGatewayRoute) == "bff-home" {
+				http.Error(w, "orders summary down", http.StatusBadGateway)
+				return
+			}
 			if apiCalls.Add(1) == 1 {
 				http.Error(w, "retry", http.StatusBadGateway)
 				return
@@ -235,9 +242,6 @@ func TestGenerateGatewayDefaultResilienceProfileReachesRuntime(t *testing.T) {
 		case "/profile":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = io.WriteString(w, `{"id":"u1"}`)
-		case "/orders-summary":
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = io.WriteString(w, `[{"id":"o1"}]`)
 		default:
 			http.Error(w, "retry", http.StatusBadGateway)
 		}
@@ -250,12 +254,10 @@ func TestGenerateGatewayDefaultResilienceProfileReachesRuntime(t *testing.T) {
 		generated.Gateway.Routes[i].Targets = []string{upstream.URL}
 	}
 	bffRoute := generatedGatewayRouteByName(t, generated.Gateway.Routes, "bff-home")
-	bffRoute.Aggregation.Steps[1].Path = "/orders-summary"
-	for i := range generated.Gateway.Routes {
-		if generated.Gateway.Routes[i].Name == "bff-home" {
-			generated.Gateway.Routes[i] = bffRoute
-			break
-		}
+	if len(bffRoute.Aggregation.Steps) != 2 ||
+		compactGeneratedRawJSON(t, bffRoute.Aggregation.Steps[0].Fallback) != `{"id":"anonymous"}` ||
+		compactGeneratedRawJSON(t, bffRoute.Aggregation.Steps[1].Fallback) != `[]` {
+		t.Fatalf("generated bff fallback steps = %#v", bffRoute.Aggregation.Steps)
 	}
 	gw, err := gateway.NewFromConfig(generated.Gateway, nil)
 	if err != nil {
@@ -299,13 +301,25 @@ func TestGenerateGatewayDefaultResilienceProfileReachesRuntime(t *testing.T) {
 	}
 	bff := httptest.NewRecorder()
 	gw.ServeHTTP(bff, httptest.NewRequest(http.MethodGet, "/bff/home", nil))
-	if bff.Code != http.StatusOK || !strings.Contains(bff.Body.String(), `"profile":{"id":"u1"}`) || !strings.Contains(bff.Body.String(), `"orders":[{"id":"o1"}]`) {
-		t.Fatalf("generated gateway bff response = %d body = %q", bff.Code, bff.Body.String())
+	if bff.Code != http.StatusOK ||
+		!strings.Contains(bff.Body.String(), `"profile":{"id":"u1"}`) ||
+		!strings.Contains(bff.Body.String(), `"orders":[]`) ||
+		!strings.Contains(bff.Body.String(), `"errors":{"orders":"upstream status 502"}`) {
+		t.Fatalf("generated gateway bff partial response = %d body = %q", bff.Code, bff.Body.String())
 	}
 	after := gw.RuntimeSnapshot()
 	if after.Cache.RateLimiters != 1 || after.Cache.ConcurrencyLimiters != 1 || after.Cache.Breakers != 4 {
 		t.Fatalf("generated gateway runtime cache = %+v, want materialized web adaptive primitives", after.Cache)
 	}
+}
+
+func compactGeneratedRawJSON(t *testing.T, raw json.RawMessage) string {
+	t.Helper()
+	var buf bytes.Buffer
+	if err := json.Compact(&buf, raw); err != nil {
+		t.Fatalf("compact generated raw json %q: %v", raw, err)
+	}
+	return buf.String()
 }
 
 func generatedGatewayRouteByName(t *testing.T, routes []gateway.RouteConfig, name string) gateway.RouteConfig {

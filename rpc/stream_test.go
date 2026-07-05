@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1224,6 +1225,72 @@ func TestRPCClientStreamRetryHonorsContextDeadline(t *testing.T) {
 	defer cancel()
 	if _, err := c.Stream(ctx, "chat/Echo"); CodeOf(err) != CodeDeadlineExceeded {
 		t.Fatalf("Stream retry deadline error = %v, want deadline_exceeded", err)
+	}
+}
+
+func TestRPCClientStreamRetryDoesNotReplayAfterOpen(t *testing.T) {
+	var firstCalls atomic.Int32
+	var secondCalls atomic.Int32
+	firstServer := NewServer()
+	if err := firstServer.RegisterService(ServiceDesc{Name: "chat", Streams: []StreamDesc{{
+		Name:       "Echo",
+		NewMessage: func() any { return new(helloRequest) },
+		Handler: func(ctx context.Context, stream *Stream) error {
+			firstCalls.Add(1)
+			var req helloRequest
+			if err := stream.Recv(&req); err != nil {
+				return err
+			}
+			if req.Name != "gofly" {
+				return NewError(CodeInvalidArgument, "unexpected stream request")
+			}
+			return NewError(CodeUnavailable, "stream failed after open")
+		},
+	}}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	first := httptest.NewServer(firstServer)
+	defer first.Close()
+
+	secondServer := NewServer()
+	if err := secondServer.RegisterService(ServiceDesc{Name: "chat", Streams: []StreamDesc{{
+		Name:       "Echo",
+		NewMessage: func() any { return new(helloRequest) },
+		Handler: func(ctx context.Context, stream *Stream) error {
+			secondCalls.Add(1)
+			return stream.Send(helloResponse{Message: "replayed"})
+		},
+	}}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	second := httptest.NewServer(secondServer)
+	defer second.Close()
+
+	resolver := ResolverFunc(func(ctx context.Context) ([]string, error) {
+		return []string{first.URL, second.URL}, nil
+	})
+	c, err := NewClient(first.URL,
+		WithResolver(resolver),
+		WithBalancer(&RoundRobinBalancer{}),
+		WithRPCPolicy(RPCPolicy{Retry: coregovernance.RetryPolicy{Attempts: 2, Backoff: time.Nanosecond}}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stream, err := c.Stream(context.Background(), "chat/Echo")
+	if err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+	defer stream.Close()
+	if err := stream.Send(helloRequest{Name: "gofly"}); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	if err := stream.Recv(&helloResponse{}); CodeOf(err) != CodeUnavailable || !strings.Contains(err.Error(), "stream failed after open") {
+		t.Fatalf("Recv after open failure = %v, want original unavailable stream failure", err)
+	}
+	if firstCalls.Load() != 1 || secondCalls.Load() != 0 {
+		t.Fatalf("stream calls first=%d second=%d, want no retry/replay after open", firstCalls.Load(), secondCalls.Load())
 	}
 }
 

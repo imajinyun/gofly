@@ -19,6 +19,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	core "github.com/imajinyun/gofly/core"
@@ -45,34 +46,43 @@ type streamEnvelope struct {
 }
 
 type Stream struct {
-	conn         net.Conn
-	rw           *bufio.ReadWriter
-	codec        Codec
-	maxFrame     int64
-	readTimeout  time.Duration
-	writeTimeout time.Duration
-	stateMu      sync.Mutex
-	terminalCode Code
-	writeMu      sync.Mutex
-	closeMu      sync.Mutex
-	closeHooks   []func()
-	once         sync.Once
-	closed       chan struct{}
+	conn           net.Conn
+	rw             *bufio.ReadWriter
+	codec          Codec
+	maxFrame       int64
+	readTimeout    time.Duration
+	writeTimeout   time.Duration
+	stateMu        sync.Mutex
+	terminalCode   Code
+	terminalReason string
+	writeMu        sync.Mutex
+	closeMu        sync.Mutex
+	closeHooks     []func()
+	once           sync.Once
+	closed         chan struct{}
+	lastActivity   atomic.Int64
 }
 
 type rpcStreamTransportRuntime struct {
-	mu            sync.Mutex
-	active        int64
-	dials         int64
-	closes        int64
-	lastTarget    string
-	lastDialedAt  time.Time
-	lastClosedAt  time.Time
-	lastCloseCode Code
+	mu              sync.Mutex
+	active          int64
+	dials           int64
+	dedicatedConns  int64
+	closes          int64
+	lastTarget      string
+	lastDialedAt    time.Time
+	lastClosedAt    time.Time
+	lastCloseCode   Code
+	lastCloseReason string
+	closeCodes      map[Code]int64
+	closeReasons    map[string]int64
 }
 
 func newRPCStreamTransportRuntime() *rpcStreamTransportRuntime {
-	return &rpcStreamTransportRuntime{}
+	return &rpcStreamTransportRuntime{
+		closeCodes:   make(map[Code]int64),
+		closeReasons: make(map[string]int64),
+	}
 }
 
 func (r *rpcStreamTransportRuntime) recordDial(target string) {
@@ -83,13 +93,20 @@ func (r *rpcStreamTransportRuntime) recordDial(target string) {
 	defer r.mu.Unlock()
 	r.active++
 	r.dials++
+	r.dedicatedConns++
 	r.lastTarget = target
 	r.lastDialedAt = time.Now()
 }
 
-func (r *rpcStreamTransportRuntime) recordClose(code Code) {
+func (r *rpcStreamTransportRuntime) recordClose(code Code, reason string) {
 	if r == nil {
 		return
+	}
+	if code == "" {
+		code = CodeOK
+	}
+	if reason == "" {
+		reason = streamCloseReason(code)
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -99,6 +116,15 @@ func (r *rpcStreamTransportRuntime) recordClose(code Code) {
 	r.closes++
 	r.lastClosedAt = time.Now()
 	r.lastCloseCode = code
+	r.lastCloseReason = reason
+	if r.closeCodes == nil {
+		r.closeCodes = make(map[Code]int64)
+	}
+	if r.closeReasons == nil {
+		r.closeReasons = make(map[string]int64)
+	}
+	r.closeCodes[code]++
+	r.closeReasons[reason]++
 }
 
 func (r *rpcStreamTransportRuntime) Snapshot() RPCStreamTransportSnapshot {
@@ -108,14 +134,55 @@ func (r *rpcStreamTransportRuntime) Snapshot() RPCStreamTransportSnapshot {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return RPCStreamTransportSnapshot{
-		Active:        r.active,
-		Dials:         r.dials,
-		Closes:        r.closes,
-		LastTarget:    r.lastTarget,
-		LastDialedAt:  r.lastDialedAt,
-		LastClosedAt:  r.lastClosedAt,
-		LastCloseCode: r.lastCloseCode,
+		Active:          r.active,
+		Dials:           r.dials,
+		DedicatedConns:  r.dedicatedConns,
+		Closes:          r.closes,
+		LastTarget:      r.lastTarget,
+		LastDialedAt:    r.lastDialedAt,
+		LastClosedAt:    r.lastClosedAt,
+		LastCloseCode:   r.lastCloseCode,
+		LastCloseReason: r.lastCloseReason,
+		CloseCodes:      cloneCodeInt64Map(r.closeCodes),
+		CloseReasons:    cloneStringInt64Map(r.closeReasons),
 	}
+}
+
+func streamCloseReason(code Code) string {
+	switch code {
+	case "", CodeOK:
+		return "ok"
+	case CodeCanceled:
+		return "canceled"
+	case CodeDeadlineExceeded:
+		return "deadline"
+	case CodeUnavailable:
+		return "unavailable"
+	default:
+		return "remote_error"
+	}
+}
+
+func cloneCodeInt64Map(in map[Code]int64) map[Code]int64 {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[Code]int64, len(in))
+	for key, value := range in {
+		out[key] = value
+	}
+	return out
+}
+
+func cloneStringInt64Map(in map[string]int64) map[string]int64 {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]int64, len(in))
+	for key, value := range in {
+		out[key] = value
+	}
+	return out
 }
 
 func (s *HTTPServer) serveStream(w http.ResponseWriter, r *http.Request) {
@@ -476,12 +543,9 @@ func (c *HTTPClient) openStream(ctx context.Context, method string) (stream *Str
 	stream = newStream(conn, rw, c.opts.codec)
 	stream.readTimeout = streamTimeout
 	stream.writeTimeout = streamTimeout
+	defaultCloseCode := CodeOK
 	stream.onClose(func() {
-		code := CodeOK
-		if err != nil {
-			code = CodeOf(err)
-		}
-		c.streams.recordClose(stream.closeCode(code))
+		c.streams.recordClose(stream.closeCode(defaultCloseCode), stream.closeReasonFor(defaultCloseCode))
 	})
 	if len(releaseLimiters) > 0 {
 		releases := append([]func(){}, releaseLimiters...)
@@ -491,6 +555,9 @@ func (c *HTTPClient) openStream(ctx context.Context, method string) (stream *Str
 			}
 		})
 		releaseLimiters = nil
+	}
+	if c.opts.streamIdleTimeout > 0 {
+		stream.startIdleMonitor(c.opts.streamIdleTimeout)
 	}
 	return stream, nil
 }
@@ -645,7 +712,9 @@ func newStream(conn net.Conn, rw *bufio.ReadWriter, codec Codec) *Stream {
 	if codec == nil {
 		codec = JSONCodec{}
 	}
-	return &Stream{conn: conn, rw: rw, codec: codec, maxFrame: streamMaxFrameBytes, closed: make(chan struct{})}
+	stream := &Stream{conn: conn, rw: rw, codec: codec, maxFrame: streamMaxFrameBytes, closed: make(chan struct{})}
+	stream.touch()
+	return stream
 }
 
 func (s *Stream) Send(v any) error {
@@ -719,6 +788,10 @@ func (s *Stream) markTerminalError(err error) {
 }
 
 func (s *Stream) markTerminalCode(code Code) {
+	s.markTerminal(code, "")
+}
+
+func (s *Stream) markTerminal(code Code, reason string) {
 	if s == nil || code == "" {
 		return
 	}
@@ -726,6 +799,9 @@ func (s *Stream) markTerminalCode(code Code) {
 	defer s.stateMu.Unlock()
 	if s.terminalCode == "" || s.terminalCode == CodeOK {
 		s.terminalCode = code
+	}
+	if reason != "" {
+		s.terminalReason = reason
 	}
 }
 
@@ -742,6 +818,21 @@ func (s *Stream) closeCode(defaultCode Code) Code {
 		return CodeOK
 	}
 	return defaultCode
+}
+
+func (s *Stream) closeReasonFor(defaultCode Code) string {
+	if s == nil {
+		return streamCloseReason(defaultCode)
+	}
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
+	if s.terminalReason != "" {
+		return s.terminalReason
+	}
+	if s.terminalCode != "" {
+		return streamCloseReason(s.terminalCode)
+	}
+	return streamCloseReason(defaultCode)
 }
 
 func (s *Stream) Close() error {
@@ -761,6 +852,37 @@ func (s *Stream) Close() error {
 		}
 	})
 	return err
+}
+
+func (s *Stream) startIdleMonitor(timeout time.Duration) {
+	if s == nil || timeout <= 0 {
+		return
+	}
+	timer := time.NewTimer(timeout)
+	go func() {
+		defer timer.Stop()
+		for {
+			select {
+			case <-s.closed:
+				return
+			case <-timer.C:
+				idleFor := time.Since(time.Unix(0, s.lastActivity.Load()))
+				if idleFor >= timeout {
+					s.markTerminal(CodeDeadlineExceeded, "idle")
+					_ = s.Close()
+					return
+				}
+				timer.Reset(timeout - idleFor)
+			}
+		}
+	}()
+}
+
+func (s *Stream) touch() {
+	if s == nil {
+		return
+	}
+	s.lastActivity.Store(time.Now().UnixNano())
 }
 
 func (s *Stream) onClose(hook func()) {
@@ -806,7 +928,11 @@ func (s *Stream) writeEnvelope(env streamEnvelope) error {
 	if _, err := s.rw.Write(data); err != nil {
 		return normalizeStreamTimeout(err, "write")
 	}
-	return normalizeStreamTimeout(s.rw.Flush(), "write")
+	if err := normalizeStreamTimeout(s.rw.Flush(), "write"); err != nil {
+		return err
+	}
+	s.touch()
+	return nil
 }
 
 func (s *Stream) readEnvelope() (streamEnvelope, error) {
@@ -835,6 +961,7 @@ func (s *Stream) readEnvelope() (streamEnvelope, error) {
 	if err := json.Unmarshal(buf.Bytes(), &env); err != nil {
 		return streamEnvelope{}, err
 	}
+	s.touch()
 	return env, nil
 }
 

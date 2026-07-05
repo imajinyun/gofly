@@ -916,8 +916,10 @@ func TestHTTPClientStreamRuntimeSnapshotRecordsRemoteErrorCode(t *testing.T) {
 	}
 
 	snapshot := c.RuntimeSnapshot().Transport.Stream
-	if snapshot.Active != 0 || snapshot.Dials != 1 || snapshot.Closes != 1 ||
-		snapshot.LastCloseCode != CodeInvalidArgument || snapshot.LastClosedAt.IsZero() {
+	if snapshot.Active != 0 || snapshot.Dials != 1 || snapshot.DedicatedConns != 1 || snapshot.Closes != 1 ||
+		snapshot.LastCloseCode != CodeInvalidArgument || snapshot.LastCloseReason != "remote_error" ||
+		snapshot.CloseCodes[CodeInvalidArgument] != 1 || snapshot.CloseReasons["remote_error"] != 1 ||
+		snapshot.LastClosedAt.IsZero() {
 		t.Fatalf("stream runtime snapshot = %+v, want closed invalid_argument lifecycle", snapshot)
 	}
 }
@@ -985,6 +987,77 @@ func TestRPCStreamClientOperationTimeout(t *testing.T) {
 	}
 	if err := stream.Recv(&helloResponse{}); CodeOf(err) != CodeDeadlineExceeded {
 		t.Fatalf("Recv error = %v, want deadline_exceeded", err)
+	}
+	if err := stream.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	snapshot := c.RuntimeSnapshot().Transport.Stream
+	if snapshot.Active != 0 || snapshot.Dials != 1 || snapshot.DedicatedConns != 1 || snapshot.Closes != 1 ||
+		snapshot.LastCloseCode != CodeDeadlineExceeded || snapshot.LastCloseReason != "deadline" ||
+		snapshot.CloseCodes[CodeDeadlineExceeded] != 1 || snapshot.CloseReasons["deadline"] != 1 {
+		t.Fatalf("stream runtime snapshot = %+v, want deadline lifecycle evidence", snapshot)
+	}
+}
+
+func TestRPCStreamClientIdleTimeoutClosesQuietStream(t *testing.T) {
+	entered := make(chan struct{})
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	s := NewServer()
+	if err := s.RegisterService(ServiceDesc{Name: "chat", Streams: []StreamDesc{{
+		Name:       "Quiet",
+		NewMessage: func() any { return new(helloRequest) },
+		Handler: func(ctx context.Context, stream *Stream) error {
+			close(entered)
+			defer close(done)
+			select {
+			case <-ctx.Done():
+			case <-stop:
+			}
+			return nil
+		},
+	}}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(s)
+	defer ts.Close()
+	c, err := NewClient(ts.URL, WithClientStreamIdleTimeout(20*time.Millisecond))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	stream, err := c.Stream(context.Background(), "chat/Quiet")
+	if err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+	defer stream.Close()
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for stream handler to start")
+	}
+	if !waitForRPCSnapshot(t, time.Second, func() bool {
+		snapshot := c.RuntimeSnapshot().Transport
+		return snapshot.StreamIdleTimeout == 20*time.Millisecond &&
+			snapshot.StreamConnPolicy.Mode == "dedicated" &&
+			snapshot.StreamConnPolicy.MaxStreamsPerConn == 1 &&
+			!snapshot.StreamConnPolicy.Reuse &&
+			!snapshot.StreamConnPolicy.Multiplexed &&
+			snapshot.Stream.Active == 0 &&
+			snapshot.Stream.Dials == 1 &&
+			snapshot.Stream.DedicatedConns == 1 &&
+			snapshot.Stream.Closes == 1 &&
+			snapshot.Stream.LastCloseCode == CodeDeadlineExceeded &&
+			snapshot.Stream.LastCloseReason == "idle" &&
+			snapshot.Stream.CloseReasons["idle"] == 1
+	}) {
+		t.Fatalf("stream runtime snapshot = %+v, want idle close lifecycle", c.RuntimeSnapshot().Transport)
+	}
+	close(stop)
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for quiet stream handler to exit")
 	}
 }
 

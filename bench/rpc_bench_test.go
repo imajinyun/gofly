@@ -3,11 +3,14 @@ package bench
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"net"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	flyrpc "github.com/imajinyun/gofly/rpc"
 
@@ -87,12 +90,337 @@ func BenchmarkRPCStreamTransportOpenClose(b *testing.B) {
 		}
 	}
 	snapshot := client.RuntimeSnapshot().Transport.Stream
-	if snapshot.Active != 0 || snapshot.Dials != opened || snapshot.Closes != opened {
-		b.Fatalf("stream transport snapshot = %+v, want dials/closes=%d and no active streams", snapshot, opened)
+	transport := client.RuntimeSnapshot().Transport
+	if transport.StreamConnPolicy.Mode != "dedicated" ||
+		transport.StreamConnPolicy.MaxStreamsPerConn != 1 ||
+		transport.StreamConnPolicy.Reuse ||
+		transport.StreamConnPolicy.Multiplexed {
+		b.Fatalf("stream connection policy = %+v, want dedicated one-stream-one-conn", transport.StreamConnPolicy)
 	}
-	if snapshot.LastTarget != upstream.URL || snapshot.LastDialedAt.IsZero() || snapshot.LastClosedAt.IsZero() {
-		b.Fatalf("stream transport snapshot = %+v, want lifecycle target and timestamps", snapshot)
+	if snapshot.Active != 0 || snapshot.Dials != opened || snapshot.DedicatedConns != opened || snapshot.Closes != opened {
+		b.Fatalf("stream transport snapshot = %+v, want dials/dedicated/closes=%d and no active streams", snapshot, opened)
 	}
+	if snapshot.LastTarget != upstream.URL ||
+		snapshot.LastCloseCode != flyrpc.CodeOK ||
+		snapshot.LastCloseReason != "ok" ||
+		snapshot.CloseCodes[flyrpc.CodeOK] != opened ||
+		snapshot.CloseReasons["ok"] != opened ||
+		snapshot.LastDialedAt.IsZero() ||
+		snapshot.LastClosedAt.IsZero() {
+		b.Fatalf("stream transport snapshot = %+v, want ok lifecycle target, counters and timestamps", snapshot)
+	}
+}
+
+func BenchmarkRPCExperimentalMuxTransportTwoStreams(b *testing.B) {
+	clientConn, serverConn := net.Pipe()
+	client := flyrpc.NewExperimentalMuxTransport(clientConn)
+	server := flyrpc.NewExperimentalMuxTransport(serverConn, flyrpc.WithExperimentalMuxServerRole())
+	defer client.Close()
+	defer server.Close()
+
+	ctx := context.Background()
+	b.ReportAllocs()
+	for b.Loop() {
+		first, err := client.OpenStream(ctx)
+		if err != nil {
+			b.Fatal(err)
+		}
+		second, err := client.OpenStream(ctx)
+		if err != nil {
+			b.Fatal(err)
+		}
+		serverFirst, err := server.AcceptStream(ctx)
+		if err != nil {
+			b.Fatal(err)
+		}
+		serverSecond, err := server.AcceptStream(ctx)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if err := first.Send(ctx, flyrpc.Message{Payload: []byte("first")}); err != nil {
+			b.Fatal(err)
+		}
+		if err := second.Send(ctx, flyrpc.Message{Payload: []byte("second")}); err != nil {
+			b.Fatal(err)
+		}
+		if _, err := serverFirst.Receive(ctx); err != nil {
+			b.Fatal(err)
+		}
+		if _, err := serverSecond.Receive(ctx); err != nil {
+			b.Fatal(err)
+		}
+		if err := serverFirst.Close(ctx, "ok"); err != nil {
+			b.Fatal(err)
+		}
+		if err := serverSecond.Close(ctx, "ok"); err != nil {
+			b.Fatal(err)
+		}
+		if _, err := first.Receive(ctx); !errors.Is(err, io.EOF) {
+			b.Fatal(err)
+		}
+		if _, err := second.Receive(ctx); !errors.Is(err, io.EOF) {
+			b.Fatal(err)
+		}
+	}
+	clientSnapshot := client.Snapshot()
+	serverSnapshot := server.Snapshot()
+	if clientSnapshot.OpenedStreams == 0 ||
+		clientSnapshot.OpenedStreams != serverSnapshot.AcceptedStreams ||
+		clientSnapshot.CloseFramesIn != serverSnapshot.CloseFramesOut ||
+		clientSnapshot.WindowFramesIn != serverSnapshot.WindowFramesOut ||
+		serverSnapshot.WindowFramesIn != clientSnapshot.WindowFramesOut ||
+		clientSnapshot.ActiveStreams != 0 ||
+		serverSnapshot.ActiveStreams != 0 {
+		b.Fatalf("mux snapshots client=%+v server=%+v, want matched opened/accepted/closed/window frames and no active streams", clientSnapshot, serverSnapshot)
+	}
+}
+
+func BenchmarkRPCExperimentalMuxTransportHalfCloseLifecycle(b *testing.B) {
+	clientConn, serverConn := net.Pipe()
+	client := flyrpc.NewExperimentalMuxTransport(clientConn)
+	server := flyrpc.NewExperimentalMuxTransport(serverConn, flyrpc.WithExperimentalMuxServerRole())
+	defer client.Close()
+	defer server.Close()
+
+	ctx := context.Background()
+	b.ReportAllocs()
+	for b.Loop() {
+		clientStream, err := client.OpenStream(ctx)
+		if err != nil {
+			b.Fatal(err)
+		}
+		serverStream, err := server.AcceptStream(ctx)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if err := clientStream.Send(ctx, flyrpc.Message{Payload: []byte("request")}); err != nil {
+			b.Fatal(err)
+		}
+		if _, err := serverStream.Receive(ctx); err != nil {
+			b.Fatal(err)
+		}
+		if err := clientStream.CloseSend(ctx, "request_done"); err != nil {
+			b.Fatal(err)
+		}
+		if _, err := serverStream.Receive(ctx); !errors.Is(err, io.EOF) {
+			b.Fatal(err)
+		}
+		if err := serverStream.Send(ctx, flyrpc.Message{Payload: []byte("response")}); err != nil {
+			b.Fatal(err)
+		}
+		if _, err := clientStream.Receive(ctx); err != nil {
+			b.Fatal(err)
+		}
+		if err := serverStream.CloseSend(ctx, "response_done"); err != nil {
+			b.Fatal(err)
+		}
+		if _, err := clientStream.Receive(ctx); !errors.Is(err, io.EOF) {
+			b.Fatal(err)
+		}
+	}
+	clientSnapshot := client.Snapshot()
+	serverSnapshot := server.Snapshot()
+	if clientSnapshot.ActiveStreams != 0 ||
+		serverSnapshot.ActiveStreams != 0 ||
+		clientSnapshot.FinFramesIn != serverSnapshot.FinFramesOut ||
+		clientSnapshot.FinFramesOut != serverSnapshot.FinFramesIn {
+		b.Fatalf("mux half-close snapshots client=%+v server=%+v, want matched FIN frames and no active streams", clientSnapshot, serverSnapshot)
+	}
+}
+
+func BenchmarkRPCExperimentalMuxTransportKeepaliveSnapshot(b *testing.B) {
+	clientConn, serverConn := net.Pipe()
+	client := flyrpc.NewExperimentalMuxTransport(clientConn, flyrpc.WithExperimentalMuxKeepalive(time.Millisecond, time.Second))
+	server := flyrpc.NewExperimentalMuxTransport(serverConn, flyrpc.WithExperimentalMuxServerRole())
+	defer client.Close()
+	defer server.Close()
+
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		clientSnapshot := client.Snapshot()
+		serverSnapshot := server.Snapshot()
+		if clientSnapshot.PingFramesOut > 0 &&
+			clientSnapshot.PongFramesIn > 0 &&
+			serverSnapshot.PingFramesIn > 0 &&
+			serverSnapshot.PongFramesOut > 0 {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if client.Snapshot().PongFramesIn == 0 {
+		b.Fatalf("keepalive snapshot = %+v, want at least one pong before benchmark", client.Snapshot())
+	}
+
+	ctx := context.Background()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		stream, err := client.OpenStream(ctx)
+		if err != nil {
+			b.Fatal(err)
+		}
+		serverStream, err := server.AcceptStream(ctx)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if err := stream.Send(ctx, flyrpc.Message{Payload: []byte("request")}); err != nil {
+			b.Fatal(err)
+		}
+		if _, err := serverStream.Receive(ctx); err != nil {
+			b.Fatal(err)
+		}
+		if err := serverStream.Close(ctx, "ok"); err != nil {
+			b.Fatal(err)
+		}
+		if _, err := stream.Receive(ctx); !errors.Is(err, io.EOF) {
+			b.Fatal(err)
+		}
+	}
+	b.StopTimer()
+	clientSnapshot := client.Snapshot()
+	serverSnapshot := server.Snapshot()
+	if clientSnapshot.KeepaliveInterval == 0 ||
+		clientSnapshot.KeepaliveIdle == 0 ||
+		clientSnapshot.PingFramesOut == 0 ||
+		clientSnapshot.PongFramesIn == 0 ||
+		serverSnapshot.PingFramesIn == 0 ||
+		serverSnapshot.PongFramesOut == 0 ||
+		clientSnapshot.Liveness != "alive" {
+		b.Fatalf("keepalive snapshots client=%+v server=%+v, want alive ping/pong evidence", clientSnapshot, serverSnapshot)
+	}
+}
+
+func BenchmarkRPCExperimentalMuxTransportMaxStreamsAdmission(b *testing.B) {
+	clientConn, serverConn := net.Pipe()
+	client := flyrpc.NewExperimentalMuxTransport(clientConn, flyrpc.WithExperimentalMuxMaxConcurrentStreams(2))
+	server := flyrpc.NewExperimentalMuxTransport(serverConn, flyrpc.WithExperimentalMuxServerRole())
+	defer client.Close()
+	defer server.Close()
+
+	ctx := context.Background()
+	b.ReportAllocs()
+	for b.Loop() {
+		first, err := client.OpenStream(ctx)
+		if err != nil {
+			b.Fatal(err)
+		}
+		second, err := client.OpenStream(ctx)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if third, err := client.OpenStream(ctx); err == nil || third != nil || flyrpc.CodeOf(err) != flyrpc.CodeUnavailable {
+			b.Fatalf("third OpenStream = stream %#v err %v, want local CodeUnavailable", third, err)
+		}
+		serverFirst, err := server.AcceptStream(ctx)
+		if err != nil {
+			b.Fatal(err)
+		}
+		serverSecond, err := server.AcceptStream(ctx)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if err := serverFirst.Close(ctx, "ok"); err != nil {
+			b.Fatal(err)
+		}
+		if err := serverSecond.Close(ctx, "ok"); err != nil {
+			b.Fatal(err)
+		}
+		if _, err := first.Receive(ctx); !errors.Is(err, io.EOF) {
+			b.Fatal(err)
+		}
+		if _, err := second.Receive(ctx); !errors.Is(err, io.EOF) {
+			b.Fatal(err)
+		}
+		waitMuxBenchIdle(b, client, server)
+	}
+	clientSnapshot := client.Snapshot()
+	serverSnapshot := server.Snapshot()
+	if clientSnapshot.MaxStreams != 2 ||
+		clientSnapshot.LocalRejects == 0 ||
+		clientSnapshot.OpenedStreams != serverSnapshot.AcceptedStreams ||
+		clientSnapshot.ActiveStreams != 0 ||
+		serverSnapshot.ActiveStreams != 0 {
+		b.Fatalf("max-stream snapshots client=%+v server=%+v, want local admission rejects and no active streams", clientSnapshot, serverSnapshot)
+	}
+}
+
+func BenchmarkRPCExperimentalMuxTransportDrainGoAway(b *testing.B) {
+	ctx := context.Background()
+	b.ReportAllocs()
+	for b.Loop() {
+		clientConn, serverConn := net.Pipe()
+		client := flyrpc.NewExperimentalMuxTransport(clientConn)
+		server := flyrpc.NewExperimentalMuxTransport(serverConn, flyrpc.WithExperimentalMuxServerRole())
+
+		stream, err := client.OpenStream(ctx)
+		if err != nil {
+			b.Fatal(err)
+		}
+		serverStream, err := server.AcceptStream(ctx)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if err := client.Drain(ctx, "benchmark_drain"); err != nil {
+			b.Fatal(err)
+		}
+		if next, err := client.OpenStream(ctx); err == nil || next != nil || flyrpc.CodeOf(err) != flyrpc.CodeUnavailable {
+			b.Fatalf("OpenStream after drain = stream %#v err %v, want CodeUnavailable", next, err)
+		}
+		if err := stream.Send(ctx, flyrpc.Message{Payload: []byte("request")}); err != nil {
+			b.Fatal(err)
+		}
+		if _, err := serverStream.Receive(ctx); err != nil {
+			b.Fatal(err)
+		}
+		if err := serverStream.Close(ctx, "ok"); err != nil {
+			b.Fatal(err)
+		}
+		if _, err := stream.Receive(ctx); !errors.Is(err, io.EOF) {
+			b.Fatal(err)
+		}
+		waitMuxBenchIdle(b, client, server)
+		clientSnapshot := client.Snapshot()
+		serverSnapshot := server.Snapshot()
+		if !clientSnapshot.Draining ||
+			clientSnapshot.GoAwayFramesOut != 1 ||
+			clientSnapshot.LocalRejects != 1 ||
+			clientSnapshot.DrainRejects != 1 ||
+			clientSnapshot.ActiveStreams != 0 ||
+			!serverSnapshot.RemoteDraining ||
+			serverSnapshot.GoAwayFramesIn != 1 ||
+			serverSnapshot.ActiveStreams != 0 {
+			b.Fatalf("drain snapshots client=%+v server=%+v, want GOAWAY drain evidence and no active streams", clientSnapshot, serverSnapshot)
+		}
+		if err := client.Close(); err != nil {
+			b.Fatal(err)
+		}
+		if err := server.Close(); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func waitMuxBenchIdle(b *testing.B, transports ...*flyrpc.ExperimentalMuxTransport) {
+	b.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		idle := true
+		for _, transport := range transports {
+			if transport.Snapshot().ActiveStreams != 0 {
+				idle = false
+				break
+			}
+		}
+		if idle {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	snapshots := make([]flyrpc.ExperimentalMuxTransportSnapshot, 0, len(transports))
+	for _, transport := range transports {
+		snapshots = append(snapshots, transport.Snapshot())
+	}
+	b.Fatalf("mux transports did not become idle before deadline: %+v", snapshots)
 }
 
 func TestRPCStreamTransportEvidenceContract(t *testing.T) {

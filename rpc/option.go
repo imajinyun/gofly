@@ -68,6 +68,7 @@ type clientOptions struct {
 	transport         TransportConfig
 	timeout           time.Duration
 	streamTimeout     time.Duration
+	streamIdleTimeout time.Duration
 	retry             int
 	retryPolicy       retry.Policy
 	breaker           *breaker.Breaker
@@ -347,6 +348,17 @@ func WithClientStreamTimeout(timeout time.Duration) ClientOption {
 	return func(o *clientOptions) {
 		if timeout > 0 {
 			o.streamTimeout = timeout
+		}
+	}
+}
+
+// WithClientStreamIdleTimeout closes streams that have no read or write
+// activity for the configured duration. It is disabled by default because some
+// production streams are intentionally long-lived and quiet.
+func WithClientStreamIdleTimeout(timeout time.Duration) ClientOption {
+	return func(o *clientOptions) {
+		if timeout > 0 {
+			o.streamIdleTimeout = timeout
 		}
 	}
 }

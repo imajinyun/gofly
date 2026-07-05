@@ -1514,6 +1514,12 @@ func TestHTTPClientRuntimeSnapshotAndResolverWatchCloseIdle(t *testing.T) {
 	if initial.Middlewares.Unary != 1 || initial.Middlewares.Stream != 1 || initial.Policy.State.Balancer != RPCBalancerP2C {
 		t.Fatalf("initial middleware/policy snapshot = %+v, want middleware counts and p2c policy", initial)
 	}
+	if initial.Diagnosis.Transport.Stream.Active != 0 ||
+		initial.Diagnosis.Retry.Attempts != 1 ||
+		initial.Diagnosis.Resolver.Type == "" ||
+		initial.Diagnosis.Balancer.Name != RPCBalancerP2C {
+		t.Fatalf("initial diagnosis snapshot = %+v, want transport/retry/resolver/balancer evidence", initial.Diagnosis)
+	}
 
 	updates <- []string{"http://b", "http://c"}
 	if !waitForRPCSnapshot(t, time.Second, func() bool {
@@ -2265,6 +2271,28 @@ func TestHTTPClientTransportOptions(t *testing.T) {
 	if configured.opts.transport.MaxIdleConnsPerHost != 7 || configured.opts.transport.DialTimeout != 30*time.Second || configured.opts.transport.KeepAlive != 30*time.Second {
 		t.Fatalf("stored transport = %+v, want normalized stream transport defaults with custom idle host limit", configured.opts.transport)
 	}
+	snapshot := configured.RuntimeSnapshot()
+	if snapshot.Transport.DialTimeout != 30*time.Second ||
+		snapshot.Transport.KeepAlive != 30*time.Second ||
+		snapshot.Transport.IdleConnTimeout != 90*time.Second ||
+		snapshot.Transport.StreamConnPolicy.Mode != "dedicated" ||
+		snapshot.Transport.StreamConnPolicy.MaxStreamsPerConn != 1 ||
+		snapshot.Transport.StreamConnPolicy.Reuse ||
+		snapshot.Transport.StreamConnPolicy.Multiplexed ||
+		snapshot.Diagnosis.Transport.KeepAlive != 30*time.Second ||
+		snapshot.Diagnosis.Transport.StreamConnPolicy.Mode != "dedicated" {
+		t.Fatalf("transport snapshot = %+v diagnosis=%+v, want normalized keepalive and idle evidence", snapshot.Transport, snapshot.Diagnosis.Transport)
+	}
+}
+
+func TestDedicatedStreamConnPolicySnapshot(t *testing.T) {
+	policy := dedicatedStreamConnPolicySnapshot()
+	if policy.Mode != "dedicated" ||
+		policy.MaxStreamsPerConn != 1 ||
+		policy.Reuse ||
+		policy.Multiplexed {
+		t.Fatalf("stream conn policy = %+v, want dedicated one-stream-one-conn policy", policy)
+	}
 }
 
 func TestHTTPClientStreamUsesTransportTLSConfig(t *testing.T) {
@@ -2301,7 +2329,7 @@ func TestHTTPClientStreamUsesTransportTLSConfig(t *testing.T) {
 		t.Fatalf("Stream with transport TLS config: %v", err)
 	}
 	snapshot := c.RuntimeSnapshot().Transport.Stream
-	if snapshot.Active != 1 || snapshot.Dials != 1 || snapshot.Closes != 0 || snapshot.LastTarget != ts.URL || snapshot.LastDialedAt.IsZero() {
+	if snapshot.Active != 1 || snapshot.Dials != 1 || snapshot.DedicatedConns != 1 || snapshot.Closes != 0 || snapshot.LastTarget != ts.URL || snapshot.LastDialedAt.IsZero() {
 		t.Fatalf("stream transport snapshot after dial = %+v, want one active dial for %s", snapshot, ts.URL)
 	}
 	var got helloResponse
@@ -2315,7 +2343,10 @@ func TestHTTPClientStreamUsesTransportTLSConfig(t *testing.T) {
 		t.Fatalf("Close: %v", err)
 	}
 	snapshot = c.RuntimeSnapshot().Transport.Stream
-	if snapshot.Active != 0 || snapshot.Dials != 1 || snapshot.Closes != 1 || snapshot.LastCloseCode != CodeOK || snapshot.LastClosedAt.IsZero() {
+	if snapshot.Active != 0 || snapshot.Dials != 1 || snapshot.Closes != 1 ||
+		snapshot.LastCloseCode != CodeOK || snapshot.LastCloseReason != "ok" ||
+		snapshot.CloseCodes[CodeOK] != 1 || snapshot.CloseReasons["ok"] != 1 ||
+		snapshot.LastClosedAt.IsZero() {
 		t.Fatalf("stream transport snapshot after close = %+v, want closed lifecycle evidence", snapshot)
 	}
 }

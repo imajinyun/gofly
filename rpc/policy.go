@@ -96,6 +96,7 @@ type RPCRuntimeSnapshot struct {
 	Discovery   RPCDiscoveryRuntimeSnapshot `json:"discovery,omitempty"`
 	Stats       callstats.Snapshot          `json:"stats,omitempty"`
 	Warmup      RPCWarmupSnapshot           `json:"warmup,omitempty"`
+	Diagnosis   RPCDiagnosisSnapshot        `json:"diagnosis,omitempty"`
 }
 
 type RPCWarmupConfig struct {
@@ -124,19 +125,53 @@ type RPCEndpointChainSnapshot struct {
 }
 
 type RPCHTTPTransportSnapshot struct {
-	Timeout             time.Duration              `json:"timeout,omitempty"`
-	CloseIdleOnEndpoint bool                       `json:"closeIdleOnEndpointChange"`
-	Stream              RPCStreamTransportSnapshot `json:"stream,omitempty"`
+	Timeout             time.Duration               `json:"timeout,omitempty"`
+	DialTimeout         time.Duration               `json:"dialTimeout,omitempty"`
+	KeepAlive           time.Duration               `json:"keepAlive,omitempty"`
+	IdleConnTimeout     time.Duration               `json:"idleConnTimeout,omitempty"`
+	StreamIdleTimeout   time.Duration               `json:"streamIdleTimeout,omitempty"`
+	StreamConnPolicy    RPCStreamConnPolicySnapshot `json:"streamConnPolicy,omitempty"`
+	CloseIdleOnEndpoint bool                        `json:"closeIdleOnEndpointChange"`
+	Stream              RPCStreamTransportSnapshot  `json:"stream,omitempty"`
 }
 
 type RPCStreamTransportSnapshot struct {
-	Active        int64     `json:"active,omitempty"`
-	Dials         int64     `json:"dials,omitempty"`
-	Closes        int64     `json:"closes,omitempty"`
-	LastTarget    string    `json:"lastTarget,omitempty"`
-	LastDialedAt  time.Time `json:"lastDialedAt,omitempty"`
-	LastClosedAt  time.Time `json:"lastClosedAt,omitempty"`
-	LastCloseCode Code      `json:"lastCloseCode,omitempty"`
+	Active          int64            `json:"active,omitempty"`
+	Dials           int64            `json:"dials,omitempty"`
+	DedicatedConns  int64            `json:"dedicatedConns,omitempty"`
+	Closes          int64            `json:"closes,omitempty"`
+	LastTarget      string           `json:"lastTarget,omitempty"`
+	LastDialedAt    time.Time        `json:"lastDialedAt,omitempty"`
+	LastClosedAt    time.Time        `json:"lastClosedAt,omitempty"`
+	LastCloseCode   Code             `json:"lastCloseCode,omitempty"`
+	LastCloseReason string           `json:"lastCloseReason,omitempty"`
+	CloseCodes      map[Code]int64   `json:"closeCodes,omitempty"`
+	CloseReasons    map[string]int64 `json:"closeReasons,omitempty"`
+}
+
+type RPCStreamConnPolicySnapshot struct {
+	Mode              string `json:"mode,omitempty"`
+	MaxStreamsPerConn int    `json:"maxStreamsPerConn,omitempty"`
+	Reuse             bool   `json:"reuse"`
+	Multiplexed       bool   `json:"multiplexed"`
+}
+
+type RPCDiagnosisSnapshot struct {
+	Transport RPCHTTPTransportSnapshot     `json:"transport,omitempty"`
+	ConnPool  ConnPoolManagerSnapshot      `json:"connPool,omitempty"`
+	Retry     RPCRetryDiagnosisSnapshot    `json:"retry,omitempty"`
+	Resolver  RPCResolverRuntimeSnapshot   `json:"resolver,omitempty"`
+	Balancer  RPCBalancerDiagnosisSnapshot `json:"balancer,omitempty"`
+}
+
+type RPCRetryDiagnosisSnapshot struct {
+	Enabled  bool          `json:"enabled"`
+	Attempts int           `json:"attempts,omitempty"`
+	Backoff  time.Duration `json:"backoff,omitempty"`
+}
+
+type RPCBalancerDiagnosisSnapshot struct {
+	Name string `json:"name,omitempty"`
 }
 
 type RPCResolverRuntimeSnapshot struct {
@@ -273,6 +308,7 @@ func (c *HTTPClient) RuntimeSnapshot() RPCRuntimeSnapshot {
 		Discovery:   c.discovery.Snapshot(),
 		Stats:       c.callStatsSnapshot(),
 		Warmup:      c.warmupSnapshot(),
+		Diagnosis:   c.diagnosisSnapshot(),
 	}
 }
 
@@ -329,6 +365,25 @@ func (c *HTTPClient) connPoolSnapshot() ConnPoolManagerSnapshot {
 		return ConnPoolManagerSnapshot{}
 	}
 	return c.opts.connPool.Snapshot()
+}
+
+func (c *HTTPClient) diagnosisSnapshot() RPCDiagnosisSnapshot {
+	if c == nil {
+		return RPCDiagnosisSnapshot{}
+	}
+	policy := c.effectiveRPCPolicy(governance.Policy{})
+	state := c.policyRuntimeState(policy)
+	return RPCDiagnosisSnapshot{
+		Transport: c.httpTransportSnapshot(),
+		ConnPool:  c.connPoolSnapshot(),
+		Retry: RPCRetryDiagnosisSnapshot{
+			Enabled:  state.RetryAttempts > 1,
+			Attempts: state.RetryAttempts,
+			Backoff:  state.RetryBackoff,
+		},
+		Resolver: c.resolverRuntimeSnapshot(),
+		Balancer: RPCBalancerDiagnosisSnapshot{Name: state.Balancer},
+	}
 }
 
 func middlewareCountLayers(name string, count int) []coreruntime.MiddlewareLayer {
@@ -395,12 +450,29 @@ func (c *HTTPClient) httpTransportSnapshot() RPCHTTPTransportSnapshot {
 	if c == nil || c.hc == nil {
 		return RPCHTTPTransportSnapshot{}
 	}
-	snapshot := RPCHTTPTransportSnapshot{CloseIdleOnEndpoint: c.watchCancel != nil}
+	transport := normalizeTransportConfig(c.opts.transport)
+	snapshot := RPCHTTPTransportSnapshot{
+		CloseIdleOnEndpoint: c.watchCancel != nil,
+		DialTimeout:         transport.DialTimeout,
+		KeepAlive:           transport.KeepAlive,
+		IdleConnTimeout:     transport.IdleConnTimeout,
+		StreamIdleTimeout:   c.opts.streamIdleTimeout,
+		StreamConnPolicy:    dedicatedStreamConnPolicySnapshot(),
+	}
 	snapshot.Timeout = c.hc.Timeout
 	if c.streams != nil {
 		snapshot.Stream = c.streams.Snapshot()
 	}
 	return snapshot
+}
+
+func dedicatedStreamConnPolicySnapshot() RPCStreamConnPolicySnapshot {
+	return RPCStreamConnPolicySnapshot{
+		Mode:              "dedicated",
+		MaxStreamsPerConn: 1,
+		Reuse:             false,
+		Multiplexed:       false,
+	}
 }
 
 func (c *HTTPClient) resolverRuntimeSnapshot() RPCResolverRuntimeSnapshot {

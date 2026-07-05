@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -19,6 +20,12 @@ type DNSResolver struct {
 	scheme        string
 	lookupIP      func(context.Context, string) ([]net.IP, error)
 	watchInterval time.Duration
+	mu            sync.RWMutex
+	endpoints     []string
+	removed       []string
+	err           error
+	updates       int64
+	lastUpdated   time.Time
 }
 
 type DNSResolverConfig struct {
@@ -64,11 +71,14 @@ func (r *DNSResolver) Resolve(ctx context.Context) ([]string, error) {
 		return nil, errors.New("dns resolver is nil")
 	}
 	if err := ctx.Err(); err != nil {
+		r.record(nil, err)
 		return nil, err
 	}
 	ips, err := r.lookupIP(ctx, r.host)
 	if err != nil {
-		return nil, fmt.Errorf("lookup dns host %q: %w", r.host, err)
+		err = fmt.Errorf("lookup dns host %q: %w", r.host, err)
+		r.record(nil, err)
+		return nil, err
 	}
 	endpoints := make([]string, 0, len(ips))
 	for _, ip := range ips {
@@ -81,8 +91,11 @@ func (r *DNSResolver) Resolve(ctx context.Context) ([]string, error) {
 	endpoints = normalizeEndpoints(endpoints)
 	sort.Strings(endpoints)
 	if len(endpoints) == 0 {
-		return nil, errors.New("no rpc endpoints resolved")
+		err := errors.New("no rpc endpoints resolved")
+		r.record(nil, err)
+		return nil, err
 	}
+	r.record(endpoints, nil)
 	return endpoints, nil
 }
 
@@ -121,4 +134,38 @@ func (r *DNSResolver) Watch(ctx context.Context) (<-chan []string, error) {
 		}
 	}()
 	return out, nil
+}
+
+func (r *DNSResolver) Snapshot() ResolverSnapshot {
+	if r == nil {
+		return ResolverSnapshot{}
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	snapshot := ResolverSnapshot{
+		Endpoints:   append([]string(nil), r.endpoints...),
+		Removed:     append([]string(nil), r.removed...),
+		Updates:     r.updates,
+		LastUpdated: r.lastUpdated,
+	}
+	if r.err != nil {
+		snapshot.Error = r.err.Error()
+	}
+	return snapshot
+}
+
+func (r *DNSResolver) record(endpoints []string, err error) {
+	if r == nil {
+		return
+	}
+	endpoints = normalizeEndpoints(endpoints)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err == nil {
+		r.removed = removedEndpoints(r.endpoints, endpoints)
+		r.endpoints = append([]string(nil), endpoints...)
+	}
+	r.err = err
+	r.updates++
+	r.lastUpdated = time.Now()
 }

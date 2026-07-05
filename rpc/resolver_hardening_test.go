@@ -32,6 +32,14 @@ func TestResolverFuncAndStaticResolverHardeningContracts(t *testing.T) {
 	if _, err := (StaticResolver{}).Resolve(context.Background()); err == nil {
 		t.Fatal("empty static resolver succeeded, want error")
 	}
+	snapshot := static.Snapshot()
+	if len(snapshot.Endpoints) != 2 || snapshot.Endpoints[0] != "http://a" || snapshot.Error != "" {
+		t.Fatalf("static snapshot = %#v, want normalized endpoints", snapshot)
+	}
+	emptySnapshot := (StaticResolver{}).Snapshot()
+	if emptySnapshot.Error != "no rpc endpoints resolved" || len(emptySnapshot.Endpoints) != 0 {
+		t.Fatalf("empty static snapshot = %#v, want no endpoints error", emptySnapshot)
+	}
 }
 
 func TestCachedResolverConstructionAndSnapshotBoundaries(t *testing.T) {

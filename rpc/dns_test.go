@@ -49,6 +49,53 @@ func TestDNSResolverResolveAndConfigBoundaries(t *testing.T) {
 	}
 }
 
+func TestDNSResolverRuntimeSnapshotRecordsUpdatesErrorsAndContextCancel(t *testing.T) {
+	lookup := &dnsLookupStub{results: [][]net.IP{
+		{net.ParseIP("10.0.0.1"), net.ParseIP("10.0.0.2")},
+		{net.ParseIP("10.0.0.2")},
+	}, err: errors.New("dns unavailable")}
+	resolver, err := NewDNSResolver(DNSResolverConfig{
+		Host:     "svc.local",
+		Port:     8080,
+		LookupIP: lookup.LookupIP,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if endpoints, err := resolver.Resolve(context.Background()); err != nil || !sameEndpoints(endpoints, []string{"http://10.0.0.1:8080", "http://10.0.0.2:8080"}) {
+		t.Fatalf("first DNS resolve endpoints=%#v error=%v", endpoints, err)
+	}
+	snapshot := resolver.Snapshot()
+	if snapshot.Updates != 1 || len(snapshot.Endpoints) != 2 || !snapshot.LastUpdated.After(time.Time{}) || snapshot.Error != "" {
+		t.Fatalf("first DNS snapshot = %#v, want endpoints and update metadata", snapshot)
+	}
+	if endpoints, err := resolver.Resolve(context.Background()); err != nil || !sameEndpoints(endpoints, []string{"http://10.0.0.2:8080"}) {
+		t.Fatalf("second DNS resolve endpoints=%#v error=%v", endpoints, err)
+	}
+	snapshot = resolver.Snapshot()
+	if !sameEndpoints(snapshot.Endpoints, []string{"http://10.0.0.2:8080"}) || !sameEndpoints(snapshot.Removed, []string{"http://10.0.0.1:8080"}) {
+		t.Fatalf("second DNS snapshot = %#v, want removed stale endpoint", snapshot)
+	}
+
+	lookup.EnableError()
+	if _, err := resolver.Resolve(context.Background()); err == nil || !strings.Contains(err.Error(), "dns unavailable") {
+		t.Fatalf("failed DNS resolve error = %v, want dns unavailable", err)
+	}
+	snapshot = resolver.Snapshot()
+	if !strings.Contains(snapshot.Error, "dns unavailable") || !sameEndpoints(snapshot.Endpoints, []string{"http://10.0.0.2:8080"}) {
+		t.Fatalf("failed DNS snapshot = %#v, want error while preserving last good endpoints", snapshot)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := resolver.Resolve(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled DNS resolve error = %v, want context.Canceled", err)
+	}
+	if snapshot := resolver.Snapshot(); !strings.Contains(snapshot.Error, context.Canceled.Error()) {
+		t.Fatalf("canceled DNS snapshot = %#v, want canceled error", snapshot)
+	}
+}
+
 func TestDNSResolverWatchEmitsChangedEndpoints(t *testing.T) {
 	lookup := &dnsLookupStub{results: [][]net.IP{
 		{net.ParseIP("10.0.0.1")},

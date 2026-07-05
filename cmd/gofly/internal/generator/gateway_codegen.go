@@ -305,6 +305,22 @@ func (c Config) gatewayResolvers(lookupIP func(context.Context, string) ([]net.I
 				runtimeResolver = failover
 			}
 			resolvers[service] = runtimeResolver
+		case "static":
+			resolvers[service] = rpc.NewStaticResolver(item.Targets...)
+		case "nacos":
+			static := rpc.NewStaticResolver(item.Targets...)
+			if _, err := static.Resolve(context.Background()); err != nil {
+				return nil, fmt.Errorf("nacos gateway resolver for %q requires config fallback targets: %w", service, err)
+			}
+			var runtimeResolver rpc.Resolver = static
+			if c.GatewayDiscovery.Failover {
+				failover, err := rpc.NewFailoverResolver(static)
+				if err != nil {
+					return nil, fmt.Errorf("create nacos fallback resolver for %q: %w", service, err)
+				}
+				runtimeResolver = failover
+			}
+			resolvers[service] = runtimeResolver
 		default:
 			return nil, fmt.Errorf("unsupported gateway discovery provider %q", item.Provider)
 		}
@@ -363,6 +379,7 @@ type GatewayDiscoveryServiceConfig struct {
 	Host string ` + "`json:\"host,omitempty\"`" + `
 	Port int ` + "`json:\"port,omitempty\"`" + `
 	Scheme string ` + "`json:\"scheme,omitempty\"`" + `
+	Targets []string ` + "`json:\"targets,omitempty\"`" + `
 	WatchInterval time.Duration ` + "`json:\"watchInterval,omitempty\"`" + `
 }
 
@@ -728,6 +745,104 @@ func TestGatewayDNSDiscoveryConfigBuildsResolverWithFailover(t *testing.T) {
 	gw.ServeHTTP(second, httptest.NewRequest(http.MethodGet, "/api/orders/42", nil))
 	if second.Code != http.StatusOK || second.Body.String() != "ok" {
 		t.Fatalf("stale DNS gateway response = %d %q", second.Code, second.Body.String())
+	}
+}
+
+func TestGatewayStaticDiscoveryConfigBuildsResolver(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/orders/42" {
+			t.Fatalf("upstream path = %q, want /orders/42", r.URL.Path)
+		}
+		_, _ = w.Write([]byte("ok"))
+	}))
+	t.Cleanup(upstream.Close)
+
+	c := Config{
+		Gateway: gateway.Config{Routes: []gateway.RouteConfig{{
+			Name: "orders",
+			Method: http.MethodGet,
+			PathPrefix: "/api",
+			Service: "orders",
+		}}},
+		GatewayDiscovery: GatewayDiscoveryConfig{
+			Services: []GatewayDiscoveryServiceConfig{{
+				Enabled: true,
+				Service: "orders",
+				Provider: "static",
+				Targets: []string{upstream.URL},
+			}},
+		},
+	}
+	resolvers, err := c.GatewayResolvers()
+	if err != nil {
+		t.Fatalf("GatewayResolvers: %v", err)
+	}
+	gw, err := gateway.NewFromConfig(c.Gateway, resolvers, c.GatewayOptions()...)
+	if err != nil {
+		t.Fatalf("NewFromConfig: %v", err)
+	}
+	t.Cleanup(func() { _ = gw.Close() })
+
+	rr := httptest.NewRecorder()
+	gw.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/orders/42", nil))
+	if rr.Code != http.StatusOK || rr.Body.String() != "ok" {
+		t.Fatalf("static gateway response = %d %q", rr.Code, rr.Body.String())
+	}
+	snapshot := gw.Snapshot()
+	if len(snapshot.Discovery) != 1 || len(snapshot.Discovery[0].Endpoints) != 1 || snapshot.Discovery[0].Endpoints[0] != upstream.URL {
+		t.Fatalf("static discovery snapshot = %+v, want static endpoint", snapshot.Discovery)
+	}
+}
+
+func TestGatewayNacosDiscoveryConfigUsesStaticFallback(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/orders/42" {
+			t.Fatalf("upstream path = %q, want /orders/42", r.URL.Path)
+		}
+		_, _ = w.Write([]byte("ok"))
+	}))
+	t.Cleanup(upstream.Close)
+
+	c := Config{
+		Gateway: gateway.Config{Routes: []gateway.RouteConfig{{
+			Name: "orders",
+			Method: http.MethodGet,
+			PathPrefix: "/api",
+			Service: "orders",
+		}}},
+		GatewayDiscovery: GatewayDiscoveryConfig{
+			Failover: true,
+			Services: []GatewayDiscoveryServiceConfig{{
+				Enabled: true,
+				Service: "orders",
+				Provider: "nacos",
+				Targets: []string{upstream.URL},
+			}},
+		},
+	}
+	resolvers, err := c.GatewayResolvers()
+	if err != nil {
+		t.Fatalf("GatewayResolvers: %v", err)
+	}
+	gw, err := gateway.NewFromConfig(c.Gateway, resolvers, c.GatewayOptions()...)
+	if err != nil {
+		t.Fatalf("NewFromConfig: %v", err)
+	}
+	t.Cleanup(func() { _ = gw.Close() })
+
+	rr := httptest.NewRecorder()
+	gw.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/orders/42", nil))
+	if rr.Code != http.StatusOK || rr.Body.String() != "ok" {
+		t.Fatalf("nacos fallback gateway response = %d %q", rr.Code, rr.Body.String())
+	}
+	snapshot := gw.Snapshot()
+	if len(snapshot.Discovery) != 1 || snapshot.Discovery[0].Stale || len(snapshot.Discovery[0].Endpoints) != 1 || snapshot.Discovery[0].Endpoints[0] != upstream.URL {
+		t.Fatalf("nacos fallback discovery snapshot = %+v, want static fallback endpoint", snapshot.Discovery)
+	}
+
+	c.GatewayDiscovery.Services[0].Targets = nil
+	if _, err := c.GatewayResolvers(); err == nil {
+		t.Fatalf("empty nacos fallback error = %v, want explicit fallback target error", err)
 	}
 }
 

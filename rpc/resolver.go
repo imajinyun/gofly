@@ -405,6 +405,15 @@ func (r StaticResolver) Resolve(ctx context.Context) ([]string, error) {
 	return endpoints, nil
 }
 
+func (r StaticResolver) Snapshot() ResolverSnapshot {
+	endpoints := normalizeEndpoints(r.Endpoints)
+	snapshot := ResolverSnapshot{Endpoints: append([]string(nil), endpoints...)}
+	if len(endpoints) == 0 {
+		snapshot.Error = "no rpc endpoints resolved"
+	}
+	return snapshot
+}
+
 type Registry struct {
 	mu        sync.RWMutex
 	discovery *discovery.MemoryRegistry

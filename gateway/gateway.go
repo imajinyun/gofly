@@ -249,6 +249,7 @@ type Gateway struct {
 	manager             *governance.Manager
 	rules               *governance.RuleSet
 	resolvers           map[string]rpc.Resolver
+	discoveryServices   map[string]struct{}
 	transcoders         map[string]rpc.GenericClient
 	transcoderMu        sync.Mutex
 	transcoderFactory   TranscoderFactory
@@ -257,6 +258,7 @@ type Gateway struct {
 	shadowPool          *shadowPool
 	logger              *slog.Logger
 	retryRuntime        *retryRuntime
+	discoveryFailover   bool
 }
 
 type gatewayRuleRuntime struct {
@@ -384,8 +386,11 @@ type DiscoveryRouteSnapshot struct {
 	Kind      string                `json:"kind"`
 	Tags      map[string]string     `json:"tags,omitempty"`
 	Endpoints []string              `json:"endpoints,omitempty"`
+	Removed   []string              `json:"removed,omitempty"`
 	Instances []rpc.ServiceInstance `json:"instances,omitempty"`
 	Error     string                `json:"error,omitempty"`
+	Stale     bool                  `json:"stale,omitempty"`
+	Fallbacks int64                 `json:"fallbacks,omitempty"`
 }
 
 // Stats collects request metrics per route.
@@ -681,10 +686,28 @@ func WithDiscoveryResolvers(resolvers map[string]discovery.Resolver) Option {
 		if g.resolvers == nil {
 			g.resolvers = make(map[string]rpc.Resolver, len(resolvers))
 		}
+		if g.discoveryServices == nil {
+			g.discoveryServices = make(map[string]struct{}, len(resolvers))
+		}
 		for service, resolver := range resolvers {
 			service = strings.TrimSpace(service)
 			if service != "" && resolver != nil {
-				g.resolvers[service] = rpc.NewDiscoveryResolver(resolver, service)
+				g.discoveryServices[service] = struct{}{}
+				g.resolvers[service] = g.discoveryResolver(resolver, service)
+			}
+		}
+	}
+}
+
+// WithDiscoveryFailover enables last-known-good endpoint fallback for discovery
+// backed routes. It is opt-in so route owners can keep strict resolver failure
+// semantics where stale endpoints are not acceptable.
+func WithDiscoveryFailover() Option {
+	return func(g *Gateway) {
+		g.discoveryFailover = true
+		for service := range g.discoveryServices {
+			if resolver := g.resolvers[service]; resolver != nil {
+				g.resolvers[service] = wrapGatewayFailoverResolver(resolver)
 			}
 		}
 	}
@@ -1093,24 +1116,53 @@ func (g *Gateway) resolverSnapshot(ctx context.Context, kind string, key string,
 		snapshot.Error = "resolver is nil"
 		return snapshot
 	}
+	if snapshoter, ok := resolver.(resolverSnapshotter); ok {
+		mergeResolverSnapshot(&snapshot, snapshoter.Snapshot())
+	}
 	if instanceResolver, ok := resolver.(rpc.InstanceResolver); ok {
 		instances, err := instanceResolver.ResolveInstances(ctx)
 		if err != nil {
-			snapshot.Error = err.Error()
+			if snapshot.Error == "" {
+				snapshot.Error = err.Error()
+			}
 			return snapshot
 		}
 		matched := filterInstances(instances, tags)
 		snapshot.Instances = cloneServiceInstances(matched)
 		snapshot.Endpoints = g.filterHealthy(expandInstances(matched, nil, g.maxExpandedEndpoint))
+		if snapshoter, ok := resolver.(resolverSnapshotter); ok {
+			mergeResolverSnapshot(&snapshot, snapshoter.Snapshot())
+		}
 		return snapshot
 	}
 	endpoints, err := resolver.Resolve(ctx)
 	if err != nil {
-		snapshot.Error = err.Error()
+		if snapshot.Error == "" {
+			snapshot.Error = err.Error()
+		}
 		return snapshot
 	}
 	snapshot.Endpoints = g.filterHealthy(normalizeTargets(endpoints))
+	if snapshoter, ok := resolver.(resolverSnapshotter); ok {
+		mergeResolverSnapshot(&snapshot, snapshoter.Snapshot())
+	}
 	return snapshot
+}
+
+type resolverSnapshotter interface {
+	Snapshot() rpc.ResolverSnapshot
+}
+
+func mergeResolverSnapshot(snapshot *DiscoveryRouteSnapshot, resolverSnapshot rpc.ResolverSnapshot) {
+	if snapshot == nil {
+		return
+	}
+	snapshot.Removed = append([]string(nil), resolverSnapshot.Removed...)
+	snapshot.Stale = resolverSnapshot.Stale
+	snapshot.Fallbacks = resolverSnapshot.Fallbacks
+	if resolverSnapshot.Error != "" {
+		snapshot.Error = resolverSnapshot.Error
+	}
 }
 
 // NewStats creates a new Stats collector.
@@ -1640,14 +1692,14 @@ func cloneDescriptor(desc rpc.Descriptor) rpc.Descriptor {
 
 func (g *Gateway) attachRouteResolvers(route Route) Route {
 	if route.Resolver == nil && route.Discovery != nil && strings.TrimSpace(route.Service) != "" {
-		route.Resolver = rpc.NewDiscoveryResolver(route.Discovery, route.Service)
+		route.Resolver = g.discoveryResolver(route.Discovery, route.Service)
 	}
 	if route.Resolver == nil && strings.TrimSpace(route.Service) != "" {
 		route.Resolver = g.resolver(route.Service)
 	}
 	for i := range route.Shadow {
 		if route.Shadow[i].Resolver == nil && route.Shadow[i].Discovery != nil && strings.TrimSpace(route.Shadow[i].Service) != "" {
-			route.Shadow[i].Resolver = rpc.NewDiscoveryResolver(route.Shadow[i].Discovery, route.Shadow[i].Service)
+			route.Shadow[i].Resolver = g.discoveryResolver(route.Shadow[i].Discovery, route.Shadow[i].Service)
 		}
 		if route.Shadow[i].Resolver == nil && strings.TrimSpace(route.Shadow[i].Service) != "" {
 			route.Shadow[i].Resolver = g.resolver(route.Shadow[i].Service)
@@ -1655,13 +1707,31 @@ func (g *Gateway) attachRouteResolvers(route Route) Route {
 	}
 	for i := range route.Canary {
 		if route.Canary[i].Resolver == nil && route.Canary[i].Discovery != nil && strings.TrimSpace(route.Canary[i].Service) != "" {
-			route.Canary[i].Resolver = rpc.NewDiscoveryResolver(route.Canary[i].Discovery, route.Canary[i].Service)
+			route.Canary[i].Resolver = g.discoveryResolver(route.Canary[i].Discovery, route.Canary[i].Service)
 		}
 		if route.Canary[i].Resolver == nil && strings.TrimSpace(route.Canary[i].Service) != "" {
 			route.Canary[i].Resolver = g.resolver(route.Canary[i].Service)
 		}
 	}
 	return route
+}
+
+func (g *Gateway) discoveryResolver(resolver discovery.Resolver, service string) rpc.Resolver {
+	base := rpc.NewDiscoveryResolver(resolver, service)
+	if g == nil || !g.discoveryFailover {
+		return base
+	}
+	return wrapGatewayFailoverResolver(base)
+}
+
+func wrapGatewayFailoverResolver(resolver rpc.Resolver) rpc.Resolver {
+	if resolver == nil {
+		return nil
+	}
+	if _, ok := resolver.(*gatewayFailoverResolver); ok {
+		return resolver
+	}
+	return newGatewayFailoverResolver(resolver)
 }
 
 func normalizeTargets(targets []string) []string {

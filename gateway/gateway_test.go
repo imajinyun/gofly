@@ -731,6 +731,88 @@ func TestGatewayUsesDiscoveryResolverByService(t *testing.T) {
 	}
 }
 
+func TestGatewayDiscoveryFailoverKeepsLastKnownGoodEndpoint(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		options func(*discovery.MemoryRegistry) []Option
+	}{
+		{
+			name: "failover before discovery resolvers",
+			options: func(registry *discovery.MemoryRegistry) []Option {
+				return []Option{
+					WithDiscoveryFailover(),
+					WithDiscoveryResolvers(map[string]discovery.Resolver{"users": registry}),
+				}
+			},
+		},
+		{
+			name: "failover after discovery resolvers",
+			options: func(registry *discovery.MemoryRegistry) []Option {
+				return []Option{
+					WithDiscoveryResolvers(map[string]discovery.Resolver{"users": registry}),
+					WithDiscoveryFailover(),
+				}
+			},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var hits atomic.Int64
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				hits.Add(1)
+				_, _ = fmt.Fprint(w, "stable")
+			}))
+			t.Cleanup(upstream.Close)
+
+			registry := discovery.NewMemoryRegistry()
+			lease, err := registry.Register(context.Background(), discovery.Instance{
+				Service:  "users",
+				Endpoint: upstream.URL,
+				Weight:   2,
+				Tags:     map[string]string{"zone": "a"},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			g, err := New([]Route{{PathPrefix: "/api", Service: "users", Tags: map[string]string{"zone": "a"}}}, tt.options(registry)...)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			first := httptest.NewRecorder()
+			g.ServeHTTP(first, httptest.NewRequest(http.MethodGet, "/api/ping", nil))
+			if first.Code != http.StatusOK || strings.TrimSpace(first.Body.String()) != "stable" {
+				t.Fatalf("first response = %d/%q, want stable", first.Code, first.Body.String())
+			}
+			if err := lease.Close(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+
+			second := httptest.NewRecorder()
+			g.ServeHTTP(second, httptest.NewRequest(http.MethodGet, "/api/ping", nil))
+			if second.Code != http.StatusOK || strings.TrimSpace(second.Body.String()) != "stable" {
+				t.Fatalf("stale response = %d/%q, want last known endpoint", second.Code, second.Body.String())
+			}
+			if hits.Load() != 2 {
+				t.Fatalf("upstream hits = %d, want initial and stale fallback requests", hits.Load())
+			}
+			snapshot := g.Snapshot()
+			if len(snapshot.Discovery) != 1 {
+				t.Fatalf("discovery snapshot = %+v, want one route snapshot", snapshot.Discovery)
+			}
+			routeSnapshot := snapshot.Discovery[0]
+			if !routeSnapshot.Stale || routeSnapshot.Fallbacks == 0 || routeSnapshot.Error == "" {
+				t.Fatalf("discovery failover snapshot = %+v, want stale fallback evidence", routeSnapshot)
+			}
+			if len(routeSnapshot.Instances) != 1 || routeSnapshot.Instances[0].Endpoint != upstream.URL || routeSnapshot.Instances[0].Tags["zone"] != "a" {
+				t.Fatalf("stale instances = %+v, want last known tagged instance", routeSnapshot.Instances)
+			}
+			if len(routeSnapshot.Endpoints) != 2 {
+				t.Fatalf("weighted stale endpoints = %+v, want weight-expanded last known endpoints", routeSnapshot.Endpoints)
+			}
+		})
+	}
+}
+
 func TestGatewayDiscoveryResolverReflectsRegistryChanges(t *testing.T) {
 	first := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = fmt.Fprint(w, "first")

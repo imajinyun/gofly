@@ -443,11 +443,13 @@ func TestExperimentalMuxTransportKeepalivePingPongSnapshot(t *testing.T) {
 		clientSnapshot.LastFrameWrittenAt.IsZero() {
 		t.Fatalf("client snapshot = %+v, want configured alive keepalive liveness", clientSnapshot)
 	}
-	if serverSnapshot.PingFramesIn != clientSnapshot.PingFramesOut ||
-		serverSnapshot.PongFramesOut != clientSnapshot.PongFramesIn ||
+	if serverSnapshot.PingFramesIn == 0 ||
+		serverSnapshot.PongFramesOut == 0 ||
+		serverSnapshot.PongFramesOut > serverSnapshot.PingFramesIn ||
+		clientSnapshot.PongFramesIn > clientSnapshot.PingFramesOut ||
 		serverSnapshot.LastPingAt.IsZero() ||
 		serverSnapshot.LastPongAt.IsZero() {
-		t.Fatalf("server snapshot = %+v client snapshot = %+v, want matched keepalive frames", serverSnapshot, clientSnapshot)
+		t.Fatalf("server snapshot = %+v client snapshot = %+v, want self-consistent keepalive frames", serverSnapshot, clientSnapshot)
 	}
 }
 

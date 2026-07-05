@@ -15,6 +15,7 @@ import (
 	consulapi "github.com/hashicorp/consul/api"
 
 	"github.com/imajinyun/gofly/core/discovery"
+	"github.com/imajinyun/gofly/rpc"
 )
 
 func TestConfigDefaultsAndNewWithClientValidation(t *testing.T) {
@@ -296,6 +297,92 @@ func TestResolveReadsHealthServiceAndFilters(t *testing.T) {
 	}
 }
 
+func TestConsulFailoverResolverMatrix(t *testing.T) {
+	var mu sync.Mutex
+	mode := "first"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/health/service/users" {
+			http.NotFound(w, r)
+			return
+		}
+		mu.Lock()
+		current := mode
+		mu.Unlock()
+		switch current {
+		case "first":
+			writeConsulHealthEntries(t, w, 1, []*consulapi.ServiceEntry{
+				{Service: &consulapi.AgentService{ID: "users-a", Address: "10.0.0.1", Port: 8080}},
+			})
+		case "empty":
+			writeConsulHealthEntries(t, w, 2, nil)
+		case "error":
+			http.Error(w, "consul unavailable", http.StatusInternalServerError)
+		case "second":
+			writeConsulHealthEntries(t, w, 3, []*consulapi.ServiceEntry{
+				{Service: &consulapi.AgentService{ID: "users-b", Address: "10.0.0.2", Port: 9090}},
+			})
+		default:
+			t.Fatalf("unexpected consul test mode %q", current)
+		}
+	}))
+	defer server.Close()
+
+	registry := newConsulTestRegistry(t, server.URL, Config{})
+	failover, err := rpc.NewFailoverResolver(rpc.NewDiscoveryResolver(registry, "users"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	first, err := failover.Resolve(context.Background())
+	if err != nil {
+		t.Fatalf("first consul failover resolve: %v", err)
+	}
+	if !reflect.DeepEqual(first, []string{"10.0.0.1:8080"}) {
+		t.Fatalf("first consul endpoints = %#v, want users-a", first)
+	}
+
+	setConsulFailoverMode(&mu, &mode, "empty")
+	emptyFallback, err := failover.Resolve(context.Background())
+	if err != nil {
+		t.Fatalf("empty consul failover resolve: %v", err)
+	}
+	if !reflect.DeepEqual(emptyFallback, first) {
+		t.Fatalf("empty consul fallback = %#v, want %#v", emptyFallback, first)
+	}
+
+	setConsulFailoverMode(&mu, &mode, "error")
+	errorFallback, err := failover.Resolve(context.Background())
+	if err != nil {
+		t.Fatalf("error consul failover resolve: %v", err)
+	}
+	if !reflect.DeepEqual(errorFallback, first) {
+		t.Fatalf("error consul fallback = %#v, want %#v", errorFallback, first)
+	}
+	snapshot := failover.Snapshot()
+	if !snapshot.Stale || snapshot.Fallbacks < 2 || snapshot.Error == "" {
+		t.Fatalf("consul failover snapshot = %#v, want stale fallback evidence", snapshot)
+	}
+
+	setConsulFailoverMode(&mu, &mode, "second")
+	second, err := failover.Resolve(context.Background())
+	if err != nil {
+		t.Fatalf("second consul failover resolve: %v", err)
+	}
+	if !reflect.DeepEqual(second, []string{"10.0.0.2:9090"}) {
+		t.Fatalf("second consul endpoints = %#v, want users-b", second)
+	}
+	snapshot = failover.Snapshot()
+	if snapshot.Stale || !reflect.DeepEqual(snapshot.Removed, []string{"10.0.0.1:8080"}) {
+		t.Fatalf("consul update snapshot = %#v, want recovered resolver with removed first endpoint", snapshot)
+	}
+
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := failover.Resolve(canceled); err != context.Canceled {
+		t.Fatalf("canceled consul failover error = %v, want context.Canceled", err)
+	}
+}
+
 func TestWatchEmitsSnapshotAndBlockingUpdate(t *testing.T) {
 	var mu sync.Mutex
 	requests := 0
@@ -481,6 +568,24 @@ func newConsulTestRegistry(t *testing.T, address string, cfg Config) *Registry {
 		t.Fatalf("NewWithClient error = %v", err)
 	}
 	return r
+}
+
+func writeConsulHealthEntries(t *testing.T, w http.ResponseWriter, index int, entries []*consulapi.ServiceEntry) {
+	t.Helper()
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Consul-Index", strconv.Itoa(index))
+	if entries == nil {
+		entries = []*consulapi.ServiceEntry{}
+	}
+	if err := json.NewEncoder(w).Encode(entries); err != nil {
+		t.Fatalf("encode consul health entries: %v", err)
+	}
+}
+
+func setConsulFailoverMode(mu *sync.Mutex, mode *string, next string) {
+	mu.Lock()
+	*mode = next
+	mu.Unlock()
 }
 
 func readConsulEvent(t *testing.T, ch <-chan discovery.Event) discovery.Event {

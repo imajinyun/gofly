@@ -3,6 +3,7 @@ package etcdv3
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -11,6 +12,7 @@ import (
 	clientv3 "go.etcd.io/etcd/client/v3"
 
 	"github.com/imajinyun/gofly/core/discovery"
+	"github.com/imajinyun/gofly/rpc"
 )
 
 func TestConfigDefaultsAndNewValidation(t *testing.T) {
@@ -707,6 +709,62 @@ func TestRegisterResolveWithFakeClient(t *testing.T) {
 	}
 	if err := l.Close(context.Background()); err != nil {
 		t.Fatalf("Lease Close error = %v", err)
+	}
+}
+
+func TestFailoverResolverMatrixWithFakeClient(t *testing.T) {
+	client := newFakeEtcdClient(t)
+	defer client.Close()
+	r, err := NewWithClient(client, Config{Prefix: "/tests", TTL: 5 * time.Second})
+	if err != nil {
+		t.Fatalf("NewWithClient error = %v", err)
+	}
+	defer r.Close(context.Background())
+	fakeKV := client.KV.(*fakeEtcdKV)
+	fakeKV.data["/tests/users/a"] = `{"service":"users","id":"a","endpoint":"http://10.0.0.1:8080"}`
+
+	failover, err := rpc.NewFailoverResolver(rpc.NewDiscoveryResolver(r, "users"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := failover.Resolve(context.Background())
+	if err != nil {
+		t.Fatalf("first etcdv3 failover resolve: %v", err)
+	}
+	if !slices.Equal(first, []string{"http://10.0.0.1:8080"}) {
+		t.Fatalf("first etcdv3 endpoints = %#v, want node a", first)
+	}
+
+	delete(fakeKV.data, "/tests/users/a")
+	emptyFallback, err := failover.Resolve(context.Background())
+	if err != nil {
+		t.Fatalf("empty etcdv3 failover resolve: %v", err)
+	}
+	if !slices.Equal(emptyFallback, first) {
+		t.Fatalf("empty etcdv3 fallback = %#v, want %#v", emptyFallback, first)
+	}
+	snapshot := failover.Snapshot()
+	if !snapshot.Stale || snapshot.Fallbacks == 0 || snapshot.Error == "" {
+		t.Fatalf("etcdv3 empty snapshot = %#v, want stale fallback evidence", snapshot)
+	}
+
+	fakeKV.data["/tests/users/b"] = `{"service":"users","id":"b","endpoint":"http://10.0.0.2:9090"}`
+	second, err := failover.Resolve(context.Background())
+	if err != nil {
+		t.Fatalf("second etcdv3 failover resolve: %v", err)
+	}
+	if !slices.Equal(second, []string{"http://10.0.0.2:9090"}) {
+		t.Fatalf("second etcdv3 endpoints = %#v, want node b", second)
+	}
+	snapshot = failover.Snapshot()
+	if snapshot.Stale || !slices.Equal(snapshot.Removed, []string{"http://10.0.0.1:8080"}) {
+		t.Fatalf("etcdv3 update snapshot = %#v, want recovered resolver with removed first endpoint", snapshot)
+	}
+
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := failover.Resolve(canceled); err != context.Canceled {
+		t.Fatalf("canceled etcdv3 failover error = %v, want context.Canceled", err)
 	}
 }
 

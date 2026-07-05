@@ -643,10 +643,15 @@ func TestGatewayGeneratedOpenAPIImportProfileIsRunnable(t *testing.T) {
 		OpenAPI: "3.0.3",
 		Info: rest.OpenAPIInfo{Title: "{{.Name}} upstream", Version: "1.0.0"},
 		Paths: map[string]map[string]rest.Operation{
-			"/orders": {
+			"/orders/{id}": {
 				"post": {
 					OperationID: "getOrder",
 					Tags: []string{"orders"},
+					Parameters: []rest.Parameter{
+						{Name: "id", In: "path", Required: true, Schema: rest.StringSchema()},
+						{Name: "expand", In: "query", Schema: rest.StringSchema()},
+					},
+					RequestBody: rest.JSONBodySchema(rest.Schema{Type: "object", Properties: map[string]rest.Schema{"trace": {Type: "string"}}}, false),
 					Responses: map[string]rest.Response{"200": {Description: "OK"}},
 				},
 			},
@@ -677,11 +682,13 @@ func TestGatewayGeneratedOpenAPIImportProfileIsRunnable(t *testing.T) {
 		Methods: []rpc.MethodDesc{rpc.GenericMethod("GetOrder", func(_ context.Context, raw json.RawMessage) (any, error) {
 			var request struct {
 				ID string ` + "`json:\"id\"`" + `
+				Expand string ` + "`json:\"expand\"`" + `
+				Trace string ` + "`json:\"trace\"`" + `
 			}
 			if err := json.Unmarshal(raw, &request); err != nil {
 				return nil, err
 			}
-			return map[string]string{"id": request.ID, "source": "rpc"}, nil
+			return map[string]string{"id": request.ID, "expand": request.Expand, "trace": request.Trace, "source": "rpc"}, nil
 		})},
 	}, nil); err != nil {
 		t.Fatalf("register generated OpenAPI RPC service: %v", err)
@@ -722,8 +729,8 @@ func TestGatewayGeneratedOpenAPIImportProfileIsRunnable(t *testing.T) {
 	t.Cleanup(func() { _ = gw.Close() })
 
 	rr := httptest.NewRecorder()
-	gw.ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/contract/orders", strings.NewReader("{\"id\":\"o42\"}")))
-	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), "\"id\":\"o42\"") || !strings.Contains(rr.Body.String(), "\"source\":\"rpc\"") {
+	gw.ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/contract/orders/o42?expand=items", strings.NewReader("{\"trace\":\"t1\"}")))
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), "\"id\":\"o42\"") || !strings.Contains(rr.Body.String(), "\"expand\":\"items\"") || !strings.Contains(rr.Body.String(), "\"trace\":\"t1\"") || !strings.Contains(rr.Body.String(), "\"source\":\"rpc\"") {
 		t.Fatalf("generated OpenAPI gateway response = %d %q, want imported RPC transcode success", rr.Code, rr.Body.String())
 	}
 }

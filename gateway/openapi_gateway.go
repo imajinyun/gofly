@@ -217,7 +217,7 @@ func openAPIRouteConfig(method, path, staticPrefix string, op rest.Operation, op
 		AllowedHosts:   append([]string(nil), opts.AllowedHosts...),
 		Tags:           cloneMap(opts.Tags),
 		Headers:        cloneMap(opts.Headers),
-		Transcode:      openAPITranscodeConfig(op, opts.Transcode),
+		Transcode:      openAPITranscodeConfig(path, op, opts.Transcode),
 	}
 }
 
@@ -296,7 +296,7 @@ func mergeOpenAPIStringMaps(base, override map[string]string) map[string]string 
 	return out
 }
 
-func openAPITranscodeConfig(op rest.Operation, opts OpenAPITranscodeOptions) TranscodeConfig {
+func openAPITranscodeConfig(path string, op rest.Operation, opts OpenAPITranscodeOptions) TranscodeConfig {
 	if !opts.Enabled {
 		return TranscodeConfig{}
 	}
@@ -317,7 +317,46 @@ func openAPITranscodeConfig(op rest.Operation, opts OpenAPITranscodeOptions) Tra
 		DescriptorMethod: descriptorMethod,
 		Service:          strings.TrimSpace(opts.Service),
 		Method:           method,
+		Payload:          openAPITranscodePayloadConfig(path, op, opts),
 	}
+}
+
+func openAPITranscodePayloadConfig(path string, op rest.Operation, opts OpenAPITranscodeOptions) TranscodePayloadConfig {
+	if !opts.Enabled {
+		return TranscodePayloadConfig{}
+	}
+	payload := TranscodePayloadConfig{Mode: "openapi", PathTemplate: strings.TrimSpace(path), MergeBodyObject: true}
+	for _, parameter := range op.Parameters {
+		name := strings.TrimSpace(parameter.Name)
+		if name == "" {
+			continue
+		}
+		switch strings.ToLower(strings.TrimSpace(parameter.In)) {
+		case "path":
+			payload.PathParams = append(payload.PathParams, name)
+		case "query":
+			payload.QueryParams = append(payload.QueryParams, name)
+		}
+	}
+	if len(payload.PathParams) == 0 {
+		payload.PathParams = openAPIPathTemplateParamNames(path)
+	}
+	return payload
+}
+
+func openAPIPathTemplateParamNames(path string) []string {
+	segments := strings.Split(strings.Trim(path, "/"), "/")
+	out := make([]string, 0, len(segments))
+	for _, segment := range segments {
+		if len(segment) < 3 || !strings.HasPrefix(segment, "{") || !strings.HasSuffix(segment, "}") {
+			continue
+		}
+		name := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(segment, "{"), "}"))
+		if name != "" {
+			out = append(out, name)
+		}
+	}
+	return out
 }
 
 func openAPITranscodeOptionsConfigured(opts OpenAPITranscodeOptions) bool {

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/imajinyun/gofly/core/breaker"
@@ -40,7 +41,7 @@ func (g *Gateway) transcodeOnce(r *http.Request, route Route, endpoint string, b
 		}
 		return proxyResult{Endpoint: endpoint, Err: err}, err
 	}
-	payload := transcodeRequestPayload(body)
+	payload := transcodeRequestPayload(r, route, body)
 	ctx := transcodeContext(r.Context(), r, route)
 	methodPath, err := rpc.MethodPath(target.service, target.method)
 	if err != nil {
@@ -199,11 +200,140 @@ func transcodeMethodFromPath(path, prefix string) string {
 	return trimmed
 }
 
-func transcodeRequestPayload(body []byte) json.RawMessage {
+func transcodeRequestPayload(r *http.Request, route Route, body []byte) json.RawMessage {
+	if route.Transcode.Payload.Mode != "" {
+		return transcodeMappedRequestPayload(r, route, body)
+	}
 	if len(bytes.TrimSpace(body)) == 0 {
 		return json.RawMessage("null")
 	}
 	return json.RawMessage(append([]byte(nil), body...))
+}
+
+func transcodeMappedRequestPayload(r *http.Request, route Route, body []byte) json.RawMessage {
+	payload := map[string]any{}
+	if route.Transcode.Payload.MergeBodyObject {
+		mergeTranscodeBody(payload, body, route.Transcode.Payload.BodyField)
+	}
+	for key, value := range transcodePathValues(r.URL.Path, route.PathPrefix, route.Transcode.Payload.PathTemplate, route.Transcode.Payload.PathParams) {
+		payload[key] = value
+	}
+	for key, value := range transcodeQueryValues(r.URL.Query(), route.Transcode.Payload.QueryParams) {
+		payload[key] = value
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return json.RawMessage("{}")
+	}
+	return json.RawMessage(data)
+}
+
+func mergeTranscodeBody(payload map[string]any, body []byte, bodyField string) {
+	body = bytes.TrimSpace(body)
+	if len(body) == 0 {
+		return
+	}
+	var value any
+	if err := json.Unmarshal(body, &value); err != nil {
+		payload[transcodeBodyField(bodyField)] = string(body)
+		return
+	}
+	if object, ok := value.(map[string]any); ok && bodyField == "" {
+		for key, item := range object {
+			payload[key] = item
+		}
+		return
+	}
+	payload[transcodeBodyField(bodyField)] = value
+}
+
+func transcodeBodyField(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "body"
+	}
+	return value
+}
+
+func transcodePathValues(path, routePrefix, template string, names []string) map[string]string {
+	out := map[string]string{}
+	if len(names) == 0 {
+		return out
+	}
+	templateSegments := strings.Split(strings.Trim(template, "/"), "/")
+	pathSuffix := strings.Trim(strings.TrimPrefix(path, strings.TrimRight(routePrefix, "/")), "/")
+	pathSegments := strings.Split(pathSuffix, "/")
+	for len(pathSegments) == 1 && pathSegments[0] == "" {
+		pathSegments = nil
+	}
+	firstDynamic := -1
+	for index, segment := range templateSegments {
+		if strings.HasPrefix(segment, "{") && strings.HasSuffix(segment, "}") {
+			firstDynamic = index
+			break
+		}
+	}
+	if firstDynamic >= 0 {
+		templateSegments = templateSegments[firstDynamic:]
+	}
+	nameSet := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name != "" {
+			nameSet[name] = struct{}{}
+		}
+	}
+	for index, segment := range templateSegments {
+		if !strings.HasPrefix(segment, "{") || !strings.HasSuffix(segment, "}") {
+			continue
+		}
+		name := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(segment, "{"), "}"))
+		if _, ok := nameSet[name]; !ok {
+			continue
+		}
+		if index < len(pathSegments) {
+			out[name] = pathSegments[index]
+		}
+	}
+	if len(out) == len(nameSet) {
+		return out
+	}
+	for i, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if _, ok := out[name]; ok {
+			continue
+		}
+		if i < len(pathSegments) {
+			out[name] = pathSegments[i]
+		}
+	}
+	return out
+}
+
+func transcodeQueryValues(values url.Values, names []string) map[string]any {
+	out := map[string]any{}
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		items, ok := values[name]
+		if !ok {
+			continue
+		}
+		switch len(items) {
+		case 0:
+			out[name] = ""
+		case 1:
+			out[name] = items[0]
+		default:
+			out[name] = append([]string(nil), items...)
+		}
+	}
+	return out
 }
 
 func transcodeContext(ctx context.Context, r *http.Request, route Route) context.Context {

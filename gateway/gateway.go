@@ -85,12 +85,24 @@ type RouteConfig struct {
 // enabled the gateway converts an inbound HTTP/JSON request into a generic RPC
 // call against the resolved upstream instead of plain HTTP reverse proxying.
 type TranscodeConfig struct {
-	Enabled          bool   `json:"enabled,omitempty"`
-	Protocol         string `json:"protocol,omitempty"`
-	Service          string `json:"service,omitempty"`
-	Method           string `json:"method,omitempty"`
-	Descriptor       string `json:"descriptor,omitempty"`
-	DescriptorMethod string `json:"descriptorMethod,omitempty"`
+	Enabled          bool                   `json:"enabled,omitempty"`
+	Protocol         string                 `json:"protocol,omitempty"`
+	Service          string                 `json:"service,omitempty"`
+	Method           string                 `json:"method,omitempty"`
+	Descriptor       string                 `json:"descriptor,omitempty"`
+	DescriptorMethod string                 `json:"descriptorMethod,omitempty"`
+	Payload          TranscodePayloadConfig `json:"payload,omitempty"`
+}
+
+// TranscodePayloadConfig controls how HTTP request parts are assembled into
+// the generic RPC request payload.
+type TranscodePayloadConfig struct {
+	Mode            string   `json:"mode,omitempty"`
+	PathTemplate    string   `json:"pathTemplate,omitempty"`
+	PathParams      []string `json:"pathParams,omitempty"`
+	QueryParams     []string `json:"queryParams,omitempty"`
+	BodyField       string   `json:"bodyField,omitempty"`
+	MergeBodyObject bool     `json:"mergeBodyObject,omitempty"`
 }
 
 // AggregationConfig enables BFF-style fan-out aggregation for a route. When
@@ -1029,7 +1041,7 @@ func (g *Gateway) routeRuntimeSnapshot(route Route) RouteRuntimeSnapshot {
 		Concurrency:      route.Concurrency,
 		CanaryCount:      len(route.Canary),
 		ShadowCount:      len(route.Shadow),
-		Transcode:        route.Transcode,
+		Transcode:        cloneTranscodeConfig(route.Transcode),
 		Aggregation:      cloneAggregationConfig(route.Aggregation),
 	}
 }
@@ -1625,7 +1637,7 @@ func routeFromConfig(route RouteConfig) Route {
 		Canary:         cloneCanaryRoutes(route.Canary),
 		Shadow:         cloneShadowRoutes(route.Shadow),
 		AllowedHosts:   append([]string(nil), route.AllowedHosts...),
-		Transcode:      route.Transcode,
+		Transcode:      cloneTranscodeConfig(route.Transcode),
 		Aggregation:    cloneAggregationConfig(route.Aggregation),
 		Tags:           cloneMap(route.Tags),
 		Headers:        cloneMap(route.Headers),
@@ -1651,7 +1663,7 @@ func routeConfigFromRoute(route Route) RouteConfig {
 		Canary:         cloneCanaryRoutes(route.Canary),
 		Shadow:         cloneShadowRoutes(route.Shadow),
 		AllowedHosts:   append([]string(nil), route.AllowedHosts...),
-		Transcode:      route.Transcode,
+		Transcode:      cloneTranscodeConfig(route.Transcode),
 		Aggregation:    cloneAggregationConfig(route.Aggregation),
 		Tags:           cloneMap(route.Tags),
 		Headers:        cloneMap(route.Headers),
@@ -1663,11 +1675,18 @@ func cloneRoute(route Route) Route {
 	route.Header = cloneHeaderPolicy(route.Header)
 	route.Canary = cloneCanaryRoutes(route.Canary)
 	route.Shadow = cloneShadowRoutes(route.Shadow)
+	route.Transcode = cloneTranscodeConfig(route.Transcode)
 	route.Aggregation = cloneAggregationConfig(route.Aggregation)
 	route.AllowedHosts = append([]string(nil), route.AllowedHosts...)
 	route.Tags = cloneMap(route.Tags)
 	route.Headers = cloneMap(route.Headers)
 	return route
+}
+
+func cloneTranscodeConfig(config TranscodeConfig) TranscodeConfig {
+	config.Payload.PathParams = append([]string(nil), config.Payload.PathParams...)
+	config.Payload.QueryParams = append([]string(nil), config.Payload.QueryParams...)
+	return config
 }
 
 func cloneDescriptor(desc rpc.Descriptor) rpc.Descriptor {

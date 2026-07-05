@@ -2186,8 +2186,20 @@ func TestRoutesFromOpenAPIMapsDescriptorDrivenTranscode(t *testing.T) {
 		OpenAPI: "3.0.3",
 		Info:    rest.OpenAPIInfo{Title: "orders RPC contract", Version: "1.0.0"},
 		Paths: map[string]map[string]rest.Operation{
-			"/orders": {
-				"post": {OperationID: "getOrder", Tags: []string{"orders"}, Responses: map[string]rest.Response{"200": {Description: "ok"}}},
+			"/orders/{id}": {
+				"post": {
+					OperationID: "getOrder",
+					Tags:        []string{"orders"},
+					Parameters: []rest.Parameter{
+						{Name: "id", In: "path", Required: true, Schema: rest.StringSchema()},
+						{Name: "expand", In: "query", Schema: rest.StringSchema()},
+					},
+					RequestBody: rest.JSONBodySchema(rest.Schema{
+						Type:       "object",
+						Properties: map[string]rest.Schema{"trace": {Type: "string"}},
+					}, false),
+					Responses: map[string]rest.Response{"200": {Description: "ok"}},
+				},
 			},
 		},
 	}
@@ -2218,6 +2230,9 @@ func TestRoutesFromOpenAPIMapsDescriptorDrivenTranscode(t *testing.T) {
 	if !route.Transcode.Enabled || route.Transcode.Descriptor != "orders.OrderService" || route.Transcode.DescriptorMethod != "GetOrder" {
 		t.Fatalf("imported transcode config = %+v", route.Transcode)
 	}
+	if route.Transcode.Payload.Mode != "openapi" || route.Transcode.Payload.PathTemplate != "/orders/{id}" || strings.Join(route.Transcode.Payload.PathParams, ",") != "id" || strings.Join(route.Transcode.Payload.QueryParams, ",") != "expand" {
+		t.Fatalf("imported transcode payload = %+v", route.Transcode.Payload)
+	}
 
 	fake := &fakeGenericClient{payload: json.RawMessage(`{"id":"o42","source":"openapi"}`)}
 	g, err := New(routes,
@@ -2235,11 +2250,15 @@ func TestRoutesFromOpenAPIMapsDescriptorDrivenTranscode(t *testing.T) {
 	t.Cleanup(func() { _ = g.Close() })
 
 	rr := httptest.NewRecorder()
-	g.ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/contract/orders", strings.NewReader(`{"id":"o42"}`)))
+	g.ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/contract/orders/o42?expand=items", strings.NewReader(`{"trace":"t1"}`)))
 	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"source":"openapi"`) {
 		t.Fatalf("openapi transcode response = %d %q", rr.Code, rr.Body.String())
 	}
-	if fake.method != "orders.OrderService/GetOrder" || string(fake.request) != `{"id":"o42"}` {
+	var request map[string]any
+	if err := json.Unmarshal(fake.request, &request); err != nil {
+		t.Fatalf("decode generic request %s: %v", fake.request, err)
+	}
+	if fake.method != "orders.OrderService/GetOrder" || request["id"] != "o42" || request["expand"] != "items" || request["trace"] != "t1" {
 		t.Fatalf("generic call method=%q request=%s", fake.method, fake.request)
 	}
 }

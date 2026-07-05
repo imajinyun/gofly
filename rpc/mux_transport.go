@@ -19,15 +19,16 @@ import (
 const (
 	experimentalMuxFrameVersion byte = 1
 
-	experimentalMuxFrameOpen   byte = 1
-	experimentalMuxFrameData   byte = 2
-	experimentalMuxFrameClose  byte = 3
-	experimentalMuxFrameCancel byte = 4
-	experimentalMuxFrameWindow byte = 5
-	experimentalMuxFrameFin    byte = 6
-	experimentalMuxFramePing   byte = 7
-	experimentalMuxFramePong   byte = 8
-	experimentalMuxFrameGoAway byte = 9
+	experimentalMuxFrameOpen       byte = 1
+	experimentalMuxFrameData       byte = 2
+	experimentalMuxFrameClose      byte = 3
+	experimentalMuxFrameCancel     byte = 4
+	experimentalMuxFrameWindow     byte = 5
+	experimentalMuxFrameFin        byte = 6
+	experimentalMuxFramePing       byte = 7
+	experimentalMuxFramePong       byte = 8
+	experimentalMuxFrameGoAway     byte = 9
+	experimentalMuxFrameWindowConn byte = 10
 )
 
 var (
@@ -48,6 +49,7 @@ type ExperimentalMuxTransport struct {
 	role              string
 	maxFrame          int64
 	receiveQueueSize  int
+	connectionWindow  int
 	maxStreams        int
 	keepaliveInterval time.Duration
 	keepaliveIdle     time.Duration
@@ -66,50 +68,54 @@ type ExperimentalMuxTransport struct {
 	drainReason       string
 	remoteDrainReason string
 
-	accept chan *ExperimentalMuxStream
-	done   chan struct{}
-	once   sync.Once
+	accept     chan *ExperimentalMuxStream
+	connCredit chan struct{}
+	done       chan struct{}
+	once       sync.Once
 
-	framesIn           atomic.Int64
-	framesOut          atomic.Int64
-	dataFramesIn       atomic.Int64
-	dataFramesOut      atomic.Int64
-	openFramesIn       atomic.Int64
-	openFramesOut      atomic.Int64
-	closeFramesIn      atomic.Int64
-	closeFramesOut     atomic.Int64
-	cancelFramesIn     atomic.Int64
-	cancelFramesOut    atomic.Int64
-	windowFramesIn     atomic.Int64
-	windowFramesOut    atomic.Int64
-	finFramesIn        atomic.Int64
-	finFramesOut       atomic.Int64
-	pingFramesIn       atomic.Int64
-	pingFramesOut      atomic.Int64
-	pongFramesIn       atomic.Int64
-	pongFramesOut      atomic.Int64
-	goAwayFramesIn     atomic.Int64
-	goAwayFramesOut    atomic.Int64
-	bytesIn            atomic.Int64
-	bytesOut           atomic.Int64
-	openedStreams      atomic.Int64
-	acceptedStreams    atomic.Int64
-	closedStreams      atomic.Int64
-	canceledStreams    atomic.Int64
-	halfClosedStreams  atomic.Int64
-	backpressureEvents atomic.Int64
-	creditWaits        atomic.Int64
-	idleTimeouts       atomic.Int64
-	localRejects       atomic.Int64
-	remoteRejects      atomic.Int64
-	drainRejects       atomic.Int64
-	lastStreamID       atomic.Uint64
-	lastFrameReadAt    atomic.Int64
-	lastFrameWrittenAt atomic.Int64
-	lastPingAt         atomic.Int64
-	lastPongAt         atomic.Int64
-	lastCloseCode      atomic.Value
-	lastCloseReason    atomic.Value
+	framesIn                  atomic.Int64
+	framesOut                 atomic.Int64
+	dataFramesIn              atomic.Int64
+	dataFramesOut             atomic.Int64
+	openFramesIn              atomic.Int64
+	openFramesOut             atomic.Int64
+	closeFramesIn             atomic.Int64
+	closeFramesOut            atomic.Int64
+	cancelFramesIn            atomic.Int64
+	cancelFramesOut           atomic.Int64
+	windowFramesIn            atomic.Int64
+	windowFramesOut           atomic.Int64
+	connectionWindowFramesIn  atomic.Int64
+	connectionWindowFramesOut atomic.Int64
+	finFramesIn               atomic.Int64
+	finFramesOut              atomic.Int64
+	pingFramesIn              atomic.Int64
+	pingFramesOut             atomic.Int64
+	pongFramesIn              atomic.Int64
+	pongFramesOut             atomic.Int64
+	goAwayFramesIn            atomic.Int64
+	goAwayFramesOut           atomic.Int64
+	bytesIn                   atomic.Int64
+	bytesOut                  atomic.Int64
+	openedStreams             atomic.Int64
+	acceptedStreams           atomic.Int64
+	closedStreams             atomic.Int64
+	canceledStreams           atomic.Int64
+	halfClosedStreams         atomic.Int64
+	backpressureEvents        atomic.Int64
+	creditWaits               atomic.Int64
+	connectionCreditWaits     atomic.Int64
+	idleTimeouts              atomic.Int64
+	localRejects              atomic.Int64
+	remoteRejects             atomic.Int64
+	drainRejects              atomic.Int64
+	lastStreamID              atomic.Uint64
+	lastFrameReadAt           atomic.Int64
+	lastFrameWrittenAt        atomic.Int64
+	lastPingAt                atomic.Int64
+	lastPongAt                atomic.Int64
+	lastCloseCode             atomic.Value
+	lastCloseReason           atomic.Value
 }
 
 // ExperimentalMuxTransportOption customizes ExperimentalMuxTransport.
@@ -117,58 +123,62 @@ type ExperimentalMuxTransportOption func(*ExperimentalMuxTransport)
 
 // ExperimentalMuxTransportSnapshot reports observable mux transport state.
 type ExperimentalMuxTransportSnapshot struct {
-	Role               string        `json:"role,omitempty"`
-	ActiveStreams      int           `json:"activeStreams"`
-	OpenedStreams      int64         `json:"openedStreams,omitempty"`
-	AcceptedStreams    int64         `json:"acceptedStreams,omitempty"`
-	ClosedStreams      int64         `json:"closedStreams,omitempty"`
-	CanceledStreams    int64         `json:"canceledStreams,omitempty"`
-	FramesIn           int64         `json:"framesIn,omitempty"`
-	FramesOut          int64         `json:"framesOut,omitempty"`
-	DataFramesIn       int64         `json:"dataFramesIn,omitempty"`
-	DataFramesOut      int64         `json:"dataFramesOut,omitempty"`
-	OpenFramesIn       int64         `json:"openFramesIn,omitempty"`
-	OpenFramesOut      int64         `json:"openFramesOut,omitempty"`
-	CloseFramesIn      int64         `json:"closeFramesIn,omitempty"`
-	CloseFramesOut     int64         `json:"closeFramesOut,omitempty"`
-	CancelFramesIn     int64         `json:"cancelFramesIn,omitempty"`
-	CancelFramesOut    int64         `json:"cancelFramesOut,omitempty"`
-	WindowFramesIn     int64         `json:"windowFramesIn,omitempty"`
-	WindowFramesOut    int64         `json:"windowFramesOut,omitempty"`
-	FinFramesIn        int64         `json:"finFramesIn,omitempty"`
-	FinFramesOut       int64         `json:"finFramesOut,omitempty"`
-	PingFramesIn       int64         `json:"pingFramesIn,omitempty"`
-	PingFramesOut      int64         `json:"pingFramesOut,omitempty"`
-	PongFramesIn       int64         `json:"pongFramesIn,omitempty"`
-	PongFramesOut      int64         `json:"pongFramesOut,omitempty"`
-	GoAwayFramesIn     int64         `json:"goAwayFramesIn,omitempty"`
-	GoAwayFramesOut    int64         `json:"goAwayFramesOut,omitempty"`
-	BytesIn            int64         `json:"bytesIn,omitempty"`
-	BytesOut           int64         `json:"bytesOut,omitempty"`
-	HalfClosedStreams  int64         `json:"halfClosedStreams,omitempty"`
-	BackpressureEvents int64         `json:"backpressureEvents,omitempty"`
-	CreditWaits        int64         `json:"creditWaits,omitempty"`
-	IdleTimeouts       int64         `json:"idleTimeouts,omitempty"`
-	LocalRejects       int64         `json:"localRejects,omitempty"`
-	RemoteRejects      int64         `json:"remoteRejects,omitempty"`
-	DrainRejects       int64         `json:"drainRejects,omitempty"`
-	ReceiveQueueSize   int           `json:"receiveQueueSize,omitempty"`
-	MaxStreams         int           `json:"maxStreams,omitempty"`
-	KeepaliveInterval  time.Duration `json:"keepaliveInterval,omitempty"`
-	KeepaliveIdle      time.Duration `json:"keepaliveIdle,omitempty"`
-	LastFrameReadAt    time.Time     `json:"lastFrameReadAt,omitempty"`
-	LastFrameWrittenAt time.Time     `json:"lastFrameWrittenAt,omitempty"`
-	LastPingAt         time.Time     `json:"lastPingAt,omitempty"`
-	LastPongAt         time.Time     `json:"lastPongAt,omitempty"`
-	Liveness           string        `json:"liveness,omitempty"`
-	Draining           bool          `json:"draining,omitempty"`
-	RemoteDraining     bool          `json:"remoteDraining,omitempty"`
-	DrainReason        string        `json:"drainReason,omitempty"`
-	RemoteDrainReason  string        `json:"remoteDrainReason,omitempty"`
-	LastStreamID       uint64        `json:"lastStreamID,omitempty"`
-	LastCloseCode      Code          `json:"lastCloseCode,omitempty"`
-	LastCloseReason    string        `json:"lastCloseReason,omitempty"`
-	Closed             bool          `json:"closed"`
+	Role                      string        `json:"role,omitempty"`
+	ActiveStreams             int           `json:"activeStreams"`
+	OpenedStreams             int64         `json:"openedStreams,omitempty"`
+	AcceptedStreams           int64         `json:"acceptedStreams,omitempty"`
+	ClosedStreams             int64         `json:"closedStreams,omitempty"`
+	CanceledStreams           int64         `json:"canceledStreams,omitempty"`
+	FramesIn                  int64         `json:"framesIn,omitempty"`
+	FramesOut                 int64         `json:"framesOut,omitempty"`
+	DataFramesIn              int64         `json:"dataFramesIn,omitempty"`
+	DataFramesOut             int64         `json:"dataFramesOut,omitempty"`
+	OpenFramesIn              int64         `json:"openFramesIn,omitempty"`
+	OpenFramesOut             int64         `json:"openFramesOut,omitempty"`
+	CloseFramesIn             int64         `json:"closeFramesIn,omitempty"`
+	CloseFramesOut            int64         `json:"closeFramesOut,omitempty"`
+	CancelFramesIn            int64         `json:"cancelFramesIn,omitempty"`
+	CancelFramesOut           int64         `json:"cancelFramesOut,omitempty"`
+	WindowFramesIn            int64         `json:"windowFramesIn,omitempty"`
+	WindowFramesOut           int64         `json:"windowFramesOut,omitempty"`
+	ConnectionWindowFramesIn  int64         `json:"connectionWindowFramesIn,omitempty"`
+	ConnectionWindowFramesOut int64         `json:"connectionWindowFramesOut,omitempty"`
+	FinFramesIn               int64         `json:"finFramesIn,omitempty"`
+	FinFramesOut              int64         `json:"finFramesOut,omitempty"`
+	PingFramesIn              int64         `json:"pingFramesIn,omitempty"`
+	PingFramesOut             int64         `json:"pingFramesOut,omitempty"`
+	PongFramesIn              int64         `json:"pongFramesIn,omitempty"`
+	PongFramesOut             int64         `json:"pongFramesOut,omitempty"`
+	GoAwayFramesIn            int64         `json:"goAwayFramesIn,omitempty"`
+	GoAwayFramesOut           int64         `json:"goAwayFramesOut,omitempty"`
+	BytesIn                   int64         `json:"bytesIn,omitempty"`
+	BytesOut                  int64         `json:"bytesOut,omitempty"`
+	HalfClosedStreams         int64         `json:"halfClosedStreams,omitempty"`
+	BackpressureEvents        int64         `json:"backpressureEvents,omitempty"`
+	CreditWaits               int64         `json:"creditWaits,omitempty"`
+	ConnectionCreditWaits     int64         `json:"connectionCreditWaits,omitempty"`
+	IdleTimeouts              int64         `json:"idleTimeouts,omitempty"`
+	LocalRejects              int64         `json:"localRejects,omitempty"`
+	RemoteRejects             int64         `json:"remoteRejects,omitempty"`
+	DrainRejects              int64         `json:"drainRejects,omitempty"`
+	ReceiveQueueSize          int           `json:"receiveQueueSize,omitempty"`
+	ConnectionWindow          int           `json:"connectionWindow,omitempty"`
+	MaxStreams                int           `json:"maxStreams,omitempty"`
+	KeepaliveInterval         time.Duration `json:"keepaliveInterval,omitempty"`
+	KeepaliveIdle             time.Duration `json:"keepaliveIdle,omitempty"`
+	LastFrameReadAt           time.Time     `json:"lastFrameReadAt,omitempty"`
+	LastFrameWrittenAt        time.Time     `json:"lastFrameWrittenAt,omitempty"`
+	LastPingAt                time.Time     `json:"lastPingAt,omitempty"`
+	LastPongAt                time.Time     `json:"lastPongAt,omitempty"`
+	Liveness                  string        `json:"liveness,omitempty"`
+	Draining                  bool          `json:"draining,omitempty"`
+	RemoteDraining            bool          `json:"remoteDraining,omitempty"`
+	DrainReason               string        `json:"drainReason,omitempty"`
+	RemoteDrainReason         string        `json:"remoteDrainReason,omitempty"`
+	LastStreamID              uint64        `json:"lastStreamID,omitempty"`
+	LastCloseCode             Code          `json:"lastCloseCode,omitempty"`
+	LastCloseReason           string        `json:"lastCloseReason,omitempty"`
+	Closed                    bool          `json:"closed"`
 }
 
 // ExperimentalMuxStream is a logical stream carried by ExperimentalMuxTransport.
@@ -224,6 +234,9 @@ func NewExperimentalMuxTransport(conn net.Conn, opts ...ExperimentalMuxTransport
 	if t.receiveQueueSize <= 0 {
 		t.receiveQueueSize = 1
 	}
+	if t.connectionWindow <= 0 {
+		t.connectionWindow = t.receiveQueueSize
+	}
 	if t.maxFrame <= 0 {
 		t.maxFrame = DefaultMaxFrameBytes
 	}
@@ -236,6 +249,8 @@ func NewExperimentalMuxTransport(conn net.Conn, opts ...ExperimentalMuxTransport
 	if t.nextID == 0 {
 		t.nextID = 2
 	}
+	t.connCredit = make(chan struct{}, t.connectionWindow)
+	t.addConnectionCredit(uint32(t.connectionWindow))
 	t.lastCloseCode.Store(CodeOK)
 	t.lastCloseReason.Store("")
 	now := time.Now()
@@ -261,6 +276,15 @@ func WithExperimentalMuxReceiveQueueSize(size int) ExperimentalMuxTransportOptio
 	return func(t *ExperimentalMuxTransport) {
 		if size > 0 {
 			t.receiveQueueSize = size
+		}
+	}
+}
+
+// WithExperimentalMuxConnectionWindow limits unconsumed data frames across the connection.
+func WithExperimentalMuxConnectionWindow(size int) ExperimentalMuxTransportOption {
+	return func(t *ExperimentalMuxTransport) {
+		if size > 0 {
+			t.connectionWindow = size
 		}
 	}
 }
@@ -456,58 +480,62 @@ func (t *ExperimentalMuxTransport) Snapshot() ExperimentalMuxTransportSnapshot {
 		liveness = "idle"
 	}
 	return ExperimentalMuxTransportSnapshot{
-		Role:               t.role,
-		ActiveStreams:      active,
-		OpenedStreams:      t.openedStreams.Load(),
-		AcceptedStreams:    t.acceptedStreams.Load(),
-		ClosedStreams:      t.closedStreams.Load(),
-		CanceledStreams:    t.canceledStreams.Load(),
-		FramesIn:           t.framesIn.Load(),
-		FramesOut:          t.framesOut.Load(),
-		DataFramesIn:       t.dataFramesIn.Load(),
-		DataFramesOut:      t.dataFramesOut.Load(),
-		OpenFramesIn:       t.openFramesIn.Load(),
-		OpenFramesOut:      t.openFramesOut.Load(),
-		CloseFramesIn:      t.closeFramesIn.Load(),
-		CloseFramesOut:     t.closeFramesOut.Load(),
-		CancelFramesIn:     t.cancelFramesIn.Load(),
-		CancelFramesOut:    t.cancelFramesOut.Load(),
-		WindowFramesIn:     t.windowFramesIn.Load(),
-		WindowFramesOut:    t.windowFramesOut.Load(),
-		FinFramesIn:        t.finFramesIn.Load(),
-		FinFramesOut:       t.finFramesOut.Load(),
-		PingFramesIn:       t.pingFramesIn.Load(),
-		PingFramesOut:      t.pingFramesOut.Load(),
-		PongFramesIn:       t.pongFramesIn.Load(),
-		PongFramesOut:      t.pongFramesOut.Load(),
-		GoAwayFramesIn:     t.goAwayFramesIn.Load(),
-		GoAwayFramesOut:    t.goAwayFramesOut.Load(),
-		BytesIn:            t.bytesIn.Load(),
-		BytesOut:           t.bytesOut.Load(),
-		HalfClosedStreams:  t.halfClosedStreams.Load(),
-		BackpressureEvents: t.backpressureEvents.Load(),
-		CreditWaits:        t.creditWaits.Load(),
-		IdleTimeouts:       t.idleTimeouts.Load(),
-		LocalRejects:       t.localRejects.Load(),
-		RemoteRejects:      t.remoteRejects.Load(),
-		DrainRejects:       t.drainRejects.Load(),
-		ReceiveQueueSize:   t.receiveQueueSize,
-		MaxStreams:         t.maxStreams,
-		KeepaliveInterval:  t.keepaliveInterval,
-		KeepaliveIdle:      t.keepaliveIdle,
-		LastFrameReadAt:    lastFrameReadAt,
-		LastFrameWrittenAt: lastFrameWrittenAt,
-		LastPingAt:         lastPingAt,
-		LastPongAt:         lastPongAt,
-		Liveness:           liveness,
-		Draining:           draining,
-		RemoteDraining:     remoteDraining,
-		DrainReason:        drainReason,
-		RemoteDrainReason:  remoteDrainReason,
-		LastStreamID:       t.lastStreamID.Load(),
-		LastCloseCode:      code,
-		LastCloseReason:    reason,
-		Closed:             closed,
+		Role:                      t.role,
+		ActiveStreams:             active,
+		OpenedStreams:             t.openedStreams.Load(),
+		AcceptedStreams:           t.acceptedStreams.Load(),
+		ClosedStreams:             t.closedStreams.Load(),
+		CanceledStreams:           t.canceledStreams.Load(),
+		FramesIn:                  t.framesIn.Load(),
+		FramesOut:                 t.framesOut.Load(),
+		DataFramesIn:              t.dataFramesIn.Load(),
+		DataFramesOut:             t.dataFramesOut.Load(),
+		OpenFramesIn:              t.openFramesIn.Load(),
+		OpenFramesOut:             t.openFramesOut.Load(),
+		CloseFramesIn:             t.closeFramesIn.Load(),
+		CloseFramesOut:            t.closeFramesOut.Load(),
+		CancelFramesIn:            t.cancelFramesIn.Load(),
+		CancelFramesOut:           t.cancelFramesOut.Load(),
+		WindowFramesIn:            t.windowFramesIn.Load(),
+		WindowFramesOut:           t.windowFramesOut.Load(),
+		ConnectionWindowFramesIn:  t.connectionWindowFramesIn.Load(),
+		ConnectionWindowFramesOut: t.connectionWindowFramesOut.Load(),
+		FinFramesIn:               t.finFramesIn.Load(),
+		FinFramesOut:              t.finFramesOut.Load(),
+		PingFramesIn:              t.pingFramesIn.Load(),
+		PingFramesOut:             t.pingFramesOut.Load(),
+		PongFramesIn:              t.pongFramesIn.Load(),
+		PongFramesOut:             t.pongFramesOut.Load(),
+		GoAwayFramesIn:            t.goAwayFramesIn.Load(),
+		GoAwayFramesOut:           t.goAwayFramesOut.Load(),
+		BytesIn:                   t.bytesIn.Load(),
+		BytesOut:                  t.bytesOut.Load(),
+		HalfClosedStreams:         t.halfClosedStreams.Load(),
+		BackpressureEvents:        t.backpressureEvents.Load(),
+		CreditWaits:               t.creditWaits.Load(),
+		ConnectionCreditWaits:     t.connectionCreditWaits.Load(),
+		IdleTimeouts:              t.idleTimeouts.Load(),
+		LocalRejects:              t.localRejects.Load(),
+		RemoteRejects:             t.remoteRejects.Load(),
+		DrainRejects:              t.drainRejects.Load(),
+		ReceiveQueueSize:          t.receiveQueueSize,
+		ConnectionWindow:          t.connectionWindow,
+		MaxStreams:                t.maxStreams,
+		KeepaliveInterval:         t.keepaliveInterval,
+		KeepaliveIdle:             t.keepaliveIdle,
+		LastFrameReadAt:           lastFrameReadAt,
+		LastFrameWrittenAt:        lastFrameWrittenAt,
+		LastPingAt:                lastPingAt,
+		LastPongAt:                lastPongAt,
+		Liveness:                  liveness,
+		Draining:                  draining,
+		RemoteDraining:            remoteDraining,
+		DrainReason:               drainReason,
+		RemoteDrainReason:         remoteDrainReason,
+		LastStreamID:              t.lastStreamID.Load(),
+		LastCloseCode:             code,
+		LastCloseReason:           reason,
+		Closed:                    closed,
 	}
 }
 
@@ -539,8 +567,13 @@ func (s *ExperimentalMuxStream) Send(ctx context.Context, msg Message) error {
 	if err := s.acquireCredit(ctx); err != nil {
 		return err
 	}
+	if err := s.t.acquireConnectionCredit(ctx); err != nil {
+		s.releaseCredit()
+		return err
+	}
 	encoded, err := s.t.payload.Encode(msg.Payload)
 	if err != nil {
+		s.t.releaseConnectionCredit()
 		s.releaseCredit()
 		return err
 	}
@@ -550,10 +583,12 @@ func (s *ExperimentalMuxStream) Send(ctx context.Context, msg Message) error {
 	}
 	data, err := s.t.frame.Marshal(msg)
 	if err != nil {
+		s.t.releaseConnectionCredit()
 		s.releaseCredit()
 		return err
 	}
 	if err := s.t.writeFrame(ctx, experimentalMuxFrame{typ: experimentalMuxFrameData, streamID: s.id, payload: data}); err != nil {
+		s.t.releaseConnectionCredit()
 		s.releaseCredit()
 		return err
 	}
@@ -584,6 +619,7 @@ func (s *ExperimentalMuxStream) Receive(ctx context.Context) (Message, error) {
 			}
 		} else {
 			s.t.sendWindowUpdateAsync(s.id, 1)
+			s.t.sendConnectionWindowUpdateAsync(1)
 		}
 		return event.msg, event.err
 	case <-ctx.Done():
@@ -750,6 +786,9 @@ func (t *ExperimentalMuxTransport) dispatchFrame(frame experimentalMuxFrame) err
 		if stream := t.lookupStream(frame.streamID); stream != nil {
 			stream.addCredit(frame.window)
 		}
+	case experimentalMuxFrameWindowConn:
+		t.connectionWindowFramesIn.Add(1)
+		t.addConnectionCredit(frame.window)
 	case experimentalMuxFrameFin:
 		t.finFramesIn.Add(1)
 		t.halfClosedStreams.Add(1)
@@ -1016,6 +1055,26 @@ func (t *ExperimentalMuxTransport) sendWindowUpdateAsync(streamID uint64, delta 
 	}()
 }
 
+func (t *ExperimentalMuxTransport) sendConnectionWindowUpdate(ctx context.Context, delta uint32) error {
+	if delta == 0 {
+		return nil
+	}
+	if err := t.writeFrame(ctx, experimentalMuxFrame{typ: experimentalMuxFrameWindowConn, window: delta}); err != nil {
+		return err
+	}
+	t.connectionWindowFramesOut.Add(1)
+	return nil
+}
+
+func (t *ExperimentalMuxTransport) sendConnectionWindowUpdateAsync(delta uint32) {
+	if t == nil || delta == 0 {
+		return
+	}
+	go func() {
+		_ = t.sendConnectionWindowUpdate(context.Background(), delta)
+	}()
+}
+
 func (s *ExperimentalMuxStream) deliver(event experimentalMuxStreamEvent) {
 	if s == nil {
 		return
@@ -1070,6 +1129,42 @@ func (s *ExperimentalMuxStream) bothDirectionsDone() bool {
 	done := s.localDone && s.remoteDone
 	s.mu.Unlock()
 	return done
+}
+
+func (t *ExperimentalMuxTransport) acquireConnectionCredit(ctx context.Context) error {
+	if t == nil {
+		return ErrExperimentalMuxTransportClosed
+	}
+	if len(t.connCredit) == 0 {
+		t.connectionCreditWaits.Add(1)
+	}
+	select {
+	case <-t.connCredit:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.done:
+		return ErrExperimentalMuxTransportClosed
+	}
+}
+
+func (t *ExperimentalMuxTransport) releaseConnectionCredit() {
+	if t == nil {
+		return
+	}
+	select {
+	case t.connCredit <- struct{}{}:
+	default:
+	}
+}
+
+func (t *ExperimentalMuxTransport) addConnectionCredit(delta uint32) {
+	if t == nil || delta == 0 {
+		return
+	}
+	for range delta {
+		t.releaseConnectionCredit()
+	}
 }
 
 func (s *ExperimentalMuxStream) acquireCredit(ctx context.Context) error {
@@ -1252,7 +1347,10 @@ func decodeExperimentalMuxFrame(data []byte) (experimentalMuxFrame, error) {
 }
 
 func isExperimentalMuxControlFrame(typ byte) bool {
-	return typ == experimentalMuxFramePing || typ == experimentalMuxFramePong || typ == experimentalMuxFrameGoAway
+	return typ == experimentalMuxFramePing ||
+		typ == experimentalMuxFramePong ||
+		typ == experimentalMuxFrameGoAway ||
+		typ == experimentalMuxFrameWindowConn
 }
 
 func unixNanoToTime(nano int64) time.Time {

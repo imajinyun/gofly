@@ -344,6 +344,79 @@ func BenchmarkRPCExperimentalMuxTransportMaxStreamsAdmission(b *testing.B) {
 	}
 }
 
+func BenchmarkRPCExperimentalMuxTransportConnectionWindow(b *testing.B) {
+	clientConn, serverConn := net.Pipe()
+	client := flyrpc.NewExperimentalMuxTransport(
+		clientConn,
+		flyrpc.WithExperimentalMuxReceiveQueueSize(2),
+		flyrpc.WithExperimentalMuxConnectionWindow(2),
+	)
+	server := flyrpc.NewExperimentalMuxTransport(
+		serverConn,
+		flyrpc.WithExperimentalMuxServerRole(),
+		flyrpc.WithExperimentalMuxReceiveQueueSize(2),
+		flyrpc.WithExperimentalMuxConnectionWindow(2),
+	)
+	defer client.Close()
+	defer server.Close()
+
+	ctx := context.Background()
+	b.ReportAllocs()
+	for b.Loop() {
+		first, err := client.OpenStream(ctx)
+		if err != nil {
+			b.Fatal(err)
+		}
+		second, err := client.OpenStream(ctx)
+		if err != nil {
+			b.Fatal(err)
+		}
+		serverFirst, err := server.AcceptStream(ctx)
+		if err != nil {
+			b.Fatal(err)
+		}
+		serverSecond, err := server.AcceptStream(ctx)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if err := first.Send(ctx, flyrpc.Message{Payload: []byte("first")}); err != nil {
+			b.Fatal(err)
+		}
+		if err := second.Send(ctx, flyrpc.Message{Payload: []byte("second")}); err != nil {
+			b.Fatal(err)
+		}
+		if _, err := serverFirst.Receive(ctx); err != nil {
+			b.Fatal(err)
+		}
+		if _, err := serverSecond.Receive(ctx); err != nil {
+			b.Fatal(err)
+		}
+		if err := serverFirst.Close(ctx, "ok"); err != nil {
+			b.Fatal(err)
+		}
+		if err := serverSecond.Close(ctx, "ok"); err != nil {
+			b.Fatal(err)
+		}
+		if _, err := first.Receive(ctx); !errors.Is(err, io.EOF) {
+			b.Fatal(err)
+		}
+		if _, err := second.Receive(ctx); !errors.Is(err, io.EOF) {
+			b.Fatal(err)
+		}
+		waitMuxBenchIdle(b, client, server)
+	}
+	clientSnapshot := client.Snapshot()
+	serverSnapshot := server.Snapshot()
+	if clientSnapshot.ConnectionWindow != 2 ||
+		serverSnapshot.ConnectionWindow != 2 ||
+		clientSnapshot.ConnectionWindowFramesIn != serverSnapshot.ConnectionWindowFramesOut ||
+		serverSnapshot.ConnectionWindowFramesIn != clientSnapshot.ConnectionWindowFramesOut ||
+		clientSnapshot.ActiveStreams != 0 ||
+		serverSnapshot.ActiveStreams != 0 {
+		b.Fatalf("connection window snapshots client=%+v server=%+v, want matched connection WINDOW frames and no active streams", clientSnapshot, serverSnapshot)
+	}
+}
+
 func BenchmarkRPCExperimentalMuxTransportDrainGoAway(b *testing.B) {
 	ctx := context.Background()
 	b.ReportAllocs()

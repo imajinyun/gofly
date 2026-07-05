@@ -269,6 +269,75 @@ func TestExperimentalMuxTransportFlowControlWaitsForWindowUpdate(t *testing.T) {
 	}
 }
 
+func TestExperimentalMuxTransportConnectionWindowLimitsAcrossStreams(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	client := NewExperimentalMuxTransport(
+		clientConn,
+		WithExperimentalMuxReceiveQueueSize(2),
+		WithExperimentalMuxConnectionWindow(1),
+	)
+	server := NewExperimentalMuxTransport(
+		serverConn,
+		WithExperimentalMuxServerRole(),
+		WithExperimentalMuxReceiveQueueSize(2),
+		WithExperimentalMuxConnectionWindow(1),
+	)
+	defer client.Close()
+	defer server.Close()
+
+	ctx := context.Background()
+	first, err := client.OpenStream(ctx)
+	if err != nil {
+		t.Fatalf("OpenStream first: %v", err)
+	}
+	second, err := client.OpenStream(ctx)
+	if err != nil {
+		t.Fatalf("OpenStream second: %v", err)
+	}
+	serverFirst, err := server.AcceptStream(ctx)
+	if err != nil {
+		t.Fatalf("AcceptStream first: %v", err)
+	}
+	serverSecond, err := server.AcceptStream(ctx)
+	if err != nil {
+		t.Fatalf("AcceptStream second: %v", err)
+	}
+
+	if err := first.Send(ctx, Message{Payload: []byte("first")}); err != nil {
+		t.Fatalf("first Send: %v", err)
+	}
+	secondDone := make(chan error, 1)
+	go func() {
+		secondDone <- second.Send(ctx, Message{Payload: []byte("second")})
+	}()
+
+	select {
+	case err := <-secondDone:
+		t.Fatalf("second Send completed before connection window update: %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
+	assertEventually(t, func() bool {
+		return client.Snapshot().ConnectionCreditWaits > 0
+	}, "connection credit wait")
+
+	assertMuxPayload(t, serverFirst, "first")
+	if err := <-secondDone; err != nil {
+		t.Fatalf("second Send after connection window update: %v", err)
+	}
+	assertMuxPayload(t, serverSecond, "second")
+
+	clientSnapshot := client.Snapshot()
+	serverSnapshot := server.Snapshot()
+	if clientSnapshot.ConnectionWindow != 1 ||
+		clientSnapshot.ConnectionCreditWaits == 0 ||
+		clientSnapshot.ConnectionWindowFramesIn == 0 {
+		t.Fatalf("client snapshot = %+v, want connection window wait and inbound connection WINDOW", clientSnapshot)
+	}
+	if serverSnapshot.ConnectionWindow != 1 || serverSnapshot.ConnectionWindowFramesOut == 0 {
+		t.Fatalf("server snapshot = %+v, want outbound connection WINDOW", serverSnapshot)
+	}
+}
+
 func TestExperimentalMuxTransportKeepalivePingPongSnapshot(t *testing.T) {
 	clientConn, serverConn := net.Pipe()
 	client := NewExperimentalMuxTransport(clientConn, WithExperimentalMuxKeepalive(5*time.Millisecond, time.Second))
@@ -397,7 +466,11 @@ func TestExperimentalMuxTransportMaxConcurrentStreamsRejectsRemoteOpen(t *testin
 	}
 
 	assertEventually(t, func() bool {
-		return server.Snapshot().RemoteRejects == 1 && client.Snapshot().CancelFramesIn == 1
+		serverSnapshot := server.Snapshot()
+		clientSnapshot := client.Snapshot()
+		return serverSnapshot.RemoteRejects == 1 &&
+			serverSnapshot.CancelFramesOut == 1 &&
+			clientSnapshot.CancelFramesIn == 1
 	}, "remote max-stream rejection snapshot")
 	serverSnapshot := server.Snapshot()
 	clientSnapshot := client.Snapshot()
@@ -580,6 +653,17 @@ func TestExperimentalMuxFrameCodecRejectsMalformedFrames(t *testing.T) {
 	}
 	if _, err := encodeExperimentalMuxFrame(experimentalMuxFrame{typ: experimentalMuxFramePing, streamID: 7}); err == nil {
 		t.Fatal("encode ping control frame with stream ID succeeded, want error")
+	}
+	if encoded, err := encodeExperimentalMuxFrame(experimentalMuxFrame{typ: experimentalMuxFrameWindowConn, window: 2}); err != nil {
+		t.Fatalf("encode connection window control frame: %v", err)
+	} else if decoded, err := decodeExperimentalMuxFrame(encoded); err != nil ||
+		decoded.streamID != 0 ||
+		decoded.typ != experimentalMuxFrameWindowConn ||
+		decoded.window != 2 {
+		t.Fatalf("decode connection window control frame = %+v err %v, want stream id zero window 2", decoded, err)
+	}
+	if _, err := encodeExperimentalMuxFrame(experimentalMuxFrame{typ: experimentalMuxFrameWindowConn, streamID: 7, window: 2}); err == nil {
+		t.Fatal("encode connection window control frame with stream ID succeeded, want error")
 	}
 }
 

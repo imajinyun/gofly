@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -224,7 +225,9 @@ func transcodeRequestPayload(r *http.Request, route Route, body []byte) (json.Ra
 func transcodeMappedRequestPayload(r *http.Request, route Route, body []byte) (json.RawMessage, error) {
 	payload := map[string]any{}
 	if route.Transcode.Payload.MergeBodyObject {
-		mergeTranscodeBody(payload, body, route.Transcode.Payload.BodyField)
+		if err := mergeTranscodeBody(payload, body, route.Transcode.Payload.BodyField, route.Transcode.Payload.BodyRequired, route.Transcode.Payload.BodySchema); err != nil {
+			return nil, err
+		}
 	}
 	pathValues := transcodePathValues(r.URL.Path, route.PathPrefix, route.Transcode.Payload.PathTemplate, route.Transcode.Payload.PathParams)
 	typedPath, err := transcodeTypedPathValues(pathValues, route.Transcode.Payload.PathParameters)
@@ -248,23 +251,35 @@ func transcodeMappedRequestPayload(r *http.Request, route Route, body []byte) (j
 	return json.RawMessage(data), nil
 }
 
-func mergeTranscodeBody(payload map[string]any, body []byte, bodyField string) {
+func mergeTranscodeBody(payload map[string]any, body []byte, bodyField string, required bool, schema *TranscodeSchemaConfig) error {
 	body = bytes.TrimSpace(body)
 	if len(body) == 0 {
-		return
+		if required {
+			return errors.New("transcode body is required")
+		}
+		return nil
 	}
 	var value any
 	if err := json.Unmarshal(body, &value); err != nil {
+		if schema != nil {
+			return errors.New("transcode body must be valid json")
+		}
 		payload[transcodeBodyField(bodyField)] = string(body)
-		return
+		return nil
+	}
+	if schema != nil {
+		if err := validateTranscodeSchemaValue(transcodeBodyField(bodyField), value, *schema); err != nil {
+			return err
+		}
 	}
 	if object, ok := value.(map[string]any); ok && bodyField == "" {
 		for key, item := range object {
 			payload[key] = item
 		}
-		return
+		return nil
 	}
 	payload[transcodeBodyField(bodyField)] = value
+	return nil
 }
 
 func transcodeBodyField(value string) string {
@@ -273,6 +288,64 @@ func transcodeBodyField(value string) string {
 		return "body"
 	}
 	return value
+}
+
+func validateTranscodeSchemaValue(path string, value any, schema TranscodeSchemaConfig) error {
+	switch strings.ToLower(strings.TrimSpace(schema.Type)) {
+	case "", "object":
+		object, ok := value.(map[string]any)
+		if !ok {
+			return fmt.Errorf("transcode body field %s must be object", path)
+		}
+		for _, name := range schema.Required {
+			name = strings.TrimSpace(name)
+			if name == "" {
+				continue
+			}
+			if _, ok := object[name]; !ok {
+				return fmt.Errorf("transcode body field %s.%s is required", path, name)
+			}
+		}
+		for name, property := range schema.Properties {
+			item, ok := object[name]
+			if !ok || item == nil {
+				continue
+			}
+			if err := validateTranscodeSchemaValue(path+"."+name, item, property); err != nil {
+				return err
+			}
+		}
+	case "array":
+		items, ok := value.([]any)
+		if !ok {
+			return fmt.Errorf("transcode body field %s must be array", path)
+		}
+		if schema.Items != nil {
+			for index, item := range items {
+				if err := validateTranscodeSchemaValue(fmt.Sprintf("%s[%d]", path, index), item, *schema.Items); err != nil {
+					return err
+				}
+			}
+		}
+	case "integer":
+		number, ok := value.(float64)
+		if !ok || math.Trunc(number) != number {
+			return fmt.Errorf("transcode body field %s must be integer", path)
+		}
+	case "number":
+		if _, ok := value.(float64); !ok {
+			return fmt.Errorf("transcode body field %s must be number", path)
+		}
+	case "boolean":
+		if _, ok := value.(bool); !ok {
+			return fmt.Errorf("transcode body field %s must be boolean", path)
+		}
+	case "string":
+		if _, ok := value.(string); !ok {
+			return fmt.Errorf("transcode body field %s must be string", path)
+		}
+	}
+	return nil
 }
 
 func transcodePathValues(path, routePrefix, template string, names []string) map[string]string {

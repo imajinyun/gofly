@@ -347,6 +347,10 @@ func openAPITranscodePayloadConfig(path string, op rest.Operation, opts OpenAPIT
 			payload.PathParameters = append(payload.PathParameters, TranscodeParameterConfig{Name: name, Type: "string"})
 		}
 	}
+	if op.RequestBody != nil {
+		payload.BodyRequired = op.RequestBody.Required
+		payload.BodySchema = openAPITranscodeBodySchema(op.RequestBody)
+	}
 	return payload
 }
 
@@ -366,6 +370,47 @@ func openAPITranscodeParameterConfig(name string, schema *rest.Schema) Transcode
 		parameter.Items = &item
 	}
 	return parameter
+}
+
+func openAPITranscodeBodySchema(body *rest.RequestBody) *TranscodeSchemaConfig {
+	if body == nil {
+		return nil
+	}
+	if media, ok := body.Content["application/json"]; ok && media.Schema != nil {
+		return openAPITranscodeSchemaConfig(media.Schema)
+	}
+	for _, media := range body.Content {
+		if media.Schema != nil {
+			return openAPITranscodeSchemaConfig(media.Schema)
+		}
+	}
+	return nil
+}
+
+func openAPITranscodeSchemaConfig(schema *rest.Schema) *TranscodeSchemaConfig {
+	if schema == nil {
+		return nil
+	}
+	out := &TranscodeSchemaConfig{
+		Type:     strings.ToLower(strings.TrimSpace(schema.Type)),
+		Format:   strings.TrimSpace(schema.Format),
+		Required: append([]string(nil), schema.Required...),
+	}
+	if out.Type == "" {
+		out.Type = "object"
+	}
+	if schema.Items != nil {
+		out.Items = openAPITranscodeSchemaConfig(schema.Items)
+	}
+	if len(schema.Properties) > 0 {
+		out.Properties = make(map[string]TranscodeSchemaConfig, len(schema.Properties))
+		for name, property := range schema.Properties {
+			if propertySchema := openAPITranscodeSchemaConfig(&property); propertySchema != nil {
+				out.Properties[name] = *propertySchema
+			}
+		}
+	}
+	return out
 }
 
 func openAPIPathTemplateParamNames(path string) []string {

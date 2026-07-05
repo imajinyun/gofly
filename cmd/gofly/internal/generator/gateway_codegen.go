@@ -652,7 +652,17 @@ func TestGatewayGeneratedOpenAPIImportProfileIsRunnable(t *testing.T) {
 						{Name: "include_history", In: "query", Schema: rest.BooleanSchema()},
 						{Name: "tags", In: "query", Schema: rest.ArraySchema(rest.Schema{Type: "integer"})},
 					},
-					RequestBody: rest.JSONBodySchema(rest.Schema{Type: "object", Properties: map[string]rest.Schema{"trace": {Type: "string"}}}, false),
+					RequestBody: rest.JSONBodySchema(rest.Schema{
+						Type: "object",
+						Required: []string{"trace", "items"},
+						Properties: map[string]rest.Schema{
+							"trace": {Type: "string"},
+							"items": {Type: "array", Items: &rest.Schema{Type: "object", Required: []string{"sku"}, Properties: map[string]rest.Schema{
+								"sku": {Type: "string"},
+								"quantity": {Type: "integer"},
+							}}},
+						},
+					}, false),
 					Responses: map[string]rest.Response{"200": {Description: "OK"}},
 				},
 			},
@@ -686,11 +696,15 @@ func TestGatewayGeneratedOpenAPIImportProfileIsRunnable(t *testing.T) {
 				IncludeHistory bool ` + "`json:\"include_history\"`" + `
 				Tags []int64 ` + "`json:\"tags\"`" + `
 				Trace string ` + "`json:\"trace\"`" + `
+				Items []struct {
+					SKU string ` + "`json:\"sku\"`" + `
+					Quantity int64 ` + "`json:\"quantity\"`" + `
+				} ` + "`json:\"items\"`" + `
 			}
 			if err := json.Unmarshal(raw, &request); err != nil {
 				return nil, err
 			}
-			return map[string]any{"id": request.ID, "include_history": request.IncludeHistory, "tags": request.Tags, "trace": request.Trace, "source": "rpc"}, nil
+			return map[string]any{"id": request.ID, "include_history": request.IncludeHistory, "tags": request.Tags, "trace": request.Trace, "items": request.Items, "source": "rpc"}, nil
 		})},
 	}, nil); err != nil {
 		t.Fatalf("register generated OpenAPI RPC service: %v", err)
@@ -731,9 +745,15 @@ func TestGatewayGeneratedOpenAPIImportProfileIsRunnable(t *testing.T) {
 	t.Cleanup(func() { _ = gw.Close() })
 
 	rr := httptest.NewRecorder()
-	gw.ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/contract/orders/42?include_history=true&tags=1,2&tags=3", strings.NewReader("{\"trace\":\"t1\"}")))
-	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), "\"id\":42") || !strings.Contains(rr.Body.String(), "\"include_history\":true") || !strings.Contains(rr.Body.String(), "\"tags\":[1,2,3]") || !strings.Contains(rr.Body.String(), "\"trace\":\"t1\"") || !strings.Contains(rr.Body.String(), "\"source\":\"rpc\"") {
+	gw.ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/contract/orders/42?include_history=true&tags=1,2&tags=3", strings.NewReader("{\"trace\":\"t1\",\"items\":[{\"sku\":\"sku-1\",\"quantity\":2}]}")))
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), "\"id\":42") || !strings.Contains(rr.Body.String(), "\"include_history\":true") || !strings.Contains(rr.Body.String(), "\"tags\":[1,2,3]") || !strings.Contains(rr.Body.String(), "\"trace\":\"t1\"") || !strings.Contains(rr.Body.String(), "\"quantity\":2") || !strings.Contains(rr.Body.String(), "\"source\":\"rpc\"") {
 		t.Fatalf("generated OpenAPI gateway response = %d %q, want imported RPC transcode success", rr.Code, rr.Body.String())
+	}
+
+	invalid := httptest.NewRecorder()
+	gw.ServeHTTP(invalid, httptest.NewRequest(http.MethodPost, "/contract/orders/42?include_history=true", strings.NewReader("{\"trace\":\"t1\",\"items\":[{\"sku\":\"sku-1\",\"quantity\":\"two\"}]}")))
+	if invalid.Code != http.StatusBadRequest || !strings.Contains(invalid.Body.String(), "\"code\":\"invalid_argument\"") || !strings.Contains(invalid.Body.String(), "body.items[0].quantity must be integer") {
+		t.Fatalf("generated OpenAPI invalid body response = %d %q, want body schema invalid_argument", invalid.Code, invalid.Body.String())
 	}
 }
 

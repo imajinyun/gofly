@@ -104,6 +104,8 @@ type TranscodePayloadConfig struct {
 	PathParameters  []TranscodeParameterConfig `json:"pathParameters,omitempty"`
 	QueryParameters []TranscodeParameterConfig `json:"queryParameters,omitempty"`
 	BodyField       string                     `json:"bodyField,omitempty"`
+	BodyRequired    bool                       `json:"bodyRequired,omitempty"`
+	BodySchema      *TranscodeSchemaConfig     `json:"bodySchema,omitempty"`
 	MergeBodyObject bool                       `json:"mergeBodyObject,omitempty"`
 }
 
@@ -114,6 +116,16 @@ type TranscodeParameterConfig struct {
 	Type   string                    `json:"type,omitempty"`
 	Format string                    `json:"format,omitempty"`
 	Items  *TranscodeParameterConfig `json:"items,omitempty"`
+}
+
+// TranscodeSchemaConfig is the schema subset used to validate and map request
+// bodies before forwarding descriptor-driven RPC calls.
+type TranscodeSchemaConfig struct {
+	Type       string                           `json:"type,omitempty"`
+	Format     string                           `json:"format,omitempty"`
+	Items      *TranscodeSchemaConfig           `json:"items,omitempty"`
+	Properties map[string]TranscodeSchemaConfig `json:"properties,omitempty"`
+	Required   []string                         `json:"required,omitempty"`
 }
 
 // AggregationConfig enables BFF-style fan-out aggregation for a route. When
@@ -1699,6 +1711,7 @@ func cloneTranscodeConfig(config TranscodeConfig) TranscodeConfig {
 	config.Payload.QueryParams = append([]string(nil), config.Payload.QueryParams...)
 	config.Payload.PathParameters = cloneTranscodeParameters(config.Payload.PathParameters)
 	config.Payload.QueryParameters = cloneTranscodeParameters(config.Payload.QueryParameters)
+	config.Payload.BodySchema = cloneTranscodeSchema(config.Payload.BodySchema)
 	return config
 }
 
@@ -1723,6 +1736,24 @@ func cloneTranscodeParameter(parameter TranscodeParameterConfig) TranscodeParame
 		parameter.Items = &item
 	}
 	return parameter
+}
+
+func cloneTranscodeSchema(schema *TranscodeSchemaConfig) *TranscodeSchemaConfig {
+	if schema == nil {
+		return nil
+	}
+	out := *schema
+	out.Required = append([]string(nil), schema.Required...)
+	if schema.Items != nil {
+		out.Items = cloneTranscodeSchema(schema.Items)
+	}
+	if len(schema.Properties) > 0 {
+		out.Properties = make(map[string]TranscodeSchemaConfig, len(schema.Properties))
+		for name, property := range schema.Properties {
+			out.Properties[name] = *cloneTranscodeSchema(&property)
+		}
+	}
+	return &out
 }
 
 func cloneDescriptor(desc rpc.Descriptor) rpc.Descriptor {

@@ -240,7 +240,7 @@ context-lifecycle-governance-check: ## Validate lifecycle-sensitive runtime pack
 
 .PHONY: discovery-adapter-matrix-check
 discovery-adapter-matrix-check: ## Validate discovery package behavior
-	$(GO) test $(TESTFLAGS) ./core/discovery/...
+	$(GO) test $(TESTFLAGS) ./core/discovery/... ./rpc
 
 .PHONY: db-cache-productization-check
 db-cache-productization-check: ## Validate DB/cache packages

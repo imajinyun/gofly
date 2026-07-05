@@ -74,7 +74,8 @@ func TestNilServerOpenAPI(t *testing.T) {
 
 func TestOpenAPISchemaFromTypeAndCloneBoundaries(t *testing.T) {
 	type nested struct {
-		Name string `json:"name" validate:"required,min=2,max=10"`
+		Name  string `json:"name" validate:"required,min=2,max=10"`
+		Email string `json:"email" validate:"email"`
 	}
 	tests := []struct {
 		name     string
@@ -96,7 +97,7 @@ func TestOpenAPISchemaFromTypeAndCloneBoundaries(t *testing.T) {
 		})
 	}
 	arraySchema := schemaFromType(reflect.TypeOf([]nested{}))
-	if arraySchema.Type != "array" || arraySchema.Items == nil || arraySchema.Items.Properties["name"].Type != "string" {
+	if arraySchema.Type != "array" || arraySchema.Items == nil || arraySchema.Items.Properties["name"].Type != "string" || arraySchema.Items.Properties["email"].Format != "email" {
 		t.Fatalf("array schema = %#v, want nested object items", arraySchema)
 	}
 	mapSchema := schemaFromType(reflect.TypeOf(map[string][]int{}))
@@ -104,8 +105,8 @@ func TestOpenAPISchemaFromTypeAndCloneBoundaries(t *testing.T) {
 		t.Fatalf("map schema = %#v, want array additional properties", mapSchema)
 	}
 	objectSchema := schemaFromType(reflect.TypeOf(nested{}))
-	if objectSchema.Type != "object" || len(objectSchema.Required) != 1 || objectSchema.Required[0] != "name" || objectSchema.Properties["name"].MinLength == nil || objectSchema.Properties["name"].MaxLength == nil {
-		t.Fatalf("object schema = %#v, want required validation metadata", objectSchema)
+	if objectSchema.Type != "object" || len(objectSchema.Required) != 1 || objectSchema.Required[0] != "name" || objectSchema.Properties["name"].MinLength == nil || objectSchema.Properties["name"].MaxLength == nil || objectSchema.Properties["email"].Format != "email" {
+		t.Fatalf("object schema = %#v, want required validation metadata and email format", objectSchema)
 	}
 
 	minimum := 1.5
@@ -203,6 +204,7 @@ func TestStructSchemaLinksValidationTags(t *testing.T) {
 	type createOrderRequest struct {
 		Embedded
 		SKU      string   `json:"sku" validate:"required,min=3,max=64"`
+		Email    string   `json:"email" validate:"email"`
 		Quantity int      `json:"quantity" validate:"required,min=1,max=100"`
 		Status   string   `json:"status" validate:"oneof=pending paid canceled"`
 		Labels   []string `json:"labels" validate:"min=1,max=3"`
@@ -219,6 +221,10 @@ func TestStructSchemaLinksValidationTags(t *testing.T) {
 	sku := schema.Properties["sku"]
 	if sku.Type != "string" || sku.MinLength == nil || *sku.MinLength != 3 || sku.MaxLength == nil || *sku.MaxLength != 64 {
 		t.Fatalf("sku schema = %#v, want string length bounds", sku)
+	}
+	email := schema.Properties["email"]
+	if email.Type != "string" || email.Format != "email" {
+		t.Fatalf("email schema = %#v, want string email format", email)
 	}
 	quantity := schema.Properties["quantity"]
 	if quantity.Type != "integer" || quantity.Minimum == nil || *quantity.Minimum != 1 || quantity.Maximum == nil || *quantity.Maximum != 100 {
@@ -335,8 +341,8 @@ func TestDefaultErrorResponsesDocumentStableEnvelope(t *testing.T) {
 		}
 	}
 	fields := schema.Properties["fields"]
-	if fields.Type != "array" || fields.Items == nil || fields.Items.Properties["field"].Type != "string" || fields.Items.Properties["rule"].Type != "string" {
-		t.Fatalf("fields schema = %#v, want validation failure array", fields)
+	if fields.Type != "array" || fields.Items == nil || fields.Items.Properties["field"].Type != "string" || fields.Items.Properties["rule"].Type != "string" || fields.Items.Properties["code"].Type != "string" {
+		t.Fatalf("fields schema = %#v, want validation failure array with code", fields)
 	}
 
 	responses := DefaultErrorResponses()
@@ -376,6 +382,7 @@ func TestOpenAPIValidationEnvelopeSchemaGolden(t *testing.T) {
 		ID       int      `json:"-" path:"id" validate:"min=1"`
 		Page     int      `json:"-" query:"page" validate:"min=1,max=100"`
 		SKU      string   `json:"sku" validate:"required,min=3,max=64"`
+		Email    string   `json:"email" validate:"email"`
 		Status   string   `json:"status" validate:"oneof=pending paid canceled"`
 		Quantity int      `json:"quantity" validate:"min=1,max=100"`
 		Labels   []string `json:"labels" validate:"min=1,max=3"`
@@ -446,6 +453,10 @@ func TestOpenAPIValidationEnvelopeSchemaGolden(t *testing.T) {
 	if len(status.Enum) != 3 || status.Enum[0] != "pending" || status.Enum[2] != "canceled" {
 		t.Fatalf("status schema = %#v, want oneof enum", status)
 	}
+	email := schema.Properties["email"]
+	if email.Type != "string" || email.Format != "email" {
+		t.Fatalf("email schema = %#v, want string email format", email)
+	}
 	quantity := schema.Properties["quantity"]
 	if quantity.Minimum == nil || *quantity.Minimum != 1 || quantity.Maximum == nil || *quantity.Maximum != 100 {
 		t.Fatalf("quantity schema = %#v, want min/max numeric range", quantity)
@@ -464,8 +475,8 @@ func TestOpenAPIValidationEnvelopeSchemaGolden(t *testing.T) {
 			t.Fatalf("400 rest.ErrorResponse schema properties = %#v, missing %s", errorSchema.Properties, property)
 		}
 	}
-	if errorSchema.Properties["fields"].Items.Properties["message"].Type != "string" {
-		t.Fatalf("validation field schema = %#v, want message string", errorSchema.Properties["fields"])
+	if errorSchema.Properties["fields"].Items.Properties["message"].Type != "string" || errorSchema.Properties["fields"].Items.Properties["code"].Type != "string" {
+		t.Fatalf("validation field schema = %#v, want message and code string", errorSchema.Properties["fields"])
 	}
 }
 

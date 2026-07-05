@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/mail"
 	"reflect"
 	"strconv"
 	"strings"
@@ -30,6 +31,7 @@ const (
 type ValidationError struct {
 	Field string `json:"field"`
 	Rule  string `json:"rule"`
+	Code  string `json:"code,omitempty"`
 	Text  string `json:"message,omitempty"`
 }
 
@@ -48,6 +50,7 @@ func (e *ValidationError) Error() string {
 type ValidationFailure struct {
 	Field   string `json:"field"`
 	Rule    string `json:"rule"`
+	Code    string `json:"code,omitempty"`
 	Message string `json:"message"`
 }
 
@@ -201,7 +204,7 @@ func (e *ValidationError) Failure() ValidationFailure {
 	if e == nil {
 		return ValidationFailure{}
 	}
-	return ValidationFailure{Field: e.Field, Rule: e.Rule, Message: e.Error()}
+	return ValidationFailure{Field: e.Field, Rule: e.Rule, Code: e.Code, Message: e.Error()}
 }
 
 func decodeJSON(r *http.Request, v any) error {
@@ -399,6 +402,14 @@ func validateField(name string, field reflect.Value, rule string) error {
 			}
 		}
 		return &ValidationError{Field: name, Rule: rule}
+	case rule == "email":
+		value := strings.TrimSpace(fmt.Sprint(fieldValue(field)))
+		if value == "" {
+			return nil
+		}
+		if _, err := mail.ParseAddress(value); err != nil {
+			return &ValidationError{Field: name, Rule: rule, Code: "invalid_email"}
+		}
 	}
 	return nil
 }

@@ -377,7 +377,7 @@ func TestValidationFailuresOfAndAdapter(t *testing.T) {
 func TestContextErrorWritesValidationFields(t *testing.T) {
 	rec := httptest.NewRecorder()
 	ctx := &Context{Response: rec, Request: httptest.NewRequest(http.MethodGet, "/", nil)}
-	ctx.Error(&ValidationError{Field: "quantity", Rule: "min=1"})
+	ctx.Error(&ValidationError{Field: "email", Rule: "email", Code: "invalid_email"})
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("validation error status = %d, want 400", rec.Code)
@@ -386,8 +386,8 @@ func TestContextErrorWritesValidationFields(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("decode ErrorResponse: %v", err)
 	}
-	if got.Code != "invalid_argument" || len(got.Fields) != 1 || got.Fields[0].Field != "quantity" || got.Fields[0].Rule != "min=1" {
-		t.Fatalf("ErrorResponse = %#v, want invalid_argument with quantity field", got)
+	if got.Code != "invalid_argument" || len(got.Fields) != 1 || got.Fields[0].Field != "email" || got.Fields[0].Rule != "email" || got.Fields[0].Code != "invalid_email" {
+		t.Fatalf("ErrorResponse = %#v, want invalid_argument with email field code", got)
 	}
 }
 
@@ -448,6 +448,7 @@ func TestOpenAPIValidationEnvelopeRuntimeGolden(t *testing.T) {
 		Page     int      `query:"page" validate:"min=1,max=100"`
 		SKU      string   `json:"sku" validate:"required,min=3,max=64"`
 		Status   string   `json:"status" validate:"oneof=pending paid canceled"`
+		Email    string   `json:"email" validate:"email"`
 		Quantity int      `json:"quantity" validate:"min=1,max=100"`
 		Labels   []string `json:"labels" validate:"min=1,max=3"`
 	}
@@ -463,6 +464,7 @@ func TestOpenAPIValidationEnvelopeRuntimeGolden(t *testing.T) {
 		wantText  string
 		wantField string
 		wantRule  string
+		wantCode  string
 	}{
 		{
 			name:      "path parse failure",
@@ -470,7 +472,7 @@ func TestOpenAPIValidationEnvelopeRuntimeGolden(t *testing.T) {
 			target:    "/orders/not-int?page=1",
 			pathValue: "not-int",
 			header:    "tenant-a",
-			body:      `{"sku":"ABC","status":"pending","quantity":1,"labels":["new"]}`,
+			body:      `{"sku":"ABC","status":"pending","email":"buyer@example.com","quantity":1,"labels":["new"]}`,
 			wantText:  "bind path field ID",
 		},
 		{
@@ -479,7 +481,7 @@ func TestOpenAPIValidationEnvelopeRuntimeGolden(t *testing.T) {
 			target:    "/orders/7?page=0",
 			pathValue: "7",
 			header:    "tenant-a",
-			body:      `{"sku":"ABC","status":"pending","quantity":1,"labels":["new"]}`,
+			body:      `{"sku":"ABC","status":"pending","email":"buyer@example.com","quantity":1,"labels":["new"]}`,
 			wantText:  "field Page failed min=1 validation",
 			wantField: "Page",
 			wantRule:  "min=1",
@@ -489,7 +491,7 @@ func TestOpenAPIValidationEnvelopeRuntimeGolden(t *testing.T) {
 			method:    http.MethodPost,
 			target:    "/orders/7?page=1",
 			pathValue: "7",
-			body:      `{"sku":"ABC","status":"pending","quantity":1,"labels":["new"]}`,
+			body:      `{"sku":"ABC","status":"pending","email":"buyer@example.com","quantity":1,"labels":["new"]}`,
 			wantText:  "field Tenant failed required validation",
 			wantField: "Tenant",
 			wantRule:  "required",
@@ -500,7 +502,7 @@ func TestOpenAPIValidationEnvelopeRuntimeGolden(t *testing.T) {
 			target:    "/orders/7?page=1",
 			pathValue: "7",
 			header:    "tenant-a",
-			body:      `{"sku":"ABC","status":"pending","quantity":"many","labels":["new"]}`,
+			body:      `{"sku":"ABC","status":"pending","email":"buyer@example.com","quantity":"many","labels":["new"]}`,
 			wantText:  "decode json body",
 		},
 		{
@@ -509,10 +511,22 @@ func TestOpenAPIValidationEnvelopeRuntimeGolden(t *testing.T) {
 			target:    "/orders/7?page=1",
 			pathValue: "7",
 			header:    "tenant-a",
-			body:      `{"sku":"ABC","status":"shipped","quantity":1,"labels":["new"]}`,
+			body:      `{"sku":"ABC","status":"shipped","email":"buyer@example.com","quantity":1,"labels":["new"]}`,
 			wantText:  "field Status failed oneof=pending paid canceled validation",
 			wantField: "Status",
 			wantRule:  "oneof=pending paid canceled",
+		},
+		{
+			name:      "body tag email validation failure",
+			method:    http.MethodPost,
+			target:    "/orders/7?page=1",
+			pathValue: "7",
+			header:    "tenant-a",
+			body:      `{"sku":"ABC","status":"pending","email":"not-an-email","quantity":1,"labels":["new"]}`,
+			wantText:  "field Email failed email validation",
+			wantField: "Email",
+			wantRule:  "email",
+			wantCode:  "invalid_email",
 		},
 		{
 			name:      "validator adapter field failure",
@@ -520,7 +534,7 @@ func TestOpenAPIValidationEnvelopeRuntimeGolden(t *testing.T) {
 			target:    "/orders/7?page=1",
 			pathValue: "7",
 			header:    "tenant-a",
-			body:      `{"sku":"BLOCKED","status":"pending","quantity":1,"labels":["new"]}`,
+			body:      `{"sku":"BLOCKED","status":"pending","email":"buyer@example.com","quantity":1,"labels":["new"]}`,
 			validator: ValidatorFunc(func(value any) error {
 				req, ok := value.(*createOrderRequest)
 				if !ok || req.SKU != "BLOCKED" {
@@ -579,6 +593,9 @@ func TestOpenAPIValidationEnvelopeRuntimeGolden(t *testing.T) {
 			}
 			if len(got.Fields) != 1 || got.Fields[0].Field != tt.wantField || got.Fields[0].Rule != tt.wantRule {
 				t.Fatalf("fields = %#v, want %s/%s", got.Fields, tt.wantField, tt.wantRule)
+			}
+			if got.Fields[0].Code != tt.wantCode {
+				t.Fatalf("field code = %q, want %q", got.Fields[0].Code, tt.wantCode)
 			}
 		})
 	}

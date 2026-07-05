@@ -223,7 +223,7 @@ func ParametersFromStruct(value any) []Parameter {
 
 // StructSchema derives a JSON OpenAPI schema from exported struct fields and
 // gofly validate tags. It intentionally covers the portable subset supported
-// by the built-in binder: required, min, max, and oneof.
+// by the built-in binder: required, min, max, oneof, and email.
 func StructSchema(value any) Schema {
 	typeOf := reflect.TypeOf(value)
 	for typeOf != nil && typeOf.Kind() == reflect.Pointer {
@@ -445,6 +445,8 @@ func applyValidationRules(schema *Schema, tag string) {
 			applyMaxRule(schema, strings.TrimPrefix(rule, "max="))
 		case strings.HasPrefix(rule, "oneof="):
 			schema.Enum = strings.Fields(strings.TrimPrefix(rule, "oneof="))
+		case rule == "email" && schema.Type == "string":
+			schema.Format = "email"
 		}
 	}
 }

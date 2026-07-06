@@ -12,8 +12,9 @@ type releaseCheckReport struct {
 }
 
 type releaseCheckItem struct {
-	Name    string `json:"name"`
-	Status  string `json:"status"` // pass / fail / skip
-	Detail  string `json:"detail,omitempty"`
-	Blocker bool   `json:"blocker"`
+	Name     string         `json:"name"`
+	Status   string         `json:"status"` // pass / fail / skip
+	Detail   string         `json:"detail,omitempty"`
+	Evidence map[string]any `json:"evidence,omitempty"`
+	Blocker  bool           `json:"blocker"`
 }

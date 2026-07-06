@@ -154,6 +154,9 @@ func releaseGatewayAggregationContractCheck() (releaseCheckItem, []string) {
 		return item, []string{"generated gateway aggregation contract check failed"}
 	}
 	report := gw.ValidateAggregation("bff-home", candidate)
+	item.Evidence = map[string]any{
+		"aggregation-json-diff": releaseAggregationEvidence(report),
+	}
 	switch {
 	case !report.OK:
 		item.Status = "fail"
@@ -173,6 +176,7 @@ func releaseGatewayAggregationContractCheck() (releaseCheckItem, []string) {
 		item.Blocker = true
 		return item, []string{"generated gateway OpenAPI aggregation contract check failed"}
 	}
+	item.Evidence["aggregation-openapi-diff"] = releaseAggregationEvidence(openAPIReport)
 	switch {
 	case !openAPIReport.OK:
 		item.Status = "fail"
@@ -187,6 +191,15 @@ func releaseGatewayAggregationContractCheck() (releaseCheckItem, []string) {
 	default:
 		item.Detail = fmt.Sprintf("compatible aggregation diff with %d change(s); compatible OpenAPI aggregation diff with %d change(s)", len(report.Changes), len(openAPIReport.Changes))
 		return item, nil
+	}
+}
+
+func releaseAggregationEvidence(report gateway.AggregationValidationReport) map[string]any {
+	return map[string]any{
+		"ok":         report.OK,
+		"compatible": report.Compatible,
+		"changes":    len(report.Changes),
+		"errors":     len(report.Errors),
 	}
 }
 

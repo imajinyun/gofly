@@ -170,6 +170,14 @@ func TestReleaseGatewayAggregationContractCheck(t *testing.T) {
 	if item.Name != "gateway-aggregation-contract" || item.Status != "pass" || item.Blocker || len(blockers) != 0 || !strings.Contains(item.Detail, "compatible aggregation diff") {
 		t.Fatalf("gateway aggregation release check = %+v blockers=%v, want pass", item, blockers)
 	}
+	jsonEvidence, ok := item.Evidence["aggregation-json-diff"].(map[string]any)
+	if !ok || jsonEvidence["compatible"] != true || jsonEvidence["changes"] == nil {
+		t.Fatalf("aggregation json evidence = %#v", item.Evidence["aggregation-json-diff"])
+	}
+	openAPIEvidence, ok := item.Evidence["aggregation-openapi-diff"].(map[string]any)
+	if !ok || openAPIEvidence["compatible"] != true || openAPIEvidence["changes"] == nil {
+		t.Fatalf("aggregation openapi evidence = %#v", item.Evidence["aggregation-openapi-diff"])
+	}
 }
 
 func TestReleaseCheckGlobalJSONDoesNotDuplicateError(t *testing.T) {
@@ -197,7 +205,7 @@ func TestReleaseCheckGlobalJSONDoesNotDuplicateError(t *testing.T) {
 	if envelope.OK || envelope.Command != "release.check" || envelope.Error == nil || envelope.Error.Code != "RELEASE_CHECK_FAILED" {
 		t.Fatalf("ExecuteWithIO release check envelope = %+v, want one structured release failure", envelope)
 	}
-	if strings.Count(out.String(), `"ok"`) != 1 {
+	if strings.Count(out.String(), `"command"`) != 1 {
 		t.Fatalf("ExecuteWithIO release check emitted duplicate JSON envelopes:\n%s", out.String())
 	}
 }

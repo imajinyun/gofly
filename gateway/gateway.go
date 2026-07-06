@@ -187,6 +187,8 @@ type AggregationStep struct {
 	Path     string            `json:"path"`
 	Target   string            `json:"target,omitempty"`
 	Required bool              `json:"required,omitempty"`
+	Timeout  time.Duration     `json:"timeout,omitempty"`
+	Retry    RetryPolicy       `json:"retry,omitempty"`
 	Headers  map[string]string `json:"headers,omitempty"`
 	Body     json.RawMessage   `json:"body,omitempty"`
 	Fallback json.RawMessage   `json:"fallback,omitempty"`
@@ -432,12 +434,16 @@ type TranscodeRuntimeSnapshot struct {
 // AggregationRuntimeSnapshot reports the latest BFF aggregation degradation
 // state for a route.
 type AggregationRuntimeSnapshot struct {
-	Steps         int `json:"steps,omitempty"`
-	RequiredSteps int `json:"requiredSteps,omitempty"`
-	FallbackSteps int `json:"fallbackSteps,omitempty"`
-	LastFailures  int `json:"lastFailures,omitempty"`
-	LastFallbacks int `json:"lastFallbacks,omitempty"`
-	LastStatus    int `json:"lastStatus,omitempty"`
+	Steps             int      `json:"steps,omitempty"`
+	RequiredSteps     int      `json:"requiredSteps,omitempty"`
+	FallbackSteps     int      `json:"fallbackSteps,omitempty"`
+	LastFailures      int      `json:"lastFailures,omitempty"`
+	LastFallbacks     int      `json:"lastFallbacks,omitempty"`
+	LastStatus        int      `json:"lastStatus,omitempty"`
+	LastRetries       int      `json:"lastRetries,omitempty"`
+	Degraded          bool     `json:"degraded,omitempty"`
+	FailedSteps       []string `json:"failedSteps,omitempty"`
+	FallbackStepsUsed []string `json:"fallbackStepsUsed,omitempty"`
 }
 
 // RuntimeCacheSnapshot reports lazily materialized gateway policy primitives.
@@ -1259,6 +1265,10 @@ func (g *Gateway) routeAggregationRuntimeSnapshot(route Route) AggregationRuntim
 	snapshot.LastFailures = runtime.LastFailures
 	snapshot.LastFallbacks = runtime.LastFallbacks
 	snapshot.LastStatus = runtime.LastStatus
+	snapshot.LastRetries = runtime.LastRetries
+	snapshot.Degraded = runtime.Degraded
+	snapshot.FailedSteps = append([]string(nil), runtime.FailedSteps...)
+	snapshot.FallbackStepsUsed = append([]string(nil), runtime.FallbackStepsUsed...)
 	return snapshot
 }
 

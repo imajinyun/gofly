@@ -473,6 +473,70 @@ func TestGatewayAggregationUsesStepFallbacksForPartialResponse(t *testing.T) {
 	}
 }
 
+func TestGatewayAggregationStepTimeoutRetryAndDegradedRuntime(t *testing.T) {
+	var flakyHits atomic.Int64
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/flaky":
+			if flakyHits.Add(1) == 1 {
+				http.Error(w, "try again", http.StatusServiceUnavailable)
+				return
+			}
+			_, _ = io.WriteString(w, `{"ok":true}`)
+		case "/slow":
+			time.Sleep(50 * time.Millisecond)
+			_, _ = io.WriteString(w, `{"slow":true}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(upstream.Close)
+
+	g, err := New([]Route{{
+		Method:     http.MethodGet,
+		PathPrefix: "/bff",
+		Targets:    []string{upstream.URL},
+		Aggregation: AggregationConfig{
+			Enabled: true,
+			Steps: []AggregationStep{
+				{Name: "flaky", Path: "/flaky", Retry: RetryPolicy{Attempts: 2, Statuses: []int{http.StatusServiceUnavailable}}},
+				{Name: "slow", Path: "/slow", Timeout: time.Millisecond, Fallback: json.RawMessage(`{"slow":"fallback"}`)},
+			},
+		},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rr := httptest.NewRecorder()
+	g.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/bff/home", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %s, want partial success", rr.Code, rr.Body.String())
+	}
+	var envelope struct {
+		Data   map[string]json.RawMessage `json:"data"`
+		Errors map[string]string          `json:"errors"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode aggregation response: %v\n%s", err, rr.Body.String())
+	}
+	if string(envelope.Data["flaky"]) != `{"ok":true}` || string(envelope.Data["slow"]) != `{"slow":"fallback"}` {
+		t.Fatalf("aggregation data = %#v", envelope.Data)
+	}
+	if !strings.Contains(envelope.Errors["slow"], "deadline") {
+		t.Fatalf("aggregation errors = %#v, want slow deadline evidence", envelope.Errors)
+	}
+	if flakyHits.Load() != 2 {
+		t.Fatalf("flaky hits = %d, want retry once", flakyHits.Load())
+	}
+	runtime := g.RuntimeSnapshot().Routes[0].AggregationRuntime
+	if !runtime.Degraded || runtime.LastFailures != 1 || runtime.LastFallbacks != 1 ||
+		runtime.LastRetries != 1 || runtime.LastStatus != http.StatusOK ||
+		!slices.Contains(runtime.FailedSteps, "slow") || !slices.Contains(runtime.FallbackStepsUsed, "slow") {
+		t.Fatalf("aggregation runtime = %+v, want timeout fallback degraded evidence", runtime)
+	}
+}
+
 func TestGatewayGovernanceManagerOverridesExplicitRuleSet(t *testing.T) {
 	stale := governance.NewRuleSet(governance.Rule{Name: "stale", Transport: governance.TransportGateway, Path: "/api/*"})
 	manager, err := governance.NewManager(governance.Config{Rules: []governance.Rule{{

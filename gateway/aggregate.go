@@ -4,6 +4,7 @@ package gateway
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/imajinyun/gofly/core/breaker"
 )
@@ -19,11 +21,12 @@ import (
 const maxAggregationBodyBytes int64 = 4 << 20
 
 type aggregationStepResult struct {
-	index  int
-	name   string
-	status int
-	body   json.RawMessage
-	err    error
+	index   int
+	name    string
+	status  int
+	body    json.RawMessage
+	retries int
+	err     error
 }
 
 func (g *Gateway) aggregateOnce(r *http.Request, route Route, endpoint string, body []byte, brk *breaker.AdaptiveBreaker) (proxyResult, error) {
@@ -48,10 +51,14 @@ func (g *Gateway) aggregateOnce(r *http.Request, route Route, endpoint string, b
 
 	data := make(map[string]json.RawMessage, len(route.Aggregation.Steps))
 	failures := make(map[string]string)
+	failedSteps := make([]string, 0)
+	fallbackSteps := make([]string, 0)
 	fallbacks := 0
+	retries := 0
 	requiredFailed := false
 	for result := range results {
 		step := route.Aggregation.Steps[result.index]
+		retries += result.retries
 		if result.err != nil || result.status >= http.StatusBadRequest {
 			message := ""
 			if result.err != nil {
@@ -60,8 +67,10 @@ func (g *Gateway) aggregateOnce(r *http.Request, route Route, endpoint string, b
 				message = fmt.Sprintf("upstream status %d", result.status)
 			}
 			failures[result.name] = message
+			failedSteps = append(failedSteps, result.name)
 			if len(step.Fallback) > 0 {
 				data[result.name] = normalizeAggregationBody(step.Fallback)
+				fallbackSteps = append(fallbackSteps, result.name)
 				fallbacks++
 				continue
 			}
@@ -76,7 +85,14 @@ func (g *Gateway) aggregateOnce(r *http.Request, route Route, endpoint string, b
 	if requiredFailed {
 		status = http.StatusBadGateway
 	}
-	g.recordAggregationRuntime(route, len(failures), fallbacks, status)
+	g.recordAggregationRuntime(route, aggregationRuntimeUpdate{
+		failures:      len(failures),
+		fallbacks:     fallbacks,
+		status:        status,
+		retries:       retries,
+		failedSteps:   failedSteps,
+		fallbackSteps: fallbackSteps,
+	})
 	bodyBytes, err := json.Marshal(struct {
 		Data   map[string]json.RawMessage `json:"data"`
 		Errors map[string]string          `json:"errors,omitempty"`
@@ -109,6 +125,38 @@ func (g *Gateway) runAggregationStep(r *http.Request, route Route, endpoint stri
 	if name == "" {
 		name = fmt.Sprintf("step%d", index+1)
 	}
+	attempts := normalizeAggregationStepAttempts(step.Retry.Attempts)
+	var last aggregationStepResult
+	for attempt := 0; attempt < attempts; attempt++ {
+		result := g.runAggregationStepAttempt(r, route, endpoint, body, index, step, name)
+		result.retries = attempt
+		if !aggregationStepShouldRetry(result, step.Retry) || attempt == attempts-1 {
+			return result
+		}
+		if step.Retry.Backoff > 0 {
+			timer := time.NewTimer(step.Retry.Backoff)
+			select {
+			case <-r.Context().Done():
+				if !timer.Stop() {
+					select {
+					case <-timer.C:
+					default:
+					}
+				}
+				result.err = r.Context().Err()
+				return result
+			case <-timer.C:
+			}
+		}
+		last = result
+	}
+	if last.name == "" {
+		last = aggregationStepResult{index: index, name: name, err: errors.New("aggregation step retry exhausted")}
+	}
+	return last
+}
+
+func (g *Gateway) runAggregationStepAttempt(r *http.Request, route Route, endpoint string, body []byte, index int, step AggregationStep, name string) aggregationStepResult {
 	target, err := aggregationStepURL(endpoint, step)
 	if err != nil {
 		return aggregationStepResult{index: index, name: name, err: err}
@@ -121,7 +169,13 @@ func (g *Gateway) runAggregationStep(r *http.Request, route Route, endpoint stri
 	if len(step.Body) > 0 {
 		stepBody = append([]byte(nil), step.Body...)
 	}
-	req, err := http.NewRequestWithContext(r.Context(), method, target.String(), bytes.NewReader(stepBody))
+	ctx := r.Context()
+	var cancel context.CancelFunc
+	if step.Timeout > 0 {
+		ctx, cancel = context.WithTimeout(ctx, step.Timeout)
+		defer cancel()
+	}
+	req, err := http.NewRequestWithContext(ctx, method, target.String(), bytes.NewReader(stepBody))
 	if err != nil {
 		return aggregationStepResult{index: index, name: name, err: err}
 	}
@@ -147,6 +201,31 @@ func (g *Gateway) runAggregationStep(r *http.Request, route Route, endpoint stri
 		return aggregationStepResult{index: index, name: name, status: resp.StatusCode, err: errors.New("aggregation step response too large")}
 	}
 	return aggregationStepResult{index: index, name: name, status: resp.StatusCode, body: normalizeAggregationBody(respBody)}
+}
+
+func normalizeAggregationStepAttempts(attempts int) int {
+	if attempts <= 0 {
+		return 1
+	}
+	return attempts
+}
+
+func aggregationStepShouldRetry(result aggregationStepResult, policy RetryPolicy) bool {
+	if policy.Attempts <= 1 {
+		return false
+	}
+	if result.err != nil {
+		return true
+	}
+	if len(policy.Statuses) == 0 {
+		return result.status >= http.StatusInternalServerError
+	}
+	for _, status := range policy.Statuses {
+		if result.status == status {
+			return true
+		}
+	}
+	return false
 }
 
 func aggregationStepURL(endpoint string, step AggregationStep) (*url.URL, error) {
@@ -184,11 +263,21 @@ func normalizeAggregationConfig(conf AggregationConfig) AggregationConfig {
 		conf.Steps[i].Method = strings.ToUpper(strings.TrimSpace(conf.Steps[i].Method))
 		conf.Steps[i].Path = strings.TrimSpace(conf.Steps[i].Path)
 		conf.Steps[i].Target = strings.TrimRight(strings.TrimSpace(conf.Steps[i].Target), "/")
+		conf.Steps[i].Retry = normalizeRetryPolicy(conf.Steps[i].Retry)
 	}
 	return conf
 }
 
-func (g *Gateway) recordAggregationRuntime(route Route, failures, fallbacks, status int) {
+type aggregationRuntimeUpdate struct {
+	failures      int
+	fallbacks     int
+	status        int
+	retries       int
+	failedSteps   []string
+	fallbackSteps []string
+}
+
+func (g *Gateway) recordAggregationRuntime(route Route, update aggregationRuntimeUpdate) {
 	if g == nil {
 		return
 	}
@@ -198,9 +287,13 @@ func (g *Gateway) recordAggregationRuntime(route Route, failures, fallbacks, sta
 		g.aggregationRuntime = make(map[string]AggregationRuntimeSnapshot)
 	}
 	item := g.aggregationRuntime[routeKey(route)]
-	item.LastFailures = failures
-	item.LastFallbacks = fallbacks
-	item.LastStatus = status
+	item.LastFailures = update.failures
+	item.LastFallbacks = update.fallbacks
+	item.LastStatus = update.status
+	item.LastRetries = update.retries
+	item.Degraded = update.failures > 0
+	item.FailedSteps = append([]string(nil), update.failedSteps...)
+	item.FallbackStepsUsed = append([]string(nil), update.fallbackSteps...)
 	g.aggregationRuntime[routeKey(route)] = item
 }
 

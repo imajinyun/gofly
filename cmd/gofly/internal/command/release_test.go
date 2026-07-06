@@ -134,6 +134,23 @@ func TestReleaseCheckCommandJSONAndChangelogBlocker(t *testing.T) {
 	if !passEnvelope.OK || passEnvelope.Command != "release.check" || !strings.Contains(passEnvelope.Data.Summary, "PASS") || len(passEnvelope.Data.Checks) == 0 {
 		t.Fatalf("releaseCheckCommand json pass envelope = %+v, want ok release.check report", passEnvelope)
 	}
+	out.Reset()
+	if err := withCommandIO(IOStreams{Out: &out}, outputText, verbosityNormal, func() error {
+		return releaseCheckCommand([]string{"--changelog", changelog, "--json", "--evidence", "gateway-aggregation-contract"})
+	}); err != nil {
+		t.Fatalf("releaseCheckCommand evidence json: %v", err)
+	}
+	var evidenceEnvelope struct {
+		OK      bool               `json:"ok"`
+		Command string             `json:"command"`
+		Data    releaseCheckReport `json:"data"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &evidenceEnvelope); err != nil {
+		t.Fatalf("releaseCheckCommand evidence json decode: %v\n%s", err, out.String())
+	}
+	if !evidenceEnvelope.OK || len(evidenceEnvelope.Data.Checks) != 1 || evidenceEnvelope.Data.Checks[0].Name != "gateway-aggregation-contract" || evidenceEnvelope.Data.Checks[0].Evidence["aggregation-openapi-diff"] == nil {
+		t.Fatalf("releaseCheckCommand evidence envelope = %+v, want aggregation evidence only", evidenceEnvelope)
+	}
 	if err := os.WriteFile(changelog, []byte("# Changelog\n\n## v9.9.9\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}

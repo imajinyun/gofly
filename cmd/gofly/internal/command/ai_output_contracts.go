@@ -118,6 +118,7 @@ func releaseCheckOutputContract() *aiOutputContract {
 		Semantics: map[string]string{
 			"command":                     "release.check",
 			"checks":                      "checks is a list of named release gates with status, blocker, detail, and optional evidence",
+			"evidenceFilter":              "--evidence returns only the named check in data.checks and keeps that check's evidence machine-readable",
 			"aggregationEvidenceFamilies": "gateway-aggregation-contract evidence contains aggregation-json-diff and aggregation-openapi-diff families",
 			"ciIntegration":               "suitable for release and CI gates; failed blockers are also repeated in error.details.blocking",
 		},

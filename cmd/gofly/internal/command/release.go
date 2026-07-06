@@ -4,6 +4,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"strings"
 )
 
 func releaseCommand(args []string) error {
@@ -27,6 +28,7 @@ func releaseCheckCommand(args []string) error {
 	rpcBase := fs.String("rpc-base", "", "base .proto file for breaking detection")
 	rpcTarget := fs.String("rpc-target", "", "target .proto file for breaking detection")
 	changelog := fs.String("changelog", "CHANGELOG.md", "changelog file to parse for version")
+	evidence := fs.String("evidence", "", "emit only one release check evidence by check name")
 	jsonOut := fs.Bool("json", false, "emit report as JSON")
 	strict := fs.Bool("strict", false, "treat warnings as blockers")
 	_, err := parseInterspersedFlags(fs, args)
@@ -96,6 +98,9 @@ func releaseCheckCommand(args []string) error {
 		report.Blocking = append(report.Blocking, warnings...)
 	}
 
+	if strings.TrimSpace(*evidence) != "" {
+		report = filterReleaseCheckEvidence(report, *evidence)
+	}
 	failed := len(report.Blocking) > 0 || (*strict && len(warnings) > 0)
 	if *jsonOut || outputMode() == outputJSON {
 		return printReleaseCheckJSON(report, failed)
@@ -106,4 +111,25 @@ func releaseCheckCommand(args []string) error {
 		return errors.New("release check failed")
 	}
 	return nil
+}
+
+func filterReleaseCheckEvidence(report releaseCheckReport, name string) releaseCheckReport {
+	name = strings.TrimSpace(name)
+	filtered := releaseCheckReport{Version: report.Version, Recommended: report.Recommended}
+	for _, check := range report.Checks {
+		if check.Name != name {
+			continue
+		}
+		filtered.Checks = []releaseCheckItem{check}
+		if check.Blocker {
+			filtered.Blocking = []string{check.Detail}
+			filtered.Summary = "BLOCKED: evidence check " + name
+		} else {
+			filtered.Summary = "PASS: evidence check " + name
+		}
+		return filtered
+	}
+	filtered.Blocking = []string{"release evidence check not found: " + name}
+	filtered.Summary = "BLOCKED: release evidence check not found"
+	return filtered
 }

@@ -2308,7 +2308,7 @@ func TestExecuteAIManifestJSONEnvelope(t *testing.T) {
 			}
 		}{RiskLevel: command.RiskLevel, SupportsDryRun: command.SupportsDryRun, MutatesFilesystem: command.MutatesFilesystem, OutputFormats: command.OutputFormats, OutputContract: command.OutputContract}
 	}
-	for _, want := range []string{"ai complete", "ai manifest", "ai stream", "feature run", "gateway profile validate", "gateway aggregation validate", "new service", "new api", "plugin run", "version"} {
+	for _, want := range []string{"ai complete", "ai manifest", "ai stream", "feature run", "gateway profile validate", "gateway aggregation validate", "release check", "new service", "new api", "plugin run", "version"} {
 		if _, ok := commands[want]; !ok {
 			t.Fatalf("ai manifest commands missing %q: %+v", want, commands)
 		}
@@ -2336,6 +2336,9 @@ func TestExecuteAIManifestJSONEnvelope(t *testing.T) {
 	}
 	if commands["gateway aggregation validate"].OutputContract.Semantics["ciIntegration"] == "" || !commandContainsString(commands["gateway aggregation validate"].OutputContract.EventFields, "changes") {
 		t.Fatalf("gateway aggregation validate output contract = %+v, want CI aggregation diff fields", commands["gateway aggregation validate"].OutputContract)
+	}
+	if commands["release check"].OutputContract.Semantics["aggregationEvidenceFamilies"] == "" || !commandContainsString(commands["release check"].OutputContract.EventFields, "evidence") {
+		t.Fatalf("release check output contract = %+v, want aggregation evidence family fields", commands["release check"].OutputContract)
 	}
 	if commands["plugin run"].RiskLevel != "high" || !commands["plugin run"].MutatesFilesystem {
 		t.Fatalf("plugin run manifest should expose high-risk filesystem mutation: %+v", commands["plugin run"])

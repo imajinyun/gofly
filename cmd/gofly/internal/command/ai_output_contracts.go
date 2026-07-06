@@ -107,3 +107,19 @@ func gatewayAggregationValidateOutputContract() *aiOutputContract {
 		},
 	}
 }
+
+func releaseCheckOutputContract() *aiOutputContract {
+	return &aiOutputContract{
+		Mode:     "single JSON envelope when --json, --output json or --format json is used; text summary otherwise",
+		Envelope: []string{"ok", "command", "version", "data", "error"},
+		EventFields: []string{
+			"version", "summary", "checks", "blocking", "warnings", "recommended_semver", "evidence",
+		},
+		Semantics: map[string]string{
+			"command":                     "release.check",
+			"checks":                      "checks is a list of named release gates with status, blocker, detail, and optional evidence",
+			"aggregationEvidenceFamilies": "gateway-aggregation-contract evidence contains aggregation-json-diff and aggregation-openapi-diff families",
+			"ciIntegration":               "suitable for release and CI gates; failed blockers are also repeated in error.details.blocking",
+		},
+	}
+}

@@ -191,9 +191,31 @@ func TestReleaseGatewayAggregationContractCheck(t *testing.T) {
 	if !ok || jsonEvidence["compatible"] != true || jsonEvidence["changes"] == nil {
 		t.Fatalf("aggregation json evidence = %#v", item.Evidence["aggregation-json-diff"])
 	}
+	jsonDetails, ok := jsonEvidence["changeDetails"].([]gatewayAggregationChangeView)
+	if !ok || len(jsonDetails) == 0 || jsonDetails[0].Location.Route != "bff-home" {
+		t.Fatalf("aggregation json change details = %#v", jsonEvidence["changeDetails"])
+	}
 	openAPIEvidence, ok := item.Evidence["aggregation-openapi-diff"].(map[string]any)
 	if !ok || openAPIEvidence["compatible"] != true || openAPIEvidence["changes"] == nil {
 		t.Fatalf("aggregation openapi evidence = %#v", item.Evidence["aggregation-openapi-diff"])
+	}
+	openAPIDetails, ok := openAPIEvidence["changeDetails"].([]gatewayAggregationChangeView)
+	if !ok || len(openAPIDetails) == 0 {
+		t.Fatalf("aggregation openapi change details = %#v", openAPIEvidence["changeDetails"])
+	}
+	var sawOpenAPILocator bool
+	for _, detail := range openAPIDetails {
+		if detail.Location.Path == "/home" &&
+			detail.Location.Method == "GET" &&
+			detail.Location.Mapping == "default:meta.source -> meta.source" &&
+			detail.Location.MappingSource == "default:meta.source" &&
+			detail.Location.MappingTarget == "meta.source" {
+			sawOpenAPILocator = true
+			break
+		}
+	}
+	if !sawOpenAPILocator {
+		t.Fatalf("aggregation openapi change details = %+v, want path/method/mapping locator", openAPIDetails)
 	}
 }
 

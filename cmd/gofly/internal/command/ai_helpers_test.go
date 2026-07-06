@@ -2670,7 +2670,7 @@ func TestAIProjectApplyVerificationScaffoldBoundaries(t *testing.T) {
 				wantVerification int
 			}{
 				{name: "greeter", template: "go-rpc-grpc", wantVerification: 5},
-				{name: "edge", template: "go-gateway", wantVerification: 5},
+				{name: "edge", template: "go-gateway", wantVerification: 7},
 			} {
 				t.Run(tt.template, func(t *testing.T) {
 					outDir := filepath.Join(t.TempDir(), tt.name)

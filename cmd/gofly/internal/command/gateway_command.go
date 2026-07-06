@@ -186,10 +186,10 @@ func gatewayAggregationValidateCommand(args []string) error {
 		return err
 	}
 	if valueFromBoolFlag(jsonFlag) || outputMode() == outputJSON || format == outputJSON {
-		return printJSONEnvelope("gateway.aggregation.validate", report)
+		return printJSONEnvelope("gateway.aggregation.validate", gatewayAggregationValidationView(report, gatewayAggregationSARIFContext{Route: *routeName}))
 	}
 	if format == "markdown" {
-		printGatewayAggregationValidationMarkdown(report)
+		printGatewayAggregationValidationMarkdown(report, gatewayAggregationSARIFContext{Route: *routeName})
 		return nil
 	}
 	if format == "sarif" {
@@ -241,10 +241,10 @@ func gatewayAggregationValidateOpenAPICommand(basePath, candidatePath, routeName
 	}
 	report := gw.ValidateAggregation(routeName, candidate)
 	if valueFromBoolFlag(jsonFlag) || outputMode() == outputJSON || format == outputJSON {
-		return printJSONEnvelope("gateway.aggregation.validate", report)
+		return printJSONEnvelope("gateway.aggregation.validate", gatewayAggregationValidationView(report, sarifContext))
 	}
 	if format == "markdown" {
-		printGatewayAggregationValidationMarkdown(report)
+		printGatewayAggregationValidationMarkdown(report, sarifContext)
 		return nil
 	}
 	if format == "sarif" {
@@ -389,7 +389,7 @@ func printGatewayAggregationValidationText(report gateway.AggregationValidationR
 	}
 }
 
-func printGatewayAggregationValidationMarkdown(report gateway.AggregationValidationReport) {
+func printGatewayAggregationValidationMarkdown(report gateway.AggregationValidationReport, context gatewayAggregationSARIFContext) {
 	status := "compatible"
 	if !report.OK {
 		status = "invalid"
@@ -411,16 +411,19 @@ func printGatewayAggregationValidationMarkdown(report gateway.AggregationValidat
 		return
 	}
 	cliOutput("\n## Changes\n\n")
-	cliOutputln("| Severity | Scope | Kind | Source | Target | Message |")
-	cliOutputln("| --- | --- | --- | --- | --- | --- |")
+	cliOutputln("| Severity | Path | Method | Step | Mapping | Scope | Kind | Message |")
+	cliOutputln("| --- | --- | --- | --- | --- | --- | --- | --- |")
 	for _, change := range report.Changes {
+		location := buildGatewayAggregationChangeLocation(context, change)
 		cliOutputf(
-			"| %s | %s | %s | %s | %s | %s |\n",
+			"| %s | %s | %s | %s | %s | %s | %s | %s |\n",
 			markdownCell(change.Severity),
+			markdownCell(location.Path),
+			markdownCell(location.Method),
+			markdownCell(location.Step),
+			markdownCell(location.Mapping),
 			markdownCell(change.Scope),
 			markdownCell(change.Kind),
-			markdownCell(change.Source),
-			markdownCell(change.Target),
 			markdownCell(change.Message),
 		)
 	}
@@ -495,6 +498,105 @@ type gatewayAggregationSARIFContext struct {
 	Route         string
 	OpenAPIPath   string
 	OpenAPIMethod string
+}
+
+type gatewayAggregationReportView struct {
+	OK         bool                           `json:"ok"`
+	Compatible bool                           `json:"compatible"`
+	Errors     []string                       `json:"errors,omitempty"`
+	Changes    []gatewayAggregationChangeView `json:"changes,omitempty"`
+	Current    *gateway.AggregationConfig     `json:"current,omitempty"`
+	Candidate  gateway.AggregationConfig      `json:"candidate"`
+}
+
+type gatewayAggregationChangeView struct {
+	Kind     string                           `json:"kind"`
+	Scope    string                           `json:"scope"`
+	Source   string                           `json:"source,omitempty"`
+	Target   string                           `json:"target,omitempty"`
+	Severity string                           `json:"severity"`
+	Message  string                           `json:"message"`
+	Location gatewayAggregationChangeLocation `json:"location,omitempty"`
+}
+
+type gatewayAggregationChangeLocation struct {
+	Route         string `json:"route,omitempty"`
+	Path          string `json:"path,omitempty"`
+	Method        string `json:"method,omitempty"`
+	Step          string `json:"step,omitempty"`
+	Mapping       string `json:"mapping,omitempty"`
+	MappingSource string `json:"mappingSource,omitempty"`
+	MappingTarget string `json:"mappingTarget,omitempty"`
+}
+
+func gatewayAggregationValidationView(report gateway.AggregationValidationReport, context gatewayAggregationSARIFContext) gatewayAggregationReportView {
+	view := gatewayAggregationReportView{
+		OK:         report.OK,
+		Compatible: report.Compatible,
+		Errors:     report.Errors,
+		Current:    report.Current,
+		Candidate:  report.Candidate,
+		Changes:    make([]gatewayAggregationChangeView, 0, len(report.Changes)),
+	}
+	for _, change := range report.Changes {
+		view.Changes = append(view.Changes, gatewayAggregationChangeView{
+			Kind:     change.Kind,
+			Scope:    change.Scope,
+			Source:   change.Source,
+			Target:   change.Target,
+			Severity: change.Severity,
+			Message:  change.Message,
+			Location: buildGatewayAggregationChangeLocation(context, change),
+		})
+	}
+	return view
+}
+
+func buildGatewayAggregationChangeLocation(context gatewayAggregationSARIFContext, change gateway.TranscodeProfileChange) gatewayAggregationChangeLocation {
+	location := gatewayAggregationChangeLocation{
+		Route:  context.Route,
+		Path:   context.OpenAPIPath,
+		Method: context.OpenAPIMethod,
+		Step:   gatewayAggregationChangeStep(change),
+	}
+	if gatewayAggregationChangeHasMapping(change) {
+		location.MappingSource = change.Source
+		location.MappingTarget = change.Target
+		location.Mapping = gatewayAggregationMappingID(change.Source, change.Target)
+	}
+	return location
+}
+
+func gatewayAggregationChangeStep(change gateway.TranscodeProfileChange) string {
+	if step := aggregationStepFromScope(change.Scope); step != "" {
+		return step
+	}
+	if change.Scope == "aggregation_step" {
+		return strings.TrimSpace(change.Source)
+	}
+	return ""
+}
+
+func gatewayAggregationMappingID(source, target string) string {
+	source = strings.TrimSpace(source)
+	target = strings.TrimSpace(target)
+	switch {
+	case source != "" && target != "":
+		return source + " -> " + target
+	case source != "":
+		return source
+	case target != "":
+		return target
+	default:
+		return ""
+	}
+}
+
+func gatewayAggregationChangeHasMapping(change gateway.TranscodeProfileChange) bool {
+	return change.Scope == "aggregation_shape" ||
+		strings.HasPrefix(change.Scope, "aggregation_request_query/") ||
+		strings.HasPrefix(change.Scope, "aggregation_request_header/") ||
+		strings.HasPrefix(change.Scope, "aggregation_request_body/")
 }
 
 func printGatewayAggregationValidationSARIF(report gateway.AggregationValidationReport, artifactURI string, context gatewayAggregationSARIFContext) error {

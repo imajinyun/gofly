@@ -188,7 +188,7 @@ func TestGatewayAggregationValidateCommandJSON(t *testing.T) {
 		t.Fatalf("gateway aggregation validate markdown: %v", err)
 	}
 	if !strings.Contains(stdout.String(), "# Gateway Aggregation Contract") ||
-		!strings.Contains(stdout.String(), "| Severity | Scope | Kind | Source | Target | Message |") ||
+		!strings.Contains(stdout.String(), "| Severity | Path | Method | Step | Mapping | Scope | Kind | Message |") ||
 		!strings.Contains(stdout.String(), "remove_fallback") ||
 		!strings.Contains(stdout.String(), "change_target") {
 		t.Fatalf("markdown output = %s", stdout.String())
@@ -303,7 +303,15 @@ func TestGatewayAggregationValidateCommandOpenAPIDiff(t *testing.T) {
 		Data    struct {
 			Compatible bool `json:"compatible"`
 			Changes    []struct {
-				Kind string `json:"kind"`
+				Kind     string `json:"kind"`
+				Location struct {
+					Path          string `json:"path"`
+					Method        string `json:"method"`
+					Step          string `json:"step"`
+					Mapping       string `json:"mapping"`
+					MappingSource string `json:"mappingSource"`
+					MappingTarget string `json:"mappingTarget"`
+				} `json:"location"`
 			} `json:"changes"`
 		} `json:"data"`
 	}
@@ -316,14 +324,28 @@ func TestGatewayAggregationValidateCommandOpenAPIDiff(t *testing.T) {
 	var sawRemoveFallback, sawChangeTarget bool
 	for _, change := range envelope.Data.Changes {
 		if change.Kind == "remove_fallback" {
-			sawRemoveFallback = true
+			sawRemoveFallback = change.Location.Path == "/home" && change.Location.Method == "GET" && change.Location.Step == "orders"
 		}
 		if change.Kind == "change_target" {
-			sawChangeTarget = true
+			sawChangeTarget = change.Location.Path == "/home" &&
+				change.Location.Method == "GET" &&
+				change.Location.Mapping == "body.data.orders -> items" &&
+				change.Location.MappingSource == "body.data.orders" &&
+				change.Location.MappingTarget == "items"
 		}
 	}
 	if !sawRemoveFallback || !sawChangeTarget {
 		t.Fatalf("openapi aggregation changes = %+v, want remove_fallback and change_target", envelope.Data.Changes)
+	}
+
+	stdout.Reset()
+	if err := ExecuteWithIO([]string{"gateway", "aggregation", "validate", "--openapi-base", basePath, "--openapi-candidate", candidatePath, "--route", "home", "--format", "markdown"}, IOStreams{Out: &stdout}); err != nil {
+		t.Fatalf("gateway aggregation openapi markdown: %v", err)
+	}
+	if !strings.Contains(stdout.String(), "| Severity | Path | Method | Step | Mapping | Scope | Kind | Message |") ||
+		!strings.Contains(stdout.String(), "| breaking | /home | GET | orders | - | aggregation_step | remove_fallback |") ||
+		!strings.Contains(stdout.String(), "| breaking | /home | GET | - | body.data.orders -> items | aggregation_shape | change_target |") {
+		t.Fatalf("openapi aggregation markdown = %s", stdout.String())
 	}
 
 	invalidPath := filepath.Join(dir, "invalid-openapi.json")

@@ -506,7 +506,7 @@ func printGatewayAggregationValidationSARIF(report gateway.AggregationValidation
 	seenRules := map[string]gatewayAggregationRule{}
 	results := make([]gatewayAggregationResult, 0, len(report.Changes)+len(report.Errors))
 	for _, errText := range report.Errors {
-		ruleID := "aggregation.invalid"
+		ruleID := "aggregation.openapi.invalid"
 		seenRules[ruleID] = gatewayAggregationRule{ID: ruleID, Name: ruleID, ShortDescription: gatewayAggregationSARIFMessage{Text: "Invalid aggregation contract"}}
 		results = append(results, gatewayAggregationResult{
 			RuleID:     ruleID,
@@ -519,10 +519,7 @@ func printGatewayAggregationValidationSARIF(report gateway.AggregationValidation
 		})
 	}
 	for _, change := range report.Changes {
-		ruleID := "aggregation." + strings.TrimSpace(change.Kind)
-		if ruleID == "aggregation." {
-			ruleID = "aggregation.change"
-		}
+		ruleID := gatewayAggregationSARIFRuleID(change)
 		seenRules[ruleID] = gatewayAggregationRule{ID: ruleID, Name: ruleID, ShortDescription: gatewayAggregationSARIFMessage{Text: change.Message}}
 		level := "note"
 		if change.Severity == "breaking" {
@@ -554,6 +551,28 @@ func printGatewayAggregationValidationSARIF(report gateway.AggregationValidation
 		}},
 	}
 	return printJSON(payload)
+}
+
+func gatewayAggregationSARIFRuleID(change gateway.TranscodeProfileChange) string {
+	kind := strings.TrimSpace(change.Kind)
+	if kind == "" {
+		kind = "change"
+	}
+	scope := strings.TrimSpace(change.Scope)
+	switch {
+	case scope == "aggregation_step":
+		return "aggregation.step." + kind
+	case scope == "aggregation_shape":
+		return "aggregation.response_shape." + kind
+	case strings.HasPrefix(scope, "aggregation_request_query/"):
+		return "aggregation.request_shape.query." + kind
+	case strings.HasPrefix(scope, "aggregation_request_header/"):
+		return "aggregation.request_shape.header." + kind
+	case strings.HasPrefix(scope, "aggregation_request_body/"):
+		return "aggregation.request_shape.body." + kind
+	default:
+		return "aggregation." + kind
+	}
 }
 
 func gatewayOpenAPIAggregationSARIFContext(doc rest.OpenAPIDocument, routeName string) gatewayAggregationSARIFContext {

@@ -222,17 +222,20 @@ func TestGatewayAggregationValidateCommandJSON(t *testing.T) {
 	if sarif.Version != "2.1.0" || len(sarif.Runs) != 1 {
 		t.Fatalf("sarif header = %+v", sarif)
 	}
-	var sawFallbackError, sawTargetError bool
+	var sawFallbackError, sawResponseTargetError, sawRequestTargetError bool
 	for _, result := range sarif.Runs[0].Results {
-		if result.RuleID == "aggregation.remove_fallback" && result.Level == "error" {
+		if result.RuleID == "aggregation.step.remove_fallback" && result.Level == "error" {
 			sawFallbackError = true
 		}
-		if result.RuleID == "aggregation.change_target" && result.Level == "error" {
-			sawTargetError = true
+		if result.RuleID == "aggregation.response_shape.change_target" && result.Level == "error" {
+			sawResponseTargetError = true
+		}
+		if result.RuleID == "aggregation.request_shape.header.change_target" && result.Level == "error" {
+			sawRequestTargetError = true
 		}
 	}
-	if !sawFallbackError || !sawTargetError {
-		t.Fatalf("sarif results = %+v, want breaking fallback and target errors", sarif.Runs[0].Results)
+	if !sawFallbackError || !sawResponseTargetError || !sawRequestTargetError {
+		t.Fatalf("sarif results = %+v, want breaking fallback, response target and request target errors", sarif.Runs[0].Results)
 	}
 	if len(sarif.Runs[0].Results[0].Locations) == 0 || sarif.Runs[0].Results[0].Locations[0].PhysicalLocation.ArtifactLocation.URI != candidatePath {
 		t.Fatalf("sarif location = %+v, want candidate path %s", sarif.Runs[0].Results[0].Locations, candidatePath)
@@ -356,7 +359,7 @@ func TestGatewayAggregationValidateCommandOpenAPIDiff(t *testing.T) {
 		t.Fatalf("decode invalid sarif: %v\n%s", err, stdout.String())
 	}
 	if len(invalidSARIF.Runs) != 1 || len(invalidSARIF.Runs[0].Results) != 1 ||
-		invalidSARIF.Runs[0].Results[0].RuleID != "aggregation.invalid" ||
+		invalidSARIF.Runs[0].Results[0].RuleID != "aggregation.openapi.invalid" ||
 		invalidSARIF.Runs[0].Results[0].Level != "error" ||
 		!strings.Contains(invalidSARIF.Runs[0].Results[0].Message.Text, "unknown OpenAPI query parameter") ||
 		invalidSARIF.Runs[0].Results[0].Properties["openapiPath"] != "/home" ||
@@ -365,6 +368,6 @@ func TestGatewayAggregationValidateCommandOpenAPIDiff(t *testing.T) {
 		len(invalidSARIF.Runs[0].Results[0].Locations) == 0 ||
 		invalidSARIF.Runs[0].Results[0].Locations[0].PhysicalLocation.ArtifactLocation.URI != invalidPath ||
 		invalidSARIF.Runs[0].Results[0].Locations[0].PhysicalLocation.Region.StartLine == 0 {
-		t.Fatalf("invalid sarif = %+v, want aggregation.invalid error", invalidSARIF)
+		t.Fatalf("invalid sarif = %+v, want aggregation.openapi.invalid error", invalidSARIF)
 	}
 }

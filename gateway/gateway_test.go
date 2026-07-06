@@ -1684,6 +1684,79 @@ func TestGatewayAdminTranscodeDiagnosticsFilters(t *testing.T) {
 	}
 }
 
+func TestGatewayAdminAggregationDiagnosticsFilters(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/profile":
+			http.Error(w, "profile down", http.StatusServiceUnavailable)
+		case "/orders":
+			_, _ = io.WriteString(w, `[]`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(upstream.Close)
+
+	g, err := New([]Route{{
+		Name:       "home-bff",
+		Method:     http.MethodGet,
+		PathPrefix: "/bff",
+		Service:    "bff",
+		Targets:    []string{upstream.URL},
+		Aggregation: AggregationConfig{
+			Enabled: true,
+			Steps: []AggregationStep{
+				{Name: "profile", Path: "/profile", Fallback: json.RawMessage(`{"id":"anonymous"}`)},
+				{Name: "orders", Path: "/orders"},
+			},
+		},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := rest.MustNewServer(rest.Config{})
+	g.RegisterREST(s)
+	g.RegisterAdmin(s, "/admin/gateway", "secret")
+
+	call := httptest.NewRecorder()
+	s.Handler().ServeHTTP(call, httptest.NewRequest(http.MethodGet, "/bff/home", nil))
+	if call.Code != http.StatusOK {
+		t.Fatalf("aggregation call status = %d body = %s", call.Code, call.Body.String())
+	}
+	unauthorized := httptest.NewRecorder()
+	s.Handler().ServeHTTP(unauthorized, httptest.NewRequest(http.MethodGet, "/admin/gateway/aggregation/diagnostics", nil))
+	if unauthorized.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthorized aggregation diagnostics status = %d", unauthorized.Code)
+	}
+
+	tests := []struct {
+		name string
+		path string
+		want string
+	}{
+		{name: "all", path: "/admin/gateway/aggregation/diagnostics", want: `"degraded":true`},
+		{name: "route name", path: "/admin/gateway/aggregation/diagnostics?route=home-bff", want: `"route":"GET /bff"`},
+		{name: "route key", path: "/admin/gateway/aggregation/diagnostics?route=GET%20%2Fbff", want: `"fallbackStepsUsed":["profile"]`},
+		{name: "degraded true", path: "/admin/gateway/aggregation/diagnostics?degraded=true", want: `"failedSteps":["profile"]`},
+		{name: "degraded false", path: "/admin/gateway/aggregation/diagnostics?degraded=false", want: `[]`},
+		{name: "missing", path: "/admin/gateway/aggregation/diagnostics?route=missing", want: `[]`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			req.Header.Set(auth.AuthorizationHeader, "Bearer secret")
+			rec := httptest.NewRecorder()
+			s.Handler().ServeHTTP(rec, req)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("diagnostics status = %d body = %s", rec.Code, rec.Body.String())
+			}
+			if !strings.Contains(rec.Body.String(), tt.want) {
+				t.Fatalf("diagnostics body missing %q: %s", tt.want, rec.Body.String())
+			}
+		})
+	}
+}
+
 func TestGatewayRegisterAdminExposesFullGovernanceAdminParity(t *testing.T) {
 	rules := governance.NewRuleSet(governance.Rule{Name: "gateway-api", Transport: governance.TransportGateway, Path: "/api/*", Policy: governance.Policy{Headers: map[string]string{"X-Governance": "on"}}})
 	g, err := New([]Route{{Method: http.MethodGet, PathPrefix: "/api", Targets: []string{"http://127.0.0.1:65535"}}}, WithGovernanceRuleSet(rules))

@@ -59,6 +59,12 @@ func (g *Gateway) RegisterAdminWithAudit(s *rest.Server, pathPrefix string, toke
 		}
 		controladmin.WriteJSON(ctx.Response, http.StatusOK, g.TranscodeDiagnostics(ctx.Request))
 	}}, opts...)
+	s.AddRoute(rest.Route{Method: http.MethodGet, Path: pathPrefix + "/aggregation/diagnostics", Handler: func(ctx *rest.Context) {
+		if !authorizeGatewayAdmin(ctx, token) {
+			return
+		}
+		controladmin.WriteJSON(ctx.Response, http.StatusOK, g.AggregationDiagnostics(ctx.Request))
+	}}, opts...)
 	s.AddRoute(rest.Route{Method: http.MethodGet, Path: pathPrefix + "/transcode/profiles", Handler: func(ctx *rest.Context) {
 		if !authorizeGatewayAdmin(ctx, token) {
 			return
@@ -214,6 +220,74 @@ type TranscodeDiagnostic struct {
 	PathPrefix string                   `json:"pathPrefix"`
 	Service    string                   `json:"service,omitempty"`
 	Transcode  TranscodeRuntimeSnapshot `json:"transcode"`
+}
+
+// AggregationDiagnostic describes one route's effective BFF aggregation state.
+type AggregationDiagnostic struct {
+	Route       string                     `json:"route"`
+	Name        string                     `json:"name,omitempty"`
+	Method      string                     `json:"method,omitempty"`
+	PathPrefix  string                     `json:"pathPrefix"`
+	Service     string                     `json:"service,omitempty"`
+	Aggregation AggregationRuntimeSnapshot `json:"aggregation"`
+}
+
+// AggregationDiagnostics returns route-level BFF aggregation diagnostics
+// filtered by optional route and degraded query parameters.
+func (g *Gateway) AggregationDiagnostics(r *http.Request) []AggregationDiagnostic {
+	if g == nil {
+		return nil
+	}
+	query := r.URL.Query()
+	routeFilter := strings.TrimSpace(query.Get("route"))
+	degradedFilter := strings.TrimSpace(query.Get("degraded"))
+	routes := g.RuntimeSnapshot().Routes
+	out := make([]AggregationDiagnostic, 0, len(routes))
+	for _, route := range routes {
+		if aggregationRuntimeEmpty(route.AggregationRuntime) {
+			continue
+		}
+		routeID := routeKey(Route{Method: route.Method, PathPrefix: route.PathPrefix})
+		if routeFilter != "" && routeFilter != route.Name && routeFilter != routeID {
+			continue
+		}
+		if degradedFilter != "" && !aggregationDiagnosticMatchesDegraded(route.AggregationRuntime, degradedFilter) {
+			continue
+		}
+		out = append(out, AggregationDiagnostic{
+			Route:       routeID,
+			Name:        route.Name,
+			Method:      route.Method,
+			PathPrefix:  route.PathPrefix,
+			Service:     route.Service,
+			Aggregation: route.AggregationRuntime,
+		})
+	}
+	return out
+}
+
+func aggregationRuntimeEmpty(snapshot AggregationRuntimeSnapshot) bool {
+	return snapshot.Steps == 0 &&
+		snapshot.RequiredSteps == 0 &&
+		snapshot.FallbackSteps == 0 &&
+		snapshot.LastFailures == 0 &&
+		snapshot.LastFallbacks == 0 &&
+		snapshot.LastStatus == 0 &&
+		snapshot.LastRetries == 0 &&
+		!snapshot.Degraded &&
+		len(snapshot.FailedSteps) == 0 &&
+		len(snapshot.FallbackStepsUsed) == 0
+}
+
+func aggregationDiagnosticMatchesDegraded(snapshot AggregationRuntimeSnapshot, raw string) bool {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "true", "1", "yes":
+		return snapshot.Degraded
+	case "false", "0", "no":
+		return !snapshot.Degraded
+	default:
+		return true
+	}
 }
 
 // TranscodeDiagnostics returns route-level transcode diagnostics filtered by

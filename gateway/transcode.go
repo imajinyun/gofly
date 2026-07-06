@@ -303,9 +303,10 @@ func transcodeMappedRequestPayload(r *http.Request, route Route, body []byte, pr
 }
 
 type transcodePayloadSource struct {
-	Body  any
-	Path  map[string]any
-	Query map[string]any
+	Body   any
+	Path   map[string]any
+	Query  map[string]any
+	Header map[string]any
 }
 
 func mappedTranscodePayload(source transcodePayloadSource, config TranscodePayloadConfig) (map[string]any, error) {
@@ -367,8 +368,10 @@ func transcodeMappingSourceValue(source transcodePayloadSource, path string) (an
 		current = source.Path
 	case "query":
 		current = source.Query
+	case "header":
+		current = source.Header
 	default:
-		return nil, false, fmt.Errorf("transcode mapping source %s must start with body, path, or query", path)
+		return nil, false, fmt.Errorf("transcode mapping source %s must start with body, path, query, or header", path)
 	}
 	return transcodeMappingValueAtPath(current, parts[1:], path)
 }

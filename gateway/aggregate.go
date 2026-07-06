@@ -229,6 +229,14 @@ func (g *Gateway) runAggregationStepAttempt(r *http.Request, route Route, endpoi
 	if len(step.Body) > 0 {
 		stepBody = append([]byte(nil), step.Body...)
 	}
+	if shapedBody, ok, err := aggregationStepRequestBody(r, route, body, step); err != nil {
+		return aggregationStepResult{index: index, name: name, err: err}
+	} else if ok {
+		stepBody = shapedBody
+	}
+	if err := applyAggregationStepQuery(target, r, route, body, step); err != nil {
+		return aggregationStepResult{index: index, name: name, err: err}
+	}
 	ctx := r.Context()
 	var cancel context.CancelFunc
 	if step.Timeout > 0 {
@@ -243,6 +251,9 @@ func (g *Gateway) runAggregationStepAttempt(r *http.Request, route Route, endpoi
 	applyHeaderPolicy(req.Header, route.Header)
 	for key, value := range step.Headers {
 		req.Header.Set(key, value)
+	}
+	if err := applyAggregationStepHeaders(req.Header, r, route, body, step); err != nil {
+		return aggregationStepResult{index: index, name: name, err: err}
 	}
 	setForwardHeaders(req, r, route)
 	req.ContentLength = int64(len(stepBody))
@@ -261,6 +272,126 @@ func (g *Gateway) runAggregationStepAttempt(r *http.Request, route Route, endpoi
 		return aggregationStepResult{index: index, name: name, status: resp.StatusCode, err: errors.New("aggregation step response too large")}
 	}
 	return aggregationStepResult{index: index, name: name, status: resp.StatusCode, body: normalizeAggregationBody(respBody)}
+}
+
+func aggregationStepRequestBody(r *http.Request, route Route, body []byte, step AggregationStep) ([]byte, bool, error) {
+	if len(step.Request.BodyMappings) == 0 {
+		return nil, false, nil
+	}
+	payload, err := aggregationRequestPayloadFromMappings(r, route, body, step.Request.BodyMappings)
+	if err != nil {
+		return nil, false, err
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return nil, false, err
+	}
+	return data, true, nil
+}
+
+func applyAggregationStepQuery(target *url.URL, r *http.Request, route Route, body []byte, step AggregationStep) error {
+	if len(step.Request.QueryMappings) == 0 {
+		return nil
+	}
+	payload, err := aggregationRequestPayloadFromMappings(r, route, body, step.Request.QueryMappings)
+	if err != nil {
+		return err
+	}
+	query := target.Query()
+	for key, value := range payload {
+		query.Set(key, aggregationScalarString(value))
+	}
+	target.RawQuery = query.Encode()
+	return nil
+}
+
+func applyAggregationStepHeaders(header http.Header, r *http.Request, route Route, body []byte, step AggregationStep) error {
+	if len(step.Request.HeaderMappings) == 0 {
+		return nil
+	}
+	payload, err := aggregationRequestPayloadFromMappings(r, route, body, step.Request.HeaderMappings)
+	if err != nil {
+		return err
+	}
+	for key, value := range payload {
+		header.Set(key, aggregationScalarString(value))
+	}
+	return nil
+}
+
+func aggregationRequestPayloadFromMappings(r *http.Request, route Route, body []byte, mappings []AggregationPayloadMapping) (map[string]any, error) {
+	return aggregationPayloadFromMappings(aggregationRequestSource(r, route, body), mappings)
+}
+
+func aggregationRequestSource(r *http.Request, route Route, body []byte) transcodePayloadSource {
+	bodyValue := map[string]any{}
+	if len(bytes.TrimSpace(body)) > 0 {
+		var decoded any
+		if err := json.Unmarshal(body, &decoded); err == nil {
+			bodyValue = map[string]any{"body": decoded}
+			if object, ok := decoded.(map[string]any); ok {
+				bodyValue = object
+			}
+		}
+	}
+	query := map[string]any{}
+	for key, values := range r.URL.Query() {
+		if len(values) == 1 {
+			query[key] = values[0]
+		} else if len(values) > 1 {
+			items := make([]any, len(values))
+			for i, value := range values {
+				items[i] = value
+			}
+			query[key] = items
+		}
+	}
+	headers := map[string]any{}
+	for key, values := range r.Header {
+		if len(values) == 1 {
+			headers[key] = values[0]
+			headers[strings.ToLower(key)] = values[0]
+		} else if len(values) > 1 {
+			items := make([]any, len(values))
+			for i, value := range values {
+				items[i] = value
+			}
+			headers[key] = items
+			headers[strings.ToLower(key)] = items
+		}
+	}
+	return transcodePayloadSource{
+		Body:   bodyValue,
+		Path:   aggregationPathAny(transcodePathValues(r.URL.Path, route.PathPrefix, "", nil)),
+		Query:  query,
+		Header: headers,
+	}
+}
+
+func aggregationPathAny(values map[string]string) map[string]any {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make(map[string]any, len(values))
+	for key, value := range values {
+		out[key] = value
+	}
+	return out
+}
+
+func aggregationScalarString(value any) string {
+	switch typed := value.(type) {
+	case string:
+		return typed
+	case fmt.Stringer:
+		return typed.String()
+	default:
+		data, err := json.Marshal(value)
+		if err != nil {
+			return fmt.Sprint(value)
+		}
+		return string(data)
+	}
 }
 
 func normalizeAggregationStepAttempts(attempts int) int {
@@ -331,12 +462,45 @@ func normalizeAggregationConfig(conf AggregationConfig) AggregationConfig {
 }
 
 func validateAggregationConfig(conf AggregationConfig) error {
+	for _, step := range conf.Steps {
+		if err := validateAggregationRequestShape(step.Request); err != nil {
+			return err
+		}
+	}
 	for _, mapping := range conf.Shape.Mappings {
 		if err := validateTranscodeMappingPath("aggregation source", mapping.Source, true, true); err != nil {
 			return err
 		}
 		if err := validateTranscodeMappingPath("aggregation target", mapping.Target, false, false); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+func validateAggregationRequestShape(shape AggregationRequestShape) error {
+	for _, mapping := range shape.BodyMappings {
+		if err := validateTranscodeMappingPath("aggregation request body source", mapping.Source, true, true); err != nil {
+			return err
+		}
+		if err := validateTranscodeMappingPath("aggregation request body target", mapping.Target, false, false); err != nil {
+			return err
+		}
+	}
+	for _, mapping := range shape.QueryMappings {
+		if err := validateTranscodeMappingPath("aggregation request query source", mapping.Source, true, true); err != nil {
+			return err
+		}
+		if strings.TrimSpace(mapping.Target) == "" {
+			return errors.New("aggregation request query target is required")
+		}
+	}
+	for _, mapping := range shape.HeaderMappings {
+		if err := validateTranscodeMappingPath("aggregation request header source", mapping.Source, true, true); err != nil {
+			return err
+		}
+		if strings.TrimSpace(mapping.Target) == "" {
+			return errors.New("aggregation request header target is required")
 		}
 	}
 	return nil
@@ -541,9 +705,31 @@ func cloneAggregationSteps(steps []AggregationStep) []AggregationStep {
 	out := make([]AggregationStep, len(steps))
 	for i, step := range steps {
 		step.Headers = cloneMap(step.Headers)
+		step.Request = cloneAggregationRequestShape(step.Request)
 		step.Body = append(json.RawMessage(nil), step.Body...)
 		step.Fallback = append(json.RawMessage(nil), step.Fallback...)
 		out[i] = step
+	}
+	return out
+}
+
+func cloneAggregationRequestShape(shape AggregationRequestShape) AggregationRequestShape {
+	shape.QueryMappings = cloneAggregationPayloadMappings(shape.QueryMappings)
+	shape.HeaderMappings = cloneAggregationPayloadMappings(shape.HeaderMappings)
+	shape.BodyMappings = cloneAggregationPayloadMappings(shape.BodyMappings)
+	return shape
+}
+
+func cloneAggregationPayloadMappings(mappings []AggregationPayloadMapping) []AggregationPayloadMapping {
+	if len(mappings) == 0 {
+		return nil
+	}
+	out := make([]AggregationPayloadMapping, len(mappings))
+	for i, mapping := range mappings {
+		mapping.Source = strings.TrimSpace(mapping.Source)
+		mapping.Target = strings.TrimSpace(mapping.Target)
+		mapping.Default = append(json.RawMessage(nil), mapping.Default...)
+		out[i] = mapping
 	}
 	return out
 }

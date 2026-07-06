@@ -194,16 +194,25 @@ type AggregationConfig struct {
 
 // AggregationStep describes one upstream HTTP request in an aggregation route.
 type AggregationStep struct {
-	Name     string            `json:"name"`
-	Method   string            `json:"method,omitempty"`
-	Path     string            `json:"path"`
-	Target   string            `json:"target,omitempty"`
-	Required bool              `json:"required,omitempty"`
-	Timeout  time.Duration     `json:"timeout,omitempty"`
-	Retry    RetryPolicy       `json:"retry,omitempty"`
-	Headers  map[string]string `json:"headers,omitempty"`
-	Body     json.RawMessage   `json:"body,omitempty"`
-	Fallback json.RawMessage   `json:"fallback,omitempty"`
+	Name     string                  `json:"name"`
+	Method   string                  `json:"method,omitempty"`
+	Path     string                  `json:"path"`
+	Target   string                  `json:"target,omitempty"`
+	Required bool                    `json:"required,omitempty"`
+	Timeout  time.Duration           `json:"timeout,omitempty"`
+	Retry    RetryPolicy             `json:"retry,omitempty"`
+	Request  AggregationRequestShape `json:"request,omitempty"`
+	Headers  map[string]string       `json:"headers,omitempty"`
+	Body     json.RawMessage         `json:"body,omitempty"`
+	Fallback json.RawMessage         `json:"fallback,omitempty"`
+}
+
+// AggregationRequestShape controls how inbound HTTP data is projected to one
+// aggregation step request.
+type AggregationRequestShape struct {
+	QueryMappings  []AggregationPayloadMapping `json:"queryMappings,omitempty"`
+	HeaderMappings []AggregationPayloadMapping `json:"headerMappings,omitempty"`
+	BodyMappings   []AggregationPayloadMapping `json:"bodyMappings,omitempty"`
 }
 
 // AggregationShape controls how BFF aggregation data is rendered.
@@ -2311,8 +2320,8 @@ func validateTranscodeMappingPath(label, path string, allowEmptySource bool, sou
 	parts := strings.Split(path, ".")
 	if source {
 		root := strings.TrimSuffix(strings.TrimSpace(parts[0]), "[]")
-		if root != "body" && root != "path" && root != "query" {
-			return fmt.Errorf("transcode mapping %s %q must start with body, path, or query", label, path)
+		if root != "body" && root != "path" && root != "query" && root != "header" {
+			return fmt.Errorf("transcode mapping %s %q must start with body, path, query, or header", label, path)
 		}
 	}
 	for _, part := range parts {

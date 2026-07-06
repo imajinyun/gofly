@@ -560,8 +560,106 @@ func TestGatewayAggregationResponseShaping(t *testing.T) {
 			Shape:   AggregationShape{Mappings: []AggregationPayloadMapping{{Source: "bad.profile", Target: "profile"}}},
 			Steps:   []AggregationStep{{Name: "profile", Path: "/profile"}},
 		},
-	}}); err == nil || !strings.Contains(err.Error(), "must start with body, path, or query") {
+	}}); err == nil || !strings.Contains(err.Error(), "must start with body, path, query, or header") {
 		t.Fatalf("bad aggregation shape error = %v, want startup validation", err)
+	}
+}
+
+func TestGatewayAggregationStepRequestShaping(t *testing.T) {
+	var gotProfileTenant string
+	var gotOrdersQuery string
+	var gotOrdersHeader string
+	var gotOrdersBody map[string]any
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/profile":
+			gotProfileTenant = r.URL.Query().Get("tenant")
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"id":"u1"}`)
+		case "/orders":
+			gotOrdersQuery = r.URL.Query().Get("user")
+			gotOrdersHeader = r.Header.Get("X-Tenant")
+			if err := json.NewDecoder(r.Body).Decode(&gotOrdersBody); err != nil {
+				t.Errorf("decode shaped orders body: %v", err)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `[]`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(upstream.Close)
+
+	g, err := New([]Route{{
+		Method:     http.MethodPost,
+		PathPrefix: "/bff",
+		Targets:    []string{upstream.URL},
+		Aggregation: AggregationConfig{
+			Enabled: true,
+			Steps: []AggregationStep{
+				{
+					Name: "profile",
+					Path: "/profile",
+					Request: AggregationRequestShape{
+						QueryMappings: []AggregationPayloadMapping{{Source: "query.tenant", Target: "tenant"}},
+					},
+				},
+				{
+					Name:   "orders",
+					Method: http.MethodPost,
+					Path:   "/orders",
+					Request: AggregationRequestShape{
+						QueryMappings:  []AggregationPayloadMapping{{Source: "body.user.id", Target: "user"}},
+						HeaderMappings: []AggregationPayloadMapping{{Source: "header.x-tenant", Target: "X-Tenant"}},
+						BodyMappings: []AggregationPayloadMapping{
+							{Source: "body.cart.items", Target: "items"},
+							{Source: "query.region", Target: "meta.region"},
+							{Target: "meta.source", Default: json.RawMessage(`"bff"`)},
+						},
+					},
+				},
+			},
+		},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/bff/home?tenant=t1&region=cn", strings.NewReader(`{"user":{"id":"u1"},"cart":{"items":[{"sku":"s1"}]}}`))
+	req.Header.Set("X-Tenant", "tenant-header")
+	rr := httptest.NewRecorder()
+	g.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %s", rr.Code, rr.Body.String())
+	}
+	if gotProfileTenant != "t1" || gotOrdersQuery != "u1" || gotOrdersHeader != "tenant-header" {
+		t.Fatalf("shaped step request tenant=%q user=%q header=%q", gotProfileTenant, gotOrdersQuery, gotOrdersHeader)
+	}
+	meta, ok := gotOrdersBody["meta"].(map[string]any)
+	if !ok || meta["region"] != "cn" || meta["source"] != "bff" {
+		t.Fatalf("shaped orders meta = %#v body=%#v", gotOrdersBody["meta"], gotOrdersBody)
+	}
+	items, ok := gotOrdersBody["items"].([]any)
+	if !ok || len(items) != 1 {
+		t.Fatalf("shaped orders items = %#v body=%#v", gotOrdersBody["items"], gotOrdersBody)
+	}
+
+	if _, err := New([]Route{{
+		Method:     http.MethodGet,
+		PathPrefix: "/bad",
+		Targets:    []string{upstream.URL},
+		Aggregation: AggregationConfig{
+			Enabled: true,
+			Steps: []AggregationStep{{
+				Name: "bad",
+				Path: "/bad",
+				Request: AggregationRequestShape{
+					QueryMappings: []AggregationPayloadMapping{{Source: "body.id"}},
+				},
+			}},
+		},
+	}}); err == nil || !strings.Contains(err.Error(), "aggregation request query target is required") {
+		t.Fatalf("bad request shape error = %v, want query target validation", err)
 	}
 }
 
@@ -1771,7 +1869,7 @@ func TestGatewayAdminTranscodeDiagnosticsFilters(t *testing.T) {
 		t.Fatalf("breaking diff report = %s", breaking)
 	}
 	invalid := validateProfile(t, "/admin/gateway/transcode/profiles/validate", `{"descriptor":"examples.greeter.Greeter","descriptorMethod":"SayHello","requestMappings":[{"source":"bad.name","target":"name"}]}`)
-	if !strings.Contains(invalid, `"ok":false`) || !strings.Contains(invalid, `"compatible":false`) || !strings.Contains(invalid, "must start with body, path, or query") {
+	if !strings.Contains(invalid, `"ok":false`) || !strings.Contains(invalid, `"compatible":false`) || !strings.Contains(invalid, "must start with body, path, query, or header") {
 		t.Fatalf("invalid validate report = %s", invalid)
 	}
 }
@@ -3513,7 +3611,7 @@ func TestGatewayPureProxyAndTranscodeBranches(t *testing.T) {
 	if err := profileGateway.RegisterTranscodeProfile(TranscodeProfile{Descriptor: "svc"}); err == nil || !strings.Contains(err.Error(), "descriptor method is required") {
 		t.Fatalf("missing method profile error = %v", err)
 	}
-	if err := profileGateway.RegisterTranscodeProfile(TranscodeProfile{Descriptor: "svc", DescriptorMethod: "Get", RequestMappings: []TranscodePayloadMapping{{Source: "bad.id", Target: "id"}}}); err == nil || !strings.Contains(err.Error(), "must start with body, path, or query") {
+	if err := profileGateway.RegisterTranscodeProfile(TranscodeProfile{Descriptor: "svc", DescriptorMethod: "Get", RequestMappings: []TranscodePayloadMapping{{Source: "bad.id", Target: "id"}}}); err == nil || !strings.Contains(err.Error(), "must start with body, path, query, or header") {
 		t.Fatalf("bad source profile error = %v", err)
 	}
 	if _, err := New([]Route{{PathPrefix: "/api", Targets: []string{"http://127.0.0.1:1"}}}, WithTranscodeProfiles(TranscodeProfile{Descriptor: "svc", DescriptorMethod: "Get", RequestMappings: []TranscodePayloadMapping{{Source: "body.id"}}})); err == nil || !strings.Contains(err.Error(), "target is required") {

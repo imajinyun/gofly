@@ -110,6 +110,11 @@ func RouteConfigsFromOpenAPI(doc rest.OpenAPIDocument, opts OpenAPIRouteOptions)
 				return nil, err
 			}
 			op := doc.Paths[path][method]
+			if aggregation := openAPIAggregationConfig(op); aggregation.Enabled {
+				if err := validateOpenAPIAggregationRequestShape(op, aggregation); err != nil {
+					return nil, fmt.Errorf("openapi route %s %s aggregation request shape: %w", httpMethod, path, err)
+				}
+			}
 			routeOpts := openAPIRouteOptionsForOperation(opts, op)
 			if len(routeOpts.Targets) == 0 && strings.TrimSpace(routeOpts.Service) == "" {
 				return nil, fmt.Errorf("openapi route %s %s: %w", httpMethod, path, ErrRouteRequired)
@@ -509,6 +514,83 @@ func normalizeOpenAPIAggregationShape(shape AggregationShape) AggregationShape {
 	}
 	shape.Mappings = out
 	return shape
+}
+
+func validateOpenAPIAggregationRequestShape(op rest.Operation, aggregation AggregationConfig) error {
+	queryParams := map[string]struct{}{}
+	headerParams := map[string]struct{}{}
+	for _, parameter := range op.Parameters {
+		name := strings.TrimSpace(parameter.Name)
+		if name == "" {
+			continue
+		}
+		switch strings.ToLower(strings.TrimSpace(parameter.In)) {
+		case "query":
+			queryParams[name] = struct{}{}
+		case "header":
+			headerParams[name] = struct{}{}
+			headerParams[strings.ToLower(name)] = struct{}{}
+		}
+	}
+	bodySchema := openAPITranscodeBodySchema(op.RequestBody)
+	for _, step := range aggregation.Steps {
+		for _, mapping := range step.Request.QueryMappings {
+			if err := validateOpenAPIAggregationMappingSource("query", mapping.Source, queryParams); err != nil {
+				return err
+			}
+		}
+		for _, mapping := range step.Request.HeaderMappings {
+			if err := validateOpenAPIAggregationMappingSource("header", mapping.Source, headerParams); err != nil {
+				return err
+			}
+		}
+		for _, mapping := range step.Request.BodyMappings {
+			if err := validateOpenAPIAggregationBodySource(mapping.Source, bodySchema); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func validateOpenAPIAggregationMappingSource(kind string, source string, known map[string]struct{}) error {
+	source = strings.TrimSpace(source)
+	if source == "" {
+		return nil
+	}
+	parts := strings.Split(source, ".")
+	if len(parts) != 2 || parts[0] != kind {
+		return nil
+	}
+	name := strings.TrimSuffix(strings.TrimSpace(parts[1]), "[]")
+	if _, ok := known[name]; ok {
+		return nil
+	}
+	if _, ok := known[strings.ToLower(name)]; ok {
+		return nil
+	}
+	return fmt.Errorf("%s source %q references unknown OpenAPI %s parameter", kind, source, kind)
+}
+
+func validateOpenAPIAggregationBodySource(source string, schema *TranscodeSchemaConfig) error {
+	source = strings.TrimSpace(source)
+	if source == "" {
+		return nil
+	}
+	parts := strings.Split(source, ".")
+	if len(parts) == 0 || parts[0] != "body" {
+		return nil
+	}
+	if schema == nil {
+		return fmt.Errorf("body source %q requires OpenAPI requestBody schema", source)
+	}
+	if len(parts) == 1 {
+		return nil
+	}
+	if err := validateTranscodeSchemaPath("body", *schema, parts[1:]); err != nil {
+		return fmt.Errorf("body source %q %w", source, err)
+	}
+	return nil
 }
 
 func normalizeTranscodePayloadMappings(mappings []TranscodePayloadMapping) []TranscodePayloadMapping {

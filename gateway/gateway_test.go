@@ -2584,7 +2584,11 @@ func TestRoutesFromOpenAPIImportsAggregationShapeExtension(t *testing.T) {
 				"get": {
 					OperationID: "home",
 					Tags:        []string{"bff"},
-					Responses:   map[string]rest.Response{"200": {Description: "ok"}},
+					Parameters: []rest.Parameter{
+						{Name: "tenant", In: "query", Schema: rest.StringSchema()},
+						{Name: "X-Tenant", In: "header", Schema: rest.StringSchema()},
+					},
+					Responses: map[string]rest.Response{"200": {Description: "ok"}},
 					Extensions: map[string]any{
 						"x-gofly-aggregation": map[string]any{
 							"shape": map[string]any{"mode": "flat"},
@@ -2636,6 +2640,60 @@ func TestRoutesFromOpenAPIImportsAggregationShapeExtension(t *testing.T) {
 	}
 	if gotProfileTenant != "t1" || gotOrdersHeader != "tenant-header" {
 		t.Fatalf("openapi aggregation request shaping tenant=%q header=%q", gotProfileTenant, gotOrdersHeader)
+	}
+}
+
+func TestRoutesFromOpenAPIAggregationRequestShapeValidation(t *testing.T) {
+	doc := rest.OpenAPIDocument{
+		OpenAPI: "3.0.3",
+		Info:    rest.OpenAPIInfo{Title: "bad bff contract", Version: "1.0.0"},
+		Paths: map[string]map[string]rest.Operation{
+			"/home": {
+				"post": {
+					OperationID: "home",
+					Parameters:  []rest.Parameter{{Name: "tenant", In: "query", Schema: rest.StringSchema()}},
+					RequestBody: rest.JSONBodySchema(rest.Schema{
+						Type:       "object",
+						Properties: map[string]rest.Schema{"known": {Type: "string"}},
+					}, false),
+					Responses: map[string]rest.Response{"200": {Description: "ok"}},
+					Extensions: map[string]any{
+						"x-gofly-aggregation": map[string]any{
+							"steps": []any{
+								map[string]any{"name": "bad-query", "path": "/query", "request": map[string]any{
+									"queryMappings": []any{map[string]any{"source": "query.missing", "target": "missing"}},
+								}},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	if _, err := RoutesFromOpenAPI(doc, OpenAPIRouteOptions{GatewayPrefix: "/edge", Targets: []string{"http://127.0.0.1:1"}}); err == nil || !strings.Contains(err.Error(), "unknown OpenAPI query parameter") {
+		t.Fatalf("missing query mapping error = %v, want OpenAPI query validation", err)
+	}
+
+	doc.Paths["/home"]["post"].Extensions["x-gofly-aggregation"] = map[string]any{
+		"steps": []any{
+			map[string]any{"name": "bad-header", "path": "/header", "request": map[string]any{
+				"headerMappings": []any{map[string]any{"source": "header.x-missing", "target": "X-Missing"}},
+			}},
+		},
+	}
+	if _, err := RoutesFromOpenAPI(doc, OpenAPIRouteOptions{GatewayPrefix: "/edge", Targets: []string{"http://127.0.0.1:1"}}); err == nil || !strings.Contains(err.Error(), "unknown OpenAPI header parameter") {
+		t.Fatalf("missing header mapping error = %v, want OpenAPI header validation", err)
+	}
+
+	doc.Paths["/home"]["post"].Extensions["x-gofly-aggregation"] = map[string]any{
+		"steps": []any{
+			map[string]any{"name": "bad-body", "path": "/body", "request": map[string]any{
+				"bodyMappings": []any{map[string]any{"source": "body.missing", "target": "missing"}},
+			}},
+		},
+	}
+	if _, err := RoutesFromOpenAPI(doc, OpenAPIRouteOptions{GatewayPrefix: "/edge", Targets: []string{"http://127.0.0.1:1"}}); err == nil || !strings.Contains(err.Error(), "unknown body field") {
+		t.Fatalf("missing body mapping error = %v, want OpenAPI body validation", err)
 	}
 }
 

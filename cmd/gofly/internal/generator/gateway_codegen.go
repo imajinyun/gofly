@@ -603,6 +603,10 @@ const gatewayOpenAPIBaseTemplate = `{
         "operationId": "home",
         "tags": ["bff"],
         "responses": {"200": {"description": "OK"}},
+        "parameters": [
+          {"name": "tenant", "in": "query", "schema": {"type": "string"}},
+          {"name": "X-Tenant", "in": "header", "schema": {"type": "string"}}
+        ],
         "x-gofly-aggregation": {
           "shape": {
             "mode": "flat",
@@ -633,6 +637,10 @@ const gatewayOpenAPICandidateTemplate = `{
         "operationId": "home",
         "tags": ["bff"],
         "responses": {"200": {"description": "OK"}},
+        "parameters": [
+          {"name": "tenant", "in": "query", "schema": {"type": "string"}},
+          {"name": "X-Tenant", "in": "header", "schema": {"type": "string"}}
+        ],
         "x-gofly-aggregation": {
           "shape": {
             "mode": "flat",
@@ -665,6 +673,10 @@ const gatewayOpenAPIBreakingTemplate = `{
         "operationId": "home",
         "tags": ["bff"],
         "responses": {"200": {"description": "OK"}},
+        "parameters": [
+          {"name": "tenant", "in": "query", "schema": {"type": "string"}},
+          {"name": "X-Tenant", "in": "header", "schema": {"type": "string"}}
+        ],
         "x-gofly-aggregation": {
           "shape": {
             "mode": "flat",
@@ -792,6 +804,10 @@ func TestGatewayGeneratedOpenAPIImportProfileIsRunnable(t *testing.T) {
 				"get": {
 					OperationID: "home",
 					Tags: []string{"bff"},
+					Parameters: []rest.Parameter{
+						{Name: "tenant", In: "query", Schema: rest.StringSchema()},
+						{Name: "X-Tenant", In: "header", Schema: rest.StringSchema()},
+					},
 					Responses: map[string]rest.Response{"200": {Description: "OK"}},
 					Extensions: map[string]any{
 						"x-gofly-aggregation": map[string]any{

@@ -2334,7 +2334,7 @@ func TestRoutesFromOpenAPIMapsDescriptorDrivenTranscode(t *testing.T) {
 					Parameters: []rest.Parameter{
 						{Name: "id", In: "path", Required: true, Schema: rest.IntegerSchema()},
 						{Name: "item_id", In: "path", Required: true, Schema: rest.StringSchema()},
-						{Name: "include_history", In: "query", Schema: rest.BooleanSchema()},
+						{Name: "include_history", In: "query", Required: true, Schema: rest.BooleanSchema()},
 						{Name: "tags", In: "query", Schema: rest.ArraySchema(rest.Schema{Type: "integer"})},
 						{Name: "score", In: "query", Schema: rest.NumberSchema()},
 					},
@@ -2407,7 +2407,7 @@ func TestRoutesFromOpenAPIMapsDescriptorDrivenTranscode(t *testing.T) {
 	if len(route.Transcode.Payload.PathParameters) != 2 || route.Transcode.Payload.PathParameters[0].Type != "integer" || route.Transcode.Payload.PathParameters[1].Type != "string" {
 		t.Fatalf("imported path parameter schemas = %+v", route.Transcode.Payload.PathParameters)
 	}
-	if len(route.Transcode.Payload.QueryParameters) != 3 || route.Transcode.Payload.QueryParameters[0].Type != "boolean" || route.Transcode.Payload.QueryParameters[1].Type != "array" || route.Transcode.Payload.QueryParameters[1].Items == nil || route.Transcode.Payload.QueryParameters[1].Items.Type != "integer" || route.Transcode.Payload.QueryParameters[2].Type != "number" {
+	if len(route.Transcode.Payload.QueryParameters) != 3 || route.Transcode.Payload.QueryParameters[0].Type != "boolean" || !route.Transcode.Payload.QueryParameters[0].Required || route.Transcode.Payload.QueryParameters[1].Type != "array" || route.Transcode.Payload.QueryParameters[1].Items == nil || route.Transcode.Payload.QueryParameters[1].Items.Type != "integer" || route.Transcode.Payload.QueryParameters[2].Type != "number" {
 		t.Fatalf("imported query parameter schemas = %+v", route.Transcode.Payload.QueryParameters)
 	}
 	if route.Transcode.Payload.BodySchema == nil || route.Transcode.Payload.BodySchema.Type != "object" || strings.Join(route.Transcode.Payload.BodySchema.Required, ",") != "trace,items" || len(route.Transcode.Payload.BodySchema.Properties) != 4 {
@@ -2484,6 +2484,15 @@ func TestRoutesFromOpenAPIMapsDescriptorDrivenTranscode(t *testing.T) {
 	}
 	if len(fake.request) != 0 {
 		t.Fatalf("invalid typed transcode called backend with request=%s", fake.request)
+	}
+
+	missingQuery := httptest.NewRecorder()
+	g.ServeHTTP(missingQuery, httptest.NewRequest(http.MethodPost, "/contract/orders/42/items/sku-1", strings.NewReader(`{"trace":"t1","items":[{"sku":"sku-1","quantity":2}]}`)))
+	if missingQuery.Code != http.StatusBadRequest || !strings.Contains(missingQuery.Body.String(), `"code":"invalid_argument"`) || !strings.Contains(missingQuery.Body.String(), "include_history is required") {
+		t.Fatalf("missing required query response = %d %q", missingQuery.Code, missingQuery.Body.String())
+	}
+	if len(fake.request) != 0 {
+		t.Fatalf("missing required query called backend with request=%s", fake.request)
 	}
 
 	invalidBody := httptest.NewRecorder()

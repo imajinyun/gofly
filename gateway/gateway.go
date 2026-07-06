@@ -113,10 +113,11 @@ type TranscodePayloadConfig struct {
 // TranscodeParameterConfig describes a schema-aware HTTP parameter mapping for
 // REST-to-RPC transcoding.
 type TranscodeParameterConfig struct {
-	Name   string                    `json:"name"`
-	Type   string                    `json:"type,omitempty"`
-	Format string                    `json:"format,omitempty"`
-	Items  *TranscodeParameterConfig `json:"items,omitempty"`
+	Name     string                    `json:"name"`
+	Type     string                    `json:"type,omitempty"`
+	Format   string                    `json:"format,omitempty"`
+	Required bool                      `json:"required,omitempty"`
+	Items    *TranscodeParameterConfig `json:"items,omitempty"`
 }
 
 // TranscodeSchemaConfig is the schema subset used to validate and map request

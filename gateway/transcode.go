@@ -675,11 +675,22 @@ func transcodeTypedPathValues(values map[string]string, parameters []TranscodePa
 	out := make(map[string]any, len(values))
 	byName := transcodeParameterByName(parameters)
 	for name, value := range values {
-		converted, err := convertTranscodeParameterValue(value, byName[name])
+		parameter := byName[name]
+		if parameter.Required && value == "" {
+			return nil, fmt.Errorf("transcode parameter %s is required", transcodeParameterName(parameter))
+		}
+		converted, err := convertTranscodeParameterValue(value, parameter)
 		if err != nil {
 			return nil, err
 		}
 		out[name] = converted
+	}
+	for name, parameter := range byName {
+		if parameter.Required {
+			if _, ok := values[name]; !ok {
+				return nil, fmt.Errorf("transcode parameter %s is required", transcodeParameterName(parameter))
+			}
+		}
 	}
 	return out, nil
 }
@@ -694,6 +705,9 @@ func transcodeQueryValues(values url.Values, names []string, parameters []Transc
 		}
 		items, ok := values[name]
 		if !ok {
+			if byName[name].Required {
+				return nil, fmt.Errorf("transcode parameter %s is required", transcodeParameterName(byName[name]))
+			}
 			continue
 		}
 		converted, err := convertTranscodeQueryValues(items, byName[name])

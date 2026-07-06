@@ -679,7 +679,7 @@ func TestGatewayGeneratedOpenAPIImportProfileIsRunnable(t *testing.T) {
 					Tags: []string{"orders"},
 					Parameters: []rest.Parameter{
 						{Name: "id", In: "path", Required: true, Schema: rest.IntegerSchema()},
-						{Name: "include_history", In: "query", Schema: rest.BooleanSchema()},
+						{Name: "include_history", In: "query", Required: true, Schema: rest.BooleanSchema()},
 						{Name: "tags", In: "query", Schema: rest.ArraySchema(rest.Schema{Type: "integer"})},
 					},
 					RequestBody: rest.JSONBodySchema(rest.Schema{
@@ -797,6 +797,12 @@ func TestGatewayGeneratedOpenAPIImportProfileIsRunnable(t *testing.T) {
 	gw.ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/contract/orders/42?include_history=true&tags=1,2&tags=3", strings.NewReader("{\"trace\":\"t1\",\"items\":[{\"sku\":\"sku-1\",\"quantity\":2}]}")))
 	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), "\"id\":42") || !strings.Contains(rr.Body.String(), "\"include_history\":true") || !strings.Contains(rr.Body.String(), "\"tags\":[1,2,3]") || !strings.Contains(rr.Body.String(), "\"trace\":\"t1\"") || !strings.Contains(rr.Body.String(), "\"region\":\"cn\"") || !strings.Contains(rr.Body.String(), "\"quantity\":2") || !strings.Contains(rr.Body.String(), "\"source\":\"rpc\"") {
 		t.Fatalf("generated OpenAPI gateway response = %d %q, want imported RPC transcode success", rr.Code, rr.Body.String())
+	}
+
+	missingQuery := httptest.NewRecorder()
+	gw.ServeHTTP(missingQuery, httptest.NewRequest(http.MethodPost, "/contract/orders/42", strings.NewReader("{\"trace\":\"t1\",\"items\":[{\"sku\":\"sku-1\",\"quantity\":2}]}")))
+	if missingQuery.Code != http.StatusBadRequest || !strings.Contains(missingQuery.Body.String(), "\"code\":\"invalid_argument\"") || !strings.Contains(missingQuery.Body.String(), "include_history is required") {
+		t.Fatalf("generated OpenAPI missing query response = %d %q, want required query invalid_argument", missingQuery.Code, missingQuery.Body.String())
 	}
 
 	invalid := httptest.NewRecorder()

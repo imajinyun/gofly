@@ -339,10 +339,10 @@ func openAPITranscodePayloadConfig(path string, op rest.Operation, opts OpenAPIT
 		switch strings.ToLower(strings.TrimSpace(parameter.In)) {
 		case "path":
 			payload.PathParams = append(payload.PathParams, name)
-			payload.PathParameters = append(payload.PathParameters, openAPITranscodeParameterConfig(name, parameter.Schema))
+			payload.PathParameters = append(payload.PathParameters, openAPITranscodeParameterConfig(name, parameter.Required, parameter.Schema))
 		case "query":
 			payload.QueryParams = append(payload.QueryParams, name)
-			payload.QueryParameters = append(payload.QueryParameters, openAPITranscodeParameterConfig(name, parameter.Schema))
+			payload.QueryParameters = append(payload.QueryParameters, openAPITranscodeParameterConfig(name, parameter.Required, parameter.Schema))
 		}
 	}
 	if len(payload.PathParams) == 0 {
@@ -362,8 +362,8 @@ func openAPITranscodePayloadConfig(path string, op rest.Operation, opts OpenAPIT
 	return payload
 }
 
-func openAPITranscodeParameterConfig(name string, schema *rest.Schema) TranscodeParameterConfig {
-	parameter := TranscodeParameterConfig{Name: strings.TrimSpace(name)}
+func openAPITranscodeParameterConfig(name string, required bool, schema *rest.Schema) TranscodeParameterConfig {
+	parameter := TranscodeParameterConfig{Name: strings.TrimSpace(name), Required: required}
 	if schema == nil {
 		parameter.Type = "string"
 		return parameter
@@ -374,7 +374,7 @@ func openAPITranscodeParameterConfig(name string, schema *rest.Schema) Transcode
 		parameter.Type = "string"
 	}
 	if schema.Items != nil {
-		item := openAPITranscodeParameterConfig("", schema.Items)
+		item := openAPITranscodeParameterConfig("", false, schema.Items)
 		parameter.Items = &item
 	}
 	return parameter

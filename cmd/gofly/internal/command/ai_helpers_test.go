@@ -2396,7 +2396,7 @@ func TestAINewGeneratedProjectVerificationMatrix(t *testing.T) {
 			{
 				name:                  "edge",
 				template:              "go-gateway",
-				wantVerify:            []string{"gofmt", "go mod tidy", "go test ./...", "go vet ./..."},
+				wantVerify:            []string{"gofmt", "go mod tidy", "go test ./...", "gofly gateway profile validate --config etc/<name>.json --candidate etc/<name>-profile-candidate.json --json", "go vet ./..."},
 				wantFiles:             []string{"go.mod", filepath.Join("cmd", "edge", "main.go"), filepath.Join("internal", "routes", "routes.go"), filepath.Join("internal", "observability", "observability.go")},
 				wantGeneratedFeatures: []string{"observability"},
 			},
@@ -2666,7 +2666,7 @@ func TestAIProjectApplyVerificationScaffoldBoundaries(t *testing.T) {
 				wantVerification int
 			}{
 				{name: "greeter", template: "go-rpc-grpc", wantVerification: 5},
-				{name: "edge", template: "go-gateway", wantVerification: 4},
+				{name: "edge", template: "go-gateway", wantVerification: 5},
 			} {
 				t.Run(tt.template, func(t *testing.T) {
 					outDir := filepath.Join(t.TempDir(), tt.name)

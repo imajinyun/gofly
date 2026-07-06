@@ -32,6 +32,7 @@ func GenerateGateway(opts GatewayOptions) error {
 		"go.mod": gatewayGoModTemplate,
 		filepath.Join("cmd", opts.Name, "main.go"):            gatewayMainTemplate,
 		filepath.Join("etc", opts.Name+".json"):               gatewayConfigTemplate,
+		filepath.Join("etc", opts.Name+"-profile-candidate.json"): gatewayProfileCandidateTemplate,
 		filepath.Join("internal", "config", "config.go"):      gatewayConfigGoTemplate,
 		filepath.Join("internal", "config", "config_test.go"): gatewayConfigTestTemplate,
 		filepath.Join("internal", "mq", "broker.go"):          mqBrokerTemplate,
@@ -545,6 +546,26 @@ type RedisConfig struct {
 	MaxIdleConns int ` + "`json:\"maxIdleConns\"`" + `
 	ConnMaxIdleTime time.Duration ` + "`json:\"connMaxIdleTime\"`" + `
 	ConnMaxLifetime time.Duration ` + "`json:\"connMaxLifetime\"`" + `
+}
+`
+
+const gatewayProfileCandidateTemplate = `{
+  "descriptor": "orders.OrderService",
+  "descriptorMethod": "GetOrder",
+  "requestMappings": [
+    {"source": "body.id", "target": "order.id"},
+    {"source": "body.trace", "target": "meta.trace"}
+  ],
+  "responseMappings": [
+    {"source": "body.id", "target": "data.id"},
+    {"source": "body.source", "target": "meta.source"}
+  ],
+  "errorMappings": [
+    {"source": "body.code", "target": "error.code"},
+    {"source": "body.error", "target": "error.message"},
+    {"source": "body.status", "target": "error.status"},
+    {"target": "error.source", "default": "rpc"}
+  ]
 }
 `
 

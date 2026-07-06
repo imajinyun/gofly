@@ -59,6 +59,22 @@ func (g *Gateway) RegisterAdminWithAudit(s *rest.Server, pathPrefix string, toke
 		}
 		controladmin.WriteJSON(ctx.Response, http.StatusOK, g.TranscodeDiagnostics(ctx.Request))
 	}}, opts...)
+	s.AddRoute(rest.Route{Method: http.MethodGet, Path: pathPrefix + "/transcode/profiles", Handler: func(ctx *rest.Context) {
+		if !authorizeGatewayAdmin(ctx, token) {
+			return
+		}
+		profiles := g.FilterTranscodeProfiles(ctx.Request)
+		query := ctx.Request.URL.Query()
+		if strings.TrimSpace(query.Get("descriptor")) != "" && strings.TrimSpace(query.Get("method")) != "" {
+			if len(profiles) == 0 {
+				controladmin.WriteError(ctx.Response, http.StatusNotFound, "transcode profile not found")
+				return
+			}
+			controladmin.WriteJSON(ctx.Response, http.StatusOK, profiles[0])
+			return
+		}
+		controladmin.WriteJSON(ctx.Response, http.StatusOK, profiles)
+	}}, opts...)
 	s.AddRoute(rest.Route{Method: http.MethodPost, Path: pathPrefix + "/routes", Handler: func(ctx *rest.Context) {
 		if !authorizeGatewayAdmin(ctx, token) {
 			return
@@ -131,6 +147,34 @@ func (g *Gateway) RegisterAdminWithAudit(s *rest.Server, pathPrefix string, toke
 			governanceAdmin.ServeHTTP(ctx.Response, ctx.Request)
 		}}, opts...)
 	}
+}
+
+// FilterTranscodeProfiles returns transcode profiles filtered by optional
+// profile, descriptor, or method query parameters.
+func (g *Gateway) FilterTranscodeProfiles(r *http.Request) []TranscodeProfile {
+	if g == nil {
+		return nil
+	}
+	query := r.URL.Query()
+	profileFilter := strings.TrimSpace(query.Get("profile"))
+	descriptorFilter := strings.TrimSpace(query.Get("descriptor"))
+	methodFilter := strings.Trim(strings.TrimSpace(query.Get("method")), "/")
+	profiles := g.TranscodeProfiles()
+	out := make([]TranscodeProfile, 0, len(profiles))
+	for _, profile := range profiles {
+		profileKey := transcodeProfileKey(profile.Descriptor, profile.DescriptorMethod)
+		if profileFilter != "" && profileFilter != profileKey {
+			continue
+		}
+		if descriptorFilter != "" && descriptorFilter != profile.Descriptor {
+			continue
+		}
+		if methodFilter != "" && methodFilter != profile.DescriptorMethod {
+			continue
+		}
+		out = append(out, profile)
+	}
+	return out
 }
 
 // TranscodeDiagnostic describes one route's effective descriptor transcode state.

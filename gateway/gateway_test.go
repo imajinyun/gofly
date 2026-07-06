@@ -1523,6 +1523,11 @@ func TestGatewayAdminTranscodeDiagnosticsFilters(t *testing.T) {
 	if unauthorized.Code != http.StatusUnauthorized {
 		t.Fatalf("unauthorized diagnostics status = %d", unauthorized.Code)
 	}
+	unauthorizedProfiles := httptest.NewRecorder()
+	s.Handler().ServeHTTP(unauthorizedProfiles, httptest.NewRequest(http.MethodGet, "/admin/gateway/transcode/profiles", nil))
+	if unauthorizedProfiles.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthorized profiles status = %d", unauthorizedProfiles.Code)
+	}
 
 	tests := []struct {
 		name string
@@ -1549,6 +1554,32 @@ func TestGatewayAdminTranscodeDiagnosticsFilters(t *testing.T) {
 			}
 			if !strings.Contains(rec.Body.String(), tt.want) {
 				t.Fatalf("diagnostics body missing %q: %s", tt.want, rec.Body.String())
+			}
+		})
+	}
+
+	profileTests := []struct {
+		name   string
+		path   string
+		status int
+		want   string
+	}{
+		{name: "profiles all", path: "/admin/gateway/transcode/profiles", status: http.StatusOK, want: `"descriptor":"examples.greeter.Greeter"`},
+		{name: "profiles by key", path: "/admin/gateway/transcode/profiles?profile=examples.greeter.Greeter/SayHello", status: http.StatusOK, want: `"requestMappings":[{"source":"body.name","target":"name"}]`},
+		{name: "profile detail", path: "/admin/gateway/transcode/profiles?descriptor=examples.greeter.Greeter&method=SayHello", status: http.StatusOK, want: `"descriptorMethod":"SayHello"`},
+		{name: "profile detail missing", path: "/admin/gateway/transcode/profiles?descriptor=examples.greeter.Greeter&method=Missing", status: http.StatusNotFound, want: "transcode profile not found"},
+	}
+	for _, tt := range profileTests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			req.Header.Set(auth.AuthorizationHeader, "Bearer secret")
+			rec := httptest.NewRecorder()
+			s.Handler().ServeHTTP(rec, req)
+			if rec.Code != tt.status {
+				t.Fatalf("profiles status = %d body = %s, want %d", rec.Code, rec.Body.String(), tt.status)
+			}
+			if !strings.Contains(rec.Body.String(), tt.want) {
+				t.Fatalf("profiles body missing %q: %s", tt.want, rec.Body.String())
 			}
 		})
 	}

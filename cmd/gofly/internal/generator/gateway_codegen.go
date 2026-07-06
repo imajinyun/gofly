@@ -37,6 +37,7 @@ func GenerateGateway(opts GatewayOptions) error {
 		filepath.Join("etc", opts.Name+"-openapi-base.json"):          gatewayOpenAPIBaseTemplate,
 		filepath.Join("etc", opts.Name+"-openapi-candidate.json"):     gatewayOpenAPICandidateTemplate,
 		filepath.Join("etc", opts.Name+"-openapi-breaking.json"):      gatewayOpenAPIBreakingTemplate,
+		filepath.Join("etc", opts.Name+"-openapi-invalid.json"):       gatewayOpenAPIInvalidTemplate,
 		filepath.Join("internal", "config", "config.go"):              gatewayConfigGoTemplate,
 		filepath.Join("internal", "config", "config_test.go"):         gatewayConfigTestTemplate,
 		filepath.Join("internal", "mq", "broker.go"):                  mqBrokerTemplate,
@@ -690,6 +691,32 @@ const gatewayOpenAPIBreakingTemplate = `{
           "steps": [
             {"name": "profile", "path": "/profile", "required": true, "request": {"queryMappings": [{"source": "query.tenant", "target": "tenant"}]}, "fallback": {"id": "anonymous"}},
             {"name": "orders", "path": "/orders", "timeout": 1000000, "retry": {"attempts": 2, "statuses": [503]}, "request": {"headerMappings": [{"source": "header.x-tenant", "target": "X-Account"}]}}
+          ]
+        }
+      }
+    }
+  }
+}
+`
+
+const gatewayOpenAPIInvalidTemplate = `{
+  "openapi": "3.0.3",
+  "info": {"title": "{{.Name}} gateway invalid aggregation contract", "version": "2.0.0"},
+  "paths": {
+    "/home": {
+      "get": {
+        "operationId": "home",
+        "tags": ["bff"],
+        "responses": {"200": {"description": "OK"}},
+        "parameters": [
+          {"name": "tenant", "in": "query", "schema": {"type": "string"}},
+          {"name": "X-Tenant", "in": "header", "schema": {"type": "string"}}
+        ],
+        "x-gofly-aggregation": {
+          "shape": {"mode": "flat"},
+          "steps": [
+            {"name": "profile", "path": "/profile", "request": {"queryMappings": [{"source": "query.missing_tenant", "target": "tenant"}]}, "fallback": {"id": "anonymous"}},
+            {"name": "orders", "path": "/orders", "request": {"headerMappings": [{"source": "header.x-missing", "target": "X-Missing"}]}, "fallback": []}
           ]
         }
       }

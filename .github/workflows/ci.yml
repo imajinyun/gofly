@@ -395,6 +395,21 @@ jobs:
               --openapi-candidate "$tmp/edge/etc/edge-openapi-breaking.json" \
               --route home \
               --format markdown
+            echo
+            echo "### Invalid request-shaping fixture"
+            echo
+            if invalid_output="$(go run ./cmd/gofly gateway aggregation validate \
+              --openapi-base "$tmp/edge/etc/edge-openapi-base.json" \
+              --openapi-candidate "$tmp/edge/etc/edge-openapi-invalid.json" \
+              --route home \
+              --format markdown 2>&1)"; then
+              echo "Expected invalid fixture to fail, but it passed."
+              exit 1
+            else
+              echo '```text'
+              printf '%s\n' "$invalid_output"
+              echo '```'
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload gateway aggregation SARIF artifact

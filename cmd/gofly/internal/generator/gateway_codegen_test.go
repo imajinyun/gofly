@@ -241,6 +241,13 @@ func TestGenerateGatewayDefaultResilienceProfileReachesRuntime(t *testing.T) {
 		strings.Contains(string(breakingOpenAPIData), `"fallback": []`) {
 		t.Fatalf("generated breaking OpenAPI fixture = %s, want target change and removed fallback", breakingOpenAPIData)
 	}
+	invalidOpenAPIData, err := os.ReadFile(filepath.Join(dir, "etc", "edge-openapi-invalid.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(invalidOpenAPIData), "missing_tenant") || !strings.Contains(string(invalidOpenAPIData), "x-missing") {
+		t.Fatalf("generated invalid OpenAPI fixture = %s, want invalid request mappings", invalidOpenAPIData)
+	}
 	var generated struct {
 		Gateway           gateway.Config             `json:"gateway"`
 		TranscodeProfiles []gateway.TranscodeProfile `json:"transcodeProfiles"`

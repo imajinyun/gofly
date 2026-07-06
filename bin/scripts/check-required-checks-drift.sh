@@ -45,6 +45,7 @@ for token in (
     "GatewayProfileValidateCommandJSON",
     "GatewayProfileValidateCommandBreakingAndUsage",
     "GatewayAggregationValidateCommandJSON",
+    "GatewayAggregationSARIFRuleTaxonomyContract",
     "ReleaseGatewayProfileContractCheck",
     "ReleaseGatewayAggregationContractCheck",
     "ExecuteAIManifestJSONEnvelope",

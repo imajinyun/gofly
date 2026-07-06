@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/imajinyun/gofly/gateway"
 )
 
 func TestGatewayProfileValidateCommandJSON(t *testing.T) {
@@ -370,4 +372,64 @@ func TestGatewayAggregationValidateCommandOpenAPIDiff(t *testing.T) {
 		invalidSARIF.Runs[0].Results[0].Locations[0].PhysicalLocation.Region.StartLine == 0 {
 		t.Fatalf("invalid sarif = %+v, want aggregation.openapi.invalid error", invalidSARIF)
 	}
+}
+
+func TestGatewayAggregationSARIFRuleTaxonomyContract(t *testing.T) {
+	dir := t.TempDir()
+	candidatePath := filepath.Join(dir, "candidate-openapi.json")
+	if err := os.WriteFile(candidatePath, []byte(`{
+	  "openapi": "3.0.3",
+	  "paths": {"/home": {"get": {
+	    "operationId": "home",
+	    "x-gofly-aggregation": {
+	      "shape": {"mappings": [{"source": "body.data.orders", "target": "items"}]},
+	      "steps": [{"name": "orders", "path": "/orders"}]
+	    }
+	  }}}
+	}`), 0o600); err != nil {
+		t.Fatalf("write candidate: %v", err)
+	}
+	report := gateway.AggregationValidationReport{
+		OK:         false,
+		Compatible: false,
+		Errors:     []string{`query source "query.missing" references unknown OpenAPI query parameter`},
+		Changes: []gateway.TranscodeProfileChange{
+			{Kind: "remove_fallback", Scope: "aggregation_step", Source: "orders", Severity: "breaking"},
+			{Kind: "change_target", Scope: "aggregation_shape", Source: "body.data.orders", Target: "items", Severity: "breaking"},
+			{Kind: "change_target", Scope: "aggregation_request_header/orders", Source: "header.x-tenant", Target: "X-Account", Severity: "breaking"},
+			{Kind: "add_mapping", Scope: "aggregation_request_body/orders", Source: "query.region", Target: "meta.region", Severity: "info"},
+		},
+	}
+	var stdout bytes.Buffer
+	if err := withCommandIO(IOStreams{Out: &stdout}, outputText, verbosityNormal, func() error {
+		return printGatewayAggregationValidationSARIF(report, candidatePath, gatewayAggregationSARIFContext{Route: "home", OpenAPIPath: "/home", OpenAPIMethod: "GET"})
+	}); err != nil {
+		t.Fatalf("print SARIF: %v", err)
+	}
+	for _, want := range []string{
+		`"ruleId":"aggregation.openapi.invalid"`,
+		`"ruleId":"aggregation.step.remove_fallback"`,
+		`"ruleId":"aggregation.response_shape.change_target"`,
+		`"ruleId":"aggregation.request_shape.header.change_target"`,
+		`"ruleId":"aggregation.request_shape.body.add_mapping"`,
+		`"openapiPath":"/home"`,
+		`"openapiMethod":"GET"`,
+	} {
+		if !strings.Contains(compactJSON(t, stdout.Bytes()), want) {
+			t.Fatalf("SARIF taxonomy missing %s:\n%s", want, stdout.String())
+		}
+	}
+}
+
+func compactJSON(t *testing.T, data []byte) string {
+	t.Helper()
+	var value any
+	if err := json.Unmarshal(data, &value); err != nil {
+		t.Fatalf("decode json: %v\n%s", err, data)
+	}
+	compact, err := json.Marshal(value)
+	if err != nil {
+		t.Fatalf("compact json: %v", err)
+	}
+	return string(compact)
 }

@@ -39,6 +39,7 @@ func (g *Gateway) transcodeOnce(r *http.Request, route Route, endpoint string, b
 	}
 	payload, err := transcodeRequestPayload(r, route, body, target.profile)
 	if err != nil {
+		g.recordTranscodeMappingError(route, "request", err)
 		callErr := rpc.NewError(rpc.CodeInvalidArgument, err.Error())
 		return proxyResult{
 			Endpoint: endpoint,
@@ -73,8 +74,12 @@ func (g *Gateway) transcodeOnce(r *http.Request, route Route, endpoint string, b
 			Endpoint: endpoint,
 			Status:   status,
 			Header:   transcodeResponseHeader(nil),
-			Body:     transcodeMappedErrorBody(callErr, status, target.profile),
 		}
+		errorBody, mapErr := transcodeMappedErrorBody(callErr, status, target.profile)
+		if mapErr != nil {
+			g.recordTranscodeMappingError(route, "error", mapErr)
+		}
+		result.Body = errorBody
 		// Surface non-retryable failures as a completed response so callers see
 		// the mapped status, while retryable errors propagate for retry.
 		if rpc.CodeOf(callErr) == rpc.CodeUnavailable || rpc.CodeOf(callErr) == rpc.CodeDeadlineExceeded {
@@ -89,6 +94,7 @@ func (g *Gateway) transcodeOnce(r *http.Request, route Route, endpoint string, b
 	}
 	responseBody, err := transcodeResponsePayload(raw, target.profile)
 	if err != nil {
+		g.recordTranscodeMappingError(route, "response", err)
 		callErr := rpc.NewError(rpc.CodeInvalidArgument, err.Error())
 		return proxyResult{
 			Endpoint: endpoint,
@@ -103,6 +109,21 @@ func (g *Gateway) transcodeOnce(r *http.Request, route Route, endpoint string, b
 		Header:   transcodeResponseHeader(md),
 		Body:     responseBody,
 	}, nil
+}
+
+func (g *Gateway) recordTranscodeMappingError(route Route, stage string, err error) {
+	if g == nil || err == nil {
+		return
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.transcodeRuntime == nil {
+		g.transcodeRuntime = make(map[string]TranscodeRuntimeSnapshot)
+	}
+	item := g.transcodeRuntime[routeKey(route)]
+	item.LastErrorStage = strings.TrimSpace(stage)
+	item.LastError = err.Error()
+	g.transcodeRuntime[routeKey(route)] = item
 }
 
 func (g *Gateway) transcoderFor(endpoint string, route Route) (rpc.GenericClient, error) {
@@ -475,9 +496,9 @@ func transcodeResponsePayload(raw json.RawMessage, profile *TranscodeProfile) ([
 	return data, nil
 }
 
-func transcodeMappedErrorBody(err error, status int, profile *TranscodeProfile) []byte {
+func transcodeMappedErrorBody(err error, status int, profile *TranscodeProfile) ([]byte, error) {
 	if profile == nil || len(profile.ErrorMappings) == 0 {
-		return transcodeErrorBody(err)
+		return transcodeErrorBody(err), nil
 	}
 	source := transcodePayloadSource{Body: map[string]any{
 		"code":   string(rpc.CodeOf(err)),
@@ -486,13 +507,13 @@ func transcodeMappedErrorBody(err error, status int, profile *TranscodeProfile) 
 	}}
 	payload, mapErr := transcodePayloadFromMappings(source, profile.ErrorMappings)
 	if mapErr != nil {
-		return transcodeErrorBody(err)
+		return transcodeErrorBody(err), mapErr
 	}
 	data, marshalErr := json.Marshal(payload)
 	if marshalErr != nil {
-		return transcodeErrorBody(err)
+		return transcodeErrorBody(err), marshalErr
 	}
-	return data
+	return data, nil
 }
 
 func mergeTranscodeBody(payload map[string]any, body []byte, bodyField string, required bool, schema *TranscodeSchemaConfig) error {

@@ -317,6 +317,7 @@ type Gateway struct {
 	retryRuntime        *retryRuntime
 	discoveryFailover   bool
 	initErr             error
+	transcodeRuntime    map[string]TranscodeRuntimeSnapshot
 }
 
 type gatewayRuleRuntime struct {
@@ -371,21 +372,35 @@ type RuntimeSnapshot struct {
 
 // RouteRuntimeSnapshot holds the normalized outbound policy for one gateway route.
 type RouteRuntimeSnapshot struct {
-	Name             string            `json:"name,omitempty"`
-	Method           string            `json:"method,omitempty"`
-	PathPrefix       string            `json:"pathPrefix"`
-	Service          string            `json:"service,omitempty"`
-	TargetCount      int               `json:"targetCount,omitempty"`
-	Timeout          time.Duration     `json:"timeout,omitempty"`
-	EffectiveTimeout time.Duration     `json:"effectiveTimeout,omitempty"`
-	Retry            RetryPolicy       `json:"retry"`
-	Breaker          BreakerConfig     `json:"breaker,omitempty"`
-	RateLimit        RateLimitConfig   `json:"rateLimit,omitempty"`
-	Concurrency      ConcurrencyConfig `json:"concurrency,omitempty"`
-	CanaryCount      int               `json:"canaryCount,omitempty"`
-	ShadowCount      int               `json:"shadowCount,omitempty"`
-	Transcode        TranscodeConfig   `json:"transcode,omitempty"`
-	Aggregation      AggregationConfig `json:"aggregation,omitempty"`
+	Name             string                   `json:"name,omitempty"`
+	Method           string                   `json:"method,omitempty"`
+	PathPrefix       string                   `json:"pathPrefix"`
+	Service          string                   `json:"service,omitempty"`
+	TargetCount      int                      `json:"targetCount,omitempty"`
+	Timeout          time.Duration            `json:"timeout,omitempty"`
+	EffectiveTimeout time.Duration            `json:"effectiveTimeout,omitempty"`
+	Retry            RetryPolicy              `json:"retry"`
+	Breaker          BreakerConfig            `json:"breaker,omitempty"`
+	RateLimit        RateLimitConfig          `json:"rateLimit,omitempty"`
+	Concurrency      ConcurrencyConfig        `json:"concurrency,omitempty"`
+	CanaryCount      int                      `json:"canaryCount,omitempty"`
+	ShadowCount      int                      `json:"shadowCount,omitempty"`
+	Transcode        TranscodeConfig          `json:"transcode,omitempty"`
+	TranscodeRuntime TranscodeRuntimeSnapshot `json:"transcodeRuntime,omitempty"`
+	Aggregation      AggregationConfig        `json:"aggregation,omitempty"`
+}
+
+// TranscodeRuntimeSnapshot reports the effective descriptor transcode profile
+// and the last mapping error for a route.
+type TranscodeRuntimeSnapshot struct {
+	Descriptor       string `json:"descriptor,omitempty"`
+	DescriptorMethod string `json:"descriptorMethod,omitempty"`
+	ProfileKey       string `json:"profileKey,omitempty"`
+	RequestMappings  int    `json:"requestMappings,omitempty"`
+	ResponseMappings int    `json:"responseMappings,omitempty"`
+	ErrorMappings    int    `json:"errorMappings,omitempty"`
+	LastError        string `json:"lastError,omitempty"`
+	LastErrorStage   string `json:"lastErrorStage,omitempty"`
 }
 
 // RuntimeCacheSnapshot reports lazily materialized gateway policy primitives.
@@ -514,6 +529,7 @@ func New(routes []Route, opts ...Option) (*Gateway, error) {
 		ruleRuntime:         newGatewayRuleRuntime(),
 		transcoders:         make(map[string]rpc.GenericClient),
 		descriptors:         make(map[string]rpc.Descriptor),
+		transcodeRuntime:    make(map[string]TranscodeRuntimeSnapshot),
 		logger:              slog.Default(),
 		retryRuntime:        newRetryRuntime(),
 	}
@@ -1152,8 +1168,36 @@ func (g *Gateway) routeRuntimeSnapshot(route Route) RouteRuntimeSnapshot {
 		CanaryCount:      len(route.Canary),
 		ShadowCount:      len(route.Shadow),
 		Transcode:        cloneTranscodeConfig(route.Transcode),
+		TranscodeRuntime: g.routeTranscodeRuntimeSnapshot(route),
 		Aggregation:      cloneAggregationConfig(route.Aggregation),
 	}
+}
+
+func (g *Gateway) routeTranscodeRuntimeSnapshot(route Route) TranscodeRuntimeSnapshot {
+	if g == nil || !route.Transcode.Enabled {
+		return TranscodeRuntimeSnapshot{}
+	}
+	snapshot := TranscodeRuntimeSnapshot{
+		Descriptor:       strings.TrimSpace(route.Transcode.Descriptor),
+		DescriptorMethod: strings.Trim(strings.TrimSpace(route.Transcode.DescriptorMethod), "/"),
+	}
+	if snapshot.DescriptorMethod == "" {
+		snapshot.DescriptorMethod = strings.Trim(strings.TrimSpace(route.Transcode.Method), "/")
+	}
+	if snapshot.Descriptor != "" && snapshot.DescriptorMethod != "" {
+		if profile := g.transcodeProfile(snapshot.Descriptor, snapshot.DescriptorMethod); profile != nil {
+			snapshot.ProfileKey = transcodeProfileKey(profile.Descriptor, profile.DescriptorMethod)
+			snapshot.RequestMappings = len(profile.RequestMappings)
+			snapshot.ResponseMappings = len(profile.ResponseMappings)
+			snapshot.ErrorMappings = len(profile.ErrorMappings)
+		}
+	}
+	g.mu.RLock()
+	runtime := g.transcodeRuntime[routeKey(route)]
+	g.mu.RUnlock()
+	snapshot.LastError = runtime.LastError
+	snapshot.LastErrorStage = runtime.LastErrorStage
+	return snapshot
 }
 
 func (g *Gateway) runtimeCacheSnapshot() RuntimeCacheSnapshot {

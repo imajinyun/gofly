@@ -3366,7 +3366,15 @@ func TestGatewayDescriptorTranscodeProfileMapsRequestAndResponse(t *testing.T) {
 		t.Fatal("transcode profiles returned mutable internal state")
 	}
 	runtime := g.RuntimeSnapshot()
-	if runtime.Cache.TranscodeProfiles != 1 || len(runtime.TranscodeProfiles) != 1 {
+	if len(runtime.Routes) != 1 {
+		t.Fatalf("runtime routes = %+v, want one route", runtime.Routes)
+	}
+	routeRuntime := runtime.Routes[0]
+	if runtime.Cache.TranscodeProfiles != 1 || len(runtime.TranscodeProfiles) != 1 ||
+		routeRuntime.TranscodeRuntime.ProfileKey != "examples.greeter.Greeter/SayHello" ||
+		routeRuntime.TranscodeRuntime.RequestMappings != 3 ||
+		routeRuntime.TranscodeRuntime.ResponseMappings != 3 ||
+		routeRuntime.TranscodeRuntime.ErrorMappings != 4 {
 		t.Fatalf("runtime snapshot = %+v, want one transcode profile", runtime)
 	}
 
@@ -3418,6 +3426,65 @@ func TestTranscodeResponseMappingRootAndArrayProjection(t *testing.T) {
 			t.Fatalf("array mapped items = %#v from %s", data["items"], body)
 		}
 	})
+}
+
+func TestGatewayTranscodeRuntimeSnapshotRecordsMappingErrors(t *testing.T) {
+	desc := rpc.Descriptor{Name: "examples.greeter.Greeter", Methods: []rpc.MethodDescriptor{{Name: "SayHello"}}}
+	profile := TranscodeProfile{
+		Descriptor:       "examples.greeter.Greeter",
+		DescriptorMethod: "SayHello",
+		RequestMappings:  []TranscodePayloadMapping{{Source: "body.name", Target: "name"}},
+		ResponseMappings: []TranscodePayloadMapping{
+			{Source: "body.message", Target: "data"},
+			{Source: "body.meta.trace", Target: "data.trace"},
+		},
+		ErrorMappings: []TranscodePayloadMapping{
+			{Source: "body.code", Target: "error"},
+			{Source: "body.error", Target: "error.message"},
+		},
+	}
+	fake := &fakeGenericClient{payload: json.RawMessage(`{"message":"hello","meta":{"trace":"t1"}}`)}
+	g, err := New([]Route{{
+		Name:       "greeter",
+		PathPrefix: "/gw/greeter",
+		Targets:    []string{"http://upstream"},
+		Transcode: TranscodeConfig{
+			Enabled:          true,
+			Descriptor:       "examples.greeter.Greeter",
+			DescriptorMethod: "SayHello",
+			Payload:          TranscodePayloadConfig{Mode: "openapi", MergeBodyObject: true},
+		},
+	}}, WithDescriptors(desc), WithTranscodeProfiles(profile), WithTranscoderFactory(func(endpoint string, route Route) (rpc.GenericClient, error) {
+		return fake, nil
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	responseError := httptest.NewRecorder()
+	g.ServeHTTP(responseError, httptest.NewRequest(http.MethodPost, "/gw/greeter", strings.NewReader(`{"name":"ada"}`)))
+	if responseError.Code != http.StatusBadRequest {
+		t.Fatalf("response mapping error status = %d body = %s", responseError.Code, responseError.Body.String())
+	}
+	runtime := g.RuntimeSnapshot()
+	if len(runtime.Routes) != 1 || runtime.Routes[0].TranscodeRuntime.LastErrorStage != "response" || !strings.Contains(runtime.Routes[0].TranscodeRuntime.LastError, "conflicts with existing scalar") {
+		t.Fatalf("runtime after response mapping error = %+v", runtime.Routes)
+	}
+
+	profile.ResponseMappings = nil
+	if err := g.RegisterTranscodeProfile(profile); err != nil {
+		t.Fatalf("replace transcode profile: %v", err)
+	}
+	fake.err = rpc.NewError(rpc.CodeInvalidArgument, "bad hello")
+	errorMapping := httptest.NewRecorder()
+	g.ServeHTTP(errorMapping, httptest.NewRequest(http.MethodPost, "/gw/greeter", strings.NewReader(`{"name":"ada"}`)))
+	if errorMapping.Code != http.StatusBadRequest {
+		t.Fatalf("error mapping status = %d body = %s", errorMapping.Code, errorMapping.Body.String())
+	}
+	runtime = g.RuntimeSnapshot()
+	if len(runtime.Routes) != 1 || runtime.Routes[0].TranscodeRuntime.LastErrorStage != "error" || !strings.Contains(runtime.Routes[0].TranscodeRuntime.LastError, "conflicts with existing scalar") {
+		t.Fatalf("runtime after error mapping failure = %+v", runtime.Routes)
+	}
 }
 
 func TestGatewayDescriptorTranscodeMethodFromPath(t *testing.T) {

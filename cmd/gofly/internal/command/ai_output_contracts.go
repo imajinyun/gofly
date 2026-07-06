@@ -94,7 +94,7 @@ func gatewayProfileValidateOutputContract() *aiOutputContract {
 
 func gatewayAggregationValidateOutputContract() *aiOutputContract {
 	return &aiOutputContract{
-		Mode:     "single JSON envelope when --json, --output json or --format json is used; markdown summary table when --format markdown is used; text summary otherwise",
+		Mode:     "single JSON envelope when --json, --output json or --format json is used; markdown summary table when --format markdown is used; SARIF 2.1.0 when --format sarif is used; text summary otherwise",
 		Envelope: []string{"ok", "command", "version", "data", "error"},
 		EventFields: []string{
 			"ok", "compatible", "errors", "changes", "current", "candidate",

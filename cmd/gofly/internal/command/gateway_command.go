@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/imajinyun/gofly/cmd/gofly/internal/generator"
@@ -144,7 +145,7 @@ func gatewayAggregationValidateCommand(args []string) error {
 	openAPIBasePath := fs.String("openapi-base", "", "base OpenAPI json file")
 	openAPICandidatePath := fs.String("openapi-candidate", "", "candidate OpenAPI json file")
 	routeName := fs.String("route", "", "route name or route key")
-	formatName := registerCLIFormatFlag(fs, outputJSON, "output format: text, markdown, or json")
+	formatName := registerCLIFormatFlag(fs, outputJSON, "output format: text, markdown, sarif, or json")
 	jsonFlag := registerCLIJSONOutputFlag(fs, "output JSON")
 	remaining, err := parseInterspersedFlags(fs, args)
 	if err != nil {
@@ -179,7 +180,7 @@ func gatewayAggregationValidateCommand(args []string) error {
 		return fmt.Errorf("load current gateway aggregation config: %w", err)
 	}
 	report := gw.ValidateAggregation(*routeName, candidate)
-	format, err := normalizeCLIFormat(formatName, outputJSON, outputText, "markdown", outputJSON)
+	format, err := normalizeCLIFormat(formatName, outputJSON, outputText, "markdown", "sarif", outputJSON)
 	if err != nil {
 		return err
 	}
@@ -189,6 +190,9 @@ func gatewayAggregationValidateCommand(args []string) error {
 	if format == "markdown" {
 		printGatewayAggregationValidationMarkdown(report)
 		return nil
+	}
+	if format == "sarif" {
+		return printGatewayAggregationValidationSARIF(report)
 	}
 	printGatewayAggregationValidationText(report)
 	return nil
@@ -222,7 +226,7 @@ func gatewayAggregationValidateOpenAPICommand(basePath, candidatePath, routeName
 		return fmt.Errorf("load base openapi aggregation config: %w", err)
 	}
 	report := gw.ValidateAggregation(routeName, candidate)
-	format, err := normalizeCLIFormat(formatName, outputJSON, outputText, "markdown", outputJSON)
+	format, err := normalizeCLIFormat(formatName, outputJSON, outputText, "markdown", "sarif", outputJSON)
 	if err != nil {
 		return err
 	}
@@ -232,6 +236,9 @@ func gatewayAggregationValidateOpenAPICommand(basePath, candidatePath, routeName
 	if format == "markdown" {
 		printGatewayAggregationValidationMarkdown(report)
 		return nil
+	}
+	if format == "sarif" {
+		return printGatewayAggregationValidationSARIF(report)
 	}
 	printGatewayAggregationValidationText(report)
 	return nil
@@ -408,4 +415,120 @@ func markdownCell(value string) string {
 		return "-"
 	}
 	return value
+}
+
+type gatewayAggregationSARIF struct {
+	Version string                  `json:"version"`
+	Schema  string                  `json:"$schema"`
+	Runs    []gatewayAggregationRun `json:"runs"`
+}
+
+type gatewayAggregationRun struct {
+	Tool    gatewayAggregationTool     `json:"tool"`
+	Results []gatewayAggregationResult `json:"results,omitempty"`
+}
+
+type gatewayAggregationTool struct {
+	Driver gatewayAggregationDriver `json:"driver"`
+}
+
+type gatewayAggregationDriver struct {
+	Name           string                   `json:"name"`
+	InformationURI string                   `json:"informationUri,omitempty"`
+	Rules          []gatewayAggregationRule `json:"rules,omitempty"`
+}
+
+type gatewayAggregationRule struct {
+	ID               string                         `json:"id"`
+	Name             string                         `json:"name,omitempty"`
+	ShortDescription gatewayAggregationSARIFMessage `json:"shortDescription,omitempty"`
+}
+
+type gatewayAggregationResult struct {
+	RuleID    string                         `json:"ruleId"`
+	Level     string                         `json:"level"`
+	Message   gatewayAggregationSARIFMessage `json:"message"`
+	Locations []gatewayAggregationLocation   `json:"locations,omitempty"`
+}
+
+type gatewayAggregationSARIFMessage struct {
+	Text string `json:"text"`
+}
+
+type gatewayAggregationLocation struct {
+	PhysicalLocation gatewayAggregationPhysicalLocation `json:"physicalLocation"`
+}
+
+type gatewayAggregationPhysicalLocation struct {
+	ArtifactLocation gatewayAggregationArtifactLocation `json:"artifactLocation"`
+}
+
+type gatewayAggregationArtifactLocation struct {
+	URI string `json:"uri"`
+}
+
+func printGatewayAggregationValidationSARIF(report gateway.AggregationValidationReport) error {
+	seenRules := map[string]gatewayAggregationRule{}
+	results := make([]gatewayAggregationResult, 0, len(report.Changes)+len(report.Errors))
+	for _, errText := range report.Errors {
+		ruleID := "aggregation.invalid"
+		seenRules[ruleID] = gatewayAggregationRule{ID: ruleID, Name: ruleID, ShortDescription: gatewayAggregationSARIFMessage{Text: "Invalid aggregation contract"}}
+		results = append(results, gatewayAggregationResult{
+			RuleID:  ruleID,
+			Level:   "error",
+			Message: gatewayAggregationSARIFMessage{Text: errText},
+			Locations: []gatewayAggregationLocation{{
+				PhysicalLocation: gatewayAggregationPhysicalLocation{ArtifactLocation: gatewayAggregationArtifactLocation{URI: "gateway-aggregation-contract"}},
+			}},
+		})
+	}
+	for _, change := range report.Changes {
+		ruleID := "aggregation." + strings.TrimSpace(change.Kind)
+		if ruleID == "aggregation." {
+			ruleID = "aggregation.change"
+		}
+		seenRules[ruleID] = gatewayAggregationRule{ID: ruleID, Name: ruleID, ShortDescription: gatewayAggregationSARIFMessage{Text: change.Message}}
+		level := "note"
+		if change.Severity == "breaking" {
+			level = "error"
+		} else if change.Severity == "warning" {
+			level = "warning"
+		}
+		results = append(results, gatewayAggregationResult{
+			RuleID:  ruleID,
+			Level:   level,
+			Message: gatewayAggregationSARIFMessage{Text: gatewayAggregationChangeMessage(change)},
+			Locations: []gatewayAggregationLocation{{
+				PhysicalLocation: gatewayAggregationPhysicalLocation{ArtifactLocation: gatewayAggregationArtifactLocation{URI: "gateway-aggregation-contract"}},
+			}},
+		})
+	}
+	rules := make([]gatewayAggregationRule, 0, len(seenRules))
+	for _, rule := range seenRules {
+		rules = append(rules, rule)
+	}
+	sort.Slice(rules, func(i, j int) bool { return rules[i].ID < rules[j].ID })
+	payload := gatewayAggregationSARIF{
+		Version: "2.1.0",
+		Schema:  "https://json.schemastore.org/sarif-2.1.0.json",
+		Runs: []gatewayAggregationRun{{
+			Tool:    gatewayAggregationTool{Driver: gatewayAggregationDriver{Name: "gofly gateway aggregation validate", InformationURI: "https://github.com/imajinyun/gofly", Rules: rules}},
+			Results: results,
+		}},
+	}
+	return printJSON(payload)
+}
+
+func gatewayAggregationChangeMessage(change gateway.TranscodeProfileChange) string {
+	parts := []string{change.Severity, change.Scope, change.Kind}
+	if change.Source != "" {
+		parts = append(parts, "source="+change.Source)
+	}
+	if change.Target != "" {
+		parts = append(parts, "target="+change.Target)
+	}
+	if change.Message != "" {
+		parts = append(parts, change.Message)
+	}
+	return strings.Join(parts, " ")
 }

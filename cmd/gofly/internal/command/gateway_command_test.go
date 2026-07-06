@@ -188,6 +188,38 @@ func TestGatewayAggregationValidateCommandJSON(t *testing.T) {
 		!strings.Contains(stdout.String(), "change_target") {
 		t.Fatalf("markdown output = %s", stdout.String())
 	}
+
+	stdout.Reset()
+	if err := ExecuteWithIO([]string{"gateway", "aggregation", "validate", "--config", configPath, "--route", "home-bff", "--candidate", candidatePath, "--format", "sarif"}, IOStreams{Out: &stdout}); err != nil {
+		t.Fatalf("gateway aggregation validate sarif: %v", err)
+	}
+	var sarif struct {
+		Version string `json:"version"`
+		Runs    []struct {
+			Results []struct {
+				RuleID string `json:"ruleId"`
+				Level  string `json:"level"`
+			} `json:"results"`
+		} `json:"runs"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &sarif); err != nil {
+		t.Fatalf("decode sarif: %v\n%s", err, stdout.String())
+	}
+	if sarif.Version != "2.1.0" || len(sarif.Runs) != 1 {
+		t.Fatalf("sarif header = %+v", sarif)
+	}
+	var sawFallbackError, sawTargetError bool
+	for _, result := range sarif.Runs[0].Results {
+		if result.RuleID == "aggregation.remove_fallback" && result.Level == "error" {
+			sawFallbackError = true
+		}
+		if result.RuleID == "aggregation.change_target" && result.Level == "error" {
+			sawTargetError = true
+		}
+	}
+	if !sawFallbackError || !sawTargetError {
+		t.Fatalf("sarif results = %+v, want breaking fallback and target errors", sarif.Runs[0].Results)
+	}
 }
 
 func TestGatewayAggregationValidateCommandOpenAPIDiff(t *testing.T) {

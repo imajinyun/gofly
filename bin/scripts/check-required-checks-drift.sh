@@ -39,6 +39,8 @@ require("name: gateway profile contract" in gateway_job, "gateway-profile-contra
 require("Gateway profile contract gate" in gateway_job, "gateway-profile-contract job must have an explicit gate step")
 require("Gateway aggregation diff summary" in gateway_job, "gateway-profile-contract job must publish aggregation markdown summary")
 require("Upload gateway aggregation SARIF artifact" in gateway_job, "gateway-profile-contract job must upload aggregation SARIF artifact")
+require("Upload gateway aggregation SARIF to Code Scanning" in gateway_job, "gateway-profile-contract job must keep optional Code Scanning upload step")
+require("vars.GOFLY_UPLOAD_AGGREGATION_SARIF == 'true'" in gateway_job, "Code Scanning upload must stay opt-in")
 for token in (
     "GatewayProfileValidateCommandJSON",
     "GatewayProfileValidateCommandBreakingAndUsage",
@@ -52,6 +54,9 @@ for token in (
     "--format sarif",
     "gateway-aggregation.sarif",
     "gateway-aggregation-sarif",
+    "github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e",
+    "security-events: write",
+    "sarif_file: gateway-aggregation.sarif",
     "if-no-files-found: error",
     "edge-openapi-breaking.json",
     "Intentionally breaking fixture",

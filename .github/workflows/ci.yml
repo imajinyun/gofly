@@ -347,6 +347,9 @@ jobs:
   gateway-profile-contract:
     name: gateway profile contract
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
 
@@ -401,6 +404,12 @@ jobs:
           name: gateway-aggregation-sarif
           path: gateway-aggregation.sarif
           if-no-files-found: error
+
+      - name: Upload gateway aggregation SARIF to Code Scanning
+        if: vars.GOFLY_UPLOAD_AGGREGATION_SARIF == 'true'
+        uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e
+        with:
+          sarif_file: gateway-aggregation.sarif
 
   contract-check:
     name: contract / api+rpc (check + breaking)

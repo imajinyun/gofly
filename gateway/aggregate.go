@@ -93,10 +93,7 @@ func (g *Gateway) aggregateOnce(r *http.Request, route Route, endpoint string, b
 		failedSteps:   failedSteps,
 		fallbackSteps: fallbackSteps,
 	})
-	bodyBytes, err := json.Marshal(struct {
-		Data   map[string]json.RawMessage `json:"data"`
-		Errors map[string]string          `json:"errors,omitempty"`
-	}{Data: data, Errors: failures})
+	bodyBytes, err := renderAggregationResponse(route.Aggregation, data, failures, fallbacks > 0 || len(failures) > 0)
 	if err != nil {
 		if brk != nil {
 			brk.MarkFailure()
@@ -118,6 +115,69 @@ func (g *Gateway) aggregateOnce(r *http.Request, route Route, endpoint string, b
 		Header:   http.Header{"Content-Type": []string{"application/json"}},
 		Body:     bodyBytes,
 	}, nil
+}
+
+func renderAggregationResponse(conf AggregationConfig, data map[string]json.RawMessage, failures map[string]string, degraded bool) ([]byte, error) {
+	if len(conf.Shape.Mappings) == 0 && !strings.EqualFold(conf.Shape.Mode, "flat") {
+		return json.Marshal(struct {
+			Data   map[string]json.RawMessage `json:"data"`
+			Errors map[string]string          `json:"errors,omitempty"`
+		}{Data: data, Errors: failures})
+	}
+	source := aggregationShapeSource(data, failures, degraded)
+	if len(conf.Shape.Mappings) > 0 {
+		payload, err := aggregationPayloadFromMappings(source, conf.Shape.Mappings)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(payload)
+	}
+	payload := make(map[string]any, len(data)+2)
+	for name, raw := range data {
+		payload[name] = cloneAggregationRawValue(raw)
+	}
+	payload["degraded"] = degraded
+	if len(failures) > 0 {
+		payload["errors"] = cloneAggregationErrors(failures)
+	}
+	return json.Marshal(payload)
+}
+
+func aggregationShapeSource(data map[string]json.RawMessage, failures map[string]string, degraded bool) transcodePayloadSource {
+	body := map[string]any{
+		"degraded": degraded,
+		"errors":   aggregationErrorsAny(failures),
+		"data":     map[string]any{},
+	}
+	dataObject := body["data"].(map[string]any)
+	for name, raw := range data {
+		dataObject[name] = cloneAggregationRawValue(raw)
+	}
+	return transcodePayloadSource{Body: body}
+}
+
+func aggregationPayloadFromMappings(source transcodePayloadSource, mappings []AggregationPayloadMapping) (map[string]any, error) {
+	payload := map[string]any{}
+	for _, mapping := range mappings {
+		target := strings.TrimSpace(mapping.Target)
+		if target == "" {
+			continue
+		}
+		value, ok, err := transcodeMappingSourceValue(source, mapping.Source)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			if len(mapping.Default) == 0 {
+				continue
+			}
+			value = cloneAggregationRawValue(mapping.Default)
+		}
+		if err := setTranscodeMappingTarget(payload, target, value); err != nil {
+			return nil, err
+		}
+	}
+	return payload, nil
 }
 
 func (g *Gateway) runAggregationStep(r *http.Request, route Route, endpoint string, body []byte, index int, step AggregationStep) aggregationStepResult {
@@ -255,9 +315,11 @@ func aggregationStepURL(endpoint string, step AggregationStep) (*url.URL, error)
 func normalizeAggregationConfig(conf AggregationConfig) AggregationConfig {
 	if len(conf.Steps) == 0 {
 		conf.Steps = nil
+		conf.Shape = cloneAggregationShape(conf.Shape)
 		return conf
 	}
 	conf.Steps = cloneAggregationSteps(conf.Steps)
+	conf.Shape = cloneAggregationShape(conf.Shape)
 	for i := range conf.Steps {
 		conf.Steps[i].Name = strings.TrimSpace(conf.Steps[i].Name)
 		conf.Steps[i].Method = strings.ToUpper(strings.TrimSpace(conf.Steps[i].Method))
@@ -266,6 +328,18 @@ func normalizeAggregationConfig(conf AggregationConfig) AggregationConfig {
 		conf.Steps[i].Retry = normalizeRetryPolicy(conf.Steps[i].Retry)
 	}
 	return conf
+}
+
+func validateAggregationConfig(conf AggregationConfig) error {
+	for _, mapping := range conf.Shape.Mappings {
+		if err := validateTranscodeMappingPath("aggregation source", mapping.Source, true, true); err != nil {
+			return err
+		}
+		if err := validateTranscodeMappingPath("aggregation target", mapping.Target, false, false); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 type aggregationRuntimeUpdate struct {
@@ -299,7 +373,25 @@ func (g *Gateway) recordAggregationRuntime(route Route, update aggregationRuntim
 
 func cloneAggregationConfig(conf AggregationConfig) AggregationConfig {
 	conf.Steps = cloneAggregationSteps(conf.Steps)
+	conf.Shape = cloneAggregationShape(conf.Shape)
 	return conf
+}
+
+func cloneAggregationShape(shape AggregationShape) AggregationShape {
+	shape.Mode = strings.TrimSpace(shape.Mode)
+	if len(shape.Mappings) == 0 {
+		shape.Mappings = nil
+		return shape
+	}
+	out := make([]AggregationPayloadMapping, len(shape.Mappings))
+	for i, mapping := range shape.Mappings {
+		mapping.Source = strings.TrimSpace(mapping.Source)
+		mapping.Target = strings.TrimSpace(mapping.Target)
+		mapping.Default = append(json.RawMessage(nil), mapping.Default...)
+		out[i] = mapping
+	}
+	shape.Mappings = out
+	return shape
 }
 
 func cloneAggregationSteps(steps []AggregationStep) []AggregationStep {
@@ -329,4 +421,37 @@ func normalizeAggregationBody(body []byte) json.RawMessage {
 		return json.RawMessage(`""`)
 	}
 	return encoded
+}
+
+func cloneAggregationRawValue(raw json.RawMessage) any {
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return nil
+	}
+	var value any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return string(raw)
+	}
+	return cloneTranscodeMappingDefault(value)
+}
+
+func cloneAggregationErrors(errorsByStep map[string]string) map[string]string {
+	if len(errorsByStep) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(errorsByStep))
+	for key, value := range errorsByStep {
+		out[key] = value
+	}
+	return out
+}
+
+func aggregationErrorsAny(errorsByStep map[string]string) map[string]any {
+	if len(errorsByStep) == 0 {
+		return nil
+	}
+	out := make(map[string]any, len(errorsByStep))
+	for key, value := range errorsByStep {
+		out[key] = value
+	}
+	return out
 }

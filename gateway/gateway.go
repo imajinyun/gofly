@@ -178,6 +178,7 @@ type TranscodeProfileChange struct {
 type AggregationConfig struct {
 	Enabled bool              `json:"enabled,omitempty"`
 	Steps   []AggregationStep `json:"steps,omitempty"`
+	Shape   AggregationShape  `json:"shape,omitempty"`
 }
 
 // AggregationStep describes one upstream HTTP request in an aggregation route.
@@ -192,6 +193,20 @@ type AggregationStep struct {
 	Headers  map[string]string `json:"headers,omitempty"`
 	Body     json.RawMessage   `json:"body,omitempty"`
 	Fallback json.RawMessage   `json:"fallback,omitempty"`
+}
+
+// AggregationShape controls how BFF aggregation data is rendered.
+type AggregationShape struct {
+	Mode     string                      `json:"mode,omitempty"`
+	Mappings []AggregationPayloadMapping `json:"mappings,omitempty"`
+}
+
+// AggregationPayloadMapping projects aggregation sources into the final JSON
+// response body.
+type AggregationPayloadMapping struct {
+	Source  string          `json:"source,omitempty"`
+	Target  string          `json:"target"`
+	Default json.RawMessage `json:"default,omitempty"`
 }
 
 // RetryPolicy configures per-route retry behavior.
@@ -1835,6 +1850,9 @@ func normalizeRoute(route Route) (Route, error) {
 		return Route{}, err
 	}
 	route.Aggregation = normalizeAggregationConfig(route.Aggregation)
+	if err := validateAggregationConfig(route.Aggregation); err != nil {
+		return Route{}, err
+	}
 	route.AllowedHosts = normalizeHosts(route.AllowedHosts)
 	route.Tags = cloneMap(route.Tags)
 	route.Headers = cloneMap(route.Headers)

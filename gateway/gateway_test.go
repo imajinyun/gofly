@@ -473,6 +473,98 @@ func TestGatewayAggregationUsesStepFallbacksForPartialResponse(t *testing.T) {
 	}
 }
 
+func TestGatewayAggregationResponseShaping(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/profile":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"id":"u1"}`)
+		case "/orders":
+			http.Error(w, "orders down", http.StatusBadGateway)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(upstream.Close)
+
+	flat, err := New([]Route{{
+		Method:     http.MethodGet,
+		PathPrefix: "/flat",
+		Targets:    []string{upstream.URL},
+		Aggregation: AggregationConfig{
+			Enabled: true,
+			Shape:   AggregationShape{Mode: "flat"},
+			Steps: []AggregationStep{
+				{Name: "profile", Path: "/profile"},
+				{Name: "orders", Path: "/orders", Fallback: json.RawMessage(`[]`)},
+			},
+		},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	flatResponse := httptest.NewRecorder()
+	flat.ServeHTTP(flatResponse, httptest.NewRequest(http.MethodGet, "/flat/home", nil))
+	if flatResponse.Code != http.StatusOK {
+		t.Fatalf("flat status = %d body = %s", flatResponse.Code, flatResponse.Body.String())
+	}
+	if !strings.Contains(flatResponse.Body.String(), `"profile":{"id":"u1"}`) ||
+		!strings.Contains(flatResponse.Body.String(), `"orders":[]`) ||
+		!strings.Contains(flatResponse.Body.String(), `"degraded":true`) ||
+		!strings.Contains(flatResponse.Body.String(), `"errors":{"orders":"upstream status 502"}`) {
+		t.Fatalf("flat shaped response = %s", flatResponse.Body.String())
+	}
+
+	shaped, err := New([]Route{{
+		Method:     http.MethodGet,
+		PathPrefix: "/shape",
+		Targets:    []string{upstream.URL},
+		Aggregation: AggregationConfig{
+			Enabled: true,
+			Shape: AggregationShape{Mappings: []AggregationPayloadMapping{
+				{Source: "body.data.profile", Target: "profile"},
+				{Source: "body.data.orders", Target: "orders"},
+				{Source: "body.degraded", Target: "meta.degraded"},
+				{Source: "body.errors.orders", Target: "meta.orderError"},
+				{Target: "meta.source", Default: json.RawMessage(`"bff"`)},
+			}},
+			Steps: []AggregationStep{
+				{Name: "profile", Path: "/profile"},
+				{Name: "orders", Path: "/orders", Fallback: json.RawMessage(`[]`)},
+			},
+		},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	shapedResponse := httptest.NewRecorder()
+	shaped.ServeHTTP(shapedResponse, httptest.NewRequest(http.MethodGet, "/shape/home", nil))
+	if shapedResponse.Code != http.StatusOK {
+		t.Fatalf("shaped status = %d body = %s", shapedResponse.Code, shapedResponse.Body.String())
+	}
+	if !strings.Contains(shapedResponse.Body.String(), `"profile":{"id":"u1"}`) ||
+		!strings.Contains(shapedResponse.Body.String(), `"orders":[]`) ||
+		!strings.Contains(shapedResponse.Body.String(), `"degraded":true`) ||
+		!strings.Contains(shapedResponse.Body.String(), `"source":"bff"`) ||
+		!strings.Contains(shapedResponse.Body.String(), `"orderError":"upstream status 502"`) ||
+		strings.Contains(shapedResponse.Body.String(), `"data":`) {
+		t.Fatalf("custom shaped response = %s", shapedResponse.Body.String())
+	}
+
+	if _, err := New([]Route{{
+		Method:     http.MethodGet,
+		PathPrefix: "/bad",
+		Targets:    []string{upstream.URL},
+		Aggregation: AggregationConfig{
+			Enabled: true,
+			Shape:   AggregationShape{Mappings: []AggregationPayloadMapping{{Source: "bad.profile", Target: "profile"}}},
+			Steps:   []AggregationStep{{Name: "profile", Path: "/profile"}},
+		},
+	}}); err == nil || !strings.Contains(err.Error(), "must start with body, path, or query") {
+		t.Fatalf("bad aggregation shape error = %v, want startup validation", err)
+	}
+}
+
 func TestGatewayAggregationStepTimeoutRetryAndDegradedRuntime(t *testing.T) {
 	var flakyHits atomic.Int64
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

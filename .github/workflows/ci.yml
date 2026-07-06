@@ -376,12 +376,36 @@ jobs:
             --openapi-base "$tmp/edge/etc/edge-openapi-base.json" \
             --openapi-candidate "$tmp/edge/etc/edge-openapi-breaking.json" \
             --route home \
-            --format sarif > gateway-aggregation.sarif
+            --format sarif > gateway-aggregation-breaking.sarif
           go run ./cmd/gofly gateway aggregation validate \
             --openapi-base "$tmp/edge/etc/edge-openapi-base.json" \
             --openapi-candidate "$tmp/edge/etc/edge-openapi-invalid.json" \
             --route home \
             --format sarif > gateway-aggregation-invalid.sarif
+          python3 - gateway-aggregation-breaking.sarif gateway-aggregation-invalid.sarif gateway-aggregation.sarif <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          merged = None
+          rules = {}
+          results = []
+          for raw in sys.argv[1:3]:
+              data = json.loads(Path(raw).read_text(encoding="utf-8"))
+              if merged is None:
+                  merged = data
+              run = (data.get("runs") or [{}])[0]
+              driver = (run.get("tool") or {}).get("driver") or {}
+              for rule in driver.get("rules") or []:
+                  rules[rule.get("id", "")] = rule
+              results.extend(run.get("results") or [])
+          if merged is None:
+              raise SystemExit("no SARIF inputs")
+          run = merged["runs"][0]
+          run["tool"]["driver"]["rules"] = [rules[key] for key in sorted(rules) if key]
+          run["results"] = results
+          Path(sys.argv[3]).write_text(json.dumps(merged, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          PY
           {
             echo "## Gateway aggregation contract"
             echo
@@ -422,9 +446,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: gateway-aggregation-sarif
-          path: |
-            gateway-aggregation.sarif
-            gateway-aggregation-invalid.sarif
+          path: gateway-aggregation.sarif
           if-no-files-found: error
 
       - name: Upload gateway aggregation SARIF to Code Scanning

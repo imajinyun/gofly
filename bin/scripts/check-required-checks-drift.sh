@@ -45,6 +45,7 @@ for token in (
     "ReleaseGatewayAggregationContractCheck",
     "ExecuteAIManifestJSONEnvelope",
     "ExecuteAIManifestAliasAndText",
+    "TestAINewGeneratedProjectVerificationMatrix",
     "make aiflow-profile-gate-check",
     "make required-checks-drift-check",
 ):

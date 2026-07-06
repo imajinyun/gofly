@@ -360,6 +360,7 @@ jobs:
       - name: Gateway profile contract gate
         run: |
           go test -count=1 -shuffle=on ./cmd/gofly/internal/command -run 'Test(GatewayProfileValidateCommandJSON|GatewayProfileValidateCommandBreakingAndUsage|GatewayAggregationValidateCommandJSON|ReleaseGatewayProfileContractCheck|ReleaseGatewayAggregationContractCheck|ExecuteAIManifestJSONEnvelope|ExecuteAIManifestAliasAndText)'
+          go test -count=1 -shuffle=on ./cmd/gofly/internal/command -run 'TestAINewGeneratedProjectVerificationMatrix'
           go test -count=1 -shuffle=on ./cmd/gofly/internal/generator -run 'Test(ProjectTemplate|GenerateGateway)'
           make aiflow-profile-gate-check
           make required-checks-drift-check

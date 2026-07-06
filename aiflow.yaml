@@ -41,6 +41,8 @@ workspace:
     - go test
     - go vet
     - go tool
+    - gofly release check
+    - gofly gateway profile validate
     - make
 
 commands:
@@ -50,6 +52,8 @@ commands:
     - go test
     - go vet
     - go tool
+    - gofly release check
+    - gofly gateway profile validate
     - git diff
     - git status
     - make governance-10-rounds
@@ -79,6 +83,8 @@ commands:
     - make governance-10-rounds
     - make stable-surface-check
     - make generated-version-compat-check
+    - make aiflow-profile-gate-check
+    - gofly release check --json
     - make governance-report-check
     - make test-generated-matrix
     - make examples-smoke
@@ -99,6 +105,8 @@ acceptance:
   required_commands:
     - go test ./...
     - go vet ./...
+    - gofly release check --json
+    - make aiflow-profile-gate-check
     - make test-generated-matrix
     - make examples-smoke
   require_review: false

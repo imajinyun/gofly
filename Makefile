@@ -226,6 +226,10 @@ coverage-trend-check: cover-check ## Compatibility gate backed by coverage ratch
 ci-required-check-evidence-check: ## Compatibility no-op; hosted release evidence docs were removed
 	$(GO) env GOMOD >/dev/null
 
+.PHONY: aiflow-profile-gate-check
+aiflow-profile-gate-check: ## Validate aiflow exposes gateway profile contract gate
+	sh $(SCRIPTS_DIR)/check-aiflow-profile-gate.sh
+
 .PHONY: runtime-slo-check
 runtime-slo-check: ## Validate runtime packages without docs evidence
 	$(GO) test $(TESTFLAGS) ./core/runtime/... ./core/governance/... ./rest/... ./rpc/...

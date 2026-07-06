@@ -3066,6 +3066,12 @@ func TestGatewayPureProxyAndTranscodeBranches(t *testing.T) {
 	if err := profileGateway.RegisterTranscodeProfile(TranscodeProfile{Descriptor: "svc"}); err == nil || !strings.Contains(err.Error(), "descriptor method is required") {
 		t.Fatalf("missing method profile error = %v", err)
 	}
+	if err := profileGateway.RegisterTranscodeProfile(TranscodeProfile{Descriptor: "svc", DescriptorMethod: "Get", RequestMappings: []TranscodePayloadMapping{{Source: "bad.id", Target: "id"}}}); err == nil || !strings.Contains(err.Error(), "must start with body, path, or query") {
+		t.Fatalf("bad source profile error = %v", err)
+	}
+	if _, err := New([]Route{{PathPrefix: "/api", Targets: []string{"http://127.0.0.1:1"}}}, WithTranscodeProfiles(TranscodeProfile{Descriptor: "svc", DescriptorMethod: "Get", RequestMappings: []TranscodePayloadMapping{{Source: "body.id"}}})); err == nil || !strings.Contains(err.Error(), "target is required") {
+		t.Fatalf("bad option profile error = %v", err)
+	}
 	if err := (*Gateway)(nil).AddRoute(Route{}); !errors.Is(err, ErrRouteRequired) {
 		t.Fatalf("nil AddRoute error = %v, want ErrRouteRequired", err)
 	}
@@ -3275,6 +3281,12 @@ func TestGatewayDescriptorTranscodeProfileMapsRequestAndResponse(t *testing.T) {
 			{Source: "body.meta.trace", Target: "meta.trace"},
 			{Target: "meta.source", Default: "rpc"},
 		},
+		ErrorMappings: []TranscodePayloadMapping{
+			{Source: "body.code", Target: "error.code"},
+			{Source: "body.error", Target: "error.message"},
+			{Source: "body.status", Target: "error.status"},
+			{Target: "error.source", Default: "rpc"},
+		},
 	}
 	g, err := New([]Route{{
 		PathPrefix: "/gw/greeter",
@@ -3346,7 +3358,7 @@ func TestGatewayDescriptorTranscodeProfileMapsRequestAndResponse(t *testing.T) {
 	}
 
 	profiles := g.TranscodeProfiles()
-	if len(profiles) != 1 || profiles[0].Descriptor != "examples.greeter.Greeter" || len(profiles[0].RequestMappings) != 3 || len(profiles[0].ResponseMappings) != 3 {
+	if len(profiles) != 1 || profiles[0].Descriptor != "examples.greeter.Greeter" || len(profiles[0].RequestMappings) != 3 || len(profiles[0].ResponseMappings) != 3 || len(profiles[0].ErrorMappings) != 4 {
 		t.Fatalf("profiles = %+v", profiles)
 	}
 	profiles[0].RequestMappings[0].Target = "mutated"
@@ -3357,6 +3369,55 @@ func TestGatewayDescriptorTranscodeProfileMapsRequestAndResponse(t *testing.T) {
 	if runtime.Cache.TranscodeProfiles != 1 || len(runtime.TranscodeProfiles) != 1 {
 		t.Fatalf("runtime snapshot = %+v, want one transcode profile", runtime)
 	}
+
+	fake.err = rpc.NewError(rpc.CodeInvalidArgument, "bad hello")
+	errorRecorder := httptest.NewRecorder()
+	g.ServeHTTP(errorRecorder, httptest.NewRequest(http.MethodPost, "/gw/greeter", strings.NewReader(`{"name":"ada"}`)))
+	if errorRecorder.Code != http.StatusBadRequest || !strings.Contains(errorRecorder.Body.String(), `"source":"rpc"`) || !strings.Contains(errorRecorder.Body.String(), `"status":400`) || !strings.Contains(errorRecorder.Body.String(), `"code":"invalid_argument"`) {
+		t.Fatalf("mapped error response = %d %s", errorRecorder.Code, errorRecorder.Body.String())
+	}
+}
+
+func TestTranscodeResponseMappingRootAndArrayProjection(t *testing.T) {
+	t.Run("root body mapping", func(t *testing.T) {
+		body, err := transcodeResponsePayload(json.RawMessage(`["a","b"]`), &TranscodeProfile{
+			ResponseMappings: []TranscodePayloadMapping{{Source: "body", Target: "data.items"}},
+		})
+		if err != nil {
+			t.Fatalf("transcodeResponsePayload root: %v", err)
+		}
+		if string(body) != `{"data":{"items":["a","b"]}}` {
+			t.Fatalf("root mapped response = %s", body)
+		}
+	})
+
+	t.Run("array field projection", func(t *testing.T) {
+		body, err := transcodeResponsePayload(json.RawMessage(`{"items":[{"sku":"a","qty":1},{"sku":"b","qty":2}]}`), &TranscodeProfile{
+			ResponseMappings: []TranscodePayloadMapping{
+				{Source: "body.items[].sku", Target: "data.skus[]"},
+				{Source: "body.items[]", Target: "data.items[]"},
+			},
+		})
+		if err != nil {
+			t.Fatalf("transcodeResponsePayload array: %v", err)
+		}
+		var response map[string]any
+		if err := json.Unmarshal(body, &response); err != nil {
+			t.Fatalf("decode array mapped response %s: %v", body, err)
+		}
+		data, ok := response["data"].(map[string]any)
+		if !ok {
+			t.Fatalf("array mapped data = %#v", response["data"])
+		}
+		skus, ok := data["skus"].([]any)
+		if !ok || len(skus) != 2 || skus[0] != "a" || skus[1] != "b" {
+			t.Fatalf("array mapped skus = %#v from %s", data["skus"], body)
+		}
+		items, ok := data["items"].([]any)
+		if !ok || len(items) != 2 {
+			t.Fatalf("array mapped items = %#v from %s", data["items"], body)
+		}
+	})
 }
 
 func TestGatewayDescriptorTranscodeMethodFromPath(t *testing.T) {

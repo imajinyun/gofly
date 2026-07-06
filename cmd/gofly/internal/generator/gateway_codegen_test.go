@@ -176,6 +176,7 @@ func TestGenerateGatewayWiresGovernanceManager(t *testing.T) {
 		`"transcodeProfiles": [`,
 		`"requestMappings": [{"source": "body.id", "target": "order.id"}`,
 		`"responseMappings": [{"source": "body.id", "target": "data.id"}`,
+		`"errorMappings": [{"source": "body.code", "target": "error.code"}`,
 		`"aggregation": {"enabled": true`,
 		`"fallback": {"id": "anonymous"}`,
 		`"fallback": []`,
@@ -248,8 +249,14 @@ func TestGenerateGatewayDefaultResilienceProfileReachesRuntime(t *testing.T) {
 		generated.TranscodeProfiles[0].Descriptor != "orders.OrderService" ||
 		generated.TranscodeProfiles[0].DescriptorMethod != "GetOrder" ||
 		len(generated.TranscodeProfiles[0].RequestMappings) != 3 ||
-		len(generated.TranscodeProfiles[0].ResponseMappings) != 3 {
+		len(generated.TranscodeProfiles[0].ResponseMappings) != 3 ||
+		len(generated.TranscodeProfiles[0].ErrorMappings) != 4 {
 		t.Fatalf("generated transcode profiles = %#v, want descriptor profile with request/response mappings", generated.TranscodeProfiles)
+	}
+	invalidProfiles := append([]gateway.TranscodeProfile(nil), generated.TranscodeProfiles...)
+	invalidProfiles[0].RequestMappings = append(invalidProfiles[0].RequestMappings, gateway.TranscodePayloadMapping{Source: "body.id"})
+	if _, err := gateway.NewFromConfig(generated.Gateway, nil, gateway.WithTranscodeProfiles(invalidProfiles...)); err == nil || !strings.Contains(err.Error(), "target is required") {
+		t.Fatalf("invalid generated transcode profile error = %v, want target is required", err)
 	}
 	var apiCalls atomic.Int64
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -367,6 +374,11 @@ func TestGenerateGatewayDefaultResilienceProfileReachesRuntime(t *testing.T) {
 	if rpcBridge.Code != http.StatusOK || !strings.Contains(rpcBridge.Body.String(), `"data":{"id":"o42"}`) || !strings.Contains(rpcBridge.Body.String(), `"meta":{"profile":"descriptor","source":"rpc"}`) {
 		t.Fatalf("generated gateway rpc bridge response = %d body = %q", rpcBridge.Code, rpcBridge.Body.String())
 	}
+	rpcBridgeInvalid := httptest.NewRecorder()
+	gw.ServeHTTP(rpcBridgeInvalid, httptest.NewRequest(http.MethodPost, "/rpc/orders", bytes.NewReader([]byte(`{"id":"bad","trace":"t1"}`))))
+	if rpcBridgeInvalid.Code != http.StatusBadRequest || !strings.Contains(rpcBridgeInvalid.Body.String(), `"code":"invalid_argument"`) || !strings.Contains(rpcBridgeInvalid.Body.String(), `"source":"rpc"`) || !strings.Contains(rpcBridgeInvalid.Body.String(), `"status":400`) {
+		t.Fatalf("generated gateway rpc bridge error response = %d body = %q", rpcBridgeInvalid.Code, rpcBridgeInvalid.Body.String())
+	}
 	after := gw.RuntimeSnapshot()
 	if after.Cache.RateLimiters != 1 || after.Cache.ConcurrencyLimiters != 1 || after.Cache.Breakers != 5 {
 		t.Fatalf("generated gateway runtime cache = %+v, want materialized web adaptive primitives", after.Cache)
@@ -390,6 +402,9 @@ func newGeneratedOrdersRPCServer(t *testing.T) *httptest.Server {
 				}
 				if err := json.Unmarshal(raw, &request); err != nil {
 					return nil, err
+				}
+				if request.Order.ID == "bad" {
+					return nil, rpc.NewError(rpc.CodeInvalidArgument, "bad order")
 				}
 				return map[string]string{"id": request.Order.ID, "source": "rpc", "trace": request.Meta.Trace, "region": request.Meta.Region}, nil
 			})},

@@ -145,6 +145,7 @@ type TranscodeProfile struct {
 	DescriptorMethod string                    `json:"descriptorMethod"`
 	RequestMappings  []TranscodePayloadMapping `json:"requestMappings,omitempty"`
 	ResponseMappings []TranscodePayloadMapping `json:"responseMappings,omitempty"`
+	ErrorMappings    []TranscodePayloadMapping `json:"errorMappings,omitempty"`
 }
 
 // AggregationConfig enables BFF-style fan-out aggregation for a route. When
@@ -315,6 +316,7 @@ type Gateway struct {
 	logger              *slog.Logger
 	retryRuntime        *retryRuntime
 	discoveryFailover   bool
+	initErr             error
 }
 
 type gatewayRuleRuntime struct {
@@ -518,6 +520,9 @@ func New(routes []Route, opts ...Option) (*Gateway, error) {
 	for _, opt := range opts {
 		opt(g)
 	}
+	if g.initErr != nil {
+		return nil, g.initErr
+	}
 	if g.client == nil {
 		g.client = rpc.NewHTTPClient(rpc.DefaultTransportConfig())
 	}
@@ -641,7 +646,9 @@ func WithDescriptors(descriptors ...rpc.Descriptor) Option {
 func WithTranscodeProfiles(profiles ...TranscodeProfile) Option {
 	return func(g *Gateway) {
 		for _, profile := range profiles {
-			_ = g.RegisterTranscodeProfile(profile)
+			if err := g.RegisterTranscodeProfile(profile); err != nil {
+				g.initErr = errors.Join(g.initErr, err)
+			}
 		}
 	}
 }
@@ -914,8 +921,15 @@ func (g *Gateway) RegisterTranscodeProfile(profile TranscodeProfile) error {
 	if profile.DescriptorMethod == "" {
 		return errors.New("transcode profile descriptor method is required")
 	}
-	profile.RequestMappings = normalizeTranscodePayloadMappings(profile.RequestMappings)
-	profile.ResponseMappings = normalizeTranscodePayloadMappings(profile.ResponseMappings)
+	if err := validateTranscodePayloadMappings("request", profile.RequestMappings); err != nil {
+		return err
+	}
+	if err := validateTranscodePayloadMappings("response", profile.ResponseMappings); err != nil {
+		return err
+	}
+	if err := validateTranscodePayloadMappings("error", profile.ErrorMappings); err != nil {
+		return err
+	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if g.transcodeProfiles == nil {
@@ -1846,11 +1860,48 @@ func cloneTranscodePayloadMappings(mappings []TranscodePayloadMapping) []Transco
 func cloneTranscodeProfile(profile TranscodeProfile) TranscodeProfile {
 	profile.RequestMappings = cloneTranscodePayloadMappings(profile.RequestMappings)
 	profile.ResponseMappings = cloneTranscodePayloadMappings(profile.ResponseMappings)
+	profile.ErrorMappings = cloneTranscodePayloadMappings(profile.ErrorMappings)
 	return profile
 }
 
 func transcodeProfileKey(descriptor, method string) string {
 	return strings.TrimSpace(descriptor) + "/" + strings.Trim(strings.TrimSpace(method), "/")
+}
+
+func validateTranscodePayloadMappings(kind string, mappings []TranscodePayloadMapping) error {
+	for _, mapping := range mappings {
+		if err := validateTranscodeMappingPath(kind+" source", mapping.Source, true, true); err != nil {
+			return err
+		}
+		if err := validateTranscodeMappingPath(kind+" target", mapping.Target, false, false); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateTranscodeMappingPath(label, path string, allowEmptySource bool, source bool) error {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		if allowEmptySource {
+			return nil
+		}
+		return fmt.Errorf("transcode mapping %s is required", label)
+	}
+	parts := strings.Split(path, ".")
+	if source {
+		root := strings.TrimSuffix(strings.TrimSpace(parts[0]), "[]")
+		if root != "body" && root != "path" && root != "query" {
+			return fmt.Errorf("transcode mapping %s %q must start with body, path, or query", label, path)
+		}
+	}
+	for _, part := range parts {
+		part = strings.TrimSpace(strings.TrimSuffix(part, "[]"))
+		if part == "" {
+			return fmt.Errorf("transcode mapping %s %q has empty segment", label, path)
+		}
+	}
+	return nil
 }
 
 func cloneTranscodeMappingDefault(value any) any {

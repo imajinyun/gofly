@@ -165,7 +165,7 @@ const gatewayConfigTemplate = `{
     ]
   },
   "transcodeProfiles": [
-    {"descriptor": "orders.OrderService", "descriptorMethod": "GetOrder", "requestMappings": [{"source": "body.id", "target": "order.id"}, {"source": "body.trace", "target": "meta.trace"}, {"target": "meta.region", "default": "cn"}], "responseMappings": [{"source": "body.id", "target": "data.id"}, {"source": "body.source", "target": "meta.source"}, {"target": "meta.profile", "default": "descriptor"}]}
+    {"descriptor": "orders.OrderService", "descriptorMethod": "GetOrder", "requestMappings": [{"source": "body.id", "target": "order.id"}, {"source": "body.trace", "target": "meta.trace"}, {"target": "meta.region", "default": "cn"}], "responseMappings": [{"source": "body.id", "target": "data.id"}, {"source": "body.source", "target": "meta.source"}, {"target": "meta.profile", "default": "descriptor"}], "errorMappings": [{"source": "body.code", "target": "error.code"}, {"source": "body.error", "target": "error.message"}, {"source": "body.status", "target": "error.status"}, {"target": "error.source", "default": "rpc"}]}
   ],
   "openapiImports": [
     {"enabled": false, "url": "http://127.0.0.1:8081/openapi.json", "gatewayPrefix": "/contract", "maxBytes": 2097152, "groups": [{"name": "orders", "matchTags": ["orders"], "service": "orders-rpc", "targets": ["http://127.0.0.1:8082"], "upstreamPrefix": "/orders-api", "transcode": {"enabled": true, "descriptor": "orders.OrderService", "methodFromOperationId": true}}]}

@@ -73,7 +73,7 @@ func (g *Gateway) transcodeOnce(r *http.Request, route Route, endpoint string, b
 			Endpoint: endpoint,
 			Status:   status,
 			Header:   transcodeResponseHeader(nil),
-			Body:     transcodeErrorBody(callErr),
+			Body:     transcodeMappedErrorBody(callErr, status, target.profile),
 		}
 		// Surface non-retryable failures as a completed response so callers see
 		// the mapped status, while retryable errors propagate for retry.
@@ -248,9 +248,10 @@ func transcodeRequestPayload(r *http.Request, route Route, body []byte, profile 
 }
 
 func transcodeMappedRequestPayload(r *http.Request, route Route, body []byte, profile *TranscodeProfile) (json.RawMessage, error) {
-	source := transcodePayloadSource{Body: map[string]any{}}
+	bodyObject := map[string]any{}
+	source := transcodePayloadSource{Body: bodyObject}
 	if route.Transcode.Payload.MergeBodyObject {
-		if err := mergeTranscodeBody(source.Body, body, route.Transcode.Payload.BodyField, route.Transcode.Payload.BodyRequired, route.Transcode.Payload.BodySchema); err != nil {
+		if err := mergeTranscodeBody(bodyObject, body, route.Transcode.Payload.BodyField, route.Transcode.Payload.BodyRequired, route.Transcode.Payload.BodySchema); err != nil {
 			return nil, err
 		}
 	}
@@ -281,7 +282,7 @@ func transcodeMappedRequestPayload(r *http.Request, route Route, body []byte, pr
 }
 
 type transcodePayloadSource struct {
-	Body  map[string]any
+	Body  any
 	Path  map[string]any
 	Query map[string]any
 }
@@ -290,8 +291,9 @@ func mappedTranscodePayload(source transcodePayloadSource, config TranscodePaylo
 	if len(config.Mappings) > 0 {
 		return transcodePayloadFromMappings(source, config.Mappings)
 	}
-	payload := make(map[string]any, len(source.Body)+len(source.Path)+len(source.Query))
-	for key, value := range source.Body {
+	body, _ := source.Body.(map[string]any)
+	payload := make(map[string]any, len(body)+len(source.Path)+len(source.Query))
+	for key, value := range body {
 		payload[key] = value
 	}
 	for key, value := range source.Path {
@@ -347,21 +349,61 @@ func transcodeMappingSourceValue(source transcodePayloadSource, path string) (an
 	default:
 		return nil, false, fmt.Errorf("transcode mapping source %s must start with body, path, or query", path)
 	}
-	for _, part := range parts[1:] {
-		part = strings.TrimSpace(part)
-		if part == "" {
-			return nil, false, fmt.Errorf("transcode mapping source %s has empty segment", path)
-		}
-		object, ok := current.(map[string]any)
-		if !ok {
-			return nil, false, nil
-		}
-		current, ok = object[part]
-		if !ok {
-			return nil, false, nil
-		}
+	return transcodeMappingValueAtPath(current, parts[1:], path)
+}
+
+func transcodeMappingValueAtPath(current any, parts []string, original string) (any, bool, error) {
+	if len(parts) == 0 {
+		return current, true, nil
 	}
-	return current, true, nil
+	part := strings.TrimSpace(parts[0])
+	if part == "" {
+		return nil, false, fmt.Errorf("transcode mapping source %s has empty segment", original)
+	}
+	if strings.HasSuffix(part, "[]") {
+		name := strings.TrimSuffix(part, "[]")
+		var arrayValue any
+		if name == "" || name == "body" {
+			arrayValue = current
+		} else {
+			object, ok := current.(map[string]any)
+			if !ok {
+				return nil, false, nil
+			}
+			var found bool
+			arrayValue, found = object[name]
+			if !found {
+				return nil, false, nil
+			}
+		}
+		items, ok := arrayValue.([]any)
+		if !ok {
+			return nil, false, nil
+		}
+		if len(parts) == 1 {
+			return items, true, nil
+		}
+		out := make([]any, 0, len(items))
+		for _, item := range items {
+			value, ok, err := transcodeMappingValueAtPath(item, parts[1:], original)
+			if err != nil {
+				return nil, false, err
+			}
+			if ok {
+				out = append(out, value)
+			}
+		}
+		return out, true, nil
+	}
+	object, ok := current.(map[string]any)
+	if !ok {
+		return nil, false, nil
+	}
+	value, ok := object[part]
+	if !ok {
+		return nil, false, nil
+	}
+	return transcodeMappingValueAtPath(value, parts[1:], original)
 }
 
 func setTranscodeMappingTarget(payload map[string]any, path string, value any) error {
@@ -374,6 +416,17 @@ func setTranscodeMappingTarget(payload map[string]any, path string, value any) e
 		part = strings.TrimSpace(part)
 		if part == "" {
 			return fmt.Errorf("transcode mapping target %s has empty segment", path)
+		}
+		if strings.HasSuffix(part, "[]") {
+			name := strings.TrimSuffix(part, "[]")
+			if name == "" {
+				return fmt.Errorf("transcode mapping target %s has empty array segment", path)
+			}
+			if index != len(parts)-1 {
+				return fmt.Errorf("transcode mapping target %s array segment must be terminal", path)
+			}
+			current[name] = cloneTranscodeMappingDefault(value)
+			return nil
 		}
 		if index == len(parts)-1 {
 			current[part] = cloneTranscodeMappingDefault(value)
@@ -405,8 +458,13 @@ func transcodeResponsePayload(raw json.RawMessage, profile *TranscodeProfile) ([
 	} else if err := json.Unmarshal(raw, &body); err != nil {
 		return nil, errors.New("transcode response body must be valid json")
 	}
-	object, _ := body.(map[string]any)
-	payload, err := transcodePayloadFromMappings(transcodePayloadSource{Body: object}, profile.ResponseMappings)
+	source := transcodePayloadSource{}
+	if object, ok := body.(map[string]any); ok {
+		source.Body = object
+	} else {
+		source.Body = body
+	}
+	payload, err := transcodePayloadFromMappings(source, profile.ResponseMappings)
 	if err != nil {
 		return nil, err
 	}
@@ -415,6 +473,26 @@ func transcodeResponsePayload(raw json.RawMessage, profile *TranscodeProfile) ([
 		return nil, err
 	}
 	return data, nil
+}
+
+func transcodeMappedErrorBody(err error, status int, profile *TranscodeProfile) []byte {
+	if profile == nil || len(profile.ErrorMappings) == 0 {
+		return transcodeErrorBody(err)
+	}
+	source := transcodePayloadSource{Body: map[string]any{
+		"code":   string(rpc.CodeOf(err)),
+		"error":  err.Error(),
+		"status": status,
+	}}
+	payload, mapErr := transcodePayloadFromMappings(source, profile.ErrorMappings)
+	if mapErr != nil {
+		return transcodeErrorBody(err)
+	}
+	data, marshalErr := json.Marshal(payload)
+	if marshalErr != nil {
+		return transcodeErrorBody(err)
+	}
+	return data
 }
 
 func mergeTranscodeBody(payload map[string]any, body []byte, bodyField string, required bool, schema *TranscodeSchemaConfig) error {

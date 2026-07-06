@@ -36,6 +36,7 @@ func GenerateGateway(opts GatewayOptions) error {
 		filepath.Join("etc", opts.Name+"-aggregation-candidate.json"): gatewayAggregationCandidateTemplate,
 		filepath.Join("etc", opts.Name+"-openapi-base.json"):          gatewayOpenAPIBaseTemplate,
 		filepath.Join("etc", opts.Name+"-openapi-candidate.json"):     gatewayOpenAPICandidateTemplate,
+		filepath.Join("etc", opts.Name+"-openapi-breaking.json"):      gatewayOpenAPIBreakingTemplate,
 		filepath.Join("internal", "config", "config.go"):              gatewayConfigGoTemplate,
 		filepath.Join("internal", "config", "config_test.go"):         gatewayConfigTestTemplate,
 		filepath.Join("internal", "mq", "broker.go"):                  mqBrokerTemplate,
@@ -647,6 +648,36 @@ const gatewayOpenAPICandidateTemplate = `{
             {"name": "profile", "path": "/profile", "required": true, "fallback": {"id": "anonymous"}},
             {"name": "orders", "path": "/orders", "timeout": 1000000, "retry": {"attempts": 2, "statuses": [503]}, "fallback": []},
             {"name": "recommendations", "path": "/recommendations", "fallback": []}
+          ]
+        }
+      }
+    }
+  }
+}
+`
+
+const gatewayOpenAPIBreakingTemplate = `{
+  "openapi": "3.0.3",
+  "info": {"title": "{{.Name}} gateway aggregation contract", "version": "2.0.0"},
+  "paths": {
+    "/home": {
+      "get": {
+        "operationId": "home",
+        "tags": ["bff"],
+        "responses": {"200": {"description": "OK"}},
+        "x-gofly-aggregation": {
+          "shape": {
+            "mode": "flat",
+            "mappings": [
+              {"source": "body.data.profile", "target": "profile"},
+              {"source": "body.data.orders", "target": "items"},
+              {"source": "body.degraded", "target": "degraded"},
+              {"source": "body.errors", "target": "errors"}
+            ]
+          },
+          "steps": [
+            {"name": "profile", "path": "/profile", "required": true, "fallback": {"id": "anonymous"}},
+            {"name": "orders", "path": "/orders", "timeout": 1000000, "retry": {"attempts": 2, "statuses": [503]}}
           ]
         }
       }

@@ -372,9 +372,19 @@ jobs:
           {
             echo "## Gateway aggregation contract"
             echo
+            echo "### Compatible fixture"
+            echo
             go run ./cmd/gofly gateway aggregation validate \
               --openapi-base "$tmp/edge/etc/edge-openapi-base.json" \
               --openapi-candidate "$tmp/edge/etc/edge-openapi-candidate.json" \
+              --route home \
+              --format markdown
+            echo
+            echo "### Intentionally breaking fixture"
+            echo
+            go run ./cmd/gofly gateway aggregation validate \
+              --openapi-base "$tmp/edge/etc/edge-openapi-base.json" \
+              --openapi-candidate "$tmp/edge/etc/edge-openapi-breaking.json" \
               --route home \
               --format markdown
           } >> "$GITHUB_STEP_SUMMARY"

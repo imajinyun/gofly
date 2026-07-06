@@ -212,7 +212,7 @@ func builtInProjectTemplates() []ProjectTemplate {
 			Description:        "Gateway project baseline for REST ingress, service discovery and downstream RPC routing.",
 			Features:           []string{"gateway", "rest", "rpc", "discovery", "rate-limit", "observability"},
 			Inputs:             commonTemplateInputs(),
-			Files:              []string{"go.mod", "cmd/<name>/main.go", "etc/<name>.json", "etc/<name>-profile-candidate.json", "etc/<name>-aggregation-candidate.json", "etc/<name>-openapi-base.json", "etc/<name>-openapi-candidate.json", "internal/config/config.go", "internal/mq/broker.go", "internal/observability/observability.go", "internal/routes/routes.go", "internal/svc/service.go"},
+			Files:              []string{"go.mod", "cmd/<name>/main.go", "etc/<name>.json", "etc/<name>-profile-candidate.json", "etc/<name>-aggregation-candidate.json", "etc/<name>-openapi-base.json", "etc/<name>-openapi-candidate.json", "etc/<name>-openapi-breaking.json", "internal/config/config.go", "internal/mq/broker.go", "internal/observability/observability.go", "internal/routes/routes.go", "internal/svc/service.go"},
 			Verify:             []string{"gofmt", "go mod tidy", "go test ./...", "gofly gateway profile validate --config etc/<name>.json --candidate etc/<name>-profile-candidate.json --json", "gofly gateway aggregation validate --config etc/<name>.json --route bff-home --candidate etc/<name>-aggregation-candidate.json --json", "gofly gateway aggregation validate --openapi-base etc/<name>-openapi-base.json --openapi-candidate etc/<name>-openapi-candidate.json --route home --json"},
 			VerifyE2EValidated: true,
 			RiskLevel:          "medium",

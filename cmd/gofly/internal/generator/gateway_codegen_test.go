@@ -231,6 +231,13 @@ func TestGenerateGatewayDefaultResilienceProfileReachesRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	breakingOpenAPIData, err := os.ReadFile(filepath.Join(dir, "etc", "edge-openapi-breaking.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(breakingOpenAPIData), `"target": "items"`) || strings.Contains(string(breakingOpenAPIData), `"name": "orders", "path": "/orders", "timeout": 1000000, "retry": {"attempts": 2, "statuses": [503]}, "fallback": []`) {
+		t.Fatalf("generated breaking OpenAPI fixture = %s, want target change and removed fallback", breakingOpenAPIData)
+	}
 	var generated struct {
 		Gateway           gateway.Config             `json:"gateway"`
 		TranscodeProfiles []gateway.TranscodeProfile `json:"transcodeProfiles"`

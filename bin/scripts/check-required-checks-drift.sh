@@ -48,6 +48,8 @@ for token in (
     "ExecuteAIManifestAliasAndText",
     "TestAINewGeneratedProjectVerificationMatrix",
     "--format markdown",
+    "edge-openapi-breaking.json",
+    "Intentionally breaking fixture",
     "$GITHUB_STEP_SUMMARY",
     "make aiflow-profile-gate-check",
     "make required-checks-drift-check",

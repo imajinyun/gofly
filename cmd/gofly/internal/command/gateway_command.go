@@ -144,7 +144,7 @@ func gatewayAggregationValidateCommand(args []string) error {
 	openAPIBasePath := fs.String("openapi-base", "", "base OpenAPI json file")
 	openAPICandidatePath := fs.String("openapi-candidate", "", "candidate OpenAPI json file")
 	routeName := fs.String("route", "", "route name or route key")
-	formatName := registerCLIFormatFlag(fs, outputJSON, "output format: text or json")
+	formatName := registerCLIFormatFlag(fs, outputJSON, "output format: text, markdown, or json")
 	jsonFlag := registerCLIJSONOutputFlag(fs, "output JSON")
 	remaining, err := parseInterspersedFlags(fs, args)
 	if err != nil {
@@ -179,12 +179,16 @@ func gatewayAggregationValidateCommand(args []string) error {
 		return fmt.Errorf("load current gateway aggregation config: %w", err)
 	}
 	report := gw.ValidateAggregation(*routeName, candidate)
-	format, err := normalizeCLIFormat(formatName, outputJSON, outputText, outputJSON)
+	format, err := normalizeCLIFormat(formatName, outputJSON, outputText, "markdown", outputJSON)
 	if err != nil {
 		return err
 	}
 	if valueFromBoolFlag(jsonFlag) || outputMode() == outputJSON || format == outputJSON {
 		return printJSONEnvelope("gateway.aggregation.validate", report)
+	}
+	if format == "markdown" {
+		printGatewayAggregationValidationMarkdown(report)
+		return nil
 	}
 	printGatewayAggregationValidationText(report)
 	return nil
@@ -218,12 +222,16 @@ func gatewayAggregationValidateOpenAPICommand(basePath, candidatePath, routeName
 		return fmt.Errorf("load base openapi aggregation config: %w", err)
 	}
 	report := gw.ValidateAggregation(routeName, candidate)
-	format, err := normalizeCLIFormat(formatName, outputJSON, outputText, outputJSON)
+	format, err := normalizeCLIFormat(formatName, outputJSON, outputText, "markdown", outputJSON)
 	if err != nil {
 		return err
 	}
 	if valueFromBoolFlag(jsonFlag) || outputMode() == outputJSON || format == outputJSON {
 		return printJSONEnvelope("gateway.aggregation.validate", report)
+	}
+	if format == "markdown" {
+		printGatewayAggregationValidationMarkdown(report)
+		return nil
 	}
 	printGatewayAggregationValidationText(report)
 	return nil
@@ -354,4 +362,50 @@ func printGatewayAggregationValidationText(report gateway.AggregationValidationR
 		}
 		cliOutputln(strings.Join(parts, " "))
 	}
+}
+
+func printGatewayAggregationValidationMarkdown(report gateway.AggregationValidationReport) {
+	status := "compatible"
+	if !report.OK {
+		status = "invalid"
+	} else if !report.Compatible {
+		status = "breaking"
+	}
+	cliOutputf("# Gateway Aggregation Contract\n\n")
+	cliOutputf("- Status: `%s`\n", status)
+	cliOutputf("- Compatible: `%t`\n", report.Compatible)
+	cliOutputf("- Changes: `%d`\n", len(report.Changes))
+	if len(report.Errors) > 0 {
+		cliOutput("\n## Errors\n\n")
+		for _, errText := range report.Errors {
+			cliOutputf("- %s\n", errText)
+		}
+	}
+	if len(report.Changes) == 0 {
+		cliOutputln("\nNo aggregation contract changes detected.")
+		return
+	}
+	cliOutput("\n## Changes\n\n")
+	cliOutputln("| Severity | Scope | Kind | Source | Target | Message |")
+	cliOutputln("| --- | --- | --- | --- | --- | --- |")
+	for _, change := range report.Changes {
+		cliOutputf(
+			"| %s | %s | %s | %s | %s | %s |\n",
+			markdownCell(change.Severity),
+			markdownCell(change.Scope),
+			markdownCell(change.Kind),
+			markdownCell(change.Source),
+			markdownCell(change.Target),
+			markdownCell(change.Message),
+		)
+	}
+}
+
+func markdownCell(value string) string {
+	value = strings.ReplaceAll(value, "|", "\\|")
+	value = strings.ReplaceAll(value, "\n", " ")
+	if strings.TrimSpace(value) == "" {
+		return "-"
+	}
+	return value
 }

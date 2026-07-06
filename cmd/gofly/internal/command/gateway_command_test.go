@@ -177,6 +177,17 @@ func TestGatewayAggregationValidateCommandJSON(t *testing.T) {
 	if !sawRemoveFallback || !sawChangeTarget || !sawAddStep {
 		t.Fatalf("changes = %+v, want fallback removal, shape target change, and additive step", envelope.Data.Changes)
 	}
+
+	stdout.Reset()
+	if err := ExecuteWithIO([]string{"gateway", "aggregation", "validate", "--config", configPath, "--route", "home-bff", "--candidate", candidatePath, "--format", "markdown"}, IOStreams{Out: &stdout}); err != nil {
+		t.Fatalf("gateway aggregation validate markdown: %v", err)
+	}
+	if !strings.Contains(stdout.String(), "# Gateway Aggregation Contract") ||
+		!strings.Contains(stdout.String(), "| Severity | Scope | Kind | Source | Target | Message |") ||
+		!strings.Contains(stdout.String(), "remove_fallback") ||
+		!strings.Contains(stdout.String(), "change_target") {
+		t.Fatalf("markdown output = %s", stdout.String())
+	}
 }
 
 func TestGatewayAggregationValidateCommandOpenAPIDiff(t *testing.T) {

@@ -192,7 +192,7 @@ func gatewayAggregationValidateCommand(args []string) error {
 		return nil
 	}
 	if format == "sarif" {
-		return printGatewayAggregationValidationSARIF(report)
+		return printGatewayAggregationValidationSARIF(report, *candidatePath)
 	}
 	printGatewayAggregationValidationText(report)
 	return nil
@@ -216,7 +216,7 @@ func gatewayAggregationValidateOpenAPICommand(basePath, candidatePath, routeName
 	if err != nil {
 		err = fmt.Errorf("import base openapi aggregation routes: %w", err)
 		if format == "sarif" {
-			return printGatewayAggregationValidationSARIF(gatewayAggregationValidationReportFromError(err))
+			return printGatewayAggregationValidationSARIF(gatewayAggregationValidationReportFromError(err), basePath)
 		}
 		return err
 	}
@@ -224,7 +224,7 @@ func gatewayAggregationValidateOpenAPICommand(basePath, candidatePath, routeName
 	if err != nil {
 		err = fmt.Errorf("import candidate openapi aggregation routes: %w", err)
 		if format == "sarif" {
-			return printGatewayAggregationValidationSARIF(gatewayAggregationValidationReportFromError(err))
+			return printGatewayAggregationValidationSARIF(gatewayAggregationValidationReportFromError(err), candidatePath)
 		}
 		return err
 	}
@@ -246,7 +246,7 @@ func gatewayAggregationValidateOpenAPICommand(basePath, candidatePath, routeName
 		return nil
 	}
 	if format == "sarif" {
-		return printGatewayAggregationValidationSARIF(report)
+		return printGatewayAggregationValidationSARIF(report, candidatePath)
 	}
 	printGatewayAggregationValidationText(report)
 	return nil
@@ -483,7 +483,11 @@ type gatewayAggregationArtifactLocation struct {
 	URI string `json:"uri"`
 }
 
-func printGatewayAggregationValidationSARIF(report gateway.AggregationValidationReport) error {
+func printGatewayAggregationValidationSARIF(report gateway.AggregationValidationReport, artifactURI string) error {
+	artifactURI = strings.TrimSpace(artifactURI)
+	if artifactURI == "" {
+		artifactURI = "gateway-aggregation-contract"
+	}
 	seenRules := map[string]gatewayAggregationRule{}
 	results := make([]gatewayAggregationResult, 0, len(report.Changes)+len(report.Errors))
 	for _, errText := range report.Errors {
@@ -494,7 +498,7 @@ func printGatewayAggregationValidationSARIF(report gateway.AggregationValidation
 			Level:   "error",
 			Message: gatewayAggregationSARIFMessage{Text: errText},
 			Locations: []gatewayAggregationLocation{{
-				PhysicalLocation: gatewayAggregationPhysicalLocation{ArtifactLocation: gatewayAggregationArtifactLocation{URI: "gateway-aggregation-contract"}},
+				PhysicalLocation: gatewayAggregationPhysicalLocation{ArtifactLocation: gatewayAggregationArtifactLocation{URI: artifactURI}},
 			}},
 		})
 	}
@@ -515,7 +519,7 @@ func printGatewayAggregationValidationSARIF(report gateway.AggregationValidation
 			Level:   level,
 			Message: gatewayAggregationSARIFMessage{Text: gatewayAggregationChangeMessage(change)},
 			Locations: []gatewayAggregationLocation{{
-				PhysicalLocation: gatewayAggregationPhysicalLocation{ArtifactLocation: gatewayAggregationArtifactLocation{URI: "gateway-aggregation-contract"}},
+				PhysicalLocation: gatewayAggregationPhysicalLocation{ArtifactLocation: gatewayAggregationArtifactLocation{URI: artifactURI}},
 			}},
 		})
 	}

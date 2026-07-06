@@ -200,8 +200,15 @@ func TestGatewayAggregationValidateCommandJSON(t *testing.T) {
 		Version string `json:"version"`
 		Runs    []struct {
 			Results []struct {
-				RuleID string `json:"ruleId"`
-				Level  string `json:"level"`
+				RuleID    string `json:"ruleId"`
+				Level     string `json:"level"`
+				Locations []struct {
+					PhysicalLocation struct {
+						ArtifactLocation struct {
+							URI string `json:"uri"`
+						} `json:"artifactLocation"`
+					} `json:"physicalLocation"`
+				} `json:"locations"`
 			} `json:"results"`
 		} `json:"runs"`
 	}
@@ -222,6 +229,9 @@ func TestGatewayAggregationValidateCommandJSON(t *testing.T) {
 	}
 	if !sawFallbackError || !sawTargetError {
 		t.Fatalf("sarif results = %+v, want breaking fallback and target errors", sarif.Runs[0].Results)
+	}
+	if len(sarif.Runs[0].Results[0].Locations) == 0 || sarif.Runs[0].Results[0].Locations[0].PhysicalLocation.ArtifactLocation.URI != candidatePath {
+		t.Fatalf("sarif location = %+v, want candidate path %s", sarif.Runs[0].Results[0].Locations, candidatePath)
 	}
 }
 
@@ -321,6 +331,13 @@ func TestGatewayAggregationValidateCommandOpenAPIDiff(t *testing.T) {
 				Message struct {
 					Text string `json:"text"`
 				} `json:"message"`
+				Locations []struct {
+					PhysicalLocation struct {
+						ArtifactLocation struct {
+							URI string `json:"uri"`
+						} `json:"artifactLocation"`
+					} `json:"physicalLocation"`
+				} `json:"locations"`
 			} `json:"results"`
 		} `json:"runs"`
 	}
@@ -330,7 +347,9 @@ func TestGatewayAggregationValidateCommandOpenAPIDiff(t *testing.T) {
 	if len(invalidSARIF.Runs) != 1 || len(invalidSARIF.Runs[0].Results) != 1 ||
 		invalidSARIF.Runs[0].Results[0].RuleID != "aggregation.invalid" ||
 		invalidSARIF.Runs[0].Results[0].Level != "error" ||
-		!strings.Contains(invalidSARIF.Runs[0].Results[0].Message.Text, "unknown OpenAPI query parameter") {
+		!strings.Contains(invalidSARIF.Runs[0].Results[0].Message.Text, "unknown OpenAPI query parameter") ||
+		len(invalidSARIF.Runs[0].Results[0].Locations) == 0 ||
+		invalidSARIF.Runs[0].Results[0].Locations[0].PhysicalLocation.ArtifactLocation.URI != invalidPath {
 		t.Fatalf("invalid sarif = %+v, want aggregation.invalid error", invalidSARIF)
 	}
 }

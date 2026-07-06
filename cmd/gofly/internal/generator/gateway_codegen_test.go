@@ -182,6 +182,7 @@ func TestGenerateGatewayWiresGovernanceManager(t *testing.T) {
 		`"responseMappings": [{"source": "body.id", "target": "data.id"}`,
 		`"errorMappings": [{"source": "body.code", "target": "error.code"}`,
 		`"aggregation": {"enabled": true`,
+		`"shape": {"mode": "flat"}`,
 		`"fallback": {"id": "anonymous"}`,
 		`"fallback": []`,
 		`"openapiImports": [`,
@@ -329,6 +330,9 @@ func TestGenerateGatewayDefaultResilienceProfileReachesRuntime(t *testing.T) {
 		bffRoute.Aggregation.Steps[1].Retry.Statuses[0] != http.StatusServiceUnavailable {
 		t.Fatalf("generated bff orders step policy = %+v, want timeout/retry fallback profile", bffRoute.Aggregation.Steps[1])
 	}
+	if bffRoute.Aggregation.Shape.Mode != "flat" {
+		t.Fatalf("generated bff shape = %+v, want flat business payload", bffRoute.Aggregation.Shape)
+	}
 	rpcRoute := generatedGatewayRouteByName(t, generated.Gateway.Routes, "rpc-orders")
 	if !rpcRoute.Transcode.Enabled || rpcRoute.Transcode.Descriptor != "orders.OrderService" || rpcRoute.Transcode.DescriptorMethod != "GetOrder" || rpcRoute.Transcode.Payload.Mode != "profile" {
 		t.Fatalf("generated rpc bridge route = %#v", rpcRoute)
@@ -379,7 +383,9 @@ func TestGenerateGatewayDefaultResilienceProfileReachesRuntime(t *testing.T) {
 		!strings.Contains(bff.Body.String(), `"profile":{"id":"u1"}`) ||
 		!strings.Contains(bff.Body.String(), `"orders":[]`) ||
 		!strings.Contains(bff.Body.String(), `"orders":"`) ||
-		!strings.Contains(bff.Body.String(), "deadline") {
+		!strings.Contains(bff.Body.String(), "deadline") ||
+		!strings.Contains(bff.Body.String(), `"degraded":true`) ||
+		strings.Contains(bff.Body.String(), `"data":`) {
 		t.Fatalf("generated gateway bff partial response = %d body = %q", bff.Code, bff.Body.String())
 	}
 	adminServer := rest.MustNewServer(rest.Config{})

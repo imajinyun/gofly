@@ -802,6 +802,58 @@ func TestGatewayConfigSkipsDisabledOpenAPIImportProfile(t *testing.T) {
 	}
 }
 
+func TestGatewayConfigValidatesTranscodeProfileDiff(t *testing.T) {
+	c := Config{
+		Gateway: gateway.Config{Routes: []gateway.RouteConfig{{
+			Name: "rpc-orders",
+			Method: http.MethodPost,
+			PathPrefix: "/rpc/orders",
+			Targets: []string{"http://127.0.0.1:8082"},
+			Transcode: gateway.TranscodeConfig{
+				Enabled: true,
+				Descriptor: "orders.OrderService",
+				DescriptorMethod: "GetOrder",
+				Payload: gateway.TranscodePayloadConfig{Mode: "profile", MergeBodyObject: true},
+			},
+		}}},
+		TranscodeProfiles: []gateway.TranscodeProfile{{
+			Descriptor: "orders.OrderService",
+			DescriptorMethod: "GetOrder",
+			RequestMappings: []gateway.TranscodePayloadMapping{{Source: "body.id", Target: "order.id"}},
+			ResponseMappings: []gateway.TranscodePayloadMapping{{Source: "body.id", Target: "data.id"}},
+			ErrorMappings: []gateway.TranscodePayloadMapping{{Source: "body.code", Target: "error.code"}},
+		}},
+	}
+	gw, err := gateway.NewFromConfig(c.Gateway, nil, append(c.GatewayOptions(), gateway.WithDescriptors(rpc.Descriptor{Name: "orders.OrderService", Methods: []rpc.MethodDescriptor{{Name: "GetOrder"}}}))...)
+	if err != nil {
+		t.Fatalf("NewFromConfig with generated transcode profile: %v", err)
+	}
+	t.Cleanup(func() { _ = gw.Close() })
+
+	compatible := gw.ValidateTranscodeProfile(gateway.TranscodeProfile{
+		Descriptor: "orders.OrderService",
+		DescriptorMethod: "GetOrder",
+		RequestMappings: []gateway.TranscodePayloadMapping{
+			{Source: "body.id", Target: "order.id"},
+			{Source: "body.trace", Target: "meta.trace"},
+		},
+		ResponseMappings: []gateway.TranscodePayloadMapping{{Source: "body.id", Target: "data.id"}},
+		ErrorMappings: []gateway.TranscodePayloadMapping{{Source: "body.code", Target: "error.code"}},
+	})
+	if !compatible.OK || !compatible.Compatible || len(compatible.Changes) != 1 || compatible.Changes[0].Kind != "add_mapping" {
+		t.Fatalf("compatible generated profile report = %+v, want additive compatible diff", compatible)
+	}
+
+	breaking := gw.ValidateTranscodeProfile(gateway.TranscodeProfile{
+		Descriptor: "orders.OrderService",
+		DescriptorMethod: "GetOrder",
+		RequestMappings: []gateway.TranscodePayloadMapping{{Source: "body.id", Target: "person.id"}},
+	})
+	if !breaking.OK || breaking.Compatible || len(breaking.Changes) == 0 || breaking.Changes[0].Severity != "breaking" {
+		t.Fatalf("breaking generated profile report = %+v, want breaking diff", breaking)
+	}
+}
+
 func TestGatewayOptionsEnableDiscoveryFailover(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/orders/42" {

@@ -673,6 +673,22 @@ func TestGatewayGeneratedOpenAPIImportProfileIsRunnable(t *testing.T) {
 		OpenAPI: "3.0.3",
 		Info: rest.OpenAPIInfo{Title: "{{.Name}} upstream", Version: "1.0.0"},
 		Paths: map[string]map[string]rest.Operation{
+			"/home": {
+				"get": {
+					OperationID: "home",
+					Tags: []string{"bff"},
+					Responses: map[string]rest.Response{"200": {Description: "OK"}},
+					Extensions: map[string]any{
+						"x-gofly-aggregation": map[string]any{
+							"shape": map[string]any{"mode": "flat"},
+							"steps": []any{
+								map[string]any{"name": "profile", "path": "/bff-api/profile"},
+								map[string]any{"name": "orders", "path": "/bff-api/orders", "fallback": []any{}},
+							},
+						},
+					},
+				},
+			},
 			"/orders/{id}": {
 				"post": {
 					OperationID: "getOrder",
@@ -724,6 +740,11 @@ func TestGatewayGeneratedOpenAPIImportProfileIsRunnable(t *testing.T) {
 				t.Fatalf("upstream headers X-Base=%q X-Backend=%q, want generated OpenAPI group headers", r.Header.Get("X-Base"), r.Header.Get("X-Backend"))
 			}
 			_, _ = fmt.Fprint(w, "order:42")
+		case "/bff-api/profile":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprint(w, "{\"id\":\"u1\"}")
+		case "/bff-api/orders":
+			http.Error(w, "orders down", http.StatusBadGateway)
 		default:
 			http.NotFound(w, r)
 		}
@@ -780,6 +801,13 @@ func TestGatewayGeneratedOpenAPIImportProfileIsRunnable(t *testing.T) {
 					Descriptor: "orders.OrderService",
 					MethodFromOperationID: true,
 				},
+			}, {
+				Name: "bff",
+				MatchTags: []string{"bff"},
+				Service: "bff",
+				Targets: []string{upstream.URL},
+				UpstreamPrefix: "/bff-api",
+				Headers: map[string]string{"X-Backend": "bff"},
 			}},
 		}},
 	}
@@ -792,6 +820,16 @@ func TestGatewayGeneratedOpenAPIImportProfileIsRunnable(t *testing.T) {
 		t.Fatalf("NewFromConfig: %v", err)
 	}
 	t.Cleanup(func() { _ = gw.Close() })
+
+	bff := httptest.NewRecorder()
+	gw.ServeHTTP(bff, httptest.NewRequest(http.MethodGet, "/contract/home", nil))
+	if bff.Code != http.StatusOK ||
+		!strings.Contains(bff.Body.String(), "\"profile\":{\"id\":\"u1\"}") ||
+		!strings.Contains(bff.Body.String(), "\"orders\":[]") ||
+		!strings.Contains(bff.Body.String(), "\"degraded\":true") ||
+		strings.Contains(bff.Body.String(), "\"data\":") {
+		t.Fatalf("generated OpenAPI aggregation response = %d %q", bff.Code, bff.Body.String())
+	}
 
 	rr := httptest.NewRecorder()
 	gw.ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/contract/orders/42?include_history=true&tags=1,2&tags=3", strings.NewReader("{\"trace\":\"t1\",\"items\":[{\"sku\":\"sku-1\",\"quantity\":2}]}")))

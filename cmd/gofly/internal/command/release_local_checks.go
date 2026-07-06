@@ -165,10 +165,58 @@ func releaseGatewayAggregationContractCheck() (releaseCheckItem, []string) {
 		item.Detail = "generated gateway aggregation candidate contains breaking changes"
 		item.Blocker = true
 		return item, []string{"generated gateway aggregation candidate has breaking changes"}
+	}
+	openAPIReport, err := releaseGatewayOpenAPIAggregationReport(projectDir)
+	if err != nil {
+		item.Status = "fail"
+		item.Detail = err.Error()
+		item.Blocker = true
+		return item, []string{"generated gateway OpenAPI aggregation contract check failed"}
+	}
+	switch {
+	case !openAPIReport.OK:
+		item.Status = "fail"
+		item.Detail = strings.Join(openAPIReport.Errors, "; ")
+		item.Blocker = true
+		return item, []string{"generated gateway OpenAPI aggregation candidate is invalid"}
+	case !openAPIReport.Compatible:
+		item.Status = "fail"
+		item.Detail = "generated gateway OpenAPI aggregation candidate contains breaking changes"
+		item.Blocker = true
+		return item, []string{"generated gateway OpenAPI aggregation candidate has breaking changes"}
 	default:
-		item.Detail = fmt.Sprintf("compatible aggregation diff with %d change(s)", len(report.Changes))
+		item.Detail = fmt.Sprintf("compatible aggregation diff with %d change(s); compatible OpenAPI aggregation diff with %d change(s)", len(report.Changes), len(openAPIReport.Changes))
 		return item, nil
 	}
+}
+
+func releaseGatewayOpenAPIAggregationReport(projectDir string) (gateway.AggregationValidationReport, error) {
+	baseDoc, err := readGatewayOpenAPIDocument(filepath.Join(projectDir, "etc", "edge-openapi-base.json"))
+	if err != nil {
+		return gateway.AggregationValidationReport{}, err
+	}
+	candidateDoc, err := readGatewayOpenAPIDocument(filepath.Join(projectDir, "etc", "edge-openapi-candidate.json"))
+	if err != nil {
+		return gateway.AggregationValidationReport{}, err
+	}
+	importOptions := gateway.OpenAPIRouteOptions{GatewayPrefix: "/", Service: "openapi", Targets: []string{"http://127.0.0.1:1"}}
+	baseRoutes, err := gateway.RouteConfigsFromOpenAPI(baseDoc, importOptions)
+	if err != nil {
+		return gateway.AggregationValidationReport{}, fmt.Errorf("import base openapi aggregation routes: %w", err)
+	}
+	candidateRoutes, err := gateway.RouteConfigsFromOpenAPI(candidateDoc, importOptions)
+	if err != nil {
+		return gateway.AggregationValidationReport{}, fmt.Errorf("import candidate openapi aggregation routes: %w", err)
+	}
+	candidateAggregation, err := gatewayAggregationFromRoutes(candidateRoutes, "home")
+	if err != nil {
+		return gateway.AggregationValidationReport{}, err
+	}
+	gw, err := gateway.NewFromConfig(gateway.Config{Routes: baseRoutes}, nil)
+	if err != nil {
+		return gateway.AggregationValidationReport{}, fmt.Errorf("load base openapi aggregation config: %w", err)
+	}
+	return gw.ValidateAggregation("home", candidateAggregation), nil
 }
 
 func readReleaseGatewayConfig(path string) (gateway.Config, error) {

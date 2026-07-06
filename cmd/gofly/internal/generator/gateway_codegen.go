@@ -34,6 +34,8 @@ func GenerateGateway(opts GatewayOptions) error {
 		filepath.Join("etc", opts.Name+".json"):                       gatewayConfigTemplate,
 		filepath.Join("etc", opts.Name+"-profile-candidate.json"):     gatewayProfileCandidateTemplate,
 		filepath.Join("etc", opts.Name+"-aggregation-candidate.json"): gatewayAggregationCandidateTemplate,
+		filepath.Join("etc", opts.Name+"-openapi-base.json"):          gatewayOpenAPIBaseTemplate,
+		filepath.Join("etc", opts.Name+"-openapi-candidate.json"):     gatewayOpenAPICandidateTemplate,
 		filepath.Join("internal", "config", "config.go"):              gatewayConfigGoTemplate,
 		filepath.Join("internal", "config", "config_test.go"):         gatewayConfigTestTemplate,
 		filepath.Join("internal", "mq", "broker.go"):                  mqBrokerTemplate,
@@ -588,6 +590,68 @@ const gatewayAggregationCandidateTemplate = `{
     {"name": "profile", "path": "/profile", "required": true, "fallback": {"id": "anonymous"}},
     {"name": "orders", "path": "/orders", "timeout": 1000000, "retry": {"attempts": 2, "statuses": [503]}, "fallback": []}
   ]
+}
+`
+
+const gatewayOpenAPIBaseTemplate = `{
+  "openapi": "3.0.3",
+  "info": {"title": "{{.Name}} gateway aggregation contract", "version": "1.0.0"},
+  "paths": {
+    "/home": {
+      "get": {
+        "operationId": "home",
+        "tags": ["bff"],
+        "responses": {"200": {"description": "OK"}},
+        "x-gofly-aggregation": {
+          "shape": {
+            "mode": "flat",
+            "mappings": [
+              {"source": "body.data.profile", "target": "profile"},
+              {"source": "body.data.orders", "target": "orders"},
+              {"source": "body.degraded", "target": "degraded"},
+              {"source": "body.errors", "target": "errors"}
+            ]
+          },
+          "steps": [
+            {"name": "profile", "path": "/profile", "required": true, "fallback": {"id": "anonymous"}},
+            {"name": "orders", "path": "/orders", "timeout": 1000000, "retry": {"attempts": 2, "statuses": [503]}, "fallback": []}
+          ]
+        }
+      }
+    }
+  }
+}
+`
+
+const gatewayOpenAPICandidateTemplate = `{
+  "openapi": "3.0.3",
+  "info": {"title": "{{.Name}} gateway aggregation contract", "version": "1.0.1"},
+  "paths": {
+    "/home": {
+      "get": {
+        "operationId": "home",
+        "tags": ["bff"],
+        "responses": {"200": {"description": "OK"}},
+        "x-gofly-aggregation": {
+          "shape": {
+            "mode": "flat",
+            "mappings": [
+              {"source": "body.data.profile", "target": "profile"},
+              {"source": "body.data.orders", "target": "orders"},
+              {"source": "body.degraded", "target": "degraded"},
+              {"source": "body.errors", "target": "errors"},
+              {"target": "meta.source", "default": "openapi"}
+            ]
+          },
+          "steps": [
+            {"name": "profile", "path": "/profile", "required": true, "fallback": {"id": "anonymous"}},
+            {"name": "orders", "path": "/orders", "timeout": 1000000, "retry": {"attempts": 2, "statuses": [503]}, "fallback": []},
+            {"name": "recommendations", "path": "/recommendations", "fallback": []}
+          ]
+        }
+      }
+    }
+  }
 }
 `
 

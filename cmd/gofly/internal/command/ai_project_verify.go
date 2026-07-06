@@ -160,6 +160,20 @@ func aiProjectVerificationCommandArgs(command string) (string, []string, bool) {
 			}
 			return "gofly", fields[1:], true
 		}
+		if len(fields) == 11 &&
+			fields[0] == "gofly" &&
+			fields[1] == "gateway" &&
+			fields[2] == "aggregation" &&
+			fields[3] == "validate" &&
+			fields[4] == "--openapi-base" &&
+			fields[6] == "--openapi-candidate" &&
+			fields[8] == "--route" &&
+			fields[10] == "--json" {
+			if frameworkPath := strings.TrimSpace(os.Getenv("GOFLY_FRAMEWORK_PATH")); frameworkPath != "" {
+				return "go", []string{"run", "./cmd/gofly", "gateway", "aggregation", "validate", "--openapi-base", fields[5], "--openapi-candidate", fields[7], "--route", fields[9], "--json"}, true
+			}
+			return "gofly", fields[1:], true
+		}
 		return "", nil, false
 	}
 }
@@ -195,6 +209,17 @@ func absolutizeGatewayValidateInputs(dir string, command string) string {
 		fields[8] == "--candidate" &&
 		fields[10] == "--json" {
 		return absolutizeGatewayValidateFieldInputs(dir, fields, []int{5, 9})
+	}
+	if len(fields) == 11 &&
+		fields[0] == "gofly" &&
+		fields[1] == "gateway" &&
+		fields[2] == "aggregation" &&
+		fields[3] == "validate" &&
+		fields[4] == "--openapi-base" &&
+		fields[6] == "--openapi-candidate" &&
+		fields[8] == "--route" &&
+		fields[10] == "--json" {
+		return absolutizeGatewayValidateFieldInputs(dir, fields, []int{5, 7})
 	}
 	return command
 }

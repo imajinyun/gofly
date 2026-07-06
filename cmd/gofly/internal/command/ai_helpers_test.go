@@ -2396,7 +2396,7 @@ func TestAINewGeneratedProjectVerificationMatrix(t *testing.T) {
 			{
 				name:                  "edge",
 				template:              "go-gateway",
-				wantVerify:            []string{"gofmt", "go mod tidy", "go test ./...", "gofly gateway profile validate --config etc/<name>.json --candidate etc/<name>-profile-candidate.json --json", "gofly gateway aggregation validate --config etc/<name>.json --route bff-home --candidate etc/<name>-aggregation-candidate.json --json", "go vet ./..."},
+				wantVerify:            []string{"gofmt", "go mod tidy", "go test ./...", "gofly gateway profile validate --config etc/<name>.json --candidate etc/<name>-profile-candidate.json --json", "gofly gateway aggregation validate --config etc/<name>.json --route bff-home --candidate etc/<name>-aggregation-candidate.json --json", "gofly gateway aggregation validate --openapi-base etc/<name>-openapi-base.json --openapi-candidate etc/<name>-openapi-candidate.json --route home --json", "go vet ./..."},
 				wantFiles:             []string{"go.mod", filepath.Join("cmd", "edge", "main.go"), filepath.Join("internal", "routes", "routes.go"), filepath.Join("internal", "observability", "observability.go")},
 				wantGeneratedFeatures: []string{"observability"},
 			},

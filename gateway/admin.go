@@ -7,6 +7,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/imajinyun/gofly/core/governance"
 	controladmin "github.com/imajinyun/gofly/ops/admin"
@@ -51,6 +52,12 @@ func (g *Gateway) RegisterAdminWithAudit(s *rest.Server, pathPrefix string, toke
 			return
 		}
 		controladmin.WriteJSON(ctx.Response, http.StatusOK, g.Descriptors())
+	}}, opts...)
+	s.AddRoute(rest.Route{Method: http.MethodGet, Path: pathPrefix + "/transcode/diagnostics", Handler: func(ctx *rest.Context) {
+		if !authorizeGatewayAdmin(ctx, token) {
+			return
+		}
+		controladmin.WriteJSON(ctx.Response, http.StatusOK, g.TranscodeDiagnostics(ctx.Request))
 	}}, opts...)
 	s.AddRoute(rest.Route{Method: http.MethodPost, Path: pathPrefix + "/routes", Handler: func(ctx *rest.Context) {
 		if !authorizeGatewayAdmin(ctx, token) {
@@ -124,6 +131,58 @@ func (g *Gateway) RegisterAdminWithAudit(s *rest.Server, pathPrefix string, toke
 			governanceAdmin.ServeHTTP(ctx.Response, ctx.Request)
 		}}, opts...)
 	}
+}
+
+// TranscodeDiagnostic describes one route's effective descriptor transcode state.
+type TranscodeDiagnostic struct {
+	Route      string                   `json:"route"`
+	Name       string                   `json:"name,omitempty"`
+	Method     string                   `json:"method,omitempty"`
+	PathPrefix string                   `json:"pathPrefix"`
+	Service    string                   `json:"service,omitempty"`
+	Transcode  TranscodeRuntimeSnapshot `json:"transcode"`
+}
+
+// TranscodeDiagnostics returns route-level transcode diagnostics filtered by
+// optional route, profile, descriptor, or method query parameters.
+func (g *Gateway) TranscodeDiagnostics(r *http.Request) []TranscodeDiagnostic {
+	if g == nil {
+		return nil
+	}
+	query := r.URL.Query()
+	routeFilter := strings.TrimSpace(query.Get("route"))
+	profileFilter := strings.TrimSpace(query.Get("profile"))
+	descriptorFilter := strings.TrimSpace(query.Get("descriptor"))
+	methodFilter := strings.Trim(strings.TrimSpace(query.Get("method")), "/")
+	routes := g.RuntimeSnapshot().Routes
+	out := make([]TranscodeDiagnostic, 0, len(routes))
+	for _, route := range routes {
+		if route.TranscodeRuntime == (TranscodeRuntimeSnapshot{}) {
+			continue
+		}
+		routeID := routeKey(Route{Method: route.Method, PathPrefix: route.PathPrefix})
+		if routeFilter != "" && routeFilter != route.Name && routeFilter != routeID {
+			continue
+		}
+		if profileFilter != "" && profileFilter != route.TranscodeRuntime.ProfileKey {
+			continue
+		}
+		if descriptorFilter != "" && descriptorFilter != route.TranscodeRuntime.Descriptor {
+			continue
+		}
+		if methodFilter != "" && methodFilter != route.TranscodeRuntime.DescriptorMethod {
+			continue
+		}
+		out = append(out, TranscodeDiagnostic{
+			Route:      routeID,
+			Name:       route.Name,
+			Method:     route.Method,
+			PathPrefix: route.PathPrefix,
+			Service:    route.Service,
+			Transcode:  route.TranscodeRuntime,
+		})
+	}
+	return out
 }
 
 func decodeGatewayRouteConfig(ctx *rest.Context) (RouteConfig, bool) {

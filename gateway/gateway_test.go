@@ -1479,6 +1479,81 @@ func TestGatewayRegisterAdminExposesSnapshotMetricsAndHealth(t *testing.T) {
 	}
 }
 
+func TestGatewayAdminTranscodeDiagnosticsFilters(t *testing.T) {
+	desc := rpc.Descriptor{Name: "examples.greeter.Greeter", Methods: []rpc.MethodDescriptor{{Name: "SayHello"}}}
+	profile := TranscodeProfile{
+		Descriptor:       "examples.greeter.Greeter",
+		DescriptorMethod: "SayHello",
+		RequestMappings:  []TranscodePayloadMapping{{Source: "body.name", Target: "name"}},
+		ResponseMappings: []TranscodePayloadMapping{
+			{Source: "body.message", Target: "data"},
+			{Source: "body.meta.trace", Target: "data.trace"},
+		},
+	}
+	fake := &fakeGenericClient{payload: json.RawMessage(`{"message":"hello","meta":{"trace":"t1"}}`)}
+	g, err := New([]Route{{
+		Name:       "greeter",
+		Method:     http.MethodPost,
+		PathPrefix: "/gw/greeter",
+		Targets:    []string{"http://upstream"},
+		Transcode: TranscodeConfig{
+			Enabled:          true,
+			Descriptor:       "examples.greeter.Greeter",
+			DescriptorMethod: "SayHello",
+			Payload:          TranscodePayloadConfig{Mode: "openapi", MergeBodyObject: true},
+		},
+	}}, WithDescriptors(desc), WithTranscodeProfiles(profile), WithTranscoderFactory(func(endpoint string, route Route) (rpc.GenericClient, error) {
+		return fake, nil
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := rest.MustNewServer(rest.Config{})
+	g.RegisterREST(s)
+	g.RegisterAdmin(s, "/admin/gateway", "secret")
+
+	call := httptest.NewRecorder()
+	s.Handler().ServeHTTP(call, httptest.NewRequest(http.MethodPost, "/gw/greeter", strings.NewReader(`{"name":"ada"}`)))
+	if call.Code != http.StatusBadRequest {
+		t.Fatalf("transcode call status = %d body = %s", call.Code, call.Body.String())
+	}
+
+	unauthorized := httptest.NewRecorder()
+	s.Handler().ServeHTTP(unauthorized, httptest.NewRequest(http.MethodGet, "/admin/gateway/transcode/diagnostics", nil))
+	if unauthorized.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthorized diagnostics status = %d", unauthorized.Code)
+	}
+
+	tests := []struct {
+		name string
+		path string
+		want string
+	}{
+		{name: "all", path: "/admin/gateway/transcode/diagnostics", want: `"profileKey":"examples.greeter.Greeter/SayHello"`},
+		{name: "route name", path: "/admin/gateway/transcode/diagnostics?route=greeter", want: `"route":"POST /gw/greeter"`},
+		{name: "profile", path: "/admin/gateway/transcode/diagnostics?profile=examples.greeter.Greeter/SayHello", want: `"lastErrorStage":"response"`},
+		{name: "descriptor", path: "/admin/gateway/transcode/diagnostics?descriptor=examples.greeter.Greeter&method=SayHello", want: `"responseMappings":2`},
+		{name: "missing", path: "/admin/gateway/transcode/diagnostics?route=missing", want: `[]`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			req.Header.Set(auth.AuthorizationHeader, "Bearer secret")
+			rec := httptest.NewRecorder()
+			s.Handler().ServeHTTP(rec, req)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("diagnostics status = %d body = %s", rec.Code, rec.Body.String())
+			}
+			if !strings.Contains(rec.Header().Get("Content-Type"), "application/json") {
+				t.Fatalf("diagnostics content-type = %q", rec.Header().Get("Content-Type"))
+			}
+			if !strings.Contains(rec.Body.String(), tt.want) {
+				t.Fatalf("diagnostics body missing %q: %s", tt.want, rec.Body.String())
+			}
+		})
+	}
+}
+
 func TestGatewayRegisterAdminExposesFullGovernanceAdminParity(t *testing.T) {
 	rules := governance.NewRuleSet(governance.Rule{Name: "gateway-api", Transport: governance.TransportGateway, Path: "/api/*", Policy: governance.Policy{Headers: map[string]string{"X-Governance": "on"}}})
 	g, err := New([]Route{{Method: http.MethodGet, PathPrefix: "/api", Targets: []string{"http://127.0.0.1:65535"}}}, WithGovernanceRuleSet(rules))

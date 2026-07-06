@@ -75,6 +75,26 @@ func (g *Gateway) RegisterAdminWithAudit(s *rest.Server, pathPrefix string, toke
 		}
 		controladmin.WriteJSON(ctx.Response, http.StatusOK, profiles)
 	}}, opts...)
+	s.AddRoute(rest.Route{Method: http.MethodPost, Path: pathPrefix + "/transcode/profiles/validate", Handler: func(ctx *rest.Context) {
+		if !authorizeGatewayAdmin(ctx, token) {
+			return
+		}
+		profile, ok := decodeTranscodeProfile(ctx)
+		if !ok {
+			return
+		}
+		controladmin.WriteJSON(ctx.Response, http.StatusOK, g.ValidateTranscodeProfile(profile))
+	}}, opts...)
+	s.AddRoute(rest.Route{Method: http.MethodPost, Path: pathPrefix + "/transcode/profiles/diff", Handler: func(ctx *rest.Context) {
+		if !authorizeGatewayAdmin(ctx, token) {
+			return
+		}
+		profile, ok := decodeTranscodeProfile(ctx)
+		if !ok {
+			return
+		}
+		controladmin.WriteJSON(ctx.Response, http.StatusOK, g.ValidateTranscodeProfile(profile))
+	}}, opts...)
 	s.AddRoute(rest.Route{Method: http.MethodPost, Path: pathPrefix + "/routes", Handler: func(ctx *rest.Context) {
 		if !authorizeGatewayAdmin(ctx, token) {
 			return
@@ -147,6 +167,15 @@ func (g *Gateway) RegisterAdminWithAudit(s *rest.Server, pathPrefix string, toke
 			governanceAdmin.ServeHTTP(ctx.Response, ctx.Request)
 		}}, opts...)
 	}
+}
+
+func decodeTranscodeProfile(ctx *rest.Context) (TranscodeProfile, bool) {
+	var profile TranscodeProfile
+	if err := json.NewDecoder(ctx.Request.Body).Decode(&profile); err != nil {
+		controladmin.WriteError(ctx.Response, http.StatusBadRequest, err.Error())
+		return TranscodeProfile{}, false
+	}
+	return profile, true
 }
 
 // FilterTranscodeProfiles returns transcode profiles filtered by optional

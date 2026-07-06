@@ -148,6 +148,28 @@ type TranscodeProfile struct {
 	ErrorMappings    []TranscodePayloadMapping `json:"errorMappings,omitempty"`
 }
 
+// TranscodeProfileValidationReport describes a read-only comparison between a
+// candidate profile and the currently registered profile for the same method.
+type TranscodeProfileValidationReport struct {
+	OK         bool                     `json:"ok"`
+	Compatible bool                     `json:"compatible"`
+	Errors     []string                 `json:"errors,omitempty"`
+	Changes    []TranscodeProfileChange `json:"changes,omitempty"`
+	Current    *TranscodeProfile        `json:"current,omitempty"`
+	Candidate  TranscodeProfile         `json:"candidate"`
+}
+
+// TranscodeProfileChange describes one request/response/error mapping contract
+// difference.
+type TranscodeProfileChange struct {
+	Kind     string `json:"kind"`
+	Scope    string `json:"scope"`
+	Source   string `json:"source,omitempty"`
+	Target   string `json:"target,omitempty"`
+	Severity string `json:"severity"`
+	Message  string `json:"message"`
+}
+
 // AggregationConfig enables BFF-style fan-out aggregation for a route. When
 // enabled, the gateway issues each step as an upstream HTTP request and returns
 // a JSON envelope keyed by step name.
@@ -931,19 +953,7 @@ func (g *Gateway) RegisterTranscodeProfile(profile TranscodeProfile) error {
 	}
 	profile.Descriptor = strings.TrimSpace(profile.Descriptor)
 	profile.DescriptorMethod = strings.Trim(strings.TrimSpace(profile.DescriptorMethod), "/")
-	if profile.Descriptor == "" {
-		return errors.New("transcode profile descriptor is required")
-	}
-	if profile.DescriptorMethod == "" {
-		return errors.New("transcode profile descriptor method is required")
-	}
-	if err := validateTranscodePayloadMappings("request", profile.RequestMappings); err != nil {
-		return err
-	}
-	if err := validateTranscodePayloadMappings("response", profile.ResponseMappings); err != nil {
-		return err
-	}
-	if err := validateTranscodePayloadMappings("error", profile.ErrorMappings); err != nil {
+	if err := validateTranscodeProfile(profile); err != nil {
 		return err
 	}
 	g.mu.Lock()
@@ -984,6 +994,46 @@ func (g *Gateway) TranscodeProfiles() []TranscodeProfile {
 		return transcodeProfileKey(out[i].Descriptor, out[i].DescriptorMethod) < transcodeProfileKey(out[j].Descriptor, out[j].DescriptorMethod)
 	})
 	return out
+}
+
+// ValidateTranscodeProfile compares a candidate profile with the registered
+// profile for the same descriptor method without mutating gateway state.
+func (g *Gateway) ValidateTranscodeProfile(candidate TranscodeProfile) TranscodeProfileValidationReport {
+	candidate.Descriptor = strings.TrimSpace(candidate.Descriptor)
+	candidate.DescriptorMethod = strings.Trim(strings.TrimSpace(candidate.DescriptorMethod), "/")
+	report := TranscodeProfileValidationReport{OK: true, Compatible: true, Candidate: cloneTranscodeProfile(candidate)}
+	if err := validateTranscodeProfile(candidate); err != nil {
+		report.OK = false
+		report.Compatible = false
+		report.Errors = append(report.Errors, err.Error())
+		return report
+	}
+	if g == nil {
+		return report
+	}
+	g.mu.RLock()
+	current, ok := g.transcodeProfiles[transcodeProfileKey(candidate.Descriptor, candidate.DescriptorMethod)]
+	g.mu.RUnlock()
+	if !ok {
+		report.Changes = append(report.Changes, TranscodeProfileChange{
+			Kind:     "add_profile",
+			Severity: "info",
+			Message:  "candidate profile is new",
+		})
+		return report
+	}
+	current = cloneTranscodeProfile(current)
+	report.Current = &current
+	report.Changes = append(report.Changes, compareTranscodeProfileMappings("request", current.RequestMappings, candidate.RequestMappings)...)
+	report.Changes = append(report.Changes, compareTranscodeProfileMappings("response", current.ResponseMappings, candidate.ResponseMappings)...)
+	report.Changes = append(report.Changes, compareTranscodeProfileMappings("error", current.ErrorMappings, candidate.ErrorMappings)...)
+	for _, change := range report.Changes {
+		if change.Severity == "breaking" {
+			report.Compatible = false
+			break
+		}
+	}
+	return report
 }
 
 // AddRoute appends a new route to the gateway.
@@ -1912,6 +1962,25 @@ func transcodeProfileKey(descriptor, method string) string {
 	return strings.TrimSpace(descriptor) + "/" + strings.Trim(strings.TrimSpace(method), "/")
 }
 
+func validateTranscodeProfile(profile TranscodeProfile) error {
+	if strings.TrimSpace(profile.Descriptor) == "" {
+		return errors.New("transcode profile descriptor is required")
+	}
+	if strings.Trim(strings.TrimSpace(profile.DescriptorMethod), "/") == "" {
+		return errors.New("transcode profile descriptor method is required")
+	}
+	if err := validateTranscodePayloadMappings("request", profile.RequestMappings); err != nil {
+		return err
+	}
+	if err := validateTranscodePayloadMappings("response", profile.ResponseMappings); err != nil {
+		return err
+	}
+	if err := validateTranscodePayloadMappings("error", profile.ErrorMappings); err != nil {
+		return err
+	}
+	return nil
+}
+
 func validateTranscodePayloadMappings(kind string, mappings []TranscodePayloadMapping) error {
 	for _, mapping := range mappings {
 		if err := validateTranscodeMappingPath(kind+" source", mapping.Source, true, true); err != nil {
@@ -1922,6 +1991,62 @@ func validateTranscodePayloadMappings(kind string, mappings []TranscodePayloadMa
 		}
 	}
 	return nil
+}
+
+func compareTranscodeProfileMappings(scope string, current, candidate []TranscodePayloadMapping) []TranscodeProfileChange {
+	currentBySource := transcodeMappingBySource(current)
+	candidateBySource := transcodeMappingBySource(candidate)
+	var changes []TranscodeProfileChange
+	for source, currentMapping := range currentBySource {
+		candidateMapping, ok := candidateBySource[source]
+		if !ok {
+			changes = append(changes, TranscodeProfileChange{
+				Kind:     "remove_mapping",
+				Scope:    scope,
+				Source:   source,
+				Target:   currentMapping.Target,
+				Severity: "breaking",
+				Message:  "candidate removes an existing mapping",
+			})
+			continue
+		}
+		if strings.TrimSpace(currentMapping.Target) != strings.TrimSpace(candidateMapping.Target) {
+			changes = append(changes, TranscodeProfileChange{
+				Kind:     "change_target",
+				Scope:    scope,
+				Source:   source,
+				Target:   candidateMapping.Target,
+				Severity: "breaking",
+				Message:  "candidate changes an existing mapping target",
+			})
+		}
+	}
+	for source, candidateMapping := range candidateBySource {
+		if _, ok := currentBySource[source]; ok {
+			continue
+		}
+		changes = append(changes, TranscodeProfileChange{
+			Kind:     "add_mapping",
+			Scope:    scope,
+			Source:   source,
+			Target:   candidateMapping.Target,
+			Severity: "info",
+			Message:  "candidate adds a new mapping",
+		})
+	}
+	return changes
+}
+
+func transcodeMappingBySource(mappings []TranscodePayloadMapping) map[string]TranscodePayloadMapping {
+	out := make(map[string]TranscodePayloadMapping, len(mappings))
+	for _, mapping := range mappings {
+		source := strings.TrimSpace(mapping.Source)
+		if source == "" && mapping.Default != nil {
+			source = "default:" + strings.TrimSpace(mapping.Target)
+		}
+		out[source] = mapping
+	}
+	return out
 }
 
 func validateTranscodeMappingPath(label, path string, allowEmptySource bool, source bool) error {

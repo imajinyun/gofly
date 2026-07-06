@@ -1528,6 +1528,11 @@ func TestGatewayAdminTranscodeDiagnosticsFilters(t *testing.T) {
 	if unauthorizedProfiles.Code != http.StatusUnauthorized {
 		t.Fatalf("unauthorized profiles status = %d", unauthorizedProfiles.Code)
 	}
+	unauthorizedValidate := httptest.NewRecorder()
+	s.Handler().ServeHTTP(unauthorizedValidate, httptest.NewRequest(http.MethodPost, "/admin/gateway/transcode/profiles/validate", strings.NewReader(`{}`)))
+	if unauthorizedValidate.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthorized validate status = %d", unauthorizedValidate.Code)
+	}
 
 	tests := []struct {
 		name string
@@ -1582,6 +1587,30 @@ func TestGatewayAdminTranscodeDiagnosticsFilters(t *testing.T) {
 				t.Fatalf("profiles body missing %q: %s", tt.want, rec.Body.String())
 			}
 		})
+	}
+
+	validateProfile := func(t *testing.T, path string, body string) string {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+		req.Header.Set(auth.AuthorizationHeader, "Bearer secret")
+		rec := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("validate status = %d body = %s", rec.Code, rec.Body.String())
+		}
+		return rec.Body.String()
+	}
+	compatible := validateProfile(t, "/admin/gateway/transcode/profiles/validate", `{"descriptor":"examples.greeter.Greeter","descriptorMethod":"SayHello","requestMappings":[{"source":"body.name","target":"name"},{"source":"body.trace","target":"trace"}],"responseMappings":[{"source":"body.message","target":"data"},{"source":"body.meta.trace","target":"data.trace"}]}`)
+	if !strings.Contains(compatible, `"ok":true`) || !strings.Contains(compatible, `"compatible":true`) || !strings.Contains(compatible, `"kind":"add_mapping"`) {
+		t.Fatalf("compatible validate report = %s", compatible)
+	}
+	breaking := validateProfile(t, "/admin/gateway/transcode/profiles/diff", `{"descriptor":"examples.greeter.Greeter","descriptorMethod":"SayHello","requestMappings":[{"source":"body.name","target":"person.name"}]}`)
+	if !strings.Contains(breaking, `"ok":true`) || !strings.Contains(breaking, `"compatible":false`) || !strings.Contains(breaking, `"severity":"breaking"`) || !strings.Contains(breaking, `"kind":"change_target"`) {
+		t.Fatalf("breaking diff report = %s", breaking)
+	}
+	invalid := validateProfile(t, "/admin/gateway/transcode/profiles/validate", `{"descriptor":"examples.greeter.Greeter","descriptorMethod":"SayHello","requestMappings":[{"source":"bad.name","target":"name"}]}`)
+	if !strings.Contains(invalid, `"ok":false`) || !strings.Contains(invalid, `"compatible":false`) || !strings.Contains(invalid, "must start with body, path, or query") {
+		t.Fatalf("invalid validate report = %s", invalid)
 	}
 }
 

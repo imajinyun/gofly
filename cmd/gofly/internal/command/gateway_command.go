@@ -8,6 +8,7 @@ import (
 
 	"github.com/imajinyun/gofly/cmd/gofly/internal/generator"
 	"github.com/imajinyun/gofly/gateway"
+	"github.com/imajinyun/gofly/rest"
 )
 
 func gatewayCommand(args []string) error {
@@ -140,6 +141,8 @@ func gatewayAggregationValidateCommand(args []string) error {
 	fs := flag.NewFlagSet("gateway aggregation validate", flag.ContinueOnError)
 	configPath := fs.String("config", "", "gateway config json file")
 	candidatePath := fs.String("candidate", "", "candidate aggregation json file")
+	openAPIBasePath := fs.String("openapi-base", "", "base OpenAPI json file")
+	openAPICandidatePath := fs.String("openapi-candidate", "", "candidate OpenAPI json file")
 	routeName := fs.String("route", "", "route name or route key")
 	formatName := registerCLIFormatFlag(fs, outputJSON, "output format: text or json")
 	jsonFlag := registerCLIJSONOutputFlag(fs, "output JSON")
@@ -153,6 +156,12 @@ func gatewayAggregationValidateCommand(args []string) error {
 	}
 	if *candidatePath == "" && len(remaining) > 0 {
 		*candidatePath = remaining[0]
+	}
+	if *openAPIBasePath != "" || *openAPICandidatePath != "" {
+		if *openAPIBasePath == "" || *openAPICandidatePath == "" {
+			return fmt.Errorf("%w: --openapi-base and --openapi-candidate are required together", errUsage)
+		}
+		return gatewayAggregationValidateOpenAPICommand(*openAPIBasePath, *openAPICandidatePath, *routeName, formatName, jsonFlag)
 	}
 	if *configPath == "" || *candidatePath == "" {
 		return fmt.Errorf("%w: --config and --candidate are required", errUsage)
@@ -179,6 +188,70 @@ func gatewayAggregationValidateCommand(args []string) error {
 	}
 	printGatewayAggregationValidationText(report)
 	return nil
+}
+
+func gatewayAggregationValidateOpenAPICommand(basePath, candidatePath, routeName string, formatName *string, jsonFlag *bool) error {
+	baseDoc, err := readGatewayOpenAPIDocument(basePath)
+	if err != nil {
+		return err
+	}
+	candidateDoc, err := readGatewayOpenAPIDocument(candidatePath)
+	if err != nil {
+		return err
+	}
+	importOptions := gateway.OpenAPIRouteOptions{GatewayPrefix: "/", Service: "openapi", Targets: []string{"http://127.0.0.1:1"}}
+	baseRoutes, err := gateway.RouteConfigsFromOpenAPI(baseDoc, importOptions)
+	if err != nil {
+		return fmt.Errorf("import base openapi aggregation routes: %w", err)
+	}
+	candidateRoutes, err := gateway.RouteConfigsFromOpenAPI(candidateDoc, importOptions)
+	if err != nil {
+		return fmt.Errorf("import candidate openapi aggregation routes: %w", err)
+	}
+	current := gateway.Config{Routes: baseRoutes}
+	candidate, err := gatewayAggregationFromRoutes(candidateRoutes, routeName)
+	if err != nil {
+		return err
+	}
+	gw, err := gateway.NewFromConfig(current, nil)
+	if err != nil {
+		return fmt.Errorf("load base openapi aggregation config: %w", err)
+	}
+	report := gw.ValidateAggregation(routeName, candidate)
+	format, err := normalizeCLIFormat(formatName, outputJSON, outputText, outputJSON)
+	if err != nil {
+		return err
+	}
+	if valueFromBoolFlag(jsonFlag) || outputMode() == outputJSON || format == outputJSON {
+		return printJSONEnvelope("gateway.aggregation.validate", report)
+	}
+	printGatewayAggregationValidationText(report)
+	return nil
+}
+
+func readGatewayOpenAPIDocument(path string) (rest.OpenAPIDocument, error) {
+	data, err := readExplicitInputFile(path, "openapi document")
+	if err != nil {
+		return rest.OpenAPIDocument{}, err
+	}
+	var doc rest.OpenAPIDocument
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return rest.OpenAPIDocument{}, fmt.Errorf("decode openapi document: %w", err)
+	}
+	return doc, nil
+}
+
+func gatewayAggregationFromRoutes(routes []gateway.RouteConfig, routeName string) (gateway.AggregationConfig, error) {
+	routeName = strings.TrimSpace(routeName)
+	for _, route := range routes {
+		routeID := strings.TrimSpace(route.Method) + " " + strings.TrimSpace(route.PathPrefix)
+		if routeName == "" || routeName == route.Name || routeName == routeID {
+			if route.Aggregation.Enabled || len(route.Aggregation.Steps) > 0 || len(route.Aggregation.Shape.Mappings) > 0 || strings.TrimSpace(route.Aggregation.Shape.Mode) != "" {
+				return route.Aggregation, nil
+			}
+		}
+	}
+	return gateway.AggregationConfig{}, fmt.Errorf("openapi aggregation route %q not found", routeName)
 }
 
 func readGatewayAggregationConfig(path string) (gateway.Config, error) {

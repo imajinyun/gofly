@@ -178,3 +178,83 @@ func TestGatewayAggregationValidateCommandJSON(t *testing.T) {
 		t.Fatalf("changes = %+v, want fallback removal, shape target change, and additive step", envelope.Data.Changes)
 	}
 }
+
+func TestGatewayAggregationValidateCommandOpenAPIDiff(t *testing.T) {
+	dir := t.TempDir()
+	basePath := filepath.Join(dir, "base-openapi.json")
+	candidatePath := filepath.Join(dir, "candidate-openapi.json")
+	base := `{
+	  "openapi": "3.0.3",
+	  "info": {"title": "edge", "version": "1.0.0"},
+	  "paths": {"/home": {"get": {
+	    "operationId": "home",
+	    "responses": {"200": {"description": "ok"}},
+	    "x-gofly-aggregation": {
+	      "shape": {"mappings": [
+	        {"source": "body.data.profile", "target": "profile"},
+	        {"source": "body.data.orders", "target": "orders"}
+	      ]},
+	      "steps": [
+	        {"name": "profile", "path": "/profile", "fallback": {"id": "anonymous"}},
+	        {"name": "orders", "path": "/orders", "fallback": []}
+	      ]
+	    }
+	  }}}
+	}`
+	candidate := `{
+	  "openapi": "3.0.3",
+	  "info": {"title": "edge", "version": "1.0.0"},
+	  "paths": {"/home": {"get": {
+	    "operationId": "home",
+	    "responses": {"200": {"description": "ok"}},
+	    "x-gofly-aggregation": {
+	      "shape": {"mappings": [
+	        {"source": "body.data.profile", "target": "profile"},
+	        {"source": "body.data.orders", "target": "items"}
+	      ]},
+	      "steps": [
+	        {"name": "profile", "path": "/profile", "fallback": {"id": "anonymous"}},
+	        {"name": "orders", "path": "/orders"}
+	      ]
+	    }
+	  }}}
+	}`
+	if err := os.WriteFile(basePath, []byte(base), 0o600); err != nil {
+		t.Fatalf("write base openapi: %v", err)
+	}
+	if err := os.WriteFile(candidatePath, []byte(candidate), 0o600); err != nil {
+		t.Fatalf("write candidate openapi: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	if err := ExecuteWithIO([]string{"gateway", "aggregation", "validate", "--openapi-base", basePath, "--openapi-candidate", candidatePath, "--route", "home", "--json"}, IOStreams{Out: &stdout}); err != nil {
+		t.Fatalf("gateway aggregation openapi validate: %v", err)
+	}
+	var envelope struct {
+		Command string `json:"command"`
+		Data    struct {
+			Compatible bool `json:"compatible"`
+			Changes    []struct {
+				Kind string `json:"kind"`
+			} `json:"changes"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode openapi aggregation envelope: %v\n%s", err, stdout.String())
+	}
+	if envelope.Command != "gateway.aggregation.validate" || envelope.Data.Compatible {
+		t.Fatalf("openapi aggregation envelope = %+v, want breaking validation", envelope)
+	}
+	var sawRemoveFallback, sawChangeTarget bool
+	for _, change := range envelope.Data.Changes {
+		if change.Kind == "remove_fallback" {
+			sawRemoveFallback = true
+		}
+		if change.Kind == "change_target" {
+			sawChangeTarget = true
+		}
+	}
+	if !sawRemoveFallback || !sawChangeTarget {
+		t.Fatalf("openapi aggregation changes = %+v, want remove_fallback and change_target", envelope.Data.Changes)
+	}
+}

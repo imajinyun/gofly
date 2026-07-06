@@ -101,7 +101,7 @@ func gatewayAggregationValidateOutputContract() *aiOutputContract {
 		},
 		Semantics: map[string]string{
 			"command":       "gateway.aggregation.validate",
-			"contract":      "compares a candidate BFF aggregation step and response-shape contract against current gateway config without mutating runtime state",
+			"contract":      "compares a candidate BFF aggregation step and response-shape contract against current gateway config or old/new OpenAPI x-gofly-aggregation contracts without mutating runtime state",
 			"breakingDiff":  "removed steps, fallback loss, path changes, shape mode changes, and target changes are reported as breaking changes",
 			"ciIntegration": "suitable for generated project and release gates before accepting BFF aggregation contract changes",
 		},

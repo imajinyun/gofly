@@ -75,3 +75,19 @@ func aiDoctorOutputContract() *aiOutputContract {
 		},
 	}
 }
+
+func gatewayProfileValidateOutputContract() *aiOutputContract {
+	return &aiOutputContract{
+		Mode:     "single JSON envelope when --json, --output json or --format json is used; text summary otherwise",
+		Envelope: []string{"ok", "command", "version", "data", "error"},
+		EventFields: []string{
+			"ok", "compatible", "errors", "changes", "current", "candidate",
+		},
+		Semantics: map[string]string{
+			"command":       "gateway.profile.validate",
+			"contract":      "compares a candidate descriptor-method transcode profile against current config without mutating runtime state",
+			"breakingDiff":  "removed mappings or target changes are reported as breaking changes",
+			"ciIntegration": "suitable for generated project and release gates before accepting profile mapping changes",
+		},
+	}
+}

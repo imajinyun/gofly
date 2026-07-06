@@ -2308,7 +2308,7 @@ func TestExecuteAIManifestJSONEnvelope(t *testing.T) {
 			}
 		}{RiskLevel: command.RiskLevel, SupportsDryRun: command.SupportsDryRun, MutatesFilesystem: command.MutatesFilesystem, OutputFormats: command.OutputFormats, OutputContract: command.OutputContract}
 	}
-	for _, want := range []string{"ai complete", "ai manifest", "ai stream", "feature run", "new service", "new api", "plugin run", "version"} {
+	for _, want := range []string{"ai complete", "ai manifest", "ai stream", "feature run", "gateway profile validate", "new service", "new api", "plugin run", "version"} {
 		if _, ok := commands[want]; !ok {
 			t.Fatalf("ai manifest commands missing %q: %+v", want, commands)
 		}
@@ -2324,6 +2324,12 @@ func TestExecuteAIManifestJSONEnvelope(t *testing.T) {
 	}
 	if !commands["feature run"].SupportsDryRun || commands["feature run"].MutatesFilesystem {
 		t.Fatalf("feature run manifest should be preview-only: %+v", commands["feature run"])
+	}
+	if !commands["gateway profile validate"].SupportsDryRun || commands["gateway profile validate"].MutatesFilesystem || commands["gateway profile validate"].RiskLevel != "read" || !commandContainsString(commands["gateway profile validate"].OutputFormats, "json") {
+		t.Fatalf("gateway profile validate manifest should be read-only JSON-capable: %+v", commands["gateway profile validate"])
+	}
+	if commands["gateway profile validate"].OutputContract.Semantics["ciIntegration"] == "" || !commandContainsString(commands["gateway profile validate"].OutputContract.EventFields, "changes") {
+		t.Fatalf("gateway profile validate output contract = %+v, want CI profile diff fields", commands["gateway profile validate"].OutputContract)
 	}
 	if commands["plugin run"].RiskLevel != "high" || !commands["plugin run"].MutatesFilesystem {
 		t.Fatalf("plugin run manifest should expose high-risk filesystem mutation: %+v", commands["plugin run"])

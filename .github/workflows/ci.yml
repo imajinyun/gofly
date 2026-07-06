@@ -365,6 +365,20 @@ jobs:
           make aiflow-profile-gate-check
           make required-checks-drift-check
 
+      - name: Gateway aggregation diff summary
+        run: |
+          tmp="$(mktemp -d)"
+          go run ./cmd/gofly gen gateway edge --module example.com/edge --dir "$tmp/edge"
+          {
+            echo "## Gateway aggregation contract"
+            echo
+            go run ./cmd/gofly gateway aggregation validate \
+              --openapi-base "$tmp/edge/etc/edge-openapi-base.json" \
+              --openapi-candidate "$tmp/edge/etc/edge-openapi-candidate.json" \
+              --route home \
+              --format markdown
+          } >> "$GITHUB_STEP_SUMMARY"
+
   contract-check:
     name: contract / api+rpc (check + breaking)
     runs-on: ubuntu-latest

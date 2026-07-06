@@ -37,6 +37,7 @@ require("sh $(SCRIPTS_DIR)/check-required-checks-drift.sh" in makefile, "require
 require(gateway_job, "ci.yml must define gateway-profile-contract job")
 require("name: gateway profile contract" in gateway_job, "gateway-profile-contract job must publish required check name")
 require("Gateway profile contract gate" in gateway_job, "gateway-profile-contract job must have an explicit gate step")
+require("Gateway aggregation diff summary" in gateway_job, "gateway-profile-contract job must publish aggregation markdown summary")
 for token in (
     "GatewayProfileValidateCommandJSON",
     "GatewayProfileValidateCommandBreakingAndUsage",
@@ -46,6 +47,8 @@ for token in (
     "ExecuteAIManifestJSONEnvelope",
     "ExecuteAIManifestAliasAndText",
     "TestAINewGeneratedProjectVerificationMatrix",
+    "--format markdown",
+    "$GITHUB_STEP_SUMMARY",
     "make aiflow-profile-gate-check",
     "make required-checks-drift-check",
 ):

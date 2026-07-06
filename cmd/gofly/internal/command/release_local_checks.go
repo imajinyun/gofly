@@ -1,9 +1,15 @@
 package command
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
+
+	"github.com/imajinyun/gofly/cmd/gofly/internal/generator"
+	"github.com/imajinyun/gofly/gateway"
 )
 
 func releaseGoAPICompatCheck() (releaseCheckItem, []string) {
@@ -49,4 +55,87 @@ func releaseGoModTidyCheck() (releaseCheckItem, []string) {
 	}
 	item.Detail = "clean"
 	return item, nil
+}
+
+func releaseGatewayProfileContractCheck() (releaseCheckItem, []string) {
+	item := releaseCheckItem{Name: "gateway-profile-contract", Status: "pass"}
+	dir, err := os.MkdirTemp("", "gofly-release-gateway-profile-*")
+	if err != nil {
+		item.Status = "fail"
+		item.Detail = err.Error()
+		item.Blocker = true
+		return item, []string{"generated gateway profile contract check failed"}
+	}
+	defer os.RemoveAll(dir)
+
+	projectDir := filepath.Join(dir, "edge")
+	if err := generator.GenerateGateway(generator.GatewayOptions{Name: "edge", Module: "example.com/edge", Dir: projectDir}); err != nil {
+		item.Status = "fail"
+		item.Detail = err.Error()
+		item.Blocker = true
+		return item, []string{"generated gateway profile contract check failed"}
+	}
+	profiles, err := readReleaseGatewayProfiles(filepath.Join(projectDir, "etc", "edge.json"))
+	if err != nil {
+		item.Status = "fail"
+		item.Detail = err.Error()
+		item.Blocker = true
+		return item, []string{"generated gateway profile contract check failed"}
+	}
+	candidate, err := readReleaseGatewayProfileCandidate(filepath.Join(projectDir, "etc", "edge-profile-candidate.json"))
+	if err != nil {
+		item.Status = "fail"
+		item.Detail = err.Error()
+		item.Blocker = true
+		return item, []string{"generated gateway profile contract check failed"}
+	}
+	gw, err := gateway.New([]gateway.Route{{PathPrefix: "/_release_profile_check", Targets: []string{"http://127.0.0.1:1"}}}, gateway.WithTranscodeProfiles(profiles...))
+	if err != nil {
+		item.Status = "fail"
+		item.Detail = err.Error()
+		item.Blocker = true
+		return item, []string{"generated gateway profile contract check failed"}
+	}
+	report := gw.ValidateTranscodeProfile(candidate)
+	switch {
+	case !report.OK:
+		item.Status = "fail"
+		item.Detail = strings.Join(report.Errors, "; ")
+		item.Blocker = true
+		return item, []string{"generated gateway profile candidate is invalid"}
+	case !report.Compatible:
+		item.Status = "fail"
+		item.Detail = "generated gateway profile candidate contains breaking mapping changes"
+		item.Blocker = true
+		return item, []string{"generated gateway profile candidate has breaking mapping changes"}
+	default:
+		item.Detail = fmt.Sprintf("compatible profile diff with %d change(s)", len(report.Changes))
+		return item, nil
+	}
+}
+
+func readReleaseGatewayProfiles(path string) ([]gateway.TranscodeProfile, error) {
+	data, err := os.ReadFile(path) // #nosec G304 -- release check reads a generated file from a temporary project directory it just created.
+	if err != nil {
+		return nil, fmt.Errorf("read gateway config: %w", err)
+	}
+	var config struct {
+		TranscodeProfiles []gateway.TranscodeProfile `json:"transcodeProfiles"`
+	}
+	if err := json.Unmarshal(data, &config); err != nil {
+		return nil, fmt.Errorf("decode gateway config: %w", err)
+	}
+	return config.TranscodeProfiles, nil
+}
+
+func readReleaseGatewayProfileCandidate(path string) (gateway.TranscodeProfile, error) {
+	data, err := os.ReadFile(path) // #nosec G304 -- release check reads a generated file from a temporary project directory it just created.
+	if err != nil {
+		return gateway.TranscodeProfile{}, fmt.Errorf("read candidate profile: %w", err)
+	}
+	var candidate gateway.TranscodeProfile
+	if err := json.Unmarshal(data, &candidate); err != nil {
+		return gateway.TranscodeProfile{}, fmt.Errorf("decode candidate profile: %w", err)
+	}
+	return candidate, nil
 }

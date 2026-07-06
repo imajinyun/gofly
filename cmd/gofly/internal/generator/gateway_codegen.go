@@ -30,14 +30,14 @@ func GenerateGateway(opts GatewayOptions) error {
 	data["GatewayConfigJSON"] = render(gatewayConfigTemplate, data)
 	files := map[string]string{
 		"go.mod": gatewayGoModTemplate,
-		filepath.Join("cmd", opts.Name, "main.go"):            gatewayMainTemplate,
-		filepath.Join("etc", opts.Name+".json"):               gatewayConfigTemplate,
+		filepath.Join("cmd", opts.Name, "main.go"):                gatewayMainTemplate,
+		filepath.Join("etc", opts.Name+".json"):                   gatewayConfigTemplate,
 		filepath.Join("etc", opts.Name+"-profile-candidate.json"): gatewayProfileCandidateTemplate,
-		filepath.Join("internal", "config", "config.go"):      gatewayConfigGoTemplate,
-		filepath.Join("internal", "config", "config_test.go"): gatewayConfigTestTemplate,
-		filepath.Join("internal", "mq", "broker.go"):          mqBrokerTemplate,
-		filepath.Join("internal", "routes", "routes.go"):      gatewayRoutesTemplate,
-		filepath.Join("internal", "svc", "service.go"):        gatewaySvcTemplate,
+		filepath.Join("internal", "config", "config.go"):          gatewayConfigGoTemplate,
+		filepath.Join("internal", "config", "config_test.go"):     gatewayConfigTestTemplate,
+		filepath.Join("internal", "mq", "broker.go"):              mqBrokerTemplate,
+		filepath.Join("internal", "routes", "routes.go"):          gatewayRoutesTemplate,
+		filepath.Join("internal", "svc", "service.go"):            gatewaySvcTemplate,
 	}
 	for rel, tmpl := range files {
 		path := filepath.Join(opts.Dir, rel)
@@ -554,11 +554,13 @@ const gatewayProfileCandidateTemplate = `{
   "descriptorMethod": "GetOrder",
   "requestMappings": [
     {"source": "body.id", "target": "order.id"},
-    {"source": "body.trace", "target": "meta.trace"}
+    {"source": "body.trace", "target": "meta.trace"},
+    {"target": "meta.region", "default": "cn"}
   ],
   "responseMappings": [
     {"source": "body.id", "target": "data.id"},
-    {"source": "body.source", "target": "meta.source"}
+    {"source": "body.source", "target": "meta.source"},
+    {"target": "meta.profile", "default": "descriptor"}
   ],
   "errorMappings": [
     {"source": "body.code", "target": "error.code"},

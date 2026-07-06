@@ -68,6 +68,11 @@ func releaseCheckCommand(args []string) error {
 	blockers = append(blockers, checkBlockers...)
 	report.Checks = append(report.Checks, tidyItem)
 
+	// 6. Generated gateway transcode profile contract check.
+	gatewayProfileItem, checkBlockers := releaseGatewayProfileContractCheck()
+	blockers = append(blockers, checkBlockers...)
+	report.Checks = append(report.Checks, gatewayProfileItem)
+
 	// Determine recommended SemVer bump.
 	report.Recommended = recommendSemver(blockers, warnings)
 	report.Blocking = blockers

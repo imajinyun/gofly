@@ -158,6 +158,13 @@ func TestReleaseCheckCommandJSONAndChangelogBlocker(t *testing.T) {
 	}
 }
 
+func TestReleaseGatewayProfileContractCheck(t *testing.T) {
+	item, blockers := releaseGatewayProfileContractCheck()
+	if item.Name != "gateway-profile-contract" || item.Status != "pass" || item.Blocker || len(blockers) != 0 || !strings.Contains(item.Detail, "compatible profile diff") {
+		t.Fatalf("gateway profile release check = %+v blockers=%v, want pass", item, blockers)
+	}
+}
+
 func TestReleaseCheckGlobalJSONDoesNotDuplicateError(t *testing.T) {
 	t.Setenv("API_BASE_REF", "definitely-missing-release-base-ref")
 	dir := t.TempDir()

@@ -207,6 +207,9 @@ func TestGatewayAggregationValidateCommandJSON(t *testing.T) {
 						ArtifactLocation struct {
 							URI string `json:"uri"`
 						} `json:"artifactLocation"`
+						Region struct {
+							StartLine int `json:"startLine"`
+						} `json:"region"`
 					} `json:"physicalLocation"`
 				} `json:"locations"`
 			} `json:"results"`
@@ -232,6 +235,9 @@ func TestGatewayAggregationValidateCommandJSON(t *testing.T) {
 	}
 	if len(sarif.Runs[0].Results[0].Locations) == 0 || sarif.Runs[0].Results[0].Locations[0].PhysicalLocation.ArtifactLocation.URI != candidatePath {
 		t.Fatalf("sarif location = %+v, want candidate path %s", sarif.Runs[0].Results[0].Locations, candidatePath)
+	}
+	if sarif.Runs[0].Results[0].Locations[0].PhysicalLocation.Region.StartLine == 0 {
+		t.Fatalf("sarif region = %+v, want startLine", sarif.Runs[0].Results[0].Locations[0].PhysicalLocation.Region)
 	}
 }
 
@@ -336,6 +342,9 @@ func TestGatewayAggregationValidateCommandOpenAPIDiff(t *testing.T) {
 						ArtifactLocation struct {
 							URI string `json:"uri"`
 						} `json:"artifactLocation"`
+						Region struct {
+							StartLine int `json:"startLine"`
+						} `json:"region"`
 					} `json:"physicalLocation"`
 				} `json:"locations"`
 			} `json:"results"`
@@ -349,7 +358,8 @@ func TestGatewayAggregationValidateCommandOpenAPIDiff(t *testing.T) {
 		invalidSARIF.Runs[0].Results[0].Level != "error" ||
 		!strings.Contains(invalidSARIF.Runs[0].Results[0].Message.Text, "unknown OpenAPI query parameter") ||
 		len(invalidSARIF.Runs[0].Results[0].Locations) == 0 ||
-		invalidSARIF.Runs[0].Results[0].Locations[0].PhysicalLocation.ArtifactLocation.URI != invalidPath {
+		invalidSARIF.Runs[0].Results[0].Locations[0].PhysicalLocation.ArtifactLocation.URI != invalidPath ||
+		invalidSARIF.Runs[0].Results[0].Locations[0].PhysicalLocation.Region.StartLine == 0 {
 		t.Fatalf("invalid sarif = %+v, want aggregation.invalid error", invalidSARIF)
 	}
 }

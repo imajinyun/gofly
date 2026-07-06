@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 
@@ -477,10 +478,15 @@ type gatewayAggregationLocation struct {
 
 type gatewayAggregationPhysicalLocation struct {
 	ArtifactLocation gatewayAggregationArtifactLocation `json:"artifactLocation"`
+	Region           *gatewayAggregationRegion          `json:"region,omitempty"`
 }
 
 type gatewayAggregationArtifactLocation struct {
 	URI string `json:"uri"`
+}
+
+type gatewayAggregationRegion struct {
+	StartLine int `json:"startLine,omitempty"`
 }
 
 func printGatewayAggregationValidationSARIF(report gateway.AggregationValidationReport, artifactURI string) error {
@@ -488,6 +494,7 @@ func printGatewayAggregationValidationSARIF(report gateway.AggregationValidation
 	if artifactURI == "" {
 		artifactURI = "gateway-aggregation-contract"
 	}
+	locator := newGatewayAggregationSARIFLocator(artifactURI)
 	seenRules := map[string]gatewayAggregationRule{}
 	results := make([]gatewayAggregationResult, 0, len(report.Changes)+len(report.Errors))
 	for _, errText := range report.Errors {
@@ -498,7 +505,7 @@ func printGatewayAggregationValidationSARIF(report gateway.AggregationValidation
 			Level:   "error",
 			Message: gatewayAggregationSARIFMessage{Text: errText},
 			Locations: []gatewayAggregationLocation{{
-				PhysicalLocation: gatewayAggregationPhysicalLocation{ArtifactLocation: gatewayAggregationArtifactLocation{URI: artifactURI}},
+				PhysicalLocation: locator.location(gatewayAggregationErrorLocatorText(errText)...),
 			}},
 		})
 	}
@@ -519,7 +526,7 @@ func printGatewayAggregationValidationSARIF(report gateway.AggregationValidation
 			Level:   level,
 			Message: gatewayAggregationSARIFMessage{Text: gatewayAggregationChangeMessage(change)},
 			Locations: []gatewayAggregationLocation{{
-				PhysicalLocation: gatewayAggregationPhysicalLocation{ArtifactLocation: gatewayAggregationArtifactLocation{URI: artifactURI}},
+				PhysicalLocation: locator.location(gatewayAggregationChangeLocatorText(change)...),
 			}},
 		})
 	}
@@ -537,6 +544,66 @@ func printGatewayAggregationValidationSARIF(report gateway.AggregationValidation
 		}},
 	}
 	return printJSON(payload)
+}
+
+type gatewayAggregationSARIFLocator struct {
+	uri   string
+	lines []string
+}
+
+func newGatewayAggregationSARIFLocator(uri string) gatewayAggregationSARIFLocator {
+	locator := gatewayAggregationSARIFLocator{uri: uri}
+	if data, err := os.ReadFile(uri); err == nil {
+		locator.lines = strings.Split(string(data), "\n")
+	}
+	return locator
+}
+
+func (l gatewayAggregationSARIFLocator) location(needles ...string) gatewayAggregationPhysicalLocation {
+	location := gatewayAggregationPhysicalLocation{ArtifactLocation: gatewayAggregationArtifactLocation{URI: l.uri}}
+	line := l.line(needles...)
+	if line > 0 {
+		location.Region = &gatewayAggregationRegion{StartLine: line}
+	}
+	return location
+}
+
+func (l gatewayAggregationSARIFLocator) line(needles ...string) int {
+	for _, needle := range needles {
+		needle = strings.TrimSpace(needle)
+		if needle == "" {
+			continue
+		}
+		for index, line := range l.lines {
+			if strings.Contains(line, needle) {
+				return index + 1
+			}
+		}
+	}
+	for index, line := range l.lines {
+		if strings.Contains(line, "x-gofly-aggregation") {
+			return index + 1
+		}
+	}
+	return 0
+}
+
+func gatewayAggregationChangeLocatorText(change gateway.TranscodeProfileChange) []string {
+	out := []string{change.Source, change.Target, strings.TrimPrefix(change.Scope, "aggregation_request_header/"), strings.TrimPrefix(change.Scope, "aggregation_request_query/"), strings.TrimPrefix(change.Scope, "aggregation_request_body/")}
+	if strings.HasPrefix(change.Source, "default:") {
+		out = append(out, strings.TrimPrefix(change.Source, "default:"))
+	}
+	return out
+}
+
+func gatewayAggregationErrorLocatorText(text string) []string {
+	var out []string
+	for _, part := range strings.Split(text, "\"") {
+		if strings.Contains(part, ".") || strings.Contains(part, "-") || strings.Contains(part, "_") {
+			out = append(out, part)
+		}
+	}
+	return out
 }
 
 func gatewayAggregationChangeMessage(change gateway.TranscodeProfileChange) string {

@@ -73,6 +73,11 @@ func releaseCheckCommand(args []string) error {
 	blockers = append(blockers, checkBlockers...)
 	report.Checks = append(report.Checks, gatewayProfileItem)
 
+	// 7. Generated gateway BFF aggregation contract check.
+	gatewayAggregationItem, checkBlockers := releaseGatewayAggregationContractCheck()
+	blockers = append(blockers, checkBlockers...)
+	report.Checks = append(report.Checks, gatewayAggregationItem)
+
 	// Determine recommended SemVer bump.
 	report.Recommended = recommendSemver(blockers, warnings)
 	report.Blocking = blockers

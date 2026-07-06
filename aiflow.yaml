@@ -43,6 +43,7 @@ workspace:
     - go tool
     - gofly release check
     - gofly gateway profile validate
+    - gofly gateway aggregation validate
     - make
 
 commands:
@@ -54,6 +55,7 @@ commands:
     - go tool
     - gofly release check
     - gofly gateway profile validate
+    - gofly gateway aggregation validate
     - git diff
     - git status
     - make governance-10-rounds

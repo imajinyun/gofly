@@ -40,7 +40,9 @@ require("Gateway profile contract gate" in gateway_job, "gateway-profile-contrac
 for token in (
     "GatewayProfileValidateCommandJSON",
     "GatewayProfileValidateCommandBreakingAndUsage",
+    "GatewayAggregationValidateCommandJSON",
     "ReleaseGatewayProfileContractCheck",
+    "ReleaseGatewayAggregationContractCheck",
     "ExecuteAIManifestJSONEnvelope",
     "ExecuteAIManifestAliasAndText",
     "make aiflow-profile-gate-check",
@@ -66,4 +68,3 @@ if missing:
 
 print("required-check drift ok: gateway-profile-contract is hosted, release-blocking, and branch-protection-audited")
 PY
-

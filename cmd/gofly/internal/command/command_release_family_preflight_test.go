@@ -207,6 +207,8 @@ func TestCommandReleaseFamilyPreflightContracts(t *testing.T) {
 		"go-api-compat",
 		"changelog-version",
 		"go-mod-tidy",
+		"gateway-profile-contract",
+		"gateway-aggregation-contract",
 	})
 	if contracts.LocalExecutionBoundary.Status != "file-separated-before-package-split" {
 		t.Fatalf("localExecutionBoundary.status = %q", contracts.LocalExecutionBoundary.Status)
@@ -301,6 +303,8 @@ func loadCommandReleaseFamilyPreflightEvidence(t *testing.T) commandReleaseFamil
 				"go-api-compat",
 				"changelog-version",
 				"go-mod-tidy",
+				"gateway-profile-contract",
+				"gateway-aggregation-contract",
 			},
 			LocalExecutionBoundary: commandReleaseFamilyLocalBoundary{
 				Status:         "file-separated-before-package-split",

@@ -26,6 +26,7 @@ Usage:
     gen gateway --name <name> --module <module> --dir <dir>
   gateway - Inspect and validate gateway contracts.
     gateway profile validate --config <gateway.json> --candidate <profile.json> [--json]
+    gateway aggregation validate --config <gateway.json> --route <route> --candidate <aggregation.json> [--json]
   api - Generate and manage API definition files.
     api format --file|--api <service.api> [--write] [--o <formatted.api>]
     api format --dir <api-dir> [--iu]

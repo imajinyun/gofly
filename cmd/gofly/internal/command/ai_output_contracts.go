@@ -91,3 +91,19 @@ func gatewayProfileValidateOutputContract() *aiOutputContract {
 		},
 	}
 }
+
+func gatewayAggregationValidateOutputContract() *aiOutputContract {
+	return &aiOutputContract{
+		Mode:     "single JSON envelope when --json, --output json or --format json is used; text summary otherwise",
+		Envelope: []string{"ok", "command", "version", "data", "error"},
+		EventFields: []string{
+			"ok", "compatible", "errors", "changes", "current", "candidate",
+		},
+		Semantics: map[string]string{
+			"command":       "gateway.aggregation.validate",
+			"contract":      "compares a candidate BFF aggregation step and response-shape contract against current gateway config without mutating runtime state",
+			"breakingDiff":  "removed steps, fallback loss, path changes, shape mode changes, and target changes are reported as breaking changes",
+			"ciIntegration": "suitable for generated project and release gates before accepting BFF aggregation contract changes",
+		},
+	}
+}

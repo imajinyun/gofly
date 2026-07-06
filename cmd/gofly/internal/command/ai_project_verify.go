@@ -90,7 +90,9 @@ func runAIProjectVerificationCommand(dir, command string, timeout time.Duration)
 	// #nosec G204 -- verification commands are selected from aiProjectVerificationCommandArgs allow-list and never executed through a shell.
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
-	if command == "gofly ai doctor --json" || strings.HasPrefix(command, "gofly gateway profile validate ") {
+	if command == "gofly ai doctor --json" ||
+		strings.HasPrefix(command, "gofly gateway profile validate ") ||
+		strings.HasPrefix(command, "gofly gateway aggregation validate ") {
 		if frameworkPath := strings.TrimSpace(os.Getenv("GOFLY_FRAMEWORK_PATH")); frameworkPath != "" {
 			cmd.Dir = frameworkPath
 		}
@@ -144,6 +146,20 @@ func aiProjectVerificationCommandArgs(command string) (string, []string, bool) {
 			}
 			return "gofly", fields[1:], true
 		}
+		if len(fields) == 11 &&
+			fields[0] == "gofly" &&
+			fields[1] == "gateway" &&
+			fields[2] == "aggregation" &&
+			fields[3] == "validate" &&
+			fields[4] == "--config" &&
+			fields[6] == "--route" &&
+			fields[8] == "--candidate" &&
+			fields[10] == "--json" {
+			if frameworkPath := strings.TrimSpace(os.Getenv("GOFLY_FRAMEWORK_PATH")); frameworkPath != "" {
+				return "go", []string{"run", "./cmd/gofly", "gateway", "aggregation", "validate", "--config", fields[5], "--route", fields[7], "--candidate", fields[9], "--json"}, true
+			}
+			return "gofly", fields[1:], true
+		}
 		return "", nil, false
 	}
 }
@@ -154,22 +170,37 @@ func expandAIProjectVerificationCommand(dir string, command string) string {
 		return command
 	}
 	command = strings.ReplaceAll(command, "<name>", name)
-	return absolutizeGatewayProfileValidateInputs(dir, command)
+	return absolutizeGatewayValidateInputs(dir, command)
 }
 
-func absolutizeGatewayProfileValidateInputs(dir string, command string) string {
+func absolutizeGatewayValidateInputs(dir string, command string) string {
 	fields := strings.Fields(command)
-	if len(fields) != 9 ||
-		fields[0] != "gofly" ||
-		fields[1] != "gateway" ||
-		fields[2] != "profile" ||
-		fields[3] != "validate" ||
-		fields[4] != "--config" ||
-		fields[6] != "--candidate" ||
-		fields[8] != "--json" {
-		return command
+	if len(fields) == 9 &&
+		fields[0] == "gofly" &&
+		fields[1] == "gateway" &&
+		fields[2] == "profile" &&
+		fields[3] == "validate" &&
+		fields[4] == "--config" &&
+		fields[6] == "--candidate" &&
+		fields[8] == "--json" {
+		return absolutizeGatewayValidateFieldInputs(dir, fields, []int{5, 7})
 	}
-	for _, index := range []int{5, 7} {
+	if len(fields) == 11 &&
+		fields[0] == "gofly" &&
+		fields[1] == "gateway" &&
+		fields[2] == "aggregation" &&
+		fields[3] == "validate" &&
+		fields[4] == "--config" &&
+		fields[6] == "--route" &&
+		fields[8] == "--candidate" &&
+		fields[10] == "--json" {
+		return absolutizeGatewayValidateFieldInputs(dir, fields, []int{5, 9})
+	}
+	return command
+}
+
+func absolutizeGatewayValidateFieldInputs(dir string, fields []string, indexes []int) string {
+	for _, index := range indexes {
 		if !filepath.IsAbs(fields[index]) {
 			fields[index] = filepath.Join(dir, fields[index])
 		}

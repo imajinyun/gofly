@@ -30,14 +30,15 @@ func GenerateGateway(opts GatewayOptions) error {
 	data["GatewayConfigJSON"] = render(gatewayConfigTemplate, data)
 	files := map[string]string{
 		"go.mod": gatewayGoModTemplate,
-		filepath.Join("cmd", opts.Name, "main.go"):                gatewayMainTemplate,
-		filepath.Join("etc", opts.Name+".json"):                   gatewayConfigTemplate,
-		filepath.Join("etc", opts.Name+"-profile-candidate.json"): gatewayProfileCandidateTemplate,
-		filepath.Join("internal", "config", "config.go"):          gatewayConfigGoTemplate,
-		filepath.Join("internal", "config", "config_test.go"):     gatewayConfigTestTemplate,
-		filepath.Join("internal", "mq", "broker.go"):              mqBrokerTemplate,
-		filepath.Join("internal", "routes", "routes.go"):          gatewayRoutesTemplate,
-		filepath.Join("internal", "svc", "service.go"):            gatewaySvcTemplate,
+		filepath.Join("cmd", opts.Name, "main.go"):                    gatewayMainTemplate,
+		filepath.Join("etc", opts.Name+".json"):                       gatewayConfigTemplate,
+		filepath.Join("etc", opts.Name+"-profile-candidate.json"):     gatewayProfileCandidateTemplate,
+		filepath.Join("etc", opts.Name+"-aggregation-candidate.json"): gatewayAggregationCandidateTemplate,
+		filepath.Join("internal", "config", "config.go"):              gatewayConfigGoTemplate,
+		filepath.Join("internal", "config", "config_test.go"):         gatewayConfigTestTemplate,
+		filepath.Join("internal", "mq", "broker.go"):                  mqBrokerTemplate,
+		filepath.Join("internal", "routes", "routes.go"):              gatewayRoutesTemplate,
+		filepath.Join("internal", "svc", "service.go"):                gatewaySvcTemplate,
 	}
 	for rel, tmpl := range files {
 		path := filepath.Join(opts.Dir, rel)
@@ -567,6 +568,25 @@ const gatewayProfileCandidateTemplate = `{
     {"source": "body.error", "target": "error.message"},
     {"source": "body.status", "target": "error.status"},
     {"target": "error.source", "default": "rpc"}
+  ]
+}
+`
+
+const gatewayAggregationCandidateTemplate = `{
+  "enabled": true,
+  "shape": {
+    "mode": "flat",
+    "mappings": [
+      {"source": "body.data.profile", "target": "profile"},
+      {"source": "body.data.orders", "target": "orders"},
+      {"source": "body.degraded", "target": "degraded"},
+      {"source": "body.errors", "target": "errors"},
+      {"target": "meta.source", "default": "bff"}
+    ]
+  },
+  "steps": [
+    {"name": "profile", "path": "/profile", "required": true, "fallback": {"id": "anonymous"}},
+    {"name": "orders", "path": "/orders", "timeout": 1000000, "retry": {"attempts": 2, "statuses": [503]}, "fallback": []}
   ]
 }
 `

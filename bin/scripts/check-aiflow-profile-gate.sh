@@ -22,10 +22,12 @@ def require(condition, message):
 
 
 profile_prefix = "gofly gateway profile validate"
+aggregation_prefix = "gofly gateway aggregation validate"
 release_gate = "gofly release check --json"
 
 require("docs/superpowers" in text, "aiflow.yaml must keep docs/superpowers ignored")
 require(f"- {profile_prefix}" in text, "aiflow.yaml must allow gateway profile validate command")
+require(f"- {aggregation_prefix}" in text, "aiflow.yaml must allow gateway aggregation validate command")
 require(f"- {release_gate}" in text, "aiflow.yaml acceptance must include release check JSON gate")
 
 lines = text.splitlines()
@@ -45,7 +47,9 @@ for raw in lines:
         sections.setdefault(".".join(path), []).append(stripped[2:])
 
 require(profile_prefix in sections.get("workspace.command_allowlist", []), "workspace.command_allowlist must include gateway profile validate")
+require(aggregation_prefix in sections.get("workspace.command_allowlist", []), "workspace.command_allowlist must include gateway aggregation validate")
 require(profile_prefix in sections.get("commands.allowlist", []), "commands.allowlist must include gateway profile validate")
+require(aggregation_prefix in sections.get("commands.allowlist", []), "commands.allowlist must include gateway aggregation validate")
 require(release_gate in sections.get("commands.release", []), "commands.release must include release check JSON")
 require(release_gate in sections.get("acceptance.required_commands", []), "acceptance.required_commands must include release check JSON")
 

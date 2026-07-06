@@ -2308,7 +2308,7 @@ func TestExecuteAIManifestJSONEnvelope(t *testing.T) {
 			}
 		}{RiskLevel: command.RiskLevel, SupportsDryRun: command.SupportsDryRun, MutatesFilesystem: command.MutatesFilesystem, OutputFormats: command.OutputFormats, OutputContract: command.OutputContract}
 	}
-	for _, want := range []string{"ai complete", "ai manifest", "ai stream", "feature run", "gateway profile validate", "new service", "new api", "plugin run", "version"} {
+	for _, want := range []string{"ai complete", "ai manifest", "ai stream", "feature run", "gateway profile validate", "gateway aggregation validate", "new service", "new api", "plugin run", "version"} {
 		if _, ok := commands[want]; !ok {
 			t.Fatalf("ai manifest commands missing %q: %+v", want, commands)
 		}
@@ -2330,6 +2330,12 @@ func TestExecuteAIManifestJSONEnvelope(t *testing.T) {
 	}
 	if commands["gateway profile validate"].OutputContract.Semantics["ciIntegration"] == "" || !commandContainsString(commands["gateway profile validate"].OutputContract.EventFields, "changes") {
 		t.Fatalf("gateway profile validate output contract = %+v, want CI profile diff fields", commands["gateway profile validate"].OutputContract)
+	}
+	if !commands["gateway aggregation validate"].SupportsDryRun || commands["gateway aggregation validate"].MutatesFilesystem || commands["gateway aggregation validate"].RiskLevel != "read" || !commandContainsString(commands["gateway aggregation validate"].OutputFormats, "json") {
+		t.Fatalf("gateway aggregation validate manifest should be read-only JSON-capable: %+v", commands["gateway aggregation validate"])
+	}
+	if commands["gateway aggregation validate"].OutputContract.Semantics["ciIntegration"] == "" || !commandContainsString(commands["gateway aggregation validate"].OutputContract.EventFields, "changes") {
+		t.Fatalf("gateway aggregation validate output contract = %+v, want CI aggregation diff fields", commands["gateway aggregation validate"].OutputContract)
 	}
 	if commands["plugin run"].RiskLevel != "high" || !commands["plugin run"].MutatesFilesystem {
 		t.Fatalf("plugin run manifest should expose high-risk filesystem mutation: %+v", commands["plugin run"])

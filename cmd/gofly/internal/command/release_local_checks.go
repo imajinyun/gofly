@@ -114,6 +114,89 @@ func releaseGatewayProfileContractCheck() (releaseCheckItem, []string) {
 	}
 }
 
+func releaseGatewayAggregationContractCheck() (releaseCheckItem, []string) {
+	item := releaseCheckItem{Name: "gateway-aggregation-contract", Status: "pass"}
+	dir, err := os.MkdirTemp("", "gofly-release-gateway-aggregation-*")
+	if err != nil {
+		item.Status = "fail"
+		item.Detail = err.Error()
+		item.Blocker = true
+		return item, []string{"generated gateway aggregation contract check failed"}
+	}
+	defer os.RemoveAll(dir)
+
+	projectDir := filepath.Join(dir, "edge")
+	if err := generator.GenerateGateway(generator.GatewayOptions{Name: "edge", Module: "example.com/edge", Dir: projectDir}); err != nil {
+		item.Status = "fail"
+		item.Detail = err.Error()
+		item.Blocker = true
+		return item, []string{"generated gateway aggregation contract check failed"}
+	}
+	current, err := readReleaseGatewayConfig(filepath.Join(projectDir, "etc", "edge.json"))
+	if err != nil {
+		item.Status = "fail"
+		item.Detail = err.Error()
+		item.Blocker = true
+		return item, []string{"generated gateway aggregation contract check failed"}
+	}
+	candidate, err := readReleaseGatewayAggregationCandidate(filepath.Join(projectDir, "etc", "edge-aggregation-candidate.json"))
+	if err != nil {
+		item.Status = "fail"
+		item.Detail = err.Error()
+		item.Blocker = true
+		return item, []string{"generated gateway aggregation contract check failed"}
+	}
+	gw, err := gateway.NewFromConfig(current, nil)
+	if err != nil {
+		item.Status = "fail"
+		item.Detail = err.Error()
+		item.Blocker = true
+		return item, []string{"generated gateway aggregation contract check failed"}
+	}
+	report := gw.ValidateAggregation("bff-home", candidate)
+	switch {
+	case !report.OK:
+		item.Status = "fail"
+		item.Detail = strings.Join(report.Errors, "; ")
+		item.Blocker = true
+		return item, []string{"generated gateway aggregation candidate is invalid"}
+	case !report.Compatible:
+		item.Status = "fail"
+		item.Detail = "generated gateway aggregation candidate contains breaking changes"
+		item.Blocker = true
+		return item, []string{"generated gateway aggregation candidate has breaking changes"}
+	default:
+		item.Detail = fmt.Sprintf("compatible aggregation diff with %d change(s)", len(report.Changes))
+		return item, nil
+	}
+}
+
+func readReleaseGatewayConfig(path string) (gateway.Config, error) {
+	data, err := os.ReadFile(path) // #nosec G304 -- release check reads a generated file from a temporary project directory it just created.
+	if err != nil {
+		return gateway.Config{}, fmt.Errorf("read gateway config: %w", err)
+	}
+	var config struct {
+		Gateway gateway.Config `json:"gateway"`
+	}
+	if err := json.Unmarshal(data, &config); err != nil {
+		return gateway.Config{}, fmt.Errorf("decode gateway config: %w", err)
+	}
+	return config.Gateway, nil
+}
+
+func readReleaseGatewayAggregationCandidate(path string) (gateway.AggregationConfig, error) {
+	data, err := os.ReadFile(path) // #nosec G304 -- release check reads a generated file from a temporary project directory it just created.
+	if err != nil {
+		return gateway.AggregationConfig{}, fmt.Errorf("read candidate aggregation: %w", err)
+	}
+	var candidate gateway.AggregationConfig
+	if err := json.Unmarshal(data, &candidate); err != nil {
+		return gateway.AggregationConfig{}, fmt.Errorf("decode candidate aggregation: %w", err)
+	}
+	return candidate, nil
+}
+
 func readReleaseGatewayProfiles(path string) ([]gateway.TranscodeProfile, error) {
 	data, err := os.ReadFile(path) // #nosec G304 -- release check reads a generated file from a temporary project directory it just created.
 	if err != nil {

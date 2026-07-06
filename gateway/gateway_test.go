@@ -2460,6 +2460,74 @@ func TestRoutesFromOpenAPIProxyRuntime(t *testing.T) {
 	}
 }
 
+func TestRoutesFromOpenAPIImportsAggregationShapeExtension(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/profile":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"id":"u1"}`)
+		case "/orders":
+			http.Error(w, "orders down", http.StatusBadGateway)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(upstream.Close)
+
+	doc := rest.OpenAPIDocument{
+		OpenAPI: "3.0.3",
+		Info:    rest.OpenAPIInfo{Title: "bff contract", Version: "1.0.0"},
+		Paths: map[string]map[string]rest.Operation{
+			"/home": {
+				"get": {
+					OperationID: "home",
+					Tags:        []string{"bff"},
+					Responses:   map[string]rest.Response{"200": {Description: "ok"}},
+					Extensions: map[string]any{
+						"x-gofly-aggregation": map[string]any{
+							"shape": map[string]any{"mode": "flat"},
+							"steps": []any{
+								map[string]any{"name": "profile", "path": "/profile"},
+								map[string]any{"name": "orders", "path": "/orders", "fallback": []any{}},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	routes, err := RoutesFromOpenAPI(doc, OpenAPIRouteOptions{
+		GatewayPrefix: "/edge",
+		Service:       "bff",
+		Targets:       []string{upstream.URL},
+	})
+	if err != nil {
+		t.Fatalf("RoutesFromOpenAPI: %v", err)
+	}
+	if len(routes) != 1 || !routes[0].Aggregation.Enabled || routes[0].Aggregation.Shape.Mode != "flat" || len(routes[0].Aggregation.Steps) != 2 {
+		t.Fatalf("imported aggregation route = %#v", routes)
+	}
+	g, err := New(routes)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = g.Close() })
+
+	rr := httptest.NewRecorder()
+	g.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/edge/home", nil))
+	if rr.Code != http.StatusOK ||
+		!strings.Contains(rr.Body.String(), `"profile":{"id":"u1"}`) ||
+		!strings.Contains(rr.Body.String(), `"orders":[]`) ||
+		!strings.Contains(rr.Body.String(), `"degraded":true`) ||
+		strings.Contains(rr.Body.String(), `"data":`) {
+		t.Fatalf("openapi aggregation shaped response = %d %q", rr.Code, rr.Body.String())
+	}
+	runtime := g.RuntimeSnapshot().Routes[0].AggregationRuntime
+	if !runtime.Degraded || !slices.Contains(runtime.FallbackStepsUsed, "orders") {
+		t.Fatalf("openapi aggregation runtime = %+v, want degraded orders fallback", runtime)
+	}
+}
+
 func TestRoutesFromOpenAPIURLGroupsOperationsByTag(t *testing.T) {
 	var ordersSeen atomic.Int64
 	ordersUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

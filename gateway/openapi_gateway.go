@@ -19,6 +19,7 @@ import (
 
 const defaultOpenAPIImportMaxBytes int64 = 2 << 20
 const openAPITranscodeExtensionKey = "x-gofly-transcode"
+const openAPIAggregationExtensionKey = "x-gofly-aggregation"
 
 // ErrOpenAPIPathsRequired reports that an OpenAPI document has no importable paths.
 var ErrOpenAPIPathsRequired = errors.New("openapi paths are required")
@@ -70,6 +71,12 @@ type OpenAPITranscodeOptions struct {
 
 type openAPITranscodeExtension struct {
 	PayloadMappings []TranscodePayloadMapping `json:"payloadMappings"`
+}
+
+type openAPIAggregationExtension struct {
+	Enabled bool              `json:"enabled"`
+	Steps   []AggregationStep `json:"steps"`
+	Shape   AggregationShape  `json:"shape"`
 }
 
 // OpenAPIURLSource describes a remote OpenAPI contract endpoint.
@@ -223,6 +230,7 @@ func openAPIRouteConfig(method, path, staticPrefix string, op rest.Operation, op
 		Tags:           cloneMap(opts.Tags),
 		Headers:        cloneMap(opts.Headers),
 		Transcode:      openAPITranscodeConfig(path, op, opts.Transcode),
+		Aggregation:    openAPIAggregationConfig(op),
 	}
 }
 
@@ -436,6 +444,71 @@ func openAPITranscodeExtensionFromOperation(op rest.Operation) (openAPITranscode
 	}
 	extension.PayloadMappings = normalizeTranscodePayloadMappings(extension.PayloadMappings)
 	return extension, len(extension.PayloadMappings) > 0
+}
+
+func openAPIAggregationConfig(op rest.Operation) AggregationConfig {
+	extension, ok := openAPIAggregationExtensionFromOperation(op)
+	if !ok {
+		return AggregationConfig{}
+	}
+	return normalizeAggregationConfig(AggregationConfig{
+		Enabled: true,
+		Steps:   extension.Steps,
+		Shape:   extension.Shape,
+	})
+}
+
+func openAPIAggregationExtensionFromOperation(op rest.Operation) (openAPIAggregationExtension, bool) {
+	raw, ok := op.Extensions[openAPIAggregationExtensionKey]
+	if !ok {
+		return openAPIAggregationExtension{}, false
+	}
+	data, err := json.Marshal(raw)
+	if err != nil {
+		return openAPIAggregationExtension{}, false
+	}
+	var extension openAPIAggregationExtension
+	if err := json.Unmarshal(data, &extension); err != nil {
+		return openAPIAggregationExtension{}, false
+	}
+	extension.Steps = normalizeOpenAPIAggregationSteps(extension.Steps)
+	extension.Shape = normalizeOpenAPIAggregationShape(extension.Shape)
+	return extension, extension.Enabled || len(extension.Steps) > 0 || len(extension.Shape.Mappings) > 0 || extension.Shape.Mode != ""
+}
+
+func normalizeOpenAPIAggregationSteps(steps []AggregationStep) []AggregationStep {
+	if len(steps) == 0 {
+		return nil
+	}
+	out := make([]AggregationStep, 0, len(steps))
+	for _, step := range steps {
+		step.Name = strings.TrimSpace(step.Name)
+		step.Method = strings.ToUpper(strings.TrimSpace(step.Method))
+		step.Path = strings.TrimSpace(step.Path)
+		step.Target = strings.TrimRight(strings.TrimSpace(step.Target), "/")
+		step.Retry = normalizeRetryPolicy(step.Retry)
+		if step.Path == "" {
+			continue
+		}
+		out = append(out, step)
+	}
+	return out
+}
+
+func normalizeOpenAPIAggregationShape(shape AggregationShape) AggregationShape {
+	shape = cloneAggregationShape(shape)
+	if len(shape.Mappings) == 0 {
+		return shape
+	}
+	out := make([]AggregationPayloadMapping, 0, len(shape.Mappings))
+	for _, mapping := range shape.Mappings {
+		if mapping.Target == "" {
+			continue
+		}
+		out = append(out, mapping)
+	}
+	shape.Mappings = out
+	return shape
 }
 
 func normalizeTranscodePayloadMappings(mappings []TranscodePayloadMapping) []TranscodePayloadMapping {

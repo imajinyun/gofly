@@ -38,6 +38,7 @@ require(gateway_job, "ci.yml must define gateway-profile-contract job")
 require("name: gateway profile contract" in gateway_job, "gateway-profile-contract job must publish required check name")
 require("Gateway profile contract gate" in gateway_job, "gateway-profile-contract job must have an explicit gate step")
 require("Gateway aggregation diff summary" in gateway_job, "gateway-profile-contract job must publish aggregation markdown summary")
+require("Upload gateway aggregation SARIF artifact" in gateway_job, "gateway-profile-contract job must upload aggregation SARIF artifact")
 for token in (
     "GatewayProfileValidateCommandJSON",
     "GatewayProfileValidateCommandBreakingAndUsage",
@@ -48,6 +49,10 @@ for token in (
     "ExecuteAIManifestAliasAndText",
     "TestAINewGeneratedProjectVerificationMatrix",
     "--format markdown",
+    "--format sarif",
+    "gateway-aggregation.sarif",
+    "gateway-aggregation-sarif",
+    "if-no-files-found: error",
     "edge-openapi-breaking.json",
     "Intentionally breaking fixture",
     "$GITHUB_STEP_SUMMARY",

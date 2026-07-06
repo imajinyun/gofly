@@ -369,6 +369,11 @@ jobs:
         run: |
           tmp="$(mktemp -d)"
           go run ./cmd/gofly gen gateway edge --module example.com/edge --dir "$tmp/edge"
+          go run ./cmd/gofly gateway aggregation validate \
+            --openapi-base "$tmp/edge/etc/edge-openapi-base.json" \
+            --openapi-candidate "$tmp/edge/etc/edge-openapi-breaking.json" \
+            --route home \
+            --format sarif > gateway-aggregation.sarif
           {
             echo "## Gateway aggregation contract"
             echo
@@ -388,6 +393,14 @@ jobs:
               --route home \
               --format markdown
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload gateway aggregation SARIF artifact
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: gateway-aggregation-sarif
+          path: gateway-aggregation.sarif
+          if-no-files-found: error
 
   contract-check:
     name: contract / api+rpc (check + breaking)

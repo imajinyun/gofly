@@ -609,10 +609,12 @@ func TestGatewayAggregationStepRequestShaping(t *testing.T) {
 					Method: http.MethodPost,
 					Path:   "/orders",
 					Request: AggregationRequestShape{
+						BodyTemplate:   json.RawMessage(`{"meta":{"source":"template"},"items":[]}`),
+						Required:       []string{"items"},
 						QueryMappings:  []AggregationPayloadMapping{{Source: "body.user.id", Target: "user"}},
 						HeaderMappings: []AggregationPayloadMapping{{Source: "header.x-tenant", Target: "X-Tenant"}},
 						BodyMappings: []AggregationPayloadMapping{
-							{Source: "body.cart.items", Target: "items"},
+							{Source: "body.cart.items[].sku", Target: "items", AsArray: true},
 							{Source: "query.region", Target: "meta.region"},
 							{Target: "meta.source", Default: json.RawMessage(`"bff"`)},
 						},
@@ -640,8 +642,19 @@ func TestGatewayAggregationStepRequestShaping(t *testing.T) {
 		t.Fatalf("shaped orders meta = %#v body=%#v", gotOrdersBody["meta"], gotOrdersBody)
 	}
 	items, ok := gotOrdersBody["items"].([]any)
-	if !ok || len(items) != 1 {
+	if !ok || len(items) != 1 || items[0] != "s1" {
 		t.Fatalf("shaped orders items = %#v body=%#v", gotOrdersBody["items"], gotOrdersBody)
+	}
+
+	g.routes[0].Aggregation.Steps[1].Fallback = json.RawMessage(`{"fallback":true}`)
+	rr = httptest.NewRecorder()
+	g.ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/bff/home?tenant=t1&region=cn", strings.NewReader(`{"user":{"id":"u1"}}`)))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("required fallback status = %d body = %s", rr.Code, rr.Body.String())
+	}
+	runtime := g.RuntimeSnapshot().Routes[0].AggregationRuntime
+	if !runtime.Degraded || !slices.Contains(runtime.FailedSteps, "orders") || !slices.Contains(runtime.FallbackStepsUsed, "orders") {
+		t.Fatalf("required fallback runtime = %+v, want degraded orders fallback", runtime)
 	}
 
 	if _, err := New([]Route{{

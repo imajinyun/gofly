@@ -256,6 +256,10 @@ func TestGatewayAggregationValidateCommandOpenAPIDiff(t *testing.T) {
 	  "info": {"title": "edge", "version": "1.0.0"},
 	  "paths": {"/home": {"get": {
 	    "operationId": "home",
+	    "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {
+	      "items": {"type": "array", "items": {"type": "object", "properties": {"sku": {"type": "string"}}}},
+	      "tenant": {"type": "string"}
+	    }}}}},
 	    "responses": {"200": {"description": "ok"}},
 	    "x-gofly-aggregation": {
 	      "shape": {"mappings": [
@@ -264,7 +268,11 @@ func TestGatewayAggregationValidateCommandOpenAPIDiff(t *testing.T) {
 	      ]},
 	      "steps": [
 	        {"name": "profile", "path": "/profile", "fallback": {"id": "anonymous"}},
-	        {"name": "orders", "path": "/orders", "fallback": []}
+	        {"name": "orders", "path": "/orders", "fallback": [], "request": {
+	          "bodyTemplate": {"meta": {"source": "base"}},
+	          "required": ["items"],
+	          "bodyMappings": [{"source": "body.items[].sku", "target": "items", "asArray": true}]
+	        }}
 	      ]
 	    }
 	  }}}
@@ -274,6 +282,10 @@ func TestGatewayAggregationValidateCommandOpenAPIDiff(t *testing.T) {
 	  "info": {"title": "edge", "version": "1.0.0"},
 	  "paths": {"/home": {"get": {
 	    "operationId": "home",
+	    "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {
+	      "items": {"type": "array", "items": {"type": "object", "properties": {"sku": {"type": "string"}}}},
+	      "tenant": {"type": "string"}
+	    }}}}},
 	    "responses": {"200": {"description": "ok"}},
 	    "x-gofly-aggregation": {
 	      "shape": {"mappings": [
@@ -282,7 +294,11 @@ func TestGatewayAggregationValidateCommandOpenAPIDiff(t *testing.T) {
 	      ]},
 	      "steps": [
 	        {"name": "profile", "path": "/profile", "fallback": {"id": "anonymous"}},
-	        {"name": "orders", "path": "/orders"}
+	        {"name": "orders", "path": "/orders", "request": {
+	          "bodyTemplate": {"meta": {"source": "candidate"}},
+	          "required": ["tenant"],
+	          "bodyMappings": [{"source": "body.items[].sku", "target": "items"}]
+	        }}
 	      ]
 	    }
 	  }}}
@@ -321,7 +337,7 @@ func TestGatewayAggregationValidateCommandOpenAPIDiff(t *testing.T) {
 	if envelope.Command != "gateway.aggregation.validate" || envelope.Data.Compatible {
 		t.Fatalf("openapi aggregation envelope = %+v, want breaking validation", envelope)
 	}
-	var sawRemoveFallback, sawChangeTarget bool
+	var sawRemoveFallback, sawChangeTarget, sawBodyTemplate, sawRemoveRequired, sawAddRequired, sawArrayProjection bool
 	for _, change := range envelope.Data.Changes {
 		if change.Kind == "remove_fallback" {
 			sawRemoveFallback = change.Location.Path == "/home" && change.Location.Method == "GET" && change.Location.Step == "orders"
@@ -333,9 +349,23 @@ func TestGatewayAggregationValidateCommandOpenAPIDiff(t *testing.T) {
 				change.Location.MappingSource == "body.data.orders" &&
 				change.Location.MappingTarget == "items"
 		}
+		if change.Kind == "change_body_template" {
+			sawBodyTemplate = change.Location.Path == "/home" && change.Location.Method == "GET" && change.Location.Step == "orders"
+		}
+		if change.Kind == "remove_required" {
+			sawRemoveRequired = change.Location.Path == "/home" && change.Location.Method == "GET" && change.Location.Step == "orders"
+		}
+		if change.Kind == "add_required" {
+			sawAddRequired = change.Location.Path == "/home" && change.Location.Method == "GET" && change.Location.Step == "orders"
+		}
+		if change.Kind == "change_array_projection" {
+			sawArrayProjection = change.Location.Path == "/home" && change.Location.Method == "GET" &&
+				change.Location.Step == "orders" &&
+				change.Location.Mapping == "body.items[].sku -> items"
+		}
 	}
-	if !sawRemoveFallback || !sawChangeTarget {
-		t.Fatalf("openapi aggregation changes = %+v, want remove_fallback and change_target", envelope.Data.Changes)
+	if !sawRemoveFallback || !sawChangeTarget || !sawBodyTemplate || !sawRemoveRequired || !sawAddRequired || !sawArrayProjection {
+		t.Fatalf("openapi aggregation changes = %+v, want fallback, shape, template, required and array projection diffs", envelope.Data.Changes)
 	}
 
 	stdout.Reset()
@@ -344,12 +374,14 @@ func TestGatewayAggregationValidateCommandOpenAPIDiff(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "| Severity | Path | Method | Step | Mapping | Scope | Kind | Message |") ||
 		!strings.Contains(stdout.String(), "| breaking | /home | GET | orders | - | aggregation_step | remove_fallback |") ||
-		!strings.Contains(stdout.String(), "| breaking | /home | GET | - | body.data.orders -> items | aggregation_shape | change_target |") {
+		!strings.Contains(stdout.String(), "| breaking | /home | GET | - | body.data.orders -> items | aggregation_shape | change_target |") ||
+		!strings.Contains(stdout.String(), "| breaking | /home | GET | orders | body.items[].sku -> items | aggregation_request_body/orders | change_array_projection |") ||
+		!strings.Contains(stdout.String(), "| breaking | /home | GET | orders | - | aggregation_request_body_template/orders | change_body_template |") {
 		t.Fatalf("openapi aggregation markdown = %s", stdout.String())
 	}
 
 	invalidPath := filepath.Join(dir, "invalid-openapi.json")
-	invalid := strings.Replace(candidate, `"name": "orders", "path": "/orders"`, `"name": "orders", "path": "/orders", "request": {"queryMappings": [{"source": "query.missing", "target": "missing"}]}`, 1)
+	invalid := strings.Replace(candidate, `"required": ["tenant"],`, `"queryMappings": [{"source": "query.missing", "target": "missing"}], "required": ["tenant"],`, 1)
 	if err := os.WriteFile(invalidPath, []byte(invalid), 0o600); err != nil {
 		t.Fatalf("write invalid openapi: %v", err)
 	}

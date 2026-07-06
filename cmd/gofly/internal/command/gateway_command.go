@@ -672,6 +672,10 @@ func gatewayAggregationSARIFRuleID(change gateway.TranscodeProfileChange) string
 		return "aggregation.request_shape.header." + kind
 	case strings.HasPrefix(scope, "aggregation_request_body/"):
 		return "aggregation.request_shape.body." + kind
+	case strings.HasPrefix(scope, "aggregation_request_required/"):
+		return "aggregation.request_shape.required." + kind
+	case strings.HasPrefix(scope, "aggregation_request_body_template/"):
+		return "aggregation.request_shape.body_template." + kind
 	default:
 		return "aggregation." + kind
 	}
@@ -754,7 +758,13 @@ func gatewayAggregationSARIFProperties(context gatewayAggregationSARIFContext, c
 }
 
 func aggregationStepFromScope(scope string) string {
-	for _, prefix := range []string{"aggregation_request_header/", "aggregation_request_query/", "aggregation_request_body/"} {
+	for _, prefix := range []string{
+		"aggregation_request_header/",
+		"aggregation_request_query/",
+		"aggregation_request_body/",
+		"aggregation_request_required/",
+		"aggregation_request_body_template/",
+	} {
 		if strings.HasPrefix(scope, prefix) {
 			return strings.TrimPrefix(scope, prefix)
 		}

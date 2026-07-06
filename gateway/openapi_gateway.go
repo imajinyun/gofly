@@ -534,6 +534,9 @@ func validateOpenAPIAggregationRequestShape(op rest.Operation, aggregation Aggre
 	}
 	bodySchema := openAPITranscodeBodySchema(op.RequestBody)
 	for _, step := range aggregation.Steps {
+		if err := validateAggregationRequestShape(step.Request); err != nil {
+			return err
+		}
 		for _, mapping := range step.Request.QueryMappings {
 			if err := validateOpenAPIAggregationMappingSource("query", mapping.Source, queryParams); err != nil {
 				return err

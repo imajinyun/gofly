@@ -213,6 +213,8 @@ type AggregationRequestShape struct {
 	QueryMappings  []AggregationPayloadMapping `json:"queryMappings,omitempty"`
 	HeaderMappings []AggregationPayloadMapping `json:"headerMappings,omitempty"`
 	BodyMappings   []AggregationPayloadMapping `json:"bodyMappings,omitempty"`
+	BodyTemplate   json.RawMessage             `json:"bodyTemplate,omitempty"`
+	Required       []string                    `json:"required,omitempty"`
 }
 
 // AggregationShape controls how BFF aggregation data is rendered.
@@ -227,6 +229,7 @@ type AggregationPayloadMapping struct {
 	Source  string          `json:"source,omitempty"`
 	Target  string          `json:"target"`
 	Default json.RawMessage `json:"default,omitempty"`
+	AsArray bool            `json:"asArray,omitempty"`
 }
 
 // RetryPolicy configures per-route retry behavior.

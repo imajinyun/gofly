@@ -157,7 +157,13 @@ func aggregationShapeSource(data map[string]json.RawMessage, failures map[string
 }
 
 func aggregationPayloadFromMappings(source transcodePayloadSource, mappings []AggregationPayloadMapping) (map[string]any, error) {
-	payload := map[string]any{}
+	return aggregationPayloadFromMappingsInto(map[string]any{}, source, mappings)
+}
+
+func aggregationPayloadFromMappingsInto(payload map[string]any, source transcodePayloadSource, mappings []AggregationPayloadMapping) (map[string]any, error) {
+	if payload == nil {
+		payload = map[string]any{}
+	}
 	for _, mapping := range mappings {
 		target := strings.TrimSpace(mapping.Target)
 		if target == "" {
@@ -173,11 +179,79 @@ func aggregationPayloadFromMappings(source transcodePayloadSource, mappings []Ag
 			}
 			value = cloneAggregationRawValue(mapping.Default)
 		}
+		if mapping.AsArray {
+			value = aggregationArrayValue(value)
+		}
 		if err := setTranscodeMappingTarget(payload, target, value); err != nil {
 			return nil, err
 		}
 	}
 	return payload, nil
+}
+
+func aggregationPayloadTemplate(template json.RawMessage) (map[string]any, error) {
+	if len(bytes.TrimSpace(template)) == 0 {
+		return map[string]any{}, nil
+	}
+	var decoded any
+	if err := json.Unmarshal(template, &decoded); err != nil {
+		return nil, fmt.Errorf("aggregation request body template must be valid JSON: %w", err)
+	}
+	object, ok := decoded.(map[string]any)
+	if !ok {
+		return nil, errors.New("aggregation request body template must be a JSON object")
+	}
+	return cloneTranscodeMappingDefault(object).(map[string]any), nil
+}
+
+func aggregationArrayValue(value any) any {
+	if value == nil {
+		return []any{}
+	}
+	if _, ok := value.([]any); ok {
+		return value
+	}
+	return []any{value}
+}
+
+func validateAggregationRequiredPayload(payload map[string]any, required []string) error {
+	if len(required) == 0 {
+		return nil
+	}
+	source := transcodePayloadSource{Body: payload}
+	for _, field := range required {
+		field = strings.TrimSpace(field)
+		if field == "" {
+			continue
+		}
+		path := field
+		if !strings.HasPrefix(path, "body.") {
+			path = "body." + path
+		}
+		value, ok, err := transcodeMappingSourceValue(source, path)
+		if err != nil {
+			return err
+		}
+		if !ok || aggregationValueEmpty(value) {
+			return fmt.Errorf("aggregation request body required field %q is missing", field)
+		}
+	}
+	return nil
+}
+
+func aggregationValueEmpty(value any) bool {
+	switch typed := value.(type) {
+	case nil:
+		return true
+	case string:
+		return typed == ""
+	case []any:
+		return len(typed) == 0
+	case map[string]any:
+		return len(typed) == 0
+	default:
+		return false
+	}
 }
 
 func (g *Gateway) runAggregationStep(r *http.Request, route Route, endpoint string, body []byte, index int, step AggregationStep) aggregationStepResult {
@@ -275,11 +349,14 @@ func (g *Gateway) runAggregationStepAttempt(r *http.Request, route Route, endpoi
 }
 
 func aggregationStepRequestBody(r *http.Request, route Route, body []byte, step AggregationStep) ([]byte, bool, error) {
-	if len(step.Request.BodyMappings) == 0 {
+	if len(step.Request.BodyMappings) == 0 && len(bytes.TrimSpace(step.Request.BodyTemplate)) == 0 && len(step.Request.Required) == 0 {
 		return nil, false, nil
 	}
-	payload, err := aggregationRequestPayloadFromMappings(r, route, body, step.Request.BodyMappings)
+	payload, err := aggregationRequestPayloadFromMappings(r, route, body, step.Request.BodyMappings, step.Request.BodyTemplate)
 	if err != nil {
+		return nil, false, err
+	}
+	if err := validateAggregationRequiredPayload(payload, step.Request.Required); err != nil {
 		return nil, false, err
 	}
 	data, err := json.Marshal(payload)
@@ -293,7 +370,7 @@ func applyAggregationStepQuery(target *url.URL, r *http.Request, route Route, bo
 	if len(step.Request.QueryMappings) == 0 {
 		return nil
 	}
-	payload, err := aggregationRequestPayloadFromMappings(r, route, body, step.Request.QueryMappings)
+	payload, err := aggregationRequestPayloadFromMappings(r, route, body, step.Request.QueryMappings, nil)
 	if err != nil {
 		return err
 	}
@@ -309,7 +386,7 @@ func applyAggregationStepHeaders(header http.Header, r *http.Request, route Rout
 	if len(step.Request.HeaderMappings) == 0 {
 		return nil
 	}
-	payload, err := aggregationRequestPayloadFromMappings(r, route, body, step.Request.HeaderMappings)
+	payload, err := aggregationRequestPayloadFromMappings(r, route, body, step.Request.HeaderMappings, nil)
 	if err != nil {
 		return err
 	}
@@ -319,8 +396,12 @@ func applyAggregationStepHeaders(header http.Header, r *http.Request, route Rout
 	return nil
 }
 
-func aggregationRequestPayloadFromMappings(r *http.Request, route Route, body []byte, mappings []AggregationPayloadMapping) (map[string]any, error) {
-	return aggregationPayloadFromMappings(aggregationRequestSource(r, route, body), mappings)
+func aggregationRequestPayloadFromMappings(r *http.Request, route Route, body []byte, mappings []AggregationPayloadMapping, template json.RawMessage) (map[string]any, error) {
+	payload, err := aggregationPayloadTemplate(template)
+	if err != nil {
+		return nil, err
+	}
+	return aggregationPayloadFromMappingsInto(payload, aggregationRequestSource(r, route, body), mappings)
 }
 
 func aggregationRequestSource(r *http.Request, route Route, body []byte) transcodePayloadSource {
@@ -479,6 +560,22 @@ func validateAggregationConfig(conf AggregationConfig) error {
 }
 
 func validateAggregationRequestShape(shape AggregationRequestShape) error {
+	if _, err := aggregationPayloadTemplate(shape.BodyTemplate); err != nil {
+		return err
+	}
+	for _, required := range shape.Required {
+		required = strings.TrimSpace(required)
+		if required == "" {
+			continue
+		}
+		path := required
+		if !strings.HasPrefix(path, "body.") {
+			path = "body." + path
+		}
+		if err := validateTranscodeMappingPath("aggregation request required", path, true, false); err != nil {
+			return err
+		}
+	}
 	for _, mapping := range shape.BodyMappings {
 		if err := validateTranscodeMappingPath("aggregation request body source", mapping.Source, true, true); err != nil {
 			return err
@@ -570,6 +667,44 @@ func compareAggregationRequestShape(stepName string, current, candidate Aggregat
 	changes = append(changes, compareAggregationMappings("aggregation_request_query/"+stepName, current.QueryMappings, candidate.QueryMappings, "aggregation request query")...)
 	changes = append(changes, compareAggregationMappings("aggregation_request_header/"+stepName, current.HeaderMappings, candidate.HeaderMappings, "aggregation request header")...)
 	changes = append(changes, compareAggregationMappings("aggregation_request_body/"+stepName, current.BodyMappings, candidate.BodyMappings, "aggregation request body")...)
+	changes = append(changes, compareAggregationRequired("aggregation_request_required/"+stepName, current.Required, candidate.Required)...)
+	if !bytes.Equal(bytes.TrimSpace(current.BodyTemplate), bytes.TrimSpace(candidate.BodyTemplate)) {
+		changes = append(changes, TranscodeProfileChange{
+			Kind:     "change_body_template",
+			Scope:    "aggregation_request_body_template/" + stepName,
+			Severity: "breaking",
+			Message:  "candidate changes aggregation request body template",
+		})
+	}
+	return changes
+}
+
+func compareAggregationRequired(scope string, current, candidate []string) []TranscodeProfileChange {
+	currentSet := aggregationStringSet(current)
+	candidateSet := aggregationStringSet(candidate)
+	var changes []TranscodeProfileChange
+	for field := range currentSet {
+		if _, ok := candidateSet[field]; !ok {
+			changes = append(changes, TranscodeProfileChange{
+				Kind:     "remove_required",
+				Scope:    scope,
+				Source:   field,
+				Severity: "breaking",
+				Message:  "candidate removes an aggregation request required field",
+			})
+		}
+	}
+	for field := range candidateSet {
+		if _, ok := currentSet[field]; !ok {
+			changes = append(changes, TranscodeProfileChange{
+				Kind:     "add_required",
+				Scope:    scope,
+				Source:   field,
+				Severity: "info",
+				Message:  "candidate adds an aggregation request required field",
+			})
+		}
+	}
 	return changes
 }
 
@@ -615,6 +750,26 @@ func compareAggregationMappings(scope string, current, candidate []AggregationPa
 				Message:  "candidate changes an existing " + label + " mapping target",
 			})
 		}
+		if !bytes.Equal(bytes.TrimSpace(currentMapping.Default), bytes.TrimSpace(candidateMapping.Default)) {
+			changes = append(changes, TranscodeProfileChange{
+				Kind:     "change_default",
+				Scope:    scope,
+				Source:   source,
+				Target:   strings.TrimSpace(candidateMapping.Target),
+				Severity: "breaking",
+				Message:  "candidate changes an existing " + label + " mapping default",
+			})
+		}
+		if currentMapping.AsArray != candidateMapping.AsArray {
+			changes = append(changes, TranscodeProfileChange{
+				Kind:     "change_array_projection",
+				Scope:    scope,
+				Source:   source,
+				Target:   strings.TrimSpace(candidateMapping.Target),
+				Severity: "breaking",
+				Message:  "candidate changes an existing " + label + " mapping array projection",
+			})
+		}
 	}
 	for source, mapping := range candidateBySource {
 		if _, ok := currentBySource[source]; !ok {
@@ -629,6 +784,17 @@ func compareAggregationMappings(scope string, current, candidate []AggregationPa
 		}
 	}
 	return changes
+}
+
+func aggregationStringSet(values []string) map[string]struct{} {
+	out := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			out[value] = struct{}{}
+		}
+	}
+	return out
 }
 
 func aggregationStepsByName(steps []AggregationStep) map[string]AggregationStep {
@@ -726,6 +892,8 @@ func cloneAggregationRequestShape(shape AggregationRequestShape) AggregationRequ
 	shape.QueryMappings = cloneAggregationPayloadMappings(shape.QueryMappings)
 	shape.HeaderMappings = cloneAggregationPayloadMappings(shape.HeaderMappings)
 	shape.BodyMappings = cloneAggregationPayloadMappings(shape.BodyMappings)
+	shape.BodyTemplate = append(json.RawMessage(nil), shape.BodyTemplate...)
+	shape.Required = append([]string(nil), shape.Required...)
 	return shape
 }
 

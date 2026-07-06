@@ -614,8 +614,8 @@ const gatewayOpenAPIBaseTemplate = `{
             ]
           },
           "steps": [
-            {"name": "profile", "path": "/profile", "required": true, "fallback": {"id": "anonymous"}},
-            {"name": "orders", "path": "/orders", "timeout": 1000000, "retry": {"attempts": 2, "statuses": [503]}, "fallback": []}
+            {"name": "profile", "path": "/profile", "required": true, "request": {"queryMappings": [{"source": "query.tenant", "target": "tenant"}]}, "fallback": {"id": "anonymous"}},
+            {"name": "orders", "path": "/orders", "timeout": 1000000, "retry": {"attempts": 2, "statuses": [503]}, "request": {"headerMappings": [{"source": "header.x-tenant", "target": "X-Tenant"}]}, "fallback": []}
           ]
         }
       }
@@ -645,8 +645,8 @@ const gatewayOpenAPICandidateTemplate = `{
             ]
           },
           "steps": [
-            {"name": "profile", "path": "/profile", "required": true, "fallback": {"id": "anonymous"}},
-            {"name": "orders", "path": "/orders", "timeout": 1000000, "retry": {"attempts": 2, "statuses": [503]}, "fallback": []},
+            {"name": "profile", "path": "/profile", "required": true, "request": {"queryMappings": [{"source": "query.tenant", "target": "tenant"}]}, "fallback": {"id": "anonymous"}},
+            {"name": "orders", "path": "/orders", "timeout": 1000000, "retry": {"attempts": 2, "statuses": [503]}, "request": {"headerMappings": [{"source": "header.x-tenant", "target": "X-Tenant"}]}, "fallback": []},
             {"name": "recommendations", "path": "/recommendations", "fallback": []}
           ]
         }
@@ -676,8 +676,8 @@ const gatewayOpenAPIBreakingTemplate = `{
             ]
           },
           "steps": [
-            {"name": "profile", "path": "/profile", "required": true, "fallback": {"id": "anonymous"}},
-            {"name": "orders", "path": "/orders", "timeout": 1000000, "retry": {"attempts": 2, "statuses": [503]}}
+            {"name": "profile", "path": "/profile", "required": true, "request": {"queryMappings": [{"source": "query.tenant", "target": "tenant"}]}, "fallback": {"id": "anonymous"}},
+            {"name": "orders", "path": "/orders", "timeout": 1000000, "retry": {"attempts": 2, "statuses": [503]}, "request": {"headerMappings": [{"source": "header.x-tenant", "target": "X-Tenant"}]}}
           ]
         }
       }
@@ -797,8 +797,12 @@ func TestGatewayGeneratedOpenAPIImportProfileIsRunnable(t *testing.T) {
 						"x-gofly-aggregation": map[string]any{
 							"shape": map[string]any{"mode": "flat"},
 							"steps": []any{
-								map[string]any{"name": "profile", "path": "/bff-api/profile"},
-								map[string]any{"name": "orders", "path": "/bff-api/orders", "fallback": []any{}},
+								map[string]any{"name": "profile", "path": "/bff-api/profile", "request": map[string]any{
+									"queryMappings": []any{map[string]any{"source": "query.tenant", "target": "tenant"}},
+								}},
+								map[string]any{"name": "orders", "path": "/bff-api/orders", "fallback": []any{}, "request": map[string]any{
+									"headerMappings": []any{map[string]any{"source": "header.x-tenant", "target": "X-Tenant"}},
+								}},
 							},
 						},
 					},
@@ -856,9 +860,15 @@ func TestGatewayGeneratedOpenAPIImportProfileIsRunnable(t *testing.T) {
 			}
 			_, _ = fmt.Fprint(w, "order:42")
 		case "/bff-api/profile":
+			if r.URL.Query().Get("tenant") != "t1" {
+				t.Fatalf("bff profile tenant = %q, want request-shaped tenant", r.URL.Query().Get("tenant"))
+			}
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = fmt.Fprint(w, "{\"id\":\"u1\"}")
 		case "/bff-api/orders":
+			if r.Header.Get("X-Tenant") != "tenant-header" {
+				t.Fatalf("bff orders X-Tenant = %q, want request-shaped header", r.Header.Get("X-Tenant"))
+			}
 			http.Error(w, "orders down", http.StatusBadGateway)
 		default:
 			http.NotFound(w, r)
@@ -937,7 +947,9 @@ func TestGatewayGeneratedOpenAPIImportProfileIsRunnable(t *testing.T) {
 	t.Cleanup(func() { _ = gw.Close() })
 
 	bff := httptest.NewRecorder()
-	gw.ServeHTTP(bff, httptest.NewRequest(http.MethodGet, "/contract/home", nil))
+	bffRequest := httptest.NewRequest(http.MethodGet, "/contract/home?tenant=t1", nil)
+	bffRequest.Header.Set("X-Tenant", "tenant-header")
+	gw.ServeHTTP(bff, bffRequest)
 	if bff.Code != http.StatusOK ||
 		!strings.Contains(bff.Body.String(), "\"profile\":{\"id\":\"u1\"}") ||
 		!strings.Contains(bff.Body.String(), "\"orders\":[]") ||

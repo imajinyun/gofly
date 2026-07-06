@@ -2559,12 +2559,16 @@ func TestRoutesFromOpenAPIProxyRuntime(t *testing.T) {
 }
 
 func TestRoutesFromOpenAPIImportsAggregationShapeExtension(t *testing.T) {
+	var gotProfileTenant string
+	var gotOrdersHeader string
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/profile":
+			gotProfileTenant = r.URL.Query().Get("tenant")
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = io.WriteString(w, `{"id":"u1"}`)
 		case "/orders":
+			gotOrdersHeader = r.Header.Get("X-Tenant")
 			http.Error(w, "orders down", http.StatusBadGateway)
 		default:
 			http.NotFound(w, r)
@@ -2585,8 +2589,12 @@ func TestRoutesFromOpenAPIImportsAggregationShapeExtension(t *testing.T) {
 						"x-gofly-aggregation": map[string]any{
 							"shape": map[string]any{"mode": "flat"},
 							"steps": []any{
-								map[string]any{"name": "profile", "path": "/profile"},
-								map[string]any{"name": "orders", "path": "/orders", "fallback": []any{}},
+								map[string]any{"name": "profile", "path": "/profile", "request": map[string]any{
+									"queryMappings": []any{map[string]any{"source": "query.tenant", "target": "tenant"}},
+								}},
+								map[string]any{"name": "orders", "path": "/orders", "fallback": []any{}, "request": map[string]any{
+									"headerMappings": []any{map[string]any{"source": "header.x-tenant", "target": "X-Tenant"}},
+								}},
 							},
 						},
 					},
@@ -2612,7 +2620,9 @@ func TestRoutesFromOpenAPIImportsAggregationShapeExtension(t *testing.T) {
 	t.Cleanup(func() { _ = g.Close() })
 
 	rr := httptest.NewRecorder()
-	g.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/edge/home", nil))
+	req := httptest.NewRequest(http.MethodGet, "/edge/home?tenant=t1", nil)
+	req.Header.Set("X-Tenant", "tenant-header")
+	g.ServeHTTP(rr, req)
 	if rr.Code != http.StatusOK ||
 		!strings.Contains(rr.Body.String(), `"profile":{"id":"u1"}`) ||
 		!strings.Contains(rr.Body.String(), `"orders":[]`) ||
@@ -2623,6 +2633,9 @@ func TestRoutesFromOpenAPIImportsAggregationShapeExtension(t *testing.T) {
 	runtime := g.RuntimeSnapshot().Routes[0].AggregationRuntime
 	if !runtime.Degraded || !slices.Contains(runtime.FallbackStepsUsed, "orders") {
 		t.Fatalf("openapi aggregation runtime = %+v, want degraded orders fallback", runtime)
+	}
+	if gotProfileTenant != "t1" || gotOrdersHeader != "tenant-header" {
+		t.Fatalf("openapi aggregation request shaping tenant=%q header=%q", gotProfileTenant, gotOrdersHeader)
 	}
 }
 

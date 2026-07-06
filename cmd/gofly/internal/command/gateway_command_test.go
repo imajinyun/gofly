@@ -98,3 +98,83 @@ func TestGatewayProfileValidateCommandBreakingAndUsage(t *testing.T) {
 		t.Fatalf("missing candidate error = %v, want usage error", err)
 	}
 }
+
+func TestGatewayAggregationValidateCommandJSON(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "gateway.json")
+	candidatePath := filepath.Join(dir, "candidate.json")
+	if err := os.WriteFile(configPath, []byte(`{
+		"gateway": {"routes": [{
+			"name": "home-bff",
+			"method": "GET",
+			"pathPrefix": "/bff",
+			"targets": ["http://127.0.0.1:1"],
+			"aggregation": {
+				"enabled": true,
+				"shape": {"mappings": [
+					{"source": "body.data.profile", "target": "profile"},
+					{"source": "body.data.orders", "target": "orders"}
+				]},
+				"steps": [
+					{"name": "profile", "path": "/profile", "fallback": {"id": "anonymous"}},
+					{"name": "orders", "path": "/orders", "fallback": []}
+				]
+			}
+		}]}
+	}`), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	if err := os.WriteFile(candidatePath, []byte(`{
+		"enabled": true,
+		"shape": {"mappings": [
+			{"source": "body.data.profile", "target": "profile"},
+			{"source": "body.data.orders", "target": "items"},
+			{"source": "body.degraded", "target": "meta.degraded"}
+		]},
+		"steps": [
+			{"name": "profile", "path": "/profile", "fallback": {"id": "anonymous"}},
+			{"name": "orders", "path": "/orders"},
+			{"name": "recommendations", "path": "/recommendations", "fallback": []}
+		]
+	}`), 0o600); err != nil {
+		t.Fatalf("write candidate: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	if err := ExecuteWithIO([]string{"gateway", "aggregation", "validate", "--config", configPath, "--route", "home-bff", "--candidate", candidatePath, "--json"}, IOStreams{Out: &stdout}); err != nil {
+		t.Fatalf("gateway aggregation validate: %v", err)
+	}
+	var envelope struct {
+		OK      bool   `json:"ok"`
+		Command string `json:"command"`
+		Data    struct {
+			Compatible bool `json:"compatible"`
+			Changes    []struct {
+				Kind     string `json:"kind"`
+				Severity string `json:"severity"`
+				Scope    string `json:"scope"`
+				Source   string `json:"source"`
+			} `json:"changes"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode envelope: %v\n%s", err, stdout.String())
+	}
+	if !envelope.OK || envelope.Command != "gateway.aggregation.validate" || envelope.Data.Compatible {
+		t.Fatalf("envelope = %+v, want breaking aggregation validation", envelope)
+	}
+	var sawRemoveFallback, sawChangeTarget, sawAddStep bool
+	for _, change := range envelope.Data.Changes {
+		switch change.Kind {
+		case "remove_fallback":
+			sawRemoveFallback = change.Severity == "breaking" && change.Source == "orders"
+		case "change_target":
+			sawChangeTarget = change.Severity == "breaking" && change.Scope == "aggregation_shape"
+		case "add_step":
+			sawAddStep = change.Severity == "info" && change.Source == "recommendations"
+		}
+	}
+	if !sawRemoveFallback || !sawChangeTarget || !sawAddStep {
+		t.Fatalf("changes = %+v, want fallback removal, shape target change, and additive step", envelope.Data.Changes)
+	}
+}

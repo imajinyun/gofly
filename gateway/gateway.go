@@ -161,6 +161,17 @@ type TranscodeProfileValidationReport struct {
 	Candidate  TranscodeProfile         `json:"candidate"`
 }
 
+// AggregationValidationReport describes a read-only comparison between a
+// current and candidate BFF aggregation contract.
+type AggregationValidationReport struct {
+	OK         bool                     `json:"ok"`
+	Compatible bool                     `json:"compatible"`
+	Errors     []string                 `json:"errors,omitempty"`
+	Changes    []TranscodeProfileChange `json:"changes,omitempty"`
+	Current    *AggregationConfig       `json:"current,omitempty"`
+	Candidate  AggregationConfig        `json:"candidate"`
+}
+
 // TranscodeProfileChange describes one request/response/error mapping contract
 // difference.
 type TranscodeProfileChange struct {
@@ -1071,6 +1082,57 @@ func (g *Gateway) ValidateTranscodeProfile(candidate TranscodeProfile) Transcode
 		}
 	}
 	return report
+}
+
+// ValidateAggregation compares a candidate aggregation contract with the
+// registered route aggregation without mutating gateway state.
+func (g *Gateway) ValidateAggregation(routeName string, candidate AggregationConfig) AggregationValidationReport {
+	candidate = normalizeAggregationConfig(candidate)
+	report := AggregationValidationReport{OK: true, Compatible: true, Candidate: cloneAggregationConfig(candidate)}
+	if err := validateAggregationConfig(candidate); err != nil {
+		report.OK = false
+		report.Compatible = false
+		report.Errors = append(report.Errors, err.Error())
+		return report
+	}
+	if g == nil {
+		return report
+	}
+	current, ok := g.aggregationByRoute(routeName)
+	if !ok {
+		report.Changes = append(report.Changes, TranscodeProfileChange{
+			Kind:     "add_aggregation",
+			Severity: "info",
+			Message:  "candidate aggregation is new",
+		})
+		return report
+	}
+	current = cloneAggregationConfig(current)
+	report.Current = &current
+	report.Changes = append(report.Changes, compareAggregationSteps(current.Steps, candidate.Steps)...)
+	report.Changes = append(report.Changes, compareAggregationShape(current.Shape, candidate.Shape)...)
+	for _, change := range report.Changes {
+		if change.Severity == "breaking" {
+			report.Compatible = false
+			break
+		}
+	}
+	return report
+}
+
+func (g *Gateway) aggregationByRoute(routeName string) (AggregationConfig, bool) {
+	routeName = strings.TrimSpace(routeName)
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	for _, route := range g.routes {
+		routeID := routeKey(route)
+		if routeName == "" || routeName == route.Name || routeName == routeID {
+			if route.Aggregation.Enabled || len(route.Aggregation.Steps) > 0 || len(route.Aggregation.Shape.Mappings) > 0 || strings.TrimSpace(route.Aggregation.Shape.Mode) != "" {
+				return cloneAggregationConfig(route.Aggregation), true
+			}
+		}
+	}
+	return AggregationConfig{}, false
 }
 
 // AddRoute appends a new route to the gateway.

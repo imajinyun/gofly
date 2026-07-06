@@ -342,6 +342,146 @@ func validateAggregationConfig(conf AggregationConfig) error {
 	return nil
 }
 
+func compareAggregationSteps(current, candidate []AggregationStep) []TranscodeProfileChange {
+	currentByName := aggregationStepsByName(current)
+	candidateByName := aggregationStepsByName(candidate)
+	var changes []TranscodeProfileChange
+	for name, currentStep := range currentByName {
+		candidateStep, ok := candidateByName[name]
+		if !ok {
+			changes = append(changes, TranscodeProfileChange{
+				Kind:     "remove_step",
+				Scope:    "aggregation_step",
+				Source:   name,
+				Severity: "breaking",
+				Message:  "candidate removes an existing aggregation step",
+			})
+			continue
+		}
+		if strings.TrimSpace(currentStep.Path) != strings.TrimSpace(candidateStep.Path) {
+			changes = append(changes, TranscodeProfileChange{
+				Kind:     "change_step_path",
+				Scope:    "aggregation_step",
+				Source:   name,
+				Target:   strings.TrimSpace(candidateStep.Path),
+				Severity: "breaking",
+				Message:  "candidate changes an existing aggregation step path",
+			})
+		}
+		if len(currentStep.Fallback) > 0 && len(candidateStep.Fallback) == 0 {
+			changes = append(changes, TranscodeProfileChange{
+				Kind:     "remove_fallback",
+				Scope:    "aggregation_step",
+				Source:   name,
+				Severity: "breaking",
+				Message:  "candidate removes an existing aggregation fallback",
+			})
+		} else if !bytes.Equal(bytes.TrimSpace(currentStep.Fallback), bytes.TrimSpace(candidateStep.Fallback)) {
+			changes = append(changes, TranscodeProfileChange{
+				Kind:     "change_fallback",
+				Scope:    "aggregation_step",
+				Source:   name,
+				Severity: "breaking",
+				Message:  "candidate changes an existing aggregation fallback",
+			})
+		}
+	}
+	for name := range candidateByName {
+		if _, ok := currentByName[name]; !ok {
+			changes = append(changes, TranscodeProfileChange{
+				Kind:     "add_step",
+				Scope:    "aggregation_step",
+				Source:   name,
+				Severity: "info",
+				Message:  "candidate adds a new aggregation step",
+			})
+		}
+	}
+	return changes
+}
+
+func compareAggregationShape(current, candidate AggregationShape) []TranscodeProfileChange {
+	var changes []TranscodeProfileChange
+	if strings.TrimSpace(current.Mode) != strings.TrimSpace(candidate.Mode) {
+		changes = append(changes, TranscodeProfileChange{
+			Kind:     "change_shape_mode",
+			Scope:    "aggregation_shape",
+			Source:   strings.TrimSpace(current.Mode),
+			Target:   strings.TrimSpace(candidate.Mode),
+			Severity: "breaking",
+			Message:  "candidate changes aggregation response shape mode",
+		})
+	}
+	return append(changes, compareAggregationShapeMappings(current.Mappings, candidate.Mappings)...)
+}
+
+func compareAggregationShapeMappings(current, candidate []AggregationPayloadMapping) []TranscodeProfileChange {
+	currentBySource := aggregationMappingsBySource(current)
+	candidateBySource := aggregationMappingsBySource(candidate)
+	var changes []TranscodeProfileChange
+	for source, currentMapping := range currentBySource {
+		candidateMapping, ok := candidateBySource[source]
+		if !ok {
+			changes = append(changes, TranscodeProfileChange{
+				Kind:     "remove_mapping",
+				Scope:    "aggregation_shape",
+				Source:   source,
+				Target:   currentMapping.Target,
+				Severity: "breaking",
+				Message:  "candidate removes an existing aggregation shape mapping",
+			})
+			continue
+		}
+		if strings.TrimSpace(currentMapping.Target) != strings.TrimSpace(candidateMapping.Target) {
+			changes = append(changes, TranscodeProfileChange{
+				Kind:     "change_target",
+				Scope:    "aggregation_shape",
+				Source:   source,
+				Target:   strings.TrimSpace(candidateMapping.Target),
+				Severity: "breaking",
+				Message:  "candidate changes an existing aggregation shape mapping target",
+			})
+		}
+	}
+	for source, mapping := range candidateBySource {
+		if _, ok := currentBySource[source]; !ok {
+			changes = append(changes, TranscodeProfileChange{
+				Kind:     "add_mapping",
+				Scope:    "aggregation_shape",
+				Source:   source,
+				Target:   strings.TrimSpace(mapping.Target),
+				Severity: "info",
+				Message:  "candidate adds a new aggregation shape mapping",
+			})
+		}
+	}
+	return changes
+}
+
+func aggregationStepsByName(steps []AggregationStep) map[string]AggregationStep {
+	out := make(map[string]AggregationStep, len(steps))
+	for index, step := range steps {
+		name := strings.TrimSpace(step.Name)
+		if name == "" {
+			name = fmt.Sprintf("step%d", index+1)
+		}
+		out[name] = step
+	}
+	return out
+}
+
+func aggregationMappingsBySource(mappings []AggregationPayloadMapping) map[string]AggregationPayloadMapping {
+	out := make(map[string]AggregationPayloadMapping, len(mappings))
+	for _, mapping := range mappings {
+		source := strings.TrimSpace(mapping.Source)
+		if source == "" && len(mapping.Default) > 0 {
+			source = "default:" + strings.TrimSpace(mapping.Target)
+		}
+		out[source] = mapping
+	}
+	return out
+}
+
 type aggregationRuntimeUpdate struct {
 	failures      int
 	fallbacks     int

@@ -20,6 +20,8 @@ func gatewayCommand(args []string) error {
 	switch args[0] {
 	case "profile":
 		return gatewayProfileCommand(args[1:])
+	case "aggregation":
+		return gatewayAggregationCommand(args[1:])
 	default:
 		return fmt.Errorf("%w: expected `gofly gateway profile validate`", errUsage)
 	}
@@ -34,6 +36,18 @@ func gatewayProfileCommand(args []string) error {
 		return gatewayProfileValidateCommand(args[1:])
 	default:
 		return fmt.Errorf("%w: expected `gofly gateway profile validate`", errUsage)
+	}
+}
+
+func gatewayAggregationCommand(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("%w: expected `gofly gateway aggregation validate`", errUsage)
+	}
+	switch args[0] {
+	case "validate", "diff":
+		return gatewayAggregationValidateCommand(args[1:])
+	default:
+		return fmt.Errorf("%w: expected `gofly gateway aggregation validate`", errUsage)
 	}
 }
 
@@ -59,6 +73,11 @@ func gatewayGenCommand(args []string) error {
 
 type gatewayProfileValidateConfig struct {
 	TranscodeProfiles []gateway.TranscodeProfile `json:"transcodeProfiles"`
+	Gateway           gateway.Config             `json:"gateway"`
+}
+
+type gatewayAggregationCandidateConfig struct {
+	Aggregation gateway.AggregationConfig `json:"aggregation"`
 }
 
 func gatewayProfileValidateCommand(args []string) error {
@@ -117,6 +136,89 @@ func readGatewayTranscodeProfiles(path string) ([]gateway.TranscodeProfile, erro
 	return config.TranscodeProfiles, nil
 }
 
+func gatewayAggregationValidateCommand(args []string) error {
+	fs := flag.NewFlagSet("gateway aggregation validate", flag.ContinueOnError)
+	configPath := fs.String("config", "", "gateway config json file")
+	candidatePath := fs.String("candidate", "", "candidate aggregation json file")
+	routeName := fs.String("route", "", "route name or route key")
+	formatName := registerCLIFormatFlag(fs, outputJSON, "output format: text or json")
+	jsonFlag := registerCLIJSONOutputFlag(fs, "output JSON")
+	remaining, err := parseInterspersedFlags(fs, args)
+	if err != nil {
+		return err
+	}
+	if *configPath == "" && len(remaining) > 0 {
+		*configPath = remaining[0]
+		remaining = remaining[1:]
+	}
+	if *candidatePath == "" && len(remaining) > 0 {
+		*candidatePath = remaining[0]
+	}
+	if *configPath == "" || *candidatePath == "" {
+		return fmt.Errorf("%w: --config and --candidate are required", errUsage)
+	}
+	current, err := readGatewayAggregationConfig(*configPath)
+	if err != nil {
+		return err
+	}
+	candidate, err := readGatewayAggregationCandidate(*candidatePath)
+	if err != nil {
+		return err
+	}
+	gw, err := gateway.NewFromConfig(current, nil)
+	if err != nil {
+		return fmt.Errorf("load current gateway aggregation config: %w", err)
+	}
+	report := gw.ValidateAggregation(*routeName, candidate)
+	format, err := normalizeCLIFormat(formatName, outputJSON, outputText, outputJSON)
+	if err != nil {
+		return err
+	}
+	if valueFromBoolFlag(jsonFlag) || outputMode() == outputJSON || format == outputJSON {
+		return printJSONEnvelope("gateway.aggregation.validate", report)
+	}
+	printGatewayAggregationValidationText(report)
+	return nil
+}
+
+func readGatewayAggregationConfig(path string) (gateway.Config, error) {
+	data, err := readExplicitInputFile(path, "gateway config")
+	if err != nil {
+		return gateway.Config{}, err
+	}
+	var config gatewayProfileValidateConfig
+	if err := json.Unmarshal(data, &config); err != nil {
+		return gateway.Config{}, fmt.Errorf("decode gateway config: %w", err)
+	}
+	if len(config.Gateway.Routes) > 0 {
+		return config.Gateway, nil
+	}
+	var direct gateway.Config
+	if err := json.Unmarshal(data, &direct); err != nil {
+		return gateway.Config{}, fmt.Errorf("decode gateway routes: %w", err)
+	}
+	return direct, nil
+}
+
+func readGatewayAggregationCandidate(path string) (gateway.AggregationConfig, error) {
+	data, err := readExplicitInputFile(path, "candidate aggregation")
+	if err != nil {
+		return gateway.AggregationConfig{}, err
+	}
+	var wrapped gatewayAggregationCandidateConfig
+	if err := json.Unmarshal(data, &wrapped); err != nil {
+		return gateway.AggregationConfig{}, fmt.Errorf("decode candidate aggregation: %w", err)
+	}
+	if wrapped.Aggregation.Enabled || len(wrapped.Aggregation.Steps) > 0 || len(wrapped.Aggregation.Shape.Mappings) > 0 || strings.TrimSpace(wrapped.Aggregation.Shape.Mode) != "" {
+		return wrapped.Aggregation, nil
+	}
+	var candidate gateway.AggregationConfig
+	if err := json.Unmarshal(data, &candidate); err != nil {
+		return gateway.AggregationConfig{}, fmt.Errorf("decode candidate aggregation: %w", err)
+	}
+	return candidate, nil
+}
+
 func readGatewayTranscodeProfileCandidate(path string) (gateway.TranscodeProfile, error) {
 	data, err := readExplicitInputFile(path, "candidate profile")
 	if err != nil {
@@ -137,6 +239,32 @@ func printGatewayProfileValidationText(report gateway.TranscodeProfileValidation
 		status = "breaking"
 	}
 	cliOutputf("gateway profile validation: %s\n", status)
+	for _, errText := range report.Errors {
+		cliOutputf("error: %s\n", errText)
+	}
+	for _, change := range report.Changes {
+		parts := []string{change.Severity, change.Scope, change.Kind}
+		if change.Source != "" {
+			parts = append(parts, "source="+change.Source)
+		}
+		if change.Target != "" {
+			parts = append(parts, "target="+change.Target)
+		}
+		if change.Message != "" {
+			parts = append(parts, change.Message)
+		}
+		cliOutputln(strings.Join(parts, " "))
+	}
+}
+
+func printGatewayAggregationValidationText(report gateway.AggregationValidationReport) {
+	status := "compatible"
+	if !report.OK {
+		status = "invalid"
+	} else if !report.Compatible {
+		status = "breaking"
+	}
+	cliOutputf("gateway aggregation validation: %s\n", status)
 	for _, errText := range report.Errors {
 		cliOutputf("error: %s\n", errText)
 	}

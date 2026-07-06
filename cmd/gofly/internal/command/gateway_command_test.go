@@ -200,9 +200,10 @@ func TestGatewayAggregationValidateCommandJSON(t *testing.T) {
 		Version string `json:"version"`
 		Runs    []struct {
 			Results []struct {
-				RuleID    string `json:"ruleId"`
-				Level     string `json:"level"`
-				Locations []struct {
+				RuleID     string            `json:"ruleId"`
+				Level      string            `json:"level"`
+				Properties map[string]string `json:"properties"`
+				Locations  []struct {
 					PhysicalLocation struct {
 						ArtifactLocation struct {
 							URI string `json:"uri"`
@@ -337,7 +338,8 @@ func TestGatewayAggregationValidateCommandOpenAPIDiff(t *testing.T) {
 				Message struct {
 					Text string `json:"text"`
 				} `json:"message"`
-				Locations []struct {
+				Properties map[string]string `json:"properties"`
+				Locations  []struct {
 					PhysicalLocation struct {
 						ArtifactLocation struct {
 							URI string `json:"uri"`
@@ -357,6 +359,9 @@ func TestGatewayAggregationValidateCommandOpenAPIDiff(t *testing.T) {
 		invalidSARIF.Runs[0].Results[0].RuleID != "aggregation.invalid" ||
 		invalidSARIF.Runs[0].Results[0].Level != "error" ||
 		!strings.Contains(invalidSARIF.Runs[0].Results[0].Message.Text, "unknown OpenAPI query parameter") ||
+		invalidSARIF.Runs[0].Results[0].Properties["openapiPath"] != "/home" ||
+		invalidSARIF.Runs[0].Results[0].Properties["openapiMethod"] != "GET" ||
+		invalidSARIF.Runs[0].Results[0].Properties["errorMarker"] == "" ||
 		len(invalidSARIF.Runs[0].Results[0].Locations) == 0 ||
 		invalidSARIF.Runs[0].Results[0].Locations[0].PhysicalLocation.ArtifactLocation.URI != invalidPath ||
 		invalidSARIF.Runs[0].Results[0].Locations[0].PhysicalLocation.Region.StartLine == 0 {

@@ -193,7 +193,7 @@ func gatewayAggregationValidateCommand(args []string) error {
 		return nil
 	}
 	if format == "sarif" {
-		return printGatewayAggregationValidationSARIF(report, *candidatePath)
+		return printGatewayAggregationValidationSARIF(report, *candidatePath, gatewayAggregationSARIFContext{})
 	}
 	printGatewayAggregationValidationText(report)
 	return nil
@@ -212,12 +212,13 @@ func gatewayAggregationValidateOpenAPICommand(basePath, candidatePath, routeName
 	if err != nil {
 		return err
 	}
+	sarifContext := gatewayOpenAPIAggregationSARIFContext(candidateDoc, routeName)
 	importOptions := gateway.OpenAPIRouteOptions{GatewayPrefix: "/", Service: "openapi", Targets: []string{"http://127.0.0.1:1"}}
 	baseRoutes, err := gateway.RouteConfigsFromOpenAPI(baseDoc, importOptions)
 	if err != nil {
 		err = fmt.Errorf("import base openapi aggregation routes: %w", err)
 		if format == "sarif" {
-			return printGatewayAggregationValidationSARIF(gatewayAggregationValidationReportFromError(err), basePath)
+			return printGatewayAggregationValidationSARIF(gatewayAggregationValidationReportFromError(err), basePath, gatewayOpenAPIAggregationSARIFContext(baseDoc, routeName))
 		}
 		return err
 	}
@@ -225,7 +226,7 @@ func gatewayAggregationValidateOpenAPICommand(basePath, candidatePath, routeName
 	if err != nil {
 		err = fmt.Errorf("import candidate openapi aggregation routes: %w", err)
 		if format == "sarif" {
-			return printGatewayAggregationValidationSARIF(gatewayAggregationValidationReportFromError(err), candidatePath)
+			return printGatewayAggregationValidationSARIF(gatewayAggregationValidationReportFromError(err), candidatePath, sarifContext)
 		}
 		return err
 	}
@@ -247,7 +248,7 @@ func gatewayAggregationValidateOpenAPICommand(basePath, candidatePath, routeName
 		return nil
 	}
 	if format == "sarif" {
-		return printGatewayAggregationValidationSARIF(report, candidatePath)
+		return printGatewayAggregationValidationSARIF(report, candidatePath, sarifContext)
 	}
 	printGatewayAggregationValidationText(report)
 	return nil
@@ -462,10 +463,11 @@ type gatewayAggregationRule struct {
 }
 
 type gatewayAggregationResult struct {
-	RuleID    string                         `json:"ruleId"`
-	Level     string                         `json:"level"`
-	Message   gatewayAggregationSARIFMessage `json:"message"`
-	Locations []gatewayAggregationLocation   `json:"locations,omitempty"`
+	RuleID     string                         `json:"ruleId"`
+	Level      string                         `json:"level"`
+	Message    gatewayAggregationSARIFMessage `json:"message"`
+	Locations  []gatewayAggregationLocation   `json:"locations,omitempty"`
+	Properties map[string]string              `json:"properties,omitempty"`
 }
 
 type gatewayAggregationSARIFMessage struct {
@@ -489,7 +491,13 @@ type gatewayAggregationRegion struct {
 	StartLine int `json:"startLine,omitempty"`
 }
 
-func printGatewayAggregationValidationSARIF(report gateway.AggregationValidationReport, artifactURI string) error {
+type gatewayAggregationSARIFContext struct {
+	Route         string
+	OpenAPIPath   string
+	OpenAPIMethod string
+}
+
+func printGatewayAggregationValidationSARIF(report gateway.AggregationValidationReport, artifactURI string, context gatewayAggregationSARIFContext) error {
 	artifactURI = strings.TrimSpace(artifactURI)
 	if artifactURI == "" {
 		artifactURI = "gateway-aggregation-contract"
@@ -501,9 +509,10 @@ func printGatewayAggregationValidationSARIF(report gateway.AggregationValidation
 		ruleID := "aggregation.invalid"
 		seenRules[ruleID] = gatewayAggregationRule{ID: ruleID, Name: ruleID, ShortDescription: gatewayAggregationSARIFMessage{Text: "Invalid aggregation contract"}}
 		results = append(results, gatewayAggregationResult{
-			RuleID:  ruleID,
-			Level:   "error",
-			Message: gatewayAggregationSARIFMessage{Text: errText},
+			RuleID:     ruleID,
+			Level:      "error",
+			Message:    gatewayAggregationSARIFMessage{Text: errText},
+			Properties: gatewayAggregationSARIFProperties(context, gateway.TranscodeProfileChange{}, errText),
 			Locations: []gatewayAggregationLocation{{
 				PhysicalLocation: locator.location(gatewayAggregationErrorLocatorText(errText)...),
 			}},
@@ -522,9 +531,10 @@ func printGatewayAggregationValidationSARIF(report gateway.AggregationValidation
 			level = "warning"
 		}
 		results = append(results, gatewayAggregationResult{
-			RuleID:  ruleID,
-			Level:   level,
-			Message: gatewayAggregationSARIFMessage{Text: gatewayAggregationChangeMessage(change)},
+			RuleID:     ruleID,
+			Level:      level,
+			Message:    gatewayAggregationSARIFMessage{Text: gatewayAggregationChangeMessage(change)},
+			Properties: gatewayAggregationSARIFProperties(context, change, ""),
 			Locations: []gatewayAggregationLocation{{
 				PhysicalLocation: locator.location(gatewayAggregationChangeLocatorText(change)...),
 			}},
@@ -544,6 +554,91 @@ func printGatewayAggregationValidationSARIF(report gateway.AggregationValidation
 		}},
 	}
 	return printJSON(payload)
+}
+
+func gatewayOpenAPIAggregationSARIFContext(doc rest.OpenAPIDocument, routeName string) gatewayAggregationSARIFContext {
+	routeName = strings.TrimSpace(routeName)
+	for path, methods := range doc.Paths {
+		for method, op := range methods {
+			httpMethod := strings.ToUpper(strings.TrimSpace(method))
+			staticPrefix := "/" + strings.Trim(strings.Split(strings.Trim(path, "/"), "/")[0], "{}")
+			if staticPrefix == "/" {
+				staticPrefix = path
+			}
+			candidateNames := []string{
+				strings.TrimSpace(op.OperationID),
+				httpMethod + " " + gatewayAggregationCleanPrefix(staticPrefix),
+			}
+			for _, candidate := range candidateNames {
+				if routeName == "" || routeName == candidate {
+					return gatewayAggregationSARIFContext{
+						Route:         candidate,
+						OpenAPIPath:   path,
+						OpenAPIMethod: strings.ToUpper(method),
+					}
+				}
+			}
+		}
+	}
+	return gatewayAggregationSARIFContext{Route: routeName}
+}
+
+func gatewayAggregationCleanPrefix(prefix string) string {
+	prefix = strings.TrimSpace(prefix)
+	if prefix == "" {
+		return "/"
+	}
+	if !strings.HasPrefix(prefix, "/") {
+		prefix = "/" + prefix
+	}
+	return strings.TrimRight(prefix, "/")
+}
+
+func gatewayAggregationSARIFProperties(context gatewayAggregationSARIFContext, change gateway.TranscodeProfileChange, errText string) map[string]string {
+	properties := map[string]string{}
+	if context.Route != "" {
+		properties["route"] = context.Route
+	}
+	if context.OpenAPIPath != "" {
+		properties["openapiPath"] = context.OpenAPIPath
+	}
+	if context.OpenAPIMethod != "" {
+		properties["openapiMethod"] = context.OpenAPIMethod
+	}
+	if change.Scope != "" {
+		properties["scope"] = change.Scope
+		if step := aggregationStepFromScope(change.Scope); step != "" {
+			properties["step"] = step
+		}
+	}
+	if change.Source != "" {
+		properties["mappingSource"] = change.Source
+	}
+	if change.Target != "" {
+		properties["mappingTarget"] = change.Target
+	}
+	if errText != "" {
+		properties["error"] = errText
+		for _, marker := range gatewayAggregationErrorLocatorText(errText) {
+			if marker != "" {
+				properties["errorMarker"] = marker
+				break
+			}
+		}
+	}
+	if len(properties) == 0 {
+		return nil
+	}
+	return properties
+}
+
+func aggregationStepFromScope(scope string) string {
+	for _, prefix := range []string{"aggregation_request_header/", "aggregation_request_query/", "aggregation_request_body/"} {
+		if strings.HasPrefix(scope, prefix) {
+			return strings.TrimPrefix(scope, prefix)
+		}
+	}
+	return ""
 }
 
 type gatewayAggregationSARIFLocator struct {

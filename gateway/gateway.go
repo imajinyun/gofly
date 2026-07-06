@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -1819,6 +1820,10 @@ func normalizeRoute(route Route) (Route, error) {
 	route.Header = cloneHeaderPolicy(route.Header)
 	route.Canary = cloneCanaryRoutes(route.Canary)
 	route.Shadow = cloneShadowRoutes(route.Shadow)
+	route.Transcode = cloneTranscodeConfig(route.Transcode)
+	if err := validateRouteTranscodePayload(route); err != nil {
+		return Route{}, err
+	}
 	route.Aggregation = normalizeAggregationConfig(route.Aggregation)
 	route.AllowedHosts = normalizeHosts(route.AllowedHosts)
 	route.Tags = cloneMap(route.Tags)
@@ -2029,6 +2034,124 @@ func validateTranscodePayloadMappings(kind string, mappings []TranscodePayloadMa
 		}
 	}
 	return nil
+}
+
+func validateRouteTranscodePayload(route Route) error {
+	if !route.Transcode.Enabled {
+		return nil
+	}
+	payload := route.Transcode.Payload
+	if err := validateTranscodePayloadMappings("route request", payload.Mappings); err != nil {
+		return err
+	}
+	if len(payload.Mappings) == 0 {
+		return nil
+	}
+	bodySchema := payload.BodySchema
+	bodyRequired := bodySchema != nil || payload.BodyRequired
+	for _, mapping := range payload.Mappings {
+		source := strings.TrimSpace(mapping.Source)
+		if source == "" {
+			if mapping.Default != nil {
+				continue
+			}
+			return fmt.Errorf("transcode mapping target %s has no source or default", strings.TrimSpace(mapping.Target))
+		}
+		if err := validateRouteTranscodeMappingSource(source, payload, bodySchema, bodyRequired); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateRouteTranscodeMappingSource(source string, payload TranscodePayloadConfig, bodySchema *TranscodeSchemaConfig, bodyRequired bool) error {
+	parts := strings.Split(source, ".")
+	if len(parts) == 0 {
+		return nil
+	}
+	switch parts[0] {
+	case "path":
+		if len(parts) != 2 {
+			return fmt.Errorf("transcode mapping source %s path lookup must name one parameter", source)
+		}
+		name := strings.TrimSuffix(strings.TrimSpace(parts[1]), "[]")
+		if !slices.Contains(payload.PathParams, name) && !containsTranscodeParameter(payload.PathParameters, name) {
+			return fmt.Errorf("transcode mapping source %s references unknown path parameter", source)
+		}
+	case "query":
+		if len(parts) != 2 {
+			return fmt.Errorf("transcode mapping source %s query lookup must name one parameter", source)
+		}
+		name := strings.TrimSuffix(strings.TrimSpace(parts[1]), "[]")
+		if !slices.Contains(payload.QueryParams, name) && !containsTranscodeParameter(payload.QueryParameters, name) {
+			return fmt.Errorf("transcode mapping source %s references unknown query parameter", source)
+		}
+	case "body":
+		if !payload.MergeBodyObject && !bodyRequired {
+			return fmt.Errorf("transcode mapping source %s requires mergeBodyObject or body schema", source)
+		}
+		if len(parts) == 1 {
+			return nil
+		}
+		if bodySchema == nil {
+			return nil
+		}
+		if err := validateTranscodeSchemaPath("body", *bodySchema, parts[1:]); err != nil {
+			return fmt.Errorf("transcode mapping source %s %w", source, err)
+		}
+	}
+	return nil
+}
+
+func validateTranscodeSchemaPath(prefix string, schema TranscodeSchemaConfig, parts []string) error {
+	if len(parts) == 0 {
+		return nil
+	}
+	part := strings.TrimSpace(parts[0])
+	if part == "" {
+		return errors.New("has empty segment")
+	}
+	array := strings.HasSuffix(part, "[]")
+	name := strings.TrimSuffix(part, "[]")
+	if name == "" && !array {
+		return errors.New("has empty segment")
+	}
+	if array && name == "" {
+		if !strings.EqualFold(strings.TrimSpace(schema.Type), "array") {
+			return fmt.Errorf("%s must be array", prefix)
+		}
+		if schema.Items == nil {
+			return nil
+		}
+		return validateTranscodeSchemaPath(prefix+"[]", *schema.Items, parts[1:])
+	}
+	if !strings.EqualFold(strings.TrimSpace(schema.Type), "object") && strings.TrimSpace(schema.Type) != "" {
+		return fmt.Errorf("%s is not object", prefix)
+	}
+	property, ok := schema.Properties[name]
+	if !ok {
+		return fmt.Errorf("references unknown body field %s.%s", prefix, name)
+	}
+	nextPrefix := prefix + "." + name
+	if array {
+		if !strings.EqualFold(strings.TrimSpace(property.Type), "array") {
+			return fmt.Errorf("%s must be array", nextPrefix)
+		}
+		if property.Items == nil {
+			return nil
+		}
+		return validateTranscodeSchemaPath(nextPrefix+"[]", *property.Items, parts[1:])
+	}
+	return validateTranscodeSchemaPath(nextPrefix, property, parts[1:])
+}
+
+func containsTranscodeParameter(parameters []TranscodeParameterConfig, name string) bool {
+	for _, parameter := range parameters {
+		if strings.TrimSpace(parameter.Name) == name {
+			return true
+		}
+	}
+	return false
 }
 
 func compareTranscodeProfileMappings(scope string, current, candidate []TranscodePayloadMapping) []TranscodeProfileChange {

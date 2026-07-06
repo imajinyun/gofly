@@ -3222,6 +3222,41 @@ func TestGatewayPureProxyAndTranscodeBranches(t *testing.T) {
 	if _, err := New([]Route{{PathPrefix: "/api", Targets: []string{"http://127.0.0.1:1"}}}, WithTranscodeProfiles(TranscodeProfile{Descriptor: "svc", DescriptorMethod: "Get", RequestMappings: []TranscodePayloadMapping{{Source: "body.id"}}})); err == nil || !strings.Contains(err.Error(), "target is required") {
 		t.Fatalf("bad option profile error = %v", err)
 	}
+	if _, err := New([]Route{{
+		PathPrefix: "/api",
+		Targets:    []string{"http://127.0.0.1:1"},
+		Transcode: TranscodeConfig{Enabled: true, Payload: TranscodePayloadConfig{
+			Mode:            "openapi",
+			MergeBodyObject: true,
+			BodySchema: &TranscodeSchemaConfig{Type: "object", Properties: map[string]TranscodeSchemaConfig{
+				"items": {Type: "array", Items: &TranscodeSchemaConfig{Type: "object", Properties: map[string]TranscodeSchemaConfig{"sku": {Type: "string"}}}},
+			}},
+			Mappings: []TranscodePayloadMapping{{Source: "body.items[].missing", Target: "items"}},
+		}},
+	}}); err == nil || !strings.Contains(err.Error(), "unknown body field body.items[].missing") {
+		t.Fatalf("bad body mapping route error = %v, want startup mapping validation", err)
+	}
+	if _, err := New([]Route{{
+		PathPrefix: "/api",
+		Targets:    []string{"http://127.0.0.1:1"},
+		Transcode: TranscodeConfig{Enabled: true, Payload: TranscodePayloadConfig{
+			Mode:        "openapi",
+			QueryParams: []string{"known"},
+			Mappings:    []TranscodePayloadMapping{{Source: "query.missing", Target: "filter.missing"}},
+		}},
+	}}); err == nil || !strings.Contains(err.Error(), "unknown query parameter") {
+		t.Fatalf("bad query mapping route error = %v, want startup mapping validation", err)
+	}
+	if _, err := New([]Route{{
+		PathPrefix: "/api",
+		Targets:    []string{"http://127.0.0.1:1"},
+		Transcode: TranscodeConfig{Enabled: true, Payload: TranscodePayloadConfig{
+			Mode:     "openapi",
+			Mappings: []TranscodePayloadMapping{{Target: "meta.region", Default: "cn"}},
+		}},
+	}}); err != nil {
+		t.Fatalf("default-only mapping route error = %v, want valid", err)
+	}
 	if err := (*Gateway)(nil).AddRoute(Route{}); !errors.Is(err, ErrRouteRequired) {
 		t.Fatalf("nil AddRoute error = %v, want ErrRouteRequired", err)
 	}

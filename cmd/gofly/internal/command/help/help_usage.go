@@ -24,6 +24,8 @@ Usage:
     gen api --file <service.api> --dir <dir> [--package <pkg>] [--rpc-package <import>] [--style go_zero] [--home <dir>]
     gen model --ddl <schema.sql> --dir <dir> [--package <pkg>] [--module <module>] [--table|--tables <tables>]
     gen gateway --name <name> --module <module> --dir <dir>
+  gateway - Inspect and validate gateway contracts.
+    gateway profile validate --config <gateway.json> --candidate <profile.json> [--json]
   api - Generate and manage API definition files.
     api format --file|--api <service.api> [--write] [--o <formatted.api>]
     api format --dir <api-dir> [--iu]

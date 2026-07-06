@@ -85,6 +85,7 @@ var rootCommands = newCommandRegistry(
 	commandSpec{Name: "bug", Short: "Print diagnostic bug reports.", Run: bugCommand},
 	commandSpec{Name: "upgrade", Short: "Print or run upgrade commands.", Run: upgradeCommand},
 	commandSpec{Name: "config", Short: "Manage .gofly configuration.", Run: configCommand},
+	commandSpec{Name: "gateway", Short: "Inspect and validate gateway contracts.", Run: gatewayCommand},
 	commandSpec{Name: "feature", Short: "List or preview scaffold features.", Run: featureCommand},
 	commandSpec{Name: "plugin", Short: "List, install or run generation plugins.", Run: pluginCommand},
 	commandSpec{Name: "complete", Short: "Emit legacy completion scripts.", Run: completeCommand},

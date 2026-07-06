@@ -340,6 +340,7 @@ type Gateway struct {
 	discoveryFailover   bool
 	initErr             error
 	transcodeRuntime    map[string]TranscodeRuntimeSnapshot
+	aggregationRuntime  map[string]AggregationRuntimeSnapshot
 }
 
 type gatewayRuleRuntime struct {
@@ -394,22 +395,23 @@ type RuntimeSnapshot struct {
 
 // RouteRuntimeSnapshot holds the normalized outbound policy for one gateway route.
 type RouteRuntimeSnapshot struct {
-	Name             string                   `json:"name,omitempty"`
-	Method           string                   `json:"method,omitempty"`
-	PathPrefix       string                   `json:"pathPrefix"`
-	Service          string                   `json:"service,omitempty"`
-	TargetCount      int                      `json:"targetCount,omitempty"`
-	Timeout          time.Duration            `json:"timeout,omitempty"`
-	EffectiveTimeout time.Duration            `json:"effectiveTimeout,omitempty"`
-	Retry            RetryPolicy              `json:"retry"`
-	Breaker          BreakerConfig            `json:"breaker,omitempty"`
-	RateLimit        RateLimitConfig          `json:"rateLimit,omitempty"`
-	Concurrency      ConcurrencyConfig        `json:"concurrency,omitempty"`
-	CanaryCount      int                      `json:"canaryCount,omitempty"`
-	ShadowCount      int                      `json:"shadowCount,omitempty"`
-	Transcode        TranscodeConfig          `json:"transcode,omitempty"`
-	TranscodeRuntime TranscodeRuntimeSnapshot `json:"transcodeRuntime,omitempty"`
-	Aggregation      AggregationConfig        `json:"aggregation,omitempty"`
+	Name               string                     `json:"name,omitempty"`
+	Method             string                     `json:"method,omitempty"`
+	PathPrefix         string                     `json:"pathPrefix"`
+	Service            string                     `json:"service,omitempty"`
+	TargetCount        int                        `json:"targetCount,omitempty"`
+	Timeout            time.Duration              `json:"timeout,omitempty"`
+	EffectiveTimeout   time.Duration              `json:"effectiveTimeout,omitempty"`
+	Retry              RetryPolicy                `json:"retry"`
+	Breaker            BreakerConfig              `json:"breaker,omitempty"`
+	RateLimit          RateLimitConfig            `json:"rateLimit,omitempty"`
+	Concurrency        ConcurrencyConfig          `json:"concurrency,omitempty"`
+	CanaryCount        int                        `json:"canaryCount,omitempty"`
+	ShadowCount        int                        `json:"shadowCount,omitempty"`
+	Transcode          TranscodeConfig            `json:"transcode,omitempty"`
+	TranscodeRuntime   TranscodeRuntimeSnapshot   `json:"transcodeRuntime,omitempty"`
+	Aggregation        AggregationConfig          `json:"aggregation,omitempty"`
+	AggregationRuntime AggregationRuntimeSnapshot `json:"aggregationRuntime,omitempty"`
 }
 
 // TranscodeRuntimeSnapshot reports the effective descriptor transcode profile
@@ -423,6 +425,17 @@ type TranscodeRuntimeSnapshot struct {
 	ErrorMappings    int    `json:"errorMappings,omitempty"`
 	LastError        string `json:"lastError,omitempty"`
 	LastErrorStage   string `json:"lastErrorStage,omitempty"`
+}
+
+// AggregationRuntimeSnapshot reports the latest BFF aggregation degradation
+// state for a route.
+type AggregationRuntimeSnapshot struct {
+	Steps         int `json:"steps,omitempty"`
+	RequiredSteps int `json:"requiredSteps,omitempty"`
+	FallbackSteps int `json:"fallbackSteps,omitempty"`
+	LastFailures  int `json:"lastFailures,omitempty"`
+	LastFallbacks int `json:"lastFallbacks,omitempty"`
+	LastStatus    int `json:"lastStatus,omitempty"`
 }
 
 // RuntimeCacheSnapshot reports lazily materialized gateway policy primitives.
@@ -552,6 +565,7 @@ func New(routes []Route, opts ...Option) (*Gateway, error) {
 		transcoders:         make(map[string]rpc.GenericClient),
 		descriptors:         make(map[string]rpc.Descriptor),
 		transcodeRuntime:    make(map[string]TranscodeRuntimeSnapshot),
+		aggregationRuntime:  make(map[string]AggregationRuntimeSnapshot),
 		logger:              slog.Default(),
 		retryRuntime:        newRetryRuntime(),
 	}
@@ -1204,23 +1218,46 @@ func (g *Gateway) routeRuntimeSnapshot(route Route) RouteRuntimeSnapshot {
 		effectiveTimeout = g.timeout
 	}
 	return RouteRuntimeSnapshot{
-		Name:             route.Name,
-		Method:           route.Method,
-		PathPrefix:       route.PathPrefix,
-		Service:          route.Service,
-		TargetCount:      len(route.Targets),
-		Timeout:          route.Timeout,
-		EffectiveTimeout: effectiveTimeout,
-		Retry:            normalizeRetryPolicy(route.Retry),
-		Breaker:          route.Breaker,
-		RateLimit:        route.RateLimit,
-		Concurrency:      route.Concurrency,
-		CanaryCount:      len(route.Canary),
-		ShadowCount:      len(route.Shadow),
-		Transcode:        cloneTranscodeConfig(route.Transcode),
-		TranscodeRuntime: g.routeTranscodeRuntimeSnapshot(route),
-		Aggregation:      cloneAggregationConfig(route.Aggregation),
+		Name:               route.Name,
+		Method:             route.Method,
+		PathPrefix:         route.PathPrefix,
+		Service:            route.Service,
+		TargetCount:        len(route.Targets),
+		Timeout:            route.Timeout,
+		EffectiveTimeout:   effectiveTimeout,
+		Retry:              normalizeRetryPolicy(route.Retry),
+		Breaker:            route.Breaker,
+		RateLimit:          route.RateLimit,
+		Concurrency:        route.Concurrency,
+		CanaryCount:        len(route.Canary),
+		ShadowCount:        len(route.Shadow),
+		Transcode:          cloneTranscodeConfig(route.Transcode),
+		TranscodeRuntime:   g.routeTranscodeRuntimeSnapshot(route),
+		Aggregation:        cloneAggregationConfig(route.Aggregation),
+		AggregationRuntime: g.routeAggregationRuntimeSnapshot(route),
 	}
+}
+
+func (g *Gateway) routeAggregationRuntimeSnapshot(route Route) AggregationRuntimeSnapshot {
+	if g == nil || !route.Aggregation.Enabled {
+		return AggregationRuntimeSnapshot{}
+	}
+	snapshot := AggregationRuntimeSnapshot{Steps: len(route.Aggregation.Steps)}
+	for _, step := range route.Aggregation.Steps {
+		if step.Required {
+			snapshot.RequiredSteps++
+		}
+		if len(step.Fallback) > 0 {
+			snapshot.FallbackSteps++
+		}
+	}
+	g.mu.RLock()
+	runtime := g.aggregationRuntime[routeKey(route)]
+	g.mu.RUnlock()
+	snapshot.LastFailures = runtime.LastFailures
+	snapshot.LastFallbacks = runtime.LastFallbacks
+	snapshot.LastStatus = runtime.LastStatus
+	return snapshot
 }
 
 func (g *Gateway) routeTranscodeRuntimeSnapshot(route Route) TranscodeRuntimeSnapshot {

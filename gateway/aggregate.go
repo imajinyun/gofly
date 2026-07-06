@@ -48,6 +48,7 @@ func (g *Gateway) aggregateOnce(r *http.Request, route Route, endpoint string, b
 
 	data := make(map[string]json.RawMessage, len(route.Aggregation.Steps))
 	failures := make(map[string]string)
+	fallbacks := 0
 	requiredFailed := false
 	for result := range results {
 		step := route.Aggregation.Steps[result.index]
@@ -61,6 +62,7 @@ func (g *Gateway) aggregateOnce(r *http.Request, route Route, endpoint string, b
 			failures[result.name] = message
 			if len(step.Fallback) > 0 {
 				data[result.name] = normalizeAggregationBody(step.Fallback)
+				fallbacks++
 				continue
 			}
 			if step.Required {
@@ -74,6 +76,7 @@ func (g *Gateway) aggregateOnce(r *http.Request, route Route, endpoint string, b
 	if requiredFailed {
 		status = http.StatusBadGateway
 	}
+	g.recordAggregationRuntime(route, len(failures), fallbacks, status)
 	bodyBytes, err := json.Marshal(struct {
 		Data   map[string]json.RawMessage `json:"data"`
 		Errors map[string]string          `json:"errors,omitempty"`
@@ -183,6 +186,22 @@ func normalizeAggregationConfig(conf AggregationConfig) AggregationConfig {
 		conf.Steps[i].Target = strings.TrimRight(strings.TrimSpace(conf.Steps[i].Target), "/")
 	}
 	return conf
+}
+
+func (g *Gateway) recordAggregationRuntime(route Route, failures, fallbacks, status int) {
+	if g == nil {
+		return
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.aggregationRuntime == nil {
+		g.aggregationRuntime = make(map[string]AggregationRuntimeSnapshot)
+	}
+	item := g.aggregationRuntime[routeKey(route)]
+	item.LastFailures = failures
+	item.LastFallbacks = fallbacks
+	item.LastStatus = status
+	g.aggregationRuntime[routeKey(route)] = item
 }
 
 func cloneAggregationConfig(conf AggregationConfig) AggregationConfig {

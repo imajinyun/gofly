@@ -2462,8 +2462,12 @@ func TestAINewGeneratedProjectVerificationMatrix(t *testing.T) {
 						t.Fatalf("ai new %s verification check = %+v\n%s", tt.template, check, stdout.String())
 					}
 				}
-				if got := strings.Join(verification, ","); got != strings.Join(tt.wantVerify, ",") {
-					t.Fatalf("ai new %s executed verification = %q, want %q", tt.template, got, strings.Join(tt.wantVerify, ","))
+				wantExecutedVerify := make([]string, len(tt.wantVerify))
+				for i, command := range tt.wantVerify {
+					wantExecutedVerify[i] = expandAIProjectVerificationCommand(outDir, command)
+				}
+				if got := strings.Join(verification, ","); got != strings.Join(wantExecutedVerify, ",") {
+					t.Fatalf("ai new %s executed verification = %q, want %q", tt.template, got, strings.Join(wantExecutedVerify, ","))
 				}
 				plugins := make([]string, 0, len(envelope.Data.GeneratedFeatures))
 				for _, feature := range envelope.Data.GeneratedFeatures {

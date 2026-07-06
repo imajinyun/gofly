@@ -223,8 +223,7 @@ api-example-consistency-check: examples-smoke test-generated-matrix ## Compatibi
 coverage-trend-check: cover-check ## Compatibility gate backed by coverage ratchet
 
 .PHONY: ci-required-check-evidence-check
-ci-required-check-evidence-check: ## Compatibility no-op; hosted release evidence docs were removed
-	$(GO) env GOMOD >/dev/null
+ci-required-check-evidence-check: required-checks-drift-check ## Validate hosted CI required-check evidence
 
 .PHONY: aiflow-profile-gate-check
 aiflow-profile-gate-check: ## Validate aiflow exposes gateway profile contract gate
@@ -437,8 +436,8 @@ doc-manifest-sync-check: ## Compatibility no-op; AI manifest no longer advertise
 	$(GO) env GOMOD >/dev/null
 
 .PHONY: required-checks-drift-check
-required-checks-drift-check: ## Compatibility no-op; docs-backed required check matrix was removed
-	$(GO) env GOMOD >/dev/null
+required-checks-drift-check: ## Validate hosted CI keeps gateway profile contract gate non-skippable
+	sh $(SCRIPTS_DIR)/check-required-checks-drift.sh
 
 .PHONY: docs-link-check
 docs-link-check: ## Compatibility no-op; long-form documentation links are no longer a release gate

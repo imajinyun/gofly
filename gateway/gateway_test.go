@@ -465,6 +465,12 @@ func TestGatewayAggregationUsesStepFallbacksForPartialResponse(t *testing.T) {
 	if string(runtime.Routes[0].Aggregation.Steps[0].Fallback) != `{"id":"anonymous"}` {
 		t.Fatalf("runtime fallback mutated through route config alias: %s", runtime.Routes[0].Aggregation.Steps[0].Fallback)
 	}
+	aggregationRuntime := runtime.Routes[0].AggregationRuntime
+	if aggregationRuntime.Steps != 2 || aggregationRuntime.RequiredSteps != 1 ||
+		aggregationRuntime.FallbackSteps != 2 || aggregationRuntime.LastFailures != 2 ||
+		aggregationRuntime.LastFallbacks != 2 || aggregationRuntime.LastStatus != http.StatusOK {
+		t.Fatalf("aggregation runtime = %+v, want fallback partial-response evidence", aggregationRuntime)
+	}
 }
 
 func TestGatewayGovernanceManagerOverridesExplicitRuleSet(t *testing.T) {

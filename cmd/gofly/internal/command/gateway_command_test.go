@@ -303,4 +303,34 @@ func TestGatewayAggregationValidateCommandOpenAPIDiff(t *testing.T) {
 	if !sawRemoveFallback || !sawChangeTarget {
 		t.Fatalf("openapi aggregation changes = %+v, want remove_fallback and change_target", envelope.Data.Changes)
 	}
+
+	invalidPath := filepath.Join(dir, "invalid-openapi.json")
+	invalid := strings.Replace(candidate, `"name": "orders", "path": "/orders"`, `"name": "orders", "path": "/orders", "request": {"queryMappings": [{"source": "query.missing", "target": "missing"}]}`, 1)
+	if err := os.WriteFile(invalidPath, []byte(invalid), 0o600); err != nil {
+		t.Fatalf("write invalid openapi: %v", err)
+	}
+	stdout.Reset()
+	if err := ExecuteWithIO([]string{"gateway", "aggregation", "validate", "--openapi-base", basePath, "--openapi-candidate", invalidPath, "--route", "home", "--format", "sarif"}, IOStreams{Out: &stdout}); err != nil {
+		t.Fatalf("gateway aggregation invalid openapi sarif: %v", err)
+	}
+	var invalidSARIF struct {
+		Runs []struct {
+			Results []struct {
+				RuleID  string `json:"ruleId"`
+				Level   string `json:"level"`
+				Message struct {
+					Text string `json:"text"`
+				} `json:"message"`
+			} `json:"results"`
+		} `json:"runs"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &invalidSARIF); err != nil {
+		t.Fatalf("decode invalid sarif: %v\n%s", err, stdout.String())
+	}
+	if len(invalidSARIF.Runs) != 1 || len(invalidSARIF.Runs[0].Results) != 1 ||
+		invalidSARIF.Runs[0].Results[0].RuleID != "aggregation.invalid" ||
+		invalidSARIF.Runs[0].Results[0].Level != "error" ||
+		!strings.Contains(invalidSARIF.Runs[0].Results[0].Message.Text, "unknown OpenAPI query parameter") {
+		t.Fatalf("invalid sarif = %+v, want aggregation.invalid error", invalidSARIF)
+	}
 }

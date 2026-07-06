@@ -53,6 +53,7 @@ for token in (
     "--format markdown",
     "--format sarif",
     "gateway-aggregation.sarif",
+    "gateway-aggregation-invalid.sarif",
     "gateway-aggregation-sarif",
     "github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e",
     "security-events: write",

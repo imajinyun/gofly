@@ -199,6 +199,10 @@ func gatewayAggregationValidateCommand(args []string) error {
 }
 
 func gatewayAggregationValidateOpenAPICommand(basePath, candidatePath, routeName string, formatName *string, jsonFlag *bool) error {
+	format, err := normalizeCLIFormat(formatName, outputJSON, outputText, "markdown", "sarif", outputJSON)
+	if err != nil {
+		return err
+	}
 	baseDoc, err := readGatewayOpenAPIDocument(basePath)
 	if err != nil {
 		return err
@@ -210,11 +214,19 @@ func gatewayAggregationValidateOpenAPICommand(basePath, candidatePath, routeName
 	importOptions := gateway.OpenAPIRouteOptions{GatewayPrefix: "/", Service: "openapi", Targets: []string{"http://127.0.0.1:1"}}
 	baseRoutes, err := gateway.RouteConfigsFromOpenAPI(baseDoc, importOptions)
 	if err != nil {
-		return fmt.Errorf("import base openapi aggregation routes: %w", err)
+		err = fmt.Errorf("import base openapi aggregation routes: %w", err)
+		if format == "sarif" {
+			return printGatewayAggregationValidationSARIF(gatewayAggregationValidationReportFromError(err))
+		}
+		return err
 	}
 	candidateRoutes, err := gateway.RouteConfigsFromOpenAPI(candidateDoc, importOptions)
 	if err != nil {
-		return fmt.Errorf("import candidate openapi aggregation routes: %w", err)
+		err = fmt.Errorf("import candidate openapi aggregation routes: %w", err)
+		if format == "sarif" {
+			return printGatewayAggregationValidationSARIF(gatewayAggregationValidationReportFromError(err))
+		}
+		return err
 	}
 	current := gateway.Config{Routes: baseRoutes}
 	candidate, err := gatewayAggregationFromRoutes(candidateRoutes, routeName)
@@ -226,10 +238,6 @@ func gatewayAggregationValidateOpenAPICommand(basePath, candidatePath, routeName
 		return fmt.Errorf("load base openapi aggregation config: %w", err)
 	}
 	report := gw.ValidateAggregation(routeName, candidate)
-	format, err := normalizeCLIFormat(formatName, outputJSON, outputText, "markdown", "sarif", outputJSON)
-	if err != nil {
-		return err
-	}
 	if valueFromBoolFlag(jsonFlag) || outputMode() == outputJSON || format == outputJSON {
 		return printJSONEnvelope("gateway.aggregation.validate", report)
 	}
@@ -242,6 +250,14 @@ func gatewayAggregationValidateOpenAPICommand(basePath, candidatePath, routeName
 	}
 	printGatewayAggregationValidationText(report)
 	return nil
+}
+
+func gatewayAggregationValidationReportFromError(err error) gateway.AggregationValidationReport {
+	report := gateway.AggregationValidationReport{OK: false, Compatible: false}
+	if err != nil {
+		report.Errors = append(report.Errors, err.Error())
+	}
+	return report
 }
 
 func readGatewayOpenAPIDocument(path string) (rest.OpenAPIDocument, error) {

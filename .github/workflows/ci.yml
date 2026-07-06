@@ -377,6 +377,11 @@ jobs:
             --openapi-candidate "$tmp/edge/etc/edge-openapi-breaking.json" \
             --route home \
             --format sarif > gateway-aggregation.sarif
+          go run ./cmd/gofly gateway aggregation validate \
+            --openapi-base "$tmp/edge/etc/edge-openapi-base.json" \
+            --openapi-candidate "$tmp/edge/etc/edge-openapi-invalid.json" \
+            --route home \
+            --format sarif > gateway-aggregation-invalid.sarif
           {
             echo "## Gateway aggregation contract"
             echo
@@ -417,7 +422,9 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: gateway-aggregation-sarif
-          path: gateway-aggregation.sarif
+          path: |
+            gateway-aggregation.sarif
+            gateway-aggregation-invalid.sarif
           if-no-files-found: error
 
       - name: Upload gateway aggregation SARIF to Code Scanning

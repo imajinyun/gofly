@@ -267,7 +267,9 @@ func TestGenerateGatewayDefaultResilienceProfileReachesRuntime(t *testing.T) {
 		switch r.URL.Path {
 		case "/orders":
 			if r.Header.Get(gateway.HeaderGatewayRoute) == "bff-home" {
-				http.Error(w, "orders summary down", http.StatusBadGateway)
+				time.Sleep(50 * time.Millisecond)
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = io.WriteString(w, `[{"id":"late"}]`)
 				return
 			}
 			if apiCalls.Add(1) == 1 {
@@ -321,6 +323,12 @@ func TestGenerateGatewayDefaultResilienceProfileReachesRuntime(t *testing.T) {
 		compactGeneratedRawJSON(t, bffRoute.Aggregation.Steps[1].Fallback) != `[]` {
 		t.Fatalf("generated bff fallback steps = %#v", bffRoute.Aggregation.Steps)
 	}
+	if bffRoute.Aggregation.Steps[1].Timeout != time.Millisecond ||
+		bffRoute.Aggregation.Steps[1].Retry.Attempts != 2 ||
+		len(bffRoute.Aggregation.Steps[1].Retry.Statuses) != 1 ||
+		bffRoute.Aggregation.Steps[1].Retry.Statuses[0] != http.StatusServiceUnavailable {
+		t.Fatalf("generated bff orders step policy = %+v, want timeout/retry fallback profile", bffRoute.Aggregation.Steps[1])
+	}
 	rpcRoute := generatedGatewayRouteByName(t, generated.Gateway.Routes, "rpc-orders")
 	if !rpcRoute.Transcode.Enabled || rpcRoute.Transcode.Descriptor != "orders.OrderService" || rpcRoute.Transcode.DescriptorMethod != "GetOrder" || rpcRoute.Transcode.Payload.Mode != "profile" {
 		t.Fatalf("generated rpc bridge route = %#v", rpcRoute)
@@ -370,8 +378,19 @@ func TestGenerateGatewayDefaultResilienceProfileReachesRuntime(t *testing.T) {
 	if bff.Code != http.StatusOK ||
 		!strings.Contains(bff.Body.String(), `"profile":{"id":"u1"}`) ||
 		!strings.Contains(bff.Body.String(), `"orders":[]`) ||
-		!strings.Contains(bff.Body.String(), `"errors":{"orders":"upstream status 502"}`) {
+		!strings.Contains(bff.Body.String(), `"orders":"`) ||
+		!strings.Contains(bff.Body.String(), "deadline") {
 		t.Fatalf("generated gateway bff partial response = %d body = %q", bff.Code, bff.Body.String())
+	}
+	adminServer := rest.MustNewServer(rest.Config{})
+	gw.RegisterAdmin(adminServer, "/admin/gateway", "")
+	admin := httptest.NewRecorder()
+	adminServer.Handler().ServeHTTP(admin, httptest.NewRequest(http.MethodGet, "/admin/gateway/aggregation/diagnostics?route=bff-home&degraded=true", nil))
+	if admin.Code != http.StatusOK ||
+		!strings.Contains(admin.Body.String(), `"route":"GET /bff"`) ||
+		!strings.Contains(admin.Body.String(), `"fallbackStepsUsed":["orders"]`) ||
+		!strings.Contains(admin.Body.String(), `"degraded":true`) {
+		t.Fatalf("generated gateway aggregation diagnostics = %d body = %q", admin.Code, admin.Body.String())
 	}
 	rpcBridge := httptest.NewRecorder()
 	gw.ServeHTTP(rpcBridge, httptest.NewRequest(http.MethodPost, "/rpc/orders", bytes.NewReader([]byte(`{"id":"o42","trace":"t1"}`))))

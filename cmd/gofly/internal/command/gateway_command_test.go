@@ -117,7 +117,7 @@ func TestGatewayAggregationValidateCommandJSON(t *testing.T) {
 				]},
 				"steps": [
 					{"name": "profile", "path": "/profile", "fallback": {"id": "anonymous"}},
-					{"name": "orders", "path": "/orders", "fallback": []}
+					{"name": "orders", "path": "/orders", "request": {"headerMappings": [{"source": "header.x-tenant", "target": "X-Tenant"}]}, "fallback": []}
 				]
 			}
 		}]}
@@ -133,7 +133,7 @@ func TestGatewayAggregationValidateCommandJSON(t *testing.T) {
 		]},
 		"steps": [
 			{"name": "profile", "path": "/profile", "fallback": {"id": "anonymous"}},
-			{"name": "orders", "path": "/orders"},
+			{"name": "orders", "path": "/orders", "request": {"headerMappings": [{"source": "header.x-tenant", "target": "X-Account"}]}},
 			{"name": "recommendations", "path": "/recommendations", "fallback": []}
 		]
 	}`), 0o600); err != nil {
@@ -163,19 +163,22 @@ func TestGatewayAggregationValidateCommandJSON(t *testing.T) {
 	if !envelope.OK || envelope.Command != "gateway.aggregation.validate" || envelope.Data.Compatible {
 		t.Fatalf("envelope = %+v, want breaking aggregation validation", envelope)
 	}
-	var sawRemoveFallback, sawChangeTarget, sawAddStep bool
+	var sawRemoveFallback, sawChangeTarget, sawAddStep, sawRequestTarget bool
 	for _, change := range envelope.Data.Changes {
 		switch change.Kind {
 		case "remove_fallback":
 			sawRemoveFallback = change.Severity == "breaking" && change.Source == "orders"
 		case "change_target":
 			sawChangeTarget = change.Severity == "breaking" && change.Scope == "aggregation_shape"
+			if change.Severity == "breaking" && change.Scope == "aggregation_request_header/orders" {
+				sawRequestTarget = true
+			}
 		case "add_step":
 			sawAddStep = change.Severity == "info" && change.Source == "recommendations"
 		}
 	}
-	if !sawRemoveFallback || !sawChangeTarget || !sawAddStep {
-		t.Fatalf("changes = %+v, want fallback removal, shape target change, and additive step", envelope.Data.Changes)
+	if !sawRemoveFallback || !sawChangeTarget || !sawRequestTarget || !sawAddStep {
+		t.Fatalf("changes = %+v, want fallback removal, shape target change, request target change, and additive step", envelope.Data.Changes)
 	}
 
 	stdout.Reset()

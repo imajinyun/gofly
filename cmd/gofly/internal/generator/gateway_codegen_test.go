@@ -237,6 +237,7 @@ func TestGenerateGatewayDefaultResilienceProfileReachesRuntime(t *testing.T) {
 	}
 	if !strings.Contains(string(breakingOpenAPIData), `"target": "items"`) ||
 		!strings.Contains(string(breakingOpenAPIData), `"headerMappings"`) ||
+		!strings.Contains(string(breakingOpenAPIData), `"target": "X-Account"`) ||
 		strings.Contains(string(breakingOpenAPIData), `"fallback": []`) {
 		t.Fatalf("generated breaking OpenAPI fixture = %s, want target change and removed fallback", breakingOpenAPIData)
 	}

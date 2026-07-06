@@ -677,7 +677,7 @@ const gatewayOpenAPIBreakingTemplate = `{
           },
           "steps": [
             {"name": "profile", "path": "/profile", "required": true, "request": {"queryMappings": [{"source": "query.tenant", "target": "tenant"}]}, "fallback": {"id": "anonymous"}},
-            {"name": "orders", "path": "/orders", "timeout": 1000000, "retry": {"attempts": 2, "statuses": [503]}, "request": {"headerMappings": [{"source": "header.x-tenant", "target": "X-Tenant"}]}}
+            {"name": "orders", "path": "/orders", "timeout": 1000000, "retry": {"attempts": 2, "statuses": [503]}, "request": {"headerMappings": [{"source": "header.x-tenant", "target": "X-Account"}]}}
           ]
         }
       }

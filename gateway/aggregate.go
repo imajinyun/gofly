@@ -549,6 +549,7 @@ func compareAggregationSteps(current, candidate []AggregationStep) []TranscodePr
 				Message:  "candidate changes an existing aggregation fallback",
 			})
 		}
+		changes = append(changes, compareAggregationRequestShape(name, currentStep.Request, candidateStep.Request)...)
 	}
 	for name := range candidateByName {
 		if _, ok := currentByName[name]; !ok {
@@ -564,6 +565,14 @@ func compareAggregationSteps(current, candidate []AggregationStep) []TranscodePr
 	return changes
 }
 
+func compareAggregationRequestShape(stepName string, current, candidate AggregationRequestShape) []TranscodeProfileChange {
+	var changes []TranscodeProfileChange
+	changes = append(changes, compareAggregationMappings("aggregation_request_query/"+stepName, current.QueryMappings, candidate.QueryMappings, "aggregation request query")...)
+	changes = append(changes, compareAggregationMappings("aggregation_request_header/"+stepName, current.HeaderMappings, candidate.HeaderMappings, "aggregation request header")...)
+	changes = append(changes, compareAggregationMappings("aggregation_request_body/"+stepName, current.BodyMappings, candidate.BodyMappings, "aggregation request body")...)
+	return changes
+}
+
 func compareAggregationShape(current, candidate AggregationShape) []TranscodeProfileChange {
 	var changes []TranscodeProfileChange
 	if strings.TrimSpace(current.Mode) != strings.TrimSpace(candidate.Mode) {
@@ -576,10 +585,10 @@ func compareAggregationShape(current, candidate AggregationShape) []TranscodePro
 			Message:  "candidate changes aggregation response shape mode",
 		})
 	}
-	return append(changes, compareAggregationShapeMappings(current.Mappings, candidate.Mappings)...)
+	return append(changes, compareAggregationMappings("aggregation_shape", current.Mappings, candidate.Mappings, "aggregation shape")...)
 }
 
-func compareAggregationShapeMappings(current, candidate []AggregationPayloadMapping) []TranscodeProfileChange {
+func compareAggregationMappings(scope string, current, candidate []AggregationPayloadMapping, label string) []TranscodeProfileChange {
 	currentBySource := aggregationMappingsBySource(current)
 	candidateBySource := aggregationMappingsBySource(candidate)
 	var changes []TranscodeProfileChange
@@ -588,22 +597,22 @@ func compareAggregationShapeMappings(current, candidate []AggregationPayloadMapp
 		if !ok {
 			changes = append(changes, TranscodeProfileChange{
 				Kind:     "remove_mapping",
-				Scope:    "aggregation_shape",
+				Scope:    scope,
 				Source:   source,
 				Target:   currentMapping.Target,
 				Severity: "breaking",
-				Message:  "candidate removes an existing aggregation shape mapping",
+				Message:  "candidate removes an existing " + label + " mapping",
 			})
 			continue
 		}
 		if strings.TrimSpace(currentMapping.Target) != strings.TrimSpace(candidateMapping.Target) {
 			changes = append(changes, TranscodeProfileChange{
 				Kind:     "change_target",
-				Scope:    "aggregation_shape",
+				Scope:    scope,
 				Source:   source,
 				Target:   strings.TrimSpace(candidateMapping.Target),
 				Severity: "breaking",
-				Message:  "candidate changes an existing aggregation shape mapping target",
+				Message:  "candidate changes an existing " + label + " mapping target",
 			})
 		}
 	}
@@ -611,11 +620,11 @@ func compareAggregationShapeMappings(current, candidate []AggregationPayloadMapp
 		if _, ok := currentBySource[source]; !ok {
 			changes = append(changes, TranscodeProfileChange{
 				Kind:     "add_mapping",
-				Scope:    "aggregation_shape",
+				Scope:    scope,
 				Source:   source,
 				Target:   strings.TrimSpace(mapping.Target),
 				Severity: "info",
-				Message:  "candidate adds a new aggregation shape mapping",
+				Message:  "candidate adds a new " + label + " mapping",
 			})
 		}
 	}

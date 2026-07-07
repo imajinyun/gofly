@@ -245,7 +245,8 @@ const configTemplate = `{
   },
   "rpc": {
     "addr": ":8081",
-    "advertise": "http://127.0.0.1:8081"
+    "advertise": "http://127.0.0.1:8081",
+    "mux": {"enabled": false, "probe": false}
   }
 }
 `
@@ -494,6 +495,7 @@ import (
 )
 
 func TestAdminDiagnostics(t *testing.T) {
+	cfg := appconfig.Config{RPC: appconfig.RPCConfig{Mux: appconfig.RPCMuxConfig{Enabled: true, Probe: true}}}
 	clientConn, serverConn := net.Pipe()
 	muxClient := rpc.NewExperimentalMuxClientAdapter(clientConn)
 	muxServer := rpc.NewExperimentalMuxServerAdapter(serverConn)
@@ -535,12 +537,16 @@ func TestAdminDiagnostics(t *testing.T) {
 		t.Fatalf("mux terminal receive = %v, want EOF", err)
 	}
 
-	rpcServer := rpc.NewServer(rpc.WithExperimentalMuxServerAdapter(muxServer))
-	if err := rpcServer.RegisterService(apprpc.GreeterService(svc.NewServiceContext(appconfig.Config{})), nil); err != nil {
+	rpcOptions := []rpc.ServerOption{}
+	if cfg.RPC.Mux.Enabled && cfg.RPC.Mux.Probe {
+		rpcOptions = append(rpcOptions, rpc.WithExperimentalMuxServerAdapter(muxServer))
+	}
+	rpcServer := rpc.NewServer(rpcOptions...)
+	if err := rpcServer.RegisterService(apprpc.GreeterService(svc.NewServiceContext(cfg)), nil); err != nil {
 		t.Fatal(err)
 	}
 	adminServer := NewServer("", "/admin", rpcServer, WithControlPlaneSnapshot(func(ctx context.Context) (controlplane.Snapshot, error) {
-		return appconfig.Config{}.ControlPlaneSnapshot(ctx)
+		return cfg.ControlPlaneSnapshot(ctx)
 	}))
 	handler := adminServer.Handler()
 
@@ -698,6 +704,12 @@ type OpenAPIConfig struct {
 type RPCConfig struct {
 	Addr      string ` + "`json:\"addr\"`" + `
 	Advertise string ` + "`json:\"advertise\"`" + `
+	Mux       RPCMuxConfig ` + "`json:\"mux,omitempty\"`" + `
+}
+
+type RPCMuxConfig struct {
+	Enabled bool ` + "`json:\"enabled\"`" + `
+	Probe   bool ` + "`json:\"probe\"`" + `
 }
 
 type ResilienceProfile struct {

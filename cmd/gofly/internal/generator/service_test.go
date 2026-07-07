@@ -1015,11 +1015,32 @@ func TestGenerateNewServiceVariantsBoundaries(t *testing.T) {
 	if !strings.Contains(string(protoData), "package greeter;") || strings.Contains(string(protoData), "package greeter.v1;") {
 		t.Fatalf("generated rpc proto package not normalized:\n%s", protoData)
 	}
+	configData, err := os.ReadFile(filepath.Join(rpcDir, "etc", "Greeter.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(configData), `"mux": {"enabled": false, "probe": false}`) {
+		t.Fatalf("generated rpc config missing default-disabled mux config:\n%s", configData)
+	}
+	configGoData, err := os.ReadFile(filepath.Join(rpcDir, "internal", "config", "config.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"type RPCMuxConfig struct",
+		"Mux       RPCMuxConfig",
+		`json:"probe"`,
+	} {
+		if !strings.Contains(string(configGoData), want) {
+			t.Fatalf("generated rpc config.go missing mux config %q:\n%s", want, configGoData)
+		}
+	}
 	adminTestData, err := os.ReadFile(filepath.Join(rpcDir, "internal", "admin", "admin_test.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
+		"RPCMuxConfig{Enabled: true, Probe: true}",
 		"rpc.NewExperimentalMuxClientAdapter",
 		"rpc.NewExperimentalMuxServerAdapter",
 		"rpc.WithExperimentalMuxServerAdapter",

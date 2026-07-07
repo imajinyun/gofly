@@ -850,6 +850,69 @@ func TestGenerateModelFromDatasourceMultiTableReplayCompiles(t *testing.T) {
 	runGoCommand(t, dir, 3*time.Minute, "test", "./...")
 }
 
+func TestGenerateModelFromPostgresDatasourceMultiSchemaReplayCompiles(t *testing.T) {
+	oldDriverName := modelDatasourceDriverName
+	modelDatasourceDriverName = func(driver string) string {
+		if driver == "postgres" || driver == "postgresql" || driver == "pg" {
+			return fakeModelDatasourceDriver
+		}
+		return oldDriverName(driver)
+	}
+	t.Cleanup(func() { modelDatasourceDriverName = oldDriverName })
+
+	dir := t.TempDir()
+	writeGeneratedModule(t, dir, "example.com/postgres-datasource-entrypoint")
+	if err := GenerateModelFromDatasource(ModelDatasourceOptions{
+		Driver:        "postgres",
+		DSN:           "postgres-multi-schema",
+		Dir:           dir,
+		Package:       "model",
+		Module:        "example.com/postgres-datasource-entrypoint",
+		Tables:        []string{"billing_accounts", "billing_events"},
+		Schema:        "billing",
+		Prefix:        "billing_",
+		IgnoreColumns: []string{"created_by", "updated_by"},
+		Strict:        true,
+		Cache:         true,
+	}); err != nil {
+		t.Fatalf("GenerateModelFromDatasource postgres multi-schema replay: %v", err)
+	}
+	accountRepo, err := os.ReadFile(filepath.Join(dir, "model", "repo", "account.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	accountRepoOut := string(accountRepo)
+	for _, want := range []string{
+		"d := storage.DialectPostgres",
+		"func (r *AccountRepo) UpsertByTenantIDAndExternalRef(ctx context.Context, in *entity.Account) error",
+		"storage.Upsert(entity.AccountTable, entity.AccountColumns, []string{\"tenant_id\", \"external_ref\"}",
+		"func (c *RedisCachedAccountRepo) PageByTenantIDCached(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.Account, int64, error)",
+		"key := redisAccountIndexListCacheKey(version, indexListKeyByTenantID(tenantID, limit, offset))",
+	} {
+		if !strings.Contains(accountRepoOut, want) {
+			t.Fatalf("entrypoint postgres account repo missing %q:\n%s", want, accountRepoOut)
+		}
+	}
+	eventRepo, err := os.ReadFile(filepath.Join(dir, "model", "repo", "event.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	eventRepoOut := string(eventRepo)
+	for _, want := range []string{
+		"d := storage.DialectPostgres",
+		"func (r *EventRepo) UpsertByTenantIDAndEventNo(ctx context.Context, in *entity.Event) error",
+		"func (r *EventRepo) ClaimByTenantIDAndStatusSkipLocked(ctx context.Context, tenantID int64, status string, nextStatus string, limit int) ([]entity.Event, error)",
+		"func (c *RedisCachedEventRepo) ClaimByTenantIDAndStatusSkipLocked(ctx context.Context, tenantID int64, status string, nextStatus string, limit int) ([]entity.Event, error)",
+		"key := redisEventIndexListCacheKey(version, indexListKeyByTenantIDAndStatus(tenantID, status, limit, offset))",
+	} {
+		if !strings.Contains(eventRepoOut, want) {
+			t.Fatalf("entrypoint postgres event repo missing %q:\n%s", want, eventRepoOut)
+		}
+	}
+	runGoCommand(t, dir, 3*time.Minute, "mod", "tidy")
+	runGoCommand(t, dir, 3*time.Minute, "test", "./...")
+}
+
 func TestPostgresDatasourceIntrospectionMultiSchemaCacheReplay(t *testing.T) {
 	db, err := sql.Open(fakeModelDatasourceDriver, "postgres-multi-schema")
 	if err != nil {

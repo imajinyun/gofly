@@ -995,10 +995,21 @@ func TestExperimentalMuxConnectionManagerRetriesOpenBeforeStreamAfterPoolExhaust
 	snapshot := manager.Snapshot()
 	if snapshot.PoolExhaustions != 1 ||
 		snapshot.EndpointEjections != 1 ||
+		snapshot.OpenRetries != 1 ||
+		snapshot.LastRetriedFrom != firstEndpoint ||
+		snapshot.LastRetriedTo != secondEndpoint ||
+		snapshot.RetryReasons["pool_exhausted"] != 1 ||
 		len(snapshot.Health) != 1 ||
 		snapshot.Health[0].Endpoint != firstEndpoint ||
 		snapshot.Health[0].Reason != "pool_exhausted" {
 		t.Fatalf("manager snapshot after retry = %+v, want pool exhaustion and first endpoint health evidence", snapshot)
+	}
+	diagnosis := client.RuntimeSnapshot().Diagnosis.Mux.Manager
+	if diagnosis.OpenRetries != 1 ||
+		diagnosis.LastRetriedFrom != firstEndpoint ||
+		diagnosis.LastRetriedTo != secondEndpoint ||
+		diagnosis.RetryReasons["pool_exhausted"] != 1 {
+		t.Fatalf("mux manager diagnosis after retry = %+v, want retry endpoint and reason evidence", diagnosis)
 	}
 
 	close(releaseFirst)
@@ -1075,11 +1086,22 @@ func TestExperimentalMuxConnectionManagerSkipsEndpointAfterDialFailure(t *testin
 	snapshot := manager.Snapshot()
 	if snapshot.DialFailures != 1 ||
 		snapshot.EndpointEjections != 1 ||
+		snapshot.OpenRetries != 1 ||
+		snapshot.LastRetriedFrom != badEndpoint ||
+		snapshot.LastRetriedTo != goodEndpoint ||
+		snapshot.RetryReasons["dial_failure"] != 1 ||
 		len(snapshot.Health) != 1 ||
 		snapshot.Health[0].Endpoint != badEndpoint ||
 		!snapshot.Health[0].Ejected ||
 		snapshot.Health[0].Reason != "dial_failure" {
 		t.Fatalf("manager snapshot after dial failure = %+v, want bad endpoint ejected", snapshot)
+	}
+	diagnosis := client.RuntimeSnapshot().Diagnosis.Mux.Manager
+	if diagnosis.OpenRetries != 1 ||
+		diagnosis.LastRetriedFrom != badEndpoint ||
+		diagnosis.LastRetriedTo != goodEndpoint ||
+		diagnosis.RetryReasons["dial_failure"] != 1 {
+		t.Fatalf("mux manager diagnosis after dial retry = %+v, want retry endpoint and reason evidence", diagnosis)
 	}
 
 	cancel()

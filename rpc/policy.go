@@ -211,6 +211,10 @@ type RPCMuxConnectionManagerDiagnosis struct {
 	DialFailures            int64                                   `json:"dialFailures,omitempty"`
 	EndpointEjections       int64                                   `json:"endpointEjections,omitempty"`
 	EndpointRecoveries      int64                                   `json:"endpointRecoveries,omitempty"`
+	OpenRetries             int64                                   `json:"openRetries,omitempty"`
+	LastRetriedFrom         string                                  `json:"lastRetriedFrom,omitempty"`
+	LastRetriedTo           string                                  `json:"lastRetriedTo,omitempty"`
+	RetryReasons            map[string]int64                        `json:"retryReasons,omitempty"`
 	JanitorRuns             int64                                   `json:"janitorRuns,omitempty"`
 	CloseReasons            map[string]int64                        `json:"closeReasons,omitempty"`
 	DrainReasons            map[string]int64                        `json:"drainReasons,omitempty"`

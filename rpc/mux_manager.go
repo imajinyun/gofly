@@ -36,6 +36,10 @@ type ExperimentalMuxConnectionManager struct {
 	dialFailures            int64
 	endpointEjections       int64
 	endpointRecoveries      int64
+	openRetries             int64
+	lastRetriedFrom         string
+	lastRetriedTo           string
+	retryReasons            map[string]int64
 	janitorRuns             int64
 	closeReasons            map[string]int64
 	drainReasons            map[string]int64
@@ -86,6 +90,10 @@ type ExperimentalMuxConnectionManagerSnapshot struct {
 	DialFailures            int64                                   `json:"dialFailures,omitempty"`
 	EndpointEjections       int64                                   `json:"endpointEjections,omitempty"`
 	EndpointRecoveries      int64                                   `json:"endpointRecoveries,omitempty"`
+	OpenRetries             int64                                   `json:"openRetries,omitempty"`
+	LastRetriedFrom         string                                  `json:"lastRetriedFrom,omitempty"`
+	LastRetriedTo           string                                  `json:"lastRetriedTo,omitempty"`
+	RetryReasons            map[string]int64                        `json:"retryReasons,omitempty"`
 	JanitorRuns             int64                                   `json:"janitorRuns,omitempty"`
 	CloseReasons            map[string]int64                        `json:"closeReasons,omitempty"`
 	DrainReasons            map[string]int64                        `json:"drainReasons,omitempty"`
@@ -121,6 +129,7 @@ func NewExperimentalMuxConnectionManager(resolver Resolver, opts ...Experimental
 		adapters:               make(map[string][]*muxManagedAdapter),
 		retired:                make(map[string][]*muxManagedAdapter),
 		health:                 make(map[string]*muxEndpointHealth),
+		retryReasons:           make(map[string]int64),
 		closeReasons:           make(map[string]int64),
 		drainReasons:           make(map[string]int64),
 	}
@@ -233,6 +242,7 @@ func (m *ExperimentalMuxConnectionManager) OpenStream(ctx context.Context, metho
 	var tried []string
 	var lastEndpoint string
 	var lastErr error
+	var lastReason string
 	for attempt := 0; attempt < 2; attempt++ {
 		endpoint, err := m.pickEndpointExcluding(ctx, endpoints, tried)
 		if err != nil {
@@ -246,6 +256,7 @@ func (m *ExperimentalMuxConnectionManager) OpenStream(ctx context.Context, metho
 		adapter, err := m.adapter(ctx, endpoint)
 		if err != nil {
 			lastErr = err
+			lastReason = muxOpenRetryReason("open_before", m.endpointHealthReason(endpoint), err)
 			if attempt == 0 && muxOpenBeforeRetryable(err) {
 				continue
 			}
@@ -255,10 +266,14 @@ func (m *ExperimentalMuxConnectionManager) OpenStream(ctx context.Context, metho
 		if err != nil {
 			m.recordEndpointFailure(endpoint, "open_stream", err)
 			lastErr = err
+			lastReason = muxOpenRetryReason("open_stream", m.endpointHealthReason(endpoint), err)
 			if attempt == 0 && muxOpenBeforeRetryable(err) {
 				continue
 			}
 			return nil, endpoint, err
+		}
+		if attempt > 0 && len(tried) > 1 {
+			m.recordOpenRetry(tried[0], endpoint, lastReason)
 		}
 		m.recordEndpointSuccess(endpoint)
 		m.touch(endpoint)
@@ -533,6 +548,10 @@ func (m *ExperimentalMuxConnectionManager) Snapshot() ExperimentalMuxConnectionM
 	dialFailures := m.dialFailures
 	endpointEjections := m.endpointEjections
 	endpointRecoveries := m.endpointRecoveries
+	openRetries := m.openRetries
+	lastRetriedFrom := m.lastRetriedFrom
+	lastRetriedTo := m.lastRetriedTo
+	retryReasons := cloneStringInt64Map(m.retryReasons)
 	janitorRuns := m.janitorRuns
 	maxConnsPerEndpoint := m.maxConnsPerEndpoint
 	maxIdleConnsPerEndpoint := m.maxIdleConnsPerEndpoint
@@ -572,6 +591,10 @@ func (m *ExperimentalMuxConnectionManager) Snapshot() ExperimentalMuxConnectionM
 		DialFailures:            dialFailures,
 		EndpointEjections:       endpointEjections,
 		EndpointRecoveries:      endpointRecoveries,
+		OpenRetries:             openRetries,
+		LastRetriedFrom:         lastRetriedFrom,
+		LastRetriedTo:           lastRetriedTo,
+		RetryReasons:            retryReasons,
 		JanitorRuns:             janitorRuns,
 		CloseReasons:            closeReasons,
 		DrainReasons:            drainReasons,
@@ -602,6 +625,10 @@ func (m *ExperimentalMuxConnectionManager) DiagnosisSnapshot() RPCMuxConnectionM
 		DialFailures:            snapshot.DialFailures,
 		EndpointEjections:       snapshot.EndpointEjections,
 		EndpointRecoveries:      snapshot.EndpointRecoveries,
+		OpenRetries:             snapshot.OpenRetries,
+		LastRetriedFrom:         snapshot.LastRetriedFrom,
+		LastRetriedTo:           snapshot.LastRetriedTo,
+		RetryReasons:            snapshot.RetryReasons,
 		JanitorRuns:             snapshot.JanitorRuns,
 		CloseReasons:            snapshot.CloseReasons,
 		DrainReasons:            snapshot.DrainReasons,
@@ -947,6 +974,41 @@ func (m *ExperimentalMuxConnectionManager) recordEndpointSuccess(endpoint string
 	m.mu.Unlock()
 }
 
+func (m *ExperimentalMuxConnectionManager) recordOpenRetry(from string, to string, reason string) {
+	from = strings.TrimRight(strings.TrimSpace(from), "/")
+	to = strings.TrimRight(strings.TrimSpace(to), "/")
+	if from == "" || to == "" {
+		return
+	}
+	if reason == "" {
+		reason = "open_before"
+	}
+	m.mu.Lock()
+	if m.retryReasons == nil {
+		m.retryReasons = make(map[string]int64)
+	}
+	m.openRetries++
+	m.lastRetriedFrom = from
+	m.lastRetriedTo = to
+	m.retryReasons[reason]++
+	m.lastUpdated = time.Now()
+	m.mu.Unlock()
+}
+
+func (m *ExperimentalMuxConnectionManager) endpointHealthReason(endpoint string) string {
+	endpoint = strings.TrimRight(strings.TrimSpace(endpoint), "/")
+	if endpoint == "" {
+		return ""
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	state := m.health[endpoint]
+	if state == nil {
+		return ""
+	}
+	return state.reason
+}
+
 func (m *ExperimentalMuxConnectionManager) snapshotHealthLocked(now time.Time) []ExperimentalMuxEndpointHealthSnapshot {
 	health := make([]ExperimentalMuxEndpointHealthSnapshot, 0, len(m.health))
 	for endpoint, state := range m.health {
@@ -1086,6 +1148,20 @@ func muxEndpointHealthFailure(reason string, err error) bool {
 
 func muxOpenBeforeRetryable(err error) bool {
 	return CodeOf(err) == CodeUnavailable || CodeOf(err) == CodeDeadlineExceeded
+}
+
+func muxOpenRetryReason(fallback string, healthReason string, err error) string {
+	if healthReason != "" {
+		return healthReason
+	}
+	if fallback != "" {
+		return fallback
+	}
+	code := CodeOf(err)
+	if code != "" {
+		return string(code)
+	}
+	return "open_before"
 }
 
 func filterMuxEndpoints(endpoints []string, exclude []string) []string {

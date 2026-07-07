@@ -191,10 +191,15 @@ type RPCMuxTransportDiagnosis struct {
 }
 
 type RPCMuxConnectionManagerDiagnosis struct {
-	Enabled     bool                              `json:"enabled"`
-	Mode        string                            `json:"mode,omitempty"`
-	IdleTimeout time.Duration                     `json:"idleTimeout,omitempty"`
-	Endpoints   []ExperimentalMuxEndpointSnapshot `json:"endpoints,omitempty"`
+	Enabled        bool                              `json:"enabled"`
+	Mode           string                            `json:"mode,omitempty"`
+	IdleTimeout    time.Duration                     `json:"idleTimeout,omitempty"`
+	Endpoints      []ExperimentalMuxEndpointSnapshot `json:"endpoints,omitempty"`
+	WatchUpdates   int64                             `json:"watchUpdates,omitempty"`
+	Removed        []string                          `json:"removed,omitempty"`
+	ClosedAdapters int64                             `json:"closedAdapters,omitempty"`
+	CloseReasons   map[string]int64                  `json:"closeReasons,omitempty"`
+	LastUpdated    time.Time                         `json:"lastUpdated,omitempty"`
 }
 
 type RPCMuxFlowControlDiagnosis struct {

@@ -571,8 +571,24 @@ func TestExperimentalMuxConnectionManagerWatchRemovesEndpoints(t *testing.T) {
 	updates <- []string{secondEndpoint}
 	assertEventually(t, func() bool {
 		snapshot := manager.Snapshot()
-		return len(snapshot.Endpoints) == 1 && snapshot.Endpoints[0].Endpoint == secondEndpoint
+		return len(snapshot.Endpoints) == 1 &&
+			snapshot.Endpoints[0].Endpoint == secondEndpoint &&
+			snapshot.WatchUpdates == 1 &&
+			snapshot.ClosedAdapters == 1 &&
+			snapshot.CloseReasons["resolver_update"] == 1 &&
+			len(snapshot.Removed) == 1 &&
+			snapshot.Removed[0] == firstEndpoint &&
+			!snapshot.LastUpdated.IsZero()
 	}, "mux manager watch removed stale endpoint")
+	diagnosis := client.RuntimeSnapshot().Diagnosis.Mux.Manager
+	if diagnosis.WatchUpdates != 1 ||
+		diagnosis.ClosedAdapters != 1 ||
+		diagnosis.CloseReasons["resolver_update"] != 1 ||
+		len(diagnosis.Removed) != 1 ||
+		diagnosis.Removed[0] != firstEndpoint ||
+		diagnosis.LastUpdated.IsZero() {
+		t.Fatalf("mux manager diagnosis after watch = %+v, want watch removal evidence", diagnosis)
+	}
 
 	stopWatch()
 	if err := <-watchDone; err != nil {

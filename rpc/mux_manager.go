@@ -13,13 +13,18 @@ import (
 )
 
 type ExperimentalMuxConnectionManager struct {
-	mu          sync.Mutex
-	resolver    Resolver
-	balancer    Balancer
-	idleTimeout time.Duration
-	options     []ExperimentalMuxTransportOption
-	adapters    map[string]*muxManagedAdapter
-	closed      bool
+	mu             sync.Mutex
+	resolver       Resolver
+	balancer       Balancer
+	idleTimeout    time.Duration
+	options        []ExperimentalMuxTransportOption
+	adapters       map[string]*muxManagedAdapter
+	closed         bool
+	watchUpdates   int64
+	removed        []string
+	closedAdapters int64
+	closeReasons   map[string]int64
+	lastUpdated    time.Time
 }
 
 type muxManagedAdapter struct {
@@ -31,9 +36,14 @@ type muxManagedAdapter struct {
 type ExperimentalMuxConnectionManagerOption func(*ExperimentalMuxConnectionManager)
 
 type ExperimentalMuxConnectionManagerSnapshot struct {
-	Closed      bool                              `json:"closed"`
-	IdleTimeout time.Duration                     `json:"idleTimeout,omitempty"`
-	Endpoints   []ExperimentalMuxEndpointSnapshot `json:"endpoints,omitempty"`
+	Closed         bool                              `json:"closed"`
+	IdleTimeout    time.Duration                     `json:"idleTimeout,omitempty"`
+	Endpoints      []ExperimentalMuxEndpointSnapshot `json:"endpoints,omitempty"`
+	WatchUpdates   int64                             `json:"watchUpdates,omitempty"`
+	Removed        []string                          `json:"removed,omitempty"`
+	ClosedAdapters int64                             `json:"closedAdapters,omitempty"`
+	CloseReasons   map[string]int64                  `json:"closeReasons,omitempty"`
+	LastUpdated    time.Time                         `json:"lastUpdated,omitempty"`
 }
 
 type ExperimentalMuxEndpointSnapshot struct {
@@ -47,10 +57,11 @@ func NewExperimentalMuxConnectionManager(resolver Resolver, opts ...Experimental
 		return nil, errors.New("mux connection manager resolver is required")
 	}
 	m := &ExperimentalMuxConnectionManager{
-		resolver:    resolver,
-		balancer:    &RoundRobinBalancer{},
-		idleTimeout: time.Minute,
-		adapters:    make(map[string]*muxManagedAdapter),
+		resolver:     resolver,
+		balancer:     &RoundRobinBalancer{},
+		idleTimeout:  time.Minute,
+		adapters:     make(map[string]*muxManagedAdapter),
+		closeReasons: make(map[string]int64),
 	}
 	for _, opt := range opts {
 		if opt != nil {
@@ -151,6 +162,7 @@ func (m *ExperimentalMuxConnectionManager) Watch(ctx context.Context) error {
 			if len(endpoints) == 0 {
 				continue
 			}
+			m.recordWatchUpdate()
 			if err := m.removeMissingEndpoints(endpoints); err != nil {
 				return err
 			}
@@ -178,6 +190,7 @@ func (m *ExperimentalMuxConnectionManager) CloseIdle(ctx context.Context) error 
 		delete(m.adapters, endpoint)
 		idle = append(idle, adapter)
 	}
+	m.recordClosedAdaptersLocked(idle, "idle")
 	m.mu.Unlock()
 	var err error
 	for _, adapter := range idle {
@@ -221,6 +234,11 @@ func (m *ExperimentalMuxConnectionManager) Close() error {
 	m.closed = true
 	adapters := m.adapters
 	m.adapters = nil
+	closed := make([]*muxManagedAdapter, 0, len(adapters))
+	for _, adapter := range adapters {
+		closed = append(closed, adapter)
+	}
+	m.recordClosedAdaptersLocked(closed, "manager_closed")
 	m.mu.Unlock()
 	var err error
 	for _, adapter := range adapters {
@@ -238,6 +256,11 @@ func (m *ExperimentalMuxConnectionManager) Snapshot() ExperimentalMuxConnectionM
 	m.mu.Lock()
 	closed := m.closed
 	idleTimeout := m.idleTimeout
+	watchUpdates := m.watchUpdates
+	removed := append([]string(nil), m.removed...)
+	closedAdapters := m.closedAdapters
+	closeReasons := cloneStringInt64Map(m.closeReasons)
+	lastUpdated := m.lastUpdated
 	endpoints := make([]ExperimentalMuxEndpointSnapshot, 0, len(m.adapters))
 	for _, adapter := range m.adapters {
 		if adapter == nil || adapter.adapter == nil {
@@ -251,16 +274,30 @@ func (m *ExperimentalMuxConnectionManager) Snapshot() ExperimentalMuxConnectionM
 	}
 	m.mu.Unlock()
 	sort.Slice(endpoints, func(i, j int) bool { return endpoints[i].Endpoint < endpoints[j].Endpoint })
-	return ExperimentalMuxConnectionManagerSnapshot{Closed: closed, IdleTimeout: idleTimeout, Endpoints: endpoints}
+	return ExperimentalMuxConnectionManagerSnapshot{
+		Closed:         closed,
+		IdleTimeout:    idleTimeout,
+		Endpoints:      endpoints,
+		WatchUpdates:   watchUpdates,
+		Removed:        removed,
+		ClosedAdapters: closedAdapters,
+		CloseReasons:   closeReasons,
+		LastUpdated:    lastUpdated,
+	}
 }
 
 func (m *ExperimentalMuxConnectionManager) DiagnosisSnapshot() RPCMuxConnectionManagerDiagnosis {
 	snapshot := m.Snapshot()
 	return RPCMuxConnectionManagerDiagnosis{
-		Enabled:     m != nil && !snapshot.Closed,
-		Mode:        "experimental_mux_manager",
-		IdleTimeout: snapshot.IdleTimeout,
-		Endpoints:   snapshot.Endpoints,
+		Enabled:        m != nil && !snapshot.Closed,
+		Mode:           "experimental_mux_manager",
+		IdleTimeout:    snapshot.IdleTimeout,
+		Endpoints:      snapshot.Endpoints,
+		WatchUpdates:   snapshot.WatchUpdates,
+		Removed:        snapshot.Removed,
+		ClosedAdapters: snapshot.ClosedAdapters,
+		CloseReasons:   snapshot.CloseReasons,
+		LastUpdated:    snapshot.LastUpdated,
 	}
 }
 
@@ -321,6 +358,7 @@ func (m *ExperimentalMuxConnectionManager) removeMissingEndpoints(endpoints []st
 		delete(m.adapters, endpoint)
 		removed = append(removed, adapter)
 	}
+	m.recordClosedAdaptersLocked(removed, "resolver_update")
 	m.mu.Unlock()
 	var err error
 	for _, adapter := range removed {
@@ -329,6 +367,37 @@ func (m *ExperimentalMuxConnectionManager) removeMissingEndpoints(endpoints []st
 		}
 	}
 	return err
+}
+
+func (m *ExperimentalMuxConnectionManager) recordWatchUpdate() {
+	m.mu.Lock()
+	m.watchUpdates++
+	m.lastUpdated = time.Now()
+	m.mu.Unlock()
+}
+
+func (m *ExperimentalMuxConnectionManager) recordClosedAdaptersLocked(adapters []*muxManagedAdapter, reason string) {
+	if len(adapters) == 0 {
+		return
+	}
+	if reason == "" {
+		reason = "closed"
+	}
+	if m.closeReasons == nil {
+		m.closeReasons = make(map[string]int64)
+	}
+	if m.removed == nil {
+		m.removed = make([]string, 0, len(adapters))
+	}
+	for _, adapter := range adapters {
+		if adapter == nil {
+			continue
+		}
+		m.closedAdapters++
+		m.closeReasons[reason]++
+		m.removed = append(m.removed, adapter.endpoint)
+	}
+	m.lastUpdated = time.Now()
 }
 
 func (m *ExperimentalMuxConnectionManager) adapter(ctx context.Context, endpoint string) (*ExperimentalMuxClientAdapter, error) {

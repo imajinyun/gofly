@@ -244,7 +244,7 @@ context-lifecycle-governance-check: ## Validate lifecycle-sensitive runtime pack
 .PHONY: discovery-adapter-matrix-check
 discovery-adapter-matrix-check: ## Validate gateway, RPC, and core discovery adapter behavior
 	$(GO) test $(TESTFLAGS) ./core/discovery/...
-	$(GO) test $(TESTFLAGS) ./rpc -run 'Test(DNSResolver|DiscoveryResolver|FailoverResolver|ResolverFuncAndStaticResolver)'
+	$(GO) test $(TESTFLAGS) ./rpc -run 'Test(DNSResolver|DiscoveryResolver|FailoverResolver|ResolverFuncAndStaticResolver|KubernetesResolver)'
 	$(GO) test $(TESTFLAGS) ./gateway -run 'TestGatewayDiscovery'
 
 .PHONY: db-cache-productization-check

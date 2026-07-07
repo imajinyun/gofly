@@ -57,17 +57,18 @@ type rawResponseEnvelope struct {
 }
 
 type HTTPClient struct {
-	target      string
-	hc          *http.Client
-	opts        clientOptions
-	runtime     *ruleRuntime
-	discovery   *clientDiscoveryRuntime
-	streams     *rpcStreamTransportRuntime
-	stats       *callstats.Registry
-	warmupMu    sync.Mutex
-	warmup      RPCWarmupSnapshot
-	watchCancel context.CancelFunc
-	closeOnce   sync.Once
+	target         string
+	hc             *http.Client
+	opts           clientOptions
+	runtime        *ruleRuntime
+	discovery      *clientDiscoveryRuntime
+	streams        *rpcStreamTransportRuntime
+	stats          *callstats.Registry
+	warmupMu       sync.Mutex
+	warmup         RPCWarmupSnapshot
+	watchCancel    context.CancelFunc
+	muxWatchCancel context.CancelFunc
+	closeOnce      sync.Once
 }
 
 func NewClient(target string, opts ...ClientOption) (*HTTPClient, error) {
@@ -115,6 +116,7 @@ func NewClient(target string, opts ...ClientOption) (*HTTPClient, error) {
 		stats:     callstats.NewRegistry(),
 	}
 	client.startResolverWatch()
+	client.startMuxManagerWatch()
 	if err := client.warmUp(context.Background()); err != nil {
 		_ = client.Close()
 		return nil, err
@@ -130,6 +132,9 @@ func (c *HTTPClient) Close() error {
 	c.closeOnce.Do(func() {
 		if c.watchCancel != nil {
 			c.watchCancel()
+		}
+		if c.muxWatchCancel != nil {
+			c.muxWatchCancel()
 		}
 		c.closeIdleConnections()
 		if c.opts.connPool != nil {
@@ -913,6 +918,20 @@ func (c *HTTPClient) startResolverWatch() {
 	}
 	c.discovery.recordUpdate(initial, nil)
 	go c.watchResolverUpdates(ctx, normalizeEndpoints(initial), updates)
+}
+
+func (c *HTTPClient) startMuxManagerWatch() {
+	if c == nil || c.opts.muxManager == nil || c.opts.muxManager.resolver == nil {
+		return
+	}
+	if _, ok := c.opts.muxManager.resolver.(WatchResolver); !ok {
+		return
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	c.muxWatchCancel = cancel
+	go func() {
+		_ = c.opts.muxManager.Watch(ctx)
+	}()
 }
 
 func (c *HTTPClient) startDiscoveryEventWatch(watcher DiscoveryEventResolver) {

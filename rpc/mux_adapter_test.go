@@ -540,12 +540,6 @@ func TestExperimentalMuxConnectionManagerWatchRemovesEndpoints(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer manager.Close()
-	watchCtx, stopWatch := context.WithCancel(context.Background())
-	defer stopWatch()
-	watchDone := make(chan error, 1)
-	go func() {
-		watchDone <- manager.Watch(watchCtx)
-	}()
 
 	client, err := NewClient("http://unused", WithExperimentalMuxConnectionManager(manager))
 	if err != nil {
@@ -592,10 +586,6 @@ func TestExperimentalMuxConnectionManagerWatchRemovesEndpoints(t *testing.T) {
 		t.Fatalf("mux manager diagnosis after watch = %+v, want watch removal evidence", diagnosis)
 	}
 
-	stopWatch()
-	if err := <-watchDone; err != nil {
-		t.Fatalf("manager watch stopped with error: %v", err)
-	}
 	cancel()
 	if err := <-firstDone; err != nil {
 		t.Fatalf("first mux listener stopped with error: %v", err)

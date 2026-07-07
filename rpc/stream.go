@@ -380,6 +380,61 @@ func (c *HTTPClient) Stream(ctx context.Context, method string) (*Stream, error)
 	return stream, nil
 }
 
+// MuxStream opens an experimental multiplexed stream when the client was
+// explicitly configured with WithExperimentalMuxClientAdapter.
+func (c *HTTPClient) MuxStream(ctx context.Context, method string) (*ExperimentalMuxStream, error) {
+	handler := c.openMuxStream
+	policy := c.streamRetryPolicy()
+	if policy.Attempts <= 1 {
+		return handler(ctx, method)
+	}
+	var stream *ExperimentalMuxStream
+	err := retry.Do(ctx, policy, func() error {
+		var openErr error
+		stream, openErr = handler(ctx, method)
+		return openErr
+	})
+	if err != nil {
+		return nil, normalizeContextError(ctx, err)
+	}
+	return stream, nil
+}
+
+func (c *HTTPClient) openMuxStream(ctx context.Context, method string) (*ExperimentalMuxStream, error) {
+	ctx = core.Context(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if c == nil || c.opts.muxClientAdapter == nil {
+		return nil, NewError(CodeUnavailable, "rpc mux client adapter is not configured")
+	}
+	governanceReq := c.rpcGovernanceRequest(ctx, method)
+	decision := c.governanceDecision(ctx, governanceReq)
+	policy := decision.Policy
+	rpcPolicy := c.effectiveRPCPolicy(policy)
+	if c.opts.rpcPolicyProvider != nil {
+		dynamicPolicy, err := c.opts.rpcPolicyProvider.RPCPolicy(ctx, governanceReq)
+		if err != nil {
+			return nil, fmt.Errorf("resolve dynamic rpc mux stream policy: %w", err)
+		}
+		rpcPolicy = mergeRPCPolicy(rpcPolicy, dynamicPolicy)
+	}
+	if err := rpcPolicy.Validate(); err != nil {
+		return nil, fmt.Errorf("apply rpc mux stream policy: %w", err)
+	}
+	rpcPolicy = rpcPolicyForMethod(rpcPolicy, method)
+	streamTimeout := c.opts.streamTimeout
+	if streamTimeout <= 0 && rpcPolicy.Timeout > 0 {
+		streamTimeout = rpcPolicy.Timeout
+	}
+	if streamTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, streamTimeout)
+		defer cancel()
+	}
+	return c.opts.muxClientAdapter.OpenStream(ctx, method)
+}
+
 func (c *HTTPClient) streamRetryPolicy() retry.Policy {
 	if c == nil {
 		return retry.Policy{Attempts: 1, ShouldRetry: isRetryable}

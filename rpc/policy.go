@@ -421,7 +421,7 @@ func (c *HTTPClient) diagnosisSnapshot() RPCDiagnosisSnapshot {
 	}
 	policy := c.effectiveRPCPolicy(governance.Policy{})
 	state := c.policyRuntimeState(policy)
-	return RPCDiagnosisSnapshot{
+	snapshot := RPCDiagnosisSnapshot{
 		Transport: c.httpTransportSnapshot(),
 		ConnPool:  c.connPoolSnapshot(),
 		Retry: RPCRetryDiagnosisSnapshot{
@@ -432,6 +432,10 @@ func (c *HTTPClient) diagnosisSnapshot() RPCDiagnosisSnapshot {
 		Resolver: c.resolverRuntimeSnapshot(),
 		Balancer: RPCBalancerDiagnosisSnapshot{Name: state.Balancer},
 	}
+	if c.opts.muxClientAdapter != nil {
+		snapshot.Mux = c.opts.muxClientAdapter.DiagnosisSnapshot()
+	}
+	return snapshot
 }
 
 func middlewareCountLayers(name string, count int) []coreruntime.MiddlewareLayer {

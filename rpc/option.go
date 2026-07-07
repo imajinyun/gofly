@@ -84,6 +84,7 @@ type clientOptions struct {
 	rpcPolicy         *RPCPolicy
 	rpcPolicyProvider RPCPolicyProvider
 	connPool          *ConnPoolManager
+	muxClientAdapter  *ExperimentalMuxClientAdapter
 	governanceTags    map[string]string
 	tls               *security.TLSConfig
 	warmup            RPCWarmupConfig
@@ -467,6 +468,15 @@ func WithClientMiddleware(mw endpoint.Middleware) ClientOption {
 
 func WithClientStreamMiddleware(mw ClientStreamMiddleware) ClientOption {
 	return func(o *clientOptions) { o.streamMiddlewares = append(o.streamMiddlewares, mw) }
+}
+
+// WithExperimentalMuxClientAdapter opts the client into the experimental mux
+// stream adapter. It does not replace the default HTTP upgrade Stream path;
+// callers must use HTTPClient.MuxStream explicitly.
+func WithExperimentalMuxClientAdapter(adapter *ExperimentalMuxClientAdapter) ClientOption {
+	return func(o *clientOptions) {
+		o.muxClientAdapter = adapter
+	}
 }
 
 func WithClientMaxConcurrency(max int) ClientOption {

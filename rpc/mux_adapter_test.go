@@ -284,3 +284,64 @@ func TestExperimentalMuxAdapterRecordsHandlerError(t *testing.T) {
 		t.Fatalf("Serve returned error after cancel: %v", err)
 	}
 }
+
+func TestHTTPClientExperimentalMuxAdapterOptIn(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	muxClient := NewExperimentalMuxClientAdapter(clientConn, WithExperimentalMuxConnectionWindow(4))
+	muxServer := NewExperimentalMuxServerAdapter(serverConn, WithExperimentalMuxConnectionWindow(4))
+	defer muxClient.Close()
+	defer muxServer.Close()
+
+	if err := muxServer.RegisterStream("orders/Watch", func(ctx context.Context, stream *ExperimentalMuxStream) error {
+		msg, err := stream.Receive(ctx)
+		if err != nil {
+			return err
+		}
+		if err := stream.Send(ctx, Message{Payload: append([]byte("mux:"), msg.Payload...)}); err != nil {
+			return err
+		}
+		return stream.Close(ctx, "ok")
+	}); err != nil {
+		t.Fatalf("RegisterStream: %v", err)
+	}
+	serveCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	serveDone := make(chan error, 1)
+	go func() {
+		serveDone <- muxServer.Serve(serveCtx)
+	}()
+
+	client, err := NewClient("http://127.0.0.1:1", WithExperimentalMuxClientAdapter(muxClient))
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	defer client.Close()
+	stream, err := client.MuxStream(context.Background(), "orders/Watch")
+	if err != nil {
+		t.Fatalf("MuxStream: %v", err)
+	}
+	if err := stream.Send(context.Background(), Message{Payload: []byte("hello")}); err != nil {
+		t.Fatalf("mux Send: %v", err)
+	}
+	assertMuxPayload(t, stream, "mux:hello")
+	if _, err := stream.Receive(muxTestTimeoutContext(t)); !errors.Is(err, io.EOF) {
+		t.Fatalf("mux terminal receive = %v, want EOF", err)
+	}
+
+	assertEventually(t, func() bool {
+		diagnosis := client.RuntimeSnapshot().Diagnosis.Mux
+		return diagnosis.Enabled &&
+			diagnosis.Mode == "experimental_mux" &&
+			diagnosis.Adapter.Role == "client" &&
+			diagnosis.Transport.OpenedStreams == 1 &&
+			muxServer.Snapshot().AcceptedStreams == 1
+	}, "HTTPClient mux diagnosis")
+	if _, err := client.Stream(context.Background(), "orders/Watch"); err == nil {
+		t.Fatalf("default Stream unexpectedly used mux adapter; want HTTP upgrade path to stay separate")
+	}
+
+	cancel()
+	if err := <-serveDone; err != nil {
+		t.Fatalf("Serve returned error after cancel: %v", err)
+	}
+}

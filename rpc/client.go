@@ -135,6 +135,9 @@ func (c *HTTPClient) Close() error {
 		if c.opts.connPool != nil {
 			_ = c.opts.connPool.Close()
 		}
+		if c.opts.muxClientAdapter != nil {
+			_ = c.opts.muxClientAdapter.Close()
+		}
 	})
 	return nil
 }

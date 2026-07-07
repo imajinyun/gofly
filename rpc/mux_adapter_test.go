@@ -396,6 +396,60 @@ func TestExperimentalMuxAdapterTCPDialerListener(t *testing.T) {
 	}
 }
 
+func TestExperimentalMuxServerRuntimeLifecycle(t *testing.T) {
+	server, err := NewExperimentalMuxServer("127.0.0.1:0", func(adapter *ExperimentalMuxServerAdapter) error {
+		return adapter.RegisterStream("orders/Watch", func(ctx context.Context, stream *ExperimentalMuxStream) error {
+			msg, err := stream.Receive(ctx)
+			if err != nil {
+				return err
+			}
+			if err := stream.Send(ctx, Message{Payload: append([]byte("server:"), msg.Payload...)}); err != nil {
+				return err
+			}
+			return stream.Close(ctx, "ok")
+		})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := server.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	client, err := DialExperimentalMuxClientAdapter(context.Background(), "tcp", server.Addr())
+	if err != nil {
+		t.Fatalf("DialExperimentalMuxClientAdapter: %v", err)
+	}
+	defer client.Close()
+	stream, err := client.OpenStream(context.Background(), "orders/Watch")
+	if err != nil {
+		t.Fatalf("OpenStream: %v", err)
+	}
+	if err := stream.Send(context.Background(), Message{Payload: []byte("hello")}); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	assertMuxPayload(t, stream, "server:hello")
+	if _, err := stream.Receive(muxTestTimeoutContext(t)); !errors.Is(err, io.EOF) {
+		t.Fatalf("terminal receive = %v, want EOF", err)
+	}
+	assertEventually(t, func() bool {
+		diagnosis := server.DiagnosisSnapshot()
+		return diagnosis.Enabled &&
+			diagnosis.Mode == "experimental_mux_server" &&
+			diagnosis.Adapter.AcceptedStreams == 1 &&
+			diagnosis.Transport.AcceptedStreams == 1
+	}, "mux server diagnosis")
+	component := server.RuntimeComponentSnapshot(context.Background())
+	if component.Name != "rpc.mux.server" || component.Target == "" || component.Details == nil {
+		t.Fatalf("runtime component = %+v, want mux server details", component)
+	}
+	if err := server.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+	if server.RuntimeComponentSnapshot(context.Background()).Status != "closed" {
+		t.Fatalf("runtime component after shutdown = %+v, want closed", server.RuntimeComponentSnapshot(context.Background()))
+	}
+}
+
 func TestExperimentalMuxConnectionManagerResolverBalancerIdle(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

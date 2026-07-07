@@ -14,6 +14,7 @@ import (
 	"github.com/imajinyun/gofly/core/governance"
 	"github.com/imajinyun/gofly/core/limit"
 	"github.com/imajinyun/gofly/core/retry"
+	coreruntime "github.com/imajinyun/gofly/core/runtime"
 	"github.com/imajinyun/gofly/core/security"
 	"github.com/imajinyun/gofly/core/syncx"
 	controladmin "github.com/imajinyun/gofly/ops/admin"
@@ -38,6 +39,11 @@ func (f RPCPolicyProviderFunc) RPCPolicy(ctx context.Context, req governance.Req
 	return f(ctx, req)
 }
 
+type ExperimentalMuxServerDiagnosisSource interface {
+	DiagnosisSnapshot() RPCMuxTransportDiagnosis
+	RuntimeComponentSnapshot(context.Context) coreruntime.ComponentSnapshot
+}
+
 type Suite interface {
 	ServerOptions() []ServerOption
 	ClientOptions() []ClientOption
@@ -59,7 +65,7 @@ type serverOptions struct {
 	rules             *governance.RuleSet
 	readHeaderTimeout time.Duration
 	adminAudit        controladmin.AuditSink
-	muxServerAdapter  *ExperimentalMuxServerAdapter
+	muxServerAdapter  ExperimentalMuxServerDiagnosisSource
 	tls               security.TLSConfig
 }
 
@@ -206,7 +212,7 @@ func WithServerStreamMiddleware(mw StreamMiddleware) ServerOption {
 // WithExperimentalMuxServerAdapter exposes an opt-in experimental mux server
 // adapter through RPC admin runtime and diagnosis probes. It does not replace
 // the default HTTP upgrade stream endpoint.
-func WithExperimentalMuxServerAdapter(adapter *ExperimentalMuxServerAdapter) ServerOption {
+func WithExperimentalMuxServerAdapter(adapter ExperimentalMuxServerDiagnosisSource) ServerOption {
 	return func(o *serverOptions) {
 		o.muxServerAdapter = adapter
 	}

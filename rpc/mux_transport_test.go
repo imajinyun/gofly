@@ -259,6 +259,9 @@ func TestExperimentalMuxTransportFlowControlWaitsForWindowUpdate(t *testing.T) {
 	}
 	assertMuxPayload(t, serverStream, "second")
 
+	assertEventually(t, func() bool {
+		return client.Snapshot().WindowFramesIn > 0 && server.Snapshot().WindowFramesOut > 0
+	}, "flow-control window update frames")
 	clientSnapshot := client.Snapshot()
 	serverSnapshot := server.Snapshot()
 	if clientSnapshot.WindowFramesIn == 0 || clientSnapshot.CreditWaits == 0 {

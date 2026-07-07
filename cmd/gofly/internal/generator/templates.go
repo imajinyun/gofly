@@ -83,12 +83,38 @@ func main() {
 		rpc.WithRegistryTTL(c.Discovery.RegistryTTL()),
 		rpc.WithServerGovernanceManager(governanceManager),
 	)
+	var muxServer *rpc.ExperimentalMuxServer
+	if c.RPC.Mux.Enabled {
+		muxServer, err = rpc.NewExperimentalMuxServer(c.RPC.Mux.Addr, func(adapter *rpc.ExperimentalMuxServerAdapter) error {
+			if !c.RPC.Mux.Probe {
+				return nil
+			}
+			return adapter.RegisterStream("greeter/Watch", func(ctx context.Context, stream *rpc.ExperimentalMuxStream) error {
+				msg, err := stream.Receive(ctx)
+				if err != nil {
+					return err
+				}
+				if err := stream.Send(ctx, rpc.Message{Payload: append([]byte("generated:"), msg.Payload...)}); err != nil {
+					return err
+				}
+				return stream.Close(ctx, "ok")
+			})
+		})
+		if err != nil {
+			slog.Error("setup mux rpc", "error", err)
+			return
+		}
+		rpcOptions = append(rpcOptions, rpc.WithExperimentalMuxServerAdapter(muxServer))
+	}
 	rpcServer := rpc.NewServer(rpcOptions...)
 	if err := rpcServer.RegisterService(apprpc.GreeterService(svcCtx), nil); err != nil {
 		slog.Error("register rpc", "error", err)
 		return
 	}
 	servers := []app.Server{httpServer, rpcServer}
+	if muxServer != nil {
+		servers = append(servers, muxServer)
+	}
 	if c.Admin.Enabled {
 		servers = append(servers, appadmin.NewServer(c.Admin.Addr, c.Admin.PathPrefix, rpcServer, appadmin.WithControlPlaneSnapshot(func(ctx context.Context) (controlplane.Snapshot, error) {
 			return c.ControlPlaneSnapshotWithDiscovery(ctx, registry)
@@ -246,7 +272,7 @@ const configTemplate = `{
   "rpc": {
     "addr": ":8081",
     "advertise": "http://127.0.0.1:8081",
-    "mux": {"enabled": false, "probe": false, "endpoints": [], "idleTimeout": 60000000000}
+    "mux": {"enabled": false, "probe": false, "addr": "127.0.0.1:8082", "endpoints": [], "idleTimeout": 60000000000}
   }
 }
 `
@@ -774,6 +800,7 @@ type RPCConfig struct {
 type RPCMuxConfig struct {
 	Enabled     bool ` + "`json:\"enabled\"`" + `
 	Probe       bool ` + "`json:\"probe\"`" + `
+	Addr        string ` + "`json:\"addr\"`" + `
 	Endpoints   []string ` + "`json:\"endpoints,omitempty\"`" + `
 	IdleTimeout time.Duration ` + "`json:\"idleTimeout\"`" + `
 }

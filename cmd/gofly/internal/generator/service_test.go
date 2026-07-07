@@ -1019,7 +1019,7 @@ func TestGenerateNewServiceVariantsBoundaries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(configData), `"mux": {"enabled": false, "probe": false, "endpoints": [], "idleTimeout": 60000000000}`) {
+	if !strings.Contains(string(configData), `"mux": {"enabled": false, "probe": false, "addr": "127.0.0.1:8082", "endpoints": [], "idleTimeout": 60000000000}`) {
 		t.Fatalf("generated rpc config missing default-disabled mux config:\n%s", configData)
 	}
 	configGoData, err := os.ReadFile(filepath.Join(rpcDir, "internal", "config", "config.go"))
@@ -1030,11 +1030,26 @@ func TestGenerateNewServiceVariantsBoundaries(t *testing.T) {
 		"type RPCMuxConfig struct",
 		"Mux       RPCMuxConfig",
 		`json:"probe"`,
+		`json:"addr"`,
 		`json:"endpoints,omitempty"`,
 		`json:"idleTimeout"`,
 	} {
 		if !strings.Contains(string(configGoData), want) {
 			t.Fatalf("generated rpc config.go missing mux config %q:\n%s", want, configGoData)
+		}
+	}
+	mainData, err := os.ReadFile(filepath.Join(rpcDir, "cmd", "Greeter", "main.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"c.RPC.Mux.Enabled",
+		"rpc.NewExperimentalMuxServer",
+		"rpc.WithExperimentalMuxServerAdapter",
+		"servers = append(servers, muxServer)",
+	} {
+		if !strings.Contains(string(mainData), want) {
+			t.Fatalf("generated rpc main missing mux runtime hook %q:\n%s", want, mainData)
 		}
 	}
 	adminTestData, err := os.ReadFile(filepath.Join(rpcDir, "internal", "admin", "admin_test.go"))

@@ -1015,6 +1015,21 @@ func TestGenerateNewServiceVariantsBoundaries(t *testing.T) {
 	if !strings.Contains(string(protoData), "package greeter;") || strings.Contains(string(protoData), "package greeter.v1;") {
 		t.Fatalf("generated rpc proto package not normalized:\n%s", protoData)
 	}
+	adminTestData, err := os.ReadFile(filepath.Join(rpcDir, "internal", "admin", "admin_test.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"rpc.NewExperimentalMuxClientAdapter",
+		"rpc.NewExperimentalMuxServerAdapter",
+		"rpc.WithExperimentalMuxServerAdapter",
+		`"/admin/rpc/admin/diagnosis"`,
+		"rpc.ServerDiagnosisSnapshot",
+	} {
+		if !strings.Contains(string(adminTestData), want) {
+			t.Fatalf("generated rpc admin test missing mux diagnosis smoke %q:\n%s", want, adminTestData)
+		}
+	}
 
 	kitexDir := filepath.Join(t.TempDir(), "kitex-rpc")
 	if err := GenerateRPCNew(RPCNewOptions{Name: "Greeter", Module: "example.com/greeter", Dir: kitexDir, Profile: string(ProfileKitexCompatible)}); err != nil {

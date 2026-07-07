@@ -478,6 +478,9 @@ const adminServerTestTemplate = `package admin
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -491,7 +494,48 @@ import (
 )
 
 func TestAdminDiagnostics(t *testing.T) {
-	rpcServer := rpc.NewServer()
+	clientConn, serverConn := net.Pipe()
+	muxClient := rpc.NewExperimentalMuxClientAdapter(clientConn)
+	muxServer := rpc.NewExperimentalMuxServerAdapter(serverConn)
+	defer muxClient.Close()
+	defer muxServer.Close()
+	if err := muxServer.RegisterStream("greeter/Watch", func(ctx context.Context, stream *rpc.ExperimentalMuxStream) error {
+		msg, err := stream.Receive(ctx)
+		if err != nil {
+			return err
+		}
+		if err := stream.Send(ctx, rpc.Message{Payload: append([]byte("generated:"), msg.Payload...)}); err != nil {
+			return err
+		}
+		return stream.Close(ctx, "ok")
+	}); err != nil {
+		t.Fatal(err)
+	}
+	muxCtx, stopMux := context.WithCancel(context.Background())
+	defer stopMux()
+	muxDone := make(chan error, 1)
+	go func() {
+		muxDone <- muxServer.Serve(muxCtx)
+	}()
+	muxStream, err := muxClient.OpenStream(context.Background(), "greeter/Watch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := muxStream.Send(context.Background(), rpc.Message{Payload: []byte("probe")}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := muxStream.Receive(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got.Payload) != "generated:probe" {
+		t.Fatalf("mux payload = %q, want generated probe response", got.Payload)
+	}
+	if _, err := muxStream.Receive(context.Background()); !errors.Is(err, io.EOF) {
+		t.Fatalf("mux terminal receive = %v, want EOF", err)
+	}
+
+	rpcServer := rpc.NewServer(rpc.WithExperimentalMuxServerAdapter(muxServer))
 	if err := rpcServer.RegisterService(apprpc.GreeterService(svc.NewServiceContext(appconfig.Config{})), nil); err != nil {
 		t.Fatal(err)
 	}
@@ -536,6 +580,23 @@ func TestAdminDiagnostics(t *testing.T) {
 	}
 	if descriptor.Name != "greeter" || len(descriptor.Methods) != 1 || descriptor.Methods[0].Name != "SayHello" {
 		t.Fatalf("descriptor = %#v, want greeter/SayHello", descriptor)
+	}
+
+	diagnosisRec := httptest.NewRecorder()
+	handler.ServeHTTP(diagnosisRec, httptest.NewRequest(http.MethodGet, "/admin/rpc/admin/diagnosis", nil))
+	if diagnosisRec.Code != http.StatusOK {
+		t.Fatalf("diagnosis status = %d body=%q", diagnosisRec.Code, diagnosisRec.Body.String())
+	}
+	var diagnosis rpc.ServerDiagnosisSnapshot
+	if err := json.NewDecoder(diagnosisRec.Body).Decode(&diagnosis); err != nil {
+		t.Fatal(err)
+	}
+	if !diagnosis.Mux.Enabled || diagnosis.Mux.Adapter.AcceptedStreams != 1 || diagnosis.Mux.Transport.AcceptedStreams != 1 {
+		t.Fatalf("diagnosis mux = %+v, want generated mux probe evidence", diagnosis.Mux)
+	}
+	stopMux()
+	if err := <-muxDone; err != nil {
+		t.Fatalf("mux server stopped with error: %v", err)
 	}
 }
 `

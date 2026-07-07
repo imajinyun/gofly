@@ -428,8 +428,11 @@ func TestExperimentalMuxConnectionManagerResolverBalancerIdle(t *testing.T) {
 	firstDone := startMuxEchoListener("first", firstListener)
 	secondDone := startMuxEchoListener("second", secondListener)
 
+	firstEndpoint := "tcp://" + firstListener.Addr().String()
+	secondEndpoint := "tcp://" + secondListener.Addr().String()
+	resolver := &mutableResolver{endpoints: []string{firstEndpoint, secondEndpoint}}
 	manager, err := NewExperimentalMuxConnectionManager(
-		NewStaticResolver("tcp://"+firstListener.Addr().String(), "tcp://"+secondListener.Addr().String()),
+		resolver,
 		WithExperimentalMuxConnectionManagerIdleTimeout(time.Nanosecond),
 	)
 	if err != nil {
@@ -468,6 +471,14 @@ func TestExperimentalMuxConnectionManagerResolverBalancerIdle(t *testing.T) {
 	diagnosis := client.RuntimeSnapshot().Diagnosis.Mux.Manager
 	if !diagnosis.Enabled || diagnosis.Mode != "experimental_mux_manager" || len(diagnosis.Endpoints) != 2 {
 		t.Fatalf("mux manager diagnosis = %+v, want two resolver-balanced endpoints", diagnosis)
+	}
+	resolver.endpoints = []string{secondEndpoint}
+	if err := manager.SyncResolver(context.Background()); err != nil {
+		t.Fatalf("SyncResolver: %v", err)
+	}
+	synced := manager.Snapshot()
+	if len(synced.Endpoints) != 1 || synced.Endpoints[0].Endpoint != secondEndpoint {
+		t.Fatalf("manager snapshot after resolver sync = %+v, want only second endpoint", synced)
 	}
 	time.Sleep(time.Millisecond)
 	if err := manager.CloseIdle(context.Background()); err != nil {

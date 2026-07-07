@@ -91,7 +91,11 @@ func (m *ExperimentalMuxConnectionManager) OpenStream(ctx context.Context, metho
 	if err := ctx.Err(); err != nil {
 		return nil, "", err
 	}
-	endpoint, err := m.pickEndpoint(ctx)
+	endpoints, err := m.resolveAndSync(ctx)
+	if err != nil {
+		return nil, "", err
+	}
+	endpoint, err := m.pickEndpoint(ctx, endpoints)
 	if err != nil {
 		return nil, "", err
 	}
@@ -105,6 +109,11 @@ func (m *ExperimentalMuxConnectionManager) OpenStream(ctx context.Context, metho
 	}
 	m.touch(endpoint)
 	return stream, endpoint, nil
+}
+
+func (m *ExperimentalMuxConnectionManager) SyncResolver(ctx context.Context) error {
+	_, err := m.resolveAndSync(core.Context(ctx))
+	return err
 }
 
 func (m *ExperimentalMuxConnectionManager) CloseIdle(ctx context.Context) error {
@@ -213,7 +222,32 @@ func (m *ExperimentalMuxConnectionManager) DiagnosisSnapshot() RPCMuxConnectionM
 	}
 }
 
-func (m *ExperimentalMuxConnectionManager) pickEndpoint(ctx context.Context) (string, error) {
+func (m *ExperimentalMuxConnectionManager) resolveAndSync(ctx context.Context) ([]string, error) {
+	if m == nil {
+		return nil, ErrExperimentalMuxTransportClosed
+	}
+	m.mu.Lock()
+	if m.closed {
+		m.mu.Unlock()
+		return nil, ErrExperimentalMuxTransportClosed
+	}
+	resolver := m.resolver
+	m.mu.Unlock()
+	endpoints, err := resolver.Resolve(ctx)
+	if err != nil {
+		return nil, err
+	}
+	endpoints = normalizeEndpoints(endpoints)
+	if len(endpoints) == 0 {
+		return nil, errors.New("no endpoint to pick")
+	}
+	if err := m.removeMissingEndpoints(endpoints); err != nil {
+		return nil, err
+	}
+	return endpoints, nil
+}
+
+func (m *ExperimentalMuxConnectionManager) pickEndpoint(ctx context.Context, endpoints []string) (string, error) {
 	if m == nil {
 		return "", ErrExperimentalMuxTransportClosed
 	}
@@ -222,18 +256,37 @@ func (m *ExperimentalMuxConnectionManager) pickEndpoint(ctx context.Context) (st
 		m.mu.Unlock()
 		return "", ErrExperimentalMuxTransportClosed
 	}
-	resolver := m.resolver
 	balancer := m.balancer
 	m.mu.Unlock()
-	endpoints, err := resolver.Resolve(ctx)
-	if err != nil {
-		return "", err
-	}
 	endpoint, err := balancer.Pick(ctx, endpoints)
 	if err != nil {
 		return "", err
 	}
 	return strings.TrimRight(strings.TrimSpace(endpoint), "/"), nil
+}
+
+func (m *ExperimentalMuxConnectionManager) removeMissingEndpoints(endpoints []string) error {
+	live := make(map[string]struct{}, len(endpoints))
+	for _, endpoint := range endpoints {
+		live[strings.TrimRight(strings.TrimSpace(endpoint), "/")] = struct{}{}
+	}
+	var removed []*muxManagedAdapter
+	m.mu.Lock()
+	for endpoint, adapter := range m.adapters {
+		if _, ok := live[endpoint]; ok {
+			continue
+		}
+		delete(m.adapters, endpoint)
+		removed = append(removed, adapter)
+	}
+	m.mu.Unlock()
+	var err error
+	for _, adapter := range removed {
+		if adapter != nil && adapter.adapter != nil {
+			err = errors.Join(err, adapter.adapter.Close())
+		}
+	}
+	return err
 }
 
 func (m *ExperimentalMuxConnectionManager) adapter(ctx context.Context, endpoint string) (*ExperimentalMuxClientAdapter, error) {

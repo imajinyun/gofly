@@ -176,7 +176,7 @@ func GenerateModelFromDatasource(opts ModelDatasourceOptions) error {
 	if opts.Timeout <= 0 {
 		opts.Timeout = 10 * time.Second
 	}
-	db, err := sql.Open(datasourceDriverName(opts.Driver), opts.DSN)
+	db, err := sql.Open(modelDatasourceDriverName(opts.Driver), opts.DSN)
 	if err != nil {
 		return fmt.Errorf("open datasource: %w", err)
 	}
@@ -424,6 +424,8 @@ func addGoModRequire(data []byte, module string, version string) []byte {
 	}
 	return []byte(text + "\n\n" + requireLine + "\n")
 }
+
+var modelDatasourceDriverName = datasourceDriverName
 
 func datasourceDriverName(driver string) string {
 	switch strings.ToLower(strings.TrimSpace(driver)) {

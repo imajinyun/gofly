@@ -791,6 +791,65 @@ func TestDatasourceIntrospectionMultiTableGoctlCacheReplay(t *testing.T) {
 	runGoCommand(t, dir, 3*time.Minute, "test", "./...")
 }
 
+func TestGenerateModelFromDatasourceMultiTableReplayCompiles(t *testing.T) {
+	oldDriverName := modelDatasourceDriverName
+	modelDatasourceDriverName = func(driver string) string {
+		if driver == "mysql" {
+			return fakeModelDatasourceDriver
+		}
+		return oldDriverName(driver)
+	}
+	t.Cleanup(func() { modelDatasourceDriverName = oldDriverName })
+
+	dir := t.TempDir()
+	writeGeneratedModule(t, dir, "example.com/datasource-entrypoint")
+	if err := GenerateModelFromDatasource(ModelDatasourceOptions{
+		Driver:        "mysql",
+		DSN:           "multi-table",
+		Dir:           dir,
+		Package:       "model",
+		Module:        "example.com/datasource-entrypoint",
+		Tables:        []string{"app_customers", "app_orders"},
+		Prefix:        "app_",
+		IgnoreColumns: []string{"created_by", "updated_by"},
+		Strict:        true,
+		Cache:         true,
+	}); err != nil {
+		t.Fatalf("GenerateModelFromDatasource multi-table replay: %v", err)
+	}
+	customerRepo, err := os.ReadFile(filepath.Join(dir, "model", "repo", "customer.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	customerRepoOut := string(customerRepo)
+	for _, want := range []string{
+		"d := storage.DialectMySQL",
+		"func (r *CustomerRepo) UpsertByTenantIDAndExternalID(ctx context.Context, in *entity.Customer) error",
+		"func (c *RedisCachedCustomerRepo) PageByTenantIDCached(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.Customer, int64, error)",
+		"c.listVersionByTenantID.Set(ctx, \"current\", redisCustomerIndexListVersionValue())",
+	} {
+		if !strings.Contains(customerRepoOut, want) {
+			t.Fatalf("entrypoint datasource customer repo missing %q:\n%s", want, customerRepoOut)
+		}
+	}
+	orderRepo, err := os.ReadFile(filepath.Join(dir, "model", "repo", "order.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	orderRepoOut := string(orderRepo)
+	for _, want := range []string{
+		"func (r *OrderRepo) ClaimByTenantIDAndStatusSkipLocked(ctx context.Context, tenantID int64, status string, nextStatus string, limit int) ([]entity.Order, error)",
+		"func (c *RedisCachedOrderRepo) ClaimByTenantIDAndStatusSkipLocked(ctx context.Context, tenantID int64, status string, nextStatus string, limit int) ([]entity.Order, error)",
+		"key := redisOrderIndexListCacheKey(version, indexListKeyByTenantIDAndStatus(tenantID, status, limit, offset))",
+	} {
+		if !strings.Contains(orderRepoOut, want) {
+			t.Fatalf("entrypoint datasource order repo missing %q:\n%s", want, orderRepoOut)
+		}
+	}
+	runGoCommand(t, dir, 3*time.Minute, "mod", "tidy")
+	runGoCommand(t, dir, 3*time.Minute, "test", "./...")
+}
+
 func TestPostgresDatasourceIntrospectionMultiSchemaCacheReplay(t *testing.T) {
 	db, err := sql.Open(fakeModelDatasourceDriver, "postgres-multi-schema")
 	if err != nil {

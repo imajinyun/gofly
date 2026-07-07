@@ -292,12 +292,30 @@ func releaseGeneratedRPCMuxRetrySmokeCheck() (releaseCheckItem, []string) {
 		item.Evidence = map[string]any{"generated-rpc-mux-retry-smoke": map[string]any{"missing": missing}}
 		return item, []string{"generated RPC mux retry smoke markers missing"}
 	}
+	runtimeCommand := []string{"test", "-count=1", "-shuffle=on", "./rpc", "-run", "TestExperimentalMuxConnectionManagerEndpointHealthBackoffCooldown"}
+	runtimeOutput, runtimeErr := runReleaseGoCommand(runtimeCommand...)
+	if runtimeErr != nil {
+		item.Status = "fail"
+		item.Detail = strings.TrimSpace(string(runtimeOutput))
+		if item.Detail == "" {
+			item.Detail = runtimeErr.Error()
+		}
+		item.Blocker = true
+		item.Evidence = map[string]any{"generated-rpc-mux-retry-smoke": map[string]any{
+			"runtimeCommand": append([]string{"go"}, runtimeCommand...),
+			"runtimeOutput":  strings.TrimSpace(string(runtimeOutput)),
+		}}
+		return item, []string{"generated RPC mux retry runtime proof failed"}
+	}
 	item.Detail = "generated RPC mux retry smoke covers open-before retry and post-open no replay"
 	item.Evidence = map[string]any{
 		"generated-rpc-mux-retry-smoke": map[string]any{
 			"schema":            "gofly.generated_rpc_mux_retry_smoke.v1",
 			"source":            path,
 			"verifyCommand":     "go test ./...",
+			"runtimeCommand":    append([]string{"go"}, runtimeCommand...),
+			"runtimeOutput":     strings.TrimSpace(string(runtimeOutput)),
+			"runtimeProof":      true,
 			"openBeforeRetry":   true,
 			"postOpenNoReplay":  true,
 			"cooldownBackoff":   true,
@@ -316,6 +334,45 @@ func missingReleaseMarkers(source string, markers []string) []string {
 		}
 	}
 	return missing
+}
+
+func runReleaseGoCommand(args ...string) ([]byte, error) {
+	goCmd := strings.TrimSpace(os.Getenv("GO"))
+	if goCmd == "" {
+		goCmd = "go"
+	}
+	root, err := releaseRepoRoot()
+	if err != nil {
+		return nil, err
+	}
+	// #nosec G204 G702 -- release check invokes the configured Go binary with fixed argv segments.
+	cmd := exec.Command(goCmd, args...)
+	cmd.Dir = root
+	return cmd.CombinedOutput()
+}
+
+func releaseRepoRoot() (string, error) {
+	dir, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	for {
+		if fileExists(filepath.Join(dir, "go.mod")) &&
+			fileExists(filepath.Join(dir, "cmd", "gofly")) &&
+			fileExists(filepath.Join(dir, "rpc")) {
+			return dir, nil
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", fmt.Errorf("repository root not found")
+		}
+		dir = parent
+	}
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 func readReleaseJSONFile(path string, label string) (map[string]any, error) {

@@ -2138,5 +2138,39 @@
     "BenchmarkHTTPGovernance/disabled",
     "BenchmarkHTTPGovernance/enabled",
     "BenchmarkCacheHotPath"
-  ]
+  ],
+  "rpcMuxAdapterReportOnlyEvidence": {
+    "schema": "gofly.benchmark_rpc_mux_adapter_report_only.v1",
+    "acceptanceGate": "make bench-regression-check",
+    "status": "report-only",
+    "sourceEvidence": [
+      "bench/rpc_mux_adapter_evidence.json",
+      "bench/rpc_bench_test.go",
+      "bench/budget-ratchet.json"
+    ],
+    "benchmark": "BenchmarkRPCExperimentalMuxAdapterOpenSendReceiveClose",
+    "decision": {
+      "result": "hold",
+      "allocationMode": "report-only",
+      "latencyMode": "report-only",
+      "trackedBenchmarkPromotion": "not-promoted",
+      "promotionStatus": "blocked",
+      "nextReviewGate": "BENCH_PATTERN='^BenchmarkRPCExperimentalMuxAdapterOpenSendReceiveClose$' BENCH_COUNT=5 make bench-stat && make rpc-boundary-check && make bench-regression-check",
+      "reason": "Mux adapter open/send/receive/close benchmark exists as release-train evidence, but has no committed baseline/current trend samples and must remain outside trackedBenchmarks."
+    },
+    "blockingRules": [
+      "RPC mux adapter benchmark must stay out of trackedBenchmarks",
+      "RPC mux adapter latency must remain report-only",
+      "RPC mux adapter allocation must remain report-only until a later release-train review",
+      "RPC mux adapter promotion requires committed samples, rpc-boundary-check and bench-regression-check"
+    ],
+    "forbiddenUntilCleared": [
+      "trackedBenchmarks RPC mux adapter entry",
+      "blocking RPC mux adapter latency claim",
+      "blocking RPC mux adapter allocation claim",
+      "Kitex transport parity claim",
+      "gRPC-Go transport parity claim",
+      "Tier 1 replacement claim"
+    ]
+  }
 }

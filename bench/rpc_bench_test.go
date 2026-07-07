@@ -175,6 +175,87 @@ func BenchmarkRPCExperimentalMuxTransportTwoStreams(b *testing.B) {
 	}
 }
 
+func BenchmarkRPCExperimentalMuxAdapterOpenSendReceiveClose(b *testing.B) {
+	clientConn, serverConn := net.Pipe()
+	client := flyrpc.NewExperimentalMuxClientAdapter(clientConn)
+	server := flyrpc.NewExperimentalMuxServerAdapter(serverConn)
+	defer client.Close()
+	defer server.Close()
+
+	if err := server.RegisterStream("bench/Echo", func(ctx context.Context, stream *flyrpc.ExperimentalMuxStream) error {
+		msg, err := stream.Receive(ctx)
+		if err != nil {
+			return err
+		}
+		if err := stream.Send(ctx, flyrpc.Message{Payload: append([]byte("ack:"), msg.Payload...)}); err != nil {
+			return err
+		}
+		return stream.Close(ctx, "ok")
+	}); err != nil {
+		b.Fatal(err)
+	}
+	serveCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	serveDone := make(chan error, 1)
+	go func() {
+		serveDone <- server.Serve(serveCtx)
+	}()
+	defer func() {
+		cancel()
+		if err := <-serveDone; err != nil {
+			b.Fatalf("mux adapter serve stopped with error: %v", err)
+		}
+	}()
+
+	ctx := context.Background()
+	b.ReportAllocs()
+	for b.Loop() {
+		stream, err := client.OpenStream(ctx, "bench/Echo")
+		if err != nil {
+			b.Fatal(err)
+		}
+		if err := stream.Send(ctx, flyrpc.Message{Payload: []byte("payload")}); err != nil {
+			b.Fatal(err)
+		}
+		msg, err := stream.Receive(ctx)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if string(msg.Payload) != "ack:payload" {
+			b.Fatalf("mux adapter payload = %q, want ack:payload", msg.Payload)
+		}
+		if _, err := stream.Receive(ctx); !errors.Is(err, io.EOF) {
+			b.Fatalf("mux adapter terminal receive = %v, want EOF", err)
+		}
+	}
+	waitMuxAdapterBenchIdle(b, client, server)
+	clientSnapshot := client.Snapshot()
+	serverSnapshot := server.Snapshot()
+	if clientSnapshot.Transport.OpenedStreams == 0 ||
+		serverSnapshot.AcceptedStreams == 0 ||
+		clientSnapshot.Transport.OpenedStreams != serverSnapshot.AcceptedStreams ||
+		serverSnapshot.HandlerErrors != 0 ||
+		serverSnapshot.RejectedStreams != 0 ||
+		clientSnapshot.Transport.ActiveStreams != 0 ||
+		serverSnapshot.Transport.ActiveStreams != 0 {
+		b.Fatalf("mux adapter snapshots client=%+v server=%+v, want matched open/send/receive/close evidence", clientSnapshot, serverSnapshot)
+	}
+}
+
+func waitMuxAdapterBenchIdle(b *testing.B, client *flyrpc.ExperimentalMuxClientAdapter, server *flyrpc.ExperimentalMuxServerAdapter) {
+	b.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		clientSnapshot := client.Snapshot()
+		serverSnapshot := server.Snapshot()
+		if clientSnapshot.Transport.ActiveStreams == 0 && serverSnapshot.Transport.ActiveStreams == 0 {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	b.Fatalf("mux adapters did not become idle before deadline: client=%+v server=%+v", client.Snapshot(), server.Snapshot())
+}
+
 func BenchmarkRPCExperimentalMuxTransportHalfCloseLifecycle(b *testing.B) {
 	clientConn, serverConn := net.Pipe()
 	client := flyrpc.NewExperimentalMuxTransport(clientConn)
@@ -609,6 +690,44 @@ func TestRPCStreamTransportEvidenceContract(t *testing.T) {
 	for _, forbidden := range []string{"Kitex transport parity", "gRPC-Go transport parity", "Tier 1 replacement claim"} {
 		if !containsString(evidence.Decision.ForbiddenClaims, forbidden) {
 			t.Fatalf("stream transport forbidden claims = %#v, missing %q", evidence.Decision.ForbiddenClaims, forbidden)
+		}
+	}
+}
+
+func TestRPCMuxAdapterEvidenceContract(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("rpc_mux_adapter_evidence.json"))
+	if err != nil {
+		t.Fatalf("read mux adapter evidence: %v", err)
+	}
+	var evidence struct {
+		Schema    string `json:"schema"`
+		Benchmark string `json:"benchmark"`
+		Status    string `json:"status"`
+		Decision  struct {
+			Result          string   `json:"result"`
+			AllocationMode  string   `json:"allocationMode"`
+			LatencyMode     string   `json:"latencyMode"`
+			PromotionStatus string   `json:"promotionStatus"`
+			ForbiddenClaims []string `json:"forbiddenClaims"`
+		} `json:"decision"`
+	}
+	if err := json.Unmarshal(data, &evidence); err != nil {
+		t.Fatalf("decode mux adapter evidence: %v", err)
+	}
+	if evidence.Schema != "gofly.benchmark_rpc_mux_adapter_evidence.v1" ||
+		evidence.Benchmark != "BenchmarkRPCExperimentalMuxAdapterOpenSendReceiveClose" ||
+		evidence.Status != "report-only" {
+		t.Fatalf("mux adapter evidence identity = %+v, want report-only adapter benchmark evidence", evidence)
+	}
+	if evidence.Decision.Result != "hold" ||
+		evidence.Decision.AllocationMode != "report-only" ||
+		evidence.Decision.LatencyMode != "report-only" ||
+		evidence.Decision.PromotionStatus != "blocked" {
+		t.Fatalf("mux adapter promotion decision = %+v, want hold/report-only/blocked", evidence.Decision)
+	}
+	for _, forbidden := range []string{"blocking RPC mux adapter latency", "blocking RPC mux adapter allocation", "Tier 1 replacement claim"} {
+		if !containsString(evidence.Decision.ForbiddenClaims, forbidden) {
+			t.Fatalf("mux adapter forbidden claims = %#v, missing %q", evidence.Decision.ForbiddenClaims, forbidden)
 		}
 	}
 }

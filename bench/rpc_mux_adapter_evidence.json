@@ -1,0 +1,30 @@
+{
+  "schema": "gofly.benchmark_rpc_mux_adapter_evidence.v1",
+  "benchmark": "BenchmarkRPCExperimentalMuxAdapterOpenSendReceiveClose",
+  "status": "report-only",
+  "acceptanceGate": "make bench-regression-check",
+  "sourcePolicy": "Adapter benchmark evidence is tracked separately from transport benchmark evidence and must not be promoted without committed baseline and current trend samples.",
+  "capture": {
+    "baselineCommand": "BENCH_PATTERN='^BenchmarkRPCExperimentalMuxAdapterOpenSendReceiveClose$' BENCH_COUNT=5 make bench-stat",
+    "currentCommand": "BENCH_PATTERN='^BenchmarkRPCExperimentalMuxAdapterOpenSendReceiveClose$' BENCH_COUNT=3 make bench-stat"
+  },
+  "decision": {
+    "result": "hold",
+    "allocationMode": "report-only",
+    "latencyMode": "report-only",
+    "promotionStatus": "blocked",
+    "promotionBlockers": [
+      "no committed five-sample baseline yet",
+      "no committed three-sample current trend yet",
+      "adapter benchmark must remain outside trackedBenchmarks until release-train review"
+    ],
+    "forbiddenClaims": [
+      "blocking RPC mux adapter latency",
+      "blocking RPC mux adapter allocation",
+      "Kitex transport parity",
+      "gRPC-Go transport parity",
+      "Tier 1 replacement claim"
+    ],
+    "nextReviewGate": "BENCH_PATTERN='^BenchmarkRPCExperimentalMuxAdapterOpenSendReceiveClose$' BENCH_COUNT=5 make bench-stat && make rpc-boundary-check && make bench-regression-check"
+  }
+}

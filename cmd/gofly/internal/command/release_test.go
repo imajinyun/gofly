@@ -288,6 +288,7 @@ func TestReleaseGeneratedRPCMuxRetrySmokeCheck(t *testing.T) {
 	if evidence["schema"] != "gofly.generated_rpc_mux_retry_smoke.v1" ||
 		evidence["openBeforeRetry"] != true ||
 		evidence["postOpenNoReplay"] != true ||
+		evidence["cooldownBackoff"] != true ||
 		evidence["verifyCommand"] != "go test ./..." {
 		t.Fatalf("generated rpc mux retry smoke evidence payload = %#v", evidence)
 	}

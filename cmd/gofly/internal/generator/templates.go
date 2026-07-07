@@ -272,7 +272,7 @@ const configTemplate = `{
   "rpc": {
     "addr": ":8081",
     "advertise": "http://127.0.0.1:8081",
-    "mux": {"enabled": false, "probe": false, "addr": "127.0.0.1:8082", "endpoints": [], "idleTimeout": 60000000000, "maxOpenRetries": 1, "openRetryReasons": ["dial_failure", "pool_exhausted"]}
+    "mux": {"enabled": false, "probe": false, "addr": "127.0.0.1:8082", "endpoints": [], "idleTimeout": 60000000000, "maxOpenRetries": 1, "openRetryReasons": ["dial_failure", "pool_exhausted"], "healthBackoffMultiplier": 2, "healthMaxCooldown": 30000000000}
   }
 }
 `
@@ -522,7 +522,7 @@ import (
 )
 
 func TestAdminDiagnostics(t *testing.T) {
-	cfg := appconfig.Config{RPC: appconfig.RPCConfig{Mux: appconfig.RPCMuxConfig{Enabled: true, Probe: true, IdleTimeout: time.Nanosecond, MaxOpenRetries: 1, OpenRetryReasons: []string{"dial_failure", "pool_exhausted"}}}}
+	cfg := appconfig.Config{RPC: appconfig.RPCConfig{Mux: appconfig.RPCMuxConfig{Enabled: true, Probe: true, IdleTimeout: time.Nanosecond, MaxOpenRetries: 1, OpenRetryReasons: []string{"dial_failure", "pool_exhausted"}, HealthBackoffMultiplier: 2, HealthMaxCooldown: 30 * time.Second}}}
 	clientConn, serverConn := net.Pipe()
 	muxClient := rpc.NewExperimentalMuxClientAdapter(clientConn)
 	muxServer := rpc.NewExperimentalMuxServerAdapter(serverConn)
@@ -670,6 +670,8 @@ func TestAdminDiagnostics(t *testing.T) {
 		rpc.NewStaticResolver(badMuxEndpoint, "tcp://"+retryMuxListener.Addr().String()),
 		rpc.WithExperimentalMuxConnectionManagerMaxOpenRetries(cfg.RPC.Mux.MaxOpenRetries),
 		rpc.WithExperimentalMuxConnectionManagerOpenRetryReasons(cfg.RPC.Mux.OpenRetryReasons...),
+		rpc.WithExperimentalMuxConnectionManagerHealthBackoffMultiplier(cfg.RPC.Mux.HealthBackoffMultiplier),
+		rpc.WithExperimentalMuxConnectionManagerHealthMaxCooldown(cfg.RPC.Mux.HealthMaxCooldown),
 		rpc.WithExperimentalMuxConnectionManagerHealthFailureThreshold(1),
 		rpc.WithExperimentalMuxConnectionManagerHealthEjectionDuration(time.Hour),
 	)
@@ -698,7 +700,7 @@ func TestAdminDiagnostics(t *testing.T) {
 	if _, err := retryStream.Receive(context.Background()); !errors.Is(err, io.EOF) {
 		t.Fatalf("retry mux terminal receive = %v, want EOF", err)
 	}
-	if diagnosis := retryClient.RuntimeSnapshot().Diagnosis.Mux.Manager; diagnosis.OpenRetries != 1 || diagnosis.LastRetriedFrom != badMuxEndpoint || diagnosis.RetryReasons["dial_failure"] != 1 {
+	if diagnosis := retryClient.RuntimeSnapshot().Diagnosis.Mux.Manager; diagnosis.OpenRetries != 1 || diagnosis.LastRetriedFrom != badMuxEndpoint || diagnosis.RetryReasons["dial_failure"] != 1 || diagnosis.HealthBackoffMultiplier != 2 || diagnosis.HealthMaxCooldown != 30*time.Second {
 		t.Fatalf("retry manager diagnosis = %+v, want generated retry policy evidence", diagnosis)
 	}
 	failStream, err := retryClient.MuxStream(context.Background(), "greeter/FailAfterOpen")
@@ -897,6 +899,8 @@ type RPCMuxConfig struct {
 	IdleTimeout      time.Duration ` + "`json:\"idleTimeout\"`" + `
 	MaxOpenRetries   int ` + "`json:\"maxOpenRetries,omitempty\"`" + `
 	OpenRetryReasons []string ` + "`json:\"openRetryReasons,omitempty\"`" + `
+	HealthBackoffMultiplier int ` + "`json:\"healthBackoffMultiplier,omitempty\"`" + `
+	HealthMaxCooldown time.Duration ` + "`json:\"healthMaxCooldown,omitempty\"`" + `
 }
 
 type ResilienceProfile struct {

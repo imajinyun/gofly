@@ -271,8 +271,12 @@ func releaseGeneratedRPCMuxRetrySmokeCheck() (releaseCheckItem, []string) {
 	openBeforeMarkers := []string{
 		`badMuxEndpoint := "tcp://" + badMuxListener.Addr().String()`,
 		`rpc.WithExperimentalMuxConnectionManagerMaxOpenRetries(cfg.RPC.Mux.MaxOpenRetries)`,
+		`rpc.WithExperimentalMuxConnectionManagerHealthBackoffMultiplier(cfg.RPC.Mux.HealthBackoffMultiplier)`,
+		`rpc.WithExperimentalMuxConnectionManagerHealthMaxCooldown(cfg.RPC.Mux.HealthMaxCooldown)`,
 		`diagnosis.OpenRetries != 1`,
 		`diagnosis.RetryReasons["dial_failure"] != 1`,
+		`diagnosis.HealthBackoffMultiplier != 2`,
+		`diagnosis.HealthMaxCooldown != 30*time.Second`,
 	}
 	postOpenMarkers := []string{
 		`"greeter/FailAfterOpen"`,
@@ -296,6 +300,7 @@ func releaseGeneratedRPCMuxRetrySmokeCheck() (releaseCheckItem, []string) {
 			"verifyCommand":     "go test ./...",
 			"openBeforeRetry":   true,
 			"postOpenNoReplay":  true,
+			"cooldownBackoff":   true,
 			"openBeforeMarkers": openBeforeMarkers,
 			"postOpenMarkers":   postOpenMarkers,
 		},

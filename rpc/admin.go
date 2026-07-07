@@ -57,6 +57,14 @@ type GovernanceSnapshot struct {
 	Components []governance.ComponentSnapshot `json:"components"`
 }
 
+type ServerDiagnosisSnapshot struct {
+	State       StateSnapshot                 `json:"state"`
+	Services    []ServiceSnapshot             `json:"services,omitempty"`
+	PolicyCache RPCPolicyRuntimeCacheSnapshot `json:"policyCache,omitempty"`
+	Mux         RPCMuxTransportDiagnosis      `json:"mux,omitempty"`
+	GeneratedAt time.Time                     `json:"generatedAt"`
+}
+
 func (s *HTTPServer) serveAdmin(w http.ResponseWriter, r *http.Request) {
 	if s.opts.adminAudit != nil {
 		controladmin.AuditMiddleware("rpc", s.opts.adminAudit)(http.HandlerFunc(s.serveAdminRoute)).ServeHTTP(w, r)
@@ -115,6 +123,8 @@ func (s *HTTPServer) serveAdminRoute(w http.ResponseWriter, r *http.Request) {
 		})
 	case r.URL.Path == "/rpc/admin/runtime":
 		writeAdminJSON(w, http.StatusOK, s.RuntimeSnapshot(r.Context()))
+	case r.URL.Path == "/rpc/admin/diagnosis":
+		writeAdminJSON(w, http.StatusOK, s.DiagnosisSnapshot())
 	default:
 		http.NotFound(w, r)
 	}
@@ -204,7 +214,28 @@ func (s *HTTPServer) RuntimeSnapshot(ctx context.Context) coreruntime.Snapshot {
 			},
 		}
 	}, coreruntime.WithOwner("rpc"))
+	if s != nil && s.opts.muxServerAdapter != nil {
+		registry.Register("rpc.mux.server", "server", func(ctx context.Context) coreruntime.ComponentSnapshot {
+			return s.opts.muxServerAdapter.RuntimeComponentSnapshot(ctx)
+		}, coreruntime.WithOwner("rpc"))
+	}
 	return registry.Snapshot(ctx)
+}
+
+func (s *HTTPServer) DiagnosisSnapshot() ServerDiagnosisSnapshot {
+	if s == nil {
+		return ServerDiagnosisSnapshot{GeneratedAt: time.Now()}
+	}
+	snapshot := ServerDiagnosisSnapshot{
+		State:       s.State(),
+		Services:    s.ServiceSnapshots(),
+		PolicyCache: s.RuntimeCacheSnapshot(),
+		GeneratedAt: time.Now(),
+	}
+	if s.opts.muxServerAdapter != nil {
+		snapshot.Mux = s.opts.muxServerAdapter.DiagnosisSnapshot()
+	}
+	return snapshot
 }
 
 func (s *HTTPServer) RuntimeCacheSnapshot() RPCPolicyRuntimeCacheSnapshot {

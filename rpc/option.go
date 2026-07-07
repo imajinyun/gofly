@@ -59,6 +59,7 @@ type serverOptions struct {
 	rules             *governance.RuleSet
 	readHeaderTimeout time.Duration
 	adminAudit        controladmin.AuditSink
+	muxServerAdapter  *ExperimentalMuxServerAdapter
 	tls               security.TLSConfig
 }
 
@@ -199,6 +200,15 @@ func WithServerMiddleware(mw endpoint.Middleware) ServerOption {
 
 func WithServerStreamMiddleware(mw StreamMiddleware) ServerOption {
 	return func(o *serverOptions) { o.streamMiddlewares = append(o.streamMiddlewares, mw) }
+}
+
+// WithExperimentalMuxServerAdapter exposes an opt-in experimental mux server
+// adapter through RPC admin runtime and diagnosis probes. It does not replace
+// the default HTTP upgrade stream endpoint.
+func WithExperimentalMuxServerAdapter(adapter *ExperimentalMuxServerAdapter) ServerOption {
+	return func(o *serverOptions) {
+		o.muxServerAdapter = adapter
+	}
 }
 
 func WithServerMaxConcurrency(max int) ServerOption {

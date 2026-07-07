@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -810,7 +812,42 @@ func newGovernedGreeterServer(t *testing.T, rules *coregovernance.RuleSet, handl
 
 func TestHTTPServerAdminEndpoints(t *testing.T) {
 	rules := coregovernance.NewRuleSet(coregovernance.Rule{Name: "rpc-default", Transport: coregovernance.TransportRPC, Service: "greeter"})
-	s := NewServer(WithServerAdminToken("secret"), WithServerAdaptiveLimiter(limit.NewAdaptiveLimiter(limit.WithAdaptiveLimits(1, 1))), WithServerRuleSet(rules))
+	clientConn, serverConn := net.Pipe()
+	muxClient := NewExperimentalMuxClientAdapter(clientConn)
+	muxServer := NewExperimentalMuxServerAdapter(serverConn)
+	defer muxClient.Close()
+	defer muxServer.Close()
+	if err := muxServer.RegisterStream("greeter/Watch", func(ctx context.Context, stream *ExperimentalMuxStream) error {
+		msg, err := stream.Receive(ctx)
+		if err != nil {
+			return err
+		}
+		if err := stream.Send(ctx, Message{Payload: append([]byte("admin:"), msg.Payload...)}); err != nil {
+			return err
+		}
+		return stream.Close(ctx, "ok")
+	}); err != nil {
+		t.Fatalf("RegisterStream: %v", err)
+	}
+	serveCtx, cancelMux := context.WithCancel(context.Background())
+	defer cancelMux()
+	serveDone := make(chan error, 1)
+	go func() {
+		serveDone <- muxServer.Serve(serveCtx)
+	}()
+	stream, err := muxClient.OpenStream(context.Background(), "greeter/Watch")
+	if err != nil {
+		t.Fatalf("OpenStream: %v", err)
+	}
+	if err := stream.Send(context.Background(), Message{Payload: []byte("probe")}); err != nil {
+		t.Fatalf("mux probe send: %v", err)
+	}
+	assertMuxPayload(t, stream, "admin:probe")
+	if _, err := stream.Receive(muxTestTimeoutContext(t)); !errors.Is(err, io.EOF) {
+		t.Fatalf("mux probe terminal receive = %v, want EOF", err)
+	}
+
+	s := NewServer(WithServerAdminToken("secret"), WithServerAdaptiveLimiter(limit.NewAdaptiveLimiter(limit.WithAdaptiveLimits(1, 1))), WithServerRuleSet(rules), WithExperimentalMuxServerAdapter(muxServer))
 	if err := s.RegisterService(ServiceDesc{Name: "greeter", Version: "v1", Metadata: map[string]string{"owner": "platform"}, Methods: []MethodDesc{{
 		Name:       "SayHello",
 		NewRequest: func() any { return new(helloRequest) },
@@ -1002,11 +1039,39 @@ func TestHTTPServerAdminEndpoints(t *testing.T) {
 	if err := json.NewDecoder(runtimeRec.Body).Decode(&runtimeSnapshot); err != nil {
 		t.Fatal(err)
 	}
-	if len(runtimeSnapshot.Components) != 1 || runtimeSnapshot.Components[0].Name != "rpc.http.server" {
-		t.Fatalf("runtime snapshot = %#v, want rpc http server component", runtimeSnapshot)
+	runtimeByName := map[string]coreruntime.ComponentSnapshot{}
+	for _, component := range runtimeSnapshot.Components {
+		runtimeByName[component.Name] = component
 	}
-	if runtimeSnapshot.Components[0].Middleware == nil || len(runtimeSnapshot.Components[0].Middleware.Unary) == 0 {
-		t.Fatalf("runtime middleware = %#v, want rpc middleware chain", runtimeSnapshot.Components[0].Middleware)
+	httpRuntime, hasHTTPRuntime := runtimeByName["rpc.http.server"]
+	muxRuntime, hasMuxRuntime := runtimeByName["rpc.mux.server"]
+	if len(runtimeSnapshot.Components) != 2 || !hasHTTPRuntime || !hasMuxRuntime {
+		t.Fatalf("runtime snapshot = %#v, want rpc http and mux server components", runtimeSnapshot)
+	}
+	if httpRuntime.Middleware == nil || len(httpRuntime.Middleware.Unary) == 0 {
+		t.Fatalf("runtime middleware = %#v, want rpc middleware chain", httpRuntime.Middleware)
+	}
+	if muxRuntime.Status == "" || muxRuntime.Details == nil {
+		t.Fatalf("mux runtime = %#v, want mux diagnosis details", muxRuntime)
+	}
+
+	diagnosisReq := httptest.NewRequest(http.MethodGet, "/rpc/admin/diagnosis", nil)
+	diagnosisReq.Header.Set("Authorization", "Bearer secret")
+	diagnosisRec := httptest.NewRecorder()
+	s.ServeHTTP(diagnosisRec, diagnosisReq)
+	if diagnosisRec.Code != http.StatusOK {
+		t.Fatalf("diagnosis status = %d, want 200", diagnosisRec.Code)
+	}
+	var diagnosis ServerDiagnosisSnapshot
+	if err := json.NewDecoder(diagnosisRec.Body).Decode(&diagnosis); err != nil {
+		t.Fatal(err)
+	}
+	if diagnosis.State.State != "initialized" ||
+		len(diagnosis.Services) != 1 ||
+		!diagnosis.Mux.Enabled ||
+		diagnosis.Mux.Adapter.AcceptedStreams != 1 ||
+		diagnosis.Mux.Transport.AcceptedStreams != 1 {
+		t.Fatalf("server diagnosis = %+v, want mux adapter evidence", diagnosis)
 	}
 
 	rulesReq := httptest.NewRequest(http.MethodGet, "/rpc/admin/governance/rules", nil)

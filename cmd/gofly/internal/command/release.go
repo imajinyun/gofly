@@ -85,6 +85,11 @@ func releaseCheckCommand(args []string) error {
 	blockers = append(blockers, checkBlockers...)
 	report.Checks = append(report.Checks, rpcMuxAdapterItem)
 
+	// 9. Generated RPC mux retry/open-boundary smoke evidence.
+	generatedRPCMuxRetryItem, checkBlockers := releaseGeneratedRPCMuxRetrySmokeCheck()
+	blockers = append(blockers, checkBlockers...)
+	report.Checks = append(report.Checks, generatedRPCMuxRetryItem)
+
 	// Determine recommended SemVer bump.
 	report.Recommended = recommendSemver(blockers, warnings)
 	report.Blocking = blockers

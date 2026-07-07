@@ -121,6 +121,7 @@ func releaseCheckOutputContract() *aiOutputContract {
 			"evidenceFilter":              "--evidence returns only the named check in data.checks and keeps that check's evidence machine-readable",
 			"aggregationEvidenceFamilies": "gateway-aggregation-contract evidence contains aggregation-json-diff and aggregation-openapi-diff families",
 			"rpcMuxAdapterEvidenceFamily": "rpc-mux-adapter-evidence exposes BenchmarkRPCExperimentalMuxAdapterOpenSendReceiveClose report-only baseline/current samples and promotion decision",
+			"generatedRPCMuxRetryFamily":  "generated-rpc-mux-retry-smoke exposes generated project evidence for mux open-before retry and post-open no replay boundaries",
 			"ciIntegration":               "suitable for release and CI gates; failed blockers are also repeated in error.details.blocking",
 		},
 	}

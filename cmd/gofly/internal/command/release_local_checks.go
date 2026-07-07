@@ -250,6 +250,69 @@ func releaseRPCMuxAdapterEvidenceCheck() (releaseCheckItem, []string) {
 	return item, nil
 }
 
+func releaseGeneratedRPCMuxRetrySmokeCheck() (releaseCheckItem, []string) {
+	item := releaseCheckItem{Name: "generated-rpc-mux-retry-smoke", Status: "pass"}
+	path := filepath.Join("cmd", "gofly", "internal", "generator", "templates.go")
+	resolved, err := resolveReleaseEvidencePath(path)
+	if err != nil {
+		item.Status = "fail"
+		item.Detail = err.Error()
+		item.Blocker = true
+		return item, []string{"generated RPC mux retry smoke source is unavailable"}
+	}
+	data, err := os.ReadFile(resolved) // #nosec G304 -- release check reads a generator template from the repository.
+	if err != nil {
+		item.Status = "fail"
+		item.Detail = err.Error()
+		item.Blocker = true
+		return item, []string{"generated RPC mux retry smoke source is unavailable"}
+	}
+	source := string(data)
+	openBeforeMarkers := []string{
+		`badMuxEndpoint := "tcp://" + badMuxListener.Addr().String()`,
+		`rpc.WithExperimentalMuxConnectionManagerMaxOpenRetries(cfg.RPC.Mux.MaxOpenRetries)`,
+		`diagnosis.OpenRetries != 1`,
+		`diagnosis.RetryReasons["dial_failure"] != 1`,
+	}
+	postOpenMarkers := []string{
+		`"greeter/FailAfterOpen"`,
+		`rpc.NewError(rpc.CodeUnavailable, "generated stream failed after open")`,
+		`rpc.CodeOf(err) != rpc.CodeUnavailable`,
+		`diagnosis.RetryReasons["open_stream"] != 0`,
+	}
+	missing := missingReleaseMarkers(source, append(openBeforeMarkers, postOpenMarkers...))
+	if len(missing) > 0 {
+		item.Status = "fail"
+		item.Detail = "generated RPC mux retry smoke markers missing"
+		item.Blocker = true
+		item.Evidence = map[string]any{"generated-rpc-mux-retry-smoke": map[string]any{"missing": missing}}
+		return item, []string{"generated RPC mux retry smoke markers missing"}
+	}
+	item.Detail = "generated RPC mux retry smoke covers open-before retry and post-open no replay"
+	item.Evidence = map[string]any{
+		"generated-rpc-mux-retry-smoke": map[string]any{
+			"schema":            "gofly.generated_rpc_mux_retry_smoke.v1",
+			"source":            path,
+			"verifyCommand":     "go test ./...",
+			"openBeforeRetry":   true,
+			"postOpenNoReplay":  true,
+			"openBeforeMarkers": openBeforeMarkers,
+			"postOpenMarkers":   postOpenMarkers,
+		},
+	}
+	return item, nil
+}
+
+func missingReleaseMarkers(source string, markers []string) []string {
+	missing := make([]string, 0)
+	for _, marker := range markers {
+		if !strings.Contains(source, marker) {
+			missing = append(missing, marker)
+		}
+	}
+	return missing
+}
+
 func readReleaseJSONFile(path string, label string) (map[string]any, error) {
 	resolved, err := resolveReleaseEvidencePath(path)
 	if err != nil {

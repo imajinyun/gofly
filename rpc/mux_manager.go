@@ -22,6 +22,8 @@ type ExperimentalMuxConnectionManager struct {
 	maxIdleConnsPerEndpoint int
 	healthFailureThreshold  int
 	healthEjectionDuration  time.Duration
+	healthBackoffMultiplier int
+	healthMaxCooldown       time.Duration
 	maxOpenRetries          int
 	openRetryReasons        map[string]struct{}
 	janitorInterval         time.Duration
@@ -64,10 +66,12 @@ type muxManagedClose struct {
 }
 
 type muxEndpointHealth struct {
-	failures  int
-	ejectedAt time.Time
-	reason    string
-	lastError string
+	failures      int
+	ejectedAt     time.Time
+	cooldown      time.Duration
+	cooldownUntil time.Time
+	reason        string
+	lastError     string
 }
 
 type ExperimentalMuxConnectionManagerOption func(*ExperimentalMuxConnectionManager)
@@ -80,6 +84,8 @@ type ExperimentalMuxConnectionManagerSnapshot struct {
 	MaxIdleConnsPerEndpoint int                                     `json:"maxIdleConnsPerEndpoint,omitempty"`
 	HealthFailureThreshold  int                                     `json:"healthFailureThreshold,omitempty"`
 	HealthEjectionDuration  time.Duration                           `json:"healthEjectionDuration,omitempty"`
+	HealthBackoffMultiplier int                                     `json:"healthBackoffMultiplier,omitempty"`
+	HealthMaxCooldown       time.Duration                           `json:"healthMaxCooldown,omitempty"`
 	MaxOpenRetries          int                                     `json:"maxOpenRetries,omitempty"`
 	OpenRetryReasons        []string                                `json:"openRetryReasons,omitempty"`
 	JanitorInterval         time.Duration                           `json:"janitorInterval,omitempty"`
@@ -112,12 +118,14 @@ type ExperimentalMuxEndpointSnapshot struct {
 }
 
 type ExperimentalMuxEndpointHealthSnapshot struct {
-	Endpoint  string    `json:"endpoint"`
-	Failures  int       `json:"failures,omitempty"`
-	Ejected   bool      `json:"ejected,omitempty"`
-	EjectedAt time.Time `json:"ejectedAt,omitempty"`
-	Reason    string    `json:"reason,omitempty"`
-	LastError string    `json:"lastError,omitempty"`
+	Endpoint      string        `json:"endpoint"`
+	Failures      int           `json:"failures,omitempty"`
+	Ejected       bool          `json:"ejected,omitempty"`
+	EjectedAt     time.Time     `json:"ejectedAt,omitempty"`
+	Cooldown      time.Duration `json:"cooldown,omitempty"`
+	CooldownUntil time.Time     `json:"cooldownUntil,omitempty"`
+	Reason        string        `json:"reason,omitempty"`
+	LastError     string        `json:"lastError,omitempty"`
 }
 
 func NewExperimentalMuxConnectionManager(resolver Resolver, opts ...ExperimentalMuxConnectionManagerOption) (*ExperimentalMuxConnectionManager, error) {
@@ -125,19 +133,20 @@ func NewExperimentalMuxConnectionManager(resolver Resolver, opts ...Experimental
 		return nil, errors.New("mux connection manager resolver is required")
 	}
 	m := &ExperimentalMuxConnectionManager{
-		resolver:               resolver,
-		balancer:               &RoundRobinBalancer{},
-		idleTimeout:            time.Minute,
-		healthFailureThreshold: 1,
-		healthEjectionDuration: time.Second,
-		maxOpenRetries:         1,
-		openRetryReasons:       muxRetryReasonSet("dial_failure", "pool_exhausted"),
-		adapters:               make(map[string][]*muxManagedAdapter),
-		retired:                make(map[string][]*muxManagedAdapter),
-		health:                 make(map[string]*muxEndpointHealth),
-		retryReasons:           make(map[string]int64),
-		closeReasons:           make(map[string]int64),
-		drainReasons:           make(map[string]int64),
+		resolver:                resolver,
+		balancer:                &RoundRobinBalancer{},
+		idleTimeout:             time.Minute,
+		healthFailureThreshold:  1,
+		healthEjectionDuration:  time.Second,
+		healthBackoffMultiplier: 1,
+		maxOpenRetries:          1,
+		openRetryReasons:        muxRetryReasonSet("dial_failure", "pool_exhausted"),
+		adapters:                make(map[string][]*muxManagedAdapter),
+		retired:                 make(map[string][]*muxManagedAdapter),
+		health:                  make(map[string]*muxEndpointHealth),
+		retryReasons:            make(map[string]int64),
+		closeReasons:            make(map[string]int64),
+		drainReasons:            make(map[string]int64),
 	}
 	for _, opt := range opts {
 		if opt != nil {
@@ -161,6 +170,12 @@ func NewExperimentalMuxConnectionManager(resolver Resolver, opts ...Experimental
 	}
 	if m.healthEjectionDuration < 0 {
 		m.healthEjectionDuration = 0
+	}
+	if m.healthBackoffMultiplier <= 0 {
+		m.healthBackoffMultiplier = 1
+	}
+	if m.healthMaxCooldown < 0 {
+		m.healthMaxCooldown = 0
 	}
 	if m.maxOpenRetries < 0 {
 		m.maxOpenRetries = 0
@@ -224,6 +239,22 @@ func WithExperimentalMuxConnectionManagerHealthEjectionDuration(duration time.Du
 	return func(m *ExperimentalMuxConnectionManager) {
 		if duration >= 0 {
 			m.healthEjectionDuration = duration
+		}
+	}
+}
+
+func WithExperimentalMuxConnectionManagerHealthBackoffMultiplier(multiplier int) ExperimentalMuxConnectionManagerOption {
+	return func(m *ExperimentalMuxConnectionManager) {
+		if multiplier > 0 {
+			m.healthBackoffMultiplier = multiplier
+		}
+	}
+}
+
+func WithExperimentalMuxConnectionManagerHealthMaxCooldown(max time.Duration) ExperimentalMuxConnectionManagerOption {
+	return func(m *ExperimentalMuxConnectionManager) {
+		if max >= 0 {
+			m.healthMaxCooldown = max
 		}
 	}
 }
@@ -588,6 +619,8 @@ func (m *ExperimentalMuxConnectionManager) Snapshot() ExperimentalMuxConnectionM
 	maxIdleConnsPerEndpoint := m.maxIdleConnsPerEndpoint
 	healthFailureThreshold := m.healthFailureThreshold
 	healthEjectionDuration := m.healthEjectionDuration
+	healthBackoffMultiplier := m.healthBackoffMultiplier
+	healthMaxCooldown := m.healthMaxCooldown
 	maxOpenRetries := m.maxOpenRetries
 	openRetryReasons := muxRetryReasons(m.openRetryReasons)
 	janitorInterval := m.janitorInterval
@@ -612,6 +645,8 @@ func (m *ExperimentalMuxConnectionManager) Snapshot() ExperimentalMuxConnectionM
 		MaxIdleConnsPerEndpoint: maxIdleConnsPerEndpoint,
 		HealthFailureThreshold:  healthFailureThreshold,
 		HealthEjectionDuration:  healthEjectionDuration,
+		HealthBackoffMultiplier: healthBackoffMultiplier,
+		HealthMaxCooldown:       healthMaxCooldown,
 		MaxOpenRetries:          maxOpenRetries,
 		OpenRetryReasons:        openRetryReasons,
 		JanitorInterval:         janitorInterval,
@@ -648,6 +683,8 @@ func (m *ExperimentalMuxConnectionManager) DiagnosisSnapshot() RPCMuxConnectionM
 		MaxIdleConnsPerEndpoint: snapshot.MaxIdleConnsPerEndpoint,
 		HealthFailureThreshold:  snapshot.HealthFailureThreshold,
 		HealthEjectionDuration:  snapshot.HealthEjectionDuration,
+		HealthBackoffMultiplier: snapshot.HealthBackoffMultiplier,
+		HealthMaxCooldown:       snapshot.HealthMaxCooldown,
 		MaxOpenRetries:          snapshot.MaxOpenRetries,
 		OpenRetryReasons:        snapshot.OpenRetryReasons,
 		JanitorInterval:         snapshot.JanitorInterval,
@@ -936,13 +973,15 @@ func (m *ExperimentalMuxConnectionManager) healthyEndpointsLocked(endpoints []st
 	healthy := make([]string, 0, len(candidates))
 	for _, endpoint := range candidates {
 		state := m.health[endpoint]
-		if state == nil || state.ejectedAt.IsZero() {
+		if state == nil || state.cooldownUntil.IsZero() {
 			healthy = append(healthy, endpoint)
 			continue
 		}
-		if m.healthEjectionDuration <= 0 || now.Sub(state.ejectedAt) >= m.healthEjectionDuration {
+		if m.healthEjectionDuration <= 0 || !now.Before(state.cooldownUntil) {
 			state.failures = 0
 			state.ejectedAt = time.Time{}
+			state.cooldown = 0
+			state.cooldownUntil = time.Time{}
 			state.reason = ""
 			state.lastError = ""
 			m.endpointRecoveries++
@@ -958,11 +997,15 @@ func (m *ExperimentalMuxConnectionManager) healthyEndpointsLocked(endpoints []st
 
 func (m *ExperimentalMuxConnectionManager) recordEndpointFailure(endpoint string, reason string, err error) {
 	m.mu.Lock()
-	m.recordEndpointFailureLocked(endpoint, reason, err)
+	m.recordEndpointFailureAtLocked(endpoint, reason, err, time.Now())
 	m.mu.Unlock()
 }
 
 func (m *ExperimentalMuxConnectionManager) recordEndpointFailureLocked(endpoint string, reason string, err error) {
+	m.recordEndpointFailureAtLocked(endpoint, reason, err, time.Now())
+}
+
+func (m *ExperimentalMuxConnectionManager) recordEndpointFailureAtLocked(endpoint string, reason string, err error, now time.Time) {
 	endpoint = strings.TrimRight(strings.TrimSpace(endpoint), "/")
 	if endpoint == "" || !muxEndpointHealthFailure(reason, err) {
 		return
@@ -986,11 +1029,13 @@ func (m *ExperimentalMuxConnectionManager) recordEndpointFailureLocked(endpoint 
 	if err != nil {
 		state.lastError = err.Error()
 	}
-	if state.failures >= m.healthFailureThreshold && state.ejectedAt.IsZero() && m.healthEjectionDuration > 0 {
-		state.ejectedAt = time.Now()
+	if state.failures >= m.healthFailureThreshold && m.healthEjectionDuration > 0 {
+		state.ejectedAt = now
+		state.cooldown = m.nextHealthCooldown(state.cooldown)
+		state.cooldownUntil = now.Add(state.cooldown)
 		m.endpointEjections++
 	}
-	m.lastUpdated = time.Now()
+	m.lastUpdated = now
 }
 
 func (m *ExperimentalMuxConnectionManager) recordEndpointSuccess(endpoint string) {
@@ -1000,9 +1045,11 @@ func (m *ExperimentalMuxConnectionManager) recordEndpointSuccess(endpoint string
 	}
 	m.mu.Lock()
 	state := m.health[endpoint]
-	if state != nil && (state.failures > 0 || !state.ejectedAt.IsZero() || state.reason != "" || state.lastError != "") {
+	if state != nil && (state.failures > 0 || !state.ejectedAt.IsZero() || !state.cooldownUntil.IsZero() || state.reason != "" || state.lastError != "") {
 		state.failures = 0
 		state.ejectedAt = time.Time{}
+		state.cooldown = 0
+		state.cooldownUntil = time.Time{}
 		state.reason = ""
 		state.lastError = ""
 		m.endpointRecoveries++
@@ -1030,6 +1077,28 @@ func (m *ExperimentalMuxConnectionManager) recordOpenRetry(from string, to strin
 	m.retryReasons[reason]++
 	m.lastUpdated = time.Now()
 	m.mu.Unlock()
+}
+
+func (m *ExperimentalMuxConnectionManager) nextHealthCooldown(current time.Duration) time.Duration {
+	base := m.healthEjectionDuration
+	if base <= 0 {
+		return 0
+	}
+	next := base
+	if current > 0 {
+		multiplier := m.healthBackoffMultiplier
+		if multiplier <= 0 {
+			multiplier = 1
+		}
+		next = current * time.Duration(multiplier)
+	}
+	if next < base {
+		next = base
+	}
+	if m.healthMaxCooldown > 0 && next > m.healthMaxCooldown {
+		next = m.healthMaxCooldown
+	}
+	return next
 }
 
 func (m *ExperimentalMuxConnectionManager) endpointHealthReason(endpoint string) string {
@@ -1073,20 +1142,22 @@ func (m *ExperimentalMuxConnectionManager) snapshotHealthLocked(now time.Time) [
 		if state == nil {
 			continue
 		}
-		ejected := !state.ejectedAt.IsZero()
-		if ejected && m.healthEjectionDuration > 0 && now.Sub(state.ejectedAt) >= m.healthEjectionDuration {
+		ejected := !state.cooldownUntil.IsZero()
+		if ejected && (m.healthEjectionDuration <= 0 || !now.Before(state.cooldownUntil)) {
 			ejected = false
 		}
 		if state.failures == 0 && !ejected && state.reason == "" && state.lastError == "" {
 			continue
 		}
 		health = append(health, ExperimentalMuxEndpointHealthSnapshot{
-			Endpoint:  endpoint,
-			Failures:  state.failures,
-			Ejected:   ejected,
-			EjectedAt: state.ejectedAt,
-			Reason:    state.reason,
-			LastError: state.lastError,
+			Endpoint:      endpoint,
+			Failures:      state.failures,
+			Ejected:       ejected,
+			EjectedAt:     state.ejectedAt,
+			Cooldown:      state.cooldown,
+			CooldownUntil: state.cooldownUntil,
+			Reason:        state.reason,
+			LastError:     state.lastError,
 		})
 	}
 	return health

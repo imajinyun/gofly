@@ -1110,6 +1110,63 @@ func TestExperimentalMuxConnectionManagerSkipsEndpointAfterDialFailure(t *testin
 	}
 }
 
+func TestExperimentalMuxConnectionManagerEndpointHealthBackoffCooldown(t *testing.T) {
+	endpoint := "tcp://127.0.0.1:1"
+	manager, err := NewExperimentalMuxConnectionManager(
+		ResolverFunc(func(context.Context) ([]string, error) { return []string{endpoint, "tcp://127.0.0.1:2"}, nil }),
+		WithExperimentalMuxConnectionManagerHealthFailureThreshold(1),
+		WithExperimentalMuxConnectionManagerHealthEjectionDuration(10*time.Millisecond),
+		WithExperimentalMuxConnectionManagerHealthBackoffMultiplier(2),
+		WithExperimentalMuxConnectionManagerHealthMaxCooldown(25*time.Millisecond),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	now := time.Unix(100, 0)
+	manager.mu.Lock()
+	manager.recordEndpointFailureAtLocked(endpoint, "dial_failure", NewError(CodeUnavailable, "first"), now)
+	firstHealthy := manager.healthyEndpointsLocked([]string{endpoint, "tcp://127.0.0.1:2"}, now)
+	manager.mu.Unlock()
+	if len(firstHealthy) != 1 || firstHealthy[0] != "tcp://127.0.0.1:2" {
+		t.Fatalf("healthy after first failure = %v, want only second endpoint", firstHealthy)
+	}
+	snapshot := manager.Snapshot()
+	if snapshot.HealthBackoffMultiplier != 2 ||
+		snapshot.HealthMaxCooldown != 25*time.Millisecond ||
+		len(snapshot.Health) != 1 ||
+		snapshot.Health[0].Cooldown != 10*time.Millisecond ||
+		!snapshot.Health[0].CooldownUntil.Equal(now.Add(10*time.Millisecond)) {
+		t.Fatalf("snapshot after first failure = %+v, want 10ms cooldown", snapshot)
+	}
+
+	manager.mu.Lock()
+	manager.recordEndpointFailureAtLocked(endpoint, "dial_failure", NewError(CodeUnavailable, "second"), now.Add(time.Millisecond))
+	manager.mu.Unlock()
+	snapshot = manager.Snapshot()
+	if snapshot.Health[0].Cooldown != 20*time.Millisecond ||
+		!snapshot.Health[0].CooldownUntil.Equal(now.Add(time.Millisecond).Add(20*time.Millisecond)) ||
+		snapshot.EndpointEjections != 2 {
+		t.Fatalf("snapshot after second failure = %+v, want doubled cooldown", snapshot)
+	}
+
+	manager.mu.Lock()
+	manager.recordEndpointFailureAtLocked(endpoint, "dial_failure", NewError(CodeUnavailable, "third"), now.Add(2*time.Millisecond))
+	manager.mu.Unlock()
+	snapshot = manager.Snapshot()
+	if snapshot.Health[0].Cooldown != 25*time.Millisecond ||
+		!snapshot.Health[0].CooldownUntil.Equal(now.Add(2*time.Millisecond).Add(25*time.Millisecond)) {
+		t.Fatalf("snapshot after third failure = %+v, want capped cooldown", snapshot)
+	}
+
+	manager.mu.Lock()
+	recovered := manager.healthyEndpointsLocked([]string{endpoint, "tcp://127.0.0.1:2"}, now.Add(28*time.Millisecond))
+	manager.mu.Unlock()
+	if len(recovered) != 2 || manager.Snapshot().EndpointRecoveries != 1 {
+		t.Fatalf("healthy after cooldown = %v snapshot=%+v, want recovered endpoint", recovered, manager.Snapshot())
+	}
+}
+
 func TestExperimentalMuxConnectionManagerOpenRetryPolicyCanDisableRetry(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

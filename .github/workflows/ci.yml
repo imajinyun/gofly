@@ -362,7 +362,8 @@ jobs:
 
       - name: Gateway profile contract gate
         run: |
-          go test -count=1 -shuffle=on ./cmd/gofly/internal/command -run 'Test(GatewayProfileValidateCommandJSON|GatewayProfileValidateCommandBreakingAndUsage|GatewayAggregationValidateCommandJSON|GatewayAggregationSARIFRuleTaxonomyContract|ReleaseGatewayProfileContractCheck|ReleaseGatewayAggregationContractCheck|ExecuteAIManifestJSONEnvelope|ExecuteAIManifestAliasAndText)'
+          go test -count=1 -shuffle=on ./cmd/gofly/internal/command -run 'Test(GatewayProfileValidateCommandJSON|GatewayProfileValidateCommandBreakingAndUsage|GatewayAggregationValidateCommandJSON|GatewayAggregationSARIFRuleTaxonomyContract|ReleaseGatewayProfileContractCheck|ReleaseGatewayAggregationContractCheck|ReleaseGeneratedRPCMuxRetrySmokeCheck|ExecuteAIManifestJSONEnvelope|ExecuteAIManifestAliasAndText)'
+          go run ./cmd/gofly release check --json --evidence generated-rpc-mux-retry-smoke
           go test -count=1 -shuffle=on ./cmd/gofly/internal/command -run 'TestAINewGeneratedProjectVerificationMatrix'
           go test -count=1 -shuffle=on ./cmd/gofly/internal/generator -run 'Test(ProjectTemplate|GenerateGateway)'
           make aiflow-profile-gate-check

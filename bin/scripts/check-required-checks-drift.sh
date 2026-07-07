@@ -48,6 +48,8 @@ for token in (
     "GatewayAggregationSARIFRuleTaxonomyContract",
     "ReleaseGatewayProfileContractCheck",
     "ReleaseGatewayAggregationContractCheck",
+    "ReleaseGeneratedRPCMuxRetrySmokeCheck",
+    "generated-rpc-mux-retry-smoke",
     "ExecuteAIManifestJSONEnvelope",
     "ExecuteAIManifestAliasAndText",
     "TestAINewGeneratedProjectVerificationMatrix",

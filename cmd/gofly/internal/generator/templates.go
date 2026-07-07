@@ -629,6 +629,75 @@ func TestAdminDiagnostics(t *testing.T) {
 		t.Fatalf("tcp mux server stopped with error: %v", err)
 	}
 
+	badMuxListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	badMuxEndpoint := "tcp://" + badMuxListener.Addr().String()
+	if err := badMuxListener.Close(); err != nil {
+		t.Fatal(err)
+	}
+	retryMuxListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	retryCtx, stopRetryMux := context.WithCancel(context.Background())
+	defer stopRetryMux()
+	retryDone := make(chan error, 1)
+	go func() {
+		retryDone <- rpc.ServeExperimentalMuxListener(retryCtx, retryMuxListener, func(adapter *rpc.ExperimentalMuxServerAdapter) error {
+			return adapter.RegisterStream("greeter/Watch", func(ctx context.Context, stream *rpc.ExperimentalMuxStream) error {
+				msg, err := stream.Receive(ctx)
+				if err != nil {
+					return err
+				}
+				if err := stream.Send(ctx, rpc.Message{Payload: append([]byte("retry:"), msg.Payload...)}); err != nil {
+					return err
+				}
+				return stream.Close(ctx, "ok")
+			})
+		})
+	}()
+	retryManager, err := rpc.NewExperimentalMuxConnectionManager(
+		rpc.NewStaticResolver(badMuxEndpoint, "tcp://"+retryMuxListener.Addr().String()),
+		rpc.WithExperimentalMuxConnectionManagerMaxOpenRetries(cfg.RPC.Mux.MaxOpenRetries),
+		rpc.WithExperimentalMuxConnectionManagerOpenRetryReasons(cfg.RPC.Mux.OpenRetryReasons...),
+		rpc.WithExperimentalMuxConnectionManagerHealthFailureThreshold(1),
+		rpc.WithExperimentalMuxConnectionManagerHealthEjectionDuration(time.Hour),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	retryClient, err := rpc.NewClient("http://unused", rpc.WithExperimentalMuxConnectionManager(retryManager))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer retryClient.Close()
+	retryStream, err := retryClient.MuxStream(context.Background(), "greeter/Watch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := retryStream.Send(context.Background(), rpc.Message{Payload: []byte("probe")}); err != nil {
+		t.Fatal(err)
+	}
+	retryResponse, err := retryStream.Receive(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(retryResponse.Payload) != "retry:probe" {
+		t.Fatalf("retry mux payload = %q, want retry probe response", retryResponse.Payload)
+	}
+	if _, err := retryStream.Receive(context.Background()); !errors.Is(err, io.EOF) {
+		t.Fatalf("retry mux terminal receive = %v, want EOF", err)
+	}
+	if diagnosis := retryClient.RuntimeSnapshot().Diagnosis.Mux.Manager; diagnosis.OpenRetries != 1 || diagnosis.LastRetriedFrom != badMuxEndpoint || diagnosis.RetryReasons["dial_failure"] != 1 {
+		t.Fatalf("retry manager diagnosis = %+v, want generated retry policy evidence", diagnosis)
+	}
+	stopRetryMux()
+	if err := <-retryDone; err != nil {
+		t.Fatalf("retry mux server stopped with error: %v", err)
+	}
+
 	rpcOptions := []rpc.ServerOption{}
 	if cfg.RPC.Mux.Enabled && cfg.RPC.Mux.Probe {
 		rpcOptions = append(rpcOptions, rpc.WithExperimentalMuxServerAdapter(muxServer))

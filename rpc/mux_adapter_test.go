@@ -675,6 +675,164 @@ func TestExperimentalMuxConnectionManagerMaxStreamsPerConnOpensEndpointPool(t *t
 	}
 }
 
+func TestExperimentalMuxConnectionManagerResolverRemovalDrainsActivePoolBeforeIdleClose(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	firstListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstRequests := make(chan string, 1)
+	releaseFirst := make(chan struct{})
+	startFirst := func() <-chan error {
+		done := make(chan error, 1)
+		go func() {
+			done <- ServeExperimentalMuxListener(ctx, firstListener, func(adapter *ExperimentalMuxServerAdapter) error {
+				return adapter.RegisterStream("orders/Hold", func(ctx context.Context, stream *ExperimentalMuxStream) error {
+					msg, err := stream.Receive(ctx)
+					if err != nil {
+						return err
+					}
+					firstRequests <- string(msg.Payload)
+					select {
+					case <-releaseFirst:
+					case <-ctx.Done():
+						return ctx.Err()
+					}
+					if err := stream.Send(ctx, Message{Payload: append([]byte("first:"), msg.Payload...)}); err != nil {
+						return err
+					}
+					return stream.Close(ctx, "ok")
+				})
+			})
+		}()
+		return done
+	}
+	startSecond := func() <-chan error {
+		done := make(chan error, 1)
+		go func() {
+			done <- ServeExperimentalMuxListener(ctx, secondListener, func(adapter *ExperimentalMuxServerAdapter) error {
+				return adapter.RegisterStream("orders/Hold", func(ctx context.Context, stream *ExperimentalMuxStream) error {
+					msg, err := stream.Receive(ctx)
+					if err != nil {
+						return err
+					}
+					if err := stream.Send(ctx, Message{Payload: append([]byte("second:"), msg.Payload...)}); err != nil {
+						return err
+					}
+					return stream.Close(ctx, "ok")
+				})
+			})
+		}()
+		return done
+	}
+	firstDone := startFirst()
+	secondDone := startSecond()
+
+	firstEndpoint := "tcp://" + firstListener.Addr().String()
+	secondEndpoint := "tcp://" + secondListener.Addr().String()
+	resolver := &mutableResolver{endpoints: []string{firstEndpoint, secondEndpoint}}
+	manager, err := NewExperimentalMuxConnectionManager(
+		resolver,
+		WithExperimentalMuxConnectionManagerIdleTimeout(time.Nanosecond),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	client, err := NewClient("http://unused", WithExperimentalMuxConnectionManager(manager))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	firstStream, err := client.MuxStream(context.Background(), "orders/Hold")
+	if err != nil {
+		t.Fatalf("first MuxStream: %v", err)
+	}
+	if err := firstStream.Send(context.Background(), Message{Payload: []byte("active")}); err != nil {
+		t.Fatalf("first Send: %v", err)
+	}
+	if got := <-firstRequests; got != "active" {
+		t.Fatalf("first handler payload = %q, want active", got)
+	}
+	resolver.endpoints = []string{secondEndpoint}
+	if err := manager.SyncResolver(context.Background()); err != nil {
+		t.Fatalf("SyncResolver: %v", err)
+	}
+	draining := manager.Snapshot()
+	if len(draining.Endpoints) != 1 ||
+		draining.Endpoints[0].Endpoint != firstEndpoint ||
+		!draining.Endpoints[0].Retired ||
+		draining.Endpoints[0].Adapter.Transport.ActiveStreams != 1 ||
+		draining.RetiredAdapters != 1 ||
+		draining.ClosedAdapters != 0 ||
+		draining.CloseReasons["resolver_update"] != 0 ||
+		draining.DrainReasons["resolver_update"] != 1 {
+		t.Fatalf("manager snapshot after active resolver removal = %+v, want retired draining active adapter", draining)
+	}
+	diagnosis := client.RuntimeSnapshot().Diagnosis.Mux.Manager
+	if diagnosis.RetiredAdapters != 1 ||
+		len(diagnosis.Endpoints) != 1 ||
+		!diagnosis.Endpoints[0].Retired {
+		t.Fatalf("mux manager diagnosis after active resolver removal = %+v, want retired adapter evidence", diagnosis)
+	}
+
+	secondStream, err := client.MuxStream(context.Background(), "orders/Hold")
+	if err != nil {
+		t.Fatalf("second MuxStream: %v", err)
+	}
+	if err := secondStream.Send(context.Background(), Message{Payload: []byte("fresh")}); err != nil {
+		t.Fatalf("second Send: %v", err)
+	}
+	assertMuxPayload(t, secondStream, "second:fresh")
+	if _, err := secondStream.Receive(muxTestTimeoutContext(t)); !errors.Is(err, io.EOF) {
+		t.Fatalf("second terminal receive = %v, want EOF", err)
+	}
+	afterFresh := manager.Snapshot()
+	if len(afterFresh.Endpoints) != 2 {
+		t.Fatalf("manager snapshot after fresh stream = %+v, want retired first and active second adapters", afterFresh)
+	}
+
+	close(releaseFirst)
+	assertMuxPayload(t, firstStream, "first:active")
+	if _, err := firstStream.Receive(muxTestTimeoutContext(t)); !errors.Is(err, io.EOF) {
+		t.Fatalf("first terminal receive = %v, want EOF", err)
+	}
+	assertEventually(t, func() bool {
+		snapshot := manager.Snapshot()
+		for _, endpoint := range snapshot.Endpoints {
+			if endpoint.Endpoint == firstEndpoint {
+				return endpoint.Retired && endpoint.Adapter.Transport.ActiveStreams == 0
+			}
+		}
+		return false
+	}, "retired mux adapter drained active stream")
+	time.Sleep(time.Millisecond)
+	if err := manager.CloseIdle(context.Background()); err != nil {
+		t.Fatalf("CloseIdle: %v", err)
+	}
+	closed := manager.Snapshot()
+	if closed.RetiredAdapters != 0 ||
+		closed.ClosedAdapters != 2 ||
+		closed.CloseReasons["idle"] != 2 ||
+		closed.DrainReasons["resolver_update"] != 1 {
+		t.Fatalf("manager snapshot after retired idle close = %+v, want retired adapter closed after active drain", closed)
+	}
+
+	cancel()
+	if err := <-firstDone; err != nil {
+		t.Fatalf("first mux listener stopped with error: %v", err)
+	}
+	if err := <-secondDone; err != nil {
+		t.Fatalf("second mux listener stopped with error: %v", err)
+	}
+}
+
 func TestExperimentalMuxConnectionManagerWatchRemovesEndpoints(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

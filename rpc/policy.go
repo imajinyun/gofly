@@ -196,6 +196,7 @@ type RPCMuxConnectionManagerDiagnosis struct {
 	IdleTimeout       time.Duration                     `json:"idleTimeout,omitempty"`
 	MaxStreamsPerConn int                               `json:"maxStreamsPerConn,omitempty"`
 	Endpoints         []ExperimentalMuxEndpointSnapshot `json:"endpoints,omitempty"`
+	RetiredAdapters   int                               `json:"retiredAdapters,omitempty"`
 	WatchUpdates      int64                             `json:"watchUpdates,omitempty"`
 	Removed           []string                          `json:"removed,omitempty"`
 	ClosedAdapters    int64                             `json:"closedAdapters,omitempty"`

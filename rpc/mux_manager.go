@@ -20,6 +20,7 @@ type ExperimentalMuxConnectionManager struct {
 	maxStreamsPerConn int
 	options           []ExperimentalMuxTransportOption
 	adapters          map[string][]*muxManagedAdapter
+	retired           map[string][]*muxManagedAdapter
 	closed            bool
 	watchUpdates      int64
 	removed           []string
@@ -33,6 +34,7 @@ type muxManagedAdapter struct {
 	endpoint string
 	adapter  *ExperimentalMuxClientAdapter
 	lastUsed time.Time
+	retired  bool
 }
 
 type ExperimentalMuxConnectionManagerOption func(*ExperimentalMuxConnectionManager)
@@ -42,6 +44,7 @@ type ExperimentalMuxConnectionManagerSnapshot struct {
 	IdleTimeout       time.Duration                     `json:"idleTimeout,omitempty"`
 	MaxStreamsPerConn int                               `json:"maxStreamsPerConn,omitempty"`
 	Endpoints         []ExperimentalMuxEndpointSnapshot `json:"endpoints,omitempty"`
+	RetiredAdapters   int                               `json:"retiredAdapters,omitempty"`
 	WatchUpdates      int64                             `json:"watchUpdates,omitempty"`
 	Removed           []string                          `json:"removed,omitempty"`
 	ClosedAdapters    int64                             `json:"closedAdapters,omitempty"`
@@ -53,6 +56,7 @@ type ExperimentalMuxConnectionManagerSnapshot struct {
 type ExperimentalMuxEndpointSnapshot struct {
 	Endpoint string                         `json:"endpoint"`
 	LastUsed time.Time                      `json:"lastUsed,omitempty"`
+	Retired  bool                           `json:"retired,omitempty"`
 	Adapter  ExperimentalMuxAdapterSnapshot `json:"adapter"`
 }
 
@@ -65,6 +69,7 @@ func NewExperimentalMuxConnectionManager(resolver Resolver, opts ...Experimental
 		balancer:     &RoundRobinBalancer{},
 		idleTimeout:  time.Minute,
 		adapters:     make(map[string][]*muxManagedAdapter),
+		retired:      make(map[string][]*muxManagedAdapter),
 		closeReasons: make(map[string]int64),
 		drainReasons: make(map[string]int64),
 	}
@@ -214,11 +219,34 @@ func (m *ExperimentalMuxConnectionManager) CloseIdle(ctx context.Context) error 
 			m.adapters[endpoint] = kept
 		}
 	}
+	for endpoint, adapters := range m.retired {
+		kept := adapters[:0]
+		for _, adapter := range adapters {
+			if adapter == nil {
+				continue
+			}
+			if adapterActiveStreams(adapter) > 0 {
+				kept = append(kept, adapter)
+				continue
+			}
+			idle = append(idle, adapter)
+		}
+		if len(kept) == 0 {
+			delete(m.retired, endpoint)
+		} else {
+			m.retired[endpoint] = kept
+		}
+	}
 	m.recordClosedAdaptersLocked(idle, "idle")
 	m.mu.Unlock()
 	var err error
 	for _, adapter := range idle {
-		err = errors.Join(err, m.drainManagedAdapter(ctx, adapter, "idle"))
+		if adapter == nil || adapter.adapter == nil {
+			continue
+		}
+		if !adapter.retired {
+			err = errors.Join(err, m.drainManagedAdapter(ctx, adapter, "idle"))
+		}
 		err = errors.Join(err, adapter.adapter.Close())
 	}
 	return err
@@ -255,8 +283,10 @@ func (m *ExperimentalMuxConnectionManager) Close() error {
 	}
 	m.closed = true
 	adapters := m.adapters
+	retired := m.retired
 	m.adapters = nil
-	closed := flattenManagedAdapters(adapters)
+	m.retired = nil
+	closed := flattenManagedAdapters(adapters, retired)
 	m.recordClosedAdaptersLocked(closed, "manager_closed")
 	m.mu.Unlock()
 	var err error
@@ -279,6 +309,7 @@ func (m *ExperimentalMuxConnectionManager) Snapshot() ExperimentalMuxConnectionM
 	watchUpdates := m.watchUpdates
 	removed := append([]string(nil), m.removed...)
 	closedAdapters := m.closedAdapters
+	retiredAdapters := countManagedAdapters(m.retired)
 	closeReasons := cloneStringInt64Map(m.closeReasons)
 	drainReasons := cloneStringInt64Map(m.drainReasons)
 	lastUpdated := m.lastUpdated
@@ -295,6 +326,7 @@ func (m *ExperimentalMuxConnectionManager) Snapshot() ExperimentalMuxConnectionM
 		IdleTimeout:       idleTimeout,
 		MaxStreamsPerConn: maxStreamsPerConn,
 		Endpoints:         endpoints,
+		RetiredAdapters:   retiredAdapters,
 		WatchUpdates:      watchUpdates,
 		Removed:           removed,
 		ClosedAdapters:    closedAdapters,
@@ -312,6 +344,7 @@ func (m *ExperimentalMuxConnectionManager) DiagnosisSnapshot() RPCMuxConnectionM
 		IdleTimeout:       snapshot.IdleTimeout,
 		MaxStreamsPerConn: snapshot.MaxStreamsPerConn,
 		Endpoints:         snapshot.Endpoints,
+		RetiredAdapters:   snapshot.RetiredAdapters,
 		WatchUpdates:      snapshot.WatchUpdates,
 		Removed:           snapshot.Removed,
 		ClosedAdapters:    snapshot.ClosedAdapters,
@@ -370,17 +403,35 @@ func (m *ExperimentalMuxConnectionManager) removeMissingEndpoints(ctx context.Co
 		live[strings.TrimRight(strings.TrimSpace(endpoint), "/")] = struct{}{}
 	}
 	var removed []*muxManagedAdapter
+	var retired []*muxManagedAdapter
 	m.mu.Lock()
 	for endpoint, adapters := range m.adapters {
 		if _, ok := live[endpoint]; ok {
 			continue
 		}
 		delete(m.adapters, endpoint)
-		removed = append(removed, adapters...)
+		for _, adapter := range adapters {
+			if adapter == nil {
+				continue
+			}
+			if adapterActiveStreams(adapter) > 0 {
+				adapter.retired = true
+				retired = append(retired, adapter)
+				m.retired[endpoint] = append(m.retired[endpoint], adapter)
+				continue
+			}
+			removed = append(removed, adapter)
+		}
 	}
 	m.recordClosedAdaptersLocked(removed, "resolver_update")
+	if len(retired) > 0 {
+		m.lastUpdated = time.Now()
+	}
 	m.mu.Unlock()
 	var err error
+	for _, adapter := range retired {
+		err = errors.Join(err, m.drainManagedAdapter(ctx, adapter, "resolver_update"))
+	}
 	for _, adapter := range removed {
 		if adapter != nil && adapter.adapter != nil {
 			err = errors.Join(err, m.drainManagedAdapter(ctx, adapter, "resolver_update"))
@@ -500,16 +551,19 @@ func (m *ExperimentalMuxConnectionManager) pickReusableAdapterLocked(endpoint st
 }
 
 func (m *ExperimentalMuxConnectionManager) snapshotAdaptersLocked() []*muxManagedAdapter {
-	return flattenManagedAdapters(m.adapters)
+	return flattenManagedAdapters(m.adapters, m.retired)
 }
 
 func (m *ExperimentalMuxConnectionManager) snapshotEndpointSnapshotsLocked() []ExperimentalMuxEndpointSnapshot {
-	count := 0
-	for _, adapters := range m.adapters {
-		count += len(adapters)
-	}
+	count := countManagedAdapters(m.adapters) + countManagedAdapters(m.retired)
 	endpoints := make([]ExperimentalMuxEndpointSnapshot, 0, count)
-	for _, adapters := range m.adapters {
+	endpoints = appendEndpointSnapshots(endpoints, m.adapters)
+	endpoints = appendEndpointSnapshots(endpoints, m.retired)
+	return endpoints
+}
+
+func appendEndpointSnapshots(endpoints []ExperimentalMuxEndpointSnapshot, adapters map[string][]*muxManagedAdapter) []ExperimentalMuxEndpointSnapshot {
+	for _, adapters := range adapters {
 		for _, adapter := range adapters {
 			if adapter == nil || adapter.adapter == nil {
 				continue
@@ -517,6 +571,7 @@ func (m *ExperimentalMuxConnectionManager) snapshotEndpointSnapshotsLocked() []E
 			endpoints = append(endpoints, ExperimentalMuxEndpointSnapshot{
 				Endpoint: adapter.endpoint,
 				LastUsed: adapter.lastUsed,
+				Retired:  adapter.retired,
 				Adapter:  adapter.adapter.Snapshot(),
 			})
 		}
@@ -524,16 +579,26 @@ func (m *ExperimentalMuxConnectionManager) snapshotEndpointSnapshotsLocked() []E
 	return endpoints
 }
 
-func flattenManagedAdapters(adapters map[string][]*muxManagedAdapter) []*muxManagedAdapter {
+func flattenManagedAdapters(adapterMaps ...map[string][]*muxManagedAdapter) []*muxManagedAdapter {
+	count := 0
+	for _, adapters := range adapterMaps {
+		count += countManagedAdapters(adapters)
+	}
+	flat := make([]*muxManagedAdapter, 0, count)
+	for _, adapters := range adapterMaps {
+		for _, endpointAdapters := range adapters {
+			flat = append(flat, endpointAdapters...)
+		}
+	}
+	return flat
+}
+
+func countManagedAdapters(adapters map[string][]*muxManagedAdapter) int {
 	count := 0
 	for _, endpointAdapters := range adapters {
 		count += len(endpointAdapters)
 	}
-	flat := make([]*muxManagedAdapter, 0, count)
-	for _, endpointAdapters := range adapters {
-		flat = append(flat, endpointAdapters...)
-	}
-	return flat
+	return count
 }
 
 func adapterActiveStreams(adapter *muxManagedAdapter) int {

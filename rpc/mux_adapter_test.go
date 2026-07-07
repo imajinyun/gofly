@@ -495,3 +495,94 @@ func TestExperimentalMuxConnectionManagerResolverBalancerIdle(t *testing.T) {
 		t.Fatalf("second mux listener stopped with error: %v", err)
 	}
 }
+
+func TestExperimentalMuxConnectionManagerWatchRemovesEndpoints(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	firstListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	startMuxEchoListener := func(name string, listener net.Listener) <-chan error {
+		done := make(chan error, 1)
+		go func() {
+			done <- ServeExperimentalMuxListener(ctx, listener, func(adapter *ExperimentalMuxServerAdapter) error {
+				return adapter.RegisterStream("orders/Watch", func(ctx context.Context, stream *ExperimentalMuxStream) error {
+					msg, err := stream.Receive(ctx)
+					if err != nil {
+						return err
+					}
+					if err := stream.Send(ctx, Message{Payload: append([]byte(name+":"), msg.Payload...)}); err != nil {
+						return err
+					}
+					return stream.Close(ctx, "ok")
+				})
+			})
+		}()
+		return done
+	}
+	firstDone := startMuxEchoListener("first", firstListener)
+	secondDone := startMuxEchoListener("second", secondListener)
+
+	firstEndpoint := "tcp://" + firstListener.Addr().String()
+	secondEndpoint := "tcp://" + secondListener.Addr().String()
+	updates := make(chan []string, 2)
+	resolver := &mutableWatchResolver{
+		mutableResolver: mutableResolver{endpoints: []string{firstEndpoint, secondEndpoint}},
+		updates:         updates,
+	}
+	manager, err := NewExperimentalMuxConnectionManager(resolver)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	watchCtx, stopWatch := context.WithCancel(context.Background())
+	defer stopWatch()
+	watchDone := make(chan error, 1)
+	go func() {
+		watchDone <- manager.Watch(watchCtx)
+	}()
+
+	client, err := NewClient("http://unused", WithExperimentalMuxConnectionManager(manager))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	for _, want := range []string{"first:a", "second:b"} {
+		stream, err := client.MuxStream(context.Background(), "orders/Watch")
+		if err != nil {
+			t.Fatalf("MuxStream %s: %v", want, err)
+		}
+		if err := stream.Send(context.Background(), Message{Payload: []byte(want[len(want)-1:])}); err != nil {
+			t.Fatalf("Send %s: %v", want, err)
+		}
+		assertMuxPayload(t, stream, want)
+		if _, err := stream.Receive(muxTestTimeoutContext(t)); !errors.Is(err, io.EOF) {
+			t.Fatalf("terminal receive %s = %v, want EOF", want, err)
+		}
+	}
+	if snapshot := manager.Snapshot(); len(snapshot.Endpoints) != 2 {
+		t.Fatalf("manager snapshot before watch update = %+v, want two endpoints", snapshot)
+	}
+	updates <- []string{secondEndpoint}
+	assertEventually(t, func() bool {
+		snapshot := manager.Snapshot()
+		return len(snapshot.Endpoints) == 1 && snapshot.Endpoints[0].Endpoint == secondEndpoint
+	}, "mux manager watch removed stale endpoint")
+
+	stopWatch()
+	if err := <-watchDone; err != nil {
+		t.Fatalf("manager watch stopped with error: %v", err)
+	}
+	cancel()
+	if err := <-firstDone; err != nil {
+		t.Fatalf("first mux listener stopped with error: %v", err)
+	}
+	if err := <-secondDone; err != nil {
+		t.Fatalf("second mux listener stopped with error: %v", err)
+	}
+}

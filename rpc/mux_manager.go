@@ -116,6 +116,48 @@ func (m *ExperimentalMuxConnectionManager) SyncResolver(ctx context.Context) err
 	return err
 }
 
+func (m *ExperimentalMuxConnectionManager) Watch(ctx context.Context) error {
+	ctx = core.Context(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if m == nil {
+		return ErrExperimentalMuxTransportClosed
+	}
+	m.mu.Lock()
+	if m.closed {
+		m.mu.Unlock()
+		return ErrExperimentalMuxTransportClosed
+	}
+	resolver := m.resolver
+	m.mu.Unlock()
+	watcher, ok := resolver.(WatchResolver)
+	if !ok {
+		return errors.New("mux connection manager resolver does not support watch")
+	}
+	updates, err := watcher.Watch(ctx)
+	if err != nil {
+		return err
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case endpoints, ok := <-updates:
+			if !ok {
+				return nil
+			}
+			endpoints = normalizeEndpoints(endpoints)
+			if len(endpoints) == 0 {
+				continue
+			}
+			if err := m.removeMissingEndpoints(endpoints); err != nil {
+				return err
+			}
+		}
+	}
+}
+
 func (m *ExperimentalMuxConnectionManager) CloseIdle(ctx context.Context) error {
 	if m == nil {
 		return nil

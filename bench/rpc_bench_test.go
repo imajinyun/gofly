@@ -703,7 +703,17 @@ func TestRPCMuxAdapterEvidenceContract(t *testing.T) {
 		Schema    string `json:"schema"`
 		Benchmark string `json:"benchmark"`
 		Status    string `json:"status"`
-		Decision  struct {
+		Baseline  struct {
+			SampleCount       int `json:"sampleCount"`
+			NSPerOpMedian     int `json:"nsPerOpMedian"`
+			AllocsPerOpMedian int `json:"allocsPerOpMedian"`
+		} `json:"baseline"`
+		Current struct {
+			SampleCount       int `json:"sampleCount"`
+			NSPerOpMedian     int `json:"nsPerOpMedian"`
+			AllocsPerOpMedian int `json:"allocsPerOpMedian"`
+		} `json:"current"`
+		Decision struct {
 			Result          string   `json:"result"`
 			AllocationMode  string   `json:"allocationMode"`
 			LatencyMode     string   `json:"latencyMode"`
@@ -718,6 +728,13 @@ func TestRPCMuxAdapterEvidenceContract(t *testing.T) {
 		evidence.Benchmark != "BenchmarkRPCExperimentalMuxAdapterOpenSendReceiveClose" ||
 		evidence.Status != "report-only" {
 		t.Fatalf("mux adapter evidence identity = %+v, want report-only adapter benchmark evidence", evidence)
+	}
+	if evidence.Baseline.SampleCount != 5 || evidence.Current.SampleCount != 3 ||
+		evidence.Baseline.NSPerOpMedian <= 0 ||
+		evidence.Current.NSPerOpMedian <= 0 ||
+		evidence.Baseline.AllocsPerOpMedian <= 0 ||
+		evidence.Current.AllocsPerOpMedian <= 0 {
+		t.Fatalf("mux adapter sample evidence baseline=%+v current=%+v, want committed report-only samples", evidence.Baseline, evidence.Current)
 	}
 	if evidence.Decision.Result != "hold" ||
 		evidence.Decision.AllocationMode != "report-only" ||

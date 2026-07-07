@@ -2156,7 +2156,7 @@
       "trackedBenchmarkPromotion": "not-promoted",
       "promotionStatus": "blocked",
       "nextReviewGate": "BENCH_PATTERN='^BenchmarkRPCExperimentalMuxAdapterOpenSendReceiveClose$' BENCH_COUNT=5 make bench-stat && make rpc-boundary-check && make bench-regression-check",
-      "reason": "Mux adapter open/send/receive/close benchmark exists as release-train evidence, but has no committed baseline/current trend samples and must remain outside trackedBenchmarks."
+      "reason": "Mux adapter open/send/receive/close benchmark has committed baseline and current trend samples, but remains report-only because single-iteration samples are high variance and the row is not approved for trackedBenchmarks."
     },
     "blockingRules": [
       "RPC mux adapter benchmark must stay out of trackedBenchmarks",

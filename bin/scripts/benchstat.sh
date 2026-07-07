@@ -267,6 +267,7 @@ def validate_ratchet_policy() -> None:
     p18_gateway_proxy_hold = ratchet.get("p18GatewayProxyAllocationHoldEvidence") or {}
     p18_cache_loader_hit_precheck = ratchet.get("p18CacheLoaderHitPromotionPrecheck") or {}
     rpc_stream_transport_budget = ratchet.get("rpcStreamTransportCandidateBudget") or {}
+    rpc_mux_adapter_evidence = ratchet.get("rpcMuxAdapterReportOnlyEvidence") or {}
     p17_selected_allocation_benchmark = str(
         (p17_gateway_cache_promotion_decision.get("decision") or {}).get("allocationBlockingSurface") or ""
     )
@@ -1479,6 +1480,78 @@ def validate_ratchet_policy() -> None:
         require_policy(
             forbidden in set(rpc_stream_transport_budget.get("forbiddenUntilCleared") or []),
             f"rpcStreamTransportCandidateBudget forbiddenUntilCleared missing {forbidden!r}",
+        )
+
+    require_policy(
+        rpc_mux_adapter_evidence.get("schema") == "gofly.benchmark_rpc_mux_adapter_report_only.v1",
+        "rpcMuxAdapterReportOnlyEvidence schema mismatch",
+    )
+    require_policy(
+        rpc_mux_adapter_evidence.get("status") == "report-only",
+        "rpcMuxAdapterReportOnlyEvidence status must remain report-only",
+    )
+    require_policy(
+        rpc_mux_adapter_evidence.get("acceptanceGate") == "make bench-regression-check",
+        "rpcMuxAdapterReportOnlyEvidence acceptanceGate mismatch",
+    )
+    require_policy(
+        rpc_mux_adapter_evidence.get("benchmark") == "BenchmarkRPCExperimentalMuxAdapterOpenSendReceiveClose",
+        "rpcMuxAdapterReportOnlyEvidence benchmark mismatch",
+    )
+    for source in (
+        "bench/rpc_mux_adapter_evidence.json",
+        "bench/rpc_bench_test.go",
+        "bench/budget-ratchet.json",
+    ):
+        require_policy(
+            source in set(rpc_mux_adapter_evidence.get("sourceEvidence") or []),
+            f"rpcMuxAdapterReportOnlyEvidence sourceEvidence missing {source!r}",
+        )
+    mux_adapter_decision = rpc_mux_adapter_evidence.get("decision") or {}
+    require_policy(mux_adapter_decision.get("result") == "hold", "rpcMuxAdapterReportOnlyEvidence decision.result must be hold")
+    require_policy(
+        mux_adapter_decision.get("allocationMode") == "report-only",
+        "rpcMuxAdapterReportOnlyEvidence allocationMode must remain report-only",
+    )
+    require_policy(
+        mux_adapter_decision.get("latencyMode") == "report-only",
+        "rpcMuxAdapterReportOnlyEvidence latencyMode must remain report-only",
+    )
+    require_policy(
+        mux_adapter_decision.get("trackedBenchmarkPromotion") == "not-promoted",
+        "rpcMuxAdapterReportOnlyEvidence trackedBenchmarkPromotion must be not-promoted",
+    )
+    require_policy(
+        mux_adapter_decision.get("promotionStatus") == "blocked",
+        "rpcMuxAdapterReportOnlyEvidence promotionStatus must be blocked",
+    )
+    require_policy(
+        "BenchmarkRPCExperimentalMuxAdapterOpenSendReceiveClose" not in tracked,
+        "BenchmarkRPCExperimentalMuxAdapterOpenSendReceiveClose must stay out of trackedBenchmarks",
+    )
+    require_policy(
+        "BenchmarkRPCExperimentalMuxAdapterOpenSendReceiveClose" not in promoted_latency,
+        "BenchmarkRPCExperimentalMuxAdapterOpenSendReceiveClose latency must stay report-only",
+    )
+    mux_adapter_rules = set(rpc_mux_adapter_evidence.get("blockingRules") or [])
+    for rule in (
+        "RPC mux adapter benchmark must stay out of trackedBenchmarks",
+        "RPC mux adapter latency must remain report-only",
+        "RPC mux adapter allocation must remain report-only until a later release-train review",
+        "RPC mux adapter promotion requires committed samples, rpc-boundary-check and bench-regression-check",
+    ):
+        require_policy(rule in mux_adapter_rules, f"rpcMuxAdapterReportOnlyEvidence blockingRules missing {rule!r}")
+    for forbidden in (
+        "trackedBenchmarks RPC mux adapter entry",
+        "blocking RPC mux adapter latency claim",
+        "blocking RPC mux adapter allocation claim",
+        "Kitex transport parity claim",
+        "gRPC-Go transport parity claim",
+        "Tier 1 replacement claim",
+    ):
+        require_policy(
+            forbidden in set(rpc_mux_adapter_evidence.get("forbiddenUntilCleared") or []),
+            f"rpcMuxAdapterReportOnlyEvidence forbiddenUntilCleared missing {forbidden!r}",
         )
 
     require_policy(
@@ -2986,6 +3059,7 @@ write_matrix() {
 		echo "| RPC client stream governance | BenchmarkRPCClientStreamGovernance | gofly RPC client stream governance | BENCH_PATTERN=BenchmarkRPCClientStreamGovernance make bench-stat | Client-stream send, response and policy overhead |"
 		echo "| RPC bidi stream governance | BenchmarkRPCBidiStreamGovernance | gofly RPC bidi stream governance | BENCH_PATTERN=BenchmarkRPCBidiStreamGovernance make bench-stat | Bidirectional stream round-trip and policy overhead |"
 		echo "| RPC stream transport open/close | BenchmarkRPCStreamTransportOpenClose | gofly RPC stream transport lifecycle | BENCH_PATTERN=BenchmarkRPCStreamTransportOpenClose make bench-stat | Stream dial, runtime lifecycle evidence, and close overhead; report-only until promoted |"
+		echo "| RPC mux adapter open/send/receive/close | BenchmarkRPCExperimentalMuxAdapterOpenSendReceiveClose | gofly experimental mux adapter | BENCH_PATTERN=BenchmarkRPCExperimentalMuxAdapterOpenSendReceiveClose make bench-stat | Adapter-level mux route frame and message lifecycle evidence; report-only until promoted |"
 		echo "| Gateway proxy | BenchmarkGatewayProxy | gofly gateway HTTP proxy | BENCH_PATTERN=BenchmarkGatewayProxy make bench-stat | Dedicated gateway proxy candidate evidence, report-only until promoted |"
 		echo "| Cache hot path | BenchmarkCacheHotPath, BenchmarkCacheHotPathGetOrLoadHit | gofly cache hit path | BENCH_PATTERN=BenchmarkCacheHotPath make bench-stat | Dedicated cache hot-path candidate evidence, report-only until promoted |"
 		echo "| RPC resolver/balancer smoke | examples/microservices/rpc-idl-matrix | gofly resolver, weighted round-robin, P2C, consistent hash, health-aware | go run -C examples/microservices/rpc-idl-matrix . | resolver/balancer smoke and Kitex boundary evidence |"

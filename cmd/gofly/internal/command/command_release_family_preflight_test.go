@@ -209,6 +209,7 @@ func TestCommandReleaseFamilyPreflightContracts(t *testing.T) {
 		"go-mod-tidy",
 		"gateway-profile-contract",
 		"gateway-aggregation-contract",
+		"rpc-mux-adapter-evidence",
 	})
 	if contracts.LocalExecutionBoundary.Status != "file-separated-before-package-split" {
 		t.Fatalf("localExecutionBoundary.status = %q", contracts.LocalExecutionBoundary.Status)
@@ -305,6 +306,7 @@ func loadCommandReleaseFamilyPreflightEvidence(t *testing.T) commandReleaseFamil
 				"go-mod-tidy",
 				"gateway-profile-contract",
 				"gateway-aggregation-contract",
+				"rpc-mux-adapter-evidence",
 			},
 			LocalExecutionBoundary: commandReleaseFamilyLocalBoundary{
 				Status:         "file-separated-before-package-split",

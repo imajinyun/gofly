@@ -230,22 +230,41 @@ func (m *ExperimentalMuxConnectionManager) OpenStream(ctx context.Context, metho
 	if err != nil {
 		return nil, "", err
 	}
-	endpoint, err := m.pickEndpoint(ctx, endpoints)
-	if err != nil {
-		return nil, "", err
+	var tried []string
+	var lastEndpoint string
+	var lastErr error
+	for attempt := 0; attempt < 2; attempt++ {
+		endpoint, err := m.pickEndpointExcluding(ctx, endpoints, tried)
+		if err != nil {
+			if lastErr != nil {
+				return nil, lastEndpoint, lastErr
+			}
+			return nil, "", err
+		}
+		lastEndpoint = endpoint
+		tried = append(tried, endpoint)
+		adapter, err := m.adapter(ctx, endpoint)
+		if err != nil {
+			lastErr = err
+			if attempt == 0 && muxOpenBeforeRetryable(err) {
+				continue
+			}
+			return nil, "", err
+		}
+		stream, err := adapter.OpenStream(ctx, method)
+		if err != nil {
+			m.recordEndpointFailure(endpoint, "open_stream", err)
+			lastErr = err
+			if attempt == 0 && muxOpenBeforeRetryable(err) {
+				continue
+			}
+			return nil, endpoint, err
+		}
+		m.recordEndpointSuccess(endpoint)
+		m.touch(endpoint)
+		return stream, endpoint, nil
 	}
-	adapter, err := m.adapter(ctx, endpoint)
-	if err != nil {
-		return nil, "", err
-	}
-	stream, err := adapter.OpenStream(ctx, method)
-	if err != nil {
-		m.recordEndpointFailure(endpoint, "open_stream", err)
-		return nil, endpoint, err
-	}
-	m.recordEndpointSuccess(endpoint)
-	m.touch(endpoint)
-	return stream, endpoint, nil
+	return nil, lastEndpoint, lastErr
 }
 
 func (m *ExperimentalMuxConnectionManager) SyncResolver(ctx context.Context) error {
@@ -616,6 +635,10 @@ func (m *ExperimentalMuxConnectionManager) resolveAndSync(ctx context.Context) (
 }
 
 func (m *ExperimentalMuxConnectionManager) pickEndpoint(ctx context.Context, endpoints []string) (string, error) {
+	return m.pickEndpointExcluding(ctx, endpoints, nil)
+}
+
+func (m *ExperimentalMuxConnectionManager) pickEndpointExcluding(ctx context.Context, endpoints []string, exclude []string) (string, error) {
 	if m == nil {
 		return "", ErrExperimentalMuxTransportClosed
 	}
@@ -625,7 +648,7 @@ func (m *ExperimentalMuxConnectionManager) pickEndpoint(ctx context.Context, end
 		return "", ErrExperimentalMuxTransportClosed
 	}
 	balancer := m.balancer
-	healthy := m.healthyEndpointsLocked(endpoints, time.Now())
+	healthy := m.healthyEndpointsLocked(filterMuxEndpoints(endpoints, exclude), time.Now())
 	m.mu.Unlock()
 	endpoint, err := balancer.Pick(ctx, healthy)
 	if err != nil {
@@ -783,7 +806,7 @@ func (m *ExperimentalMuxConnectionManager) adapter(ctx context.Context, endpoint
 	adapter, err := DialExperimentalMuxClientAdapter(ctx, "tcp", muxEndpointAddress(endpoint), opts...)
 	if err != nil {
 		m.recordEndpointFailure(endpoint, "dial_failure", err)
-		return nil, err
+		return nil, NewError(CodeUnavailable, "mux dial failed: "+err.Error())
 	}
 	m.mu.Lock()
 	if m.closed {
@@ -1059,6 +1082,32 @@ func muxEndpointHealthFailure(reason string, err error) bool {
 		return true
 	}
 	return CodeOf(err) == CodeUnavailable || CodeOf(err) == CodeDeadlineExceeded
+}
+
+func muxOpenBeforeRetryable(err error) bool {
+	return CodeOf(err) == CodeUnavailable || CodeOf(err) == CodeDeadlineExceeded
+}
+
+func filterMuxEndpoints(endpoints []string, exclude []string) []string {
+	candidates := normalizeEndpoints(endpoints)
+	if len(candidates) == 0 || len(exclude) == 0 {
+		return candidates
+	}
+	excluded := make(map[string]struct{}, len(exclude))
+	for _, endpoint := range exclude {
+		endpoint = strings.TrimRight(strings.TrimSpace(endpoint), "/")
+		if endpoint != "" {
+			excluded[endpoint] = struct{}{}
+		}
+	}
+	filtered := make([]string, 0, len(candidates))
+	for _, endpoint := range candidates {
+		if _, ok := excluded[endpoint]; ok {
+			continue
+		}
+		filtered = append(filtered, endpoint)
+	}
+	return filtered
 }
 
 func muxEndpointAddress(endpoint string) string {

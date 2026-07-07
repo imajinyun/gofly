@@ -1,0 +1,293 @@
+package rpc
+
+import (
+	"context"
+	"errors"
+	"net/url"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+
+	core "github.com/imajinyun/gofly/core"
+)
+
+type ExperimentalMuxConnectionManager struct {
+	mu          sync.Mutex
+	resolver    Resolver
+	balancer    Balancer
+	idleTimeout time.Duration
+	options     []ExperimentalMuxTransportOption
+	adapters    map[string]*muxManagedAdapter
+	closed      bool
+}
+
+type muxManagedAdapter struct {
+	endpoint string
+	adapter  *ExperimentalMuxClientAdapter
+	lastUsed time.Time
+}
+
+type ExperimentalMuxConnectionManagerOption func(*ExperimentalMuxConnectionManager)
+
+type ExperimentalMuxConnectionManagerSnapshot struct {
+	Closed      bool                              `json:"closed"`
+	IdleTimeout time.Duration                     `json:"idleTimeout,omitempty"`
+	Endpoints   []ExperimentalMuxEndpointSnapshot `json:"endpoints,omitempty"`
+}
+
+type ExperimentalMuxEndpointSnapshot struct {
+	Endpoint string                         `json:"endpoint"`
+	LastUsed time.Time                      `json:"lastUsed,omitempty"`
+	Adapter  ExperimentalMuxAdapterSnapshot `json:"adapter"`
+}
+
+func NewExperimentalMuxConnectionManager(resolver Resolver, opts ...ExperimentalMuxConnectionManagerOption) (*ExperimentalMuxConnectionManager, error) {
+	if resolver == nil {
+		return nil, errors.New("mux connection manager resolver is required")
+	}
+	m := &ExperimentalMuxConnectionManager{
+		resolver:    resolver,
+		balancer:    &RoundRobinBalancer{},
+		idleTimeout: time.Minute,
+		adapters:    make(map[string]*muxManagedAdapter),
+	}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(m)
+		}
+	}
+	if m.balancer == nil {
+		m.balancer = &RoundRobinBalancer{}
+	}
+	if m.idleTimeout < 0 {
+		m.idleTimeout = 0
+	}
+	return m, nil
+}
+
+func WithExperimentalMuxConnectionManagerBalancer(balancer Balancer) ExperimentalMuxConnectionManagerOption {
+	return func(m *ExperimentalMuxConnectionManager) {
+		if balancer != nil {
+			m.balancer = balancer
+		}
+	}
+}
+
+func WithExperimentalMuxConnectionManagerIdleTimeout(timeout time.Duration) ExperimentalMuxConnectionManagerOption {
+	return func(m *ExperimentalMuxConnectionManager) {
+		m.idleTimeout = timeout
+	}
+}
+
+func WithExperimentalMuxConnectionManagerTransportOptions(opts ...ExperimentalMuxTransportOption) ExperimentalMuxConnectionManagerOption {
+	return func(m *ExperimentalMuxConnectionManager) {
+		m.options = append([]ExperimentalMuxTransportOption(nil), opts...)
+	}
+}
+
+func (m *ExperimentalMuxConnectionManager) OpenStream(ctx context.Context, method string) (*ExperimentalMuxStream, string, error) {
+	ctx = core.Context(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, "", err
+	}
+	endpoint, err := m.pickEndpoint(ctx)
+	if err != nil {
+		return nil, "", err
+	}
+	adapter, err := m.adapter(ctx, endpoint)
+	if err != nil {
+		return nil, "", err
+	}
+	stream, err := adapter.OpenStream(ctx, method)
+	if err != nil {
+		return nil, endpoint, err
+	}
+	m.touch(endpoint)
+	return stream, endpoint, nil
+}
+
+func (m *ExperimentalMuxConnectionManager) CloseIdle(ctx context.Context) error {
+	if m == nil {
+		return nil
+	}
+	if err := core.Context(ctx).Err(); err != nil {
+		return err
+	}
+	if m.idleTimeout <= 0 {
+		return nil
+	}
+	now := time.Now()
+	var idle []*muxManagedAdapter
+	m.mu.Lock()
+	for endpoint, adapter := range m.adapters {
+		if adapter == nil || now.Sub(adapter.lastUsed) < m.idleTimeout {
+			continue
+		}
+		delete(m.adapters, endpoint)
+		idle = append(idle, adapter)
+	}
+	m.mu.Unlock()
+	var err error
+	for _, adapter := range idle {
+		err = errors.Join(err, adapter.adapter.Close())
+	}
+	return err
+}
+
+func (m *ExperimentalMuxConnectionManager) Drain(ctx context.Context, reason string) error {
+	if m == nil {
+		return nil
+	}
+	ctx = core.Context(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	adapters := make([]*muxManagedAdapter, 0, len(m.adapters))
+	for _, adapter := range m.adapters {
+		adapters = append(adapters, adapter)
+	}
+	m.mu.Unlock()
+	var err error
+	for _, adapter := range adapters {
+		if adapter != nil && adapter.adapter != nil && adapter.adapter.transport != nil {
+			err = errors.Join(err, adapter.adapter.transport.Drain(ctx, reason))
+		}
+	}
+	return err
+}
+
+func (m *ExperimentalMuxConnectionManager) Close() error {
+	if m == nil {
+		return nil
+	}
+	m.mu.Lock()
+	if m.closed {
+		m.mu.Unlock()
+		return nil
+	}
+	m.closed = true
+	adapters := m.adapters
+	m.adapters = nil
+	m.mu.Unlock()
+	var err error
+	for _, adapter := range adapters {
+		if adapter != nil && adapter.adapter != nil {
+			err = errors.Join(err, adapter.adapter.Close())
+		}
+	}
+	return err
+}
+
+func (m *ExperimentalMuxConnectionManager) Snapshot() ExperimentalMuxConnectionManagerSnapshot {
+	if m == nil {
+		return ExperimentalMuxConnectionManagerSnapshot{}
+	}
+	m.mu.Lock()
+	closed := m.closed
+	idleTimeout := m.idleTimeout
+	endpoints := make([]ExperimentalMuxEndpointSnapshot, 0, len(m.adapters))
+	for _, adapter := range m.adapters {
+		if adapter == nil || adapter.adapter == nil {
+			continue
+		}
+		endpoints = append(endpoints, ExperimentalMuxEndpointSnapshot{
+			Endpoint: adapter.endpoint,
+			LastUsed: adapter.lastUsed,
+			Adapter:  adapter.adapter.Snapshot(),
+		})
+	}
+	m.mu.Unlock()
+	sort.Slice(endpoints, func(i, j int) bool { return endpoints[i].Endpoint < endpoints[j].Endpoint })
+	return ExperimentalMuxConnectionManagerSnapshot{Closed: closed, IdleTimeout: idleTimeout, Endpoints: endpoints}
+}
+
+func (m *ExperimentalMuxConnectionManager) DiagnosisSnapshot() RPCMuxConnectionManagerDiagnosis {
+	snapshot := m.Snapshot()
+	return RPCMuxConnectionManagerDiagnosis{
+		Enabled:     m != nil && !snapshot.Closed,
+		Mode:        "experimental_mux_manager",
+		IdleTimeout: snapshot.IdleTimeout,
+		Endpoints:   snapshot.Endpoints,
+	}
+}
+
+func (m *ExperimentalMuxConnectionManager) pickEndpoint(ctx context.Context) (string, error) {
+	if m == nil {
+		return "", ErrExperimentalMuxTransportClosed
+	}
+	m.mu.Lock()
+	if m.closed {
+		m.mu.Unlock()
+		return "", ErrExperimentalMuxTransportClosed
+	}
+	resolver := m.resolver
+	balancer := m.balancer
+	m.mu.Unlock()
+	endpoints, err := resolver.Resolve(ctx)
+	if err != nil {
+		return "", err
+	}
+	endpoint, err := balancer.Pick(ctx, endpoints)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimRight(strings.TrimSpace(endpoint), "/"), nil
+}
+
+func (m *ExperimentalMuxConnectionManager) adapter(ctx context.Context, endpoint string) (*ExperimentalMuxClientAdapter, error) {
+	m.mu.Lock()
+	if m.closed {
+		m.mu.Unlock()
+		return nil, ErrExperimentalMuxTransportClosed
+	}
+	if existing := m.adapters[endpoint]; existing != nil && existing.adapter != nil {
+		existing.lastUsed = time.Now()
+		adapter := existing.adapter
+		m.mu.Unlock()
+		return adapter, nil
+	}
+	opts := append([]ExperimentalMuxTransportOption(nil), m.options...)
+	m.mu.Unlock()
+	adapter, err := DialExperimentalMuxClientAdapter(ctx, "tcp", muxEndpointAddress(endpoint), opts...)
+	if err != nil {
+		return nil, err
+	}
+	m.mu.Lock()
+	if m.closed {
+		m.mu.Unlock()
+		_ = adapter.Close()
+		return nil, ErrExperimentalMuxTransportClosed
+	}
+	if existing := m.adapters[endpoint]; existing != nil && existing.adapter != nil {
+		existing.lastUsed = time.Now()
+		existingAdapter := existing.adapter
+		m.mu.Unlock()
+		_ = adapter.Close()
+		return existingAdapter, nil
+	}
+	m.adapters[endpoint] = &muxManagedAdapter{endpoint: endpoint, adapter: adapter, lastUsed: time.Now()}
+	m.mu.Unlock()
+	return adapter, nil
+}
+
+func (m *ExperimentalMuxConnectionManager) touch(endpoint string) {
+	m.mu.Lock()
+	if adapter := m.adapters[endpoint]; adapter != nil {
+		adapter.lastUsed = time.Now()
+	}
+	m.mu.Unlock()
+}
+
+func muxEndpointAddress(endpoint string) string {
+	endpoint = strings.TrimRight(strings.TrimSpace(endpoint), "/")
+	if endpoint == "" {
+		return ""
+	}
+	parsed, err := url.Parse(endpoint)
+	if err == nil && parsed.Host != "" {
+		return parsed.Host
+	}
+	return endpoint
+}

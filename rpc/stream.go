@@ -405,7 +405,7 @@ func (c *HTTPClient) openMuxStream(ctx context.Context, method string) (*Experim
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if c == nil || c.opts.muxClientAdapter == nil {
+	if c == nil || (c.opts.muxClientAdapter == nil && c.opts.muxManager == nil) {
 		return nil, NewError(CodeUnavailable, "rpc mux client adapter is not configured")
 	}
 	governanceReq := c.rpcGovernanceRequest(ctx, method)
@@ -431,6 +431,10 @@ func (c *HTTPClient) openMuxStream(ctx context.Context, method string) (*Experim
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, streamTimeout)
 		defer cancel()
+	}
+	if c.opts.muxManager != nil {
+		stream, _, err := c.opts.muxManager.OpenStream(ctx, method)
+		return stream, err
 	}
 	return c.opts.muxClientAdapter.OpenStream(ctx, method)
 }

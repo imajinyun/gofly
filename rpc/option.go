@@ -86,6 +86,7 @@ type clientOptions struct {
 	rpcPolicyProvider RPCPolicyProvider
 	connPool          *ConnPoolManager
 	muxClientAdapter  *ExperimentalMuxClientAdapter
+	muxManager        *ExperimentalMuxConnectionManager
 	governanceTags    map[string]string
 	tls               *security.TLSConfig
 	warmup            RPCWarmupConfig
@@ -486,6 +487,15 @@ func WithClientStreamMiddleware(mw ClientStreamMiddleware) ClientOption {
 func WithExperimentalMuxClientAdapter(adapter *ExperimentalMuxClientAdapter) ClientOption {
 	return func(o *clientOptions) {
 		o.muxClientAdapter = adapter
+	}
+}
+
+// WithExperimentalMuxConnectionManager opts the client into resolver/balancer
+// backed experimental mux streams. It does not replace the default HTTP
+// upgrade Stream path; callers must use HTTPClient.MuxStream explicitly.
+func WithExperimentalMuxConnectionManager(manager *ExperimentalMuxConnectionManager) ClientOption {
+	return func(o *clientOptions) {
+		o.muxManager = manager
 	}
 }
 

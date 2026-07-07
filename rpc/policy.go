@@ -187,6 +187,14 @@ type RPCMuxTransportDiagnosis struct {
 	FlowControl RPCMuxFlowControlDiagnosis       `json:"flowControl,omitempty"`
 	Keepalive   RPCMuxKeepaliveDiagnosis         `json:"keepalive,omitempty"`
 	Drain       RPCMuxDrainDiagnosis             `json:"drain,omitempty"`
+	Manager     RPCMuxConnectionManagerDiagnosis `json:"manager,omitempty"`
+}
+
+type RPCMuxConnectionManagerDiagnosis struct {
+	Enabled     bool                              `json:"enabled"`
+	Mode        string                            `json:"mode,omitempty"`
+	IdleTimeout time.Duration                     `json:"idleTimeout,omitempty"`
+	Endpoints   []ExperimentalMuxEndpointSnapshot `json:"endpoints,omitempty"`
 }
 
 type RPCMuxFlowControlDiagnosis struct {
@@ -514,6 +522,14 @@ func (c *HTTPClient) diagnosisSnapshot() RPCDiagnosisSnapshot {
 	}
 	if c.opts.muxClientAdapter != nil {
 		snapshot.Mux = c.opts.muxClientAdapter.DiagnosisSnapshot()
+	}
+	if c.opts.muxManager != nil {
+		managerDiagnosis := c.opts.muxManager.DiagnosisSnapshot()
+		snapshot.Mux.Enabled = managerDiagnosis.Enabled
+		if snapshot.Mux.Mode == "" {
+			snapshot.Mux.Mode = managerDiagnosis.Mode
+		}
+		snapshot.Mux.Manager = managerDiagnosis
 	}
 	return snapshot
 }

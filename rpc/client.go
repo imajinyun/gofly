@@ -138,6 +138,9 @@ func (c *HTTPClient) Close() error {
 		if c.opts.muxClientAdapter != nil {
 			_ = c.opts.muxClientAdapter.Close()
 		}
+		if c.opts.muxManager != nil {
+			_ = c.opts.muxManager.Close()
+		}
 	})
 	return nil
 }

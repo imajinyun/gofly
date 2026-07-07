@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"sort"
 	"strings"
 	"sync"
@@ -14,6 +15,7 @@ import (
 	"github.com/imajinyun/gofly/core/controlplane"
 	"github.com/imajinyun/gofly/core/governance"
 	coreruntime "github.com/imajinyun/gofly/core/runtime"
+	controladmin "github.com/imajinyun/gofly/ops/admin"
 )
 
 const (
@@ -82,6 +84,18 @@ type RPCEffectivePolicySnapshot struct {
 	State          RPCPolicyRuntimeState `json:"state"`
 	Priority       []string              `json:"priority,omitempty"`
 	GovernanceRule string                `json:"governanceRule,omitempty"`
+}
+
+type RPCDiagnosisProbe struct {
+	Target      string                      `json:"target,omitempty"`
+	Service     string                      `json:"service,omitempty"`
+	Method      string                      `json:"method,omitempty"`
+	Endpoint    string                      `json:"endpoint,omitempty"`
+	Matched     bool                        `json:"matched"`
+	Diagnosis   RPCDiagnosisSnapshot        `json:"diagnosis"`
+	Policy      RPCEffectivePolicySnapshot  `json:"policy,omitempty"`
+	Discovery   RPCDiscoveryRuntimeSnapshot `json:"discovery,omitempty"`
+	GeneratedAt time.Time                   `json:"generatedAt"`
 }
 
 type RPCRuntimeSnapshot struct {
@@ -390,6 +404,72 @@ func (c *HTTPClient) RuntimeComponentSnapshot(ctx context.Context) coreruntime.C
 		Breaker:    snapshot.Policy.State.BreakerEnabled,
 		Details:    snapshot,
 	}
+}
+
+func (c *HTTPClient) DiagnosisProbe(ctx context.Context, service string, method string, endpoint string) RPCDiagnosisProbe {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	service = strings.Trim(strings.TrimSpace(service), "/")
+	method = strings.Trim(strings.TrimSpace(method), "/")
+	endpoint = strings.TrimRight(strings.TrimSpace(endpoint), "/")
+	fullMethod := method
+	if service != "" && method != "" && !strings.Contains(method, "/") {
+		fullMethod = service + "/" + method
+	}
+	runtimeSnapshot := c.RuntimeSnapshot()
+	probe := RPCDiagnosisProbe{
+		Target:      runtimeSnapshot.Target,
+		Service:     service,
+		Method:      fullMethod,
+		Endpoint:    endpoint,
+		Diagnosis:   runtimeSnapshot.Diagnosis,
+		Discovery:   runtimeSnapshot.Discovery,
+		GeneratedAt: time.Now(),
+	}
+	if fullMethod != "" {
+		probe.Policy = c.EffectivePolicySnapshot(ctx, fullMethod)
+	}
+	probe.Matched = rpcDiagnosisProbeMatched(runtimeSnapshot, endpoint)
+	return probe
+}
+
+func (c *HTTPClient) ServeDiagnosis(w http.ResponseWriter, r *http.Request) {
+	if r == nil {
+		controladmin.WriteJSON(w, http.StatusOK, c.DiagnosisProbe(context.Background(), "", "", ""))
+		return
+	}
+	query := r.URL.Query()
+	controladmin.WriteJSON(w, http.StatusOK, c.DiagnosisProbe(r.Context(), query.Get("service"), query.Get("method"), query.Get("endpoint")))
+}
+
+func (c *HTTPClient) DiagnosisHandler() http.Handler {
+	return http.HandlerFunc(c.ServeDiagnosis)
+}
+
+func rpcDiagnosisProbeMatched(snapshot RPCRuntimeSnapshot, endpoint string) bool {
+	if endpoint == "" {
+		return true
+	}
+	if strings.TrimRight(snapshot.Target, "/") == endpoint {
+		return true
+	}
+	if slicesContainsString(snapshot.Discovery.Endpoints, endpoint) {
+		return true
+	}
+	if snapshot.Resolver.Snapshot != nil && slicesContainsString(snapshot.Resolver.Snapshot.Endpoints, endpoint) {
+		return true
+	}
+	return false
+}
+
+func slicesContainsString(values []string, want string) bool {
+	for _, value := range values {
+		if strings.TrimRight(strings.TrimSpace(value), "/") == want {
+			return true
+		}
+	}
+	return false
 }
 
 func (c *HTTPClient) callStatsSnapshot() callstats.Snapshot {

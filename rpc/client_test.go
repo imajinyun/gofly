@@ -1586,6 +1586,59 @@ func TestHTTPClientRuntimeComponentSnapshot(t *testing.T) {
 	}
 }
 
+func TestHTTPClientDiagnosisProbeHandler(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	muxClient := NewExperimentalMuxClientAdapter(clientConn, WithExperimentalMuxConnectionWindow(3))
+	muxServer := NewExperimentalMuxServerAdapter(serverConn, WithExperimentalMuxConnectionWindow(3))
+	defer muxClient.Close()
+	defer muxServer.Close()
+
+	c, err := NewClient(
+		"http://a",
+		WithResolver(NewStaticResolver("http://a", "http://b")),
+		WithExperimentalMuxClientAdapter(muxClient),
+		WithRPCPolicy(RPCPolicy{
+			Balancer: RPCBalancerPolicy{Name: RPCBalancerP2C},
+			Methods: map[string]RPCPolicy{
+				"orders/Watch": {Retry: governance.RetryPolicy{Attempts: 3}},
+			},
+		}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	probe := c.DiagnosisProbe(context.Background(), "orders", "Watch", "http://b")
+	if !probe.Matched ||
+		probe.Service != "orders" ||
+		probe.Method != "orders/Watch" ||
+		probe.Endpoint != "http://b" ||
+		probe.Policy.State.RetryAttempts != 3 ||
+		probe.Diagnosis.Balancer.Name != RPCBalancerP2C ||
+		!probe.Diagnosis.Mux.Enabled ||
+		probe.Diagnosis.Mux.FlowControl.ConnectionWindow != 3 {
+		t.Fatalf("diagnosis probe = %+v, want method, endpoint, mux and policy evidence", probe)
+	}
+	if missing := c.DiagnosisProbe(context.Background(), "", "", "http://missing"); missing.Matched {
+		t.Fatalf("missing endpoint probe = %+v, want unmatched", missing)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/rpc/diagnosis?service=orders&method=Watch&endpoint=http://b", nil)
+	rr := httptest.NewRecorder()
+	c.DiagnosisHandler().ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("diagnosis handler status = %d body=%s", rr.Code, rr.Body.String())
+	}
+	var decoded RPCDiagnosisProbe
+	if err := json.Unmarshal(rr.Body.Bytes(), &decoded); err != nil {
+		t.Fatalf("decode diagnosis probe: %v\n%s", err, rr.Body.String())
+	}
+	if !decoded.Matched || decoded.Method != "orders/Watch" || decoded.Diagnosis.Mux.Mode != "experimental_mux" {
+		t.Fatalf("decoded diagnosis probe = %+v, want mux method evidence", decoded)
+	}
+}
+
 func TestRPCRuntimeContributorsHandleNilAndCanceledInputs(t *testing.T) {
 	c, err := NewClient("http://a")
 	if err != nil {

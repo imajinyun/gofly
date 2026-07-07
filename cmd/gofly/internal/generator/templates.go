@@ -246,7 +246,7 @@ const configTemplate = `{
   "rpc": {
     "addr": ":8081",
     "advertise": "http://127.0.0.1:8081",
-    "mux": {"enabled": false, "probe": false}
+    "mux": {"enabled": false, "probe": false, "endpoints": [], "idleTimeout": 60000000000}
   }
 }
 `
@@ -486,6 +486,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/imajinyun/gofly/core/controlplane"
 	"github.com/imajinyun/gofly/rpc"
@@ -495,7 +496,7 @@ import (
 )
 
 func TestAdminDiagnostics(t *testing.T) {
-	cfg := appconfig.Config{RPC: appconfig.RPCConfig{Mux: appconfig.RPCMuxConfig{Enabled: true, Probe: true}}}
+	cfg := appconfig.Config{RPC: appconfig.RPCConfig{Mux: appconfig.RPCMuxConfig{Enabled: true, Probe: true, IdleTimeout: time.Nanosecond}}}
 	clientConn, serverConn := net.Pipe()
 	muxClient := rpc.NewExperimentalMuxClientAdapter(clientConn)
 	muxServer := rpc.NewExperimentalMuxServerAdapter(serverConn)
@@ -535,6 +536,69 @@ func TestAdminDiagnostics(t *testing.T) {
 	}
 	if _, err := muxStream.Receive(context.Background()); !errors.Is(err, io.EOF) {
 		t.Fatalf("mux terminal receive = %v, want EOF", err)
+	}
+
+	tcpListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.RPC.Mux.Endpoints = []string{"tcp://"+tcpListener.Addr().String()}
+	tcpCtx, stopTCP := context.WithCancel(context.Background())
+	defer stopTCP()
+	tcpDone := make(chan error, 1)
+	go func() {
+		tcpDone <- rpc.ServeExperimentalMuxListener(tcpCtx, tcpListener, func(adapter *rpc.ExperimentalMuxServerAdapter) error {
+			return adapter.RegisterStream("greeter/Watch", func(ctx context.Context, stream *rpc.ExperimentalMuxStream) error {
+				msg, err := stream.Receive(ctx)
+				if err != nil {
+					return err
+				}
+				if err := stream.Send(ctx, rpc.Message{Payload: append([]byte("manager:"), msg.Payload...)}); err != nil {
+					return err
+				}
+				return stream.Close(ctx, "ok")
+			})
+		})
+	}()
+	manager, err := rpc.NewExperimentalMuxConnectionManager(
+		rpc.NewStaticResolver(cfg.RPC.Mux.Endpoints...),
+		rpc.WithExperimentalMuxConnectionManagerIdleTimeout(cfg.RPC.Mux.IdleTimeout),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	muxRPCClient, err := rpc.NewClient("http://unused", rpc.WithExperimentalMuxConnectionManager(manager))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer muxRPCClient.Close()
+	managerStream, err := muxRPCClient.MuxStream(context.Background(), "greeter/Watch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := managerStream.Send(context.Background(), rpc.Message{Payload: []byte("probe")}); err != nil {
+		t.Fatal(err)
+	}
+	managerResponse, err := managerStream.Receive(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(managerResponse.Payload) != "manager:probe" {
+		t.Fatalf("manager mux payload = %q, want manager probe response", managerResponse.Payload)
+	}
+	if _, err := managerStream.Receive(context.Background()); !errors.Is(err, io.EOF) {
+		t.Fatalf("manager mux terminal receive = %v, want EOF", err)
+	}
+	if diagnosis := muxRPCClient.RuntimeSnapshot().Diagnosis.Mux.Manager; !diagnosis.Enabled || len(diagnosis.Endpoints) != 1 {
+		t.Fatalf("manager diagnosis = %+v, want generated mux manager evidence", diagnosis)
+	}
+	time.Sleep(time.Millisecond)
+	if err := manager.CloseIdle(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	stopTCP()
+	if err := <-tcpDone; err != nil {
+		t.Fatalf("tcp mux server stopped with error: %v", err)
 	}
 
 	rpcOptions := []rpc.ServerOption{}
@@ -708,8 +772,10 @@ type RPCConfig struct {
 }
 
 type RPCMuxConfig struct {
-	Enabled bool ` + "`json:\"enabled\"`" + `
-	Probe   bool ` + "`json:\"probe\"`" + `
+	Enabled     bool ` + "`json:\"enabled\"`" + `
+	Probe       bool ` + "`json:\"probe\"`" + `
+	Endpoints   []string ` + "`json:\"endpoints,omitempty\"`" + `
+	IdleTimeout time.Duration ` + "`json:\"idleTimeout\"`" + `
 }
 
 type ResilienceProfile struct {

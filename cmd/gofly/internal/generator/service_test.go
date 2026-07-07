@@ -1019,7 +1019,7 @@ func TestGenerateNewServiceVariantsBoundaries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(configData), `"mux": {"enabled": false, "probe": false}`) {
+	if !strings.Contains(string(configData), `"mux": {"enabled": false, "probe": false, "endpoints": [], "idleTimeout": 60000000000}`) {
 		t.Fatalf("generated rpc config missing default-disabled mux config:\n%s", configData)
 	}
 	configGoData, err := os.ReadFile(filepath.Join(rpcDir, "internal", "config", "config.go"))
@@ -1030,6 +1030,8 @@ func TestGenerateNewServiceVariantsBoundaries(t *testing.T) {
 		"type RPCMuxConfig struct",
 		"Mux       RPCMuxConfig",
 		`json:"probe"`,
+		`json:"endpoints,omitempty"`,
+		`json:"idleTimeout"`,
 	} {
 		if !strings.Contains(string(configGoData), want) {
 			t.Fatalf("generated rpc config.go missing mux config %q:\n%s", want, configGoData)
@@ -1040,7 +1042,10 @@ func TestGenerateNewServiceVariantsBoundaries(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"RPCMuxConfig{Enabled: true, Probe: true}",
+		"RPCMuxConfig{Enabled: true, Probe: true, IdleTimeout: time.Nanosecond}",
+		"rpc.NewExperimentalMuxConnectionManager",
+		"rpc.WithExperimentalMuxConnectionManagerIdleTimeout",
+		"rpc.ServeExperimentalMuxListener",
 		"rpc.NewExperimentalMuxClientAdapter",
 		"rpc.NewExperimentalMuxServerAdapter",
 		"rpc.WithExperimentalMuxServerAdapter",

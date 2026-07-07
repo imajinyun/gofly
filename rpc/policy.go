@@ -199,6 +199,8 @@ type RPCMuxConnectionManagerDiagnosis struct {
 	MaxIdleConnsPerEndpoint int                                     `json:"maxIdleConnsPerEndpoint,omitempty"`
 	HealthFailureThreshold  int                                     `json:"healthFailureThreshold,omitempty"`
 	HealthEjectionDuration  time.Duration                           `json:"healthEjectionDuration,omitempty"`
+	MaxOpenRetries          int                                     `json:"maxOpenRetries,omitempty"`
+	OpenRetryReasons        []string                                `json:"openRetryReasons,omitempty"`
 	JanitorInterval         time.Duration                           `json:"janitorInterval,omitempty"`
 	Endpoints               []ExperimentalMuxEndpointSnapshot       `json:"endpoints,omitempty"`
 	Health                  []ExperimentalMuxEndpointHealthSnapshot `json:"health,omitempty"`

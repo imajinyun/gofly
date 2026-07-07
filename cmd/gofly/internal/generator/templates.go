@@ -272,7 +272,7 @@ const configTemplate = `{
   "rpc": {
     "addr": ":8081",
     "advertise": "http://127.0.0.1:8081",
-    "mux": {"enabled": false, "probe": false, "addr": "127.0.0.1:8082", "endpoints": [], "idleTimeout": 60000000000}
+    "mux": {"enabled": false, "probe": false, "addr": "127.0.0.1:8082", "endpoints": [], "idleTimeout": 60000000000, "maxOpenRetries": 1, "openRetryReasons": ["dial_failure", "pool_exhausted"]}
   }
 }
 `
@@ -522,7 +522,7 @@ import (
 )
 
 func TestAdminDiagnostics(t *testing.T) {
-	cfg := appconfig.Config{RPC: appconfig.RPCConfig{Mux: appconfig.RPCMuxConfig{Enabled: true, Probe: true, IdleTimeout: time.Nanosecond}}}
+	cfg := appconfig.Config{RPC: appconfig.RPCConfig{Mux: appconfig.RPCMuxConfig{Enabled: true, Probe: true, IdleTimeout: time.Nanosecond, MaxOpenRetries: 1, OpenRetryReasons: []string{"dial_failure", "pool_exhausted"}}}}
 	clientConn, serverConn := net.Pipe()
 	muxClient := rpc.NewExperimentalMuxClientAdapter(clientConn)
 	muxServer := rpc.NewExperimentalMuxServerAdapter(serverConn)
@@ -589,6 +589,8 @@ func TestAdminDiagnostics(t *testing.T) {
 	manager, err := rpc.NewExperimentalMuxConnectionManager(
 		rpc.NewStaticResolver(cfg.RPC.Mux.Endpoints...),
 		rpc.WithExperimentalMuxConnectionManagerIdleTimeout(cfg.RPC.Mux.IdleTimeout),
+		rpc.WithExperimentalMuxConnectionManagerMaxOpenRetries(cfg.RPC.Mux.MaxOpenRetries),
+		rpc.WithExperimentalMuxConnectionManagerOpenRetryReasons(cfg.RPC.Mux.OpenRetryReasons...),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -798,11 +800,13 @@ type RPCConfig struct {
 }
 
 type RPCMuxConfig struct {
-	Enabled     bool ` + "`json:\"enabled\"`" + `
-	Probe       bool ` + "`json:\"probe\"`" + `
-	Addr        string ` + "`json:\"addr\"`" + `
-	Endpoints   []string ` + "`json:\"endpoints,omitempty\"`" + `
-	IdleTimeout time.Duration ` + "`json:\"idleTimeout\"`" + `
+	Enabled          bool ` + "`json:\"enabled\"`" + `
+	Probe            bool ` + "`json:\"probe\"`" + `
+	Addr             string ` + "`json:\"addr\"`" + `
+	Endpoints        []string ` + "`json:\"endpoints,omitempty\"`" + `
+	IdleTimeout      time.Duration ` + "`json:\"idleTimeout\"`" + `
+	MaxOpenRetries   int ` + "`json:\"maxOpenRetries,omitempty\"`" + `
+	OpenRetryReasons []string ` + "`json:\"openRetryReasons,omitempty\"`" + `
 }
 
 type ResilienceProfile struct {

@@ -22,6 +22,8 @@ type ExperimentalMuxConnectionManager struct {
 	maxIdleConnsPerEndpoint int
 	healthFailureThreshold  int
 	healthEjectionDuration  time.Duration
+	maxOpenRetries          int
+	openRetryReasons        map[string]struct{}
 	janitorInterval         time.Duration
 	options                 []ExperimentalMuxTransportOption
 	adapters                map[string][]*muxManagedAdapter
@@ -78,6 +80,8 @@ type ExperimentalMuxConnectionManagerSnapshot struct {
 	MaxIdleConnsPerEndpoint int                                     `json:"maxIdleConnsPerEndpoint,omitempty"`
 	HealthFailureThreshold  int                                     `json:"healthFailureThreshold,omitempty"`
 	HealthEjectionDuration  time.Duration                           `json:"healthEjectionDuration,omitempty"`
+	MaxOpenRetries          int                                     `json:"maxOpenRetries,omitempty"`
+	OpenRetryReasons        []string                                `json:"openRetryReasons,omitempty"`
 	JanitorInterval         time.Duration                           `json:"janitorInterval,omitempty"`
 	Endpoints               []ExperimentalMuxEndpointSnapshot       `json:"endpoints,omitempty"`
 	Health                  []ExperimentalMuxEndpointHealthSnapshot `json:"health,omitempty"`
@@ -126,6 +130,8 @@ func NewExperimentalMuxConnectionManager(resolver Resolver, opts ...Experimental
 		idleTimeout:            time.Minute,
 		healthFailureThreshold: 1,
 		healthEjectionDuration: time.Second,
+		maxOpenRetries:         1,
+		openRetryReasons:       muxRetryReasonSet("dial_failure", "pool_exhausted"),
 		adapters:               make(map[string][]*muxManagedAdapter),
 		retired:                make(map[string][]*muxManagedAdapter),
 		health:                 make(map[string]*muxEndpointHealth),
@@ -155,6 +161,12 @@ func NewExperimentalMuxConnectionManager(resolver Resolver, opts ...Experimental
 	}
 	if m.healthEjectionDuration < 0 {
 		m.healthEjectionDuration = 0
+	}
+	if m.maxOpenRetries < 0 {
+		m.maxOpenRetries = 0
+	}
+	if len(m.openRetryReasons) == 0 {
+		m.openRetryReasons = muxRetryReasonSet("dial_failure", "pool_exhausted")
 	}
 	if m.janitorInterval > 0 {
 		m.startJanitor()
@@ -216,6 +228,24 @@ func WithExperimentalMuxConnectionManagerHealthEjectionDuration(duration time.Du
 	}
 }
 
+func WithExperimentalMuxConnectionManagerMaxOpenRetries(max int) ExperimentalMuxConnectionManagerOption {
+	return func(m *ExperimentalMuxConnectionManager) {
+		if max >= 0 {
+			m.maxOpenRetries = max
+		}
+	}
+}
+
+func WithExperimentalMuxConnectionManagerOpenRetryReasons(reasons ...string) ExperimentalMuxConnectionManagerOption {
+	return func(m *ExperimentalMuxConnectionManager) {
+		if len(reasons) == 0 {
+			m.openRetryReasons = nil
+			return
+		}
+		m.openRetryReasons = muxRetryReasonSet(reasons...)
+	}
+}
+
 func WithExperimentalMuxConnectionManagerJanitorInterval(interval time.Duration) ExperimentalMuxConnectionManagerOption {
 	return func(m *ExperimentalMuxConnectionManager) {
 		if interval > 0 {
@@ -243,7 +273,8 @@ func (m *ExperimentalMuxConnectionManager) OpenStream(ctx context.Context, metho
 	var lastEndpoint string
 	var lastErr error
 	var lastReason string
-	for attempt := 0; attempt < 2; attempt++ {
+	maxAttempts := m.maxOpenAttempts()
+	for attempt := 0; attempt < maxAttempts; attempt++ {
 		endpoint, err := m.pickEndpointExcluding(ctx, endpoints, tried)
 		if err != nil {
 			if lastErr != nil {
@@ -257,7 +288,7 @@ func (m *ExperimentalMuxConnectionManager) OpenStream(ctx context.Context, metho
 		if err != nil {
 			lastErr = err
 			lastReason = muxOpenRetryReason("open_before", m.endpointHealthReason(endpoint), err)
-			if attempt == 0 && muxOpenBeforeRetryable(err) {
+			if attempt+1 < maxAttempts && m.openRetryAllowed(lastReason, err) {
 				continue
 			}
 			return nil, "", err
@@ -267,7 +298,7 @@ func (m *ExperimentalMuxConnectionManager) OpenStream(ctx context.Context, metho
 			m.recordEndpointFailure(endpoint, "open_stream", err)
 			lastErr = err
 			lastReason = muxOpenRetryReason("open_stream", m.endpointHealthReason(endpoint), err)
-			if attempt == 0 && muxOpenBeforeRetryable(err) {
+			if attempt+1 < maxAttempts && m.openRetryAllowed(lastReason, err) {
 				continue
 			}
 			return nil, endpoint, err
@@ -557,6 +588,8 @@ func (m *ExperimentalMuxConnectionManager) Snapshot() ExperimentalMuxConnectionM
 	maxIdleConnsPerEndpoint := m.maxIdleConnsPerEndpoint
 	healthFailureThreshold := m.healthFailureThreshold
 	healthEjectionDuration := m.healthEjectionDuration
+	maxOpenRetries := m.maxOpenRetries
+	openRetryReasons := muxRetryReasons(m.openRetryReasons)
 	janitorInterval := m.janitorInterval
 	closeReasons := cloneStringInt64Map(m.closeReasons)
 	drainReasons := cloneStringInt64Map(m.drainReasons)
@@ -579,6 +612,8 @@ func (m *ExperimentalMuxConnectionManager) Snapshot() ExperimentalMuxConnectionM
 		MaxIdleConnsPerEndpoint: maxIdleConnsPerEndpoint,
 		HealthFailureThreshold:  healthFailureThreshold,
 		HealthEjectionDuration:  healthEjectionDuration,
+		MaxOpenRetries:          maxOpenRetries,
+		OpenRetryReasons:        openRetryReasons,
 		JanitorInterval:         janitorInterval,
 		Endpoints:               endpoints,
 		Health:                  health,
@@ -613,6 +648,8 @@ func (m *ExperimentalMuxConnectionManager) DiagnosisSnapshot() RPCMuxConnectionM
 		MaxIdleConnsPerEndpoint: snapshot.MaxIdleConnsPerEndpoint,
 		HealthFailureThreshold:  snapshot.HealthFailureThreshold,
 		HealthEjectionDuration:  snapshot.HealthEjectionDuration,
+		MaxOpenRetries:          snapshot.MaxOpenRetries,
+		OpenRetryReasons:        snapshot.OpenRetryReasons,
 		JanitorInterval:         snapshot.JanitorInterval,
 		Endpoints:               snapshot.Endpoints,
 		Health:                  snapshot.Health,
@@ -1009,6 +1046,27 @@ func (m *ExperimentalMuxConnectionManager) endpointHealthReason(endpoint string)
 	return state.reason
 }
 
+func (m *ExperimentalMuxConnectionManager) maxOpenAttempts() int {
+	if m == nil || m.maxOpenRetries <= 0 {
+		return 1
+	}
+	return m.maxOpenRetries + 1
+}
+
+func (m *ExperimentalMuxConnectionManager) openRetryAllowed(reason string, err error) bool {
+	if m == nil || m.maxOpenRetries <= 0 || !muxOpenBeforeRetryable(err) {
+		return false
+	}
+	if reason == "" {
+		reason = muxOpenRetryReason("open_before", "", err)
+	}
+	if len(m.openRetryReasons) == 0 {
+		return false
+	}
+	_, ok := m.openRetryReasons[reason]
+	return ok
+}
+
 func (m *ExperimentalMuxConnectionManager) snapshotHealthLocked(now time.Time) []ExperimentalMuxEndpointHealthSnapshot {
 	health := make([]ExperimentalMuxEndpointHealthSnapshot, 0, len(m.health))
 	for endpoint, state := range m.health {
@@ -1162,6 +1220,29 @@ func muxOpenRetryReason(fallback string, healthReason string, err error) string 
 		return string(code)
 	}
 	return "open_before"
+}
+
+func muxRetryReasonSet(reasons ...string) map[string]struct{} {
+	set := make(map[string]struct{}, len(reasons))
+	for _, reason := range reasons {
+		reason = strings.TrimSpace(reason)
+		if reason != "" {
+			set[reason] = struct{}{}
+		}
+	}
+	return set
+}
+
+func muxRetryReasons(reasons map[string]struct{}) []string {
+	if len(reasons) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(reasons))
+	for reason := range reasons {
+		out = append(out, reason)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func filterMuxEndpoints(endpoints []string, exclude []string) []string {

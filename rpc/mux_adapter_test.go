@@ -1110,6 +1110,70 @@ func TestExperimentalMuxConnectionManagerSkipsEndpointAfterDialFailure(t *testin
 	}
 }
 
+func TestExperimentalMuxConnectionManagerOpenRetryPolicyCanDisableRetry(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	badListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	badEndpoint := "tcp://" + badListener.Addr().String()
+	if err := badListener.Close(); err != nil {
+		t.Fatalf("close bad listener: %v", err)
+	}
+	goodListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	goodDone := make(chan error, 1)
+	go func() {
+		goodDone <- ServeExperimentalMuxListener(ctx, goodListener, func(adapter *ExperimentalMuxServerAdapter) error {
+			return adapter.RegisterStream("orders/Echo", func(ctx context.Context, stream *ExperimentalMuxStream) error {
+				msg, err := stream.Receive(ctx)
+				if err != nil {
+					return err
+				}
+				if err := stream.Send(ctx, Message{Payload: append([]byte("good:"), msg.Payload...)}); err != nil {
+					return err
+				}
+				return stream.Close(ctx, "ok")
+			})
+		})
+	}()
+	goodEndpoint := "tcp://" + goodListener.Addr().String()
+	manager, err := NewExperimentalMuxConnectionManager(
+		ResolverFunc(func(context.Context) ([]string, error) { return []string{badEndpoint, goodEndpoint}, nil }),
+		WithExperimentalMuxConnectionManagerMaxOpenRetries(0),
+		WithExperimentalMuxConnectionManagerHealthFailureThreshold(1),
+		WithExperimentalMuxConnectionManagerHealthEjectionDuration(time.Hour),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	client, err := NewClient("http://unused", WithExperimentalMuxConnectionManager(manager))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	if stream, err := client.MuxStream(context.Background(), "orders/Echo"); err == nil || stream != nil || CodeOf(err) != CodeUnavailable {
+		t.Fatalf("MuxStream with retry disabled = stream %#v err %v, want CodeUnavailable", stream, err)
+	}
+	snapshot := manager.Snapshot()
+	if snapshot.MaxOpenRetries != 0 ||
+		snapshot.OpenRetries != 0 ||
+		snapshot.DialFailures != 1 ||
+		snapshot.EndpointEjections != 1 {
+		t.Fatalf("manager snapshot with retry disabled = %+v, want dial failure without open retry", snapshot)
+	}
+
+	cancel()
+	if err := <-goodDone; err != nil {
+		t.Fatalf("good mux listener stopped with error: %v", err)
+	}
+}
+
 func TestExperimentalMuxConnectionManagerJanitorClosesExcessIdlePool(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

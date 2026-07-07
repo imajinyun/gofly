@@ -484,8 +484,8 @@ func TestExperimentalMuxConnectionManagerResolverBalancerIdle(t *testing.T) {
 	if err := manager.CloseIdle(context.Background()); err != nil {
 		t.Fatalf("CloseIdle: %v", err)
 	}
-	if snapshot := manager.Snapshot(); len(snapshot.Endpoints) != 0 {
-		t.Fatalf("manager snapshot after CloseIdle = %+v, want no cached adapters", snapshot)
+	if snapshot := manager.Snapshot(); len(snapshot.Endpoints) != 0 || snapshot.CloseReasons["idle"] != 1 || snapshot.DrainReasons["idle"] != 1 {
+		t.Fatalf("manager snapshot after CloseIdle = %+v, want no cached adapters and idle drain evidence", snapshot)
 	}
 	cancel()
 	if err := <-firstDone; err != nil {
@@ -576,6 +576,7 @@ func TestExperimentalMuxConnectionManagerWatchRemovesEndpoints(t *testing.T) {
 			snapshot.WatchUpdates == 1 &&
 			snapshot.ClosedAdapters == 1 &&
 			snapshot.CloseReasons["resolver_update"] == 1 &&
+			snapshot.DrainReasons["resolver_update"] == 1 &&
 			len(snapshot.Removed) == 1 &&
 			snapshot.Removed[0] == firstEndpoint &&
 			!snapshot.LastUpdated.IsZero()
@@ -584,6 +585,7 @@ func TestExperimentalMuxConnectionManagerWatchRemovesEndpoints(t *testing.T) {
 	if diagnosis.WatchUpdates != 1 ||
 		diagnosis.ClosedAdapters != 1 ||
 		diagnosis.CloseReasons["resolver_update"] != 1 ||
+		diagnosis.DrainReasons["resolver_update"] != 1 ||
 		len(diagnosis.Removed) != 1 ||
 		diagnosis.Removed[0] != firstEndpoint ||
 		diagnosis.LastUpdated.IsZero() {

@@ -199,6 +199,7 @@ type RPCMuxConnectionManagerDiagnosis struct {
 	Removed        []string                          `json:"removed,omitempty"`
 	ClosedAdapters int64                             `json:"closedAdapters,omitempty"`
 	CloseReasons   map[string]int64                  `json:"closeReasons,omitempty"`
+	DrainReasons   map[string]int64                  `json:"drainReasons,omitempty"`
 	LastUpdated    time.Time                         `json:"lastUpdated,omitempty"`
 }
 

@@ -80,6 +80,11 @@ func releaseCheckCommand(args []string) error {
 	blockers = append(blockers, checkBlockers...)
 	report.Checks = append(report.Checks, gatewayAggregationItem)
 
+	// 8. RPC mux adapter release-train evidence.
+	rpcMuxAdapterItem, checkBlockers := releaseRPCMuxAdapterEvidenceCheck()
+	blockers = append(blockers, checkBlockers...)
+	report.Checks = append(report.Checks, rpcMuxAdapterItem)
+
 	// Determine recommended SemVer bump.
 	report.Recommended = recommendSemver(blockers, warnings)
 	report.Blocking = blockers

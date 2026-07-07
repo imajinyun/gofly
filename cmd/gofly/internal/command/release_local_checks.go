@@ -204,6 +204,93 @@ func releaseAggregationEvidence(report gateway.AggregationValidationReport, cont
 	}
 }
 
+func releaseRPCMuxAdapterEvidenceCheck() (releaseCheckItem, []string) {
+	item := releaseCheckItem{Name: "rpc-mux-adapter-evidence", Status: "pass"}
+	evidence, err := readReleaseJSONFile(filepath.Join("bench", "rpc_mux_adapter_evidence.json"), "rpc mux adapter evidence")
+	if err != nil {
+		item.Status = "fail"
+		item.Detail = err.Error()
+		item.Blocker = true
+		return item, []string{"rpc mux adapter evidence is unavailable"}
+	}
+	schema, _ := evidence["schema"].(string)
+	benchmark, _ := evidence["benchmark"].(string)
+	status, _ := evidence["status"].(string)
+	decision, _ := evidence["decision"].(map[string]any)
+	allocationMode, _ := decision["allocationMode"].(string)
+	latencyMode, _ := decision["latencyMode"].(string)
+	promotionStatus, _ := decision["promotionStatus"].(string)
+	baseline, _ := evidence["baseline"].(map[string]any)
+	current, _ := evidence["current"].(map[string]any)
+	if schema != "gofly.benchmark_rpc_mux_adapter_evidence.v1" ||
+		benchmark != "BenchmarkRPCExperimentalMuxAdapterOpenSendReceiveClose" ||
+		status != "report-only" ||
+		allocationMode != "report-only" ||
+		latencyMode != "report-only" ||
+		promotionStatus != "blocked" {
+		item.Status = "fail"
+		item.Detail = "rpc mux adapter evidence contract drifted"
+		item.Blocker = true
+		return item, []string{"rpc mux adapter evidence contract drifted"}
+	}
+	item.Detail = "rpc mux adapter evidence attached as report-only"
+	item.Evidence = map[string]any{
+		"rpc-mux-adapter-evidence": map[string]any{
+			"schema":          schema,
+			"benchmark":       benchmark,
+			"status":          status,
+			"allocationMode":  allocationMode,
+			"latencyMode":     latencyMode,
+			"promotionStatus": promotionStatus,
+			"baseline":        baseline,
+			"current":         current,
+			"decision":        decision,
+		},
+	}
+	return item, nil
+}
+
+func readReleaseJSONFile(path string, label string) (map[string]any, error) {
+	resolved, err := resolveReleaseEvidencePath(path)
+	if err != nil {
+		return nil, fmt.Errorf("resolve %s: %w", label, err)
+	}
+	data, err := os.ReadFile(resolved) // #nosec G304 -- release check reads explicit repository evidence files.
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", label, err)
+	}
+	var out map[string]any
+	if err := json.Unmarshal(data, &out); err != nil {
+		return nil, fmt.Errorf("decode %s: %w", label, err)
+	}
+	return out, nil
+}
+
+func resolveReleaseEvidencePath(path string) (string, error) {
+	path = filepath.Clean(strings.TrimSpace(path))
+	if path == "" || filepath.IsAbs(path) {
+		return "", fmt.Errorf("release evidence path must be relative")
+	}
+	current, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	for {
+		candidate := filepath.Join(current, path)
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate, nil
+		} else if err != nil && !os.IsNotExist(err) {
+			return "", err
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			break
+		}
+		current = parent
+	}
+	return "", os.ErrNotExist
+}
+
 func releaseGatewayOpenAPIAggregationReport(projectDir string) (gateway.AggregationValidationReport, gatewayAggregationSARIFContext, error) {
 	baseDoc, err := readGatewayOpenAPIDocument(filepath.Join(projectDir, "etc", "edge-openapi-base.json"))
 	if err != nil {

@@ -151,6 +151,21 @@ func TestReleaseCheckCommandJSONAndChangelogBlocker(t *testing.T) {
 	if !evidenceEnvelope.OK || len(evidenceEnvelope.Data.Checks) != 1 || evidenceEnvelope.Data.Checks[0].Name != "gateway-aggregation-contract" || evidenceEnvelope.Data.Checks[0].Evidence["aggregation-openapi-diff"] == nil {
 		t.Fatalf("releaseCheckCommand evidence envelope = %+v, want aggregation evidence only", evidenceEnvelope)
 	}
+	out.Reset()
+	if err := withCommandIO(IOStreams{Out: &out}, outputText, verbosityNormal, func() error {
+		return releaseCheckCommand([]string{"--changelog", changelog, "--json", "--evidence", "rpc-mux-adapter-evidence"})
+	}); err != nil {
+		t.Fatalf("releaseCheckCommand rpc mux evidence json: %v", err)
+	}
+	if err := json.Unmarshal(out.Bytes(), &evidenceEnvelope); err != nil {
+		t.Fatalf("releaseCheckCommand rpc mux evidence json decode: %v\n%s", err, out.String())
+	}
+	if !evidenceEnvelope.OK ||
+		len(evidenceEnvelope.Data.Checks) != 1 ||
+		evidenceEnvelope.Data.Checks[0].Name != "rpc-mux-adapter-evidence" ||
+		evidenceEnvelope.Data.Checks[0].Evidence["rpc-mux-adapter-evidence"] == nil {
+		t.Fatalf("releaseCheckCommand rpc mux evidence envelope = %+v, want rpc mux evidence only", evidenceEnvelope)
+	}
 	if err := os.WriteFile(changelog, []byte("# Changelog\n\n## v9.9.9\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -216,6 +231,30 @@ func TestReleaseGatewayAggregationContractCheck(t *testing.T) {
 	}
 	if !sawOpenAPILocator {
 		t.Fatalf("aggregation openapi change details = %+v, want path/method/mapping locator", openAPIDetails)
+	}
+}
+
+func TestReleaseRPCMuxAdapterEvidenceCheck(t *testing.T) {
+	item, blockers := releaseRPCMuxAdapterEvidenceCheck()
+	if item.Name != "rpc-mux-adapter-evidence" ||
+		item.Status != "pass" ||
+		item.Blocker ||
+		len(blockers) != 0 ||
+		!strings.Contains(item.Detail, "report-only") {
+		t.Fatalf("rpc mux adapter evidence check = %+v blockers=%v, want report-only pass", item, blockers)
+	}
+	evidence, ok := item.Evidence["rpc-mux-adapter-evidence"].(map[string]any)
+	if !ok {
+		t.Fatalf("rpc mux adapter evidence = %#v", item.Evidence["rpc-mux-adapter-evidence"])
+	}
+	if evidence["benchmark"] != "BenchmarkRPCExperimentalMuxAdapterOpenSendReceiveClose" ||
+		evidence["status"] != "report-only" ||
+		evidence["allocationMode"] != "report-only" ||
+		evidence["latencyMode"] != "report-only" ||
+		evidence["promotionStatus"] != "blocked" ||
+		evidence["baseline"] == nil ||
+		evidence["current"] == nil {
+		t.Fatalf("rpc mux adapter evidence = %#v, want report-only benchmark evidence", evidence)
 	}
 }
 

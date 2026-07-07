@@ -2816,6 +2816,7 @@ func TestRoutesFromOpenAPIMapsDescriptorDrivenTranscode(t *testing.T) {
 						{Name: "include_history", In: "query", Required: true, Schema: rest.BooleanSchema()},
 						{Name: "tags", In: "query", Schema: rest.ArraySchema(rest.Schema{Type: "integer"})},
 						{Name: "score", In: "query", Schema: rest.NumberSchema()},
+						{Name: "X-Tenant", In: "header", Required: true, Schema: rest.StringSchema()},
 					},
 					RequestBody: rest.JSONBodySchema(rest.Schema{
 						Type:     "object",
@@ -2845,6 +2846,7 @@ func TestRoutesFromOpenAPIMapsDescriptorDrivenTranscode(t *testing.T) {
 								map[string]any{"source": "body.trace", "target": "meta.trace"},
 								map[string]any{"source": "body.items", "target": "order.lines"},
 								map[string]any{"source": "body.metadata.source", "target": "meta.source"},
+								map[string]any{"source": "header.x-tenant", "target": "meta.tenant"},
 								map[string]any{"target": "meta.region", "default": "cn"},
 							},
 						},
@@ -2892,7 +2894,10 @@ func TestRoutesFromOpenAPIMapsDescriptorDrivenTranscode(t *testing.T) {
 	if route.Transcode.Payload.BodySchema == nil || route.Transcode.Payload.BodySchema.Type != "object" || strings.Join(route.Transcode.Payload.BodySchema.Required, ",") != "trace,items" || len(route.Transcode.Payload.BodySchema.Properties) != 4 {
 		t.Fatalf("imported body schema = %+v", route.Transcode.Payload.BodySchema)
 	}
-	if len(route.Transcode.Payload.Mappings) != 9 || route.Transcode.Payload.Mappings[0].Source != "path.id" || route.Transcode.Payload.Mappings[0].Target != "order.id" {
+	if len(route.Transcode.Payload.HeaderParameters) != 1 || route.Transcode.Payload.HeaderParameters[0].Name != "X-Tenant" || !route.Transcode.Payload.HeaderParameters[0].Required {
+		t.Fatalf("imported header parameter schemas = %+v", route.Transcode.Payload.HeaderParameters)
+	}
+	if len(route.Transcode.Payload.Mappings) != 10 || route.Transcode.Payload.Mappings[0].Source != "path.id" || route.Transcode.Payload.Mappings[0].Target != "order.id" {
 		t.Fatalf("imported payload mappings = %+v", route.Transcode.Payload.Mappings)
 	}
 
@@ -2912,7 +2917,9 @@ func TestRoutesFromOpenAPIMapsDescriptorDrivenTranscode(t *testing.T) {
 	t.Cleanup(func() { _ = g.Close() })
 
 	rr := httptest.NewRecorder()
-	g.ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/contract/orders/42/items/sku-1?include_history=true&tags=1,2&tags=3&score=98.5", strings.NewReader(`{"id":"body-id","trace":"t1","items":[{"sku":"sku-1","quantity":2}],"metadata":{"source":"web","urgent":true}}`)))
+	req := httptest.NewRequest(http.MethodPost, "/contract/orders/42/items/sku-1?include_history=true&tags=1,2&tags=3&score=98.5", strings.NewReader(`{"id":"body-id","trace":"t1","items":[{"sku":"sku-1","quantity":2}],"metadata":{"source":"web","urgent":true}}`))
+	req.Header.Set("X-Tenant", "tenant-a")
+	g.ServeHTTP(rr, req)
 	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"source":"openapi"`) {
 		t.Fatalf("openapi transcode response = %d %q", rr.Code, rr.Body.String())
 	}
@@ -2951,6 +2958,7 @@ func TestRoutesFromOpenAPIMapsDescriptorDrivenTranscode(t *testing.T) {
 		options["score"] != 98.5 ||
 		meta["trace"] != "t1" ||
 		meta["source"] != "web" ||
+		meta["tenant"] != "tenant-a" ||
 		meta["region"] != "cn" {
 		t.Fatalf("generic call method=%q request=%s", fake.method, fake.request)
 	}

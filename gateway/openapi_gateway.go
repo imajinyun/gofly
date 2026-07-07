@@ -356,6 +356,9 @@ func openAPITranscodePayloadConfig(path string, op rest.Operation, opts OpenAPIT
 		case "query":
 			payload.QueryParams = append(payload.QueryParams, name)
 			payload.QueryParameters = append(payload.QueryParameters, openAPITranscodeParameterConfig(name, parameter.Required, parameter.Schema))
+		case "header":
+			payload.HeaderParams = append(payload.HeaderParams, name)
+			payload.HeaderParameters = append(payload.HeaderParameters, openAPITranscodeParameterConfig(name, parameter.Required, parameter.Schema))
 		}
 	}
 	if len(payload.PathParams) == 0 {

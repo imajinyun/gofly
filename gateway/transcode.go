@@ -287,6 +287,11 @@ func transcodeMappedRequestPayload(r *http.Request, route Route, body []byte, pr
 		return nil, err
 	}
 	source.Query = queryValues
+	headerValues, err := transcodeHeaderValues(r.Header, route.Transcode.Payload.HeaderParams, route.Transcode.Payload.HeaderParameters)
+	if err != nil {
+		return nil, err
+	}
+	source.Header = headerValues
 	payloadConfig := route.Transcode.Payload
 	if len(payloadConfig.Mappings) == 0 && profile != nil {
 		payloadConfig.Mappings = profile.RequestMappings
@@ -722,12 +727,38 @@ func transcodeQueryValues(values url.Values, names []string, parameters []Transc
 	return out, nil
 }
 
+func transcodeHeaderValues(header http.Header, names []string, parameters []TranscodeParameterConfig) (map[string]any, error) {
+	out := map[string]any{}
+	byName := transcodeParameterByName(parameters)
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		values, ok := header[http.CanonicalHeaderKey(name)]
+		if !ok {
+			if byName[name].Required {
+				return nil, fmt.Errorf("transcode parameter %s is required", transcodeParameterName(byName[name]))
+			}
+			continue
+		}
+		converted, err := convertTranscodeQueryValues(values, byName[name])
+		if err != nil {
+			return nil, err
+		}
+		out[name] = converted
+		out[strings.ToLower(name)] = converted
+	}
+	return out, nil
+}
+
 func transcodeParameterByName(parameters []TranscodeParameterConfig) map[string]TranscodeParameterConfig {
 	out := make(map[string]TranscodeParameterConfig, len(parameters))
 	for _, parameter := range parameters {
 		name := strings.TrimSpace(parameter.Name)
 		if name != "" {
 			out[name] = parameter
+			out[strings.ToLower(name)] = parameter
 		}
 	}
 	return out

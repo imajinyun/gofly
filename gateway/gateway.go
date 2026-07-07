@@ -98,17 +98,19 @@ type TranscodeConfig struct {
 // TranscodePayloadConfig controls how HTTP request parts are assembled into
 // the generic RPC request payload.
 type TranscodePayloadConfig struct {
-	Mode            string                     `json:"mode,omitempty"`
-	PathTemplate    string                     `json:"pathTemplate,omitempty"`
-	PathParams      []string                   `json:"pathParams,omitempty"`
-	QueryParams     []string                   `json:"queryParams,omitempty"`
-	PathParameters  []TranscodeParameterConfig `json:"pathParameters,omitempty"`
-	QueryParameters []TranscodeParameterConfig `json:"queryParameters,omitempty"`
-	BodyField       string                     `json:"bodyField,omitempty"`
-	BodyRequired    bool                       `json:"bodyRequired,omitempty"`
-	BodySchema      *TranscodeSchemaConfig     `json:"bodySchema,omitempty"`
-	Mappings        []TranscodePayloadMapping  `json:"mappings,omitempty"`
-	MergeBodyObject bool                       `json:"mergeBodyObject,omitempty"`
+	Mode             string                     `json:"mode,omitempty"`
+	PathTemplate     string                     `json:"pathTemplate,omitempty"`
+	PathParams       []string                   `json:"pathParams,omitempty"`
+	QueryParams      []string                   `json:"queryParams,omitempty"`
+	HeaderParams     []string                   `json:"headerParams,omitempty"`
+	PathParameters   []TranscodeParameterConfig `json:"pathParameters,omitempty"`
+	QueryParameters  []TranscodeParameterConfig `json:"queryParameters,omitempty"`
+	HeaderParameters []TranscodeParameterConfig `json:"headerParameters,omitempty"`
+	BodyField        string                     `json:"bodyField,omitempty"`
+	BodyRequired     bool                       `json:"bodyRequired,omitempty"`
+	BodySchema       *TranscodeSchemaConfig     `json:"bodySchema,omitempty"`
+	Mappings         []TranscodePayloadMapping  `json:"mappings,omitempty"`
+	MergeBodyObject  bool                       `json:"mergeBodyObject,omitempty"`
 }
 
 // TranscodeParameterConfig describes a schema-aware HTTP parameter mapping for
@@ -2036,8 +2038,10 @@ func cloneRoute(route Route) Route {
 func cloneTranscodeConfig(config TranscodeConfig) TranscodeConfig {
 	config.Payload.PathParams = append([]string(nil), config.Payload.PathParams...)
 	config.Payload.QueryParams = append([]string(nil), config.Payload.QueryParams...)
+	config.Payload.HeaderParams = append([]string(nil), config.Payload.HeaderParams...)
 	config.Payload.PathParameters = cloneTranscodeParameters(config.Payload.PathParameters)
 	config.Payload.QueryParameters = cloneTranscodeParameters(config.Payload.QueryParameters)
+	config.Payload.HeaderParameters = cloneTranscodeParameters(config.Payload.HeaderParameters)
 	config.Payload.BodySchema = cloneTranscodeSchema(config.Payload.BodySchema)
 	config.Payload.Mappings = cloneTranscodePayloadMappings(config.Payload.Mappings)
 	return config
@@ -2188,6 +2192,14 @@ func validateRouteTranscodeMappingSource(source string, payload TranscodePayload
 		if !slices.Contains(payload.QueryParams, name) && !containsTranscodeParameter(payload.QueryParameters, name) {
 			return fmt.Errorf("transcode mapping source %s references unknown query parameter", source)
 		}
+	case "header":
+		if len(parts) != 2 {
+			return fmt.Errorf("transcode mapping source %s header lookup must name one parameter", source)
+		}
+		name := strings.TrimSuffix(strings.TrimSpace(parts[1]), "[]")
+		if !containsHeaderParam(payload.HeaderParams, name) && !containsTranscodeParameter(payload.HeaderParameters, name) {
+			return fmt.Errorf("transcode mapping source %s references unknown header parameter", source)
+		}
 	case "body":
 		if !payload.MergeBodyObject && !bodyRequired {
 			return fmt.Errorf("transcode mapping source %s requires mergeBodyObject or body schema", source)
@@ -2249,7 +2261,16 @@ func validateTranscodeSchemaPath(prefix string, schema TranscodeSchemaConfig, pa
 
 func containsTranscodeParameter(parameters []TranscodeParameterConfig, name string) bool {
 	for _, parameter := range parameters {
-		if strings.TrimSpace(parameter.Name) == name {
+		if strings.TrimSpace(parameter.Name) == name || strings.EqualFold(strings.TrimSpace(parameter.Name), name) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsHeaderParam(names []string, name string) bool {
+	for _, candidate := range names {
+		if strings.EqualFold(strings.TrimSpace(candidate), name) {
 			return true
 		}
 	}

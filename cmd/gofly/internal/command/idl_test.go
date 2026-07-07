@@ -2337,8 +2337,11 @@ func TestExecuteAIManifestJSONEnvelope(t *testing.T) {
 	if commands["gateway aggregation validate"].OutputContract.Semantics["ciIntegration"] == "" || !commandContainsString(commands["gateway aggregation validate"].OutputContract.EventFields, "changes") {
 		t.Fatalf("gateway aggregation validate output contract = %+v, want CI aggregation diff fields", commands["gateway aggregation validate"].OutputContract)
 	}
-	if commands["release check"].OutputContract.Semantics["aggregationEvidenceFamilies"] == "" || !commandContainsString(commands["release check"].OutputContract.EventFields, "evidence") {
-		t.Fatalf("release check output contract = %+v, want aggregation evidence family fields", commands["release check"].OutputContract)
+	if commands["release check"].OutputContract.Semantics["aggregationEvidenceFamilies"] == "" ||
+		commands["release check"].OutputContract.Semantics["rpcMuxAdapterEvidenceFamily"] == "" ||
+		!strings.Contains(commands["release check"].OutputContract.Semantics["rpcMuxAdapterEvidenceFamily"], "rpc-mux-adapter-evidence") ||
+		!commandContainsString(commands["release check"].OutputContract.EventFields, "evidence") {
+		t.Fatalf("release check output contract = %+v, want aggregation and rpc mux evidence family fields", commands["release check"].OutputContract)
 	}
 	if commands["plugin run"].RiskLevel != "high" || !commands["plugin run"].MutatesFilesystem {
 		t.Fatalf("plugin run manifest should expose high-risk filesystem mutation: %+v", commands["plugin run"])

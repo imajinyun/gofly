@@ -11,6 +11,18 @@ import (
 	"time"
 )
 
+type firstEndpointBalancer struct{}
+
+func (firstEndpointBalancer) Pick(ctx context.Context, endpoints []string) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	if len(endpoints) == 0 {
+		return "", errors.New("no endpoint to pick")
+	}
+	return endpoints[0], nil
+}
+
 func TestExperimentalMuxAdapterDispatchesMultipleStreams(t *testing.T) {
 	clientConn, serverConn := net.Pipe()
 	client := NewExperimentalMuxClientAdapter(clientConn, WithExperimentalMuxConnectionWindow(4))
@@ -752,6 +764,208 @@ func TestExperimentalMuxConnectionManagerMaxConnsPerEndpointRejectsWhenPoolFull(
 	cancel()
 	if err := <-serveDone; err != nil {
 		t.Fatalf("mux listener stopped with error: %v", err)
+	}
+}
+
+func TestExperimentalMuxConnectionManagerSkipsEndpointAfterPoolExhaustion(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	firstListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstRequests := make(chan string, 1)
+	releaseFirst := make(chan struct{})
+	startFirst := func() <-chan error {
+		done := make(chan error, 1)
+		go func() {
+			done <- ServeExperimentalMuxListener(ctx, firstListener, func(adapter *ExperimentalMuxServerAdapter) error {
+				return adapter.RegisterStream("orders/Hold", func(ctx context.Context, stream *ExperimentalMuxStream) error {
+					msg, err := stream.Receive(ctx)
+					if err != nil {
+						return err
+					}
+					firstRequests <- string(msg.Payload)
+					select {
+					case <-releaseFirst:
+					case <-ctx.Done():
+						return ctx.Err()
+					}
+					if err := stream.Send(ctx, Message{Payload: append([]byte("first:"), msg.Payload...)}); err != nil {
+						return err
+					}
+					return stream.Close(ctx, "ok")
+				})
+			})
+		}()
+		return done
+	}
+	startSecond := func() <-chan error {
+		done := make(chan error, 1)
+		go func() {
+			done <- ServeExperimentalMuxListener(ctx, secondListener, func(adapter *ExperimentalMuxServerAdapter) error {
+				return adapter.RegisterStream("orders/Hold", func(ctx context.Context, stream *ExperimentalMuxStream) error {
+					msg, err := stream.Receive(ctx)
+					if err != nil {
+						return err
+					}
+					if err := stream.Send(ctx, Message{Payload: append([]byte("second:"), msg.Payload...)}); err != nil {
+						return err
+					}
+					return stream.Close(ctx, "ok")
+				})
+			})
+		}()
+		return done
+	}
+	firstDone := startFirst()
+	secondDone := startSecond()
+
+	firstEndpoint := "tcp://" + firstListener.Addr().String()
+	secondEndpoint := "tcp://" + secondListener.Addr().String()
+	manager, err := NewExperimentalMuxConnectionManager(
+		ResolverFunc(func(context.Context) ([]string, error) { return []string{firstEndpoint, secondEndpoint}, nil }),
+		WithExperimentalMuxConnectionManagerBalancer(firstEndpointBalancer{}),
+		WithExperimentalMuxConnectionManagerMaxStreamsPerConn(1),
+		WithExperimentalMuxConnectionManagerMaxConnsPerEndpoint(1),
+		WithExperimentalMuxConnectionManagerHealthFailureThreshold(1),
+		WithExperimentalMuxConnectionManagerHealthEjectionDuration(time.Hour),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	client, err := NewClient("http://unused", WithExperimentalMuxConnectionManager(manager))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	firstStream, err := client.MuxStream(context.Background(), "orders/Hold")
+	if err != nil {
+		t.Fatalf("first MuxStream: %v", err)
+	}
+	if err := firstStream.Send(context.Background(), Message{Payload: []byte("active")}); err != nil {
+		t.Fatalf("first Send: %v", err)
+	}
+	if got := <-firstRequests; got != "active" {
+		t.Fatalf("first handler payload = %q, want active", got)
+	}
+	if stream, err := client.MuxStream(context.Background(), "orders/Hold"); err == nil || stream != nil || CodeOf(err) != CodeUnavailable {
+		t.Fatalf("pool exhaustion MuxStream = stream %#v err %v, want CodeUnavailable", stream, err)
+	}
+	snapshot := manager.Snapshot()
+	if snapshot.EndpointEjections != 1 ||
+		len(snapshot.Health) != 1 ||
+		snapshot.Health[0].Endpoint != firstEndpoint ||
+		!snapshot.Health[0].Ejected ||
+		snapshot.Health[0].Reason != "pool_exhausted" {
+		t.Fatalf("manager snapshot after pool exhaustion = %+v, want first endpoint ejected", snapshot)
+	}
+
+	secondStream, err := client.MuxStream(context.Background(), "orders/Hold")
+	if err != nil {
+		t.Fatalf("second MuxStream after ejection: %v", err)
+	}
+	if err := secondStream.Send(context.Background(), Message{Payload: []byte("fresh")}); err != nil {
+		t.Fatalf("second Send: %v", err)
+	}
+	assertMuxPayload(t, secondStream, "second:fresh")
+	if _, err := secondStream.Receive(muxTestTimeoutContext(t)); !errors.Is(err, io.EOF) {
+		t.Fatalf("second terminal receive = %v, want EOF", err)
+	}
+
+	close(releaseFirst)
+	assertMuxPayload(t, firstStream, "first:active")
+	if _, err := firstStream.Receive(muxTestTimeoutContext(t)); !errors.Is(err, io.EOF) {
+		t.Fatalf("first terminal receive = %v, want EOF", err)
+	}
+	cancel()
+	if err := <-firstDone; err != nil {
+		t.Fatalf("first mux listener stopped with error: %v", err)
+	}
+	if err := <-secondDone; err != nil {
+		t.Fatalf("second mux listener stopped with error: %v", err)
+	}
+}
+
+func TestExperimentalMuxConnectionManagerSkipsEndpointAfterDialFailure(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	badListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	badEndpoint := "tcp://" + badListener.Addr().String()
+	if err := badListener.Close(); err != nil {
+		t.Fatalf("close bad listener: %v", err)
+	}
+	goodListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	goodDone := make(chan error, 1)
+	go func() {
+		goodDone <- ServeExperimentalMuxListener(ctx, goodListener, func(adapter *ExperimentalMuxServerAdapter) error {
+			return adapter.RegisterStream("orders/Echo", func(ctx context.Context, stream *ExperimentalMuxStream) error {
+				msg, err := stream.Receive(ctx)
+				if err != nil {
+					return err
+				}
+				if err := stream.Send(ctx, Message{Payload: append([]byte("good:"), msg.Payload...)}); err != nil {
+					return err
+				}
+				return stream.Close(ctx, "ok")
+			})
+		})
+	}()
+	goodEndpoint := "tcp://" + goodListener.Addr().String()
+	manager, err := NewExperimentalMuxConnectionManager(
+		ResolverFunc(func(context.Context) ([]string, error) { return []string{badEndpoint, goodEndpoint}, nil }),
+		WithExperimentalMuxConnectionManagerHealthFailureThreshold(1),
+		WithExperimentalMuxConnectionManagerHealthEjectionDuration(time.Hour),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	client, err := NewClient("http://unused", WithExperimentalMuxConnectionManager(manager))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	if stream, err := client.MuxStream(context.Background(), "orders/Echo"); err == nil || stream != nil {
+		t.Fatalf("first MuxStream to bad endpoint = stream %#v err %v, want dial failure", stream, err)
+	}
+	snapshot := manager.Snapshot()
+	if snapshot.DialFailures != 1 ||
+		snapshot.EndpointEjections != 1 ||
+		len(snapshot.Health) != 1 ||
+		snapshot.Health[0].Endpoint != badEndpoint ||
+		!snapshot.Health[0].Ejected ||
+		snapshot.Health[0].Reason != "dial_failure" {
+		t.Fatalf("manager snapshot after dial failure = %+v, want bad endpoint ejected", snapshot)
+	}
+	stream, err := client.MuxStream(context.Background(), "orders/Echo")
+	if err != nil {
+		t.Fatalf("second MuxStream after dial failure ejection: %v", err)
+	}
+	if err := stream.Send(context.Background(), Message{Payload: []byte("fresh")}); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	assertMuxPayload(t, stream, "good:fresh")
+	if _, err := stream.Receive(muxTestTimeoutContext(t)); !errors.Is(err, io.EOF) {
+		t.Fatalf("terminal receive = %v, want EOF", err)
+	}
+
+	cancel()
+	if err := <-goodDone; err != nil {
+		t.Fatalf("good mux listener stopped with error: %v", err)
 	}
 }
 

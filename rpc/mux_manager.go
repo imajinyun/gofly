@@ -20,16 +20,22 @@ type ExperimentalMuxConnectionManager struct {
 	maxStreamsPerConn       int
 	maxConnsPerEndpoint     int
 	maxIdleConnsPerEndpoint int
+	healthFailureThreshold  int
+	healthEjectionDuration  time.Duration
 	janitorInterval         time.Duration
 	options                 []ExperimentalMuxTransportOption
 	adapters                map[string][]*muxManagedAdapter
 	retired                 map[string][]*muxManagedAdapter
+	health                  map[string]*muxEndpointHealth
 	closed                  bool
 	watchUpdates            int64
 	removed                 []string
 	closedAdapters          int64
 	unhealthyAdapters       int64
 	poolExhaustions         int64
+	dialFailures            int64
+	endpointEjections       int64
+	endpointRecoveries      int64
 	janitorRuns             int64
 	closeReasons            map[string]int64
 	drainReasons            map[string]int64
@@ -51,26 +57,39 @@ type muxManagedClose struct {
 	drain   bool
 }
 
+type muxEndpointHealth struct {
+	failures  int
+	ejectedAt time.Time
+	reason    string
+	lastError string
+}
+
 type ExperimentalMuxConnectionManagerOption func(*ExperimentalMuxConnectionManager)
 
 type ExperimentalMuxConnectionManagerSnapshot struct {
-	Closed                  bool                              `json:"closed"`
-	IdleTimeout             time.Duration                     `json:"idleTimeout,omitempty"`
-	MaxStreamsPerConn       int                               `json:"maxStreamsPerConn,omitempty"`
-	MaxConnsPerEndpoint     int                               `json:"maxConnsPerEndpoint,omitempty"`
-	MaxIdleConnsPerEndpoint int                               `json:"maxIdleConnsPerEndpoint,omitempty"`
-	JanitorInterval         time.Duration                     `json:"janitorInterval,omitempty"`
-	Endpoints               []ExperimentalMuxEndpointSnapshot `json:"endpoints,omitempty"`
-	RetiredAdapters         int                               `json:"retiredAdapters,omitempty"`
-	WatchUpdates            int64                             `json:"watchUpdates,omitempty"`
-	Removed                 []string                          `json:"removed,omitempty"`
-	ClosedAdapters          int64                             `json:"closedAdapters,omitempty"`
-	UnhealthyAdapters       int64                             `json:"unhealthyAdapters,omitempty"`
-	PoolExhaustions         int64                             `json:"poolExhaustions,omitempty"`
-	JanitorRuns             int64                             `json:"janitorRuns,omitempty"`
-	CloseReasons            map[string]int64                  `json:"closeReasons,omitempty"`
-	DrainReasons            map[string]int64                  `json:"drainReasons,omitempty"`
-	LastUpdated             time.Time                         `json:"lastUpdated,omitempty"`
+	Closed                  bool                                    `json:"closed"`
+	IdleTimeout             time.Duration                           `json:"idleTimeout,omitempty"`
+	MaxStreamsPerConn       int                                     `json:"maxStreamsPerConn,omitempty"`
+	MaxConnsPerEndpoint     int                                     `json:"maxConnsPerEndpoint,omitempty"`
+	MaxIdleConnsPerEndpoint int                                     `json:"maxIdleConnsPerEndpoint,omitempty"`
+	HealthFailureThreshold  int                                     `json:"healthFailureThreshold,omitempty"`
+	HealthEjectionDuration  time.Duration                           `json:"healthEjectionDuration,omitempty"`
+	JanitorInterval         time.Duration                           `json:"janitorInterval,omitempty"`
+	Endpoints               []ExperimentalMuxEndpointSnapshot       `json:"endpoints,omitempty"`
+	Health                  []ExperimentalMuxEndpointHealthSnapshot `json:"health,omitempty"`
+	RetiredAdapters         int                                     `json:"retiredAdapters,omitempty"`
+	WatchUpdates            int64                                   `json:"watchUpdates,omitempty"`
+	Removed                 []string                                `json:"removed,omitempty"`
+	ClosedAdapters          int64                                   `json:"closedAdapters,omitempty"`
+	UnhealthyAdapters       int64                                   `json:"unhealthyAdapters,omitempty"`
+	PoolExhaustions         int64                                   `json:"poolExhaustions,omitempty"`
+	DialFailures            int64                                   `json:"dialFailures,omitempty"`
+	EndpointEjections       int64                                   `json:"endpointEjections,omitempty"`
+	EndpointRecoveries      int64                                   `json:"endpointRecoveries,omitempty"`
+	JanitorRuns             int64                                   `json:"janitorRuns,omitempty"`
+	CloseReasons            map[string]int64                        `json:"closeReasons,omitempty"`
+	DrainReasons            map[string]int64                        `json:"drainReasons,omitempty"`
+	LastUpdated             time.Time                               `json:"lastUpdated,omitempty"`
 }
 
 type ExperimentalMuxEndpointSnapshot struct {
@@ -80,18 +99,30 @@ type ExperimentalMuxEndpointSnapshot struct {
 	Adapter  ExperimentalMuxAdapterSnapshot `json:"adapter"`
 }
 
+type ExperimentalMuxEndpointHealthSnapshot struct {
+	Endpoint  string    `json:"endpoint"`
+	Failures  int       `json:"failures,omitempty"`
+	Ejected   bool      `json:"ejected,omitempty"`
+	EjectedAt time.Time `json:"ejectedAt,omitempty"`
+	Reason    string    `json:"reason,omitempty"`
+	LastError string    `json:"lastError,omitempty"`
+}
+
 func NewExperimentalMuxConnectionManager(resolver Resolver, opts ...ExperimentalMuxConnectionManagerOption) (*ExperimentalMuxConnectionManager, error) {
 	if resolver == nil {
 		return nil, errors.New("mux connection manager resolver is required")
 	}
 	m := &ExperimentalMuxConnectionManager{
-		resolver:     resolver,
-		balancer:     &RoundRobinBalancer{},
-		idleTimeout:  time.Minute,
-		adapters:     make(map[string][]*muxManagedAdapter),
-		retired:      make(map[string][]*muxManagedAdapter),
-		closeReasons: make(map[string]int64),
-		drainReasons: make(map[string]int64),
+		resolver:               resolver,
+		balancer:               &RoundRobinBalancer{},
+		idleTimeout:            time.Minute,
+		healthFailureThreshold: 1,
+		healthEjectionDuration: time.Second,
+		adapters:               make(map[string][]*muxManagedAdapter),
+		retired:                make(map[string][]*muxManagedAdapter),
+		health:                 make(map[string]*muxEndpointHealth),
+		closeReasons:           make(map[string]int64),
+		drainReasons:           make(map[string]int64),
 	}
 	for _, opt := range opts {
 		if opt != nil {
@@ -109,6 +140,12 @@ func NewExperimentalMuxConnectionManager(resolver Resolver, opts ...Experimental
 	}
 	if m.maxIdleConnsPerEndpoint < 0 {
 		m.maxIdleConnsPerEndpoint = 0
+	}
+	if m.healthFailureThreshold <= 0 {
+		m.healthFailureThreshold = 1
+	}
+	if m.healthEjectionDuration < 0 {
+		m.healthEjectionDuration = 0
 	}
 	if m.janitorInterval > 0 {
 		m.startJanitor()
@@ -154,6 +191,22 @@ func WithExperimentalMuxConnectionManagerMaxIdleConnsPerEndpoint(max int) Experi
 	}
 }
 
+func WithExperimentalMuxConnectionManagerHealthFailureThreshold(threshold int) ExperimentalMuxConnectionManagerOption {
+	return func(m *ExperimentalMuxConnectionManager) {
+		if threshold > 0 {
+			m.healthFailureThreshold = threshold
+		}
+	}
+}
+
+func WithExperimentalMuxConnectionManagerHealthEjectionDuration(duration time.Duration) ExperimentalMuxConnectionManagerOption {
+	return func(m *ExperimentalMuxConnectionManager) {
+		if duration >= 0 {
+			m.healthEjectionDuration = duration
+		}
+	}
+}
+
 func WithExperimentalMuxConnectionManagerJanitorInterval(interval time.Duration) ExperimentalMuxConnectionManagerOption {
 	return func(m *ExperimentalMuxConnectionManager) {
 		if interval > 0 {
@@ -187,8 +240,10 @@ func (m *ExperimentalMuxConnectionManager) OpenStream(ctx context.Context, metho
 	}
 	stream, err := adapter.OpenStream(ctx, method)
 	if err != nil {
+		m.recordEndpointFailure(endpoint, "open_stream", err)
 		return nil, endpoint, err
 	}
+	m.recordEndpointSuccess(endpoint)
 	m.touch(endpoint)
 	return stream, endpoint, nil
 }
@@ -456,14 +511,20 @@ func (m *ExperimentalMuxConnectionManager) Snapshot() ExperimentalMuxConnectionM
 	retiredAdapters := countManagedAdapters(m.retired)
 	unhealthyAdapters := m.unhealthyAdapters
 	poolExhaustions := m.poolExhaustions
+	dialFailures := m.dialFailures
+	endpointEjections := m.endpointEjections
+	endpointRecoveries := m.endpointRecoveries
 	janitorRuns := m.janitorRuns
 	maxConnsPerEndpoint := m.maxConnsPerEndpoint
 	maxIdleConnsPerEndpoint := m.maxIdleConnsPerEndpoint
+	healthFailureThreshold := m.healthFailureThreshold
+	healthEjectionDuration := m.healthEjectionDuration
 	janitorInterval := m.janitorInterval
 	closeReasons := cloneStringInt64Map(m.closeReasons)
 	drainReasons := cloneStringInt64Map(m.drainReasons)
 	lastUpdated := m.lastUpdated
 	endpoints := m.snapshotEndpointSnapshotsLocked()
+	health := m.snapshotHealthLocked(time.Now())
 	m.mu.Unlock()
 	sort.Slice(endpoints, func(i, j int) bool {
 		if endpoints[i].Endpoint != endpoints[j].Endpoint {
@@ -471,20 +532,27 @@ func (m *ExperimentalMuxConnectionManager) Snapshot() ExperimentalMuxConnectionM
 		}
 		return endpoints[i].Adapter.Transport.LastStreamID < endpoints[j].Adapter.Transport.LastStreamID
 	})
+	sort.Slice(health, func(i, j int) bool { return health[i].Endpoint < health[j].Endpoint })
 	return ExperimentalMuxConnectionManagerSnapshot{
 		Closed:                  closed,
 		IdleTimeout:             idleTimeout,
 		MaxStreamsPerConn:       maxStreamsPerConn,
 		MaxConnsPerEndpoint:     maxConnsPerEndpoint,
 		MaxIdleConnsPerEndpoint: maxIdleConnsPerEndpoint,
+		HealthFailureThreshold:  healthFailureThreshold,
+		HealthEjectionDuration:  healthEjectionDuration,
 		JanitorInterval:         janitorInterval,
 		Endpoints:               endpoints,
+		Health:                  health,
 		RetiredAdapters:         retiredAdapters,
 		WatchUpdates:            watchUpdates,
 		Removed:                 removed,
 		ClosedAdapters:          closedAdapters,
 		UnhealthyAdapters:       unhealthyAdapters,
 		PoolExhaustions:         poolExhaustions,
+		DialFailures:            dialFailures,
+		EndpointEjections:       endpointEjections,
+		EndpointRecoveries:      endpointRecoveries,
 		JanitorRuns:             janitorRuns,
 		CloseReasons:            closeReasons,
 		DrainReasons:            drainReasons,
@@ -501,14 +569,20 @@ func (m *ExperimentalMuxConnectionManager) DiagnosisSnapshot() RPCMuxConnectionM
 		MaxStreamsPerConn:       snapshot.MaxStreamsPerConn,
 		MaxConnsPerEndpoint:     snapshot.MaxConnsPerEndpoint,
 		MaxIdleConnsPerEndpoint: snapshot.MaxIdleConnsPerEndpoint,
+		HealthFailureThreshold:  snapshot.HealthFailureThreshold,
+		HealthEjectionDuration:  snapshot.HealthEjectionDuration,
 		JanitorInterval:         snapshot.JanitorInterval,
 		Endpoints:               snapshot.Endpoints,
+		Health:                  snapshot.Health,
 		RetiredAdapters:         snapshot.RetiredAdapters,
 		WatchUpdates:            snapshot.WatchUpdates,
 		Removed:                 snapshot.Removed,
 		ClosedAdapters:          snapshot.ClosedAdapters,
 		UnhealthyAdapters:       snapshot.UnhealthyAdapters,
 		PoolExhaustions:         snapshot.PoolExhaustions,
+		DialFailures:            snapshot.DialFailures,
+		EndpointEjections:       snapshot.EndpointEjections,
+		EndpointRecoveries:      snapshot.EndpointRecoveries,
 		JanitorRuns:             snapshot.JanitorRuns,
 		CloseReasons:            snapshot.CloseReasons,
 		DrainReasons:            snapshot.DrainReasons,
@@ -551,8 +625,9 @@ func (m *ExperimentalMuxConnectionManager) pickEndpoint(ctx context.Context, end
 		return "", ErrExperimentalMuxTransportClosed
 	}
 	balancer := m.balancer
+	healthy := m.healthyEndpointsLocked(endpoints, time.Now())
 	m.mu.Unlock()
-	endpoint, err := balancer.Pick(ctx, endpoints)
+	endpoint, err := balancer.Pick(ctx, healthy)
 	if err != nil {
 		return "", err
 	}
@@ -696,6 +771,7 @@ func (m *ExperimentalMuxConnectionManager) adapter(ctx context.Context, endpoint
 	}
 	if m.maxConnsPerEndpoint > 0 && len(m.adapters[endpoint]) >= m.maxConnsPerEndpoint {
 		m.poolExhaustions++
+		m.recordEndpointFailureLocked(endpoint, "pool_exhausted", NewError(CodeUnavailable, "mux connection pool exhausted"))
 		m.lastUpdated = time.Now()
 		m.mu.Unlock()
 		_ = closeManagedAdapters(unhealthy)
@@ -706,6 +782,7 @@ func (m *ExperimentalMuxConnectionManager) adapter(ctx context.Context, endpoint
 	_ = closeManagedAdapters(unhealthy)
 	adapter, err := DialExperimentalMuxClientAdapter(ctx, "tcp", muxEndpointAddress(endpoint), opts...)
 	if err != nil {
+		m.recordEndpointFailure(endpoint, "dial_failure", err)
 		return nil, err
 	}
 	m.mu.Lock()
@@ -726,6 +803,7 @@ func (m *ExperimentalMuxConnectionManager) adapter(ctx context.Context, endpoint
 	}
 	if m.maxConnsPerEndpoint > 0 && len(m.adapters[endpoint]) >= m.maxConnsPerEndpoint {
 		m.poolExhaustions++
+		m.recordEndpointFailureLocked(endpoint, "pool_exhausted", NewError(CodeUnavailable, "mux connection pool exhausted"))
 		m.lastUpdated = time.Now()
 		m.mu.Unlock()
 		_ = adapter.Close()
@@ -763,6 +841,114 @@ func (m *ExperimentalMuxConnectionManager) pickReusableAdapterLocked(endpoint st
 	return nil
 }
 
+func (m *ExperimentalMuxConnectionManager) healthyEndpointsLocked(endpoints []string, now time.Time) []string {
+	candidates := normalizeEndpoints(endpoints)
+	if len(candidates) == 0 {
+		return candidates
+	}
+	healthy := make([]string, 0, len(candidates))
+	for _, endpoint := range candidates {
+		state := m.health[endpoint]
+		if state == nil || state.ejectedAt.IsZero() {
+			healthy = append(healthy, endpoint)
+			continue
+		}
+		if m.healthEjectionDuration <= 0 || now.Sub(state.ejectedAt) >= m.healthEjectionDuration {
+			state.failures = 0
+			state.ejectedAt = time.Time{}
+			state.reason = ""
+			state.lastError = ""
+			m.endpointRecoveries++
+			m.lastUpdated = now
+			healthy = append(healthy, endpoint)
+		}
+	}
+	if len(healthy) == 0 {
+		return candidates
+	}
+	return healthy
+}
+
+func (m *ExperimentalMuxConnectionManager) recordEndpointFailure(endpoint string, reason string, err error) {
+	m.mu.Lock()
+	m.recordEndpointFailureLocked(endpoint, reason, err)
+	m.mu.Unlock()
+}
+
+func (m *ExperimentalMuxConnectionManager) recordEndpointFailureLocked(endpoint string, reason string, err error) {
+	endpoint = strings.TrimRight(strings.TrimSpace(endpoint), "/")
+	if endpoint == "" || !muxEndpointHealthFailure(reason, err) {
+		return
+	}
+	if reason == "" {
+		reason = "failure"
+	}
+	if reason == "dial_failure" {
+		m.dialFailures++
+	}
+	if m.health == nil {
+		m.health = make(map[string]*muxEndpointHealth)
+	}
+	state := m.health[endpoint]
+	if state == nil {
+		state = &muxEndpointHealth{}
+		m.health[endpoint] = state
+	}
+	state.failures++
+	state.reason = reason
+	if err != nil {
+		state.lastError = err.Error()
+	}
+	if state.failures >= m.healthFailureThreshold && state.ejectedAt.IsZero() && m.healthEjectionDuration > 0 {
+		state.ejectedAt = time.Now()
+		m.endpointEjections++
+	}
+	m.lastUpdated = time.Now()
+}
+
+func (m *ExperimentalMuxConnectionManager) recordEndpointSuccess(endpoint string) {
+	endpoint = strings.TrimRight(strings.TrimSpace(endpoint), "/")
+	if endpoint == "" {
+		return
+	}
+	m.mu.Lock()
+	state := m.health[endpoint]
+	if state != nil && (state.failures > 0 || !state.ejectedAt.IsZero() || state.reason != "" || state.lastError != "") {
+		state.failures = 0
+		state.ejectedAt = time.Time{}
+		state.reason = ""
+		state.lastError = ""
+		m.endpointRecoveries++
+		m.lastUpdated = time.Now()
+	}
+	m.mu.Unlock()
+}
+
+func (m *ExperimentalMuxConnectionManager) snapshotHealthLocked(now time.Time) []ExperimentalMuxEndpointHealthSnapshot {
+	health := make([]ExperimentalMuxEndpointHealthSnapshot, 0, len(m.health))
+	for endpoint, state := range m.health {
+		if state == nil {
+			continue
+		}
+		ejected := !state.ejectedAt.IsZero()
+		if ejected && m.healthEjectionDuration > 0 && now.Sub(state.ejectedAt) >= m.healthEjectionDuration {
+			ejected = false
+		}
+		if state.failures == 0 && !ejected && state.reason == "" && state.lastError == "" {
+			continue
+		}
+		health = append(health, ExperimentalMuxEndpointHealthSnapshot{
+			Endpoint:  endpoint,
+			Failures:  state.failures,
+			Ejected:   ejected,
+			EjectedAt: state.ejectedAt,
+			Reason:    state.reason,
+			LastError: state.lastError,
+		})
+	}
+	return health
+}
+
 func (m *ExperimentalMuxConnectionManager) collectUnhealthyEndpointLocked(endpoint string) []muxManagedClose {
 	adapters := m.adapters[endpoint]
 	if len(adapters) == 0 {
@@ -776,6 +962,7 @@ func (m *ExperimentalMuxConnectionManager) collectUnhealthyEndpointLocked(endpoi
 		}
 		if adapterUnhealthy(adapter) {
 			m.unhealthyAdapters++
+			m.recordEndpointFailureLocked(endpoint, "unhealthy", NewError(CodeUnavailable, "mux connection unhealthy"))
 			closing = append(closing, muxManagedClose{adapter: adapter, reason: "unhealthy"})
 			continue
 		}
@@ -864,6 +1051,14 @@ func adapterUnhealthy(adapter *muxManagedAdapter) bool {
 	}
 	snapshot := adapter.adapter.Snapshot().Transport
 	return snapshot.Closed || snapshot.Liveness == "closed"
+}
+
+func muxEndpointHealthFailure(reason string, err error) bool {
+	switch reason {
+	case "pool_exhausted", "dial_failure", "unhealthy":
+		return true
+	}
+	return CodeOf(err) == CodeUnavailable || CodeOf(err) == CodeDeadlineExceeded
 }
 
 func muxEndpointAddress(endpoint string) string {

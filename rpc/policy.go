@@ -191,24 +191,30 @@ type RPCMuxTransportDiagnosis struct {
 }
 
 type RPCMuxConnectionManagerDiagnosis struct {
-	Enabled                 bool                              `json:"enabled"`
-	Mode                    string                            `json:"mode,omitempty"`
-	IdleTimeout             time.Duration                     `json:"idleTimeout,omitempty"`
-	MaxStreamsPerConn       int                               `json:"maxStreamsPerConn,omitempty"`
-	MaxConnsPerEndpoint     int                               `json:"maxConnsPerEndpoint,omitempty"`
-	MaxIdleConnsPerEndpoint int                               `json:"maxIdleConnsPerEndpoint,omitempty"`
-	JanitorInterval         time.Duration                     `json:"janitorInterval,omitempty"`
-	Endpoints               []ExperimentalMuxEndpointSnapshot `json:"endpoints,omitempty"`
-	RetiredAdapters         int                               `json:"retiredAdapters,omitempty"`
-	WatchUpdates            int64                             `json:"watchUpdates,omitempty"`
-	Removed                 []string                          `json:"removed,omitempty"`
-	ClosedAdapters          int64                             `json:"closedAdapters,omitempty"`
-	UnhealthyAdapters       int64                             `json:"unhealthyAdapters,omitempty"`
-	PoolExhaustions         int64                             `json:"poolExhaustions,omitempty"`
-	JanitorRuns             int64                             `json:"janitorRuns,omitempty"`
-	CloseReasons            map[string]int64                  `json:"closeReasons,omitempty"`
-	DrainReasons            map[string]int64                  `json:"drainReasons,omitempty"`
-	LastUpdated             time.Time                         `json:"lastUpdated,omitempty"`
+	Enabled                 bool                                    `json:"enabled"`
+	Mode                    string                                  `json:"mode,omitempty"`
+	IdleTimeout             time.Duration                           `json:"idleTimeout,omitempty"`
+	MaxStreamsPerConn       int                                     `json:"maxStreamsPerConn,omitempty"`
+	MaxConnsPerEndpoint     int                                     `json:"maxConnsPerEndpoint,omitempty"`
+	MaxIdleConnsPerEndpoint int                                     `json:"maxIdleConnsPerEndpoint,omitempty"`
+	HealthFailureThreshold  int                                     `json:"healthFailureThreshold,omitempty"`
+	HealthEjectionDuration  time.Duration                           `json:"healthEjectionDuration,omitempty"`
+	JanitorInterval         time.Duration                           `json:"janitorInterval,omitempty"`
+	Endpoints               []ExperimentalMuxEndpointSnapshot       `json:"endpoints,omitempty"`
+	Health                  []ExperimentalMuxEndpointHealthSnapshot `json:"health,omitempty"`
+	RetiredAdapters         int                                     `json:"retiredAdapters,omitempty"`
+	WatchUpdates            int64                                   `json:"watchUpdates,omitempty"`
+	Removed                 []string                                `json:"removed,omitempty"`
+	ClosedAdapters          int64                                   `json:"closedAdapters,omitempty"`
+	UnhealthyAdapters       int64                                   `json:"unhealthyAdapters,omitempty"`
+	PoolExhaustions         int64                                   `json:"poolExhaustions,omitempty"`
+	DialFailures            int64                                   `json:"dialFailures,omitempty"`
+	EndpointEjections       int64                                   `json:"endpointEjections,omitempty"`
+	EndpointRecoveries      int64                                   `json:"endpointRecoveries,omitempty"`
+	JanitorRuns             int64                                   `json:"janitorRuns,omitempty"`
+	CloseReasons            map[string]int64                        `json:"closeReasons,omitempty"`
+	DrainReasons            map[string]int64                        `json:"drainReasons,omitempty"`
+	LastUpdated             time.Time                               `json:"lastUpdated,omitempty"`
 }
 
 type RPCMuxFlowControlDiagnosis struct {

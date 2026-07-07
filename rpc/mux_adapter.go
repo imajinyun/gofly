@@ -51,11 +51,34 @@ type ExperimentalMuxServerAdapter struct {
 	lastError       atomic.Value
 }
 
+type ExperimentalMuxServerConfigurer func(*ExperimentalMuxServerAdapter) error
+
 // NewExperimentalMuxClientAdapter creates an opt-in mux client over conn.
 func NewExperimentalMuxClientAdapter(conn net.Conn, opts ...ExperimentalMuxTransportOption) *ExperimentalMuxClientAdapter {
 	return &ExperimentalMuxClientAdapter{
 		transport: NewExperimentalMuxTransport(conn, opts...),
 	}
+}
+
+func DialExperimentalMuxClientAdapter(ctx context.Context, network string, address string, opts ...ExperimentalMuxTransportOption) (*ExperimentalMuxClientAdapter, error) {
+	ctx = core.Context(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	network = strings.TrimSpace(network)
+	if network == "" {
+		network = "tcp"
+	}
+	address = strings.TrimSpace(address)
+	if address == "" {
+		return nil, NewError(CodeInvalidArgument, "mux adapter address is required")
+	}
+	var dialer net.Dialer
+	conn, err := dialer.DialContext(ctx, network, address)
+	if err != nil {
+		return nil, err
+	}
+	return NewExperimentalMuxClientAdapter(conn, opts...), nil
 }
 
 // NewExperimentalMuxServerAdapter creates an opt-in mux server over conn.
@@ -68,6 +91,42 @@ func NewExperimentalMuxServerAdapter(conn net.Conn, opts ...ExperimentalMuxTrans
 	adapter.lastMethod.Store("")
 	adapter.lastError.Store("")
 	return adapter
+}
+
+func ServeExperimentalMuxListener(ctx context.Context, listener net.Listener, configure ExperimentalMuxServerConfigurer, opts ...ExperimentalMuxTransportOption) error {
+	ctx = core.Context(ctx)
+	if listener == nil {
+		return NewError(CodeInvalidArgument, "mux listener is required")
+	}
+	if configure == nil {
+		return NewError(CodeInvalidArgument, "mux server configurer is required")
+	}
+	go func() {
+		<-ctx.Done()
+		_ = listener.Close()
+	}()
+	var wg sync.WaitGroup
+	defer wg.Wait()
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			if ctx.Err() != nil || errors.Is(err, net.ErrClosed) {
+				return nil
+			}
+			return err
+		}
+		adapter := NewExperimentalMuxServerAdapter(conn, opts...)
+		if err := configure(adapter); err != nil {
+			_ = adapter.Close()
+			return err
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = adapter.Serve(ctx)
+			_ = adapter.Close()
+		}()
+	}
 }
 
 // OpenStream opens a mux stream and sends an adapter routing frame before user messages.

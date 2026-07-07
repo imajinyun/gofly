@@ -58,6 +58,9 @@ type GovernanceSnapshot struct {
 }
 
 type ServerDiagnosisSnapshot struct {
+	Service     string                        `json:"service,omitempty"`
+	Method      string                        `json:"method,omitempty"`
+	Matched     bool                          `json:"matched"`
 	State       StateSnapshot                 `json:"state"`
 	Services    []ServiceSnapshot             `json:"services,omitempty"`
 	PolicyCache RPCPolicyRuntimeCacheSnapshot `json:"policyCache,omitempty"`
@@ -124,7 +127,8 @@ func (s *HTTPServer) serveAdminRoute(w http.ResponseWriter, r *http.Request) {
 	case r.URL.Path == "/rpc/admin/runtime":
 		writeAdminJSON(w, http.StatusOK, s.RuntimeSnapshot(r.Context()))
 	case r.URL.Path == "/rpc/admin/diagnosis":
-		writeAdminJSON(w, http.StatusOK, s.DiagnosisSnapshot())
+		query := r.URL.Query()
+		writeAdminJSON(w, http.StatusOK, s.DiagnosisProbe(query.Get("service"), query.Get("method")))
 	default:
 		http.NotFound(w, r)
 	}
@@ -223,19 +227,59 @@ func (s *HTTPServer) RuntimeSnapshot(ctx context.Context) coreruntime.Snapshot {
 }
 
 func (s *HTTPServer) DiagnosisSnapshot() ServerDiagnosisSnapshot {
+	return s.DiagnosisProbe("", "")
+}
+
+func (s *HTTPServer) DiagnosisProbe(service string, method string) ServerDiagnosisSnapshot {
 	if s == nil {
 		return ServerDiagnosisSnapshot{GeneratedAt: time.Now()}
 	}
+	service = strings.Trim(strings.TrimSpace(service), "/")
+	method = strings.Trim(strings.TrimSpace(method), "/")
 	snapshot := ServerDiagnosisSnapshot{
+		Service:     service,
+		Method:      method,
 		State:       s.State(),
-		Services:    s.ServiceSnapshots(),
 		PolicyCache: s.RuntimeCacheSnapshot(),
 		GeneratedAt: time.Now(),
 	}
+	snapshot.Services = filterServiceSnapshots(s.ServiceSnapshots(), service, method)
+	snapshot.Matched = (service == "" && method == "") || len(snapshot.Services) > 0
 	if s.opts.muxServerAdapter != nil {
 		snapshot.Mux = s.opts.muxServerAdapter.DiagnosisSnapshot()
 	}
 	return snapshot
+}
+
+func filterServiceSnapshots(services []ServiceSnapshot, service string, method string) []ServiceSnapshot {
+	if service == "" && method == "" {
+		return services
+	}
+	out := make([]ServiceSnapshot, 0, len(services))
+	for _, item := range services {
+		if service != "" && item.Name != service {
+			continue
+		}
+		if method == "" || serviceSnapshotHasMethod(item, method) {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+func serviceSnapshotHasMethod(snapshot ServiceSnapshot, method string) bool {
+	method = strings.Trim(strings.TrimSpace(method), "/")
+	for _, candidate := range snapshot.Methods {
+		if candidate == method {
+			return true
+		}
+	}
+	for _, candidate := range snapshot.Streams {
+		if candidate.Name == method {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *HTTPServer) RuntimeCacheSnapshot() RPCPolicyRuntimeCacheSnapshot {

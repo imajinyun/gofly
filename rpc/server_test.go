@@ -1074,6 +1074,35 @@ func TestHTTPServerAdminEndpoints(t *testing.T) {
 		t.Fatalf("server diagnosis = %+v, want mux adapter evidence", diagnosis)
 	}
 
+	filteredDiagnosisReq := httptest.NewRequest(http.MethodGet, "/rpc/admin/diagnosis?service=greeter&method=SayHello", nil)
+	filteredDiagnosisReq.Header.Set("Authorization", "Bearer secret")
+	filteredDiagnosisRec := httptest.NewRecorder()
+	s.ServeHTTP(filteredDiagnosisRec, filteredDiagnosisReq)
+	if filteredDiagnosisRec.Code != http.StatusOK {
+		t.Fatalf("filtered diagnosis status = %d, want 200", filteredDiagnosisRec.Code)
+	}
+	var filteredDiagnosis ServerDiagnosisSnapshot
+	if err := json.NewDecoder(filteredDiagnosisRec.Body).Decode(&filteredDiagnosis); err != nil {
+		t.Fatal(err)
+	}
+	if !filteredDiagnosis.Matched || filteredDiagnosis.Service != "greeter" || filteredDiagnosis.Method != "SayHello" || len(filteredDiagnosis.Services) != 1 {
+		t.Fatalf("filtered diagnosis = %+v, want greeter/SayHello match", filteredDiagnosis)
+	}
+	missingDiagnosisReq := httptest.NewRequest(http.MethodGet, "/rpc/admin/diagnosis?service=greeter&method=Missing", nil)
+	missingDiagnosisReq.Header.Set("Authorization", "Bearer secret")
+	missingDiagnosisRec := httptest.NewRecorder()
+	s.ServeHTTP(missingDiagnosisRec, missingDiagnosisReq)
+	if missingDiagnosisRec.Code != http.StatusOK {
+		t.Fatalf("missing diagnosis status = %d, want 200", missingDiagnosisRec.Code)
+	}
+	var missingDiagnosis ServerDiagnosisSnapshot
+	if err := json.NewDecoder(missingDiagnosisRec.Body).Decode(&missingDiagnosis); err != nil {
+		t.Fatal(err)
+	}
+	if missingDiagnosis.Matched || len(missingDiagnosis.Services) != 0 {
+		t.Fatalf("missing diagnosis = %+v, want unmatched empty service list", missingDiagnosis)
+	}
+
 	rulesReq := httptest.NewRequest(http.MethodGet, "/rpc/admin/governance/rules", nil)
 	rulesReq.Header.Set("Authorization", "Bearer secret")
 	rulesRec := httptest.NewRecorder()

@@ -345,3 +345,52 @@ func TestHTTPClientExperimentalMuxAdapterOptIn(t *testing.T) {
 		t.Fatalf("Serve returned error after cancel: %v", err)
 	}
 }
+
+func TestExperimentalMuxAdapterTCPDialerListener(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	serveDone := make(chan error, 1)
+	go func() {
+		serveDone <- ServeExperimentalMuxListener(ctx, listener, func(adapter *ExperimentalMuxServerAdapter) error {
+			return adapter.RegisterStream("orders/Watch", func(ctx context.Context, stream *ExperimentalMuxStream) error {
+				msg, err := stream.Receive(ctx)
+				if err != nil {
+					return err
+				}
+				if err := stream.Send(ctx, Message{Payload: append([]byte("tcp:"), msg.Payload...)}); err != nil {
+					return err
+				}
+				return stream.Close(ctx, "ok")
+			})
+		})
+	}()
+
+	client, err := DialExperimentalMuxClientAdapter(context.Background(), "tcp", listener.Addr().String())
+	if err != nil {
+		t.Fatalf("DialExperimentalMuxClientAdapter: %v", err)
+	}
+	defer client.Close()
+	stream, err := client.OpenStream(context.Background(), "orders/Watch")
+	if err != nil {
+		t.Fatalf("OpenStream: %v", err)
+	}
+	if err := stream.Send(context.Background(), Message{Payload: []byte("hello")}); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	assertMuxPayload(t, stream, "tcp:hello")
+	if _, err := stream.Receive(muxTestTimeoutContext(t)); !errors.Is(err, io.EOF) {
+		t.Fatalf("terminal receive = %v, want EOF", err)
+	}
+	assertEventually(t, func() bool {
+		return client.Snapshot().Transport.OpenedStreams == 1 && client.Snapshot().Transport.ActiveStreams == 0
+	}, "tcp mux client snapshot")
+
+	cancel()
+	if err := <-serveDone; err != nil {
+		t.Fatalf("ServeExperimentalMuxListener returned error: %v", err)
+	}
+}

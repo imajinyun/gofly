@@ -646,7 +646,7 @@ func TestAdminDiagnostics(t *testing.T) {
 	retryDone := make(chan error, 1)
 	go func() {
 		retryDone <- rpc.ServeExperimentalMuxListener(retryCtx, retryMuxListener, func(adapter *rpc.ExperimentalMuxServerAdapter) error {
-			return adapter.RegisterStream("greeter/Watch", func(ctx context.Context, stream *rpc.ExperimentalMuxStream) error {
+			if err := adapter.RegisterStream("greeter/Watch", func(ctx context.Context, stream *rpc.ExperimentalMuxStream) error {
 				msg, err := stream.Receive(ctx)
 				if err != nil {
 					return err
@@ -655,6 +655,14 @@ func TestAdminDiagnostics(t *testing.T) {
 					return err
 				}
 				return stream.Close(ctx, "ok")
+			}); err != nil {
+				return err
+			}
+			return adapter.RegisterStream("greeter/FailAfterOpen", func(ctx context.Context, stream *rpc.ExperimentalMuxStream) error {
+				if _, err := stream.Receive(ctx); err != nil {
+					return err
+				}
+				return rpc.NewError(rpc.CodeUnavailable, "generated stream failed after open")
 			})
 		})
 	}()
@@ -692,6 +700,19 @@ func TestAdminDiagnostics(t *testing.T) {
 	}
 	if diagnosis := retryClient.RuntimeSnapshot().Diagnosis.Mux.Manager; diagnosis.OpenRetries != 1 || diagnosis.LastRetriedFrom != badMuxEndpoint || diagnosis.RetryReasons["dial_failure"] != 1 {
 		t.Fatalf("retry manager diagnosis = %+v, want generated retry policy evidence", diagnosis)
+	}
+	failStream, err := retryClient.MuxStream(context.Background(), "greeter/FailAfterOpen")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := failStream.Send(context.Background(), rpc.Message{Payload: []byte("probe")}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := failStream.Receive(context.Background()); rpc.CodeOf(err) != rpc.CodeUnavailable {
+		t.Fatalf("fail-after-open receive = %v, want CodeUnavailable", err)
+	}
+	if diagnosis := retryClient.RuntimeSnapshot().Diagnosis.Mux.Manager; diagnosis.OpenRetries != 1 || diagnosis.RetryReasons["open_stream"] != 0 {
+		t.Fatalf("fail-after-open diagnosis = %+v, want no post-open retry replay", diagnosis)
 	}
 	stopRetryMux()
 	if err := <-retryDone; err != nil {

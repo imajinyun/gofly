@@ -675,6 +675,262 @@ func TestExperimentalMuxConnectionManagerMaxStreamsPerConnOpensEndpointPool(t *t
 	}
 }
 
+func TestExperimentalMuxConnectionManagerMaxConnsPerEndpointRejectsWhenPoolFull(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	requests := make(chan string, 1)
+	releaseHandler := make(chan struct{})
+	serveDone := make(chan error, 1)
+	go func() {
+		serveDone <- ServeExperimentalMuxListener(ctx, listener, func(adapter *ExperimentalMuxServerAdapter) error {
+			return adapter.RegisterStream("orders/Hold", func(ctx context.Context, stream *ExperimentalMuxStream) error {
+				msg, err := stream.Receive(ctx)
+				if err != nil {
+					return err
+				}
+				requests <- string(msg.Payload)
+				select {
+				case <-releaseHandler:
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+				if err := stream.Send(ctx, Message{Payload: append([]byte("ack:"), msg.Payload...)}); err != nil {
+					return err
+				}
+				return stream.Close(ctx, "ok")
+			})
+		})
+	}()
+
+	manager, err := NewExperimentalMuxConnectionManager(
+		ResolverFunc(func(context.Context) ([]string, error) { return []string{"tcp://" + listener.Addr().String()}, nil }),
+		WithExperimentalMuxConnectionManagerMaxStreamsPerConn(1),
+		WithExperimentalMuxConnectionManagerMaxConnsPerEndpoint(1),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	client, err := NewClient("http://unused", WithExperimentalMuxConnectionManager(manager))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	stream, err := client.MuxStream(context.Background(), "orders/Hold")
+	if err != nil {
+		t.Fatalf("first MuxStream: %v", err)
+	}
+	if err := stream.Send(context.Background(), Message{Payload: []byte("active")}); err != nil {
+		t.Fatalf("first Send: %v", err)
+	}
+	if got := <-requests; got != "active" {
+		t.Fatalf("handler payload = %q, want active", got)
+	}
+	second, err := client.MuxStream(context.Background(), "orders/Hold")
+	if err == nil || second != nil || CodeOf(err) != CodeUnavailable {
+		t.Fatalf("second MuxStream = stream %#v err %v, want CodeUnavailable pool exhaustion", second, err)
+	}
+	snapshot := manager.Snapshot()
+	if snapshot.MaxConnsPerEndpoint != 1 || snapshot.PoolExhaustions != 1 || len(snapshot.Endpoints) != 1 {
+		t.Fatalf("manager snapshot after pool exhaustion = %+v, want one endpoint and one exhaustion", snapshot)
+	}
+	diagnosis := client.RuntimeSnapshot().Diagnosis.Mux.Manager
+	if diagnosis.PoolExhaustions != 1 || diagnosis.MaxConnsPerEndpoint != 1 {
+		t.Fatalf("mux manager diagnosis after pool exhaustion = %+v, want pool exhaustion evidence", diagnosis)
+	}
+
+	close(releaseHandler)
+	assertMuxPayload(t, stream, "ack:active")
+	if _, err := stream.Receive(muxTestTimeoutContext(t)); !errors.Is(err, io.EOF) {
+		t.Fatalf("terminal receive = %v, want EOF", err)
+	}
+	cancel()
+	if err := <-serveDone; err != nil {
+		t.Fatalf("mux listener stopped with error: %v", err)
+	}
+}
+
+func TestExperimentalMuxConnectionManagerJanitorClosesExcessIdlePool(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	requests := make(chan string, 2)
+	releaseHandlers := make(chan struct{})
+	serveDone := make(chan error, 1)
+	go func() {
+		serveDone <- ServeExperimentalMuxListener(ctx, listener, func(adapter *ExperimentalMuxServerAdapter) error {
+			return adapter.RegisterStream("orders/Echo", func(ctx context.Context, stream *ExperimentalMuxStream) error {
+				msg, err := stream.Receive(ctx)
+				if err != nil {
+					return err
+				}
+				requests <- string(msg.Payload)
+				select {
+				case <-releaseHandlers:
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+				if err := stream.Send(ctx, Message{Payload: append([]byte("ack:"), msg.Payload...)}); err != nil {
+					return err
+				}
+				return stream.Close(ctx, "ok")
+			})
+		})
+	}()
+
+	endpoint := "tcp://" + listener.Addr().String()
+	manager, err := NewExperimentalMuxConnectionManager(
+		ResolverFunc(func(context.Context) ([]string, error) { return []string{endpoint}, nil }),
+		WithExperimentalMuxConnectionManagerMaxStreamsPerConn(1),
+		WithExperimentalMuxConnectionManagerMaxIdleConnsPerEndpoint(1),
+		WithExperimentalMuxConnectionManagerJanitorInterval(5*time.Millisecond),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	client, err := NewClient("http://unused", WithExperimentalMuxConnectionManager(manager))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	first, err := client.MuxStream(context.Background(), "orders/Echo")
+	if err != nil {
+		t.Fatalf("first MuxStream: %v", err)
+	}
+	if err := first.Send(context.Background(), Message{Payload: []byte("first")}); err != nil {
+		t.Fatalf("first Send: %v", err)
+	}
+	second, err := client.MuxStream(context.Background(), "orders/Echo")
+	if err != nil {
+		t.Fatalf("second MuxStream: %v", err)
+	}
+	if err := second.Send(context.Background(), Message{Payload: []byte("second")}); err != nil {
+		t.Fatalf("second Send: %v", err)
+	}
+	gotRequests := map[string]bool{<-requests: true, <-requests: true}
+	if !gotRequests["first"] || !gotRequests["second"] {
+		t.Fatalf("handler payloads = %#v, want first and second", gotRequests)
+	}
+	close(releaseHandlers)
+	assertMuxPayload(t, first, "ack:first")
+	assertMuxPayload(t, second, "ack:second")
+	for name, stream := range map[string]*ExperimentalMuxStream{"first": first, "second": second} {
+		if _, err := stream.Receive(muxTestTimeoutContext(t)); !errors.Is(err, io.EOF) {
+			t.Fatalf("%s terminal receive = %v, want EOF", name, err)
+		}
+	}
+	assertEventually(t, func() bool {
+		snapshot := manager.Snapshot()
+		return len(snapshot.Endpoints) == 1 &&
+			snapshot.ClosedAdapters == 1 &&
+			snapshot.CloseReasons["max_idle"] == 1 &&
+			snapshot.DrainReasons["max_idle"] == 1 &&
+			snapshot.JanitorRuns > 0 &&
+			snapshot.MaxIdleConnsPerEndpoint == 1 &&
+			snapshot.JanitorInterval == 5*time.Millisecond
+	}, "mux manager janitor closed excess idle connection")
+
+	cancel()
+	if err := <-serveDone; err != nil {
+		t.Fatalf("mux listener stopped with error: %v", err)
+	}
+}
+
+func TestExperimentalMuxConnectionManagerEvictsUnhealthyConnectionBeforePoolLimit(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	serveDone := make(chan error, 1)
+	go func() {
+		serveDone <- ServeExperimentalMuxListener(ctx, listener, func(adapter *ExperimentalMuxServerAdapter) error {
+			return adapter.RegisterStream("orders/Echo", func(ctx context.Context, stream *ExperimentalMuxStream) error {
+				msg, err := stream.Receive(ctx)
+				if err != nil {
+					return err
+				}
+				if err := stream.Send(ctx, Message{Payload: append([]byte("ack:"), msg.Payload...)}); err != nil {
+					return err
+				}
+				return stream.Close(ctx, "ok")
+			})
+		})
+	}()
+
+	endpoint := "tcp://" + listener.Addr().String()
+	manager, err := NewExperimentalMuxConnectionManager(
+		ResolverFunc(func(context.Context) ([]string, error) { return []string{endpoint}, nil }),
+		WithExperimentalMuxConnectionManagerMaxConnsPerEndpoint(1),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	client, err := NewClient("http://unused", WithExperimentalMuxConnectionManager(manager))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	first, err := client.MuxStream(context.Background(), "orders/Echo")
+	if err != nil {
+		t.Fatalf("first MuxStream: %v", err)
+	}
+	if err := first.Send(context.Background(), Message{Payload: []byte("first")}); err != nil {
+		t.Fatalf("first Send: %v", err)
+	}
+	assertMuxPayload(t, first, "ack:first")
+	if _, err := first.Receive(muxTestTimeoutContext(t)); !errors.Is(err, io.EOF) {
+		t.Fatalf("first terminal receive = %v, want EOF", err)
+	}
+	manager.mu.Lock()
+	if len(manager.adapters[endpoint]) != 1 {
+		t.Fatalf("manager adapters for %s = %d, want one", endpoint, len(manager.adapters[endpoint]))
+	}
+	closedAdapter := manager.adapters[endpoint][0].adapter
+	manager.mu.Unlock()
+	if err := closedAdapter.Close(); err != nil {
+		t.Fatalf("close cached adapter: %v", err)
+	}
+
+	second, err := client.MuxStream(context.Background(), "orders/Echo")
+	if err != nil {
+		t.Fatalf("second MuxStream after unhealthy eviction: %v", err)
+	}
+	if err := second.Send(context.Background(), Message{Payload: []byte("second")}); err != nil {
+		t.Fatalf("second Send: %v", err)
+	}
+	assertMuxPayload(t, second, "ack:second")
+	if _, err := second.Receive(muxTestTimeoutContext(t)); !errors.Is(err, io.EOF) {
+		t.Fatalf("second terminal receive = %v, want EOF", err)
+	}
+	snapshot := manager.Snapshot()
+	if snapshot.UnhealthyAdapters != 1 ||
+		snapshot.CloseReasons["unhealthy"] != 1 ||
+		snapshot.PoolExhaustions != 0 ||
+		len(snapshot.Endpoints) != 1 ||
+		snapshot.Endpoints[0].Adapter.Transport.Closed {
+		t.Fatalf("manager snapshot after unhealthy eviction = %+v, want one healthy replacement connection", snapshot)
+	}
+
+	cancel()
+	if err := <-serveDone; err != nil {
+		t.Fatalf("mux listener stopped with error: %v", err)
+	}
+}
+
 func TestExperimentalMuxConnectionManagerResolverRemovalDrainsActivePoolBeforeIdleClose(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

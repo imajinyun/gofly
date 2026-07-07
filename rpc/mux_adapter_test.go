@@ -1110,6 +1110,89 @@ func TestExperimentalMuxConnectionManagerSkipsEndpointAfterDialFailure(t *testin
 	}
 }
 
+func TestExperimentalMuxConnectionManagerDoesNotReplayAfterStreamOpen(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	firstListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstDone := make(chan error, 1)
+	go func() {
+		firstDone <- ServeExperimentalMuxListener(ctx, firstListener, func(adapter *ExperimentalMuxServerAdapter) error {
+			return adapter.RegisterStream("orders/FailAfterOpen", func(ctx context.Context, stream *ExperimentalMuxStream) error {
+				if _, err := stream.Receive(ctx); err != nil {
+					return err
+				}
+				return NewError(CodeUnavailable, "failed after stream opened")
+			})
+		})
+	}()
+	secondAccepted := make(chan struct{}, 1)
+	secondDone := make(chan error, 1)
+	go func() {
+		secondDone <- ServeExperimentalMuxListener(ctx, secondListener, func(adapter *ExperimentalMuxServerAdapter) error {
+			return adapter.RegisterStream("orders/FailAfterOpen", func(ctx context.Context, stream *ExperimentalMuxStream) error {
+				secondAccepted <- struct{}{}
+				return stream.Close(ctx, "unexpected")
+			})
+		})
+	}()
+
+	firstEndpoint := "tcp://" + firstListener.Addr().String()
+	secondEndpoint := "tcp://" + secondListener.Addr().String()
+	manager, err := NewExperimentalMuxConnectionManager(
+		ResolverFunc(func(context.Context) ([]string, error) { return []string{firstEndpoint, secondEndpoint}, nil }),
+		WithExperimentalMuxConnectionManagerMaxOpenRetries(1),
+		WithExperimentalMuxConnectionManagerOpenRetryReasons("dial_failure", "pool_exhausted", "open_stream"),
+		WithExperimentalMuxConnectionManagerHealthFailureThreshold(1),
+		WithExperimentalMuxConnectionManagerHealthEjectionDuration(time.Hour),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	client, err := NewClient("http://unused", WithExperimentalMuxConnectionManager(manager))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	stream, err := client.MuxStream(context.Background(), "orders/FailAfterOpen")
+	if err != nil {
+		t.Fatalf("MuxStream: %v", err)
+	}
+	if err := stream.Send(context.Background(), Message{Payload: []byte("request")}); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	if _, err := stream.Receive(muxTestTimeoutContext(t)); CodeOf(err) != CodeUnavailable {
+		t.Fatalf("Receive = %v, want CodeUnavailable", err)
+	}
+	select {
+	case <-secondAccepted:
+		t.Fatal("second endpoint received a replay after stream opened")
+	default:
+	}
+	snapshot := manager.Snapshot()
+	if snapshot.OpenRetries != 0 ||
+		snapshot.RetryReasons["open_stream"] != 0 ||
+		snapshot.EndpointEjections != 0 {
+		t.Fatalf("manager snapshot after post-open failure = %+v, want no open retry replay", snapshot)
+	}
+
+	cancel()
+	if err := <-firstDone; err != nil {
+		t.Fatalf("first mux listener stopped with error: %v", err)
+	}
+	if err := <-secondDone; err != nil {
+		t.Fatalf("second mux listener stopped with error: %v", err)
+	}
+}
+
 func TestExperimentalMuxConnectionManagerEndpointHealthBackoffCooldown(t *testing.T) {
 	endpoint := "tcp://127.0.0.1:1"
 	manager, err := NewExperimentalMuxConnectionManager(

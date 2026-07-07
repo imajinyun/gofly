@@ -292,7 +292,12 @@ func releaseGeneratedRPCMuxRetrySmokeCheck() (releaseCheckItem, []string) {
 		item.Evidence = map[string]any{"generated-rpc-mux-retry-smoke": map[string]any{"missing": missing}}
 		return item, []string{"generated RPC mux retry smoke markers missing"}
 	}
-	runtimeCommand := []string{"test", "-count=1", "-shuffle=on", "./rpc", "-run", "TestExperimentalMuxConnectionManagerEndpointHealthBackoffCooldown"}
+	runtimeTests := []string{
+		"TestExperimentalMuxConnectionManagerRetriesOpenBeforeStreamAfterPoolExhaustion",
+		"TestExperimentalMuxConnectionManagerDoesNotReplayAfterStreamOpen",
+		"TestExperimentalMuxConnectionManagerEndpointHealthBackoffCooldown",
+	}
+	runtimeCommand := []string{"test", "-count=1", "-shuffle=on", "./rpc", "-run", strings.Join(runtimeTests, "|")}
 	runtimeOutput, runtimeErr := runReleaseGoCommand(runtimeCommand...)
 	if runtimeErr != nil {
 		item.Status = "fail"
@@ -316,6 +321,7 @@ func releaseGeneratedRPCMuxRetrySmokeCheck() (releaseCheckItem, []string) {
 			"runtimeCommand":    append([]string{"go"}, runtimeCommand...),
 			"runtimeOutput":     strings.TrimSpace(string(runtimeOutput)),
 			"runtimeProof":      true,
+			"runtimeProofs":     runtimeTests,
 			"openBeforeRetry":   true,
 			"postOpenNoReplay":  true,
 			"cooldownBackoff":   true,

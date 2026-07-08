@@ -277,7 +277,7 @@ const configTemplate = `{
   "rpc": {
     "addr": ":8081",
     "advertise": "http://127.0.0.1:8081",
-    "mux": {"enabled": false, "probe": false, "addr": "127.0.0.1:8082", "endpoints": [], "idleTimeout": 60000000000, "maxOpenRetries": 1, "openRetryReasons": ["dial_failure", "pool_exhausted"], "healthBackoffMultiplier": 2, "healthMaxCooldown": 30000000000, "candidate": {"enabled": false, "protocol": "gofly-mux/experimental-v1", "dialTimeout": 30000000000, "keepAlive": 30000000000, "handshakeTimeout": 10000000000, "keepaliveInterval": 30000000000, "keepaliveIdle": 90000000000, "maxFrameBytes": 4194304, "maxMessageBytes": 67108864, "maxConcurrentStreams": 128, "receiveQueueSize": 16, "connectionWindow": 16, "payloadCodec": "identity", "frameCodec": "binary", "tls": {}}}
+    "mux": {"enabled": false, "probe": false, "addr": "127.0.0.1:8082", "endpoints": [], "idleTimeout": 60000000000, "maxOpenRetries": 1, "openRetryReasons": ["dial_failure", "pool_exhausted"], "healthBackoffMultiplier": 2, "healthMaxCooldown": 30000000000, "candidate": {"enabled": false, "protocol": "gofly-mux/experimental-v1", "dialTimeout": 30000000000, "keepAlive": 30000000000, "handshakeTimeout": 10000000000, "keepaliveInterval": 30000000000, "keepaliveIdle": 90000000000, "maxFrameBytes": 4194304, "maxMessageBytes": 67108864, "maxConcurrentStreams": 128, "receiveQueueSize": 16, "connectionWindow": 16, "payloadCodec": "identity", "frameCodec": "binary", "allowLegacyDowngrade": false, "tls": {}}}
   }
 }
 `
@@ -986,6 +986,7 @@ type RPCMuxCandidateConfig struct {
 	ConnectionWindow int ` + "`json:\"connectionWindow,omitempty\"`" + `
 	PayloadCodec string ` + "`json:\"payloadCodec,omitempty\"`" + `
 	FrameCodec string ` + "`json:\"frameCodec,omitempty\"`" + `
+	AllowLegacyDowngrade bool ` + "`json:\"allowLegacyDowngrade,omitempty\"`" + `
 }
 
 type ResilienceProfile struct {
@@ -1107,6 +1108,7 @@ func (c RPCMuxConfig) CandidateConfig() rpc.ExperimentalMuxCandidateConfig {
 		ConnectionWindow:     candidate.ConnectionWindow,
 		PayloadCodec:         candidate.PayloadCodec,
 		FrameCodec:           candidate.FrameCodec,
+		AllowLegacyDowngrade: candidate.AllowLegacyDowngrade,
 	}
 }
 

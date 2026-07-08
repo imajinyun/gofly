@@ -17,7 +17,15 @@ import (
 const (
 	experimentalMuxCandidateDefaultProtocol = "gofly-mux/experimental-v1"
 	experimentalMuxCandidatePrefacePrefix   = "GOFLY-MUX/1 "
-	experimentalMuxCandidateMaxPrefaceBytes = 128
+	experimentalMuxCandidateMaxPrefaceBytes = 512
+)
+
+const (
+	experimentalMuxCandidateFailureTLS         = "tls"
+	experimentalMuxCandidateFailureALPN        = "alpn"
+	experimentalMuxCandidateFailurePreface     = "preface"
+	experimentalMuxCandidateFailureProtocol    = "protocol_mismatch"
+	experimentalMuxCandidateFailureFramePolicy = "frame_policy_mismatch"
 )
 
 // ExperimentalMuxCandidateConfig describes the opt-in production-candidate
@@ -39,6 +47,7 @@ type ExperimentalMuxCandidateConfig struct {
 	ConnectionWindow     int                `json:"connectionWindow,omitempty"`
 	PayloadCodec         string             `json:"payloadCodec,omitempty"`
 	FrameCodec           string             `json:"frameCodec,omitempty"`
+	AllowLegacyDowngrade bool               `json:"allowLegacyDowngrade,omitempty"`
 }
 
 // ExperimentalMuxCandidateSnapshot is intentionally path-free so runtime
@@ -46,9 +55,17 @@ type ExperimentalMuxCandidateConfig struct {
 type ExperimentalMuxCandidateSnapshot struct {
 	Enabled              bool          `json:"enabled"`
 	Protocol             string        `json:"protocol,omitempty"`
+	PeerProtocol         string        `json:"peerProtocol,omitempty"`
 	NegotiatedProtocol   string        `json:"negotiatedProtocol,omitempty"`
 	TLS                  bool          `json:"tls"`
 	MutualTLS            bool          `json:"mutualTLS"`
+	NegotiationFailures  int64         `json:"negotiationFailures,omitempty"`
+	LastNegotiationError string        `json:"lastNegotiationError,omitempty"`
+	LastNegotiationPhase string        `json:"lastNegotiationPhase,omitempty"`
+	DowngradeAllowed     bool          `json:"downgradeAllowed,omitempty"`
+	Downgrades           int64         `json:"downgrades,omitempty"`
+	Downgraded           bool          `json:"downgraded,omitempty"`
+	DowngradeReason      string        `json:"downgradeReason,omitempty"`
 	DialTimeout          time.Duration `json:"dialTimeout,omitempty"`
 	KeepAlive            time.Duration `json:"keepAlive,omitempty"`
 	HandshakeTimeout     time.Duration `json:"handshakeTimeout,omitempty"`
@@ -61,6 +78,40 @@ type ExperimentalMuxCandidateSnapshot struct {
 	ConnectionWindow     int           `json:"connectionWindow,omitempty"`
 	PayloadCodec         string        `json:"payloadCodec,omitempty"`
 	FrameCodec           string        `json:"frameCodec,omitempty"`
+}
+
+type ExperimentalMuxCandidateFailure struct {
+	Phase        string
+	PeerProtocol string
+	Err          error
+}
+
+func (e *ExperimentalMuxCandidateFailure) Error() string {
+	if e == nil {
+		return ""
+	}
+	if e.Err == nil {
+		return "mux candidate negotiation failed"
+	}
+	if e.Phase == "" {
+		return e.Err.Error()
+	}
+	return "mux candidate " + e.Phase + ": " + e.Err.Error()
+}
+
+func (e *ExperimentalMuxCandidateFailure) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}
+
+type experimentalMuxCandidatePeer struct {
+	Protocol        string
+	FrameCodec      string
+	PayloadCodec    string
+	MaxFrameBytes   int64
+	MaxMessageBytes int64
 }
 
 func (c ExperimentalMuxCandidateConfig) normalized() ExperimentalMuxCandidateConfig {
@@ -135,6 +186,7 @@ func (c ExperimentalMuxCandidateConfig) snapshot(role string, negotiated string)
 		ConnectionWindow:     c.ConnectionWindow,
 		PayloadCodec:         c.PayloadCodec,
 		FrameCodec:           c.FrameCodec,
+		DowngradeAllowed:     c.AllowLegacyDowngrade,
 	}
 }
 
@@ -174,25 +226,32 @@ func dialExperimentalMuxCandidateConn(ctx context.Context, network string, addre
 	var negotiated string
 	if tlsCfg, err := cfg.clientTLSConfig(); err != nil {
 		_ = conn.Close()
-		return nil, ExperimentalMuxCandidateSnapshot{}, err
+		return nil, ExperimentalMuxCandidateSnapshot{}, newExperimentalMuxCandidateFailure(experimentalMuxCandidateFailureTLS, "", err)
 	} else if tlsCfg != nil {
 		tlsConn := tls.Client(conn, tlsCfg)
 		if err := muxCandidateHandshake(ctx, tlsConn, cfg.HandshakeTimeout); err != nil {
 			_ = tlsConn.Close()
-			return nil, ExperimentalMuxCandidateSnapshot{}, err
+			return nil, ExperimentalMuxCandidateSnapshot{}, newExperimentalMuxCandidateFailure(experimentalMuxCandidateFailureTLS, "", err)
 		}
 		state := tlsConn.ConnectionState()
 		negotiated = state.NegotiatedProtocol
+		if negotiated != cfg.Protocol {
+			_ = tlsConn.Close()
+			return nil, ExperimentalMuxCandidateSnapshot{}, newExperimentalMuxCandidateFailure(experimentalMuxCandidateFailureALPN, negotiated, fmt.Errorf("negotiated protocol %q, want %q", negotiated, cfg.Protocol))
+		}
 		conn = tlsConn
 	}
 	if negotiated == "" {
 		negotiated = cfg.Protocol
 	}
-	if err := exchangeExperimentalMuxCandidateProtocol(ctx, conn, cfg); err != nil {
+	peer, err := exchangeExperimentalMuxCandidateProtocol(ctx, conn, cfg)
+	if err != nil {
 		_ = conn.Close()
 		return nil, ExperimentalMuxCandidateSnapshot{}, err
 	}
-	return conn, cfg.snapshot("client", negotiated), nil
+	snapshot := cfg.snapshot("client", negotiated)
+	snapshot.PeerProtocol = peer.Protocol
+	return conn, snapshot, nil
 }
 
 func acceptExperimentalMuxCandidateConn(ctx context.Context, conn net.Conn, cfg ExperimentalMuxCandidateConfig) (net.Conn, ExperimentalMuxCandidateSnapshot, error) {
@@ -200,30 +259,37 @@ func acceptExperimentalMuxCandidateConn(ctx context.Context, conn net.Conn, cfg 
 	cfg = cfg.normalized()
 	var negotiated string
 	if tlsCfg, err := cfg.serverTLSConfig(); err != nil {
-		return nil, ExperimentalMuxCandidateSnapshot{}, err
+		return nil, ExperimentalMuxCandidateSnapshot{}, newExperimentalMuxCandidateFailure(experimentalMuxCandidateFailureTLS, "", err)
 	} else if tlsCfg != nil {
 		tlsConn := tls.Server(conn, tlsCfg)
 		if err := muxCandidateHandshake(ctx, tlsConn, cfg.HandshakeTimeout); err != nil {
 			_ = tlsConn.Close()
-			return nil, ExperimentalMuxCandidateSnapshot{}, err
+			return nil, ExperimentalMuxCandidateSnapshot{}, newExperimentalMuxCandidateFailure(experimentalMuxCandidateFailureTLS, "", err)
 		}
 		state := tlsConn.ConnectionState()
 		negotiated = state.NegotiatedProtocol
+		if negotiated != cfg.Protocol {
+			_ = tlsConn.Close()
+			return nil, ExperimentalMuxCandidateSnapshot{}, newExperimentalMuxCandidateFailure(experimentalMuxCandidateFailureALPN, negotiated, fmt.Errorf("negotiated protocol %q, want %q", negotiated, cfg.Protocol))
+		}
 		conn = tlsConn
 	}
 	if negotiated == "" {
 		negotiated = cfg.Protocol
 	}
-	if err := exchangeExperimentalMuxCandidateProtocol(ctx, conn, cfg); err != nil {
+	peer, err := exchangeExperimentalMuxCandidateProtocol(ctx, conn, cfg)
+	if err != nil {
 		return nil, ExperimentalMuxCandidateSnapshot{}, err
 	}
-	return conn, cfg.snapshot("server", negotiated), nil
+	snapshot := cfg.snapshot("server", negotiated)
+	snapshot.PeerProtocol = peer.Protocol
+	return conn, snapshot, nil
 }
 
-func exchangeExperimentalMuxCandidateProtocol(ctx context.Context, conn net.Conn, cfg ExperimentalMuxCandidateConfig) error {
+func exchangeExperimentalMuxCandidateProtocol(ctx context.Context, conn net.Conn, cfg ExperimentalMuxCandidateConfig) (experimentalMuxCandidatePeer, error) {
 	ctx = core.Context(ctx)
 	if err := ctx.Err(); err != nil {
-		return err
+		return experimentalMuxCandidatePeer{}, err
 	}
 	deadline := time.Now().Add(cfg.HandshakeTimeout)
 	if deadlineFromContext, ok := ctx.Deadline(); ok && deadlineFromContext.Before(deadline) {
@@ -233,24 +299,27 @@ func exchangeExperimentalMuxCandidateProtocol(ctx context.Context, conn net.Conn
 		_ = conn.SetDeadline(deadline)
 		defer conn.SetDeadline(time.Time{})
 	}
-	preface := []byte(experimentalMuxCandidatePrefacePrefix + cfg.Protocol + "\n")
+	preface := []byte(formatExperimentalMuxCandidatePreface(cfg))
 	if len(preface) > experimentalMuxCandidateMaxPrefaceBytes {
-		return NewError(CodeInvalidArgument, "mux candidate protocol preface too large")
+		return experimentalMuxCandidatePeer{}, newExperimentalMuxCandidateFailure(experimentalMuxCandidateFailurePreface, "", NewError(CodeInvalidArgument, "mux candidate protocol preface too large"))
 	}
 	if _, err := conn.Write(preface); err != nil {
-		return fmt.Errorf("write mux candidate protocol preface: %w", err)
+		return experimentalMuxCandidatePeer{}, newExperimentalMuxCandidateFailure(muxCandidateIOFailurePhase(conn), "", fmt.Errorf("write mux candidate protocol preface: %w", err))
 	}
 	peer, err := readExperimentalMuxCandidatePreface(conn)
 	if err != nil {
-		return err
+		return peer, err
 	}
-	if peer != cfg.Protocol {
-		return NewError(CodeUnavailable, "mux candidate protocol mismatch")
+	if peer.Protocol != cfg.Protocol {
+		return peer, newExperimentalMuxCandidateFailure(experimentalMuxCandidateFailureProtocol, peer.Protocol, NewError(CodeUnavailable, "mux candidate protocol mismatch"))
 	}
-	return nil
+	if err := validateExperimentalMuxCandidatePolicy(cfg, peer); err != nil {
+		return peer, err
+	}
+	return peer, nil
 }
 
-func readExperimentalMuxCandidatePreface(conn net.Conn) (string, error) {
+func readExperimentalMuxCandidatePreface(conn net.Conn) (experimentalMuxCandidatePeer, error) {
 	buf := make([]byte, 0, experimentalMuxCandidateMaxPrefaceBytes)
 	var one [1]byte
 	for len(buf) < experimentalMuxCandidateMaxPrefaceBytes {
@@ -259,20 +328,98 @@ func readExperimentalMuxCandidatePreface(conn net.Conn) (string, error) {
 			if one[0] == '\n' {
 				line := string(buf)
 				if !strings.HasPrefix(line, experimentalMuxCandidatePrefacePrefix) {
-					return "", NewError(CodeUnavailable, "mux candidate protocol preface mismatch")
+					return experimentalMuxCandidatePeer{}, newExperimentalMuxCandidateFailure(experimentalMuxCandidateFailurePreface, "", NewError(CodeUnavailable, "mux candidate protocol preface mismatch"))
 				}
-				return strings.TrimPrefix(line, experimentalMuxCandidatePrefacePrefix), nil
+				return parseExperimentalMuxCandidatePreface(strings.TrimPrefix(line, experimentalMuxCandidatePrefacePrefix))
 			}
 			buf = append(buf, one[0])
 		}
 		if err != nil {
 			if errors.Is(err, io.EOF) {
-				return "", ErrExperimentalMuxTransportClosed
+				return experimentalMuxCandidatePeer{}, newExperimentalMuxCandidateFailure(experimentalMuxCandidateFailurePreface, "", ErrExperimentalMuxTransportClosed)
 			}
-			return "", fmt.Errorf("read mux candidate protocol preface: %w", err)
+			return experimentalMuxCandidatePeer{}, newExperimentalMuxCandidateFailure(muxCandidateIOFailurePhase(conn), "", fmt.Errorf("read mux candidate protocol preface: %w", err))
 		}
 	}
-	return "", NewError(CodeUnavailable, "mux candidate protocol preface too large")
+	return experimentalMuxCandidatePeer{}, newExperimentalMuxCandidateFailure(experimentalMuxCandidateFailurePreface, "", NewError(CodeUnavailable, "mux candidate protocol preface too large"))
+}
+
+func formatExperimentalMuxCandidatePreface(cfg ExperimentalMuxCandidateConfig) string {
+	policy := effectiveExperimentalMuxCandidatePolicy(cfg)
+	return fmt.Sprintf(
+		"%s%s frame=%s payload=%s maxFrame=%d maxMessage=%d\n",
+		experimentalMuxCandidatePrefacePrefix,
+		policy.Protocol,
+		policy.FrameCodec,
+		policy.PayloadCodec,
+		policy.MaxFrameBytes,
+		policy.MaxMessageBytes,
+	)
+}
+
+func parseExperimentalMuxCandidatePreface(line string) (experimentalMuxCandidatePeer, error) {
+	fields := strings.Fields(line)
+	if len(fields) == 0 {
+		return experimentalMuxCandidatePeer{}, newExperimentalMuxCandidateFailure(experimentalMuxCandidateFailurePreface, "", NewError(CodeUnavailable, "mux candidate protocol preface missing protocol"))
+	}
+	peer := experimentalMuxCandidatePeer{Protocol: fields[0]}
+	for _, field := range fields[1:] {
+		key, value, ok := strings.Cut(field, "=")
+		if !ok {
+			continue
+		}
+		switch key {
+		case "frame":
+			peer.FrameCodec = value
+		case "payload":
+			peer.PayloadCodec = value
+		case "maxFrame":
+			if _, err := fmt.Sscan(value, &peer.MaxFrameBytes); err != nil {
+				return peer, newExperimentalMuxCandidateFailure(experimentalMuxCandidateFailurePreface, peer.Protocol, fmt.Errorf("parse mux candidate maxFrame: %w", err))
+			}
+		case "maxMessage":
+			if _, err := fmt.Sscan(value, &peer.MaxMessageBytes); err != nil {
+				return peer, newExperimentalMuxCandidateFailure(experimentalMuxCandidateFailurePreface, peer.Protocol, fmt.Errorf("parse mux candidate maxMessage: %w", err))
+			}
+		}
+	}
+	return peer, nil
+}
+
+func validateExperimentalMuxCandidatePolicy(cfg ExperimentalMuxCandidateConfig, peer experimentalMuxCandidatePeer) error {
+	policy := effectiveExperimentalMuxCandidatePolicy(cfg)
+	if peer.FrameCodec != "" && peer.FrameCodec != policy.FrameCodec {
+		return newExperimentalMuxCandidateFailure(experimentalMuxCandidateFailureFramePolicy, peer.Protocol, fmt.Errorf("peer frame codec %q, want %q", peer.FrameCodec, policy.FrameCodec))
+	}
+	if peer.PayloadCodec != "" && peer.PayloadCodec != policy.PayloadCodec {
+		return newExperimentalMuxCandidateFailure(experimentalMuxCandidateFailureFramePolicy, peer.Protocol, fmt.Errorf("peer payload codec %q, want %q", peer.PayloadCodec, policy.PayloadCodec))
+	}
+	if peer.MaxFrameBytes > 0 && peer.MaxFrameBytes != policy.MaxFrameBytes {
+		return newExperimentalMuxCandidateFailure(experimentalMuxCandidateFailureFramePolicy, peer.Protocol, fmt.Errorf("peer max frame %d, want %d", peer.MaxFrameBytes, policy.MaxFrameBytes))
+	}
+	if peer.MaxMessageBytes > 0 && peer.MaxMessageBytes != policy.MaxMessageBytes {
+		return newExperimentalMuxCandidateFailure(experimentalMuxCandidateFailureFramePolicy, peer.Protocol, fmt.Errorf("peer max message %d, want %d", peer.MaxMessageBytes, policy.MaxMessageBytes))
+	}
+	return nil
+}
+
+func effectiveExperimentalMuxCandidatePolicy(cfg ExperimentalMuxCandidateConfig) experimentalMuxCandidatePeer {
+	cfg = cfg.normalized()
+	maxFrame := cfg.MaxFrameBytes
+	if maxFrame <= 0 {
+		maxFrame = DefaultMaxFrameBytes
+	}
+	maxMessage := cfg.MaxMessageBytes
+	if maxMessage <= 0 {
+		maxMessage = maxFrame * 16
+	}
+	return experimentalMuxCandidatePeer{
+		Protocol:        cfg.Protocol,
+		FrameCodec:      cfg.FrameCodec,
+		PayloadCodec:    cfg.PayloadCodec,
+		MaxFrameBytes:   maxFrame,
+		MaxMessageBytes: maxMessage,
+	}
 }
 
 func muxCandidateHandshake(ctx context.Context, conn *tls.Conn, timeout time.Duration) error {
@@ -335,4 +482,26 @@ func muxCandidateMutualTLSConfigured(cfg security.TLSConfig, role string) bool {
 		return cfg.MutualEnabled()
 	}
 	return cfg.Enabled()
+}
+
+func muxCandidateIOFailurePhase(conn net.Conn) string {
+	if _, ok := conn.(*tls.Conn); ok {
+		return experimentalMuxCandidateFailureTLS
+	}
+	return experimentalMuxCandidateFailurePreface
+}
+
+func newExperimentalMuxCandidateFailure(phase string, peerProtocol string, err error) error {
+	if err == nil {
+		err = errors.New("mux candidate negotiation failed")
+	}
+	return &ExperimentalMuxCandidateFailure{Phase: phase, PeerProtocol: peerProtocol, Err: err}
+}
+
+func experimentalMuxCandidateFailureInfo(err error) (phase string, peerProtocol string, ok bool) {
+	var failure *ExperimentalMuxCandidateFailure
+	if errors.As(err, &failure) && failure != nil {
+		return failure.Phase, failure.PeerProtocol, true
+	}
+	return "", "", false
 }

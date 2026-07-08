@@ -591,6 +591,9 @@ func TestExperimentalMuxCandidateAdapterMutualTLS(t *testing.T) {
 		_ = noCert.Close()
 		t.Fatal("expected mutual TLS mux candidate dial without client cert to fail")
 	}
+	if phase, _, ok := experimentalMuxCandidateFailureInfo(err); !ok || phase != experimentalMuxCandidateFailureTLS {
+		t.Fatalf("mutual TLS failure = %v phase=%q ok=%v, want tls phase", err, phase, ok)
+	}
 
 	client, err := DialExperimentalMuxCandidateClientAdapter(context.Background(), "tcp", server.Addr(), ExperimentalMuxCandidateConfig{
 		Protocol: "gofly-mux/mtls-test",
@@ -630,6 +633,157 @@ func TestExperimentalMuxCandidateAdapterMutualTLS(t *testing.T) {
 			diagnosis.Candidate.NegotiatedProtocol == "gofly-mux/mtls-test" &&
 			diagnosis.Adapter.AcceptedStreams == 1
 	}, "mux candidate server mTLS diagnosis")
+}
+
+func TestExperimentalMuxCandidateNegotiationFailureDiagnostics(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	serverCfg := ExperimentalMuxCandidateConfig{
+		Protocol:        "gofly-mux/server-protocol",
+		FrameCodec:      "binary",
+		PayloadCodec:    "identity",
+		MaxFrameBytes:   256,
+		MaxMessageBytes: 1024,
+	}
+	serveDone := make(chan error, 1)
+	go func() {
+		serveDone <- ServeExperimentalMuxCandidateListener(ctx, listener, func(adapter *ExperimentalMuxServerAdapter) error {
+			return adapter.RegisterStream("orders/Watch", func(ctx context.Context, stream *ExperimentalMuxStream) error {
+				return stream.Close(ctx, "ok")
+			})
+		}, serverCfg)
+	}()
+
+	clientCfg := serverCfg
+	clientCfg.Protocol = "gofly-mux/client-protocol"
+	adapter, err := DialExperimentalMuxCandidateClientAdapter(context.Background(), "tcp", listener.Addr().String(), clientCfg)
+	if err == nil {
+		_ = adapter.Close()
+		t.Fatal("candidate dial with protocol mismatch succeeded, want error")
+	}
+	phase, peerProtocol, ok := experimentalMuxCandidateFailureInfo(err)
+	if !ok || phase != experimentalMuxCandidateFailureProtocol || peerProtocol != serverCfg.Protocol {
+		t.Fatalf("protocol mismatch err=%v phase=%q peer=%q ok=%v, want protocol mismatch with peer protocol", err, phase, peerProtocol, ok)
+	}
+
+	cancel()
+	if err := <-serveDone; err != nil {
+		t.Fatalf("candidate server stopped with error: %v", err)
+	}
+}
+
+func TestExperimentalMuxCandidateFramePolicyFailureDiagnostics(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	serverCfg := ExperimentalMuxCandidateConfig{
+		Protocol:        "gofly-mux/policy-test",
+		FrameCodec:      "binary",
+		PayloadCodec:    "identity",
+		MaxFrameBytes:   256,
+		MaxMessageBytes: 1024,
+	}
+	serveDone := make(chan error, 1)
+	go func() {
+		serveDone <- ServeExperimentalMuxCandidateListener(ctx, listener, func(adapter *ExperimentalMuxServerAdapter) error {
+			return adapter.RegisterStream("orders/Watch", func(ctx context.Context, stream *ExperimentalMuxStream) error {
+				return stream.Close(ctx, "ok")
+			})
+		}, serverCfg)
+	}()
+
+	clientCfg := serverCfg
+	clientCfg.FrameCodec = "json"
+	adapter, err := DialExperimentalMuxCandidateClientAdapter(context.Background(), "tcp", listener.Addr().String(), clientCfg)
+	if err == nil {
+		_ = adapter.Close()
+		t.Fatal("candidate dial with frame policy mismatch succeeded, want error")
+	}
+	phase, peerProtocol, ok := experimentalMuxCandidateFailureInfo(err)
+	if !ok || phase != experimentalMuxCandidateFailureFramePolicy || peerProtocol != serverCfg.Protocol {
+		t.Fatalf("frame policy mismatch err=%v phase=%q peer=%q ok=%v, want frame policy mismatch", err, phase, peerProtocol, ok)
+	}
+
+	cancel()
+	if err := <-serveDone; err != nil {
+		t.Fatalf("candidate server stopped with error: %v", err)
+	}
+}
+
+func TestExperimentalMuxConnectionManagerCandidateDowngradeDiagnostics(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	serveDone := make(chan error, 1)
+	go func() {
+		serveDone <- ServeExperimentalMuxListener(ctx, listener, func(adapter *ExperimentalMuxServerAdapter) error {
+			return adapter.RegisterStream("orders/Watch", func(ctx context.Context, stream *ExperimentalMuxStream) error {
+				msg, err := stream.Receive(ctx)
+				if err != nil {
+					return err
+				}
+				if err := stream.Send(ctx, Message{Payload: append([]byte("legacy:"), msg.Payload...)}); err != nil {
+					return err
+				}
+				return stream.Close(ctx, "ok")
+			})
+		})
+	}()
+	candidateCfg := ExperimentalMuxCandidateConfig{
+		Protocol:             "gofly-mux/downgrade-test",
+		FrameCodec:           "binary",
+		PayloadCodec:         "identity",
+		AllowLegacyDowngrade: true,
+	}
+	manager, err := NewExperimentalMuxConnectionManager(
+		ResolverFunc(func(context.Context) ([]string, error) { return []string{"tcp://" + listener.Addr().String()}, nil }),
+		WithExperimentalMuxConnectionManagerCandidateConfig(candidateCfg),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	client, err := NewClient("http://unused", WithExperimentalMuxConnectionManager(manager))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	stream, err := client.MuxStream(context.Background(), "orders/Watch")
+	if err != nil {
+		t.Fatalf("MuxStream with legacy downgrade: %v", err)
+	}
+	if err := stream.Send(context.Background(), Message{Payload: []byte("probe")}); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	assertMuxPayload(t, stream, "legacy:probe")
+	if _, err := stream.Receive(muxTestTimeoutContext(t)); !errors.Is(err, io.EOF) {
+		t.Fatalf("terminal receive = %v, want EOF", err)
+	}
+	diagnosis := client.RuntimeSnapshot().Diagnosis.Mux.Manager
+	if !diagnosis.Candidate.Enabled ||
+		diagnosis.Candidate.NegotiationFailures != 1 ||
+		diagnosis.Candidate.LastNegotiationPhase != experimentalMuxCandidateFailurePreface ||
+		!diagnosis.Candidate.Downgraded ||
+		diagnosis.Candidate.Downgrades != 1 ||
+		len(diagnosis.Endpoints) != 1 ||
+		!diagnosis.Endpoints[0].Adapter.Candidate.Downgraded {
+		t.Fatalf("downgrade diagnosis = %+v, want candidate failure and legacy downgrade evidence", diagnosis)
+	}
+
+	cancel()
+	if err := <-serveDone; err != nil {
+		t.Fatalf("legacy mux server stopped with error: %v", err)
+	}
 }
 
 func TestExperimentalMuxConnectionManagerCandidateConfig(t *testing.T) {

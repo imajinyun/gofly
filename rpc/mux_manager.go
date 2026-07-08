@@ -48,6 +48,12 @@ type ExperimentalMuxConnectionManager struct {
 	janitorRuns             int64
 	closeReasons            map[string]int64
 	drainReasons            map[string]int64
+	candidateFailures       int64
+	candidateDowngrades     int64
+	lastCandidateError      string
+	lastCandidatePhase      string
+	lastCandidatePeer       string
+	lastDowngradeReason     string
 	lastUpdated             time.Time
 	janitorCancel           context.CancelFunc
 	janitorDone             chan struct{}
@@ -638,6 +644,13 @@ func (m *ExperimentalMuxConnectionManager) Snapshot() ExperimentalMuxConnectionM
 	candidate := ExperimentalMuxCandidateSnapshot{}
 	if m.candidate != nil {
 		candidate = m.candidate.snapshot("client", m.candidate.normalized().Protocol)
+		candidate.NegotiationFailures = m.candidateFailures
+		candidate.Downgrades = m.candidateDowngrades
+		candidate.LastNegotiationError = m.lastCandidateError
+		candidate.LastNegotiationPhase = m.lastCandidatePhase
+		candidate.PeerProtocol = m.lastCandidatePeer
+		candidate.DowngradeReason = m.lastDowngradeReason
+		candidate.Downgraded = m.candidateDowngrades > 0
 	}
 	closeReasons := cloneStringInt64Map(m.closeReasons)
 	drainReasons := cloneStringInt64Map(m.drainReasons)
@@ -930,6 +943,23 @@ func (m *ExperimentalMuxConnectionManager) adapter(ctx context.Context, endpoint
 	var err error
 	if candidate != nil {
 		adapter, err = DialExperimentalMuxCandidateClientAdapter(ctx, "tcp", muxEndpointAddress(endpoint), *candidate)
+		if err != nil {
+			failureSnapshot := m.recordCandidateNegotiationFailure(*candidate, err)
+			if candidate.AllowLegacyDowngrade {
+				legacyAdapter, legacyErr := DialExperimentalMuxClientAdapter(ctx, "tcp", muxEndpointAddress(endpoint))
+				if legacyErr == nil {
+					m.recordCandidateDowngrade(err)
+					legacyAdapter.candidate = failureSnapshot
+					legacyAdapter.candidate.Downgraded = true
+					legacyAdapter.candidate.Downgrades = 1
+					legacyAdapter.candidate.DowngradeReason = reasonFromError(err)
+					adapter = legacyAdapter
+					err = nil
+				} else {
+					err = errors.Join(err, legacyErr)
+				}
+			}
+		}
 	} else {
 		adapter, err = DialExperimentalMuxClientAdapter(ctx, "tcp", muxEndpointAddress(endpoint), opts...)
 	}
@@ -968,6 +998,35 @@ func (m *ExperimentalMuxConnectionManager) adapter(ctx context.Context, endpoint
 	m.mu.Unlock()
 	_ = closeManagedAdapters(unhealthy)
 	return adapter, nil
+}
+
+func (m *ExperimentalMuxConnectionManager) recordCandidateNegotiationFailure(cfg ExperimentalMuxCandidateConfig, err error) ExperimentalMuxCandidateSnapshot {
+	snapshot := cfg.snapshot("client", cfg.normalized().Protocol)
+	phase, peerProtocol, _ := experimentalMuxCandidateFailureInfo(err)
+	snapshot.NegotiationFailures = 1
+	snapshot.LastNegotiationError = reasonFromError(err)
+	snapshot.LastNegotiationPhase = phase
+	snapshot.PeerProtocol = peerProtocol
+	m.mu.Lock()
+	if !m.closed {
+		m.candidateFailures++
+		m.lastCandidateError = snapshot.LastNegotiationError
+		m.lastCandidatePhase = phase
+		m.lastCandidatePeer = peerProtocol
+		m.lastUpdated = time.Now()
+	}
+	m.mu.Unlock()
+	return snapshot
+}
+
+func (m *ExperimentalMuxConnectionManager) recordCandidateDowngrade(err error) {
+	m.mu.Lock()
+	if !m.closed {
+		m.candidateDowngrades++
+		m.lastDowngradeReason = reasonFromError(err)
+		m.lastUpdated = time.Now()
+	}
+	m.mu.Unlock()
 }
 
 func (m *ExperimentalMuxConnectionManager) touch(endpoint string) {

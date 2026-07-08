@@ -28,6 +28,7 @@ type ExperimentalMuxConnectionManager struct {
 	openRetryReasons        map[string]struct{}
 	janitorInterval         time.Duration
 	options                 []ExperimentalMuxTransportOption
+	candidate               *ExperimentalMuxCandidateConfig
 	adapters                map[string][]*muxManagedAdapter
 	retired                 map[string][]*muxManagedAdapter
 	health                  map[string]*muxEndpointHealth
@@ -89,6 +90,7 @@ type ExperimentalMuxConnectionManagerSnapshot struct {
 	MaxOpenRetries          int                                     `json:"maxOpenRetries,omitempty"`
 	OpenRetryReasons        []string                                `json:"openRetryReasons,omitempty"`
 	JanitorInterval         time.Duration                           `json:"janitorInterval,omitempty"`
+	Candidate               ExperimentalMuxCandidateSnapshot        `json:"candidate,omitempty"`
 	Endpoints               []ExperimentalMuxEndpointSnapshot       `json:"endpoints,omitempty"`
 	Health                  []ExperimentalMuxEndpointHealthSnapshot `json:"health,omitempty"`
 	RetiredAdapters         int                                     `json:"retiredAdapters,omitempty"`
@@ -288,6 +290,15 @@ func WithExperimentalMuxConnectionManagerJanitorInterval(interval time.Duration)
 func WithExperimentalMuxConnectionManagerTransportOptions(opts ...ExperimentalMuxTransportOption) ExperimentalMuxConnectionManagerOption {
 	return func(m *ExperimentalMuxConnectionManager) {
 		m.options = append([]ExperimentalMuxTransportOption(nil), opts...)
+		m.candidate = nil
+	}
+}
+
+func WithExperimentalMuxConnectionManagerCandidateConfig(cfg ExperimentalMuxCandidateConfig) ExperimentalMuxConnectionManagerOption {
+	return func(m *ExperimentalMuxConnectionManager) {
+		normalized := cfg.normalized()
+		m.candidate = &normalized
+		m.options = normalized.transportOptions()
 	}
 }
 
@@ -624,6 +635,10 @@ func (m *ExperimentalMuxConnectionManager) Snapshot() ExperimentalMuxConnectionM
 	maxOpenRetries := m.maxOpenRetries
 	openRetryReasons := muxRetryReasons(m.openRetryReasons)
 	janitorInterval := m.janitorInterval
+	candidate := ExperimentalMuxCandidateSnapshot{}
+	if m.candidate != nil {
+		candidate = m.candidate.snapshot("client", m.candidate.normalized().Protocol)
+	}
 	closeReasons := cloneStringInt64Map(m.closeReasons)
 	drainReasons := cloneStringInt64Map(m.drainReasons)
 	lastUpdated := m.lastUpdated
@@ -650,6 +665,7 @@ func (m *ExperimentalMuxConnectionManager) Snapshot() ExperimentalMuxConnectionM
 		MaxOpenRetries:          maxOpenRetries,
 		OpenRetryReasons:        openRetryReasons,
 		JanitorInterval:         janitorInterval,
+		Candidate:               candidate,
 		Endpoints:               endpoints,
 		Health:                  health,
 		RetiredAdapters:         retiredAdapters,
@@ -677,6 +693,7 @@ func (m *ExperimentalMuxConnectionManager) DiagnosisSnapshot() RPCMuxConnectionM
 	return RPCMuxConnectionManagerDiagnosis{
 		Enabled:                 m != nil && !snapshot.Closed,
 		Mode:                    "experimental_mux_manager",
+		Candidate:               snapshot.Candidate,
 		IdleTimeout:             snapshot.IdleTimeout,
 		MaxStreamsPerConn:       snapshot.MaxStreamsPerConn,
 		MaxConnsPerEndpoint:     snapshot.MaxConnsPerEndpoint,
@@ -902,9 +919,20 @@ func (m *ExperimentalMuxConnectionManager) adapter(ctx context.Context, endpoint
 		return nil, NewError(CodeUnavailable, "mux connection pool exhausted")
 	}
 	opts := append([]ExperimentalMuxTransportOption(nil), m.options...)
+	var candidate *ExperimentalMuxCandidateConfig
+	if m.candidate != nil {
+		candidateCopy := *m.candidate
+		candidate = &candidateCopy
+	}
 	m.mu.Unlock()
 	_ = closeManagedAdapters(unhealthy)
-	adapter, err := DialExperimentalMuxClientAdapter(ctx, "tcp", muxEndpointAddress(endpoint), opts...)
+	var adapter *ExperimentalMuxClientAdapter
+	var err error
+	if candidate != nil {
+		adapter, err = DialExperimentalMuxCandidateClientAdapter(ctx, "tcp", muxEndpointAddress(endpoint), *candidate)
+	} else {
+		adapter, err = DialExperimentalMuxClientAdapter(ctx, "tcp", muxEndpointAddress(endpoint), opts...)
+	}
 	if err != nil {
 		m.recordEndpointFailure(endpoint, "dial_failure", err)
 		return nil, NewError(CodeUnavailable, "mux dial failed: "+err.Error())

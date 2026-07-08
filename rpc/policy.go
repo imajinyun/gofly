@@ -182,6 +182,7 @@ type RPCDiagnosisSnapshot struct {
 type RPCMuxTransportDiagnosis struct {
 	Enabled     bool                             `json:"enabled"`
 	Mode        string                           `json:"mode,omitempty"`
+	Candidate   ExperimentalMuxCandidateSnapshot `json:"candidate,omitempty"`
 	Adapter     ExperimentalMuxAdapterSnapshot   `json:"adapter,omitempty"`
 	Transport   ExperimentalMuxTransportSnapshot `json:"transport,omitempty"`
 	FlowControl RPCMuxFlowControlDiagnosis       `json:"flowControl,omitempty"`
@@ -193,6 +194,7 @@ type RPCMuxTransportDiagnosis struct {
 type RPCMuxConnectionManagerDiagnosis struct {
 	Enabled                 bool                                    `json:"enabled"`
 	Mode                    string                                  `json:"mode,omitempty"`
+	Candidate               ExperimentalMuxCandidateSnapshot        `json:"candidate,omitempty"`
 	IdleTimeout             time.Duration                           `json:"idleTimeout,omitempty"`
 	MaxStreamsPerConn       int                                     `json:"maxStreamsPerConn,omitempty"`
 	MaxConnsPerEndpoint     int                                     `json:"maxConnsPerEndpoint,omitempty"`

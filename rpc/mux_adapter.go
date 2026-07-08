@@ -28,17 +28,20 @@ type ExperimentalMuxAdapterSnapshot struct {
 	LastMethod      string                           `json:"lastMethod,omitempty"`
 	LastError       string                           `json:"lastError,omitempty"`
 	LastHandledAt   time.Time                        `json:"lastHandledAt,omitempty"`
+	Candidate       ExperimentalMuxCandidateSnapshot `json:"candidate,omitempty"`
 	Transport       ExperimentalMuxTransportSnapshot `json:"transport"`
 }
 
 // ExperimentalMuxClientAdapter opens streams over an explicit mux transport.
 type ExperimentalMuxClientAdapter struct {
 	transport *ExperimentalMuxTransport
+	candidate ExperimentalMuxCandidateSnapshot
 }
 
 // ExperimentalMuxServerAdapter dispatches opt-in mux streams by method.
 type ExperimentalMuxServerAdapter struct {
 	transport *ExperimentalMuxTransport
+	candidate ExperimentalMuxCandidateSnapshot
 
 	mu       sync.RWMutex
 	handlers map[string]ExperimentalMuxStreamHandler
@@ -57,6 +60,14 @@ type ExperimentalMuxServerConfigurer func(*ExperimentalMuxServerAdapter) error
 func NewExperimentalMuxClientAdapter(conn net.Conn, opts ...ExperimentalMuxTransportOption) *ExperimentalMuxClientAdapter {
 	return &ExperimentalMuxClientAdapter{
 		transport: NewExperimentalMuxTransport(conn, opts...),
+	}
+}
+
+func NewExperimentalMuxCandidateClientAdapter(conn net.Conn, cfg ExperimentalMuxCandidateConfig) *ExperimentalMuxClientAdapter {
+	cfg = cfg.normalized()
+	return &ExperimentalMuxClientAdapter{
+		transport: NewExperimentalMuxTransport(conn, cfg.transportOptions()...),
+		candidate: cfg.snapshot("client", cfg.Protocol),
 	}
 }
 
@@ -81,11 +92,48 @@ func DialExperimentalMuxClientAdapter(ctx context.Context, network string, addre
 	return NewExperimentalMuxClientAdapter(conn, opts...), nil
 }
 
+func DialExperimentalMuxCandidateClientAdapter(ctx context.Context, network string, address string, cfg ExperimentalMuxCandidateConfig) (*ExperimentalMuxClientAdapter, error) {
+	ctx = core.Context(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	network = strings.TrimSpace(network)
+	if network == "" {
+		network = "tcp"
+	}
+	address = strings.TrimSpace(address)
+	if address == "" {
+		return nil, NewError(CodeInvalidArgument, "mux adapter address is required")
+	}
+	conn, snapshot, err := dialExperimentalMuxCandidateConn(ctx, network, address, cfg)
+	if err != nil {
+		return nil, err
+	}
+	adapter := &ExperimentalMuxClientAdapter{
+		transport: NewExperimentalMuxTransport(conn, cfg.normalized().transportOptions()...),
+		candidate: snapshot,
+	}
+	return adapter, nil
+}
+
 // NewExperimentalMuxServerAdapter creates an opt-in mux server over conn.
 func NewExperimentalMuxServerAdapter(conn net.Conn, opts ...ExperimentalMuxTransportOption) *ExperimentalMuxServerAdapter {
 	serverOpts := append([]ExperimentalMuxTransportOption{WithExperimentalMuxServerRole()}, opts...)
 	adapter := &ExperimentalMuxServerAdapter{
 		transport: NewExperimentalMuxTransport(conn, serverOpts...),
+		handlers:  make(map[string]ExperimentalMuxStreamHandler),
+	}
+	adapter.lastMethod.Store("")
+	adapter.lastError.Store("")
+	return adapter
+}
+
+func NewExperimentalMuxCandidateServerAdapter(conn net.Conn, cfg ExperimentalMuxCandidateConfig) *ExperimentalMuxServerAdapter {
+	cfg = cfg.normalized()
+	serverOpts := append([]ExperimentalMuxTransportOption{WithExperimentalMuxServerRole()}, cfg.transportOptions()...)
+	adapter := &ExperimentalMuxServerAdapter{
+		transport: NewExperimentalMuxTransport(conn, serverOpts...),
+		candidate: cfg.snapshot("server", cfg.Protocol),
 		handlers:  make(map[string]ExperimentalMuxStreamHandler),
 	}
 	adapter.lastMethod.Store("")
@@ -116,6 +164,55 @@ func ServeExperimentalMuxListener(ctx context.Context, listener net.Listener, co
 			return err
 		}
 		adapter := NewExperimentalMuxServerAdapter(conn, opts...)
+		if err := configure(adapter); err != nil {
+			_ = adapter.Close()
+			return err
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = adapter.Serve(ctx)
+			_ = adapter.Close()
+		}()
+	}
+}
+
+func ServeExperimentalMuxCandidateListener(ctx context.Context, listener net.Listener, configure ExperimentalMuxServerConfigurer, cfg ExperimentalMuxCandidateConfig) error {
+	ctx = core.Context(ctx)
+	if listener == nil {
+		return NewError(CodeInvalidArgument, "mux listener is required")
+	}
+	if configure == nil {
+		return NewError(CodeInvalidArgument, "mux server configurer is required")
+	}
+	go func() {
+		<-ctx.Done()
+		_ = listener.Close()
+	}()
+	var wg sync.WaitGroup
+	defer wg.Wait()
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			if ctx.Err() != nil || errors.Is(err, net.ErrClosed) {
+				return nil
+			}
+			return err
+		}
+		rawConn := conn
+		conn, snapshot, err := acceptExperimentalMuxCandidateConn(ctx, rawConn, cfg)
+		if err != nil {
+			_ = rawConn.Close()
+			continue
+		}
+		serverOpts := append([]ExperimentalMuxTransportOption{WithExperimentalMuxServerRole()}, cfg.normalized().transportOptions()...)
+		adapter := &ExperimentalMuxServerAdapter{
+			transport: NewExperimentalMuxTransport(conn, serverOpts...),
+			candidate: snapshot,
+			handlers:  make(map[string]ExperimentalMuxStreamHandler),
+		}
+		adapter.lastMethod.Store("")
+		adapter.lastError.Store("")
 		if err := configure(adapter); err != nil {
 			_ = adapter.Close()
 			return err
@@ -162,7 +259,7 @@ func (a *ExperimentalMuxClientAdapter) Snapshot() ExperimentalMuxAdapterSnapshot
 	if a == nil || a.transport == nil {
 		return ExperimentalMuxAdapterSnapshot{Role: "client", Transport: ExperimentalMuxTransportSnapshot{Closed: true}}
 	}
-	return ExperimentalMuxAdapterSnapshot{Role: "client", Transport: a.transport.Snapshot()}
+	return ExperimentalMuxAdapterSnapshot{Role: "client", Candidate: a.candidate, Transport: a.transport.Snapshot()}
 }
 
 // DiagnosisSnapshot returns client-side mux transport diagnosis.
@@ -257,6 +354,7 @@ func (a *ExperimentalMuxServerAdapter) Snapshot() ExperimentalMuxAdapterSnapshot
 		LastMethod:      method,
 		LastError:       lastError,
 		LastHandledAt:   unixNanoToTime(a.lastHandledAt.Load()),
+		Candidate:       a.candidate,
 		Transport:       a.transport.Snapshot(),
 	}
 }
@@ -348,6 +446,7 @@ func muxDiagnosisFromAdapterSnapshot(snapshot ExperimentalMuxAdapterSnapshot) RP
 	return RPCMuxTransportDiagnosis{
 		Enabled:   !transport.Closed,
 		Mode:      "experimental_mux",
+		Candidate: snapshot.Candidate,
 		Adapter:   snapshot,
 		Transport: transport,
 		FlowControl: RPCMuxFlowControlDiagnosis{

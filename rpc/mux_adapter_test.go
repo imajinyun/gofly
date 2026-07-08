@@ -6,9 +6,12 @@ import (
 	"errors"
 	"io"
 	"net"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/imajinyun/gofly/core/security"
 )
 
 type firstEndpointBalancer struct{}
@@ -408,6 +411,85 @@ func TestExperimentalMuxAdapterTCPDialerListener(t *testing.T) {
 	}
 }
 
+func TestExperimentalMuxCandidateAdapterPolicyAndProtocol(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cfg := ExperimentalMuxCandidateConfig{
+		Protocol:             "gofly-mux/candidate-test",
+		KeepaliveInterval:    time.Hour,
+		KeepaliveIdle:        2 * time.Hour,
+		MaxFrameBytes:        128,
+		MaxMessageBytes:      512,
+		MaxConcurrentStreams: 3,
+		ReceiveQueueSize:     2,
+		ConnectionWindow:     5,
+		PayloadCodec:         "gzip",
+		FrameCodec:           "binary",
+	}
+	serveDone := make(chan error, 1)
+	go func() {
+		serveDone <- ServeExperimentalMuxCandidateListener(ctx, listener, func(adapter *ExperimentalMuxServerAdapter) error {
+			return adapter.RegisterStream("orders/Watch", func(ctx context.Context, stream *ExperimentalMuxStream) error {
+				msg, err := stream.Receive(ctx)
+				if err != nil {
+					return err
+				}
+				if err := stream.Send(ctx, Message{Payload: append([]byte("candidate:"), msg.Payload...)}); err != nil {
+					return err
+				}
+				return stream.Close(ctx, "ok")
+			})
+		}, cfg)
+	}()
+
+	client, err := DialExperimentalMuxCandidateClientAdapter(context.Background(), "tcp", listener.Addr().String(), cfg)
+	if err != nil {
+		t.Fatalf("DialExperimentalMuxCandidateClientAdapter: %v", err)
+	}
+	defer client.Close()
+	stream, err := client.OpenStream(context.Background(), "orders/Watch")
+	if err != nil {
+		t.Fatalf("OpenStream: %v", err)
+	}
+	if err := stream.Send(context.Background(), Message{Payload: []byte("hello")}); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	assertMuxPayload(t, stream, "candidate:hello")
+	if _, err := stream.Receive(muxTestTimeoutContext(t)); !errors.Is(err, io.EOF) {
+		t.Fatalf("terminal receive = %v, want EOF", err)
+	}
+	snapshot := client.Snapshot()
+	if !snapshot.Candidate.Enabled ||
+		snapshot.Candidate.Protocol != cfg.Protocol ||
+		snapshot.Candidate.NegotiatedProtocol != cfg.Protocol ||
+		snapshot.Candidate.PayloadCodec != "gzip" ||
+		snapshot.Candidate.FrameCodec != "binary" ||
+		snapshot.Transport.KeepaliveInterval != cfg.KeepaliveInterval ||
+		snapshot.Transport.KeepaliveIdle != cfg.KeepaliveIdle ||
+		snapshot.Transport.MaxStreams != cfg.MaxConcurrentStreams ||
+		snapshot.Transport.ReceiveQueueSize != cfg.ReceiveQueueSize ||
+		snapshot.Transport.ConnectionWindow != cfg.ConnectionWindow ||
+		snapshot.Transport.MaxMessageBytes != cfg.MaxMessageBytes {
+		t.Fatalf("candidate client snapshot = %+v, want negotiated policy", snapshot)
+	}
+	diagnosis := client.DiagnosisSnapshot()
+	if !diagnosis.Candidate.Enabled ||
+		diagnosis.Candidate.Protocol != cfg.Protocol ||
+		diagnosis.FlowControl.ConnectionWindow != cfg.ConnectionWindow ||
+		diagnosis.Keepalive.Interval != cfg.KeepaliveInterval {
+		t.Fatalf("candidate client diagnosis = %+v, want candidate policy in diagnosis", diagnosis)
+	}
+
+	cancel()
+	if err := <-serveDone; err != nil {
+		t.Fatalf("ServeExperimentalMuxCandidateListener returned error: %v", err)
+	}
+}
+
 func TestExperimentalMuxServerRuntimeLifecycle(t *testing.T) {
 	server, err := NewExperimentalMuxServer("127.0.0.1:0", func(adapter *ExperimentalMuxServerAdapter) error {
 		return adapter.RegisterStream("orders/Watch", func(ctx context.Context, stream *ExperimentalMuxStream) error {
@@ -459,6 +541,163 @@ func TestExperimentalMuxServerRuntimeLifecycle(t *testing.T) {
 	}
 	if server.RuntimeComponentSnapshot(context.Background()).Status != "closed" {
 		t.Fatalf("runtime component after shutdown = %+v, want closed", server.RuntimeComponentSnapshot(context.Background()))
+	}
+}
+
+func TestExperimentalMuxCandidateAdapterMutualTLS(t *testing.T) {
+	dir := t.TempDir()
+	caCert, caKey := rpcTLSCA(t, dir)
+	caFile := filepath.Join(dir, "ca.crt")
+	serverCert, serverKey := rpcTLSLeaf(t, dir, "server", caCert, caKey)
+	clientCert, clientKey := rpcTLSLeaf(t, dir, "client", caCert, caKey)
+
+	server, err := NewExperimentalMuxCandidateServer("127.0.0.1:0", func(adapter *ExperimentalMuxServerAdapter) error {
+		return adapter.RegisterStream("orders/Watch", func(ctx context.Context, stream *ExperimentalMuxStream) error {
+			msg, err := stream.Receive(ctx)
+			if err != nil {
+				return err
+			}
+			if err := stream.Send(ctx, Message{Payload: append([]byte("mtls:"), msg.Payload...)}); err != nil {
+				return err
+			}
+			return stream.Close(ctx, "ok")
+		})
+	}, ExperimentalMuxCandidateConfig{
+		Protocol: "gofly-mux/mtls-test",
+		TLS: security.TLSConfig{
+			CertFile:     serverCert,
+			KeyFile:      serverKey,
+			ClientCAFile: caFile,
+		},
+		HandshakeTimeout: 5 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := server.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer server.Shutdown(context.Background())
+
+	noCert, err := DialExperimentalMuxCandidateClientAdapter(context.Background(), "tcp", server.Addr(), ExperimentalMuxCandidateConfig{
+		Protocol: "gofly-mux/mtls-test",
+		TLS: security.TLSConfig{
+			CAFile:     caFile,
+			ServerName: "svc",
+		},
+		HandshakeTimeout: 5 * time.Second,
+	})
+	if err == nil {
+		_ = noCert.Close()
+		t.Fatal("expected mutual TLS mux candidate dial without client cert to fail")
+	}
+
+	client, err := DialExperimentalMuxCandidateClientAdapter(context.Background(), "tcp", server.Addr(), ExperimentalMuxCandidateConfig{
+		Protocol: "gofly-mux/mtls-test",
+		TLS: security.TLSConfig{
+			CAFile:     caFile,
+			CertFile:   clientCert,
+			KeyFile:    clientKey,
+			ServerName: "svc",
+		},
+		HandshakeTimeout: 5 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("DialExperimentalMuxCandidateClientAdapter with client cert: %v", err)
+	}
+	defer client.Close()
+	stream, err := client.OpenStream(context.Background(), "orders/Watch")
+	if err != nil {
+		t.Fatalf("OpenStream: %v", err)
+	}
+	if err := stream.Send(context.Background(), Message{Payload: []byte("hello")}); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	assertMuxPayload(t, stream, "mtls:hello")
+	if _, err := stream.Receive(muxTestTimeoutContext(t)); !errors.Is(err, io.EOF) {
+		t.Fatalf("terminal receive = %v, want EOF", err)
+	}
+	clientSnapshot := client.Snapshot()
+	if !clientSnapshot.Candidate.TLS ||
+		!clientSnapshot.Candidate.MutualTLS ||
+		clientSnapshot.Candidate.NegotiatedProtocol != "gofly-mux/mtls-test" {
+		t.Fatalf("client candidate snapshot = %+v, want TLS/mTLS negotiated protocol", clientSnapshot)
+	}
+	assertEventually(t, func() bool {
+		diagnosis := server.DiagnosisSnapshot()
+		return diagnosis.Candidate.TLS &&
+			diagnosis.Candidate.MutualTLS &&
+			diagnosis.Candidate.NegotiatedProtocol == "gofly-mux/mtls-test" &&
+			diagnosis.Adapter.AcceptedStreams == 1
+	}, "mux candidate server mTLS diagnosis")
+}
+
+func TestExperimentalMuxConnectionManagerCandidateConfig(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := ExperimentalMuxCandidateConfig{
+		Protocol:         "gofly-mux/manager-candidate-test",
+		ReceiveQueueSize: 2,
+		ConnectionWindow: 3,
+		FrameCodec:       "binary",
+	}
+	serveDone := make(chan error, 1)
+	go func() {
+		serveDone <- ServeExperimentalMuxCandidateListener(ctx, listener, func(adapter *ExperimentalMuxServerAdapter) error {
+			return adapter.RegisterStream("orders/Watch", func(ctx context.Context, stream *ExperimentalMuxStream) error {
+				msg, err := stream.Receive(ctx)
+				if err != nil {
+					return err
+				}
+				if err := stream.Send(ctx, Message{Payload: append([]byte("manager:"), msg.Payload...)}); err != nil {
+					return err
+				}
+				return stream.Close(ctx, "ok")
+			})
+		}, cfg)
+	}()
+
+	manager, err := NewExperimentalMuxConnectionManager(
+		ResolverFunc(func(context.Context) ([]string, error) { return []string{"tcp://" + listener.Addr().String()}, nil }),
+		WithExperimentalMuxConnectionManagerCandidateConfig(cfg),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	client, err := NewClient("http://unused", WithExperimentalMuxConnectionManager(manager))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	stream, err := client.MuxStream(context.Background(), "orders/Watch")
+	if err != nil {
+		t.Fatalf("MuxStream: %v", err)
+	}
+	if err := stream.Send(context.Background(), Message{Payload: []byte("hello")}); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	assertMuxPayload(t, stream, "manager:hello")
+	if _, err := stream.Receive(muxTestTimeoutContext(t)); !errors.Is(err, io.EOF) {
+		t.Fatalf("terminal receive = %v, want EOF", err)
+	}
+	diagnosis := client.RuntimeSnapshot().Diagnosis.Mux.Manager
+	if !diagnosis.Candidate.Enabled ||
+		diagnosis.Candidate.Protocol != cfg.Protocol ||
+		diagnosis.Candidate.FrameCodec != "binary" ||
+		len(diagnosis.Endpoints) != 1 ||
+		!diagnosis.Endpoints[0].Adapter.Candidate.Enabled ||
+		diagnosis.Endpoints[0].Adapter.Transport.ConnectionWindow != cfg.ConnectionWindow {
+		t.Fatalf("manager candidate diagnosis = %+v, want candidate policy on manager and endpoint", diagnosis)
+	}
+
+	cancel()
+	if err := <-serveDone; err != nil {
+		t.Fatalf("ServeExperimentalMuxCandidateListener returned error: %v", err)
 	}
 }
 

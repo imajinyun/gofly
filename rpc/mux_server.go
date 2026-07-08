@@ -16,6 +16,7 @@ type ExperimentalMuxServer struct {
 	addr      string
 	configure ExperimentalMuxServerConfigurer
 	options   []ExperimentalMuxTransportOption
+	candidate *ExperimentalMuxCandidateConfig
 
 	mu       sync.Mutex
 	listener net.Listener
@@ -38,6 +39,27 @@ func NewExperimentalMuxServer(addr string, configure ExperimentalMuxServerConfig
 		return nil, NewError(CodeInvalidArgument, "mux server configurer is required")
 	}
 	s := &ExperimentalMuxServer{addr: addr, configure: configure, options: append([]ExperimentalMuxTransportOption(nil), opts...), adapters: make(map[*ExperimentalMuxServerAdapter]struct{}), done: make(chan error, 1)}
+	s.lastError.Store("")
+	return s, nil
+}
+
+func NewExperimentalMuxCandidateServer(addr string, configure ExperimentalMuxServerConfigurer, cfg ExperimentalMuxCandidateConfig) (*ExperimentalMuxServer, error) {
+	addr = strings.TrimSpace(addr)
+	if addr == "" {
+		return nil, NewError(CodeInvalidArgument, "mux server address is required")
+	}
+	if configure == nil {
+		return nil, NewError(CodeInvalidArgument, "mux server configurer is required")
+	}
+	normalized := cfg.normalized()
+	s := &ExperimentalMuxServer{
+		addr:      addr,
+		configure: configure,
+		options:   normalized.transportOptions(),
+		candidate: &normalized,
+		adapters:  make(map[*ExperimentalMuxServerAdapter]struct{}),
+		done:      make(chan error, 1),
+	}
 	s.lastError.Store("")
 	return s, nil
 }
@@ -135,6 +157,9 @@ func (s *ExperimentalMuxServer) DiagnosisSnapshot() RPCMuxTransportDiagnosis {
 	diag.Transport.Role = "server"
 	for _, adapter := range adapters {
 		snapshot := adapter.Snapshot()
+		if !diag.Candidate.Enabled && snapshot.Candidate.Enabled {
+			diag.Candidate = snapshot.Candidate
+		}
 		diag.Adapter.AcceptedStreams += snapshot.AcceptedStreams
 		diag.Adapter.RejectedStreams += snapshot.RejectedStreams
 		diag.Adapter.HandlerErrors += snapshot.HandlerErrors
@@ -146,6 +171,9 @@ func (s *ExperimentalMuxServer) DiagnosisSnapshot() RPCMuxTransportDiagnosis {
 		diag.FlowControl.ConnectionWindow = snapshot.Transport.ConnectionWindow
 		diag.Keepalive.Liveness = snapshot.Transport.Liveness
 		diag.Drain.GoAwayFramesOut += snapshot.Transport.GoAwayFramesOut
+	}
+	if !diag.Candidate.Enabled && s.candidate != nil {
+		diag.Candidate = s.candidate.snapshot("server", s.candidate.normalized().Protocol)
 	}
 	return diag
 }
@@ -170,7 +198,25 @@ func (s *ExperimentalMuxServer) serve(ctx context.Context, ln net.Listener) erro
 			s.lastError.Store(err.Error())
 			return err
 		}
-		adapter := NewExperimentalMuxServerAdapter(conn, s.options...)
+		var adapter *ExperimentalMuxServerAdapter
+		if s.candidate != nil {
+			wrapped, snapshot, err := acceptExperimentalMuxCandidateConn(ctx, conn, *s.candidate)
+			if err != nil {
+				s.lastError.Store(err.Error())
+				_ = conn.Close()
+				continue
+			}
+			serverOpts := append([]ExperimentalMuxTransportOption{WithExperimentalMuxServerRole()}, s.candidate.normalized().transportOptions()...)
+			adapter = &ExperimentalMuxServerAdapter{
+				transport: NewExperimentalMuxTransport(wrapped, serverOpts...),
+				candidate: snapshot,
+				handlers:  make(map[string]ExperimentalMuxStreamHandler),
+			}
+			adapter.lastMethod.Store("")
+			adapter.lastError.Store("")
+		} else {
+			adapter = NewExperimentalMuxServerAdapter(conn, s.options...)
+		}
 		if err := s.configure(adapter); err != nil {
 			s.lastError.Store(err.Error())
 			_ = adapter.Close()

@@ -1019,7 +1019,7 @@ func TestGenerateNewServiceVariantsBoundaries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(configData), `"mux": {"enabled": false, "probe": false, "addr": "127.0.0.1:8082", "endpoints": [], "idleTimeout": 60000000000, "maxOpenRetries": 1, "openRetryReasons": ["dial_failure", "pool_exhausted"], "healthBackoffMultiplier": 2, "healthMaxCooldown": 30000000000}`) {
+	if !strings.Contains(string(configData), `"mux": {"enabled": false, "probe": false, "addr": "127.0.0.1:8082", "endpoints": [], "idleTimeout": 60000000000, "maxOpenRetries": 1, "openRetryReasons": ["dial_failure", "pool_exhausted"], "healthBackoffMultiplier": 2, "healthMaxCooldown": 30000000000, "candidate": {"enabled": false, "protocol": "gofly-mux/experimental-v1"`) {
 		t.Fatalf("generated rpc config missing default-disabled mux config:\n%s", configData)
 	}
 	configGoData, err := os.ReadFile(filepath.Join(rpcDir, "internal", "config", "config.go"))
@@ -1037,6 +1037,11 @@ func TestGenerateNewServiceVariantsBoundaries(t *testing.T) {
 		`json:"openRetryReasons,omitempty"`,
 		`json:"healthBackoffMultiplier,omitempty"`,
 		`json:"healthMaxCooldown,omitempty"`,
+		"type RPCMuxCandidateConfig struct",
+		`json:"candidate,omitempty"`,
+		`json:"protocol,omitempty"`,
+		`json:"tls,omitempty"`,
+		"func (c RPCMuxConfig) CandidateConfig() rpc.ExperimentalMuxCandidateConfig",
 	} {
 		if !strings.Contains(string(configGoData), want) {
 			t.Fatalf("generated rpc config.go missing mux config %q:\n%s", want, configGoData)
@@ -1048,6 +1053,8 @@ func TestGenerateNewServiceVariantsBoundaries(t *testing.T) {
 	}
 	for _, want := range []string{
 		"c.RPC.Mux.Enabled",
+		"c.RPC.Mux.Candidate.Enabled",
+		"rpc.NewExperimentalMuxCandidateServer",
 		"rpc.NewExperimentalMuxServer",
 		"rpc.WithExperimentalMuxServerAdapter",
 		"servers = append(servers, muxServer)",
@@ -1061,13 +1068,16 @@ func TestGenerateNewServiceVariantsBoundaries(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		`RPCMuxConfig{Enabled: true, Probe: true, IdleTimeout: time.Nanosecond, MaxOpenRetries: 1, OpenRetryReasons: []string{"dial_failure", "pool_exhausted"}, HealthBackoffMultiplier: 2, HealthMaxCooldown: 30 * time.Second}`,
+		`RPCMuxConfig{Enabled: true, Probe: true, IdleTimeout: time.Nanosecond, MaxOpenRetries: 1, OpenRetryReasons: []string{"dial_failure", "pool_exhausted"}, HealthBackoffMultiplier: 2, HealthMaxCooldown: 30 * time.Second, Candidate: appconfig.RPCMuxCandidateConfig{Enabled: true, Protocol: "gofly-mux/generated-candidate-test"`,
 		"rpc.NewExperimentalMuxConnectionManager",
 		"rpc.WithExperimentalMuxConnectionManagerIdleTimeout",
 		"rpc.WithExperimentalMuxConnectionManagerMaxOpenRetries",
 		"rpc.WithExperimentalMuxConnectionManagerOpenRetryReasons",
 		"rpc.WithExperimentalMuxConnectionManagerHealthBackoffMultiplier",
 		"rpc.WithExperimentalMuxConnectionManagerHealthMaxCooldown",
+		"rpc.ServeExperimentalMuxCandidateListener",
+		"rpc.WithExperimentalMuxConnectionManagerCandidateConfig",
+		`diagnosis.Candidate.Protocol != "gofly-mux/generated-candidate-test"`,
 		`badMuxEndpoint := "tcp://" + badMuxListener.Addr().String()`,
 		`diagnosis.OpenRetries != 1`,
 		`diagnosis.RetryReasons["dial_failure"] != 1`,

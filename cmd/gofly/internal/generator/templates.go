@@ -85,7 +85,7 @@ func main() {
 	)
 	var muxServer *rpc.ExperimentalMuxServer
 	if c.RPC.Mux.Enabled {
-		muxServer, err = rpc.NewExperimentalMuxServer(c.RPC.Mux.Addr, func(adapter *rpc.ExperimentalMuxServerAdapter) error {
+		configureMux := func(adapter *rpc.ExperimentalMuxServerAdapter) error {
 			if !c.RPC.Mux.Probe {
 				return nil
 			}
@@ -99,7 +99,12 @@ func main() {
 				}
 				return stream.Close(ctx, "ok")
 			})
-		})
+		}
+		if c.RPC.Mux.Candidate.Enabled {
+			muxServer, err = rpc.NewExperimentalMuxCandidateServer(c.RPC.Mux.Addr, configureMux, c.RPC.Mux.CandidateConfig())
+		} else {
+			muxServer, err = rpc.NewExperimentalMuxServer(c.RPC.Mux.Addr, configureMux)
+		}
 		if err != nil {
 			slog.Error("setup mux rpc", "error", err)
 			return
@@ -272,7 +277,7 @@ const configTemplate = `{
   "rpc": {
     "addr": ":8081",
     "advertise": "http://127.0.0.1:8081",
-    "mux": {"enabled": false, "probe": false, "addr": "127.0.0.1:8082", "endpoints": [], "idleTimeout": 60000000000, "maxOpenRetries": 1, "openRetryReasons": ["dial_failure", "pool_exhausted"], "healthBackoffMultiplier": 2, "healthMaxCooldown": 30000000000}
+    "mux": {"enabled": false, "probe": false, "addr": "127.0.0.1:8082", "endpoints": [], "idleTimeout": 60000000000, "maxOpenRetries": 1, "openRetryReasons": ["dial_failure", "pool_exhausted"], "healthBackoffMultiplier": 2, "healthMaxCooldown": 30000000000, "candidate": {"enabled": false, "protocol": "gofly-mux/experimental-v1", "dialTimeout": 30000000000, "keepAlive": 30000000000, "handshakeTimeout": 10000000000, "keepaliveInterval": 30000000000, "keepaliveIdle": 90000000000, "maxFrameBytes": 4194304, "maxMessageBytes": 67108864, "maxConcurrentStreams": 128, "receiveQueueSize": 16, "connectionWindow": 16, "payloadCodec": "identity", "frameCodec": "binary", "tls": {}}}
   }
 }
 `
@@ -522,7 +527,7 @@ import (
 )
 
 func TestAdminDiagnostics(t *testing.T) {
-	cfg := appconfig.Config{RPC: appconfig.RPCConfig{Mux: appconfig.RPCMuxConfig{Enabled: true, Probe: true, IdleTimeout: time.Nanosecond, MaxOpenRetries: 1, OpenRetryReasons: []string{"dial_failure", "pool_exhausted"}, HealthBackoffMultiplier: 2, HealthMaxCooldown: 30 * time.Second}}}
+	cfg := appconfig.Config{RPC: appconfig.RPCConfig{Mux: appconfig.RPCMuxConfig{Enabled: true, Probe: true, IdleTimeout: time.Nanosecond, MaxOpenRetries: 1, OpenRetryReasons: []string{"dial_failure", "pool_exhausted"}, HealthBackoffMultiplier: 2, HealthMaxCooldown: 30 * time.Second, Candidate: appconfig.RPCMuxCandidateConfig{Enabled: true, Protocol: "gofly-mux/generated-candidate-test", KeepaliveInterval: time.Hour, KeepaliveIdle: 2 * time.Hour, MaxFrameBytes: 256, MaxMessageBytes: 1024, MaxConcurrentStreams: 8, ReceiveQueueSize: 2, ConnectionWindow: 3, PayloadCodec: "identity", FrameCodec: "binary"}}}}
 	clientConn, serverConn := net.Pipe()
 	muxClient := rpc.NewExperimentalMuxClientAdapter(clientConn)
 	muxServer := rpc.NewExperimentalMuxServerAdapter(serverConn)
@@ -627,6 +632,65 @@ func TestAdminDiagnostics(t *testing.T) {
 	stopTCP()
 	if err := <-tcpDone; err != nil {
 		t.Fatalf("tcp mux server stopped with error: %v", err)
+	}
+
+	candidateListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidateCtx, stopCandidate := context.WithCancel(context.Background())
+	defer stopCandidate()
+	candidateDone := make(chan error, 1)
+	candidateCfg := cfg.RPC.Mux.CandidateConfig()
+	go func() {
+		candidateDone <- rpc.ServeExperimentalMuxCandidateListener(candidateCtx, candidateListener, func(adapter *rpc.ExperimentalMuxServerAdapter) error {
+			return adapter.RegisterStream("greeter/Watch", func(ctx context.Context, stream *rpc.ExperimentalMuxStream) error {
+				msg, err := stream.Receive(ctx)
+				if err != nil {
+					return err
+				}
+				if err := stream.Send(ctx, rpc.Message{Payload: append([]byte("candidate:"), msg.Payload...)}); err != nil {
+					return err
+				}
+				return stream.Close(ctx, "ok")
+			})
+		}, candidateCfg)
+	}()
+	candidateManager, err := rpc.NewExperimentalMuxConnectionManager(
+		rpc.NewStaticResolver("tcp://"+candidateListener.Addr().String()),
+		rpc.WithExperimentalMuxConnectionManagerCandidateConfig(candidateCfg),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidateClient, err := rpc.NewClient("http://unused", rpc.WithExperimentalMuxConnectionManager(candidateManager))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer candidateClient.Close()
+	candidateStream, err := candidateClient.MuxStream(context.Background(), "greeter/Watch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := candidateStream.Send(context.Background(), rpc.Message{Payload: []byte("probe")}); err != nil {
+		t.Fatal(err)
+	}
+	candidateResponse, err := candidateStream.Receive(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(candidateResponse.Payload) != "candidate:probe" {
+		t.Fatalf("candidate mux payload = %q, want candidate probe response", candidateResponse.Payload)
+	}
+	if _, err := candidateStream.Receive(context.Background()); !errors.Is(err, io.EOF) {
+		t.Fatalf("candidate mux terminal receive = %v, want EOF", err)
+	}
+	if diagnosis := candidateClient.RuntimeSnapshot().Diagnosis.Mux.Manager; !diagnosis.Candidate.Enabled || diagnosis.Candidate.Protocol != "gofly-mux/generated-candidate-test" || diagnosis.Candidate.FrameCodec != "binary" || len(diagnosis.Endpoints) != 1 || !diagnosis.Endpoints[0].Adapter.Candidate.Enabled || diagnosis.Endpoints[0].Adapter.Transport.ConnectionWindow != 3 {
+		t.Fatalf("candidate manager diagnosis = %+v, want generated candidate mux evidence", diagnosis)
+	}
+	stopCandidate()
+	if err := <-candidateDone; err != nil {
+		t.Fatalf("candidate mux server stopped with error: %v", err)
 	}
 
 	badMuxListener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -846,7 +910,9 @@ import (
 	"github.com/imajinyun/gofly/core/controlplane"
 	"github.com/imajinyun/gofly/core/discovery"
 	"github.com/imajinyun/gofly/core/governance"
+	"github.com/imajinyun/gofly/core/security"
 	"github.com/imajinyun/gofly/rest"
+	"github.com/imajinyun/gofly/rpc"
 )
 
 type Config struct {
@@ -901,6 +967,25 @@ type RPCMuxConfig struct {
 	OpenRetryReasons []string ` + "`json:\"openRetryReasons,omitempty\"`" + `
 	HealthBackoffMultiplier int ` + "`json:\"healthBackoffMultiplier,omitempty\"`" + `
 	HealthMaxCooldown time.Duration ` + "`json:\"healthMaxCooldown,omitempty\"`" + `
+	Candidate RPCMuxCandidateConfig ` + "`json:\"candidate,omitempty\"`" + `
+}
+
+type RPCMuxCandidateConfig struct {
+	Enabled bool ` + "`json:\"enabled\"`" + `
+	Protocol string ` + "`json:\"protocol,omitempty\"`" + `
+	TLS security.TLSConfig ` + "`json:\"tls,omitempty\"`" + `
+	DialTimeout time.Duration ` + "`json:\"dialTimeout,omitempty\"`" + `
+	KeepAlive time.Duration ` + "`json:\"keepAlive,omitempty\"`" + `
+	HandshakeTimeout time.Duration ` + "`json:\"handshakeTimeout,omitempty\"`" + `
+	KeepaliveInterval time.Duration ` + "`json:\"keepaliveInterval,omitempty\"`" + `
+	KeepaliveIdle time.Duration ` + "`json:\"keepaliveIdle,omitempty\"`" + `
+	MaxFrameBytes int64 ` + "`json:\"maxFrameBytes,omitempty\"`" + `
+	MaxMessageBytes int64 ` + "`json:\"maxMessageBytes,omitempty\"`" + `
+	MaxConcurrentStreams int ` + "`json:\"maxConcurrentStreams,omitempty\"`" + `
+	ReceiveQueueSize int ` + "`json:\"receiveQueueSize,omitempty\"`" + `
+	ConnectionWindow int ` + "`json:\"connectionWindow,omitempty\"`" + `
+	PayloadCodec string ` + "`json:\"payloadCodec,omitempty\"`" + `
+	FrameCodec string ` + "`json:\"frameCodec,omitempty\"`" + `
 }
 
 type ResilienceProfile struct {
@@ -1003,6 +1088,26 @@ func (c Config) ServiceConf() app.ServiceConf {
 		service.Environment = c.Environment
 	}
 	return service.WithDefaults(c.Rest.Name)
+}
+
+func (c RPCMuxConfig) CandidateConfig() rpc.ExperimentalMuxCandidateConfig {
+	candidate := c.Candidate
+	return rpc.ExperimentalMuxCandidateConfig{
+		Protocol:             candidate.Protocol,
+		TLS:                  candidate.TLS,
+		DialTimeout:          candidate.DialTimeout,
+		KeepAlive:            candidate.KeepAlive,
+		HandshakeTimeout:     candidate.HandshakeTimeout,
+		KeepaliveInterval:    candidate.KeepaliveInterval,
+		KeepaliveIdle:        candidate.KeepaliveIdle,
+		MaxFrameBytes:        candidate.MaxFrameBytes,
+		MaxMessageBytes:      candidate.MaxMessageBytes,
+		MaxConcurrentStreams: candidate.MaxConcurrentStreams,
+		ReceiveQueueSize:     candidate.ReceiveQueueSize,
+		ConnectionWindow:     candidate.ConnectionWindow,
+		PayloadCodec:         candidate.PayloadCodec,
+		FrameCodec:           candidate.FrameCodec,
+	}
 }
 
 func (c Config) ResilienceProfile() ResilienceProfile {

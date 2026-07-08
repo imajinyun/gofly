@@ -2352,11 +2352,12 @@ func TestAIProjectFeatureAggregationBoundaries(t *testing.T) {
 func TestAINewGeneratedProjectVerificationMatrix(t *testing.T) {
 	withFrameworkPath(t, func() {
 		for _, tt := range []struct {
-			name                  string
-			template              string
-			wantVerify            []string
-			wantFiles             []string
-			wantGeneratedFeatures []string
+			name                   string
+			template               string
+			wantVerify             []string
+			wantFiles              []string
+			wantGeneratedFeatures  []string
+			wantMatrixCapabilities []string
 		}{
 			{
 				name:                  "hello",
@@ -2373,11 +2374,12 @@ func TestAINewGeneratedProjectVerificationMatrix(t *testing.T) {
 				wantGeneratedFeatures: []string{"ci-docker", "observability", "openapi", "postgres-repository"},
 			},
 			{
-				name:                  "greeter",
-				template:              "go-rpc-grpc",
-				wantVerify:            []string{"gofmt", "go mod tidy", "go test ./...", "go vet ./...", "control-plane snapshot"},
-				wantFiles:             []string{"go.mod", filepath.Join("cmd", "greeter", "main.go"), filepath.Join("internal", "observability", "observability.go"), "Dockerfile"},
-				wantGeneratedFeatures: []string{"ci-docker", "observability"},
+				name:                   "greeter",
+				template:               "go-rpc-grpc",
+				wantVerify:             []string{"gofmt", "go mod tidy", "go test ./...", "go vet ./...", "control-plane snapshot"},
+				wantFiles:              []string{"go.mod", filepath.Join("cmd", "greeter", "main.go"), filepath.Join("internal", "observability", "observability.go"), "Dockerfile"},
+				wantGeneratedFeatures:  []string{"ci-docker", "observability"},
+				wantMatrixCapabilities: []string{"generated-rpc-mux-retry-smoke"},
 			},
 			{
 				name:                  "worker",
@@ -2487,9 +2489,39 @@ func TestAINewGeneratedProjectVerificationMatrix(t *testing.T) {
 						t.Fatalf("ai new %s catalog declared file %s was not generated: %v", tt.template, file, err)
 					}
 				}
+				for _, capability := range tt.wantMatrixCapabilities {
+					assertGeneratedProjectMatrixCapability(t, outDir, capability)
+				}
 			})
 		}
 	})
+}
+
+func assertGeneratedProjectMatrixCapability(t *testing.T, outDir string, capability string) {
+	t.Helper()
+	switch capability {
+	case "generated-rpc-mux-retry-smoke":
+		data, err := os.ReadFile(filepath.Join(outDir, "internal", "admin", "admin_test.go"))
+		if err != nil {
+			t.Fatalf("read generated RPC admin smoke for %s: %v", capability, err)
+		}
+		source := string(data)
+		for _, marker := range []string{
+			`badMuxEndpoint := "tcp://" + badMuxListener.Addr().String()`,
+			`diagnosis.OpenRetries != 1`,
+			`diagnosis.RetryReasons["dial_failure"] != 1`,
+			`"greeter/FailAfterOpen"`,
+			`diagnosis.RetryReasons["open_stream"] != 0`,
+			`diagnosis.HealthBackoffMultiplier != 2`,
+			`diagnosis.HealthMaxCooldown != 30*time.Second`,
+		} {
+			if !strings.Contains(source, marker) {
+				t.Fatalf("generated project matrix capability %s missing marker %q:\n%s", capability, marker, source)
+			}
+		}
+	default:
+		t.Fatalf("unsupported generated project matrix capability %q", capability)
+	}
 }
 
 func TestNewServiceGeneratedProjectSmokeMatrix(t *testing.T) {

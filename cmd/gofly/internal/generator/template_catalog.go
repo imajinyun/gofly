@@ -21,16 +21,17 @@ type TemplateInput struct {
 // planning. Built-in entries map to existing gofly generators for now; future
 // external catalogs can use the same shape.
 type ProjectTemplate struct {
-	ID           string          `json:"id"`
-	Name         string          `json:"name"`
-	Kind         string          `json:"kind"`
-	Language     string          `json:"language"`
-	Architecture string          `json:"architecture"`
-	Description  string          `json:"description"`
-	Features     []string        `json:"features"`
-	Inputs       []TemplateInput `json:"inputs"`
-	Files        []string        `json:"files"`
-	Verify       []string        `json:"verify"`
+	ID                  string          `json:"id"`
+	Name                string          `json:"name"`
+	Kind                string          `json:"kind"`
+	Language            string          `json:"language"`
+	Architecture        string          `json:"architecture"`
+	Description         string          `json:"description"`
+	Features            []string        `json:"features"`
+	RuntimeCapabilities []string        `json:"runtimeCapabilities,omitempty"`
+	Inputs              []TemplateInput `json:"inputs"`
+	Files               []string        `json:"files"`
+	Verify              []string        `json:"verify"`
 	// VerifyE2EValidated records that the template participates in the
 	// generated-project verification matrix and every declared verify command is
 	// expected to run and pass without skips.
@@ -109,6 +110,7 @@ func splitTemplateTokens(value string) []string {
 
 func cloneProjectTemplate(t ProjectTemplate) ProjectTemplate {
 	t.Features = append([]string(nil), t.Features...)
+	t.RuntimeCapabilities = append([]string(nil), t.RuntimeCapabilities...)
 	t.Files = append([]string(nil), t.Files...)
 	t.Verify = append([]string(nil), t.Verify...)
 	t.Inputs = append([]TemplateInput(nil), t.Inputs...)
@@ -159,19 +161,20 @@ func builtInProjectTemplates() []ProjectTemplate {
 			Command:            "gofly new service <name> --module <module> --style production --feature ecosystem-compat --dir <dir>",
 		},
 		{
-			ID:                 "go-rpc-grpc",
-			Name:               "Go RPC/gRPC Service",
-			Kind:               "rpc",
-			Language:           "go",
-			Architecture:       "service",
-			Description:        "RPC service scaffold with proto contract, descriptor diagnostics and client compatibility tests.",
-			Features:           []string{"rpc", "grpc", "proto", "governance", "observability", "docker", "ci"},
-			Inputs:             commonTemplateInputs(),
-			Files:              []string{".gofly/config.json", "go.mod", "cmd/<name>/main.go", "<name>.proto", "Dockerfile", ".github/workflows/ci.yml", "internal/admin/admin.go", "internal/observability/observability.go", "internal/rpc/greeter.go"},
-			Verify:             []string{"gofmt", "go mod tidy", "go test ./..."},
-			VerifyE2EValidated: true,
-			RiskLevel:          "medium",
-			Command:            "gofly new rpc <name> --module <module> --style production --dir <dir>",
+			ID:                  "go-rpc-grpc",
+			Name:                "Go RPC/gRPC Service",
+			Kind:                "rpc",
+			Language:            "go",
+			Architecture:        "service",
+			Description:         "RPC service scaffold with proto contract, descriptor diagnostics and client compatibility tests.",
+			Features:            []string{"rpc", "grpc", "proto", "governance", "observability", "docker", "ci"},
+			RuntimeCapabilities: []string{"generated-rpc-mux-retry-smoke"},
+			Inputs:              commonTemplateInputs(),
+			Files:               []string{".gofly/config.json", "go.mod", "cmd/<name>/main.go", "<name>.proto", "Dockerfile", ".github/workflows/ci.yml", "internal/admin/admin.go", "internal/observability/observability.go", "internal/rpc/greeter.go"},
+			Verify:              []string{"gofmt", "go mod tidy", "go test ./..."},
+			VerifyE2EValidated:  true,
+			RiskLevel:           "medium",
+			Command:             "gofly new rpc <name> --module <module> --style production --dir <dir>",
 		},
 		{
 			ID:                 "go-worker-mq",

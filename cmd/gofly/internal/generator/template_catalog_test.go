@@ -19,9 +19,15 @@ func TestProjectTemplateCatalogIsStableAndDefensive(t *testing.T) {
 		}
 	}
 	templates[0].Features[0] = "mutated"
+	if len(templates[0].RuntimeCapabilities) > 0 {
+		templates[0].RuntimeCapabilities[0] = "mutated-capability"
+	}
 	fresh := ListProjectTemplates()
 	if fresh[0].Features[0] == "mutated" {
 		t.Fatal("ListProjectTemplates returned mutable shared feature slice")
+	}
+	if len(fresh[0].RuntimeCapabilities) > 0 && fresh[0].RuntimeCapabilities[0] == "mutated-capability" {
+		t.Fatal("ListProjectTemplates returned mutable shared runtime capabilities")
 	}
 }
 
@@ -42,6 +48,10 @@ func TestGetAndRecommendProjectTemplate(t *testing.T) {
 	worker := RecommendProjectTemplate("普通后台消费任务", "worker")
 	if worker.ID != "go-worker-mq" {
 		t.Fatalf("RecommendProjectTemplate worker kind = %q, want go-worker-mq", worker.ID)
+	}
+	rpcTemplate, ok := GetProjectTemplate("go-rpc-grpc")
+	if !ok || !containsString(rpcTemplate.RuntimeCapabilities, "generated-rpc-mux-retry-smoke") {
+		t.Fatalf("go-rpc-grpc runtime capabilities = %+v, want generated-rpc-mux-retry-smoke", rpcTemplate.RuntimeCapabilities)
 	}
 }
 

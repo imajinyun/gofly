@@ -934,23 +934,27 @@ func TestTemplateCatalogCommandsExposeJSON(t *testing.T) {
 
 	t.Run("inspect returns template metadata", func(t *testing.T) {
 		var stdout bytes.Buffer
-		if err := ExecuteWithIO([]string{"template", "inspect", "go-ai-agent", "--json"}, IOStreams{Out: &stdout}); err != nil {
+		if err := ExecuteWithIO([]string{"template", "inspect", "go-rpc-grpc", "--json"}, IOStreams{Out: &stdout}); err != nil {
 			t.Fatalf("template inspect: %v", err)
 		}
 		var envelope struct {
 			OK   bool `json:"ok"`
 			Data struct {
-				ID      string   `json:"id"`
-				Kind    string   `json:"kind"`
-				Command string   `json:"command"`
-				Verify  []string `json:"verify"`
+				ID                  string   `json:"id"`
+				Kind                string   `json:"kind"`
+				Command             string   `json:"command"`
+				Verify              []string `json:"verify"`
+				RuntimeCapabilities []string `json:"runtimeCapabilities"`
 			} `json:"data"`
 		}
 		if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
 			t.Fatalf("template inspect JSON: %v\n%s", err, stdout.String())
 		}
-		if !envelope.OK || envelope.Data.ID != "go-ai-agent" || envelope.Data.Kind != "ai-agent" || !strings.Contains(envelope.Data.Command, "gofly new service") || len(envelope.Data.Verify) == 0 {
+		if !envelope.OK || envelope.Data.ID != "go-rpc-grpc" || envelope.Data.Kind != "rpc" || !strings.Contains(envelope.Data.Command, "gofly new rpc") || len(envelope.Data.Verify) == 0 {
 			t.Fatalf("template inspect envelope = %+v", envelope)
+		}
+		if !commandContainsString(envelope.Data.RuntimeCapabilities, "generated-rpc-mux-retry-smoke") {
+			t.Fatalf("template inspect runtime capabilities = %+v, want generated-rpc-mux-retry-smoke", envelope.Data.RuntimeCapabilities)
 		}
 	})
 }

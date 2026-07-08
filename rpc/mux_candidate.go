@@ -33,6 +33,8 @@ var (
 	rpcMuxCandidateNegotiationFailures *metrics.Counter
 	rpcMuxCandidateDowngrades          *metrics.Counter
 	rpcMuxCandidateConnections         *metrics.Gauge
+	rpcMuxCandidateDrains              *metrics.Counter
+	rpcMuxCandidateActiveStreams       *metrics.Gauge
 )
 
 func init() {
@@ -61,6 +63,18 @@ func registerExperimentalMuxCandidateMetrics(registry *metrics.Registry) {
 		"frame_codec",
 		"payload_codec",
 		"downgraded",
+	)
+	rpcMuxCandidateDrains = registry.Counter(
+		"gofly_rpc_mux_candidate_drain_total",
+		"Total mux candidate GOAWAY drain events by reason and direction.",
+		"drain_reason",
+		"direction",
+	)
+	rpcMuxCandidateActiveStreams = registry.Gauge(
+		"gofly_rpc_mux_candidate_active_streams",
+		"Current active streams observed during mux candidate drain lifecycle.",
+		"drain_reason",
+		"state",
 	)
 }
 
@@ -551,6 +565,13 @@ func recordExperimentalMuxCandidateConnectionMetric(snapshot ExperimentalMuxCand
 		normalizeExperimentalMuxCandidateMetricLabel(snapshot.PayloadCodec, "unknown"),
 		downgraded,
 	)
+}
+
+func recordExperimentalMuxCandidateDrainMetric(reason string, direction string, activeStreams int) {
+	reason = normalizeExperimentalMuxCandidateMetricLabel(reason, "unknown")
+	direction = normalizeExperimentalMuxCandidateMetricLabel(direction, "unknown")
+	rpcMuxCandidateDrains.Inc(reason, direction)
+	rpcMuxCandidateActiveStreams.Set(float64(activeStreams), reason, "draining")
 }
 
 func normalizeExperimentalMuxCandidateMetricLabel(value string, fallback string) string {

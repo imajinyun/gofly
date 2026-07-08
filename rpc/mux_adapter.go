@@ -36,6 +36,10 @@ type ExperimentalMuxAdapterSnapshot struct {
 type ExperimentalMuxClientAdapter struct {
 	transport *ExperimentalMuxTransport
 	candidate ExperimentalMuxCandidateSnapshot
+
+	mu                sync.Mutex
+	recordedGoAwayIn  int64
+	recordedGoAwayOut int64
 }
 
 // ExperimentalMuxServerAdapter dispatches opt-in mux streams by method.
@@ -44,14 +48,17 @@ type ExperimentalMuxServerAdapter struct {
 	candidate ExperimentalMuxCandidateSnapshot
 
 	mu       sync.RWMutex
+	metricMu sync.Mutex
 	handlers map[string]ExperimentalMuxStreamHandler
 
-	acceptedStreams atomic.Int64
-	rejectedStreams atomic.Int64
-	handlerErrors   atomic.Int64
-	lastHandledAt   atomic.Int64
-	lastMethod      atomic.Value
-	lastError       atomic.Value
+	acceptedStreams   atomic.Int64
+	rejectedStreams   atomic.Int64
+	handlerErrors     atomic.Int64
+	recordedGoAwayIn  int64
+	recordedGoAwayOut int64
+	lastHandledAt     atomic.Int64
+	lastMethod        atomic.Value
+	lastError         atomic.Value
 }
 
 type ExperimentalMuxServerConfigurer func(*ExperimentalMuxServerAdapter) error
@@ -254,12 +261,25 @@ func (a *ExperimentalMuxClientAdapter) Close() error {
 	return a.transport.Close()
 }
 
+func (a *ExperimentalMuxClientAdapter) Drain(ctx context.Context, reason string) error {
+	if a == nil || a.transport == nil {
+		return ErrExperimentalMuxTransportClosed
+	}
+	if err := a.transport.Drain(ctx, reason); err != nil {
+		return err
+	}
+	a.recordCandidateDrainMetrics(a.transport.Snapshot())
+	return nil
+}
+
 // Snapshot returns client-side mux adapter transport state.
 func (a *ExperimentalMuxClientAdapter) Snapshot() ExperimentalMuxAdapterSnapshot {
 	if a == nil || a.transport == nil {
 		return ExperimentalMuxAdapterSnapshot{Role: "client", Transport: ExperimentalMuxTransportSnapshot{Closed: true}}
 	}
-	return ExperimentalMuxAdapterSnapshot{Role: "client", Candidate: a.candidate, Transport: a.transport.Snapshot()}
+	snapshot := a.transport.Snapshot()
+	a.recordCandidateDrainMetrics(snapshot)
+	return ExperimentalMuxAdapterSnapshot{Role: "client", Candidate: a.candidate, Transport: snapshot}
 }
 
 // DiagnosisSnapshot returns client-side mux transport diagnosis.
@@ -285,6 +305,22 @@ func (a *ExperimentalMuxClientAdapter) RuntimeComponentSnapshot(ctx context.Cont
 		Owner:   "rpc",
 		Status:  muxAdapterStatus(snapshot),
 		Details: a.DiagnosisSnapshot(),
+	}
+}
+
+func (a *ExperimentalMuxClientAdapter) recordCandidateDrainMetrics(snapshot ExperimentalMuxTransportSnapshot) {
+	if a == nil || !a.candidate.Enabled {
+		return
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	for a.recordedGoAwayOut < snapshot.GoAwayFramesOut {
+		recordExperimentalMuxCandidateDrainMetric(snapshot.DrainReason, "out", snapshot.ActiveStreams)
+		a.recordedGoAwayOut++
+	}
+	for a.recordedGoAwayIn < snapshot.GoAwayFramesIn {
+		recordExperimentalMuxCandidateDrainMetric(snapshot.RemoteDrainReason, "in", snapshot.ActiveStreams)
+		a.recordedGoAwayIn++
 	}
 }
 
@@ -339,6 +375,17 @@ func (a *ExperimentalMuxServerAdapter) Close() error {
 	return a.transport.Close()
 }
 
+func (a *ExperimentalMuxServerAdapter) Drain(ctx context.Context, reason string) error {
+	if a == nil || a.transport == nil {
+		return ErrExperimentalMuxTransportClosed
+	}
+	if err := a.transport.Drain(ctx, reason); err != nil {
+		return err
+	}
+	a.recordCandidateDrainMetrics(a.transport.Snapshot())
+	return nil
+}
+
 // Snapshot returns server-side mux adapter state.
 func (a *ExperimentalMuxServerAdapter) Snapshot() ExperimentalMuxAdapterSnapshot {
 	if a == nil || a.transport == nil {
@@ -346,6 +393,8 @@ func (a *ExperimentalMuxServerAdapter) Snapshot() ExperimentalMuxAdapterSnapshot
 	}
 	method, _ := a.lastMethod.Load().(string)
 	lastError, _ := a.lastError.Load().(string)
+	transport := a.transport.Snapshot()
+	a.recordCandidateDrainMetrics(transport)
 	return ExperimentalMuxAdapterSnapshot{
 		Role:            "server",
 		AcceptedStreams: a.acceptedStreams.Load(),
@@ -355,7 +404,7 @@ func (a *ExperimentalMuxServerAdapter) Snapshot() ExperimentalMuxAdapterSnapshot
 		LastError:       lastError,
 		LastHandledAt:   unixNanoToTime(a.lastHandledAt.Load()),
 		Candidate:       a.candidate,
-		Transport:       a.transport.Snapshot(),
+		Transport:       transport,
 	}
 }
 
@@ -382,6 +431,22 @@ func (a *ExperimentalMuxServerAdapter) RuntimeComponentSnapshot(ctx context.Cont
 		Owner:   "rpc",
 		Status:  muxAdapterStatus(snapshot),
 		Details: a.DiagnosisSnapshot(),
+	}
+}
+
+func (a *ExperimentalMuxServerAdapter) recordCandidateDrainMetrics(snapshot ExperimentalMuxTransportSnapshot) {
+	if a == nil || !a.candidate.Enabled {
+		return
+	}
+	a.metricMu.Lock()
+	defer a.metricMu.Unlock()
+	for a.recordedGoAwayOut < snapshot.GoAwayFramesOut {
+		recordExperimentalMuxCandidateDrainMetric(snapshot.DrainReason, "out", snapshot.ActiveStreams)
+		a.recordedGoAwayOut++
+	}
+	for a.recordedGoAwayIn < snapshot.GoAwayFramesIn {
+		recordExperimentalMuxCandidateDrainMetric(snapshot.RemoteDrainReason, "in", snapshot.ActiveStreams)
+		a.recordedGoAwayIn++
 	}
 }
 

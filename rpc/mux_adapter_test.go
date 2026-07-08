@@ -838,6 +838,96 @@ func TestExperimentalMuxConnectionManagerCandidateDowngradeDiagnostics(t *testin
 	}
 }
 
+func TestExperimentalMuxCandidateDrainMetrics(t *testing.T) {
+	reg := withIsolatedMuxCandidateMetrics(t)
+	clientConn, serverConn := net.Pipe()
+	cfg := ExperimentalMuxCandidateConfig{
+		Protocol:         "gofly-mux/drain-metrics-test",
+		FrameCodec:       "binary",
+		PayloadCodec:     "identity",
+		ConnectionWindow: 3,
+		ReceiveQueueSize: 3,
+	}
+	client := NewExperimentalMuxCandidateClientAdapter(clientConn, cfg)
+	server := NewExperimentalMuxCandidateServerAdapter(serverConn, cfg)
+	defer client.Close()
+	defer server.Close()
+	release := make(chan struct{})
+	if err := server.RegisterStream("orders/Hold", func(ctx context.Context, stream *ExperimentalMuxStream) error {
+		msg, err := stream.Receive(ctx)
+		if err != nil {
+			return err
+		}
+		select {
+		case <-release:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+		if err := stream.Send(ctx, Message{Payload: append([]byte("drained:"), msg.Payload...)}); err != nil {
+			return err
+		}
+		return stream.Close(ctx, "ok")
+	}); err != nil {
+		t.Fatal(err)
+	}
+	serveCtx, stop := context.WithCancel(context.Background())
+	defer stop()
+	serveDone := make(chan error, 1)
+	go func() {
+		serveDone <- server.Serve(serveCtx)
+	}()
+	stream, err := client.OpenStream(context.Background(), "orders/Hold")
+	if err != nil {
+		t.Fatalf("OpenStream: %v", err)
+	}
+	if err := stream.Send(context.Background(), Message{Payload: []byte("active")}); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	assertEventually(t, func() bool {
+		return client.Snapshot().Transport.ActiveStreams == 1 && server.Snapshot().Transport.ActiveStreams == 1
+	}, "candidate drain active stream")
+	if err := client.Drain(context.Background(), "maintenance"); err != nil {
+		t.Fatalf("Drain: %v", err)
+	}
+	assertEventually(t, func() bool {
+		serverSnapshot := server.Snapshot()
+		return serverSnapshot.Transport.GoAwayFramesIn == 1 && serverSnapshot.Transport.RemoteDrainReason == "maintenance"
+	}, "candidate server observed remote GOAWAY")
+
+	customs := reg.Snapshot().Customs
+	drains := customs["gofly_rpc_mux_candidate_drain_total"]
+	if drains.Type != metrics.MetricCounter || len(drains.Series) != 2 {
+		t.Fatalf("candidate drain metric = %#v, want in/out drain series", drains)
+	}
+	seen := map[string]bool{}
+	for _, series := range drains.Series {
+		if series.Labels["drain_reason"] != "maintenance" || series.Value != 1 {
+			t.Fatalf("candidate drain series = %#v, want maintenance count 1", series)
+		}
+		seen[series.Labels["direction"]] = true
+	}
+	if !seen["in"] || !seen["out"] {
+		t.Fatalf("candidate drain directions = %#v, want in and out", seen)
+	}
+	active := customs["gofly_rpc_mux_candidate_active_streams"]
+	if active.Type != metrics.MetricGauge || len(active.Series) != 1 ||
+		active.Series[0].Labels["drain_reason"] != "maintenance" ||
+		active.Series[0].Labels["state"] != "draining" ||
+		active.Series[0].Value != 1 {
+		t.Fatalf("candidate active-stream metric = %#v, want one active stream during drain", active)
+	}
+
+	close(release)
+	assertMuxPayload(t, stream, "drained:active")
+	if _, err := stream.Receive(muxTestTimeoutContext(t)); !errors.Is(err, io.EOF) {
+		t.Fatalf("terminal receive = %v, want EOF", err)
+	}
+	stop()
+	if err := <-serveDone; err != nil {
+		t.Fatalf("candidate mux server stopped with error: %v", err)
+	}
+}
+
 func TestExperimentalMuxConnectionManagerCandidateConfig(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

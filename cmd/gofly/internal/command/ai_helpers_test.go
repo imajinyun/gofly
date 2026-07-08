@@ -1468,6 +1468,9 @@ func TestAINewTextHelpAndManifestContract(t *testing.T) {
 		if library.TemplateVerification.CatalogField != "verifyE2EValidated" || library.TemplateVerification.MatrixTarget != "make test-generated-matrix" || !library.TemplateVerification.CIRequired || !library.TemplateVerification.ZeroSkipRequired {
 			t.Fatalf("feature library template verification contract = %+v", library.TemplateVerification)
 		}
+		if !commandContainsString(library.TemplateVerification.CapabilitiesByTemplate["go-rpc-grpc"], "generated-rpc-mux-retry-smoke") {
+			t.Fatalf("go-rpc-grpc template capabilities = %+v, want generated-rpc-mux-retry-smoke", library.TemplateVerification.CapabilitiesByTemplate["go-rpc-grpc"])
+		}
 		validated := strings.Join(library.TemplateVerification.ValidatedTemplates, ",")
 		for _, want := range []string{"go-rest-minimal", "go-gateway", "go-ai-agent"} {
 			if !strings.Contains(validated, want) {

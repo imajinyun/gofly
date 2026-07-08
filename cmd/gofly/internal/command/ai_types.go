@@ -66,12 +66,13 @@ type aiFeatureLibraryManifest struct {
 }
 
 type aiTemplateVerificationContract struct {
-	CatalogField       string   `json:"catalogField"`
-	MatrixTarget       string   `json:"matrixTarget"`
-	GovernanceRound    string   `json:"governanceRound"`
-	CIRequired         bool     `json:"ciRequired"`
-	ZeroSkipRequired   bool     `json:"zeroSkipRequired"`
-	ValidatedTemplates []string `json:"validatedTemplates"`
+	CatalogField           string              `json:"catalogField"`
+	MatrixTarget           string              `json:"matrixTarget"`
+	GovernanceRound        string              `json:"governanceRound"`
+	CIRequired             bool                `json:"ciRequired"`
+	ZeroSkipRequired       bool                `json:"zeroSkipRequired"`
+	ValidatedTemplates     []string            `json:"validatedTemplates"`
+	CapabilitiesByTemplate map[string][]string `json:"capabilitiesByTemplate,omitempty"`
 }
 
 type aiTokenBudgetPolicy struct {

@@ -528,6 +528,7 @@ perf-governance-check: ## Validate benchmark package compiles and baseline data 
 .PHONY: rpc-boundary-check
 rpc-boundary-check: ## Validate RPC packages and benchmark package without docs evidence
 	$(GO) test $(TESTFLAGS) ./rpc/... ./bench/...
+	$(GO) run ./cmd/gofly release check --json --evidence generated-rpc-mux-retry-smoke
 
 .PHONY: actionlint
 actionlint: actions-pin-check ## Lint GitHub Actions workflows

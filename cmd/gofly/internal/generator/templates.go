@@ -800,7 +800,7 @@ func TestAdminDiagnostics(t *testing.T) {
 
 	metricsRec := httptest.NewRecorder()
 	handler.ServeHTTP(metricsRec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
-	if metricsRec.Code != http.StatusOK || !strings.Contains(metricsRec.Body.String(), "gofly_requests_total") {
+	if metricsRec.Code != http.StatusOK || !strings.Contains(metricsRec.Body.String(), "gofly_requests_total") || !strings.Contains(metricsRec.Body.String(), "gofly_rpc_mux_candidate_connections{frame_codec=\"binary\",payload_codec=\"identity\",downgraded=\"false\"} 1") {
 		t.Fatalf("metrics response = %d %q", metricsRec.Code, metricsRec.Body.String())
 	}
 

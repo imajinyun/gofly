@@ -1080,6 +1080,8 @@ func TestGenerateNewServiceVariantsBoundaries(t *testing.T) {
 		"rpc.ServeExperimentalMuxCandidateListener",
 		"rpc.WithExperimentalMuxConnectionManagerCandidateConfig",
 		`diagnosis.Candidate.Protocol != "gofly-mux/generated-candidate-test"`,
+		"gofly_rpc_mux_candidate_connections",
+		`frame_codec=\"binary\",payload_codec=\"identity\",downgraded=\"false\"`,
 		`badMuxEndpoint := "tcp://" + badMuxListener.Addr().String()`,
 		`diagnosis.OpenRetries != 1`,
 		`diagnosis.RetryReasons["dial_failure"] != 1`,

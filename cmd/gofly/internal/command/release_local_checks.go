@@ -245,6 +245,13 @@ func releaseRPCMuxAdapterEvidenceCheck() (releaseCheckItem, []string) {
 			"baseline":        baseline,
 			"current":         current,
 			"decision":        decision,
+			"runtimeEvidence": map[string]any{
+				"family":           "generated-rpc-mux-retry-smoke",
+				"openBeforeRetry":  true,
+				"postOpenNoReplay": true,
+				"cooldownBackoff":  true,
+				"gate":             "gofly release check --json --evidence generated-rpc-mux-retry-smoke",
+			},
 		},
 	}
 	return item, nil

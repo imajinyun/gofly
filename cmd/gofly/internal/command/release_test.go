@@ -271,6 +271,14 @@ func TestReleaseRPCMuxAdapterEvidenceCheck(t *testing.T) {
 		evidence["current"] == nil {
 		t.Fatalf("rpc mux adapter evidence = %#v, want report-only benchmark evidence", evidence)
 	}
+	runtimeEvidence, ok := evidence["runtimeEvidence"].(map[string]any)
+	if !ok ||
+		runtimeEvidence["family"] != "generated-rpc-mux-retry-smoke" ||
+		runtimeEvidence["openBeforeRetry"] != true ||
+		runtimeEvidence["postOpenNoReplay"] != true ||
+		runtimeEvidence["cooldownBackoff"] != true {
+		t.Fatalf("rpc mux adapter runtime evidence = %#v, want generated mux retry boundary reference", evidence["runtimeEvidence"])
+	}
 }
 
 func TestReleaseGeneratedRPCMuxRetrySmokeCheck(t *testing.T) {

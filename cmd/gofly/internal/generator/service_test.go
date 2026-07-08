@@ -1042,6 +1042,7 @@ func TestGenerateNewServiceVariantsBoundaries(t *testing.T) {
 		`json:"candidate,omitempty"`,
 		`json:"protocol,omitempty"`,
 		`json:"tls,omitempty"`,
+		`json:"drainGrace,omitempty"`,
 		`json:"allowLegacyDowngrade,omitempty"`,
 		"func (c RPCMuxConfig) CandidateConfig() rpc.ExperimentalMuxCandidateConfig",
 	} {

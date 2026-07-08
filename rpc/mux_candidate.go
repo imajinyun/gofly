@@ -35,6 +35,8 @@ var (
 	rpcMuxCandidateConnections         *metrics.Gauge
 	rpcMuxCandidateDrains              *metrics.Counter
 	rpcMuxCandidateActiveStreams       *metrics.Gauge
+	rpcMuxCandidateDrainTimeouts       *metrics.Counter
+	rpcMuxCandidateForcedCloses        *metrics.Counter
 )
 
 func init() {
@@ -76,6 +78,16 @@ func registerExperimentalMuxCandidateMetrics(registry *metrics.Registry) {
 		"drain_reason",
 		"state",
 	)
+	rpcMuxCandidateDrainTimeouts = registry.Counter(
+		"gofly_rpc_mux_candidate_drain_timeout_total",
+		"Total mux candidate graceful drain timeouts by reason.",
+		"drain_reason",
+	)
+	rpcMuxCandidateForcedCloses = registry.Counter(
+		"gofly_rpc_mux_candidate_forced_close_total",
+		"Total mux candidate forced closes after drain timeout by reason.",
+		"drain_reason",
+	)
 }
 
 // ExperimentalMuxCandidateConfig describes the opt-in production-candidate
@@ -97,6 +109,7 @@ type ExperimentalMuxCandidateConfig struct {
 	ConnectionWindow     int                `json:"connectionWindow,omitempty"`
 	PayloadCodec         string             `json:"payloadCodec,omitempty"`
 	FrameCodec           string             `json:"frameCodec,omitempty"`
+	DrainGrace           time.Duration      `json:"drainGrace,omitempty"`
 	AllowLegacyDowngrade bool               `json:"allowLegacyDowngrade,omitempty"`
 }
 
@@ -128,6 +141,7 @@ type ExperimentalMuxCandidateSnapshot struct {
 	ConnectionWindow     int           `json:"connectionWindow,omitempty"`
 	PayloadCodec         string        `json:"payloadCodec,omitempty"`
 	FrameCodec           string        `json:"frameCodec,omitempty"`
+	DrainGrace           time.Duration `json:"drainGrace,omitempty"`
 }
 
 type ExperimentalMuxCandidateFailure struct {
@@ -236,6 +250,7 @@ func (c ExperimentalMuxCandidateConfig) snapshot(role string, negotiated string)
 		ConnectionWindow:     c.ConnectionWindow,
 		PayloadCodec:         c.PayloadCodec,
 		FrameCodec:           c.FrameCodec,
+		DrainGrace:           c.DrainGrace,
 		DowngradeAllowed:     c.AllowLegacyDowngrade,
 	}
 }
@@ -572,6 +587,12 @@ func recordExperimentalMuxCandidateDrainMetric(reason string, direction string, 
 	direction = normalizeExperimentalMuxCandidateMetricLabel(direction, "unknown")
 	rpcMuxCandidateDrains.Inc(reason, direction)
 	rpcMuxCandidateActiveStreams.Set(float64(activeStreams), reason, "draining")
+}
+
+func recordExperimentalMuxCandidateForcedCloseMetric(reason string) {
+	reason = normalizeExperimentalMuxCandidateMetricLabel(reason, "unknown")
+	rpcMuxCandidateDrainTimeouts.Inc(reason)
+	rpcMuxCandidateForcedCloses.Inc(reason)
 }
 
 func normalizeExperimentalMuxCandidateMetricLabel(value string, fallback string) string {

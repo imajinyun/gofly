@@ -928,6 +928,80 @@ func TestExperimentalMuxCandidateDrainMetrics(t *testing.T) {
 	}
 }
 
+func TestExperimentalMuxCandidateDrainGraceTimeoutForcesClose(t *testing.T) {
+	reg := withIsolatedMuxCandidateMetrics(t)
+	clientConn, serverConn := net.Pipe()
+	cfg := ExperimentalMuxCandidateConfig{
+		Protocol:         "gofly-mux/drain-timeout-test",
+		FrameCodec:       "binary",
+		PayloadCodec:     "identity",
+		ConnectionWindow: 3,
+		ReceiveQueueSize: 3,
+		DrainGrace:       time.Millisecond,
+	}
+	client := NewExperimentalMuxCandidateClientAdapter(clientConn, cfg)
+	server := NewExperimentalMuxCandidateServerAdapter(serverConn, cfg)
+	defer client.Close()
+	defer server.Close()
+	block := make(chan struct{})
+	if err := server.RegisterStream("orders/Hold", func(ctx context.Context, stream *ExperimentalMuxStream) error {
+		if _, err := stream.Receive(ctx); err != nil {
+			return err
+		}
+		select {
+		case <-block:
+			return stream.Close(ctx, "released")
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	serveCtx, stop := context.WithCancel(context.Background())
+	defer stop()
+	serveDone := make(chan error, 1)
+	go func() {
+		serveDone <- server.Serve(serveCtx)
+	}()
+	stream, err := client.OpenStream(context.Background(), "orders/Hold")
+	if err != nil {
+		t.Fatalf("OpenStream: %v", err)
+	}
+	if err := stream.Send(context.Background(), Message{Payload: []byte("active")}); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	assertEventually(t, func() bool {
+		return client.Snapshot().Transport.ActiveStreams == 1
+	}, "candidate forced close active stream")
+	if err := client.Drain(context.Background(), "timeout"); err != nil {
+		t.Fatalf("Drain: %v", err)
+	}
+	if snapshot := client.Snapshot(); !snapshot.Transport.Closed {
+		t.Fatalf("client snapshot after drain timeout = %+v, want closed transport", snapshot)
+	}
+	if _, err := stream.Receive(muxTestTimeoutContext(t)); err == nil {
+		t.Fatal("Receive after forced close succeeded, want error")
+	}
+	customs := reg.Snapshot().Customs
+	timeouts := customs["gofly_rpc_mux_candidate_drain_timeout_total"]
+	if timeouts.Type != metrics.MetricCounter || len(timeouts.Series) != 1 ||
+		timeouts.Series[0].Labels["drain_reason"] != "timeout" ||
+		timeouts.Series[0].Value != 1 {
+		t.Fatalf("candidate drain timeout metric = %#v, want timeout count 1", timeouts)
+	}
+	forced := customs["gofly_rpc_mux_candidate_forced_close_total"]
+	if forced.Type != metrics.MetricCounter || len(forced.Series) != 1 ||
+		forced.Series[0].Labels["drain_reason"] != "timeout" ||
+		forced.Series[0].Value != 1 {
+		t.Fatalf("candidate forced close metric = %#v, want timeout count 1", forced)
+	}
+	close(block)
+	stop()
+	if err := <-serveDone; err != nil {
+		t.Fatalf("candidate mux server stopped with error: %v", err)
+	}
+}
+
 func TestExperimentalMuxConnectionManagerCandidateConfig(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

@@ -269,7 +269,7 @@ func (a *ExperimentalMuxClientAdapter) Drain(ctx context.Context, reason string)
 		return err
 	}
 	a.recordCandidateDrainMetrics(a.transport.Snapshot())
-	return nil
+	return a.waitCandidateDrain(ctx, reason)
 }
 
 // Snapshot returns client-side mux adapter transport state.
@@ -322,6 +322,13 @@ func (a *ExperimentalMuxClientAdapter) recordCandidateDrainMetrics(snapshot Expe
 		recordExperimentalMuxCandidateDrainMetric(snapshot.RemoteDrainReason, "in", snapshot.ActiveStreams)
 		a.recordedGoAwayIn++
 	}
+}
+
+func (a *ExperimentalMuxClientAdapter) waitCandidateDrain(ctx context.Context, reason string) error {
+	if a == nil || a.transport == nil || !a.candidate.Enabled || a.candidate.DrainGrace <= 0 {
+		return nil
+	}
+	return waitExperimentalMuxCandidateDrain(ctx, a.transport, a.candidate.DrainGrace, reason)
 }
 
 // RegisterStream registers an opt-in mux stream handler.
@@ -383,7 +390,7 @@ func (a *ExperimentalMuxServerAdapter) Drain(ctx context.Context, reason string)
 		return err
 	}
 	a.recordCandidateDrainMetrics(a.transport.Snapshot())
-	return nil
+	return a.waitCandidateDrain(ctx, reason)
 }
 
 // Snapshot returns server-side mux adapter state.
@@ -448,6 +455,38 @@ func (a *ExperimentalMuxServerAdapter) recordCandidateDrainMetrics(snapshot Expe
 		recordExperimentalMuxCandidateDrainMetric(snapshot.RemoteDrainReason, "in", snapshot.ActiveStreams)
 		a.recordedGoAwayIn++
 	}
+}
+
+func waitExperimentalMuxCandidateDrain(ctx context.Context, transport *ExperimentalMuxTransport, grace time.Duration, reason string) error {
+	if transport == nil || grace <= 0 {
+		return nil
+	}
+	ctx = core.Context(ctx)
+	deadline := time.NewTimer(grace)
+	defer deadline.Stop()
+	ticker := time.NewTicker(time.Millisecond)
+	defer ticker.Stop()
+	for {
+		snapshot := transport.Snapshot()
+		if snapshot.ActiveStreams == 0 {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-deadline.C:
+			recordExperimentalMuxCandidateForcedCloseMetric(reason)
+			return transport.Close()
+		case <-ticker.C:
+		}
+	}
+}
+
+func (a *ExperimentalMuxServerAdapter) waitCandidateDrain(ctx context.Context, reason string) error {
+	if a == nil || a.transport == nil || !a.candidate.Enabled || a.candidate.DrainGrace <= 0 {
+		return nil
+	}
+	return waitExperimentalMuxCandidateDrain(ctx, a.transport, a.candidate.DrainGrace, reason)
 }
 
 func (a *ExperimentalMuxServerAdapter) handleStream(ctx context.Context, stream *ExperimentalMuxStream) {

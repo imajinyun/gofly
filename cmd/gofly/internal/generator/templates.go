@@ -996,6 +996,7 @@ type RPCMuxCandidateConfig struct {
 	ConnectionWindow int ` + "`json:\"connectionWindow,omitempty\"`" + `
 	PayloadCodec string ` + "`json:\"payloadCodec,omitempty\"`" + `
 	FrameCodec string ` + "`json:\"frameCodec,omitempty\"`" + `
+	DrainGrace time.Duration ` + "`json:\"drainGrace,omitempty\"`" + `
 	AllowLegacyDowngrade bool ` + "`json:\"allowLegacyDowngrade,omitempty\"`" + `
 }
 
@@ -1118,6 +1119,7 @@ func (c RPCMuxConfig) CandidateConfig() rpc.ExperimentalMuxCandidateConfig {
 		ConnectionWindow:     candidate.ConnectionWindow,
 		PayloadCodec:         candidate.PayloadCodec,
 		FrameCodec:           candidate.FrameCodec,
+		DrainGrace:           candidate.DrainGrace,
 		AllowLegacyDowngrade: candidate.AllowLegacyDowngrade,
 	}
 }

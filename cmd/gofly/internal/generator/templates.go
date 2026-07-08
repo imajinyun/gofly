@@ -688,6 +688,12 @@ func TestAdminDiagnostics(t *testing.T) {
 	if diagnosis := candidateClient.RuntimeSnapshot().Diagnosis.Mux.Manager; !diagnosis.Candidate.Enabled || diagnosis.Candidate.Protocol != "gofly-mux/generated-candidate-test" || diagnosis.Candidate.FrameCodec != "binary" || len(diagnosis.Endpoints) != 1 || !diagnosis.Endpoints[0].Adapter.Candidate.Enabled || diagnosis.Endpoints[0].Adapter.Transport.ConnectionWindow != 3 {
 		t.Fatalf("candidate manager diagnosis = %+v, want generated candidate mux evidence", diagnosis)
 	}
+	if err := candidateManager.Drain(context.Background(), "generated_shutdown"); err != nil {
+		t.Fatal(err)
+	}
+	if diagnosis := candidateClient.RuntimeSnapshot().Diagnosis.Mux.Manager; len(diagnosis.Endpoints) != 1 || diagnosis.Endpoints[0].Adapter.Transport.GoAwayFramesOut != 1 {
+		t.Fatalf("candidate drain diagnosis = %+v, want generated candidate GOAWAY evidence", diagnosis)
+	}
 	stopCandidate()
 	if err := <-candidateDone; err != nil {
 		t.Fatalf("candidate mux server stopped with error: %v", err)
@@ -800,7 +806,11 @@ func TestAdminDiagnostics(t *testing.T) {
 
 	metricsRec := httptest.NewRecorder()
 	handler.ServeHTTP(metricsRec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
-	if metricsRec.Code != http.StatusOK || !strings.Contains(metricsRec.Body.String(), "gofly_requests_total") || !strings.Contains(metricsRec.Body.String(), "gofly_rpc_mux_candidate_connections{frame_codec=\"binary\",payload_codec=\"identity\",downgraded=\"false\"} 1") {
+	if metricsRec.Code != http.StatusOK ||
+		!strings.Contains(metricsRec.Body.String(), "gofly_requests_total") ||
+		!strings.Contains(metricsRec.Body.String(), "gofly_rpc_mux_candidate_connections{frame_codec=\"binary\",payload_codec=\"identity\",downgraded=\"false\"} 1") ||
+		!strings.Contains(metricsRec.Body.String(), "gofly_rpc_mux_candidate_drain_total{drain_reason=\"generated_shutdown\",direction=\"out\"} 1") ||
+		!strings.Contains(metricsRec.Body.String(), "gofly_rpc_mux_candidate_active_streams{drain_reason=\"generated_shutdown\",state=\"draining\"} 0") {
 		t.Fatalf("metrics response = %d %q", metricsRec.Code, metricsRec.Body.String())
 	}
 

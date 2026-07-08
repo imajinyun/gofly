@@ -528,8 +528,8 @@ func (m *ExperimentalMuxConnectionManager) Drain(ctx context.Context, reason str
 	m.mu.Unlock()
 	var err error
 	for _, adapter := range adapters {
-		if adapter != nil && adapter.adapter != nil && adapter.adapter.transport != nil {
-			err = errors.Join(err, adapter.adapter.transport.Drain(ctx, reason))
+		if adapter != nil && adapter.adapter != nil {
+			err = errors.Join(err, adapter.adapter.Drain(ctx, reason))
 		}
 	}
 	return err

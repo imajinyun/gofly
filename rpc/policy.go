@@ -228,15 +228,18 @@ type RPCMuxConnectionManagerDiagnosis struct {
 }
 
 type RPCMuxFlowControlDiagnosis struct {
-	ReceiveQueueSize      int   `json:"receiveQueueSize,omitempty"`
-	ConnectionWindow      int   `json:"connectionWindow,omitempty"`
-	ConnectionCreditWaits int64 `json:"connectionCreditWaits,omitempty"`
-	StreamCreditWaits     int64 `json:"streamCreditWaits,omitempty"`
-	WindowFramesIn        int64 `json:"windowFramesIn,omitempty"`
-	WindowFramesOut       int64 `json:"windowFramesOut,omitempty"`
-	ConnectionWindowIn    int64 `json:"connectionWindowIn,omitempty"`
-	ConnectionWindowOut   int64 `json:"connectionWindowOut,omitempty"`
-	BackpressureEvents    int64 `json:"backpressureEvents,omitempty"`
+	ReceiveQueueSize          int   `json:"receiveQueueSize,omitempty"`
+	ConnectionWindow          int   `json:"connectionWindow,omitempty"`
+	ConnectionCreditWaits     int64 `json:"connectionCreditWaits,omitempty"`
+	StreamCreditWaits         int64 `json:"streamCreditWaits,omitempty"`
+	CreditWaitTimeouts        int64 `json:"creditWaitTimeouts,omitempty"`
+	WriteTimeouts             int64 `json:"writeTimeouts,omitempty"`
+	ConnectionWindowExhausted int64 `json:"connectionWindowExhausted,omitempty"`
+	WindowFramesIn            int64 `json:"windowFramesIn,omitempty"`
+	WindowFramesOut           int64 `json:"windowFramesOut,omitempty"`
+	ConnectionWindowIn        int64 `json:"connectionWindowIn,omitempty"`
+	ConnectionWindowOut       int64 `json:"connectionWindowOut,omitempty"`
+	BackpressureEvents        int64 `json:"backpressureEvents,omitempty"`
 }
 
 type RPCMuxKeepaliveDiagnosis struct {

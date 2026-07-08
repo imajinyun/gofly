@@ -277,7 +277,7 @@ const configTemplate = `{
   "rpc": {
     "addr": ":8081",
     "advertise": "http://127.0.0.1:8081",
-    "mux": {"enabled": false, "probe": false, "addr": "127.0.0.1:8082", "endpoints": [], "idleTimeout": 60000000000, "maxOpenRetries": 1, "openRetryReasons": ["dial_failure", "pool_exhausted"], "healthBackoffMultiplier": 2, "healthMaxCooldown": 30000000000, "candidate": {"enabled": false, "protocol": "gofly-mux/experimental-v1", "dialTimeout": 30000000000, "keepAlive": 30000000000, "handshakeTimeout": 10000000000, "keepaliveInterval": 30000000000, "keepaliveIdle": 90000000000, "maxFrameBytes": 4194304, "maxMessageBytes": 67108864, "maxConcurrentStreams": 128, "receiveQueueSize": 16, "connectionWindow": 16, "payloadCodec": "identity", "frameCodec": "binary", "allowLegacyDowngrade": false, "tls": {}}}
+    "mux": {"enabled": false, "probe": false, "addr": "127.0.0.1:8082", "endpoints": [], "idleTimeout": 60000000000, "maxOpenRetries": 1, "openRetryReasons": ["dial_failure", "pool_exhausted"], "healthBackoffMultiplier": 2, "healthMaxCooldown": 30000000000, "candidate": {"enabled": false, "protocol": "gofly-mux/experimental-v1", "dialTimeout": 30000000000, "keepAlive": 30000000000, "handshakeTimeout": 10000000000, "keepaliveInterval": 30000000000, "keepaliveIdle": 90000000000, "writeTimeout": 0, "creditWaitTimeout": 0, "maxFrameBytes": 4194304, "maxMessageBytes": 67108864, "maxConcurrentStreams": 128, "receiveQueueSize": 16, "connectionWindow": 16, "payloadCodec": "identity", "frameCodec": "binary", "allowLegacyDowngrade": false, "tls": {}}}
   }
 }
 `
@@ -989,6 +989,8 @@ type RPCMuxCandidateConfig struct {
 	HandshakeTimeout time.Duration ` + "`json:\"handshakeTimeout,omitempty\"`" + `
 	KeepaliveInterval time.Duration ` + "`json:\"keepaliveInterval,omitempty\"`" + `
 	KeepaliveIdle time.Duration ` + "`json:\"keepaliveIdle,omitempty\"`" + `
+	WriteTimeout time.Duration ` + "`json:\"writeTimeout,omitempty\"`" + `
+	CreditWaitTimeout time.Duration ` + "`json:\"creditWaitTimeout,omitempty\"`" + `
 	MaxFrameBytes int64 ` + "`json:\"maxFrameBytes,omitempty\"`" + `
 	MaxMessageBytes int64 ` + "`json:\"maxMessageBytes,omitempty\"`" + `
 	MaxConcurrentStreams int ` + "`json:\"maxConcurrentStreams,omitempty\"`" + `
@@ -1112,6 +1114,8 @@ func (c RPCMuxConfig) CandidateConfig() rpc.ExperimentalMuxCandidateConfig {
 		HandshakeTimeout:     candidate.HandshakeTimeout,
 		KeepaliveInterval:    candidate.KeepaliveInterval,
 		KeepaliveIdle:        candidate.KeepaliveIdle,
+		WriteTimeout:         candidate.WriteTimeout,
+		CreditWaitTimeout:    candidate.CreditWaitTimeout,
 		MaxFrameBytes:        candidate.MaxFrameBytes,
 		MaxMessageBytes:      candidate.MaxMessageBytes,
 		MaxConcurrentStreams: candidate.MaxConcurrentStreams,

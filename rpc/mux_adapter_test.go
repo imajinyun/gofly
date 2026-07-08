@@ -9,6 +9,7 @@ import (
 	"net"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -40,6 +41,60 @@ func withIsolatedMuxCandidateMetrics(t *testing.T) *metrics.Registry {
 	})
 	return reg
 }
+
+type timeoutWriteConn struct {
+	mu       sync.Mutex
+	deadline time.Time
+	closed   bool
+	done     chan struct{}
+}
+
+func (c *timeoutWriteConn) Read([]byte) (int, error) {
+	<-c.done
+	return 0, net.ErrClosed
+}
+
+func (c *timeoutWriteConn) Write(p []byte) (int, error) {
+	c.mu.Lock()
+	deadline := c.deadline
+	c.mu.Unlock()
+	if !deadline.IsZero() {
+		return 0, muxTimeoutNetError{msg: "write timeout"}
+	}
+	return len(p), nil
+}
+
+func (c *timeoutWriteConn) Close() error {
+	c.mu.Lock()
+	if !c.closed {
+		c.closed = true
+		close(c.done)
+	}
+	c.mu.Unlock()
+	return nil
+}
+
+func (c *timeoutWriteConn) LocalAddr() net.Addr  { return dummyAddr("local") }
+func (c *timeoutWriteConn) RemoteAddr() net.Addr { return dummyAddr("remote") }
+func (c *timeoutWriteConn) SetDeadline(t time.Time) error {
+	c.mu.Lock()
+	c.deadline = t
+	c.mu.Unlock()
+	return nil
+}
+func (c *timeoutWriteConn) SetReadDeadline(time.Time) error    { return nil }
+func (c *timeoutWriteConn) SetWriteDeadline(t time.Time) error { return c.SetDeadline(t) }
+
+type muxTimeoutNetError struct{ msg string }
+
+func (e muxTimeoutNetError) Error() string   { return e.msg }
+func (e muxTimeoutNetError) Timeout() bool   { return true }
+func (e muxTimeoutNetError) Temporary() bool { return true }
+
+type dummyAddr string
+
+func (a dummyAddr) Network() string { return string(a) }
+func (a dummyAddr) String() string  { return string(a) }
 
 func TestExperimentalMuxAdapterDispatchesMultipleStreams(t *testing.T) {
 	clientConn, serverConn := net.Pipe()
@@ -999,6 +1054,109 @@ func TestExperimentalMuxCandidateDrainGraceTimeoutForcesClose(t *testing.T) {
 	stop()
 	if err := <-serveDone; err != nil {
 		t.Fatalf("candidate mux server stopped with error: %v", err)
+	}
+}
+
+func TestExperimentalMuxCandidateCreditWaitTimeoutMetrics(t *testing.T) {
+	reg := withIsolatedMuxCandidateMetrics(t)
+	clientConn, serverConn := net.Pipe()
+	cfg := ExperimentalMuxCandidateConfig{
+		Protocol:          "gofly-mux/credit-timeout-test",
+		FrameCodec:        "binary",
+		PayloadCodec:      "identity",
+		ConnectionWindow:  1,
+		ReceiveQueueSize:  2,
+		CreditWaitTimeout: time.Millisecond,
+	}
+	client := NewExperimentalMuxCandidateClientAdapter(clientConn, cfg)
+	server := NewExperimentalMuxCandidateServerAdapter(serverConn, cfg)
+	defer client.Close()
+	defer server.Close()
+	hold := make(chan struct{})
+	if err := server.RegisterStream("orders/Hold", func(ctx context.Context, stream *ExperimentalMuxStream) error {
+		select {
+		case <-hold:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+		msg, err := stream.Receive(ctx)
+		if err != nil {
+			return err
+		}
+		return stream.Close(ctx, string(msg.Payload))
+	}); err != nil {
+		t.Fatal(err)
+	}
+	serveCtx, stop := context.WithCancel(context.Background())
+	defer stop()
+	serveDone := make(chan error, 1)
+	go func() {
+		serveDone <- server.Serve(serveCtx)
+	}()
+	stream, err := client.OpenStream(context.Background(), "orders/Hold")
+	if err != nil {
+		t.Fatalf("OpenStream: %v", err)
+	}
+	if err := stream.Send(context.Background(), Message{Payload: []byte("first")}); err != nil {
+		t.Fatalf("first Send: %v", err)
+	}
+	if err := stream.Send(context.Background(), Message{Payload: []byte("second")}); CodeOf(err) != CodeDeadlineExceeded {
+		t.Fatalf("second Send = %v, want CodeDeadlineExceeded credit wait timeout", err)
+	}
+	snapshot := client.Snapshot()
+	if snapshot.Transport.CreditWaitTimeouts != 1 || snapshot.Transport.ConnectionWindowExhausted < 1 {
+		t.Fatalf("candidate flow-control snapshot = %+v, want credit wait timeout and exhausted connection window", snapshot.Transport)
+	}
+	diagnosis := client.DiagnosisSnapshot()
+	if diagnosis.FlowControl.CreditWaitTimeouts != 1 || diagnosis.FlowControl.ConnectionWindowExhausted < 1 {
+		t.Fatalf("candidate flow-control diagnosis = %+v, want timeout/exhaustion counters", diagnosis.FlowControl)
+	}
+	events := reg.Snapshot().Customs["gofly_rpc_mux_candidate_flow_control_events_total"]
+	if events.Type != metrics.MetricCounter || len(events.Series) != 2 {
+		t.Fatalf("candidate flow-control metric = %#v, want credit timeout and window exhausted series", events)
+	}
+	seen := map[string]float64{}
+	for _, series := range events.Series {
+		seen[series.Labels["event"]] = series.Value
+	}
+	if seen["credit_wait_timeout"] != 1 || seen["connection_window_exhausted"] < 1 {
+		t.Fatalf("candidate flow-control metric events = %#v, want credit_wait_timeout and connection_window_exhausted", seen)
+	}
+	close(hold)
+	stop()
+	if err := <-serveDone; err != nil {
+		t.Fatalf("candidate mux server stopped with error: %v", err)
+	}
+}
+
+func TestExperimentalMuxCandidateWriteTimeoutMetrics(t *testing.T) {
+	reg := withIsolatedMuxCandidateMetrics(t)
+	cfg := ExperimentalMuxCandidateConfig{
+		Protocol:     "gofly-mux/write-timeout-test",
+		FrameCodec:   "binary",
+		PayloadCodec: "identity",
+		WriteTimeout: time.Millisecond,
+	}
+	client := NewExperimentalMuxCandidateClientAdapter(&timeoutWriteConn{done: make(chan struct{})}, cfg)
+	defer client.Close()
+	stream, err := client.OpenStream(context.Background(), "orders/Write")
+	if err == nil {
+		_ = stream.Close(context.Background(), "unexpected")
+		t.Fatal("OpenStream succeeded, want write timeout")
+	}
+	snapshot := client.Snapshot()
+	if snapshot.Transport.WriteTimeouts != 1 || snapshot.Transport.WriteTimeout != time.Millisecond {
+		t.Fatalf("candidate write-timeout snapshot = %+v, want one write timeout", snapshot.Transport)
+	}
+	diagnosis := client.DiagnosisSnapshot()
+	if diagnosis.FlowControl.WriteTimeouts != 1 {
+		t.Fatalf("candidate write-timeout diagnosis = %+v, want write timeout counter", diagnosis.FlowControl)
+	}
+	events := reg.Snapshot().Customs["gofly_rpc_mux_candidate_flow_control_events_total"]
+	if events.Type != metrics.MetricCounter || len(events.Series) != 1 ||
+		events.Series[0].Labels["event"] != "write_timeout" ||
+		events.Series[0].Value != 1 {
+		t.Fatalf("candidate write-timeout metric = %#v, want write_timeout count 1", events)
 	}
 }
 

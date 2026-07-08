@@ -37,9 +37,12 @@ type ExperimentalMuxClientAdapter struct {
 	transport *ExperimentalMuxTransport
 	candidate ExperimentalMuxCandidateSnapshot
 
-	mu                sync.Mutex
-	recordedGoAwayIn  int64
-	recordedGoAwayOut int64
+	mu                                sync.Mutex
+	recordedGoAwayIn                  int64
+	recordedGoAwayOut                 int64
+	recordedCreditWaitTimeouts        int64
+	recordedWriteTimeouts             int64
+	recordedConnectionWindowExhausted int64
 }
 
 // ExperimentalMuxServerAdapter dispatches opt-in mux streams by method.
@@ -51,14 +54,17 @@ type ExperimentalMuxServerAdapter struct {
 	metricMu sync.Mutex
 	handlers map[string]ExperimentalMuxStreamHandler
 
-	acceptedStreams   atomic.Int64
-	rejectedStreams   atomic.Int64
-	handlerErrors     atomic.Int64
-	recordedGoAwayIn  int64
-	recordedGoAwayOut int64
-	lastHandledAt     atomic.Int64
-	lastMethod        atomic.Value
-	lastError         atomic.Value
+	acceptedStreams                   atomic.Int64
+	rejectedStreams                   atomic.Int64
+	handlerErrors                     atomic.Int64
+	recordedGoAwayIn                  int64
+	recordedGoAwayOut                 int64
+	recordedCreditWaitTimeouts        int64
+	recordedWriteTimeouts             int64
+	recordedConnectionWindowExhausted int64
+	lastHandledAt                     atomic.Int64
+	lastMethod                        atomic.Value
+	lastError                         atomic.Value
 }
 
 type ExperimentalMuxServerConfigurer func(*ExperimentalMuxServerAdapter) error
@@ -322,6 +328,16 @@ func (a *ExperimentalMuxClientAdapter) recordCandidateDrainMetrics(snapshot Expe
 		recordExperimentalMuxCandidateDrainMetric(snapshot.RemoteDrainReason, "in", snapshot.ActiveStreams)
 		a.recordedGoAwayIn++
 	}
+	a.recordCandidateFlowControlMetricsLocked(snapshot)
+}
+
+func (a *ExperimentalMuxClientAdapter) recordCandidateFlowControlMetricsLocked(snapshot ExperimentalMuxTransportSnapshot) {
+	recordExperimentalMuxCandidateFlowControlMetric("write_timeout", snapshot.WriteTimeouts-a.recordedWriteTimeouts)
+	recordExperimentalMuxCandidateFlowControlMetric("credit_wait_timeout", snapshot.CreditWaitTimeouts-a.recordedCreditWaitTimeouts)
+	recordExperimentalMuxCandidateFlowControlMetric("connection_window_exhausted", snapshot.ConnectionWindowExhausted-a.recordedConnectionWindowExhausted)
+	a.recordedWriteTimeouts = snapshot.WriteTimeouts
+	a.recordedCreditWaitTimeouts = snapshot.CreditWaitTimeouts
+	a.recordedConnectionWindowExhausted = snapshot.ConnectionWindowExhausted
 }
 
 func (a *ExperimentalMuxClientAdapter) waitCandidateDrain(ctx context.Context, reason string) error {
@@ -455,6 +471,16 @@ func (a *ExperimentalMuxServerAdapter) recordCandidateDrainMetrics(snapshot Expe
 		recordExperimentalMuxCandidateDrainMetric(snapshot.RemoteDrainReason, "in", snapshot.ActiveStreams)
 		a.recordedGoAwayIn++
 	}
+	a.recordCandidateFlowControlMetricsLocked(snapshot)
+}
+
+func (a *ExperimentalMuxServerAdapter) recordCandidateFlowControlMetricsLocked(snapshot ExperimentalMuxTransportSnapshot) {
+	recordExperimentalMuxCandidateFlowControlMetric("write_timeout", snapshot.WriteTimeouts-a.recordedWriteTimeouts)
+	recordExperimentalMuxCandidateFlowControlMetric("credit_wait_timeout", snapshot.CreditWaitTimeouts-a.recordedCreditWaitTimeouts)
+	recordExperimentalMuxCandidateFlowControlMetric("connection_window_exhausted", snapshot.ConnectionWindowExhausted-a.recordedConnectionWindowExhausted)
+	a.recordedWriteTimeouts = snapshot.WriteTimeouts
+	a.recordedCreditWaitTimeouts = snapshot.CreditWaitTimeouts
+	a.recordedConnectionWindowExhausted = snapshot.ConnectionWindowExhausted
 }
 
 func waitExperimentalMuxCandidateDrain(ctx context.Context, transport *ExperimentalMuxTransport, grace time.Duration, reason string) error {
@@ -554,15 +580,18 @@ func muxDiagnosisFromAdapterSnapshot(snapshot ExperimentalMuxAdapterSnapshot) RP
 		Adapter:   snapshot,
 		Transport: transport,
 		FlowControl: RPCMuxFlowControlDiagnosis{
-			ReceiveQueueSize:      transport.ReceiveQueueSize,
-			ConnectionWindow:      transport.ConnectionWindow,
-			ConnectionCreditWaits: transport.ConnectionCreditWaits,
-			StreamCreditWaits:     transport.CreditWaits,
-			WindowFramesIn:        transport.WindowFramesIn,
-			WindowFramesOut:       transport.WindowFramesOut,
-			ConnectionWindowIn:    transport.ConnectionWindowFramesIn,
-			ConnectionWindowOut:   transport.ConnectionWindowFramesOut,
-			BackpressureEvents:    transport.BackpressureEvents,
+			ReceiveQueueSize:          transport.ReceiveQueueSize,
+			ConnectionWindow:          transport.ConnectionWindow,
+			ConnectionCreditWaits:     transport.ConnectionCreditWaits,
+			StreamCreditWaits:         transport.CreditWaits,
+			CreditWaitTimeouts:        transport.CreditWaitTimeouts,
+			WriteTimeouts:             transport.WriteTimeouts,
+			ConnectionWindowExhausted: transport.ConnectionWindowExhausted,
+			WindowFramesIn:            transport.WindowFramesIn,
+			WindowFramesOut:           transport.WindowFramesOut,
+			ConnectionWindowIn:        transport.ConnectionWindowFramesIn,
+			ConnectionWindowOut:       transport.ConnectionWindowFramesOut,
+			BackpressureEvents:        transport.BackpressureEvents,
 		},
 		Keepalive: RPCMuxKeepaliveDiagnosis{
 			Liveness:           transport.Liveness,

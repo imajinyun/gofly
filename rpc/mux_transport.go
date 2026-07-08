@@ -58,6 +58,8 @@ type ExperimentalMuxTransport struct {
 	maxStreams        int
 	keepaliveInterval time.Duration
 	keepaliveIdle     time.Duration
+	writeTimeout      time.Duration
+	creditWaitTimeout time.Duration
 	payload           PayloadCodec
 	frame             FrameCodec
 
@@ -112,6 +114,9 @@ type ExperimentalMuxTransport struct {
 	backpressureEvents        atomic.Int64
 	creditWaits               atomic.Int64
 	connectionCreditWaits     atomic.Int64
+	creditWaitTimeouts        atomic.Int64
+	writeTimeouts             atomic.Int64
+	connectionWindowExhausted atomic.Int64
 	idleTimeouts              atomic.Int64
 	localRejects              atomic.Int64
 	remoteRejects             atomic.Int64
@@ -166,6 +171,9 @@ type ExperimentalMuxTransportSnapshot struct {
 	BackpressureEvents        int64         `json:"backpressureEvents,omitempty"`
 	CreditWaits               int64         `json:"creditWaits,omitempty"`
 	ConnectionCreditWaits     int64         `json:"connectionCreditWaits,omitempty"`
+	CreditWaitTimeouts        int64         `json:"creditWaitTimeouts,omitempty"`
+	WriteTimeouts             int64         `json:"writeTimeouts,omitempty"`
+	ConnectionWindowExhausted int64         `json:"connectionWindowExhausted,omitempty"`
 	IdleTimeouts              int64         `json:"idleTimeouts,omitempty"`
 	LocalRejects              int64         `json:"localRejects,omitempty"`
 	RemoteRejects             int64         `json:"remoteRejects,omitempty"`
@@ -176,6 +184,8 @@ type ExperimentalMuxTransportSnapshot struct {
 	MaxStreams                int           `json:"maxStreams,omitempty"`
 	KeepaliveInterval         time.Duration `json:"keepaliveInterval,omitempty"`
 	KeepaliveIdle             time.Duration `json:"keepaliveIdle,omitempty"`
+	WriteTimeout              time.Duration `json:"writeTimeout,omitempty"`
+	CreditWaitTimeout         time.Duration `json:"creditWaitTimeout,omitempty"`
 	LastFrameReadAt           time.Time     `json:"lastFrameReadAt,omitempty"`
 	LastFrameWrittenAt        time.Time     `json:"lastFrameWrittenAt,omitempty"`
 	LastPingAt                time.Time     `json:"lastPingAt,omitempty"`
@@ -372,6 +382,22 @@ func WithExperimentalMuxKeepalive(interval, idle time.Duration) ExperimentalMuxT
 	}
 }
 
+func WithExperimentalMuxWriteTimeout(timeout time.Duration) ExperimentalMuxTransportOption {
+	return func(t *ExperimentalMuxTransport) {
+		if timeout > 0 {
+			t.writeTimeout = timeout
+		}
+	}
+}
+
+func WithExperimentalMuxCreditWaitTimeout(timeout time.Duration) ExperimentalMuxTransportOption {
+	return func(t *ExperimentalMuxTransport) {
+		if timeout > 0 {
+			t.creditWaitTimeout = timeout
+		}
+	}
+}
+
 // OpenStream opens a local logical stream and announces it to the peer.
 func (t *ExperimentalMuxTransport) OpenStream(ctx context.Context) (*ExperimentalMuxStream, error) {
 	if t == nil {
@@ -551,6 +577,9 @@ func (t *ExperimentalMuxTransport) Snapshot() ExperimentalMuxTransportSnapshot {
 		BackpressureEvents:        t.backpressureEvents.Load(),
 		CreditWaits:               t.creditWaits.Load(),
 		ConnectionCreditWaits:     t.connectionCreditWaits.Load(),
+		CreditWaitTimeouts:        t.creditWaitTimeouts.Load(),
+		WriteTimeouts:             t.writeTimeouts.Load(),
+		ConnectionWindowExhausted: t.connectionWindowExhausted.Load(),
 		IdleTimeouts:              t.idleTimeouts.Load(),
 		LocalRejects:              t.localRejects.Load(),
 		RemoteRejects:             t.remoteRejects.Load(),
@@ -561,6 +590,8 @@ func (t *ExperimentalMuxTransport) Snapshot() ExperimentalMuxTransportSnapshot {
 		MaxStreams:                t.maxStreams,
 		KeepaliveInterval:         t.keepaliveInterval,
 		KeepaliveIdle:             t.keepaliveIdle,
+		WriteTimeout:              t.writeTimeout,
+		CreditWaitTimeout:         t.creditWaitTimeout,
 		LastFrameReadAt:           lastFrameReadAt,
 		LastFrameWrittenAt:        lastFrameWrittenAt,
 		LastPingAt:                lastPingAt,
@@ -1200,11 +1231,21 @@ func (t *ExperimentalMuxTransport) acquireConnectionCredit(ctx context.Context) 
 	}
 	if len(t.connCredit) == 0 {
 		t.connectionCreditWaits.Add(1)
+		t.connectionWindowExhausted.Add(1)
+	}
+	var cancel context.CancelFunc
+	if t.creditWaitTimeout > 0 {
+		ctx, cancel = context.WithTimeout(ctx, t.creditWaitTimeout)
+		defer cancel()
 	}
 	select {
 	case <-t.connCredit:
 		return nil
 	case <-ctx.Done():
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) && t.creditWaitTimeout > 0 {
+			t.creditWaitTimeouts.Add(1)
+			return NewError(CodeDeadlineExceeded, "rpc experimental mux credit wait timeout")
+		}
 		return ctx.Err()
 	case <-t.done:
 		return ErrExperimentalMuxTransportClosed
@@ -1276,10 +1317,19 @@ func (s *ExperimentalMuxStream) acquireCredit(ctx context.Context) error {
 	if len(s.credit) == 0 {
 		s.t.creditWaits.Add(1)
 	}
+	var cancel context.CancelFunc
+	if s.t.creditWaitTimeout > 0 {
+		ctx, cancel = context.WithTimeout(ctx, s.t.creditWaitTimeout)
+		defer cancel()
+	}
 	select {
 	case <-s.credit:
 		return nil
 	case <-ctx.Done():
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) && s.t.creditWaitTimeout > 0 {
+			s.t.creditWaitTimeouts.Add(1)
+			return NewError(CodeDeadlineExceeded, "rpc experimental mux credit wait timeout")
+		}
 		return ctx.Err()
 	case <-s.done:
 		return ErrExperimentalMuxStreamClosed
@@ -1347,21 +1397,39 @@ func (t *ExperimentalMuxTransport) writeFrame(ctx context.Context, frame experim
 	binary.BigEndian.PutUint32(header[:], uint32(len(data)))
 	t.writeMu.Lock()
 	defer t.writeMu.Unlock()
-	if deadline, ok := ctx.Deadline(); ok {
+	if t.writeTimeout > 0 {
+		deadline := time.Now().Add(t.writeTimeout)
+		if ctxDeadline, ok := ctx.Deadline(); ok && ctxDeadline.Before(deadline) {
+			deadline = ctxDeadline
+		}
+		_ = t.conn.SetWriteDeadline(deadline)
+	} else if deadline, ok := ctx.Deadline(); ok {
 		_ = t.conn.SetWriteDeadline(deadline)
 	} else {
 		_ = t.conn.SetWriteDeadline(time.Time{})
 	}
 	if _, err := t.conn.Write(header[:]); err != nil {
+		t.recordWriteTimeout(err)
 		return fmt.Errorf("write rpc experimental mux frame header: %w", err)
 	}
 	if _, err := t.conn.Write(data); err != nil {
+		t.recordWriteTimeout(err)
 		return fmt.Errorf("write rpc experimental mux frame body: %w", err)
 	}
 	t.lastFrameWrittenAt.Store(time.Now().UnixNano())
 	t.framesOut.Add(1)
 	t.bytesOut.Add(int64(4 + len(data)))
 	return nil
+}
+
+func (t *ExperimentalMuxTransport) recordWriteTimeout(err error) {
+	if err == nil {
+		return
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		t.writeTimeouts.Add(1)
+	}
 }
 
 func (t *ExperimentalMuxTransport) writeDataFrames(ctx context.Context, streamID uint64, payload []byte) error {

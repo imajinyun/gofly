@@ -1020,6 +1020,8 @@ func TestGenerateNewServiceVariantsBoundaries(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(configData), `"mux": {"enabled": false, "probe": false, "addr": "127.0.0.1:8082", "endpoints": [], "idleTimeout": 60000000000, "maxOpenRetries": 1, "openRetryReasons": ["dial_failure", "pool_exhausted"], "healthBackoffMultiplier": 2, "healthMaxCooldown": 30000000000, "candidate": {"enabled": false, "protocol": "gofly-mux/experimental-v1"`) ||
+		!strings.Contains(string(configData), `"writeTimeout": 0`) ||
+		!strings.Contains(string(configData), `"creditWaitTimeout": 0`) ||
 		!strings.Contains(string(configData), `"allowLegacyDowngrade": false`) {
 		t.Fatalf("generated rpc config missing default-disabled mux config:\n%s", configData)
 	}
@@ -1042,6 +1044,8 @@ func TestGenerateNewServiceVariantsBoundaries(t *testing.T) {
 		`json:"candidate,omitempty"`,
 		`json:"protocol,omitempty"`,
 		`json:"tls,omitempty"`,
+		`json:"writeTimeout,omitempty"`,
+		`json:"creditWaitTimeout,omitempty"`,
 		`json:"drainGrace,omitempty"`,
 		`json:"allowLegacyDowngrade,omitempty"`,
 		"func (c RPCMuxConfig) CandidateConfig() rpc.ExperimentalMuxCandidateConfig",

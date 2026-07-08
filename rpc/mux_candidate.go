@@ -37,6 +37,7 @@ var (
 	rpcMuxCandidateActiveStreams       *metrics.Gauge
 	rpcMuxCandidateDrainTimeouts       *metrics.Counter
 	rpcMuxCandidateForcedCloses        *metrics.Counter
+	rpcMuxCandidateFlowControlEvents   *metrics.Counter
 )
 
 func init() {
@@ -88,6 +89,11 @@ func registerExperimentalMuxCandidateMetrics(registry *metrics.Registry) {
 		"Total mux candidate forced closes after drain timeout by reason.",
 		"drain_reason",
 	)
+	rpcMuxCandidateFlowControlEvents = registry.Counter(
+		"gofly_rpc_mux_candidate_flow_control_events_total",
+		"Total mux candidate flow-control and write timeout events.",
+		"event",
+	)
 }
 
 // ExperimentalMuxCandidateConfig describes the opt-in production-candidate
@@ -102,6 +108,8 @@ type ExperimentalMuxCandidateConfig struct {
 	HandshakeTimeout     time.Duration      `json:"handshakeTimeout,omitempty"`
 	KeepaliveInterval    time.Duration      `json:"keepaliveInterval,omitempty"`
 	KeepaliveIdle        time.Duration      `json:"keepaliveIdle,omitempty"`
+	WriteTimeout         time.Duration      `json:"writeTimeout,omitempty"`
+	CreditWaitTimeout    time.Duration      `json:"creditWaitTimeout,omitempty"`
 	MaxFrameBytes        int64              `json:"maxFrameBytes,omitempty"`
 	MaxMessageBytes      int64              `json:"maxMessageBytes,omitempty"`
 	MaxConcurrentStreams int                `json:"maxConcurrentStreams,omitempty"`
@@ -134,6 +142,8 @@ type ExperimentalMuxCandidateSnapshot struct {
 	HandshakeTimeout     time.Duration `json:"handshakeTimeout,omitempty"`
 	KeepaliveInterval    time.Duration `json:"keepaliveInterval,omitempty"`
 	KeepaliveIdle        time.Duration `json:"keepaliveIdle,omitempty"`
+	WriteTimeout         time.Duration `json:"writeTimeout,omitempty"`
+	CreditWaitTimeout    time.Duration `json:"creditWaitTimeout,omitempty"`
 	MaxFrameBytes        int64         `json:"maxFrameBytes,omitempty"`
 	MaxMessageBytes      int64         `json:"maxMessageBytes,omitempty"`
 	MaxConcurrentStreams int           `json:"maxConcurrentStreams,omitempty"`
@@ -200,6 +210,12 @@ func (c ExperimentalMuxCandidateConfig) transportOptions() []ExperimentalMuxTran
 	if c.KeepaliveInterval > 0 || c.KeepaliveIdle > 0 {
 		opts = append(opts, WithExperimentalMuxKeepalive(c.KeepaliveInterval, c.KeepaliveIdle))
 	}
+	if c.WriteTimeout > 0 {
+		opts = append(opts, WithExperimentalMuxWriteTimeout(c.WriteTimeout))
+	}
+	if c.CreditWaitTimeout > 0 {
+		opts = append(opts, WithExperimentalMuxCreditWaitTimeout(c.CreditWaitTimeout))
+	}
 	if c.MaxFrameBytes > 0 {
 		opts = append(opts, WithExperimentalMuxMaxFrameBytes(c.MaxFrameBytes))
 	}
@@ -243,6 +259,8 @@ func (c ExperimentalMuxCandidateConfig) snapshot(role string, negotiated string)
 		HandshakeTimeout:     c.HandshakeTimeout,
 		KeepaliveInterval:    c.KeepaliveInterval,
 		KeepaliveIdle:        c.KeepaliveIdle,
+		WriteTimeout:         c.WriteTimeout,
+		CreditWaitTimeout:    c.CreditWaitTimeout,
 		MaxFrameBytes:        c.MaxFrameBytes,
 		MaxMessageBytes:      c.MaxMessageBytes,
 		MaxConcurrentStreams: c.MaxConcurrentStreams,
@@ -593,6 +611,13 @@ func recordExperimentalMuxCandidateForcedCloseMetric(reason string) {
 	reason = normalizeExperimentalMuxCandidateMetricLabel(reason, "unknown")
 	rpcMuxCandidateDrainTimeouts.Inc(reason)
 	rpcMuxCandidateForcedCloses.Inc(reason)
+}
+
+func recordExperimentalMuxCandidateFlowControlMetric(event string, count int64) {
+	if count <= 0 {
+		return
+	}
+	rpcMuxCandidateFlowControlEvents.Add(float64(count), normalizeExperimentalMuxCandidateMetricLabel(event, "unknown"))
 }
 
 func normalizeExperimentalMuxCandidateMetricLabel(value string, fallback string) string {

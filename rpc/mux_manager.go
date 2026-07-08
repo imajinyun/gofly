@@ -953,6 +953,7 @@ func (m *ExperimentalMuxConnectionManager) adapter(ctx context.Context, endpoint
 					legacyAdapter.candidate.Downgraded = true
 					legacyAdapter.candidate.Downgrades = 1
 					legacyAdapter.candidate.DowngradeReason = reasonFromError(err)
+					recordExperimentalMuxCandidateConnectionMetric(legacyAdapter.candidate)
 					adapter = legacyAdapter
 					err = nil
 				} else {
@@ -1003,6 +1004,7 @@ func (m *ExperimentalMuxConnectionManager) adapter(ctx context.Context, endpoint
 func (m *ExperimentalMuxConnectionManager) recordCandidateNegotiationFailure(cfg ExperimentalMuxCandidateConfig, err error) ExperimentalMuxCandidateSnapshot {
 	snapshot := cfg.snapshot("client", cfg.normalized().Protocol)
 	phase, peerProtocol, _ := experimentalMuxCandidateFailureInfo(err)
+	recordExperimentalMuxCandidateNegotiationFailureMetric(err)
 	snapshot.NegotiationFailures = 1
 	snapshot.LastNegotiationError = reasonFromError(err)
 	snapshot.LastNegotiationPhase = phase
@@ -1020,6 +1022,7 @@ func (m *ExperimentalMuxConnectionManager) recordCandidateNegotiationFailure(cfg
 }
 
 func (m *ExperimentalMuxConnectionManager) recordCandidateDowngrade(err error) {
+	recordExperimentalMuxCandidateDowngradeMetric(err)
 	m.mu.Lock()
 	if !m.closed {
 		m.candidateDowngrades++

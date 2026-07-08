@@ -11,6 +11,7 @@ import (
 	"time"
 
 	core "github.com/imajinyun/gofly/core"
+	"github.com/imajinyun/gofly/core/observability/metrics"
 	"github.com/imajinyun/gofly/core/security"
 )
 
@@ -27,6 +28,41 @@ const (
 	experimentalMuxCandidateFailureProtocol    = "protocol_mismatch"
 	experimentalMuxCandidateFailureFramePolicy = "frame_policy_mismatch"
 )
+
+var (
+	rpcMuxCandidateNegotiationFailures *metrics.Counter
+	rpcMuxCandidateDowngrades          *metrics.Counter
+	rpcMuxCandidateConnections         *metrics.Gauge
+)
+
+func init() {
+	registerExperimentalMuxCandidateMetrics(metrics.Default)
+}
+
+func registerExperimentalMuxCandidateMetrics(registry *metrics.Registry) {
+	if registry == nil {
+		registry = metrics.Default
+	}
+	rpcMuxCandidateNegotiationFailures = registry.Counter(
+		"gofly_rpc_mux_candidate_negotiation_failures_total",
+		"Total mux candidate negotiation failures by low-cardinality phase and peer protocol.",
+		"phase",
+		"peer_protocol",
+	)
+	rpcMuxCandidateDowngrades = registry.Counter(
+		"gofly_rpc_mux_candidate_downgrades_total",
+		"Total mux candidate legacy downgrades by failure phase and peer protocol.",
+		"phase",
+		"peer_protocol",
+	)
+	rpcMuxCandidateConnections = registry.Gauge(
+		"gofly_rpc_mux_candidate_connections",
+		"Current mux candidate connection policy signals by codec and downgrade state.",
+		"frame_codec",
+		"payload_codec",
+		"downgraded",
+	)
+}
 
 // ExperimentalMuxCandidateConfig describes the opt-in production-candidate
 // adapter surface for the experimental mux transport. It keeps the default HTTP
@@ -251,6 +287,7 @@ func dialExperimentalMuxCandidateConn(ctx context.Context, network string, addre
 	}
 	snapshot := cfg.snapshot("client", negotiated)
 	snapshot.PeerProtocol = peer.Protocol
+	recordExperimentalMuxCandidateConnectionMetric(snapshot)
 	return conn, snapshot, nil
 }
 
@@ -283,6 +320,7 @@ func acceptExperimentalMuxCandidateConn(ctx context.Context, conn net.Conn, cfg 
 	}
 	snapshot := cfg.snapshot("server", negotiated)
 	snapshot.PeerProtocol = peer.Protocol
+	recordExperimentalMuxCandidateConnectionMetric(snapshot)
 	return conn, snapshot, nil
 }
 
@@ -482,6 +520,65 @@ func muxCandidateMutualTLSConfigured(cfg security.TLSConfig, role string) bool {
 		return cfg.MutualEnabled()
 	}
 	return cfg.Enabled()
+}
+
+func recordExperimentalMuxCandidateNegotiationFailureMetric(err error) {
+	phase, peerProtocol, _ := experimentalMuxCandidateFailureInfo(err)
+	rpcMuxCandidateNegotiationFailures.Inc(
+		normalizeExperimentalMuxCandidateMetricLabel(phase, "unknown"),
+		normalizeExperimentalMuxCandidateMetricLabel(peerProtocol, "unknown"),
+	)
+}
+
+func recordExperimentalMuxCandidateDowngradeMetric(err error) {
+	phase, peerProtocol, _ := experimentalMuxCandidateFailureInfo(err)
+	rpcMuxCandidateDowngrades.Inc(
+		normalizeExperimentalMuxCandidateMetricLabel(phase, "unknown"),
+		normalizeExperimentalMuxCandidateMetricLabel(peerProtocol, "unknown"),
+	)
+}
+
+func recordExperimentalMuxCandidateConnectionMetric(snapshot ExperimentalMuxCandidateSnapshot) {
+	if !snapshot.Enabled {
+		return
+	}
+	downgraded := "false"
+	if snapshot.Downgraded {
+		downgraded = "true"
+	}
+	rpcMuxCandidateConnections.Set(1,
+		normalizeExperimentalMuxCandidateMetricLabel(snapshot.FrameCodec, "unknown"),
+		normalizeExperimentalMuxCandidateMetricLabel(snapshot.PayloadCodec, "unknown"),
+		downgraded,
+	)
+}
+
+func normalizeExperimentalMuxCandidateMetricLabel(value string, fallback string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "" {
+		return fallback
+	}
+	if len(value) > 64 {
+		value = value[:64]
+	}
+	var b strings.Builder
+	for _, ch := range value {
+		switch {
+		case ch >= 'a' && ch <= 'z':
+			b.WriteRune(ch)
+		case ch >= '0' && ch <= '9':
+			b.WriteRune(ch)
+		case ch == '_' || ch == '-' || ch == '/' || ch == '.':
+			b.WriteRune(ch)
+		default:
+			b.WriteByte('_')
+		}
+	}
+	out := b.String()
+	if out == "" {
+		return fallback
+	}
+	return out
 }
 
 func muxCandidateIOFailurePhase(conn net.Conn) string {

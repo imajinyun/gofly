@@ -1,6 +1,7 @@
 package rpc
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -11,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/imajinyun/gofly/core/observability/metrics"
 	"github.com/imajinyun/gofly/core/security"
 )
 
@@ -24,6 +26,19 @@ func (firstEndpointBalancer) Pick(ctx context.Context, endpoints []string) (stri
 		return "", errors.New("no endpoint to pick")
 	}
 	return endpoints[0], nil
+}
+
+func withIsolatedMuxCandidateMetrics(t *testing.T) *metrics.Registry {
+	t.Helper()
+	old := metrics.Default
+	reg := metrics.NewRegistry()
+	metrics.Default = reg
+	registerExperimentalMuxCandidateMetrics(reg)
+	t.Cleanup(func() {
+		metrics.Default = old
+		registerExperimentalMuxCandidateMetrics(old)
+	})
+	return reg
 }
 
 func TestExperimentalMuxAdapterDispatchesMultipleStreams(t *testing.T) {
@@ -412,6 +427,7 @@ func TestExperimentalMuxAdapterTCPDialerListener(t *testing.T) {
 }
 
 func TestExperimentalMuxCandidateAdapterPolicyAndProtocol(t *testing.T) {
+	reg := withIsolatedMuxCandidateMetrics(t)
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -482,6 +498,21 @@ func TestExperimentalMuxCandidateAdapterPolicyAndProtocol(t *testing.T) {
 		diagnosis.FlowControl.ConnectionWindow != cfg.ConnectionWindow ||
 		diagnosis.Keepalive.Interval != cfg.KeepaliveInterval {
 		t.Fatalf("candidate client diagnosis = %+v, want candidate policy in diagnosis", diagnosis)
+	}
+	custom := reg.Snapshot().Customs["gofly_rpc_mux_candidate_connections"]
+	if custom.Type != metrics.MetricGauge || len(custom.Series) != 1 ||
+		custom.Series[0].Labels["frame_codec"] != "binary" ||
+		custom.Series[0].Labels["payload_codec"] != "gzip" ||
+		custom.Series[0].Labels["downgraded"] != "false" ||
+		custom.Series[0].Value != 1 {
+		t.Fatalf("candidate connection metric = %#v, want binary/gzip non-downgraded gauge", custom)
+	}
+	var prom bytes.Buffer
+	if err := reg.WritePrometheus(&prom); err != nil {
+		t.Fatalf("write prometheus: %v", err)
+	}
+	if !strings.Contains(prom.String(), `gofly_rpc_mux_candidate_connections{frame_codec="binary",payload_codec="gzip",downgraded="false"} 1`) {
+		t.Fatalf("prometheus candidate metrics missing connection labels:\n%s", prom.String())
 	}
 
 	cancel()
@@ -718,6 +749,7 @@ func TestExperimentalMuxCandidateFramePolicyFailureDiagnostics(t *testing.T) {
 }
 
 func TestExperimentalMuxConnectionManagerCandidateDowngradeDiagnostics(t *testing.T) {
+	reg := withIsolatedMuxCandidateMetrics(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -778,6 +810,26 @@ func TestExperimentalMuxConnectionManagerCandidateDowngradeDiagnostics(t *testin
 		len(diagnosis.Endpoints) != 1 ||
 		!diagnosis.Endpoints[0].Adapter.Candidate.Downgraded {
 		t.Fatalf("downgrade diagnosis = %+v, want candidate failure and legacy downgrade evidence", diagnosis)
+	}
+	customs := reg.Snapshot().Customs
+	failures := customs["gofly_rpc_mux_candidate_negotiation_failures_total"]
+	if failures.Type != metrics.MetricCounter || len(failures.Series) != 1 ||
+		failures.Series[0].Labels["phase"] != "preface" ||
+		failures.Series[0].Labels["peer_protocol"] != "unknown" ||
+		failures.Series[0].Value != 1 {
+		t.Fatalf("candidate failure metric = %#v, want one preface failure", failures)
+	}
+	downgrades := customs["gofly_rpc_mux_candidate_downgrades_total"]
+	if downgrades.Type != metrics.MetricCounter || len(downgrades.Series) != 1 ||
+		downgrades.Series[0].Labels["phase"] != "preface" ||
+		downgrades.Series[0].Value != 1 {
+		t.Fatalf("candidate downgrade metric = %#v, want one preface downgrade", downgrades)
+	}
+	connections := customs["gofly_rpc_mux_candidate_connections"]
+	if connections.Type != metrics.MetricGauge || len(connections.Series) != 1 ||
+		connections.Series[0].Labels["downgraded"] != "true" ||
+		connections.Series[0].Value != 1 {
+		t.Fatalf("candidate connection metric = %#v, want downgraded connection gauge", connections)
 	}
 
 	cancel()

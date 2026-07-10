@@ -1019,7 +1019,7 @@ func TestGenerateNewServiceVariantsBoundaries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(configData), `"mux": {"enabled": false, "probe": false, "addr": "127.0.0.1:8082", "endpoints": [], "idleTimeout": 60000000000, "maxOpenRetries": 1, "openRetryReasons": ["dial_failure", "pool_exhausted"], "healthBackoffMultiplier": 2, "healthMaxCooldown": 30000000000, "candidate": {"enabled": false, "protocol": "gofly-mux/experimental-v1"`) ||
+	if !strings.Contains(string(configData), `"mux": {"enabled": false, "probe": false, "addr": "127.0.0.1:8082", "endpoints": [], "idleTimeout": 60000000000, "maxOpenRetries": 1, "openRetryReasons": ["dial_failure", "pool_exhausted"], "healthBackoffMultiplier": 2, "healthMaxCooldown": 30000000000, "trace": {"enabled": false, "annotateStreams": false}, "log": {"enabled": false, "diagnosis": false, "exportEvents": false, "eventFamily": "", "event": "", "endpoint": "", "connectionId": ""}, "candidate": {"enabled": false, "protocol": "gofly-mux/experimental-v1"`) ||
 		!strings.Contains(string(configData), `"writeTimeout": 0`) ||
 		!strings.Contains(string(configData), `"creditWaitTimeout": 0`) ||
 		!strings.Contains(string(configData), `"allowLegacyDowngrade": false`) {
@@ -1040,6 +1040,15 @@ func TestGenerateNewServiceVariantsBoundaries(t *testing.T) {
 		`json:"openRetryReasons,omitempty"`,
 		`json:"healthBackoffMultiplier,omitempty"`,
 		`json:"healthMaxCooldown,omitempty"`,
+		"type RPCMuxTraceConfig struct",
+		`json:"trace,omitempty"`,
+		`json:"annotateStreams"`,
+		"type RPCMuxLogConfig struct",
+		`json:"log,omitempty"`,
+		`json:"diagnosis"`,
+		`json:"exportEvents"`,
+		`json:"eventFamily,omitempty"`,
+		`json:"connectionId,omitempty"`,
 		"type RPCMuxCandidateConfig struct",
 		`json:"candidate,omitempty"`,
 		`json:"protocol,omitempty"`,
@@ -1049,6 +1058,10 @@ func TestGenerateNewServiceVariantsBoundaries(t *testing.T) {
 		`json:"drainGrace,omitempty"`,
 		`json:"allowLegacyDowngrade,omitempty"`,
 		"func (c RPCMuxConfig) CandidateConfig() rpc.ExperimentalMuxCandidateConfig",
+		"func (c RPCMuxConfig) ClientOptions() []rpc.ClientOption",
+		"rpc.WithMuxTraceAnnotation()",
+		"rpc.WithMuxDiagnosisLogging(nil)",
+		"rpc.WithMuxDiagnosisEventLogging(nil",
 	} {
 		if !strings.Contains(string(configGoData), want) {
 			t.Fatalf("generated rpc config.go missing mux config %q:\n%s", want, configGoData)
@@ -1075,7 +1088,7 @@ func TestGenerateNewServiceVariantsBoundaries(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		`RPCMuxConfig{Enabled: true, Probe: true, IdleTimeout: time.Nanosecond, MaxOpenRetries: 1, OpenRetryReasons: []string{"dial_failure", "pool_exhausted"}, HealthBackoffMultiplier: 2, HealthMaxCooldown: 30 * time.Second, Candidate: appconfig.RPCMuxCandidateConfig{Enabled: true, Protocol: "gofly-mux/generated-candidate-test"`,
+		`RPCMuxConfig{Enabled: true, Probe: true, IdleTimeout: time.Nanosecond, MaxOpenRetries: 1, OpenRetryReasons: []string{"dial_failure", "pool_exhausted"}, HealthBackoffMultiplier: 2, HealthMaxCooldown: 30 * time.Second, Trace: appconfig.RPCMuxTraceConfig{Enabled: true, AnnotateStreams: true}, Log: appconfig.RPCMuxLogConfig{Enabled: true, Diagnosis: true, ExportEvents: true, EventFamily: "retry", Event: "open-before-retry"}, Candidate: appconfig.RPCMuxCandidateConfig{Enabled: true, Protocol: "gofly-mux/generated-candidate-test"`,
 		"rpc.NewExperimentalMuxConnectionManager",
 		"rpc.WithExperimentalMuxConnectionManagerIdleTimeout",
 		"rpc.WithExperimentalMuxConnectionManagerMaxOpenRetries",
@@ -1102,9 +1115,25 @@ func TestGenerateNewServiceVariantsBoundaries(t *testing.T) {
 		`diagnosis.RetryReasons["dial_failure"] != 1`,
 		`diagnosis.HealthBackoffMultiplier != 2`,
 		`diagnosis.HealthMaxCooldown != 30*time.Second`,
+		`retryClient.RuntimeSnapshot().Diagnosis.Mux.Events`,
 		`"greeter/FailAfterOpen"`,
 		`rpc.CodeOf(err) != rpc.CodeUnavailable`,
 		`diagnosis.RetryReasons["open_stream"] != 0`,
+		"cfg.RPC.Mux.ClientOptions()",
+		"retryClientOptions := append(cfg.RPC.Mux.ClientOptions(), rpc.WithExperimentalMuxConnectionManager(retryManager))",
+		"previousLogger := slog.Default()",
+		"slog.NewJSONHandler(&runtimeLogBuf",
+		`\"msg\":\"rpc mux stream diagnosis\"`,
+		`\"msg\":\"rpc mux runtime event\"`,
+		`\"event_family\":\"retry\"`,
+		`\"event\":\"open_before_retry\"`,
+		`\"msg\":\"rpc mux exported event\"`,
+		`\"last_retried_from\"`,
+		`\"health_reason\"`,
+		"runtimeLogBuf.String()",
+		`runtimeProvider.Tracer("generated-rpc-admin-smoke")`,
+		`runtimeTraceAttrs["rpc.mux.manager.open_retries.count"].AsInt64() != 1`,
+		`runtimeTraceAttrs["rpc.mux.manager.retry_reason.dial_failure.count"].AsInt64() != 1`,
 		"rpc.ServeExperimentalMuxListener",
 		"rpc.NewExperimentalMuxClientAdapter",
 		"rpc.NewExperimentalMuxServerAdapter",
@@ -1112,13 +1141,20 @@ func TestGenerateNewServiceVariantsBoundaries(t *testing.T) {
 		`"/admin/rpc/admin/diagnosis"`,
 		"rpc.ServerDiagnosisSnapshot",
 		"rpc.RPCDiagnosisProbe",
-		`/rpc/diagnosis?endpoint=http://unused&flowControlEvent=write-timeout`,
+		`/rpc/diagnosis?endpoint=http://unused&flowControlEvent=write-timeout&eventFamily=flow-control&event=write-timeout`,
 		`flowDiagnosis.Endpoint != "http://unused"`,
 		`flowDiagnosis.FlowControl != "write_timeout"`,
+		`flowDiagnosis.EventFamily != "flow_control"`,
+		`flowDiagnosis.Event != "write_timeout"`,
 		`flowDiagnosis.Diagnosis.Mux.FlowControl.Events[0].Event != "write_timeout"`,
+		`flowDiagnosis.Diagnosis.Mux.Events[0].Family != "flow_control"`,
 		`/rpc/diagnosis?connectionId=missing&poolSlot=1&flowControlEvent=write-timeout`,
 		`connectionDiagnosis.ConnectionID != "missing"`,
 		`connectionDiagnosis.PoolSlot != 1`,
+		"rpc.AnnotateMuxDiagnosisSpan",
+		`provider.Tracer("generated-rpc-admin-smoke")`,
+		`traceAttrs["rpc.mux.flow_control.write_timeout.count"].AsInt64() != 1`,
+		"func generatedTraceAttributeMap",
 	} {
 		if !strings.Contains(string(adminTestData), want) {
 			t.Fatalf("generated rpc admin test missing mux diagnosis smoke %q:\n%s", want, adminTestData)

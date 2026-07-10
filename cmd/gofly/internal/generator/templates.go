@@ -277,7 +277,7 @@ const configTemplate = `{
   "rpc": {
     "addr": ":8081",
     "advertise": "http://127.0.0.1:8081",
-    "mux": {"enabled": false, "probe": false, "addr": "127.0.0.1:8082", "endpoints": [], "idleTimeout": 60000000000, "maxOpenRetries": 1, "openRetryReasons": ["dial_failure", "pool_exhausted"], "healthBackoffMultiplier": 2, "healthMaxCooldown": 30000000000, "candidate": {"enabled": false, "protocol": "gofly-mux/experimental-v1", "dialTimeout": 30000000000, "keepAlive": 30000000000, "handshakeTimeout": 10000000000, "keepaliveInterval": 30000000000, "keepaliveIdle": 90000000000, "writeTimeout": 0, "creditWaitTimeout": 0, "maxFrameBytes": 4194304, "maxMessageBytes": 67108864, "maxConcurrentStreams": 128, "receiveQueueSize": 16, "connectionWindow": 16, "payloadCodec": "identity", "frameCodec": "binary", "allowLegacyDowngrade": false, "tls": {}}}
+    "mux": {"enabled": false, "probe": false, "addr": "127.0.0.1:8082", "endpoints": [], "idleTimeout": 60000000000, "maxOpenRetries": 1, "openRetryReasons": ["dial_failure", "pool_exhausted"], "healthBackoffMultiplier": 2, "healthMaxCooldown": 30000000000, "trace": {"enabled": false, "annotateStreams": false}, "log": {"enabled": false, "diagnosis": false, "exportEvents": false, "eventFamily": "", "event": "", "endpoint": "", "connectionId": ""}, "candidate": {"enabled": false, "protocol": "gofly-mux/experimental-v1", "dialTimeout": 30000000000, "keepAlive": 30000000000, "handshakeTimeout": 10000000000, "keepaliveInterval": 30000000000, "keepaliveIdle": 90000000000, "writeTimeout": 0, "creditWaitTimeout": 0, "maxFrameBytes": 4194304, "maxMessageBytes": 67108864, "maxConcurrentStreams": 128, "receiveQueueSize": 16, "connectionWindow": 16, "payloadCodec": "identity", "frameCodec": "binary", "allowLegacyDowngrade": false, "tls": {}}}
   }
 }
 `
@@ -508,10 +508,12 @@ func (s *Server) serveRPCAdmin(prefix string) http.HandlerFunc {
 const adminServerTestTemplate = `package admin
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -522,13 +524,17 @@ import (
 
 	"github.com/imajinyun/gofly/core/controlplane"
 	"github.com/imajinyun/gofly/rpc"
+	"go.opentelemetry.io/otel/attribute"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	oteltrace "go.opentelemetry.io/otel/trace"
 	appconfig "{{.Module}}/internal/config"
 	apprpc "{{.Module}}/internal/rpc"
 	"{{.Module}}/internal/svc"
 )
 
 func TestAdminDiagnostics(t *testing.T) {
-	cfg := appconfig.Config{RPC: appconfig.RPCConfig{Mux: appconfig.RPCMuxConfig{Enabled: true, Probe: true, IdleTimeout: time.Nanosecond, MaxOpenRetries: 1, OpenRetryReasons: []string{"dial_failure", "pool_exhausted"}, HealthBackoffMultiplier: 2, HealthMaxCooldown: 30 * time.Second, Candidate: appconfig.RPCMuxCandidateConfig{Enabled: true, Protocol: "gofly-mux/generated-candidate-test", KeepaliveInterval: time.Hour, KeepaliveIdle: 2 * time.Hour, MaxFrameBytes: 256, MaxMessageBytes: 1024, MaxConcurrentStreams: 8, ReceiveQueueSize: 2, ConnectionWindow: 3, PayloadCodec: "identity", FrameCodec: "binary"}}}}
+	cfg := appconfig.Config{RPC: appconfig.RPCConfig{Mux: appconfig.RPCMuxConfig{Enabled: true, Probe: true, IdleTimeout: time.Nanosecond, MaxOpenRetries: 1, OpenRetryReasons: []string{"dial_failure", "pool_exhausted"}, HealthBackoffMultiplier: 2, HealthMaxCooldown: 30 * time.Second, Trace: appconfig.RPCMuxTraceConfig{Enabled: true, AnnotateStreams: true}, Log: appconfig.RPCMuxLogConfig{Enabled: true, Diagnosis: true, ExportEvents: true, EventFamily: "retry", Event: "open-before-retry"}, Candidate: appconfig.RPCMuxCandidateConfig{Enabled: true, Protocol: "gofly-mux/generated-candidate-test", KeepaliveInterval: time.Hour, KeepaliveIdle: 2 * time.Hour, MaxFrameBytes: 256, MaxMessageBytes: 1024, MaxConcurrentStreams: 8, ReceiveQueueSize: 2, ConnectionWindow: 3, PayloadCodec: "identity", FrameCodec: "binary"}}}}
 	clientConn, serverConn := net.Pipe()
 	muxClient := rpc.NewExperimentalMuxClientAdapter(clientConn)
 	muxServer := rpc.NewExperimentalMuxServerAdapter(serverConn)
@@ -749,15 +755,25 @@ func TestAdminDiagnostics(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	retryClient, err := rpc.NewClient("http://unused", rpc.WithExperimentalMuxConnectionManager(retryManager))
+	retryClientOptions := append(cfg.RPC.Mux.ClientOptions(), rpc.WithExperimentalMuxConnectionManager(retryManager))
+	retryClient, err := rpc.NewClient("http://unused", retryClientOptions...)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer retryClient.Close()
-	retryStream, err := retryClient.MuxStream(context.Background(), "greeter/Watch")
+	runtimeRecorder := tracetest.NewSpanRecorder()
+	runtimeProvider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(runtimeRecorder))
+	defer func() { _ = runtimeProvider.Shutdown(context.Background()) }()
+	runtimeTraceCtx, runtimeSpan := runtimeProvider.Tracer("generated-rpc-admin-smoke").Start(context.Background(), "mux-runtime-open-before-retry", oteltrace.WithSpanKind(oteltrace.SpanKindClient))
+	var runtimeLogBuf bytes.Buffer
+	previousLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&runtimeLogBuf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	defer slog.SetDefault(previousLogger)
+	retryStream, err := retryClient.MuxStream(runtimeTraceCtx, "greeter/Watch")
 	if err != nil {
 		t.Fatal(err)
 	}
+	runtimeSpan.End()
 	if err := retryStream.Send(context.Background(), rpc.Message{Payload: []byte("probe")}); err != nil {
 		t.Fatal(err)
 	}
@@ -773,6 +789,34 @@ func TestAdminDiagnostics(t *testing.T) {
 	}
 	if diagnosis := retryClient.RuntimeSnapshot().Diagnosis.Mux.Manager; diagnosis.OpenRetries != 1 || diagnosis.LastRetriedFrom != badMuxEndpoint || diagnosis.RetryReasons["dial_failure"] != 1 || diagnosis.HealthBackoffMultiplier != 2 || diagnosis.HealthMaxCooldown != 30*time.Second {
 		t.Fatalf("retry manager diagnosis = %+v, want generated retry policy evidence", diagnosis)
+	}
+	if events := retryClient.RuntimeSnapshot().Diagnosis.Mux.Events; len(events) < 2 {
+		t.Fatalf("retry mux diagnosis events = %+v, want generated retry/health event evidence", events)
+	}
+	runtimeTraceSpans := runtimeRecorder.Ended()
+	if len(runtimeTraceSpans) != 1 {
+		t.Fatalf("runtime trace spans = %d, want generated mux runtime span", len(runtimeTraceSpans))
+	}
+	runtimeTraceAttrs := generatedTraceAttributeMap(runtimeTraceSpans[0].Attributes())
+	if runtimeTraceAttrs["rpc.mux.manager.open_retries.count"].AsInt64() != 1 ||
+		runtimeTraceAttrs["rpc.mux.manager.last_retried_from"].AsString() != badMuxEndpoint ||
+		runtimeTraceAttrs["rpc.mux.manager.retry_reason.dial_failure.count"].AsInt64() != 1 ||
+		runtimeTraceAttrs["rpc.mux.manager.health.reason"].AsString() != "dial_failure" {
+		t.Fatalf("runtime mux trace attributes = %+v, want generated open-before retry attributes", runtimeTraceAttrs)
+	}
+	runtimeLogLine := runtimeLogBuf.String()
+	for _, want := range []string{
+		"\"msg\":\"rpc mux stream diagnosis\"",
+		"\"last_retried_from\":\"" + badMuxEndpoint + "\"",
+		"\"health_reason\":\"dial_failure\"",
+		"\"msg\":\"rpc mux runtime event\"",
+		"\"event_family\":\"retry\"",
+		"\"event\":\"open_before_retry\"",
+		"\"msg\":\"rpc mux exported event\"",
+	} {
+		if !strings.Contains(runtimeLogLine, want) {
+			t.Fatalf("runtime mux diagnosis log missing %s:\n%s", want, runtimeLogLine)
+		}
 	}
 	failStream, err := retryClient.MuxStream(context.Background(), "greeter/FailAfterOpen")
 	if err != nil {
@@ -859,7 +903,7 @@ func TestAdminDiagnostics(t *testing.T) {
 		t.Fatal(err)
 	}
 	flowDiagnosisRec := httptest.NewRecorder()
-	writeTimeoutRPCClient.DiagnosisHandler().ServeHTTP(flowDiagnosisRec, httptest.NewRequest(http.MethodGet, "/rpc/diagnosis?endpoint=http://unused&flowControlEvent=write-timeout", nil))
+	writeTimeoutRPCClient.DiagnosisHandler().ServeHTTP(flowDiagnosisRec, httptest.NewRequest(http.MethodGet, "/rpc/diagnosis?endpoint=http://unused&flowControlEvent=write-timeout&eventFamily=flow-control&event=write-timeout", nil))
 	if flowDiagnosisRec.Code != http.StatusOK {
 		t.Fatalf("flow-control diagnosis status = %d body=%q", flowDiagnosisRec.Code, flowDiagnosisRec.Body.String())
 	}
@@ -869,11 +913,34 @@ func TestAdminDiagnostics(t *testing.T) {
 	}
 	if flowDiagnosis.Endpoint != "http://unused" ||
 		flowDiagnosis.FlowControl != "write_timeout" ||
+		flowDiagnosis.EventFamily != "flow_control" ||
+		flowDiagnosis.Event != "write_timeout" ||
 		flowDiagnosis.Diagnosis.Mux.FlowControl.WriteTimeouts != 1 ||
 		len(flowDiagnosis.Diagnosis.Mux.FlowControl.Events) != 1 ||
 		flowDiagnosis.Diagnosis.Mux.FlowControl.Events[0].Event != "write_timeout" ||
 		flowDiagnosis.Diagnosis.Mux.FlowControl.Events[0].Count != 1 {
 		t.Fatalf("flow-control diagnosis = %+v, want generated write_timeout event evidence", flowDiagnosis.Diagnosis.Mux.FlowControl)
+	}
+	if len(flowDiagnosis.Diagnosis.Mux.Events) != 1 ||
+		flowDiagnosis.Diagnosis.Mux.Events[0].Family != "flow_control" ||
+		flowDiagnosis.Diagnosis.Mux.Events[0].Event != "write_timeout" {
+		t.Fatalf("flow-control diagnosis events = %+v, want generated write_timeout mux event evidence", flowDiagnosis.Diagnosis.Mux.Events)
+	}
+	recorder := tracetest.NewSpanRecorder()
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	defer func() { _ = provider.Shutdown(context.Background()) }()
+	traceCtx, span := provider.Tracer("generated-rpc-admin-smoke").Start(context.Background(), "mux-diagnosis", oteltrace.WithSpanKind(oteltrace.SpanKindInternal))
+	rpc.AnnotateMuxDiagnosisSpan(traceCtx, flowDiagnosis)
+	span.End()
+	traceSpans := recorder.Ended()
+	if len(traceSpans) != 1 {
+		t.Fatalf("trace spans = %d, want generated mux diagnosis span", len(traceSpans))
+	}
+	traceAttrs := generatedTraceAttributeMap(traceSpans[0].Attributes())
+	if traceAttrs["rpc.mux.endpoint"].AsString() != "http://unused" ||
+		traceAttrs["rpc.mux.flow_control.event"].AsString() != "write_timeout" ||
+		traceAttrs["rpc.mux.flow_control.write_timeout.count"].AsInt64() != 1 {
+		t.Fatalf("mux trace attributes = %+v, want generated mux flow-control attributes", traceAttrs)
 	}
 
 	connectionDiagnosisRec := httptest.NewRecorder()
@@ -1026,6 +1093,14 @@ type generatedDummyAddr string
 
 func (a generatedDummyAddr) Network() string { return string(a) }
 func (a generatedDummyAddr) String() string  { return string(a) }
+
+func generatedTraceAttributeMap(attrs []attribute.KeyValue) map[string]attribute.Value {
+	out := make(map[string]attribute.Value, len(attrs))
+	for _, attr := range attrs {
+		out[string(attr.Key)] = attr.Value
+	}
+	return out
+}
 `
 
 const apiNewTemplate = `type PingRequest {
@@ -1140,7 +1215,25 @@ type RPCMuxConfig struct {
 	OpenRetryReasons []string ` + "`json:\"openRetryReasons,omitempty\"`" + `
 	HealthBackoffMultiplier int ` + "`json:\"healthBackoffMultiplier,omitempty\"`" + `
 	HealthMaxCooldown time.Duration ` + "`json:\"healthMaxCooldown,omitempty\"`" + `
+	Trace RPCMuxTraceConfig ` + "`json:\"trace,omitempty\"`" + `
+	Log RPCMuxLogConfig ` + "`json:\"log,omitempty\"`" + `
 	Candidate RPCMuxCandidateConfig ` + "`json:\"candidate,omitempty\"`" + `
+}
+
+type RPCMuxTraceConfig struct {
+	Enabled bool ` + "`json:\"enabled\"`" + `
+	AnnotateStreams bool ` + "`json:\"annotateStreams\"`" + `
+}
+
+type RPCMuxLogConfig struct {
+	Enabled bool ` + "`json:\"enabled\"`" + `
+	Diagnosis bool ` + "`json:\"diagnosis\"`" + `
+	ExportEvents bool ` + "`json:\"exportEvents\"`" + `
+	EventFamily string ` + "`json:\"eventFamily,omitempty\"`" + `
+	Event string ` + "`json:\"event,omitempty\"`" + `
+	Endpoint string ` + "`json:\"endpoint,omitempty\"`" + `
+	ConnectionID string ` + "`json:\"connectionId,omitempty\"`" + `
+	PoolSlot int ` + "`json:\"poolSlot,omitempty\"`" + `
 }
 
 type RPCMuxCandidateConfig struct {
@@ -1289,6 +1382,26 @@ func (c RPCMuxConfig) CandidateConfig() rpc.ExperimentalMuxCandidateConfig {
 		DrainGrace:           candidate.DrainGrace,
 		AllowLegacyDowngrade: candidate.AllowLegacyDowngrade,
 	}
+}
+
+func (c RPCMuxConfig) ClientOptions() []rpc.ClientOption {
+	options := make([]rpc.ClientOption, 0, 2)
+	if c.Trace.Enabled && c.Trace.AnnotateStreams {
+		options = append(options, rpc.WithMuxTraceAnnotation())
+	}
+	if c.Log.Enabled && c.Log.Diagnosis {
+		options = append(options, rpc.WithMuxDiagnosisLogging(nil))
+	}
+	if c.Log.Enabled && c.Log.ExportEvents {
+		options = append(options, rpc.WithMuxDiagnosisEventLogging(nil, rpc.RPCMuxDiagnosisFilter{
+			Endpoint: c.Log.Endpoint,
+			ConnectionID: c.Log.ConnectionID,
+			PoolSlot: c.Log.PoolSlot,
+			EventFamily: c.Log.EventFamily,
+			Event: c.Log.Event,
+		}))
+	}
+	return options
 }
 
 func (c Config) ResilienceProfile() ResilienceProfile {

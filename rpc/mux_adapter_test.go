@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -18,6 +19,9 @@ import (
 
 	"github.com/imajinyun/gofly/core/observability/metrics"
 	"github.com/imajinyun/gofly/core/security"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	oteltrace "go.opentelemetry.io/otel/trace"
 )
 
 type firstEndpointBalancer struct{}
@@ -1561,7 +1565,7 @@ func TestExperimentalMuxConnectionManagerDiagnosisFiltersEndpointFlowControl(t *
 		t.Fatalf("second terminal receive = %v, want EOF", err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/rpc/diagnosis?endpoint="+url.QueryEscape(firstEndpoint)+"&flowControlEvent=credit-wait-timeout", nil)
+	req := httptest.NewRequest(http.MethodGet, "/rpc/diagnosis?endpoint="+url.QueryEscape(firstEndpoint)+"&flowControlEvent=credit-wait-timeout&eventFamily=flow-control&event=credit-wait-timeout", nil)
 	rec := httptest.NewRecorder()
 	client.DiagnosisHandler().ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -1573,12 +1577,20 @@ func TestExperimentalMuxConnectionManagerDiagnosisFiltersEndpointFlowControl(t *
 	}
 	if !probe.Matched || probe.Endpoint != firstEndpoint ||
 		probe.FlowControl != "credit_wait_timeout" ||
+		probe.EventFamily != "flow_control" ||
+		probe.Event != "credit_wait_timeout" ||
 		len(probe.Diagnosis.Mux.Manager.Endpoints) != 1 ||
 		probe.Diagnosis.Mux.Manager.Endpoints[0].Endpoint != firstEndpoint ||
 		len(probe.Diagnosis.Mux.Manager.FlowControl.Events) != 1 ||
 		probe.Diagnosis.Mux.Manager.FlowControl.Events[0].Event != "credit_wait_timeout" ||
 		probe.Diagnosis.Mux.Manager.FlowControl.Events[0].Count < 1 {
 		t.Fatalf("filtered manager diagnosis = %+v, want first endpoint credit_wait_timeout event", probe)
+	}
+	if len(probe.Diagnosis.Mux.Events) != 1 ||
+		probe.Diagnosis.Mux.Events[0].Family != "flow_control" ||
+		probe.Diagnosis.Mux.Events[0].Event != "credit_wait_timeout" ||
+		probe.Diagnosis.Mux.Events[0].Endpoint != firstEndpoint {
+		t.Fatalf("filtered manager events = %+v, want first endpoint flow-control event", probe.Diagnosis.Mux.Events)
 	}
 	if probe.Diagnosis.Mux.Manager.FlowControl.ConnectionWindowExhausted != 0 ||
 		probe.Diagnosis.Mux.Manager.FlowControl.WriteTimeouts != 0 {
@@ -1589,7 +1601,7 @@ func TestExperimentalMuxConnectionManagerDiagnosisFiltersEndpointFlowControl(t *
 	if firstConnectionID == "" || firstPoolSlot != 1 {
 		t.Fatalf("first endpoint connection fields = %+v, want stable connection id and pool slot", probe.Diagnosis.Mux.Manager.Endpoints[0])
 	}
-	req = httptest.NewRequest(http.MethodGet, "/rpc/diagnosis?connectionId="+url.QueryEscape(firstConnectionID)+"&flowControlEvent=credit-wait-timeout", nil)
+	req = httptest.NewRequest(http.MethodGet, "/rpc/diagnosis?connectionId="+url.QueryEscape(firstConnectionID)+"&flowControlEvent=credit-wait-timeout&eventFamily=flow-control&event=credit-wait-timeout", nil)
 	rec = httptest.NewRecorder()
 	client.DiagnosisHandler().ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -1604,8 +1616,28 @@ func TestExperimentalMuxConnectionManagerDiagnosisFiltersEndpointFlowControl(t *
 		len(connectionProbe.Diagnosis.Mux.Manager.Endpoints) != 1 ||
 		connectionProbe.Diagnosis.Mux.Manager.Endpoints[0].ConnectionID != firstConnectionID ||
 		len(connectionProbe.Diagnosis.Mux.Manager.FlowControl.Events) != 1 ||
-		connectionProbe.Diagnosis.Mux.Manager.FlowControl.Events[0].Event != "credit_wait_timeout" {
+		connectionProbe.Diagnosis.Mux.Manager.FlowControl.Events[0].Event != "credit_wait_timeout" ||
+		len(connectionProbe.Diagnosis.Mux.Events) != 1 ||
+		connectionProbe.Diagnosis.Mux.Events[0].ConnectionID != firstConnectionID {
 		t.Fatalf("connection filtered diagnosis = %+v, want first connection credit_wait_timeout event", connectionProbe)
+	}
+	req = httptest.NewRequest(http.MethodGet, "/rpc/diagnosis?endpoint="+url.QueryEscape(firstEndpoint)+"&eventFamily=health&event=endpoint-cooldown", nil)
+	rec = httptest.NewRecorder()
+	client.DiagnosisHandler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("health event diagnosis status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var healthProbe RPCDiagnosisProbe
+	if err := json.Unmarshal(rec.Body.Bytes(), &healthProbe); err != nil {
+		t.Fatalf("decode health event diagnosis: %v\n%s", err, rec.Body.String())
+	}
+	if !healthProbe.Matched ||
+		healthProbe.EventFamily != "health" ||
+		healthProbe.Event != "endpoint_cooldown" ||
+		len(healthProbe.Diagnosis.Mux.Events) != 1 ||
+		healthProbe.Diagnosis.Mux.Events[0].Endpoint != firstEndpoint ||
+		healthProbe.Diagnosis.Mux.Events[0].Reason != "test_skip" {
+		t.Fatalf("health event diagnosis = %+v, want first endpoint cooldown event", healthProbe)
 	}
 	req = httptest.NewRequest(http.MethodGet, "/rpc/diagnosis?endpoint="+url.QueryEscape(secondEndpoint)+"&flowControlEvent=credit-wait-timeout", nil)
 	rec = httptest.NewRecorder()
@@ -1965,10 +1997,23 @@ func TestExperimentalMuxConnectionManagerRetriesOpenBeforeStreamAfterPoolExhaust
 	if got := <-firstRequests; got != "active" {
 		t.Fatalf("first handler payload = %q, want active", got)
 	}
-	secondStream, err := client.MuxStream(context.Background(), "orders/Hold")
+
+	traceRecorder := tracetest.NewSpanRecorder()
+	traceProvider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(traceRecorder))
+	defer func() { _ = traceProvider.Shutdown(context.Background()) }()
+	traceCtx, traceSpan := traceProvider.Tracer("rpc-mux-runtime-test").Start(context.Background(), "orders/Hold", oteltrace.WithSpanKind(oteltrace.SpanKindClient))
+	var logBuf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	tracedClient, err := NewClient("http://unused", WithExperimentalMuxConnectionManager(manager), WithMuxTraceAnnotation(), WithMuxDiagnosisLogging(logger))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tracedClient.Close()
+	secondStream, err := tracedClient.MuxStream(traceCtx, "orders/Hold")
 	if err != nil {
 		t.Fatalf("second MuxStream should retry on second endpoint: %v", err)
 	}
+	traceSpan.End()
 	if err := secondStream.Send(context.Background(), Message{Payload: []byte("fresh")}); err != nil {
 		t.Fatalf("second Send: %v", err)
 	}
@@ -1994,6 +2039,37 @@ func TestExperimentalMuxConnectionManagerRetriesOpenBeforeStreamAfterPoolExhaust
 		diagnosis.LastRetriedTo != secondEndpoint ||
 		diagnosis.RetryReasons["pool_exhausted"] != 1 {
 		t.Fatalf("mux manager diagnosis after retry = %+v, want retry endpoint and reason evidence", diagnosis)
+	}
+	traceSpans := traceRecorder.Ended()
+	if len(traceSpans) != 1 {
+		t.Fatalf("mux runtime trace spans = %d, want one annotated span", len(traceSpans))
+	}
+	traceAttrs := muxAttributeMap(traceSpans[0].Attributes())
+	if traceAttrs["rpc.mux.endpoint"].AsString() != secondEndpoint ||
+		traceAttrs["rpc.mux.manager.last_retried_from"].AsString() != firstEndpoint ||
+		traceAttrs["rpc.mux.manager.last_retried_to"].AsString() != secondEndpoint ||
+		traceAttrs["rpc.mux.manager.retry_reason.pool_exhausted.count"].AsInt64() != 1 ||
+		traceAttrs["rpc.mux.manager.health.reason"].AsString() != "pool_exhausted" ||
+		traceAttrs["rpc.mux.event.retry.count"].AsInt64() != 2 ||
+		traceAttrs["rpc.mux.event.health.count"].AsInt64() != 1 {
+		t.Fatalf("mux runtime trace attrs = %+v, want open-before retry and cooldown attributes", traceAttrs)
+	}
+	logLine := logBuf.String()
+	for _, want := range []string{
+		`"msg":"rpc mux stream diagnosis"`,
+		`"endpoint":"` + secondEndpoint + `"`,
+		`"last_retried_from":"` + firstEndpoint + `"`,
+		`"last_retried_to":"` + secondEndpoint + `"`,
+		`"health_reason":"pool_exhausted"`,
+		`"msg":"rpc mux runtime event"`,
+		`"event_family":"retry"`,
+		`"event":"open_before_retry"`,
+		`"event_family":"health"`,
+		`"event":"endpoint_cooldown"`,
+	} {
+		if !strings.Contains(logLine, want) {
+			t.Fatalf("mux runtime log missing %s:\n%s", want, logLine)
+		}
 	}
 
 	close(releaseFirst)

@@ -383,30 +383,41 @@ func (c *HTTPClient) Stream(ctx context.Context, method string) (*Stream, error)
 // MuxStream opens an experimental multiplexed stream when the client was
 // explicitly configured with WithExperimentalMuxClientAdapter.
 func (c *HTTPClient) MuxStream(ctx context.Context, method string) (*ExperimentalMuxStream, error) {
-	handler := c.openMuxStream
 	policy := c.streamRetryPolicy()
+	var endpoint string
 	if policy.Attempts <= 1 {
-		return handler(ctx, method)
+		stream, openEndpoint, err := c.openMuxStreamWithEndpoint(ctx, method)
+		endpoint = openEndpoint
+		c.annotateMuxStreamSpan(ctx, method, endpoint, "", err)
+		return stream, err
 	}
 	var stream *ExperimentalMuxStream
 	err := retry.Do(ctx, policy, func() error {
 		var openErr error
-		stream, openErr = handler(ctx, method)
+		stream, endpoint, openErr = c.openMuxStreamWithEndpoint(ctx, method)
 		return openErr
 	})
 	if err != nil {
-		return nil, normalizeContextError(ctx, err)
+		err = normalizeContextError(ctx, err)
+		c.annotateMuxStreamSpan(ctx, method, endpoint, "", err)
+		return nil, err
 	}
+	c.annotateMuxStreamSpan(ctx, method, endpoint, "", nil)
 	return stream, nil
 }
 
 func (c *HTTPClient) openMuxStream(ctx context.Context, method string) (*ExperimentalMuxStream, error) {
+	stream, _, err := c.openMuxStreamWithEndpoint(ctx, method)
+	return stream, err
+}
+
+func (c *HTTPClient) openMuxStreamWithEndpoint(ctx context.Context, method string) (*ExperimentalMuxStream, string, error) {
 	ctx = core.Context(ctx)
 	if err := ctx.Err(); err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	if c == nil || (c.opts.muxClientAdapter == nil && c.opts.muxManager == nil) {
-		return nil, NewError(CodeUnavailable, "rpc mux client adapter is not configured")
+		return nil, "", NewError(CodeUnavailable, "rpc mux client adapter is not configured")
 	}
 	governanceReq := c.rpcGovernanceRequest(ctx, method)
 	decision := c.governanceDecision(ctx, governanceReq)
@@ -415,12 +426,12 @@ func (c *HTTPClient) openMuxStream(ctx context.Context, method string) (*Experim
 	if c.opts.rpcPolicyProvider != nil {
 		dynamicPolicy, err := c.opts.rpcPolicyProvider.RPCPolicy(ctx, governanceReq)
 		if err != nil {
-			return nil, fmt.Errorf("resolve dynamic rpc mux stream policy: %w", err)
+			return nil, "", fmt.Errorf("resolve dynamic rpc mux stream policy: %w", err)
 		}
 		rpcPolicy = mergeRPCPolicy(rpcPolicy, dynamicPolicy)
 	}
 	if err := rpcPolicy.Validate(); err != nil {
-		return nil, fmt.Errorf("apply rpc mux stream policy: %w", err)
+		return nil, "", fmt.Errorf("apply rpc mux stream policy: %w", err)
 	}
 	rpcPolicy = rpcPolicyForMethod(rpcPolicy, method)
 	streamTimeout := c.opts.streamTimeout
@@ -433,10 +444,11 @@ func (c *HTTPClient) openMuxStream(ctx context.Context, method string) (*Experim
 		defer cancel()
 	}
 	if c.opts.muxManager != nil {
-		stream, _, err := c.opts.muxManager.OpenStream(ctx, method)
-		return stream, err
+		stream, endpoint, err := c.opts.muxManager.OpenStream(ctx, method)
+		return stream, endpoint, err
 	}
-	return c.opts.muxClientAdapter.OpenStream(ctx, method)
+	stream, err := c.opts.muxClientAdapter.OpenStream(ctx, method)
+	return stream, "", err
 }
 
 func (c *HTTPClient) streamRetryPolicy() retry.Policy {

@@ -61,7 +61,7 @@ func TestHTTPServerDiagnosisFiltersMuxFlowControl(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/rpc/admin/diagnosis?flowControlEvent=write-timeout", nil)
+	req := httptest.NewRequest(http.MethodGet, "/rpc/admin/diagnosis?flowControlEvent=write-timeout&eventFamily=flow-control&event=write-timeout", nil)
 	rec := httptest.NewRecorder()
 	server.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -72,14 +72,35 @@ func TestHTTPServerDiagnosisFiltersMuxFlowControl(t *testing.T) {
 		t.Fatal(err)
 	}
 	if diagnosis.FlowControl != "write_timeout" ||
+		diagnosis.EventFamily != "flow_control" ||
+		diagnosis.Event != "write_timeout" ||
 		diagnosis.Mux.FlowControl.WriteTimeouts != 1 ||
 		len(diagnosis.Mux.FlowControl.Events) != 1 ||
 		diagnosis.Mux.FlowControl.Events[0].Event != "write_timeout" ||
 		diagnosis.Mux.FlowControl.Events[0].Count != 1 {
 		t.Fatalf("filtered diagnosis = %+v, want structured write_timeout event", diagnosis.Mux.FlowControl)
 	}
+	if len(diagnosis.Mux.Events) != 1 ||
+		diagnosis.Mux.Events[0].Family != "flow_control" ||
+		diagnosis.Mux.Events[0].Event != "write_timeout" {
+		t.Fatalf("filtered mux events = %+v, want write_timeout flow-control event", diagnosis.Mux.Events)
+	}
 	if diagnosis.Mux.FlowControl.CreditWaitTimeouts != 0 || diagnosis.Mux.FlowControl.ConnectionWindowExhausted != 0 {
 		t.Fatalf("filtered diagnosis counters = %+v, want unrelated flow-control counters hidden", diagnosis.Mux.FlowControl)
+	}
+
+	missingReq := httptest.NewRequest(http.MethodGet, "/rpc/admin/diagnosis?eventFamily=flow-control&event=credit-wait-timeout", nil)
+	missingRec := httptest.NewRecorder()
+	server.ServeHTTP(missingRec, missingReq)
+	if missingRec.Code != http.StatusOK {
+		t.Fatalf("missing event diagnosis status = %d body=%s", missingRec.Code, missingRec.Body.String())
+	}
+	var missingDiagnosis ServerDiagnosisSnapshot
+	if err := json.NewDecoder(missingRec.Body).Decode(&missingDiagnosis); err != nil {
+		t.Fatal(err)
+	}
+	if missingDiagnosis.Matched || len(missingDiagnosis.Mux.Events) != 0 {
+		t.Fatalf("missing event diagnosis = %+v, want unmatched empty event view", missingDiagnosis)
 	}
 }
 

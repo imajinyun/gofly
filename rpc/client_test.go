@@ -1690,7 +1690,7 @@ func TestHTTPClientDiagnosisHandlerFiltersMuxFlowControl(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer c.Close()
-	req := httptest.NewRequest(http.MethodGet, "/rpc/diagnosis?flowControlEvent=connection-window-exhausted", nil)
+	req := httptest.NewRequest(http.MethodGet, "/rpc/diagnosis?flowControlEvent=connection-window-exhausted&eventFamily=flow-control&event=connection-window-exhausted", nil)
 	rr := httptest.NewRecorder()
 	c.DiagnosisHandler().ServeHTTP(rr, req)
 	if rr.Code != http.StatusOK {
@@ -1701,11 +1701,18 @@ func TestHTTPClientDiagnosisHandlerFiltersMuxFlowControl(t *testing.T) {
 		t.Fatalf("decode diagnosis probe: %v\n%s", err, rr.Body.String())
 	}
 	if decoded.FlowControl != "connection_window_exhausted" ||
+		decoded.EventFamily != "flow_control" ||
+		decoded.Event != "connection_window_exhausted" ||
 		decoded.Diagnosis.Mux.FlowControl.ConnectionWindowExhausted < 1 ||
 		len(decoded.Diagnosis.Mux.FlowControl.Events) != 1 ||
 		decoded.Diagnosis.Mux.FlowControl.Events[0].Event != "connection_window_exhausted" ||
 		decoded.Diagnosis.Mux.FlowControl.Events[0].Count < 1 {
 		t.Fatalf("filtered client diagnosis = %+v, want structured connection_window_exhausted event", decoded.Diagnosis.Mux.FlowControl)
+	}
+	if len(decoded.Diagnosis.Mux.Events) != 1 ||
+		decoded.Diagnosis.Mux.Events[0].Family != "flow_control" ||
+		decoded.Diagnosis.Mux.Events[0].Event != "connection_window_exhausted" {
+		t.Fatalf("filtered client mux events = %+v, want connection_window_exhausted flow-control event", decoded.Diagnosis.Mux.Events)
 	}
 	if decoded.Diagnosis.Mux.FlowControl.WriteTimeouts != 0 || decoded.Diagnosis.Mux.FlowControl.CreditWaitTimeouts != 0 {
 		t.Fatalf("filtered client diagnosis = %+v, want unrelated counters hidden", decoded.Diagnosis.Mux.FlowControl)

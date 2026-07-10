@@ -5,6 +5,7 @@ package rpc
 import (
 	"context"
 	"crypto/tls"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -93,6 +94,11 @@ type clientOptions struct {
 	connPool          *ConnPoolManager
 	muxClientAdapter  *ExperimentalMuxClientAdapter
 	muxManager        *ExperimentalMuxConnectionManager
+	muxTrace          bool
+	muxLog            bool
+	muxLogger         *slog.Logger
+	muxEventExporter  RPCMuxDiagnosisEventExporter
+	muxEventFilter    RPCMuxDiagnosisFilter
 	governanceTags    map[string]string
 	tls               *security.TLSConfig
 	warmup            RPCWarmupConfig
@@ -503,6 +509,45 @@ func WithExperimentalMuxConnectionManager(manager *ExperimentalMuxConnectionMana
 	return func(o *clientOptions) {
 		o.muxManager = manager
 	}
+}
+
+// WithMuxTraceAnnotation enables HTTPClient.MuxStream to annotate the current
+// OTel span with mux transport diagnosis from the actual open path. The
+// attributes may include high-cardinality connection IDs, so this is trace-only
+// and must not be mirrored as metric labels.
+func WithMuxTraceAnnotation() ClientOption {
+	return func(o *clientOptions) {
+		o.muxTrace = true
+	}
+}
+
+// WithMuxDiagnosisLogging enables HTTPClient.MuxStream to emit structured mux
+// diagnosis logs. Logs may include high-cardinality connection IDs and pool
+// slots for troubleshooting, so callers should keep this opt-in and avoid
+// mirroring these fields as metric labels.
+func WithMuxDiagnosisLogging(logger *slog.Logger) ClientOption {
+	return func(o *clientOptions) {
+		o.muxLog = true
+		o.muxLogger = logger
+	}
+}
+
+// WithMuxDiagnosisEventExporter enables HTTPClient.MuxStream to export a
+// structured event stream derived from RPCMuxDiagnosisEvent. The filter may
+// include endpoint or connection IDs for troubleshooting; exporters must keep
+// those fields out of metric labels.
+func WithMuxDiagnosisEventExporter(exporter RPCMuxDiagnosisEventExporter, filter RPCMuxDiagnosisFilter) ClientOption {
+	return func(o *clientOptions) {
+		o.muxEventExporter = exporter
+		o.muxEventFilter = filter
+	}
+}
+
+// WithMuxDiagnosisEventLogging exports mux diagnosis events through slog. When
+// slog is backed by an OTel bridge this becomes the mux event log bridge without
+// coupling the rpc package to a concrete OTel logging SDK.
+func WithMuxDiagnosisEventLogging(logger *slog.Logger, filter RPCMuxDiagnosisFilter) ClientOption {
+	return WithMuxDiagnosisEventExporter(NewSlogRPCMuxDiagnosisEventExporter(logger), filter)
 }
 
 func WithClientMaxConcurrency(max int) ClientOption {

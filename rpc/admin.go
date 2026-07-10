@@ -64,6 +64,8 @@ type ServerDiagnosisSnapshot struct {
 	ConnectionID string                        `json:"connectionId,omitempty"`
 	PoolSlot     int                           `json:"poolSlot,omitempty"`
 	FlowControl  string                        `json:"flowControl,omitempty"`
+	EventFamily  string                        `json:"eventFamily,omitempty"`
+	Event        string                        `json:"event,omitempty"`
 	Matched      bool                          `json:"matched"`
 	State        StateSnapshot                 `json:"state"`
 	Services     []ServiceSnapshot             `json:"services,omitempty"`
@@ -139,6 +141,8 @@ func (s *HTTPServer) serveAdminRoute(w http.ResponseWriter, r *http.Request) {
 			ConnectionID:     query.Get("connectionId"),
 			PoolSlot:         parsePositiveIntQuery(query.Get("poolSlot")),
 			FlowControlEvent: query.Get("flowControlEvent"),
+			EventFamily:      query.Get("eventFamily"),
+			Event:            query.Get("event"),
 		}))
 	default:
 		http.NotFound(w, r)
@@ -257,6 +261,8 @@ func (s *HTTPServer) DiagnosisProbeWithOptions(opts RPCDiagnosisProbeOptions) Se
 	endpoint := normalizeMuxDiagnosisEndpoint(opts.Endpoint)
 	connectionID := normalizeMuxDiagnosisConnectionID(opts.ConnectionID)
 	flowControlEvent := NormalizeRPCMuxFlowControlEvent(opts.FlowControlEvent)
+	eventFamily := normalizeMuxDiagnosisEventField(opts.EventFamily)
+	eventName := normalizeMuxDiagnosisEventField(opts.Event)
 	snapshot := ServerDiagnosisSnapshot{
 		Service:      service,
 		Method:       method,
@@ -264,6 +270,8 @@ func (s *HTTPServer) DiagnosisProbeWithOptions(opts RPCDiagnosisProbeOptions) Se
 		ConnectionID: connectionID,
 		PoolSlot:     opts.PoolSlot,
 		FlowControl:  flowControlEvent,
+		EventFamily:  eventFamily,
+		Event:        eventName,
 		State:        s.State(),
 		PolicyCache:  s.RuntimeCacheSnapshot(),
 		GeneratedAt:  time.Now(),
@@ -272,13 +280,25 @@ func (s *HTTPServer) DiagnosisProbeWithOptions(opts RPCDiagnosisProbeOptions) Se
 	snapshot.Matched = (service == "" && method == "") || len(snapshot.Services) > 0
 	if s.opts.muxServerAdapter != nil {
 		snapshot.Mux = s.opts.muxServerAdapter.DiagnosisSnapshot()
-		if flowControlEvent != "" || endpoint != "" || connectionID != "" || opts.PoolSlot > 0 {
+		if flowControlEvent != "" || eventFamily != "" || eventName != "" || endpoint != "" || connectionID != "" || opts.PoolSlot > 0 {
 			snapshot.Mux = FilterRPCMuxDiagnosis(snapshot.Mux, RPCMuxDiagnosisFilter{
 				Endpoint:         endpoint,
 				ConnectionID:     connectionID,
 				PoolSlot:         opts.PoolSlot,
 				FlowControlEvent: flowControlEvent,
+				EventFamily:      eventFamily,
+				Event:            eventName,
 			})
+		}
+		snapshot.Mux.Events = rpcMuxDiagnosisEventView(snapshot.Mux, RPCMuxDiagnosisFilter{
+			Endpoint:     endpoint,
+			ConnectionID: connectionID,
+			PoolSlot:     opts.PoolSlot,
+			EventFamily:  eventFamily,
+			Event:        eventName,
+		})
+		if eventFamily != "" || eventName != "" || endpoint != "" || connectionID != "" || opts.PoolSlot > 0 {
+			snapshot.Matched = snapshot.Matched && len(snapshot.Mux.Events) > 0
 		}
 	}
 	return snapshot

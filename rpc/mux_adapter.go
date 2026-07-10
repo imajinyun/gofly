@@ -587,7 +587,7 @@ func muxDiagnosisFromAdapterSnapshot(snapshot ExperimentalMuxAdapterSnapshot) RP
 		ConnectionWindowOut:       transport.ConnectionWindowFramesOut,
 		BackpressureEvents:        transport.BackpressureEvents,
 	}, "")
-	return RPCMuxTransportDiagnosis{
+	diagnosis := RPCMuxTransportDiagnosis{
 		Enabled:     !transport.Closed,
 		Mode:        "experimental_mux",
 		Candidate:   snapshot.Candidate,
@@ -618,6 +618,8 @@ func muxDiagnosisFromAdapterSnapshot(snapshot ExperimentalMuxAdapterSnapshot) RP
 			DrainRejects:      transport.DrainRejects,
 		},
 	}
+	diagnosis.Events = RPCMuxDiagnosisEvents(diagnosis)
+	return diagnosis
 }
 
 func muxAdapterStatus(snapshot ExperimentalMuxAdapterSnapshot) string {

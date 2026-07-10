@@ -771,6 +771,18 @@ func muxManagerFlowControlDiagnosis(endpoints []ExperimentalMuxEndpointSnapshot)
 	return withRPCMuxFlowControlEvents(diagnosis, "")
 }
 
+func muxDiagnosisFromManager(manager RPCMuxConnectionManagerDiagnosis) RPCMuxTransportDiagnosis {
+	diagnosis := RPCMuxTransportDiagnosis{
+		Enabled:     manager.Enabled,
+		Mode:        manager.Mode,
+		Candidate:   manager.Candidate,
+		FlowControl: manager.FlowControl,
+		Manager:     manager,
+	}
+	diagnosis.Events = RPCMuxDiagnosisEvents(diagnosis)
+	return diagnosis
+}
+
 func (m *ExperimentalMuxConnectionManager) resolveAndSync(ctx context.Context) ([]string, error) {
 	if m == nil {
 		return nil, ErrExperimentalMuxTransportClosed

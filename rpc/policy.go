@@ -95,6 +95,8 @@ type RPCDiagnosisProbe struct {
 	ConnectionID string                      `json:"connectionId,omitempty"`
 	PoolSlot     int                         `json:"poolSlot,omitempty"`
 	FlowControl  string                      `json:"flowControl,omitempty"`
+	EventFamily  string                      `json:"eventFamily,omitempty"`
+	Event        string                      `json:"event,omitempty"`
 	Matched      bool                        `json:"matched"`
 	Diagnosis    RPCDiagnosisSnapshot        `json:"diagnosis"`
 	Policy       RPCEffectivePolicySnapshot  `json:"policy,omitempty"`
@@ -193,6 +195,7 @@ type RPCMuxTransportDiagnosis struct {
 	Keepalive   RPCMuxKeepaliveDiagnosis         `json:"keepalive,omitempty"`
 	Drain       RPCMuxDrainDiagnosis             `json:"drain,omitempty"`
 	Manager     RPCMuxConnectionManagerDiagnosis `json:"manager,omitempty"`
+	Events      []RPCMuxDiagnosisEvent           `json:"events,omitempty"`
 }
 
 type RPCMuxConnectionManagerDiagnosis struct {
@@ -253,6 +256,20 @@ type RPCMuxFlowControlEventDiagnosis struct {
 	Count int64  `json:"count"`
 }
 
+type RPCMuxDiagnosisEvent struct {
+	Family       string        `json:"family"`
+	Event        string        `json:"event"`
+	Count        int64         `json:"count,omitempty"`
+	Endpoint     string        `json:"endpoint,omitempty"`
+	ConnectionID string        `json:"connectionId,omitempty"`
+	PoolSlot     int           `json:"poolSlot,omitempty"`
+	Reason       string        `json:"reason,omitempty"`
+	From         string        `json:"from,omitempty"`
+	To           string        `json:"to,omitempty"`
+	Cooldown     time.Duration `json:"cooldown,omitempty"`
+	Direction    string        `json:"direction,omitempty"`
+}
+
 func NormalizeRPCMuxFlowControlEvent(event string) string {
 	event = strings.TrimSpace(strings.ToLower(event))
 	event = strings.ReplaceAll(event, "-", "_")
@@ -273,6 +290,8 @@ type RPCMuxDiagnosisFilter struct {
 	ConnectionID     string
 	PoolSlot         int
 	FlowControlEvent string
+	EventFamily      string
+	Event            string
 }
 
 func FilterRPCMuxDiagnosis(diagnosis RPCMuxTransportDiagnosis, filter RPCMuxDiagnosisFilter) RPCMuxTransportDiagnosis {
@@ -282,12 +301,117 @@ func FilterRPCMuxDiagnosis(diagnosis RPCMuxTransportDiagnosis, filter RPCMuxDiag
 	if event == "" {
 		diagnosis.FlowControl = withRPCMuxFlowControlEvents(diagnosis.FlowControl, "")
 		diagnosis.Manager = filterRPCMuxManagerDiagnosis(diagnosis.Manager, endpoint, connectionID, filter.PoolSlot, "")
+		diagnosis.Events = filterRPCMuxDiagnosisEvents(RPCMuxDiagnosisEvents(diagnosis), filter)
 		return diagnosis
 	}
 	diagnosis.FlowControl = filterRPCMuxFlowControlDiagnosis(diagnosis.FlowControl, event)
 	diagnosis.Adapter = filterRPCMuxAdapterFlowControl(diagnosis.Adapter, event)
 	diagnosis.Manager = filterRPCMuxManagerDiagnosis(diagnosis.Manager, endpoint, connectionID, filter.PoolSlot, event)
+	diagnosis.Events = filterRPCMuxDiagnosisEvents(RPCMuxDiagnosisEvents(diagnosis), filter)
 	return diagnosis
+}
+
+func rpcMuxDiagnosisEventView(diagnosis RPCMuxTransportDiagnosis, filter RPCMuxDiagnosisFilter) []RPCMuxDiagnosisEvent {
+	events := RPCMuxDiagnosisEvents(diagnosis)
+	events = annotateRPCMuxDiagnosisEventsWithFilterContext(events, filter)
+	events = filterRPCMuxDiagnosisEvents(events, filter)
+	return compactRPCMuxDiagnosisEventView(events, filter)
+}
+
+func annotateRPCMuxDiagnosisEventsWithFilterContext(events []RPCMuxDiagnosisEvent, filter RPCMuxDiagnosisFilter) []RPCMuxDiagnosisEvent {
+	endpoint := normalizeMuxDiagnosisEndpoint(filter.Endpoint)
+	if endpoint == "" {
+		return events
+	}
+	annotated := make([]RPCMuxDiagnosisEvent, len(events))
+	copy(annotated, events)
+	for i := range annotated {
+		if annotated[i].Endpoint == "" && annotated[i].From == "" && annotated[i].To == "" && filter.ConnectionID == "" && filter.PoolSlot <= 0 {
+			annotated[i].Endpoint = endpoint
+		}
+	}
+	return annotated
+}
+
+func filterRPCMuxDiagnosisEvents(events []RPCMuxDiagnosisEvent, filter RPCMuxDiagnosisFilter) []RPCMuxDiagnosisEvent {
+	eventFamily := normalizeMuxDiagnosisEventField(filter.EventFamily)
+	eventName := normalizeMuxDiagnosisEventField(filter.Event)
+	endpoint := normalizeMuxDiagnosisEndpoint(filter.Endpoint)
+	connectionID := normalizeMuxDiagnosisConnectionID(filter.ConnectionID)
+	if eventFamily == "" && eventName == "" && endpoint == "" && connectionID == "" && filter.PoolSlot <= 0 {
+		return events
+	}
+	filtered := make([]RPCMuxDiagnosisEvent, 0, len(events))
+	for _, item := range events {
+		if eventFamily != "" && normalizeMuxDiagnosisEventField(item.Family) != eventFamily {
+			continue
+		}
+		if eventName != "" && normalizeMuxDiagnosisEventField(item.Event) != eventName {
+			continue
+		}
+		if endpoint != "" && !rpcMuxDiagnosisEventEndpointMatched(item, endpoint) {
+			continue
+		}
+		if connectionID != "" && normalizeMuxDiagnosisConnectionID(item.ConnectionID) != connectionID {
+			continue
+		}
+		if filter.PoolSlot > 0 && item.PoolSlot != filter.PoolSlot {
+			continue
+		}
+		filtered = append(filtered, item)
+	}
+	return filtered
+}
+
+func compactRPCMuxDiagnosisEventView(events []RPCMuxDiagnosisEvent, filter RPCMuxDiagnosisFilter) []RPCMuxDiagnosisEvent {
+	if normalizeMuxDiagnosisEndpoint(filter.Endpoint) == "" || len(events) < 2 {
+		return events
+	}
+	specific := make(map[string]struct{}, len(events))
+	for _, item := range events {
+		if item.ConnectionID == "" && item.PoolSlot <= 0 {
+			continue
+		}
+		specific[rpcMuxDiagnosisEventSpecificityKey(item)] = struct{}{}
+	}
+	if len(specific) == 0 {
+		return events
+	}
+	compact := make([]RPCMuxDiagnosisEvent, 0, len(events))
+	for _, item := range events {
+		if item.ConnectionID == "" && item.PoolSlot <= 0 {
+			if _, ok := specific[rpcMuxDiagnosisEventSpecificityKey(item)]; ok {
+				continue
+			}
+		}
+		compact = append(compact, item)
+	}
+	return compact
+}
+
+func rpcMuxDiagnosisEventSpecificityKey(event RPCMuxDiagnosisEvent) string {
+	return strings.Join([]string{
+		normalizeMuxDiagnosisEventField(event.Family),
+		normalizeMuxDiagnosisEventField(event.Event),
+		normalizeMuxDiagnosisEndpoint(event.Endpoint),
+		normalizeMuxDiagnosisEventField(event.Reason),
+		normalizeMuxDiagnosisEndpoint(event.From),
+		normalizeMuxDiagnosisEndpoint(event.To),
+		event.Direction,
+	}, "\x00")
+}
+
+func rpcMuxDiagnosisEventEndpointMatched(event RPCMuxDiagnosisEvent, endpoint string) bool {
+	endpoint = normalizeMuxDiagnosisEndpoint(endpoint)
+	if endpoint == "" {
+		return true
+	}
+	for _, candidate := range []string{event.Endpoint, event.From, event.To} {
+		if normalizeMuxDiagnosisEndpoint(candidate) == endpoint {
+			return true
+		}
+	}
+	return false
 }
 
 func normalizeMuxDiagnosisEndpoint(endpoint string) string {
@@ -296,6 +420,12 @@ func normalizeMuxDiagnosisEndpoint(endpoint string) string {
 
 func normalizeMuxDiagnosisConnectionID(connectionID string) string {
 	return strings.TrimSpace(connectionID)
+}
+
+func normalizeMuxDiagnosisEventField(value string) string {
+	value = strings.TrimSpace(strings.ToLower(value))
+	value = strings.ReplaceAll(value, "-", "_")
+	return value
 }
 
 func filterRPCMuxAdapterFlowControl(snapshot ExperimentalMuxAdapterSnapshot, event string) ExperimentalMuxAdapterSnapshot {
@@ -409,6 +539,141 @@ func rpcMuxFlowControlEventsFromCounts(event string, writeTimeouts int64, credit
 	add("credit_wait_timeout", creditWaitTimeouts)
 	add("connection_window_exhausted", connectionWindowExhausted)
 	return events
+}
+
+func RPCMuxDiagnosisEvents(diagnosis RPCMuxTransportDiagnosis) []RPCMuxDiagnosisEvent {
+	events := make([]RPCMuxDiagnosisEvent, 0, 8)
+	events = appendMuxFlowControlDiagnosisEvents(events, diagnosis.FlowControl)
+	events = appendMuxDrainDiagnosisEvents(events, diagnosis.Drain)
+	events = appendMuxManagerDiagnosisEvents(events, diagnosis.Manager)
+	return events
+}
+
+func appendMuxFlowControlDiagnosisEvents(events []RPCMuxDiagnosisEvent, diagnosis RPCMuxFlowControlDiagnosis) []RPCMuxDiagnosisEvent {
+	for _, item := range withRPCMuxFlowControlEvents(diagnosis, "").Events {
+		events = append(events, RPCMuxDiagnosisEvent{
+			Family: "flow_control",
+			Event:  item.Event,
+			Count:  item.Count,
+		})
+	}
+	return events
+}
+
+func appendMuxDrainDiagnosisEvents(events []RPCMuxDiagnosisEvent, diagnosis RPCMuxDrainDiagnosis) []RPCMuxDiagnosisEvent {
+	if diagnosis.GoAwayFramesOut > 0 {
+		events = append(events, RPCMuxDiagnosisEvent{
+			Family:    "drain",
+			Event:     "goaway_out",
+			Count:     diagnosis.GoAwayFramesOut,
+			Reason:    diagnosis.DrainReason,
+			Direction: "out",
+		})
+	}
+	if diagnosis.GoAwayFramesIn > 0 {
+		events = append(events, RPCMuxDiagnosisEvent{
+			Family:    "drain",
+			Event:     "goaway_in",
+			Count:     diagnosis.GoAwayFramesIn,
+			Reason:    diagnosis.RemoteDrainReason,
+			Direction: "in",
+		})
+	}
+	if diagnosis.DrainRejects > 0 {
+		events = append(events, RPCMuxDiagnosisEvent{
+			Family: "drain",
+			Event:  "drain_reject",
+			Count:  diagnosis.DrainRejects,
+			Reason: diagnosis.DrainReason,
+		})
+	}
+	return events
+}
+
+func appendMuxManagerDiagnosisEvents(events []RPCMuxDiagnosisEvent, diagnosis RPCMuxConnectionManagerDiagnosis) []RPCMuxDiagnosisEvent {
+	if !diagnosis.Enabled {
+		return events
+	}
+	events = appendMuxManagerFlowControlDiagnosisEvents(events, diagnosis.FlowControl, diagnosis.Endpoints)
+	if diagnosis.OpenRetries > 0 {
+		events = append(events, RPCMuxDiagnosisEvent{
+			Family: "retry",
+			Event:  "open_before_retry",
+			Count:  diagnosis.OpenRetries,
+			From:   diagnosis.LastRetriedFrom,
+			To:     diagnosis.LastRetriedTo,
+		})
+	}
+	for _, reason := range sortedStringInt64Keys(diagnosis.RetryReasons) {
+		count := diagnosis.RetryReasons[reason]
+		if count <= 0 {
+			continue
+		}
+		events = append(events, RPCMuxDiagnosisEvent{
+			Family: "retry",
+			Event:  "retry_reason",
+			Reason: reason,
+			Count:  count,
+			From:   diagnosis.LastRetriedFrom,
+			To:     diagnosis.LastRetriedTo,
+		})
+	}
+	for _, item := range diagnosis.Health {
+		if item.Endpoint == "" || (item.Reason == "" && !item.Ejected && item.Cooldown <= 0) {
+			continue
+		}
+		events = append(events, RPCMuxDiagnosisEvent{
+			Family:   "health",
+			Event:    "endpoint_cooldown",
+			Endpoint: item.Endpoint,
+			Reason:   item.Reason,
+			Cooldown: item.Cooldown,
+		})
+	}
+	for _, reason := range sortedStringInt64Keys(diagnosis.CloseReasons) {
+		count := diagnosis.CloseReasons[reason]
+		if count > 0 {
+			events = append(events, RPCMuxDiagnosisEvent{Family: "lifecycle", Event: "close", Reason: reason, Count: count})
+		}
+	}
+	for _, reason := range sortedStringInt64Keys(diagnosis.DrainReasons) {
+		count := diagnosis.DrainReasons[reason]
+		if count > 0 {
+			events = append(events, RPCMuxDiagnosisEvent{Family: "drain", Event: "manager_drain", Reason: reason, Count: count})
+		}
+	}
+	return events
+}
+
+func appendMuxManagerFlowControlDiagnosisEvents(events []RPCMuxDiagnosisEvent, diagnosis RPCMuxFlowControlDiagnosis, endpoints []ExperimentalMuxEndpointSnapshot) []RPCMuxDiagnosisEvent {
+	for _, item := range withRPCMuxFlowControlEvents(diagnosis, "").Events {
+		event := RPCMuxDiagnosisEvent{
+			Family: "flow_control",
+			Event:  item.Event,
+			Count:  item.Count,
+		}
+		if len(endpoints) == 1 {
+			event.Endpoint = endpoints[0].Endpoint
+			event.ConnectionID = endpoints[0].ConnectionID
+			event.PoolSlot = endpoints[0].PoolSlot
+		}
+		events = append(events, event)
+	}
+	return events
+}
+
+func sortedStringInt64Keys(values map[string]int64) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		if key != "" {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 type RPCMuxKeepaliveDiagnosis struct {
@@ -631,6 +896,8 @@ type RPCDiagnosisProbeOptions struct {
 	ConnectionID     string
 	PoolSlot         int
 	FlowControlEvent string
+	EventFamily      string
+	Event            string
 }
 
 func (c *HTTPClient) DiagnosisProbeWithOptions(ctx context.Context, opts RPCDiagnosisProbeOptions) RPCDiagnosisProbe {
@@ -642,11 +909,14 @@ func (c *HTTPClient) DiagnosisProbeWithOptions(ctx context.Context, opts RPCDiag
 	endpoint := strings.TrimRight(strings.TrimSpace(opts.Endpoint), "/")
 	connectionID := normalizeMuxDiagnosisConnectionID(opts.ConnectionID)
 	flowControlEvent := NormalizeRPCMuxFlowControlEvent(opts.FlowControlEvent)
+	eventFamily := normalizeMuxDiagnosisEventField(opts.EventFamily)
+	eventName := normalizeMuxDiagnosisEventField(opts.Event)
 	fullMethod := method
 	if service != "" && method != "" && !strings.Contains(method, "/") {
 		fullMethod = service + "/" + method
 	}
 	runtimeSnapshot := c.RuntimeSnapshot()
+	runtimeSnapshot.Diagnosis.Mux.Events = RPCMuxDiagnosisEvents(runtimeSnapshot.Diagnosis.Mux)
 	probe := RPCDiagnosisProbe{
 		Target:       runtimeSnapshot.Target,
 		Service:      service,
@@ -655,18 +925,29 @@ func (c *HTTPClient) DiagnosisProbeWithOptions(ctx context.Context, opts RPCDiag
 		ConnectionID: connectionID,
 		PoolSlot:     opts.PoolSlot,
 		FlowControl:  flowControlEvent,
+		EventFamily:  eventFamily,
+		Event:        eventName,
 		Diagnosis:    runtimeSnapshot.Diagnosis,
 		Discovery:    runtimeSnapshot.Discovery,
 		GeneratedAt:  time.Now(),
 	}
-	if flowControlEvent != "" || endpoint != "" || connectionID != "" || opts.PoolSlot > 0 {
+	if flowControlEvent != "" || eventFamily != "" || eventName != "" || endpoint != "" || connectionID != "" || opts.PoolSlot > 0 {
 		probe.Diagnosis.Mux = FilterRPCMuxDiagnosis(probe.Diagnosis.Mux, RPCMuxDiagnosisFilter{
 			Endpoint:         endpoint,
 			ConnectionID:     connectionID,
 			PoolSlot:         opts.PoolSlot,
 			FlowControlEvent: flowControlEvent,
+			EventFamily:      eventFamily,
+			Event:            eventName,
 		})
 	}
+	probe.Diagnosis.Mux.Events = rpcMuxDiagnosisEventView(probe.Diagnosis.Mux, RPCMuxDiagnosisFilter{
+		Endpoint:     endpoint,
+		ConnectionID: connectionID,
+		PoolSlot:     opts.PoolSlot,
+		EventFamily:  eventFamily,
+		Event:        eventName,
+	})
 	if fullMethod != "" {
 		probe.Policy = c.EffectivePolicySnapshot(ctx, fullMethod)
 	}
@@ -674,6 +955,8 @@ func (c *HTTPClient) DiagnosisProbeWithOptions(ctx context.Context, opts RPCDiag
 		Endpoint:     endpoint,
 		ConnectionID: connectionID,
 		PoolSlot:     opts.PoolSlot,
+		EventFamily:  eventFamily,
+		Event:        eventName,
 	})
 	return probe
 }
@@ -691,6 +974,8 @@ func (c *HTTPClient) ServeDiagnosis(w http.ResponseWriter, r *http.Request) {
 		ConnectionID:     query.Get("connectionId"),
 		PoolSlot:         parsePositiveIntQuery(query.Get("poolSlot")),
 		FlowControlEvent: query.Get("flowControlEvent"),
+		EventFamily:      query.Get("eventFamily"),
+		Event:            query.Get("event"),
 	}))
 }
 
@@ -709,7 +994,19 @@ func parsePositiveIntQuery(value string) int {
 func rpcDiagnosisProbeFilterMatched(snapshot RPCRuntimeSnapshot, filter RPCMuxDiagnosisFilter) bool {
 	endpoint := normalizeMuxDiagnosisEndpoint(filter.Endpoint)
 	connectionID := normalizeMuxDiagnosisConnectionID(filter.ConnectionID)
-	if endpoint == "" && connectionID == "" && filter.PoolSlot <= 0 {
+	eventFamily := normalizeMuxDiagnosisEventField(filter.EventFamily)
+	eventName := normalizeMuxDiagnosisEventField(filter.Event)
+	if endpoint == "" && connectionID == "" && filter.PoolSlot <= 0 && eventFamily == "" && eventName == "" {
+		return true
+	}
+	if eventFamily != "" || eventName != "" {
+		diagnosis := FilterRPCMuxDiagnosis(snapshot.Diagnosis.Mux, filter)
+		if len(rpcMuxDiagnosisEventView(diagnosis, filter)) == 0 {
+			return false
+		}
+		if endpoint != "" && !rpcDiagnosisProbeMatched(snapshot, endpoint) {
+			return false
+		}
 		return true
 	}
 	if connectionID != "" || filter.PoolSlot > 0 {
@@ -825,13 +1122,22 @@ func (c *HTTPClient) diagnosisSnapshot() RPCDiagnosisSnapshot {
 		snapshot.Mux = c.opts.muxClientAdapter.DiagnosisSnapshot()
 	}
 	if c.opts.muxManager != nil {
-		managerDiagnosis := c.opts.muxManager.DiagnosisSnapshot()
-		snapshot.Mux.Enabled = managerDiagnosis.Enabled
+		managerMux := muxDiagnosisFromManager(c.opts.muxManager.DiagnosisSnapshot())
 		if snapshot.Mux.Mode == "" {
-			snapshot.Mux.Mode = managerDiagnosis.Mode
+			snapshot.Mux = managerMux
+		} else {
+			snapshot.Mux.Enabled = snapshot.Mux.Enabled || managerMux.Enabled
+			snapshot.Mux.Manager = managerMux.Manager
+			if snapshot.Mux.Candidate.Protocol == "" {
+				snapshot.Mux.Candidate = managerMux.Candidate
+			}
+			if snapshot.Mux.FlowControl.Events == nil {
+				snapshot.Mux.FlowControl = managerMux.FlowControl
+			}
+			snapshot.Mux.Events = RPCMuxDiagnosisEvents(snapshot.Mux)
 		}
-		snapshot.Mux.Manager = managerDiagnosis
 	}
+	snapshot.Mux.Events = RPCMuxDiagnosisEvents(snapshot.Mux)
 	return snapshot
 }
 

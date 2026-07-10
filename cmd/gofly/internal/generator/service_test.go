@@ -1112,7 +1112,8 @@ func TestGenerateNewServiceVariantsBoundaries(t *testing.T) {
 		`"/admin/rpc/admin/diagnosis"`,
 		"rpc.ServerDiagnosisSnapshot",
 		"rpc.RPCDiagnosisProbe",
-		`/rpc/diagnosis?flowControlEvent=write-timeout`,
+		`/rpc/diagnosis?endpoint=http://unused&flowControlEvent=write-timeout`,
+		`flowDiagnosis.Endpoint != "http://unused"`,
 		`flowDiagnosis.FlowControl != "write_timeout"`,
 		`flowDiagnosis.Diagnosis.Mux.FlowControl.Events[0].Event != "write_timeout"`,
 	} {

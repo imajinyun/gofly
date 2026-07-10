@@ -7,6 +7,9 @@ import (
 	"errors"
 	"io"
 	"net"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -1451,6 +1454,151 @@ func TestExperimentalMuxConnectionManagerMaxStreamsPerConnOpensEndpointPool(t *t
 	cancel()
 	if err := <-serveDone; err != nil {
 		t.Fatalf("mux listener stopped with error: %v", err)
+	}
+}
+
+func TestExperimentalMuxConnectionManagerDiagnosisFiltersEndpointFlowControl(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	firstListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := ExperimentalMuxCandidateConfig{
+		Protocol:          "gofly-mux/manager-flow-filter-test",
+		FrameCodec:        "binary",
+		PayloadCodec:      "identity",
+		ConnectionWindow:  1,
+		ReceiveQueueSize:  2,
+		CreditWaitTimeout: time.Millisecond,
+	}
+	firstHold := make(chan struct{})
+	firstDone := make(chan error, 1)
+	go func() {
+		firstDone <- ServeExperimentalMuxCandidateListener(ctx, firstListener, func(adapter *ExperimentalMuxServerAdapter) error {
+			return adapter.RegisterStream("orders/Hold", func(ctx context.Context, stream *ExperimentalMuxStream) error {
+				select {
+				case <-firstHold:
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+				msg, err := stream.Receive(ctx)
+				if err != nil {
+					return err
+				}
+				return stream.Close(ctx, string(msg.Payload))
+			})
+		}, cfg)
+	}()
+	secondDone := make(chan error, 1)
+	go func() {
+		secondDone <- ServeExperimentalMuxCandidateListener(ctx, secondListener, func(adapter *ExperimentalMuxServerAdapter) error {
+			return adapter.RegisterStream("orders/Watch", func(ctx context.Context, stream *ExperimentalMuxStream) error {
+				msg, err := stream.Receive(ctx)
+				if err != nil {
+					return err
+				}
+				if err := stream.Send(ctx, Message{Payload: append([]byte("second:"), msg.Payload...)}); err != nil {
+					return err
+				}
+				return stream.Close(ctx, "ok")
+			})
+		}, cfg)
+	}()
+	firstEndpoint := "tcp://" + firstListener.Addr().String()
+	secondEndpoint := "tcp://" + secondListener.Addr().String()
+	manager, err := NewExperimentalMuxConnectionManager(
+		ResolverFunc(func(context.Context) ([]string, error) {
+			return []string{firstEndpoint, secondEndpoint}, nil
+		}),
+		WithExperimentalMuxConnectionManagerCandidateConfig(cfg),
+		WithExperimentalMuxConnectionManagerBalancer(firstEndpointBalancer{}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	client, err := NewClient("http://unused", WithExperimentalMuxConnectionManager(manager))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	holdStream, err := client.MuxStream(context.Background(), "orders/Hold")
+	if err != nil {
+		t.Fatalf("MuxStream first endpoint: %v", err)
+	}
+	if err := holdStream.Send(context.Background(), Message{Payload: []byte("first")}); err != nil {
+		t.Fatalf("first send: %v", err)
+	}
+	if err := holdStream.Send(context.Background(), Message{Payload: []byte("blocked")}); CodeOf(err) != CodeDeadlineExceeded {
+		t.Fatalf("blocked send = %v, want CodeDeadlineExceeded", err)
+	}
+	manager.mu.Lock()
+	manager.health[firstEndpoint] = &muxEndpointHealth{ejectedAt: time.Now(), reason: "test_skip", cooldownUntil: time.Now().Add(time.Second)}
+	manager.mu.Unlock()
+	watchStream, err := client.MuxStream(context.Background(), "orders/Watch")
+	if err != nil {
+		t.Fatalf("MuxStream second endpoint: %v", err)
+	}
+	if err := watchStream.Send(context.Background(), Message{Payload: []byte("ok")}); err != nil {
+		t.Fatalf("second send: %v", err)
+	}
+	assertMuxPayload(t, watchStream, "second:ok")
+	if _, err := watchStream.Receive(muxTestTimeoutContext(t)); !errors.Is(err, io.EOF) {
+		t.Fatalf("second terminal receive = %v, want EOF", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/rpc/diagnosis?endpoint="+url.QueryEscape(firstEndpoint)+"&flowControlEvent=credit-wait-timeout", nil)
+	rec := httptest.NewRecorder()
+	client.DiagnosisHandler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("diagnosis status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var probe RPCDiagnosisProbe
+	if err := json.Unmarshal(rec.Body.Bytes(), &probe); err != nil {
+		t.Fatalf("decode diagnosis: %v\n%s", err, rec.Body.String())
+	}
+	if !probe.Matched || probe.Endpoint != firstEndpoint ||
+		probe.FlowControl != "credit_wait_timeout" ||
+		len(probe.Diagnosis.Mux.Manager.Endpoints) != 1 ||
+		probe.Diagnosis.Mux.Manager.Endpoints[0].Endpoint != firstEndpoint ||
+		len(probe.Diagnosis.Mux.Manager.FlowControl.Events) != 1 ||
+		probe.Diagnosis.Mux.Manager.FlowControl.Events[0].Event != "credit_wait_timeout" ||
+		probe.Diagnosis.Mux.Manager.FlowControl.Events[0].Count < 1 {
+		t.Fatalf("filtered manager diagnosis = %+v, want first endpoint credit_wait_timeout event", probe)
+	}
+	if probe.Diagnosis.Mux.Manager.FlowControl.ConnectionWindowExhausted != 0 ||
+		probe.Diagnosis.Mux.Manager.FlowControl.WriteTimeouts != 0 {
+		t.Fatalf("filtered manager flow-control = %+v, want unrelated counters hidden", probe.Diagnosis.Mux.Manager.FlowControl)
+	}
+	req = httptest.NewRequest(http.MethodGet, "/rpc/diagnosis?endpoint="+url.QueryEscape(secondEndpoint)+"&flowControlEvent=credit-wait-timeout", nil)
+	rec = httptest.NewRecorder()
+	client.DiagnosisHandler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("second diagnosis status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var secondProbe RPCDiagnosisProbe
+	if err := json.Unmarshal(rec.Body.Bytes(), &secondProbe); err != nil {
+		t.Fatalf("decode second diagnosis: %v\n%s", err, rec.Body.String())
+	}
+	if !secondProbe.Matched ||
+		len(secondProbe.Diagnosis.Mux.Manager.Endpoints) != 1 ||
+		secondProbe.Diagnosis.Mux.Manager.Endpoints[0].Endpoint != secondEndpoint ||
+		len(secondProbe.Diagnosis.Mux.Manager.FlowControl.Events) != 0 {
+		t.Fatalf("second filtered diagnosis = %+v, want second endpoint without flow-control event", secondProbe)
+	}
+
+	close(firstHold)
+	cancel()
+	if err := <-firstDone; err != nil {
+		t.Fatalf("first mux listener stopped with error: %v", err)
+	}
+	if err := <-secondDone; err != nil {
+		t.Fatalf("second mux listener stopped with error: %v", err)
 	}
 }
 

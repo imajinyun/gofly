@@ -262,16 +262,30 @@ func NormalizeRPCMuxFlowControlEvent(event string) string {
 }
 
 func FilterRPCMuxDiagnosisByFlowControlEvent(diagnosis RPCMuxTransportDiagnosis, event string) RPCMuxTransportDiagnosis {
-	event = NormalizeRPCMuxFlowControlEvent(event)
+	return FilterRPCMuxDiagnosis(diagnosis, RPCMuxDiagnosisFilter{FlowControlEvent: event})
+}
+
+type RPCMuxDiagnosisFilter struct {
+	Endpoint         string
+	FlowControlEvent string
+}
+
+func FilterRPCMuxDiagnosis(diagnosis RPCMuxTransportDiagnosis, filter RPCMuxDiagnosisFilter) RPCMuxTransportDiagnosis {
+	event := NormalizeRPCMuxFlowControlEvent(filter.FlowControlEvent)
+	endpoint := normalizeMuxDiagnosisEndpoint(filter.Endpoint)
 	if event == "" {
 		diagnosis.FlowControl = withRPCMuxFlowControlEvents(diagnosis.FlowControl, "")
-		diagnosis.Manager = withRPCMuxManagerFlowControlEvents(diagnosis.Manager, "")
+		diagnosis.Manager = filterRPCMuxManagerDiagnosis(diagnosis.Manager, endpoint, "")
 		return diagnosis
 	}
 	diagnosis.FlowControl = filterRPCMuxFlowControlDiagnosis(diagnosis.FlowControl, event)
 	diagnosis.Adapter = filterRPCMuxAdapterFlowControl(diagnosis.Adapter, event)
-	diagnosis.Manager = filterRPCMuxManagerFlowControl(diagnosis.Manager, event)
+	diagnosis.Manager = filterRPCMuxManagerDiagnosis(diagnosis.Manager, endpoint, event)
 	return diagnosis
+}
+
+func normalizeMuxDiagnosisEndpoint(endpoint string) string {
+	return strings.TrimRight(strings.TrimSpace(endpoint), "/")
 }
 
 func filterRPCMuxAdapterFlowControl(snapshot ExperimentalMuxAdapterSnapshot, event string) ExperimentalMuxAdapterSnapshot {
@@ -294,11 +308,36 @@ func filterExperimentalMuxTransportFlowControl(snapshot ExperimentalMuxTransport
 	return snapshot
 }
 
-func filterRPCMuxManagerFlowControl(diagnosis RPCMuxConnectionManagerDiagnosis, event string) RPCMuxConnectionManagerDiagnosis {
+func filterRPCMuxManagerDiagnosis(diagnosis RPCMuxConnectionManagerDiagnosis, endpoint string, event string) RPCMuxConnectionManagerDiagnosis {
+	diagnosis = filterRPCMuxManagerByEndpoint(diagnosis, endpoint)
 	diagnosis.FlowControl = filterRPCMuxFlowControlDiagnosis(diagnosis.FlowControl, event)
 	for i := range diagnosis.Endpoints {
 		diagnosis.Endpoints[i].Adapter = filterRPCMuxAdapterFlowControl(diagnosis.Endpoints[i].Adapter, event)
 	}
+	return diagnosis
+}
+
+func filterRPCMuxManagerByEndpoint(diagnosis RPCMuxConnectionManagerDiagnosis, endpoint string) RPCMuxConnectionManagerDiagnosis {
+	endpoint = normalizeMuxDiagnosisEndpoint(endpoint)
+	if endpoint == "" {
+		diagnosis.FlowControl = muxManagerFlowControlDiagnosis(diagnosis.Endpoints)
+		return diagnosis
+	}
+	endpoints := make([]ExperimentalMuxEndpointSnapshot, 0, len(diagnosis.Endpoints))
+	for _, item := range diagnosis.Endpoints {
+		if normalizeMuxDiagnosisEndpoint(item.Endpoint) == endpoint {
+			endpoints = append(endpoints, item)
+		}
+	}
+	health := make([]ExperimentalMuxEndpointHealthSnapshot, 0, len(diagnosis.Health))
+	for _, item := range diagnosis.Health {
+		if normalizeMuxDiagnosisEndpoint(item.Endpoint) == endpoint {
+			health = append(health, item)
+		}
+	}
+	diagnosis.Endpoints = endpoints
+	diagnosis.Health = health
+	diagnosis.FlowControl = muxManagerFlowControlDiagnosis(endpoints)
 	return diagnosis
 }
 
@@ -589,8 +628,11 @@ func (c *HTTPClient) DiagnosisProbeWithOptions(ctx context.Context, opts RPCDiag
 		Discovery:   runtimeSnapshot.Discovery,
 		GeneratedAt: time.Now(),
 	}
-	if flowControlEvent != "" {
-		probe.Diagnosis.Mux = FilterRPCMuxDiagnosisByFlowControlEvent(probe.Diagnosis.Mux, flowControlEvent)
+	if flowControlEvent != "" || endpoint != "" {
+		probe.Diagnosis.Mux = FilterRPCMuxDiagnosis(probe.Diagnosis.Mux, RPCMuxDiagnosisFilter{
+			Endpoint:         endpoint,
+			FlowControlEvent: flowControlEvent,
+		})
 	}
 	if fullMethod != "" {
 		probe.Policy = c.EffectivePolicySnapshot(ctx, fullMethod)
@@ -629,6 +671,27 @@ func rpcDiagnosisProbeMatched(snapshot RPCRuntimeSnapshot, endpoint string) bool
 	}
 	if snapshot.Resolver.Snapshot != nil && slicesContainsString(snapshot.Resolver.Snapshot.Endpoints, endpoint) {
 		return true
+	}
+	if rpcMuxManagerDiagnosisHasEndpoint(snapshot.Diagnosis.Mux.Manager, endpoint) {
+		return true
+	}
+	return false
+}
+
+func rpcMuxManagerDiagnosisHasEndpoint(diagnosis RPCMuxConnectionManagerDiagnosis, endpoint string) bool {
+	endpoint = normalizeMuxDiagnosisEndpoint(endpoint)
+	if endpoint == "" {
+		return false
+	}
+	for _, item := range diagnosis.Endpoints {
+		if normalizeMuxDiagnosisEndpoint(item.Endpoint) == endpoint {
+			return true
+		}
+	}
+	for _, item := range diagnosis.Health {
+		if normalizeMuxDiagnosisEndpoint(item.Endpoint) == endpoint {
+			return true
+		}
 	}
 	return false
 }

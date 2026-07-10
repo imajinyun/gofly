@@ -859,7 +859,7 @@ func TestAdminDiagnostics(t *testing.T) {
 		t.Fatal(err)
 	}
 	flowDiagnosisRec := httptest.NewRecorder()
-	writeTimeoutRPCClient.DiagnosisHandler().ServeHTTP(flowDiagnosisRec, httptest.NewRequest(http.MethodGet, "/rpc/diagnosis?flowControlEvent=write-timeout", nil))
+	writeTimeoutRPCClient.DiagnosisHandler().ServeHTTP(flowDiagnosisRec, httptest.NewRequest(http.MethodGet, "/rpc/diagnosis?endpoint=http://unused&flowControlEvent=write-timeout", nil))
 	if flowDiagnosisRec.Code != http.StatusOK {
 		t.Fatalf("flow-control diagnosis status = %d body=%q", flowDiagnosisRec.Code, flowDiagnosisRec.Body.String())
 	}
@@ -867,7 +867,8 @@ func TestAdminDiagnostics(t *testing.T) {
 	if err := json.NewDecoder(flowDiagnosisRec.Body).Decode(&flowDiagnosis); err != nil {
 		t.Fatal(err)
 	}
-	if flowDiagnosis.FlowControl != "write_timeout" ||
+	if flowDiagnosis.Endpoint != "http://unused" ||
+		flowDiagnosis.FlowControl != "write_timeout" ||
 		flowDiagnosis.Diagnosis.Mux.FlowControl.WriteTimeouts != 1 ||
 		len(flowDiagnosis.Diagnosis.Mux.FlowControl.Events) != 1 ||
 		flowDiagnosis.Diagnosis.Mux.FlowControl.Events[0].Event != "write_timeout" ||

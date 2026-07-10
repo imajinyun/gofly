@@ -132,6 +132,7 @@ func (s *HTTPServer) serveAdminRoute(w http.ResponseWriter, r *http.Request) {
 		writeAdminJSON(w, http.StatusOK, s.DiagnosisProbeWithOptions(RPCDiagnosisProbeOptions{
 			Service:          query.Get("service"),
 			Method:           query.Get("method"),
+			Endpoint:         query.Get("endpoint"),
 			FlowControlEvent: query.Get("flowControlEvent"),
 		}))
 	default:
@@ -248,6 +249,7 @@ func (s *HTTPServer) DiagnosisProbeWithOptions(opts RPCDiagnosisProbeOptions) Se
 	}
 	service := strings.Trim(strings.TrimSpace(opts.Service), "/")
 	method := strings.Trim(strings.TrimSpace(opts.Method), "/")
+	endpoint := normalizeMuxDiagnosisEndpoint(opts.Endpoint)
 	flowControlEvent := NormalizeRPCMuxFlowControlEvent(opts.FlowControlEvent)
 	snapshot := ServerDiagnosisSnapshot{
 		Service:     service,
@@ -261,8 +263,11 @@ func (s *HTTPServer) DiagnosisProbeWithOptions(opts RPCDiagnosisProbeOptions) Se
 	snapshot.Matched = (service == "" && method == "") || len(snapshot.Services) > 0
 	if s.opts.muxServerAdapter != nil {
 		snapshot.Mux = s.opts.muxServerAdapter.DiagnosisSnapshot()
-		if flowControlEvent != "" {
-			snapshot.Mux = FilterRPCMuxDiagnosisByFlowControlEvent(snapshot.Mux, flowControlEvent)
+		if flowControlEvent != "" || endpoint != "" {
+			snapshot.Mux = FilterRPCMuxDiagnosis(snapshot.Mux, RPCMuxDiagnosisFilter{
+				Endpoint:         endpoint,
+				FlowControlEvent: flowControlEvent,
+			})
 		}
 	}
 	return snapshot

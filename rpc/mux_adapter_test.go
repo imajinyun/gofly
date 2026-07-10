@@ -1118,8 +1118,17 @@ func TestExperimentalMuxCandidateCreditWaitTimeoutMetrics(t *testing.T) {
 	if events.Type != metrics.MetricCounter || len(events.Series) != 2 {
 		t.Fatalf("candidate flow-control metric = %#v, want credit timeout and window exhausted series", events)
 	}
+	if len(events.Labels) != 1 || events.Labels[0] != "event" {
+		t.Fatalf("candidate flow-control metric labels = %#v, want low-cardinality event-only labels", events.Labels)
+	}
 	seen := map[string]float64{}
 	for _, series := range events.Series {
+		if _, ok := series.Labels["connectionId"]; ok {
+			t.Fatalf("candidate flow-control metric labels = %#v, must not include high-cardinality connectionId", series.Labels)
+		}
+		if _, ok := series.Labels["poolSlot"]; ok {
+			t.Fatalf("candidate flow-control metric labels = %#v, must not include poolSlot", series.Labels)
+		}
 		seen[series.Labels["event"]] = series.Value
 	}
 	if seen["credit_wait_timeout"] != 1 || seen["connection_window_exhausted"] < 1 {

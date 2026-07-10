@@ -1575,6 +1575,29 @@ func TestExperimentalMuxConnectionManagerDiagnosisFiltersEndpointFlowControl(t *
 		probe.Diagnosis.Mux.Manager.FlowControl.WriteTimeouts != 0 {
 		t.Fatalf("filtered manager flow-control = %+v, want unrelated counters hidden", probe.Diagnosis.Mux.Manager.FlowControl)
 	}
+	firstConnectionID := probe.Diagnosis.Mux.Manager.Endpoints[0].ConnectionID
+	firstPoolSlot := probe.Diagnosis.Mux.Manager.Endpoints[0].PoolSlot
+	if firstConnectionID == "" || firstPoolSlot != 1 {
+		t.Fatalf("first endpoint connection fields = %+v, want stable connection id and pool slot", probe.Diagnosis.Mux.Manager.Endpoints[0])
+	}
+	req = httptest.NewRequest(http.MethodGet, "/rpc/diagnosis?connectionId="+url.QueryEscape(firstConnectionID)+"&flowControlEvent=credit-wait-timeout", nil)
+	rec = httptest.NewRecorder()
+	client.DiagnosisHandler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("connection diagnosis status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var connectionProbe RPCDiagnosisProbe
+	if err := json.Unmarshal(rec.Body.Bytes(), &connectionProbe); err != nil {
+		t.Fatalf("decode connection diagnosis: %v\n%s", err, rec.Body.String())
+	}
+	if !connectionProbe.Matched ||
+		connectionProbe.ConnectionID != firstConnectionID ||
+		len(connectionProbe.Diagnosis.Mux.Manager.Endpoints) != 1 ||
+		connectionProbe.Diagnosis.Mux.Manager.Endpoints[0].ConnectionID != firstConnectionID ||
+		len(connectionProbe.Diagnosis.Mux.Manager.FlowControl.Events) != 1 ||
+		connectionProbe.Diagnosis.Mux.Manager.FlowControl.Events[0].Event != "credit_wait_timeout" {
+		t.Fatalf("connection filtered diagnosis = %+v, want first connection credit_wait_timeout event", connectionProbe)
+	}
 	req = httptest.NewRequest(http.MethodGet, "/rpc/diagnosis?endpoint="+url.QueryEscape(secondEndpoint)+"&flowControlEvent=credit-wait-timeout", nil)
 	rec = httptest.NewRecorder()
 	client.DiagnosisHandler().ServeHTTP(rec, req)
@@ -1590,6 +1613,43 @@ func TestExperimentalMuxConnectionManagerDiagnosisFiltersEndpointFlowControl(t *
 		secondProbe.Diagnosis.Mux.Manager.Endpoints[0].Endpoint != secondEndpoint ||
 		len(secondProbe.Diagnosis.Mux.Manager.FlowControl.Events) != 0 {
 		t.Fatalf("second filtered diagnosis = %+v, want second endpoint without flow-control event", secondProbe)
+	}
+	secondConnectionID := secondProbe.Diagnosis.Mux.Manager.Endpoints[0].ConnectionID
+	if secondConnectionID == "" || secondConnectionID == firstConnectionID ||
+		secondProbe.Diagnosis.Mux.Manager.Endpoints[0].PoolSlot != 1 {
+		t.Fatalf("second endpoint connection fields = %+v, want distinct connection id and endpoint-local pool slot", secondProbe.Diagnosis.Mux.Manager.Endpoints[0])
+	}
+	req = httptest.NewRequest(http.MethodGet, "/rpc/diagnosis?endpoint="+url.QueryEscape(secondEndpoint)+"&poolSlot=1&flowControlEvent=credit-wait-timeout", nil)
+	rec = httptest.NewRecorder()
+	client.DiagnosisHandler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("pool slot diagnosis status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var poolSlotProbe RPCDiagnosisProbe
+	if err := json.Unmarshal(rec.Body.Bytes(), &poolSlotProbe); err != nil {
+		t.Fatalf("decode pool slot diagnosis: %v\n%s", err, rec.Body.String())
+	}
+	if !poolSlotProbe.Matched ||
+		poolSlotProbe.PoolSlot != 1 ||
+		len(poolSlotProbe.Diagnosis.Mux.Manager.Endpoints) != 1 ||
+		poolSlotProbe.Diagnosis.Mux.Manager.Endpoints[0].ConnectionID != secondConnectionID ||
+		len(poolSlotProbe.Diagnosis.Mux.Manager.FlowControl.Events) != 0 {
+		t.Fatalf("pool slot filtered diagnosis = %+v, want second endpoint slot without credit event", poolSlotProbe)
+	}
+	req = httptest.NewRequest(http.MethodGet, "/rpc/diagnosis?endpoint="+url.QueryEscape(secondEndpoint)+"&connectionId=missing&flowControlEvent=credit-wait-timeout", nil)
+	rec = httptest.NewRecorder()
+	client.DiagnosisHandler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("missing connection diagnosis status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var missingConnectionProbe RPCDiagnosisProbe
+	if err := json.Unmarshal(rec.Body.Bytes(), &missingConnectionProbe); err != nil {
+		t.Fatalf("decode missing connection diagnosis: %v\n%s", err, rec.Body.String())
+	}
+	if missingConnectionProbe.Matched ||
+		len(missingConnectionProbe.Diagnosis.Mux.Manager.Endpoints) != 0 ||
+		len(missingConnectionProbe.Diagnosis.Mux.Manager.FlowControl.Events) != 0 {
+		t.Fatalf("missing connection diagnosis = %+v, want no match even when endpoint exists", missingConnectionProbe)
 	}
 
 	close(firstHold)

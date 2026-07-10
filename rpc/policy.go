@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -87,16 +88,18 @@ type RPCEffectivePolicySnapshot struct {
 }
 
 type RPCDiagnosisProbe struct {
-	Target      string                      `json:"target,omitempty"`
-	Service     string                      `json:"service,omitempty"`
-	Method      string                      `json:"method,omitempty"`
-	Endpoint    string                      `json:"endpoint,omitempty"`
-	FlowControl string                      `json:"flowControl,omitempty"`
-	Matched     bool                        `json:"matched"`
-	Diagnosis   RPCDiagnosisSnapshot        `json:"diagnosis"`
-	Policy      RPCEffectivePolicySnapshot  `json:"policy,omitempty"`
-	Discovery   RPCDiscoveryRuntimeSnapshot `json:"discovery,omitempty"`
-	GeneratedAt time.Time                   `json:"generatedAt"`
+	Target       string                      `json:"target,omitempty"`
+	Service      string                      `json:"service,omitempty"`
+	Method       string                      `json:"method,omitempty"`
+	Endpoint     string                      `json:"endpoint,omitempty"`
+	ConnectionID string                      `json:"connectionId,omitempty"`
+	PoolSlot     int                         `json:"poolSlot,omitempty"`
+	FlowControl  string                      `json:"flowControl,omitempty"`
+	Matched      bool                        `json:"matched"`
+	Diagnosis    RPCDiagnosisSnapshot        `json:"diagnosis"`
+	Policy       RPCEffectivePolicySnapshot  `json:"policy,omitempty"`
+	Discovery    RPCDiscoveryRuntimeSnapshot `json:"discovery,omitempty"`
+	GeneratedAt  time.Time                   `json:"generatedAt"`
 }
 
 type RPCRuntimeSnapshot struct {
@@ -267,25 +270,32 @@ func FilterRPCMuxDiagnosisByFlowControlEvent(diagnosis RPCMuxTransportDiagnosis,
 
 type RPCMuxDiagnosisFilter struct {
 	Endpoint         string
+	ConnectionID     string
+	PoolSlot         int
 	FlowControlEvent string
 }
 
 func FilterRPCMuxDiagnosis(diagnosis RPCMuxTransportDiagnosis, filter RPCMuxDiagnosisFilter) RPCMuxTransportDiagnosis {
 	event := NormalizeRPCMuxFlowControlEvent(filter.FlowControlEvent)
 	endpoint := normalizeMuxDiagnosisEndpoint(filter.Endpoint)
+	connectionID := normalizeMuxDiagnosisConnectionID(filter.ConnectionID)
 	if event == "" {
 		diagnosis.FlowControl = withRPCMuxFlowControlEvents(diagnosis.FlowControl, "")
-		diagnosis.Manager = filterRPCMuxManagerDiagnosis(diagnosis.Manager, endpoint, "")
+		diagnosis.Manager = filterRPCMuxManagerDiagnosis(diagnosis.Manager, endpoint, connectionID, filter.PoolSlot, "")
 		return diagnosis
 	}
 	diagnosis.FlowControl = filterRPCMuxFlowControlDiagnosis(diagnosis.FlowControl, event)
 	diagnosis.Adapter = filterRPCMuxAdapterFlowControl(diagnosis.Adapter, event)
-	diagnosis.Manager = filterRPCMuxManagerDiagnosis(diagnosis.Manager, endpoint, event)
+	diagnosis.Manager = filterRPCMuxManagerDiagnosis(diagnosis.Manager, endpoint, connectionID, filter.PoolSlot, event)
 	return diagnosis
 }
 
 func normalizeMuxDiagnosisEndpoint(endpoint string) string {
 	return strings.TrimRight(strings.TrimSpace(endpoint), "/")
+}
+
+func normalizeMuxDiagnosisConnectionID(connectionID string) string {
+	return strings.TrimSpace(connectionID)
 }
 
 func filterRPCMuxAdapterFlowControl(snapshot ExperimentalMuxAdapterSnapshot, event string) ExperimentalMuxAdapterSnapshot {
@@ -308,8 +318,8 @@ func filterExperimentalMuxTransportFlowControl(snapshot ExperimentalMuxTransport
 	return snapshot
 }
 
-func filterRPCMuxManagerDiagnosis(diagnosis RPCMuxConnectionManagerDiagnosis, endpoint string, event string) RPCMuxConnectionManagerDiagnosis {
-	diagnosis = filterRPCMuxManagerByEndpoint(diagnosis, endpoint)
+func filterRPCMuxManagerDiagnosis(diagnosis RPCMuxConnectionManagerDiagnosis, endpoint string, connectionID string, poolSlot int, event string) RPCMuxConnectionManagerDiagnosis {
+	diagnosis = filterRPCMuxManagerEndpoints(diagnosis, endpoint, connectionID, poolSlot)
 	diagnosis.FlowControl = filterRPCMuxFlowControlDiagnosis(diagnosis.FlowControl, event)
 	for i := range diagnosis.Endpoints {
 		diagnosis.Endpoints[i].Adapter = filterRPCMuxAdapterFlowControl(diagnosis.Endpoints[i].Adapter, event)
@@ -317,28 +327,44 @@ func filterRPCMuxManagerDiagnosis(diagnosis RPCMuxConnectionManagerDiagnosis, en
 	return diagnosis
 }
 
-func filterRPCMuxManagerByEndpoint(diagnosis RPCMuxConnectionManagerDiagnosis, endpoint string) RPCMuxConnectionManagerDiagnosis {
+func filterRPCMuxManagerEndpoints(diagnosis RPCMuxConnectionManagerDiagnosis, endpoint string, connectionID string, poolSlot int) RPCMuxConnectionManagerDiagnosis {
 	endpoint = normalizeMuxDiagnosisEndpoint(endpoint)
-	if endpoint == "" {
+	connectionID = normalizeMuxDiagnosisConnectionID(connectionID)
+	if endpoint == "" && connectionID == "" && poolSlot <= 0 {
 		diagnosis.FlowControl = muxManagerFlowControlDiagnosis(diagnosis.Endpoints)
 		return diagnosis
 	}
 	endpoints := make([]ExperimentalMuxEndpointSnapshot, 0, len(diagnosis.Endpoints))
 	for _, item := range diagnosis.Endpoints {
-		if normalizeMuxDiagnosisEndpoint(item.Endpoint) == endpoint {
+		if rpcMuxEndpointSnapshotMatched(item, endpoint, connectionID, poolSlot) {
 			endpoints = append(endpoints, item)
 		}
 	}
 	health := make([]ExperimentalMuxEndpointHealthSnapshot, 0, len(diagnosis.Health))
-	for _, item := range diagnosis.Health {
-		if normalizeMuxDiagnosisEndpoint(item.Endpoint) == endpoint {
-			health = append(health, item)
+	if endpoint != "" {
+		for _, item := range diagnosis.Health {
+			if normalizeMuxDiagnosisEndpoint(item.Endpoint) == endpoint {
+				health = append(health, item)
+			}
 		}
 	}
 	diagnosis.Endpoints = endpoints
 	diagnosis.Health = health
 	diagnosis.FlowControl = muxManagerFlowControlDiagnosis(endpoints)
 	return diagnosis
+}
+
+func rpcMuxEndpointSnapshotMatched(snapshot ExperimentalMuxEndpointSnapshot, endpoint string, connectionID string, poolSlot int) bool {
+	if endpoint != "" && normalizeMuxDiagnosisEndpoint(snapshot.Endpoint) != endpoint {
+		return false
+	}
+	if connectionID != "" && normalizeMuxDiagnosisConnectionID(snapshot.ConnectionID) != connectionID {
+		return false
+	}
+	if poolSlot > 0 && snapshot.PoolSlot != poolSlot {
+		return false
+	}
+	return true
 }
 
 func filterRPCMuxFlowControlDiagnosis(diagnosis RPCMuxFlowControlDiagnosis, event string) RPCMuxFlowControlDiagnosis {
@@ -602,6 +628,8 @@ type RPCDiagnosisProbeOptions struct {
 	Service          string
 	Method           string
 	Endpoint         string
+	ConnectionID     string
+	PoolSlot         int
 	FlowControlEvent string
 }
 
@@ -612,6 +640,7 @@ func (c *HTTPClient) DiagnosisProbeWithOptions(ctx context.Context, opts RPCDiag
 	service := strings.Trim(strings.TrimSpace(opts.Service), "/")
 	method := strings.Trim(strings.TrimSpace(opts.Method), "/")
 	endpoint := strings.TrimRight(strings.TrimSpace(opts.Endpoint), "/")
+	connectionID := normalizeMuxDiagnosisConnectionID(opts.ConnectionID)
 	flowControlEvent := NormalizeRPCMuxFlowControlEvent(opts.FlowControlEvent)
 	fullMethod := method
 	if service != "" && method != "" && !strings.Contains(method, "/") {
@@ -619,25 +648,33 @@ func (c *HTTPClient) DiagnosisProbeWithOptions(ctx context.Context, opts RPCDiag
 	}
 	runtimeSnapshot := c.RuntimeSnapshot()
 	probe := RPCDiagnosisProbe{
-		Target:      runtimeSnapshot.Target,
-		Service:     service,
-		Method:      fullMethod,
-		Endpoint:    endpoint,
-		FlowControl: flowControlEvent,
-		Diagnosis:   runtimeSnapshot.Diagnosis,
-		Discovery:   runtimeSnapshot.Discovery,
-		GeneratedAt: time.Now(),
+		Target:       runtimeSnapshot.Target,
+		Service:      service,
+		Method:       fullMethod,
+		Endpoint:     endpoint,
+		ConnectionID: connectionID,
+		PoolSlot:     opts.PoolSlot,
+		FlowControl:  flowControlEvent,
+		Diagnosis:    runtimeSnapshot.Diagnosis,
+		Discovery:    runtimeSnapshot.Discovery,
+		GeneratedAt:  time.Now(),
 	}
-	if flowControlEvent != "" || endpoint != "" {
+	if flowControlEvent != "" || endpoint != "" || connectionID != "" || opts.PoolSlot > 0 {
 		probe.Diagnosis.Mux = FilterRPCMuxDiagnosis(probe.Diagnosis.Mux, RPCMuxDiagnosisFilter{
 			Endpoint:         endpoint,
+			ConnectionID:     connectionID,
+			PoolSlot:         opts.PoolSlot,
 			FlowControlEvent: flowControlEvent,
 		})
 	}
 	if fullMethod != "" {
 		probe.Policy = c.EffectivePolicySnapshot(ctx, fullMethod)
 	}
-	probe.Matched = rpcDiagnosisProbeMatched(runtimeSnapshot, endpoint)
+	probe.Matched = rpcDiagnosisProbeFilterMatched(runtimeSnapshot, RPCMuxDiagnosisFilter{
+		Endpoint:     endpoint,
+		ConnectionID: connectionID,
+		PoolSlot:     opts.PoolSlot,
+	})
 	return probe
 }
 
@@ -651,12 +688,37 @@ func (c *HTTPClient) ServeDiagnosis(w http.ResponseWriter, r *http.Request) {
 		Service:          query.Get("service"),
 		Method:           query.Get("method"),
 		Endpoint:         query.Get("endpoint"),
+		ConnectionID:     query.Get("connectionId"),
+		PoolSlot:         parsePositiveIntQuery(query.Get("poolSlot")),
 		FlowControlEvent: query.Get("flowControlEvent"),
 	}))
 }
 
 func (c *HTTPClient) DiagnosisHandler() http.Handler {
 	return http.HandlerFunc(c.ServeDiagnosis)
+}
+
+func parsePositiveIntQuery(value string) int {
+	parsed, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil || parsed <= 0 {
+		return 0
+	}
+	return parsed
+}
+
+func rpcDiagnosisProbeFilterMatched(snapshot RPCRuntimeSnapshot, filter RPCMuxDiagnosisFilter) bool {
+	endpoint := normalizeMuxDiagnosisEndpoint(filter.Endpoint)
+	connectionID := normalizeMuxDiagnosisConnectionID(filter.ConnectionID)
+	if endpoint == "" && connectionID == "" && filter.PoolSlot <= 0 {
+		return true
+	}
+	if connectionID != "" || filter.PoolSlot > 0 {
+		return rpcMuxManagerDiagnosisHasConnection(snapshot.Diagnosis.Mux.Manager, endpoint, connectionID, filter.PoolSlot)
+	}
+	if endpoint != "" && rpcDiagnosisProbeMatched(snapshot, endpoint) {
+		return true
+	}
+	return false
 }
 
 func rpcDiagnosisProbeMatched(snapshot RPCRuntimeSnapshot, endpoint string) bool {
@@ -674,6 +736,20 @@ func rpcDiagnosisProbeMatched(snapshot RPCRuntimeSnapshot, endpoint string) bool
 	}
 	if rpcMuxManagerDiagnosisHasEndpoint(snapshot.Diagnosis.Mux.Manager, endpoint) {
 		return true
+	}
+	return false
+}
+
+func rpcMuxManagerDiagnosisHasConnection(diagnosis RPCMuxConnectionManagerDiagnosis, endpoint string, connectionID string, poolSlot int) bool {
+	endpoint = normalizeMuxDiagnosisEndpoint(endpoint)
+	connectionID = normalizeMuxDiagnosisConnectionID(connectionID)
+	if endpoint == "" && connectionID == "" && poolSlot <= 0 {
+		return false
+	}
+	for _, item := range diagnosis.Endpoints {
+		if rpcMuxEndpointSnapshotMatched(item, endpoint, connectionID, poolSlot) {
+			return true
+		}
 	}
 	return false
 }

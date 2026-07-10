@@ -3,6 +3,7 @@ package rpc
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/url"
 	"sort"
 	"strings"
@@ -54,16 +55,18 @@ type ExperimentalMuxConnectionManager struct {
 	lastCandidatePhase      string
 	lastCandidatePeer       string
 	lastDowngradeReason     string
+	nextConnectionID        int64
 	lastUpdated             time.Time
 	janitorCancel           context.CancelFunc
 	janitorDone             chan struct{}
 }
 
 type muxManagedAdapter struct {
-	endpoint string
-	adapter  *ExperimentalMuxClientAdapter
-	lastUsed time.Time
-	retired  bool
+	endpoint     string
+	connectionID string
+	adapter      *ExperimentalMuxClientAdapter
+	lastUsed     time.Time
+	retired      bool
 }
 
 type muxManagedClose struct {
@@ -119,10 +122,12 @@ type ExperimentalMuxConnectionManagerSnapshot struct {
 }
 
 type ExperimentalMuxEndpointSnapshot struct {
-	Endpoint string                         `json:"endpoint"`
-	LastUsed time.Time                      `json:"lastUsed,omitempty"`
-	Retired  bool                           `json:"retired,omitempty"`
-	Adapter  ExperimentalMuxAdapterSnapshot `json:"adapter"`
+	Endpoint     string                         `json:"endpoint"`
+	ConnectionID string                         `json:"connectionId,omitempty"`
+	PoolSlot     int                            `json:"poolSlot,omitempty"`
+	LastUsed     time.Time                      `json:"lastUsed,omitempty"`
+	Retired      bool                           `json:"retired,omitempty"`
+	Adapter      ExperimentalMuxAdapterSnapshot `json:"adapter"`
 }
 
 type ExperimentalMuxEndpointHealthSnapshot struct {
@@ -1019,12 +1024,22 @@ func (m *ExperimentalMuxConnectionManager) adapter(ctx context.Context, endpoint
 		_ = closeManagedAdapters(unhealthy)
 		return nil, NewError(CodeUnavailable, "mux connection pool exhausted")
 	}
-	managed := &muxManagedAdapter{endpoint: endpoint, adapter: adapter, lastUsed: time.Now()}
+	managed := &muxManagedAdapter{
+		endpoint:     endpoint,
+		connectionID: m.nextManagedConnectionIDLocked(),
+		adapter:      adapter,
+		lastUsed:     time.Now(),
+	}
 	m.adapters[endpoint] = append(m.adapters[endpoint], managed)
 	m.lastUpdated = managed.lastUsed
 	m.mu.Unlock()
 	_ = closeManagedAdapters(unhealthy)
 	return adapter, nil
+}
+
+func (m *ExperimentalMuxConnectionManager) nextManagedConnectionIDLocked() string {
+	m.nextConnectionID++
+	return fmt.Sprintf("muxconn-%d", m.nextConnectionID)
 }
 
 func (m *ExperimentalMuxConnectionManager) recordCandidateNegotiationFailure(cfg ExperimentalMuxCandidateConfig, err error) ExperimentalMuxCandidateSnapshot {
@@ -1320,15 +1335,17 @@ func (m *ExperimentalMuxConnectionManager) snapshotEndpointSnapshotsLocked() []E
 
 func appendEndpointSnapshots(endpoints []ExperimentalMuxEndpointSnapshot, adapters map[string][]*muxManagedAdapter) []ExperimentalMuxEndpointSnapshot {
 	for _, adapters := range adapters {
-		for _, adapter := range adapters {
+		for index, adapter := range adapters {
 			if adapter == nil || adapter.adapter == nil {
 				continue
 			}
 			endpoints = append(endpoints, ExperimentalMuxEndpointSnapshot{
-				Endpoint: adapter.endpoint,
-				LastUsed: adapter.lastUsed,
-				Retired:  adapter.retired,
-				Adapter:  adapter.adapter.Snapshot(),
+				Endpoint:     adapter.endpoint,
+				ConnectionID: adapter.connectionID,
+				PoolSlot:     index + 1,
+				LastUsed:     adapter.lastUsed,
+				Retired:      adapter.retired,
+				Adapter:      adapter.adapter.Snapshot(),
 			})
 		}
 	}

@@ -58,15 +58,18 @@ type GovernanceSnapshot struct {
 }
 
 type ServerDiagnosisSnapshot struct {
-	Service     string                        `json:"service,omitempty"`
-	Method      string                        `json:"method,omitempty"`
-	FlowControl string                        `json:"flowControl,omitempty"`
-	Matched     bool                          `json:"matched"`
-	State       StateSnapshot                 `json:"state"`
-	Services    []ServiceSnapshot             `json:"services,omitempty"`
-	PolicyCache RPCPolicyRuntimeCacheSnapshot `json:"policyCache,omitempty"`
-	Mux         RPCMuxTransportDiagnosis      `json:"mux,omitempty"`
-	GeneratedAt time.Time                     `json:"generatedAt"`
+	Service      string                        `json:"service,omitempty"`
+	Method       string                        `json:"method,omitempty"`
+	Endpoint     string                        `json:"endpoint,omitempty"`
+	ConnectionID string                        `json:"connectionId,omitempty"`
+	PoolSlot     int                           `json:"poolSlot,omitempty"`
+	FlowControl  string                        `json:"flowControl,omitempty"`
+	Matched      bool                          `json:"matched"`
+	State        StateSnapshot                 `json:"state"`
+	Services     []ServiceSnapshot             `json:"services,omitempty"`
+	PolicyCache  RPCPolicyRuntimeCacheSnapshot `json:"policyCache,omitempty"`
+	Mux          RPCMuxTransportDiagnosis      `json:"mux,omitempty"`
+	GeneratedAt  time.Time                     `json:"generatedAt"`
 }
 
 func (s *HTTPServer) serveAdmin(w http.ResponseWriter, r *http.Request) {
@@ -133,6 +136,8 @@ func (s *HTTPServer) serveAdminRoute(w http.ResponseWriter, r *http.Request) {
 			Service:          query.Get("service"),
 			Method:           query.Get("method"),
 			Endpoint:         query.Get("endpoint"),
+			ConnectionID:     query.Get("connectionId"),
+			PoolSlot:         parsePositiveIntQuery(query.Get("poolSlot")),
 			FlowControlEvent: query.Get("flowControlEvent"),
 		}))
 	default:
@@ -250,22 +255,28 @@ func (s *HTTPServer) DiagnosisProbeWithOptions(opts RPCDiagnosisProbeOptions) Se
 	service := strings.Trim(strings.TrimSpace(opts.Service), "/")
 	method := strings.Trim(strings.TrimSpace(opts.Method), "/")
 	endpoint := normalizeMuxDiagnosisEndpoint(opts.Endpoint)
+	connectionID := normalizeMuxDiagnosisConnectionID(opts.ConnectionID)
 	flowControlEvent := NormalizeRPCMuxFlowControlEvent(opts.FlowControlEvent)
 	snapshot := ServerDiagnosisSnapshot{
-		Service:     service,
-		Method:      method,
-		FlowControl: flowControlEvent,
-		State:       s.State(),
-		PolicyCache: s.RuntimeCacheSnapshot(),
-		GeneratedAt: time.Now(),
+		Service:      service,
+		Method:       method,
+		Endpoint:     endpoint,
+		ConnectionID: connectionID,
+		PoolSlot:     opts.PoolSlot,
+		FlowControl:  flowControlEvent,
+		State:        s.State(),
+		PolicyCache:  s.RuntimeCacheSnapshot(),
+		GeneratedAt:  time.Now(),
 	}
 	snapshot.Services = filterServiceSnapshots(s.ServiceSnapshots(), service, method)
 	snapshot.Matched = (service == "" && method == "") || len(snapshot.Services) > 0
 	if s.opts.muxServerAdapter != nil {
 		snapshot.Mux = s.opts.muxServerAdapter.DiagnosisSnapshot()
-		if flowControlEvent != "" || endpoint != "" {
+		if flowControlEvent != "" || endpoint != "" || connectionID != "" || opts.PoolSlot > 0 {
 			snapshot.Mux = FilterRPCMuxDiagnosis(snapshot.Mux, RPCMuxDiagnosisFilter{
 				Endpoint:         endpoint,
+				ConnectionID:     connectionID,
+				PoolSlot:         opts.PoolSlot,
 				FlowControlEvent: flowControlEvent,
 			})
 		}

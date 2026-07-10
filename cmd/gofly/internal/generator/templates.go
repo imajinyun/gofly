@@ -875,6 +875,21 @@ func TestAdminDiagnostics(t *testing.T) {
 		flowDiagnosis.Diagnosis.Mux.FlowControl.Events[0].Count != 1 {
 		t.Fatalf("flow-control diagnosis = %+v, want generated write_timeout event evidence", flowDiagnosis.Diagnosis.Mux.FlowControl)
 	}
+
+	connectionDiagnosisRec := httptest.NewRecorder()
+	writeTimeoutRPCClient.DiagnosisHandler().ServeHTTP(connectionDiagnosisRec, httptest.NewRequest(http.MethodGet, "/rpc/diagnosis?connectionId=missing&poolSlot=1&flowControlEvent=write-timeout", nil))
+	if connectionDiagnosisRec.Code != http.StatusOK {
+		t.Fatalf("connection flow-control diagnosis status = %d body=%q", connectionDiagnosisRec.Code, connectionDiagnosisRec.Body.String())
+	}
+	var connectionDiagnosis rpc.RPCDiagnosisProbe
+	if err := json.NewDecoder(connectionDiagnosisRec.Body).Decode(&connectionDiagnosis); err != nil {
+		t.Fatal(err)
+	}
+	if connectionDiagnosis.ConnectionID != "missing" ||
+		connectionDiagnosis.PoolSlot != 1 ||
+		len(connectionDiagnosis.Diagnosis.Mux.Manager.Endpoints) != 0 {
+		t.Fatalf("connection flow-control diagnosis = %+v, want generated connection filter evidence", connectionDiagnosis)
+	}
 	if err := writeTimeoutRPCClient.Close(); err != nil {
 		t.Fatal(err)
 	}

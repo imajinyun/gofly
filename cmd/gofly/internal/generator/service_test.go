@@ -1116,6 +1116,9 @@ func TestGenerateNewServiceVariantsBoundaries(t *testing.T) {
 		`flowDiagnosis.Endpoint != "http://unused"`,
 		`flowDiagnosis.FlowControl != "write_timeout"`,
 		`flowDiagnosis.Diagnosis.Mux.FlowControl.Events[0].Event != "write_timeout"`,
+		`/rpc/diagnosis?connectionId=missing&poolSlot=1&flowControlEvent=write-timeout`,
+		`connectionDiagnosis.ConnectionID != "missing"`,
+		`connectionDiagnosis.PoolSlot != 1`,
 	} {
 		if !strings.Contains(string(adminTestData), want) {
 			t.Fatalf("generated rpc admin test missing mux diagnosis smoke %q:\n%s", want, adminTestData)

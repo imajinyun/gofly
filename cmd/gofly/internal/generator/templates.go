@@ -516,6 +516,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -791,6 +792,72 @@ func TestAdminDiagnostics(t *testing.T) {
 		t.Fatalf("retry mux server stopped with error: %v", err)
 	}
 
+	flowClientConn, flowServerConn := net.Pipe()
+	flowCfg := cfg.RPC.Mux.CandidateConfig()
+	flowCfg.Protocol = "gofly-mux/generated-flow-control-test"
+	flowCfg.ConnectionWindow = 1
+	flowCfg.ReceiveQueueSize = 2
+	flowCfg.CreditWaitTimeout = time.Millisecond
+	flowClient := rpc.NewExperimentalMuxCandidateClientAdapter(flowClientConn, flowCfg)
+	flowServer := rpc.NewExperimentalMuxCandidateServerAdapter(flowServerConn, flowCfg)
+	defer flowClient.Close()
+	defer flowServer.Close()
+	holdFlow := make(chan struct{})
+	if err := flowServer.RegisterStream("greeter/Hold", func(ctx context.Context, stream *rpc.ExperimentalMuxStream) error {
+		select {
+		case <-holdFlow:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+		msg, err := stream.Receive(ctx)
+		if err != nil {
+			return err
+		}
+		return stream.Close(ctx, string(msg.Payload))
+	}); err != nil {
+		t.Fatal(err)
+	}
+	flowCtx, stopFlow := context.WithCancel(context.Background())
+	defer stopFlow()
+	flowDone := make(chan error, 1)
+	go func() {
+		flowDone <- flowServer.Serve(flowCtx)
+	}()
+	flowStream, err := flowClient.OpenStream(context.Background(), "greeter/Hold")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := flowStream.Send(context.Background(), rpc.Message{Payload: []byte("first")}); err != nil {
+		t.Fatal(err)
+	}
+	if err := flowStream.Send(context.Background(), rpc.Message{Payload: []byte("second")}); rpc.CodeOf(err) != rpc.CodeDeadlineExceeded {
+		t.Fatalf("flow-control send = %v, want CodeDeadlineExceeded", err)
+	}
+	if diagnosis := flowClient.DiagnosisSnapshot().FlowControl; diagnosis.CreditWaitTimeouts != 1 || diagnosis.ConnectionWindowExhausted < 1 {
+		t.Fatalf("flow-control diagnosis = %+v, want credit timeout and window exhaustion", diagnosis)
+	}
+	close(holdFlow)
+	stopFlow()
+	if err := <-flowDone; err != nil {
+		t.Fatalf("flow-control mux server stopped with error: %v", err)
+	}
+
+	writeTimeoutCfg := cfg.RPC.Mux.CandidateConfig()
+	writeTimeoutCfg.Protocol = "gofly-mux/generated-write-timeout-test"
+	writeTimeoutCfg.WriteTimeout = time.Millisecond
+	writeTimeoutClient := rpc.NewExperimentalMuxCandidateClientAdapter(&generatedTimeoutWriteConn{done: make(chan struct{})}, writeTimeoutCfg)
+	writeTimeoutStream, err := writeTimeoutClient.OpenStream(context.Background(), "greeter/Write")
+	if err == nil {
+		_ = writeTimeoutStream.Close(context.Background(), "unexpected")
+		t.Fatal("write-timeout mux stream opened, want timeout")
+	}
+	if diagnosis := writeTimeoutClient.DiagnosisSnapshot().FlowControl; diagnosis.WriteTimeouts != 1 {
+		t.Fatalf("write-timeout diagnosis = %+v, want one write timeout", diagnosis)
+	}
+	if err := writeTimeoutClient.Close(); err != nil {
+		t.Fatal(err)
+	}
+
 	rpcOptions := []rpc.ServerOption{}
 	if cfg.RPC.Mux.Enabled && cfg.RPC.Mux.Probe {
 		rpcOptions = append(rpcOptions, rpc.WithExperimentalMuxServerAdapter(muxServer))
@@ -810,7 +877,10 @@ func TestAdminDiagnostics(t *testing.T) {
 		!strings.Contains(metricsRec.Body.String(), "gofly_requests_total") ||
 		!strings.Contains(metricsRec.Body.String(), "gofly_rpc_mux_candidate_connections{frame_codec=\"binary\",payload_codec=\"identity\",downgraded=\"false\"} 1") ||
 		!strings.Contains(metricsRec.Body.String(), "gofly_rpc_mux_candidate_drain_total{drain_reason=\"generated_shutdown\",direction=\"out\"} 1") ||
-		!strings.Contains(metricsRec.Body.String(), "gofly_rpc_mux_candidate_active_streams{drain_reason=\"generated_shutdown\",state=\"draining\"} 0") {
+		!strings.Contains(metricsRec.Body.String(), "gofly_rpc_mux_candidate_active_streams{drain_reason=\"generated_shutdown\",state=\"draining\"} 0") ||
+		!strings.Contains(metricsRec.Body.String(), "gofly_rpc_mux_candidate_flow_control_events_total{event=\"write_timeout\"}") ||
+		!strings.Contains(metricsRec.Body.String(), "gofly_rpc_mux_candidate_flow_control_events_total{event=\"credit_wait_timeout\"}") ||
+		!strings.Contains(metricsRec.Body.String(), "gofly_rpc_mux_candidate_flow_control_events_total{event=\"connection_window_exhausted\"}") {
 		t.Fatalf("metrics response = %d %q", metricsRec.Code, metricsRec.Body.String())
 	}
 
@@ -863,6 +933,60 @@ func TestAdminDiagnostics(t *testing.T) {
 		t.Fatalf("mux server stopped with error: %v", err)
 	}
 }
+
+type generatedTimeoutWriteConn struct {
+	mu       sync.Mutex
+	deadline time.Time
+	closed   bool
+	done     chan struct{}
+}
+
+func (c *generatedTimeoutWriteConn) Read([]byte) (int, error) {
+	<-c.done
+	return 0, net.ErrClosed
+}
+
+func (c *generatedTimeoutWriteConn) Write(p []byte) (int, error) {
+	c.mu.Lock()
+	deadline := c.deadline
+	c.mu.Unlock()
+	if !deadline.IsZero() {
+		return 0, generatedTimeoutNetError{msg: "write timeout"}
+	}
+	return len(p), nil
+}
+
+func (c *generatedTimeoutWriteConn) Close() error {
+	c.mu.Lock()
+	if !c.closed {
+		c.closed = true
+		close(c.done)
+	}
+	c.mu.Unlock()
+	return nil
+}
+
+func (c *generatedTimeoutWriteConn) LocalAddr() net.Addr  { return generatedDummyAddr("local") }
+func (c *generatedTimeoutWriteConn) RemoteAddr() net.Addr { return generatedDummyAddr("remote") }
+func (c *generatedTimeoutWriteConn) SetDeadline(t time.Time) error {
+	c.mu.Lock()
+	c.deadline = t
+	c.mu.Unlock()
+	return nil
+}
+func (c *generatedTimeoutWriteConn) SetReadDeadline(time.Time) error    { return nil }
+func (c *generatedTimeoutWriteConn) SetWriteDeadline(t time.Time) error { return c.SetDeadline(t) }
+
+type generatedTimeoutNetError struct{ msg string }
+
+func (e generatedTimeoutNetError) Error() string   { return e.msg }
+func (e generatedTimeoutNetError) Timeout() bool   { return true }
+func (e generatedTimeoutNetError) Temporary() bool { return true }
+
+type generatedDummyAddr string
+
+func (a generatedDummyAddr) Network() string { return string(a) }
+func (a generatedDummyAddr) String() string  { return string(a) }
 `
 
 const apiNewTemplate = `type PingRequest {

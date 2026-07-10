@@ -854,6 +854,29 @@ func TestAdminDiagnostics(t *testing.T) {
 	if diagnosis := writeTimeoutClient.DiagnosisSnapshot().FlowControl; diagnosis.WriteTimeouts != 1 {
 		t.Fatalf("write-timeout diagnosis = %+v, want one write timeout", diagnosis)
 	}
+	writeTimeoutRPCClient, err := rpc.NewClient("http://unused", rpc.WithExperimentalMuxClientAdapter(writeTimeoutClient))
+	if err != nil {
+		t.Fatal(err)
+	}
+	flowDiagnosisRec := httptest.NewRecorder()
+	writeTimeoutRPCClient.DiagnosisHandler().ServeHTTP(flowDiagnosisRec, httptest.NewRequest(http.MethodGet, "/rpc/diagnosis?flowControlEvent=write-timeout", nil))
+	if flowDiagnosisRec.Code != http.StatusOK {
+		t.Fatalf("flow-control diagnosis status = %d body=%q", flowDiagnosisRec.Code, flowDiagnosisRec.Body.String())
+	}
+	var flowDiagnosis rpc.RPCDiagnosisProbe
+	if err := json.NewDecoder(flowDiagnosisRec.Body).Decode(&flowDiagnosis); err != nil {
+		t.Fatal(err)
+	}
+	if flowDiagnosis.FlowControl != "write_timeout" ||
+		flowDiagnosis.Diagnosis.Mux.FlowControl.WriteTimeouts != 1 ||
+		len(flowDiagnosis.Diagnosis.Mux.FlowControl.Events) != 1 ||
+		flowDiagnosis.Diagnosis.Mux.FlowControl.Events[0].Event != "write_timeout" ||
+		flowDiagnosis.Diagnosis.Mux.FlowControl.Events[0].Count != 1 {
+		t.Fatalf("flow-control diagnosis = %+v, want generated write_timeout event evidence", flowDiagnosis.Diagnosis.Mux.FlowControl)
+	}
+	if err := writeTimeoutRPCClient.Close(); err != nil {
+		t.Fatal(err)
+	}
 	if err := writeTimeoutClient.Close(); err != nil {
 		t.Fatal(err)
 	}

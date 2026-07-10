@@ -1111,6 +1111,10 @@ func TestGenerateNewServiceVariantsBoundaries(t *testing.T) {
 		"rpc.WithExperimentalMuxServerAdapter",
 		`"/admin/rpc/admin/diagnosis"`,
 		"rpc.ServerDiagnosisSnapshot",
+		"rpc.RPCDiagnosisProbe",
+		`/rpc/diagnosis?flowControlEvent=write-timeout`,
+		`flowDiagnosis.FlowControl != "write_timeout"`,
+		`flowDiagnosis.Diagnosis.Mux.FlowControl.Events[0].Event != "write_timeout"`,
 	} {
 		if !strings.Contains(string(adminTestData), want) {
 			t.Fatalf("generated rpc admin test missing mux diagnosis smoke %q:\n%s", want, adminTestData)

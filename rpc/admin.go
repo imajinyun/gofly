@@ -60,6 +60,7 @@ type GovernanceSnapshot struct {
 type ServerDiagnosisSnapshot struct {
 	Service     string                        `json:"service,omitempty"`
 	Method      string                        `json:"method,omitempty"`
+	FlowControl string                        `json:"flowControl,omitempty"`
 	Matched     bool                          `json:"matched"`
 	State       StateSnapshot                 `json:"state"`
 	Services    []ServiceSnapshot             `json:"services,omitempty"`
@@ -128,7 +129,11 @@ func (s *HTTPServer) serveAdminRoute(w http.ResponseWriter, r *http.Request) {
 		writeAdminJSON(w, http.StatusOK, s.RuntimeSnapshot(r.Context()))
 	case r.URL.Path == "/rpc/admin/diagnosis":
 		query := r.URL.Query()
-		writeAdminJSON(w, http.StatusOK, s.DiagnosisProbe(query.Get("service"), query.Get("method")))
+		writeAdminJSON(w, http.StatusOK, s.DiagnosisProbeWithOptions(RPCDiagnosisProbeOptions{
+			Service:          query.Get("service"),
+			Method:           query.Get("method"),
+			FlowControlEvent: query.Get("flowControlEvent"),
+		}))
 	default:
 		http.NotFound(w, r)
 	}
@@ -231,14 +236,23 @@ func (s *HTTPServer) DiagnosisSnapshot() ServerDiagnosisSnapshot {
 }
 
 func (s *HTTPServer) DiagnosisProbe(service string, method string) ServerDiagnosisSnapshot {
+	return s.DiagnosisProbeWithOptions(RPCDiagnosisProbeOptions{
+		Service: service,
+		Method:  method,
+	})
+}
+
+func (s *HTTPServer) DiagnosisProbeWithOptions(opts RPCDiagnosisProbeOptions) ServerDiagnosisSnapshot {
 	if s == nil {
 		return ServerDiagnosisSnapshot{GeneratedAt: time.Now()}
 	}
-	service = strings.Trim(strings.TrimSpace(service), "/")
-	method = strings.Trim(strings.TrimSpace(method), "/")
+	service := strings.Trim(strings.TrimSpace(opts.Service), "/")
+	method := strings.Trim(strings.TrimSpace(opts.Method), "/")
+	flowControlEvent := NormalizeRPCMuxFlowControlEvent(opts.FlowControlEvent)
 	snapshot := ServerDiagnosisSnapshot{
 		Service:     service,
 		Method:      method,
+		FlowControl: flowControlEvent,
 		State:       s.State(),
 		PolicyCache: s.RuntimeCacheSnapshot(),
 		GeneratedAt: time.Now(),
@@ -247,6 +261,9 @@ func (s *HTTPServer) DiagnosisProbe(service string, method string) ServerDiagnos
 	snapshot.Matched = (service == "" && method == "") || len(snapshot.Services) > 0
 	if s.opts.muxServerAdapter != nil {
 		snapshot.Mux = s.opts.muxServerAdapter.DiagnosisSnapshot()
+		if flowControlEvent != "" {
+			snapshot.Mux = FilterRPCMuxDiagnosisByFlowControlEvent(snapshot.Mux, flowControlEvent)
+		}
 	}
 	return snapshot
 }

@@ -91,6 +91,7 @@ type RPCDiagnosisProbe struct {
 	Service     string                      `json:"service,omitempty"`
 	Method      string                      `json:"method,omitempty"`
 	Endpoint    string                      `json:"endpoint,omitempty"`
+	FlowControl string                      `json:"flowControl,omitempty"`
 	Matched     bool                        `json:"matched"`
 	Diagnosis   RPCDiagnosisSnapshot        `json:"diagnosis"`
 	Policy      RPCEffectivePolicySnapshot  `json:"policy,omitempty"`
@@ -195,6 +196,7 @@ type RPCMuxConnectionManagerDiagnosis struct {
 	Enabled                 bool                                    `json:"enabled"`
 	Mode                    string                                  `json:"mode,omitempty"`
 	Candidate               ExperimentalMuxCandidateSnapshot        `json:"candidate,omitempty"`
+	FlowControl             RPCMuxFlowControlDiagnosis              `json:"flowControl,omitempty"`
 	IdleTimeout             time.Duration                           `json:"idleTimeout,omitempty"`
 	MaxStreamsPerConn       int                                     `json:"maxStreamsPerConn,omitempty"`
 	MaxConnsPerEndpoint     int                                     `json:"maxConnsPerEndpoint,omitempty"`
@@ -228,18 +230,120 @@ type RPCMuxConnectionManagerDiagnosis struct {
 }
 
 type RPCMuxFlowControlDiagnosis struct {
-	ReceiveQueueSize          int   `json:"receiveQueueSize,omitempty"`
-	ConnectionWindow          int   `json:"connectionWindow,omitempty"`
-	ConnectionCreditWaits     int64 `json:"connectionCreditWaits,omitempty"`
-	StreamCreditWaits         int64 `json:"streamCreditWaits,omitempty"`
-	CreditWaitTimeouts        int64 `json:"creditWaitTimeouts,omitempty"`
-	WriteTimeouts             int64 `json:"writeTimeouts,omitempty"`
-	ConnectionWindowExhausted int64 `json:"connectionWindowExhausted,omitempty"`
-	WindowFramesIn            int64 `json:"windowFramesIn,omitempty"`
-	WindowFramesOut           int64 `json:"windowFramesOut,omitempty"`
-	ConnectionWindowIn        int64 `json:"connectionWindowIn,omitempty"`
-	ConnectionWindowOut       int64 `json:"connectionWindowOut,omitempty"`
-	BackpressureEvents        int64 `json:"backpressureEvents,omitempty"`
+	ReceiveQueueSize          int                               `json:"receiveQueueSize,omitempty"`
+	ConnectionWindow          int                               `json:"connectionWindow,omitempty"`
+	ConnectionCreditWaits     int64                             `json:"connectionCreditWaits,omitempty"`
+	StreamCreditWaits         int64                             `json:"streamCreditWaits,omitempty"`
+	CreditWaitTimeouts        int64                             `json:"creditWaitTimeouts,omitempty"`
+	WriteTimeouts             int64                             `json:"writeTimeouts,omitempty"`
+	ConnectionWindowExhausted int64                             `json:"connectionWindowExhausted,omitempty"`
+	WindowFramesIn            int64                             `json:"windowFramesIn,omitempty"`
+	WindowFramesOut           int64                             `json:"windowFramesOut,omitempty"`
+	ConnectionWindowIn        int64                             `json:"connectionWindowIn,omitempty"`
+	ConnectionWindowOut       int64                             `json:"connectionWindowOut,omitempty"`
+	BackpressureEvents        int64                             `json:"backpressureEvents,omitempty"`
+	Events                    []RPCMuxFlowControlEventDiagnosis `json:"events,omitempty"`
+}
+
+type RPCMuxFlowControlEventDiagnosis struct {
+	Event string `json:"event"`
+	Count int64  `json:"count"`
+}
+
+func NormalizeRPCMuxFlowControlEvent(event string) string {
+	event = strings.TrimSpace(strings.ToLower(event))
+	event = strings.ReplaceAll(event, "-", "_")
+	switch event {
+	case "write_timeout", "credit_wait_timeout", "connection_window_exhausted":
+		return event
+	default:
+		return ""
+	}
+}
+
+func FilterRPCMuxDiagnosisByFlowControlEvent(diagnosis RPCMuxTransportDiagnosis, event string) RPCMuxTransportDiagnosis {
+	event = NormalizeRPCMuxFlowControlEvent(event)
+	if event == "" {
+		diagnosis.FlowControl = withRPCMuxFlowControlEvents(diagnosis.FlowControl, "")
+		diagnosis.Manager = withRPCMuxManagerFlowControlEvents(diagnosis.Manager, "")
+		return diagnosis
+	}
+	diagnosis.FlowControl = filterRPCMuxFlowControlDiagnosis(diagnosis.FlowControl, event)
+	diagnosis.Adapter = filterRPCMuxAdapterFlowControl(diagnosis.Adapter, event)
+	diagnosis.Manager = filterRPCMuxManagerFlowControl(diagnosis.Manager, event)
+	return diagnosis
+}
+
+func filterRPCMuxAdapterFlowControl(snapshot ExperimentalMuxAdapterSnapshot, event string) ExperimentalMuxAdapterSnapshot {
+	snapshot.Transport = filterExperimentalMuxTransportFlowControl(snapshot.Transport, event)
+	return snapshot
+}
+
+func filterExperimentalMuxTransportFlowControl(snapshot ExperimentalMuxTransportSnapshot, event string) ExperimentalMuxTransportSnapshot {
+	switch event {
+	case "write_timeout":
+		snapshot.CreditWaitTimeouts = 0
+		snapshot.ConnectionWindowExhausted = 0
+	case "credit_wait_timeout":
+		snapshot.WriteTimeouts = 0
+		snapshot.ConnectionWindowExhausted = 0
+	case "connection_window_exhausted":
+		snapshot.WriteTimeouts = 0
+		snapshot.CreditWaitTimeouts = 0
+	}
+	return snapshot
+}
+
+func filterRPCMuxManagerFlowControl(diagnosis RPCMuxConnectionManagerDiagnosis, event string) RPCMuxConnectionManagerDiagnosis {
+	diagnosis.FlowControl = filterRPCMuxFlowControlDiagnosis(diagnosis.FlowControl, event)
+	for i := range diagnosis.Endpoints {
+		diagnosis.Endpoints[i].Adapter = filterRPCMuxAdapterFlowControl(diagnosis.Endpoints[i].Adapter, event)
+	}
+	return diagnosis
+}
+
+func filterRPCMuxFlowControlDiagnosis(diagnosis RPCMuxFlowControlDiagnosis, event string) RPCMuxFlowControlDiagnosis {
+	diagnosis = withRPCMuxFlowControlEvents(diagnosis, event)
+	switch event {
+	case "write_timeout":
+		diagnosis.CreditWaitTimeouts = 0
+		diagnosis.ConnectionWindowExhausted = 0
+	case "credit_wait_timeout":
+		diagnosis.WriteTimeouts = 0
+		diagnosis.ConnectionWindowExhausted = 0
+	case "connection_window_exhausted":
+		diagnosis.WriteTimeouts = 0
+		diagnosis.CreditWaitTimeouts = 0
+	}
+	return diagnosis
+}
+
+func withRPCMuxManagerFlowControlEvents(diagnosis RPCMuxConnectionManagerDiagnosis, event string) RPCMuxConnectionManagerDiagnosis {
+	diagnosis.FlowControl = withRPCMuxFlowControlEvents(diagnosis.FlowControl, event)
+	return diagnosis
+}
+
+func withRPCMuxFlowControlEvents(diagnosis RPCMuxFlowControlDiagnosis, event string) RPCMuxFlowControlDiagnosis {
+	diagnosis.Events = rpcMuxFlowControlEventsFromCounts(event, diagnosis.WriteTimeouts, diagnosis.CreditWaitTimeouts, diagnosis.ConnectionWindowExhausted)
+	return diagnosis
+}
+
+func rpcMuxFlowControlEventsFromCounts(event string, writeTimeouts int64, creditWaitTimeouts int64, connectionWindowExhausted int64) []RPCMuxFlowControlEventDiagnosis {
+	event = NormalizeRPCMuxFlowControlEvent(event)
+	events := make([]RPCMuxFlowControlEventDiagnosis, 0, 3)
+	add := func(name string, count int64) {
+		if count <= 0 {
+			return
+		}
+		if event != "" && event != name {
+			return
+		}
+		events = append(events, RPCMuxFlowControlEventDiagnosis{Event: name, Count: count})
+	}
+	add("write_timeout", writeTimeouts)
+	add("credit_wait_timeout", creditWaitTimeouts)
+	add("connection_window_exhausted", connectionWindowExhausted)
+	return events
 }
 
 type RPCMuxKeepaliveDiagnosis struct {
@@ -448,12 +552,28 @@ func (c *HTTPClient) RuntimeComponentSnapshot(ctx context.Context) coreruntime.C
 }
 
 func (c *HTTPClient) DiagnosisProbe(ctx context.Context, service string, method string, endpoint string) RPCDiagnosisProbe {
+	return c.DiagnosisProbeWithOptions(ctx, RPCDiagnosisProbeOptions{
+		Service:  service,
+		Method:   method,
+		Endpoint: endpoint,
+	})
+}
+
+type RPCDiagnosisProbeOptions struct {
+	Service          string
+	Method           string
+	Endpoint         string
+	FlowControlEvent string
+}
+
+func (c *HTTPClient) DiagnosisProbeWithOptions(ctx context.Context, opts RPCDiagnosisProbeOptions) RPCDiagnosisProbe {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	service = strings.Trim(strings.TrimSpace(service), "/")
-	method = strings.Trim(strings.TrimSpace(method), "/")
-	endpoint = strings.TrimRight(strings.TrimSpace(endpoint), "/")
+	service := strings.Trim(strings.TrimSpace(opts.Service), "/")
+	method := strings.Trim(strings.TrimSpace(opts.Method), "/")
+	endpoint := strings.TrimRight(strings.TrimSpace(opts.Endpoint), "/")
+	flowControlEvent := NormalizeRPCMuxFlowControlEvent(opts.FlowControlEvent)
 	fullMethod := method
 	if service != "" && method != "" && !strings.Contains(method, "/") {
 		fullMethod = service + "/" + method
@@ -464,9 +584,13 @@ func (c *HTTPClient) DiagnosisProbe(ctx context.Context, service string, method 
 		Service:     service,
 		Method:      fullMethod,
 		Endpoint:    endpoint,
+		FlowControl: flowControlEvent,
 		Diagnosis:   runtimeSnapshot.Diagnosis,
 		Discovery:   runtimeSnapshot.Discovery,
 		GeneratedAt: time.Now(),
+	}
+	if flowControlEvent != "" {
+		probe.Diagnosis.Mux = FilterRPCMuxDiagnosisByFlowControlEvent(probe.Diagnosis.Mux, flowControlEvent)
 	}
 	if fullMethod != "" {
 		probe.Policy = c.EffectivePolicySnapshot(ctx, fullMethod)
@@ -481,7 +605,12 @@ func (c *HTTPClient) ServeDiagnosis(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	query := r.URL.Query()
-	controladmin.WriteJSON(w, http.StatusOK, c.DiagnosisProbe(r.Context(), query.Get("service"), query.Get("method"), query.Get("endpoint")))
+	controladmin.WriteJSON(w, http.StatusOK, c.DiagnosisProbeWithOptions(r.Context(), RPCDiagnosisProbeOptions{
+		Service:          query.Get("service"),
+		Method:           query.Get("method"),
+		Endpoint:         query.Get("endpoint"),
+		FlowControlEvent: query.Get("flowControlEvent"),
+	}))
 }
 
 func (c *HTTPClient) DiagnosisHandler() http.Handler {

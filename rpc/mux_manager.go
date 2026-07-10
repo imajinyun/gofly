@@ -703,10 +703,12 @@ func (m *ExperimentalMuxConnectionManager) Snapshot() ExperimentalMuxConnectionM
 
 func (m *ExperimentalMuxConnectionManager) DiagnosisSnapshot() RPCMuxConnectionManagerDiagnosis {
 	snapshot := m.Snapshot()
+	flowControl := muxManagerFlowControlDiagnosis(snapshot.Endpoints)
 	return RPCMuxConnectionManagerDiagnosis{
 		Enabled:                 m != nil && !snapshot.Closed,
 		Mode:                    "experimental_mux_manager",
 		Candidate:               snapshot.Candidate,
+		FlowControl:             flowControl,
 		IdleTimeout:             snapshot.IdleTimeout,
 		MaxStreamsPerConn:       snapshot.MaxStreamsPerConn,
 		MaxConnsPerEndpoint:     snapshot.MaxConnsPerEndpoint,
@@ -738,6 +740,30 @@ func (m *ExperimentalMuxConnectionManager) DiagnosisSnapshot() RPCMuxConnectionM
 		DrainReasons:            snapshot.DrainReasons,
 		LastUpdated:             snapshot.LastUpdated,
 	}
+}
+
+func muxManagerFlowControlDiagnosis(endpoints []ExperimentalMuxEndpointSnapshot) RPCMuxFlowControlDiagnosis {
+	var diagnosis RPCMuxFlowControlDiagnosis
+	for _, endpoint := range endpoints {
+		transport := endpoint.Adapter.Transport
+		if diagnosis.ReceiveQueueSize == 0 {
+			diagnosis.ReceiveQueueSize = transport.ReceiveQueueSize
+		}
+		if diagnosis.ConnectionWindow == 0 {
+			diagnosis.ConnectionWindow = transport.ConnectionWindow
+		}
+		diagnosis.ConnectionCreditWaits += transport.ConnectionCreditWaits
+		diagnosis.StreamCreditWaits += transport.CreditWaits
+		diagnosis.CreditWaitTimeouts += transport.CreditWaitTimeouts
+		diagnosis.WriteTimeouts += transport.WriteTimeouts
+		diagnosis.ConnectionWindowExhausted += transport.ConnectionWindowExhausted
+		diagnosis.WindowFramesIn += transport.WindowFramesIn
+		diagnosis.WindowFramesOut += transport.WindowFramesOut
+		diagnosis.ConnectionWindowIn += transport.ConnectionWindowFramesIn
+		diagnosis.ConnectionWindowOut += transport.ConnectionWindowFramesOut
+		diagnosis.BackpressureEvents += transport.BackpressureEvents
+	}
+	return withRPCMuxFlowControlEvents(diagnosis, "")
 }
 
 func (m *ExperimentalMuxConnectionManager) resolveAndSync(ctx context.Context) ([]string, error) {

@@ -1639,6 +1639,84 @@ func TestHTTPClientDiagnosisProbeHandler(t *testing.T) {
 	}
 }
 
+func TestHTTPClientDiagnosisHandlerFiltersMuxFlowControl(t *testing.T) {
+	cfg := ExperimentalMuxCandidateConfig{
+		Protocol:          "gofly-mux/client-flow-control-test",
+		FrameCodec:        "binary",
+		PayloadCodec:      "identity",
+		ConnectionWindow:  1,
+		ReceiveQueueSize:  2,
+		CreditWaitTimeout: time.Millisecond,
+	}
+	clientConn, serverConn := net.Pipe()
+	muxClient := NewExperimentalMuxCandidateClientAdapter(clientConn, cfg)
+	muxServer := NewExperimentalMuxCandidateServerAdapter(serverConn, cfg)
+	defer muxClient.Close()
+	defer muxServer.Close()
+	hold := make(chan struct{})
+	if err := muxServer.RegisterStream("orders/Hold", func(ctx context.Context, stream *ExperimentalMuxStream) error {
+		select {
+		case <-hold:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+		msg, err := stream.Receive(ctx)
+		if err != nil {
+			return err
+		}
+		return stream.Close(ctx, string(msg.Payload))
+	}); err != nil {
+		t.Fatal(err)
+	}
+	serveCtx, stop := context.WithCancel(context.Background())
+	defer stop()
+	serveDone := make(chan error, 1)
+	go func() {
+		serveDone <- muxServer.Serve(serveCtx)
+	}()
+	stream, err := muxClient.OpenStream(context.Background(), "orders/Hold")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := stream.Send(context.Background(), Message{Payload: []byte("first")}); err != nil {
+		t.Fatal(err)
+	}
+	if err := stream.Send(context.Background(), Message{Payload: []byte("second")}); CodeOf(err) != CodeDeadlineExceeded {
+		t.Fatalf("second send = %v, want CodeDeadlineExceeded", err)
+	}
+
+	c, err := NewClient("http://a", WithExperimentalMuxClientAdapter(muxClient))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	req := httptest.NewRequest(http.MethodGet, "/rpc/diagnosis?flowControlEvent=connection-window-exhausted", nil)
+	rr := httptest.NewRecorder()
+	c.DiagnosisHandler().ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("diagnosis handler status = %d body=%s", rr.Code, rr.Body.String())
+	}
+	var decoded RPCDiagnosisProbe
+	if err := json.Unmarshal(rr.Body.Bytes(), &decoded); err != nil {
+		t.Fatalf("decode diagnosis probe: %v\n%s", err, rr.Body.String())
+	}
+	if decoded.FlowControl != "connection_window_exhausted" ||
+		decoded.Diagnosis.Mux.FlowControl.ConnectionWindowExhausted < 1 ||
+		len(decoded.Diagnosis.Mux.FlowControl.Events) != 1 ||
+		decoded.Diagnosis.Mux.FlowControl.Events[0].Event != "connection_window_exhausted" ||
+		decoded.Diagnosis.Mux.FlowControl.Events[0].Count < 1 {
+		t.Fatalf("filtered client diagnosis = %+v, want structured connection_window_exhausted event", decoded.Diagnosis.Mux.FlowControl)
+	}
+	if decoded.Diagnosis.Mux.FlowControl.WriteTimeouts != 0 || decoded.Diagnosis.Mux.FlowControl.CreditWaitTimeouts != 0 {
+		t.Fatalf("filtered client diagnosis = %+v, want unrelated counters hidden", decoded.Diagnosis.Mux.FlowControl)
+	}
+	close(hold)
+	stop()
+	if err := <-serveDone; err != nil {
+		t.Fatalf("mux server stopped with error: %v", err)
+	}
+}
+
 func TestRPCRuntimeContributorsHandleNilAndCanceledInputs(t *testing.T) {
 	c, err := NewClient("http://a")
 	if err != nil {

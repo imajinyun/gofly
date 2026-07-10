@@ -573,26 +573,27 @@ func normalizeExperimentalMuxMethod(method string) string {
 
 func muxDiagnosisFromAdapterSnapshot(snapshot ExperimentalMuxAdapterSnapshot) RPCMuxTransportDiagnosis {
 	transport := snapshot.Transport
+	flowControl := withRPCMuxFlowControlEvents(RPCMuxFlowControlDiagnosis{
+		ReceiveQueueSize:          transport.ReceiveQueueSize,
+		ConnectionWindow:          transport.ConnectionWindow,
+		ConnectionCreditWaits:     transport.ConnectionCreditWaits,
+		StreamCreditWaits:         transport.CreditWaits,
+		CreditWaitTimeouts:        transport.CreditWaitTimeouts,
+		WriteTimeouts:             transport.WriteTimeouts,
+		ConnectionWindowExhausted: transport.ConnectionWindowExhausted,
+		WindowFramesIn:            transport.WindowFramesIn,
+		WindowFramesOut:           transport.WindowFramesOut,
+		ConnectionWindowIn:        transport.ConnectionWindowFramesIn,
+		ConnectionWindowOut:       transport.ConnectionWindowFramesOut,
+		BackpressureEvents:        transport.BackpressureEvents,
+	}, "")
 	return RPCMuxTransportDiagnosis{
-		Enabled:   !transport.Closed,
-		Mode:      "experimental_mux",
-		Candidate: snapshot.Candidate,
-		Adapter:   snapshot,
-		Transport: transport,
-		FlowControl: RPCMuxFlowControlDiagnosis{
-			ReceiveQueueSize:          transport.ReceiveQueueSize,
-			ConnectionWindow:          transport.ConnectionWindow,
-			ConnectionCreditWaits:     transport.ConnectionCreditWaits,
-			StreamCreditWaits:         transport.CreditWaits,
-			CreditWaitTimeouts:        transport.CreditWaitTimeouts,
-			WriteTimeouts:             transport.WriteTimeouts,
-			ConnectionWindowExhausted: transport.ConnectionWindowExhausted,
-			WindowFramesIn:            transport.WindowFramesIn,
-			WindowFramesOut:           transport.WindowFramesOut,
-			ConnectionWindowIn:        transport.ConnectionWindowFramesIn,
-			ConnectionWindowOut:       transport.ConnectionWindowFramesOut,
-			BackpressureEvents:        transport.BackpressureEvents,
-		},
+		Enabled:     !transport.Closed,
+		Mode:        "experimental_mux",
+		Candidate:   snapshot.Candidate,
+		Adapter:     snapshot,
+		Transport:   transport,
+		FlowControl: flowControl,
 		Keepalive: RPCMuxKeepaliveDiagnosis{
 			Liveness:           transport.Liveness,
 			Interval:           transport.KeepaliveInterval,

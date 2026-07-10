@@ -32,6 +32,57 @@ type helloResponse struct {
 	Message string `json:"message"`
 }
 
+func TestHTTPServerDiagnosisFiltersMuxFlowControl(t *testing.T) {
+	cfg := ExperimentalMuxCandidateConfig{
+		Protocol:     "gofly-mux/admin-flow-control-test",
+		FrameCodec:   "binary",
+		PayloadCodec: "identity",
+		WriteTimeout: time.Millisecond,
+	}
+	adapter := NewExperimentalMuxCandidateServerAdapter(&timeoutWriteConn{done: make(chan struct{})}, cfg)
+	defer adapter.Close()
+	stream, err := adapter.transport.OpenStream(context.Background())
+	if err == nil {
+		_ = stream.Close(context.Background(), "unexpected")
+		t.Fatal("OpenStream succeeded, want write timeout")
+	}
+	if adapter.DiagnosisSnapshot().FlowControl.WriteTimeouts != 1 {
+		t.Fatalf("adapter diagnosis = %+v, want write timeout", adapter.DiagnosisSnapshot().FlowControl)
+	}
+
+	server := NewServer(WithExperimentalMuxServerAdapter(adapter))
+	if err := server.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{
+		Name:       "SayHello",
+		NewRequest: func() any { return new(helloRequest) },
+		Handler: func(context.Context, any) (any, error) {
+			return helloResponse{Message: "ok"}, nil
+		},
+	}}}, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/rpc/admin/diagnosis?flowControlEvent=write-timeout", nil)
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("diagnosis status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var diagnosis ServerDiagnosisSnapshot
+	if err := json.NewDecoder(rec.Body).Decode(&diagnosis); err != nil {
+		t.Fatal(err)
+	}
+	if diagnosis.FlowControl != "write_timeout" ||
+		diagnosis.Mux.FlowControl.WriteTimeouts != 1 ||
+		len(diagnosis.Mux.FlowControl.Events) != 1 ||
+		diagnosis.Mux.FlowControl.Events[0].Event != "write_timeout" ||
+		diagnosis.Mux.FlowControl.Events[0].Count != 1 {
+		t.Fatalf("filtered diagnosis = %+v, want structured write_timeout event", diagnosis.Mux.FlowControl)
+	}
+	if diagnosis.Mux.FlowControl.CreditWaitTimeouts != 0 || diagnosis.Mux.FlowControl.ConnectionWindowExhausted != 0 {
+		t.Fatalf("filtered diagnosis counters = %+v, want unrelated flow-control counters hidden", diagnosis.Mux.FlowControl)
+	}
+}
+
 func TestHTTPServerServeHTTP(t *testing.T) {
 	s := NewServer()
 	err := s.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{

@@ -3,6 +3,7 @@ package rpc
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"io"
@@ -728,6 +729,412 @@ func TestExperimentalMuxCandidateAdapterMutualTLS(t *testing.T) {
 	}, "mux candidate server mTLS diagnosis")
 }
 
+func TestExperimentalMuxConnectionManagerMutualTLSSuccessTraceAndLog(t *testing.T) {
+	dir := t.TempDir()
+	caCert, caKey := rpcTLSCA(t, dir)
+	caFile := filepath.Join(dir, "ca.crt")
+	serverCert, serverKey := rpcTLSLeaf(t, dir, "server", caCert, caKey)
+	clientCert, clientKey := rpcTLSLeaf(t, dir, "client", caCert, caKey)
+
+	server, err := NewExperimentalMuxCandidateServer("127.0.0.1:0", func(adapter *ExperimentalMuxServerAdapter) error {
+		return adapter.RegisterStream("orders/Watch", func(ctx context.Context, stream *ExperimentalMuxStream) error {
+			msg, err := stream.Receive(ctx)
+			if err != nil {
+				return err
+			}
+			if err := stream.Send(ctx, Message{Payload: append([]byte("mtls:"), msg.Payload...)}); err != nil {
+				return err
+			}
+			return stream.Close(ctx, "ok")
+		})
+	}, ExperimentalMuxCandidateConfig{
+		Protocol: "gofly-mux/mtls-trace-test",
+		TLS: security.TLSConfig{
+			CertFile:     serverCert,
+			KeyFile:      serverKey,
+			ClientCAFile: caFile,
+		},
+		HandshakeTimeout: 5 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := server.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer server.Shutdown(context.Background())
+
+	manager, err := NewExperimentalMuxConnectionManager(
+		ResolverFunc(func(context.Context) ([]string, error) { return []string{"tcp://" + server.Addr()}, nil }),
+		WithExperimentalMuxConnectionManagerCandidateConfig(ExperimentalMuxCandidateConfig{
+			Protocol: "gofly-mux/mtls-trace-test",
+			TLS: security.TLSConfig{
+				CAFile:     caFile,
+				CertFile:   clientCert,
+				KeyFile:    clientKey,
+				ServerName: "svc",
+			},
+			HandshakeTimeout: 5 * time.Second,
+		}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+
+	recorder := tracetest.NewSpanRecorder()
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	defer func() { _ = provider.Shutdown(context.Background()) }()
+	traceCtx, span := provider.Tracer("rpc-mux-mtls-test").Start(context.Background(), "orders/Watch", oteltrace.WithSpanKind(oteltrace.SpanKindClient))
+	var logBuf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	client, err := NewClient(
+		"http://unused",
+		WithExperimentalMuxConnectionManager(manager),
+		WithMuxTraceAnnotation(),
+		WithMuxDiagnosisLogging(logger),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	stream, err := client.MuxStream(traceCtx, "orders/Watch")
+	if err != nil {
+		t.Fatalf("MuxStream: %v", err)
+	}
+	span.End()
+	if err := stream.Send(context.Background(), Message{Payload: []byte("hello")}); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	assertMuxPayload(t, stream, "mtls:hello")
+	if _, err := stream.Receive(muxTestTimeoutContext(t)); !errors.Is(err, io.EOF) {
+		t.Fatalf("terminal receive = %v, want EOF", err)
+	}
+
+	traceSpans := recorder.Ended()
+	if len(traceSpans) != 1 {
+		t.Fatalf("mux mTLS trace spans = %d, want one annotated span", len(traceSpans))
+	}
+	traceAttrs := muxAttributeMap(traceSpans[0].Attributes())
+	if !traceAttrs["rpc.mux.candidate.tls"].AsBool() ||
+		!traceAttrs["rpc.mux.candidate.mutual_tls"].AsBool() ||
+		traceAttrs["rpc.mux.candidate.negotiated_protocol"].AsString() != "gofly-mux/mtls-trace-test" ||
+		traceAttrs["rpc.mux.candidate.protocol"].AsString() != "gofly-mux/mtls-trace-test" {
+		t.Fatalf("mux mTLS trace attrs = %+v, want TLS/mTLS negotiated protocol", traceAttrs)
+	}
+	logLine := logBuf.String()
+	for _, want := range []string{
+		`"msg":"rpc mux stream diagnosis"`,
+		`"tls":true`,
+		`"mutual_tls":true`,
+		`"negotiated_protocol":"gofly-mux/mtls-trace-test"`,
+		`"candidate_protocol":"gofly-mux/mtls-trace-test"`,
+	} {
+		if !strings.Contains(logLine, want) {
+			t.Fatalf("mux mTLS runtime log missing %s:\n%s", want, logLine)
+		}
+	}
+}
+
+func TestExperimentalMuxCandidateAdapterFragmentsLargePayload(t *testing.T) {
+	cfg := ExperimentalMuxCandidateConfig{
+		Protocol:        "gofly-mux/fragment-policy-test",
+		MaxFrameBytes:   96,
+		MaxMessageBytes: 2048,
+		FrameCodec:      "binary",
+		PayloadCodec:    "identity",
+	}
+	server, err := NewExperimentalMuxCandidateServer("127.0.0.1:0", func(adapter *ExperimentalMuxServerAdapter) error {
+		return adapter.RegisterStream("orders/Upload", func(ctx context.Context, stream *ExperimentalMuxStream) error {
+			msg, err := stream.Receive(ctx)
+			if err != nil {
+				return err
+			}
+			if err := stream.Send(ctx, Message{Payload: append([]byte("ack:"), msg.Payload...)}); err != nil {
+				return err
+			}
+			return stream.Close(ctx, "ok")
+		})
+	}, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := server.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer server.Shutdown(context.Background())
+
+	client, err := DialExperimentalMuxCandidateClientAdapter(context.Background(), "tcp", server.Addr(), cfg)
+	if err != nil {
+		t.Fatalf("DialExperimentalMuxCandidateClientAdapter: %v", err)
+	}
+	defer client.Close()
+	stream, err := client.OpenStream(context.Background(), "orders/Upload")
+	if err != nil {
+		t.Fatalf("OpenStream: %v", err)
+	}
+	payload := []byte(strings.Repeat("large-payload-", 40))
+	if err := stream.Send(context.Background(), Message{Payload: payload}); err != nil {
+		t.Fatalf("Send fragmented candidate payload: %v", err)
+	}
+	msg, err := stream.Receive(muxTestTimeoutContext(t))
+	if err != nil {
+		t.Fatalf("Receive fragmented candidate payload: %v", err)
+	}
+	if got, want := string(msg.Payload), "ack:"+string(payload); got != want {
+		t.Fatalf("fragmented candidate payload = %q, want %q", got, want)
+	}
+	if _, err := stream.Receive(muxTestTimeoutContext(t)); !errors.Is(err, io.EOF) {
+		t.Fatalf("terminal receive = %v, want EOF", err)
+	}
+
+	clientDiagnosis := client.DiagnosisSnapshot()
+	if clientDiagnosis.Candidate.MaxFrameBytes != 96 ||
+		clientDiagnosis.Candidate.MaxMessageBytes != 2048 ||
+		clientDiagnosis.Transport.MaxFrameBytes != 96 ||
+		clientDiagnosis.Transport.MaxMessageBytes != 2048 ||
+		clientDiagnosis.Transport.FragmentFramesOut < 2 ||
+		clientDiagnosis.Transport.DataFramesOut != 2 {
+		t.Fatalf("client candidate fragment diagnosis = %+v, want frame/message policy and fragmented route+payload frames", clientDiagnosis)
+	}
+	assertEventually(t, func() bool {
+		serverDiagnosis := server.DiagnosisSnapshot()
+		return serverDiagnosis.Candidate.MaxFrameBytes == 96 &&
+			serverDiagnosis.Candidate.MaxMessageBytes == 2048 &&
+			serverDiagnosis.Transport.MaxFrameBytes == 96 &&
+			serverDiagnosis.Transport.MaxMessageBytes == 2048 &&
+			serverDiagnosis.Transport.FragmentFramesIn >= 2 &&
+			serverDiagnosis.Transport.DataFramesIn == 2 &&
+			serverDiagnosis.Adapter.AcceptedStreams == 1
+	}, "candidate server fragmented payload diagnosis")
+}
+
+func TestExperimentalMuxCandidateAdapterRejectsOversizedMessagePolicy(t *testing.T) {
+	cfg := ExperimentalMuxCandidateConfig{
+		Protocol:        "gofly-mux/message-policy-test",
+		MaxFrameBytes:   96,
+		MaxMessageBytes: 128,
+		FrameCodec:      "binary",
+		PayloadCodec:    "identity",
+	}
+	server, err := NewExperimentalMuxCandidateServer("127.0.0.1:0", func(adapter *ExperimentalMuxServerAdapter) error {
+		return adapter.RegisterStream("orders/Upload", func(ctx context.Context, stream *ExperimentalMuxStream) error {
+			_, err := stream.Receive(ctx)
+			return err
+		})
+	}, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := server.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer server.Shutdown(context.Background())
+
+	client, err := DialExperimentalMuxCandidateClientAdapter(context.Background(), "tcp", server.Addr(), cfg)
+	if err != nil {
+		t.Fatalf("DialExperimentalMuxCandidateClientAdapter: %v", err)
+	}
+	defer client.Close()
+	stream, err := client.OpenStream(context.Background(), "orders/Upload")
+	if err != nil {
+		t.Fatalf("OpenStream: %v", err)
+	}
+	if err := stream.Send(context.Background(), Message{Payload: []byte(strings.Repeat("x", 512))}); !errors.Is(err, ErrFrameTooLarge) {
+		t.Fatalf("Send oversized candidate payload error = %v, want ErrFrameTooLarge", err)
+	}
+
+	diagnosis := client.DiagnosisSnapshot()
+	if diagnosis.Candidate.MaxFrameBytes != 96 ||
+		diagnosis.Candidate.MaxMessageBytes != 128 ||
+		diagnosis.Transport.MaxFrameBytes != 96 ||
+		diagnosis.Transport.MaxMessageBytes != 128 ||
+		diagnosis.Transport.FragmentFramesOut != 0 ||
+		diagnosis.Transport.DataFramesOut != 1 {
+		t.Fatalf("oversized candidate diagnosis = %+v, want policy visible and no user payload frames after rejection", diagnosis)
+	}
+}
+
+func TestExperimentalMuxConnectionManagerTLSFailureDiagnosisEvents(t *testing.T) {
+	dir := t.TempDir()
+	caCert, caKey := rpcTLSCA(t, dir)
+	caFile := filepath.Join(dir, "ca.crt")
+	serverCert, serverKey := rpcTLSLeaf(t, dir, "server", caCert, caKey)
+
+	server, err := NewExperimentalMuxCandidateServer("127.0.0.1:0", func(adapter *ExperimentalMuxServerAdapter) error {
+		return adapter.RegisterStream("orders/Watch", func(ctx context.Context, stream *ExperimentalMuxStream) error {
+			return stream.Close(ctx, "ok")
+		})
+	}, ExperimentalMuxCandidateConfig{
+		Protocol: "gofly-mux/mtls-manager-test",
+		TLS: security.TLSConfig{
+			CertFile:     serverCert,
+			KeyFile:      serverKey,
+			ClientCAFile: caFile,
+		},
+		HandshakeTimeout: 5 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := server.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer server.Shutdown(context.Background())
+
+	manager, err := NewExperimentalMuxConnectionManager(
+		ResolverFunc(func(context.Context) ([]string, error) { return []string{"tcp://" + server.Addr()}, nil }),
+		WithExperimentalMuxConnectionManagerCandidateConfig(ExperimentalMuxCandidateConfig{
+			Protocol: "gofly-mux/mtls-manager-test",
+			TLS: security.TLSConfig{
+				CAFile:     caFile,
+				ServerName: "svc",
+			},
+			HandshakeTimeout: 5 * time.Second,
+		}),
+		WithExperimentalMuxConnectionManagerMaxOpenRetries(0),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	client, err := NewClient("http://unused", WithExperimentalMuxConnectionManager(manager))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	if _, err := client.MuxStream(context.Background(), "orders/Watch"); err == nil {
+		t.Fatal("MuxStream without client certificate succeeded, want TLS failure")
+	}
+	probe := client.DiagnosisProbeWithOptions(context.Background(), RPCDiagnosisProbeOptions{
+		EventFamily: "negotiation",
+		Event:       "tls_failure",
+	})
+	if !probe.Matched ||
+		len(probe.Diagnosis.Mux.Events) != 1 ||
+		probe.Diagnosis.Mux.Events[0].Event != "tls_failure" ||
+		probe.Diagnosis.Mux.Events[0].Count != 1 ||
+		probe.Diagnosis.Mux.Negotiation.Failures != 1 ||
+		probe.Diagnosis.Mux.Negotiation.TLSFailure != 1 ||
+		probe.Diagnosis.Mux.Negotiation.LastEvent != "tls_failure" ||
+		probe.Diagnosis.Mux.Manager.Candidate.NegotiationFailureEvents["tls_failure"] != 1 {
+		t.Fatalf("TLS failure probe = %+v, want one tls_failure negotiation event", probe)
+	}
+	var exported []RPCMuxDiagnosisEventRecord
+	exportClient := &HTTPClient{opts: clientOptions{
+		muxEventExporter: RPCMuxDiagnosisEventExporterFunc(func(_ context.Context, record RPCMuxDiagnosisEventRecord) {
+			exported = append(exported, record)
+		}),
+		muxEventFilter: RPCMuxDiagnosisFilter{EventFamily: "negotiation", Event: "tls_failure"},
+	}}
+	exportClient.exportMuxDiagnosisEvents(context.Background(), probe)
+	if len(exported) != 1 ||
+		exported[0].Event.Family != "negotiation" ||
+		exported[0].Event.Event != "tls_failure" ||
+		exported[0].Event.Count != 1 {
+		t.Fatalf("exported TLS failure records = %+v, want one tls_failure event", exported)
+	}
+}
+
+func TestExperimentalMuxConnectionManagerALPNMismatchDiagnosisEvents(t *testing.T) {
+	dir := t.TempDir()
+	caCert, caKey := rpcTLSCA(t, dir)
+	caFile := filepath.Join(dir, "ca.crt")
+	serverCert, serverKey := rpcTLSLeaf(t, dir, "server", caCert, caKey)
+
+	tlsCfg, err := (security.TLSConfig{CertFile: serverCert, KeyFile: serverKey}).ServerTLSConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	listener, err := tls.Listen("tcp", "127.0.0.1:0", tlsCfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	serveDone := make(chan error, 1)
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				select {
+				case <-ctx.Done():
+					serveDone <- nil
+				default:
+					serveDone <- err
+				}
+				return
+			}
+			if tlsConn, ok := conn.(*tls.Conn); ok {
+				_ = tlsConn.Handshake()
+			}
+			_ = conn.Close()
+		}
+	}()
+	defer func() {
+		cancel()
+		_ = listener.Close()
+		if err := <-serveDone; err != nil {
+			t.Fatalf("ALPN mismatch listener stopped with error: %v", err)
+		}
+	}()
+
+	manager, err := NewExperimentalMuxConnectionManager(
+		ResolverFunc(func(context.Context) ([]string, error) { return []string{"tcp://" + listener.Addr().String()}, nil }),
+		WithExperimentalMuxConnectionManagerCandidateConfig(ExperimentalMuxCandidateConfig{
+			Protocol: "gofly-mux/alpn-client",
+			TLS: security.TLSConfig{
+				CAFile:     caFile,
+				ServerName: "svc",
+			},
+			HandshakeTimeout: 5 * time.Second,
+		}),
+		WithExperimentalMuxConnectionManagerMaxOpenRetries(0),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	client, err := NewClient("http://unused", WithExperimentalMuxConnectionManager(manager))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	if _, err := client.MuxStream(context.Background(), "orders/Watch"); err == nil || !strings.Contains(err.Error(), "negotiated protocol") {
+		t.Fatalf("MuxStream ALPN mismatch = %v, want negotiated protocol error", err)
+	}
+	probe := client.DiagnosisProbeWithOptions(context.Background(), RPCDiagnosisProbeOptions{
+		EventFamily: "negotiation",
+		Event:       "alpn_mismatch",
+	})
+	if !probe.Matched ||
+		len(probe.Diagnosis.Mux.Events) != 1 ||
+		probe.Diagnosis.Mux.Events[0].Event != "alpn_mismatch" ||
+		!strings.Contains(probe.Diagnosis.Mux.Events[0].Reason, "negotiated protocol") ||
+		probe.Diagnosis.Mux.Negotiation.Failures != 1 ||
+		probe.Diagnosis.Mux.Negotiation.ALPNMismatch != 1 ||
+		probe.Diagnosis.Mux.Negotiation.LastEvent != "alpn_mismatch" ||
+		probe.Diagnosis.Mux.Manager.Candidate.NegotiationFailureEvents["alpn_mismatch"] != 1 {
+		t.Fatalf("ALPN mismatch probe = %+v, want one alpn_mismatch negotiation event", probe)
+	}
+	var exported []RPCMuxDiagnosisEventRecord
+	exportClient := &HTTPClient{opts: clientOptions{
+		muxEventExporter: RPCMuxDiagnosisEventExporterFunc(func(_ context.Context, record RPCMuxDiagnosisEventRecord) {
+			exported = append(exported, record)
+		}),
+		muxEventFilter: RPCMuxDiagnosisFilter{EventFamily: "negotiation", Event: "alpn_mismatch"},
+	}}
+	exportClient.exportMuxDiagnosisEvents(context.Background(), probe)
+	if len(exported) != 1 ||
+		exported[0].Event.Event != "alpn_mismatch" ||
+		!strings.Contains(exported[0].Event.Reason, "negotiated protocol") {
+		t.Fatalf("exported ALPN mismatch records = %+v, want one alpn_mismatch event", exported)
+	}
+}
+
 func TestExperimentalMuxCandidateNegotiationFailureDiagnostics(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -839,14 +1246,16 @@ func TestExperimentalMuxConnectionManagerCandidateDowngradeDiagnostics(t *testin
 		PayloadCodec:         "identity",
 		AllowLegacyDowngrade: true,
 	}
+	resolver := &mutableResolver{endpoints: []string{"tcp://" + listener.Addr().String()}}
 	manager, err := NewExperimentalMuxConnectionManager(
-		ResolverFunc(func(context.Context) ([]string, error) { return []string{"tcp://" + listener.Addr().String()}, nil }),
+		resolver,
 		WithExperimentalMuxConnectionManagerCandidateConfig(candidateCfg),
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer manager.Close()
+	var exported []RPCMuxDiagnosisEventRecord
 	client, err := NewClient("http://unused", WithExperimentalMuxConnectionManager(manager))
 	if err != nil {
 		t.Fatal(err)
@@ -873,13 +1282,137 @@ func TestExperimentalMuxConnectionManagerCandidateDowngradeDiagnostics(t *testin
 		!diagnosis.Endpoints[0].Adapter.Candidate.Downgraded {
 		t.Fatalf("downgrade diagnosis = %+v, want candidate failure and legacy downgrade evidence", diagnosis)
 	}
+	events := RPCMuxDiagnosisEvents(client.RuntimeSnapshot().Diagnosis.Mux)
+	var negotiationEvent RPCMuxDiagnosisEvent
+	for _, event := range events {
+		if event.Family == "negotiation" {
+			negotiationEvent = event
+			break
+		}
+	}
+	if negotiationEvent.Event != "preface_mismatch" ||
+		negotiationEvent.Count != 1 ||
+		!strings.Contains(negotiationEvent.Reason, "protocol preface") {
+		t.Fatalf("negotiation event = %+v, want preface mismatch taxonomy", negotiationEvent)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/rpc/diagnosis?eventFamily=negotiation&event=preface-mismatch", nil)
+	rec := httptest.NewRecorder()
+	client.DiagnosisHandler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("negotiation diagnosis status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var negotiationProbe RPCDiagnosisProbe
+	if err := json.Unmarshal(rec.Body.Bytes(), &negotiationProbe); err != nil {
+		t.Fatalf("decode negotiation diagnosis: %v\n%s", err, rec.Body.String())
+	}
+	if !negotiationProbe.Matched ||
+		negotiationProbe.EventFamily != "negotiation" ||
+		negotiationProbe.Event != "preface_mismatch" ||
+		len(negotiationProbe.Diagnosis.Mux.Events) != 1 ||
+		negotiationProbe.Diagnosis.Mux.Events[0].Event != "preface_mismatch" ||
+		negotiationProbe.Diagnosis.Mux.Negotiation.Failures != 1 ||
+		negotiationProbe.Diagnosis.Mux.Negotiation.PrefaceMismatch != 1 ||
+		negotiationProbe.Diagnosis.Mux.Negotiation.LastEvent != "preface_mismatch" {
+		t.Fatalf("negotiation filtered diagnosis = %+v, want preface mismatch event", negotiationProbe)
+	}
+	exportClient := &HTTPClient{opts: clientOptions{
+		muxEventExporter: RPCMuxDiagnosisEventExporterFunc(func(_ context.Context, record RPCMuxDiagnosisEventRecord) {
+			exported = append(exported, record)
+		}),
+		muxEventFilter: RPCMuxDiagnosisFilter{EventFamily: "negotiation", Event: "preface_mismatch"},
+	}}
+	exportClient.exportMuxDiagnosisEvents(context.Background(), negotiationProbe)
+	if len(exported) != 1 ||
+		exported[0].Event.Family != "negotiation" ||
+		exported[0].Event.Event != "preface_mismatch" ||
+		!strings.Contains(exported[0].Event.Reason, "protocol preface") {
+		t.Fatalf("exported negotiation records = %+v, want preface mismatch event", exported)
+	}
+	if err := manager.CloseIdle(context.Background()); err != nil {
+		t.Fatalf("CloseIdle after legacy downgrade: %v", err)
+	}
+	manager.mu.Lock()
+	if manager.candidate == nil {
+		manager.mu.Unlock()
+		t.Fatal("manager candidate config is nil")
+	}
+	manager.candidate.AllowLegacyDowngrade = false
+	manager.mu.Unlock()
+	policyListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	policyDone := make(chan error, 1)
+	policyServerCfg := candidateCfg
+	policyServerCfg.FrameCodec = "json"
+	go func() {
+		policyDone <- ServeExperimentalMuxCandidateListener(ctx, policyListener, func(adapter *ExperimentalMuxServerAdapter) error {
+			return adapter.RegisterStream("orders/Watch", func(ctx context.Context, stream *ExperimentalMuxStream) error {
+				return stream.Close(ctx, "ok")
+			})
+		}, policyServerCfg)
+	}()
+	resolver.endpoints = []string{"tcp://" + policyListener.Addr().String()}
+	if err := manager.SyncResolver(context.Background()); err != nil {
+		t.Fatalf("SyncResolver policy endpoint: %v", err)
+	}
+	if _, err := client.MuxStream(context.Background(), "orders/Watch"); err == nil || !strings.Contains(err.Error(), "frame codec") {
+		t.Fatalf("MuxStream frame policy mismatch = %v, want frame codec error", err)
+	}
+	accumulated := client.RuntimeSnapshot().Diagnosis.Mux.Manager
+	if accumulated.Candidate.NegotiationFailures != 2 ||
+		accumulated.Candidate.NegotiationFailureEvents["preface_mismatch"] != 1 ||
+		accumulated.Candidate.NegotiationFailureEvents["frame_policy_mismatch"] != 1 ||
+		accumulated.Candidate.LastNegotiationPhase != experimentalMuxCandidateFailureFramePolicy {
+		t.Fatalf("accumulated candidate diagnosis = %+v, want preface and frame policy counters", accumulated.Candidate)
+	}
+	accumulatedEvents := RPCMuxDiagnosisEvents(client.RuntimeSnapshot().Diagnosis.Mux)
+	accumulatedByEvent := make(map[string]RPCMuxDiagnosisEvent, len(accumulatedEvents))
+	for _, event := range accumulatedEvents {
+		if event.Family == "negotiation" {
+			accumulatedByEvent[event.Event] = event
+		}
+	}
+	if accumulatedByEvent["preface_mismatch"].Count != 1 ||
+		accumulatedByEvent["frame_policy_mismatch"].Count != 1 ||
+		!strings.Contains(accumulatedByEvent["frame_policy_mismatch"].Reason, "frame codec") {
+		t.Fatalf("accumulated negotiation events = %+v, want preface and frame policy events", accumulatedEvents)
+	}
+	req = httptest.NewRequest(http.MethodGet, "/rpc/diagnosis?eventFamily=negotiation", nil)
+	rec = httptest.NewRecorder()
+	client.DiagnosisHandler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("accumulated negotiation diagnosis status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var accumulatedProbe RPCDiagnosisProbe
+	if err := json.Unmarshal(rec.Body.Bytes(), &accumulatedProbe); err != nil {
+		t.Fatalf("decode accumulated negotiation diagnosis: %v\n%s", err, rec.Body.String())
+	}
+	if !accumulatedProbe.Matched || len(accumulatedProbe.Diagnosis.Mux.Events) != 2 {
+		t.Fatalf("accumulated negotiation probe = %+v, want two negotiation events", accumulatedProbe)
+	}
+	if accumulatedProbe.Diagnosis.Mux.Negotiation.Failures != 2 ||
+		accumulatedProbe.Diagnosis.Mux.Negotiation.PrefaceMismatch != 1 ||
+		accumulatedProbe.Diagnosis.Mux.Negotiation.FramePolicyMismatch != 1 ||
+		accumulatedProbe.Diagnosis.Mux.Negotiation.LastEvent != "frame_policy_mismatch" {
+		t.Fatalf("accumulated negotiation summary = %+v, want preface and frame policy counters", accumulatedProbe.Diagnosis.Mux.Negotiation)
+	}
+	exported = nil
+	exportClient.exportMuxDiagnosisEvents(context.Background(), accumulatedProbe)
+	if len(exported) != 1 || exported[0].Event.Event != "preface_mismatch" {
+		t.Fatalf("filtered exported accumulated records = %+v, want only preface mismatch", exported)
+	}
 	customs := reg.Snapshot().Customs
 	failures := customs["gofly_rpc_mux_candidate_negotiation_failures_total"]
-	if failures.Type != metrics.MetricCounter || len(failures.Series) != 1 ||
-		failures.Series[0].Labels["phase"] != "preface" ||
-		failures.Series[0].Labels["peer_protocol"] != "unknown" ||
-		failures.Series[0].Value != 1 {
-		t.Fatalf("candidate failure metric = %#v, want one preface failure", failures)
+	if failures.Type != metrics.MetricCounter || len(failures.Series) != 2 {
+		t.Fatalf("candidate failure metric = %#v, want preface and frame policy failures", failures)
+	}
+	failureValues := make(map[string]float64, len(failures.Series))
+	for _, series := range failures.Series {
+		failureValues[series.Labels["phase"]+"/"+series.Labels["peer_protocol"]] = series.Value
+	}
+	if failureValues["preface/unknown"] != 1 || failureValues["frame_policy_mismatch/"+policyServerCfg.Protocol] != 1 {
+		t.Fatalf("candidate failure metric series = %#v, want preface and frame policy failures", failures.Series)
 	}
 	downgrades := customs["gofly_rpc_mux_candidate_downgrades_total"]
 	if downgrades.Type != metrics.MetricCounter || len(downgrades.Series) != 1 ||
@@ -897,6 +1430,9 @@ func TestExperimentalMuxConnectionManagerCandidateDowngradeDiagnostics(t *testin
 	cancel()
 	if err := <-serveDone; err != nil {
 		t.Fatalf("legacy mux server stopped with error: %v", err)
+	}
+	if err := <-policyDone; err != nil {
+		t.Fatalf("policy candidate server stopped with error: %v", err)
 	}
 }
 

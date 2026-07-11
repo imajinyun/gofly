@@ -1019,11 +1019,21 @@ func TestGenerateNewServiceVariantsBoundaries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(configData), `"mux": {"enabled": false, "probe": false, "addr": "127.0.0.1:8082", "endpoints": [], "idleTimeout": 60000000000, "maxOpenRetries": 1, "openRetryReasons": ["dial_failure", "pool_exhausted"], "healthBackoffMultiplier": 2, "healthMaxCooldown": 30000000000, "trace": {"enabled": false, "annotateStreams": false}, "log": {"enabled": false, "diagnosis": false, "exportEvents": false, "eventFamily": "", "event": "", "endpoint": "", "connectionId": ""}, "candidate": {"enabled": false, "protocol": "gofly-mux/experimental-v1"`) ||
-		!strings.Contains(string(configData), `"writeTimeout": 0`) ||
-		!strings.Contains(string(configData), `"creditWaitTimeout": 0`) ||
-		!strings.Contains(string(configData), `"allowLegacyDowngrade": false`) {
-		t.Fatalf("generated rpc config missing default-disabled mux config:\n%s", configData)
+	for _, want := range []string{
+		`"mux": {"enabled": false, "probe": false, "addr": "127.0.0.1:8082"`,
+		`"trace": {"enabled": false, "annotateStreams": false}`,
+		`"log": {"enabled": false, "diagnosis": false, "exportEvents": false`,
+		`"tls": {"enabled": false, "certFile": "", "keyFile": "", "caFile": "", "serverName": ""}`,
+		`"mtls": {"enabled": false, "clientCAFile": "", "clientCertFile": "", "clientKeyFile": ""}`,
+		`"alpn": {"enabled": false, "protocol": "gofly-mux/experimental-v1"}`,
+		`"candidate": {"enabled": false, "protocol": "gofly-mux/experimental-v1"`,
+		`"writeTimeout": 0`,
+		`"creditWaitTimeout": 0`,
+		`"allowLegacyDowngrade": false`,
+	} {
+		if !strings.Contains(string(configData), want) {
+			t.Fatalf("generated rpc config missing default-disabled mux config %q:\n%s", want, configData)
+		}
 	}
 	configGoData, err := os.ReadFile(filepath.Join(rpcDir, "internal", "config", "config.go"))
 	if err != nil {
@@ -1049,6 +1059,13 @@ func TestGenerateNewServiceVariantsBoundaries(t *testing.T) {
 		`json:"exportEvents"`,
 		`json:"eventFamily,omitempty"`,
 		`json:"connectionId,omitempty"`,
+		"type RPCMuxTLSConfig struct",
+		`json:"certFile,omitempty"`,
+		"type RPCMuxMutualTLSConfig struct",
+		`json:"clientCAFile,omitempty"`,
+		`json:"clientCertFile,omitempty"`,
+		"type RPCMuxALPNConfig struct",
+		`json:"alpn,omitempty"`,
 		"type RPCMuxCandidateConfig struct",
 		`json:"candidate,omitempty"`,
 		`json:"protocol,omitempty"`,
@@ -1058,6 +1075,9 @@ func TestGenerateNewServiceVariantsBoundaries(t *testing.T) {
 		`json:"drainGrace,omitempty"`,
 		`json:"allowLegacyDowngrade,omitempty"`,
 		"func (c RPCMuxConfig) CandidateConfig() rpc.ExperimentalMuxCandidateConfig",
+		"func (c RPCMuxConfig) CandidateServerConfig() rpc.ExperimentalMuxCandidateConfig",
+		"func (c RPCMuxConfig) CandidateClientConfig() rpc.ExperimentalMuxCandidateConfig",
+		"func (c RPCMuxConfig) CandidateTLSConfig() security.TLSConfig",
 		"func (c RPCMuxConfig) ClientOptions() []rpc.ClientOption",
 		"rpc.WithMuxTraceAnnotation()",
 		"rpc.WithMuxDiagnosisLogging(nil)",
@@ -1097,6 +1117,32 @@ func TestGenerateNewServiceVariantsBoundaries(t *testing.T) {
 		"rpc.WithExperimentalMuxConnectionManagerHealthMaxCooldown",
 		"rpc.ServeExperimentalMuxCandidateListener",
 		"rpc.WithExperimentalMuxConnectionManagerCandidateConfig",
+		"cfg.RPC.Mux.CandidateServerConfig()",
+		"cfg.RPC.Mux.CandidateClientConfig()",
+		"appconfig.RPCMuxTLSConfig",
+		"appconfig.RPCMuxMutualTLSConfig",
+		"appconfig.RPCMuxALPNConfig",
+		"generatedRPCTLSCA(t, tlsDir)",
+		`"gofly-mux/generated-mtls-test"`,
+		`rpc.ServeExperimentalMuxCandidateListener(mtlsCtx, mtlsListener`,
+		`"mtls:probe"`,
+		`mtlsClient.DiagnosisHandler().ServeHTTP(mtlsRec, httptest.NewRequest(http.MethodGet, "/rpc/diagnosis", nil))`,
+		`mtlsDiagnosis.Diagnosis.Mux.Manager.Candidate.TLS`,
+		`mtlsDiagnosis.Diagnosis.Mux.Manager.Candidate.MutualTLS`,
+		`mtlsDiagnosis.Diagnosis.Mux.Manager.Candidate.NegotiatedProtocol != "gofly-mux/generated-mtls-test"`,
+		`mtlsDiagnosis.Diagnosis.Mux.Manager.Endpoints[0].Adapter.Transport.OpenedStreams != 1`,
+		`mtlsDiagnosis.Diagnosis.Mux.Manager.Endpoints[0].Adapter.Transport.ClosedStreams != 1`,
+		`mtlsClientOptions := append(tlsCfg.RPC.Mux.ClientOptions(), rpc.WithExperimentalMuxConnectionManager(mtlsManager))`,
+		`mtlsClient.MuxStream(mtlsTraceCtx, "greeter/Watch")`,
+		`mtlsTraceAttrs["rpc.mux.candidate.tls"].AsBool()`,
+		`mtlsTraceAttrs["rpc.mux.candidate.mutual_tls"].AsBool()`,
+		`mtlsTraceAttrs["rpc.mux.candidate.negotiated_protocol"].AsString() != "gofly-mux/generated-mtls-test"`,
+		`"\"negotiated_protocol\":\"gofly-mux/generated-mtls-test\""`,
+		`"\"mutual_tls\":true"`,
+		`/rpc/diagnosis?eventFamily=negotiation&event=tls-failure`,
+		`/rpc/diagnosis?eventFamily=negotiation&event=alpn-mismatch`,
+		`tlsFailureDiagnosis.Diagnosis.Mux.Negotiation.TLSFailure != 1`,
+		`alpnDiagnosis.Diagnosis.Mux.Negotiation.ALPNMismatch != 1`,
 		`diagnosis.Candidate.Protocol != "gofly-mux/generated-candidate-test"`,
 		`candidateManager.Drain(context.Background(), "generated_shutdown")`,
 		"gofly_rpc_mux_candidate_drain_total",

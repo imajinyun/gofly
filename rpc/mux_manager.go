@@ -50,6 +50,7 @@ type ExperimentalMuxConnectionManager struct {
 	closeReasons            map[string]int64
 	drainReasons            map[string]int64
 	candidateFailures       int64
+	candidateFailureEvents  map[string]int64
 	candidateDowngrades     int64
 	lastCandidateError      string
 	lastCandidatePhase      string
@@ -160,6 +161,7 @@ func NewExperimentalMuxConnectionManager(resolver Resolver, opts ...Experimental
 		retryReasons:            make(map[string]int64),
 		closeReasons:            make(map[string]int64),
 		drainReasons:            make(map[string]int64),
+		candidateFailureEvents:  make(map[string]int64),
 	}
 	for _, opt := range opts {
 		if opt != nil {
@@ -650,6 +652,7 @@ func (m *ExperimentalMuxConnectionManager) Snapshot() ExperimentalMuxConnectionM
 	if m.candidate != nil {
 		candidate = m.candidate.snapshot("client", m.candidate.normalized().Protocol)
 		candidate.NegotiationFailures = m.candidateFailures
+		candidate.NegotiationFailureEvents = cloneStringInt64Map(m.candidateFailureEvents)
 		candidate.Downgrades = m.candidateDowngrades
 		candidate.LastNegotiationError = m.lastCandidateError
 		candidate.LastNegotiationPhase = m.lastCandidatePhase
@@ -779,6 +782,7 @@ func muxDiagnosisFromManager(manager RPCMuxConnectionManagerDiagnosis) RPCMuxTra
 		FlowControl: manager.FlowControl,
 		Manager:     manager,
 	}
+	diagnosis = withRPCMuxNegotiationDiagnosis(diagnosis)
 	diagnosis.Events = RPCMuxDiagnosisEvents(diagnosis)
 	return diagnosis
 }
@@ -1062,9 +1066,18 @@ func (m *ExperimentalMuxConnectionManager) recordCandidateNegotiationFailure(cfg
 	snapshot.LastNegotiationError = reasonFromError(err)
 	snapshot.LastNegotiationPhase = phase
 	snapshot.PeerProtocol = peerProtocol
+	if event := muxCandidateNegotiationDiagnosisEvent(phase); event != "" {
+		snapshot.NegotiationFailureEvents = map[string]int64{event: 1}
+	}
 	m.mu.Lock()
 	if !m.closed {
 		m.candidateFailures++
+		if m.candidateFailureEvents == nil {
+			m.candidateFailureEvents = make(map[string]int64)
+		}
+		if event := muxCandidateNegotiationDiagnosisEvent(phase); event != "" {
+			m.candidateFailureEvents[event]++
+		}
 		m.lastCandidateError = snapshot.LastNegotiationError
 		m.lastCandidatePhase = phase
 		m.lastCandidatePeer = peerProtocol

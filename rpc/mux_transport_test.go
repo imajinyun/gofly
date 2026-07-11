@@ -329,6 +329,9 @@ func TestExperimentalMuxTransportConnectionWindowLimitsAcrossStreams(t *testing.
 	}
 	assertMuxPayload(t, serverSecond, "second")
 
+	assertEventually(t, func() bool {
+		return client.Snapshot().ConnectionWindowFramesIn > 0 && server.Snapshot().ConnectionWindowFramesOut > 0
+	}, "connection window update frames")
 	clientSnapshot := client.Snapshot()
 	serverSnapshot := server.Snapshot()
 	if clientSnapshot.ConnectionWindow != 1 ||
@@ -387,6 +390,168 @@ func TestExperimentalMuxTransportFragmentsLargePayload(t *testing.T) {
 		clientSnapshot.MaxMessageBytes != 1024 ||
 		serverSnapshot.MaxMessageBytes != 1024 {
 		t.Fatalf("fragment snapshots client=%+v server=%+v, want fragmented wire frames for one logical data message", clientSnapshot, serverSnapshot)
+	}
+}
+
+func TestExperimentalMuxTransportFragmentBackpressureWaitsForWindowUpdate(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	client := NewExperimentalMuxTransport(
+		clientConn,
+		WithExperimentalMuxMaxFrameBytes(96),
+		WithExperimentalMuxMaxMessageBytes(2048),
+		WithExperimentalMuxReceiveQueueSize(1),
+		WithExperimentalMuxConnectionWindow(1),
+	)
+	defer client.Close()
+	defer serverConn.Close()
+
+	firstFragmentRead := make(chan uint64, 1)
+	streamWindow := make(chan struct{})
+	connectionWindow := make(chan struct{})
+	peerDone := make(chan error, 1)
+	go func() {
+		open := readExperimentalMuxTestFrame(t, serverConn)
+		if open.typ != experimentalMuxFrameOpen {
+			peerDone <- errors.New("first frame is not OPEN")
+			return
+		}
+		first := readExperimentalMuxTestFrame(t, serverConn)
+		if first.typ != experimentalMuxFrameDataFrag {
+			peerDone <- errors.New("first data frame is not DATA_FRAG")
+			return
+		}
+		firstFragmentRead <- first.streamID
+		<-streamWindow
+		writeExperimentalMuxTestFrame(t, serverConn, experimentalMuxFrame{typ: experimentalMuxFrameWindow, streamID: first.streamID, window: 1})
+		<-connectionWindow
+		writeExperimentalMuxTestFrame(t, serverConn, experimentalMuxFrame{typ: experimentalMuxFrameWindowConn, window: 1})
+		for {
+			frame := readExperimentalMuxTestFrame(t, serverConn)
+			switch frame.typ {
+			case experimentalMuxFrameDataFrag:
+				writeExperimentalMuxTestFrame(t, serverConn, experimentalMuxFrame{typ: experimentalMuxFrameWindow, streamID: frame.streamID, window: 1})
+				writeExperimentalMuxTestFrame(t, serverConn, experimentalMuxFrame{typ: experimentalMuxFrameWindowConn, window: 1})
+			case experimentalMuxFrameDataEnd:
+				writeExperimentalMuxTestFrame(t, serverConn, experimentalMuxFrame{typ: experimentalMuxFrameWindow, streamID: frame.streamID, window: 1})
+				writeExperimentalMuxTestFrame(t, serverConn, experimentalMuxFrame{typ: experimentalMuxFrameWindowConn, window: 1})
+				peerDone <- nil
+				return
+			default:
+				peerDone <- errors.New("unexpected frame while draining fragmented payload")
+				return
+			}
+		}
+	}()
+
+	ctx := context.Background()
+	stream, err := client.OpenStream(ctx)
+	if err != nil {
+		t.Fatalf("OpenStream: %v", err)
+	}
+	payload := []byte(strings.Repeat("fragment-credit-", 40))
+	sendDone := make(chan error, 1)
+	go func() {
+		sendDone <- stream.Send(ctx, Message{Payload: payload})
+	}()
+
+	select {
+	case <-firstFragmentRead:
+	case <-time.After(time.Second):
+		t.Fatal("peer did not read first fragment")
+	}
+	select {
+	case err := <-sendDone:
+		t.Fatalf("fragmented Send completed before fragment window updates: %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
+	assertEventually(t, func() bool {
+		return client.Snapshot().CreditWaits > 0
+	}, "fragment stream credit wait")
+	close(streamWindow)
+	assertEventually(t, func() bool {
+		snapshot := client.Snapshot()
+		return snapshot.ConnectionCreditWaits > 0 && snapshot.ConnectionWindowExhausted > 0
+	}, "fragment connection credit wait")
+	close(connectionWindow)
+	if err := <-sendDone; err != nil {
+		t.Fatalf("fragmented Send after window updates: %v", err)
+	}
+	if err := <-peerDone; err != nil {
+		t.Fatalf("peer drain fragmented payload: %v", err)
+	}
+	assertEventually(t, func() bool {
+		clientSnapshot := client.Snapshot()
+		return clientSnapshot.WindowFramesIn > 0 &&
+			clientSnapshot.ConnectionWindowFramesIn > 0
+	}, "fragment window update frames")
+
+	clientSnapshot := client.Snapshot()
+	if clientSnapshot.FragmentFramesOut < 2 ||
+		clientSnapshot.CreditWaits == 0 ||
+		clientSnapshot.ConnectionCreditWaits == 0 ||
+		clientSnapshot.ConnectionWindowExhausted == 0 ||
+		clientSnapshot.WindowFramesIn == 0 ||
+		clientSnapshot.ConnectionWindowFramesIn == 0 {
+		t.Fatalf("fragment backpressure snapshot = %+v, want per-fragment flow-control wait and window updates", clientSnapshot)
+	}
+}
+
+func TestExperimentalMuxTransportFragmentCreditWaitTimeout(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	client := NewExperimentalMuxTransport(
+		clientConn,
+		WithExperimentalMuxMaxFrameBytes(96),
+		WithExperimentalMuxMaxMessageBytes(2048),
+		WithExperimentalMuxReceiveQueueSize(1),
+		WithExperimentalMuxConnectionWindow(1),
+		WithExperimentalMuxCreditWaitTimeout(time.Millisecond),
+	)
+	defer client.Close()
+	defer serverConn.Close()
+
+	firstFragmentRead := make(chan uint64, 1)
+	peerDone := make(chan error, 1)
+	go func() {
+		open := readExperimentalMuxTestFrame(t, serverConn)
+		if open.typ != experimentalMuxFrameOpen {
+			peerDone <- errors.New("first frame is not OPEN")
+			return
+		}
+		first := readExperimentalMuxTestFrame(t, serverConn)
+		if first.typ != experimentalMuxFrameDataFrag {
+			peerDone <- errors.New("first data frame is not DATA_FRAG")
+			return
+		}
+		firstFragmentRead <- first.streamID
+		writeExperimentalMuxTestFrame(t, serverConn, experimentalMuxFrame{typ: experimentalMuxFrameWindow, streamID: first.streamID, window: 1})
+		peerDone <- nil
+	}()
+
+	ctx := context.Background()
+	stream, err := client.OpenStream(ctx)
+	if err != nil {
+		t.Fatalf("OpenStream: %v", err)
+	}
+	payload := []byte(strings.Repeat("timeout-fragment-", 40))
+	if err := stream.Send(ctx, Message{Payload: payload}); CodeOf(err) != CodeDeadlineExceeded {
+		t.Fatalf("fragmented Send timeout error = %v, want CodeDeadlineExceeded", err)
+	}
+	select {
+	case <-firstFragmentRead:
+	default:
+		t.Fatal("peer did not read first fragment")
+	}
+	if err := <-peerDone; err != nil {
+		t.Fatalf("peer staged fragmented timeout: %v", err)
+	}
+
+	clientSnapshot := client.Snapshot()
+	if clientSnapshot.CreditWaitTimeouts == 0 ||
+		clientSnapshot.ConnectionCreditWaits == 0 ||
+		clientSnapshot.ConnectionWindowExhausted == 0 ||
+		clientSnapshot.FragmentFramesOut == 0 ||
+		clientSnapshot.DataFramesOut != 0 {
+		t.Fatalf("fragment timeout snapshot = %+v, want partial fragments and credit wait timeout diagnosis", clientSnapshot)
 	}
 }
 
@@ -931,6 +1096,43 @@ func assertEventually(t *testing.T, fn func() bool, name string) {
 		time.Sleep(time.Millisecond)
 	}
 	t.Fatalf("%s did not become true before deadline", name)
+}
+
+func readExperimentalMuxTestFrame(t *testing.T, conn net.Conn) experimentalMuxFrame {
+	t.Helper()
+	var header [4]byte
+	if _, err := io.ReadFull(conn, header[:]); err != nil {
+		t.Fatalf("read mux test frame header: %v", err)
+	}
+	length := binary.BigEndian.Uint32(header[:])
+	if length == 0 {
+		t.Fatal("read mux test frame length is zero")
+	}
+	data := make([]byte, length)
+	if _, err := io.ReadFull(conn, data); err != nil {
+		t.Fatalf("read mux test frame body: %v", err)
+	}
+	frame, err := decodeExperimentalMuxFrame(data)
+	if err != nil {
+		t.Fatalf("decode mux test frame: %v", err)
+	}
+	return frame
+}
+
+func writeExperimentalMuxTestFrame(t *testing.T, conn net.Conn, frame experimentalMuxFrame) {
+	t.Helper()
+	data, err := encodeExperimentalMuxFrame(frame)
+	if err != nil {
+		t.Fatalf("encode mux test frame: %v", err)
+	}
+	var header [4]byte
+	binary.BigEndian.PutUint32(header[:], uint32(len(data)))
+	if _, err := conn.Write(header[:]); err != nil {
+		t.Fatalf("write mux test frame header: %v", err)
+	}
+	if _, err := conn.Write(data); err != nil {
+		t.Fatalf("write mux test frame body: %v", err)
+	}
 }
 
 func drainExperimentalMuxFrames(conn net.Conn) {

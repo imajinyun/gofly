@@ -191,11 +191,25 @@ type RPCMuxTransportDiagnosis struct {
 	Candidate   ExperimentalMuxCandidateSnapshot `json:"candidate,omitempty"`
 	Adapter     ExperimentalMuxAdapterSnapshot   `json:"adapter,omitempty"`
 	Transport   ExperimentalMuxTransportSnapshot `json:"transport,omitempty"`
+	Negotiation RPCMuxNegotiationDiagnosis       `json:"negotiation,omitempty"`
 	FlowControl RPCMuxFlowControlDiagnosis       `json:"flowControl,omitempty"`
 	Keepalive   RPCMuxKeepaliveDiagnosis         `json:"keepalive,omitempty"`
 	Drain       RPCMuxDrainDiagnosis             `json:"drain,omitempty"`
 	Manager     RPCMuxConnectionManagerDiagnosis `json:"manager,omitempty"`
 	Events      []RPCMuxDiagnosisEvent           `json:"events,omitempty"`
+}
+
+type RPCMuxNegotiationDiagnosis struct {
+	Failures            int64  `json:"failures,omitempty"`
+	TLSFailure          int64  `json:"tls_failure,omitempty"`
+	ALPNMismatch        int64  `json:"alpn_mismatch,omitempty"`
+	PrefaceMismatch     int64  `json:"preface_mismatch,omitempty"`
+	ProtocolMismatch    int64  `json:"protocol_mismatch,omitempty"`
+	FramePolicyMismatch int64  `json:"frame_policy_mismatch,omitempty"`
+	LastEvent           string `json:"lastEvent,omitempty"`
+	LastPhase           string `json:"lastPhase,omitempty"`
+	LastError           string `json:"lastError,omitempty"`
+	PeerProtocol        string `json:"peerProtocol,omitempty"`
 }
 
 type RPCMuxConnectionManagerDiagnosis struct {
@@ -263,6 +277,7 @@ type RPCMuxDiagnosisEvent struct {
 	Endpoint     string        `json:"endpoint,omitempty"`
 	ConnectionID string        `json:"connectionId,omitempty"`
 	PoolSlot     int           `json:"poolSlot,omitempty"`
+	PeerProtocol string        `json:"peerProtocol,omitempty"`
 	Reason       string        `json:"reason,omitempty"`
 	From         string        `json:"from,omitempty"`
 	To           string        `json:"to,omitempty"`
@@ -298,6 +313,7 @@ func FilterRPCMuxDiagnosis(diagnosis RPCMuxTransportDiagnosis, filter RPCMuxDiag
 	event := NormalizeRPCMuxFlowControlEvent(filter.FlowControlEvent)
 	endpoint := normalizeMuxDiagnosisEndpoint(filter.Endpoint)
 	connectionID := normalizeMuxDiagnosisConnectionID(filter.ConnectionID)
+	diagnosis = withRPCMuxNegotiationDiagnosis(diagnosis)
 	if event == "" {
 		diagnosis.FlowControl = withRPCMuxFlowControlEvents(diagnosis.FlowControl, "")
 		diagnosis.Manager = filterRPCMuxManagerDiagnosis(diagnosis.Manager, endpoint, connectionID, filter.PoolSlot, "")
@@ -394,6 +410,7 @@ func rpcMuxDiagnosisEventSpecificityKey(event RPCMuxDiagnosisEvent) string {
 		normalizeMuxDiagnosisEventField(event.Family),
 		normalizeMuxDiagnosisEventField(event.Event),
 		normalizeMuxDiagnosisEndpoint(event.Endpoint),
+		normalizeMuxDiagnosisEventField(event.PeerProtocol),
 		normalizeMuxDiagnosisEventField(event.Reason),
 		normalizeMuxDiagnosisEndpoint(event.From),
 		normalizeMuxDiagnosisEndpoint(event.To),
@@ -543,10 +560,122 @@ func rpcMuxFlowControlEventsFromCounts(event string, writeTimeouts int64, credit
 
 func RPCMuxDiagnosisEvents(diagnosis RPCMuxTransportDiagnosis) []RPCMuxDiagnosisEvent {
 	events := make([]RPCMuxDiagnosisEvent, 0, 8)
+	events = appendMuxCandidateNegotiationDiagnosisEvents(events, diagnosis.Candidate)
 	events = appendMuxFlowControlDiagnosisEvents(events, diagnosis.FlowControl)
 	events = appendMuxDrainDiagnosisEvents(events, diagnosis.Drain)
 	events = appendMuxManagerDiagnosisEvents(events, diagnosis.Manager)
 	return events
+}
+
+func withRPCMuxNegotiationDiagnosis(diagnosis RPCMuxTransportDiagnosis) RPCMuxTransportDiagnosis {
+	snapshot := diagnosis.Candidate
+	if !snapshot.Enabled && diagnosis.Manager.Candidate.Enabled {
+		snapshot = diagnosis.Manager.Candidate
+	}
+	diagnosis.Negotiation = muxNegotiationDiagnosisFromCandidate(snapshot)
+	return diagnosis
+}
+
+func muxNegotiationDiagnosisFromCandidate(snapshot ExperimentalMuxCandidateSnapshot) RPCMuxNegotiationDiagnosis {
+	if !snapshot.Enabled || snapshot.NegotiationFailures <= 0 {
+		return RPCMuxNegotiationDiagnosis{}
+	}
+	diagnosis := RPCMuxNegotiationDiagnosis{
+		Failures:     snapshot.NegotiationFailures,
+		LastEvent:    muxCandidateNegotiationDiagnosisEvent(snapshot.LastNegotiationPhase),
+		LastPhase:    snapshot.LastNegotiationPhase,
+		LastError:    snapshot.LastNegotiationError,
+		PeerProtocol: snapshot.PeerProtocol,
+	}
+	if len(snapshot.NegotiationFailureEvents) == 0 {
+		setMuxNegotiationDiagnosisCount(&diagnosis, diagnosis.LastEvent, snapshot.NegotiationFailures)
+		return diagnosis
+	}
+	var summed int64
+	for _, event := range sortedStringInt64Keys(snapshot.NegotiationFailureEvents) {
+		count := snapshot.NegotiationFailureEvents[event]
+		if count <= 0 {
+			continue
+		}
+		summed += count
+		setMuxNegotiationDiagnosisCount(&diagnosis, event, count)
+	}
+	if diagnosis.Failures <= 0 {
+		diagnosis.Failures = summed
+	}
+	return diagnosis
+}
+
+func setMuxNegotiationDiagnosisCount(diagnosis *RPCMuxNegotiationDiagnosis, event string, count int64) {
+	if diagnosis == nil || count <= 0 {
+		return
+	}
+	switch normalizeMuxDiagnosisEventField(event) {
+	case "tls_failure":
+		diagnosis.TLSFailure = count
+	case "alpn_mismatch":
+		diagnosis.ALPNMismatch = count
+	case "preface_mismatch":
+		diagnosis.PrefaceMismatch = count
+	case "protocol_mismatch":
+		diagnosis.ProtocolMismatch = count
+	case "frame_policy_mismatch":
+		diagnosis.FramePolicyMismatch = count
+	}
+}
+
+func appendMuxCandidateNegotiationDiagnosisEvents(events []RPCMuxDiagnosisEvent, snapshot ExperimentalMuxCandidateSnapshot) []RPCMuxDiagnosisEvent {
+	if !snapshot.Enabled || snapshot.NegotiationFailures <= 0 {
+		return events
+	}
+	if len(snapshot.NegotiationFailureEvents) > 0 {
+		lastEvent := muxCandidateNegotiationDiagnosisEvent(snapshot.LastNegotiationPhase)
+		for _, event := range sortedStringInt64Keys(snapshot.NegotiationFailureEvents) {
+			count := snapshot.NegotiationFailureEvents[event]
+			if count <= 0 {
+				continue
+			}
+			item := RPCMuxDiagnosisEvent{
+				Family: "negotiation",
+				Event:  event,
+				Count:  count,
+			}
+			if event == lastEvent {
+				item.PeerProtocol = snapshot.PeerProtocol
+				item.Reason = snapshot.LastNegotiationError
+			}
+			events = append(events, item)
+		}
+		return events
+	}
+	event := muxCandidateNegotiationDiagnosisEvent(snapshot.LastNegotiationPhase)
+	if event == "" {
+		return events
+	}
+	return append(events, RPCMuxDiagnosisEvent{
+		Family:       "negotiation",
+		Event:        event,
+		Count:        snapshot.NegotiationFailures,
+		PeerProtocol: snapshot.PeerProtocol,
+		Reason:       snapshot.LastNegotiationError,
+	})
+}
+
+func muxCandidateNegotiationDiagnosisEvent(phase string) string {
+	switch normalizeMuxDiagnosisEventField(phase) {
+	case experimentalMuxCandidateFailureTLS:
+		return "tls_failure"
+	case experimentalMuxCandidateFailureALPN:
+		return "alpn_mismatch"
+	case experimentalMuxCandidateFailurePreface:
+		return "preface_mismatch"
+	case experimentalMuxCandidateFailureProtocol:
+		return "protocol_mismatch"
+	case experimentalMuxCandidateFailureFramePolicy:
+		return "frame_policy_mismatch"
+	default:
+		return ""
+	}
 }
 
 func appendMuxFlowControlDiagnosisEvents(events []RPCMuxDiagnosisEvent, diagnosis RPCMuxFlowControlDiagnosis) []RPCMuxDiagnosisEvent {
@@ -1134,9 +1263,11 @@ func (c *HTTPClient) diagnosisSnapshot() RPCDiagnosisSnapshot {
 			if snapshot.Mux.FlowControl.Events == nil {
 				snapshot.Mux.FlowControl = managerMux.FlowControl
 			}
+			snapshot.Mux = withRPCMuxNegotiationDiagnosis(snapshot.Mux)
 			snapshot.Mux.Events = RPCMuxDiagnosisEvents(snapshot.Mux)
 		}
 	}
+	snapshot.Mux = withRPCMuxNegotiationDiagnosis(snapshot.Mux)
 	snapshot.Mux.Events = RPCMuxDiagnosisEvents(snapshot.Mux)
 	return snapshot
 }

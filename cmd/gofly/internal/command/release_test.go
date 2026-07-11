@@ -297,11 +297,34 @@ func TestReleaseGeneratedRPCMuxRetrySmokeCheck(t *testing.T) {
 		evidence["runtimeProof"] != true ||
 		evidence["runtimeCommand"] == nil ||
 		evidence["runtimeProofs"] == nil ||
+		evidence["generatedProjectCommand"] == nil ||
+		evidence["generatedProjectProof"] != true ||
 		evidence["openBeforeRetry"] != true ||
 		evidence["postOpenNoReplay"] != true ||
 		evidence["cooldownBackoff"] != true ||
+		evidence["candidateLargePayloadFragmentation"] != true ||
+		evidence["candidateMessagePolicy"] != true ||
+		evidence["candidateFramePolicyDiagnosis"] != true ||
+		evidence["fragmentBackpressure"] != true ||
+		evidence["fragmentCreditWaitTimeout"] != true ||
+		evidence["fragmentWindowUpdateDiagnosis"] != true ||
+		evidence["generatedMTLSSuccess"] != true ||
+		evidence["negotiatedProtocol"] != true ||
+		evidence["lifecycleDiagnosis"] != true ||
+		evidence["successProtocol"] != "gofly-mux/generated-mtls-test" ||
+		evidence["negotiationSummary"] != true ||
+		evidence["tlsFailureSummary"] != true ||
+		evidence["alpnMismatchSummary"] != true ||
+		evidence["negotiationSummarySurface"] != "/rpc/diagnosis" ||
 		evidence["verifyCommand"] != "go test ./..." {
 		t.Fatalf("generated rpc mux retry smoke evidence payload = %#v", evidence)
+	}
+	phases, ok := evidence["negotiationSummaryPhases"].([]string)
+	if !ok || len(phases) != 3 ||
+		phases[0] != "tls_failure" ||
+		phases[1] != "alpn_mismatch" ||
+		phases[2] != "frame_policy_mismatch" {
+		t.Fatalf("generated rpc mux retry smoke negotiation phases = %#v", evidence["negotiationSummaryPhases"])
 	}
 }
 

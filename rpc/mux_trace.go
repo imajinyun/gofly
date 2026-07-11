@@ -70,7 +70,7 @@ func (e slogRPCMuxDiagnosisEventExporter) ExportRPCMuxDiagnosisEvent(ctx context
 	}
 	attrs = append(attrs, slog.Time("exported_at", record.ExportedAt))
 	switch record.Event.Family {
-	case "flow_control", "health", "drain", "lifecycle":
+	case "flow_control", "health", "drain", "lifecycle", "negotiation":
 		logger.WarnContext(ctx, "rpc mux exported event", attrs...)
 	default:
 		logger.InfoContext(ctx, "rpc mux exported event", attrs...)
@@ -111,6 +111,8 @@ func MuxTraceAttributes(probe RPCDiagnosisProbe) []attribute.KeyValue {
 		attrs = append(attrs, attribute.String("rpc.mux.flow_control.event", probe.FlowControl))
 	}
 	appendMuxTraceFlowControlAttributes(&attrs, probe.Diagnosis.Mux.FlowControl)
+	candidate, negotiated := muxEffectiveCandidateSnapshot(probe.Diagnosis.Mux)
+	appendMuxTraceCandidateAttributes(&attrs, candidate, negotiated)
 	appendMuxTraceManagerAttributes(&attrs, probe.ConnectionID, probe.Diagnosis.Mux.Manager)
 	appendMuxTraceEventAttributes(&attrs, probe.Diagnosis.Mux.Events)
 	return attrs
@@ -122,6 +124,22 @@ func appendMuxTraceFlowControlAttributes(attrs *[]attribute.KeyValue, diagnosis 
 		attribute.Int64("rpc.mux.flow_control.credit_wait_timeout.count", diagnosis.CreditWaitTimeouts),
 		attribute.Int64("rpc.mux.flow_control.connection_window_exhausted.count", diagnosis.ConnectionWindowExhausted),
 	)
+}
+
+func appendMuxTraceCandidateAttributes(attrs *[]attribute.KeyValue, candidate ExperimentalMuxCandidateSnapshot, negotiated bool) {
+	if !candidate.Enabled {
+		return
+	}
+	*attrs = append(*attrs,
+		attribute.Bool("rpc.mux.candidate.tls", candidate.TLS),
+		attribute.Bool("rpc.mux.candidate.mutual_tls", candidate.MutualTLS),
+	)
+	if negotiated && candidate.NegotiatedProtocol != "" {
+		*attrs = append(*attrs, attribute.String("rpc.mux.candidate.negotiated_protocol", candidate.NegotiatedProtocol))
+	}
+	if candidate.Protocol != "" {
+		*attrs = append(*attrs, attribute.String("rpc.mux.candidate.protocol", candidate.Protocol))
+	}
 }
 
 func appendMuxTraceManagerAttributes(attrs *[]attribute.KeyValue, probeConnectionID string, diagnosis RPCMuxConnectionManagerDiagnosis) {
@@ -210,7 +228,7 @@ func appendMuxTraceEventAttributes(attrs *[]attribute.KeyValue, events []RPCMuxD
 		}
 		counts[event.Family] += count
 	}
-	for _, family := range []string{"retry", "health", "flow_control", "drain", "lifecycle"} {
+	for _, family := range []string{"retry", "health", "flow_control", "drain", "lifecycle", "negotiation"} {
 		if count := counts[family]; count > 0 {
 			*attrs = append(*attrs, attribute.Int64("rpc.mux.event."+family+".count", count))
 		}
@@ -346,7 +364,7 @@ func logMuxDiagnosisEvents(ctx context.Context, logger *slog.Logger, probe RPCDi
 	for _, event := range probe.Diagnosis.Mux.Events {
 		attrs := muxDiagnosisEventLogAttrs(probe, event)
 		switch event.Family {
-		case "flow_control", "health", "drain", "lifecycle":
+		case "flow_control", "health", "drain", "lifecycle", "negotiation":
 			logger.WarnContext(ctx, "rpc mux runtime event", attrs...)
 		default:
 			logger.InfoContext(ctx, "rpc mux runtime event", attrs...)
@@ -376,6 +394,9 @@ func muxDiagnosisEventLogAttrs(probe RPCDiagnosisProbe, event RPCMuxDiagnosisEve
 		attrs = append(attrs, slog.Int("pool_slot", event.PoolSlot))
 	} else if probe.PoolSlot > 0 {
 		attrs = append(attrs, slog.Int("pool_slot", probe.PoolSlot))
+	}
+	if event.PeerProtocol != "" {
+		attrs = append(attrs, slog.String("peer_protocol", event.PeerProtocol))
 	}
 	if event.Reason != "" {
 		attrs = append(attrs, slog.String("reason", event.Reason))
@@ -411,6 +432,18 @@ func muxDiagnosisLogAttrs(probe RPCDiagnosisProbe) []any {
 	if probe.FlowControl != "" {
 		attrs = append(attrs, slog.String("flow_control_event", probe.FlowControl))
 	}
+	if candidate, negotiated := muxEffectiveCandidateSnapshot(probe.Diagnosis.Mux); candidate.Enabled {
+		attrs = append(attrs,
+			slog.Bool("tls", candidate.TLS),
+			slog.Bool("mutual_tls", candidate.MutualTLS),
+		)
+		if negotiated && candidate.NegotiatedProtocol != "" {
+			attrs = append(attrs, slog.String("negotiated_protocol", candidate.NegotiatedProtocol))
+		}
+		if candidate.Protocol != "" {
+			attrs = append(attrs, slog.String("candidate_protocol", candidate.Protocol))
+		}
+	}
 	manager := probe.Diagnosis.Mux.Manager
 	if manager.Enabled {
 		attrs = append(attrs,
@@ -442,6 +475,22 @@ func muxDiagnosisLogAttrs(probe RPCDiagnosisProbe) []any {
 		}
 	}
 	return attrs
+}
+
+func muxEffectiveCandidateSnapshot(diagnosis RPCMuxTransportDiagnosis) (ExperimentalMuxCandidateSnapshot, bool) {
+	if len(diagnosis.Manager.Endpoints) == 1 && diagnosis.Manager.Endpoints[0].Adapter.Candidate.Enabled {
+		return diagnosis.Manager.Endpoints[0].Adapter.Candidate, true
+	}
+	if diagnosis.Adapter.Candidate.Enabled {
+		return diagnosis.Adapter.Candidate, true
+	}
+	if !diagnosis.Manager.Enabled && diagnosis.Candidate.Enabled {
+		return diagnosis.Candidate, true
+	}
+	if diagnosis.Manager.Candidate.Enabled {
+		return diagnosis.Manager.Candidate, false
+	}
+	return ExperimentalMuxCandidateSnapshot{}, false
 }
 
 func withMuxRetryReason(reasons map[string]int64, reason string) map[string]int64 {

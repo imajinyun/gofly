@@ -2521,6 +2521,8 @@ func assertGeneratedProjectMatrixCapability(t *testing.T, outDir string, capabil
 			`diagnosis.RetryReasons["open_stream"] != 0`,
 			`diagnosis.HealthBackoffMultiplier != 2`,
 			`diagnosis.HealthMaxCooldown != 30*time.Second`,
+			`/rpc/diagnosis?eventFamily=negotiation&event=frame-policy-mismatch`,
+			`negotiationDiagnosis.Diagnosis.Mux.Negotiation.FramePolicyMismatch != 1`,
 		} {
 			if !strings.Contains(source, marker) {
 				t.Fatalf("generated project matrix capability %s missing marker %q:\n%s", capability, marker, source)

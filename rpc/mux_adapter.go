@@ -618,6 +618,7 @@ func muxDiagnosisFromAdapterSnapshot(snapshot ExperimentalMuxAdapterSnapshot) RP
 			DrainRejects:      transport.DrainRejects,
 		},
 	}
+	diagnosis = withRPCMuxNegotiationDiagnosis(diagnosis)
 	diagnosis.Events = RPCMuxDiagnosisEvents(diagnosis)
 	return diagnosis
 }

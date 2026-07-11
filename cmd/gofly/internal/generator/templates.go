@@ -101,7 +101,7 @@ func main() {
 			})
 		}
 		if c.RPC.Mux.Candidate.Enabled {
-			muxServer, err = rpc.NewExperimentalMuxCandidateServer(c.RPC.Mux.Addr, configureMux, c.RPC.Mux.CandidateConfig())
+			muxServer, err = rpc.NewExperimentalMuxCandidateServer(c.RPC.Mux.Addr, configureMux, c.RPC.Mux.CandidateServerConfig())
 		} else {
 			muxServer, err = rpc.NewExperimentalMuxServer(c.RPC.Mux.Addr, configureMux)
 		}
@@ -277,7 +277,7 @@ const configTemplate = `{
   "rpc": {
     "addr": ":8081",
     "advertise": "http://127.0.0.1:8081",
-    "mux": {"enabled": false, "probe": false, "addr": "127.0.0.1:8082", "endpoints": [], "idleTimeout": 60000000000, "maxOpenRetries": 1, "openRetryReasons": ["dial_failure", "pool_exhausted"], "healthBackoffMultiplier": 2, "healthMaxCooldown": 30000000000, "trace": {"enabled": false, "annotateStreams": false}, "log": {"enabled": false, "diagnosis": false, "exportEvents": false, "eventFamily": "", "event": "", "endpoint": "", "connectionId": ""}, "candidate": {"enabled": false, "protocol": "gofly-mux/experimental-v1", "dialTimeout": 30000000000, "keepAlive": 30000000000, "handshakeTimeout": 10000000000, "keepaliveInterval": 30000000000, "keepaliveIdle": 90000000000, "writeTimeout": 0, "creditWaitTimeout": 0, "maxFrameBytes": 4194304, "maxMessageBytes": 67108864, "maxConcurrentStreams": 128, "receiveQueueSize": 16, "connectionWindow": 16, "payloadCodec": "identity", "frameCodec": "binary", "allowLegacyDowngrade": false, "tls": {}}}
+    "mux": {"enabled": false, "probe": false, "addr": "127.0.0.1:8082", "endpoints": [], "idleTimeout": 60000000000, "maxOpenRetries": 1, "openRetryReasons": ["dial_failure", "pool_exhausted"], "healthBackoffMultiplier": 2, "healthMaxCooldown": 30000000000, "trace": {"enabled": false, "annotateStreams": false}, "log": {"enabled": false, "diagnosis": false, "exportEvents": false, "eventFamily": "", "event": "", "endpoint": "", "connectionId": ""}, "tls": {"enabled": false, "certFile": "", "keyFile": "", "caFile": "", "serverName": ""}, "mtls": {"enabled": false, "clientCAFile": "", "clientCertFile": "", "clientKeyFile": ""}, "alpn": {"enabled": false, "protocol": "gofly-mux/experimental-v1"}, "candidate": {"enabled": false, "protocol": "gofly-mux/experimental-v1", "dialTimeout": 30000000000, "keepAlive": 30000000000, "handshakeTimeout": 10000000000, "keepaliveInterval": 30000000000, "keepaliveIdle": 90000000000, "writeTimeout": 0, "creditWaitTimeout": 0, "maxFrameBytes": 4194304, "maxMessageBytes": 67108864, "maxConcurrentStreams": 128, "receiveQueueSize": 16, "connectionWindow": 16, "payloadCodec": "identity", "frameCodec": "binary", "allowLegacyDowngrade": false, "tls": {}}}
   }
 }
 `
@@ -510,13 +510,23 @@ const adminServerTestTemplate = `package admin
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
+	"math/big"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -648,7 +658,8 @@ func TestAdminDiagnostics(t *testing.T) {
 	candidateCtx, stopCandidate := context.WithCancel(context.Background())
 	defer stopCandidate()
 	candidateDone := make(chan error, 1)
-	candidateCfg := cfg.RPC.Mux.CandidateConfig()
+	candidateServerCfg := cfg.RPC.Mux.CandidateServerConfig()
+	candidateClientCfg := cfg.RPC.Mux.CandidateClientConfig()
 	go func() {
 		candidateDone <- rpc.ServeExperimentalMuxCandidateListener(candidateCtx, candidateListener, func(adapter *rpc.ExperimentalMuxServerAdapter) error {
 			return adapter.RegisterStream("greeter/Watch", func(ctx context.Context, stream *rpc.ExperimentalMuxStream) error {
@@ -661,11 +672,11 @@ func TestAdminDiagnostics(t *testing.T) {
 				}
 				return stream.Close(ctx, "ok")
 			})
-		}, candidateCfg)
+		}, candidateServerCfg)
 	}()
 	candidateManager, err := rpc.NewExperimentalMuxConnectionManager(
 		rpc.NewStaticResolver("tcp://"+candidateListener.Addr().String()),
-		rpc.WithExperimentalMuxConnectionManagerCandidateConfig(candidateCfg),
+		rpc.WithExperimentalMuxConnectionManagerCandidateConfig(candidateClientCfg),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -704,6 +715,339 @@ func TestAdminDiagnostics(t *testing.T) {
 	stopCandidate()
 	if err := <-candidateDone; err != nil {
 		t.Fatalf("candidate mux server stopped with error: %v", err)
+	}
+
+	negotiationListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	negotiationCtx, stopNegotiation := context.WithCancel(context.Background())
+	defer stopNegotiation()
+	negotiationDone := make(chan error, 1)
+	negotiationServerCfg := cfg.RPC.Mux.CandidateServerConfig()
+	negotiationServerCfg.FrameCodec = "json"
+	go func() {
+		negotiationDone <- rpc.ServeExperimentalMuxCandidateListener(negotiationCtx, negotiationListener, func(adapter *rpc.ExperimentalMuxServerAdapter) error {
+			return adapter.RegisterStream("greeter/Watch", func(ctx context.Context, stream *rpc.ExperimentalMuxStream) error {
+				return stream.Close(ctx, "unexpected")
+			})
+		}, negotiationServerCfg)
+	}()
+	negotiationManager, err := rpc.NewExperimentalMuxConnectionManager(
+		rpc.NewStaticResolver("tcp://"+negotiationListener.Addr().String()),
+		rpc.WithExperimentalMuxConnectionManagerCandidateConfig(cfg.RPC.Mux.CandidateClientConfig()),
+		rpc.WithExperimentalMuxConnectionManagerMaxOpenRetries(0),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	negotiationClient, err := rpc.NewClient("http://unused", rpc.WithExperimentalMuxConnectionManager(negotiationManager))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := negotiationClient.MuxStream(context.Background(), "greeter/Watch"); err == nil || !strings.Contains(err.Error(), "frame codec") {
+		t.Fatalf("negotiation mux stream = %v, want frame policy mismatch", err)
+	}
+	negotiationRec := httptest.NewRecorder()
+	negotiationClient.DiagnosisHandler().ServeHTTP(negotiationRec, httptest.NewRequest(http.MethodGet, "/rpc/diagnosis?eventFamily=negotiation&event=frame-policy-mismatch", nil))
+	if negotiationRec.Code != http.StatusOK {
+		t.Fatalf("negotiation diagnosis status = %d body=%q", negotiationRec.Code, negotiationRec.Body.String())
+	}
+	var negotiationDiagnosis rpc.RPCDiagnosisProbe
+	if err := json.NewDecoder(negotiationRec.Body).Decode(&negotiationDiagnosis); err != nil {
+		t.Fatal(err)
+	}
+	if !negotiationDiagnosis.Matched ||
+		negotiationDiagnosis.Diagnosis.Mux.Negotiation.Failures != 1 ||
+		negotiationDiagnosis.Diagnosis.Mux.Negotiation.FramePolicyMismatch != 1 ||
+		negotiationDiagnosis.Diagnosis.Mux.Negotiation.LastEvent != "frame_policy_mismatch" ||
+		len(negotiationDiagnosis.Diagnosis.Mux.Events) != 1 ||
+		negotiationDiagnosis.Diagnosis.Mux.Events[0].Event != "frame_policy_mismatch" {
+		t.Fatalf("negotiation diagnosis = %+v, want generated frame policy summary evidence", negotiationDiagnosis)
+	}
+	if err := negotiationClient.Close(); err != nil {
+		t.Fatal(err)
+	}
+	stopNegotiation()
+	if err := <-negotiationDone; err != nil {
+		t.Fatalf("negotiation mux server stopped with error: %v", err)
+	}
+
+	tlsDir := t.TempDir()
+	tlsCA, tlsCAKey := generatedRPCTLSCA(t, tlsDir)
+	tlsCAFile := filepath.Join(tlsDir, "ca.crt")
+	tlsServerCert, tlsServerKey := generatedRPCTLSLeaf(t, tlsDir, "server", tlsCA, tlsCAKey)
+	tlsClientCert, tlsClientKey := generatedRPCTLSLeaf(t, tlsDir, "client", tlsCA, tlsCAKey)
+	tlsCfg := cfg
+	tlsCfg.RPC.Mux.TLS = appconfig.RPCMuxTLSConfig{
+		Enabled:    true,
+		CertFile:   tlsServerCert,
+		KeyFile:    tlsServerKey,
+		CAFile:     tlsCAFile,
+		ServerName: "svc",
+	}
+	tlsCfg.RPC.Mux.MutualTLS = appconfig.RPCMuxMutualTLSConfig{
+		Enabled:        true,
+		ClientCAFile:   tlsCAFile,
+		ClientCertFile: tlsClientCert,
+		ClientKeyFile:  tlsClientKey,
+	}
+	tlsCfg.RPC.Mux.ALPN = appconfig.RPCMuxALPNConfig{Enabled: true, Protocol: "gofly-mux/generated-mtls-test"}
+	tlsCfg.RPC.Mux.Trace = appconfig.RPCMuxTraceConfig{Enabled: true, AnnotateStreams: true}
+	tlsCfg.RPC.Mux.Log = appconfig.RPCMuxLogConfig{Enabled: true, Diagnosis: true}
+	tlsCandidate := tlsCfg.RPC.Mux.CandidateClientConfig()
+	if tlsCandidate.Protocol != "gofly-mux/generated-mtls-test" ||
+		tlsCandidate.TLS.CAFile != tlsCAFile ||
+		tlsCandidate.TLS.CertFile != tlsClientCert ||
+		tlsCandidate.TLS.KeyFile != tlsClientKey ||
+		tlsCandidate.TLS.ServerName != "svc" {
+		t.Fatalf("generated mux client TLS config = %+v, want client mTLS + ALPN profile", tlsCandidate)
+	}
+	tlsServerCandidate := tlsCfg.RPC.Mux.CandidateServerConfig()
+	if tlsServerCandidate.Protocol != "gofly-mux/generated-mtls-test" ||
+		tlsServerCandidate.TLS.CertFile != tlsServerCert ||
+		tlsServerCandidate.TLS.KeyFile != tlsServerKey ||
+		tlsServerCandidate.TLS.ClientCAFile != tlsCAFile {
+		t.Fatalf("generated mux server TLS config = %+v, want server mTLS + ALPN profile", tlsServerCandidate)
+	}
+	mtlsListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mtlsCtx, stopMTLS := context.WithCancel(context.Background())
+	defer stopMTLS()
+	mtlsDone := make(chan error, 1)
+	go func() {
+		mtlsDone <- rpc.ServeExperimentalMuxCandidateListener(mtlsCtx, mtlsListener, func(adapter *rpc.ExperimentalMuxServerAdapter) error {
+			return adapter.RegisterStream("greeter/Watch", func(ctx context.Context, stream *rpc.ExperimentalMuxStream) error {
+				msg, err := stream.Receive(ctx)
+				if err != nil {
+					return err
+				}
+				if err := stream.Send(ctx, rpc.Message{Payload: append([]byte("mtls:"), msg.Payload...)}); err != nil {
+					return err
+				}
+				return stream.Close(ctx, "ok")
+			})
+		}, tlsServerCandidate)
+	}()
+	mtlsManager, err := rpc.NewExperimentalMuxConnectionManager(
+		rpc.NewStaticResolver("tcp://"+mtlsListener.Addr().String()),
+		rpc.WithExperimentalMuxConnectionManagerCandidateConfig(tlsCandidate),
+		rpc.WithExperimentalMuxConnectionManagerMaxOpenRetries(0),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mtlsRecorder := tracetest.NewSpanRecorder()
+	mtlsProvider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(mtlsRecorder))
+	defer func() { _ = mtlsProvider.Shutdown(context.Background()) }()
+	mtlsTraceCtx, mtlsSpan := mtlsProvider.Tracer("generated-rpc-admin-smoke").Start(context.Background(), "mux-mtls-success", oteltrace.WithSpanKind(oteltrace.SpanKindClient))
+	var mtlsLogBuf bytes.Buffer
+	previousMTLSLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&mtlsLogBuf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	defer slog.SetDefault(previousMTLSLogger)
+	mtlsClientOptions := append(tlsCfg.RPC.Mux.ClientOptions(), rpc.WithExperimentalMuxConnectionManager(mtlsManager))
+	mtlsClient, err := rpc.NewClient("http://unused", mtlsClientOptions...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mtlsStream, err := mtlsClient.MuxStream(mtlsTraceCtx, "greeter/Watch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mtlsSpan.End()
+	if err := mtlsStream.Send(context.Background(), rpc.Message{Payload: []byte("probe")}); err != nil {
+		t.Fatal(err)
+	}
+	mtlsResponse, err := mtlsStream.Receive(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(mtlsResponse.Payload) != "mtls:probe" {
+		t.Fatalf("mTLS mux payload = %q, want mtls probe response", mtlsResponse.Payload)
+	}
+	if _, err := mtlsStream.Receive(context.Background()); !errors.Is(err, io.EOF) {
+		t.Fatalf("mTLS mux terminal receive = %v, want EOF", err)
+	}
+	mtlsRec := httptest.NewRecorder()
+	mtlsClient.DiagnosisHandler().ServeHTTP(mtlsRec, httptest.NewRequest(http.MethodGet, "/rpc/diagnosis", nil))
+	if mtlsRec.Code != http.StatusOK {
+		t.Fatalf("mTLS diagnosis status = %d body=%q", mtlsRec.Code, mtlsRec.Body.String())
+	}
+	var mtlsDiagnosis rpc.RPCDiagnosisProbe
+	if err := json.NewDecoder(mtlsRec.Body).Decode(&mtlsDiagnosis); err != nil {
+		t.Fatal(err)
+	}
+	if !mtlsDiagnosis.Diagnosis.Mux.Manager.Candidate.TLS ||
+		!mtlsDiagnosis.Diagnosis.Mux.Manager.Candidate.MutualTLS ||
+		mtlsDiagnosis.Diagnosis.Mux.Manager.Candidate.NegotiatedProtocol != "gofly-mux/generated-mtls-test" ||
+		len(mtlsDiagnosis.Diagnosis.Mux.Manager.Endpoints) != 1 ||
+		!mtlsDiagnosis.Diagnosis.Mux.Manager.Endpoints[0].Adapter.Candidate.TLS ||
+		!mtlsDiagnosis.Diagnosis.Mux.Manager.Endpoints[0].Adapter.Candidate.MutualTLS ||
+		mtlsDiagnosis.Diagnosis.Mux.Manager.Endpoints[0].Adapter.Candidate.NegotiatedProtocol != "gofly-mux/generated-mtls-test" ||
+		mtlsDiagnosis.Diagnosis.Mux.Manager.Endpoints[0].Adapter.Transport.OpenedStreams != 1 ||
+		mtlsDiagnosis.Diagnosis.Mux.Manager.Endpoints[0].Adapter.Transport.ClosedStreams != 1 ||
+		mtlsDiagnosis.Diagnosis.Mux.Manager.Endpoints[0].Adapter.Transport.ActiveStreams != 0 {
+		t.Fatalf("mTLS diagnosis = %+v, want generated TLS/mTLS negotiated lifecycle evidence", mtlsDiagnosis.Diagnosis.Mux.Manager)
+	}
+	if err := mtlsClient.Close(); err != nil {
+		t.Fatal(err)
+	}
+	mtlsTraceSpans := mtlsRecorder.Ended()
+	if len(mtlsTraceSpans) != 1 {
+		t.Fatalf("mTLS trace spans = %d, want generated mux mTLS span", len(mtlsTraceSpans))
+	}
+	mtlsTraceAttrs := generatedTraceAttributeMap(mtlsTraceSpans[0].Attributes())
+	if !mtlsTraceAttrs["rpc.mux.candidate.tls"].AsBool() ||
+		!mtlsTraceAttrs["rpc.mux.candidate.mutual_tls"].AsBool() ||
+		mtlsTraceAttrs["rpc.mux.candidate.negotiated_protocol"].AsString() != "gofly-mux/generated-mtls-test" ||
+		mtlsTraceAttrs["rpc.mux.candidate.protocol"].AsString() != "gofly-mux/generated-mtls-test" {
+		t.Fatalf("mTLS trace attributes = %+v, want generated TLS/mTLS negotiated protocol", mtlsTraceAttrs)
+	}
+	mtlsLogLine := mtlsLogBuf.String()
+	for _, want := range []string{
+		"\"msg\":\"rpc mux stream diagnosis\"",
+		"\"tls\":true",
+		"\"mutual_tls\":true",
+		"\"negotiated_protocol\":\"gofly-mux/generated-mtls-test\"",
+		"\"candidate_protocol\":\"gofly-mux/generated-mtls-test\"",
+	} {
+		if !strings.Contains(mtlsLogLine, want) {
+			t.Fatalf("mTLS mux diagnosis log missing %s:\n%s", want, mtlsLogLine)
+		}
+	}
+	if err := mtlsManager.Close(); err != nil {
+		t.Fatal(err)
+	}
+	stopMTLS()
+	if err := <-mtlsDone; err != nil {
+		t.Fatalf("mTLS mux server stopped with error: %v", err)
+	}
+
+	tlsServer, err := rpc.NewExperimentalMuxCandidateServer("127.0.0.1:0", func(adapter *rpc.ExperimentalMuxServerAdapter) error {
+		return adapter.RegisterStream("greeter/Watch", func(ctx context.Context, stream *rpc.ExperimentalMuxStream) error {
+			return stream.Close(ctx, "unexpected")
+		})
+	}, tlsServerCandidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tlsServer.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tlsServer.Shutdown(context.Background()) }()
+	tlsNoClientCert := tlsCandidate
+	tlsNoClientCert.TLS.CertFile = ""
+	tlsNoClientCert.TLS.KeyFile = ""
+	tlsFailureManager, err := rpc.NewExperimentalMuxConnectionManager(
+		rpc.NewStaticResolver("tcp://"+tlsServer.Addr()),
+		rpc.WithExperimentalMuxConnectionManagerCandidateConfig(tlsNoClientCert),
+		rpc.WithExperimentalMuxConnectionManagerMaxOpenRetries(0),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tlsFailureClient, err := rpc.NewClient("http://unused", rpc.WithExperimentalMuxConnectionManager(tlsFailureManager))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tlsFailureClient.MuxStream(context.Background(), "greeter/Watch"); err == nil {
+		t.Fatal("generated mux TLS stream without client certificate succeeded, want tls_failure")
+	}
+	tlsFailureRec := httptest.NewRecorder()
+	tlsFailureClient.DiagnosisHandler().ServeHTTP(tlsFailureRec, httptest.NewRequest(http.MethodGet, "/rpc/diagnosis?eventFamily=negotiation&event=tls-failure", nil))
+	if tlsFailureRec.Code != http.StatusOK {
+		t.Fatalf("TLS failure diagnosis status = %d body=%q", tlsFailureRec.Code, tlsFailureRec.Body.String())
+	}
+	var tlsFailureDiagnosis rpc.RPCDiagnosisProbe
+	if err := json.NewDecoder(tlsFailureRec.Body).Decode(&tlsFailureDiagnosis); err != nil {
+		t.Fatal(err)
+	}
+	if !tlsFailureDiagnosis.Matched ||
+		tlsFailureDiagnosis.Diagnosis.Mux.Negotiation.TLSFailure != 1 ||
+		tlsFailureDiagnosis.Diagnosis.Mux.Negotiation.LastEvent != "tls_failure" ||
+		len(tlsFailureDiagnosis.Diagnosis.Mux.Events) != 1 ||
+		tlsFailureDiagnosis.Diagnosis.Mux.Events[0].Event != "tls_failure" {
+		t.Fatalf("TLS failure diagnosis = %+v, want generated tls_failure admin evidence", tlsFailureDiagnosis)
+	}
+	if err := tlsFailureClient.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := tlsFailureManager.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	alpnTLSCfg, err := (tlsCfg.RPC.Mux.CandidateServerConfig().TLS).ServerTLSConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	alpnListener, err := tls.Listen("tcp", "127.0.0.1:0", alpnTLSCfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	alpnCtx, stopALPN := context.WithCancel(context.Background())
+	defer stopALPN()
+	alpnDone := make(chan error, 1)
+	go func() {
+		for {
+			conn, err := alpnListener.Accept()
+			if err != nil {
+				select {
+				case <-alpnCtx.Done():
+					alpnDone <- nil
+				default:
+					alpnDone <- err
+				}
+				return
+			}
+			if tlsConn, ok := conn.(*tls.Conn); ok {
+				_ = tlsConn.Handshake()
+			}
+			_ = conn.Close()
+		}
+	}()
+	alpnManager, err := rpc.NewExperimentalMuxConnectionManager(
+		rpc.NewStaticResolver("tcp://"+alpnListener.Addr().String()),
+		rpc.WithExperimentalMuxConnectionManagerCandidateConfig(tlsCandidate),
+		rpc.WithExperimentalMuxConnectionManagerMaxOpenRetries(0),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	alpnClient, err := rpc.NewClient("http://unused", rpc.WithExperimentalMuxConnectionManager(alpnManager))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := alpnClient.MuxStream(context.Background(), "greeter/Watch"); err == nil || !strings.Contains(err.Error(), "negotiated protocol") {
+		t.Fatalf("generated mux ALPN stream = %v, want alpn_mismatch", err)
+	}
+	alpnRec := httptest.NewRecorder()
+	alpnClient.DiagnosisHandler().ServeHTTP(alpnRec, httptest.NewRequest(http.MethodGet, "/rpc/diagnosis?eventFamily=negotiation&event=alpn-mismatch", nil))
+	if alpnRec.Code != http.StatusOK {
+		t.Fatalf("ALPN diagnosis status = %d body=%q", alpnRec.Code, alpnRec.Body.String())
+	}
+	var alpnDiagnosis rpc.RPCDiagnosisProbe
+	if err := json.NewDecoder(alpnRec.Body).Decode(&alpnDiagnosis); err != nil {
+		t.Fatal(err)
+	}
+	if !alpnDiagnosis.Matched ||
+		alpnDiagnosis.Diagnosis.Mux.Negotiation.ALPNMismatch != 1 ||
+		alpnDiagnosis.Diagnosis.Mux.Negotiation.LastEvent != "alpn_mismatch" ||
+		len(alpnDiagnosis.Diagnosis.Mux.Events) != 1 ||
+		alpnDiagnosis.Diagnosis.Mux.Events[0].Event != "alpn_mismatch" {
+		t.Fatalf("ALPN diagnosis = %+v, want generated alpn_mismatch admin evidence", alpnDiagnosis)
+	}
+	if err := alpnClient.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := alpnManager.Close(); err != nil {
+		t.Fatal(err)
+	}
+	stopALPN()
+	_ = alpnListener.Close()
+	if err := <-alpnDone; err != nil {
+		t.Fatalf("ALPN listener stopped with error: %v", err)
 	}
 
 	badMuxListener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -1101,6 +1445,71 @@ func generatedTraceAttributeMap(attrs []attribute.KeyValue) map[string]attribute
 	}
 	return out
 }
+
+func generatedRPCTLSCA(t *testing.T, dir string) (*x509.Certificate, *ecdsa.PrivateKey) {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generate ca key: %v", err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "generated-rpc-test-ca"},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(time.Hour),
+		IsCA:                  true,
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature,
+		BasicConstraintsValid: true,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatalf("create ca cert: %v", err)
+	}
+	cert, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatalf("parse ca cert: %v", err)
+	}
+	generatedRPCTestPEM(t, filepath.Join(dir, "ca.crt"), "CERTIFICATE", der)
+	return cert, key
+}
+
+func generatedRPCTLSLeaf(t *testing.T, dir, name string, caCert *x509.Certificate, caKey *ecdsa.PrivateKey) (certFile, keyFile string) {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generate leaf key: %v", err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(2),
+		Subject:      pkix.Name{CommonName: name},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth},
+		DNSNames:     []string{"svc"},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, caCert, &key.PublicKey, caKey)
+	if err != nil {
+		t.Fatalf("create leaf cert: %v", err)
+	}
+	certFile = filepath.Join(dir, name+".crt")
+	keyFile = filepath.Join(dir, name+".key")
+	generatedRPCTestPEM(t, certFile, "CERTIFICATE", der)
+	keyDER, err := x509.MarshalECPrivateKey(key)
+	if err != nil {
+		t.Fatalf("marshal leaf key: %v", err)
+	}
+	generatedRPCTestPEM(t, keyFile, "EC PRIVATE KEY", keyDER)
+	return certFile, keyFile
+}
+
+func generatedRPCTestPEM(t *testing.T, path, blockType string, der []byte) {
+	t.Helper()
+	data := pem.EncodeToMemory(&pem.Block{Type: blockType, Bytes: der})
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatalf("write %s: %v", path, err)
+	}
+}
 `
 
 const apiNewTemplate = `type PingRequest {
@@ -1217,6 +1626,9 @@ type RPCMuxConfig struct {
 	HealthMaxCooldown time.Duration ` + "`json:\"healthMaxCooldown,omitempty\"`" + `
 	Trace RPCMuxTraceConfig ` + "`json:\"trace,omitempty\"`" + `
 	Log RPCMuxLogConfig ` + "`json:\"log,omitempty\"`" + `
+	TLS RPCMuxTLSConfig ` + "`json:\"tls,omitempty\"`" + `
+	MutualTLS RPCMuxMutualTLSConfig ` + "`json:\"mtls,omitempty\"`" + `
+	ALPN RPCMuxALPNConfig ` + "`json:\"alpn,omitempty\"`" + `
 	Candidate RPCMuxCandidateConfig ` + "`json:\"candidate,omitempty\"`" + `
 }
 
@@ -1234,6 +1646,28 @@ type RPCMuxLogConfig struct {
 	Endpoint string ` + "`json:\"endpoint,omitempty\"`" + `
 	ConnectionID string ` + "`json:\"connectionId,omitempty\"`" + `
 	PoolSlot int ` + "`json:\"poolSlot,omitempty\"`" + `
+}
+
+type RPCMuxTLSConfig struct {
+	Enabled bool ` + "`json:\"enabled,omitempty\"`" + `
+	CertFile string ` + "`json:\"certFile,omitempty\"`" + `
+	KeyFile string ` + "`json:\"keyFile,omitempty\"`" + `
+	CAFile string ` + "`json:\"caFile,omitempty\"`" + `
+	ServerName string ` + "`json:\"serverName,omitempty\"`" + `
+	InsecureSkipVerify bool ` + "`json:\"insecureSkipVerify,omitempty\"`" + `
+	MinVersion uint16 ` + "`json:\"minVersion,omitempty\"`" + `
+}
+
+type RPCMuxMutualTLSConfig struct {
+	Enabled bool ` + "`json:\"enabled,omitempty\"`" + `
+	ClientCAFile string ` + "`json:\"clientCAFile,omitempty\"`" + `
+	ClientCertFile string ` + "`json:\"clientCertFile,omitempty\"`" + `
+	ClientKeyFile string ` + "`json:\"clientKeyFile,omitempty\"`" + `
+}
+
+type RPCMuxALPNConfig struct {
+	Enabled bool ` + "`json:\"enabled,omitempty\"`" + `
+	Protocol string ` + "`json:\"protocol,omitempty\"`" + `
 }
 
 type RPCMuxCandidateConfig struct {
@@ -1361,10 +1795,26 @@ func (c Config) ServiceConf() app.ServiceConf {
 }
 
 func (c RPCMuxConfig) CandidateConfig() rpc.ExperimentalMuxCandidateConfig {
+	return c.CandidateClientConfig()
+}
+
+func (c RPCMuxConfig) CandidateServerConfig() rpc.ExperimentalMuxCandidateConfig {
+	return c.candidateConfigWithTLS(c.serverTLSConfig())
+}
+
+func (c RPCMuxConfig) CandidateClientConfig() rpc.ExperimentalMuxCandidateConfig {
+	return c.candidateConfigWithTLS(c.clientTLSConfig())
+}
+
+func (c RPCMuxConfig) candidateConfigWithTLS(tlsConfig security.TLSConfig) rpc.ExperimentalMuxCandidateConfig {
 	candidate := c.Candidate
+	protocol := candidate.Protocol
+	if c.ALPN.Enabled && strings.TrimSpace(c.ALPN.Protocol) != "" {
+		protocol = strings.TrimSpace(c.ALPN.Protocol)
+	}
 	return rpc.ExperimentalMuxCandidateConfig{
-		Protocol:             candidate.Protocol,
-		TLS:                  candidate.TLS,
+		Protocol:             protocol,
+		TLS:                  tlsConfig,
 		DialTimeout:          candidate.DialTimeout,
 		KeepAlive:            candidate.KeepAlive,
 		HandshakeTimeout:     candidate.HandshakeTimeout,
@@ -1382,6 +1832,67 @@ func (c RPCMuxConfig) CandidateConfig() rpc.ExperimentalMuxCandidateConfig {
 		DrainGrace:           candidate.DrainGrace,
 		AllowLegacyDowngrade: candidate.AllowLegacyDowngrade,
 	}
+}
+
+func (c RPCMuxConfig) CandidateTLSConfig() security.TLSConfig {
+	return c.clientTLSConfig()
+}
+
+func (c RPCMuxConfig) serverTLSConfig() security.TLSConfig {
+	tlsConfig := c.Candidate.TLS
+	if c.TLS.Enabled {
+		if tlsConfig.CertFile == "" {
+			tlsConfig.CertFile = c.TLS.CertFile
+		}
+		if tlsConfig.KeyFile == "" {
+			tlsConfig.KeyFile = c.TLS.KeyFile
+		}
+		if tlsConfig.CAFile == "" {
+			tlsConfig.CAFile = c.TLS.CAFile
+		}
+		if tlsConfig.ServerName == "" {
+			tlsConfig.ServerName = c.TLS.ServerName
+		}
+		if !tlsConfig.InsecureSkipVerify {
+			tlsConfig.InsecureSkipVerify = c.TLS.InsecureSkipVerify
+		}
+		if tlsConfig.MinVersion == 0 {
+			tlsConfig.MinVersion = c.TLS.MinVersion
+		}
+	}
+	if c.MutualTLS.Enabled {
+		if tlsConfig.ClientCAFile == "" {
+			tlsConfig.ClientCAFile = c.MutualTLS.ClientCAFile
+		}
+	}
+	return tlsConfig
+}
+
+func (c RPCMuxConfig) clientTLSConfig() security.TLSConfig {
+	tlsConfig := c.Candidate.TLS
+	if c.TLS.Enabled {
+		if tlsConfig.CAFile == "" {
+			tlsConfig.CAFile = c.TLS.CAFile
+		}
+		if tlsConfig.ServerName == "" {
+			tlsConfig.ServerName = c.TLS.ServerName
+		}
+		if !tlsConfig.InsecureSkipVerify {
+			tlsConfig.InsecureSkipVerify = c.TLS.InsecureSkipVerify
+		}
+		if tlsConfig.MinVersion == 0 {
+			tlsConfig.MinVersion = c.TLS.MinVersion
+		}
+	}
+	if c.MutualTLS.Enabled {
+		if tlsConfig.CertFile == "" {
+			tlsConfig.CertFile = c.MutualTLS.ClientCertFile
+		}
+		if tlsConfig.KeyFile == "" {
+			tlsConfig.KeyFile = c.MutualTLS.ClientKeyFile
+		}
+	}
+	return tlsConfig
 }
 
 func (c RPCMuxConfig) ClientOptions() []rpc.ClientOption {

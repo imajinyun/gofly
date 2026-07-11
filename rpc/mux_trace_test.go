@@ -67,6 +67,102 @@ func TestMuxTraceAttributesIncludeConnectionDiagnosis(t *testing.T) {
 	}
 }
 
+func TestMuxTraceAndLogAttributesIncludeNegotiatedMTLSSuccess(t *testing.T) {
+	probe := RPCDiagnosisProbe{
+		Target:   "http://unused",
+		Method:   "orders/Watch",
+		Endpoint: "tcp://127.0.0.1:9003",
+		Matched:  true,
+		Diagnosis: RPCDiagnosisSnapshot{Mux: RPCMuxTransportDiagnosis{
+			Manager: RPCMuxConnectionManagerDiagnosis{
+				Enabled: true,
+				Mode:    "experimental_mux_manager",
+				Candidate: ExperimentalMuxCandidateSnapshot{
+					Enabled:            true,
+					Protocol:           "gofly-mux/mtls-test",
+					NegotiatedProtocol: "gofly-mux/mtls-test",
+					TLS:                true,
+					MutualTLS:          true,
+				},
+				Endpoints: []ExperimentalMuxEndpointSnapshot{{
+					Endpoint:     "tcp://127.0.0.1:9003",
+					ConnectionID: "muxconn-12",
+					PoolSlot:     1,
+					Adapter: ExperimentalMuxAdapterSnapshot{Candidate: ExperimentalMuxCandidateSnapshot{
+						Enabled:            true,
+						Protocol:           "gofly-mux/mtls-test",
+						NegotiatedProtocol: "gofly-mux/mtls-test",
+						TLS:                true,
+						MutualTLS:          true,
+					}},
+				}},
+			},
+		}},
+	}
+
+	attrs := muxAttributeMap(MuxTraceAttributes(probe))
+	if got := attrs["rpc.mux.candidate.tls"].AsBool(); !got {
+		t.Fatalf("trace tls attr = %v, want true (attrs=%v)", got, attrs)
+	}
+	if got := attrs["rpc.mux.candidate.mutual_tls"].AsBool(); !got {
+		t.Fatalf("trace mutual tls attr = %v, want true", got)
+	}
+	if got := attrs["rpc.mux.candidate.negotiated_protocol"].AsString(); got != "gofly-mux/mtls-test" {
+		t.Fatalf("trace negotiated protocol attr = %q, want gofly-mux/mtls-test (attrs=%v)", got, attrs)
+	}
+	if got := attrs["rpc.mux.candidate.protocol"].AsString(); got != "gofly-mux/mtls-test" {
+		t.Fatalf("trace candidate protocol attr = %q, want gofly-mux/mtls-test", got)
+	}
+
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	client := &HTTPClient{opts: clientOptions{muxLog: true, muxLogger: logger}}
+	client.logMuxStreamDiagnosis(context.Background(), probe, nil)
+	line := buf.String()
+	for _, want := range []string{
+		`"tls":true`,
+		`"mutual_tls":true`,
+		`"negotiated_protocol":"gofly-mux/mtls-test"`,
+		`"candidate_protocol":"gofly-mux/mtls-test"`,
+		`"connection_id":"muxconn-12"`,
+	} {
+		if !strings.Contains(line, want) {
+			t.Fatalf("mux success log missing %s:\n%s", want, line)
+		}
+	}
+}
+
+func TestMuxTraceAttributesDoNotTreatCandidateConfigAsNegotiatedSuccess(t *testing.T) {
+	probe := RPCDiagnosisProbe{
+		Diagnosis: RPCDiagnosisSnapshot{Mux: RPCMuxTransportDiagnosis{
+			Manager: RPCMuxConnectionManagerDiagnosis{
+				Enabled: true,
+				Candidate: ExperimentalMuxCandidateSnapshot{
+					Enabled:            true,
+					Protocol:           "gofly-mux/config-only",
+					NegotiatedProtocol: "gofly-mux/config-only",
+					TLS:                true,
+					MutualTLS:          true,
+				},
+			},
+		}},
+	}
+
+	attrs := muxAttributeMap(MuxTraceAttributes(probe))
+	if got := attrs["rpc.mux.candidate.tls"].AsBool(); !got {
+		t.Fatalf("trace tls attr = %v, want true", got)
+	}
+	if got := attrs["rpc.mux.candidate.mutual_tls"].AsBool(); !got {
+		t.Fatalf("trace mutual tls attr = %v, want true", got)
+	}
+	if _, ok := attrs["rpc.mux.candidate.negotiated_protocol"]; ok {
+		t.Fatalf("trace attrs = %v, config-only candidate must not report negotiated protocol", attrs)
+	}
+	if got := attrs["rpc.mux.candidate.protocol"].AsString(); got != "gofly-mux/config-only" {
+		t.Fatalf("trace candidate protocol attr = %q, want config-only protocol", got)
+	}
+}
+
 func TestAnnotateMuxDiagnosisSpanSetsTraceOnlyConnectionAttributes(t *testing.T) {
 	recorder := tracetest.NewSpanRecorder()
 	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
@@ -240,6 +336,95 @@ func TestSlogRPCMuxDiagnosisEventExporterEmitsStructuredEvent(t *testing.T) {
 		if !strings.Contains(line, want) {
 			t.Fatalf("exported mux event log missing %s:\n%s", want, line)
 		}
+	}
+}
+
+func TestRPCMuxDiagnosisEventsDeriveNegotiationFailures(t *testing.T) {
+	tests := []struct {
+		name  string
+		phase string
+		want  string
+	}{
+		{name: "tls", phase: experimentalMuxCandidateFailureTLS, want: "tls_failure"},
+		{name: "alpn", phase: experimentalMuxCandidateFailureALPN, want: "alpn_mismatch"},
+		{name: "preface", phase: experimentalMuxCandidateFailurePreface, want: "preface_mismatch"},
+		{name: "protocol", phase: experimentalMuxCandidateFailureProtocol, want: "protocol_mismatch"},
+		{name: "frame policy", phase: experimentalMuxCandidateFailureFramePolicy, want: "frame_policy_mismatch"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			diagnosis := RPCMuxTransportDiagnosis{Candidate: ExperimentalMuxCandidateSnapshot{
+				Enabled:              true,
+				NegotiationFailures:  2,
+				LastNegotiationPhase: tt.phase,
+				LastNegotiationError: "negotiation failed",
+				PeerProtocol:         "gofly-mux/peer",
+			}}
+			diagnosis = withRPCMuxNegotiationDiagnosis(diagnosis)
+
+			events := RPCMuxDiagnosisEvents(diagnosis)
+			if len(events) != 1 {
+				t.Fatalf("events = %+v, want one negotiation event", events)
+			}
+			event := events[0]
+			if event.Family != "negotiation" ||
+				event.Event != tt.want ||
+				event.Count != 2 ||
+				event.PeerProtocol != "gofly-mux/peer" ||
+				event.Reason != "negotiation failed" {
+				t.Fatalf("negotiation event = %+v, want %s taxonomy with peer protocol and reason", event, tt.want)
+			}
+			if diagnosis.Negotiation.Failures != 2 ||
+				diagnosis.Negotiation.LastEvent != tt.want ||
+				diagnosis.Negotiation.LastError != "negotiation failed" ||
+				diagnosis.Negotiation.PeerProtocol != "gofly-mux/peer" {
+				t.Fatalf("negotiation summary = %+v, want %s count and last failure details", diagnosis.Negotiation, tt.want)
+			}
+
+			attrs := muxAttributeMap(MuxTraceAttributes(RPCDiagnosisProbe{
+				Diagnosis: RPCDiagnosisSnapshot{Mux: RPCMuxTransportDiagnosis{Events: events}},
+			}))
+			if got := attrs["rpc.mux.event.negotiation.count"].AsInt64(); got != 2 {
+				t.Fatalf("negotiation trace event count = %d, want 2 (attrs=%v)", got, attrs)
+			}
+		})
+	}
+}
+
+func TestRPCMuxDiagnosisEventsDeriveAccumulatedNegotiationFailures(t *testing.T) {
+	diagnosis := RPCMuxTransportDiagnosis{Candidate: ExperimentalMuxCandidateSnapshot{
+		Enabled:                  true,
+		NegotiationFailures:      3,
+		NegotiationFailureEvents: map[string]int64{"preface_mismatch": 1, "frame_policy_mismatch": 2},
+		LastNegotiationPhase:     experimentalMuxCandidateFailureFramePolicy,
+		LastNegotiationError:     "peer frame codec mismatch",
+		PeerProtocol:             "gofly-mux/peer",
+	}}
+	diagnosis = withRPCMuxNegotiationDiagnosis(diagnosis)
+	events := RPCMuxDiagnosisEvents(diagnosis)
+
+	if len(events) != 2 {
+		t.Fatalf("events = %+v, want two accumulated negotiation events", events)
+	}
+	if diagnosis.Negotiation.Failures != 3 ||
+		diagnosis.Negotiation.PrefaceMismatch != 1 ||
+		diagnosis.Negotiation.FramePolicyMismatch != 2 ||
+		diagnosis.Negotiation.LastEvent != "frame_policy_mismatch" ||
+		diagnosis.Negotiation.LastError != "peer frame codec mismatch" ||
+		diagnosis.Negotiation.PeerProtocol != "gofly-mux/peer" {
+		t.Fatalf("negotiation summary = %+v, want accumulated phase counters", diagnosis.Negotiation)
+	}
+	byEvent := make(map[string]RPCMuxDiagnosisEvent, len(events))
+	for _, event := range events {
+		byEvent[event.Event] = event
+	}
+	if event := byEvent["preface_mismatch"]; event.Family != "negotiation" || event.Count != 1 || event.Reason != "" {
+		t.Fatalf("preface event = %+v, want historical count without last reason", event)
+	}
+	if event := byEvent["frame_policy_mismatch"]; event.Count != 2 ||
+		event.PeerProtocol != "gofly-mux/peer" ||
+		event.Reason != "peer frame codec mismatch" {
+		t.Fatalf("frame policy event = %+v, want last failure details", event)
 	}
 }
 

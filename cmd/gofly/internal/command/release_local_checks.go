@@ -1,6 +1,7 @@
 package command
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -291,7 +292,34 @@ func releaseGeneratedRPCMuxRetrySmokeCheck() (releaseCheckItem, []string) {
 		`rpc.CodeOf(err) != rpc.CodeUnavailable`,
 		`diagnosis.RetryReasons["open_stream"] != 0`,
 	}
-	missing := missingReleaseMarkers(source, append(openBeforeMarkers, postOpenMarkers...))
+	negotiationSummaryMarkers := []string{
+		`/rpc/diagnosis?eventFamily=negotiation&event=frame-policy-mismatch`,
+		`negotiationDiagnosis.Diagnosis.Mux.Negotiation.Failures != 1`,
+		`negotiationDiagnosis.Diagnosis.Mux.Negotiation.FramePolicyMismatch != 1`,
+		`negotiationDiagnosis.Diagnosis.Mux.Negotiation.LastEvent != "frame_policy_mismatch"`,
+	}
+	generatedSuccessMarkers := []string{
+		`mtlsClient.MuxStream(mtlsTraceCtx, "greeter/Watch")`,
+		`"mtls:probe"`,
+		`mtlsClient.DiagnosisHandler().ServeHTTP(mtlsRec, httptest.NewRequest(http.MethodGet, "/rpc/diagnosis", nil))`,
+		`mtlsDiagnosis.Diagnosis.Mux.Manager.Candidate.TLS`,
+		`mtlsDiagnosis.Diagnosis.Mux.Manager.Candidate.MutualTLS`,
+		`mtlsDiagnosis.Diagnosis.Mux.Manager.Candidate.NegotiatedProtocol != "gofly-mux/generated-mtls-test"`,
+		`mtlsDiagnosis.Diagnosis.Mux.Manager.Endpoints[0].Adapter.Candidate.NegotiatedProtocol != "gofly-mux/generated-mtls-test"`,
+		`mtlsDiagnosis.Diagnosis.Mux.Manager.Endpoints[0].Adapter.Transport.OpenedStreams != 1`,
+		`mtlsDiagnosis.Diagnosis.Mux.Manager.Endpoints[0].Adapter.Transport.ClosedStreams != 1`,
+		`mtlsDiagnosis.Diagnosis.Mux.Manager.Endpoints[0].Adapter.Transport.ActiveStreams != 0`,
+		`mtlsClientOptions := append(tlsCfg.RPC.Mux.ClientOptions(), rpc.WithExperimentalMuxConnectionManager(mtlsManager))`,
+		`mtlsClient.MuxStream(mtlsTraceCtx, "greeter/Watch")`,
+		`mtlsTraceAttrs["rpc.mux.candidate.tls"].AsBool()`,
+		`mtlsTraceAttrs["rpc.mux.candidate.mutual_tls"].AsBool()`,
+		`mtlsTraceAttrs["rpc.mux.candidate.negotiated_protocol"].AsString() != "gofly-mux/generated-mtls-test"`,
+		`"\"negotiated_protocol\":\"gofly-mux/generated-mtls-test\""`,
+		`"\"mutual_tls\":true"`,
+	}
+	markers := append(append(openBeforeMarkers, postOpenMarkers...), negotiationSummaryMarkers...)
+	markers = append(markers, generatedSuccessMarkers...)
+	missing := missingReleaseMarkers(source, markers)
 	if len(missing) > 0 {
 		item.Status = "fail"
 		item.Detail = "generated RPC mux retry smoke markers missing"
@@ -303,6 +331,13 @@ func releaseGeneratedRPCMuxRetrySmokeCheck() (releaseCheckItem, []string) {
 		"TestExperimentalMuxConnectionManagerRetriesOpenBeforeStreamAfterPoolExhaustion",
 		"TestExperimentalMuxConnectionManagerDoesNotReplayAfterStreamOpen",
 		"TestExperimentalMuxConnectionManagerEndpointHealthBackoffCooldown",
+		"TestExperimentalMuxCandidateAdapterFragmentsLargePayload",
+		"TestExperimentalMuxCandidateAdapterRejectsOversizedMessagePolicy",
+		"TestExperimentalMuxTransportFragmentBackpressureWaitsForWindowUpdate",
+		"TestExperimentalMuxTransportFragmentCreditWaitTimeout",
+		"TestExperimentalMuxConnectionManagerTLSFailureDiagnosisEvents",
+		"TestExperimentalMuxConnectionManagerALPNMismatchDiagnosisEvents",
+		"TestExperimentalMuxConnectionManagerCandidateDowngradeDiagnostics",
 	}
 	runtimeCommand := []string{"test", "-count=1", "-shuffle=on", "./rpc", "-run", strings.Join(runtimeTests, "|")}
 	runtimeOutput, runtimeErr := runReleaseGoCommand(runtimeCommand...)
@@ -319,24 +354,93 @@ func releaseGeneratedRPCMuxRetrySmokeCheck() (releaseCheckItem, []string) {
 		}}
 		return item, []string{"generated RPC mux retry runtime proof failed"}
 	}
-	item.Detail = "generated RPC mux retry smoke covers open-before retry and post-open no replay"
+	generatedProjectCommand, generatedProjectOutput, generatedProjectErr := runGeneratedRPCMuxAdminSmokeReleaseProof()
+	if generatedProjectErr != nil {
+		item.Status = "fail"
+		item.Detail = strings.TrimSpace(string(generatedProjectOutput))
+		if item.Detail == "" {
+			item.Detail = generatedProjectErr.Error()
+		}
+		item.Blocker = true
+		item.Evidence = map[string]any{"generated-rpc-mux-retry-smoke": map[string]any{
+			"runtimeCommand":          append([]string{"go"}, runtimeCommand...),
+			"runtimeOutput":           strings.TrimSpace(string(runtimeOutput)),
+			"generatedProjectCommand": generatedProjectCommand,
+			"generatedProjectOutput":  strings.TrimSpace(string(generatedProjectOutput)),
+		}}
+		return item, []string{"generated RPC mux admin smoke proof failed"}
+	}
+	negotiationSummaryPhases := []string{"tls_failure", "alpn_mismatch", "frame_policy_mismatch"}
+	item.Detail = "generated RPC mux smoke covers retry boundary and TLS/ALPN/frame-policy negotiation summary admin diagnosis"
 	item.Evidence = map[string]any{
 		"generated-rpc-mux-retry-smoke": map[string]any{
-			"schema":            "gofly.generated_rpc_mux_retry_smoke.v1",
-			"source":            path,
-			"verifyCommand":     "go test ./...",
-			"runtimeCommand":    append([]string{"go"}, runtimeCommand...),
-			"runtimeOutput":     strings.TrimSpace(string(runtimeOutput)),
-			"runtimeProof":      true,
-			"runtimeProofs":     runtimeTests,
-			"openBeforeRetry":   true,
-			"postOpenNoReplay":  true,
-			"cooldownBackoff":   true,
-			"openBeforeMarkers": openBeforeMarkers,
-			"postOpenMarkers":   postOpenMarkers,
+			"schema":                             "gofly.generated_rpc_mux_retry_smoke.v1",
+			"source":                             path,
+			"verifyCommand":                      "go test ./...",
+			"runtimeCommand":                     append([]string{"go"}, runtimeCommand...),
+			"runtimeOutput":                      strings.TrimSpace(string(runtimeOutput)),
+			"generatedProjectCommand":            generatedProjectCommand,
+			"generatedProjectOutput":             strings.TrimSpace(string(generatedProjectOutput)),
+			"runtimeProof":                       true,
+			"runtimeProofs":                      runtimeTests,
+			"generatedProjectProof":              true,
+			"openBeforeRetry":                    true,
+			"postOpenNoReplay":                   true,
+			"cooldownBackoff":                    true,
+			"candidateLargePayloadFragmentation": true,
+			"candidateMessagePolicy":             true,
+			"candidateFramePolicyDiagnosis":      true,
+			"fragmentBackpressure":               true,
+			"fragmentCreditWaitTimeout":          true,
+			"fragmentWindowUpdateDiagnosis":      true,
+			"generatedMTLSSuccess":               true,
+			"negotiatedProtocol":                 true,
+			"lifecycleDiagnosis":                 true,
+			"successProtocol":                    "gofly-mux/generated-mtls-test",
+			"negotiationSummary":                 true,
+			"tlsFailureSummary":                  true,
+			"alpnMismatchSummary":                true,
+			"negotiationSummaryPhases":           negotiationSummaryPhases,
+			"negotiationSummarySurface":          "/rpc/diagnosis",
+			"openBeforeMarkers":                  openBeforeMarkers,
+			"postOpenMarkers":                    postOpenMarkers,
+			"negotiationSummaryMarkers":          negotiationSummaryMarkers,
+			"generatedSuccessMarkers":            generatedSuccessMarkers,
 		},
 	}
 	return item, nil
+}
+
+func runGeneratedRPCMuxAdminSmokeReleaseProof() ([]string, []byte, error) {
+	root, err := releaseRepoRoot()
+	if err != nil {
+		return nil, nil, err
+	}
+	dir, err := os.MkdirTemp("", "gofly-release-rpc-mux-admin-*")
+	if err != nil {
+		return nil, nil, err
+	}
+	defer os.RemoveAll(dir)
+	projectDir := filepath.Join(dir, "greeter")
+	if err := generator.GenerateService(generator.ServiceOptions{
+		Name:          "greeter",
+		Module:        "example.com/greeter",
+		Dir:           projectDir,
+		FrameworkPath: root,
+	}); err != nil {
+		return nil, nil, err
+	}
+	var output bytes.Buffer
+	tidyCommand := []string{"go", "mod", "tidy"}
+	tidyOutput, err := runReleaseGoCommandInDir(projectDir, tidyCommand[1:]...)
+	output.Write(tidyOutput)
+	if err != nil {
+		return tidyCommand, output.Bytes(), err
+	}
+	command := []string{"go", "test", "-count=1", "./internal/admin", "-run", "TestAdminDiagnostics"}
+	testOutput, err := runReleaseGoCommandInDir(projectDir, command[1:]...)
+	output.Write(testOutput)
+	return command, output.Bytes(), err
 }
 
 func missingReleaseMarkers(source string, markers []string) []string {
@@ -361,6 +465,17 @@ func runReleaseGoCommand(args ...string) ([]byte, error) {
 	// #nosec G204 G702 -- release check invokes the configured Go binary with fixed argv segments.
 	cmd := exec.Command(goCmd, args...)
 	cmd.Dir = root
+	return cmd.CombinedOutput()
+}
+
+func runReleaseGoCommandInDir(dir string, args ...string) ([]byte, error) {
+	goCmd := strings.TrimSpace(os.Getenv("GO"))
+	if goCmd == "" {
+		goCmd = "go"
+	}
+	// #nosec G204 G702 -- release check invokes the configured Go binary with fixed argv segments in a generated temp project.
+	cmd := exec.Command(goCmd, args...)
+	cmd.Dir = dir
 	return cmd.CombinedOutput()
 }
 

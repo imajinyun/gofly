@@ -83,7 +83,7 @@ func buildServiceScaffoldIR(opts ServiceScaffoldOptions) (serviceScaffoldIR, err
 
 	data := serviceScaffoldData(opts)
 	files := serviceFilesForProfile(style, opts.Name, profile)
-	mergeServiceScaffoldExtras(files, opts)
+	mergeServiceScaffoldExtras(files, opts, style)
 
 	files, err = applyServiceTemplateSource(files, opts)
 	if err != nil {
@@ -215,12 +215,15 @@ func serviceScaffoldData(opts ServiceScaffoldOptions) map[string]string {
 	}, opts.Name)
 }
 
-func mergeServiceScaffoldExtras(files map[string]string, opts ServiceScaffoldOptions) {
+func mergeServiceScaffoldExtras(files map[string]string, opts ServiceScaffoldOptions, style string) {
 	if strings.EqualFold(opts.Kind, "api") && !opts.SkipAPISpec {
 		files[opts.Name+".api"] = apiNewTemplate
 	}
 	if strings.EqualFold(opts.Kind, "rpc") {
 		files[opts.Name+".proto"] = rpcNewTemplate
+		if style == ServiceStyleProduction {
+			files[filepath.Join("internal", "config", "config_test.go")] = rpcConfigTestTemplate
+		}
 	}
 	for path, content := range opts.ExtraFiles {
 		files[path] = content

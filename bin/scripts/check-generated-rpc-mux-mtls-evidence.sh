@@ -30,9 +30,15 @@ required = {
     "candidateLargePayloadFragmentation": True,
     "candidateMessagePolicy": True,
     "candidateFramePolicyDiagnosis": True,
+    "candidatePolicyRiskModeValidation": True,
     "fragmentBackpressure": True,
     "fragmentCreditWaitTimeout": True,
     "fragmentWindowUpdateDiagnosis": True,
+    "fragmentWindowRefillPolicy": True,
+    "fragmentWindowRefillRuntimeDiagnosis": True,
+    "generatedRefillProfileAdminSmoke": True,
+    "fragmentMaxDeferredFailFast": True,
+    "generatedPolicyRiskModeValidation": True,
     "successProtocol": "gofly-mux/generated-mtls-test",
 }
 missing = {
@@ -47,6 +53,10 @@ markers = evidence.get("generatedSuccessMarkers") or []
 for marker in (
     'mtlsClient.MuxStream(mtlsTraceCtx, "greeter/Watch")',
     "mtlsClientOptions := append(tlsCfg.RPC.Mux.ClientOptions(), rpc.WithExperimentalMuxConnectionManager(mtlsManager))",
+    'mtlsClient.DiagnosisHandler().ServeHTTP(refillRec, httptest.NewRequest(http.MethodGet, "/rpc/diagnosis?flowControlEvent=fragment-window-refill&eventFamily=flow-control&event=fragment-window-refill", nil))',
+    "refillDiagnosis.Diagnosis.Mux.Manager.RefillProfile.Refills < 1",
+    "refillDiagnosis.Diagnosis.Mux.Manager.RefillProfile.LastFlowControlEvent != \"fragment_window_refill\"",
+    "refillDiagnosis.Diagnosis.Mux.Events[0].Event != \"fragment_window_refill\"",
     "mtlsDiagnosis.Diagnosis.Mux.Manager.Candidate.MutualTLS",
     'mtlsDiagnosis.Diagnosis.Mux.Manager.Candidate.NegotiatedProtocol != "gofly-mux/generated-mtls-test"',
     "mtlsDiagnosis.Diagnosis.Mux.Manager.Endpoints[0].Adapter.Transport.OpenedStreams != 1",
@@ -61,8 +71,12 @@ runtime_proofs = set(evidence.get("runtimeProofs") or [])
 for proof in (
     "TestExperimentalMuxCandidateAdapterFragmentsLargePayload",
     "TestExperimentalMuxCandidateAdapterRejectsOversizedMessagePolicy",
+    "TestExperimentalMuxCandidateConfigValidateFragmentWindowPolicyRiskModes",
     "TestExperimentalMuxTransportFragmentBackpressureWaitsForWindowUpdate",
     "TestExperimentalMuxTransportFragmentCreditWaitTimeout",
+    "TestExperimentalMuxTransportFragmentWindowRefillPolicy",
+    "TestExperimentalMuxCandidateFragmentBackpressureMetrics",
+    "TestExperimentalMuxCandidateConfigValidateFragmentWindowRefillPolicy",
 ):
     if proof not in runtime_proofs:
         raise SystemExit(f"generated RPC mux candidate payload proof missing: {proof}")

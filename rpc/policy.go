@@ -206,6 +206,7 @@ type RPCMuxNegotiationDiagnosis struct {
 	PrefaceMismatch     int64  `json:"preface_mismatch,omitempty"`
 	ProtocolMismatch    int64  `json:"protocol_mismatch,omitempty"`
 	FramePolicyMismatch int64  `json:"frame_policy_mismatch,omitempty"`
+	PolicyRiskRejected  int64  `json:"fragment_window_policy_risk,omitempty"`
 	LastEvent           string `json:"lastEvent,omitempty"`
 	LastPhase           string `json:"lastPhase,omitempty"`
 	LastError           string `json:"lastError,omitempty"`
@@ -217,6 +218,8 @@ type RPCMuxConnectionManagerDiagnosis struct {
 	Mode                    string                                  `json:"mode,omitempty"`
 	Candidate               ExperimentalMuxCandidateSnapshot        `json:"candidate,omitempty"`
 	FlowControl             RPCMuxFlowControlDiagnosis              `json:"flowControl,omitempty"`
+	RefillProfile           RPCMuxRefillProfile                     `json:"refillProfile,omitempty"`
+	RefillProfiles          []RPCMuxRefillProfile                   `json:"refillProfiles,omitempty"`
 	IdleTimeout             time.Duration                           `json:"idleTimeout,omitempty"`
 	MaxStreamsPerConn       int                                     `json:"maxStreamsPerConn,omitempty"`
 	MaxConnsPerEndpoint     int                                     `json:"maxConnsPerEndpoint,omitempty"`
@@ -250,24 +253,75 @@ type RPCMuxConnectionManagerDiagnosis struct {
 }
 
 type RPCMuxFlowControlDiagnosis struct {
-	ReceiveQueueSize          int                               `json:"receiveQueueSize,omitempty"`
-	ConnectionWindow          int                               `json:"connectionWindow,omitempty"`
-	ConnectionCreditWaits     int64                             `json:"connectionCreditWaits,omitempty"`
-	StreamCreditWaits         int64                             `json:"streamCreditWaits,omitempty"`
-	CreditWaitTimeouts        int64                             `json:"creditWaitTimeouts,omitempty"`
-	WriteTimeouts             int64                             `json:"writeTimeouts,omitempty"`
-	ConnectionWindowExhausted int64                             `json:"connectionWindowExhausted,omitempty"`
-	WindowFramesIn            int64                             `json:"windowFramesIn,omitempty"`
-	WindowFramesOut           int64                             `json:"windowFramesOut,omitempty"`
-	ConnectionWindowIn        int64                             `json:"connectionWindowIn,omitempty"`
-	ConnectionWindowOut       int64                             `json:"connectionWindowOut,omitempty"`
-	BackpressureEvents        int64                             `json:"backpressureEvents,omitempty"`
-	Events                    []RPCMuxFlowControlEventDiagnosis `json:"events,omitempty"`
+	ReceiveQueueSize                        int                               `json:"receiveQueueSize,omitempty"`
+	ConnectionWindow                        int                               `json:"connectionWindow,omitempty"`
+	ConnectionCreditWaits                   int64                             `json:"connectionCreditWaits,omitempty"`
+	StreamCreditWaits                       int64                             `json:"streamCreditWaits,omitempty"`
+	CreditWaitTimeouts                      int64                             `json:"creditWaitTimeouts,omitempty"`
+	WriteTimeouts                           int64                             `json:"writeTimeouts,omitempty"`
+	ConnectionWindowExhausted               int64                             `json:"connectionWindowExhausted,omitempty"`
+	FragmentFramesIn                        int64                             `json:"fragmentFramesIn,omitempty"`
+	FragmentFramesOut                       int64                             `json:"fragmentFramesOut,omitempty"`
+	FragmentBackpressure                    int64                             `json:"fragmentBackpressure,omitempty"`
+	FragmentStreamWindowUpdatePolicy        string                            `json:"fragmentStreamWindowUpdatePolicy,omitempty"`
+	FragmentConnectionWindowUpdatePolicy    string                            `json:"fragmentConnectionWindowUpdatePolicy,omitempty"`
+	FragmentStreamWindowRefillRatio         float64                           `json:"fragmentStreamWindowRefillRatio,omitempty"`
+	FragmentConnectionWindowRefillRatio     float64                           `json:"fragmentConnectionWindowRefillRatio,omitempty"`
+	FragmentMaxDeferredFragments            int                               `json:"fragmentMaxDeferredFragments,omitempty"`
+	FragmentWindowRefills                   int64                             `json:"fragmentWindowRefills,omitempty"`
+	FragmentWindowRefillLatencyTotal        time.Duration                     `json:"fragmentWindowRefillLatencyTotal,omitempty"`
+	FragmentWindowRefillLatencyMax          time.Duration                     `json:"fragmentWindowRefillLatencyMax,omitempty"`
+	FragmentWindowRefillLatencyAvg          time.Duration                     `json:"fragmentWindowRefillLatencyAvg,omitempty"`
+	FragmentDeferredStreamWindowUpdates     int64                             `json:"fragmentDeferredStreamWindowUpdates,omitempty"`
+	FragmentDeferredConnectionWindowUpdates int64                             `json:"fragmentDeferredConnectionWindowUpdates,omitempty"`
+	FragmentWindowPolicyRisk                bool                              `json:"fragmentWindowPolicyRisk,omitempty"`
+	FragmentWindowPolicyRiskReason          string                            `json:"fragmentWindowPolicyRiskReason,omitempty"`
+	FragmentWindowPolicyRiskMode            string                            `json:"fragmentWindowPolicyRiskMode,omitempty"`
+	FragmentEstimatedMaxFragments           int                               `json:"fragmentEstimatedMaxFragments,omitempty"`
+	WindowFramesIn                          int64                             `json:"windowFramesIn,omitempty"`
+	WindowFramesOut                         int64                             `json:"windowFramesOut,omitempty"`
+	ConnectionWindowIn                      int64                             `json:"connectionWindowIn,omitempty"`
+	ConnectionWindowOut                     int64                             `json:"connectionWindowOut,omitempty"`
+	BackpressureEvents                      int64                             `json:"backpressureEvents,omitempty"`
+	LastFlowControlEvent                    string                            `json:"lastFlowControlEvent,omitempty"`
+	LastFlowControlEventAt                  time.Time                         `json:"lastFlowControlEventAt,omitempty"`
+	LastBackpressureEvent                   string                            `json:"lastBackpressureEvent,omitempty"`
+	LastBackpressureEventAt                 time.Time                         `json:"lastBackpressureEventAt,omitempty"`
+	Events                                  []RPCMuxFlowControlEventDiagnosis `json:"events,omitempty"`
 }
 
 type RPCMuxFlowControlEventDiagnosis struct {
 	Event string `json:"event"`
 	Count int64  `json:"count"`
+}
+
+type RPCMuxRefillProfile struct {
+	Endpoint                        string        `json:"endpoint,omitempty"`
+	ConnectionID                    string        `json:"connectionId,omitempty"`
+	PoolSlot                        int           `json:"poolSlot,omitempty"`
+	ReceiveQueueSize                int           `json:"receiveQueueSize,omitempty"`
+	ConnectionWindow                int           `json:"connectionWindow,omitempty"`
+	StreamWindowUpdatePolicy        string        `json:"streamWindowUpdatePolicy,omitempty"`
+	ConnectionWindowUpdatePolicy    string        `json:"connectionWindowUpdatePolicy,omitempty"`
+	StreamWindowRefillRatio         float64       `json:"streamWindowRefillRatio,omitempty"`
+	ConnectionWindowRefillRatio     float64       `json:"connectionWindowRefillRatio,omitempty"`
+	MaxDeferredFragments            int           `json:"maxDeferredFragments,omitempty"`
+	Refills                         int64         `json:"refills,omitempty"`
+	RefillLatencyTotal              time.Duration `json:"refillLatencyTotal,omitempty"`
+	RefillLatencyMax                time.Duration `json:"refillLatencyMax,omitempty"`
+	RefillLatencyAvg                time.Duration `json:"refillLatencyAvg,omitempty"`
+	DeferredStreamWindowUpdates     int64         `json:"deferredStreamWindowUpdates,omitempty"`
+	DeferredConnectionWindowUpdates int64         `json:"deferredConnectionWindowUpdates,omitempty"`
+	BackpressureEvents              int64         `json:"backpressureEvents,omitempty"`
+	FragmentBackpressure            int64         `json:"fragmentBackpressure,omitempty"`
+	LastFlowControlEvent            string        `json:"lastFlowControlEvent,omitempty"`
+	LastFlowControlEventAt          time.Time     `json:"lastFlowControlEventAt,omitempty"`
+	LastBackpressureEvent           string        `json:"lastBackpressureEvent,omitempty"`
+	LastBackpressureEventAt         time.Time     `json:"lastBackpressureEventAt,omitempty"`
+	PolicyRisk                      bool          `json:"policyRisk,omitempty"`
+	PolicyRiskReason                string        `json:"policyRiskReason,omitempty"`
+	PolicyRiskMode                  string        `json:"policyRiskMode,omitempty"`
+	EstimatedMaxFragments           int           `json:"estimatedMaxFragments,omitempty"`
 }
 
 type RPCMuxDiagnosisEvent struct {
@@ -289,7 +343,7 @@ func NormalizeRPCMuxFlowControlEvent(event string) string {
 	event = strings.TrimSpace(strings.ToLower(event))
 	event = strings.ReplaceAll(event, "-", "_")
 	switch event {
-	case "write_timeout", "credit_wait_timeout", "connection_window_exhausted":
+	case "write_timeout", "credit_wait_timeout", "connection_window_exhausted", "fragment_backpressure", "fragment_window_refill", "fragment_window_policy_risk":
 		return event
 	default:
 		return ""
@@ -455,12 +509,98 @@ func filterExperimentalMuxTransportFlowControl(snapshot ExperimentalMuxTransport
 	case "write_timeout":
 		snapshot.CreditWaitTimeouts = 0
 		snapshot.ConnectionWindowExhausted = 0
+		snapshot.BackpressureEvents = 0
+		snapshot.FragmentFramesIn = 0
+		snapshot.FragmentFramesOut = 0
+		snapshot.FragmentStreamWindowUpdatePolicy = ""
+		snapshot.FragmentConnectionWindowUpdatePolicy = ""
+		snapshot.FragmentStreamWindowRefillRatio = 0
+		snapshot.FragmentConnectionWindowRefillRatio = 0
+		snapshot.FragmentMaxDeferredFragments = 0
+		snapshot.FragmentWindowRefills = 0
+		snapshot.FragmentWindowRefillLatencyTotal = 0
+		snapshot.FragmentWindowRefillLatencyMax = 0
+		snapshot.FragmentWindowRefillLatencyAvg = 0
+		snapshot.FragmentDeferredStreamWindowUpdates = 0
+		snapshot.FragmentDeferredConnectionWindowUpdates = 0
+		snapshot.FragmentWindowPolicyRisk = false
+		snapshot.FragmentWindowPolicyRiskReason = ""
+		snapshot.FragmentWindowPolicyRiskMode = ""
+		snapshot.FragmentEstimatedMaxFragments = 0
 	case "credit_wait_timeout":
 		snapshot.WriteTimeouts = 0
 		snapshot.ConnectionWindowExhausted = 0
+		snapshot.BackpressureEvents = 0
+		snapshot.FragmentFramesIn = 0
+		snapshot.FragmentFramesOut = 0
+		snapshot.FragmentStreamWindowUpdatePolicy = ""
+		snapshot.FragmentConnectionWindowUpdatePolicy = ""
+		snapshot.FragmentStreamWindowRefillRatio = 0
+		snapshot.FragmentConnectionWindowRefillRatio = 0
+		snapshot.FragmentMaxDeferredFragments = 0
+		snapshot.FragmentWindowRefills = 0
+		snapshot.FragmentWindowRefillLatencyTotal = 0
+		snapshot.FragmentWindowRefillLatencyMax = 0
+		snapshot.FragmentWindowRefillLatencyAvg = 0
+		snapshot.FragmentDeferredStreamWindowUpdates = 0
+		snapshot.FragmentDeferredConnectionWindowUpdates = 0
+		snapshot.FragmentWindowPolicyRisk = false
+		snapshot.FragmentWindowPolicyRiskReason = ""
+		snapshot.FragmentWindowPolicyRiskMode = ""
+		snapshot.FragmentEstimatedMaxFragments = 0
 	case "connection_window_exhausted":
 		snapshot.WriteTimeouts = 0
 		snapshot.CreditWaitTimeouts = 0
+		snapshot.BackpressureEvents = 0
+		snapshot.FragmentFramesIn = 0
+		snapshot.FragmentFramesOut = 0
+		snapshot.FragmentStreamWindowUpdatePolicy = ""
+		snapshot.FragmentConnectionWindowUpdatePolicy = ""
+		snapshot.FragmentStreamWindowRefillRatio = 0
+		snapshot.FragmentConnectionWindowRefillRatio = 0
+		snapshot.FragmentMaxDeferredFragments = 0
+		snapshot.FragmentWindowRefills = 0
+		snapshot.FragmentWindowRefillLatencyTotal = 0
+		snapshot.FragmentWindowRefillLatencyMax = 0
+		snapshot.FragmentWindowRefillLatencyAvg = 0
+		snapshot.FragmentDeferredStreamWindowUpdates = 0
+		snapshot.FragmentDeferredConnectionWindowUpdates = 0
+		snapshot.FragmentWindowPolicyRisk = false
+		snapshot.FragmentWindowPolicyRiskReason = ""
+		snapshot.FragmentWindowPolicyRiskMode = ""
+		snapshot.FragmentEstimatedMaxFragments = 0
+	case "fragment_backpressure":
+		snapshot.WriteTimeouts = 0
+		snapshot.CreditWaitTimeouts = 0
+		snapshot.ConnectionWindowExhausted = 0
+		snapshot.FragmentWindowRefills = 0
+		snapshot.FragmentWindowRefillLatencyTotal = 0
+		snapshot.FragmentWindowRefillLatencyMax = 0
+		snapshot.FragmentWindowRefillLatencyAvg = 0
+		snapshot.FragmentWindowPolicyRisk = false
+		snapshot.FragmentWindowPolicyRiskReason = ""
+		snapshot.FragmentWindowPolicyRiskMode = ""
+		snapshot.FragmentEstimatedMaxFragments = 0
+	case "fragment_window_refill":
+		snapshot.WriteTimeouts = 0
+		snapshot.CreditWaitTimeouts = 0
+		snapshot.ConnectionWindowExhausted = 0
+		snapshot.BackpressureEvents = 0
+		snapshot.FragmentFramesIn = 0
+		snapshot.FragmentFramesOut = 0
+		snapshot.FragmentWindowPolicyRisk = false
+		snapshot.FragmentWindowPolicyRiskReason = ""
+		snapshot.FragmentWindowPolicyRiskMode = ""
+		snapshot.FragmentEstimatedMaxFragments = 0
+	case "fragment_window_policy_risk":
+		snapshot.WriteTimeouts = 0
+		snapshot.CreditWaitTimeouts = 0
+		snapshot.ConnectionWindowExhausted = 0
+		snapshot.BackpressureEvents = 0
+		snapshot.FragmentFramesIn = 0
+		snapshot.FragmentFramesOut = 0
+		snapshot.FragmentDeferredStreamWindowUpdates = 0
+		snapshot.FragmentDeferredConnectionWindowUpdates = 0
 	}
 	return snapshot
 }
@@ -468,6 +608,7 @@ func filterExperimentalMuxTransportFlowControl(snapshot ExperimentalMuxTransport
 func filterRPCMuxManagerDiagnosis(diagnosis RPCMuxConnectionManagerDiagnosis, endpoint string, connectionID string, poolSlot int, event string) RPCMuxConnectionManagerDiagnosis {
 	diagnosis = filterRPCMuxManagerEndpoints(diagnosis, endpoint, connectionID, poolSlot)
 	diagnosis.FlowControl = filterRPCMuxFlowControlDiagnosis(diagnosis.FlowControl, event)
+	diagnosis.RefillProfile, diagnosis.RefillProfiles = muxManagerRefillProfiles(diagnosis.Endpoints, diagnosis.FlowControl)
 	for i := range diagnosis.Endpoints {
 		diagnosis.Endpoints[i].Adapter = filterRPCMuxAdapterFlowControl(diagnosis.Endpoints[i].Adapter, event)
 	}
@@ -520,12 +661,103 @@ func filterRPCMuxFlowControlDiagnosis(diagnosis RPCMuxFlowControlDiagnosis, even
 	case "write_timeout":
 		diagnosis.CreditWaitTimeouts = 0
 		diagnosis.ConnectionWindowExhausted = 0
+		diagnosis.FragmentBackpressure = 0
+		diagnosis.FragmentFramesIn = 0
+		diagnosis.FragmentFramesOut = 0
+		diagnosis.FragmentStreamWindowUpdatePolicy = ""
+		diagnosis.FragmentConnectionWindowUpdatePolicy = ""
+		diagnosis.FragmentStreamWindowRefillRatio = 0
+		diagnosis.FragmentConnectionWindowRefillRatio = 0
+		diagnosis.FragmentMaxDeferredFragments = 0
+		diagnosis.FragmentWindowRefills = 0
+		diagnosis.FragmentWindowRefillLatencyTotal = 0
+		diagnosis.FragmentWindowRefillLatencyMax = 0
+		diagnosis.FragmentWindowRefillLatencyAvg = 0
+		diagnosis.FragmentDeferredStreamWindowUpdates = 0
+		diagnosis.FragmentDeferredConnectionWindowUpdates = 0
+		diagnosis.FragmentWindowPolicyRisk = false
+		diagnosis.FragmentWindowPolicyRiskReason = ""
+		diagnosis.FragmentWindowPolicyRiskMode = ""
+		diagnosis.FragmentEstimatedMaxFragments = 0
+		diagnosis.BackpressureEvents = 0
 	case "credit_wait_timeout":
 		diagnosis.WriteTimeouts = 0
 		diagnosis.ConnectionWindowExhausted = 0
+		diagnosis.FragmentBackpressure = 0
+		diagnosis.FragmentFramesIn = 0
+		diagnosis.FragmentFramesOut = 0
+		diagnosis.FragmentStreamWindowUpdatePolicy = ""
+		diagnosis.FragmentConnectionWindowUpdatePolicy = ""
+		diagnosis.FragmentStreamWindowRefillRatio = 0
+		diagnosis.FragmentConnectionWindowRefillRatio = 0
+		diagnosis.FragmentMaxDeferredFragments = 0
+		diagnosis.FragmentWindowRefills = 0
+		diagnosis.FragmentWindowRefillLatencyTotal = 0
+		diagnosis.FragmentWindowRefillLatencyMax = 0
+		diagnosis.FragmentWindowRefillLatencyAvg = 0
+		diagnosis.FragmentDeferredStreamWindowUpdates = 0
+		diagnosis.FragmentDeferredConnectionWindowUpdates = 0
+		diagnosis.FragmentWindowPolicyRisk = false
+		diagnosis.FragmentWindowPolicyRiskReason = ""
+		diagnosis.FragmentWindowPolicyRiskMode = ""
+		diagnosis.FragmentEstimatedMaxFragments = 0
+		diagnosis.BackpressureEvents = 0
 	case "connection_window_exhausted":
 		diagnosis.WriteTimeouts = 0
 		diagnosis.CreditWaitTimeouts = 0
+		diagnosis.FragmentBackpressure = 0
+		diagnosis.FragmentFramesIn = 0
+		diagnosis.FragmentFramesOut = 0
+		diagnosis.FragmentStreamWindowUpdatePolicy = ""
+		diagnosis.FragmentConnectionWindowUpdatePolicy = ""
+		diagnosis.FragmentStreamWindowRefillRatio = 0
+		diagnosis.FragmentConnectionWindowRefillRatio = 0
+		diagnosis.FragmentMaxDeferredFragments = 0
+		diagnosis.FragmentWindowRefills = 0
+		diagnosis.FragmentWindowRefillLatencyTotal = 0
+		diagnosis.FragmentWindowRefillLatencyMax = 0
+		diagnosis.FragmentWindowRefillLatencyAvg = 0
+		diagnosis.FragmentDeferredStreamWindowUpdates = 0
+		diagnosis.FragmentDeferredConnectionWindowUpdates = 0
+		diagnosis.FragmentWindowPolicyRisk = false
+		diagnosis.FragmentWindowPolicyRiskReason = ""
+		diagnosis.FragmentWindowPolicyRiskMode = ""
+		diagnosis.FragmentEstimatedMaxFragments = 0
+		diagnosis.BackpressureEvents = 0
+	case "fragment_backpressure":
+		diagnosis.WriteTimeouts = 0
+		diagnosis.CreditWaitTimeouts = 0
+		diagnosis.ConnectionWindowExhausted = 0
+		diagnosis.FragmentWindowRefills = 0
+		diagnosis.FragmentWindowRefillLatencyTotal = 0
+		diagnosis.FragmentWindowRefillLatencyMax = 0
+		diagnosis.FragmentWindowRefillLatencyAvg = 0
+		diagnosis.FragmentWindowPolicyRisk = false
+		diagnosis.FragmentWindowPolicyRiskReason = ""
+		diagnosis.FragmentWindowPolicyRiskMode = ""
+		diagnosis.FragmentEstimatedMaxFragments = 0
+	case "fragment_window_refill":
+		diagnosis.WriteTimeouts = 0
+		diagnosis.CreditWaitTimeouts = 0
+		diagnosis.ConnectionWindowExhausted = 0
+		diagnosis.FragmentBackpressure = 0
+		diagnosis.FragmentFramesIn = 0
+		diagnosis.FragmentFramesOut = 0
+		diagnosis.BackpressureEvents = 0
+		diagnosis.FragmentWindowPolicyRisk = false
+		diagnosis.FragmentWindowPolicyRiskReason = ""
+		diagnosis.FragmentWindowPolicyRiskMode = ""
+		diagnosis.FragmentEstimatedMaxFragments = 0
+	case "fragment_window_policy_risk":
+		diagnosis.WriteTimeouts = 0
+		diagnosis.CreditWaitTimeouts = 0
+		diagnosis.ConnectionWindowExhausted = 0
+		diagnosis.FragmentBackpressure = 0
+		diagnosis.FragmentFramesIn = 0
+		diagnosis.FragmentFramesOut = 0
+		diagnosis.FragmentDeferredStreamWindowUpdates = 0
+		diagnosis.FragmentDeferredConnectionWindowUpdates = 0
+		diagnosis.BackpressureEvents = 0
 	}
 	return diagnosis
 }
@@ -536,13 +768,29 @@ func withRPCMuxManagerFlowControlEvents(diagnosis RPCMuxConnectionManagerDiagnos
 }
 
 func withRPCMuxFlowControlEvents(diagnosis RPCMuxFlowControlDiagnosis, event string) RPCMuxFlowControlDiagnosis {
-	diagnosis.Events = rpcMuxFlowControlEventsFromCounts(event, diagnosis.WriteTimeouts, diagnosis.CreditWaitTimeouts, diagnosis.ConnectionWindowExhausted)
+	diagnosis.Events = rpcMuxFlowControlEventsFromCounts(
+		event,
+		diagnosis.WriteTimeouts,
+		diagnosis.CreditWaitTimeouts,
+		diagnosis.ConnectionWindowExhausted,
+		diagnosis.FragmentBackpressure,
+		diagnosis.FragmentWindowRefills,
+		diagnosis.FragmentWindowPolicyRisk,
+	)
 	return diagnosis
 }
 
-func rpcMuxFlowControlEventsFromCounts(event string, writeTimeouts int64, creditWaitTimeouts int64, connectionWindowExhausted int64) []RPCMuxFlowControlEventDiagnosis {
+func rpcMuxFlowControlEventsFromCounts(
+	event string,
+	writeTimeouts int64,
+	creditWaitTimeouts int64,
+	connectionWindowExhausted int64,
+	fragmentBackpressure int64,
+	fragmentWindowRefills int64,
+	fragmentWindowPolicyRisk bool,
+) []RPCMuxFlowControlEventDiagnosis {
 	event = NormalizeRPCMuxFlowControlEvent(event)
-	events := make([]RPCMuxFlowControlEventDiagnosis, 0, 3)
+	events := make([]RPCMuxFlowControlEventDiagnosis, 0, 5)
 	add := func(name string, count int64) {
 		if count <= 0 {
 			return
@@ -555,6 +803,11 @@ func rpcMuxFlowControlEventsFromCounts(event string, writeTimeouts int64, credit
 	add("write_timeout", writeTimeouts)
 	add("credit_wait_timeout", creditWaitTimeouts)
 	add("connection_window_exhausted", connectionWindowExhausted)
+	add("fragment_backpressure", fragmentBackpressure)
+	add("fragment_window_refill", fragmentWindowRefills)
+	if fragmentWindowPolicyRisk {
+		add("fragment_window_policy_risk", 1)
+	}
 	return events
 }
 
@@ -621,6 +874,8 @@ func setMuxNegotiationDiagnosisCount(diagnosis *RPCMuxNegotiationDiagnosis, even
 		diagnosis.ProtocolMismatch = count
 	case "frame_policy_mismatch":
 		diagnosis.FramePolicyMismatch = count
+	case experimentalMuxCandidateFailurePolicyRisk:
+		diagnosis.PolicyRiskRejected = count
 	}
 }
 
@@ -673,6 +928,8 @@ func muxCandidateNegotiationDiagnosisEvent(phase string) string {
 		return "protocol_mismatch"
 	case experimentalMuxCandidateFailureFramePolicy:
 		return "frame_policy_mismatch"
+	case experimentalMuxCandidateFailurePolicyRisk:
+		return experimentalMuxCandidateFailurePolicyRisk
 	default:
 		return ""
 	}
@@ -788,7 +1045,62 @@ func appendMuxManagerFlowControlDiagnosisEvents(events []RPCMuxDiagnosisEvent, d
 		}
 		events = append(events, event)
 	}
+	if len(endpoints) <= 1 {
+		return events
+	}
+	for _, endpoint := range endpoints {
+		endpointDiagnosis := rpcMuxFlowControlDiagnosisFromTransport(endpoint.Adapter.Transport)
+		for _, item := range withRPCMuxFlowControlEvents(endpointDiagnosis, "").Events {
+			events = append(events, RPCMuxDiagnosisEvent{
+				Family:       "flow_control",
+				Event:        item.Event,
+				Count:        item.Count,
+				Endpoint:     endpoint.Endpoint,
+				ConnectionID: endpoint.ConnectionID,
+				PoolSlot:     endpoint.PoolSlot,
+			})
+		}
+	}
 	return events
+}
+
+func rpcMuxFlowControlDiagnosisFromTransport(transport ExperimentalMuxTransportSnapshot) RPCMuxFlowControlDiagnosis {
+	return RPCMuxFlowControlDiagnosis{
+		ReceiveQueueSize:                        transport.ReceiveQueueSize,
+		ConnectionWindow:                        transport.ConnectionWindow,
+		ConnectionCreditWaits:                   transport.ConnectionCreditWaits,
+		StreamCreditWaits:                       transport.CreditWaits,
+		CreditWaitTimeouts:                      transport.CreditWaitTimeouts,
+		WriteTimeouts:                           transport.WriteTimeouts,
+		ConnectionWindowExhausted:               transport.ConnectionWindowExhausted,
+		FragmentFramesIn:                        transport.FragmentFramesIn,
+		FragmentFramesOut:                       transport.FragmentFramesOut,
+		FragmentBackpressure:                    experimentalMuxFragmentBackpressure(transport),
+		FragmentStreamWindowUpdatePolicy:        transport.FragmentStreamWindowUpdatePolicy,
+		FragmentConnectionWindowUpdatePolicy:    transport.FragmentConnectionWindowUpdatePolicy,
+		FragmentStreamWindowRefillRatio:         transport.FragmentStreamWindowRefillRatio,
+		FragmentConnectionWindowRefillRatio:     transport.FragmentConnectionWindowRefillRatio,
+		FragmentMaxDeferredFragments:            transport.FragmentMaxDeferredFragments,
+		FragmentWindowRefills:                   transport.FragmentWindowRefills,
+		FragmentWindowRefillLatencyTotal:        transport.FragmentWindowRefillLatencyTotal,
+		FragmentWindowRefillLatencyMax:          transport.FragmentWindowRefillLatencyMax,
+		FragmentWindowRefillLatencyAvg:          transport.FragmentWindowRefillLatencyAvg,
+		FragmentDeferredStreamWindowUpdates:     transport.FragmentDeferredStreamWindowUpdates,
+		FragmentDeferredConnectionWindowUpdates: transport.FragmentDeferredConnectionWindowUpdates,
+		FragmentWindowPolicyRisk:                transport.FragmentWindowPolicyRisk,
+		FragmentWindowPolicyRiskReason:          transport.FragmentWindowPolicyRiskReason,
+		FragmentWindowPolicyRiskMode:            transport.FragmentWindowPolicyRiskMode,
+		FragmentEstimatedMaxFragments:           transport.FragmentEstimatedMaxFragments,
+		WindowFramesIn:                          transport.WindowFramesIn,
+		WindowFramesOut:                         transport.WindowFramesOut,
+		ConnectionWindowIn:                      transport.ConnectionWindowFramesIn,
+		ConnectionWindowOut:                     transport.ConnectionWindowFramesOut,
+		BackpressureEvents:                      transport.BackpressureEvents,
+		LastFlowControlEvent:                    transport.LastFlowControlEvent,
+		LastFlowControlEventAt:                  transport.LastFlowControlEventAt,
+		LastBackpressureEvent:                   transport.LastBackpressureEvent,
+		LastBackpressureEventAt:                 transport.LastBackpressureEventAt,
+	}
 }
 
 func sortedStringInt64Keys(values map[string]int64) []string {

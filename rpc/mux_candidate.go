@@ -27,6 +27,7 @@ const (
 	experimentalMuxCandidateFailurePreface     = "preface"
 	experimentalMuxCandidateFailureProtocol    = "protocol_mismatch"
 	experimentalMuxCandidateFailureFramePolicy = "frame_policy_mismatch"
+	experimentalMuxCandidateFailurePolicyRisk  = "fragment_window_policy_risk"
 )
 
 var (
@@ -101,58 +102,75 @@ func registerExperimentalMuxCandidateMetrics(registry *metrics.Registry) {
 // RPC transport untouched while making the mux path configurable enough for
 // real TCP/TLS smoke and diagnosis.
 type ExperimentalMuxCandidateConfig struct {
-	Protocol             string             `json:"protocol,omitempty"`
-	TLS                  security.TLSConfig `json:"tls,omitempty"`
-	DialTimeout          time.Duration      `json:"dialTimeout,omitempty"`
-	KeepAlive            time.Duration      `json:"keepAlive,omitempty"`
-	HandshakeTimeout     time.Duration      `json:"handshakeTimeout,omitempty"`
-	KeepaliveInterval    time.Duration      `json:"keepaliveInterval,omitempty"`
-	KeepaliveIdle        time.Duration      `json:"keepaliveIdle,omitempty"`
-	WriteTimeout         time.Duration      `json:"writeTimeout,omitempty"`
-	CreditWaitTimeout    time.Duration      `json:"creditWaitTimeout,omitempty"`
-	MaxFrameBytes        int64              `json:"maxFrameBytes,omitempty"`
-	MaxMessageBytes      int64              `json:"maxMessageBytes,omitempty"`
-	MaxConcurrentStreams int                `json:"maxConcurrentStreams,omitempty"`
-	ReceiveQueueSize     int                `json:"receiveQueueSize,omitempty"`
-	ConnectionWindow     int                `json:"connectionWindow,omitempty"`
-	PayloadCodec         string             `json:"payloadCodec,omitempty"`
-	FrameCodec           string             `json:"frameCodec,omitempty"`
-	DrainGrace           time.Duration      `json:"drainGrace,omitempty"`
-	AllowLegacyDowngrade bool               `json:"allowLegacyDowngrade,omitempty"`
+	Protocol                             string             `json:"protocol,omitempty"`
+	TLS                                  security.TLSConfig `json:"tls,omitempty"`
+	DialTimeout                          time.Duration      `json:"dialTimeout,omitempty"`
+	KeepAlive                            time.Duration      `json:"keepAlive,omitempty"`
+	HandshakeTimeout                     time.Duration      `json:"handshakeTimeout,omitempty"`
+	KeepaliveInterval                    time.Duration      `json:"keepaliveInterval,omitempty"`
+	KeepaliveIdle                        time.Duration      `json:"keepaliveIdle,omitempty"`
+	WriteTimeout                         time.Duration      `json:"writeTimeout,omitempty"`
+	CreditWaitTimeout                    time.Duration      `json:"creditWaitTimeout,omitempty"`
+	MaxFrameBytes                        int64              `json:"maxFrameBytes,omitempty"`
+	MaxMessageBytes                      int64              `json:"maxMessageBytes,omitempty"`
+	MaxConcurrentStreams                 int                `json:"maxConcurrentStreams,omitempty"`
+	ReceiveQueueSize                     int                `json:"receiveQueueSize,omitempty"`
+	ConnectionWindow                     int                `json:"connectionWindow,omitempty"`
+	FragmentStreamWindowUpdatePolicy     string             `json:"fragmentStreamWindowUpdatePolicy,omitempty"`
+	FragmentConnectionWindowUpdatePolicy string             `json:"fragmentConnectionWindowUpdatePolicy,omitempty"`
+	FragmentStreamWindowRefillRatio      float64            `json:"fragmentStreamWindowRefillRatio,omitempty"`
+	FragmentConnectionWindowRefillRatio  float64            `json:"fragmentConnectionWindowRefillRatio,omitempty"`
+	FragmentMaxDeferredFragments         int                `json:"fragmentMaxDeferredFragments,omitempty"`
+	FragmentWindowPolicyRiskMode         string             `json:"fragmentWindowPolicyRiskMode,omitempty"`
+	PayloadCodec                         string             `json:"payloadCodec,omitempty"`
+	FrameCodec                           string             `json:"frameCodec,omitempty"`
+	DrainGrace                           time.Duration      `json:"drainGrace,omitempty"`
+	AllowLegacyDowngrade                 bool               `json:"allowLegacyDowngrade,omitempty"`
 }
 
 // ExperimentalMuxCandidateSnapshot is intentionally path-free so runtime
 // diagnosis can report the active transport policy without leaking cert paths.
 type ExperimentalMuxCandidateSnapshot struct {
-	Enabled                  bool             `json:"enabled"`
-	Protocol                 string           `json:"protocol,omitempty"`
-	PeerProtocol             string           `json:"peerProtocol,omitempty"`
-	NegotiatedProtocol       string           `json:"negotiatedProtocol,omitempty"`
-	TLS                      bool             `json:"tls"`
-	MutualTLS                bool             `json:"mutualTLS"`
-	NegotiationFailures      int64            `json:"negotiationFailures,omitempty"`
-	NegotiationFailureEvents map[string]int64 `json:"negotiationFailureEvents,omitempty"`
-	LastNegotiationError     string           `json:"lastNegotiationError,omitempty"`
-	LastNegotiationPhase     string           `json:"lastNegotiationPhase,omitempty"`
-	DowngradeAllowed         bool             `json:"downgradeAllowed,omitempty"`
-	Downgrades               int64            `json:"downgrades,omitempty"`
-	Downgraded               bool             `json:"downgraded,omitempty"`
-	DowngradeReason          string           `json:"downgradeReason,omitempty"`
-	DialTimeout              time.Duration    `json:"dialTimeout,omitempty"`
-	KeepAlive                time.Duration    `json:"keepAlive,omitempty"`
-	HandshakeTimeout         time.Duration    `json:"handshakeTimeout,omitempty"`
-	KeepaliveInterval        time.Duration    `json:"keepaliveInterval,omitempty"`
-	KeepaliveIdle            time.Duration    `json:"keepaliveIdle,omitempty"`
-	WriteTimeout             time.Duration    `json:"writeTimeout,omitempty"`
-	CreditWaitTimeout        time.Duration    `json:"creditWaitTimeout,omitempty"`
-	MaxFrameBytes            int64            `json:"maxFrameBytes,omitempty"`
-	MaxMessageBytes          int64            `json:"maxMessageBytes,omitempty"`
-	MaxConcurrentStreams     int              `json:"maxConcurrentStreams,omitempty"`
-	ReceiveQueueSize         int              `json:"receiveQueueSize,omitempty"`
-	ConnectionWindow         int              `json:"connectionWindow,omitempty"`
-	PayloadCodec             string           `json:"payloadCodec,omitempty"`
-	FrameCodec               string           `json:"frameCodec,omitempty"`
-	DrainGrace               time.Duration    `json:"drainGrace,omitempty"`
+	Enabled                              bool             `json:"enabled"`
+	Protocol                             string           `json:"protocol,omitempty"`
+	PeerProtocol                         string           `json:"peerProtocol,omitempty"`
+	NegotiatedProtocol                   string           `json:"negotiatedProtocol,omitempty"`
+	TLS                                  bool             `json:"tls"`
+	MutualTLS                            bool             `json:"mutualTLS"`
+	NegotiationFailures                  int64            `json:"negotiationFailures,omitempty"`
+	NegotiationFailureEvents             map[string]int64 `json:"negotiationFailureEvents,omitempty"`
+	LastNegotiationError                 string           `json:"lastNegotiationError,omitempty"`
+	LastNegotiationPhase                 string           `json:"lastNegotiationPhase,omitempty"`
+	DowngradeAllowed                     bool             `json:"downgradeAllowed,omitempty"`
+	Downgrades                           int64            `json:"downgrades,omitempty"`
+	Downgraded                           bool             `json:"downgraded,omitempty"`
+	DowngradeReason                      string           `json:"downgradeReason,omitempty"`
+	DialTimeout                          time.Duration    `json:"dialTimeout,omitempty"`
+	KeepAlive                            time.Duration    `json:"keepAlive,omitempty"`
+	HandshakeTimeout                     time.Duration    `json:"handshakeTimeout,omitempty"`
+	KeepaliveInterval                    time.Duration    `json:"keepaliveInterval,omitempty"`
+	KeepaliveIdle                        time.Duration    `json:"keepaliveIdle,omitempty"`
+	WriteTimeout                         time.Duration    `json:"writeTimeout,omitempty"`
+	CreditWaitTimeout                    time.Duration    `json:"creditWaitTimeout,omitempty"`
+	MaxFrameBytes                        int64            `json:"maxFrameBytes,omitempty"`
+	MaxMessageBytes                      int64            `json:"maxMessageBytes,omitempty"`
+	MaxConcurrentStreams                 int              `json:"maxConcurrentStreams,omitempty"`
+	ReceiveQueueSize                     int              `json:"receiveQueueSize,omitempty"`
+	ConnectionWindow                     int              `json:"connectionWindow,omitempty"`
+	FragmentStreamWindowUpdatePolicy     string           `json:"fragmentStreamWindowUpdatePolicy,omitempty"`
+	FragmentConnectionWindowUpdatePolicy string           `json:"fragmentConnectionWindowUpdatePolicy,omitempty"`
+	FragmentStreamWindowRefillRatio      float64          `json:"fragmentStreamWindowRefillRatio,omitempty"`
+	FragmentConnectionWindowRefillRatio  float64          `json:"fragmentConnectionWindowRefillRatio,omitempty"`
+	FragmentMaxDeferredFragments         int              `json:"fragmentMaxDeferredFragments,omitempty"`
+	FragmentWindowPolicyRisk             bool             `json:"fragmentWindowPolicyRisk,omitempty"`
+	FragmentWindowPolicyRiskReason       string           `json:"fragmentWindowPolicyRiskReason,omitempty"`
+	FragmentWindowPolicyRiskMode         string           `json:"fragmentWindowPolicyRiskMode,omitempty"`
+	FragmentWindowPolicyRiskWarning      bool             `json:"fragmentWindowPolicyRiskWarning,omitempty"`
+	FragmentWindowPolicyRiskRejected     bool             `json:"fragmentWindowPolicyRiskRejected,omitempty"`
+	FragmentEstimatedMaxFragments        int              `json:"fragmentEstimatedMaxFragments,omitempty"`
+	PayloadCodec                         string           `json:"payloadCodec,omitempty"`
+	FrameCodec                           string           `json:"frameCodec,omitempty"`
+	DrainGrace                           time.Duration    `json:"drainGrace,omitempty"`
 }
 
 type ExperimentalMuxCandidateFailure struct {
@@ -202,7 +220,28 @@ func (c ExperimentalMuxCandidateConfig) normalized() ExperimentalMuxCandidateCon
 	}
 	c.PayloadCodec = normalizeExperimentalMuxCandidatePayloadCodec(c.PayloadCodec)
 	c.FrameCodec = normalizeExperimentalMuxCandidateFrameCodec(c.FrameCodec)
+	c.FragmentWindowPolicyRiskMode = normalizeExperimentalMuxFragmentPolicyRiskMode(c.FragmentWindowPolicyRiskMode)
 	return c
+}
+
+// Validate checks candidate mux transport policies that can be rejected before
+// opening a network connection.
+func (c ExperimentalMuxCandidateConfig) Validate() error {
+	if rawMode := strings.TrimSpace(c.FragmentWindowPolicyRiskMode); rawMode != "" &&
+		normalizeExperimentalMuxFragmentPolicyRiskMode(rawMode) == "" {
+		return NewError(CodeInvalidArgument, "mux candidate fragment window policy risk mode must be diagnose, warn, or reject")
+	}
+	if !isValidExperimentalMuxWindowRefillRatio(c.FragmentStreamWindowRefillRatio) {
+		return NewError(CodeInvalidArgument, "mux candidate fragment stream window refill ratio must be between 0 and 1")
+	}
+	if !isValidExperimentalMuxWindowRefillRatio(c.FragmentConnectionWindowRefillRatio) {
+		return NewError(CodeInvalidArgument, "mux candidate fragment connection window refill ratio must be between 0 and 1")
+	}
+	if c.FragmentMaxDeferredFragments < 0 {
+		return NewError(CodeInvalidArgument, "mux candidate fragment max deferred fragments must be non-negative")
+	}
+	_, err := c.validateFragmentWindowPolicyRisk("")
+	return err
 }
 
 func (c ExperimentalMuxCandidateConfig) transportOptions() []ExperimentalMuxTransportOption {
@@ -232,6 +271,16 @@ func (c ExperimentalMuxCandidateConfig) transportOptions() []ExperimentalMuxTran
 	if c.ConnectionWindow > 0 {
 		opts = append(opts, WithExperimentalMuxConnectionWindow(c.ConnectionWindow))
 	}
+	opts = append(opts, WithExperimentalMuxFragmentWindowUpdatePolicy(
+		c.FragmentStreamWindowUpdatePolicy,
+		c.FragmentConnectionWindowUpdatePolicy,
+	))
+	opts = append(opts, WithExperimentalMuxFragmentWindowRefillPolicy(
+		c.FragmentStreamWindowRefillRatio,
+		c.FragmentConnectionWindowRefillRatio,
+		c.FragmentMaxDeferredFragments,
+	))
+	opts = append(opts, WithExperimentalMuxFragmentWindowPolicyRiskMode(c.FragmentWindowPolicyRiskMode))
 	switch c.PayloadCodec {
 	case "gzip":
 		opts = append(opts, WithExperimentalMuxPayloadCodec(GzipPayloadCodec{}))
@@ -249,29 +298,61 @@ func (c ExperimentalMuxCandidateConfig) transportOptions() []ExperimentalMuxTran
 
 func (c ExperimentalMuxCandidateConfig) snapshot(role string, negotiated string) ExperimentalMuxCandidateSnapshot {
 	c = c.normalized()
+	fragmentPolicyRisk, fragmentPolicyRiskReason, fragmentEstimatedMaxFragments := experimentalMuxFragmentWindowPolicyRisk(
+		c.MaxFrameBytes,
+		c.MaxMessageBytes,
+		c.ReceiveQueueSize,
+		c.ConnectionWindow,
+		c.FragmentStreamWindowUpdatePolicy,
+		c.FragmentConnectionWindowUpdatePolicy,
+		c.FragmentMaxDeferredFragments,
+	)
 	return ExperimentalMuxCandidateSnapshot{
-		Enabled:              true,
-		Protocol:             c.Protocol,
-		NegotiatedProtocol:   negotiated,
-		TLS:                  muxCandidateTLSConfigured(c.TLS, role),
-		MutualTLS:            muxCandidateMutualTLSConfigured(c.TLS, role),
-		DialTimeout:          c.DialTimeout,
-		KeepAlive:            c.KeepAlive,
-		HandshakeTimeout:     c.HandshakeTimeout,
-		KeepaliveInterval:    c.KeepaliveInterval,
-		KeepaliveIdle:        c.KeepaliveIdle,
-		WriteTimeout:         c.WriteTimeout,
-		CreditWaitTimeout:    c.CreditWaitTimeout,
-		MaxFrameBytes:        c.MaxFrameBytes,
-		MaxMessageBytes:      c.MaxMessageBytes,
-		MaxConcurrentStreams: c.MaxConcurrentStreams,
-		ReceiveQueueSize:     c.ReceiveQueueSize,
-		ConnectionWindow:     c.ConnectionWindow,
-		PayloadCodec:         c.PayloadCodec,
-		FrameCodec:           c.FrameCodec,
-		DrainGrace:           c.DrainGrace,
-		DowngradeAllowed:     c.AllowLegacyDowngrade,
+		Enabled:                              true,
+		Protocol:                             c.Protocol,
+		NegotiatedProtocol:                   negotiated,
+		TLS:                                  muxCandidateTLSConfigured(c.TLS, role),
+		MutualTLS:                            muxCandidateMutualTLSConfigured(c.TLS, role),
+		DialTimeout:                          c.DialTimeout,
+		KeepAlive:                            c.KeepAlive,
+		HandshakeTimeout:                     c.HandshakeTimeout,
+		KeepaliveInterval:                    c.KeepaliveInterval,
+		KeepaliveIdle:                        c.KeepaliveIdle,
+		WriteTimeout:                         c.WriteTimeout,
+		CreditWaitTimeout:                    c.CreditWaitTimeout,
+		MaxFrameBytes:                        c.MaxFrameBytes,
+		MaxMessageBytes:                      c.MaxMessageBytes,
+		MaxConcurrentStreams:                 c.MaxConcurrentStreams,
+		ReceiveQueueSize:                     c.ReceiveQueueSize,
+		ConnectionWindow:                     c.ConnectionWindow,
+		FragmentStreamWindowUpdatePolicy:     normalizeExperimentalMuxWindowUpdatePolicy(c.FragmentStreamWindowUpdatePolicy),
+		FragmentConnectionWindowUpdatePolicy: normalizeExperimentalMuxWindowUpdatePolicy(c.FragmentConnectionWindowUpdatePolicy),
+		FragmentStreamWindowRefillRatio:      normalizeExperimentalMuxWindowRefillRatio(c.FragmentStreamWindowRefillRatio),
+		FragmentConnectionWindowRefillRatio:  normalizeExperimentalMuxWindowRefillRatio(c.FragmentConnectionWindowRefillRatio),
+		FragmentMaxDeferredFragments:         c.FragmentMaxDeferredFragments,
+		FragmentWindowPolicyRisk:             fragmentPolicyRisk,
+		FragmentWindowPolicyRiskReason:       fragmentPolicyRiskReason,
+		FragmentWindowPolicyRiskMode:         c.FragmentWindowPolicyRiskMode,
+		FragmentWindowPolicyRiskWarning:      fragmentPolicyRisk && c.FragmentWindowPolicyRiskMode == experimentalMuxFragmentPolicyRiskModeWarn,
+		FragmentWindowPolicyRiskRejected:     fragmentPolicyRisk && c.FragmentWindowPolicyRiskMode == experimentalMuxFragmentPolicyRiskModeReject,
+		FragmentEstimatedMaxFragments:        fragmentEstimatedMaxFragments,
+		PayloadCodec:                         c.PayloadCodec,
+		FrameCodec:                           c.FrameCodec,
+		DrainGrace:                           c.DrainGrace,
+		DowngradeAllowed:                     c.AllowLegacyDowngrade,
 	}
+}
+
+func (c ExperimentalMuxCandidateConfig) validateFragmentWindowPolicyRisk(role string) (ExperimentalMuxCandidateSnapshot, error) {
+	snapshot := c.snapshot(role, "")
+	if !snapshot.FragmentWindowPolicyRisk || snapshot.FragmentWindowPolicyRiskMode != experimentalMuxFragmentPolicyRiskModeReject {
+		return snapshot, nil
+	}
+	return snapshot, newExperimentalMuxCandidateFailure(
+		experimentalMuxCandidateFailurePolicyRisk,
+		snapshot.Protocol,
+		NewError(CodeInvalidArgument, "mux candidate fragment window policy risk rejected: "+snapshot.FragmentWindowPolicyRiskReason),
+	)
 }
 
 func (c ExperimentalMuxCandidateConfig) clientTLSConfig() (*tls.Config, error) {
@@ -302,6 +383,9 @@ func dialExperimentalMuxCandidateConn(ctx context.Context, network string, addre
 		return nil, ExperimentalMuxCandidateSnapshot{}, err
 	}
 	cfg = cfg.normalized()
+	if snapshot, err := cfg.validateFragmentWindowPolicyRisk("client"); err != nil {
+		return nil, snapshot, err
+	}
 	dialer := net.Dialer{Timeout: cfg.DialTimeout, KeepAlive: cfg.KeepAlive}
 	conn, err := dialer.DialContext(ctx, network, address)
 	if err != nil {
@@ -342,6 +426,9 @@ func dialExperimentalMuxCandidateConn(ctx context.Context, network string, addre
 func acceptExperimentalMuxCandidateConn(ctx context.Context, conn net.Conn, cfg ExperimentalMuxCandidateConfig) (net.Conn, ExperimentalMuxCandidateSnapshot, error) {
 	ctx = core.Context(ctx)
 	cfg = cfg.normalized()
+	if snapshot, err := cfg.validateFragmentWindowPolicyRisk("server"); err != nil {
+		return nil, snapshot, err
+	}
 	var negotiated string
 	if tlsCfg, err := cfg.serverTLSConfig(); err != nil {
 		return nil, ExperimentalMuxCandidateSnapshot{}, newExperimentalMuxCandidateFailure(experimentalMuxCandidateFailureTLS, "", err)
@@ -669,4 +756,9 @@ func experimentalMuxCandidateFailureInfo(err error) (phase string, peerProtocol 
 		return failure.Phase, failure.PeerProtocol, true
 	}
 	return "", "", false
+}
+
+func isExperimentalMuxCandidatePolicyRiskFailure(err error) bool {
+	phase, _, ok := experimentalMuxCandidateFailureInfo(err)
+	return ok && phase == experimentalMuxCandidateFailurePolicyRisk
 }

@@ -277,7 +277,7 @@ const configTemplate = `{
   "rpc": {
     "addr": ":8081",
     "advertise": "http://127.0.0.1:8081",
-    "mux": {"enabled": false, "probe": false, "addr": "127.0.0.1:8082", "endpoints": [], "idleTimeout": 60000000000, "maxOpenRetries": 1, "openRetryReasons": ["dial_failure", "pool_exhausted"], "healthBackoffMultiplier": 2, "healthMaxCooldown": 30000000000, "trace": {"enabled": false, "annotateStreams": false}, "log": {"enabled": false, "diagnosis": false, "exportEvents": false, "eventFamily": "", "event": "", "endpoint": "", "connectionId": ""}, "tls": {"enabled": false, "certFile": "", "keyFile": "", "caFile": "", "serverName": ""}, "mtls": {"enabled": false, "clientCAFile": "", "clientCertFile": "", "clientKeyFile": ""}, "alpn": {"enabled": false, "protocol": "gofly-mux/experimental-v1"}, "candidate": {"enabled": false, "protocol": "gofly-mux/experimental-v1", "dialTimeout": 30000000000, "keepAlive": 30000000000, "handshakeTimeout": 10000000000, "keepaliveInterval": 30000000000, "keepaliveIdle": 90000000000, "writeTimeout": 0, "creditWaitTimeout": 0, "maxFrameBytes": 4194304, "maxMessageBytes": 67108864, "maxConcurrentStreams": 128, "receiveQueueSize": 16, "connectionWindow": 16, "payloadCodec": "identity", "frameCodec": "binary", "allowLegacyDowngrade": false, "tls": {}}}
+    "mux": {"enabled": false, "probe": false, "addr": "127.0.0.1:8082", "endpoints": [], "idleTimeout": 60000000000, "maxOpenRetries": 1, "openRetryReasons": ["dial_failure", "pool_exhausted"], "healthBackoffMultiplier": 2, "healthMaxCooldown": 30000000000, "trace": {"enabled": false, "annotateStreams": false}, "log": {"enabled": false, "diagnosis": false, "exportEvents": false, "eventFamily": "", "event": "", "endpoint": "", "connectionId": ""}, "tls": {"enabled": false, "certFile": "", "keyFile": "", "caFile": "", "serverName": ""}, "mtls": {"enabled": false, "clientCAFile": "", "clientCertFile": "", "clientKeyFile": ""}, "alpn": {"enabled": false, "protocol": "gofly-mux/experimental-v1"}, "candidate": {"enabled": false, "protocol": "gofly-mux/experimental-v1", "dialTimeout": 30000000000, "keepAlive": 30000000000, "handshakeTimeout": 10000000000, "keepaliveInterval": 30000000000, "keepaliveIdle": 90000000000, "writeTimeout": 0, "creditWaitTimeout": 0, "maxFrameBytes": 4194304, "maxMessageBytes": 67108864, "maxConcurrentStreams": 128, "receiveQueueSize": 16, "connectionWindow": 16, "fragmentStreamWindowUpdatePolicy": "per_fragment", "fragmentConnectionWindowUpdatePolicy": "per_fragment", "fragmentStreamWindowRefillRatio": 1, "fragmentConnectionWindowRefillRatio": 1, "fragmentMaxDeferredFragments": 0, "fragmentWindowPolicyRiskMode": "diagnose", "payloadCodec": "identity", "frameCodec": "binary", "allowLegacyDowngrade": false, "tls": {}}}
   }
 }
 `
@@ -544,7 +544,7 @@ import (
 )
 
 func TestAdminDiagnostics(t *testing.T) {
-	cfg := appconfig.Config{RPC: appconfig.RPCConfig{Mux: appconfig.RPCMuxConfig{Enabled: true, Probe: true, IdleTimeout: time.Nanosecond, MaxOpenRetries: 1, OpenRetryReasons: []string{"dial_failure", "pool_exhausted"}, HealthBackoffMultiplier: 2, HealthMaxCooldown: 30 * time.Second, Trace: appconfig.RPCMuxTraceConfig{Enabled: true, AnnotateStreams: true}, Log: appconfig.RPCMuxLogConfig{Enabled: true, Diagnosis: true, ExportEvents: true, EventFamily: "retry", Event: "open-before-retry"}, Candidate: appconfig.RPCMuxCandidateConfig{Enabled: true, Protocol: "gofly-mux/generated-candidate-test", KeepaliveInterval: time.Hour, KeepaliveIdle: 2 * time.Hour, MaxFrameBytes: 256, MaxMessageBytes: 1024, MaxConcurrentStreams: 8, ReceiveQueueSize: 2, ConnectionWindow: 3, PayloadCodec: "identity", FrameCodec: "binary"}}}}
+	cfg := appconfig.Config{RPC: appconfig.RPCConfig{Mux: appconfig.RPCMuxConfig{Enabled: true, Probe: true, IdleTimeout: time.Nanosecond, MaxOpenRetries: 1, OpenRetryReasons: []string{"dial_failure", "pool_exhausted"}, HealthBackoffMultiplier: 2, HealthMaxCooldown: 30 * time.Second, Trace: appconfig.RPCMuxTraceConfig{Enabled: true, AnnotateStreams: true}, Log: appconfig.RPCMuxLogConfig{Enabled: true, Diagnosis: true, ExportEvents: true, EventFamily: "retry", Event: "open-before-retry"}, Candidate: appconfig.RPCMuxCandidateConfig{Enabled: true, Protocol: "gofly-mux/generated-candidate-test", KeepaliveInterval: time.Hour, KeepaliveIdle: 2 * time.Hour, MaxFrameBytes: 256, MaxMessageBytes: 1024, MaxConcurrentStreams: 8, ReceiveQueueSize: 2, ConnectionWindow: 3, FragmentStreamWindowUpdatePolicy: "on_receive", FragmentConnectionWindowUpdatePolicy: "on_receive", FragmentStreamWindowRefillRatio: 0.5, FragmentConnectionWindowRefillRatio: 0.25, FragmentMaxDeferredFragments: 2, FragmentWindowPolicyRiskMode: "warn", PayloadCodec: "identity", FrameCodec: "binary"}}}}
 	clientConn, serverConn := net.Pipe()
 	muxClient := rpc.NewExperimentalMuxClientAdapter(clientConn)
 	muxServer := rpc.NewExperimentalMuxServerAdapter(serverConn)
@@ -703,7 +703,7 @@ func TestAdminDiagnostics(t *testing.T) {
 	if _, err := candidateStream.Receive(context.Background()); !errors.Is(err, io.EOF) {
 		t.Fatalf("candidate mux terminal receive = %v, want EOF", err)
 	}
-	if diagnosis := candidateClient.RuntimeSnapshot().Diagnosis.Mux.Manager; !diagnosis.Candidate.Enabled || diagnosis.Candidate.Protocol != "gofly-mux/generated-candidate-test" || diagnosis.Candidate.FrameCodec != "binary" || len(diagnosis.Endpoints) != 1 || !diagnosis.Endpoints[0].Adapter.Candidate.Enabled || diagnosis.Endpoints[0].Adapter.Transport.ConnectionWindow != 3 {
+	if diagnosis := candidateClient.RuntimeSnapshot().Diagnosis.Mux.Manager; !diagnosis.Candidate.Enabled || diagnosis.Candidate.Protocol != "gofly-mux/generated-candidate-test" || diagnosis.Candidate.FrameCodec != "binary" || diagnosis.Candidate.FragmentStreamWindowUpdatePolicy != "on_receive" || diagnosis.Candidate.FragmentConnectionWindowUpdatePolicy != "on_receive" || diagnosis.Candidate.FragmentStreamWindowRefillRatio != 0.5 || diagnosis.Candidate.FragmentConnectionWindowRefillRatio != 0.25 || diagnosis.Candidate.FragmentMaxDeferredFragments != 2 || diagnosis.Candidate.FragmentWindowPolicyRiskMode != "warn" || !diagnosis.Candidate.FragmentWindowPolicyRiskWarning || !diagnosis.Candidate.FragmentWindowPolicyRisk || diagnosis.Candidate.FragmentEstimatedMaxFragments <= diagnosis.Candidate.ConnectionWindow || len(diagnosis.Endpoints) != 1 || !diagnosis.Endpoints[0].Adapter.Candidate.Enabled || diagnosis.Endpoints[0].Adapter.Transport.ConnectionWindow != 3 || diagnosis.Endpoints[0].Adapter.Transport.FragmentStreamWindowUpdatePolicy != "on_receive" || diagnosis.Endpoints[0].Adapter.Transport.FragmentConnectionWindowUpdatePolicy != "on_receive" || diagnosis.Endpoints[0].Adapter.Transport.FragmentStreamWindowRefillRatio != 0.5 || diagnosis.Endpoints[0].Adapter.Transport.FragmentConnectionWindowRefillRatio != 0.25 || diagnosis.Endpoints[0].Adapter.Transport.FragmentMaxDeferredFragments != 2 || diagnosis.Endpoints[0].Adapter.Transport.FragmentWindowPolicyRiskMode != "warn" || !diagnosis.Endpoints[0].Adapter.Transport.FragmentWindowPolicyRisk || diagnosis.Endpoints[0].Adapter.Transport.FragmentWindowPolicyRiskReason == "" {
 		t.Fatalf("candidate manager diagnosis = %+v, want generated candidate mux evidence", diagnosis)
 	}
 	if err := candidateManager.Drain(context.Background(), "generated_shutdown"); err != nil {
@@ -857,17 +857,20 @@ func TestAdminDiagnostics(t *testing.T) {
 		t.Fatal(err)
 	}
 	mtlsSpan.End()
-	if err := mtlsStream.Send(context.Background(), rpc.Message{Payload: []byte("probe")}); err != nil {
+	mtlsPayload := []byte(strings.Repeat("probe-", 50))
+	mtlsIOCtx, cancelMTLSIO := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelMTLSIO()
+	if err := mtlsStream.Send(mtlsIOCtx, rpc.Message{Payload: mtlsPayload}); err != nil {
 		t.Fatal(err)
 	}
-	mtlsResponse, err := mtlsStream.Receive(context.Background())
+	mtlsResponse, err := mtlsStream.Receive(mtlsIOCtx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(mtlsResponse.Payload) != "mtls:probe" {
+	if string(mtlsResponse.Payload) != "mtls:"+string(mtlsPayload) {
 		t.Fatalf("mTLS mux payload = %q, want mtls probe response", mtlsResponse.Payload)
 	}
-	if _, err := mtlsStream.Receive(context.Background()); !errors.Is(err, io.EOF) {
+	if _, err := mtlsStream.Receive(mtlsIOCtx); !errors.Is(err, io.EOF) {
 		t.Fatalf("mTLS mux terminal receive = %v, want EOF", err)
 	}
 	mtlsRec := httptest.NewRecorder()
@@ -890,6 +893,27 @@ func TestAdminDiagnostics(t *testing.T) {
 		mtlsDiagnosis.Diagnosis.Mux.Manager.Endpoints[0].Adapter.Transport.ClosedStreams != 1 ||
 		mtlsDiagnosis.Diagnosis.Mux.Manager.Endpoints[0].Adapter.Transport.ActiveStreams != 0 {
 		t.Fatalf("mTLS diagnosis = %+v, want generated TLS/mTLS negotiated lifecycle evidence", mtlsDiagnosis.Diagnosis.Mux.Manager)
+	}
+	refillRec := httptest.NewRecorder()
+	mtlsClient.DiagnosisHandler().ServeHTTP(refillRec, httptest.NewRequest(http.MethodGet, "/rpc/diagnosis?flowControlEvent=fragment-window-refill&eventFamily=flow-control&event=fragment-window-refill", nil))
+	if refillRec.Code != http.StatusOK {
+		t.Fatalf("mTLS refill diagnosis status = %d body=%q", refillRec.Code, refillRec.Body.String())
+	}
+	var refillDiagnosis rpc.RPCDiagnosisProbe
+	if err := json.NewDecoder(refillRec.Body).Decode(&refillDiagnosis); err != nil {
+		t.Fatal(err)
+	}
+	if !refillDiagnosis.Matched ||
+		refillDiagnosis.Diagnosis.Mux.Manager.RefillProfile.Refills < 1 ||
+		refillDiagnosis.Diagnosis.Mux.Manager.RefillProfile.StreamWindowRefillRatio != 0.5 ||
+		refillDiagnosis.Diagnosis.Mux.Manager.RefillProfile.ConnectionWindowRefillRatio != 0.25 ||
+		refillDiagnosis.Diagnosis.Mux.Manager.RefillProfile.MaxDeferredFragments != 2 ||
+		refillDiagnosis.Diagnosis.Mux.Manager.RefillProfile.LastFlowControlEvent != "fragment_window_refill" ||
+		len(refillDiagnosis.Diagnosis.Mux.Manager.RefillProfiles) != 1 ||
+		refillDiagnosis.Diagnosis.Mux.Manager.RefillProfiles[0].ConnectionID == "" ||
+		len(refillDiagnosis.Diagnosis.Mux.Events) == 0 ||
+		refillDiagnosis.Diagnosis.Mux.Events[0].Event != "fragment_window_refill" {
+		t.Fatalf("mTLS refill diagnosis = %+v, want generated refillProfile admin evidence", refillDiagnosis.Diagnosis.Mux.Manager)
 	}
 	if err := mtlsClient.Close(); err != nil {
 		t.Fatal(err)
@@ -1686,6 +1710,12 @@ type RPCMuxCandidateConfig struct {
 	MaxConcurrentStreams int ` + "`json:\"maxConcurrentStreams,omitempty\"`" + `
 	ReceiveQueueSize int ` + "`json:\"receiveQueueSize,omitempty\"`" + `
 	ConnectionWindow int ` + "`json:\"connectionWindow,omitempty\"`" + `
+	FragmentStreamWindowUpdatePolicy string ` + "`json:\"fragmentStreamWindowUpdatePolicy,omitempty\"`" + `
+	FragmentConnectionWindowUpdatePolicy string ` + "`json:\"fragmentConnectionWindowUpdatePolicy,omitempty\"`" + `
+	FragmentStreamWindowRefillRatio float64 ` + "`json:\"fragmentStreamWindowRefillRatio,omitempty\"`" + `
+	FragmentConnectionWindowRefillRatio float64 ` + "`json:\"fragmentConnectionWindowRefillRatio,omitempty\"`" + `
+	FragmentMaxDeferredFragments int ` + "`json:\"fragmentMaxDeferredFragments,omitempty\"`" + `
+	FragmentWindowPolicyRiskMode string ` + "`json:\"fragmentWindowPolicyRiskMode,omitempty\"`" + `
 	PayloadCodec string ` + "`json:\"payloadCodec,omitempty\"`" + `
 	FrameCodec string ` + "`json:\"frameCodec,omitempty\"`" + `
 	DrainGrace time.Duration ` + "`json:\"drainGrace,omitempty\"`" + `
@@ -1827,11 +1857,27 @@ func (c RPCMuxConfig) candidateConfigWithTLS(tlsConfig security.TLSConfig) rpc.E
 		MaxConcurrentStreams: candidate.MaxConcurrentStreams,
 		ReceiveQueueSize:     candidate.ReceiveQueueSize,
 		ConnectionWindow:     candidate.ConnectionWindow,
+		FragmentStreamWindowUpdatePolicy:     candidate.FragmentStreamWindowUpdatePolicy,
+		FragmentConnectionWindowUpdatePolicy: candidate.FragmentConnectionWindowUpdatePolicy,
+		FragmentStreamWindowRefillRatio:      candidate.FragmentStreamWindowRefillRatio,
+		FragmentConnectionWindowRefillRatio:  candidate.FragmentConnectionWindowRefillRatio,
+		FragmentMaxDeferredFragments:         candidate.FragmentMaxDeferredFragments,
+		FragmentWindowPolicyRiskMode:         candidate.FragmentWindowPolicyRiskMode,
 		PayloadCodec:         candidate.PayloadCodec,
 		FrameCodec:           candidate.FrameCodec,
 		DrainGrace:           candidate.DrainGrace,
 		AllowLegacyDowngrade: candidate.AllowLegacyDowngrade,
 	}
+}
+
+func ValidateRPCMuxConfig(c RPCMuxConfig) error {
+	if !c.Candidate.Enabled {
+		return nil
+	}
+	return errors.Join(
+		c.CandidateServerConfig().Validate(),
+		c.CandidateClientConfig().Validate(),
+	)
 }
 
 func (c RPCMuxConfig) CandidateTLSConfig() security.TLSConfig {
@@ -2207,6 +2253,7 @@ func Validate(c Config) error {
 		ValidateScaffoldFeatures(c.Scaffold.Features),
 		ValidateDiscoveryConfig(c.Discovery),
 		ValidateOpenAPIConfig(c),
+		ValidateRPCMuxConfig(c.RPC.Mux),
 	); err != nil {
 		return err
 	}
@@ -2230,7 +2277,7 @@ func isProduction(environment string) bool {
 }
 `
 
-const configTestTemplate = `package config
+const configTestHeaderTemplate = `package config
 
 import (
 	"context"
@@ -2243,7 +2290,70 @@ import (
 	"github.com/imajinyun/gofly/core/controlplane"
 	"github.com/imajinyun/gofly/rest"
 )
+`
 
+const rpcMuxConfigValidationTestTemplate = `
+func TestRPCMuxConfigValidatesCandidateFragmentWindowRiskMode(t *testing.T) {
+	cfg := RPCMuxConfig{Candidate: RPCMuxCandidateConfig{
+		Enabled:                              true,
+		Protocol:                             "gofly-mux/config-validation-test",
+		MaxFrameBytes:                        96,
+		MaxMessageBytes:                      2048,
+		ReceiveQueueSize:                     2,
+		ConnectionWindow:                     3,
+		FragmentStreamWindowUpdatePolicy:     "on_receive",
+		FragmentConnectionWindowUpdatePolicy: "on_receive",
+		FragmentStreamWindowRefillRatio:      0.5,
+		FragmentConnectionWindowRefillRatio:  0.25,
+		FragmentMaxDeferredFragments:         0,
+		FragmentWindowPolicyRiskMode:         "warn",
+	}}
+	if err := ValidateRPCMuxConfig(cfg); err != nil {
+		t.Fatalf("ValidateRPCMuxConfig warn risk mode: %v", err)
+	}
+
+	cfg.Candidate.FragmentWindowPolicyRiskMode = "reject"
+	if err := ValidateRPCMuxConfig(cfg); err == nil || !strings.Contains(err.Error(), "fragment window policy risk rejected") {
+		t.Fatalf("ValidateRPCMuxConfig reject risk mode = %v, want fail-fast policy risk error", err)
+	}
+
+	cfg.Candidate.FragmentWindowPolicyRiskMode = "invalid"
+	if err := ValidateRPCMuxConfig(cfg); err == nil || !strings.Contains(err.Error(), "risk mode must be diagnose, warn, or reject") {
+		t.Fatalf("ValidateRPCMuxConfig invalid risk mode = %v, want invalid mode error", err)
+	}
+
+	cfg.Candidate.FragmentWindowPolicyRiskMode = "diagnose"
+	cfg.Candidate.FragmentStreamWindowRefillRatio = 1.1
+	if err := ValidateRPCMuxConfig(cfg); err == nil || !strings.Contains(err.Error(), "stream window refill ratio") {
+		t.Fatalf("ValidateRPCMuxConfig invalid stream refill ratio = %v, want invalid ratio error", err)
+	}
+
+	cfg.Candidate.FragmentStreamWindowRefillRatio = 0.5
+	cfg.Candidate.FragmentConnectionWindowRefillRatio = -0.1
+	if err := ValidateRPCMuxConfig(cfg); err == nil || !strings.Contains(err.Error(), "connection window refill ratio") {
+		t.Fatalf("ValidateRPCMuxConfig invalid connection refill ratio = %v, want invalid ratio error", err)
+	}
+
+	cfg.Candidate.FragmentConnectionWindowRefillRatio = 0.25
+	cfg.Candidate.FragmentMaxDeferredFragments = -1
+	if err := ValidateRPCMuxConfig(cfg); err == nil || !strings.Contains(err.Error(), "max deferred fragments") {
+		t.Fatalf("ValidateRPCMuxConfig invalid max deferred fragments = %v, want invalid max deferred error", err)
+	}
+
+	cfg.Candidate.FragmentMaxDeferredFragments = 2
+	cfg.Candidate.FragmentWindowPolicyRiskMode = "reject"
+	if err := ValidateRPCMuxConfig(cfg); err == nil || !strings.Contains(err.Error(), "estimated_fragments_exceeds_max_deferred_fragments") {
+		t.Fatalf("ValidateRPCMuxConfig reject max deferred risk = %v, want max deferred fail-fast error", err)
+	}
+
+	cfg.Candidate.Enabled = false
+	if err := ValidateRPCMuxConfig(cfg); err != nil {
+		t.Fatalf("ValidateRPCMuxConfig disabled candidate: %v", err)
+	}
+}
+`
+
+const configCommonTestsTemplate = `
 func TestOpenAPIConfigDefaultsAndOverrides(t *testing.T) {
 	defaultConfig := Config{Service: serviceConfFixture("hello")}
 	if !defaultConfig.OpenAPIEnabled() {
@@ -2329,6 +2439,10 @@ func serviceConfFixture(name string, governance ...app.ServiceGovernance) app.Se
 
 func boolPtr(v bool) *bool { return &v }
 `
+
+const configTestTemplate = configTestHeaderTemplate + configCommonTestsTemplate
+
+const rpcConfigTestTemplate = configTestHeaderTemplate + rpcMuxConfigValidationTestTemplate + configCommonTestsTemplate
 
 const configDiscoveryTestTemplate = `package config
 

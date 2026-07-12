@@ -9,6 +9,7 @@ import (
 	"io"
 	"math"
 	"net"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -32,7 +33,8 @@ const (
 	experimentalMuxFrameDataFrag   byte = 11
 	experimentalMuxFrameDataEnd    byte = 12
 
-	experimentalMuxMaxWindowSlots = 64 * 1024
+	experimentalMuxDefaultReceiveQueueSize = 16
+	experimentalMuxMaxWindowSlots          = 64 * 1024
 )
 
 var (
@@ -44,24 +46,42 @@ const (
 	experimentalMuxReasonDraining             = "draining"
 	experimentalMuxReasonPeerDraining         = "peer_draining"
 	experimentalMuxReasonMaxConcurrentStreams = "max_concurrent_streams"
+
+	experimentalMuxWindowUpdatePerFragment = "per_fragment"
+	experimentalMuxWindowUpdateOnReceive   = "on_receive"
+
+	experimentalMuxFragmentPolicyRiskModeDiagnose = "diagnose"
+	experimentalMuxFragmentPolicyRiskModeWarn     = "warn"
+	experimentalMuxFragmentPolicyRiskModeReject   = "reject"
+
+	experimentalMuxFragmentPolicyRiskStreamAndConnection = "stream_and_connection_window_smaller_than_estimated_fragments"
+	experimentalMuxFragmentPolicyRiskStream              = "stream_window_smaller_than_estimated_fragments"
+	experimentalMuxFragmentPolicyRiskConnection          = "connection_window_smaller_than_estimated_fragments"
+	experimentalMuxFragmentPolicyRiskMaxDeferred         = "estimated_fragments_exceeds_max_deferred_fragments"
 )
 
 // ExperimentalMuxTransport is an isolated spike for stream multiplexing over a
 // single net.Conn. It is not wired into the HTTP upgrade stream path.
 type ExperimentalMuxTransport struct {
-	conn              net.Conn
-	role              string
-	maxFrame          int64
-	maxMessage        int64
-	receiveQueueSize  int
-	connectionWindow  int
-	maxStreams        int
-	keepaliveInterval time.Duration
-	keepaliveIdle     time.Duration
-	writeTimeout      time.Duration
-	creditWaitTimeout time.Duration
-	payload           PayloadCodec
-	frame             FrameCodec
+	conn                           net.Conn
+	role                           string
+	maxFrame                       int64
+	maxMessage                     int64
+	receiveQueueSize               int
+	connectionWindow               int
+	maxStreams                     int
+	keepaliveInterval              time.Duration
+	keepaliveIdle                  time.Duration
+	writeTimeout                   time.Duration
+	creditWaitTimeout              time.Duration
+	fragmentStreamWindowPolicy     string
+	fragmentConnectionWindowPolicy string
+	fragmentStreamWindowRefill     float64
+	fragmentConnectionWindowRefill float64
+	fragmentMaxDeferredFragments   int
+	fragmentWindowPolicyRiskMode   string
+	payload                        PayloadCodec
+	frame                          FrameCodec
 
 	nextID uint64
 
@@ -80,54 +100,63 @@ type ExperimentalMuxTransport struct {
 	done       chan struct{}
 	once       sync.Once
 
-	framesIn                  atomic.Int64
-	framesOut                 atomic.Int64
-	dataFramesIn              atomic.Int64
-	dataFramesOut             atomic.Int64
-	fragmentFramesIn          atomic.Int64
-	fragmentFramesOut         atomic.Int64
-	openFramesIn              atomic.Int64
-	openFramesOut             atomic.Int64
-	closeFramesIn             atomic.Int64
-	closeFramesOut            atomic.Int64
-	cancelFramesIn            atomic.Int64
-	cancelFramesOut           atomic.Int64
-	windowFramesIn            atomic.Int64
-	windowFramesOut           atomic.Int64
-	connectionWindowFramesIn  atomic.Int64
-	connectionWindowFramesOut atomic.Int64
-	finFramesIn               atomic.Int64
-	finFramesOut              atomic.Int64
-	pingFramesIn              atomic.Int64
-	pingFramesOut             atomic.Int64
-	pongFramesIn              atomic.Int64
-	pongFramesOut             atomic.Int64
-	goAwayFramesIn            atomic.Int64
-	goAwayFramesOut           atomic.Int64
-	bytesIn                   atomic.Int64
-	bytesOut                  atomic.Int64
-	openedStreams             atomic.Int64
-	acceptedStreams           atomic.Int64
-	closedStreams             atomic.Int64
-	canceledStreams           atomic.Int64
-	halfClosedStreams         atomic.Int64
-	backpressureEvents        atomic.Int64
-	creditWaits               atomic.Int64
-	connectionCreditWaits     atomic.Int64
-	creditWaitTimeouts        atomic.Int64
-	writeTimeouts             atomic.Int64
-	connectionWindowExhausted atomic.Int64
-	idleTimeouts              atomic.Int64
-	localRejects              atomic.Int64
-	remoteRejects             atomic.Int64
-	drainRejects              atomic.Int64
-	lastStreamID              atomic.Uint64
-	lastFrameReadAt           atomic.Int64
-	lastFrameWrittenAt        atomic.Int64
-	lastPingAt                atomic.Int64
-	lastPongAt                atomic.Int64
-	lastCloseCode             atomic.Value
-	lastCloseReason           atomic.Value
+	framesIn                                atomic.Int64
+	framesOut                               atomic.Int64
+	dataFramesIn                            atomic.Int64
+	dataFramesOut                           atomic.Int64
+	fragmentFramesIn                        atomic.Int64
+	fragmentFramesOut                       atomic.Int64
+	openFramesIn                            atomic.Int64
+	openFramesOut                           atomic.Int64
+	closeFramesIn                           atomic.Int64
+	closeFramesOut                          atomic.Int64
+	cancelFramesIn                          atomic.Int64
+	cancelFramesOut                         atomic.Int64
+	windowFramesIn                          atomic.Int64
+	windowFramesOut                         atomic.Int64
+	connectionWindowFramesIn                atomic.Int64
+	connectionWindowFramesOut               atomic.Int64
+	finFramesIn                             atomic.Int64
+	finFramesOut                            atomic.Int64
+	pingFramesIn                            atomic.Int64
+	pingFramesOut                           atomic.Int64
+	pongFramesIn                            atomic.Int64
+	pongFramesOut                           atomic.Int64
+	goAwayFramesIn                          atomic.Int64
+	goAwayFramesOut                         atomic.Int64
+	bytesIn                                 atomic.Int64
+	bytesOut                                atomic.Int64
+	openedStreams                           atomic.Int64
+	acceptedStreams                         atomic.Int64
+	closedStreams                           atomic.Int64
+	canceledStreams                         atomic.Int64
+	halfClosedStreams                       atomic.Int64
+	backpressureEvents                      atomic.Int64
+	creditWaits                             atomic.Int64
+	connectionCreditWaits                   atomic.Int64
+	creditWaitTimeouts                      atomic.Int64
+	writeTimeouts                           atomic.Int64
+	connectionWindowExhausted               atomic.Int64
+	fragmentWindowRefills                   atomic.Int64
+	fragmentWindowRefillLatencyTotalNanos   atomic.Int64
+	fragmentWindowRefillLatencyMaxNanos     atomic.Int64
+	fragmentDeferredStreamWindowUpdates     atomic.Int64
+	fragmentDeferredConnectionWindowUpdates atomic.Int64
+	lastFlowControlEvent                    atomic.Value
+	lastFlowControlEventAt                  atomic.Int64
+	lastBackpressureEvent                   atomic.Value
+	lastBackpressureEventAt                 atomic.Int64
+	idleTimeouts                            atomic.Int64
+	localRejects                            atomic.Int64
+	remoteRejects                           atomic.Int64
+	drainRejects                            atomic.Int64
+	lastStreamID                            atomic.Uint64
+	lastFrameReadAt                         atomic.Int64
+	lastFrameWrittenAt                      atomic.Int64
+	lastPingAt                              atomic.Int64
+	lastPongAt                              atomic.Int64
+	lastCloseCode                           atomic.Value
+	lastCloseReason                         atomic.Value
 }
 
 // ExperimentalMuxTransportOption customizes ExperimentalMuxTransport.
@@ -135,71 +164,90 @@ type ExperimentalMuxTransportOption func(*ExperimentalMuxTransport)
 
 // ExperimentalMuxTransportSnapshot reports observable mux transport state.
 type ExperimentalMuxTransportSnapshot struct {
-	Role                      string        `json:"role,omitempty"`
-	ActiveStreams             int           `json:"activeStreams"`
-	OpenedStreams             int64         `json:"openedStreams,omitempty"`
-	AcceptedStreams           int64         `json:"acceptedStreams,omitempty"`
-	ClosedStreams             int64         `json:"closedStreams,omitempty"`
-	CanceledStreams           int64         `json:"canceledStreams,omitempty"`
-	FramesIn                  int64         `json:"framesIn,omitempty"`
-	FramesOut                 int64         `json:"framesOut,omitempty"`
-	DataFramesIn              int64         `json:"dataFramesIn,omitempty"`
-	DataFramesOut             int64         `json:"dataFramesOut,omitempty"`
-	OpenFramesIn              int64         `json:"openFramesIn,omitempty"`
-	OpenFramesOut             int64         `json:"openFramesOut,omitempty"`
-	CloseFramesIn             int64         `json:"closeFramesIn,omitempty"`
-	CloseFramesOut            int64         `json:"closeFramesOut,omitempty"`
-	CancelFramesIn            int64         `json:"cancelFramesIn,omitempty"`
-	CancelFramesOut           int64         `json:"cancelFramesOut,omitempty"`
-	WindowFramesIn            int64         `json:"windowFramesIn,omitempty"`
-	WindowFramesOut           int64         `json:"windowFramesOut,omitempty"`
-	ConnectionWindowFramesIn  int64         `json:"connectionWindowFramesIn,omitempty"`
-	ConnectionWindowFramesOut int64         `json:"connectionWindowFramesOut,omitempty"`
-	FinFramesIn               int64         `json:"finFramesIn,omitempty"`
-	FinFramesOut              int64         `json:"finFramesOut,omitempty"`
-	PingFramesIn              int64         `json:"pingFramesIn,omitempty"`
-	PingFramesOut             int64         `json:"pingFramesOut,omitempty"`
-	PongFramesIn              int64         `json:"pongFramesIn,omitempty"`
-	PongFramesOut             int64         `json:"pongFramesOut,omitempty"`
-	GoAwayFramesIn            int64         `json:"goAwayFramesIn,omitempty"`
-	GoAwayFramesOut           int64         `json:"goAwayFramesOut,omitempty"`
-	BytesIn                   int64         `json:"bytesIn,omitempty"`
-	BytesOut                  int64         `json:"bytesOut,omitempty"`
-	FragmentFramesIn          int64         `json:"fragmentFramesIn,omitempty"`
-	FragmentFramesOut         int64         `json:"fragmentFramesOut,omitempty"`
-	HalfClosedStreams         int64         `json:"halfClosedStreams,omitempty"`
-	BackpressureEvents        int64         `json:"backpressureEvents,omitempty"`
-	CreditWaits               int64         `json:"creditWaits,omitempty"`
-	ConnectionCreditWaits     int64         `json:"connectionCreditWaits,omitempty"`
-	CreditWaitTimeouts        int64         `json:"creditWaitTimeouts,omitempty"`
-	WriteTimeouts             int64         `json:"writeTimeouts,omitempty"`
-	ConnectionWindowExhausted int64         `json:"connectionWindowExhausted,omitempty"`
-	IdleTimeouts              int64         `json:"idleTimeouts,omitempty"`
-	LocalRejects              int64         `json:"localRejects,omitempty"`
-	RemoteRejects             int64         `json:"remoteRejects,omitempty"`
-	DrainRejects              int64         `json:"drainRejects,omitempty"`
-	ReceiveQueueSize          int           `json:"receiveQueueSize,omitempty"`
-	ConnectionWindow          int           `json:"connectionWindow,omitempty"`
-	MaxFrameBytes             int64         `json:"maxFrameBytes,omitempty"`
-	MaxMessageBytes           int64         `json:"maxMessageBytes,omitempty"`
-	MaxStreams                int           `json:"maxStreams,omitempty"`
-	KeepaliveInterval         time.Duration `json:"keepaliveInterval,omitempty"`
-	KeepaliveIdle             time.Duration `json:"keepaliveIdle,omitempty"`
-	WriteTimeout              time.Duration `json:"writeTimeout,omitempty"`
-	CreditWaitTimeout         time.Duration `json:"creditWaitTimeout,omitempty"`
-	LastFrameReadAt           time.Time     `json:"lastFrameReadAt,omitempty"`
-	LastFrameWrittenAt        time.Time     `json:"lastFrameWrittenAt,omitempty"`
-	LastPingAt                time.Time     `json:"lastPingAt,omitempty"`
-	LastPongAt                time.Time     `json:"lastPongAt,omitempty"`
-	Liveness                  string        `json:"liveness,omitempty"`
-	Draining                  bool          `json:"draining,omitempty"`
-	RemoteDraining            bool          `json:"remoteDraining,omitempty"`
-	DrainReason               string        `json:"drainReason,omitempty"`
-	RemoteDrainReason         string        `json:"remoteDrainReason,omitempty"`
-	LastStreamID              uint64        `json:"lastStreamID,omitempty"`
-	LastCloseCode             Code          `json:"lastCloseCode,omitempty"`
-	LastCloseReason           string        `json:"lastCloseReason,omitempty"`
-	Closed                    bool          `json:"closed"`
+	Role                                    string        `json:"role,omitempty"`
+	ActiveStreams                           int           `json:"activeStreams"`
+	OpenedStreams                           int64         `json:"openedStreams,omitempty"`
+	AcceptedStreams                         int64         `json:"acceptedStreams,omitempty"`
+	ClosedStreams                           int64         `json:"closedStreams,omitempty"`
+	CanceledStreams                         int64         `json:"canceledStreams,omitempty"`
+	FramesIn                                int64         `json:"framesIn,omitempty"`
+	FramesOut                               int64         `json:"framesOut,omitempty"`
+	DataFramesIn                            int64         `json:"dataFramesIn,omitempty"`
+	DataFramesOut                           int64         `json:"dataFramesOut,omitempty"`
+	OpenFramesIn                            int64         `json:"openFramesIn,omitempty"`
+	OpenFramesOut                           int64         `json:"openFramesOut,omitempty"`
+	CloseFramesIn                           int64         `json:"closeFramesIn,omitempty"`
+	CloseFramesOut                          int64         `json:"closeFramesOut,omitempty"`
+	CancelFramesIn                          int64         `json:"cancelFramesIn,omitempty"`
+	CancelFramesOut                         int64         `json:"cancelFramesOut,omitempty"`
+	WindowFramesIn                          int64         `json:"windowFramesIn,omitempty"`
+	WindowFramesOut                         int64         `json:"windowFramesOut,omitempty"`
+	ConnectionWindowFramesIn                int64         `json:"connectionWindowFramesIn,omitempty"`
+	ConnectionWindowFramesOut               int64         `json:"connectionWindowFramesOut,omitempty"`
+	FinFramesIn                             int64         `json:"finFramesIn,omitempty"`
+	FinFramesOut                            int64         `json:"finFramesOut,omitempty"`
+	PingFramesIn                            int64         `json:"pingFramesIn,omitempty"`
+	PingFramesOut                           int64         `json:"pingFramesOut,omitempty"`
+	PongFramesIn                            int64         `json:"pongFramesIn,omitempty"`
+	PongFramesOut                           int64         `json:"pongFramesOut,omitempty"`
+	GoAwayFramesIn                          int64         `json:"goAwayFramesIn,omitempty"`
+	GoAwayFramesOut                         int64         `json:"goAwayFramesOut,omitempty"`
+	BytesIn                                 int64         `json:"bytesIn,omitempty"`
+	BytesOut                                int64         `json:"bytesOut,omitempty"`
+	FragmentFramesIn                        int64         `json:"fragmentFramesIn,omitempty"`
+	FragmentFramesOut                       int64         `json:"fragmentFramesOut,omitempty"`
+	HalfClosedStreams                       int64         `json:"halfClosedStreams,omitempty"`
+	BackpressureEvents                      int64         `json:"backpressureEvents,omitempty"`
+	CreditWaits                             int64         `json:"creditWaits,omitempty"`
+	ConnectionCreditWaits                   int64         `json:"connectionCreditWaits,omitempty"`
+	CreditWaitTimeouts                      int64         `json:"creditWaitTimeouts,omitempty"`
+	WriteTimeouts                           int64         `json:"writeTimeouts,omitempty"`
+	ConnectionWindowExhausted               int64         `json:"connectionWindowExhausted,omitempty"`
+	FragmentStreamWindowUpdatePolicy        string        `json:"fragmentStreamWindowUpdatePolicy,omitempty"`
+	FragmentConnectionWindowUpdatePolicy    string        `json:"fragmentConnectionWindowUpdatePolicy,omitempty"`
+	FragmentStreamWindowRefillRatio         float64       `json:"fragmentStreamWindowRefillRatio,omitempty"`
+	FragmentConnectionWindowRefillRatio     float64       `json:"fragmentConnectionWindowRefillRatio,omitempty"`
+	FragmentMaxDeferredFragments            int           `json:"fragmentMaxDeferredFragments,omitempty"`
+	FragmentWindowRefills                   int64         `json:"fragmentWindowRefills,omitempty"`
+	FragmentWindowRefillLatencyTotal        time.Duration `json:"fragmentWindowRefillLatencyTotal,omitempty"`
+	FragmentWindowRefillLatencyMax          time.Duration `json:"fragmentWindowRefillLatencyMax,omitempty"`
+	FragmentWindowRefillLatencyAvg          time.Duration `json:"fragmentWindowRefillLatencyAvg,omitempty"`
+	FragmentDeferredStreamWindowUpdates     int64         `json:"fragmentDeferredStreamWindowUpdates,omitempty"`
+	FragmentDeferredConnectionWindowUpdates int64         `json:"fragmentDeferredConnectionWindowUpdates,omitempty"`
+	FragmentWindowPolicyRisk                bool          `json:"fragmentWindowPolicyRisk,omitempty"`
+	FragmentWindowPolicyRiskReason          string        `json:"fragmentWindowPolicyRiskReason,omitempty"`
+	FragmentWindowPolicyRiskMode            string        `json:"fragmentWindowPolicyRiskMode,omitempty"`
+	FragmentEstimatedMaxFragments           int           `json:"fragmentEstimatedMaxFragments,omitempty"`
+	LastFlowControlEvent                    string        `json:"lastFlowControlEvent,omitempty"`
+	LastFlowControlEventAt                  time.Time     `json:"lastFlowControlEventAt,omitempty"`
+	LastBackpressureEvent                   string        `json:"lastBackpressureEvent,omitempty"`
+	LastBackpressureEventAt                 time.Time     `json:"lastBackpressureEventAt,omitempty"`
+	IdleTimeouts                            int64         `json:"idleTimeouts,omitempty"`
+	LocalRejects                            int64         `json:"localRejects,omitempty"`
+	RemoteRejects                           int64         `json:"remoteRejects,omitempty"`
+	DrainRejects                            int64         `json:"drainRejects,omitempty"`
+	ReceiveQueueSize                        int           `json:"receiveQueueSize,omitempty"`
+	ConnectionWindow                        int           `json:"connectionWindow,omitempty"`
+	MaxFrameBytes                           int64         `json:"maxFrameBytes,omitempty"`
+	MaxMessageBytes                         int64         `json:"maxMessageBytes,omitempty"`
+	MaxStreams                              int           `json:"maxStreams,omitempty"`
+	KeepaliveInterval                       time.Duration `json:"keepaliveInterval,omitempty"`
+	KeepaliveIdle                           time.Duration `json:"keepaliveIdle,omitempty"`
+	WriteTimeout                            time.Duration `json:"writeTimeout,omitempty"`
+	CreditWaitTimeout                       time.Duration `json:"creditWaitTimeout,omitempty"`
+	LastFrameReadAt                         time.Time     `json:"lastFrameReadAt,omitempty"`
+	LastFrameWrittenAt                      time.Time     `json:"lastFrameWrittenAt,omitempty"`
+	LastPingAt                              time.Time     `json:"lastPingAt,omitempty"`
+	LastPongAt                              time.Time     `json:"lastPongAt,omitempty"`
+	Liveness                                string        `json:"liveness,omitempty"`
+	Draining                                bool          `json:"draining,omitempty"`
+	RemoteDraining                          bool          `json:"remoteDraining,omitempty"`
+	DrainReason                             string        `json:"drainReason,omitempty"`
+	RemoteDrainReason                       string        `json:"remoteDrainReason,omitempty"`
+	LastStreamID                            uint64        `json:"lastStreamID,omitempty"`
+	LastCloseCode                           Code          `json:"lastCloseCode,omitempty"`
+	LastCloseReason                         string        `json:"lastCloseReason,omitempty"`
+	Closed                                  bool          `json:"closed"`
 }
 
 // ExperimentalMuxStream is a logical stream carried by ExperimentalMuxTransport.
@@ -212,18 +260,24 @@ type ExperimentalMuxStream struct {
 	done   chan struct{}
 	once   sync.Once
 
-	mu          sync.Mutex
-	localClosed bool
-	remoteDone  bool
-	localDone   bool
-	aborted     bool
-	fragments   []byte
+	mu                              sync.Mutex
+	localClosed                     bool
+	remoteDone                      bool
+	localDone                       bool
+	aborted                         bool
+	fragments                       []byte
+	fragmentCount                   uint32
+	deferredStreamWindowUpdates     uint32
+	deferredConnectionWindowUpdates uint32
 }
 
 type experimentalMuxStreamEvent struct {
-	msg                 Message
-	err                 error
-	skipWindowOnReceive bool
+	msg                    Message
+	err                    error
+	streamWindowUpdate     uint32
+	connectionWindowUpdate uint32
+	fragmentWindowUpdate   bool
+	deliveredAt            int64
 }
 
 type experimentalMuxFrame struct {
@@ -241,7 +295,7 @@ func NewExperimentalMuxTransport(conn net.Conn, opts ...ExperimentalMuxTransport
 		conn:             conn,
 		role:             "client",
 		maxFrame:         DefaultMaxFrameBytes,
-		receiveQueueSize: 16,
+		receiveQueueSize: experimentalMuxDefaultReceiveQueueSize,
 		payload:          NoopPayloadCodec{},
 		frame:            JSONFrameCodec{},
 		nextID:           1,
@@ -262,6 +316,14 @@ func NewExperimentalMuxTransport(conn net.Conn, opts ...ExperimentalMuxTransport
 	}
 	t.receiveQueueSize = clampExperimentalMuxWindow(t.receiveQueueSize)
 	t.connectionWindow = clampExperimentalMuxWindow(t.connectionWindow)
+	t.fragmentStreamWindowPolicy = normalizeExperimentalMuxWindowUpdatePolicy(t.fragmentStreamWindowPolicy)
+	t.fragmentConnectionWindowPolicy = normalizeExperimentalMuxWindowUpdatePolicy(t.fragmentConnectionWindowPolicy)
+	t.fragmentStreamWindowRefill = normalizeExperimentalMuxWindowRefillRatio(t.fragmentStreamWindowRefill)
+	t.fragmentConnectionWindowRefill = normalizeExperimentalMuxWindowRefillRatio(t.fragmentConnectionWindowRefill)
+	if t.fragmentMaxDeferredFragments < 0 {
+		t.fragmentMaxDeferredFragments = 0
+	}
+	t.fragmentWindowPolicyRiskMode = normalizeExperimentalMuxFragmentPolicyRiskMode(t.fragmentWindowPolicyRiskMode)
 	if t.maxFrame <= 0 {
 		t.maxFrame = DefaultMaxFrameBytes
 	}
@@ -315,6 +377,172 @@ func WithExperimentalMuxConnectionWindow(size int) ExperimentalMuxTransportOptio
 			t.connectionWindow = size
 		}
 	}
+}
+
+func WithExperimentalMuxFragmentWindowUpdatePolicy(streamPolicy string, connectionPolicy string) ExperimentalMuxTransportOption {
+	return func(t *ExperimentalMuxTransport) {
+		if normalized := normalizeExperimentalMuxWindowUpdatePolicy(streamPolicy); normalized != "" {
+			t.fragmentStreamWindowPolicy = normalized
+		}
+		if normalized := normalizeExperimentalMuxWindowUpdatePolicy(connectionPolicy); normalized != "" {
+			t.fragmentConnectionWindowPolicy = normalized
+		}
+	}
+}
+
+func WithExperimentalMuxFragmentWindowPolicyRiskMode(mode string) ExperimentalMuxTransportOption {
+	return func(t *ExperimentalMuxTransport) {
+		if normalized := normalizeExperimentalMuxFragmentPolicyRiskMode(mode); normalized != "" {
+			t.fragmentWindowPolicyRiskMode = normalized
+		}
+	}
+}
+
+func WithExperimentalMuxFragmentWindowRefillPolicy(streamRatio float64, connectionRatio float64, maxDeferredFragments int) ExperimentalMuxTransportOption {
+	return func(t *ExperimentalMuxTransport) {
+		if isValidExperimentalMuxWindowRefillRatio(streamRatio) && streamRatio > 0 {
+			t.fragmentStreamWindowRefill = streamRatio
+		}
+		if isValidExperimentalMuxWindowRefillRatio(connectionRatio) && connectionRatio > 0 {
+			t.fragmentConnectionWindowRefill = connectionRatio
+		}
+		if maxDeferredFragments >= 0 {
+			t.fragmentMaxDeferredFragments = maxDeferredFragments
+		}
+	}
+}
+
+func experimentalMuxFragmentWindowPolicyRisk(
+	maxFrame int64,
+	maxMessage int64,
+	receiveQueueSize int,
+	connectionWindow int,
+	streamPolicy string,
+	connectionPolicy string,
+	maxDeferredFragments int,
+) (bool, string, int) {
+	estimated := experimentalMuxEstimatedMaxFragments(maxFrame, maxMessage)
+	if estimated <= 1 {
+		return false, "", estimated
+	}
+	if receiveQueueSize <= 0 {
+		receiveQueueSize = experimentalMuxDefaultReceiveQueueSize
+	}
+	if connectionWindow <= 0 {
+		connectionWindow = receiveQueueSize
+	}
+	receiveQueueSize = clampExperimentalMuxWindow(receiveQueueSize)
+	connectionWindow = clampExperimentalMuxWindow(connectionWindow)
+	streamPolicy = normalizeExperimentalMuxWindowUpdatePolicy(streamPolicy)
+	connectionPolicy = normalizeExperimentalMuxWindowUpdatePolicy(connectionPolicy)
+	if maxDeferredFragments > 0 && estimated > maxDeferredFragments &&
+		(streamPolicy == experimentalMuxWindowUpdateOnReceive || connectionPolicy == experimentalMuxWindowUpdateOnReceive) {
+		return true, experimentalMuxFragmentPolicyRiskMaxDeferred, estimated
+	}
+	effectiveDeferredFragments := estimated
+	if maxDeferredFragments > 0 && maxDeferredFragments < effectiveDeferredFragments {
+		effectiveDeferredFragments = maxDeferredFragments
+	}
+	switch {
+	case streamPolicy == experimentalMuxWindowUpdateOnReceive && receiveQueueSize < effectiveDeferredFragments &&
+		connectionPolicy == experimentalMuxWindowUpdateOnReceive && connectionWindow < effectiveDeferredFragments:
+		return true, experimentalMuxFragmentPolicyRiskStreamAndConnection, estimated
+	case streamPolicy == experimentalMuxWindowUpdateOnReceive && receiveQueueSize < effectiveDeferredFragments:
+		return true, experimentalMuxFragmentPolicyRiskStream, estimated
+	case connectionPolicy == experimentalMuxWindowUpdateOnReceive && connectionWindow < effectiveDeferredFragments:
+		return true, experimentalMuxFragmentPolicyRiskConnection, estimated
+	default:
+		return false, "", estimated
+	}
+}
+
+func experimentalMuxEstimatedMaxFragments(maxFrame int64, maxMessage int64) int {
+	if maxFrame <= 0 {
+		maxFrame = DefaultMaxFrameBytes
+	}
+	if maxMessage <= 0 {
+		maxMessage = maxFrame * 16
+	}
+	if maxMessage <= 0 {
+		return 0
+	}
+	chunkSize := int64(experimentalMuxFragmentPayloadSize(maxFrame))
+	if chunkSize <= 0 {
+		return 0
+	}
+	estimated := (maxMessage + chunkSize - 1) / chunkSize
+	if estimated > int64(math.MaxInt) {
+		return math.MaxInt
+	}
+	return int(estimated)
+}
+
+func experimentalMuxFragmentPayloadSize(maxFrame int64) int {
+	if maxFrame <= 0 {
+		maxFrame = DefaultMaxFrameBytes
+	}
+	if maxFrame > int64(math.MaxInt) {
+		return math.MaxInt
+	}
+	encodedEmpty, err := encodeExperimentalMuxFrame(experimentalMuxFrame{typ: experimentalMuxFrameDataFrag, streamID: 1})
+	if err != nil {
+		return 0
+	}
+	headroom := int(maxFrame) - len(encodedEmpty) - 1
+	if headroom <= 0 {
+		return 0
+	}
+	return headroom
+}
+
+func normalizeExperimentalMuxWindowUpdatePolicy(policy string) string {
+	switch strings.ReplaceAll(strings.ToLower(strings.TrimSpace(policy)), "-", "_") {
+	case "", experimentalMuxWindowUpdatePerFragment:
+		return experimentalMuxWindowUpdatePerFragment
+	case experimentalMuxWindowUpdateOnReceive:
+		return experimentalMuxWindowUpdateOnReceive
+	default:
+		return ""
+	}
+}
+
+func normalizeExperimentalMuxFragmentPolicyRiskMode(mode string) string {
+	switch strings.ReplaceAll(strings.ToLower(strings.TrimSpace(mode)), "-", "_") {
+	case "", experimentalMuxFragmentPolicyRiskModeDiagnose:
+		return experimentalMuxFragmentPolicyRiskModeDiagnose
+	case experimentalMuxFragmentPolicyRiskModeWarn:
+		return experimentalMuxFragmentPolicyRiskModeWarn
+	case experimentalMuxFragmentPolicyRiskModeReject:
+		return experimentalMuxFragmentPolicyRiskModeReject
+	default:
+		return ""
+	}
+}
+
+func isValidExperimentalMuxWindowRefillRatio(ratio float64) bool {
+	return ratio >= 0 && ratio <= 1
+}
+
+func normalizeExperimentalMuxWindowRefillRatio(ratio float64) float64 {
+	if ratio <= 0 || ratio > 1 {
+		return 1
+	}
+	return ratio
+}
+
+func experimentalMuxWindowRefillDelta(delta uint32, ratio float64) uint32 {
+	if delta == 0 {
+		return 0
+	}
+	ratio = normalizeExperimentalMuxWindowRefillRatio(ratio)
+	refill := uint32(math.Ceil(float64(delta) * ratio))
+	if refill == 0 {
+		return 1
+	}
+	if refill > delta {
+		return delta
+	}
+	return refill
 }
 
 func clampExperimentalMuxWindow(size int) int {
@@ -534,6 +762,10 @@ func (t *ExperimentalMuxTransport) Snapshot() ExperimentalMuxTransportSnapshot {
 	lastFrameWrittenAt := unixNanoToTime(t.lastFrameWrittenAt.Load())
 	lastPingAt := unixNanoToTime(t.lastPingAt.Load())
 	lastPongAt := unixNanoToTime(t.lastPongAt.Load())
+	lastFlowControlEvent, _ := t.lastFlowControlEvent.Load().(string)
+	lastFlowControlEventAt := unixNanoToTime(t.lastFlowControlEventAt.Load())
+	lastBackpressureEvent, _ := t.lastBackpressureEvent.Load().(string)
+	lastBackpressureEventAt := unixNanoToTime(t.lastBackpressureEventAt.Load())
 	liveness := "alive"
 	if closed {
 		liveness = "closed"
@@ -542,72 +774,106 @@ func (t *ExperimentalMuxTransport) Snapshot() ExperimentalMuxTransportSnapshot {
 	} else if t.keepaliveIdle > 0 && !lastFrameReadAt.IsZero() && time.Since(lastFrameReadAt) > t.keepaliveIdle {
 		liveness = "idle"
 	}
+	fragmentPolicyRisk, fragmentPolicyRiskReason, fragmentEstimatedMaxFragments := experimentalMuxFragmentWindowPolicyRisk(
+		t.maxFrame,
+		t.maxMessage,
+		t.receiveQueueSize,
+		t.connectionWindow,
+		t.fragmentStreamWindowPolicy,
+		t.fragmentConnectionWindowPolicy,
+		t.fragmentMaxDeferredFragments,
+	)
+	fragmentWindowRefills := t.fragmentWindowRefills.Load()
+	fragmentRefillLatencyTotal := time.Duration(t.fragmentWindowRefillLatencyTotalNanos.Load())
+	var fragmentRefillLatencyAvg time.Duration
+	if fragmentWindowRefills > 0 {
+		fragmentRefillLatencyAvg = fragmentRefillLatencyTotal / time.Duration(fragmentWindowRefills)
+	}
 	return ExperimentalMuxTransportSnapshot{
-		Role:                      t.role,
-		ActiveStreams:             active,
-		OpenedStreams:             t.openedStreams.Load(),
-		AcceptedStreams:           t.acceptedStreams.Load(),
-		ClosedStreams:             t.closedStreams.Load(),
-		CanceledStreams:           t.canceledStreams.Load(),
-		FramesIn:                  t.framesIn.Load(),
-		FramesOut:                 t.framesOut.Load(),
-		DataFramesIn:              t.dataFramesIn.Load(),
-		DataFramesOut:             t.dataFramesOut.Load(),
-		FragmentFramesIn:          t.fragmentFramesIn.Load(),
-		FragmentFramesOut:         t.fragmentFramesOut.Load(),
-		OpenFramesIn:              t.openFramesIn.Load(),
-		OpenFramesOut:             t.openFramesOut.Load(),
-		CloseFramesIn:             t.closeFramesIn.Load(),
-		CloseFramesOut:            t.closeFramesOut.Load(),
-		CancelFramesIn:            t.cancelFramesIn.Load(),
-		CancelFramesOut:           t.cancelFramesOut.Load(),
-		WindowFramesIn:            t.windowFramesIn.Load(),
-		WindowFramesOut:           t.windowFramesOut.Load(),
-		ConnectionWindowFramesIn:  t.connectionWindowFramesIn.Load(),
-		ConnectionWindowFramesOut: t.connectionWindowFramesOut.Load(),
-		FinFramesIn:               t.finFramesIn.Load(),
-		FinFramesOut:              t.finFramesOut.Load(),
-		PingFramesIn:              t.pingFramesIn.Load(),
-		PingFramesOut:             t.pingFramesOut.Load(),
-		PongFramesIn:              t.pongFramesIn.Load(),
-		PongFramesOut:             t.pongFramesOut.Load(),
-		GoAwayFramesIn:            t.goAwayFramesIn.Load(),
-		GoAwayFramesOut:           t.goAwayFramesOut.Load(),
-		BytesIn:                   t.bytesIn.Load(),
-		BytesOut:                  t.bytesOut.Load(),
-		HalfClosedStreams:         t.halfClosedStreams.Load(),
-		BackpressureEvents:        t.backpressureEvents.Load(),
-		CreditWaits:               t.creditWaits.Load(),
-		ConnectionCreditWaits:     t.connectionCreditWaits.Load(),
-		CreditWaitTimeouts:        t.creditWaitTimeouts.Load(),
-		WriteTimeouts:             t.writeTimeouts.Load(),
-		ConnectionWindowExhausted: t.connectionWindowExhausted.Load(),
-		IdleTimeouts:              t.idleTimeouts.Load(),
-		LocalRejects:              t.localRejects.Load(),
-		RemoteRejects:             t.remoteRejects.Load(),
-		DrainRejects:              t.drainRejects.Load(),
-		ReceiveQueueSize:          t.receiveQueueSize,
-		ConnectionWindow:          t.connectionWindow,
-		MaxFrameBytes:             t.maxFrame,
-		MaxMessageBytes:           t.maxMessage,
-		MaxStreams:                t.maxStreams,
-		KeepaliveInterval:         t.keepaliveInterval,
-		KeepaliveIdle:             t.keepaliveIdle,
-		WriteTimeout:              t.writeTimeout,
-		CreditWaitTimeout:         t.creditWaitTimeout,
-		LastFrameReadAt:           lastFrameReadAt,
-		LastFrameWrittenAt:        lastFrameWrittenAt,
-		LastPingAt:                lastPingAt,
-		LastPongAt:                lastPongAt,
-		Liveness:                  liveness,
-		Draining:                  draining,
-		RemoteDraining:            remoteDraining,
-		DrainReason:               drainReason,
-		RemoteDrainReason:         remoteDrainReason,
-		LastStreamID:              t.lastStreamID.Load(),
-		LastCloseCode:             code,
-		LastCloseReason:           reason,
-		Closed:                    closed,
+		Role:                                    t.role,
+		ActiveStreams:                           active,
+		OpenedStreams:                           t.openedStreams.Load(),
+		AcceptedStreams:                         t.acceptedStreams.Load(),
+		ClosedStreams:                           t.closedStreams.Load(),
+		CanceledStreams:                         t.canceledStreams.Load(),
+		FramesIn:                                t.framesIn.Load(),
+		FramesOut:                               t.framesOut.Load(),
+		DataFramesIn:                            t.dataFramesIn.Load(),
+		DataFramesOut:                           t.dataFramesOut.Load(),
+		FragmentFramesIn:                        t.fragmentFramesIn.Load(),
+		FragmentFramesOut:                       t.fragmentFramesOut.Load(),
+		OpenFramesIn:                            t.openFramesIn.Load(),
+		OpenFramesOut:                           t.openFramesOut.Load(),
+		CloseFramesIn:                           t.closeFramesIn.Load(),
+		CloseFramesOut:                          t.closeFramesOut.Load(),
+		CancelFramesIn:                          t.cancelFramesIn.Load(),
+		CancelFramesOut:                         t.cancelFramesOut.Load(),
+		WindowFramesIn:                          t.windowFramesIn.Load(),
+		WindowFramesOut:                         t.windowFramesOut.Load(),
+		ConnectionWindowFramesIn:                t.connectionWindowFramesIn.Load(),
+		ConnectionWindowFramesOut:               t.connectionWindowFramesOut.Load(),
+		FinFramesIn:                             t.finFramesIn.Load(),
+		FinFramesOut:                            t.finFramesOut.Load(),
+		PingFramesIn:                            t.pingFramesIn.Load(),
+		PingFramesOut:                           t.pingFramesOut.Load(),
+		PongFramesIn:                            t.pongFramesIn.Load(),
+		PongFramesOut:                           t.pongFramesOut.Load(),
+		GoAwayFramesIn:                          t.goAwayFramesIn.Load(),
+		GoAwayFramesOut:                         t.goAwayFramesOut.Load(),
+		BytesIn:                                 t.bytesIn.Load(),
+		BytesOut:                                t.bytesOut.Load(),
+		HalfClosedStreams:                       t.halfClosedStreams.Load(),
+		BackpressureEvents:                      t.backpressureEvents.Load(),
+		CreditWaits:                             t.creditWaits.Load(),
+		ConnectionCreditWaits:                   t.connectionCreditWaits.Load(),
+		CreditWaitTimeouts:                      t.creditWaitTimeouts.Load(),
+		WriteTimeouts:                           t.writeTimeouts.Load(),
+		ConnectionWindowExhausted:               t.connectionWindowExhausted.Load(),
+		FragmentStreamWindowUpdatePolicy:        t.fragmentStreamWindowPolicy,
+		FragmentConnectionWindowUpdatePolicy:    t.fragmentConnectionWindowPolicy,
+		FragmentStreamWindowRefillRatio:         t.fragmentStreamWindowRefill,
+		FragmentConnectionWindowRefillRatio:     t.fragmentConnectionWindowRefill,
+		FragmentMaxDeferredFragments:            t.fragmentMaxDeferredFragments,
+		FragmentWindowRefills:                   fragmentWindowRefills,
+		FragmentWindowRefillLatencyTotal:        fragmentRefillLatencyTotal,
+		FragmentWindowRefillLatencyMax:          time.Duration(t.fragmentWindowRefillLatencyMaxNanos.Load()),
+		FragmentWindowRefillLatencyAvg:          fragmentRefillLatencyAvg,
+		FragmentDeferredStreamWindowUpdates:     t.fragmentDeferredStreamWindowUpdates.Load(),
+		FragmentDeferredConnectionWindowUpdates: t.fragmentDeferredConnectionWindowUpdates.Load(),
+		FragmentWindowPolicyRisk:                fragmentPolicyRisk,
+		FragmentWindowPolicyRiskReason:          fragmentPolicyRiskReason,
+		FragmentWindowPolicyRiskMode:            t.fragmentWindowPolicyRiskMode,
+		FragmentEstimatedMaxFragments:           fragmentEstimatedMaxFragments,
+		LastFlowControlEvent:                    lastFlowControlEvent,
+		LastFlowControlEventAt:                  lastFlowControlEventAt,
+		LastBackpressureEvent:                   lastBackpressureEvent,
+		LastBackpressureEventAt:                 lastBackpressureEventAt,
+		IdleTimeouts:                            t.idleTimeouts.Load(),
+		LocalRejects:                            t.localRejects.Load(),
+		RemoteRejects:                           t.remoteRejects.Load(),
+		DrainRejects:                            t.drainRejects.Load(),
+		ReceiveQueueSize:                        t.receiveQueueSize,
+		ConnectionWindow:                        t.connectionWindow,
+		MaxFrameBytes:                           t.maxFrame,
+		MaxMessageBytes:                         t.maxMessage,
+		MaxStreams:                              t.maxStreams,
+		KeepaliveInterval:                       t.keepaliveInterval,
+		KeepaliveIdle:                           t.keepaliveIdle,
+		WriteTimeout:                            t.writeTimeout,
+		CreditWaitTimeout:                       t.creditWaitTimeout,
+		LastFrameReadAt:                         lastFrameReadAt,
+		LastFrameWrittenAt:                      lastFrameWrittenAt,
+		LastPingAt:                              lastPingAt,
+		LastPongAt:                              lastPongAt,
+		Liveness:                                liveness,
+		Draining:                                draining,
+		RemoteDraining:                          remoteDraining,
+		DrainReason:                             drainReason,
+		RemoteDrainReason:                       remoteDrainReason,
+		LastStreamID:                            t.lastStreamID.Load(),
+		LastCloseCode:                           code,
+		LastCloseReason:                         reason,
+		Closed:                                  closed,
 	}
 }
 
@@ -675,9 +941,22 @@ func (s *ExperimentalMuxStream) Receive(ctx context.Context) (Message, error) {
 			} else {
 				s.closeDone()
 			}
-		} else if !event.skipWindowOnReceive {
-			s.t.sendWindowUpdateAsync(s.id, 1)
-			s.t.sendConnectionWindowUpdateAsync(1)
+		} else {
+			if event.fragmentWindowUpdate {
+				s.t.recordFragmentWindowRefillLatency(event.deliveredAt)
+			}
+			if event.streamWindowUpdate > 0 {
+				if event.fragmentWindowUpdate {
+					s.t.fragmentDeferredStreamWindowUpdates.Add(int64(event.streamWindowUpdate))
+				}
+				s.t.sendWindowUpdateAsync(s.id, event.streamWindowUpdate)
+			}
+			if event.connectionWindowUpdate > 0 {
+				if event.fragmentWindowUpdate {
+					s.t.fragmentDeferredConnectionWindowUpdates.Add(int64(event.connectionWindowUpdate))
+				}
+				s.t.sendConnectionWindowUpdateAsync(event.connectionWindowUpdate)
+			}
 		}
 		return event.msg, event.err
 	case <-ctx.Done():
@@ -814,8 +1093,7 @@ func (t *ExperimentalMuxTransport) dispatchFrame(frame experimentalMuxFrame) err
 		if err := stream.appendFragment(frame.payload); err != nil {
 			return err
 		}
-		t.sendWindowUpdateAsync(frame.streamID, 1)
-		t.sendConnectionWindowUpdateAsync(1)
+		t.sendFragmentWindowUpdates(frame.streamID, 1)
 		return nil
 	case experimentalMuxFrameDataEnd:
 		t.fragmentFramesIn.Add(1)
@@ -823,13 +1101,12 @@ func (t *ExperimentalMuxTransport) dispatchFrame(frame experimentalMuxFrame) err
 		if stream == nil {
 			return nil
 		}
-		payload, err := stream.finishFragments(frame.payload)
+		payload, fragments, err := stream.finishFragments(frame.payload)
 		if err != nil {
 			return err
 		}
-		t.sendWindowUpdateAsync(frame.streamID, 1)
-		t.sendConnectionWindowUpdateAsync(1)
-		return t.dispatchDataPayload(frame.streamID, payload, true)
+		streamWindowUpdate, connectionWindowUpdate := t.fragmentWindowUpdates(frame.streamID, fragments)
+		return t.dispatchDataPayload(frame.streamID, payload, streamWindowUpdate, connectionWindowUpdate)
 	case experimentalMuxFrameClose:
 		t.closeFramesIn.Add(1)
 		t.closedStreams.Add(1)
@@ -1125,7 +1402,11 @@ func (t *ExperimentalMuxTransport) sendWindowUpdateAsync(streamID uint64, delta 
 	}()
 }
 
-func (t *ExperimentalMuxTransport) dispatchDataPayload(streamID uint64, payload []byte, skipWindowOnReceive ...bool) error {
+func (t *ExperimentalMuxTransport) dispatchDataPayload(
+	streamID uint64,
+	payload []byte,
+	windowUpdates ...uint32,
+) error {
 	stream := t.getOrAcceptStream(streamID, true)
 	if stream == nil {
 		return nil
@@ -1142,8 +1423,101 @@ func (t *ExperimentalMuxTransport) dispatchDataPayload(streamID uint64, payload 
 		}
 		msg.Payload = decoded
 	}
-	stream.deliver(experimentalMuxStreamEvent{msg: msg, skipWindowOnReceive: len(skipWindowOnReceive) > 0 && skipWindowOnReceive[0]})
+	streamWindowUpdate := uint32(1)
+	connectionWindowUpdate := uint32(1)
+	if len(windowUpdates) > 0 {
+		streamWindowUpdate = windowUpdates[0]
+	}
+	if len(windowUpdates) > 1 {
+		connectionWindowUpdate = windowUpdates[1]
+	}
+	stream.deliver(experimentalMuxStreamEvent{
+		msg:                    msg,
+		streamWindowUpdate:     streamWindowUpdate,
+		connectionWindowUpdate: connectionWindowUpdate,
+		fragmentWindowUpdate:   len(windowUpdates) > 0,
+		deliveredAt:            time.Now().UnixNano(),
+	})
 	return nil
+}
+
+func (t *ExperimentalMuxTransport) sendFragmentWindowUpdates(streamID uint64, delta uint32) {
+	if t == nil || delta == 0 {
+		return
+	}
+	if t.fragmentStreamWindowPolicy == experimentalMuxWindowUpdatePerFragment {
+		t.sendWindowUpdateAsync(streamID, delta)
+	}
+	if t.fragmentConnectionWindowPolicy == experimentalMuxWindowUpdatePerFragment {
+		t.sendConnectionWindowUpdateAsync(delta)
+	}
+}
+
+func (t *ExperimentalMuxTransport) fragmentWindowUpdates(streamID uint64, fragments uint32) (uint32, uint32) {
+	if t == nil || fragments == 0 {
+		return 0, 0
+	}
+	t.sendFragmentWindowUpdates(streamID, 1)
+	deferredFragments := fragments
+	if t.fragmentMaxDeferredFragments > 0 && deferredFragments > uint32(t.fragmentMaxDeferredFragments) {
+		deferredFragments = uint32(t.fragmentMaxDeferredFragments)
+	}
+	var streamWindowUpdate uint32
+	var connectionWindowUpdate uint32
+	if t.fragmentStreamWindowPolicy == experimentalMuxWindowUpdateOnReceive {
+		streamWindowUpdate = experimentalMuxWindowRefillDelta(deferredFragments, t.fragmentStreamWindowRefill)
+	}
+	if t.fragmentConnectionWindowPolicy == experimentalMuxWindowUpdateOnReceive {
+		connectionWindowUpdate = experimentalMuxWindowRefillDelta(deferredFragments, t.fragmentConnectionWindowRefill)
+	}
+	return streamWindowUpdate, connectionWindowUpdate
+}
+
+func (t *ExperimentalMuxTransport) recordFragmentWindowRefillLatency(deliveredAt int64) {
+	if t == nil {
+		return
+	}
+	t.fragmentWindowRefills.Add(1)
+	t.recordFlowControlEvent("fragment_window_refill")
+	if deliveredAt <= 0 {
+		return
+	}
+	elapsed := time.Since(time.Unix(0, deliveredAt))
+	if elapsed < 0 {
+		elapsed = 0
+	}
+	nanos := int64(elapsed)
+	t.fragmentWindowRefillLatencyTotalNanos.Add(nanos)
+	updateAtomicMaxInt64(&t.fragmentWindowRefillLatencyMaxNanos, nanos)
+}
+
+func (t *ExperimentalMuxTransport) recordFlowControlEvent(event string) {
+	if t == nil || event == "" {
+		return
+	}
+	now := time.Now().UnixNano()
+	t.lastFlowControlEvent.Store(event)
+	t.lastFlowControlEventAt.Store(now)
+	switch event {
+	case "write_timeout", "credit_wait_timeout", "connection_window_exhausted", "fragment_backpressure":
+		t.lastBackpressureEvent.Store(event)
+		t.lastBackpressureEventAt.Store(now)
+	}
+}
+
+func updateAtomicMaxInt64(target *atomic.Int64, value int64) {
+	if target == nil {
+		return
+	}
+	for {
+		current := target.Load()
+		if value <= current {
+			return
+		}
+		if target.CompareAndSwap(current, value) {
+			return
+		}
+	}
 }
 
 func (t *ExperimentalMuxTransport) sendConnectionWindowUpdate(ctx context.Context, delta uint32) error {
@@ -1172,6 +1546,7 @@ func (s *ExperimentalMuxStream) deliver(event experimentalMuxStreamEvent) {
 	}
 	if cap(s.recv) > 0 && len(s.recv) == cap(s.recv) {
 		s.t.backpressureEvents.Add(1)
+		s.t.recordFlowControlEvent("fragment_backpressure")
 	}
 	select {
 	case s.recv <- event:
@@ -1229,6 +1604,7 @@ func (t *ExperimentalMuxTransport) acquireConnectionCredit(ctx context.Context) 
 	if len(t.connCredit) == 0 {
 		t.connectionCreditWaits.Add(1)
 		t.connectionWindowExhausted.Add(1)
+		t.recordFlowControlEvent("connection_window_exhausted")
 	}
 	var cancel context.CancelFunc
 	if t.creditWaitTimeout > 0 {
@@ -1241,6 +1617,7 @@ func (t *ExperimentalMuxTransport) acquireConnectionCredit(ctx context.Context) 
 	case <-ctx.Done():
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) && t.creditWaitTimeout > 0 {
 			t.creditWaitTimeouts.Add(1)
+			t.recordFlowControlEvent("credit_wait_timeout")
 			return NewError(CodeDeadlineExceeded, "rpc experimental mux credit wait timeout")
 		}
 		return ctx.Err()
@@ -1287,24 +1664,28 @@ func (s *ExperimentalMuxStream) appendFragment(payload []byte) error {
 		return ErrFrameTooLarge
 	}
 	s.fragments = append(s.fragments, payload...)
+	s.fragmentCount++
 	return nil
 }
 
-func (s *ExperimentalMuxStream) finishFragments(payload []byte) ([]byte, error) {
+func (s *ExperimentalMuxStream) finishFragments(payload []byte) ([]byte, uint32, error) {
 	if s == nil || s.t == nil {
-		return nil, ErrExperimentalMuxStreamClosed
+		return nil, 0, ErrExperimentalMuxStreamClosed
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if int64(len(s.fragments)+len(payload)) > s.t.maxMessage {
 		s.fragments = nil
-		return nil, ErrFrameTooLarge
+		s.fragmentCount = 0
+		return nil, 0, ErrFrameTooLarge
 	}
 	out := make([]byte, 0, len(s.fragments)+len(payload))
 	out = append(out, s.fragments...)
 	out = append(out, payload...)
 	s.fragments = nil
-	return out, nil
+	fragments := s.fragmentCount + 1
+	s.fragmentCount = 0
+	return out, fragments, nil
 }
 
 func (s *ExperimentalMuxStream) acquireCredit(ctx context.Context) error {
@@ -1325,6 +1706,7 @@ func (s *ExperimentalMuxStream) acquireCredit(ctx context.Context) error {
 	case <-ctx.Done():
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) && s.t.creditWaitTimeout > 0 {
 			s.t.creditWaitTimeouts.Add(1)
+			s.t.recordFlowControlEvent("credit_wait_timeout")
 			return NewError(CodeDeadlineExceeded, "rpc experimental mux credit wait timeout")
 		}
 		return ctx.Err()
@@ -1426,6 +1808,7 @@ func (t *ExperimentalMuxTransport) recordWriteTimeout(err error) {
 	var netErr net.Error
 	if errors.As(err, &netErr) && netErr.Timeout() {
 		t.writeTimeouts.Add(1)
+		t.recordFlowControlEvent("write_timeout")
 	}
 }
 
@@ -1498,14 +1881,8 @@ func (t *ExperimentalMuxTransport) shouldFragment(payload []byte) bool {
 }
 
 func (t *ExperimentalMuxTransport) fragmentPayloadSize(streamID uint64) (int, error) {
-	if t.maxFrame > int64(math.MaxInt) {
-		return math.MaxInt, nil
-	}
-	encodedEmpty, err := encodeExperimentalMuxFrame(experimentalMuxFrame{typ: experimentalMuxFrameDataFrag, streamID: streamID})
-	if err != nil {
-		return 0, err
-	}
-	headroom := int(t.maxFrame) - len(encodedEmpty) - 1
+	_ = streamID
+	headroom := experimentalMuxFragmentPayloadSize(t.maxFrame)
 	if headroom <= 0 {
 		return 0, ErrFrameTooLarge
 	}

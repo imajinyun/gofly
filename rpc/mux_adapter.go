@@ -43,6 +43,8 @@ type ExperimentalMuxClientAdapter struct {
 	recordedCreditWaitTimeouts        int64
 	recordedWriteTimeouts             int64
 	recordedConnectionWindowExhausted int64
+	recordedFragmentBackpressure      int64
+	recordedFragmentWindowRefills     int64
 }
 
 // ExperimentalMuxServerAdapter dispatches opt-in mux streams by method.
@@ -62,6 +64,8 @@ type ExperimentalMuxServerAdapter struct {
 	recordedCreditWaitTimeouts        int64
 	recordedWriteTimeouts             int64
 	recordedConnectionWindowExhausted int64
+	recordedFragmentBackpressure      int64
+	recordedFragmentWindowRefills     int64
 	lastHandledAt                     atomic.Int64
 	lastMethod                        atomic.Value
 	lastError                         atomic.Value
@@ -335,9 +339,14 @@ func (a *ExperimentalMuxClientAdapter) recordCandidateFlowControlMetricsLocked(s
 	recordExperimentalMuxCandidateFlowControlMetric("write_timeout", snapshot.WriteTimeouts-a.recordedWriteTimeouts)
 	recordExperimentalMuxCandidateFlowControlMetric("credit_wait_timeout", snapshot.CreditWaitTimeouts-a.recordedCreditWaitTimeouts)
 	recordExperimentalMuxCandidateFlowControlMetric("connection_window_exhausted", snapshot.ConnectionWindowExhausted-a.recordedConnectionWindowExhausted)
+	fragmentBackpressure := experimentalMuxFragmentBackpressure(snapshot)
+	recordExperimentalMuxCandidateFlowControlMetric("fragment_backpressure", fragmentBackpressure-a.recordedFragmentBackpressure)
+	recordExperimentalMuxCandidateFlowControlMetric("fragment_window_refill", snapshot.FragmentWindowRefills-a.recordedFragmentWindowRefills)
 	a.recordedWriteTimeouts = snapshot.WriteTimeouts
 	a.recordedCreditWaitTimeouts = snapshot.CreditWaitTimeouts
 	a.recordedConnectionWindowExhausted = snapshot.ConnectionWindowExhausted
+	a.recordedFragmentBackpressure = fragmentBackpressure
+	a.recordedFragmentWindowRefills = snapshot.FragmentWindowRefills
 }
 
 func (a *ExperimentalMuxClientAdapter) waitCandidateDrain(ctx context.Context, reason string) error {
@@ -478,9 +487,14 @@ func (a *ExperimentalMuxServerAdapter) recordCandidateFlowControlMetricsLocked(s
 	recordExperimentalMuxCandidateFlowControlMetric("write_timeout", snapshot.WriteTimeouts-a.recordedWriteTimeouts)
 	recordExperimentalMuxCandidateFlowControlMetric("credit_wait_timeout", snapshot.CreditWaitTimeouts-a.recordedCreditWaitTimeouts)
 	recordExperimentalMuxCandidateFlowControlMetric("connection_window_exhausted", snapshot.ConnectionWindowExhausted-a.recordedConnectionWindowExhausted)
+	fragmentBackpressure := experimentalMuxFragmentBackpressure(snapshot)
+	recordExperimentalMuxCandidateFlowControlMetric("fragment_backpressure", fragmentBackpressure-a.recordedFragmentBackpressure)
+	recordExperimentalMuxCandidateFlowControlMetric("fragment_window_refill", snapshot.FragmentWindowRefills-a.recordedFragmentWindowRefills)
 	a.recordedWriteTimeouts = snapshot.WriteTimeouts
 	a.recordedCreditWaitTimeouts = snapshot.CreditWaitTimeouts
 	a.recordedConnectionWindowExhausted = snapshot.ConnectionWindowExhausted
+	a.recordedFragmentBackpressure = fragmentBackpressure
+	a.recordedFragmentWindowRefills = snapshot.FragmentWindowRefills
 }
 
 func waitExperimentalMuxCandidateDrain(ctx context.Context, transport *ExperimentalMuxTransport, grace time.Duration, reason string) error {
@@ -571,22 +585,20 @@ func normalizeExperimentalMuxMethod(method string) string {
 	return strings.Trim(strings.TrimSpace(method), "/")
 }
 
+func experimentalMuxFragmentBackpressure(snapshot ExperimentalMuxTransportSnapshot) int64 {
+	if snapshot.FragmentFramesIn <= 0 && snapshot.FragmentFramesOut <= 0 {
+		return 0
+	}
+	return snapshot.BackpressureEvents +
+		snapshot.CreditWaits +
+		snapshot.ConnectionCreditWaits +
+		snapshot.CreditWaitTimeouts +
+		snapshot.ConnectionWindowExhausted
+}
+
 func muxDiagnosisFromAdapterSnapshot(snapshot ExperimentalMuxAdapterSnapshot) RPCMuxTransportDiagnosis {
 	transport := snapshot.Transport
-	flowControl := withRPCMuxFlowControlEvents(RPCMuxFlowControlDiagnosis{
-		ReceiveQueueSize:          transport.ReceiveQueueSize,
-		ConnectionWindow:          transport.ConnectionWindow,
-		ConnectionCreditWaits:     transport.ConnectionCreditWaits,
-		StreamCreditWaits:         transport.CreditWaits,
-		CreditWaitTimeouts:        transport.CreditWaitTimeouts,
-		WriteTimeouts:             transport.WriteTimeouts,
-		ConnectionWindowExhausted: transport.ConnectionWindowExhausted,
-		WindowFramesIn:            transport.WindowFramesIn,
-		WindowFramesOut:           transport.WindowFramesOut,
-		ConnectionWindowIn:        transport.ConnectionWindowFramesIn,
-		ConnectionWindowOut:       transport.ConnectionWindowFramesOut,
-		BackpressureEvents:        transport.BackpressureEvents,
-	}, "")
+	flowControl := withRPCMuxFlowControlEvents(rpcMuxFlowControlDiagnosisFromTransport(transport), "")
 	diagnosis := RPCMuxTransportDiagnosis{
 		Enabled:     !transport.Closed,
 		Mode:        "experimental_mux",

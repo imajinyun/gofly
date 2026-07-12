@@ -305,9 +305,15 @@ func TestReleaseGeneratedRPCMuxRetrySmokeCheck(t *testing.T) {
 		evidence["candidateLargePayloadFragmentation"] != true ||
 		evidence["candidateMessagePolicy"] != true ||
 		evidence["candidateFramePolicyDiagnosis"] != true ||
+		evidence["candidatePolicyRiskModeValidation"] != true ||
 		evidence["fragmentBackpressure"] != true ||
 		evidence["fragmentCreditWaitTimeout"] != true ||
 		evidence["fragmentWindowUpdateDiagnosis"] != true ||
+		evidence["fragmentWindowRefillPolicy"] != true ||
+		evidence["fragmentWindowRefillRuntimeDiagnosis"] != true ||
+		evidence["generatedRefillProfileAdminSmoke"] != true ||
+		evidence["fragmentMaxDeferredFailFast"] != true ||
+		evidence["generatedPolicyRiskModeValidation"] != true ||
 		evidence["generatedMTLSSuccess"] != true ||
 		evidence["negotiatedProtocol"] != true ||
 		evidence["lifecycleDiagnosis"] != true ||

@@ -373,6 +373,7 @@ func TestExperimentalMuxTransportFragmentsLargePayload(t *testing.T) {
 	if err := stream.Send(ctx, Message{Payload: payload}); err != nil {
 		t.Fatalf("Send fragmented payload: %v", err)
 	}
+	time.Sleep(time.Millisecond)
 	msg, err := serverStream.Receive(muxTestTimeoutContext(t))
 	if err != nil {
 		t.Fatalf("Receive fragmented payload: %v", err)
@@ -552,6 +553,204 @@ func TestExperimentalMuxTransportFragmentCreditWaitTimeout(t *testing.T) {
 		clientSnapshot.FragmentFramesOut == 0 ||
 		clientSnapshot.DataFramesOut != 0 {
 		t.Fatalf("fragment timeout snapshot = %+v, want partial fragments and credit wait timeout diagnosis", clientSnapshot)
+	}
+}
+
+func TestExperimentalMuxTransportFragmentWindowUpdateOnReceivePolicy(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	client := NewExperimentalMuxTransport(
+		clientConn,
+		WithExperimentalMuxMaxFrameBytes(96),
+		WithExperimentalMuxMaxMessageBytes(2048),
+		WithExperimentalMuxReceiveQueueSize(64),
+		WithExperimentalMuxConnectionWindow(64),
+	)
+	server := NewExperimentalMuxTransport(
+		serverConn,
+		WithExperimentalMuxServerRole(),
+		WithExperimentalMuxMaxFrameBytes(96),
+		WithExperimentalMuxMaxMessageBytes(2048),
+		WithExperimentalMuxReceiveQueueSize(64),
+		WithExperimentalMuxConnectionWindow(64),
+		WithExperimentalMuxFragmentWindowUpdatePolicy("on-receive", "on-receive"),
+	)
+	defer client.Close()
+	defer server.Close()
+
+	ctx := context.Background()
+	stream, err := client.OpenStream(ctx)
+	if err != nil {
+		t.Fatalf("OpenStream: %v", err)
+	}
+	serverStream, err := server.AcceptStream(ctx)
+	if err != nil {
+		t.Fatalf("AcceptStream: %v", err)
+	}
+	payload := []byte(strings.Repeat("deferred-window-", 40))
+	if err := stream.Send(ctx, Message{Payload: payload}); err != nil {
+		t.Fatalf("Send fragmented payload: %v", err)
+	}
+	assertEventually(t, func() bool {
+		return server.Snapshot().FragmentFramesIn >= 2
+	}, "server received fragmented payload")
+	beforeReceive := server.Snapshot()
+	if beforeReceive.FragmentStreamWindowUpdatePolicy != experimentalMuxWindowUpdateOnReceive ||
+		beforeReceive.FragmentConnectionWindowUpdatePolicy != experimentalMuxWindowUpdateOnReceive {
+		t.Fatalf("server policy snapshot = %+v, want on_receive fragment window policy", beforeReceive)
+	}
+	if beforeReceive.WindowFramesOut != 0 || beforeReceive.ConnectionWindowFramesOut != 0 {
+		t.Fatalf("server window snapshot before receive = %+v, want deferred fragment window updates", beforeReceive)
+	}
+	msg, err := serverStream.Receive(muxTestTimeoutContext(t))
+	if err != nil {
+		t.Fatalf("Receive fragmented payload: %v", err)
+	}
+	if string(msg.Payload) != string(payload) {
+		t.Fatalf("fragmented payload = %q, want %q", msg.Payload, payload)
+	}
+	assertEventually(t, func() bool {
+		snapshot := server.Snapshot()
+		return snapshot.WindowFramesOut == 1 &&
+			snapshot.ConnectionWindowFramesOut == 1 &&
+			snapshot.FragmentDeferredStreamWindowUpdates >= snapshot.FragmentFramesIn &&
+			snapshot.FragmentDeferredConnectionWindowUpdates >= snapshot.FragmentFramesIn
+	}, "server deferred fragment window updates after receive")
+	afterReceive := server.Snapshot()
+	if afterReceive.FragmentDeferredStreamWindowUpdates != afterReceive.FragmentFramesIn ||
+		afterReceive.FragmentDeferredConnectionWindowUpdates != afterReceive.FragmentFramesIn {
+		t.Fatalf("server deferred window snapshot = %+v, want deferred updates for all fragments", afterReceive)
+	}
+}
+
+func TestExperimentalMuxTransportFragmentWindowRefillPolicy(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	client := NewExperimentalMuxTransport(
+		clientConn,
+		WithExperimentalMuxMaxFrameBytes(96),
+		WithExperimentalMuxMaxMessageBytes(2048),
+		WithExperimentalMuxReceiveQueueSize(64),
+		WithExperimentalMuxConnectionWindow(64),
+	)
+	server := NewExperimentalMuxTransport(
+		serverConn,
+		WithExperimentalMuxServerRole(),
+		WithExperimentalMuxMaxFrameBytes(96),
+		WithExperimentalMuxMaxMessageBytes(2048),
+		WithExperimentalMuxReceiveQueueSize(64),
+		WithExperimentalMuxConnectionWindow(64),
+		WithExperimentalMuxFragmentWindowUpdatePolicy("on_receive", "on_receive"),
+		WithExperimentalMuxFragmentWindowRefillPolicy(0.5, 0.25, 4),
+	)
+	defer client.Close()
+	defer server.Close()
+
+	ctx := context.Background()
+	stream, err := client.OpenStream(ctx)
+	if err != nil {
+		t.Fatalf("OpenStream: %v", err)
+	}
+	serverStream, err := server.AcceptStream(ctx)
+	if err != nil {
+		t.Fatalf("AcceptStream: %v", err)
+	}
+	payload := []byte(strings.Repeat("refill-window-", 40))
+	if err := stream.Send(ctx, Message{Payload: payload}); err != nil {
+		t.Fatalf("Send fragmented payload: %v", err)
+	}
+	msg, err := serverStream.Receive(muxTestTimeoutContext(t))
+	if err != nil {
+		t.Fatalf("Receive fragmented payload: %v", err)
+	}
+	if string(msg.Payload) != string(payload) {
+		t.Fatalf("fragmented payload = %q, want %q", msg.Payload, payload)
+	}
+	assertEventually(t, func() bool {
+		snapshot := server.Snapshot()
+		return snapshot.WindowFramesOut == 1 && snapshot.ConnectionWindowFramesOut == 1
+	}, "server ratio-based deferred fragment window updates")
+	snapshot := server.Snapshot()
+	if snapshot.FragmentStreamWindowRefillRatio != 0.5 ||
+		snapshot.FragmentConnectionWindowRefillRatio != 0.25 ||
+		snapshot.FragmentMaxDeferredFragments != 4 {
+		t.Fatalf("server refill policy snapshot = %+v, want configured refill policy", snapshot)
+	}
+	if snapshot.FragmentDeferredStreamWindowUpdates != 2 ||
+		snapshot.FragmentDeferredConnectionWindowUpdates != 1 {
+		t.Fatalf("server deferred refill snapshot = %+v, want capped ratio updates 2/1", snapshot)
+	}
+	if snapshot.FragmentWindowRefills != 1 ||
+		snapshot.FragmentWindowRefillLatencyTotal <= 0 ||
+		snapshot.FragmentWindowRefillLatencyMax <= 0 ||
+		snapshot.FragmentWindowRefillLatencyAvg <= 0 {
+		t.Fatalf("server refill latency snapshot = %+v, want receiver refill latency diagnosis", snapshot)
+	}
+	if snapshot.LastFlowControlEvent != "fragment_window_refill" ||
+		snapshot.LastFlowControlEventAt.IsZero() {
+		t.Fatalf("server last flow-control event = %+v, want fragment refill event", snapshot)
+	}
+}
+
+func TestExperimentalMuxTransportFragmentWindowPolicyRiskSnapshot(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	client := NewExperimentalMuxTransport(clientConn)
+	server := NewExperimentalMuxTransport(
+		serverConn,
+		WithExperimentalMuxServerRole(),
+		WithExperimentalMuxMaxFrameBytes(96),
+		WithExperimentalMuxMaxMessageBytes(2048),
+		WithExperimentalMuxReceiveQueueSize(2),
+		WithExperimentalMuxConnectionWindow(3),
+		WithExperimentalMuxFragmentWindowUpdatePolicy("on_receive", "on_receive"),
+	)
+	defer client.Close()
+	defer server.Close()
+
+	snapshot := server.Snapshot()
+	if !snapshot.FragmentWindowPolicyRisk ||
+		snapshot.FragmentWindowPolicyRiskReason != experimentalMuxFragmentPolicyRiskStreamAndConnection ||
+		snapshot.FragmentEstimatedMaxFragments <= snapshot.ConnectionWindow ||
+		snapshot.FragmentEstimatedMaxFragments <= snapshot.ReceiveQueueSize {
+		t.Fatalf("fragment policy risk snapshot = %+v, want on_receive small-window risk", snapshot)
+	}
+
+	riskFreeClient, riskFreeServer := net.Pipe()
+	riskFree := NewExperimentalMuxTransport(
+		riskFreeServer,
+		WithExperimentalMuxServerRole(),
+		WithExperimentalMuxMaxFrameBytes(96),
+		WithExperimentalMuxMaxMessageBytes(2048),
+		WithExperimentalMuxReceiveQueueSize(64),
+		WithExperimentalMuxConnectionWindow(64),
+		WithExperimentalMuxFragmentWindowUpdatePolicy("on_receive", "on_receive"),
+	)
+	riskFreePeer := NewExperimentalMuxTransport(riskFreeClient)
+	defer riskFree.Close()
+	defer riskFreePeer.Close()
+
+	if riskFreeSnapshot := riskFree.Snapshot(); riskFreeSnapshot.FragmentWindowPolicyRisk {
+		t.Fatalf("risk-free fragment policy snapshot = %+v, want no small-window risk", riskFreeSnapshot)
+	}
+
+	cappedClient, cappedServer := net.Pipe()
+	capped := NewExperimentalMuxTransport(
+		cappedServer,
+		WithExperimentalMuxServerRole(),
+		WithExperimentalMuxMaxFrameBytes(96),
+		WithExperimentalMuxMaxMessageBytes(2048),
+		WithExperimentalMuxReceiveQueueSize(64),
+		WithExperimentalMuxConnectionWindow(64),
+		WithExperimentalMuxFragmentWindowUpdatePolicy("on_receive", "on_receive"),
+		WithExperimentalMuxFragmentWindowRefillPolicy(1, 1, 4),
+	)
+	cappedPeer := NewExperimentalMuxTransport(cappedClient)
+	defer capped.Close()
+	defer cappedPeer.Close()
+
+	cappedSnapshot := capped.Snapshot()
+	if !cappedSnapshot.FragmentWindowPolicyRisk ||
+		cappedSnapshot.FragmentWindowPolicyRiskReason != experimentalMuxFragmentPolicyRiskMaxDeferred ||
+		cappedSnapshot.FragmentMaxDeferredFragments != 4 {
+		t.Fatalf("capped fragment policy snapshot = %+v, want max deferred risk", cappedSnapshot)
 	}
 }
 

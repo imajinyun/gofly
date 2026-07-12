@@ -22,15 +22,61 @@ func TestMuxTraceAttributesIncludeConnectionDiagnosis(t *testing.T) {
 		FlowControl:  "credit_wait_timeout",
 		Diagnosis: RPCDiagnosisSnapshot{Mux: RPCMuxTransportDiagnosis{
 			FlowControl: RPCMuxFlowControlDiagnosis{
-				CreditWaitTimeouts:        3,
-				ConnectionWindowExhausted: 1,
+				CreditWaitTimeouts:                      3,
+				ConnectionWindowExhausted:               1,
+				FragmentBackpressure:                    4,
+				FragmentFramesIn:                        2,
+				FragmentFramesOut:                       3,
+				FragmentStreamWindowUpdatePolicy:        experimentalMuxWindowUpdateOnReceive,
+				FragmentConnectionWindowUpdatePolicy:    experimentalMuxWindowUpdateOnReceive,
+				FragmentStreamWindowRefillRatio:         0.5,
+				FragmentConnectionWindowRefillRatio:     0.25,
+				FragmentMaxDeferredFragments:            4,
+				FragmentWindowRefills:                   2,
+				FragmentWindowRefillLatencyTotal:        12 * time.Millisecond,
+				FragmentWindowRefillLatencyMax:          8 * time.Millisecond,
+				FragmentWindowRefillLatencyAvg:          6 * time.Millisecond,
+				FragmentDeferredStreamWindowUpdates:     2,
+				FragmentDeferredConnectionWindowUpdates: 3,
+				FragmentWindowPolicyRisk:                true,
+				FragmentWindowPolicyRiskReason:          experimentalMuxFragmentPolicyRiskMaxDeferred,
+				FragmentEstimatedMaxFragments:           6,
 			},
 			Manager: RPCMuxConnectionManagerDiagnosis{
 				Enabled: true,
 				Mode:    "experimental_mux_manager",
 				FlowControl: RPCMuxFlowControlDiagnosis{
-					CreditWaitTimeouts:        5,
-					ConnectionWindowExhausted: 2,
+					CreditWaitTimeouts:                      5,
+					ConnectionWindowExhausted:               2,
+					FragmentBackpressure:                    6,
+					FragmentFramesIn:                        4,
+					FragmentFramesOut:                       5,
+					FragmentStreamWindowUpdatePolicy:        experimentalMuxWindowUpdateOnReceive,
+					FragmentConnectionWindowUpdatePolicy:    experimentalMuxWindowUpdatePerFragment,
+					FragmentStreamWindowRefillRatio:         0.75,
+					FragmentConnectionWindowRefillRatio:     1,
+					FragmentMaxDeferredFragments:            3,
+					FragmentWindowRefills:                   3,
+					FragmentWindowRefillLatencyTotal:        30 * time.Millisecond,
+					FragmentWindowRefillLatencyMax:          15 * time.Millisecond,
+					FragmentWindowRefillLatencyAvg:          10 * time.Millisecond,
+					FragmentDeferredStreamWindowUpdates:     4,
+					FragmentDeferredConnectionWindowUpdates: 0,
+					FragmentWindowPolicyRisk:                true,
+					FragmentWindowPolicyRiskReason:          experimentalMuxFragmentPolicyRiskStream,
+					FragmentEstimatedMaxFragments:           5,
+				},
+				RefillProfile: RPCMuxRefillProfile{
+					StreamWindowUpdatePolicy:     experimentalMuxWindowUpdateOnReceive,
+					ConnectionWindowUpdatePolicy: experimentalMuxWindowUpdatePerFragment,
+					StreamWindowRefillRatio:      0.75,
+					ConnectionWindowRefillRatio:  1,
+					MaxDeferredFragments:         3,
+					Refills:                      3,
+					RefillLatencyMax:             15 * time.Millisecond,
+					RefillLatencyAvg:             10 * time.Millisecond,
+					LastFlowControlEvent:         "fragment_window_refill",
+					LastBackpressureEvent:        "credit_wait_timeout",
 				},
 				Endpoints: []ExperimentalMuxEndpointSnapshot{{
 					Endpoint:     "tcp://127.0.0.1:9000",
@@ -59,11 +105,125 @@ func TestMuxTraceAttributesIncludeConnectionDiagnosis(t *testing.T) {
 	if got := attrs["rpc.mux.flow_control.credit_wait_timeout.count"].AsInt64(); got != 3 {
 		t.Fatalf("credit timeout attr = %d, want 3", got)
 	}
+	if got := attrs["rpc.mux.flow_control.fragment_stream_window_refill_ratio"].AsFloat64(); got != 0.5 {
+		t.Fatalf("stream refill ratio attr = %v, want 0.5", got)
+	}
+	if got := attrs["rpc.mux.flow_control.fragment_connection_window_refill_ratio"].AsFloat64(); got != 0.25 {
+		t.Fatalf("connection refill ratio attr = %v, want 0.25", got)
+	}
+	if got := attrs["rpc.mux.flow_control.fragment_max_deferred_fragments"].AsInt64(); got != 4 {
+		t.Fatalf("max deferred fragments attr = %d, want 4", got)
+	}
+	if got := attrs["rpc.mux.flow_control.fragment_window_refill.count"].AsInt64(); got != 2 {
+		t.Fatalf("fragment window refill attr = %d, want 2", got)
+	}
+	if got := attrs["rpc.mux.flow_control.fragment_window_refill_latency_total.ns"].AsInt64(); got != int64(12*time.Millisecond) {
+		t.Fatalf("fragment refill latency total attr = %d, want 12ms", got)
+	}
+	if got := attrs["rpc.mux.flow_control.fragment_window_refill_latency_max.ns"].AsInt64(); got != int64(8*time.Millisecond) {
+		t.Fatalf("fragment refill latency max attr = %d, want 8ms", got)
+	}
+	if got := attrs["rpc.mux.flow_control.fragment_window_refill_latency_avg.ns"].AsInt64(); got != int64(6*time.Millisecond) {
+		t.Fatalf("fragment refill latency avg attr = %d, want 6ms", got)
+	}
+	if got := attrs["rpc.mux.manager.flow_control.fragment_stream_window_refill_ratio"].AsFloat64(); got != 0.75 {
+		t.Fatalf("manager stream refill ratio attr = %v, want 0.75", got)
+	}
+	if got := attrs["rpc.mux.manager.flow_control.fragment_connection_window_refill_ratio"].AsFloat64(); got != 1 {
+		t.Fatalf("manager connection refill ratio attr = %v, want 1", got)
+	}
+	if got := attrs["rpc.mux.manager.flow_control.fragment_max_deferred_fragments"].AsInt64(); got != 3 {
+		t.Fatalf("manager max deferred fragments attr = %d, want 3", got)
+	}
+	if got := attrs["rpc.mux.manager.flow_control.fragment_window_refill.count"].AsInt64(); got != 3 {
+		t.Fatalf("manager fragment window refill attr = %d, want 3", got)
+	}
+	if got := attrs["rpc.mux.manager.flow_control.fragment_window_refill_latency_total.ns"].AsInt64(); got != int64(30*time.Millisecond) {
+		t.Fatalf("manager fragment refill latency total attr = %d, want 30ms", got)
+	}
+	if got := attrs["rpc.mux.manager.flow_control.fragment_window_refill_latency_max.ns"].AsInt64(); got != int64(15*time.Millisecond) {
+		t.Fatalf("manager fragment refill latency max attr = %d, want 15ms", got)
+	}
+	if got := attrs["rpc.mux.manager.flow_control.fragment_window_refill_latency_avg.ns"].AsInt64(); got != int64(10*time.Millisecond) {
+		t.Fatalf("manager fragment refill latency avg attr = %d, want 10ms", got)
+	}
+	if got := attrs["rpc.mux.manager.refill_profile.stream_window_update_policy"].AsString(); got != experimentalMuxWindowUpdateOnReceive {
+		t.Fatalf("manager refill profile stream policy attr = %q, want on_receive", got)
+	}
+	if got := attrs["rpc.mux.manager.refill_profile.connection_window_update_policy"].AsString(); got != experimentalMuxWindowUpdatePerFragment {
+		t.Fatalf("manager refill profile connection policy attr = %q, want per_fragment", got)
+	}
+	if got := attrs["rpc.mux.manager.refill_profile.stream_window_refill_ratio"].AsFloat64(); got != 0.75 {
+		t.Fatalf("manager refill profile stream ratio attr = %v, want 0.75", got)
+	}
+	if got := attrs["rpc.mux.manager.refill_profile.connection_window_refill_ratio"].AsFloat64(); got != 1 {
+		t.Fatalf("manager refill profile connection ratio attr = %v, want 1", got)
+	}
+	if got := attrs["rpc.mux.manager.refill_profile.max_deferred_fragments"].AsInt64(); got != 3 {
+		t.Fatalf("manager refill profile max deferred attr = %d, want 3", got)
+	}
+	if got := attrs["rpc.mux.manager.refill_profile.refills.count"].AsInt64(); got != 3 {
+		t.Fatalf("manager refill profile refills attr = %d, want 3", got)
+	}
+	if got := attrs["rpc.mux.manager.refill_profile.refill_latency_max.ns"].AsInt64(); got != int64(15*time.Millisecond) {
+		t.Fatalf("manager refill profile max latency attr = %d, want 15ms", got)
+	}
+	if got := attrs["rpc.mux.manager.refill_profile.refill_latency_avg.ns"].AsInt64(); got != int64(10*time.Millisecond) {
+		t.Fatalf("manager refill profile avg latency attr = %d, want 10ms", got)
+	}
+	if got := attrs["rpc.mux.manager.refill_profile.last_flow_control_event"].AsString(); got != "fragment_window_refill" {
+		t.Fatalf("manager refill profile last flow-control attr = %q, want fragment_window_refill", got)
+	}
+	if got := attrs["rpc.mux.manager.refill_profile.last_backpressure_event"].AsString(); got != "credit_wait_timeout" {
+		t.Fatalf("manager refill profile last backpressure attr = %q, want credit_wait_timeout", got)
+	}
 	if got := attrs["rpc.mux.flow_control.connection_window_exhausted.count"].AsInt64(); got != 1 {
 		t.Fatalf("window exhausted attr = %d, want 1", got)
 	}
 	if got := attrs["rpc.mux.manager.flow_control.credit_wait_timeout.count"].AsInt64(); got != 5 {
 		t.Fatalf("manager credit timeout attr = %d, want 5", got)
+	}
+	if got := attrs["rpc.mux.flow_control.fragment_backpressure.count"].AsInt64(); got != 4 {
+		t.Fatalf("fragment backpressure attr = %d, want 4", got)
+	}
+	if got := attrs["rpc.mux.flow_control.fragment_frames_in.count"].AsInt64(); got != 2 {
+		t.Fatalf("fragment frames in attr = %d, want 2", got)
+	}
+	if got := attrs["rpc.mux.flow_control.fragment_frames_out.count"].AsInt64(); got != 3 {
+		t.Fatalf("fragment frames out attr = %d, want 3", got)
+	}
+	if got := attrs["rpc.mux.manager.flow_control.fragment_backpressure.count"].AsInt64(); got != 6 {
+		t.Fatalf("manager fragment backpressure attr = %d, want 6", got)
+	}
+	if got := attrs["rpc.mux.flow_control.fragment_stream_window_update_policy"].AsString(); got != experimentalMuxWindowUpdateOnReceive {
+		t.Fatalf("fragment stream window policy attr = %q, want on_receive", got)
+	}
+	if got := attrs["rpc.mux.flow_control.fragment_deferred_connection_window_updates.count"].AsInt64(); got != 3 {
+		t.Fatalf("fragment deferred connection updates attr = %d, want 3", got)
+	}
+	if got := attrs["rpc.mux.manager.flow_control.fragment_connection_window_update_policy"].AsString(); got != experimentalMuxWindowUpdatePerFragment {
+		t.Fatalf("manager fragment connection window policy attr = %q, want per_fragment", got)
+	}
+	if got := attrs["rpc.mux.manager.flow_control.fragment_deferred_stream_window_updates.count"].AsInt64(); got != 4 {
+		t.Fatalf("manager fragment deferred stream updates attr = %d, want 4", got)
+	}
+	if got := attrs["rpc.mux.flow_control.fragment_window_policy_risk"].AsBool(); !got {
+		t.Fatalf("fragment policy risk attr = %v, want true", got)
+	}
+	if got := attrs["rpc.mux.flow_control.fragment_window_policy_risk_reason"].AsString(); got != experimentalMuxFragmentPolicyRiskMaxDeferred {
+		t.Fatalf("fragment policy risk reason attr = %q, want max deferred risk", got)
+	}
+	if got := attrs["rpc.mux.flow_control.fragment_estimated_max_fragments"].AsInt64(); got != 6 {
+		t.Fatalf("fragment estimated max fragments attr = %d, want 6", got)
+	}
+	if got := attrs["rpc.mux.manager.flow_control.fragment_window_policy_risk"].AsBool(); !got {
+		t.Fatalf("manager fragment policy risk attr = %v, want true", got)
+	}
+	if got := attrs["rpc.mux.manager.flow_control.fragment_window_policy_risk_reason"].AsString(); got != experimentalMuxFragmentPolicyRiskStream {
+		t.Fatalf("manager fragment policy risk reason attr = %q, want stream risk", got)
+	}
+	if got := attrs["rpc.mux.manager.flow_control.fragment_estimated_max_fragments"].AsInt64(); got != 5 {
+		t.Fatalf("manager fragment estimated max fragments attr = %d, want 5", got)
 	}
 }
 
@@ -439,7 +599,8 @@ func TestRPCMuxDiagnosisEventsDeriveRetryHealthFlowControlAndDrain(t *testing.T)
 			LastRetriedTo:   "tcp://127.0.0.1:9002",
 			RetryReasons:    map[string]int64{"pool_exhausted": 1},
 			FlowControl: RPCMuxFlowControlDiagnosis{
-				CreditWaitTimeouts: 1,
+				CreditWaitTimeouts:   1,
+				FragmentBackpressure: 2,
 			},
 			Endpoints: []ExperimentalMuxEndpointSnapshot{{
 				Endpoint:     "tcp://127.0.0.1:9002",
@@ -469,6 +630,9 @@ func TestRPCMuxDiagnosisEventsDeriveRetryHealthFlowControlAndDrain(t *testing.T)
 	if event := byKey["flow_control/credit_wait_timeout/"]; event.Count != 1 || event.ConnectionID != "muxconn-2" || event.PoolSlot != 3 {
 		t.Fatalf("manager flow-control event = %+v, want endpoint connection context", event)
 	}
+	if event := byKey["flow_control/fragment_backpressure/"]; event.Count != 2 || event.ConnectionID != "muxconn-2" || event.PoolSlot != 3 {
+		t.Fatalf("manager fragment flow-control event = %+v, want endpoint connection context", event)
+	}
 	if event := byKey["retry/open_before_retry/"]; event.Count != 1 || event.From != "tcp://127.0.0.1:9001" || event.To != "tcp://127.0.0.1:9002" {
 		t.Fatalf("retry event = %+v, want retry source and target", event)
 	}
@@ -486,6 +650,57 @@ func TestRPCMuxDiagnosisEventsDeriveRetryHealthFlowControlAndDrain(t *testing.T)
 	}
 	if event := byKey["drain/manager_drain/resolver_update"]; event.Count != 1 {
 		t.Fatalf("manager drain event = %+v, want resolver update count", event)
+	}
+}
+
+func TestRPCMuxDiagnosisEventsExposeFlowControlByPoolSlot(t *testing.T) {
+	endpoint := "tcp://127.0.0.1:9002"
+	diagnosis := RPCMuxTransportDiagnosis{
+		Manager: RPCMuxConnectionManagerDiagnosis{
+			Enabled: true,
+			FlowControl: RPCMuxFlowControlDiagnosis{
+				FragmentWindowRefills: 5,
+			},
+			Endpoints: []ExperimentalMuxEndpointSnapshot{
+				{
+					Endpoint:     endpoint,
+					ConnectionID: "muxconn-1",
+					PoolSlot:     1,
+					Adapter: ExperimentalMuxAdapterSnapshot{Transport: ExperimentalMuxTransportSnapshot{
+						FragmentWindowRefills: 2,
+					}},
+				},
+				{
+					Endpoint:     endpoint,
+					ConnectionID: "muxconn-2",
+					PoolSlot:     2,
+					Adapter: ExperimentalMuxAdapterSnapshot{Transport: ExperimentalMuxTransportSnapshot{
+						FragmentWindowRefills: 3,
+					}},
+				},
+			},
+		},
+	}
+
+	events := rpcMuxDiagnosisEventView(diagnosis, RPCMuxDiagnosisFilter{
+		FlowControlEvent: "fragment-window-refill",
+		EventFamily:      "flow-control",
+		Event:            "fragment-window-refill",
+	})
+	byConnection := make(map[string]RPCMuxDiagnosisEvent, len(events))
+	for _, event := range events {
+		if event.ConnectionID != "" {
+			byConnection[event.ConnectionID] = event
+		}
+	}
+	if len(byConnection) != 2 ||
+		byConnection["muxconn-1"].Endpoint != endpoint ||
+		byConnection["muxconn-1"].PoolSlot != 1 ||
+		byConnection["muxconn-1"].Count != 2 ||
+		byConnection["muxconn-2"].Endpoint != endpoint ||
+		byConnection["muxconn-2"].PoolSlot != 2 ||
+		byConnection["muxconn-2"].Count != 3 {
+		t.Fatalf("flow-control events = %+v, want per-pool-slot refill events", events)
 	}
 }
 

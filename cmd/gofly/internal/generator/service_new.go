@@ -88,6 +88,13 @@ func GenerateRPCNew(opts RPCNewOptions) error {
 		}); err != nil {
 			return err
 		}
+		if err := writeRenderedFile(
+			filepath.Join(opts.Dir, "internal", "config", "config_test.go"),
+			rpcConfigTestTemplate,
+			map[string]string{"Name": opts.Name},
+		); err != nil {
+			return err
+		}
 	}
 	return writeRenderedFile(
 		filepath.Join(opts.Dir, opts.Name+".proto"),

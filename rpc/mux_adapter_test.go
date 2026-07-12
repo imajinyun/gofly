@@ -1436,6 +1436,194 @@ func TestExperimentalMuxConnectionManagerCandidateDowngradeDiagnostics(t *testin
 	}
 }
 
+func TestExperimentalMuxConnectionManagerCandidateRejectsFragmentWindowPolicyRiskWithoutDowngrade(t *testing.T) {
+	reg := withIsolatedMuxCandidateMetrics(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	serveDone := make(chan error, 1)
+	go func() {
+		serveDone <- ServeExperimentalMuxListener(ctx, listener, func(adapter *ExperimentalMuxServerAdapter) error {
+			return adapter.RegisterStream("orders/Watch", func(ctx context.Context, stream *ExperimentalMuxStream) error {
+				return stream.Close(ctx, "legacy-should-not-run")
+			})
+		})
+	}()
+	candidateCfg := ExperimentalMuxCandidateConfig{
+		Protocol:                             "gofly-mux/policy-risk-reject-test",
+		FrameCodec:                           "binary",
+		PayloadCodec:                         "identity",
+		AllowLegacyDowngrade:                 true,
+		MaxFrameBytes:                        96,
+		MaxMessageBytes:                      2048,
+		ReceiveQueueSize:                     2,
+		ConnectionWindow:                     3,
+		FragmentStreamWindowUpdatePolicy:     experimentalMuxWindowUpdateOnReceive,
+		FragmentConnectionWindowUpdatePolicy: experimentalMuxWindowUpdateOnReceive,
+		FragmentWindowPolicyRiskMode:         experimentalMuxFragmentPolicyRiskModeReject,
+	}
+	resolver := &mutableResolver{endpoints: []string{"tcp://" + listener.Addr().String()}}
+	manager, err := NewExperimentalMuxConnectionManager(
+		resolver,
+		WithExperimentalMuxConnectionManagerCandidateConfig(candidateCfg),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	client, err := NewClient("http://unused", WithExperimentalMuxConnectionManager(manager))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	stream, err := client.MuxStream(context.Background(), "orders/Watch")
+	if err == nil {
+		_ = stream.Close(context.Background(), "unexpected")
+		t.Fatal("MuxStream with fragment policy risk reject succeeded, want fail-fast error")
+	}
+	if CodeOf(err) != CodeUnavailable || !strings.Contains(err.Error(), "fragment window policy risk rejected") {
+		t.Fatalf("fragment policy risk err = %v, want unavailable fail-fast policy risk error", err)
+	}
+
+	diagnosis := client.RuntimeSnapshot().Diagnosis.Mux.Manager
+	if !diagnosis.Candidate.Enabled ||
+		diagnosis.Candidate.NegotiationFailures != 1 ||
+		diagnosis.Candidate.NegotiationFailureEvents[experimentalMuxCandidateFailurePolicyRisk] != 1 ||
+		diagnosis.Candidate.LastNegotiationPhase != experimentalMuxCandidateFailurePolicyRisk ||
+		diagnosis.Candidate.FragmentWindowPolicyRiskMode != experimentalMuxFragmentPolicyRiskModeReject ||
+		!diagnosis.Candidate.FragmentWindowPolicyRiskRejected ||
+		!diagnosis.Candidate.FragmentWindowPolicyRisk ||
+		diagnosis.Candidate.FragmentWindowPolicyRiskReason != experimentalMuxFragmentPolicyRiskStreamAndConnection ||
+		diagnosis.Candidate.Downgraded ||
+		diagnosis.Candidate.Downgrades != 0 ||
+		len(diagnosis.Endpoints) != 0 {
+		t.Fatalf("policy risk diagnosis = %+v, want fail-fast without legacy downgrade", diagnosis)
+	}
+	if diagnosis.Candidate.FragmentEstimatedMaxFragments <= diagnosis.Candidate.ConnectionWindow ||
+		diagnosis.Candidate.FragmentEstimatedMaxFragments <= diagnosis.Candidate.ReceiveQueueSize {
+		t.Fatalf("policy risk candidate = %+v, want estimated fragments larger than configured windows", diagnosis.Candidate)
+	}
+
+	probeReq := httptest.NewRequest(http.MethodGet, "/rpc/diagnosis?eventFamily=negotiation&event=fragment-window-policy-risk", nil)
+	probeRec := httptest.NewRecorder()
+	client.DiagnosisHandler().ServeHTTP(probeRec, probeReq)
+	if probeRec.Code != http.StatusOK {
+		t.Fatalf("policy risk diagnosis status = %d body=%s", probeRec.Code, probeRec.Body.String())
+	}
+	var probe RPCDiagnosisProbe
+	if err := json.Unmarshal(probeRec.Body.Bytes(), &probe); err != nil {
+		t.Fatalf("decode policy risk diagnosis: %v\n%s", err, probeRec.Body.String())
+	}
+	if !probe.Matched ||
+		probe.Diagnosis.Mux.Negotiation.PolicyRiskRejected != 1 ||
+		len(probe.Diagnosis.Mux.Events) != 1 ||
+		probe.Diagnosis.Mux.Events[0].Event != experimentalMuxCandidateFailurePolicyRisk ||
+		!strings.Contains(probe.Diagnosis.Mux.Events[0].Reason, "fragment window policy risk rejected") {
+		t.Fatalf("policy risk probe = %+v, want negotiation event summary", probe)
+	}
+
+	customs := reg.Snapshot().Customs
+	failures := customs["gofly_rpc_mux_candidate_negotiation_failures_total"]
+	if failures.Type != metrics.MetricCounter || len(failures.Series) != 1 ||
+		failures.Series[0].Labels["phase"] != experimentalMuxCandidateFailurePolicyRisk ||
+		failures.Series[0].Labels["peer_protocol"] != candidateCfg.Protocol ||
+		failures.Series[0].Value != 1 {
+		t.Fatalf("policy risk failure metric = %#v, want one low-cardinality policy risk failure", failures)
+	}
+	downgrades := customs["gofly_rpc_mux_candidate_downgrades_total"]
+	if downgrades.Type == metrics.MetricCounter && len(downgrades.Series) != 0 {
+		t.Fatalf("policy risk downgrade metric = %#v, want no legacy downgrade", downgrades)
+	}
+
+	cancel()
+	if err := <-serveDone; err != nil {
+		t.Fatalf("legacy mux server stopped with error: %v", err)
+	}
+}
+
+func TestExperimentalMuxCandidateConfigValidateFragmentWindowPolicyRiskModes(t *testing.T) {
+	cfg := ExperimentalMuxCandidateConfig{
+		Protocol:                             "gofly-mux/config-validation-test",
+		MaxFrameBytes:                        96,
+		MaxMessageBytes:                      2048,
+		ReceiveQueueSize:                     2,
+		ConnectionWindow:                     3,
+		FragmentStreamWindowUpdatePolicy:     experimentalMuxWindowUpdateOnReceive,
+		FragmentConnectionWindowUpdatePolicy: experimentalMuxWindowUpdateOnReceive,
+		FragmentWindowPolicyRiskMode:         experimentalMuxFragmentPolicyRiskModeDiagnose,
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate diagnose mode: %v", err)
+	}
+	cfg.FragmentWindowPolicyRiskMode = experimentalMuxFragmentPolicyRiskModeWarn
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate warn mode: %v", err)
+	}
+	cfg.FragmentWindowPolicyRiskMode = experimentalMuxFragmentPolicyRiskModeReject
+	if err := cfg.Validate(); err == nil || CodeOf(err) != CodeInvalidArgument || !strings.Contains(err.Error(), "fragment window policy risk rejected") {
+		t.Fatalf("Validate reject mode = %v, want invalid_argument policy risk error", err)
+	}
+	cfg.FragmentWindowPolicyRiskMode = "invalid"
+	if err := cfg.Validate(); err == nil || CodeOf(err) != CodeInvalidArgument || !strings.Contains(err.Error(), "risk mode must be diagnose, warn, or reject") {
+		t.Fatalf("Validate invalid mode = %v, want invalid mode error", err)
+	}
+}
+
+func TestExperimentalMuxCandidateConfigValidateFragmentWindowRefillPolicy(t *testing.T) {
+	cfg := ExperimentalMuxCandidateConfig{
+		Protocol:                             "gofly-mux/refill-validation-test",
+		MaxFrameBytes:                        96,
+		MaxMessageBytes:                      2048,
+		ReceiveQueueSize:                     64,
+		ConnectionWindow:                     64,
+		FragmentStreamWindowUpdatePolicy:     experimentalMuxWindowUpdateOnReceive,
+		FragmentConnectionWindowUpdatePolicy: experimentalMuxWindowUpdateOnReceive,
+		FragmentStreamWindowRefillRatio:      0.5,
+		FragmentConnectionWindowRefillRatio:  0.25,
+		FragmentMaxDeferredFragments:         0,
+		FragmentWindowPolicyRiskMode:         experimentalMuxFragmentPolicyRiskModeDiagnose,
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate refill policy: %v", err)
+	}
+	snapshot := cfg.snapshot("client", "")
+	if snapshot.FragmentStreamWindowRefillRatio != 0.5 ||
+		snapshot.FragmentConnectionWindowRefillRatio != 0.25 ||
+		snapshot.FragmentMaxDeferredFragments != 0 {
+		t.Fatalf("refill policy snapshot = %+v, want configured ratios", snapshot)
+	}
+
+	cfg.FragmentStreamWindowRefillRatio = 1.1
+	if err := cfg.Validate(); err == nil || CodeOf(err) != CodeInvalidArgument || !strings.Contains(err.Error(), "stream window refill ratio") {
+		t.Fatalf("Validate invalid stream refill ratio = %v, want invalid_argument", err)
+	}
+	cfg.FragmentStreamWindowRefillRatio = 0.5
+	cfg.FragmentConnectionWindowRefillRatio = -0.1
+	if err := cfg.Validate(); err == nil || CodeOf(err) != CodeInvalidArgument || !strings.Contains(err.Error(), "connection window refill ratio") {
+		t.Fatalf("Validate invalid connection refill ratio = %v, want invalid_argument", err)
+	}
+	cfg.FragmentConnectionWindowRefillRatio = 0.25
+	cfg.FragmentMaxDeferredFragments = -1
+	if err := cfg.Validate(); err == nil || CodeOf(err) != CodeInvalidArgument || !strings.Contains(err.Error(), "max deferred fragments") {
+		t.Fatalf("Validate invalid max deferred fragments = %v, want invalid_argument", err)
+	}
+
+	cfg.FragmentMaxDeferredFragments = 4
+	cfg.FragmentWindowPolicyRiskMode = experimentalMuxFragmentPolicyRiskModeReject
+	if err := cfg.Validate(); err == nil || CodeOf(err) != CodeInvalidArgument || !strings.Contains(err.Error(), experimentalMuxFragmentPolicyRiskMaxDeferred) {
+		t.Fatalf("Validate reject max deferred risk = %v, want fail-fast risk error", err)
+	}
+	cfg.FragmentStreamWindowUpdatePolicy = experimentalMuxWindowUpdatePerFragment
+	cfg.FragmentConnectionWindowUpdatePolicy = experimentalMuxWindowUpdatePerFragment
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate max deferred with per-fragment policy: %v", err)
+	}
+}
+
 func TestExperimentalMuxCandidateDrainMetrics(t *testing.T) {
 	reg := withIsolatedMuxCandidateMetrics(t)
 	clientConn, serverConn := net.Pipe()
@@ -1609,7 +1797,7 @@ func TestExperimentalMuxCandidateCreditWaitTimeoutMetrics(t *testing.T) {
 		PayloadCodec:      "identity",
 		ConnectionWindow:  1,
 		ReceiveQueueSize:  2,
-		CreditWaitTimeout: time.Millisecond,
+		CreditWaitTimeout: 50 * time.Millisecond,
 	}
 	client := NewExperimentalMuxCandidateClientAdapter(clientConn, cfg)
 	server := NewExperimentalMuxCandidateServerAdapter(serverConn, cfg)
@@ -1675,6 +1863,103 @@ func TestExperimentalMuxCandidateCreditWaitTimeoutMetrics(t *testing.T) {
 		t.Fatalf("candidate flow-control metric events = %#v, want credit_wait_timeout and connection_window_exhausted", seen)
 	}
 	close(hold)
+	stop()
+	if err := <-serveDone; err != nil {
+		t.Fatalf("candidate mux server stopped with error: %v", err)
+	}
+}
+
+func TestExperimentalMuxCandidateFragmentBackpressureMetrics(t *testing.T) {
+	reg := withIsolatedMuxCandidateMetrics(t)
+	clientConn, serverConn := net.Pipe()
+	cfg := ExperimentalMuxCandidateConfig{
+		Protocol:                             "gofly-mux/fragment-backpressure-test",
+		FrameCodec:                           "binary",
+		PayloadCodec:                         "identity",
+		ConnectionWindow:                     32,
+		ReceiveQueueSize:                     32,
+		MaxFrameBytes:                        96,
+		MaxMessageBytes:                      2048,
+		FragmentStreamWindowUpdatePolicy:     experimentalMuxWindowUpdateOnReceive,
+		FragmentConnectionWindowUpdatePolicy: experimentalMuxWindowUpdateOnReceive,
+		FragmentStreamWindowRefillRatio:      0.5,
+		FragmentConnectionWindowRefillRatio:  0.5,
+	}
+	client := NewExperimentalMuxCandidateClientAdapter(clientConn, cfg)
+	server := NewExperimentalMuxCandidateServerAdapter(serverConn, cfg)
+	defer client.Close()
+	defer server.Close()
+	hold := make(chan struct{})
+	if err := server.RegisterStream("orders/Fragment", func(ctx context.Context, stream *ExperimentalMuxStream) error {
+		select {
+		case <-hold:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+		msg, err := stream.Receive(ctx)
+		if err != nil {
+			return err
+		}
+		return stream.Close(ctx, string(msg.Payload))
+	}); err != nil {
+		t.Fatal(err)
+	}
+	serveCtx, stop := context.WithCancel(context.Background())
+	defer stop()
+	serveDone := make(chan error, 1)
+	go func() {
+		serveDone <- server.Serve(serveCtx)
+	}()
+	stream, err := client.OpenStream(context.Background(), "orders/Fragment")
+	if err != nil {
+		t.Fatalf("OpenStream: %v", err)
+	}
+	payload := []byte(strings.Repeat("fragment-backpressure-", 20))
+	if err := stream.Send(context.Background(), Message{Payload: payload}); err != nil {
+		t.Fatalf("first fragment Send: %v", err)
+	}
+	assertEventually(t, func() bool {
+		return server.Snapshot().Transport.FragmentFramesIn > 0
+	}, "server fragment frame diagnosis")
+	serverSnapshot := server.Snapshot()
+	if serverSnapshot.Transport.FragmentFramesIn < 2 {
+		t.Fatalf("server fragment snapshot = %+v, want fragment frames", serverSnapshot.Transport)
+	}
+	diagnosis := server.DiagnosisSnapshot()
+	if diagnosis.FlowControl.FragmentFramesIn < 2 {
+		t.Fatalf("server fragment diagnosis = %+v, want fragment counters", diagnosis.FlowControl)
+	}
+	close(hold)
+	assertEventually(t, func() bool {
+		return server.Snapshot().Transport.FragmentWindowRefills >= 1
+	}, "server fragment refill diagnosis")
+	diagnosis = server.DiagnosisSnapshot()
+	if diagnosis.FlowControl.FragmentWindowRefills < 1 ||
+		diagnosis.FlowControl.FragmentWindowRefillLatencyMax <= 0 ||
+		diagnosis.FlowControl.FragmentStreamWindowRefillRatio != 0.5 ||
+		diagnosis.FlowControl.FragmentConnectionWindowRefillRatio != 0.5 {
+		t.Fatalf("server fragment refill diagnosis = %+v, want refill event and latency", diagnosis.FlowControl)
+	}
+	events := reg.Snapshot().Customs["gofly_rpc_mux_candidate_flow_control_events_total"]
+	if events.Type != metrics.MetricCounter {
+		t.Fatalf("candidate flow-control metric = %#v, want counter", events)
+	}
+	if len(events.Labels) != 1 || events.Labels[0] != "event" {
+		t.Fatalf("candidate flow-control metric labels = %#v, want low-cardinality event-only labels", events.Labels)
+	}
+	seen := map[string]float64{}
+	for _, series := range events.Series {
+		if _, ok := series.Labels["connectionId"]; ok {
+			t.Fatalf("candidate flow-control metric labels = %#v, must not include high-cardinality connectionId", series.Labels)
+		}
+		if _, ok := series.Labels["poolSlot"]; ok {
+			t.Fatalf("candidate flow-control metric labels = %#v, must not include poolSlot", series.Labels)
+		}
+		seen[series.Labels["event"]] = series.Value
+	}
+	if seen["fragment_window_refill"] < 1 {
+		t.Fatalf("candidate flow-control metric events = %#v, want fragment_window_refill", seen)
+	}
 	stop()
 	if err := <-serveDone; err != nil {
 		t.Fatalf("candidate mux server stopped with error: %v", err)
@@ -2023,8 +2308,12 @@ func TestExperimentalMuxConnectionManagerDiagnosisFiltersEndpointFlowControl(t *
 		PayloadCodec:      "identity",
 		ConnectionWindow:  1,
 		ReceiveQueueSize:  2,
-		CreditWaitTimeout: time.Millisecond,
+		CreditWaitTimeout: 100 * time.Millisecond,
 	}
+	secondCfg := cfg
+	secondCfg.ConnectionWindow = 8
+	secondCfg.ReceiveQueueSize = 8
+	secondCfg.CreditWaitTimeout = 0
 	firstHold := make(chan struct{})
 	firstDone := make(chan error, 1)
 	go func() {
@@ -2056,7 +2345,7 @@ func TestExperimentalMuxConnectionManagerDiagnosisFiltersEndpointFlowControl(t *
 				}
 				return stream.Close(ctx, "ok")
 			})
-		}, cfg)
+		}, secondCfg)
 	}()
 	firstEndpoint := "tcp://" + firstListener.Addr().String()
 	secondEndpoint := "tcp://" + secondListener.Addr().String()
@@ -2236,6 +2525,241 @@ func TestExperimentalMuxConnectionManagerDiagnosisFiltersEndpointFlowControl(t *
 	}
 	if err := <-secondDone; err != nil {
 		t.Fatalf("second mux listener stopped with error: %v", err)
+	}
+}
+
+func TestRPCMuxDiagnosisFiltersFragmentBackpressureByConnection(t *testing.T) {
+	firstEndpoint := "tcp://127.0.0.1:9101"
+	secondEndpoint := "tcp://127.0.0.1:9102"
+	diagnosis := RPCMuxTransportDiagnosis{
+		Manager: RPCMuxConnectionManagerDiagnosis{
+			Enabled: true,
+			Mode:    "experimental_mux_manager",
+			Endpoints: []ExperimentalMuxEndpointSnapshot{
+				{
+					Endpoint:     firstEndpoint,
+					ConnectionID: "muxconn-frag-1",
+					PoolSlot:     1,
+					Adapter: ExperimentalMuxAdapterSnapshot{Transport: ExperimentalMuxTransportSnapshot{
+						FragmentFramesOut:                       2,
+						CreditWaits:                             1,
+						ConnectionCreditWaits:                   1,
+						CreditWaitTimeouts:                      1,
+						ConnectionWindowExhausted:               1,
+						BackpressureEvents:                      1,
+						FragmentStreamWindowUpdatePolicy:        experimentalMuxWindowUpdateOnReceive,
+						FragmentConnectionWindowUpdatePolicy:    experimentalMuxWindowUpdateOnReceive,
+						FragmentStreamWindowRefillRatio:         0.5,
+						FragmentConnectionWindowRefillRatio:     0.25,
+						FragmentMaxDeferredFragments:            4,
+						FragmentWindowRefills:                   2,
+						FragmentWindowRefillLatencyTotal:        12 * time.Millisecond,
+						FragmentWindowRefillLatencyMax:          8 * time.Millisecond,
+						FragmentWindowRefillLatencyAvg:          6 * time.Millisecond,
+						FragmentDeferredStreamWindowUpdates:     2,
+						FragmentDeferredConnectionWindowUpdates: 2,
+						FragmentWindowPolicyRisk:                true,
+						FragmentWindowPolicyRiskReason:          experimentalMuxFragmentPolicyRiskMaxDeferred,
+						FragmentEstimatedMaxFragments:           6,
+						LastFlowControlEvent:                    "fragment_window_refill",
+						LastFlowControlEventAt:                  time.Unix(0, int64(40*time.Millisecond)),
+						LastBackpressureEvent:                   "credit_wait_timeout",
+						LastBackpressureEventAt:                 time.Unix(0, int64(30*time.Millisecond)),
+					}},
+				},
+				{
+					Endpoint:     secondEndpoint,
+					ConnectionID: "muxconn-frag-2",
+					PoolSlot:     1,
+					Adapter: ExperimentalMuxAdapterSnapshot{Transport: ExperimentalMuxTransportSnapshot{
+						WriteTimeouts: 1,
+					}},
+				},
+			},
+		},
+	}
+	diagnosis.Manager.FlowControl = muxManagerFlowControlDiagnosis(diagnosis.Manager.Endpoints)
+
+	filtered := FilterRPCMuxDiagnosis(diagnosis, RPCMuxDiagnosisFilter{
+		Endpoint:         firstEndpoint,
+		ConnectionID:     "muxconn-frag-1",
+		PoolSlot:         1,
+		FlowControlEvent: "fragment-backpressure",
+		EventFamily:      "flow-control",
+		Event:            "fragment-backpressure",
+	})
+	if len(filtered.Manager.Endpoints) != 1 ||
+		filtered.Manager.Endpoints[0].Endpoint != firstEndpoint ||
+		filtered.Manager.Endpoints[0].ConnectionID != "muxconn-frag-1" ||
+		filtered.Manager.Endpoints[0].PoolSlot != 1 {
+		t.Fatalf("filtered endpoints = %+v, want first endpoint connection", filtered.Manager.Endpoints)
+	}
+	if filtered.Manager.FlowControl.FragmentBackpressure < 1 ||
+		filtered.Manager.FlowControl.FragmentFramesOut != 2 ||
+		filtered.Manager.FlowControl.FragmentStreamWindowUpdatePolicy != experimentalMuxWindowUpdateOnReceive ||
+		filtered.Manager.FlowControl.FragmentConnectionWindowUpdatePolicy != experimentalMuxWindowUpdateOnReceive ||
+		filtered.Manager.FlowControl.FragmentStreamWindowRefillRatio != 0.5 ||
+		filtered.Manager.FlowControl.FragmentConnectionWindowRefillRatio != 0.25 ||
+		filtered.Manager.FlowControl.FragmentMaxDeferredFragments != 4 ||
+		filtered.Manager.FlowControl.FragmentDeferredStreamWindowUpdates != 2 ||
+		filtered.Manager.FlowControl.FragmentDeferredConnectionWindowUpdates != 2 ||
+		filtered.Manager.FlowControl.CreditWaitTimeouts != 0 ||
+		filtered.Manager.FlowControl.ConnectionWindowExhausted != 0 ||
+		filtered.Manager.FlowControl.WriteTimeouts != 0 ||
+		len(filtered.Manager.FlowControl.Events) != 1 ||
+		filtered.Manager.FlowControl.Events[0].Event != "fragment_backpressure" {
+		t.Fatalf("filtered fragment flow-control = %+v, want fragment-only event", filtered.Manager.FlowControl)
+	}
+	if len(filtered.Events) != 1 ||
+		filtered.Events[0].Family != "flow_control" ||
+		filtered.Events[0].Event != "fragment_backpressure" ||
+		filtered.Events[0].Endpoint != firstEndpoint ||
+		filtered.Events[0].ConnectionID != "muxconn-frag-1" ||
+		filtered.Events[0].PoolSlot != 1 {
+		t.Fatalf("filtered fragment events = %+v, want endpoint connection context", filtered.Events)
+	}
+
+	refill := FilterRPCMuxDiagnosis(diagnosis, RPCMuxDiagnosisFilter{
+		Endpoint:         firstEndpoint,
+		ConnectionID:     "muxconn-frag-1",
+		FlowControlEvent: "fragment-window-refill",
+		EventFamily:      "flow-control",
+		Event:            "fragment-window-refill",
+	})
+	if len(refill.Manager.Endpoints) != 1 ||
+		refill.Manager.FlowControl.FragmentWindowRefills != 2 ||
+		refill.Manager.FlowControl.FragmentWindowRefillLatencyTotal != 12*time.Millisecond ||
+		refill.Manager.FlowControl.FragmentWindowRefillLatencyMax != 8*time.Millisecond ||
+		refill.Manager.FlowControl.FragmentWindowRefillLatencyAvg != 6*time.Millisecond ||
+		refill.Manager.FlowControl.FragmentBackpressure != 0 ||
+		refill.Manager.FlowControl.FragmentFramesOut != 0 ||
+		len(refill.Manager.FlowControl.Events) != 1 ||
+		refill.Manager.FlowControl.Events[0].Event != "fragment_window_refill" {
+		t.Fatalf("filtered fragment refill = %+v, want refill-only flow-control event", refill.Manager.FlowControl)
+	}
+	if refill.Manager.RefillProfile.ConnectionID != "muxconn-frag-1" ||
+		refill.Manager.RefillProfile.PoolSlot != 1 ||
+		refill.Manager.RefillProfile.StreamWindowRefillRatio != 0.5 ||
+		refill.Manager.RefillProfile.ConnectionWindowRefillRatio != 0.25 ||
+		refill.Manager.RefillProfile.MaxDeferredFragments != 4 ||
+		refill.Manager.RefillProfile.Refills != 2 ||
+		refill.Manager.RefillProfile.RefillLatencyAvg != 6*time.Millisecond ||
+		refill.Manager.RefillProfile.LastFlowControlEvent != "fragment_window_refill" ||
+		refill.Manager.RefillProfile.LastBackpressureEvent != "credit_wait_timeout" ||
+		len(refill.Manager.RefillProfiles) != 1 ||
+		refill.Manager.RefillProfiles[0].ConnectionID != "muxconn-frag-1" {
+		t.Fatalf("filtered refill profile = %+v profiles=%+v, want first connection refill profile", refill.Manager.RefillProfile, refill.Manager.RefillProfiles)
+	}
+	if len(refill.Events) != 1 ||
+		refill.Events[0].Family != "flow_control" ||
+		refill.Events[0].Event != "fragment_window_refill" ||
+		refill.Events[0].ConnectionID != "muxconn-frag-1" ||
+		refill.Events[0].PoolSlot != 1 {
+		t.Fatalf("filtered fragment refill events = %+v, want endpoint connection context", refill.Events)
+	}
+
+	secondSlot := diagnosis
+	secondSlot.Manager.Endpoints = append(secondSlot.Manager.Endpoints, ExperimentalMuxEndpointSnapshot{
+		Endpoint:     firstEndpoint,
+		ConnectionID: "muxconn-frag-3",
+		PoolSlot:     2,
+		Adapter: ExperimentalMuxAdapterSnapshot{Transport: ExperimentalMuxTransportSnapshot{
+			FragmentWindowRefills:            3,
+			FragmentWindowRefillLatencyTotal: 30 * time.Millisecond,
+			FragmentWindowRefillLatencyMax:   12 * time.Millisecond,
+			FragmentWindowRefillLatencyAvg:   10 * time.Millisecond,
+			LastFlowControlEvent:             "fragment_window_refill",
+			LastFlowControlEventAt:           time.Unix(0, int64(50*time.Millisecond)),
+		}},
+	})
+	secondSlot.Manager.FlowControl = muxManagerFlowControlDiagnosis(secondSlot.Manager.Endpoints)
+	slotRefill := FilterRPCMuxDiagnosis(secondSlot, RPCMuxDiagnosisFilter{
+		Endpoint:         firstEndpoint,
+		PoolSlot:         2,
+		FlowControlEvent: "fragment-window-refill",
+		EventFamily:      "flow-control",
+		Event:            "fragment-window-refill",
+	})
+	if len(slotRefill.Manager.Endpoints) != 1 ||
+		slotRefill.Manager.Endpoints[0].ConnectionID != "muxconn-frag-3" ||
+		slotRefill.Manager.Endpoints[0].PoolSlot != 2 ||
+		slotRefill.Manager.FlowControl.FragmentWindowRefills != 3 ||
+		slotRefill.Manager.FlowControl.FragmentWindowRefillLatencyAvg != 10*time.Millisecond ||
+		slotRefill.Manager.RefillProfile.ConnectionID != "muxconn-frag-3" ||
+		slotRefill.Manager.RefillProfile.PoolSlot != 2 ||
+		slotRefill.Manager.RefillProfile.Refills != 3 ||
+		slotRefill.Manager.RefillProfile.LastFlowControlEvent != "fragment_window_refill" ||
+		len(slotRefill.Events) != 1 ||
+		slotRefill.Events[0].Endpoint != firstEndpoint ||
+		slotRefill.Events[0].ConnectionID != "muxconn-frag-3" ||
+		slotRefill.Events[0].PoolSlot != 2 ||
+		slotRefill.Events[0].Count != 3 {
+		t.Fatalf("slot refill diagnosis = %+v, want pool slot 2 connection refill event", slotRefill)
+	}
+	allRefill := FilterRPCMuxDiagnosis(secondSlot, RPCMuxDiagnosisFilter{
+		FlowControlEvent: "fragment-window-refill",
+		EventFamily:      "flow-control",
+		Event:            "fragment-window-refill",
+	})
+	refillByConnection := make(map[string]RPCMuxDiagnosisEvent, len(allRefill.Events))
+	for _, event := range allRefill.Events {
+		if event.ConnectionID != "" {
+			refillByConnection[event.ConnectionID] = event
+		}
+	}
+	if len(refillByConnection) != 2 ||
+		refillByConnection["muxconn-frag-1"].Endpoint != firstEndpoint ||
+		refillByConnection["muxconn-frag-1"].PoolSlot != 1 ||
+		refillByConnection["muxconn-frag-1"].Count != 2 ||
+		refillByConnection["muxconn-frag-3"].Endpoint != firstEndpoint ||
+		refillByConnection["muxconn-frag-3"].PoolSlot != 2 ||
+		refillByConnection["muxconn-frag-3"].Count != 3 {
+		t.Fatalf("all refill events = %+v, want per-connection pool slot events", allRefill.Events)
+	}
+	if allRefill.Manager.RefillProfile.Refills != 5 ||
+		allRefill.Manager.RefillProfile.LastFlowControlEvent != "fragment_window_refill" ||
+		allRefill.Manager.RefillProfile.LastBackpressureEvent != "credit_wait_timeout" ||
+		len(allRefill.Manager.RefillProfiles) != 3 {
+		t.Fatalf("all refill profiles = profile=%+v profiles=%+v, want aggregate and per-connection profiles", allRefill.Manager.RefillProfile, allRefill.Manager.RefillProfiles)
+	}
+
+	missing := FilterRPCMuxDiagnosis(diagnosis, RPCMuxDiagnosisFilter{
+		Endpoint:         secondEndpoint,
+		PoolSlot:         1,
+		FlowControlEvent: "fragment-backpressure",
+		EventFamily:      "flow-control",
+		Event:            "fragment-backpressure",
+	})
+	if len(missing.Manager.Endpoints) != 1 ||
+		missing.Manager.Endpoints[0].Endpoint != secondEndpoint ||
+		missing.Manager.FlowControl.FragmentBackpressure != 0 ||
+		len(missing.Manager.FlowControl.Events) != 0 ||
+		len(missing.Events) != 0 {
+		t.Fatalf("missing fragment diagnosis = %+v, want second endpoint without fragment event", missing)
+	}
+
+	risk := FilterRPCMuxDiagnosis(diagnosis, RPCMuxDiagnosisFilter{
+		Endpoint:         firstEndpoint,
+		ConnectionID:     "muxconn-frag-1",
+		FlowControlEvent: "fragment-window-policy-risk",
+		EventFamily:      "flow-control",
+		Event:            "fragment-window-policy-risk",
+	})
+	if len(risk.Manager.Endpoints) != 1 ||
+		!risk.Manager.FlowControl.FragmentWindowPolicyRisk ||
+		risk.Manager.FlowControl.FragmentWindowPolicyRiskReason != experimentalMuxFragmentPolicyRiskMaxDeferred ||
+		risk.Manager.FlowControl.FragmentMaxDeferredFragments != 4 ||
+		risk.Manager.FlowControl.FragmentEstimatedMaxFragments != 6 ||
+		risk.Manager.FlowControl.FragmentBackpressure != 0 ||
+		len(risk.Manager.FlowControl.Events) != 1 ||
+		risk.Manager.FlowControl.Events[0].Event != "fragment_window_policy_risk" {
+		t.Fatalf("filtered fragment policy risk = %+v, want risk-only flow-control event", risk.Manager.FlowControl)
+	}
+	if len(risk.Events) != 1 ||
+		risk.Events[0].Family != "flow_control" ||
+		risk.Events[0].Event != "fragment_window_policy_risk" ||
+		risk.Events[0].ConnectionID != "muxconn-frag-1" {
+		t.Fatalf("filtered fragment policy risk events = %+v, want endpoint connection context", risk.Events)
 	}
 }
 

@@ -1029,6 +1029,12 @@ func TestGenerateNewServiceVariantsBoundaries(t *testing.T) {
 		`"candidate": {"enabled": false, "protocol": "gofly-mux/experimental-v1"`,
 		`"writeTimeout": 0`,
 		`"creditWaitTimeout": 0`,
+		`"fragmentStreamWindowUpdatePolicy": "per_fragment"`,
+		`"fragmentConnectionWindowUpdatePolicy": "per_fragment"`,
+		`"fragmentStreamWindowRefillRatio": 1`,
+		`"fragmentConnectionWindowRefillRatio": 1`,
+		`"fragmentMaxDeferredFragments": 0`,
+		`"fragmentWindowPolicyRiskMode": "diagnose"`,
 		`"allowLegacyDowngrade": false`,
 	} {
 		if !strings.Contains(string(configData), want) {
@@ -1072,11 +1078,20 @@ func TestGenerateNewServiceVariantsBoundaries(t *testing.T) {
 		`json:"tls,omitempty"`,
 		`json:"writeTimeout,omitempty"`,
 		`json:"creditWaitTimeout,omitempty"`,
+		`json:"fragmentStreamWindowUpdatePolicy,omitempty"`,
+		`json:"fragmentConnectionWindowUpdatePolicy,omitempty"`,
+		`json:"fragmentStreamWindowRefillRatio,omitempty"`,
+		`json:"fragmentConnectionWindowRefillRatio,omitempty"`,
+		`json:"fragmentMaxDeferredFragments,omitempty"`,
+		`json:"fragmentWindowPolicyRiskMode,omitempty"`,
 		`json:"drainGrace,omitempty"`,
 		`json:"allowLegacyDowngrade,omitempty"`,
 		"func (c RPCMuxConfig) CandidateConfig() rpc.ExperimentalMuxCandidateConfig",
 		"func (c RPCMuxConfig) CandidateServerConfig() rpc.ExperimentalMuxCandidateConfig",
 		"func (c RPCMuxConfig) CandidateClientConfig() rpc.ExperimentalMuxCandidateConfig",
+		"func ValidateRPCMuxConfig(c RPCMuxConfig) error",
+		"c.CandidateServerConfig().Validate()",
+		"c.CandidateClientConfig().Validate()",
 		"func (c RPCMuxConfig) CandidateTLSConfig() security.TLSConfig",
 		"func (c RPCMuxConfig) ClientOptions() []rpc.ClientOption",
 		"rpc.WithMuxTraceAnnotation()",
@@ -1085,6 +1100,25 @@ func TestGenerateNewServiceVariantsBoundaries(t *testing.T) {
 	} {
 		if !strings.Contains(string(configGoData), want) {
 			t.Fatalf("generated rpc config.go missing mux config %q:\n%s", want, configGoData)
+		}
+	}
+	configTestData, err := os.ReadFile(filepath.Join(rpcDir, "internal", "config", "config_test.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"func TestRPCMuxConfigValidatesCandidateFragmentWindowRiskMode(t *testing.T)",
+		`FragmentWindowPolicyRiskMode:         "warn"`,
+		`FragmentStreamWindowRefillRatio:      0.5`,
+		`FragmentConnectionWindowRefillRatio:  0.25`,
+		`FragmentMaxDeferredFragments = 2`,
+		`FragmentWindowPolicyRiskMode = "reject"`,
+		`FragmentWindowPolicyRiskMode = "invalid"`,
+		`stream window refill ratio`,
+		`estimated_fragments_exceeds_max_deferred_fragments`,
+	} {
+		if !strings.Contains(string(configTestData), want) {
+			t.Fatalf("generated rpc config_test.go missing mux candidate validation %q:\n%s", want, configTestData)
 		}
 	}
 	mainData, err := os.ReadFile(filepath.Join(rpcDir, "cmd", "Greeter", "main.go"))
@@ -1125,8 +1159,16 @@ func TestGenerateNewServiceVariantsBoundaries(t *testing.T) {
 		"generatedRPCTLSCA(t, tlsDir)",
 		`"gofly-mux/generated-mtls-test"`,
 		`rpc.ServeExperimentalMuxCandidateListener(mtlsCtx, mtlsListener`,
-		`"mtls:probe"`,
+		`mtlsPayload := []byte(strings.Repeat("probe-", 50))`,
+		`"mtls:"+string(mtlsPayload)`,
 		`mtlsClient.DiagnosisHandler().ServeHTTP(mtlsRec, httptest.NewRequest(http.MethodGet, "/rpc/diagnosis", nil))`,
+		`mtlsClient.DiagnosisHandler().ServeHTTP(refillRec, httptest.NewRequest(http.MethodGet, "/rpc/diagnosis?flowControlEvent=fragment-window-refill&eventFamily=flow-control&event=fragment-window-refill", nil))`,
+		`refillDiagnosis.Diagnosis.Mux.Manager.RefillProfile.Refills < 1`,
+		`refillDiagnosis.Diagnosis.Mux.Manager.RefillProfile.StreamWindowRefillRatio != 0.5`,
+		`refillDiagnosis.Diagnosis.Mux.Manager.RefillProfile.ConnectionWindowRefillRatio != 0.25`,
+		`refillDiagnosis.Diagnosis.Mux.Manager.RefillProfile.MaxDeferredFragments != 2`,
+		`refillDiagnosis.Diagnosis.Mux.Manager.RefillProfile.LastFlowControlEvent != "fragment_window_refill"`,
+		`refillDiagnosis.Diagnosis.Mux.Events[0].Event != "fragment_window_refill"`,
 		`mtlsDiagnosis.Diagnosis.Mux.Manager.Candidate.TLS`,
 		`mtlsDiagnosis.Diagnosis.Mux.Manager.Candidate.MutualTLS`,
 		`mtlsDiagnosis.Diagnosis.Mux.Manager.Candidate.NegotiatedProtocol != "gofly-mux/generated-mtls-test"`,

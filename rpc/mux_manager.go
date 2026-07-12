@@ -712,11 +712,14 @@ func (m *ExperimentalMuxConnectionManager) Snapshot() ExperimentalMuxConnectionM
 func (m *ExperimentalMuxConnectionManager) DiagnosisSnapshot() RPCMuxConnectionManagerDiagnosis {
 	snapshot := m.Snapshot()
 	flowControl := muxManagerFlowControlDiagnosis(snapshot.Endpoints)
+	refillProfile, refillProfiles := muxManagerRefillProfiles(snapshot.Endpoints, flowControl)
 	return RPCMuxConnectionManagerDiagnosis{
 		Enabled:                 m != nil && !snapshot.Closed,
 		Mode:                    "experimental_mux_manager",
 		Candidate:               snapshot.Candidate,
 		FlowControl:             flowControl,
+		RefillProfile:           refillProfile,
+		RefillProfiles:          refillProfiles,
 		IdleTimeout:             snapshot.IdleTimeout,
 		MaxStreamsPerConn:       snapshot.MaxStreamsPerConn,
 		MaxConnsPerEndpoint:     snapshot.MaxConnsPerEndpoint,
@@ -760,18 +763,124 @@ func muxManagerFlowControlDiagnosis(endpoints []ExperimentalMuxEndpointSnapshot)
 		if diagnosis.ConnectionWindow == 0 {
 			diagnosis.ConnectionWindow = transport.ConnectionWindow
 		}
+		if diagnosis.FragmentStreamWindowUpdatePolicy == "" {
+			diagnosis.FragmentStreamWindowUpdatePolicy = transport.FragmentStreamWindowUpdatePolicy
+		}
+		if diagnosis.FragmentConnectionWindowUpdatePolicy == "" {
+			diagnosis.FragmentConnectionWindowUpdatePolicy = transport.FragmentConnectionWindowUpdatePolicy
+		}
+		if diagnosis.FragmentStreamWindowRefillRatio == 0 {
+			diagnosis.FragmentStreamWindowRefillRatio = transport.FragmentStreamWindowRefillRatio
+		}
+		if diagnosis.FragmentConnectionWindowRefillRatio == 0 {
+			diagnosis.FragmentConnectionWindowRefillRatio = transport.FragmentConnectionWindowRefillRatio
+		}
+		if transport.FragmentMaxDeferredFragments > diagnosis.FragmentMaxDeferredFragments {
+			diagnosis.FragmentMaxDeferredFragments = transport.FragmentMaxDeferredFragments
+		}
+		if transport.FragmentWindowRefillLatencyMax > diagnosis.FragmentWindowRefillLatencyMax {
+			diagnosis.FragmentWindowRefillLatencyMax = transport.FragmentWindowRefillLatencyMax
+		}
+		if transport.FragmentWindowPolicyRisk {
+			diagnosis.FragmentWindowPolicyRisk = true
+			if diagnosis.FragmentWindowPolicyRiskReason == "" {
+				diagnosis.FragmentWindowPolicyRiskReason = transport.FragmentWindowPolicyRiskReason
+			}
+		}
+		if diagnosis.FragmentWindowPolicyRiskMode == "" {
+			diagnosis.FragmentWindowPolicyRiskMode = transport.FragmentWindowPolicyRiskMode
+		}
+		if transport.FragmentEstimatedMaxFragments > diagnosis.FragmentEstimatedMaxFragments {
+			diagnosis.FragmentEstimatedMaxFragments = transport.FragmentEstimatedMaxFragments
+		}
 		diagnosis.ConnectionCreditWaits += transport.ConnectionCreditWaits
 		diagnosis.StreamCreditWaits += transport.CreditWaits
 		diagnosis.CreditWaitTimeouts += transport.CreditWaitTimeouts
 		diagnosis.WriteTimeouts += transport.WriteTimeouts
 		diagnosis.ConnectionWindowExhausted += transport.ConnectionWindowExhausted
+		diagnosis.FragmentFramesIn += transport.FragmentFramesIn
+		diagnosis.FragmentFramesOut += transport.FragmentFramesOut
+		diagnosis.FragmentBackpressure += experimentalMuxFragmentBackpressure(transport)
+		diagnosis.FragmentWindowRefills += transport.FragmentWindowRefills
+		diagnosis.FragmentWindowRefillLatencyTotal += transport.FragmentWindowRefillLatencyTotal
+		diagnosis.FragmentDeferredStreamWindowUpdates += transport.FragmentDeferredStreamWindowUpdates
+		diagnosis.FragmentDeferredConnectionWindowUpdates += transport.FragmentDeferredConnectionWindowUpdates
 		diagnosis.WindowFramesIn += transport.WindowFramesIn
 		diagnosis.WindowFramesOut += transport.WindowFramesOut
 		diagnosis.ConnectionWindowIn += transport.ConnectionWindowFramesIn
 		diagnosis.ConnectionWindowOut += transport.ConnectionWindowFramesOut
 		diagnosis.BackpressureEvents += transport.BackpressureEvents
 	}
+	if diagnosis.FragmentWindowRefills > 0 {
+		diagnosis.FragmentWindowRefillLatencyAvg = diagnosis.FragmentWindowRefillLatencyTotal / time.Duration(diagnosis.FragmentWindowRefills)
+	}
 	return withRPCMuxFlowControlEvents(diagnosis, "")
+}
+
+func muxManagerRefillProfiles(
+	endpoints []ExperimentalMuxEndpointSnapshot,
+	flowControl RPCMuxFlowControlDiagnosis,
+) (RPCMuxRefillProfile, []RPCMuxRefillProfile) {
+	profiles := make([]RPCMuxRefillProfile, 0, len(endpoints))
+	for _, endpoint := range endpoints {
+		profiles = append(profiles, muxRefillProfileFromEndpoint(endpoint))
+	}
+	profile := muxRefillProfileFromFlowControl(flowControl)
+	if len(profiles) == 1 {
+		profile = profiles[0]
+	} else {
+		for _, item := range profiles {
+			if profile.LastFlowControlEventAt.IsZero() || item.LastFlowControlEventAt.After(profile.LastFlowControlEventAt) {
+				profile.LastFlowControlEvent = item.LastFlowControlEvent
+				profile.LastFlowControlEventAt = item.LastFlowControlEventAt
+			}
+			if profile.LastBackpressureEvent == "" && item.LastBackpressureEvent != "" {
+				profile.LastBackpressureEvent = item.LastBackpressureEvent
+				profile.LastBackpressureEventAt = item.LastBackpressureEventAt
+			}
+		}
+	}
+	return profile, profiles
+}
+
+func muxRefillProfileFromEndpoint(endpoint ExperimentalMuxEndpointSnapshot) RPCMuxRefillProfile {
+	profile := muxRefillProfileFromTransport(endpoint.Adapter.Transport)
+	profile.Endpoint = endpoint.Endpoint
+	profile.ConnectionID = endpoint.ConnectionID
+	profile.PoolSlot = endpoint.PoolSlot
+	return profile
+}
+
+func muxRefillProfileFromTransport(transport ExperimentalMuxTransportSnapshot) RPCMuxRefillProfile {
+	return muxRefillProfileFromFlowControl(rpcMuxFlowControlDiagnosisFromTransport(transport))
+}
+
+func muxRefillProfileFromFlowControl(diagnosis RPCMuxFlowControlDiagnosis) RPCMuxRefillProfile {
+	return RPCMuxRefillProfile{
+		ReceiveQueueSize:                diagnosis.ReceiveQueueSize,
+		ConnectionWindow:                diagnosis.ConnectionWindow,
+		StreamWindowUpdatePolicy:        diagnosis.FragmentStreamWindowUpdatePolicy,
+		ConnectionWindowUpdatePolicy:    diagnosis.FragmentConnectionWindowUpdatePolicy,
+		StreamWindowRefillRatio:         diagnosis.FragmentStreamWindowRefillRatio,
+		ConnectionWindowRefillRatio:     diagnosis.FragmentConnectionWindowRefillRatio,
+		MaxDeferredFragments:            diagnosis.FragmentMaxDeferredFragments,
+		Refills:                         diagnosis.FragmentWindowRefills,
+		RefillLatencyTotal:              diagnosis.FragmentWindowRefillLatencyTotal,
+		RefillLatencyMax:                diagnosis.FragmentWindowRefillLatencyMax,
+		RefillLatencyAvg:                diagnosis.FragmentWindowRefillLatencyAvg,
+		DeferredStreamWindowUpdates:     diagnosis.FragmentDeferredStreamWindowUpdates,
+		DeferredConnectionWindowUpdates: diagnosis.FragmentDeferredConnectionWindowUpdates,
+		BackpressureEvents:              diagnosis.BackpressureEvents,
+		FragmentBackpressure:            diagnosis.FragmentBackpressure,
+		LastFlowControlEvent:            diagnosis.LastFlowControlEvent,
+		LastFlowControlEventAt:          diagnosis.LastFlowControlEventAt,
+		LastBackpressureEvent:           diagnosis.LastBackpressureEvent,
+		LastBackpressureEventAt:         diagnosis.LastBackpressureEventAt,
+		PolicyRisk:                      diagnosis.FragmentWindowPolicyRisk,
+		PolicyRiskReason:                diagnosis.FragmentWindowPolicyRiskReason,
+		PolicyRiskMode:                  diagnosis.FragmentWindowPolicyRiskMode,
+		EstimatedMaxFragments:           diagnosis.FragmentEstimatedMaxFragments,
+	}
 }
 
 func muxDiagnosisFromManager(manager RPCMuxConnectionManagerDiagnosis) RPCMuxTransportDiagnosis {
@@ -992,7 +1101,7 @@ func (m *ExperimentalMuxConnectionManager) adapter(ctx context.Context, endpoint
 		adapter, err = DialExperimentalMuxCandidateClientAdapter(ctx, "tcp", muxEndpointAddress(endpoint), *candidate)
 		if err != nil {
 			failureSnapshot := m.recordCandidateNegotiationFailure(*candidate, err)
-			if candidate.AllowLegacyDowngrade {
+			if candidate.AllowLegacyDowngrade && !isExperimentalMuxCandidatePolicyRiskFailure(err) {
 				legacyAdapter, legacyErr := DialExperimentalMuxClientAdapter(ctx, "tcp", muxEndpointAddress(endpoint))
 				if legacyErr == nil {
 					m.recordCandidateDowngrade(err)

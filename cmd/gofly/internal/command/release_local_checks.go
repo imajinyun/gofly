@@ -317,6 +317,7 @@ func releaseGeneratedRPCMuxRetrySmokeCheck() (releaseCheckItem, []string) {
 		`mtlsDiagnosis.Diagnosis.Mux.Manager.Endpoints[0].Adapter.Transport.OpenedStreams != 1`,
 		`mtlsDiagnosis.Diagnosis.Mux.Manager.Endpoints[0].Adapter.Transport.ClosedStreams != 1`,
 		`mtlsDiagnosis.Diagnosis.Mux.Manager.Endpoints[0].Adapter.Transport.ActiveStreams != 0`,
+		`RPCMuxLogConfig{Enabled: true, Diagnosis: true, ExportEvents: true, EventFamily: "flow-control", Event: "fragment-window-refill"}`,
 		`mtlsClientOptions := append(tlsCfg.RPC.Mux.ClientOptions(), rpc.WithExperimentalMuxConnectionManager(mtlsManager))`,
 		`mtlsClient.MuxStream(mtlsTraceCtx, "greeter/Watch")`,
 		`mtlsClient.ObserveMuxDiagnosis(mtlsRefillTraceCtx, refillDiagnosis)`,
@@ -335,6 +336,11 @@ func releaseGeneratedRPCMuxRetrySmokeCheck() (releaseCheckItem, []string) {
 		`"\"refill_profile_connection_window_refill_ratio\":0.25"`,
 		`"\"refill_profile_max_deferred_fragments\":2"`,
 		`"\"refill_profile_last_flow_control_event\":\"fragment_window_refill\""`,
+		`"\"msg\":\"rpc mux exported event\""`,
+		`"\"event_family\":\"flow_control\""`,
+		`"\"event\":\"fragment_window_refill\""`,
+		`"\"connection_id\":\""`,
+		`"\"pool_slot\":1"`,
 	}
 	markers := append(append(openBeforeMarkers, postOpenMarkers...), negotiationSummaryMarkers...)
 	markers = append(markers, generatedSuccessMarkers...)

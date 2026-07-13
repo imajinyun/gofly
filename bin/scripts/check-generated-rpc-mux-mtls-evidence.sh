@@ -60,6 +60,7 @@ for marker in (
     "mtlsDiagnosis.Diagnosis.Mux.Manager.Candidate.MutualTLS",
     'mtlsDiagnosis.Diagnosis.Mux.Manager.Candidate.NegotiatedProtocol != "gofly-mux/generated-mtls-test"',
     "mtlsDiagnosis.Diagnosis.Mux.Manager.Endpoints[0].Adapter.Transport.OpenedStreams != 1",
+    'RPCMuxLogConfig{Enabled: true, Diagnosis: true, ExportEvents: true, EventFamily: "flow-control", Event: "fragment-window-refill"}',
     'mtlsClient.ObserveMuxDiagnosis(mtlsRefillTraceCtx, refillDiagnosis)',
     'mtlsTraceAttrs["rpc.mux.candidate.negotiated_protocol"].AsString() != "gofly-mux/generated-mtls-test"',
     'mtlsRefillTraceAttrs["rpc.mux.manager.refill_profile.refills.count"].AsInt64() < 1',
@@ -74,6 +75,11 @@ for marker in (
     '"\\"refill_profile_connection_window_refill_ratio\\":0.25"',
     '"\\"refill_profile_max_deferred_fragments\\":2"',
     '"\\"refill_profile_last_flow_control_event\\":\\"fragment_window_refill\\""',
+    '"\\"msg\\":\\"rpc mux exported event\\""',
+    '"\\"event_family\\":\\"flow_control\\""',
+    '"\\"event\\":\\"fragment_window_refill\\""',
+    '"\\"connection_id\\":\\""',
+    '"\\"pool_slot\\":1"',
 ):
     if marker not in markers:
         raise SystemExit(f"generated RPC mux mTLS success marker missing: {marker}")

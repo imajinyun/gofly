@@ -794,7 +794,7 @@ func TestAdminDiagnostics(t *testing.T) {
 	}
 	tlsCfg.RPC.Mux.ALPN = appconfig.RPCMuxALPNConfig{Enabled: true, Protocol: "gofly-mux/generated-mtls-test"}
 	tlsCfg.RPC.Mux.Trace = appconfig.RPCMuxTraceConfig{Enabled: true, AnnotateStreams: true}
-	tlsCfg.RPC.Mux.Log = appconfig.RPCMuxLogConfig{Enabled: true, Diagnosis: true}
+	tlsCfg.RPC.Mux.Log = appconfig.RPCMuxLogConfig{Enabled: true, Diagnosis: true, ExportEvents: true, EventFamily: "flow-control", Event: "fragment-window-refill"}
 	tlsCandidate := tlsCfg.RPC.Mux.CandidateClientConfig()
 	if tlsCandidate.Protocol != "gofly-mux/generated-mtls-test" ||
 		tlsCandidate.TLS.CAFile != tlsCAFile ||
@@ -952,6 +952,11 @@ func TestAdminDiagnostics(t *testing.T) {
 		"\"refill_profile_connection_window_refill_ratio\":0.25",
 		"\"refill_profile_max_deferred_fragments\":2",
 		"\"refill_profile_last_flow_control_event\":\"fragment_window_refill\"",
+		"\"msg\":\"rpc mux exported event\"",
+		"\"event_family\":\"flow_control\"",
+		"\"event\":\"fragment_window_refill\"",
+		"\"connection_id\":\"",
+		"\"pool_slot\":1",
 	} {
 		if !strings.Contains(mtlsLogLine, want) {
 			t.Fatalf("mTLS mux diagnosis log missing %s:\n%s", want, mtlsLogLine)

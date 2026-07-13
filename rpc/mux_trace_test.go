@@ -422,7 +422,7 @@ func TestMuxDiagnosisLogAttrsIncludeTraceOnlyTroubleshootingFields(t *testing.T)
 	}
 }
 
-func TestObserveMuxDiagnosisEmitsConfiguredRefillProfileTraceAndLog(t *testing.T) {
+func TestObserveMuxDiagnosisEmitsConfiguredRefillProfileTraceLogAndEvents(t *testing.T) {
 	probe := RPCDiagnosisProbe{
 		Target:      "http://unused",
 		Method:      "orders/Watch",
@@ -461,8 +461,15 @@ func TestObserveMuxDiagnosisEmitsConfiguredRefillProfileTraceAndLog(t *testing.T
 	}
 	probe.Diagnosis.Mux.Events = RPCMuxDiagnosisEvents(probe.Diagnosis.Mux)
 	var buf bytes.Buffer
+	var exported []RPCMuxDiagnosisEventRecord
 	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	client, err := NewClient("http://unused", WithMuxTraceAnnotation(), WithMuxDiagnosisLogging(logger))
+	client, err := NewClient("http://unused",
+		WithMuxTraceAnnotation(),
+		WithMuxDiagnosisLogging(logger),
+		WithMuxDiagnosisEventExporter(RPCMuxDiagnosisEventExporterFunc(func(_ context.Context, record RPCMuxDiagnosisEventRecord) {
+			exported = append(exported, record)
+		}), RPCMuxDiagnosisFilter{EventFamily: "flow_control", Event: "fragment_window_refill"}),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -510,6 +517,21 @@ func TestObserveMuxDiagnosisEmitsConfiguredRefillProfileTraceAndLog(t *testing.T
 		if !strings.Contains(line, want) {
 			t.Fatalf("mux refillProfile diagnosis log missing %s:\n%s", want, line)
 		}
+	}
+	if len(exported) != 1 {
+		t.Fatalf("exported refillProfile events = %+v, want one fragment_window_refill record", exported)
+	}
+	record := exported[0]
+	if record.Target != "http://unused" ||
+		record.Method != "orders/Watch" ||
+		record.Endpoint != "tcp://127.0.0.1:9002" ||
+		record.ConnectionID != "muxconn-4" ||
+		record.PoolSlot != 1 ||
+		record.Event.Family != "flow_control" ||
+		record.Event.Event != "fragment_window_refill" ||
+		record.Event.Count != 2 ||
+		record.ExportedAt.IsZero() {
+		t.Fatalf("exported refillProfile record = %+v, want structured fragment_window_refill event", record)
 	}
 }
 

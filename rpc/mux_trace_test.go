@@ -422,6 +422,97 @@ func TestMuxDiagnosisLogAttrsIncludeTraceOnlyTroubleshootingFields(t *testing.T)
 	}
 }
 
+func TestObserveMuxDiagnosisEmitsConfiguredRefillProfileTraceAndLog(t *testing.T) {
+	probe := RPCDiagnosisProbe{
+		Target:      "http://unused",
+		Method:      "orders/Watch",
+		Endpoint:    "tcp://127.0.0.1:9002",
+		FlowControl: "fragment_window_refill",
+		Matched:     true,
+		Diagnosis: RPCDiagnosisSnapshot{Mux: RPCMuxTransportDiagnosis{
+			Manager: RPCMuxConnectionManagerDiagnosis{
+				Enabled: true,
+				Mode:    "experimental_mux_manager",
+				FlowControl: RPCMuxFlowControlDiagnosis{
+					FragmentWindowRefills:               2,
+					FragmentStreamWindowRefillRatio:     0.5,
+					FragmentConnectionWindowRefillRatio: 0.25,
+					FragmentMaxDeferredFragments:        2,
+				},
+				RefillProfile: RPCMuxRefillProfile{
+					StreamWindowUpdatePolicy:     experimentalMuxWindowUpdateOnReceive,
+					ConnectionWindowUpdatePolicy: experimentalMuxWindowUpdateOnReceive,
+					StreamWindowRefillRatio:      0.5,
+					ConnectionWindowRefillRatio:  0.25,
+					MaxDeferredFragments:         2,
+					Refills:                      2,
+					RefillLatencyMax:             4 * time.Millisecond,
+					RefillLatencyAvg:             2 * time.Millisecond,
+					LastFlowControlEvent:         "fragment_window_refill",
+					LastBackpressureEvent:        "fragment_backpressure",
+				},
+				Endpoints: []ExperimentalMuxEndpointSnapshot{{
+					Endpoint:     "tcp://127.0.0.1:9002",
+					ConnectionID: "muxconn-4",
+					PoolSlot:     1,
+				}},
+			},
+		}},
+	}
+	probe.Diagnosis.Mux.Events = RPCMuxDiagnosisEvents(probe.Diagnosis.Mux)
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	client, err := NewClient("http://unused", WithMuxTraceAnnotation(), WithMuxDiagnosisLogging(logger))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	recorder := tracetest.NewSpanRecorder()
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	defer func() { _ = provider.Shutdown(context.Background()) }()
+	ctx, span := provider.Tracer("rpc-mux-test").Start(context.Background(), "observe-refill-profile", oteltrace.WithSpanKind(oteltrace.SpanKindInternal))
+
+	client.ObserveMuxDiagnosis(ctx, probe)
+	span.End()
+
+	spans := recorder.Ended()
+	if len(spans) != 1 {
+		t.Fatalf("trace spans = %d, want one refillProfile diagnosis span", len(spans))
+	}
+	attrs := muxAttributeMap(spans[0].Attributes())
+	if got := attrs["rpc.mux.manager.refill_profile.refills.count"].AsInt64(); got != 2 {
+		t.Fatalf("refill profile refills attr = %d, want 2", got)
+	}
+	if got := attrs["rpc.mux.manager.refill_profile.stream_window_refill_ratio"].AsFloat64(); got != 0.5 {
+		t.Fatalf("refill profile stream ratio attr = %v, want 0.5", got)
+	}
+	if got := attrs["rpc.mux.manager.refill_profile.connection_window_refill_ratio"].AsFloat64(); got != 0.25 {
+		t.Fatalf("refill profile connection ratio attr = %v, want 0.25", got)
+	}
+	if got := attrs["rpc.mux.manager.refill_profile.max_deferred_fragments"].AsInt64(); got != 2 {
+		t.Fatalf("refill profile max deferred attr = %d, want 2", got)
+	}
+	if got := attrs["rpc.mux.manager.refill_profile.last_flow_control_event"].AsString(); got != "fragment_window_refill" {
+		t.Fatalf("refill profile last flow-control attr = %q, want fragment_window_refill", got)
+	}
+	line := buf.String()
+	for _, want := range []string{
+		`"msg":"rpc mux stream diagnosis"`,
+		`"refill_profile_stream_window_refill_ratio":0.5`,
+		`"refill_profile_connection_window_refill_ratio":0.25`,
+		`"refill_profile_max_deferred_fragments":2`,
+		`"refill_profile_refills":2`,
+		`"refill_profile_last_flow_control_event":"fragment_window_refill"`,
+		`"msg":"rpc mux runtime event"`,
+		`"event_family":"flow_control"`,
+		`"event":"fragment_window_refill"`,
+	} {
+		if !strings.Contains(line, want) {
+			t.Fatalf("mux refillProfile diagnosis log missing %s:\n%s", want, line)
+		}
+	}
+}
+
 func TestMuxDiagnosisEventExporterFiltersStructuredEvents(t *testing.T) {
 	probe := RPCDiagnosisProbe{
 		Target:   "http://unused",

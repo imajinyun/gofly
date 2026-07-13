@@ -302,6 +302,21 @@ func (c *HTTPClient) annotateMuxStreamSpan(ctx context.Context, method string, e
 		return
 	}
 	probe := c.muxStreamDiagnosisProbe(method, endpoint, flowControlEvent, err)
+	c.observeMuxDiagnosis(ctx, probe, err)
+}
+
+// ObserveMuxDiagnosis applies the client's configured mux trace, log, and
+// event-export hooks to an already captured diagnosis probe. It is useful for
+// admin or generated-project smoke paths that query /rpc/diagnosis after a
+// stream operation and want the same opt-in observability contract as MuxStream.
+func (c *HTTPClient) ObserveMuxDiagnosis(ctx context.Context, probe RPCDiagnosisProbe) {
+	if c == nil || (!c.opts.muxTrace && !c.opts.muxLog && c.opts.muxEventExporter == nil) {
+		return
+	}
+	c.observeMuxDiagnosis(ctx, probe, nil)
+}
+
+func (c *HTTPClient) observeMuxDiagnosis(ctx context.Context, probe RPCDiagnosisProbe, err error) {
 	if c.opts.muxTrace {
 		AnnotateMuxDiagnosisSpan(ctx, probe)
 	}
@@ -500,6 +515,20 @@ func muxDiagnosisLogAttrs(probe RPCDiagnosisProbe) []any {
 			slog.String("last_retried_from", manager.LastRetriedFrom),
 			slog.String("last_retried_to", manager.LastRetriedTo),
 		)
+		if profile := manager.RefillProfile; !muxRefillProfileLogEmpty(profile) {
+			attrs = append(attrs,
+				slog.String("refill_profile_stream_window_update_policy", profile.StreamWindowUpdatePolicy),
+				slog.String("refill_profile_connection_window_update_policy", profile.ConnectionWindowUpdatePolicy),
+				slog.Float64("refill_profile_stream_window_refill_ratio", profile.StreamWindowRefillRatio),
+				slog.Float64("refill_profile_connection_window_refill_ratio", profile.ConnectionWindowRefillRatio),
+				slog.Int("refill_profile_max_deferred_fragments", profile.MaxDeferredFragments),
+				slog.Int64("refill_profile_refills", profile.Refills),
+				slog.Duration("refill_profile_refill_latency_max", profile.RefillLatencyMax),
+				slog.Duration("refill_profile_refill_latency_avg", profile.RefillLatencyAvg),
+				slog.String("refill_profile_last_flow_control_event", profile.LastFlowControlEvent),
+				slog.String("refill_profile_last_backpressure_event", profile.LastBackpressureEvent),
+			)
+		}
 		if len(manager.Endpoints) == 1 {
 			endpoint := manager.Endpoints[0]
 			attrs = append(attrs, slog.String("filtered_endpoint", endpoint.Endpoint))
@@ -521,6 +550,19 @@ func muxDiagnosisLogAttrs(probe RPCDiagnosisProbe) []any {
 		}
 	}
 	return attrs
+}
+
+func muxRefillProfileLogEmpty(profile RPCMuxRefillProfile) bool {
+	return profile.StreamWindowUpdatePolicy == "" &&
+		profile.ConnectionWindowUpdatePolicy == "" &&
+		profile.StreamWindowRefillRatio == 0 &&
+		profile.ConnectionWindowRefillRatio == 0 &&
+		profile.MaxDeferredFragments == 0 &&
+		profile.Refills == 0 &&
+		profile.RefillLatencyMax == 0 &&
+		profile.RefillLatencyAvg == 0 &&
+		profile.LastFlowControlEvent == "" &&
+		profile.LastBackpressureEvent == ""
 }
 
 func muxEffectiveCandidateSnapshot(diagnosis RPCMuxTransportDiagnosis) (ExperimentalMuxCandidateSnapshot, bool) {

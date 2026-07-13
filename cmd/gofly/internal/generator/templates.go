@@ -915,12 +915,15 @@ func TestAdminDiagnostics(t *testing.T) {
 		refillDiagnosis.Diagnosis.Mux.Events[0].Event != "fragment_window_refill" {
 		t.Fatalf("mTLS refill diagnosis = %+v, want generated refillProfile admin evidence", refillDiagnosis.Diagnosis.Mux.Manager)
 	}
+	mtlsRefillTraceCtx, mtlsRefillSpan := mtlsProvider.Tracer("generated-rpc-admin-smoke").Start(context.Background(), "mux-refill-profile-diagnosis", oteltrace.WithSpanKind(oteltrace.SpanKindInternal))
+	mtlsClient.ObserveMuxDiagnosis(mtlsRefillTraceCtx, refillDiagnosis)
+	mtlsRefillSpan.End()
 	if err := mtlsClient.Close(); err != nil {
 		t.Fatal(err)
 	}
 	mtlsTraceSpans := mtlsRecorder.Ended()
-	if len(mtlsTraceSpans) != 1 {
-		t.Fatalf("mTLS trace spans = %d, want generated mux mTLS span", len(mtlsTraceSpans))
+	if len(mtlsTraceSpans) != 2 {
+		t.Fatalf("mTLS trace spans = %d, want generated mux mTLS and refillProfile spans", len(mtlsTraceSpans))
 	}
 	mtlsTraceAttrs := generatedTraceAttributeMap(mtlsTraceSpans[0].Attributes())
 	if !mtlsTraceAttrs["rpc.mux.candidate.tls"].AsBool() ||
@@ -929,6 +932,15 @@ func TestAdminDiagnostics(t *testing.T) {
 		mtlsTraceAttrs["rpc.mux.candidate.protocol"].AsString() != "gofly-mux/generated-mtls-test" {
 		t.Fatalf("mTLS trace attributes = %+v, want generated TLS/mTLS negotiated protocol", mtlsTraceAttrs)
 	}
+	mtlsRefillTraceAttrs := generatedTraceAttributeMap(mtlsTraceSpans[1].Attributes())
+	if mtlsRefillTraceAttrs["rpc.mux.manager.refill_profile.refills.count"].AsInt64() < 1 ||
+		mtlsRefillTraceAttrs["rpc.mux.manager.refill_profile.stream_window_refill_ratio"].AsFloat64() != 0.5 ||
+		mtlsRefillTraceAttrs["rpc.mux.manager.refill_profile.connection_window_refill_ratio"].AsFloat64() != 0.25 ||
+		mtlsRefillTraceAttrs["rpc.mux.manager.refill_profile.max_deferred_fragments"].AsInt64() != 2 ||
+		mtlsRefillTraceAttrs["rpc.mux.manager.refill_profile.last_flow_control_event"].AsString() != "fragment_window_refill" ||
+		mtlsRefillTraceAttrs["rpc.mux.event.flow_control.count"].AsInt64() < 1 {
+		t.Fatalf("mTLS refill trace attributes = %+v, want generated refillProfile OTel attributes", mtlsRefillTraceAttrs)
+	}
 	mtlsLogLine := mtlsLogBuf.String()
 	for _, want := range []string{
 		"\"msg\":\"rpc mux stream diagnosis\"",
@@ -936,6 +948,10 @@ func TestAdminDiagnostics(t *testing.T) {
 		"\"mutual_tls\":true",
 		"\"negotiated_protocol\":\"gofly-mux/generated-mtls-test\"",
 		"\"candidate_protocol\":\"gofly-mux/generated-mtls-test\"",
+		"\"refill_profile_stream_window_refill_ratio\":0.5",
+		"\"refill_profile_connection_window_refill_ratio\":0.25",
+		"\"refill_profile_max_deferred_fragments\":2",
+		"\"refill_profile_last_flow_control_event\":\"fragment_window_refill\"",
 	} {
 		if !strings.Contains(mtlsLogLine, want) {
 			t.Fatalf("mTLS mux diagnosis log missing %s:\n%s", want, mtlsLogLine)

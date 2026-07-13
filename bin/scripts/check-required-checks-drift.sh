@@ -119,10 +119,21 @@ for token in (
 	"mtlsDiagnosis.Diagnosis.Mux.Manager.Candidate.MutualTLS",
 	"mtlsDiagnosis.Diagnosis.Mux.Manager.Candidate.NegotiatedProtocol != \"gofly-mux/generated-mtls-test\"",
 	"mtlsDiagnosis.Diagnosis.Mux.Manager.Endpoints[0].Adapter.Transport.OpenedStreams != 1",
+	"mtlsClient.ObserveMuxDiagnosis(mtlsRefillTraceCtx, refillDiagnosis)",
 	"mtlsTraceAttrs[\"rpc.mux.candidate.negotiated_protocol\"].AsString() != \"gofly-mux/generated-mtls-test\"",
+	"mtlsRefillTraceAttrs[\"rpc.mux.manager.refill_profile.refills.count\"].AsInt64() < 1",
+	"mtlsRefillTraceAttrs[\"rpc.mux.manager.refill_profile.stream_window_refill_ratio\"].AsFloat64() != 0.5",
+	"mtlsRefillTraceAttrs[\"rpc.mux.manager.refill_profile.connection_window_refill_ratio\"].AsFloat64() != 0.25",
+	"mtlsRefillTraceAttrs[\"rpc.mux.manager.refill_profile.max_deferred_fragments\"].AsInt64() != 2",
+	"mtlsRefillTraceAttrs[\"rpc.mux.manager.refill_profile.last_flow_control_event\"].AsString() != \"fragment_window_refill\"",
+	"mtlsRefillTraceAttrs[\"rpc.mux.event.flow_control.count\"].AsInt64() < 1",
 	"negotiated_protocol",
 	"gofly-mux/generated-mtls-test",
 	"mutual_tls",
+	"refill_profile_stream_window_refill_ratio",
+	"refill_profile_connection_window_refill_ratio",
+	"refill_profile_max_deferred_fragments",
+	"refill_profile_last_flow_control_event",
 ):
 	require(token in mtls_evidence_script, f"generated RPC mux mTLS evidence script missing {token!r}")
 

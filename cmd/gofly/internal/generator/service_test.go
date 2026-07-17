@@ -1099,11 +1099,14 @@ func TestGenerateNewServiceVariantsBoundaries(t *testing.T) {
 		"c.CandidateClientConfig().Validate()",
 		"func (c RPCMuxConfig) CandidateTLSConfig() security.TLSConfig",
 		"func (c RPCMuxConfig) ClientOptions() []rpc.ClientOption",
+		"func (c RPCMuxConfig) ServerOptions() []rpc.ServerOption",
 		"rpc.WithMuxTraceAnnotation()",
 		"rpc.WithMuxDiagnosisLogging(nil)",
 		"rpc.WithMuxDiagnosisEventLogging(nil",
-		"rpc.RPCMuxOTelLogSinkRegistered",
+		"rpc.ValidateRPCMuxOTelLogSinkProfile",
 		"rpc.NewRPCMuxOTelLogSinkExporter",
+		"rpc.WithServerMuxDiagnosisEventExporter",
+		"rpc.WithServerMuxDiagnosisEventLogging",
 	} {
 		if !strings.Contains(string(configGoData), want) {
 			t.Fatalf("generated rpc config.go missing mux config %q:\n%s", want, configGoData)
@@ -1142,6 +1145,7 @@ func TestGenerateNewServiceVariantsBoundaries(t *testing.T) {
 		"rpc.NewExperimentalMuxCandidateServer",
 		"rpc.NewExperimentalMuxServer",
 		"rpc.WithExperimentalMuxServerAdapter",
+		"c.RPC.Mux.ServerOptions()",
 		"servers = append(servers, muxServer)",
 	} {
 		if !strings.Contains(string(mainData), want) {
@@ -2448,6 +2452,85 @@ func TestGenerateServiceScaffoldEcosystemCompatibilityFeature(t *testing.T) {
 		}
 	}
 	assertGeneratedProjectCompiles(t, dir)
+}
+
+func TestGenerateServiceScaffoldMuxOTelSinkFeature(t *testing.T) {
+	dir := t.TempDir()
+	if err := GenerateServiceScaffold(ServiceScaffoldOptions{
+		Name:     "hello",
+		Module:   "example.com/hello",
+		Dir:      dir,
+		Style:    ServiceStyleProduction,
+		Features: []string{"mux-otel-sink=myorg/telemetry"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	mainData, err := os.ReadFile(filepath.Join(dir, "cmd", "hello", "main.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(mainData), `_ "example.com/hello/internal/observability/muxotelsink"`) {
+		t.Fatalf("generated main.go missing custom mux OTel sink registration import:\n%s", mainData)
+	}
+
+	sinkData, err := os.ReadFile(filepath.Join(dir, "internal", "observability", "muxotelsink", "sink.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`const Name = "myorg/telemetry"`,
+		"func (provider) ValidateRPCMuxOTelLogProfile(profile string) error",
+		"func (provider) NewRPCMuxOTelLogExporter(profile string) rpc.RPCMuxOTelLogExporter",
+		"rpc.RegisterRPCMuxOTelLogSinkProvider(Name, provider{})",
+	} {
+		if !strings.Contains(string(sinkData), want) {
+			t.Fatalf("generated custom mux OTel sink missing %q:\n%s", want, sinkData)
+		}
+	}
+	assertGeneratedProjectCompiles(t, dir)
+}
+
+func TestGenerateServiceScaffoldMuxOTelSinkFeatureValidation(t *testing.T) {
+	tests := []struct {
+		name    string
+		feature string
+		want    string
+	}{
+		{name: "missing sink", feature: "mux-otel-sink", want: "requires a sink name"},
+		{name: "unsafe sink", feature: "mux-otel-sink=../telemetry", want: "must use 1-128"},
+		{name: "value on fixed feature", feature: "rpc-compat=custom", want: "does not accept a value"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			err := GenerateServiceScaffold(ServiceScaffoldOptions{
+				Name:     "hello",
+				Module:   "example.com/hello",
+				Dir:      dir,
+				Style:    ServiceStyleProduction,
+				Features: []string{tt.feature},
+			})
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("GenerateServiceScaffold(%q) error = %v, want %q", tt.feature, err, tt.want)
+			}
+			if entries, err := os.ReadDir(dir); err == nil && len(entries) > 0 {
+				t.Fatalf("invalid feature should fail before writing files, got %d entries", len(entries))
+			}
+		})
+	}
+
+	dir := t.TempDir()
+	err := GenerateServiceScaffold(ServiceScaffoldOptions{
+		Name:     "hello",
+		Module:   "example.com/hello",
+		Dir:      dir,
+		Style:    ServiceStyleProduction,
+		Features: []string{"mux-otel-sink=first", "mux-otel-sink=second"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "configured more than once") {
+		t.Fatalf("GenerateServiceScaffold duplicate parameterized feature error = %v", err)
+	}
 }
 
 func TestGenerateServiceScaffoldGoZeroCompatibleLayeredOutput(t *testing.T) {

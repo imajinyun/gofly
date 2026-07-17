@@ -67,6 +67,18 @@ Use `github.com/imajinyun/gofly` for both CLI installation and library imports.
 
 This matches the CLI contract: `quickstart <name> --module <module> [--dir <dir>] [--style minimal|basic|production]`.
 
+To scaffold an application-owned mux OTel log sink:
+
+```sh
+gofly new service orders --module example.com/orders \
+  --feature mux-otel-sink=myorg/telemetry
+```
+
+The feature generates a local `internal/observability/muxotelsink` provider,
+registers it through a blank import, and delegates profile validation to that
+provider. The sink ID is not treated as a module URL: this feature performs no
+network download and executes no external plugin.
+
 ## 🟡 Golden path: production service in 10 minutes
 
 Use `new service` when you want the full production baseline: REST, RPC, OpenAPI, governance, admin control-plane, in-memory discovery, config tests, and generated smoke tests.

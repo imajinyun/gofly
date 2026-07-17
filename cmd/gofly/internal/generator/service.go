@@ -58,6 +58,8 @@ func GenerateService(opts ServiceOptions) error {
 		"Resources":        kubeResources("100m", "128Mi", "500m", "512Mi"),
 		"ServiceType":      "",
 		"NodePort":         "",
+		"FeatureImports":   "",
+		"MuxOTelSinkName":  "",
 		"Autoscale":        kubeAutoscale(opts.Name, "default", "2", "6"),
 	}, opts.Name)
 	if err := cleanupLegacyServiceFiles(opts.Dir); err != nil {

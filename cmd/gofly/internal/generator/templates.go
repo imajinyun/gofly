@@ -8,6 +8,45 @@ require github.com/imajinyun/gofly v0.0.0
 {{.ReplaceBlock}}
 `
 
+const muxOTelSinkFeatureTemplate = `// Package muxotelsink registers the generated application's custom mux OTel log sink.
+package muxotelsink
+
+import (
+	"context"
+	"fmt"
+	"strings"
+
+	"github.com/imajinyun/gofly/rpc"
+)
+
+const Name = "{{.MuxOTelSinkName}}"
+
+type provider struct{}
+
+func (provider) ValidateRPCMuxOTelLogProfile(profile string) error {
+	profile = strings.TrimSpace(profile)
+	if profile == "" {
+		return fmt.Errorf("profile is required")
+	}
+	if len(profile) > 128 {
+		return fmt.Errorf("profile exceeds 128 bytes")
+	}
+	return nil
+}
+
+func (provider) NewRPCMuxOTelLogExporter(profile string) rpc.RPCMuxOTelLogExporter {
+	return rpc.RPCMuxOTelLogExporterFunc(func(ctx context.Context, record rpc.RPCMuxDiagnosisEventOTelLogRecord) {
+		export(ctx, strings.TrimSpace(profile), record)
+	})
+}
+
+func export(context.Context, string, rpc.RPCMuxDiagnosisEventOTelLogRecord) {}
+
+func init() {
+	rpc.RegisterRPCMuxOTelLogSinkProvider(Name, provider{})
+}
+`
+
 const mainTemplate = `package main
 
 import (
@@ -22,6 +61,7 @@ import (
 	"github.com/imajinyun/gofly/core/proc"
 	"github.com/imajinyun/gofly/rest"
 	"github.com/imajinyun/gofly/rpc"
+{{.FeatureImports}}
 
 	appadmin "{{.Module}}/internal/admin"
 	appconfig "{{.Module}}/internal/config"
@@ -83,6 +123,7 @@ func main() {
 		rpc.WithRegistryTTL(c.Discovery.RegistryTTL()),
 		rpc.WithServerGovernanceManager(governanceManager),
 	)
+	rpcOptions = append(rpcOptions, c.RPC.Mux.ServerOptions()...)
 	var muxServer *rpc.ExperimentalMuxServer
 	if c.RPC.Mux.Enabled {
 		configureMux := func(adapter *rpc.ExperimentalMuxServerAdapter) error {
@@ -151,6 +192,7 @@ import (
 	"github.com/imajinyun/gofly/core/config"
 	"github.com/imajinyun/gofly/core/proc"
 	"github.com/imajinyun/gofly/rest"
+{{.FeatureImports}}
 
 	appconfig "{{.Module}}/internal/config"
 	"{{.Module}}/internal/routes"
@@ -197,6 +239,7 @@ import (
 	"github.com/imajinyun/gofly/core/config"
 	"github.com/imajinyun/gofly/core/proc"
 	"github.com/imajinyun/gofly/rest"
+{{.FeatureImports}}
 
 	appconfig "{{.Module}}/internal/config"
 	"{{.Module}}/internal/handler"
@@ -1463,60 +1506,26 @@ func TestAdminDiagnosticsCustomOTelLogSink(t *testing.T) {
 		t.Fatalf("custom otel-test sink should validate: %v", err)
 	}
 
-	clientConn, serverConn := net.Pipe()
-	muxClient := rpc.NewExperimentalMuxClientAdapter(clientConn)
-	muxServer := rpc.NewExperimentalMuxServerAdapter(serverConn)
-	defer muxClient.Close()
-	defer muxServer.Close()
-	if err := muxServer.RegisterStream("greeter/Watch", func(ctx context.Context, stream *rpc.ExperimentalMuxStream) error {
-		_, err := stream.Receive(ctx)
-		if err != nil {
-			return err
-		}
-		if err := stream.Send(ctx, rpc.Message{Payload: []byte("custom-sink-ok")}); err != nil {
-			return err
-		}
-		return stream.Close(ctx, "ok")
-	}); err != nil {
-		t.Fatal(err)
-	}
-
-	customClientOptions := append(customCfg.RPC.Mux.ClientOptions(),
-		rpc.WithExperimentalMuxClientAdapter(muxClient),
-	)
-	customClient, err := rpc.NewClient("http://unused", customClientOptions...)
+	customClient, err := rpc.NewClient("http://unused", customCfg.RPC.Mux.ClientOptions()...)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer customClient.Close()
 
-	customCtx, cancelCustom := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancelCustom()
-	customStream, err := customClient.MuxStream(customCtx, "greeter/Watch")
-	if err != nil {
-		t.Fatalf("custom sink mux stream: %v", err)
+	if len(customCfg.RPC.Mux.ServerOptions()) != 1 {
+		t.Fatalf("custom sink server options = %d, want one exporter option", len(customCfg.RPC.Mux.ServerOptions()))
 	}
-	if err := customStream.Send(customCtx, rpc.Message{Payload: []byte("hello")}); err != nil {
-		t.Fatal(err)
-	}
-	customResp, err := customStream.Receive(customCtx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(customResp.Payload) != "custom-sink-ok" {
-		t.Fatalf("custom sink response = %q, want custom-sink-ok", customResp.Payload)
-	}
-
-	refillRec := httptest.NewRecorder()
-	customClient.DiagnosisHandler().ServeHTTP(refillRec, httptest.NewRequest(http.MethodGet, "/rpc/diagnosis?flowControlEvent=fragment-window-refill&eventFamily=flow-control&event=fragment-window-refill", nil))
-	if refillRec.Code != http.StatusOK {
-		t.Fatalf("custom sink refill diagnosis status = %d body=%q", refillRec.Code, refillRec.Body.String())
-	}
-	var refillDiagnosis rpc.RPCDiagnosisProbe
-	if err := json.NewDecoder(refillRec.Body).Decode(&refillDiagnosis); err != nil {
-		t.Fatal(err)
-	}
-	customClient.ObserveMuxDiagnosis(context.Background(), refillDiagnosis)
+	customClient.ObserveMuxDiagnosis(context.Background(), rpc.RPCDiagnosisProbe{
+		Target:  "http://unused",
+		Method:  "greeter/Watch",
+		Matched: true,
+		Diagnosis: rpc.RPCDiagnosisSnapshot{Mux: rpc.RPCMuxTransportDiagnosis{
+			FlowControl: rpc.RPCMuxFlowControlDiagnosis{
+				WriteTimeouts:         1,
+				FragmentWindowRefills: 3,
+			},
+		}},
+	})
 
 	if customProfile != "generated-custom-sink" {
 		t.Fatalf("custom sink profile = %q, want generated-custom-sink", customProfile)
@@ -2012,8 +2021,8 @@ func (c RPCMuxConfig) candidateConfigWithTLS(tlsConfig security.TLSConfig) rpc.E
 
 func ValidateRPCMuxConfig(c RPCMuxConfig) error {
 	if c.Log.OTelCompatible.Enabled {
-		if !rpc.RPCMuxOTelLogSinkRegistered(c.Log.OTelCompatible.Sink) {
-			return fmt.Errorf("rpc mux otelCompatible sink %q is not supported", c.Log.OTelCompatible.Sink)
+		if err := rpc.ValidateRPCMuxOTelLogSinkProfile(c.Log.OTelCompatible.Sink, c.Log.OTelCompatible.Profile); err != nil {
+			return fmt.Errorf("rpc mux otelCompatible sink %q: %w", c.Log.OTelCompatible.Sink, err)
 		}
 	}
 	if !c.Candidate.Enabled {
@@ -2113,6 +2122,27 @@ func (c RPCMuxConfig) ClientOptions() []rpc.ClientOption {
 		}
 	}
 	return options
+}
+
+func (c RPCMuxConfig) ServerOptions() []rpc.ServerOption {
+	if !c.Log.Enabled || !c.Log.ExportEvents {
+		return nil
+	}
+	filter := rpc.RPCMuxDiagnosisFilter{
+		Endpoint: c.Log.Endpoint,
+		ConnectionID: c.Log.ConnectionID,
+		PoolSlot: c.Log.PoolSlot,
+		EventFamily: c.Log.EventFamily,
+		Event: c.Log.Event,
+	}
+	if c.Log.OTelCompatible.Enabled {
+		exporter := rpc.NewRPCMuxOTelLogSinkExporter(c.Log.OTelCompatible.Sink, c.Log.OTelCompatible.Profile)
+		if exporter == nil {
+			return nil
+		}
+		return []rpc.ServerOption{rpc.WithServerMuxDiagnosisEventExporter(exporter, filter)}
+	}
+	return []rpc.ServerOption{rpc.WithServerMuxDiagnosisEventLogging(nil, filter)}
 }
 
 func (c Config) ResilienceProfile() ResilienceProfile {

@@ -65,6 +65,7 @@ func defaultRegisteredFeatures() map[string]FeatureFn {
 	features["http-compat"] = goZeroCompatibilityFeature
 	features["rpc-compat"] = kitexCompatibilityFeature
 	features["ecosystem-compat"] = ecosystemCompatibilityFeature
+	features["mux-otel-sink"] = muxOTelSinkFeature
 	return features
 }
 
@@ -110,8 +111,9 @@ func ApplyFeatureNames(names []string, scope ExtensionScope, files map[string]st
 		return files, data, err
 	}
 	set := map[string]bool{}
-	for _, n := range names {
-		set[n] = true
+	for _, raw := range names {
+		name, _ := splitFeatureSpec(raw)
+		set[name] = true
 	}
 	scope.Features = set
 	return applyFeatureNames(names, scope, files, data)
@@ -119,9 +121,24 @@ func ApplyFeatureNames(names []string, scope ExtensionScope, files map[string]st
 
 // ValidateFeatureNames reports the first unknown feature name.
 func ValidateFeatureNames(names []string) error {
-	for _, name := range normalizeFeatureNames(names) {
+	configured := map[string]string{}
+	for _, raw := range normalizeFeatureNames(names) {
+		name, value := splitFeatureSpec(raw)
 		if !HasFeature(name) {
 			return fmt.Errorf("feature %q is not registered", name)
+		}
+		if previous, ok := configured[name]; ok {
+			return fmt.Errorf("feature %q is configured more than once with values %q and %q", name, previous, value)
+		}
+		configured[name] = value
+		if value != "" && name != "mux-otel-sink" {
+			return fmt.Errorf("feature %q does not accept a value", name)
+		}
+		if name == "mux-otel-sink" && value == "" {
+			return fmt.Errorf("feature %q requires a sink name, for example mux-otel-sink=myorg/telemetry", name)
+		}
+		if name == "mux-otel-sink" && !isSafeMuxOTelSinkName(value) {
+			return fmt.Errorf("feature %q sink name %q must use 1-128 letters, digits, dots, dashes, underscores, or slashes", name, value)
 		}
 	}
 	return nil
@@ -166,15 +183,59 @@ func normalizeFeatureNames(names []string) []string {
 
 func applyFeatureNames(names []string, scope ExtensionScope, files map[string]string, data map[string]string) (map[string]string, map[string]string, error) {
 	patches := make([]ExtensionPatch, 0, len(names))
-	for _, name := range names {
+	for _, raw := range names {
+		name, value := splitFeatureSpec(raw)
 		fn, ok := featureFunc(name)
 		if !ok {
 			return files, data, fmt.Errorf("feature %q is not registered", name)
 		}
-		patches = append(patches, fn(scope))
+		featureScope := scope
+		featureScope.Extras = cloneStringMap(scope.Extras)
+		featureScope.Extras["feature."+name+".value"] = value
+		patches = append(patches, fn(featureScope))
 	}
 	outFiles, outData := MergePatches(files, data, patches...)
 	return outFiles, outData, nil
+}
+
+func splitFeatureSpec(raw string) (string, string) {
+	name, value, found := strings.Cut(strings.TrimSpace(raw), "=")
+	name = strings.TrimSpace(name)
+	if !found {
+		return name, ""
+	}
+	return name, strings.TrimSpace(value)
+}
+
+func cloneStringMap(source map[string]string) map[string]string {
+	clone := make(map[string]string, len(source)+1)
+	for key, value := range source {
+		clone[key] = value
+	}
+	return clone
+}
+
+func isSafeMuxOTelSinkName(name string) bool {
+	if name == "" || len(name) > 128 || strings.HasPrefix(name, "/") || strings.HasSuffix(name, "/") || strings.Contains(name, "//") {
+		return false
+	}
+	for _, segment := range strings.Split(name, "/") {
+		if segment == "." || segment == ".." {
+			return false
+		}
+	}
+	for _, char := range name {
+		if char >= 'a' && char <= 'z' || char >= 'A' && char <= 'Z' || char >= '0' && char <= '9' {
+			continue
+		}
+		switch char {
+		case '.', '-', '_', '/':
+			continue
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func featureFunc(name string) (FeatureFn, bool) {
@@ -333,6 +394,19 @@ func ecosystemCompatibilityFeature(scope ExtensionScope) ExtensionPatch {
 		files[path] = content
 	}
 	return ExtensionPatch{ExtraFiles: files}
+}
+
+func muxOTelSinkFeature(scope ExtensionScope) ExtensionPatch {
+	sinkName := scope.Extras["feature.mux-otel-sink.value"]
+	return ExtensionPatch{
+		ExtraFiles: map[string]string{
+			filepath.Join("internal", "observability", "muxotelsink", "sink.go"): muxOTelSinkFeatureTemplate,
+		},
+		DataMerge: map[string]string{
+			"FeatureImports":  "\t_ \"" + scope.Module + "/internal/observability/muxotelsink\"\n",
+			"MuxOTelSinkName": sinkName,
+		},
+	}
 }
 
 // -------- 辅助：极简 YAML 解析，仅支持 key: value，list，两级嵌套 map --------

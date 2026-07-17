@@ -104,6 +104,51 @@ func TestHTTPServerDiagnosisFiltersMuxFlowControl(t *testing.T) {
 	}
 }
 
+func TestHTTPServerDiagnosisExportsMuxEvents(t *testing.T) {
+	cfg := ExperimentalMuxCandidateConfig{
+		Protocol:     "gofly-mux/server-export-test",
+		FrameCodec:   "binary",
+		PayloadCodec: "identity",
+		WriteTimeout: time.Millisecond,
+	}
+	adapter := NewExperimentalMuxCandidateServerAdapter(&timeoutWriteConn{done: make(chan struct{})}, cfg)
+	defer adapter.Close()
+	if _, err := adapter.transport.OpenStream(context.Background()); err == nil {
+		t.Fatal("OpenStream succeeded, want write timeout")
+	}
+
+	var records []RPCMuxDiagnosisEventRecord
+	server := NewServer(
+		WithExperimentalMuxServerAdapter(adapter),
+		WithServerMuxDiagnosisEventExporter(
+			RPCMuxDiagnosisEventExporterFunc(func(_ context.Context, record RPCMuxDiagnosisEventRecord) {
+				records = append(records, record)
+			}),
+			RPCMuxDiagnosisFilter{EventFamily: "flow_control", Event: "write_timeout"},
+		),
+	)
+	if err := server.RegisterService(ServiceDesc{Name: "greeter", Streams: []StreamDesc{{
+		Name:       "Watch",
+		NewMessage: func() any { return new(helloRequest) },
+		Handler:    func(context.Context, *Stream) error { return nil },
+	}}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/rpc/admin/diagnosis?service=greeter&method=Watch&eventFamily=flow-control&event=write-timeout", nil)
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("diagnosis status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if len(records) != 1 {
+		t.Fatalf("server mux diagnosis records = %+v, want one write_timeout event", records)
+	}
+	record := records[0]
+	if !record.Probe.Matched || record.Method != "greeter/Watch" || record.Target != ":8081" || record.Event.Event != "write_timeout" || record.Event.Family != "flow_control" {
+		t.Fatalf("server mux diagnosis record = %+v, want server method, target, and filtered event", record)
+	}
+}
+
 func TestHTTPServerServeHTTP(t *testing.T) {
 	s := NewServer()
 	err := s.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{

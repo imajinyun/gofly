@@ -3,6 +3,7 @@ package rpc
 import (
 	"bytes"
 	"context"
+	"errors"
 	"log/slog"
 	"strings"
 	"testing"
@@ -771,6 +772,68 @@ func TestRPCMuxOTelLogSinkRegistryCreatesCustomExporter(t *testing.T) {
 	}
 }
 
+func TestRPCMuxOTelLogSinkProviderValidatesProfile(t *testing.T) {
+	const sinkName = "validated-otel"
+	var receivedProfile string
+	cleanup := RegisterRPCMuxOTelLogSinkProvider(sinkName, testRPCMuxOTelLogSinkProvider{
+		validate: func(profile string) error {
+			if profile != "production" {
+				return errors.New("profile must be production")
+			}
+			return nil
+		},
+		newExporter: func(profile string) RPCMuxOTelLogExporter {
+			receivedProfile = profile
+			return RPCMuxOTelLogExporterFunc(func(context.Context, RPCMuxDiagnosisEventOTelLogRecord) {})
+		},
+	})
+	defer cleanup()
+
+	if err := ValidateRPCMuxOTelLogSinkProfile(sinkName, "invalid"); err == nil || !strings.Contains(err.Error(), "profile must be production") {
+		t.Fatalf("ValidateRPCMuxOTelLogSinkProfile invalid profile = %v, want provider error", err)
+	}
+	if exporter := NewRPCMuxOTelLogSinkExporter(sinkName, "invalid"); exporter != nil {
+		t.Fatalf("invalid profile exporter = %#v, want nil", exporter)
+	}
+	if err := ValidateRPCMuxOTelLogSinkProfile(sinkName, " production "); err != nil {
+		t.Fatalf("ValidateRPCMuxOTelLogSinkProfile valid profile: %v", err)
+	}
+	if exporter := NewRPCMuxOTelLogSinkExporter(sinkName, " production "); exporter == nil {
+		t.Fatal("valid profile exporter is nil")
+	}
+	if receivedProfile != "production" {
+		t.Fatalf("provider received profile = %q, want production", receivedProfile)
+	}
+	if err := ValidateRPCMuxOTelLogSinkProfile("missing", "production"); err == nil || !strings.Contains(err.Error(), "is not registered") {
+		t.Fatalf("ValidateRPCMuxOTelLogSinkProfile missing sink = %v, want registration error", err)
+	}
+
+	cleanupNil := RegisterRPCMuxOTelLogSinkProvider("nil-exporter", testRPCMuxOTelLogSinkProvider{})
+	defer cleanupNil()
+	if exporter := NewRPCMuxOTelLogSinkExporter("nil-exporter", "production"); exporter != nil {
+		t.Fatalf("nil provider exporter = %#v, want nil", exporter)
+	}
+}
+
+type testRPCMuxOTelLogSinkProvider struct {
+	validate    func(string) error
+	newExporter func(string) RPCMuxOTelLogExporter
+}
+
+func (p testRPCMuxOTelLogSinkProvider) ValidateRPCMuxOTelLogProfile(profile string) error {
+	if p.validate == nil {
+		return nil
+	}
+	return p.validate(profile)
+}
+
+func (p testRPCMuxOTelLogSinkProvider) NewRPCMuxOTelLogExporter(profile string) RPCMuxOTelLogExporter {
+	if p.newExporter == nil {
+		return nil
+	}
+	return p.newExporter(profile)
+}
+
 func TestRPCMuxOTelLogSinkRegistryRejectsEmptyOrNilFactory(t *testing.T) {
 	cleanup := RegisterRPCMuxOTelLogSink(" ", func(string) RPCMuxOTelLogExporter {
 		t.Fatal("empty sink factory should not be called")
@@ -788,6 +851,13 @@ func TestRPCMuxOTelLogSinkRegistryRejectsEmptyOrNilFactory(t *testing.T) {
 	}
 	if exporter := NewRPCMuxOTelLogSinkExporter("", "default-profile"); exporter == nil {
 		t.Fatal("empty mux otel sink should resolve to built-in slog exporter")
+	}
+
+	var nilProvider *testRPCMuxOTelLogSinkProvider
+	cleanup = RegisterRPCMuxOTelLogSinkProvider("nil-provider", nilProvider)
+	cleanup()
+	if RPCMuxOTelLogSinkRegistered("nil-provider") {
+		t.Fatal("typed nil provider sink should not be registered")
 	}
 }
 

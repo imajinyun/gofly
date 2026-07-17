@@ -186,7 +186,7 @@ func TestReleaseCheckCommandJSONAndChangelogBlocker(t *testing.T) {
 	}
 	out.Reset()
 	err := withCommandIO(IOStreams{Out: &out}, outputText, verbosityNormal, func() error {
-		return releaseCheckCommand([]string{"--changelog", changelog, "--json"})
+		return releaseCheckCommand([]string{"--changelog", changelog, "--json", "--evidence", "changelog-version"})
 	})
 	if err == nil || !strings.Contains(err.Error(), "release check failed") {
 		t.Fatalf("releaseCheckCommand changelog blocker error = %v, want release check failed", err)

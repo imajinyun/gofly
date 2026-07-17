@@ -38,9 +38,13 @@ func releaseCheckCommand(args []string) error {
 
 	report := releaseCheckReport{Version: Version}
 	var blockers, warnings []string
+	selectedEvidence := strings.TrimSpace(*evidence)
+	shouldRun := func(name string) bool {
+		return selectedEvidence == "" || selectedEvidence == name
+	}
 
 	// 1. API breaking check (only if files provided).
-	if *apiBase != "" && *apiTarget != "" {
+	if shouldRun("api-breaking") && *apiBase != "" && *apiTarget != "" {
 		item, checkBlockers, checkWarnings := releaseAPIBreakingCheck(*apiBase, *apiTarget)
 		blockers = append(blockers, checkBlockers...)
 		warnings = append(warnings, checkWarnings...)
@@ -48,7 +52,7 @@ func releaseCheckCommand(args []string) error {
 	}
 
 	// 2. RPC breaking check (only if files provided).
-	if *rpcBase != "" && *rpcTarget != "" {
+	if shouldRun("rpc-breaking") && *rpcBase != "" && *rpcTarget != "" {
 		item, checkBlockers, checkWarnings := releaseRPCBreakingCheck(*rpcBase, *rpcTarget)
 		blockers = append(blockers, checkBlockers...)
 		warnings = append(warnings, checkWarnings...)
@@ -56,39 +60,53 @@ func releaseCheckCommand(args []string) error {
 	}
 
 	// 3. Go public API compatibility (apidiff).
-	apidiffItem, checkBlockers := releaseGoAPICompatCheck()
-	blockers = append(blockers, checkBlockers...)
-	report.Checks = append(report.Checks, apidiffItem)
+	if shouldRun("go-api-compat") {
+		apidiffItem, checkBlockers := releaseGoAPICompatCheck()
+		blockers = append(blockers, checkBlockers...)
+		report.Checks = append(report.Checks, apidiffItem)
+	}
 
 	// 4. CHANGELOG version consistency.
-	changelogItem, checkBlockers := releaseChangelogVersionCheck(*changelog)
-	blockers = append(blockers, checkBlockers...)
-	report.Checks = append(report.Checks, changelogItem)
+	if shouldRun("changelog-version") {
+		changelogItem, checkBlockers := releaseChangelogVersionCheck(*changelog)
+		blockers = append(blockers, checkBlockers...)
+		report.Checks = append(report.Checks, changelogItem)
+	}
 
 	// 5. go mod tidy check.
-	tidyItem, checkBlockers := releaseGoModTidyCheck()
-	blockers = append(blockers, checkBlockers...)
-	report.Checks = append(report.Checks, tidyItem)
+	if shouldRun("go-mod-tidy") {
+		tidyItem, checkBlockers := releaseGoModTidyCheck()
+		blockers = append(blockers, checkBlockers...)
+		report.Checks = append(report.Checks, tidyItem)
+	}
 
 	// 6. Generated gateway transcode profile contract check.
-	gatewayProfileItem, checkBlockers := releaseGatewayProfileContractCheck()
-	blockers = append(blockers, checkBlockers...)
-	report.Checks = append(report.Checks, gatewayProfileItem)
+	if shouldRun("gateway-profile-contract") {
+		gatewayProfileItem, checkBlockers := releaseGatewayProfileContractCheck()
+		blockers = append(blockers, checkBlockers...)
+		report.Checks = append(report.Checks, gatewayProfileItem)
+	}
 
 	// 7. Generated gateway BFF aggregation contract check.
-	gatewayAggregationItem, checkBlockers := releaseGatewayAggregationContractCheck()
-	blockers = append(blockers, checkBlockers...)
-	report.Checks = append(report.Checks, gatewayAggregationItem)
+	if shouldRun("gateway-aggregation-contract") {
+		gatewayAggregationItem, checkBlockers := releaseGatewayAggregationContractCheck()
+		blockers = append(blockers, checkBlockers...)
+		report.Checks = append(report.Checks, gatewayAggregationItem)
+	}
 
 	// 8. RPC mux adapter release-train evidence.
-	rpcMuxAdapterItem, checkBlockers := releaseRPCMuxAdapterEvidenceCheck()
-	blockers = append(blockers, checkBlockers...)
-	report.Checks = append(report.Checks, rpcMuxAdapterItem)
+	if shouldRun("rpc-mux-adapter-evidence") {
+		rpcMuxAdapterItem, checkBlockers := releaseRPCMuxAdapterEvidenceCheck()
+		blockers = append(blockers, checkBlockers...)
+		report.Checks = append(report.Checks, rpcMuxAdapterItem)
+	}
 
 	// 9. Generated RPC mux retry/open-boundary smoke evidence.
-	generatedRPCMuxRetryItem, checkBlockers := releaseGeneratedRPCMuxRetrySmokeCheck()
-	blockers = append(blockers, checkBlockers...)
-	report.Checks = append(report.Checks, generatedRPCMuxRetryItem)
+	if shouldRun("generated-rpc-mux-retry-smoke") {
+		generatedRPCMuxRetryItem, checkBlockers := releaseGeneratedRPCMuxRetrySmokeCheck()
+		blockers = append(blockers, checkBlockers...)
+		report.Checks = append(report.Checks, generatedRPCMuxRetryItem)
+	}
 
 	// Determine recommended SemVer bump.
 	report.Recommended = recommendSemver(blockers, warnings)
@@ -108,8 +126,8 @@ func releaseCheckCommand(args []string) error {
 		report.Blocking = append(report.Blocking, warnings...)
 	}
 
-	if strings.TrimSpace(*evidence) != "" {
-		report = filterReleaseCheckEvidence(report, *evidence)
+	if selectedEvidence != "" {
+		report = filterReleaseCheckEvidence(report, selectedEvidence)
 	}
 	failed := len(report.Blocking) > 0 || (*strict && len(warnings) > 0)
 	if *jsonOut || outputMode() == outputJSON {

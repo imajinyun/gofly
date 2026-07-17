@@ -2,7 +2,9 @@ package rpc
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -75,13 +77,42 @@ func (f RPCMuxOTelLogExporterFunc) ExportRPCMuxOTelLog(ctx context.Context, reco
 // concrete OTel log exporter without coupling gofly to a specific logs SDK.
 type RPCMuxOTelLogSinkFactory func(profile string) RPCMuxOTelLogExporter
 
+// RPCMuxOTelLogSinkProvider creates and validates one named OTel-compatible mux
+// event sink. Use RegisterRPCMuxOTelLogSinkProvider when a sink owns
+// profile-specific configuration such as endpoints or batch limits.
+type RPCMuxOTelLogSinkProvider interface {
+	NewRPCMuxOTelLogExporter(profile string) RPCMuxOTelLogExporter
+	ValidateRPCMuxOTelLogProfile(profile string) error
+}
+
+type rpcMuxOTelLogSinkProvider struct {
+	factory   RPCMuxOTelLogSinkFactory
+	validator func(string) error
+}
+
+func (p rpcMuxOTelLogSinkProvider) NewRPCMuxOTelLogExporter(profile string) RPCMuxOTelLogExporter {
+	if p.factory == nil {
+		return nil
+	}
+	return p.factory(profile)
+}
+
+func (p rpcMuxOTelLogSinkProvider) ValidateRPCMuxOTelLogProfile(profile string) error {
+	if p.validator == nil {
+		return nil
+	}
+	return p.validator(profile)
+}
+
 var rpcMuxOTelLogSinks = struct {
 	sync.RWMutex
-	items map[string]RPCMuxOTelLogSinkFactory
+	items map[string]RPCMuxOTelLogSinkProvider
 }{
-	items: map[string]RPCMuxOTelLogSinkFactory{
-		"slog": func(profile string) RPCMuxOTelLogExporter {
-			return NewSlogRPCMuxOTelLogExporterWithProfile(nil, profile)
+	items: map[string]RPCMuxOTelLogSinkProvider{
+		"slog": rpcMuxOTelLogSinkProvider{
+			factory: func(profile string) RPCMuxOTelLogExporter {
+				return NewSlogRPCMuxOTelLogExporterWithProfile(nil, profile)
+			},
 		},
 	},
 }
@@ -90,13 +121,23 @@ var rpcMuxOTelLogSinks = struct {
 // sink factory. The returned cleanup function restores the previous binding,
 // which keeps tests and embedders isolated.
 func RegisterRPCMuxOTelLogSink(name string, factory RPCMuxOTelLogSinkFactory) func() {
+	if factory == nil {
+		return func() {}
+	}
+	return RegisterRPCMuxOTelLogSinkProvider(name, rpcMuxOTelLogSinkProvider{factory: factory})
+}
+
+// RegisterRPCMuxOTelLogSinkProvider registers or replaces a provider that owns
+// both exporter construction and profile validation. The returned cleanup
+// function restores the previous binding.
+func RegisterRPCMuxOTelLogSinkProvider(name string, provider RPCMuxOTelLogSinkProvider) func() {
 	name = normalizeRPCMuxOTelLogSinkName(name)
-	if name == "" || factory == nil {
+	if name == "" || isNilRPCMuxOTelLogSinkProvider(provider) {
 		return func() {}
 	}
 	rpcMuxOTelLogSinks.Lock()
 	previous, hadPrevious := rpcMuxOTelLogSinks.items[name]
-	rpcMuxOTelLogSinks.items[name] = factory
+	rpcMuxOTelLogSinks.items[name] = provider
 	rpcMuxOTelLogSinks.Unlock()
 	return func() {
 		rpcMuxOTelLogSinks.Lock()
@@ -109,6 +150,19 @@ func RegisterRPCMuxOTelLogSink(name string, factory RPCMuxOTelLogSinkFactory) fu
 	}
 }
 
+func isNilRPCMuxOTelLogSinkProvider(provider RPCMuxOTelLogSinkProvider) bool {
+	if provider == nil {
+		return true
+	}
+	value := reflect.ValueOf(provider)
+	switch value.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return value.IsNil()
+	default:
+		return false
+	}
+}
+
 // RPCMuxOTelLogSinkRegistered reports whether a configured sink is available.
 // Empty names resolve to the built-in slog sink.
 func RPCMuxOTelLogSinkRegistered(name string) bool {
@@ -116,18 +170,39 @@ func RPCMuxOTelLogSinkRegistered(name string) bool {
 	return ok
 }
 
+// ValidateRPCMuxOTelLogSinkProfile validates a configured sink and its
+// sink-specific profile before runtime construction.
+func ValidateRPCMuxOTelLogSinkProfile(name string, profile string) error {
+	provider, ok := lookupRPCMuxOTelLogSink(name)
+	if !ok {
+		return fmt.Errorf("rpc mux otel log sink %q is not registered", strings.TrimSpace(name))
+	}
+	if err := provider.ValidateRPCMuxOTelLogProfile(strings.TrimSpace(profile)); err != nil {
+		return fmt.Errorf("rpc mux otel log sink %q profile: %w", normalizeRPCMuxOTelLogSinkName(name), err)
+	}
+	return nil
+}
+
 // NewRPCMuxOTelLogSinkExporter returns an OTel-compatible event exporter for a
 // registered sink. Unknown sinks return nil so callers can fail fast during
 // configuration validation.
 func NewRPCMuxOTelLogSinkExporter(name string, profile string) RPCMuxDiagnosisEventExporter {
-	factory, ok := lookupRPCMuxOTelLogSink(name)
+	provider, ok := lookupRPCMuxOTelLogSink(name)
 	if !ok {
 		return nil
 	}
-	return NewRPCMuxOTelLogDiagnosisEventExporter(factory(strings.TrimSpace(profile)))
+	profile = strings.TrimSpace(profile)
+	if err := provider.ValidateRPCMuxOTelLogProfile(profile); err != nil {
+		return nil
+	}
+	exporter := provider.NewRPCMuxOTelLogExporter(profile)
+	if exporter == nil {
+		return nil
+	}
+	return NewRPCMuxOTelLogDiagnosisEventExporter(exporter)
 }
 
-func lookupRPCMuxOTelLogSink(name string) (RPCMuxOTelLogSinkFactory, bool) {
+func lookupRPCMuxOTelLogSink(name string) (RPCMuxOTelLogSinkProvider, bool) {
 	name = normalizeRPCMuxOTelLogSinkName(name)
 	if name == "" {
 		name = "slog"
@@ -592,11 +667,13 @@ func (c *HTTPClient) muxStreamDiagnosisProbe(method string, endpoint string, flo
 }
 
 func (c *HTTPClient) exportMuxDiagnosisEvents(ctx context.Context, probe RPCDiagnosisProbe) {
-	exporter := c.opts.muxEventExporter
+	exportRPCMuxDiagnosisEvents(ctx, c.opts.muxEventExporter, c.opts.muxEventFilter, probe)
+}
+
+func exportRPCMuxDiagnosisEvents(ctx context.Context, exporter RPCMuxDiagnosisEventExporter, filter RPCMuxDiagnosisFilter, probe RPCDiagnosisProbe) {
 	if exporter == nil {
 		return
 	}
-	filter := c.opts.muxEventFilter
 	if filter.Endpoint == "" {
 		filter.Endpoint = probe.Endpoint
 	}

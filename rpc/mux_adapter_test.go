@@ -18,11 +18,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imajinyun/gofly/core/observability/metrics"
-	"github.com/imajinyun/gofly/core/security"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	oteltrace "go.opentelemetry.io/otel/trace"
+
+	"github.com/imajinyun/gofly/core/observability/metrics"
+	"github.com/imajinyun/gofly/core/security"
 )
 
 type firstEndpointBalancer struct{}

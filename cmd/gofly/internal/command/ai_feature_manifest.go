@@ -57,7 +57,7 @@ func buildAITemplateVerificationContract() aiTemplateVerificationContract {
 		ZeroSkipRequired:   true,
 		ValidatedTemplates: validated,
 		CapabilitiesByTemplate: map[string][]string{
-			"go-rpc-grpc": []string{"generated-rpc-mux-retry-smoke"},
+			"go-rpc-grpc": {"generated-rpc-mux-retry-smoke"},
 		},
 	}
 }

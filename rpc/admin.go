@@ -134,7 +134,7 @@ func (s *HTTPServer) serveAdminRoute(w http.ResponseWriter, r *http.Request) {
 		writeAdminJSON(w, http.StatusOK, s.RuntimeSnapshot(r.Context()))
 	case r.URL.Path == "/rpc/admin/diagnosis":
 		query := r.URL.Query()
-		writeAdminJSON(w, http.StatusOK, s.DiagnosisProbeWithOptions(RPCDiagnosisProbeOptions{
+		snapshot := s.DiagnosisProbeWithOptions(RPCDiagnosisProbeOptions{
 			Service:          query.Get("service"),
 			Method:           query.Get("method"),
 			Endpoint:         query.Get("endpoint"),
@@ -143,7 +143,9 @@ func (s *HTTPServer) serveAdminRoute(w http.ResponseWriter, r *http.Request) {
 			FlowControlEvent: query.Get("flowControlEvent"),
 			EventFamily:      query.Get("eventFamily"),
 			Event:            query.Get("event"),
-		}))
+		})
+		s.ObserveMuxDiagnosis(r.Context(), snapshot)
+		writeAdminJSON(w, http.StatusOK, snapshot)
 	default:
 		http.NotFound(w, r)
 	}
@@ -302,6 +304,40 @@ func (s *HTTPServer) DiagnosisProbeWithOptions(opts RPCDiagnosisProbeOptions) Se
 		}
 	}
 	return snapshot
+}
+
+// ObserveMuxDiagnosis exports a captured server diagnosis snapshot through the
+// configured server-side mux diagnosis exporter.
+func (s *HTTPServer) ObserveMuxDiagnosis(ctx context.Context, snapshot ServerDiagnosisSnapshot) {
+	if s == nil || s.opts.muxEventExporter == nil {
+		return
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	exportRPCMuxDiagnosisEvents(ctx, s.opts.muxEventExporter, s.opts.muxEventFilter, RPCDiagnosisProbe{
+		Target:       snapshot.State.Address,
+		Service:      snapshot.Service,
+		Method:       serverDiagnosisMethod(snapshot.Service, snapshot.Method),
+		Endpoint:     snapshot.Endpoint,
+		ConnectionID: snapshot.ConnectionID,
+		PoolSlot:     snapshot.PoolSlot,
+		FlowControl:  snapshot.FlowControl,
+		EventFamily:  snapshot.EventFamily,
+		Event:        snapshot.Event,
+		Matched:      snapshot.Matched,
+		Diagnosis:    RPCDiagnosisSnapshot{Mux: snapshot.Mux},
+		GeneratedAt:  snapshot.GeneratedAt,
+	})
+}
+
+func serverDiagnosisMethod(service string, method string) string {
+	service = strings.Trim(strings.TrimSpace(service), "/")
+	method = strings.Trim(strings.TrimSpace(method), "/")
+	if service != "" && method != "" && !strings.Contains(method, "/") {
+		return service + "/" + method
+	}
+	return method
 }
 
 func filterServiceSnapshots(services []ServiceSnapshot, service string, method string) []ServiceSnapshot {

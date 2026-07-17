@@ -25,8 +25,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/imajinyun/gofly/rpc"
 	"go.opentelemetry.io/otel/attribute"
+
+	"github.com/imajinyun/gofly/rpc"
 )
 
 const (
@@ -151,10 +152,10 @@ func runDemo() sinkDemoReport {
 		Matched: true,
 		Diagnosis: rpc.RPCDiagnosisSnapshot{Mux: rpc.RPCMuxTransportDiagnosis{
 			FlowControl: rpc.RPCMuxFlowControlDiagnosis{
-				WriteTimeouts:             1,
-				CreditWaitTimeouts:        2,
-				FragmentWindowRefills:     3,
-				FragmentWindowPolicyRisk:  true,
+				WriteTimeouts:            1,
+				CreditWaitTimeouts:       2,
+				FragmentWindowRefills:    3,
+				FragmentWindowPolicyRisk: true,
 			},
 		}},
 	}

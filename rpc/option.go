@@ -67,6 +67,8 @@ type serverOptions struct {
 	readHeaderTimeout time.Duration
 	adminAudit        controladmin.AuditSink
 	muxServerAdapter  ExperimentalMuxServerDiagnosisSource
+	muxEventExporter  RPCMuxDiagnosisEventExporter
+	muxEventFilter    RPCMuxDiagnosisFilter
 	tls               security.TLSConfig
 }
 
@@ -222,6 +224,22 @@ func WithExperimentalMuxServerAdapter(adapter ExperimentalMuxServerDiagnosisSour
 	return func(o *serverOptions) {
 		o.muxServerAdapter = adapter
 	}
+}
+
+// WithServerMuxDiagnosisEventExporter enables explicit server-side mux
+// diagnosis export. Use HTTPServer.ObserveMuxDiagnosis after capturing an admin
+// or runtime snapshot.
+func WithServerMuxDiagnosisEventExporter(exporter RPCMuxDiagnosisEventExporter, filter RPCMuxDiagnosisFilter) ServerOption {
+	return func(o *serverOptions) {
+		o.muxEventExporter = exporter
+		o.muxEventFilter = filter
+	}
+}
+
+// WithServerMuxDiagnosisEventLogging exports server-side mux diagnosis events
+// through slog.
+func WithServerMuxDiagnosisEventLogging(logger *slog.Logger, filter RPCMuxDiagnosisFilter) ServerOption {
+	return WithServerMuxDiagnosisEventExporter(NewSlogRPCMuxDiagnosisEventExporter(logger), filter)
 }
 
 func WithServerMaxConcurrency(max int) ServerOption {

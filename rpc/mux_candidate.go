@@ -459,7 +459,7 @@ func acceptExperimentalMuxCandidateConn(ctx context.Context, conn net.Conn, cfg 
 	return conn, snapshot, nil
 }
 
-func exchangeExperimentalMuxCandidateProtocol(ctx context.Context, conn net.Conn, cfg ExperimentalMuxCandidateConfig) (experimentalMuxCandidatePeer, error) {
+func exchangeExperimentalMuxCandidateProtocol(ctx context.Context, conn net.Conn, cfg ExperimentalMuxCandidateConfig) (peer experimentalMuxCandidatePeer, err error) {
 	ctx = core.Context(ctx)
 	if err := ctx.Err(); err != nil {
 		return experimentalMuxCandidatePeer{}, err
@@ -469,8 +469,12 @@ func exchangeExperimentalMuxCandidateProtocol(ctx context.Context, conn net.Conn
 		deadline = deadlineFromContext
 	}
 	if !deadline.IsZero() {
-		_ = conn.SetDeadline(deadline)
-		defer conn.SetDeadline(time.Time{})
+		if err := conn.SetDeadline(deadline); err != nil {
+			return experimentalMuxCandidatePeer{}, fmt.Errorf("set mux candidate protocol deadline: %w", err)
+		}
+		defer func() {
+			err = errors.Join(err, conn.SetDeadline(time.Time{}))
+		}()
 	}
 	preface := []byte(formatExperimentalMuxCandidatePreface(cfg))
 	if len(preface) > experimentalMuxCandidateMaxPrefaceBytes {
@@ -479,7 +483,7 @@ func exchangeExperimentalMuxCandidateProtocol(ctx context.Context, conn net.Conn
 	if _, err := conn.Write(preface); err != nil {
 		return experimentalMuxCandidatePeer{}, newExperimentalMuxCandidateFailure(muxCandidateIOFailurePhase(conn), "", fmt.Errorf("write mux candidate protocol preface: %w", err))
 	}
-	peer, err := readExperimentalMuxCandidatePreface(conn)
+	peer, err = readExperimentalMuxCandidatePreface(conn)
 	if err != nil {
 		return peer, err
 	}
@@ -595,14 +599,18 @@ func effectiveExperimentalMuxCandidatePolicy(cfg ExperimentalMuxCandidateConfig)
 	}
 }
 
-func muxCandidateHandshake(ctx context.Context, conn *tls.Conn, timeout time.Duration) error {
+func muxCandidateHandshake(ctx context.Context, conn *tls.Conn, timeout time.Duration) (err error) {
 	if timeout > 0 {
 		deadline := time.Now().Add(timeout)
 		if deadlineFromContext, ok := ctx.Deadline(); ok && deadlineFromContext.Before(deadline) {
 			deadline = deadlineFromContext
 		}
-		_ = conn.SetDeadline(deadline)
-		defer conn.SetDeadline(time.Time{})
+		if err := conn.SetDeadline(deadline); err != nil {
+			return fmt.Errorf("set mux candidate handshake deadline: %w", err)
+		}
+		defer func() {
+			err = errors.Join(err, conn.SetDeadline(time.Time{}))
+		}()
 	}
 	return conn.HandshakeContext(ctx)
 }

@@ -1279,6 +1279,11 @@ func TestGenerateNewServiceVariantsBoundaries(t *testing.T) {
 		"rpc.AnnotateMuxDiagnosisSpan",
 		`provider.Tracer("generated-rpc-admin-smoke")`,
 		`traceAttrs["rpc.mux.flow_control.write_timeout.count"].AsInt64() != 1`,
+		"func TestAdminDiagnosticsCustomOTelLogSink",
+		"RegisterRPCMuxOTelLogSink(\"otel-test\"",
+		`Profile: "generated-custom-sink"`,
+		"customProfile != \"generated-custom-sink\"",
+		"custom otel-test sink received zero records",
 		"func generatedTraceAttributeMap",
 	} {
 		if !strings.Contains(string(adminTestData), want) {

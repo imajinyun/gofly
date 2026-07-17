@@ -1440,6 +1440,107 @@ func TestAdminDiagnostics(t *testing.T) {
 	}
 }
 
+func TestAdminDiagnosticsCustomOTelLogSink(t *testing.T) {
+	var customRecords []rpc.RPCMuxDiagnosisEventOTelLogRecord
+	var customProfile string
+	cleanup := rpc.RegisterRPCMuxOTelLogSink("otel-test", func(profile string) rpc.RPCMuxOTelLogExporter {
+		customProfile = profile
+		return rpc.RPCMuxOTelLogExporterFunc(func(_ context.Context, record rpc.RPCMuxDiagnosisEventOTelLogRecord) {
+			customRecords = append(customRecords, record)
+		})
+	})
+	defer cleanup()
+
+	if !rpc.RPCMuxOTelLogSinkRegistered("otel-test") {
+		t.Fatal("custom otel-test sink not found in registry")
+	}
+	if !rpc.RPCMuxOTelLogSinkRegistered("  OTEL-TEST  ") {
+		t.Fatal("custom otel-test sink should be discovered case-insensitively")
+	}
+
+	customCfg := appconfig.Config{RPC: appconfig.RPCConfig{Mux: appconfig.RPCMuxConfig{Enabled: true, Log: appconfig.RPCMuxLogConfig{Enabled: true, ExportEvents: true, EventFamily: "flow-control", Event: "fragment-window-refill", OTelCompatible: appconfig.RPCMuxOTelCompatibleLogConfig{Enabled: true, Sink: "otel-test", Profile: "generated-custom-sink"}}, Candidate: appconfig.RPCMuxCandidateConfig{Enabled: true, Protocol: "gofly-mux/generated-custom-sink-test", MaxFrameBytes: 256, MaxMessageBytes: 1024, MaxConcurrentStreams: 8, ReceiveQueueSize: 2, ConnectionWindow: 3, FragmentStreamWindowUpdatePolicy: "on_receive", FragmentConnectionWindowUpdatePolicy: "on_receive", FragmentStreamWindowRefillRatio: 0.5, FragmentConnectionWindowRefillRatio: 0.25, FragmentMaxDeferredFragments: 2, FragmentWindowPolicyRiskMode: "warn", PayloadCodec: "identity", FrameCodec: "binary"}}}}
+	if err := appconfig.ValidateRPCMuxConfig(customCfg.RPC.Mux); err != nil {
+		t.Fatalf("custom otel-test sink should validate: %v", err)
+	}
+
+	clientConn, serverConn := net.Pipe()
+	muxClient := rpc.NewExperimentalMuxClientAdapter(clientConn)
+	muxServer := rpc.NewExperimentalMuxServerAdapter(serverConn)
+	defer muxClient.Close()
+	defer muxServer.Close()
+	if err := muxServer.RegisterStream("greeter/Watch", func(ctx context.Context, stream *rpc.ExperimentalMuxStream) error {
+		_, err := stream.Receive(ctx)
+		if err != nil {
+			return err
+		}
+		if err := stream.Send(ctx, rpc.Message{Payload: []byte("custom-sink-ok")}); err != nil {
+			return err
+		}
+		return stream.Close(ctx, "ok")
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	customClientOptions := append(customCfg.RPC.Mux.ClientOptions(),
+		rpc.WithExperimentalMuxClientAdapter(muxClient),
+	)
+	customClient, err := rpc.NewClient("http://unused", customClientOptions...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer customClient.Close()
+
+	customCtx, cancelCustom := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelCustom()
+	customStream, err := customClient.MuxStream(customCtx, "greeter/Watch")
+	if err != nil {
+		t.Fatalf("custom sink mux stream: %v", err)
+	}
+	if err := customStream.Send(customCtx, rpc.Message{Payload: []byte("hello")}); err != nil {
+		t.Fatal(err)
+	}
+	customResp, err := customStream.Receive(customCtx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(customResp.Payload) != "custom-sink-ok" {
+		t.Fatalf("custom sink response = %q, want custom-sink-ok", customResp.Payload)
+	}
+
+	refillRec := httptest.NewRecorder()
+	customClient.DiagnosisHandler().ServeHTTP(refillRec, httptest.NewRequest(http.MethodGet, "/rpc/diagnosis?flowControlEvent=fragment-window-refill&eventFamily=flow-control&event=fragment-window-refill", nil))
+	if refillRec.Code != http.StatusOK {
+		t.Fatalf("custom sink refill diagnosis status = %d body=%q", refillRec.Code, refillRec.Body.String())
+	}
+	var refillDiagnosis rpc.RPCDiagnosisProbe
+	if err := json.NewDecoder(refillRec.Body).Decode(&refillDiagnosis); err != nil {
+		t.Fatal(err)
+	}
+	customClient.ObserveMuxDiagnosis(context.Background(), refillDiagnosis)
+
+	if customProfile != "generated-custom-sink" {
+		t.Fatalf("custom sink profile = %q, want generated-custom-sink", customProfile)
+	}
+	if len(customRecords) == 0 {
+		t.Fatal("custom otel-test sink received zero records, want at least one flow_control event")
+	}
+	foundRefill := false
+	for _, r := range customRecords {
+		if r.Event.Family == "flow_control" && r.Event.Event == "fragment_window_refill" {
+			foundRefill = true
+			if r.Name != "rpc.mux.diagnosis_event" {
+				t.Fatalf("custom record name = %q, want rpc.mux.diagnosis_event", r.Name)
+			}
+			if r.Severity != "WARN" {
+				t.Fatalf("custom record severity = %q, want WARN", r.Severity)
+			}
+		}
+	}
+	if !foundRefill {
+		t.Fatalf("custom otel-test sink records = %+v, want fragment_window_refill flow_control event", customRecords)
+	}
+}
+
 type generatedTimeoutWriteConn struct {
 	mu       sync.Mutex
 	deadline time.Time

@@ -52,7 +52,8 @@ if missing:
 markers = evidence.get("generatedSuccessMarkers") or []
 for marker in (
     'mtlsClient.MuxStream(mtlsTraceCtx, "greeter/Watch")',
-    "mtlsClientOptions := append(tlsCfg.RPC.Mux.ClientOptions(), rpc.WithExperimentalMuxConnectionManager(mtlsManager))",
+    "mtlsClientOptions := append(tlsCfg.RPC.Mux.ClientOptions(),",
+    "rpc.WithExperimentalMuxConnectionManager(mtlsManager),",
     'mtlsClient.DiagnosisHandler().ServeHTTP(refillRec, httptest.NewRequest(http.MethodGet, "/rpc/diagnosis?flowControlEvent=fragment-window-refill&eventFamily=flow-control&event=fragment-window-refill", nil))',
     "refillDiagnosis.Diagnosis.Mux.Manager.RefillProfile.Refills < 1",
     "refillDiagnosis.Diagnosis.Mux.Manager.RefillProfile.LastFlowControlEvent != \"fragment_window_refill\"",
@@ -61,7 +62,11 @@ for marker in (
     'mtlsDiagnosis.Diagnosis.Mux.Manager.Candidate.NegotiatedProtocol != "gofly-mux/generated-mtls-test"',
     "mtlsDiagnosis.Diagnosis.Mux.Manager.Endpoints[0].Adapter.Transport.OpenedStreams != 1",
     'RPCMuxLogConfig{Enabled: true, Diagnosis: true, ExportEvents: true, EventFamily: "flow-control", Event: "fragment-window-refill"}',
+    'RPCMuxOTelCompatibleLogConfig{Enabled: true, Sink: "slog", Profile: "generated-mtls-refill"}',
     'mtlsClient.ObserveMuxDiagnosis(mtlsRefillTraceCtx, refillDiagnosis)',
+    "rpc.RPCMuxOTelLogSinkRegistered",
+    "rpc.NewRPCMuxOTelLogSinkExporter",
+    "func TestRPCMuxConfigValidatesOTelCompatibleSink",
     'mtlsTraceAttrs["rpc.mux.candidate.negotiated_protocol"].AsString() != "gofly-mux/generated-mtls-test"',
     'mtlsRefillTraceAttrs["rpc.mux.manager.refill_profile.refills.count"].AsInt64() < 1',
     'mtlsRefillTraceAttrs["rpc.mux.manager.refill_profile.stream_window_refill_ratio"].AsFloat64() != 0.5',
@@ -75,11 +80,18 @@ for marker in (
     '"\\"refill_profile_connection_window_refill_ratio\\":0.25"',
     '"\\"refill_profile_max_deferred_fragments\\":2"',
     '"\\"refill_profile_last_flow_control_event\\":\\"fragment_window_refill\\""',
-    '"\\"msg\\":\\"rpc mux exported event\\""',
+    '"\\"msg\\":\\"rpc mux runtime event\\""',
     '"\\"event_family\\":\\"flow_control\\""',
     '"\\"event\\":\\"fragment_window_refill\\""',
     '"\\"connection_id\\":\\""',
     '"\\"pool_slot\\":1"',
+    '"\\"msg\\":\\"rpc mux otel log event\\""',
+    '"\\"otel_log_name\\":\\"rpc.mux.diagnosis_event\\""',
+    '"\\"otel_log_profile\\":\\"generated-mtls-refill\\""',
+    '"\\"rpc_mux_event_family\\":\\"flow_control\\""',
+    '"\\"rpc_mux_event_name\\":\\"fragment_window_refill\\""',
+    '"\\"rpc_mux_connection_id\\":\\""',
+    '"\\"rpc_mux_pool_slot\\":1"',
 ):
     if marker not in markers:
         raise SystemExit(f"generated RPC mux mTLS success marker missing: {marker}")

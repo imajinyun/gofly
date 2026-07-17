@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -42,6 +43,159 @@ func (f RPCMuxDiagnosisEventExporterFunc) ExportRPCMuxDiagnosisEvent(ctx context
 	}
 }
 
+// RPCMuxDiagnosisEventOTelLogRecord is a small OTel-log-compatible envelope for
+// mux diagnosis events. It uses OTel attributes without depending on the OTel
+// logs SDK so applications can bridge it to their preferred log pipeline while
+// keeping high-cardinality fields out of metrics.
+type RPCMuxDiagnosisEventOTelLogRecord struct {
+	Name       string               `json:"name"`
+	Severity   string               `json:"severity"`
+	Body       string               `json:"body"`
+	Attributes []attribute.KeyValue `json:"attributes,omitempty"`
+	Timestamp  time.Time            `json:"timestamp"`
+	Event      RPCMuxDiagnosisEvent `json:"event"`
+}
+
+// RPCMuxOTelLogExporter receives OTel-log-compatible mux diagnosis records.
+type RPCMuxOTelLogExporter interface {
+	ExportRPCMuxOTelLog(context.Context, RPCMuxDiagnosisEventOTelLogRecord)
+}
+
+// RPCMuxOTelLogExporterFunc adapts a function to RPCMuxOTelLogExporter.
+type RPCMuxOTelLogExporterFunc func(context.Context, RPCMuxDiagnosisEventOTelLogRecord)
+
+func (f RPCMuxOTelLogExporterFunc) ExportRPCMuxOTelLog(ctx context.Context, record RPCMuxDiagnosisEventOTelLogRecord) {
+	if f != nil {
+		f(ctx, record)
+	}
+}
+
+// RPCMuxOTelLogSinkFactory creates an OTel-log-compatible event sink for a
+// configured profile. Applications can register custom sinks that forward to a
+// concrete OTel log exporter without coupling gofly to a specific logs SDK.
+type RPCMuxOTelLogSinkFactory func(profile string) RPCMuxOTelLogExporter
+
+var rpcMuxOTelLogSinks = struct {
+	sync.RWMutex
+	items map[string]RPCMuxOTelLogSinkFactory
+}{
+	items: map[string]RPCMuxOTelLogSinkFactory{
+		"slog": func(profile string) RPCMuxOTelLogExporter {
+			return NewSlogRPCMuxOTelLogExporterWithProfile(nil, profile)
+		},
+	},
+}
+
+// RegisterRPCMuxOTelLogSink registers or replaces an OTel-compatible mux event
+// sink factory. The returned cleanup function restores the previous binding,
+// which keeps tests and embedders isolated.
+func RegisterRPCMuxOTelLogSink(name string, factory RPCMuxOTelLogSinkFactory) func() {
+	name = normalizeRPCMuxOTelLogSinkName(name)
+	if name == "" || factory == nil {
+		return func() {}
+	}
+	rpcMuxOTelLogSinks.Lock()
+	previous, hadPrevious := rpcMuxOTelLogSinks.items[name]
+	rpcMuxOTelLogSinks.items[name] = factory
+	rpcMuxOTelLogSinks.Unlock()
+	return func() {
+		rpcMuxOTelLogSinks.Lock()
+		defer rpcMuxOTelLogSinks.Unlock()
+		if hadPrevious {
+			rpcMuxOTelLogSinks.items[name] = previous
+			return
+		}
+		delete(rpcMuxOTelLogSinks.items, name)
+	}
+}
+
+// RPCMuxOTelLogSinkRegistered reports whether a configured sink is available.
+// Empty names resolve to the built-in slog sink.
+func RPCMuxOTelLogSinkRegistered(name string) bool {
+	_, ok := lookupRPCMuxOTelLogSink(name)
+	return ok
+}
+
+// NewRPCMuxOTelLogSinkExporter returns an OTel-compatible event exporter for a
+// registered sink. Unknown sinks return nil so callers can fail fast during
+// configuration validation.
+func NewRPCMuxOTelLogSinkExporter(name string, profile string) RPCMuxDiagnosisEventExporter {
+	factory, ok := lookupRPCMuxOTelLogSink(name)
+	if !ok {
+		return nil
+	}
+	return NewRPCMuxOTelLogDiagnosisEventExporter(factory(strings.TrimSpace(profile)))
+}
+
+func lookupRPCMuxOTelLogSink(name string) (RPCMuxOTelLogSinkFactory, bool) {
+	name = normalizeRPCMuxOTelLogSinkName(name)
+	if name == "" {
+		name = "slog"
+	}
+	rpcMuxOTelLogSinks.RLock()
+	factory, ok := rpcMuxOTelLogSinks.items[name]
+	rpcMuxOTelLogSinks.RUnlock()
+	return factory, ok
+}
+
+func normalizeRPCMuxOTelLogSinkName(name string) string {
+	return strings.ToLower(strings.TrimSpace(name))
+}
+
+type rpcMuxOTelLogEventExporter struct {
+	exporter RPCMuxOTelLogExporter
+}
+
+// NewRPCMuxOTelLogDiagnosisEventExporter bridges mux diagnosis events into an
+// OTel-log-compatible record contract. connection_id and pool_slot are kept as
+// log attributes only; they must not be mirrored into metric labels.
+func NewRPCMuxOTelLogDiagnosisEventExporter(exporter RPCMuxOTelLogExporter) RPCMuxDiagnosisEventExporter {
+	return rpcMuxOTelLogEventExporter{exporter: exporter}
+}
+
+func (e rpcMuxOTelLogEventExporter) ExportRPCMuxDiagnosisEvent(ctx context.Context, record RPCMuxDiagnosisEventRecord) {
+	if e.exporter == nil {
+		return
+	}
+	e.exporter.ExportRPCMuxOTelLog(ctx, MuxDiagnosisEventOTelLogRecord(record))
+}
+
+type slogRPCMuxOTelLogExporter struct {
+	logger  *slog.Logger
+	profile string
+}
+
+// NewSlogRPCMuxOTelLogExporter emits OTel-log-compatible mux diagnosis records
+// through slog. Use it as a dependency-free adapter when an application routes
+// slog to an OTel log backend.
+func NewSlogRPCMuxOTelLogExporter(logger *slog.Logger) RPCMuxOTelLogExporter {
+	return slogRPCMuxOTelLogExporter{logger: logger}
+}
+
+// NewSlogRPCMuxOTelLogExporterWithProfile emits OTel-log-compatible mux
+// diagnosis records through slog and tags each record with a configured sink
+// profile name.
+func NewSlogRPCMuxOTelLogExporterWithProfile(logger *slog.Logger, profile string) RPCMuxOTelLogExporter {
+	return slogRPCMuxOTelLogExporter{logger: logger, profile: strings.TrimSpace(profile)}
+}
+
+func (e slogRPCMuxOTelLogExporter) ExportRPCMuxOTelLog(ctx context.Context, record RPCMuxDiagnosisEventOTelLogRecord) {
+	logger := e.logger
+	if logger == nil {
+		logger = slog.Default()
+	}
+	attrs := muxOTelLogSlogAttrs(record)
+	if e.profile != "" {
+		attrs = append(attrs, slog.String("otel_log_profile", e.profile))
+	}
+	switch record.Severity {
+	case "WARN":
+		logger.WarnContext(ctx, "rpc mux otel log event", attrs...)
+	default:
+		logger.InfoContext(ctx, "rpc mux otel log event", attrs...)
+	}
+}
+
 type slogRPCMuxDiagnosisEventExporter struct {
 	logger *slog.Logger
 }
@@ -75,6 +229,92 @@ func (e slogRPCMuxDiagnosisEventExporter) ExportRPCMuxDiagnosisEvent(ctx context
 	default:
 		logger.InfoContext(ctx, "rpc mux exported event", attrs...)
 	}
+}
+
+// MuxDiagnosisEventOTelLogRecord converts a mux diagnosis event into a stable
+// OTel-log-compatible record. The attribute keys intentionally use the rpc.mux
+// namespace shared by trace attributes while preserving high-cardinality values
+// only in log records.
+func MuxDiagnosisEventOTelLogRecord(record RPCMuxDiagnosisEventRecord) RPCMuxDiagnosisEventOTelLogRecord {
+	return RPCMuxDiagnosisEventOTelLogRecord{
+		Name:       "rpc.mux.diagnosis_event",
+		Severity:   muxDiagnosisEventOTelSeverity(record.Event),
+		Body:       "rpc mux diagnosis event",
+		Attributes: muxDiagnosisEventOTelAttributes(record),
+		Timestamp:  record.ExportedAt,
+		Event:      record.Event,
+	}
+}
+
+func muxDiagnosisEventOTelSeverity(event RPCMuxDiagnosisEvent) string {
+	switch event.Family {
+	case "flow_control", "health", "drain", "lifecycle", "negotiation":
+		return "WARN"
+	default:
+		return "INFO"
+	}
+}
+
+func muxDiagnosisEventOTelAttributes(record RPCMuxDiagnosisEventRecord) []attribute.KeyValue {
+	attrs := []attribute.KeyValue{
+		attribute.String("rpc.mux.event.family", record.Event.Family),
+		attribute.String("rpc.mux.event.name", record.Event.Event),
+		attribute.Int64("rpc.mux.event.count", record.Event.Count),
+	}
+	if record.Target != "" {
+		attrs = append(attrs, attribute.String("rpc.mux.target", record.Target))
+	}
+	if record.Method != "" {
+		attrs = append(attrs, attribute.String("rpc.mux.method", record.Method))
+	}
+	if endpoint := muxDiagnosisRecordEndpoint(record.Probe, record.Event); endpoint != "" {
+		attrs = append(attrs, attribute.String("rpc.mux.endpoint", endpoint))
+	} else if record.Endpoint != "" {
+		attrs = append(attrs, attribute.String("rpc.mux.endpoint", record.Endpoint))
+	}
+	if connectionID := muxDiagnosisRecordConnectionID(record.Probe, record.Event); connectionID != "" {
+		attrs = append(attrs, attribute.String(muxTraceConnectionIDKey, connectionID))
+	} else if record.ConnectionID != "" {
+		attrs = append(attrs, attribute.String(muxTraceConnectionIDKey, record.ConnectionID))
+	}
+	if poolSlot := muxDiagnosisRecordPoolSlot(record.Probe, record.Event); poolSlot > 0 {
+		attrs = append(attrs, attribute.Int("rpc.mux.pool_slot", poolSlot))
+	} else if record.PoolSlot > 0 {
+		attrs = append(attrs, attribute.Int("rpc.mux.pool_slot", record.PoolSlot))
+	}
+	if record.Event.Reason != "" {
+		attrs = append(attrs, attribute.String("rpc.mux.event.reason", record.Event.Reason))
+	}
+	if record.Event.From != "" {
+		attrs = append(attrs, attribute.String("rpc.mux.event.from", record.Event.From))
+	}
+	if record.Event.To != "" {
+		attrs = append(attrs, attribute.String("rpc.mux.event.to", record.Event.To))
+	}
+	if record.Event.PeerProtocol != "" {
+		attrs = append(attrs, attribute.String("rpc.mux.event.peer_protocol", record.Event.PeerProtocol))
+	}
+	if record.Event.Direction != "" {
+		attrs = append(attrs, attribute.String("rpc.mux.event.direction", record.Event.Direction))
+	}
+	if record.Event.Cooldown > 0 {
+		attrs = append(attrs, attribute.Int64("rpc.mux.event.cooldown_ms", record.Event.Cooldown.Milliseconds()))
+	}
+	return attrs
+}
+
+func muxOTelLogSlogAttrs(record RPCMuxDiagnosisEventOTelLogRecord) []any {
+	attrs := []any{
+		slog.String("otel_log_name", record.Name),
+		slog.String("otel_log_severity", record.Severity),
+		slog.String("otel_log_body", record.Body),
+		slog.Time("timestamp", record.Timestamp),
+	}
+	for _, attr := range record.Attributes {
+		key := strings.ReplaceAll(string(attr.Key), ".", "_")
+		attrs = append(attrs, slog.Any(key, attr.Value.AsInterface()))
+	}
+	return attrs
 }
 
 func slogAttrsContain(attrs []any, key string) bool {

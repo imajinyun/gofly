@@ -277,7 +277,7 @@ const configTemplate = `{
   "rpc": {
     "addr": ":8081",
     "advertise": "http://127.0.0.1:8081",
-    "mux": {"enabled": false, "probe": false, "addr": "127.0.0.1:8082", "endpoints": [], "idleTimeout": 60000000000, "maxOpenRetries": 1, "openRetryReasons": ["dial_failure", "pool_exhausted"], "healthBackoffMultiplier": 2, "healthMaxCooldown": 30000000000, "trace": {"enabled": false, "annotateStreams": false}, "log": {"enabled": false, "diagnosis": false, "exportEvents": false, "eventFamily": "", "event": "", "endpoint": "", "connectionId": ""}, "tls": {"enabled": false, "certFile": "", "keyFile": "", "caFile": "", "serverName": ""}, "mtls": {"enabled": false, "clientCAFile": "", "clientCertFile": "", "clientKeyFile": ""}, "alpn": {"enabled": false, "protocol": "gofly-mux/experimental-v1"}, "candidate": {"enabled": false, "protocol": "gofly-mux/experimental-v1", "dialTimeout": 30000000000, "keepAlive": 30000000000, "handshakeTimeout": 10000000000, "keepaliveInterval": 30000000000, "keepaliveIdle": 90000000000, "writeTimeout": 0, "creditWaitTimeout": 0, "maxFrameBytes": 4194304, "maxMessageBytes": 67108864, "maxConcurrentStreams": 128, "receiveQueueSize": 16, "connectionWindow": 16, "fragmentStreamWindowUpdatePolicy": "per_fragment", "fragmentConnectionWindowUpdatePolicy": "per_fragment", "fragmentStreamWindowRefillRatio": 1, "fragmentConnectionWindowRefillRatio": 1, "fragmentMaxDeferredFragments": 0, "fragmentWindowPolicyRiskMode": "diagnose", "payloadCodec": "identity", "frameCodec": "binary", "allowLegacyDowngrade": false, "tls": {}}}
+    "mux": {"enabled": false, "probe": false, "addr": "127.0.0.1:8082", "endpoints": [], "idleTimeout": 60000000000, "maxOpenRetries": 1, "openRetryReasons": ["dial_failure", "pool_exhausted"], "healthBackoffMultiplier": 2, "healthMaxCooldown": 30000000000, "trace": {"enabled": false, "annotateStreams": false}, "log": {"enabled": false, "diagnosis": false, "exportEvents": false, "eventFamily": "", "event": "", "endpoint": "", "connectionId": "", "otelCompatible": {"enabled": false, "sink": "slog", "profile": ""}}, "tls": {"enabled": false, "certFile": "", "keyFile": "", "caFile": "", "serverName": ""}, "mtls": {"enabled": false, "clientCAFile": "", "clientCertFile": "", "clientKeyFile": ""}, "alpn": {"enabled": false, "protocol": "gofly-mux/experimental-v1"}, "candidate": {"enabled": false, "protocol": "gofly-mux/experimental-v1", "dialTimeout": 30000000000, "keepAlive": 30000000000, "handshakeTimeout": 10000000000, "keepaliveInterval": 30000000000, "keepaliveIdle": 90000000000, "writeTimeout": 0, "creditWaitTimeout": 0, "maxFrameBytes": 4194304, "maxMessageBytes": 67108864, "maxConcurrentStreams": 128, "receiveQueueSize": 16, "connectionWindow": 16, "fragmentStreamWindowUpdatePolicy": "per_fragment", "fragmentConnectionWindowUpdatePolicy": "per_fragment", "fragmentStreamWindowRefillRatio": 1, "fragmentConnectionWindowRefillRatio": 1, "fragmentMaxDeferredFragments": 0, "fragmentWindowPolicyRiskMode": "diagnose", "payloadCodec": "identity", "frameCodec": "binary", "allowLegacyDowngrade": false, "tls": {}}}
   }
 }
 `
@@ -795,6 +795,7 @@ func TestAdminDiagnostics(t *testing.T) {
 	tlsCfg.RPC.Mux.ALPN = appconfig.RPCMuxALPNConfig{Enabled: true, Protocol: "gofly-mux/generated-mtls-test"}
 	tlsCfg.RPC.Mux.Trace = appconfig.RPCMuxTraceConfig{Enabled: true, AnnotateStreams: true}
 	tlsCfg.RPC.Mux.Log = appconfig.RPCMuxLogConfig{Enabled: true, Diagnosis: true, ExportEvents: true, EventFamily: "flow-control", Event: "fragment-window-refill"}
+	tlsCfg.RPC.Mux.Log.OTelCompatible = appconfig.RPCMuxOTelCompatibleLogConfig{Enabled: true, Sink: "slog", Profile: "generated-mtls-refill"}
 	tlsCandidate := tlsCfg.RPC.Mux.CandidateClientConfig()
 	if tlsCandidate.Protocol != "gofly-mux/generated-mtls-test" ||
 		tlsCandidate.TLS.CAFile != tlsCAFile ||
@@ -847,7 +848,9 @@ func TestAdminDiagnostics(t *testing.T) {
 	previousMTLSLogger := slog.Default()
 	slog.SetDefault(slog.New(slog.NewJSONHandler(&mtlsLogBuf, &slog.HandlerOptions{Level: slog.LevelDebug})))
 	defer slog.SetDefault(previousMTLSLogger)
-	mtlsClientOptions := append(tlsCfg.RPC.Mux.ClientOptions(), rpc.WithExperimentalMuxConnectionManager(mtlsManager))
+	mtlsClientOptions := append(tlsCfg.RPC.Mux.ClientOptions(),
+		rpc.WithExperimentalMuxConnectionManager(mtlsManager),
+	)
 	mtlsClient, err := rpc.NewClient("http://unused", mtlsClientOptions...)
 	if err != nil {
 		t.Fatal(err)
@@ -952,11 +955,19 @@ func TestAdminDiagnostics(t *testing.T) {
 		"\"refill_profile_connection_window_refill_ratio\":0.25",
 		"\"refill_profile_max_deferred_fragments\":2",
 		"\"refill_profile_last_flow_control_event\":\"fragment_window_refill\"",
-		"\"msg\":\"rpc mux exported event\"",
+		"\"msg\":\"rpc mux runtime event\"",
 		"\"event_family\":\"flow_control\"",
 		"\"event\":\"fragment_window_refill\"",
 		"\"connection_id\":\"",
 		"\"pool_slot\":1",
+		"\"msg\":\"rpc mux otel log event\"",
+		"\"otel_log_name\":\"rpc.mux.diagnosis_event\"",
+		"\"otel_log_severity\":\"WARN\"",
+		"\"otel_log_profile\":\"generated-mtls-refill\"",
+		"\"rpc_mux_event_family\":\"flow_control\"",
+		"\"rpc_mux_event_name\":\"fragment_window_refill\"",
+		"\"rpc_mux_connection_id\":\"",
+		"\"rpc_mux_pool_slot\":1",
 	} {
 		if !strings.Contains(mtlsLogLine, want) {
 			t.Fatalf("mTLS mux diagnosis log missing %s:\n%s", want, mtlsLogLine)
@@ -1691,6 +1702,13 @@ type RPCMuxLogConfig struct {
 	Endpoint string ` + "`json:\"endpoint,omitempty\"`" + `
 	ConnectionID string ` + "`json:\"connectionId,omitempty\"`" + `
 	PoolSlot int ` + "`json:\"poolSlot,omitempty\"`" + `
+	OTelCompatible RPCMuxOTelCompatibleLogConfig ` + "`json:\"otelCompatible,omitempty\"`" + `
+}
+
+type RPCMuxOTelCompatibleLogConfig struct {
+	Enabled bool ` + "`json:\"enabled\"`" + `
+	Sink string ` + "`json:\"sink,omitempty\"`" + `
+	Profile string ` + "`json:\"profile,omitempty\"`" + `
 }
 
 type RPCMuxTLSConfig struct {
@@ -1892,6 +1910,11 @@ func (c RPCMuxConfig) candidateConfigWithTLS(tlsConfig security.TLSConfig) rpc.E
 }
 
 func ValidateRPCMuxConfig(c RPCMuxConfig) error {
+	if c.Log.OTelCompatible.Enabled {
+		if !rpc.RPCMuxOTelLogSinkRegistered(c.Log.OTelCompatible.Sink) {
+			return fmt.Errorf("rpc mux otelCompatible sink %q is not supported", c.Log.OTelCompatible.Sink)
+		}
+	}
 	if !c.Candidate.Enabled {
 		return nil
 	}
@@ -1971,13 +1994,22 @@ func (c RPCMuxConfig) ClientOptions() []rpc.ClientOption {
 		options = append(options, rpc.WithMuxDiagnosisLogging(nil))
 	}
 	if c.Log.Enabled && c.Log.ExportEvents {
-		options = append(options, rpc.WithMuxDiagnosisEventLogging(nil, rpc.RPCMuxDiagnosisFilter{
+		filter := rpc.RPCMuxDiagnosisFilter{
 			Endpoint: c.Log.Endpoint,
 			ConnectionID: c.Log.ConnectionID,
 			PoolSlot: c.Log.PoolSlot,
 			EventFamily: c.Log.EventFamily,
 			Event: c.Log.Event,
-		}))
+		}
+		if c.Log.OTelCompatible.Enabled {
+			exporter := rpc.NewRPCMuxOTelLogSinkExporter(c.Log.OTelCompatible.Sink, c.Log.OTelCompatible.Profile)
+			if exporter == nil {
+				return options
+			}
+			options = append(options, rpc.WithMuxDiagnosisEventExporter(exporter, filter))
+		} else {
+			options = append(options, rpc.WithMuxDiagnosisEventLogging(nil, filter))
+		}
 	}
 	return options
 }
@@ -2314,6 +2346,31 @@ import (
 `
 
 const rpcMuxConfigValidationTestTemplate = `
+func TestRPCMuxConfigValidatesOTelCompatibleSink(t *testing.T) {
+	cfg := RPCMuxConfig{Log: RPCMuxLogConfig{
+		Enabled:      true,
+		ExportEvents: true,
+		OTelCompatible: RPCMuxOTelCompatibleLogConfig{
+			Enabled: true,
+			Sink:    "slog",
+			Profile: "generated-mtls-refill",
+		},
+	}}
+	if err := ValidateRPCMuxConfig(cfg); err != nil {
+		t.Fatalf("ValidateRPCMuxConfig slog otel-compatible sink: %v", err)
+	}
+
+	cfg.Log.OTelCompatible.Sink = ""
+	if err := ValidateRPCMuxConfig(cfg); err != nil {
+		t.Fatalf("ValidateRPCMuxConfig default otel-compatible sink: %v", err)
+	}
+
+	cfg.Log.OTelCompatible.Sink = "unsupported"
+	if err := ValidateRPCMuxConfig(cfg); err == nil || !strings.Contains(err.Error(), "otelCompatible sink") {
+		t.Fatalf("ValidateRPCMuxConfig unsupported otel-compatible sink = %v, want fail-fast error", err)
+	}
+}
+
 func TestRPCMuxConfigValidatesCandidateFragmentWindowRiskMode(t *testing.T) {
 	cfg := RPCMuxConfig{Candidate: RPCMuxCandidateConfig{
 		Enabled:                              true,

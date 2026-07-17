@@ -612,6 +612,185 @@ func TestSlogRPCMuxDiagnosisEventExporterEmitsStructuredEvent(t *testing.T) {
 	}
 }
 
+func TestMuxDiagnosisEventOTelLogRecordMapsStableAttributes(t *testing.T) {
+	record := RPCMuxDiagnosisEventRecord{
+		Target:       "http://unused",
+		Method:       "orders/Watch",
+		Endpoint:     "tcp://127.0.0.1:9002",
+		ConnectionID: "muxconn-12",
+		PoolSlot:     3,
+		ExportedAt:   time.Unix(2, 0),
+		Event: RPCMuxDiagnosisEvent{
+			Family:       "flow_control",
+			Event:        "fragment_window_refill",
+			Count:        2,
+			Endpoint:     "tcp://127.0.0.1:9003",
+			ConnectionID: "muxconn-13",
+			PoolSlot:     4,
+			Reason:       "window_refill",
+		},
+		Probe: RPCDiagnosisProbe{Target: "http://unused", Method: "orders/Watch"},
+	}
+
+	logRecord := MuxDiagnosisEventOTelLogRecord(record)
+
+	if logRecord.Name != "rpc.mux.diagnosis_event" ||
+		logRecord.Severity != "WARN" ||
+		logRecord.Body != "rpc mux diagnosis event" ||
+		!logRecord.Timestamp.Equal(time.Unix(2, 0)) ||
+		logRecord.Event.Event != "fragment_window_refill" {
+		t.Fatalf("otel log record = %+v, want stable mux diagnosis envelope", logRecord)
+	}
+	attrs := muxAttributeMap(logRecord.Attributes)
+	for key, want := range map[string]string{
+		"rpc.mux.event.family":  "flow_control",
+		"rpc.mux.event.name":    "fragment_window_refill",
+		"rpc.mux.target":        "http://unused",
+		"rpc.mux.method":        "orders/Watch",
+		"rpc.mux.endpoint":      "tcp://127.0.0.1:9003",
+		"rpc.mux.connection_id": "muxconn-13",
+		"rpc.mux.event.reason":  "window_refill",
+	} {
+		if got := attrs[key].AsString(); got != want {
+			t.Fatalf("otel log attr %s = %q, want %q (attrs=%v)", key, got, want, attrs)
+		}
+	}
+	if got := attrs["rpc.mux.pool_slot"].AsInt64(); got != 4 {
+		t.Fatalf("otel log pool slot attr = %d, want 4", got)
+	}
+	if got := attrs["rpc.mux.event.count"].AsInt64(); got != 2 {
+		t.Fatalf("otel log event count attr = %d, want 2", got)
+	}
+}
+
+func TestRPCMuxOTelLogDiagnosisEventExporterForwardsRecord(t *testing.T) {
+	var records []RPCMuxDiagnosisEventOTelLogRecord
+	exporter := NewRPCMuxOTelLogDiagnosisEventExporter(RPCMuxOTelLogExporterFunc(func(_ context.Context, record RPCMuxDiagnosisEventOTelLogRecord) {
+		records = append(records, record)
+	}))
+
+	exporter.ExportRPCMuxDiagnosisEvent(context.Background(), RPCMuxDiagnosisEventRecord{
+		Target:     "http://unused",
+		Method:     "orders/Watch",
+		Endpoint:   "tcp://127.0.0.1:9002",
+		ExportedAt: time.Unix(3, 0),
+		Event:      RPCMuxDiagnosisEvent{Family: "retry", Event: "open_before_retry", Count: 1, From: "tcp://bad", To: "tcp://ok"},
+		Probe:      RPCDiagnosisProbe{Target: "http://unused", Method: "orders/Watch"},
+	})
+
+	if len(records) != 1 {
+		t.Fatalf("otel log exported records = %+v, want one record", records)
+	}
+	record := records[0]
+	if record.Severity != "INFO" || record.Event.Event != "open_before_retry" {
+		t.Fatalf("otel log exported record = %+v, want retry info record", record)
+	}
+	attrs := muxAttributeMap(record.Attributes)
+	if attrs["rpc.mux.event.from"].AsString() != "tcp://bad" ||
+		attrs["rpc.mux.event.to"].AsString() != "tcp://ok" ||
+		attrs["rpc.mux.endpoint"].AsString() != "tcp://ok" {
+		t.Fatalf("otel log exported attrs = %+v, want retry routing fields", attrs)
+	}
+}
+
+func TestSlogRPCMuxOTelLogExporterEmitsCompatibleRecord(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, nil))
+	exporter := NewSlogRPCMuxOTelLogExporterWithProfile(logger, "generated-mtls-refill")
+
+	exporter.ExportRPCMuxOTelLog(context.Background(), RPCMuxDiagnosisEventOTelLogRecord{
+		Name:      "rpc.mux.diagnosis_event",
+		Severity:  "WARN",
+		Body:      "rpc mux diagnosis event",
+		Timestamp: time.Unix(4, 0),
+		Attributes: []attribute.KeyValue{
+			attribute.String("rpc.mux.event.family", "flow_control"),
+			attribute.String("rpc.mux.event.name", "fragment_window_refill"),
+			attribute.String("rpc.mux.connection_id", "muxconn-22"),
+			attribute.Int("rpc.mux.pool_slot", 2),
+		},
+		Event: RPCMuxDiagnosisEvent{Family: "flow_control", Event: "fragment_window_refill", Count: 1},
+	})
+
+	line := buf.String()
+	for _, want := range []string{
+		`"level":"WARN"`,
+		`"msg":"rpc mux otel log event"`,
+		`"otel_log_name":"rpc.mux.diagnosis_event"`,
+		`"otel_log_severity":"WARN"`,
+		`"otel_log_body":"rpc mux diagnosis event"`,
+		`"otel_log_profile":"generated-mtls-refill"`,
+		`"rpc_mux_event_family":"flow_control"`,
+		`"rpc_mux_event_name":"fragment_window_refill"`,
+		`"rpc_mux_connection_id":"muxconn-22"`,
+		`"rpc_mux_pool_slot":2`,
+	} {
+		if !strings.Contains(line, want) {
+			t.Fatalf("otel-compatible mux event log missing %s:\n%s", want, line)
+		}
+	}
+}
+
+func TestRPCMuxOTelLogSinkRegistryCreatesCustomExporter(t *testing.T) {
+	const sinkName = "custom-otel"
+	var records []RPCMuxDiagnosisEventOTelLogRecord
+	cleanup := RegisterRPCMuxOTelLogSink("  "+sinkName+"  ", func(profile string) RPCMuxOTelLogExporter {
+		if profile != "custom-profile" {
+			t.Fatalf("custom mux otel sink profile = %q, want custom-profile", profile)
+		}
+		return RPCMuxOTelLogExporterFunc(func(_ context.Context, record RPCMuxDiagnosisEventOTelLogRecord) {
+			records = append(records, record)
+		})
+	})
+	defer cleanup()
+
+	if !RPCMuxOTelLogSinkRegistered(sinkName) {
+		t.Fatalf("registered mux otel sink %q not found", sinkName)
+	}
+	exporter := NewRPCMuxOTelLogSinkExporter(sinkName, "custom-profile")
+	if exporter == nil {
+		t.Fatal("custom mux otel sink exporter is nil")
+	}
+	exporter.ExportRPCMuxDiagnosisEvent(context.Background(), RPCMuxDiagnosisEventRecord{
+		Target:     "http://unused",
+		Method:     "orders/Watch",
+		ExportedAt: time.Unix(5, 0),
+		Event:      RPCMuxDiagnosisEvent{Family: "flow_control", Event: "write_timeout", Count: 1},
+		Probe:      RPCDiagnosisProbe{Target: "http://unused", Method: "orders/Watch"},
+	})
+
+	if len(records) != 1 || records[0].Event.Event != "write_timeout" || records[0].Severity != "WARN" {
+		t.Fatalf("custom mux otel sink records = %+v, want one write_timeout warning", records)
+	}
+	cleanup()
+	if RPCMuxOTelLogSinkRegistered(sinkName) {
+		t.Fatalf("custom mux otel sink %q still registered after cleanup", sinkName)
+	}
+	if exporter := NewRPCMuxOTelLogSinkExporter(sinkName, "custom-profile"); exporter != nil {
+		t.Fatalf("custom mux otel sink exporter after cleanup = %#v, want nil", exporter)
+	}
+}
+
+func TestRPCMuxOTelLogSinkRegistryRejectsEmptyOrNilFactory(t *testing.T) {
+	cleanup := RegisterRPCMuxOTelLogSink(" ", func(string) RPCMuxOTelLogExporter {
+		t.Fatal("empty sink factory should not be called")
+		return nil
+	})
+	cleanup()
+	cleanup = RegisterRPCMuxOTelLogSink("nil-factory", nil)
+	cleanup()
+
+	if RPCMuxOTelLogSinkRegistered("nil-factory") {
+		t.Fatal("nil factory sink should not be registered")
+	}
+	if exporter := NewRPCMuxOTelLogSinkExporter("nil-factory", "profile"); exporter != nil {
+		t.Fatalf("nil factory sink exporter = %#v, want nil", exporter)
+	}
+	if exporter := NewRPCMuxOTelLogSinkExporter("", "default-profile"); exporter == nil {
+		t.Fatal("empty mux otel sink should resolve to built-in slog exporter")
+	}
+}
+
 func TestRPCMuxDiagnosisEventsDeriveNegotiationFailures(t *testing.T) {
 	tests := []struct {
 		name  string

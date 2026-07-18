@@ -38,8 +38,11 @@ func (firstEndpointBalancer) Pick(ctx context.Context, endpoints []string) (stri
 	return endpoints[0], nil
 }
 
+var isolatedMuxCandidateMetricsMu sync.Mutex
+
 func withIsolatedMuxCandidateMetrics(t *testing.T) *metrics.Registry {
 	t.Helper()
+	isolatedMuxCandidateMetricsMu.Lock()
 	old := metrics.Default
 	reg := metrics.NewRegistry()
 	metrics.Default = reg
@@ -47,6 +50,7 @@ func withIsolatedMuxCandidateMetrics(t *testing.T) *metrics.Registry {
 	t.Cleanup(func() {
 		metrics.Default = old
 		registerExperimentalMuxCandidateMetrics(old)
+		isolatedMuxCandidateMetricsMu.Unlock()
 	})
 	return reg
 }

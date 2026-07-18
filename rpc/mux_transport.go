@@ -686,7 +686,9 @@ func (t *ExperimentalMuxTransport) Drain(ctx context.Context, reason string) err
 	if err := t.writeFrame(ctx, experimentalMuxFrame{typ: experimentalMuxFrameGoAway, code: CodeUnavailable, reason: reason}); err != nil {
 		return err
 	}
+	t.mu.Lock()
 	t.goAwayFramesOut.Add(1)
+	t.mu.Unlock()
 	t.rememberClose(0, CodeUnavailable, reason)
 	return nil
 }
@@ -755,6 +757,8 @@ func (t *ExperimentalMuxTransport) Snapshot() ExperimentalMuxTransportSnapshot {
 	remoteDraining := t.remoteDraining
 	drainReason := t.drainReason
 	remoteDrainReason := t.remoteDrainReason
+	goAwayFramesIn := t.goAwayFramesIn.Load()
+	goAwayFramesOut := t.goAwayFramesOut.Load()
 	t.mu.Unlock()
 	code, _ := t.lastCloseCode.Load().(Code)
 	reason, _ := t.lastCloseReason.Load().(string)
@@ -818,8 +822,8 @@ func (t *ExperimentalMuxTransport) Snapshot() ExperimentalMuxTransportSnapshot {
 		PingFramesOut:                           t.pingFramesOut.Load(),
 		PongFramesIn:                            t.pongFramesIn.Load(),
 		PongFramesOut:                           t.pongFramesOut.Load(),
-		GoAwayFramesIn:                          t.goAwayFramesIn.Load(),
-		GoAwayFramesOut:                         t.goAwayFramesOut.Load(),
+		GoAwayFramesIn:                          goAwayFramesIn,
+		GoAwayFramesOut:                         goAwayFramesOut,
 		BytesIn:                                 t.bytesIn.Load(),
 		BytesOut:                                t.bytesOut.Load(),
 		HalfClosedStreams:                       t.halfClosedStreams.Load(),
@@ -1149,7 +1153,6 @@ func (t *ExperimentalMuxTransport) dispatchFrame(frame experimentalMuxFrame) err
 		t.pongFramesIn.Add(1)
 		t.lastPongAt.Store(time.Now().UnixNano())
 	case experimentalMuxFrameGoAway:
-		t.goAwayFramesIn.Add(1)
 		reason := frame.reason
 		if reason == "" {
 			reason = experimentalMuxReasonPeerDraining
@@ -1307,6 +1310,7 @@ func (t *ExperimentalMuxTransport) markRemoteDraining(reason string) {
 	t.mu.Lock()
 	t.remoteDraining = true
 	t.remoteDrainReason = reason
+	t.goAwayFramesIn.Add(1)
 	t.mu.Unlock()
 	t.rememberClose(0, CodeUnavailable, reason)
 }
@@ -1459,8 +1463,9 @@ func (t *ExperimentalMuxTransport) fragmentWindowUpdates(streamID uint64, fragme
 	}
 	t.sendFragmentWindowUpdates(streamID, 1)
 	deferredFragments := fragments
-	if t.fragmentMaxDeferredFragments > 0 && deferredFragments > uint32(t.fragmentMaxDeferredFragments) {
-		deferredFragments = uint32(t.fragmentMaxDeferredFragments)
+	if maxDeferred := t.fragmentMaxDeferredFragments; maxDeferred > 0 && uint64(maxDeferred) < uint64(deferredFragments) {
+		// #nosec G115 -- the uint64 comparison proves maxDeferred is positive and below the uint32 fragments value.
+		deferredFragments = uint32(maxDeferred)
 	}
 	var streamWindowUpdate uint32
 	var connectionWindowUpdate uint32

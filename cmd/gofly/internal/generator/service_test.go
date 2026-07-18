@@ -1105,7 +1105,9 @@ func TestGenerateNewServiceVariantsBoundaries(t *testing.T) {
 		"rpc.WithMuxDiagnosisEventLogging(nil",
 		"rpc.ValidateRPCMuxOTelLogSinkProfile",
 		"rpc.NewRPCMuxOTelLogSinkExporter",
-		"rpc.WithServerMuxDiagnosisEventExporter",
+		"rpc.WithMuxDiagnosisEventExporterDelivery",
+		"rpc.WithServerMuxDiagnosisEventExporterDelivery",
+		"RPCMuxDiagnosisExporterDeliveryConfig",
 		"rpc.WithServerMuxDiagnosisEventLogging",
 	} {
 		if !strings.Contains(string(configGoData), want) {
@@ -1287,7 +1289,7 @@ func TestGenerateNewServiceVariantsBoundaries(t *testing.T) {
 		"RegisterRPCMuxOTelLogSink(\"otel-test\"",
 		`Profile: "generated-custom-sink"`,
 		"customProfile != \"generated-custom-sink\"",
-		"custom otel-test sink received zero records",
+		"custom otel-test sink received no fragment_window_refill event",
 		"func generatedTraceAttributeMap",
 	} {
 		if !strings.Contains(string(adminTestData), want) {
@@ -2480,12 +2482,31 @@ func TestGenerateServiceScaffoldMuxOTelSinkFeature(t *testing.T) {
 	}
 	for _, want := range []string{
 		`const Name = "myorg/telemetry"`,
+		"type profile struct",
+		"func (provider) RPCMuxOTelLogProfileSchema() json.RawMessage",
 		"func (provider) ValidateRPCMuxOTelLogProfile(profile string) error",
-		"func (provider) NewRPCMuxOTelLogExporter(profile string) rpc.RPCMuxOTelLogExporter",
+		"func (provider) NewRPCMuxOTelLogExporter(raw string) rpc.RPCMuxOTelLogExporter",
+		"rpc.DecodeRPCMuxOTelLogProfile",
 		"rpc.RegisterRPCMuxOTelLogSinkProvider(Name, provider{})",
 	} {
 		if !strings.Contains(string(sinkData), want) {
 			t.Fatalf("generated custom mux OTel sink missing %q:\n%s", want, sinkData)
+		}
+	}
+	sinkTestData, err := os.ReadFile(filepath.Join(dir, "internal", "observability", "muxotelsink", "sink_test.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"func TestProviderProfileSchemaAndValidation",
+		`name: "unknown field"`,
+		`name: "insecure endpoint"`,
+		`name: "batch too large"`,
+		`name: "timeout too short"`,
+		`name: "timeout too long"`,
+	} {
+		if !strings.Contains(string(sinkTestData), want) {
+			t.Fatalf("generated custom mux OTel sink test missing %q:\n%s", want, sinkTestData)
 		}
 	}
 	assertGeneratedProjectCompiles(t, dir)

@@ -3,8 +3,10 @@ package rpc
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -732,6 +734,151 @@ func TestSlogRPCMuxOTelLogExporterEmitsCompatibleRecord(t *testing.T) {
 	}
 }
 
+func TestRPCMuxOTelLogExporterBoundaryContracts(t *testing.T) {
+	t.Run("nil bridge exporter is a no-op", func(t *testing.T) {
+		exporter := NewRPCMuxOTelLogDiagnosisEventExporter(nil)
+		exporter.ExportRPCMuxDiagnosisEvent(context.Background(), RPCMuxDiagnosisEventRecord{
+			Event: RPCMuxDiagnosisEvent{Family: "retry", Event: "open_before_retry"},
+		})
+	})
+
+	t.Run("default slog exporter emits info without profile", func(t *testing.T) {
+		var buf bytes.Buffer
+		exporter := NewSlogRPCMuxOTelLogExporter(
+			slog.New(slog.NewJSONHandler(&buf, nil)),
+		)
+		exporter.ExportRPCMuxOTelLog(context.Background(), RPCMuxDiagnosisEventOTelLogRecord{
+			Name:     "rpc.mux.diagnosis_event",
+			Severity: "INFO",
+			Body:     "rpc mux diagnosis event",
+			Event: RPCMuxDiagnosisEvent{
+				Family: "retry",
+				Event:  "open_before_retry",
+				Count:  1,
+			},
+		})
+		line := buf.String()
+		if !strings.Contains(line, `"level":"INFO"`) ||
+			!strings.Contains(line, `"otel_log_name":"rpc.mux.diagnosis_event"`) ||
+			!strings.Contains(line, `"otel_log_body":"rpc mux diagnosis event"`) {
+			t.Fatalf("default slog exporter output = %s", line)
+		}
+		if strings.Contains(line, `"otel_log_profile"`) {
+			t.Fatalf("default slog exporter unexpectedly emitted profile: %s", line)
+		}
+	})
+
+	t.Run("nil logger falls back to slog default", func(t *testing.T) {
+		exporter := NewSlogRPCMuxOTelLogExporter(nil)
+		exporter.ExportRPCMuxOTelLog(context.Background(), RPCMuxDiagnosisEventOTelLogRecord{
+			Name:     "rpc.mux.diagnosis_event",
+			Severity: "INFO",
+			Body:     "default logger boundary",
+		})
+	})
+}
+
+func TestMuxTraceRetryReasonContracts(t *testing.T) {
+	reasons := map[string]int64{"dial_failure": 2}
+	if got := withMuxRetryReason(reasons, ""); !reflect.DeepEqual(got, reasons) {
+		t.Fatalf("empty retry reason changed map: got=%v want=%v", got, reasons)
+	}
+	reasons = withMuxRetryReason(nil, "pool_exhausted")
+	if reasons["pool_exhausted"] != 1 {
+		t.Fatalf("new retry reason map = %v, want pool_exhausted=1", reasons)
+	}
+	reasons["pool_exhausted"] = 3
+	if got := withMuxRetryReason(reasons, "pool_exhausted"); got["pool_exhausted"] != 3 {
+		t.Fatalf("existing retry reason count = %d, want 3", got["pool_exhausted"])
+	}
+
+	for _, test := range []struct {
+		name string
+		err  error
+		want string
+	}{
+		{name: "success", err: nil, want: ""},
+		{name: "pool exhausted", err: NewError(CodeResourceExhausted, "pool"), want: "pool_exhausted"},
+		{name: "dial failure", err: NewError(CodeUnavailable, "dial"), want: "dial_failure"},
+		{name: "stream failure", err: NewError(CodeInvalidArgument, "stream"), want: "open_stream"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := muxTraceErrorReason(test.err); got != test.want {
+				t.Fatalf("muxTraceErrorReason = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
+func TestMuxEffectiveCandidateSnapshotPrecedence(t *testing.T) {
+	candidate := func(protocol string) ExperimentalMuxCandidateSnapshot {
+		return ExperimentalMuxCandidateSnapshot{Enabled: true, Protocol: protocol}
+	}
+	for _, test := range []struct {
+		name      string
+		diagnosis RPCMuxTransportDiagnosis
+		want      string
+		exact     bool
+	}{
+		{
+			name: "single manager endpoint",
+			diagnosis: RPCMuxTransportDiagnosis{
+				Manager: RPCMuxConnectionManagerDiagnosis{
+					Endpoints: []ExperimentalMuxEndpointSnapshot{{
+						Adapter: ExperimentalMuxAdapterSnapshot{Candidate: candidate("endpoint")},
+					}},
+				},
+				Adapter: ExperimentalMuxAdapterSnapshot{Candidate: candidate("adapter")},
+			},
+			want:  "endpoint",
+			exact: true,
+		},
+		{
+			name: "direct adapter",
+			diagnosis: RPCMuxTransportDiagnosis{
+				Manager: RPCMuxConnectionManagerDiagnosis{
+					Endpoints: []ExperimentalMuxEndpointSnapshot{{}, {}},
+				},
+				Adapter: ExperimentalMuxAdapterSnapshot{Candidate: candidate("adapter")},
+			},
+			want:  "adapter",
+			exact: true,
+		},
+		{
+			name: "standalone candidate",
+			diagnosis: RPCMuxTransportDiagnosis{
+				Candidate: candidate("standalone"),
+			},
+			want:  "standalone",
+			exact: true,
+		},
+		{
+			name: "manager aggregate",
+			diagnosis: RPCMuxTransportDiagnosis{
+				Manager: RPCMuxConnectionManagerDiagnosis{
+					Enabled:   true,
+					Candidate: candidate("manager"),
+				},
+			},
+			want:  "manager",
+			exact: false,
+		},
+		{
+			name:      "absent",
+			diagnosis: RPCMuxTransportDiagnosis{},
+			want:      "",
+			exact:     false,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got, exact := muxEffectiveCandidateSnapshot(test.diagnosis)
+			if got.Protocol != test.want || exact != test.exact {
+				t.Fatalf("effective candidate = (%+v, %v), want protocol %q exact %v", got, exact, test.want, test.exact)
+			}
+		})
+	}
+}
+
 func TestRPCMuxOTelLogSinkRegistryCreatesCustomExporter(t *testing.T) {
 	const sinkName = "custom-otel"
 	var records []RPCMuxDiagnosisEventOTelLogRecord
@@ -818,6 +965,8 @@ func TestRPCMuxOTelLogSinkProviderValidatesProfile(t *testing.T) {
 type testRPCMuxOTelLogSinkProvider struct {
 	validate    func(string) error
 	newExporter func(string) RPCMuxOTelLogExporter
+	schema      json.RawMessage
+	schemaPanic bool
 }
 
 func (p testRPCMuxOTelLogSinkProvider) ValidateRPCMuxOTelLogProfile(profile string) error {
@@ -832,6 +981,55 @@ func (p testRPCMuxOTelLogSinkProvider) NewRPCMuxOTelLogExporter(profile string) 
 		return nil
 	}
 	return p.newExporter(profile)
+}
+
+func (p testRPCMuxOTelLogSinkProvider) RPCMuxOTelLogProfileSchema() json.RawMessage {
+	if p.schemaPanic {
+		panic("schema provider panic")
+	}
+	return p.schema
+}
+
+func TestRPCMuxOTelLogSinkRegistrySnapshotAndTypedProfile(t *testing.T) {
+	const sinkName = "typed-profile"
+	cleanup := RegisterRPCMuxOTelLogSinkProvider(sinkName, testRPCMuxOTelLogSinkProvider{
+		schema: json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{"batchSize":{"type":"integer"}}}`),
+	})
+	defer cleanup()
+
+	type profile struct {
+		BatchSize int `json:"batchSize"`
+	}
+	var decoded profile
+	if err := DecodeRPCMuxOTelLogProfile(`{"batchSize":32}`, &decoded); err != nil {
+		t.Fatalf("DecodeRPCMuxOTelLogProfile valid profile: %v", err)
+	}
+	if decoded.BatchSize != 32 {
+		t.Fatalf("decoded batch size = %d, want 32", decoded.BatchSize)
+	}
+	for _, raw := range []string{
+		`{"batchSize":32,"unknown":true}`,
+		`{"batchSize":32} {"batchSize":64}`,
+	} {
+		if err := DecodeRPCMuxOTelLogProfile(raw, &decoded); err == nil {
+			t.Fatalf("DecodeRPCMuxOTelLogProfile(%q) succeeded, want strict error", raw)
+		}
+	}
+
+	snapshot := RPCMuxOTelLogSinkRegistry()
+	if len(snapshot.Capabilities) == 0 {
+		t.Fatal("registry capabilities are empty")
+	}
+	var found *RPCMuxOTelLogSinkSnapshot
+	for i := range snapshot.Sinks {
+		if snapshot.Sinks[i].Name == sinkName {
+			found = &snapshot.Sinks[i]
+			break
+		}
+	}
+	if found == nil || !found.ClientExport || !found.ServerExport || !found.DeliveryGovernance || !json.Valid(found.ProfileSchema) {
+		t.Fatalf("typed sink snapshot = %+v, want schema and symmetric governed export capabilities", found)
+	}
 }
 
 func TestRPCMuxOTelLogSinkRegistryRejectsEmptyOrNilFactory(t *testing.T) {
@@ -858,6 +1056,55 @@ func TestRPCMuxOTelLogSinkRegistryRejectsEmptyOrNilFactory(t *testing.T) {
 	cleanup()
 	if RPCMuxOTelLogSinkRegistered("nil-provider") {
 		t.Fatal("typed nil provider sink should not be registered")
+	}
+}
+
+func TestRPCMuxOTelLogSinkProfileAndSchemaFailureContracts(t *testing.T) {
+	type profile struct {
+		BatchSize int `json:"batchSize"`
+	}
+	var decoded profile
+	for _, test := range []struct {
+		name    string
+		profile string
+		target  any
+		want    string
+	}{
+		{name: "empty profile", profile: " ", target: &decoded, want: "profile is required"},
+		{name: "oversized profile", profile: strings.Repeat("x", maxRPCMuxOTelLogProfileBytes+1), target: &decoded, want: "profile exceeds"},
+		{name: "nil target", profile: `{}`, target: nil, want: "profile target is required"},
+		{name: "malformed trailing value", profile: `{"batchSize":1} {`, target: &decoded, want: "decode profile"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if err := DecodeRPCMuxOTelLogProfile(test.profile, test.target); err == nil ||
+				!strings.Contains(err.Error(), test.want) {
+				t.Fatalf("DecodeRPCMuxOTelLogProfile error = %v, want containing %q", err, test.want)
+			}
+		})
+	}
+
+	for _, test := range []struct {
+		name     string
+		provider testRPCMuxOTelLogSinkProvider
+	}{
+		{name: "invalid schema", provider: testRPCMuxOTelLogSinkProvider{schema: json.RawMessage(`{`)}},
+		{name: "schema panic", provider: testRPCMuxOTelLogSinkProvider{schemaPanic: true}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			sinkName := "schema-" + strings.ReplaceAll(test.name, " ", "-")
+			cleanup := RegisterRPCMuxOTelLogSinkProvider(sinkName, test.provider)
+			defer cleanup()
+			snapshot := RPCMuxOTelLogSinkRegistry()
+			for _, sink := range snapshot.Sinks {
+				if sink.Name == sinkName {
+					if sink.ProfileSchema != nil {
+						t.Fatalf("sink schema = %s, want omitted invalid schema", sink.ProfileSchema)
+					}
+					return
+				}
+			}
+			t.Fatalf("sink %q missing from registry snapshot", sinkName)
+		})
 	}
 }
 

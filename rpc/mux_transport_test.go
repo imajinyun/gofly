@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
+	"math"
 	"net"
 	"strings"
 	"testing"
@@ -751,6 +752,36 @@ func TestExperimentalMuxTransportFragmentWindowPolicyRiskSnapshot(t *testing.T) 
 		cappedSnapshot.FragmentWindowPolicyRiskReason != experimentalMuxFragmentPolicyRiskMaxDeferred ||
 		cappedSnapshot.FragmentMaxDeferredFragments != 4 {
 		t.Fatalf("capped fragment policy snapshot = %+v, want max deferred risk", cappedSnapshot)
+	}
+}
+
+func TestExperimentalMuxTransportFragmentWindowUpdatesBoundsMaxDeferred(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		maxDeferred int
+		fragments   uint32
+		want        uint32
+	}{
+		{name: "configured cap", maxDeferred: 4, fragments: 9, want: 4},
+		{name: "cap above uint32 input", maxDeferred: math.MaxInt, fragments: math.MaxUint32, want: math.MaxUint32},
+		{name: "disabled cap", maxDeferred: 0, fragments: 9, want: 9},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			transport := &ExperimentalMuxTransport{
+				fragmentMaxDeferredFragments: test.maxDeferred,
+				fragmentStreamWindowPolicy:   experimentalMuxWindowUpdateOnReceive,
+				fragmentStreamWindowRefill:   1,
+			}
+			streamDelta, connectionDelta := transport.fragmentWindowUpdates(1, test.fragments)
+			if streamDelta != test.want || connectionDelta != 0 {
+				t.Fatalf(
+					"fragmentWindowUpdates = (%d, %d), want (%d, 0)",
+					streamDelta,
+					connectionDelta,
+					test.want,
+				)
+			}
+		})
 	}
 }
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -55,4 +56,59 @@ func TestRunDemoJSONContract(t *testing.T) {
 		decoded.EventCount != report.EventCount {
 		t.Fatalf("json round-trip mismatch: got %+v, want %+v", decoded, report)
 	}
+}
+
+func TestRunCLIContracts(t *testing.T) {
+	var text bytes.Buffer
+	if code := run(nil, &text); code != 0 {
+		t.Fatalf("text run exit code = %d\n%s", code, text.String())
+	}
+	for _, want := range []string{
+		"gofly custom mux OTel log sink demo",
+		"sink name:    otel-test",
+		"profile:      demo-custom-sink",
+		"event fams:   [flow_control]",
+		"record names: [rpc.mux.diagnosis_event]",
+		"PASS:sink-registry",
+		"all gates passed",
+	} {
+		if !strings.Contains(text.String(), want) {
+			t.Fatalf("text output missing %q:\n%s", want, text.String())
+		}
+	}
+
+	var jsonOut bytes.Buffer
+	if code := run([]string{"--json"}, &jsonOut); code != 0 {
+		t.Fatalf("json run exit code = %d\n%s", code, jsonOut.String())
+	}
+	var report sinkDemoReport
+	if err := json.Unmarshal(jsonOut.Bytes(), &report); err != nil {
+		t.Fatalf("decode CLI JSON: %v\n%s", err, jsonOut.String())
+	}
+	if report.Schema != "gofly.custom_mux_sink_demo.v1" ||
+		report.SinkName != demoSinkName ||
+		report.Profile != demoSinkProfile ||
+		report.EventCount != 1 {
+		t.Fatalf("CLI JSON report = %+v", report)
+	}
+
+	var usage bytes.Buffer
+	if code := run([]string{"--unknown"}, &usage); code != 2 {
+		t.Fatalf("invalid flag exit code = %d, want 2", code)
+	}
+	if !strings.Contains(usage.String(), "flag provided but not defined") {
+		t.Fatalf("invalid flag output = %q", usage.String())
+	}
+}
+
+func TestRunCLIWriterFailure(t *testing.T) {
+	if code := run([]string{"--json"}, failingWriter{}); code != 1 {
+		t.Fatalf("writer failure exit code = %d, want 1", code)
+	}
+}
+
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) {
+	return 0, bytes.ErrTooLarge
 }

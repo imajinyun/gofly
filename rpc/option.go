@@ -236,6 +236,12 @@ func WithServerMuxDiagnosisEventExporter(exporter RPCMuxDiagnosisEventExporter, 
 	}
 }
 
+// WithServerMuxDiagnosisEventExporterDelivery enables bounded asynchronous
+// delivery for a server-side mux diagnosis exporter.
+func WithServerMuxDiagnosisEventExporterDelivery(exporter RPCMuxDiagnosisEventExporter, filter RPCMuxDiagnosisFilter, config RPCMuxDiagnosisExporterDeliveryConfig) ServerOption {
+	return WithServerMuxDiagnosisEventExporter(NewGovernedRPCMuxDiagnosisEventExporter(exporter, config), filter)
+}
+
 // WithServerMuxDiagnosisEventLogging exports server-side mux diagnosis events
 // through slog.
 func WithServerMuxDiagnosisEventLogging(logger *slog.Logger, filter RPCMuxDiagnosisFilter) ServerOption {
@@ -559,6 +565,12 @@ func WithMuxDiagnosisEventExporter(exporter RPCMuxDiagnosisEventExporter, filter
 		o.muxEventExporter = exporter
 		o.muxEventFilter = filter
 	}
+}
+
+// WithMuxDiagnosisEventExporterDelivery enables bounded asynchronous delivery
+// for a client-side mux diagnosis exporter.
+func WithMuxDiagnosisEventExporterDelivery(exporter RPCMuxDiagnosisEventExporter, filter RPCMuxDiagnosisFilter, config RPCMuxDiagnosisExporterDeliveryConfig) ClientOption {
+	return WithMuxDiagnosisEventExporter(NewGovernedRPCMuxDiagnosisEventExporter(exporter, config), filter)
 }
 
 // WithMuxDiagnosisEventLogging exports mux diagnosis events through slog. When

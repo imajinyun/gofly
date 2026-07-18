@@ -79,6 +79,13 @@ registers it through a blank import, and delegates profile validation to that
 provider. The sink ID is not treated as a module URL: this feature performs no
 network download and executes no external plugin.
 
+Generated sink profiles use strict JSON with an application-owned schema. The
+starter provider validates `endpoint`, `batchSize`, and `timeout`, while mux
+diagnosis export uses a bounded queue with timeout, panic isolation, drop
+counters, and queue-depth metrics. Registered sinks and their schemas are
+visible through the RPC runtime/control-plane snapshot without exposing active
+profile values.
+
 ## 🟡 Golden path: production service in 10 minutes
 
 Use `new service` when you want the full production baseline: REST, RPC, OpenAPI, governance, admin control-plane, in-memory discovery, config tests, and generated smoke tests.

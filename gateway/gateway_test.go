@@ -740,6 +740,157 @@ func TestGatewayAggregationStepTimeoutRetryAndDegradedRuntime(t *testing.T) {
 	}
 }
 
+func TestGatewayValidateAggregationCompatibility(t *testing.T) {
+	current := AggregationConfig{
+		Enabled: true,
+		Steps: []AggregationStep{
+			{
+				Name:     "profile",
+				Path:     "/profile",
+				Fallback: json.RawMessage(`{"id":"fallback"}`),
+				Request: AggregationRequestShape{
+					QueryMappings: []AggregationPayloadMapping{
+						{Source: "query.tenant", Target: "tenant"},
+						{Source: "query.region", Target: "region", Default: json.RawMessage(`"cn"`)},
+					},
+					HeaderMappings: []AggregationPayloadMapping{
+						{Source: "header.x-tenant", Target: "X-Tenant"},
+					},
+					BodyMappings: []AggregationPayloadMapping{
+						{Source: "body.user.id", Target: "user.id"},
+						{Source: "body.items", Target: "items", AsArray: true},
+					},
+					BodyTemplate: json.RawMessage(`{"source":"current"}`),
+					Required:     []string{"user.id", "items"},
+				},
+			},
+			{Name: "orders", Path: "/orders"},
+		},
+		Shape: AggregationShape{
+			Mode: "flat",
+			Mappings: []AggregationPayloadMapping{
+				{Source: "body.data.profile", Target: "profile"},
+				{Source: "body.data.orders", Target: "orders", Default: json.RawMessage(`[]`)},
+				{Target: "meta.source", Default: json.RawMessage(`"current"`)},
+			},
+		},
+	}
+	gateway, err := New([]Route{{
+		Name:        "bff-home",
+		Method:      http.MethodGet,
+		PathPrefix:  "/bff",
+		Targets:     []string{"http://127.0.0.1:1"},
+		Aggregation: current,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	unchanged := gateway.ValidateAggregation("bff-home", current)
+	if !unchanged.OK || !unchanged.Compatible || unchanged.Current == nil || len(unchanged.Changes) != 0 {
+		t.Fatalf("unchanged report = %+v, want compatible no-op", unchanged)
+	}
+
+	additive := cloneAggregationConfig(current)
+	additive.Steps = append(additive.Steps, AggregationStep{Name: "recommendations", Path: "/recommendations"})
+	additive.Steps[0].Request.Required = append(additive.Steps[0].Request.Required, "locale")
+	additive.Steps[0].Request.QueryMappings = append(additive.Steps[0].Request.QueryMappings,
+		AggregationPayloadMapping{Source: "query.locale", Target: "locale"})
+	additive.Shape.Mappings = append(additive.Shape.Mappings,
+		AggregationPayloadMapping{Source: "body.data.recommendations", Target: "recommendations"})
+	additiveReport := gateway.ValidateAggregation("bff-home", additive)
+	if !additiveReport.OK || !additiveReport.Compatible {
+		t.Fatalf("additive report = %+v, want compatible additions", additiveReport)
+	}
+	for _, kind := range []string{"add_step", "add_required", "add_mapping"} {
+		if !aggregationReportHasChange(additiveReport, kind) {
+			t.Fatalf("additive changes = %+v, missing %q", additiveReport.Changes, kind)
+		}
+	}
+
+	breaking := cloneAggregationConfig(current)
+	breaking.Steps = breaking.Steps[:1]
+	breaking.Steps[0].Path = "/profiles/v2"
+	breaking.Steps[0].Fallback = nil
+	breaking.Steps[0].Request.BodyTemplate = json.RawMessage(`{"source":"candidate"}`)
+	breaking.Steps[0].Request.Required = []string{"user.id", "locale"}
+	breaking.Steps[0].Request.QueryMappings = []AggregationPayloadMapping{
+		{Source: "query.tenant", Target: "tenantID"},
+		{Source: "query.region", Target: "region", Default: json.RawMessage(`"us"`)},
+	}
+	breaking.Steps[0].Request.HeaderMappings = nil
+	breaking.Steps[0].Request.BodyMappings = []AggregationPayloadMapping{
+		{Source: "body.user.id", Target: "user.id"},
+		{Source: "body.items", Target: "items", AsArray: false},
+	}
+	breaking.Shape.Mode = "envelope"
+	breaking.Shape.Mappings = []AggregationPayloadMapping{
+		{Source: "body.data.profile", Target: "account"},
+		{Source: "body.data.orders", Target: "orders", Default: json.RawMessage(`[{"id":"fallback"}]`)},
+	}
+	breakingReport := gateway.ValidateAggregation("bff-home", breaking)
+	if !breakingReport.OK || breakingReport.Compatible {
+		t.Fatalf("breaking report = %+v, want valid incompatible candidate", breakingReport)
+	}
+	for _, kind := range []string{
+		"remove_step",
+		"change_step_path",
+		"remove_fallback",
+		"change_body_template",
+		"remove_required",
+		"add_required",
+		"change_target",
+		"change_default",
+		"change_array_projection",
+		"remove_mapping",
+		"change_shape_mode",
+	} {
+		if !aggregationReportHasChange(breakingReport, kind) {
+			t.Fatalf("breaking changes = %+v, missing %q", breakingReport.Changes, kind)
+		}
+	}
+
+	changedFallback := cloneAggregationConfig(current)
+	changedFallback.Steps[0].Fallback = json.RawMessage(`{"id":"other"}`)
+	fallbackReport := gateway.ValidateAggregation("bff-home", changedFallback)
+	if fallbackReport.Compatible || !aggregationReportHasChange(fallbackReport, "change_fallback") {
+		t.Fatalf("fallback report = %+v, want change_fallback", fallbackReport)
+	}
+
+	newReport := gateway.ValidateAggregation("missing", AggregationConfig{
+		Steps: []AggregationStep{{Path: "/new"}},
+	})
+	if !newReport.OK || !newReport.Compatible || !aggregationReportHasChange(newReport, "add_aggregation") {
+		t.Fatalf("new aggregation report = %+v", newReport)
+	}
+
+	nilReport := (*Gateway)(nil).ValidateAggregation("", AggregationConfig{})
+	if !nilReport.OK || !nilReport.Compatible || len(nilReport.Changes) != 0 {
+		t.Fatalf("nil gateway report = %+v, want validation-only success", nilReport)
+	}
+
+	invalidReport := gateway.ValidateAggregation("bff-home", AggregationConfig{
+		Steps: []AggregationStep{{
+			Path: "/invalid",
+			Request: AggregationRequestShape{
+				BodyTemplate: json.RawMessage(`[]`),
+			},
+		}},
+	})
+	if invalidReport.OK || invalidReport.Compatible || len(invalidReport.Errors) == 0 {
+		t.Fatalf("invalid report = %+v, want validation error", invalidReport)
+	}
+}
+
+func aggregationReportHasChange(report AggregationValidationReport, kind string) bool {
+	for _, change := range report.Changes {
+		if change.Kind == kind {
+			return true
+		}
+	}
+	return false
+}
+
 func TestGatewayGovernanceManagerOverridesExplicitRuleSet(t *testing.T) {
 	stale := governance.NewRuleSet(governance.Rule{Name: "stale", Transport: governance.TransportGateway, Path: "/api/*"})
 	manager, err := governance.NewManager(governance.Config{Rules: []governance.Rule{{

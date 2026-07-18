@@ -278,10 +278,12 @@ func (s *HTTPServer) readHeaderTimeout() time.Duration {
 func (s *HTTPServer) Stop(ctx context.Context) error {
 	s.setState(serverStateStopping)
 	if s.server == nil {
+		closeRPCMuxDiagnosisExporter(s.opts.muxEventExporter)
 		s.setState(serverStateStopped)
 		return nil
 	}
 	err := s.server.Shutdown(ctx)
+	closeRPCMuxDiagnosisExporter(s.opts.muxEventExporter)
 	s.setState(serverStateStopped)
 	return err
 }

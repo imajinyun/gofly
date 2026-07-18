@@ -475,6 +475,31 @@ func TestGatewayAggregationSARIFRuleTaxonomyContract(t *testing.T) {
 	}
 }
 
+func TestGatewayAggregationSARIFLocatorScopesFileReads(t *testing.T) {
+	dir := t.TempDir()
+	artifactPath := filepath.Join(dir, "candidate-openapi.json")
+	if err := os.WriteFile(artifactPath, []byte("{\n  \"x-gofly-aggregation\": {}\n}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	locator := newGatewayAggregationSARIFLocator(artifactPath)
+	if got := locator.line("x-gofly-aggregation"); got != 2 {
+		t.Fatalf("locator line = %d, want 2", got)
+	}
+
+	outside := filepath.Join(t.TempDir(), "outside.json")
+	if err := os.WriteFile(outside, []byte("outside-marker\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	symlinkPath := filepath.Join(dir, "outside-link.json")
+	if err := os.Symlink(outside, symlinkPath); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	symlinkLocator := newGatewayAggregationSARIFLocator(symlinkPath)
+	if got := symlinkLocator.line("outside-marker"); got != 0 {
+		t.Fatalf("symlink escape locator line = %d, want zero", got)
+	}
+}
+
 func compactJSON(t *testing.T, data []byte) string {
 	t.Helper()
 	var value any

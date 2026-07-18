@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"os"
 	"sort"
 	"strings"
 
@@ -779,7 +778,7 @@ type gatewayAggregationSARIFLocator struct {
 
 func newGatewayAggregationSARIFLocator(uri string) gatewayAggregationSARIFLocator {
 	locator := gatewayAggregationSARIFLocator{uri: uri}
-	if data, err := os.ReadFile(uri); err == nil {
+	if data, err := readExplicitInputFile(uri, "gateway aggregation SARIF artifact"); err == nil {
 		locator.lines = strings.Split(string(data), "\n")
 	}
 	return locator

@@ -146,6 +146,7 @@ func (c *HTTPClient) Close() error {
 		if c.opts.muxManager != nil {
 			_ = c.opts.muxManager.Close()
 		}
+		closeRPCMuxDiagnosisExporter(c.opts.muxEventExporter)
 	})
 	return nil
 }

@@ -325,7 +325,9 @@ func releaseGeneratedRPCMuxRetrySmokeCheck() (releaseCheckItem, []string) {
 		`mtlsClient.ObserveMuxDiagnosis(mtlsRefillTraceCtx, refillDiagnosis)`,
 		`rpc.ValidateRPCMuxOTelLogSinkProfile`,
 		`rpc.NewRPCMuxOTelLogSinkExporter`,
-		`rpc.WithServerMuxDiagnosisEventExporter`,
+		`rpc.WithMuxDiagnosisEventExporterDelivery`,
+		`rpc.WithServerMuxDiagnosisEventExporterDelivery`,
+		`RPCMuxDiagnosisExporterDeliveryConfig`,
 		`func (c RPCMuxConfig) ServerOptions() []rpc.ServerOption`,
 		`func TestRPCMuxConfigValidatesOTelCompatibleSink`,
 		`mtlsTraceAttrs["rpc.mux.candidate.tls"].AsBool()`,
@@ -569,10 +571,11 @@ func readReleaseJSONFile(path string, label string) (map[string]any, error) {
 }
 
 func resolveReleaseEvidencePath(path string) (string, error) {
-	path = filepath.Clean(strings.TrimSpace(path))
+	path = strings.TrimSpace(path)
 	if path == "" || filepath.IsAbs(path) {
 		return "", fmt.Errorf("release evidence path must be relative")
 	}
+	path = filepath.Clean(path)
 	current, err := os.Getwd()
 	if err != nil {
 		return "", err

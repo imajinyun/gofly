@@ -150,14 +150,14 @@ func RegisterRPCMuxOTelLogSinkProvider(name string, provider RPCMuxOTelLogSinkPr
 	}
 }
 
-func isNilRPCMuxOTelLogSinkProvider(provider RPCMuxOTelLogSinkProvider) bool {
-	if provider == nil {
+func isNilRPCMuxOTelLogSinkProvider(value any) bool {
+	if value == nil {
 		return true
 	}
-	value := reflect.ValueOf(provider)
-	switch value.Kind() {
+	reflected := reflect.ValueOf(value)
+	switch reflected.Kind() {
 	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
-		return value.IsNil()
+		return reflected.IsNil()
 	default:
 		return false
 	}

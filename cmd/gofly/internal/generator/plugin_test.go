@@ -192,6 +192,83 @@ func TestPluginResponseApplyRejectsPartialWritesWhenPatchFails(t *testing.T) {
 	}
 }
 
+func TestPluginResponseApplyWritesFilesAndPatchesContract(t *testing.T) {
+	dir := t.TempDir()
+	handlerPath := filepath.Join(dir, "handler.go")
+	configPath := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(handlerPath, []byte("package handler\n\nfunc Existing() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configPath, []byte("enabled: true\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	resp := PluginResponse{
+		Files: []PluginFile{
+			{Path: "internal/plugin.txt", Content: "generated"},
+			{Path: "scripts/setup.sh", Content: "#!/bin/sh\nexit 0\n"},
+			{Path: "", Content: "ignored"},
+		},
+		Patches: []PluginPatch{
+			{Path: "handler.go", InsertAfter: "package handler\n", Patch: "// generated registration"},
+			{Path: "config.yaml", Patch: "profile: production"},
+			{Path: "", Patch: "ignored"},
+		},
+	}
+
+	count, err := resp.Apply(dir)
+	if err != nil {
+		t.Fatalf("Apply returned error: %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("Apply file count = %d, want 2", count)
+	}
+	assertPluginFile := func(path, want string, wantMode os.FileMode) {
+		t.Helper()
+		data, readErr := os.ReadFile(path)
+		if readErr != nil {
+			t.Fatalf("read %s: %v", path, readErr)
+		}
+		if string(data) != want {
+			t.Fatalf("%s content = %q, want %q", path, data, want)
+		}
+		info, statErr := os.Stat(path)
+		if statErr != nil {
+			t.Fatalf("stat %s: %v", path, statErr)
+		}
+		if got := info.Mode().Perm(); got != wantMode {
+			t.Fatalf("%s mode = %v, want %v", path, got, wantMode)
+		}
+	}
+	assertPluginFile(
+		filepath.Join(dir, "internal", "plugin.txt"),
+		"generated",
+		generatedPublicFileMode,
+	)
+	assertPluginFile(
+		filepath.Join(dir, "scripts", "setup.sh"),
+		"#!/bin/sh\nexit 0\n",
+		generatedDirMode,
+	)
+	assertPluginFile(
+		handlerPath,
+		"package handler\n\n// generated registration\nfunc Existing() {}\n",
+		generatedPublicFileMode,
+	)
+	assertPluginFile(
+		configPath,
+		"enabled: true\n\nprofile: production",
+		generatedPublicFileMode,
+	)
+
+	if count, err := resp.Apply(""); err == nil || count != 0 {
+		t.Fatalf("Apply empty directory = %d, %v, want 0 and error", count, err)
+	}
+	if err := resp.ApplyPatches(""); err == nil {
+		t.Fatal("ApplyPatches empty directory succeeded, want error")
+	}
+}
+
 func TestPluginArgumentAndCacheHelpersBoundaries(t *testing.T) {
 	path, args := splitPluginArgs("  ")
 	if path != "" || args != nil {

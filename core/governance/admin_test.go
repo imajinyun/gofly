@@ -127,6 +127,76 @@ func TestAdminServesSnapshotExplainAndRuleReplacement(t *testing.T) {
 	}
 }
 
+func TestManagerRuntimeRegistryAdminDiscoveryContract(t *testing.T) {
+	registry := coreruntime.NewRegistry()
+	manager, err := NewManager(
+		Config{
+			Rules: []Rule{{
+				Name:      "orders",
+				Transport: TransportREST,
+				Service:   "orders",
+				Policy:    Policy{Timeout: time.Second},
+			}},
+			Watch:         true,
+			WatchInterval: 2 * time.Second,
+		},
+		WithRuntimeRegistry(registry),
+	)
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	runtimeSnapshot := manager.RuntimeSnapshot(context.Background())
+	if len(runtimeSnapshot.Components) != 1 {
+		t.Fatalf("manager runtime components = %+v, want one component", runtimeSnapshot.Components)
+	}
+	component := runtimeSnapshot.Components[0]
+	if component.Name != "governance.manager" || component.Kind != "governance" ||
+		component.Owner != "governance" || component.Status != "ok" {
+		t.Fatalf("manager runtime component = %+v", component)
+	}
+	details, ok := component.Details.(map[string]any)
+	if !ok || details["source"] != "static" || details["watch"] != true ||
+		details["watchInterval"] != 2*time.Second {
+		t.Fatalf("manager runtime details = %#v", component.Details)
+	}
+	governanceDetails, ok := component.Governance.(map[string]any)
+	if !ok || governanceDetails["rules"] != 1 || governanceDetails["diagnostics"] != 0 {
+		t.Fatalf("manager runtime governance = %#v", component.Governance)
+	}
+
+	admin := NewAdmin(nil, nil, WithAdminPathPrefix("/admin/governance"), WithAdminManager(manager))
+	recorder := httptest.NewRecorder()
+	admin.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/admin/governance/runtime", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("manager runtime admin status = %d, body=%s", recorder.Code, recorder.Body.String())
+	}
+	var decoded coreruntime.Snapshot
+	if err := json.NewDecoder(recorder.Body).Decode(&decoded); err != nil {
+		t.Fatal(err)
+	}
+	if len(decoded.Components) != 1 || decoded.Components[0].Name != "governance.manager" {
+		t.Fatalf("manager runtime admin snapshot = %+v", decoded)
+	}
+
+	for _, test := range []struct {
+		name   string
+		admin  *Admin
+		method string
+		status int
+	}{
+		{name: "empty runtime", admin: NewAdmin(nil, nil), method: http.MethodGet, status: http.StatusOK},
+		{name: "method rejected", admin: admin, method: http.MethodPost, status: http.StatusMethodNotAllowed},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			test.admin.ServeHTTP(recorder, httptest.NewRequest(test.method, "/runtime", nil))
+			if recorder.Code != test.status {
+				t.Fatalf("runtime status = %d, want %d, body=%s", recorder.Code, test.status, recorder.Body.String())
+			}
+		})
+	}
+}
+
 func TestAdminRollbackGuardsExpectedVersionRequireSafeAndForce(t *testing.T) {
 	rules := NewRuleSet(Rule{Name: "orders", Transport: TransportREST, Service: "orders", Policy: Policy{Timeout: time.Second}})
 	rules.Replace(

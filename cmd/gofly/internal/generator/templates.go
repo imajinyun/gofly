@@ -13,8 +13,10 @@ package muxotelsink
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
-	"strings"
+	"net/url"
+	"time"
 
 	"github.com/imajinyun/gofly/rpc"
 )
@@ -23,27 +25,89 @@ const Name = "{{.MuxOTelSinkName}}"
 
 type provider struct{}
 
-func (provider) ValidateRPCMuxOTelLogProfile(profile string) error {
-	profile = strings.TrimSpace(profile)
-	if profile == "" {
-		return fmt.Errorf("profile is required")
-	}
-	if len(profile) > 128 {
-		return fmt.Errorf("profile exceeds 128 bytes")
-	}
-	return nil
+type profile struct {
+	Endpoint  string ` + "`json:\"endpoint\"`" + `
+	BatchSize int    ` + "`json:\"batchSize\"`" + `
+	Timeout   string ` + "`json:\"timeout\"`" + `
 }
 
-func (provider) NewRPCMuxOTelLogExporter(profile string) rpc.RPCMuxOTelLogExporter {
+func (provider) RPCMuxOTelLogProfileSchema() json.RawMessage {
+	return json.RawMessage(` + "`" + `{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","additionalProperties":false,"required":["endpoint","batchSize","timeout"],"properties":{"endpoint":{"type":"string","format":"uri","pattern":"^https://"},"batchSize":{"type":"integer","minimum":1,"maximum":1000},"timeout":{"type":"string","pattern":"^[0-9]+(ms|s)$"}}}` + "`" + `)
+}
+
+func (provider) ValidateRPCMuxOTelLogProfile(profile string) error {
+	_, err := decodeProfile(profile)
+	return err
+}
+
+func decodeProfile(raw string) (profile, error) {
+	var cfg profile
+	if err := rpc.DecodeRPCMuxOTelLogProfile(raw, &cfg); err != nil {
+		return profile{}, err
+	}
+	endpoint, err := url.ParseRequestURI(cfg.Endpoint)
+	if err != nil || endpoint.Scheme != "https" || endpoint.Host == "" {
+		return profile{}, fmt.Errorf("endpoint must be an absolute https URL")
+	}
+	if cfg.BatchSize < 1 || cfg.BatchSize > 1000 {
+		return profile{}, fmt.Errorf("batchSize must be between 1 and 1000")
+	}
+	timeout, err := time.ParseDuration(cfg.Timeout)
+	if err != nil || timeout < time.Millisecond || timeout > 30*time.Second {
+		return profile{}, fmt.Errorf("timeout must be between 1ms and 30s")
+	}
+	return cfg, nil
+}
+
+func (provider) NewRPCMuxOTelLogExporter(raw string) rpc.RPCMuxOTelLogExporter {
+	profile, err := decodeProfile(raw)
+	if err != nil {
+		return nil
+	}
 	return rpc.RPCMuxOTelLogExporterFunc(func(ctx context.Context, record rpc.RPCMuxDiagnosisEventOTelLogRecord) {
-		export(ctx, strings.TrimSpace(profile), record)
+		export(ctx, profile, record)
 	})
 }
 
-func export(context.Context, string, rpc.RPCMuxDiagnosisEventOTelLogRecord) {}
+func export(context.Context, profile, rpc.RPCMuxDiagnosisEventOTelLogRecord) {}
 
 func init() {
 	rpc.RegisterRPCMuxOTelLogSinkProvider(Name, provider{})
+}
+`
+
+const muxOTelSinkFeatureTestTemplate = `package muxotelsink
+
+import (
+	"encoding/json"
+	"testing"
+)
+
+func TestProviderProfileSchemaAndValidation(t *testing.T) {
+	schema := (provider{}).RPCMuxOTelLogProfileSchema()
+	if !json.Valid(schema) {
+		t.Fatalf("profile schema is invalid JSON: %s", schema)
+	}
+	tests := []struct {
+		name    string
+		profile string
+		wantErr bool
+	}{
+		{name: "valid", profile: ` + "`" + `{"endpoint":"https://telemetry.example.com/v1/logs","batchSize":64,"timeout":"2s"}` + "`" + `},
+		{name: "unknown field", profile: ` + "`" + `{"endpoint":"https://telemetry.example.com/v1/logs","batchSize":64,"timeout":"2s","token":"secret"}` + "`" + `, wantErr: true},
+		{name: "insecure endpoint", profile: ` + "`" + `{"endpoint":"http://telemetry.example.com/v1/logs","batchSize":64,"timeout":"2s"}` + "`" + `, wantErr: true},
+		{name: "batch too large", profile: ` + "`" + `{"endpoint":"https://telemetry.example.com/v1/logs","batchSize":1001,"timeout":"2s"}` + "`" + `, wantErr: true},
+		{name: "timeout too short", profile: ` + "`" + `{"endpoint":"https://telemetry.example.com/v1/logs","batchSize":64,"timeout":"1us"}` + "`" + `, wantErr: true},
+		{name: "timeout too long", profile: ` + "`" + `{"endpoint":"https://telemetry.example.com/v1/logs","batchSize":64,"timeout":"31s"}` + "`" + `, wantErr: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := (provider{}).ValidateRPCMuxOTelLogProfile(test.profile)
+			if (err != nil) != test.wantErr {
+				t.Fatalf("ValidateRPCMuxOTelLogProfile() error = %v, wantErr %v", err, test.wantErr)
+			}
+		})
+	}
 }
 `
 
@@ -1484,12 +1548,12 @@ func TestAdminDiagnostics(t *testing.T) {
 }
 
 func TestAdminDiagnosticsCustomOTelLogSink(t *testing.T) {
-	var customRecords []rpc.RPCMuxDiagnosisEventOTelLogRecord
+	customRecords := make(chan rpc.RPCMuxDiagnosisEventOTelLogRecord, 4)
 	var customProfile string
 	cleanup := rpc.RegisterRPCMuxOTelLogSink("otel-test", func(profile string) rpc.RPCMuxOTelLogExporter {
 		customProfile = profile
 		return rpc.RPCMuxOTelLogExporterFunc(func(_ context.Context, record rpc.RPCMuxDiagnosisEventOTelLogRecord) {
-			customRecords = append(customRecords, record)
+			customRecords <- record
 		})
 	})
 	defer cleanup()
@@ -1501,7 +1565,7 @@ func TestAdminDiagnosticsCustomOTelLogSink(t *testing.T) {
 		t.Fatal("custom otel-test sink should be discovered case-insensitively")
 	}
 
-	customCfg := appconfig.Config{RPC: appconfig.RPCConfig{Mux: appconfig.RPCMuxConfig{Enabled: true, Log: appconfig.RPCMuxLogConfig{Enabled: true, ExportEvents: true, EventFamily: "flow-control", Event: "fragment-window-refill", OTelCompatible: appconfig.RPCMuxOTelCompatibleLogConfig{Enabled: true, Sink: "otel-test", Profile: "generated-custom-sink"}}, Candidate: appconfig.RPCMuxCandidateConfig{Enabled: true, Protocol: "gofly-mux/generated-custom-sink-test", MaxFrameBytes: 256, MaxMessageBytes: 1024, MaxConcurrentStreams: 8, ReceiveQueueSize: 2, ConnectionWindow: 3, FragmentStreamWindowUpdatePolicy: "on_receive", FragmentConnectionWindowUpdatePolicy: "on_receive", FragmentStreamWindowRefillRatio: 0.5, FragmentConnectionWindowRefillRatio: 0.25, FragmentMaxDeferredFragments: 2, FragmentWindowPolicyRiskMode: "warn", PayloadCodec: "identity", FrameCodec: "binary"}}}}
+	customCfg := appconfig.Config{RPC: appconfig.RPCConfig{Mux: appconfig.RPCMuxConfig{Enabled: true, Log: appconfig.RPCMuxLogConfig{Enabled: true, ExportEvents: true, EventFamily: "flow-control", Event: "fragment-window-refill", OTelCompatible: appconfig.RPCMuxOTelCompatibleLogConfig{Enabled: true, Sink: "otel-test", Profile: "generated-custom-sink", Delivery: appconfig.RPCMuxExporterDeliveryConfig{QueueSize: 4, Timeout: time.Second}}}, Candidate: appconfig.RPCMuxCandidateConfig{Enabled: true, Protocol: "gofly-mux/generated-custom-sink-test", MaxFrameBytes: 256, MaxMessageBytes: 1024, MaxConcurrentStreams: 8, ReceiveQueueSize: 2, ConnectionWindow: 3, FragmentStreamWindowUpdatePolicy: "on_receive", FragmentConnectionWindowUpdatePolicy: "on_receive", FragmentStreamWindowRefillRatio: 0.5, FragmentConnectionWindowRefillRatio: 0.25, FragmentMaxDeferredFragments: 2, FragmentWindowPolicyRiskMode: "warn", PayloadCodec: "identity", FrameCodec: "binary"}}}}
 	if err := appconfig.ValidateRPCMuxConfig(customCfg.RPC.Mux); err != nil {
 		t.Fatalf("custom otel-test sink should validate: %v", err)
 	}
@@ -1530,23 +1594,24 @@ func TestAdminDiagnosticsCustomOTelLogSink(t *testing.T) {
 	if customProfile != "generated-custom-sink" {
 		t.Fatalf("custom sink profile = %q, want generated-custom-sink", customProfile)
 	}
-	if len(customRecords) == 0 {
-		t.Fatal("custom otel-test sink received zero records, want at least one flow_control event")
-	}
 	foundRefill := false
-	for _, r := range customRecords {
-		if r.Event.Family == "flow_control" && r.Event.Event == "fragment_window_refill" {
-			foundRefill = true
-			if r.Name != "rpc.mux.diagnosis_event" {
-				t.Fatalf("custom record name = %q, want rpc.mux.diagnosis_event", r.Name)
+	timeout := time.NewTimer(time.Second)
+	defer timeout.Stop()
+	for !foundRefill {
+		select {
+		case record := <-customRecords:
+			if record.Event.Family == "flow_control" && record.Event.Event == "fragment_window_refill" {
+				foundRefill = true
+				if record.Name != "rpc.mux.diagnosis_event" {
+					t.Fatalf("custom record name = %q, want rpc.mux.diagnosis_event", record.Name)
+				}
+				if record.Severity != "WARN" {
+					t.Fatalf("custom record severity = %q, want WARN", record.Severity)
+				}
 			}
-			if r.Severity != "WARN" {
-				t.Fatalf("custom record severity = %q, want WARN", r.Severity)
-			}
+		case <-timeout.C:
+			t.Fatal("custom otel-test sink received no fragment_window_refill event")
 		}
-	}
-	if !foundRefill {
-		t.Fatalf("custom otel-test sink records = %+v, want fragment_window_refill flow_control event", customRecords)
 	}
 }
 
@@ -1819,6 +1884,19 @@ type RPCMuxOTelCompatibleLogConfig struct {
 	Enabled bool ` + "`json:\"enabled\"`" + `
 	Sink string ` + "`json:\"sink,omitempty\"`" + `
 	Profile string ` + "`json:\"profile,omitempty\"`" + `
+	Delivery RPCMuxExporterDeliveryConfig ` + "`json:\"delivery,omitempty\"`" + `
+}
+
+type RPCMuxExporterDeliveryConfig struct {
+	QueueSize int ` + "`json:\"queueSize,omitempty\"`" + `
+	Timeout time.Duration ` + "`json:\"timeout,omitempty\"`" + `
+}
+
+func (c RPCMuxExporterDeliveryConfig) RuntimeConfig() rpc.RPCMuxDiagnosisExporterDeliveryConfig {
+	return rpc.RPCMuxDiagnosisExporterDeliveryConfig{
+		QueueSize: c.QueueSize,
+		Timeout: c.Timeout,
+	}
 }
 
 type RPCMuxTLSConfig struct {
@@ -2116,7 +2194,7 @@ func (c RPCMuxConfig) ClientOptions() []rpc.ClientOption {
 			if exporter == nil {
 				return options
 			}
-			options = append(options, rpc.WithMuxDiagnosisEventExporter(exporter, filter))
+			options = append(options, rpc.WithMuxDiagnosisEventExporterDelivery(exporter, filter, c.Log.OTelCompatible.Delivery.RuntimeConfig()))
 		} else {
 			options = append(options, rpc.WithMuxDiagnosisEventLogging(nil, filter))
 		}
@@ -2140,7 +2218,7 @@ func (c RPCMuxConfig) ServerOptions() []rpc.ServerOption {
 		if exporter == nil {
 			return nil
 		}
-		return []rpc.ServerOption{rpc.WithServerMuxDiagnosisEventExporter(exporter, filter)}
+		return []rpc.ServerOption{rpc.WithServerMuxDiagnosisEventExporterDelivery(exporter, filter, c.Log.OTelCompatible.Delivery.RuntimeConfig())}
 	}
 	return []rpc.ServerOption{rpc.WithServerMuxDiagnosisEventLogging(nil, filter)}
 }
@@ -2221,6 +2299,9 @@ func (c ControlPlaneContributor) ContributeSnapshot(ctx context.Context, snapsho
 		return err
 	}
 	if err := addGeneratedControlPlaneConfig("discovery", cfg.Discovery.Sanitized()); err != nil {
+		return err
+	}
+	if err := addGeneratedControlPlaneConfig("rpcMuxOTelSinks", rpc.RPCMuxOTelLogSinkRegistry()); err != nil {
 		return err
 	}
 	if err := addGeneratedControlPlaneConfig("openapi", cfg.OpenAPIInfo()); err != nil {

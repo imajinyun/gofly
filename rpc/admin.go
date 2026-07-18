@@ -240,6 +240,19 @@ func (s *HTTPServer) RuntimeSnapshot(ctx context.Context) coreruntime.Snapshot {
 			return s.opts.muxServerAdapter.RuntimeComponentSnapshot(ctx)
 		}, coreruntime.WithOwner("rpc"))
 	}
+	registry.Register("rpc.mux.sink.registry", "registry", func(context.Context) coreruntime.ComponentSnapshot {
+		details := map[string]any{"registry": RPCMuxOTelLogSinkRegistry()}
+		if delivery, ok := s.opts.muxEventExporter.(RPCMuxDiagnosisExporterDeliverySnapshotter); ok {
+			details["delivery"] = delivery.RPCMuxDiagnosisExporterDeliverySnapshot()
+		}
+		return coreruntime.ComponentSnapshot{
+			Name:    "rpc.mux.sink.registry",
+			Kind:    "registry",
+			Owner:   "rpc",
+			Status:  "ok",
+			Details: details,
+		}
+	}, coreruntime.WithOwner("rpc"))
 	return registry.Snapshot(ctx)
 }
 

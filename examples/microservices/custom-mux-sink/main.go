@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"sort"
 	"strings"
@@ -246,47 +247,57 @@ func runDemo() sinkDemoReport {
 	return report
 }
 
-func main() {
-	jsonOut := flag.Bool("json", false, "emit JSON report instead of human-readable output")
-	flag.Parse()
-
+func run(args []string, out io.Writer) int {
+	flags := flag.NewFlagSet("custom-mux-sink", flag.ContinueOnError)
+	flags.SetOutput(out)
+	jsonOut := flags.Bool("json", false, "emit JSON report instead of human-readable output")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
 	report := runDemo()
 
 	if *jsonOut {
-		enc := json.NewEncoder(os.Stdout)
+		enc := json.NewEncoder(out)
 		enc.SetIndent("", "  ")
-		_ = enc.Encode(report)
-		return
+		if err := enc.Encode(report); err != nil {
+			return 1
+		}
+		return 0
 	}
 
-	fmt.Println("gofly custom mux OTel log sink demo")
-	fmt.Println(strings.Repeat("=", 44))
-	fmt.Printf("  sink name:    %s\n", report.SinkName)
-	fmt.Printf("  profile:      %s\n", report.Profile)
-	fmt.Printf("  registered:   %t\n", report.Registered)
-	fmt.Printf("  event count:  %d\n", report.EventCount)
+	fmt.Fprintln(out, "gofly custom mux OTel log sink demo")
+	fmt.Fprintln(out, strings.Repeat("=", 44))
+	fmt.Fprintf(out, "  sink name:    %s\n", report.SinkName)
+	fmt.Fprintf(out, "  profile:      %s\n", report.Profile)
+	fmt.Fprintf(out, "  registered:   %t\n", report.Registered)
+	fmt.Fprintf(out, "  event count:  %d\n", report.EventCount)
 	if len(report.EventFamilies) > 0 {
-		fmt.Printf("  event fams:   %v\n", report.EventFamilies)
+		fmt.Fprintf(out, "  event fams:   %v\n", report.EventFamilies)
 	}
 	if len(report.RecordNames) > 0 {
-		fmt.Printf("  record names: %v\n", report.RecordNames)
+		fmt.Fprintf(out, "  record names: %v\n", report.RecordNames)
 	}
-	fmt.Println()
-	fmt.Println("gates:")
+	fmt.Fprintln(out)
+	fmt.Fprintln(out, "gates:")
 	allPass := true
 	for _, g := range report.Gates {
-		fmt.Printf("  %s\n", g)
+		fmt.Fprintf(out, "  %s\n", g)
 		if strings.HasPrefix(g, "FAIL:") {
 			allPass = false
 		}
 	}
-	fmt.Println()
+	fmt.Fprintln(out)
 	if allPass {
-		fmt.Println("all gates passed — custom sink extension point works end-to-end.")
+		fmt.Fprintln(out, "all gates passed — custom sink extension point works end-to-end.")
 	} else {
-		fmt.Println("some gates failed — see above.")
-		os.Exit(1)
+		fmt.Fprintln(out, "some gates failed — see above.")
+		return 1
 	}
 
 	_ = time.Second // referenced for import hygiene
+	return 0
+}
+
+func main() {
+	os.Exit(run(os.Args[1:], os.Stdout))
 }

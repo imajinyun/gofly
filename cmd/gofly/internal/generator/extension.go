@@ -400,7 +400,8 @@ func muxOTelSinkFeature(scope ExtensionScope) ExtensionPatch {
 	sinkName := scope.Extras["feature.mux-otel-sink.value"]
 	return ExtensionPatch{
 		ExtraFiles: map[string]string{
-			filepath.Join("internal", "observability", "muxotelsink", "sink.go"): muxOTelSinkFeatureTemplate,
+			filepath.Join("internal", "observability", "muxotelsink", "sink.go"):      muxOTelSinkFeatureTemplate,
+			filepath.Join("internal", "observability", "muxotelsink", "sink_test.go"): muxOTelSinkFeatureTestTemplate,
 		},
 		DataMerge: map[string]string{
 			"FeatureImports":  "\t_ \"" + scope.Module + "/internal/observability/muxotelsink\"\n",

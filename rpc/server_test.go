@@ -149,6 +149,32 @@ func TestHTTPServerDiagnosisExportsMuxEvents(t *testing.T) {
 	}
 }
 
+func TestHTTPServerRuntimeSnapshotExposesMuxSinkRegistry(t *testing.T) {
+	server := NewServer(WithServerMuxDiagnosisEventExporterDelivery(
+		RPCMuxDiagnosisEventExporterFunc(func(context.Context, RPCMuxDiagnosisEventRecord) {}),
+		RPCMuxDiagnosisFilter{},
+		RPCMuxDiagnosisExporterDeliveryConfig{QueueSize: 2, Timeout: time.Second},
+	))
+	t.Cleanup(func() {
+		if err := server.Stop(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	snapshot := server.RuntimeSnapshot(context.Background())
+	for _, component := range snapshot.Components {
+		if component.Name != "rpc.mux.sink.registry" {
+			continue
+		}
+		details, ok := component.Details.(map[string]any)
+		if !ok || details["registry"] == nil || details["delivery"] == nil {
+			t.Fatalf("mux sink registry component details = %#v, want registry and delivery", component.Details)
+		}
+		return
+	}
+	t.Fatalf("runtime components = %+v, want rpc.mux.sink.registry", snapshot.Components)
+}
+
 func TestHTTPServerServeHTTP(t *testing.T) {
 	s := NewServer()
 	err := s.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{
@@ -1162,8 +1188,9 @@ func TestHTTPServerAdminEndpoints(t *testing.T) {
 	}
 	httpRuntime, hasHTTPRuntime := runtimeByName["rpc.http.server"]
 	muxRuntime, hasMuxRuntime := runtimeByName["rpc.mux.server"]
-	if len(runtimeSnapshot.Components) != 2 || !hasHTTPRuntime || !hasMuxRuntime {
-		t.Fatalf("runtime snapshot = %#v, want rpc http and mux server components", runtimeSnapshot)
+	_, hasSinkRegistry := runtimeByName["rpc.mux.sink.registry"]
+	if len(runtimeSnapshot.Components) != 3 || !hasHTTPRuntime || !hasMuxRuntime || !hasSinkRegistry {
+		t.Fatalf("runtime snapshot = %#v, want rpc http, mux server, and sink registry components", runtimeSnapshot)
 	}
 	if httpRuntime.Middleware == nil || len(httpRuntime.Middleware.Unary) == 0 {
 		t.Fatalf("runtime middleware = %#v, want rpc middleware chain", httpRuntime.Middleware)

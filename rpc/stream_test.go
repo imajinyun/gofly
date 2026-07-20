@@ -63,6 +63,105 @@ func TestRPCStreamEcho(t *testing.T) {
 	}
 }
 
+func TestStreamUpgradeErrorContracts(t *testing.T) {
+	tests := []struct {
+		name        string
+		response    *http.Response
+		wantCode    Code
+		wantMessage string
+	}{
+		{name: "nil response", wantCode: CodeUnavailable, wantMessage: "rpc stream upgrade failed"},
+		{name: "bad request", response: &http.Response{StatusCode: http.StatusBadRequest, Status: "400 Bad Request"}, wantCode: CodeInvalidArgument, wantMessage: "400 Bad Request"},
+		{name: "request too large", response: &http.Response{StatusCode: http.StatusRequestEntityTooLarge}, wantCode: CodeInvalidArgument, wantMessage: http.StatusText(http.StatusRequestEntityTooLarge)},
+		{name: "unauthorized", response: &http.Response{StatusCode: http.StatusUnauthorized}, wantCode: CodeUnauthenticated, wantMessage: http.StatusText(http.StatusUnauthorized)},
+		{name: "forbidden", response: &http.Response{StatusCode: http.StatusForbidden}, wantCode: CodePermissionDenied, wantMessage: http.StatusText(http.StatusForbidden)},
+		{name: "not found", response: &http.Response{StatusCode: http.StatusNotFound}, wantCode: CodeNotFound, wantMessage: http.StatusText(http.StatusNotFound)},
+		{name: "conflict", response: &http.Response{StatusCode: http.StatusConflict}, wantCode: CodeAborted, wantMessage: http.StatusText(http.StatusConflict)},
+		{name: "rate limited", response: &http.Response{StatusCode: http.StatusTooManyRequests}, wantCode: CodeResourceExhausted, wantMessage: http.StatusText(http.StatusTooManyRequests)},
+		{name: "gateway timeout", response: &http.Response{StatusCode: http.StatusGatewayTimeout}, wantCode: CodeDeadlineExceeded, wantMessage: http.StatusText(http.StatusGatewayTimeout)},
+		{name: "not implemented", response: &http.Response{StatusCode: http.StatusNotImplemented}, wantCode: CodeUnimplemented, wantMessage: http.StatusText(http.StatusNotImplemented)},
+		{name: "bad gateway", response: &http.Response{StatusCode: http.StatusBadGateway}, wantCode: CodeUnavailable, wantMessage: http.StatusText(http.StatusBadGateway)},
+		{name: "internal", response: &http.Response{StatusCode: http.StatusInternalServerError}, wantCode: CodeInternal, wantMessage: http.StatusText(http.StatusInternalServerError)},
+		{name: "redirect fallback", response: &http.Response{StatusCode: http.StatusTemporaryRedirect}, wantCode: CodeUnavailable, wantMessage: http.StatusText(http.StatusTemporaryRedirect)},
+		{
+			name: "structured envelope overrides code",
+			response: &http.Response{
+				StatusCode: http.StatusInternalServerError,
+				Body:       io.NopCloser(strings.NewReader(`{"code":"permission_denied","error":"tenant blocked"}`)),
+			},
+			wantCode: CodePermissionDenied, wantMessage: "tenant blocked",
+		},
+		{
+			name: "plain body overrides status",
+			response: &http.Response{
+				StatusCode: http.StatusServiceUnavailable,
+				Body:       io.NopCloser(strings.NewReader("maintenance")),
+			},
+			wantCode: CodeUnavailable, wantMessage: "maintenance",
+		},
+		{
+			name: "unreadable body keeps status",
+			response: &http.Response{
+				StatusCode: http.StatusServiceUnavailable,
+				Status:     "503 custom",
+				Body:       io.NopCloser(errorReader{}),
+			},
+			wantCode: CodeUnavailable, wantMessage: "503 custom",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := streamUpgradeError(test.response)
+			if CodeOf(err) != test.wantCode || !strings.Contains(err.Error(), test.wantMessage) {
+				t.Fatalf("streamUpgradeError = %v code=%q, want code=%q message containing %q", err, CodeOf(err), test.wantCode, test.wantMessage)
+			}
+		})
+	}
+}
+
+func TestRPCMuxStreamPolicyAndAdapterBoundaries(t *testing.T) {
+	var nilClient *HTTPClient
+	if _, err := nilClient.openMuxStream(context.Background(), "orders/Watch"); CodeOf(err) != CodeUnavailable {
+		t.Fatalf("nil client openMuxStream = %v, want unavailable", err)
+	}
+	client := &HTTPClient{}
+	if _, err := client.openMuxStream(context.Background(), "orders/Watch"); CodeOf(err) != CodeUnavailable {
+		t.Fatalf("unconfigured openMuxStream = %v, want unavailable", err)
+	}
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, _, err := client.openMuxStreamWithEndpoint(canceled, "orders/Watch"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled openMuxStreamWithEndpoint = %v", err)
+	}
+
+	dynamicErr := errors.New("policy unavailable")
+	client.opts.rpcPolicyProvider = RPCPolicyProviderFunc(func(context.Context, coregovernance.Request) (RPCPolicy, error) {
+		return RPCPolicy{}, dynamicErr
+	})
+	client.opts.muxClientAdapter = &ExperimentalMuxClientAdapter{}
+	if _, _, err := client.openMuxStreamWithEndpoint(context.Background(), "orders/Watch"); !errors.Is(err, dynamicErr) ||
+		!strings.Contains(err.Error(), "resolve dynamic rpc mux stream policy") {
+		t.Fatalf("dynamic policy error = %v", err)
+	}
+
+	client.opts.rpcPolicyProvider = RPCPolicyProviderFunc(func(context.Context, coregovernance.Request) (RPCPolicy, error) {
+		return RPCPolicy{Balancer: RPCBalancerPolicy{Name: "unsupported"}}, nil
+	})
+	if _, _, err := client.openMuxStreamWithEndpoint(context.Background(), "orders/Watch"); err == nil ||
+		!strings.Contains(err.Error(), "apply rpc mux stream policy") {
+		t.Fatalf("invalid dynamic policy error = %v", err)
+	}
+
+	if policy, err := (RPCPolicyProviderFunc(nil)).RPCPolicy(context.Background(), coregovernance.Request{}); err != nil ||
+		policy.Timeout != 0 {
+		t.Fatalf("nil policy provider = %+v err=%v", policy, err)
+	}
+}
+
+type errorReader struct{}
+
+func (errorReader) Read([]byte) (int, error) { return 0, errors.New("read failed") }
+
 func TestRPCStreamPropagatesClientMetadata(t *testing.T) {
 	s := NewServer()
 	if err := s.RegisterService(ServiceDesc{Name: "chat", Streams: []StreamDesc{{

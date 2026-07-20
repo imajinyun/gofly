@@ -88,6 +88,11 @@ func RPCMuxOTelLogSinkRegistry() RPCMuxOTelLogSinkRegistrySnapshot {
 			"bounded_delivery",
 			"timeout_isolation",
 			"panic_isolation",
+			"atomic_hot_reload",
+			"reload_rollback",
+			"multi_sink_fanout",
+			"per_sink_breaker",
+			"delivery_slo",
 		},
 	}
 	for _, name := range names {

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/imajinyun/gofly/core/discovery"
 )
@@ -48,6 +49,29 @@ func TestRPCEtcdRegistryValidationNoopAndDoBoundaries(t *testing.T) {
 	}
 	if !lease.ExpiresAt().IsZero() {
 		t.Fatalf("noop ExpiresAt = %s, want zero", lease.ExpiresAt())
+	}
+	noopInstance := lease.Instance()
+	if noopInstance.Service != "" || noopInstance.Endpoint != "" {
+		t.Fatalf("noop instance = %+v, want zero instance", noopInstance)
+	}
+
+	expiresAt := time.Now().Add(time.Minute)
+	concrete := &etcdLease{
+		instance: discovery.Instance{
+			Service:  " svc ",
+			Endpoint: " http://127.0.0.1:8080/ ",
+		},
+		expiresAt: expiresAt,
+	}
+	instance := concrete.Instance()
+	if instance.Service != "svc" || instance.Endpoint != "http://127.0.0.1:8080" ||
+		!concrete.ExpiresAt().Equal(expiresAt) {
+		t.Fatalf("concrete lease instance=%+v expires=%v", instance, concrete.ExpiresAt())
+	}
+	var nilLease *etcdLease
+	if instance := nilLease.Instance(); instance.Service != "" || instance.Endpoint != "" ||
+		len(instance.Metadata) != 0 || !nilLease.ExpiresAt().IsZero() {
+		t.Fatalf("nil lease instance=%+v expires=%v", instance, nilLease.ExpiresAt())
 	}
 
 	statusRegistry, _ := NewEtcdRegistry("http://etcd", "", &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {

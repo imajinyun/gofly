@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -326,6 +327,119 @@ func TestModelHelperBoundaries(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := singularize(tt.name); got != tt.want {
 				t.Fatalf("singularize(%q) = %q, want %q", tt.name, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestModelModuleAndGoModDependencyBoundaries(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		driver string
+		want   storage.Dialect
+	}{
+		{name: "postgres", driver: " pg ", want: storage.DialectPostgres},
+		{name: "postgresql", driver: "POSTGRESQL", want: storage.DialectPostgres},
+		{name: "mysql", driver: "mariadb", want: storage.DialectMySQL},
+		{name: "sqlite", driver: "sqlite3", want: storage.DialectSQLite},
+		{name: "unknown", driver: "oracle", want: storage.DialectQuestion},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := modelDefaultDialect(test.driver); got != test.want {
+				t.Fatalf("modelDefaultDialect(%q) = %q, want %q", test.driver, got, test.want)
+			}
+		})
+	}
+
+	root := t.TempDir()
+	modelDir := filepath.Join(root, "internal", "model")
+	if err := os.MkdirAll(modelDir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	goMod := filepath.Join(root, "go.mod")
+	if err := os.WriteFile(goMod, []byte("module example.com/orders\n\ngo 1.26\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	module, err := inferModelModule(modelDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if module != "example.com/orders/internal/model" {
+		t.Fatalf("inferred module = %q", module)
+	}
+	if err := ensureModelGoModDependencies(modelDir, modelStyleSQL); err != nil {
+		t.Fatalf("SQL dependencies: %v", err)
+	}
+	if err := ensureModelGoModDependencies(modelDir, modelStyleGORM); err != nil {
+		t.Fatalf("GORM dependencies: %v", err)
+	}
+	data, err := os.ReadFile(goMod)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !goModHasRequire(data, gormModulePath) || !strings.Contains(string(data), "require gorm.io/gorm v1.31.1") {
+		t.Fatalf("go.mod after GORM dependency:\n%s", data)
+	}
+	info, err := os.Stat(goMod)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o640 {
+		t.Fatalf("go.mod mode = %o, want 640", info.Mode().Perm())
+	}
+	if err := ensureModelGoModDependencies(modelDir, modelStyleGORM); err != nil {
+		t.Fatal(err)
+	}
+	again, err := os.ReadFile(goMod)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Count(again, []byte(gormModulePath)) != 1 {
+		t.Fatalf("duplicate GORM dependency:\n%s", again)
+	}
+
+	if err := ensureGoModRequire(filepath.Join(root, "not-go.mod"), "example.com/dependency", "v1.0.0"); err == nil {
+		t.Fatal("ensureGoModRequire accepted non-go.mod path")
+	}
+	missing := filepath.Join(root, "missing", "go.mod")
+	if err := ensureGoModRequire(missing, "example.com/dependency", "v1.0.0"); err == nil || !strings.Contains(err.Error(), "symlinks") {
+		t.Fatalf("missing parent error = %v, want symlink resolution error", err)
+	}
+	directoryGoMod := filepath.Join(root, "directory", "go.mod")
+	if err := os.MkdirAll(directoryGoMod, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := ensureGoModRequire(directoryGoMod, "example.com/dependency", "v1.0.0"); err == nil || !strings.Contains(err.Error(), "is a directory") {
+		t.Fatalf("directory go.mod error = %v", err)
+	}
+	if _, err := readGoModModule(filepath.Join(root, "absent.mod")); err == nil || !strings.Contains(err.Error(), "read go.mod") {
+		t.Fatalf("missing readGoModModule error = %v", err)
+	}
+	emptyModule := filepath.Join(root, "empty.mod")
+	if err := os.WriteFile(emptyModule, []byte("go 1.26\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readGoModModule(emptyModule); err == nil || err.Error() != "module is required" {
+		t.Fatalf("empty module error = %v", err)
+	}
+	if _, err := findNearestGoMod(t.TempDir()); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("findNearestGoMod absent error = %v, want os.ErrNotExist", err)
+	}
+
+	for _, test := range []struct {
+		name string
+		data string
+		want string
+	}{
+		{name: "empty", want: "require example.com/dependency v1.2.3\n"},
+		{name: "top-level require block", data: "require (\n\texample.com/old v1.0.0\n)\n", want: "require (\n\texample.com/dependency v1.2.3\n"},
+		{name: "module require block", data: "module example.com/app\n\nrequire (\n\texample.com/old v1.0.0\n)\n", want: "\nrequire (\n\texample.com/dependency v1.2.3\n"},
+		{name: "append single require", data: "module example.com/app\n\ngo 1.26\n", want: "\n\nrequire example.com/dependency v1.2.3\n"},
+	} {
+		t.Run("add require "+test.name, func(t *testing.T) {
+			got := string(addGoModRequire([]byte(test.data), "example.com/dependency", "v1.2.3"))
+			if !strings.Contains(got, test.want) {
+				t.Fatalf("addGoModRequire output:\n%s\nwant containing:\n%s", got, test.want)
 			}
 		})
 	}

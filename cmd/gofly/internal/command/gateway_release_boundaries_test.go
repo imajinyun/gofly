@@ -331,6 +331,38 @@ func TestReleaseEvidencePathAndJSONContracts(t *testing.T) {
 	}
 }
 
+func TestReleaseGatewayContractTempDirectoryFailures(t *testing.T) {
+	invalidTemp := filepath.Join(t.TempDir(), "missing")
+	t.Setenv("TMPDIR", invalidTemp)
+	for _, test := range []struct {
+		name string
+		run  func() (releaseCheckItem, []string)
+	}{
+		{name: "profile", run: releaseGatewayProfileContractCheck},
+		{name: "aggregation", run: releaseGatewayAggregationContractCheck},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			item, blockers := test.run()
+			if item.Status != "fail" || !item.Blocker || item.Detail == "" || len(blockers) != 1 {
+				t.Fatalf("release check item=%+v blockers=%v", item, blockers)
+			}
+		})
+	}
+}
+
+func TestCommandPathAndUsageHelperContracts(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "contract.api")
+	if !sameFilePath(path, filepath.Clean(path)) {
+		t.Fatalf("sameFilePath(%q) = false", path)
+	}
+	if sameFilePath(path, filepath.Join(filepath.Dir(path), "other.api")) {
+		t.Fatal("sameFilePath accepted different files")
+	}
+	if text := usage(); !strings.Contains(text, "gofly") {
+		t.Fatalf("usage output = %q, want gofly command", text)
+	}
+}
+
 func TestReleaseGatewayReaderContracts(t *testing.T) {
 	dir := t.TempDir()
 	valid := filepath.Join(dir, "valid.json")

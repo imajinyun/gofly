@@ -1,6 +1,8 @@
 #!/usr/bin/env sh
 set -eu
 
+GO="${GO:-go}"
+
 python3 - <<'PY'
 import json
 import pathlib
@@ -8,7 +10,7 @@ import re
 import sys
 
 root = pathlib.Path(".").resolve()
-manifest_path = root / "docs" / "reference" / "security-defensive-governance.json"
+manifest_path = root / "bin" / "scripts" / "security-evidence.json"
 missing = []
 
 
@@ -25,8 +27,7 @@ def read_text(path):
 
 
 makefile = read_text(root / "Makefile")
-dashboard = json.loads(read_text(root / "docs" / "reference" / "governance-dashboard-contract.json") or "{}")
-ci_evidence = json.loads(read_text(root / "docs" / "reference" / "ci-required-check-evidence.json") or "{}")
+workflow = read_text(root / ".github" / "workflows" / "ci.yml")
 baseline = json.loads(read_text(root / "bin" / "scripts" / "gosec-exception-baseline.json") or "{}")
 governance_script = read_text(root / "bin" / "scripts" / "governance-10-rounds.sh")
 inventory_script = read_text(root / "bin" / "scripts" / "gosec-exception-inventory.sh")
@@ -35,10 +36,10 @@ try:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 except FileNotFoundError:
     manifest = {}
-    missing.append("docs/reference/security-defensive-governance.json is missing")
+    missing.append("bin/scripts/security-evidence.json is missing")
 except json.JSONDecodeError as exc:
     manifest = {}
-    missing.append(f"docs/reference/security-defensive-governance.json is invalid JSON: {exc}")
+    missing.append(f"bin/scripts/security-evidence.json is invalid JSON: {exc}")
 
 
 def target_deps(name):
@@ -69,20 +70,8 @@ require("$(GOVULNCHECK) -scan=$(GOVULNCHECK_SCAN) -show=traces $(PKGS)" in govul
 require("GOSEC_INVENTORY_BASELINE=$(GOSEC_INVENTORY_BASELINE)" in gosec_body, "gosec must check #nosec baseline before scanning")
 require("$(GOSEC) $(GOSEC_FLAGS) ./..." in gosec_body, "gosec must scan the repository with configured flags")
 require("gosec-exception-inventory.sh" in inventory_body, "gosec-inventory-check must use gosec exception inventory")
-
-security = dashboard.get("security") or {}
-require(security.get("gosecGate") == "make gosec", "dashboard security.gosecGate must be make gosec")
-require(security.get("govulncheckGate") == "make govulncheck", "dashboard security.govulncheckGate must be make govulncheck")
-require(security.get("baseline") == "bin/scripts/gosec-exception-baseline.json", "dashboard security baseline path mismatch")
-
-checks = {
-    item.get("job"): item
-    for item in ci_evidence.get("checks") or []
-    if isinstance(item, dict) and item.get("job")
-}
-security_check = checks.get("security") or {}
-require(security_check.get("localGate") == "make security", "CI security check localGate must be make security")
-require(security_check.get("artifact") == "govulncheck and gosec output", "CI security check artifact must name govulncheck and gosec output")
+require("name: security (govulncheck + gosec)" in workflow, "CI security job name mismatch")
+require("run: make security" in workflow, "CI security job must run make security")
 
 require(baseline.get("schema") == "gofly.gosec_exception_baseline.v1", "gosec baseline schema mismatch")
 allowed = baseline.get("allowed_exceptions") or []
@@ -105,8 +94,7 @@ for needle in (
 for needle in ("trust_boundary", "current_protection", "coverage_tests", "replaceable_helper"):
     require(needle in inventory_script, f"gosec exception inventory must emit {needle!r}")
 
-require(manifest.get("schema") == "gofly.security_defensive_governance.v1", "security defensive governance schema mismatch")
-require(manifest.get("aiflowTask") == "GOFLY-GOV-10R3-08", "security defensive governance aiflowTask mismatch")
+require(manifest.get("schema") == "gofly.security_evidence.v1", "security evidence schema mismatch")
 require(manifest.get("acceptanceGate") == "make security", "security defensive governance acceptanceGate mismatch")
 aggregate_gates = set(manifest.get("aggregateGates") or [])
 for gate in ("make security-governance-check", "make govulncheck", "make gosec"):
@@ -136,6 +124,7 @@ required_surfaces = {
     "external-process-and-remote-downloads",
     "body-limit-and-url-scheme",
     "secret-redaction-and-template-safety",
+    "unreachable-openpgp-vulnerability",
 }
 require(surface_ids == required_surfaces, f"security defensive surfaces mismatch: {sorted(surface_ids)!r}")
 
@@ -163,13 +152,6 @@ for item in manifest.get("surfaces") or []:
         for needle in needles:
             require(needle in text, f"surface {surface}: {ref_path} missing {needle!r}")
 
-execution = manifest.get("aiflowExecution") or {}
-require(execution.get("status") == "aiflow-driven", "aiflowExecution.status must be aiflow-driven")
-require("GOFLY-GOV-10R3-08" in str(execution.get("driver") or ""), "aiflowExecution.driver must reference GOFLY-GOV-10R3-08")
-completion_policy = str(execution.get("completionPolicy") or "")
-for needle in ("make security", "govulncheck", "gosec", "commit"):
-    require(needle in completion_policy, f"aiflowExecution.completionPolicy missing {needle!r}")
-
 if missing:
     print("security governance check failed:", file=sys.stderr)
     for item in missing:
@@ -178,3 +160,12 @@ if missing:
 
 print("security governance ok")
 PY
+
+deps_file="$(mktemp)"
+trap 'rm -f "$deps_file"' EXIT
+"$GO" list -deps ./... >"$deps_file"
+if grep -qx 'golang.org/x/crypto/openpgp' "$deps_file"; then
+	echo "security governance check failed: golang.org/x/crypto/openpgp is reachable" >&2
+	exit 1
+fi
+printf '%s\n' 'security dependency reachability ok: golang.org/x/crypto/openpgp is not imported'

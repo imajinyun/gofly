@@ -50,6 +50,24 @@ func TestClientOptions(t *testing.T) {
 	}
 }
 
+func TestServerInterceptorOptionsTrackCustomLayers(t *testing.T) {
+	var options serverOptions
+	unary := func(ctx context.Context, req any, info *stdgrpc.UnaryServerInfo, handler stdgrpc.UnaryHandler) (any, error) {
+		return handler(ctx, req)
+	}
+	stream := func(srv any, ss stdgrpc.ServerStream, info *stdgrpc.StreamServerInfo, handler stdgrpc.StreamHandler) error {
+		return handler(srv, ss)
+	}
+	WithUnaryServerInterceptors(unary, unary)(&options)
+	WithStreamServerInterceptors(stream)(&options)
+	if len(options.unaryInterceptors) != 2 || len(options.unaryNames) != 2 ||
+		options.unaryNames[0] != "custom_unary_interceptor" ||
+		len(options.streamInterceptors) != 1 || len(options.streamNames) != 1 ||
+		options.streamNames[0] != "custom_stream_interceptor" {
+		t.Fatalf("server interceptor options = %+v", options)
+	}
+}
+
 func TestClientConnNilGuards(t *testing.T) {
 	var nilConn *ClientConn
 	if err := nilConn.Close(); err != nil {

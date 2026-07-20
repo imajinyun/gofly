@@ -80,6 +80,72 @@ func TestGovernedRPCMuxDiagnosisEventExporterIsolatesPanic(t *testing.T) {
 	}
 }
 
+func TestGovernedRPCMuxDiagnosisEventExporterBreakerHalfOpenRecovery(t *testing.T) {
+	blockFirst := make(chan struct{})
+	var calls atomic.Int64
+	exporter := newGovernedRPCMuxDiagnosisEventExporter(
+		"half-open-recovery",
+		RPCMuxDiagnosisEventExporterFunc(func(context.Context, RPCMuxDiagnosisEventRecord) {
+			if calls.Add(1) == 1 {
+				<-blockFirst
+			}
+		}),
+		RPCMuxDiagnosisExporterDeliveryConfig{
+			QueueSize:               2,
+			Timeout:                 5 * time.Millisecond,
+			BreakerFailureThreshold: 1,
+			BreakerCooldown:         10 * time.Millisecond,
+		},
+	)
+	governed := exporter.(*governedRPCMuxDiagnosisExporter)
+	defer governed.Close()
+
+	exporter.ExportRPCMuxDiagnosisEvent(context.Background(), RPCMuxDiagnosisEventRecord{})
+	waitForMuxExporterSnapshot(t, governed, func(snapshot RPCMuxDiagnosisExporterDeliverySnapshot) bool {
+		return snapshot.TimedOut == 1 && snapshot.BreakerState == "open"
+	})
+	exporter.ExportRPCMuxDiagnosisEvent(context.Background(), RPCMuxDiagnosisEventRecord{})
+	if snapshot := governed.RPCMuxDiagnosisExporterDeliverySnapshot(); snapshot.BreakerRejected != 1 {
+		t.Fatalf("open breaker snapshot = %+v, want one rejection", snapshot)
+	}
+
+	close(blockFirst)
+	time.Sleep(15 * time.Millisecond)
+	exporter.ExportRPCMuxDiagnosisEvent(context.Background(), RPCMuxDiagnosisEventRecord{})
+	waitForMuxExporterSnapshot(t, governed, func(snapshot RPCMuxDiagnosisExporterDeliverySnapshot) bool {
+		return snapshot.Exported == 1 && snapshot.BreakerState == "closed" &&
+			snapshot.ConsecutiveFailures == 0
+	})
+	snapshot := governed.RPCMuxDiagnosisExporterDeliverySnapshot()
+	if snapshot.Health != "healthy" || snapshot.LastSuccessAt.IsZero() ||
+		snapshot.LastErrorAt.IsZero() || snapshot.LastLatencyNanos <= 0 ||
+		snapshot.MaxLatencyNanos < snapshot.LastLatencyNanos ||
+		snapshot.AverageLatencyNanos <= 0 {
+		t.Fatalf("recovered delivery SLO snapshot = %+v", snapshot)
+	}
+}
+
+func TestGovernedRPCMuxDiagnosisEventExporterHalfOpenAllowsSingleProbe(t *testing.T) {
+	exporter := newGovernedRPCMuxDiagnosisEventExporter(
+		"half-open-single-probe",
+		RPCMuxDiagnosisEventExporterFunc(func(context.Context, RPCMuxDiagnosisEventRecord) {}),
+		RPCMuxDiagnosisExporterDeliveryConfig{BreakerCooldown: time.Nanosecond},
+	)
+	governed := exporter.(*governedRPCMuxDiagnosisExporter)
+	defer governed.Close()
+	governed.breakerOpenedAt.Store(time.Now().Add(-time.Second).UnixNano())
+
+	if !governed.allowDelivery() {
+		t.Fatal("first half-open probe was rejected")
+	}
+	if governed.breakerState() != "half_open" {
+		t.Fatalf("breaker state = %q, want half_open", governed.breakerState())
+	}
+	if governed.allowDelivery() {
+		t.Fatal("second concurrent half-open probe was accepted")
+	}
+}
+
 func TestGovernedRPCMuxDiagnosisEventExporterDrainsAcceptedEventsOnClose(t *testing.T) {
 	records := make(chan RPCMuxDiagnosisEventRecord, 1)
 	exporter := NewGovernedRPCMuxDiagnosisEventExporter(

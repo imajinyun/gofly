@@ -177,6 +177,11 @@ func TestNewConnPoolConfiguresDefaultDialer(t *testing.T) {
 	if pool.conf.DialTimeout != time.Millisecond {
 		t.Fatalf("DialTimeout = %v, want 1ms", pool.conf.DialTimeout)
 	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := pool.dial(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("default dialer canceled error = %v, want context.Canceled", err)
+	}
 }
 
 func TestHTTPServerGovernanceSnapshotBoundaries(t *testing.T) {

@@ -242,18 +242,35 @@ func (s *HTTPServer) RuntimeSnapshot(ctx context.Context) coreruntime.Snapshot {
 	}
 	registry.Register("rpc.mux.sink.registry", "registry", func(context.Context) coreruntime.ComponentSnapshot {
 		details := map[string]any{"registry": RPCMuxOTelLogSinkRegistry()}
-		if delivery, ok := s.opts.muxEventExporter.(RPCMuxDiagnosisExporterDeliverySnapshotter); ok {
+		status := "ok"
+		if sinkSet, ok := s.opts.muxEventExporter.(RPCMuxDiagnosisSinkSetSnapshotter); ok {
+			snapshot := sinkSet.RPCMuxDiagnosisSinkSetSnapshot()
+			details["sinkSet"] = snapshot
+			status = rpcMuxDiagnosisSinkSetStatus(snapshot)
+		} else if delivery, ok := s.opts.muxEventExporter.(RPCMuxDiagnosisExporterDeliverySnapshotter); ok {
 			details["delivery"] = delivery.RPCMuxDiagnosisExporterDeliverySnapshot()
 		}
 		return coreruntime.ComponentSnapshot{
 			Name:    "rpc.mux.sink.registry",
 			Kind:    "registry",
 			Owner:   "rpc",
-			Status:  "ok",
+			Status:  status,
 			Details: details,
 		}
 	}, coreruntime.WithOwner("rpc"))
 	return registry.Snapshot(ctx)
+}
+
+func rpcMuxDiagnosisSinkSetStatus(snapshot RPCMuxDiagnosisSinkSetSnapshot) string {
+	if snapshot.Closed {
+		return "stopped"
+	}
+	for _, sink := range snapshot.Sinks {
+		if sink.Delivery.Health == "unhealthy" {
+			return "degraded"
+		}
+	}
+	return "ok"
 }
 
 func (s *HTTPServer) DiagnosisSnapshot() ServerDiagnosisSnapshot {

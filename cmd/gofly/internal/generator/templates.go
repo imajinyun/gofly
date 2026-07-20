@@ -187,7 +187,16 @@ func main() {
 		rpc.WithRegistryTTL(c.Discovery.RegistryTTL()),
 		rpc.WithServerGovernanceManager(governanceManager),
 	)
-	rpcOptions = append(rpcOptions, c.RPC.Mux.ServerOptions()...)
+	var muxSinkSet *rpc.RPCMuxDiagnosisSinkSet
+	if c.RPC.Mux.Log.Enabled && c.RPC.Mux.Log.ExportEvents && c.RPC.Mux.Log.OTelCompatible.Enabled {
+		muxSinkSet, err = c.RPC.Mux.Log.OTelCompatible.NewSinkSet()
+		if err != nil {
+			slog.Error("setup mux diagnosis sink set", "error", err)
+			return
+		}
+		defer func() { _ = muxSinkSet.Close() }()
+	}
+	rpcOptions = append(rpcOptions, c.RPC.Mux.ServerOptionsWithSinkSet(muxSinkSet)...)
 	var muxServer *rpc.ExperimentalMuxServer
 	if c.RPC.Mux.Enabled {
 		configureMux := func(adapter *rpc.ExperimentalMuxServerAdapter) error {
@@ -233,6 +242,12 @@ func main() {
 	governanceManager.StartAsync(ctx, func(err error) { slog.Warn("governance manager stopped", "error", err) })
 	go func() {
 		if err := config.Watch[appconfig.Config](ctx, configPath, 2*time.Second, func(next appconfig.Config) {
+			if muxSinkSet != nil {
+				if err := next.RPC.Mux.Log.OTelCompatible.ReloadSinkSet(ctx, muxSinkSet); err != nil {
+					slog.Warn("reload mux diagnosis sink set", "error", err)
+					return
+				}
+			}
 			svcCtx.UpdateConfig(next)
 			slog.Info("config reloaded", "rest_host", next.Rest.Host, "rest_port", next.Rest.Port, "rpc_addr", next.RPC.Addr)
 		}); err != nil && ctx.Err() == nil {
@@ -1882,21 +1897,74 @@ type RPCMuxLogConfig struct {
 
 type RPCMuxOTelCompatibleLogConfig struct {
 	Enabled bool ` + "`json:\"enabled\"`" + `
+	Version string ` + "`json:\"version,omitempty\"`" + `
 	Sink string ` + "`json:\"sink,omitempty\"`" + `
 	Profile string ` + "`json:\"profile,omitempty\"`" + `
+	Delivery RPCMuxExporterDeliveryConfig ` + "`json:\"delivery,omitempty\"`" + `
+	Sinks []RPCMuxOTelSinkConfig ` + "`json:\"sinks,omitempty\"`" + `
+}
+
+type RPCMuxOTelSinkConfig struct {
+	Name string ` + "`json:\"name\"`" + `
+	Profile string ` + "`json:\"profile,omitempty\"`" + `
+	Priority int ` + "`json:\"priority,omitempty\"`" + `
 	Delivery RPCMuxExporterDeliveryConfig ` + "`json:\"delivery,omitempty\"`" + `
 }
 
 type RPCMuxExporterDeliveryConfig struct {
 	QueueSize int ` + "`json:\"queueSize,omitempty\"`" + `
 	Timeout time.Duration ` + "`json:\"timeout,omitempty\"`" + `
+	BreakerFailureThreshold int ` + "`json:\"breakerFailureThreshold,omitempty\"`" + `
+	BreakerCooldown time.Duration ` + "`json:\"breakerCooldown,omitempty\"`" + `
 }
 
 func (c RPCMuxExporterDeliveryConfig) RuntimeConfig() rpc.RPCMuxDiagnosisExporterDeliveryConfig {
 	return rpc.RPCMuxDiagnosisExporterDeliveryConfig{
 		QueueSize: c.QueueSize,
 		Timeout: c.Timeout,
+		BreakerFailureThreshold: c.BreakerFailureThreshold,
+		BreakerCooldown: c.BreakerCooldown,
 	}
+}
+
+func (c RPCMuxOTelCompatibleLogConfig) SinkSetConfig() rpc.RPCMuxDiagnosisSinkSetConfig {
+	version := strings.TrimSpace(c.Version)
+	if version == "" {
+		version = "legacy"
+	}
+	if !c.Enabled {
+		return rpc.RPCMuxDiagnosisSinkSetConfig{Version: version}
+	}
+	sinks := make([]rpc.RPCMuxDiagnosisSinkConfig, 0, len(c.Sinks)+1)
+	if len(c.Sinks) == 0 {
+		name := strings.TrimSpace(c.Sink)
+		if name == "" {
+			name = "slog"
+		}
+		sinks = append(sinks, rpc.RPCMuxDiagnosisSinkConfig{
+			Name: name,
+			Profile: c.Profile,
+			Delivery: c.Delivery.RuntimeConfig(),
+		})
+	} else {
+		for _, sink := range c.Sinks {
+			sinks = append(sinks, rpc.RPCMuxDiagnosisSinkConfig{
+				Name: sink.Name,
+				Profile: sink.Profile,
+				Priority: sink.Priority,
+				Delivery: sink.Delivery.RuntimeConfig(),
+			})
+		}
+	}
+	return rpc.RPCMuxDiagnosisSinkSetConfig{Version: version, Sinks: sinks}
+}
+
+func (c RPCMuxOTelCompatibleLogConfig) NewSinkSet() (*rpc.RPCMuxDiagnosisSinkSet, error) {
+	return rpc.NewRPCMuxDiagnosisSinkSet(c.SinkSetConfig())
+}
+
+func (c RPCMuxOTelCompatibleLogConfig) ReloadSinkSet(ctx context.Context, sinkSet *rpc.RPCMuxDiagnosisSinkSet) error {
+	return sinkSet.Reload(ctx, c.SinkSetConfig())
 }
 
 type RPCMuxTLSConfig struct {
@@ -2099,8 +2167,8 @@ func (c RPCMuxConfig) candidateConfigWithTLS(tlsConfig security.TLSConfig) rpc.E
 
 func ValidateRPCMuxConfig(c RPCMuxConfig) error {
 	if c.Log.OTelCompatible.Enabled {
-		if err := rpc.ValidateRPCMuxOTelLogSinkProfile(c.Log.OTelCompatible.Sink, c.Log.OTelCompatible.Profile); err != nil {
-			return fmt.Errorf("rpc mux otelCompatible sink %q: %w", c.Log.OTelCompatible.Sink, err)
+		if err := rpc.ValidateRPCMuxDiagnosisSinkSetConfig(c.Log.OTelCompatible.SinkSetConfig()); err != nil {
+			return fmt.Errorf("rpc mux otelCompatible sinks: %w", err)
 		}
 	}
 	if !c.Candidate.Enabled {
@@ -2174,6 +2242,10 @@ func (c RPCMuxConfig) clientTLSConfig() security.TLSConfig {
 }
 
 func (c RPCMuxConfig) ClientOptions() []rpc.ClientOption {
+	return c.ClientOptionsWithSinkSet(nil)
+}
+
+func (c RPCMuxConfig) ClientOptionsWithSinkSet(sinkSet *rpc.RPCMuxDiagnosisSinkSet) []rpc.ClientOption {
 	options := make([]rpc.ClientOption, 0, 2)
 	if c.Trace.Enabled && c.Trace.AnnotateStreams {
 		options = append(options, rpc.WithMuxTraceAnnotation())
@@ -2190,11 +2262,14 @@ func (c RPCMuxConfig) ClientOptions() []rpc.ClientOption {
 			Event: c.Log.Event,
 		}
 		if c.Log.OTelCompatible.Enabled {
-			exporter := rpc.NewRPCMuxOTelLogSinkExporter(c.Log.OTelCompatible.Sink, c.Log.OTelCompatible.Profile)
-			if exporter == nil {
-				return options
+			if sinkSet == nil {
+				var err error
+				sinkSet, err = c.Log.OTelCompatible.NewSinkSet()
+				if err != nil {
+					return options
+				}
 			}
-			options = append(options, rpc.WithMuxDiagnosisEventExporterDelivery(exporter, filter, c.Log.OTelCompatible.Delivery.RuntimeConfig()))
+			options = append(options, rpc.WithMuxDiagnosisEventExporter(sinkSet, filter))
 		} else {
 			options = append(options, rpc.WithMuxDiagnosisEventLogging(nil, filter))
 		}
@@ -2203,6 +2278,10 @@ func (c RPCMuxConfig) ClientOptions() []rpc.ClientOption {
 }
 
 func (c RPCMuxConfig) ServerOptions() []rpc.ServerOption {
+	return c.ServerOptionsWithSinkSet(nil)
+}
+
+func (c RPCMuxConfig) ServerOptionsWithSinkSet(sinkSet *rpc.RPCMuxDiagnosisSinkSet) []rpc.ServerOption {
 	if !c.Log.Enabled || !c.Log.ExportEvents {
 		return nil
 	}
@@ -2214,11 +2293,14 @@ func (c RPCMuxConfig) ServerOptions() []rpc.ServerOption {
 		Event: c.Log.Event,
 	}
 	if c.Log.OTelCompatible.Enabled {
-		exporter := rpc.NewRPCMuxOTelLogSinkExporter(c.Log.OTelCompatible.Sink, c.Log.OTelCompatible.Profile)
-		if exporter == nil {
-			return nil
+		if sinkSet == nil {
+			var err error
+			sinkSet, err = c.Log.OTelCompatible.NewSinkSet()
+			if err != nil {
+				return nil
+			}
 		}
-		return []rpc.ServerOption{rpc.WithServerMuxDiagnosisEventExporterDelivery(exporter, filter, c.Log.OTelCompatible.Delivery.RuntimeConfig())}
+		return []rpc.ServerOption{rpc.WithServerMuxDiagnosisEventExporter(sinkSet, filter)}
 	}
 	return []rpc.ServerOption{rpc.WithServerMuxDiagnosisEventLogging(nil, filter)}
 }
@@ -2580,6 +2662,50 @@ func TestRPCMuxConfigValidatesOTelCompatibleSink(t *testing.T) {
 	cfg.Log.OTelCompatible.Sink = "unsupported"
 	if err := ValidateRPCMuxConfig(cfg); err == nil || !strings.Contains(err.Error(), "otelCompatible sink") {
 		t.Fatalf("ValidateRPCMuxConfig unsupported otel-compatible sink = %v, want fail-fast error", err)
+	}
+
+	cfg.Log.OTelCompatible = RPCMuxOTelCompatibleLogConfig{
+		Enabled: true,
+		Version: "generated-v2",
+		Sinks: []RPCMuxOTelSinkConfig{
+			{Name: "slog", Priority: 20},
+			{Name: "slog", Priority: 10},
+		},
+	}
+	if err := ValidateRPCMuxConfig(cfg); err == nil || !strings.Contains(err.Error(), "duplicated") {
+		t.Fatalf("ValidateRPCMuxConfig duplicate sinks = %v, want duplicate error", err)
+	}
+}
+
+func TestRPCMuxOTelCompatibleSinkSetHotReload(t *testing.T) {
+	cfg := RPCMuxOTelCompatibleLogConfig{
+		Enabled: true,
+		Version: "generated-v1",
+		Sinks: []RPCMuxOTelSinkConfig{{
+			Name: "slog",
+			Priority: 10,
+			Delivery: RPCMuxExporterDeliveryConfig{
+				QueueSize: 2,
+				Timeout: time.Second,
+				BreakerFailureThreshold: 2,
+				BreakerCooldown: time.Minute,
+			},
+		}},
+	}
+	sinkSet, err := cfg.NewSinkSet()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sinkSet.Close()
+	next := cfg
+	next.Version = "generated-v2"
+	next.Sinks[0].Priority = 20
+	if err := next.ReloadSinkSet(context.Background(), sinkSet); err != nil {
+		t.Fatalf("ReloadSinkSet: %v", err)
+	}
+	snapshot := sinkSet.RPCMuxDiagnosisSinkSetSnapshot()
+	if snapshot.Version != "generated-v2" || snapshot.Sinks[0].Priority != 20 {
+		t.Fatalf("sink set snapshot = %+v", snapshot)
 	}
 }
 

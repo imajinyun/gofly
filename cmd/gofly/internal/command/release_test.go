@@ -334,6 +334,75 @@ func TestReleaseGeneratedRPCMuxRetrySmokeCheck(t *testing.T) {
 	}
 }
 
+func TestReleaseGeneratedRPCMuxRetrySmokeCheckFailureContracts(t *testing.T) {
+	t.Run("source unavailable", func(t *testing.T) {
+		root := t.TempDir()
+		for _, path := range []string{"cmd/gofly", "rpc"} {
+			if err := os.MkdirAll(filepath.Join(root, path), 0o750); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/missing\n\ngo 1.26\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		t.Chdir(root)
+		item, blockers := releaseGeneratedRPCMuxRetrySmokeCheck()
+		if item.Status != "fail" || !item.Blocker || len(blockers) != 1 ||
+			blockers[0] != "generated RPC mux retry smoke source is unavailable" ||
+			item.Detail == "" {
+			t.Fatalf("source unavailable item=%+v blockers=%v", item, blockers)
+		}
+	})
+
+	t.Run("runtime proof failure", func(t *testing.T) {
+		shim := writeReleaseGoShim(t, `#!/bin/sh
+echo "runtime proof failed"
+exit 23
+`)
+		t.Setenv("GO", shim)
+		item, blockers := releaseGeneratedRPCMuxRetrySmokeCheck()
+		if item.Status != "fail" || !item.Blocker || len(blockers) != 1 ||
+			item.Detail != "runtime proof failed" {
+			t.Fatalf("runtime failure item=%+v blockers=%v", item, blockers)
+		}
+		evidence, ok := item.Evidence["generated-rpc-mux-retry-smoke"].(map[string]any)
+		if !ok || evidence["runtimeCommand"] == nil || evidence["runtimeOutput"] != "runtime proof failed" {
+			t.Fatalf("runtime failure evidence = %#v", item.Evidence)
+		}
+	})
+
+	t.Run("generated project tidy failure", func(t *testing.T) {
+		shim := writeReleaseGoShim(t, `#!/bin/sh
+if [ "$1" = "test" ] && [ "$2" = "-count=1" ] && [ "$3" = "-shuffle=on" ]; then
+  echo "runtime proof ok"
+  exit 0
+fi
+echo "generated tidy failed"
+exit 24
+`)
+		t.Setenv("GO", shim)
+		item, blockers := releaseGeneratedRPCMuxRetrySmokeCheck()
+		if item.Status != "fail" || !item.Blocker || len(blockers) != 1 ||
+			item.Detail != "generated tidy failed" {
+			t.Fatalf("generated failure item=%+v blockers=%v", item, blockers)
+		}
+		evidence, ok := item.Evidence["generated-rpc-mux-retry-smoke"].(map[string]any)
+		if !ok || evidence["generatedProjectCommand"] == nil ||
+			evidence["generatedProjectOutput"] != "generated tidy failed" {
+			t.Fatalf("generated failure evidence = %#v", item.Evidence)
+		}
+	})
+}
+
+func writeReleaseGoShim(t *testing.T, content string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "go")
+	if err := os.WriteFile(path, []byte(content), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
 func TestReleaseCheckGlobalJSONDoesNotDuplicateError(t *testing.T) {
 	t.Setenv("API_BASE_REF", "definitely-missing-release-base-ref")
 	dir := t.TempDir()

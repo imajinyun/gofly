@@ -8,6 +8,7 @@ import (
 	"math"
 	"net"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -1246,6 +1247,204 @@ func TestExperimentalMuxTransportClosedStreamBoundaries(t *testing.T) {
 	}
 	if _, err := stream.Receive(muxTestTimeoutContext(t)); !errors.Is(err, ErrExperimentalMuxStreamClosed) {
 		t.Fatalf("local Receive after Close error = %v, want ErrExperimentalMuxStreamClosed", err)
+	}
+}
+
+func TestExperimentalMuxTransportInternalFragmentAndCreditBoundaries(t *testing.T) {
+	transport := &ExperimentalMuxTransport{
+		maxMessage:       4,
+		maxFrame:         64,
+		receiveQueueSize: 1,
+		connectionWindow: 1,
+		streams:          make(map[uint64]*ExperimentalMuxStream),
+		accept:           make(chan *ExperimentalMuxStream, 1),
+		done:             make(chan struct{}),
+		connCredit:       make(chan struct{}, 1),
+	}
+	transport.addConnectionCreditSlots(1)
+	stream, err := transport.registerStream(1, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if duplicate, err := transport.registerStream(1, true); err != nil || duplicate != stream {
+		t.Fatalf("duplicate register = %#v, %v", duplicate, err)
+	}
+	if err := stream.appendFragment([]byte("ab")); err != nil {
+		t.Fatal(err)
+	}
+	if err := stream.appendFragment([]byte("cde")); !errors.Is(err, ErrFrameTooLarge) {
+		t.Fatalf("append overflow = %v", err)
+	}
+	payload, fragments, err := stream.finishFragments([]byte("cd"))
+	if err != nil || string(payload) != "abcd" || fragments != 2 || stream.fragmentCount != 0 || len(stream.fragments) != 0 {
+		t.Fatalf("finished fragments payload=%q fragments=%d err=%v state=%+v", payload, fragments, err, stream)
+	}
+	if err := stream.appendFragment([]byte("abc")); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := stream.finishFragments([]byte("de")); !errors.Is(err, ErrFrameTooLarge) ||
+		stream.fragmentCount != 0 || len(stream.fragments) != 0 {
+		t.Fatalf("finish overflow err=%v state=%+v", err, stream)
+	}
+	var nilStream *ExperimentalMuxStream
+	if err := nilStream.appendFragment(nil); !errors.Is(err, ErrExperimentalMuxStreamClosed) {
+		t.Fatalf("nil append fragment = %v", err)
+	}
+	if _, _, err := nilStream.finishFragments(nil); !errors.Is(err, ErrExperimentalMuxStreamClosed) {
+		t.Fatalf("nil finish fragments = %v", err)
+	}
+	if !nilStream.bothDirectionsDone() {
+		t.Fatal("nil stream should report both directions done")
+	}
+	nilStream.markRemoteDone()
+	nilStream.markAborted()
+	nilStream.fail(errors.New("ignored"))
+	nilStream.releaseCredit()
+	nilStream.addCredit(1)
+	nilStream.addCreditSlots(1)
+
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	<-stream.credit
+	if err := stream.acquireCredit(canceled); !errors.Is(err, context.Canceled) {
+		t.Fatalf("stream canceled credit = %v", err)
+	}
+	stream.closeDone()
+	if err := stream.acquireCredit(context.Background()); !errors.Is(err, ErrExperimentalMuxStreamClosed) {
+		t.Fatalf("stream closed credit = %v", err)
+	}
+	stream.releaseCredit()
+	stream.releaseCredit()
+	stream.addCredit(2)
+	stream.addCreditSlots(2)
+	stream.localDone = true
+	stream.markRemoteDone()
+	if !stream.bothDirectionsDone() {
+		t.Fatal("completed stream did not report both directions done")
+	}
+	stream.markAborted()
+	if !stream.aborted {
+		t.Fatal("stream abort state was not recorded")
+	}
+	stream.deliverTerminal(io.EOF)
+	stream.deliverTerminal(errors.New("second terminal must be ignored"))
+
+	connectionTransport := &ExperimentalMuxTransport{
+		done:       make(chan struct{}),
+		connCredit: make(chan struct{}, 1),
+	}
+	connectionTransport.addConnectionCredit(1)
+	if err := connectionTransport.acquireConnectionCredit(context.Background()); err != nil {
+		t.Fatalf("connection credit: %v", err)
+	}
+	close(connectionTransport.done)
+	if err := connectionTransport.acquireConnectionCredit(context.Background()); !errors.Is(err, ErrExperimentalMuxTransportClosed) {
+		t.Fatalf("closed connection credit = %v", err)
+	}
+	if err := (*ExperimentalMuxTransport)(nil).acquireConnectionCredit(context.Background()); !errors.Is(err, ErrExperimentalMuxTransportClosed) {
+		t.Fatalf("nil connection credit = %v", err)
+	}
+	(*ExperimentalMuxTransport)(nil).releaseConnectionCredit()
+	(*ExperimentalMuxTransport)(nil).addConnectionCredit(1)
+	(*ExperimentalMuxTransport)(nil).addConnectionCreditSlots(1)
+	connectionTransport.releaseConnectionCredit()
+	connectionTransport.releaseConnectionCredit()
+	connectionTransport.addConnectionCredit(2)
+	connectionTransport.addConnectionCreditSlots(2)
+
+	timeoutTransport := &ExperimentalMuxTransport{
+		done:              make(chan struct{}),
+		connCredit:        make(chan struct{}),
+		creditWaitTimeout: time.Millisecond,
+	}
+	if err := timeoutTransport.acquireConnectionCredit(context.Background()); CodeOf(err) != CodeDeadlineExceeded {
+		t.Fatalf("connection credit timeout = %v", err)
+	}
+	if timeoutTransport.creditWaitTimeouts.Load() != 1 ||
+		timeoutTransport.connectionCreditWaits.Load() != 1 ||
+		timeoutTransport.connectionWindowExhausted.Load() != 1 ||
+		loadAtomicString(&timeoutTransport.lastFlowControlEvent) != "credit_wait_timeout" {
+		t.Fatalf("connection timeout counters = %+v", timeoutTransport.Snapshot())
+	}
+
+	transport.draining = true
+	if _, err := transport.registerStream(2, true); CodeOf(err) != CodeUnavailable {
+		t.Fatalf("draining register = %v", err)
+	}
+	transport.draining = false
+	transport.remoteDraining = true
+	if _, err := transport.registerStream(2, true); CodeOf(err) != CodeUnavailable {
+		t.Fatalf("remote draining register = %v", err)
+	}
+	transport.remoteDraining = false
+	transport.maxStreams = 1
+	if _, err := transport.registerStream(2, true); CodeOf(err) != CodeUnavailable {
+		t.Fatalf("max streams register = %v", err)
+	}
+	transport.closed = true
+	if _, err := transport.registerStream(2, false); !errors.Is(err, ErrExperimentalMuxTransportClosed) {
+		t.Fatalf("closed register = %v", err)
+	}
+	if err := transport.dispatchFrame(experimentalMuxFrame{typ: 0xff}); err == nil || !strings.Contains(err.Error(), "unsupported frame type") {
+		t.Fatalf("unsupported frame error = %v", err)
+	}
+	if got := transport.getOrAcceptStream(1, true); got != stream {
+		t.Fatalf("get existing stream = %#v, want %#v", got, stream)
+	}
+
+	if size := experimentalMuxFragmentPayloadSize(math.MaxInt64); size <= 0 {
+		t.Fatalf("fragment payload size max = %d, want positive encoded headroom", size)
+	}
+	if size := experimentalMuxFragmentPayloadSize(1); size != 0 {
+		t.Fatalf("fragment payload size tiny = %d, want 0", size)
+	}
+	if estimated := experimentalMuxEstimatedMaxFragments(1, 100); estimated != 0 {
+		t.Fatalf("estimated fragments tiny frame = %d, want 0", estimated)
+	}
+	if estimated := experimentalMuxEstimatedMaxFragments(0, -1); estimated <= 1 {
+		t.Fatalf("default estimated fragments = %d, want fragmented message", estimated)
+	}
+
+	refill := &ExperimentalMuxTransport{}
+	refill.recordFragmentWindowRefillLatency(0)
+	refill.recordFragmentWindowRefillLatency(time.Now().Add(time.Millisecond).UnixNano())
+	refill.recordFragmentWindowRefillLatency(time.Now().Add(-time.Millisecond).UnixNano())
+	if refill.fragmentWindowRefills.Load() != 3 ||
+		refill.fragmentWindowRefillLatencyMaxNanos.Load() <= 0 ||
+		loadAtomicString(&refill.lastFlowControlEvent) != "fragment_window_refill" {
+		t.Fatalf("refill latency state = %+v", refill.Snapshot())
+	}
+	refill.recordFlowControlEvent("")
+	refill.recordFlowControlEvent("write_timeout")
+	if loadAtomicString(&refill.lastBackpressureEvent) != "write_timeout" ||
+		refill.lastBackpressureEventAt.Load() == 0 {
+		t.Fatalf("backpressure event state = %+v", refill.Snapshot())
+	}
+	var maximum atomic.Int64
+	updateAtomicMaxInt64(&maximum, 3)
+	updateAtomicMaxInt64(&maximum, 2)
+	updateAtomicMaxInt64(&maximum, 5)
+	updateAtomicMaxInt64(nil, 10)
+	if maximum.Load() != 5 {
+		t.Fatalf("atomic maximum = %d, want 5", maximum.Load())
+	}
+	if !isExperimentalMuxControlFrame(experimentalMuxFramePing) ||
+		!isExperimentalMuxControlFrame(experimentalMuxFramePong) ||
+		!isExperimentalMuxControlFrame(experimentalMuxFrameGoAway) ||
+		!isExperimentalMuxControlFrame(experimentalMuxFrameWindowConn) ||
+		isExperimentalMuxControlFrame(experimentalMuxFrameData) {
+		t.Fatal("control frame classification drifted")
+	}
+	if !isExperimentalMuxDrainReason(experimentalMuxReasonDraining) ||
+		!isExperimentalMuxDrainReason(experimentalMuxReasonPeerDraining) ||
+		isExperimentalMuxDrainReason("other") {
+		t.Fatal("drain reason classification drifted")
+	}
+	if !unixNanoToTime(0).IsZero() || unixNanoToTime(1).UnixNano() != 1 ||
+		reasonFromError(nil) != "" ||
+		reasonFromError(NewError(CodeUnavailable, "down")) != "down" ||
+		reasonFromError(errors.New("plain")) != "plain" {
+		t.Fatal("mux helper contracts drifted")
 	}
 }
 

@@ -1,0 +1,180 @@
+{
+  "schema": "gofly.security_evidence.v1",
+  "acceptanceGate": "make security",
+  "aggregateGates": [
+    "make security-governance-check",
+    "make govulncheck",
+    "make gosec"
+  ],
+  "sourceCode": [
+    "Makefile",
+    ".github/workflows/ci.yml",
+    "bin/scripts/check-security-governance.sh",
+    "bin/scripts/gosec-exception-inventory.sh",
+    "bin/scripts/gosec-exception-baseline.json",
+    "bin/scripts/governance-10-rounds.sh"
+  ],
+  "policy": {
+    "securityGateRunsGovernanceBeforeScanners": true,
+    "gosecBaselineMustBeReviewedAndMachineChecked": true,
+    "releaseGovernanceCannotSkipSecurity": true,
+    "pathWritesUseRootAndSymlinkGuards": true,
+    "externalProcessesUseArgvAndExplicitOperatorInput": true,
+    "remoteDownloadsRejectInsecureSchemesAndLimitBytes": true,
+    "bodyLimitsAreCoveredForRestRpcGateway": true,
+    "secretValuesAreRedactedFromRuntimeAndAdminSurfaces": true
+  },
+  "surfaces": [
+    {
+      "id": "scanner-and-baseline",
+      "risk": "scanner or reviewed exception drift can bypass security review",
+      "gate": "make security",
+      "evidenceRefs": [
+        {
+          "path": "Makefile",
+          "contains": [
+            "security: security-governance-check govulncheck gosec",
+            "$(GOVULNCHECK) -scan=$(GOVULNCHECK_SCAN) -show=traces $(PKGS)",
+            "GOSEC_INVENTORY_BASELINE=$(GOSEC_INVENTORY_BASELINE)"
+          ]
+        },
+        {
+          "path": "bin/scripts/gosec-exception-baseline.json",
+          "contains": [
+            "gofly.gosec_exception_baseline.v1",
+            "allowed_exceptions"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "release-skip-protection",
+      "risk": "release governance can silently skip blocking security scans",
+      "gate": "make governance-10-rounds",
+      "evidenceRefs": [
+        {
+          "path": "bin/scripts/governance-10-rounds.sh",
+          "contains": [
+            "GOVERNANCE_SKIP_SECURITY",
+            "assert_not_release_skip GOVERNANCE_SKIP_SECURITY",
+            "run make security before merge/release",
+            "round_security_audit"
+          ]
+        },
+        {
+          "path": ".github/workflows/ci.yml",
+          "contains": [
+            "name: security (govulncheck + gosec)",
+            "run: make security"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "path-and-symlink-safety",
+      "risk": "generated output or plugins can escape their selected project root",
+      "gate": "go test -shuffle=on ./cmd/gofly/internal/generator",
+      "evidenceRefs": [
+        {
+          "path": "cmd/gofly/internal/generator/generated_file.go",
+          "contains": [
+            "rejectSymlinkParent",
+            "rejectExistingSymlinkTarget",
+            "WriteFileUnderRoot"
+          ]
+        },
+        {
+          "path": "cmd/gofly/internal/generator/plugin_test.go",
+          "contains": [
+            "TestPluginResponseRejectsSymlinkParentTraversal",
+            "TestPluginResponseRejectsSymlinkLeaf"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "external-process-and-remote-downloads",
+      "risk": "plugin and template boundaries can execute shell input or accept unbounded downloads",
+      "gate": "make plugin-external-governance-check",
+      "evidenceRefs": [
+        {
+          "path": "cmd/gofly/internal/generator/plugin.go",
+          "contains": [
+            "exec.CommandContext",
+            "splitPluginArgs",
+            "insecure URL scheme",
+            "io.LimitReader",
+            "maxDownloadedPluginBytes"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "body-limit-and-url-scheme",
+      "risk": "REST RPC gateway and plugin inputs can consume unbounded resources or unsafe schemes",
+      "gate": "go test -shuffle=on ./rest ./rpc ./gateway ./cmd/gofly/internal/generator",
+      "evidenceRefs": [
+        {
+          "path": "rest/server_test.go",
+          "contains": [
+            "TestMaxBodyBytesMiddleware"
+          ]
+        },
+        {
+          "path": "rpc/server_test.go",
+          "contains": [
+            "TestHTTPServerGovernanceRuleRuntimeMaxBodyBytes"
+          ]
+        },
+        {
+          "path": "gateway/gateway_test.go",
+          "contains": [
+            "WithMaxBodyBytes"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "secret-redaction-and-template-safety",
+      "risk": "runtime snapshots routes and generated templates can expose sensitive values",
+      "gate": "go test -shuffle=on ./rest ./gateway ./cmd/gofly/internal/generator",
+      "evidenceRefs": [
+        {
+          "path": "rest/server_test.go",
+          "contains": [
+            "Authorization",
+            "runtimeSnapshot.Config.Admin.Token"
+          ]
+        },
+        {
+          "path": "gateway/gateway_test.go",
+          "contains": [
+            "sanitizedGatewayRouteConfig",
+            "Authorization"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "unreachable-openpgp-vulnerability",
+      "risk": "golang.org/x/crypto reports an unfixable module-level openpgp advisory",
+      "gate": "make security-governance-check",
+      "evidenceRefs": [
+        {
+          "path": "bin/scripts/check-security-governance.sh",
+          "contains": [
+            "\"$GO\" list -deps ./...",
+            "deps_file",
+            "golang.org/x/crypto/openpgp is not imported"
+          ]
+        },
+        {
+          "path": "go.mod",
+          "contains": [
+            "golang.org/x/crypto v"
+          ]
+        }
+      ]
+    }
+  ]
+}

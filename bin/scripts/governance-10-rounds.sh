@@ -38,7 +38,7 @@ govulncheck_scan="${GOVULNCHECK_SCAN:-package}"
 gosec_flags="${GOSEC_FLAGS:--quiet -exclude-generated -exclude-dir=testdata -exclude-dir=vendor -exclude-dir=.tmp-test}"
 gosec_inventory_baseline="${GOSEC_INVENTORY_BASELINE:-$root/bin/scripts/gosec-exception-baseline.json}"
 coverage_threshold="${COVERAGE_THRESHOLD:-60}"
-coverage_ratchet_default="90"
+coverage_ratchet_default="90.5"
 coverage_ratchet="${COVERAGE_RATCHET:-$coverage_ratchet_default}"
 skip_report="${GOVERNANCE_SKIP_REPORT:-$tmp/governance-skip-report.json}"
 
@@ -126,7 +126,7 @@ assert_coverage_ratchet_alignment() {
 		printf 'coverage ratchet drift: Makefile default is %s, governance script default is %s\n' "$makefile_ratchet" "$coverage_ratchet_default"
 		exit 1
 	fi
-	agents_ratchet="$(awk '/Makefile.*COVERAGE_RATCHET/ { for (i = 1; i <= NF; i++) if ($i ~ /^[`"]?[0-9]+%[`".,]?$/) { gsub(/[^0-9.]/, "", $i); print $i; exit } }' "$root/AGENTS.md")"
+	agents_ratchet="$(awk '/Makefile.*COVERAGE_RATCHET/ { for (i = 1; i <= NF; i++) if ($i ~ /^[`"]?[0-9]+([.][0-9]+)?%[`".,]?$/) { gsub(/[^0-9.]/, "", $i); print $i; exit } }' "$root/AGENTS.md")"
 	if [ "$agents_ratchet" != "$coverage_ratchet_default" ]; then
 		printf 'coverage ratchet drift: AGENTS.md documents %s%%, governance script default is %s%%\n' "${agents_ratchet:-<missing>}" "$coverage_ratchet_default"
 		exit 1

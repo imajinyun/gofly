@@ -23,6 +23,150 @@ type gatewayInstanceResolverStub struct {
 	err       error
 }
 
+func TestGatewayTranscodeSchemaPathAndCloneBoundaries(t *testing.T) {
+	schema := TranscodeSchemaConfig{
+		Type:     "object",
+		Required: []string{"user"},
+		Properties: map[string]TranscodeSchemaConfig{
+			"user": {
+				Type: "object",
+				Properties: map[string]TranscodeSchemaConfig{
+					"name":  {Type: "string"},
+					"roles": {Type: "array", Items: &TranscodeSchemaConfig{Type: "string"}},
+				},
+			},
+			"items": {
+				Type: "array",
+				Items: &TranscodeSchemaConfig{
+					Type: "object",
+					Properties: map[string]TranscodeSchemaConfig{
+						"id": {Type: "string"},
+					},
+				},
+			},
+		},
+	}
+	tests := []struct {
+		name  string
+		parts []string
+		want  string
+	}{
+		{name: "empty path", parts: nil},
+		{name: "nested object", parts: []string{"user", "name"}},
+		{name: "nested array", parts: []string{"user", "roles[]"}},
+		{name: "array object field", parts: []string{"items[]", "id"}},
+		{name: "empty segment", parts: []string{""}, want: "empty segment"},
+		{name: "unknown field", parts: []string{"missing"}, want: "unknown body field"},
+		{name: "scalar treated as object", parts: []string{"user", "name", "value"}, want: "is not object"},
+		{name: "non-array field", parts: []string{"user[]"}, want: "must be array"},
+		{name: "non-array nested field", parts: []string{"user", "name[]"}, want: "must be array"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := validateTranscodeSchemaPath("body", schema, test.parts)
+			if test.want == "" {
+				if err != nil {
+					t.Fatalf("validateTranscodeSchemaPath: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("error = %v, want containing %q", err, test.want)
+			}
+		})
+	}
+
+	payload := TranscodePayloadConfig{
+		PathParams:       []string{"id"},
+		QueryParams:      []string{"filter"},
+		HeaderParams:     []string{"X-Tenant"},
+		PathParameters:   []TranscodeParameterConfig{{Name: "typed_id"}},
+		QueryParameters:  []TranscodeParameterConfig{{Name: "typed_filter"}},
+		HeaderParameters: []TranscodeParameterConfig{{Name: "typed_tenant"}},
+		BodySchema:       &schema,
+	}
+	for _, test := range []struct {
+		source string
+		want   string
+	}{
+		{source: "path.id"},
+		{source: "path.typed_id"},
+		{source: "query.filter"},
+		{source: "query.typed_filter"},
+		{source: "header.x-tenant"},
+		{source: "header.typed_tenant"},
+		{source: "body.user.name"},
+		{source: "path.id.extra", want: "must name one parameter"},
+		{source: "query.missing", want: "unknown query parameter"},
+		{source: "header.missing", want: "unknown header parameter"},
+		{source: "body.missing", want: "unknown body field"},
+	} {
+		t.Run(test.source, func(t *testing.T) {
+			err := validateRouteTranscodeMappingSource(test.source, payload, payload.BodySchema, true)
+			if test.want == "" {
+				if err != nil {
+					t.Fatalf("source %q: %v", test.source, err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("source %q error = %v, want %q", test.source, err, test.want)
+			}
+		})
+	}
+	if err := validateRouteTranscodeMappingSource("body.user", TranscodePayloadConfig{}, nil, false); err == nil ||
+		!strings.Contains(err.Error(), "requires mergeBodyObject") {
+		t.Fatalf("optional body source error = %v", err)
+	}
+	if err := validateRouteTranscodeMappingSource("body.anything", TranscodePayloadConfig{MergeBodyObject: true}, nil, false); err != nil {
+		t.Fatalf("merge body source without schema: %v", err)
+	}
+
+	item := TranscodeParameterConfig{Name: "root", Items: &TranscodeParameterConfig{Name: "child", Items: &TranscodeParameterConfig{Name: "leaf"}}}
+	clonedItem := cloneTranscodeParameter(item)
+	clonedItem.Items.Name = "mutated"
+	clonedItem.Items.Items.Name = "mutated-leaf"
+	if item.Items.Name != "child" || item.Items.Items.Name != "leaf" {
+		t.Fatalf("parameter clone mutation leaked: %+v", item)
+	}
+	mappingDefault := map[string]any{"nested": []any{map[string]any{"value": "original"}}}
+	clonedDefault := cloneTranscodeMappingDefault(mappingDefault).(map[string]any)
+	clonedDefault["nested"].([]any)[0].(map[string]any)["value"] = "mutated"
+	if mappingDefault["nested"].([]any)[0].(map[string]any)["value"] != "original" {
+		t.Fatalf("mapping default clone mutation leaked: %+v", mappingDefault)
+	}
+
+	descriptor := rpc.Descriptor{
+		Metadata: map[string]string{"scope": "root"},
+		Methods:  []rpc.MethodDescriptor{{Metadata: map[string]string{"scope": "method"}}},
+		Streams:  []rpc.StreamDescriptor{{Metadata: map[string]string{"scope": "stream"}}},
+	}
+	clonedDescriptor := cloneDescriptor(descriptor)
+	clonedDescriptor.Metadata["scope"] = "mutated"
+	clonedDescriptor.Methods[0].Metadata["scope"] = "mutated"
+	clonedDescriptor.Streams[0].Metadata["scope"] = "mutated"
+	if descriptor.Metadata["scope"] != "root" ||
+		descriptor.Methods[0].Metadata["scope"] != "method" ||
+		descriptor.Streams[0].Metadata["scope"] != "stream" {
+		t.Fatalf("descriptor clone mutation leaked: %+v", descriptor)
+	}
+
+	emptyShape := normalizeOpenAPIAggregationShape(AggregationShape{Mode: "merge"})
+	if emptyShape.Mode != "merge" || len(emptyShape.Mappings) != 0 {
+		t.Fatalf("empty aggregation shape = %+v", emptyShape)
+	}
+	shape := normalizeOpenAPIAggregationShape(AggregationShape{
+		Mode: "merge",
+		Mappings: []AggregationPayloadMapping{
+			{Source: "profile.id", Target: "user.id"},
+			{Source: "profile.name"},
+		},
+	})
+	if len(shape.Mappings) != 1 || shape.Mappings[0].Target != "user.id" {
+		t.Fatalf("normalized aggregation shape = %+v", shape)
+	}
+}
+
 func (r *gatewayInstanceResolverStub) Resolve(context.Context) ([]string, error) {
 	return endpointsFromServiceInstances(r.instances), r.err
 }
@@ -258,6 +402,34 @@ func TestGatewayTypedTranscodeAndSchemaContractBoundaries(t *testing.T) {
 	if _, err := transcodeHeaderValues(http.Header{}, []string{"X-Tenant"},
 		[]TranscodeParameterConfig{{Name: "X-Tenant", Required: true}}); err == nil {
 		t.Fatal("missing required header should fail")
+	}
+	if values, err := convertTranscodeQueryValues(nil, TranscodeParameterConfig{Name: "empty"}); err != nil || values != "" {
+		t.Fatalf("empty query values = %#v, %v", values, err)
+	}
+	if values, err := convertTranscodeQueryValues([]string{"a", "b"}, TranscodeParameterConfig{Name: "multi"}); err != nil ||
+		!reflect.DeepEqual(values, []any{"a", "b"}) {
+		t.Fatalf("multi query values = %#v, %v", values, err)
+	}
+	if values, err := convertTranscodeQueryValues([]string{"1,2", "3"}, TranscodeParameterConfig{Name: "array", Type: "array"}); err != nil ||
+		!reflect.DeepEqual(values, []any{"1", "2", "3"}) {
+		t.Fatalf("default string array values = %#v, %v", values, err)
+	}
+	if _, err := convertTranscodeQueryValues([]string{"1,bad"}, TranscodeParameterConfig{
+		Name:  "array",
+		Type:  "array",
+		Items: &TranscodeParameterConfig{Name: "item", Type: "integer"},
+	}); err == nil || !strings.Contains(err.Error(), "item must be integer") {
+		t.Fatalf("array item error = %v", err)
+	}
+	if value, err := convertTranscodeParameterValue("plain", TranscodeParameterConfig{}); err != nil || value != "plain" {
+		t.Fatalf("default string conversion = %#v, %v", value, err)
+	}
+	parametersByName := transcodeParameterByName([]TranscodeParameterConfig{
+		{Name: " X-Tenant ", Type: "string"},
+		{Name: " "},
+	})
+	if len(parametersByName) != 2 || parametersByName["X-Tenant"].Type != "string" || parametersByName["x-tenant"].Type != "string" {
+		t.Fatalf("parameter name index = %#v", parametersByName)
 	}
 
 	for _, test := range []struct {

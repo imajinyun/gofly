@@ -6,6 +6,7 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -586,6 +587,71 @@ func TestKVRuleProviderNilStoreAndEmptyKey(t *testing.T) {
 	}
 	if err := p2.Save(context.Background(), []Rule{{Name: "ok", Transport: TransportREST}}, 0); err == nil {
 		t.Fatal("Save empty key should error")
+	}
+}
+
+func TestRuleProviderLoadSourceAndStatsBoundaries(t *testing.T) {
+	store := kv.NewMemoryStore()
+	provider := KVRuleProvider{Store: store, Key: "gofly:rules"}
+	if provider.Source() != "kv:gofly:rules" || (KVRuleProvider{}).Source() != "kv" {
+		t.Fatalf("KV provider sources = %q/%q", provider.Source(), (KVRuleProvider{}).Source())
+	}
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := provider.Load(canceled); !errors.Is(err, context.Canceled) {
+		t.Fatalf("KV Load canceled = %v", err)
+	}
+	if err := store.Set(context.Background(), provider.Key, []byte("{"), 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := provider.Load(context.Background()); err == nil || !strings.Contains(err.Error(), "decode governance rules") {
+		t.Fatalf("KV Load invalid JSON = %v", err)
+	}
+	if _, err := (KVRuleProvider{Store: store, Key: "missing"}).Load(context.Background()); err == nil ||
+		!strings.Contains(err.Error(), "load governance rules from kv") {
+		t.Fatalf("KV Load missing = %v", err)
+	}
+
+	path := filepath.Join(t.TempDir(), "rules.json")
+	fileProvider := FileRuleProvider{Path: path}
+	if fileProvider.Source() != "file:"+path || (FileRuleProvider{}).Source() != "file" {
+		t.Fatalf("file provider sources = %q/%q", fileProvider.Source(), (FileRuleProvider{}).Source())
+	}
+	if _, err := fileProvider.Load(canceled); !errors.Is(err, context.Canceled) {
+		t.Fatalf("file Load canceled = %v", err)
+	}
+	if _, err := fileProvider.Load(context.Background()); err == nil || !strings.Contains(err.Error(), "read governance rule file") {
+		t.Fatalf("file Load missing = %v", err)
+	}
+	configJSON := `{"rules":[{"name":"orders","transport":"rest","service":"orders","policy":{"timeout":1000000000}}]}`
+	if err := os.WriteFile(path, []byte(configJSON), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rules, err := fileProvider.Load(context.Background())
+	if err != nil || len(rules) != 1 || rules[0].Name != "orders" || rules[0].Policy.Timeout != time.Second {
+		t.Fatalf("file Load config wrapper = %#v, %v", rules, err)
+	}
+	if _, err := decodeRuleFile([]byte("{")); err == nil || !strings.Contains(err.Error(), "decode governance rule file") {
+		t.Fatalf("decode invalid rule file = %v", err)
+	}
+
+	ruleSet := &RuleSet{
+		stats: map[string]*ruleStats{
+			"ignored": nil,
+			"second":  {Name: "second", Hits: 1, LastRequest: Request{Method: "get"}},
+			"first":   {Name: "first", Hits: 2, LastRequest: Request{Method: "post"}},
+			"alpha":   {Name: "alpha", Hits: 1, LastRequest: Request{Method: "put"}},
+		},
+	}
+	stats := ruleSet.Stats()
+	if len(stats) != 3 || stats[0].RuleName != "first" || stats[0].LastRequest.Method != "POST" ||
+		stats[1].RuleKey != "alpha" || stats[2].RuleKey != "second" {
+		t.Fatalf("sorted rule stats = %+v", stats)
+	}
+	var nilRules *RuleSet
+	nilRules.Replace(Rule{Name: "ignored"})
+	if stats := nilRules.Stats(); stats != nil {
+		t.Fatalf("nil rule stats = %+v", stats)
 	}
 }
 

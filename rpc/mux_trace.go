@@ -3,6 +3,7 @@ package rpc
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"reflect"
 	"strconv"
@@ -233,6 +234,14 @@ func (e rpcMuxOTelLogEventExporter) ExportRPCMuxDiagnosisEvent(ctx context.Conte
 		return
 	}
 	e.exporter.ExportRPCMuxOTelLog(ctx, MuxDiagnosisEventOTelLogRecord(record))
+}
+
+func (e rpcMuxOTelLogEventExporter) Close() error {
+	closer, ok := e.exporter.(io.Closer)
+	if !ok {
+		return nil
+	}
+	return closer.Close()
 }
 
 type slogRPCMuxOTelLogExporter struct {

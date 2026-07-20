@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/imajinyun/gofly/core/discovery"
 )
 
 func TestResolverFuncAndStaticResolverHardeningContracts(t *testing.T) {
@@ -128,6 +130,11 @@ func TestFailoverResolverKeepsLastHealthyEndpoints(t *testing.T) {
 	if cached[0] != "http://a" {
 		t.Fatalf("cached endpoints = %#v, want defensive copy", cached)
 	}
+	internalCached := resolver.cached()
+	internalCached[0] = "mutated-again"
+	if fresh := resolver.cached(); fresh[0] != "http://a" {
+		t.Fatalf("internal cached endpoints = %#v, want defensive copy", fresh)
+	}
 
 	source.err = nil
 	source.endpoints = []string{"http://c"}
@@ -236,6 +243,98 @@ func TestRegistryResolverHardeningBoundaries(t *testing.T) {
 	}
 	if len(instances) != 1 || instances[0].Endpoint != "http://a" || instances[0].Weight != 2 {
 		t.Fatalf("instances = %#v, want normalized registered instance", instances)
+	}
+}
+
+func TestRegistryResolverWatchEventsContracts(t *testing.T) {
+	registry := NewRegistry()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	events, err := registry.WatchEvents(ctx, " svc ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver := registry.Resolver("svc").(registryResolver)
+	resolverEvents, err := resolver.WatchEvents(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.RegisterInstance(context.Background(), "svc", ServiceInstance{
+		Endpoint: "http://a",
+		Weight:   2,
+		Tags:     map[string]string{"zone": "a"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for name, eventStream := range map[string]<-chan discovery.Event{
+		"registry": events,
+		"resolver": resolverEvents,
+	} {
+		t.Run(name, func(t *testing.T) {
+			select {
+			case event := <-eventStream:
+				if len(event.Instances) != 1 || event.Instances[0].Endpoint != "http://a" {
+					t.Fatalf("watch event = %+v, want registered endpoint", event)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("timed out waiting for registry event")
+			}
+		})
+	}
+
+	canceled, stop := context.WithCancel(context.Background())
+	stop()
+	if _, err := registry.WatchEvents(canceled, "svc"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled WatchEvents = %v, want context canceled", err)
+	}
+}
+
+func TestClientDiscoveryRuntimeContracts(t *testing.T) {
+	runtime := newClientDiscoveryRuntime(hardeningWatchResolver{})
+	if !runtime.watchEnabled {
+		t.Fatal("watch resolver runtime is not watch-enabled")
+	}
+	runtime.recordWatchError(errors.New("watch unavailable"))
+	snapshot := runtime.Snapshot()
+	if snapshot.WatchError != "watch unavailable" || snapshot.Updates != 0 {
+		t.Fatalf("watch error snapshot = %+v", snapshot)
+	}
+
+	runtime.recordEvent(
+		[]string{"http://a", "http://b"},
+		[]string{"http://a"},
+		[]string{"http://old"},
+		[]string{"http://b"},
+	)
+	runtime.recordCloseIdle()
+	snapshot = runtime.Snapshot()
+	if snapshot.WatchError != "" || snapshot.Updates != 1 || snapshot.CloseIdleCalls != 1 ||
+		len(snapshot.Endpoints) != 2 || len(snapshot.Added) != 1 || len(snapshot.Removed) != 1 || len(snapshot.Updated) != 1 ||
+		snapshot.LastUpdated.IsZero() {
+		t.Fatalf("event runtime snapshot = %+v", snapshot)
+	}
+	snapshot.Endpoints[0] = "mutated"
+	snapshot.Added[0] = "mutated"
+	snapshot.Removed[0] = "mutated"
+	snapshot.Updated[0] = "mutated"
+	fresh := runtime.Snapshot()
+	if fresh.Endpoints[0] != "http://a" || fresh.Added[0] != "http://a" ||
+		fresh.Removed[0] != "http://old" || fresh.Updated[0] != "http://b" {
+		t.Fatalf("snapshot mutation leaked into runtime: %+v", fresh)
+	}
+
+	runtime.recordUpdate([]string{"http://c"}, []string{"http://a", "http://b"})
+	snapshot = runtime.Snapshot()
+	if snapshot.Updates != 2 || len(snapshot.Added) != 0 || len(snapshot.Updated) != 0 ||
+		len(snapshot.Removed) != 2 || snapshot.Endpoints[0] != "http://c" {
+		t.Fatalf("update runtime snapshot = %+v", snapshot)
+	}
+
+	var nilRuntime *clientDiscoveryRuntime
+	nilRuntime.recordWatchError(errors.New("ignored"))
+	nilRuntime.recordCloseIdle()
+	if zero := nilRuntime.Snapshot(); zero.WatchEnabled || zero.Updates != 0 {
+		t.Fatalf("nil runtime snapshot = %+v", zero)
 	}
 }
 

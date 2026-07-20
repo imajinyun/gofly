@@ -69,6 +69,19 @@ func TestCommandHelpTopic(t *testing.T) {
 	}
 }
 
+func TestModelHelpSubcommandContract(t *testing.T) {
+	for _, command := range []string{"gen", "mongo"} {
+		if !IsModelHelpSubcommand(command) {
+			t.Fatalf("model help command %q was not recognized", command)
+		}
+	}
+	for _, command := range []string{"", "ddl", "unknown"} {
+		if IsModelHelpSubcommand(command) {
+			t.Fatalf("model help command %q was unexpectedly recognized", command)
+		}
+	}
+}
+
 func TestCanonicalTopic(t *testing.T) {
 	tests := []struct {
 		name string

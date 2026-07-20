@@ -26,7 +26,7 @@ DEPENDENCY_UPGRADE_RUN_INTEGRATION ?= true
 
 # Minimum total line coverage (percent). COVERAGE_RATCHET prevents regression once raised.
 COVERAGE_THRESHOLD ?= 60
-COVERAGE_RATCHET ?= 90
+COVERAGE_RATCHET ?= 90.5
 
 # Build metadata injected via -ldflags.
 PKG_ROOT   := github.com/imajinyun/gofly/cmd/gofly/internal/command
@@ -230,8 +230,12 @@ aiflow-profile-gate-check: ## Validate aiflow exposes gateway profile contract g
 	sh $(SCRIPTS_DIR)/check-aiflow-profile-gate.sh
 
 .PHONY: runtime-slo-check
-runtime-slo-check: ## Validate runtime packages without docs evidence
+runtime-slo-check: rpc-mux-sink-slo-check ## Validate runtime packages and operational SLO assets
 	$(GO) test $(TESTFLAGS) ./core/runtime/... ./core/governance/... ./rest/... ./rpc/...
+
+.PHONY: rpc-mux-sink-slo-check
+rpc-mux-sink-slo-check: ## Validate mux sink delivery metrics, dashboard panels, and alerts
+	sh $(SCRIPTS_DIR)/check-rpc-mux-sink-slo.sh
 
 .PHONY: governance-boundary-inventory-check
 governance-boundary-inventory-check: ## Compatibility no-op; docs boundary inventory was removed

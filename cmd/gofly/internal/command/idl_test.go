@@ -3563,6 +3563,7 @@ func TestClassifyJSONErrorExtendedCodes(t *testing.T) {
 			}
 			if got == nil {
 				t.Fatalf("classifyJSONError(%v) = nil, want non-nil", tt.err)
+				return
 			}
 			if got.Code != tt.wantCode {
 				t.Fatalf("classifyJSONError(%v).Code = %q, want %q", tt.err, got.Code, tt.wantCode)
@@ -6881,6 +6882,7 @@ func TestEnsureModelConfig(t *testing.T) {
 	m := ensureModelConfig(cfg)
 	if m == nil {
 		t.Fatal("ensureModelConfig returned nil")
+		return
 	}
 	if cfg.Model == nil {
 		t.Fatal("cfg.Model was not set")

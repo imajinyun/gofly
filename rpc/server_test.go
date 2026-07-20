@@ -175,6 +175,69 @@ func TestHTTPServerRuntimeSnapshotExposesMuxSinkRegistry(t *testing.T) {
 	t.Fatalf("runtime components = %+v, want rpc.mux.sink.registry", snapshot.Components)
 }
 
+func TestHTTPServerRuntimeSnapshotExposesMuxSinkSetSLO(t *testing.T) {
+	sinkSet, err := NewRPCMuxDiagnosisSinkSet(RPCMuxDiagnosisSinkSetConfig{
+		Version: "server-v1",
+		Sinks:   []RPCMuxDiagnosisSinkConfig{{Name: "slog", Priority: 10}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := NewServer(WithServerMuxDiagnosisEventExporter(sinkSet, RPCMuxDiagnosisFilter{}))
+	t.Cleanup(func() {
+		if err := server.Stop(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	snapshot := server.RuntimeSnapshot(context.Background())
+	for _, component := range snapshot.Components {
+		if component.Name != "rpc.mux.sink.registry" {
+			continue
+		}
+		details, ok := component.Details.(map[string]any)
+		sinkSetSnapshot, okSnapshot := details["sinkSet"].(RPCMuxDiagnosisSinkSetSnapshot)
+		if !ok || !okSnapshot || sinkSetSnapshot.Version != "server-v1" ||
+			sinkSetSnapshot.SinkCount != 1 || sinkSetSnapshot.Sinks[0].Delivery.Health != "healthy" {
+			t.Fatalf("mux sink set component details = %#v", component.Details)
+		}
+		return
+	}
+	t.Fatalf("runtime components = %+v, want sink set SLO", snapshot.Components)
+}
+
+func TestRPCMuxDiagnosisSinkSetRuntimeStatus(t *testing.T) {
+	tests := []struct {
+		name     string
+		snapshot RPCMuxDiagnosisSinkSetSnapshot
+		want     string
+	}{
+		{name: "healthy", snapshot: RPCMuxDiagnosisSinkSetSnapshot{Sinks: []RPCMuxDiagnosisSinkRuntimeSnapshot{{Delivery: RPCMuxDiagnosisExporterDeliverySnapshot{Health: "healthy"}}}}, want: "ok"},
+		{name: "degraded sink remains available", snapshot: RPCMuxDiagnosisSinkSetSnapshot{Sinks: []RPCMuxDiagnosisSinkRuntimeSnapshot{{Delivery: RPCMuxDiagnosisExporterDeliverySnapshot{Health: "degraded"}}}}, want: "ok"},
+		{name: "unhealthy", snapshot: RPCMuxDiagnosisSinkSetSnapshot{Sinks: []RPCMuxDiagnosisSinkRuntimeSnapshot{{Delivery: RPCMuxDiagnosisExporterDeliverySnapshot{Health: "unhealthy"}}}}, want: "degraded"},
+		{name: "closed", snapshot: RPCMuxDiagnosisSinkSetSnapshot{Closed: true}, want: "stopped"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := rpcMuxDiagnosisSinkSetStatus(test.snapshot); got != test.want {
+				t.Fatalf("status = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
+func TestHTTPServerDiagnosisConvenienceMethods(t *testing.T) {
+	server := NewServer()
+	snapshot := server.DiagnosisSnapshot()
+	if snapshot.GeneratedAt.IsZero() {
+		t.Fatalf("DiagnosisSnapshot = %+v, want generation time", snapshot)
+	}
+	probe := server.DiagnosisProbe("orders", "Watch")
+	if probe.Service != "orders" || probe.Method != "Watch" {
+		t.Fatalf("DiagnosisProbe = %+v, want requested service and method", probe)
+	}
+}
+
 func TestHTTPServerServeHTTP(t *testing.T) {
 	s := NewServer()
 	err := s.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{

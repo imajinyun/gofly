@@ -25,6 +25,8 @@ func buildAIControlPlaneManifest() aiControlPlaneManifest {
 			"control-plane contributor for rpc policy runtime state, cache counts and enforcement capabilities",
 			"rpc mux sink registry introspection with typed profile schemas and symmetric client/server delivery capabilities",
 			"bounded rpc mux diagnosis exporter delivery with timeout, panic isolation, drop counters and queue depth",
+			"versioned rpc mux sink hot reload with atomic generation swap, rollback, and previous-generation drain",
+			"priority-ordered multi-sink fan-out with independent queues, circuit breakers, and delivery SLO health",
 			"native REST admin control-plane endpoint with pluggable runtime contributors and sanitized REST runtime snapshots",
 			"control-plane contributor for REST governance runtime cache counts across rate limiters, concurrency limiters and breakers",
 			"generated project control-plane contributors for scaffold contract, sanitized runtime config and governance policy snapshots",

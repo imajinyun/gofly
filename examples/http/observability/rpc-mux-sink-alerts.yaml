@@ -1,0 +1,27 @@
+groups:
+  - name: gofly-rpc-mux-sinks
+    rules:
+      - alert: GoflyRPCMuxSinkBreakerOpen
+        expr: gofly_rpc_mux_diagnosis_exporter_breaker_open > 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "gofly RPC mux diagnosis sink breaker is open"
+          description: "Sink {{ $labels.sink }} has rejected delivery after consecutive failures."
+      - alert: GoflyRPCMuxSinkDeliveryDrops
+        expr: sum by (sink) (rate(gofly_rpc_mux_diagnosis_exporter_delivery_total{outcome=~"dropped|backpressure|breaker_open"}[5m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "gofly RPC mux diagnosis sink is dropping events"
+          description: "Sink {{ $labels.sink }} has sustained bounded-delivery drops."
+      - alert: GoflyRPCMuxSinkDeliveryP99High
+        expr: histogram_quantile(0.99, sum by (le, sink) (rate(gofly_rpc_mux_diagnosis_exporter_delivery_duration_seconds_bucket[5m]))) > 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "gofly RPC mux diagnosis sink delivery latency is high"
+          description: "Sink {{ $labels.sink }} p99 delivery latency has exceeded one second."

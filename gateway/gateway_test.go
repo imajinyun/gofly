@@ -2632,6 +2632,47 @@ func TestGatewayRuntimeSnapshotExposesOutboundResilience(t *testing.T) {
 	}
 }
 
+func TestGatewayRuntimeSnapshotPassiveAndShadowBoundaries(t *testing.T) {
+	if snapshot := (*passiveHealth)(nil).runtimeSnapshot(); snapshot != nil {
+		t.Fatalf("nil passive runtime snapshot = %+v", snapshot)
+	}
+	if snapshot := (*shadowPool)(nil).runtimeSnapshot(); snapshot != nil {
+		t.Fatalf("nil shadow runtime snapshot = %+v", snapshot)
+	}
+	if timeout := gatewayHTTPClientTimeout(nil); timeout != 0 {
+		t.Fatalf("nil client timeout = %v", timeout)
+	}
+
+	passive := newPassiveHealth(PassiveHealthConfig{FailureThreshold: 3, EjectionDuration: time.Minute})
+	passive.Report("http://a", false)
+	shadow := newShadowPool(0, 3)
+	defer shadow.Shutdown(context.Background())
+	shadow.tasks <- shadowTask{}
+	g, err := New(
+		[]Route{{Name: "orders", Method: http.MethodGet, PathPrefix: "/orders", Targets: []string{"http://a"}}},
+		WithPassiveHealth(PassiveHealthConfig{Enabled: true, FailureThreshold: 3, EjectionDuration: time.Minute}),
+		WithHTTPClient(&http.Client{Timeout: 250 * time.Millisecond}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer g.Close()
+	g.passive = passive
+	g.shadowPool = shadow
+	snapshot := g.RuntimeSnapshot()
+	if snapshot.PassiveHealth == nil || snapshot.PassiveHealth.FailureThreshold != 3 ||
+		snapshot.PassiveHealth.EndpointCount != 1 {
+		t.Fatalf("passive runtime snapshot = %+v", snapshot.PassiveHealth)
+	}
+	if snapshot.ShadowPool == nil || snapshot.ShadowPool.QueueCapacity != 3 ||
+		snapshot.ShadowPool.Queued != 1 {
+		t.Fatalf("shadow runtime snapshot = %+v", snapshot.ShadowPool)
+	}
+	if snapshot.HTTPClientTimeout != 250*time.Millisecond || snapshot.RouteCount != 1 {
+		t.Fatalf("gateway runtime snapshot = %+v", snapshot)
+	}
+}
+
 func TestRouteConfigsFromOpenAPIImportsDeterministicGatewayRoutes(t *testing.T) {
 	doc := rest.OpenAPIDocument{
 		OpenAPI: "3.0.3",

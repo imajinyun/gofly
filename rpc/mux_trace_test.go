@@ -5,9 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -919,6 +921,28 @@ func TestRPCMuxOTelLogSinkRegistryCreatesCustomExporter(t *testing.T) {
 	}
 }
 
+func TestRPCMuxOTelLogDiagnosisEventExporterCloseContracts(t *testing.T) {
+	var closed atomic.Int64
+	closable := NewRPCMuxOTelLogDiagnosisEventExporter(&sinkSetTestExporter{closed: &closed})
+	closer, ok := closable.(io.Closer)
+	if !ok {
+		t.Fatalf("closable exporter type = %T, want io.Closer", closable)
+	}
+	if err := closer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if closed.Load() != 1 {
+		t.Fatalf("close count = %d, want 1", closed.Load())
+	}
+
+	plain := NewRPCMuxOTelLogDiagnosisEventExporter(
+		RPCMuxOTelLogExporterFunc(func(context.Context, RPCMuxDiagnosisEventOTelLogRecord) {}),
+	)
+	if err := plain.(io.Closer).Close(); err != nil {
+		t.Fatalf("close non-closable exporter: %v", err)
+	}
+}
+
 func TestRPCMuxOTelLogSinkProviderValidatesProfile(t *testing.T) {
 	const sinkName = "validated-otel"
 	var receivedProfile string
@@ -1259,6 +1283,32 @@ func TestRPCMuxDiagnosisEventsDeriveRetryHealthFlowControlAndDrain(t *testing.T)
 	}
 	if event := byKey["drain/manager_drain/resolver_update"]; event.Count != 1 {
 		t.Fatalf("manager drain event = %+v, want resolver update count", event)
+	}
+}
+
+func TestRPCMuxFlowControlFilterWrappers(t *testing.T) {
+	diagnosis := RPCMuxTransportDiagnosis{
+		FlowControl: RPCMuxFlowControlDiagnosis{
+			WriteTimeouts:             2,
+			CreditWaitTimeouts:        3,
+			ConnectionWindowExhausted: 4,
+		},
+		Manager: RPCMuxConnectionManagerDiagnosis{
+			FlowControl: RPCMuxFlowControlDiagnosis{
+				WriteTimeouts:      5,
+				CreditWaitTimeouts: 6,
+			},
+		},
+	}
+	filtered := FilterRPCMuxDiagnosisByFlowControlEvent(diagnosis, "write-timeout")
+	if filtered.FlowControl.WriteTimeouts != 2 || filtered.FlowControl.CreditWaitTimeouts != 0 ||
+		len(filtered.FlowControl.Events) != 1 || filtered.FlowControl.Events[0].Event != "write_timeout" {
+		t.Fatalf("filtered diagnosis = %+v", filtered.FlowControl)
+	}
+	manager := withRPCMuxManagerFlowControlEvents(diagnosis.Manager, "credit_wait_timeout")
+	if len(manager.FlowControl.Events) != 1 || manager.FlowControl.Events[0].Event != "credit_wait_timeout" ||
+		manager.FlowControl.Events[0].Count != 6 {
+		t.Fatalf("manager flow-control events = %+v", manager.FlowControl.Events)
 	}
 }
 

@@ -1199,6 +1199,94 @@ func TestAdminCleanAdminPath(t *testing.T) {
 	}
 }
 
+func TestAdminComponentsVersionDiffAndDurationBoundaries(t *testing.T) {
+	t.Run("components nil and method rejected", func(t *testing.T) {
+		admin := NewAdmin(nil, nil)
+		get := httptest.NewRecorder()
+		admin.ServeHTTP(get, httptest.NewRequest(http.MethodGet, "/components", nil))
+		if get.Code != http.StatusOK || strings.TrimSpace(get.Body.String()) != "null" {
+			t.Fatalf("nil components status=%d body=%s", get.Code, get.Body.String())
+		}
+		post := httptest.NewRecorder()
+		admin.ServeHTTP(post, httptest.NewRequest(http.MethodPost, "/components", nil))
+		if post.Code != http.StatusMethodNotAllowed {
+			t.Fatalf("components POST status=%d body=%s", post.Code, post.Body.String())
+		}
+	})
+
+	t.Run("components snapshot", func(t *testing.T) {
+		registry := NewRegistry()
+		registry.Register("limiter", "rate_limit", "orders", func() any {
+			return map[string]any{"rate": 10}
+		})
+		admin := NewAdmin(nil, registry)
+		recorder := httptest.NewRecorder()
+		admin.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/components", nil))
+		if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `"name":"limiter"`) {
+			t.Fatalf("components status=%d body=%s", recorder.Code, recorder.Body.String())
+		}
+	})
+
+	rules := NewRuleSet(Rule{Name: "orders-v1", Transport: TransportREST, Service: "orders"})
+	rules.Replace(Rule{Name: "orders-v2", Transport: TransportREST, Service: "orders", Policy: Policy{Timeout: time.Second}})
+	admin := NewAdmin(rules, nil)
+	for _, test := range []struct {
+		name   string
+		query  string
+		status int
+		want   string
+	}{
+		{name: "current against empty", query: "", status: http.StatusOK, want: `"added"`},
+		{name: "existing version", query: "?version=1", status: http.StatusOK, want: `"removed"`},
+		{name: "missing version", query: "?version=999", status: http.StatusNotFound, want: "not found"},
+		{name: "invalid version", query: "?version=bad", status: http.StatusBadRequest, want: "invalid governance rule version"},
+	} {
+		t.Run("version diff "+test.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			admin.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/diff"+test.query, nil))
+			if recorder.Code != test.status || !strings.Contains(recorder.Body.String(), test.want) {
+				t.Fatalf("diff status=%d body=%s, want status=%d containing %q", recorder.Code, recorder.Body.String(), test.status, test.want)
+			}
+		})
+	}
+
+	for _, test := range []struct {
+		name string
+		raw  string
+		want time.Duration
+		err  bool
+	}{
+		{name: "empty", raw: "", want: 0},
+		{name: "duration", raw: "250ms", want: 250 * time.Millisecond},
+		{name: "seconds float", raw: "1.5", want: 1500 * time.Millisecond},
+		{name: "negative duration", raw: "-1s", err: true},
+		{name: "negative seconds", raw: "-1", err: true},
+		{name: "nan", raw: "NaN", err: true},
+		{name: "positive infinity", raw: "+Inf", err: true},
+		{name: "overflow", raw: "999999999999999999999999", err: true},
+		{name: "invalid", raw: "later", err: true},
+	} {
+		t.Run("duration "+test.name, func(t *testing.T) {
+			got, err := parseAdminDurationParam(test.raw, "wait")
+			if test.err {
+				if err == nil || !strings.Contains(err.Error(), "invalid wait") {
+					t.Fatalf("duration=%v err=%v, want invalid wait", got, err)
+				}
+				return
+			}
+			if err != nil || got != test.want {
+				t.Fatalf("duration=%v err=%v, want %v", got, err, test.want)
+			}
+		})
+	}
+	if got, err := parseAdminTimeout("", 3*time.Second); err != nil || got != 3*time.Second {
+		t.Fatalf("default timeout=%v err=%v", got, err)
+	}
+	if _, err := parseAdminTimeout("-1", time.Second); err == nil {
+		t.Fatal("negative timeout succeeded")
+	}
+}
+
 func TestAdminParseAdminTags(t *testing.T) {
 	if got := parseAdminTags(""); got != nil {
 		t.Fatalf("parseAdminTags(\"\") = %#v, want nil", got)

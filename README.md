@@ -86,6 +86,14 @@ counters, and queue-depth metrics. Registered sinks and their schemas are
 visible through the RPC runtime/control-plane snapshot without exposing active
 profile values.
 
+Generated services can also configure a versioned `sinks` list. Configuration
+reload builds and validates a complete replacement generation before an atomic
+swap, drains the previous exporters after the swap, and preserves the active
+generation when validation or construction fails. Each sink has an independent
+queue, timeout, circuit breaker, priority, delivery SLO snapshot, and
+Prometheus alert path, so one blocked sink cannot stall diagnosis requests or
+other sinks.
+
 ## 🟡 Golden path: production service in 10 minutes
 
 Use `new service` when you want the full production baseline: REST, RPC, OpenAPI, governance, admin control-plane, in-memory discovery, config tests, and generated smoke tests.

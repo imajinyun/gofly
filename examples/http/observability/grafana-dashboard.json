@@ -75,6 +75,78 @@
       ],
       "title": "Route Latency P95",
       "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 8
+      },
+      "id": 4,
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(gofly_rpc_mux_diagnosis_exporter_delivery_duration_seconds_bucket[5m])) by (le, sink))",
+          "legendFormat": "p99 {{sink}}"
+        }
+      ],
+      "title": "Mux Sink Delivery P99",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 8
+      },
+      "id": 5,
+      "targets": [
+        {
+          "expr": "gofly_rpc_mux_diagnosis_exporter_consecutive_failures",
+          "legendFormat": "{{sink}}"
+        }
+      ],
+      "title": "Mux Sink Consecutive Failures",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 8
+      },
+      "id": 6,
+      "targets": [
+        {
+          "expr": "gofly_rpc_mux_diagnosis_exporter_breaker_open",
+          "legendFormat": "{{sink}}"
+        }
+      ],
+      "title": "Mux Sink Breaker State",
+      "type": "timeseries"
     }
   ],
   "schemaVersion": 39,

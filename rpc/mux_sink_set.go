@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"io"
+	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -38,6 +39,34 @@ type RPCMuxDiagnosisSinkSetConfig struct {
 // RPCMuxDiagnosisSecretResolver resolves profile references before validation.
 // Resolved profile values are never exposed by snapshots or diff plans.
 type RPCMuxDiagnosisSecretResolver func(context.Context, string) (string, error)
+
+// NewRPCMuxDiagnosisEnvSecretResolver resolves profile references of the form
+// env://NAME. It intentionally supports only environment variables so generated
+// projects can avoid logging or storing raw profile JSON.
+func NewRPCMuxDiagnosisEnvSecretResolver() RPCMuxDiagnosisSecretResolver {
+	return func(ctx context.Context, ref string) (string, error) {
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		ref = strings.TrimSpace(ref)
+		const prefix = "env://"
+		if !strings.HasPrefix(ref, prefix) {
+			return "", fmt.Errorf("unsupported secret reference scheme")
+		}
+		name := strings.TrimSpace(strings.TrimPrefix(ref, prefix))
+		if name == "" || strings.ContainsAny(name, "/\\\x00") {
+			return "", fmt.Errorf("invalid environment secret reference")
+		}
+		value, ok := os.LookupEnv(name)
+		if !ok {
+			return "", fmt.Errorf("environment secret reference is not set")
+		}
+		return value, nil
+	}
+}
 
 // RPCMuxDiagnosisSinkRuntimeSnapshot describes one active sink without profile
 // values or provider instances.
@@ -375,6 +404,9 @@ func validateRPCMuxDiagnosisSinkSetConfig(ctx context.Context, config RPCMuxDiag
 		if sinkConfig.Profile != "" && sinkConfig.ProfileRef != "" {
 			return RPCMuxDiagnosisSinkSetConfig{}, fmt.Errorf("rpc mux diagnosis sink %q profile and profileRef are mutually exclusive", sinkConfig.Name)
 		}
+		if err := validateRPCMuxDiagnosisSinkIsolationConfig(sinkConfig.Delivery.Isolation); err != nil {
+			return RPCMuxDiagnosisSinkSetConfig{}, fmt.Errorf("rpc mux diagnosis sink %q delivery isolation: %w", sinkConfig.Name, err)
+		}
 		if sinkConfig.ProfileRef != "" {
 			if config.Secrets == nil {
 				return RPCMuxDiagnosisSinkSetConfig{}, fmt.Errorf("rpc mux diagnosis sink %q profileRef requires a secret resolver", sinkConfig.Name)
@@ -480,7 +512,7 @@ func diffRPCMuxDiagnosisSinkGenerations(current, candidate *rpcMuxDiagnosisSinkG
 			prev.profileSchema != next.profileSchema || prev.profileMigration != next.profileMigration {
 			plan.ChangeProfile = append(plan.ChangeProfile, name)
 		}
-		if prev.delivery != next.delivery {
+		if !equalRPCMuxDiagnosisExporterDeliveryConfig(prev.delivery, next.delivery) {
 			plan.ChangeDelivery = append(plan.ChangeDelivery, name)
 		}
 		if prev.profileMigration != next.profileMigration && next.profileMigration != "" {
@@ -536,6 +568,32 @@ func hashRPCMuxDiagnosisProfile(profile string) string {
 	hash := fnv.New64a()
 	_, _ = hash.Write([]byte(profile))
 	return fmt.Sprintf("%016x", hash.Sum64())
+}
+
+func equalRPCMuxDiagnosisExporterDeliveryConfig(left, right RPCMuxDiagnosisExporterDeliveryConfig) bool {
+	return left.QueueSize == right.QueueSize &&
+		left.Timeout == right.Timeout &&
+		left.MaxHungCalls == right.MaxHungCalls &&
+		left.BreakerFailureThreshold == right.BreakerFailureThreshold &&
+		left.BreakerCooldown == right.BreakerCooldown &&
+		left.ErrorBudget == right.ErrorBudget &&
+		equalRPCMuxDiagnosisSinkIsolationConfig(left.Isolation, right.Isolation)
+}
+
+func equalRPCMuxDiagnosisSinkIsolationConfig(left, right RPCMuxDiagnosisSinkIsolationConfig) bool {
+	if left.Mode != right.Mode ||
+		left.ShutdownTimeout != right.ShutdownTimeout ||
+		left.MaxMemoryBytes != right.MaxMemoryBytes ||
+		left.MaxCPUPercent != right.MaxCPUPercent ||
+		len(left.AuditFields) != len(right.AuditFields) {
+		return false
+	}
+	for key, leftValue := range left.AuditFields {
+		if right.AuditFields[key] != leftValue {
+			return false
+		}
+	}
+	return true
 }
 
 var (

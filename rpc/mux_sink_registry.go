@@ -99,7 +99,10 @@ func RPCMuxOTelLogSinkRegistry() RPCMuxOTelLogSinkRegistrySnapshot {
 			"profile_schema_version",
 			"profile_migration_contract",
 			"profile_secret_reference",
+			"env_secret_resolver",
 			"generation_diff_plan",
+			"isolation_profile",
+			"operator_action_dry_run",
 		},
 	}
 	for _, name := range names {

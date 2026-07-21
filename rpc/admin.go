@@ -132,6 +132,8 @@ func (s *HTTPServer) serveAdminRoute(w http.ResponseWriter, r *http.Request) {
 		})
 	case r.URL.Path == "/rpc/admin/runtime":
 		writeAdminJSON(w, http.StatusOK, s.RuntimeSnapshot(r.Context()))
+	case r.URL.Path == "/rpc/admin/mux/operator-actions":
+		writeAdminJSON(w, http.StatusOK, s.MuxDiagnosisOperatorActions(r.Context()))
 	case r.URL.Path == "/rpc/admin/diagnosis":
 		query := r.URL.Query()
 		snapshot := s.DiagnosisProbeWithOptions(RPCDiagnosisProbeOptions{
@@ -250,6 +252,9 @@ func (s *HTTPServer) RuntimeSnapshot(ctx context.Context) coreruntime.Snapshot {
 		if sinkSet, ok := muxEventExporter.(RPCMuxDiagnosisSinkSetSnapshotter); ok {
 			snapshot := sinkSet.RPCMuxDiagnosisSinkSetSnapshot()
 			details["sinkSet"] = snapshot
+			if actionSource, ok := muxEventExporter.(RPCMuxDiagnosisOperatorActionSource); ok {
+				details["operatorActions"] = actionSource.RPCMuxDiagnosisOperatorActions(context.Background())
+			}
 			status = rpcMuxDiagnosisSinkSetStatus(snapshot)
 		} else if delivery, ok := muxEventExporter.(RPCMuxDiagnosisExporterDeliverySnapshotter); ok {
 			details["delivery"] = delivery.RPCMuxDiagnosisExporterDeliverySnapshot()
@@ -263,6 +268,22 @@ func (s *HTTPServer) RuntimeSnapshot(ctx context.Context) coreruntime.Snapshot {
 		}
 	}, coreruntime.WithOwner("rpc"))
 	return registry.Snapshot(ctx)
+}
+
+// MuxDiagnosisOperatorActions returns dry-run mux sink operator actions for
+// admin and control-plane views.
+func (s *HTTPServer) MuxDiagnosisOperatorActions(ctx context.Context) []RPCMuxDiagnosisOperatorAction {
+	if s == nil {
+		return nil
+	}
+	s.mu.RLock()
+	exporter := s.opts.muxEventExporter
+	s.mu.RUnlock()
+	source, ok := exporter.(RPCMuxDiagnosisOperatorActionSource)
+	if !ok {
+		return nil
+	}
+	return source.RPCMuxDiagnosisOperatorActions(ctx)
 }
 
 func rpcMuxDiagnosisSinkSetStatus(snapshot RPCMuxDiagnosisSinkSetSnapshot) string {

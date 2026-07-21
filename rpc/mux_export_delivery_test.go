@@ -200,6 +200,42 @@ func TestGovernedRPCMuxDiagnosisEventExporterErrorBudgetAutomation(t *testing.T)
 	}
 }
 
+func TestRPCMuxDiagnosisSinkIsolationConfig(t *testing.T) {
+	cfg := normalizeRPCMuxDiagnosisSinkIsolationConfig(RPCMuxDiagnosisSinkIsolationConfig{
+		Mode:            RPCMuxDiagnosisSinkIsolationIsolatedProcess,
+		ShutdownTimeout: 2 * time.Second,
+		MaxMemoryBytes:  1024,
+		MaxCPUPercent:   25,
+		AuditFields:     map[string]string{"owner": "test"},
+	})
+	if cfg.Mode != RPCMuxDiagnosisSinkIsolationIsolatedProcess ||
+		cfg.AuditFields["resource_boundary"] != "process" ||
+		cfg.AuditFields["owner"] != "test" {
+		t.Fatalf("isolated process config = %+v", cfg)
+	}
+	cfg.AuditFields["owner"] = "mutated"
+	cloned := cloneRPCMuxDiagnosisSinkIsolationConfig(cfg)
+	cfg.AuditFields["owner"] = "changed"
+	if cloned.AuditFields["owner"] != "mutated" {
+		t.Fatalf("cloned audit fields = %+v, want defensive copy", cloned.AuditFields)
+	}
+
+	wasm := normalizeRPCMuxDiagnosisSinkIsolationConfig(RPCMuxDiagnosisSinkIsolationConfig{Mode: RPCMuxDiagnosisSinkIsolationWASM})
+	if wasm.AuditFields["resource_boundary"] != "wasm" {
+		t.Fatalf("wasm config = %+v", wasm)
+	}
+	fallback := normalizeRPCMuxDiagnosisSinkIsolationConfig(RPCMuxDiagnosisSinkIsolationConfig{Mode: "unsupported"})
+	if fallback.Mode != RPCMuxDiagnosisSinkIsolationInProcess || fallback.AuditFields["resource_boundary"] != "goroutine" {
+		t.Fatalf("fallback config = %+v", fallback)
+	}
+	if err := validateRPCMuxDiagnosisSinkIsolationConfig(RPCMuxDiagnosisSinkIsolationConfig{Mode: "unsupported"}); err == nil {
+		t.Fatal("unsupported isolation mode validated")
+	}
+	if err := validateRPCMuxDiagnosisSinkIsolationConfig(RPCMuxDiagnosisSinkIsolationConfig{ShutdownTimeout: -time.Second}); err == nil {
+		t.Fatal("negative isolation timeout validated")
+	}
+}
+
 func TestGovernedRPCMuxDiagnosisEventExporterHalfOpenAllowsSingleProbe(t *testing.T) {
 	exporter := newGovernedRPCMuxDiagnosisEventExporter(
 		"half-open-single-probe",
@@ -249,7 +285,8 @@ func TestGovernedRPCMuxDiagnosisEventExporterBoundaries(t *testing.T) {
 	if exporter := NewGovernedRPCMuxDiagnosisEventExporter(nil, RPCMuxDiagnosisExporterDeliveryConfig{}); exporter != nil {
 		t.Fatalf("nil exporter wrapper = %#v, want nil", exporter)
 	}
-	if snapshot := (*governedRPCMuxDiagnosisExporter)(nil).RPCMuxDiagnosisExporterDeliverySnapshot(); snapshot != (RPCMuxDiagnosisExporterDeliverySnapshot{}) {
+	if snapshot := (*governedRPCMuxDiagnosisExporter)(nil).RPCMuxDiagnosisExporterDeliverySnapshot(); snapshot.Sink != "" ||
+		snapshot.QueueSize != 0 || snapshot.Accepted != 0 || snapshot.Isolation.Mode != "" {
 		t.Fatalf("nil exporter snapshot = %+v, want zero value", snapshot)
 	}
 	if err := (*governedRPCMuxDiagnosisExporter)(nil).Close(); err != nil {

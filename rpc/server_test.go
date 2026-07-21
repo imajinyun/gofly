@@ -268,6 +268,62 @@ func TestRPCMuxDiagnosisSinkSetRuntimeStatus(t *testing.T) {
 	}
 }
 
+func TestHTTPServerMuxOperatorActionsEndpoint(t *testing.T) {
+	block := make(chan struct{})
+	cleanup := RegisterRPCMuxOTelLogSinkProvider("operator-actions", sinkSetTestProvider{
+		newExporter: func(string) RPCMuxOTelLogExporter {
+			return &sinkSetTestExporter{export: func(RPCMuxDiagnosisEventOTelLogRecord) {
+				<-block
+			}}
+		},
+	})
+	defer cleanup()
+	sinkSet, err := NewRPCMuxDiagnosisSinkSet(RPCMuxDiagnosisSinkSetConfig{
+		Version: "operator-v1",
+		Sinks: []RPCMuxDiagnosisSinkConfig{{
+			Name: "operator-actions",
+			Delivery: RPCMuxDiagnosisExporterDeliveryConfig{
+				Timeout:                 5 * time.Millisecond,
+				MaxHungCalls:            1,
+				BreakerFailureThreshold: 10,
+				Isolation: RPCMuxDiagnosisSinkIsolationConfig{
+					Mode: RPCMuxDiagnosisSinkIsolationWASM,
+				},
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		close(block)
+		if err := sinkSet.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
+	sinkSet.ExportRPCMuxDiagnosisEvent(context.Background(), RPCMuxDiagnosisEventRecord{})
+	waitForMuxSinkSetSnapshot(t, sinkSet, func(snapshot RPCMuxDiagnosisSinkSetSnapshot) bool {
+		return snapshot.Sinks[0].Delivery.OperatorAction == "pause_sink_hung_calls"
+	})
+	server := NewServer(WithServerMuxDiagnosisEventExporter(sinkSet, RPCMuxDiagnosisFilter{}))
+
+	req := httptest.NewRequest(http.MethodGet, "/rpc/admin/mux/operator-actions", nil)
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("operator actions status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var actions []RPCMuxDiagnosisOperatorAction
+	if err := json.NewDecoder(rec.Body).Decode(&actions); err != nil {
+		t.Fatal(err)
+	}
+	if len(actions) != 1 || actions[0].Action != RPCMuxDiagnosisOperatorPauseSink ||
+		actions[0].Reason != "hung_call_limit" || !actions[0].DryRun ||
+		actions[0].Details["isolation_mode"] != RPCMuxDiagnosisSinkIsolationWASM {
+		t.Fatalf("operator actions = %+v", actions)
+	}
+}
+
 func TestHTTPServerDiagnosisConvenienceMethods(t *testing.T) {
 	server := NewServer()
 	snapshot := server.DiagnosisSnapshot()

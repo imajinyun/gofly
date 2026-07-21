@@ -337,7 +337,7 @@ func TestGenerateService(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(svcData), `"github.com/imajinyun/gofly/core/mq"`) || !strings.Contains(string(svcData), "MQ     mq.Broker") {
+	if !strings.Contains(string(svcData), `"github.com/imajinyun/gofly/core/mq"`) || !strings.Contains(string(svcData), "MQ") || !strings.Contains(string(svcData), "mq.Broker") {
 		t.Fatalf("service context missing mq broker wiring:\n%s", svcData)
 	}
 	mainData, err = os.ReadFile(filepath.Join(dir, "cmd", "hello", "main.go"))
@@ -374,6 +374,10 @@ func TestGenerateService(t *testing.T) {
 		"generatedServiceConfFixture() app.ServiceConf",
 		"RPCTransport: rpc.TransportConfig",
 		"clientRuntime.Transport.Timeout != 30*time.Second",
+		"svcCtx.RegisterRPCClient(client)",
+		"svcCtx.UpdateRPCMuxDiagnosisExporters(rpc.RPCMuxDiagnosisEventExporterFunc",
+		`rpc.RPCMuxDiagnosisFilter{EventFamily: "flow_control", Event: "write_timeout"}`,
+		`registered client did not receive mux diagnosis exporter update`,
 	} {
 		if !strings.Contains(string(greeterClientTestData), want) {
 			t.Fatalf("greeter_client_test.go missing descriptor self-validation %q:\n%s", want, greeterClientTestData)
@@ -1077,8 +1081,13 @@ func TestGenerateNewServiceVariantsBoundaries(t *testing.T) {
 		`json:"profileMigration,omitempty"`,
 		`json:"sinks,omitempty"`,
 		"type RPCMuxExporterErrorBudgetConfig struct",
+		"type RPCMuxSinkIsolationConfig struct",
 		`json:"maxHungCalls,omitempty"`,
 		`json:"errorBudget,omitempty"`,
+		`json:"isolation,omitempty"`,
+		`json:"shutdownTimeout,omitempty"`,
+		`json:"maxMemoryBytes,omitempty"`,
+		`json:"maxCpuPercent,omitempty"`,
 		"type RPCMuxOTelSinkConfig struct",
 		`json:"priority,omitempty"`,
 		`json:"breakerFailureThreshold,omitempty"`,
@@ -1126,6 +1135,7 @@ func TestGenerateNewServiceVariantsBoundaries(t *testing.T) {
 		"rpc.WithMuxDiagnosisEventLogging(nil",
 		"rpc.ValidateRPCMuxDiagnosisSinkSetConfig",
 		"rpc.NewRPCMuxDiagnosisSinkSet",
+		"rpc.NewRPCMuxDiagnosisEnvSecretResolver()",
 		"rpc.WithMuxDiagnosisEventExporter(sinkSet",
 		"rpc.WithServerMuxDiagnosisEventExporter(sinkSet",
 		"RPCMuxDiagnosisExporterDeliveryConfig",
@@ -1173,10 +1183,41 @@ func TestGenerateNewServiceVariantsBoundaries(t *testing.T) {
 		"next.RPC.Mux.Log.OTelCompatible.DiffSinkSet(ctx, muxSinkSet)",
 		"next.RPC.Mux.Log.OTelCompatible.ReloadSinkSet(ctx, muxSinkSet)",
 		"rpcServer.UpdateMuxDiagnosisEventExporter(muxSinkSet, next.RPC.Mux.Log.Filter())",
+		"svcCtx.UpdateRPCMuxDiagnosisExporters(muxSinkSet, next.RPC.Mux.Log.Filter())",
+		"svcCtx.UpdateRPCMuxDiagnosisExporters(nil, rpc.RPCMuxDiagnosisFilter{})",
 		"servers = append(servers, muxServer)",
 	} {
 		if !strings.Contains(string(mainData), want) {
 			t.Fatalf("generated rpc main missing mux runtime hook %q:\n%s", want, mainData)
+		}
+	}
+	svcData, err := os.ReadFile(filepath.Join(rpcDir, "internal", "svc", "service_context.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"type RPCMuxDiagnosisClient interface",
+		"UpdateMuxDiagnosisEventExporter(rpc.RPCMuxDiagnosisEventExporter, rpc.RPCMuxDiagnosisFilter)",
+		"func (s *ServiceContext) RegisterRPCClient(client RPCMuxDiagnosisClient)",
+		"func (s *ServiceContext) UpdateRPCMuxDiagnosisExporters(exporter rpc.RPCMuxDiagnosisEventExporter, filter rpc.RPCMuxDiagnosisFilter)",
+		`"github.com/imajinyun/gofly/rpc"`,
+	} {
+		if !strings.Contains(string(svcData), want) {
+			t.Fatalf("generated service context missing mux client activation %q:\n%s", want, svcData)
+		}
+	}
+	rpcTestData, err := os.ReadFile(filepath.Join(rpcDir, "internal", "rpc", "greeter_client_test.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"svcCtx.RegisterRPCClient(client)",
+		"svcCtx.UpdateRPCMuxDiagnosisExporters(rpc.RPCMuxDiagnosisEventExporterFunc",
+		`rpc.RPCMuxDiagnosisFilter{EventFamily: "flow_control", Event: "write_timeout"}`,
+		`registered client did not receive mux diagnosis exporter update`,
+	} {
+		if !strings.Contains(string(rpcTestData), want) {
+			t.Fatalf("generated rpc greeter_client_test.go missing client activation %q:\n%s", want, rpcTestData)
 		}
 	}
 	adminTestData, err := os.ReadFile(filepath.Join(rpcDir, "internal", "admin", "admin_test.go"))

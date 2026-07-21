@@ -250,8 +250,10 @@ func main() {
 			}
 			if next.RPC.Mux.Log.EventExportEnabled() {
 				rpcServer.UpdateMuxDiagnosisEventExporter(muxSinkSet, next.RPC.Mux.Log.Filter())
+				svcCtx.UpdateRPCMuxDiagnosisExporters(muxSinkSet, next.RPC.Mux.Log.Filter())
 			} else {
 				rpcServer.UpdateMuxDiagnosisEventExporter(nil, rpc.RPCMuxDiagnosisFilter{})
+				svcCtx.UpdateRPCMuxDiagnosisExporters(nil, rpc.RPCMuxDiagnosisFilter{})
 			}
 			svcCtx.UpdateConfig(next)
 			slog.Info("config reloaded", "rest_host", next.Rest.Host, "rest_port", next.Rest.Port, "rpc_addr", next.RPC.Addr, "mux_sink_diff_plan", diffPlan)
@@ -1944,6 +1946,7 @@ type RPCMuxExporterDeliveryConfig struct {
 	BreakerFailureThreshold int ` + "`json:\"breakerFailureThreshold,omitempty\"`" + `
 	BreakerCooldown time.Duration ` + "`json:\"breakerCooldown,omitempty\"`" + `
 	ErrorBudget RPCMuxExporterErrorBudgetConfig ` + "`json:\"errorBudget,omitempty\"`" + `
+	Isolation RPCMuxSinkIsolationConfig ` + "`json:\"isolation,omitempty\"`" + `
 }
 
 type RPCMuxExporterErrorBudgetConfig struct {
@@ -1952,6 +1955,14 @@ type RPCMuxExporterErrorBudgetConfig struct {
 	BurnRateThreshold float64 ` + "`json:\"burnRateThreshold,omitempty\"`" + `
 	RecoveryBurnRateThreshold float64 ` + "`json:\"recoveryBurnRateThreshold,omitempty\"`" + `
 	PauseDuration time.Duration ` + "`json:\"pauseDuration,omitempty\"`" + `
+}
+
+type RPCMuxSinkIsolationConfig struct {
+	Mode string ` + "`json:\"mode,omitempty\"`" + `
+	ShutdownTimeout time.Duration ` + "`json:\"shutdownTimeout,omitempty\"`" + `
+	MaxMemoryBytes int64 ` + "`json:\"maxMemoryBytes,omitempty\"`" + `
+	MaxCPUPercent int ` + "`json:\"maxCpuPercent,omitempty\"`" + `
+	AuditFields map[string]string ` + "`json:\"auditFields,omitempty\"`" + `
 }
 
 func (c RPCMuxExporterDeliveryConfig) RuntimeConfig() rpc.RPCMuxDiagnosisExporterDeliveryConfig {
@@ -1968,6 +1979,13 @@ func (c RPCMuxExporterDeliveryConfig) RuntimeConfig() rpc.RPCMuxDiagnosisExporte
 			RecoveryBurnRateThreshold: c.ErrorBudget.RecoveryBurnRateThreshold,
 			PauseDuration: c.ErrorBudget.PauseDuration,
 		},
+		Isolation: rpc.RPCMuxDiagnosisSinkIsolationConfig{
+			Mode: c.Isolation.Mode,
+			ShutdownTimeout: c.Isolation.ShutdownTimeout,
+			MaxMemoryBytes: c.Isolation.MaxMemoryBytes,
+			MaxCPUPercent: c.Isolation.MaxCPUPercent,
+			AuditFields: c.Isolation.AuditFields,
+		},
 	}
 }
 
@@ -1977,7 +1995,7 @@ func (c RPCMuxOTelCompatibleLogConfig) SinkSetConfig() rpc.RPCMuxDiagnosisSinkSe
 		version = "legacy"
 	}
 	if !c.Enabled {
-		return rpc.RPCMuxDiagnosisSinkSetConfig{Version: version, SchemaVersion: strings.TrimSpace(c.SchemaVersion)}
+		return rpc.RPCMuxDiagnosisSinkSetConfig{Version: version, SchemaVersion: strings.TrimSpace(c.SchemaVersion), Secrets: rpc.NewRPCMuxDiagnosisEnvSecretResolver()}
 	}
 	sinks := make([]rpc.RPCMuxDiagnosisSinkConfig, 0, len(c.Sinks)+1)
 	if len(c.Sinks) == 0 {
@@ -2006,7 +2024,7 @@ func (c RPCMuxOTelCompatibleLogConfig) SinkSetConfig() rpc.RPCMuxDiagnosisSinkSe
 			})
 		}
 	}
-	return rpc.RPCMuxDiagnosisSinkSetConfig{Version: version, SchemaVersion: strings.TrimSpace(c.SchemaVersion), Sinks: sinks}
+	return rpc.RPCMuxDiagnosisSinkSetConfig{Version: version, SchemaVersion: strings.TrimSpace(c.SchemaVersion), Sinks: sinks, Secrets: rpc.NewRPCMuxDiagnosisEnvSecretResolver()}
 }
 
 func (c RPCMuxOTelCompatibleLogConfig) NewSinkSet() (*rpc.RPCMuxDiagnosisSinkSet, error) {
@@ -2732,12 +2750,14 @@ func TestRPCMuxConfigValidatesOTelCompatibleSink(t *testing.T) {
 }
 
 func TestRPCMuxOTelCompatibleSinkSetHotReload(t *testing.T) {
+	t.Setenv("OTEL_PROFILE_JSON", "generated-env-profile")
 	cfg := RPCMuxOTelCompatibleLogConfig{
 		Enabled: true,
 		Version: "generated-v1",
 		SchemaVersion: "mux-sinks/v1",
 		Sinks: []RPCMuxOTelSinkConfig{{
 			Name: "slog",
+			ProfileRef: "env://OTEL_PROFILE_JSON",
 			ProfileSchema: "slog/v1",
 			ProfileMigration: "legacy-to-v1",
 			Priority: 10,
@@ -2747,6 +2767,13 @@ func TestRPCMuxOTelCompatibleSinkSetHotReload(t *testing.T) {
 				MaxHungCalls: 1,
 				BreakerFailureThreshold: 2,
 				BreakerCooldown: time.Minute,
+				Isolation: RPCMuxSinkIsolationConfig{
+					Mode: "isolated_process",
+					ShutdownTimeout: time.Second,
+					MaxMemoryBytes: 1 << 20,
+					MaxCPUPercent: 50,
+					AuditFields: map[string]string{"owner": "generated-test"},
+				},
 				ErrorBudget: RPCMuxExporterErrorBudgetConfig{
 					Enabled: true,
 					MinSamples: 10,
@@ -2778,8 +2805,14 @@ func TestRPCMuxOTelCompatibleSinkSetHotReload(t *testing.T) {
 	snapshot := sinkSet.RPCMuxDiagnosisSinkSetSnapshot()
 	if snapshot.Version != "generated-v2" || snapshot.SchemaVersion != "mux-sinks/v2" ||
 		snapshot.Sinks[0].Priority != 20 || snapshot.Sinks[0].ProfileMigration != "legacy-to-v1" ||
-		snapshot.Sinks[0].Delivery.MaxHungCalls != 1 {
+		snapshot.Sinks[0].Delivery.MaxHungCalls != 1 ||
+		snapshot.Sinks[0].Delivery.Isolation.Mode != "isolated_process" ||
+		snapshot.Sinks[0].Delivery.Isolation.AuditFields["owner"] != "generated-test" {
 		t.Fatalf("sink set snapshot = %+v", snapshot)
+	}
+	if strings.Contains(snapshot.Sinks[0].Name, "generated-env-profile") ||
+		strings.Contains(snapshot.Sinks[0].Delivery.LastError, "generated-env-profile") {
+		t.Fatalf("sink set snapshot leaked env profile: %+v", snapshot)
 	}
 
 	disabled := RPCMuxOTelCompatibleLogConfig{Version: "disabled-v1", SchemaVersion: "mux-sinks/v2"}
@@ -4169,13 +4202,19 @@ import (
 	"sync"
 
 	"github.com/imajinyun/gofly/core/mq"
+	"github.com/imajinyun/gofly/rpc"
 	"{{.Module}}/internal/config"
 )
 
+type RPCMuxDiagnosisClient interface {
+	UpdateMuxDiagnosisEventExporter(rpc.RPCMuxDiagnosisEventExporter, rpc.RPCMuxDiagnosisFilter)
+}
+
 type ServiceContext struct {
-	mu     sync.RWMutex
-	Config config.Config
-	MQ     mq.Broker
+	mu         sync.RWMutex
+	Config     config.Config
+	MQ         mq.Broker
+	rpcClients []RPCMuxDiagnosisClient
 }
 
 func NewServiceContext(c config.Config, brokers ...mq.Broker) *ServiceContext {
@@ -4192,6 +4231,27 @@ func (s *ServiceContext) UpdateConfig(c config.Config) {
 	s.Config = c
 }
 
+func (s *ServiceContext) RegisterRPCClient(client RPCMuxDiagnosisClient) {
+	if s == nil || client == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.rpcClients = append(s.rpcClients, client)
+}
+
+func (s *ServiceContext) UpdateRPCMuxDiagnosisExporters(exporter rpc.RPCMuxDiagnosisEventExporter, filter rpc.RPCMuxDiagnosisFilter) {
+	if s == nil {
+		return
+	}
+	s.mu.RLock()
+	clients := append([]RPCMuxDiagnosisClient(nil), s.rpcClients...)
+	s.mu.RUnlock()
+	for _, client := range clients {
+		client.UpdateMuxDiagnosisEventExporter(exporter, filter)
+	}
+}
+
 func (s *ServiceContext) CurrentConfig() config.Config {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -4204,12 +4264,18 @@ const goZeroSvcTemplate = `package svc
 import (
 	"sync"
 
+	"github.com/imajinyun/gofly/rpc"
 	"{{.Module}}/internal/config"
 )
 
+type RPCMuxDiagnosisClient interface {
+	UpdateMuxDiagnosisEventExporter(rpc.RPCMuxDiagnosisEventExporter, rpc.RPCMuxDiagnosisFilter)
+}
+
 type ServiceContext struct {
-	mu     sync.RWMutex
-	Config config.Config
+	mu         sync.RWMutex
+	Config     config.Config
+	rpcClients []RPCMuxDiagnosisClient
 }
 
 func NewServiceContext(c config.Config) *ServiceContext {
@@ -4220,6 +4286,27 @@ func (s *ServiceContext) UpdateConfig(c config.Config) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.Config = c
+}
+
+func (s *ServiceContext) RegisterRPCClient(client RPCMuxDiagnosisClient) {
+	if s == nil || client == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.rpcClients = append(s.rpcClients, client)
+}
+
+func (s *ServiceContext) UpdateRPCMuxDiagnosisExporters(exporter rpc.RPCMuxDiagnosisEventExporter, filter rpc.RPCMuxDiagnosisFilter) {
+	if s == nil {
+		return
+	}
+	s.mu.RLock()
+	clients := append([]RPCMuxDiagnosisClient(nil), s.rpcClients...)
+	s.mu.RUnlock()
+	for _, client := range clients {
+		client.UpdateMuxDiagnosisEventExporter(exporter, filter)
+	}
 }
 
 func (s *ServiceContext) CurrentConfig() config.Config {
@@ -4696,7 +4783,8 @@ func TestGreeterRPCClient(t *testing.T) {
 	cfg := config.Config{Service: generatedServiceConfFixture()}
 	serviceConf := cfg.ServiceConf()
 	server := rpc.NewServer(serviceConf.RPCServerOptions()...)
-	if err := server.RegisterService(GreeterService(svc.NewServiceContext(cfg)), nil); err != nil {
+	svcCtx := svc.NewServiceContext(cfg)
+	if err := server.RegisterService(GreeterService(svcCtx), nil); err != nil {
 		t.Fatal(err)
 	}
 	httpServer := httptest.NewServer(server)
@@ -4750,6 +4838,27 @@ func TestGreeterRPCClient(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = client.Close() }()
+	svcCtx.RegisterRPCClient(client)
+	records := make(chan rpc.RPCMuxDiagnosisEventRecord, 1)
+	svcCtx.UpdateRPCMuxDiagnosisExporters(rpc.RPCMuxDiagnosisEventExporterFunc(func(_ context.Context, record rpc.RPCMuxDiagnosisEventRecord) {
+		records <- record
+	}), rpc.RPCMuxDiagnosisFilter{EventFamily: "flow_control", Event: "write_timeout"})
+	client.ObserveMuxDiagnosis(context.Background(), rpc.RPCDiagnosisProbe{
+		Target: httpServer.URL,
+		Method: "greeter/Watch",
+		Matched: true,
+		Diagnosis: rpc.RPCDiagnosisSnapshot{Mux: rpc.RPCMuxTransportDiagnosis{
+			FlowControl: rpc.RPCMuxFlowControlDiagnosis{WriteTimeouts: 1},
+		}},
+	})
+	select {
+	case record := <-records:
+		if record.Event.Event != "write_timeout" {
+			t.Fatalf("registered client exporter record = %+v, want write_timeout", record)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("registered client did not receive mux diagnosis exporter update")
+	}
 	runtimeState := client.PolicyRuntimeSnapshot().State
 	if !runtimeState.TimeoutEnforced || runtimeState.EffectiveTimeout != 3*time.Second {
 		t.Fatalf("rpc client timeout state = %+v, want generated service timeout", runtimeState)

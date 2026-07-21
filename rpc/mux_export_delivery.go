@@ -2,6 +2,7 @@ package rpc
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"strings"
 	"sync"
@@ -19,7 +20,22 @@ const (
 	defaultRPCMuxDiagnosisMaxHungCalls      = 1
 	defaultRPCMuxDiagnosisErrorBudgetMin    = 10
 	defaultRPCMuxDiagnosisErrorBudgetPause  = 30 * time.Second
+
+	RPCMuxDiagnosisSinkIsolationInProcess       = "in_process"
+	RPCMuxDiagnosisSinkIsolationIsolatedProcess = "isolated_process"
+	RPCMuxDiagnosisSinkIsolationWASM            = "wasm"
 )
+
+// RPCMuxDiagnosisSinkIsolationConfig describes the intended isolation profile
+// for one sink generation. Non in-process modes are explicit operator
+// contracts; applications must provide the actual isolated exporter.
+type RPCMuxDiagnosisSinkIsolationConfig struct {
+	Mode            string            `json:"mode,omitempty"`
+	ShutdownTimeout time.Duration     `json:"shutdownTimeout,omitempty"`
+	MaxMemoryBytes  int64             `json:"maxMemoryBytes,omitempty"`
+	MaxCPUPercent   int               `json:"maxCpuPercent,omitempty"`
+	AuditFields     map[string]string `json:"auditFields,omitempty"`
+}
 
 // RPCMuxDiagnosisExporterErrorBudgetConfig controls optional burn-rate based
 // delivery automation for one diagnosis exporter sink.
@@ -40,38 +56,40 @@ type RPCMuxDiagnosisExporterDeliveryConfig struct {
 	BreakerFailureThreshold int                                      `json:"breakerFailureThreshold,omitempty"`
 	BreakerCooldown         time.Duration                            `json:"breakerCooldown,omitempty"`
 	ErrorBudget             RPCMuxDiagnosisExporterErrorBudgetConfig `json:"errorBudget,omitempty"`
+	Isolation               RPCMuxDiagnosisSinkIsolationConfig       `json:"isolation,omitempty"`
 }
 
 // RPCMuxDiagnosisExporterDeliverySnapshot exposes low-cardinality delivery
 // health without including event payloads or sink profile values.
 type RPCMuxDiagnosisExporterDeliverySnapshot struct {
-	Sink                string    `json:"sink"`
-	QueueSize           int       `json:"queueSize"`
-	QueueDepth          int       `json:"queueDepth"`
-	Timeout             int64     `json:"timeoutNanos"`
-	Accepted            int64     `json:"accepted"`
-	Exported            int64     `json:"exported"`
-	Dropped             int64     `json:"dropped"`
-	Backpressure        int64     `json:"backpressure"`
-	TimedOut            int64     `json:"timedOut"`
-	Panics              int64     `json:"panics"`
-	BreakerRejected     int64     `json:"breakerRejected"`
-	ConsecutiveFailures int64     `json:"consecutiveFailures"`
-	MaxHungCalls        int       `json:"maxHungCalls"`
-	ActiveCalls         int64     `json:"activeCalls"`
-	HungCalls           int64     `json:"hungCalls"`
-	BurnRate            float64   `json:"burnRate"`
-	ErrorBudgetPaused   bool      `json:"errorBudgetPaused"`
-	OperatorAction      string    `json:"operatorAction,omitempty"`
-	Health              string    `json:"health"`
-	BreakerState        string    `json:"breakerState"`
-	LastSuccessAt       time.Time `json:"lastSuccessAt,omitempty"`
-	LastErrorAt         time.Time `json:"lastErrorAt,omitempty"`
-	LastError           string    `json:"lastError,omitempty"`
-	LastLatencyNanos    int64     `json:"lastLatencyNanos,omitempty"`
-	MaxLatencyNanos     int64     `json:"maxLatencyNanos,omitempty"`
-	AverageLatencyNanos int64     `json:"averageLatencyNanos,omitempty"`
-	Closed              bool      `json:"closed"`
+	Sink                string                             `json:"sink"`
+	QueueSize           int                                `json:"queueSize"`
+	QueueDepth          int                                `json:"queueDepth"`
+	Timeout             int64                              `json:"timeoutNanos"`
+	Accepted            int64                              `json:"accepted"`
+	Exported            int64                              `json:"exported"`
+	Dropped             int64                              `json:"dropped"`
+	Backpressure        int64                              `json:"backpressure"`
+	TimedOut            int64                              `json:"timedOut"`
+	Panics              int64                              `json:"panics"`
+	BreakerRejected     int64                              `json:"breakerRejected"`
+	ConsecutiveFailures int64                              `json:"consecutiveFailures"`
+	MaxHungCalls        int                                `json:"maxHungCalls"`
+	ActiveCalls         int64                              `json:"activeCalls"`
+	HungCalls           int64                              `json:"hungCalls"`
+	BurnRate            float64                            `json:"burnRate"`
+	ErrorBudgetPaused   bool                               `json:"errorBudgetPaused"`
+	OperatorAction      string                             `json:"operatorAction,omitempty"`
+	Isolation           RPCMuxDiagnosisSinkIsolationConfig `json:"isolation"`
+	Health              string                             `json:"health"`
+	BreakerState        string                             `json:"breakerState"`
+	LastSuccessAt       time.Time                          `json:"lastSuccessAt,omitempty"`
+	LastErrorAt         time.Time                          `json:"lastErrorAt,omitempty"`
+	LastError           string                             `json:"lastError,omitempty"`
+	LastLatencyNanos    int64                              `json:"lastLatencyNanos,omitempty"`
+	MaxLatencyNanos     int64                              `json:"maxLatencyNanos,omitempty"`
+	AverageLatencyNanos int64                              `json:"averageLatencyNanos,omitempty"`
+	Closed              bool                               `json:"closed"`
 }
 
 // RPCMuxDiagnosisExporterDeliverySnapshotter is implemented by governed
@@ -231,6 +249,65 @@ func normalizeRPCMuxDiagnosisExporterDeliveryConfig(config RPCMuxDiagnosisExport
 			config.ErrorBudget.PauseDuration = defaultRPCMuxDiagnosisErrorBudgetPause
 		}
 	}
+	config.Isolation = normalizeRPCMuxDiagnosisSinkIsolationConfig(config.Isolation)
+	return config
+}
+
+func normalizeRPCMuxDiagnosisSinkIsolationConfig(config RPCMuxDiagnosisSinkIsolationConfig) RPCMuxDiagnosisSinkIsolationConfig {
+	config.Mode = strings.ToLower(strings.TrimSpace(config.Mode))
+	switch config.Mode {
+	case "", RPCMuxDiagnosisSinkIsolationInProcess:
+		config.Mode = RPCMuxDiagnosisSinkIsolationInProcess
+	case RPCMuxDiagnosisSinkIsolationIsolatedProcess, RPCMuxDiagnosisSinkIsolationWASM:
+	default:
+		config.Mode = RPCMuxDiagnosisSinkIsolationInProcess
+	}
+	if config.ShutdownTimeout <= 0 {
+		config.ShutdownTimeout = defaultRPCMuxDiagnosisExporterTimeout
+	}
+	if config.MaxMemoryBytes < 0 {
+		config.MaxMemoryBytes = 0
+	}
+	if config.MaxCPUPercent < 0 {
+		config.MaxCPUPercent = 0
+	}
+	config.AuditFields = cloneStringMap(config.AuditFields)
+	if config.AuditFields == nil {
+		config.AuditFields = make(map[string]string, 2)
+	}
+	config.AuditFields["isolation_mode"] = config.Mode
+	switch config.Mode {
+	case RPCMuxDiagnosisSinkIsolationIsolatedProcess:
+		config.AuditFields["resource_boundary"] = "process"
+	case RPCMuxDiagnosisSinkIsolationWASM:
+		config.AuditFields["resource_boundary"] = "wasm"
+	default:
+		config.AuditFields["resource_boundary"] = "goroutine"
+	}
+	return config
+}
+
+func validateRPCMuxDiagnosisSinkIsolationConfig(config RPCMuxDiagnosisSinkIsolationConfig) error {
+	mode := strings.ToLower(strings.TrimSpace(config.Mode))
+	switch mode {
+	case "", RPCMuxDiagnosisSinkIsolationInProcess, RPCMuxDiagnosisSinkIsolationIsolatedProcess, RPCMuxDiagnosisSinkIsolationWASM:
+	default:
+		return fmt.Errorf("unsupported sink isolation mode %q", strings.TrimSpace(config.Mode))
+	}
+	if config.ShutdownTimeout < 0 {
+		return fmt.Errorf("sink isolation shutdown timeout must not be negative")
+	}
+	if config.MaxMemoryBytes < 0 {
+		return fmt.Errorf("sink isolation max memory bytes must not be negative")
+	}
+	if config.MaxCPUPercent < 0 {
+		return fmt.Errorf("sink isolation max cpu percent must not be negative")
+	}
+	return nil
+}
+
+func cloneRPCMuxDiagnosisSinkIsolationConfig(config RPCMuxDiagnosisSinkIsolationConfig) RPCMuxDiagnosisSinkIsolationConfig {
+	config.AuditFields = cloneStringMap(config.AuditFields)
 	return config
 }
 
@@ -386,6 +463,7 @@ func (e *governedRPCMuxDiagnosisExporter) RPCMuxDiagnosisExporterDeliverySnapsho
 		BurnRate:            e.burnRate(),
 		ErrorBudgetPaused:   e.errorBudgetPaused(),
 		OperatorAction:      e.operatorAction(),
+		Isolation:           cloneRPCMuxDiagnosisSinkIsolationConfig(e.config.Isolation),
 		Health:              e.health(),
 		BreakerState:        e.breakerState(),
 		LastSuccessAt:       unixNanoToTime(e.lastSuccessAt.Load()),

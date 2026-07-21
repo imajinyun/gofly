@@ -232,6 +232,36 @@ func TestRPCMuxDiagnosisSinkSetActivatesFromEmptyGenerationWithSecretProfile(t *
 	}
 }
 
+func TestRPCMuxDiagnosisEnvSecretResolver(t *testing.T) {
+	t.Setenv("GOFLY_MUX_PROFILE", "env-profile")
+	resolver := NewRPCMuxDiagnosisEnvSecretResolver()
+	got, err := resolver(context.Background(), "env://GOFLY_MUX_PROFILE")
+	if err != nil || got != "env-profile" {
+		t.Fatalf("env resolver = %q err=%v, want env-profile nil", got, err)
+	}
+	tests := []struct {
+		name string
+		ref  string
+	}{
+		{name: "unsupported scheme", ref: "secret://profile"},
+		{name: "empty env", ref: "env://"},
+		{name: "path env", ref: "env://BAD/NAME"},
+		{name: "missing env", ref: "env://GOFLY_MUX_PROFILE_MISSING"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := resolver(context.Background(), test.ref); err == nil {
+				t.Fatalf("resolver(%q) succeeded, want error", test.ref)
+			}
+		})
+	}
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := resolver(canceled, "env://GOFLY_MUX_PROFILE"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled resolver err = %v, want context canceled", err)
+	}
+}
+
 func TestRPCMuxDiagnosisSinkSetDiffPlanClassifiesChanges(t *testing.T) {
 	cleanup := RegisterRPCMuxOTelLogSink("diff-plan", func(string) RPCMuxOTelLogExporter {
 		return RPCMuxOTelLogExporterFunc(func(context.Context, RPCMuxDiagnosisEventOTelLogRecord) {})

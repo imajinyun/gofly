@@ -4231,13 +4231,30 @@ func (s *ServiceContext) UpdateConfig(c config.Config) {
 	s.Config = c
 }
 
-func (s *ServiceContext) RegisterRPCClient(client RPCMuxDiagnosisClient) {
+func (s *ServiceContext) RegisterRPCClient(client RPCMuxDiagnosisClient) func() {
+	if s == nil || client == nil {
+		return func() {}
+	}
+	s.mu.Lock()
+	s.rpcClients = append(s.rpcClients, client)
+	s.mu.Unlock()
+	return func() {
+		s.UnregisterRPCClient(client)
+	}
+}
+
+func (s *ServiceContext) UnregisterRPCClient(client RPCMuxDiagnosisClient) {
 	if s == nil || client == nil {
 		return
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.rpcClients = append(s.rpcClients, client)
+	for index, registered := range s.rpcClients {
+		if registered == client {
+			s.rpcClients = append(s.rpcClients[:index], s.rpcClients[index+1:]...)
+			return
+		}
+	}
 }
 
 func (s *ServiceContext) UpdateRPCMuxDiagnosisExporters(exporter rpc.RPCMuxDiagnosisEventExporter, filter rpc.RPCMuxDiagnosisFilter) {
@@ -4288,13 +4305,30 @@ func (s *ServiceContext) UpdateConfig(c config.Config) {
 	s.Config = c
 }
 
-func (s *ServiceContext) RegisterRPCClient(client RPCMuxDiagnosisClient) {
+func (s *ServiceContext) RegisterRPCClient(client RPCMuxDiagnosisClient) func() {
+	if s == nil || client == nil {
+		return func() {}
+	}
+	s.mu.Lock()
+	s.rpcClients = append(s.rpcClients, client)
+	s.mu.Unlock()
+	return func() {
+		s.UnregisterRPCClient(client)
+	}
+}
+
+func (s *ServiceContext) UnregisterRPCClient(client RPCMuxDiagnosisClient) {
 	if s == nil || client == nil {
 		return
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.rpcClients = append(s.rpcClients, client)
+	for index, registered := range s.rpcClients {
+		if registered == client {
+			s.rpcClients = append(s.rpcClients[:index], s.rpcClients[index+1:]...)
+			return
+		}
+	}
 }
 
 func (s *ServiceContext) UpdateRPCMuxDiagnosisExporters(exporter rpc.RPCMuxDiagnosisEventExporter, filter rpc.RPCMuxDiagnosisFilter) {
@@ -4838,7 +4872,8 @@ func TestGreeterRPCClient(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = client.Close() }()
-	svcCtx.RegisterRPCClient(client)
+	unregisterClient := svcCtx.RegisterRPCClient(client)
+	defer unregisterClient()
 	records := make(chan rpc.RPCMuxDiagnosisEventRecord, 1)
 	svcCtx.UpdateRPCMuxDiagnosisExporters(rpc.RPCMuxDiagnosisEventExporterFunc(func(_ context.Context, record rpc.RPCMuxDiagnosisEventRecord) {
 		records <- record
@@ -4858,6 +4893,24 @@ func TestGreeterRPCClient(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("registered client did not receive mux diagnosis exporter update")
+	}
+	unregisterClient()
+	unregisteredRecords := make(chan rpc.RPCMuxDiagnosisEventRecord, 1)
+	svcCtx.UpdateRPCMuxDiagnosisExporters(rpc.RPCMuxDiagnosisEventExporterFunc(func(_ context.Context, record rpc.RPCMuxDiagnosisEventRecord) {
+		unregisteredRecords <- record
+	}), rpc.RPCMuxDiagnosisFilter{EventFamily: "flow_control", Event: "write_timeout"})
+	client.ObserveMuxDiagnosis(context.Background(), rpc.RPCDiagnosisProbe{
+		Target: httpServer.URL,
+		Method: "greeter/Watch",
+		Matched: true,
+		Diagnosis: rpc.RPCDiagnosisSnapshot{Mux: rpc.RPCMuxTransportDiagnosis{
+			FlowControl: rpc.RPCMuxFlowControlDiagnosis{WriteTimeouts: 1},
+		}},
+	})
+	select {
+	case record := <-unregisteredRecords:
+		t.Fatalf("unregistered client received exporter update: %+v", record)
+	default:
 	}
 	runtimeState := client.PolicyRuntimeSnapshot().State
 	if !runtimeState.TimeoutEnforced || runtimeState.EffectiveTimeout != 3*time.Second {

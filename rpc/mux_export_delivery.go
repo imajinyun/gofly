@@ -80,6 +80,8 @@ type RPCMuxDiagnosisExporterDeliverySnapshot struct {
 	BurnRate            float64                            `json:"burnRate"`
 	ErrorBudgetPaused   bool                               `json:"errorBudgetPaused"`
 	OperatorAction      string                             `json:"operatorAction,omitempty"`
+	OperatorPaused      bool                               `json:"operatorPaused,omitempty"`
+	OperatorPauseReason string                             `json:"operatorPauseReason,omitempty"`
 	Isolation           RPCMuxDiagnosisSinkIsolationConfig `json:"isolation"`
 	Health              string                             `json:"health"`
 	BreakerState        string                             `json:"breakerState"`
@@ -90,6 +92,15 @@ type RPCMuxDiagnosisExporterDeliverySnapshot struct {
 	MaxLatencyNanos     int64                              `json:"maxLatencyNanos,omitempty"`
 	AverageLatencyNanos int64                              `json:"averageLatencyNanos,omitempty"`
 	Closed              bool                               `json:"closed"`
+}
+
+func (e *governedRPCMuxDiagnosisExporter) forceProbe() {
+	if e == nil {
+		return
+	}
+	e.breakerOpenedAt.Store(0)
+	e.errorBudgetPausedAt.Store(0)
+	e.halfOpen.Store(false)
 }
 
 // RPCMuxDiagnosisExporterDeliverySnapshotter is implemented by governed

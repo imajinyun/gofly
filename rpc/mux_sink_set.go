@@ -7,6 +7,7 @@ import (
 	"hash/fnv"
 	"io"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -65,6 +66,78 @@ func NewRPCMuxDiagnosisEnvSecretResolver() RPCMuxDiagnosisSecretResolver {
 			return "", fmt.Errorf("environment secret reference is not set")
 		}
 		return value, nil
+	}
+}
+
+// NewRPCMuxDiagnosisFileSecretResolver resolves profile references of the form
+// file://relative/path under root. Absolute paths, path traversal and oversized
+// files are rejected.
+func NewRPCMuxDiagnosisFileSecretResolver(root string, maxBytes int64) RPCMuxDiagnosisSecretResolver {
+	root = filepath.Clean(strings.TrimSpace(root))
+	if maxBytes <= 0 {
+		maxBytes = maxRPCMuxOTelLogProfileBytes
+	}
+	return func(ctx context.Context, ref string) (string, error) {
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		if root == "" || root == "." {
+			return "", fmt.Errorf("file secret resolver root is required")
+		}
+		ref = strings.TrimSpace(ref)
+		const prefix = "file://"
+		if !strings.HasPrefix(ref, prefix) {
+			return "", fmt.Errorf("unsupported secret reference scheme")
+		}
+		rel := strings.TrimSpace(strings.TrimPrefix(ref, prefix))
+		if rel == "" || !filepath.IsLocal(rel) {
+			return "", fmt.Errorf("invalid file secret reference")
+		}
+		path := filepath.Join(root, rel)
+		resolvedRel, err := filepath.Rel(root, path)
+		if err != nil || !filepath.IsLocal(resolvedRel) {
+			return "", fmt.Errorf("file secret reference escapes root")
+		}
+		info, err := os.Stat(path)
+		if err != nil {
+			return "", fmt.Errorf("file secret reference stat: %w", err)
+		}
+		if info.IsDir() {
+			return "", fmt.Errorf("file secret reference is a directory")
+		}
+		if info.Size() > maxBytes {
+			return "", fmt.Errorf("file secret reference exceeds %d bytes", maxBytes)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return "", fmt.Errorf("file secret reference read: %w", err)
+		}
+		return string(data), nil
+	}
+}
+
+// NewRPCMuxDiagnosisLayeredSecretResolver tries resolvers in order until one
+// resolves the reference. It preserves the last error for operator diagnosis.
+func NewRPCMuxDiagnosisLayeredSecretResolver(resolvers ...RPCMuxDiagnosisSecretResolver) RPCMuxDiagnosisSecretResolver {
+	return func(ctx context.Context, ref string) (string, error) {
+		var lastErr error
+		for _, resolver := range resolvers {
+			if resolver == nil {
+				continue
+			}
+			value, err := resolver(ctx, ref)
+			if err == nil {
+				return value, nil
+			}
+			lastErr = err
+		}
+		if lastErr != nil {
+			return "", lastErr
+		}
+		return "", fmt.Errorf("secret reference resolver is not configured")
 	}
 }
 
@@ -148,6 +221,8 @@ type rpcMuxDiagnosisSink struct {
 	priority         int
 	exporter         RPCMuxDiagnosisEventExporter
 	delivery         RPCMuxDiagnosisExporterDeliverySnapshotter
+	paused           bool
+	pauseReason      string
 }
 
 type rpcMuxDiagnosisSinkFingerprint struct {
@@ -246,6 +321,9 @@ func (s *RPCMuxDiagnosisSinkSet) ExportRPCMuxDiagnosisEvent(ctx context.Context,
 		return
 	}
 	for _, sink := range s.active.sinks {
+		if sink.paused {
+			continue
+		}
 		sink.exporter.ExportRPCMuxDiagnosisEvent(ctx, record)
 	}
 }
@@ -275,12 +353,15 @@ func (s *RPCMuxDiagnosisSinkSet) RPCMuxDiagnosisSinkSetSnapshot() RPCMuxDiagnosi
 	snapshot.LastDiffPlan = cloneRPCMuxDiagnosisSinkSetDiffPlan(s.lastDiffPlan)
 	snapshot.Sinks = make([]RPCMuxDiagnosisSinkRuntimeSnapshot, 0, len(s.active.sinks))
 	for _, sink := range s.active.sinks {
+		delivery := sink.delivery.RPCMuxDiagnosisExporterDeliverySnapshot()
+		delivery.OperatorPaused = sink.paused
+		delivery.OperatorPauseReason = sink.pauseReason
 		snapshot.Sinks = append(snapshot.Sinks, RPCMuxDiagnosisSinkRuntimeSnapshot{
 			Name:             sink.name,
 			ProfileSchema:    sink.profileSchema,
 			ProfileMigration: sink.profileMigration,
 			Priority:         sink.priority,
-			Delivery:         sink.delivery.RPCMuxDiagnosisExporterDeliverySnapshot(),
+			Delivery:         delivery,
 		})
 	}
 	return snapshot

@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/imajinyun/gofly/core/breaker"
@@ -69,6 +70,7 @@ type serverOptions struct {
 	muxServerAdapter  ExperimentalMuxServerDiagnosisSource
 	muxEventExporter  RPCMuxDiagnosisEventExporter
 	muxEventFilter    RPCMuxDiagnosisFilter
+	muxOperatorToken  string
 	tls               security.TLSConfig
 }
 
@@ -246,6 +248,14 @@ func WithServerMuxDiagnosisEventExporterDelivery(exporter RPCMuxDiagnosisEventEx
 // through slog.
 func WithServerMuxDiagnosisEventLogging(logger *slog.Logger, filter RPCMuxDiagnosisFilter) ServerOption {
 	return WithServerMuxDiagnosisEventExporter(NewSlogRPCMuxDiagnosisEventExporter(logger), filter)
+}
+
+// WithServerMuxDiagnosisOperatorApprovalToken enables approved mux sink
+// operator actions. Without this token, admin action requests remain dry-run.
+func WithServerMuxDiagnosisOperatorApprovalToken(token string) ServerOption {
+	return func(o *serverOptions) {
+		o.muxOperatorToken = strings.TrimSpace(token)
+	}
 }
 
 func WithServerMaxConcurrency(max int) ServerOption {

@@ -115,6 +115,7 @@ var rpcMuxOTelLogSinks = struct {
 				return NewSlogRPCMuxOTelLogExporterWithProfile(nil, profile)
 			},
 		},
+		"subprocess": rpcMuxSubprocessOTelLogSinkProvider{},
 	},
 }
 

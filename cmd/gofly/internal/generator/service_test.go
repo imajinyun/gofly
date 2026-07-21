@@ -374,10 +374,12 @@ func TestGenerateService(t *testing.T) {
 		"generatedServiceConfFixture() app.ServiceConf",
 		"RPCTransport: rpc.TransportConfig",
 		"clientRuntime.Transport.Timeout != 30*time.Second",
-		"svcCtx.RegisterRPCClient(client)",
+		"unregisterClient := svcCtx.RegisterRPCClient(client)",
+		"defer unregisterClient()",
 		"svcCtx.UpdateRPCMuxDiagnosisExporters(rpc.RPCMuxDiagnosisEventExporterFunc",
 		`rpc.RPCMuxDiagnosisFilter{EventFamily: "flow_control", Event: "write_timeout"}`,
 		`registered client did not receive mux diagnosis exporter update`,
+		`unregistered client received exporter update`,
 	} {
 		if !strings.Contains(string(greeterClientTestData), want) {
 			t.Fatalf("greeter_client_test.go missing descriptor self-validation %q:\n%s", want, greeterClientTestData)
@@ -1198,7 +1200,8 @@ func TestGenerateNewServiceVariantsBoundaries(t *testing.T) {
 	for _, want := range []string{
 		"type RPCMuxDiagnosisClient interface",
 		"UpdateMuxDiagnosisEventExporter(rpc.RPCMuxDiagnosisEventExporter, rpc.RPCMuxDiagnosisFilter)",
-		"func (s *ServiceContext) RegisterRPCClient(client RPCMuxDiagnosisClient)",
+		"func (s *ServiceContext) RegisterRPCClient(client RPCMuxDiagnosisClient) func()",
+		"func (s *ServiceContext) UnregisterRPCClient(client RPCMuxDiagnosisClient)",
 		"func (s *ServiceContext) UpdateRPCMuxDiagnosisExporters(exporter rpc.RPCMuxDiagnosisEventExporter, filter rpc.RPCMuxDiagnosisFilter)",
 		`"github.com/imajinyun/gofly/rpc"`,
 	} {
@@ -1211,10 +1214,12 @@ func TestGenerateNewServiceVariantsBoundaries(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"svcCtx.RegisterRPCClient(client)",
+		"unregisterClient := svcCtx.RegisterRPCClient(client)",
+		"defer unregisterClient()",
 		"svcCtx.UpdateRPCMuxDiagnosisExporters(rpc.RPCMuxDiagnosisEventExporterFunc",
 		`rpc.RPCMuxDiagnosisFilter{EventFamily: "flow_control", Event: "write_timeout"}`,
 		`registered client did not receive mux diagnosis exporter update`,
+		`unregistered client received exporter update`,
 	} {
 		if !strings.Contains(string(rpcTestData), want) {
 			t.Fatalf("generated rpc greeter_client_test.go missing client activation %q:\n%s", want, rpcTestData)

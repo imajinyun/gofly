@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"reflect"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -1044,15 +1045,31 @@ func TestRPCMuxOTelLogSinkRegistrySnapshotAndTypedProfile(t *testing.T) {
 	if len(snapshot.Capabilities) == 0 {
 		t.Fatal("registry capabilities are empty")
 	}
+	for _, want := range []string{
+		"subprocess_isolation_runner",
+		"operator_action_approval",
+		"file_secret_resolver",
+		"layered_secret_resolver",
+	} {
+		if !slices.Contains(snapshot.Capabilities, want) {
+			t.Fatalf("registry capabilities = %+v, missing %q", snapshot.Capabilities, want)
+		}
+	}
 	var found *RPCMuxOTelLogSinkSnapshot
+	var subprocessFound bool
 	for i := range snapshot.Sinks {
 		if snapshot.Sinks[i].Name == sinkName {
 			found = &snapshot.Sinks[i]
-			break
+		}
+		if snapshot.Sinks[i].Name == "subprocess" {
+			subprocessFound = true
 		}
 	}
 	if found == nil || !found.ClientExport || !found.ServerExport || !found.DeliveryGovernance || !json.Valid(found.ProfileSchema) {
 		t.Fatalf("typed sink snapshot = %+v, want schema and symmetric governed export capabilities", found)
+	}
+	if !subprocessFound {
+		t.Fatalf("registry sinks = %+v, want built-in subprocess sink", snapshot.Sinks)
 	}
 }
 

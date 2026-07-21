@@ -94,6 +94,10 @@ func (s *HTTPServer) serveAdminRoute(w http.ResponseWriter, r *http.Request) {
 		s.serveDescriptorCompatibility(w, r)
 		return
 	}
+	if r.Method == http.MethodPost && r.URL.Path == "/rpc/admin/mux/operator-actions" {
+		s.serveMuxOperatorAction(w, r)
+		return
+	}
 	if r.Method != http.MethodGet {
 		writeRPCError(w, http.StatusMethodNotAllowed, CodeInvalidArgument, "method not allowed")
 		return
@@ -284,6 +288,49 @@ func (s *HTTPServer) MuxDiagnosisOperatorActions(ctx context.Context) []RPCMuxDi
 		return nil
 	}
 	return source.RPCMuxDiagnosisOperatorActions(ctx)
+}
+
+func (s *HTTPServer) serveMuxOperatorAction(w http.ResponseWriter, r *http.Request) {
+	if s == nil {
+		writeRPCError(w, http.StatusServiceUnavailable, CodeUnavailable, "rpc server is nil")
+		return
+	}
+	var approval RPCMuxDiagnosisOperatorApproval
+	if r.Body == nil {
+		writeRPCError(w, http.StatusBadRequest, CodeInvalidArgument, "operator action payload is required")
+		return
+	}
+	defer r.Body.Close()
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10)).Decode(&approval); err != nil {
+		writeRPCError(w, http.StatusBadRequest, CodeInvalidArgument, "operator action payload is invalid")
+		return
+	}
+	_ = s.governanceDecisionContext(r.Context(), governance.Request{
+		Transport: governance.TransportRPC,
+		Service:   "rpc.mux.sink",
+		Method:    strings.TrimSpace(approval.Action),
+		Path:      "/rpc/admin/mux/operator-actions",
+	})
+	s.mu.RLock()
+	exporter := s.opts.muxEventExporter
+	token := s.opts.muxOperatorToken
+	s.mu.RUnlock()
+	source, ok := exporter.(interface {
+		ApplyRPCMuxDiagnosisOperatorAction(context.Context, RPCMuxDiagnosisOperatorApproval) RPCMuxDiagnosisOperatorAction
+	})
+	if !ok {
+		writeRPCError(w, http.StatusNotFound, CodeNotFound, "mux operator action source not found")
+		return
+	}
+	if token == "" || approval.Token != token {
+		approval.Token = ""
+	}
+	action := source.ApplyRPCMuxDiagnosisOperatorAction(r.Context(), approval)
+	if action.Action == "" {
+		writeRPCError(w, http.StatusBadRequest, CodeInvalidArgument, "operator action is invalid")
+		return
+	}
+	writeAdminJSON(w, http.StatusOK, action)
 }
 
 func rpcMuxDiagnosisSinkSetStatus(snapshot RPCMuxDiagnosisSinkSetSnapshot) string {

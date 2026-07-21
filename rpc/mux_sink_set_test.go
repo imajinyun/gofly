@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -262,6 +264,59 @@ func TestRPCMuxDiagnosisEnvSecretResolver(t *testing.T) {
 	}
 }
 
+func TestRPCMuxDiagnosisFileAndLayeredSecretResolver(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "profile.json"), []byte("file-profile"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(dir, "profiles"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	resolver := NewRPCMuxDiagnosisFileSecretResolver(dir, 64)
+	got, err := resolver(context.Background(), "file://profile.json")
+	if err != nil || got != "file-profile" {
+		t.Fatalf("file resolver = %q err=%v, want file-profile nil", got, err)
+	}
+	tests := []struct {
+		name string
+		ref  string
+	}{
+		{name: "unsupported", ref: "env://PROFILE"},
+		{name: "empty", ref: "file://"},
+		{name: "escape", ref: "file://../profile.json"},
+		{name: "missing", ref: "file://missing.json"},
+		{name: "directory", ref: "file://profiles"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := resolver(context.Background(), test.ref); err == nil {
+				t.Fatalf("file resolver(%q) succeeded, want error", test.ref)
+			}
+		})
+	}
+	if err := os.WriteFile(filepath.Join(dir, "large.json"), []byte(strings.Repeat("x", 8)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewRPCMuxDiagnosisFileSecretResolver(dir, 4)(context.Background(), "file://large.json"); err == nil {
+		t.Fatal("oversized file secret resolved")
+	}
+	if _, err := NewRPCMuxDiagnosisFileSecretResolver("", 64)(context.Background(), "file://profile.json"); err == nil {
+		t.Fatal("file resolver without root succeeded")
+	}
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := resolver(canceled, "file://profile.json"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled file resolver err = %v, want context canceled", err)
+	}
+	layered := NewRPCMuxDiagnosisLayeredSecretResolver(nil, NewRPCMuxDiagnosisEnvSecretResolver(), resolver)
+	if got, err := layered(context.Background(), "file://profile.json"); err != nil || got != "file-profile" {
+		t.Fatalf("layered resolver = %q err=%v", got, err)
+	}
+	if _, err := NewRPCMuxDiagnosisLayeredSecretResolver()(context.Background(), "file://profile.json"); err == nil {
+		t.Fatal("empty layered resolver succeeded")
+	}
+}
+
 func TestRPCMuxDiagnosisSinkSetDiffPlanClassifiesChanges(t *testing.T) {
 	cleanup := RegisterRPCMuxOTelLogSink("diff-plan", func(string) RPCMuxOTelLogExporter {
 		return RPCMuxOTelLogExporterFunc(func(context.Context, RPCMuxDiagnosisEventOTelLogRecord) {})
@@ -307,6 +362,36 @@ func TestRPCMuxDiagnosisSinkSetDiffPlanClassifiesChanges(t *testing.T) {
 		!slicesEqual(plan.ChangeDelivery, []string{"diff-plan"}) ||
 		!slicesEqual(plan.MigrateProfile, []string{"diff-plan"}) {
 		t.Fatalf("diff plan = %+v", plan)
+	}
+}
+
+func TestRPCMuxDiagnosisDeliveryConfigEquality(t *testing.T) {
+	base := RPCMuxDiagnosisExporterDeliveryConfig{
+		QueueSize: 1,
+		Isolation: RPCMuxDiagnosisSinkIsolationConfig{
+			Mode:        RPCMuxDiagnosisSinkIsolationInProcess,
+			AuditFields: map[string]string{"owner": "a"},
+		},
+	}
+	same := base
+	same.Isolation.AuditFields = map[string]string{"owner": "a"}
+	if !equalRPCMuxDiagnosisExporterDeliveryConfig(base, same) {
+		t.Fatal("equal delivery config was reported different")
+	}
+	differentMode := same
+	differentMode.Isolation.Mode = RPCMuxDiagnosisSinkIsolationWASM
+	if equalRPCMuxDiagnosisExporterDeliveryConfig(base, differentMode) {
+		t.Fatal("different isolation mode was reported equal")
+	}
+	differentAuditLen := same
+	differentAuditLen.Isolation.AuditFields = map[string]string{"owner": "a", "team": "runtime"}
+	if equalRPCMuxDiagnosisExporterDeliveryConfig(base, differentAuditLen) {
+		t.Fatal("different audit field length was reported equal")
+	}
+	differentAuditValue := same
+	differentAuditValue.Isolation.AuditFields = map[string]string{"owner": "b"}
+	if equalRPCMuxDiagnosisExporterDeliveryConfig(base, differentAuditValue) {
+		t.Fatal("different audit field value was reported equal")
 	}
 }
 

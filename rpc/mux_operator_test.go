@@ -2,7 +2,9 @@ package rpc
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestRPCMuxDiagnosisOperatorActionForSink(t *testing.T) {
@@ -48,6 +50,11 @@ func TestRPCMuxDiagnosisSinkSetOperatorActionBoundaries(t *testing.T) {
 	if actions := (*RPCMuxDiagnosisSinkSet)(nil).RPCMuxDiagnosisOperatorActions(context.Background()); len(actions) != 0 {
 		t.Fatalf("nil sink set actions = %+v, want none", actions)
 	}
+	if action := (*RPCMuxDiagnosisSinkSet)(nil).ApplyRPCMuxDiagnosisOperatorAction(context.Background(), RPCMuxDiagnosisOperatorApproval{
+		Sink: "missing", Action: RPCMuxDiagnosisOperatorPauseSink, Token: "approved",
+	}); action.Action != "" {
+		t.Fatalf("nil sink set apply action = %+v, want empty", action)
+	}
 	canceled, cancel := context.WithCancel(context.Background())
 	cancel()
 	sinkSet, err := NewRPCMuxDiagnosisSinkSet(RPCMuxDiagnosisSinkSetConfig{Version: "actions-v1"})
@@ -58,10 +65,117 @@ func TestRPCMuxDiagnosisSinkSetOperatorActionBoundaries(t *testing.T) {
 	if actions := sinkSet.RPCMuxDiagnosisOperatorActions(canceled); len(actions) != 0 {
 		t.Fatalf("canceled actions = %+v, want none", actions)
 	}
+	if action := sinkSet.ApplyRPCMuxDiagnosisOperatorAction(canceled, RPCMuxDiagnosisOperatorApproval{
+		Sink: "missing", Action: RPCMuxDiagnosisOperatorPauseSink, Token: "approved",
+	}); action.Action != "" {
+		t.Fatalf("canceled apply action = %+v, want empty", action)
+	}
+	if action := sinkSet.ApplyRPCMuxDiagnosisOperatorAction(context.Background(), RPCMuxDiagnosisOperatorApproval{}); action.Action != "" {
+		t.Fatalf("empty apply action = %+v, want empty", action)
+	}
+	if action := sinkSet.ApplyRPCMuxDiagnosisOperatorAction(context.Background(), RPCMuxDiagnosisOperatorApproval{
+		Sink: "missing", Action: RPCMuxDiagnosisOperatorPauseSink, Token: "approved",
+	}); action.Action != "" {
+		t.Fatalf("missing sink action = %+v, want empty", action)
+	}
 	if err := sinkSet.Close(); err != nil {
 		t.Fatal(err)
 	}
 	if actions := sinkSet.RPCMuxDiagnosisOperatorActions(context.Background()); len(actions) != 0 {
 		t.Fatalf("closed actions = %+v, want none", actions)
 	}
+	if action := sinkSet.ApplyRPCMuxDiagnosisOperatorAction(context.Background(), RPCMuxDiagnosisOperatorApproval{
+		Sink: "missing", Action: RPCMuxDiagnosisOperatorPauseSink, Token: "approved",
+	}); action.Action != "" {
+		t.Fatalf("closed apply action = %+v, want empty", action)
+	}
+}
+
+func TestRPCMuxDiagnosisSinkSetApplyOperatorAction(t *testing.T) {
+	var exports atomic.Int64
+	cleanup := RegisterRPCMuxOTelLogSink("operator-apply", func(string) RPCMuxOTelLogExporter {
+		return RPCMuxOTelLogExporterFunc(func(context.Context, RPCMuxDiagnosisEventOTelLogRecord) {
+			exports.Add(1)
+		})
+	})
+	defer cleanup()
+	sinkSet, err := NewRPCMuxDiagnosisSinkSet(RPCMuxDiagnosisSinkSetConfig{
+		Version: "apply-v1",
+		Sinks:   []RPCMuxDiagnosisSinkConfig{{Name: "operator-apply"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sinkSet.Close()
+
+	dryRun := sinkSet.ApplyRPCMuxDiagnosisOperatorAction(context.Background(), RPCMuxDiagnosisOperatorApproval{
+		Sink:   "operator-apply",
+		Action: RPCMuxDiagnosisOperatorPauseSink,
+	})
+	if !dryRun.DryRun || dryRun.Approved || dryRun.Reason != "approval_required" {
+		t.Fatalf("dry-run action = %+v", dryRun)
+	}
+	sinkSet.ExportRPCMuxDiagnosisEvent(context.Background(), RPCMuxDiagnosisEventRecord{})
+	waitForOperatorExports(t, &exports, 1)
+	if exports.Load() != 1 {
+		t.Fatalf("exports after dry-run = %d, want 1", exports.Load())
+	}
+
+	approved := sinkSet.ApplyRPCMuxDiagnosisOperatorAction(context.Background(), RPCMuxDiagnosisOperatorApproval{
+		Sink:   "operator-apply",
+		Action: RPCMuxDiagnosisOperatorPauseSink,
+		Token:  "approved",
+	})
+	if !approved.Approved || approved.DryRun || approved.Action != RPCMuxDiagnosisOperatorPauseSink {
+		t.Fatalf("approved pause action = %+v", approved)
+	}
+	sinkSet.ExportRPCMuxDiagnosisEvent(context.Background(), RPCMuxDiagnosisEventRecord{})
+	time.Sleep(10 * time.Millisecond)
+	if exports.Load() != 1 {
+		t.Fatalf("exports after pause = %d, want unchanged", exports.Load())
+	}
+	snapshot := sinkSet.RPCMuxDiagnosisSinkSetSnapshot()
+	if !snapshot.Sinks[0].Delivery.OperatorPaused {
+		t.Fatalf("snapshot after pause = %+v, want operator paused", snapshot)
+	}
+
+	resumed := sinkSet.ApplyRPCMuxDiagnosisOperatorAction(context.Background(), RPCMuxDiagnosisOperatorApproval{
+		Sink:   "operator-apply",
+		Action: RPCMuxDiagnosisOperatorResumeSink,
+		Token:  "approved",
+	})
+	if !resumed.Approved || resumed.Action != RPCMuxDiagnosisOperatorResumeSink {
+		t.Fatalf("resume action = %+v", resumed)
+	}
+	sinkSet.ExportRPCMuxDiagnosisEvent(context.Background(), RPCMuxDiagnosisEventRecord{})
+	waitForOperatorExports(t, &exports, 2)
+	if exports.Load() != 2 {
+		t.Fatalf("exports after resume = %d, want 2", exports.Load())
+	}
+
+	governed := sinkSet.active.sinks[0].exporter.(*governedRPCMuxDiagnosisExporter)
+	governed.breakerOpenedAt.Store(time.Now().UnixNano())
+	probed := sinkSet.ApplyRPCMuxDiagnosisOperatorAction(context.Background(), RPCMuxDiagnosisOperatorApproval{
+		Sink:   "operator-apply",
+		Action: RPCMuxDiagnosisOperatorForceProbe,
+		Token:  "approved",
+	})
+	if !probed.Approved || probed.Action != RPCMuxDiagnosisOperatorForceProbe || governed.breakerOpenedAt.Load() != 0 {
+		t.Fatalf("force probe action = %+v breaker=%d", probed, governed.breakerOpenedAt.Load())
+	}
+	if invalid := sinkSet.ApplyRPCMuxDiagnosisOperatorAction(context.Background(), RPCMuxDiagnosisOperatorApproval{Sink: "operator-apply", Action: "bad", Token: "approved"}); invalid.Action != "" {
+		t.Fatalf("invalid action = %+v, want empty", invalid)
+	}
+}
+
+func waitForOperatorExports(t *testing.T, exports *atomic.Int64, want int64) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if exports.Load() >= want {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("exports = %d, want at least %d", exports.Load(), want)
 }

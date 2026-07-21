@@ -22,6 +22,7 @@ import (
 	"github.com/imajinyun/gofly/core/metadata"
 	"github.com/imajinyun/gofly/core/observability/trace"
 	coreruntime "github.com/imajinyun/gofly/core/runtime"
+	controladmin "github.com/imajinyun/gofly/ops/admin"
 	"github.com/imajinyun/gofly/rpc/endpoint"
 )
 
@@ -321,6 +322,131 @@ func TestHTTPServerMuxOperatorActionsEndpoint(t *testing.T) {
 		actions[0].Reason != "hung_call_limit" || !actions[0].DryRun ||
 		actions[0].Details["isolation_mode"] != RPCMuxDiagnosisSinkIsolationWASM {
 		t.Fatalf("operator actions = %+v", actions)
+	}
+
+	dryRunReq := httptest.NewRequest(http.MethodPost, "/rpc/admin/mux/operator-actions", strings.NewReader(`{"sink":"operator-actions","action":"pause_sink"}`))
+	dryRunRec := httptest.NewRecorder()
+	server.ServeHTTP(dryRunRec, dryRunReq)
+	if dryRunRec.Code != http.StatusOK {
+		t.Fatalf("dry-run action status = %d body=%s", dryRunRec.Code, dryRunRec.Body.String())
+	}
+	var dryRun RPCMuxDiagnosisOperatorAction
+	if err := json.NewDecoder(dryRunRec.Body).Decode(&dryRun); err != nil {
+		t.Fatal(err)
+	}
+	if !dryRun.DryRun || dryRun.Approved || dryRun.Reason != "approval_required" {
+		t.Fatalf("dry-run action = %+v", dryRun)
+	}
+
+	server = NewServer(
+		WithServerMuxDiagnosisEventExporter(sinkSet, RPCMuxDiagnosisFilter{}),
+		WithServerMuxDiagnosisOperatorApprovalToken("approve-me"),
+	)
+	approvedReq := httptest.NewRequest(http.MethodPost, "/rpc/admin/mux/operator-actions", strings.NewReader(`{"sink":"operator-actions","action":"pause_sink","token":"approve-me"}`))
+	approvedRec := httptest.NewRecorder()
+	server.ServeHTTP(approvedRec, approvedReq)
+	if approvedRec.Code != http.StatusOK {
+		t.Fatalf("approved action status = %d body=%s", approvedRec.Code, approvedRec.Body.String())
+	}
+	var approved RPCMuxDiagnosisOperatorAction
+	if err := json.NewDecoder(approvedRec.Body).Decode(&approved); err != nil {
+		t.Fatal(err)
+	}
+	if !approved.Approved || approved.DryRun || approved.Action != RPCMuxDiagnosisOperatorPauseSink {
+		t.Fatalf("approved action = %+v", approved)
+	}
+	if snapshot := sinkSet.RPCMuxDiagnosisSinkSetSnapshot(); !snapshot.Sinks[0].Delivery.OperatorPaused {
+		t.Fatalf("snapshot after approved pause = %+v", snapshot)
+	}
+	wrongTokenReq := httptest.NewRequest(http.MethodPost, "/rpc/admin/mux/operator-actions", strings.NewReader(`{"sink":"operator-actions","action":"resume_sink","token":"wrong"}`))
+	wrongTokenRec := httptest.NewRecorder()
+	server.ServeHTTP(wrongTokenRec, wrongTokenReq)
+	if wrongTokenRec.Code != http.StatusOK {
+		t.Fatalf("wrong-token action status = %d body=%s", wrongTokenRec.Code, wrongTokenRec.Body.String())
+	}
+	var wrongToken RPCMuxDiagnosisOperatorAction
+	if err := json.NewDecoder(wrongTokenRec.Body).Decode(&wrongToken); err != nil {
+		t.Fatal(err)
+	}
+	if !wrongToken.DryRun || wrongToken.Approved || wrongToken.Reason != "approval_required" {
+		t.Fatalf("wrong-token action = %+v", wrongToken)
+	}
+}
+
+func TestHTTPServerMuxOperatorActionBoundaries(t *testing.T) {
+	if actions := (*HTTPServer)(nil).MuxDiagnosisOperatorActions(context.Background()); len(actions) != 0 {
+		t.Fatalf("nil server operator actions = %+v, want none", actions)
+	}
+	nilRec := httptest.NewRecorder()
+	(*HTTPServer)(nil).serveMuxOperatorAction(nilRec, httptest.NewRequest(http.MethodPost, "/rpc/admin/mux/operator-actions", strings.NewReader(`{}`)))
+	if nilRec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("nil server operator action status = %d body=%s", nilRec.Code, nilRec.Body.String())
+	}
+	server := NewServer()
+	emptyRec := httptest.NewRecorder()
+	server.ServeHTTP(emptyRec, httptest.NewRequest(http.MethodPost, "/rpc/admin/mux/operator-actions", nil))
+	if emptyRec.Code != http.StatusBadRequest {
+		t.Fatalf("empty operator payload status = %d body=%s", emptyRec.Code, emptyRec.Body.String())
+	}
+	invalidRec := httptest.NewRecorder()
+	server.ServeHTTP(invalidRec, httptest.NewRequest(http.MethodPost, "/rpc/admin/mux/operator-actions", strings.NewReader(`{`)))
+	if invalidRec.Code != http.StatusBadRequest {
+		t.Fatalf("invalid operator payload status = %d body=%s", invalidRec.Code, invalidRec.Body.String())
+	}
+	missingRec := httptest.NewRecorder()
+	server.ServeHTTP(missingRec, httptest.NewRequest(http.MethodPost, "/rpc/admin/mux/operator-actions", strings.NewReader(`{"sink":"missing","action":"pause_sink"}`)))
+	if missingRec.Code != http.StatusNotFound {
+		t.Fatalf("missing operator source status = %d body=%s", missingRec.Code, missingRec.Body.String())
+	}
+
+	sinkSet, err := NewRPCMuxDiagnosisSinkSet(RPCMuxDiagnosisSinkSetConfig{
+		Version: "boundary-v1",
+		Sinks:   []RPCMuxDiagnosisSinkConfig{{Name: "slog"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sinkSet.Close()
+	manager, err := coregovernance.NewManager(coregovernance.Config{
+		Rules: []coregovernance.Rule{{
+			Name:      "mux-operator",
+			Transport: coregovernance.TransportRPC,
+			Service:   "rpc.mux.sink",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	governedServer := NewServer(
+		WithServerMuxDiagnosisEventExporter(sinkSet, RPCMuxDiagnosisFilter{}),
+		WithServerGovernanceManager(manager),
+		WithServerMuxDiagnosisOperatorApprovalToken("approve-me"),
+	)
+	badActionRec := httptest.NewRecorder()
+	governedServer.ServeHTTP(badActionRec, httptest.NewRequest(http.MethodPost, "/rpc/admin/mux/operator-actions", strings.NewReader(`{"sink":"slog","action":"bad","token":"approve-me"}`)))
+	if badActionRec.Code != http.StatusBadRequest {
+		t.Fatalf("bad operator action status = %d body=%s", badActionRec.Code, badActionRec.Body.String())
+	}
+}
+
+func TestHTTPServerAdminAuditAndMethodBoundaries(t *testing.T) {
+	var auditEvents []controladmin.AuditEvent
+	server := NewServer(WithServerAdminAuditSink(func(_ context.Context, event controladmin.AuditEvent) {
+		auditEvents = append(auditEvents, event)
+	}))
+	methodRec := httptest.NewRecorder()
+	server.ServeHTTP(methodRec, httptest.NewRequest(http.MethodPost, "/rpc/admin/state", nil))
+	if methodRec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("method boundary status = %d body=%s", methodRec.Code, methodRec.Body.String())
+	}
+	notFoundRec := httptest.NewRecorder()
+	server.ServeHTTP(notFoundRec, httptest.NewRequest(http.MethodGet, "/rpc/admin/missing", nil))
+	if notFoundRec.Code != http.StatusNotFound {
+		t.Fatalf("missing admin status = %d body=%s", notFoundRec.Code, notFoundRec.Body.String())
+	}
+	if len(auditEvents) != 2 || auditEvents[0].Component != "rpc" || auditEvents[0].Status != http.StatusMethodNotAllowed ||
+		auditEvents[1].Status != http.StatusNotFound {
+		t.Fatalf("audit events = %+v", auditEvents)
 	}
 }
 

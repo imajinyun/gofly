@@ -1586,6 +1586,48 @@ func TestHTTPClientRuntimeComponentSnapshot(t *testing.T) {
 	}
 }
 
+func TestHTTPClientUpdateMuxDiagnosisEventExporter(t *testing.T) {
+	client, err := NewClient("http://unused")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	records := make(chan RPCMuxDiagnosisEventRecord, 1)
+	client.UpdateMuxDiagnosisEventExporter(RPCMuxDiagnosisEventExporterFunc(func(_ context.Context, record RPCMuxDiagnosisEventRecord) {
+		records <- record
+	}), RPCMuxDiagnosisFilter{EventFamily: "flow_control", Event: "write_timeout"})
+
+	client.ObserveMuxDiagnosis(context.Background(), RPCDiagnosisProbe{
+		Target:   "http://unused",
+		Endpoint: "http://unused/rpc",
+		Method:   "greeter/Watch",
+		Matched:  true,
+		Diagnosis: RPCDiagnosisSnapshot{Mux: RPCMuxTransportDiagnosis{
+			FlowControl: RPCMuxFlowControlDiagnosis{WriteTimeouts: 1},
+		}},
+	})
+	select {
+	case record := <-records:
+		if record.Event.Event != "write_timeout" || record.Event.Family != "flow_control" {
+			t.Fatalf("record = %+v, want filtered write_timeout", record)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("updated client exporter did not receive diagnosis event")
+	}
+
+	client.UpdateMuxDiagnosisEventExporter(nil, RPCMuxDiagnosisFilter{})
+	client.ObserveMuxDiagnosis(context.Background(), RPCDiagnosisProbe{
+		Diagnosis: RPCDiagnosisSnapshot{Mux: RPCMuxTransportDiagnosis{
+			FlowControl: RPCMuxFlowControlDiagnosis{WriteTimeouts: 1},
+		}},
+	})
+	select {
+	case record := <-records:
+		t.Fatalf("disabled client exporter received event: %+v", record)
+	default:
+	}
+}
+
 func TestHTTPClientDiagnosisProbeHandler(t *testing.T) {
 	clientConn, serverConn := net.Pipe()
 	muxClient := NewExperimentalMuxClientAdapter(clientConn, WithExperimentalMuxConnectionWindow(3))

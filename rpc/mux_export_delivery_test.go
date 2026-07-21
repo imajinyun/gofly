@@ -93,6 +93,7 @@ func TestGovernedRPCMuxDiagnosisEventExporterBreakerHalfOpenRecovery(t *testing.
 		RPCMuxDiagnosisExporterDeliveryConfig{
 			QueueSize:               2,
 			Timeout:                 5 * time.Millisecond,
+			MaxHungCalls:            2,
 			BreakerFailureThreshold: 1,
 			BreakerCooldown:         10 * time.Millisecond,
 		},
@@ -122,6 +123,80 @@ func TestGovernedRPCMuxDiagnosisEventExporterBreakerHalfOpenRecovery(t *testing.
 		snapshot.MaxLatencyNanos < snapshot.LastLatencyNanos ||
 		snapshot.AverageLatencyNanos <= 0 {
 		t.Fatalf("recovered delivery SLO snapshot = %+v", snapshot)
+	}
+}
+
+func TestGovernedRPCMuxDiagnosisEventExporterCapsHungCalls(t *testing.T) {
+	block := make(chan struct{})
+	started := make(chan struct{})
+	var startOnce sync.Once
+	exporter := newGovernedRPCMuxDiagnosisEventExporter(
+		"hung-limit",
+		RPCMuxDiagnosisEventExporterFunc(func(context.Context, RPCMuxDiagnosisEventRecord) {
+			startOnce.Do(func() { close(started) })
+			<-block
+		}),
+		RPCMuxDiagnosisExporterDeliveryConfig{
+			QueueSize:               2,
+			Timeout:                 5 * time.Millisecond,
+			MaxHungCalls:            1,
+			BreakerFailureThreshold: 10,
+		},
+	)
+	governed := exporter.(*governedRPCMuxDiagnosisExporter)
+	defer func() {
+		close(block)
+		if err := governed.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
+
+	exporter.ExportRPCMuxDiagnosisEvent(context.Background(), RPCMuxDiagnosisEventRecord{})
+	<-started
+	waitForMuxExporterSnapshot(t, governed, func(snapshot RPCMuxDiagnosisExporterDeliverySnapshot) bool {
+		return snapshot.HungCalls == 1 && snapshot.OperatorAction == "pause_sink_hung_calls"
+	})
+	exporter.ExportRPCMuxDiagnosisEvent(context.Background(), RPCMuxDiagnosisEventRecord{})
+	snapshot := governed.RPCMuxDiagnosisExporterDeliverySnapshot()
+	if snapshot.Health != "unhealthy" || snapshot.Backpressure == 0 || snapshot.MaxHungCalls != 1 {
+		t.Fatalf("hung-call snapshot = %+v, want unhealthy cap and backpressure", snapshot)
+	}
+}
+
+func TestGovernedRPCMuxDiagnosisEventExporterErrorBudgetAutomation(t *testing.T) {
+	var calls atomic.Int64
+	exporter := newGovernedRPCMuxDiagnosisEventExporter(
+		"error-budget",
+		RPCMuxDiagnosisEventExporterFunc(func(context.Context, RPCMuxDiagnosisEventRecord) {
+			if calls.Add(1) <= 2 {
+				panic("budget burn")
+			}
+		}),
+		RPCMuxDiagnosisExporterDeliveryConfig{
+			QueueSize:               4,
+			Timeout:                 time.Second,
+			BreakerFailureThreshold: 10,
+			ErrorBudget: RPCMuxDiagnosisExporterErrorBudgetConfig{
+				Enabled:           true,
+				MinSamples:        2,
+				BurnRateThreshold: 0.5,
+				PauseDuration:     time.Hour,
+			},
+		},
+	)
+	governed := exporter.(*governedRPCMuxDiagnosisExporter)
+	defer governed.Close()
+
+	exporter.ExportRPCMuxDiagnosisEvent(context.Background(), RPCMuxDiagnosisEventRecord{})
+	exporter.ExportRPCMuxDiagnosisEvent(context.Background(), RPCMuxDiagnosisEventRecord{})
+	waitForMuxExporterSnapshot(t, governed, func(snapshot RPCMuxDiagnosisExporterDeliverySnapshot) bool {
+		return snapshot.ErrorBudgetPaused && snapshot.OperatorAction == "pause_sink_error_budget"
+	})
+	before := governed.RPCMuxDiagnosisExporterDeliverySnapshot()
+	exporter.ExportRPCMuxDiagnosisEvent(context.Background(), RPCMuxDiagnosisEventRecord{})
+	after := governed.RPCMuxDiagnosisExporterDeliverySnapshot()
+	if !after.ErrorBudgetPaused || after.Dropped <= before.Dropped || after.BurnRate <= 0 {
+		t.Fatalf("error-budget snapshot before=%+v after=%+v", before, after)
 	}
 }
 

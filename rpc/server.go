@@ -154,6 +154,19 @@ func (s *HTTPServer) GetServiceDescriptor(name string) (Descriptor, bool) {
 	return desc.Descriptor(), true
 }
 
+// UpdateMuxDiagnosisEventExporter swaps the server-side mux diagnosis exporter
+// and filter for config hot-reload paths. The caller owns the exporter
+// lifecycle, so this method does not close the previous exporter.
+func (s *HTTPServer) UpdateMuxDiagnosisEventExporter(exporter RPCMuxDiagnosisEventExporter, filter RPCMuxDiagnosisFilter) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.opts.muxEventExporter = exporter
+	s.opts.muxEventFilter = filter
+}
+
 func cloneServiceDesc(desc ServiceDesc) ServiceDesc {
 	desc.Metadata = cloneStringMap(desc.Metadata)
 	if len(desc.Methods) > 0 {
@@ -278,12 +291,18 @@ func (s *HTTPServer) readHeaderTimeout() time.Duration {
 func (s *HTTPServer) Stop(ctx context.Context) error {
 	s.setState(serverStateStopping)
 	if s.server == nil {
-		closeRPCMuxDiagnosisExporter(s.opts.muxEventExporter)
+		s.mu.RLock()
+		exporter := s.opts.muxEventExporter
+		s.mu.RUnlock()
+		closeRPCMuxDiagnosisExporter(exporter)
 		s.setState(serverStateStopped)
 		return nil
 	}
 	err := s.server.Shutdown(ctx)
-	closeRPCMuxDiagnosisExporter(s.opts.muxEventExporter)
+	s.mu.RLock()
+	exporter := s.opts.muxEventExporter
+	s.mu.RUnlock()
+	closeRPCMuxDiagnosisExporter(exporter)
 	s.setState(serverStateStopped)
 	return err
 }

@@ -93,6 +93,13 @@ func RPCMuxOTelLogSinkRegistry() RPCMuxOTelLogSinkRegistrySnapshot {
 			"multi_sink_fanout",
 			"per_sink_breaker",
 			"delivery_slo",
+			"hung_call_limit",
+			"goroutine_leak_observation",
+			"error_budget_automation",
+			"profile_schema_version",
+			"profile_migration_contract",
+			"profile_secret_reference",
+			"generation_diff_plan",
 		},
 	}
 	for _, name := range names {

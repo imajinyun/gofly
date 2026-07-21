@@ -622,7 +622,8 @@ func AnnotateMuxDiagnosisSpan(ctx context.Context, probe RPCDiagnosisProbe) {
 }
 
 func (c *HTTPClient) annotateMuxStreamSpan(ctx context.Context, method string, endpoint string, flowControlEvent string, err error) {
-	if c == nil || (!c.opts.muxTrace && !c.opts.muxLog && c.opts.muxEventExporter == nil) {
+	exporter, _ := c.muxDiagnosisEventExportConfig()
+	if c == nil || (!c.opts.muxTrace && !c.opts.muxLog && exporter == nil) {
 		return
 	}
 	probe := c.muxStreamDiagnosisProbe(method, endpoint, flowControlEvent, err)
@@ -634,7 +635,8 @@ func (c *HTTPClient) annotateMuxStreamSpan(ctx context.Context, method string, e
 // admin or generated-project smoke paths that query /rpc/diagnosis after a
 // stream operation and want the same opt-in observability contract as MuxStream.
 func (c *HTTPClient) ObserveMuxDiagnosis(ctx context.Context, probe RPCDiagnosisProbe) {
-	if c == nil || (!c.opts.muxTrace && !c.opts.muxLog && c.opts.muxEventExporter == nil) {
+	exporter, _ := c.muxDiagnosisEventExportConfig()
+	if c == nil || (!c.opts.muxTrace && !c.opts.muxLog && exporter == nil) {
 		return
 	}
 	c.observeMuxDiagnosis(ctx, probe, nil)
@@ -647,7 +649,8 @@ func (c *HTTPClient) observeMuxDiagnosis(ctx context.Context, probe RPCDiagnosis
 	if c.opts.muxLog {
 		c.logMuxStreamDiagnosis(ctx, probe, err)
 	}
-	if c.opts.muxEventExporter != nil {
+	exporter, _ := c.muxDiagnosisEventExportConfig()
+	if exporter != nil {
 		c.exportMuxDiagnosisEvents(ctx, probe)
 	}
 }
@@ -676,7 +679,8 @@ func (c *HTTPClient) muxStreamDiagnosisProbe(method string, endpoint string, flo
 }
 
 func (c *HTTPClient) exportMuxDiagnosisEvents(ctx context.Context, probe RPCDiagnosisProbe) {
-	exportRPCMuxDiagnosisEvents(ctx, c.opts.muxEventExporter, c.opts.muxEventFilter, probe)
+	exporter, filter := c.muxDiagnosisEventExportConfig()
+	exportRPCMuxDiagnosisEvents(ctx, exporter, filter, probe)
 }
 
 func exportRPCMuxDiagnosisEvents(ctx context.Context, exporter RPCMuxDiagnosisEventExporter, filter RPCMuxDiagnosisFilter, probe RPCDiagnosisProbe) {

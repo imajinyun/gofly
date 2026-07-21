@@ -3,6 +3,7 @@ package rpc
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"sync"
@@ -159,6 +160,151 @@ func TestRPCMuxDiagnosisSinkSetSuccessfulReloadClearsRollbackState(t *testing.T)
 	}
 }
 
+func TestRPCMuxDiagnosisSinkSetActivatesFromEmptyGenerationWithSecretProfile(t *testing.T) {
+	records := make(chan string, 1)
+	cleanup := RegisterRPCMuxOTelLogSinkProvider("dynamic-secret", sinkSetTestProvider{
+		validate: func(profile string) error {
+			if profile != "resolved-profile" {
+				return errors.New("unexpected resolved profile")
+			}
+			return nil
+		},
+		newExporter: func(profile string) RPCMuxOTelLogExporter {
+			return &sinkSetTestExporter{export: func(RPCMuxDiagnosisEventOTelLogRecord) {
+				records <- profile
+			}}
+		},
+	})
+	defer cleanup()
+	sinkSet, err := NewRPCMuxDiagnosisSinkSet(RPCMuxDiagnosisSinkSetConfig{
+		Version:       "disabled-v1",
+		SchemaVersion: "mux-sinks/v1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sinkSet.Close()
+
+	next := RPCMuxDiagnosisSinkSetConfig{
+		Version:       "enabled-v2",
+		SchemaVersion: "mux-sinks/v2",
+		Secrets: func(_ context.Context, ref string) (string, error) {
+			if ref != "secret://mux/dynamic-secret" {
+				return "", errors.New("unknown secret ref")
+			}
+			return "resolved-profile", nil
+		},
+		Sinks: []RPCMuxDiagnosisSinkConfig{{
+			Name:             "dynamic-secret",
+			ProfileRef:       "secret://mux/dynamic-secret",
+			ProfileSchema:    "dynamic-secret/v2",
+			ProfileMigration: "v1-to-v2",
+			Priority:         30,
+		}},
+	}
+	plan, err := sinkSet.DiffRPCMuxDiagnosisSinkSetConfig(context.Background(), next)
+	if err != nil {
+		t.Fatalf("DiffRPCMuxDiagnosisSinkSetConfig: %v", err)
+	}
+	if !slicesEqual(plan.Activate, []string{"dynamic-secret"}) || !slicesEqual(plan.MigrateProfile, []string{"dynamic-secret"}) ||
+		plan.FromSchemaVersion != "mux-sinks/v1" || plan.ToSchemaVersion != "mux-sinks/v2" {
+		t.Fatalf("diff plan = %+v", plan)
+	}
+	if strings.Contains(fmt.Sprint(plan), "resolved-profile") || strings.Contains(fmt.Sprint(plan), "secret://") {
+		t.Fatalf("diff plan leaked profile material: %+v", plan)
+	}
+	if err := sinkSet.Reload(context.Background(), next); err != nil {
+		t.Fatalf("Reload: %v", err)
+	}
+	sinkSet.ExportRPCMuxDiagnosisEvent(context.Background(), RPCMuxDiagnosisEventRecord{})
+	if got := receiveSinkSetValue(t, records); got != "resolved-profile" {
+		t.Fatalf("resolved profile = %q", got)
+	}
+	snapshot := sinkSet.RPCMuxDiagnosisSinkSetSnapshot()
+	if snapshot.Version != "enabled-v2" || snapshot.SchemaVersion != "mux-sinks/v2" ||
+		snapshot.SinkCount != 1 || snapshot.Sinks[0].ProfileSchema != "dynamic-secret/v2" ||
+		snapshot.Sinks[0].ProfileMigration != "v1-to-v2" ||
+		!slicesEqual(snapshot.LastDiffPlan.Activate, []string{"dynamic-secret"}) {
+		t.Fatalf("dynamic activation snapshot = %+v", snapshot)
+	}
+	if strings.Contains(fmt.Sprint(snapshot), "resolved-profile") || strings.Contains(fmt.Sprint(snapshot), "secret://") {
+		t.Fatalf("snapshot leaked profile material: %+v", snapshot)
+	}
+}
+
+func TestRPCMuxDiagnosisSinkSetDiffPlanClassifiesChanges(t *testing.T) {
+	cleanup := RegisterRPCMuxOTelLogSink("diff-plan", func(string) RPCMuxOTelLogExporter {
+		return RPCMuxOTelLogExporterFunc(func(context.Context, RPCMuxDiagnosisEventOTelLogRecord) {})
+	})
+	defer cleanup()
+	cleanupRemoved := RegisterRPCMuxOTelLogSink("diff-removed", func(string) RPCMuxOTelLogExporter {
+		return RPCMuxOTelLogExporterFunc(func(context.Context, RPCMuxDiagnosisEventOTelLogRecord) {})
+	})
+	defer cleanupRemoved()
+
+	sinkSet, err := NewRPCMuxDiagnosisSinkSet(RPCMuxDiagnosisSinkSetConfig{
+		Version:       "diff-v1",
+		SchemaVersion: "mux-sinks/v1",
+		Sinks: []RPCMuxDiagnosisSinkConfig{
+			{Name: "diff-plan", Profile: "p1", ProfileSchema: "schema-v1", Priority: 1, Delivery: RPCMuxDiagnosisExporterDeliveryConfig{QueueSize: 1}},
+			{Name: "diff-removed", Profile: "p1"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sinkSet.Close()
+
+	plan, err := sinkSet.DiffRPCMuxDiagnosisSinkSetConfig(context.Background(), RPCMuxDiagnosisSinkSetConfig{
+		Version:       "diff-v2",
+		SchemaVersion: "mux-sinks/v2",
+		Sinks: []RPCMuxDiagnosisSinkConfig{{
+			Name:             "diff-plan",
+			Profile:          "p2",
+			ProfileSchema:    "schema-v2",
+			ProfileMigration: "v1-to-v2",
+			Priority:         2,
+			Delivery:         RPCMuxDiagnosisExporterDeliveryConfig{QueueSize: 2},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("DiffRPCMuxDiagnosisSinkSetConfig: %v", err)
+	}
+	if !slicesEqual(plan.Retain, []string{"diff-plan"}) ||
+		!slicesEqual(plan.Deactivate, []string{"diff-removed"}) ||
+		!slicesEqual(plan.ChangePriority, []string{"diff-plan"}) ||
+		!slicesEqual(plan.ChangeProfile, []string{"diff-plan"}) ||
+		!slicesEqual(plan.ChangeDelivery, []string{"diff-plan"}) ||
+		!slicesEqual(plan.MigrateProfile, []string{"diff-plan"}) {
+		t.Fatalf("diff plan = %+v", plan)
+	}
+}
+
+func TestClassifyRPCMuxDiagnosisSinkReloadError(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{name: "nil", want: ""},
+		{name: "not registered", err: errors.New("sink is not registered"), want: "sink is not registered"},
+		{name: "secret resolver", err: errors.New("profileRef requires a secret resolver"), want: "sink profile secret resolver unavailable"},
+		{name: "profile ref", err: errors.New("profileRef: missing secret"), want: "sink profile reference resolution failed"},
+		{name: "profile", err: errors.New("profile rejected"), want: "sink profile validation failed"},
+		{name: "duplicate", err: errors.New("sink is duplicated"), want: "duplicate sink configuration"},
+		{name: "maximum", err: errors.New("maximum is 32"), want: "sink count limit exceeded"},
+		{name: "panic", err: errors.New("construction panic"), want: "sink construction panic"},
+		{name: "fallback", err: errors.New("unknown"), want: "sink generation construction failed"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := classifyRPCMuxDiagnosisSinkReloadError(test.err); got != test.want {
+				t.Fatalf("classification = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
 func TestRPCMuxDiagnosisSinkSetPriorityAndFailureIsolation(t *testing.T) {
 	var orderMu sync.Mutex
 	var order []string
@@ -201,6 +347,7 @@ func TestRPCMuxDiagnosisSinkSetPriorityAndFailureIsolation(t *testing.T) {
 				Delivery: RPCMuxDiagnosisExporterDeliveryConfig{
 					QueueSize:               1,
 					Timeout:                 10 * time.Millisecond,
+					MaxHungCalls:            2,
 					BreakerFailureThreshold: 1,
 					BreakerCooldown:         time.Hour,
 				},
@@ -432,6 +579,18 @@ func waitForMuxSinkSetSnapshot(t *testing.T, sinkSet *RPCMuxDiagnosisSinkSet, co
 		time.Sleep(time.Millisecond)
 	}
 	t.Fatalf("sink set condition not met: %+v", sinkSet.RPCMuxDiagnosisSinkSetSnapshot())
+}
+
+func slicesEqual(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
 }
 
 var _ io.Closer = (*sinkSetTestExporter)(nil)

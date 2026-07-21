@@ -16,15 +16,30 @@ const (
 	defaultRPCMuxDiagnosisExporterTimeout   = time.Second
 	defaultRPCMuxDiagnosisBreakerFailures   = 3
 	defaultRPCMuxDiagnosisBreakerCooldown   = 30 * time.Second
+	defaultRPCMuxDiagnosisMaxHungCalls      = 1
+	defaultRPCMuxDiagnosisErrorBudgetMin    = 10
+	defaultRPCMuxDiagnosisErrorBudgetPause  = 30 * time.Second
 )
+
+// RPCMuxDiagnosisExporterErrorBudgetConfig controls optional burn-rate based
+// delivery automation for one diagnosis exporter sink.
+type RPCMuxDiagnosisExporterErrorBudgetConfig struct {
+	Enabled                   bool          `json:"enabled,omitempty"`
+	MinSamples                int64         `json:"minSamples,omitempty"`
+	BurnRateThreshold         float64       `json:"burnRateThreshold,omitempty"`
+	RecoveryBurnRateThreshold float64       `json:"recoveryBurnRateThreshold,omitempty"`
+	PauseDuration             time.Duration `json:"pauseDuration,omitempty"`
+}
 
 // RPCMuxDiagnosisExporterDeliveryConfig controls asynchronous bounded delivery
 // to an application-owned diagnosis exporter.
 type RPCMuxDiagnosisExporterDeliveryConfig struct {
-	QueueSize               int           `json:"queueSize,omitempty"`
-	Timeout                 time.Duration `json:"timeout,omitempty"`
-	BreakerFailureThreshold int           `json:"breakerFailureThreshold,omitempty"`
-	BreakerCooldown         time.Duration `json:"breakerCooldown,omitempty"`
+	QueueSize               int                                      `json:"queueSize,omitempty"`
+	Timeout                 time.Duration                            `json:"timeout,omitempty"`
+	MaxHungCalls            int                                      `json:"maxHungCalls,omitempty"`
+	BreakerFailureThreshold int                                      `json:"breakerFailureThreshold,omitempty"`
+	BreakerCooldown         time.Duration                            `json:"breakerCooldown,omitempty"`
+	ErrorBudget             RPCMuxDiagnosisExporterErrorBudgetConfig `json:"errorBudget,omitempty"`
 }
 
 // RPCMuxDiagnosisExporterDeliverySnapshot exposes low-cardinality delivery
@@ -42,6 +57,12 @@ type RPCMuxDiagnosisExporterDeliverySnapshot struct {
 	Panics              int64     `json:"panics"`
 	BreakerRejected     int64     `json:"breakerRejected"`
 	ConsecutiveFailures int64     `json:"consecutiveFailures"`
+	MaxHungCalls        int       `json:"maxHungCalls"`
+	ActiveCalls         int64     `json:"activeCalls"`
+	HungCalls           int64     `json:"hungCalls"`
+	BurnRate            float64   `json:"burnRate"`
+	ErrorBudgetPaused   bool      `json:"errorBudgetPaused"`
+	OperatorAction      string    `json:"operatorAction,omitempty"`
 	Health              string    `json:"health"`
 	BreakerState        string    `json:"breakerState"`
 	LastSuccessAt       time.Time `json:"lastSuccessAt,omitempty"`
@@ -74,8 +95,11 @@ type governedRPCMuxDiagnosisExporter struct {
 	timedOut            atomic.Int64
 	panics              atomic.Int64
 	breakerRejected     atomic.Int64
+	activeCalls         atomic.Int64
+	hungCalls           atomic.Int64
 	consecutiveFailures atomic.Int64
 	breakerOpenedAt     atomic.Int64
+	errorBudgetPausedAt atomic.Int64
 	halfOpen            atomic.Bool
 	queued              atomic.Int64
 	lastSuccessAt       atomic.Int64
@@ -190,6 +214,23 @@ func normalizeRPCMuxDiagnosisExporterDeliveryConfig(config RPCMuxDiagnosisExport
 	if config.BreakerCooldown <= 0 {
 		config.BreakerCooldown = defaultRPCMuxDiagnosisBreakerCooldown
 	}
+	if config.MaxHungCalls <= 0 {
+		config.MaxHungCalls = defaultRPCMuxDiagnosisMaxHungCalls
+	}
+	if config.ErrorBudget.Enabled {
+		if config.ErrorBudget.MinSamples <= 0 {
+			config.ErrorBudget.MinSamples = defaultRPCMuxDiagnosisErrorBudgetMin
+		}
+		if config.ErrorBudget.BurnRateThreshold <= 0 {
+			config.ErrorBudget.BurnRateThreshold = 1
+		}
+		if config.ErrorBudget.RecoveryBurnRateThreshold < 0 {
+			config.ErrorBudget.RecoveryBurnRateThreshold = 0
+		}
+		if config.ErrorBudget.PauseDuration <= 0 {
+			config.ErrorBudget.PauseDuration = defaultRPCMuxDiagnosisErrorBudgetPause
+		}
+	}
 	return config
 }
 
@@ -200,6 +241,14 @@ func (e *governedRPCMuxDiagnosisExporter) ExportRPCMuxDiagnosisEvent(ctx context
 	e.lifecycle.RLock()
 	defer e.lifecycle.RUnlock()
 	if e.closed.Load() {
+		return
+	}
+	if e.errorBudgetPaused() {
+		e.rejectErrorBudget()
+		return
+	}
+	if e.hungCalls.Load() >= int64(e.config.MaxHungCalls) {
+		e.rejectHungLimit()
 		return
 	}
 	if !e.allowEnqueue() {
@@ -258,6 +307,10 @@ func (e *governedRPCMuxDiagnosisExporter) export(delivery rpcMuxDiagnosisDeliver
 		e.rejectBreaker()
 		return
 	}
+	if e.hungCalls.Load() >= int64(e.config.MaxHungCalls) {
+		e.rejectHungLimit()
+		return
+	}
 	select {
 	case e.inFlight <- struct{}{}:
 	default:
@@ -271,8 +324,16 @@ func (e *governedRPCMuxDiagnosisExporter) export(delivery rpcMuxDiagnosisDeliver
 	ctx, cancel := context.WithTimeout(delivery.ctx, e.config.Timeout)
 	defer cancel()
 	completed := make(chan bool, 1)
+	var timedOut atomic.Bool
+	e.activeCalls.Add(1)
 	go func() {
-		defer func() { <-e.inFlight }()
+		defer func() {
+			if timedOut.Load() {
+				e.hungCalls.Add(-1)
+			}
+			e.activeCalls.Add(-1)
+			<-e.inFlight
+		}()
 		panicked := false
 		defer func() {
 			if recover() != nil {
@@ -294,6 +355,8 @@ func (e *governedRPCMuxDiagnosisExporter) export(delivery rpcMuxDiagnosisDeliver
 			e.recordFailure("panic", time.Since(startedAt))
 		}
 	case <-ctx.Done():
+		timedOut.Store(true)
+		e.hungCalls.Add(1)
 		e.timedOut.Add(1)
 		rpcMuxDiagnosisExporterDeliveryEvents.Inc("timeout", e.sink)
 		e.recordFailure("timeout", time.Since(startedAt))
@@ -317,6 +380,12 @@ func (e *governedRPCMuxDiagnosisExporter) RPCMuxDiagnosisExporterDeliverySnapsho
 		Panics:              e.panics.Load(),
 		BreakerRejected:     e.breakerRejected.Load(),
 		ConsecutiveFailures: e.consecutiveFailures.Load(),
+		MaxHungCalls:        e.config.MaxHungCalls,
+		ActiveCalls:         e.activeCalls.Load(),
+		HungCalls:           e.hungCalls.Load(),
+		BurnRate:            e.burnRate(),
+		ErrorBudgetPaused:   e.errorBudgetPaused(),
+		OperatorAction:      e.operatorAction(),
 		Health:              e.health(),
 		BreakerState:        e.breakerState(),
 		LastSuccessAt:       unixNanoToTime(e.lastSuccessAt.Load()),
@@ -366,11 +435,25 @@ func (e *governedRPCMuxDiagnosisExporter) rejectBreaker() {
 	rpcMuxDiagnosisExporterDeliveryEvents.Inc("breaker_open", e.sink)
 }
 
+func (e *governedRPCMuxDiagnosisExporter) rejectHungLimit() {
+	e.dropped.Add(1)
+	e.backpressure.Add(1)
+	rpcMuxDiagnosisExporterDeliveryEvents.Inc("hung_limit", e.sink)
+}
+
+func (e *governedRPCMuxDiagnosisExporter) rejectErrorBudget() {
+	e.dropped.Add(1)
+	rpcMuxDiagnosisExporterDeliveryEvents.Inc("error_budget_paused", e.sink)
+}
+
 func (e *governedRPCMuxDiagnosisExporter) recordSuccess(latency time.Duration) {
 	now := time.Now()
 	e.lastSuccessAt.Store(now.UnixNano())
 	e.consecutiveFailures.Store(0)
 	e.breakerOpenedAt.Store(0)
+	if !e.config.ErrorBudget.Enabled || e.burnRate() <= e.config.ErrorBudget.RecoveryBurnRateThreshold {
+		e.errorBudgetPausedAt.Store(0)
+	}
 	e.halfOpen.Store(false)
 	e.recordLatency(latency)
 	rpcMuxDiagnosisExporterConsecutiveFailures.Set(0, e.sink)
@@ -389,6 +472,7 @@ func (e *governedRPCMuxDiagnosisExporter) recordFailure(reason string, latency t
 		e.breakerOpenedAt.Store(now.UnixNano())
 		rpcMuxDiagnosisExporterBreakerOpen.Set(1, e.sink)
 	}
+	e.evaluateErrorBudget(now)
 }
 
 func (e *governedRPCMuxDiagnosisExporter) recordLatency(latency time.Duration) {
@@ -409,7 +493,7 @@ func (e *governedRPCMuxDiagnosisExporter) health() string {
 	if e.closed.Load() {
 		return "closed"
 	}
-	if e.breakerOpenedAt.Load() != 0 {
+	if e.errorBudgetPaused() || e.breakerOpenedAt.Load() != 0 || e.hungCalls.Load() >= int64(e.config.MaxHungCalls) {
 		return "unhealthy"
 	}
 	if e.consecutiveFailures.Load() > 0 {
@@ -426,6 +510,61 @@ func (e *governedRPCMuxDiagnosisExporter) breakerState() string {
 		return "half_open"
 	}
 	return "open"
+}
+
+func (e *governedRPCMuxDiagnosisExporter) evaluateErrorBudget(now time.Time) {
+	if !e.config.ErrorBudget.Enabled {
+		return
+	}
+	total := e.accepted.Load() + e.dropped.Load()
+	if total < e.config.ErrorBudget.MinSamples {
+		return
+	}
+	if e.burnRate() >= e.config.ErrorBudget.BurnRateThreshold {
+		e.errorBudgetPausedAt.CompareAndSwap(0, now.UnixNano())
+	}
+}
+
+func (e *governedRPCMuxDiagnosisExporter) errorBudgetPaused() bool {
+	if !e.config.ErrorBudget.Enabled {
+		return false
+	}
+	pausedAt := e.errorBudgetPausedAt.Load()
+	if pausedAt == 0 {
+		return false
+	}
+	if time.Since(time.Unix(0, pausedAt)) < e.config.ErrorBudget.PauseDuration {
+		return true
+	}
+	return false
+}
+
+func (e *governedRPCMuxDiagnosisExporter) burnRate() float64 {
+	total := e.accepted.Load() + e.dropped.Load()
+	if total <= 0 {
+		return 0
+	}
+	failed := e.dropped.Load() + e.timedOut.Load() + e.panics.Load()
+	return float64(failed) / float64(total)
+}
+
+func (e *governedRPCMuxDiagnosisExporter) operatorAction() string {
+	switch {
+	case e.closed.Load():
+		return "none"
+	case e.hungCalls.Load() >= int64(e.config.MaxHungCalls):
+		return "pause_sink_hung_calls"
+	case e.errorBudgetPaused():
+		return "pause_sink_error_budget"
+	case e.breakerState() == "half_open":
+		return "probe_sink_recovery"
+	case e.breakerOpenedAt.Load() != 0:
+		return "pause_sink_breaker"
+	case e.consecutiveFailures.Load() > 0:
+		return "degrade_sink"
+	default:
+		return "none"
+	}
 }
 
 func averageInt64(total int64, count int64) int64 {

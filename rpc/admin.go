@@ -235,19 +235,23 @@ func (s *HTTPServer) RuntimeSnapshot(ctx context.Context) coreruntime.Snapshot {
 			},
 		}
 	}, coreruntime.WithOwner("rpc"))
-	if s != nil && s.opts.muxServerAdapter != nil {
+	s.mu.RLock()
+	muxServerAdapter := s.opts.muxServerAdapter
+	muxEventExporter := s.opts.muxEventExporter
+	s.mu.RUnlock()
+	if s != nil && muxServerAdapter != nil {
 		registry.Register("rpc.mux.server", "server", func(ctx context.Context) coreruntime.ComponentSnapshot {
-			return s.opts.muxServerAdapter.RuntimeComponentSnapshot(ctx)
+			return muxServerAdapter.RuntimeComponentSnapshot(ctx)
 		}, coreruntime.WithOwner("rpc"))
 	}
 	registry.Register("rpc.mux.sink.registry", "registry", func(context.Context) coreruntime.ComponentSnapshot {
 		details := map[string]any{"registry": RPCMuxOTelLogSinkRegistry()}
 		status := "ok"
-		if sinkSet, ok := s.opts.muxEventExporter.(RPCMuxDiagnosisSinkSetSnapshotter); ok {
+		if sinkSet, ok := muxEventExporter.(RPCMuxDiagnosisSinkSetSnapshotter); ok {
 			snapshot := sinkSet.RPCMuxDiagnosisSinkSetSnapshot()
 			details["sinkSet"] = snapshot
 			status = rpcMuxDiagnosisSinkSetStatus(snapshot)
-		} else if delivery, ok := s.opts.muxEventExporter.(RPCMuxDiagnosisExporterDeliverySnapshotter); ok {
+		} else if delivery, ok := muxEventExporter.(RPCMuxDiagnosisExporterDeliverySnapshotter); ok {
 			details["delivery"] = delivery.RPCMuxDiagnosisExporterDeliverySnapshot()
 		}
 		return coreruntime.ComponentSnapshot{
@@ -339,13 +343,20 @@ func (s *HTTPServer) DiagnosisProbeWithOptions(opts RPCDiagnosisProbeOptions) Se
 // ObserveMuxDiagnosis exports a captured server diagnosis snapshot through the
 // configured server-side mux diagnosis exporter.
 func (s *HTTPServer) ObserveMuxDiagnosis(ctx context.Context, snapshot ServerDiagnosisSnapshot) {
-	if s == nil || s.opts.muxEventExporter == nil {
+	if s == nil {
+		return
+	}
+	s.mu.RLock()
+	exporter := s.opts.muxEventExporter
+	filter := s.opts.muxEventFilter
+	s.mu.RUnlock()
+	if exporter == nil {
 		return
 	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	exportRPCMuxDiagnosisEvents(ctx, s.opts.muxEventExporter, s.opts.muxEventFilter, RPCDiagnosisProbe{
+	exportRPCMuxDiagnosisEvents(ctx, exporter, filter, RPCDiagnosisProbe{
 		Target:       snapshot.State.Address,
 		Service:      snapshot.Service,
 		Method:       serverDiagnosisMethod(snapshot.Service, snapshot.Method),

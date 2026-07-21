@@ -187,15 +187,12 @@ func main() {
 		rpc.WithRegistryTTL(c.Discovery.RegistryTTL()),
 		rpc.WithServerGovernanceManager(governanceManager),
 	)
-	var muxSinkSet *rpc.RPCMuxDiagnosisSinkSet
-	if c.RPC.Mux.Log.Enabled && c.RPC.Mux.Log.ExportEvents && c.RPC.Mux.Log.OTelCompatible.Enabled {
-		muxSinkSet, err = c.RPC.Mux.Log.OTelCompatible.NewSinkSet()
-		if err != nil {
-			slog.Error("setup mux diagnosis sink set", "error", err)
-			return
-		}
-		defer func() { _ = muxSinkSet.Close() }()
+	muxSinkSet, err := c.RPC.Mux.Log.OTelCompatible.NewSinkSet()
+	if err != nil {
+		slog.Error("setup mux diagnosis sink set", "error", err)
+		return
 	}
+	defer func() { _ = muxSinkSet.Close() }()
 	rpcOptions = append(rpcOptions, c.RPC.Mux.ServerOptionsWithSinkSet(muxSinkSet)...)
 	var muxServer *rpc.ExperimentalMuxServer
 	if c.RPC.Mux.Enabled {
@@ -242,14 +239,22 @@ func main() {
 	governanceManager.StartAsync(ctx, func(err error) { slog.Warn("governance manager stopped", "error", err) })
 	go func() {
 		if err := config.Watch[appconfig.Config](ctx, configPath, 2*time.Second, func(next appconfig.Config) {
-			if muxSinkSet != nil {
-				if err := next.RPC.Mux.Log.OTelCompatible.ReloadSinkSet(ctx, muxSinkSet); err != nil {
-					slog.Warn("reload mux diagnosis sink set", "error", err)
-					return
-				}
+			diffPlan, err := next.RPC.Mux.Log.OTelCompatible.DiffSinkSet(ctx, muxSinkSet)
+			if err != nil {
+				slog.Warn("plan mux diagnosis sink set reload", "error", err)
+				return
+			}
+			if err := next.RPC.Mux.Log.OTelCompatible.ReloadSinkSet(ctx, muxSinkSet); err != nil {
+				slog.Warn("reload mux diagnosis sink set", "error", err)
+				return
+			}
+			if next.RPC.Mux.Log.EventExportEnabled() {
+				rpcServer.UpdateMuxDiagnosisEventExporter(muxSinkSet, next.RPC.Mux.Log.Filter())
+			} else {
+				rpcServer.UpdateMuxDiagnosisEventExporter(nil, rpc.RPCMuxDiagnosisFilter{})
 			}
 			svcCtx.UpdateConfig(next)
-			slog.Info("config reloaded", "rest_host", next.Rest.Host, "rest_port", next.Rest.Port, "rpc_addr", next.RPC.Addr)
+			slog.Info("config reloaded", "rest_host", next.Rest.Host, "rest_port", next.Rest.Port, "rpc_addr", next.RPC.Addr, "mux_sink_diff_plan", diffPlan)
 		}); err != nil && ctx.Err() == nil {
 			slog.Warn("watch config", "error", err)
 		}
@@ -1895,11 +1900,29 @@ type RPCMuxLogConfig struct {
 	OTelCompatible RPCMuxOTelCompatibleLogConfig ` + "`json:\"otelCompatible,omitempty\"`" + `
 }
 
+func (c RPCMuxLogConfig) EventExportEnabled() bool {
+	return c.Enabled && c.ExportEvents
+}
+
+func (c RPCMuxLogConfig) Filter() rpc.RPCMuxDiagnosisFilter {
+	return rpc.RPCMuxDiagnosisFilter{
+		Endpoint: c.Endpoint,
+		ConnectionID: c.ConnectionID,
+		PoolSlot: c.PoolSlot,
+		EventFamily: c.EventFamily,
+		Event: c.Event,
+	}
+}
+
 type RPCMuxOTelCompatibleLogConfig struct {
 	Enabled bool ` + "`json:\"enabled\"`" + `
 	Version string ` + "`json:\"version,omitempty\"`" + `
+	SchemaVersion string ` + "`json:\"schemaVersion,omitempty\"`" + `
 	Sink string ` + "`json:\"sink,omitempty\"`" + `
 	Profile string ` + "`json:\"profile,omitempty\"`" + `
+	ProfileRef string ` + "`json:\"profileRef,omitempty\"`" + `
+	ProfileSchema string ` + "`json:\"profileSchema,omitempty\"`" + `
+	ProfileMigration string ` + "`json:\"profileMigration,omitempty\"`" + `
 	Delivery RPCMuxExporterDeliveryConfig ` + "`json:\"delivery,omitempty\"`" + `
 	Sinks []RPCMuxOTelSinkConfig ` + "`json:\"sinks,omitempty\"`" + `
 }
@@ -1907,6 +1930,9 @@ type RPCMuxOTelCompatibleLogConfig struct {
 type RPCMuxOTelSinkConfig struct {
 	Name string ` + "`json:\"name\"`" + `
 	Profile string ` + "`json:\"profile,omitempty\"`" + `
+	ProfileRef string ` + "`json:\"profileRef,omitempty\"`" + `
+	ProfileSchema string ` + "`json:\"profileSchema,omitempty\"`" + `
+	ProfileMigration string ` + "`json:\"profileMigration,omitempty\"`" + `
 	Priority int ` + "`json:\"priority,omitempty\"`" + `
 	Delivery RPCMuxExporterDeliveryConfig ` + "`json:\"delivery,omitempty\"`" + `
 }
@@ -1914,16 +1940,34 @@ type RPCMuxOTelSinkConfig struct {
 type RPCMuxExporterDeliveryConfig struct {
 	QueueSize int ` + "`json:\"queueSize,omitempty\"`" + `
 	Timeout time.Duration ` + "`json:\"timeout,omitempty\"`" + `
+	MaxHungCalls int ` + "`json:\"maxHungCalls,omitempty\"`" + `
 	BreakerFailureThreshold int ` + "`json:\"breakerFailureThreshold,omitempty\"`" + `
 	BreakerCooldown time.Duration ` + "`json:\"breakerCooldown,omitempty\"`" + `
+	ErrorBudget RPCMuxExporterErrorBudgetConfig ` + "`json:\"errorBudget,omitempty\"`" + `
+}
+
+type RPCMuxExporterErrorBudgetConfig struct {
+	Enabled bool ` + "`json:\"enabled,omitempty\"`" + `
+	MinSamples int64 ` + "`json:\"minSamples,omitempty\"`" + `
+	BurnRateThreshold float64 ` + "`json:\"burnRateThreshold,omitempty\"`" + `
+	RecoveryBurnRateThreshold float64 ` + "`json:\"recoveryBurnRateThreshold,omitempty\"`" + `
+	PauseDuration time.Duration ` + "`json:\"pauseDuration,omitempty\"`" + `
 }
 
 func (c RPCMuxExporterDeliveryConfig) RuntimeConfig() rpc.RPCMuxDiagnosisExporterDeliveryConfig {
 	return rpc.RPCMuxDiagnosisExporterDeliveryConfig{
 		QueueSize: c.QueueSize,
 		Timeout: c.Timeout,
+		MaxHungCalls: c.MaxHungCalls,
 		BreakerFailureThreshold: c.BreakerFailureThreshold,
 		BreakerCooldown: c.BreakerCooldown,
+		ErrorBudget: rpc.RPCMuxDiagnosisExporterErrorBudgetConfig{
+			Enabled: c.ErrorBudget.Enabled,
+			MinSamples: c.ErrorBudget.MinSamples,
+			BurnRateThreshold: c.ErrorBudget.BurnRateThreshold,
+			RecoveryBurnRateThreshold: c.ErrorBudget.RecoveryBurnRateThreshold,
+			PauseDuration: c.ErrorBudget.PauseDuration,
+		},
 	}
 }
 
@@ -1933,7 +1977,7 @@ func (c RPCMuxOTelCompatibleLogConfig) SinkSetConfig() rpc.RPCMuxDiagnosisSinkSe
 		version = "legacy"
 	}
 	if !c.Enabled {
-		return rpc.RPCMuxDiagnosisSinkSetConfig{Version: version}
+		return rpc.RPCMuxDiagnosisSinkSetConfig{Version: version, SchemaVersion: strings.TrimSpace(c.SchemaVersion)}
 	}
 	sinks := make([]rpc.RPCMuxDiagnosisSinkConfig, 0, len(c.Sinks)+1)
 	if len(c.Sinks) == 0 {
@@ -1944,6 +1988,9 @@ func (c RPCMuxOTelCompatibleLogConfig) SinkSetConfig() rpc.RPCMuxDiagnosisSinkSe
 		sinks = append(sinks, rpc.RPCMuxDiagnosisSinkConfig{
 			Name: name,
 			Profile: c.Profile,
+			ProfileRef: c.ProfileRef,
+			ProfileSchema: c.ProfileSchema,
+			ProfileMigration: c.ProfileMigration,
 			Delivery: c.Delivery.RuntimeConfig(),
 		})
 	} else {
@@ -1951,12 +1998,15 @@ func (c RPCMuxOTelCompatibleLogConfig) SinkSetConfig() rpc.RPCMuxDiagnosisSinkSe
 			sinks = append(sinks, rpc.RPCMuxDiagnosisSinkConfig{
 				Name: sink.Name,
 				Profile: sink.Profile,
+				ProfileRef: sink.ProfileRef,
+				ProfileSchema: sink.ProfileSchema,
+				ProfileMigration: sink.ProfileMigration,
 				Priority: sink.Priority,
 				Delivery: sink.Delivery.RuntimeConfig(),
 			})
 		}
 	}
-	return rpc.RPCMuxDiagnosisSinkSetConfig{Version: version, Sinks: sinks}
+	return rpc.RPCMuxDiagnosisSinkSetConfig{Version: version, SchemaVersion: strings.TrimSpace(c.SchemaVersion), Sinks: sinks}
 }
 
 func (c RPCMuxOTelCompatibleLogConfig) NewSinkSet() (*rpc.RPCMuxDiagnosisSinkSet, error) {
@@ -1964,7 +2014,23 @@ func (c RPCMuxOTelCompatibleLogConfig) NewSinkSet() (*rpc.RPCMuxDiagnosisSinkSet
 }
 
 func (c RPCMuxOTelCompatibleLogConfig) ReloadSinkSet(ctx context.Context, sinkSet *rpc.RPCMuxDiagnosisSinkSet) error {
+	if sinkSet == nil {
+		_, err := c.NewSinkSet()
+		return err
+	}
 	return sinkSet.Reload(ctx, c.SinkSetConfig())
+}
+
+func (c RPCMuxOTelCompatibleLogConfig) DiffSinkSet(ctx context.Context, sinkSet *rpc.RPCMuxDiagnosisSinkSet) (rpc.RPCMuxDiagnosisSinkSetDiffPlan, error) {
+	if sinkSet == nil {
+		empty, err := rpc.NewRPCMuxDiagnosisSinkSet(rpc.RPCMuxDiagnosisSinkSetConfig{Version: "legacy", SchemaVersion: strings.TrimSpace(c.SchemaVersion)})
+		if err != nil {
+			return rpc.RPCMuxDiagnosisSinkSetDiffPlan{}, err
+		}
+		defer empty.Close()
+		return empty.DiffRPCMuxDiagnosisSinkSetConfig(ctx, c.SinkSetConfig())
+	}
+	return sinkSet.DiffRPCMuxDiagnosisSinkSetConfig(ctx, c.SinkSetConfig())
 }
 
 type RPCMuxTLSConfig struct {
@@ -2253,14 +2319,8 @@ func (c RPCMuxConfig) ClientOptionsWithSinkSet(sinkSet *rpc.RPCMuxDiagnosisSinkS
 	if c.Log.Enabled && c.Log.Diagnosis {
 		options = append(options, rpc.WithMuxDiagnosisLogging(nil))
 	}
-	if c.Log.Enabled && c.Log.ExportEvents {
-		filter := rpc.RPCMuxDiagnosisFilter{
-			Endpoint: c.Log.Endpoint,
-			ConnectionID: c.Log.ConnectionID,
-			PoolSlot: c.Log.PoolSlot,
-			EventFamily: c.Log.EventFamily,
-			Event: c.Log.Event,
-		}
+	if c.Log.EventExportEnabled() {
+		filter := c.Log.Filter()
 		if c.Log.OTelCompatible.Enabled {
 			if sinkSet == nil {
 				var err error
@@ -2282,16 +2342,10 @@ func (c RPCMuxConfig) ServerOptions() []rpc.ServerOption {
 }
 
 func (c RPCMuxConfig) ServerOptionsWithSinkSet(sinkSet *rpc.RPCMuxDiagnosisSinkSet) []rpc.ServerOption {
-	if !c.Log.Enabled || !c.Log.ExportEvents {
+	if !c.Log.EventExportEnabled() {
 		return nil
 	}
-	filter := rpc.RPCMuxDiagnosisFilter{
-		Endpoint: c.Log.Endpoint,
-		ConnectionID: c.Log.ConnectionID,
-		PoolSlot: c.Log.PoolSlot,
-		EventFamily: c.Log.EventFamily,
-		Event: c.Log.Event,
-	}
+	filter := c.Log.Filter()
 	if c.Log.OTelCompatible.Enabled {
 		if sinkSet == nil {
 			var err error
@@ -2681,14 +2735,24 @@ func TestRPCMuxOTelCompatibleSinkSetHotReload(t *testing.T) {
 	cfg := RPCMuxOTelCompatibleLogConfig{
 		Enabled: true,
 		Version: "generated-v1",
+		SchemaVersion: "mux-sinks/v1",
 		Sinks: []RPCMuxOTelSinkConfig{{
 			Name: "slog",
+			ProfileSchema: "slog/v1",
+			ProfileMigration: "legacy-to-v1",
 			Priority: 10,
 			Delivery: RPCMuxExporterDeliveryConfig{
 				QueueSize: 2,
 				Timeout: time.Second,
+				MaxHungCalls: 1,
 				BreakerFailureThreshold: 2,
 				BreakerCooldown: time.Minute,
+				ErrorBudget: RPCMuxExporterErrorBudgetConfig{
+					Enabled: true,
+					MinSamples: 10,
+					BurnRateThreshold: 0.5,
+					PauseDuration: time.Minute,
+				},
 			},
 		}},
 	}
@@ -2699,13 +2763,36 @@ func TestRPCMuxOTelCompatibleSinkSetHotReload(t *testing.T) {
 	defer sinkSet.Close()
 	next := cfg
 	next.Version = "generated-v2"
+	next.SchemaVersion = "mux-sinks/v2"
 	next.Sinks[0].Priority = 20
+	plan, err := next.DiffSinkSet(context.Background(), sinkSet)
+	if err != nil {
+		t.Fatalf("DiffSinkSet: %v", err)
+	}
+	if len(plan.ChangePriority) != 1 || plan.ChangePriority[0] != "slog" || plan.ToSchemaVersion != "mux-sinks/v2" {
+		t.Fatalf("diff plan = %+v", plan)
+	}
 	if err := next.ReloadSinkSet(context.Background(), sinkSet); err != nil {
 		t.Fatalf("ReloadSinkSet: %v", err)
 	}
 	snapshot := sinkSet.RPCMuxDiagnosisSinkSetSnapshot()
-	if snapshot.Version != "generated-v2" || snapshot.Sinks[0].Priority != 20 {
+	if snapshot.Version != "generated-v2" || snapshot.SchemaVersion != "mux-sinks/v2" ||
+		snapshot.Sinks[0].Priority != 20 || snapshot.Sinks[0].ProfileMigration != "legacy-to-v1" ||
+		snapshot.Sinks[0].Delivery.MaxHungCalls != 1 {
 		t.Fatalf("sink set snapshot = %+v", snapshot)
+	}
+
+	disabled := RPCMuxOTelCompatibleLogConfig{Version: "disabled-v1", SchemaVersion: "mux-sinks/v2"}
+	emptySet, err := disabled.NewSinkSet()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer emptySet.Close()
+	if err := cfg.ReloadSinkSet(context.Background(), emptySet); err != nil {
+		t.Fatalf("activate sink set from disabled config: %v", err)
+	}
+	if got := emptySet.RPCMuxDiagnosisSinkSetSnapshot(); got.SinkCount != 1 || got.Sinks[0].Name != "slog" {
+		t.Fatalf("activated sink set snapshot = %+v", got)
 	}
 }
 

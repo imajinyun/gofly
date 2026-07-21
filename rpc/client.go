@@ -60,6 +60,7 @@ type HTTPClient struct {
 	target         string
 	hc             *http.Client
 	opts           clientOptions
+	muxExportMu    sync.RWMutex
 	runtime        *ruleRuntime
 	discovery      *clientDiscoveryRuntime
 	streams        *rpcStreamTransportRuntime
@@ -146,9 +147,32 @@ func (c *HTTPClient) Close() error {
 		if c.opts.muxManager != nil {
 			_ = c.opts.muxManager.Close()
 		}
-		closeRPCMuxDiagnosisExporter(c.opts.muxEventExporter)
+		exporter, _ := c.muxDiagnosisEventExportConfig()
+		closeRPCMuxDiagnosisExporter(exporter)
 	})
 	return nil
+}
+
+// UpdateMuxDiagnosisEventExporter swaps the client-side mux diagnosis exporter
+// and filter for config hot-reload paths. The caller owns the exporter
+// lifecycle, so this method does not close the previous exporter.
+func (c *HTTPClient) UpdateMuxDiagnosisEventExporter(exporter RPCMuxDiagnosisEventExporter, filter RPCMuxDiagnosisFilter) {
+	if c == nil {
+		return
+	}
+	c.muxExportMu.Lock()
+	defer c.muxExportMu.Unlock()
+	c.opts.muxEventExporter = exporter
+	c.opts.muxEventFilter = filter
+}
+
+func (c *HTTPClient) muxDiagnosisEventExportConfig() (RPCMuxDiagnosisEventExporter, RPCMuxDiagnosisFilter) {
+	if c == nil {
+		return nil, RPCMuxDiagnosisFilter{}
+	}
+	c.muxExportMu.RLock()
+	defer c.muxExportMu.RUnlock()
+	return c.opts.muxEventExporter, c.opts.muxEventFilter
 }
 
 func (c *HTTPClient) Call(ctx context.Context, method string, request any, response any) error {

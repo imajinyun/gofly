@@ -149,6 +149,48 @@ func TestHTTPServerDiagnosisExportsMuxEvents(t *testing.T) {
 	}
 }
 
+func TestHTTPServerUpdateMuxDiagnosisEventExporter(t *testing.T) {
+	cfg := ExperimentalMuxCandidateConfig{
+		Protocol:     "gofly-mux/server-update-exporter-test",
+		FrameCodec:   "binary",
+		PayloadCodec: "identity",
+		WriteTimeout: time.Millisecond,
+	}
+	adapter := NewExperimentalMuxCandidateServerAdapter(&timeoutWriteConn{done: make(chan struct{})}, cfg)
+	defer adapter.Close()
+	if _, err := adapter.transport.OpenStream(context.Background()); err == nil {
+		t.Fatal("OpenStream succeeded, want write timeout")
+	}
+	records := make(chan RPCMuxDiagnosisEventRecord, 1)
+	server := NewServer(WithExperimentalMuxServerAdapter(adapter))
+	server.UpdateMuxDiagnosisEventExporter(RPCMuxDiagnosisEventExporterFunc(func(_ context.Context, record RPCMuxDiagnosisEventRecord) {
+		records <- record
+	}), RPCMuxDiagnosisFilter{EventFamily: "flow_control", Event: "write_timeout"})
+
+	req := httptest.NewRequest(http.MethodGet, "/rpc/admin/diagnosis?eventFamily=flow-control&event=write-timeout", nil)
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("diagnosis status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	select {
+	case record := <-records:
+		if record.Event.Event != "write_timeout" {
+			t.Fatalf("record = %+v, want write_timeout", record)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("updated server exporter did not receive diagnosis event")
+	}
+
+	server.UpdateMuxDiagnosisEventExporter(nil, RPCMuxDiagnosisFilter{})
+	server.ServeHTTP(httptest.NewRecorder(), req)
+	select {
+	case record := <-records:
+		t.Fatalf("disabled server exporter received event: %+v", record)
+	default:
+	}
+}
+
 func TestHTTPServerRuntimeSnapshotExposesMuxSinkRegistry(t *testing.T) {
 	server := NewServer(WithServerMuxDiagnosisEventExporterDelivery(
 		RPCMuxDiagnosisEventExporterFunc(func(context.Context, RPCMuxDiagnosisEventRecord) {}),

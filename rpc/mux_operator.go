@@ -2,6 +2,9 @@ package rpc
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"hash/fnv"
 	"strings"
 	"time"
 )
@@ -34,6 +37,11 @@ type RPCMuxDiagnosisOperatorApproval struct {
 	Sink   string `json:"sink"`
 	Action string `json:"action"`
 	Token  string `json:"token,omitempty"`
+}
+
+type RPCMuxDiagnosisOperatorHistorySnapshot struct {
+	Actions  []RPCMuxDiagnosisOperatorAction `json:"actions,omitempty"`
+	Checksum string                          `json:"checksum,omitempty"`
 }
 
 // RPCMuxDiagnosisOperatorActionSource exposes dry-run operator actions.
@@ -183,6 +191,14 @@ func (s *RPCMuxDiagnosisSinkSet) RPCMuxDiagnosisOperatorActionHistory(limit int)
 	return out
 }
 
+func (s *RPCMuxDiagnosisSinkSet) RPCMuxDiagnosisOperatorHistorySnapshot(limit int) RPCMuxDiagnosisOperatorHistorySnapshot {
+	actions := s.RPCMuxDiagnosisOperatorActionHistory(limit)
+	return RPCMuxDiagnosisOperatorHistorySnapshot{
+		Actions:  actions,
+		Checksum: checksumRPCMuxDiagnosisOperatorActions(actions),
+	}
+}
+
 func (s *RPCMuxDiagnosisSinkSet) recordOperatorActionLocked(action RPCMuxDiagnosisOperatorAction) {
 	if s == nil || !action.Approved {
 		return
@@ -199,6 +215,19 @@ func cloneRPCMuxDiagnosisOperatorAction(action RPCMuxDiagnosisOperatorAction) RP
 		action.Details = cloneStringMap(action.Details)
 	}
 	return action
+}
+
+func checksumRPCMuxDiagnosisOperatorActions(actions []RPCMuxDiagnosisOperatorAction) string {
+	if len(actions) == 0 {
+		return ""
+	}
+	data, err := json.Marshal(actions)
+	if err != nil {
+		return ""
+	}
+	hash := fnv.New64a()
+	_, _ = hash.Write(data)
+	return fmt.Sprintf("%016x", hash.Sum64())
 }
 
 var _ RPCMuxDiagnosisOperatorActionSource = (*RPCMuxDiagnosisSinkSet)(nil)

@@ -35,7 +35,11 @@ func TestRPCMuxSubprocessExporterProvider(t *testing.T) {
 	subprocessSnapshot := exporter.(RPCMuxSubprocessExporterSnapshotter).RPCMuxSubprocessExporterSnapshot()
 	if subprocessSnapshot.Runs != 1 || subprocessSnapshot.Command != os.Args[0] ||
 		subprocessSnapshot.LastExitCode != 0 || subprocessSnapshot.LastDuration <= 0 ||
-		subprocessSnapshot.LastRunAt.IsZero() || subprocessSnapshot.LastOutputTruncated {
+		subprocessSnapshot.LastRunAt.IsZero() || subprocessSnapshot.LastOutputTruncated ||
+		subprocessSnapshot.Policy.EnvCount != 2 ||
+		len(subprocessSnapshot.Policy.AllowCommands) != 1 ||
+		len(subprocessSnapshot.Policy.EnvWhitelist) != 2 ||
+		subprocessSnapshot.Policy.WorkDirRoot != workRoot {
 		t.Fatalf("subprocess snapshot = %+v", subprocessSnapshot)
 	}
 	delivery := newGovernedRPCMuxDiagnosisEventExporter("subprocess-snapshot", NewRPCMuxOTelLogDiagnosisEventExporter(exporter), RPCMuxDiagnosisExporterDeliveryConfig{

@@ -170,6 +170,10 @@ func TestRPCMuxDiagnosisSinkSetApplyOperatorAction(t *testing.T) {
 	if len(history) != 2 || history[0].Action != RPCMuxDiagnosisOperatorResumeSink || history[1].Action != RPCMuxDiagnosisOperatorForceProbe {
 		t.Fatalf("operator history = %+v, want latest resume and force-probe", history)
 	}
+	historySnapshot := sinkSet.RPCMuxDiagnosisOperatorHistorySnapshot(2)
+	if len(historySnapshot.Actions) != 2 || historySnapshot.Checksum == "" {
+		t.Fatalf("operator history snapshot = %+v", historySnapshot)
+	}
 	history[0].Details = map[string]string{"mutated": "true"}
 	if got := sinkSet.RPCMuxDiagnosisOperatorActionHistory(1); len(got) != 1 || got[0].Details["mutated"] == "true" {
 		t.Fatalf("operator history was not defensively copied: %+v", got)

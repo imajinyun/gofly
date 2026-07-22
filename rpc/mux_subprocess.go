@@ -39,18 +39,29 @@ type RPCMuxSubprocessExporterConfig struct {
 // RPCMuxSubprocessExporterSnapshot exposes subprocess delivery diagnostics
 // without event payloads, environment values, or profile material.
 type RPCMuxSubprocessExporterSnapshot struct {
-	Command             string        `json:"command"`
-	ArgsCount           int           `json:"argsCount"`
-	WorkDir             string        `json:"workDir,omitempty"`
-	Timeout             time.Duration `json:"timeout"`
-	MaxOutputBytes      int64         `json:"maxOutputBytes"`
-	Runs                int64         `json:"runs"`
-	LastExitCode        int           `json:"lastExitCode,omitempty"`
-	LastDuration        time.Duration `json:"lastDuration,omitempty"`
-	LastTimedOut        bool          `json:"lastTimedOut,omitempty"`
-	LastOutputTruncated bool          `json:"lastOutputTruncated,omitempty"`
-	LastError           string        `json:"lastError,omitempty"`
-	LastRunAt           time.Time     `json:"lastRunAt,omitempty"`
+	Command             string                                  `json:"command"`
+	ArgsCount           int                                     `json:"argsCount"`
+	WorkDir             string                                  `json:"workDir,omitempty"`
+	Timeout             time.Duration                           `json:"timeout"`
+	MaxOutputBytes      int64                                   `json:"maxOutputBytes"`
+	Policy              RPCMuxSubprocessExecutionPolicySnapshot `json:"policy"`
+	Runs                int64                                   `json:"runs"`
+	LastExitCode        int                                     `json:"lastExitCode,omitempty"`
+	LastDuration        time.Duration                           `json:"lastDuration,omitempty"`
+	LastTimedOut        bool                                    `json:"lastTimedOut,omitempty"`
+	LastOutputTruncated bool                                    `json:"lastOutputTruncated,omitempty"`
+	LastError           string                                  `json:"lastError,omitempty"`
+	LastRunAt           time.Time                               `json:"lastRunAt,omitempty"`
+}
+
+// RPCMuxSubprocessExecutionPolicySnapshot is a redacted summary of the local
+// process execution policy. It intentionally omits env values.
+type RPCMuxSubprocessExecutionPolicySnapshot struct {
+	AllowCommands []string `json:"allowCommands,omitempty"`
+	DenyCommands  []string `json:"denyCommands,omitempty"`
+	WorkDirRoot   string   `json:"workDirRoot,omitempty"`
+	EnvWhitelist  []string `json:"envWhitelist,omitempty"`
+	EnvCount      int      `json:"envCount,omitempty"`
 }
 
 type rpcMuxSubprocessExporter struct {
@@ -81,6 +92,7 @@ func NewRPCMuxSubprocessDiagnosisEventExporter(config RPCMuxSubprocessExporterCo
 			WorkDir:        config.WorkDir,
 			Timeout:        config.Timeout,
 			MaxOutputBytes: config.MaxOutputBytes,
+			Policy:         subprocessExecutionPolicySnapshot(config),
 			LastExitCode:   -1,
 		},
 	}, nil
@@ -248,6 +260,16 @@ func normalizeSubprocessEnv(env map[string]string, whitelist []string) (map[stri
 		out[key] = value
 	}
 	return out, nil
+}
+
+func subprocessExecutionPolicySnapshot(config RPCMuxSubprocessExporterConfig) RPCMuxSubprocessExecutionPolicySnapshot {
+	return RPCMuxSubprocessExecutionPolicySnapshot{
+		AllowCommands: append([]string(nil), config.AllowCommands...),
+		DenyCommands:  append([]string(nil), config.DenyCommands...),
+		WorkDirRoot:   config.WorkDirRoot,
+		EnvWhitelist:  append([]string(nil), config.EnvWhitelist...),
+		EnvCount:      len(config.Env),
+	}
 }
 
 func (e *rpcMuxSubprocessExporter) ExportRPCMuxDiagnosisEvent(ctx context.Context, record RPCMuxDiagnosisEventRecord) {

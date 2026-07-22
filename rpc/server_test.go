@@ -377,11 +377,11 @@ func TestHTTPServerMuxOperatorActionsEndpoint(t *testing.T) {
 	if historyRec.Code != http.StatusOK {
 		t.Fatalf("operator history status = %d body=%s", historyRec.Code, historyRec.Body.String())
 	}
-	var history []RPCMuxDiagnosisOperatorAction
+	var history RPCMuxDiagnosisOperatorHistorySnapshot
 	if err := json.NewDecoder(historyRec.Body).Decode(&history); err != nil {
 		t.Fatal(err)
 	}
-	if len(history) != 1 || history[0].Action != RPCMuxDiagnosisOperatorPauseSink || !history[0].Approved {
+	if len(history.Actions) != 1 || history.Actions[0].Action != RPCMuxDiagnosisOperatorPauseSink || !history.Actions[0].Approved || history.Checksum == "" {
 		t.Fatalf("operator history = %+v", history)
 	}
 }

@@ -137,7 +137,7 @@ func (s *HTTPServer) serveAdminRoute(w http.ResponseWriter, r *http.Request) {
 	case r.URL.Path == "/rpc/admin/runtime":
 		writeAdminJSON(w, http.StatusOK, s.RuntimeSnapshot(r.Context()))
 	case r.URL.Path == "/rpc/admin/mux/operator-actions/history":
-		writeAdminJSON(w, http.StatusOK, s.MuxDiagnosisOperatorActionHistory(parsePositiveIntQuery(r.URL.Query().Get("limit"))))
+		writeAdminJSON(w, http.StatusOK, s.MuxDiagnosisOperatorActionHistorySnapshot(parsePositiveIntQuery(r.URL.Query().Get("limit"))))
 	case r.URL.Path == "/rpc/admin/mux/operator-actions":
 		writeAdminJSON(w, http.StatusOK, s.MuxDiagnosisOperatorActions(r.Context()))
 	case r.URL.Path == "/rpc/admin/diagnosis":
@@ -261,6 +261,11 @@ func (s *HTTPServer) RuntimeSnapshot(ctx context.Context) coreruntime.Snapshot {
 			if actionSource, ok := muxEventExporter.(RPCMuxDiagnosisOperatorActionSource); ok {
 				details["operatorActions"] = actionSource.RPCMuxDiagnosisOperatorActions(context.Background())
 			}
+			if historySource, ok := muxEventExporter.(interface {
+				RPCMuxDiagnosisOperatorHistorySnapshot(int) RPCMuxDiagnosisOperatorHistorySnapshot
+			}); ok {
+				details["operatorHistory"] = historySource.RPCMuxDiagnosisOperatorHistorySnapshot(5)
+			}
 			status = rpcMuxDiagnosisSinkSetStatus(snapshot)
 		} else if delivery, ok := muxEventExporter.(RPCMuxDiagnosisExporterDeliverySnapshotter); ok {
 			details["delivery"] = delivery.RPCMuxDiagnosisExporterDeliverySnapshot()
@@ -308,6 +313,22 @@ func (s *HTTPServer) MuxDiagnosisOperatorActionHistory(limit int) []RPCMuxDiagno
 		return nil
 	}
 	return source.RPCMuxDiagnosisOperatorActionHistory(limit)
+}
+
+func (s *HTTPServer) MuxDiagnosisOperatorActionHistorySnapshot(limit int) RPCMuxDiagnosisOperatorHistorySnapshot {
+	if s == nil {
+		return RPCMuxDiagnosisOperatorHistorySnapshot{}
+	}
+	s.mu.RLock()
+	exporter := s.opts.muxEventExporter
+	s.mu.RUnlock()
+	source, ok := exporter.(interface {
+		RPCMuxDiagnosisOperatorHistorySnapshot(int) RPCMuxDiagnosisOperatorHistorySnapshot
+	})
+	if !ok {
+		return RPCMuxDiagnosisOperatorHistorySnapshot{}
+	}
+	return source.RPCMuxDiagnosisOperatorHistorySnapshot(limit)
 }
 
 func (s *HTTPServer) serveMuxOperatorAction(w http.ResponseWriter, r *http.Request) {

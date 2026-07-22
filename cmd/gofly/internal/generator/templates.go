@@ -411,6 +411,20 @@ const configTemplate = `{
 }
 `
 
+const muxSubprocessProfileExampleTemplate = `{
+  "command": "/usr/local/bin/gofly-mux-exporter",
+  "args": ["--format=json"],
+  "timeout": 1000000000,
+  "maxOutputBytes": 65536,
+  "workDir": "mux-exporter",
+  "workDirRoot": "/var/lib/gofly",
+  "allowCommands": ["/usr/local/bin/gofly-mux-exporter"],
+  "denyCommands": [],
+  "env": {"GOFLY_MUX_EXPORTER_MODE": "audit"},
+  "envWhitelist": ["GOFLY_MUX_EXPORTER_MODE"]
+}
+`
+
 const minimalConfigTemplate = `{
   "environment": "development",
   "service": {"name": "{{.Name}}", "mode": "dev", "environment": "development", "startupTimeout": 5000000000, "shutdownTimeout": 10000000000, "log": {"level": "info", "format": "json"}, "metrics": {"enabled": true}, "trace": {"enabled": true, "sampler": "always_on"}, "health": {"timeout": 1000000000}, "governance": {{.ServiceGovernanceMinimalJSON}}},

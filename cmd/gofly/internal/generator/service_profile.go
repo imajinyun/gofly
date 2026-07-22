@@ -57,6 +57,7 @@ func serviceFilesForProfile(style, name string, profile GenerationProfile) map[s
 		return files
 	}
 	files[filepath.Join("etc", "governance.json")] = governanceTemplate
+	files[filepath.Join("etc", "secrets", "mux-subprocess-profile.example.json")] = muxSubprocessProfileExampleTemplate
 	files[filepath.Join("internal", "admin", "admin.go")] = adminServerTemplate
 	files[filepath.Join("internal", "admin", "admin_test.go")] = adminServerTestTemplate
 	files[filepath.Join("internal", "config", "discovery_test.go")] = configDiscoveryTestTemplate

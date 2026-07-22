@@ -333,6 +333,15 @@ func TestGenerateService(t *testing.T) {
 		t.Fatalf("production-check.sh mode = %v, want executable script", checkInfo.Mode())
 	}
 	assertGeneratedProductionCheckBehavior(t, dir)
+	subprocessExample, err := os.ReadFile(filepath.Join(dir, "etc", "secrets", "mux-subprocess-profile.example.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"command": "/usr/local/bin/gofly-mux-exporter"`, `"allowCommands"`, `"envWhitelist"`} {
+		if !strings.Contains(string(subprocessExample), want) {
+			t.Fatalf("subprocess profile example missing %q:\n%s", want, subprocessExample)
+		}
+	}
 	svcData, err := os.ReadFile(filepath.Join(dir, "internal", "svc", "service_context.go"))
 	if err != nil {
 		t.Fatal(err)

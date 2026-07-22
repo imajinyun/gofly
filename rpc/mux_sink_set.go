@@ -203,6 +203,7 @@ type RPCMuxDiagnosisSinkSet struct {
 	lastReloadErrorAt time.Time
 	lastReloadError   string
 	lastDiffPlan      RPCMuxDiagnosisSinkSetDiffPlan
+	operatorHistory   []RPCMuxDiagnosisOperatorAction
 	closed            bool
 }
 

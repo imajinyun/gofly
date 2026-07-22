@@ -83,6 +83,7 @@ type RPCMuxDiagnosisExporterDeliverySnapshot struct {
 	OperatorPaused      bool                               `json:"operatorPaused,omitempty"`
 	OperatorPauseReason string                             `json:"operatorPauseReason,omitempty"`
 	Isolation           RPCMuxDiagnosisSinkIsolationConfig `json:"isolation"`
+	Subprocess          *RPCMuxSubprocessExporterSnapshot  `json:"subprocess,omitempty"`
 	Health              string                             `json:"health"`
 	BreakerState        string                             `json:"breakerState"`
 	LastSuccessAt       time.Time                          `json:"lastSuccessAt,omitempty"`
@@ -455,7 +456,7 @@ func (e *governedRPCMuxDiagnosisExporter) RPCMuxDiagnosisExporterDeliverySnapsho
 	if e == nil {
 		return RPCMuxDiagnosisExporterDeliverySnapshot{}
 	}
-	return RPCMuxDiagnosisExporterDeliverySnapshot{
+	snapshot := RPCMuxDiagnosisExporterDeliverySnapshot{
 		Sink:                e.sink,
 		QueueSize:           e.config.QueueSize,
 		QueueDepth:          len(e.queue),
@@ -485,6 +486,13 @@ func (e *governedRPCMuxDiagnosisExporter) RPCMuxDiagnosisExporterDeliverySnapsho
 		AverageLatencyNanos: averageInt64(e.totalLatency.Load(), e.latencyCount.Load()),
 		Closed:              e.closed.Load(),
 	}
+	if snapshotter, ok := e.exporter.(RPCMuxSubprocessExporterSnapshotter); ok {
+		subprocess := snapshotter.RPCMuxSubprocessExporterSnapshot()
+		if subprocess.Command != "" || subprocess.Runs > 0 {
+			snapshot.Subprocess = &subprocess
+		}
+	}
+	return snapshot
 }
 
 func (e *governedRPCMuxDiagnosisExporter) Close() error {

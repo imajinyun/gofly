@@ -371,6 +371,19 @@ func TestHTTPServerMuxOperatorActionsEndpoint(t *testing.T) {
 	if !wrongToken.DryRun || wrongToken.Approved || wrongToken.Reason != "approval_required" {
 		t.Fatalf("wrong-token action = %+v", wrongToken)
 	}
+	historyReq := httptest.NewRequest(http.MethodGet, "/rpc/admin/mux/operator-actions/history?limit=1", nil)
+	historyRec := httptest.NewRecorder()
+	server.ServeHTTP(historyRec, historyReq)
+	if historyRec.Code != http.StatusOK {
+		t.Fatalf("operator history status = %d body=%s", historyRec.Code, historyRec.Body.String())
+	}
+	var history []RPCMuxDiagnosisOperatorAction
+	if err := json.NewDecoder(historyRec.Body).Decode(&history); err != nil {
+		t.Fatal(err)
+	}
+	if len(history) != 1 || history[0].Action != RPCMuxDiagnosisOperatorPauseSink || !history[0].Approved {
+		t.Fatalf("operator history = %+v", history)
+	}
 }
 
 func TestHTTPServerMuxOperatorActionBoundaries(t *testing.T) {

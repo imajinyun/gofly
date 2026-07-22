@@ -105,8 +105,10 @@ func RPCMuxOTelLogSinkRegistry() RPCMuxOTelLogSinkRegistrySnapshot {
 			"generation_diff_plan",
 			"isolation_profile",
 			"subprocess_isolation_runner",
+			"subprocess_delivery_audit",
 			"operator_action_dry_run",
 			"operator_action_approval",
+			"operator_action_history",
 		},
 	}
 	for _, name := range names {

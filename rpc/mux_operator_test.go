@@ -166,6 +166,26 @@ func TestRPCMuxDiagnosisSinkSetApplyOperatorAction(t *testing.T) {
 	if invalid := sinkSet.ApplyRPCMuxDiagnosisOperatorAction(context.Background(), RPCMuxDiagnosisOperatorApproval{Sink: "operator-apply", Action: "bad", Token: "approved"}); invalid.Action != "" {
 		t.Fatalf("invalid action = %+v, want empty", invalid)
 	}
+	history := sinkSet.RPCMuxDiagnosisOperatorActionHistory(2)
+	if len(history) != 2 || history[0].Action != RPCMuxDiagnosisOperatorResumeSink || history[1].Action != RPCMuxDiagnosisOperatorForceProbe {
+		t.Fatalf("operator history = %+v, want latest resume and force-probe", history)
+	}
+	history[0].Details = map[string]string{"mutated": "true"}
+	if got := sinkSet.RPCMuxDiagnosisOperatorActionHistory(1); len(got) != 1 || got[0].Details["mutated"] == "true" {
+		t.Fatalf("operator history was not defensively copied: %+v", got)
+	}
+	sinkSet.recordOperatorActionLocked(RPCMuxDiagnosisOperatorAction{Action: RPCMuxDiagnosisOperatorPauseSink})
+	for index := 0; index < defaultRPCMuxDiagnosisOperatorHistoryLimit+2; index++ {
+		sinkSet.recordOperatorActionLocked(RPCMuxDiagnosisOperatorAction{
+			Sink:     "operator-apply",
+			Action:   RPCMuxDiagnosisOperatorPauseSink,
+			Approved: true,
+			Details:  map[string]string{"index": "x"},
+		})
+	}
+	if got := sinkSet.RPCMuxDiagnosisOperatorActionHistory(0); len(got) != defaultRPCMuxDiagnosisOperatorHistoryLimit {
+		t.Fatalf("operator history limit = %d, want %d", len(got), defaultRPCMuxDiagnosisOperatorHistoryLimit)
+	}
 }
 
 func waitForOperatorExports(t *testing.T, exports *atomic.Int64, want int64) {

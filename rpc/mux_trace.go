@@ -245,6 +245,14 @@ func (e rpcMuxOTelLogEventExporter) Close() error {
 	return closer.Close()
 }
 
+func (e rpcMuxOTelLogEventExporter) RPCMuxSubprocessExporterSnapshot() RPCMuxSubprocessExporterSnapshot {
+	snapshotter, ok := e.exporter.(RPCMuxSubprocessExporterSnapshotter)
+	if !ok {
+		return RPCMuxSubprocessExporterSnapshot{}
+	}
+	return snapshotter.RPCMuxSubprocessExporterSnapshot()
+}
+
 type slogRPCMuxOTelLogExporter struct {
 	logger  *slog.Logger
 	profile string

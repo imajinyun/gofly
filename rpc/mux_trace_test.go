@@ -1047,7 +1047,9 @@ func TestRPCMuxOTelLogSinkRegistrySnapshotAndTypedProfile(t *testing.T) {
 	}
 	for _, want := range []string{
 		"subprocess_isolation_runner",
+		"subprocess_delivery_audit",
 		"operator_action_approval",
+		"operator_action_history",
 		"file_secret_resolver",
 		"layered_secret_resolver",
 	} {

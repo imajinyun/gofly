@@ -136,6 +136,8 @@ func (s *HTTPServer) serveAdminRoute(w http.ResponseWriter, r *http.Request) {
 		})
 	case r.URL.Path == "/rpc/admin/runtime":
 		writeAdminJSON(w, http.StatusOK, s.RuntimeSnapshot(r.Context()))
+	case r.URL.Path == "/rpc/admin/mux/operator-actions/history":
+		writeAdminJSON(w, http.StatusOK, s.MuxDiagnosisOperatorActionHistory(parsePositiveIntQuery(r.URL.Query().Get("limit"))))
 	case r.URL.Path == "/rpc/admin/mux/operator-actions":
 		writeAdminJSON(w, http.StatusOK, s.MuxDiagnosisOperatorActions(r.Context()))
 	case r.URL.Path == "/rpc/admin/diagnosis":
@@ -288,6 +290,24 @@ func (s *HTTPServer) MuxDiagnosisOperatorActions(ctx context.Context) []RPCMuxDi
 		return nil
 	}
 	return source.RPCMuxDiagnosisOperatorActions(ctx)
+}
+
+// MuxDiagnosisOperatorActionHistory returns approved mux sink operator actions
+// from the bounded in-memory history.
+func (s *HTTPServer) MuxDiagnosisOperatorActionHistory(limit int) []RPCMuxDiagnosisOperatorAction {
+	if s == nil {
+		return nil
+	}
+	s.mu.RLock()
+	exporter := s.opts.muxEventExporter
+	s.mu.RUnlock()
+	source, ok := exporter.(interface {
+		RPCMuxDiagnosisOperatorActionHistory(int) []RPCMuxDiagnosisOperatorAction
+	})
+	if !ok {
+		return nil
+	}
+	return source.RPCMuxDiagnosisOperatorActionHistory(limit)
 }
 
 func (s *HTTPServer) serveMuxOperatorAction(w http.ResponseWriter, r *http.Request) {

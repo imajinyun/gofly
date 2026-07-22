@@ -406,7 +406,7 @@ const configTemplate = `{
   "rpc": {
     "addr": ":8081",
     "advertise": "http://127.0.0.1:8081",
-    "mux": {"enabled": false, "probe": false, "addr": "127.0.0.1:8082", "endpoints": [], "idleTimeout": 60000000000, "maxOpenRetries": 1, "openRetryReasons": ["dial_failure", "pool_exhausted"], "healthBackoffMultiplier": 2, "healthMaxCooldown": 30000000000, "trace": {"enabled": false, "annotateStreams": false}, "log": {"enabled": false, "diagnosis": false, "exportEvents": false, "eventFamily": "", "event": "", "endpoint": "", "connectionId": "", "otelCompatible": {"enabled": false, "sink": "slog", "profile": ""}}, "tls": {"enabled": false, "certFile": "", "keyFile": "", "caFile": "", "serverName": ""}, "mtls": {"enabled": false, "clientCAFile": "", "clientCertFile": "", "clientKeyFile": ""}, "alpn": {"enabled": false, "protocol": "gofly-mux/experimental-v1"}, "candidate": {"enabled": false, "protocol": "gofly-mux/experimental-v1", "dialTimeout": 30000000000, "keepAlive": 30000000000, "handshakeTimeout": 10000000000, "keepaliveInterval": 30000000000, "keepaliveIdle": 90000000000, "writeTimeout": 0, "creditWaitTimeout": 0, "maxFrameBytes": 4194304, "maxMessageBytes": 67108864, "maxConcurrentStreams": 128, "receiveQueueSize": 16, "connectionWindow": 16, "fragmentStreamWindowUpdatePolicy": "per_fragment", "fragmentConnectionWindowUpdatePolicy": "per_fragment", "fragmentStreamWindowRefillRatio": 1, "fragmentConnectionWindowRefillRatio": 1, "fragmentMaxDeferredFragments": 0, "fragmentWindowPolicyRiskMode": "diagnose", "payloadCodec": "identity", "frameCodec": "binary", "allowLegacyDowngrade": false, "tls": {}}}
+    "mux": {"enabled": false, "probe": false, "addr": "127.0.0.1:8082", "endpoints": [], "idleTimeout": 60000000000, "maxOpenRetries": 1, "openRetryReasons": ["dial_failure", "pool_exhausted"], "healthBackoffMultiplier": 2, "healthMaxCooldown": 30000000000, "trace": {"enabled": false, "annotateStreams": false}, "log": {"enabled": false, "diagnosis": false, "exportEvents": false, "eventFamily": "", "event": "", "endpoint": "", "connectionId": "", "otelCompatible": {"enabled": false, "sink": "slog", "profile": "", "profileRef": "env://GOFLY_MUX_OTEL_PROFILE", "fileSecretRoot": "etc/secrets", "sinks": [{"name": "subprocess", "profileRef": "file://mux-subprocess-profile.json", "delivery": {"isolation": {"mode": "isolated_process"}}}]}}, "tls": {"enabled": false, "certFile": "", "keyFile": "", "caFile": "", "serverName": ""}, "mtls": {"enabled": false, "clientCAFile": "", "clientCertFile": "", "clientKeyFile": ""}, "alpn": {"enabled": false, "protocol": "gofly-mux/experimental-v1"}, "candidate": {"enabled": false, "protocol": "gofly-mux/experimental-v1", "dialTimeout": 30000000000, "keepAlive": 30000000000, "handshakeTimeout": 10000000000, "keepaliveInterval": 30000000000, "keepaliveIdle": 90000000000, "writeTimeout": 0, "creditWaitTimeout": 0, "maxFrameBytes": 4194304, "maxMessageBytes": 67108864, "maxConcurrentStreams": 128, "receiveQueueSize": 16, "connectionWindow": 16, "fragmentStreamWindowUpdatePolicy": "per_fragment", "fragmentConnectionWindowUpdatePolicy": "per_fragment", "fragmentStreamWindowRefillRatio": 1, "fragmentConnectionWindowRefillRatio": 1, "fragmentMaxDeferredFragments": 0, "fragmentWindowPolicyRiskMode": "diagnose", "payloadCodec": "identity", "frameCodec": "binary", "allowLegacyDowngrade": false, "tls": {}}}
   }
 }
 `
@@ -1923,6 +1923,7 @@ type RPCMuxOTelCompatibleLogConfig struct {
 	Sink string ` + "`json:\"sink,omitempty\"`" + `
 	Profile string ` + "`json:\"profile,omitempty\"`" + `
 	ProfileRef string ` + "`json:\"profileRef,omitempty\"`" + `
+	FileSecretRoot string ` + "`json:\"fileSecretRoot,omitempty\"`" + `
 	ProfileSchema string ` + "`json:\"profileSchema,omitempty\"`" + `
 	ProfileMigration string ` + "`json:\"profileMigration,omitempty\"`" + `
 	Delivery RPCMuxExporterDeliveryConfig ` + "`json:\"delivery,omitempty\"`" + `
@@ -1994,8 +1995,9 @@ func (c RPCMuxOTelCompatibleLogConfig) SinkSetConfig() rpc.RPCMuxDiagnosisSinkSe
 	if version == "" {
 		version = "legacy"
 	}
+	secretResolver := c.SecretResolver()
 	if !c.Enabled {
-		return rpc.RPCMuxDiagnosisSinkSetConfig{Version: version, SchemaVersion: strings.TrimSpace(c.SchemaVersion), Secrets: rpc.NewRPCMuxDiagnosisEnvSecretResolver()}
+		return rpc.RPCMuxDiagnosisSinkSetConfig{Version: version, SchemaVersion: strings.TrimSpace(c.SchemaVersion), Secrets: secretResolver}
 	}
 	sinks := make([]rpc.RPCMuxDiagnosisSinkConfig, 0, len(c.Sinks)+1)
 	if len(c.Sinks) == 0 {
@@ -2024,7 +2026,15 @@ func (c RPCMuxOTelCompatibleLogConfig) SinkSetConfig() rpc.RPCMuxDiagnosisSinkSe
 			})
 		}
 	}
-	return rpc.RPCMuxDiagnosisSinkSetConfig{Version: version, SchemaVersion: strings.TrimSpace(c.SchemaVersion), Sinks: sinks, Secrets: rpc.NewRPCMuxDiagnosisEnvSecretResolver()}
+	return rpc.RPCMuxDiagnosisSinkSetConfig{Version: version, SchemaVersion: strings.TrimSpace(c.SchemaVersion), Sinks: sinks, Secrets: secretResolver}
+}
+
+func (c RPCMuxOTelCompatibleLogConfig) SecretResolver() rpc.RPCMuxDiagnosisSecretResolver {
+	resolvers := []rpc.RPCMuxDiagnosisSecretResolver{rpc.NewRPCMuxDiagnosisEnvSecretResolver()}
+	if strings.TrimSpace(c.FileSecretRoot) != "" {
+		resolvers = append(resolvers, rpc.NewRPCMuxDiagnosisFileSecretResolver(c.FileSecretRoot, 0))
+	}
+	return rpc.NewRPCMuxDiagnosisLayeredSecretResolver(resolvers...)
 }
 
 func (c RPCMuxOTelCompatibleLogConfig) NewSinkSet() (*rpc.RPCMuxDiagnosisSinkSet, error) {
@@ -2701,6 +2711,8 @@ const configTestHeaderTemplate = `package config
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -2708,6 +2720,11 @@ import (
 	"github.com/imajinyun/gofly/app"
 	"github.com/imajinyun/gofly/core/controlplane"
 	"github.com/imajinyun/gofly/rest"
+)
+
+var (
+	_ = os.WriteFile
+	_ = filepath.Join
 )
 `
 
@@ -2826,6 +2843,44 @@ func TestRPCMuxOTelCompatibleSinkSetHotReload(t *testing.T) {
 	}
 	if got := emptySet.RPCMuxDiagnosisSinkSetSnapshot(); got.SinkCount != 1 || got.Sinks[0].Name != "slog" {
 		t.Fatalf("activated sink set snapshot = %+v", got)
+	}
+}
+
+func TestRPCMuxOTelCompatibleSinkSetFileSecretRedaction(t *testing.T) {
+	secretDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(secretDir, "mux-profile.json"), []byte("generated-file-profile"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := RPCMuxOTelCompatibleLogConfig{
+		Enabled: true,
+		Version: "file-secret-v1",
+		FileSecretRoot: secretDir,
+		Sinks: []RPCMuxOTelSinkConfig{{
+			Name: "slog",
+			ProfileRef: "file://mux-profile.json",
+		}},
+	}
+	sinkSet, err := cfg.NewSinkSet()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sinkSet.Close()
+	plan, err := cfg.DiffSinkSet(context.Background(), sinkSet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	planJSON, err := json.Marshal(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshotJSON, err := json.Marshal(sinkSet.RPCMuxDiagnosisSinkSetSnapshot())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, output := range []string{string(planJSON), string(snapshotJSON)} {
+		if strings.Contains(output, "generated-file-profile") || strings.Contains(output, "file://mux-profile.json") {
+			t.Fatalf("secret material leaked in mux sink output: %s", output)
+		}
 	}
 }
 

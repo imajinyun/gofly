@@ -10,6 +10,8 @@ const (
 	RPCMuxDiagnosisOperatorPauseSink  = "pause_sink"
 	RPCMuxDiagnosisOperatorResumeSink = "resume_sink"
 	RPCMuxDiagnosisOperatorForceProbe = "force_probe"
+
+	defaultRPCMuxDiagnosisOperatorHistoryLimit = 32
 )
 
 // RPCMuxDiagnosisOperatorAction describes a dry-run operator action for one
@@ -150,7 +152,7 @@ func (s *RPCMuxDiagnosisSinkSet) ApplyRPCMuxDiagnosisOperatorAction(ctx context.
 		default:
 			return RPCMuxDiagnosisOperatorAction{}
 		}
-		return RPCMuxDiagnosisOperatorAction{
+		action := RPCMuxDiagnosisOperatorAction{
 			Sink:        approval.Sink,
 			Action:      approval.Action,
 			Reason:      "operator_approved",
@@ -158,8 +160,45 @@ func (s *RPCMuxDiagnosisSinkSet) ApplyRPCMuxDiagnosisOperatorAction(ctx context.
 			Approved:    true,
 			GeneratedAt: time.Now().UTC(),
 		}
+		s.recordOperatorActionLocked(action)
+		return action
 	}
 	return RPCMuxDiagnosisOperatorAction{}
+}
+
+func (s *RPCMuxDiagnosisSinkSet) RPCMuxDiagnosisOperatorActionHistory(limit int) []RPCMuxDiagnosisOperatorAction {
+	if s == nil {
+		return nil
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if limit <= 0 || limit > len(s.operatorHistory) {
+		limit = len(s.operatorHistory)
+	}
+	start := len(s.operatorHistory) - limit
+	out := make([]RPCMuxDiagnosisOperatorAction, 0, limit)
+	for _, action := range s.operatorHistory[start:] {
+		out = append(out, cloneRPCMuxDiagnosisOperatorAction(action))
+	}
+	return out
+}
+
+func (s *RPCMuxDiagnosisSinkSet) recordOperatorActionLocked(action RPCMuxDiagnosisOperatorAction) {
+	if s == nil || !action.Approved {
+		return
+	}
+	s.operatorHistory = append(s.operatorHistory, cloneRPCMuxDiagnosisOperatorAction(action))
+	if len(s.operatorHistory) > defaultRPCMuxDiagnosisOperatorHistoryLimit {
+		copy(s.operatorHistory, s.operatorHistory[len(s.operatorHistory)-defaultRPCMuxDiagnosisOperatorHistoryLimit:])
+		s.operatorHistory = s.operatorHistory[:defaultRPCMuxDiagnosisOperatorHistoryLimit]
+	}
+}
+
+func cloneRPCMuxDiagnosisOperatorAction(action RPCMuxDiagnosisOperatorAction) RPCMuxDiagnosisOperatorAction {
+	if action.Details != nil {
+		action.Details = cloneStringMap(action.Details)
+	}
+	return action
 }
 
 var _ RPCMuxDiagnosisOperatorActionSource = (*RPCMuxDiagnosisSinkSet)(nil)

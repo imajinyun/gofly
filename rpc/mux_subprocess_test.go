@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -15,7 +16,11 @@ func TestRPCMuxSubprocessExporterProvider(t *testing.T) {
 	if !json.Valid(schema) {
 		t.Fatalf("subprocess profile schema is invalid: %s", schema)
 	}
-	profile := `{"command":"` + os.Args[0] + `","args":["-test.run=TestRPCMuxSubprocessHelperProcess","--"],"timeout":1000000000,"maxOutputBytes":1024}`
+	workRoot := t.TempDir()
+	if err := os.Mkdir(filepath.Join(workRoot, "work"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	profile := `{"command":"` + os.Args[0] + `","args":["-test.run=TestRPCMuxSubprocessHelperProcess","--"],"timeout":5000000000,"maxOutputBytes":1024,"workDir":"work","workDirRoot":"` + workRoot + `","allowCommands":["` + os.Args[0] + `"],"env":{"GOFLY_MUX_TEST":"1","GOFLY_MUX_HELPER":"1"},"envWhitelist":["GOFLY_MUX_TEST","GOFLY_MUX_HELPER"]}`
 	if err := provider.ValidateRPCMuxOTelLogProfile(profile); err != nil {
 		t.Fatalf("ValidateRPCMuxOTelLogProfile: %v", err)
 	}
@@ -27,8 +32,37 @@ func TestRPCMuxSubprocessExporterProvider(t *testing.T) {
 		Timestamp: time.Now(),
 		Event:     RPCMuxDiagnosisEvent{Family: "flow_control", Event: "write_timeout"},
 	})
+	subprocessSnapshot := exporter.(RPCMuxSubprocessExporterSnapshotter).RPCMuxSubprocessExporterSnapshot()
+	if subprocessSnapshot.Runs != 1 || subprocessSnapshot.Command != os.Args[0] ||
+		subprocessSnapshot.LastExitCode != 0 || subprocessSnapshot.LastDuration <= 0 ||
+		subprocessSnapshot.LastRunAt.IsZero() || subprocessSnapshot.LastOutputTruncated {
+		t.Fatalf("subprocess snapshot = %+v", subprocessSnapshot)
+	}
+	delivery := newGovernedRPCMuxDiagnosisEventExporter("subprocess-snapshot", NewRPCMuxOTelLogDiagnosisEventExporter(exporter), RPCMuxDiagnosisExporterDeliveryConfig{
+		QueueSize: 1,
+		Timeout:   5 * time.Second,
+	}).(*governedRPCMuxDiagnosisExporter)
+	defer delivery.Close()
+	if got := delivery.RPCMuxDiagnosisExporterDeliverySnapshot(); got.Subprocess == nil || got.Subprocess.Command != os.Args[0] {
+		t.Fatalf("delivery subprocess snapshot = %+v", got.Subprocess)
+	}
 	if err := provider.ValidateRPCMuxOTelLogProfile(`{"command":""}`); err == nil {
 		t.Fatal("empty subprocess command validated")
+	}
+	if err := provider.ValidateRPCMuxOTelLogProfile(`{"command":"` + os.Args[0] + `","allowCommands":["/bin/other"]}`); err == nil {
+		t.Fatal("non-allowlisted subprocess command validated")
+	}
+	if err := provider.ValidateRPCMuxOTelLogProfile(`{"command":"` + os.Args[0] + `","denyCommands":["` + os.Args[0] + `"]}`); err == nil {
+		t.Fatal("denylisted subprocess command validated")
+	}
+	if err := provider.ValidateRPCMuxOTelLogProfile(`{"command":"` + os.Args[0] + `","workDir":"../escape","workDirRoot":"` + workRoot + `"}`); err == nil {
+		t.Fatal("escaping subprocess workDir validated")
+	}
+	if err := provider.ValidateRPCMuxOTelLogProfile(`{"command":"` + os.Args[0] + `","env":{"SECRET":"x"}}`); err == nil {
+		t.Fatal("env without whitelist validated")
+	}
+	if err := provider.ValidateRPCMuxOTelLogProfile(`{"command":"` + os.Args[0] + `","env":{"SECRET":"x"},"envWhitelist":["OTHER"]}`); err == nil {
+		t.Fatal("non-whitelisted env validated")
 	}
 	if err := provider.ValidateRPCMuxOTelLogProfile(`{`); err == nil {
 		t.Fatal("invalid subprocess profile JSON validated")
@@ -43,7 +77,7 @@ func TestRPCMuxSubprocessExporterProvider(t *testing.T) {
 }
 
 func TestRPCMuxSubprocessHelperProcess(t *testing.T) {
-	if len(os.Args) < 3 || os.Args[1] != "-test.run=TestRPCMuxSubprocessHelperProcess" {
+	if os.Getenv("GOFLY_MUX_HELPER") != "1" {
 		return
 	}
 	var record RPCMuxDiagnosisEventRecord
@@ -69,6 +103,30 @@ func TestNormalizeRPCMuxSubprocessExporterConfig(t *testing.T) {
 	}
 	if _, err := NewRPCMuxSubprocessDiagnosisEventExporter(RPCMuxSubprocessExporterConfig{Command: os.Args[0], Args: []string{"bad\narg"}}); err == nil {
 		t.Fatal("newline arg validated")
+	}
+	if _, err := NewRPCMuxSubprocessDiagnosisEventExporter(RPCMuxSubprocessExporterConfig{
+		Command:     os.Args[0],
+		WorkDir:     "work",
+		WorkDirRoot: "relative",
+	}); err == nil {
+		t.Fatal("relative workDirRoot validated")
+	}
+	if _, err := NewRPCMuxSubprocessDiagnosisEventExporter(RPCMuxSubprocessExporterConfig{
+		Command:      os.Args[0],
+		Env:          map[string]string{"BAD=KEY": "x"},
+		EnvWhitelist: []string{"BAD=KEY"},
+	}); err == nil {
+		t.Fatal("bad env key validated")
+	}
+	if _, err := NewRPCMuxSubprocessDiagnosisEventExporter(RPCMuxSubprocessExporterConfig{
+		Command:      os.Args[0],
+		Env:          map[string]string{"BAD": "x\x00"},
+		EnvWhitelist: []string{"BAD"},
+	}); err == nil {
+		t.Fatal("bad env value validated")
+	}
+	if got := subprocessEnvList(map[string]string{"A": "1"}); len(got) != 1 || got[0] != "A=1" {
+		t.Fatalf("subprocess env list = %+v", got)
 	}
 }
 
@@ -98,9 +156,11 @@ func TestLimitWriter(t *testing.T) {
 
 func TestRPCMuxSubprocessExporterHonorsContext(t *testing.T) {
 	exporter, err := NewRPCMuxSubprocessDiagnosisEventExporter(RPCMuxSubprocessExporterConfig{
-		Command: os.Args[0],
-		Args:    []string{"-test.run=TestRPCMuxSubprocessHelperProcess", "--"},
-		Timeout: time.Second,
+		Command:      os.Args[0],
+		Args:         []string{"-test.run=TestRPCMuxSubprocessHelperProcess", "--"},
+		Timeout:      time.Second,
+		Env:          map[string]string{"GOFLY_MUX_HELPER": "1"},
+		EnvWhitelist: []string{"GOFLY_MUX_HELPER"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -108,4 +168,12 @@ func TestRPCMuxSubprocessExporterHonorsContext(t *testing.T) {
 	canceled, cancel := context.WithCancel(context.Background())
 	cancel()
 	exporter.ExportRPCMuxDiagnosisEvent(canceled, RPCMuxDiagnosisEventRecord{})
+	snapshot := exporter.(*rpcMuxSubprocessExporter).RPCMuxSubprocessExporterSnapshot()
+	if snapshot.Runs != 1 || snapshot.LastExitCode != -1 || snapshot.LastDuration <= 0 || snapshot.Command != os.Args[0] {
+		t.Fatalf("subprocess snapshot = %+v", snapshot)
+	}
+	(*rpcMuxSubprocessExporter)(nil).recordRun(0, 0, false, false, nil)
+	if got := (*rpcMuxSubprocessExporter)(nil).RPCMuxSubprocessExporterSnapshot(); got.Command != "" {
+		t.Fatalf("nil subprocess snapshot = %+v", got)
+	}
 }

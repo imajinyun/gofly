@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -42,6 +45,24 @@ type RPCMuxDiagnosisOperatorApproval struct {
 type RPCMuxDiagnosisOperatorHistorySnapshot struct {
 	Actions  []RPCMuxDiagnosisOperatorAction `json:"actions,omitempty"`
 	Checksum string                          `json:"checksum,omitempty"`
+}
+
+type RPCMuxDiagnosisOperatorHistoryStore interface {
+	AppendRPCMuxDiagnosisOperatorAction(context.Context, RPCMuxDiagnosisOperatorAction) error
+	LoadRPCMuxDiagnosisOperatorActions(context.Context, int) ([]RPCMuxDiagnosisOperatorAction, error)
+}
+
+type RPCMuxDiagnosisOperatorHistoryFileStore struct {
+	path string
+	mu   sync.Mutex
+}
+
+func NewRPCMuxDiagnosisOperatorHistoryFileStore(path string) (*RPCMuxDiagnosisOperatorHistoryFileStore, error) {
+	path = strings.TrimSpace(path)
+	if path == "" || !filepath.IsLocal(path) {
+		return nil, fmt.Errorf("operator history file path must be local")
+	}
+	return &RPCMuxDiagnosisOperatorHistoryFileStore{path: path}, nil
 }
 
 // RPCMuxDiagnosisOperatorActionSource exposes dry-run operator actions.
@@ -169,6 +190,7 @@ func (s *RPCMuxDiagnosisSinkSet) ApplyRPCMuxDiagnosisOperatorAction(ctx context.
 			GeneratedAt: time.Now().UTC(),
 		}
 		s.recordOperatorActionLocked(action)
+		_ = s.appendOperatorHistory(ctx, action)
 		return action
 	}
 	return RPCMuxDiagnosisOperatorAction{}
@@ -210,6 +232,40 @@ func (s *RPCMuxDiagnosisSinkSet) recordOperatorActionLocked(action RPCMuxDiagnos
 	}
 }
 
+func (s *RPCMuxDiagnosisSinkSet) WithOperatorHistoryStore(store RPCMuxDiagnosisOperatorHistoryStore) *RPCMuxDiagnosisSinkSet {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.operatorStore = store
+	return s
+}
+
+func (s *RPCMuxDiagnosisSinkSet) appendOperatorHistory(ctx context.Context, action RPCMuxDiagnosisOperatorAction) error {
+	if s == nil || s.operatorStore == nil || !action.Approved {
+		return nil
+	}
+	return s.operatorStore.AppendRPCMuxDiagnosisOperatorAction(ctx, cloneRPCMuxDiagnosisOperatorAction(action))
+}
+
+func (s *RPCMuxDiagnosisSinkSet) StoredRPCMuxDiagnosisOperatorActionHistory(ctx context.Context, limit int) []RPCMuxDiagnosisOperatorAction {
+	if s == nil {
+		return nil
+	}
+	s.mu.RLock()
+	store := s.operatorStore
+	s.mu.RUnlock()
+	if store == nil {
+		return nil
+	}
+	actions, err := store.LoadRPCMuxDiagnosisOperatorActions(ctx, limit)
+	if err != nil {
+		return nil
+	}
+	return actions
+}
+
 func cloneRPCMuxDiagnosisOperatorAction(action RPCMuxDiagnosisOperatorAction) RPCMuxDiagnosisOperatorAction {
 	if action.Details != nil {
 		action.Details = cloneStringMap(action.Details)
@@ -230,4 +286,73 @@ func checksumRPCMuxDiagnosisOperatorActions(actions []RPCMuxDiagnosisOperatorAct
 	return fmt.Sprintf("%016x", hash.Sum64())
 }
 
+func (s *RPCMuxDiagnosisOperatorHistoryFileStore) AppendRPCMuxDiagnosisOperatorAction(ctx context.Context, action RPCMuxDiagnosisOperatorAction) error {
+	if s == nil {
+		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	data, err := json.Marshal(cloneRPCMuxDiagnosisOperatorAction(action))
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := os.MkdirAll(filepath.Dir(s.path), 0o700); err != nil {
+		return err
+	}
+	file, err := os.OpenFile(s.path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	if _, err := file.Write(append(data, '\n')); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *RPCMuxDiagnosisOperatorHistoryFileStore) LoadRPCMuxDiagnosisOperatorActions(ctx context.Context, limit int) ([]RPCMuxDiagnosisOperatorAction, error) {
+	if s == nil {
+		return nil, nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	data, err := os.ReadFile(s.path)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	actions := make([]RPCMuxDiagnosisOperatorAction, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		var action RPCMuxDiagnosisOperatorAction
+		if err := json.Unmarshal([]byte(line), &action); err != nil {
+			return nil, err
+		}
+		actions = append(actions, cloneRPCMuxDiagnosisOperatorAction(action))
+	}
+	if limit > 0 && limit < len(actions) {
+		actions = actions[len(actions)-limit:]
+	}
+	return actions, nil
+}
+
 var _ RPCMuxDiagnosisOperatorActionSource = (*RPCMuxDiagnosisSinkSet)(nil)
+var _ RPCMuxDiagnosisOperatorHistoryStore = (*RPCMuxDiagnosisOperatorHistoryFileStore)(nil)

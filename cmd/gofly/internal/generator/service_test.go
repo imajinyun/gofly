@@ -27,6 +27,7 @@ func TestGenerateService(t *testing.T) {
 		t.Fatal(err)
 	}
 	paths := []string{
+		"README.md",
 		"go.mod",
 		"Dockerfile",
 		"Makefile",
@@ -56,6 +57,15 @@ func TestGenerateService(t *testing.T) {
 	for _, rel := range paths {
 		if _, err := os.Stat(filepath.Join(dir, rel)); err != nil {
 			t.Fatalf("expected generated file %s: %v", rel, err)
+		}
+	}
+	readmeData, err := os.ReadFile(filepath.Join(dir, "README.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Mux Subprocess Sink Example", "documentation-only", "not loaded by default", "env://", "file://"} {
+		if !strings.Contains(string(readmeData), want) {
+			t.Fatalf("README missing %q:\n%s", want, readmeData)
 		}
 	}
 	greeterData, err := os.ReadFile(filepath.Join(dir, "internal", "rpc", "greeter.go"))

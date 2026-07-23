@@ -31,9 +31,10 @@ func serviceFilesForProfile(style, name string, profile GenerationProfile) map[s
 	}
 
 	files := map[string]string{
-		"go.mod":                                                  goModTemplate,
-		filepath.Join("cmd", name, "main.go"):                     mainTemplate,
-		filepath.Join("etc", name+".json"):                        configTemplate,
+		"README.md":                           readmeTemplate,
+		"go.mod":                              goModTemplate,
+		filepath.Join("cmd", name, "main.go"): mainTemplate,
+		filepath.Join("etc", name+".json"):    configTemplate,
 		filepath.Join("internal", "config", "config.go"):          configGoTemplate,
 		filepath.Join("internal", "config", "config_test.go"):     configTestTemplate,
 		filepath.Join("internal", "svc", "service_context.go"):    svcTemplate,

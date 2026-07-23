@@ -2,6 +2,7 @@ package rpc
 
 import (
 	"context"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -189,6 +190,52 @@ func TestRPCMuxDiagnosisSinkSetApplyOperatorAction(t *testing.T) {
 	}
 	if got := sinkSet.RPCMuxDiagnosisOperatorActionHistory(0); len(got) != defaultRPCMuxDiagnosisOperatorHistoryLimit {
 		t.Fatalf("operator history limit = %d, want %d", len(got), defaultRPCMuxDiagnosisOperatorHistoryLimit)
+	}
+}
+
+func TestRPCMuxDiagnosisOperatorHistoryFileStore(t *testing.T) {
+	store, err := NewRPCMuxDiagnosisOperatorHistoryFileStore(filepath.Join("history", "operator.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	absStore, err := NewRPCMuxDiagnosisOperatorHistoryFileStore("/tmp/operator.jsonl")
+	if err == nil || absStore != nil {
+		t.Fatalf("absolute operator history file store = %#v err=%v, want error", absStore, err)
+	}
+	dir := t.TempDir()
+	store.path = filepath.Join(dir, store.path)
+	sinkSet, err := NewRPCMuxDiagnosisSinkSet(RPCMuxDiagnosisSinkSetConfig{
+		Version: "stored-history-v1",
+		Sinks:   []RPCMuxDiagnosisSinkConfig{{Name: "slog"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sinkSet.Close()
+	sinkSet.WithOperatorHistoryStore(store)
+	approved := sinkSet.ApplyRPCMuxDiagnosisOperatorAction(context.Background(), RPCMuxDiagnosisOperatorApproval{
+		Sink:   "slog",
+		Action: RPCMuxDiagnosisOperatorPauseSink,
+		Token:  "approved",
+	})
+	if !approved.Approved {
+		t.Fatalf("approved action = %+v", approved)
+	}
+	actions := sinkSet.StoredRPCMuxDiagnosisOperatorActionHistory(context.Background(), 1)
+	if len(actions) != 1 || actions[0].Action != RPCMuxDiagnosisOperatorPauseSink {
+		t.Fatalf("stored actions = %+v", actions)
+	}
+	loaded, err := store.LoadRPCMuxDiagnosisOperatorActions(context.Background(), 1)
+	if err != nil || len(loaded) != 1 {
+		t.Fatalf("loaded actions = %+v err=%v", loaded, err)
+	}
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := store.AppendRPCMuxDiagnosisOperatorAction(canceled, approved); err == nil {
+		t.Fatal("canceled append succeeded")
+	}
+	if _, err := store.LoadRPCMuxDiagnosisOperatorActions(canceled, 1); err == nil {
+		t.Fatal("canceled load succeeded")
 	}
 }
 

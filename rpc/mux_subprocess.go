@@ -36,6 +36,33 @@ type RPCMuxSubprocessExporterConfig struct {
 	EnvWhitelist   []string          `json:"envWhitelist,omitempty"`
 }
 
+// RPCMuxSubprocessExecutionPolicy is the reusable validation contract for local
+// subprocess execution. It is shared by profile validation and runtime
+// construction so security checks cannot drift.
+type RPCMuxSubprocessExecutionPolicy struct {
+	Command       string
+	Args          []string
+	WorkDir       string
+	WorkDirRoot   string
+	AllowCommands []string
+	DenyCommands  []string
+	Env           map[string]string
+	EnvWhitelist  []string
+}
+
+func (c RPCMuxSubprocessExporterConfig) ExecutionPolicy() RPCMuxSubprocessExecutionPolicy {
+	return RPCMuxSubprocessExecutionPolicy{
+		Command:       c.Command,
+		Args:          c.Args,
+		WorkDir:       c.WorkDir,
+		WorkDirRoot:   c.WorkDirRoot,
+		AllowCommands: c.AllowCommands,
+		DenyCommands:  c.DenyCommands,
+		Env:           c.Env,
+		EnvWhitelist:  c.EnvWhitelist,
+	}
+}
+
 // RPCMuxSubprocessExporterSnapshot exposes subprocess delivery diagnostics
 // without event payloads, environment values, or profile material.
 type RPCMuxSubprocessExporterSnapshot struct {
@@ -146,59 +173,18 @@ func (e rpcMuxSubprocessOTelLogExporter) RPCMuxSubprocessExporterSnapshot() RPCM
 }
 
 func normalizeRPCMuxSubprocessExporterConfig(config RPCMuxSubprocessExporterConfig) (RPCMuxSubprocessExporterConfig, error) {
-	config.Command = strings.TrimSpace(config.Command)
-	if config.Command == "" {
-		return RPCMuxSubprocessExporterConfig{}, fmt.Errorf("subprocess exporter command is required")
-	}
-	if strings.ContainsAny(config.Command, "\x00\r\n") {
-		return RPCMuxSubprocessExporterConfig{}, fmt.Errorf("subprocess exporter command contains invalid characters")
-	}
-	if len(config.Args) > defaultRPCMuxSubprocessMaxArgs {
-		return RPCMuxSubprocessExporterConfig{}, fmt.Errorf("subprocess exporter args exceed %d", defaultRPCMuxSubprocessMaxArgs)
-	}
-	args := make([]string, 0, len(config.Args))
-	for _, arg := range config.Args {
-		if strings.ContainsAny(arg, "\x00\r\n") {
-			return RPCMuxSubprocessExporterConfig{}, fmt.Errorf("subprocess exporter arg contains invalid characters")
-		}
-		args = append(args, arg)
-	}
-	config.Args = args
-	config.AllowCommands = normalizeStringList(config.AllowCommands)
-	config.DenyCommands = normalizeStringList(config.DenyCommands)
-	if len(config.AllowCommands) > 0 && !stringListContains(config.AllowCommands, config.Command) {
-		return RPCMuxSubprocessExporterConfig{}, fmt.Errorf("subprocess exporter command is not allowed")
-	}
-	if stringListContains(config.DenyCommands, config.Command) {
-		return RPCMuxSubprocessExporterConfig{}, fmt.Errorf("subprocess exporter command is denied")
-	}
-	config.WorkDir = strings.TrimSpace(config.WorkDir)
-	config.WorkDirRoot = strings.TrimSpace(config.WorkDirRoot)
-	if config.WorkDir != "" {
-		if config.WorkDirRoot == "" {
-			return RPCMuxSubprocessExporterConfig{}, fmt.Errorf("subprocess exporter workDirRoot is required")
-		}
-		root := filepath.Clean(config.WorkDirRoot)
-		if !filepath.IsAbs(root) {
-			return RPCMuxSubprocessExporterConfig{}, fmt.Errorf("subprocess exporter workDirRoot must be absolute")
-		}
-		if !filepath.IsLocal(config.WorkDir) {
-			return RPCMuxSubprocessExporterConfig{}, fmt.Errorf("subprocess exporter workDir must be local")
-		}
-		workDir := filepath.Join(root, config.WorkDir)
-		rel, err := filepath.Rel(root, workDir)
-		if err != nil || !filepath.IsLocal(rel) {
-			return RPCMuxSubprocessExporterConfig{}, fmt.Errorf("subprocess exporter workDir escapes root")
-		}
-		config.WorkDirRoot = root
-		config.WorkDir = workDir
-	}
-	env, err := normalizeSubprocessEnv(config.Env, config.EnvWhitelist)
+	policy, err := config.ExecutionPolicy().Validate()
 	if err != nil {
 		return RPCMuxSubprocessExporterConfig{}, err
 	}
-	config.Env = env
-	config.EnvWhitelist = normalizeStringList(config.EnvWhitelist)
+	config.Command = policy.Command
+	config.Args = policy.Args
+	config.WorkDir = policy.WorkDir
+	config.WorkDirRoot = policy.WorkDirRoot
+	config.AllowCommands = policy.AllowCommands
+	config.DenyCommands = policy.DenyCommands
+	config.Env = policy.Env
+	config.EnvWhitelist = policy.EnvWhitelist
 	if config.Timeout <= 0 {
 		config.Timeout = defaultRPCMuxSubprocessTimeout
 	}
@@ -206,6 +192,63 @@ func normalizeRPCMuxSubprocessExporterConfig(config RPCMuxSubprocessExporterConf
 		config.MaxOutputBytes = defaultRPCMuxSubprocessMaxOutputBytes
 	}
 	return config, nil
+}
+
+func (p RPCMuxSubprocessExecutionPolicy) Validate() (RPCMuxSubprocessExecutionPolicy, error) {
+	p.Command = strings.TrimSpace(p.Command)
+	if p.Command == "" {
+		return RPCMuxSubprocessExecutionPolicy{}, fmt.Errorf("subprocess exporter command is required")
+	}
+	if strings.ContainsAny(p.Command, "\x00\r\n") {
+		return RPCMuxSubprocessExecutionPolicy{}, fmt.Errorf("subprocess exporter command contains invalid characters")
+	}
+	if len(p.Args) > defaultRPCMuxSubprocessMaxArgs {
+		return RPCMuxSubprocessExecutionPolicy{}, fmt.Errorf("subprocess exporter args exceed %d", defaultRPCMuxSubprocessMaxArgs)
+	}
+	args := make([]string, 0, len(p.Args))
+	for _, arg := range p.Args {
+		if strings.ContainsAny(arg, "\x00\r\n") {
+			return RPCMuxSubprocessExecutionPolicy{}, fmt.Errorf("subprocess exporter arg contains invalid characters")
+		}
+		args = append(args, arg)
+	}
+	p.Args = args
+	p.AllowCommands = normalizeStringList(p.AllowCommands)
+	p.DenyCommands = normalizeStringList(p.DenyCommands)
+	if len(p.AllowCommands) > 0 && !stringListContains(p.AllowCommands, p.Command) {
+		return RPCMuxSubprocessExecutionPolicy{}, fmt.Errorf("subprocess exporter command is not allowed")
+	}
+	if stringListContains(p.DenyCommands, p.Command) {
+		return RPCMuxSubprocessExecutionPolicy{}, fmt.Errorf("subprocess exporter command is denied")
+	}
+	p.WorkDir = strings.TrimSpace(p.WorkDir)
+	p.WorkDirRoot = strings.TrimSpace(p.WorkDirRoot)
+	if p.WorkDir != "" {
+		if p.WorkDirRoot == "" {
+			return RPCMuxSubprocessExecutionPolicy{}, fmt.Errorf("subprocess exporter workDirRoot is required")
+		}
+		root := filepath.Clean(p.WorkDirRoot)
+		if !filepath.IsAbs(root) {
+			return RPCMuxSubprocessExecutionPolicy{}, fmt.Errorf("subprocess exporter workDirRoot must be absolute")
+		}
+		if !filepath.IsLocal(p.WorkDir) {
+			return RPCMuxSubprocessExecutionPolicy{}, fmt.Errorf("subprocess exporter workDir must be local")
+		}
+		workDir := filepath.Join(root, p.WorkDir)
+		rel, err := filepath.Rel(root, workDir)
+		if err != nil || !filepath.IsLocal(rel) {
+			return RPCMuxSubprocessExecutionPolicy{}, fmt.Errorf("subprocess exporter workDir escapes root")
+		}
+		p.WorkDirRoot = root
+		p.WorkDir = workDir
+	}
+	env, err := normalizeSubprocessEnv(p.Env, p.EnvWhitelist)
+	if err != nil {
+		return RPCMuxSubprocessExecutionPolicy{}, err
+	}
+	p.Env = env
+	p.EnvWhitelist = normalizeStringList(p.EnvWhitelist)
+	return p, nil
 }
 
 func normalizeStringList(values []string) []string {

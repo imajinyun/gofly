@@ -95,6 +95,14 @@ func TestRPCMuxSubprocessHelperProcess(t *testing.T) {
 }
 
 func TestNormalizeRPCMuxSubprocessExporterConfig(t *testing.T) {
+	policy, err := (RPCMuxSubprocessExecutionPolicy{
+		Command:       os.Args[0],
+		Args:          []string{"-test.run=TestRPCMuxSubprocessHelperProcess", "--"},
+		AllowCommands: []string{os.Args[0]},
+	}).Validate()
+	if err != nil || policy.Command != os.Args[0] || len(policy.Args) != 2 {
+		t.Fatalf("validated subprocess policy = %+v err=%v", policy, err)
+	}
 	if _, err := NewRPCMuxSubprocessDiagnosisEventExporter(RPCMuxSubprocessExporterConfig{}); err == nil {
 		t.Fatal("empty subprocess config validated")
 	}

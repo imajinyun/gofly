@@ -17,15 +17,20 @@ type RPCMuxOTelLogSinkSchemaProvider interface {
 	RPCMuxOTelLogProfileSchema() json.RawMessage
 }
 
+type RPCMuxOTelLogSinkValidationCategoryProvider interface {
+	RPCMuxOTelLogValidationCategories() []string
+}
+
 // RPCMuxOTelLogSinkSnapshot describes one registered mux OTel log sink without
 // exposing provider instances or profile values.
 type RPCMuxOTelLogSinkSnapshot struct {
-	Name               string          `json:"name"`
-	ProfileValidation  bool            `json:"profileValidation"`
-	ProfileSchema      json.RawMessage `json:"profileSchema,omitempty"`
-	ClientExport       bool            `json:"clientExport"`
-	ServerExport       bool            `json:"serverExport"`
-	DeliveryGovernance bool            `json:"deliveryGovernance"`
+	Name                        string          `json:"name"`
+	ProfileValidation           bool            `json:"profileValidation"`
+	ProfileSchema               json.RawMessage `json:"profileSchema,omitempty"`
+	ProfileValidationCategories []string        `json:"profileValidationCategories,omitempty"`
+	ClientExport                bool            `json:"clientExport"`
+	ServerExport                bool            `json:"serverExport"`
+	DeliveryGovernance          bool            `json:"deliveryGovernance"`
 }
 
 // RPCMuxOTelLogSinkRegistrySnapshot is a deterministic, machine-readable view
@@ -109,17 +114,21 @@ func RPCMuxOTelLogSinkRegistry() RPCMuxOTelLogSinkRegistrySnapshot {
 			"operator_action_dry_run",
 			"operator_action_approval",
 			"operator_action_history",
+			"operator_history_integrity_envelope",
+			"operator_history_compaction",
+			"subprocess_policy_error_categories",
 		},
 	}
 	for _, name := range names {
 		provider := providers[name]
 		snapshot.Sinks = append(snapshot.Sinks, RPCMuxOTelLogSinkSnapshot{
-			Name:               name,
-			ProfileValidation:  true,
-			ProfileSchema:      rpcMuxOTelLogProfileSchema(provider),
-			ClientExport:       true,
-			ServerExport:       true,
-			DeliveryGovernance: true,
+			Name:                        name,
+			ProfileValidation:           true,
+			ProfileSchema:               rpcMuxOTelLogProfileSchema(provider),
+			ProfileValidationCategories: rpcMuxOTelLogValidationCategories(provider),
+			ClientExport:                true,
+			ServerExport:                true,
+			DeliveryGovernance:          true,
 		})
 	}
 	return snapshot
@@ -140,4 +149,13 @@ func rpcMuxOTelLogProfileSchema(provider RPCMuxOTelLogSinkProvider) (schema json
 		return nil
 	}
 	return append(json.RawMessage(nil), raw...)
+}
+
+func rpcMuxOTelLogValidationCategories(provider RPCMuxOTelLogSinkProvider) []string {
+	categoryProvider, ok := provider.(RPCMuxOTelLogSinkValidationCategoryProvider)
+	if !ok || isNilRPCMuxOTelLogSinkProvider(categoryProvider) {
+		return nil
+	}
+	categories := normalizeStringList(categoryProvider.RPCMuxOTelLogValidationCategories())
+	return append([]string(nil), categories...)
 }

@@ -256,6 +256,9 @@ func TestGenerateService(t *testing.T) {
 		`service,rest,rpc,governance,discovery`,
 		`generated.project.resilience`,
 		`assertControlPlaneResilience(t, controlPlane)`,
+		`assertControlPlaneMuxOperatorHistory(t, controlPlane)`,
+		`history["enabled"] != false`,
+		`file://mux-operator-history.jsonl`,
 		`"timeout", "rateLimit", "concurrency", "breaker", "retry"`,
 	} {
 		if !strings.Contains(string(smokeData), want) {
@@ -1207,6 +1210,7 @@ func TestGenerateNewServiceVariantsBoundaries(t *testing.T) {
 		`FragmentStreamWindowRefillRatio:      0.5`,
 		`FragmentConnectionWindowRefillRatio:  0.25`,
 		`FragmentMaxDeferredFragments = 2`,
+		`filepath.Join(secretDir, "mux-operator-history.jsonl")`,
 		`FragmentWindowPolicyRiskMode = "reject"`,
 		`FragmentWindowPolicyRiskMode = "invalid"`,
 		`stream window refill ratio`,

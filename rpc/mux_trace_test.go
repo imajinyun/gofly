@@ -1048,8 +1048,11 @@ func TestRPCMuxOTelLogSinkRegistrySnapshotAndTypedProfile(t *testing.T) {
 	for _, want := range []string{
 		"subprocess_isolation_runner",
 		"subprocess_delivery_audit",
+		"subprocess_policy_error_categories",
 		"operator_action_approval",
 		"operator_action_history",
+		"operator_history_integrity_envelope",
+		"operator_history_compaction",
 		"file_secret_resolver",
 		"layered_secret_resolver",
 	} {
@@ -1058,20 +1061,29 @@ func TestRPCMuxOTelLogSinkRegistrySnapshotAndTypedProfile(t *testing.T) {
 		}
 	}
 	var found *RPCMuxOTelLogSinkSnapshot
-	var subprocessFound bool
+	var subprocessFound *RPCMuxOTelLogSinkSnapshot
 	for i := range snapshot.Sinks {
 		if snapshot.Sinks[i].Name == sinkName {
 			found = &snapshot.Sinks[i]
 		}
 		if snapshot.Sinks[i].Name == "subprocess" {
-			subprocessFound = true
+			subprocessFound = &snapshot.Sinks[i]
 		}
 	}
 	if found == nil || !found.ClientExport || !found.ServerExport || !found.DeliveryGovernance || !json.Valid(found.ProfileSchema) {
 		t.Fatalf("typed sink snapshot = %+v, want schema and symmetric governed export capabilities", found)
 	}
-	if !subprocessFound {
+	if subprocessFound == nil {
 		t.Fatalf("registry sinks = %+v, want built-in subprocess sink", snapshot.Sinks)
+	}
+	for _, want := range []string{
+		RPCMuxSubprocessPolicyErrorCommandDenied,
+		RPCMuxSubprocessPolicyErrorWorkDirEscaped,
+		RPCMuxSubprocessPolicyErrorEnvNotWhitelisted,
+	} {
+		if !slices.Contains(subprocessFound.ProfileValidationCategories, want) {
+			t.Fatalf("subprocess validation categories = %+v, missing %q", subprocessFound.ProfileValidationCategories, want)
+		}
 	}
 }
 

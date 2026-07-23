@@ -2,6 +2,8 @@ package rpc
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
@@ -17,9 +19,13 @@ const (
 	RPCMuxDiagnosisOperatorResumeSink = "resume_sink"
 	RPCMuxDiagnosisOperatorForceProbe = "force_probe"
 
-	defaultRPCMuxDiagnosisOperatorHistoryLimit = 32
-	defaultRPCMuxDiagnosisOperatorStoreMaxSize = 1 << 20
-	defaultRPCMuxDiagnosisOperatorStoreMaxLine = 64 << 10
+	defaultRPCMuxDiagnosisOperatorHistoryLimit    = 32
+	defaultRPCMuxDiagnosisOperatorStoreMaxSize    = 1 << 20
+	defaultRPCMuxDiagnosisOperatorStoreMaxLine    = 64 << 10
+	defaultRPCMuxDiagnosisOperatorStoreMaxActions = 128
+
+	rpcMuxDiagnosisOperatorHistoryFileHeaderType    = "gofly.rpc_mux_operator_history.header"
+	rpcMuxDiagnosisOperatorHistoryFileSchemaVersion = "gofly.rpc_mux_operator_history.v1"
 )
 
 // RPCMuxDiagnosisOperatorAction describes a dry-run operator action for one
@@ -61,18 +67,28 @@ type RPCMuxDiagnosisOperatorHistoryStoreSnapshotter interface {
 }
 
 type RPCMuxDiagnosisOperatorStoreSnapshot struct {
-	Enabled        bool      `json:"enabled"`
-	Kind           string    `json:"kind,omitempty"`
-	Path           string    `json:"path,omitempty"`
-	MaxSizeBytes   int64     `json:"maxSizeBytes,omitempty"`
-	MaxLineBytes   int64     `json:"maxLineBytes,omitempty"`
-	StoredActions  int       `json:"storedActions,omitempty"`
-	BadLines       int       `json:"badLines,omitempty"`
-	Checksum       string    `json:"checksum,omitempty"`
-	ChecksumStatus string    `json:"checksumStatus,omitempty"`
-	LastError      string    `json:"lastError,omitempty"`
-	LastWriteAt    time.Time `json:"lastWriteAt,omitempty"`
-	LastLoadAt     time.Time `json:"lastLoadAt,omitempty"`
+	Enabled         bool      `json:"enabled"`
+	Kind            string    `json:"kind,omitempty"`
+	Path            string    `json:"path,omitempty"`
+	SchemaVersion   string    `json:"schemaVersion,omitempty"`
+	MaxSizeBytes    int64     `json:"maxSizeBytes,omitempty"`
+	MaxLineBytes    int64     `json:"maxLineBytes,omitempty"`
+	MaxActions      int       `json:"maxActions,omitempty"`
+	StoredActions   int       `json:"storedActions,omitempty"`
+	BadLines        int       `json:"badLines,omitempty"`
+	TamperedLines   int       `json:"tamperedLines,omitempty"`
+	TruncatedLines  int       `json:"truncatedLines,omitempty"`
+	LegacyLines     int       `json:"legacyLines,omitempty"`
+	HeaderPresent   bool      `json:"headerPresent,omitempty"`
+	Checksum        string    `json:"checksum,omitempty"`
+	ChecksumStatus  string    `json:"checksumStatus,omitempty"`
+	IntegrityStatus string    `json:"integrityStatus,omitempty"`
+	Compactions     int       `json:"compactions,omitempty"`
+	Rotations       int       `json:"rotations,omitempty"`
+	LastError       string    `json:"lastError,omitempty"`
+	LastWriteAt     time.Time `json:"lastWriteAt,omitempty"`
+	LastLoadAt      time.Time `json:"lastLoadAt,omitempty"`
+	LastCompactedAt time.Time `json:"lastCompactedAt,omitempty"`
 }
 
 type RPCMuxDiagnosisOperatorHistoryDiagState struct {
@@ -87,8 +103,21 @@ type RPCMuxDiagnosisOperatorHistoryFileStore struct {
 	path         string
 	maxSizeBytes int64
 	maxLineBytes int64
+	maxActions   int
 	mu           sync.Mutex
 	snapshot     RPCMuxDiagnosisOperatorStoreSnapshot
+}
+
+type rpcMuxDiagnosisOperatorHistoryFileHeader struct {
+	Type          string    `json:"type"`
+	SchemaVersion string    `json:"schemaVersion"`
+	CreatedAt     time.Time `json:"createdAt"`
+}
+
+type rpcMuxDiagnosisOperatorHistoryFileEntry struct {
+	SchemaVersion string                        `json:"schemaVersion"`
+	Checksum      string                        `json:"checksum"`
+	Action        RPCMuxDiagnosisOperatorAction `json:"action"`
 }
 
 func NewRPCMuxDiagnosisOperatorHistoryFileStore(path string) (*RPCMuxDiagnosisOperatorHistoryFileStore, error) {
@@ -100,13 +129,17 @@ func NewRPCMuxDiagnosisOperatorHistoryFileStore(path string) (*RPCMuxDiagnosisOp
 		path:         path,
 		maxSizeBytes: defaultRPCMuxDiagnosisOperatorStoreMaxSize,
 		maxLineBytes: defaultRPCMuxDiagnosisOperatorStoreMaxLine,
+		maxActions:   defaultRPCMuxDiagnosisOperatorStoreMaxActions,
 		snapshot: RPCMuxDiagnosisOperatorStoreSnapshot{
-			Enabled:        true,
-			Kind:           "file",
-			Path:           path,
-			MaxSizeBytes:   defaultRPCMuxDiagnosisOperatorStoreMaxSize,
-			MaxLineBytes:   defaultRPCMuxDiagnosisOperatorStoreMaxLine,
-			ChecksumStatus: "unchecked",
+			Enabled:         true,
+			Kind:            "file",
+			Path:            path,
+			SchemaVersion:   rpcMuxDiagnosisOperatorHistoryFileSchemaVersion,
+			MaxSizeBytes:    defaultRPCMuxDiagnosisOperatorStoreMaxSize,
+			MaxLineBytes:    defaultRPCMuxDiagnosisOperatorStoreMaxLine,
+			MaxActions:      defaultRPCMuxDiagnosisOperatorStoreMaxActions,
+			ChecksumStatus:  "unchecked",
+			IntegrityStatus: "unchecked",
 		},
 	}, nil
 }
@@ -387,7 +420,7 @@ func (s *RPCMuxDiagnosisOperatorHistoryFileStore) AppendRPCMuxDiagnosisOperatorA
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	data, err := json.Marshal(cloneRPCMuxDiagnosisOperatorAction(action))
+	entry, err := marshalRPCMuxDiagnosisOperatorHistoryEntry(action)
 	if err != nil {
 		return err
 	}
@@ -397,21 +430,30 @@ func (s *RPCMuxDiagnosisOperatorHistoryFileStore) AppendRPCMuxDiagnosisOperatorA
 		s.recordErrorLocked(err)
 		return err
 	}
-	file, err := os.OpenFile(s.path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err := s.ensureHistoryHeaderLocked(); err != nil {
+		s.recordErrorLocked(err)
+		return err
+	}
+	file, err := os.OpenFile(s.path, os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
 		s.recordErrorLocked(err)
 		return err
 	}
 	defer file.Close()
-	if _, err := file.Write(append(data, '\n')); err != nil {
+	if _, err := file.Write(append(entry, '\n')); err != nil {
 		s.recordErrorLocked(err)
 		return err
 	}
 	s.snapshot.LastError = ""
 	s.snapshot.StoredActions++
 	s.snapshot.ChecksumStatus = "unchecked"
+	s.snapshot.IntegrityStatus = "unchecked"
 	s.snapshot.LastWriteAt = time.Now().UTC()
 	s.refreshFileSnapshotLocked(nil)
+	if err := s.compactHistoryLocked(false); err != nil {
+		s.recordErrorLocked(err)
+		return err
+	}
 	return nil
 }
 
@@ -451,30 +493,17 @@ func (s *RPCMuxDiagnosisOperatorHistoryFileStore) LoadRPCMuxDiagnosisOperatorAct
 		s.recordErrorLocked(err)
 		return nil, err
 	}
-	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
-	actions := make([]RPCMuxDiagnosisOperatorAction, 0, len(lines))
-	badLines := 0
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		if int64(len(line)) > s.maxLineBytes {
-			badLines++
-			continue
-		}
-		var action RPCMuxDiagnosisOperatorAction
-		if err := json.Unmarshal([]byte(line), &action); err != nil {
-			badLines++
-			continue
-		}
-		actions = append(actions, cloneRPCMuxDiagnosisOperatorAction(action))
-	}
+	actions, diagnostics := s.parseHistoryLinesLocked(data)
 	checksum := checksumRPCMuxDiagnosisOperatorActions(actions)
 	s.snapshot.StoredActions = len(actions)
-	s.snapshot.BadLines = badLines
+	s.snapshot.BadLines = diagnostics.badLines
+	s.snapshot.TamperedLines = diagnostics.tamperedLines
+	s.snapshot.TruncatedLines = diagnostics.truncatedLines
+	s.snapshot.LegacyLines = diagnostics.legacyLines
+	s.snapshot.HeaderPresent = diagnostics.headerPresent
 	s.snapshot.Checksum = checksum
-	s.snapshot.ChecksumStatus = checksumStatusForOperatorHistory(len(actions), badLines)
+	s.snapshot.ChecksumStatus = checksumStatusForOperatorHistory(len(actions), diagnostics.badLines)
+	s.snapshot.IntegrityStatus = integrityStatusForOperatorHistory(diagnostics)
 	s.snapshot.LastError = ""
 	s.snapshot.LastLoadAt = time.Now().UTC()
 	if limit > 0 && limit < len(actions) {
@@ -505,14 +534,191 @@ func (s *RPCMuxDiagnosisOperatorHistoryFileStore) refreshFileSnapshotLocked(exis
 	s.snapshot.Enabled = true
 	s.snapshot.Kind = "file"
 	s.snapshot.Path = s.path
+	s.snapshot.SchemaVersion = rpcMuxDiagnosisOperatorHistoryFileSchemaVersion
 	s.snapshot.MaxSizeBytes = s.maxSizeBytes
 	s.snapshot.MaxLineBytes = s.maxLineBytes
+	s.snapshot.MaxActions = s.maxActions
 	if existingErr != nil {
 		return
 	}
 	if info, err := os.Stat(s.path); err == nil && info.Size() > s.maxSizeBytes {
 		s.snapshot.ChecksumStatus = "size_limit_exceeded"
 	}
+}
+
+type rpcMuxDiagnosisOperatorHistoryDiagnostics struct {
+	badLines       int
+	tamperedLines  int
+	truncatedLines int
+	legacyLines    int
+	headerPresent  bool
+}
+
+func marshalRPCMuxDiagnosisOperatorHistoryEntry(action RPCMuxDiagnosisOperatorAction) ([]byte, error) {
+	action = cloneRPCMuxDiagnosisOperatorAction(action)
+	checksum, err := checksumRPCMuxDiagnosisOperatorAction(action)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(rpcMuxDiagnosisOperatorHistoryFileEntry{
+		SchemaVersion: rpcMuxDiagnosisOperatorHistoryFileSchemaVersion,
+		Checksum:      checksum,
+		Action:        action,
+	})
+}
+
+func checksumRPCMuxDiagnosisOperatorAction(action RPCMuxDiagnosisOperatorAction) (string, error) {
+	data, err := json.Marshal(cloneRPCMuxDiagnosisOperatorAction(action))
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+func (s *RPCMuxDiagnosisOperatorHistoryFileStore) ensureHistoryHeaderLocked() error {
+	if _, err := os.Stat(s.path); err == nil {
+		return nil
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	header, err := json.Marshal(rpcMuxDiagnosisOperatorHistoryFileHeader{
+		Type:          rpcMuxDiagnosisOperatorHistoryFileHeaderType,
+		SchemaVersion: rpcMuxDiagnosisOperatorHistoryFileSchemaVersion,
+		CreatedAt:     time.Now().UTC(),
+	})
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(s.path, append(header, '\n'), 0o600)
+}
+
+func (s *RPCMuxDiagnosisOperatorHistoryFileStore) parseHistoryLinesLocked(data []byte) ([]RPCMuxDiagnosisOperatorAction, rpcMuxDiagnosisOperatorHistoryDiagnostics) {
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	actions := make([]RPCMuxDiagnosisOperatorAction, 0, len(lines))
+	var diagnostics rpcMuxDiagnosisOperatorHistoryDiagnostics
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if int64(len(line)) > s.maxLineBytes {
+			diagnostics.badLines++
+			diagnostics.truncatedLines++
+			continue
+		}
+		action, lineDiagnostics, ok := parseRPCMuxDiagnosisOperatorHistoryLine(line)
+		diagnostics.badLines += lineDiagnostics.badLines
+		diagnostics.tamperedLines += lineDiagnostics.tamperedLines
+		diagnostics.legacyLines += lineDiagnostics.legacyLines
+		if lineDiagnostics.headerPresent {
+			diagnostics.headerPresent = true
+		}
+		if ok {
+			actions = append(actions, action)
+		}
+	}
+	return actions, diagnostics
+}
+
+func parseRPCMuxDiagnosisOperatorHistoryLine(line string) (RPCMuxDiagnosisOperatorAction, rpcMuxDiagnosisOperatorHistoryDiagnostics, bool) {
+	var header rpcMuxDiagnosisOperatorHistoryFileHeader
+	if err := json.Unmarshal([]byte(line), &header); err == nil && header.Type == rpcMuxDiagnosisOperatorHistoryFileHeaderType {
+		return RPCMuxDiagnosisOperatorAction{}, rpcMuxDiagnosisOperatorHistoryDiagnostics{headerPresent: true}, false
+	}
+	var entry rpcMuxDiagnosisOperatorHistoryFileEntry
+	if err := json.Unmarshal([]byte(line), &entry); err == nil && entry.SchemaVersion != "" {
+		if entry.SchemaVersion != rpcMuxDiagnosisOperatorHistoryFileSchemaVersion || entry.Checksum == "" {
+			return RPCMuxDiagnosisOperatorAction{}, rpcMuxDiagnosisOperatorHistoryDiagnostics{badLines: 1}, false
+		}
+		checksum, err := checksumRPCMuxDiagnosisOperatorAction(entry.Action)
+		if err != nil || checksum != entry.Checksum {
+			return RPCMuxDiagnosisOperatorAction{}, rpcMuxDiagnosisOperatorHistoryDiagnostics{badLines: 1, tamperedLines: 1}, false
+		}
+		return cloneRPCMuxDiagnosisOperatorAction(entry.Action), rpcMuxDiagnosisOperatorHistoryDiagnostics{}, true
+	}
+	var action RPCMuxDiagnosisOperatorAction
+	if err := json.Unmarshal([]byte(line), &action); err != nil {
+		return RPCMuxDiagnosisOperatorAction{}, rpcMuxDiagnosisOperatorHistoryDiagnostics{badLines: 1}, false
+	}
+	return cloneRPCMuxDiagnosisOperatorAction(action), rpcMuxDiagnosisOperatorHistoryDiagnostics{legacyLines: 1}, true
+}
+
+func (s *RPCMuxDiagnosisOperatorHistoryFileStore) compactHistoryLocked(force bool) error {
+	info, err := os.Stat(s.path)
+	if err != nil {
+		return err
+	}
+	shouldCompact := force || (s.maxActions > 0 && s.snapshot.StoredActions > s.maxActions)
+	if !shouldCompact && s.maxSizeBytes > 0 && info.Size() > s.maxSizeBytes/2 {
+		shouldCompact = true
+	}
+	if !shouldCompact {
+		return nil
+	}
+	data, err := os.ReadFile(s.path)
+	if err != nil {
+		return err
+	}
+	actions, _ := s.parseHistoryLinesLocked(data)
+	if s.maxActions > 0 && len(actions) > s.maxActions {
+		actions = actions[len(actions)-s.maxActions:]
+	}
+	compact, err := marshalRPCMuxDiagnosisOperatorHistoryFile(actions)
+	if err != nil {
+		return err
+	}
+	backupPath := s.path + ".bak"
+	_ = os.Remove(backupPath)
+	if err := os.Rename(s.path, backupPath); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	// #nosec G306 G703 -- s.path is constrained to filepath.IsLocal by NewRPCMuxDiagnosisOperatorHistoryFileStore.
+	if err := os.WriteFile(s.path, compact, 0o600); err != nil {
+		_ = os.Rename(backupPath, s.path)
+		return err
+	}
+	s.snapshot.Compactions++
+	s.snapshot.Rotations++
+	s.snapshot.StoredActions = len(actions)
+	s.snapshot.BadLines = 0
+	s.snapshot.TamperedLines = 0
+	s.snapshot.TruncatedLines = 0
+	s.snapshot.LegacyLines = 0
+	s.snapshot.HeaderPresent = true
+	s.snapshot.Checksum = checksumRPCMuxDiagnosisOperatorActions(actions)
+	s.snapshot.ChecksumStatus = checksumStatusForOperatorHistory(len(actions), 0)
+	s.snapshot.IntegrityStatus = integrityStatusForOperatorHistory(rpcMuxDiagnosisOperatorHistoryDiagnostics{headerPresent: true})
+	s.snapshot.LastCompactedAt = time.Now().UTC()
+	return nil
+}
+
+func marshalRPCMuxDiagnosisOperatorHistoryFile(actions []RPCMuxDiagnosisOperatorAction) ([]byte, error) {
+	header, err := json.Marshal(rpcMuxDiagnosisOperatorHistoryFileHeader{
+		Type:          rpcMuxDiagnosisOperatorHistoryFileHeaderType,
+		SchemaVersion: rpcMuxDiagnosisOperatorHistoryFileSchemaVersion,
+		CreatedAt:     time.Now().UTC(),
+	})
+	if err != nil {
+		return nil, err
+	}
+	lines := [][]byte{header}
+	for _, action := range actions {
+		entry, err := marshalRPCMuxDiagnosisOperatorHistoryEntry(action)
+		if err != nil {
+			return nil, err
+		}
+		lines = append(lines, entry)
+	}
+	return append([]byte(strings.Join(bytesLinesToStrings(lines), "\n")), '\n'), nil
+}
+
+func bytesLinesToStrings(lines [][]byte) []string {
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		out = append(out, string(line))
+	}
+	return out
 }
 
 func checksumStatusForOperatorHistory(actions int, badLines int) string {
@@ -525,6 +731,25 @@ func checksumStatusForOperatorHistory(actions int, badLines int) string {
 		return "ok"
 	default:
 		return "empty"
+	}
+}
+
+func integrityStatusForOperatorHistory(diagnostics rpcMuxDiagnosisOperatorHistoryDiagnostics) string {
+	switch {
+	case diagnostics.tamperedLines > 0:
+		return "tampered"
+	case diagnostics.truncatedLines > 0:
+		return "truncated"
+	case diagnostics.badLines > 0:
+		return "bad_lines"
+	case diagnostics.legacyLines > 0 && diagnostics.headerPresent:
+		return "mixed_legacy"
+	case diagnostics.legacyLines > 0:
+		return "legacy"
+	case diagnostics.headerPresent:
+		return "ok"
+	default:
+		return "missing_header"
 	}
 }
 

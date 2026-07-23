@@ -96,6 +96,9 @@ func TestRPCMuxSubprocessHelperProcess(t *testing.T) {
 }
 
 func TestNormalizeRPCMuxSubprocessExporterConfig(t *testing.T) {
+	if got := (RPCMuxSubprocessExecutionPolicyError{}).Error(); !strings.Contains(got, "policy validation failed") {
+		t.Fatalf("empty policy error message = %q", got)
+	}
 	policy, err := (RPCMuxSubprocessExecutionPolicy{
 		Command:       os.Args[0],
 		Args:          []string{"-test.run=TestRPCMuxSubprocessHelperProcess", "--"},

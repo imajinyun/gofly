@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -234,6 +235,9 @@ func TestRPCMuxDiagnosisOperatorHistoryFileStore(t *testing.T) {
 	if err != nil || len(loaded) != 1 {
 		t.Fatalf("loaded actions = %+v err=%v", loaded, err)
 	}
+	if snapshot := store.RPCMuxDiagnosisOperatorStoreSnapshot(); !snapshot.HeaderPresent || snapshot.IntegrityStatus != "ok" {
+		t.Fatalf("integrity envelope snapshot = %+v", snapshot)
+	}
 	if err := os.WriteFile(store.path, []byte("{bad\n"+`{"sink":"slog","action":"resume_sink","approved":true}`+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -258,6 +262,58 @@ func TestRPCMuxDiagnosisOperatorHistoryFileStore(t *testing.T) {
 	}
 }
 
+func TestRPCMuxDiagnosisOperatorHistoryFileStoreIntegrityAndCompaction(t *testing.T) {
+	store, err := NewRPCMuxDiagnosisOperatorHistoryFileStore(filepath.Join("history", "operator.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.path = filepath.Join(t.TempDir(), store.path)
+	store.maxActions = 2
+	for index, actionName := range []string{RPCMuxDiagnosisOperatorPauseSink, RPCMuxDiagnosisOperatorResumeSink, RPCMuxDiagnosisOperatorForceProbe} {
+		if err := store.AppendRPCMuxDiagnosisOperatorAction(context.Background(), RPCMuxDiagnosisOperatorAction{
+			Sink:     "slog",
+			Action:   actionName,
+			Approved: true,
+			Details:  map[string]string{"index": string(rune('0' + index))},
+		}); err != nil {
+			t.Fatalf("append action %d: %v", index, err)
+		}
+	}
+	loaded, err := store.LoadRPCMuxDiagnosisOperatorActions(context.Background(), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded) != 2 || loaded[0].Action != RPCMuxDiagnosisOperatorResumeSink || loaded[1].Action != RPCMuxDiagnosisOperatorForceProbe {
+		t.Fatalf("compacted actions = %+v", loaded)
+	}
+	if _, err := os.Stat(store.path + ".bak"); err != nil {
+		t.Fatalf("compaction backup stat: %v", err)
+	}
+	snapshot := store.RPCMuxDiagnosisOperatorStoreSnapshot()
+	if snapshot.Compactions == 0 || snapshot.Rotations == 0 || snapshot.IntegrityStatus != "ok" || snapshot.StoredActions != 2 {
+		t.Fatalf("compaction snapshot = %+v", snapshot)
+	}
+
+	data, err := os.ReadFile(store.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tampered := strings.Replace(string(data), RPCMuxDiagnosisOperatorForceProbe, RPCMuxDiagnosisOperatorPauseSink, 1)
+	if err := os.WriteFile(store.path, []byte(tampered), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err = store.LoadRPCMuxDiagnosisOperatorActions(context.Background(), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded) != 1 || loaded[0].Action != RPCMuxDiagnosisOperatorResumeSink {
+		t.Fatalf("loaded after tamper = %+v", loaded)
+	}
+	if snapshot := store.RPCMuxDiagnosisOperatorStoreSnapshot(); snapshot.TamperedLines != 1 || snapshot.IntegrityStatus != "tampered" {
+		t.Fatalf("tampered snapshot = %+v", snapshot)
+	}
+}
+
 func TestRPCMuxDiagnosisOperatorHistoryStoreDiagnostics(t *testing.T) {
 	if snapshot := (*RPCMuxDiagnosisOperatorHistoryFileStore)(nil).RPCMuxDiagnosisOperatorStoreSnapshot(); snapshot.Enabled {
 		t.Fatalf("nil file store snapshot = %+v", snapshot)
@@ -267,6 +323,22 @@ func TestRPCMuxDiagnosisOperatorHistoryStoreDiagnostics(t *testing.T) {
 	}
 	if status := checksumStatusForOperatorHistory(0, 0); status != "empty" {
 		t.Fatalf("empty checksum status = %q", status)
+	}
+	for _, test := range []struct {
+		name        string
+		diagnostics rpcMuxDiagnosisOperatorHistoryDiagnostics
+		want        string
+	}{
+		{name: "truncated", diagnostics: rpcMuxDiagnosisOperatorHistoryDiagnostics{truncatedLines: 1}, want: "truncated"},
+		{name: "mixed legacy", diagnostics: rpcMuxDiagnosisOperatorHistoryDiagnostics{legacyLines: 1, headerPresent: true}, want: "mixed_legacy"},
+		{name: "legacy", diagnostics: rpcMuxDiagnosisOperatorHistoryDiagnostics{legacyLines: 1}, want: "legacy"},
+		{name: "missing header", diagnostics: rpcMuxDiagnosisOperatorHistoryDiagnostics{}, want: "missing_header"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := integrityStatusForOperatorHistory(test.diagnostics); got != test.want {
+				t.Fatalf("integrity status = %q, want %q", got, test.want)
+			}
+		})
 	}
 	sinkSet, err := NewRPCMuxDiagnosisSinkSet(RPCMuxDiagnosisSinkSetConfig{Version: "store-diagnostics-v1"})
 	if err != nil {

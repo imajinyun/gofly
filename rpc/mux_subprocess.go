@@ -163,7 +163,15 @@ func (rpcMuxSubprocessOTelLogSinkProvider) NewRPCMuxOTelLogExporter(profile stri
 }
 
 func (rpcMuxSubprocessOTelLogSinkProvider) RPCMuxOTelLogProfileSchema() json.RawMessage {
-	return json.RawMessage(`{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","additionalProperties":false,"required":["command"],"properties":{"command":{"type":"string","minLength":1},"args":{"type":"array","maxItems":16,"items":{"type":"string"}},"timeout":{"type":"integer","minimum":1},"maxOutputBytes":{"type":"integer","minimum":1},"workDir":{"type":"string"},"workDirRoot":{"type":"string"},"allowCommands":{"type":"array","items":{"type":"string"}},"denyCommands":{"type":"array","items":{"type":"string"}},"env":{"type":"object","additionalProperties":{"type":"string"}},"envWhitelist":{"type":"array","items":{"type":"string"}}}}`)
+	return json.RawMessage(`{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","additionalProperties":false,"required":["command"],"x-gofly-policy-error-categories":["command_denied","workdir_escaped","env_not_whitelisted"],"properties":{"command":{"type":"string","minLength":1},"args":{"type":"array","maxItems":16,"items":{"type":"string"}},"timeout":{"type":"integer","minimum":1},"maxOutputBytes":{"type":"integer","minimum":1},"workDir":{"type":"string"},"workDirRoot":{"type":"string"},"allowCommands":{"type":"array","items":{"type":"string"}},"denyCommands":{"type":"array","items":{"type":"string"}},"env":{"type":"object","additionalProperties":{"type":"string"}},"envWhitelist":{"type":"array","items":{"type":"string"}}}}`)
+}
+
+func (rpcMuxSubprocessOTelLogSinkProvider) RPCMuxOTelLogValidationCategories() []string {
+	return []string{
+		RPCMuxSubprocessPolicyErrorCommandDenied,
+		RPCMuxSubprocessPolicyErrorWorkDirEscaped,
+		RPCMuxSubprocessPolicyErrorEnvNotWhitelisted,
+	}
 }
 
 type rpcMuxSubprocessOTelLogExporter struct {

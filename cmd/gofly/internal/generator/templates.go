@@ -2904,6 +2904,9 @@ func TestRPCMuxOTelCompatibleSinkSetHotReload(t *testing.T) {
 	if snapshot := sinkSet.OperatorHistoryStoreSnapshot(); !snapshot.Enabled || snapshot.Kind != "file" {
 		t.Fatalf("operator history store snapshot = %+v", snapshot)
 	}
+	if snapshot := sinkSet.OperatorHistoryStoreSnapshot(); snapshot.Path != filepath.Join(secretDir, "mux-operator-history.jsonl") {
+		t.Fatalf("operator history store path = %+v, want root-scoped path", snapshot)
+	}
 	next := cfg
 	next.Version = "generated-v2"
 	next.SchemaVersion = "mux-sinks/v2"
@@ -3308,6 +3311,7 @@ func TestGeneratedProductionServiceSmoke(t *testing.T) {
 		t.Fatalf("control-plane resilience metadata = %#v, want generated resilience marker", metadata)
 	}
 	assertControlPlaneResilience(t, controlPlane)
+	assertControlPlaneMuxOperatorHistory(t, controlPlane)
 }
 
 func generatedProjectRoot(t *testing.T) string {
@@ -3431,6 +3435,37 @@ func assertControlPlaneResilience(t *testing.T, snapshot map[string]any) {
 		if resilience[key] != true {
 			t.Fatalf("generated resilience[%s] = %#v in %#v, want true", key, resilience[key], resilience)
 		}
+	}
+}
+
+func assertControlPlaneMuxOperatorHistory(t *testing.T, snapshot map[string]any) {
+	t.Helper()
+	configs, ok := snapshot["configs"].(map[string]any)
+	if !ok {
+		t.Fatalf("control-plane configs = %#v, want generated configs", snapshot["configs"])
+	}
+	rpcConfig, ok := configs["generated.rpc"].(map[string]any)
+	if !ok {
+		t.Fatalf("generated.rpc config = %#v, want rpc config", configs["generated.rpc"])
+	}
+	mux, ok := rpcConfig["mux"].(map[string]any)
+	if !ok {
+		t.Fatalf("generated.rpc.mux config = %#v, want mux config", rpcConfig["mux"])
+	}
+	logConfig, ok := mux["log"].(map[string]any)
+	if !ok {
+		t.Fatalf("generated.rpc.mux.log config = %#v, want log config", mux["log"])
+	}
+	otel, ok := logConfig["otelCompatible"].(map[string]any)
+	if !ok {
+		t.Fatalf("generated.rpc.mux.log.otelCompatible config = %#v, want otel config", logConfig["otelCompatible"])
+	}
+	history, ok := otel["operatorHistory"].(map[string]any)
+	if !ok {
+		t.Fatalf("operatorHistory config = %#v, want map", otel["operatorHistory"])
+	}
+	if history["enabled"] != false || history["store"] != "file://mux-operator-history.jsonl" {
+		t.Fatalf("operatorHistory config = %#v, want disabled file store", history)
 	}
 }
 `

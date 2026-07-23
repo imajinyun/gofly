@@ -111,6 +111,7 @@ func NewRPCMuxDiagnosisFileSecretResolver(root string, maxBytes int64) RPCMuxDia
 		if info.Size() > maxBytes {
 			return "", fmt.Errorf("file secret reference exceeds %d bytes", maxBytes)
 		}
+		// #nosec G304 -- ref is constrained by file://, filepath.IsLocal, filepath.Rel, and max-size stat under the configured resolver root.
 		data, err := os.ReadFile(path)
 		if err != nil {
 			return "", fmt.Errorf("file secret reference read: %w", err)

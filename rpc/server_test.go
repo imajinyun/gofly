@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -460,6 +461,57 @@ func TestHTTPServerAdminAuditAndMethodBoundaries(t *testing.T) {
 	if len(auditEvents) != 2 || auditEvents[0].Component != "rpc" || auditEvents[0].Status != http.StatusMethodNotAllowed ||
 		auditEvents[1].Status != http.StatusNotFound {
 		t.Fatalf("audit events = %+v", auditEvents)
+	}
+}
+
+func TestHTTPServerMuxOperatorHistoryRuntimeDetails(t *testing.T) {
+	store, err := NewRPCMuxDiagnosisOperatorHistoryFileStore(filepath.Join("history", "operator.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.path = filepath.Join(t.TempDir(), store.path)
+	sinkSet, err := NewRPCMuxDiagnosisSinkSet(RPCMuxDiagnosisSinkSetConfig{
+		Version: "server-history-store-v1",
+		Sinks:   []RPCMuxDiagnosisSinkConfig{{Name: "slog"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sinkSet.Close()
+	sinkSet.WithOperatorHistoryStore(store)
+	server := NewServer(
+		WithServerMuxDiagnosisEventExporter(sinkSet, RPCMuxDiagnosisFilter{}),
+		WithServerMuxDiagnosisOperatorApprovalToken("approve-me"),
+	)
+	approved := sinkSet.ApplyRPCMuxDiagnosisOperatorAction(context.Background(), RPCMuxDiagnosisOperatorApproval{
+		Sink:   "slog",
+		Action: RPCMuxDiagnosisOperatorPauseSink,
+		Token:  "approved",
+	})
+	if !approved.Approved {
+		t.Fatalf("approved action = %+v", approved)
+	}
+	if history := server.MuxDiagnosisOperatorActionHistory(1); len(history) != 1 || history[0].Action != RPCMuxDiagnosisOperatorPauseSink {
+		t.Fatalf("server operator history = %+v", history)
+	}
+	snapshot := server.RuntimeSnapshot(context.Background())
+	var foundStore bool
+	for _, component := range snapshot.Components {
+		if component.Name != "rpc.mux.sink.registry" {
+			continue
+		}
+		details, ok := component.Details.(map[string]any)
+		if !ok {
+			t.Fatalf("runtime details = %#v", component.Details)
+		}
+		storeDetails, ok := details["operatorHistoryStore"].(RPCMuxDiagnosisOperatorStoreSnapshot)
+		if !ok || !storeDetails.Enabled || storeDetails.Kind != "file" {
+			t.Fatalf("operator history store details = %#v", details["operatorHistoryStore"])
+		}
+		foundStore = true
+	}
+	if !foundStore {
+		t.Fatalf("runtime snapshot missing operator history store: %+v", snapshot.Components)
 	}
 }
 

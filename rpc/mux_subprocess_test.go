@@ -3,6 +3,7 @@ package rpc
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -122,6 +123,35 @@ func TestNormalizeRPCMuxSubprocessExporterConfig(t *testing.T) {
 		WorkDirRoot: "relative",
 	}); err == nil {
 		t.Fatal("relative workDirRoot validated")
+	}
+	for _, test := range []struct {
+		name     string
+		policy   RPCMuxSubprocessExecutionPolicy
+		category string
+	}{
+		{
+			name:     "command denied",
+			policy:   RPCMuxSubprocessExecutionPolicy{Command: os.Args[0], AllowCommands: []string{"other"}},
+			category: RPCMuxSubprocessPolicyErrorCommandDenied,
+		},
+		{
+			name:     "workdir escaped",
+			policy:   RPCMuxSubprocessExecutionPolicy{Command: os.Args[0], WorkDir: "../escape", WorkDirRoot: t.TempDir()},
+			category: RPCMuxSubprocessPolicyErrorWorkDirEscaped,
+		},
+		{
+			name:     "env not whitelisted",
+			policy:   RPCMuxSubprocessExecutionPolicy{Command: os.Args[0], Env: map[string]string{"BAD": "x"}, EnvWhitelist: []string{"OK"}},
+			category: RPCMuxSubprocessPolicyErrorEnvNotWhitelisted,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := test.policy.Validate()
+			var policyErr RPCMuxSubprocessExecutionPolicyError
+			if !errors.As(err, &policyErr) || policyErr.Category != test.category {
+				t.Fatalf("policy err = %#v, category=%q want %q", err, policyErr.Category, test.category)
+			}
+		})
 	}
 	if _, err := NewRPCMuxSubprocessDiagnosisEventExporter(RPCMuxSubprocessExporterConfig{
 		Command:      os.Args[0],

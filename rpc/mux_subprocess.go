@@ -18,6 +18,10 @@ const (
 	defaultRPCMuxSubprocessTimeout        = time.Second
 	defaultRPCMuxSubprocessMaxArgs        = 16
 	defaultRPCMuxSubprocessMaxOutputBytes = 64 << 10
+
+	RPCMuxSubprocessPolicyErrorCommandDenied     = "command_denied"
+	RPCMuxSubprocessPolicyErrorWorkDirEscaped    = "workdir_escaped"
+	RPCMuxSubprocessPolicyErrorEnvNotWhitelisted = "env_not_whitelisted"
 )
 
 // RPCMuxSubprocessExporterConfig configures a local subprocess exporter. The
@@ -48,6 +52,18 @@ type RPCMuxSubprocessExecutionPolicy struct {
 	DenyCommands  []string
 	Env           map[string]string
 	EnvWhitelist  []string
+}
+
+type RPCMuxSubprocessExecutionPolicyError struct {
+	Category string
+	Message  string
+}
+
+func (e RPCMuxSubprocessExecutionPolicyError) Error() string {
+	if strings.TrimSpace(e.Message) == "" {
+		return "subprocess exporter policy validation failed"
+	}
+	return e.Message
 }
 
 func (c RPCMuxSubprocessExporterConfig) ExecutionPolicy() RPCMuxSubprocessExecutionPolicy {
@@ -216,10 +232,10 @@ func (p RPCMuxSubprocessExecutionPolicy) Validate() (RPCMuxSubprocessExecutionPo
 	p.AllowCommands = normalizeStringList(p.AllowCommands)
 	p.DenyCommands = normalizeStringList(p.DenyCommands)
 	if len(p.AllowCommands) > 0 && !stringListContains(p.AllowCommands, p.Command) {
-		return RPCMuxSubprocessExecutionPolicy{}, fmt.Errorf("subprocess exporter command is not allowed")
+		return RPCMuxSubprocessExecutionPolicy{}, newRPCMuxSubprocessPolicyError(RPCMuxSubprocessPolicyErrorCommandDenied, "subprocess exporter command is not allowed")
 	}
 	if stringListContains(p.DenyCommands, p.Command) {
-		return RPCMuxSubprocessExecutionPolicy{}, fmt.Errorf("subprocess exporter command is denied")
+		return RPCMuxSubprocessExecutionPolicy{}, newRPCMuxSubprocessPolicyError(RPCMuxSubprocessPolicyErrorCommandDenied, "subprocess exporter command is denied")
 	}
 	p.WorkDir = strings.TrimSpace(p.WorkDir)
 	p.WorkDirRoot = strings.TrimSpace(p.WorkDirRoot)
@@ -232,12 +248,12 @@ func (p RPCMuxSubprocessExecutionPolicy) Validate() (RPCMuxSubprocessExecutionPo
 			return RPCMuxSubprocessExecutionPolicy{}, fmt.Errorf("subprocess exporter workDirRoot must be absolute")
 		}
 		if !filepath.IsLocal(p.WorkDir) {
-			return RPCMuxSubprocessExecutionPolicy{}, fmt.Errorf("subprocess exporter workDir must be local")
+			return RPCMuxSubprocessExecutionPolicy{}, newRPCMuxSubprocessPolicyError(RPCMuxSubprocessPolicyErrorWorkDirEscaped, "subprocess exporter workDir must be local")
 		}
 		workDir := filepath.Join(root, p.WorkDir)
 		rel, err := filepath.Rel(root, workDir)
 		if err != nil || !filepath.IsLocal(rel) {
-			return RPCMuxSubprocessExecutionPolicy{}, fmt.Errorf("subprocess exporter workDir escapes root")
+			return RPCMuxSubprocessExecutionPolicy{}, newRPCMuxSubprocessPolicyError(RPCMuxSubprocessPolicyErrorWorkDirEscaped, "subprocess exporter workDir escapes root")
 		}
 		p.WorkDirRoot = root
 		p.WorkDir = workDir
@@ -249,6 +265,10 @@ func (p RPCMuxSubprocessExecutionPolicy) Validate() (RPCMuxSubprocessExecutionPo
 	p.Env = env
 	p.EnvWhitelist = normalizeStringList(p.EnvWhitelist)
 	return p, nil
+}
+
+func newRPCMuxSubprocessPolicyError(category string, message string) RPCMuxSubprocessExecutionPolicyError {
+	return RPCMuxSubprocessExecutionPolicyError{Category: category, Message: message}
 }
 
 func normalizeStringList(values []string) []string {
@@ -286,7 +306,7 @@ func normalizeSubprocessEnv(env map[string]string, whitelist []string) (map[stri
 		allowed[key] = struct{}{}
 	}
 	if len(allowed) == 0 {
-		return nil, fmt.Errorf("subprocess exporter envWhitelist is required when env is set")
+		return nil, newRPCMuxSubprocessPolicyError(RPCMuxSubprocessPolicyErrorEnvNotWhitelisted, "subprocess exporter envWhitelist is required when env is set")
 	}
 	out := make(map[string]string, len(env))
 	for key, value := range env {
@@ -295,7 +315,7 @@ func normalizeSubprocessEnv(env map[string]string, whitelist []string) (map[stri
 			return nil, fmt.Errorf("subprocess exporter env key is invalid")
 		}
 		if _, ok := allowed[key]; !ok {
-			return nil, fmt.Errorf("subprocess exporter env key %q is not whitelisted", key)
+			return nil, newRPCMuxSubprocessPolicyError(RPCMuxSubprocessPolicyErrorEnvNotWhitelisted, fmt.Sprintf("subprocess exporter env key %q is not whitelisted", key))
 		}
 		if strings.ContainsAny(value, "\x00") {
 			return nil, fmt.Errorf("subprocess exporter env value contains invalid characters")
@@ -328,6 +348,7 @@ func (e *rpcMuxSubprocessExporter) ExportRPCMuxDiagnosisEvent(ctx context.Contex
 		e.recordRun(-1, time.Since(startedAt), false, false, err)
 		return
 	}
+	// #nosec G204 G702 -- command, args, env, and workDir are normalized through RPCMuxSubprocessExecutionPolicy before exporter construction.
 	cmd := exec.CommandContext(runCtx, e.config.Command, e.config.Args...)
 	cmd.Dir = e.config.WorkDir
 	if len(e.config.Env) > 0 {

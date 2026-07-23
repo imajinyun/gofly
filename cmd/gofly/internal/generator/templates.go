@@ -433,7 +433,7 @@ const configTemplate = `{
   "rpc": {
     "addr": ":8081",
     "advertise": "http://127.0.0.1:8081",
-    "mux": {"enabled": false, "probe": false, "addr": "127.0.0.1:8082", "endpoints": [], "idleTimeout": 60000000000, "maxOpenRetries": 1, "openRetryReasons": ["dial_failure", "pool_exhausted"], "healthBackoffMultiplier": 2, "healthMaxCooldown": 30000000000, "trace": {"enabled": false, "annotateStreams": false}, "log": {"enabled": false, "diagnosis": false, "exportEvents": false, "eventFamily": "", "event": "", "endpoint": "", "connectionId": "", "otelCompatible": {"enabled": false, "sink": "slog", "profile": "", "profileRef": "env://GOFLY_MUX_OTEL_PROFILE", "fileSecretRoot": "etc/secrets", "sinks": [{"name": "subprocess", "profileRef": "file://mux-subprocess-profile.json", "delivery": {"isolation": {"mode": "isolated_process"}}}]}}, "tls": {"enabled": false, "certFile": "", "keyFile": "", "caFile": "", "serverName": ""}, "mtls": {"enabled": false, "clientCAFile": "", "clientCertFile": "", "clientKeyFile": ""}, "alpn": {"enabled": false, "protocol": "gofly-mux/experimental-v1"}, "candidate": {"enabled": false, "protocol": "gofly-mux/experimental-v1", "dialTimeout": 30000000000, "keepAlive": 30000000000, "handshakeTimeout": 10000000000, "keepaliveInterval": 30000000000, "keepaliveIdle": 90000000000, "writeTimeout": 0, "creditWaitTimeout": 0, "maxFrameBytes": 4194304, "maxMessageBytes": 67108864, "maxConcurrentStreams": 128, "receiveQueueSize": 16, "connectionWindow": 16, "fragmentStreamWindowUpdatePolicy": "per_fragment", "fragmentConnectionWindowUpdatePolicy": "per_fragment", "fragmentStreamWindowRefillRatio": 1, "fragmentConnectionWindowRefillRatio": 1, "fragmentMaxDeferredFragments": 0, "fragmentWindowPolicyRiskMode": "diagnose", "payloadCodec": "identity", "frameCodec": "binary", "allowLegacyDowngrade": false, "tls": {}}}
+    "mux": {"enabled": false, "probe": false, "addr": "127.0.0.1:8082", "endpoints": [], "idleTimeout": 60000000000, "maxOpenRetries": 1, "openRetryReasons": ["dial_failure", "pool_exhausted"], "healthBackoffMultiplier": 2, "healthMaxCooldown": 30000000000, "trace": {"enabled": false, "annotateStreams": false}, "log": {"enabled": false, "diagnosis": false, "exportEvents": false, "eventFamily": "", "event": "", "endpoint": "", "connectionId": "", "otelCompatible": {"enabled": false, "sink": "slog", "profile": "", "profileRef": "env://GOFLY_MUX_OTEL_PROFILE", "fileSecretRoot": "etc/secrets", "operatorHistory": {"enabled": false, "store": "file://mux-operator-history.jsonl"}, "sinks": [{"name": "subprocess", "profileRef": "file://mux-subprocess-profile.json", "delivery": {"isolation": {"mode": "isolated_process"}}}]}}, "tls": {"enabled": false, "certFile": "", "keyFile": "", "caFile": "", "serverName": ""}, "mtls": {"enabled": false, "clientCAFile": "", "clientCertFile": "", "clientKeyFile": ""}, "alpn": {"enabled": false, "protocol": "gofly-mux/experimental-v1"}, "candidate": {"enabled": false, "protocol": "gofly-mux/experimental-v1", "dialTimeout": 30000000000, "keepAlive": 30000000000, "handshakeTimeout": 10000000000, "keepaliveInterval": 30000000000, "keepaliveIdle": 90000000000, "writeTimeout": 0, "creditWaitTimeout": 0, "maxFrameBytes": 4194304, "maxMessageBytes": 67108864, "maxConcurrentStreams": 128, "receiveQueueSize": 16, "connectionWindow": 16, "fragmentStreamWindowUpdatePolicy": "per_fragment", "fragmentConnectionWindowUpdatePolicy": "per_fragment", "fragmentStreamWindowRefillRatio": 1, "fragmentConnectionWindowRefillRatio": 1, "fragmentMaxDeferredFragments": 0, "fragmentWindowPolicyRiskMode": "diagnose", "payloadCodec": "identity", "frameCodec": "binary", "allowLegacyDowngrade": false, "tls": {}}}
   }
 }
 `
@@ -1965,10 +1965,16 @@ type RPCMuxOTelCompatibleLogConfig struct {
 	Profile string ` + "`json:\"profile,omitempty\"`" + `
 	ProfileRef string ` + "`json:\"profileRef,omitempty\"`" + `
 	FileSecretRoot string ` + "`json:\"fileSecretRoot,omitempty\"`" + `
+	OperatorHistory RPCMuxOperatorHistoryConfig ` + "`json:\"operatorHistory,omitempty\"`" + `
 	ProfileSchema string ` + "`json:\"profileSchema,omitempty\"`" + `
 	ProfileMigration string ` + "`json:\"profileMigration,omitempty\"`" + `
 	Delivery RPCMuxExporterDeliveryConfig ` + "`json:\"delivery,omitempty\"`" + `
 	Sinks []RPCMuxOTelSinkConfig ` + "`json:\"sinks,omitempty\"`" + `
+}
+
+type RPCMuxOperatorHistoryConfig struct {
+	Enabled bool ` + "`json:\"enabled,omitempty\"`" + `
+	Store string ` + "`json:\"store,omitempty\"`" + `
 }
 
 type RPCMuxOTelSinkConfig struct {
@@ -2079,7 +2085,19 @@ func (c RPCMuxOTelCompatibleLogConfig) SecretResolver() rpc.RPCMuxDiagnosisSecre
 }
 
 func (c RPCMuxOTelCompatibleLogConfig) NewSinkSet() (*rpc.RPCMuxDiagnosisSinkSet, error) {
-	return rpc.NewRPCMuxDiagnosisSinkSet(c.SinkSetConfig())
+	sinkSet, err := rpc.NewRPCMuxDiagnosisSinkSet(c.SinkSetConfig())
+	if err != nil {
+		return nil, err
+	}
+	store, err := c.OperatorHistoryStore()
+	if err != nil {
+		sinkSet.Close()
+		return nil, err
+	}
+	if store != nil {
+		sinkSet.WithOperatorHistoryStore(store)
+	}
+	return sinkSet, nil
 }
 
 func (c RPCMuxOTelCompatibleLogConfig) ReloadSinkSet(ctx context.Context, sinkSet *rpc.RPCMuxDiagnosisSinkSet) error {
@@ -2087,7 +2105,15 @@ func (c RPCMuxOTelCompatibleLogConfig) ReloadSinkSet(ctx context.Context, sinkSe
 		_, err := c.NewSinkSet()
 		return err
 	}
-	return sinkSet.Reload(ctx, c.SinkSetConfig())
+	store, err := c.OperatorHistoryStore()
+	if err != nil {
+		return err
+	}
+	if err := sinkSet.Reload(ctx, c.SinkSetConfig()); err != nil {
+		return err
+	}
+	sinkSet.WithOperatorHistoryStore(store)
+	return nil
 }
 
 func (c RPCMuxOTelCompatibleLogConfig) DiffSinkSet(ctx context.Context, sinkSet *rpc.RPCMuxDiagnosisSinkSet) (rpc.RPCMuxDiagnosisSinkSetDiffPlan, error) {
@@ -2100,6 +2126,29 @@ func (c RPCMuxOTelCompatibleLogConfig) DiffSinkSet(ctx context.Context, sinkSet 
 		return empty.DiffRPCMuxDiagnosisSinkSetConfig(ctx, c.SinkSetConfig())
 	}
 	return sinkSet.DiffRPCMuxDiagnosisSinkSetConfig(ctx, c.SinkSetConfig())
+}
+
+func (c RPCMuxOTelCompatibleLogConfig) OperatorHistoryStore() (rpc.RPCMuxDiagnosisOperatorHistoryStore, error) {
+	if !c.OperatorHistory.Enabled {
+		return nil, nil
+	}
+	store := strings.TrimSpace(c.OperatorHistory.Store)
+	if store == "" {
+		return nil, fmt.Errorf("rpc mux operator history store is required when enabled")
+	}
+	const fileScheme = "file://"
+	if !strings.HasPrefix(store, fileScheme) {
+		return nil, fmt.Errorf("rpc mux operator history store must use file://")
+	}
+	relPath := strings.TrimSpace(strings.TrimPrefix(store, fileScheme))
+	if relPath == "" || !filepath.IsLocal(relPath) {
+		return nil, fmt.Errorf("rpc mux operator history file path must stay under fileSecretRoot")
+	}
+	root := strings.TrimSpace(c.FileSecretRoot)
+	if root == "" || !filepath.IsLocal(root) {
+		return nil, fmt.Errorf("rpc mux operator history fileSecretRoot must be local")
+	}
+	return rpc.NewRPCMuxDiagnosisOperatorHistoryFileStore(filepath.Join(root, relPath))
 }
 
 type RPCMuxTLSConfig struct {
@@ -2809,10 +2858,16 @@ func TestRPCMuxConfigValidatesOTelCompatibleSink(t *testing.T) {
 
 func TestRPCMuxOTelCompatibleSinkSetHotReload(t *testing.T) {
 	t.Setenv("OTEL_PROFILE_JSON", "generated-env-profile")
+	secretDir := filepath.Join("testdata", "mux-operator-history")
 	cfg := RPCMuxOTelCompatibleLogConfig{
 		Enabled: true,
 		Version: "generated-v1",
 		SchemaVersion: "mux-sinks/v1",
+		FileSecretRoot: secretDir,
+		OperatorHistory: RPCMuxOperatorHistoryConfig{
+			Enabled: true,
+			Store: "file://mux-operator-history.jsonl",
+		},
 		Sinks: []RPCMuxOTelSinkConfig{{
 			Name: "slog",
 			ProfileRef: "env://OTEL_PROFILE_JSON",
@@ -2846,6 +2901,9 @@ func TestRPCMuxOTelCompatibleSinkSetHotReload(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer sinkSet.Close()
+	if snapshot := sinkSet.OperatorHistoryStoreSnapshot(); !snapshot.Enabled || snapshot.Kind != "file" {
+		t.Fatalf("operator history store snapshot = %+v", snapshot)
+	}
 	next := cfg
 	next.Version = "generated-v2"
 	next.SchemaVersion = "mux-sinks/v2"
@@ -2871,6 +2929,19 @@ func TestRPCMuxOTelCompatibleSinkSetHotReload(t *testing.T) {
 	if strings.Contains(snapshot.Sinks[0].Name, "generated-env-profile") ||
 		strings.Contains(snapshot.Sinks[0].Delivery.LastError, "generated-env-profile") {
 		t.Fatalf("sink set snapshot leaked env profile: %+v", snapshot)
+	}
+	noStore := next
+	noStore.OperatorHistory = RPCMuxOperatorHistoryConfig{}
+	if err := noStore.ReloadSinkSet(context.Background(), sinkSet); err != nil {
+		t.Fatalf("disable operator history store: %v", err)
+	}
+	if snapshot := sinkSet.OperatorHistoryStoreSnapshot(); snapshot.Enabled {
+		t.Fatalf("operator history store after disable = %+v", snapshot)
+	}
+	badStore := cfg
+	badStore.OperatorHistory.Store = "file://../escape.jsonl"
+	if _, err := badStore.NewSinkSet(); err == nil || !strings.Contains(err.Error(), "fileSecretRoot") {
+		t.Fatalf("escaped operator history store err = %v, want fileSecretRoot error", err)
 	}
 
 	disabled := RPCMuxOTelCompatibleLogConfig{Version: "disabled-v1", SchemaVersion: "mux-sinks/v2"}
@@ -4183,8 +4254,10 @@ grep -q '"tls"' "$config_file" || printf 'production-check warning: tls is expec
 grep -q '"admin"' "$config_file" || fail "admin control-plane config is missing"
 grep -q 'change-me-admin-token' "$config_file" && fail "replace placeholder admin token before production"
 grep -q '"fileSecretRoot": "etc/secrets"' "$config_file" || fail "mux fileSecretRoot is missing"
+grep -q '"operatorHistory": {"enabled": false, "store": "file://mux-operator-history.jsonl"}' "$config_file" || fail "mux operator history store must be disabled by default"
 [ -d "etc/secrets" ] || fail "mux fileSecretRoot directory is missing"
 [ ! -f "etc/secrets/mux-subprocess-profile.json" ] || fail "real mux subprocess profile must not be generated by default"
+[ ! -f "etc/secrets/mux-operator-history.jsonl" ] || fail "real mux operator history must not be generated by default"
 [ -f "etc/secrets/mux-subprocess-profile.example.json" ] || fail "mux subprocess profile example is missing"
 grep -q 'kind: NetworkPolicy' "deploy/k8s/{{.Name}}.yaml" || fail "network policy is missing"
 grep -q 'kind: PodDisruptionBudget' "deploy/k8s/{{.Name}}.yaml" || fail "pod disruption budget is missing"

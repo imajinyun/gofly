@@ -2,6 +2,7 @@ package rpc
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"sync/atomic"
 	"testing"
@@ -225,9 +226,27 @@ func TestRPCMuxDiagnosisOperatorHistoryFileStore(t *testing.T) {
 	if len(actions) != 1 || actions[0].Action != RPCMuxDiagnosisOperatorPauseSink {
 		t.Fatalf("stored actions = %+v", actions)
 	}
+	storeSnapshot := sinkSet.OperatorHistoryStoreSnapshot()
+	if !storeSnapshot.Enabled || storeSnapshot.Kind != "file" || storeSnapshot.StoredActions != 1 {
+		t.Fatalf("store snapshot = %+v", storeSnapshot)
+	}
 	loaded, err := store.LoadRPCMuxDiagnosisOperatorActions(context.Background(), 1)
 	if err != nil || len(loaded) != 1 {
 		t.Fatalf("loaded actions = %+v err=%v", loaded, err)
+	}
+	if err := os.WriteFile(store.path, []byte("{bad\n"+`{"sink":"slog","action":"resume_sink","approved":true}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err = store.LoadRPCMuxDiagnosisOperatorActions(context.Background(), 5)
+	if err != nil || len(loaded) != 1 || loaded[0].Action != RPCMuxDiagnosisOperatorResumeSink {
+		t.Fatalf("loaded actions with bad lines = %+v err=%v", loaded, err)
+	}
+	if snapshot := store.RPCMuxDiagnosisOperatorStoreSnapshot(); snapshot.BadLines != 1 || snapshot.ChecksumStatus != "partial_bad_lines" {
+		t.Fatalf("bad line store snapshot = %+v", snapshot)
+	}
+	historySnapshot := sinkSet.RPCMuxDiagnosisOperatorHistorySnapshot(5)
+	if !historySnapshot.Diagnostics.ChecksumMismatch || historySnapshot.Diagnostics.StoreChecksumStatus != "partial_bad_lines" {
+		t.Fatalf("history diagnostics = %+v", historySnapshot.Diagnostics)
 	}
 	canceled, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -237,6 +256,66 @@ func TestRPCMuxDiagnosisOperatorHistoryFileStore(t *testing.T) {
 	if _, err := store.LoadRPCMuxDiagnosisOperatorActions(canceled, 1); err == nil {
 		t.Fatal("canceled load succeeded")
 	}
+}
+
+func TestRPCMuxDiagnosisOperatorHistoryStoreDiagnostics(t *testing.T) {
+	if snapshot := (*RPCMuxDiagnosisOperatorHistoryFileStore)(nil).RPCMuxDiagnosisOperatorStoreSnapshot(); snapshot.Enabled {
+		t.Fatalf("nil file store snapshot = %+v", snapshot)
+	}
+	if status := checksumStatusForOperatorHistory(0, 1); status != "bad_lines" {
+		t.Fatalf("bad-only checksum status = %q", status)
+	}
+	if status := checksumStatusForOperatorHistory(0, 0); status != "empty" {
+		t.Fatalf("empty checksum status = %q", status)
+	}
+	sinkSet, err := NewRPCMuxDiagnosisSinkSet(RPCMuxDiagnosisSinkSetConfig{Version: "store-diagnostics-v1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sinkSet.Close()
+	if snapshot := sinkSet.OperatorHistoryStoreSnapshot(); snapshot.Enabled {
+		t.Fatalf("empty store snapshot = %+v", snapshot)
+	}
+	customStore := fakeOperatorHistoryStore{}
+	sinkSet.WithOperatorHistoryStore(customStore)
+	if snapshot := sinkSet.OperatorHistoryStoreSnapshot(); !snapshot.Enabled || snapshot.Kind != "custom" {
+		t.Fatalf("custom store snapshot = %+v", snapshot)
+	}
+
+	store, err := NewRPCMuxDiagnosisOperatorHistoryFileStore(filepath.Join("history", "operator.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.path = filepath.Join(t.TempDir(), store.path)
+	if loaded, err := store.LoadRPCMuxDiagnosisOperatorActions(context.Background(), 5); err != nil || len(loaded) != 0 {
+		t.Fatalf("missing file load = %+v err=%v", loaded, err)
+	}
+	if snapshot := store.RPCMuxDiagnosisOperatorStoreSnapshot(); snapshot.ChecksumStatus != "missing" {
+		t.Fatalf("missing file snapshot = %+v", snapshot)
+	}
+	if err := os.MkdirAll(filepath.Dir(store.path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(store.path, []byte(`{"sink":"slog","action":"pause_sink","approved":true}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store.maxSizeBytes = 1
+	if _, err := store.LoadRPCMuxDiagnosisOperatorActions(context.Background(), 5); err == nil {
+		t.Fatal("oversized operator history loaded")
+	}
+	if snapshot := store.RPCMuxDiagnosisOperatorStoreSnapshot(); snapshot.ChecksumStatus != "size_limit_exceeded" || snapshot.LastError == "" {
+		t.Fatalf("oversized file snapshot = %+v", snapshot)
+	}
+}
+
+type fakeOperatorHistoryStore struct{}
+
+func (fakeOperatorHistoryStore) AppendRPCMuxDiagnosisOperatorAction(context.Context, RPCMuxDiagnosisOperatorAction) error {
+	return nil
+}
+
+func (fakeOperatorHistoryStore) LoadRPCMuxDiagnosisOperatorActions(context.Context, int) ([]RPCMuxDiagnosisOperatorAction, error) {
+	return nil, nil
 }
 
 func waitForOperatorExports(t *testing.T, exports *atomic.Int64, want int64) {

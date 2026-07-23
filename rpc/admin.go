@@ -266,6 +266,11 @@ func (s *HTTPServer) RuntimeSnapshot(ctx context.Context) coreruntime.Snapshot {
 			}); ok {
 				details["operatorHistory"] = historySource.RPCMuxDiagnosisOperatorHistorySnapshot(5)
 			}
+			if storeSource, ok := muxEventExporter.(interface {
+				OperatorHistoryStoreSnapshot() RPCMuxDiagnosisOperatorStoreSnapshot
+			}); ok {
+				details["operatorHistoryStore"] = storeSource.OperatorHistoryStoreSnapshot()
+			}
 			status = rpcMuxDiagnosisSinkSetStatus(snapshot)
 		} else if delivery, ok := muxEventExporter.(RPCMuxDiagnosisExporterDeliverySnapshotter); ok {
 			details["delivery"] = delivery.RPCMuxDiagnosisExporterDeliverySnapshot()

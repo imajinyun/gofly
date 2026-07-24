@@ -251,15 +251,18 @@ func main() {
 			if err != nil {
 				return snapshot, err
 			}
-			history := rpcServer.MuxDiagnosisOperatorActionHistorySnapshot(5)
-			data, err := json.Marshal(history)
+			historyStore, verifyErr := rpcServer.MuxDiagnosisOperatorHistoryIntegritySnapshot(ctx)
+			if verifyErr != nil {
+				historyStore.Store.LastError = verifyErr.Error()
+			}
+			data, err := json.Marshal(historyStore)
 			if err != nil {
 				return snapshot, err
 			}
 			if snapshot.Configs == nil {
 				snapshot.Configs = make(map[string]json.RawMessage)
 			}
-			snapshot.Configs["generated.rpcMuxOperatorHistory"] = data
+			snapshot.Configs["generated.rpcMuxOperatorHistoryStore"] = data
 			return snapshot.WithChecksum(), nil
 		})))
 	}
@@ -1975,6 +1978,9 @@ type RPCMuxOTelCompatibleLogConfig struct {
 type RPCMuxOperatorHistoryConfig struct {
 	Enabled bool ` + "`json:\"enabled,omitempty\"`" + `
 	Store string ` + "`json:\"store,omitempty\"`" + `
+	MaxActions int ` + "`json:\"maxActions,omitempty\"`" + `
+	MaxSizeBytes int64 ` + "`json:\"maxSizeBytes,omitempty\"`" + `
+	MaxLineBytes int64 ` + "`json:\"maxLineBytes,omitempty\"`" + `
 }
 
 type RPCMuxOTelSinkConfig struct {
@@ -2148,7 +2154,14 @@ func (c RPCMuxOTelCompatibleLogConfig) OperatorHistoryStore() (rpc.RPCMuxDiagnos
 	if root == "" || !filepath.IsLocal(root) {
 		return nil, fmt.Errorf("rpc mux operator history fileSecretRoot must be local")
 	}
-	return rpc.NewRPCMuxDiagnosisOperatorHistoryFileStore(filepath.Join(root, relPath))
+	return rpc.NewRPCMuxDiagnosisOperatorHistoryFileStoreWithConfig(
+		filepath.Join(root, relPath),
+		rpc.RPCMuxDiagnosisOperatorHistoryFileStoreConfig{
+			MaxActions: c.OperatorHistory.MaxActions,
+			MaxSizeBytes: c.OperatorHistory.MaxSizeBytes,
+			MaxLineBytes: c.OperatorHistory.MaxLineBytes,
+		},
+	)
 }
 
 type RPCMuxTLSConfig struct {
@@ -2353,6 +2366,11 @@ func ValidateRPCMuxConfig(c RPCMuxConfig) error {
 	if c.Log.OTelCompatible.Enabled {
 		if err := rpc.ValidateRPCMuxDiagnosisSinkSetConfig(c.Log.OTelCompatible.SinkSetConfig()); err != nil {
 			return fmt.Errorf("rpc mux otelCompatible sinks: %w", err)
+		}
+	}
+	if c.Log.OTelCompatible.OperatorHistory.Enabled {
+		if _, err := c.Log.OTelCompatible.OperatorHistoryStore(); err != nil {
+			return fmt.Errorf("rpc mux operator history: %w", err)
 		}
 	}
 	if !c.Candidate.Enabled {
@@ -2856,6 +2874,50 @@ func TestRPCMuxConfigValidatesOTelCompatibleSink(t *testing.T) {
 	}
 }
 
+func TestRPCMuxConfigReportsSubprocessPolicyCategories(t *testing.T) {
+	tests := []struct {
+		name string
+		category string
+		profile map[string]any
+	}{
+		{
+			name: "command",
+			category: "command_denied",
+			profile: map[string]any{"command": "/bin/echo", "allowCommands": []string{"/bin/false"}},
+		},
+		{
+			name: "workdir",
+			category: "workdir_escaped",
+			profile: map[string]any{"command": "/bin/echo", "workDir": "../escape", "workDirRoot": t.TempDir()},
+		},
+		{
+			name: "env",
+			category: "env_not_whitelisted",
+			profile: map[string]any{"command": "/bin/echo", "env": map[string]string{"SECRET": "redacted"}},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			profile, err := json.Marshal(test.profile)
+			if err != nil {
+				t.Fatal(err)
+			}
+			cfg := RPCMuxConfig{Log: RPCMuxLogConfig{
+				Enabled: true,
+				ExportEvents: true,
+				OTelCompatible: RPCMuxOTelCompatibleLogConfig{
+					Enabled: true,
+					Sinks: []RPCMuxOTelSinkConfig{{Name: "subprocess", Profile: string(profile)}},
+				},
+			}}
+			err = ValidateRPCMuxConfig(cfg)
+			if err == nil || !strings.Contains(err.Error(), "["+test.category+"]") {
+				t.Fatalf("ValidateRPCMuxConfig error = %v, want category [%s]", err, test.category)
+			}
+		})
+	}
+}
+
 func TestRPCMuxOTelCompatibleSinkSetHotReload(t *testing.T) {
 	t.Setenv("OTEL_PROFILE_JSON", "generated-env-profile")
 	secretDir := filepath.Join("testdata", "mux-operator-history")
@@ -2867,6 +2929,9 @@ func TestRPCMuxOTelCompatibleSinkSetHotReload(t *testing.T) {
 		OperatorHistory: RPCMuxOperatorHistoryConfig{
 			Enabled: true,
 			Store: "file://mux-operator-history.jsonl",
+			MaxActions: 7,
+			MaxSizeBytes: 128 << 10,
+			MaxLineBytes: 16 << 10,
 		},
 		Sinks: []RPCMuxOTelSinkConfig{{
 			Name: "slog",
@@ -2906,6 +2971,10 @@ func TestRPCMuxOTelCompatibleSinkSetHotReload(t *testing.T) {
 	}
 	if snapshot := sinkSet.OperatorHistoryStoreSnapshot(); snapshot.Path != filepath.Join(secretDir, "mux-operator-history.jsonl") {
 		t.Fatalf("operator history store path = %+v, want root-scoped path", snapshot)
+	}
+	if snapshot := sinkSet.OperatorHistoryStoreSnapshot(); snapshot.MaxActions != 7 ||
+		snapshot.MaxSizeBytes != 128<<10 || snapshot.MaxLineBytes != 16<<10 {
+		t.Fatalf("operator history store limits = %+v, want generated config values", snapshot)
 	}
 	next := cfg
 	next.Version = "generated-v2"
@@ -3467,6 +3536,44 @@ func assertControlPlaneMuxOperatorHistory(t *testing.T, snapshot map[string]any)
 	if history["enabled"] != false || history["store"] != "file://mux-operator-history.jsonl" {
 		t.Fatalf("operatorHistory config = %#v, want disabled file store", history)
 	}
+	if _, ok := history["maxActions"]; ok {
+		t.Fatalf("operatorHistory config = %#v, want advanced tuning omitted by default", history)
+	}
+	historyStore, ok := configs["generated.rpcMuxOperatorHistoryStore"].(map[string]any)
+	if !ok {
+		t.Fatalf("generated.rpcMuxOperatorHistoryStore = %#v, want store evidence", configs["generated.rpcMuxOperatorHistoryStore"])
+	}
+	if containsJSONKey(historyStore, "actions") {
+		t.Fatalf("generated.rpcMuxOperatorHistoryStore leaked actions at some level: %#v", historyStore)
+	}
+	store, ok := historyStore["store"].(map[string]any)
+	if !ok || store["enabled"] != false {
+		t.Fatalf("generated rpc mux operator history store = %#v, want disabled summary", historyStore["store"])
+	}
+	if historyStore["integrityStatus"] != "disabled" {
+		t.Fatalf("generated rpc mux operator history integrity = %#v, want disabled", historyStore["integrityStatus"])
+	}
+}
+
+func containsJSONKey(value any, key string) bool {
+	switch typed := value.(type) {
+	case map[string]any:
+		if _, ok := typed[key]; ok {
+			return true
+		}
+		for _, child := range typed {
+			if containsJSONKey(child, key) {
+				return true
+			}
+		}
+	case []any:
+		for _, child := range typed {
+			if containsJSONKey(child, key) {
+				return true
+			}
+		}
+	}
+	return false
 }
 `
 

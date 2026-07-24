@@ -1053,6 +1053,9 @@ func TestRPCMuxOTelLogSinkRegistrySnapshotAndTypedProfile(t *testing.T) {
 		"operator_action_history",
 		"operator_history_integrity_envelope",
 		"operator_history_compaction",
+		"operator_history_readonly_replay",
+		"operator_history_compaction_config",
+		"operator_history_integrity_evidence",
 		"file_secret_resolver",
 		"layered_secret_resolver",
 	} {

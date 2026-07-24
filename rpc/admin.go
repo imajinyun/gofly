@@ -336,6 +336,24 @@ func (s *HTTPServer) MuxDiagnosisOperatorActionHistorySnapshot(limit int) RPCMux
 	return source.RPCMuxDiagnosisOperatorHistorySnapshot(limit)
 }
 
+// MuxDiagnosisOperatorHistoryIntegritySnapshot returns redacted, read-only
+// operator history integrity evidence from the active mux exporter.
+func (s *HTTPServer) MuxDiagnosisOperatorHistoryIntegritySnapshot(ctx context.Context) (RPCMuxDiagnosisOperatorHistoryIntegritySnapshot, error) {
+	if s == nil {
+		return RPCMuxDiagnosisOperatorHistoryIntegritySnapshot{}, nil
+	}
+	s.mu.RLock()
+	exporter := s.opts.muxEventExporter
+	s.mu.RUnlock()
+	source, ok := exporter.(interface {
+		RPCMuxDiagnosisOperatorHistoryIntegritySnapshot(context.Context) (RPCMuxDiagnosisOperatorHistoryIntegritySnapshot, error)
+	})
+	if !ok {
+		return RPCMuxDiagnosisOperatorHistoryIntegritySnapshot{}, nil
+	}
+	return source.RPCMuxDiagnosisOperatorHistoryIntegritySnapshot(ctx)
+}
+
 func (s *HTTPServer) serveMuxOperatorAction(w http.ResponseWriter, r *http.Request) {
 	if s == nil {
 		writeRPCError(w, http.StatusServiceUnavailable, CodeUnavailable, "rpc server is nil")

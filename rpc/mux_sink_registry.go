@@ -116,6 +116,9 @@ func RPCMuxOTelLogSinkRegistry() RPCMuxOTelLogSinkRegistrySnapshot {
 			"operator_action_history",
 			"operator_history_integrity_envelope",
 			"operator_history_compaction",
+			"operator_history_readonly_replay",
+			"operator_history_compaction_config",
+			"operator_history_integrity_evidence",
 			"subprocess_policy_error_categories",
 		},
 	}

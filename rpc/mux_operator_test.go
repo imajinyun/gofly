@@ -314,6 +314,184 @@ func TestRPCMuxDiagnosisOperatorHistoryFileStoreIntegrityAndCompaction(t *testin
 	}
 }
 
+func TestRPCMuxDiagnosisOperatorHistoryFileStoreReplayAndVerify(t *testing.T) {
+	if replay, err := (*RPCMuxDiagnosisOperatorHistoryFileStore)(nil).ReplayRPCMuxDiagnosisOperatorHistory(context.Background(), RPCMuxDiagnosisOperatorHistorySourcePrimary, 0); err != nil || replay.Source != "" {
+		t.Fatalf("nil store replay = %+v err=%v", replay, err)
+	}
+	if verification, err := (*RPCMuxDiagnosisOperatorHistoryFileStore)(nil).VerifyRPCMuxDiagnosisOperatorHistory(context.Background()); err != nil ||
+		verification.Primary.Source != "" {
+		t.Fatalf("nil store verification = %+v err=%v", verification, err)
+	}
+	if integrity, err := (*RPCMuxDiagnosisSinkSet)(nil).RPCMuxDiagnosisOperatorHistoryIntegritySnapshot(context.Background()); err != nil ||
+		integrity.IntegrityStatus != "" {
+		t.Fatalf("nil sink set integrity = %+v err=%v", integrity, err)
+	}
+	store, err := NewRPCMuxDiagnosisOperatorHistoryFileStoreWithConfig(
+		filepath.Join("history", "operator.jsonl"),
+		RPCMuxDiagnosisOperatorHistoryFileStoreConfig{
+			MaxSizeBytes: 32 << 10,
+			MaxLineBytes: 8 << 10,
+			MaxActions:   2,
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.path = filepath.Join(t.TempDir(), store.path)
+	for _, actionName := range []string{
+		RPCMuxDiagnosisOperatorPauseSink,
+		RPCMuxDiagnosisOperatorResumeSink,
+		RPCMuxDiagnosisOperatorForceProbe,
+	} {
+		if err := store.AppendRPCMuxDiagnosisOperatorAction(context.Background(), RPCMuxDiagnosisOperatorAction{
+			Sink:     "slog",
+			Action:   actionName,
+			Approved: true,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	primaryBefore, err := os.ReadFile(store.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	backupBefore, err := os.ReadFile(store.path + ".bak")
+	if err != nil {
+		t.Fatal(err)
+	}
+	primaryInfoBefore, err := os.Stat(store.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	backupInfoBefore, err := os.Stat(store.path + ".bak")
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshotBefore := store.RPCMuxDiagnosisOperatorStoreSnapshot()
+
+	replay, err := store.ReplayRPCMuxDiagnosisOperatorHistory(context.Background(), RPCMuxDiagnosisOperatorHistorySourceBackup, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(replay.Actions) != 1 || replay.Actions[0].Action != RPCMuxDiagnosisOperatorForceProbe ||
+		!replay.Evidence.Exists || replay.Evidence.StoredActions != 3 || replay.Evidence.IntegrityStatus != "ok" {
+		t.Fatalf("backup replay = %+v", replay)
+	}
+	verification, err := store.VerifyRPCMuxDiagnosisOperatorHistory(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if verification.Primary.StoredActions != 2 || verification.Primary.IntegrityStatus != "ok" ||
+		verification.Backup.StoredActions != 3 || verification.Backup.IntegrityStatus != "ok" {
+		t.Fatalf("history verification = %+v", verification)
+	}
+	primaryReplay, err := store.ReplayRPCMuxDiagnosisOperatorHistory(context.Background(), RPCMuxDiagnosisOperatorHistorySourcePrimary, 0)
+	if err != nil || len(primaryReplay.Actions) != 2 || primaryReplay.Evidence.IntegrityStatus != "ok" {
+		t.Fatalf("primary replay = %+v err=%v", primaryReplay, err)
+	}
+	sinkSet, err := NewRPCMuxDiagnosisSinkSet(RPCMuxDiagnosisSinkSetConfig{Version: "integrity-v1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sinkSet.Close()
+	sinkSet.WithOperatorHistoryStore(store)
+	integrity, err := sinkSet.RPCMuxDiagnosisOperatorHistoryIntegritySnapshot(context.Background())
+	if err != nil || integrity.IntegrityStatus != "ok" || len(integrity.Verification.Primary.Checksum) == 0 {
+		t.Fatalf("sink set integrity = %+v err=%v", integrity, err)
+	}
+	if snapshotAfter := store.RPCMuxDiagnosisOperatorStoreSnapshot(); snapshotAfter.LastLoadAt != snapshotBefore.LastLoadAt {
+		t.Fatalf("read-only verification updated snapshot: before=%+v after=%+v", snapshotBefore, snapshotAfter)
+	}
+	assertOperatorHistoryFileUnchanged(t, store.path, primaryBefore, primaryInfoBefore)
+	assertOperatorHistoryFileUnchanged(t, store.path+".bak", backupBefore, backupInfoBefore)
+
+	data, err := os.ReadFile(store.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tampered := strings.Replace(string(data), RPCMuxDiagnosisOperatorForceProbe, RPCMuxDiagnosisOperatorPauseSink, 1)
+	if err := os.WriteFile(store.path, []byte(tampered), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	verification, err = store.VerifyRPCMuxDiagnosisOperatorHistory(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if verification.Primary.IntegrityStatus != "tampered" || verification.Primary.TamperedLines != 1 ||
+		verification.Backup.IntegrityStatus != "ok" {
+		t.Fatalf("tampered verification = %+v", verification)
+	}
+
+	if _, err := store.ReplayRPCMuxDiagnosisOperatorHistory(context.Background(), "unknown", 0); err == nil {
+		t.Fatal("unknown replay source succeeded")
+	}
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := store.VerifyRPCMuxDiagnosisOperatorHistory(canceled); err == nil {
+		t.Fatal("canceled history verification succeeded")
+	}
+
+	unreadable, err := NewRPCMuxDiagnosisOperatorHistoryFileStore("operator.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	unreadable.path = t.TempDir()
+	replay, err = unreadable.ReplayRPCMuxDiagnosisOperatorHistory(context.Background(), RPCMuxDiagnosisOperatorHistorySourcePrimary, 0)
+	if err == nil || replay.Evidence.IntegrityStatus != "unreadable" || replay.Evidence.LastError == "" {
+		t.Fatalf("unreadable history replay = %+v err=%v", replay, err)
+	}
+
+	badHeader, err := NewRPCMuxDiagnosisOperatorHistoryFileStore("operator.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	badHeader.path = filepath.Join(t.TempDir(), "operator.jsonl")
+	if err := os.WriteFile(badHeader.path, []byte(`{"type":"gofly.rpc_mux_operator_history.header","schemaVersion":"unsupported"}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	replay, err = badHeader.ReplayRPCMuxDiagnosisOperatorHistory(context.Background(), RPCMuxDiagnosisOperatorHistorySourcePrimary, 0)
+	if err != nil || replay.Evidence.IntegrityStatus != "bad_lines" || !replay.Evidence.HeaderPresent {
+		t.Fatalf("bad header replay = %+v err=%v", replay, err)
+	}
+}
+
+func TestRPCMuxDiagnosisOperatorHistoryFileStoreConfig(t *testing.T) {
+	defaultStore, err := NewRPCMuxDiagnosisOperatorHistoryFileStore("operator.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot := defaultStore.RPCMuxDiagnosisOperatorStoreSnapshot(); snapshot.MaxActions != defaultRPCMuxDiagnosisOperatorStoreMaxActions ||
+		snapshot.MaxSizeBytes != defaultRPCMuxDiagnosisOperatorStoreMaxSize ||
+		snapshot.MaxLineBytes != defaultRPCMuxDiagnosisOperatorStoreMaxLine {
+		t.Fatalf("default file store config = %+v", snapshot)
+	}
+	configured, err := NewRPCMuxDiagnosisOperatorHistoryFileStoreWithConfig("operator.jsonl", RPCMuxDiagnosisOperatorHistoryFileStoreConfig{
+		MaxSizeBytes: 128 << 10,
+		MaxLineBytes: 16 << 10,
+		MaxActions:   7,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot := configured.RPCMuxDiagnosisOperatorStoreSnapshot(); snapshot.MaxActions != 7 ||
+		snapshot.MaxSizeBytes != 128<<10 || snapshot.MaxLineBytes != 16<<10 {
+		t.Fatalf("configured file store = %+v", snapshot)
+	}
+	for _, config := range []RPCMuxDiagnosisOperatorHistoryFileStoreConfig{
+		{MaxSizeBytes: -1},
+		{MaxLineBytes: -1},
+		{MaxActions: -1},
+		{MaxSizeBytes: 1024, MaxLineBytes: 2048},
+		{MaxSizeBytes: maxRPCMuxDiagnosisOperatorStoreSize + 1},
+		{MaxLineBytes: maxRPCMuxDiagnosisOperatorStoreLine + 1},
+		{MaxActions: maxRPCMuxDiagnosisOperatorStoreActions + 1},
+	} {
+		if store, err := NewRPCMuxDiagnosisOperatorHistoryFileStoreWithConfig("operator.jsonl", config); err == nil || store != nil {
+			t.Fatalf("invalid history config %+v returned store=%#v err=%v", config, store, err)
+		}
+	}
+}
+
 func TestRPCMuxDiagnosisOperatorHistoryStoreDiagnostics(t *testing.T) {
 	if snapshot := (*RPCMuxDiagnosisOperatorHistoryFileStore)(nil).RPCMuxDiagnosisOperatorStoreSnapshot(); snapshot.Enabled {
 		t.Fatalf("nil file store snapshot = %+v", snapshot)
@@ -345,13 +523,27 @@ func TestRPCMuxDiagnosisOperatorHistoryStoreDiagnostics(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer sinkSet.Close()
+	if snapshot := (*RPCMuxDiagnosisSinkSet)(nil).OperatorHistoryStoreSnapshot(); snapshot.Enabled {
+		t.Fatalf("nil sink set store snapshot = %+v", snapshot)
+	}
+	if got := (*RPCMuxDiagnosisSinkSet)(nil).WithOperatorHistoryStore(fakeOperatorHistoryStore{}); got != nil {
+		t.Fatalf("nil sink set with history store = %#v", got)
+	}
 	if snapshot := sinkSet.OperatorHistoryStoreSnapshot(); snapshot.Enabled {
 		t.Fatalf("empty store snapshot = %+v", snapshot)
+	}
+	if integrity, err := sinkSet.RPCMuxDiagnosisOperatorHistoryIntegritySnapshot(context.Background()); err != nil ||
+		integrity.IntegrityStatus != "disabled" {
+		t.Fatalf("disabled store integrity = %+v err=%v", integrity, err)
 	}
 	customStore := fakeOperatorHistoryStore{}
 	sinkSet.WithOperatorHistoryStore(customStore)
 	if snapshot := sinkSet.OperatorHistoryStoreSnapshot(); !snapshot.Enabled || snapshot.Kind != "custom" {
 		t.Fatalf("custom store snapshot = %+v", snapshot)
+	}
+	if integrity, err := sinkSet.RPCMuxDiagnosisOperatorHistoryIntegritySnapshot(context.Background()); err != nil ||
+		integrity.IntegrityStatus != "unsupported" {
+		t.Fatalf("custom store integrity = %+v err=%v", integrity, err)
 	}
 
 	store, err := NewRPCMuxDiagnosisOperatorHistoryFileStore(filepath.Join("history", "operator.jsonl"))
@@ -378,6 +570,15 @@ func TestRPCMuxDiagnosisOperatorHistoryStoreDiagnostics(t *testing.T) {
 	if snapshot := store.RPCMuxDiagnosisOperatorStoreSnapshot(); snapshot.ChecksumStatus != "size_limit_exceeded" || snapshot.LastError == "" {
 		t.Fatalf("oversized file snapshot = %+v", snapshot)
 	}
+	verification, err := store.VerifyRPCMuxDiagnosisOperatorHistory(context.Background())
+	if err == nil || verification.Primary.IntegrityStatus != "size_limit_exceeded" ||
+		verification.Backup.IntegrityStatus != "missing" {
+		t.Fatalf("oversized verification = %+v err=%v", verification, err)
+	}
+	if replay, err := store.ReplayRPCMuxDiagnosisOperatorHistory(context.Background(), RPCMuxDiagnosisOperatorHistorySourceBackup, 0); err != nil ||
+		replay.Evidence.Exists || replay.Evidence.IntegrityStatus != "missing" {
+		t.Fatalf("missing backup replay = %+v err=%v", replay, err)
+	}
 }
 
 type fakeOperatorHistoryStore struct{}
@@ -400,4 +601,19 @@ func waitForOperatorExports(t *testing.T, exports *atomic.Int64, want int64) {
 		time.Sleep(time.Millisecond)
 	}
 	t.Fatalf("exports = %d, want at least %d", exports.Load(), want)
+}
+
+func assertOperatorHistoryFileUnchanged(t *testing.T, path string, before []byte, infoBefore os.FileInfo) {
+	t.Helper()
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	infoAfter, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(before) || infoAfter.Size() != infoBefore.Size() || !infoAfter.ModTime().Equal(infoBefore.ModTime()) {
+		t.Fatalf("read-only replay modified %s", path)
+	}
 }

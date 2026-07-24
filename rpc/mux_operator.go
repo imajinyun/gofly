@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"os"
@@ -19,10 +20,19 @@ const (
 	RPCMuxDiagnosisOperatorResumeSink = "resume_sink"
 	RPCMuxDiagnosisOperatorForceProbe = "force_probe"
 
+	// RPCMuxDiagnosisOperatorHistorySourcePrimary selects the active JSONL file.
+	RPCMuxDiagnosisOperatorHistorySourcePrimary = "primary"
+	// RPCMuxDiagnosisOperatorHistorySourceBackup selects the rotated .bak file.
+	RPCMuxDiagnosisOperatorHistorySourceBackup = "backup"
+
 	defaultRPCMuxDiagnosisOperatorHistoryLimit    = 32
 	defaultRPCMuxDiagnosisOperatorStoreMaxSize    = 1 << 20
 	defaultRPCMuxDiagnosisOperatorStoreMaxLine    = 64 << 10
 	defaultRPCMuxDiagnosisOperatorStoreMaxActions = 128
+
+	maxRPCMuxDiagnosisOperatorStoreSize    = 64 << 20
+	maxRPCMuxDiagnosisOperatorStoreLine    = 1 << 20
+	maxRPCMuxDiagnosisOperatorStoreActions = 64 << 10
 
 	rpcMuxDiagnosisOperatorHistoryFileHeaderType    = "gofly.rpc_mux_operator_history.header"
 	rpcMuxDiagnosisOperatorHistoryFileSchemaVersion = "gofly.rpc_mux_operator_history.v1"
@@ -66,6 +76,20 @@ type RPCMuxDiagnosisOperatorHistoryStoreSnapshotter interface {
 	RPCMuxDiagnosisOperatorStoreSnapshot() RPCMuxDiagnosisOperatorStoreSnapshot
 }
 
+// RPCMuxDiagnosisOperatorHistoryStoreVerifier exposes redacted, read-only
+// integrity evidence for a history store.
+type RPCMuxDiagnosisOperatorHistoryStoreVerifier interface {
+	VerifyRPCMuxDiagnosisOperatorHistory(context.Context) (RPCMuxDiagnosisOperatorHistoryVerification, error)
+}
+
+// RPCMuxDiagnosisOperatorHistoryFileStoreConfig bounds file reads and
+// compaction. Zero values select the conservative defaults.
+type RPCMuxDiagnosisOperatorHistoryFileStoreConfig struct {
+	MaxSizeBytes int64 `json:"maxSizeBytes,omitempty"`
+	MaxLineBytes int64 `json:"maxLineBytes,omitempty"`
+	MaxActions   int   `json:"maxActions,omitempty"`
+}
+
 type RPCMuxDiagnosisOperatorStoreSnapshot struct {
 	Enabled         bool      `json:"enabled"`
 	Kind            string    `json:"kind,omitempty"`
@@ -89,6 +113,48 @@ type RPCMuxDiagnosisOperatorStoreSnapshot struct {
 	LastWriteAt     time.Time `json:"lastWriteAt,omitempty"`
 	LastLoadAt      time.Time `json:"lastLoadAt,omitempty"`
 	LastCompactedAt time.Time `json:"lastCompactedAt,omitempty"`
+}
+
+// RPCMuxDiagnosisOperatorHistoryFileEvidence summarizes one history file
+// without exposing its operator actions or raw contents.
+type RPCMuxDiagnosisOperatorHistoryFileEvidence struct {
+	Source          string `json:"source"`
+	Path            string `json:"path,omitempty"`
+	Exists          bool   `json:"exists"`
+	SizeBytes       int64  `json:"sizeBytes,omitempty"`
+	StoredActions   int    `json:"storedActions,omitempty"`
+	BadLines        int    `json:"badLines,omitempty"`
+	TamperedLines   int    `json:"tamperedLines,omitempty"`
+	TruncatedLines  int    `json:"truncatedLines,omitempty"`
+	LegacyLines     int    `json:"legacyLines,omitempty"`
+	HeaderPresent   bool   `json:"headerPresent,omitempty"`
+	Checksum        string `json:"checksum,omitempty"`
+	ChecksumStatus  string `json:"checksumStatus,omitempty"`
+	IntegrityStatus string `json:"integrityStatus"`
+	LastError       string `json:"lastError,omitempty"`
+}
+
+// RPCMuxDiagnosisOperatorHistoryReplay contains validated actions from one
+// explicitly selected history file and its integrity evidence.
+type RPCMuxDiagnosisOperatorHistoryReplay struct {
+	Source   string                                     `json:"source"`
+	Actions  []RPCMuxDiagnosisOperatorAction            `json:"actions,omitempty"`
+	Evidence RPCMuxDiagnosisOperatorHistoryFileEvidence `json:"evidence"`
+}
+
+// RPCMuxDiagnosisOperatorHistoryVerification contains redacted evidence for
+// the primary and backup files.
+type RPCMuxDiagnosisOperatorHistoryVerification struct {
+	Primary RPCMuxDiagnosisOperatorHistoryFileEvidence `json:"primary"`
+	Backup  RPCMuxDiagnosisOperatorHistoryFileEvidence `json:"backup"`
+}
+
+// RPCMuxDiagnosisOperatorHistoryIntegritySnapshot is safe for control-plane
+// export because it contains store and integrity summaries, never actions.
+type RPCMuxDiagnosisOperatorHistoryIntegritySnapshot struct {
+	Store           RPCMuxDiagnosisOperatorStoreSnapshot       `json:"store"`
+	IntegrityStatus string                                     `json:"integrityStatus"`
+	Verification    RPCMuxDiagnosisOperatorHistoryVerification `json:"verification,omitempty"`
 }
 
 type RPCMuxDiagnosisOperatorHistoryDiagState struct {
@@ -121,27 +187,62 @@ type rpcMuxDiagnosisOperatorHistoryFileEntry struct {
 }
 
 func NewRPCMuxDiagnosisOperatorHistoryFileStore(path string) (*RPCMuxDiagnosisOperatorHistoryFileStore, error) {
+	return NewRPCMuxDiagnosisOperatorHistoryFileStoreWithConfig(path, RPCMuxDiagnosisOperatorHistoryFileStoreConfig{})
+}
+
+// NewRPCMuxDiagnosisOperatorHistoryFileStoreWithConfig constructs a bounded
+// local file store. Zero limits retain the conservative defaults.
+func NewRPCMuxDiagnosisOperatorHistoryFileStoreWithConfig(path string, config RPCMuxDiagnosisOperatorHistoryFileStoreConfig) (*RPCMuxDiagnosisOperatorHistoryFileStore, error) {
 	path = strings.TrimSpace(path)
 	if path == "" || !filepath.IsLocal(path) {
 		return nil, fmt.Errorf("operator history file path must be local")
 	}
+	config, err := normalizeRPCMuxDiagnosisOperatorHistoryFileStoreConfig(config)
+	if err != nil {
+		return nil, err
+	}
 	return &RPCMuxDiagnosisOperatorHistoryFileStore{
 		path:         path,
-		maxSizeBytes: defaultRPCMuxDiagnosisOperatorStoreMaxSize,
-		maxLineBytes: defaultRPCMuxDiagnosisOperatorStoreMaxLine,
-		maxActions:   defaultRPCMuxDiagnosisOperatorStoreMaxActions,
+		maxSizeBytes: config.MaxSizeBytes,
+		maxLineBytes: config.MaxLineBytes,
+		maxActions:   config.MaxActions,
 		snapshot: RPCMuxDiagnosisOperatorStoreSnapshot{
 			Enabled:         true,
 			Kind:            "file",
 			Path:            path,
 			SchemaVersion:   rpcMuxDiagnosisOperatorHistoryFileSchemaVersion,
-			MaxSizeBytes:    defaultRPCMuxDiagnosisOperatorStoreMaxSize,
-			MaxLineBytes:    defaultRPCMuxDiagnosisOperatorStoreMaxLine,
-			MaxActions:      defaultRPCMuxDiagnosisOperatorStoreMaxActions,
+			MaxSizeBytes:    config.MaxSizeBytes,
+			MaxLineBytes:    config.MaxLineBytes,
+			MaxActions:      config.MaxActions,
 			ChecksumStatus:  "unchecked",
 			IntegrityStatus: "unchecked",
 		},
 	}, nil
+}
+
+func normalizeRPCMuxDiagnosisOperatorHistoryFileStoreConfig(config RPCMuxDiagnosisOperatorHistoryFileStoreConfig) (RPCMuxDiagnosisOperatorHistoryFileStoreConfig, error) {
+	if config.MaxSizeBytes < 0 || config.MaxSizeBytes > maxRPCMuxDiagnosisOperatorStoreSize {
+		return RPCMuxDiagnosisOperatorHistoryFileStoreConfig{}, fmt.Errorf("operator history maxSizeBytes must be between 0 and %d", maxRPCMuxDiagnosisOperatorStoreSize)
+	}
+	if config.MaxLineBytes < 0 || config.MaxLineBytes > maxRPCMuxDiagnosisOperatorStoreLine {
+		return RPCMuxDiagnosisOperatorHistoryFileStoreConfig{}, fmt.Errorf("operator history maxLineBytes must be between 0 and %d", maxRPCMuxDiagnosisOperatorStoreLine)
+	}
+	if config.MaxActions < 0 || config.MaxActions > maxRPCMuxDiagnosisOperatorStoreActions {
+		return RPCMuxDiagnosisOperatorHistoryFileStoreConfig{}, fmt.Errorf("operator history maxActions must be between 0 and %d", maxRPCMuxDiagnosisOperatorStoreActions)
+	}
+	if config.MaxSizeBytes == 0 {
+		config.MaxSizeBytes = defaultRPCMuxDiagnosisOperatorStoreMaxSize
+	}
+	if config.MaxLineBytes == 0 {
+		config.MaxLineBytes = defaultRPCMuxDiagnosisOperatorStoreMaxLine
+	}
+	if config.MaxActions == 0 {
+		config.MaxActions = defaultRPCMuxDiagnosisOperatorStoreMaxActions
+	}
+	if config.MaxLineBytes > config.MaxSizeBytes {
+		return RPCMuxDiagnosisOperatorHistoryFileStoreConfig{}, fmt.Errorf("operator history maxLineBytes must not exceed maxSizeBytes")
+	}
+	return config, nil
 }
 
 // RPCMuxDiagnosisOperatorActionSource exposes dry-run operator actions.
@@ -374,6 +475,36 @@ func (s *RPCMuxDiagnosisSinkSet) OperatorHistoryStoreSnapshot() RPCMuxDiagnosisO
 	return s.operatorHistoryStoreSnapshot()
 }
 
+// RPCMuxDiagnosisOperatorHistoryIntegritySnapshot returns redacted, read-only
+// integrity evidence for the configured store.
+func (s *RPCMuxDiagnosisSinkSet) RPCMuxDiagnosisOperatorHistoryIntegritySnapshot(ctx context.Context) (RPCMuxDiagnosisOperatorHistoryIntegritySnapshot, error) {
+	if s == nil {
+		return RPCMuxDiagnosisOperatorHistoryIntegritySnapshot{}, nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	s.mu.RLock()
+	store := s.operatorStore
+	s.mu.RUnlock()
+	snapshot := RPCMuxDiagnosisOperatorHistoryIntegritySnapshot{
+		Store:           s.operatorHistoryStoreSnapshot(),
+		IntegrityStatus: "disabled",
+	}
+	if store == nil {
+		return snapshot, nil
+	}
+	verifier, ok := store.(RPCMuxDiagnosisOperatorHistoryStoreVerifier)
+	if !ok {
+		snapshot.IntegrityStatus = "unsupported"
+		return snapshot, nil
+	}
+	verification, err := verifier.VerifyRPCMuxDiagnosisOperatorHistory(ctx)
+	snapshot.Verification = verification
+	snapshot.IntegrityStatus = verification.Primary.IntegrityStatus
+	return snapshot, err
+}
+
 func (s *RPCMuxDiagnosisSinkSet) operatorHistoryStoreSnapshot() RPCMuxDiagnosisOperatorStoreSnapshot {
 	if s == nil {
 		return RPCMuxDiagnosisOperatorStoreSnapshot{}
@@ -512,6 +643,114 @@ func (s *RPCMuxDiagnosisOperatorHistoryFileStore) LoadRPCMuxDiagnosisOperatorAct
 	return actions, nil
 }
 
+// ReplayRPCMuxDiagnosisOperatorHistory reads and validates one history file
+// without updating the store snapshot or changing either history file.
+func (s *RPCMuxDiagnosisOperatorHistoryFileStore) ReplayRPCMuxDiagnosisOperatorHistory(ctx context.Context, source string, limit int) (RPCMuxDiagnosisOperatorHistoryReplay, error) {
+	if s == nil {
+		return RPCMuxDiagnosisOperatorHistoryReplay{}, nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return RPCMuxDiagnosisOperatorHistoryReplay{}, err
+	}
+	source = strings.ToLower(strings.TrimSpace(source))
+	path, err := s.historySourcePath(source)
+	if err != nil {
+		return RPCMuxDiagnosisOperatorHistoryReplay{}, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	actions, evidence, err := s.replayHistoryPathLocked(path, source)
+	if limit > 0 && limit < len(actions) {
+		actions = actions[len(actions)-limit:]
+	}
+	return RPCMuxDiagnosisOperatorHistoryReplay{
+		Source:   source,
+		Actions:  actions,
+		Evidence: evidence,
+	}, err
+}
+
+// VerifyRPCMuxDiagnosisOperatorHistory validates the primary and backup files
+// without returning actions.
+func (s *RPCMuxDiagnosisOperatorHistoryFileStore) VerifyRPCMuxDiagnosisOperatorHistory(ctx context.Context) (RPCMuxDiagnosisOperatorHistoryVerification, error) {
+	if s == nil {
+		return RPCMuxDiagnosisOperatorHistoryVerification{}, nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return RPCMuxDiagnosisOperatorHistoryVerification{}, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, primary, primaryErr := s.replayHistoryPathLocked(s.path, RPCMuxDiagnosisOperatorHistorySourcePrimary)
+	_, backup, backupErr := s.replayHistoryPathLocked(s.path+".bak", RPCMuxDiagnosisOperatorHistorySourceBackup)
+	return RPCMuxDiagnosisOperatorHistoryVerification{
+		Primary: primary,
+		Backup:  backup,
+	}, errors.Join(primaryErr, backupErr)
+}
+
+func (s *RPCMuxDiagnosisOperatorHistoryFileStore) historySourcePath(source string) (string, error) {
+	switch source {
+	case RPCMuxDiagnosisOperatorHistorySourcePrimary:
+		return s.path, nil
+	case RPCMuxDiagnosisOperatorHistorySourceBackup:
+		return s.path + ".bak", nil
+	default:
+		return "", fmt.Errorf("operator history source must be primary or backup")
+	}
+}
+
+func (s *RPCMuxDiagnosisOperatorHistoryFileStore) replayHistoryPathLocked(path string, source string) ([]RPCMuxDiagnosisOperatorAction, RPCMuxDiagnosisOperatorHistoryFileEvidence, error) {
+	evidence := RPCMuxDiagnosisOperatorHistoryFileEvidence{
+		Source:          source,
+		Path:            path,
+		ChecksumStatus:  "missing",
+		IntegrityStatus: "missing",
+	}
+	info, err := os.Stat(path)
+	if os.IsNotExist(err) {
+		return nil, evidence, nil
+	}
+	if err != nil {
+		evidence.LastError = err.Error()
+		evidence.IntegrityStatus = "unreadable"
+		return nil, evidence, err
+	}
+	evidence.Exists = true
+	evidence.SizeBytes = info.Size()
+	if info.Size() > s.maxSizeBytes {
+		err := fmt.Errorf("operator history file exceeds max size")
+		evidence.ChecksumStatus = "size_limit_exceeded"
+		evidence.IntegrityStatus = "size_limit_exceeded"
+		evidence.LastError = err.Error()
+		return nil, evidence, err
+	}
+	// #nosec G304 -- path is the constructor-validated local store path or its fixed .bak sibling.
+	data, err := os.ReadFile(path)
+	if err != nil {
+		evidence.LastError = err.Error()
+		evidence.IntegrityStatus = "unreadable"
+		return nil, evidence, err
+	}
+	actions, diagnostics := s.parseHistoryLinesLocked(data)
+	evidence.StoredActions = len(actions)
+	evidence.BadLines = diagnostics.badLines
+	evidence.TamperedLines = diagnostics.tamperedLines
+	evidence.TruncatedLines = diagnostics.truncatedLines
+	evidence.LegacyLines = diagnostics.legacyLines
+	evidence.HeaderPresent = diagnostics.headerPresent
+	evidence.Checksum = checksumRPCMuxDiagnosisOperatorActions(actions)
+	evidence.ChecksumStatus = checksumStatusForOperatorHistory(len(actions), diagnostics.badLines)
+	evidence.IntegrityStatus = integrityStatusForOperatorHistory(diagnostics)
+	return actions, evidence, nil
+}
+
 func (s *RPCMuxDiagnosisOperatorHistoryFileStore) RPCMuxDiagnosisOperatorStoreSnapshot() RPCMuxDiagnosisOperatorStoreSnapshot {
 	if s == nil {
 		return RPCMuxDiagnosisOperatorStoreSnapshot{}
@@ -624,6 +863,9 @@ func (s *RPCMuxDiagnosisOperatorHistoryFileStore) parseHistoryLinesLocked(data [
 func parseRPCMuxDiagnosisOperatorHistoryLine(line string) (RPCMuxDiagnosisOperatorAction, rpcMuxDiagnosisOperatorHistoryDiagnostics, bool) {
 	var header rpcMuxDiagnosisOperatorHistoryFileHeader
 	if err := json.Unmarshal([]byte(line), &header); err == nil && header.Type == rpcMuxDiagnosisOperatorHistoryFileHeaderType {
+		if header.SchemaVersion != rpcMuxDiagnosisOperatorHistoryFileSchemaVersion {
+			return RPCMuxDiagnosisOperatorAction{}, rpcMuxDiagnosisOperatorHistoryDiagnostics{badLines: 1, headerPresent: true}, false
+		}
 		return RPCMuxDiagnosisOperatorAction{}, rpcMuxDiagnosisOperatorHistoryDiagnostics{headerPresent: true}, false
 	}
 	var entry rpcMuxDiagnosisOperatorHistoryFileEntry
@@ -756,3 +998,4 @@ func integrityStatusForOperatorHistory(diagnostics rpcMuxDiagnosisOperatorHistor
 var _ RPCMuxDiagnosisOperatorActionSource = (*RPCMuxDiagnosisSinkSet)(nil)
 var _ RPCMuxDiagnosisOperatorHistoryStore = (*RPCMuxDiagnosisOperatorHistoryFileStore)(nil)
 var _ RPCMuxDiagnosisOperatorHistoryStoreSnapshotter = (*RPCMuxDiagnosisOperatorHistoryFileStore)(nil)
+var _ RPCMuxDiagnosisOperatorHistoryStoreVerifier = (*RPCMuxDiagnosisOperatorHistoryFileStore)(nil)

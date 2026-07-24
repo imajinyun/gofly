@@ -391,6 +391,22 @@ func TestHTTPServerMuxOperatorActionBoundaries(t *testing.T) {
 	if actions := (*HTTPServer)(nil).MuxDiagnosisOperatorActions(context.Background()); len(actions) != 0 {
 		t.Fatalf("nil server operator actions = %+v, want none", actions)
 	}
+	if history := (*HTTPServer)(nil).MuxDiagnosisOperatorActionHistory(1); len(history) != 0 {
+		t.Fatalf("nil server operator history = %+v, want none", history)
+	}
+	if snapshot := (*HTTPServer)(nil).MuxDiagnosisOperatorActionHistorySnapshot(1); len(snapshot.Actions) != 0 {
+		t.Fatalf("nil server operator history snapshot = %+v, want none", snapshot)
+	}
+	emptyServer := NewServer()
+	if history := emptyServer.MuxDiagnosisOperatorActionHistory(1); len(history) != 0 {
+		t.Fatalf("server without history source = %+v, want none", history)
+	}
+	if snapshot := emptyServer.MuxDiagnosisOperatorActionHistorySnapshot(1); len(snapshot.Actions) != 0 {
+		t.Fatalf("server without history snapshot source = %+v, want none", snapshot)
+	}
+	if integrity, err := emptyServer.MuxDiagnosisOperatorHistoryIntegritySnapshot(context.Background()); err != nil || integrity.Store.Enabled {
+		t.Fatalf("server without history source integrity = %+v err=%v", integrity, err)
+	}
 	nilRec := httptest.NewRecorder()
 	(*HTTPServer)(nil).serveMuxOperatorAction(nilRec, httptest.NewRequest(http.MethodPost, "/rpc/admin/mux/operator-actions", strings.NewReader(`{}`)))
 	if nilRec.Code != http.StatusServiceUnavailable {
@@ -493,6 +509,17 @@ func TestHTTPServerMuxOperatorHistoryRuntimeDetails(t *testing.T) {
 	}
 	if history := server.MuxDiagnosisOperatorActionHistory(1); len(history) != 1 || history[0].Action != RPCMuxDiagnosisOperatorPauseSink {
 		t.Fatalf("server operator history = %+v", history)
+	}
+	integrity, err := server.MuxDiagnosisOperatorHistoryIntegritySnapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !integrity.Store.Enabled || integrity.Verification.Primary.StoredActions != 1 ||
+		integrity.Verification.Primary.IntegrityStatus != "ok" || integrity.Verification.Backup.IntegrityStatus != "missing" {
+		t.Fatalf("server operator history integrity = %+v", integrity)
+	}
+	if nilIntegrity, err := (*HTTPServer)(nil).MuxDiagnosisOperatorHistoryIntegritySnapshot(context.Background()); err != nil || nilIntegrity.Store.Enabled {
+		t.Fatalf("nil server integrity = %+v err=%v", nilIntegrity, err)
 	}
 	snapshot := server.RuntimeSnapshot(context.Background())
 	var foundStore bool

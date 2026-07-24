@@ -60,10 +60,15 @@ type RPCMuxSubprocessExecutionPolicyError struct {
 }
 
 func (e RPCMuxSubprocessExecutionPolicyError) Error() string {
-	if strings.TrimSpace(e.Message) == "" {
-		return "subprocess exporter policy validation failed"
+	message := strings.TrimSpace(e.Message)
+	if message == "" {
+		message = "subprocess exporter policy validation failed"
 	}
-	return e.Message
+	category := strings.TrimSpace(e.Category)
+	if category == "" {
+		return message
+	}
+	return fmt.Sprintf("[%s] %s", category, message)
 }
 
 func (c RPCMuxSubprocessExporterConfig) ExecutionPolicy() RPCMuxSubprocessExecutionPolicy {

@@ -154,6 +154,9 @@ func TestNormalizeRPCMuxSubprocessExporterConfig(t *testing.T) {
 			if !errors.As(err, &policyErr) || policyErr.Category != test.category {
 				t.Fatalf("policy err = %#v, category=%q want %q", err, policyErr.Category, test.category)
 			}
+			if !strings.HasPrefix(err.Error(), "["+test.category+"] ") {
+				t.Fatalf("policy err = %q, want category prefix [%s]", err, test.category)
+			}
 		})
 	}
 	if _, err := NewRPCMuxSubprocessDiagnosisEventExporter(RPCMuxSubprocessExporterConfig{

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"go.etcd.io/etcd/api/v3/etcdserverpb"
 	"go.etcd.io/etcd/api/v3/mvccpb"
 	clientv3 "go.etcd.io/etcd/client/v3"
 
@@ -587,6 +588,17 @@ func (f *fakeEtcdKV) Get(ctx context.Context, key string, opts ...clientv3.OpOpt
 	return &clientv3.GetResponse{Kvs: kvs}, nil
 }
 
+func (f *fakeEtcdKV) GetStream(ctx context.Context, key string, opts ...clientv3.OpOption) (clientv3.GetStreamChan, error) {
+	response, err := f.Get(ctx, key, opts...)
+	if err != nil {
+		return nil, err
+	}
+	stream := make(chan clientv3.RangeStreamResponse, 1)
+	stream <- clientv3.RangeStreamResponse{RangeResponse: (*etcdserverpb.RangeResponse)(response)}
+	close(stream)
+	return stream, nil
+}
+
 func (f *fakeEtcdKV) Delete(ctx context.Context, key string, opts ...clientv3.OpOption) (*clientv3.DeleteResponse, error) {
 	delete(f.data, key)
 	return &clientv3.DeleteResponse{}, nil
@@ -658,6 +670,25 @@ func newFakeEtcdClient(t *testing.T) *clientv3.Client {
 	c.Lease = &fakeEtcdLease{id: clientv3.LeaseID(999)}
 	c.Watcher = &fakeEtcdWatcher{ch: make(chan clientv3.WatchResponse)}
 	return c
+}
+
+func TestFakeEtcdKVGetStream(t *testing.T) {
+	kv := &fakeEtcdKV{data: map[string]string{
+		"/tests/users/a":  "a",
+		"/tests/users/b":  "b",
+		"/tests/orders/a": "order",
+	}}
+	stream, err := kv.GetStream(context.Background(), "/tests/users/", clientv3.WithPrefix())
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := clientv3.GetStreamToGetResponse(stream)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Kvs) != 2 {
+		t.Fatalf("streamed kvs = %#v, want two user records", response.Kvs)
+	}
 }
 
 func TestRegisterResolveWithFakeClient(t *testing.T) {

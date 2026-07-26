@@ -22,6 +22,7 @@ type RPCMuxDiagnosisOperatorHistoryReplayAdminResponse struct {
 	Verification             RPCMuxDiagnosisOperatorHistoryVerification `json:"verification"`
 	Replay                   *RPCMuxDiagnosisOperatorHistoryReplay      `json:"replay,omitempty"`
 	DebugActions             bool                                       `json:"debugActions,omitempty"`
+	CooldownSeconds          float64                                    `json:"cooldownSeconds,omitempty"`
 	CooldownRemainingSeconds float64                                    `json:"cooldownRemainingSeconds,omitempty"`
 }
 
@@ -264,7 +265,13 @@ func (s *HTTPServer) RuntimeSnapshot(ctx context.Context) coreruntime.Snapshot {
 		}, coreruntime.WithOwner("rpc"))
 	}
 	registry.Register("rpc.mux.sink.registry", "registry", func(context.Context) coreruntime.ComponentSnapshot {
-		details := map[string]any{"registry": RPCMuxOTelLogSinkRegistry()}
+		details := map[string]any{
+			"registry": RPCMuxOTelLogSinkRegistry(),
+			"debugReplayCooldown": map[string]any{
+				"seconds":          s.muxOperatorHistoryDebugReplayCooldown().Seconds(),
+				"remainingSeconds": s.muxOperatorHistoryDebugReplayCooldownRemaining().Seconds(),
+			},
+		}
 		status := "ok"
 		if sinkSet, ok := muxEventExporter.(RPCMuxDiagnosisSinkSetSnapshotter); ok {
 			snapshot := sinkSet.RPCMuxDiagnosisSinkSetSnapshot()
@@ -408,6 +415,7 @@ func (s *HTTPServer) serveMuxOperatorActionHistoryReplay(w http.ResponseWriter, 
 	}
 	response := RPCMuxDiagnosisOperatorHistoryReplayAdminResponse{
 		Verification:             integrity.Verification,
+		CooldownSeconds:          s.muxOperatorHistoryDebugReplayCooldown().Seconds(),
 		CooldownRemainingSeconds: s.muxOperatorHistoryDebugReplayCooldownRemaining().Seconds(),
 	}
 	if parseBoolQuery(r.URL.Query().Get("debugActions")) {
@@ -454,10 +462,21 @@ func (s *HTTPServer) allowMuxOperatorHistoryDebugReplay() bool {
 	}
 	now := time.Now().UnixNano()
 	last := s.muxDebugReplayLastAt.Load()
-	if last > 0 && time.Duration(now-last) < defaultRPCMuxDebugReplayInterval {
+	cooldown := s.muxOperatorHistoryDebugReplayCooldown()
+	if last > 0 && time.Duration(now-last) < cooldown {
 		return false
 	}
 	return s.muxDebugReplayLastAt.CompareAndSwap(last, now)
+}
+
+func (s *HTTPServer) muxOperatorHistoryDebugReplayCooldown() time.Duration {
+	if s == nil {
+		return defaultRPCMuxDebugReplayInterval
+	}
+	if s.opts.muxDebugReplayCooldown > 0 {
+		return s.opts.muxDebugReplayCooldown
+	}
+	return defaultRPCMuxDebugReplayInterval
 }
 
 func (s *HTTPServer) muxOperatorHistoryDebugReplayCooldownRemaining() time.Duration {
@@ -468,7 +487,7 @@ func (s *HTTPServer) muxOperatorHistoryDebugReplayCooldownRemaining() time.Durat
 	if last <= 0 {
 		return 0
 	}
-	remaining := defaultRPCMuxDebugReplayInterval - time.Since(time.Unix(0, last))
+	remaining := s.muxOperatorHistoryDebugReplayCooldown() - time.Since(time.Unix(0, last))
 	if remaining <= 0 {
 		return 0
 	}

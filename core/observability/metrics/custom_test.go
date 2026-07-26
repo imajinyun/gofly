@@ -53,6 +53,14 @@ func TestCustomGauge(t *testing.T) {
 	if !strings.Contains(out, `queue_depth{queue="emails"} 15`) {
 		t.Fatalf("gauge value wrong:\n%s", out)
 	}
+	g.Delete("emails")
+	buf.Reset()
+	if err := reg.WritePrometheus(&buf); err != nil {
+		t.Fatalf("write prometheus after delete: %v", err)
+	}
+	if strings.Contains(buf.String(), `queue_depth{queue="emails"}`) {
+		t.Fatalf("deleted gauge series still exported:\n%s", buf.String())
+	}
 }
 
 func TestCustomHistogram(t *testing.T) {

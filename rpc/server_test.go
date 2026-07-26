@@ -546,6 +546,10 @@ func TestHTTPServerMuxOperatorHistoryRuntimeDetails(t *testing.T) {
 		if !ok || !storeDetails.Enabled || storeDetails.Kind != "file" {
 			t.Fatalf("operator history store details = %#v", details["operatorHistoryStore"])
 		}
+		cooldown, ok := details["debugReplayCooldown"].(map[string]any)
+		if !ok || cooldown["seconds"].(float64) <= 0 {
+			t.Fatalf("debug replay cooldown details = %#v", details["debugReplayCooldown"])
+		}
 		foundStore = true
 	}
 	if !foundStore {
@@ -655,14 +659,37 @@ func TestHTTPServerMuxOperatorHistoryRuntimeDetails(t *testing.T) {
 	}
 	_ = server.RuntimeSnapshot(context.Background())
 	recoveredMetric := registry.Snapshot().Customs["gofly_rpc_mux_operator_history_integrity_state"]
-	var tamperedCleared bool
 	for _, series := range recoveredMetric.Series {
-		if series.Labels["reason"] == "tampered" && series.Labels["source"] == RPCMuxDiagnosisOperatorHistorySourcePrimary && series.Value == 0 {
-			tamperedCleared = true
+		if series.Labels["reason"] == "tampered" && series.Labels["source"] == RPCMuxDiagnosisOperatorHistorySourcePrimary {
+			t.Fatalf("operator history integrity metric after recovery kept stale tampered series: %+v", recoveredMetric.Series)
 		}
 	}
-	if !tamperedCleared {
-		t.Fatalf("operator history integrity metric after recovery = %+v, want tampered reset to 0", recoveredMetric.Series)
+}
+
+func TestHTTPServerMuxOperatorHistoryCooldownBoundaries(t *testing.T) {
+	if (*HTTPServer)(nil).allowMuxOperatorHistoryDebugReplay() {
+		t.Fatal("nil server allowed debug replay")
+	}
+	if cooldown := (*HTTPServer)(nil).muxOperatorHistoryDebugReplayCooldown(); cooldown != defaultRPCMuxDebugReplayInterval {
+		t.Fatalf("nil cooldown = %v, want default", cooldown)
+	}
+	if remaining := (*HTTPServer)(nil).muxOperatorHistoryDebugReplayCooldownRemaining(); remaining != 0 {
+		t.Fatalf("nil cooldown remaining = %v, want 0", remaining)
+	}
+	server := NewServer(WithServerMuxDiagnosisDebugReplayCooldown(2 * time.Second))
+	if cooldown := server.muxOperatorHistoryDebugReplayCooldown(); cooldown != 2*time.Second {
+		t.Fatalf("configured cooldown = %v, want 2s", cooldown)
+	}
+	details := (RPCMuxDiagnosisOperatorDebugReplayAuditDetails{
+		Source:      " backup ",
+		Limit:       3,
+		TokenResult: " approved ",
+	}).StringMap()
+	if details["schema"] != "gofly.rpc_mux_operator_debug_replay_audit.v1" ||
+		details["source"] != "backup" ||
+		details["limit"] != "3" ||
+		details["token_result"] != "approved" {
+		t.Fatalf("debug replay details = %+v", details)
 	}
 }
 

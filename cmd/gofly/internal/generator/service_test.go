@@ -672,6 +672,62 @@ func assertGeneratedProductionCheckBehavior(t *testing.T, dir string) {
 	if !strings.Contains(string(output), "hello production checklist passed") {
 		t.Fatalf("production-check output = %s, want success message", output)
 	}
+
+	var formatted map[string]any
+	if err := json.Unmarshal(configData, &formatted); err != nil {
+		t.Fatalf("decode production config: %v", err)
+	}
+	history := generatedOperatorHistoryConfig(t, formatted)
+	history["maxActions"] = float64(16)
+	history["maxBackups"] = float64(2)
+	history["maxSizeBytes"] = float64(65536)
+	history["maxLineBytes"] = float64(4096)
+	pretty, err := json.MarshalIndent(formatted, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal formatted production config: %v", err)
+	}
+	if err := os.WriteFile(configPath, pretty, 0o644); err != nil {
+		t.Fatalf("write formatted production config: %v", err)
+	}
+	check = exec.Command("sh", script)
+	check.Dir = dir
+	output, err = check.CombinedOutput()
+	if err != nil {
+		t.Fatalf("production-check failed for formatted safe operator history config: %v\n%s", err, output)
+	}
+
+	history["maxBackups"] = float64(4)
+	tooLarge, err := json.MarshalIndent(formatted, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal oversized production config: %v", err)
+	}
+	if err := os.WriteFile(configPath, tooLarge, 0o644); err != nil {
+		t.Fatalf("write oversized production config: %v", err)
+	}
+	check = exec.Command("sh", script)
+	check.Dir = dir
+	output, err = check.CombinedOutput()
+	if err == nil || !strings.Contains(string(output), "maxBackups exceeds 3") {
+		t.Fatalf("production-check oversized operator history output = err:%v\n%s", err, output)
+	}
+}
+
+func generatedOperatorHistoryConfig(t *testing.T, config map[string]any) map[string]any {
+	t.Helper()
+	rpcConfig := generatedNestedObject(t, config, "rpc")
+	muxConfig := generatedNestedObject(t, rpcConfig, "mux")
+	logConfig := generatedNestedObject(t, muxConfig, "log")
+	otelConfig := generatedNestedObject(t, logConfig, "otelCompatible")
+	return generatedNestedObject(t, otelConfig, "operatorHistory")
+}
+
+func generatedNestedObject(t *testing.T, config map[string]any, key string) map[string]any {
+	t.Helper()
+	next, ok := config[key].(map[string]any)
+	if !ok || next == nil {
+		t.Fatalf("generated config missing object %q in %#v", key, config[key])
+	}
+	return next
 }
 
 func TestApplyEnvOverlay(t *testing.T) {
@@ -1136,6 +1192,7 @@ func TestGenerateNewServiceVariantsBoundaries(t *testing.T) {
 		`json:"maxSizeBytes,omitempty"`,
 		`json:"maxLineBytes,omitempty"`,
 		`json:"maxBackups,omitempty"`,
+		`json:"debugReplayCooldown,omitempty"`,
 		`json:"profileSchema,omitempty"`,
 		`json:"profileMigration,omitempty"`,
 		`json:"sinks,omitempty"`,
@@ -1230,6 +1287,7 @@ func TestGenerateNewServiceVariantsBoundaries(t *testing.T) {
 		`FragmentConnectionWindowRefillRatio:  0.25`,
 		`FragmentMaxDeferredFragments = 2`,
 		`filepath.Join(secretDir, "mux-operator-history.jsonl")`,
+		"server options with debug replay cooldown",
 		`FragmentWindowPolicyRiskMode = "reject"`,
 		`FragmentWindowPolicyRiskMode = "invalid"`,
 		`stream window refill ratio`,

@@ -52,26 +52,27 @@ type Suite interface {
 }
 
 type serverOptions struct {
-	addr              string
-	codec             Codec
-	middlewares       []endpoint.Middleware
-	streamMiddlewares []StreamMiddleware
-	registrar         Registrar
-	serviceName       string
-	advertiseEndpoint string
-	registryTTL       time.Duration
-	registryRefresh   time.Duration
-	adminToken        string
-	governance        *governance.Registry
-	manager           *governance.Manager
-	rules             *governance.RuleSet
-	readHeaderTimeout time.Duration
-	adminAudit        controladmin.AuditSink
-	muxServerAdapter  ExperimentalMuxServerDiagnosisSource
-	muxEventExporter  RPCMuxDiagnosisEventExporter
-	muxEventFilter    RPCMuxDiagnosisFilter
-	muxOperatorToken  string
-	tls               security.TLSConfig
+	addr                   string
+	codec                  Codec
+	middlewares            []endpoint.Middleware
+	streamMiddlewares      []StreamMiddleware
+	registrar              Registrar
+	serviceName            string
+	advertiseEndpoint      string
+	registryTTL            time.Duration
+	registryRefresh        time.Duration
+	adminToken             string
+	governance             *governance.Registry
+	manager                *governance.Manager
+	rules                  *governance.RuleSet
+	readHeaderTimeout      time.Duration
+	adminAudit             controladmin.AuditSink
+	muxServerAdapter       ExperimentalMuxServerDiagnosisSource
+	muxEventExporter       RPCMuxDiagnosisEventExporter
+	muxEventFilter         RPCMuxDiagnosisFilter
+	muxOperatorToken       string
+	muxDebugReplayCooldown time.Duration
+	tls                    security.TLSConfig
 }
 
 type clientOptions struct {
@@ -255,6 +256,14 @@ func WithServerMuxDiagnosisEventLogging(logger *slog.Logger, filter RPCMuxDiagno
 func WithServerMuxDiagnosisOperatorApprovalToken(token string) ServerOption {
 	return func(o *serverOptions) {
 		o.muxOperatorToken = strings.TrimSpace(token)
+	}
+}
+
+func WithServerMuxDiagnosisDebugReplayCooldown(cooldown time.Duration) ServerOption {
+	return func(o *serverOptions) {
+		if cooldown > 0 {
+			o.muxDebugReplayCooldown = cooldown
+		}
 	}
 }
 

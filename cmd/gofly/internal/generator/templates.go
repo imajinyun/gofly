@@ -1988,6 +1988,7 @@ type RPCMuxOperatorHistoryConfig struct {
 	MaxSizeBytes int64 ` + "`json:\"maxSizeBytes,omitempty\"`" + `
 	MaxLineBytes int64 ` + "`json:\"maxLineBytes,omitempty\"`" + `
 	MaxBackups int ` + "`json:\"maxBackups,omitempty\"`" + `
+	DebugReplayCooldown time.Duration ` + "`json:\"debugReplayCooldown,omitempty\"`" + `
 }
 
 type RPCMuxOTelSinkConfig struct {
@@ -2498,7 +2499,11 @@ func (c RPCMuxConfig) ServerOptionsWithSinkSet(sinkSet *rpc.RPCMuxDiagnosisSinkS
 				return nil
 			}
 		}
-		return []rpc.ServerOption{rpc.WithServerMuxDiagnosisEventExporter(sinkSet, filter)}
+		options := []rpc.ServerOption{rpc.WithServerMuxDiagnosisEventExporter(sinkSet, filter)}
+		if c.Log.OTelCompatible.OperatorHistory.DebugReplayCooldown > 0 {
+			options = append(options, rpc.WithServerMuxDiagnosisDebugReplayCooldown(c.Log.OTelCompatible.OperatorHistory.DebugReplayCooldown))
+		}
+		return options
 	}
 	return []rpc.ServerOption{rpc.WithServerMuxDiagnosisEventLogging(nil, filter)}
 }
@@ -2582,6 +2587,14 @@ func (c ControlPlaneContributor) ContributeSnapshot(ctx context.Context, snapsho
 		return err
 	}
 	if err := addGeneratedControlPlaneConfig("rpcMuxOTelSinks", rpc.RPCMuxOTelLogSinkRegistry()); err != nil {
+		return err
+	}
+	if err := addGeneratedControlPlaneConfig("rpcMuxOperatorAuditSchemas", map[string]any{
+		"debugReplay": map[string]any{
+			"schema": "gofly.rpc_mux_operator_debug_replay_audit.v1",
+			"fields": []string{"source", "limit", "token_result"},
+		},
+	}); err != nil {
 		return err
 	}
 	if err := addGeneratedControlPlaneConfig("openapi", cfg.OpenAPIInfo()); err != nil {
@@ -2941,6 +2954,7 @@ func TestRPCMuxOTelCompatibleSinkSetHotReload(t *testing.T) {
 			MaxSizeBytes: 128 << 10,
 			MaxLineBytes: 16 << 10,
 			MaxBackups: 2,
+			DebugReplayCooldown: 2 * time.Second,
 		},
 		Sinks: []RPCMuxOTelSinkConfig{{
 			Name: "slog",
@@ -2984,6 +2998,10 @@ func TestRPCMuxOTelCompatibleSinkSetHotReload(t *testing.T) {
 	if snapshot := sinkSet.OperatorHistoryStoreSnapshot(); snapshot.MaxActions != 7 ||
 		snapshot.MaxSizeBytes != 128<<10 || snapshot.MaxLineBytes != 16<<10 || snapshot.BackupRetention != 2 {
 		t.Fatalf("operator history store limits = %+v, want generated config values", snapshot)
+	}
+	muxConfig := RPCMuxConfig{Log: RPCMuxLogConfig{Enabled: true, ExportEvents: true, OTelCompatible: cfg}}
+	if options := muxConfig.ServerOptionsWithSinkSet(sinkSet); len(options) != 2 {
+		t.Fatalf("server options with debug replay cooldown = %d, want exporter and cooldown options", len(options))
 	}
 	next := cfg
 	next.Version = "generated-v2"

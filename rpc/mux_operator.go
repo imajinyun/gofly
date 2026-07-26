@@ -594,7 +594,7 @@ func recordRPCMuxDiagnosisOperatorHistoryIntegrityMetric(reason string, source s
 	rpcMuxDiagnosisOperatorHistoryMetricMu.Lock()
 	defer rpcMuxDiagnosisOperatorHistoryMetricMu.Unlock()
 	if reason == "" && rpcMuxDiagnosisOperatorHistoryMetricReason != "" {
-		rpcMuxDiagnosisOperatorHistoryIntegrityState.Set(0, rpcMuxDiagnosisOperatorHistoryMetricReason, rpcMuxDiagnosisOperatorHistoryMetricSource)
+		rpcMuxDiagnosisOperatorHistoryIntegrityState.Delete(rpcMuxDiagnosisOperatorHistoryMetricReason, rpcMuxDiagnosisOperatorHistoryMetricSource)
 		rpcMuxDiagnosisOperatorHistoryMetricReason = ""
 		rpcMuxDiagnosisOperatorHistoryMetricSource = ""
 	}

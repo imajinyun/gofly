@@ -56,6 +56,9 @@ func (g *Gauge) Inc(labelValues ...string) { g.Add(1, labelValues...) }
 // Dec decrements the gauge by one.
 func (g *Gauge) Dec(labelValues ...string) { g.Add(-1, labelValues...) }
 
+// Delete removes the gauge series for the given label values.
+func (g *Gauge) Delete(labelValues ...string) { g.metric.delete(labelValues) }
+
 // Histogram records distributions of observed values, partitioned by labels.
 type Histogram struct{ metric *customMetric }
 
@@ -133,6 +136,12 @@ func (m *customMetric) addGauge(delta float64, labelValues []string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.series_(labelValues).value += delta
+}
+
+func (m *customMetric) delete(labelValues []string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.series, seriesKey(labelValues))
 }
 
 func (m *customMetric) observe(value float64, labelValues []string) {

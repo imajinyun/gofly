@@ -555,8 +555,14 @@ func TestHTTPServerMuxOperatorHistoryRuntimeDetails(t *testing.T) {
 		t.Fatalf("history replay response = %+v, want evidence only", replayResponse)
 	}
 
+	forbiddenDebugRec := httptest.NewRecorder()
+	server.ServeHTTP(forbiddenDebugRec, httptest.NewRequest(http.MethodGet, "/rpc/admin/mux/operator-actions/history/replay?debugActions=true&source=primary&limit=1", nil))
+	if forbiddenDebugRec.Code != http.StatusForbidden {
+		t.Fatalf("history debug replay without token status = %d body=%s", forbiddenDebugRec.Code, forbiddenDebugRec.Body.String())
+	}
+
 	debugRec := httptest.NewRecorder()
-	server.ServeHTTP(debugRec, httptest.NewRequest(http.MethodGet, "/rpc/admin/mux/operator-actions/history/replay?debugActions=true&source=primary&limit=1", nil))
+	server.ServeHTTP(debugRec, httptest.NewRequest(http.MethodGet, "/rpc/admin/mux/operator-actions/history/replay?debugActions=true&source=primary&limit=1&token=approve-me", nil))
 	if debugRec.Code != http.StatusOK {
 		t.Fatalf("history debug replay status = %d body=%s", debugRec.Code, debugRec.Body.String())
 	}
@@ -577,8 +583,19 @@ func TestHTTPServerMuxOperatorHistoryRuntimeDetails(t *testing.T) {
 	}
 	degraded := server.RuntimeSnapshot(context.Background())
 	for _, component := range degraded.Components {
-		if component.Name == "rpc.mux.sink.registry" && component.Status != "degraded" {
+		if component.Name != "rpc.mux.sink.registry" {
+			continue
+		}
+		if component.Status != "degraded" {
 			t.Fatalf("runtime component after tamper = %+v, want degraded", component)
+		}
+		details, ok := component.Details.(map[string]any)
+		if !ok {
+			t.Fatalf("runtime details after tamper = %#v", component.Details)
+		}
+		integrity, ok := details["operatorHistoryIntegrity"].(RPCMuxDiagnosisOperatorHistoryIntegritySnapshot)
+		if !ok || integrity.DegradedReason != "tampered" || integrity.DegradedSource != RPCMuxDiagnosisOperatorHistorySourcePrimary {
+			t.Fatalf("runtime integrity after tamper = %#v", details["operatorHistoryIntegrity"])
 		}
 	}
 }

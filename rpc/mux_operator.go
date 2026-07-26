@@ -89,6 +89,7 @@ type RPCMuxDiagnosisOperatorHistoryFileStoreConfig struct {
 	MaxSizeBytes int64 `json:"maxSizeBytes,omitempty"`
 	MaxLineBytes int64 `json:"maxLineBytes,omitempty"`
 	MaxActions   int   `json:"maxActions,omitempty"`
+	MaxBackups   int   `json:"maxBackups,omitempty"`
 }
 
 type RPCMuxDiagnosisOperatorStoreSnapshot struct {
@@ -157,6 +158,8 @@ type RPCMuxDiagnosisOperatorHistoryVerification struct {
 type RPCMuxDiagnosisOperatorHistoryIntegritySnapshot struct {
 	Store           RPCMuxDiagnosisOperatorStoreSnapshot       `json:"store"`
 	IntegrityStatus string                                     `json:"integrityStatus"`
+	DegradedReason  string                                     `json:"degradedReason,omitempty"`
+	DegradedSource  string                                     `json:"degradedSource,omitempty"`
 	Verification    RPCMuxDiagnosisOperatorHistoryVerification `json:"verification,omitempty"`
 }
 
@@ -173,6 +176,7 @@ type RPCMuxDiagnosisOperatorHistoryFileStore struct {
 	maxSizeBytes int64
 	maxLineBytes int64
 	maxActions   int
+	maxBackups   int
 	mu           sync.Mutex
 	snapshot     RPCMuxDiagnosisOperatorStoreSnapshot
 }
@@ -209,6 +213,7 @@ func NewRPCMuxDiagnosisOperatorHistoryFileStoreWithConfig(path string, config RP
 		maxSizeBytes: config.MaxSizeBytes,
 		maxLineBytes: config.MaxLineBytes,
 		maxActions:   config.MaxActions,
+		maxBackups:   config.MaxBackups,
 		snapshot: RPCMuxDiagnosisOperatorStoreSnapshot{
 			Enabled:         true,
 			Kind:            "file",
@@ -217,7 +222,7 @@ func NewRPCMuxDiagnosisOperatorHistoryFileStoreWithConfig(path string, config RP
 			MaxSizeBytes:    config.MaxSizeBytes,
 			MaxLineBytes:    config.MaxLineBytes,
 			MaxActions:      config.MaxActions,
-			BackupRetention: maxRPCMuxDiagnosisOperatorBackupFiles,
+			BackupRetention: config.MaxBackups,
 			ChecksumStatus:  "unchecked",
 			IntegrityStatus: "unchecked",
 		},
@@ -234,6 +239,9 @@ func normalizeRPCMuxDiagnosisOperatorHistoryFileStoreConfig(config RPCMuxDiagnos
 	if config.MaxActions < 0 || config.MaxActions > maxRPCMuxDiagnosisOperatorStoreActions {
 		return RPCMuxDiagnosisOperatorHistoryFileStoreConfig{}, fmt.Errorf("operator history maxActions must be between 0 and %d", maxRPCMuxDiagnosisOperatorStoreActions)
 	}
+	if config.MaxBackups < 0 || config.MaxBackups > maxRPCMuxDiagnosisOperatorBackupFiles {
+		return RPCMuxDiagnosisOperatorHistoryFileStoreConfig{}, fmt.Errorf("operator history maxBackups must be between 0 and %d", maxRPCMuxDiagnosisOperatorBackupFiles)
+	}
 	if config.MaxSizeBytes == 0 {
 		config.MaxSizeBytes = defaultRPCMuxDiagnosisOperatorStoreMaxSize
 	}
@@ -242,6 +250,9 @@ func normalizeRPCMuxDiagnosisOperatorHistoryFileStoreConfig(config RPCMuxDiagnos
 	}
 	if config.MaxActions == 0 {
 		config.MaxActions = defaultRPCMuxDiagnosisOperatorStoreMaxActions
+	}
+	if config.MaxBackups == 0 {
+		config.MaxBackups = maxRPCMuxDiagnosisOperatorBackupFiles
 	}
 	if config.MaxLineBytes > config.MaxSizeBytes {
 		return RPCMuxDiagnosisOperatorHistoryFileStoreConfig{}, fmt.Errorf("operator history maxLineBytes must not exceed maxSizeBytes")
@@ -506,7 +517,23 @@ func (s *RPCMuxDiagnosisSinkSet) RPCMuxDiagnosisOperatorHistoryIntegritySnapshot
 	verification, err := verifier.VerifyRPCMuxDiagnosisOperatorHistory(ctx)
 	snapshot.Verification = verification
 	snapshot.IntegrityStatus = verification.Primary.IntegrityStatus
+	snapshot.DegradedReason, snapshot.DegradedSource = rpcMuxDiagnosisOperatorHistoryDegradedEvidence(verification)
 	return snapshot, err
+}
+
+func rpcMuxDiagnosisOperatorHistoryDegradedEvidence(verification RPCMuxDiagnosisOperatorHistoryVerification) (string, string) {
+	if rpcMuxDiagnosisOperatorHistoryIntegrityDegraded(verification.Primary.IntegrityStatus) {
+		return verification.Primary.IntegrityStatus, verification.Primary.Source
+	}
+	if rpcMuxDiagnosisOperatorHistoryIntegrityDegraded(verification.Backup.IntegrityStatus) {
+		return verification.Backup.IntegrityStatus, verification.Backup.Source
+	}
+	for _, evidence := range verification.Backups {
+		if rpcMuxDiagnosisOperatorHistoryIntegrityDegraded(evidence.IntegrityStatus) {
+			return evidence.IntegrityStatus, evidence.Source
+		}
+	}
+	return "", ""
 }
 
 func (s *RPCMuxDiagnosisSinkSet) ReplayRPCMuxDiagnosisOperatorHistory(ctx context.Context, source string, limit int) (RPCMuxDiagnosisOperatorHistoryReplay, error) {
@@ -710,7 +737,7 @@ func (s *RPCMuxDiagnosisOperatorHistoryFileStore) VerifyRPCMuxDiagnosisOperatorH
 	_, primary, primaryErr := s.replayHistoryPathLocked(s.path, RPCMuxDiagnosisOperatorHistorySourcePrimary)
 	_, backup, backupErr := s.replayHistoryPathLocked(s.path+".bak", RPCMuxDiagnosisOperatorHistorySourceBackup)
 	backups := make([]RPCMuxDiagnosisOperatorHistoryFileEvidence, 0, maxRPCMuxDiagnosisOperatorBackupFiles)
-	for index := 1; index <= maxRPCMuxDiagnosisOperatorBackupFiles; index++ {
+	for index := 1; index <= s.maxBackups; index++ {
 		source := fmt.Sprintf("%s.%d", RPCMuxDiagnosisOperatorHistorySourceBackup, index)
 		_, evidence, err := s.replayHistoryPathLocked(fmt.Sprintf("%s.bak.%d", s.path, index), source)
 		backups = append(backups, evidence)
@@ -813,7 +840,7 @@ func (s *RPCMuxDiagnosisOperatorHistoryFileStore) refreshFileSnapshotLocked(exis
 	s.snapshot.MaxSizeBytes = s.maxSizeBytes
 	s.snapshot.MaxLineBytes = s.maxLineBytes
 	s.snapshot.MaxActions = s.maxActions
-	s.snapshot.BackupRetention = maxRPCMuxDiagnosisOperatorBackupFiles
+	s.snapshot.BackupRetention = s.maxBackups
 	if existingErr != nil {
 		return
 	}
@@ -971,13 +998,13 @@ func (s *RPCMuxDiagnosisOperatorHistoryFileStore) compactHistoryLocked(force boo
 }
 
 func (s *RPCMuxDiagnosisOperatorHistoryFileStore) rotateBackupsLocked() error {
-	for index := maxRPCMuxDiagnosisOperatorBackupFiles; index >= 1; index-- {
+	for index := s.maxBackups; index >= 1; index-- {
 		current := s.path + ".bak"
 		if index > 1 {
 			current = fmt.Sprintf("%s.bak.%d", s.path, index-1)
 		}
 		next := fmt.Sprintf("%s.bak.%d", s.path, index)
-		if index == maxRPCMuxDiagnosisOperatorBackupFiles {
+		if index == s.maxBackups {
 			_ = os.Remove(next)
 		}
 		if err := os.Rename(current, next); err != nil && !os.IsNotExist(err) {

@@ -389,6 +389,7 @@ func (s *HTTPServer) serveMuxOperatorActionHistoryReplay(w http.ResponseWriter, 
 	}
 	s.mu.RLock()
 	exporter := s.opts.muxEventExporter
+	token := s.opts.muxOperatorToken
 	s.mu.RUnlock()
 	source, ok := exporter.(interface {
 		RPCMuxDiagnosisOperatorHistoryIntegritySnapshot(context.Context) (RPCMuxDiagnosisOperatorHistoryIntegritySnapshot, error)
@@ -406,6 +407,10 @@ func (s *HTTPServer) serveMuxOperatorActionHistoryReplay(w http.ResponseWriter, 
 		Verification: integrity.Verification,
 	}
 	if parseBoolQuery(r.URL.Query().Get("debugActions")) {
+		if token == "" || strings.TrimSpace(r.URL.Query().Get("token")) != token {
+			writeRPCError(w, http.StatusForbidden, CodePermissionDenied, "operator history debug replay requires approval token")
+			return
+		}
 		replaySource, ok := exporter.(interface {
 			ReplayRPCMuxDiagnosisOperatorHistory(context.Context, string, int) (RPCMuxDiagnosisOperatorHistoryReplay, error)
 		})

@@ -63,7 +63,7 @@ func TestGenerateService(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"Mux Subprocess Sink Example", "documentation-only", "not loaded by default", "env://", "file://"} {
+	for _, want := range []string{"Mux Subprocess Sink Example", "documentation-only", "not loaded by default", "env://", "file://", "Mux Operator History Tuning", "maxActions <= 1024", "maxBackups <= 3"} {
 		if !strings.Contains(string(readmeData), want) {
 			t.Fatalf("README missing %q:\n%s", want, readmeData)
 		}

@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/imajinyun/gofly/core/observability/metrics"
 )
 
 const (
@@ -38,6 +40,24 @@ const (
 	rpcMuxDiagnosisOperatorHistoryFileHeaderType    = "gofly.rpc_mux_operator_history.header"
 	rpcMuxDiagnosisOperatorHistoryFileSchemaVersion = "gofly.rpc_mux_operator_history.v1"
 )
+
+var rpcMuxDiagnosisOperatorHistoryIntegrityState *metrics.Gauge
+
+func init() {
+	registerRPCMuxDiagnosisOperatorHistoryMetrics(metrics.Default)
+}
+
+func registerRPCMuxDiagnosisOperatorHistoryMetrics(registry *metrics.Registry) {
+	if registry == nil {
+		registry = metrics.Default
+	}
+	rpcMuxDiagnosisOperatorHistoryIntegrityState = registry.Gauge(
+		"gofly_rpc_mux_operator_history_integrity_state",
+		"Whether the mux operator history integrity status is degraded.",
+		"reason",
+		"source",
+	)
+}
 
 // RPCMuxDiagnosisOperatorAction describes a dry-run operator action for one
 // sink. It is intentionally declarative; callers must apply any real action in
@@ -453,6 +473,15 @@ func (s *RPCMuxDiagnosisSinkSet) WithOperatorHistoryStore(store RPCMuxDiagnosisO
 	return s
 }
 
+func (s *RPCMuxDiagnosisSinkSet) RecordRPCMuxDiagnosisOperatorAuditAction(action RPCMuxDiagnosisOperatorAction) {
+	if s == nil || !action.Approved {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.recordOperatorActionLocked(action)
+}
+
 func (s *RPCMuxDiagnosisSinkSet) appendOperatorHistory(ctx context.Context, action RPCMuxDiagnosisOperatorAction) error {
 	if s == nil || s.operatorStore == nil || !action.Approved {
 		return nil
@@ -518,6 +547,7 @@ func (s *RPCMuxDiagnosisSinkSet) RPCMuxDiagnosisOperatorHistoryIntegritySnapshot
 	snapshot.Verification = verification
 	snapshot.IntegrityStatus = verification.Primary.IntegrityStatus
 	snapshot.DegradedReason, snapshot.DegradedSource = rpcMuxDiagnosisOperatorHistoryDegradedEvidence(verification)
+	recordRPCMuxDiagnosisOperatorHistoryIntegrityMetric(snapshot.DegradedReason, snapshot.DegradedSource)
 	return snapshot, err
 }
 
@@ -534,6 +564,23 @@ func rpcMuxDiagnosisOperatorHistoryDegradedEvidence(verification RPCMuxDiagnosis
 		}
 	}
 	return "", ""
+}
+
+func recordRPCMuxDiagnosisOperatorHistoryIntegrityMetric(reason string, source string) {
+	if rpcMuxDiagnosisOperatorHistoryIntegrityState == nil {
+		return
+	}
+	if reason == "" {
+		reason = "ok"
+	}
+	if source == "" {
+		source = "primary"
+	}
+	value := 0.0
+	if reason != "ok" {
+		value = 1
+	}
+	rpcMuxDiagnosisOperatorHistoryIntegrityState.Set(value, reason, source)
 }
 
 func (s *RPCMuxDiagnosisSinkSet) ReplayRPCMuxDiagnosisOperatorHistory(ctx context.Context, source string, limit int) (RPCMuxDiagnosisOperatorHistoryReplay, error) {

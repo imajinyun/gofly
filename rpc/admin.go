@@ -5,6 +5,7 @@ package rpc
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
 	"sort"
@@ -23,6 +24,8 @@ type RPCMuxDiagnosisOperatorHistoryReplayAdminResponse struct {
 	Replay       *RPCMuxDiagnosisOperatorHistoryReplay      `json:"replay,omitempty"`
 	DebugActions bool                                       `json:"debugActions,omitempty"`
 }
+
+const defaultRPCMuxDebugReplayInterval = time.Second
 
 // ServiceSnapshot captures the runtime state of a registered RPC service.
 type ServiceSnapshot struct {
@@ -407,8 +410,21 @@ func (s *HTTPServer) serveMuxOperatorActionHistoryReplay(w http.ResponseWriter, 
 		Verification: integrity.Verification,
 	}
 	if parseBoolQuery(r.URL.Query().Get("debugActions")) {
+		sourceName := strings.TrimSpace(r.URL.Query().Get("source"))
+		if sourceName == "" {
+			sourceName = RPCMuxDiagnosisOperatorHistorySourcePrimary
+		}
+		limit := parsePositiveIntQuery(r.URL.Query().Get("limit"))
+		tokenResult := "approved"
 		if token == "" || strings.TrimSpace(r.URL.Query().Get("token")) != token {
+			tokenResult = "denied"
+			s.recordMuxOperatorHistoryDebugReplayAudit(exporter, sourceName, limit, tokenResult)
 			writeRPCError(w, http.StatusForbidden, CodePermissionDenied, "operator history debug replay requires approval token")
+			return
+		}
+		if !s.allowMuxOperatorHistoryDebugReplay() {
+			s.recordMuxOperatorHistoryDebugReplayAudit(exporter, sourceName, limit, "rate_limited")
+			writeRPCError(w, http.StatusTooManyRequests, CodeResourceExhausted, "operator history debug replay is rate limited")
 			return
 		}
 		replaySource, ok := exporter.(interface {
@@ -418,19 +434,50 @@ func (s *HTTPServer) serveMuxOperatorActionHistoryReplay(w http.ResponseWriter, 
 			writeRPCError(w, http.StatusNotFound, CodeNotFound, "mux operator history action replay source not found")
 			return
 		}
-		sourceName := strings.TrimSpace(r.URL.Query().Get("source"))
-		if sourceName == "" {
-			sourceName = RPCMuxDiagnosisOperatorHistorySourcePrimary
-		}
-		replay, err := replaySource.ReplayRPCMuxDiagnosisOperatorHistory(r.Context(), sourceName, parsePositiveIntQuery(r.URL.Query().Get("limit")))
+		replay, err := replaySource.ReplayRPCMuxDiagnosisOperatorHistory(r.Context(), sourceName, limit)
 		if err != nil {
+			s.recordMuxOperatorHistoryDebugReplayAudit(exporter, sourceName, limit, "invalid_source")
 			writeRPCError(w, http.StatusBadRequest, CodeInvalidArgument, "operator history replay source is invalid")
 			return
 		}
+		s.recordMuxOperatorHistoryDebugReplayAudit(exporter, sourceName, limit, tokenResult)
 		response.DebugActions = true
 		response.Replay = &replay
 	}
 	writeAdminJSON(w, http.StatusOK, response)
+}
+
+func (s *HTTPServer) allowMuxOperatorHistoryDebugReplay() bool {
+	if s == nil {
+		return false
+	}
+	now := time.Now().UnixNano()
+	last := s.muxDebugReplayLastAt.Load()
+	if last > 0 && time.Duration(now-last) < defaultRPCMuxDebugReplayInterval {
+		return false
+	}
+	return s.muxDebugReplayLastAt.CompareAndSwap(last, now)
+}
+
+func (s *HTTPServer) recordMuxOperatorHistoryDebugReplayAudit(exporter RPCMuxDiagnosisEventExporter, source string, limit int, tokenResult string) {
+	recorder, ok := exporter.(interface {
+		RecordRPCMuxDiagnosisOperatorAuditAction(RPCMuxDiagnosisOperatorAction)
+	})
+	if !ok {
+		return
+	}
+	recorder.RecordRPCMuxDiagnosisOperatorAuditAction(RPCMuxDiagnosisOperatorAction{
+		Sink:     "operator-history",
+		Action:   "debug_replay",
+		Reason:   "admin_debug_replay",
+		Approved: true,
+		Details: map[string]string{
+			"source":       source,
+			"limit":        fmt.Sprintf("%d", limit),
+			"token_result": tokenResult,
+		},
+		GeneratedAt: time.Now().UTC(),
+	})
 }
 
 func (s *HTTPServer) serveMuxOperatorAction(w http.ResponseWriter, r *http.Request) {

@@ -28,15 +28,16 @@ import (
 
 // HTTPServer is an HTTP-based RPC server with governance and service registration.
 type HTTPServer struct {
-	mu       sync.RWMutex
-	methods  map[string]MethodDesc
-	streams  map[string]StreamDesc
-	services map[string]ServiceDesc
-	opts     serverOptions
-	server   *http.Server
-	state    atomic.Int32
-	since    atomic.Int64
-	runtime  *ruleRuntime
+	mu                   sync.RWMutex
+	methods              map[string]MethodDesc
+	streams              map[string]StreamDesc
+	services             map[string]ServiceDesc
+	opts                 serverOptions
+	server               *http.Server
+	state                atomic.Int32
+	since                atomic.Int64
+	runtime              *ruleRuntime
+	muxDebugReplayLastAt atomic.Int64
 }
 
 type ruleRuntime struct {

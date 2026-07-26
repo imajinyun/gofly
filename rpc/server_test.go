@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/imajinyun/gofly/core/observability/metrics"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
 	"github.com/imajinyun/gofly/core/auth"
@@ -482,6 +483,15 @@ func TestHTTPServerAdminAuditAndMethodBoundaries(t *testing.T) {
 }
 
 func TestHTTPServerMuxOperatorHistoryRuntimeDetails(t *testing.T) {
+	oldMetrics := metrics.Default
+	registry := metrics.NewRegistry()
+	metrics.Default = registry
+	registerRPCMuxDiagnosisOperatorHistoryMetrics(registry)
+	t.Cleanup(func() {
+		metrics.Default = oldMetrics
+		registerRPCMuxDiagnosisOperatorHistoryMetrics(oldMetrics)
+	})
+
 	store, err := NewRPCMuxDiagnosisOperatorHistoryFileStore(filepath.Join("history", "operator.jsonl"))
 	if err != nil {
 		t.Fatal(err)
@@ -573,6 +583,18 @@ func TestHTTPServerMuxOperatorHistoryRuntimeDetails(t *testing.T) {
 	if !debugResponse.DebugActions || debugResponse.Replay == nil || len(debugResponse.Replay.Actions) != 1 {
 		t.Fatalf("history debug replay response = %+v, want actions", debugResponse)
 	}
+	auditHistory := sinkSet.RPCMuxDiagnosisOperatorActionHistory(1)
+	if len(auditHistory) != 1 || auditHistory[0].Action != "debug_replay" ||
+		auditHistory[0].Details["source"] != RPCMuxDiagnosisOperatorHistorySourcePrimary ||
+		auditHistory[0].Details["limit"] != "1" ||
+		auditHistory[0].Details["token_result"] != "approved" {
+		t.Fatalf("debug replay audit history = %+v", auditHistory)
+	}
+	rateLimitedRec := httptest.NewRecorder()
+	server.ServeHTTP(rateLimitedRec, httptest.NewRequest(http.MethodGet, "/rpc/admin/mux/operator-actions/history/replay?debugActions=true&source=primary&limit=1&token=approve-me", nil))
+	if rateLimitedRec.Code != http.StatusTooManyRequests {
+		t.Fatalf("history debug replay rate limit status = %d body=%s", rateLimitedRec.Code, rateLimitedRec.Body.String())
+	}
 
 	data, err := os.ReadFile(store.path)
 	if err != nil {
@@ -597,6 +619,20 @@ func TestHTTPServerMuxOperatorHistoryRuntimeDetails(t *testing.T) {
 		if !ok || integrity.DegradedReason != "tampered" || integrity.DegradedSource != RPCMuxDiagnosisOperatorHistorySourcePrimary {
 			t.Fatalf("runtime integrity after tamper = %#v", details["operatorHistoryIntegrity"])
 		}
+	}
+	customs := registry.Snapshot().Customs
+	integrityMetric := customs["gofly_rpc_mux_operator_history_integrity_state"]
+	if integrityMetric.Type != metrics.MetricGauge || len(integrityMetric.Series) == 0 {
+		t.Fatalf("operator history integrity metric = %+v, want gauge series", integrityMetric)
+	}
+	var foundTampered bool
+	for _, series := range integrityMetric.Series {
+		if series.Labels["reason"] == "tampered" && series.Labels["source"] == RPCMuxDiagnosisOperatorHistorySourcePrimary && series.Value == 1 {
+			foundTampered = true
+		}
+	}
+	if !foundTampered {
+		t.Fatalf("operator history integrity metric series = %+v, want tampered primary", integrityMetric.Series)
 	}
 }
 

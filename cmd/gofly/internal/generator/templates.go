@@ -19,6 +19,12 @@ The file ` + "`etc/secrets/mux-subprocess-profile.example.json`" + ` is document
 To enable a subprocess mux sink, copy the example to ` + "`etc/secrets/mux-subprocess-profile.json`" + `, review the command allowlist, working-directory root, timeout, output limit, and environment whitelist, then explicitly enable the ` + "`rpc.mux.log.otelCompatible`" + ` sink in the service config.
 
 Do not store raw secrets in runtime snapshots, diff plans, or source-controlled config. Prefer ` + "`env://...`" + ` or root-scoped ` + "`file://...`" + ` profile references.
+
+## Mux Operator History Tuning
+
+Operator history persistence is disabled by default. When you enable ` + "`rpc.mux.log.otelCompatible.operatorHistory`" + `, keep the store under ` + "`fileSecretRoot`" + ` and prefer the generated defaults unless you have reviewed disk and audit requirements.
+
+Recommended upper bounds for generated production config are ` + "`maxActions <= 1024`" + `, ` + "`maxBackups <= 3`" + `, ` + "`maxSizeBytes <= 1048576`" + `, and ` + "`maxLineBytes <= 65536`" + `. The production check accepts omitted values or values within those bounds and fails fast on larger values.
 `
 
 const muxOTelSinkFeatureTemplate = `// Package muxotelsink registers the generated application's custom mux OTel log sink.

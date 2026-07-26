@@ -5,7 +5,6 @@ package rpc
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/url"
 	"sort"
@@ -20,9 +19,10 @@ import (
 const maxDescriptorCompatibilityBytes = 1 << 20
 
 type RPCMuxDiagnosisOperatorHistoryReplayAdminResponse struct {
-	Verification RPCMuxDiagnosisOperatorHistoryVerification `json:"verification"`
-	Replay       *RPCMuxDiagnosisOperatorHistoryReplay      `json:"replay,omitempty"`
-	DebugActions bool                                       `json:"debugActions,omitempty"`
+	Verification             RPCMuxDiagnosisOperatorHistoryVerification `json:"verification"`
+	Replay                   *RPCMuxDiagnosisOperatorHistoryReplay      `json:"replay,omitempty"`
+	DebugActions             bool                                       `json:"debugActions,omitempty"`
+	CooldownRemainingSeconds float64                                    `json:"cooldownRemainingSeconds,omitempty"`
 }
 
 const defaultRPCMuxDebugReplayInterval = time.Second
@@ -407,7 +407,8 @@ func (s *HTTPServer) serveMuxOperatorActionHistoryReplay(w http.ResponseWriter, 
 		return
 	}
 	response := RPCMuxDiagnosisOperatorHistoryReplayAdminResponse{
-		Verification: integrity.Verification,
+		Verification:             integrity.Verification,
+		CooldownRemainingSeconds: s.muxOperatorHistoryDebugReplayCooldownRemaining().Seconds(),
 	}
 	if parseBoolQuery(r.URL.Query().Get("debugActions")) {
 		sourceName := strings.TrimSpace(r.URL.Query().Get("source"))
@@ -459,6 +460,21 @@ func (s *HTTPServer) allowMuxOperatorHistoryDebugReplay() bool {
 	return s.muxDebugReplayLastAt.CompareAndSwap(last, now)
 }
 
+func (s *HTTPServer) muxOperatorHistoryDebugReplayCooldownRemaining() time.Duration {
+	if s == nil {
+		return 0
+	}
+	last := s.muxDebugReplayLastAt.Load()
+	if last <= 0 {
+		return 0
+	}
+	remaining := defaultRPCMuxDebugReplayInterval - time.Since(time.Unix(0, last))
+	if remaining <= 0 {
+		return 0
+	}
+	return remaining
+}
+
 func (s *HTTPServer) recordMuxOperatorHistoryDebugReplayAudit(exporter RPCMuxDiagnosisEventExporter, source string, limit int, tokenResult string) {
 	recorder, ok := exporter.(interface {
 		RecordRPCMuxDiagnosisOperatorAuditAction(RPCMuxDiagnosisOperatorAction)
@@ -468,14 +484,14 @@ func (s *HTTPServer) recordMuxOperatorHistoryDebugReplayAudit(exporter RPCMuxDia
 	}
 	recorder.RecordRPCMuxDiagnosisOperatorAuditAction(RPCMuxDiagnosisOperatorAction{
 		Sink:     "operator-history",
-		Action:   "debug_replay",
+		Action:   RPCMuxDiagnosisOperatorDebugReplay,
 		Reason:   "admin_debug_replay",
 		Approved: true,
-		Details: map[string]string{
-			"source":       source,
-			"limit":        fmt.Sprintf("%d", limit),
-			"token_result": tokenResult,
-		},
+		Details: RPCMuxDiagnosisOperatorDebugReplayAuditDetails{
+			Source:      source,
+			Limit:       limit,
+			TokenResult: tokenResult,
+		}.StringMap(),
 		GeneratedAt: time.Now().UTC(),
 	})
 }

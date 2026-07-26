@@ -18,9 +18,10 @@ import (
 )
 
 const (
-	RPCMuxDiagnosisOperatorPauseSink  = "pause_sink"
-	RPCMuxDiagnosisOperatorResumeSink = "resume_sink"
-	RPCMuxDiagnosisOperatorForceProbe = "force_probe"
+	RPCMuxDiagnosisOperatorPauseSink   = "pause_sink"
+	RPCMuxDiagnosisOperatorResumeSink  = "resume_sink"
+	RPCMuxDiagnosisOperatorForceProbe  = "force_probe"
+	RPCMuxDiagnosisOperatorDebugReplay = "debug_replay"
 
 	// RPCMuxDiagnosisOperatorHistorySourcePrimary selects the active JSONL file.
 	RPCMuxDiagnosisOperatorHistorySourcePrimary = "primary"
@@ -41,7 +42,27 @@ const (
 	rpcMuxDiagnosisOperatorHistoryFileSchemaVersion = "gofly.rpc_mux_operator_history.v1"
 )
 
-var rpcMuxDiagnosisOperatorHistoryIntegrityState *metrics.Gauge
+type RPCMuxDiagnosisOperatorDebugReplayAuditDetails struct {
+	Source      string `json:"source"`
+	Limit       int    `json:"limit"`
+	TokenResult string `json:"tokenResult"`
+}
+
+func (d RPCMuxDiagnosisOperatorDebugReplayAuditDetails) StringMap() map[string]string {
+	return map[string]string{
+		"schema":       "gofly.rpc_mux_operator_debug_replay_audit.v1",
+		"source":       strings.TrimSpace(d.Source),
+		"limit":        fmt.Sprintf("%d", d.Limit),
+		"token_result": strings.TrimSpace(d.TokenResult),
+	}
+}
+
+var (
+	rpcMuxDiagnosisOperatorHistoryIntegrityState *metrics.Gauge
+	rpcMuxDiagnosisOperatorHistoryMetricMu       sync.Mutex
+	rpcMuxDiagnosisOperatorHistoryMetricReason   string
+	rpcMuxDiagnosisOperatorHistoryMetricSource   string
+)
 
 func init() {
 	registerRPCMuxDiagnosisOperatorHistoryMetrics(metrics.Default)
@@ -570,6 +591,13 @@ func recordRPCMuxDiagnosisOperatorHistoryIntegrityMetric(reason string, source s
 	if rpcMuxDiagnosisOperatorHistoryIntegrityState == nil {
 		return
 	}
+	rpcMuxDiagnosisOperatorHistoryMetricMu.Lock()
+	defer rpcMuxDiagnosisOperatorHistoryMetricMu.Unlock()
+	if reason == "" && rpcMuxDiagnosisOperatorHistoryMetricReason != "" {
+		rpcMuxDiagnosisOperatorHistoryIntegrityState.Set(0, rpcMuxDiagnosisOperatorHistoryMetricReason, rpcMuxDiagnosisOperatorHistoryMetricSource)
+		rpcMuxDiagnosisOperatorHistoryMetricReason = ""
+		rpcMuxDiagnosisOperatorHistoryMetricSource = ""
+	}
 	if reason == "" {
 		reason = "ok"
 	}
@@ -579,6 +607,8 @@ func recordRPCMuxDiagnosisOperatorHistoryIntegrityMetric(reason string, source s
 	value := 0.0
 	if reason != "ok" {
 		value = 1
+		rpcMuxDiagnosisOperatorHistoryMetricReason = reason
+		rpcMuxDiagnosisOperatorHistoryMetricSource = source
 	}
 	rpcMuxDiagnosisOperatorHistoryIntegrityState.Set(value, reason, source)
 }

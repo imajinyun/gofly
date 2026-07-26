@@ -564,6 +564,9 @@ func TestHTTPServerMuxOperatorHistoryRuntimeDetails(t *testing.T) {
 	if replayResponse.Replay != nil || replayResponse.DebugActions || replayResponse.Verification.Primary.StoredActions != 1 {
 		t.Fatalf("history replay response = %+v, want evidence only", replayResponse)
 	}
+	if replayResponse.CooldownRemainingSeconds != 0 {
+		t.Fatalf("initial cooldown = %f, want 0", replayResponse.CooldownRemainingSeconds)
+	}
 
 	forbiddenDebugRec := httptest.NewRecorder()
 	server.ServeHTTP(forbiddenDebugRec, httptest.NewRequest(http.MethodGet, "/rpc/admin/mux/operator-actions/history/replay?debugActions=true&source=primary&limit=1", nil))
@@ -584,11 +587,24 @@ func TestHTTPServerMuxOperatorHistoryRuntimeDetails(t *testing.T) {
 		t.Fatalf("history debug replay response = %+v, want actions", debugResponse)
 	}
 	auditHistory := sinkSet.RPCMuxDiagnosisOperatorActionHistory(1)
-	if len(auditHistory) != 1 || auditHistory[0].Action != "debug_replay" ||
+	if len(auditHistory) != 1 || auditHistory[0].Action != RPCMuxDiagnosisOperatorDebugReplay ||
+		auditHistory[0].Details["schema"] != "gofly.rpc_mux_operator_debug_replay_audit.v1" ||
 		auditHistory[0].Details["source"] != RPCMuxDiagnosisOperatorHistorySourcePrimary ||
 		auditHistory[0].Details["limit"] != "1" ||
 		auditHistory[0].Details["token_result"] != "approved" {
 		t.Fatalf("debug replay audit history = %+v", auditHistory)
+	}
+	cooldownRec := httptest.NewRecorder()
+	server.ServeHTTP(cooldownRec, httptest.NewRequest(http.MethodGet, "/rpc/admin/mux/operator-actions/history/replay", nil))
+	if cooldownRec.Code != http.StatusOK {
+		t.Fatalf("history cooldown evidence status = %d body=%s", cooldownRec.Code, cooldownRec.Body.String())
+	}
+	var cooldownResponse RPCMuxDiagnosisOperatorHistoryReplayAdminResponse
+	if err := json.NewDecoder(cooldownRec.Body).Decode(&cooldownResponse); err != nil {
+		t.Fatal(err)
+	}
+	if cooldownResponse.CooldownRemainingSeconds <= 0 {
+		t.Fatalf("cooldown response = %+v, want positive remaining seconds", cooldownResponse)
 	}
 	rateLimitedRec := httptest.NewRecorder()
 	server.ServeHTTP(rateLimitedRec, httptest.NewRequest(http.MethodGet, "/rpc/admin/mux/operator-actions/history/replay?debugActions=true&source=primary&limit=1&token=approve-me", nil))
@@ -633,6 +649,20 @@ func TestHTTPServerMuxOperatorHistoryRuntimeDetails(t *testing.T) {
 	}
 	if !foundTampered {
 		t.Fatalf("operator history integrity metric series = %+v, want tampered primary", integrityMetric.Series)
+	}
+	if err := os.WriteFile(store.path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_ = server.RuntimeSnapshot(context.Background())
+	recoveredMetric := registry.Snapshot().Customs["gofly_rpc_mux_operator_history_integrity_state"]
+	var tamperedCleared bool
+	for _, series := range recoveredMetric.Series {
+		if series.Labels["reason"] == "tampered" && series.Labels["source"] == RPCMuxDiagnosisOperatorHistorySourcePrimary && series.Value == 0 {
+			tamperedCleared = true
+		}
+	}
+	if !tamperedCleared {
+		t.Fatalf("operator history integrity metric after recovery = %+v, want tampered reset to 0", recoveredMetric.Series)
 	}
 }
 

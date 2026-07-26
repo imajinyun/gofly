@@ -571,6 +571,18 @@ func TestHTTPServerMuxOperatorHistoryRuntimeDetails(t *testing.T) {
 	if replayResponse.CooldownRemainingSeconds != 0 {
 		t.Fatalf("initial cooldown = %f, want 0", replayResponse.CooldownRemainingSeconds)
 	}
+	schemaRec := httptest.NewRecorder()
+	server.ServeHTTP(schemaRec, httptest.NewRequest(http.MethodGet, "/rpc/admin/mux/operator-actions/audit-schemas", nil))
+	if schemaRec.Code != http.StatusOK {
+		t.Fatalf("audit schema status = %d body=%s", schemaRec.Code, schemaRec.Body.String())
+	}
+	var schemas map[string]RPCMuxDiagnosisOperatorAuditSchema
+	if err := json.NewDecoder(schemaRec.Body).Decode(&schemas); err != nil {
+		t.Fatal(err)
+	}
+	if schemas["debugReplay"].Schema != "gofly.rpc_mux_operator_debug_replay_audit.v1" || len(schemas["debugReplay"].Fields) != 3 {
+		t.Fatalf("audit schemas = %+v", schemas)
+	}
 
 	forbiddenDebugRec := httptest.NewRecorder()
 	server.ServeHTTP(forbiddenDebugRec, httptest.NewRequest(http.MethodGet, "/rpc/admin/mux/operator-actions/history/replay?debugActions=true&source=primary&limit=1", nil))

@@ -48,9 +48,24 @@ type RPCMuxDiagnosisOperatorDebugReplayAuditDetails struct {
 	TokenResult string `json:"tokenResult"`
 }
 
+type RPCMuxDiagnosisOperatorAuditSchema struct {
+	Schema string   `json:"schema"`
+	Fields []string `json:"fields"`
+}
+
+func RPCMuxDiagnosisOperatorAuditSchemas() map[string]RPCMuxDiagnosisOperatorAuditSchema {
+	return map[string]RPCMuxDiagnosisOperatorAuditSchema{
+		"debugReplay": {
+			Schema: "gofly.rpc_mux_operator_debug_replay_audit.v1",
+			Fields: []string{"source", "limit", "token_result"},
+		},
+	}
+}
+
 func (d RPCMuxDiagnosisOperatorDebugReplayAuditDetails) StringMap() map[string]string {
+	schema := RPCMuxDiagnosisOperatorAuditSchemas()["debugReplay"].Schema
 	return map[string]string{
-		"schema":       "gofly.rpc_mux_operator_debug_replay_audit.v1",
+		"schema":       schema,
 		"source":       strings.TrimSpace(d.Source),
 		"limit":        fmt.Sprintf("%d", d.Limit),
 		"token_result": strings.TrimSpace(d.TokenResult),

@@ -35,8 +35,8 @@ func serviceFilesForProfile(style, name string, profile GenerationProfile) map[s
 		"go.mod":                              goModTemplate,
 		filepath.Join("cmd", name, "main.go"): mainTemplate,
 		filepath.Join("etc", name+".json"):    configTemplate,
-		filepath.Join("internal", "config", "config.go"):          configGoTemplate,
-		filepath.Join("internal", "config", "config_test.go"):     configTestTemplate,
+		filepath.Join("internal", "config", "config.go"):      configGoTemplate,
+		filepath.Join("internal", "config", "config_test.go"): configTestTemplate,
 		filepath.Join("internal", "svc", "service_context.go"):    svcTemplate,
 		filepath.Join("internal", "routes", "routes.go"):          routesTemplate,
 		filepath.Join("internal", "routes", "routes_test.go"):     routesTestTemplate,
@@ -61,6 +61,7 @@ func serviceFilesForProfile(style, name string, profile GenerationProfile) map[s
 	files[filepath.Join("etc", "secrets", "mux-subprocess-profile.example.json")] = muxSubprocessProfileExampleTemplate
 	files[filepath.Join("internal", "admin", "admin.go")] = adminServerTemplate
 	files[filepath.Join("internal", "admin", "admin_test.go")] = adminServerTestTemplate
+	files[filepath.Join("internal", "config", "production_check.go")] = productionCheckGoTemplate
 	files[filepath.Join("internal", "config", "discovery_test.go")] = configDiscoveryTestTemplate
 	files[filepath.Join("internal", "discovery", "registry.go")] = discoveryRegistryTemplate
 	files[filepath.Join("internal", "mq", "broker.go")] = mqBrokerTemplate

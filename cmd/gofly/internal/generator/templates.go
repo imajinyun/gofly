@@ -2372,6 +2372,9 @@ func (c RPCMuxConfig) candidateConfigWithTLS(tlsConfig security.TLSConfig) rpc.E
 }
 
 func ValidateRPCMuxConfig(c RPCMuxConfig) error {
+	if cooldown := c.Log.OTelCompatible.OperatorHistory.DebugReplayCooldown; cooldown > 0 && (cooldown < 100*time.Millisecond || cooldown > time.Minute) {
+		return fmt.Errorf("rpc mux operator history debugReplayCooldown must be between 100ms and 1m")
+	}
 	if c.Log.OTelCompatible.Enabled {
 		if err := rpc.ValidateRPCMuxDiagnosisSinkSetConfig(c.Log.OTelCompatible.SinkSetConfig()); err != nil {
 			return fmt.Errorf("rpc mux otelCompatible sinks: %w", err)
@@ -2589,12 +2592,7 @@ func (c ControlPlaneContributor) ContributeSnapshot(ctx context.Context, snapsho
 	if err := addGeneratedControlPlaneConfig("rpcMuxOTelSinks", rpc.RPCMuxOTelLogSinkRegistry()); err != nil {
 		return err
 	}
-	if err := addGeneratedControlPlaneConfig("rpcMuxOperatorAuditSchemas", map[string]any{
-		"debugReplay": map[string]any{
-			"schema": "gofly.rpc_mux_operator_debug_replay_audit.v1",
-			"fields": []string{"source", "limit", "token_result"},
-		},
-	}); err != nil {
+	if err := addGeneratedControlPlaneConfig("rpcMuxOperatorAuditSchemas", rpc.RPCMuxDiagnosisOperatorAuditSchemas()); err != nil {
 		return err
 	}
 	if err := addGeneratedControlPlaneConfig("openapi", cfg.OpenAPIInfo()); err != nil {
@@ -2892,6 +2890,18 @@ func TestRPCMuxConfigValidatesOTelCompatibleSink(t *testing.T) {
 	}
 	if err := ValidateRPCMuxConfig(cfg); err == nil || !strings.Contains(err.Error(), "duplicated") {
 		t.Fatalf("ValidateRPCMuxConfig duplicate sinks = %v, want duplicate error", err)
+	}
+
+	cfg.Log.OTelCompatible = RPCMuxOTelCompatibleLogConfig{
+		OperatorHistory: RPCMuxOperatorHistoryConfig{DebugReplayCooldown: time.Nanosecond},
+	}
+	if err := ValidateRPCMuxConfig(cfg); err == nil || !strings.Contains(err.Error(), "debugReplayCooldown must be between 100ms and 1m") {
+		t.Fatalf("ValidateRPCMuxConfig tiny debug replay cooldown = %v, want cooldown bounds error", err)
+	}
+
+	cfg.Log.OTelCompatible.OperatorHistory.DebugReplayCooldown = 2 * time.Minute
+	if err := ValidateRPCMuxConfig(cfg); err == nil || !strings.Contains(err.Error(), "debugReplayCooldown must be between 100ms and 1m") {
+		t.Fatalf("ValidateRPCMuxConfig huge debug replay cooldown = %v, want cooldown bounds error", err)
 	}
 }
 
@@ -4398,6 +4408,62 @@ data:
         datasourceUid: tempo
 `
 
+const productionCheckGoTemplate = `//go:build ignore
+
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+)
+
+func main() {
+	if len(os.Args) != 2 {
+		fail("usage: go run ./internal/config/production_check.go <config>")
+	}
+	data, err := os.ReadFile(os.Args[1])
+	if err != nil {
+		fail("read config: %v", err)
+	}
+	var root map[string]any
+	if err := json.Unmarshal(data, &root); err != nil {
+		fail("decode config json: %v", err)
+	}
+	history := object(object(object(object(root, "rpc"), "mux"), "log"), "otelCompatible")
+	history = object(history, "operatorHistory")
+	mustMax(history, "maxActions", 1024)
+	mustMax(history, "maxBackups", 3)
+	mustMax(history, "maxSizeBytes", 1048576)
+	mustMax(history, "maxLineBytes", 65536)
+	mustMax(history, "debugReplayCooldown", 60000000000)
+}
+
+func object(in map[string]any, key string) map[string]any {
+	next, _ := in[key].(map[string]any)
+	if next == nil {
+		fail("missing object %s", key)
+	}
+	return next
+}
+
+func mustMax(in map[string]any, key string, max int64) {
+	raw, ok := in[key]
+	if !ok {
+		return
+	}
+	value, ok := raw.(float64)
+	if !ok || value < 0 || value != float64(int64(value)) || int64(value) > max {
+		fail("mux operator history %s exceeds %d", key, max)
+	}
+}
+
+func fail(format string, args ...any) {
+	fmt.Fprintf(os.Stderr, "production-check failed: "+format+"\n", args...)
+	os.Exit(1)
+}
+`
+
 const productionCheckScriptTemplate = `#!/usr/bin/env sh
 set -eu
 
@@ -4425,59 +4491,7 @@ grep -q 'change-me-admin-token' "$config_file" && fail "replace placeholder admi
 grep -q '"fileSecretRoot": "etc/secrets"' "$config_file" || fail "mux fileSecretRoot is missing"
 grep -q '"operatorHistory"' "$config_file" || fail "mux operator history config is missing"
 grep -q '"store": "file://mux-operator-history.jsonl"' "$config_file" || fail "mux operator history store path is missing"
-history_check="$(mktemp "${TMPDIR:-/tmp}/gofly-operator-history-check.XXXXXX.go")"
-trap 'rm -f "$history_check"' EXIT
-cat >"$history_check" <<'GOFLY_HISTORY_CHECK'
-package main
-
-import (
-	"encoding/json"
-	"fmt"
-	"os"
-)
-
-func main() {
-	data, err := os.ReadFile(os.Args[1])
-	if err != nil {
-		fail("read config: %v", err)
-	}
-	var root map[string]any
-	if err := json.Unmarshal(data, &root); err != nil {
-		fail("decode config json: %v", err)
-	}
-	history := object(object(object(object(root, "rpc"), "mux"), "log"), "otelCompatible")
-	history = object(history, "operatorHistory")
-	mustMax(history, "maxActions", 1024)
-	mustMax(history, "maxBackups", 3)
-	mustMax(history, "maxSizeBytes", 1048576)
-	mustMax(history, "maxLineBytes", 65536)
-}
-
-func object(in map[string]any, key string) map[string]any {
-	next, _ := in[key].(map[string]any)
-	if next == nil {
-		fail("missing object %s", key)
-	}
-	return next
-}
-
-func mustMax(in map[string]any, key string, max int64) {
-	raw, ok := in[key]
-	if !ok {
-		return
-	}
-	value, ok := raw.(float64)
-	if !ok || value < 0 || value != float64(int64(value)) || int64(value) > max {
-		fail("mux operator history %s exceeds %d", key, max)
-	}
-}
-
-func fail(format string, args ...any) {
-	fmt.Fprintf(os.Stderr, "production-check failed: "+format+"\n", args...)
-	os.Exit(1)
-}
-GOFLY_HISTORY_CHECK
-go run "$history_check" "$config_file"
+go run ./internal/config/production_check.go "$config_file"
 [ -d "etc/secrets" ] || fail "mux fileSecretRoot directory is missing"
 [ ! -f "etc/secrets/mux-subprocess-profile.json" ] || fail "real mux subprocess profile must not be generated by default"
 [ ! -f "etc/secrets/mux-operator-history.jsonl" ] || fail "real mux operator history must not be generated by default"

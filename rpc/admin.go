@@ -146,6 +146,8 @@ func (s *HTTPServer) serveAdminRoute(w http.ResponseWriter, r *http.Request) {
 		})
 	case r.URL.Path == "/rpc/admin/runtime":
 		writeAdminJSON(w, http.StatusOK, s.RuntimeSnapshot(r.Context()))
+	case r.URL.Path == "/rpc/admin/mux/operator-actions/audit-schemas":
+		writeAdminJSON(w, http.StatusOK, RPCMuxDiagnosisOperatorAuditSchemas())
 	case r.URL.Path == "/rpc/admin/mux/operator-actions/history/replay":
 		s.serveMuxOperatorActionHistoryReplay(w, r)
 	case r.URL.Path == "/rpc/admin/mux/operator-actions/history":

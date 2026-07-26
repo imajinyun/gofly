@@ -289,6 +289,22 @@ func TestRPCMuxDiagnosisOperatorHistoryFileStoreIntegrityAndCompaction(t *testin
 	if _, err := os.Stat(store.path + ".bak"); err != nil {
 		t.Fatalf("compaction backup stat: %v", err)
 	}
+	for _, actionName := range []string{RPCMuxDiagnosisOperatorPauseSink, RPCMuxDiagnosisOperatorResumeSink} {
+		if err := store.AppendRPCMuxDiagnosisOperatorAction(context.Background(), RPCMuxDiagnosisOperatorAction{
+			Sink:     "slog",
+			Action:   actionName,
+			Approved: true,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := os.Stat(store.path + ".bak.1"); err != nil {
+		t.Fatalf("backup ring stat: %v", err)
+	}
+	ringReplay, err := store.ReplayRPCMuxDiagnosisOperatorHistory(context.Background(), "backup.1", 1)
+	if err != nil || !ringReplay.Evidence.Exists || len(ringReplay.Actions) != 1 {
+		t.Fatalf("backup ring replay = %+v err=%v", ringReplay, err)
+	}
 	snapshot := store.RPCMuxDiagnosisOperatorStoreSnapshot()
 	if snapshot.Compactions == 0 || snapshot.Rotations == 0 || snapshot.IntegrityStatus != "ok" || snapshot.StoredActions != 2 {
 		t.Fatalf("compaction snapshot = %+v", snapshot)
@@ -298,7 +314,7 @@ func TestRPCMuxDiagnosisOperatorHistoryFileStoreIntegrityAndCompaction(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	tampered := strings.Replace(string(data), RPCMuxDiagnosisOperatorForceProbe, RPCMuxDiagnosisOperatorPauseSink, 1)
+	tampered := strings.Replace(string(data), RPCMuxDiagnosisOperatorResumeSink, RPCMuxDiagnosisOperatorForceProbe, 1)
 	if err := os.WriteFile(store.path, []byte(tampered), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -306,7 +322,7 @@ func TestRPCMuxDiagnosisOperatorHistoryFileStoreIntegrityAndCompaction(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(loaded) != 1 || loaded[0].Action != RPCMuxDiagnosisOperatorResumeSink {
+	if len(loaded) != 1 || loaded[0].Action != RPCMuxDiagnosisOperatorPauseSink {
 		t.Fatalf("loaded after tamper = %+v", loaded)
 	}
 	if snapshot := store.RPCMuxDiagnosisOperatorStoreSnapshot(); snapshot.TamperedLines != 1 || snapshot.IntegrityStatus != "tampered" {

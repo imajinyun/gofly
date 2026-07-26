@@ -33,6 +33,7 @@ const (
 	maxRPCMuxDiagnosisOperatorStoreSize    = 64 << 20
 	maxRPCMuxDiagnosisOperatorStoreLine    = 1 << 20
 	maxRPCMuxDiagnosisOperatorStoreActions = 64 << 10
+	maxRPCMuxDiagnosisOperatorBackupFiles  = 3
 
 	rpcMuxDiagnosisOperatorHistoryFileHeaderType    = "gofly.rpc_mux_operator_history.header"
 	rpcMuxDiagnosisOperatorHistoryFileSchemaVersion = "gofly.rpc_mux_operator_history.v1"
@@ -109,6 +110,7 @@ type RPCMuxDiagnosisOperatorStoreSnapshot struct {
 	IntegrityStatus string    `json:"integrityStatus,omitempty"`
 	Compactions     int       `json:"compactions,omitempty"`
 	Rotations       int       `json:"rotations,omitempty"`
+	BackupRetention int       `json:"backupRetention,omitempty"`
 	LastError       string    `json:"lastError,omitempty"`
 	LastWriteAt     time.Time `json:"lastWriteAt,omitempty"`
 	LastLoadAt      time.Time `json:"lastLoadAt,omitempty"`
@@ -145,8 +147,9 @@ type RPCMuxDiagnosisOperatorHistoryReplay struct {
 // RPCMuxDiagnosisOperatorHistoryVerification contains redacted evidence for
 // the primary and backup files.
 type RPCMuxDiagnosisOperatorHistoryVerification struct {
-	Primary RPCMuxDiagnosisOperatorHistoryFileEvidence `json:"primary"`
-	Backup  RPCMuxDiagnosisOperatorHistoryFileEvidence `json:"backup"`
+	Primary RPCMuxDiagnosisOperatorHistoryFileEvidence   `json:"primary"`
+	Backup  RPCMuxDiagnosisOperatorHistoryFileEvidence   `json:"backup"`
+	Backups []RPCMuxDiagnosisOperatorHistoryFileEvidence `json:"backups,omitempty"`
 }
 
 // RPCMuxDiagnosisOperatorHistoryIntegritySnapshot is safe for control-plane
@@ -214,6 +217,7 @@ func NewRPCMuxDiagnosisOperatorHistoryFileStoreWithConfig(path string, config RP
 			MaxSizeBytes:    config.MaxSizeBytes,
 			MaxLineBytes:    config.MaxLineBytes,
 			MaxActions:      config.MaxActions,
+			BackupRetention: maxRPCMuxDiagnosisOperatorBackupFiles,
 			ChecksumStatus:  "unchecked",
 			IntegrityStatus: "unchecked",
 		},
@@ -505,6 +509,22 @@ func (s *RPCMuxDiagnosisSinkSet) RPCMuxDiagnosisOperatorHistoryIntegritySnapshot
 	return snapshot, err
 }
 
+func (s *RPCMuxDiagnosisSinkSet) ReplayRPCMuxDiagnosisOperatorHistory(ctx context.Context, source string, limit int) (RPCMuxDiagnosisOperatorHistoryReplay, error) {
+	if s == nil {
+		return RPCMuxDiagnosisOperatorHistoryReplay{}, nil
+	}
+	s.mu.RLock()
+	store := s.operatorStore
+	s.mu.RUnlock()
+	replayer, ok := store.(interface {
+		ReplayRPCMuxDiagnosisOperatorHistory(context.Context, string, int) (RPCMuxDiagnosisOperatorHistoryReplay, error)
+	})
+	if !ok {
+		return RPCMuxDiagnosisOperatorHistoryReplay{}, nil
+	}
+	return replayer.ReplayRPCMuxDiagnosisOperatorHistory(ctx, source, limit)
+}
+
 func (s *RPCMuxDiagnosisSinkSet) operatorHistoryStoreSnapshot() RPCMuxDiagnosisOperatorStoreSnapshot {
 	if s == nil {
 		return RPCMuxDiagnosisOperatorStoreSnapshot{}
@@ -689,9 +709,17 @@ func (s *RPCMuxDiagnosisOperatorHistoryFileStore) VerifyRPCMuxDiagnosisOperatorH
 	defer s.mu.Unlock()
 	_, primary, primaryErr := s.replayHistoryPathLocked(s.path, RPCMuxDiagnosisOperatorHistorySourcePrimary)
 	_, backup, backupErr := s.replayHistoryPathLocked(s.path+".bak", RPCMuxDiagnosisOperatorHistorySourceBackup)
+	backups := make([]RPCMuxDiagnosisOperatorHistoryFileEvidence, 0, maxRPCMuxDiagnosisOperatorBackupFiles)
+	for index := 1; index <= maxRPCMuxDiagnosisOperatorBackupFiles; index++ {
+		source := fmt.Sprintf("%s.%d", RPCMuxDiagnosisOperatorHistorySourceBackup, index)
+		_, evidence, err := s.replayHistoryPathLocked(fmt.Sprintf("%s.bak.%d", s.path, index), source)
+		backups = append(backups, evidence)
+		backupErr = errors.Join(backupErr, err)
+	}
 	return RPCMuxDiagnosisOperatorHistoryVerification{
 		Primary: primary,
 		Backup:  backup,
+		Backups: backups,
 	}, errors.Join(primaryErr, backupErr)
 }
 
@@ -702,6 +730,13 @@ func (s *RPCMuxDiagnosisOperatorHistoryFileStore) historySourcePath(source strin
 	case RPCMuxDiagnosisOperatorHistorySourceBackup:
 		return s.path + ".bak", nil
 	default:
+		if strings.HasPrefix(source, RPCMuxDiagnosisOperatorHistorySourceBackup+".") {
+			suffix := strings.TrimPrefix(source, RPCMuxDiagnosisOperatorHistorySourceBackup+".")
+			switch suffix {
+			case "1", "2", "3":
+				return s.path + ".bak." + suffix, nil
+			}
+		}
 		return "", fmt.Errorf("operator history source must be primary or backup")
 	}
 }
@@ -713,6 +748,7 @@ func (s *RPCMuxDiagnosisOperatorHistoryFileStore) replayHistoryPathLocked(path s
 		ChecksumStatus:  "missing",
 		IntegrityStatus: "missing",
 	}
+	// #nosec G304 G703 -- path is the constructor-validated local store path or a bounded backup sibling.
 	info, err := os.Stat(path)
 	if os.IsNotExist(err) {
 		return nil, evidence, nil
@@ -731,7 +767,7 @@ func (s *RPCMuxDiagnosisOperatorHistoryFileStore) replayHistoryPathLocked(path s
 		evidence.LastError = err.Error()
 		return nil, evidence, err
 	}
-	// #nosec G304 -- path is the constructor-validated local store path or its fixed .bak sibling.
+	// #nosec G304 G703 -- path is the constructor-validated local store path or a bounded backup sibling.
 	data, err := os.ReadFile(path)
 	if err != nil {
 		evidence.LastError = err.Error()
@@ -777,6 +813,7 @@ func (s *RPCMuxDiagnosisOperatorHistoryFileStore) refreshFileSnapshotLocked(exis
 	s.snapshot.MaxSizeBytes = s.maxSizeBytes
 	s.snapshot.MaxLineBytes = s.maxLineBytes
 	s.snapshot.MaxActions = s.maxActions
+	s.snapshot.BackupRetention = maxRPCMuxDiagnosisOperatorBackupFiles
 	if existingErr != nil {
 		return
 	}
@@ -910,14 +947,12 @@ func (s *RPCMuxDiagnosisOperatorHistoryFileStore) compactHistoryLocked(force boo
 	if err != nil {
 		return err
 	}
-	backupPath := s.path + ".bak"
-	_ = os.Remove(backupPath)
-	if err := os.Rename(s.path, backupPath); err != nil && !os.IsNotExist(err) {
+	if err := s.rotateBackupsLocked(); err != nil {
 		return err
 	}
 	// #nosec G306 G703 -- s.path is constrained to filepath.IsLocal by NewRPCMuxDiagnosisOperatorHistoryFileStore.
 	if err := os.WriteFile(s.path, compact, 0o600); err != nil {
-		_ = os.Rename(backupPath, s.path)
+		_ = os.Rename(s.path+".bak", s.path)
 		return err
 	}
 	s.snapshot.Compactions++
@@ -932,6 +967,26 @@ func (s *RPCMuxDiagnosisOperatorHistoryFileStore) compactHistoryLocked(force boo
 	s.snapshot.ChecksumStatus = checksumStatusForOperatorHistory(len(actions), 0)
 	s.snapshot.IntegrityStatus = integrityStatusForOperatorHistory(rpcMuxDiagnosisOperatorHistoryDiagnostics{headerPresent: true})
 	s.snapshot.LastCompactedAt = time.Now().UTC()
+	return nil
+}
+
+func (s *RPCMuxDiagnosisOperatorHistoryFileStore) rotateBackupsLocked() error {
+	for index := maxRPCMuxDiagnosisOperatorBackupFiles; index >= 1; index-- {
+		current := s.path + ".bak"
+		if index > 1 {
+			current = fmt.Sprintf("%s.bak.%d", s.path, index-1)
+		}
+		next := fmt.Sprintf("%s.bak.%d", s.path, index)
+		if index == maxRPCMuxDiagnosisOperatorBackupFiles {
+			_ = os.Remove(next)
+		}
+		if err := os.Rename(current, next); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	if err := os.Rename(s.path, s.path+".bak"); err != nil && !os.IsNotExist(err) {
+		return err
+	}
 	return nil
 }
 

@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -539,6 +540,46 @@ func TestHTTPServerMuxOperatorHistoryRuntimeDetails(t *testing.T) {
 	}
 	if !foundStore {
 		t.Fatalf("runtime snapshot missing operator history store: %+v", snapshot.Components)
+	}
+
+	replayRec := httptest.NewRecorder()
+	server.ServeHTTP(replayRec, httptest.NewRequest(http.MethodGet, "/rpc/admin/mux/operator-actions/history/replay", nil))
+	if replayRec.Code != http.StatusOK {
+		t.Fatalf("history replay status = %d body=%s", replayRec.Code, replayRec.Body.String())
+	}
+	var replayResponse RPCMuxDiagnosisOperatorHistoryReplayAdminResponse
+	if err := json.NewDecoder(replayRec.Body).Decode(&replayResponse); err != nil {
+		t.Fatal(err)
+	}
+	if replayResponse.Replay != nil || replayResponse.DebugActions || replayResponse.Verification.Primary.StoredActions != 1 {
+		t.Fatalf("history replay response = %+v, want evidence only", replayResponse)
+	}
+
+	debugRec := httptest.NewRecorder()
+	server.ServeHTTP(debugRec, httptest.NewRequest(http.MethodGet, "/rpc/admin/mux/operator-actions/history/replay?debugActions=true&source=primary&limit=1", nil))
+	if debugRec.Code != http.StatusOK {
+		t.Fatalf("history debug replay status = %d body=%s", debugRec.Code, debugRec.Body.String())
+	}
+	var debugResponse RPCMuxDiagnosisOperatorHistoryReplayAdminResponse
+	if err := json.NewDecoder(debugRec.Body).Decode(&debugResponse); err != nil {
+		t.Fatal(err)
+	}
+	if !debugResponse.DebugActions || debugResponse.Replay == nil || len(debugResponse.Replay.Actions) != 1 {
+		t.Fatalf("history debug replay response = %+v, want actions", debugResponse)
+	}
+
+	data, err := os.ReadFile(store.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(store.path, []byte(strings.Replace(string(data), RPCMuxDiagnosisOperatorPauseSink, RPCMuxDiagnosisOperatorResumeSink, 1)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	degraded := server.RuntimeSnapshot(context.Background())
+	for _, component := range degraded.Components {
+		if component.Name == "rpc.mux.sink.registry" && component.Status != "degraded" {
+			t.Fatalf("runtime component after tamper = %+v, want degraded", component)
+		}
 	}
 }
 

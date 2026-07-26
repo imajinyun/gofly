@@ -1432,6 +1432,15 @@ func parsePositiveIntQuery(value string) int {
 	return parsed
 }
 
+func parseBoolQuery(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "1", "true", "yes", "y", "on":
+		return true
+	default:
+		return false
+	}
+}
+
 func rpcDiagnosisProbeFilterMatched(snapshot RPCRuntimeSnapshot, filter RPCMuxDiagnosisFilter) bool {
 	endpoint := normalizeMuxDiagnosisEndpoint(filter.Endpoint)
 	connectionID := normalizeMuxDiagnosisConnectionID(filter.ConnectionID)

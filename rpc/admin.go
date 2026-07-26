@@ -18,6 +18,12 @@ import (
 
 const maxDescriptorCompatibilityBytes = 1 << 20
 
+type RPCMuxDiagnosisOperatorHistoryReplayAdminResponse struct {
+	Verification RPCMuxDiagnosisOperatorHistoryVerification `json:"verification"`
+	Replay       *RPCMuxDiagnosisOperatorHistoryReplay      `json:"replay,omitempty"`
+	DebugActions bool                                       `json:"debugActions,omitempty"`
+}
+
 // ServiceSnapshot captures the runtime state of a registered RPC service.
 type ServiceSnapshot struct {
 	Name          string                 `json:"name"`
@@ -136,6 +142,8 @@ func (s *HTTPServer) serveAdminRoute(w http.ResponseWriter, r *http.Request) {
 		})
 	case r.URL.Path == "/rpc/admin/runtime":
 		writeAdminJSON(w, http.StatusOK, s.RuntimeSnapshot(r.Context()))
+	case r.URL.Path == "/rpc/admin/mux/operator-actions/history/replay":
+		s.serveMuxOperatorActionHistoryReplay(w, r)
 	case r.URL.Path == "/rpc/admin/mux/operator-actions/history":
 		writeAdminJSON(w, http.StatusOK, s.MuxDiagnosisOperatorActionHistorySnapshot(parsePositiveIntQuery(r.URL.Query().Get("limit"))))
 	case r.URL.Path == "/rpc/admin/mux/operator-actions":
@@ -269,9 +277,29 @@ func (s *HTTPServer) RuntimeSnapshot(ctx context.Context) coreruntime.Snapshot {
 			if storeSource, ok := muxEventExporter.(interface {
 				OperatorHistoryStoreSnapshot() RPCMuxDiagnosisOperatorStoreSnapshot
 			}); ok {
-				details["operatorHistoryStore"] = storeSource.OperatorHistoryStoreSnapshot()
+				storeSnapshot := storeSource.OperatorHistoryStoreSnapshot()
+				details["operatorHistoryStore"] = storeSnapshot
+				if rpcMuxDiagnosisOperatorHistoryIntegrityDegraded(storeSnapshot.IntegrityStatus) ||
+					rpcMuxDiagnosisOperatorHistoryIntegrityDegraded(storeSnapshot.ChecksumStatus) {
+					status = "degraded"
+				}
 			}
-			status = rpcMuxDiagnosisSinkSetStatus(snapshot)
+			if integritySource, ok := muxEventExporter.(interface {
+				RPCMuxDiagnosisOperatorHistoryIntegritySnapshot(context.Context) (RPCMuxDiagnosisOperatorHistoryIntegritySnapshot, error)
+			}); ok {
+				integrity, err := integritySource.RPCMuxDiagnosisOperatorHistoryIntegritySnapshot(context.Background())
+				if err != nil {
+					integrity.Store.LastError = err.Error()
+				}
+				details["operatorHistoryIntegrity"] = integrity
+				if rpcMuxDiagnosisOperatorHistoryIntegrityDegraded(integrity.IntegrityStatus) ||
+					rpcMuxDiagnosisOperatorHistoryIntegrityDegraded(integrity.Verification.Primary.IntegrityStatus) {
+					status = "degraded"
+				}
+			}
+			if status != "degraded" {
+				status = rpcMuxDiagnosisSinkSetStatus(snapshot)
+			}
 		} else if delivery, ok := muxEventExporter.(RPCMuxDiagnosisExporterDeliverySnapshotter); ok {
 			details["delivery"] = delivery.RPCMuxDiagnosisExporterDeliverySnapshot()
 		}
@@ -354,6 +382,52 @@ func (s *HTTPServer) MuxDiagnosisOperatorHistoryIntegritySnapshot(ctx context.Co
 	return source.RPCMuxDiagnosisOperatorHistoryIntegritySnapshot(ctx)
 }
 
+func (s *HTTPServer) serveMuxOperatorActionHistoryReplay(w http.ResponseWriter, r *http.Request) {
+	if s == nil {
+		writeRPCError(w, http.StatusServiceUnavailable, CodeUnavailable, "rpc server is nil")
+		return
+	}
+	s.mu.RLock()
+	exporter := s.opts.muxEventExporter
+	s.mu.RUnlock()
+	source, ok := exporter.(interface {
+		RPCMuxDiagnosisOperatorHistoryIntegritySnapshot(context.Context) (RPCMuxDiagnosisOperatorHistoryIntegritySnapshot, error)
+	})
+	if !ok {
+		writeRPCError(w, http.StatusNotFound, CodeNotFound, "mux operator history replay source not found")
+		return
+	}
+	integrity, err := source.RPCMuxDiagnosisOperatorHistoryIntegritySnapshot(r.Context())
+	if err != nil {
+		writeRPCError(w, http.StatusInternalServerError, CodeInternal, "operator history verification failed")
+		return
+	}
+	response := RPCMuxDiagnosisOperatorHistoryReplayAdminResponse{
+		Verification: integrity.Verification,
+	}
+	if parseBoolQuery(r.URL.Query().Get("debugActions")) {
+		replaySource, ok := exporter.(interface {
+			ReplayRPCMuxDiagnosisOperatorHistory(context.Context, string, int) (RPCMuxDiagnosisOperatorHistoryReplay, error)
+		})
+		if !ok {
+			writeRPCError(w, http.StatusNotFound, CodeNotFound, "mux operator history action replay source not found")
+			return
+		}
+		sourceName := strings.TrimSpace(r.URL.Query().Get("source"))
+		if sourceName == "" {
+			sourceName = RPCMuxDiagnosisOperatorHistorySourcePrimary
+		}
+		replay, err := replaySource.ReplayRPCMuxDiagnosisOperatorHistory(r.Context(), sourceName, parsePositiveIntQuery(r.URL.Query().Get("limit")))
+		if err != nil {
+			writeRPCError(w, http.StatusBadRequest, CodeInvalidArgument, "operator history replay source is invalid")
+			return
+		}
+		response.DebugActions = true
+		response.Replay = &replay
+	}
+	writeAdminJSON(w, http.StatusOK, response)
+}
+
 func (s *HTTPServer) serveMuxOperatorAction(w http.ResponseWriter, r *http.Request) {
 	if s == nil {
 		writeRPCError(w, http.StatusServiceUnavailable, CodeUnavailable, "rpc server is nil")
@@ -407,6 +481,15 @@ func rpcMuxDiagnosisSinkSetStatus(snapshot RPCMuxDiagnosisSinkSetSnapshot) strin
 		}
 	}
 	return "ok"
+}
+
+func rpcMuxDiagnosisOperatorHistoryIntegrityDegraded(status string) bool {
+	switch strings.TrimSpace(status) {
+	case "tampered", "truncated", "size_limit_exceeded":
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *HTTPServer) DiagnosisSnapshot() ServerDiagnosisSnapshot {

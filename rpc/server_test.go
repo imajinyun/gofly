@@ -588,6 +588,9 @@ func TestHTTPServerMuxOperatorHistoryRuntimeDetails(t *testing.T) {
 		schemas[RPCMuxDiagnosisOperatorForceProbe].Schema != "gofly.rpc_mux_operator_sink_action_audit.v1" {
 		t.Fatalf("sink action audit schemas = %+v", schemas)
 	}
+	if len(schemas["debugReplay"].JSONSchema) == 0 || !strings.Contains(string(schemas["debugReplay"].JSONSchema), "\"const\":\"gofly.rpc_mux_operator_debug_replay_audit.v1\"") {
+		t.Fatalf("audit schema endpoint missing json schema marker: %s", schemas["debugReplay"].JSONSchema)
+	}
 
 	forbiddenDebugRec := httptest.NewRecorder()
 	server.ServeHTTP(forbiddenDebugRec, httptest.NewRequest(http.MethodGet, "/rpc/admin/mux/operator-actions/history/replay?debugActions=true&source=primary&limit=1", nil))
@@ -760,6 +763,28 @@ func TestHTTPServerMuxOperatorHistoryCooldownRemainingDeterministic(t *testing.T
 	}
 	if !server.allowMuxOperatorHistoryDebugReplay() {
 		t.Fatal("debug replay denied after cooldown elapsed")
+	}
+}
+
+func TestHTTPServerStateClockInjection(t *testing.T) {
+	base := time.Unix(1700000000, 0)
+	current := base
+	server := NewServer()
+	server.nowFunc = func() time.Time { return current }
+
+	// setState stamps the injected clock, and State reports elapsed time against
+	// the same clock rather than the wall clock.
+	server.setState(serverStateRunning)
+	if snapshot := server.State(); !snapshot.Since.Equal(base) || snapshot.For != 0 {
+		t.Fatalf("state at t0 = %+v, want since=%v for=0", snapshot, base)
+	}
+	current = base.Add(30 * time.Second)
+	if snapshot := server.State(); snapshot.For != 30*time.Second {
+		t.Fatalf("state for = %v, want 30s", snapshot.For)
+	}
+	// DiagnosisProbeWithOptions stamps GeneratedAt from the same clock.
+	if snapshot := server.DiagnosisProbeWithOptions(RPCDiagnosisProbeOptions{}); !snapshot.GeneratedAt.Equal(current) {
+		t.Fatalf("diagnosis generatedAt = %v, want %v", snapshot.GeneratedAt, current)
 	}
 }
 

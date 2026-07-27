@@ -65,33 +65,61 @@ const (
 )
 
 type RPCMuxDiagnosisOperatorAuditSchema struct {
-	Schema string   `json:"schema"`
-	Fields []string `json:"fields"`
+	Schema     string          `json:"schema"`
+	Fields     []string        `json:"fields"`
+	JSONSchema json.RawMessage `json:"jsonSchema"`
+}
+
+// newRPCMuxDiagnosisOperatorAuditSchema builds an audit schema entry together
+// with a machine-parseable JSON Schema derived from the same field list, so the
+// declared fields and the structural schema can never drift apart. Persisted
+// audit details are a flat string map, so every property is typed as a string
+// and marked required alongside the schema marker.
+func newRPCMuxDiagnosisOperatorAuditSchema(schema string, fields ...string) RPCMuxDiagnosisOperatorAuditSchema {
+	properties := map[string]any{
+		rpcMuxDiagnosisOperatorAuditFieldSchema: map[string]any{"type": "string", "const": schema},
+	}
+	required := make([]string, 0, len(fields)+1)
+	required = append(required, rpcMuxDiagnosisOperatorAuditFieldSchema)
+	for _, field := range fields {
+		properties[field] = map[string]any{"type": "string"}
+		required = append(required, field)
+	}
+	document := map[string]any{
+		"$schema":              "https://json-schema.org/draft/2020-12/schema",
+		"type":                 "object",
+		"additionalProperties": false,
+		"properties":           properties,
+		"required":             required,
+	}
+	raw, _ := json.Marshal(document)
+	return RPCMuxDiagnosisOperatorAuditSchema{
+		Schema:     schema,
+		Fields:     append([]string(nil), fields...),
+		JSONSchema: raw,
+	}
 }
 
 // RPCMuxDiagnosisOperatorAuditSchemas publishes the stable audit detail schemas
-// for operator actions so external audit systems can parse action details
-// without guessing field names. Each entry pins a schema version and its
-// ordered field list; the sink action schema covers pause_sink, resume_sink,
-// and force_probe, which share the same detail fields.
+// for operator actions so external audit systems can parse and structurally
+// validate action details without guessing field names. Each entry pins a
+// schema version, its ordered field list, and a JSON Schema; the sink action
+// schema covers pause_sink, resume_sink, and force_probe, which share the same
+// detail fields.
 func RPCMuxDiagnosisOperatorAuditSchemas() map[string]RPCMuxDiagnosisOperatorAuditSchema {
-	sinkActionSchema := RPCMuxDiagnosisOperatorAuditSchema{
-		Schema: rpcMuxDiagnosisOperatorSinkActionAuditSchema,
-		Fields: []string{
-			rpcMuxDiagnosisOperatorAuditFieldOperatorAction,
-			rpcMuxDiagnosisOperatorAuditFieldBreakerState,
-			rpcMuxDiagnosisOperatorAuditFieldIsolationMode,
-		},
-	}
+	sinkActionSchema := newRPCMuxDiagnosisOperatorAuditSchema(
+		rpcMuxDiagnosisOperatorSinkActionAuditSchema,
+		rpcMuxDiagnosisOperatorAuditFieldOperatorAction,
+		rpcMuxDiagnosisOperatorAuditFieldBreakerState,
+		rpcMuxDiagnosisOperatorAuditFieldIsolationMode,
+	)
 	return map[string]RPCMuxDiagnosisOperatorAuditSchema{
-		"debugReplay": {
-			Schema: rpcMuxDiagnosisOperatorDebugReplayAuditSchema,
-			Fields: []string{
-				rpcMuxDiagnosisOperatorAuditFieldSource,
-				rpcMuxDiagnosisOperatorAuditFieldLimit,
-				rpcMuxDiagnosisOperatorAuditFieldTokenResult,
-			},
-		},
+		"debugReplay": newRPCMuxDiagnosisOperatorAuditSchema(
+			rpcMuxDiagnosisOperatorDebugReplayAuditSchema,
+			rpcMuxDiagnosisOperatorAuditFieldSource,
+			rpcMuxDiagnosisOperatorAuditFieldLimit,
+			rpcMuxDiagnosisOperatorAuditFieldTokenResult,
+		),
 		RPCMuxDiagnosisOperatorPauseSink:  sinkActionSchema,
 		RPCMuxDiagnosisOperatorResumeSink: sinkActionSchema,
 		RPCMuxDiagnosisOperatorForceProbe: sinkActionSchema,
@@ -128,6 +156,31 @@ func registerRPCMuxDiagnosisOperatorHistoryMetrics(registry *metrics.Registry) {
 		"reason",
 		"source",
 	)
+}
+
+// RPCMuxDiagnosisOperatorHistoryHardLimits reports the core hard bounds for
+// operator history configuration and the default debug replay cooldown. It lets
+// downstream tooling (for example the generated production check) assert its own
+// recommended bounds never exceed what the core runtime enforces, so generated
+// validation cannot lag behind the contract.
+type RPCMuxDiagnosisOperatorHistoryHardLimits struct {
+	MaxSizeBytes        int64         `json:"maxSizeBytes"`
+	MaxLineBytes        int64         `json:"maxLineBytes"`
+	MaxActions          int           `json:"maxActions"`
+	MaxBackups          int           `json:"maxBackups"`
+	DebugReplayCooldown time.Duration `json:"debugReplayCooldown"`
+}
+
+// RPCMuxDiagnosisOperatorHistoryLimits returns the core operator history hard
+// limits and the default debug replay cooldown.
+func RPCMuxDiagnosisOperatorHistoryLimits() RPCMuxDiagnosisOperatorHistoryHardLimits {
+	return RPCMuxDiagnosisOperatorHistoryHardLimits{
+		MaxSizeBytes:        maxRPCMuxDiagnosisOperatorStoreSize,
+		MaxLineBytes:        maxRPCMuxDiagnosisOperatorStoreLine,
+		MaxActions:          maxRPCMuxDiagnosisOperatorStoreActions,
+		MaxBackups:          maxRPCMuxDiagnosisOperatorBackupFiles,
+		DebugReplayCooldown: defaultRPCMuxDebugReplayInterval,
+	}
 }
 
 // RPCMuxDiagnosisOperatorAction describes a dry-run operator action for one

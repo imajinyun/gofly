@@ -513,7 +513,7 @@ func (s *HTTPServer) recordMuxOperatorHistoryDebugReplayAudit(exporter RPCMuxDia
 			Limit:       limit,
 			TokenResult: tokenResult,
 		}.StringMap(),
-		GeneratedAt: time.Now().UTC(),
+		GeneratedAt: s.now().UTC(),
 	})
 }
 
@@ -614,7 +614,7 @@ func (s *HTTPServer) DiagnosisProbeWithOptions(opts RPCDiagnosisProbeOptions) Se
 		Event:        eventName,
 		State:        s.State(),
 		PolicyCache:  s.RuntimeCacheSnapshot(),
-		GeneratedAt:  time.Now(),
+		GeneratedAt:  s.now(),
 	}
 	snapshot.Services = filterServiceSnapshots(s.ServiceSnapshots(), service, method)
 	snapshot.Matched = (service == "" && method == "") || len(snapshot.Services) > 0

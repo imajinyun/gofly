@@ -2,6 +2,7 @@ package rpc
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -688,6 +689,114 @@ func TestRPCMuxDiagnosisOperatorAuditSchemasCompatibility(t *testing.T) {
 	for _, field := range debugReplay.Fields {
 		if _, ok := details[field]; !ok {
 			t.Fatalf("details %+v missing declared field %q", details, field)
+		}
+	}
+
+	// Every schema entry must expose a machine-parseable JSON Schema whose typed
+	// properties and required list stay in lockstep with the declared fields, so
+	// external auditors can validate structurally rather than by field name only.
+	for name, schema := range schemas {
+		assertOperatorAuditJSONSchema(t, name, schema)
+	}
+}
+
+func assertOperatorAuditJSONSchema(t *testing.T, name string, schema RPCMuxDiagnosisOperatorAuditSchema) {
+	t.Helper()
+	if len(schema.JSONSchema) == 0 {
+		t.Fatalf("%s schema missing json schema", name)
+	}
+	var document struct {
+		Type                 string                    `json:"type"`
+		AdditionalProperties bool                      `json:"additionalProperties"`
+		Properties           map[string]map[string]any `json:"properties"`
+		Required             []string                  `json:"required"`
+	}
+	if err := json.Unmarshal(schema.JSONSchema, &document); err != nil {
+		t.Fatalf("%s json schema decode: %v", name, err)
+	}
+	if document.Type != "object" || document.AdditionalProperties {
+		t.Fatalf("%s json schema = %s, want closed object", name, schema.JSONSchema)
+	}
+	// The schema marker property must be pinned to the schema version constant.
+	schemaProp, ok := document.Properties["schema"]
+	if !ok || schemaProp["type"] != "string" || schemaProp["const"] != schema.Schema {
+		t.Fatalf("%s json schema marker = %#v, want const %q", name, schemaProp, schema.Schema)
+	}
+	wantRequired := append([]string{"schema"}, schema.Fields...)
+	if len(document.Required) != len(wantRequired) {
+		t.Fatalf("%s json schema required = %v, want %v", name, document.Required, wantRequired)
+	}
+	for i, field := range wantRequired {
+		if document.Required[i] != field {
+			t.Fatalf("%s json schema required[%d] = %q, want %q", name, i, document.Required[i], field)
+		}
+	}
+	for _, field := range schema.Fields {
+		prop, ok := document.Properties[field]
+		if !ok || prop["type"] != "string" {
+			t.Fatalf("%s json schema property %q = %#v, want string type", name, field, prop)
+		}
+	}
+	if len(document.Properties) != len(schema.Fields)+1 {
+		t.Fatalf("%s json schema properties = %v, want fields plus schema marker", name, document.Properties)
+	}
+}
+
+func TestRPCMuxDiagnosisOperatorHistoryLimits(t *testing.T) {
+	limits := RPCMuxDiagnosisOperatorHistoryLimits()
+	if limits.MaxSizeBytes <= 0 || limits.MaxLineBytes <= 0 || limits.MaxActions <= 0 || limits.MaxBackups <= 0 {
+		t.Fatalf("history limits = %+v, want positive hard bounds", limits)
+	}
+	if limits.MaxBackups != maxRPCMuxDiagnosisOperatorBackupFiles ||
+		limits.MaxActions != maxRPCMuxDiagnosisOperatorStoreActions ||
+		limits.MaxSizeBytes != maxRPCMuxDiagnosisOperatorStoreSize ||
+		limits.MaxLineBytes != maxRPCMuxDiagnosisOperatorStoreLine {
+		t.Fatalf("history limits = %+v, want core hard limit constants", limits)
+	}
+	if limits.DebugReplayCooldown != defaultRPCMuxDebugReplayInterval {
+		t.Fatalf("history limits cooldown = %v, want default interval", limits.DebugReplayCooldown)
+	}
+}
+
+func TestRPCMuxDiagnosisOperatorSinkActionDetailsMatchSchema(t *testing.T) {
+	// A real sink action must emit exactly the detail keys declared by the sink
+	// action audit schema, so adding a producer field without updating the schema
+	// (or vice versa) fails fast rather than silently drifting.
+	action := rpcMuxDiagnosisOperatorActionForSink(RPCMuxDiagnosisSinkRuntimeSnapshot{
+		Name: "sink-a",
+		Delivery: RPCMuxDiagnosisExporterDeliverySnapshot{
+			OperatorAction: "pause_sink_breaker",
+			BreakerState:   "open",
+			Isolation: RPCMuxDiagnosisSinkIsolationConfig{
+				Mode: RPCMuxDiagnosisSinkIsolationIsolatedProcess,
+			},
+		},
+	})
+	if action.Action != RPCMuxDiagnosisOperatorPauseSink {
+		t.Fatalf("action = %+v, want pause_sink", action)
+	}
+	schema, ok := RPCMuxDiagnosisOperatorAuditSchemas()[action.Action]
+	if !ok {
+		t.Fatalf("no audit schema for action %q", action.Action)
+	}
+	if len(action.Details) != len(schema.Fields) {
+		t.Fatalf("action details = %v, want keys %v", action.Details, schema.Fields)
+	}
+	for _, field := range schema.Fields {
+		if _, ok := action.Details[field]; !ok {
+			t.Fatalf("action details %v missing schema field %q", action.Details, field)
+		}
+	}
+	for key := range action.Details {
+		found := false
+		for _, field := range schema.Fields {
+			if field == key {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("action detail key %q not declared in schema fields %v", key, schema.Fields)
 		}
 	}
 }

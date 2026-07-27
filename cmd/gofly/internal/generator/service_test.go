@@ -9,7 +9,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -3167,5 +3169,50 @@ func TestGenerateMiddlewareValidation(t *testing.T) {
 	}
 	if err := GenerateMiddleware(MiddlewareOptions{Names: []string{""}}); err == nil {
 		t.Fatal("expected error for empty name after cleaning")
+	}
+}
+
+func TestGeneratedProductionCheckConstantsWithinCoreLimits(t *testing.T) {
+	limits := rpc.RPCMuxDiagnosisOperatorHistoryLimits()
+	constant := func(name string) int64 {
+		t.Helper()
+		re := regexp.MustCompile(name + `\s*=\s*(\d+)`)
+		match := re.FindStringSubmatch(productionCheckGoTemplate)
+		if match == nil {
+			t.Fatalf("production check template missing constant %q", name)
+		}
+		value, err := strconv.ParseInt(match[1], 10, 64)
+		if err != nil {
+			t.Fatalf("parse constant %q: %v", name, err)
+		}
+		return value
+	}
+
+	// Generated recommended upper bounds must never exceed the core hard limits;
+	// otherwise generated validation would accept configs the core runtime later
+	// rejects. This keeps the generated production check from lagging the
+	// contract when core limits change.
+	if got := constant("maxOperatorHistorySizeBytes"); got > limits.MaxSizeBytes {
+		t.Fatalf("production check maxSizeBytes %d exceeds core hard limit %d", got, limits.MaxSizeBytes)
+	}
+	if got := constant("maxOperatorHistoryLineBytes"); got > limits.MaxLineBytes {
+		t.Fatalf("production check maxLineBytes %d exceeds core hard limit %d", got, limits.MaxLineBytes)
+	}
+	if got := constant("maxOperatorHistoryActions"); got > int64(limits.MaxActions) {
+		t.Fatalf("production check maxActions %d exceeds core hard limit %d", got, limits.MaxActions)
+	}
+	if got := constant("maxOperatorHistoryBackups"); got > int64(limits.MaxBackups) {
+		t.Fatalf("production check maxBackups %d exceeds core hard limit %d", got, limits.MaxBackups)
+	}
+
+	// The cooldown production range must bracket the core default so the default
+	// deployment always passes the production check.
+	minCooldown := constant("minOperatorHistoryDebugReplayCooldown")
+	maxCooldown := constant("maxOperatorHistoryDebugReplayCooldown")
+	if minCooldown <= 0 || minCooldown >= maxCooldown {
+		t.Fatalf("production check cooldown range [%d, %d] is invalid", minCooldown, maxCooldown)
+	}
+	if coreDefault := int64(limits.DebugReplayCooldown); coreDefault < minCooldown || coreDefault > maxCooldown {
+		t.Fatalf("core default cooldown %d falls outside production range [%d, %d]", coreDefault, minCooldown, maxCooldown)
 	}
 }

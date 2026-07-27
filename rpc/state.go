@@ -27,13 +27,13 @@ func (s *HTTPServer) State() StateSnapshot {
 		AdvertiseEndpoint: s.opts.advertiseEndpoint,
 		State:             serverStateName(s.state.Load()),
 		Since:             since,
-		For:               time.Since(since),
+		For:               s.now().Sub(since),
 	}
 }
 
 func (s *HTTPServer) setState(state int32) {
 	s.state.Store(state)
-	s.since.Store(time.Now().UnixNano())
+	s.since.Store(s.now().UnixNano())
 }
 
 func serverStateName(state int32) string {

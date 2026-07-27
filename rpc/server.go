@@ -38,6 +38,17 @@ type HTTPServer struct {
 	since                atomic.Int64
 	runtime              *ruleRuntime
 	muxDebugReplayLastAt atomic.Int64
+	nowFunc              func() time.Time
+}
+
+// now returns the server clock, defaulting to time.Now. Tests inject a
+// deterministic clock through nowFunc to exercise time-dependent branches such
+// as the debug replay cooldown without relying on wall-clock timing.
+func (s *HTTPServer) now() time.Time {
+	if s != nil && s.nowFunc != nil {
+		return s.nowFunc()
+	}
+	return time.Now()
 }
 
 type ruleRuntime struct {

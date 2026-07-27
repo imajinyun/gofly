@@ -48,27 +48,62 @@ type RPCMuxDiagnosisOperatorDebugReplayAuditDetails struct {
 	TokenResult string `json:"tokenResult"`
 }
 
+// Operator audit detail field keys. They are shared between action producers,
+// the audit schema registry, and audit consumers so field names cannot drift
+// across those sites.
+const (
+	rpcMuxDiagnosisOperatorAuditFieldSchema         = "schema"
+	rpcMuxDiagnosisOperatorAuditFieldSource         = "source"
+	rpcMuxDiagnosisOperatorAuditFieldLimit          = "limit"
+	rpcMuxDiagnosisOperatorAuditFieldTokenResult    = "token_result"
+	rpcMuxDiagnosisOperatorAuditFieldOperatorAction = "operator_action"
+	rpcMuxDiagnosisOperatorAuditFieldBreakerState   = "breaker_state"
+	rpcMuxDiagnosisOperatorAuditFieldIsolationMode  = "isolation_mode"
+
+	rpcMuxDiagnosisOperatorDebugReplayAuditSchema = "gofly.rpc_mux_operator_debug_replay_audit.v1"
+	rpcMuxDiagnosisOperatorSinkActionAuditSchema  = "gofly.rpc_mux_operator_sink_action_audit.v1"
+)
+
 type RPCMuxDiagnosisOperatorAuditSchema struct {
 	Schema string   `json:"schema"`
 	Fields []string `json:"fields"`
 }
 
+// RPCMuxDiagnosisOperatorAuditSchemas publishes the stable audit detail schemas
+// for operator actions so external audit systems can parse action details
+// without guessing field names. Each entry pins a schema version and its
+// ordered field list; the sink action schema covers pause_sink, resume_sink,
+// and force_probe, which share the same detail fields.
 func RPCMuxDiagnosisOperatorAuditSchemas() map[string]RPCMuxDiagnosisOperatorAuditSchema {
+	sinkActionSchema := RPCMuxDiagnosisOperatorAuditSchema{
+		Schema: rpcMuxDiagnosisOperatorSinkActionAuditSchema,
+		Fields: []string{
+			rpcMuxDiagnosisOperatorAuditFieldOperatorAction,
+			rpcMuxDiagnosisOperatorAuditFieldBreakerState,
+			rpcMuxDiagnosisOperatorAuditFieldIsolationMode,
+		},
+	}
 	return map[string]RPCMuxDiagnosisOperatorAuditSchema{
 		"debugReplay": {
-			Schema: "gofly.rpc_mux_operator_debug_replay_audit.v1",
-			Fields: []string{"source", "limit", "token_result"},
+			Schema: rpcMuxDiagnosisOperatorDebugReplayAuditSchema,
+			Fields: []string{
+				rpcMuxDiagnosisOperatorAuditFieldSource,
+				rpcMuxDiagnosisOperatorAuditFieldLimit,
+				rpcMuxDiagnosisOperatorAuditFieldTokenResult,
+			},
 		},
+		RPCMuxDiagnosisOperatorPauseSink:  sinkActionSchema,
+		RPCMuxDiagnosisOperatorResumeSink: sinkActionSchema,
+		RPCMuxDiagnosisOperatorForceProbe: sinkActionSchema,
 	}
 }
 
 func (d RPCMuxDiagnosisOperatorDebugReplayAuditDetails) StringMap() map[string]string {
-	schema := RPCMuxDiagnosisOperatorAuditSchemas()["debugReplay"].Schema
 	return map[string]string{
-		"schema":       schema,
-		"source":       strings.TrimSpace(d.Source),
-		"limit":        fmt.Sprintf("%d", d.Limit),
-		"token_result": strings.TrimSpace(d.TokenResult),
+		rpcMuxDiagnosisOperatorAuditFieldSchema:      rpcMuxDiagnosisOperatorDebugReplayAuditSchema,
+		rpcMuxDiagnosisOperatorAuditFieldSource:      strings.TrimSpace(d.Source),
+		rpcMuxDiagnosisOperatorAuditFieldLimit:       fmt.Sprintf("%d", d.Limit),
+		rpcMuxDiagnosisOperatorAuditFieldTokenResult: strings.TrimSpace(d.TokenResult),
 	}
 }
 
@@ -349,9 +384,9 @@ func rpcMuxDiagnosisOperatorActionForSink(sink RPCMuxDiagnosisSinkRuntimeSnapsho
 		Sink:   sink.Name,
 		Health: delivery.Health,
 		Details: map[string]string{
-			"operator_action": delivery.OperatorAction,
-			"breaker_state":   delivery.BreakerState,
-			"isolation_mode":  delivery.Isolation.Mode,
+			rpcMuxDiagnosisOperatorAuditFieldOperatorAction: delivery.OperatorAction,
+			rpcMuxDiagnosisOperatorAuditFieldBreakerState:   delivery.BreakerState,
+			rpcMuxDiagnosisOperatorAuditFieldIsolationMode:  delivery.Isolation.Mode,
 		},
 	}
 	switch strings.TrimSpace(delivery.OperatorAction) {

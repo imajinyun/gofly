@@ -366,11 +366,17 @@ func TestGenerateService(t *testing.T) {
 	}
 	for _, want := range []string{
 		"//go:build ignore",
-		"mustMax(history, \"maxActions\", 1024)",
-		"mustMax(history, \"maxBackups\", 3)",
-		"mustMax(history, \"maxSizeBytes\", 1048576)",
-		"mustMax(history, \"maxLineBytes\", 65536)",
-		"mustRange(history, \"debugReplayCooldown\", 100000000, 60000000000)",
+		"maxOperatorHistoryActions   = 1024",
+		"maxOperatorHistoryBackups   = 3",
+		"maxOperatorHistorySizeBytes = 1048576",
+		"maxOperatorHistoryLineBytes = 65536",
+		"minOperatorHistoryDebugReplayCooldown = 100000000",
+		"maxOperatorHistoryDebugReplayCooldown = 60000000000",
+		"mustMax(history, \"maxActions\", maxOperatorHistoryActions)",
+		"mustMax(history, \"maxBackups\", maxOperatorHistoryBackups)",
+		"mustMax(history, \"maxSizeBytes\", maxOperatorHistorySizeBytes)",
+		"mustMax(history, \"maxLineBytes\", maxOperatorHistoryLineBytes)",
+		"mustRange(history, \"debugReplayCooldown\", minOperatorHistoryDebugReplayCooldown, maxOperatorHistoryDebugReplayCooldown)",
 	} {
 		if !strings.Contains(string(checkGoData), want) {
 			t.Fatalf("production_check.go missing %q:\n%s", want, checkGoData)

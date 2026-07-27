@@ -619,6 +619,16 @@ func waitForOperatorExports(t *testing.T, exports *atomic.Int64, want int64) {
 	t.Fatalf("exports = %d, want at least %d", exports.Load(), want)
 }
 
+func TestRegisterRPCMuxDiagnosisOperatorHistoryMetricsNilRegistry(t *testing.T) {
+	saved := rpcMuxDiagnosisOperatorHistoryIntegrityState
+	t.Cleanup(func() { rpcMuxDiagnosisOperatorHistoryIntegrityState = saved })
+	// A nil registry must fall back to the default registry rather than panic.
+	registerRPCMuxDiagnosisOperatorHistoryMetrics(nil)
+	if rpcMuxDiagnosisOperatorHistoryIntegrityState == nil {
+		t.Fatal("nil registry did not fall back to default integrity gauge")
+	}
+}
+
 func TestRPCMuxDiagnosisOperatorAuditSchemasCompatibility(t *testing.T) {
 	schemas := RPCMuxDiagnosisOperatorAuditSchemas()
 	debugReplay, ok := schemas["debugReplay"]
@@ -637,6 +647,31 @@ func TestRPCMuxDiagnosisOperatorAuditSchemasCompatibility(t *testing.T) {
 	for i, field := range wantFields {
 		if debugReplay.Fields[i] != field {
 			t.Fatalf("debug replay field[%d] = %q, want %q", i, debugReplay.Fields[i], field)
+		}
+	}
+
+	// pause_sink, resume_sink, and force_probe share one sink action schema so
+	// their persisted details stay parseable against a single contract.
+	wantSinkFields := []string{"operator_action", "breaker_state", "isolation_mode"}
+	for _, action := range []string{
+		RPCMuxDiagnosisOperatorPauseSink,
+		RPCMuxDiagnosisOperatorResumeSink,
+		RPCMuxDiagnosisOperatorForceProbe,
+	} {
+		schema, ok := schemas[action]
+		if !ok {
+			t.Fatalf("audit schemas = %+v, want %q entry", schemas, action)
+		}
+		if schema.Schema != "gofly.rpc_mux_operator_sink_action_audit.v1" {
+			t.Fatalf("%s schema version = %q, want sink action v1", action, schema.Schema)
+		}
+		if len(schema.Fields) != len(wantSinkFields) {
+			t.Fatalf("%s fields = %v, want %v", action, schema.Fields, wantSinkFields)
+		}
+		for i, field := range wantSinkFields {
+			if schema.Fields[i] != field {
+				t.Fatalf("%s field[%d] = %q, want %q", action, i, schema.Fields[i], field)
+			}
 		}
 	}
 

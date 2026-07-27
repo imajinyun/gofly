@@ -4427,6 +4427,19 @@ import (
 	"os"
 )
 
+// Operator history production bounds. Keeping them as named constants gives the
+// production check a single source of truth for the limits also described in
+// the README and enforced by the generated config validation.
+const (
+	maxOperatorHistoryActions   = 1024
+	maxOperatorHistoryBackups   = 3
+	maxOperatorHistorySizeBytes = 1048576
+	maxOperatorHistoryLineBytes = 65536
+
+	minOperatorHistoryDebugReplayCooldown = 100000000
+	maxOperatorHistoryDebugReplayCooldown = 60000000000
+)
+
 func main() {
 	if len(os.Args) != 2 {
 		fail("usage: go run ./internal/config/production_check.go <config>")
@@ -4441,11 +4454,11 @@ func main() {
 	}
 	history := object(object(object(object(root, "rpc"), "mux"), "log"), "otelCompatible")
 	history = object(history, "operatorHistory")
-	mustMax(history, "maxActions", 1024)
-	mustMax(history, "maxBackups", 3)
-	mustMax(history, "maxSizeBytes", 1048576)
-	mustMax(history, "maxLineBytes", 65536)
-	mustRange(history, "debugReplayCooldown", 100000000, 60000000000)
+	mustMax(history, "maxActions", maxOperatorHistoryActions)
+	mustMax(history, "maxBackups", maxOperatorHistoryBackups)
+	mustMax(history, "maxSizeBytes", maxOperatorHistorySizeBytes)
+	mustMax(history, "maxLineBytes", maxOperatorHistoryLineBytes)
+	mustRange(history, "debugReplayCooldown", minOperatorHistoryDebugReplayCooldown, maxOperatorHistoryDebugReplayCooldown)
 }
 
 func object(in map[string]any, key string) map[string]any {

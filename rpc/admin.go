@@ -462,7 +462,7 @@ func (s *HTTPServer) allowMuxOperatorHistoryDebugReplay() bool {
 	if s == nil {
 		return false
 	}
-	now := time.Now().UnixNano()
+	now := s.now().UnixNano()
 	last := s.muxDebugReplayLastAt.Load()
 	cooldown := s.muxOperatorHistoryDebugReplayCooldown()
 	if last > 0 && time.Duration(now-last) < cooldown {
@@ -489,7 +489,7 @@ func (s *HTTPServer) muxOperatorHistoryDebugReplayCooldownRemaining() time.Durat
 	if last <= 0 {
 		return 0
 	}
-	remaining := s.muxOperatorHistoryDebugReplayCooldown() - time.Since(time.Unix(0, last))
+	remaining := s.muxOperatorHistoryDebugReplayCooldown() - s.now().Sub(time.Unix(0, last))
 	if remaining <= 0 {
 		return 0
 	}

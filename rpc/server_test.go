@@ -583,6 +583,11 @@ func TestHTTPServerMuxOperatorHistoryRuntimeDetails(t *testing.T) {
 	if schemas["debugReplay"].Schema != "gofly.rpc_mux_operator_debug_replay_audit.v1" || len(schemas["debugReplay"].Fields) != 3 {
 		t.Fatalf("audit schemas = %+v", schemas)
 	}
+	if schemas[RPCMuxDiagnosisOperatorPauseSink].Schema != "gofly.rpc_mux_operator_sink_action_audit.v1" ||
+		schemas[RPCMuxDiagnosisOperatorResumeSink].Schema != "gofly.rpc_mux_operator_sink_action_audit.v1" ||
+		schemas[RPCMuxDiagnosisOperatorForceProbe].Schema != "gofly.rpc_mux_operator_sink_action_audit.v1" {
+		t.Fatalf("sink action audit schemas = %+v", schemas)
+	}
 
 	forbiddenDebugRec := httptest.NewRecorder()
 	server.ServeHTTP(forbiddenDebugRec, httptest.NewRequest(http.MethodGet, "/rpc/admin/mux/operator-actions/history/replay?debugActions=true&source=primary&limit=1", nil))
@@ -718,6 +723,44 @@ func TestHTTPServerMuxOperatorHistoryCooldownBoundaries(t *testing.T) {
 	// An exporter that does not implement the audit recorder interface is a
 	// no-op and must not panic.
 	server.recordMuxOperatorHistoryDebugReplayAudit(nil, RPCMuxDiagnosisOperatorHistorySourcePrimary, 1, "approved")
+}
+
+func TestHTTPServerMuxOperatorHistoryCooldownRemainingDeterministic(t *testing.T) {
+	base := time.Unix(1700000000, 0)
+	current := base
+	server := NewServer(WithServerMuxDiagnosisDebugReplayCooldown(10 * time.Second))
+	server.nowFunc = func() time.Time { return current }
+
+	// No replay recorded yet: nothing to wait for.
+	if remaining := server.muxOperatorHistoryDebugReplayCooldownRemaining(); remaining != 0 {
+		t.Fatalf("initial remaining = %v, want 0", remaining)
+	}
+
+	// Record a replay at the injected clock and advance deterministically. The
+	// remaining window must decrease monotonically by exactly the elapsed time.
+	if !server.allowMuxOperatorHistoryDebugReplay() {
+		t.Fatal("first debug replay denied")
+	}
+	if remaining := server.muxOperatorHistoryDebugReplayCooldownRemaining(); remaining != 10*time.Second {
+		t.Fatalf("remaining at t0 = %v, want 10s", remaining)
+	}
+	current = base.Add(3 * time.Second)
+	if remaining := server.muxOperatorHistoryDebugReplayCooldownRemaining(); remaining != 7*time.Second {
+		t.Fatalf("remaining at t+3s = %v, want 7s", remaining)
+	}
+	// Within the cooldown, another replay must be rejected.
+	if server.allowMuxOperatorHistoryDebugReplay() {
+		t.Fatal("debug replay allowed during cooldown")
+	}
+	// At the boundary and beyond the remaining window clamps to zero and a new
+	// replay is allowed again.
+	current = base.Add(10 * time.Second)
+	if remaining := server.muxOperatorHistoryDebugReplayCooldownRemaining(); remaining != 0 {
+		t.Fatalf("remaining at cooldown boundary = %v, want 0", remaining)
+	}
+	if !server.allowMuxOperatorHistoryDebugReplay() {
+		t.Fatal("debug replay denied after cooldown elapsed")
+	}
 }
 
 func TestHTTPServerDiagnosisConvenienceMethods(t *testing.T) {

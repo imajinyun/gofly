@@ -2,7 +2,9 @@ package metrics
 
 import (
 	"bytes"
+	"io"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -92,6 +94,53 @@ func TestCustomGaugeDeleteBoundaries(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), `build_state{pipeline="release",stage="test"} 1`) {
 		t.Fatalf("idempotent delete disturbed remaining series:\n%s", buf.String())
+	}
+}
+
+func TestCustomGaugeConcurrentSetDeleteWrite(t *testing.T) {
+	reg := NewRegistry()
+	g := reg.Gauge("worker_state", "Worker state.", "worker")
+
+	const workers = 8
+	const iterations = 200
+	var wg sync.WaitGroup
+	wg.Add(workers * 3)
+	for w := 0; w < workers; w++ {
+		label := string(rune('a' + w))
+		go func() {
+			defer wg.Done()
+			for i := 0; i < iterations; i++ {
+				g.Set(float64(i), label)
+			}
+		}()
+		go func() {
+			defer wg.Done()
+			for i := 0; i < iterations; i++ {
+				g.Delete(label)
+			}
+		}()
+		go func() {
+			defer wg.Done()
+			for i := 0; i < iterations; i++ {
+				// WritePrometheus iterates the series map and must stay
+				// consistent while Set/Delete mutate it concurrently.
+				if err := reg.WritePrometheus(io.Discard); err != nil {
+					t.Errorf("write prometheus: %v", err)
+					return
+				}
+			}
+		}()
+	}
+	wg.Wait()
+
+	// The registry must remain usable and self-consistent after the race.
+	g.Set(1, "final")
+	var buf bytes.Buffer
+	if err := reg.WritePrometheus(&buf); err != nil {
+		t.Fatalf("write prometheus after concurrency: %v", err)
+	}
+	if !strings.Contains(buf.String(), `worker_state{worker="final"} 1`) {
+		t.Fatalf("gauge unusable after concurrency:\n%s", buf.String())
 	}
 }
 

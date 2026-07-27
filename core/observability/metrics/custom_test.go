@@ -63,6 +63,38 @@ func TestCustomGauge(t *testing.T) {
 	}
 }
 
+func TestCustomGaugeDeleteBoundaries(t *testing.T) {
+	reg := NewRegistry()
+	g := reg.Gauge("build_state", "Build state.", "pipeline", "stage")
+	g.Set(1, "release", "build")
+	g.Set(1, "release", "test")
+
+	// Deleting one label combination must leave the sibling series intact.
+	g.Delete("release", "build")
+	var buf bytes.Buffer
+	if err := reg.WritePrometheus(&buf); err != nil {
+		t.Fatalf("write prometheus: %v", err)
+	}
+	out := buf.String()
+	if strings.Contains(out, `stage="build"`) {
+		t.Fatalf("deleted multi-label series still exported:\n%s", out)
+	}
+	if !strings.Contains(out, `build_state{pipeline="release",stage="test"} 1`) {
+		t.Fatalf("sibling multi-label series missing after delete:\n%s", out)
+	}
+
+	// Deleting a nonexistent series is a no-op and stays idempotent.
+	g.Delete("release", "build")
+	g.Delete("missing", "series")
+	buf.Reset()
+	if err := reg.WritePrometheus(&buf); err != nil {
+		t.Fatalf("write prometheus after idempotent delete: %v", err)
+	}
+	if !strings.Contains(buf.String(), `build_state{pipeline="release",stage="test"} 1`) {
+		t.Fatalf("idempotent delete disturbed remaining series:\n%s", buf.String())
+	}
+}
+
 func TestCustomHistogram(t *testing.T) {
 	reg := NewRegistry()
 	h := reg.Histogram("op_seconds", "Op duration.", []float64{0.1, 0.5, 1}, "op")

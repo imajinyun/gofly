@@ -24,7 +24,16 @@ Do not store raw secrets in runtime snapshots, diff plans, or source-controlled 
 
 Operator history persistence is disabled by default. When you enable ` + "`rpc.mux.log.otelCompatible.operatorHistory`" + `, keep the store under ` + "`fileSecretRoot`" + ` and prefer the generated defaults unless you have reviewed disk and audit requirements.
 
-Recommended upper bounds for generated production config are ` + "`maxActions <= 1024`" + `, ` + "`maxBackups <= 3`" + `, ` + "`maxSizeBytes <= 1048576`" + `, and ` + "`maxLineBytes <= 65536`" + `. The production check accepts omitted values or values within those bounds and fails fast on larger values.
+Recommended upper bounds for generated production config are ` + "`maxActions <= 1024`" + `, ` + "`maxBackups <= 3`" + `, ` + "`maxSizeBytes <= 1048576`" + `, and ` + "`maxLineBytes <= 65536`" + `. The production check accepts omitted values or values within those bounds and fails fast on larger values. ` + "`debugReplayCooldown`" + ` must be omitted (default) or between ` + "`100ms`" + ` and ` + "`1m`" + `.
+
+## Mux Operator Admin Endpoints
+
+The RPC admin control plane exposes read-only operator history evidence:
+
+- ` + "`GET /rpc/admin/mux/operator-actions/audit-schemas`" + ` returns the stable audit detail schemas (for example ` + "`gofly.rpc_mux_operator_debug_replay_audit.v1`" + `) so external audit systems can parse operator action details without guessing field names.
+- ` + "`GET /rpc/admin/mux/operator-actions/history/replay`" + ` returns integrity verification for the primary and backup history files plus the debug replay cooldown (` + "`cooldownSeconds`" + `, ` + "`cooldownRemainingSeconds`" + `). By default it does not return recorded actions.
+
+Replaying recorded actions requires an explicit, higher-privilege opt-in: add ` + "`?debugActions=true`" + ` together with a valid ` + "`token`" + ` matching the configured operator approval token. Debug replay is rate limited by the cooldown and every attempt (approved, denied, or rate-limited) is recorded to operator audit history without the action payload.
 `
 
 const muxOTelSinkFeatureTemplate = `// Package muxotelsink registers the generated application's custom mux OTel log sink.
@@ -4436,7 +4445,7 @@ func main() {
 	mustMax(history, "maxBackups", 3)
 	mustMax(history, "maxSizeBytes", 1048576)
 	mustMax(history, "maxLineBytes", 65536)
-	mustMax(history, "debugReplayCooldown", 60000000000)
+	mustRange(history, "debugReplayCooldown", 100000000, 60000000000)
 }
 
 func object(in map[string]any, key string) map[string]any {
@@ -4455,6 +4464,27 @@ func mustMax(in map[string]any, key string, max int64) {
 	value, ok := raw.(float64)
 	if !ok || value < 0 || value != float64(int64(value)) || int64(value) > max {
 		fail("mux operator history %s exceeds %d", key, max)
+	}
+}
+
+// mustRange enforces both bounds for values that carry a semantic minimum. A
+// zero value means "use the built-in default" and is accepted, matching the
+// generated config validation for debugReplayCooldown.
+func mustRange(in map[string]any, key string, min, max int64) {
+	raw, ok := in[key]
+	if !ok {
+		return
+	}
+	value, ok := raw.(float64)
+	if !ok || value < 0 || value != float64(int64(value)) {
+		fail("mux operator history %s is invalid", key)
+	}
+	n := int64(value)
+	if n == 0 {
+		return
+	}
+	if n < min || n > max {
+		fail("mux operator history %s must be between %d and %d", key, min, max)
 	}
 }
 

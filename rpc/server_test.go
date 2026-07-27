@@ -703,6 +703,21 @@ func TestHTTPServerMuxOperatorHistoryCooldownBoundaries(t *testing.T) {
 		details["token_result"] != "approved" {
 		t.Fatalf("debug replay details = %+v", details)
 	}
+
+	// A stale last-replay timestamp older than the cooldown reports no remaining
+	// wait, while a fresh timestamp reports a positive remaining window.
+	server.muxDebugReplayLastAt.Store(time.Now().Add(-time.Hour).UnixNano())
+	if remaining := server.muxOperatorHistoryDebugReplayCooldownRemaining(); remaining != 0 {
+		t.Fatalf("expired cooldown remaining = %v, want 0", remaining)
+	}
+	server.muxDebugReplayLastAt.Store(time.Now().UnixNano())
+	if remaining := server.muxOperatorHistoryDebugReplayCooldownRemaining(); remaining <= 0 || remaining > 2*time.Second {
+		t.Fatalf("fresh cooldown remaining = %v, want within (0, 2s]", remaining)
+	}
+
+	// An exporter that does not implement the audit recorder interface is a
+	// no-op and must not panic.
+	server.recordMuxOperatorHistoryDebugReplayAudit(nil, RPCMuxDiagnosisOperatorHistorySourcePrimary, 1, "approved")
 }
 
 func TestHTTPServerDiagnosisConvenienceMethods(t *testing.T) {

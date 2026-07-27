@@ -619,6 +619,44 @@ func waitForOperatorExports(t *testing.T, exports *atomic.Int64, want int64) {
 	t.Fatalf("exports = %d, want at least %d", exports.Load(), want)
 }
 
+func TestRPCMuxDiagnosisOperatorAuditSchemasCompatibility(t *testing.T) {
+	schemas := RPCMuxDiagnosisOperatorAuditSchemas()
+	debugReplay, ok := schemas["debugReplay"]
+	if !ok {
+		t.Fatalf("audit schemas = %+v, want debugReplay entry", schemas)
+	}
+	// Pin the schema version and field ordering so downstream control planes and
+	// audit consumers do not silently break when field names drift.
+	if debugReplay.Schema != "gofly.rpc_mux_operator_debug_replay_audit.v1" {
+		t.Fatalf("debug replay schema version = %q, want v1", debugReplay.Schema)
+	}
+	wantFields := []string{"source", "limit", "token_result"}
+	if len(debugReplay.Fields) != len(wantFields) {
+		t.Fatalf("debug replay fields = %v, want %v", debugReplay.Fields, wantFields)
+	}
+	for i, field := range wantFields {
+		if debugReplay.Fields[i] != field {
+			t.Fatalf("debug replay field[%d] = %q, want %q", i, debugReplay.Fields[i], field)
+		}
+	}
+
+	// The audit payload must carry the schema marker plus every declared field so
+	// consumers can validate details against the published schema contract.
+	details := RPCMuxDiagnosisOperatorDebugReplayAuditDetails{
+		Source:      RPCMuxDiagnosisOperatorHistorySourcePrimary,
+		Limit:       4,
+		TokenResult: "approved",
+	}.StringMap()
+	if details["schema"] != debugReplay.Schema {
+		t.Fatalf("details schema = %q, want %q", details["schema"], debugReplay.Schema)
+	}
+	for _, field := range debugReplay.Fields {
+		if _, ok := details[field]; !ok {
+			t.Fatalf("details %+v missing declared field %q", details, field)
+		}
+	}
+}
+
 func assertOperatorHistoryFileUnchanged(t *testing.T, path string, before []byte, infoBefore os.FileInfo) {
 	t.Helper()
 	after, err := os.ReadFile(path)

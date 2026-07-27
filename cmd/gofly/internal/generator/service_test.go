@@ -64,7 +64,7 @@ func TestGenerateService(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"Mux Subprocess Sink Example", "documentation-only", "not loaded by default", "env://", "file://", "Mux Operator History Tuning", "maxActions <= 1024", "maxBackups <= 3"} {
+	for _, want := range []string{"Mux Subprocess Sink Example", "documentation-only", "not loaded by default", "env://", "file://", "Mux Operator History Tuning", "maxActions <= 1024", "maxBackups <= 3", "Mux Operator Admin Endpoints", "/rpc/admin/mux/operator-actions/audit-schemas", "/rpc/admin/mux/operator-actions/history/replay", "debugActions=true"} {
 		if !strings.Contains(string(readmeData), want) {
 			t.Fatalf("README missing %q:\n%s", want, readmeData)
 		}
@@ -370,7 +370,7 @@ func TestGenerateService(t *testing.T) {
 		"mustMax(history, \"maxBackups\", 3)",
 		"mustMax(history, \"maxSizeBytes\", 1048576)",
 		"mustMax(history, \"maxLineBytes\", 65536)",
-		"mustMax(history, \"debugReplayCooldown\", 60000000000)",
+		"mustRange(history, \"debugReplayCooldown\", 100000000, 60000000000)",
 	} {
 		if !strings.Contains(string(checkGoData), want) {
 			t.Fatalf("production_check.go missing %q:\n%s", want, checkGoData)
@@ -722,6 +722,40 @@ func assertGeneratedProductionCheckBehavior(t *testing.T, dir string) {
 	output, err = check.CombinedOutput()
 	if err == nil || !strings.Contains(string(output), "maxBackups exceeds 3") {
 		t.Fatalf("production-check oversized operator history output = err:%v\n%s", err, output)
+	}
+
+	// debugReplayCooldown carries a semantic lower bound; a value below 100ms
+	// must fail even though it is well under the upper limit.
+	history["maxBackups"] = float64(2)
+	history["debugReplayCooldown"] = float64(50000000)
+	tooSmall, err := json.MarshalIndent(formatted, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal small cooldown production config: %v", err)
+	}
+	if err := os.WriteFile(configPath, tooSmall, 0o644); err != nil {
+		t.Fatalf("write small cooldown production config: %v", err)
+	}
+	check = exec.Command("sh", script)
+	check.Dir = dir
+	output, err = check.CombinedOutput()
+	if err == nil || !strings.Contains(string(output), "debugReplayCooldown must be between 100000000 and 60000000000") {
+		t.Fatalf("production-check small cooldown output = err:%v\n%s", err, output)
+	}
+
+	// A cooldown inside the accepted range passes the production check.
+	history["debugReplayCooldown"] = float64(2000000000)
+	valid, err := json.MarshalIndent(formatted, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal valid cooldown production config: %v", err)
+	}
+	if err := os.WriteFile(configPath, valid, 0o644); err != nil {
+		t.Fatalf("write valid cooldown production config: %v", err)
+	}
+	check = exec.Command("sh", script)
+	check.Dir = dir
+	output, err = check.CombinedOutput()
+	if err != nil {
+		t.Fatalf("production-check failed for valid cooldown config: %v\n%s", err, output)
 	}
 }
 

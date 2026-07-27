@@ -56,7 +56,11 @@ func (g *Gauge) Inc(labelValues ...string) { g.Add(1, labelValues...) }
 // Dec decrements the gauge by one.
 func (g *Gauge) Dec(labelValues ...string) { g.Add(-1, labelValues...) }
 
-// Delete removes the gauge series for the given label values.
+// Delete removes the gauge series for the given label values so it stops being
+// exported. Deleting a label combination leaves sibling series untouched, and
+// deleting a series that does not exist is a no-op, so callers can safely clear
+// stale labels (for example after a degraded state recovers) without tracking
+// which series were previously set.
 func (g *Gauge) Delete(labelValues ...string) { g.metric.delete(labelValues) }
 
 // Histogram records distributions of observed values, partitioned by labels.

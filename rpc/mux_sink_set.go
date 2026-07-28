@@ -250,7 +250,7 @@ type rpcMuxDiagnosisSinkFingerprint struct {
 
 // NewRPCMuxDiagnosisSinkSet builds the initial sink generation.
 func NewRPCMuxDiagnosisSinkSet(config RPCMuxDiagnosisSinkSetConfig) (*RPCMuxDiagnosisSinkSet, error) {
-	generation, err := buildRPCMuxDiagnosisSinkGeneration(context.Background(), config)
+	generation, err := buildRPCMuxDiagnosisSinkGeneration(context.Background(), config, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -291,7 +291,7 @@ func (s *RPCMuxDiagnosisSinkSet) Reload(ctx context.Context, config RPCMuxDiagno
 		return errors.New("rpc mux diagnosis sink set is closed")
 	}
 
-	generation, err := buildRPCMuxDiagnosisSinkGeneration(ctx, config)
+	generation, err := buildRPCMuxDiagnosisSinkGeneration(ctx, config, s.now)
 	if err != nil {
 		reason := classifyRPCMuxDiagnosisSinkReloadError(err)
 		s.recordReloadFailure(reason)
@@ -409,7 +409,7 @@ func (s *RPCMuxDiagnosisSinkSet) recordReloadFailure(reason string) {
 	s.mu.Unlock()
 }
 
-func buildRPCMuxDiagnosisSinkGeneration(ctx context.Context, config RPCMuxDiagnosisSinkSetConfig) (generation *rpcMuxDiagnosisSinkGeneration, err error) {
+func buildRPCMuxDiagnosisSinkGeneration(ctx context.Context, config RPCMuxDiagnosisSinkSetConfig, nowFunc func() time.Time) (generation *rpcMuxDiagnosisSinkGeneration, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			generation.close()
@@ -421,10 +421,14 @@ func buildRPCMuxDiagnosisSinkGeneration(ctx context.Context, config RPCMuxDiagno
 	if err != nil {
 		return nil, err
 	}
+	now := time.Now
+	if nowFunc != nil {
+		now = nowFunc
+	}
 	generation = &rpcMuxDiagnosisSinkGeneration{
 		version:       validated.Version,
 		schemaVersion: validated.SchemaVersion,
-		updatedAt:     time.Now().UTC(),
+		updatedAt:     now().UTC(),
 		sinks:         make([]rpcMuxDiagnosisSink, 0, len(validated.Sinks)),
 		fingerprints:  make(map[string]rpcMuxDiagnosisSinkFingerprint, len(validated.Sinks)),
 	}
@@ -526,7 +530,7 @@ func (s *RPCMuxDiagnosisSinkSet) DiffRPCMuxDiagnosisSinkSetConfig(ctx context.Co
 	if s == nil {
 		return RPCMuxDiagnosisSinkSetDiffPlan{}, errors.New("rpc mux diagnosis sink set is nil")
 	}
-	candidate, err := buildRPCMuxDiagnosisSinkGeneration(ctx, config)
+	candidate, err := buildRPCMuxDiagnosisSinkGeneration(ctx, config, s.now)
 	if err != nil {
 		return RPCMuxDiagnosisSinkSetDiffPlan{}, err
 	}

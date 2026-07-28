@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -797,6 +798,69 @@ func TestRPCMuxDiagnosisOperatorAuditRecordValid(t *testing.T) {
 		Details: map[string]string{"operator_action": "pause_sink_breaker"},
 	}); err == nil {
 		t.Fatal("record without schema marker validated")
+	}
+}
+
+func TestVerifyOperatorAuditRecordSchema(t *testing.T) {
+	var buf strings.Builder
+	saved := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	t.Cleanup(func() { slog.SetDefault(saved) })
+
+	// A record without a marker is skipped: no validation, no log.
+	verifyOperatorAuditRecordSchema(RPCMuxDiagnosisOperatorAction{
+		Sink:   "slog",
+		Action: RPCMuxDiagnosisOperatorPauseSink,
+	})
+	// A well-formed marker-bearing record validates cleanly: still no log.
+	verifyOperatorAuditRecordSchema(RPCMuxDiagnosisOperatorAction{
+		Action: RPCMuxDiagnosisOperatorDebugReplay,
+		Details: RPCMuxDiagnosisOperatorDebugReplayAuditDetails{
+			Source:      RPCMuxDiagnosisOperatorHistorySourcePrimary,
+			Limit:       1,
+			TokenResult: "approved",
+		}.StringMap(),
+	})
+	if buf.Len() != 0 {
+		t.Fatalf("unexpected audit schema log for valid records: %s", buf.String())
+	}
+
+	// A marker-bearing record with a broken details map logs at debug level but
+	// the hook itself never panics or rejects.
+	verifyOperatorAuditRecordSchema(RPCMuxDiagnosisOperatorAction{
+		Sink:    "slog",
+		Action:  RPCMuxDiagnosisOperatorDebugReplay,
+		Details: map[string]string{"schema": "gofly.rpc_mux_operator_debug_replay_audit.v1"},
+	})
+	if !strings.Contains(buf.String(), "violates schema") {
+		t.Fatalf("expected schema violation log, got: %s", buf.String())
+	}
+}
+
+func TestRPCMuxDiagnosisSinkSetRecordOperatorActionValidatesWithoutBlocking(t *testing.T) {
+	var buf strings.Builder
+	saved := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	t.Cleanup(func() { slog.SetDefault(saved) })
+
+	sinkSet, err := NewRPCMuxDiagnosisSinkSet(RPCMuxDiagnosisSinkSetConfig{Version: "audit-v1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sinkSet.Close()
+
+	// A malformed but approved audit record is still recorded (write is never
+	// blocked) while the schema violation is logged for observability.
+	sinkSet.RecordRPCMuxDiagnosisOperatorAuditAction(RPCMuxDiagnosisOperatorAction{
+		Action:   RPCMuxDiagnosisOperatorDebugReplay,
+		Approved: true,
+		Details:  map[string]string{"schema": "gofly.rpc_mux_operator_debug_replay_audit.v1"},
+	})
+	if history := sinkSet.RPCMuxDiagnosisOperatorActionHistory(1); len(history) != 1 {
+		t.Fatalf("audit history = %+v, want the record retained", history)
+	}
+	if !strings.Contains(buf.String(), "violates schema") {
+		t.Fatalf("expected schema violation log on write path, got: %s", buf.String())
 	}
 }
 

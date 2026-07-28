@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/imajinyun/gofly/rpc"
 )
 
 // ServiceScaffoldOptions 是配置驱动的脚手架选项；包含模板扩展、feature、插件等。
@@ -188,32 +190,35 @@ func serviceScaffoldRuntimeFeatures(profile GenerationProfile, kind string) []se
 }
 
 func serviceScaffoldData(opts ServiceScaffoldOptions) map[string]string {
+	limits := rpc.RPCMuxDiagnosisOperatorHistoryLimits()
 	return withGeneratedResilienceTemplateData(map[string]string{
-		"Name":             opts.Name,
-		"Module":           opts.Module,
-		"ReplaceBlock":     frameworkReplaceBlock(opts.FrameworkPath),
-		"GoFile":           "./cmd/" + opts.Name,
-		"Exe":              opts.Name,
-		"GoVersion":        "1.26",
-		"BaseImage":        "gcr.io/distroless/static-debian12",
-		"Namespace":        "default",
-		"Image":            opts.Name + ":latest",
-		"Port":             "8080",
-		"RPCPort":          "8081",
-		"Replicas":         "2",
-		"Host":             opts.Name + ".example.com",
-		"Path":             "/",
-		"Data":             kubeConfigData(nil),
-		"RevisionHistory":  "",
-		"ImagePullSecrets": "",
-		"ServiceAccount":   "",
-		"ImagePullPolicy":  "",
-		"Resources":        kubeResources("100m", "128Mi", "500m", "512Mi"),
-		"ServiceType":      "",
-		"NodePort":         "",
-		"FeatureImports":   "",
-		"MuxOTelSinkName":  "",
-		"Autoscale":        kubeAutoscale(opts.Name, "default", "2", "6"),
+		"Name":                   opts.Name,
+		"Module":                 opts.Module,
+		"ReplaceBlock":           frameworkReplaceBlock(opts.FrameworkPath),
+		"GoFile":                 "./cmd/" + opts.Name,
+		"Exe":                    opts.Name,
+		"GoVersion":              "1.26",
+		"BaseImage":              "gcr.io/distroless/static-debian12",
+		"Namespace":              "default",
+		"Image":                  opts.Name + ":latest",
+		"Port":                   "8080",
+		"RPCPort":                "8081",
+		"Replicas":               "2",
+		"Host":                   opts.Name + ".example.com",
+		"Path":                   "/",
+		"Data":                   kubeConfigData(nil),
+		"RevisionHistory":        "",
+		"ImagePullSecrets":       "",
+		"ServiceAccount":         "",
+		"ImagePullPolicy":        "",
+		"Resources":              kubeResources("100m", "128Mi", "500m", "512Mi"),
+		"ServiceType":            "",
+		"NodePort":               "",
+		"FeatureImports":         "",
+		"MuxOTelSinkName":        "",
+		"DebugReplayCooldownMin": limits.MinDebugReplayCooldown.String(),
+		"DebugReplayCooldownMax": limits.MaxDebugReplayCooldown.String(),
+		"Autoscale":              kubeAutoscale(opts.Name, "default", "2", "6"),
 	}, opts.Name)
 }
 

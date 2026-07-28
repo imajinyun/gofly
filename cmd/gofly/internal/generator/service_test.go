@@ -66,10 +66,13 @@ func TestGenerateService(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"Mux Subprocess Sink Example", "documentation-only", "not loaded by default", "env://", "file://", "Mux Operator History Tuning", "maxActions <= 1024", "maxBackups <= 3", "Mux Operator Admin Endpoints", "/rpc/admin/mux/operator-actions/audit-schemas", "/rpc/admin/mux/operator-actions/history/replay", "debugActions=true"} {
+	for _, want := range []string{"Mux Subprocess Sink Example", "documentation-only", "not loaded by default", "env://", "file://", "Mux Operator History Tuning", "maxActions <= 1024", "maxBackups <= 3", "Mux Operator Admin Endpoints", "/rpc/admin/mux/operator-actions/audit-schemas", "/rpc/admin/mux/operator-actions/history/replay", "debugActions=true", "between `100ms` and `1m0s`"} {
 		if !strings.Contains(string(readmeData), want) {
 			t.Fatalf("README missing %q:\n%s", want, readmeData)
 		}
+	}
+	if strings.Contains(string(readmeData), "{{.DebugReplayCooldown") {
+		t.Fatalf("README left unrendered cooldown placeholder:\n%s", readmeData)
 	}
 	greeterData, err := os.ReadFile(filepath.Join(dir, "internal", "rpc", "greeter.go"))
 	if err != nil {

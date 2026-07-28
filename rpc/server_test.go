@@ -482,6 +482,71 @@ func TestHTTPServerAdminAuditAndMethodBoundaries(t *testing.T) {
 	}
 }
 
+func TestHTTPServerMuxOperatorAuditValidateEndpoint(t *testing.T) {
+	server := NewServer()
+
+	// A valid debug replay payload validates against the resolved schema.
+	validBody, err := json.Marshal(RPCMuxDiagnosisOperatorDebugReplayAuditDetails{
+		Source:      RPCMuxDiagnosisOperatorHistorySourcePrimary,
+		Limit:       1,
+		TokenResult: "approved",
+	}.StringMap())
+	if err != nil {
+		t.Fatal(err)
+	}
+	validRec := httptest.NewRecorder()
+	server.ServeHTTP(validRec, httptest.NewRequest(http.MethodPost, "/rpc/admin/mux/operator-actions/audit-schemas/validate", strings.NewReader(string(validBody))))
+	if validRec.Code != http.StatusOK {
+		t.Fatalf("valid audit validate status = %d body=%s", validRec.Code, validRec.Body.String())
+	}
+	var validResponse RPCMuxDiagnosisOperatorAuditValidateResponse
+	if err := json.NewDecoder(validRec.Body).Decode(&validResponse); err != nil {
+		t.Fatal(err)
+	}
+	if !validResponse.Valid || validResponse.Schema != "gofly.rpc_mux_operator_debug_replay_audit.v1" || validResponse.Error != "" {
+		t.Fatalf("valid audit validate response = %+v", validResponse)
+	}
+
+	// A payload with an unknown marker reports no recognized schema, not a crash.
+	unknownRec := httptest.NewRecorder()
+	server.ServeHTTP(unknownRec, httptest.NewRequest(http.MethodPost, "/rpc/admin/mux/operator-actions/audit-schemas/validate", strings.NewReader(`{"schema":"gofly.rpc_mux_operator_unknown.v9"}`)))
+	var unknownResponse RPCMuxDiagnosisOperatorAuditValidateResponse
+	if err := json.NewDecoder(unknownRec.Body).Decode(&unknownResponse); err != nil {
+		t.Fatal(err)
+	}
+	if unknownResponse.Valid || unknownResponse.Error == "" {
+		t.Fatalf("unknown marker validate response = %+v, want invalid", unknownResponse)
+	}
+
+	// A recognized marker with a missing required field reports the violation.
+	brokenRec := httptest.NewRecorder()
+	server.ServeHTTP(brokenRec, httptest.NewRequest(http.MethodPost, "/rpc/admin/mux/operator-actions/audit-schemas/validate", strings.NewReader(`{"schema":"gofly.rpc_mux_operator_debug_replay_audit.v1","source":"primary"}`)))
+	var brokenResponse RPCMuxDiagnosisOperatorAuditValidateResponse
+	if err := json.NewDecoder(brokenRec.Body).Decode(&brokenResponse); err != nil {
+		t.Fatal(err)
+	}
+	if brokenResponse.Valid || brokenResponse.Schema != "gofly.rpc_mux_operator_debug_replay_audit.v1" || brokenResponse.Error == "" {
+		t.Fatalf("broken payload validate response = %+v, want invalid with schema", brokenResponse)
+	}
+
+	// The endpoint never persists: operator history stays empty.
+	if snapshot := server.MuxDiagnosisOperatorActionHistorySnapshot(0); len(snapshot.Actions) != 0 {
+		t.Fatalf("audit validate persisted actions = %+v, want none", snapshot.Actions)
+	}
+
+	// Boundary: nil server and invalid body are handled cleanly.
+	nilRec := httptest.NewRecorder()
+	(*HTTPServer)(nil).serveMuxOperatorAuditValidate(nilRec, httptest.NewRequest(http.MethodPost, "/rpc/admin/mux/operator-actions/audit-schemas/validate", strings.NewReader(`{}`)))
+	if nilRec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("nil server validate status = %d", nilRec.Code)
+	}
+	invalidRec := httptest.NewRecorder()
+	server.ServeHTTP(invalidRec, httptest.NewRequest(http.MethodPost, "/rpc/admin/mux/operator-actions/audit-schemas/validate", strings.NewReader(`{`)))
+	if invalidRec.Code != http.StatusBadRequest {
+		t.Fatalf("invalid audit validate body status = %d", invalidRec.Code)
+	}
+}
+
 func TestHTTPServerMuxOperatorHistoryRuntimeDetails(t *testing.T) {
 	oldMetrics := metrics.Default
 	registry := metrics.NewRegistry()

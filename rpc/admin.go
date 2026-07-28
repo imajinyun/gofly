@@ -115,6 +115,10 @@ func (s *HTTPServer) serveAdminRoute(w http.ResponseWriter, r *http.Request) {
 		s.serveMuxOperatorAction(w, r)
 		return
 	}
+	if r.Method == http.MethodPost && r.URL.Path == "/rpc/admin/mux/operator-actions/audit-schemas/validate" {
+		s.serveMuxOperatorAuditValidate(w, r)
+		return
+	}
 	if r.Method != http.MethodGet {
 		writeRPCError(w, http.StatusMethodNotAllowed, CodeInvalidArgument, "method not allowed")
 		return
@@ -565,6 +569,50 @@ func (s *HTTPServer) serveMuxOperatorAction(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	writeAdminJSON(w, http.StatusOK, action)
+}
+
+// RPCMuxDiagnosisOperatorAuditValidateResponse reports whether a submitted audit
+// details payload conforms to its published schema. It is a read-only dry-run
+// result: nothing is persisted.
+type RPCMuxDiagnosisOperatorAuditValidateResponse struct {
+	Schema string `json:"schema,omitempty"`
+	Valid  bool   `json:"valid"`
+	Error  string `json:"error,omitempty"`
+}
+
+// serveMuxOperatorAuditValidate validates a submitted audit details payload
+// against the published schema resolved from its schema marker. It never
+// persists anything, letting external audit systems check payload compatibility
+// without reimplementing the schema contract.
+func (s *HTTPServer) serveMuxOperatorAuditValidate(w http.ResponseWriter, r *http.Request) {
+	if s == nil {
+		writeRPCError(w, http.StatusServiceUnavailable, CodeUnavailable, "rpc server is nil")
+		return
+	}
+	if r.Body == nil {
+		writeRPCError(w, http.StatusBadRequest, CodeInvalidArgument, "audit details payload is required")
+		return
+	}
+	defer r.Body.Close()
+	var details map[string]string
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10)).Decode(&details); err != nil {
+		writeRPCError(w, http.StatusBadRequest, CodeInvalidArgument, "audit details payload is invalid")
+		return
+	}
+	schema, ok := RPCMuxDiagnosisOperatorAuditRecordSchema(RPCMuxDiagnosisOperatorAction{Details: details})
+	if !ok {
+		writeAdminJSON(w, http.StatusOK, RPCMuxDiagnosisOperatorAuditValidateResponse{
+			Valid: false,
+			Error: "audit details has no recognized schema marker",
+		})
+		return
+	}
+	response := RPCMuxDiagnosisOperatorAuditValidateResponse{Schema: schema.Schema, Valid: true}
+	if err := schema.ValidateDetails(details); err != nil {
+		response.Valid = false
+		response.Error = err.Error()
+	}
+	writeAdminJSON(w, http.StatusOK, response)
 }
 
 func rpcMuxDiagnosisSinkSetStatus(snapshot RPCMuxDiagnosisSinkSetSnapshot) string {

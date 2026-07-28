@@ -24,7 +24,7 @@ Do not store raw secrets in runtime snapshots, diff plans, or source-controlled 
 
 Operator history persistence is disabled by default. When you enable ` + "`rpc.mux.log.otelCompatible.operatorHistory`" + `, keep the store under ` + "`fileSecretRoot`" + ` and prefer the generated defaults unless you have reviewed disk and audit requirements.
 
-Recommended upper bounds for generated production config are ` + "`maxActions <= 1024`" + `, ` + "`maxBackups <= 3`" + `, ` + "`maxSizeBytes <= 1048576`" + `, and ` + "`maxLineBytes <= 65536`" + `. The production check accepts omitted values or values within those bounds and fails fast on larger values. ` + "`debugReplayCooldown`" + ` must be omitted (default) or between ` + "`100ms`" + ` and ` + "`1m`" + `.
+Recommended upper bounds for generated production config are ` + "`maxActions <= 1024`" + `, ` + "`maxBackups <= 3`" + `, ` + "`maxSizeBytes <= 1048576`" + `, and ` + "`maxLineBytes <= 65536`" + `. The production check accepts omitted values or values within those bounds and fails fast on larger values. ` + "`debugReplayCooldown`" + ` must be omitted (default) or between ` + "`{{.DebugReplayCooldownMin}}`" + ` and ` + "`{{.DebugReplayCooldownMax}}`" + `.
 
 ## Mux Operator Admin Endpoints
 

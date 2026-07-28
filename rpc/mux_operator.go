@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"hash/fnv"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -189,6 +190,25 @@ func RPCMuxDiagnosisOperatorAuditRecordValid(action RPCMuxDiagnosisOperatorActio
 		return fmt.Errorf("audit record has no recognized schema marker")
 	}
 	return schema.ValidateDetails(action.Details)
+}
+
+// verifyOperatorAuditRecordSchema is a best-effort, non-blocking guard on the
+// audit write path. Records that carry a schema marker are validated against
+// the published schema and any violation is logged at debug level; records
+// without a marker (for example plain approved sink actions) are skipped. It
+// never alters or rejects the write, so it forms a write-side consistency check
+// without changing behavior.
+func verifyOperatorAuditRecordSchema(action RPCMuxDiagnosisOperatorAction) {
+	if strings.TrimSpace(action.Details[rpcMuxDiagnosisOperatorAuditFieldSchema]) == "" {
+		return
+	}
+	if err := RPCMuxDiagnosisOperatorAuditRecordValid(action); err != nil {
+		slog.Default().Debug("rpc mux operator audit record violates schema",
+			slog.String("sink", action.Sink),
+			slog.String("action", action.Action),
+			slog.String("error", err.Error()),
+		)
+	}
 }
 
 var (
@@ -643,6 +663,7 @@ func (s *RPCMuxDiagnosisSinkSet) recordOperatorActionLocked(action RPCMuxDiagnos
 	if s == nil || !action.Approved {
 		return
 	}
+	verifyOperatorAuditRecordSchema(action)
 	s.operatorHistory = append(s.operatorHistory, cloneRPCMuxDiagnosisOperatorAction(action))
 	if len(s.operatorHistory) > defaultRPCMuxDiagnosisOperatorHistoryLimit {
 		copy(s.operatorHistory, s.operatorHistory[len(s.operatorHistory)-defaultRPCMuxDiagnosisOperatorHistoryLimit:])

@@ -162,6 +162,35 @@ func TestRPCMuxDiagnosisSinkSetSuccessfulReloadClearsRollbackState(t *testing.T)
 	}
 }
 
+func TestRPCMuxDiagnosisSinkSetReloadFailureUsesInjectedClock(t *testing.T) {
+	cleanup := RegisterRPCMuxOTelLogSink("reload-clock", func(string) RPCMuxOTelLogExporter {
+		return RPCMuxOTelLogExporterFunc(func(context.Context, RPCMuxDiagnosisEventOTelLogRecord) {})
+	})
+	defer cleanup()
+	sinkSet, err := NewRPCMuxDiagnosisSinkSet(RPCMuxDiagnosisSinkSetConfig{
+		Version: "stable-v1",
+		Sinks:   []RPCMuxDiagnosisSinkConfig{{Name: "reload-clock"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sinkSet.Close()
+
+	// A reload failure must stamp the injected clock rather than the wall clock,
+	// so the snapshot timestamp is deterministic for observers and tests.
+	stamped := time.Unix(1700000123, 0).UTC()
+	sinkSet.nowFunc = func() time.Time { return stamped }
+	if err := sinkSet.Reload(context.Background(), RPCMuxDiagnosisSinkSetConfig{
+		Version: "broken-v2",
+		Sinks:   []RPCMuxDiagnosisSinkConfig{{Name: "missing-reload-clock"}},
+	}); err == nil {
+		t.Fatal("broken reload succeeded")
+	}
+	if snapshot := sinkSet.RPCMuxDiagnosisSinkSetSnapshot(); !snapshot.LastReloadErrorAt.Equal(stamped) {
+		t.Fatalf("reload failure timestamp = %v, want injected %v", snapshot.LastReloadErrorAt, stamped)
+	}
+}
+
 func TestRPCMuxDiagnosisSinkSetActivatesFromEmptyGenerationWithSecretProfile(t *testing.T) {
 	records := make(chan string, 1)
 	cleanup := RegisterRPCMuxOTelLogSinkProvider("dynamic-secret", sinkSetTestProvider{

@@ -374,17 +374,18 @@ func NewRPCMuxDiagnosisOperatorHistoryFileStoreWithConfig(path string, config RP
 }
 
 func normalizeRPCMuxDiagnosisOperatorHistoryFileStoreConfig(config RPCMuxDiagnosisOperatorHistoryFileStoreConfig) (RPCMuxDiagnosisOperatorHistoryFileStoreConfig, error) {
-	if config.MaxSizeBytes < 0 || config.MaxSizeBytes > maxRPCMuxDiagnosisOperatorStoreSize {
-		return RPCMuxDiagnosisOperatorHistoryFileStoreConfig{}, fmt.Errorf("operator history maxSizeBytes must be between 0 and %d", maxRPCMuxDiagnosisOperatorStoreSize)
+	limits := RPCMuxDiagnosisOperatorHistoryLimits()
+	if config.MaxSizeBytes < 0 || config.MaxSizeBytes > limits.MaxSizeBytes {
+		return RPCMuxDiagnosisOperatorHistoryFileStoreConfig{}, fmt.Errorf("operator history maxSizeBytes must be between 0 and %d", limits.MaxSizeBytes)
 	}
-	if config.MaxLineBytes < 0 || config.MaxLineBytes > maxRPCMuxDiagnosisOperatorStoreLine {
-		return RPCMuxDiagnosisOperatorHistoryFileStoreConfig{}, fmt.Errorf("operator history maxLineBytes must be between 0 and %d", maxRPCMuxDiagnosisOperatorStoreLine)
+	if config.MaxLineBytes < 0 || config.MaxLineBytes > limits.MaxLineBytes {
+		return RPCMuxDiagnosisOperatorHistoryFileStoreConfig{}, fmt.Errorf("operator history maxLineBytes must be between 0 and %d", limits.MaxLineBytes)
 	}
-	if config.MaxActions < 0 || config.MaxActions > maxRPCMuxDiagnosisOperatorStoreActions {
-		return RPCMuxDiagnosisOperatorHistoryFileStoreConfig{}, fmt.Errorf("operator history maxActions must be between 0 and %d", maxRPCMuxDiagnosisOperatorStoreActions)
+	if config.MaxActions < 0 || config.MaxActions > limits.MaxActions {
+		return RPCMuxDiagnosisOperatorHistoryFileStoreConfig{}, fmt.Errorf("operator history maxActions must be between 0 and %d", limits.MaxActions)
 	}
-	if config.MaxBackups < 0 || config.MaxBackups > maxRPCMuxDiagnosisOperatorBackupFiles {
-		return RPCMuxDiagnosisOperatorHistoryFileStoreConfig{}, fmt.Errorf("operator history maxBackups must be between 0 and %d", maxRPCMuxDiagnosisOperatorBackupFiles)
+	if config.MaxBackups < 0 || config.MaxBackups > limits.MaxBackups {
+		return RPCMuxDiagnosisOperatorHistoryFileStoreConfig{}, fmt.Errorf("operator history maxBackups must be between 0 and %d", limits.MaxBackups)
 	}
 	if config.MaxSizeBytes == 0 {
 		config.MaxSizeBytes = defaultRPCMuxDiagnosisOperatorStoreMaxSize
@@ -396,7 +397,7 @@ func normalizeRPCMuxDiagnosisOperatorHistoryFileStoreConfig(config RPCMuxDiagnos
 		config.MaxActions = defaultRPCMuxDiagnosisOperatorStoreMaxActions
 	}
 	if config.MaxBackups == 0 {
-		config.MaxBackups = maxRPCMuxDiagnosisOperatorBackupFiles
+		config.MaxBackups = limits.MaxBackups
 	}
 	if config.MaxLineBytes > config.MaxSizeBytes {
 		return RPCMuxDiagnosisOperatorHistoryFileStoreConfig{}, fmt.Errorf("operator history maxLineBytes must not exceed maxSizeBytes")
@@ -437,6 +438,7 @@ func rpcMuxDiagnosisOperatorActionForSink(sink RPCMuxDiagnosisSinkRuntimeSnapsho
 		Sink:   sink.Name,
 		Health: delivery.Health,
 		Details: map[string]string{
+			rpcMuxDiagnosisOperatorAuditFieldSchema:         rpcMuxDiagnosisOperatorSinkActionAuditSchema,
 			rpcMuxDiagnosisOperatorAuditFieldOperatorAction: delivery.OperatorAction,
 			rpcMuxDiagnosisOperatorAuditFieldBreakerState:   delivery.BreakerState,
 			rpcMuxDiagnosisOperatorAuditFieldIsolationMode:  delivery.Isolation.Mode,

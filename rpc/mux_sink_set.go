@@ -207,6 +207,17 @@ type RPCMuxDiagnosisSinkSet struct {
 	operatorHistory   []RPCMuxDiagnosisOperatorAction
 	operatorStore     RPCMuxDiagnosisOperatorHistoryStore
 	closed            bool
+	nowFunc           func() time.Time
+}
+
+// now returns the sink set clock, defaulting to time.Now. Tests inject a
+// deterministic clock through nowFunc to assert reload-failure timestamps
+// without depending on wall-clock timing.
+func (s *RPCMuxDiagnosisSinkSet) now() time.Time {
+	if s != nil && s.nowFunc != nil {
+		return s.nowFunc()
+	}
+	return time.Now()
 }
 
 type rpcMuxDiagnosisSinkGeneration struct {
@@ -393,7 +404,7 @@ func (s *RPCMuxDiagnosisSinkSet) Close() error {
 func (s *RPCMuxDiagnosisSinkSet) recordReloadFailure(reason string) {
 	s.mu.Lock()
 	s.rollbacks++
-	s.lastReloadErrorAt = time.Now().UTC()
+	s.lastReloadErrorAt = s.now().UTC()
 	s.lastReloadError = reason
 	s.mu.Unlock()
 }

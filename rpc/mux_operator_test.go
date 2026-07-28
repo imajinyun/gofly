@@ -3,6 +3,7 @@ package rpc
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -742,6 +743,155 @@ func assertOperatorAuditJSONSchema(t *testing.T, name string, schema RPCMuxDiagn
 	}
 }
 
+// validateAgainstOperatorAuditJSONSchema is a minimal JSON Schema checker that
+// enforces the subset the audit schemas rely on: type=object, a required list,
+// additionalProperties=false, string-typed properties, and const markers. It
+// returns an error describing the first violation, or nil when the payload is
+// valid. It is intentionally test-only so production code carries no validator.
+func validateAgainstOperatorAuditJSONSchema(raw json.RawMessage, payload map[string]string) error {
+	var document struct {
+		Type                 string                    `json:"type"`
+		AdditionalProperties bool                      `json:"additionalProperties"`
+		Properties           map[string]map[string]any `json:"properties"`
+		Required             []string                  `json:"required"`
+	}
+	if err := json.Unmarshal(raw, &document); err != nil {
+		return fmt.Errorf("decode schema: %w", err)
+	}
+	if document.Type != "object" {
+		return fmt.Errorf("schema type %q is not object", document.Type)
+	}
+	for _, field := range document.Required {
+		if _, ok := payload[field]; !ok {
+			return fmt.Errorf("missing required field %q", field)
+		}
+	}
+	for key, value := range payload {
+		spec, ok := document.Properties[key]
+		if !ok {
+			if !document.AdditionalProperties {
+				return fmt.Errorf("additional property %q not allowed", key)
+			}
+			continue
+		}
+		if typ, ok := spec["type"].(string); ok && typ != "string" {
+			return fmt.Errorf("property %q must be %q", key, typ)
+		}
+		if want, ok := spec["const"].(string); ok && want != value {
+			return fmt.Errorf("property %q must equal %q, got %q", key, want, value)
+		}
+	}
+	return nil
+}
+
+func TestRPCMuxDiagnosisOperatorAuditJSONSchemaAcceptsAndRejects(t *testing.T) {
+	schema := RPCMuxDiagnosisOperatorAuditSchemas()["debugReplay"]
+
+	// A real, well-formed audit payload must validate against the published
+	// JSON Schema, proving the schema is usable and not merely structural.
+	valid := RPCMuxDiagnosisOperatorDebugReplayAuditDetails{
+		Source:      RPCMuxDiagnosisOperatorHistorySourcePrimary,
+		Limit:       2,
+		TokenResult: "approved",
+	}.StringMap()
+	if err := validateAgainstOperatorAuditJSONSchema(schema.JSONSchema, valid); err != nil {
+		t.Fatalf("valid debug replay payload rejected: %v", err)
+	}
+
+	// The sink action schema must accept its producer output too.
+	sinkAction := rpcMuxDiagnosisOperatorActionForSink(RPCMuxDiagnosisSinkRuntimeSnapshot{
+		Name: "sink-a",
+		Delivery: RPCMuxDiagnosisExporterDeliverySnapshot{
+			OperatorAction: "pause_sink_breaker",
+			BreakerState:   "open",
+			Isolation:      RPCMuxDiagnosisSinkIsolationConfig{Mode: RPCMuxDiagnosisSinkIsolationIsolatedProcess},
+		},
+	})
+	sinkSchema := RPCMuxDiagnosisOperatorAuditSchemas()[sinkAction.Action]
+	if err := validateAgainstOperatorAuditJSONSchema(sinkSchema.JSONSchema, sinkAction.Details); err != nil {
+		t.Fatalf("valid sink action payload rejected: %v", err)
+	}
+
+	reject := func(name string, mutate func(map[string]string)) {
+		t.Run(name, func(t *testing.T) {
+			payload := RPCMuxDiagnosisOperatorDebugReplayAuditDetails{
+				Source:      RPCMuxDiagnosisOperatorHistorySourcePrimary,
+				Limit:       1,
+				TokenResult: "approved",
+			}.StringMap()
+			mutate(payload)
+			if err := validateAgainstOperatorAuditJSONSchema(schema.JSONSchema, payload); err == nil {
+				t.Fatalf("invalid payload %v accepted", payload)
+			}
+		})
+	}
+	// required enforcement: a dropped declared field must fail.
+	reject("missing required field", func(p map[string]string) { delete(p, "token_result") })
+	// const marker enforcement: a wrong schema marker must fail.
+	reject("wrong schema marker", func(p map[string]string) {
+		p["schema"] = "gofly.rpc_mux_operator_debug_replay_audit.v2"
+	})
+	// additionalProperties:false enforcement: an undeclared key must fail.
+	reject("unexpected extra field", func(p map[string]string) { p["injected"] = "true" })
+}
+
+func TestRPCMuxDiagnosisOperatorHistoryDegradedEvidence(t *testing.T) {
+	tests := []struct {
+		name         string
+		verification RPCMuxDiagnosisOperatorHistoryVerification
+		wantReason   string
+		wantSource   string
+	}{
+		{
+			name: "primary degraded",
+			verification: RPCMuxDiagnosisOperatorHistoryVerification{
+				Primary: RPCMuxDiagnosisOperatorHistoryFileEvidence{IntegrityStatus: "tampered", Source: "primary"},
+			},
+			wantReason: "tampered",
+			wantSource: "primary",
+		},
+		{
+			name: "backup degraded",
+			verification: RPCMuxDiagnosisOperatorHistoryVerification{
+				Primary: RPCMuxDiagnosisOperatorHistoryFileEvidence{IntegrityStatus: "ok", Source: "primary"},
+				Backup:  RPCMuxDiagnosisOperatorHistoryFileEvidence{IntegrityStatus: "truncated", Source: "backup"},
+			},
+			wantReason: "truncated",
+			wantSource: "backup",
+		},
+		{
+			name: "ring backup degraded",
+			verification: RPCMuxDiagnosisOperatorHistoryVerification{
+				Primary: RPCMuxDiagnosisOperatorHistoryFileEvidence{IntegrityStatus: "ok", Source: "primary"},
+				Backup:  RPCMuxDiagnosisOperatorHistoryFileEvidence{IntegrityStatus: "missing", Source: "backup"},
+				Backups: []RPCMuxDiagnosisOperatorHistoryFileEvidence{
+					{IntegrityStatus: "ok", Source: "backup.1"},
+					{IntegrityStatus: "size_limit_exceeded", Source: "backup.2"},
+				},
+			},
+			wantReason: "size_limit_exceeded",
+			wantSource: "backup.2",
+		},
+		{
+			name: "all healthy",
+			verification: RPCMuxDiagnosisOperatorHistoryVerification{
+				Primary: RPCMuxDiagnosisOperatorHistoryFileEvidence{IntegrityStatus: "ok", Source: "primary"},
+				Backup:  RPCMuxDiagnosisOperatorHistoryFileEvidence{IntegrityStatus: "missing", Source: "backup"},
+			},
+			wantReason: "",
+			wantSource: "",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			reason, source := rpcMuxDiagnosisOperatorHistoryDegradedEvidence(test.verification)
+			if reason != test.wantReason || source != test.wantSource {
+				t.Fatalf("degraded evidence = (%q, %q), want (%q, %q)", reason, source, test.wantReason, test.wantSource)
+			}
+		})
+	}
+}
+
 func TestRPCMuxDiagnosisOperatorHistoryLimits(t *testing.T) {
 	limits := RPCMuxDiagnosisOperatorHistoryLimits()
 	if limits.MaxSizeBytes <= 0 || limits.MaxLineBytes <= 0 || limits.MaxActions <= 0 || limits.MaxBackups <= 0 {
@@ -759,9 +909,9 @@ func TestRPCMuxDiagnosisOperatorHistoryLimits(t *testing.T) {
 }
 
 func TestRPCMuxDiagnosisOperatorSinkActionDetailsMatchSchema(t *testing.T) {
-	// A real sink action must emit exactly the detail keys declared by the sink
-	// action audit schema, so adding a producer field without updating the schema
-	// (or vice versa) fails fast rather than silently drifting.
+	// A real sink action must emit the schema marker plus exactly the detail keys
+	// declared by the sink action audit schema, so adding a producer field without
+	// updating the schema (or vice versa) fails fast rather than silently drifting.
 	action := rpcMuxDiagnosisOperatorActionForSink(RPCMuxDiagnosisSinkRuntimeSnapshot{
 		Name: "sink-a",
 		Delivery: RPCMuxDiagnosisExporterDeliverySnapshot{
@@ -779,8 +929,14 @@ func TestRPCMuxDiagnosisOperatorSinkActionDetailsMatchSchema(t *testing.T) {
 	if !ok {
 		t.Fatalf("no audit schema for action %q", action.Action)
 	}
-	if len(action.Details) != len(schema.Fields) {
-		t.Fatalf("action details = %v, want keys %v", action.Details, schema.Fields)
+	// Persisted sink action details carry the schema marker like debug replay, so
+	// both audit record types can be consumed the same way.
+	if action.Details["schema"] != schema.Schema {
+		t.Fatalf("action details schema = %q, want %q", action.Details["schema"], schema.Schema)
+	}
+	wantKeys := append([]string{"schema"}, schema.Fields...)
+	if len(action.Details) != len(wantKeys) {
+		t.Fatalf("action details = %v, want keys %v", action.Details, wantKeys)
 	}
 	for _, field := range schema.Fields {
 		if _, ok := action.Details[field]; !ok {
@@ -788,6 +944,9 @@ func TestRPCMuxDiagnosisOperatorSinkActionDetailsMatchSchema(t *testing.T) {
 		}
 	}
 	for key := range action.Details {
+		if key == "schema" {
+			continue
+		}
 		found := false
 		for _, field := range schema.Fields {
 			if field == key {

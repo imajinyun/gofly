@@ -135,6 +135,62 @@ func (d RPCMuxDiagnosisOperatorDebugReplayAuditDetails) StringMap() map[string]s
 	}
 }
 
+// RPCMuxDiagnosisOperatorAuditRecordSchema resolves the published audit schema
+// for a recorded operator action by reading the schema marker written into its
+// details, closing the write/read loop with RPCMuxDiagnosisOperatorAuditSchemas.
+// It returns false when the record carries no recognized schema marker, so
+// consumers can distinguish schema-bearing audit records (debug replay, sink
+// actions) from records without a structured details contract.
+func RPCMuxDiagnosisOperatorAuditRecordSchema(action RPCMuxDiagnosisOperatorAction) (RPCMuxDiagnosisOperatorAuditSchema, bool) {
+	marker := strings.TrimSpace(action.Details[rpcMuxDiagnosisOperatorAuditFieldSchema])
+	if marker == "" {
+		return RPCMuxDiagnosisOperatorAuditSchema{}, false
+	}
+	for _, schema := range RPCMuxDiagnosisOperatorAuditSchemas() {
+		if schema.Schema == marker {
+			return schema, true
+		}
+	}
+	return RPCMuxDiagnosisOperatorAuditSchema{}, false
+}
+
+// ValidateDetails checks an audit details map against this schema: the schema
+// marker must match, every declared field must be present, and no undeclared
+// key may appear. It validates against the same field list the schema exposes,
+// so it stays a single source of truth rather than a separate JSON Schema
+// engine, and gives runtime/control-plane callers a dependency-free structural
+// check for inbound audit payloads.
+func (s RPCMuxDiagnosisOperatorAuditSchema) ValidateDetails(details map[string]string) error {
+	if got := strings.TrimSpace(details[rpcMuxDiagnosisOperatorAuditFieldSchema]); got != s.Schema {
+		return fmt.Errorf("audit details schema marker %q does not match %q", got, s.Schema)
+	}
+	allowed := make(map[string]struct{}, len(s.Fields)+1)
+	allowed[rpcMuxDiagnosisOperatorAuditFieldSchema] = struct{}{}
+	for _, field := range s.Fields {
+		allowed[field] = struct{}{}
+		if _, ok := details[field]; !ok {
+			return fmt.Errorf("audit details missing required field %q", field)
+		}
+	}
+	for key := range details {
+		if _, ok := allowed[key]; !ok {
+			return fmt.Errorf("audit details has undeclared field %q", key)
+		}
+	}
+	return nil
+}
+
+// RPCMuxDiagnosisOperatorAuditRecordValid resolves a recorded action's schema
+// and validates its details against that schema. It returns an error when the
+// record has no recognized schema marker or its details violate the contract.
+func RPCMuxDiagnosisOperatorAuditRecordValid(action RPCMuxDiagnosisOperatorAction) error {
+	schema, ok := RPCMuxDiagnosisOperatorAuditRecordSchema(action)
+	if !ok {
+		return fmt.Errorf("audit record has no recognized schema marker")
+	}
+	return schema.ValidateDetails(action.Details)
+}
+
 var (
 	rpcMuxDiagnosisOperatorHistoryIntegrityState *metrics.Gauge
 	rpcMuxDiagnosisOperatorHistoryMetricMu       sync.Mutex
@@ -164,22 +220,27 @@ func registerRPCMuxDiagnosisOperatorHistoryMetrics(registry *metrics.Registry) {
 // recommended bounds never exceed what the core runtime enforces, so generated
 // validation cannot lag behind the contract.
 type RPCMuxDiagnosisOperatorHistoryHardLimits struct {
-	MaxSizeBytes        int64         `json:"maxSizeBytes"`
-	MaxLineBytes        int64         `json:"maxLineBytes"`
-	MaxActions          int           `json:"maxActions"`
-	MaxBackups          int           `json:"maxBackups"`
-	DebugReplayCooldown time.Duration `json:"debugReplayCooldown"`
+	MaxSizeBytes           int64         `json:"maxSizeBytes"`
+	MaxLineBytes           int64         `json:"maxLineBytes"`
+	MaxActions             int           `json:"maxActions"`
+	MaxBackups             int           `json:"maxBackups"`
+	DebugReplayCooldown    time.Duration `json:"debugReplayCooldown"`
+	MinDebugReplayCooldown time.Duration `json:"minDebugReplayCooldown"`
+	MaxDebugReplayCooldown time.Duration `json:"maxDebugReplayCooldown"`
 }
 
 // RPCMuxDiagnosisOperatorHistoryLimits returns the core operator history hard
-// limits and the default debug replay cooldown.
+// limits, the default debug replay cooldown, and the accepted debug replay
+// cooldown range.
 func RPCMuxDiagnosisOperatorHistoryLimits() RPCMuxDiagnosisOperatorHistoryHardLimits {
 	return RPCMuxDiagnosisOperatorHistoryHardLimits{
-		MaxSizeBytes:        maxRPCMuxDiagnosisOperatorStoreSize,
-		MaxLineBytes:        maxRPCMuxDiagnosisOperatorStoreLine,
-		MaxActions:          maxRPCMuxDiagnosisOperatorStoreActions,
-		MaxBackups:          maxRPCMuxDiagnosisOperatorBackupFiles,
-		DebugReplayCooldown: defaultRPCMuxDebugReplayInterval,
+		MaxSizeBytes:           maxRPCMuxDiagnosisOperatorStoreSize,
+		MaxLineBytes:           maxRPCMuxDiagnosisOperatorStoreLine,
+		MaxActions:             maxRPCMuxDiagnosisOperatorStoreActions,
+		MaxBackups:             maxRPCMuxDiagnosisOperatorBackupFiles,
+		DebugReplayCooldown:    defaultRPCMuxDebugReplayInterval,
+		MinDebugReplayCooldown: minRPCMuxDebugReplayCooldown,
+		MaxDebugReplayCooldown: maxRPCMuxDebugReplayCooldown,
 	}
 }
 

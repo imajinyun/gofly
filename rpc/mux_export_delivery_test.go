@@ -257,6 +257,44 @@ func TestGovernedRPCMuxDiagnosisEventExporterHalfOpenAllowsSingleProbe(t *testin
 	}
 }
 
+func TestGovernedRPCMuxDiagnosisEventExporterBreakerCooldownUsesInjectedClock(t *testing.T) {
+	exporter := newGovernedRPCMuxDiagnosisEventExporter(
+		"breaker-cooldown-clock",
+		RPCMuxDiagnosisEventExporterFunc(func(context.Context, RPCMuxDiagnosisEventRecord) {}),
+		RPCMuxDiagnosisExporterDeliveryConfig{BreakerCooldown: 10 * time.Second},
+	)
+	governed := exporter.(*governedRPCMuxDiagnosisExporter)
+	defer governed.Close()
+
+	base := time.Unix(1700000000, 0)
+	current := base
+	governed.nowFunc = func() time.Time { return current }
+
+	// The breaker opens at the injected time; within the cooldown delivery and
+	// enqueue must be rejected without any real sleeping.
+	governed.breakerOpenedAt.Store(base.UnixNano())
+	current = base.Add(3 * time.Second)
+	if governed.allowDelivery() {
+		t.Fatal("delivery allowed during injected cooldown")
+	}
+	if governed.allowEnqueue() {
+		t.Fatal("enqueue allowed during injected cooldown")
+	}
+
+	// Advancing the injected clock past the cooldown deterministically permits a
+	// single half-open probe.
+	current = base.Add(10 * time.Second)
+	if !governed.allowEnqueue() {
+		t.Fatal("enqueue rejected after injected cooldown elapsed")
+	}
+	if !governed.allowDelivery() {
+		t.Fatal("half-open probe rejected after injected cooldown elapsed")
+	}
+	if governed.breakerState() != "half_open" {
+		t.Fatalf("breaker state = %q, want half_open", governed.breakerState())
+	}
+}
+
 func TestGovernedRPCMuxDiagnosisEventExporterDrainsAcceptedEventsOnClose(t *testing.T) {
 	records := make(chan RPCMuxDiagnosisEventRecord, 1)
 	exporter := NewGovernedRPCMuxDiagnosisEventExporter(

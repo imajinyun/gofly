@@ -28,6 +28,13 @@ type RPCMuxDiagnosisOperatorHistoryReplayAdminResponse struct {
 
 const defaultRPCMuxDebugReplayInterval = time.Second
 
+// Debug replay cooldown bounds accepted by configuration. A zero cooldown means
+// "use the default"; a configured cooldown must fall within this range.
+const (
+	minRPCMuxDebugReplayCooldown = 100 * time.Millisecond
+	maxRPCMuxDebugReplayCooldown = time.Minute
+)
+
 // ServiceSnapshot captures the runtime state of a registered RPC service.
 type ServiceSnapshot struct {
 	Name          string                 `json:"name"`

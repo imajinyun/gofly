@@ -142,6 +142,24 @@ type governedRPCMuxDiagnosisExporter struct {
 	lifecycle           sync.RWMutex
 	close               sync.Once
 	wait                sync.WaitGroup
+	nowFunc             func() time.Time
+}
+
+// now returns the delivery clock, defaulting to time.Now so production keeps
+// real wall-clock latency and breaker cooldown semantics. Tests inject a
+// deterministic clock through nowFunc to drive elapsed-time branches (breaker
+// cooldown, error-budget pause) without sleeping.
+func (e *governedRPCMuxDiagnosisExporter) now() time.Time {
+	if e != nil && e.nowFunc != nil {
+		return e.nowFunc()
+	}
+	return time.Now()
+}
+
+// since reports the elapsed time from a nanosecond timestamp using the delivery
+// clock, so injected clocks make cooldown checks deterministic.
+func (e *governedRPCMuxDiagnosisExporter) since(unixNanos int64) time.Duration {
+	return e.now().Sub(time.Unix(0, unixNanos))
 }
 
 type rpcMuxDiagnosisDelivery struct {
@@ -409,7 +427,7 @@ func (e *governedRPCMuxDiagnosisExporter) export(delivery rpcMuxDiagnosisDeliver
 		rpcMuxDiagnosisExporterDeliveryEvents.Inc("backpressure", e.sink)
 		return
 	}
-	startedAt := time.Now()
+	startedAt := e.now()
 	ctx, cancel := context.WithTimeout(delivery.ctx, e.config.Timeout)
 	defer cancel()
 	completed := make(chan bool, 1)
@@ -439,16 +457,16 @@ func (e *governedRPCMuxDiagnosisExporter) export(delivery rpcMuxDiagnosisDeliver
 		if !panicked {
 			e.exported.Add(1)
 			rpcMuxDiagnosisExporterDeliveryEvents.Inc("exported", e.sink)
-			e.recordSuccess(time.Since(startedAt))
+			e.recordSuccess(e.now().Sub(startedAt))
 		} else {
-			e.recordFailure("panic", time.Since(startedAt))
+			e.recordFailure("panic", e.now().Sub(startedAt))
 		}
 	case <-ctx.Done():
 		timedOut.Store(true)
 		e.hungCalls.Add(1)
 		e.timedOut.Add(1)
 		rpcMuxDiagnosisExporterDeliveryEvents.Inc("timeout", e.sink)
-		e.recordFailure("timeout", time.Since(startedAt))
+		e.recordFailure("timeout", e.now().Sub(startedAt))
 	}
 }
 
@@ -515,7 +533,7 @@ func (e *governedRPCMuxDiagnosisExporter) allowDelivery() bool {
 	if openedAt == 0 {
 		return true
 	}
-	if time.Since(time.Unix(0, openedAt)) < e.config.BreakerCooldown {
+	if e.since(openedAt) < e.config.BreakerCooldown {
 		return false
 	}
 	return e.halfOpen.CompareAndSwap(false, true)
@@ -523,7 +541,7 @@ func (e *governedRPCMuxDiagnosisExporter) allowDelivery() bool {
 
 func (e *governedRPCMuxDiagnosisExporter) allowEnqueue() bool {
 	openedAt := e.breakerOpenedAt.Load()
-	return openedAt == 0 || time.Since(time.Unix(0, openedAt)) >= e.config.BreakerCooldown
+	return openedAt == 0 || e.since(openedAt) >= e.config.BreakerCooldown
 }
 
 func (e *governedRPCMuxDiagnosisExporter) rejectBreaker() {
@@ -544,7 +562,7 @@ func (e *governedRPCMuxDiagnosisExporter) rejectErrorBudget() {
 }
 
 func (e *governedRPCMuxDiagnosisExporter) recordSuccess(latency time.Duration) {
-	now := time.Now()
+	now := e.now()
 	e.lastSuccessAt.Store(now.UnixNano())
 	e.consecutiveFailures.Store(0)
 	e.breakerOpenedAt.Store(0)
@@ -558,7 +576,7 @@ func (e *governedRPCMuxDiagnosisExporter) recordSuccess(latency time.Duration) {
 }
 
 func (e *governedRPCMuxDiagnosisExporter) recordFailure(reason string, latency time.Duration) {
-	now := time.Now()
+	now := e.now()
 	e.lastErrorAt.Store(now.UnixNano())
 	e.lastError.Store(strings.TrimSpace(reason))
 	failures := e.consecutiveFailures.Add(1)
@@ -630,7 +648,7 @@ func (e *governedRPCMuxDiagnosisExporter) errorBudgetPaused() bool {
 	if pausedAt == 0 {
 		return false
 	}
-	if time.Since(time.Unix(0, pausedAt)) < e.config.ErrorBudget.PauseDuration {
+	if e.since(pausedAt) < e.config.ErrorBudget.PauseDuration {
 		return true
 	}
 	return false

@@ -2381,8 +2381,9 @@ func (c RPCMuxConfig) candidateConfigWithTLS(tlsConfig security.TLSConfig) rpc.E
 }
 
 func ValidateRPCMuxConfig(c RPCMuxConfig) error {
-	if cooldown := c.Log.OTelCompatible.OperatorHistory.DebugReplayCooldown; cooldown > 0 && (cooldown < 100*time.Millisecond || cooldown > time.Minute) {
-		return fmt.Errorf("rpc mux operator history debugReplayCooldown must be between 100ms and 1m")
+	limits := rpc.RPCMuxDiagnosisOperatorHistoryLimits()
+	if cooldown := c.Log.OTelCompatible.OperatorHistory.DebugReplayCooldown; cooldown > 0 && (cooldown < limits.MinDebugReplayCooldown || cooldown > limits.MaxDebugReplayCooldown) {
+		return fmt.Errorf("rpc mux operator history debugReplayCooldown must be between %s and %s", limits.MinDebugReplayCooldown, limits.MaxDebugReplayCooldown)
 	}
 	if c.Log.OTelCompatible.Enabled {
 		if err := rpc.ValidateRPCMuxDiagnosisSinkSetConfig(c.Log.OTelCompatible.SinkSetConfig()); err != nil {
@@ -2904,12 +2905,12 @@ func TestRPCMuxConfigValidatesOTelCompatibleSink(t *testing.T) {
 	cfg.Log.OTelCompatible = RPCMuxOTelCompatibleLogConfig{
 		OperatorHistory: RPCMuxOperatorHistoryConfig{DebugReplayCooldown: time.Nanosecond},
 	}
-	if err := ValidateRPCMuxConfig(cfg); err == nil || !strings.Contains(err.Error(), "debugReplayCooldown must be between 100ms and 1m") {
+	if err := ValidateRPCMuxConfig(cfg); err == nil || !strings.Contains(err.Error(), "debugReplayCooldown must be between 100ms and 1m0s") {
 		t.Fatalf("ValidateRPCMuxConfig tiny debug replay cooldown = %v, want cooldown bounds error", err)
 	}
 
 	cfg.Log.OTelCompatible.OperatorHistory.DebugReplayCooldown = 2 * time.Minute
-	if err := ValidateRPCMuxConfig(cfg); err == nil || !strings.Contains(err.Error(), "debugReplayCooldown must be between 100ms and 1m") {
+	if err := ValidateRPCMuxConfig(cfg); err == nil || !strings.Contains(err.Error(), "debugReplayCooldown must be between 100ms and 1m0s") {
 		t.Fatalf("ValidateRPCMuxConfig huge debug replay cooldown = %v, want cooldown bounds error", err)
 	}
 }

@@ -701,6 +701,105 @@ func TestRPCMuxDiagnosisOperatorAuditSchemasCompatibility(t *testing.T) {
 	}
 }
 
+func TestRPCMuxDiagnosisOperatorAuditRecordSchema(t *testing.T) {
+	// A recorded debug replay resolves back to its published schema via the marker.
+	debugRecord := RPCMuxDiagnosisOperatorAction{
+		Action: RPCMuxDiagnosisOperatorDebugReplay,
+		Details: RPCMuxDiagnosisOperatorDebugReplayAuditDetails{
+			Source:      RPCMuxDiagnosisOperatorHistorySourcePrimary,
+			Limit:       1,
+			TokenResult: "approved",
+		}.StringMap(),
+	}
+	schema, ok := RPCMuxDiagnosisOperatorAuditRecordSchema(debugRecord)
+	if !ok || schema.Schema != "gofly.rpc_mux_operator_debug_replay_audit.v1" {
+		t.Fatalf("debug replay record schema = (%+v, %v)", schema, ok)
+	}
+
+	// A recorded sink action resolves to the shared sink action schema.
+	sinkRecord := rpcMuxDiagnosisOperatorActionForSink(RPCMuxDiagnosisSinkRuntimeSnapshot{
+		Name: "sink-a",
+		Delivery: RPCMuxDiagnosisExporterDeliverySnapshot{
+			OperatorAction: "pause_sink_breaker",
+			BreakerState:   "open",
+			Isolation:      RPCMuxDiagnosisSinkIsolationConfig{Mode: RPCMuxDiagnosisSinkIsolationIsolatedProcess},
+		},
+	})
+	schema, ok = RPCMuxDiagnosisOperatorAuditRecordSchema(sinkRecord)
+	if !ok || schema.Schema != "gofly.rpc_mux_operator_sink_action_audit.v1" {
+		t.Fatalf("sink action record schema = (%+v, %v)", schema, ok)
+	}
+
+	// A record without a schema marker, or with an unknown marker, is reported
+	// as having no structured schema rather than guessing.
+	if _, ok := RPCMuxDiagnosisOperatorAuditRecordSchema(RPCMuxDiagnosisOperatorAction{Action: RPCMuxDiagnosisOperatorPauseSink}); ok {
+		t.Fatal("record without details resolved a schema")
+	}
+	if _, ok := RPCMuxDiagnosisOperatorAuditRecordSchema(RPCMuxDiagnosisOperatorAction{
+		Details: map[string]string{"schema": "gofly.rpc_mux_operator_unknown.v9"},
+	}); ok {
+		t.Fatal("record with unknown marker resolved a schema")
+	}
+}
+
+func TestRPCMuxDiagnosisOperatorAuditSchemaValidateDetails(t *testing.T) {
+	schema := RPCMuxDiagnosisOperatorAuditSchemas()["debugReplay"]
+
+	valid := RPCMuxDiagnosisOperatorDebugReplayAuditDetails{
+		Source:      RPCMuxDiagnosisOperatorHistorySourcePrimary,
+		Limit:       2,
+		TokenResult: "approved",
+	}.StringMap()
+	if err := schema.ValidateDetails(valid); err != nil {
+		t.Fatalf("valid details rejected: %v", err)
+	}
+
+	tests := []struct {
+		name   string
+		mutate func(map[string]string)
+	}{
+		{"wrong marker", func(p map[string]string) { p["schema"] = "gofly.rpc_mux_operator_sink_action_audit.v1" }},
+		{"missing field", func(p map[string]string) { delete(p, "token_result") }},
+		{"undeclared field", func(p map[string]string) { p["injected"] = "x" }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			payload := RPCMuxDiagnosisOperatorDebugReplayAuditDetails{
+				Source:      RPCMuxDiagnosisOperatorHistorySourcePrimary,
+				Limit:       1,
+				TokenResult: "approved",
+			}.StringMap()
+			test.mutate(payload)
+			if err := schema.ValidateDetails(payload); err == nil {
+				t.Fatalf("invalid details %v accepted", payload)
+			}
+		})
+	}
+}
+
+func TestRPCMuxDiagnosisOperatorAuditRecordValid(t *testing.T) {
+	// A real sink action record validates end to end via the marker lookup.
+	sinkRecord := rpcMuxDiagnosisOperatorActionForSink(RPCMuxDiagnosisSinkRuntimeSnapshot{
+		Name: "sink-a",
+		Delivery: RPCMuxDiagnosisExporterDeliverySnapshot{
+			OperatorAction: "pause_sink_breaker",
+			BreakerState:   "open",
+			Isolation:      RPCMuxDiagnosisSinkIsolationConfig{Mode: RPCMuxDiagnosisSinkIsolationIsolatedProcess},
+		},
+	})
+	if err := RPCMuxDiagnosisOperatorAuditRecordValid(sinkRecord); err != nil {
+		t.Fatalf("valid sink action record rejected: %v", err)
+	}
+
+	// A record without a recognized marker fails fast.
+	if err := RPCMuxDiagnosisOperatorAuditRecordValid(RPCMuxDiagnosisOperatorAction{
+		Action:  RPCMuxDiagnosisOperatorPauseSink,
+		Details: map[string]string{"operator_action": "pause_sink_breaker"},
+	}); err == nil {
+		t.Fatal("record without schema marker validated")
+	}
+}
+
 func assertOperatorAuditJSONSchema(t *testing.T, name string, schema RPCMuxDiagnosisOperatorAuditSchema) {
 	t.Helper()
 	if len(schema.JSONSchema) == 0 {

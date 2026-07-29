@@ -11,6 +11,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/imajinyun/gofly/core/observability/metrics"
 )
 
 func TestRPCMuxDiagnosisOperatorActionForSink(t *testing.T) {
@@ -825,8 +827,10 @@ func TestVerifyOperatorAuditRecordSchema(t *testing.T) {
 		t.Fatalf("unexpected audit schema log for valid records: %s", buf.String())
 	}
 
-	// A marker-bearing record with a broken details map logs at debug level but
-	// the hook itself never panics or rejects.
+	// A marker-bearing record with a broken details map logs at debug level and
+	// increments the low-cardinality violation metric, but the hook itself never
+	// panics or rejects.
+	before := operatorAuditSchemaViolationCount(t, RPCMuxDiagnosisOperatorDebugReplay)
 	verifyOperatorAuditRecordSchema(RPCMuxDiagnosisOperatorAction{
 		Sink:    "slog",
 		Action:  RPCMuxDiagnosisOperatorDebugReplay,
@@ -835,6 +839,30 @@ func TestVerifyOperatorAuditRecordSchema(t *testing.T) {
 	if !strings.Contains(buf.String(), "violates schema") {
 		t.Fatalf("expected schema violation log, got: %s", buf.String())
 	}
+	if after := operatorAuditSchemaViolationCount(t, RPCMuxDiagnosisOperatorDebugReplay); after != before+1 {
+		t.Fatalf("violation metric = %v, want %v", after, before+1)
+	}
+
+	// An unrecognized action folds into the low-cardinality "other" bucket.
+	otherBefore := operatorAuditSchemaViolationCount(t, "other")
+	verifyOperatorAuditRecordSchema(RPCMuxDiagnosisOperatorAction{
+		Action:  "custom_action",
+		Details: map[string]string{"schema": "gofly.rpc_mux_operator_debug_replay_audit.v1"},
+	})
+	if after := operatorAuditSchemaViolationCount(t, "other"); after != otherBefore+1 {
+		t.Fatalf("other-bucket violation metric = %v, want %v", after, otherBefore+1)
+	}
+}
+
+func operatorAuditSchemaViolationCount(t *testing.T, action string) float64 {
+	t.Helper()
+	snapshot := metrics.Default.Snapshot().Customs["gofly_rpc_mux_operator_audit_schema_violation_total"]
+	for _, series := range snapshot.Series {
+		if series.Labels["action"] == action {
+			return series.Value
+		}
+	}
+	return 0
 }
 
 func TestRPCMuxDiagnosisSinkSetRecordOperatorActionValidatesWithoutBlocking(t *testing.T) {
@@ -1068,6 +1096,25 @@ func TestRPCMuxDiagnosisOperatorHistoryLimits(t *testing.T) {
 	}
 	if limits.DebugReplayCooldown != defaultRPCMuxDebugReplayInterval {
 		t.Fatalf("history limits cooldown = %v, want default interval", limits.DebugReplayCooldown)
+	}
+}
+
+func TestRPCMuxDiagnosisOperatorHistoryRecommendedLimits(t *testing.T) {
+	recommended := RPCMuxDiagnosisOperatorHistoryRecommendedLimits()
+	if recommended.MaxActions != recommendedRPCMuxDiagnosisOperatorStoreActions ||
+		recommended.MaxBackups != recommendedRPCMuxDiagnosisOperatorBackupFiles ||
+		recommended.MaxSizeBytes != recommendedRPCMuxDiagnosisOperatorStoreSize ||
+		recommended.MaxLineBytes != recommendedRPCMuxDiagnosisOperatorStoreLine {
+		t.Fatalf("recommended limits = %+v, want recommended constants", recommended)
+	}
+	// Recommended bounds must never exceed the core hard limits; otherwise a
+	// config accepted by the production check could still be rejected at runtime.
+	hard := RPCMuxDiagnosisOperatorHistoryLimits()
+	if recommended.MaxActions > hard.MaxActions ||
+		recommended.MaxBackups > hard.MaxBackups ||
+		recommended.MaxSizeBytes > hard.MaxSizeBytes ||
+		recommended.MaxLineBytes > hard.MaxLineBytes {
+		t.Fatalf("recommended %+v exceeds hard limits %+v", recommended, hard)
 	}
 }
 

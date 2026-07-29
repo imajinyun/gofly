@@ -39,6 +39,15 @@ const (
 	maxRPCMuxDiagnosisOperatorStoreActions = 64 << 10
 	maxRPCMuxDiagnosisOperatorBackupFiles  = 3
 
+	// Recommended production upper bounds. They are stricter than the hard
+	// limits above and are surfaced to generated tooling (README text and the
+	// generated production check) so those documents cannot drift from a second
+	// hard-coded copy.
+	recommendedRPCMuxDiagnosisOperatorStoreActions = 1024
+	recommendedRPCMuxDiagnosisOperatorBackupFiles  = 3
+	recommendedRPCMuxDiagnosisOperatorStoreSize    = 1 << 20
+	recommendedRPCMuxDiagnosisOperatorStoreLine    = 64 << 10
+
 	rpcMuxDiagnosisOperatorHistoryFileHeaderType    = "gofly.rpc_mux_operator_history.header"
 	rpcMuxDiagnosisOperatorHistoryFileSchemaVersion = "gofly.rpc_mux_operator_history.v1"
 )
@@ -194,15 +203,18 @@ func RPCMuxDiagnosisOperatorAuditRecordValid(action RPCMuxDiagnosisOperatorActio
 
 // verifyOperatorAuditRecordSchema is a best-effort, non-blocking guard on the
 // audit write path. Records that carry a schema marker are validated against
-// the published schema and any violation is logged at debug level; records
-// without a marker (for example plain approved sink actions) are skipped. It
-// never alters or rejects the write, so it forms a write-side consistency check
-// without changing behavior.
+// the published schema and any violation is logged at debug level and counted
+// on a low-cardinality metric; records without a marker (for example plain
+// approved sink actions) are skipped. It never alters or rejects the write, so
+// it forms a write-side consistency check without changing behavior.
 func verifyOperatorAuditRecordSchema(action RPCMuxDiagnosisOperatorAction) {
 	if strings.TrimSpace(action.Details[rpcMuxDiagnosisOperatorAuditFieldSchema]) == "" {
 		return
 	}
 	if err := RPCMuxDiagnosisOperatorAuditRecordValid(action); err != nil {
+		if rpcMuxDiagnosisOperatorAuditSchemaViolations != nil {
+			rpcMuxDiagnosisOperatorAuditSchemaViolations.Inc(normalizeOperatorActionLabel(action.Action))
+		}
 		slog.Default().Debug("rpc mux operator audit record violates schema",
 			slog.String("sink", action.Sink),
 			slog.String("action", action.Action),
@@ -211,8 +223,23 @@ func verifyOperatorAuditRecordSchema(action RPCMuxDiagnosisOperatorAction) {
 	}
 }
 
+// normalizeOperatorActionLabel keeps the audit violation metric low cardinality
+// by mapping any unrecognized action to a single "other" bucket.
+func normalizeOperatorActionLabel(action string) string {
+	switch strings.TrimSpace(action) {
+	case RPCMuxDiagnosisOperatorPauseSink,
+		RPCMuxDiagnosisOperatorResumeSink,
+		RPCMuxDiagnosisOperatorForceProbe,
+		RPCMuxDiagnosisOperatorDebugReplay:
+		return strings.TrimSpace(action)
+	default:
+		return "other"
+	}
+}
+
 var (
 	rpcMuxDiagnosisOperatorHistoryIntegrityState *metrics.Gauge
+	rpcMuxDiagnosisOperatorAuditSchemaViolations *metrics.Counter
 	rpcMuxDiagnosisOperatorHistoryMetricMu       sync.Mutex
 	rpcMuxDiagnosisOperatorHistoryMetricReason   string
 	rpcMuxDiagnosisOperatorHistoryMetricSource   string
@@ -231,6 +258,11 @@ func registerRPCMuxDiagnosisOperatorHistoryMetrics(registry *metrics.Registry) {
 		"Whether the mux operator history integrity status is degraded.",
 		"reason",
 		"source",
+	)
+	rpcMuxDiagnosisOperatorAuditSchemaViolations = registry.Counter(
+		"gofly_rpc_mux_operator_audit_schema_violation_total",
+		"Count of operator audit records whose details violated their declared schema.",
+		"action",
 	)
 }
 
@@ -261,6 +293,28 @@ func RPCMuxDiagnosisOperatorHistoryLimits() RPCMuxDiagnosisOperatorHistoryHardLi
 		DebugReplayCooldown:    defaultRPCMuxDebugReplayInterval,
 		MinDebugReplayCooldown: minRPCMuxDebugReplayCooldown,
 		MaxDebugReplayCooldown: maxRPCMuxDebugReplayCooldown,
+	}
+}
+
+// RPCMuxDiagnosisProductionRecommendedLimits reports the recommended production
+// upper bounds for operator history configuration. They are stricter than the
+// hard limits and are the single source consumed by generated documentation and
+// the generated production check, so those never drift from a second copy.
+type RPCMuxDiagnosisProductionRecommendedLimits struct {
+	MaxSizeBytes int64 `json:"maxSizeBytes"`
+	MaxLineBytes int64 `json:"maxLineBytes"`
+	MaxActions   int   `json:"maxActions"`
+	MaxBackups   int   `json:"maxBackups"`
+}
+
+// RPCMuxDiagnosisOperatorHistoryRecommendedLimits returns the recommended
+// production upper bounds for operator history configuration.
+func RPCMuxDiagnosisOperatorHistoryRecommendedLimits() RPCMuxDiagnosisProductionRecommendedLimits {
+	return RPCMuxDiagnosisProductionRecommendedLimits{
+		MaxSizeBytes: recommendedRPCMuxDiagnosisOperatorStoreSize,
+		MaxLineBytes: recommendedRPCMuxDiagnosisOperatorStoreLine,
+		MaxActions:   recommendedRPCMuxDiagnosisOperatorStoreActions,
+		MaxBackups:   recommendedRPCMuxDiagnosisOperatorBackupFiles,
 	}
 }
 

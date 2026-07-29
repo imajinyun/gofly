@@ -3180,12 +3180,17 @@ func TestGenerateMiddlewareValidation(t *testing.T) {
 
 func TestGeneratedProductionCheckConstantsWithinCoreLimits(t *testing.T) {
 	limits := rpc.RPCMuxDiagnosisOperatorHistoryLimits()
+	recommended := rpc.RPCMuxDiagnosisOperatorHistoryRecommendedLimits()
+	// The production check template now sources its constants from core via
+	// template placeholders, so render it with the shared operator-history data
+	// before parsing the concrete constants.
+	rendered := render(productionCheckGoTemplate, applyOperatorHistoryTemplateData(map[string]string{}))
 	constant := func(name string) int64 {
 		t.Helper()
 		re := regexp.MustCompile(name + `\s*=\s*(\d+)`)
-		match := re.FindStringSubmatch(productionCheckGoTemplate)
+		match := re.FindStringSubmatch(rendered)
 		if match == nil {
-			t.Fatalf("production check template missing constant %q", name)
+			t.Fatalf("rendered production check missing constant %q:\n%s", name, rendered)
 		}
 		value, err := strconv.ParseInt(match[1], 10, 64)
 		if err != nil {
@@ -3194,21 +3199,28 @@ func TestGeneratedProductionCheckConstantsWithinCoreLimits(t *testing.T) {
 		return value
 	}
 
-	// Generated recommended upper bounds must never exceed the core hard limits;
-	// otherwise generated validation would accept configs the core runtime later
-	// rejects. This keeps the generated production check from lagging the
-	// contract when core limits change.
-	if got := constant("maxOperatorHistorySizeBytes"); got > limits.MaxSizeBytes {
-		t.Fatalf("production check maxSizeBytes %d exceeds core hard limit %d", got, limits.MaxSizeBytes)
+	// The rendered constants must equal the exported recommended limits, proving
+	// docs, the production check, and core share the one source of truth.
+	if got := constant("maxOperatorHistoryActions"); got != int64(recommended.MaxActions) {
+		t.Fatalf("production check maxActions %d != recommended %d", got, recommended.MaxActions)
 	}
-	if got := constant("maxOperatorHistoryLineBytes"); got > limits.MaxLineBytes {
-		t.Fatalf("production check maxLineBytes %d exceeds core hard limit %d", got, limits.MaxLineBytes)
+	if got := constant("maxOperatorHistoryBackups"); got != int64(recommended.MaxBackups) {
+		t.Fatalf("production check maxBackups %d != recommended %d", got, recommended.MaxBackups)
 	}
-	if got := constant("maxOperatorHistoryActions"); got > int64(limits.MaxActions) {
-		t.Fatalf("production check maxActions %d exceeds core hard limit %d", got, limits.MaxActions)
+	if got := constant("maxOperatorHistorySizeBytes"); got != recommended.MaxSizeBytes {
+		t.Fatalf("production check maxSizeBytes %d != recommended %d", got, recommended.MaxSizeBytes)
 	}
-	if got := constant("maxOperatorHistoryBackups"); got > int64(limits.MaxBackups) {
-		t.Fatalf("production check maxBackups %d exceeds core hard limit %d", got, limits.MaxBackups)
+	if got := constant("maxOperatorHistoryLineBytes"); got != recommended.MaxLineBytes {
+		t.Fatalf("production check maxLineBytes %d != recommended %d", got, recommended.MaxLineBytes)
+	}
+
+	// Recommended upper bounds must never exceed the core hard limits; otherwise
+	// generated validation would accept configs the core runtime later rejects.
+	if int64(recommended.MaxActions) > int64(limits.MaxActions) ||
+		int64(recommended.MaxBackups) > int64(limits.MaxBackups) ||
+		recommended.MaxSizeBytes > limits.MaxSizeBytes ||
+		recommended.MaxLineBytes > limits.MaxLineBytes {
+		t.Fatalf("recommended %+v exceeds core hard limits %+v", recommended, limits)
 	}
 
 	// The cooldown production range must bracket the core default so the default

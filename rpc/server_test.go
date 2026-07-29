@@ -547,6 +547,49 @@ func TestHTTPServerMuxOperatorAuditValidateEndpoint(t *testing.T) {
 	}
 }
 
+func TestHTTPServerMuxOperatorAuditValidateCooldown(t *testing.T) {
+	// Without a configured cooldown the endpoint is unthrottled so batch
+	// validation can run freely.
+	unthrottled := NewServer()
+	for i := 0; i < 3; i++ {
+		if !unthrottled.allowMuxOperatorAuditValidate() {
+			t.Fatalf("unthrottled validate call %d rejected", i)
+		}
+	}
+
+	// With a configured cooldown, a second call within the window is rejected,
+	// and advancing the injected clock past the cooldown allows it again.
+	base := time.Unix(1700000000, 0)
+	current := base
+	server := NewServer(WithServerMuxDiagnosisAuditValidateCooldown(5 * time.Second))
+	server.nowFunc = func() time.Time { return current }
+	if !server.allowMuxOperatorAuditValidate() {
+		t.Fatal("first throttled validate call rejected")
+	}
+	current = base.Add(2 * time.Second)
+	if server.allowMuxOperatorAuditValidate() {
+		t.Fatal("validate call within cooldown allowed")
+	}
+	current = base.Add(5 * time.Second)
+	if !server.allowMuxOperatorAuditValidate() {
+		t.Fatal("validate call after cooldown rejected")
+	}
+
+	// The rate limit surfaces on the HTTP endpoint as 429.
+	limited := NewServer(WithServerMuxDiagnosisAuditValidateCooldown(time.Hour))
+	body := `{"schema":"gofly.rpc_mux_operator_debug_replay_audit.v1","source":"primary","limit":"1","token_result":"approved"}`
+	firstRec := httptest.NewRecorder()
+	limited.ServeHTTP(firstRec, httptest.NewRequest(http.MethodPost, "/rpc/admin/mux/operator-actions/audit-schemas/validate", strings.NewReader(body)))
+	if firstRec.Code != http.StatusOK {
+		t.Fatalf("first limited validate status = %d body=%s", firstRec.Code, firstRec.Body.String())
+	}
+	secondRec := httptest.NewRecorder()
+	limited.ServeHTTP(secondRec, httptest.NewRequest(http.MethodPost, "/rpc/admin/mux/operator-actions/audit-schemas/validate", strings.NewReader(body)))
+	if secondRec.Code != http.StatusTooManyRequests {
+		t.Fatalf("second limited validate status = %d, want 429", secondRec.Code)
+	}
+}
+
 func TestHTTPServerMuxOperatorHistoryRuntimeDetails(t *testing.T) {
 	oldMetrics := metrics.Default
 	registry := metrics.NewRegistry()

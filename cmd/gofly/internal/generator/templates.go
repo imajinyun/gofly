@@ -24,7 +24,7 @@ Do not store raw secrets in runtime snapshots, diff plans, or source-controlled 
 
 Operator history persistence is disabled by default. When you enable ` + "`rpc.mux.log.otelCompatible.operatorHistory`" + `, keep the store under ` + "`fileSecretRoot`" + ` and prefer the generated defaults unless you have reviewed disk and audit requirements.
 
-Recommended upper bounds for generated production config are ` + "`maxActions <= 1024`" + `, ` + "`maxBackups <= 3`" + `, ` + "`maxSizeBytes <= 1048576`" + `, and ` + "`maxLineBytes <= 65536`" + `. The production check accepts omitted values or values within those bounds and fails fast on larger values. ` + "`debugReplayCooldown`" + ` must be omitted (default) or between ` + "`{{.DebugReplayCooldownMin}}`" + ` and ` + "`{{.DebugReplayCooldownMax}}`" + `.
+Recommended upper bounds for generated production config are ` + "`maxActions <= {{.RecommendedMaxActions}}`" + `, ` + "`maxBackups <= {{.RecommendedMaxBackups}}`" + `, ` + "`maxSizeBytes <= {{.RecommendedMaxSizeBytes}}`" + `, and ` + "`maxLineBytes <= {{.RecommendedMaxLineBytes}}`" + `. The production check accepts omitted values or values within those bounds and fails fast on larger values. ` + "`debugReplayCooldown`" + ` must be omitted (default) or between ` + "`{{.DebugReplayCooldownMin}}`" + ` and ` + "`{{.DebugReplayCooldownMax}}`" + `.
 
 ## Mux Operator Admin Endpoints
 
@@ -4432,13 +4432,13 @@ import (
 // production check a single source of truth for the limits also described in
 // the README and enforced by the generated config validation.
 const (
-	maxOperatorHistoryActions   = 1024
-	maxOperatorHistoryBackups   = 3
-	maxOperatorHistorySizeBytes = 1048576
-	maxOperatorHistoryLineBytes = 65536
+	maxOperatorHistoryActions   = {{.RecommendedMaxActions}}
+	maxOperatorHistoryBackups   = {{.RecommendedMaxBackups}}
+	maxOperatorHistorySizeBytes = {{.RecommendedMaxSizeBytes}}
+	maxOperatorHistoryLineBytes = {{.RecommendedMaxLineBytes}}
 
-	minOperatorHistoryDebugReplayCooldown = 100000000
-	maxOperatorHistoryDebugReplayCooldown = 60000000000
+	minOperatorHistoryDebugReplayCooldown = {{.DebugReplayCooldownMinNanos}}
+	maxOperatorHistoryDebugReplayCooldown = {{.DebugReplayCooldownMaxNanos}}
 )
 
 func main() {

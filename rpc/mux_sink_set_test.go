@@ -218,6 +218,15 @@ func TestRPCMuxDiagnosisSinkSetSuccessfulReloadUsesInjectedClock(t *testing.T) {
 	if snapshot := sinkSet.RPCMuxDiagnosisSinkSetSnapshot(); !snapshot.LastReloadAt.Equal(stamped) {
 		t.Fatalf("reload success timestamp = %v, want injected %v", snapshot.LastReloadAt, stamped)
 	}
+	// The generation UpdatedAt that feeds the diff-plan context is stamped from
+	// the same injected clock, and the diff plan reflects the version change.
+	snapshot := sinkSet.RPCMuxDiagnosisSinkSetSnapshot()
+	if !snapshot.UpdatedAt.Equal(stamped) {
+		t.Fatalf("snapshot UpdatedAt = %v, want injected %v", snapshot.UpdatedAt, stamped)
+	}
+	if snapshot.LastDiffPlan.FromVersion != "stable-v1" || snapshot.LastDiffPlan.ToVersion != "stable-v2" {
+		t.Fatalf("diff plan versions = %+v, want stable-v1 -> stable-v2", snapshot.LastDiffPlan)
+	}
 }
 
 func TestRPCMuxDiagnosisSinkSetActivatesFromEmptyGenerationWithSecretProfile(t *testing.T) {

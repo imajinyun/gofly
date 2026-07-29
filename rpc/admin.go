@@ -482,6 +482,26 @@ func (s *HTTPServer) allowMuxOperatorHistoryDebugReplay() bool {
 	return s.muxDebugReplayLastAt.CompareAndSwap(last, now)
 }
 
+// allowMuxOperatorAuditValidate applies the optional validate-endpoint cooldown.
+// When no cooldown is configured (the default) it always allows, so batch
+// validation is not crippled; otherwise it rejects calls within the window,
+// mirroring the debug replay cooldown.
+func (s *HTTPServer) allowMuxOperatorAuditValidate() bool {
+	if s == nil {
+		return false
+	}
+	cooldown := s.opts.muxAuditValidateCooldown
+	if cooldown <= 0 {
+		return true
+	}
+	now := s.now().UnixNano()
+	last := s.muxAuditValidateLastAt.Load()
+	if last > 0 && time.Duration(now-last) < cooldown {
+		return false
+	}
+	return s.muxAuditValidateLastAt.CompareAndSwap(last, now)
+}
+
 func (s *HTTPServer) muxOperatorHistoryDebugReplayCooldown() time.Duration {
 	if s == nil {
 		return defaultRPCMuxDebugReplayInterval
@@ -594,6 +614,10 @@ func (s *HTTPServer) serveMuxOperatorAuditValidate(w http.ResponseWriter, r *htt
 		return
 	}
 	defer r.Body.Close()
+	if !s.allowMuxOperatorAuditValidate() {
+		writeRPCError(w, http.StatusTooManyRequests, CodeResourceExhausted, "audit details validation is rate limited")
+		return
+	}
 	var details map[string]string
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10)).Decode(&details); err != nil {
 		writeRPCError(w, http.StatusBadRequest, CodeInvalidArgument, "audit details payload is invalid")

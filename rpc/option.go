@@ -52,27 +52,28 @@ type Suite interface {
 }
 
 type serverOptions struct {
-	addr                   string
-	codec                  Codec
-	middlewares            []endpoint.Middleware
-	streamMiddlewares      []StreamMiddleware
-	registrar              Registrar
-	serviceName            string
-	advertiseEndpoint      string
-	registryTTL            time.Duration
-	registryRefresh        time.Duration
-	adminToken             string
-	governance             *governance.Registry
-	manager                *governance.Manager
-	rules                  *governance.RuleSet
-	readHeaderTimeout      time.Duration
-	adminAudit             controladmin.AuditSink
-	muxServerAdapter       ExperimentalMuxServerDiagnosisSource
-	muxEventExporter       RPCMuxDiagnosisEventExporter
-	muxEventFilter         RPCMuxDiagnosisFilter
-	muxOperatorToken       string
-	muxDebugReplayCooldown time.Duration
-	tls                    security.TLSConfig
+	addr                     string
+	codec                    Codec
+	middlewares              []endpoint.Middleware
+	streamMiddlewares        []StreamMiddleware
+	registrar                Registrar
+	serviceName              string
+	advertiseEndpoint        string
+	registryTTL              time.Duration
+	registryRefresh          time.Duration
+	adminToken               string
+	governance               *governance.Registry
+	manager                  *governance.Manager
+	rules                    *governance.RuleSet
+	readHeaderTimeout        time.Duration
+	adminAudit               controladmin.AuditSink
+	muxServerAdapter         ExperimentalMuxServerDiagnosisSource
+	muxEventExporter         RPCMuxDiagnosisEventExporter
+	muxEventFilter           RPCMuxDiagnosisFilter
+	muxOperatorToken         string
+	muxDebugReplayCooldown   time.Duration
+	muxAuditValidateCooldown time.Duration
+	tls                      security.TLSConfig
 }
 
 type clientOptions struct {
@@ -263,6 +264,19 @@ func WithServerMuxDiagnosisDebugReplayCooldown(cooldown time.Duration) ServerOpt
 	return func(o *serverOptions) {
 		if cooldown > 0 {
 			o.muxDebugReplayCooldown = cooldown
+		}
+	}
+}
+
+// WithServerMuxDiagnosisAuditValidateCooldown throttles the read-only audit
+// details validation endpoint. A zero cooldown (the default) leaves the
+// endpoint unthrottled so batch validation is not crippled; a positive value
+// rejects calls that arrive within the cooldown window, mirroring the debug
+// replay cooldown governance style.
+func WithServerMuxDiagnosisAuditValidateCooldown(cooldown time.Duration) ServerOption {
+	return func(o *serverOptions) {
+		if cooldown > 0 {
+			o.muxAuditValidateCooldown = cooldown
 		}
 	}
 }

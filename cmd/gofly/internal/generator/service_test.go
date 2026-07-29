@@ -66,7 +66,7 @@ func TestGenerateService(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"Mux Subprocess Sink Example", "documentation-only", "not loaded by default", "env://", "file://", "Mux Operator History Tuning", "maxActions <= 1024", "maxBackups <= 3", "Mux Operator Admin Endpoints", "/rpc/admin/mux/operator-actions/audit-schemas", "/rpc/admin/mux/operator-actions/history/replay", "debugActions=true", "between `100ms` and `1m0s`"} {
+	for _, want := range []string{"Mux Subprocess Sink Example", "documentation-only", "not loaded by default", "env://", "file://", "Mux Operator History Tuning", "maxActions <= 1024", "maxBackups <= 3", "Mux Operator Admin Endpoints", "/rpc/admin/mux/operator-actions/audit-schemas", "/rpc/admin/mux/operator-actions/history/replay", "debugActions=true", "between `100ms` and `1m0s`", "Mux Operator Audit Monitoring", "gofly_rpc_mux_operator_audit_schema_violation_total{action}"} {
 		if !strings.Contains(string(readmeData), want) {
 			t.Fatalf("README missing %q:\n%s", want, readmeData)
 		}
@@ -313,7 +313,7 @@ func TestGenerateService(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"kind: ServiceMonitor", "kind: PrometheusRule", "GoflyHighErrorRate", "GoflyHighP99Latency"} {
+	for _, want := range []string{"kind: ServiceMonitor", "kind: PrometheusRule", "GoflyHighErrorRate", "GoflyHighP99Latency", "GoflyMuxOperatorAuditSchemaViolation", "gofly_rpc_mux_operator_audit_schema_violation_total"} {
 		if !strings.Contains(string(prometheusData), want) {
 			t.Fatalf("prometheus assets missing %q:\n%s", want, prometheusData)
 		}
@@ -1251,6 +1251,7 @@ func TestGenerateNewServiceVariantsBoundaries(t *testing.T) {
 		`json:"maxLineBytes,omitempty"`,
 		`json:"maxBackups,omitempty"`,
 		`json:"debugReplayCooldown,omitempty"`,
+		`json:"auditValidateCooldown,omitempty"`,
 		`json:"profileSchema,omitempty"`,
 		`json:"profileMigration,omitempty"`,
 		`json:"sinks,omitempty"`,
@@ -1320,6 +1321,10 @@ func TestGenerateNewServiceVariantsBoundaries(t *testing.T) {
 		"rpc.RPCMuxDiagnosisOperatorAuditSchemas()",
 		"rpc.RPCMuxDiagnosisOperatorHistoryLimits()",
 		"debugReplayCooldown must be between %s and %s",
+		"auditValidateCooldown must be between %s and %s",
+		"rpc.WithServerMuxDiagnosisAuditValidateCooldown(",
+		"warnRPCMuxOperatorHistoryRecommendedLimits",
+		"rpc.RPCMuxDiagnosisOperatorHistoryRecommendedLimits()",
 		"limits.MinDebugReplayCooldown",
 		"rpc.WithMuxDiagnosisEventExporter(sinkSet",
 		"rpc.WithServerMuxDiagnosisEventExporter(sinkSet",
@@ -1345,6 +1350,9 @@ func TestGenerateNewServiceVariantsBoundaries(t *testing.T) {
 		`cfg.Log.OTelCompatible.Sink = "unsupported"`,
 		"debugReplayCooldown",
 		"debugReplayCooldown must be between 100ms and 1m0s",
+		"auditValidateCooldown must be between 100ms and 1m0s",
+		"func TestRPCMuxOperatorHistoryRecommendedLimitWarnings(t *testing.T)",
+		"exceeds recommended",
 		"func TestRPCMuxConfigValidatesCandidateFragmentWindowRiskMode(t *testing.T)",
 		`FragmentWindowPolicyRiskMode:         "warn"`,
 		`FragmentStreamWindowRefillRatio:      0.5`,

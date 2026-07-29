@@ -521,3 +521,28 @@ func TestExperimentalMuxConnectionManagerIdleBookkeeping(t *testing.T) {
 		t.Fatalf("close empty managed adapters = %v, want nil", err)
 	}
 }
+
+func TestExperimentalMuxConnectionManagerUsesInjectedClock(t *testing.T) {
+	manager, err := NewExperimentalMuxConnectionManager(
+		ResolverFunc(func(context.Context) ([]string, error) { return []string{"tcp://one"}, nil }),
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("NewExperimentalMuxConnectionManager: %v", err)
+	}
+	t.Cleanup(func() { _ = manager.Close() })
+
+	// The bookkeeping timestamps are stamped from the injected clock, so
+	// lastUpdated becomes deterministic for observers and tests.
+	stamped := time.Unix(1700000789, 0).UTC()
+	manager.nowFunc = func() time.Time { return stamped }
+	manager.recordWatchUpdate()
+	if snapshot := manager.Snapshot(); !snapshot.LastUpdated.Equal(stamped) {
+		t.Fatalf("manager lastUpdated = %v, want injected %v", snapshot.LastUpdated, stamped)
+	}
+
+	// The nil-manager clock falls back to time.Now without panicking.
+	if (*ExperimentalMuxConnectionManager)(nil).now().IsZero() {
+		t.Fatal("nil manager clock returned zero time")
+	}
+}

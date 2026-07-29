@@ -60,6 +60,18 @@ type ExperimentalMuxConnectionManager struct {
 	lastUpdated             time.Time
 	janitorCancel           context.CancelFunc
 	janitorDone             chan struct{}
+	nowFunc                 func() time.Time
+}
+
+// now returns the manager clock, defaulting to time.Now. Tests inject a
+// deterministic clock through nowFunc to assert lastUpdated/lastUsed bookkeeping
+// without depending on the wall clock. Idle and health checks already accept an
+// explicit time, so this only covers the bookkeeping writes.
+func (m *ExperimentalMuxConnectionManager) now() time.Time {
+	if m != nil && m.nowFunc != nil {
+		return m.nowFunc()
+	}
+	return time.Now()
 }
 
 type muxManagedAdapter struct {
@@ -424,7 +436,7 @@ func (m *ExperimentalMuxConnectionManager) CloseIdle(ctx context.Context) error 
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	return m.closeIdle(ctx, time.Now(), false)
+	return m.closeIdle(ctx, m.now(), false)
 }
 
 func (m *ExperimentalMuxConnectionManager) closeIdle(ctx context.Context, now time.Time, janitor bool) error {
@@ -664,7 +676,7 @@ func (m *ExperimentalMuxConnectionManager) Snapshot() ExperimentalMuxConnectionM
 	drainReasons := cloneStringInt64Map(m.drainReasons)
 	lastUpdated := m.lastUpdated
 	endpoints := m.snapshotEndpointSnapshotsLocked()
-	health := m.snapshotHealthLocked(time.Now())
+	health := m.snapshotHealthLocked(m.now())
 	m.mu.Unlock()
 	sort.Slice(endpoints, func(i, j int) bool {
 		if endpoints[i].Endpoint != endpoints[j].Endpoint {
@@ -935,7 +947,7 @@ func (m *ExperimentalMuxConnectionManager) pickEndpointExcluding(ctx context.Con
 		return "", ErrExperimentalMuxTransportClosed
 	}
 	balancer := m.balancer
-	healthy := m.healthyEndpointsLocked(filterMuxEndpoints(endpoints, exclude), time.Now())
+	healthy := m.healthyEndpointsLocked(filterMuxEndpoints(endpoints, exclude), m.now())
 	m.mu.Unlock()
 	endpoint, err := balancer.Pick(ctx, healthy)
 	if err != nil {
@@ -972,7 +984,7 @@ func (m *ExperimentalMuxConnectionManager) removeMissingEndpoints(ctx context.Co
 	}
 	m.recordClosedAdaptersForReasonLocked(removed, "resolver_update")
 	if len(retired) > 0 {
-		m.lastUpdated = time.Now()
+		m.lastUpdated = m.now()
 	}
 	m.mu.Unlock()
 	var err error
@@ -991,7 +1003,7 @@ func (m *ExperimentalMuxConnectionManager) removeMissingEndpoints(ctx context.Co
 func (m *ExperimentalMuxConnectionManager) recordWatchUpdate() {
 	m.mu.Lock()
 	m.watchUpdates++
-	m.lastUpdated = time.Now()
+	m.lastUpdated = m.now()
 	m.mu.Unlock()
 }
 
@@ -1010,7 +1022,7 @@ func (m *ExperimentalMuxConnectionManager) drainManagedAdapter(ctx context.Conte
 		m.drainReasons = make(map[string]int64)
 	}
 	m.drainReasons[reason]++
-	m.lastUpdated = time.Now()
+	m.lastUpdated = m.now()
 	m.mu.Unlock()
 	return nil
 }
@@ -1037,7 +1049,7 @@ func (m *ExperimentalMuxConnectionManager) recordClosedAdaptersLocked(closing []
 		m.closeReasons[reason]++
 		m.removed = append(m.removed, closeItem.adapter.endpoint)
 	}
-	m.lastUpdated = time.Now()
+	m.lastUpdated = m.now()
 }
 
 func (m *ExperimentalMuxConnectionManager) recordClosedAdaptersForReasonLocked(adapters []*muxManagedAdapter, reason string) {
@@ -1061,7 +1073,7 @@ func (m *ExperimentalMuxConnectionManager) recordClosedAdaptersForReasonLocked(a
 		m.closeReasons[reason]++
 		m.removed = append(m.removed, adapter.endpoint)
 	}
-	m.lastUpdated = time.Now()
+	m.lastUpdated = m.now()
 }
 
 func (m *ExperimentalMuxConnectionManager) adapter(ctx context.Context, endpoint string) (*ExperimentalMuxClientAdapter, error) {
@@ -1073,7 +1085,7 @@ func (m *ExperimentalMuxConnectionManager) adapter(ctx context.Context, endpoint
 	unhealthy := m.collectUnhealthyEndpointLocked(endpoint)
 	m.recordClosedAdaptersLocked(unhealthy)
 	if existing := m.pickReusableAdapterLocked(endpoint); existing != nil {
-		existing.lastUsed = time.Now()
+		existing.lastUsed = m.now()
 		adapter := existing.adapter
 		m.mu.Unlock()
 		_ = closeManagedAdapters(unhealthy)
@@ -1082,7 +1094,7 @@ func (m *ExperimentalMuxConnectionManager) adapter(ctx context.Context, endpoint
 	if m.maxConnsPerEndpoint > 0 && len(m.adapters[endpoint]) >= m.maxConnsPerEndpoint {
 		m.poolExhaustions++
 		m.recordEndpointFailureLocked(endpoint, "pool_exhausted", NewError(CodeUnavailable, "mux connection pool exhausted"))
-		m.lastUpdated = time.Now()
+		m.lastUpdated = m.now()
 		m.mu.Unlock()
 		_ = closeManagedAdapters(unhealthy)
 		return nil, NewError(CodeUnavailable, "mux connection pool exhausted")
@@ -1133,7 +1145,7 @@ func (m *ExperimentalMuxConnectionManager) adapter(ctx context.Context, endpoint
 	unhealthy = m.collectUnhealthyEndpointLocked(endpoint)
 	m.recordClosedAdaptersLocked(unhealthy)
 	if existing := m.pickReusableAdapterLocked(endpoint); existing != nil {
-		existing.lastUsed = time.Now()
+		existing.lastUsed = m.now()
 		existingAdapter := existing.adapter
 		m.mu.Unlock()
 		_ = adapter.Close()
@@ -1143,7 +1155,7 @@ func (m *ExperimentalMuxConnectionManager) adapter(ctx context.Context, endpoint
 	if m.maxConnsPerEndpoint > 0 && len(m.adapters[endpoint]) >= m.maxConnsPerEndpoint {
 		m.poolExhaustions++
 		m.recordEndpointFailureLocked(endpoint, "pool_exhausted", NewError(CodeUnavailable, "mux connection pool exhausted"))
-		m.lastUpdated = time.Now()
+		m.lastUpdated = m.now()
 		m.mu.Unlock()
 		_ = adapter.Close()
 		_ = closeManagedAdapters(unhealthy)
@@ -1153,7 +1165,7 @@ func (m *ExperimentalMuxConnectionManager) adapter(ctx context.Context, endpoint
 		endpoint:     endpoint,
 		connectionID: m.nextManagedConnectionIDLocked(),
 		adapter:      adapter,
-		lastUsed:     time.Now(),
+		lastUsed:     m.now(),
 	}
 	m.adapters[endpoint] = append(m.adapters[endpoint], managed)
 	m.lastUpdated = managed.lastUsed
@@ -1190,7 +1202,7 @@ func (m *ExperimentalMuxConnectionManager) recordCandidateNegotiationFailure(cfg
 		m.lastCandidateError = snapshot.LastNegotiationError
 		m.lastCandidatePhase = phase
 		m.lastCandidatePeer = peerProtocol
-		m.lastUpdated = time.Now()
+		m.lastUpdated = m.now()
 	}
 	m.mu.Unlock()
 	return snapshot
@@ -1202,7 +1214,7 @@ func (m *ExperimentalMuxConnectionManager) recordCandidateDowngrade(err error) {
 	if !m.closed {
 		m.candidateDowngrades++
 		m.lastDowngradeReason = reasonFromError(err)
-		m.lastUpdated = time.Now()
+		m.lastUpdated = m.now()
 	}
 	m.mu.Unlock()
 }
@@ -1210,7 +1222,7 @@ func (m *ExperimentalMuxConnectionManager) recordCandidateDowngrade(err error) {
 func (m *ExperimentalMuxConnectionManager) touch(endpoint string) {
 	m.mu.Lock()
 	if adapter := m.pickReusableAdapterLocked(endpoint); adapter != nil {
-		adapter.lastUsed = time.Now()
+		adapter.lastUsed = m.now()
 	}
 	m.mu.Unlock()
 }
@@ -1262,12 +1274,12 @@ func (m *ExperimentalMuxConnectionManager) healthyEndpointsLocked(endpoints []st
 
 func (m *ExperimentalMuxConnectionManager) recordEndpointFailure(endpoint string, reason string, err error) {
 	m.mu.Lock()
-	m.recordEndpointFailureAtLocked(endpoint, reason, err, time.Now())
+	m.recordEndpointFailureAtLocked(endpoint, reason, err, m.now())
 	m.mu.Unlock()
 }
 
 func (m *ExperimentalMuxConnectionManager) recordEndpointFailureLocked(endpoint string, reason string, err error) {
-	m.recordEndpointFailureAtLocked(endpoint, reason, err, time.Now())
+	m.recordEndpointFailureAtLocked(endpoint, reason, err, m.now())
 }
 
 func (m *ExperimentalMuxConnectionManager) recordEndpointFailureAtLocked(endpoint string, reason string, err error, now time.Time) {
@@ -1318,7 +1330,7 @@ func (m *ExperimentalMuxConnectionManager) recordEndpointSuccess(endpoint string
 		state.reason = ""
 		state.lastError = ""
 		m.endpointRecoveries++
-		m.lastUpdated = time.Now()
+		m.lastUpdated = m.now()
 	}
 	m.mu.Unlock()
 }
@@ -1340,7 +1352,7 @@ func (m *ExperimentalMuxConnectionManager) recordOpenRetry(from string, to strin
 	m.lastRetriedFrom = from
 	m.lastRetriedTo = to
 	m.retryReasons[reason]++
-	m.lastUpdated = time.Now()
+	m.lastUpdated = m.now()
 	m.mu.Unlock()
 }
 

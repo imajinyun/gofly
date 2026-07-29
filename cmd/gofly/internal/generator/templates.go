@@ -34,6 +34,10 @@ The RPC admin control plane exposes read-only operator history evidence:
 - ` + "`GET /rpc/admin/mux/operator-actions/history/replay`" + ` returns integrity verification for the primary and backup history files plus the debug replay cooldown (` + "`cooldownSeconds`" + `, ` + "`cooldownRemainingSeconds`" + `). By default it does not return recorded actions.
 
 Replaying recorded actions requires an explicit, higher-privilege opt-in: add ` + "`?debugActions=true`" + ` together with a valid ` + "`token`" + ` matching the configured operator approval token. Debug replay is rate limited by the cooldown and every attempt (approved, denied, or rate-limited) is recorded to operator audit history without the action payload.
+
+## Mux Operator Audit Monitoring
+
+Operator audit records that carry a schema marker are validated on the write path. Any violation increments the low-cardinality counter ` + "`gofly_rpc_mux_operator_audit_schema_violation_total{action}`" + `. The generated ` + "`deploy/observability/prometheus.yaml`" + ` includes a ` + "`GoflyMuxOperatorAuditSchemaViolation`" + ` alert firing on ` + "`sum(rate(gofly_rpc_mux_operator_audit_schema_violation_total[5m])) by (action) > 0`" + `, so schema drift is caught in monitoring rather than only in debug logs.
 `
 
 const muxOTelSinkFeatureTemplate = `// Package muxotelsink registers the generated application's custom mux OTel log sink.
@@ -1869,6 +1873,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -1998,6 +2003,7 @@ type RPCMuxOperatorHistoryConfig struct {
 	MaxLineBytes int64 ` + "`json:\"maxLineBytes,omitempty\"`" + `
 	MaxBackups int ` + "`json:\"maxBackups,omitempty\"`" + `
 	DebugReplayCooldown time.Duration ` + "`json:\"debugReplayCooldown,omitempty\"`" + `
+	AuditValidateCooldown time.Duration ` + "`json:\"auditValidateCooldown,omitempty\"`" + `
 }
 
 type RPCMuxOTelSinkConfig struct {
@@ -2385,6 +2391,9 @@ func ValidateRPCMuxConfig(c RPCMuxConfig) error {
 	if cooldown := c.Log.OTelCompatible.OperatorHistory.DebugReplayCooldown; cooldown > 0 && (cooldown < limits.MinDebugReplayCooldown || cooldown > limits.MaxDebugReplayCooldown) {
 		return fmt.Errorf("rpc mux operator history debugReplayCooldown must be between %s and %s", limits.MinDebugReplayCooldown, limits.MaxDebugReplayCooldown)
 	}
+	if cooldown := c.Log.OTelCompatible.OperatorHistory.AuditValidateCooldown; cooldown > 0 && (cooldown < limits.MinDebugReplayCooldown || cooldown > limits.MaxDebugReplayCooldown) {
+		return fmt.Errorf("rpc mux operator history auditValidateCooldown must be between %s and %s", limits.MinDebugReplayCooldown, limits.MaxDebugReplayCooldown)
+	}
 	if c.Log.OTelCompatible.Enabled {
 		if err := rpc.ValidateRPCMuxDiagnosisSinkSetConfig(c.Log.OTelCompatible.SinkSetConfig()); err != nil {
 			return fmt.Errorf("rpc mux otelCompatible sinks: %w", err)
@@ -2394,6 +2403,7 @@ func ValidateRPCMuxConfig(c RPCMuxConfig) error {
 		if _, err := c.Log.OTelCompatible.OperatorHistoryStore(); err != nil {
 			return fmt.Errorf("rpc mux operator history: %w", err)
 		}
+		warnRPCMuxOperatorHistoryRecommendedLimits(c.Log.OTelCompatible.OperatorHistory)
 	}
 	if !c.Candidate.Enabled {
 		return nil
@@ -2402,6 +2412,27 @@ func ValidateRPCMuxConfig(c RPCMuxConfig) error {
 		c.CandidateServerConfig().Validate(),
 		c.CandidateClientConfig().Validate(),
 	)
+}
+
+// warnRPCMuxOperatorHistoryRecommendedLimits logs a non-fatal warning when the
+// operator history configuration exceeds the recommended production bounds. The
+// hard limits are still enforced by the store construction; this only surfaces
+// values that are valid but larger than recommended so operators can review
+// them before rollout.
+func warnRPCMuxOperatorHistoryRecommendedLimits(history RPCMuxOperatorHistoryConfig) {
+	recommended := rpc.RPCMuxDiagnosisOperatorHistoryRecommendedLimits()
+	if history.MaxActions > recommended.MaxActions {
+		slog.Warn("rpc mux operator history maxActions exceeds recommended", "value", history.MaxActions, "recommended", recommended.MaxActions)
+	}
+	if history.MaxBackups > recommended.MaxBackups {
+		slog.Warn("rpc mux operator history maxBackups exceeds recommended", "value", history.MaxBackups, "recommended", recommended.MaxBackups)
+	}
+	if history.MaxSizeBytes > recommended.MaxSizeBytes {
+		slog.Warn("rpc mux operator history maxSizeBytes exceeds recommended", "value", history.MaxSizeBytes, "recommended", recommended.MaxSizeBytes)
+	}
+	if history.MaxLineBytes > recommended.MaxLineBytes {
+		slog.Warn("rpc mux operator history maxLineBytes exceeds recommended", "value", history.MaxLineBytes, "recommended", recommended.MaxLineBytes)
+	}
 }
 
 func (c RPCMuxConfig) CandidateTLSConfig() security.TLSConfig {
@@ -2515,6 +2546,9 @@ func (c RPCMuxConfig) ServerOptionsWithSinkSet(sinkSet *rpc.RPCMuxDiagnosisSinkS
 		options := []rpc.ServerOption{rpc.WithServerMuxDiagnosisEventExporter(sinkSet, filter)}
 		if c.Log.OTelCompatible.OperatorHistory.DebugReplayCooldown > 0 {
 			options = append(options, rpc.WithServerMuxDiagnosisDebugReplayCooldown(c.Log.OTelCompatible.OperatorHistory.DebugReplayCooldown))
+		}
+		if c.Log.OTelCompatible.OperatorHistory.AuditValidateCooldown > 0 {
+			options = append(options, rpc.WithServerMuxDiagnosisAuditValidateCooldown(c.Log.OTelCompatible.OperatorHistory.AuditValidateCooldown))
 		}
 		return options
 	}
@@ -2846,8 +2880,10 @@ func isProduction(environment string) bool {
 const configTestHeaderTemplate = `package config
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -2862,6 +2898,8 @@ import (
 var (
 	_ = os.WriteFile
 	_ = filepath.Join
+	_ = bytes.NewBuffer
+	_ = slog.SetDefault
 )
 `
 
@@ -2912,6 +2950,41 @@ func TestRPCMuxConfigValidatesOTelCompatibleSink(t *testing.T) {
 	cfg.Log.OTelCompatible.OperatorHistory.DebugReplayCooldown = 2 * time.Minute
 	if err := ValidateRPCMuxConfig(cfg); err == nil || !strings.Contains(err.Error(), "debugReplayCooldown must be between 100ms and 1m0s") {
 		t.Fatalf("ValidateRPCMuxConfig huge debug replay cooldown = %v, want cooldown bounds error", err)
+	}
+
+	cfg.Log.OTelCompatible = RPCMuxOTelCompatibleLogConfig{
+		OperatorHistory: RPCMuxOperatorHistoryConfig{AuditValidateCooldown: 2 * time.Minute},
+	}
+	if err := ValidateRPCMuxConfig(cfg); err == nil || !strings.Contains(err.Error(), "auditValidateCooldown must be between 100ms and 1m0s") {
+		t.Fatalf("ValidateRPCMuxConfig huge audit validate cooldown = %v, want cooldown bounds error", err)
+	}
+}
+
+func TestRPCMuxOperatorHistoryRecommendedLimitWarnings(t *testing.T) {
+	var buf bytes.Buffer
+	saved := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	t.Cleanup(func() { slog.SetDefault(saved) })
+
+	// Values within the recommended bounds emit no warning.
+	warnRPCMuxOperatorHistoryRecommendedLimits(RPCMuxOperatorHistoryConfig{
+		MaxActions:   16,
+		MaxBackups:   2,
+		MaxSizeBytes: 65536,
+		MaxLineBytes: 4096,
+	})
+	if buf.Len() != 0 {
+		t.Fatalf("unexpected warning for within-recommended config: %s", buf.String())
+	}
+
+	// Values above the recommended bounds (but still valid) emit warnings.
+	warnRPCMuxOperatorHistoryRecommendedLimits(RPCMuxOperatorHistoryConfig{
+		MaxActions:   4096,
+		MaxSizeBytes: 8 << 20,
+	})
+	out := buf.String()
+	if !strings.Contains(out, "maxActions exceeds recommended") || !strings.Contains(out, "maxSizeBytes exceeds recommended") {
+		t.Fatalf("expected recommended-limit warnings, got: %s", out)
 	}
 }
 
@@ -4335,6 +4408,13 @@ spec:
             severity: warning
           annotations:
             summary: {{.Name}} p99 latency is above 1s
+        - alert: GoflyMuxOperatorAuditSchemaViolation
+          expr: sum(rate(gofly_rpc_mux_operator_audit_schema_violation_total[5m])) by (action) > 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: {{.Name}} mux operator audit records violate their declared schema
 `
 
 const otelCollectorTemplate = `apiVersion: v1

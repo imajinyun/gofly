@@ -21,6 +21,7 @@ import (
 	coreruntime "github.com/imajinyun/gofly/core/runtime"
 	"github.com/imajinyun/gofly/rest"
 	"github.com/imajinyun/gofly/rpc"
+	"go.yaml.in/yaml/v2"
 )
 
 func TestGenerateService(t *testing.T) {
@@ -318,6 +319,7 @@ func TestGenerateService(t *testing.T) {
 			t.Fatalf("prometheus assets missing %q:\n%s", want, prometheusData)
 		}
 	}
+	assertMuxOperatorAuditSchemaViolationAlert(t, prometheusData)
 	otelData, err := os.ReadFile(filepath.Join(dir, "deploy", "observability", "otel-collector.yaml"))
 	if err != nil {
 		t.Fatal(err)
@@ -375,13 +377,16 @@ func TestGenerateService(t *testing.T) {
 		"maxOperatorHistoryBackups   = 3",
 		"maxOperatorHistorySizeBytes = 1048576",
 		"maxOperatorHistoryLineBytes = 65536",
-		"minOperatorHistoryDebugReplayCooldown = 100000000",
-		"maxOperatorHistoryDebugReplayCooldown = 60000000000",
+		"minOperatorHistoryDebugReplayCooldown",
+		"maxOperatorHistoryDebugReplayCooldown",
+		"minOperatorHistoryAuditValidateCooldown",
+		"maxOperatorHistoryAuditValidateCooldown",
 		"mustMax(history, \"maxActions\", maxOperatorHistoryActions)",
 		"mustMax(history, \"maxBackups\", maxOperatorHistoryBackups)",
 		"mustMax(history, \"maxSizeBytes\", maxOperatorHistorySizeBytes)",
 		"mustMax(history, \"maxLineBytes\", maxOperatorHistoryLineBytes)",
 		"mustRange(history, \"debugReplayCooldown\", minOperatorHistoryDebugReplayCooldown, maxOperatorHistoryDebugReplayCooldown)",
+		"mustRange(history, \"auditValidateCooldown\", minOperatorHistoryAuditValidateCooldown, maxOperatorHistoryAuditValidateCooldown)",
 	} {
 		if !strings.Contains(string(checkGoData), want) {
 			t.Fatalf("production_check.go missing %q:\n%s", want, checkGoData)
@@ -624,6 +629,74 @@ func TestGenerateServiceDefaultResilienceProfileReachesRESTRuntime(t *testing.T)
 			t.Fatalf("generated rest middleware chain = %+v, missing %q", runtimeSnapshot.Components[0].Middleware.Unary, want)
 		}
 	}
+}
+
+func assertMuxOperatorAuditSchemaViolationAlert(t *testing.T, data []byte) {
+	t.Helper()
+	var docs []struct {
+		Kind string `yaml:"kind"`
+		Spec struct {
+			Groups []struct {
+				Rules []struct {
+					Alert string `yaml:"alert"`
+					Expr  string `yaml:"expr"`
+					For   string `yaml:"for"`
+				} `yaml:"rules"`
+			} `yaml:"groups"`
+		} `yaml:"spec"`
+	}
+	for _, raw := range strings.Split(string(data), "\n---") {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			continue
+		}
+		var doc struct {
+			Kind string `yaml:"kind"`
+			Spec struct {
+				Groups []struct {
+					Rules []struct {
+						Alert string `yaml:"alert"`
+						Expr  string `yaml:"expr"`
+						For   string `yaml:"for"`
+					} `yaml:"rules"`
+				} `yaml:"groups"`
+			} `yaml:"spec"`
+		}
+		if err := yaml.Unmarshal([]byte(raw), &doc); err != nil {
+			t.Fatalf("parse prometheus yaml document: %v\n%s", err, raw)
+		}
+		docs = append(docs, doc)
+	}
+	for _, doc := range docs {
+		if doc.Kind != "PrometheusRule" {
+			continue
+		}
+		for _, group := range doc.Spec.Groups {
+			for _, rule := range group.Rules {
+				if rule.Alert != "GoflyMuxOperatorAuditSchemaViolation" {
+					continue
+				}
+				if rule.For != "5m" {
+					t.Fatalf("violation alert duration = %q, want 5m", rule.For)
+				}
+				if !validMuxOperatorAuditViolationPromQL(rule.Expr) {
+					t.Fatalf("violation alert expr = %q, want low-cardinality schema violation rate", rule.Expr)
+				}
+				return
+			}
+		}
+	}
+	t.Fatalf("missing GoflyMuxOperatorAuditSchemaViolation alert in prometheus yaml:\n%s", data)
+}
+
+func validMuxOperatorAuditViolationPromQL(expr string) bool {
+	fields := strings.Fields(expr)
+	return len(fields) == 5 &&
+		fields[0] == "sum(rate(gofly_rpc_mux_operator_audit_schema_violation_total[5m]))" &&
+		fields[1] == "by" &&
+		fields[2] == "(action)" &&
+		fields[3] == ">" &&
+		fields[4] == "0"
 }
 
 func hasRuntimeMiddlewareLayer(layers []coreruntime.MiddlewareLayer, name string) bool {
@@ -1323,9 +1396,12 @@ func TestGenerateNewServiceVariantsBoundaries(t *testing.T) {
 		"debugReplayCooldown must be between %s and %s",
 		"auditValidateCooldown must be between %s and %s",
 		"rpc.WithServerMuxDiagnosisAuditValidateCooldown(",
-		"warnRPCMuxOperatorHistoryRecommendedLimits",
+		"func ValidateRPCMuxConfigWithWarnings(c RPCMuxConfig) ([]string, error)",
+		"rpcMuxOperatorHistoryRecommendedLimitWarnings",
+		"logRPCMuxConfigWarnings",
 		"rpc.RPCMuxDiagnosisOperatorHistoryRecommendedLimits()",
 		"limits.MinDebugReplayCooldown",
+		"limits.MinAuditValidateCooldown",
 		"rpc.WithMuxDiagnosisEventExporter(sinkSet",
 		"rpc.WithServerMuxDiagnosisEventExporter(sinkSet",
 		"RPCMuxDiagnosisExporterDeliveryConfig",
@@ -3237,6 +3313,17 @@ func TestGeneratedProductionCheckConstantsWithinCoreLimits(t *testing.T) {
 	maxCooldown := constant("maxOperatorHistoryDebugReplayCooldown")
 	if minCooldown <= 0 || minCooldown >= maxCooldown {
 		t.Fatalf("production check cooldown range [%d, %d] is invalid", minCooldown, maxCooldown)
+	}
+	if minCooldown != int64(limits.MinDebugReplayCooldown) || maxCooldown != int64(limits.MaxDebugReplayCooldown) {
+		t.Fatalf("production check debug replay cooldown range [%d, %d] != core [%d, %d]", minCooldown, maxCooldown, limits.MinDebugReplayCooldown, limits.MaxDebugReplayCooldown)
+	}
+	minAuditCooldown := constant("minOperatorHistoryAuditValidateCooldown")
+	maxAuditCooldown := constant("maxOperatorHistoryAuditValidateCooldown")
+	if minAuditCooldown <= 0 || minAuditCooldown >= maxAuditCooldown {
+		t.Fatalf("production check audit validate cooldown range [%d, %d] is invalid", minAuditCooldown, maxAuditCooldown)
+	}
+	if minAuditCooldown != int64(limits.MinAuditValidateCooldown) || maxAuditCooldown != int64(limits.MaxAuditValidateCooldown) {
+		t.Fatalf("production check audit validate cooldown range [%d, %d] != core [%d, %d]", minAuditCooldown, maxAuditCooldown, limits.MinAuditValidateCooldown, limits.MaxAuditValidateCooldown)
 	}
 	if coreDefault := int64(limits.DebugReplayCooldown); coreDefault < minCooldown || coreDefault > maxCooldown {
 		t.Fatalf("core default cooldown %d falls outside production range [%d, %d]", coreDefault, minCooldown, maxCooldown)

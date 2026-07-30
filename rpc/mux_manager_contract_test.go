@@ -466,6 +466,59 @@ func TestExperimentalMuxConnectionManagerHealthAndRetryAccounting(t *testing.T) 
 	}
 }
 
+func TestExperimentalMuxConnectionManagerHealthTimelineUsesInjectedClock(t *testing.T) {
+	base := time.Unix(1800000000, 0)
+	current := base
+	manager := &ExperimentalMuxConnectionManager{
+		healthFailureThreshold:  1,
+		healthEjectionDuration:  2 * time.Second,
+		healthBackoffMultiplier: 3,
+		healthMaxCooldown:       5 * time.Second,
+		nowFunc:                 func() time.Time { return current },
+	}
+	unavailable := NewError(CodeUnavailable, "downstream unavailable")
+	endpoint := "tcp://clocked"
+
+	manager.recordEndpointFailure(endpoint, "dial_failure", unavailable)
+	health := manager.Snapshot().Health
+	if len(health) != 1 ||
+		health[0].Endpoint != endpoint ||
+		health[0].Cooldown != 2*time.Second ||
+		!health[0].CooldownUntil.Equal(base.Add(2*time.Second)) ||
+		!health[0].Ejected {
+		t.Fatalf("first health snapshot = %+v, want 2s ejection at injected clock", health)
+	}
+	if manager.lastUpdated != base || manager.dialFailures != 1 || manager.endpointEjections != 1 {
+		t.Fatalf("first accounting lastUpdated=%v dialFailures=%d ejections=%d", manager.lastUpdated, manager.dialFailures, manager.endpointEjections)
+	}
+
+	current = base.Add(time.Second)
+	manager.recordEndpointFailure(endpoint+"/", "dial_failure", unavailable)
+	health = manager.Snapshot().Health
+	if len(health) != 1 ||
+		health[0].Failures != 2 ||
+		health[0].Cooldown != 5*time.Second ||
+		!health[0].CooldownUntil.Equal(current.Add(5*time.Second)) ||
+		!health[0].Ejected {
+		t.Fatalf("second health snapshot = %+v, want capped 5s backoff", health)
+	}
+	if manager.lastUpdated != current || manager.dialFailures != 2 || manager.endpointEjections != 2 {
+		t.Fatalf("second accounting lastUpdated=%v dialFailures=%d ejections=%d", manager.lastUpdated, manager.dialFailures, manager.endpointEjections)
+	}
+
+	current = base.Add(7 * time.Second)
+	health = manager.Snapshot().Health
+	if len(health) != 1 || health[0].Ejected {
+		t.Fatalf("expired health snapshot = %+v, want visible failure after ejection expires", health)
+	}
+
+	manager.recordEndpointSuccess(endpoint + "/")
+	health = manager.Snapshot().Health
+	if len(health) != 0 || manager.endpointRecoveries != 1 || manager.lastUpdated != current {
+		t.Fatalf("recovered health snapshot=%+v recoveries=%d lastUpdated=%v", health, manager.endpointRecoveries, manager.lastUpdated)
+	}
+}
+
 func TestExperimentalMuxConnectionManagerIdleBookkeeping(t *testing.T) {
 	manager := &ExperimentalMuxConnectionManager{
 		adapters:     make(map[string][]*muxManagedAdapter),

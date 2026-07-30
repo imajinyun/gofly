@@ -24,7 +24,7 @@ Do not store raw secrets in runtime snapshots, diff plans, or source-controlled 
 
 Operator history persistence is disabled by default. When you enable ` + "`rpc.mux.log.otelCompatible.operatorHistory`" + `, keep the store under ` + "`fileSecretRoot`" + ` and prefer the generated defaults unless you have reviewed disk and audit requirements.
 
-Recommended upper bounds for generated production config are ` + "`maxActions <= {{.RecommendedMaxActions}}`" + `, ` + "`maxBackups <= {{.RecommendedMaxBackups}}`" + `, ` + "`maxSizeBytes <= {{.RecommendedMaxSizeBytes}}`" + `, and ` + "`maxLineBytes <= {{.RecommendedMaxLineBytes}}`" + `. The production check accepts omitted values or values within those bounds and fails fast on larger values. ` + "`debugReplayCooldown`" + ` must be omitted (default) or between ` + "`{{.DebugReplayCooldownMin}}`" + ` and ` + "`{{.DebugReplayCooldownMax}}`" + `.
+Recommended upper bounds for generated production config are ` + "`maxActions <= {{.RecommendedMaxActions}}`" + `, ` + "`maxBackups <= {{.RecommendedMaxBackups}}`" + `, ` + "`maxSizeBytes <= {{.RecommendedMaxSizeBytes}}`" + `, and ` + "`maxLineBytes <= {{.RecommendedMaxLineBytes}}`" + `. The production check accepts omitted values or values within those bounds and fails fast on larger values. ` + "`debugReplayCooldown`" + ` must be omitted (default) or between ` + "`{{.DebugReplayCooldownMin}}`" + ` and ` + "`{{.DebugReplayCooldownMax}}`" + `; ` + "`auditValidateCooldown`" + ` must be omitted (default) or between ` + "`{{.AuditValidateCooldownMin}}`" + ` and ` + "`{{.AuditValidateCooldownMax}}`" + `.
 
 ## Mux Operator Admin Endpoints
 
@@ -2387,51 +2387,66 @@ func (c RPCMuxConfig) candidateConfigWithTLS(tlsConfig security.TLSConfig) rpc.E
 }
 
 func ValidateRPCMuxConfig(c RPCMuxConfig) error {
+	warnings, err := ValidateRPCMuxConfigWithWarnings(c)
+	logRPCMuxConfigWarnings(warnings)
+	return err
+}
+
+func ValidateRPCMuxConfigWithWarnings(c RPCMuxConfig) ([]string, error) {
 	limits := rpc.RPCMuxDiagnosisOperatorHistoryLimits()
 	if cooldown := c.Log.OTelCompatible.OperatorHistory.DebugReplayCooldown; cooldown > 0 && (cooldown < limits.MinDebugReplayCooldown || cooldown > limits.MaxDebugReplayCooldown) {
-		return fmt.Errorf("rpc mux operator history debugReplayCooldown must be between %s and %s", limits.MinDebugReplayCooldown, limits.MaxDebugReplayCooldown)
+		return nil, fmt.Errorf("rpc mux operator history debugReplayCooldown must be between %s and %s", limits.MinDebugReplayCooldown, limits.MaxDebugReplayCooldown)
 	}
-	if cooldown := c.Log.OTelCompatible.OperatorHistory.AuditValidateCooldown; cooldown > 0 && (cooldown < limits.MinDebugReplayCooldown || cooldown > limits.MaxDebugReplayCooldown) {
-		return fmt.Errorf("rpc mux operator history auditValidateCooldown must be between %s and %s", limits.MinDebugReplayCooldown, limits.MaxDebugReplayCooldown)
+	if cooldown := c.Log.OTelCompatible.OperatorHistory.AuditValidateCooldown; cooldown > 0 && (cooldown < limits.MinAuditValidateCooldown || cooldown > limits.MaxAuditValidateCooldown) {
+		return nil, fmt.Errorf("rpc mux operator history auditValidateCooldown must be between %s and %s", limits.MinAuditValidateCooldown, limits.MaxAuditValidateCooldown)
 	}
 	if c.Log.OTelCompatible.Enabled {
 		if err := rpc.ValidateRPCMuxDiagnosisSinkSetConfig(c.Log.OTelCompatible.SinkSetConfig()); err != nil {
-			return fmt.Errorf("rpc mux otelCompatible sinks: %w", err)
+			return nil, fmt.Errorf("rpc mux otelCompatible sinks: %w", err)
 		}
 	}
+	warnings := []string(nil)
 	if c.Log.OTelCompatible.OperatorHistory.Enabled {
 		if _, err := c.Log.OTelCompatible.OperatorHistoryStore(); err != nil {
-			return fmt.Errorf("rpc mux operator history: %w", err)
+			return nil, fmt.Errorf("rpc mux operator history: %w", err)
 		}
-		warnRPCMuxOperatorHistoryRecommendedLimits(c.Log.OTelCompatible.OperatorHistory)
+		warnings = rpcMuxOperatorHistoryRecommendedLimitWarnings(c.Log.OTelCompatible.OperatorHistory)
 	}
 	if !c.Candidate.Enabled {
-		return nil
+		return warnings, nil
 	}
-	return errors.Join(
+	return warnings, errors.Join(
 		c.CandidateServerConfig().Validate(),
 		c.CandidateClientConfig().Validate(),
 	)
 }
 
-// warnRPCMuxOperatorHistoryRecommendedLimits logs a non-fatal warning when the
+// rpcMuxOperatorHistoryRecommendedLimitWarnings returns non-fatal warnings when the
 // operator history configuration exceeds the recommended production bounds. The
 // hard limits are still enforced by the store construction; this only surfaces
 // values that are valid but larger than recommended so operators can review
 // them before rollout.
-func warnRPCMuxOperatorHistoryRecommendedLimits(history RPCMuxOperatorHistoryConfig) {
+func rpcMuxOperatorHistoryRecommendedLimitWarnings(history RPCMuxOperatorHistoryConfig) []string {
 	recommended := rpc.RPCMuxDiagnosisOperatorHistoryRecommendedLimits()
+	warnings := []string(nil)
 	if history.MaxActions > recommended.MaxActions {
-		slog.Warn("rpc mux operator history maxActions exceeds recommended", "value", history.MaxActions, "recommended", recommended.MaxActions)
+		warnings = append(warnings, fmt.Sprintf("rpc mux operator history maxActions exceeds recommended: value=%d recommended=%d", history.MaxActions, recommended.MaxActions))
 	}
 	if history.MaxBackups > recommended.MaxBackups {
-		slog.Warn("rpc mux operator history maxBackups exceeds recommended", "value", history.MaxBackups, "recommended", recommended.MaxBackups)
+		warnings = append(warnings, fmt.Sprintf("rpc mux operator history maxBackups exceeds recommended: value=%d recommended=%d", history.MaxBackups, recommended.MaxBackups))
 	}
 	if history.MaxSizeBytes > recommended.MaxSizeBytes {
-		slog.Warn("rpc mux operator history maxSizeBytes exceeds recommended", "value", history.MaxSizeBytes, "recommended", recommended.MaxSizeBytes)
+		warnings = append(warnings, fmt.Sprintf("rpc mux operator history maxSizeBytes exceeds recommended: value=%d recommended=%d", history.MaxSizeBytes, recommended.MaxSizeBytes))
 	}
 	if history.MaxLineBytes > recommended.MaxLineBytes {
-		slog.Warn("rpc mux operator history maxLineBytes exceeds recommended", "value", history.MaxLineBytes, "recommended", recommended.MaxLineBytes)
+		warnings = append(warnings, fmt.Sprintf("rpc mux operator history maxLineBytes exceeds recommended: value=%d recommended=%d", history.MaxLineBytes, recommended.MaxLineBytes))
+	}
+	return warnings
+}
+
+func logRPCMuxConfigWarnings(warnings []string) {
+	for _, warning := range warnings {
+		slog.Warn(warning)
 	}
 }
 
@@ -2966,25 +2981,53 @@ func TestRPCMuxOperatorHistoryRecommendedLimitWarnings(t *testing.T) {
 	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
 	t.Cleanup(func() { slog.SetDefault(saved) })
 
-	// Values within the recommended bounds emit no warning.
-	warnRPCMuxOperatorHistoryRecommendedLimits(RPCMuxOperatorHistoryConfig{
-		MaxActions:   16,
-		MaxBackups:   2,
-		MaxSizeBytes: 65536,
-		MaxLineBytes: 4096,
-	})
+	secretDir, err := os.MkdirTemp(".", "mux-operator-history-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(secretDir) })
+	cfg := RPCMuxConfig{Log: RPCMuxLogConfig{OTelCompatible: RPCMuxOTelCompatibleLogConfig{
+		FileSecretRoot: secretDir,
+		OperatorHistory: RPCMuxOperatorHistoryConfig{
+			Enabled:      true,
+			Store:        "file://mux-operator-history.jsonl",
+			MaxActions:   16,
+			MaxBackups:   2,
+			MaxSizeBytes: 65536,
+			MaxLineBytes: 4096,
+		},
+	}}}
+	warnings, err := ValidateRPCMuxConfigWithWarnings(cfg)
+	if err != nil {
+		t.Fatalf("ValidateRPCMuxConfigWithWarnings within recommended: %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("unexpected structured warnings for within-recommended config: %v", warnings)
+	}
+	if err := ValidateRPCMuxConfig(cfg); err != nil {
+		t.Fatalf("ValidateRPCMuxConfig within recommended: %v", err)
+	}
 	if buf.Len() != 0 {
-		t.Fatalf("unexpected warning for within-recommended config: %s", buf.String())
+		t.Fatalf("unexpected slog warning for within-recommended config: %s", buf.String())
 	}
 
-	// Values above the recommended bounds (but still valid) emit warnings.
-	warnRPCMuxOperatorHistoryRecommendedLimits(RPCMuxOperatorHistoryConfig{
-		MaxActions:   4096,
-		MaxSizeBytes: 8 << 20,
-	})
+	cfg.Log.OTelCompatible.OperatorHistory.MaxActions = 4096
+	cfg.Log.OTelCompatible.OperatorHistory.MaxSizeBytes = 8 << 20
+	warnings, err = ValidateRPCMuxConfigWithWarnings(cfg)
+	if err != nil {
+		t.Fatalf("ValidateRPCMuxConfigWithWarnings above recommended: %v", err)
+	}
+	if len(warnings) != 2 ||
+		!strings.Contains(warnings[0], "maxActions exceeds recommended") ||
+		!strings.Contains(warnings[1], "maxSizeBytes exceeds recommended") {
+		t.Fatalf("structured recommended-limit warnings = %v, want maxActions and maxSizeBytes", warnings)
+	}
+	if err := ValidateRPCMuxConfig(cfg); err != nil {
+		t.Fatalf("ValidateRPCMuxConfig above recommended: %v", err)
+	}
 	out := buf.String()
 	if !strings.Contains(out, "maxActions exceeds recommended") || !strings.Contains(out, "maxSizeBytes exceeds recommended") {
-		t.Fatalf("expected recommended-limit warnings, got: %s", out)
+		t.Fatalf("expected legacy slog recommended-limit warnings, got: %s", out)
 	}
 }
 
@@ -4519,6 +4562,8 @@ const (
 
 	minOperatorHistoryDebugReplayCooldown = {{.DebugReplayCooldownMinNanos}}
 	maxOperatorHistoryDebugReplayCooldown = {{.DebugReplayCooldownMaxNanos}}
+	minOperatorHistoryAuditValidateCooldown = {{.AuditValidateCooldownMinNanos}}
+	maxOperatorHistoryAuditValidateCooldown = {{.AuditValidateCooldownMaxNanos}}
 )
 
 func main() {
@@ -4540,6 +4585,7 @@ func main() {
 	mustMax(history, "maxSizeBytes", maxOperatorHistorySizeBytes)
 	mustMax(history, "maxLineBytes", maxOperatorHistoryLineBytes)
 	mustRange(history, "debugReplayCooldown", minOperatorHistoryDebugReplayCooldown, maxOperatorHistoryDebugReplayCooldown)
+	mustRange(history, "auditValidateCooldown", minOperatorHistoryAuditValidateCooldown, maxOperatorHistoryAuditValidateCooldown)
 }
 
 func object(in map[string]any, key string) map[string]any {
@@ -4563,7 +4609,7 @@ func mustMax(in map[string]any, key string, max int64) {
 
 // mustRange enforces both bounds for values that carry a semantic minimum. A
 // zero value means "use the built-in default" and is accepted, matching the
-// generated config validation for debugReplayCooldown.
+// generated config validation for cooldown fields.
 func mustRange(in map[string]any, key string, min, max int64) {
 	raw, ok := in[key]
 	if !ok {

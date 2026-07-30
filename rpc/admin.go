@@ -33,6 +33,9 @@ const defaultRPCMuxDebugReplayInterval = time.Second
 const (
 	minRPCMuxDebugReplayCooldown = 100 * time.Millisecond
 	maxRPCMuxDebugReplayCooldown = time.Minute
+
+	minRPCMuxAuditValidateCooldown = minRPCMuxDebugReplayCooldown
+	maxRPCMuxAuditValidateCooldown = maxRPCMuxDebugReplayCooldown
 )
 
 // ServiceSnapshot captures the runtime state of a registered RPC service.

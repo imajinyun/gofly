@@ -1097,6 +1097,12 @@ func TestRPCMuxDiagnosisOperatorHistoryLimits(t *testing.T) {
 	if limits.DebugReplayCooldown != defaultRPCMuxDebugReplayInterval {
 		t.Fatalf("history limits cooldown = %v, want default interval", limits.DebugReplayCooldown)
 	}
+	if limits.MinDebugReplayCooldown != minRPCMuxDebugReplayCooldown ||
+		limits.MaxDebugReplayCooldown != maxRPCMuxDebugReplayCooldown ||
+		limits.MinAuditValidateCooldown != minRPCMuxAuditValidateCooldown ||
+		limits.MaxAuditValidateCooldown != maxRPCMuxAuditValidateCooldown {
+		t.Fatalf("history cooldown limits = %+v, want exported debug and audit validate bounds", limits)
+	}
 }
 
 func TestRPCMuxDiagnosisOperatorHistoryRecommendedLimits(t *testing.T) {

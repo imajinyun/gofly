@@ -272,13 +272,15 @@ func registerRPCMuxDiagnosisOperatorHistoryMetrics(registry *metrics.Registry) {
 // recommended bounds never exceed what the core runtime enforces, so generated
 // validation cannot lag behind the contract.
 type RPCMuxDiagnosisOperatorHistoryHardLimits struct {
-	MaxSizeBytes           int64         `json:"maxSizeBytes"`
-	MaxLineBytes           int64         `json:"maxLineBytes"`
-	MaxActions             int           `json:"maxActions"`
-	MaxBackups             int           `json:"maxBackups"`
-	DebugReplayCooldown    time.Duration `json:"debugReplayCooldown"`
-	MinDebugReplayCooldown time.Duration `json:"minDebugReplayCooldown"`
-	MaxDebugReplayCooldown time.Duration `json:"maxDebugReplayCooldown"`
+	MaxSizeBytes             int64         `json:"maxSizeBytes"`
+	MaxLineBytes             int64         `json:"maxLineBytes"`
+	MaxActions               int           `json:"maxActions"`
+	MaxBackups               int           `json:"maxBackups"`
+	DebugReplayCooldown      time.Duration `json:"debugReplayCooldown"`
+	MinDebugReplayCooldown   time.Duration `json:"minDebugReplayCooldown"`
+	MaxDebugReplayCooldown   time.Duration `json:"maxDebugReplayCooldown"`
+	MinAuditValidateCooldown time.Duration `json:"minAuditValidateCooldown"`
+	MaxAuditValidateCooldown time.Duration `json:"maxAuditValidateCooldown"`
 }
 
 // RPCMuxDiagnosisOperatorHistoryLimits returns the core operator history hard
@@ -286,13 +288,15 @@ type RPCMuxDiagnosisOperatorHistoryHardLimits struct {
 // cooldown range.
 func RPCMuxDiagnosisOperatorHistoryLimits() RPCMuxDiagnosisOperatorHistoryHardLimits {
 	return RPCMuxDiagnosisOperatorHistoryHardLimits{
-		MaxSizeBytes:           maxRPCMuxDiagnosisOperatorStoreSize,
-		MaxLineBytes:           maxRPCMuxDiagnosisOperatorStoreLine,
-		MaxActions:             maxRPCMuxDiagnosisOperatorStoreActions,
-		MaxBackups:             maxRPCMuxDiagnosisOperatorBackupFiles,
-		DebugReplayCooldown:    defaultRPCMuxDebugReplayInterval,
-		MinDebugReplayCooldown: minRPCMuxDebugReplayCooldown,
-		MaxDebugReplayCooldown: maxRPCMuxDebugReplayCooldown,
+		MaxSizeBytes:             maxRPCMuxDiagnosisOperatorStoreSize,
+		MaxLineBytes:             maxRPCMuxDiagnosisOperatorStoreLine,
+		MaxActions:               maxRPCMuxDiagnosisOperatorStoreActions,
+		MaxBackups:               maxRPCMuxDiagnosisOperatorBackupFiles,
+		DebugReplayCooldown:      defaultRPCMuxDebugReplayInterval,
+		MinDebugReplayCooldown:   minRPCMuxDebugReplayCooldown,
+		MaxDebugReplayCooldown:   maxRPCMuxDebugReplayCooldown,
+		MinAuditValidateCooldown: minRPCMuxAuditValidateCooldown,
+		MaxAuditValidateCooldown: maxRPCMuxAuditValidateCooldown,
 	}
 }
 

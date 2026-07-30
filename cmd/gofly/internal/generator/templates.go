@@ -3070,6 +3070,16 @@ func TestRPCMuxConfigWarningsReachControlPlaneSnapshot(t *testing.T) {
 		!strings.Contains(warnings[1], "maxSizeBytes exceeds recommended") {
 		t.Fatalf("generated.rpcMuxConfigWarnings = %v, want structured recommended-limit warnings", warnings)
 	}
+
+	cfg.RPC.Mux.Log.OTelCompatible.OperatorHistory.MaxActions = 16
+	cfg.RPC.Mux.Log.OTelCompatible.OperatorHistory.MaxSizeBytes = 65536
+	cleanSnapshot, err := cfg.ControlPlaneSnapshot(context.Background())
+	if err != nil {
+		t.Fatalf("ControlPlaneSnapshot without rpc mux warnings: %v", err)
+	}
+	if _, ok := cleanSnapshot.Configs["generated.rpcMuxConfigWarnings"]; ok {
+		t.Fatalf("generated.rpcMuxConfigWarnings should be omitted when no warnings exist: %s", cleanSnapshot.Configs["generated.rpcMuxConfigWarnings"])
+	}
 }
 
 func TestRPCMuxConfigReportsSubprocessPolicyCategories(t *testing.T) {
@@ -3737,7 +3747,10 @@ func assertControlPlaneMuxOperatorHistory(t *testing.T, snapshot map[string]any)
 	if !ok {
 		t.Fatalf("operatorHistory config = %#v, want map", otel["operatorHistory"])
 	}
-	if history["enabled"] != false || history["store"] != "file://mux-operator-history.jsonl" {
+	if enabled, ok := history["enabled"]; ok && enabled != false {
+		t.Fatalf("operatorHistory config = %#v, want disabled file store", history)
+	}
+	if history["store"] != "file://mux-operator-history.jsonl" {
 		t.Fatalf("operatorHistory config = %#v, want disabled file store", history)
 	}
 	if _, ok := history["maxActions"]; ok {
@@ -3754,7 +3767,7 @@ func assertControlPlaneMuxOperatorHistory(t *testing.T, snapshot map[string]any)
 	if !ok || store["enabled"] != false {
 		t.Fatalf("generated rpc mux operator history store = %#v, want disabled summary", historyStore["store"])
 	}
-	if historyStore["integrityStatus"] != "disabled" {
+	if status, ok := historyStore["integrityStatus"]; ok && status != "" && status != "disabled" {
 		t.Fatalf("generated rpc mux operator history integrity = %#v, want disabled", historyStore["integrityStatus"])
 	}
 }

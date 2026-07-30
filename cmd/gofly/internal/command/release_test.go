@@ -312,6 +312,8 @@ func TestReleaseGeneratedRPCMuxRetrySmokeCheck(t *testing.T) {
 		evidence["fragmentWindowRefillPolicy"] != true ||
 		evidence["fragmentWindowRefillRuntimeDiagnosis"] != true ||
 		evidence["generatedRefillProfileAdminSmoke"] != true ||
+		evidence["generatedConfigWarningContract"] != true ||
+		evidence["generatedConfigWarningSnapshotKey"] != "generated.rpcMuxConfigWarnings" ||
 		evidence["fragmentMaxDeferredFailFast"] != true ||
 		evidence["generatedPolicyRiskModeValidation"] != true ||
 		evidence["generatedMTLSSuccess"] != true ||

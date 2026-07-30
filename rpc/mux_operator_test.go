@@ -1126,6 +1126,10 @@ func TestRPCMuxDiagnosisOperatorHistoryLimits(t *testing.T) {
 			t.Fatalf("history limits json fields = %v, missing %q", fields, field)
 		}
 	}
+	const wantJSON = `{"maxSizeBytes":67108864,"maxLineBytes":1048576,"maxActions":65536,"maxBackups":3,"debugReplayCooldown":1000000000,"minDebugReplayCooldown":100000000,"maxDebugReplayCooldown":60000000000,"minAuditValidateCooldown":100000000,"maxAuditValidateCooldown":60000000000}`
+	if string(data) != wantJSON {
+		t.Fatalf("history limits json = %s, want golden contract %s", data, wantJSON)
+	}
 }
 
 func TestRPCMuxDiagnosisOperatorHistoryRecommendedLimits(t *testing.T) {

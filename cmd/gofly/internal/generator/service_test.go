@@ -266,10 +266,11 @@ func TestGenerateService(t *testing.T) {
 		`generated.project.resilience`,
 		`assertControlPlaneResilience(t, controlPlane)`,
 		`assertControlPlaneMuxOperatorHistory(t, controlPlane)`,
-		`history["enabled"] != false`,
+		`if enabled, ok := history["enabled"]; ok && enabled != false`,
 		`file://mux-operator-history.jsonl`,
 		`generated.rpcMuxOperatorHistoryStore`,
 		`containsJSONKey(historyStore, "actions")`,
+		`if status, ok := historyStore["integrityStatus"]; ok && status != "" && status != "disabled"`,
 		`"timeout", "rateLimit", "concurrency", "breaker", "retry"`,
 	} {
 		if !strings.Contains(string(smokeData), want) {
@@ -311,6 +312,7 @@ func TestGenerateService(t *testing.T) {
 	if !strings.Contains(string(helmWorkloadData), "kind: ServiceMonitor") || !strings.Contains(string(helmWorkloadData), "prometheus.io/scrape") {
 		t.Fatalf("helm workload missing serviceMonitor/probe annotations:\n%s", helmWorkloadData)
 	}
+	assertGeneratedHelmServiceMonitor(t, helmWorkloadData)
 	prometheusData, err := os.ReadFile(filepath.Join(dir, "deploy", "observability", "prometheus.yaml"))
 	if err != nil {
 		t.Fatal(err)
@@ -637,11 +639,7 @@ func TestGenerateServiceDefaultResilienceProfileReachesRESTRuntime(t *testing.T)
 func assertGeneratedPrometheusAlerts(t *testing.T, data []byte) {
 	t.Helper()
 	alerts := make(map[string]generatedPrometheusAlert)
-	for _, raw := range strings.Split(string(data), "\n---") {
-		raw = strings.TrimSpace(raw)
-		if raw == "" {
-			continue
-		}
+	for _, raw := range splitGeneratedYAMLDocuments(data) {
 		var doc generatedPrometheusDocument
 		if err := yaml.Unmarshal([]byte(raw), &doc); err != nil {
 			t.Fatalf("parse prometheus yaml document: %v\n%s", err, raw)
@@ -684,6 +682,54 @@ func assertGeneratedPrometheusAlerts(t *testing.T, data []byte) {
 	})
 }
 
+func assertGeneratedHelmServiceMonitor(t *testing.T, data []byte) {
+	t.Helper()
+	foundDeployment := false
+	foundServiceMonitor := false
+	for _, raw := range splitGeneratedYAMLDocuments(data) {
+		var doc generatedHelmWorkloadDocument
+		if err := yaml.Unmarshal([]byte(raw), &doc); err != nil {
+			t.Fatalf("parse helm workload yaml document: %v\n%s", err, raw)
+		}
+		switch doc.Kind {
+		case "Deployment":
+			foundDeployment = true
+			annotations := doc.Spec.Template.Metadata.Annotations
+			if annotations["prometheus.io/scrape"] != "true" ||
+				annotations["prometheus.io/path"] != "/admin/metrics" ||
+				annotations["prometheus.io/port"] != "9090" {
+				t.Fatalf("deployment prometheus annotations = %#v, want scrape /admin/metrics on 9090", annotations)
+			}
+		case "ServiceMonitor":
+			foundServiceMonitor = true
+			if doc.Spec.Selector.MatchLabels["app.kubernetes.io/name"] != "hello" {
+				t.Fatalf("serviceMonitor selector = %#v, want generated app label", doc.Spec.Selector.MatchLabels)
+			}
+			if len(doc.Spec.Endpoints) != 1 ||
+				doc.Spec.Endpoints[0].Port != "http" ||
+				doc.Spec.Endpoints[0].Path != "/admin/metrics" ||
+				doc.Spec.Endpoints[0].Interval != "30s" {
+				t.Fatalf("serviceMonitor endpoints = %#v, want http /admin/metrics every 30s", doc.Spec.Endpoints)
+			}
+		}
+	}
+	if !foundDeployment || !foundServiceMonitor {
+		t.Fatalf("helm workload deployment/serviceMonitor presence = deployment:%t serviceMonitor:%t", foundDeployment, foundServiceMonitor)
+	}
+}
+
+func splitGeneratedYAMLDocuments(data []byte) []string {
+	parts := strings.Split(string(data), "\n---")
+	docs := make([]string, 0, len(parts))
+	for _, raw := range parts {
+		raw = strings.TrimSpace(raw)
+		if raw != "" {
+			docs = append(docs, raw)
+		}
+	}
+	return docs
+}
+
 type generatedPrometheusDocument struct {
 	Kind string `yaml:"kind"`
 	Spec struct {
@@ -697,6 +743,25 @@ type generatedPrometheusAlert struct {
 	Alert string `yaml:"alert"`
 	Expr  string `yaml:"expr"`
 	For   string `yaml:"for"`
+}
+
+type generatedHelmWorkloadDocument struct {
+	Kind string `yaml:"kind"`
+	Spec struct {
+		Template struct {
+			Metadata struct {
+				Annotations map[string]string `yaml:"annotations"`
+			} `yaml:"metadata"`
+		} `yaml:"template"`
+		Selector struct {
+			MatchLabels map[string]string `yaml:"matchLabels"`
+		} `yaml:"selector"`
+		Endpoints []struct {
+			Port     string `yaml:"port"`
+			Path     string `yaml:"path"`
+			Interval string `yaml:"interval"`
+		} `yaml:"endpoints"`
+	} `yaml:"spec"`
 }
 
 type generatedPrometheusAlertExpectation struct {

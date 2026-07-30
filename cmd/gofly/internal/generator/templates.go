@@ -2665,6 +2665,15 @@ func (c ControlPlaneContributor) ContributeSnapshot(ctx context.Context, snapsho
 	if err := addGeneratedControlPlaneConfig("rpc", cfg.RPC); err != nil {
 		return err
 	}
+	rpcMuxConfigWarnings, err := ValidateRPCMuxConfigWithWarnings(cfg.RPC.Mux)
+	if err != nil {
+		return fmt.Errorf("validate generated rpc mux config warnings: %w", err)
+	}
+	if len(rpcMuxConfigWarnings) > 0 {
+		if err := addGeneratedControlPlaneConfig("rpcMuxConfigWarnings", rpcMuxConfigWarnings); err != nil {
+			return err
+		}
+	}
 	if err := addGeneratedControlPlaneConfig("admin", struct {
 		Enabled    bool   ` + "`json:\"enabled\"`" + `
 		Addr       string ` + "`json:\"addr\"`" + `
@@ -3028,6 +3037,38 @@ func TestRPCMuxOperatorHistoryRecommendedLimitWarnings(t *testing.T) {
 	out := buf.String()
 	if !strings.Contains(out, "maxActions exceeds recommended") || !strings.Contains(out, "maxSizeBytes exceeds recommended") {
 		t.Fatalf("expected legacy slog recommended-limit warnings, got: %s", out)
+	}
+}
+
+func TestRPCMuxConfigWarningsReachControlPlaneSnapshot(t *testing.T) {
+	secretDir, err := os.MkdirTemp(".", "mux-operator-history-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(secretDir) })
+	cfg := Config{
+		Service: serviceConfFixture("hello"),
+		Rest:    rest.Config{Name: "hello", Host: "127.0.0.1", Port: 8080},
+	}
+	cfg.RPC.Mux.Log.OTelCompatible.FileSecretRoot = secretDir
+	cfg.RPC.Mux.Log.OTelCompatible.OperatorHistory = RPCMuxOperatorHistoryConfig{
+		Enabled:      true,
+		Store:        "file://mux-operator-history.jsonl",
+		MaxActions:   4096,
+		MaxSizeBytes: 8 << 20,
+	}
+	snapshot, err := cfg.ControlPlaneSnapshot(context.Background())
+	if err != nil {
+		t.Fatalf("ControlPlaneSnapshot with rpc mux warnings: %v", err)
+	}
+	var warnings []string
+	if err := json.Unmarshal(snapshot.Configs["generated.rpcMuxConfigWarnings"], &warnings); err != nil {
+		t.Fatalf("decode generated.rpcMuxConfigWarnings: %v", err)
+	}
+	if len(warnings) != 2 ||
+		!strings.Contains(warnings[0], "maxActions exceeds recommended") ||
+		!strings.Contains(warnings[1], "maxSizeBytes exceeds recommended") {
+		t.Fatalf("generated.rpcMuxConfigWarnings = %v, want structured recommended-limit warnings", warnings)
 	}
 }
 

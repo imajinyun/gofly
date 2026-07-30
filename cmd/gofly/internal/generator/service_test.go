@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -319,7 +320,7 @@ func TestGenerateService(t *testing.T) {
 			t.Fatalf("prometheus assets missing %q:\n%s", want, prometheusData)
 		}
 	}
-	assertMuxOperatorAuditSchemaViolationAlert(t, prometheusData)
+	assertGeneratedPrometheusAlerts(t, prometheusData)
 	otelData, err := os.ReadFile(filepath.Join(dir, "deploy", "observability", "otel-collector.yaml"))
 	if err != nil {
 		t.Fatal(err)
@@ -487,6 +488,8 @@ func TestGenerateService(t *testing.T) {
 		"func (c DiscoveryConfig) RegisterOptions() []discovery.RegisterOption",
 		"func ValidateDiscoveryConfig(c DiscoveryConfig) error",
 		`"generated.project.contract"`,
+		"ValidateRPCMuxConfigWithWarnings(cfg.RPC.Mux)",
+		`addGeneratedControlPlaneConfig("rpcMuxConfigWarnings", rpcMuxConfigWarnings)`,
 		"func (c Config) OpenAPIEnabled() bool",
 		"func (c Config) OpenAPIInfo() rest.OpenAPIInfo",
 		"func ValidateOpenAPIConfig(c Config) error",
@@ -631,72 +634,100 @@ func TestGenerateServiceDefaultResilienceProfileReachesRESTRuntime(t *testing.T)
 	}
 }
 
-func assertMuxOperatorAuditSchemaViolationAlert(t *testing.T, data []byte) {
+func assertGeneratedPrometheusAlerts(t *testing.T, data []byte) {
 	t.Helper()
-	var docs []struct {
-		Kind string `yaml:"kind"`
-		Spec struct {
-			Groups []struct {
-				Rules []struct {
-					Alert string `yaml:"alert"`
-					Expr  string `yaml:"expr"`
-					For   string `yaml:"for"`
-				} `yaml:"rules"`
-			} `yaml:"groups"`
-		} `yaml:"spec"`
-	}
+	alerts := make(map[string]generatedPrometheusAlert)
 	for _, raw := range strings.Split(string(data), "\n---") {
 		raw = strings.TrimSpace(raw)
 		if raw == "" {
 			continue
 		}
-		var doc struct {
-			Kind string `yaml:"kind"`
-			Spec struct {
-				Groups []struct {
-					Rules []struct {
-						Alert string `yaml:"alert"`
-						Expr  string `yaml:"expr"`
-						For   string `yaml:"for"`
-					} `yaml:"rules"`
-				} `yaml:"groups"`
-			} `yaml:"spec"`
-		}
+		var doc generatedPrometheusDocument
 		if err := yaml.Unmarshal([]byte(raw), &doc); err != nil {
 			t.Fatalf("parse prometheus yaml document: %v\n%s", err, raw)
 		}
-		docs = append(docs, doc)
-	}
-	for _, doc := range docs {
 		if doc.Kind != "PrometheusRule" {
 			continue
 		}
 		for _, group := range doc.Spec.Groups {
 			for _, rule := range group.Rules {
-				if rule.Alert != "GoflyMuxOperatorAuditSchemaViolation" {
-					continue
-				}
-				if rule.For != "5m" {
-					t.Fatalf("violation alert duration = %q, want 5m", rule.For)
-				}
-				if !validMuxOperatorAuditViolationPromQL(rule.Expr) {
-					t.Fatalf("violation alert expr = %q, want low-cardinality schema violation rate", rule.Expr)
-				}
-				return
+				alerts[rule.Alert] = rule
 			}
 		}
 	}
-	t.Fatalf("missing GoflyMuxOperatorAuditSchemaViolation alert in prometheus yaml:\n%s", data)
+
+	assertGeneratedPrometheusAlert(t, alerts, generatedPrometheusAlertExpectation{
+		name:        "GoflyHighErrorRate",
+		forDuration: "10m",
+		mustContain: []string{
+			`sum(rate(http_requests_total{service="hello",code=~"5.."}[5m]))`,
+			`sum(rate(http_requests_total{service="hello"}[5m]))`,
+			"> 0.05",
+		},
+	})
+	assertGeneratedPrometheusAlert(t, alerts, generatedPrometheusAlertExpectation{
+		name:        "GoflyHighP99Latency",
+		forDuration: "10m",
+		mustContain: []string{
+			"histogram_quantile(0.99,",
+			`sum(rate(http_request_duration_seconds_bucket{service="hello"}[5m])) by (le)`,
+			"> 1",
+		},
+	})
+	assertGeneratedPrometheusAlert(t, alerts, generatedPrometheusAlertExpectation{
+		name:        "GoflyMuxOperatorAuditSchemaViolation",
+		forDuration: "5m",
+		mustContain: []string{
+			"sum(rate(gofly_rpc_mux_operator_audit_schema_violation_total[5m])) by (action)",
+			"> 0",
+		},
+	})
 }
 
-func validMuxOperatorAuditViolationPromQL(expr string) bool {
-	fields := strings.Fields(expr)
-	return len(fields) == 5 &&
-		fields[0] == "sum(rate(gofly_rpc_mux_operator_audit_schema_violation_total[5m]))" &&
-		fields[1] == "by" &&
-		fields[2] == "(action)" &&
-		fields[3] == ">" &&
-		fields[4] == "0"
+type generatedPrometheusDocument struct {
+	Kind string `yaml:"kind"`
+	Spec struct {
+		Groups []struct {
+			Rules []generatedPrometheusAlert `yaml:"rules"`
+		} `yaml:"groups"`
+	} `yaml:"spec"`
+}
+
+type generatedPrometheusAlert struct {
+	Alert string `yaml:"alert"`
+	Expr  string `yaml:"expr"`
+	For   string `yaml:"for"`
+}
+
+type generatedPrometheusAlertExpectation struct {
+	name        string
+	forDuration string
+	mustContain []string
+}
+
+func assertGeneratedPrometheusAlert(t *testing.T, alerts map[string]generatedPrometheusAlert, expect generatedPrometheusAlertExpectation) {
+	t.Helper()
+	alert, ok := alerts[expect.name]
+	if !ok {
+		t.Fatalf("missing %s alert in prometheus rules; got alerts %v", expect.name, sortedGeneratedAlertNames(alerts))
+	}
+	if alert.For != expect.forDuration {
+		t.Fatalf("%s alert duration = %q, want %q", expect.name, alert.For, expect.forDuration)
+	}
+	for _, fragment := range expect.mustContain {
+		if !strings.Contains(alert.Expr, fragment) {
+			t.Fatalf("%s alert expr = %q, missing PromQL fragment %q", expect.name, alert.Expr, fragment)
+		}
+	}
+}
+
+func sortedGeneratedAlertNames(alerts map[string]generatedPrometheusAlert) []string {
+	names := make([]string, 0, len(alerts))
+	for name := range alerts {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 func hasRuntimeMiddlewareLayer(layers []coreruntime.MiddlewareLayer, name string) bool {
@@ -840,6 +871,54 @@ func assertGeneratedProductionCheckBehavior(t *testing.T, dir string) {
 	output, err = check.CombinedOutput()
 	if err != nil {
 		t.Fatalf("production-check failed for valid cooldown config: %v\n%s", err, output)
+	}
+
+	// auditValidateCooldown has its own exported range. Zero keeps the default
+	// behavior and must pass, while values outside the accepted range fail.
+	history["debugReplayCooldown"] = float64(0)
+	history["auditValidateCooldown"] = float64(0)
+	zeroAuditCooldown, err := json.MarshalIndent(formatted, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal zero audit validate cooldown production config: %v", err)
+	}
+	if err := os.WriteFile(configPath, zeroAuditCooldown, 0o644); err != nil {
+		t.Fatalf("write zero audit validate cooldown production config: %v", err)
+	}
+	check = exec.Command("sh", script)
+	check.Dir = dir
+	output, err = check.CombinedOutput()
+	if err != nil {
+		t.Fatalf("production-check failed for zero audit validate cooldown config: %v\n%s", err, output)
+	}
+
+	history["auditValidateCooldown"] = float64(50000000)
+	smallAuditCooldown, err := json.MarshalIndent(formatted, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal small audit validate cooldown production config: %v", err)
+	}
+	if err := os.WriteFile(configPath, smallAuditCooldown, 0o644); err != nil {
+		t.Fatalf("write small audit validate cooldown production config: %v", err)
+	}
+	check = exec.Command("sh", script)
+	check.Dir = dir
+	output, err = check.CombinedOutput()
+	if err == nil || !strings.Contains(string(output), "auditValidateCooldown must be between 100000000 and 60000000000") {
+		t.Fatalf("production-check small audit validate cooldown output = err:%v\n%s", err, output)
+	}
+
+	history["auditValidateCooldown"] = float64(120000000000)
+	largeAuditCooldown, err := json.MarshalIndent(formatted, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal large audit validate cooldown production config: %v", err)
+	}
+	if err := os.WriteFile(configPath, largeAuditCooldown, 0o644); err != nil {
+		t.Fatalf("write large audit validate cooldown production config: %v", err)
+	}
+	check = exec.Command("sh", script)
+	check.Dir = dir
+	output, err = check.CombinedOutput()
+	if err == nil || !strings.Contains(string(output), "auditValidateCooldown must be between 100000000 and 60000000000") {
+		t.Fatalf("production-check large audit validate cooldown output = err:%v\n%s", err, output)
 	}
 }
 
@@ -1399,6 +1478,7 @@ func TestGenerateNewServiceVariantsBoundaries(t *testing.T) {
 		"func ValidateRPCMuxConfigWithWarnings(c RPCMuxConfig) ([]string, error)",
 		"rpcMuxOperatorHistoryRecommendedLimitWarnings",
 		"logRPCMuxConfigWarnings",
+		`addGeneratedControlPlaneConfig("rpcMuxConfigWarnings", rpcMuxConfigWarnings)`,
 		"rpc.RPCMuxDiagnosisOperatorHistoryRecommendedLimits()",
 		"limits.MinDebugReplayCooldown",
 		"limits.MinAuditValidateCooldown",

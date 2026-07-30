@@ -1103,6 +1103,29 @@ func TestRPCMuxDiagnosisOperatorHistoryLimits(t *testing.T) {
 		limits.MaxAuditValidateCooldown != maxRPCMuxAuditValidateCooldown {
 		t.Fatalf("history cooldown limits = %+v, want exported debug and audit validate bounds", limits)
 	}
+	data, err := json.Marshal(limits)
+	if err != nil {
+		t.Fatalf("marshal history limits: %v", err)
+	}
+	var fields map[string]any
+	if err := json.Unmarshal(data, &fields); err != nil {
+		t.Fatalf("unmarshal history limits json: %v", err)
+	}
+	for _, field := range []string{
+		"maxSizeBytes",
+		"maxLineBytes",
+		"maxActions",
+		"maxBackups",
+		"debugReplayCooldown",
+		"minDebugReplayCooldown",
+		"maxDebugReplayCooldown",
+		"minAuditValidateCooldown",
+		"maxAuditValidateCooldown",
+	} {
+		if _, ok := fields[field]; !ok {
+			t.Fatalf("history limits json fields = %v, missing %q", fields, field)
+		}
+	}
 }
 
 func TestRPCMuxDiagnosisOperatorHistoryRecommendedLimits(t *testing.T) {

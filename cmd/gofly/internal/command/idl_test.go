@@ -2342,6 +2342,7 @@ func TestExecuteAIManifestJSONEnvelope(t *testing.T) {
 		commands["release check"].OutputContract.Semantics["generatedRPCMuxRetryFamily"] == "" ||
 		!strings.Contains(commands["release check"].OutputContract.Semantics["rpcMuxAdapterEvidenceFamily"], "rpc-mux-adapter-evidence") ||
 		!strings.Contains(commands["release check"].OutputContract.Semantics["generatedRPCMuxRetryFamily"], "generated-rpc-mux-retry-smoke") ||
+		!strings.Contains(commands["release check"].OutputContract.Semantics["generatedRPCMuxRetryFamily"], "generated.rpcMuxConfigWarnings") ||
 		!commandContainsString(commands["release check"].OutputContract.EventFields, "evidence") {
 		t.Fatalf("release check output contract = %+v, want aggregation and rpc mux evidence family fields", commands["release check"].OutputContract)
 	}

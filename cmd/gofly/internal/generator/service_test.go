@@ -296,6 +296,7 @@ func TestGenerateService(t *testing.T) {
 			t.Fatalf("k8s production manifest missing %q:\n%s", want, kubeData)
 		}
 	}
+	assertGeneratedKubernetesManifests(t, kubeData)
 	helmValuesData, err := os.ReadFile(filepath.Join(dir, "deploy", "helm", "values.yaml"))
 	if err != nil {
 		t.Fatal(err)
@@ -718,6 +719,53 @@ func assertGeneratedHelmServiceMonitor(t *testing.T, data []byte) {
 	}
 }
 
+func assertGeneratedKubernetesManifests(t *testing.T, data []byte) {
+	t.Helper()
+	found := map[string]bool{}
+	for _, raw := range splitGeneratedYAMLDocuments(data) {
+		var doc generatedKubernetesDocument
+		if err := yaml.Unmarshal([]byte(raw), &doc); err != nil {
+			t.Fatalf("parse k8s yaml document: %v\n%s", err, raw)
+		}
+		found[doc.Kind] = true
+		switch doc.Kind {
+		case "Deployment":
+			if doc.Spec.Template.Metadata.Labels["app.kubernetes.io/name"] != "hello" {
+				t.Fatalf("deployment pod labels = %#v, want generated app label", doc.Spec.Template.Metadata.Labels)
+			}
+			if len(doc.Spec.Template.Spec.Containers) != 1 ||
+				doc.Spec.Template.Spec.Containers[0].Name != "hello" ||
+				len(doc.Spec.Template.Spec.Containers[0].Ports) != 2 ||
+				doc.Spec.Template.Spec.Containers[0].Ports[0].Name != "http" {
+				t.Fatalf("deployment containers = %#v, want generated http/rpc ports", doc.Spec.Template.Spec.Containers)
+			}
+		case "Service":
+			if doc.Spec.Selector.Labels["app"] != "hello" || len(doc.Spec.Ports) != 2 {
+				t.Fatalf("service selector/ports = %#v/%#v, want generated selector with http/rpc ports", doc.Spec.Selector.Labels, doc.Spec.Ports)
+			}
+		case "HorizontalPodAutoscaler":
+			if doc.Spec.MinReplicas != 2 || doc.Spec.MaxReplicas != 6 {
+				t.Fatalf("hpa replicas = %d/%d, want 2/6", doc.Spec.MinReplicas, doc.Spec.MaxReplicas)
+			}
+		case "PodDisruptionBudget":
+			if doc.Spec.MinAvailable != 1 || doc.Spec.Selector.MatchLabels["app"] != "hello" {
+				t.Fatalf("pdb = minAvailable:%d selector:%#v, want generated availability policy", doc.Spec.MinAvailable, doc.Spec.Selector.MatchLabels)
+			}
+		case "NetworkPolicy":
+			if len(doc.Spec.PolicyTypes) != 2 ||
+				doc.Spec.PolicyTypes[0] != "Ingress" ||
+				doc.Spec.PolicyTypes[1] != "Egress" {
+				t.Fatalf("networkPolicy policyTypes = %#v, want ingress+egress", doc.Spec.PolicyTypes)
+			}
+		}
+	}
+	for _, kind := range []string{"Deployment", "Service", "HorizontalPodAutoscaler", "PodDisruptionBudget", "NetworkPolicy"} {
+		if !found[kind] {
+			t.Fatalf("k8s manifest missing %s document; found=%#v", kind, found)
+		}
+	}
+}
+
 func splitGeneratedYAMLDocuments(data []byte) []string {
 	parts := strings.Split(string(data), "\n---")
 	docs := make([]string, 0, len(parts))
@@ -761,6 +809,38 @@ type generatedHelmWorkloadDocument struct {
 			Path     string `yaml:"path"`
 			Interval string `yaml:"interval"`
 		} `yaml:"endpoints"`
+	} `yaml:"spec"`
+}
+
+type generatedKubernetesDocument struct {
+	Kind string `yaml:"kind"`
+	Spec struct {
+		Selector struct {
+			MatchLabels map[string]string `yaml:"matchLabels"`
+			Labels      map[string]string `yaml:",inline"`
+		} `yaml:"selector"`
+		Ports []struct {
+			Name string `yaml:"name"`
+			Port int    `yaml:"port"`
+		} `yaml:"ports"`
+		Template struct {
+			Metadata struct {
+				Labels map[string]string `yaml:"labels"`
+			} `yaml:"metadata"`
+			Spec struct {
+				Containers []struct {
+					Name  string `yaml:"name"`
+					Ports []struct {
+						Name          string `yaml:"name"`
+						ContainerPort int    `yaml:"containerPort"`
+					} `yaml:"ports"`
+				} `yaml:"containers"`
+			} `yaml:"spec"`
+		} `yaml:"template"`
+		MinReplicas  int      `yaml:"minReplicas"`
+		MaxReplicas  int      `yaml:"maxReplicas"`
+		MinAvailable int      `yaml:"minAvailable"`
+		PolicyTypes  []string `yaml:"policyTypes"`
 	} `yaml:"spec"`
 }
 

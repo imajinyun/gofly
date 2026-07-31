@@ -1504,7 +1504,7 @@ func TestAINewTextHelpAndManifestContract(t *testing.T) {
 				t.Fatalf("%s output contract = %+v", name, contract)
 			}
 		}
-		if contracts["ai manifest"].Semantics["schema"] == "" || contracts["ai control-plane"].Semantics["schema"] == "" || contracts["ai control-plane"].Semantics["determinism"] == "" || contracts["ai control-plane"].Semantics["diff"] == "" || contracts["ai control-plane"].Semantics["consumerAction"] == "" || contracts["ai new"].Semantics["verification"] == "" || contracts["ai doctor"].Semantics["secrets"] == "" {
+		if contracts["ai manifest"].Semantics["schema"] == "" || contracts["ai control-plane"].Semantics["schema"] == "" || contracts["ai control-plane"].Semantics["determinism"] == "" || contracts["ai control-plane"].Semantics["diff"] == "" || contracts["ai control-plane"].Semantics["consumerAction"] == "" || !strings.Contains(contracts["ai control-plane"].Semantics["generatedWarnings"], "generated.rpcMuxConfigWarnings") || contracts["ai new"].Semantics["verification"] == "" || contracts["ai doctor"].Semantics["secrets"] == "" {
 			t.Fatalf("AI output contract semantics = manifest:%+v control-plane:%+v new:%+v doctor:%+v", contracts["ai manifest"], contracts["ai control-plane"], contracts["ai new"], contracts["ai doctor"])
 		}
 	})
@@ -1594,6 +1594,10 @@ func TestAINewTextHelpAndManifestContract(t *testing.T) {
 		}
 		if envelope.Data.Snapshot.Version != "gofly-control-plane.v1" || envelope.Data.Snapshot.Checksum == "" {
 			t.Fatalf("ai control-plane snapshot = %+v, want version and checksum", envelope.Data.Snapshot)
+		}
+		controlPlaneManifest := buildAIControlPlaneManifest()
+		if !commandContainsString(controlPlaneManifest.SnapshotFields, "configs.generated.rpcMuxConfigWarnings") {
+			t.Fatalf("ai control-plane manifest snapshot fields = %+v, want generated warning config contract", controlPlaneManifest.SnapshotFields)
 		}
 		if !envelope.Data.Diff.Changed || envelope.Data.Diff.ChangeType != "initial-snapshot" || envelope.Data.Diff.ToChecksum != envelope.Data.Snapshot.Checksum {
 			t.Fatalf("ai control-plane diff = %+v, want initial snapshot diff", envelope.Data.Diff)

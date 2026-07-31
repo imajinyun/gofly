@@ -356,6 +356,43 @@ func TestReleaseGeneratedRPCMuxRetrySmokeCheckFailureContracts(t *testing.T) {
 		}
 	})
 
+	t.Run("missing generated warning marker fails", func(t *testing.T) {
+		sourcePath, err := resolveReleaseEvidencePath(filepath.Join("cmd", "gofly", "internal", "generator", "templates.go"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		sourceData, err := os.ReadFile(sourcePath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		root := t.TempDir()
+		for _, path := range []string{filepath.Join("cmd", "gofly", "internal", "generator"), "rpc"} {
+			if err := os.MkdirAll(filepath.Join(root, path), 0o750); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module github.com/imajinyun/gofly\n\ngo 1.26\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		source := string(sourceData)
+		source = strings.ReplaceAll(source, `snapshot.Configs["generated.rpcMuxConfigWarnings"]`, "")
+		if err := os.WriteFile(filepath.Join(root, "cmd", "gofly", "internal", "generator", "templates.go"), []byte(source), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		t.Chdir(root)
+		t.Setenv("GO", writeReleaseGoShim(t, "#!/bin/sh\necho skipped\nexit 0\n"))
+		item, blockers := releaseGeneratedRPCMuxRetrySmokeCheck()
+		if item.Status != "fail" || !item.Blocker || len(blockers) != 1 ||
+			blockers[0] != "generated RPC mux retry smoke markers missing" {
+			t.Fatalf("missing warning marker item=%+v blockers=%v", item, blockers)
+		}
+		evidence, ok := item.Evidence["generated-rpc-mux-retry-smoke"].(map[string]any)
+		missing, _ := evidence["missing"].([]string)
+		if !ok || !commandContainsString(missing, `snapshot.Configs["generated.rpcMuxConfigWarnings"]`) {
+			t.Fatalf("missing warning marker evidence = %#v", item.Evidence)
+		}
+	})
+
 	t.Run("runtime proof failure", func(t *testing.T) {
 		shim := writeReleaseGoShim(t, `#!/bin/sh
 echo "runtime proof failed"

@@ -3070,6 +3070,9 @@ func TestRPCMuxConfigWarningsReachControlPlaneSnapshot(t *testing.T) {
 		!strings.Contains(warnings[1], "maxSizeBytes exceeds recommended") {
 		t.Fatalf("generated.rpcMuxConfigWarnings = %v, want structured recommended-limit warnings", warnings)
 	}
+	if !json.Valid(snapshot.Configs["generated.rpc"]) || len(snapshot.Configs["generated.rpc"]) == 0 {
+		t.Fatalf("generated.rpc config should remain valid alongside warnings: %s", snapshot.Configs["generated.rpc"])
+	}
 
 	cfg.RPC.Mux.Log.OTelCompatible.OperatorHistory.MaxActions = 16
 	cfg.RPC.Mux.Log.OTelCompatible.OperatorHistory.MaxSizeBytes = 65536
@@ -3079,6 +3082,9 @@ func TestRPCMuxConfigWarningsReachControlPlaneSnapshot(t *testing.T) {
 	}
 	if _, ok := cleanSnapshot.Configs["generated.rpcMuxConfigWarnings"]; ok {
 		t.Fatalf("generated.rpcMuxConfigWarnings should be omitted when no warnings exist: %s", cleanSnapshot.Configs["generated.rpcMuxConfigWarnings"])
+	}
+	if !json.Valid(cleanSnapshot.Configs["generated.rpc"]) || len(cleanSnapshot.Configs["generated.rpc"]) == 0 {
+		t.Fatalf("generated.rpc config should remain valid without warnings: %s", cleanSnapshot.Configs["generated.rpc"])
 	}
 }
 

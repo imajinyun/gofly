@@ -1408,6 +1408,11 @@ func TestAINewTextHelpAndManifestContract(t *testing.T) {
 				t.Fatalf("control plane snapshot fields missing %q: %+v", want, controlPlane.SnapshotFields)
 			}
 		}
+		for _, want := range []string{"configs.generated.rpcMuxConfigWarningSchema", "configs.generated.controlPlaneSchemaChecksums"} {
+			if !commandContainsString(controlPlane.SnapshotFields, want) {
+				t.Fatalf("control plane generated snapshot fields missing %q: %+v", want, controlPlane.SnapshotFields)
+			}
+		}
 		if !strings.Contains(controlPlane.SecretBoundary, "secret values") || !commandContainsString(controlPlane.ProviderContract, "Load(context.Context) (Snapshot, error)") {
 			t.Fatalf("control plane boundaries = %+v", controlPlane)
 		}
@@ -1504,7 +1509,8 @@ func TestAINewTextHelpAndManifestContract(t *testing.T) {
 				t.Fatalf("%s output contract = %+v", name, contract)
 			}
 		}
-		if contracts["ai manifest"].Semantics["schema"] == "" || contracts["ai control-plane"].Semantics["schema"] == "" || contracts["ai control-plane"].Semantics["determinism"] == "" || contracts["ai control-plane"].Semantics["diff"] == "" || contracts["ai control-plane"].Semantics["consumerAction"] == "" || !strings.Contains(contracts["ai control-plane"].Semantics["generatedWarnings"], "generated.rpcMuxConfigWarnings") || contracts["ai new"].Semantics["verification"] == "" || contracts["ai doctor"].Semantics["secrets"] == "" {
+		generatedWarnings := contracts["ai control-plane"].Semantics["generatedWarnings"]
+		if contracts["ai manifest"].Semantics["schema"] == "" || contracts["ai control-plane"].Semantics["schema"] == "" || contracts["ai control-plane"].Semantics["determinism"] == "" || contracts["ai control-plane"].Semantics["diff"] == "" || contracts["ai control-plane"].Semantics["consumerAction"] == "" || !strings.Contains(generatedWarnings, "generated.rpcMuxConfigWarnings") || !strings.Contains(generatedWarnings, "generated.rpcMuxConfigWarningSchema") || !strings.Contains(generatedWarnings, "generated.controlPlaneSchemaChecksums") || contracts["ai new"].Semantics["verification"] == "" || contracts["ai doctor"].Semantics["secrets"] == "" {
 			t.Fatalf("AI output contract semantics = manifest:%+v control-plane:%+v new:%+v doctor:%+v", contracts["ai manifest"], contracts["ai control-plane"], contracts["ai new"], contracts["ai doctor"])
 		}
 	})
@@ -1598,6 +1604,10 @@ func TestAINewTextHelpAndManifestContract(t *testing.T) {
 		controlPlaneManifest := buildAIControlPlaneManifest()
 		if !commandContainsString(controlPlaneManifest.SnapshotFields, "configs.generated.rpcMuxConfigWarnings") {
 			t.Fatalf("ai control-plane manifest snapshot fields = %+v, want generated warning config contract", controlPlaneManifest.SnapshotFields)
+		}
+		if !commandContainsString(controlPlaneManifest.SnapshotFields, "configs.generated.rpcMuxConfigWarningSchema") ||
+			!commandContainsString(controlPlaneManifest.SnapshotFields, "configs.generated.controlPlaneSchemaChecksums") {
+			t.Fatalf("ai control-plane manifest snapshot fields = %+v, want generated warning schema and checksum contracts", controlPlaneManifest.SnapshotFields)
 		}
 		if !envelope.Data.Diff.Changed || envelope.Data.Diff.ChangeType != "initial-snapshot" || envelope.Data.Diff.ToChecksum != envelope.Data.Snapshot.Checksum {
 			t.Fatalf("ai control-plane diff = %+v, want initial snapshot diff", envelope.Data.Diff)

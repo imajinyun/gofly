@@ -393,8 +393,12 @@ community-growth-check: ## Compatibility no-op; project focus is framework capab
 	$(GO) env GOMOD >/dev/null
 
 .PHONY: contract-docs-check
-contract-docs-check: stable-surface-check generated-version-compat-check generated-upgrade-dry-run-check cli-json-contract-goldens-check cli-configuration-governance-check api-contract-governance-check ## Validate stable CLI JSON and generated contract engineering gates
+contract-docs-check: stable-surface-check generated-version-compat-check generated-upgrade-dry-run-check cli-json-contract-goldens-check cli-configuration-governance-check api-contract-governance-check generated-control-plane-contract-check ## Validate stable CLI JSON and generated contract engineering gates
 	$(GO) env GOMOD >/dev/null
+
+.PHONY: generated-control-plane-contract-check
+generated-control-plane-contract-check: ## Validate generated control-plane warning schema docs, support bundle, and release evidence
+	sh $(SCRIPTS_DIR)/check-generated-control-plane-contract.sh
 
 .PHONY: generated-upgrade-dry-run-check
 generated-upgrade-dry-run-check: generated-output-governance code-generation-governance-check test-generated-matrix ## Validate generated upgrade behavior through generator tests

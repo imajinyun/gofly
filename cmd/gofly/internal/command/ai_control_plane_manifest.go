@@ -13,8 +13,13 @@ func buildAIControlPlaneManifest() aiControlPlaneManifest {
 		SchemaCommand:    "gofly ai control-plane --schema jsonschema",
 		SchemaChecksum:   aiControlPlaneJSONSchemaChecksum(),
 		ProviderContract: []string{"Load(context.Context) (Snapshot, error)", "Watch(context.Context) (<-chan SnapshotEvent, error)", "Source() string when implemented"},
-		SnapshotFields:   []string{"version", "checksum", "services", "configs", "policies", "updatedAt", "metadata", "configs.generated.rpcMuxConfigWarnings"},
-		EventFields:      []string{"snapshot", "source", "diff", "consumerAction", "error"},
+		SnapshotFields: []string{
+			"version", "checksum", "services", "configs", "policies", "updatedAt", "metadata",
+			"configs.generated.rpcMuxConfigWarnings",
+			"configs.generated.rpcMuxConfigWarningSchema",
+			"configs.generated.controlPlaneSchemaChecksums",
+		},
+		EventFields: []string{"snapshot", "source", "diff", "consumerAction", "error"},
 		Capabilities: []string{
 			"stable checksum independent of service ordering and updatedAt",
 			"previous snapshot JSON decoding from raw snapshot, snapshot wrapper or ai control-plane envelope",
@@ -31,6 +36,7 @@ func buildAIControlPlaneManifest() aiControlPlaneManifest {
 			"control-plane contributor for REST governance runtime cache counts across rate limiters, concurrency limiters and breakers",
 			"generated project control-plane contributors for scaffold contract, sanitized runtime config and governance policy snapshots",
 			"generated.rpcMuxConfigWarnings snapshot contract for caller-consumable RPC mux recommended-limit warnings",
+			"generated.rpcMuxConfigWarningSchema exposes gofly.rpc_mux_config_warning.v1 and generated.controlPlaneSchemaChecksums records generated.rpcMuxOperatorAuditSchemas plus aiManifestSchema drift evidence without requiring callers to infer contracts from source code",
 			"ai new --apply --verify runs generated project control-plane snapshot assertions when the scaffold exposes a snapshot contract test",
 			"watch stream with context cancellation",
 			"deduplicated snapshot events by checksum while preserving error events",
@@ -92,7 +98,7 @@ func aiControlPlaneOutputContract() *aiOutputContract {
 			"consumerAction":    "consumerAction maps diff.changeType to a stable agent policy such as skip, load-baseline, refresh-routing-model, reload-governance-gates or full-reconcile",
 			"determinism":       "snapshot checksum is stable across ordering and timestamp changes and excludes secret values",
 			"secrets":           "control-plane output exposes capability metadata and secret boundaries only; secret values are never printed",
-			"generatedWarnings": "generated project snapshots may expose configs.generated.rpcMuxConfigWarnings as a caller-consumable warning list when RPC mux config exceeds recommended production bounds",
+			"generatedWarnings": "generated project snapshots expose configs.generated.rpcMuxConfigWarningSchema and configs.generated.controlPlaneSchemaChecksums; configs.generated.rpcMuxConfigWarnings is omitted when clean and remains []string of JSON warning objects during the compatibility window",
 		},
 	}
 }

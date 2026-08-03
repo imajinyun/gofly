@@ -1,0 +1,71 @@
+{
+  "schema": "gofly.dx_support_bundle.v1",
+  "acceptanceGate": "make generated-control-plane-contract-check",
+  "sourceOfTruth": [
+    "gofly bug --json",
+    "GET /admin/control-plane",
+    "docs/reference/control-plane-contracts.md"
+  ],
+  "surfaces": [
+    {
+      "command": "gofly bug --json",
+      "supportBundleSchema": "gofly.support_bundle.v1",
+      "stableFields": [
+        "tool",
+        "version",
+        "environment",
+        "checks",
+        "supportBundle",
+        "supportBundle.schema",
+        "supportBundle.redaction",
+        "supportBundle.commands",
+        "supportBundle.description",
+        "nextActions"
+      ],
+      "redactionPolicy": [
+        "Authorization",
+        "Cookie",
+        "Set-Cookie",
+        "GOFLY_LLM_*",
+        "*TOKEN*",
+        "*SECRET*",
+        "*PASSWORD*"
+      ],
+      "nextActionRequired": true,
+      "failureGuidance": "Attach gofly bug --json with redacted generated control-plane configs when generated RPC mux warnings or schema checksum drift need diagnosis."
+    },
+    {
+      "command": "GET /admin/control-plane",
+      "stableFields": [
+        "version",
+        "checksum",
+        "configs.generated.rpcMuxConfigWarningSchema",
+        "configs.generated.rpcMuxConfigWarnings",
+        "configs.generated.controlPlaneSchemaChecksums",
+        "metadata"
+      ],
+      "nextActionRequired": false,
+      "failureGuidance": "If generated.rpcMuxConfigWarnings is present, decode each string as a gofly.rpc_mux_config_warning.v1 JSON object; if absent, use generated.rpcMuxConfigWarningSchema and generated.controlPlaneSchemaChecksums to keep parser contracts current."
+    }
+  ],
+  "generatedControlPlaneEvidence": {
+    "schema": "gofly.generated_control_plane_support.v1",
+    "requiredConfigs": [
+      "generated.rpcMuxConfigWarningSchema",
+      "generated.rpcMuxConfigWarnings",
+      "generated.controlPlaneSchemaChecksums"
+    ],
+    "schemaChecksumKeys": [
+      "generated.rpcMuxConfigWarningSchema",
+      "generated.rpcMuxOperatorAuditSchemas",
+      "aiManifestSchema"
+    ],
+    "compatibilityAssessment": {
+      "currentWarningFieldType": "[]string",
+      "entryEncoding": "JSON object string",
+      "targetWarningFieldType": "[]object",
+      "decision": "keep []string until a breaking-version boundary because existing callers may treat warnings as strings",
+      "migrationPath": "new callers should read generated.rpcMuxConfigWarningSchema and decode each warning string as gofly.rpc_mux_config_warning.v1 before the future []object promotion"
+    }
+  }
+}

@@ -1870,6 +1870,7 @@ const configGoTemplate = `package config
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -2009,6 +2010,8 @@ type RPCMuxOperatorHistoryConfig struct {
 const RPCMuxConfigWarningSchema = "gofly.rpc_mux_config_warning.v1"
 
 const RPCMuxConfigWarningJSONSchema = ` + "`" + `{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","additionalProperties":false,"required":["schema","field","message","current","recommended"],"properties":{"schema":{"type":"string","const":"gofly.rpc_mux_config_warning.v1"},"field":{"type":"string","enum":["maxActions","maxBackups","maxSizeBytes","maxLineBytes"]},"message":{"type":"string"},"current":{"type":"number"},"recommended":{"type":"number"}}}` + "`" + `
+
+const AIManifestSchemaID = "https://gofly.dev/schemas/ai-tool-manifest.schema.json"
 
 type RPCMuxOTelSinkConfig struct {
 	Name string ` + "`json:\"name\"`" + `
@@ -2468,6 +2471,23 @@ func logRPCMuxConfigWarnings(warnings []string) {
 	}
 }
 
+func generatedControlPlaneSchemaChecksums() map[string]string {
+	return map[string]string{
+		"generated.rpcMuxConfigWarningSchema": checksumGeneratedControlPlaneSchema(RPCMuxConfigWarningJSONSchema),
+		"generated.rpcMuxOperatorAuditSchemas": checksumGeneratedControlPlaneSchema(rpc.RPCMuxDiagnosisOperatorAuditSchemas()),
+		"aiManifestSchema": checksumGeneratedControlPlaneSchema(AIManifestSchemaID),
+	}
+}
+
+func checksumGeneratedControlPlaneSchema(value any) string {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(data)
+	return fmt.Sprintf("%x", sum[:])
+}
+
 func (c RPCMuxConfig) CandidateTLSConfig() security.TLSConfig {
 	return c.clientTLSConfig()
 }
@@ -2684,6 +2704,9 @@ func (c ControlPlaneContributor) ContributeSnapshot(ctx context.Context, snapsho
 		return err
 	}
 	if err := addGeneratedControlPlaneConfig("rpcMuxConfigWarningSchema", json.RawMessage(RPCMuxConfigWarningJSONSchema)); err != nil {
+		return err
+	}
+	if err := addGeneratedControlPlaneConfig("controlPlaneSchemaChecksums", generatedControlPlaneSchemaChecksums()); err != nil {
 		return err
 	}
 	rpcMuxConfigWarnings, err := ValidateRPCMuxConfigWithWarnings(cfg.RPC.Mux)
@@ -3095,6 +3118,7 @@ func TestRPCMuxConfigWarningsReachControlPlaneSnapshot(t *testing.T) {
 		t.Fatalf("generated.rpcMuxConfigWarnings = %v, want structured recommended-limit warnings", warnings)
 	}
 	assertRPCMuxConfigWarningSchemaSnapshot(t, snapshot)
+	assertControlPlaneSchemaChecksums(t, snapshot)
 	assertRPCMuxConfigWarning(t, warnings[0], "maxActions", float64(4096), float64(1024))
 	assertRPCMuxConfigWarning(t, warnings[1], "maxSizeBytes", float64(8<<20), float64(1<<20))
 	if !json.Valid(snapshot.Configs["generated.rpc"]) || len(snapshot.Configs["generated.rpc"]) == 0 {
@@ -3111,6 +3135,7 @@ func TestRPCMuxConfigWarningsReachControlPlaneSnapshot(t *testing.T) {
 		t.Fatalf("generated.rpcMuxConfigWarnings should be omitted when no warnings exist: %s", cleanSnapshot.Configs["generated.rpcMuxConfigWarnings"])
 	}
 	assertRPCMuxConfigWarningSchemaSnapshot(t, cleanSnapshot)
+	assertControlPlaneSchemaChecksums(t, cleanSnapshot)
 	if !json.Valid(cleanSnapshot.Configs["generated.rpc"]) || len(cleanSnapshot.Configs["generated.rpc"]) == 0 {
 		t.Fatalf("generated.rpc config should remain valid without warnings: %s", cleanSnapshot.Configs["generated.rpc"])
 	}
@@ -3127,6 +3152,19 @@ func assertRPCMuxConfigWarningSchemaSnapshot(t *testing.T, snapshot controlplane
 		t.Fatalf("decode generated.rpcMuxConfigWarningSchema: %v", err)
 	}
 	assertRPCMuxConfigWarningSchemaMap(t, schema)
+}
+
+func assertControlPlaneSchemaChecksums(t *testing.T, snapshot controlplane.Snapshot) {
+	t.Helper()
+	var checksums map[string]string
+	if err := json.Unmarshal(snapshot.Configs["generated.controlPlaneSchemaChecksums"], &checksums); err != nil {
+		t.Fatalf("decode generated.controlPlaneSchemaChecksums: %v", err)
+	}
+	for _, key := range []string{"generated.rpcMuxConfigWarningSchema", "generated.rpcMuxOperatorAuditSchemas", "aiManifestSchema"} {
+		if checksums[key] == "" {
+			t.Fatalf("generated.controlPlaneSchemaChecksums[%s] is empty: %#v", key, checksums)
+		}
+	}
 }
 
 func assertRPCMuxConfigWarning(t *testing.T, raw string, field string, current float64, recommended float64) {
@@ -3640,7 +3678,28 @@ func TestGeneratedProductionServiceSmoke(t *testing.T) {
 	rpcAddr := reserveLocalAddr(t)
 	adminAddr := reserveLocalAddr(t)
 	rewriteSmokeConfig(t, repo, restAddr, rpcAddr, adminAddr)
+	assertInvalidRequestEnvelope(t)
+	controlPlane := runGeneratedControlPlaneSmoke(t, repo, restAddr, adminAddr)
+	metadata, ok := controlPlane["metadata"].(map[string]any)
+	if !ok || metadata["generated.project"] != "available" || metadata["generated.project.runtime"] != "service,rest,rpc,governance,discovery" {
+		t.Fatalf("control-plane metadata = %#v, want generated project runtime markers", metadata)
+	}
+	if metadata["generated.project.resilience"] != "timeout,rate,concurrency,breaker,retry" {
+		t.Fatalf("control-plane resilience metadata = %#v, want generated resilience marker", metadata)
+	}
+	assertControlPlaneResilience(t, controlPlane)
+	assertControlPlaneMuxOperatorHistory(t, controlPlane)
 
+	recommendedRestAddr := reserveLocalAddr(t)
+	recommendedRPCAddr := reserveLocalAddr(t)
+	recommendedAdminAddr := reserveLocalAddr(t)
+	restoreRecommendedSmokeConfig(t, repo, recommendedRestAddr, recommendedRPCAddr, recommendedAdminAddr)
+	recommendedControlPlane := runGeneratedControlPlaneSmoke(t, repo, recommendedRestAddr, recommendedAdminAddr)
+	assertControlPlaneMuxConfigWarningsCleared(t, recommendedControlPlane)
+}
+
+func runGeneratedControlPlaneSmoke(t *testing.T, repo string, restAddr string, adminAddr string) map[string]any {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "go", "run", "./cmd/{{.Name}}")
@@ -3659,49 +3718,12 @@ func TestGeneratedProductionServiceSmoke(t *testing.T) {
 			stopGeneratedService(t, cmd, &output)
 		}
 	})
-
 	waitHTTPStatus(t, ctx, "http://"+restAddr+"/healthz", http.StatusOK, &output)
 	waitOpenAPI(t, ctx, "http://"+restAddr+"/openapi.json", &output)
-	assertInvalidRequestEnvelope(t)
 	controlPlane := waitControlPlane(t, ctx, "http://"+adminAddr+"/admin/control-plane", &output)
-	metadata, ok := controlPlane["metadata"].(map[string]any)
-	if !ok || metadata["generated.project"] != "available" || metadata["generated.project.runtime"] != "service,rest,rpc,governance,discovery" {
-		t.Fatalf("control-plane metadata = %#v, want generated project runtime markers", metadata)
-	}
-	if metadata["generated.project.resilience"] != "timeout,rate,concurrency,breaker,retry" {
-		t.Fatalf("control-plane resilience metadata = %#v, want generated resilience marker", metadata)
-	}
-	assertControlPlaneResilience(t, controlPlane)
-	assertControlPlaneMuxOperatorHistory(t, controlPlane)
 	stopGeneratedService(t, cmd, &output)
 	stopped = true
-
-	recommendedRestAddr := reserveLocalAddr(t)
-	recommendedRPCAddr := reserveLocalAddr(t)
-	recommendedAdminAddr := reserveLocalAddr(t)
-	restoreRecommendedSmokeConfig(t, repo, recommendedRestAddr, recommendedRPCAddr, recommendedAdminAddr)
-	recommendedCtx, recommendedCancel := context.WithTimeout(context.Background(), 45*time.Second)
-	defer recommendedCancel()
-	recommendedCmd := exec.CommandContext(recommendedCtx, "go", "run", "./cmd/{{.Name}}")
-	recommendedCmd.Dir = repo
-	recommendedCmd.Env = append(os.Environ(), "GOFLAGS=-count=1")
-	recommendedCmd.WaitDelay = 3 * time.Second
-	recommendedOutput := strings.Builder{}
-	recommendedCmd.Stdout = &recommendedOutput
-	recommendedCmd.Stderr = &recommendedOutput
-	if err := recommendedCmd.Start(); err != nil {
-		t.Fatalf("start generated service with recommended mux config: %v", err)
-	}
-	recommendedStopped := false
-	t.Cleanup(func() {
-		if !recommendedStopped {
-			stopGeneratedService(t, recommendedCmd, &recommendedOutput)
-		}
-	})
-	recommendedControlPlane := waitControlPlane(t, recommendedCtx, "http://"+recommendedAdminAddr+"/admin/control-plane", &recommendedOutput)
-	assertControlPlaneMuxConfigWarningsCleared(t, recommendedControlPlane)
-	stopGeneratedService(t, recommendedCmd, &recommendedOutput)
-	recommendedStopped = true
+	return controlPlane
 }
 
 func generatedProjectRoot(t *testing.T) string {
@@ -3797,13 +3819,13 @@ func stopGeneratedService(t *testing.T, cmd *exec.Cmd, output *strings.Builder) 
 	go func() { done <- cmd.Wait() }()
 	select {
 	case <-done:
-	case <-time.After(3 * time.Second):
+	case <-time.After(5 * time.Second):
 		if cmd.Process != nil {
 			_ = cmd.Process.Kill()
 		}
 		select {
 		case <-done:
-		case <-time.After(3 * time.Second):
+		case <-time.After(2 * time.Second):
 			t.Logf("generated service process did not exit cleanly after kill; service output:\n%s", output.String())
 		}
 	}
@@ -3948,6 +3970,7 @@ func assertControlPlaneMuxOperatorHistory(t *testing.T, snapshot map[string]any)
 		t.Fatalf("generated.rpcMuxConfigWarnings = %#v, want two consumable warnings", configs["generated.rpcMuxConfigWarnings"])
 	}
 	assertRPCMuxConfigWarningSchemaConfig(t, configs)
+	assertControlPlaneSchemaChecksumConfig(t, configs)
 	assertRPCMuxConfigWarningValue(t, warnings[0], "maxActions", 4096, 1024)
 	assertRPCMuxConfigWarningValue(t, warnings[1], "maxSizeBytes", 8388608, 1048576)
 }
@@ -3959,6 +3982,7 @@ func assertControlPlaneMuxConfigWarningsCleared(t *testing.T, snapshot map[strin
 		t.Fatalf("control-plane configs = %#v, want generated configs", snapshot["configs"])
 	}
 	assertRPCMuxConfigWarningSchemaConfig(t, configs)
+	assertControlPlaneSchemaChecksumConfig(t, configs)
 	if warnings, ok := configs["generated.rpcMuxConfigWarnings"]; ok {
 		t.Fatalf("generated.rpcMuxConfigWarnings = %#v, want warning blob removed after recommended config restore", warnings)
 	}
@@ -3979,6 +4003,19 @@ func assertRPCMuxConfigWarningSchemaConfig(t *testing.T, configs map[string]any)
 	}
 	if _, ok := properties["recommended"]; !ok {
 		t.Fatalf("generated.rpcMuxConfigWarningSchema properties = %#v, want recommended field", properties)
+	}
+}
+
+func assertControlPlaneSchemaChecksumConfig(t *testing.T, configs map[string]any) {
+	t.Helper()
+	checksums, ok := configs["generated.controlPlaneSchemaChecksums"].(map[string]any)
+	if !ok {
+		t.Fatalf("generated.controlPlaneSchemaChecksums = %#v, want checksum map", configs["generated.controlPlaneSchemaChecksums"])
+	}
+	for _, key := range []string{"generated.rpcMuxConfigWarningSchema", "generated.rpcMuxOperatorAuditSchemas", "aiManifestSchema"} {
+		if checksums[key] == "" {
+			t.Fatalf("generated.controlPlaneSchemaChecksums[%s] is empty: %#v", key, checksums)
+		}
 	}
 }
 

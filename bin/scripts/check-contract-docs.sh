@@ -23,6 +23,8 @@ checks = {
         '## Consumer action object',
         'gofly-control-plane.v1',
         'secretBoundary',
+        'generated.rpcMuxConfigWarningSchema',
+        'generated.controlPlaneSchemaChecksums',
     ],
     'docs/reference/api-surface.md': [
         'cli-json-contracts.md',

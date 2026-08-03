@@ -52,6 +52,8 @@ missing = {
 }
 if missing:
     raise SystemExit(f"generated RPC mux mTLS success evidence drifted: {missing!r}")
+if not evidence.get("generatedConfigWarningSchemaChecksum"):
+    raise SystemExit("generated RPC mux evidence missing generatedConfigWarningSchemaChecksum")
 
 markers = evidence.get("generatedSuccessMarkers") or []
 for marker in (
@@ -75,8 +77,12 @@ for marker in (
     "ValidateRPCMuxConfigWithWarnings(cfg.RPC.Mux)",
     'addGeneratedControlPlaneConfig("rpcMuxConfigWarnings", rpcMuxConfigWarnings)',
     'addGeneratedControlPlaneConfig("rpcMuxConfigWarningSchema", json.RawMessage(RPCMuxConfigWarningJSONSchema))',
+    'addGeneratedControlPlaneConfig("controlPlaneSchemaChecksums", generatedControlPlaneSchemaChecksums())',
     'snapshot.Configs["generated.rpcMuxConfigWarnings"]',
     'snapshot.Configs["generated.rpcMuxConfigWarningSchema"]',
+    "generated.controlPlaneSchemaChecksums",
+    "generated.rpcMuxOperatorAuditSchemas",
+    "aiManifestSchema",
     'const RPCMuxConfigWarningSchema = "gofly.rpc_mux_config_warning.v1"',
     "const RPCMuxConfigWarningJSONSchema = ",
     '"required":["schema","field","message","current","recommended"]',
@@ -93,7 +99,9 @@ for marker in (
     'mtlsRefillTraceAttrs["rpc.mux.manager.refill_profile.max_deferred_fragments"].AsInt64() != 2',
     'mtlsRefillTraceAttrs["rpc.mux.manager.refill_profile.last_flow_control_event"].AsString() != "fragment_window_refill"',
     'mtlsRefillTraceAttrs["rpc.mux.event.flow_control.count"].AsInt64() < 1',
+    "restoreRecommendedSmokeConfig(t, repo, recommendedRestAddr, recommendedRPCAddr, recommendedAdminAddr)",
     "assertControlPlaneMuxConfigWarningsCleared(t, recommendedControlPlane)",
+    "assertControlPlaneSchemaChecksumConfig(t, configs)",
     '"\\"negotiated_protocol\\":\\"gofly-mux/generated-mtls-test\\""',
     '"\\"mutual_tls\\":true"',
     '"\\"refill_profile_stream_window_refill_ratio\\":0.5"',

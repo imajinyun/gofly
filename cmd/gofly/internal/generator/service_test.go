@@ -266,11 +266,19 @@ func TestGenerateService(t *testing.T) {
 		`generated.project.resilience`,
 		`assertControlPlaneResilience(t, controlPlane)`,
 		`assertControlPlaneMuxOperatorHistory(t, controlPlane)`,
-		`if enabled, ok := history["enabled"]; ok && enabled != false`,
+		`if history["enabled"] != true`,
 		`file://mux-operator-history.jsonl`,
 		`generated.rpcMuxOperatorHistoryStore`,
 		`containsJSONKey(historyStore, "actions")`,
-		`if status, ok := historyStore["integrityStatus"]; ok && status != "" && status != "disabled"`,
+		`store["enabled"] != true || store["kind"] != "file"`,
+		`rewriteSmokeConfigWithOperatorHistory(t, repo, restAddr, rpcAddr, adminAddr, 4096, 8388608)`,
+		`rewriteSmokeConfigWithOperatorHistory(t, repo, restAddr, rpcAddr, adminAddr, 16, 65536)`,
+		`generated.rpcMuxConfigWarnings`,
+		`generated.rpcMuxConfigWarningSchema`,
+		`assertRPCMuxConfigWarningValue(t, warnings[0], "maxActions", 4096, 1024)`,
+		`assertControlPlaneMuxConfigWarningsCleared(t, recommendedControlPlane)`,
+		`const rpcMuxConfigWarningSchema = "gofly.rpc_mux_config_warning.v1"`,
+		`gofly.rpc_mux_config_warning.v1`,
 		`"timeout", "rateLimit", "concurrency", "breaker", "retry"`,
 	} {
 		if !strings.Contains(string(smokeData), want) {
@@ -331,6 +339,7 @@ func TestGenerateService(t *testing.T) {
 	if !strings.Contains(string(otelData), "receivers:") || !strings.Contains(string(otelData), "otlp:") || !strings.Contains(string(otelData), "service.name") {
 		t.Fatalf("otel collector asset missing pipeline:\n%s", otelData)
 	}
+	assertGeneratedOTelCollector(t, otelData)
 	grafanaData, err := os.ReadFile(filepath.Join(dir, "deploy", "observability", "grafana-dashboard.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -338,6 +347,7 @@ func TestGenerateService(t *testing.T) {
 	if !json.Valid(grafanaData) || !strings.Contains(string(grafanaData), "Logs by trace_id") {
 		t.Fatalf("grafana dashboard should be valid json with trace log panel:\n%s", grafanaData)
 	}
+	assertGeneratedGrafanaDashboard(t, grafanaData)
 	logsData, err := os.ReadFile(filepath.Join(dir, "deploy", "observability", "logs-correlation.yaml"))
 	if err != nil {
 		t.Fatal(err)
@@ -347,6 +357,7 @@ func TestGenerateService(t *testing.T) {
 			t.Fatalf("logs correlation asset missing %q:\n%s", want, logsData)
 		}
 	}
+	assertGeneratedLogsCorrelation(t, logsData)
 	checkData, err := os.ReadFile(filepath.Join(dir, "bin", "production-check.sh"))
 	if err != nil {
 		t.Fatal(err)
@@ -766,6 +777,100 @@ func assertGeneratedKubernetesManifests(t *testing.T, data []byte) {
 	}
 }
 
+func assertGeneratedOTelCollector(t *testing.T, data []byte) {
+	t.Helper()
+	var doc generatedConfigMapDocument
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		t.Fatalf("parse otel collector yaml: %v\n%s", err, data)
+	}
+	var config generatedOTelCollectorConfig
+	if err := yaml.Unmarshal([]byte(doc.Data["otel-collector-config.yaml"]), &config); err != nil {
+		t.Fatalf("parse otel collector config payload: %v\n%s", err, doc.Data["otel-collector-config.yaml"])
+	}
+	if _, ok := config.Receivers.OTLP.Protocols["grpc"]; !ok {
+		t.Fatalf("otel collector receivers = %#v, want otlp grpc/http", config.Receivers.OTLP.Protocols)
+	}
+	if _, ok := config.Receivers.OTLP.Protocols["http"]; !ok {
+		t.Fatalf("otel collector receivers = %#v, want otlp grpc/http", config.Receivers.OTLP.Protocols)
+	}
+	if len(config.Service.Pipelines.Traces.Receivers) != 1 ||
+		config.Service.Pipelines.Traces.Receivers[0] != "otlp" ||
+		len(config.Service.Pipelines.Metrics.Exporters) != 1 ||
+		config.Service.Pipelines.Metrics.Exporters[0] != "logging" {
+		t.Fatalf("otel collector pipelines = %#v, want traces/metrics through otlp/logging", config.Service.Pipelines)
+	}
+	foundServiceName := false
+	for _, attr := range config.Processors.Resource.Attributes {
+		if attr.Key == "service.name" && attr.Value == "hello" && attr.Action == "upsert" {
+			foundServiceName = true
+		}
+	}
+	if !foundServiceName {
+		t.Fatalf("otel collector resource attributes = %#v, want service.name upsert", config.Processors.Resource.Attributes)
+	}
+}
+
+func assertGeneratedLogsCorrelation(t *testing.T, data []byte) {
+	t.Helper()
+	var doc generatedConfigMapDocument
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		t.Fatalf("parse logs correlation yaml: %v\n%s", err, data)
+	}
+	var promtail generatedPromtailConfig
+	if err := yaml.Unmarshal([]byte(doc.Data["promtail.yaml"]), &promtail); err != nil {
+		t.Fatalf("parse promtail payload: %v\n%s", err, doc.Data["promtail.yaml"])
+	}
+	if len(promtail.PipelineStages) != 3 {
+		t.Fatalf("promtail pipeline = %#v, want trace/span extraction and msg output", promtail.PipelineStages)
+	}
+	jsonStage := yamlStringMap(promtail.PipelineStages[0]["json"])
+	expressions := yamlStringMap(jsonStage["expressions"])
+	labels := yamlStringMap(promtail.PipelineStages[1]["labels"])
+	output := yamlStringMap(promtail.PipelineStages[2]["output"])
+	_, hasTraceLabel := labels["trace_id"]
+	_, hasSpanLabel := labels["span_id"]
+	if expressions["trace_id"] != "trace_id" ||
+		expressions["span_id"] != "span_id" ||
+		!hasTraceLabel ||
+		!hasSpanLabel ||
+		output["source"] != "msg" {
+		t.Fatalf("promtail pipeline = %#v, want trace/span extraction and msg output", promtail.PipelineStages)
+	}
+	var loki generatedLokiConfig
+	if err := yaml.Unmarshal([]byte(doc.Data["loki-derived-fields.yaml"]), &loki); err != nil {
+		t.Fatalf("parse loki derived fields payload: %v\n%s", err, doc.Data["loki-derived-fields.yaml"])
+	}
+	if len(loki.DerivedFields) != 1 ||
+		loki.DerivedFields[0].Name != "TraceID" ||
+		loki.DerivedFields[0].DatasourceUID != "tempo" {
+		t.Fatalf("loki derived fields = %#v, want TraceID -> tempo", loki.DerivedFields)
+	}
+}
+
+func assertGeneratedGrafanaDashboard(t *testing.T, data []byte) {
+	t.Helper()
+	var dashboard generatedGrafanaDashboard
+	if err := json.Unmarshal(data, &dashboard); err != nil {
+		t.Fatalf("parse grafana dashboard json: %v\n%s", err, data)
+	}
+	targets := map[string]string{}
+	for _, panel := range dashboard.Panels {
+		if len(panel.Targets) > 0 {
+			targets[panel.Title] = panel.Targets[0].Expr
+		}
+	}
+	for title, fragment := range map[string]string{
+		"HTTP RPS":         `http_requests_total{service="hello"}`,
+		"HTTP Error Rate":  `code=~"5.."`,
+		"P99 Latency":      "http_request_duration_seconds_bucket",
+		"Logs by trace_id": `trace_id != ""`,
+	} {
+		if !strings.Contains(targets[title], fragment) {
+			t.Fatalf("grafana panel %q target = %q, want fragment %q in dashboard %+v", title, targets[title], fragment, dashboard)
+		}
+	}
+}
+
 func splitGeneratedYAMLDocuments(data []byte) []string {
 	parts := strings.Split(string(data), "\n---")
 	docs := make([]string, 0, len(parts))
@@ -842,6 +947,78 @@ type generatedKubernetesDocument struct {
 		MinAvailable int      `yaml:"minAvailable"`
 		PolicyTypes  []string `yaml:"policyTypes"`
 	} `yaml:"spec"`
+}
+
+type generatedConfigMapDocument struct {
+	Data map[string]string `yaml:"data"`
+}
+
+type generatedOTelCollectorConfig struct {
+	Receivers struct {
+		OTLP struct {
+			Protocols map[string]any `yaml:"protocols"`
+		} `yaml:"otlp"`
+	} `yaml:"receivers"`
+	Processors struct {
+		Resource struct {
+			Attributes []struct {
+				Key    string `yaml:"key"`
+				Value  string `yaml:"value"`
+				Action string `yaml:"action"`
+			} `yaml:"attributes"`
+		} `yaml:"resource"`
+	} `yaml:"processors"`
+	Service struct {
+		Pipelines struct {
+			Traces struct {
+				Receivers []string `yaml:"receivers"`
+				Exporters []string `yaml:"exporters"`
+			} `yaml:"traces"`
+			Metrics struct {
+				Receivers []string `yaml:"receivers"`
+				Exporters []string `yaml:"exporters"`
+			} `yaml:"metrics"`
+		} `yaml:"pipelines"`
+	} `yaml:"service"`
+}
+
+type generatedPromtailConfig struct {
+	PipelineStages []map[string]any `yaml:"pipeline_stages"`
+}
+
+type generatedLokiConfig struct {
+	DerivedFields []struct {
+		Name          string `yaml:"name"`
+		MatcherRegex  string `yaml:"matcherRegex"`
+		URL           string `yaml:"url"`
+		DatasourceUID string `yaml:"datasourceUid"`
+	} `yaml:"derivedFields"`
+}
+
+type generatedGrafanaDashboard struct {
+	Panels []struct {
+		Title   string `json:"title"`
+		Targets []struct {
+			Expr string `json:"expr"`
+		} `json:"targets"`
+	} `json:"panels"`
+}
+
+func yamlStringMap(value any) map[string]any {
+	switch typed := value.(type) {
+	case map[string]any:
+		return typed
+	case map[interface{}]interface{}:
+		out := make(map[string]any, len(typed))
+		for key, value := range typed {
+			if text, ok := key.(string); ok {
+				out[text] = value
+			}
+		}
+		return out
+	default:
+		return nil
+	}
 }
 
 type generatedPrometheusAlertExpectation struct {

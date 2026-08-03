@@ -2,6 +2,7 @@ package command
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -329,7 +330,12 @@ func releaseGeneratedRPCMuxRetrySmokeCheck() (releaseCheckItem, []string) {
 		`rpc.WithServerMuxDiagnosisEventExporter(sinkSet`,
 		`ValidateRPCMuxConfigWithWarnings(cfg.RPC.Mux)`,
 		`addGeneratedControlPlaneConfig("rpcMuxConfigWarnings", rpcMuxConfigWarnings)`,
+		`addGeneratedControlPlaneConfig("rpcMuxConfigWarningSchema", json.RawMessage(RPCMuxConfigWarningJSONSchema))`,
 		`snapshot.Configs["generated.rpcMuxConfigWarnings"]`,
+		`snapshot.Configs["generated.rpcMuxConfigWarningSchema"]`,
+		`const RPCMuxConfigWarningSchema = "gofly.rpc_mux_config_warning.v1"`,
+		`const RPCMuxConfigWarningJSONSchema = `,
+		`"required":["schema","field","message","current","recommended"]`,
 		`ReloadSinkSet(ctx context.Context, sinkSet *rpc.RPCMuxDiagnosisSinkSet)`,
 		`BreakerFailureThreshold`,
 		`BreakerCooldown`,
@@ -345,6 +351,7 @@ func releaseGeneratedRPCMuxRetrySmokeCheck() (releaseCheckItem, []string) {
 		`mtlsRefillTraceAttrs["rpc.mux.manager.refill_profile.max_deferred_fragments"].AsInt64() != 2`,
 		`mtlsRefillTraceAttrs["rpc.mux.manager.refill_profile.last_flow_control_event"].AsString() != "fragment_window_refill"`,
 		`mtlsRefillTraceAttrs["rpc.mux.event.flow_control.count"].AsInt64() < 1`,
+		`assertControlPlaneMuxConfigWarningsCleared(t, recommendedControlPlane)`,
 		`"\"negotiated_protocol\":\"gofly-mux/generated-mtls-test\""`,
 		`"\"mutual_tls\":true"`,
 		`"\"refill_profile_stream_window_refill_ratio\":0.5"`,
@@ -422,6 +429,7 @@ func releaseGeneratedRPCMuxRetrySmokeCheck() (releaseCheckItem, []string) {
 		return item, []string{"generated RPC mux admin smoke proof failed"}
 	}
 	negotiationSummaryPhases := []string{"tls_failure", "alpn_mismatch", "frame_policy_mismatch"}
+	configWarningSchemaChecksum := fmt.Sprintf("%x", sha256.Sum256([]byte("gofly.rpc_mux_config_warning.v1")))
 	item.Detail = "generated RPC mux smoke covers retry boundary and TLS/ALPN/frame-policy negotiation summary admin diagnosis"
 	item.Evidence = map[string]any{
 		"generated-rpc-mux-retry-smoke": map[string]any{
@@ -449,7 +457,10 @@ func releaseGeneratedRPCMuxRetrySmokeCheck() (releaseCheckItem, []string) {
 			"fragmentWindowRefillRuntimeDiagnosis": true,
 			"generatedRefillProfileAdminSmoke":     true,
 			"generatedConfigWarningContract":       true,
+			"generatedConfigWarningSchema":         "gofly.rpc_mux_config_warning.v1",
+			"generatedConfigWarningSchemaChecksum": configWarningSchemaChecksum,
 			"generatedConfigWarningSnapshotKey":    "generated.rpcMuxConfigWarnings",
+			"generatedConfigWarningSchemaKey":      "generated.rpcMuxConfigWarningSchema",
 			"fragmentMaxDeferredFailFast":          true,
 			"generatedPolicyRiskModeValidation":    true,
 			"generatedMTLSSuccess":                 true,

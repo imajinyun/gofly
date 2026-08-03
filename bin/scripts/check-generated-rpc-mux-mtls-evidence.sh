@@ -38,7 +38,9 @@ required = {
     "fragmentWindowRefillRuntimeDiagnosis": True,
     "generatedRefillProfileAdminSmoke": True,
     "generatedConfigWarningContract": True,
+    "generatedConfigWarningSchema": "gofly.rpc_mux_config_warning.v1",
     "generatedConfigWarningSnapshotKey": "generated.rpcMuxConfigWarnings",
+    "generatedConfigWarningSchemaKey": "generated.rpcMuxConfigWarningSchema",
     "fragmentMaxDeferredFailFast": True,
     "generatedPolicyRiskModeValidation": True,
     "successProtocol": "gofly-mux/generated-mtls-test",
@@ -72,7 +74,12 @@ for marker in (
     "rpc.WithServerMuxDiagnosisEventExporter(sinkSet",
     "ValidateRPCMuxConfigWithWarnings(cfg.RPC.Mux)",
     'addGeneratedControlPlaneConfig("rpcMuxConfigWarnings", rpcMuxConfigWarnings)',
+    'addGeneratedControlPlaneConfig("rpcMuxConfigWarningSchema", json.RawMessage(RPCMuxConfigWarningJSONSchema))',
     'snapshot.Configs["generated.rpcMuxConfigWarnings"]',
+    'snapshot.Configs["generated.rpcMuxConfigWarningSchema"]',
+    'const RPCMuxConfigWarningSchema = "gofly.rpc_mux_config_warning.v1"',
+    "const RPCMuxConfigWarningJSONSchema = ",
+    '"required":["schema","field","message","current","recommended"]',
     "ReloadSinkSet(ctx context.Context, sinkSet *rpc.RPCMuxDiagnosisSinkSet)",
     "BreakerFailureThreshold",
     "BreakerCooldown",
@@ -86,6 +93,7 @@ for marker in (
     'mtlsRefillTraceAttrs["rpc.mux.manager.refill_profile.max_deferred_fragments"].AsInt64() != 2',
     'mtlsRefillTraceAttrs["rpc.mux.manager.refill_profile.last_flow_control_event"].AsString() != "fragment_window_refill"',
     'mtlsRefillTraceAttrs["rpc.mux.event.flow_control.count"].AsInt64() < 1',
+    "assertControlPlaneMuxConfigWarningsCleared(t, recommendedControlPlane)",
     '"\\"negotiated_protocol\\":\\"gofly-mux/generated-mtls-test\\""',
     '"\\"mutual_tls\\":true"',
     '"\\"refill_profile_stream_window_refill_ratio\\":0.5"',
@@ -124,3 +132,24 @@ for proof in (
 
 print("generated RPC mux mTLS success and candidate payload evidence ok")
 PY
+
+if [ -n "$tmp_path" ]; then
+	negative_path="$(mktemp)"
+	trap 'rm -f "$tmp_path" "$negative_path"' EXIT INT TERM
+	python3 - "$json_path" "$negative_path" <<'PY'
+import json
+import pathlib
+import sys
+
+source = pathlib.Path(sys.argv[1])
+target = pathlib.Path(sys.argv[2])
+envelope = json.loads(source.read_text(encoding="utf-8"))
+evidence = envelope["data"]["checks"][0]["evidence"]["generated-rpc-mux-retry-smoke"]
+evidence.pop("generatedConfigWarningSchema", None)
+target.write_text(json.dumps(envelope), encoding="utf-8")
+PY
+	if sh "$0" "$negative_path" >/dev/null 2>&1; then
+		echo "generated RPC mux evidence negative check unexpectedly passed" >&2
+		exit 1
+	fi
+fi

@@ -313,7 +313,10 @@ func TestReleaseGeneratedRPCMuxRetrySmokeCheck(t *testing.T) {
 		evidence["fragmentWindowRefillRuntimeDiagnosis"] != true ||
 		evidence["generatedRefillProfileAdminSmoke"] != true ||
 		evidence["generatedConfigWarningContract"] != true ||
+		evidence["generatedConfigWarningSchema"] != "gofly.rpc_mux_config_warning.v1" ||
+		evidence["generatedConfigWarningSchemaChecksum"] == "" ||
 		evidence["generatedConfigWarningSnapshotKey"] != "generated.rpcMuxConfigWarnings" ||
+		evidence["generatedConfigWarningSchemaKey"] != "generated.rpcMuxConfigWarningSchema" ||
 		evidence["fragmentMaxDeferredFailFast"] != true ||
 		evidence["generatedPolicyRiskModeValidation"] != true ||
 		evidence["generatedMTLSSuccess"] != true ||

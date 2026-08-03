@@ -2006,6 +2006,10 @@ type RPCMuxOperatorHistoryConfig struct {
 	AuditValidateCooldown time.Duration ` + "`json:\"auditValidateCooldown,omitempty\"`" + `
 }
 
+const RPCMuxConfigWarningSchema = "gofly.rpc_mux_config_warning.v1"
+
+const RPCMuxConfigWarningJSONSchema = ` + "`" + `{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","additionalProperties":false,"required":["schema","field","message","current","recommended"],"properties":{"schema":{"type":"string","const":"gofly.rpc_mux_config_warning.v1"},"field":{"type":"string","enum":["maxActions","maxBackups","maxSizeBytes","maxLineBytes"]},"message":{"type":"string"},"current":{"type":"number"},"recommended":{"type":"number"}}}` + "`" + `
+
 type RPCMuxOTelSinkConfig struct {
 	Name string ` + "`json:\"name\"`" + `
 	Profile string ` + "`json:\"profile,omitempty\"`" + `
@@ -2430,18 +2434,32 @@ func rpcMuxOperatorHistoryRecommendedLimitWarnings(history RPCMuxOperatorHistory
 	recommended := rpc.RPCMuxDiagnosisOperatorHistoryRecommendedLimits()
 	warnings := []string(nil)
 	if history.MaxActions > recommended.MaxActions {
-		warnings = append(warnings, fmt.Sprintf("rpc mux operator history maxActions exceeds recommended: value=%d recommended=%d", history.MaxActions, recommended.MaxActions))
+		warnings = append(warnings, rpcMuxOperatorHistoryRecommendedLimitWarning("maxActions", history.MaxActions, recommended.MaxActions))
 	}
 	if history.MaxBackups > recommended.MaxBackups {
-		warnings = append(warnings, fmt.Sprintf("rpc mux operator history maxBackups exceeds recommended: value=%d recommended=%d", history.MaxBackups, recommended.MaxBackups))
+		warnings = append(warnings, rpcMuxOperatorHistoryRecommendedLimitWarning("maxBackups", history.MaxBackups, recommended.MaxBackups))
 	}
 	if history.MaxSizeBytes > recommended.MaxSizeBytes {
-		warnings = append(warnings, fmt.Sprintf("rpc mux operator history maxSizeBytes exceeds recommended: value=%d recommended=%d", history.MaxSizeBytes, recommended.MaxSizeBytes))
+		warnings = append(warnings, rpcMuxOperatorHistoryRecommendedLimitWarning("maxSizeBytes", history.MaxSizeBytes, recommended.MaxSizeBytes))
 	}
 	if history.MaxLineBytes > recommended.MaxLineBytes {
-		warnings = append(warnings, fmt.Sprintf("rpc mux operator history maxLineBytes exceeds recommended: value=%d recommended=%d", history.MaxLineBytes, recommended.MaxLineBytes))
+		warnings = append(warnings, rpcMuxOperatorHistoryRecommendedLimitWarning("maxLineBytes", history.MaxLineBytes, recommended.MaxLineBytes))
 	}
 	return warnings
+}
+
+func rpcMuxOperatorHistoryRecommendedLimitWarning(field string, current any, recommended any) string {
+	data, err := json.Marshal(map[string]any{
+		"schema":      RPCMuxConfigWarningSchema,
+		"field":       field,
+		"message":     fmt.Sprintf("rpc mux operator history %s exceeds recommended", field),
+		"current":     current,
+		"recommended": recommended,
+	})
+	if err != nil {
+		return fmt.Sprintf("rpc mux operator history %s exceeds recommended: current=%v recommended=%v", field, current, recommended)
+	}
+	return string(data)
 }
 
 func logRPCMuxConfigWarnings(warnings []string) {
@@ -2663,6 +2681,9 @@ func (c ControlPlaneContributor) ContributeSnapshot(ctx context.Context, snapsho
 		return err
 	}
 	if err := addGeneratedControlPlaneConfig("rpc", cfg.RPC); err != nil {
+		return err
+	}
+	if err := addGeneratedControlPlaneConfig("rpcMuxConfigWarningSchema", json.RawMessage(RPCMuxConfigWarningJSONSchema)); err != nil {
 		return err
 	}
 	rpcMuxConfigWarnings, err := ValidateRPCMuxConfigWithWarnings(cfg.RPC.Mux)
@@ -3031,6 +3052,9 @@ func TestRPCMuxOperatorHistoryRecommendedLimitWarnings(t *testing.T) {
 		!strings.Contains(warnings[1], "maxSizeBytes exceeds recommended") {
 		t.Fatalf("structured recommended-limit warnings = %v, want maxActions and maxSizeBytes", warnings)
 	}
+	assertRPCMuxConfigWarningJSONSchema(t)
+	assertRPCMuxConfigWarning(t, warnings[0], "maxActions", float64(4096), float64(1024))
+	assertRPCMuxConfigWarning(t, warnings[1], "maxSizeBytes", float64(8<<20), float64(1<<20))
 	if err := ValidateRPCMuxConfig(cfg); err != nil {
 		t.Fatalf("ValidateRPCMuxConfig above recommended: %v", err)
 	}
@@ -3070,6 +3094,9 @@ func TestRPCMuxConfigWarningsReachControlPlaneSnapshot(t *testing.T) {
 		!strings.Contains(warnings[1], "maxSizeBytes exceeds recommended") {
 		t.Fatalf("generated.rpcMuxConfigWarnings = %v, want structured recommended-limit warnings", warnings)
 	}
+	assertRPCMuxConfigWarningSchemaSnapshot(t, snapshot)
+	assertRPCMuxConfigWarning(t, warnings[0], "maxActions", float64(4096), float64(1024))
+	assertRPCMuxConfigWarning(t, warnings[1], "maxSizeBytes", float64(8<<20), float64(1<<20))
 	if !json.Valid(snapshot.Configs["generated.rpc"]) || len(snapshot.Configs["generated.rpc"]) == 0 {
 		t.Fatalf("generated.rpc config should remain valid alongside warnings: %s", snapshot.Configs["generated.rpc"])
 	}
@@ -3083,8 +3110,66 @@ func TestRPCMuxConfigWarningsReachControlPlaneSnapshot(t *testing.T) {
 	if _, ok := cleanSnapshot.Configs["generated.rpcMuxConfigWarnings"]; ok {
 		t.Fatalf("generated.rpcMuxConfigWarnings should be omitted when no warnings exist: %s", cleanSnapshot.Configs["generated.rpcMuxConfigWarnings"])
 	}
+	assertRPCMuxConfigWarningSchemaSnapshot(t, cleanSnapshot)
 	if !json.Valid(cleanSnapshot.Configs["generated.rpc"]) || len(cleanSnapshot.Configs["generated.rpc"]) == 0 {
 		t.Fatalf("generated.rpc config should remain valid without warnings: %s", cleanSnapshot.Configs["generated.rpc"])
+	}
+}
+
+func assertRPCMuxConfigWarningSchemaSnapshot(t *testing.T, snapshot controlplane.Snapshot) {
+	t.Helper()
+	raw, ok := snapshot.Configs["generated.rpcMuxConfigWarningSchema"]
+	if !ok {
+		t.Fatalf("generated.rpcMuxConfigWarningSchema is missing from control-plane configs: %#v", snapshot.Configs)
+	}
+	var schema map[string]any
+	if err := json.Unmarshal(raw, &schema); err != nil {
+		t.Fatalf("decode generated.rpcMuxConfigWarningSchema: %v", err)
+	}
+	assertRPCMuxConfigWarningSchemaMap(t, schema)
+}
+
+func assertRPCMuxConfigWarning(t *testing.T, raw string, field string, current float64, recommended float64) {
+	t.Helper()
+	var warning struct {
+		Schema      string  ` + "`json:\"schema\"`" + `
+		Field       string  ` + "`json:\"field\"`" + `
+		Message     string  ` + "`json:\"message\"`" + `
+		Current     float64 ` + "`json:\"current\"`" + `
+		Recommended float64 ` + "`json:\"recommended\"`" + `
+	}
+	if err := json.Unmarshal([]byte(raw), &warning); err != nil {
+		t.Fatalf("warning %q is not schema-like JSON: %v", raw, err)
+	}
+	if warning.Schema != RPCMuxConfigWarningSchema ||
+		warning.Field != field ||
+		!strings.Contains(warning.Message, field+" exceeds recommended") ||
+		warning.Current != current ||
+		warning.Recommended != recommended {
+		t.Fatalf("warning = %+v, want schema/field/current/recommended contract", warning)
+	}
+}
+
+func assertRPCMuxConfigWarningJSONSchema(t *testing.T) {
+	t.Helper()
+	var schema map[string]any
+	if err := json.Unmarshal([]byte(RPCMuxConfigWarningJSONSchema), &schema); err != nil {
+		t.Fatalf("RPCMuxConfigWarningJSONSchema is invalid JSON: %v", err)
+	}
+	assertRPCMuxConfigWarningSchemaMap(t, schema)
+}
+
+func assertRPCMuxConfigWarningSchemaMap(t *testing.T, schema map[string]any) {
+	t.Helper()
+	required, _ := schema["required"].([]any)
+	properties, _ := schema["properties"].(map[string]any)
+	if schema["type"] != "object" || schema["additionalProperties"] != false || len(required) != 5 {
+		t.Fatalf("RPCMuxConfigWarningJSONSchema = %+v, want strict object with five required fields", schema)
+	}
+	for _, field := range []string{"schema", "field", "message", "current", "recommended"} {
+		if _, ok := properties[field]; !ok {
+			t.Fatalf("RPCMuxConfigWarningJSONSchema missing property %q: %+v", field, properties)
+		}
 	}
 }
 
@@ -3530,7 +3615,6 @@ const smokeTestTemplate = `package smoke
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -3538,6 +3622,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -3568,23 +3653,10 @@ func TestGeneratedProductionServiceSmoke(t *testing.T) {
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start generated service: %v", err)
 	}
+	stopped := false
 	t.Cleanup(func() {
-		if cmd.Process != nil {
-			_ = cmd.Process.Signal(os.Interrupt)
-		}
-		done := make(chan error, 1)
-		go func() { done <- cmd.Wait() }()
-		select {
-		case <-done:
-		case <-time.After(3 * time.Second):
-			if cmd.Process != nil {
-				_ = cmd.Process.Kill()
-			}
-			select {
-			case <-done:
-			case <-time.After(3 * time.Second):
-				t.Logf("generated service process did not exit cleanly after kill; service output:\n%s", output.String())
-			}
+		if !stopped {
+			stopGeneratedService(t, cmd, &output)
 		}
 	})
 
@@ -3601,6 +3673,35 @@ func TestGeneratedProductionServiceSmoke(t *testing.T) {
 	}
 	assertControlPlaneResilience(t, controlPlane)
 	assertControlPlaneMuxOperatorHistory(t, controlPlane)
+	stopGeneratedService(t, cmd, &output)
+	stopped = true
+
+	recommendedRestAddr := reserveLocalAddr(t)
+	recommendedRPCAddr := reserveLocalAddr(t)
+	recommendedAdminAddr := reserveLocalAddr(t)
+	restoreRecommendedSmokeConfig(t, repo, recommendedRestAddr, recommendedRPCAddr, recommendedAdminAddr)
+	recommendedCtx, recommendedCancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer recommendedCancel()
+	recommendedCmd := exec.CommandContext(recommendedCtx, "go", "run", "./cmd/{{.Name}}")
+	recommendedCmd.Dir = repo
+	recommendedCmd.Env = append(os.Environ(), "GOFLAGS=-count=1")
+	recommendedCmd.WaitDelay = 3 * time.Second
+	recommendedOutput := strings.Builder{}
+	recommendedCmd.Stdout = &recommendedOutput
+	recommendedCmd.Stderr = &recommendedOutput
+	if err := recommendedCmd.Start(); err != nil {
+		t.Fatalf("start generated service with recommended mux config: %v", err)
+	}
+	recommendedStopped := false
+	t.Cleanup(func() {
+		if !recommendedStopped {
+			stopGeneratedService(t, recommendedCmd, &recommendedOutput)
+		}
+	})
+	recommendedControlPlane := waitControlPlane(t, recommendedCtx, "http://"+recommendedAdminAddr+"/admin/control-plane", &recommendedOutput)
+	assertControlPlaneMuxConfigWarningsCleared(t, recommendedControlPlane)
+	stopGeneratedService(t, recommendedCmd, &recommendedOutput)
+	recommendedStopped = true
 }
 
 func generatedProjectRoot(t *testing.T) string {
@@ -3624,23 +3725,87 @@ func reserveLocalAddr(t *testing.T) string {
 
 func rewriteSmokeConfig(t *testing.T, repo string, restAddr string, rpcAddr string, adminAddr string) {
 	t.Helper()
+	rewriteSmokeConfigWithOperatorHistory(t, repo, restAddr, rpcAddr, adminAddr, 4096, 8388608)
+}
+
+func restoreRecommendedSmokeConfig(t *testing.T, repo string, restAddr string, rpcAddr string, adminAddr string) {
+	t.Helper()
+	rewriteSmokeConfigWithOperatorHistory(t, repo, restAddr, rpcAddr, adminAddr, 16, 65536)
+}
+
+func rewriteSmokeConfigWithOperatorHistory(t *testing.T, repo string, restAddr string, rpcAddr string, adminAddr string, maxActions int, maxSizeBytes int) {
+	t.Helper()
 	path := filepath.Join(repo, "etc", "{{.Name}}.json")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read generated config: %v", err)
 	}
-	restHost, restPort, err := net.SplitHostPort(restAddr)
+	restHost, restPortText, err := net.SplitHostPort(restAddr)
 	if err != nil {
 		t.Fatalf("split rest addr: %v", err)
 	}
-	content := string(data)
-	content = strings.Replace(content, ` + "`\"host\": \"127.0.0.1\"`" + `, fmt.Sprintf(` + "`\"host\": %q`" + `, restHost), 1)
-	content = strings.Replace(content, ` + "`\"port\": 8080`" + `, ` + "`\"port\": `" + `+restPort, 1)
-	content = strings.Replace(content, ` + "`\"addr\": \"127.0.0.1:9090\"`" + `, fmt.Sprintf(` + "`\"addr\": %q`" + `, adminAddr), 1)
-	content = strings.Replace(content, ` + "`\"addr\": \":8081\"`" + `, fmt.Sprintf(` + "`\"addr\": %q`" + `, rpcAddr), 1)
-	content = strings.Replace(content, ` + "`\"advertise\": \"http://127.0.0.1:8081\"`" + `, fmt.Sprintf(` + "`\"advertise\": %q`" + `, "http://"+rpcAddr), 1)
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+	restPort, err := strconv.Atoi(restPortText)
+	if err != nil {
+		t.Fatalf("parse rest port %q: %v", restPortText, err)
+	}
+	var cfg map[string]any
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("decode generated config: %v", err)
+	}
+	restConfig := jsonObject(t, cfg, "rest")
+	restConfig["host"] = restHost
+	restConfig["port"] = restPort
+	adminConfig := jsonObject(t, cfg, "admin")
+	adminConfig["addr"] = adminAddr
+	rpcConfig := jsonObject(t, cfg, "rpc")
+	rpcConfig["addr"] = rpcAddr
+	rpcConfig["advertise"] = "http://" + rpcAddr
+	muxConfig := jsonObject(t, rpcConfig, "mux")
+	logConfig := jsonObject(t, muxConfig, "log")
+	otelConfig := jsonObject(t, logConfig, "otelCompatible")
+	otelConfig["operatorHistory"] = map[string]any{
+		"enabled":      true,
+		"store":        "file://mux-operator-history.jsonl",
+		"maxActions":   maxActions,
+		"maxSizeBytes": maxSizeBytes,
+	}
+	out, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		t.Fatalf("encode generated config: %v", err)
+	}
+	out = append(out, '\n')
+	if err := os.WriteFile(path, out, 0o644); err != nil {
 		t.Fatalf("write generated smoke config: %v", err)
+	}
+}
+
+func jsonObject(t *testing.T, parent map[string]any, key string) map[string]any {
+	t.Helper()
+	value, ok := parent[key].(map[string]any)
+	if !ok {
+		t.Fatalf("generated config %q = %#v, want object", key, parent[key])
+	}
+	return value
+}
+
+func stopGeneratedService(t *testing.T, cmd *exec.Cmd, output *strings.Builder) {
+	t.Helper()
+	if cmd.Process != nil {
+		_ = cmd.Process.Signal(os.Interrupt)
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+		select {
+		case <-done:
+		case <-time.After(3 * time.Second):
+			t.Logf("generated service process did not exit cleanly after kill; service output:\n%s", output.String())
+		}
 	}
 }
 
@@ -3753,14 +3918,16 @@ func assertControlPlaneMuxOperatorHistory(t *testing.T, snapshot map[string]any)
 	if !ok {
 		t.Fatalf("operatorHistory config = %#v, want map", otel["operatorHistory"])
 	}
-	if enabled, ok := history["enabled"]; ok && enabled != false {
-		t.Fatalf("operatorHistory config = %#v, want disabled file store", history)
+	if history["enabled"] != true {
+		t.Fatalf("operatorHistory config = %#v, want smoke operator history enabled", history)
 	}
 	if history["store"] != "file://mux-operator-history.jsonl" {
-		t.Fatalf("operatorHistory config = %#v, want disabled file store", history)
+		t.Fatalf("operatorHistory config = %#v, want file store", history)
 	}
 	if _, ok := history["maxActions"]; ok {
-		t.Fatalf("operatorHistory config = %#v, want advanced tuning omitted by default", history)
+		if history["maxActions"] != float64(4096) || history["maxSizeBytes"] != float64(8388608) {
+			t.Fatalf("operatorHistory config = %#v, want smoke warning tuning", history)
+		}
 	}
 	historyStore, ok := configs["generated.rpcMuxOperatorHistoryStore"].(map[string]any)
 	if !ok {
@@ -3770,11 +3937,75 @@ func assertControlPlaneMuxOperatorHistory(t *testing.T, snapshot map[string]any)
 		t.Fatalf("generated.rpcMuxOperatorHistoryStore leaked actions at some level: %#v", historyStore)
 	}
 	store, ok := historyStore["store"].(map[string]any)
-	if !ok || store["enabled"] != false {
-		t.Fatalf("generated rpc mux operator history store = %#v, want disabled summary", historyStore["store"])
+	if !ok || store["enabled"] != true || store["kind"] != "file" {
+		t.Fatalf("generated rpc mux operator history store = %#v, want enabled file summary", historyStore["store"])
 	}
-	if status, ok := historyStore["integrityStatus"]; ok && status != "" && status != "disabled" {
-		t.Fatalf("generated rpc mux operator history integrity = %#v, want disabled", historyStore["integrityStatus"])
+	if status, ok := historyStore["integrityStatus"]; ok && status != "" && status != "empty" && status != "missing_header" && status != "ok" {
+		t.Fatalf("generated rpc mux operator history integrity = %#v, want redacted file integrity summary", historyStore["integrityStatus"])
+	}
+	warnings, ok := configs["generated.rpcMuxConfigWarnings"].([]any)
+	if !ok || len(warnings) != 2 {
+		t.Fatalf("generated.rpcMuxConfigWarnings = %#v, want two consumable warnings", configs["generated.rpcMuxConfigWarnings"])
+	}
+	assertRPCMuxConfigWarningSchemaConfig(t, configs)
+	assertRPCMuxConfigWarningValue(t, warnings[0], "maxActions", 4096, 1024)
+	assertRPCMuxConfigWarningValue(t, warnings[1], "maxSizeBytes", 8388608, 1048576)
+}
+
+func assertControlPlaneMuxConfigWarningsCleared(t *testing.T, snapshot map[string]any) {
+	t.Helper()
+	configs, ok := snapshot["configs"].(map[string]any)
+	if !ok {
+		t.Fatalf("control-plane configs = %#v, want generated configs", snapshot["configs"])
+	}
+	assertRPCMuxConfigWarningSchemaConfig(t, configs)
+	if warnings, ok := configs["generated.rpcMuxConfigWarnings"]; ok {
+		t.Fatalf("generated.rpcMuxConfigWarnings = %#v, want warning blob removed after recommended config restore", warnings)
+	}
+}
+
+func assertRPCMuxConfigWarningSchemaConfig(t *testing.T, configs map[string]any) {
+	t.Helper()
+	schema, ok := configs["generated.rpcMuxConfigWarningSchema"].(map[string]any)
+	if !ok {
+		t.Fatalf("generated.rpcMuxConfigWarningSchema = %#v, want JSON schema object", configs["generated.rpcMuxConfigWarningSchema"])
+	}
+	if schema["type"] != "object" || schema["additionalProperties"] != false {
+		t.Fatalf("generated.rpcMuxConfigWarningSchema = %#v, want strict JSON object schema", schema)
+	}
+	properties, ok := schema["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("generated.rpcMuxConfigWarningSchema properties = %#v, want property map", schema["properties"])
+	}
+	if _, ok := properties["recommended"]; !ok {
+		t.Fatalf("generated.rpcMuxConfigWarningSchema properties = %#v, want recommended field", properties)
+	}
+}
+
+const rpcMuxConfigWarningSchema = "gofly.rpc_mux_config_warning.v1"
+
+func assertRPCMuxConfigWarningValue(t *testing.T, value any, field string, current float64, recommended float64) {
+	t.Helper()
+	raw, ok := value.(string)
+	if !ok {
+		t.Fatalf("warning value = %#v, want JSON string", value)
+	}
+	var warning struct {
+		Schema      string  ` + "`json:\"schema\"`" + `
+		Field       string  ` + "`json:\"field\"`" + `
+		Message     string  ` + "`json:\"message\"`" + `
+		Current     float64 ` + "`json:\"current\"`" + `
+		Recommended float64 ` + "`json:\"recommended\"`" + `
+	}
+	if err := json.Unmarshal([]byte(raw), &warning); err != nil {
+		t.Fatalf("decode warning %q: %v", raw, err)
+	}
+	if warning.Schema != rpcMuxConfigWarningSchema ||
+		warning.Field != field ||
+		!strings.Contains(warning.Message, field+" exceeds recommended") ||
+		warning.Current != current ||
+		warning.Recommended != recommended {
+		t.Fatalf("warning = %+v, want %s current=%v recommended=%v", warning, field, current, recommended)
 	}
 }
 

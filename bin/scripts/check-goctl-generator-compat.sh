@@ -30,6 +30,7 @@ required_boundaries = {
 }
 required_release_gates = {
     "make goctl-generator-compat-check",
+    "make api-client-generation-check",
     "make goctl-real-project-replay-check",
     "make generated-version-compat-check",
     "make generated-upgrade-dry-run-check",

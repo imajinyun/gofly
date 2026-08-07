@@ -1,0 +1,53 @@
+syntax = "v1"
+
+type Money {
+  Currency string `json:"currency"`
+  Units int64 `json:"units"`
+}
+
+type LineItem {
+  Sku string `json:"sku"`
+  Quantity int `json:"quantity"`
+  Price Money `json:"price"`
+}
+
+type CreateOrderRequest {
+  TenantID string `header:"X-Tenant-ID"`
+  BuyerID int64 `json:"buyerId"`
+  Items []LineItem `json:"items"`
+}
+
+type CreateOrderResponse {
+  ID string `json:"id"`
+  Status string `json:"status"`
+}
+
+type ListOrdersRequest {
+  TenantID string `header:"X-Tenant-ID"`
+  BuyerID int64 `form:"buyerId"`
+  Status string `form:"status,optional"`
+  Tags []string `form:"tags,optional"`
+  Limit int `form:"limit,optional"`
+  Offset int `form:"offset,optional"`
+}
+
+type ListOrdersResponse {
+  Items []CreateOrderResponse `json:"items"`
+  Total int64 `json:"total"`
+}
+
+type GetOrderRequest {
+  TenantID string `header:"X-Tenant-ID"`
+  ID string `path:"id"`
+}
+
+service shop-api {
+  @handler createOrder
+  post /orders (CreateOrderRequest) returns (CreateOrderResponse)
+
+  @handler listOrders
+  get /orders (ListOrdersRequest) returns (ListOrdersResponse)
+
+  @handler getOrder
+  get /orders/{id} (GetOrderRequest) returns (CreateOrderResponse)
+}

@@ -70,10 +70,10 @@
     {
       "id": "multi-language-client-generation",
       "status": "implemented",
-      "gate": "make goctl-generator-compat-check",
+      "gate": "make api-client-generation-check",
       "implementation": ["cmd/gofly/internal/generator/api_codegen.go", "cmd/gofly/internal/command/api_client_command.go"],
-      "tests": ["cmd/gofly/internal/command/idl_test.go", "cmd/gofly/internal/generator/idl_test.go"],
-      "evidence": ["typescript", "javascript", "dart", "java", "kotlin", "APIClient.java", "APIClient.kt"],
+      "tests": ["cmd/gofly/internal/command/idl_test.go", "cmd/gofly/internal/generator/idl_test.go", "bin/scripts/check-api-client-generation.sh", "docs/reference/api-client-generation.md"],
+      "evidence": ["typescript", "javascript", "dart", "java", "kotlin", "APIClient.java", "APIClient.kt", "testdata/api-client-matrix/shop.api"],
       "rollbackNote": "Rollback by pinning client generators per language and keeping generated client evidence out of runtime artifacts."
     },
     {
@@ -88,6 +88,7 @@
   ],
   "releaseGates": [
     "make goctl-generator-compat-check",
+    "make api-client-generation-check",
     "make goctl-real-project-replay-check",
     "make generated-version-compat-check",
     "make generated-upgrade-dry-run-check",

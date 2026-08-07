@@ -1180,6 +1180,14 @@ require(
     required_client_evidence <= client_evidence,
     f"p13 client surface evidence missing from goctl capability: {sorted(required_client_evidence - client_evidence)!r}",
 )
+require(
+    client_surface.get("gate") == "make api-client-generation-check",
+    "p13 client surface gate must be make api-client-generation-check",
+)
+require(
+    client_capability.get("gate") == "make api-client-generation-check",
+    "multi-language client capability gate must be make api-client-generation-check",
+)
 
 diff_surface = p13_surfaces.get("generated-diff-classification") or {}
 require(diff_surface.get("capability") == "upgrade-diff-contract", "p13 diff surface capability mismatch")

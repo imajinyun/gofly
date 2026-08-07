@@ -1,0 +1,249 @@
+{
+  "schema": "gofly.generated_tier_compatibility.v1",
+  "status": "blocking",
+  "acceptanceGate": "make generated-tier-compatibility-check",
+  "sourceOfTruth": [
+    "docs/reference/generated-service-layout.md",
+    "docs/reference/generated-scaffold-long-term-compatibility.json",
+    "docs/reference/generated-upgrade-dry-run.json",
+    "docs/reference/generated-version-compat.md",
+    "docs/reference/goctl-real-project-replay.json",
+    "docs/reference/goctl-generator-compatibility.json",
+    "testdata/generated-compat/matrix.json"
+  ],
+  "tierPolicy": {
+    "tier0": {
+      "name": "Tier 0 Golden Path",
+      "compatibility": "Generated service commands are treated as release-blocking external contracts. Removing files, moving paths, changing generated runtime wiring, or changing machine-readable output requires migration notes and release evidence.",
+      "allowedDiffs": [
+        "deterministic-repeat-generation",
+        "compatible-addition"
+      ],
+      "blockingDiffs": [
+        "breaking-candidate"
+      ],
+      "requiredGates": [
+        "make generated-service-layout-check",
+        "make test-generated-matrix",
+        "make generated-version-compat-check",
+        "make generated-upgrade-dry-run-check"
+      ],
+      "rollbackOrEscalation": "Rollback by pinning the previous golden-path generator behavior, preserving prior generated snapshots, and holding release until layout and version compatibility gates pass."
+    },
+    "tier1": {
+      "name": "Tier 1 Compatibility Surfaces",
+      "compatibility": "Generated API, RPC, model, and gateway surfaces may add files or helpers, but route layout, import behavior, generated module dependencies, and JSON output contracts must remain compatible.",
+      "allowedDiffs": [
+        "deterministic-repeat-generation",
+        "compatible-addition",
+        "formatting-only"
+      ],
+      "blockingDiffs": [
+        "breaking-candidate"
+      ],
+      "requiredGates": [
+        "make generated-output-governance",
+        "make goctl-generator-compat-check",
+        "make goctl-real-project-replay-check"
+      ],
+      "rollbackOrEscalation": "Rollback by keeping the last compatible generated profile, rejecting unclassified route or dependency movement, and documenting any required migration before promotion."
+    },
+    "tier2": {
+      "name": "Tier 2 Experimental and Preview",
+      "compatibility": "AI-first templates, feature plugins, remote templates, and preview extension points may evolve faster, but they must stay deterministic, path-safe, dependency-isolated, and clearly marked as preview.",
+      "allowedDiffs": [
+        "deterministic-repeat-generation",
+        "compatible-addition",
+        "formatting-only",
+        "breaking-candidate"
+      ],
+      "blockingDiffs": [],
+      "requiredGates": [
+        "make generated-output-governance",
+        "make code-generation-governance-check"
+      ],
+      "rollbackOrEscalation": "Rollback by disabling the preview feature or template, discarding generated output, and keeping the stable Tier 0 and Tier 1 generators unchanged."
+    }
+  },
+  "commandBoundaries": [
+    {
+      "command": "gofly new service",
+      "tier": "tier0",
+      "surface": "generated production service golden path",
+      "stabilityContract": "docs/reference/generated-service-layout.md",
+      "verification": [
+        "TestGoldenPathProductionServiceLayoutContract",
+        "TestNewServiceGeneratedProjectSmokeMatrix"
+      ],
+      "requiredArtifacts": [
+        "cmd/<name>/main.go",
+        "etc/<name>.json",
+        "internal/admin/admin.go",
+        "internal/smoke/service_smoke_test.go",
+        "deploy/k8s/<name>.yaml"
+      ],
+      "rollbackOrEscalation": "Rollback by restoring the previous generated service layout and requiring generated-service-layout-check before release."
+    },
+    {
+      "command": "gofly quickstart",
+      "tier": "tier0",
+      "surface": "first-run generated project",
+      "stabilityContract": "testdata/generated-compat/matrix.json",
+      "verification": [
+        "TestAINewGeneratedProjectVerificationMatrix",
+        "make generated-version-compat-check"
+      ],
+      "requiredArtifacts": [
+        "go.mod",
+        "cmd/<name>/main.go",
+        "etc/<name>.json"
+      ],
+      "rollbackOrEscalation": "Rollback by preserving the previous quickstart output and rejecting unexplained generated diffs."
+    },
+    {
+      "command": "gofly new api",
+      "tier": "tier1",
+      "surface": "goctl-compatible REST scaffold",
+      "stabilityContract": "docs/reference/goctl-generator-compatibility.json",
+      "verification": [
+        "TestExecuteAPINewWithGoZeroCompatibleProfile",
+        "make goctl-generator-compat-check"
+      ],
+      "requiredArtifacts": [
+        "internal/handler/routes.go",
+        "internal/logic/pinglogic.go",
+        "internal/svc/servicecontext.go",
+        "internal/types/types.go"
+      ],
+      "rollbackOrEscalation": "Rollback by pinning the gozero-compatible profile and preserving goctl layout evidence."
+    },
+    {
+      "command": "gofly api gen",
+      "tier": "tier1",
+      "surface": "API contract to REST route generation",
+      "stabilityContract": "docs/reference/goctl-real-project-replay.json",
+      "verification": [
+        "TestGoctlRealProjectFixtureReplay",
+        "make goctl-real-project-replay-check"
+      ],
+      "requiredArtifacts": [
+        "internal/api/v1/types.go",
+        "internal/api/v1/<service>/routes.go",
+        "internal/api/v1/<service>/service.go"
+      ],
+      "rollbackOrEscalation": "Rollback by preserving existing route layout and rejecting unclassified API import or generated route movement."
+    },
+    {
+      "command": "gofly new rpc",
+      "tier": "tier1",
+      "surface": "RPC scaffold and compatibility profile",
+      "stabilityContract": "docs/reference/generated-scaffold-long-term-compatibility.json",
+      "verification": [
+        "TestNewServiceGeneratedProjectSmokeMatrix",
+        "make test-generated-matrix"
+      ],
+      "requiredArtifacts": [
+        "internal/rpc/greeter.go",
+        "<name>.proto"
+      ],
+      "rollbackOrEscalation": "Rollback by preserving generated RPC descriptors and compatibility adapter output until smoke passes."
+    },
+    {
+      "command": "gofly rpc gen",
+      "tier": "tier1",
+      "surface": "protobuf to RPC code generation",
+      "stabilityContract": "docs/reference/generated-scaffold-long-term-compatibility.json",
+      "verification": [
+        "make goctl-generator-compat-check",
+        "make generated-upgrade-dry-run-check"
+      ],
+      "requiredArtifacts": [
+        "generated service descriptors",
+        "generated client/server wrappers"
+      ],
+      "rollbackOrEscalation": "Rollback by pinning proto import handling and generated wrapper layout before promotion."
+    },
+    {
+      "command": "gofly model gen",
+      "tier": "tier1",
+      "surface": "DDL to repository/model generation",
+      "stabilityContract": "docs/reference/goctl-real-project-replay.json",
+      "verification": [
+        "TestGoctlRealProjectFixtureReplay",
+        "make goctl-real-project-replay-check"
+      ],
+      "requiredArtifacts": [
+        "model/entity/<table>_gen.go",
+        "model/repo/<table>.go"
+      ],
+      "rollbackOrEscalation": "Rollback by preserving generated repository cache templates and keeping generated-only dependencies out of the root module."
+    },
+    {
+      "command": "gofly gateway",
+      "tier": "tier1",
+      "surface": "gateway route and aggregation contract generation",
+      "stabilityContract": "docs/reference/generated-upgrade-dry-run.json",
+      "verification": [
+        "make generated-upgrade-dry-run-check",
+        "make api-contract-governance-check"
+      ],
+      "requiredArtifacts": [
+        "gateway route config",
+        "OpenAPI aggregation contract"
+      ],
+      "rollbackOrEscalation": "Rollback by rejecting breaking aggregation changes until the generated diff is classified."
+    },
+    {
+      "command": "gofly ai new",
+      "tier": "tier2",
+      "surface": "AI-first project template preview",
+      "stabilityContract": "docs/reference/generated-upgrade-dry-run.json",
+      "verification": [
+        "TestAINewGeneratedProjectVerificationMatrix",
+        "make generated-output-governance"
+      ],
+      "requiredArtifacts": [
+        "template-selected project files",
+        "verification plan"
+      ],
+      "rollbackOrEscalation": "Rollback by disabling the preview template and preserving Tier 0 generated service behavior."
+    },
+    {
+      "command": "gofly template",
+      "tier": "tier2",
+      "surface": "local and remote template synchronization",
+      "stabilityContract": "docs/reference/generated-scaffold-long-term-compatibility.json",
+      "verification": [
+        "TestTemplateSyncCoverageBuffer",
+        "make generated-output-governance"
+      ],
+      "requiredArtifacts": [
+        "template catalog entries",
+        "path-safe copied templates"
+      ],
+      "rollbackOrEscalation": "Rollback by reverting template sync output and preserving local path-safety checks."
+    },
+    {
+      "command": "gofly plugin",
+      "tier": "tier2",
+      "surface": "generation plugin execution and preview extensions",
+      "stabilityContract": "docs/reference/generated-scaffold-long-term-compatibility.json",
+      "verification": [
+        "TestPluginResponseWriteFilesRejectsEscapingPaths",
+        "make generated-output-governance"
+      ],
+      "requiredArtifacts": [
+        "plugin response files",
+        "plugin path-safety evidence"
+      ],
+      "rollbackOrEscalation": "Rollback by disabling the plugin or remote source and preserving generated output path boundaries."
+    }
+  ],
+  "releaseRules": {
+    "tier0BreakingChange": "block release until migration notes, compatibility evidence, and rollback plan are attached",
+    "tier1BreakingChange": "block release unless explicitly classified as breaking-candidate with migration guidance",
+    "tier2BreakingChange": "allow only when preview status is preserved and Tier 0/Tier 1 gates remain green",
+    "rootDependencyPolicy": "generated-only dependencies must not enter the root module",
+    "runtimeArtifactPolicy": "generated runtime output belongs in temporary directories and must not be committed"
+  }
+}

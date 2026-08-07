@@ -7,6 +7,7 @@
     "docs/reference/generated-version-compat.md",
     "testdata/generated-compat/matrix.json",
     "docs/reference/goctl-generator-compatibility.json",
+    "docs/reference/generated-tier-compatibility.json",
     "docs/reference/migration-fidelity-matrix.json"
   ],
   "referenceFrameworks": ["go-zero", "Kratos"],
@@ -14,6 +15,7 @@
     "make generated-upgrade-dry-run-check",
     "make generated-version-compat-check",
     "make goctl-generator-compat-check",
+    "make generated-tier-compatibility-check",
     "make test-generated-matrix"
   ],
   "compatibilityPolicy": {

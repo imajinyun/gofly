@@ -402,7 +402,7 @@ community-growth-check: ## Compatibility no-op; project focus is framework capab
 	$(GO) env GOMOD >/dev/null
 
 .PHONY: contract-docs-check
-contract-docs-check: stable-surface-check generated-version-compat-check generated-upgrade-dry-run-check cli-json-contract-goldens-check cli-configuration-governance-check api-contract-governance-check generated-control-plane-contract-check ## Validate stable CLI JSON and generated contract engineering gates
+contract-docs-check: stable-surface-check generated-version-compat-check generated-upgrade-dry-run-check generated-tier-compatibility-check cli-json-contract-goldens-check cli-configuration-governance-check api-contract-governance-check generated-control-plane-contract-check ## Validate stable CLI JSON and generated contract engineering gates
 	$(GO) env GOMOD >/dev/null
 
 .PHONY: generated-control-plane-contract-check
@@ -410,8 +410,12 @@ generated-control-plane-contract-check: ## Validate generated control-plane warn
 	sh $(SCRIPTS_DIR)/check-generated-control-plane-contract.sh
 
 .PHONY: generated-upgrade-dry-run-check
-generated-upgrade-dry-run-check: generated-output-governance code-generation-governance-check test-generated-matrix ## Validate generated upgrade behavior through generator tests
+generated-upgrade-dry-run-check: generated-output-governance code-generation-governance-check generated-tier-compatibility-check test-generated-matrix ## Validate generated upgrade behavior through generator tests
 	sh $(SCRIPTS_DIR)/check-generated-upgrade-dry-run.sh
+
+.PHONY: generated-tier-compatibility-check
+generated-tier-compatibility-check: ## Validate Tier 0/1/2 generated command compatibility boundaries
+	sh $(SCRIPTS_DIR)/check-generated-tier-compatibility.sh
 
 .PHONY: dx-troubleshooting-check
 dx-troubleshooting-check: ## Validate doctor, release, and support-bundle troubleshooting JSON contracts

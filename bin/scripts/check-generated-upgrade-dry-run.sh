@@ -53,6 +53,12 @@ if scaffold_compat_path.is_file():
 else:
     scaffold_compat = {}
     missing.append("docs/reference/generated-scaffold-long-term-compatibility.json is missing")
+tier_compat_path = root / "docs" / "reference" / "generated-tier-compatibility.json"
+if tier_compat_path.is_file():
+    tier_compat = json.loads(tier_compat_path.read_text(encoding="utf-8"))
+else:
+    tier_compat = {}
+    missing.append("docs/reference/generated-tier-compatibility.json is missing")
 
 require(
     manifest.get("schema") == "gofly.generated_upgrade_dry_run.v1",
@@ -61,6 +67,15 @@ require(
 require(
     scaffold_compat.get("schema") == "gofly.generated_scaffold_long_term_compatibility.v1",
     "generated scaffold long-term compatibility schema mismatch",
+)
+require(
+    tier_compat.get("schema") == "gofly.generated_tier_compatibility.v1",
+    "generated tier compatibility schema mismatch",
+)
+require(tier_compat.get("status") == "blocking", "generated tier compatibility status must be blocking")
+require(
+    tier_compat.get("acceptanceGate") == "make generated-tier-compatibility-check",
+    "generated tier compatibility acceptanceGate mismatch",
 )
 require(scaffold_compat.get("status") == "blocking", "generated scaffold long-term compatibility status must be blocking")
 require(
@@ -204,6 +219,7 @@ for source in (
     "docs/reference/generated-version-compat.md",
     "testdata/generated-compat/matrix.json",
     "docs/reference/goctl-generator-compatibility.json",
+    "docs/reference/generated-tier-compatibility.json",
     "docs/reference/migration-fidelity-matrix.json",
 ):
     require(source in source_of_truth, f"generated scaffold compatibility sourceOfTruth missing {source!r}")
@@ -217,6 +233,7 @@ require(
         "make generated-upgrade-dry-run-check",
         "make generated-version-compat-check",
         "make goctl-generator-compat-check",
+        "make generated-tier-compatibility-check",
         "make test-generated-matrix",
     },
     "generated scaffold compatibility acceptanceGates mismatch",
@@ -238,6 +255,57 @@ require(
     len(str(compat_policy.get("rollbackPolicy") or "").split()) >= 16,
     "generated scaffold compatibility rollbackPolicy must be actionable",
 )
+
+tier_source_of_truth = set(tier_compat.get("sourceOfTruth") or [])
+for source in (
+    "docs/reference/generated-service-layout.md",
+    "docs/reference/generated-scaffold-long-term-compatibility.json",
+    "docs/reference/generated-upgrade-dry-run.json",
+    "docs/reference/generated-version-compat.md",
+    "docs/reference/goctl-real-project-replay.json",
+    "docs/reference/goctl-generator-compatibility.json",
+    "testdata/generated-compat/matrix.json",
+):
+    require(source in tier_source_of_truth, f"generated tier compatibility sourceOfTruth missing {source!r}")
+    require((root / source).exists(), f"generated tier compatibility source path missing: {source}")
+tier_policy = tier_compat.get("tierPolicy") or {}
+require(set(tier_policy) == {"tier0", "tier1", "tier2"}, f"generated tier compatibility tierPolicy mismatch: {sorted(tier_policy)!r}")
+expected_tier_diff_policy = {
+    "tier0": {"deterministic-repeat-generation", "compatible-addition"},
+    "tier1": {"deterministic-repeat-generation", "compatible-addition", "formatting-only"},
+    "tier2": required_categories,
+}
+for tier, expected_allowed in expected_tier_diff_policy.items():
+    policy_item = tier_policy.get(tier) or {}
+    require(set(policy_item.get("allowedDiffs") or []) == expected_allowed, f"generated tier compatibility {tier}: allowedDiffs mismatch")
+    if tier in {"tier0", "tier1"}:
+        require(set(policy_item.get("blockingDiffs") or []) == {"breaking-candidate"}, f"generated tier compatibility {tier}: breaking-candidate must block")
+    else:
+        require(set(policy_item.get("blockingDiffs") or []) == set(), "generated tier compatibility tier2 must be report-only for breaking-candidate")
+    for gate in policy_item.get("requiredGates") or []:
+        require(gate.startswith("make "), f"generated tier compatibility {tier}: required gate must be a make target")
+        target = gate.removeprefix("make ").split()[0]
+        makefile = read_text(root / "Makefile")
+        require(re.search(rf"^{re.escape(target)}:", makefile, re.M), f"generated tier compatibility {tier}: gate target {target!r} missing")
+
+tier_commands = tier_compat.get("commandBoundaries") or []
+commands_by_tier = {}
+for item in tier_commands:
+    if isinstance(item, dict):
+        commands_by_tier.setdefault(item.get("tier"), set()).add(item.get("command"))
+        contract = item.get("stabilityContract")
+        if contract:
+            require((root / contract).exists(), f"generated tier compatibility command {item.get('command')}: stabilityContract path missing: {contract}")
+        require(item.get("verification"), f"generated tier compatibility command {item.get('command')}: verification is required")
+        require(item.get("requiredArtifacts"), f"generated tier compatibility command {item.get('command')}: requiredArtifacts is required")
+require({"gofly new service", "gofly quickstart"} <= commands_by_tier.get("tier0", set()), "generated tier compatibility tier0 commands missing")
+require({"gofly new api", "gofly api gen", "gofly new rpc", "gofly rpc gen", "gofly model gen", "gofly gateway"} <= commands_by_tier.get("tier1", set()), "generated tier compatibility tier1 commands missing")
+require({"gofly ai new", "gofly template", "gofly plugin"} <= commands_by_tier.get("tier2", set()), "generated tier compatibility tier2 commands missing")
+release_rules = tier_compat.get("releaseRules") or {}
+for field in ("tier0BreakingChange", "tier1BreakingChange", "tier2BreakingChange", "rootDependencyPolicy", "runtimeArtifactPolicy"):
+    require(len(str(release_rules.get(field) or "").split()) >= 8, f"generated tier compatibility releaseRules.{field} must be actionable")
+require("block release" in str(release_rules.get("tier0BreakingChange") or ""), "generated tier compatibility tier0BreakingChange must block release")
+require("block release" in str(release_rules.get("tier1BreakingChange") or ""), "generated tier compatibility tier1BreakingChange must block release")
 
 r8_profile_matrix = scaffold_compat.get("r8ProfileMatrix") or {}
 require(r8_profile_matrix.get("aiflowTask") == "GOFLY-GOV-10R8-03", "generated scaffold R8 profile matrix aiflowTask mismatch")

@@ -1,0 +1,179 @@
+{
+  "schema": "gofly.goctl_real_project_replay.v1",
+  "acceptanceGate": "make goctl-real-project-replay-check",
+  "sourceOfTruth": [
+    "docs/reference/goctl-generator-compatibility.json",
+    "docs/reference/generated-upgrade-dry-run.json",
+    "testdata/goctl-replay/orderservice/replay.json",
+    "testdata/goctl-replay/inventoryservice/replay.json",
+    "testdata/goctl-replay/billingservice/replay.json"
+  ],
+  "scope": {
+    "expandsCLICommandSurface": false,
+    "fixtureClass": "realistic-gozero-goctl-project-matrix",
+    "referenceFramework": "goctl / go-zero generator migration compatibility"
+  },
+  "matrix": {
+    "minimumFixtures": 3,
+    "requiredCapabilities": [
+      "api-import",
+      "transitive-api-import",
+      "multi-service-group",
+      "multi-middleware",
+      "api-comments-tags",
+      "nested-type-composition",
+      "request-response-naming",
+      "complex-model",
+      "soft-delete",
+      "optimistic-lock",
+      "single-column-unique-key",
+      "composite-unique-key",
+      "cache-template"
+    ],
+    "fixtures": [
+      {
+        "id": "orderservice-goctl-replay",
+        "module": "example.com/orderservice",
+        "profile": "gozero-compatible",
+        "style": "minimal",
+        "cache": true,
+        "manifest": "testdata/goctl-replay/orderservice/replay.json",
+        "files": [
+          "testdata/goctl-replay/orderservice/orders.api",
+          "testdata/goctl-replay/orderservice/etc/orders-api.yaml",
+          "testdata/goctl-replay/orderservice/model/orders.sql"
+        ],
+        "capabilities": [
+          "single-column-unique-key",
+          "cache-template"
+        ],
+        "expectedArtifacts": [
+          "cmd/orders-api/main.go",
+          "internal/handler/routes.go",
+          "internal/logic/pinglogic.go",
+          "internal/svc/servicecontext.go",
+          "internal/types/types.go",
+          "internal/api/v1/types.go",
+          "internal/api/v1/orders_api/routes.go",
+          "internal/api/v1/orders_api/service.go",
+          "model/entity/order_gen.go",
+          "model/repo/order.go"
+        ]
+      },
+      {
+        "id": "inventoryservice-imported-multigroup-replay",
+        "module": "example.com/inventoryservice",
+        "profile": "gozero-compatible",
+        "style": "minimal",
+        "cache": true,
+        "manifest": "testdata/goctl-replay/inventoryservice/replay.json",
+        "files": [
+          "testdata/goctl-replay/inventoryservice/inventory.api",
+          "testdata/goctl-replay/inventoryservice/types/common.api",
+          "testdata/goctl-replay/inventoryservice/etc/inventory-api.yaml",
+          "testdata/goctl-replay/inventoryservice/model/inventory.sql"
+        ],
+        "capabilities": [
+          "api-import",
+          "multi-service-group",
+          "multi-middleware",
+          "complex-model",
+          "soft-delete",
+          "optimistic-lock",
+          "composite-unique-key",
+          "cache-template"
+        ],
+        "expectedArtifacts": [
+          "cmd/inventory-api/main.go",
+          "internal/handler/routes.go",
+          "internal/logic/pinglogic.go",
+          "internal/svc/servicecontext.go",
+          "internal/types/types.go",
+          "internal/api/v1/types.go",
+          "internal/api/v1/inventory_api/routes.go",
+          "internal/api/v1/inventory_api/service.go",
+          "internal/api/v1/inventory_api/create_inventory.go",
+          "internal/api/v1/inventory_api/list_inventory.go",
+          "internal/api/v1/admin_api/routes.go",
+          "internal/api/v1/admin_api/service.go",
+          "internal/api/v1/admin_api/adjust_inventory.go",
+          "model/entity/inventory_item_gen.go",
+          "model/repo/inventory_item.go"
+        ]
+      },
+      {
+        "id": "billingservice-transitive-import-replay",
+        "module": "example.com/billingservice",
+        "profile": "gozero-compatible",
+        "style": "minimal",
+        "cache": true,
+        "manifest": "testdata/goctl-replay/billingservice/replay.json",
+        "files": [
+          "testdata/goctl-replay/billingservice/billing.api",
+          "testdata/goctl-replay/billingservice/types/domain/invoice.api",
+          "testdata/goctl-replay/billingservice/types/domain/shared/common.api",
+          "testdata/goctl-replay/billingservice/etc/billing-api.yaml",
+          "testdata/goctl-replay/billingservice/model/billing.sql"
+        ],
+        "capabilities": [
+          "api-import",
+          "transitive-api-import",
+          "multi-service-group",
+          "multi-middleware",
+          "api-comments-tags",
+          "nested-type-composition",
+          "request-response-naming",
+          "complex-model",
+          "soft-delete",
+          "optimistic-lock",
+          "single-column-unique-key",
+          "composite-unique-key",
+          "cache-template"
+        ],
+        "expectedArtifacts": [
+          "cmd/billing-api/main.go",
+          "internal/handler/routes.go",
+          "internal/logic/pinglogic.go",
+          "internal/svc/servicecontext.go",
+          "internal/types/types.go",
+          "internal/api/v1/types.go",
+          "internal/api/v1/billing_api/routes.go",
+          "internal/api/v1/billing_api/service.go",
+          "internal/api/v1/billing_api/create_invoice.go",
+          "internal/api/v1/billing_api/list_invoices.go",
+          "internal/api/v1/capture_api/routes.go",
+          "internal/api/v1/capture_api/service.go",
+          "internal/api/v1/capture_api/capture_invoice.go",
+          "model/entity/invoice_gen.go",
+          "model/repo/invoice.go"
+        ]
+      }
+    ]
+  },
+  "diffContract": {
+    "categories": [
+      "deterministic-repeat-generation",
+      "compatible-addition",
+      "generated-cache-template",
+      "breaking-candidate"
+    ],
+    "repeatGeneration": "Repeat replay must be deterministic before promotion.",
+    "diffReport": "Replay reports must classify generated changes with the same categories used by upgrade dry-run.",
+    "rollbackNote": "Each fixture keeps rollback.md and release promotion must reference it when replay fails."
+  },
+  "smoke": {
+    "goTest": "Run go test ./... inside each generated module.",
+    "repeatReplay": "Replay each fixture twice and compare output.",
+    "rootDependencyPolicy": "Generated fixture dependencies stay in generated go.mod files; root go.mod must remain unchanged."
+  },
+  "releaseGates": [
+    "make goctl-real-project-replay-check",
+    "make goctl-generator-compat-check",
+    "make generated-version-compat-check"
+  ],
+  "status": {
+    "goctlCommandSurface": "unchanged",
+    "fixtureMatrixDepth": "transitive-import-comments-tags-nested-model",
+    "modelCacheTemplateDepth": "covered-by-three-fixture-replay-matrix"
+  }
+}

@@ -28,7 +28,10 @@ Every diff report includes `rollbackNote` and uses
 Evidence is stored in `docs/reference/goctl-generator-compatibility.json` and
 validated by `make goctl-generator-compat-check`. The matrix covers
 `gozero-compatible`, goctl-style flags, `api format`, `api import`,
-`api route`, `api diff`, and deterministic-repeat-generation boundaries.
+`api route`, `api diff`, `route-layout-boundary`, and
+deterministic-repeat-generation boundaries. Real project replay evidence must
+run in a temporary worktree and carry an explicit rollback action before the
+compatibility claim is promoted.
 
 ## Closeout Contracts
 

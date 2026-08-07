@@ -1,0 +1,14 @@
+{
+  "schema": "gofly.framework_gap_long_term_adoption.v1",
+  "sourceOfTruth": [
+    "docs/reference/goctl-generator-compatibility.json",
+    "docs/reference/goctl-real-project-replay.json",
+    "docs/reference/generated-upgrade-dry-run.json"
+  ],
+  "goctlCompatibility": {
+    "evidence": "docs/reference/goctl-generator-compatibility.json",
+    "realProjectReplay": "docs/reference/goctl-real-project-replay.json",
+    "positioning": "gofly provides a goctl-compatible migration path, not a full goctl replacement."
+  },
+  "adoptionPolicy": "Keep go-zero/goctl migration evidence runnable through make goctl-generator-compat-check and make goctl-real-project-replay-check before promoting compatibility claims."
+}

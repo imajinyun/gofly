@@ -258,9 +258,11 @@ db-cache-productization-check: ## Validate DB/cache packages
 .PHONY: goctl-generator-compat-check
 goctl-generator-compat-check: ## Validate goctl-compatible generator tests
 	$(GO) test $(TESTFLAGS) ./cmd/gofly/internal/generator ./cmd/gofly/internal/command -run 'Test.*Goctl|Test.*goctl|Test.*Generated|TestNewService'
+	sh $(SCRIPTS_DIR)/check-goctl-generator-compat.sh
 
 .PHONY: goctl-real-project-replay-check
 goctl-real-project-replay-check: test-generated-matrix ## Validate goctl replay through generated project smoke
+	sh $(SCRIPTS_DIR)/check-goctl-real-project-replay.sh
 
 .PHONY: framework-gap-check
 framework-gap-check: ## Compatibility no-op; framework alignment is now validated through code, generator, and examples gates
@@ -341,7 +343,7 @@ examples-smoke: ## Run runnable example smoke tests and machine-readable output 
 	sh $(SCRIPTS_DIR)/examples-smoke.sh
 
 .PHONY: docs-check
-docs-check: api-contract-governance-check ## Validate tracked documentation-backed governance contracts
+docs-check: api-contract-governance-check goctl-generator-compat-check goctl-real-project-replay-check ## Validate tracked documentation-backed governance contracts
 
 .PHONY: docs-taxonomy-check
 docs-taxonomy-check: ## Compatibility no-op; tracked docs taxonomy has been removed

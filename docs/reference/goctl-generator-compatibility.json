@@ -77,6 +77,15 @@
       "rollbackNote": "Rollback by pinning client generators per language and keeping generated client evidence out of runtime artifacts."
     },
     {
+      "id": "zrpc-proto-compatibility-matrix",
+      "status": "implemented",
+      "gate": "make zrpc-proto-compatibility-check",
+      "implementation": ["cmd/gofly/internal/generator/proto_parser.go", "cmd/gofly/internal/generator/proto_codegen.go", "cmd/gofly/internal/command/rpc_gen_command.go", "cmd/gofly/internal/command/rpc_protoc_command.go"],
+      "tests": ["cmd/gofly/internal/generator/idl_test.go", "bin/scripts/check-zrpc-proto-compatibility.sh", "docs/reference/zrpc-proto-compatibility.json"],
+      "evidence": ["external-proto-imports", "multiple-services", "streaming-rpc", "google-well-known-types", "client-wrapper", "supported", "degraded"],
+      "rollbackNote": "Rollback by preserving supported proto generation evidence and avoiding full zRPC parity claims for degraded rows."
+    },
+    {
       "id": "real-project-replay-matrix",
       "status": "implemented",
       "gate": "make goctl-real-project-replay-check",
@@ -89,6 +98,7 @@
   "releaseGates": [
     "make goctl-generator-compat-check",
     "make api-client-generation-check",
+    "make zrpc-proto-compatibility-check",
     "make goctl-real-project-replay-check",
     "make generated-version-compat-check",
     "make generated-upgrade-dry-run-check",

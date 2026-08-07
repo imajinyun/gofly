@@ -1120,6 +1120,7 @@ expected_p13_surfaces = {
     "historical-fixture-matrix",
     "real-adopter-branch-replay",
     "multi-language-client-contract",
+	"zrpc-proto-compatibility",
     "generated-diff-classification",
     "generated-dependency-boundary",
 }
@@ -1187,6 +1188,19 @@ require(
 require(
     client_capability.get("gate") == "make api-client-generation-check",
     "multi-language client capability gate must be make api-client-generation-check",
+)
+
+zrpc_surface = p13_surfaces.get("zrpc-proto-compatibility") or {}
+require(zrpc_surface.get("capability") == "zrpc-proto-compatibility-matrix", "p13 zrpc proto surface capability mismatch")
+require(zrpc_surface.get("gate") == "make zrpc-proto-compatibility-check", "p13 zrpc proto surface gate mismatch")
+zrpc_capability = goctl_capabilities.get("zrpc-proto-compatibility-matrix") or {}
+require(zrpc_capability.get("status") == "implemented", "zrpc proto compatibility capability must be implemented")
+require(zrpc_capability.get("gate") == "make zrpc-proto-compatibility-check", "zrpc proto compatibility capability gate mismatch")
+zrpc_evidence = set(zrpc_capability.get("evidence") or [])
+required_zrpc_evidence = set(zrpc_surface.get("requiredEvidence") or [])
+require(
+    required_zrpc_evidence <= zrpc_evidence,
+    f"p13 zrpc proto surface evidence missing from goctl capability: {sorted(required_zrpc_evidence - zrpc_evidence)!r}",
 )
 
 diff_surface = p13_surfaces.get("generated-diff-classification") or {}

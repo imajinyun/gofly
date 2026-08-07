@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package shop.common.v1;
+
+option go_package = "example.com/shop/common;commonv1";
+
+message Money {
+  string currency = 1;
+  int64 units = 2;
+}
+
+message TraceMeta {
+  string request_id = 1;
+}

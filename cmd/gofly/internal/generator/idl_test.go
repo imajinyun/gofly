@@ -1214,6 +1214,99 @@ service Chat {
 	}
 }
 
+func TestZRPCProtoCompatibilityMatrix(t *testing.T) {
+	root := repositoryRoot(t)
+	protoPath := filepath.Join(root, "testdata", "zrpc-proto-matrix", "shop.proto")
+	manifestPath := filepath.Join(root, "docs", "reference", "zrpc-proto-compatibility.json")
+	protoData, err := os.ReadFile(protoPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, err := ParseProto(string(protoData))
+	if err != nil {
+		t.Fatalf("ParseProto zrpc fixture: %v", err)
+	}
+	if strings.Join(doc.Imports, ",") != "common.proto,google/protobuf/timestamp.proto" {
+		t.Fatalf("imports = %v, want common and timestamp imports", doc.Imports)
+	}
+	if len(doc.Services) != 2 {
+		t.Fatalf("services = %#v, want two services", doc.Services)
+	}
+	if len(doc.Messages) == 0 || !hasProtoMessage(doc.Messages, "CreateOrderRequest") {
+		t.Fatalf("messages = %#v, want local messages", doc.Messages)
+	}
+	if hasProtoMessage(doc.Messages, "Money") || hasProtoMessage(doc.Messages, "TraceMeta") {
+		t.Fatalf("imported common.proto messages should not be recursively parsed yet: %#v", doc.Messages)
+	}
+
+	manifestData, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := string(manifestData)
+	for _, want := range []string{
+		`"external-proto-imports"`,
+		`"status": "degraded"`,
+		`"google-well-known-types"`,
+		`"multiple-services"`,
+		`"streaming-rpc"`,
+		`"client-wrapper"`,
+	} {
+		if !strings.Contains(manifest, want) {
+			t.Fatalf("zrpc compatibility manifest missing %q:\n%s", want, manifest)
+		}
+	}
+
+	outDir := filepath.Join(t.TempDir(), "out")
+	if err := GenerateRPCFromProto(RPCOptions{ProtoFile: protoPath, Dir: outDir, Package: "shopv1", Multiple: true, WithMiddleware: true}); err != nil {
+		t.Fatalf("GenerateRPCFromProto zrpc fixture: %v", err)
+	}
+	orderData, err := os.ReadFile(filepath.Join(outDir, "order_service", "shop.gofly.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	order := string(orderData)
+	for _, want := range []string{
+		"func OrderServiceDescriptor() rpc.ServiceDesc",
+		"func NewOrderServiceClient",
+		"func (c *OrderServiceClient) RuntimeDescriptor() rpc.Descriptor",
+		`Name: "WatchOrders"`,
+		"Mode: rpc.StreamModeServerStream",
+		`Metadata: map[string]string{"request": "WatchOrdersRequest", "response": "WatchOrdersResponse", "clientStream": "false", "serverStream": "true"}`,
+		"Total   *Money",
+		"CreatedAt *Timestamp",
+	} {
+		if !strings.Contains(order, want) {
+			t.Fatalf("generated order zrpc compatibility output missing %q:\n%s", want, order)
+		}
+	}
+	eventData, err := os.ReadFile(filepath.Join(outDir, "order_event_service", "shop.gofly.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	event := string(eventData)
+	for _, want := range []string{
+		"func OrderEventServiceDescriptor() rpc.ServiceDesc",
+		"Mode: rpc.StreamModeClientStream",
+		"Mode: rpc.StreamModeBidiStream",
+		"func NewOrderEventServiceClient",
+		"Stream(ctx context.Context, method string) (*rpc.Stream, error)",
+	} {
+		if !strings.Contains(event, want) {
+			t.Fatalf("generated event zrpc compatibility output missing %q:\n%s", want, event)
+		}
+	}
+}
+
+func hasProtoMessage(messages []IDLMessage, name string) bool {
+	for _, message := range messages {
+		if message.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
 func TestGenerateRPCCodeInfersPackageAndOmitsOptions(t *testing.T) {
 	doc, err := ParseProto(`syntax = "proto3";
 package billing.v1;

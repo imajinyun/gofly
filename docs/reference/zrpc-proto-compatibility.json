@@ -1,0 +1,66 @@
+{
+  "schema": "gofly.zrpc_proto_compatibility.v1",
+  "status": "blocking-contract",
+  "acceptanceGate": "make zrpc-proto-compatibility-check",
+  "sourceOfTruth": [
+    "testdata/zrpc-proto-matrix/shop.proto",
+    "testdata/zrpc-proto-matrix/common.proto",
+    "cmd/gofly/internal/generator/proto_parser.go",
+    "cmd/gofly/internal/generator/proto_codegen.go",
+    "cmd/gofly/internal/command/rpc_gen_command.go",
+    "cmd/gofly/internal/command/rpc_protoc_command.go"
+  ],
+  "referenceFramework": "goctl rpc protoc / go-zero zRPC",
+  "matrix": [
+    {
+      "id": "external-proto-imports",
+      "status": "degraded",
+      "surface": "proto imports",
+      "evidence": ["import \"common.proto\"", "doc.Imports", "imports-recorded-only"],
+      "gate": "make zrpc-proto-compatibility-check",
+      "reason": "ParseProto records imported file names but does not recursively parse imported message definitions into generated DTOs.",
+      "rollbackOrEscalation": "Do not claim full goctl external import parity until recursive import parsing and generated DTO evidence are added."
+    },
+    {
+      "id": "multiple-services",
+      "status": "supported",
+      "surface": "multi-service proto",
+      "evidence": ["OrderService", "OrderEventService", "Multiple: true"],
+      "gate": "make zrpc-proto-compatibility-check",
+      "reason": "GenerateRPCFromProto can split multiple services into service-specific output directories when Multiple is enabled.",
+      "rollbackOrEscalation": "Rollback by preserving service-specific generated output directories and blocking release if multi-service output disappears."
+    },
+    {
+      "id": "streaming-rpc",
+      "status": "supported",
+      "surface": "server, client, and bidirectional streaming descriptors",
+      "evidence": ["StreamModeServerStream", "StreamModeClientStream", "StreamModeBidiStream"],
+      "gate": "make zrpc-proto-compatibility-check",
+      "reason": "Generated service descriptors expose stream modes and stream metadata for all three gRPC streaming forms.",
+      "rollbackOrEscalation": "Rollback by preserving stream descriptor generation and treating lost stream mode metadata as a breaking candidate."
+    },
+    {
+      "id": "google-well-known-types",
+      "status": "degraded",
+      "surface": "google.protobuf well-known types",
+      "evidence": ["google/protobuf/timestamp.proto", "Timestamp", "external-type-reference"],
+      "gate": "make zrpc-proto-compatibility-check",
+      "reason": "Well-known type imports are recorded and referenced by last identifier, but no dedicated WKT Go type mapping is generated yet.",
+      "rollbackOrEscalation": "Do not claim WKT parity until generated code maps google.protobuf types to stable Go types with tests."
+    },
+    {
+      "id": "client-wrapper",
+      "status": "supported",
+      "surface": "gofly RPC client wrapper",
+      "evidence": ["NewOrderServiceClient", "RuntimeDescriptor", "Stream(ctx context.Context, method string)"],
+      "gate": "make zrpc-proto-compatibility-check",
+      "reason": "Generated clients include unary wrappers and stream-opening helpers when client generation is enabled.",
+      "rollbackOrEscalation": "Rollback by preserving generated client wrappers or documenting NoClient as an explicit compatibility downgrade."
+    }
+  ],
+  "releaseRules": {
+    "supportedRegression": "Any supported row that loses generated evidence blocks release.",
+    "degradedClaim": "Degraded rows may not be described as full goctl or zRPC parity in docs or release notes.",
+    "unsupportedPromotion": "Promotion from degraded to supported requires fixture coverage, generated output evidence, and release gate updates."
+  }
+}

@@ -265,13 +265,17 @@ db-cache-productization-check: ## Validate DB/cache packages
 	$(GO) test $(TESTFLAGS) ./core/storage/... ./cache/...
 
 .PHONY: goctl-generator-compat-check
-goctl-generator-compat-check: api-client-generation-check ## Validate goctl-compatible generator tests
+goctl-generator-compat-check: api-client-generation-check zrpc-proto-compatibility-check ## Validate goctl-compatible generator tests
 	$(GO) test $(TESTFLAGS) ./cmd/gofly/internal/generator ./cmd/gofly/internal/command -run 'Test.*Goctl|Test.*goctl|Test.*Generated|TestNewService'
 	sh $(SCRIPTS_DIR)/check-goctl-generator-compat.sh
 
 .PHONY: api-client-generation-check
 api-client-generation-check: ## Validate multi-language API client generation fixtures
 	sh $(SCRIPTS_DIR)/check-api-client-generation.sh
+
+.PHONY: zrpc-proto-compatibility-check
+zrpc-proto-compatibility-check: ## Validate zRPC/proto compatibility support matrix
+	sh $(SCRIPTS_DIR)/check-zrpc-proto-compatibility.sh
 
 .PHONY: goctl-real-project-replay-check
 goctl-real-project-replay-check: test-generated-matrix ## Validate goctl replay through generated project smoke

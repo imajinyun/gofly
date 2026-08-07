@@ -1,0 +1,53 @@
+syntax = "proto3";
+
+package shop.v1;
+
+option go_package = "example.com/shop/rpc;shopv1";
+
+import "common.proto";
+import "google/protobuf/timestamp.proto";
+
+message CreateOrderRequest {
+  string buyer_id = 1;
+  repeated string tags = 2;
+  shop.common.v1.Money total = 3;
+  shop.common.v1.TraceMeta meta = 4;
+}
+
+message CreateOrderResponse {
+  string id = 1;
+  string status = 2;
+  google.protobuf.Timestamp created_at = 3;
+}
+
+message WatchOrdersRequest {
+  string buyer_id = 1;
+}
+
+message WatchOrdersResponse {
+  string id = 1;
+  string status = 2;
+}
+
+message UploadOrderEvent {
+  string id = 1;
+  string payload = 2;
+}
+
+message UploadOrderResponse {
+  int64 accepted = 1;
+}
+
+message ChatMessage {
+  string text = 1;
+}
+
+service OrderService {
+  rpc CreateOrder(CreateOrderRequest) returns (CreateOrderResponse);
+  rpc WatchOrders(WatchOrdersRequest) returns (stream WatchOrdersResponse);
+}
+
+service OrderEventService {
+  rpc UploadEvents(stream UploadOrderEvent) returns (UploadOrderResponse);
+  rpc Chat(stream ChatMessage) returns (stream ChatMessage);
+}

@@ -343,7 +343,11 @@ examples-smoke: ## Run runnable example smoke tests and machine-readable output 
 	sh $(SCRIPTS_DIR)/examples-smoke.sh
 
 .PHONY: docs-check
-docs-check: api-contract-governance-check goctl-generator-compat-check goctl-real-project-replay-check ## Validate tracked documentation-backed governance contracts
+docs-check: reference-contracts-check api-contract-governance-check goctl-generator-compat-check goctl-real-project-replay-check ## Validate tracked documentation-backed governance contracts
+
+.PHONY: reference-contracts-check
+reference-contracts-check: ## Validate docs/reference is the tracked governance contract root
+	sh $(SCRIPTS_DIR)/check-reference-contracts.sh
 
 .PHONY: docs-taxonomy-check
 docs-taxonomy-check: ## Compatibility no-op; tracked docs taxonomy has been removed

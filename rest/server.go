@@ -109,7 +109,7 @@ func applyConfigDefaults(c Config) (Config, error) {
 		preset = PresetProduction
 	}
 	c.Preset = preset
-	if preset != PresetDevelopment && preset != PresetProduction && preset != PresetCustom {
+	if preset != PresetMinimal && preset != PresetStandard && preset != PresetDevelopment && preset != PresetProduction && preset != PresetCustom {
 		return Config{}, fmt.Errorf("unknown rest preset %q", c.Preset)
 	}
 	if c.DisableDefaultMiddlewares {
@@ -122,15 +122,18 @@ func applyConfigDefaults(c Config) (Config, error) {
 		return c, nil
 	}
 	c.Middlewares.Recover = true
-	c.Middlewares.Trace = true
-	c.Middlewares.Log = true
-	c.Middlewares.Timeout = true
-	c.Middlewares.Metrics = true
 	c.Middlewares.Health = true
 	c.Middlewares.RequestID = true
 	if c.MaxBodyBytes == 0 && c.Middlewares.MaxBodyBytesConfig.Limit == 0 {
 		c.MaxBodyBytes = defaultMaxBodyBytes
 	}
+	if preset == PresetMinimal {
+		return c, nil
+	}
+	c.Middlewares.Trace = true
+	c.Middlewares.Log = true
+	c.Middlewares.Timeout = true
+	c.Middlewares.Metrics = true
 	if preset == PresetProduction {
 		c.Middlewares.Breaker = true
 		c.Middlewares.RateLimit = true

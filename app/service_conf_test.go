@@ -147,6 +147,28 @@ func TestServiceConfRESTConfigWiresDefaultGovernance(t *testing.T) {
 	}
 }
 
+func TestServiceConfRESTConfigPreservesExplicitMiddlewareProfiles(t *testing.T) {
+	conf := ServiceConf{
+		Name: "orders",
+		Governance: ServiceGovernance{
+			RateLimit:      ServiceRateLimit{Rate: 100, Burst: 200},
+			MaxConcurrency: 32,
+			AdaptiveLimit:  true,
+		},
+	}
+	for _, preset := range []string{rest.PresetMinimal, rest.PresetStandard, rest.PresetDevelopment, rest.PresetCustom} {
+		t.Run(preset, func(t *testing.T) {
+			restConf := conf.RESTConfig(rest.Config{Preset: preset})
+			if restConf.Preset != preset {
+				t.Fatalf("preset = %q, want %q", restConf.Preset, preset)
+			}
+			if restConf.Middlewares.RateLimit || restConf.Middlewares.MaxConcurrency || restConf.Middlewares.AdaptiveRateLimit || restConf.Middlewares.Breaker {
+				t.Fatalf("explicit preset %q should not be upgraded by service governance: %+v", preset, restConf.Middlewares)
+			}
+		})
+	}
+}
+
 func TestServiceConfRPCOptionsWireDefaultGovernance(t *testing.T) {
 	conf := ServiceConf{
 		Name: "orders",

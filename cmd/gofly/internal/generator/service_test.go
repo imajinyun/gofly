@@ -664,6 +664,56 @@ func TestGenerateServiceDefaultResilienceProfileReachesRESTRuntime(t *testing.T)
 	}
 }
 
+func TestGeneratedRESTMiddlewareProfilesByStyle(t *testing.T) {
+	tests := []struct {
+		name           string
+		style          string
+		wantPreset     string
+		wantTrace      bool
+		wantTimeout    bool
+		wantResilience bool
+	}{
+		{name: "minimal", style: ServiceStyleMinimal, wantPreset: rest.PresetMinimal},
+		{name: "basic", style: ServiceStyleBasic, wantPreset: rest.PresetStandard, wantTrace: true, wantTimeout: true},
+		{name: "production", style: ServiceStyleProduction, wantPreset: rest.PresetProduction, wantTrace: true, wantTimeout: true, wantResilience: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := GenerateService(ServiceOptions{Name: "orders", Module: "example.com/orders", Dir: dir, Style: tt.style}); err != nil {
+				t.Fatal(err)
+			}
+			configData, err := os.ReadFile(filepath.Join(dir, "etc", "orders.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var generated struct {
+				Service app.ServiceConf `json:"service"`
+				Rest    rest.Config     `json:"rest"`
+			}
+			if err := json.Unmarshal(configData, &generated); err != nil {
+				t.Fatalf("decode generated config: %v\n%s", err, configData)
+			}
+			if generated.Rest.Preset != tt.wantPreset {
+				t.Fatalf("generated rest preset = %q, want %q", generated.Rest.Preset, tt.wantPreset)
+			}
+			restConf := generated.Service.RESTConfig(generated.Rest)
+			server := rest.MustNewServer(restConf)
+			mw := server.ControlPlaneRuntime().Middlewares
+			if !mw.Recover || !mw.Health || !mw.RequestID {
+				t.Fatalf("%s generated base middlewares = %+v, want recover/health/request-id", tt.name, mw)
+			}
+			if mw.Trace != tt.wantTrace || mw.Timeout != tt.wantTimeout {
+				t.Fatalf("%s generated standard middlewares = %+v", tt.name, mw)
+			}
+			resilience := mw.RateLimit || mw.MaxConcurrency || mw.AdaptiveRateLimit || mw.Breaker
+			if resilience != tt.wantResilience {
+				t.Fatalf("%s generated resilience middlewares = %+v", tt.name, mw)
+			}
+		})
+	}
+}
+
 func assertGeneratedPrometheusAlerts(t *testing.T, data []byte) {
 	t.Helper()
 	alerts := make(map[string]generatedPrometheusAlert)
@@ -2737,11 +2787,14 @@ func TestGenerateAPINewDefaultStyleReachesRESTRuntime(t *testing.T) {
 		ctx.String(http.StatusOK, "ok")
 	}})
 	runtime := server.ControlPlaneRuntime()
-	if runtime.Service != "orders" || !runtime.Middlewares.RateLimit || !runtime.Middlewares.MaxConcurrency || !runtime.Middlewares.Breaker || !runtime.Middlewares.AdaptiveRateLimit {
-		t.Fatalf("generated api rest runtime = %+v, want default resilience middleware enabled", runtime)
+	if runtime.Service != "orders" || runtime.Config.Preset != rest.PresetStandard {
+		t.Fatalf("generated api rest runtime = %+v, want standard profile", runtime)
 	}
-	if runtime.Middlewares.TimeoutConfig.Duration != 3*time.Second || runtime.Middlewares.MaxConcurrencyConfig.Limit != 64 {
-		t.Fatalf("generated api rest runtime middleware config = %+v, want shared defaults", runtime.Middlewares)
+	if !runtime.Middlewares.Trace || !runtime.Middlewares.Log || !runtime.Middlewares.Timeout || !runtime.Middlewares.Metrics || !runtime.Middlewares.Health || !runtime.Middlewares.RequestID {
+		t.Fatalf("generated api rest runtime middleware config = %+v, want standard defaults", runtime.Middlewares)
+	}
+	if runtime.Middlewares.RateLimit || runtime.Middlewares.MaxConcurrency || runtime.Middlewares.Breaker || runtime.Middlewares.AdaptiveRateLimit {
+		t.Fatalf("generated api rest runtime = %+v, want resilience opt-in for standard profile", runtime)
 	}
 	rec := httptest.NewRecorder()
 	server.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/runtime", nil))
@@ -2749,9 +2802,14 @@ func TestGenerateAPINewDefaultStyleReachesRESTRuntime(t *testing.T) {
 		t.Fatalf("generated api rest response = %d body = %q, want ok", rec.Code, rec.Body.String())
 	}
 	layers := server.RuntimeSnapshot(context.Background()).Components[0].Middleware.Unary
-	for _, want := range []string{"rate_limit", "adaptive_rate_limit", "max_concurrency", "breaker", "timeout"} {
+	for _, want := range []string{"trace", "log", "timeout", "metrics", "request_id"} {
 		if !hasRuntimeMiddlewareLayer(layers, want) {
 			t.Fatalf("generated api rest middleware chain = %+v, missing %q", layers, want)
+		}
+	}
+	for _, unexpected := range []string{"rate_limit", "adaptive_rate_limit", "max_concurrency", "breaker"} {
+		if hasRuntimeMiddlewareLayer(layers, unexpected) {
+			t.Fatalf("generated api rest middleware chain = %+v, unexpected %q", layers, unexpected)
 		}
 	}
 }

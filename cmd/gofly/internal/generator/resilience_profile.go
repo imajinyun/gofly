@@ -25,6 +25,10 @@ func withGeneratedResilienceTemplateData(data map[string]string, serviceName str
 	data["RestRateLimitConfigJSON"] = `{"rate": 100, "burst": 100}`
 	data["RestAdaptiveLimitConfigJSON"] = `{"minLimit": 16, "maxLimit": 256, "initialLimit": 64, "cpuThreshold": 80, "window": ` + generatedRestBreakerWindowNS + `, "targetLatency": ` + generatedRetryBackoffNS + `, "targetErrorRatio": 0.05, "minSamples": 20}`
 	data["RestMaxConcurrencyConfigJSON"] = `{"limit": 64}`
+	if strings.TrimSpace(data["RestPreset"]) == "" {
+		data["RestPreset"] = ServiceStyleProduction
+	}
+	data["RestMiddlewaresConfigJSON"] = generatedRESTMiddlewaresConfigJSON(data["RestPreset"])
 	data["DefaultPolicyJSON"] = generatedPolicyJSON(generatedServiceTimeoutNS, generatedDefaultRetryJSON(), generatedFullBreakerPolicyJSON())
 	data["RPCSayHelloPolicyJSON"] = generatedPolicyJSON("2000000000", generatedDefaultRetryJSON(), generatedMinimalBreakerPolicyJSON())
 	data["GatewayPolicyJSON"] = generatedPolicyJSON(generatedGatewayTimeoutNS, generatedGatewayRetryJSON(), generatedFullBreakerPolicyJSON())
@@ -34,6 +38,40 @@ func withGeneratedResilienceTemplateData(data map[string]string, serviceName str
 	data["GovernanceRulesJSON"] = generatedGovernanceRulesJSON(serviceName)
 	data["GatewayGovernanceRulesJSON"] = generatedGatewayGovernanceRulesJSON(serviceName)
 	return data
+}
+
+func restPresetForStyle(style string) string {
+	switch strings.ToLower(strings.TrimSpace(style)) {
+	case ServiceStyleMinimal:
+		return "minimal"
+	case ServiceStyleBasic:
+		return "standard"
+	default:
+		return "production"
+	}
+}
+
+func generatedRESTMiddlewaresConfigJSON(preset string) string {
+	switch strings.ToLower(strings.TrimSpace(preset)) {
+	case "minimal":
+		return `{"recover": true, "health": true, "requestId": true}`
+	case "standard", "development":
+		return `{"recover": true, "trimStrings": true, "trace": true, "log": true, "timeout": true, "timeoutConfig": ` + generatedRESTTimeoutConfigJSON() + `, "metrics": true, "health": true, "requestId": true}`
+	default:
+		return `{"recover": true, "trimStrings": true, "trace": true, "log": true, "timeout": true, "timeoutConfig": ` + generatedRESTTimeoutConfigJSON() + `, "breaker": true, "breakerConfig": ` + generatedRestBreakerConfigJSON() + `, "rateLimit": true, "rateLimitConfig": ` + generatedRateLimitJSON() + `, "adaptiveRateLimit": true, "adaptiveLimitConfig": ` + generatedRESTAdaptiveLimitConfigJSON() + `, "maxConcurrency": true, "maxConcurrencyConfig": ` + generatedRESTMaxConcurrencyConfigJSON() + `, "securityHeaders": {"contentSecurityPolicy": "default-src 'self'", "frameOptions": "DENY", "contentTypeOptions": "nosniff", "referrerPolicy": "no-referrer", "permissionsPolicy": "geolocation=()", "hsts": "max-age=31536000; includeSubDomains"}, "logRedaction": {"headers": ["Authorization", "Cookie", "Set-Cookie"], "queries": ["token", "access_token"]}, "metrics": true, "health": true, "requestId": true}`
+	}
+}
+
+func generatedRESTTimeoutConfigJSON() string {
+	return `{"duration": ` + generatedServiceTimeoutNS + `, "readHeaderTimeout": ` + generatedServiceTimeoutNS + `, "healthTimeout": 1000000000}`
+}
+
+func generatedRESTAdaptiveLimitConfigJSON() string {
+	return `{"minLimit": 16, "maxLimit": 256, "initialLimit": 64, "cpuThreshold": 80, "window": ` + generatedRestBreakerWindowNS + `, "targetLatency": ` + generatedRetryBackoffNS + `, "targetErrorRatio": 0.05, "minSamples": 20}`
+}
+
+func generatedRESTMaxConcurrencyConfigJSON() string {
+	return `{"limit": 64}`
 }
 
 func generatedServiceGovernanceJSON(includeRPC bool) string {

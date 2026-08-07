@@ -23,5 +23,6 @@ run_go_test ./cmd/gofly/internal/generator 'Test(ApplyTemplateExtensionRejectsSy
 run_go_test ./cmd/gofly/internal/generator 'Test(GenerateModelFromDDLGORMStyle|GenerateModelFromDDLGoZeroStyleDoesNotRequireGORM|GenerateModelFromDDLGORMStyleFindsParentGoMod|GenerateMongoModelDriverStyle)$'
 run_go_test ./cmd/gofly/internal/command 'Test(AINewGeneratedArtifactsAreDeterministicAndIdempotent|AINewGeneratedProjectVerificationMatrix|NewServiceGeneratedProjectSmokeMatrix)'
 sh "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/check-generated-service-layout.sh"
+sh "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/check-rest-profiles.sh"
 
 printf 'generated-output governance ok\n'

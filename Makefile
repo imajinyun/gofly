@@ -97,8 +97,13 @@ generated-service-layout-check: ## Validate the Tier 0 generated production serv
 	sh $(SCRIPTS_DIR)/check-generated-service-layout.sh
 
 .PHONY: generated-output-governance
-generated-output-governance: ## Verify generated output determinism, path safety, and dependency placement
+generated-output-governance: rest-profile-check ## Verify generated output determinism, path safety, and dependency placement
 	sh $(SCRIPTS_DIR)/check-generated-output-governance.sh
+
+.PHONY: rest-profile-check
+rest-profile-check: ## Validate generated REST middleware profile contracts
+	$(GO) test $(TESTFLAGS) ./rest ./app ./cmd/gofly/internal/generator -run 'TestNewServerMiddlewareProfiles|TestServiceConfRESTConfigPreservesExplicitMiddlewareProfiles|TestGeneratedRESTMiddlewareProfilesByStyle'
+	sh $(SCRIPTS_DIR)/check-rest-profiles.sh
 
 .PHONY: code-generation-governance-check
 code-generation-governance-check: ## Validate code-generation surfaces, risks, tests, and dry-run gates

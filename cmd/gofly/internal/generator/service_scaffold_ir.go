@@ -213,6 +213,7 @@ func serviceScaffoldData(opts ServiceScaffoldOptions) map[string]string {
 		"NodePort":         "",
 		"FeatureImports":   "",
 		"MuxOTelSinkName":  "",
+		"RestPreset":       restPresetForStyle(opts.Style),
 		"Autoscale":        kubeAutoscale(opts.Name, "default", "2", "6"),
 	}), opts.Name)
 }

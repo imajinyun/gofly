@@ -470,6 +470,41 @@ func TestNewServerDevelopmentPresetKeepsLowFrictionDefaults(t *testing.T) {
 	}
 }
 
+func TestNewServerMiddlewareProfiles(t *testing.T) {
+	tests := []struct {
+		name            string
+		preset          string
+		wantTrace       bool
+		wantTimeout     bool
+		wantMetrics     bool
+		wantResilience  bool
+		wantSecurityHdr bool
+	}{
+		{name: "minimal", preset: PresetMinimal},
+		{name: "standard", preset: PresetStandard, wantTrace: true, wantTimeout: true, wantMetrics: true},
+		{name: "production", preset: PresetProduction, wantTrace: true, wantTimeout: true, wantMetrics: true, wantResilience: true, wantSecurityHdr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := MustNewServer(Config{Preset: tt.preset})
+			mw := s.conf.Middlewares
+			if !mw.Recover || !mw.Health || !mw.RequestID {
+				t.Fatalf("%s base middlewares = %#v, want recover/health/request-id", tt.name, mw)
+			}
+			if mw.Trace != tt.wantTrace || mw.Timeout != tt.wantTimeout || mw.Metrics != tt.wantMetrics {
+				t.Fatalf("%s standard middlewares = %#v", tt.name, mw)
+			}
+			resilience := mw.Breaker || mw.RateLimit || mw.AdaptiveRateLimit || mw.MaxConcurrency
+			if resilience != tt.wantResilience {
+				t.Fatalf("%s resilience middlewares = %#v", tt.name, mw)
+			}
+			if (mw.SecurityHeaders != nil) != tt.wantSecurityHdr {
+				t.Fatalf("%s security headers = %#v", tt.name, mw.SecurityHeaders)
+			}
+		})
+	}
+}
+
 func TestNewServerRejectsUnknownPreset(t *testing.T) {
 	_, err := NewServer(Config{Preset: "unsafe-prod"})
 	if err == nil || !strings.Contains(err.Error(), "unknown rest preset") {

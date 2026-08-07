@@ -63,6 +63,7 @@ func GenerateService(opts ServiceOptions) error {
 		"NodePort":         "",
 		"FeatureImports":   "",
 		"MuxOTelSinkName":  "",
+		"RestPreset":       restPresetForStyle(style),
 		"Autoscale":        kubeAutoscale(opts.Name, "default", "2", "6"),
 	}), opts.Name)
 	if err := cleanupLegacyServiceFiles(opts.Dir); err != nil {

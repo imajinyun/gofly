@@ -5,6 +5,7 @@ package app
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	coregovernance "github.com/imajinyun/gofly/core/governance"
@@ -328,6 +329,10 @@ func (c ServiceConf) RESTConfig(base rest.Config) rest.Config {
 	c = c.WithDefaults(base.Name)
 	if base.Name == "" {
 		base.Name = c.Name
+	}
+	preset := strings.ToLower(strings.TrimSpace(base.Preset))
+	if preset == rest.PresetMinimal || preset == rest.PresetStandard || preset == rest.PresetDevelopment || preset == rest.PresetCustom {
+		return base
 	}
 	if !c.Governance.Disabled {
 		if base.Timeout <= 0 {

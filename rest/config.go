@@ -12,8 +12,10 @@ import (
 const defaultMaxBodyBytes int64 = 1 << 20 // 1 MiB
 
 const (
-	PresetDevelopment = "development"
+	PresetMinimal     = "minimal"
+	PresetStandard    = "standard"
 	PresetProduction  = "production"
+	PresetDevelopment = "development"
 	PresetCustom      = "custom"
 )
 
@@ -24,7 +26,8 @@ const (
 // (recover, trace, log, timeout, metrics, health, request-id).
 type Config struct {
 	// Preset selects a built-in middleware profile. Empty defaults to
-	// production for backwards-compatible safe defaults.
+	// production for backwards-compatible safe defaults. Supported values are
+	// minimal, standard, production, and the legacy development/custom aliases.
 	Preset string `json:"preset,omitempty"`
 
 	// Name is the logical service name used for metrics, traces, admin

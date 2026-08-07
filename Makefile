@@ -402,6 +402,7 @@ generated-control-plane-contract-check: ## Validate generated control-plane warn
 
 .PHONY: generated-upgrade-dry-run-check
 generated-upgrade-dry-run-check: generated-output-governance code-generation-governance-check test-generated-matrix ## Validate generated upgrade behavior through generator tests
+	sh $(SCRIPTS_DIR)/check-generated-upgrade-dry-run.sh
 
 .PHONY: dx-troubleshooting-check
 dx-troubleshooting-check: ## Validate doctor, release, and support-bundle troubleshooting JSON contracts

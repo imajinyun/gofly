@@ -3702,7 +3702,7 @@ func runGeneratedControlPlaneSmoke(t *testing.T, repo string, restAddr string, a
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "go", "run", "./cmd/{{.Name}}")
+	cmd := exec.CommandContext(ctx, generatedServiceBinary(t, ctx, repo))
 	cmd.Dir = repo
 	cmd.Env = append(os.Environ(), "GOFLAGS=-count=1")
 	cmd.WaitDelay = 3 * time.Second
@@ -3724,6 +3724,24 @@ func runGeneratedControlPlaneSmoke(t *testing.T, repo string, restAddr string, a
 	stopGeneratedService(t, cmd, &output)
 	stopped = true
 	return controlPlane
+}
+
+func generatedServiceBinary(t *testing.T, ctx context.Context, repo string) string {
+	t.Helper()
+	binary := filepath.Join(t.TempDir(), "{{.Name}}")
+	if runtime.GOOS == "windows" {
+		binary += ".exe"
+	}
+	build := exec.CommandContext(ctx, "go", "build", "-o", binary, "./cmd/{{.Name}}")
+	build.Dir = repo
+	build.Env = append(os.Environ(), "GOFLAGS=-count=1")
+	output := strings.Builder{}
+	build.Stdout = &output
+	build.Stderr = &output
+	if err := build.Run(); err != nil {
+		t.Fatalf("build generated service smoke binary: %v\n%s", err, output.String())
+	}
+	return binary
 }
 
 func generatedProjectRoot(t *testing.T) string {
@@ -3783,8 +3801,15 @@ func rewriteSmokeConfigWithOperatorHistory(t *testing.T, repo string, restAddr s
 	rpcConfig["addr"] = rpcAddr
 	rpcConfig["advertise"] = "http://" + rpcAddr
 	muxConfig := jsonObject(t, rpcConfig, "mux")
+	muxConfig["enabled"] = true
 	logConfig := jsonObject(t, muxConfig, "log")
+	logConfig["enabled"] = true
+	logConfig["exportEvents"] = true
 	otelConfig := jsonObject(t, logConfig, "otelCompatible")
+	otelConfig["enabled"] = true
+	otelConfig["sink"] = "slog"
+	otelConfig["profileRef"] = ""
+	otelConfig["sinks"] = []any{}
 	otelConfig["operatorHistory"] = map[string]any{
 		"enabled":      true,
 		"store":        "file://mux-operator-history.jsonl",
@@ -3962,7 +3987,7 @@ func assertControlPlaneMuxOperatorHistory(t *testing.T, snapshot map[string]any)
 	if !ok || store["enabled"] != true || store["kind"] != "file" {
 		t.Fatalf("generated rpc mux operator history store = %#v, want enabled file summary", historyStore["store"])
 	}
-	if status, ok := historyStore["integrityStatus"]; ok && status != "" && status != "empty" && status != "missing_header" && status != "ok" {
+	if status, ok := historyStore["integrityStatus"]; ok && status != "" && status != "empty" && status != "missing" && status != "missing_header" && status != "ok" {
 		t.Fatalf("generated rpc mux operator history integrity = %#v, want redacted file integrity summary", historyStore["integrityStatus"])
 	}
 	warnings, ok := configs["generated.rpcMuxConfigWarnings"].([]any)

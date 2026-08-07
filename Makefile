@@ -371,8 +371,8 @@ docs-taxonomy-check: ## Compatibility no-op; tracked docs taxonomy has been remo
 	$(GO) env GOMOD >/dev/null
 
 .PHONY: migration-docs-check
-migration-docs-check: ## Compatibility no-op; migration proof is validated through runnable examples
-	$(GO) env GOMOD >/dev/null
+migration-docs-check: ## Validate migration guides and evidence-backed compatibility paths
+	sh $(SCRIPTS_DIR)/check-migration-docs.sh
 
 .PHONY: p1-growth-check
 p1-growth-check: helm-template-smoke plugin-conformance-check reference-app-smoke runtime-slo-check openapi-validation-check ## Validate growth assets through runnable gates

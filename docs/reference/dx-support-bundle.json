@@ -1,12 +1,30 @@
 {
   "schema": "gofly.dx_support_bundle.v1",
-  "acceptanceGate": "make generated-control-plane-contract-check",
+  "acceptanceGate": "make dx-troubleshooting-check",
   "sourceOfTruth": [
+    "gofly doctor --json",
     "gofly bug --json",
+    "gofly release check --json --strict",
+    "gofly ai new --json --apply --verify",
     "GET /admin/control-plane",
-    "docs/reference/control-plane-contracts.md"
+    "docs/reference/control-plane-contracts.md",
+    "docs/reference/cli-json-contracts.md"
   ],
   "surfaces": [
+    {
+      "command": "gofly doctor --json",
+      "stableFields": [
+        "version",
+        "go",
+        "os",
+        "arch",
+        "checks",
+        "summary",
+        "nextActions"
+      ],
+      "nextActionRequired": true,
+      "failureGuidance": "Use check nextActions and fix_hint fields to resolve local environment or project readiness issues before rerunning the gate."
+    },
     {
       "command": "gofly bug --json",
       "supportBundleSchema": "gofly.support_bundle.v1",
@@ -35,6 +53,32 @@
       "failureGuidance": "Attach gofly bug --json with redacted generated control-plane configs when generated RPC mux warnings or schema checksum drift need diagnosis."
     },
     {
+      "command": "gofly release check --json --strict",
+      "stableFields": [
+        "ok",
+        "command",
+        "data",
+        "data.summary",
+        "data.checks",
+        "error",
+        "error.remediation"
+      ],
+      "nextActionRequired": false,
+      "failureGuidance": "Use error.remediation and data.checks to identify the release gate that blocked promotion."
+    },
+    {
+      "command": "gofly ai new --json --apply --verify",
+      "stableFields": [
+        "data",
+        "data.verification",
+        "data.verifyRan",
+        "data.verifyPassed",
+        "data.nextActions"
+      ],
+      "nextActionRequired": true,
+      "failureGuidance": "Attach bounded data.verification output and follow data.nextActions before retrying generated project verification."
+    },
+    {
       "command": "GET /admin/control-plane",
       "stableFields": [
         "version",
@@ -48,8 +92,383 @@
       "failureGuidance": "If generated.rpcMuxConfigWarnings is present, decode each string as a gofly.rpc_mux_config_warning.v1 JSON object; if absent, use generated.rpcMuxConfigWarningSchema and generated.controlPlaneSchemaChecksums to keep parser contracts current."
     }
   ],
+  "generatedFailureReport": {
+    "schema": "gofly.generated_project_failure_report.v1",
+    "fields": [
+      "command",
+      "status",
+      "output",
+      "error",
+      "nextActions"
+    ],
+    "boundedOutput": true,
+    "outputLimitBytes": 4096,
+    "statusValues": [
+      "passed",
+      "failed",
+      "skipped"
+    ],
+    "rerunGuidanceField": "nextActions",
+    "redactionRequired": true,
+    "redactionTerms": [
+      "Authorization",
+      "Cookie",
+      "Set-Cookie",
+      "GOFLY_LLM_*",
+      "*TOKEN*",
+      "*SECRET*",
+      "*PASSWORD*"
+    ],
+    "evidenceProducers": [
+      {
+        "command": "gofly ai new --json --apply --verify",
+        "fields": [
+          "data.verification",
+          "data.nextActions"
+        ]
+      }
+    ],
+    "ciArtifactUsage": "Attach bounded verification output as a CI artifact only after redaction."
+  },
+  "remediationHandoff": {
+    "schema": "gofly.remediation_handoff.v1",
+    "aiflowTask": "GOFLY-GOV-10P9-09",
+    "supersedes": [
+      "GOFLY-KG-07-AI-REMEDIATION-AIFLOW",
+      "GOFLY-GOV-10R7-09"
+    ],
+    "owner": "human-or-current-agent",
+    "commitPolicy": "Aiflow must not create commits; the current agent or human commits only after gates pass.",
+    "allowedActions": [
+      "queue remediation tasks",
+      "run diagnostic commands",
+      "produce patch plans",
+      "produce bounded failure reports"
+    ],
+    "forbiddenActions": [
+      "git commit",
+      "git push",
+      "modify docs/superpowers/",
+      "stage runtime state"
+    ],
+    "inputs": [
+      "gofly doctor --json",
+      "gofly release check --json --strict",
+      "gofly bug --json",
+      "gofly.generated_project_failure_report.v1"
+    ],
+    "requiredGates": [
+      "make dx-troubleshooting-check",
+      "make governance-report-check",
+      "TestCLIJSONContractGoldens"
+    ],
+    "outputFields": [
+      "taskId",
+      "sourceCommand",
+      "remediation",
+      "nextActions",
+      "gates",
+      "commitPolicy"
+    ],
+    "completionPolicy": "Mark the aiflow task complete only after commit ownership is external, passing gates are recorded, and no runtime state staged."
+  },
+  "p9RemediationCloseout": {
+    "schema": "gofly.p9_remediation_closeout.v1",
+    "aiflowTask": "GOFLY-GOV-10P9-09",
+    "acceptanceGate": "make dx-troubleshooting-check",
+    "sourceCommands": [
+      "gofly doctor --json",
+      "gofly release check --json --strict",
+      "gofly bug --json",
+      "gofly ai new --json --apply --verify"
+    ],
+    "requiredNextActionSources": [
+      "nextActions",
+      "error.remediation",
+      "data.nextActions"
+    ],
+    "handoffOutputFields": [
+      "taskId",
+      "sourceCommand",
+      "remediation",
+      "nextActions",
+      "gates",
+      "commitPolicy"
+    ],
+    "runtimeStatePolicy": "Do not stage .aiflow, .harness, .tmp-test, .trae, coverage.out, or docs/superpowers runtime state.",
+    "completionPolicy": "GOFLY-GOV-10P9-09 completes only after dx-troubleshooting-check, CLI JSON contract evidence, and no runtime state are recorded.",
+    "nextActionPolicy": "doctor, release, generated-project, and support-bundle results must expose nextActions or error.remediation before handoff."
+  },
+  "p13CliDoctorTroubleshootingLoop": {
+    "schema": "gofly.cli_doctor_troubleshooting_p13.v1",
+    "aiflowTask": "GOFLY-P13-11-CLI-DOCTOR-TROUBLESHOOTING-LOOP",
+    "status": "blocking-contract",
+    "acceptanceGates": [
+      "make dx-troubleshooting-check",
+      "make cli-json-contract-goldens-check",
+      "make governance-report-check"
+    ],
+    "requiredSourceSurfaces": [
+      "gofly doctor --json",
+      "gofly release check --json --strict",
+      "gofly bug --json",
+      "gofly ai new --json --apply --verify"
+    ],
+    "requiredNextActionSources": [
+      "nextActions",
+      "error.remediation",
+      "data.nextActions"
+    ],
+    "runtimeEvidence": [
+      "fix_hint",
+      "error.remediation",
+      "gofly.support_bundle.v1",
+      "bounded output",
+      "data.nextActions"
+    ],
+    "rows": [
+      {
+        "id": "doctor-json",
+        "sourceCommand": "gofly doctor --json",
+        "nextActionSource": "nextActions",
+        "gate": "make dx-troubleshooting-check",
+        "stableFields": [
+          "version",
+          "go",
+          "checks",
+          "summary",
+          "nextActions"
+        ],
+        "failureMode": "local environment or project readiness issue",
+        "remediation": "Follow doctor nextActions, rerun the diagnostic command, and attach the updated JSON evidence."
+      },
+      {
+        "id": "release-check-json",
+        "sourceCommand": "gofly release check --json --strict",
+        "nextActionSource": "error.remediation",
+        "gate": "make dx-troubleshooting-check",
+        "stableFields": [
+          "ok",
+          "command",
+          "data.summary",
+          "data.checks",
+          "error.remediation"
+        ],
+        "failureMode": "release gate blocked promotion",
+        "remediation": "Use error.remediation and data.checks to fix the blocking release gate before retrying."
+      },
+      {
+        "id": "support-bundle-json",
+        "sourceCommand": "gofly bug --json",
+        "nextActionSource": "nextActions",
+        "gate": "make dx-troubleshooting-check",
+        "stableFields": [
+          "tool",
+          "version",
+          "supportBundle",
+          "supportBundle.schema",
+          "nextActions"
+        ],
+        "failureMode": "support bundle missing redacted evidence",
+        "remediation": "Regenerate gofly bug --json, verify redaction, and attach support bundle nextActions to the handoff."
+      },
+      {
+        "id": "generated-failure-report",
+        "sourceCommand": "gofly ai new --json --apply --verify",
+        "nextActionSource": "data.nextActions",
+        "gate": "make cli-json-contract-goldens-check",
+        "stableFields": [
+          "data.verification",
+          "data.verifyRan",
+          "data.verifyPassed",
+          "data.nextActions"
+        ],
+        "failureMode": "generated project verification failed",
+        "remediation": "Use bounded data.verification output, redact secrets, and rerun the generated project command listed in data.nextActions."
+      }
+    ],
+    "aiflowHandoff": {
+      "schema": "gofly.remediation_handoff.v1",
+      "owner": "human-or-current-agent",
+      "allowedActions": [
+        "queue remediation tasks",
+        "run diagnostic commands",
+        "produce patch plans",
+        "produce bounded failure reports"
+      ],
+      "forbiddenActions": [
+        "git commit",
+        "git push",
+        "modify docs/superpowers/",
+        "stage runtime state"
+      ]
+    },
+    "runtimeStatePolicy": "Do not stage .aiflow, .harness, .tmp-test, .trae, coverage.out, bench/current.txt, bench/regression-report.json, bench/summary.md, bin/gofly, or docs/superpowers.",
+    "completionPolicy": "GOFLY-P13-11-CLI-DOCTOR-TROUBLESHOOTING-LOOP requires dx-troubleshooting-check, CLI JSON golden evidence, governance-report-check, and no runtime state staged."
+  },
+  "troubleshootingAdoptionLoop": {
+    "schema": "gofly.troubleshooting_adoption_loop.v1",
+    "acceptanceGate": "make dx-troubleshooting-check",
+    "dashboardReportField": "dxSupportBundle.troubleshootingAdoptionLoop",
+    "aiflowHandoff": "gofly.remediation_handoff.v1",
+    "commitOwner": "human-or-current-agent",
+    "runtimeStatePolicy": "Do not stage .aiflow, .harness, .tmp-test, .trae, coverage.out, or docs/superpowers runtime state.",
+    "steps": [
+      {
+        "id": "diagnose-environment",
+        "sourceCommand": "gofly doctor --json",
+        "evidenceArtifact": "doctor.json",
+        "nextActionSource": "nextActions",
+        "handoffBoundary": "Pass environment diagnostics to the current agent or human without staging runtime state.",
+        "requiredFields": ["checks", "summary", "nextActions"]
+      },
+      {
+        "id": "check-release-gates",
+        "sourceCommand": "gofly release check --json --strict",
+        "evidenceArtifact": "release-check.json",
+        "nextActionSource": "error.remediation",
+        "handoffBoundary": "Pass release blockers to the current agent or human with the exact gate and remediation.",
+        "requiredFields": ["data.summary", "data.checks", "error.remediation"]
+      },
+      {
+        "id": "collect-support-bundle",
+        "sourceCommand": "gofly bug --json",
+        "evidenceArtifact": "support-bundle.json",
+        "nextActionSource": "nextActions",
+        "handoffBoundary": "Attach only redacted support bundle content and keep raw secrets out of git.",
+        "requiredFields": ["supportBundle", "supportBundle.redaction", "nextActions"],
+        "redactionRequired": true
+      },
+      {
+        "id": "attach-generated-failure",
+        "sourceCommand": "gofly ai new --json --apply --verify",
+        "evidenceArtifact": "generated-failure.json",
+        "nextActionSource": "data.nextActions",
+        "handoffBoundary": "Attach bounded generated verification output and keep temporary projects outside git.",
+        "requiredFields": ["data.verification", "data.nextActions"],
+        "redactionRequired": true
+      }
+    ]
+  },
+  "remediationLoopContract": {
+    "schema": "gofly.remediation_loop_contract.v1",
+    "acceptanceGate": "make dx-troubleshooting-check",
+    "dashboardReportField": "dxSupportBundle.remediationLoopContract",
+    "purpose": "Connect CLI JSON diagnostics, release checks, support bundles, and generated project failures into one actionable remediation workflow.",
+    "sourceContracts": [
+      {
+        "id": "doctor-json",
+        "sourceCommand": "gofly doctor --json",
+        "evidenceArtifact": "doctor.json",
+        "requiredFields": ["checks", "summary", "nextActions"],
+        "nextActionSource": "nextActions",
+        "dashboardFields": ["dx.doctor.nextActions", "dx.doctor.summary"],
+        "adopterAction": "Run doctor, follow nextActions, and attach updated diagnostics after remediation."
+      },
+      {
+        "id": "release-check-json",
+        "sourceCommand": "gofly release check --json --strict",
+        "evidenceArtifact": "release-check.json",
+        "requiredFields": ["data.summary", "data.checks", "error.remediation"],
+        "nextActionSource": "error.remediation",
+        "dashboardFields": ["dx.release.summary", "dx.release.remediation"],
+        "adopterAction": "Fix the blocked release gate, rerun strict release check, and attach JSON evidence."
+      },
+      {
+        "id": "support-bundle-json",
+        "sourceCommand": "gofly bug --json",
+        "evidenceArtifact": "support-bundle.json",
+        "requiredFields": ["supportBundle", "supportBundle.redaction", "nextActions"],
+        "nextActionSource": "nextActions",
+        "dashboardFields": ["dx.supportBundle.schema", "dx.supportBundle.redaction"],
+        "adopterAction": "Attach a redacted support bundle and follow the support bundle nextActions.",
+        "redactionRequired": true
+      },
+      {
+        "id": "generated-failure-report",
+        "sourceCommand": "gofly ai new --json --apply --verify",
+        "evidenceArtifact": "generated-failure.json",
+        "requiredFields": ["data.verification", "data.nextActions"],
+        "nextActionSource": "data.nextActions",
+        "dashboardFields": ["dx.generatedFailure.verification", "dx.generatedFailure.nextActions"],
+        "adopterAction": "Use generated verification output to rerun the exact failing generated project gate.",
+        "redactionRequired": true
+      }
+    ],
+    "migrationRoutes": [
+      {
+        "id": "gin-to-gofly",
+        "source": "docs/reference/framework-gap-adopter-proof.json",
+        "example": "examples/getting-started/restserver",
+        "gate": "make examples-smoke",
+        "rollbackAction": "Rollback by keeping the existing Gin route adapter until gofly smoke passes.",
+        "supportBundleAction": "Run gofly bug --json after migration smoke failure."
+      },
+      {
+        "id": "go-zero-to-gofly",
+        "source": "docs/reference/framework-gap-adopter-proof.json",
+        "example": "examples/goctl-model/cache-local",
+        "gate": "make goctl-generator-compat-check",
+        "rollbackAction": "Rollback by pinning goctl-compatible generation until compatibility evidence passes.",
+        "supportBundleAction": "Run gofly bug --json with generated compatibility evidence."
+      },
+      {
+        "id": "kratos-to-gofly",
+        "source": "docs/reference/framework-gap-adopter-proof.json",
+        "example": "examples/microservices/config-discovery",
+        "gate": "make examples-smoke",
+        "rollbackAction": "Rollback by preserving existing service governance configuration until smoke passes.",
+        "supportBundleAction": "Run gofly bug --json with control-plane diagnostics."
+      },
+      {
+        "id": "kitex-with-gofly",
+        "source": "docs/reference/framework-gap-adopter-proof.json",
+        "example": "examples/getting-started/rpcserver",
+        "gate": "make test-generated-matrix",
+        "rollbackAction": "Rollback by keeping current RPC descriptors until generated RPC smoke passes.",
+        "supportBundleAction": "Run gofly bug --json after RPC compatibility failure."
+      }
+    ],
+    "dashboardEvidence": [
+      "dxSupportBundle.remediationHandoff.schema",
+      "dxSupportBundle.remediationHandoff.aiflowTask",
+      "dxSupportBundle.troubleshootingAdoptionLoop",
+      "releaseAdoptionContract.supplyChainEnforcementCount",
+      "generatedUpgradeDryRun.profileCount",
+      "benchmark.adopterPerformanceContract"
+    ],
+    "aiflowQueuePolicy": {
+      "taskPrefix": "GOFLY-GOV-10P9-09",
+      "supersedes": ["GOFLY-GOV-10R7-09"],
+      "completionGate": "make dx-troubleshooting-check",
+      "commitOwner": "human-or-current-agent",
+      "allowed": [
+        "queue remediation tasks",
+        "run diagnostic commands",
+        "produce patch plans",
+        "produce bounded failure reports"
+      ],
+      "forbidden": [
+        "git commit",
+        "git push",
+        "modify docs/superpowers/",
+        "stage runtime state"
+      ]
+    },
+    "nextActionPolicy": "Each remediation row must include source command, nextActionSource, dashboard evidence, gate, and rollback guidance."
+  },
+  "supportWorkflow": [
+    "run gofly doctor --json",
+    "run gofly release check --json --strict",
+    "run gofly bug --json"
+  ],
+  "docs": [
+    "docs/reference/cli-json-contracts.md",
+    "docs/operations/troubleshooting.md"
+  ],
   "generatedControlPlaneEvidence": {
     "schema": "gofly.generated_control_plane_support.v1",
+    "acceptanceGate": "make generated-control-plane-contract-check",
     "requiredConfigs": [
       "generated.rpcMuxConfigWarningSchema",
       "generated.rpcMuxConfigWarnings",

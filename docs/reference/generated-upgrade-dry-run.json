@@ -1,0 +1,574 @@
+{
+  "schema": "gofly.generated_upgrade_dry_run.v1",
+  "artifactPolicy": {
+    "commitGeneratedRuntimeArtifacts": false,
+    "volatileDirectories": [
+      ".tmp-test/generated-upgrade-dry-run",
+      "$TMPDIR/gofly-generated-upgrade-*"
+    ]
+  },
+  "diffReportContract": {
+    "requiredFields": [
+      "profile",
+      "repeatGeneration",
+      "categories",
+      "summary",
+      "rollbackNote"
+    ],
+    "categories": [
+      {
+        "category": "deterministic-repeat-generation",
+        "description": "Repeat generation must produce a clean diff or fail the gate.",
+        "requiresRollbackNote": false,
+        "severity": "pass-or-fail"
+      },
+      {
+        "category": "compatible-addition",
+        "description": "A generated addition that preserves old inputs and smoke tests.",
+        "requiresRollbackNote": true,
+        "severity": "review"
+      },
+      {
+        "category": "formatting-only",
+        "description": "Formatting-only output with no behavior or contract change.",
+        "requiresRollbackNote": false,
+        "severity": "review"
+      },
+      {
+        "category": "breaking-candidate",
+        "description": "A potential adopter-breaking generated output change.",
+        "requiresRollbackNote": true,
+        "severity": "block"
+      }
+    ]
+  },
+  "goctlGeneratorCompatibility": {
+    "source": "docs/reference/goctl-generator-compatibility.json",
+    "acceptanceGate": "make goctl-generator-compat-check",
+    "integrationPolicy": "Upgrade dry runs must include goctl-compatible profile evidence, flag compatibility, route layout, and API tooling gates before promotion.",
+    "rollbackOrEscalation": "Rollback by pinning the goctl-compatible generator behavior and holding generated output until the compatibility gate passes.",
+    "requiredCapabilities": [
+      "gozero-compatible-profile",
+      "goctl-compatible-flags",
+      "api-tooling-compatibility",
+      "generated-version-fixtures",
+      "upgrade-diff-contract",
+      "route-layout-boundary"
+    ],
+    "requiredBoundaries": [
+      "noNewJSONEnvelopeFlags",
+      "apiRouteAndDiffFormatValidationUnchanged",
+      "positionalPluginAndMiddlewareNamesRemainNames",
+      "generatedProjectDependenciesStayInGeneratedGoMod",
+      "runtimeArtifactsRemainVolatile"
+    ]
+  },
+  "profiles": [
+    {
+      "profile": "old",
+      "api": "testdata/generated-compat/v0.1/orders.api",
+      "proto": "testdata/generated-compat/v0.1/greeter.proto",
+      "serviceConfig": "testdata/generated-compat/v0.1/service-config.json",
+      "pluginProfile": {
+        "protocol": "1",
+        "compatibility": "old generated services keep plugin protocol 1 compatibility",
+        "registry": "docs/reference/goctl-generator-compatibility.json"
+      },
+      "generatedSnapshot": {
+        "expectedDiff": "compatible feature addition",
+        "metadata": {
+          "generated.project.contract": "old",
+          "generated.project.runtime": "service,rest,rpc,governance,discovery"
+        }
+      },
+      "dependencyPolicy": {
+        "owner": "generated-project-dependencies",
+        "allowedLocation": "generated project go.mod or isolated temporary test module",
+        "rootModulePolicy": "must-not-add-generated-only-dependencies",
+        "verificationGates": [
+          "make generated-version-compat-check",
+          "make generated-upgrade-dry-run-check",
+          "make root-dependency-policy-check"
+        ],
+        "rollbackOrEscalation": "Rollback by pinning old generated fixtures and removing generated-only dependencies from the root module."
+      },
+      "diffReport": {
+        "repeatGeneration": "must-pass",
+        "categories": [
+          "deterministic-repeat-generation",
+          "compatible-addition"
+        ],
+        "summary": "Old fixture replay permits compatible additions only when smoke remains green.",
+        "rollbackNote": "Rollback by keeping the old fixture profile and discarding incompatible generated output."
+      }
+    },
+    {
+      "profile": "current",
+      "api": "testdata/generated-compat/current/orders.api",
+      "proto": "testdata/generated-compat/current/greeter.proto",
+      "serviceConfig": "testdata/generated-compat/current/service-config.json",
+      "pluginProfile": {
+        "protocol": "1",
+        "compatibility": "current generated services keep plugin protocol 1 compatibility",
+        "registry": "docs/reference/goctl-generator-compatibility.json"
+      },
+      "generatedSnapshot": {
+        "expectedDiff": "no unexplained diff",
+        "metadata": {
+          "generated.project.contract": "current",
+          "generated.project.runtime": "service,rest,rpc,governance,discovery"
+        }
+      },
+      "dependencyPolicy": {
+        "owner": "generated-project-dependencies",
+        "allowedLocation": "generated project go.mod or isolated temporary test module",
+        "rootModulePolicy": "must-not-add-generated-only-dependencies",
+        "verificationGates": [
+          "make generated-version-compat-check",
+          "make generated-upgrade-dry-run-check",
+          "make root-dependency-policy-check"
+        ],
+        "rollbackOrEscalation": "Rollback by restoring current fixture output and removing generated-only dependency drift."
+      },
+      "diffReport": {
+        "repeatGeneration": "must-pass",
+        "categories": [
+          "deterministic-repeat-generation"
+        ],
+        "summary": "Current fixture replay should remain clean.",
+        "rollbackNote": "Rollback by holding generator promotion until current replay is deterministic."
+      }
+    },
+    {
+      "profile": "future",
+      "api": "testdata/generated-compat/future/orders.api",
+      "proto": "testdata/generated-compat/future/greeter.proto",
+      "serviceConfig": "testdata/generated-compat/future/service-config.json",
+      "pluginProfile": {
+        "protocol": "1",
+        "compatibility": "future generated services keep plugin protocol 1 compatibility while experimental fields are ignored safely",
+        "registry": "docs/reference/goctl-generator-compatibility.json"
+      },
+      "generatedSnapshot": {
+        "expectedDiff": "experimental future field ignored safely",
+        "metadata": {
+          "generated.project.contract": "future",
+          "generated.project.runtime": "service,rest,rpc,governance,discovery"
+        }
+      },
+      "dependencyPolicy": {
+        "owner": "generated-project-dependencies",
+        "allowedLocation": "generated project go.mod or isolated temporary test module",
+        "rootModulePolicy": "must-not-add-generated-only-dependencies",
+        "verificationGates": [
+          "make generated-version-compat-check",
+          "make generated-upgrade-dry-run-check",
+          "make root-dependency-policy-check"
+        ],
+        "rollbackOrEscalation": "Rollback by discarding future-only generated output and preserving root dependency hygiene."
+      },
+      "diffReport": {
+        "repeatGeneration": "must-pass",
+        "categories": [
+          "deterministic-repeat-generation",
+          "breaking-candidate"
+        ],
+        "summary": "Future fixture replay may surface breaking candidates but must stay bounded and explainable.",
+        "rollbackNote": "Rollback by keeping future fields experimental until generated smoke and release review pass."
+      }
+    }
+  ],
+  "migrationFidelityMatrix": "docs/reference/migration-fidelity-matrix.json",
+  "upgradeRehearsal": {
+    "schema": "gofly.upgrade_rehearsal.v1",
+    "source": "docs/reference/generated-upgrade-dry-run.json",
+    "acceptanceGate": "make generated-upgrade-dry-run-check",
+    "steps": [
+      {
+        "id": "inventory-current-project",
+        "phase": "baseline",
+        "evidence": [
+          "docs/reference/generated-version-compat.md"
+        ],
+        "gate": "make generated-version-compat-check",
+        "expectedOutput": "Record current generated profile, root module state, and fixture snapshot before regeneration.",
+        "failureClass": "candidate",
+        "rollbackOrEscalation": "Stop promotion and keep the previous generated profile until baseline evidence is restored."
+      },
+      {
+        "id": "regenerate-dry-run",
+        "phase": "generation",
+        "evidence": [
+          "testdata/generated-compat/matrix.json"
+        ],
+        "gate": "make generated-upgrade-dry-run-check",
+        "expectedOutput": "Regenerate into temporary output and classify repeat-generation diffs before applying changes.",
+        "failureClass": "rollback-required",
+        "rollbackOrEscalation": "Discard temporary output and pin the previous generator until repeat generation is clean."
+      },
+      {
+        "id": "goctl-compatibility-review",
+        "phase": "generation",
+        "evidence": [
+          "docs/reference/goctl-generator-compatibility.json"
+        ],
+        "gate": "make goctl-generator-compat-check",
+        "expectedOutput": "Verify goctl profile, flags, route layout, API import, route, and diff compatibility.",
+        "failureClass": "candidate",
+        "rollbackOrEscalation": "Pin goctl-compatible behavior and hold release until compatibility evidence passes."
+      },
+      {
+        "id": "dependency-boundary-review",
+        "phase": "dependency",
+        "evidence": [
+          "bin/scripts/root-dependency-policy.tsv"
+        ],
+        "gate": "make root-dependency-policy-check",
+        "expectedOutput": "Confirm generated-only dependencies stay outside the gofly root module.",
+        "failureClass": "rollback-required",
+        "rollbackOrEscalation": "Remove root module pollution and regenerate in an isolated temporary module."
+      },
+      {
+        "id": "release-evidence-review",
+        "phase": "release",
+        "evidence": [
+          "docs/reference/generated-upgrade-dry-run.md"
+        ],
+        "gate": "make generated-upgrade-dry-run-check",
+        "expectedOutput": "Attach diff categories, rollback notes, and runtime artifact policy to the release review.",
+        "failureClass": "candidate",
+        "rollbackOrEscalation": "Hold release and classify the generated diff before promotion resumes."
+      },
+      {
+        "id": "adopter-smoke-and-rollback",
+        "phase": "verification",
+        "evidence": [
+          "testdata/generated-compat/matrix.json"
+        ],
+        "gate": "make test-generated-matrix",
+        "expectedOutput": "Generated project smoke passes and rollback action is documented for each profile.",
+        "failureClass": "rollback-required",
+        "rollbackOrEscalation": "Rollback by discarding the generated candidate and keeping previous adopter scaffolds."
+      }
+    ]
+  },
+  "adopterUpgradeProof": {
+    "schema": "gofly.generated_adopter_upgrade_proof.v1",
+    "source": "docs/reference/generated-upgrade-dry-run.json",
+    "compatibilityMatrix": "testdata/generated-compat/matrix.json",
+    "acceptanceGates": [
+      "make generated-upgrade-dry-run-check",
+      "make generated-version-compat-check"
+    ],
+    "dashboardReportField": "generatedUpgradeDryRun.adopterUpgradeProof",
+    "policy": "Adopter upgrade proof is attached only after temporary generated projects compile, smoke tests pass, generated-only dependencies stay isolated, and rollback actions are recorded.",
+    "paths": [
+      {
+        "profile": "old",
+        "adopterDecision": "Use old profile when preserving existing generated projects and accepting compatible additions only after smoke passes.",
+        "compatibilityGate": "make generated-version-compat-check",
+        "dryRunGate": "make generated-upgrade-dry-run-check",
+        "expectedDiff": "compatible feature addition",
+        "dependencyBoundary": "generated project go.mod or isolated temporary test module",
+        "rollbackAction": "Rollback by pinning the old profile and restoring previous generated artifacts before release promotion."
+      },
+      {
+        "profile": "current",
+        "adopterDecision": "Use current profile as the default path when no unexplained diff appears during repeat generation.",
+        "compatibilityGate": "make generated-version-compat-check",
+        "dryRunGate": "make generated-upgrade-dry-run-check",
+        "expectedDiff": "no unexplained diff",
+        "dependencyBoundary": "generated project go.mod or isolated temporary test module",
+        "rollbackAction": "Rollback by holding the current generator version and rejecting any non-clean repeat generation result."
+      },
+      {
+        "profile": "future",
+        "adopterDecision": "Use future profile only for experimental review and keep release promotion blocked until rollback evidence exists.",
+        "compatibilityGate": "make generated-version-compat-check",
+        "dryRunGate": "make generated-upgrade-dry-run-check",
+        "expectedDiff": "experimental future field ignored safely",
+        "dependencyBoundary": "generated project go.mod or isolated temporary test module",
+        "rollbackAction": "Rollback by discarding future-only output and keeping experimental fields out of promoted releases."
+      }
+    ]
+  },
+  "p9HistoricalFixtureMatrix": {
+    "schema": "gofly.generated_historical_fixture_matrix.v1",
+    "aiflowTask": "GOFLY-GOV-10P9-02",
+    "status": "blocking",
+    "sourceOfTruth": [
+      "testdata/generated-compat/matrix.json",
+      "docs/reference/generated-version-compat.md",
+      "docs/reference/generated-upgrade-dry-run.json"
+    ],
+    "acceptanceGates": [
+      "make generated-version-compat-check",
+      "make generated-upgrade-dry-run-check"
+    ],
+    "executionContract": {
+      "temporaryProjectRoot": "Create all historical fixture projects under a temporary directory outside tracked source.",
+      "generatorCommand": "Run go run ./cmd/gofly new service for each matrix profile with fixture inputs.",
+      "moduleReplacement": "Use go mod edit -replace github.com/imajinyun/gofly=<repo-root> inside generated projects.",
+      "compileSmoke": "Run go test ./... inside each generated project after go mod tidy.",
+      "repeatGeneration": "Run diff -ru between two independently generated outputs and require clean repeat generation.",
+      "reportSchema": "Emit gofly.generated_version_compat_report.v1 with profile, generated files, goTest, repeatGenerationDiff, expectedDiff, and verification.",
+      "artifactPolicy": "Runtime evidence and generated projects remain in ignored temporary directories and must not be committed."
+    },
+    "profiles": [
+      {
+        "profile": "old",
+        "fixtureSet": {
+          "api": "testdata/generated-compat/v0.1/orders.api",
+          "proto": "testdata/generated-compat/v0.1/greeter.proto",
+          "serviceConfig": "testdata/generated-compat/v0.1/service-config.json",
+          "snapshot": "testdata/generated-compat/matrix.json"
+        },
+        "expectedDiff": "compatible feature addition",
+        "requiredReportFields": ["profile", "generatedFiles", "goTest", "repeatGenerationDiff", "expectedDiff", "verification"],
+        "blockingChecks": ["generatedFiles > 0", "goTest == passed", "repeatGenerationDiff == clean"],
+        "rollbackOrEscalation": "Rollback by keeping old generated fixtures and stopping promotion until historical replay passes."
+      },
+      {
+        "profile": "current",
+        "fixtureSet": {
+          "api": "testdata/generated-compat/current/orders.api",
+          "proto": "testdata/generated-compat/current/greeter.proto",
+          "serviceConfig": "testdata/generated-compat/current/service-config.json",
+          "snapshot": "testdata/generated-compat/matrix.json"
+        },
+        "expectedDiff": "no unexplained diff",
+        "requiredReportFields": ["profile", "generatedFiles", "goTest", "repeatGenerationDiff", "expectedDiff", "verification"],
+        "blockingChecks": ["generatedFiles > 0", "goTest == passed", "repeatGenerationDiff == clean"],
+        "rollbackOrEscalation": "Rollback by holding the current generator output until repeat-generation evidence is clean."
+      },
+      {
+        "profile": "future",
+        "fixtureSet": {
+          "api": "testdata/generated-compat/future/orders.api",
+          "proto": "testdata/generated-compat/future/greeter.proto",
+          "serviceConfig": "testdata/generated-compat/future/service-config.json",
+          "snapshot": "testdata/generated-compat/matrix.json"
+        },
+        "expectedDiff": "experimental future field ignored safely",
+        "requiredReportFields": ["profile", "generatedFiles", "goTest", "repeatGenerationDiff", "expectedDiff", "verification"],
+        "blockingChecks": ["generatedFiles > 0", "goTest == passed", "repeatGenerationDiff == clean"],
+        "rollbackOrEscalation": "Rollback by discarding future fixture output and keeping experimental changes out of release."
+      }
+    ],
+    "diffExplanationPolicy": {
+      "requiredCategories": ["deterministic-repeat-generation", "compatible-addition", "formatting-only", "breaking-candidate"],
+      "blockingRule": "Every generated fixture diff must be clean or assigned to an accepted category before release promotion proceeds.",
+      "reportUse": "The gofly.generated_version_compat_report.v1 report is the source for generatedFiles, goTest, repeatGenerationDiff, expectedDiff, and verification review."
+    }
+  },
+  "p10GoctlGeneratorFidelity": {
+    "schema": "gofly.goctl_generator_fidelity_closeout.v1",
+    "aiflowTask": "GOFLY-P10-2-GOCTL-GENERATOR-FIDELITY",
+    "status": "blocking-contract",
+    "acceptanceGate": "make generated-upgrade-dry-run-check",
+    "sourceOfTruth": [
+      "docs/reference/goctl-generator-compatibility.json",
+      "docs/reference/generated-scaffold-long-term-compatibility.json",
+      "testdata/generated-compat/matrix.json"
+    ],
+    "fidelityRows": [
+      {
+        "id": "gozero-compatible-profile",
+        "surface": "profile",
+        "evidence": ["ProfileGoZeroCompatible", "goctl-layout", "route-layout-boundary"],
+        "gate": "make goctl-generator-compat-check",
+        "rollbackOrEscalation": "Rollback by pinning the goctl-compatible profile and keeping route layout evidence unchanged."
+      },
+      {
+        "id": "goctl-compatible-flags",
+        "surface": "flags",
+        "evidence": ["name-from-filename", "go_opt", "go-grpc_opt", "go_grpc_opt"],
+        "gate": "make goctl-generator-compat-check",
+        "rollbackOrEscalation": "Rollback by preserving goctl-style flags as compatibility flags until callers migrate."
+      },
+      {
+        "id": "api-import-diff-route",
+        "surface": "api-tooling",
+        "evidence": ["api import", "api route", "api diff", "api-import-compatibility"],
+        "gate": "make goctl-generator-compat-check",
+        "rollbackOrEscalation": "Rollback by keeping API import, route, and diff behavior stable until migration notes ship."
+      },
+      {
+        "id": "proto-import-compatibility",
+        "surface": "proto-tooling",
+        "evidence": ["proto-import-compatibility", "protoc plugin", "generated service descriptors"],
+        "gate": "make goctl-generator-compat-check",
+        "rollbackOrEscalation": "Rollback by pinning proto import behavior and keeping generated service descriptors stable."
+      },
+      {
+        "id": "alias-collision-boundary",
+        "surface": "imports",
+        "evidence": ["alias-collision-boundary", "Go package aliases", "generated symbol names"],
+        "gate": "make goctl-generator-compat-check",
+        "rollbackOrEscalation": "Rollback by preserving alias collision handling and discarding unsafe symbol changes."
+      },
+      {
+        "id": "repeat-diff-rollback",
+        "surface": "diff",
+        "evidence": ["deterministic-repeat-generation", "diffReportContract", "rollbackNote"],
+        "gate": "make generated-upgrade-dry-run-check",
+        "rollbackOrEscalation": "Rollback by rejecting unclassified generated diffs and requiring rollback notes."
+      }
+    ],
+    "promotionPolicy": "Promote only when goctl-compatible profile, goctl-style flags, API import, proto import, alias-collision, and rollback notes are all covered.",
+    "runtimeArtifactPolicy": ".tmp-test and other temporary directories hold runtime evidence and must not be committed."
+  },
+  "p11LiveUpgradeProof": {
+    "schema": "gofly.generated_live_upgrade_proof.v1",
+    "aiflowTask": "GOFLY-P11-2-GENERATED-PROJECT-LIVE-UPGRADE",
+    "status": "blocking-contract",
+    "sourceOfTruth": [
+      "testdata/generated-compat/matrix.json",
+      "docs/reference/generated-upgrade-dry-run.json",
+      "docs/reference/generated-version-compat.md",
+      "docs/reference/generated-scaffold-long-term-compatibility.json"
+    ],
+    "acceptanceGates": ["make generated-upgrade-dry-run-check", "make generated-version-compat-check"],
+    "executionContract": {
+      "temporaryProjectRoot": "Create generated project candidates in temporary projects outside tracked source.",
+      "generatorCommand": "Run go run ./cmd/gofly new service with the selected profile and fixture inputs.",
+      "moduleReplacement": "Run go mod edit -replace github.com/imajinyun/gofly=<repo-root> inside the generated project.",
+      "compileSmoke": "Run go test ./... after go mod tidy for each generated project.",
+      "repeatGeneration": "Run diff -ru for independent outputs and require clean repeat generation.",
+      "reportSchema": "Use gofly.generated_version_compat_report.v1 for fixture replay reports.",
+      "artifactPolicy": "Generated runtime evidence must not be committed and must stay in ignored temporary directories."
+    },
+    "profiles": [
+      {
+        "profile": "old",
+        "fixtureSet": {"api": "testdata/generated-compat/v0.1/orders.api", "proto": "testdata/generated-compat/v0.1/greeter.proto", "serviceConfig": "testdata/generated-compat/v0.1/service-config.json", "snapshot": "testdata/generated-compat/matrix.json"},
+        "expectedDiff": "compatible feature addition",
+        "generatedProjectSmoke": "go test ./...",
+        "repeatGeneration": "clean",
+        "dependencyBoundary": "generated project go.mod or isolated temporary test module",
+        "rootModulePolicy": "must-not-add-generated-only-dependencies",
+        "diffCategories": ["deterministic-repeat-generation", "compatible-addition"],
+        "verificationGates": ["make generated-version-compat-check", "make generated-upgrade-dry-run-check"],
+        "upgradePath": "Replay old fixtures in a temporary project and accept only compatible additions after generated smoke passes.",
+        "rollbackAction": "Rollback by pinning the old fixture profile and restoring previous generated output before release."
+      },
+      {
+        "profile": "current",
+        "fixtureSet": {"api": "testdata/generated-compat/current/orders.api", "proto": "testdata/generated-compat/current/greeter.proto", "serviceConfig": "testdata/generated-compat/current/service-config.json", "snapshot": "testdata/generated-compat/matrix.json"},
+        "expectedDiff": "no unexplained diff",
+        "generatedProjectSmoke": "go test ./...",
+        "repeatGeneration": "clean",
+        "dependencyBoundary": "generated project go.mod or isolated temporary test module",
+        "rootModulePolicy": "must-not-add-generated-only-dependencies",
+        "diffCategories": ["deterministic-repeat-generation"],
+        "verificationGates": ["make generated-version-compat-check", "make generated-upgrade-dry-run-check"],
+        "upgradePath": "Replay current fixtures and require clean generated output with no unexplained diff.",
+        "rollbackAction": "Rollback by holding the current generator version until repeat-generation evidence is clean."
+      },
+      {
+        "profile": "future",
+        "fixtureSet": {"api": "testdata/generated-compat/future/orders.api", "proto": "testdata/generated-compat/future/greeter.proto", "serviceConfig": "testdata/generated-compat/future/service-config.json", "snapshot": "testdata/generated-compat/matrix.json"},
+        "expectedDiff": "experimental future field ignored safely",
+        "generatedProjectSmoke": "go test ./...",
+        "repeatGeneration": "clean",
+        "dependencyBoundary": "generated project go.mod or isolated temporary test module",
+        "rootModulePolicy": "must-not-add-generated-only-dependencies",
+        "diffCategories": ["deterministic-repeat-generation", "breaking-candidate"],
+        "verificationGates": ["make generated-version-compat-check", "make generated-upgrade-dry-run-check"],
+        "upgradePath": "Replay future fixtures as experimental input and classify breaking candidates before promotion.",
+        "rollbackAction": "Rollback by discarding future-only output and keeping experimental behavior out of release."
+      }
+    ],
+    "promotionPolicy": "old, current, and future profiles must use temporary projects, go test ./..., generated-only dependencies isolation, and rollback actions before promotion.",
+    "runtimeArtifactPolicy": "runtime evidence stays in ignored temporary paths and must never be committed."
+  },
+  "p12RealBranchReplay": {
+    "schema": "gofly.generated_real_branch_replay.v1",
+    "aiflowTask": "GOFLY-P12-2-GENERATED-UPGRADE-REAL-BRANCH",
+    "status": "blocking-contract",
+    "sourceOfTruth": ["docs/reference/generated-upgrade-dry-run.json", "docs/reference/generated-version-compat.md", "docs/reference/goctl-generator-compatibility.json", "testdata/generated-compat/matrix.json"],
+    "acceptanceGates": ["make generated-upgrade-dry-run-check", "make generated-version-compat-check", "make root-dependency-policy-check"],
+    "branchContract": {
+      "source": "Replay an adopter branch with repository, branch, baseCommit, and generated profile metadata.",
+      "worktreePolicy": "Use a temporary worktree that must not write runtime evidence into the gofly repository.",
+      "cleanupPolicy": "Clean ignored runtime evidence and temporary directories after replay completion.",
+      "auditPolicy": "Record replay metadata, diff report, dependency boundary, and rollback action for review.",
+      "minimumFields": ["repository", "branch", "baseCommit", "profile", "generatorVersion", "previousGeneratedSnapshot", "replayWorktree", "diffReport", "rollbackAction"]
+    },
+    "replaySteps": [
+      {"id": "capture-branch-baseline", "phase": "baseline", "gate": "make generated-version-compat-check", "requiredEvidence": ["repository", "branch", "baseCommit", "previousGeneratedSnapshot"], "rollbackOrEscalation": "Rollback by stopping replay and preserving the captured baseline until metadata is complete."},
+      {"id": "replay-in-temp-worktree", "phase": "generation", "gate": "make generated-upgrade-dry-run-check", "requiredEvidence": ["temporary worktree", "go run ./cmd/gofly new service", "go mod edit -replace github.com/imajinyun/gofly=<repo-root>"], "rollbackOrEscalation": "Rollback by deleting the temporary worktree and pinning the previous generated output."},
+      {"id": "classify-repeat-diff", "phase": "diff", "gate": "make generated-upgrade-dry-run-check", "requiredEvidence": ["deterministic-repeat-generation", "compatible-addition", "formatting-only", "breaking-candidate"], "rollbackOrEscalation": "Rollback by rejecting unclassified diffs, preserving the previous generated snapshot, and requiring explicit rollback notes before replay resumes."},
+      {"id": "run-branch-smoke", "phase": "verification", "gate": "go test ./...", "requiredEvidence": ["go test ./...", "generated project go.mod", "root module unchanged"], "rollbackOrEscalation": "Rollback by discarding the replay output and preserving the previous branch state."}
+    ],
+    "profileMapping": [
+      {"profile": "old", "acceptedDiffCategories": ["deterministic-repeat-generation", "compatible-addition"], "branchUseCase": "Use old profile for existing adopters that need compatible additions only.", "rollbackAction": "Rollback by pinning old profile output and restoring previous generated files."},
+      {"profile": "current", "acceptedDiffCategories": ["deterministic-repeat-generation"], "branchUseCase": "Use current profile for default adopters requiring clean repeat generation.", "rollbackAction": "Rollback by keeping the current generator pinned until clean diff returns."},
+      {"profile": "future", "acceptedDiffCategories": ["deterministic-repeat-generation", "breaking-candidate"], "branchUseCase": "Use future profile only for experimental branches and breaking candidate review.", "rollbackAction": "Rollback by discarding future replay output, keeping the adopter branch pinned, and blocking release promotion until review completes."}
+    ],
+    "promotionPolicy": "real branch replay must use a temporary worktree, classified repeat diff, root dependency boundary checks, and rollback action evidence.",
+    "runtimeArtifactPolicy": "runtime evidence remains in ignored temporary paths and must never be committed."
+  },
+  "p13GoctlGeneratorMaturity": {
+    "schema": "gofly.goctl_generator_maturity_closeout.v1",
+    "aiflowTask": "GOFLY-P13-02-GOCTL-GENERATOR-MATURITY",
+    "status": "blocking-contract",
+    "sourceOfTruth": ["docs/reference/generated-upgrade-dry-run.json", "docs/reference/generated-version-compat.md", "docs/reference/goctl-generator-compatibility.json", "docs/reference/generated-scaffold-long-term-compatibility.json", "testdata/generated-compat/matrix.json"],
+    "acceptanceGates": ["make generated-version-compat-check", "make generated-upgrade-dry-run-check", "make goctl-generator-compat-check"],
+    "executionPolicy": {
+      "temporaryProjectSmoke": "Run go test ./... inside generated temporary projects.",
+      "repeatGeneration": "Run diff -ru and require clean repeat generation.",
+      "diffReportSchema": "gofly.generated_version_compat_report.v1",
+      "dependencyBoundary": "generated project go.mod or isolated temporary test module",
+      "rootModulePolicy": "must-not-add-generated-only-dependencies",
+      "artifactPolicy": "runtime evidence must not be committed and stays in temporary paths."
+    },
+    "maturitySurfaces": [
+      {"id": "api-import-format-validation", "capability": "api-tooling-compatibility", "surface": "api", "gate": "make goctl-generator-compat-check", "requiredEvidence": ["api import", "api route", "api diff"], "rollbackOrEscalation": "Rollback by preserving .api import, format, and validation behavior until tests pass."},
+      {"id": "historical-fixture-matrix", "capability": "generated-version-fixtures", "surface": "fixtures", "gate": "make generated-version-compat-check", "profiles": ["old", "current", "future"], "requiredReportFields": ["profile", "generatedFiles", "goTest", "repeatGenerationDiff", "expectedDiff", "verification"], "rollbackOrEscalation": "Rollback by pinning old/current/future fixtures, preserving previous generated snapshots, and requiring clean report evidence before promotion resumes."},
+      {"id": "real-adopter-branch-replay", "capability": "p12RealBranchReplay", "surface": "branch", "gate": "make generated-upgrade-dry-run-check", "requiredEvidence": ["repository", "branch", "baseCommit", "profile", "generatorVersion", "previousGeneratedSnapshot", "replayWorktree", "diffReport", "rollbackAction"], "rollbackOrEscalation": "Rollback by deleting temporary branch replay output and preserving previous generated files."},
+      {"id": "multi-language-client-contract", "capability": "multi-language-client-generation", "surface": "clients", "gate": "make goctl-generator-compat-check", "languages": ["typescript", "javascript", "dart", "java", "kotlin"], "requiredEvidence": ["typescript", "javascript", "dart", "java", "kotlin"], "rollbackOrEscalation": "Rollback by pinning client generators per language, preserving previous client artifacts, and requiring compatibility evidence before release."},
+      {"id": "generated-diff-classification", "capability": "upgrade-diff-contract", "surface": "diff", "gate": "make generated-upgrade-dry-run-check", "requiredCategories": ["deterministic-repeat-generation", "compatible-addition", "formatting-only", "breaking-candidate"], "rollbackOrEscalation": "Rollback by rejecting unclassified generated diffs, restoring the previous snapshot, and requiring rollback notes before merge."},
+      {"id": "generated-dependency-boundary", "capability": "generated-project-dependencies", "surface": "dependencies", "gate": "make root-dependency-policy-check", "requiredEvidence": ["generated project go.mod", "isolated temporary test module", "root module unchanged", "must-not-add-generated-only-dependencies"], "rollbackOrEscalation": "Rollback by removing root module dependency drift, rerunning generated output governance, and blocking release promotion until clean."}
+    ],
+    "promotionPolicy": ".api import, .api format, .api validation, old/current/future fixtures, real adopter branch replay, multi-language client evidence, go test ./..., clean repeat-generation diff classification, and root module dependency hygiene are required.",
+    "runtimeArtifactPolicy": ".tmp-test, GENERATED_VERSION_COMPAT_TMPDIR, local temp directory, and replay outputs must never be committed."
+  },
+  "p14GeneratorAdopterReplayEvidence": {
+    "schema": "gofly.generator_adopter_replay_evidence.v1",
+    "aiflowTask": "GOFLY-P14-03-GENERATOR-ADOPTER-REPLAY-EVIDENCE",
+    "status": "blocking-contract",
+    "sourceOfTruth": ["docs/reference/generated-upgrade-dry-run.json", "docs/reference/generated-version-compat.md", "docs/reference/goctl-generator-compatibility.json", "docs/reference/generated-scaffold-long-term-compatibility.json", "testdata/generated-compat/matrix.json"],
+    "acceptanceGates": ["make generated-version-compat-check", "make generated-upgrade-dry-run-check", "make root-dependency-policy-check"],
+    "previousContractRefs": [
+      {"field": "p12RealBranchReplay", "status": "blocking-contract", "requiredCarryForward": ["repository", "branch", "baseCommit", "rollbackAction"]},
+      {"field": "p13GoctlGeneratorMaturity", "status": "blocking-contract", "requiredCarryForward": ["api", "fixtures", "clients", "dependencies"]}
+    ],
+    "executionPolicy": {
+      "temporaryReplayRoot": "Create replay output outside the gofly repository so runtime evidence cannot pollute source control.",
+      "fixtureReplay": "Replay old, current, and future fixtures with generated smoke and diff evidence.",
+      "adopterReplayRows": "Record one replay row per profile with branch metadata, smoke result, and rollback action.",
+      "repeatGeneration": "Use diff -ru and require clean repeat-generation diff classification.",
+      "diffClassification": "Classify generated diffs before any release or adopter promotion decision.",
+      "temporaryProjectSmoke": "Run go test ./... in each temporary generated project before attaching evidence.",
+      "diffReportSchema": "gofly.generated_version_compat_report.v1",
+      "dependencyBoundary": "generated project go.mod or isolated temporary test module",
+      "rootModulePolicy": "must-not-add-generated-only-dependencies",
+      "artifactPolicy": "runtime evidence must not be committed and stays in ignored temporary directories."
+    },
+    "replayRows": [
+      {"id": "old-replay", "profile": "old", "adopterBranchClass": "existing", "fixtureSet": {"api": "testdata/generated-compat/v0.1/orders.api", "proto": "testdata/generated-compat/v0.1/greeter.proto", "serviceConfig": "testdata/generated-compat/v0.1/service-config.json", "snapshot": "testdata/generated-compat/matrix.json"}, "expectedDiff": "compatible feature addition", "acceptedDiffCategories": ["deterministic-repeat-generation", "compatible-addition"], "requiredBranchEvidence": ["repository", "branch", "baseCommit", "profile", "generatorVersion", "previousGeneratedSnapshot", "replayWorktree", "diffReport", "rollbackAction", "smokeResult", "dependencyBoundary"], "generatedProjectSmoke": "go test ./...", "repeatGeneration": "clean", "diffReportSchema": "gofly.generated_version_compat_report.v1", "dependencyBoundary": "generated project go.mod or isolated temporary test module", "rootModulePolicy": "must-not-add-generated-only-dependencies", "blockingChecks": ["fixture replay goTest == passed", "repeatGenerationDiff == clean", "smokeResult == passed", "root module unchanged"], "rollbackAction": "Rollback by pinning the old replay profile, restoring previous generated artifacts, and removing candidate output."},
+      {"id": "current-replay", "profile": "current", "adopterBranchClass": "default", "fixtureSet": {"api": "testdata/generated-compat/current/orders.api", "proto": "testdata/generated-compat/current/greeter.proto", "serviceConfig": "testdata/generated-compat/current/service-config.json", "snapshot": "testdata/generated-compat/matrix.json"}, "expectedDiff": "no unexplained diff", "acceptedDiffCategories": ["deterministic-repeat-generation"], "requiredBranchEvidence": ["repository", "branch", "baseCommit", "profile", "generatorVersion", "previousGeneratedSnapshot", "replayWorktree", "diffReport", "rollbackAction", "smokeResult", "dependencyBoundary"], "generatedProjectSmoke": "go test ./...", "repeatGeneration": "clean", "diffReportSchema": "gofly.generated_version_compat_report.v1", "dependencyBoundary": "generated project go.mod or isolated temporary test module", "rootModulePolicy": "must-not-add-generated-only-dependencies", "blockingChecks": ["fixture replay goTest == passed", "repeatGenerationDiff == clean", "smokeResult == passed", "root module unchanged"], "rollbackAction": "Rollback by keeping the current generator pinned, preserving the previous replay snapshot, and discarding any non-clean replay output."},
+      {"id": "future-replay", "profile": "future", "adopterBranchClass": "experimental", "fixtureSet": {"api": "testdata/generated-compat/future/orders.api", "proto": "testdata/generated-compat/future/greeter.proto", "serviceConfig": "testdata/generated-compat/future/service-config.json", "snapshot": "testdata/generated-compat/matrix.json"}, "expectedDiff": "experimental future field ignored safely", "acceptedDiffCategories": ["deterministic-repeat-generation", "breaking-candidate"], "requiredBranchEvidence": ["repository", "branch", "baseCommit", "profile", "generatorVersion", "previousGeneratedSnapshot", "replayWorktree", "diffReport", "rollbackAction", "smokeResult", "dependencyBoundary"], "generatedProjectSmoke": "go test ./...", "repeatGeneration": "clean", "diffReportSchema": "gofly.generated_version_compat_report.v1", "dependencyBoundary": "generated project go.mod or isolated temporary test module", "rootModulePolicy": "must-not-add-generated-only-dependencies", "blockingChecks": ["fixture replay goTest == passed", "repeatGenerationDiff == clean", "smokeResult == passed", "root module unchanged"], "rollbackAction": "Rollback by discarding future replay output, keeping the branch experimental, and requiring manual release review."}
+    ],
+    "promotionDecision": {
+      "result": "hold-until-replay-evidence-attached",
+      "requiredCompletedReplayRows": 3,
+      "completedReplayRows": 0,
+      "nextReviewGate": "make generated-version-compat-check && make generated-upgrade-dry-run-check",
+      "releaseNotePolicy": "Release notes must include completed replay rows, diff classification, dependency hygiene, rollback action, and the next review gate before promotion."
+    },
+    "promotionPolicy": "old, current, and future fixture replay, real adopter branch metadata, clean repeat-generation diff classification, go test ./..., root module dependency hygiene, and rollback action are required.",
+    "runtimeArtifactPolicy": ".tmp-test, GENERATED_VERSION_COMPAT_TMPDIR, local temp directory, and replay outputs must never be committed."
+  }
+}

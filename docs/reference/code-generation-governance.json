@@ -1,0 +1,89 @@
+{
+  "schema": "gofly.code_generation_governance.v1",
+  "aiflowTask": "GOFLY-GOV-10R3-04",
+  "acceptanceGate": "make code-generation-governance-check",
+  "aggregateGate": "make generated-upgrade-dry-run-check",
+  "sourceCode": [
+    "cmd/gofly/internal/generator/service.go",
+    "cmd/gofly/internal/generator/api_codegen.go",
+    "cmd/gofly/internal/generator/proto_codegen.go",
+    "cmd/gofly/internal/generator/model_codegen.go",
+    "cmd/gofly/internal/generator/extension.go",
+    "cmd/gofly/internal/generator/plugin.go",
+    "cmd/gofly/internal/command/new_service_command.go"
+  ],
+  "policy": {
+    "noPathEscape": true,
+    "repeatGenerationMustBeDeterministic": true,
+    "rootModuleDependencyHygiene": true,
+    "generatedProjectDependenciesStayInGeneratedGoMod": true,
+    "upgradeDiffsMustBeClassified": true,
+    "dryRunMustNotWriteRuntimeArtifacts": true
+  },
+  "surfaces": [
+    {
+      "id": "service-scaffold",
+      "commands": ["gofly new service", "gofly ai new --template go-rest-clean-postgres"],
+      "risk": "generated production services must compile, expose control-plane evidence, and keep runtime artifacts out of git",
+      "gate": "make test-generated-matrix",
+      "tests": ["TestBuildServiceScaffoldIRProfilesDeclareStableManifest", "TestNewServiceGeneratedProjectSmokeMatrix"],
+      "evidence": ["cmd/gofly/internal/generator/service_scaffold_test.go", "cmd/gofly/internal/command/ai_helpers_test.go"]
+    },
+    {
+      "id": "api-generator",
+      "commands": ["gofly api new", "gofly api import", "gofly api diff"],
+      "risk": "API generation must preserve route layout, JSON envelopes, and import/diff behavior across goctl-compatible profiles",
+      "gate": "make goctl-generator-compat-check",
+      "tests": ["TestExecuteAPINewWithGoZeroCompatibleProfile", "TestExecuteAPINewAcceptsGoctlReservedFlags", "TestIDLGenerateCommandsEmitJSONEnvelope"],
+      "evidence": ["cmd/gofly/internal/command/idl_test.go", "cmd/gofly/internal/generator/api_codegen.go"]
+    },
+    {
+      "id": "rpc-generator",
+      "commands": ["gofly rpc gen", "gofly rpc protoc", "gofly new rpc"],
+      "risk": "RPC generation must preserve proto descriptors, client wrappers, mux governance wiring, and generated smoke coverage",
+      "gate": "make test-generated-matrix",
+      "tests": ["TestNewServiceGeneratedProjectSmokeMatrix", "TestBuildServiceScaffoldIRKitexProfileIncludesCompatibilityAdapter"],
+      "evidence": ["cmd/gofly/internal/generator/proto_codegen.go", "cmd/gofly/internal/generator/service_test.go"]
+    },
+    {
+      "id": "model-generator",
+      "commands": ["gofly model gen"],
+      "risk": "Generated model dependencies such as GORM must stay in generated projects or isolated temporary modules",
+      "gate": "make generated-output-governance",
+      "tests": ["TestGenerateModelFromDDLGORMStyle", "TestGenerateModelFromDDLGoZeroStyleDoesNotRequireGORM", "TestGenerateMongoModelDriverStyle"],
+      "evidence": ["cmd/gofly/internal/generator/idl_test.go", "bin/scripts/check-generated-output-governance.sh"]
+    },
+    {
+      "id": "template-sync",
+      "commands": ["gofly template"],
+      "risk": "Template copies and syncs must reject path traversal and symlink escapes before writing generated files",
+      "gate": "make generated-output-governance",
+      "tests": ["TestApplyTemplateExtensionRejectsSymlinkTemplate", "TestCopyDirRejectsSymlinkSourceEntry"],
+      "evidence": ["cmd/gofly/internal/generator/service_test.go", "cmd/gofly/internal/generator/extension_test.go"]
+    },
+    {
+      "id": "plugin-generated-output",
+      "commands": ["gofly plugin run", "gofly api plugin", "gofly rpc plugin"],
+      "risk": "Plugin-produced files must not escape the project root or traverse symlink parents",
+      "gate": "make generated-output-governance",
+      "tests": ["TestPluginResponseWriteFilesRejectsEscapingPaths", "TestPluginResponseRejectsSymlinkParentTraversal", "TestPluginSymlinkParentBoundaries"],
+      "evidence": ["cmd/gofly/internal/generator/plugin_test.go", "cmd/gofly/internal/generator/plugin.go"]
+    }
+  ],
+  "profileMatrix": {
+    "source": "docs/reference/generated-upgrade-dry-run.json",
+    "versionCompat": "docs/reference/generated-version-compat.md",
+    "profiles": ["old", "current", "future"]
+  },
+  "diffCategories": [
+    "deterministic-repeat-generation",
+    "compatible-addition",
+    "formatting-only",
+    "breaking-candidate"
+  ],
+  "aiflowExecution": {
+    "status": "aiflow-driven",
+    "driver": "GOFLY-GOV-10R3-04 governs code-generation safety and upgrade dry-run convergence",
+    "completionPolicy": "A change is complete only after make generated-upgrade-dry-run-check passes, generated runtime artifacts remain uncommitted, and the implementation commit records the evidence."
+  }
+}

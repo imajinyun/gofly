@@ -407,6 +407,7 @@ generated-upgrade-dry-run-check: generated-output-governance code-generation-gov
 .PHONY: dx-troubleshooting-check
 dx-troubleshooting-check: ## Validate doctor, release, and support-bundle troubleshooting JSON contracts
 	$(GO) test $(TESTFLAGS) ./cmd/gofly/internal/command -run 'TestDoctor|TestBugCommand|TestCLIJSON|TestRelease'
+	sh $(SCRIPTS_DIR)/check-dx-troubleshooting.sh
 
 .PHONY: governance-report
 governance-report: ## Write the machine-readable governance dashboard JSON and Markdown summary

@@ -73,11 +73,11 @@ for token in ("curl -fsS http://127.0.0.1:9090/admin/control-plane", "generated.
 
 if support.get("schema") != "gofly.dx_support_bundle.v1":
     missing.append("dx-support-bundle.json: schema mismatch")
-if support.get("acceptanceGate") != "make generated-control-plane-contract-check":
-    missing.append("dx-support-bundle.json: acceptanceGate mismatch")
 evidence = support.get("generatedControlPlaneEvidence") or {}
 if evidence.get("schema") != "gofly.generated_control_plane_support.v1":
     missing.append("dx-support-bundle.json: generatedControlPlaneEvidence.schema mismatch")
+if evidence.get("acceptanceGate") != "make generated-control-plane-contract-check":
+    missing.append("dx-support-bundle.json: generatedControlPlaneEvidence.acceptanceGate mismatch")
 for token in ("generated.rpcMuxConfigWarningSchema", "generated.rpcMuxConfigWarnings", "generated.controlPlaneSchemaChecksums"):
     if token not in set(evidence.get("requiredConfigs") or []):
         missing.append(f"dx-support-bundle.json: requiredConfigs missing {token!r}")

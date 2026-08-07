@@ -1,0 +1,96 @@
+{
+  "schema": "gofly.goctl_generator_compatibility.v1",
+  "acceptanceGate": "make goctl-generator-compat-check",
+  "compatibilityBoundaries": {
+    "noNewJSONEnvelopeFlags": true,
+    "apiRouteAndDiffFormatValidationUnchanged": true,
+    "positionalPluginAndMiddlewareNamesRemainNames": true,
+    "generatedProjectDependenciesStayInGeneratedGoMod": true,
+    "runtimeArtifactsRemainVolatile": true
+  },
+  "statusPolicy": {
+    "implemented": "The capability is covered by code, tests, and a runnable make gate.",
+    "planned": "The capability must not claim implementation paths until tests and evidence exist."
+  },
+  "capabilities": [
+    {
+      "id": "gozero-compatible-profile",
+      "status": "implemented",
+      "gate": "make goctl-generator-compat-check",
+      "implementation": ["cmd/gofly/internal/generator/service_scaffold_ir.go"],
+      "tests": ["cmd/gofly/internal/generator/service_scaffold_test.go"],
+      "evidence": ["ProfileGoZeroCompatible", "goctl-layout", "route-layout-boundary"],
+      "rollbackNote": "Rollback by pinning generated projects to the previous profile and keeping route-layout-boundary evidence attached."
+    },
+    {
+      "id": "goctl-compatible-flags",
+      "status": "implemented",
+      "gate": "make goctl-generator-compat-check",
+      "implementation": ["cmd/gofly/internal/command/new_goctl_compat_flags.go", "cmd/gofly/internal/command/rpc_protoc_command.go"],
+      "tests": ["cmd/gofly/internal/command/idl_test.go"],
+      "evidence": ["name-from-filename", "go_opt", "go-grpc_opt", "go_grpc_opt"],
+      "rollbackNote": "Rollback by preserving the accepted goctl-style flags as no-op compatibility flags until callers migrate."
+    },
+    {
+      "id": "api-tooling-compatibility",
+      "status": "implemented",
+      "gate": "make goctl-generator-compat-check",
+      "implementation": ["cmd/gofly/internal/command/api_import_command.go", "cmd/gofly/internal/command/api_route_command.go", "cmd/gofly/internal/command/api_diff_command.go"],
+      "tests": ["cmd/gofly/internal/command/idl_test.go"],
+      "evidence": ["api import", "api route", "api diff"],
+      "rollbackNote": "Rollback by keeping the import, route, and diff JSON contracts stable while reverting parser-only behavior."
+    },
+    {
+      "id": "generated-version-fixtures",
+      "status": "implemented",
+      "gate": "make generated-version-compat-check",
+      "implementation": ["testdata/generated-compat/matrix.json"],
+      "tests": ["bin/scripts/check-generated-version-compat.sh"],
+      "evidence": ["old", "current", "future"],
+      "rollbackNote": "Rollback by pinning fixture profiles and preserving old/current/future compatibility rows until regenerated output passes."
+    },
+    {
+      "id": "upgrade-diff-contract",
+      "status": "implemented",
+      "gate": "make generated-upgrade-dry-run-check",
+      "implementation": ["docs/reference/generated-upgrade-dry-run.md"],
+      "tests": ["bin/scripts/check-generated-upgrade-dry-run.sh"],
+      "evidence": ["deterministic-repeat-generation", "compatible-addition", "formatting-only", "breaking-candidate"],
+      "rollbackNote": "Rollback by rejecting unclassified generated diffs and requiring rollback notes before release promotion."
+    },
+    {
+      "id": "route-layout-boundary",
+      "status": "implemented",
+      "gate": "make goctl-generator-compat-check",
+      "implementation": ["cmd/gofly/internal/generator/service_scaffold_ir.go"],
+      "tests": ["cmd/gofly/internal/generator/service_scaffold_test.go"],
+      "evidence": ["route-layout-boundary", "goctl-layout", "ProfileGoZeroCompatible"],
+      "rollbackNote": "Rollback by keeping the goctl-compatible route layout boundary and discarding incompatible generated route moves."
+    },
+    {
+      "id": "multi-language-client-generation",
+      "status": "implemented",
+      "gate": "make goctl-generator-compat-check",
+      "implementation": ["cmd/gofly/internal/generator/api_codegen.go", "cmd/gofly/internal/command/api_client_command.go"],
+      "tests": ["cmd/gofly/internal/command/idl_test.go", "cmd/gofly/internal/generator/idl_test.go"],
+      "evidence": ["typescript", "javascript", "dart", "java", "kotlin", "APIClient.java", "APIClient.kt"],
+      "rollbackNote": "Rollback by pinning client generators per language and keeping generated client evidence out of runtime artifacts."
+    },
+    {
+      "id": "real-project-replay-matrix",
+      "status": "implemented",
+      "gate": "make goctl-real-project-replay-check",
+      "implementation": ["docs/reference/generated-upgrade-dry-run.md"],
+      "tests": ["bin/scripts/check-goctl-real-project-replay.sh"],
+      "evidence": ["real branch replay", "temporary worktree", "rollback action"],
+      "rollbackNote": "Rollback by requiring temporary worktree replay evidence before accepting real adopter branch promotion."
+    }
+  ],
+  "releaseGates": [
+    "make goctl-generator-compat-check",
+    "make goctl-real-project-replay-check",
+    "make generated-version-compat-check",
+    "make generated-upgrade-dry-run-check",
+    "make test-generated-matrix"
+  ]
+}

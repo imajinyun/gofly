@@ -1,0 +1,219 @@
+{
+  "schema": "gofly.generated_scaffold_long_term_compatibility.v1",
+  "status": "blocking",
+  "blockingGate": "make generated-upgrade-dry-run-check",
+  "sourceOfTruth": [
+    "docs/reference/generated-upgrade-dry-run.json",
+    "docs/reference/generated-version-compat.md",
+    "testdata/generated-compat/matrix.json",
+    "docs/reference/goctl-generator-compatibility.json",
+    "docs/reference/migration-fidelity-matrix.json"
+  ],
+  "referenceFrameworks": ["go-zero", "Kratos"],
+  "acceptanceGates": [
+    "make generated-upgrade-dry-run-check",
+    "make generated-version-compat-check",
+    "make goctl-generator-compat-check",
+    "make test-generated-matrix"
+  ],
+  "compatibilityPolicy": {
+    "versionProfiles": ["old", "current", "future"],
+    "repeatGeneration": "must-pass",
+    "generatedProjectCompileSmoke": "required",
+    "diffClassification": "required",
+    "dependencyBoundary": "generated project go.mod or isolated temporary test module",
+    "rootModulePolicy": "must-not-add-generated-only-dependencies",
+    "rollbackPolicy": "Rollback by pinning the affected generator profile, discarding unclassified generated output, and keeping prior fixtures until the matrix gate passes again."
+  },
+  "r8ProfileMatrix": {
+    "aiflowTask": "GOFLY-GOV-10R8-03",
+    "acceptanceGate": "make generated-upgrade-dry-run-check",
+    "profiles": [
+      {
+        "id": "rest-service",
+        "generatorSurface": "gofly new service",
+        "referenceFrameworks": ["go-zero"],
+        "fixtures": ["testdata/generated-compat/current/orders.api", "testdata/generated-compat/current/service-config.json"],
+        "generatedOnlyDependencyPolicy": "Generated REST dependencies stay inside the generated project go.mod and are checked before release promotion.",
+        "repeatDiffPolicy": "Repeat generation must produce a clean diff or a classified compatible addition with rollback evidence.",
+        "compileSmoke": "make test-generated-matrix",
+        "rollbackOrEscalation": "Rollback by pinning the current REST profile and opening a breaking-candidate review if smoke fails."
+      },
+      {
+        "id": "rpc-service",
+        "generatorSurface": "gofly new rpc",
+        "referenceFrameworks": ["Kratos"],
+        "fixtures": ["testdata/generated-compat/current/greeter.proto", "testdata/generated-compat/current/service-config.json"],
+        "generatedOnlyDependencyPolicy": "Generated RPC dependencies stay in the generated service module and never enter the root module.",
+        "repeatDiffPolicy": "Repeat RPC generation must remain clean across proto descriptor and control-plane smoke output.",
+        "compileSmoke": "make test-generated-matrix",
+        "rollbackOrEscalation": "Rollback by pinning RPC descriptors and preserving adapter output until generated smoke passes."
+      },
+      {
+        "id": "model-service",
+        "generatorSurface": "gofly model gen",
+        "referenceFrameworks": ["go-zero"],
+        "fixtures": ["testdata/generated-compat/current/service-config.json"],
+        "generatedOnlyDependencyPolicy": "Generated model-only dependencies belong in generated modules or isolated temporary verification modules.",
+        "repeatDiffPolicy": "Repeat model generation must not rewrite unrelated files or mutate the gofly root module.",
+        "compileSmoke": "make generated-output-governance",
+        "rollbackOrEscalation": "Rollback by discarding generated model output and rerunning the dependency boundary gate."
+      },
+      {
+        "id": "production-service",
+        "generatorSurface": "gofly ai new --template go-rest-clean-postgres",
+        "referenceFrameworks": ["go-zero", "Kratos"],
+        "fixtures": ["testdata/generated-compat/future/orders.api", "testdata/generated-compat/future/service-config.json"],
+        "generatedOnlyDependencyPolicy": "Generated production dependencies remain in the generated project and are verified by temporary smoke tests.",
+        "repeatDiffPolicy": "Production scaffold repeat generation must classify any feature additions or breaking candidates before adoption.",
+        "compileSmoke": "make test-generated-matrix",
+        "rollbackOrEscalation": "Rollback by pinning the production template and holding release until generated project smoke passes."
+      }
+    ],
+    "crossCuttingChecks": [
+      {
+        "id": "import-aliases",
+        "evidence": ["cmd/gofly/internal/generator/api_codegen.go", "cmd/gofly/internal/command/idl_test.go"],
+        "gate": "make goctl-generator-compat-check",
+        "rollbackOrEscalation": "Rollback by preserving alias-collision handling and rejecting generated symbol changes without evidence."
+      },
+      {
+        "id": "generated-only-dependencies",
+        "evidence": ["bin/scripts/check-generated-output-governance.sh", "cmd/gofly/internal/generator/idl_test.go"],
+        "gate": "make generated-output-governance",
+        "rollbackOrEscalation": "Rollback by removing generated-only dependencies from the root module and keeping them in generated projects."
+      },
+      {
+        "id": "repeat-generation-diff",
+        "evidence": ["cmd/gofly/internal/command/ai_helpers_test.go", "docs/reference/generated-upgrade-dry-run.json"],
+        "gate": "make generated-upgrade-dry-run-check",
+        "rollbackOrEscalation": "Rollback by discarding unclassified diffs and requiring repeat-generation evidence before promotion."
+      }
+    ]
+  },
+  "profileMatrix": [
+    {
+      "profile": "old",
+      "expectedDiff": "compatible feature addition",
+      "fixtures": {
+        "api": "testdata/generated-compat/v0.1/orders.api",
+        "proto": "testdata/generated-compat/v0.1/greeter.proto",
+        "serviceConfig": "testdata/generated-compat/v0.1/service-config.json"
+      },
+      "requiredDiffCategories": ["deterministic-repeat-generation", "compatible-addition"],
+      "smokeGate": "make generated-version-compat-check",
+      "frameworkAlignment": "go-zero compatible profile remains accepted for historical adopters.",
+      "rollbackOrEscalation": "Rollback by pinning old fixtures and deferring generator promotion until smoke passes."
+    },
+    {
+      "profile": "current",
+      "expectedDiff": "no unexplained diff",
+      "fixtures": {
+        "api": "testdata/generated-compat/current/orders.api",
+        "proto": "testdata/generated-compat/current/greeter.proto",
+        "serviceConfig": "testdata/generated-compat/current/service-config.json"
+      },
+      "requiredDiffCategories": ["deterministic-repeat-generation"],
+      "smokeGate": "make generated-version-compat-check",
+      "frameworkAlignment": "Current profile is the default adoption baseline for generated services.",
+      "rollbackOrEscalation": "Rollback by holding current fixture output and rejecting unexplained generated diffs."
+    },
+    {
+      "profile": "future",
+      "expectedDiff": "experimental future field ignored safely",
+      "fixtures": {
+        "api": "testdata/generated-compat/future/orders.api",
+        "proto": "testdata/generated-compat/future/greeter.proto",
+        "serviceConfig": "testdata/generated-compat/future/service-config.json"
+      },
+      "requiredDiffCategories": ["deterministic-repeat-generation", "breaking-candidate"],
+      "smokeGate": "make generated-version-compat-check",
+      "frameworkAlignment": "Future fields stay experimental until generated smoke and rollback notes are attached.",
+      "rollbackOrEscalation": "Rollback by discarding future-only generated output and treating the diff as breaking-candidate."
+    }
+  ],
+  "edgeCases": [
+    {
+      "id": "goctl-compatible-profile",
+      "surface": "profile",
+      "evidence": ["docs/reference/goctl-generator-compatibility.json"],
+      "gate": "make goctl-generator-compat-check",
+      "rollbackOrEscalation": "Rollback by pinning the goctl-compatible profile and discarding incompatible profile changes."
+    },
+    {
+      "id": "route-layout-boundary",
+      "surface": "route-layout",
+      "evidence": ["docs/reference/goctl-generator-compatibility.json"],
+      "gate": "make goctl-generator-compat-check",
+      "rollbackOrEscalation": "Rollback by preserving route layout boundaries and pinning generated route placement."
+    },
+    {
+      "id": "api-import-and-diff-format",
+      "surface": "api-tooling",
+      "evidence": ["cmd/gofly/internal/command/idl_test.go"],
+      "gate": "make goctl-generator-compat-check",
+      "rollbackOrEscalation": "Rollback by keeping API import and diff formats stable until migration notes are published."
+    },
+    {
+      "id": "api-import-compatibility",
+      "surface": "api-imports",
+      "evidence": ["cmd/gofly/internal/generator/api_codegen.go"],
+      "gate": "make goctl-generator-compat-check",
+      "rollbackOrEscalation": "Rollback by rejecting unsafe import path changes and pinning previous API importer behavior."
+    },
+    {
+      "id": "proto-import-compatibility",
+      "surface": "proto-imports",
+      "evidence": ["cmd/gofly/internal/generator/proto_codegen.go"],
+      "gate": "make goctl-generator-compat-check",
+      "rollbackOrEscalation": "Rollback by preserving proto import compatibility and pinning protoc option handling."
+    },
+    {
+      "id": "alias-collision-boundary",
+      "surface": "import-aliases",
+      "evidence": ["cmd/gofly/internal/generator/api_codegen.go"],
+      "gate": "make goctl-generator-compat-check",
+      "rollbackOrEscalation": "Rollback by keeping alias collision handling and discarding generated symbol changes."
+    },
+    {
+      "id": "generated-dependency-boundary",
+      "surface": "dependencies",
+      "evidence": ["bin/scripts/check-generated-output-governance.sh"],
+      "gate": "make generated-output-governance",
+      "rollbackOrEscalation": "Rollback by removing root module pollution and pinning generated project dependency writes."
+    },
+    {
+      "id": "repeat-generation-diff-boundary",
+      "surface": "repeat-diff",
+      "evidence": ["docs/reference/generated-upgrade-dry-run.json"],
+      "gate": "make generated-upgrade-dry-run-check",
+      "rollbackOrEscalation": "Rollback by discarding unclassified repeat diffs and requiring clean regeneration evidence."
+    }
+  ],
+  "adopterActions": [
+    {
+      "id": "temporary-project-generation",
+      "command": "make test-generated-matrix",
+      "expectedEvidence": "Temporary generated projects compile, run smoke tests, and keep generated dependencies isolated from the root module.",
+      "rollbackOrEscalation": "Rollback by deleting temporary projects and pinning the previous generator profile until smoke passes."
+    },
+    {
+      "id": "upgrade-diff-review",
+      "command": "make generated-upgrade-dry-run-check",
+      "expectedEvidence": "Repeat generation diff is clean or assigned to an accepted diff category with rollback notes.",
+      "rollbackOrEscalation": "Rollback by discarding generated output and opening a breaking-candidate review for unexplained diffs."
+    },
+    {
+      "id": "goctl-compatibility-review",
+      "command": "make goctl-generator-compat-check",
+      "expectedEvidence": "goctl-compatible profile, flags, route layout, and API tooling remain covered by runnable tests.",
+      "rollbackOrEscalation": "Rollback by preserving old goctl-compatible behavior until migration guidance is available."
+    },
+    {
+      "id": "importer-compatibility-review",
+      "command": "make goctl-generator-compat-check",
+      "expectedEvidence": "API and proto import paths remain bounded and generated symbol aliases stay collision-safe.",
+      "rollbackOrEscalation": "Rollback by pinning importer behavior and rejecting unsafe path or alias changes."
+    }
+  ]
+}

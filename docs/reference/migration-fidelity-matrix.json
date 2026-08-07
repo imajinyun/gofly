@@ -1,0 +1,62 @@
+{
+  "schema": "gofly.generated_migration_fidelity.v1",
+  "sourceOfTruth": "docs/reference/generated-upgrade-dry-run.json",
+  "acceptanceGate": "make generated-upgrade-dry-run-check",
+  "requiredPathFields": [
+    "framework",
+    "example",
+    "docs",
+    "dryRunProfile",
+    "deterministicRegeneration",
+    "diffCategories",
+    "smokeGates",
+    "rollbackNote",
+    "compatibilityCaveat"
+  ],
+  "paths": [
+    {
+      "framework": "gin",
+      "example": "examples/getting-started/restserver",
+      "docs": ["docs/reference/generated-upgrade-dry-run.md"],
+      "dryRunProfile": "current",
+      "deterministicRegeneration": "required",
+      "diffCategories": ["deterministic-repeat-generation", "compatible-addition"],
+      "smokeGates": ["make test-generated-matrix"],
+      "rollbackNote": "Rollback by pinning the generated REST service profile and discarding unclassified route output.",
+      "compatibilityCaveat": "Gin-style adoption maps to REST routing behavior, not to Gin middleware API compatibility."
+    },
+    {
+      "framework": "go-zero",
+      "example": "examples/goctl-model/cache-local",
+      "docs": ["docs/reference/goctl-generator-compatibility.json"],
+      "dryRunProfile": "old",
+      "deterministicRegeneration": "required",
+      "diffCategories": ["deterministic-repeat-generation", "compatible-addition"],
+      "smokeGates": ["make goctl-generator-compat-check"],
+      "rollbackNote": "Rollback by keeping gozero-compatible flags and generated dependency boundaries in place.",
+      "compatibilityCaveat": "go-zero compatibility covers scaffold and flag semantics, not full goctl feature parity."
+    },
+    {
+      "framework": "kratos",
+      "example": "examples/microservices/config-discovery",
+      "docs": ["docs/reference/generated-upgrade-dry-run.md"],
+      "dryRunProfile": "future",
+      "deterministicRegeneration": "required",
+      "diffCategories": ["deterministic-repeat-generation", "breaking-candidate"],
+      "smokeGates": ["make test-generated-matrix"],
+      "rollbackNote": "Rollback by treating unproven service-governance changes as breaking candidates until smoke passes.",
+      "compatibilityCaveat": "Kratos alignment is limited to service governance and production defaults, not transport internals."
+    },
+    {
+      "framework": "kitex",
+      "example": "examples/getting-started/rpcserver",
+      "docs": ["docs/reference/generated-upgrade-dry-run.md"],
+      "dryRunProfile": "current",
+      "deterministicRegeneration": "required",
+      "diffCategories": ["deterministic-repeat-generation", "formatting-only"],
+      "smokeGates": ["make test-generated-matrix"],
+      "rollbackNote": "Rollback by pinning RPC compatibility adapters and preserving descriptor smoke coverage.",
+      "compatibilityCaveat": "Kitex alignment covers generated RPC adapter behavior, not Kitex runtime replacement."
+    }
+  ]
+}

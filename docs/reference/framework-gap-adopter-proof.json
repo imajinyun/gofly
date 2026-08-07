@@ -1,0 +1,26 @@
+{
+  "schema": "gofly.framework_gap_adopter_proof.v1",
+  "acceptanceGate": "make examples-smoke",
+  "routes": [
+    {
+      "id": "gin-to-gofly",
+      "example": "examples/getting-started/restserver",
+      "rollbackAction": "Keep existing Gin handlers until gofly REST smoke passes."
+    },
+    {
+      "id": "go-zero-to-gofly",
+      "example": "examples/goctl-model/cache-local",
+      "rollbackAction": "Keep goctl-compatible generated output pinned until gofly compatibility gates pass."
+    },
+    {
+      "id": "kratos-to-gofly",
+      "example": "examples/microservices/config-discovery",
+      "rollbackAction": "Keep existing service governance wiring until gofly smoke passes."
+    },
+    {
+      "id": "kitex-with-gofly",
+      "example": "examples/getting-started/rpcserver",
+      "rollbackAction": "Keep existing RPC descriptors until generated RPC smoke passes."
+    }
+  ]
+}

@@ -30,11 +30,14 @@ required_matrix_capabilities = {
     "api-comments-tags",
     "nested-type-composition",
     "request-response-naming",
+    "crud-route-set",
+    "optional-query-params",
     "complex-model",
     "soft-delete",
     "optimistic-lock",
     "single-column-unique-key",
     "composite-unique-key",
+    "non-unique-index",
     "cache-template",
 }
 
@@ -88,6 +91,8 @@ for source in (
     "testdata/goctl-replay/orderservice/replay.json",
     "testdata/goctl-replay/inventoryservice/replay.json",
     "testdata/goctl-replay/billingservice/replay.json",
+    "testdata/goctl-replay/userservice/replay.json",
+    "testdata/goctl-replay/taskservice/replay.json",
 ):
     require(source in source_of_truth, f"sourceOfTruth missing {source!r}")
     require((root / source).exists(), f"sourceOfTruth path is missing: {source}")
@@ -99,7 +104,7 @@ require("goctl" in str(scope.get("referenceFramework") or "").lower(), "scope.re
 
 matrix = manifest.get("matrix") or {}
 fixtures = matrix.get("fixtures") or []
-require(matrix.get("minimumFixtures") == 3, "matrix.minimumFixtures must be 3")
+require(matrix.get("minimumFixtures") == 5, "matrix.minimumFixtures must be 5")
 require(len(fixtures) >= matrix.get("minimumFixtures", 0), "matrix must contain at least minimumFixtures entries")
 require(set(matrix.get("requiredCapabilities") or []) == required_matrix_capabilities, "matrix.requiredCapabilities drifted")
 
@@ -132,6 +137,8 @@ require(
         "orderservice-goctl-replay",
         "inventoryservice-imported-multigroup-replay",
         "billingservice-transitive-import-replay",
+        "userservice-crud-query-replay",
+        "taskservice-admin-delete-replay",
     }.issubset(fixture_ids),
     f"fixture ids drifted: {sorted(fixture_ids)!r}",
 )
@@ -174,6 +181,33 @@ for needle in ("type RequestMeta", "type CursorPageRequest", "type CursorPageRes
 billing_sql = read_text(root / "testdata/goctl-replay/billingservice/model/billing.sql")
 for needle in ("invoice_no varchar(64) unique", "UNIQUE KEY uk_invoice_tenant_customer_status", "version bigint", "deleted_at timestamp"):
     require(needle in billing_sql, f"billing SQL fixture missing {needle!r}")
+user_api = read_text(root / "testdata/goctl-replay/userservice/user.api")
+for needle in (
+    "service user-api",
+    "post /users",
+    "get /users/:id",
+    "get /users",
+    "put /users/:id",
+    'RequestID string `header:"X-Request-ID,optional"`',
+    'Status string `form:"status,optional"`',
+):
+    require(needle in user_api, f"user API fixture missing {needle!r}")
+user_sql = read_text(root / "testdata/goctl-replay/userservice/model/user.sql")
+for needle in ("UNIQUE KEY uk_users_email", "KEY idx_users_status", "version bigint", "deleted_at timestamp"):
+    require(needle in user_sql, f"user SQL fixture missing {needle!r}")
+task_api = read_text(root / "testdata/goctl-replay/taskservice/task.api")
+for needle in (
+    "service task-api",
+    "service task-admin-api",
+    "patch /tasks/:id/complete",
+    "delete /tasks/:id",
+    "middlewares: adminAuth,trace,audit",
+    'Status string `form:"status,optional"`',
+):
+    require(needle in task_api, f"task API fixture missing {needle!r}")
+task_sql = read_text(root / "testdata/goctl-replay/taskservice/model/task.sql")
+for needle in ("UNIQUE KEY uk_tasks_owner_title", "KEY idx_tasks_owner_status", "KEY idx_tasks_priority", "version bigint", "deleted_at timestamp"):
+    require(needle in task_sql, f"task SQL fixture missing {needle!r}")
 
 diff_contract = manifest.get("diffContract") or {}
 categories = set(diff_contract.get("categories") or [])
@@ -194,7 +228,7 @@ for gate in release_gates:
 
 status = manifest.get("status") or {}
 require(status.get("goctlCommandSurface") == "unchanged", "status.goctlCommandSurface must remain unchanged")
-require(status.get("fixtureMatrixDepth") == "transitive-import-comments-tags-nested-model", "status.fixtureMatrixDepth mismatch")
+require(status.get("fixtureMatrixDepth") == "five-fixture-transitive-import-crud-admin-query-model", "status.fixtureMatrixDepth mismatch")
 require(status.get("modelCacheTemplateDepth") == "covered-by-three-fixture-replay-matrix", "status.modelCacheTemplateDepth mismatch")
 
 for needle in (
@@ -202,11 +236,16 @@ for needle in (
     "orderservice-goctl-replay",
     "inventoryservice-imported-multigroup-replay",
     "billingservice-transitive-import-replay",
+    "userservice-crud-query-replay",
+    "taskservice-admin-delete-replay",
     "api-import",
     "transitive-api-import",
     "api-comments-tags",
     "nested-type-composition",
     "request-response-naming",
+    "crud-route-set",
+    "optional-query-params",
+    "non-unique-index",
     "multi-service-group",
     "single-column-unique-key",
     "composite-unique-key",

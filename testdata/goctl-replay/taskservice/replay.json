@@ -1,0 +1,48 @@
+{
+  "schema": "gofly.goctl_real_project_fixture.v1",
+  "id": "taskservice-admin-delete-replay",
+  "module": "example.com/taskservice",
+  "serviceName": "task-api",
+  "profile": "gozero-compatible",
+  "style": "minimal",
+  "api": "task.api",
+  "config": "etc/task-api.yaml",
+  "ddl": "model/task.sql",
+  "cache": true,
+  "capabilities": [
+    "multi-service-group",
+    "multi-middleware",
+    "crud-route-set",
+    "optional-query-params",
+    "soft-delete",
+    "optimistic-lock",
+    "composite-unique-key",
+    "non-unique-index",
+    "cache-template"
+  ],
+  "diffCategories": [
+    "deterministic-repeat-generation",
+    "compatible-addition",
+    "generated-cache-template",
+    "breaking-candidate"
+  ],
+  "expectedArtifacts": [
+    "cmd/task-api/main.go",
+    "internal/handler/routes.go",
+    "internal/logic/pinglogic.go",
+    "internal/svc/servicecontext.go",
+    "internal/types/types.go",
+    "internal/api/v1/types.go",
+    "internal/api/v1/task_api/routes.go",
+    "internal/api/v1/task_api/service.go",
+    "internal/api/v1/task_api/create_task.go",
+    "internal/api/v1/task_api/list_tasks.go",
+    "internal/api/v1/task_api/complete_task.go",
+    "internal/api/v1/task_admin_api/routes.go",
+    "internal/api/v1/task_admin_api/service.go",
+    "internal/api/v1/task_admin_api/delete_task.go",
+    "model/entity/task_gen.go",
+    "model/repo/task.go"
+  ],
+  "rollbackNote": "rollback.md"
+}

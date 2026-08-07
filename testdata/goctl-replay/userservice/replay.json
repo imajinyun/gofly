@@ -1,0 +1,45 @@
+{
+  "schema": "gofly.goctl_real_project_fixture.v1",
+  "id": "userservice-crud-query-replay",
+  "module": "example.com/userservice",
+  "serviceName": "user-api",
+  "profile": "gozero-compatible",
+  "style": "minimal",
+  "api": "user.api",
+  "config": "etc/user-api.yaml",
+  "ddl": "model/user.sql",
+  "cache": true,
+  "capabilities": [
+    "crud-route-set",
+    "api-comments-tags",
+    "optional-query-params",
+    "single-column-unique-key",
+    "non-unique-index",
+    "soft-delete",
+    "optimistic-lock",
+    "cache-template"
+  ],
+  "diffCategories": [
+    "deterministic-repeat-generation",
+    "compatible-addition",
+    "generated-cache-template",
+    "breaking-candidate"
+  ],
+  "expectedArtifacts": [
+    "cmd/user-api/main.go",
+    "internal/handler/routes.go",
+    "internal/logic/pinglogic.go",
+    "internal/svc/servicecontext.go",
+    "internal/types/types.go",
+    "internal/api/v1/types.go",
+    "internal/api/v1/user_api/routes.go",
+    "internal/api/v1/user_api/service.go",
+    "internal/api/v1/user_api/create_user.go",
+    "internal/api/v1/user_api/get_user.go",
+    "internal/api/v1/user_api/search_users.go",
+    "internal/api/v1/user_api/update_user.go",
+    "model/entity/user_gen.go",
+    "model/repo/user.go"
+  ],
+  "rollbackNote": "rollback.md"
+}

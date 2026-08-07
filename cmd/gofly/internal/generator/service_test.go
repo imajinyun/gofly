@@ -1408,6 +1408,81 @@ func TestServiceFilesForProfileCoverageBuffer(t *testing.T) {
 	}
 }
 
+func TestGoldenPathProductionServiceLayoutContract(t *testing.T) {
+	dir := t.TempDir()
+	if err := GenerateServiceScaffold(ServiceScaffoldOptions{
+		Name:   "orders",
+		Module: "example.com/orders",
+		Dir:    dir,
+		Style:  ServiceStyleProduction,
+		Kind:   "service",
+	}); err != nil {
+		t.Fatalf("GenerateServiceScaffold production service: %v", err)
+	}
+
+	requiredFiles := []string{
+		"go.mod",
+		"Makefile",
+		"Dockerfile",
+		filepath.Join("cmd", "orders", "main.go"),
+		filepath.Join("etc", "orders.json"),
+		filepath.Join("etc", "governance.json"),
+		filepath.Join("internal", "config", "config.go"),
+		filepath.Join("internal", "config", "config_test.go"),
+		filepath.Join("internal", "config", "discovery_test.go"),
+		filepath.Join("internal", "config", "production_check.go"),
+		filepath.Join("internal", "routes", "routes.go"),
+		filepath.Join("internal", "api", "v1", "ping", "ping.go"),
+		filepath.Join("internal", "service", "ping.go"),
+		filepath.Join("internal", "rpc", "greeter.go"),
+		filepath.Join("internal", "admin", "admin.go"),
+		filepath.Join("internal", "discovery", "registry.go"),
+		filepath.Join("internal", "smoke", "service_smoke_test.go"),
+		filepath.Join("deploy", "k8s", "orders.yaml"),
+		filepath.Join("deploy", "helm", "Chart.yaml"),
+		filepath.Join("deploy", "observability", "prometheus.yaml"),
+		filepath.Join("deploy", "observability", "otel-collector.yaml"),
+		filepath.Join("bin", "production-check.sh"),
+	}
+	for _, rel := range requiredFiles {
+		if _, err := os.Stat(filepath.Join(dir, rel)); err != nil {
+			t.Fatalf("golden path layout missing %s: %v", rel, err)
+		}
+	}
+
+	mainData, err := os.ReadFile(filepath.Join(dir, "cmd", "orders", "main.go"))
+	if err != nil {
+		t.Fatalf("read generated main: %v", err)
+	}
+	for _, marker := range []string{
+		"app.BootstrapWithRuntime",
+		"appadmin.NewServer",
+		"appdiscovery.NewRegistry",
+		"rest.WithGovernanceManager",
+		"rpc.NewServer",
+		"httpServer.AddOpenAPIRoutes",
+	} {
+		if !strings.Contains(string(mainData), marker) {
+			t.Fatalf("golden path main.go missing marker %q:\n%s", marker, mainData)
+		}
+	}
+
+	smokeData, err := os.ReadFile(filepath.Join(dir, "internal", "smoke", "service_smoke_test.go"))
+	if err != nil {
+		t.Fatalf("read generated smoke test: %v", err)
+	}
+	for _, marker := range []string{
+		"TestGeneratedProductionServiceSmoke",
+		"/healthz",
+		"/admin/control-plane",
+		"assertControlPlaneResilience",
+	} {
+		if !strings.Contains(string(smokeData), marker) {
+			t.Fatalf("golden path smoke test missing marker %q:\n%s", marker, smokeData)
+		}
+	}
+}
+
 func TestTemplateSyncCoverageBuffer(t *testing.T) {
 	t.Run("local file remote copies payload templates and skips hidden directories", func(t *testing.T) {
 		root := t.TempDir()

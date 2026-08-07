@@ -1,0 +1,69 @@
+syntax = "v1"
+
+type CreateTaskRequest {
+  Title string `json:"title"`
+  OwnerID int64 `json:"ownerId"`
+  Priority string `json:"priority"`
+}
+
+type CreateTaskResponse {
+  ID int64 `json:"id"`
+  Status string `json:"status"`
+}
+
+type ListTasksRequest {
+  OwnerID int64 `form:"ownerId"`
+  Status string `form:"status,optional"`
+  Limit int `form:"limit,optional"`
+  Offset int `form:"offset,optional"`
+}
+
+type TaskSummary {
+  ID int64 `json:"id"`
+  Title string `json:"title"`
+  OwnerID int64 `json:"ownerId"`
+  Status string `json:"status"`
+  Priority string `json:"priority"`
+}
+
+type ListTasksResponse {
+  Items []TaskSummary `json:"items"`
+  Total int64 `json:"total"`
+}
+
+type CompleteTaskRequest {
+  ID int64 `path:"id"`
+  ExpectedVersion int64 `json:"expectedVersion"`
+}
+
+type CompleteTaskResponse {
+  ID int64 `json:"id"`
+  Status string `json:"status"`
+}
+
+type DeleteTaskRequest {
+  ID int64 `path:"id"`
+}
+
+type DeleteTaskResponse {
+  ID int64 `json:"id"`
+  Deleted bool `json:"deleted"`
+}
+
+@server(group: tasks prefix: /api/v1 jwt: Auth middlewares: auth,trace)
+service task-api {
+  @handler createTask
+  post /tasks (CreateTaskRequest) returns (CreateTaskResponse)
+
+  @handler listTasks
+  get /tasks (ListTasksRequest) returns (ListTasksResponse)
+
+  @handler completeTask
+  patch /tasks/:id/complete (CompleteTaskRequest) returns (CompleteTaskResponse)
+}
+
+@server(group: taskAdmin prefix: /api/admin/v1 jwt: AdminAuth middlewares: adminAuth,trace,audit)
+service task-admin-api {
+  @handler deleteTask
+  delete /tasks/:id (DeleteTaskRequest) returns (DeleteTaskResponse)
+}

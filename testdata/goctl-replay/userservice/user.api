@@ -1,0 +1,61 @@
+syntax = "v1"
+
+type CreateUserRequest {
+  Name string `json:"name"`
+  Email string `json:"email"`
+  RequestID string `header:"X-Request-ID,optional"`
+}
+
+type CreateUserResponse {
+  ID int64 `json:"id"`
+  Status string `json:"status"`
+}
+
+type GetUserRequest {
+  ID int64 `path:"id"`
+}
+
+type GetUserResponse {
+  ID int64 `json:"id"`
+  Name string `json:"name"`
+  Email string `json:"email"`
+  Status string `json:"status"`
+}
+
+type SearchUsersRequest {
+  Email string `form:"email,optional"`
+  Status string `form:"status,optional"`
+  Limit int `form:"limit,optional"`
+  Offset int `form:"offset,optional"`
+}
+
+type SearchUsersResponse {
+  Items []GetUserResponse `json:"items"`
+  Total int64 `json:"total"`
+}
+
+type UpdateUserRequest {
+  ID int64 `path:"id"`
+  Name string `json:"name"`
+  Status string `json:"status"`
+}
+
+type UpdateUserResponse {
+  ID int64 `json:"id"`
+  Status string `json:"status"`
+}
+
+@server(group: users prefix: /api/v1 jwt: Auth middlewares: auth,trace)
+service user-api {
+  @handler createUser
+  post /users (CreateUserRequest) returns (CreateUserResponse)
+
+  @handler getUser
+  get /users/:id (GetUserRequest) returns (GetUserResponse)
+
+  @handler searchUsers
+  get /users (SearchUsersRequest) returns (SearchUsersResponse)
+
+  @handler updateUser
+  put /users/:id (UpdateUserRequest) returns (UpdateUserResponse)
+}

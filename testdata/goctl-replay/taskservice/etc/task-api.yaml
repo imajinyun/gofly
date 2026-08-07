@@ -1,0 +1,12 @@
+Name: task-api
+Host: 0.0.0.0
+Port: 8083
+Timeout: 3000
+Auth:
+  AccessSecret: replay-secret
+  AccessExpire: 3600
+DataSource: tasks
+Cache:
+  Enabled: true
+  Redis:
+    Host: 127.0.0.1:6379

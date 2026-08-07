@@ -182,6 +182,10 @@ func assertGoctlReplayArtifacts(t *testing.T, outDir string, fixture goctlReplay
 		assertInventoryGoctlReplayArtifacts(t, outDir, fixture)
 	case "billingservice-transitive-import-replay":
 		assertBillingGoctlReplayArtifacts(t, outDir, fixture)
+	case "userservice-crud-query-replay":
+		assertUserGoctlReplayArtifacts(t, outDir, fixture)
+	case "taskservice-admin-delete-replay":
+		assertTaskGoctlReplayArtifacts(t, outDir, fixture)
 	default:
 		t.Fatalf("missing replay artifact assertions for fixture %q", fixture.ID)
 	}
@@ -579,6 +583,174 @@ func assertBillingGoctlReplayArtifacts(t *testing.T, outDir string, fixture goct
 	} {
 		if !strings.Contains(entity, want) {
 			t.Fatalf("generated billing entity missing %q:\n%s", want, entity)
+		}
+	}
+}
+
+func assertUserGoctlReplayArtifacts(t *testing.T, outDir string, fixture goctlReplayFixture) {
+	t.Helper()
+	requireGoctlReplayCapabilities(t, fixture, []string{
+		"crud-route-set",
+		"optional-query-params",
+		"single-column-unique-key",
+		"non-unique-index",
+		"soft-delete",
+		"optimistic-lock",
+		"cache-template",
+	})
+	typesData := readReplayFile(t, outDir, filepath.Join("internal", "api", "v1", "types.go"))
+	for _, want := range []string{
+		"type CreateUserRequest struct",
+		"type SearchUsersRequest struct",
+		"type SearchUsersResponse struct",
+		"`header:\"X-Request-ID,optional\"`",
+		"`form:\"status,optional\"`",
+		"Items []GetUserResponse",
+	} {
+		if !strings.Contains(typesData, want) {
+			t.Fatalf("generated user types missing %q:\n%s", want, typesData)
+		}
+	}
+	userRoutes := readReplayFile(t, outDir, filepath.Join("internal", "api", "v1", "user_api", "routes.go"))
+	for _, want := range []string{
+		"RegisterUserApiRoutes",
+		"RegisterCreateUserRoute",
+		"RegisterGetUserRoute",
+		"RegisterSearchUsersRoute",
+		"RegisterUpdateUserRoute",
+	} {
+		if !strings.Contains(userRoutes, want) {
+			t.Fatalf("generated user routes missing %q:\n%s", want, userRoutes)
+		}
+	}
+	searchRoute := readReplayFile(t, outDir, filepath.Join("internal", "api", "v1", "user_api", "search_users.go"))
+	for _, want := range []string{`Path: "/users"`, "ctx.BindRequest(&req)"} {
+		if !strings.Contains(searchRoute, want) {
+			t.Fatalf("generated search users route missing %q:\n%s", want, searchRoute)
+		}
+	}
+	updateRoute := readReplayFile(t, outDir, filepath.Join("internal", "api", "v1", "user_api", "update_user.go"))
+	for _, want := range []string{`Path: "/users/:id"`, "ctx.BindRequest(&req)"} {
+		if !strings.Contains(updateRoute, want) {
+			t.Fatalf("generated update user route missing %q:\n%s", want, updateRoute)
+		}
+	}
+	repo := readReplayFile(t, outDir, filepath.Join("model", "repo", "user.go"))
+	for _, want := range []string{
+		"func NewCachedUserRepo",
+		"func NewRedisCachedUserRepo",
+		"func (r *UserRepo) FindByEmail(ctx context.Context, email string) (*entity.User, error)",
+		"func (r *UserRepo) FindByStatus(ctx context.Context, status string, limit int, offset int) ([]entity.User, error)",
+		"func (r *UserRepo) CountByStatus(ctx context.Context, status string) (int64, error)",
+		"func (c *CachedUserRepo) FindByEmailCached(ctx context.Context, email string) (*entity.User, error)",
+		"func (c *CachedUserRepo) FindByStatusCached(ctx context.Context, status string, limit int, offset int) ([]entity.User, error)",
+		"func (c *CachedUserRepo) PageByStatusCached(ctx context.Context, status string, limit int, offset int) ([]entity.User, int64, error)",
+		"func (c *CachedUserRepo) UpdateWithVersion(ctx context.Context, in *entity.User, expectedVersion int64) error",
+		"func indexListKeyByStatus(status string, limit int, offset int) string",
+		"cacheByEmail",
+		"listCacheByStatus",
+		"countCacheByStatus",
+		"listVersionByStatus",
+		`where = where.IsNull("deleted_at")`,
+	} {
+		if !strings.Contains(repo, want) {
+			t.Fatalf("generated user repo missing %q:\n%s", want, repo)
+		}
+	}
+	entity := readReplayFile(t, outDir, filepath.Join("model", "entity", "user_gen.go"))
+	for _, want := range []string{"type User struct", "Email", "Version", `db:"email"`, `const UserTable = "users"`} {
+		if !strings.Contains(entity, want) {
+			t.Fatalf("generated user entity missing %q:\n%s", want, entity)
+		}
+	}
+}
+
+func assertTaskGoctlReplayArtifacts(t *testing.T, outDir string, fixture goctlReplayFixture) {
+	t.Helper()
+	requireGoctlReplayCapabilities(t, fixture, []string{
+		"multi-service-group",
+		"multi-middleware",
+		"crud-route-set",
+		"optional-query-params",
+		"composite-unique-key",
+		"non-unique-index",
+		"soft-delete",
+		"optimistic-lock",
+		"cache-template",
+	})
+	typesData := readReplayFile(t, outDir, filepath.Join("internal", "api", "v1", "types.go"))
+	for _, want := range []string{
+		"type CreateTaskRequest struct",
+		"type ListTasksRequest struct",
+		"type CompleteTaskRequest struct",
+		"type DeleteTaskRequest struct",
+		"Items []TaskSummary",
+		"`form:\"status,optional\"`",
+		"`path:\"id\"`",
+	} {
+		if !strings.Contains(typesData, want) {
+			t.Fatalf("generated task types missing %q:\n%s", want, typesData)
+		}
+	}
+	taskRoutes := readReplayFile(t, outDir, filepath.Join("internal", "api", "v1", "task_api", "routes.go"))
+	for _, want := range []string{
+		"RegisterTaskApiRoutes",
+		"RegisterCreateTaskRoute",
+		"RegisterListTasksRoute",
+		"RegisterCompleteTaskRoute",
+	} {
+		if !strings.Contains(taskRoutes, want) {
+			t.Fatalf("generated task routes missing %q:\n%s", want, taskRoutes)
+		}
+	}
+	adminRoutes := readReplayFile(t, outDir, filepath.Join("internal", "api", "v1", "task_admin_api", "routes.go"))
+	for _, want := range []string{"RegisterTaskAdminApiRoutes", "RegisterDeleteTaskRoute"} {
+		if !strings.Contains(adminRoutes, want) {
+			t.Fatalf("generated task admin routes missing %q:\n%s", want, adminRoutes)
+		}
+	}
+	completeRoute := readReplayFile(t, outDir, filepath.Join("internal", "api", "v1", "task_api", "complete_task.go"))
+	for _, want := range []string{`Path: "/tasks/:id/complete"`, "ctx.BindRequest(&req)"} {
+		if !strings.Contains(completeRoute, want) {
+			t.Fatalf("generated complete task route missing %q:\n%s", want, completeRoute)
+		}
+	}
+	deleteRoute := readReplayFile(t, outDir, filepath.Join("internal", "api", "v1", "task_admin_api", "delete_task.go"))
+	for _, want := range []string{`Path: "/tasks/:id"`, "ctx.BindRequest(&req)"} {
+		if !strings.Contains(deleteRoute, want) {
+			t.Fatalf("generated delete task route missing %q:\n%s", want, deleteRoute)
+		}
+	}
+	repo := readReplayFile(t, outDir, filepath.Join("model", "repo", "task.go"))
+	for _, want := range []string{
+		"func NewCachedTaskRepo",
+		"func NewRedisCachedTaskRepo",
+		"func (r *TaskRepo) FindByOwnerIDAndTitle(ctx context.Context, ownerID int64, title string) (*entity.Task, error)",
+		"func (r *TaskRepo) FindByOwnerID(ctx context.Context, ownerID int64, limit int, offset int) ([]entity.Task, error)",
+		"func (r *TaskRepo) CountByOwnerID(ctx context.Context, ownerID int64) (int64, error)",
+		"func (r *TaskRepo) FindByPriority(ctx context.Context, priority string, limit int, offset int) ([]entity.Task, error)",
+		"func (r *TaskRepo) CountByPriority(ctx context.Context, priority string) (int64, error)",
+		"func (c *CachedTaskRepo) FindByOwnerIDAndTitleCached(ctx context.Context, ownerID int64, title string) (*entity.Task, error)",
+		"func (c *CachedTaskRepo) PageByOwnerIDCached(ctx context.Context, ownerID int64, limit int, offset int) ([]entity.Task, int64, error)",
+		"func (c *CachedTaskRepo) PageByPriorityCached(ctx context.Context, priority string, limit int, offset int) ([]entity.Task, int64, error)",
+		"func (c *CachedTaskRepo) UpdateWithVersion(ctx context.Context, in *entity.Task, expectedVersion int64) error",
+		"func uniqueKeyByOwnerIDAndTitle(ownerID int64, title string) string",
+		"func indexListKeyByOwnerID(ownerID int64, limit int, offset int) string",
+		"func indexListKeyByPriority(priority string, limit int, offset int) string",
+		"cacheByOwnerIDAndTitle",
+		"listCacheByOwnerID",
+		"countCacheByOwnerID",
+		"listVersionByPriority",
+		`where = where.IsNull("deleted_at")`,
+	} {
+		if !strings.Contains(repo, want) {
+			t.Fatalf("generated task repo missing %q:\n%s", want, repo)
+		}
+	}
+	entity := readReplayFile(t, outDir, filepath.Join("model", "entity", "task_gen.go"))
+	for _, want := range []string{"type Task struct", "OwnerID", "Priority", "Version", `db:"owner_id"`, `const TaskTable = "tasks"`} {
+		if !strings.Contains(entity, want) {
+			t.Fatalf("generated task entity missing %q:\n%s", want, entity)
 		}
 	}
 }

@@ -92,6 +92,10 @@ test-short: ## Run fast unit tests (no race)
 test-generated-matrix: ## Verify generated project templates and service contract input matrix end-to-end
 	GOFLY_FRAMEWORK_PATH=$(CURDIR) $(GO) test $(TESTFLAGS) ./cmd/gofly/internal/command -run 'Test(AINewGeneratedProjectVerificationMatrix|NewServiceGeneratedProjectSmokeMatrix|NewServiceContractInputMatrix)'
 
+.PHONY: generated-service-layout-check
+generated-service-layout-check: ## Validate the Tier 0 generated production service layout contract
+	sh $(SCRIPTS_DIR)/check-generated-service-layout.sh
+
 .PHONY: generated-output-governance
 generated-output-governance: ## Verify generated output determinism, path safety, and dependency placement
 	sh $(SCRIPTS_DIR)/check-generated-output-governance.sh

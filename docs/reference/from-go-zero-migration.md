@@ -25,7 +25,8 @@ fixture replay, and rollback gates runnable while teams move selected surfaces.
 
 1. Capture the current go-zero `.api`, `.proto`, SQL DDL, and config files.
 2. Replay REST and model generation with the go-zero-compatible profile.
-3. Run `make goctl-generator-compat-check` and
+3. Start with `examples/migration/gozero-basic`, then run
+   `make goctl-generator-compat-check` and
    `make goctl-real-project-replay-check`.
 4. For zRPC services, inspect `docs/reference/zrpc-proto-compatibility.json`
    before claiming parity. External proto imports and google well-known types
@@ -75,14 +76,14 @@ make api-client-generation-check
 make rest-profile-check
 make generated-service-layout-check
 make generated-upgrade-dry-run-check
-make migration-docs-check
+go test -C examples/migration/gozero-basic ./...
 ```
 
 If default Go build cache permissions fail locally, rerun with temporary cache
 directories:
 
 ```sh
-GOCACHE=/private/tmp/gofly-cache-migration GOTMPDIR=/private/tmp/gofly-tmp-migration make migration-docs-check
+GOCACHE=/private/tmp/gofly-cache-migration GOTMPDIR=/private/tmp/gofly-tmp-migration make goctl-generator-compat-check
 ```
 
 ## Rollback

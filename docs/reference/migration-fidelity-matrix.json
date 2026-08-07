@@ -27,12 +27,12 @@
     },
     {
       "framework": "go-zero",
-      "example": "examples/goctl-model/cache-local",
+      "example": "examples/migration/gozero-basic",
       "docs": ["docs/reference/from-go-zero-migration.md", "docs/reference/goctl-generator-compatibility.json"],
       "dryRunProfile": "old",
       "deterministicRegeneration": "required",
       "diffCategories": ["deterministic-repeat-generation", "compatible-addition"],
-      "smokeGates": ["make goctl-generator-compat-check", "make migration-docs-check"],
+      "smokeGates": ["go test -C examples/migration/gozero-basic ./...", "make goctl-generator-compat-check"],
       "rollbackNote": "Rollback by keeping gozero-compatible flags and generated dependency boundaries in place.",
       "compatibilityCaveat": "go-zero compatibility covers scaffold and flag semantics, not full goctl feature parity."
     },

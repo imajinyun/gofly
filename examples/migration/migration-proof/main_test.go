@@ -12,7 +12,7 @@ func TestMigrationProofReport(t *testing.T) {
 	}
 	wantSources := map[string]string{
 		"gin":     "examples/getting-started/restserver",
-		"go-zero": "examples/production/production-orders",
+		"go-zero": "examples/migration/gozero-basic",
 		"kratos":  "examples/production/microshop",
 		"kitex":   "examples/microservices/rpc-idl-matrix",
 	}
@@ -51,7 +51,7 @@ func TestMigrationProofReport(t *testing.T) {
 	}
 	p13WantSources := map[string]string{
 		"gin":     "examples/getting-started/restserver",
-		"go-zero": "examples/production/production-orders",
+		"go-zero": "examples/migration/gozero-basic",
 		"kratos":  "examples/production/microshop",
 		"kitex":   "examples/microservices/rpc-idl-matrix",
 	}

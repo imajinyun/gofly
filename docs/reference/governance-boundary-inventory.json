@@ -1,0 +1,17 @@
+{
+  "schema": "gofly.governance_boundary_inventory.v1",
+  "aiflowTasks": [
+    {
+      "id": "GOFLY-GOV-10R3-07",
+      "name": "REST/RPC API contract governance",
+      "gate": "make api-contract-check"
+    }
+  ],
+  "surfaces": [
+    {
+      "id": "rest-rpc-contracts",
+      "gate": "make api-contract-check",
+      "description": "REST/OpenAPI, RPC descriptor, gateway, and release contract boundaries."
+    }
+  ]
+}

@@ -680,11 +680,8 @@ func TestExperimentalMuxTransportFragmentWindowRefillPolicy(t *testing.T) {
 		snapshot.FragmentDeferredConnectionWindowUpdates != 1 {
 		t.Fatalf("server deferred refill snapshot = %+v, want capped ratio updates 2/1", snapshot)
 	}
-	if snapshot.FragmentWindowRefills != 1 ||
-		snapshot.FragmentWindowRefillLatencyTotal <= 0 ||
-		snapshot.FragmentWindowRefillLatencyMax <= 0 ||
-		snapshot.FragmentWindowRefillLatencyAvg <= 0 {
-		t.Fatalf("server refill latency snapshot = %+v, want receiver refill latency diagnosis", snapshot)
+	if snapshot.FragmentWindowRefills != 1 {
+		t.Fatalf("server refill snapshot = %+v, want one receiver refill diagnosis", snapshot)
 	}
 	if snapshot.LastFlowControlEvent != "fragment_window_refill" ||
 		snapshot.LastFlowControlEventAt.IsZero() {

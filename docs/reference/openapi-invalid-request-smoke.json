@@ -1,0 +1,17 @@
+{
+  "schema": "gofly.openapi_invalid_request_smoke.v1",
+  "blockingGate": "make openapi-validation-check",
+  "case": "generated-service-invalid-request",
+  "runtimeEnvelope": {
+    "type": "rest.ErrorResponse",
+    "code": "coreerrors.CodeInvalidArgument",
+    "status": 400
+  },
+  "evidence": [
+    "rest.ErrorResponse",
+    "generated-service-invalid-request",
+    "coreerrors.CodeInvalidArgument",
+    "TestOpenAPIValidationEnvelopeRuntimeGolden",
+    "TestGeneratedServiceOpenAPIValidationEnvelopeContract"
+  ]
+}

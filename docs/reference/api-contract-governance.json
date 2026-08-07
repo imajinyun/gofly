@@ -1,0 +1,119 @@
+{
+  "schema": "gofly.api_contract_governance.v1",
+  "aiflowTask": "GOFLY-GOV-10R3-07",
+  "acceptanceGate": "make api-contract-check",
+  "childGates": [
+    "make openapi-validation-check",
+    "make rpc-boundary-check"
+  ],
+  "aggregateGates": [
+    "make api-contract-governance-check",
+    "make docs-check",
+    "make contract-docs-check"
+  ],
+  "sourceCode": [
+    "rest/binding.go",
+    "rest/server.go",
+    "rpc/admin.go",
+    "cmd/gofly/internal/generator/templates.go",
+    "cmd/gofly/internal/generator/idl_test.go",
+    "cmd/gofly/internal/command/rpc_descriptor_command.go",
+    "cmd/gofly/internal/command/release.go"
+  ],
+  "policy": {
+    "openapiRuntimeBindingMustMatchSchema": true,
+    "invalidRequestsReturnStableRestErrorResponse": true,
+    "rpcTier1PromotionRequiresReleaseTrainEvidence": true,
+    "rpcLatencyRemainsReportOnlyUntilBudgetPromotion": true,
+    "gatewayAndDescriptorContractsUseAggregateGate": true,
+    "releaseContractCheckMustStayReleaseBlocking": true
+  },
+  "surfaces": [
+    {
+      "id": "rest-openapi-validation-envelope",
+      "risk": "REST binding and OpenAPI schema must expose the same stable invalid request envelope.",
+      "gate": "make openapi-validation-check",
+      "evidenceRefs": [
+        {
+          "path": "docs/reference/openapi-invalid-request-smoke.json",
+          "contains": [
+            "gofly.openapi_invalid_request_smoke.v1",
+            "rest.ErrorResponse",
+            "generated-service-invalid-request"
+          ]
+        },
+        {
+          "path": "bin/scripts/check-openapi-validation-envelope.sh",
+          "contains": [
+            "rest.ErrorResponse",
+            "coreerrors.CodeInvalidArgument"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "rpc-tier1-boundary",
+      "risk": "RPC tier-1 promotion must stay report-only until release train and benchmark budget evidence are present.",
+      "gate": "make bench-evidence-check",
+      "evidenceRefs": [
+        {
+          "path": "docs/reference/rpc-tier1-evidence.json",
+          "contains": [
+            "gofly.rpc_tier1_evidence.v1",
+            "rpc-release-train-missing",
+            "rpc-budget-report-only"
+          ]
+        },
+        {
+          "path": "bin/scripts/check-rpc-boundary.sh",
+          "contains": [
+            "BenchmarkRPCUnary/gofly_rpc",
+            "BenchmarkRPCBidiStreamGovernance"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "gateway-descriptor-contracts",
+      "risk": "Gateway and RPC descriptor JSON contracts must stay compatible with CLI consumers.",
+      "gate": "make api-contract-check",
+      "evidenceRefs": [
+        {
+          "path": "docs/reference/cli-json-contracts.md",
+          "contains": [
+            "gofly rpc descriptor",
+            "gofly rpc doc",
+            "OpenAPI JSON generated from protobuf HTTP transcoding metadata"
+          ]
+        },
+        {
+          "path": "docs/reference/goctl-generator-compatibility.json",
+          "contains": [
+            "api-tooling-compatibility",
+            "upgrade-diff-contract"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "release-contract-required-check",
+      "risk": "Release contract checks must remain required and release-blocking.",
+      "gate": "make api-contract-check",
+      "evidenceRefs": [
+        {
+          "path": "docs/reference/ci-required-check-evidence.json",
+          "contains": [
+            "contract-check",
+            "contract / api+rpc (check + breaking)",
+            "stable-surface and API/RPC contract checks must remain release-blocking"
+          ]
+        }
+      ]
+    }
+  ],
+  "aiflowExecution": {
+    "status": "aiflow-driven",
+    "driver": "GOFLY-GOV-10R3-07 owns REST/RPC contract closure.",
+    "completionPolicy": "The task is complete after make api-contract-check passes, REST/RPC contract evidence is recorded, and the current agent or human creates the commit."
+  }
+}

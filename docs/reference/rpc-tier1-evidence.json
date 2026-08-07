@@ -1,0 +1,17 @@
+{
+  "schema": "gofly.rpc_tier1_evidence.v1",
+  "releaseGate": "make bench-evidence-check",
+  "status": "report-only",
+  "policies": [
+    "rpc-release-train-missing",
+    "rpc-budget-report-only",
+    "resolver-updates",
+    "kitex-coexistence-rollback",
+    "grpc-compatibility"
+  ],
+  "benchmarks": [
+    "BenchmarkRPCUnary/gofly_rpc",
+    "BenchmarkRPCBidiStreamGovernance"
+  ],
+  "rollback": "Keep RPC tier-1 promotion report-only until release train evidence and benchmark budget promotion are complete."
+}

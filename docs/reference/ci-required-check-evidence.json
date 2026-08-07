@@ -1,0 +1,14 @@
+{
+  "schema": "gofly.ci_required_check_evidence.v1",
+  "checks": [
+    {
+      "id": "contract-check",
+      "name": "contract / api+rpc (check + breaking)",
+      "policy": "stable-surface and API/RPC contract checks must remain release-blocking"
+    }
+  ],
+  "releaseBlocking": [
+    "contract-check",
+    "stable-surface and API/RPC contract checks must remain release-blocking"
+  ]
+}

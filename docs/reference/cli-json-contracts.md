@@ -20,6 +20,7 @@ Stable JSON commands use a top-level envelope with `ok`, `command`, `version`,
 - `gofly ai control-plane --json` reports stable control-plane snapshots.
 - `gofly api diff --format json` reports API contract changes.
 - `gofly rpc descriptor --format json` reports RPC descriptor differences.
+- `gofly rpc doc --format json` reports OpenAPI JSON generated from protobuf HTTP transcoding metadata.
 
 Generated project failure reports use
 `gofly.generated_project_failure_report.v1`. Their `output` field is bounded by

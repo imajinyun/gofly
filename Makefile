@@ -341,8 +341,7 @@ examples-smoke: ## Run runnable example smoke tests and machine-readable output 
 	sh $(SCRIPTS_DIR)/examples-smoke.sh
 
 .PHONY: docs-check
-docs-check: ## Compatibility no-op; default engineering gates do not depend on removed documentation trees
-	$(GO) env GOMOD >/dev/null
+docs-check: api-contract-governance-check ## Validate tracked documentation-backed governance contracts
 
 .PHONY: docs-taxonomy-check
 docs-taxonomy-check: ## Compatibility no-op; tracked docs taxonomy has been removed
@@ -383,7 +382,7 @@ openapi-validation-check: ## Validate OpenAPI, binding, validation, and error en
 
 .PHONY: api-contract-check
 api-contract-check: openapi-validation-check rpc-boundary-check ## Validate REST/OpenAPI and RPC boundary contracts
-	$(GO) env GOMOD >/dev/null
+	sh $(SCRIPTS_DIR)/check-api-contract-governance.sh
 
 .PHONY: api-contract-governance-check
 api-contract-governance-check: api-contract-check ## Compatibility gate backed by REST/RPC tests

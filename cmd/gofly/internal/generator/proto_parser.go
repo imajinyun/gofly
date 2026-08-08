@@ -2,7 +2,10 @@ package generator
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -148,6 +151,119 @@ func ParseProto(content string) (IDLDocument, error) {
 		return IDLDocument{}, fmt.Errorf("parse proto: no message or service found")
 	}
 	return doc, nil
+}
+
+func ParseProtoFile(path string) (IDLDocument, error) {
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return IDLDocument{}, fmt.Errorf("resolve proto file: %w", err)
+	}
+	return parseProtoFileSeen(absPath, map[string]struct{}{})
+}
+
+func parseProtoFileSeen(path string, seen map[string]struct{}) (IDLDocument, error) {
+	if _, ok := seen[path]; ok {
+		return IDLDocument{Kind: "proto"}, nil
+	}
+	seen[path] = struct{}{}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return IDLDocument{}, fmt.Errorf("read proto file: %w", err)
+	}
+	doc, err := ParseProto(string(content))
+	if err != nil {
+		return IDLDocument{}, err
+	}
+	importedMessages := make([]IDLMessage, 0)
+	importedEnums := make([]IDLEnum, 0)
+	for _, imp := range doc.Imports {
+		if isStandardProtoImport(imp) {
+			continue
+		}
+		importPath, err := resolveProtoImport(path, imp)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			return IDLDocument{}, err
+		}
+		imported, err := parseProtoFileSeen(importPath, seen)
+		if err != nil {
+			return IDLDocument{}, err
+		}
+		importedMessages = append(importedMessages, imported.Messages...)
+		importedEnums = append(importedEnums, imported.Enums...)
+	}
+	doc.Messages = mergeProtoMessages(importedMessages, doc.Messages)
+	doc.Enums = mergeProtoEnums(importedEnums, doc.Enums)
+	return doc, nil
+}
+
+func isStandardProtoImport(path string) bool {
+	return strings.HasPrefix(strings.TrimSpace(path), "google/protobuf/")
+}
+
+func resolveProtoImport(owner string, importPath string) (string, error) {
+	importPath = strings.TrimSpace(importPath)
+	if importPath == "" {
+		return "", fmt.Errorf("empty proto import in %s", owner)
+	}
+	if filepath.IsAbs(importPath) || !filepath.IsLocal(importPath) {
+		return "", fmt.Errorf("unsafe proto import %q in %s", importPath, owner)
+	}
+	resolved := filepath.Clean(filepath.Join(filepath.Dir(owner), importPath))
+	ownerDir := filepath.Dir(owner)
+	rel, err := filepath.Rel(ownerDir, resolved)
+	if err != nil {
+		return "", fmt.Errorf("resolve proto import %q: %w", importPath, err)
+	}
+	if strings.HasPrefix(rel, ".."+string(filepath.Separator)) || rel == ".." {
+		return "", fmt.Errorf("proto import %q escapes %s", importPath, ownerDir)
+	}
+	if _, err := os.Stat(resolved); err != nil {
+		return "", fmt.Errorf("resolve proto import %q: %w", importPath, err)
+	}
+	return resolved, nil
+}
+
+func mergeProtoMessages(imported []IDLMessage, local []IDLMessage) []IDLMessage {
+	seen := make(map[string]struct{}, len(imported)+len(local))
+	out := make([]IDLMessage, 0, len(imported)+len(local))
+	for _, msg := range imported {
+		if _, ok := seen[msg.Name]; ok {
+			continue
+		}
+		seen[msg.Name] = struct{}{}
+		out = append(out, msg)
+	}
+	for _, msg := range local {
+		if _, ok := seen[msg.Name]; ok {
+			continue
+		}
+		seen[msg.Name] = struct{}{}
+		out = append(out, msg)
+	}
+	return out
+}
+
+func mergeProtoEnums(imported []IDLEnum, local []IDLEnum) []IDLEnum {
+	seen := make(map[string]struct{}, len(imported)+len(local))
+	out := make([]IDLEnum, 0, len(imported)+len(local))
+	for _, enum := range imported {
+		if _, ok := seen[enum.Name]; ok {
+			continue
+		}
+		seen[enum.Name] = struct{}{}
+		out = append(out, enum)
+	}
+	for _, enum := range local {
+		if _, ok := seen[enum.Name]; ok {
+			continue
+		}
+		seen[enum.Name] = struct{}{}
+		out = append(out, enum)
+	}
+	return out
 }
 
 func readProtoRPCOptions(scanner *bufio.Scanner, lineNo *int, method *IDLMethod, opened bool) error {

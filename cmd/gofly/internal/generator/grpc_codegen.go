@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"go/format"
-	"os"
 	"path/filepath"
 	"strings"
 )
@@ -23,11 +22,7 @@ func GenerateGRPCFromProto(opts GRPCOptions) error {
 	if opts.Dir == "" {
 		opts.Dir = "."
 	}
-	content, err := os.ReadFile(opts.ProtoFile)
-	if err != nil {
-		return fmt.Errorf("read proto file: %w", err)
-	}
-	doc, err := ParseProto(string(content))
+	doc, err := ParseProtoFile(opts.ProtoFile)
 	if err != nil {
 		return err
 	}

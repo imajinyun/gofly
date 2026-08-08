@@ -33,8 +33,8 @@ func TestGoZeroBasicMigrationReport(t *testing.T) {
 		}
 	}
 	for _, boundary := range []string{
-		"external proto imports are recorded but not recursively parsed into generated DTOs",
-		"google well-known protobuf types are currently a degraded zRPC compatibility row",
+		"local external proto imports are recursively merged into generated DTOs",
+		"common google well-known protobuf types map to stable Go shapes",
 		"standard REST profile does not silently enable rate limiters, breakers, adaptive limiters, or max-concurrency guards",
 	} {
 		if !contains(report.Boundaries, boundary) {

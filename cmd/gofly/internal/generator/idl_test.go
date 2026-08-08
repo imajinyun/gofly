@@ -1218,13 +1218,9 @@ func TestZRPCProtoCompatibilityMatrix(t *testing.T) {
 	root := repositoryRoot(t)
 	protoPath := filepath.Join(root, "testdata", "zrpc-proto-matrix", "shop.proto")
 	manifestPath := filepath.Join(root, "docs", "reference", "zrpc-proto-compatibility.json")
-	protoData, err := os.ReadFile(protoPath)
+	doc, err := ParseProtoFile(protoPath)
 	if err != nil {
-		t.Fatal(err)
-	}
-	doc, err := ParseProto(string(protoData))
-	if err != nil {
-		t.Fatalf("ParseProto zrpc fixture: %v", err)
+		t.Fatalf("ParseProtoFile zrpc fixture: %v", err)
 	}
 	if strings.Join(doc.Imports, ",") != "common.proto,google/protobuf/timestamp.proto" {
 		t.Fatalf("imports = %v, want common and timestamp imports", doc.Imports)
@@ -1235,8 +1231,8 @@ func TestZRPCProtoCompatibilityMatrix(t *testing.T) {
 	if len(doc.Messages) == 0 || !hasProtoMessage(doc.Messages, "CreateOrderRequest") {
 		t.Fatalf("messages = %#v, want local messages", doc.Messages)
 	}
-	if hasProtoMessage(doc.Messages, "Money") || hasProtoMessage(doc.Messages, "TraceMeta") {
-		t.Fatalf("imported common.proto messages should not be recursively parsed yet: %#v", doc.Messages)
+	if !hasProtoMessage(doc.Messages, "Money") || !hasProtoMessage(doc.Messages, "TraceMeta") {
+		t.Fatalf("imported common.proto messages should be recursively parsed: %#v", doc.Messages)
 	}
 
 	manifestData, err := os.ReadFile(manifestPath)
@@ -1246,7 +1242,7 @@ func TestZRPCProtoCompatibilityMatrix(t *testing.T) {
 	manifest := string(manifestData)
 	for _, want := range []string{
 		`"external-proto-imports"`,
-		`"status": "degraded"`,
+		`"status": "supported"`,
 		`"google-well-known-types"`,
 		`"multiple-services"`,
 		`"streaming-rpc"`,
@@ -1273,8 +1269,10 @@ func TestZRPCProtoCompatibilityMatrix(t *testing.T) {
 		`Name: "WatchOrders"`,
 		"Mode: rpc.StreamModeServerStream",
 		`Metadata: map[string]string{"request": "WatchOrdersRequest", "response": "WatchOrdersResponse", "clientStream": "false", "serverStream": "true"}`,
+		"type Money struct",
+		"type TraceMeta struct",
 		"Total   *Money",
-		"CreatedAt *Timestamp",
+		"CreatedAt time.Time",
 	} {
 		if !strings.Contains(order, want) {
 			t.Fatalf("generated order zrpc compatibility output missing %q:\n%s", want, order)

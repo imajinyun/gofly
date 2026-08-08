@@ -54,10 +54,10 @@ for source in manifest.get("sourceOfTruth") or []:
 
 rows = {row.get("id"): row for row in manifest.get("matrix") or []}
 expected = {
-    "external-proto-imports": "degraded",
+    "external-proto-imports": "supported",
     "multiple-services": "supported",
     "streaming-rpc": "supported",
-    "google-well-known-types": "degraded",
+    "google-well-known-types": "supported",
     "client-wrapper": "supported",
 }
 require(set(rows) == set(expected), f"matrix ids mismatch: {sorted(rows)!r}")

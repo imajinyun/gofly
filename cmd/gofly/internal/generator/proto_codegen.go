@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"go/format"
-	"os"
 	"path/filepath"
 	"strings"
 )
@@ -37,11 +36,7 @@ func GenerateRPCFromProto(opts RPCOptions) error {
 	if opts.Dir == "" {
 		opts.Dir = "."
 	}
-	content, err := os.ReadFile(opts.ProtoFile)
-	if err != nil {
-		return fmt.Errorf("read proto file: %w", err)
-	}
-	doc, err := ParseProto(string(content))
+	doc, err := ParseProtoFile(opts.ProtoFile)
 	if err != nil {
 		return err
 	}
@@ -113,6 +108,9 @@ func GenerateRPCCodeWithOptions(doc IDLDocument, packageName string, opts RPCCod
 	fprintf(&b, "package %s\n\n", packageName)
 	fprintf(&b, "import (\n")
 	fprintf(&b, "\t\"context\"\n")
+	if protoDocumentUsesTime(doc) {
+		fprintf(&b, "\t\"time\"\n")
+	}
 	if opts.WithMiddleware {
 		fprintf(&b, "\n\t\"github.com/imajinyun/gofly/rpc/endpoint\"\n")
 	}
@@ -132,6 +130,18 @@ func GenerateRPCCodeWithOptions(doc IDLDocument, packageName string, opts RPCCod
 		return nil, fmt.Errorf("format generated rpc code: %w", err)
 	}
 	return out, nil
+}
+
+func protoDocumentUsesTime(doc IDLDocument) bool {
+	for _, msg := range doc.Messages {
+		for _, field := range msg.Fields {
+			switch strings.TrimSpace(strings.TrimPrefix(field.Type, "repeated ")) {
+			case "google.protobuf.Timestamp", "Timestamp", "google.protobuf.Duration", "Duration":
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func writeRPCGeneratedFile(path string, code []byte) error {
@@ -537,6 +547,22 @@ func protoGoType(protoType string) string {
 		return "string"
 	case "bool":
 		return "bool"
+	case "google.protobuf.Timestamp", "Timestamp":
+		return "time.Time"
+	case "google.protobuf.Duration", "Duration":
+		return "time.Duration"
+	case "google.protobuf.Empty", "Empty":
+		return "struct{}"
+	case "google.protobuf.Any", "Any":
+		return "map[string]any"
+	case "google.protobuf.Struct", "Struct":
+		return "map[string]any"
+	case "google.protobuf.Value", "Value":
+		return "any"
+	case "google.protobuf.ListValue", "ListValue":
+		return "[]any"
+	case "google.protobuf.FieldMask", "FieldMask":
+		return "[]string"
 	case "int32", "sint32", "sfixed32":
 		return "int32"
 	case "int64", "sint64", "sfixed64":

@@ -14,12 +14,12 @@
   "matrix": [
     {
       "id": "external-proto-imports",
-      "status": "degraded",
+      "status": "supported",
       "surface": "proto imports",
-      "evidence": ["import \"common.proto\"", "doc.Imports", "imports-recorded-only"],
+      "evidence": ["import \"common.proto\"", "Money", "TraceMeta", "recursive-local-import-merge"],
       "gate": "make zrpc-proto-compatibility-check",
-      "reason": "ParseProto records imported file names but does not recursively parse imported message definitions into generated DTOs.",
-      "rollbackOrEscalation": "Do not claim full goctl external import parity until recursive import parsing and generated DTO evidence are added."
+      "reason": "GenerateRPCFromProto recursively parses local proto imports and merges imported message and enum definitions into generated DTOs.",
+      "rollbackOrEscalation": "Rollback by preserving local import merge evidence and treating lost imported DTO generation as a supported-row regression."
     },
     {
       "id": "multiple-services",
@@ -41,12 +41,12 @@
     },
     {
       "id": "google-well-known-types",
-      "status": "degraded",
+      "status": "supported",
       "surface": "google.protobuf well-known types",
-      "evidence": ["google/protobuf/timestamp.proto", "Timestamp", "external-type-reference"],
+      "evidence": ["google/protobuf/timestamp.proto", "time.Time", "time.Duration", "WKT Go type mapping"],
       "gate": "make zrpc-proto-compatibility-check",
-      "reason": "Well-known type imports are recorded and referenced by last identifier, but no dedicated WKT Go type mapping is generated yet.",
-      "rollbackOrEscalation": "Do not claim WKT parity until generated code maps google.protobuf types to stable Go types with tests."
+      "reason": "Common google.protobuf well-known types are mapped to stable Go shapes such as time.Time, time.Duration, struct{}, map[string]any, []any, any, and []string.",
+      "rollbackOrEscalation": "Rollback by preserving WKT mapping evidence and treating lost WKT type generation as a supported-row regression."
     },
     {
       "id": "client-wrapper",

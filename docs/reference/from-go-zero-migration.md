@@ -29,8 +29,9 @@ fixture replay, and rollback gates runnable while teams move selected surfaces.
    `make goctl-generator-compat-check` and
    `make goctl-real-project-replay-check`.
 4. For zRPC services, inspect `docs/reference/zrpc-proto-compatibility.json`
-   before claiming parity. External proto imports and google well-known types
-   are currently degraded boundaries.
+   before claiming parity. Local proto imports, common google well-known types,
+   multiple services, streaming RPCs, and generated client wrappers have
+   dedicated compatibility evidence.
 5. Move callers gradually behind routing or discovery. Keep the original go-zero
    service active until generated smoke and rollback evidence pass.
 6. For production adoption, run `make generated-service-layout-check` and
@@ -58,11 +59,11 @@ Before migrating zRPC code, check the matrix in
 - `multiple-services`: supported
 - `streaming-rpc`: supported
 - `client-wrapper`: supported
-- `external-proto-imports`: degraded
-- `google-well-known-types`: degraded
+- `external-proto-imports`: supported for local imports
+- `google-well-known-types`: supported for common WKT mappings
 
-Do not describe degraded rows as full goctl or zRPC parity in docs, release
-notes, or user-facing migration claims.
+Do not describe future matrix rows as full goctl or zRPC parity until their
+status is supported by the matrix gate.
 
 ## Verification
 

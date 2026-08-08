@@ -74,7 +74,7 @@ func rpcGenCommand(args []string) error {
 		if err := generator.GenerateRPCFromProto(rpcOpts); err != nil {
 			return err
 		}
-		genErr = generator.GenerateGRPCFromProto(generator.GRPCOptions{ProtoFile: protoFile, Dir: *dir, Package: *pkg})
+		genErr = generator.GenerateGRPCFromProto(generator.GRPCOptions{ProtoFile: protoFile, Dir: *dir, Package: *pkg, ProtoPath: includePaths})
 	default:
 		return fmt.Errorf("%w: unsupported rpc transport %q", errUsage, *transport)
 	}

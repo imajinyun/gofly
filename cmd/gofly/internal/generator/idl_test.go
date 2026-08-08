@@ -2449,6 +2449,144 @@ service user-api {
 	}
 }
 
+func TestGenerateRESTFromAPIGoZeroCompatibleServiceContext(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/shop\n\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	apiPath := filepath.Join(dir, "shop.api")
+	api := "type LoginRequest {\n" +
+		"  Username string `json:\"username\" form:\"username\"`\n" +
+		"}\n" +
+		"type LoginResponse {\n" +
+		"  Token string\n" +
+		"}\n" +
+		"@server(prefix: /api/v1)\n" +
+		"service user-api {\n" +
+		"  @handler login\n" +
+		"  post /login (LoginRequest) returns (LoginResponse)\n" +
+		"}"
+	if err := os.WriteFile(apiPath, []byte(api), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := GenerateRESTFromAPI(APIOptions{
+		APIFile: apiPath,
+		Dir:     dir,
+		Profile: string(ProfileGoZeroCompatible),
+	}); err != nil {
+		t.Fatalf("GenerateRESTFromAPI gozero-compatible: %v", err)
+	}
+
+	checks := []struct {
+		path string
+		want []string
+	}{
+		{path: filepath.Join(dir, "internal", "types", "types.go"), want: []string{"package types", "type LoginRequest struct", "type LoginResponse struct"}},
+		{path: filepath.Join(dir, "internal", "svc", "servicecontext.go"), want: []string{"package svc", "type ServiceContext struct", "func NewServiceContext() *ServiceContext"}},
+		{path: filepath.Join(dir, "internal", "logic", "loginlogic.go"), want: []string{"package logic", `"example.com/shop/internal/svc"`, `"example.com/shop/internal/types"`, "func NewLoginLogic(ctx context.Context, svcCtx *svc.ServiceContext) *LoginLogic", "func (l *LoginLogic) Login(req *types.LoginRequest) (*types.LoginResponse, error)"}},
+		{path: filepath.Join(dir, "internal", "handler", "loginhandler.go"), want: []string{"package handler", `"example.com/shop/internal/logic"`, `"example.com/shop/internal/svc"`, `"example.com/shop/internal/types"`, "func LoginHandler(svcCtx *svc.ServiceContext) rest.HandlerFunc", "ctx.BindRequest(&req)", "logic.NewLoginLogic(ctx.Request.Context(), svcCtx).Login(&req)"}},
+		{path: filepath.Join(dir, "internal", "handler", "routes.go"), want: []string{"package handler", "func RegisterHandlers(server *rest.Server, svcCtx *svc.ServiceContext)", `Path: "/login"`, `rest.WithPrefix("/api/v1")`, "LoginHandler(svcCtx)"}},
+	}
+	for _, check := range checks {
+		data, err := os.ReadFile(check.path)
+		if err != nil {
+			t.Fatalf("read generated file %s: %v", check.path, err)
+		}
+		for _, want := range check.want {
+			if !strings.Contains(string(data), want) {
+				t.Fatalf("generated gozero-compatible file %s missing %q:\n%s", check.path, want, data)
+			}
+		}
+	}
+}
+
+func TestGenerateRESTFromAPIGoZeroCompatiblePreservesExistingSvcAndTypes(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/shop\n\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "internal", "svc"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	existingSvc := `package svc
+
+import "example.com/shop/internal/config"
+
+type ServiceContext struct {
+	Config config.Config
+}
+
+func NewServiceContext(c config.Config) *ServiceContext {
+	return &ServiceContext{Config: c}
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "internal", "svc", "servicecontext.go"), []byte(existingSvc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "internal", "types"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	existingTypes := `package types
+
+type PingRequest struct {
+	Name string ` + "`json:\"name,optional\" form:\"name,optional\"`" + `
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "internal", "types", "types.go"), []byte(existingTypes), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "internal", "handler"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "internal", "handler", "pinghandler.go"), []byte("package handler\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	apiPath := filepath.Join(dir, "shop.api")
+	api := `type LoginRequest {
+  Username string
+}
+type LoginResponse {
+  Token string
+}
+@server(prefix: /api/v1)
+service user-api {
+  @handler login
+  post /login (LoginRequest) returns (LoginResponse)
+}`
+	if err := os.WriteFile(apiPath, []byte(api), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := GenerateRESTFromAPI(APIOptions{APIFile: apiPath, Dir: dir, Profile: string(ProfileGoZeroCompatible)}); err != nil {
+		t.Fatalf("GenerateRESTFromAPI gozero-compatible: %v", err)
+	}
+
+	svcData, err := os.ReadFile(filepath.Join(dir, "internal", "svc", "servicecontext.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(svcData), "func NewServiceContext(c config.Config) *ServiceContext") {
+		t.Fatalf("existing ServiceContext was not preserved:\n%s", svcData)
+	}
+	typesData, err := os.ReadFile(filepath.Join(dir, "internal", "types", "types.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"type PingRequest struct", "type LoginRequest struct", "type LoginResponse struct"} {
+		if !strings.Contains(string(typesData), want) {
+			t.Fatalf("merged types.go missing %q:\n%s", want, typesData)
+		}
+	}
+	routesData, err := os.ReadFile(filepath.Join(dir, "internal", "handler", "routes.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`Path: "/ping"`, "PingHandler(svcCtx)", `Path: "/login"`, "LoginHandler(svcCtx)"} {
+		if !strings.Contains(string(routesData), want) {
+			t.Fatalf("routes.go missing %q:\n%s", want, routesData)
+		}
+	}
+}
+
 func TestDiffAPIServiceScopedRoutes(t *testing.T) {
 	base := IDLDocument{Services: []IDLService{
 		{

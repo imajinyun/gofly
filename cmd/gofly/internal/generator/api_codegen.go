@@ -135,8 +135,21 @@ func GenerateRESTFromAPI(opts APIOptions) error {
 	if err != nil {
 		return err
 	}
-	if _, err := normalizeGenerationProfile(opts.Profile); err != nil {
+	profile, err := normalizeGenerationProfile(opts.Profile)
+	if err != nil {
 		return err
+	}
+	if profile == ProfileGoZeroCompatible {
+		baseOpts := opts
+		baseOpts.Dir = filepath.Join(baseOpts.Dir, "internal", "api")
+		if strings.TrimSpace(baseOpts.Package) == "" {
+			baseOpts.Package = filepath.Base(baseOpts.Dir)
+		}
+		baseOpts.Package = lowerName(baseOpts.Package)
+		if err := writeRESTFiles(doc, baseOpts); err != nil {
+			return err
+		}
+		return writeGoZeroCompatibleRESTFiles(doc, opts)
 	}
 	opts.Dir = filepath.Join(opts.Dir, "internal", "api")
 	if strings.TrimSpace(opts.Package) == "" {
@@ -2941,6 +2954,218 @@ func writeAPITestFile(dir string, svc IDLService, pkg string) error {
 		return fmt.Errorf("format api test file: %w", err)
 	}
 	return writeGeneratedFile(filepath.Join(dir, "routes_test.go"), formatted)
+}
+
+func writeGoZeroCompatibleRESTFiles(doc IDLDocument, opts APIOptions) error {
+	if len(doc.Services) == 0 {
+		return errors.New("api service is required")
+	}
+	if strings.TrimSpace(opts.Dir) == "" {
+		opts.Dir = "."
+	}
+	module, err := inferModelModule(opts.Dir)
+	if err != nil {
+		return fmt.Errorf("infer api module: %w", err)
+	}
+	if err := writeGoZeroAPITypesFile(opts.Dir, doc); err != nil {
+		return err
+	}
+	if err := writeGoZeroAPIServiceContextFile(opts.Dir); err != nil {
+		return err
+	}
+	for _, svc := range doc.Services {
+		for _, method := range svc.Methods {
+			if err := writeGoZeroAPILogicFile(opts.Dir, module, method); err != nil {
+				return err
+			}
+			if err := writeGoZeroAPIHandlerFile(opts.Dir, module, method); err != nil {
+				return err
+			}
+		}
+	}
+	return writeGoZeroAPIRoutesFile(opts.Dir, module, doc.Services)
+}
+
+func writeGoZeroAPITypesFile(root string, doc IDLDocument) error {
+	var b bytes.Buffer
+	path := filepath.Join(root, "internal", "types", "types.go")
+	existing, err := os.ReadFile(path)
+	if err == nil {
+		existingText := string(existing)
+		b.Write(existing)
+		if !strings.HasSuffix(existingText, "\n") {
+			fprintf(&b, "\n")
+		}
+		fprintf(&b, "\n")
+		for _, msg := range doc.Messages {
+			if strings.Contains(existingText, "type "+exportName(msg.Name)+" struct") {
+				continue
+			}
+			writeAPIMessage(&b, msg)
+		}
+		formatted, err := format.Source(b.Bytes())
+		if err != nil {
+			return fmt.Errorf("format gozero-compatible api types: %w", err)
+		}
+		return writeGeneratedFileUnder(root, filepath.Join("internal", "types", "types.go"), formatted)
+	}
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("read gozero-compatible api types: %w", err)
+	}
+	fprintf(&b, "package types\n\n")
+	for _, msg := range doc.Messages {
+		writeAPIMessage(&b, msg)
+	}
+	formatted, err := format.Source(b.Bytes())
+	if err != nil {
+		return fmt.Errorf("format gozero-compatible api types: %w", err)
+	}
+	return writeGeneratedFileUnder(root, filepath.Join("internal", "types", "types.go"), formatted)
+}
+
+func writeGoZeroAPIServiceContextFile(root string) error {
+	path := filepath.Join(root, "internal", "svc", "servicecontext.go")
+	if _, err := os.Stat(path); err == nil {
+		return nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("stat gozero-compatible service context: %w", err)
+	}
+	var b bytes.Buffer
+	fprintf(&b, "package svc\n\n")
+	fprintf(&b, "type ServiceContext struct{}\n\n")
+	fprintf(&b, "func NewServiceContext() *ServiceContext {\n")
+	fprintf(&b, "\treturn &ServiceContext{}\n")
+	fprintf(&b, "}\n")
+	formatted, err := format.Source(b.Bytes())
+	if err != nil {
+		return fmt.Errorf("format gozero-compatible service context: %w", err)
+	}
+	return writeGeneratedFileUnder(root, filepath.Join("internal", "svc", "servicecontext.go"), formatted)
+}
+
+func writeGoZeroAPILogicFile(root, module string, method IDLMethod) error {
+	var b bytes.Buffer
+	methodName := exportName(method.Name)
+	requestName := exportName(method.Request)
+	responseName := exportName(method.Response)
+	logicName := methodName + "Logic"
+	fprintf(&b, "package logic\n\n")
+	fprintf(&b, "import (\n")
+	fprintf(&b, "\t\"context\"\n\n")
+	fprintf(&b, "\t%q\n", strings.TrimRight(module, "/")+"/internal/svc")
+	fprintf(&b, "\t%q\n", strings.TrimRight(module, "/")+"/internal/types")
+	fprintf(&b, ")\n\n")
+	fprintf(&b, "type %s struct {\n", logicName)
+	fprintf(&b, "\tctx context.Context\n")
+	fprintf(&b, "\tsvcCtx *svc.ServiceContext\n")
+	fprintf(&b, "}\n\n")
+	fprintf(&b, "func New%s(ctx context.Context, svcCtx *svc.ServiceContext) *%s {\n", logicName, logicName)
+	fprintf(&b, "\treturn &%s{ctx: ctx, svcCtx: svcCtx}\n", logicName)
+	fprintf(&b, "}\n\n")
+	if strings.TrimSpace(method.Request) == "" {
+		fprintf(&b, "func (l *%s) %s() (*types.%s, error) {\n", logicName, methodName, responseName)
+	} else {
+		fprintf(&b, "func (l *%s) %s(req *types.%s) (*types.%s, error) {\n", logicName, methodName, requestName, responseName)
+	}
+	fprintf(&b, "\treturn &types.%s{}, nil\n", responseName)
+	fprintf(&b, "}\n")
+	formatted, err := format.Source(b.Bytes())
+	if err != nil {
+		return fmt.Errorf("format gozero-compatible logic %s: %w", methodName, err)
+	}
+	return writeGeneratedFileUnder(root, filepath.Join("internal", "logic", lowerName(methodName)+"logic.go"), formatted)
+}
+
+func writeGoZeroAPIHandlerFile(root, module string, method IDLMethod) error {
+	var b bytes.Buffer
+	handlerName := goZeroAPIHandlerName(method)
+	logicName := exportName(method.Name) + "Logic"
+	requestName := exportName(method.Request)
+	fprintf(&b, "package handler\n\n")
+	fprintf(&b, "import (\n")
+	fprintf(&b, "\t\"net/http\"\n\n")
+	fprintf(&b, "\t\"github.com/imajinyun/gofly/rest\"\n\n")
+	fprintf(&b, "\t%q\n", strings.TrimRight(module, "/")+"/internal/logic")
+	fprintf(&b, "\t%q\n", strings.TrimRight(module, "/")+"/internal/svc")
+	if strings.TrimSpace(method.Request) != "" {
+		fprintf(&b, "\t%q\n", strings.TrimRight(module, "/")+"/internal/types")
+	}
+	fprintf(&b, ")\n\n")
+	fprintf(&b, "func %s(svcCtx *svc.ServiceContext) rest.HandlerFunc {\n", handlerName)
+	fprintf(&b, "\treturn func(ctx *rest.Context) {\n")
+	if strings.TrimSpace(method.Request) != "" {
+		fprintf(&b, "\t\tvar req types.%s\n", requestName)
+		fprintf(&b, "\t\tif err := ctx.%s(&req); err != nil {\n", goZeroAPIBinder(method.HTTPMethod))
+		fprintf(&b, "\t\t\tctx.Error(err)\n")
+		fprintf(&b, "\t\t\treturn\n")
+		fprintf(&b, "\t\t}\n")
+		fprintf(&b, "\t\tresp, err := logic.New%s(ctx.Request.Context(), svcCtx).%s(&req)\n", logicName, exportName(method.Name))
+	} else {
+		fprintf(&b, "\t\tresp, err := logic.New%s(ctx.Request.Context(), svcCtx).%s()\n", logicName, exportName(method.Name))
+	}
+	fprintf(&b, "\t\tif err != nil {\n")
+	fprintf(&b, "\t\t\tctx.Error(err)\n")
+	fprintf(&b, "\t\t\treturn\n")
+	fprintf(&b, "\t\t}\n")
+	fprintf(&b, "\t\tctx.JSON(http.StatusOK, resp)\n")
+	fprintf(&b, "\t}\n")
+	fprintf(&b, "}\n")
+	formatted, err := format.Source(b.Bytes())
+	if err != nil {
+		return fmt.Errorf("format gozero-compatible handler %s: %w", handlerName, err)
+	}
+	return writeGeneratedFileUnder(root, filepath.Join("internal", "handler", lowerName(handlerName)+".go"), formatted)
+}
+
+func writeGoZeroAPIRoutesFile(root, module string, services []IDLService) error {
+	var b bytes.Buffer
+	fprintf(&b, "package handler\n\n")
+	fprintf(&b, "import (\n")
+	fprintf(&b, "\t\"net/http\"\n\n")
+	fprintf(&b, "\t\"github.com/imajinyun/gofly/rest\"\n")
+	fprintf(&b, "\t%q\n", strings.TrimRight(module, "/")+"/internal/svc")
+	fprintf(&b, ")\n\n")
+	fprintf(&b, "func RegisterHandlers(server *rest.Server, svcCtx *svc.ServiceContext) {\n")
+	if goZeroAPIPingHandlerExists(root) {
+		fprintf(&b, "\tserver.AddRoute(rest.Route{Method: http.MethodGet, Path: \"/ping\", Handler: PingHandler(svcCtx)}, rest.WithPrefix(\"/api/v1\"))\n")
+	}
+	for _, svc := range services {
+		prefix := strings.TrimRight(strings.TrimSpace(svc.Server.Prefix), "/")
+		for _, method := range svc.Methods {
+			if prefix == "" {
+				fprintf(&b, "\tserver.AddRoute(rest.Route{Method: http.Method%s, Path: %q, Handler: %s(svcCtx)})\n", exportName(strings.ToLower(method.HTTPMethod)), method.HTTPPath, goZeroAPIHandlerName(method))
+				continue
+			}
+			fprintf(&b, "\tserver.AddRoute(rest.Route{Method: http.Method%s, Path: %q, Handler: %s(svcCtx)}, rest.WithPrefix(%q))\n", exportName(strings.ToLower(method.HTTPMethod)), method.HTTPPath, goZeroAPIHandlerName(method), prefix)
+		}
+	}
+	fprintf(&b, "}\n")
+	formatted, err := format.Source(b.Bytes())
+	if err != nil {
+		return fmt.Errorf("format gozero-compatible routes: %w", err)
+	}
+	return writeGeneratedFileUnder(root, filepath.Join("internal", "handler", "routes.go"), formatted)
+}
+
+func goZeroAPIPingHandlerExists(root string) bool {
+	_, err := os.Stat(filepath.Join(root, "internal", "handler", "pinghandler.go"))
+	return err == nil
+}
+
+func goZeroAPIHandlerName(method IDLMethod) string {
+	if strings.TrimSpace(method.Handler) != "" {
+		return exportName(method.Handler) + "Handler"
+	}
+	return exportName(method.Name) + "Handler"
+}
+
+func goZeroAPIBinder(method string) string {
+	switch strings.ToUpper(strings.TrimSpace(method)) {
+	case http.MethodGet, http.MethodDelete:
+		return "BindQuery"
+	default:
+		return "BindRequest"
+	}
 }
 
 func writeConvertersFile(dir string, doc IDLDocument, pkg, rpcAlias, rpcPkg string) error {

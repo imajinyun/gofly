@@ -723,7 +723,7 @@ service Worker {
 		t.Fatal(err)
 	}
 	outDir := filepath.Join(dir, "out")
-	if err := Execute([]string{"rpc", "gen", "--transport", "gofly", "--src", protoPath, "--out", outDir, "--package", "workerv1", "-I", includeDir}); err != nil {
+	if err := Execute([]string{"rpc", "gen", "--transport", "both", "--src", protoPath, "--out", outDir, "--package", "workerv1", "-I", includeDir}); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(filepath.Join(outDir, "worker.gofly.go"))
@@ -734,6 +734,9 @@ service Worker {
 		if !strings.Contains(string(data), want) {
 			t.Fatalf("generated rpc include path output missing %q:\n%s", want, data)
 		}
+	}
+	if _, err := os.Stat(filepath.Join(outDir, "worker.grpc.gofly.go")); err != nil {
+		t.Fatalf("expected generated grpc include path output: %v", err)
 	}
 }
 

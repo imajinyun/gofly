@@ -5178,7 +5178,9 @@ const goZeroSvcTemplate = `package svc
 import (
 	"sync"
 
+	"github.com/imajinyun/gofly/core/auth"
 	"github.com/imajinyun/gofly/rpc"
+	"github.com/imajinyun/gofly/rest"
 	"{{.Module}}/internal/config"
 )
 
@@ -5187,13 +5189,19 @@ type RPCMuxDiagnosisClient interface {
 }
 
 type ServiceContext struct {
-	mu         sync.RWMutex
-	Config     config.Config
-	rpcClients []RPCMuxDiagnosisClient
+	mu            sync.RWMutex
+	Config        config.Config
+	Middlewares   map[string]rest.Middleware
+	JWTValidators map[string]auth.Validator
+	rpcClients    []RPCMuxDiagnosisClient
 }
 
 func NewServiceContext(c config.Config) *ServiceContext {
-	return &ServiceContext{Config: c}
+	return &ServiceContext{
+		Config:        c,
+		Middlewares:   map[string]rest.Middleware{},
+		JWTValidators: map[string]auth.Validator{},
+	}
 }
 
 func (s *ServiceContext) UpdateConfig(c config.Config) {

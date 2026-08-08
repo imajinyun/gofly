@@ -2596,8 +2596,7 @@ func TestGenerateServiceMinimalStyle(t *testing.T) {
 		`"scaffold": {"features": ["ecosystem-compat"]}`,
 		`"openapi": {"enabled": true, "title": "hello API", "version": "1.0.0"`,
 		`"trace": {"enabled": true, "sampler": "always_on"}`,
-		`"trace": true`,
-		`"log": true`,
+		`"middlewares": {"recover": true, "health": true, "requestId": true}`,
 	} {
 		if !strings.Contains(string(minimalConfigJSON), want) {
 			t.Fatalf("minimal json config missing %q:\n%s", want, minimalConfigJSON)

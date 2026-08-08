@@ -3032,9 +3032,19 @@ func writeGoZeroAPIServiceContextFile(root string) error {
 	}
 	var b bytes.Buffer
 	fprintf(&b, "package svc\n\n")
-	fprintf(&b, "type ServiceContext struct{}\n\n")
+	fprintf(&b, "import (\n")
+	fprintf(&b, "\t\"github.com/imajinyun/gofly/core/auth\"\n")
+	fprintf(&b, "\t\"github.com/imajinyun/gofly/rest\"\n")
+	fprintf(&b, ")\n\n")
+	fprintf(&b, "type ServiceContext struct {\n")
+	fprintf(&b, "\tMiddlewares  map[string]rest.Middleware\n")
+	fprintf(&b, "\tJWTValidators map[string]auth.Validator\n")
+	fprintf(&b, "}\n\n")
 	fprintf(&b, "func NewServiceContext() *ServiceContext {\n")
-	fprintf(&b, "\treturn &ServiceContext{}\n")
+	fprintf(&b, "\treturn &ServiceContext{\n")
+	fprintf(&b, "\t\tMiddlewares:  map[string]rest.Middleware{},\n")
+	fprintf(&b, "\t\tJWTValidators: map[string]auth.Validator{},\n")
+	fprintf(&b, "\t}\n")
 	fprintf(&b, "}\n")
 	formatted, err := format.Source(b.Bytes())
 	if err != nil {
@@ -3132,11 +3142,7 @@ func writeGoZeroAPIRoutesFile(root, module string, services []IDLService) error 
 	for _, svc := range services {
 		prefix := strings.TrimRight(strings.TrimSpace(svc.Server.Prefix), "/")
 		for _, method := range svc.Methods {
-			if prefix == "" {
-				fprintf(&b, "\tserver.AddRoute(rest.Route{Method: http.Method%s, Path: %q, Handler: %s(svcCtx)})\n", exportName(strings.ToLower(method.HTTPMethod)), method.HTTPPath, goZeroAPIHandlerName(method))
-				continue
-			}
-			fprintf(&b, "\tserver.AddRoute(rest.Route{Method: http.Method%s, Path: %q, Handler: %s(svcCtx)}, rest.WithPrefix(%q))\n", exportName(strings.ToLower(method.HTTPMethod)), method.HTTPPath, goZeroAPIHandlerName(method), prefix)
+			writeGoZeroAPIRouteRegistration(&b, svc, method, prefix)
 		}
 	}
 	fprintf(&b, "}\n")
@@ -3145,6 +3151,44 @@ func writeGoZeroAPIRoutesFile(root, module string, services []IDLService) error 
 		return fmt.Errorf("format gozero-compatible routes: %w", err)
 	}
 	return writeGeneratedFileUnder(root, filepath.Join("internal", "handler", "routes.go"), formatted)
+}
+
+func writeGoZeroAPIRouteRegistration(b *bytes.Buffer, svc IDLService, method IDLMethod, prefix string) {
+	methodName := exportName(strings.ToLower(method.HTTPMethod))
+	handlerName := goZeroAPIHandlerName(method)
+	optionVars := make([]string, 0, 3+len(svc.Server.Middleware))
+	if prefix != "" {
+		optionVars = append(optionVars, fmt.Sprintf("rest.WithPrefix(%q)", prefix))
+	}
+	if len(optionVars) > 0 || svc.Server.JWT != "" || len(svc.Server.Middleware) > 0 {
+		fprintf(b, "\t{\n")
+		fprintf(b, "\t\topts := []rest.RouteOption{%s}\n", strings.Join(optionVars, ", "))
+		writeGoZeroAPIRouteDynamicOptions(b, svc)
+		fprintf(b, "\t\tserver.AddRoute(rest.Route{Method: http.Method%s, Path: %q, Handler: %s(svcCtx)}, opts...)\n", methodName, method.HTTPPath, handlerName)
+		fprintf(b, "\t}\n")
+		return
+	}
+	fprintf(b, "\tserver.AddRoute(rest.Route{Method: http.Method%s, Path: %q, Handler: %s(svcCtx)})\n", methodName, method.HTTPPath, handlerName)
+}
+
+func writeGoZeroAPIRouteDynamicOptions(b *bytes.Buffer, svc IDLService) {
+	if svc.Server.JWT != "" {
+		fprintf(b, "\t\tif validator, ok := svcCtx.JWTValidators[%q]; ok && validator != nil {\n", svc.Server.JWT)
+		fprintf(b, "\t\t\topts = append(opts, rest.WithAuth(validator))\n")
+		fprintf(b, "\t\t}\n")
+	}
+	if len(svc.Server.Middleware) > 0 {
+		middlewareNames := goZeroAPIMiddlewareNames(svc.Server.Middleware)
+		fprintf(b, "\t\tmiddlewares := make([]rest.Middleware, 0, %d)\n", len(middlewareNames))
+		for _, name := range middlewareNames {
+			fprintf(b, "\t\tif mw, ok := svcCtx.Middlewares[%q]; ok && mw != nil {\n", name)
+			fprintf(b, "\t\t\tmiddlewares = append(middlewares, mw)\n")
+			fprintf(b, "\t\t}\n")
+		}
+		fprintf(b, "\t\tif len(middlewares) > 0 {\n")
+		fprintf(b, "\t\t\topts = append(opts, rest.WithMiddlewares(middlewares...))\n")
+		fprintf(b, "\t\t}\n")
+	}
 }
 
 func goZeroAPIPingHandlerExists(root string) bool {
@@ -3157,6 +3201,23 @@ func goZeroAPIHandlerName(method IDLMethod) string {
 		return exportName(method.Handler) + "Handler"
 	}
 	return exportName(method.Name) + "Handler"
+}
+
+func goZeroAPIMiddlewareNames(names []string) []string {
+	out := make([]string, 0, len(names))
+	seen := map[string]struct{}{}
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		out = append(out, name)
+	}
+	return out
 }
 
 func goZeroAPIBinder(method string) string {

@@ -2461,7 +2461,7 @@ func TestGenerateRESTFromAPIGoZeroCompatibleServiceContext(t *testing.T) {
 		"type LoginResponse {\n" +
 		"  Token string\n" +
 		"}\n" +
-		"@server(prefix: /api/v1)\n" +
+		"@server(prefix: /api/v1 jwt: Auth middleware: audit,trace)\n" +
 		"service user-api {\n" +
 		"  @handler login\n" +
 		"  post /login (LoginRequest) returns (LoginResponse)\n" +
@@ -2482,10 +2482,10 @@ func TestGenerateRESTFromAPIGoZeroCompatibleServiceContext(t *testing.T) {
 		want []string
 	}{
 		{path: filepath.Join(dir, "internal", "types", "types.go"), want: []string{"package types", "type LoginRequest struct", "type LoginResponse struct"}},
-		{path: filepath.Join(dir, "internal", "svc", "servicecontext.go"), want: []string{"package svc", "type ServiceContext struct", "func NewServiceContext() *ServiceContext"}},
+		{path: filepath.Join(dir, "internal", "svc", "servicecontext.go"), want: []string{"package svc", `"github.com/imajinyun/gofly/core/auth"`, `"github.com/imajinyun/gofly/rest"`, "Middlewares   map[string]rest.Middleware", "JWTValidators map[string]auth.Validator", "func NewServiceContext() *ServiceContext"}},
 		{path: filepath.Join(dir, "internal", "logic", "loginlogic.go"), want: []string{"package logic", `"example.com/shop/internal/svc"`, `"example.com/shop/internal/types"`, "func NewLoginLogic(ctx context.Context, svcCtx *svc.ServiceContext) *LoginLogic", "func (l *LoginLogic) Login(req *types.LoginRequest) (*types.LoginResponse, error)"}},
 		{path: filepath.Join(dir, "internal", "handler", "loginhandler.go"), want: []string{"package handler", `"example.com/shop/internal/logic"`, `"example.com/shop/internal/svc"`, `"example.com/shop/internal/types"`, "func LoginHandler(svcCtx *svc.ServiceContext) rest.HandlerFunc", "ctx.BindRequest(&req)", "logic.NewLoginLogic(ctx.Request.Context(), svcCtx).Login(&req)"}},
-		{path: filepath.Join(dir, "internal", "handler", "routes.go"), want: []string{"package handler", "func RegisterHandlers(server *rest.Server, svcCtx *svc.ServiceContext)", `Path: "/login"`, `rest.WithPrefix("/api/v1")`, "LoginHandler(svcCtx)"}},
+		{path: filepath.Join(dir, "internal", "handler", "routes.go"), want: []string{"package handler", "func RegisterHandlers(server *rest.Server, svcCtx *svc.ServiceContext)", `Path: "/login"`, `rest.WithPrefix("/api/v1")`, `svcCtx.JWTValidators["Auth"]`, "rest.WithAuth(validator)", `svcCtx.Middlewares["audit"]`, `svcCtx.Middlewares["trace"]`, "rest.WithMiddlewares(middlewares...)", "LoginHandler(svcCtx)"}},
 	}
 	for _, check := range checks {
 		data, err := os.ReadFile(check.path)
@@ -2510,14 +2510,25 @@ func TestGenerateRESTFromAPIGoZeroCompatiblePreservesExistingSvcAndTypes(t *test
 	}
 	existingSvc := `package svc
 
-import "example.com/shop/internal/config"
+import (
+	"example.com/shop/internal/config"
+
+	"github.com/imajinyun/gofly/core/auth"
+	"github.com/imajinyun/gofly/rest"
+)
 
 type ServiceContext struct {
-	Config config.Config
+	Config        config.Config
+	Middlewares   map[string]rest.Middleware
+	JWTValidators map[string]auth.Validator
 }
 
 func NewServiceContext(c config.Config) *ServiceContext {
-	return &ServiceContext{Config: c}
+	return &ServiceContext{
+		Config:        c,
+		Middlewares:   map[string]rest.Middleware{},
+		JWTValidators: map[string]auth.Validator{},
+	}
 }
 `
 	if err := os.WriteFile(filepath.Join(dir, "internal", "svc", "servicecontext.go"), []byte(existingSvc), 0o644); err != nil {

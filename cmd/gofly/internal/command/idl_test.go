@@ -2866,12 +2866,33 @@ service user-api {
 			t.Fatal(err)
 		}
 		outDir := filepath.Join(dir, "out-profile")
+		if err := os.MkdirAll(outDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(outDir, "go.mod"), []byte("module example.com/profile\n\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Join(outDir, "internal", "handler"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(outDir, "internal", "handler", "oldhandler.go"), []byte("package handler\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Join(outDir, "internal", "logic"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(outDir, "internal", "logic", "oldlogic.go"), []byte("package logic\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
 		var stdout bytes.Buffer
 		if err := ExecuteWithIO([]string{"api", "gen", "--file", apiPath, "--dir", outDir, "--profile", "gozero-compatible", "--json"}, IOStreams{Out: &stdout}); err != nil {
 			t.Fatal(err)
 		}
 		assertGenerateEnvelope(t, stdout.Bytes(), "api.gen", "api gen", outDir)
 		assertGenerateEnvelopeInput(t, stdout.Bytes(), "profile", string(generator.ProfileGoZeroCompatible))
+		assertGenerateEnvelopeInput(t, stdout.Bytes(), "staleReportPath", filepath.Join(outDir, ".gofly", "stale-api-files.json"))
+		assertGenerateEnvelopeInput(t, stdout.Bytes(), "staleHandlers", "1")
+		assertGenerateEnvelopeInput(t, stdout.Bytes(), "staleLogics", "1")
 		if _, err := os.Stat(filepath.Join(outDir, "internal", "api", "v1", "types.go")); err != nil {
 			t.Fatalf("api gen --profile did not write generated file: %v", err)
 		}

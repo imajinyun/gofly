@@ -1,7 +1,11 @@
 package command
 
 import (
+	"encoding/json"
 	"flag"
+	"os"
+	"path/filepath"
+	"strconv"
 
 	"github.com/imajinyun/gofly/cmd/gofly/internal/generator"
 )
@@ -55,7 +59,28 @@ func apiGenCommand(args []string) error {
 		if *typeGroup {
 			inputs["typeGroup"] = "true"
 		}
+		addAPIStaleReportInputs(inputs, *dir)
 		return printJSONEnvelope("api.gen", buildIDLGeneratePlan("api gen", inputs, splitCSV(*pluginArg)))
 	}
 	return nil
+}
+
+type apiStaleReportSummary struct {
+	StaleHandlers []string `json:"staleHandlers"`
+	StaleLogics   []string `json:"staleLogics"`
+}
+
+func addAPIStaleReportInputs(inputs map[string]string, dir string) {
+	path := filepath.Join(dir, ".gofly", "stale-api-files.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	var report apiStaleReportSummary
+	if err := json.Unmarshal(data, &report); err != nil {
+		return
+	}
+	inputs["staleReportPath"] = path
+	inputs["staleHandlers"] = strconv.Itoa(len(report.StaleHandlers))
+	inputs["staleLogics"] = strconv.Itoa(len(report.StaleLogics))
 }

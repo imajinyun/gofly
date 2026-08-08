@@ -2461,7 +2461,7 @@ func TestGenerateRESTFromAPIGoZeroCompatibleServiceContext(t *testing.T) {
 		"type LoginResponse {\n" +
 		"  Token string\n" +
 		"}\n" +
-		"@server(prefix: /api/v1 jwt: Auth middleware: audit,trace)\n" +
+		"@server(group: admin prefix: /api/v1 jwt: Auth middleware: audit,trace)\n" +
 		"service user-api {\n" +
 		"  @handler login\n" +
 		"  post /login (LoginRequest) returns (LoginResponse)\n" +
@@ -2483,9 +2483,9 @@ func TestGenerateRESTFromAPIGoZeroCompatibleServiceContext(t *testing.T) {
 	}{
 		{path: filepath.Join(dir, "internal", "types", "types.go"), want: []string{"package types", "type LoginRequest struct", "type LoginResponse struct"}},
 		{path: filepath.Join(dir, "internal", "svc", "servicecontext.go"), want: []string{"package svc", `"github.com/imajinyun/gofly/core/auth"`, `"github.com/imajinyun/gofly/rest"`, "Middlewares   map[string]rest.Middleware", "JWTValidators map[string]auth.Validator", "func NewServiceContext() *ServiceContext"}},
-		{path: filepath.Join(dir, "internal", "logic", "loginlogic.go"), want: []string{"package logic", `"example.com/shop/internal/svc"`, `"example.com/shop/internal/types"`, "func NewLoginLogic(ctx context.Context, svcCtx *svc.ServiceContext) *LoginLogic", "func (l *LoginLogic) Login(req *types.LoginRequest) (*types.LoginResponse, error)"}},
-		{path: filepath.Join(dir, "internal", "handler", "loginhandler.go"), want: []string{"package handler", `"example.com/shop/internal/logic"`, `"example.com/shop/internal/svc"`, `"example.com/shop/internal/types"`, "func LoginHandler(svcCtx *svc.ServiceContext) rest.HandlerFunc", "ctx.BindRequest(&req)", "logic.NewLoginLogic(ctx.Request.Context(), svcCtx).Login(&req)"}},
-		{path: filepath.Join(dir, "internal", "handler", "routes.go"), want: []string{"package handler", "func RegisterHandlers(server *rest.Server, svcCtx *svc.ServiceContext)", `Path: "/login"`, `rest.WithPrefix("/api/v1")`, `svcCtx.JWTValidators["Auth"]`, "rest.WithAuth(validator)", `svcCtx.Middlewares["audit"]`, `svcCtx.Middlewares["trace"]`, "rest.WithMiddlewares(middlewares...)", "LoginHandler(svcCtx)"}},
+		{path: filepath.Join(dir, "internal", "logic", "admin", "loginlogic.go"), want: []string{"package adminlogic", `"example.com/shop/internal/svc"`, `"example.com/shop/internal/types"`, "func NewLoginLogic(ctx context.Context, svcCtx *svc.ServiceContext) *LoginLogic", "func (l *LoginLogic) Login(req *types.LoginRequest) (*types.LoginResponse, error)"}},
+		{path: filepath.Join(dir, "internal", "handler", "admin", "loginhandler.go"), want: []string{"package admin", `adminlogic "example.com/shop/internal/logic/admin"`, `"example.com/shop/internal/svc"`, `"example.com/shop/internal/types"`, "func LoginHandler(svcCtx *svc.ServiceContext) rest.HandlerFunc", "ctx.BindRequest(&req)", "adminlogic.NewLoginLogic(ctx.Request.Context(), svcCtx).Login(&req)"}},
+		{path: filepath.Join(dir, "internal", "handler", "routes.go"), want: []string{"package handler", `admin "example.com/shop/internal/handler/admin"`, "func RegisterHandlers(server *rest.Server, svcCtx *svc.ServiceContext)", `Path: "/login"`, `rest.WithPrefix("/api/v1")`, `svcCtx.JWTValidators["Auth"]`, "rest.WithAuth(validator)", `svcCtx.Middlewares["audit"]`, `svcCtx.Middlewares["trace"]`, "rest.WithMiddlewares(middlewares...)", "admin.LoginHandler(svcCtx)"}},
 	}
 	for _, check := range checks {
 		data, err := os.ReadFile(check.path)
@@ -2500,7 +2500,7 @@ func TestGenerateRESTFromAPIGoZeroCompatibleServiceContext(t *testing.T) {
 	}
 }
 
-func TestGenerateRESTFromAPIGoZeroCompatiblePreservesExistingSvcAndTypes(t *testing.T) {
+func TestGenerateRESTFromAPIGoZeroCompatiblePreservesExistingBusinessFiles(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/shop\n\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -2552,6 +2552,25 @@ type PingRequest struct {
 	if err := os.WriteFile(filepath.Join(dir, "internal", "handler", "pinghandler.go"), []byte("package handler\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.MkdirAll(filepath.Join(dir, "internal", "logic"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	existingLogic := `package logic
+
+// existing business logic must survive api gen.
+func ExistingLoginLogicMarker() {}
+`
+	if err := os.WriteFile(filepath.Join(dir, "internal", "logic", "loginlogic.go"), []byte(existingLogic), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	existingHandler := `package handler
+
+// existing handler wiring must survive api gen.
+func ExistingLoginHandlerMarker() {}
+`
+	if err := os.WriteFile(filepath.Join(dir, "internal", "handler", "loginhandler.go"), []byte(existingHandler), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	apiPath := filepath.Join(dir, "shop.api")
 	api := `type LoginRequest {
   Username string
@@ -2578,13 +2597,27 @@ service user-api {
 	if !strings.Contains(string(svcData), "func NewServiceContext(c config.Config) *ServiceContext") {
 		t.Fatalf("existing ServiceContext was not preserved:\n%s", svcData)
 	}
+	logicData, err := os.ReadFile(filepath.Join(dir, "internal", "logic", "loginlogic.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(logicData) != existingLogic {
+		t.Fatalf("existing logic was overwritten:\n%s", logicData)
+	}
+	handlerData, err := os.ReadFile(filepath.Join(dir, "internal", "handler", "loginhandler.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(handlerData) != existingHandler {
+		t.Fatalf("existing handler was overwritten:\n%s", handlerData)
+	}
 	typesData, err := os.ReadFile(filepath.Join(dir, "internal", "types", "types.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"type PingRequest struct", "type LoginRequest struct", "type LoginResponse struct"} {
 		if !strings.Contains(string(typesData), want) {
-			t.Fatalf("merged types.go missing %q:\n%s", want, typesData)
+			t.Fatalf("merged scaffold types.go missing %q:\n%s", want, typesData)
 		}
 	}
 	routesData, err := os.ReadFile(filepath.Join(dir, "internal", "handler", "routes.go"))
@@ -2594,6 +2627,108 @@ service user-api {
 	for _, want := range []string{`Path: "/ping"`, "PingHandler(svcCtx)", `Path: "/login"`, "LoginHandler(svcCtx)"} {
 		if !strings.Contains(string(routesData), want) {
 			t.Fatalf("routes.go missing %q:\n%s", want, routesData)
+		}
+	}
+}
+
+func TestGenerateRESTFromAPIGoZeroCompatibleRefreshesRoutesButKeepsStaleBusinessFiles(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/shop\n\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	apiPath := filepath.Join(dir, "shop.api")
+	firstAPI := `type LoginRequest {
+  Username string
+}
+type LoginResponse {
+  Token string
+}
+@server(prefix: /api/v1)
+service user-api {
+  @handler login
+  post /login (LoginRequest) returns (LoginResponse)
+}`
+	if err := os.WriteFile(apiPath, []byte(firstAPI), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := GenerateRESTFromAPI(APIOptions{APIFile: apiPath, Dir: dir, Profile: string(ProfileGoZeroCompatible)}); err != nil {
+		t.Fatalf("first GenerateRESTFromAPI: %v", err)
+	}
+	staleHandler := filepath.Join(dir, "internal", "handler", "loginhandler.go")
+	staleLogic := filepath.Join(dir, "internal", "logic", "loginlogic.go")
+	if _, err := os.Stat(staleHandler); err != nil {
+		t.Fatalf("first handler missing: %v", err)
+	}
+	if _, err := os.Stat(staleLogic); err != nil {
+		t.Fatalf("first logic missing: %v", err)
+	}
+
+	secondAPI := `type SigninRequest {
+  Username string
+}
+type SigninResponse {
+  Token string
+}
+@server(prefix: /api/v2)
+service user-api {
+  @handler signin
+  post /signin (SigninRequest) returns (SigninResponse)
+}`
+	if err := os.WriteFile(apiPath, []byte(secondAPI), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := GenerateRESTFromAPI(APIOptions{APIFile: apiPath, Dir: dir, Profile: string(ProfileGoZeroCompatible)}); err != nil {
+		t.Fatalf("second GenerateRESTFromAPI: %v", err)
+	}
+	if _, err := os.Stat(staleHandler); err != nil {
+		t.Fatalf("stale handler should remain for manual cleanup: %v", err)
+	}
+	if _, err := os.Stat(staleLogic); err != nil {
+		t.Fatalf("stale logic should remain for manual cleanup: %v", err)
+	}
+	routesData, err := os.ReadFile(filepath.Join(dir, "internal", "handler", "routes.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`Path: "/signin"`, `rest.WithPrefix("/api/v2")`, "SigninHandler(svcCtx)"} {
+		if !strings.Contains(string(routesData), want) {
+			t.Fatalf("refreshed routes.go missing %q:\n%s", want, routesData)
+		}
+	}
+	for _, stale := range []string{`Path: "/login"`, `rest.WithPrefix("/api/v1")`, "LoginHandler(svcCtx)"} {
+		if strings.Contains(string(routesData), stale) {
+			t.Fatalf("refreshed routes.go kept stale %q:\n%s", stale, routesData)
+		}
+	}
+	typesData, err := os.ReadFile(filepath.Join(dir, "internal", "types", "types.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"type SigninRequest struct", "type SigninResponse struct"} {
+		if !strings.Contains(string(typesData), want) {
+			t.Fatalf("refreshed types.go missing %q:\n%s", want, typesData)
+		}
+	}
+	for _, stale := range []string{"type LoginRequest struct", "type LoginResponse struct"} {
+		if strings.Contains(string(typesData), stale) {
+			t.Fatalf("refreshed types.go kept stale %q:\n%s", stale, typesData)
+		}
+	}
+	reportData, err := os.ReadFile(filepath.Join(dir, ".gofly", "stale-api-files.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	report := string(reportData)
+	for _, want := range []string{
+		`"schema": "gofly.gozero_api_stale_files.v1"`,
+		`"internal/handler/loginhandler.go"`,
+		`"internal/logic/loginlogic.go"`,
+		`"internal/handler/signinhandler.go"`,
+		`"internal/logic/signinlogic.go"`,
+		"preserved on disk but are not registered",
+	} {
+		if !strings.Contains(report, want) {
+			t.Fatalf("stale report missing %q:\n%s", want, report)
 		}
 	}
 }

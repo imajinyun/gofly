@@ -154,14 +154,22 @@ func ParseProto(content string) (IDLDocument, error) {
 }
 
 func ParseProtoFile(path string) (IDLDocument, error) {
+	return ParseProtoFileWithIncludes(path, nil)
+}
+
+func ParseProtoFileWithIncludes(path string, includeDirs []string) (IDLDocument, error) {
 	absPath, err := filepath.Abs(path)
 	if err != nil {
 		return IDLDocument{}, fmt.Errorf("resolve proto file: %w", err)
 	}
-	return parseProtoFileSeen(absPath, map[string]struct{}{})
+	resolvedIncludes, err := resolveProtoIncludeDirs(includeDirs)
+	if err != nil {
+		return IDLDocument{}, err
+	}
+	return parseProtoFileSeen(absPath, resolvedIncludes, map[string]struct{}{})
 }
 
-func parseProtoFileSeen(path string, seen map[string]struct{}) (IDLDocument, error) {
+func parseProtoFileSeen(path string, includeDirs []string, seen map[string]struct{}) (IDLDocument, error) {
 	if _, ok := seen[path]; ok {
 		return IDLDocument{Kind: "proto"}, nil
 	}
@@ -180,14 +188,14 @@ func parseProtoFileSeen(path string, seen map[string]struct{}) (IDLDocument, err
 		if isStandardProtoImport(imp) {
 			continue
 		}
-		importPath, err := resolveProtoImport(path, imp)
+		importPath, err := resolveProtoImport(path, imp, includeDirs)
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
 				continue
 			}
 			return IDLDocument{}, err
 		}
-		imported, err := parseProtoFileSeen(importPath, seen)
+		imported, err := parseProtoFileSeen(importPath, includeDirs, seen)
 		if err != nil {
 			return IDLDocument{}, err
 		}
@@ -203,7 +211,36 @@ func isStandardProtoImport(path string) bool {
 	return strings.HasPrefix(strings.TrimSpace(path), "google/protobuf/")
 }
 
-func resolveProtoImport(owner string, importPath string) (string, error) {
+func resolveProtoIncludeDirs(includeDirs []string) ([]string, error) {
+	if len(includeDirs) == 0 {
+		return nil, nil
+	}
+	resolved := make([]string, 0, len(includeDirs))
+	for _, dir := range includeDirs {
+		dir = strings.TrimSpace(dir)
+		if dir == "" {
+			continue
+		}
+		if !filepath.IsAbs(dir) && !filepath.IsLocal(dir) {
+			return nil, fmt.Errorf("unsafe proto include dir %q", dir)
+		}
+		abs, err := filepath.Abs(dir)
+		if err != nil {
+			return nil, fmt.Errorf("resolve proto include dir %q: %w", dir, err)
+		}
+		info, err := os.Stat(abs)
+		if err != nil {
+			return nil, fmt.Errorf("resolve proto include dir %q: %w", dir, err)
+		}
+		if !info.IsDir() {
+			return nil, fmt.Errorf("proto include dir %q is not a directory", dir)
+		}
+		resolved = append(resolved, abs)
+	}
+	return resolved, nil
+}
+
+func resolveProtoImport(owner string, importPath string, includeDirs []string) (string, error) {
 	importPath = strings.TrimSpace(importPath)
 	if importPath == "" {
 		return "", fmt.Errorf("empty proto import in %s", owner)
@@ -211,19 +248,27 @@ func resolveProtoImport(owner string, importPath string) (string, error) {
 	if filepath.IsAbs(importPath) || !filepath.IsLocal(importPath) {
 		return "", fmt.Errorf("unsafe proto import %q in %s", importPath, owner)
 	}
-	resolved := filepath.Clean(filepath.Join(filepath.Dir(owner), importPath))
-	ownerDir := filepath.Dir(owner)
-	rel, err := filepath.Rel(ownerDir, resolved)
-	if err != nil {
-		return "", fmt.Errorf("resolve proto import %q: %w", importPath, err)
+	candidates := append([]string{filepath.Dir(owner)}, includeDirs...)
+	var missingErr error
+	for _, root := range candidates {
+		resolved := filepath.Clean(filepath.Join(root, importPath))
+		rel, err := filepath.Rel(root, resolved)
+		if err != nil {
+			return "", fmt.Errorf("resolve proto import %q: %w", importPath, err)
+		}
+		if strings.HasPrefix(rel, ".."+string(filepath.Separator)) || rel == ".." {
+			return "", fmt.Errorf("proto import %q escapes %s", importPath, root)
+		}
+		if _, err := os.Stat(resolved); err == nil {
+			return resolved, nil
+		} else {
+			missingErr = err
+		}
 	}
-	if strings.HasPrefix(rel, ".."+string(filepath.Separator)) || rel == ".." {
-		return "", fmt.Errorf("proto import %q escapes %s", importPath, ownerDir)
+	if missingErr != nil {
+		return "", fmt.Errorf("resolve proto import %q: %w", importPath, missingErr)
 	}
-	if _, err := os.Stat(resolved); err != nil {
-		return "", fmt.Errorf("resolve proto import %q: %w", importPath, err)
-	}
-	return resolved, nil
+	return "", fmt.Errorf("resolve proto import %q: %w", importPath, os.ErrNotExist)
 }
 
 func mergeProtoMessages(imported []IDLMessage, local []IDLMessage) []IDLMessage {

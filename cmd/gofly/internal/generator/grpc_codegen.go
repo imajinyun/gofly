@@ -13,6 +13,7 @@ type GRPCOptions struct {
 	ProtoFile string
 	Dir       string
 	Package   string
+	ProtoPath []string
 }
 
 func GenerateGRPCFromProto(opts GRPCOptions) error {
@@ -22,7 +23,7 @@ func GenerateGRPCFromProto(opts GRPCOptions) error {
 	if opts.Dir == "" {
 		opts.Dir = "."
 	}
-	doc, err := ParseProtoFile(opts.ProtoFile)
+	doc, err := ParseProtoFileWithIncludes(opts.ProtoFile, opts.ProtoPath)
 	if err != nil {
 		return err
 	}

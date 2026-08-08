@@ -13,6 +13,7 @@ type RPCOptions struct {
 	ProtoFile      string
 	Dir            string
 	Package        string
+	ProtoPath      []string
 	Profile        string
 	NoClient       bool
 	Multiple       bool
@@ -36,7 +37,7 @@ func GenerateRPCFromProto(opts RPCOptions) error {
 	if opts.Dir == "" {
 		opts.Dir = "."
 	}
-	doc, err := ParseProtoFile(opts.ProtoFile)
+	doc, err := ParseProtoFileWithIncludes(opts.ProtoFile, opts.ProtoPath)
 	if err != nil {
 		return err
 	}

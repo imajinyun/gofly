@@ -695,6 +695,48 @@ func TestExecuteRPCGenGoctlAliases(t *testing.T) {
 	}
 }
 
+func TestExecuteRPCGenUsesProtoIncludePath(t *testing.T) {
+	dir := t.TempDir()
+	includeDir := filepath.Join(dir, "proto")
+	if err := os.MkdirAll(filepath.Join(includeDir, "shared"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(includeDir, "shared", "common.proto"), []byte(`syntax = "proto3";
+package shared.v1;
+message SharedRequest {
+  string id = 1;
+}
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	protoPath := filepath.Join(dir, "worker.proto")
+	if err := os.WriteFile(protoPath, []byte(`syntax = "proto3";
+package worker.v1;
+import "shared/common.proto";
+message WorkResponse {
+  bool ok = 1;
+}
+service Worker {
+  rpc Work(shared.v1.SharedRequest) returns (WorkResponse);
+}
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outDir := filepath.Join(dir, "out")
+	if err := Execute([]string{"rpc", "gen", "--transport", "gofly", "--src", protoPath, "--out", outDir, "--package", "workerv1", "-I", includeDir}); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(outDir, "worker.gofly.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"type SharedRequest struct", "func NewWorkerClient", "req *SharedRequest"} {
+		if !strings.Contains(string(data), want) {
+			t.Fatalf("generated rpc include path output missing %q:\n%s", want, data)
+		}
+	}
+}
+
 func TestExecuteRPCGenAcceptsGoctlTemplateFlags(t *testing.T) {
 	dir := t.TempDir()
 	protoPath := filepath.Join(dir, "greeter.proto")

@@ -1296,6 +1296,55 @@ func TestZRPCProtoCompatibilityMatrix(t *testing.T) {
 	}
 }
 
+func TestGenerateRPCFromProtoUsesIncludePath(t *testing.T) {
+	dir := t.TempDir()
+	includeDir := filepath.Join(dir, "proto")
+	if err := os.MkdirAll(filepath.Join(includeDir, "shared"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(includeDir, "shared", "common.proto"), []byte(`syntax = "proto3";
+package shared.v1;
+message ExternalMessage {
+  string id = 1;
+}
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	protoPath := filepath.Join(dir, "service.proto")
+	if err := os.WriteFile(protoPath, []byte(`syntax = "proto3";
+package service.v1;
+import "shared/common.proto";
+message CreateRequest {
+  shared.v1.ExternalMessage external = 1;
+}
+message CreateResponse {
+  string ok = 1;
+}
+service Creator {
+  rpc Create(CreateRequest) returns (CreateResponse);
+}
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outDir := filepath.Join(dir, "out")
+	if err := GenerateRPCFromProto(RPCOptions{ProtoFile: protoPath, Dir: outDir, Package: "servicev1", ProtoPath: []string{includeDir}}); err != nil {
+		t.Fatalf("GenerateRPCFromProto with include path: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(outDir, "service.gofly.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"type ExternalMessage struct",
+		"External *ExternalMessage",
+		"func NewCreatorClient",
+	} {
+		if !strings.Contains(string(data), want) {
+			t.Fatalf("generated rpc with include path missing %q:\n%s", want, data)
+		}
+	}
+}
+
 func hasProtoMessage(messages []IDLMessage, name string) bool {
 	for _, message := range messages {
 		if message.Name == name {

@@ -16,7 +16,7 @@
       "id": "external-proto-imports",
       "status": "supported",
       "surface": "proto imports",
-      "evidence": ["import \"common.proto\"", "Money", "TraceMeta", "recursive-local-import-merge"],
+      "evidence": ["import \"common.proto\"", "Money", "TraceMeta", "recursive-local-import-merge", "proto_path include directory"],
       "gate": "make zrpc-proto-compatibility-check",
       "reason": "GenerateRPCFromProto recursively parses local proto imports and merges imported message and enum definitions into generated DTOs.",
       "rollbackOrEscalation": "Rollback by preserving local import merge evidence and treating lost imported DTO generation as a supported-row regression."

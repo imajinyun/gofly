@@ -15,6 +15,9 @@ func rpcGenCommand(args []string) error {
 	dir := fs.String("dir", ".", "output directory")
 	out := fs.String("out", "", "output directory")
 	pkg := fs.String("package", "", "generated Go package name")
+	protoPath := fs.String("proto_path", ".", "comma-separated proto include paths")
+	protoPathAlias := fs.String("proto-path", "", "comma-separated proto include paths")
+	include := fs.String("I", "", "comma-separated proto include paths")
 	profile := fs.String("profile", "", "generation profile: gofly-ai, gozero-compatible, or kitex-compatible")
 	profileAlias := fs.String("generation-profile", "", "alias for --profile")
 	transport := fs.String("transport", "grpc", "RPC transport to generate: grpc, gofly, or both")
@@ -47,6 +50,12 @@ func rpcGenCommand(args []string) error {
 	if *out != "" {
 		*dir = *out
 	}
+	if *protoPathAlias != "" {
+		*protoPath = *protoPathAlias
+	}
+	if *include != "" {
+		*protoPath = *include
+	}
 	if protoFile == "" {
 		return fmt.Errorf("%w: proto file is required", errUsage)
 	}
@@ -54,10 +63,11 @@ func rpcGenCommand(args []string) error {
 		return fmt.Errorf("%w: --timeout must be greater than zero", errUsage)
 	}
 	var genErr error
-	rpcOpts := generator.RPCOptions{ProtoFile: protoFile, Dir: *dir, Package: *pkg, Profile: *profile, NoClient: !*client, Multiple: multiple, WithMiddleware: *withMiddleware, WithRecovery: *withRecovery, WithValidator: *withValidator}
+	includePaths := splitCSV(*protoPath)
+	rpcOpts := generator.RPCOptions{ProtoFile: protoFile, Dir: *dir, Package: *pkg, ProtoPath: includePaths, Profile: *profile, NoClient: !*client, Multiple: multiple, WithMiddleware: *withMiddleware, WithRecovery: *withRecovery, WithValidator: *withValidator}
 	switch *transport {
 	case "", "grpc", "standard":
-		genErr = generator.GenerateGRPCFromProto(generator.GRPCOptions{ProtoFile: protoFile, Dir: *dir, Package: *pkg})
+		genErr = generator.GenerateGRPCFromProto(generator.GRPCOptions{ProtoFile: protoFile, Dir: *dir, Package: *pkg, ProtoPath: includePaths})
 	case "gofly":
 		genErr = generator.GenerateRPCFromProto(rpcOpts)
 	case "both":
@@ -74,7 +84,7 @@ func rpcGenCommand(args []string) error {
 	if *standard {
 		if err := generator.GenerateStandardProto(context.Background(), generator.ProtocOptions{
 			ProtoFile: protoFile,
-			ProtoPath: []string{"."},
+			ProtoPath: includePaths,
 			GoOut:     *dir,
 			GoGRPCOut: *dir,
 			Timeout:   *timeout,

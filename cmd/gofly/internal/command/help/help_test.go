@@ -254,6 +254,7 @@ func TestCommandCatalogCoversPrimaryTopics(t *testing.T) {
 		{name: "api diff", topic: "api diff", want: []string{"Compare two .api", "--target"}},
 		{name: "api breaking", topic: "api breaking", want: []string{"Detect breaking changes", "--base"}},
 		{name: "api types", topic: "api types", want: []string{"Generate Go DTO", "--package"}},
+		{name: "api cleanup stale", topic: "api cleanup stale", want: []string{"stale go-zero-compatible", "--execute"}},
 		{name: "api new", topic: "api new", want: []string{"Create an API service", "--profile"}},
 		{name: "api client", topic: "api client", want: []string{"typed API client", "--language"}},
 		{name: "api plugin", topic: "api plugin", want: []string{"Run an API generation plugin", "--plugin"}},

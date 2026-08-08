@@ -2248,6 +2248,7 @@ func TestExecuteAIManifestJSONEnvelope(t *testing.T) {
 				SupportsDryRun    bool     `json:"supportsDryRun"`
 				MutatesFilesystem bool     `json:"mutatesFilesystem"`
 				OutputFormats     []string `json:"outputFormats"`
+				SideEffects       []string `json:"sideEffects"`
 				OutputContract    struct {
 					Mode        string            `json:"mode"`
 					Envelope    []string          `json:"envelope"`
@@ -2332,6 +2333,7 @@ func TestExecuteAIManifestJSONEnvelope(t *testing.T) {
 		SupportsDryRun    bool
 		MutatesFilesystem bool
 		OutputFormats     []string
+		SideEffects       []string
 		OutputContract    struct {
 			Mode        string            `json:"mode"`
 			Envelope    []string          `json:"envelope"`
@@ -2345,15 +2347,16 @@ func TestExecuteAIManifestJSONEnvelope(t *testing.T) {
 			SupportsDryRun    bool
 			MutatesFilesystem bool
 			OutputFormats     []string
+			SideEffects       []string
 			OutputContract    struct {
 				Mode        string            `json:"mode"`
 				Envelope    []string          `json:"envelope"`
 				EventFields []string          `json:"eventFields"`
 				Semantics   map[string]string `json:"semantics"`
 			}
-		}{RiskLevel: command.RiskLevel, SupportsDryRun: command.SupportsDryRun, MutatesFilesystem: command.MutatesFilesystem, OutputFormats: command.OutputFormats, OutputContract: command.OutputContract}
+		}{RiskLevel: command.RiskLevel, SupportsDryRun: command.SupportsDryRun, MutatesFilesystem: command.MutatesFilesystem, OutputFormats: command.OutputFormats, SideEffects: command.SideEffects, OutputContract: command.OutputContract}
 	}
-	for _, want := range []string{"ai complete", "ai manifest", "ai stream", "feature run", "gateway profile validate", "gateway aggregation validate", "release check", "new service", "new api", "plugin run", "version"} {
+	for _, want := range []string{"ai complete", "ai manifest", "ai stream", "feature run", "gateway profile validate", "gateway aggregation validate", "release check", "new service", "new api", "api cleanup stale", "plugin run", "version"} {
 		if _, ok := commands[want]; !ok {
 			t.Fatalf("ai manifest commands missing %q: %+v", want, commands)
 		}
@@ -2369,6 +2372,11 @@ func TestExecuteAIManifestJSONEnvelope(t *testing.T) {
 	}
 	if !commands["feature run"].SupportsDryRun || commands["feature run"].MutatesFilesystem {
 		t.Fatalf("feature run manifest should be preview-only: %+v", commands["feature run"])
+	}
+	if !commands["api cleanup stale"].SupportsDryRun || !commands["api cleanup stale"].MutatesFilesystem || commands["api cleanup stale"].RiskLevel != "medium" ||
+		!commandContainsString(commands["api cleanup stale"].SideEffects, "report-only by default") ||
+		!commandContainsString(commands["api cleanup stale"].SideEffects, "--execute removes only validated stale .go files under internal/handler or internal/logic") {
+		t.Fatalf("api cleanup stale manifest should expose safe cleanup semantics: %+v", commands["api cleanup stale"])
 	}
 	if !commands["gateway profile validate"].SupportsDryRun || commands["gateway profile validate"].MutatesFilesystem || commands["gateway profile validate"].RiskLevel != "read" || !commandContainsString(commands["gateway profile validate"].OutputFormats, "json") {
 		t.Fatalf("gateway profile validate manifest should be read-only JSON-capable: %+v", commands["gateway profile validate"])
@@ -2926,6 +2934,97 @@ service user-api {
 			t.Fatalf("rpc gen --json did not write generated file: %v", err)
 		}
 	})
+}
+
+func TestAPICleanupStaleReportOnlyAndExecute(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".gofly"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "internal", "handler"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	handlerPath := filepath.Join(dir, "internal", "handler", "oldhandler.go")
+	if err := os.WriteFile(handlerPath, []byte("package handler\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "internal", "logic"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	logicPath := filepath.Join(dir, "internal", "logic", "oldlogic.go")
+	if err := os.WriteFile(logicPath, []byte("package logic\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	report := `{
+  "schema": "gofly.gozero_api_stale_files.v1",
+  "staleHandlers": ["internal/handler/oldhandler.go"],
+  "staleLogics": ["internal/logic/oldlogic.go"]
+}`
+	if err := os.WriteFile(filepath.Join(dir, ".gofly", "stale-api-files.json"), []byte(report), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	textOut := captureStdout(t, func() {
+		if err := Execute([]string{"api", "cleanup", "stale", "--dir", dir}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if !strings.Contains(textOut, "report-only") || !strings.Contains(textOut, "internal/handler/oldhandler.go") {
+		t.Fatalf("api cleanup stale report-only output = %s", textOut)
+	}
+	if _, err := os.Stat(handlerPath); err != nil {
+		t.Fatalf("report-only removed handler: %v", err)
+	}
+	if _, err := os.Stat(logicPath); err != nil {
+		t.Fatalf("report-only removed logic: %v", err)
+	}
+
+	jsonOut := captureStdout(t, func() {
+		if err := Execute([]string{"api", "cleanup", "stale", "--dir", dir, "--execute", "--json"}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	var envelope struct {
+		OK      bool   `json:"ok"`
+		Command string `json:"command"`
+		Data    struct {
+			Schema     string   `json:"schema"`
+			Execute    bool     `json:"execute"`
+			StaleCount int      `json:"staleCount"`
+			Deleted    []string `json:"deleted"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(jsonOut), &envelope); err != nil {
+		t.Fatalf("cleanup json = %v\n%s", err, jsonOut)
+	}
+	if !envelope.OK || envelope.Command != "api.cleanup.stale" || envelope.Data.Schema != "gofly.api_cleanup_stale.v1" || !envelope.Data.Execute || envelope.Data.StaleCount != 2 || len(envelope.Data.Deleted) != 2 {
+		t.Fatalf("cleanup envelope = %+v", envelope)
+	}
+	if _, err := os.Stat(handlerPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("execute handler stat = %v, want removed", err)
+	}
+	if _, err := os.Stat(logicPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("execute logic stat = %v, want removed", err)
+	}
+}
+
+func TestAPICleanupStaleRejectsUnsafeReportPaths(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".gofly"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	report := `{
+  "schema": "gofly.gozero_api_stale_files.v1",
+  "staleHandlers": ["../escape.go"],
+  "staleLogics": ["internal/logic/ok.go"]
+}`
+	if err := os.WriteFile(filepath.Join(dir, ".gofly", "stale-api-files.json"), []byte(report), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := Execute([]string{"api", "cleanup", "stale", "--dir", dir, "--execute"})
+	if err == nil || !strings.Contains(err.Error(), "unsafe stale api file") {
+		t.Fatalf("unsafe cleanup error = %v", err)
+	}
 }
 
 func assertGenerateEnvelope(t *testing.T, data []byte, command, planCommand, dir string) {

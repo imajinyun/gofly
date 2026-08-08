@@ -30,6 +30,7 @@ var apiCommands = newCommandRegistry(
 	commandSpec{Name: "plugin", Run: apiPluginCommandRunner},
 	commandSpec{Name: "middleware", Run: apiMiddlewareCommand},
 	commandSpec{Name: "format", Aliases: []string{"fmt"}, Run: apiFormatCommand},
+	commandSpec{Name: "cleanup", Aliases: []string{"clean"}, Run: apiCleanupCommand},
 	commandSpec{Name: "doc", Run: func(args []string) error { return apiDocCommand("doc", args) }},
 	commandSpec{Name: "docs", Run: func(args []string) error { return apiDocCommand("docs", args) }},
 	commandSpec{Name: "swagger", Run: func(args []string) error { return apiDocCommand("swagger", args) }},

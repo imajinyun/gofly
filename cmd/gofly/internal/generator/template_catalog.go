@@ -170,7 +170,7 @@ func builtInProjectTemplates() []ProjectTemplate {
 			Features:            []string{"rpc", "grpc", "proto", "governance", "observability", "docker", "ci"},
 			RuntimeCapabilities: []string{"generated-rpc-mux-retry-smoke"},
 			Inputs:              commonTemplateInputs(),
-			Files:               []string{".gofly/config.json", "go.mod", "cmd/<name>/main.go", "<name>.proto", "Dockerfile", ".github/workflows/ci.yml", "internal/admin/admin.go", "internal/observability/observability.go", "internal/rpc/greeter.go"},
+			Files:               []string{".gofly/config.json", "go.mod", "cmd/<name>/main.go", "<name>.proto", "Dockerfile", ".github/workflows/ci.yml", "internal/admin/admin.go", "internal/observability/observability.go", "internal/api/rpc/greeter.go"},
 			Verify:              []string{"gofmt", "go mod tidy", "go test ./..."},
 			VerifyE2EValidated:  true,
 			RiskLevel:           "medium",

@@ -333,7 +333,7 @@ func ApplyTemplateExtension(dir string, files map[string]string) (map[string]str
 				out[k] = string(data)
 			}
 		}
-		// 同时支持 user 通过路径精确映射：例如 internal/api/v1/ping.go.tpl 作为精确覆盖
+		// 同时支持 user 通过路径精确映射：例如 internal/api/http/v1/ping.go.tpl 作为精确覆盖
 		stripped := strings.TrimSuffix(rel, ".tpl")
 		stripped = strings.TrimSuffix(stripped, ".tmpl")
 		if _, ok := out[stripped]; ok {

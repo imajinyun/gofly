@@ -35,16 +35,16 @@ func serviceFilesForProfile(style, name string, profile GenerationProfile) map[s
 		"go.mod":                              goModTemplate,
 		filepath.Join("cmd", name, "main.go"): mainTemplate,
 		filepath.Join("etc", name+".json"):    configTemplate,
-		filepath.Join("internal", "config", "config.go"):      configGoTemplate,
-		filepath.Join("internal", "config", "config_test.go"): configTestTemplate,
-		filepath.Join("internal", "svc", "service_context.go"):    svcTemplate,
-		filepath.Join("internal", "routes", "routes.go"):          routesTemplate,
-		filepath.Join("internal", "routes", "routes_test.go"):     routesTestTemplate,
-		filepath.Join("internal", "api", "v1", "ping", "ping.go"): pingHandlerTemplate,
-		filepath.Join("internal", "middleware", "trim.go"):        trimMiddlewareTemplate,
-		filepath.Join("internal", "middleware", "trim_test.go"):   trimMiddlewareTestTemplate,
-		filepath.Join("internal", "service", "ping.go"):           pingServiceTemplate,
-		filepath.Join("internal", "service", "ping_test.go"):      pingServiceTestTemplate,
+		filepath.Join("internal", "config", "config.go"):                  configGoTemplate,
+		filepath.Join("internal", "config", "config_test.go"):             configTestTemplate,
+		filepath.Join("internal", "svc", "service_context.go"):            svcTemplate,
+		filepath.Join("internal", "routes", "routes.go"):                  routesTemplate,
+		filepath.Join("internal", "routes", "routes_test.go"):             routesTestTemplate,
+		filepath.Join("internal", "api", "http", "v1", "ping", "ping.go"): pingHandlerTemplate,
+		filepath.Join("internal", "middleware", "trim.go"):                trimMiddlewareTemplate,
+		filepath.Join("internal", "middleware", "trim_test.go"):           trimMiddlewareTestTemplate,
+		filepath.Join("internal", "service", "ping.go"):                   pingServiceTemplate,
+		filepath.Join("internal", "service", "ping_test.go"):              pingServiceTestTemplate,
 	}
 	if style == ServiceStyleMinimal || style == ServiceStyleBasic {
 		files[filepath.Join("cmd", name, "main.go")] = minimalMainTemplate
@@ -65,9 +65,9 @@ func serviceFilesForProfile(style, name string, profile GenerationProfile) map[s
 	files[filepath.Join("internal", "config", "discovery_test.go")] = configDiscoveryTestTemplate
 	files[filepath.Join("internal", "discovery", "registry.go")] = discoveryRegistryTemplate
 	files[filepath.Join("internal", "mq", "broker.go")] = mqBrokerTemplate
-	files[filepath.Join("internal", "rpc", "greeter.go")] = greeterTemplate
-	files[filepath.Join("internal", "rpc", "greeter_client_test.go")] = greeterClientTestTemplate
-	files[filepath.Join("internal", "rpc", "greeter_test.go")] = greeterTestTemplate
+	files[filepath.Join("internal", "api", "rpc", "greeter.go")] = greeterTemplate
+	files[filepath.Join("internal", "api", "rpc", "greeter_client_test.go")] = greeterClientTestTemplate
+	files[filepath.Join("internal", "api", "rpc", "greeter_test.go")] = greeterTestTemplate
 	files[filepath.Join("internal", "smoke", "service_smoke_test.go")] = smokeTestTemplate
 	files["Dockerfile"] = dockerfileTemplate
 	files[filepath.Join("deploy", "k8s", name+".yaml")] = kubeTemplate
@@ -94,18 +94,18 @@ func addKitexProfileFiles(files map[string]string, profile GenerationProfile) {
 
 func goZeroServiceFiles(style, name string) map[string]string {
 	files := map[string]string{
-		"go.mod":                                                goModTemplate,
-		filepath.Join("cmd", name, "main.go"):                   goZeroMainTemplate,
-		filepath.Join("etc", name+".json"):                      minimalConfigTemplate,
-		filepath.Join("internal", "config", "config.go"):        minimalConfigGoTemplate,
-		filepath.Join("internal", "config", "config_test.go"):   configTestTemplate,
-		filepath.Join("internal", "svc", "servicecontext.go"):   goZeroSvcTemplate,
-		filepath.Join("internal", "types", "types.go"):          goZeroTypesTemplate,
-		filepath.Join("internal", "logic", "pinglogic.go"):      goZeroPingLogicTemplate,
-		filepath.Join("internal", "handler", "pinghandler.go"):  goZeroPingHandlerTemplate,
-		filepath.Join("internal", "handler", "routes.go"):       goZeroRoutesTemplate,
-		filepath.Join("internal", "middleware", "trim.go"):      trimMiddlewareTemplate,
-		filepath.Join("internal", "middleware", "trim_test.go"): trimMiddlewareTestTemplate,
+		"go.mod":                                                   goModTemplate,
+		filepath.Join("cmd", name, "main.go"):                      goZeroMainTemplate,
+		filepath.Join("etc", name+".json"):                         minimalConfigTemplate,
+		filepath.Join("internal", "config", "config.go"):           minimalConfigGoTemplate,
+		filepath.Join("internal", "config", "config_test.go"):      configTestTemplate,
+		filepath.Join("internal", "svc", "servicecontext.go"):      goZeroSvcTemplate,
+		filepath.Join("internal", "types", "types.go"):             goZeroTypesTemplate,
+		filepath.Join("internal", "app", "pinglogic.go"):           goZeroPingLogicTemplate,
+		filepath.Join("internal", "api", "http", "pinghandler.go"): goZeroPingHandlerTemplate,
+		filepath.Join("internal", "api", "http", "routes.go"):      goZeroRoutesTemplate,
+		filepath.Join("internal", "middleware", "trim.go"):         trimMiddlewareTemplate,
+		filepath.Join("internal", "middleware", "trim_test.go"):    trimMiddlewareTestTemplate,
 	}
 	if style == ServiceStyleBasic {
 		files["Dockerfile"] = dockerfileTemplate
@@ -128,9 +128,16 @@ func cleanupLegacyServiceFilesForProfile(dir string, profile GenerationProfile) 
 		legacyFiles = append(legacyFiles, filepath.Join("internal", "svc", "service_context.go"))
 	} else {
 		legacyFiles = append(legacyFiles,
+			filepath.Join("internal", "api", "http", "routes.go"),
+			filepath.Join("internal", "api", "http", "pinghandler.go"),
+			filepath.Join("internal", "app", "pinglogic.go"),
 			filepath.Join("internal", "handler", "routes.go"),
 			filepath.Join("internal", "handler", "pinghandler.go"),
 			filepath.Join("internal", "logic", "pinglogic.go"),
+			filepath.Join("internal", "api", "v1", "ping", "ping.go"),
+			filepath.Join("internal", "rpc", "greeter.go"),
+			filepath.Join("internal", "rpc", "greeter_client_test.go"),
+			filepath.Join("internal", "rpc", "greeter_test.go"),
 			filepath.Join("internal", "svc", "servicecontext.go"),
 			filepath.Join("internal", "types", "types.go"),
 		)
@@ -156,7 +163,7 @@ func legacyServiceDirs(profile GenerationProfile) []string {
 	case ProfileGoZeroCompatible:
 		return []string{
 			filepath.Join("internal", "routes"),
-			filepath.Join("internal", "api"),
+			filepath.Join("internal", "api", "v1"),
 			filepath.Join("internal", "service"),
 		}
 	default:

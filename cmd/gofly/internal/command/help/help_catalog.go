@@ -47,7 +47,7 @@ func For(command string) Topic {
 			Examples: []string{"gofly handler gen CreateOrder --dir . --path v1/order", "gofly handler complete --file internal/svc/service.go --method HealthCheck"},
 		}
 	case "gen handler", "handler gen":
-		return Topic{Name: command, Short: "Generate REST handler skeletons.", Usage: "gofly " + command + " <name> --dir <service-dir> [--module <module>] [--path <subdir>]", Flags: []string{"--name <name>      handler name", "--dir <dir>        service root directory", "--module <module>  Go module path", "--path <subdir>    handler subdirectory under internal/api"}, Examples: []string{"gofly " + command + " CreateOrder --dir . --path v1/order"}}
+		return Topic{Name: command, Short: "Generate REST handler skeletons.", Usage: "gofly " + command + " <name> --dir <service-dir> [--module <module>] [--path <subdir>]", Flags: []string{"--name <name>      handler name", "--dir <dir>        service root directory", "--module <module>  Go module path", "--path <subdir>    handler subdirectory under internal/api/http"}, Examples: []string{"gofly " + command + " CreateOrder --dir . --path v1/order"}}
 	case "handler complete":
 		return Topic{Name: "handler complete", Short: "Append missing methods to an existing handler Go file.", Usage: "gofly handler complete --file <handler.go> --method <name> [flags]", Flags: []string{"--file <file>       handler Go source file", "--method <name>     method or handler name", "--receiver <name>   receiver name override", "--package <pkg>     package name when creating a file", "--body <stmt>       method body Go statements", "--comment <text>    comment attached to the method"}, Examples: []string{"gofly handler complete --file internal/svc/service.go --method HealthCheck"}}
 	case "gen gateway":

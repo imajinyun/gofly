@@ -41,7 +41,7 @@ func apiCommandHelp(command string) (Topic, bool) {
 	case "api format":
 		return Topic{Name: "api format", Short: "Format one .api file or all .api files in a directory.", Usage: "gofly api format --api <service.api> [--write] | gofly api format --dir <api-dir> [--iu]", Flags: []string{"-api, --api, --file <file>  API definition file", "--write, --w                  write formatted content back", "--o <file>                    write formatted content to file", "--dir <dir>                   format .api files in directory", "--iu                          preserve import/use layout"}, Examples: []string{"gofly api format -api user.api -w", "gofly api format -dir apis --iu"}}, true
 	case "api cleanup", "api clean", "api cleanup stale", "api clean stale":
-		return Topic{Name: command, Short: "Report or explicitly delete stale go-zero-compatible API handler and logic files.", Usage: "gofly " + command + " --dir <project> [--execute] [--json]", Flags: []string{"--dir <dir>      project root containing .gofly/stale-api-files.json", "--execute        delete stale files listed in the report; omitted means report-only", "--json           emit cleanup result as JSON"}, Examples: []string{"gofly api cleanup stale --dir .", "gofly api cleanup stale --dir . --execute --json"}}, true
+		return Topic{Name: command, Short: "Report or explicitly delete stale go-zero-compatible API/app files.", Usage: "gofly " + command + " --dir <project> [--execute] [--json]", Flags: []string{"--dir <dir>      project root containing .gofly/stale-api-files.json", "--execute        delete stale files listed in the report; omitted means report-only", "--json           emit cleanup result as JSON"}, Examples: []string{"gofly api cleanup stale --dir .", "gofly api cleanup stale --dir . --execute --json"}}, true
 	case "api swagger", "api doc":
 		return Topic{Name: command, Short: "Generate API documentation from an .api file.", Usage: "gofly " + command + " --api <service.api> --dir <dir> [flags]", Flags: []string{"-api, --api, --file <file>  API definition file", "--dir <dir>                   output directory", "--o, --filename <file>        output filename", "--format markdown|openapi|json|yaml|oas3", "--oas3                        write OpenAPI v3 JSON output", "--json                        write OpenAPI JSON output", "--yaml                        write YAML OpenAPI output"}, Examples: []string{"gofly api swagger -api user.api -dir docs -filename user.yaml -yaml", "gofly api doc -api user.api -dir docs --oas3", "gofly api doc -api user.api -dir docs -format markdown"}}, true
 	case "api route":
@@ -80,7 +80,7 @@ func apiCommandHelp(command string) (Topic, bool) {
 				{Name: "diff", Short: "compare two API files"},
 				{Name: "plugin", Short: "run API generation plugin"},
 				{Name: "middleware", Short: "generate middleware skeletons"},
-				{Name: "cleanup", Short: "report or explicitly delete stale generated handler/logic files"},
+				{Name: "cleanup", Short: "report or explicitly delete stale generated API/app files"},
 				{Name: "ts/js/dart/java/kt", Short: "generate API clients"},
 				{Name: "new", Short: "create an API service scaffold"},
 			},

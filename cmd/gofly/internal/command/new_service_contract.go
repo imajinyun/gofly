@@ -35,7 +35,7 @@ func applyNewServiceContractInputs(inputs newServiceContractInputs, serviceName,
 		return err
 	}
 	if protoContract != "" {
-		if err := generator.GenerateRPCFromProto(generator.RPCOptions{ProtoFile: protoContract, Dir: filepath.Join(dir, "internal", "rpc"), Package: "rpc", WithMiddleware: true, WithRecovery: true, WithValidator: true}); err != nil {
+		if err := generator.GenerateRPCFromProto(generator.RPCOptions{ProtoFile: protoContract, Dir: filepath.Join(dir, "internal", "api", "rpc"), Package: "rpc", WithMiddleware: true, WithRecovery: true, WithValidator: true}); err != nil {
 			return fmt.Errorf("generate RPC from proto contract: %w", err)
 		}
 	}

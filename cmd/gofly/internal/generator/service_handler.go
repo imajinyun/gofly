@@ -52,7 +52,7 @@ func GenerateHandler(opts HandlerOptions) error {
 	if err != nil {
 		return fmt.Errorf("format handler: %w", err)
 	}
-	path := filepath.Join(opts.Dir, "internal", "api", subdir, lowerSnake(opts.Name)+".go")
+	path := filepath.Join(opts.Dir, "internal", "api", "http", subdir, lowerSnake(opts.Name)+".go")
 	if err := writeGeneratedFile(path, formatted); err != nil {
 		return fmt.Errorf("write handler %s: %w", path, err)
 	}

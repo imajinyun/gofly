@@ -110,8 +110,8 @@
         "make goctl-generator-compat-check"
       ],
       "requiredArtifacts": [
-        "internal/handler/routes.go",
-        "internal/logic/pinglogic.go",
+        "internal/api/http/routes.go",
+        "internal/app/pinglogic.go",
         "internal/svc/servicecontext.go",
         "internal/types/types.go"
       ],
@@ -127,9 +127,9 @@
         "make goctl-real-project-replay-check"
       ],
       "requiredArtifacts": [
-        "internal/api/v1/types.go",
-        "internal/api/v1/<service>/routes.go",
-        "internal/api/v1/<service>/service.go"
+        "internal/api/http/v1/types.go",
+        "internal/api/http/v1/<service>/routes.go",
+        "internal/api/http/v1/<service>/service.go"
       ],
       "rollbackOrEscalation": "Rollback by preserving existing route layout and rejecting unclassified API import or generated route movement."
     },
@@ -143,7 +143,7 @@
         "make test-generated-matrix"
       ],
       "requiredArtifacts": [
-        "internal/rpc/greeter.go",
+        "internal/api/rpc/greeter.go",
         "<name>.proto"
       ],
       "rollbackOrEscalation": "Rollback by preserving generated RPC descriptors and compatibility adapter output until smoke passes."

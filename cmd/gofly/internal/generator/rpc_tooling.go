@@ -376,7 +376,7 @@ func GenerateRPCMiddleware(opts RPCMiddlewareOptions) error {
 	if err != nil {
 		return err
 	}
-	path := filepath.Join(opts.Dir, "internal", "rpc", "middleware", lowerSnake(opts.Name)+".go")
+	path := filepath.Join(opts.Dir, "internal", "api", "rpc", "middleware", lowerSnake(opts.Name)+".go")
 	return writeGeneratedFile(path, formatted)
 }
 

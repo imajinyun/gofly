@@ -426,9 +426,9 @@ func TestBuildServiceScaffoldIRGoZeroProfileUsesLayeredArtifacts(t *testing.T) {
 		t.Fatalf("buildServiceScaffoldIR: %v", err)
 	}
 	for _, rel := range []string{
-		filepath.Join("internal", "handler", "routes.go"),
-		filepath.Join("internal", "handler", "pinghandler.go"),
-		filepath.Join("internal", "logic", "pinglogic.go"),
+		filepath.Join("internal", "api", "http", "routes.go"),
+		filepath.Join("internal", "api", "http", "pinghandler.go"),
+		filepath.Join("internal", "app", "pinglogic.go"),
 		filepath.Join("internal", "svc", "servicecontext.go"),
 		filepath.Join("internal", "types", "types.go"),
 	} {

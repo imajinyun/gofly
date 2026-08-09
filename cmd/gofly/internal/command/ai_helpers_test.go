@@ -2616,14 +2616,14 @@ service user-api {
   get /ping returns (PingResponse)
 }
 `,
-				wantFiles: []string{filepath.Join("internal", "api", "v1", "user_api", "routes.go"), filepath.Join("internal", "api", "v1", "user_api", "routes_test.go")},
+				wantFiles: []string{filepath.Join("internal", "api", "http", "v1", "user_api", "routes.go"), filepath.Join("internal", "api", "http", "v1", "user_api", "routes_test.go")},
 			},
 			{
 				name:      "api-first-openapi",
 				flag:      "--openapi",
 				ext:       ".json",
 				contract:  `{"openapi":"3.0.3","info":{"title":"orders","version":"1.0.0"},"paths":{"/orders":{"get":{"operationId":"ListOrders","responses":{"200":{"description":"OK","content":{"application/json":{"schema":{"$ref":"#/components/schemas/OrderResponse"}}}}}}}},"components":{"schemas":{"OrderResponse":{"type":"object","properties":{"id":{"type":"string"}}}}}}`,
-				wantFiles: []string{"orders.api", filepath.Join("internal", "api", "v1", "orders", "routes.go")},
+				wantFiles: []string{"orders.api", filepath.Join("internal", "api", "http", "v1", "orders", "routes.go")},
 			},
 			{
 				name: "rpc-first-proto",
@@ -2635,7 +2635,7 @@ message HelloRequest { string name = 1; }
 message HelloResponse { string message = 1; }
 service Greeter { rpc SayHello (HelloRequest) returns (HelloResponse); }
 `,
-				wantFiles: []string{"orders.proto", filepath.Join("internal", "rpc", "orders.gofly.go")},
+				wantFiles: []string{"orders.proto", filepath.Join("internal", "api", "rpc", "orders.gofly.go")},
 			},
 			{
 				name: "rpc-first-thrift",
@@ -2652,7 +2652,7 @@ service Greeter {
   HelloResponse SayHello(1: HelloRequest req)
 }
 `,
-				wantFiles: []string{"orders.proto", filepath.Join("internal", "rpc", "orders.gofly.go")},
+				wantFiles: []string{"orders.proto", filepath.Join("internal", "api", "rpc", "orders.gofly.go")},
 			},
 		} {
 			t.Run(tt.name, func(t *testing.T) {

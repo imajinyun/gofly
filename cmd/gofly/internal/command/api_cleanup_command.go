@@ -138,13 +138,27 @@ func safeAPIStaleCleanupRel(file string) (string, error) {
 	if !strings.HasSuffix(rel, ".go") {
 		return "", fmt.Errorf("stale api file %q is not a .go file", file)
 	}
-	if !strings.HasPrefix(rel, "internal/handler/") && !strings.HasPrefix(rel, "internal/logic/") {
-		return "", fmt.Errorf("stale api file %q is outside internal/handler or internal/logic", file)
+	if !isAPIStaleCleanupAllowedRel(rel) {
+		return "", fmt.Errorf("stale api file %q is outside internal/api/http, internal/app, or legacy handler/logic directories", file)
 	}
 	if filepath.Base(rel) == "routes.go" {
 		return "", fmt.Errorf("stale api file %q must not remove routes.go", file)
 	}
 	return rel, nil
+}
+
+func isAPIStaleCleanupAllowedRel(rel string) bool {
+	for _, prefix := range []string{
+		"internal/api/http/",
+		"internal/app/",
+		"internal/handler/",
+		"internal/logic/",
+	} {
+		if strings.HasPrefix(rel, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func safeAPIStaleCleanupTarget(root string, rel string) (string, error) {

@@ -169,8 +169,8 @@ func replayGoctlFixture(t *testing.T, fixtureDir string, fixture goctlReplayFixt
 
 func assertGoctlReplayArtifacts(t *testing.T, outDir string, fixture goctlReplayFixture) {
 	t.Helper()
-	handler := readReplayFile(t, outDir, filepath.Join("internal", "handler", "routes.go"))
-	for _, want := range []string{"package handler", "RegisterHandlers", `Path: "/ping"`, `rest.WithPrefix("/api/v1")`} {
+	handler := readReplayFile(t, outDir, filepath.Join("internal", "api", "http", "routes.go"))
+	for _, want := range []string{"package api", "RegisterHandlers", `Path: "/ping"`, `rest.WithPrefix("/api/v1")`} {
 		if !strings.Contains(handler, want) {
 			t.Fatalf("goctl handler routes missing %q:\n%s", want, handler)
 		}
@@ -197,7 +197,7 @@ func assertGoctlReplayArtifacts(t *testing.T, outDir string, fixture goctlReplay
 
 func assertOrdersGoctlReplayArtifacts(t *testing.T, outDir string) {
 	t.Helper()
-	apiRoutes := readReplayFile(t, outDir, filepath.Join("internal", "api", "v1", "orders_api", "routes.go"))
+	apiRoutes := readReplayFile(t, outDir, filepath.Join("internal", "api", "http", "v1", "orders_api", "routes.go"))
 	for _, want := range []string{
 		"RegisterOrdersApiRoutes",
 		"RegisterCreateOrderRoute",
@@ -207,13 +207,13 @@ func assertOrdersGoctlReplayArtifacts(t *testing.T, outDir string) {
 			t.Fatalf("generated API routes missing %q:\n%s", want, apiRoutes)
 		}
 	}
-	createRoute := readReplayFile(t, outDir, filepath.Join("internal", "api", "v1", "orders_api", "create_order.go"))
+	createRoute := readReplayFile(t, outDir, filepath.Join("internal", "api", "http", "v1", "orders_api", "create_order.go"))
 	for _, want := range []string{`Path: "/orders"`, "ctx.BindRequest(&req)"} {
 		if !strings.Contains(createRoute, want) {
 			t.Fatalf("generated create order route missing %q:\n%s", want, createRoute)
 		}
 	}
-	getRoute := readReplayFile(t, outDir, filepath.Join("internal", "api", "v1", "orders_api", "get_order.go"))
+	getRoute := readReplayFile(t, outDir, filepath.Join("internal", "api", "http", "v1", "orders_api", "get_order.go"))
 	for _, want := range []string{`Path: "/orders/:id"`, "ctx.BindRequest(&req)"} {
 		if !strings.Contains(getRoute, want) {
 			t.Fatalf("generated get order route missing %q:\n%s", want, getRoute)
@@ -284,7 +284,7 @@ func assertInventoryGoctlReplayArtifacts(t *testing.T, outDir string, fixture go
 		"composite-unique-key",
 		"cache-template",
 	})
-	typesData := readReplayFile(t, outDir, filepath.Join("internal", "api", "v1", "types.go"))
+	typesData := readReplayFile(t, outDir, filepath.Join("internal", "api", "http", "v1", "types.go"))
 	for _, want := range []string{
 		"type AuditMeta struct",
 		"type PageRequest struct",
@@ -300,7 +300,7 @@ func assertInventoryGoctlReplayArtifacts(t *testing.T, outDir string, fixture go
 			t.Fatalf("generated imported/matrix types missing %q:\n%s", want, typesData)
 		}
 	}
-	inventoryRoutes := readReplayFile(t, outDir, filepath.Join("internal", "api", "v1", "inventory_api", "routes.go"))
+	inventoryRoutes := readReplayFile(t, outDir, filepath.Join("internal", "api", "http", "v1", "inventory_api", "routes.go"))
 	for _, want := range []string{
 		"RegisterInventoryApiRoutes",
 		"RegisterCreateInventoryRoute",
@@ -311,7 +311,7 @@ func assertInventoryGoctlReplayArtifacts(t *testing.T, outDir string, fixture go
 			t.Fatalf("generated inventory routes missing %q:\n%s", want, inventoryRoutes)
 		}
 	}
-	adminRoutes := readReplayFile(t, outDir, filepath.Join("internal", "api", "v1", "admin_api", "routes.go"))
+	adminRoutes := readReplayFile(t, outDir, filepath.Join("internal", "api", "http", "v1", "admin_api", "routes.go"))
 	for _, want := range []string{
 		"RegisterAdminApiRoutes",
 		"RegisterAdjustInventoryRoute",
@@ -320,7 +320,7 @@ func assertInventoryGoctlReplayArtifacts(t *testing.T, outDir string, fixture go
 			t.Fatalf("generated admin routes missing %q:\n%s", want, adminRoutes)
 		}
 	}
-	adjustRoute := readReplayFile(t, outDir, filepath.Join("internal", "api", "v1", "admin_api", "adjust_inventory.go"))
+	adjustRoute := readReplayFile(t, outDir, filepath.Join("internal", "api", "http", "v1", "admin_api", "adjust_inventory.go"))
 	for _, want := range []string{`Path: "/inventory/:id/adjust"`, "ctx.BindRequest(&req)"} {
 		if !strings.Contains(adjustRoute, want) {
 			t.Fatalf("generated adjust inventory route missing %q:\n%s", want, adjustRoute)
@@ -441,7 +441,7 @@ func assertBillingGoctlReplayArtifacts(t *testing.T, outDir string, fixture goct
 		"composite-unique-key",
 		"cache-template",
 	})
-	typesData := readReplayFile(t, outDir, filepath.Join("internal", "api", "v1", "types.go"))
+	typesData := readReplayFile(t, outDir, filepath.Join("internal", "api", "http", "v1", "types.go"))
 	for _, want := range []string{
 		"type RequestMeta struct",
 		"type MoneyAmount struct",
@@ -472,7 +472,7 @@ func assertBillingGoctlReplayArtifacts(t *testing.T, outDir string, fixture goct
 			t.Fatalf("generated billing types should use Request/Response names, found %q:\n%s", unexpected, typesData)
 		}
 	}
-	billingRoutes := readReplayFile(t, outDir, filepath.Join("internal", "api", "v1", "billing_api", "routes.go"))
+	billingRoutes := readReplayFile(t, outDir, filepath.Join("internal", "api", "http", "v1", "billing_api", "routes.go"))
 	for _, want := range []string{
 		"RegisterBillingApiRoutes",
 		"RegisterCreateInvoiceRoute",
@@ -483,7 +483,7 @@ func assertBillingGoctlReplayArtifacts(t *testing.T, outDir string, fixture goct
 			t.Fatalf("generated billing routes missing %q:\n%s", want, billingRoutes)
 		}
 	}
-	captureRoutes := readReplayFile(t, outDir, filepath.Join("internal", "api", "v1", "capture_api", "routes.go"))
+	captureRoutes := readReplayFile(t, outDir, filepath.Join("internal", "api", "http", "v1", "capture_api", "routes.go"))
 	for _, want := range []string{
 		"RegisterCaptureApiRoutes",
 		"RegisterCaptureInvoiceRoute",
@@ -492,7 +492,7 @@ func assertBillingGoctlReplayArtifacts(t *testing.T, outDir string, fixture goct
 			t.Fatalf("generated capture routes missing %q:\n%s", want, captureRoutes)
 		}
 	}
-	captureRoute := readReplayFile(t, outDir, filepath.Join("internal", "api", "v1", "capture_api", "capture_invoice.go"))
+	captureRoute := readReplayFile(t, outDir, filepath.Join("internal", "api", "http", "v1", "capture_api", "capture_invoice.go"))
 	for _, want := range []string{`Path: "/invoices/:id/capture"`, "ctx.BindRequest(&req)"} {
 		if !strings.Contains(captureRoute, want) {
 			t.Fatalf("generated capture invoice route missing %q:\n%s", want, captureRoute)
@@ -602,7 +602,7 @@ func assertUserGoctlReplayArtifacts(t *testing.T, outDir string, fixture goctlRe
 		"optimistic-lock",
 		"cache-template",
 	})
-	typesData := readReplayFile(t, outDir, filepath.Join("internal", "api", "v1", "types.go"))
+	typesData := readReplayFile(t, outDir, filepath.Join("internal", "api", "http", "v1", "types.go"))
 	for _, want := range []string{
 		"type CreateUserRequest struct",
 		"type SearchUsersRequest struct",
@@ -615,7 +615,7 @@ func assertUserGoctlReplayArtifacts(t *testing.T, outDir string, fixture goctlRe
 			t.Fatalf("generated user types missing %q:\n%s", want, typesData)
 		}
 	}
-	userRoutes := readReplayFile(t, outDir, filepath.Join("internal", "api", "v1", "user_api", "routes.go"))
+	userRoutes := readReplayFile(t, outDir, filepath.Join("internal", "api", "http", "v1", "user_api", "routes.go"))
 	for _, want := range []string{
 		"RegisterUserApiRoutes",
 		"RegisterCreateUserRoute",
@@ -627,13 +627,13 @@ func assertUserGoctlReplayArtifacts(t *testing.T, outDir string, fixture goctlRe
 			t.Fatalf("generated user routes missing %q:\n%s", want, userRoutes)
 		}
 	}
-	searchRoute := readReplayFile(t, outDir, filepath.Join("internal", "api", "v1", "user_api", "search_users.go"))
+	searchRoute := readReplayFile(t, outDir, filepath.Join("internal", "api", "http", "v1", "user_api", "search_users.go"))
 	for _, want := range []string{`Path: "/users"`, "ctx.BindRequest(&req)"} {
 		if !strings.Contains(searchRoute, want) {
 			t.Fatalf("generated search users route missing %q:\n%s", want, searchRoute)
 		}
 	}
-	updateRoute := readReplayFile(t, outDir, filepath.Join("internal", "api", "v1", "user_api", "update_user.go"))
+	updateRoute := readReplayFile(t, outDir, filepath.Join("internal", "api", "http", "v1", "user_api", "update_user.go"))
 	for _, want := range []string{`Path: "/users/:id"`, "ctx.BindRequest(&req)"} {
 		if !strings.Contains(updateRoute, want) {
 			t.Fatalf("generated update user route missing %q:\n%s", want, updateRoute)
@@ -682,7 +682,7 @@ func assertTaskGoctlReplayArtifacts(t *testing.T, outDir string, fixture goctlRe
 		"optimistic-lock",
 		"cache-template",
 	})
-	typesData := readReplayFile(t, outDir, filepath.Join("internal", "api", "v1", "types.go"))
+	typesData := readReplayFile(t, outDir, filepath.Join("internal", "api", "http", "v1", "types.go"))
 	for _, want := range []string{
 		"type CreateTaskRequest struct",
 		"type ListTasksRequest struct",
@@ -696,7 +696,7 @@ func assertTaskGoctlReplayArtifacts(t *testing.T, outDir string, fixture goctlRe
 			t.Fatalf("generated task types missing %q:\n%s", want, typesData)
 		}
 	}
-	taskRoutes := readReplayFile(t, outDir, filepath.Join("internal", "api", "v1", "task_api", "routes.go"))
+	taskRoutes := readReplayFile(t, outDir, filepath.Join("internal", "api", "http", "v1", "task_api", "routes.go"))
 	for _, want := range []string{
 		"RegisterTaskApiRoutes",
 		"RegisterCreateTaskRoute",
@@ -707,19 +707,19 @@ func assertTaskGoctlReplayArtifacts(t *testing.T, outDir string, fixture goctlRe
 			t.Fatalf("generated task routes missing %q:\n%s", want, taskRoutes)
 		}
 	}
-	adminRoutes := readReplayFile(t, outDir, filepath.Join("internal", "api", "v1", "task_admin_api", "routes.go"))
+	adminRoutes := readReplayFile(t, outDir, filepath.Join("internal", "api", "http", "v1", "task_admin_api", "routes.go"))
 	for _, want := range []string{"RegisterTaskAdminApiRoutes", "RegisterDeleteTaskRoute"} {
 		if !strings.Contains(adminRoutes, want) {
 			t.Fatalf("generated task admin routes missing %q:\n%s", want, adminRoutes)
 		}
 	}
-	completeRoute := readReplayFile(t, outDir, filepath.Join("internal", "api", "v1", "task_api", "complete_task.go"))
+	completeRoute := readReplayFile(t, outDir, filepath.Join("internal", "api", "http", "v1", "task_api", "complete_task.go"))
 	for _, want := range []string{`Path: "/tasks/:id/complete"`, "ctx.BindRequest(&req)"} {
 		if !strings.Contains(completeRoute, want) {
 			t.Fatalf("generated complete task route missing %q:\n%s", want, completeRoute)
 		}
 	}
-	deleteRoute := readReplayFile(t, outDir, filepath.Join("internal", "api", "v1", "task_admin_api", "delete_task.go"))
+	deleteRoute := readReplayFile(t, outDir, filepath.Join("internal", "api", "http", "v1", "task_admin_api", "delete_task.go"))
 	for _, want := range []string{`Path: "/tasks/:id"`, "ctx.BindRequest(&req)"} {
 		if !strings.Contains(deleteRoute, want) {
 			t.Fatalf("generated delete task route missing %q:\n%s", want, deleteRoute)

@@ -141,9 +141,9 @@ func GenerateRESTFromAPI(opts APIOptions) error {
 	}
 	if profile == ProfileGoZeroCompatible {
 		baseOpts := opts
-		baseOpts.Dir = filepath.Join(baseOpts.Dir, "internal", "api")
+		baseOpts.Dir = filepath.Join(baseOpts.Dir, "internal", "api", "http")
 		if strings.TrimSpace(baseOpts.Package) == "" {
-			baseOpts.Package = filepath.Base(baseOpts.Dir)
+			baseOpts.Package = "api"
 		}
 		baseOpts.Package = lowerName(baseOpts.Package)
 		if err := writeRESTFiles(doc, baseOpts); err != nil {
@@ -151,9 +151,9 @@ func GenerateRESTFromAPI(opts APIOptions) error {
 		}
 		return writeGoZeroCompatibleRESTFiles(doc, opts)
 	}
-	opts.Dir = filepath.Join(opts.Dir, "internal", "api")
+	opts.Dir = filepath.Join(opts.Dir, "internal", "api", "http")
 	if strings.TrimSpace(opts.Package) == "" {
-		opts.Package = filepath.Base(opts.Dir)
+		opts.Package = "api"
 	}
 	opts.Package = lowerName(opts.Package)
 	return writeRESTFiles(doc, opts)
@@ -3128,7 +3128,7 @@ func writeGoZeroAPIMainFile(root string, module string, serviceName string) erro
 	if hasConfig {
 		fprintf(&b, "\t%q\n", strings.TrimRight(module, "/")+"/internal/config")
 	}
-	fprintf(&b, "\t%q\n", strings.TrimRight(module, "/")+"/internal/handler")
+	fprintf(&b, "\tapi %q\n", strings.TrimRight(module, "/")+"/internal/api/http")
 	fprintf(&b, "\t%q\n", strings.TrimRight(module, "/")+"/internal/svc")
 	fprintf(&b, ")\n\n")
 	fprintf(&b, "var configFile = flag.String(\"f\", \"etc/%s.yaml\", \"the config file\")\n\n", serviceName)
@@ -3139,9 +3139,9 @@ func writeGoZeroAPIMainFile(root string, module string, serviceName string) erro
 	fprintf(&b, "\tserver := rest.MustNewServer(conf)\n")
 	fprintf(&b, "\tdefer func() { _ = server.Shutdown(context.Background()) }()\n\n")
 	if hasConfig {
-		fprintf(&b, "\thandler.RegisterHandlers(server, svc.NewServiceContext(config.Config{}))\n")
+		fprintf(&b, "\tapi.RegisterHandlers(server, svc.NewServiceContext(config.Config{}))\n")
 	} else {
-		fprintf(&b, "\thandler.RegisterHandlers(server, svc.NewServiceContext())\n")
+		fprintf(&b, "\tapi.RegisterHandlers(server, svc.NewServiceContext())\n")
 	}
 	fprintf(&b, "\tfmt.Printf(\"Starting server at %%s:%%d...\\n\", conf.Host, conf.Port)\n")
 	fprintf(&b, "\tif err := server.Start(); err != nil {\n")
@@ -3175,10 +3175,10 @@ func writeGoZeroAPILogicFile(root, module string, group string, method IDLMethod
 	fprintf(&b, ")\n\n")
 	fprintf(&b, "type %s struct {\n", logicName)
 	fprintf(&b, "\tctx context.Context\n")
-	fprintf(&b, "\tsvcCtx *svc.ServiceContext\n")
+	fprintf(&b, "\tstx *svc.ServiceContext\n")
 	fprintf(&b, "}\n\n")
-	fprintf(&b, "func New%s(ctx context.Context, svcCtx *svc.ServiceContext) *%s {\n", logicName, logicName)
-	fprintf(&b, "\treturn &%s{ctx: ctx, svcCtx: svcCtx}\n", logicName)
+	fprintf(&b, "func New%s(ctx context.Context, stx *svc.ServiceContext) *%s {\n", logicName, logicName)
+	fprintf(&b, "\treturn &%s{ctx: ctx, stx: stx}\n", logicName)
 	fprintf(&b, "}\n\n")
 	if strings.TrimSpace(method.Request) == "" {
 		fprintf(&b, "func (l *%s) %s() (*types.%s, error) {\n", logicName, methodName, responseName)
@@ -3191,7 +3191,7 @@ func writeGoZeroAPILogicFile(root, module string, group string, method IDLMethod
 	if err != nil {
 		return fmt.Errorf("format gozero-compatible logic %s: %w", methodName, err)
 	}
-	return writeGeneratedFileUnderIfMissing(root, filepath.Join("internal", "logic", goZeroAPILogicFile(group, methodName)), formatted)
+	return writeGeneratedFileUnderIfMissing(root, filepath.Join("internal", "app", goZeroAPILogicFile(group, methodName)), formatted)
 }
 
 func writeGoZeroAPIHandlerFile(root, module string, group string, method IDLMethod) error {
@@ -3204,13 +3204,13 @@ func writeGoZeroAPIHandlerFile(root, module string, group string, method IDLMeth
 	fprintf(&b, "import (\n")
 	fprintf(&b, "\t\"net/http\"\n\n")
 	fprintf(&b, "\t\"github.com/imajinyun/gofly/rest\"\n\n")
-	fprintf(&b, "\t%s %q\n", goZeroAPILogicAlias(group), strings.TrimRight(module, "/")+"/internal/logic"+goZeroAPIGroupImportSuffix(group))
+	fprintf(&b, "\t%s %q\n", goZeroAPILogicAlias(group), strings.TrimRight(module, "/")+"/internal/app"+goZeroAPIGroupImportSuffix(group))
 	fprintf(&b, "\t%q\n", strings.TrimRight(module, "/")+"/internal/svc")
 	if strings.TrimSpace(method.Request) != "" {
 		fprintf(&b, "\t%q\n", strings.TrimRight(module, "/")+"/internal/types")
 	}
 	fprintf(&b, ")\n\n")
-	fprintf(&b, "func %s(svcCtx *svc.ServiceContext) rest.HandlerFunc {\n", handlerName)
+	fprintf(&b, "func %s(stx *svc.ServiceContext) rest.HandlerFunc {\n", handlerName)
 	fprintf(&b, "\treturn func(ctx *rest.Context) {\n")
 	if strings.TrimSpace(method.Request) != "" {
 		fprintf(&b, "\t\tvar req types.%s\n", requestName)
@@ -3218,9 +3218,9 @@ func writeGoZeroAPIHandlerFile(root, module string, group string, method IDLMeth
 		fprintf(&b, "\t\t\tctx.Error(err)\n")
 		fprintf(&b, "\t\t\treturn\n")
 		fprintf(&b, "\t\t}\n")
-		fprintf(&b, "\t\tresp, err := %s.New%s(ctx.Request.Context(), svcCtx).%s(&req)\n", goZeroAPILogicAlias(group), logicName, exportName(method.Name))
+		fprintf(&b, "\t\tresp, err := %s.New%s(ctx.Request.Context(), stx).%s(&req)\n", goZeroAPILogicAlias(group), logicName, exportName(method.Name))
 	} else {
-		fprintf(&b, "\t\tresp, err := %s.New%s(ctx.Request.Context(), svcCtx).%s()\n", goZeroAPILogicAlias(group), logicName, exportName(method.Name))
+		fprintf(&b, "\t\tresp, err := %s.New%s(ctx.Request.Context(), stx).%s()\n", goZeroAPILogicAlias(group), logicName, exportName(method.Name))
 	}
 	fprintf(&b, "\t\tif err != nil {\n")
 	fprintf(&b, "\t\t\tctx.Error(err)\n")
@@ -3233,7 +3233,7 @@ func writeGoZeroAPIHandlerFile(root, module string, group string, method IDLMeth
 	if err != nil {
 		return fmt.Errorf("format gozero-compatible handler %s: %w", handlerName, err)
 	}
-	return writeGeneratedFileUnderIfMissing(root, filepath.Join("internal", "handler", goZeroAPIHandlerFile(group, handlerName)), formatted)
+	return writeGeneratedFileUnderIfMissing(root, filepath.Join("internal", "api", "http", goZeroAPIHandlerFile(group, handlerName)), formatted)
 }
 
 func writeGeneratedFileUnderIfMissing(root string, name string, data []byte) error {
@@ -3272,29 +3272,41 @@ func expectedGoZeroAPIBusinessFiles(services []IDLService) goZeroAPIExpectedFile
 		for _, method := range svc.Methods {
 			handlerName := goZeroAPIHandlerName(method)
 			methodName := exportName(method.Name)
-			expected.Handlers[filepath.ToSlash(filepath.Join("internal", "handler", goZeroAPIHandlerFile(svc.Server.Group, handlerName)))] = struct{}{}
-			expected.Logics[filepath.ToSlash(filepath.Join("internal", "logic", goZeroAPILogicFile(svc.Server.Group, methodName)))] = struct{}{}
+			expected.Handlers[filepath.ToSlash(filepath.Join("internal", "api", "http", goZeroAPIHandlerFile(svc.Server.Group, handlerName)))] = struct{}{}
+			expected.Logics[filepath.ToSlash(filepath.Join("internal", "app", goZeroAPILogicFile(svc.Server.Group, methodName)))] = struct{}{}
 		}
 	}
 	return expected
 }
 
 func writeGoZeroAPIStaleReport(root string, expected goZeroAPIExpectedFiles) error {
-	staleHandlers, err := staleGoZeroAPIFiles(root, filepath.Join("internal", "handler"), expected.Handlers)
+	staleHandlers, err := staleGoZeroAPIFiles(root, filepath.Join("internal", "api", "http"), expected.Handlers)
 	if err != nil {
 		return err
 	}
-	staleLogics, err := staleGoZeroAPIFiles(root, filepath.Join("internal", "logic"), expected.Logics)
+	legacyHandlers, err := staleGoZeroAPIFiles(root, filepath.Join("internal", "handler"), expected.Handlers)
 	if err != nil {
 		return err
 	}
+	staleHandlers = append(staleHandlers, legacyHandlers...)
+	sort.Strings(staleHandlers)
+	staleLogics, err := staleGoZeroAPIFiles(root, filepath.Join("internal", "app"), expected.Logics)
+	if err != nil {
+		return err
+	}
+	legacyLogics, err := staleGoZeroAPIFiles(root, filepath.Join("internal", "logic"), expected.Logics)
+	if err != nil {
+		return err
+	}
+	staleLogics = append(staleLogics, legacyLogics...)
+	sort.Strings(staleLogics)
 	report := goZeroAPIStaleReport{
 		Schema:         "gofly.gozero_api_stale_files.v1",
 		StaleHandlers:  staleHandlers,
 		StaleLogics:    staleLogics,
 		ActiveHandlers: sortedGoZeroAPIExpectedFiles(expected.Handlers),
 		ActiveLogics:   sortedGoZeroAPIExpectedFiles(expected.Logics),
-		Note:           "stale handler and logic files are preserved on disk but are not registered by the current .api routes",
+		Note:           "stale api/http and app files are preserved on disk but are not registered by the current .api routes",
 	}
 	data, err := json.MarshalIndent(report, "", "  ")
 	if err != nil {
@@ -3317,6 +3329,9 @@ func staleGoZeroAPIFiles(root string, dir string, expected map[string]struct{}) 
 			return err
 		}
 		if entry.IsDir() {
+			if dir == filepath.Join("internal", "api", "http") && entry.Name() == "v1" {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		if filepath.Ext(path) != ".go" || filepath.Base(path) == "routes.go" {
@@ -3350,18 +3365,18 @@ func sortedGoZeroAPIExpectedFiles(expected map[string]struct{}) []string {
 
 func writeGoZeroAPIRoutesFile(root, module string, services []IDLService) error {
 	var b bytes.Buffer
-	fprintf(&b, "package handler\n\n")
+	fprintf(&b, "package api\n\n")
 	fprintf(&b, "import (\n")
 	fprintf(&b, "\t\"net/http\"\n\n")
 	fprintf(&b, "\t\"github.com/imajinyun/gofly/rest\"\n")
 	fprintf(&b, "\t%q\n", strings.TrimRight(module, "/")+"/internal/svc")
 	for _, group := range goZeroAPIHandlerGroups(services) {
-		fprintf(&b, "\t%s %q\n", goZeroAPIHandlerPackage(group), strings.TrimRight(module, "/")+"/internal/handler/"+lowerName(group))
+		fprintf(&b, "\t%s %q\n", goZeroAPIHandlerPackage(group), strings.TrimRight(module, "/")+"/internal/api/http/"+lowerName(group))
 	}
 	fprintf(&b, ")\n\n")
-	fprintf(&b, "func RegisterHandlers(server *rest.Server, svcCtx *svc.ServiceContext) {\n")
+	fprintf(&b, "func RegisterHandlers(server *rest.Server, stx *svc.ServiceContext) {\n")
 	if goZeroAPIPingHandlerExists(root) {
-		fprintf(&b, "\tserver.AddRoute(rest.Route{Method: http.MethodGet, Path: \"/ping\", Handler: PingHandler(svcCtx)}, rest.WithPrefix(\"/api/v1\"))\n")
+		fprintf(&b, "\tserver.AddRoute(rest.Route{Method: http.MethodGet, Path: \"/ping\", Handler: PingHandler(stx)}, rest.WithPrefix(\"/api/v1\"))\n")
 	}
 	for _, svc := range services {
 		prefix := strings.TrimRight(strings.TrimSpace(svc.Server.Prefix), "/")
@@ -3374,7 +3389,7 @@ func writeGoZeroAPIRoutesFile(root, module string, services []IDLService) error 
 	if err != nil {
 		return fmt.Errorf("format gozero-compatible routes: %w", err)
 	}
-	return writeGeneratedFileUnder(root, filepath.Join("internal", "handler", "routes.go"), formatted)
+	return writeGeneratedFileUnder(root, filepath.Join("internal", "api", "http", "routes.go"), formatted)
 }
 
 func writeGoZeroAPIRouteRegistration(b *bytes.Buffer, svc IDLService, method IDLMethod, prefix string) {
@@ -3389,16 +3404,16 @@ func writeGoZeroAPIRouteRegistration(b *bytes.Buffer, svc IDLService, method IDL
 		fprintf(b, "\t{\n")
 		fprintf(b, "\t\topts := []rest.RouteOption{%s}\n", strings.Join(optionVars, ", "))
 		writeGoZeroAPIRouteDynamicOptions(b, svc)
-		fprintf(b, "\t\tserver.AddRoute(rest.Route{Method: http.Method%s, Path: %q, Handler: %s(svcCtx)}, opts...)\n", methodName, method.HTTPPath, handlerCall)
+		fprintf(b, "\t\tserver.AddRoute(rest.Route{Method: http.Method%s, Path: %q, Handler: %s(stx)}, opts...)\n", methodName, method.HTTPPath, handlerCall)
 		fprintf(b, "\t}\n")
 		return
 	}
-	fprintf(b, "\tserver.AddRoute(rest.Route{Method: http.Method%s, Path: %q, Handler: %s(svcCtx)})\n", methodName, method.HTTPPath, handlerCall)
+	fprintf(b, "\tserver.AddRoute(rest.Route{Method: http.Method%s, Path: %q, Handler: %s(stx)})\n", methodName, method.HTTPPath, handlerCall)
 }
 
 func writeGoZeroAPIRouteDynamicOptions(b *bytes.Buffer, svc IDLService) {
 	if svc.Server.JWT != "" {
-		fprintf(b, "\t\tif validator, ok := svcCtx.JWTValidators[%q]; ok && validator != nil {\n", svc.Server.JWT)
+		fprintf(b, "\t\tif validator, ok := stx.JWTValidators[%q]; ok && validator != nil {\n", svc.Server.JWT)
 		fprintf(b, "\t\t\topts = append(opts, rest.WithAuth(validator))\n")
 		fprintf(b, "\t\t}\n")
 	}
@@ -3406,7 +3421,7 @@ func writeGoZeroAPIRouteDynamicOptions(b *bytes.Buffer, svc IDLService) {
 		middlewareNames := goZeroAPIMiddlewareNames(svc.Server.Middleware)
 		fprintf(b, "\t\tmiddlewares := make([]rest.Middleware, 0, %d)\n", len(middlewareNames))
 		for _, name := range middlewareNames {
-			fprintf(b, "\t\tif mw, ok := svcCtx.Middlewares[%q]; ok && mw != nil {\n", name)
+			fprintf(b, "\t\tif mw, ok := stx.Middlewares[%q]; ok && mw != nil {\n", name)
 			fprintf(b, "\t\t\tmiddlewares = append(middlewares, mw)\n")
 			fprintf(b, "\t\t}\n")
 		}
@@ -3417,7 +3432,7 @@ func writeGoZeroAPIRouteDynamicOptions(b *bytes.Buffer, svc IDLService) {
 }
 
 func goZeroAPIPingHandlerExists(root string) bool {
-	_, err := os.Stat(filepath.Join(root, "internal", "handler", "pinghandler.go"))
+	_, err := os.Stat(filepath.Join(root, "internal", "api", "http", "pinghandler.go"))
 	return err == nil
 }
 
@@ -3438,7 +3453,7 @@ func goZeroAPIHandlerFile(group string, handlerName string) string {
 
 func goZeroAPIHandlerPackage(group string) string {
 	if !goZeroAPIHasGroup(group) {
-		return "handler"
+		return "api"
 	}
 	return lowerName(group)
 }
@@ -3460,9 +3475,9 @@ func goZeroAPILogicFile(group string, methodName string) string {
 
 func goZeroAPILogicPackage(group string) string {
 	if !goZeroAPIHasGroup(group) {
-		return "logic"
+		return "app"
 	}
-	return lowerName(group) + "logic"
+	return lowerName(group) + "app"
 }
 
 func goZeroAPILogicAlias(group string) string {
@@ -3481,7 +3496,7 @@ func goZeroAPIGroupImportSuffix(group string) string {
 
 func goZeroAPIHasGroup(group string) bool {
 	name := lowerName(group)
-	return name != "" && name != "api" && name != "handler"
+	return name != "" && name != "api" && name != "http" && name != "handler"
 }
 
 func goZeroAPIHandlerGroups(services []IDLService) []string {

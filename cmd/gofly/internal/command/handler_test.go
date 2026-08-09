@@ -15,7 +15,7 @@ func TestExecuteHandlerGenWithPath(t *testing.T) {
 	if err := Execute([]string{"handler", "gen", "--name", "CreateUser", "--dir", dir, "--path", "v1/user"}); err != nil {
 		t.Fatal(err)
 	}
-	data, err := os.ReadFile(filepath.Join(dir, "internal", "api", "v1", "user", "create_user.go"))
+	data, err := os.ReadFile(filepath.Join(dir, "internal", "api", "http", "v1", "user", "create_user.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,7 +34,7 @@ func TestExecuteHandlerGenAcceptsMixedPositionalsAndFlags(t *testing.T) {
 	if err := Execute([]string{"handler", "gen", "CreateOrder", "--dir", dir, "--path", "v1/order"}); err != nil {
 		t.Fatal(err)
 	}
-	data, err := os.ReadFile(filepath.Join(dir, "internal", "api", "v1", "order", "create_order.go"))
+	data, err := os.ReadFile(filepath.Join(dir, "internal", "api", "http", "v1", "order", "create_order.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +51,7 @@ func TestExecuteHandlerGenDefaultPath(t *testing.T) {
 	if err := Execute([]string{"handler", "gen", "--name", "status", "--dir", dir}); err != nil {
 		t.Fatal(err)
 	}
-	data, err := os.ReadFile(filepath.Join(dir, "internal", "api", "status.go"))
+	data, err := os.ReadFile(filepath.Join(dir, "internal", "api", "http", "status.go"))
 	if err != nil {
 		t.Fatal(err)
 	}

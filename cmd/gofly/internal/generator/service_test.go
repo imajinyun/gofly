@@ -42,12 +42,12 @@ func TestGenerateService(t *testing.T) {
 		filepath.Join("internal", "config", "discovery_test.go"),
 		filepath.Join("internal", "smoke", "service_smoke_test.go"),
 		filepath.Join("internal", "routes", "routes.go"),
-		filepath.Join("internal", "api", "v1", "ping", "ping.go"),
+		filepath.Join("internal", "api", "http", "v1", "ping", "ping.go"),
 		filepath.Join("internal", "middleware", "trim.go"),
 		filepath.Join("internal", "service", "ping_test.go"),
 		filepath.Join("internal", "mq", "broker.go"),
 		filepath.Join("internal", "discovery", "registry.go"),
-		filepath.Join("internal", "rpc", "greeter.go"),
+		filepath.Join("internal", "api", "rpc", "greeter.go"),
 		filepath.Join("etc", "governance.json"),
 		filepath.Join("deploy", "k8s", "hello.yaml"),
 		filepath.Join("deploy", "helm", "Chart.yaml"),
@@ -76,7 +76,7 @@ func TestGenerateService(t *testing.T) {
 	if strings.Contains(string(readmeData), "{{.DebugReplayCooldown") {
 		t.Fatalf("README left unrendered cooldown placeholder:\n%s", readmeData)
 	}
-	greeterData, err := os.ReadFile(filepath.Join(dir, "internal", "rpc", "greeter.go"))
+	greeterData, err := os.ReadFile(filepath.Join(dir, "internal", "api", "rpc", "greeter.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,10 +84,10 @@ func TestGenerateService(t *testing.T) {
 		t.Fatalf("greeter.go handler is not defensive:\n%s", greeterData)
 	}
 	oldPaths := []string{
-		filepath.Join("internal", "handler", "routes.go"),
-		filepath.Join("internal", "handler", "ping.go"),
-		filepath.Join("internal", "handler", "ping_handler.go"),
-		filepath.Join("internal", "logic", "ping_logic.go"),
+		filepath.Join("internal", "api", "http", "routes.go"),
+		filepath.Join("internal", "api", "http", "ping.go"),
+		filepath.Join("internal", "api", "http", "ping_handler.go"),
+		filepath.Join("internal", "app", "ping_logic.go"),
 	}
 	for _, rel := range oldPaths {
 		if _, err := os.Stat(filepath.Join(dir, rel)); err == nil {
@@ -107,7 +107,7 @@ func TestGenerateService(t *testing.T) {
 	}
 	for _, want := range []string{
 		"package routes",
-		`"example.com/hello/internal/api/v1/ping"`,
+		`"example.com/hello/internal/api/http/v1/ping"`,
 		`Path: "/v1/ping"`,
 	} {
 		if !strings.Contains(string(routesData), want) {
@@ -461,7 +461,7 @@ func TestGenerateService(t *testing.T) {
 			t.Fatalf("main.go missing ServiceConf runtime wiring %q:\n%s", want, mainData)
 		}
 	}
-	greeterClientTestData, err := os.ReadFile(filepath.Join(dir, "internal", "rpc", "greeter_client_test.go"))
+	greeterClientTestData, err := os.ReadFile(filepath.Join(dir, "internal", "api", "rpc", "greeter_client_test.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1425,8 +1425,8 @@ func TestServiceFilesForProfileCoverageBuffer(t *testing.T) {
 				"Dockerfile",
 				"Makefile",
 				filepath.Join("internal", "svc", "servicecontext.go"),
-				filepath.Join("internal", "logic", "pinglogic.go"),
-				filepath.Join("internal", "handler", "routes.go"),
+				filepath.Join("internal", "app", "pinglogic.go"),
+				filepath.Join("internal", "api", "http", "routes.go"),
 			},
 			wantAbsent: []string{filepath.Join("internal", "routes", "routes.go"), filepath.Join("internal", "compat", "kitex", "adapter.go")},
 		},
@@ -1436,7 +1436,7 @@ func TestServiceFilesForProfileCoverageBuffer(t *testing.T) {
 			profile: ProfileGoZeroCompatible,
 			want: []string{
 				filepath.Join("internal", "types", "types.go"),
-				filepath.Join("internal", "handler", "pinghandler.go"),
+				filepath.Join("internal", "api", "http", "pinghandler.go"),
 			},
 			wantAbsent: []string{"Dockerfile", "Makefile"},
 		},
@@ -1482,9 +1482,9 @@ func TestGoldenPathProductionServiceLayoutContract(t *testing.T) {
 		filepath.Join("internal", "config", "discovery_test.go"),
 		filepath.Join("internal", "config", "production_check.go"),
 		filepath.Join("internal", "routes", "routes.go"),
-		filepath.Join("internal", "api", "v1", "ping", "ping.go"),
+		filepath.Join("internal", "api", "http", "v1", "ping", "ping.go"),
 		filepath.Join("internal", "service", "ping.go"),
-		filepath.Join("internal", "rpc", "greeter.go"),
+		filepath.Join("internal", "api", "rpc", "greeter.go"),
 		filepath.Join("internal", "admin", "admin.go"),
 		filepath.Join("internal", "discovery", "registry.go"),
 		filepath.Join("internal", "smoke", "service_smoke_test.go"),
@@ -2027,7 +2027,7 @@ func TestGenerateNewServiceVariantsBoundaries(t *testing.T) {
 			t.Fatalf("generated service context missing mux client activation %q:\n%s", want, svcData)
 		}
 	}
-	rpcTestData, err := os.ReadFile(filepath.Join(rpcDir, "internal", "rpc", "greeter_client_test.go"))
+	rpcTestData, err := os.ReadFile(filepath.Join(rpcDir, "internal", "api", "rpc", "greeter_client_test.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2300,7 +2300,7 @@ func TestGenerateHandlerAndMiddlewareBoundaries(t *testing.T) {
 	if err := GenerateHandler(HandlerOptions{Name: "ListUsers", Dir: dir, Path: "v1/admin"}); err != nil {
 		t.Fatalf("GenerateHandler inferred module: %v", err)
 	}
-	handlerPath := filepath.Join(dir, "internal", "api", "v1", "admin", "list_users.go")
+	handlerPath := filepath.Join(dir, "internal", "api", "http", "v1", "admin", "list_users.go")
 	handlerData, err := os.ReadFile(handlerPath)
 	if err != nil {
 		t.Fatal(err)
@@ -2508,7 +2508,7 @@ func TestGenerateServiceMinimalStyle(t *testing.T) {
 		filepath.Join(".github", "workflows", "ci.yml"),
 		filepath.Join("etc", "governance.json"),
 		filepath.Join("internal", "discovery", "registry.go"),
-		filepath.Join("internal", "rpc", "greeter.go"),
+		filepath.Join("internal", "api", "rpc", "greeter.go"),
 	} {
 		if _, err := os.Stat(filepath.Join(dir, rel)); err == nil {
 			t.Fatalf("unexpected production file in minimal scaffold %s", rel)
@@ -2625,7 +2625,7 @@ func TestGenerateServiceBasicStyle(t *testing.T) {
 		filepath.Join(".github", "workflows", "ci.yml"),
 		filepath.Join("etc", "governance.json"),
 		filepath.Join("internal", "discovery", "registry.go"),
-		filepath.Join("internal", "rpc", "greeter.go"),
+		filepath.Join("internal", "api", "rpc", "greeter.go"),
 	} {
 		if _, err := os.Stat(filepath.Join(dir, rel)); err == nil {
 			t.Fatalf("unexpected production file in basic scaffold %s", rel)
@@ -2753,7 +2753,7 @@ func TestGenerateAPINewSupportsProductionStyle(t *testing.T) {
 		"hello.api",
 		"Dockerfile",
 		filepath.Join("etc", "governance.json"),
-		filepath.Join("internal", "rpc", "greeter.go"),
+		filepath.Join("internal", "api", "rpc", "greeter.go"),
 	} {
 		if _, err := os.Stat(filepath.Join(dir, rel)); err != nil {
 			t.Fatalf("expected api production generated file %s: %v", rel, err)
@@ -3465,9 +3465,9 @@ func TestGenerateServiceScaffoldGoZeroCompatibleLayeredOutput(t *testing.T) {
 
 	for _, rel := range []string{
 		filepath.Join("cmd", "hello", "main.go"),
-		filepath.Join("internal", "handler", "routes.go"),
-		filepath.Join("internal", "handler", "pinghandler.go"),
-		filepath.Join("internal", "logic", "pinglogic.go"),
+		filepath.Join("internal", "api", "http", "routes.go"),
+		filepath.Join("internal", "api", "http", "pinghandler.go"),
+		filepath.Join("internal", "app", "pinglogic.go"),
 		filepath.Join("internal", "svc", "servicecontext.go"),
 		filepath.Join("internal", "types", "types.go"),
 	} {
@@ -3485,28 +3485,28 @@ func TestGenerateServiceScaffoldGoZeroCompatibleLayeredOutput(t *testing.T) {
 		}
 	}
 
-	handlerData, err := os.ReadFile(filepath.Join(dir, "internal", "handler", "pinghandler.go"))
+	handlerData, err := os.ReadFile(filepath.Join(dir, "internal", "api", "http", "pinghandler.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"package handler",
-		`"example.com/hello/internal/logic"`,
+		"package api",
+		`"example.com/hello/internal/app"`,
 		`"example.com/hello/internal/types"`,
 		"ctx.BindQuery(&req)",
-		"logic.NewPingLogic(ctx.Request.Context(), svcCtx).Ping(&req)",
+		"app.NewPingLogic(ctx.Request.Context(), svcCtx).Ping(&req)",
 	} {
 		if !strings.Contains(string(handlerData), want) {
 			t.Fatalf("pinghandler.go missing %q:\n%s", want, handlerData)
 		}
 	}
 
-	logicData, err := os.ReadFile(filepath.Join(dir, "internal", "logic", "pinglogic.go"))
+	logicData, err := os.ReadFile(filepath.Join(dir, "internal", "app", "pinglogic.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"package logic",
+		"package app",
 		"type PingLogic struct",
 		"func NewPingLogic(ctx context.Context, svcCtx *svc.ServiceContext) *PingLogic",
 		`return &types.PingResponse{Message: "hello " + name}, nil`,
@@ -3531,12 +3531,12 @@ func TestGenerateServiceScaffoldGoZeroCompatibleLayeredOutput(t *testing.T) {
 		}
 	}
 
-	routesData, err := os.ReadFile(filepath.Join(dir, "internal", "handler", "routes.go"))
+	routesData, err := os.ReadFile(filepath.Join(dir, "internal", "api", "http", "routes.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"package handler",
+		"package api",
 		"func RegisterHandlers(server *rest.Server, svcCtx *svc.ServiceContext)",
 		`Path: "/ping"`,
 		`rest.WithPrefix("/api/v1")`,
@@ -3551,8 +3551,8 @@ func TestGenerateServiceScaffoldGoZeroCompatibleLayeredOutput(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		`"example.com/hello/internal/handler"`,
-		"handler.RegisterHandlers(httpServer, svcCtx)",
+		`api "example.com/hello/internal/api/http"`,
+		"api.RegisterHandlers(httpServer, svcCtx)",
 		"svc.NewServiceContext(c)",
 	} {
 		if !strings.Contains(string(mainData), want) {
@@ -3704,6 +3704,10 @@ func TestGenerateServiceCleansLegacyScaffoldFiles(t *testing.T) {
 		filepath.Join("internal", "handler", "ping.go"),
 		filepath.Join("internal", "handler", "ping_handler.go"),
 		filepath.Join("internal", "logic", "ping_logic.go"),
+		filepath.Join("internal", "api", "v1", "ping", "ping.go"),
+		filepath.Join("internal", "rpc", "greeter.go"),
+		filepath.Join("internal", "rpc", "greeter_client_test.go"),
+		filepath.Join("internal", "rpc", "greeter_test.go"),
 	}
 	for _, rel := range legacyFiles {
 		path := filepath.Join(dir, rel)
@@ -3724,7 +3728,7 @@ func TestGenerateServiceCleansLegacyScaffoldFiles(t *testing.T) {
 	}
 	for _, rel := range []string{
 		filepath.Join("internal", "routes", "routes.go"),
-		filepath.Join("internal", "api", "v1", "ping", "ping.go"),
+		filepath.Join("internal", "api", "http", "v1", "ping", "ping.go"),
 		filepath.Join("internal", "middleware", "trim.go"),
 	} {
 		if _, err := os.Stat(filepath.Join(dir, rel)); err != nil {
@@ -3741,7 +3745,7 @@ func TestGenerateHandler(t *testing.T) {
 	if err := GenerateHandler(HandlerOptions{Name: "CreateUser", Dir: dir, Path: "v1/user"}); err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(dir, "internal", "api", "v1", "user", "create_user.go")
+	path := filepath.Join(dir, "internal", "api", "http", "v1", "user", "create_user.go")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -3787,7 +3791,7 @@ func TestGenerateHandlerDefaultPath(t *testing.T) {
 	if err := GenerateHandler(HandlerOptions{Name: "status", Dir: dir}); err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(dir, "internal", "api", "status.go")
+	path := filepath.Join(dir, "internal", "api", "http", "status.go")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)

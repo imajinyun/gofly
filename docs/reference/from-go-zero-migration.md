@@ -12,7 +12,7 @@ fixture replay, and rollback gates runnable while teams move selected surfaces.
 | go-zero surface | gofly migration surface | Evidence |
 | --- | --- | --- |
 | `.api` REST contracts | `gofly api gen --file <service.api> --dir <dir> --profile gozero-compatible` | `docs/reference/goctl-generator-compatibility.json`, `docs/reference/goctl-real-project-replay.json` |
-| `handler/logic/svc/types` layout | `gofly new api <name> --profile gozero-compatible` | `docs/reference/goctl-generator-compatibility.json` |
+| `api/http/app/svc/types` layout | `gofly new api <name> --profile gozero-compatible` | `docs/reference/goctl-generator-compatibility.json` |
 | `etc/<service>-api.yaml` | generated `etc/<service>.json` plus explicit REST profile | `docs/reference/rest-middleware-profiles.md` |
 | REST middleware and auth | generated REST routes plus route/middleware compatibility evidence | `docs/reference/rest-middleware-profiles.md`, `docs/reference/goctl-real-project-replay.json` |
 | zRPC `.proto` | `gofly rpc gen` / `gofly rpc protoc` with compatibility matrix review | `docs/reference/zrpc-proto-compatibility.json` |
@@ -43,8 +43,8 @@ go-zero projects typically wire dependencies through `svc.ServiceContext`.
 gofly preserves that mental model in the `gozero-compatible` profile:
 
 - `internal/svc/servicecontext.go` is the generated dependency entrypoint.
-- `internal/handler/routes.go` receives `svcCtx`.
-- `internal/logic/*logic.go` is constructed with `svcCtx`.
+- `internal/api/http/routes.go` receives `svcCtx`.
+- `internal/app/*logic.go` is constructed with `svcCtx`.
 - `internal/types/types.go` keeps request and response DTOs.
 
 The default gofly production scaffold uses the same concept with additional

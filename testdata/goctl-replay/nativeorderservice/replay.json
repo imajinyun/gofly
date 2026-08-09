@@ -27,10 +27,10 @@
   "expectedArtifacts": [
     "go.mod",
     "etc/nativeorders-api.yaml",
-    "internal/handler/routes.go",
+    "internal/api/http/routes.go",
     "internal/types/types.go",
-    "internal/logic/native/createnativeorderlogic.go",
-    "internal/logic/native/getnativeorderlogic.go",
+    "internal/app/native/createnativeorderlogic.go",
+    "internal/app/native/getnativeorderlogic.go",
     "model/native_order_model.go",
     "model/native_order_model_gen.go",
     "model/nativeordermodel.go",

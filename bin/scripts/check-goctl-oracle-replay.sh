@@ -169,14 +169,14 @@ def validate_contracts(out_dir, fixture):
     go_mod = read_text(out_dir / "go.mod")
     if f"module {fixture['module']}" not in go_mod:
         problems.append("go.mod module")
-    for rel in ("internal/handler/routes.go", "internal/types/types.go"):
+    for rel in ("internal/api/http/routes.go", "internal/types/types.go"):
         if not (out_dir / rel).is_file():
             problems.append(rel)
-    if not any(path.as_posix().endswith(".go") for path in (out_dir / "internal" / "logic").rglob("*.go")):
-        problems.append("logic files")
+    if not any(path.as_posix().endswith(".go") for path in (out_dir / "internal" / "app").rglob("*.go")):
+        problems.append("app files")
     if not any(path.as_posix().endswith(".go") for path in (out_dir / "model").rglob("*.go")):
         problems.append("model output")
-    routes = read_text(out_dir / "internal" / "handler" / "routes.go")
+    routes = read_text(out_dir / "internal" / "api" / "http" / "routes.go")
     if "RegisterHandlers" not in routes:
         problems.append("route registration")
     return problems

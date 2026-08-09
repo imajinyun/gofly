@@ -164,7 +164,7 @@ import (
 	appconfig "{{.Module}}/internal/config"
 	appdiscovery "{{.Module}}/internal/discovery"
 	appmq "{{.Module}}/internal/mq"
-	apprpc "{{.Module}}/internal/rpc"
+	apprpc "{{.Module}}/internal/api/rpc"
 	"{{.Module}}/internal/routes"
 	"{{.Module}}/internal/svc"
 )
@@ -377,7 +377,7 @@ import (
 {{.FeatureImports}}
 
 	appconfig "{{.Module}}/internal/config"
-	"{{.Module}}/internal/handler"
+	api "{{.Module}}/internal/api/http"
 	"{{.Module}}/internal/svc"
 )
 
@@ -400,7 +400,7 @@ func main() {
 	svcCtx := svc.NewServiceContext(c)
 	restConf := serviceConf.RESTConfig(c.Rest)
 	httpServer := rest.MustNewServer(restConf)
-	handler.RegisterHandlers(httpServer, svcCtx)
+	api.RegisterHandlers(httpServer, svcCtx)
 	if c.OpenAPIEnabled() {
 		httpServer.AddOpenAPIRoutes(c.OpenAPIInfo())
 	}
@@ -695,7 +695,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	oteltrace "go.opentelemetry.io/otel/trace"
 	appconfig "{{.Module}}/internal/config"
-	apprpc "{{.Module}}/internal/rpc"
+	apprpc "{{.Module}}/internal/api/rpc"
 	"{{.Module}}/internal/svc"
 )
 
@@ -5266,7 +5266,7 @@ type PingResponse struct {
 }
 `
 
-const goZeroPingLogicTemplate = `package logic
+const goZeroPingLogicTemplate = `package app
 
 import (
 	"context"
@@ -5294,14 +5294,14 @@ func (l *PingLogic) Ping(req *types.PingRequest) (*types.PingResponse, error) {
 }
 `
 
-const goZeroPingHandlerTemplate = `package handler
+const goZeroPingHandlerTemplate = `package api
 
 import (
 	"net/http"
 
 	"github.com/imajinyun/gofly/rest"
 
-	"{{.Module}}/internal/logic"
+	"{{.Module}}/internal/app"
 	"{{.Module}}/internal/svc"
 	"{{.Module}}/internal/types"
 )
@@ -5313,7 +5313,7 @@ func PingHandler(svcCtx *svc.ServiceContext) rest.HandlerFunc {
 			ctx.Error(err)
 			return
 		}
-		resp, err := logic.NewPingLogic(ctx.Request.Context(), svcCtx).Ping(&req)
+		resp, err := app.NewPingLogic(ctx.Request.Context(), svcCtx).Ping(&req)
 		if err != nil {
 			ctx.Error(err)
 			return
@@ -5323,7 +5323,7 @@ func PingHandler(svcCtx *svc.ServiceContext) rest.HandlerFunc {
 }
 `
 
-const goZeroRoutesTemplate = `package handler
+const goZeroRoutesTemplate = `package api
 
 import (
 	"net/http"
@@ -5343,7 +5343,7 @@ const routesTemplate = `package routes
 
 import (
 	"github.com/imajinyun/gofly/rest"
-	"{{.Module}}/internal/api/v1/ping"
+	"{{.Module}}/internal/api/http/v1/ping"
 	"{{.Module}}/internal/svc"
 )
 

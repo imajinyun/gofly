@@ -957,7 +957,7 @@ func TestExecuteRPCKitexStyleIDLCommands(t *testing.T) {
 	if err := Execute([]string{"rpc", "middleware", "auth", "--dir", serviceDir}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(serviceDir, "internal", "rpc", "middleware", "auth.go")); err != nil {
+	if _, err := os.Stat(filepath.Join(serviceDir, "internal", "api", "rpc", "middleware", "auth.go")); err != nil {
 		t.Fatalf("expected generated rpc middleware: %v", err)
 	}
 }
@@ -1363,7 +1363,7 @@ service user-api {
 	if err := Execute([]string{"api", "gen", "--file", apiPath, "--dir", outDir, "--package", "handler"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(outDir, "internal", "api", "v1", "types.go")); err != nil {
+	if _, err := os.Stat(filepath.Join(outDir, "internal", "api", "http", "v1", "types.go")); err != nil {
 		t.Fatalf("expected generated api file: %v", err)
 	}
 }
@@ -1389,7 +1389,7 @@ service user-api {
 	if err := Execute([]string{"api", "go", "--file", apiPath, "--dir", outDir, "--package", "handler"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(outDir, "internal", "api", "v1", "types.go")); err != nil {
+	if _, err := os.Stat(filepath.Join(outDir, "internal", "api", "http", "v1", "types.go")); err != nil {
 		t.Fatalf("expected generated api file from go alias: %v", err)
 	}
 }
@@ -1422,7 +1422,7 @@ service user-api {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(outDir, "internal", "api", "v1", "types.go")); err != nil {
+	if _, err := os.Stat(filepath.Join(outDir, "internal", "api", "http", "v1", "types.go")); err != nil {
 		t.Fatalf("expected generated api file from single-dash flags: %v", err)
 	}
 }
@@ -1461,15 +1461,15 @@ service user-api {
 		t.Fatal(err)
 	}
 	for _, rel := range []string{
-		filepath.Join("internal", "api", "v1", "types_ping_request.go"),
-		filepath.Join("internal", "api", "v1", "types_ping_response.go"),
-		filepath.Join("internal", "api", "v1", "user_api", "routes_test.go"),
+		filepath.Join("internal", "api", "http", "v1", "types_ping_request.go"),
+		filepath.Join("internal", "api", "http", "v1", "types_ping_response.go"),
+		filepath.Join("internal", "api", "http", "v1", "user_api", "routes_test.go"),
 	} {
 		if _, err := os.Stat(filepath.Join(outDir, rel)); err != nil {
 			t.Fatalf("expected generated api file %s with test/type-group flags: %v", rel, err)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(outDir, "internal", "api", "v1", "types.go")); err == nil {
+	if _, err := os.Stat(filepath.Join(outDir, "internal", "api", "http", "v1", "types.go")); err == nil {
 		t.Fatal("api gen --type-group should split DTOs instead of writing types.go")
 	}
 }
@@ -1504,7 +1504,7 @@ service user-api {
 	if err := Execute([]string{"api", "go", apiPath, "--dir", genDir, "--package", "handler"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(genDir, "internal", "api", "v1", "types.go")); err != nil {
+	if _, err := os.Stat(filepath.Join(genDir, "internal", "api", "http", "v1", "types.go")); err != nil {
 		t.Fatalf("expected generated api file from positional api: %v", err)
 	}
 
@@ -1598,7 +1598,7 @@ func TestExecuteAPINew(t *testing.T) {
 	}
 	for _, rel := range []string{
 		filepath.Join("etc", "governance.json"),
-		filepath.Join("internal", "rpc", "greeter.go"),
+		filepath.Join("internal", "api", "rpc", "greeter.go"),
 	} {
 		if _, err := os.Stat(filepath.Join(dir, rel)); err == nil {
 			t.Fatalf("api new basic should not generate production-only file %s", rel)
@@ -1608,7 +1608,7 @@ func TestExecuteAPINew(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read api new config: %v", err)
 	}
-	for _, want := range []string{`"governance": {"timeout": 3000000000`, `"retry": {"attempts": 2`, `"rateLimit": {"rate": 100`, `"maxConcurrency": 64`, `"adaptiveLimit": true`, `"adaptiveRateLimit": true`, `"maxConcurrencyConfig": {"limit": 64}`} {
+	for _, want := range []string{`"governance": {"timeout": 3000000000`, `"retry": {"attempts": 2`, `"rateLimit": {"rate": 100`, `"maxConcurrency": 64`, `"adaptiveLimit": true`} {
 		if !strings.Contains(string(configData), want) {
 			t.Fatalf("api new config missing default resilience %q:\n%s", want, configData)
 		}
@@ -1623,8 +1623,8 @@ func TestExecuteAPINewWithGoZeroCompatibleProfile(t *testing.T) {
 	for _, rel := range []string{
 		filepath.Join("cmd", "hello", "main.go"),
 		filepath.Join("internal", "config", "config.go"),
-		filepath.Join("internal", "handler", "pinghandler.go"),
-		filepath.Join("internal", "logic", "pinglogic.go"),
+		filepath.Join("internal", "api", "http", "pinghandler.go"),
+		filepath.Join("internal", "app", "pinglogic.go"),
 		filepath.Join("internal", "svc", "servicecontext.go"),
 	} {
 		if _, err := os.Stat(filepath.Join(dir, rel)); err != nil {
@@ -1655,7 +1655,7 @@ func TestExecuteAPINewUsesConfigProfileDefault(t *testing.T) {
 	if err := ExecuteWithIO([]string{"api", "new", "--config", filepath.Join(dir, generator.DefaultConfigFile), "--dir", dir, "--json"}, IOStreams{Out: &stdout}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "internal", "handler", "pinghandler.go")); err != nil {
+	if _, err := os.Stat(filepath.Join(dir, "internal", "api", "http", "pinghandler.go")); err != nil {
 		t.Fatalf("expected gozero-compatible API scaffold from config profile: %v", err)
 	}
 	assertNewEnvelopeInput(t, stdout.Bytes(), "new.api", "new api", "profile", string(generator.ProfileGoZeroCompatible))
@@ -1699,7 +1699,7 @@ func TestExecuteAPINewAcceptsGoctlReservedFlags(t *testing.T) {
 		"go.mod",
 		"hello.api",
 		filepath.Join("cmd", "hello", "main.go"),
-		filepath.Join("internal", "handler", "pinghandler.go"),
+		filepath.Join("internal", "api", "http", "pinghandler.go"),
 	} {
 		if _, err := os.Stat(filepath.Join(dir, rel)); err != nil {
 			t.Fatalf("expected api new file %s with accepted extra flags: %v", rel, err)
@@ -2375,7 +2375,7 @@ func TestExecuteAIManifestJSONEnvelope(t *testing.T) {
 	}
 	if !commands["api cleanup stale"].SupportsDryRun || !commands["api cleanup stale"].MutatesFilesystem || commands["api cleanup stale"].RiskLevel != "medium" ||
 		!commandContainsString(commands["api cleanup stale"].SideEffects, "report-only by default") ||
-		!commandContainsString(commands["api cleanup stale"].SideEffects, "--execute removes only validated stale .go files under internal/handler or internal/logic") {
+		!commandContainsString(commands["api cleanup stale"].SideEffects, "--execute removes only validated stale .go files under internal/api/http, internal/app, or legacy handler/logic directories") {
 		t.Fatalf("api cleanup stale manifest should expose safe cleanup semantics: %+v", commands["api cleanup stale"])
 	}
 	if !commands["gateway profile validate"].SupportsDryRun || commands["gateway profile validate"].MutatesFilesystem || commands["gateway profile validate"].RiskLevel != "read" || !commandContainsString(commands["gateway profile validate"].OutputFormats, "json") {
@@ -2854,7 +2854,7 @@ service user-api {
 			t.Fatal(err)
 		}
 		assertGenerateEnvelope(t, stdout.Bytes(), "api.gen", "api gen", outDir)
-		if _, err := os.Stat(filepath.Join(outDir, "internal", "api", "v1", "types.go")); err != nil {
+		if _, err := os.Stat(filepath.Join(outDir, "internal", "api", "http", "v1", "types.go")); err != nil {
 			t.Fatalf("api gen --json did not write generated file: %v", err)
 		}
 	})
@@ -2880,16 +2880,16 @@ service user-api {
 		if err := os.WriteFile(filepath.Join(outDir, "go.mod"), []byte("module example.com/profile\n\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.MkdirAll(filepath.Join(outDir, "internal", "handler"), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Join(outDir, "internal", "api", "http"), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(outDir, "internal", "handler", "oldhandler.go"), []byte("package handler\n"), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(outDir, "internal", "api", "http", "oldhandler.go"), []byte("package handler\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.MkdirAll(filepath.Join(outDir, "internal", "logic"), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Join(outDir, "internal", "app"), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(outDir, "internal", "logic", "oldlogic.go"), []byte("package logic\n"), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(outDir, "internal", "app", "oldlogic.go"), []byte("package logic\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		var stdout bytes.Buffer
@@ -2901,7 +2901,7 @@ service user-api {
 		assertGenerateEnvelopeInput(t, stdout.Bytes(), "staleReportPath", filepath.Join(outDir, ".gofly", "stale-api-files.json"))
 		assertGenerateEnvelopeInput(t, stdout.Bytes(), "staleHandlers", "1")
 		assertGenerateEnvelopeInput(t, stdout.Bytes(), "staleLogics", "1")
-		if _, err := os.Stat(filepath.Join(outDir, "internal", "api", "v1", "types.go")); err != nil {
+		if _, err := os.Stat(filepath.Join(outDir, "internal", "api", "http", "v1", "types.go")); err != nil {
 			t.Fatalf("api gen --profile did not write generated file: %v", err)
 		}
 	})
@@ -2941,24 +2941,24 @@ func TestAPICleanupStaleReportOnlyAndExecute(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(dir, ".gofly"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(dir, "internal", "handler"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, "internal", "api", "http"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	handlerPath := filepath.Join(dir, "internal", "handler", "oldhandler.go")
+	handlerPath := filepath.Join(dir, "internal", "api", "http", "oldhandler.go")
 	if err := os.WriteFile(handlerPath, []byte("package handler\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(dir, "internal", "logic"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, "internal", "app"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	logicPath := filepath.Join(dir, "internal", "logic", "oldlogic.go")
+	logicPath := filepath.Join(dir, "internal", "app", "oldlogic.go")
 	if err := os.WriteFile(logicPath, []byte("package logic\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	report := `{
   "schema": "gofly.gozero_api_stale_files.v1",
-  "staleHandlers": ["internal/handler/oldhandler.go"],
-  "staleLogics": ["internal/logic/oldlogic.go"]
+  "staleHandlers": ["internal/api/http/oldhandler.go"],
+  "staleLogics": ["internal/app/oldlogic.go"]
 }`
 	if err := os.WriteFile(filepath.Join(dir, ".gofly", "stale-api-files.json"), []byte(report), 0o644); err != nil {
 		t.Fatal(err)
@@ -2969,7 +2969,7 @@ func TestAPICleanupStaleReportOnlyAndExecute(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
-	if !strings.Contains(textOut, "report-only") || !strings.Contains(textOut, "internal/handler/oldhandler.go") {
+	if !strings.Contains(textOut, "report-only") || !strings.Contains(textOut, "internal/api/http/oldhandler.go") {
 		t.Fatalf("api cleanup stale report-only output = %s", textOut)
 	}
 	if _, err := os.Stat(handlerPath); err != nil {
@@ -3016,7 +3016,7 @@ func TestAPICleanupStaleRejectsUnsafeReportPaths(t *testing.T) {
 	report := `{
   "schema": "gofly.gozero_api_stale_files.v1",
   "staleHandlers": ["../escape.go"],
-  "staleLogics": ["internal/logic/ok.go"]
+  "staleLogics": ["internal/app/ok.go"]
 }`
 	if err := os.WriteFile(filepath.Join(dir, ".gofly", "stale-api-files.json"), []byte(report), 0o644); err != nil {
 		t.Fatal(err)
@@ -3024,6 +3024,42 @@ func TestAPICleanupStaleRejectsUnsafeReportPaths(t *testing.T) {
 	err := Execute([]string{"api", "cleanup", "stale", "--dir", dir, "--execute"})
 	if err == nil || !strings.Contains(err.Error(), "unsafe stale api file") {
 		t.Fatalf("unsafe cleanup error = %v", err)
+	}
+}
+
+func TestAPICleanupStaleAcceptsLegacyReportPaths(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".gofly"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "internal", "handler"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "internal", "handler", "oldhandler.go"), []byte("package handler\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "internal", "logic"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "internal", "logic", "oldlogic.go"), []byte("package logic\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	report := `{
+  "schema": "gofly.gozero_api_stale_files.v1",
+  "staleHandlers": ["internal/handler/oldhandler.go"],
+  "staleLogics": ["internal/logic/oldlogic.go"]
+}`
+	if err := os.WriteFile(filepath.Join(dir, ".gofly", "stale-api-files.json"), []byte(report), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	textOut := captureStdout(t, func() {
+		if err := Execute([]string{"api", "cleanup", "stale", "--dir", dir}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if !strings.Contains(textOut, "internal/handler/oldhandler.go") || !strings.Contains(textOut, "internal/logic/oldlogic.go") {
+		t.Fatalf("legacy stale cleanup report = %s", textOut)
 	}
 }
 
@@ -3914,7 +3950,7 @@ func TestExecuteNewAPIIsUnifiedScaffoldEntry(t *testing.T) {
 
 	productionOnlyFiles := []string{
 		filepath.Join("etc", "governance.json"),
-		filepath.Join("internal", "rpc", "greeter.go"),
+		filepath.Join("internal", "api", "rpc", "greeter.go"),
 	}
 	for _, rel := range productionOnlyFiles {
 		if _, err := os.Stat(filepath.Join(apiDir, rel)); err == nil {
@@ -3941,7 +3977,7 @@ func TestExecuteNewAPIProductionReplacesNewServiceChoice(t *testing.T) {
 		"hello.api",
 		"Dockerfile",
 		filepath.Join("etc", "governance.json"),
-		filepath.Join("internal", "rpc", "greeter.go"),
+		filepath.Join("internal", "api", "rpc", "greeter.go"),
 	} {
 		if _, err := os.Stat(filepath.Join(dir, rel)); err != nil {
 			t.Fatalf("expected api new --style production file %s: %v", rel, err)
@@ -3964,7 +4000,7 @@ func TestExecuteNewServiceGoldenPath(t *testing.T) {
 		filepath.Join("internal", "config", "config_test.go"),
 		filepath.Join("internal", "config", "discovery_test.go"),
 		filepath.Join("internal", "discovery", "registry.go"),
-		filepath.Join("internal", "rpc", "greeter.go"),
+		filepath.Join("internal", "api", "rpc", "greeter.go"),
 		filepath.Join("internal", "smoke", "service_smoke_test.go"),
 	} {
 		if _, err := os.Stat(filepath.Join(dir, rel)); err != nil {
@@ -3984,7 +4020,7 @@ func TestExecuteRPCNew(t *testing.T) {
 	for _, rel := range []string{
 		"go.mod",
 		"greeter.proto",
-		filepath.Join("internal", "rpc", "greeter.go"),
+		filepath.Join("internal", "api", "rpc", "greeter.go"),
 		"Dockerfile",
 		filepath.Join("etc", "greeter.json"),
 		filepath.Join("etc", "governance.json"),
@@ -4074,7 +4110,7 @@ func TestExecuteRPCNewAcceptsGoctlReservedFlags(t *testing.T) {
 	for _, rel := range []string{
 		"go.mod",
 		"greeter.proto",
-		filepath.Join("internal", "rpc", "greeter.go"),
+		filepath.Join("internal", "api", "rpc", "greeter.go"),
 	} {
 		if _, err := os.Stat(filepath.Join(dir, rel)); err != nil {
 			t.Fatalf("expected rpc new file %s with accepted extra flags: %v", rel, err)
@@ -4109,7 +4145,7 @@ service greeter {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	data, err := os.ReadFile(filepath.Join(outDir, "internal", "api", "v1", "greeter", "routes.go"))
+	data, err := os.ReadFile(filepath.Join(outDir, "internal", "api", "http", "v1", "greeter", "routes.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -6513,8 +6549,8 @@ func TestExecuteQuickstart(t *testing.T) {
 	for _, rel := range []string{
 		"hello.api",
 		"Dockerfile",
-		filepath.Join("internal", "api", "v1", "types.go"),
-		filepath.Join("internal", "api", "v1", "hello", "routes.go"),
+		filepath.Join("internal", "api", "http", "v1", "types.go"),
+		filepath.Join("internal", "api", "http", "v1", "hello", "routes.go"),
 	} {
 		if _, err := os.Stat(filepath.Join(dir, rel)); err != nil {
 			t.Fatalf("expected quickstart file %s: %v", rel, err)

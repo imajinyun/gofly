@@ -31,7 +31,7 @@ func handlerGenCommand(args []string) error {
 	name := fs.String("name", "", "handler name")
 	module := fs.String("module", "", "go module path, inferred from go.mod when empty")
 	dir := fs.String("dir", ".", "service root directory")
-	path := fs.String("path", "", "handler subdirectory under internal/api")
+	path := fs.String("path", "", "handler subdirectory under internal/api/http")
 	remaining, err := parseInterspersedFlags(fs, args)
 	if err != nil {
 		return err
@@ -52,7 +52,7 @@ func handlerGenCommand(args []string) error {
 	if outDir == "" {
 		outDir = "."
 	}
-	outPath := filepath.Join(outDir, "internal", "api", *path)
+	outPath := filepath.Join(outDir, "internal", "api", "http", *path)
 	cliOutputf("api handler generated: %s\n", outPath)
 	return nil
 }

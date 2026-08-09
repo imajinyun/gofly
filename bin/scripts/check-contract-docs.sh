@@ -72,7 +72,7 @@ checks = {
     'docs/getting-started/first-service.md': [
         'etc/orders.json',
         'internal/routes/',
-        'internal/api/v1/ping/',
+        'internal/api/http/v1/ping/',
         'internal/admin/',
         'internal/discovery/',
         'deploy/k8s/',

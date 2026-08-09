@@ -36,11 +36,11 @@
   ],
   "requiredContracts": [
     "go.mod module",
-    "internal/handler/routes.go",
+    "internal/api/http/routes.go",
     "internal/types/types.go",
     "model output",
     "route registration",
-    "logic files"
+    "app files"
   ],
   "diffCategories": [
     "same-contract",

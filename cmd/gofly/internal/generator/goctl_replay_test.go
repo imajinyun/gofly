@@ -219,7 +219,7 @@ func assertOrdersGoctlReplayArtifacts(t *testing.T, outDir string) {
 			t.Fatalf("generated get order route missing %q:\n%s", want, getRoute)
 		}
 	}
-	repo := readReplayFile(t, outDir, filepath.Join("model", "repo", "order.go"))
+	repo := readReplayFile(t, outDir, filepath.Join("repo", "order.go"))
 	for _, want := range []string{
 		"func NewCachedOrderRepo",
 		"func NewConsistentCachedOrderRepo",
@@ -326,7 +326,7 @@ func assertInventoryGoctlReplayArtifacts(t *testing.T, outDir string, fixture go
 			t.Fatalf("generated adjust inventory route missing %q:\n%s", want, adjustRoute)
 		}
 	}
-	repo := readReplayFile(t, outDir, filepath.Join("model", "repo", "inventory_item.go"))
+	repo := readReplayFile(t, outDir, filepath.Join("repo", "inventory_item.go"))
 	for _, want := range []string{
 		"func NewCachedInventoryItemRepo",
 		"func NewConsistentCachedInventoryItemRepo",
@@ -411,7 +411,7 @@ func assertInventoryGoctlReplayArtifacts(t *testing.T, outDir string, fixture go
 			t.Fatalf("generated inventory repo should not create single-column finders for composite unique key %q:\n%s", unexpected, repo)
 		}
 	}
-	entity := readReplayFile(t, outDir, filepath.Join("model", "entity", "inventory_item_gen.go"))
+	entity := readReplayFile(t, outDir, filepath.Join("model", "inventory_item_gen.go"))
 	for _, want := range []string{
 		"type InventoryItem struct",
 		"Version",
@@ -498,7 +498,7 @@ func assertBillingGoctlReplayArtifacts(t *testing.T, outDir string, fixture goct
 			t.Fatalf("generated capture invoice route missing %q:\n%s", want, captureRoute)
 		}
 	}
-	repo := readReplayFile(t, outDir, filepath.Join("model", "repo", "invoice.go"))
+	repo := readReplayFile(t, outDir, filepath.Join("repo", "invoice.go"))
 	for _, want := range []string{
 		"func NewCachedInvoiceRepo",
 		"func NewConsistentCachedInvoiceRepo",
@@ -576,7 +576,7 @@ func assertBillingGoctlReplayArtifacts(t *testing.T, outDir string, fixture goct
 			t.Fatalf("generated billing repo should not create single-column finders for composite unique key %q:\n%s", unexpected, repo)
 		}
 	}
-	entity := readReplayFile(t, outDir, filepath.Join("model", "entity", "invoice_gen.go"))
+	entity := readReplayFile(t, outDir, filepath.Join("model", "invoice_gen.go"))
 	for _, want := range []string{
 		"type Invoice struct",
 		"InvoiceNo",
@@ -639,7 +639,7 @@ func assertUserGoctlReplayArtifacts(t *testing.T, outDir string, fixture goctlRe
 			t.Fatalf("generated update user route missing %q:\n%s", want, updateRoute)
 		}
 	}
-	repo := readReplayFile(t, outDir, filepath.Join("model", "repo", "user.go"))
+	repo := readReplayFile(t, outDir, filepath.Join("repo", "user.go"))
 	for _, want := range []string{
 		"func NewCachedUserRepo",
 		"func NewRedisCachedUserRepo",
@@ -661,7 +661,7 @@ func assertUserGoctlReplayArtifacts(t *testing.T, outDir string, fixture goctlRe
 			t.Fatalf("generated user repo missing %q:\n%s", want, repo)
 		}
 	}
-	entity := readReplayFile(t, outDir, filepath.Join("model", "entity", "user_gen.go"))
+	entity := readReplayFile(t, outDir, filepath.Join("model", "user_gen.go"))
 	for _, want := range []string{"type User struct", "Email", "Version", `db:"email"`, `const UserTable = "users"`} {
 		if !strings.Contains(entity, want) {
 			t.Fatalf("generated user entity missing %q:\n%s", want, entity)
@@ -725,7 +725,7 @@ func assertTaskGoctlReplayArtifacts(t *testing.T, outDir string, fixture goctlRe
 			t.Fatalf("generated delete task route missing %q:\n%s", want, deleteRoute)
 		}
 	}
-	repo := readReplayFile(t, outDir, filepath.Join("model", "repo", "task.go"))
+	repo := readReplayFile(t, outDir, filepath.Join("repo", "task.go"))
 	for _, want := range []string{
 		"func NewCachedTaskRepo",
 		"func NewRedisCachedTaskRepo",
@@ -751,7 +751,7 @@ func assertTaskGoctlReplayArtifacts(t *testing.T, outDir string, fixture goctlRe
 			t.Fatalf("generated task repo missing %q:\n%s", want, repo)
 		}
 	}
-	entity := readReplayFile(t, outDir, filepath.Join("model", "entity", "task_gen.go"))
+	entity := readReplayFile(t, outDir, filepath.Join("model", "task_gen.go"))
 	for _, want := range []string{"type Task struct", "OwnerID", "Priority", "Version", `db:"owner_id"`, `const TaskTable = "tasks"`} {
 		if !strings.Contains(entity, want) {
 			t.Fatalf("generated task entity missing %q:\n%s", want, entity)

@@ -51,6 +51,35 @@ The default gofly production scaffold uses the same concept with additional
 runtime dependencies such as MQ and config hot reload. The path name may differ
 for the default profile, but the dependency entrypoint remains `ServiceContext`.
 
+## Model Layout
+
+The `go_zero` model profile keeps generated table structs separate from
+repository code. When `--dir` points at a project subdirectory such as
+`internal`, generated files use this layout:
+
+- `internal/model/<table>_gen.go` contains generated table structs, column
+  constants, and `TableName` metadata.
+- `internal/model/vars.go` contains shared model-level compatibility variables
+  such as `ErrNotFound`.
+- `internal/repo/<table>.go` contains generated repository methods.
+- `internal/repo/<table>model.go` and `internal/repo/<table>model_gen.go`
+  contain the go-zero-style model facade and default repository-backed
+  implementation.
+
+For example:
+
+```sh
+gofly model mysql ddl \
+  --src approvals.sql \
+  --dir ./internal \
+  --module example.com/hello \
+  --style go_zero
+```
+
+This layout intentionally avoids putting every go-zero-style model artifact in
+one `model` directory and keeps repeated DDL-driven generation focused on the
+generated model and repository files.
+
 ## zRPC Compatibility Boundaries
 
 Before migrating zRPC code, check the matrix in

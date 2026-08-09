@@ -28,8 +28,10 @@ func printModelGenerated(dir string) {
 
 func generatedModelFiles(modelDir string) []string {
 	patterns := []string{
+		filepath.Join(modelDir, "*.go"),
 		filepath.Join(modelDir, "entity", "*.go"),
 		filepath.Join(modelDir, "repo", "*.go"),
+		filepath.Join(filepath.Dir(modelDir), "repo", "*.go"),
 	}
 	files := make([]string, 0)
 	for _, pattern := range patterns {

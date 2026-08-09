@@ -440,6 +440,7 @@ func TestBuildServiceScaffoldIRGoZeroProfileUsesLayeredArtifacts(t *testing.T) {
 		filepath.Join("internal", "routes", "routes.go"),
 		filepath.Join("internal", "api", "v1", "ping", "ping.go"),
 		filepath.Join("internal", "service", "ping.go"),
+		filepath.Join("internal", "service", "ping_test.go"),
 	} {
 		if _, ok := ir.Files[legacy]; ok {
 			t.Fatalf("gozero profile should not include legacy file %s", legacy)

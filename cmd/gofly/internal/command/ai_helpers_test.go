@@ -2413,7 +2413,7 @@ func TestAINewGeneratedProjectVerificationMatrix(t *testing.T) {
 				name:                  "tool",
 				template:              "go-cli-cobra",
 				wantVerify:            []string{"gofmt", "go mod tidy", "go test ./...", "control-plane snapshot"},
-				wantFiles:             []string{"go.mod", filepath.Join("cmd", "tool", "main.go"), filepath.Join("internal", "config", "config.go"), filepath.Join("internal", "service", "ping.go")},
+				wantFiles:             []string{"go.mod", filepath.Join("cmd", "tool", "main.go"), filepath.Join("internal", "config", "config.go"), filepath.Join("internal", "app", "ping.go")},
 				wantGeneratedFeatures: nil,
 			},
 			{

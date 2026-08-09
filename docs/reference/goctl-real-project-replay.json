@@ -63,8 +63,8 @@
           "internal/api/http/v1/types.go",
           "internal/api/http/v1/orders_api/routes.go",
           "internal/api/http/v1/orders_api/service.go",
-          "model/entity/order_gen.go",
-          "model/repo/order.go"
+          "model/order_gen.go",
+          "repo/order.go"
         ]
       },
       {
@@ -104,8 +104,8 @@
           "internal/api/http/v1/admin_api/routes.go",
           "internal/api/http/v1/admin_api/service.go",
           "internal/api/http/v1/admin_api/adjust_inventory.go",
-          "model/entity/inventory_item_gen.go",
-          "model/repo/inventory_item.go"
+          "model/inventory_item_gen.go",
+          "repo/inventory_item.go"
         ]
       },
       {
@@ -151,8 +151,8 @@
           "internal/api/http/v1/capture_api/routes.go",
           "internal/api/http/v1/capture_api/service.go",
           "internal/api/http/v1/capture_api/capture_invoice.go",
-          "model/entity/invoice_gen.go",
-          "model/repo/invoice.go"
+          "model/invoice_gen.go",
+          "repo/invoice.go"
         ]
       },
       {
@@ -190,8 +190,8 @@
           "internal/api/http/v1/user_api/get_user.go",
           "internal/api/http/v1/user_api/search_users.go",
           "internal/api/http/v1/user_api/update_user.go",
-          "model/entity/user_gen.go",
-          "model/repo/user.go"
+          "model/user_gen.go",
+          "repo/user.go"
         ]
       },
       {
@@ -232,8 +232,8 @@
           "internal/api/http/v1/task_admin_api/routes.go",
           "internal/api/http/v1/task_admin_api/service.go",
           "internal/api/http/v1/task_admin_api/delete_task.go",
-          "model/entity/task_gen.go",
-          "model/repo/task.go"
+          "model/task_gen.go",
+          "repo/task.go"
         ]
       }
     ]

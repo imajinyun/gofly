@@ -173,8 +173,8 @@
         "make goctl-real-project-replay-check"
       ],
       "requiredArtifacts": [
-        "model/entity/<table>_gen.go",
-        "model/repo/<table>.go"
+        "model/<table>_gen.go",
+        "repo/<table>.go"
       ],
       "rollbackOrEscalation": "Rollback by preserving generated repository cache templates and keeping generated-only dependencies out of the root module."
     },

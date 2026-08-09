@@ -149,6 +149,7 @@ func GenerateModelFromDDL(opts ModelOptions) error {
 		pkg = "model"
 	}
 	module := strings.TrimSpace(opts.Module)
+	explicitModule := module != ""
 	if module == "" {
 		var inferErr error
 		module, inferErr = inferModelModule(opts.Dir)
@@ -156,12 +157,16 @@ func GenerateModelFromDDL(opts ModelOptions) error {
 			module = "github.com/imajinyun/gofly"
 		}
 	}
+	importModule := module
+	if explicitModule {
+		importModule = modelImportModule(module, opts.Dir)
+	}
 	style := normalizeModelStyle(opts.Style)
-	if err := writeModelFiles(tables, opts.Dir, pkg, module, style, opts.Cache, storage.DialectQuestion); err != nil {
+	if err := writeModelFilesWithLayout(tables, opts.Dir, pkg, importModule, style, opts.Cache, storage.DialectQuestion, isGoZeroModelStyle(opts.Style)); err != nil {
 		return err
 	}
 	if isGoZeroModelStyle(opts.Style) {
-		if err := writeGoZeroModelFacadeFiles(tables, opts.Dir, module, storage.DialectQuestion); err != nil {
+		if err := writeGoZeroModelFacadeFiles(tables, opts.Dir, importModule, storage.DialectQuestion); err != nil {
 			return err
 		}
 	}
@@ -220,6 +225,7 @@ func GenerateModelFromDatasource(opts ModelDatasourceOptions) error {
 		pkg = "model"
 	}
 	module := strings.TrimSpace(opts.Module)
+	explicitModule := module != ""
 	if module == "" {
 		var inferErr error
 		module, inferErr = inferModelModule(opts.Dir)
@@ -227,12 +233,16 @@ func GenerateModelFromDatasource(opts ModelDatasourceOptions) error {
 			module = "github.com/imajinyun/gofly"
 		}
 	}
+	importModule := module
+	if explicitModule {
+		importModule = modelImportModule(module, opts.Dir)
+	}
 	style := normalizeModelStyle(opts.Style)
-	if err := writeModelFiles(tables, opts.Dir, pkg, module, style, opts.Cache, modelDefaultDialect(opts.Driver)); err != nil {
+	if err := writeModelFilesWithLayout(tables, opts.Dir, pkg, importModule, style, opts.Cache, modelDefaultDialect(opts.Driver), isGoZeroModelStyle(opts.Style)); err != nil {
 		return err
 	}
 	if isGoZeroModelStyle(opts.Style) {
-		if err := writeGoZeroModelFacadeFiles(tables, opts.Dir, module, modelDefaultDialect(opts.Driver)); err != nil {
+		if err := writeGoZeroModelFacadeFiles(tables, opts.Dir, importModule, modelDefaultDialect(opts.Driver)); err != nil {
 			return err
 		}
 	}
@@ -1092,25 +1102,41 @@ func generateMongoDriverModel(opts MongoModelOptions, pkg string) error {
 }
 
 func writeModelFiles(tables []SQLTable, dir string, pkg string, module string, style string, cacheEnabled bool, defaultDialect storage.Dialect) error {
+	return writeModelFilesWithLayout(tables, dir, pkg, module, style, cacheEnabled, defaultDialect, false)
+}
+
+func writeModelFilesWithLayout(tables []SQLTable, dir string, pkg string, module string, style string, cacheEnabled bool, defaultDialect storage.Dialect, goZeroLayout bool) error {
 	if len(tables) == 0 {
 		return errors.New("model table is required")
 	}
 	entityDir := filepath.Join(dir, "model", "entity")
 	repoDir := filepath.Join(dir, "model", "repo")
+	if goZeroLayout {
+		entityDir = filepath.Join(dir, "model")
+		repoDir = filepath.Join(dir, "repo")
+	}
 	if err := ensureGeneratedDir(entityDir); err != nil {
 		return fmt.Errorf("create entity directory: %w", err)
 	}
 	if err := ensureGeneratedDir(repoDir); err != nil {
 		return fmt.Errorf("create repo directory: %w", err)
 	}
-	if err := writeEntityTablerFile(entityDir); err != nil {
+	entityPackage := "entity"
+	if goZeroLayout {
+		entityPackage = "model"
+	}
+	if err := writeEntityTablerFile(entityDir, entityPackage); err != nil {
 		return err
 	}
 	for _, table := range tables {
-		if err := writeEntityFile(entityDir, table, pkg, style); err != nil {
+		if err := writeEntityFile(entityDir, table, pkg, style, entityPackage); err != nil {
 			return err
 		}
-		if err := writeRepoFile(repoDir, table, pkg, module, style, cacheEnabled, defaultDialect); err != nil {
+		entityImport := modelEntityImport(module)
+		if goZeroLayout {
+			entityImport = modelFlatEntityImport(module)
+		}
+		if err := writeRepoFileWithEntityImport(repoDir, table, pkg, module, style, cacheEnabled, defaultDialect, entityImport); err != nil {
 			return err
 		}
 	}
@@ -1154,17 +1180,15 @@ func writeGoZeroModelFacadeFile(dir string, table SQLTable, module string, defau
 	pk := primaryColumn(table)
 	pkArg := modelArgName(pk.Name)
 	pkType := columnGoType(pk)
-	repoImport := strings.TrimRight(module, "/") + "/model/repo"
-	entityImport := strings.TrimRight(module, "/") + "/model/entity"
+	entityImport := strings.TrimRight(module, "/") + "/model"
 	var b bytes.Buffer
-	fprintf(&b, "package model\n\n")
+	fprintf(&b, "package repo\n\n")
 	if generated {
 		fprintf(&b, "import (\n")
 		fprintf(&b, "\t\"context\"\n")
 		fprintf(&b, "\t\"database/sql\"\n\n")
 		fprintf(&b, "\t\"github.com/imajinyun/gofly/core/storage\"\n")
-		fprintf(&b, "\t%q\n", entityImport)
-		fprintf(&b, "\t%q\n", repoImport)
+		fprintf(&b, "\tentity %q\n", entityImport)
 		fprintf(&b, ")\n\n")
 		fprintf(&b, "type %s = entity.%s\n\n", typeName, typeName)
 		fprintf(&b, "type %s interface {\n", lowerCamel(typeName)+"Model")
@@ -1174,10 +1198,10 @@ func writeGoZeroModelFacadeFile(dir string, table SQLTable, module string, defau
 		fprintf(&b, "\tDelete(ctx context.Context, %s %s) error\n", pkArg, pkType)
 		fprintf(&b, "}\n\n")
 		fprintf(&b, "type %s struct {\n", defaultName)
-		fprintf(&b, "\trepo *repo.%sRepo\n", typeName)
+		fprintf(&b, "\trepo *%sRepo\n", typeName)
 		fprintf(&b, "}\n\n")
 		fprintf(&b, "func new%s(conn *storage.SQLStore, dialect ...storage.Dialect) *%s {\n", typeName+"Model", defaultName)
-		fprintf(&b, "\treturn &%s{repo: repo.New%sRepo(conn, dialect...)}\n", defaultName, typeName)
+		fprintf(&b, "\treturn &%s{repo: New%sRepo(conn, dialect...)}\n", defaultName, typeName)
 		fprintf(&b, "}\n\n")
 		fprintf(&b, "func (m *%s) FindOne(ctx context.Context, %s %s) (*%s, error) {\n", defaultName, pkArg, pkType, typeName)
 		fprintf(&b, "\treturn m.repo.FindOne(ctx, %s)\n", pkArg)
@@ -1202,7 +1226,6 @@ func writeGoZeroModelFacadeFile(dir string, table SQLTable, module string, defau
 		fprintf(&b, "\t\"database/sql\"\n\n")
 		fprintf(&b, "\t\"github.com/imajinyun/gofly/core/storage\"\n")
 		fprintf(&b, ")\n\n")
-		fprintf(&b, "var _ %s = (*%s)(nil)\n\n", modelName, defaultName)
 		fprintf(&b, "type %s interface {\n", modelName)
 		fprintf(&b, "\t%s\n", lowerCamel(typeName)+"Model")
 		fprintf(&b, "\twithSession(session *sql.Tx) %s\n", modelName)
@@ -1222,12 +1245,15 @@ func writeGoZeroModelFacadeFile(dir string, table SQLTable, module string, defau
 	if generated {
 		name += "_gen"
 	}
-	return writeGeneratedFile(filepath.Join(dir, "model", name+".go"), formatted)
+	return writeGeneratedFile(filepath.Join(dir, "repo", name+".go"), formatted)
 }
 
-func writeEntityTablerFile(dir string) error {
+func writeEntityTablerFile(dir string, packageName string) error {
 	var b bytes.Buffer
-	fprintf(&b, "package entity\n\n")
+	if strings.TrimSpace(packageName) == "" {
+		packageName = "entity"
+	}
+	fprintf(&b, "package %s\n\n", lowerName(packageName))
 	fprintf(&b, "type Tabler interface {\n")
 	fprintf(&b, "\tTableName() string\n")
 	fprintf(&b, "}\n")
@@ -1238,10 +1264,13 @@ func writeEntityTablerFile(dir string) error {
 	return writeGeneratedFile(filepath.Join(dir, "tabler_gen.go"), formatted)
 }
 
-func writeEntityFile(dir string, table SQLTable, pkg string, style string) error {
+func writeEntityFile(dir string, table SQLTable, pkg string, style string, packageName string) error {
 	typeName := exportName(singularize(table.Name))
 	var b bytes.Buffer
-	fprintf(&b, "package entity\n\n")
+	if strings.TrimSpace(packageName) == "" {
+		packageName = "entity"
+	}
+	fprintf(&b, "package %s\n\n", lowerName(packageName))
 	if modelsNeedTime([]SQLTable{table}) {
 		fprintf(&b, "import \"time\"\n\n")
 	}
@@ -1268,8 +1297,12 @@ func writeEntityFile(dir string, table SQLTable, pkg string, style string) error
 }
 
 func writeRepoFile(dir string, table SQLTable, pkg string, module string, style string, cacheEnabled bool, defaultDialect storage.Dialect) error {
+	return writeRepoFileWithEntityImport(dir, table, pkg, module, style, cacheEnabled, defaultDialect, modelEntityImport(module))
+}
+
+func writeRepoFileWithEntityImport(dir string, table SQLTable, pkg string, module string, style string, cacheEnabled bool, defaultDialect storage.Dialect, entityImport string) error {
 	if style == modelStyleGORM {
-		return writeGORMRepoFile(dir, table, module, cacheEnabled)
+		return writeGORMRepoFileWithEntityImport(dir, table, module, cacheEnabled, entityImport)
 	}
 	defaultDialect = storage.NormalizeDialect(defaultDialect)
 	typeName := exportName(singularize(table.Name))
@@ -1300,7 +1333,7 @@ func writeRepoFile(dir string, table SQLTable, pkg string, module string, style 
 		fprintf(&b, "\t\"github.com/imajinyun/gofly/core/kv/redis\"\n")
 	}
 	fprintf(&b, "\t\"github.com/imajinyun/gofly/core/storage\"\n")
-	fprintf(&b, "\t%q\n", modelEntityImport(module))
+	fprintf(&b, "\tentity %q\n", entityImport)
 	fprintf(&b, ")\n\n")
 	fprintf(&b, "type %s struct {\n\tstore   *storage.SQLStore\n\tcluster *storage.Cluster\n\ttx      *sql.Tx\n\tdialect storage.Dialect\n}\n\n", repoName)
 	fprintf(&b, "func New%s(store *storage.SQLStore, dialect ...storage.Dialect) *%s {\n", repoName, repoName)
@@ -1340,6 +1373,10 @@ func writeRepoFile(dir string, table SQLTable, pkg string, module string, style 
 }
 
 func writeGORMRepoFile(dir string, table SQLTable, module string, cacheEnabled bool) error {
+	return writeGORMRepoFileWithEntityImport(dir, table, module, cacheEnabled, modelEntityImport(module))
+}
+
+func writeGORMRepoFileWithEntityImport(dir string, table SQLTable, module string, cacheEnabled bool, entityImport string) error {
 	typeName := exportName(singularize(table.Name))
 	repoName := typeName + "Repo"
 	uniqueIndexes := cacheableUniqueIndexes(table)
@@ -1364,7 +1401,7 @@ func writeGORMRepoFile(dir string, table SQLTable, module string, cacheEnabled b
 		fprintf(&b, "\t\"github.com/imajinyun/gofly/core/kv/redis\"\n")
 	}
 	fprintf(&b, "\t\"github.com/imajinyun/gofly/core/storage\"\n")
-	fprintf(&b, "\t%q\n", modelEntityImport(module))
+	fprintf(&b, "\tentity %q\n", entityImport)
 	fprintf(&b, "\t\"gorm.io/gorm\"\n")
 	fprintf(&b, ")\n\n")
 	fprintf(&b, "type %s struct {\n\tdb *gorm.DB\n}\n\n", repoName)
@@ -2622,6 +2659,39 @@ func modelEntityImport(module string) string {
 		module = "github.com/imajinyun/gofly"
 	}
 	return module + "/model/entity"
+}
+
+func modelFlatEntityImport(module string) string {
+	module = strings.Trim(strings.TrimSpace(module), "/")
+	if module == "" {
+		module = "github.com/imajinyun/gofly"
+	}
+	return module + "/model"
+}
+
+func modelImportModule(module string, dir string) string {
+	module = strings.Trim(strings.TrimSpace(module), "/")
+	if module == "" {
+		return ""
+	}
+	goModPath, err := findNearestGoMod(dir)
+	if err != nil {
+		return module
+	}
+	root := filepath.Dir(goModPath)
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return module
+	}
+	absDir, err := filepath.Abs(dir)
+	if err != nil {
+		return module
+	}
+	rel, err := filepath.Rel(absRoot, absDir)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return module
+	}
+	return strings.TrimRight(module, "/") + "/" + filepath.ToSlash(rel)
 }
 
 func ParseSQLModels(content string) ([]SQLTable, error) {

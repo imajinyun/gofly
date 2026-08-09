@@ -5571,13 +5571,13 @@ const pingHandlerTemplate = `package ping
 
 import (
 	"github.com/imajinyun/gofly/rest"
-	"{{.Module}}/internal/service"
+	"{{.Module}}/internal/app"
 	"{{.Module}}/internal/svc"
 )
 
 func PingHandler(svcCtx *svc.ServiceContext) rest.HandlerFunc {
 	return func(ctx *rest.Context) {
-		ctx.JSON(200, service.Ping())
+		ctx.JSON(200, app.Ping())
 	}
 }
 `
@@ -5613,7 +5613,7 @@ func {{.MiddlewareName}}() rest.Middleware {
 }
 `
 
-const pingServiceTemplate = `package service
+const pingServiceTemplate = `package app
 
 type PingResponse struct {
 	Message string ` + "`json:\"message\"`" + `
@@ -5624,7 +5624,7 @@ func Ping() PingResponse {
 }
 `
 
-const pingServiceTestTemplate = `package service
+const pingServiceTestTemplate = `package app
 
 import "testing"
 

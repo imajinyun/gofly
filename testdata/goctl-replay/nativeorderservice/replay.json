@@ -33,8 +33,8 @@
     "internal/app/native/getnativeorderlogic.go",
     "model/native_order_model.go",
     "model/native_order_model_gen.go",
-    "model/nativeordermodel.go",
-    "model/nativeordermodel_gen.go"
+    "repo/nativeordermodel.go",
+    "repo/nativeordermodel_gen.go"
   ],
   "rollbackNote": "rollback.md"
 }

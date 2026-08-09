@@ -24,8 +24,8 @@
     "internal/api/http/v1/types.go",
     "internal/api/http/v1/orders_api/routes.go",
     "internal/api/http/v1/orders_api/service.go",
-    "model/entity/order_gen.go",
-    "model/repo/order.go"
+    "model/order_gen.go",
+    "repo/order.go"
   ],
   "rollbackNote": "rollback.md"
 }

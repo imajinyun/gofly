@@ -44,8 +44,8 @@
     "internal/api/http/v1/capture_api/routes.go",
     "internal/api/http/v1/capture_api/service.go",
     "internal/api/http/v1/capture_api/capture_invoice.go",
-    "model/entity/invoice_gen.go",
-    "model/repo/invoice.go"
+    "model/invoice_gen.go",
+    "repo/invoice.go"
   ],
   "rollbackNote": "rollback.md"
 }

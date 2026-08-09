@@ -3772,13 +3772,13 @@ func TestGenerateModelFromDDLGoZeroStyleWritesGoctlFacade(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("GenerateModelFromDDL go_zero facade: %v", err)
 	}
-	customData, err := os.ReadFile(filepath.Join(dir, "model", "nativeordermodel.go"))
+	customData, err := os.ReadFile(filepath.Join(dir, "repo", "nativeordermodel.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	customOut := string(customData)
 	for _, want := range []string{
-		"package model",
+		"package repo",
 		"type NativeOrderModel interface",
 		"nativeOrderModel",
 		"func NewNativeOrderModel(conn *storage.SQLStore",
@@ -3802,17 +3802,18 @@ func TestGenerateModelFromDDLGoZeroStyleWritesGoctlFacade(t *testing.T) {
 			t.Fatalf("gozero vars facade missing %q:\n%s", want, varsOut)
 		}
 	}
-	genData, err := os.ReadFile(filepath.Join(dir, "model", "nativeordermodel_gen.go"))
+	genData, err := os.ReadFile(filepath.Join(dir, "repo", "nativeordermodel_gen.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	genOut := string(genData)
 	for _, want := range []string{
+		`entity "example.com/nativeorderservice/model"`,
 		"type NativeOrder = entity.NativeOrder",
 		"type defaultNativeOrderModel struct",
-		"repo *repo.NativeOrderRepo",
+		"repo *NativeOrderRepo",
 		"func newNativeOrderModel(conn *storage.SQLStore",
-		"repo.NewNativeOrderRepo(conn, dialect...)",
+		"NewNativeOrderRepo(conn, dialect...)",
 		"func (m *defaultNativeOrderModel) FindOne(ctx context.Context, id int64) (*NativeOrder, error)",
 		"return m.repo.FindOne(ctx, id)",
 		"func (m *defaultNativeOrderModel) withSession(session *sql.Tx) NativeOrderModel",

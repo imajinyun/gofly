@@ -41,8 +41,8 @@
     "internal/api/http/v1/task_admin_api/routes.go",
     "internal/api/http/v1/task_admin_api/service.go",
     "internal/api/http/v1/task_admin_api/delete_task.go",
-    "model/entity/task_gen.go",
-    "model/repo/task.go"
+    "model/task_gen.go",
+    "repo/task.go"
   ],
   "rollbackNote": "rollback.md"
 }

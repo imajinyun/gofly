@@ -39,8 +39,8 @@
     "internal/api/http/v1/admin_api/routes.go",
     "internal/api/http/v1/admin_api/service.go",
     "internal/api/http/v1/admin_api/adjust_inventory.go",
-    "model/entity/inventory_item_gen.go",
-    "model/repo/inventory_item.go"
+    "model/inventory_item_gen.go",
+    "repo/inventory_item.go"
   ],
   "rollbackNote": "rollback.md"
 }

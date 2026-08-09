@@ -43,8 +43,8 @@ func serviceFilesForProfile(style, name string, profile GenerationProfile) map[s
 		filepath.Join("internal", "api", "http", "v1", "ping", "ping.go"): pingHandlerTemplate,
 		filepath.Join("internal", "middleware", "trim.go"):                trimMiddlewareTemplate,
 		filepath.Join("internal", "middleware", "trim_test.go"):           trimMiddlewareTestTemplate,
-		filepath.Join("internal", "service", "ping.go"):                   pingServiceTemplate,
-		filepath.Join("internal", "service", "ping_test.go"):              pingServiceTestTemplate,
+		filepath.Join("internal", "app", "ping.go"):                       pingServiceTemplate,
+		filepath.Join("internal", "app", "ping_test.go"):                  pingServiceTestTemplate,
 	}
 	if style == ServiceStyleMinimal || style == ServiceStyleBasic {
 		files[filepath.Join("cmd", name, "main.go")] = minimalMainTemplate
@@ -138,6 +138,8 @@ func cleanupLegacyServiceFilesForProfile(dir string, profile GenerationProfile) 
 			filepath.Join("internal", "rpc", "greeter.go"),
 			filepath.Join("internal", "rpc", "greeter_client_test.go"),
 			filepath.Join("internal", "rpc", "greeter_test.go"),
+			filepath.Join("internal", "service", "ping.go"),
+			filepath.Join("internal", "service", "ping_test.go"),
 			filepath.Join("internal", "svc", "servicecontext.go"),
 			filepath.Join("internal", "types", "types.go"),
 		)
@@ -170,6 +172,7 @@ func legacyServiceDirs(profile GenerationProfile) []string {
 		return []string{
 			filepath.Join("internal", "logic"),
 			filepath.Join("internal", "handler"),
+			filepath.Join("internal", "service"),
 			filepath.Join("internal", "types"),
 		}
 	}

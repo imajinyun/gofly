@@ -24,7 +24,7 @@ The generated service must keep these stable responsibilities:
 | Governance config | `etc/governance.json` | Carries runtime policy defaults used by generated services. |
 | REST routes | `internal/routes/routes.go` | Registers generated REST routes through one stable route package. |
 | REST handler | `internal/api/http/v1/ping/ping.go` | Provides the default generated REST handler surface. |
-| Business service | `internal/service/ping.go` | Holds the default generated service behavior behind REST/RPC entry points. |
+| Business service | `internal/app/ping.go` | Holds the default generated service behavior behind REST/RPC entry points. |
 | RPC service | `internal/api/rpc/greeter.go` | Provides the default generated RPC service. |
 | Admin control-plane | `internal/admin/admin.go` | Registers generated admin and control-plane contributors. |
 | Discovery | `internal/discovery/registry.go` | Provides generated service-discovery wiring. |

@@ -4168,14 +4168,14 @@ func TestExecuteModelGen(t *testing.T) {
 	if err := Execute([]string{"model", "gen", "--ddl", ddlPath, "--dir", outDir, "--package", "model", "--module", "example.com/usersvc"}); err != nil {
 		t.Fatal(err)
 	}
-	data, err := os.ReadFile(filepath.Join(outDir, "model", "repo", "user.go"))
+	data, err := os.ReadFile(filepath.Join(outDir, "repo", "user.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(data), "NewUserRepo") {
 		t.Fatalf("generated model file = %s", data)
 	}
-	if !strings.Contains(string(data), `"example.com/usersvc/model/entity"`) {
+	if !strings.Contains(string(data), `entity "example.com/usersvc/model"`) {
 		t.Fatalf("generated model import = %s", data)
 	}
 
@@ -4320,8 +4320,81 @@ func TestExecuteModelMySQLDDL(t *testing.T) {
 	if err := Execute([]string{"model", "mysql", "ddl", "--src", ddlPath, "--dir", outDir, "--package", "model"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(outDir, "model", "entity", "book_gen.go")); err != nil {
+	if _, err := os.Stat(filepath.Join(outDir, "model", "book_gen.go")); err != nil {
 		t.Fatalf("expected mysql ddl generated entity file: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(outDir, "repo", "book.go")); err != nil {
+		t.Fatalf("expected mysql ddl generated repo file: %v", err)
+	}
+}
+
+func TestExecuteModelMySQLDDLGoZeroLayoutUsesModelAndRepoDirs(t *testing.T) {
+	dir := t.TempDir()
+	projectDir := filepath.Join(dir, "hello")
+	internalDir := filepath.Join(projectDir, "internal")
+	if err := os.MkdirAll(internalDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(projectDir, "go.mod"), []byte("module example.com/hello\n\nrequire github.com/imajinyun/gofly v0.0.0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ddlPath := filepath.Join(dir, "schema.sql")
+	ddl := `CREATE TABLE approvals (
+  id bigint primary key,
+  name varchar(128) not null
+);`
+	if err := os.WriteFile(ddlPath, []byte(ddl), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out := captureStdout(t, func() {
+		if err := Execute([]string{
+			"model", "mysql", "ddl",
+			"-src", ddlPath,
+			"--dir", internalDir,
+			"--module", "example.com/hello",
+			"--home", projectDir,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	for _, want := range []string{
+		filepath.Join(internalDir, "model", "approval_gen.go"),
+		filepath.Join(internalDir, "model", "vars.go"),
+		filepath.Join(internalDir, "repo", "approval.go"),
+		filepath.Join(internalDir, "repo", "approvalmodel.go"),
+		filepath.Join(internalDir, "repo", "approvalmodel_gen.go"),
+	} {
+		if _, err := os.Stat(want); err != nil {
+			t.Fatalf("expected gozero layout file %s: %v\noutput=%s", want, err, out)
+		}
+		if !strings.Contains(out, want) {
+			t.Fatalf("model gen output missing %s:\n%s", want, out)
+		}
+	}
+	for _, unexpected := range []string{
+		filepath.Join(internalDir, "model", "entity"),
+		filepath.Join(internalDir, "model", "repo"),
+		filepath.Join(internalDir, "model", "approvalmodel.go"),
+	} {
+		if _, err := os.Stat(unexpected); err == nil {
+			t.Fatalf("unexpected gozero legacy model path %s exists", unexpected)
+		}
+	}
+	repoData, err := os.ReadFile(filepath.Join(internalDir, "repo", "approval.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(repoData), `entity "example.com/hello/internal/model"`) {
+		t.Fatalf("repo import should point at generated flat model package:\n%s", repoData)
+	}
+	facadeData, err := os.ReadFile(filepath.Join(internalDir, "repo", "approvalmodel_gen.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(facadeData), `entity "example.com/hello/internal/model"`) ||
+		!strings.Contains(string(facadeData), `repo *ApprovalRepo`) {
+		t.Fatalf("generated model facade imports should follow internal layout:\n%s", facadeData)
 	}
 }
 
@@ -4345,7 +4418,7 @@ CREATE TABLE ` + "`auditlogs`" + ` (
 	if err := Execute([]string{"model", "mysql", "ddl", "--src", ddlPath, "--dir", outDir, "--package", "model", "--module", "example.com/audit"}); err != nil {
 		t.Fatal(err)
 	}
-	repo, err := os.ReadFile(filepath.Join(outDir, "model", "repo", "auditlog.go"))
+	repo, err := os.ReadFile(filepath.Join(outDir, "repo", "auditlog.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -4373,7 +4446,7 @@ func TestExecuteModelPostgresDDL(t *testing.T) {
 	if err := Execute([]string{"model", "pg", "ddl", "--src", ddlPath, "--dir", outDir, "--package", "model"}); err != nil {
 		t.Fatal(err)
 	}
-	data, err := os.ReadFile(filepath.Join(outDir, "model", "entity", "account_gen.go"))
+	data, err := os.ReadFile(filepath.Join(outDir, "model", "account_gen.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -4466,7 +4539,7 @@ func TestExecuteModelGoctlCompatibleInputAliases(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(outDir, "model", "entity", "book_gen.go")); err != nil {
+	if _, err := os.Stat(filepath.Join(outDir, "model", "book_gen.go")); err != nil {
 		t.Fatalf("expected generated model from positional ddl: %v", err)
 	}
 
@@ -4564,10 +4637,10 @@ CREATE TABLE authors (
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(outDir, "model", "entity", "book_gen.go")); err != nil {
+	if _, err := os.Stat(filepath.Join(outDir, "model", "book_gen.go")); err != nil {
 		t.Fatalf("expected generated model from -s/-d/-t: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(outDir, "model", "entity", "author_gen.go")); err == nil {
+	if _, err := os.Stat(filepath.Join(outDir, "model", "author_gen.go")); err == nil {
 		t.Fatal("unexpected author entity file for -t filtered generation")
 	}
 
@@ -4662,10 +4735,10 @@ CREATE TABLE authors (
 	if err := Execute([]string{"model", "gen", "--ddl", ddlPath, "--dir", outDir, "--tables", "books"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(outDir, "model", "entity", "book_gen.go")); err != nil {
+	if _, err := os.Stat(filepath.Join(outDir, "model", "book_gen.go")); err != nil {
 		t.Fatalf("expected filtered book entity file: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(outDir, "model", "entity", "author_gen.go")); err == nil {
+	if _, err := os.Stat(filepath.Join(outDir, "model", "author_gen.go")); err == nil {
 		t.Fatal("unexpected author entity file for table-filtered generation")
 	}
 }
@@ -7146,7 +7219,7 @@ func TestModelGenUsesConfigTypesMap(t *testing.T) {
 	if err := Execute([]string{"model", "gen", "--ddl", ddlPath, "--dir", dir}); err != nil {
 		t.Fatal(err)
 	}
-	data, err := os.ReadFile(filepath.Join(dir, "model", "entity", "order_gen.go"))
+	data, err := os.ReadFile(filepath.Join(dir, "model", "order_gen.go"))
 	if err != nil {
 		t.Fatal(err)
 	}

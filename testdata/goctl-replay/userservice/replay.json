@@ -38,8 +38,8 @@
     "internal/api/http/v1/user_api/get_user.go",
     "internal/api/http/v1/user_api/search_users.go",
     "internal/api/http/v1/user_api/update_user.go",
-    "model/entity/user_gen.go",
-    "model/repo/user.go"
+    "model/user_gen.go",
+    "repo/user.go"
   ],
   "rollbackNote": "rollback.md"
 }

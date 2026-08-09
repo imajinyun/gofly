@@ -44,7 +44,7 @@ func TestGenerateService(t *testing.T) {
 		filepath.Join("internal", "routes", "routes.go"),
 		filepath.Join("internal", "api", "http", "v1", "ping", "ping.go"),
 		filepath.Join("internal", "middleware", "trim.go"),
-		filepath.Join("internal", "service", "ping_test.go"),
+		filepath.Join("internal", "app", "ping_test.go"),
 		filepath.Join("internal", "mq", "broker.go"),
 		filepath.Join("internal", "discovery", "registry.go"),
 		filepath.Join("internal", "api", "rpc", "greeter.go"),
@@ -1483,7 +1483,7 @@ func TestGoldenPathProductionServiceLayoutContract(t *testing.T) {
 		filepath.Join("internal", "config", "production_check.go"),
 		filepath.Join("internal", "routes", "routes.go"),
 		filepath.Join("internal", "api", "http", "v1", "ping", "ping.go"),
-		filepath.Join("internal", "service", "ping.go"),
+		filepath.Join("internal", "app", "ping.go"),
 		filepath.Join("internal", "api", "rpc", "greeter.go"),
 		filepath.Join("internal", "admin", "admin.go"),
 		filepath.Join("internal", "discovery", "registry.go"),
@@ -3479,6 +3479,7 @@ func TestGenerateServiceScaffoldGoZeroCompatibleLayeredOutput(t *testing.T) {
 		filepath.Join("internal", "routes", "routes.go"),
 		filepath.Join("internal", "api", "v1", "ping", "ping.go"),
 		filepath.Join("internal", "service", "ping.go"),
+		filepath.Join("internal", "service", "ping_test.go"),
 	} {
 		if _, err := os.Stat(filepath.Join(dir, rel)); err == nil {
 			t.Fatalf("unexpected legacy scaffold file %s", rel)
@@ -3708,6 +3709,8 @@ func TestGenerateServiceCleansLegacyScaffoldFiles(t *testing.T) {
 		filepath.Join("internal", "rpc", "greeter.go"),
 		filepath.Join("internal", "rpc", "greeter_client_test.go"),
 		filepath.Join("internal", "rpc", "greeter_test.go"),
+		filepath.Join("internal", "service", "ping.go"),
+		filepath.Join("internal", "service", "ping_test.go"),
 	}
 	for _, rel := range legacyFiles {
 		path := filepath.Join(dir, rel)
@@ -3729,6 +3732,7 @@ func TestGenerateServiceCleansLegacyScaffoldFiles(t *testing.T) {
 	for _, rel := range []string{
 		filepath.Join("internal", "routes", "routes.go"),
 		filepath.Join("internal", "api", "http", "v1", "ping", "ping.go"),
+		filepath.Join("internal", "app", "ping.go"),
 		filepath.Join("internal", "middleware", "trim.go"),
 	} {
 		if _, err := os.Stat(filepath.Join(dir, rel)); err != nil {

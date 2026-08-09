@@ -21,38 +21,52 @@ It is designed for platform, backend, and AI-agent-assisted engineering teams wh
 ## 🧩 Capability map
 
 ```text
-                    ┌───────────────────────────────┐
-                    │          AI agent              │
-                    │ manifest / control-plane /     │
-                    │ plan / complete / doctor       │
-                    └───────────────┬───────────────┘
-                                    │ JSON envelopes + safe metadata
-┌────────────────────┐     ┌────────▼────────┐     ┌────────────────────┐
-│ CLI + generators   │────▶│ service runtime │────▶│ control-plane      │
-│ quickstart/new     │     │ REST / RPC /    │     │ snapshots / admin  │
-│ api/rpc/model      │     │ gateway / app   │     │ diagnostics / diff │
-│ docker/kube/plugin │     │ cache / MQ / KV │     │ release evidence   │
-└─────────┬──────────┘     └────────┬────────┘     └─────────┬──────────┘
-          │                         │                        │
-          │                         ▼                        │
-          │              ┌────────────────────┐              │
-          └─────────────▶│ runtime governance │◀─────────────┘
-                         │ retry / breaker /  │
-                         │ limit / policy /   │
-                         │ observability      │
-                         └────────────────────┘
+                              ┌──────────────────────────┐
+                              │        AI operator        │
+                              │ plan / manifest / stream  │
+                              │ doctor / JSON envelopes   │
+                              └────────────┬─────────────┘
+                                           │ machine-readable context
+┌──────────────────────────┐      ┌────────▼────────┐      ┌──────────────────────────┐
+│ contract-first codegen   │─────▶│ generated app   │─────▶│ runtime control-plane    │
+│ quickstart / new         │      │ REST / RPC /    │      │ admin / health / metrics │
+│ api / rpc / model        │      │ gateway / jobs  │      │ diagnostics / discovery  │
+│ docker / kube / migrate  │      │ cache / MQ / KV │      │ snapshots / descriptors  │
+└────────────┬─────────────┘      └────────┬────────┘      └────────────┬─────────────┘
+             │                             │                            │
+             │ writes stable project       │ emits runtime state         │ validates evidence
+             ▼                             ▼                            ▼
+┌──────────────────────────┐      ┌─────────────────┐        ┌────────────────────────┐
+│ generated layout         │      │ governance      │        │ compatibility gates    │
+│ internal/api/http        │◀────▶│ retry / limit   │◀──────▶│ api/rpc/model replay   │
+│ internal/api/rpc         │      │ breaker / auth  │        │ release / docs checks  │
+│ internal/app             │      │ policy / trace  │        │ upgrade dry-run        │
+│ internal/model + repo    │      └─────────────────┘        └────────────────────────┘
+└────────────┬─────────────┘
+             │
+             ▼
+┌──────────────────────────┐
+│ extension surface        │
+│ templates / plugins      │
+│ features / examples      │
+│ bug + support bundles    │
+└──────────────────────────┘
 ```
 
 | Capability area | Current surface | Existing entry points |
 | --- | --- | --- |
-| 🚀 Service scaffolding | Minimal, basic, production, REST-only, RPC-only, and quickstart projects | `gofly quickstart`, `gofly new service`, `gofly new api`, `gofly new rpc` |
-| 🛠️ IDL and code generation | REST handlers, API docs, OpenAPI import/export, RPC stubs, model repositories, gateway projects, Dockerfiles, Kubernetes manifests, SQL migrations | `gofly api`, `gofly rpc`, `gofly gen`, `gofly model`, `gofly docker`, `gofly kube`, `gofly migrate` |
+| 🚀 Service scaffolding | Minimal, basic, production, REST-only, RPC-only, quickstart, AI-selected templates, and generated smoke checks | `gofly quickstart`, `gofly new service`, `gofly new api`, `gofly new rpc`, `gofly ai new` |
+| 🛠️ REST/API generation | `.api` parsing, imports, formatting, REST route generation, OpenAPI import/export, generated request/response types, route tests, go-zero-compatible API layout | `gofly api gen`, `gofly api go`, `gofly api format`, `gofly api import`, `gofly api doc`, `gofly handler gen` |
+| 📡 RPC generation | Protobuf parsing, local import resolution, multiple services, streaming descriptors, WKT mappings, gRPC adapter generation, generic handler binding, client/server stubs | `gofly rpc gen`, `gofly rpc protoc`, `gofly rpc client`, `gofly rpc server`, `gofly rpc middleware` |
+| 🧱 Generated layout | HTTP entrypoints in `internal/api/http`, RPC code in `internal/api/rpc`, application orchestration in `internal/app`, go-zero model structs in `model` and repositories in `repo` | `gofly new service`, `gofly api gen --profile gozero-compatible`, `gofly model mysql ddl --style go_zero` |
+| 🗄️ Model and storage generation | SQL DDL and datasource introspection, table filters, prefix/ignore-column handling, MySQL/PostgreSQL dialects, cache helpers, GORM style, go-zero-style `model` + `repo` split | `gofly model gen`, `gofly model mysql ddl`, `gofly model pg ddl`, `gofly model mysql datasource`, `gofly model pg datasource` |
 | 🌐 Service runtime | REST server/client, RPC server/client, gRPC adapters, gateway runtime, lifecycle bootstrap, config loading, discovery, cache, MQ, KV, storage, scheduler, event bus, saga, outbox | `rest/`, `rpc/`, `rpc/grpc/`, `gateway/`, `app/`, `cache/`, `core/*` |
 | 🛡️ Runtime governance | Retries, circuit breakers, token/sliding/adaptive limits, concurrency guards, RPC method policies, auth helpers, request metadata, defensive security helpers | `core/retry`, `core/breaker`, `core/limit`, `core/governance`, `core/auth`, `core/security`, `rpc/policy.go` |
-| 🧭 Control-plane and observability | Runtime snapshots, service discovery state, governance rules, admin endpoints, health checks, metrics, tracing, profiling-ready observability setup | `core/runtime`, `core/controlplane`, `core/observability`, `ops/admin`, `rest/health.go`, `rpc/admin.go`, `gateway/admin.go` |
-| 🔌 Gateway and contract safety | OpenAPI-backed routing, gateway profile validation, aggregation validation, API/RPC diffing, breaking-change checks, release readiness reports | `gofly gateway`, `gofly api diff`, `gofly api breaking`, `gofly rpc check`, `gofly rpc breaking`, `gofly release check` |
-| 🤖 AI-governed workflows | Machine-readable command manifest, control-plane snapshots, project planning, governed completion/streaming, provider diagnostics, redaction and token-budget policy metadata | `gofly ai manifest`, `gofly ai control-plane`, `gofly ai plan`, `gofly ai new`, `gofly ai complete`, `gofly ai stream`, `gofly ai doctor` |
-| 🧩 Extension ecosystem | Local and remote templates, generation plugins, feature previews, built-in examples, upgrade guidance, shell completions, environment and bug diagnostics | `gofly template`, `gofly plugin`, `gofly feature`, `gofly example`, `gofly upgrade`, `gofly completion`, `gofly env`, `gofly doctor`, `gofly bug` |
+| 🧭 Control-plane and observability | Runtime snapshots, service discovery state, governance rules, admin endpoints, descriptors, health checks, metrics, tracing, profiling-ready observability setup | `core/runtime`, `core/controlplane`, `core/observability`, `ops/admin`, `rest/health.go`, `rpc/admin.go`, `gateway/admin.go` |
+| 🔌 Gateway and contract safety | OpenAPI-backed routing, transcoding profiles, BFF aggregation validation, API/RPC diffing, breaking-change checks, release readiness reports | `gofly gateway`, `gofly api diff`, `gofly api breaking`, `gofly rpc check`, `gofly rpc breaking`, `gofly release check` |
+| 🤖 AI-governed workflows | Machine-readable command manifest, control-plane snapshots, project planning, governed completion/streaming, provider diagnostics, redaction, failover, token-budget metadata | `gofly ai manifest`, `gofly ai control-plane`, `gofly ai plan`, `gofly ai new`, `gofly ai complete`, `gofly ai stream`, `gofly ai doctor` |
+| 🧩 Extension ecosystem | Local/remote templates, cached plugins, feature previews, built-in examples, upgrade guidance, shell completions, environment checks, support bundles | `gofly template`, `gofly plugin`, `gofly feature`, `gofly example`, `gofly upgrade`, `gofly completion`, `gofly env`, `gofly doctor`, `gofly bug` |
+| ✅ Governance evidence | Generated-output determinism, goctl replay, generated layout checks, REST profile checks, RPC mux evidence, CLI JSON contracts, control-plane contracts | `make generated-service-layout-check`, `make goctl-real-project-replay-check`, `make contract-docs-check`, `docs/reference/cli-json-contracts.md`, `docs/reference/control-plane-contracts.md` |
 
 ## ⚡ 5-minute start
 

@@ -2,13 +2,15 @@
   "schema": "gofly.goctl_real_project_replay.v1",
   "acceptanceGate": "make goctl-real-project-replay-check",
   "sourceOfTruth": [
+    "docs/reference/goctl-oracle-replay.json",
     "docs/reference/goctl-generator-compatibility.json",
     "docs/reference/generated-upgrade-dry-run.json",
     "testdata/goctl-replay/orderservice/replay.json",
     "testdata/goctl-replay/inventoryservice/replay.json",
     "testdata/goctl-replay/billingservice/replay.json",
     "testdata/goctl-replay/userservice/replay.json",
-    "testdata/goctl-replay/taskservice/replay.json"
+    "testdata/goctl-replay/taskservice/replay.json",
+    "testdata/goctl-replay/nativeorderservice/replay.json"
   ],
   "scope": {
     "expandsCLICommandSurface": false,
@@ -238,9 +240,14 @@
   },
   "diffContract": {
     "categories": [
+      "same-contract",
       "deterministic-repeat-generation",
       "compatible-addition",
+      "layout-difference",
+      "model-layout-difference",
       "generated-cache-template",
+      "missing-capability",
+      "generation-error",
       "breaking-candidate"
     ],
     "repeatGeneration": "Repeat replay must be deterministic before promotion.",
@@ -253,12 +260,14 @@
     "rootDependencyPolicy": "Generated fixture dependencies stay in generated go.mod files; root go.mod must remain unchanged."
   },
   "releaseGates": [
+    "make goctl-oracle-replay-check",
     "make goctl-real-project-replay-check",
     "make goctl-generator-compat-check",
     "make generated-version-compat-check"
   ],
   "status": {
     "goctlCommandSurface": "unchanged",
+    "oracleReplay": "report-only-real-goctl-vs-gofly",
     "fixtureMatrixDepth": "five-fixture-transitive-import-crud-admin-query-model",
     "modelCacheTemplateDepth": "covered-by-three-fixture-replay-matrix"
   }

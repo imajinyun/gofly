@@ -21,6 +21,8 @@ expected_capabilities = {
     "multi-language-client-generation": "implemented",
     "zrpc-proto-compatibility-matrix": "implemented",
     "real-project-replay-matrix": "implemented",
+    "goctl-surface-drift-report": "implemented",
+    "goctl-oracle-replay": "implemented",
 }
 required_boundaries = {
     "noNewJSONEnvelopeFlags",
@@ -30,6 +32,8 @@ required_boundaries = {
     "runtimeArtifactsRemainVolatile",
 }
 required_release_gates = {
+    "make goctl-surface-drift-check",
+    "make goctl-oracle-replay-check",
     "make goctl-generator-compat-check",
     "make api-client-generation-check",
     "make zrpc-proto-compatibility-check",
@@ -81,6 +85,8 @@ require(manifest.get("acceptanceGate") == "make goctl-generator-compat-check", "
 require("goctl-generator-compat-check" in targets, "Makefile must expose goctl-generator-compat-check")
 require("goctl-generator-compat-check" in docs_check_line, "docs-check must depend on goctl-generator-compat-check")
 require("check-goctl-generator-compat.sh" in makefile, "Makefile must call check-goctl-generator-compat.sh")
+require("goctl-surface-drift-check" in targets, "Makefile must expose goctl-surface-drift-check")
+require("goctl-surface-drift-check" in makefile.split("goctl-generator-compat-check:", 1)[1].split("\n", 1)[0], "goctl-generator-compat-check must depend on goctl-surface-drift-check")
 
 boundaries = manifest.get("compatibilityBoundaries") or {}
 require(set(boundaries) == required_boundaries, f"compatibilityBoundaries drifted: missing={sorted(required_boundaries - set(boundaries))} extra={sorted(set(boundaries) - required_boundaries)}")

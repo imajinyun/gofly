@@ -1,0 +1,40 @@
+{
+  "schema": "gofly.goctl_real_project_fixture.v1",
+  "id": "nativeorderservice-goctl-native-oracle",
+  "module": "example.com/nativeorderservice",
+  "serviceName": "nativeorders-api",
+  "profile": "gozero-compatible",
+  "style": "minimal",
+  "api": "nativeorders.api",
+  "config": "etc/nativeorders-api.yaml",
+  "ddl": "model/native_orders.sql",
+  "cache": true,
+  "nativeOracle": true,
+  "capabilities": [
+    "goctl-native-api",
+    "goctl-native-ddl",
+    "single-service-group",
+    "single-column-primary-key",
+    "composite-unique-key",
+    "cache-template"
+  ],
+  "diffCategories": [
+    "same-contract",
+    "layout-difference",
+    "model-layout-difference",
+    "generated-cache-template"
+  ],
+  "expectedArtifacts": [
+    "go.mod",
+    "etc/nativeorders-api.yaml",
+    "internal/handler/routes.go",
+    "internal/types/types.go",
+    "internal/logic/native/createnativeorderlogic.go",
+    "internal/logic/native/getnativeorderlogic.go",
+    "model/native_order_model.go",
+    "model/native_order_model_gen.go",
+    "model/nativeordermodel.go",
+    "model/nativeordermodel_gen.go"
+  ],
+  "rollbackNote": "rollback.md"
+}

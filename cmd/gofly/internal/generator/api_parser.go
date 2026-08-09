@@ -21,11 +21,26 @@ func ParseAPI(content string) (IDLDocument, error) {
 	var currentService *IDLService
 	var handler string
 	var pendingServer IDLServerAnnotation
+	var serverAnnotation strings.Builder
 	lineNo := 0
 	for scanner.Scan() {
 		lineNo++
 		line := strings.TrimSpace(stripLineComment(scanner.Text()))
 		if line == "" {
+			continue
+		}
+		if serverAnnotation.Len() > 0 {
+			serverAnnotation.WriteByte(' ')
+			serverAnnotation.WriteString(line)
+			if strings.Contains(line, ")") {
+				annotation := parseAPIServerAnnotation(serverAnnotation.String())
+				if currentService != nil {
+					currentService.Server = mergeAPIServerAnnotation(currentService.Server, annotation)
+				} else {
+					pendingServer = mergeAPIServerAnnotation(pendingServer, annotation)
+				}
+				serverAnnotation.Reset()
+			}
 			continue
 		}
 		if currentMessage != nil {
@@ -52,6 +67,10 @@ func ParseAPI(content string) (IDLDocument, error) {
 				continue
 			}
 			if strings.HasPrefix(line, "@server") {
+				if strings.Contains(line, "(") && !strings.Contains(line, ")") {
+					serverAnnotation.WriteString(line)
+					continue
+				}
 				currentService.Server = mergeAPIServerAnnotation(currentService.Server, parseAPIServerAnnotation(line))
 				continue
 			}
@@ -74,6 +93,10 @@ func ParseAPI(content string) (IDLDocument, error) {
 			continue
 		}
 		if strings.HasPrefix(line, "@server") {
+			if strings.Contains(line, "(") && !strings.Contains(line, ")") {
+				serverAnnotation.WriteString(line)
+				continue
+			}
 			pendingServer = mergeAPIServerAnnotation(pendingServer, parseAPIServerAnnotation(line))
 			continue
 		}
@@ -89,6 +112,9 @@ func ParseAPI(content string) (IDLDocument, error) {
 	}
 	if err := scanner.Err(); err != nil {
 		return IDLDocument{}, fmt.Errorf("scan api: %w", err)
+	}
+	if serverAnnotation.Len() > 0 {
+		return IDLDocument{}, fmt.Errorf("parse api: server annotation is not closed")
 	}
 	if currentMessage != nil {
 		return IDLDocument{}, fmt.Errorf("parse api: type %s is not closed", currentMessage.Name)

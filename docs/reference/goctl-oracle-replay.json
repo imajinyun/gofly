@@ -1,0 +1,72 @@
+{
+  "schema": "gofly.goctl_oracle_replay.v1",
+  "acceptanceGate": "make goctl-oracle-replay-check",
+  "mode": "report-only",
+  "externalReference": {
+    "path": "../gozero/tools/goctl",
+    "optional": true,
+    "skipPolicy": "If the sibling gozero checkout is unavailable, validate this contract without running oracle replay."
+  },
+  "sourceOfTruth": [
+    "docs/reference/goctl-oracle-replay.json",
+    "docs/reference/goctl-real-project-replay.json",
+    "docs/reference/goctl-surface-drift.json",
+    "testdata/goctl-replay/orderservice/replay.json",
+    "testdata/goctl-replay/inventoryservice/replay.json",
+    "testdata/goctl-replay/billingservice/replay.json",
+    "testdata/goctl-replay/userservice/replay.json",
+    "testdata/goctl-replay/taskservice/replay.json",
+    "testdata/goctl-replay/nativeorderservice/replay.json"
+  ],
+  "oraclePolicy": {
+    "positioning": "The oracle compares generated contracts against real goctl output without claiming byte-for-byte replacement.",
+    "generationPolicy": "Each fixture is copied to a temporary source tree before goctl runs, because goctl may format or back up API input files.",
+    "failurePolicy": "The report fails only when gofly generation fails or required contract evidence is missing; goctl layout differences remain classified evidence."
+  },
+  "fixtures": [
+    "orderservice-goctl-replay",
+    "inventoryservice-imported-multigroup-replay",
+    "billingservice-transitive-import-replay",
+    "userservice-crud-query-replay",
+    "taskservice-admin-delete-replay",
+    "nativeorderservice-goctl-native-oracle"
+  ],
+  "nativeFixtures": [
+    "nativeorderservice-goctl-native-oracle"
+  ],
+  "requiredContracts": [
+    "go.mod module",
+    "internal/handler/routes.go",
+    "internal/types/types.go",
+    "model output",
+    "route registration",
+    "logic files"
+  ],
+  "diffCategories": [
+    "same-contract",
+    "compatible-addition",
+    "layout-difference",
+    "model-layout-difference",
+    "generated-cache-template",
+    "missing-capability",
+    "generation-error"
+  ],
+  "reportFields": [
+    "schema",
+    "mode",
+    "goctlAvailable",
+    "fixtures",
+    "summary"
+  ],
+  "nextPromotionCriteria": [
+    "Persist oracle reports as tracked reference evidence only after output shape stabilizes.",
+    "Promote model parity rows from layout-difference to same-contract only after MySQL DDL, datasource, PostgreSQL, and Mongo coverage exists.",
+    "Make goctl generation failures blocking only after the sibling gozero version is pinned in CI."
+  ],
+  "nativeFixturePolicy": "At least one fixture must be accepted by real goctl so oracle replay can produce concrete contract diff categories, not only generation-error evidence.",
+  "releaseGates": [
+    "make goctl-oracle-replay-check",
+    "make goctl-surface-drift-check",
+    "make goctl-real-project-replay-check"
+  ]
+}

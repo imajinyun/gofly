@@ -1,0 +1,130 @@
+{
+  "schema": "gofly.goctl_surface_drift.v1",
+  "acceptanceGate": "make goctl-surface-drift-check",
+  "mode": "report-only",
+  "externalReference": {
+    "path": "../gozero/tools/goctl",
+    "optional": true,
+    "skipPolicy": "If the sibling gozero checkout is unavailable, validate this contract and the gofly command surface without failing the gate."
+  },
+  "sourceOfTruth": [
+    "docs/reference/goctl-surface-drift.json",
+    "docs/reference/goctl-generator-compatibility.json",
+    "cmd/gofly/internal/command/registry.go",
+    "cmd/gofly/internal/command/idl_registry.go",
+    "../gozero/tools/goctl/cmd/root.go",
+    "../gozero/tools/goctl/api/cmd.go",
+    "../gozero/tools/goctl/rpc/cmd.go",
+    "../gozero/tools/goctl/model/cmd.go"
+  ],
+  "surfacePolicy": {
+    "positioning": "gofly provides a goctl-compatible migration path, not a full goctl replacement.",
+    "claimPolicy": "Only surfaces listed as supported or enhanced with a runnable gate may be promoted in docs or release notes.",
+    "driftPolicy": "New goctl surfaces first enter report-only classification, then become blocking only after fixture replay and generated smoke evidence exist."
+  },
+  "topLevel": {
+    "goctl": [
+      "api",
+      "bug",
+      "config",
+      "docker",
+      "env",
+      "gateway",
+      "kube",
+      "migrate",
+      "model",
+      "quickstart",
+      "rpc",
+      "template",
+      "upgrade"
+    ],
+    "gofly": [
+      "ai",
+      "api",
+      "bug",
+      "complete",
+      "completion",
+      "config",
+      "docker",
+      "env",
+      "example",
+      "feature",
+      "gateway",
+      "gen",
+      "handler",
+      "kube",
+      "migrate",
+      "model",
+      "new",
+      "plugin",
+      "quickstart",
+      "release",
+      "rpc",
+      "template",
+      "upgrade",
+      "version"
+    ]
+  },
+  "families": {
+    "api": {
+      "goctl": ["dart", "doc", "format", "go", "java", "kt", "new", "plugin", "swagger", "ts", "validate"],
+      "gofly": ["breaking", "check", "cleanup", "client", "dart", "diff", "doc", "docs", "format", "gen", "import", "java", "js", "kotlin", "middleware", "new", "plugin", "route", "swagger", "ts", "types"],
+      "classification": "enhanced",
+      "nextParityFocus": ["goctl api go --test", "goctl api format --stdin", "goctl api format --declare", "goctl api go --type-group"]
+    },
+    "rpc": {
+      "goctl": ["new", "protoc", "template"],
+      "gofly": ["breaking", "check", "client", "deps", "descriptor", "doc", "gen", "idl", "lint", "middleware", "new", "plugin", "protoc", "server", "template", "thrift"],
+      "classification": "enhanced",
+      "nextParityFocus": ["goctl rpc protoc --multiple", "goctl rpc protoc --proto_path", "goctl rpc new --name-from-filename", "goctl rpc protoc --client"]
+    },
+    "model": {
+      "goctl": ["mongo", "mysql ddl", "mysql datasource", "pg datasource"],
+      "gofly": ["gen", "mongo", "mysql", "pg"],
+      "classification": "partial-parity",
+      "nextParityFocus": ["mysql ddl", "mysql datasource", "postgres datasource", "mongo type/cache/easy flags", "ignore-columns", "cache prefix"]
+    },
+    "governance": {
+      "goctl": [],
+      "gofly": ["ai", "doctor", "feature", "plugin", "release", "gateway profile validate", "gateway aggregation validate"],
+      "classification": "gofly-enhancement",
+      "nextParityFocus": []
+    }
+  },
+  "diffCategories": [
+    "supported",
+    "enhanced",
+    "partial-parity",
+    "goctl-only",
+    "gofly-enhancement",
+    "intentional-gap"
+  ],
+  "nextActions": [
+    {
+      "id": "goctl-oracle-replay",
+      "priority": "P0",
+      "status": "implemented",
+      "gate": "make goctl-oracle-replay-check",
+      "description": "Generate the same fixture with goctl and gofly in temporary directories, then classify structure, symbol, route, model, and smoke-test differences."
+    },
+    {
+      "id": "model-parity-replay",
+      "priority": "P0",
+      "status": "planned",
+      "gate": "make goctl-real-project-replay-check",
+      "description": "Expand replay evidence around MySQL DDL, MySQL datasource, PostgreSQL datasource, Mongo generation, cache prefix, strict mode, and ignored columns."
+    },
+    {
+      "id": "cli-behavior-drift-report",
+      "priority": "P1",
+      "status": "implemented",
+      "gate": "make goctl-surface-drift-check",
+      "description": "Keep command, subcommand, flag, and output-mode differences visible before promoting any goctl-compatibility claim."
+    }
+  ],
+  "releaseGates": [
+    "make goctl-surface-drift-check",
+    "make goctl-generator-compat-check",
+    "make goctl-real-project-replay-check"
+  ]
+}

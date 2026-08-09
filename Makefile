@@ -264,8 +264,12 @@ discovery-adapter-matrix-check: ## Validate gateway, RPC, and core discovery ada
 db-cache-productization-check: ## Validate DB/cache packages
 	$(GO) test $(TESTFLAGS) ./core/storage/... ./cache/...
 
+.PHONY: goctl-surface-drift-check
+goctl-surface-drift-check: ## Validate goctl command-surface drift report contract
+	sh $(SCRIPTS_DIR)/check-goctl-surface-drift.sh
+
 .PHONY: goctl-generator-compat-check
-goctl-generator-compat-check: api-client-generation-check zrpc-proto-compatibility-check ## Validate goctl-compatible generator tests
+goctl-generator-compat-check: goctl-surface-drift-check api-client-generation-check zrpc-proto-compatibility-check ## Validate goctl-compatible generator tests
 	$(GO) test $(TESTFLAGS) ./cmd/gofly/internal/generator ./cmd/gofly/internal/command -run 'Test.*Goctl|Test.*goctl|Test.*Generated|TestNewService'
 	sh $(SCRIPTS_DIR)/check-goctl-generator-compat.sh
 
@@ -278,8 +282,12 @@ zrpc-proto-compatibility-check: ## Validate zRPC/proto compatibility support mat
 	sh $(SCRIPTS_DIR)/check-zrpc-proto-compatibility.sh
 
 .PHONY: goctl-real-project-replay-check
-goctl-real-project-replay-check: test-generated-matrix ## Validate goctl replay through generated project smoke
+goctl-real-project-replay-check: goctl-oracle-replay-check test-generated-matrix ## Validate goctl replay through generated project smoke
 	sh $(SCRIPTS_DIR)/check-goctl-real-project-replay.sh
+
+.PHONY: goctl-oracle-replay-check
+goctl-oracle-replay-check: goctl-surface-drift-check ## Compare gofly replay fixtures against real goctl output
+	sh $(SCRIPTS_DIR)/check-goctl-oracle-replay.sh
 
 .PHONY: framework-gap-check
 framework-gap-check: ## Compatibility no-op; framework alignment is now validated through code, generator, and examples gates
@@ -360,7 +368,7 @@ examples-smoke: ## Run runnable example smoke tests and machine-readable output 
 	sh $(SCRIPTS_DIR)/examples-smoke.sh
 
 .PHONY: docs-check
-docs-check: reference-contracts-check api-contract-governance-check goctl-generator-compat-check goctl-real-project-replay-check ## Validate tracked documentation-backed governance contracts
+docs-check: reference-contracts-check api-contract-governance-check goctl-surface-drift-check goctl-oracle-replay-check goctl-generator-compat-check goctl-real-project-replay-check ## Validate tracked documentation-backed governance contracts
 
 .PHONY: reference-contracts-check
 reference-contracts-check: ## Validate docs/reference is the tracked governance contract root

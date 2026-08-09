@@ -23,6 +23,7 @@ type goctlReplayFixture struct {
 	Config            string   `json:"config"`
 	DDL               string   `json:"ddl"`
 	Cache             bool     `json:"cache"`
+	NativeOracle      bool     `json:"nativeOracle"`
 	Capabilities      []string `json:"capabilities"`
 	DiffCategories    []string `json:"diffCategories"`
 	ExpectedArtifacts []string `json:"expectedArtifacts"`
@@ -33,6 +34,9 @@ func TestGoctlRealProjectFixtureReplay(t *testing.T) {
 	fixtureRoot := filepath.Join(repositoryRoot(t), "testdata", "goctl-replay")
 	for _, fixtureDir := range goctlReplayFixtureDirs(t, fixtureRoot) {
 		fixture := readGoctlReplayFixture(t, fixtureDir)
+		if fixture.NativeOracle {
+			continue
+		}
 		t.Run(fixture.ID, func(t *testing.T) {
 			if fixture.Schema != "gofly.goctl_real_project_fixture.v1" {
 				t.Fatalf("fixture schema = %q, want gofly.goctl_real_project_fixture.v1", fixture.Schema)

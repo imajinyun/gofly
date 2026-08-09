@@ -12,14 +12,20 @@ manifest_path = root / "docs" / "reference" / "goctl-real-project-replay.json"
 missing = []
 
 required_gates = {
+    "make goctl-oracle-replay-check",
     "make goctl-real-project-replay-check",
     "make goctl-generator-compat-check",
     "make generated-version-compat-check",
 }
 required_diff_categories = {
+    "same-contract",
     "deterministic-repeat-generation",
     "compatible-addition",
+    "layout-difference",
+    "model-layout-difference",
     "generated-cache-template",
+    "missing-capability",
+    "generation-error",
     "breaking-candidate",
 }
 required_matrix_capabilities = {
@@ -83,9 +89,13 @@ require(manifest.get("acceptanceGate") == "make goctl-real-project-replay-check"
 require("goctl-real-project-replay-check" in targets, "Makefile must expose goctl-real-project-replay-check")
 require("goctl-real-project-replay-check" in docs_check_line, "docs-check must depend on goctl-real-project-replay-check")
 require("check-goctl-real-project-replay.sh" in makefile, "Makefile must call check-goctl-real-project-replay.sh")
+require("goctl-oracle-replay-check" in targets, "Makefile must expose goctl-oracle-replay-check")
+require("goctl-oracle-replay-check" in docs_check_line, "docs-check must depend on goctl-oracle-replay-check")
+require("goctl-oracle-replay-check" in makefile.split("goctl-real-project-replay-check:", 1)[1].split("\n", 1)[0], "goctl-real-project-replay-check must depend on goctl-oracle-replay-check")
 
 source_of_truth = set(manifest.get("sourceOfTruth") or [])
 for source in (
+    "docs/reference/goctl-oracle-replay.json",
     "docs/reference/goctl-generator-compatibility.json",
     "docs/reference/generated-upgrade-dry-run.json",
     "testdata/goctl-replay/orderservice/replay.json",
@@ -93,6 +103,7 @@ for source in (
     "testdata/goctl-replay/billingservice/replay.json",
     "testdata/goctl-replay/userservice/replay.json",
     "testdata/goctl-replay/taskservice/replay.json",
+    "testdata/goctl-replay/nativeorderservice/replay.json",
 ):
     require(source in source_of_truth, f"sourceOfTruth missing {source!r}")
     require((root / source).exists(), f"sourceOfTruth path is missing: {source}")
@@ -228,6 +239,7 @@ for gate in release_gates:
 
 status = manifest.get("status") or {}
 require(status.get("goctlCommandSurface") == "unchanged", "status.goctlCommandSurface must remain unchanged")
+require(status.get("oracleReplay") == "report-only-real-goctl-vs-gofly", "status.oracleReplay mismatch")
 require(status.get("fixtureMatrixDepth") == "five-fixture-transitive-import-crud-admin-query-model", "status.fixtureMatrixDepth mismatch")
 require(status.get("modelCacheTemplateDepth") == "covered-by-three-fixture-replay-matrix", "status.modelCacheTemplateDepth mismatch")
 

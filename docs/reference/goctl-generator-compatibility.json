@@ -93,9 +93,29 @@
       "tests": ["bin/scripts/check-goctl-real-project-replay.sh"],
       "evidence": ["real branch replay", "temporary worktree", "rollback action"],
       "rollbackNote": "Rollback by requiring temporary worktree replay evidence before accepting real adopter branch promotion."
+    },
+    {
+      "id": "goctl-surface-drift-report",
+      "status": "implemented",
+      "gate": "make goctl-surface-drift-check",
+      "implementation": ["docs/reference/goctl-surface-drift.json"],
+      "tests": ["bin/scripts/check-goctl-surface-drift.sh"],
+      "evidence": ["report-only", "goctl-oracle-replay", "model-parity-replay", "cli-behavior-drift-report"],
+      "rollbackNote": "Rollback by keeping the goctl surface drift contract in report-only mode until fixture replay evidence promotes a surface."
+    },
+    {
+      "id": "goctl-oracle-replay",
+      "status": "implemented",
+      "gate": "make goctl-oracle-replay-check",
+      "implementation": ["docs/reference/goctl-oracle-replay.json"],
+      "tests": ["bin/scripts/check-goctl-oracle-replay.sh"],
+      "evidence": ["same-contract", "layout-difference", "model-layout-difference", "goctlAvailable"],
+      "rollbackNote": "Rollback by keeping oracle replay in report-only mode and preserving gofly-only replay gates until goctl output comparison stabilizes."
     }
   ],
   "releaseGates": [
+    "make goctl-surface-drift-check",
+    "make goctl-oracle-replay-check",
     "make goctl-generator-compat-check",
     "make api-client-generation-check",
     "make zrpc-proto-compatibility-check",

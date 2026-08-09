@@ -459,6 +459,27 @@ func TestAPIAnnotationParsingBoundaries(t *testing.T) {
 		!reflect.DeepEqual(server.Middleware, []string{"auth", "trace"}) {
 		t.Fatalf("parseAPIServerAnnotation plural middleware = %#v, want goctl-compatible metadata", server)
 	}
+
+	doc, err := ParseAPI(`syntax = "v1"
+
+@server(
+  group: native
+  prefix: /api/v1
+  middleware: AuthInterceptor
+)
+service nativeorders-api {
+  @handler createNativeOrder
+  post /native/orders (CreateNativeOrderRequest) returns (CreateNativeOrderResponse)
+}`)
+	if err != nil {
+		t.Fatalf("ParseAPI multiline server annotation: %v", err)
+	}
+	if len(doc.Services) != 1 ||
+		doc.Services[0].Server.Group != "native" ||
+		doc.Services[0].Server.Prefix != "/api/v1" ||
+		!reflect.DeepEqual(doc.Services[0].Server.Middleware, []string{"AuthInterceptor"}) {
+		t.Fatalf("ParseAPI multiline server annotation = %#v, want goctl-compatible server metadata", doc.Services)
+	}
 }
 
 func TestProtoCodegenTypeAndPackageBoundaries(t *testing.T) {
@@ -2500,6 +2521,62 @@ func TestGenerateRESTFromAPIGoZeroCompatibleServiceContext(t *testing.T) {
 	}
 }
 
+func TestGenerateRESTFromAPIGoZeroCompatibleMultilineServerAnnotation(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/nativeorderservice\n\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	apiPath := filepath.Join(repositoryRoot(t), "testdata", "goctl-replay", "nativeorderservice", "nativeorders.api")
+	if err := GenerateRESTFromAPI(APIOptions{
+		APIFile: apiPath,
+		Dir:     dir,
+		Profile: string(ProfileGoZeroCompatible),
+	}); err != nil {
+		t.Fatalf("GenerateRESTFromAPI gozero-compatible native fixture: %v", err)
+	}
+
+	checks := []struct {
+		path string
+		want []string
+	}{
+		{
+			path: filepath.Join(dir, "internal", "logic", "native", "createnativeorderlogic.go"),
+			want: []string{"package nativelogic", "func NewCreateNativeOrderLogic", "func (l *CreateNativeOrderLogic) CreateNativeOrder"},
+		},
+		{
+			path: filepath.Join(dir, "internal", "handler", "native", "createnativeorderhandler.go"),
+			want: []string{"package native", `nativelogic "example.com/nativeorderservice/internal/logic/native"`, "func CreateNativeOrderHandler", "nativelogic.NewCreateNativeOrderLogic"},
+		},
+		{
+			path: filepath.Join(dir, "internal", "handler", "routes.go"),
+			want: []string{`native "example.com/nativeorderservice/internal/handler/native"`, `rest.WithPrefix("/api/v1")`, `svcCtx.Middlewares["AuthInterceptor"]`, "native.CreateNativeOrderHandler(svcCtx)", "native.GetNativeOrderHandler(svcCtx)"},
+		},
+		{
+			path: filepath.Join(dir, "internal", "middleware", "authinterceptormiddleware.go"),
+			want: []string{"package middleware", "type AuthInterceptorMiddleware struct", "func NewAuthInterceptorMiddleware() *AuthInterceptorMiddleware", "func (m *AuthInterceptorMiddleware) Handle(next http.HandlerFunc) http.HandlerFunc", "func (m *AuthInterceptorMiddleware) Middleware() rest.Middleware"},
+		},
+		{
+			path: filepath.Join(dir, "internal", "svc", "servicecontext.go"),
+			want: []string{`"example.com/nativeorderservice/internal/middleware"`, `middlewares["AuthInterceptor"] = middleware.NewAuthInterceptorMiddleware().Middleware()`, "Middlewares:", "middlewares"},
+		},
+		{
+			path: filepath.Join(dir, "nativeorders.go"),
+			want: []string{`var configFile = flag.String("f", "etc/nativeorders-api.yaml", "the config file")`, `handler.RegisterHandlers(server, svc.NewServiceContext())`, "server.Shutdown(context.Background())", "server.Start()"},
+		},
+	}
+	for _, check := range checks {
+		data, err := os.ReadFile(check.path)
+		if err != nil {
+			t.Fatalf("read generated native goctl-compatible file %s: %v", check.path, err)
+		}
+		for _, want := range check.want {
+			if !strings.Contains(string(data), want) {
+				t.Fatalf("generated native goctl-compatible file %s missing %q:\n%s", check.path, want, data)
+			}
+		}
+	}
+}
+
 func TestGenerateRESTFromAPIGoZeroCompatiblePreservesExistingBusinessFiles(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/shop\n\n"), 0o644); err != nil {
@@ -3679,6 +3756,74 @@ func TestGenerateModelFromDDLGoctlOptions(t *testing.T) {
 	if err := GenerateModelFromDDL(ModelOptions{DDLFile: ddlPath, Dir: filepath.Join(dir, "pk"), IgnoreColumns: []string{"id"}, Strict: true}); err == nil || !strings.Contains(err.Error(), "primary key column") {
 		t.Fatalf("strict ignored primary key error = %v", err)
 	}
+}
+
+func TestGenerateModelFromDDLGoZeroStyleWritesGoctlFacade(t *testing.T) {
+	dir := t.TempDir()
+	writeGeneratedModule(t, dir, "example.com/nativeorderservice")
+	ddlPath := filepath.Join(repositoryRoot(t), "testdata", "goctl-replay", "nativeorderservice", "model", "native_orders.sql")
+	if err := GenerateModelFromDDL(ModelOptions{
+		DDLFile: ddlPath,
+		Dir:     dir,
+		Package: "model",
+		Module:  "example.com/nativeorderservice",
+		Style:   "go_zero",
+		Cache:   true,
+	}); err != nil {
+		t.Fatalf("GenerateModelFromDDL go_zero facade: %v", err)
+	}
+	customData, err := os.ReadFile(filepath.Join(dir, "model", "nativeordermodel.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	customOut := string(customData)
+	for _, want := range []string{
+		"package model",
+		"type NativeOrderModel interface",
+		"nativeOrderModel",
+		"func NewNativeOrderModel(conn *storage.SQLStore",
+		"return newNativeOrderModel(conn, dialect...)",
+	} {
+		if !strings.Contains(customOut, want) {
+			t.Fatalf("gozero custom model facade missing %q:\n%s", want, customOut)
+		}
+	}
+	varsData, err := os.ReadFile(filepath.Join(dir, "model", "vars.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	varsOut := string(varsData)
+	for _, want := range []string{
+		"package model",
+		`"github.com/imajinyun/gofly/core/storage"`,
+		"var ErrNotFound = storage.ErrNotFound",
+	} {
+		if !strings.Contains(varsOut, want) {
+			t.Fatalf("gozero vars facade missing %q:\n%s", want, varsOut)
+		}
+	}
+	genData, err := os.ReadFile(filepath.Join(dir, "model", "nativeordermodel_gen.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	genOut := string(genData)
+	for _, want := range []string{
+		"type NativeOrder = entity.NativeOrder",
+		"type defaultNativeOrderModel struct",
+		"repo *repo.NativeOrderRepo",
+		"func newNativeOrderModel(conn *storage.SQLStore",
+		"repo.NewNativeOrderRepo(conn, dialect...)",
+		"func (m *defaultNativeOrderModel) FindOne(ctx context.Context, id int64) (*NativeOrder, error)",
+		"return m.repo.FindOne(ctx, id)",
+		"func (m *defaultNativeOrderModel) withSession(session *sql.Tx) NativeOrderModel",
+		"clone.repo = m.repo.WithTx(session)",
+	} {
+		if !strings.Contains(genOut, want) {
+			t.Fatalf("gozero generated model facade missing %q:\n%s", want, genOut)
+		}
+	}
+	runGoCommand(t, dir, 3*time.Minute, "mod", "tidy")
+	runGoCommand(t, dir, 3*time.Minute, "test", "./...")
 }
 
 func TestGenerateModelFromDDLMultiTableGoctlOptionsCacheReplay(t *testing.T) {

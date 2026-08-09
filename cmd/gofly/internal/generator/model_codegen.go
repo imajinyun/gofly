@@ -160,6 +160,11 @@ func GenerateModelFromDDL(opts ModelOptions) error {
 	if err := writeModelFiles(tables, opts.Dir, pkg, module, style, opts.Cache, storage.DialectQuestion); err != nil {
 		return err
 	}
+	if isGoZeroModelStyle(opts.Style) {
+		if err := writeGoZeroModelFacadeFiles(tables, opts.Dir, module, storage.DialectQuestion); err != nil {
+			return err
+		}
+	}
 	return ensureModelGoModDependencies(opts.Dir, style)
 }
 
@@ -226,6 +231,11 @@ func GenerateModelFromDatasource(opts ModelDatasourceOptions) error {
 	if err := writeModelFiles(tables, opts.Dir, pkg, module, style, opts.Cache, modelDefaultDialect(opts.Driver)); err != nil {
 		return err
 	}
+	if isGoZeroModelStyle(opts.Style) {
+		if err := writeGoZeroModelFacadeFiles(tables, opts.Dir, module, modelDefaultDialect(opts.Driver)); err != nil {
+			return err
+		}
+	}
 	return ensureModelGoModDependencies(opts.Dir, style)
 }
 
@@ -261,6 +271,15 @@ func normalizeModelStyle(style string) string {
 		return modelStyleGORM
 	default:
 		return modelStyleSQL
+	}
+}
+
+func isGoZeroModelStyle(style string) bool {
+	switch strings.ToLower(strings.TrimSpace(style)) {
+	case "go_zero", "go-zero", "gozero":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -1096,6 +1115,114 @@ func writeModelFiles(tables []SQLTable, dir string, pkg string, module string, s
 		}
 	}
 	return nil
+}
+
+func writeGoZeroModelFacadeFiles(tables []SQLTable, dir string, module string, defaultDialect storage.Dialect) error {
+	if len(tables) == 0 {
+		return errors.New("model table is required")
+	}
+	if err := writeGoZeroModelVarsFile(dir); err != nil {
+		return err
+	}
+	for _, table := range tables {
+		if err := writeGoZeroModelFacadeFile(dir, table, module, defaultDialect, false); err != nil {
+			return err
+		}
+		if err := writeGoZeroModelFacadeFile(dir, table, module, defaultDialect, true); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeGoZeroModelVarsFile(dir string) error {
+	var b bytes.Buffer
+	fprintf(&b, "package model\n\n")
+	fprintf(&b, "import \"github.com/imajinyun/gofly/core/storage\"\n\n")
+	fprintf(&b, "var ErrNotFound = storage.ErrNotFound\n")
+	formatted, err := format.Source(b.Bytes())
+	if err != nil {
+		return fmt.Errorf("format gozero model vars facade: %w", err)
+	}
+	return writeGeneratedFile(filepath.Join(dir, "model", "vars.go"), formatted)
+}
+
+func writeGoZeroModelFacadeFile(dir string, table SQLTable, module string, defaultDialect storage.Dialect, generated bool) error {
+	typeName := exportName(singularize(table.Name))
+	modelName := typeName + "Model"
+	defaultName := "default" + typeName + "Model"
+	pk := primaryColumn(table)
+	pkArg := modelArgName(pk.Name)
+	pkType := columnGoType(pk)
+	repoImport := strings.TrimRight(module, "/") + "/model/repo"
+	entityImport := strings.TrimRight(module, "/") + "/model/entity"
+	var b bytes.Buffer
+	fprintf(&b, "package model\n\n")
+	if generated {
+		fprintf(&b, "import (\n")
+		fprintf(&b, "\t\"context\"\n")
+		fprintf(&b, "\t\"database/sql\"\n\n")
+		fprintf(&b, "\t\"github.com/imajinyun/gofly/core/storage\"\n")
+		fprintf(&b, "\t%q\n", entityImport)
+		fprintf(&b, "\t%q\n", repoImport)
+		fprintf(&b, ")\n\n")
+		fprintf(&b, "type %s = entity.%s\n\n", typeName, typeName)
+		fprintf(&b, "type %s interface {\n", lowerCamel(typeName)+"Model")
+		fprintf(&b, "\tFindOne(ctx context.Context, %s %s) (*%s, error)\n", pkArg, pkType, typeName)
+		fprintf(&b, "\tInsert(ctx context.Context, in *%s) error\n", typeName)
+		fprintf(&b, "\tUpdate(ctx context.Context, in *%s) error\n", typeName)
+		fprintf(&b, "\tDelete(ctx context.Context, %s %s) error\n", pkArg, pkType)
+		fprintf(&b, "}\n\n")
+		fprintf(&b, "type %s struct {\n", defaultName)
+		fprintf(&b, "\trepo *repo.%sRepo\n", typeName)
+		fprintf(&b, "}\n\n")
+		fprintf(&b, "func new%s(conn *storage.SQLStore, dialect ...storage.Dialect) *%s {\n", typeName+"Model", defaultName)
+		fprintf(&b, "\treturn &%s{repo: repo.New%sRepo(conn, dialect...)}\n", defaultName, typeName)
+		fprintf(&b, "}\n\n")
+		fprintf(&b, "func (m *%s) FindOne(ctx context.Context, %s %s) (*%s, error) {\n", defaultName, pkArg, pkType, typeName)
+		fprintf(&b, "\treturn m.repo.FindOne(ctx, %s)\n", pkArg)
+		fprintf(&b, "}\n\n")
+		fprintf(&b, "func (m *%s) Insert(ctx context.Context, in *%s) error {\n", defaultName, typeName)
+		fprintf(&b, "\treturn m.repo.Insert(ctx, in)\n")
+		fprintf(&b, "}\n\n")
+		fprintf(&b, "func (m *%s) Update(ctx context.Context, in *%s) error {\n", defaultName, typeName)
+		fprintf(&b, "\treturn m.repo.Update(ctx, in)\n")
+		fprintf(&b, "}\n\n")
+		fprintf(&b, "func (m *%s) Delete(ctx context.Context, %s %s) error {\n", defaultName, pkArg, pkType)
+		fprintf(&b, "\treturn m.repo.Delete(ctx, %s)\n", pkArg)
+		fprintf(&b, "}\n\n")
+		fprintf(&b, "func (m *%s) withSession(session *sql.Tx) %s {\n", defaultName, modelName)
+		fprintf(&b, "\tif m == nil || m.repo == nil {\n\t\treturn m\n\t}\n")
+		fprintf(&b, "\tclone := *m\n")
+		fprintf(&b, "\tclone.repo = m.repo.WithTx(session)\n")
+		fprintf(&b, "\treturn &clone\n")
+		fprintf(&b, "}\n")
+	} else {
+		fprintf(&b, "import (\n")
+		fprintf(&b, "\t\"database/sql\"\n\n")
+		fprintf(&b, "\t\"github.com/imajinyun/gofly/core/storage\"\n")
+		fprintf(&b, ")\n\n")
+		fprintf(&b, "var _ %s = (*%s)(nil)\n\n", modelName, defaultName)
+		fprintf(&b, "type %s interface {\n", modelName)
+		fprintf(&b, "\t%s\n", lowerCamel(typeName)+"Model")
+		fprintf(&b, "\twithSession(session *sql.Tx) %s\n", modelName)
+		fprintf(&b, "}\n\n")
+		fprintf(&b, "func New%s(conn *storage.SQLStore, dialect ...storage.Dialect) %s {\n", modelName, modelName)
+		fprintf(&b, "\tif len(dialect) == 0 {\n")
+		fprintf(&b, "\t\tdialect = []storage.Dialect{storage.%s}\n", modelDialectConstName(defaultDialect))
+		fprintf(&b, "\t}\n")
+		fprintf(&b, "\treturn new%s(conn, dialect...)\n", modelName)
+		fprintf(&b, "}\n")
+	}
+	formatted, err := format.Source(b.Bytes())
+	if err != nil {
+		return fmt.Errorf("format gozero model facade %s: %w", typeName, err)
+	}
+	name := lowerName(typeName) + "model"
+	if generated {
+		name += "_gen"
+	}
+	return writeGeneratedFile(filepath.Join(dir, "model", name+".go"), formatted)
 }
 
 func writeEntityTablerFile(dir string) error {

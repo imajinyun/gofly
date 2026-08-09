@@ -1,0 +1,34 @@
+syntax = "v1"
+
+type CreateNativeOrderRequest {
+  BuyerName string `json:"buyerName"`
+  AmountCents int64 `json:"amountCents"`
+}
+
+type CreateNativeOrderResponse {
+  Id int64 `json:"id"`
+  Status string `json:"status"`
+}
+
+type GetNativeOrderRequest {
+  Id int64 `path:"id"`
+}
+
+type GetNativeOrderResponse {
+  Id int64 `json:"id"`
+  BuyerName string `json:"buyerName"`
+  Status string `json:"status"`
+}
+
+@server(
+  group: native
+  prefix: /api/v1
+  middleware: AuthInterceptor
+)
+service nativeorders-api {
+  @handler createNativeOrder
+  post /native/orders (CreateNativeOrderRequest) returns (CreateNativeOrderResponse)
+
+  @handler getNativeOrder
+  get /native/orders/:id (GetNativeOrderRequest) returns (GetNativeOrderResponse)
+}

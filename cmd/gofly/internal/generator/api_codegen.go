@@ -2970,10 +2970,17 @@ func writeGoZeroCompatibleRESTFiles(doc IDLDocument, opts APIOptions) error {
 	if err := writeGoZeroAPITypesFile(opts.Dir, doc); err != nil {
 		return err
 	}
-	if err := writeGoZeroAPIServiceContextFile(opts.Dir); err != nil {
+	expected := expectedGoZeroAPIBusinessFiles(doc.Services)
+	middlewares := goZeroAPIServiceMiddlewares(doc.Services)
+	if err := writeGoZeroAPIMiddlewareFiles(opts.Dir, middlewares); err != nil {
 		return err
 	}
-	expected := expectedGoZeroAPIBusinessFiles(doc.Services)
+	if err := writeGoZeroAPIServiceContextFile(opts.Dir, module, middlewares); err != nil {
+		return err
+	}
+	if err := writeGoZeroAPIMainFile(opts.Dir, module, doc.Services[0].Name); err != nil {
+		return err
+	}
 	for _, svc := range doc.Services {
 		for _, method := range svc.Methods {
 			if err := writeGoZeroAPILogicFile(opts.Dir, module, svc.Server.Group, method); err != nil {
@@ -3035,7 +3042,7 @@ func appendGoZeroAPITypesFile(root string, existing []byte, doc IDLDocument) err
 	return writeGeneratedFileUnder(root, filepath.Join("internal", "types", "types.go"), formatted)
 }
 
-func writeGoZeroAPIServiceContextFile(root string) error {
+func writeGoZeroAPIServiceContextFile(root string, module string, middlewares []string) error {
 	path := filepath.Join(root, "internal", "svc", "servicecontext.go")
 	if _, err := os.Stat(path); err == nil {
 		return nil
@@ -3047,14 +3054,22 @@ func writeGoZeroAPIServiceContextFile(root string) error {
 	fprintf(&b, "import (\n")
 	fprintf(&b, "\t\"github.com/imajinyun/gofly/core/auth\"\n")
 	fprintf(&b, "\t\"github.com/imajinyun/gofly/rest\"\n")
+	if len(middlewares) > 0 {
+		fprintf(&b, "\n\t%q\n", strings.TrimRight(module, "/")+"/internal/middleware")
+	}
 	fprintf(&b, ")\n\n")
 	fprintf(&b, "type ServiceContext struct {\n")
 	fprintf(&b, "\tMiddlewares  map[string]rest.Middleware\n")
 	fprintf(&b, "\tJWTValidators map[string]auth.Validator\n")
 	fprintf(&b, "}\n\n")
 	fprintf(&b, "func NewServiceContext() *ServiceContext {\n")
+	fprintf(&b, "\tmiddlewares := map[string]rest.Middleware{}\n")
+	for _, name := range middlewares {
+		typeName := goZeroAPIMiddlewareTypeName(name)
+		fprintf(&b, "\tmiddlewares[%q] = middleware.New%s().Middleware()\n", name, typeName)
+	}
 	fprintf(&b, "\treturn &ServiceContext{\n")
-	fprintf(&b, "\t\tMiddlewares:  map[string]rest.Middleware{},\n")
+	fprintf(&b, "\t\tMiddlewares:  middlewares,\n")
 	fprintf(&b, "\t\tJWTValidators: map[string]auth.Validator{},\n")
 	fprintf(&b, "\t}\n")
 	fprintf(&b, "}\n")
@@ -3063,6 +3078,86 @@ func writeGoZeroAPIServiceContextFile(root string) error {
 		return fmt.Errorf("format gozero-compatible service context: %w", err)
 	}
 	return writeGeneratedFileUnder(root, filepath.Join("internal", "svc", "servicecontext.go"), formatted)
+}
+
+func writeGoZeroAPIMiddlewareFiles(root string, names []string) error {
+	for _, name := range names {
+		var b bytes.Buffer
+		typeName := goZeroAPIMiddlewareTypeName(name)
+		fprintf(&b, "package middleware\n\n")
+		fprintf(&b, "import (\n")
+		fprintf(&b, "\t\"net/http\"\n\n")
+		fprintf(&b, "\t\"github.com/imajinyun/gofly/rest\"\n")
+		fprintf(&b, ")\n\n")
+		fprintf(&b, "type %s struct{}\n\n", typeName)
+		fprintf(&b, "func New%s() *%s {\n", typeName, typeName)
+		fprintf(&b, "\treturn &%s{}\n", typeName)
+		fprintf(&b, "}\n\n")
+		fprintf(&b, "func (m *%s) Handle(next http.HandlerFunc) http.HandlerFunc {\n", typeName)
+		fprintf(&b, "\treturn func(w http.ResponseWriter, r *http.Request) {\n")
+		fprintf(&b, "\t\tnext(w, r)\n")
+		fprintf(&b, "\t}\n")
+		fprintf(&b, "}\n\n")
+		fprintf(&b, "func (m *%s) Middleware() rest.Middleware {\n", typeName)
+		fprintf(&b, "\treturn func(next http.Handler) http.Handler {\n")
+		fprintf(&b, "\t\treturn http.HandlerFunc(m.Handle(next.ServeHTTP))\n")
+		fprintf(&b, "\t}\n")
+		fprintf(&b, "}\n")
+		formatted, err := format.Source(b.Bytes())
+		if err != nil {
+			return fmt.Errorf("format gozero-compatible middleware %s: %w", typeName, err)
+		}
+		if err := writeGeneratedFileUnderIfMissing(root, filepath.Join("internal", "middleware", goZeroAPIMiddlewareFile(name)), formatted); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeGoZeroAPIMainFile(root string, module string, serviceName string) error {
+	var b bytes.Buffer
+	fileName := goZeroAPIMainFileName(serviceName)
+	hasConfig := goZeroAPIConfigFileExists(root)
+	fprintf(&b, "package main\n\n")
+	fprintf(&b, "import (\n")
+	fprintf(&b, "\t\"context\"\n")
+	fprintf(&b, "\t\"flag\"\n")
+	fprintf(&b, "\t\"fmt\"\n")
+	fprintf(&b, "\t\"log\"\n\n")
+	fprintf(&b, "\t\"github.com/imajinyun/gofly/rest\"\n")
+	if hasConfig {
+		fprintf(&b, "\t%q\n", strings.TrimRight(module, "/")+"/internal/config")
+	}
+	fprintf(&b, "\t%q\n", strings.TrimRight(module, "/")+"/internal/handler")
+	fprintf(&b, "\t%q\n", strings.TrimRight(module, "/")+"/internal/svc")
+	fprintf(&b, ")\n\n")
+	fprintf(&b, "var configFile = flag.String(\"f\", \"etc/%s.yaml\", \"the config file\")\n\n", serviceName)
+	fprintf(&b, "func main() {\n")
+	fprintf(&b, "\tflag.Parse()\n")
+	fprintf(&b, "\t_ = *configFile\n\n")
+	fprintf(&b, "\tconf := rest.Config{Name: %q, Host: \"0.0.0.0\", Port: 8080}\n", serviceName)
+	fprintf(&b, "\tserver := rest.MustNewServer(conf)\n")
+	fprintf(&b, "\tdefer func() { _ = server.Shutdown(context.Background()) }()\n\n")
+	if hasConfig {
+		fprintf(&b, "\thandler.RegisterHandlers(server, svc.NewServiceContext(config.Config{}))\n")
+	} else {
+		fprintf(&b, "\thandler.RegisterHandlers(server, svc.NewServiceContext())\n")
+	}
+	fprintf(&b, "\tfmt.Printf(\"Starting server at %%s:%%d...\\n\", conf.Host, conf.Port)\n")
+	fprintf(&b, "\tif err := server.Start(); err != nil {\n")
+	fprintf(&b, "\t\tlog.Fatal(err)\n")
+	fprintf(&b, "\t}\n")
+	fprintf(&b, "}\n")
+	formatted, err := format.Source(b.Bytes())
+	if err != nil {
+		return fmt.Errorf("format gozero-compatible api main %s: %w", fileName, err)
+	}
+	return writeGeneratedFileUnderIfMissing(root, fileName, formatted)
+}
+
+func goZeroAPIConfigFileExists(root string) bool {
+	_, err := os.Stat(filepath.Join(root, "internal", "config", "config.go"))
+	return err == nil
 }
 
 func writeGoZeroAPILogicFile(root, module string, group string, method IDLMethod) error {
@@ -3424,6 +3519,35 @@ func goZeroAPIMiddlewareNames(names []string) []string {
 		out = append(out, name)
 	}
 	return out
+}
+
+func goZeroAPIServiceMiddlewares(services []IDLService) []string {
+	var names []string
+	for _, svc := range services {
+		names = append(names, svc.Server.Middleware...)
+	}
+	return goZeroAPIMiddlewareNames(names)
+}
+
+func goZeroAPIMiddlewareTypeName(name string) string {
+	base := strings.TrimSuffix(exportName(name), "Middleware")
+	return base + "Middleware"
+}
+
+func goZeroAPIMiddlewareFile(name string) string {
+	return lowerName(goZeroAPIMiddlewareTypeName(name)) + ".go"
+}
+
+func goZeroAPIMainFileName(serviceName string) string {
+	name := strings.ToLower(strings.TrimSpace(serviceName))
+	name = strings.TrimSuffix(name, "-api")
+	name = strings.TrimSuffix(name, "_api")
+	name = strings.ReplaceAll(name, "-", "")
+	name = strings.ReplaceAll(name, "_", "")
+	if name == "" {
+		return "main.go"
+	}
+	return name + ".go"
 }
 
 func goZeroAPIBinder(method string) string {

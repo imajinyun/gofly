@@ -1,0 +1,48 @@
+{
+  "schema": "gofly.goctl_datasource_replay_fixture.v1",
+  "id": "postgres-multi-schema-datasource-replay",
+  "driver": "postgres",
+  "dsn": "postgres-multi-schema",
+  "module": "example.com/postgres-datasource-entrypoint",
+  "package": "model",
+  "style": "go_zero",
+  "schemaName": "billing",
+  "tables": ["billing_accounts", "billing_events"],
+  "prefix": "billing_",
+  "ignoreColumns": ["created_by", "updated_by"],
+  "strict": true,
+  "cache": true,
+  "capabilities": [
+    "postgres-datasource",
+    "multi-schema",
+    "table-prefix",
+    "ignore-columns",
+    "strict",
+    "cache-template",
+    "composite-unique-key",
+    "non-unique-index",
+    "skip-locked-claim"
+  ],
+  "expectedArtifacts": [
+    "model/entity/account_gen.go",
+    "model/entity/event_gen.go",
+    "model/repo/account.go",
+    "model/repo/event.go"
+  ],
+  "assertions": {
+    "model/repo/account.go": [
+      "d := storage.DialectPostgres",
+      "func (r *AccountRepo) UpsertByTenantIDAndExternalRef(ctx context.Context, in *entity.Account) error",
+      "storage.Upsert(entity.AccountTable, entity.AccountColumns, []string{\"tenant_id\", \"external_ref\"}",
+      "func (c *RedisCachedAccountRepo) PageByTenantIDCached(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.Account, int64, error)",
+      "key := redisAccountIndexListCacheKey(version, indexListKeyByTenantID(tenantID, limit, offset))"
+    ],
+    "model/repo/event.go": [
+      "d := storage.DialectPostgres",
+      "func (r *EventRepo) UpsertByTenantIDAndEventNo(ctx context.Context, in *entity.Event) error",
+      "func (r *EventRepo) ClaimByTenantIDAndStatusSkipLocked(ctx context.Context, tenantID int64, status string, nextStatus string, limit int) ([]entity.Event, error)",
+      "func (c *RedisCachedEventRepo) ClaimByTenantIDAndStatusSkipLocked(ctx context.Context, tenantID int64, status string, nextStatus string, limit int) ([]entity.Event, error)",
+      "key := redisEventIndexListCacheKey(version, indexListKeyByTenantIDAndStatus(tenantID, status, limit, offset))"
+    ]
+  }
+}

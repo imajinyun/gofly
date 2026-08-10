@@ -5070,6 +5070,32 @@ func TestFormatAPIFromFileBranches(t *testing.T) {
 	}
 }
 
+func TestFormatAPIFromFileDeclareSkipsMissingTypeDeclaration(t *testing.T) {
+	dir := t.TempDir()
+	apiFile := filepath.Join(dir, "declare.api")
+	api := `type UserResponse {
+  Friend Friend
+}
+service user-api {
+  @handler getUser
+  get /users returns (UserResponse)
+}
+`
+	if err := os.WriteFile(apiFile, []byte(api), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := FormatAPIFromFile(APIFormatOptions{APIFile: apiFile, Write: false}); err == nil || !strings.Contains(err.Error(), `can not find declaration "Friend"`) {
+		t.Fatalf("FormatAPIFromFile without declare error = %v, want missing Friend declaration", err)
+	}
+	formatted, err := FormatAPIFromFile(APIFormatOptions{APIFile: apiFile, Write: false, Declare: true})
+	if err != nil {
+		t.Fatalf("FormatAPIFromFile declare: %v", err)
+	}
+	if !strings.Contains(string(formatted), "Friend Friend") {
+		t.Fatalf("declare formatted output = %s", formatted)
+	}
+}
+
 func TestGenerateRESTFromAPIValidation(t *testing.T) {
 	if err := GenerateRESTFromAPI(APIOptions{}); err == nil || !strings.Contains(err.Error(), "api file is required") {
 		t.Fatalf("empty api file error = %v", err)

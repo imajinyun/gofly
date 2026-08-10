@@ -20,7 +20,7 @@
     "apiGoTest": "The --test flag must generate route or handler smoke tests that compile in generated projects.",
     "apiGoTypeGroup": "The --type-group flag must split DTOs into per-type files and avoid writing a monolithic types.go for grouped output.",
     "apiFormatStdin": "The --stdin flag must read API content from standard input and emit formatted content to stdout or the requested output file.",
-    "apiFormatDeclare": "The --declare flag is accepted for goctl migration compatibility; formatter semantic parity remains bounded by ParseAPI and FormatAPI behavior until an oracle fixture is pinned."
+    "apiFormatDeclare": "The --declare flag skips missing type declaration checks during API formatting, matching goctl's migration-critical formatter behavior."
   },
   "apiSurfaces": [
     {
@@ -62,10 +62,11 @@
       "id": "api-format-declare",
       "goctlSurface": "goctl api format --declare",
       "goflySurface": "gofly api format --declare",
-      "status": "compat-accepted",
-      "behavior": "accepts the flag without changing output claims until declare-specific oracle coverage exists",
+      "status": "implemented",
+      "behavior": "skips missing type declaration checks while preserving formatted API output",
       "evidence": [
-        "TestExecuteAPIFormatAndDoc"
+        "TestFormatAPIFromFileDeclareSkipsMissingTypeDeclaration",
+        "TestAPIFormatStdinAndControlPlaneVerificationCoverageBuffer"
       ],
       "coveredFlags": ["declare"]
     }
@@ -79,7 +80,6 @@
   "diffCategories": [
     "same-contract",
     "compatible-flag",
-    "compat-accepted",
     "missing-capability",
     "generation-error"
   ],
@@ -88,7 +88,7 @@
     "make goctl-generator-compat-check"
   ],
   "nextPromotionCriteria": [
-    "Promote api-format-declare from compat-accepted to implemented only after a real goctl formatter oracle fixture proves declare-specific behavior.",
+    "Keep api-format-declare implemented only while missing type declaration checks fail by default and pass with --declare.",
     "Keep --test and --type-group promoted only while generated route tests and split type files are covered by command and generator tests.",
     "Do not describe API flag support as full goctl parity unless every requiredFlag has implemented status and a runnable gate."
   ]

@@ -73,6 +73,7 @@ real_replay_text = read_text(root / "docs" / "reference" / "goctl-real-project-r
 from_gozero_text = read_text(root / "docs" / "reference" / "from-go-zero-migration.md")
 command_tests = read_text(root / "cmd" / "gofly" / "internal" / "command" / "idl_test.go")
 generator_tests = read_text(root / "cmd" / "gofly" / "internal" / "generator" / "idl_test.go")
+model_bench_tests = read_text(root / "cmd" / "gofly" / "internal" / "generator" / "model_bench_test.go")
 model_gen_flags = read_text(root / "cmd" / "gofly" / "internal" / "command" / "model_gen_flags.go")
 model_datasource_flags = read_text(root / "cmd" / "gofly" / "internal" / "command" / "model_datasource_command.go")
 model_mongo_flags = read_text(root / "cmd" / "gofly" / "internal" / "command" / "model_mongo_command.go")
@@ -98,17 +99,18 @@ for source in manifest.get("sourceOfTruth") or []:
     require((root / source).exists(), f"sourceOfTruth path missing: {source}")
 
 policy = manifest.get("compatibilityPolicy") or {}
-for key in ("layout", "oracleDiff", "rootModuleHygiene"):
+for key in ("layout", "oracleDiff", "rootModuleHygiene", "offlineDatasourceFixtures"):
     require(len(str(policy.get(key) or "").split()) >= 8, f"compatibilityPolicy.{key} must be actionable")
 require("model-layout-difference" in policy.get("oracleDiff", ""), "oracleDiff must mention model-layout-difference")
 require("root module" in policy.get("rootModuleHygiene", "").lower(), "rootModuleHygiene must mention root module")
+require("offline-datasource-fixtures" in policy.get("offlineDatasourceFixtures", ""), "offlineDatasourceFixtures policy must mention offline-datasource-fixtures")
 
 surfaces = manifest.get("modelSurfaces") or []
 surface_ids = {item.get("id") for item in surfaces}
 require(surface_ids == required_surfaces, f"modelSurfaces drifted: missing={sorted(required_surfaces - surface_ids)} extra={sorted(surface_ids - required_surfaces)}")
 
 all_covered_options = set()
-test_haystack = command_tests + "\n" + generator_tests
+test_haystack = command_tests + "\n" + generator_tests + "\n" + model_bench_tests
 for item in surfaces:
     surface_id = item.get("id")
     require(item.get("status") == "implemented", f"{surface_id}: status must be implemented")
@@ -120,7 +122,8 @@ for item in surfaces:
     evidence = item.get("evidence") or []
     require(len(evidence) >= 2, f"{surface_id}: at least two evidence anchors are required")
     for anchor in evidence:
-        require(str(anchor) in test_haystack, f"{surface_id}: evidence anchor missing from tests: {anchor}")
+        anchor_text = str(anchor)
+        require(anchor_text in test_haystack or (root / anchor_text).is_file(), f"{surface_id}: evidence anchor missing from tests or fixtures: {anchor}")
 
 required = set(manifest.get("requiredOptions") or [])
 require(required == required_options, f"requiredOptions drifted: missing={sorted(required_options - required)} extra={sorted(required - required_options)}")
@@ -133,6 +136,27 @@ release_gates = set(manifest.get("releaseGates") or [])
 require(release_gates == required_release_gates, f"releaseGates drifted: missing={sorted(required_release_gates - release_gates)} extra={sorted(release_gates - required_release_gates)}")
 for gate in release_gates:
     require(gate_is_known(gate, targets), f"release gate is not known: {gate}")
+
+offline_fixtures = manifest.get("offlineDatasourceFixtures") or []
+fixture_ids = {item.get("id") for item in offline_fixtures}
+require(
+    fixture_ids == {"mysql-multi-table-datasource-replay", "postgres-multi-schema-datasource-replay"},
+    f"offlineDatasourceFixtures drifted: {sorted(fixture_ids)!r}",
+)
+for item in offline_fixtures:
+    fixture_path = root / str(item.get("path") or "")
+    require(fixture_path.is_file(), f"{item.get('id')}: fixture path missing: {item.get('path')}")
+    fixture = json.loads(fixture_path.read_text(encoding="utf-8")) if fixture_path.is_file() else {}
+    require(fixture.get("schema") == "gofly.goctl_datasource_replay_fixture.v1", f"{item.get('id')}: fixture schema mismatch")
+    require(fixture.get("id") == item.get("id"), f"{item.get('id')}: fixture id mismatch")
+    require(fixture.get("driver") == item.get("driver"), f"{item.get('id')}: fixture driver mismatch")
+    require(fixture.get("strict") is True, f"{item.get('id')}: strict must be true")
+    require(fixture.get("cache") is True, f"{item.get('id')}: cache must be true")
+    require(fixture.get("expectedArtifacts"), f"{item.get('id')}: expectedArtifacts are required")
+    require(fixture.get("assertions"), f"{item.get('id')}: assertions are required")
+    required_caps = set(item.get("capabilities") or [])
+    actual_caps = set(fixture.get("capabilities") or [])
+    require(required_caps <= actual_caps, f"{item.get('id')}: capabilities missing {sorted(required_caps - actual_caps)}")
 
 for needle in (
     "mysql ddl",
@@ -191,6 +215,9 @@ for needle in (
     "TestGenerateModelFromDDLGoctlOptions",
     "TestGenerateModelFromDDLMultiTableGoctlOptionsCacheReplay",
     "TestGenerateModelFromDDLGoZeroStyleWritesGoctlFacade",
+    "TestGenerateModelFromDatasourceMultiTableReplayCompiles",
+    "TestGenerateModelFromPostgresDatasourceMultiSchemaReplayCompiles",
+    "readGoctlDatasourceReplayFixture",
     "TestExecuteModelGoctlCompatibleInputAliases",
     "TestExecuteModelAcceptsGoctlShortAndSingleDashFlags",
     "TestExecuteModelMongoCacheAndPrefix",

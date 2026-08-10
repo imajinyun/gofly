@@ -74,7 +74,7 @@
       "implementation": ["docs/reference/goctl-api-flag-parity.json"],
       "tests": ["bin/scripts/check-goctl-api-flag-parity.sh"],
       "evidence": ["api-go-test", "api-go-type-group", "api-format-stdin", "api-format-declare"],
-      "rollbackNote": "Rollback by keeping API flag parity scoped to migration-critical flags and preserving compat-accepted declare status until oracle evidence exists."
+      "rollbackNote": "Rollback by keeping API flag parity scoped to migration-critical flags and preserving declare-specific missing type checks until tests pass."
     },
     {
       "id": "multi-language-client-generation",
@@ -109,7 +109,7 @@
       "gate": "make goctl-model-parity-replay-check",
       "implementation": ["docs/reference/goctl-model-parity-replay.json"],
       "tests": ["bin/scripts/check-goctl-model-parity-replay.sh"],
-      "evidence": ["mysql-ddl-gozero-style", "mysql-datasource-options", "postgres-datasource-options", "mongo-type-cache-prefix"],
+      "evidence": ["mysql-ddl-gozero-style", "mysql-datasource-options", "postgres-datasource-options", "offline-datasource-fixtures", "mongo-type-cache-prefix"],
       "rollbackNote": "Rollback by keeping model parity as migration-critical evidence only and preserving model-layout-difference classifications until stronger oracle fixtures pass."
     },
     {

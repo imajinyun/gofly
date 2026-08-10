@@ -16,12 +16,16 @@
     "cmd/gofly/internal/command/model_mongo_command.go",
     "cmd/gofly/internal/generator/model_codegen.go",
     "cmd/gofly/internal/command/idl_test.go",
-    "cmd/gofly/internal/generator/idl_test.go"
+    "cmd/gofly/internal/generator/idl_test.go",
+    "cmd/gofly/internal/generator/model_bench_test.go",
+    "testdata/goctl-datasource-replay/mysql-multi-table/replay.json",
+    "testdata/goctl-datasource-replay/postgres-multi-schema/replay.json"
   ],
   "compatibilityPolicy": {
     "layout": "gofly may keep generated table structs and repositories split across model and repo directories when the contract compiles and facade methods remain stable.",
     "oracleDiff": "goctl layout differences remain classified as model-layout-difference until the generated API contract, facade methods, cache methods, and smoke tests are equivalent for migration.",
-    "rootModuleHygiene": "Generated-project-only dependencies stay in generated modules and must not be added to the root module."
+    "rootModuleHygiene": "Generated-project-only dependencies stay in generated modules and must not be added to the root module.",
+    "offlineDatasourceFixtures": "offline-datasource-fixtures cover MySQL multi-table and PostgreSQL multi-schema datasource replay without requiring live database services."
   },
   "modelSurfaces": [
     {
@@ -43,7 +47,9 @@
       "status": "implemented",
       "evidence": [
         "TestExecuteModelGoctlCompatibleInputAliases",
-        "TestExecuteModelAcceptsGoctlShortAndSingleDashFlags"
+        "TestExecuteModelAcceptsGoctlShortAndSingleDashFlags",
+        "TestGenerateModelFromDatasourceMultiTableReplayCompiles",
+        "testdata/goctl-datasource-replay/mysql-multi-table/replay.json"
       ],
       "coveredOptions": ["datasource", "table", "tables", "cache", "ignore-columns", "prefix", "database"]
     },
@@ -54,7 +60,9 @@
       "status": "implemented",
       "evidence": [
         "TestExecuteModelGoctlCompatibleInputAliases",
-        "TestExecuteModelAcceptsGoctlShortAndSingleDashFlags"
+        "TestExecuteModelAcceptsGoctlShortAndSingleDashFlags",
+        "TestGenerateModelFromPostgresDatasourceMultiSchemaReplayCompiles",
+        "testdata/goctl-datasource-replay/postgres-multi-schema/replay.json"
       ],
       "coveredOptions": ["dsn", "datasource", "table", "tables", "schema", "cache", "ignore-columns", "prefix"]
     },
@@ -81,6 +89,20 @@
     "schema",
     "datasource",
     "module"
+  ],
+  "offlineDatasourceFixtures": [
+    {
+      "id": "mysql-multi-table-datasource-replay",
+      "path": "testdata/goctl-datasource-replay/mysql-multi-table/replay.json",
+      "driver": "mysql",
+      "capabilities": ["mysql-datasource", "multi-table", "table-prefix", "ignore-columns", "strict", "cache-template"]
+    },
+    {
+      "id": "postgres-multi-schema-datasource-replay",
+      "path": "testdata/goctl-datasource-replay/postgres-multi-schema/replay.json",
+      "driver": "postgres",
+      "capabilities": ["postgres-datasource", "multi-schema", "table-prefix", "ignore-columns", "strict", "cache-template"]
+    }
   ],
   "diffCategories": [
     "same-contract",

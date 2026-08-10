@@ -18,8 +18,8 @@
       "status": "blocking",
       "gate": "make goctl-api-flag-parity-check",
       "contract": "docs/reference/goctl-api-flag-parity.json",
-      "summary": "Migration-critical goctl api go and api format flags are covered by a runnable contract; --declare remains compat-accepted until oracle evidence exists.",
-      "reportOnlyClasses": ["compat-accepted"]
+      "summary": "Migration-critical goctl api go and api format flags are covered by a runnable contract; --declare skips missing type declaration checks during formatting.",
+      "reportOnlyClasses": []
     },
     {
       "id": "rpc-protoc-parity",
@@ -34,7 +34,7 @@
       "status": "blocking",
       "gate": "make goctl-model-parity-replay-check",
       "contract": "docs/reference/goctl-model-parity-replay.json",
-      "summary": "Migration-critical goctl model options are covered while preserving gofly's model/repo layout boundary.",
+      "summary": "Migration-critical goctl model options are covered by DDL and offline datasource replay fixtures while preserving gofly's model/repo layout boundary.",
       "reportOnlyClasses": ["model-layout-difference"]
     },
     {

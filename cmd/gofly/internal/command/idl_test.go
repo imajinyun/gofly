@@ -4934,6 +4934,55 @@ get /ping returns (PingResponse)
 		}
 	})
 
+	t.Run("api format stdin declare skips missing type declaration", func(t *testing.T) {
+		oldStdin := os.Stdin
+		readEnd, writeEnd, err := os.Pipe()
+		if err != nil {
+			t.Fatalf("pipe stdin missing declaration: %v", err)
+		}
+		os.Stdin = readEnd
+		_, _ = writeEnd.WriteString(`type PingResponse {
+Friend Friend
+}
+service user-api {
+@handler ping
+get /ping returns (PingResponse)
+}
+`)
+		_ = writeEnd.Close()
+		err = apiFormatCommand([]string{"--stdin"})
+		os.Stdin = oldStdin
+		if err == nil || !strings.Contains(err.Error(), `can not find declaration "Friend"`) {
+			t.Fatalf("apiFormatCommand stdin without declare error = %v, want missing Friend declaration", err)
+		}
+
+		oldStdin2 := os.Stdin
+		readEnd2, writeEnd2, err := os.Pipe()
+		if err != nil {
+			t.Fatalf("pipe stdin declare: %v", err)
+		}
+		os.Stdin = readEnd2
+		defer func() { os.Stdin = oldStdin2 }()
+		_, _ = writeEnd2.WriteString(`type PingResponse {
+Friend Friend
+}
+service user-api {
+@handler ping
+get /ping returns (PingResponse)
+}
+`)
+		_ = writeEnd2.Close()
+		var stdout bytes.Buffer
+		if err := withCommandIO(IOStreams{Out: &stdout}, outputText, verbosityNormal, func() error {
+			return apiFormatCommand([]string{"--stdin", "--declare"})
+		}); err != nil {
+			t.Fatalf("apiFormatCommand stdin declare: %v", err)
+		}
+		if !strings.Contains(stdout.String(), "Friend Friend") {
+			t.Fatalf("stdin declare stdout output = %q", stdout.String())
+		}
+	})
+
 	t.Run("control-plane snapshot assertion handles skipped and failed cases", func(t *testing.T) {
 		if got := runAIProjectControlPlaneSnapshotAssertion(dir, 0); got.Status != "failed" || !strings.Contains(got.Error, "timeout") {
 			t.Fatalf("zero timeout result = %+v, want failed timeout", got)

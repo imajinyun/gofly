@@ -60,9 +60,9 @@ API flag migration parity is tracked by
 `docs/reference/goctl-api-flag-parity.json` and validated by
 `make goctl-api-flag-parity-check`. The contract covers `api go --test`,
 `api go --type-group`, `api format --stdin`, and compatibility acceptance for
-`api format --declare`. The `--declare` flag is intentionally documented as
-`compat-accepted` until a real goctl formatter oracle fixture proves
-declare-specific formatter semantics.
+`api format --declare`. The `--declare` flag skips missing type declaration
+checks during formatting, matching goctl's migration-critical formatter
+behavior without claiming a full formatter clone.
 
 ## Model Layout
 

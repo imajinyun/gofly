@@ -37,6 +37,7 @@ type APIFormatOptions struct {
 	Dir     string
 	Output  string
 	Write   bool
+	Declare bool
 }
 
 type APIDocOptions struct {
@@ -177,6 +178,11 @@ func FormatAPIFromFile(opts APIFormatOptions) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	if !opts.Declare {
+		if err := validateAPITypeDeclarations(doc); err != nil {
+			return nil, err
+		}
+	}
 	formatted := FormatAPI(doc)
 	if opts.Output != "" {
 		if err := writeGeneratedFile(opts.Output, formatted); err != nil {
@@ -214,7 +220,7 @@ func formatAPIDir(opts APIFormatOptions) ([]byte, error) {
 		if d.IsDir() || filepath.Ext(path) != ".api" {
 			return nil
 		}
-		formatted, err := FormatAPIFromFile(APIFormatOptions{APIFile: path, Write: opts.Write})
+		formatted, err := FormatAPIFromFile(APIFormatOptions{APIFile: path, Write: opts.Write, Declare: opts.Declare})
 		if err != nil {
 			return err
 		}
@@ -225,6 +231,59 @@ func formatAPIDir(opts APIFormatOptions) ([]byte, error) {
 		return nil, fmt.Errorf("format api directory: %w", err)
 	}
 	return last, nil
+}
+
+func FormatAPIContent(content string, declare bool) ([]byte, error) {
+	doc, err := ParseAPI(content)
+	if err != nil {
+		return nil, err
+	}
+	if !declare {
+		if err := validateAPITypeDeclarations(doc); err != nil {
+			return nil, err
+		}
+	}
+	return FormatAPI(doc), nil
+}
+
+func validateAPITypeDeclarations(doc IDLDocument) error {
+	declared := map[string]struct{}{}
+	for _, msg := range doc.Messages {
+		declared[exportName(msg.Name)] = struct{}{}
+	}
+	for _, msg := range doc.Messages {
+		for _, field := range msg.Fields {
+			fieldType := strings.TrimPrefix(strings.TrimSpace(field.Type), "[]")
+			if isBuiltinAPIType(fieldType) {
+				continue
+			}
+			if _, ok := declared[exportName(fieldType)]; !ok {
+				return fmt.Errorf("can not find declaration %q in context", fieldType)
+			}
+		}
+	}
+	for _, svc := range doc.Services {
+		for _, method := range svc.Methods {
+			for _, typ := range []string{method.Request, method.Response} {
+				if strings.TrimSpace(typ) == "" || isBuiltinAPIType(typ) {
+					continue
+				}
+				if _, ok := declared[exportName(typ)]; !ok {
+					return fmt.Errorf("can not find declaration %q in context", typ)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func isBuiltinAPIType(apiType string) bool {
+	switch strings.ToLower(strings.TrimSpace(strings.TrimPrefix(apiType, "[]"))) {
+	case "", "string", "bool", "boolean", "byte", "bytes", "int", "int8", "int16", "int32", "int64", "uint", "uint8", "uint16", "uint32", "uint64", "float", "float32", "float64", "double", "any", "interface{}":
+		return true
+	default:
+		return false
+	}
 }
 
 func FormatAPI(doc IDLDocument) []byte {

@@ -1,0 +1,44 @@
+{
+  "schema": "gofly.goctl_datasource_replay_fixture.v1",
+  "id": "mysql-multi-table-datasource-replay",
+  "driver": "mysql",
+  "dsn": "multi-table",
+  "module": "example.com/datasource-entrypoint",
+  "package": "model",
+  "style": "go_zero",
+  "tables": ["app_customers", "app_orders"],
+  "prefix": "app_",
+  "ignoreColumns": ["created_by", "updated_by"],
+  "strict": true,
+  "cache": true,
+  "capabilities": [
+    "mysql-datasource",
+    "multi-table",
+    "table-prefix",
+    "ignore-columns",
+    "strict",
+    "cache-template",
+    "composite-unique-key",
+    "non-unique-index",
+    "skip-locked-claim"
+  ],
+  "expectedArtifacts": [
+    "model/entity/customer_gen.go",
+    "model/entity/order_gen.go",
+    "model/repo/customer.go",
+    "model/repo/order.go"
+  ],
+  "assertions": {
+    "model/repo/customer.go": [
+      "d := storage.DialectMySQL",
+      "func (r *CustomerRepo) UpsertByTenantIDAndExternalID(ctx context.Context, in *entity.Customer) error",
+      "func (c *RedisCachedCustomerRepo) PageByTenantIDCached(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.Customer, int64, error)",
+      "c.listVersionByTenantID.Set(ctx, \"current\", redisCustomerIndexListVersionValue())"
+    ],
+    "model/repo/order.go": [
+      "func (r *OrderRepo) ClaimByTenantIDAndStatusSkipLocked(ctx context.Context, tenantID int64, status string, nextStatus string, limit int) ([]entity.Order, error)",
+      "func (c *RedisCachedOrderRepo) ClaimByTenantIDAndStatusSkipLocked(ctx context.Context, tenantID int64, status string, nextStatus string, limit int) ([]entity.Order, error)",
+      "key := redisOrderIndexListCacheKey(version, indexListKeyByTenantIDAndStatus(tenantID, status, limit, offset))"
+    ]
+  }
+}

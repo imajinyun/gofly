@@ -36,11 +36,10 @@ func apiFormatCommand(args []string) error {
 		if err != nil {
 			return fmt.Errorf("read api from stdin: %w", err)
 		}
-		doc, err := generator.ParseAPI(string(content))
+		formatted, err := generator.FormatAPIContent(string(content), *declare)
 		if err != nil {
 			return err
 		}
-		formatted := generator.FormatAPI(doc)
 		if outputPath != "" {
 			// #nosec G301 -- CLI formatting writes user-visible project artifacts that should remain traversable by tools.
 			if err := os.MkdirAll(filepath.Dir(outputPath), 0o755); err != nil {
@@ -57,6 +56,7 @@ func apiFormatCommand(args []string) error {
 		Dir:     *dir,
 		Output:  outputPath,
 		Write:   *write,
+		Declare: *declare,
 	})
 	if err != nil {
 		return err

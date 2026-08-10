@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -84,6 +85,64 @@ type fakeDatasourceRows struct {
 	columns []string
 	values  [][]driver.Value
 	idx     int
+}
+
+type goctlDatasourceReplayFixture struct {
+	Schema            string              `json:"schema"`
+	ID                string              `json:"id"`
+	Driver            string              `json:"driver"`
+	DSN               string              `json:"dsn"`
+	Module            string              `json:"module"`
+	Package           string              `json:"package"`
+	Style             string              `json:"style"`
+	Database          string              `json:"database"`
+	SchemaName        string              `json:"schemaName"`
+	Tables            []string            `json:"tables"`
+	Prefix            string              `json:"prefix"`
+	IgnoreColumns     []string            `json:"ignoreColumns"`
+	Strict            bool                `json:"strict"`
+	Cache             bool                `json:"cache"`
+	Capabilities      []string            `json:"capabilities"`
+	ExpectedArtifacts []string            `json:"expectedArtifacts"`
+	Assertions        map[string][]string `json:"assertions"`
+}
+
+func readGoctlDatasourceReplayFixture(t *testing.T, name string) goctlDatasourceReplayFixture {
+	t.Helper()
+	path := filepath.Join(repositoryRoot(t), "testdata", "goctl-datasource-replay", name, "replay.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read datasource replay fixture %s: %v", name, err)
+	}
+	var fixture goctlDatasourceReplayFixture
+	if err := json.Unmarshal(data, &fixture); err != nil {
+		t.Fatalf("decode datasource replay fixture %s: %v\n%s", name, err, data)
+	}
+	if fixture.Schema != "gofly.goctl_datasource_replay_fixture.v1" {
+		t.Fatalf("datasource replay fixture %s schema = %q", name, fixture.Schema)
+	}
+	return fixture
+}
+
+func assertGoctlDatasourceReplayFixture(t *testing.T, dir string, fixture goctlDatasourceReplayFixture) {
+	t.Helper()
+	for _, rel := range fixture.ExpectedArtifacts {
+		if _, err := os.Stat(filepath.Join(dir, rel)); err != nil {
+			t.Fatalf("datasource replay artifact %s: %v", rel, err)
+		}
+	}
+	for rel, needles := range fixture.Assertions {
+		data, err := os.ReadFile(filepath.Join(dir, rel))
+		if err != nil {
+			t.Fatalf("read datasource replay assertion file %s: %v", rel, err)
+		}
+		out := string(data)
+		for _, needle := range needles {
+			if !strings.Contains(out, needle) {
+				t.Fatalf("datasource replay %s missing %q:\n%s", rel, needle, out)
+			}
+		}
+	}
 }
 
 func (r *fakeDatasourceRows) Columns() []string {
@@ -906,6 +965,7 @@ func TestDatasourceIntrospectionMultiTableGoctlCacheReplay(t *testing.T) {
 }
 
 func TestGenerateModelFromDatasourceMultiTableReplayCompiles(t *testing.T) {
+	fixture := readGoctlDatasourceReplayFixture(t, "mysql-multi-table")
 	oldDriverName := modelDatasourceDriverName
 	modelDatasourceDriverName = func(driver string) string {
 		if driver == "mysql" {
@@ -916,55 +976,28 @@ func TestGenerateModelFromDatasourceMultiTableReplayCompiles(t *testing.T) {
 	t.Cleanup(func() { modelDatasourceDriverName = oldDriverName })
 
 	dir := t.TempDir()
-	writeGeneratedModule(t, dir, "example.com/datasource-entrypoint")
+	writeGeneratedModule(t, dir, fixture.Module)
 	if err := GenerateModelFromDatasource(ModelDatasourceOptions{
-		Driver:        "mysql",
-		DSN:           "multi-table",
+		Driver:        fixture.Driver,
+		DSN:           fixture.DSN,
 		Dir:           dir,
-		Package:       "model",
-		Module:        "example.com/datasource-entrypoint",
-		Tables:        []string{"app_customers", "app_orders"},
-		Prefix:        "app_",
-		IgnoreColumns: []string{"created_by", "updated_by"},
-		Strict:        true,
-		Cache:         true,
+		Package:       fixture.Package,
+		Module:        fixture.Module,
+		Tables:        fixture.Tables,
+		Prefix:        fixture.Prefix,
+		IgnoreColumns: fixture.IgnoreColumns,
+		Strict:        fixture.Strict,
+		Cache:         fixture.Cache,
 	}); err != nil {
 		t.Fatalf("GenerateModelFromDatasource multi-table replay: %v", err)
 	}
-	customerRepo, err := os.ReadFile(filepath.Join(dir, "model", "repo", "customer.go"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	customerRepoOut := string(customerRepo)
-	for _, want := range []string{
-		"d := storage.DialectMySQL",
-		"func (r *CustomerRepo) UpsertByTenantIDAndExternalID(ctx context.Context, in *entity.Customer) error",
-		"func (c *RedisCachedCustomerRepo) PageByTenantIDCached(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.Customer, int64, error)",
-		"c.listVersionByTenantID.Set(ctx, \"current\", redisCustomerIndexListVersionValue())",
-	} {
-		if !strings.Contains(customerRepoOut, want) {
-			t.Fatalf("entrypoint datasource customer repo missing %q:\n%s", want, customerRepoOut)
-		}
-	}
-	orderRepo, err := os.ReadFile(filepath.Join(dir, "model", "repo", "order.go"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	orderRepoOut := string(orderRepo)
-	for _, want := range []string{
-		"func (r *OrderRepo) ClaimByTenantIDAndStatusSkipLocked(ctx context.Context, tenantID int64, status string, nextStatus string, limit int) ([]entity.Order, error)",
-		"func (c *RedisCachedOrderRepo) ClaimByTenantIDAndStatusSkipLocked(ctx context.Context, tenantID int64, status string, nextStatus string, limit int) ([]entity.Order, error)",
-		"key := redisOrderIndexListCacheKey(version, indexListKeyByTenantIDAndStatus(tenantID, status, limit, offset))",
-	} {
-		if !strings.Contains(orderRepoOut, want) {
-			t.Fatalf("entrypoint datasource order repo missing %q:\n%s", want, orderRepoOut)
-		}
-	}
+	assertGoctlDatasourceReplayFixture(t, dir, fixture)
 	runGoCommand(t, dir, 3*time.Minute, "mod", "tidy")
 	runGoCommand(t, dir, 3*time.Minute, "test", "./...")
 }
 
 func TestGenerateModelFromPostgresDatasourceMultiSchemaReplayCompiles(t *testing.T) {
+	fixture := readGoctlDatasourceReplayFixture(t, "postgres-multi-schema")
 	oldDriverName := modelDatasourceDriverName
 	modelDatasourceDriverName = func(driver string) string {
 		if driver == "postgres" || driver == "postgresql" || driver == "pg" {
@@ -975,54 +1008,23 @@ func TestGenerateModelFromPostgresDatasourceMultiSchemaReplayCompiles(t *testing
 	t.Cleanup(func() { modelDatasourceDriverName = oldDriverName })
 
 	dir := t.TempDir()
-	writeGeneratedModule(t, dir, "example.com/postgres-datasource-entrypoint")
+	writeGeneratedModule(t, dir, fixture.Module)
 	if err := GenerateModelFromDatasource(ModelDatasourceOptions{
-		Driver:        "postgres",
-		DSN:           "postgres-multi-schema",
+		Driver:        fixture.Driver,
+		DSN:           fixture.DSN,
 		Dir:           dir,
-		Package:       "model",
-		Module:        "example.com/postgres-datasource-entrypoint",
-		Tables:        []string{"billing_accounts", "billing_events"},
-		Schema:        "billing",
-		Prefix:        "billing_",
-		IgnoreColumns: []string{"created_by", "updated_by"},
-		Strict:        true,
-		Cache:         true,
+		Package:       fixture.Package,
+		Module:        fixture.Module,
+		Tables:        fixture.Tables,
+		Schema:        fixture.SchemaName,
+		Prefix:        fixture.Prefix,
+		IgnoreColumns: fixture.IgnoreColumns,
+		Strict:        fixture.Strict,
+		Cache:         fixture.Cache,
 	}); err != nil {
 		t.Fatalf("GenerateModelFromDatasource postgres multi-schema replay: %v", err)
 	}
-	accountRepo, err := os.ReadFile(filepath.Join(dir, "model", "repo", "account.go"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	accountRepoOut := string(accountRepo)
-	for _, want := range []string{
-		"d := storage.DialectPostgres",
-		"func (r *AccountRepo) UpsertByTenantIDAndExternalRef(ctx context.Context, in *entity.Account) error",
-		"storage.Upsert(entity.AccountTable, entity.AccountColumns, []string{\"tenant_id\", \"external_ref\"}",
-		"func (c *RedisCachedAccountRepo) PageByTenantIDCached(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.Account, int64, error)",
-		"key := redisAccountIndexListCacheKey(version, indexListKeyByTenantID(tenantID, limit, offset))",
-	} {
-		if !strings.Contains(accountRepoOut, want) {
-			t.Fatalf("entrypoint postgres account repo missing %q:\n%s", want, accountRepoOut)
-		}
-	}
-	eventRepo, err := os.ReadFile(filepath.Join(dir, "model", "repo", "event.go"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	eventRepoOut := string(eventRepo)
-	for _, want := range []string{
-		"d := storage.DialectPostgres",
-		"func (r *EventRepo) UpsertByTenantIDAndEventNo(ctx context.Context, in *entity.Event) error",
-		"func (r *EventRepo) ClaimByTenantIDAndStatusSkipLocked(ctx context.Context, tenantID int64, status string, nextStatus string, limit int) ([]entity.Event, error)",
-		"func (c *RedisCachedEventRepo) ClaimByTenantIDAndStatusSkipLocked(ctx context.Context, tenantID int64, status string, nextStatus string, limit int) ([]entity.Event, error)",
-		"key := redisEventIndexListCacheKey(version, indexListKeyByTenantIDAndStatus(tenantID, status, limit, offset))",
-	} {
-		if !strings.Contains(eventRepoOut, want) {
-			t.Fatalf("entrypoint postgres event repo missing %q:\n%s", want, eventRepoOut)
-		}
-	}
+	assertGoctlDatasourceReplayFixture(t, dir, fixture)
 	runGoCommand(t, dir, 3*time.Minute, "mod", "tidy")
 	runGoCommand(t, dir, 3*time.Minute, "test", "./...")
 }

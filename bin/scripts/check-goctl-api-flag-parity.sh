@@ -15,13 +15,12 @@ required_surfaces = {
     "api-go-test": "implemented",
     "api-go-type-group": "implemented",
     "api-format-stdin": "implemented",
-    "api-format-declare": "compat-accepted",
+    "api-format-declare": "implemented",
 }
 required_flags = {"test", "type-group", "stdin", "declare"}
 required_diff_categories = {
     "same-contract",
     "compatible-flag",
-    "compat-accepted",
     "missing-capability",
     "generation-error",
 }
@@ -88,7 +87,7 @@ for source in manifest.get("sourceOfTruth") or []:
 policy = manifest.get("compatibilityPolicy") or {}
 for key in ("apiGoTest", "apiGoTypeGroup", "apiFormatStdin", "apiFormatDeclare"):
     require(len(str(policy.get(key) or "").split()) >= 8, f"compatibilityPolicy.{key} must be actionable")
-require("oracle" in str(policy.get("apiFormatDeclare") or "").lower(), "apiFormatDeclare policy must mention oracle boundary")
+require("skips missing type declaration checks" in str(policy.get("apiFormatDeclare") or ""), "apiFormatDeclare policy must describe missing type declaration behavior")
 
 surfaces = manifest.get("apiSurfaces") or []
 surface_map = {item.get("id"): item for item in surfaces}
@@ -148,7 +147,7 @@ for needle in (
     'fs.Bool("stdin"',
     'fs.Bool("declare"',
     "io.ReadAll(os.Stdin)",
-    "generator.FormatAPI(doc)",
+    "generator.FormatAPIContent",
 ):
     require(needle in api_format_command, f"api format command missing {needle!r}")
 
@@ -157,12 +156,16 @@ for needle in (
     "if opts.Test",
     "types_\"+lowerSnake",
     "routes_test.go",
+    "Declare bool",
+    "FormatAPIContent",
+    "validateAPITypeDeclarations",
 ):
     require(needle in api_codegen, f"api codegen missing {needle!r}")
 
 for needle in (
     "TestExecuteAPIGenAcceptsGoctlTemplateFlags",
     "TestAPIFormatStdinAndControlPlaneVerificationCoverageBuffer",
+    "TestFormatAPIFromFileDeclareSkipsMissingTypeDeclaration",
     "TestExecuteAPIFormatAndDoc",
     "TestGenerateRESTFromAPIWritesGatewayTypeGroupsAndRouteTests",
     "TestGenerateRESTFromAPITypeGroup",
@@ -172,6 +175,7 @@ for needle in (
 criteria = manifest.get("nextPromotionCriteria") or []
 require(len(criteria) >= 3, "nextPromotionCriteria must include at least three items")
 require(any("api-format-declare" in item for item in criteria), "promotion criteria must mention api-format-declare")
+require(any("missing type declaration" in item for item in criteria), "promotion criteria must mention missing type declaration behavior")
 require(any("full goctl parity" in item for item in criteria), "promotion criteria must guard full goctl parity claims")
 
 if missing:

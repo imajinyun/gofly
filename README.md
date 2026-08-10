@@ -68,6 +68,52 @@ It is designed for platform, backend, and AI-agent-assisted engineering teams wh
 | 🧩 Extension ecosystem | Local/remote templates, cached plugins, feature previews, built-in examples, upgrade guidance, shell completions, environment checks, support bundles | `gofly template`, `gofly plugin`, `gofly feature`, `gofly example`, `gofly upgrade`, `gofly completion`, `gofly env`, `gofly doctor`, `gofly bug` |
 | ✅ Governance evidence | Generated-output determinism, goctl replay, generated layout checks, REST profile checks, RPC mux evidence, CLI JSON contracts, control-plane contracts | `make generated-service-layout-check`, `make goctl-real-project-replay-check`, `make contract-docs-check`, `docs/reference/cli-json-contracts.md`, `docs/reference/control-plane-contracts.md` |
 
+## 🏗️ Architecture
+
+```text
+┌──────────────────────────┐   contracts / intent   ┌──────────────────────────┐
+│ developers + AI agents   │───────────────────────▶│ gofly CLI + codegen      │
+│ .api / .proto / SQL      │                        │ plan / scaffold / verify │
+│ flags / manifests        │◀───────────────────────│ diff / breaking / doctor │
+└──────────────────────────┘   plans + diagnostics  └────────────┬─────────────┘
+                                                                 │ generates
+                                                                 ▼
+┌────────────────────────────────────────────────────────────────────────────────┐
+│ generated service                                                              │
+│                                                                                │
+│  ┌───────────────────────┐   ┌───────────────────────┐   ┌──────────────────┐  │
+│  │ inbound data plane    │──▶│ application layer     │──▶│ outbound clients │  │
+│  │ REST / RPC / gRPC     │   │ handlers / logic      │   │ REST / RPC / MQ  │  │
+│  │ gateway / WebSocket   │   │ app lifecycle / DI    │   │ cache / KV / DB  │  │
+│  └───────────┬───────────┘   └───────────┬───────────┘   └────────┬─────────┘  │
+│              │                           │                        │            │
+│              └───────────────────────────┼────────────────────────┘            │
+│                                          │ governed by                         │
+│  ┌───────────────────────────────────────▼───────────────────────────────────┐ │
+│  │ shared runtime services                                                 │ │ │
+│  │ config / discovery / balancing / retry / limit / breaker / auth         │ │ │
+│  │ logging / metrics / tracing / scheduling / saga / outbox / security     │ │ │
+│  └───────────────────────────────────────┬───────────────────────────────────┘ │
+└──────────────────────────────────────────┼─────────────────────────────────────┘
+                                           │ runtime I/O + state
+                              ┌────────────┴────────────┐
+                              │                         │
+                              ▼                         ▼
+                 ┌──────────────────────────┐   ┌──────────────────────────┐
+                 │ external infrastructure  │   │ runtime control-plane    │
+                 │ discovery / config       │   │ admin / health / metrics │
+                 │ DB / cache / MQ / OTel   │   │ policy / diagnostics     │
+                 └──────────────────────────┘   └────────────┬─────────────┘
+                                                            │ inspect + act
+                                          ┌─────────────────┴────────────────┐
+                                          ▼                                  ▼
+                              ┌──────────────────────────┐       ┌─────────────────┐
+                              │ governance + delivery    │       │ operators +     │
+                              │ tests / replay / compat  │       │ AI agents       │
+                              │ K8s / Helm / release     │       │                 │
+                              └──────────────────────────┘       └─────────────────┘
+```
+
 ## ⚡ 5-minute start
 
 ```sh

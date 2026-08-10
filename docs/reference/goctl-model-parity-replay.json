@@ -1,0 +1,102 @@
+{
+  "schema": "gofly.goctl_model_parity_replay.v1",
+  "acceptanceGate": "make goctl-model-parity-replay-check",
+  "scope": {
+    "positioning": "Model parity covers goctl migration-critical behavior without requiring byte-for-byte goctl output.",
+    "expandsCLICommandSurface": false,
+    "referenceFramework": "goctl model mysql ddl, mysql datasource, pg datasource, and mongo migration compatibility"
+  },
+  "sourceOfTruth": [
+    "docs/reference/goctl-model-parity-replay.json",
+    "docs/reference/goctl-surface-drift.json",
+    "docs/reference/goctl-generator-compatibility.json",
+    "docs/reference/goctl-real-project-replay.json",
+    "cmd/gofly/internal/command/model_gen_flags.go",
+    "cmd/gofly/internal/command/model_datasource_command.go",
+    "cmd/gofly/internal/command/model_mongo_command.go",
+    "cmd/gofly/internal/generator/model_codegen.go",
+    "cmd/gofly/internal/command/idl_test.go",
+    "cmd/gofly/internal/generator/idl_test.go"
+  ],
+  "compatibilityPolicy": {
+    "layout": "gofly may keep generated table structs and repositories split across model and repo directories when the contract compiles and facade methods remain stable.",
+    "oracleDiff": "goctl layout differences remain classified as model-layout-difference until the generated API contract, facade methods, cache methods, and smoke tests are equivalent for migration.",
+    "rootModuleHygiene": "Generated-project-only dependencies stay in generated modules and must not be added to the root module."
+  },
+  "modelSurfaces": [
+    {
+      "id": "mysql-ddl-gozero-style",
+      "goctlSurface": "goctl model mysql ddl",
+      "goflySurface": "gofly model mysql ddl / gofly model gen --style go_zero",
+      "status": "implemented",
+      "evidence": [
+        "TestExecuteModelMySQLDDLGoZeroLayoutUsesModelAndRepoDirs",
+        "TestGenerateModelFromDDLGoZeroStyleWritesGoctlFacade",
+        "TestGenerateModelFromDDLMultiTableGoctlOptionsCacheReplay"
+      ],
+      "coveredOptions": ["cache", "strict", "ignore-columns", "prefix", "table-filter", "module"]
+    },
+    {
+      "id": "mysql-datasource-options",
+      "goctlSurface": "goctl model mysql datasource",
+      "goflySurface": "gofly model mysql datasource",
+      "status": "implemented",
+      "evidence": [
+        "TestExecuteModelGoctlCompatibleInputAliases",
+        "TestExecuteModelAcceptsGoctlShortAndSingleDashFlags"
+      ],
+      "coveredOptions": ["datasource", "table", "tables", "cache", "ignore-columns", "prefix", "database"]
+    },
+    {
+      "id": "postgres-datasource-options",
+      "goctlSurface": "goctl model pg datasource",
+      "goflySurface": "gofly model pg datasource / gofly model postgresql datasource",
+      "status": "implemented",
+      "evidence": [
+        "TestExecuteModelGoctlCompatibleInputAliases",
+        "TestExecuteModelAcceptsGoctlShortAndSingleDashFlags"
+      ],
+      "coveredOptions": ["dsn", "datasource", "table", "tables", "schema", "cache", "ignore-columns", "prefix"]
+    },
+    {
+      "id": "mongo-type-cache-prefix",
+      "goctlSurface": "goctl model mongo",
+      "goflySurface": "gofly model mongo",
+      "status": "implemented",
+      "evidence": [
+        "TestExecuteModelMongo",
+        "TestExecuteModelMongoCacheAndPrefix",
+        "TestExecuteModelAcceptsGoctlShortAndSingleDashFlags"
+      ],
+      "coveredOptions": ["type", "cache", "prefix", "easy", "style"]
+    }
+  ],
+  "requiredOptions": [
+    "cache",
+    "strict",
+    "ignore-columns",
+    "prefix",
+    "table-filter",
+    "database",
+    "schema",
+    "datasource",
+    "module"
+  ],
+  "diffCategories": [
+    "same-contract",
+    "model-layout-difference",
+    "generated-cache-template",
+    "missing-capability",
+    "generation-error"
+  ],
+  "releaseGates": [
+    "make goctl-model-parity-replay-check",
+    "make goctl-generator-compat-check",
+    "make goctl-real-project-replay-check"
+  ],
+  "nextPromotionCriteria": [
+    "Promote model-layout-difference rows only after datasource-backed fixture replay covers MySQL and PostgreSQL without live database dependencies.",
+    "Keep Mongo parity scoped to type/cache/prefix/easy command behavior until a real goctl Mongo output oracle is pinned.",
+    "Do not describe model support as full goctl parity unless all requiredOptions are covered by runnable tests and release gates."
+  ]
+}

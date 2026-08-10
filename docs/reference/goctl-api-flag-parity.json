@@ -1,0 +1,95 @@
+{
+  "schema": "gofly.goctl_api_flag_parity.v1",
+  "acceptanceGate": "make goctl-api-flag-parity-check",
+  "scope": {
+    "positioning": "API flag parity covers migration-critical goctl api go and api format flags without claiming a full goctl formatter clone.",
+    "expandsCLICommandSurface": false,
+    "referenceFramework": "goctl api go --test, goctl api go --type-group, goctl api format --stdin, and goctl api format --declare"
+  },
+  "sourceOfTruth": [
+    "docs/reference/goctl-api-flag-parity.json",
+    "docs/reference/goctl-surface-drift.json",
+    "docs/reference/goctl-generator-compatibility.json",
+    "cmd/gofly/internal/command/api_gen_command.go",
+    "cmd/gofly/internal/command/api_format_command.go",
+    "cmd/gofly/internal/generator/api_codegen.go",
+    "cmd/gofly/internal/command/idl_test.go",
+    "cmd/gofly/internal/generator/idl_test.go"
+  ],
+  "compatibilityPolicy": {
+    "apiGoTest": "The --test flag must generate route or handler smoke tests that compile in generated projects.",
+    "apiGoTypeGroup": "The --type-group flag must split DTOs into per-type files and avoid writing a monolithic types.go for grouped output.",
+    "apiFormatStdin": "The --stdin flag must read API content from standard input and emit formatted content to stdout or the requested output file.",
+    "apiFormatDeclare": "The --declare flag is accepted for goctl migration compatibility; formatter semantic parity remains bounded by ParseAPI and FormatAPI behavior until an oracle fixture is pinned."
+  },
+  "apiSurfaces": [
+    {
+      "id": "api-go-test",
+      "goctlSurface": "goctl api go --test",
+      "goflySurface": "gofly api go --test / gofly api gen --test",
+      "status": "implemented",
+      "behavior": "generates route test files for generated REST services",
+      "evidence": [
+        "TestExecuteAPIGenAcceptsGoctlTemplateFlags",
+        "TestGenerateRESTFromAPIWritesGatewayTypeGroupsAndRouteTests"
+      ],
+      "coveredFlags": ["test"]
+    },
+    {
+      "id": "api-go-type-group",
+      "goctlSurface": "goctl api go --type-group",
+      "goflySurface": "gofly api go --type-group / gofly api gen --type-group",
+      "status": "implemented",
+      "behavior": "writes per-message type files and suppresses monolithic types.go",
+      "evidence": [
+        "TestExecuteAPIGenAcceptsGoctlTemplateFlags",
+        "TestGenerateRESTFromAPITypeGroup"
+      ],
+      "coveredFlags": ["type-group"]
+    },
+    {
+      "id": "api-format-stdin",
+      "goctlSurface": "goctl api format --stdin",
+      "goflySurface": "gofly api format --stdin",
+      "status": "implemented",
+      "behavior": "reads API source from stdin and writes formatted output to stdout or --output",
+      "evidence": [
+        "TestAPIFormatStdinAndControlPlaneVerificationCoverageBuffer"
+      ],
+      "coveredFlags": ["stdin", "output"]
+    },
+    {
+      "id": "api-format-declare",
+      "goctlSurface": "goctl api format --declare",
+      "goflySurface": "gofly api format --declare",
+      "status": "compat-accepted",
+      "behavior": "accepts the flag without changing output claims until declare-specific oracle coverage exists",
+      "evidence": [
+        "TestExecuteAPIFormatAndDoc"
+      ],
+      "coveredFlags": ["declare"]
+    }
+  ],
+  "requiredFlags": [
+    "test",
+    "type-group",
+    "stdin",
+    "declare"
+  ],
+  "diffCategories": [
+    "same-contract",
+    "compatible-flag",
+    "compat-accepted",
+    "missing-capability",
+    "generation-error"
+  ],
+  "releaseGates": [
+    "make goctl-api-flag-parity-check",
+    "make goctl-generator-compat-check"
+  ],
+  "nextPromotionCriteria": [
+    "Promote api-format-declare from compat-accepted to implemented only after a real goctl formatter oracle fixture proves declare-specific behavior.",
+    "Keep --test and --type-group promoted only while generated route tests and split type files are covered by command and generator tests.",
+    "Do not describe API flag support as full goctl parity unless every requiredFlag has implemented status and a runnable gate."
+  ]
+}

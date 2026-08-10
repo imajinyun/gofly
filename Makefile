@@ -268,10 +268,26 @@ db-cache-productization-check: ## Validate DB/cache packages
 goctl-surface-drift-check: ## Validate goctl command-surface drift report contract
 	sh $(SCRIPTS_DIR)/check-goctl-surface-drift.sh
 
+.PHONY: goctl-compatibility-report-check
+goctl-compatibility-report-check: ## Validate goctl compatibility release report index
+	sh $(SCRIPTS_DIR)/check-goctl-compatibility-report.sh
+
 .PHONY: goctl-generator-compat-check
-goctl-generator-compat-check: goctl-surface-drift-check api-client-generation-check zrpc-proto-compatibility-check ## Validate goctl-compatible generator tests
+goctl-generator-compat-check: goctl-surface-drift-check goctl-api-flag-parity-check goctl-rpc-protoc-parity-check goctl-model-parity-replay-check api-client-generation-check zrpc-proto-compatibility-check ## Validate goctl-compatible generator tests
 	$(GO) test $(TESTFLAGS) ./cmd/gofly/internal/generator ./cmd/gofly/internal/command -run 'Test.*Goctl|Test.*goctl|Test.*Generated|TestNewService'
 	sh $(SCRIPTS_DIR)/check-goctl-generator-compat.sh
+
+.PHONY: goctl-api-flag-parity-check
+goctl-api-flag-parity-check: goctl-surface-drift-check ## Validate goctl API flag migration parity evidence
+	sh $(SCRIPTS_DIR)/check-goctl-api-flag-parity.sh
+
+.PHONY: goctl-rpc-protoc-parity-check
+goctl-rpc-protoc-parity-check: goctl-surface-drift-check zrpc-proto-compatibility-check ## Validate goctl RPC protoc migration parity evidence
+	sh $(SCRIPTS_DIR)/check-goctl-rpc-protoc-parity.sh
+
+.PHONY: goctl-model-parity-replay-check
+goctl-model-parity-replay-check: goctl-surface-drift-check ## Validate goctl model migration parity evidence
+	sh $(SCRIPTS_DIR)/check-goctl-model-parity-replay.sh
 
 .PHONY: api-client-generation-check
 api-client-generation-check: ## Validate multi-language API client generation fixtures
@@ -368,7 +384,7 @@ examples-smoke: ## Run runnable example smoke tests and machine-readable output 
 	sh $(SCRIPTS_DIR)/examples-smoke.sh
 
 .PHONY: docs-check
-docs-check: reference-contracts-check api-contract-governance-check goctl-surface-drift-check goctl-oracle-replay-check goctl-generator-compat-check goctl-real-project-replay-check ## Validate tracked documentation-backed governance contracts
+docs-check: reference-contracts-check api-contract-governance-check goctl-surface-drift-check goctl-api-flag-parity-check goctl-rpc-protoc-parity-check goctl-model-parity-replay-check goctl-oracle-replay-check goctl-generator-compat-check goctl-real-project-replay-check goctl-compatibility-report-check ## Validate tracked documentation-backed governance contracts
 
 .PHONY: reference-contracts-check
 reference-contracts-check: ## Validate docs/reference is the tracked governance contract root

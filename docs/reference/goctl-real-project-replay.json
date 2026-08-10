@@ -4,6 +4,7 @@
   "sourceOfTruth": [
     "docs/reference/goctl-oracle-replay.json",
     "docs/reference/goctl-generator-compatibility.json",
+    "docs/reference/goctl-model-parity-replay.json",
     "docs/reference/generated-upgrade-dry-run.json",
     "testdata/goctl-replay/orderservice/replay.json",
     "testdata/goctl-replay/inventoryservice/replay.json",
@@ -263,12 +264,14 @@
     "make goctl-oracle-replay-check",
     "make goctl-real-project-replay-check",
     "make goctl-generator-compat-check",
+    "make goctl-model-parity-replay-check",
     "make generated-version-compat-check"
   ],
   "status": {
     "goctlCommandSurface": "unchanged",
     "oracleReplay": "report-only-real-goctl-vs-gofly",
     "fixtureMatrixDepth": "five-fixture-transitive-import-crud-admin-query-model",
-    "modelCacheTemplateDepth": "covered-by-three-fixture-replay-matrix"
+    "modelCacheTemplateDepth": "covered-by-three-fixture-replay-matrix",
+    "modelParityReplay": "migration-critical-options-covered-by-goctl-model-parity-replay"
   }
 }

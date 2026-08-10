@@ -18,11 +18,15 @@ expected_capabilities = {
     "generated-version-fixtures": "implemented",
     "upgrade-diff-contract": "implemented",
     "route-layout-boundary": "implemented",
+    "goctl-api-flag-parity": "implemented",
     "multi-language-client-generation": "implemented",
     "zrpc-proto-compatibility-matrix": "implemented",
+    "goctl-rpc-protoc-parity": "implemented",
+    "goctl-model-parity-replay": "implemented",
     "real-project-replay-matrix": "implemented",
     "goctl-surface-drift-report": "implemented",
     "goctl-oracle-replay": "implemented",
+    "goctl-compatibility-report": "implemented",
 }
 required_boundaries = {
     "noNewJSONEnvelopeFlags",
@@ -34,7 +38,11 @@ required_boundaries = {
 required_release_gates = {
     "make goctl-surface-drift-check",
     "make goctl-oracle-replay-check",
+    "make goctl-compatibility-report-check",
     "make goctl-generator-compat-check",
+    "make goctl-api-flag-parity-check",
+    "make goctl-rpc-protoc-parity-check",
+    "make goctl-model-parity-replay-check",
     "make api-client-generation-check",
     "make zrpc-proto-compatibility-check",
     "make goctl-real-project-replay-check",

@@ -23,6 +23,26 @@
     "generationPolicy": "Each fixture is copied to a temporary source tree before goctl runs, because goctl may format or back up API input files.",
     "failurePolicy": "The report fails only when gofly generation fails or required contract evidence is missing; goctl layout differences remain classified evidence."
   },
+  "reportMetadata": {
+    "goVersion": "Report the local go version used to run gofly and goctl generation.",
+    "goflyCommit": "Report the current gofly git commit so oracle output is tied to an exact source revision.",
+    "gozeroCommit": "Report the sibling gozero git commit when ../gozero/tools/goctl is available.",
+    "goctlVersion": "Report goctl --version output or the failure to resolve it without making version probing release-blocking.",
+    "failureClass": "Report one normalized failureClass per fixture and a summary count for blocking and report-only outcomes."
+  },
+  "failureClassPolicy": "Only gofly-generation-error and gofly-contract-missing are blocking. goctl-generation-error, report-only-layout-difference, report-only-compatible-difference, and report-only-unknown remain report-only until the sibling gozero version and output shape are pinned in CI.",
+  "failureClasses": {
+    "blocking": [
+      "gofly-generation-error",
+      "gofly-contract-missing"
+    ],
+    "reportOnly": [
+      "goctl-generation-error",
+      "report-only-layout-difference",
+      "report-only-compatible-difference",
+      "report-only-unknown"
+    ]
+  },
   "fixtures": [
     "orderservice-goctl-replay",
     "inventoryservice-imported-multigroup-replay",
@@ -55,13 +75,16 @@
     "schema",
     "mode",
     "goctlAvailable",
+    "environment",
+    "failureClassPolicy",
     "fixtures",
     "summary"
   ],
   "nextPromotionCriteria": [
     "Persist oracle reports as tracked reference evidence only after output shape stabilizes.",
     "Promote model parity rows from layout-difference to same-contract only after MySQL DDL, datasource, PostgreSQL, and Mongo coverage exists.",
-    "Make goctl generation failures blocking only after the sibling gozero version is pinned in CI."
+    "Make goctl generation failures blocking only after the sibling gozero version is pinned in CI.",
+    "Promote report-only-layout-difference only after byte-for-byte layout claims are intentionally supported by fixture evidence."
   ],
   "nativeFixturePolicy": "At least one fixture must be accepted by real goctl so oracle replay can produce concrete contract diff categories, not only generation-error evidence.",
   "releaseGates": [

@@ -1,0 +1,78 @@
+{
+  "schema": "gofly.goctl_compatibility_report.v1",
+  "acceptanceGate": "make goctl-compatibility-report-check",
+  "positioning": "gofly provides a goctl-compatible migration path, not a full goctl replacement.",
+  "sourceOfTruth": [
+    "docs/reference/goctl-compatibility-report.json",
+    "docs/reference/goctl-surface-drift.json",
+    "docs/reference/goctl-generator-compatibility.json",
+    "docs/reference/goctl-api-flag-parity.json",
+    "docs/reference/goctl-rpc-protoc-parity.json",
+    "docs/reference/goctl-model-parity-replay.json",
+    "docs/reference/goctl-oracle-replay.json",
+    "docs/reference/goctl-real-project-replay.json"
+  ],
+  "stages": [
+    {
+      "id": "api-flag-parity",
+      "status": "blocking",
+      "gate": "make goctl-api-flag-parity-check",
+      "contract": "docs/reference/goctl-api-flag-parity.json",
+      "summary": "Migration-critical goctl api go and api format flags are covered by a runnable contract; --declare remains compat-accepted until oracle evidence exists.",
+      "reportOnlyClasses": ["compat-accepted"]
+    },
+    {
+      "id": "rpc-protoc-parity",
+      "status": "blocking",
+      "gate": "make goctl-rpc-protoc-parity-check",
+      "contract": "docs/reference/goctl-rpc-protoc-parity.json",
+      "summary": "Migration-critical goctl rpc protoc flags are covered; external plugin names remain accepted but not executed by default.",
+      "reportOnlyClasses": ["compat-accepted-no-exec"]
+    },
+    {
+      "id": "model-parity-replay",
+      "status": "blocking",
+      "gate": "make goctl-model-parity-replay-check",
+      "contract": "docs/reference/goctl-model-parity-replay.json",
+      "summary": "Migration-critical goctl model options are covered while preserving gofly's model/repo layout boundary.",
+      "reportOnlyClasses": ["model-layout-difference"]
+    },
+    {
+      "id": "oracle-replay",
+      "status": "report-only",
+      "gate": "make goctl-oracle-replay-check",
+      "contract": "docs/reference/goctl-oracle-replay.json",
+      "summary": "Real goctl output is compared against gofly output with version metadata and failure classes; layout differences and goctl generation errors remain report-only.",
+      "reportOnlyClasses": ["goctl-generation-error", "report-only-layout-difference", "report-only-compatible-difference", "report-only-unknown"]
+    },
+    {
+      "id": "real-project-replay",
+      "status": "blocking",
+      "gate": "make goctl-real-project-replay-check",
+      "contract": "docs/reference/goctl-real-project-replay.json",
+      "summary": "Realistic go-zero/goctl project fixtures must replay deterministically and compile under generated project smoke tests.",
+      "reportOnlyClasses": []
+    }
+  ],
+  "blockingGates": [
+    "make goctl-api-flag-parity-check",
+    "make goctl-rpc-protoc-parity-check",
+    "make goctl-model-parity-replay-check",
+    "make goctl-real-project-replay-check",
+    "make goctl-generator-compat-check"
+  ],
+  "reportOnlyGates": [
+    "make goctl-surface-drift-check",
+    "make goctl-oracle-replay-check"
+  ],
+  "releaseChecklist": [
+    "Run make goctl-compatibility-report-check to validate this index.",
+    "Run make goctl-generator-compat-check for generator, API flag, RPC protoc, model parity, API client, and zRPC compatibility.",
+    "Run make goctl-real-project-replay-check before promoting migration compatibility claims.",
+    "Treat oracle replay layout differences as report-only unless a future contract promotes byte-for-byte layout parity."
+  ],
+  "claimPolicy": {
+    "allowed": "Docs and release notes may claim goctl-compatible migration coverage only for stages with blocking gates or explicit report-only labels.",
+    "forbidden": "Docs and release notes must not claim full goctl replacement, byte-for-byte output parity, or default external plugin execution."
+  }
+}

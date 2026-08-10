@@ -15,6 +15,7 @@ required_gates = {
     "make goctl-oracle-replay-check",
     "make goctl-real-project-replay-check",
     "make goctl-generator-compat-check",
+    "make goctl-model-parity-replay-check",
     "make generated-version-compat-check",
 }
 required_diff_categories = {
@@ -97,6 +98,7 @@ source_of_truth = set(manifest.get("sourceOfTruth") or [])
 for source in (
     "docs/reference/goctl-oracle-replay.json",
     "docs/reference/goctl-generator-compatibility.json",
+    "docs/reference/goctl-model-parity-replay.json",
     "docs/reference/generated-upgrade-dry-run.json",
     "testdata/goctl-replay/orderservice/replay.json",
     "testdata/goctl-replay/inventoryservice/replay.json",
@@ -242,6 +244,7 @@ require(status.get("goctlCommandSurface") == "unchanged", "status.goctlCommandSu
 require(status.get("oracleReplay") == "report-only-real-goctl-vs-gofly", "status.oracleReplay mismatch")
 require(status.get("fixtureMatrixDepth") == "five-fixture-transitive-import-crud-admin-query-model", "status.fixtureMatrixDepth mismatch")
 require(status.get("modelCacheTemplateDepth") == "covered-by-three-fixture-replay-matrix", "status.modelCacheTemplateDepth mismatch")
+require(status.get("modelParityReplay") == "migration-critical-options-covered-by-goctl-model-parity-replay", "status.modelParityReplay mismatch")
 
 for needle in (
     "goctl-real-project-replay-check",
@@ -261,6 +264,7 @@ for needle in (
     "multi-service-group",
     "single-column-unique-key",
     "composite-unique-key",
+    "goctl-model-parity-replay",
     "deterministic-repeat-generation",
     "compatible-addition",
     "generated-cache-template",

@@ -68,6 +68,15 @@
       "rollbackNote": "Rollback by keeping the goctl-compatible route layout boundary and discarding incompatible generated route moves."
     },
     {
+      "id": "goctl-api-flag-parity",
+      "status": "implemented",
+      "gate": "make goctl-api-flag-parity-check",
+      "implementation": ["docs/reference/goctl-api-flag-parity.json"],
+      "tests": ["bin/scripts/check-goctl-api-flag-parity.sh"],
+      "evidence": ["api-go-test", "api-go-type-group", "api-format-stdin", "api-format-declare"],
+      "rollbackNote": "Rollback by keeping API flag parity scoped to migration-critical flags and preserving compat-accepted declare status until oracle evidence exists."
+    },
+    {
       "id": "multi-language-client-generation",
       "status": "implemented",
       "gate": "make api-client-generation-check",
@@ -84,6 +93,24 @@
       "tests": ["cmd/gofly/internal/generator/idl_test.go", "bin/scripts/check-zrpc-proto-compatibility.sh", "docs/reference/zrpc-proto-compatibility.json"],
       "evidence": ["external-proto-imports", "multiple-services", "streaming-rpc", "google-well-known-types", "client-wrapper", "supported", "degraded"],
       "rollbackNote": "Rollback by preserving supported proto generation evidence and avoiding full zRPC parity claims for degraded rows."
+    },
+    {
+      "id": "goctl-rpc-protoc-parity",
+      "status": "implemented",
+      "gate": "make goctl-rpc-protoc-parity-check",
+      "implementation": ["docs/reference/goctl-rpc-protoc-parity.json"],
+      "tests": ["bin/scripts/check-goctl-rpc-protoc-parity.sh"],
+      "evidence": ["rpc-protoc-include-path", "rpc-protoc-go-options", "rpc-protoc-multiple", "rpc-protoc-external-plugin"],
+      "rollbackNote": "Rollback by keeping RPC protoc parity scoped to migration-critical flags and preserving no-exec external plugin status until security evidence exists."
+    },
+    {
+      "id": "goctl-model-parity-replay",
+      "status": "implemented",
+      "gate": "make goctl-model-parity-replay-check",
+      "implementation": ["docs/reference/goctl-model-parity-replay.json"],
+      "tests": ["bin/scripts/check-goctl-model-parity-replay.sh"],
+      "evidence": ["mysql-ddl-gozero-style", "mysql-datasource-options", "postgres-datasource-options", "mongo-type-cache-prefix"],
+      "rollbackNote": "Rollback by keeping model parity as migration-critical evidence only and preserving model-layout-difference classifications until stronger oracle fixtures pass."
     },
     {
       "id": "real-project-replay-matrix",
@@ -111,12 +138,25 @@
       "tests": ["bin/scripts/check-goctl-oracle-replay.sh"],
       "evidence": ["same-contract", "layout-difference", "model-layout-difference", "goctlAvailable"],
       "rollbackNote": "Rollback by keeping oracle replay in report-only mode and preserving gofly-only replay gates until goctl output comparison stabilizes."
+    },
+    {
+      "id": "goctl-compatibility-report",
+      "status": "implemented",
+      "gate": "make goctl-compatibility-report-check",
+      "implementation": ["docs/reference/goctl-compatibility-report.json"],
+      "tests": ["bin/scripts/check-goctl-compatibility-report.sh"],
+      "evidence": ["blockingGates", "reportOnlyGates", "claimPolicy"],
+      "rollbackNote": "Rollback by preserving per-stage goctl compatibility contracts and removing the aggregate report index until all referenced gates pass."
     }
   ],
   "releaseGates": [
     "make goctl-surface-drift-check",
     "make goctl-oracle-replay-check",
+    "make goctl-compatibility-report-check",
     "make goctl-generator-compat-check",
+    "make goctl-api-flag-parity-check",
+    "make goctl-rpc-protoc-parity-check",
+    "make goctl-model-parity-replay-check",
     "make api-client-generation-check",
     "make zrpc-proto-compatibility-check",
     "make goctl-real-project-replay-check",

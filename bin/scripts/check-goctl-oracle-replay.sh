@@ -3,6 +3,7 @@ set -eu
 
 python3 - <<'PY'
 import filecmp
+import atexit
 import json
 import os
 import pathlib
@@ -73,6 +74,64 @@ def run(cmd, cwd, env, timeout=240):
         timeout=timeout,
         check=False,
     )
+
+
+def command_metadata(cmd, cwd, env, timeout=60):
+    try:
+        result = run(cmd, cwd, env, timeout=timeout)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return {"ok": False, "command": cmd, "error": str(exc)}
+    output = result.stdout.strip()
+    return {
+        "ok": result.returncode == 0,
+        "command": cmd,
+        "exitCode": result.returncode,
+        "output": output[:4000],
+    }
+
+
+def isolated_go_env(env, prefix):
+    tmp = pathlib.Path(tempfile.mkdtemp(prefix=prefix))
+    atexit.register(lambda: shutil.rmtree(tmp, ignore_errors=True))
+    out = env.copy()
+    out.setdefault("GOCACHE", str(tmp / "gocache"))
+    out.setdefault("GOTMPDIR", str(tmp / "gotmp"))
+    out.setdefault("GOMODCACHE", str(tmp / "gomodcache"))
+    pathlib.Path(out["GOCACHE"]).mkdir(parents=True, exist_ok=True)
+    pathlib.Path(out["GOTMPDIR"]).mkdir(parents=True, exist_ok=True)
+    pathlib.Path(out["GOMODCACHE"]).mkdir(parents=True, exist_ok=True)
+    return out
+
+
+def git_commit(path):
+    result = subprocess.run(
+        ["git", "-C", str(path), "rev-parse", "HEAD"],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        check=False,
+    )
+    if result.returncode != 0:
+        return {"ok": False, "error": result.stdout.strip()[:4000]}
+    return {"ok": True, "commit": result.stdout.strip()}
+
+
+def fixture_failure_class(item):
+    categories = set(item.get("categories") or [])
+    if item.get("goflyError"):
+        return "gofly-generation-error"
+    contracts = item.get("contracts") or {}
+    if contracts.get("goflyMissing"):
+        return "gofly-contract-missing"
+    if item.get("goctlError"):
+        return "goctl-generation-error"
+    if categories & {"layout-difference", "model-layout-difference"}:
+        return "report-only-layout-difference"
+    if categories <= {"same-contract", "compatible-addition", "generated-cache-template"}:
+        return "report-only-compatible-difference"
+    if "missing-capability" in categories:
+        return "gofly-contract-missing"
+    return "report-only-unknown"
 
 
 def copy_fixture_source(fixture_dir, fixture, destination):
@@ -329,6 +388,17 @@ for source in manifest.get("sourceOfTruth") or []:
         require((root / source).exists(), f"sourceOfTruth missing {source}")
 for field in ("positioning", "generationPolicy", "failurePolicy"):
     require(len(str((manifest.get("oraclePolicy") or {}).get(field) or "").split()) >= 8, f"oraclePolicy.{field} must be actionable")
+report_metadata = manifest.get("reportMetadata") or {}
+for field in ("goVersion", "goflyCommit", "gozeroCommit", "goctlVersion", "failureClass"):
+    require(field in report_metadata, f"reportMetadata.{field} is required")
+failure_policy_text = str(manifest.get("failureClassPolicy") or "")
+require("Only gofly-generation-error and gofly-contract-missing are blocking" in failure_policy_text, "failureClassPolicy must keep only gofly failures blocking")
+require("report-only-layout-difference" in failure_policy_text, "failureClassPolicy must keep layout differences report-only")
+failure_classes = manifest.get("failureClasses") or {}
+for field in ("blocking", "reportOnly"):
+    require(isinstance(failure_classes.get(field), list) and failure_classes.get(field), f"failureClasses.{field} must be a non-empty list")
+require("report-only-layout-difference" in failure_classes.get("reportOnly", []), "layout differences must remain report-only")
+require("gofly-generation-error" in failure_classes.get("blocking", []), "gofly generation errors must remain blocking")
 require("nativeFixturePolicy" in manifest, "nativeFixturePolicy is required")
 native_fixtures = set(manifest.get("nativeFixtures") or [])
 require(native_fixtures, "at least one native fixture is required")
@@ -340,10 +410,27 @@ if missing:
     sys.exit(1)
 
 gozero_root = root.parent / "gozero" / "tools" / "goctl"
+base_env = os.environ.copy()
+base_env.setdefault("GOFLAGS", "-count=1")
+base_env.setdefault("GOSUMDB", "off")
+metadata_env = isolated_go_env(base_env, "gofly-goctl-oracle-meta-")
 report = {
     "schema": "gofly.goctl_oracle_replay_report.v1",
     "mode": manifest.get("mode"),
     "goctlAvailable": (gozero_root / "go.mod").is_file(),
+    "environment": {
+        "goVersion": command_metadata(["go", "version"], root, metadata_env),
+        "gofly": git_commit(root),
+        "gozero": {
+            "path": str(gozero_root),
+            "commit": git_commit(gozero_root) if gozero_root.is_dir() else {"ok": False, "error": "sibling gozero checkout unavailable"},
+        },
+        "goctlVersion": command_metadata(["go", "run", ".", "--version"], gozero_root, metadata_env, timeout=120) if (gozero_root / "go.mod").is_file() else {"ok": False, "error": "sibling gozero checkout unavailable"},
+    },
+    "failureClassPolicy": {
+        "blocking": ["gofly-generation-error", "gofly-contract-missing"],
+        "reportOnly": ["goctl-generation-error", "report-only-layout-difference", "report-only-compatible-difference", "report-only-unknown"],
+    },
     "fixtures": [],
     "summary": {
         "total": 0,
@@ -353,6 +440,7 @@ report = {
         "goctlGenerationErrors": 0,
         "goflyGenerationErrors": 0,
         "missingContracts": 0,
+        "failureClasses": {},
     },
 }
 
@@ -361,9 +449,6 @@ if not report["goctlAvailable"]:
     print(json.dumps(report, indent=2, sort_keys=True))
     sys.exit(0)
 
-base_env = os.environ.copy()
-base_env.setdefault("GOFLAGS", "-count=1")
-base_env.setdefault("GOSUMDB", "off")
 with tempfile.TemporaryDirectory(prefix="gofly-goctl-oracle-") as tmp:
     tmp_root = pathlib.Path(tmp)
     base_env["GOCACHE"] = os.environ.get("GOCACHE", str(tmp_root / "gocache"))
@@ -392,6 +477,8 @@ with tempfile.TemporaryDirectory(prefix="gofly-goctl-oracle-") as tmp:
             item["categories"] = ["generation-error"]
             item["goflyError"] = gofly_error
             item["goctlError"] = goctl_error
+            item["failureClass"] = fixture_failure_class(item)
+            report["summary"]["failureClasses"][item["failureClass"]] = report["summary"]["failureClasses"].get(item["failureClass"], 0) + 1
             report["summary"]["goflyGenerationErrors"] += 1
             report["fixtures"].append(item)
             continue
@@ -413,6 +500,8 @@ with tempfile.TemporaryDirectory(prefix="gofly-goctl-oracle-") as tmp:
             if is_native:
                 report["summary"].setdefault("nativeGoctlGenerationErrors", 0)
                 report["summary"]["nativeGoctlGenerationErrors"] += 1
+            item["failureClass"] = fixture_failure_class(item)
+            report["summary"]["failureClasses"][item["failureClass"]] = report["summary"]["failureClasses"].get(item["failureClass"], 0) + 1
             report["fixtures"].append(item)
             continue
 
@@ -429,6 +518,8 @@ with tempfile.TemporaryDirectory(prefix="gofly-goctl-oracle-") as tmp:
         if is_native:
             report["summary"].setdefault("nativeCompared", 0)
             report["summary"]["nativeCompared"] += 1
+        item["failureClass"] = fixture_failure_class(item)
+        report["summary"]["failureClasses"][item["failureClass"]] = report["summary"]["failureClasses"].get(item["failureClass"], 0) + 1
         report["fixtures"].append(item)
 
 print(json.dumps(report, indent=2, sort_keys=True))

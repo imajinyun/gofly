@@ -12,11 +12,13 @@ manifest_path = root / "docs" / "reference" / "goctl-compatibility-report.json"
 missing = []
 
 expected_stages = {
+    "surface-drift": ("report-only", "make goctl-surface-drift-check", "docs/reference/goctl-surface-drift.json"),
     "api-flag-parity": ("blocking", "make goctl-api-flag-parity-check", "docs/reference/goctl-api-flag-parity.json"),
     "rpc-protoc-parity": ("blocking", "make goctl-rpc-protoc-parity-check", "docs/reference/goctl-rpc-protoc-parity.json"),
     "model-parity-replay": ("blocking", "make goctl-model-parity-replay-check", "docs/reference/goctl-model-parity-replay.json"),
     "oracle-replay": ("report-only", "make goctl-oracle-replay-check", "docs/reference/goctl-oracle-replay.json"),
     "real-project-replay": ("blocking", "make goctl-real-project-replay-check", "docs/reference/goctl-real-project-replay.json"),
+    "generator-compatibility": ("blocking", "make goctl-generator-compat-check", "docs/reference/goctl-generator-compatibility.json"),
 }
 expected_blocking_gates = {
     "make goctl-api-flag-parity-check",
@@ -65,6 +67,7 @@ manifest = read_json(manifest_path)
 makefile = read_text(root / "Makefile")
 generator_matrix = read_json(root / "docs" / "reference" / "goctl-generator-compatibility.json")
 oracle_contract = read_json(root / "docs" / "reference" / "goctl-oracle-replay.json")
+surface_contract = read_json(root / "docs" / "reference" / "goctl-surface-drift.json")
 targets = make_target_names(makefile)
 docs_check_line = next((line for line in makefile.splitlines() if line.startswith("docs-check:")), "")
 
@@ -99,6 +102,34 @@ require(not blocking & report_only, f"gates cannot be both blocking and report-o
 for gate in blocking | report_only:
     require(gate_is_known(gate, targets), f"unknown gate in report: {gate}")
 
+blocking_stages = {
+    stage_id
+    for stage_id, item in stages.items()
+    if item.get("status") == "blocking"
+}
+report_only_stages = {
+    stage_id
+    for stage_id, item in stages.items()
+    if item.get("status") == "report-only"
+}
+stage_blocking_gates = {
+    item.get("gate")
+    for item in stages.values()
+    if item.get("status") == "blocking"
+}
+stage_report_only_gates = {
+    item.get("gate")
+    for item in stages.values()
+    if item.get("status") == "report-only"
+}
+automation_summary = manifest.get("automationSummary") or {}
+require(set(automation_summary.get("blockingStages") or []) == blocking_stages, "automationSummary.blockingStages must match blocking stages")
+require(set(automation_summary.get("reportOnlyStages") or []) == report_only_stages, "automationSummary.reportOnlyStages must match report-only stages")
+require(stage_blocking_gates == blocking, "blockingGates must match gates from blocking stages")
+require(stage_report_only_gates == report_only, "reportOnlyGates must match gates from report-only stages")
+require("Fail release automation" in str(automation_summary.get("blockingDecision") or ""), "automationSummary.blockingDecision must describe release failure")
+require("without blocking release" in str(automation_summary.get("reportOnlyDecision") or ""), "automationSummary.reportOnlyDecision must describe non-blocking handling")
+
 release_gates = set(generator_matrix.get("releaseGates") or [])
 for gate in expected_blocking_gates - {"make goctl-generator-compat-check"}:
     require(gate in release_gates, f"goctl generator compatibility releaseGates missing {gate}")
@@ -106,10 +137,14 @@ for gate in expected_blocking_gates - {"make goctl-generator-compat-check"}:
 failure_policy = oracle_contract.get("failureClasses") or {}
 oracle_report_only = set((stages.get("oracle-replay") or {}).get("reportOnlyClasses") or [])
 require(oracle_report_only <= set(failure_policy.get("reportOnly") or []), "oracle reportOnlyClasses must be backed by goctl-oracle-replay failureClasses.reportOnly")
+surface_diff_categories = set(surface_contract.get("diffCategories") or [])
+surface_report_only = set((stages.get("surface-drift") or {}).get("reportOnlyClasses") or [])
+require(surface_report_only <= surface_diff_categories, "surface-drift reportOnlyClasses must be backed by goctl-surface-drift diffCategories")
 
 checklist = manifest.get("releaseChecklist") or []
 for needle in (
     "make goctl-compatibility-report-check",
+    "make goctl-surface-drift-check",
     "make goctl-generator-compat-check",
     "make goctl-real-project-replay-check",
     "report-only",

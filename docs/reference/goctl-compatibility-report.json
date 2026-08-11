@@ -14,6 +14,14 @@
   ],
   "stages": [
     {
+      "id": "surface-drift",
+      "status": "report-only",
+      "gate": "make goctl-surface-drift-check",
+      "contract": "docs/reference/goctl-surface-drift.json",
+      "summary": "The goctl command surface is scanned against gofly so new gaps remain visible before any compatibility claim is promoted.",
+      "reportOnlyClasses": ["goctl-only", "partial-parity", "intentional-gap"]
+    },
+    {
       "id": "api-flag-parity",
       "status": "blocking",
       "gate": "make goctl-api-flag-parity-check",
@@ -52,6 +60,14 @@
       "contract": "docs/reference/goctl-real-project-replay.json",
       "summary": "Realistic go-zero/goctl project fixtures must replay deterministically and compile under generated project smoke tests.",
       "reportOnlyClasses": []
+    },
+    {
+      "id": "generator-compatibility",
+      "status": "blocking",
+      "gate": "make goctl-generator-compat-check",
+      "contract": "docs/reference/goctl-generator-compatibility.json",
+      "summary": "The aggregate generator compatibility gate keeps API flags, RPC protoc, model replay, API client generation, and zRPC compatibility wired into one release-ready check.",
+      "reportOnlyClasses": []
     }
   ],
   "blockingGates": [
@@ -65,8 +81,15 @@
     "make goctl-surface-drift-check",
     "make goctl-oracle-replay-check"
   ],
+  "automationSummary": {
+    "blockingStages": ["api-flag-parity", "rpc-protoc-parity", "model-parity-replay", "real-project-replay", "generator-compatibility"],
+    "reportOnlyStages": ["surface-drift", "oracle-replay"],
+    "blockingDecision": "Fail release automation when a blocking stage gate fails.",
+    "reportOnlyDecision": "Publish report-only stage findings without blocking release unless a future contract promotes the stage."
+  },
   "releaseChecklist": [
     "Run make goctl-compatibility-report-check to validate this index.",
+    "Run make goctl-surface-drift-check to review report-only goctl command-surface drift before release notes are written.",
     "Run make goctl-generator-compat-check for generator, API flag, RPC protoc, model parity, API client, and zRPC compatibility.",
     "Run make goctl-real-project-replay-check before promoting migration compatibility claims.",
     "Treat oracle replay layout differences as report-only unless a future contract promotes byte-for-byte layout parity."

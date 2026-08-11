@@ -20,7 +20,8 @@
   "compatibilityPolicy": {
     "standardProtoc": "Standard protoc mode forwards include paths, go output paths, go options, and go-grpc options as argv entries without shell expansion.",
     "goflyPlugin": "The built-in gofly protoc plugin maps --multiple, --client=false, --module, and --name-from-filename into explicit gofly plugin options.",
-    "externalPlugin": "External plugin names are accepted for command-line compatibility but are not invoked by default until a separate security contract exists.",
+    "standardModeWrapperFlags": "When --plugin gofly is not selected, --multiple, --client, and --name-from-filename are accepted with warnings and must not alter standard protoc argv or output.",
+    "externalPlugin": "External plugin names are accepted without execution by default and are forwarded to protoc only when --allow-external-plugin is explicitly set after rejecting flag-like values, URL schemes, whitespace, control characters, and shell metacharacters.",
     "timeout": "Protoc execution must be bounded by an explicit timeout and return context deadline errors for hung generator processes."
   },
   "rpcSurfaces": [
@@ -56,6 +57,7 @@
       "behavior": "emits multiple=true to the built-in gofly protoc plugin and leaves standard protoc output style unchanged",
       "evidence": [
         "TestExecuteRPCProtocGoflyPluginNoClientMultipleArgs",
+        "TestExecuteRPCProtocAcceptsGoctlReservedFlags",
         "TestExecuteRPCGenGoflyNoClientAndMultiple"
       ],
       "coveredFlags": ["multiple", "m"]
@@ -68,6 +70,7 @@
       "behavior": "maps --client=false or -c=false to no_client=true for the built-in gofly protoc plugin",
       "evidence": [
         "TestExecuteRPCProtocGoflyPluginNoClientMultipleArgs",
+        "TestExecuteRPCProtocAcceptsGoctlReservedFlags",
         "TestExecuteRPCGenGoflyNoClientAndMultiple"
       ],
       "coveredFlags": ["client", "c"]
@@ -80,6 +83,7 @@
       "behavior": "maps --name-from-filename to the built-in gofly protoc plugin service-name option",
       "evidence": [
         "TestExecuteRPCProtocGoflyPluginArgs",
+        "TestExecuteRPCProtocAcceptsGoctlReservedFlags",
         "TestProtocArgsWithGoflyPlugin"
       ],
       "coveredFlags": ["name-from-filename"]
@@ -87,11 +91,13 @@
     {
       "id": "rpc-protoc-external-plugin",
       "goctlSurface": "goctl rpc protoc --plugin <external>",
-      "goflySurface": "gofly rpc protoc --plugin <external>",
-      "status": "compat-accepted-no-exec",
-      "behavior": "accepts external plugin names but does not invoke them by default, preserving the external-process security boundary",
+      "goflySurface": "gofly rpc protoc --plugin <external> --allow-external-plugin",
+      "status": "implemented-explicit-opt-in",
+      "behavior": "accepts external plugin names without execution by default and forwards --plugin argv only with explicit opt-in",
       "evidence": [
-        "TestExecuteRPCProtocAcceptsGoctlReservedFlags"
+        "TestExecuteRPCProtocAcceptsGoctlReservedFlags",
+        "TestExecuteRPCProtocAllowsExternalPluginOptIn",
+        "TestExecuteRPCProtocRejectsUnsafeExternalPluginOptIn"
       ],
       "coveredFlags": ["plugin"]
     }
@@ -110,7 +116,7 @@
     "same-contract",
     "compatible-flag",
     "implemented-for-gofly-plugin",
-    "compat-accepted-no-exec",
+    "implemented-explicit-opt-in",
     "missing-capability",
     "generation-error"
   ],
@@ -120,8 +126,9 @@
     "make zrpc-proto-compatibility-check"
   ],
   "nextPromotionCriteria": [
-    "Promote external plugin execution only after command path validation, timeout, output limit, and audit evidence are covered by a security gate.",
+    "Keep external plugin execution explicit through --allow-external-plugin and reject flag-like values, URL schemes, whitespace, control characters, and shell metacharacters before passing argv entries.",
     "Keep --multiple, --client, and --name-from-filename scoped to --plugin gofly until standard zRPC output parity fixtures prove broader behavior.",
+    "Keep standard protoc mode free of --gofly_out and --gofly_opt unless --plugin gofly is selected.",
     "Do not describe RPC protoc support as full goctl parity unless every requiredFlag has implemented status and runnable oracle evidence."
   ]
 }

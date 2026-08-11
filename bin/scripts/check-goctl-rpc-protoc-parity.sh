@@ -17,7 +17,7 @@ required_surfaces = {
     "rpc-protoc-multiple": "implemented-for-gofly-plugin",
     "rpc-protoc-client": "implemented-for-gofly-plugin",
     "rpc-protoc-name-from-filename": "implemented-for-gofly-plugin",
-    "rpc-protoc-external-plugin": "compat-accepted-no-exec",
+    "rpc-protoc-external-plugin": "implemented-explicit-opt-in",
 }
 required_flags = {
     "proto_path",
@@ -33,7 +33,7 @@ required_diff_categories = {
     "same-contract",
     "compatible-flag",
     "implemented-for-gofly-plugin",
-    "compat-accepted-no-exec",
+    "implemented-explicit-opt-in",
     "missing-capability",
     "generation-error",
 }
@@ -100,9 +100,12 @@ for source in manifest.get("sourceOfTruth") or []:
     require((root / source).exists(), f"sourceOfTruth path missing: {source}")
 
 policy = manifest.get("compatibilityPolicy") or {}
-for key in ("standardProtoc", "goflyPlugin", "externalPlugin", "timeout"):
+for key in ("standardProtoc", "goflyPlugin", "standardModeWrapperFlags", "externalPlugin", "timeout"):
     require(len(str(policy.get(key) or "").split()) >= 8, f"compatibilityPolicy.{key} must be actionable")
-require("not invoked by default" in str(policy.get("externalPlugin") or ""), "externalPlugin policy must preserve no-exec boundary")
+require("must not alter standard protoc argv" in str(policy.get("standardModeWrapperFlags") or ""), "standardModeWrapperFlags policy must preserve standard argv boundary")
+require("--allow-external-plugin" in str(policy.get("externalPlugin") or ""), "externalPlugin policy must require explicit opt-in")
+for rejected in ("flag-like values", "URL schemes", "whitespace", "control characters", "shell metacharacters"):
+    require(rejected in str(policy.get("externalPlugin") or ""), f"externalPlugin policy must reject {rejected}")
 
 surfaces = manifest.get("rpcSurfaces") or []
 surface_map = {item.get("id"): item for item in surfaces}
@@ -160,7 +163,10 @@ for needle in (
     'fs.Bool("c"',
     'fs.Bool("name-from-filename"',
     'fs.String("plugin"',
-    "external protoc plugins are not invoked",
+    'fs.Bool("allow-external-plugin"',
+    "validateExternalProtocPlugins",
+    "external protoc plugins require --allow-external-plugin",
+    "externalProtocPluginsForOptions",
 ):
     require(needle in rpc_protoc_command, f"rpc protoc command missing {needle!r}")
 
@@ -173,6 +179,8 @@ for needle in (
     '"--go_out="+goOut',
     '"--go-grpc_out="+goGRPCOut',
     '"--gofly_opt="+opt',
+	"ExternalPlugins []string",
+	'"--plugin="+plugin',
     "hasProtocOptionOverride",
 ):
     require(needle in protoc_go, f"protoc generator missing {needle!r}")
@@ -187,8 +195,9 @@ for needle in (
     "if opts.NameFromFilename",
     "if !opts.NoClient",
     "if !opts.Multiple",
+	"externalProtocPluginsForOptions",
 ):
-    require(needle in protoc_plugin_go, f"protoc plugin missing {needle!r}")
+	require(needle in protoc_plugin_go or needle in rpc_protoc_command, f"protoc plugin missing {needle!r}")
 
 for needle in (
     "external-proto-imports",
@@ -203,6 +212,15 @@ for needle in (
     "TestExecuteRPCProtocAcceptsGoctlReservedFlags",
     "TestExecuteRPCProtocGoflyPluginArgs",
     "TestExecuteRPCProtocGoflyPluginNoClientMultipleArgs",
+    "TestExecuteRPCProtocAllowsExternalPluginOptIn",
+    "TestExecuteRPCProtocRejectsUnsafeExternalPluginOptIn",
+    "unsafe external protoc plugin",
+    '"--gofly_out="',
+    '"--gofly_opt=multiple=true"',
+    '"--gofly_opt=no_client=true"',
+    '"--gofly_opt=name_from_filename=true"',
+    '"--plugin=protoc-gen-api"',
+    '"--allow-external-plugin"',
     "TestProtocArgs",
     "TestProtocArgsUserPathOptionsOverrideDefaults",
     "TestProtocArgsWithGoflyPlugin",
@@ -212,7 +230,9 @@ for needle in (
 
 criteria = manifest.get("nextPromotionCriteria") or []
 require(len(criteria) >= 3, "nextPromotionCriteria must include at least three items")
-require(any("external plugin execution" in item for item in criteria), "promotion criteria must mention external plugin execution")
+require(any("--allow-external-plugin" in item for item in criteria), "promotion criteria must mention explicit external plugin opt-in")
+require(any("flag-like values" in item and "shell metacharacters" in item for item in criteria), "promotion criteria must mention unsafe plugin value rejection")
+require(any("--gofly_out" in item and "--gofly_opt" in item for item in criteria), "promotion criteria must preserve standard protoc no-gofly argv boundary")
 require(any("full goctl parity" in item for item in criteria), "promotion criteria must guard full goctl parity claims")
 
 if missing:

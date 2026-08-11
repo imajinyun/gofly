@@ -118,9 +118,9 @@ Before migrating zRPC code, check the matrix in
 `go-grpc_out`, `go_opt`, and `go-grpc_opt` as argv entries. The built-in
 `--plugin gofly` path maps `--multiple`, `--client=false`, `--module`, and
 `--name-from-filename` into explicit gofly plugin options. External plugin names
-are accepted for migration compatibility but are not executed by default until a
-separate security contract covers command path validation, output limits,
-timeouts, and audit evidence.
+are accepted without execution by default and are forwarded to `protoc` only
+when `--allow-external-plugin` is explicitly set; plugin values are passed as
+argv entries, not shell strings.
 
 Do not describe future matrix rows as full goctl or zRPC parity until their
 status is supported by the matrix gate.

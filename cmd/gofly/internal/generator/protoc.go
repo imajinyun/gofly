@@ -13,17 +13,18 @@ import (
 )
 
 type ProtocOptions struct {
-	ProtoFile    string
-	ProtoPath    []string
-	GoOut        string
-	GoGRPCOut    string
-	GoflyOut     string
-	GoflyPlugin  string
-	GoflyOptions []string
-	Protoc       string
-	ExtraArgs    []string
-	Env          []string
-	Timeout      time.Duration
+	ProtoFile       string
+	ProtoPath       []string
+	GoOut           string
+	GoGRPCOut       string
+	GoflyOut        string
+	GoflyPlugin     string
+	GoflyOptions    []string
+	ExternalPlugins []string
+	Protoc          string
+	ExtraArgs       []string
+	Env             []string
+	Timeout         time.Duration
 }
 
 func GenerateStandardProto(ctx context.Context, opts ProtocOptions) error {
@@ -100,6 +101,11 @@ func ProtocArgs(opts ProtocOptions) ([]string, error) {
 			if opt != "" {
 				args = append(args, "--gofly_opt="+opt)
 			}
+		}
+	}
+	for _, plugin := range opts.ExternalPlugins {
+		if strings.TrimSpace(plugin) != "" {
+			args = append(args, "--plugin="+plugin)
 		}
 	}
 	args = append(args, opts.ExtraArgs...)

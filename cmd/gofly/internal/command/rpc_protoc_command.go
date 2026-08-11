@@ -33,6 +33,7 @@ func rpcProtocCommand(args []string) error {
 	v := fs.Bool("v", false, "print verbose output")
 	nameFromFilename := fs.Bool("name-from-filename", false, "derive service name from filename")
 	pluginArg := fs.String("plugin", "", "additional plugin executable")
+	allowExternalPlugin := fs.Bool("allow-external-plugin", false, "forward non-gofly protoc plugin argv explicitly")
 	style := fs.String("style", "go_zero", "model style: go_zero/sql or gorm")
 	home := fs.String("home", "", "template home directory")
 	remote := fs.String("remote", "", "remote template repository")
@@ -66,7 +67,11 @@ func rpcProtocCommand(args []string) error {
 		warnNoopFlag("rpc protoc", "module", "module import paths are controlled by go_package and protoc options unless --plugin gofly is used")
 	}
 	if len(externalPlugins) > 0 {
-		warnNoopFlag("rpc protoc", "plugin", "external protoc plugins are not invoked by the compatibility wrapper yet")
+		if !*allowExternalPlugin {
+			warnNoopFlag("rpc protoc", "plugin", "external protoc plugins require --allow-external-plugin")
+		} else if err := validateExternalProtocPlugins(externalPlugins); err != nil {
+			return err
+		}
 	}
 	protoFile := file.resolve(leadingFile, remaining)
 	if protoFile == "" {
@@ -117,17 +122,18 @@ func rpcProtocCommand(args []string) error {
 	}
 	sp.Start("running protoc...")
 	err = generator.GenerateStandardProto(context.Background(), generator.ProtocOptions{
-		ProtoFile:    protoFile,
-		ProtoPath:    splitCSV(*protoPath),
-		GoOut:        *goOut,
-		GoGRPCOut:    *goGRPCOut,
-		GoflyOut:     goflyPluginOptions.Out,
-		GoflyPlugin:  goflyPlugin,
-		GoflyOptions: goflyPluginOptions.Options,
-		Protoc:       *protoc,
-		ExtraArgs:    extraArgs,
-		Env:          goflyPluginOptions.Env,
-		Timeout:      *timeout,
+		ProtoFile:       protoFile,
+		ProtoPath:       splitCSV(*protoPath),
+		GoOut:           *goOut,
+		GoGRPCOut:       *goGRPCOut,
+		GoflyOut:        goflyPluginOptions.Out,
+		GoflyPlugin:     goflyPlugin,
+		GoflyOptions:    goflyPluginOptions.Options,
+		ExternalPlugins: externalProtocPluginsForOptions(externalPlugins, *allowExternalPlugin),
+		Protoc:          *protoc,
+		ExtraArgs:       extraArgs,
+		Env:             goflyPluginOptions.Env,
+		Timeout:         *timeout,
 	})
 	sp.Stop()
 	if err != nil {

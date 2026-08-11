@@ -26,8 +26,8 @@
       "status": "blocking",
       "gate": "make goctl-rpc-protoc-parity-check",
       "contract": "docs/reference/goctl-rpc-protoc-parity.json",
-      "summary": "Migration-critical goctl rpc protoc flags are covered; external plugin names remain accepted but not executed by default.",
-      "reportOnlyClasses": ["compat-accepted-no-exec"]
+      "summary": "Migration-critical goctl rpc protoc flags are covered; external plugin names are forwarded only with explicit --allow-external-plugin opt-in.",
+      "reportOnlyClasses": []
     },
     {
       "id": "model-parity-replay",

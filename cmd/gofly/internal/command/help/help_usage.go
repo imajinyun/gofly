@@ -128,7 +128,7 @@ Aliases:
     rpc gen --file|--src <service.proto> --dir|--out <dir> [--package <pkg>] [--transport grpc|gofly|both] [--with-middleware] [--with-recovery] [--with-validator] [--standard] [--timeout <duration>] [--style go_zero] [--home <dir>] [--remote <repo>] [--branch <branch>]
     rpc gen <service.proto> --out <dir> [--package <pkg>]
     rpc protoc --file|--src <service.proto> --dir <dir> [--proto_path <paths>]
-    rpc protoc <service.proto> [--I <paths>] [--go_out <dir>] [--go-grpc_out <dir>] [--extra <args>]
+    rpc protoc <service.proto> [--I <paths>] [--go_out <dir>] [--go-grpc_out <dir>] [--plugin <name>] [--allow-external-plugin] [--extra <args>]
     rpc template [-o <file>] [--name <name>] [--home <dir>] [--remote <repo|dir>] [--branch <branch>]
     rpc template init|list|clean|update|revert [--dir <dir>] [--remote <repo|dir>] [--branch <branch>]
   model - Model generation shortcuts.

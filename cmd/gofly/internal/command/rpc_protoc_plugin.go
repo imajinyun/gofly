@@ -1,9 +1,11 @@
 package command
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode"
 )
 
 type goflyProtocPluginConfig struct {
@@ -72,6 +74,49 @@ func buildGoflyProtocPluginOptions(enabled bool, config goflyProtocPluginConfig)
 		options.Env = append(options.Env, "GOFLY_NAME_FROM_FILENAME=true")
 	}
 	return options
+}
+
+func externalProtocPluginsForOptions(plugins []string, allow bool) []string {
+	if !allow {
+		return nil
+	}
+	out := make([]string, 0, len(plugins))
+	for _, plugin := range plugins {
+		plugin = strings.TrimSpace(plugin)
+		if plugin != "" {
+			out = append(out, plugin)
+		}
+	}
+	return out
+}
+
+func validateExternalProtocPlugins(plugins []string) error {
+	for _, plugin := range plugins {
+		if err := validateExternalProtocPlugin(plugin); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateExternalProtocPlugin(plugin string) error {
+	plugin = strings.TrimSpace(plugin)
+	switch {
+	case plugin == "":
+		return fmt.Errorf("unsafe external protoc plugin: empty value")
+	case strings.HasPrefix(plugin, "-"):
+		return fmt.Errorf("unsafe external protoc plugin %q: plugin value must not look like a flag", plugin)
+	case strings.Contains(plugin, "://"):
+		return fmt.Errorf("unsafe external protoc plugin %q: URL schemes are not supported", plugin)
+	case strings.ContainsAny(plugin, " \t\n\r;&|$`<>"):
+		return fmt.Errorf("unsafe external protoc plugin %q: contains whitespace or shell metacharacter", plugin)
+	}
+	for _, r := range plugin {
+		if unicode.IsControl(r) {
+			return fmt.Errorf("unsafe external protoc plugin %q: contains control character", plugin)
+		}
+	}
+	return nil
 }
 
 func isGoflyProtocPluginName(plugin string) bool {

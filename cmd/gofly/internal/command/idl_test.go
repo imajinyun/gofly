@@ -1149,6 +1149,96 @@ func TestExecuteRPCProtocAcceptsGoctlReservedFlags(t *testing.T) {
 			t.Fatalf("protoc args missing %q:\n%s", want, argsText)
 		}
 	}
+	for _, unexpected := range []string{
+		"--gofly_out=",
+		"--gofly_opt=multiple=true",
+		"--gofly_opt=no_client=true",
+		"--gofly_opt=name_from_filename=true",
+		"--plugin=protoc-gen-gofly=",
+		"--plugin=protoc-gen-api",
+	} {
+		if strings.Contains(argsText, unexpected) {
+			t.Fatalf("standard rpc protoc args should not include %q:\n%s", unexpected, argsText)
+		}
+	}
+}
+
+func TestExecuteRPCProtocAllowsExternalPluginOptIn(t *testing.T) {
+	dir := t.TempDir()
+	protoPath := filepath.Join(dir, "greeter.proto")
+	if err := os.WriteFile(protoPath, []byte(commandTestProto), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fakeProtoc := filepath.Join(dir, "protoc")
+	argsPath := filepath.Join(dir, "protoc.args")
+	t.Setenv("PROTOC_ARGS_FILE", argsPath)
+	if err := os.WriteFile(fakeProtoc, []byte("#!/bin/sh\nprintf '%s\n' \"$@\" > \"$PROTOC_ARGS_FILE\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Execute([]string{
+		"rpc", "protoc",
+		protoPath,
+		"--dir", filepath.Join(dir, "out"),
+		"--plugin", "protoc-gen-api",
+		"--allow-external-plugin",
+		"--protoc", fakeProtoc,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(argsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	argsText := string(data)
+	if !strings.Contains(argsText, "--plugin=protoc-gen-api") {
+		t.Fatalf("external plugin opt-in args missing plugin argv:\n%s", argsText)
+	}
+	for _, unexpected := range []string{
+		"--gofly_out=",
+		"--gofly_opt=",
+		"--plugin=protoc-gen-gofly=",
+	} {
+		if strings.Contains(argsText, unexpected) {
+			t.Fatalf("external plugin opt-in should not include %q:\n%s", unexpected, argsText)
+		}
+	}
+}
+
+func TestExecuteRPCProtocRejectsUnsafeExternalPluginOptIn(t *testing.T) {
+	dir := t.TempDir()
+	protoPath := filepath.Join(dir, "greeter.proto")
+	if err := os.WriteFile(protoPath, []byte(commandTestProto), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fakeProtoc := filepath.Join(dir, "protoc")
+	if err := os.WriteFile(fakeProtoc, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name   string
+		plugin string
+	}{
+		{name: "flag-like", plugin: "--evil"},
+		{name: "shell metacharacter", plugin: "protoc-gen-api;rm"},
+		{name: "url scheme", plugin: "https://example.com/protoc-gen-api"},
+		{name: "whitespace", plugin: "protoc gen api"},
+		{name: "control character", plugin: "protoc-gen-api\nnext"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := Execute([]string{
+				"rpc", "protoc",
+				protoPath,
+				"--plugin", tt.plugin,
+				"--allow-external-plugin",
+				"--protoc", fakeProtoc,
+			})
+			if err == nil || !strings.Contains(err.Error(), "unsafe external protoc plugin") {
+				t.Fatalf("rpc protoc unsafe plugin error = %v, want unsafe external protoc plugin", err)
+			}
+		})
+	}
 }
 
 func TestExecuteRPCProtocGoflyPluginArgs(t *testing.T) {
@@ -2356,7 +2446,7 @@ func TestExecuteAIManifestJSONEnvelope(t *testing.T) {
 			}
 		}{RiskLevel: command.RiskLevel, SupportsDryRun: command.SupportsDryRun, MutatesFilesystem: command.MutatesFilesystem, OutputFormats: command.OutputFormats, SideEffects: command.SideEffects, OutputContract: command.OutputContract}
 	}
-	for _, want := range []string{"ai complete", "ai manifest", "ai stream", "feature run", "gateway profile validate", "gateway aggregation validate", "release check", "new service", "new api", "api cleanup stale", "plugin run", "version"} {
+	for _, want := range []string{"ai complete", "ai manifest", "ai stream", "feature run", "gateway profile validate", "gateway aggregation validate", "release check", "new service", "new api", "api cleanup stale", "rpc protoc", "plugin run", "version"} {
 		if _, ok := commands[want]; !ok {
 			t.Fatalf("ai manifest commands missing %q: %+v", want, commands)
 		}
@@ -2377,6 +2467,12 @@ func TestExecuteAIManifestJSONEnvelope(t *testing.T) {
 		!commandContainsString(commands["api cleanup stale"].SideEffects, "report-only by default") ||
 		!commandContainsString(commands["api cleanup stale"].SideEffects, "--execute removes only validated stale .go files under internal/api/http, internal/app, or legacy handler/logic directories") {
 		t.Fatalf("api cleanup stale manifest should expose safe cleanup semantics: %+v", commands["api cleanup stale"])
+	}
+	if commands["rpc protoc"].SupportsDryRun || !commands["rpc protoc"].MutatesFilesystem || commands["rpc protoc"].RiskLevel != "high" ||
+		!commandContainsString(commands["rpc protoc"].SideEffects, "runs protoc as an external process") ||
+		!commandContainsString(commands["rpc protoc"].SideEffects, "forwards non-gofly plugin argv only when --allow-external-plugin is set") ||
+		!commandContainsString(commands["rpc protoc"].SideEffects, "rejects flag-like plugin values, URL schemes, whitespace, control characters and shell metacharacters") {
+		t.Fatalf("rpc protoc manifest should expose high-risk external plugin semantics: %+v", commands["rpc protoc"])
 	}
 	if !commands["gateway profile validate"].SupportsDryRun || commands["gateway profile validate"].MutatesFilesystem || commands["gateway profile validate"].RiskLevel != "read" || !commandContainsString(commands["gateway profile validate"].OutputFormats, "json") {
 		t.Fatalf("gateway profile validate manifest should be read-only JSON-capable: %+v", commands["gateway profile validate"])

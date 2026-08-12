@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -1056,6 +1057,139 @@ func TestExecuteRPCProtocAcceptsGoctlPositionalAndSrcAlias(t *testing.T) {
 		"--protoc", fakeProtoc,
 	}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestExecuteRPCProtocAcceptsMultipleProtoInputs(t *testing.T) {
+	dir := t.TempDir()
+	commonProto := filepath.Join(dir, "common.proto")
+	greeterProto := filepath.Join(dir, "greeter.proto")
+	if err := os.WriteFile(commonProto, []byte(`syntax = "proto3";
+package demo.v1;
+option go_package = "example.com/demo/pb;pb";
+message Trace { string id = 1; }
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(greeterProto, []byte(`syntax = "proto3";
+package demo.v1;
+option go_package = "example.com/demo/pb;pb";
+import "common.proto";
+message HelloRequest { Trace trace = 1; }
+message HelloResponse { string message = 1; }
+service Greeter { rpc Hello(HelloRequest) returns (HelloResponse); }
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fakeProtoc := filepath.Join(dir, "protoc")
+	argsPath := filepath.Join(dir, "protoc.args")
+	t.Setenv("PROTOC_ARGS_FILE", argsPath)
+	if err := os.WriteFile(fakeProtoc, []byte("#!/bin/sh\nprintf '%s\n' \"$@\" > \"$PROTOC_ARGS_FILE\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Execute([]string{
+		"rpc", "protoc",
+		"--src", commonProto,
+		greeterProto,
+		"--proto_path", dir,
+		"--dir", filepath.Join(dir, "out"),
+		"--protoc", fakeProtoc,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(argsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	argsText := string(data)
+	for _, want := range []string{
+		"-I\n" + dir,
+		commonProto + "\n" + greeterProto,
+	} {
+		if !strings.Contains(argsText, want) {
+			t.Fatalf("protoc args missing %q:\n%s", want, argsText)
+		}
+	}
+}
+
+func TestExecuteRPCProtocMultipleProtoInputsCompile(t *testing.T) {
+	for _, tool := range []string{"protoc", "protoc-gen-go", "protoc-gen-go-grpc"} {
+		if _, err := exec.LookPath(tool); err != nil {
+			t.Skipf("%s is not available: %v", tool, err)
+		}
+	}
+	dir := t.TempDir()
+	commonProto := filepath.Join(dir, "common.proto")
+	greeterProto := filepath.Join(dir, "greeter.proto")
+	for path, body := range map[string]string{
+		commonProto: `syntax = "proto3";
+package demo.v1;
+option go_package = "example.com/protocsmoke/pb;pb";
+message Trace {
+  string id = 1;
+}
+`,
+		greeterProto: `syntax = "proto3";
+package demo.v1;
+option go_package = "example.com/protocsmoke/pb;pb";
+import "common.proto";
+message HelloRequest {
+  Trace trace = 1;
+}
+message HelloResponse {
+  string message = 1;
+}
+service Greeter {
+  rpc Hello(HelloRequest) returns (HelloResponse);
+}
+`,
+	} {
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	outDir := filepath.Join(dir, "pb")
+	if err := os.MkdirAll(outDir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(`module example.com/protocsmoke
+
+go 1.26
+
+require (
+	google.golang.org/grpc v1.80.0
+	google.golang.org/protobuf v1.36.11
+)
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Execute([]string{
+		"rpc", "protoc",
+		commonProto,
+		greeterProto,
+		"--proto_path", dir,
+		"--go_out", outDir,
+		"--go-grpc_out", outDir,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, rel := range []string{"common.pb.go", "greeter.pb.go", "greeter_grpc.pb.go"} {
+		if _, err := os.Stat(filepath.Join(outDir, rel)); err != nil {
+			t.Fatalf("expected generated %s: %v", rel, err)
+		}
+	}
+	tidy := exec.Command("go", "mod", "tidy")
+	tidy.Dir = dir
+	if out, err := tidy.CombinedOutput(); err != nil {
+		t.Fatalf("go mod tidy generated proto module: %v\n%s", err, out)
+	}
+	cmd := exec.Command("go", "test", "./...")
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("go test generated proto module: %v\n%s", err, out)
 	}
 }
 

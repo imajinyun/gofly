@@ -4589,6 +4589,22 @@ func TestProtocArgs(t *testing.T) {
 	}
 }
 
+func TestProtocArgsMultipleProtoFiles(t *testing.T) {
+	args, err := ProtocArgs(ProtocOptions{
+		ProtoFiles: []string{"api/common.proto", "api/greeter.proto"},
+		ProtoPath:  []string{"api"},
+		GoOut:      "gen",
+		GoGRPCOut:  "grpcgen",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantSuffix := []string{"api/common.proto", "api/greeter.proto"}
+	if got := args[len(args)-2:]; !reflect.DeepEqual(got, wantSuffix) {
+		t.Fatalf("args suffix = %#v, want %#v\nfull args=%#v", got, wantSuffix, args)
+	}
+}
+
 func TestGenerateStandardProtoTimesOutHungProtoc(t *testing.T) {
 	dir := t.TempDir()
 	protoPath := filepath.Join(dir, "greeter.proto")

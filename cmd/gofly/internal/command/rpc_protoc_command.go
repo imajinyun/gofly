@@ -75,8 +75,8 @@ func rpcProtocCommand(args []string) error {
 			return err
 		}
 	}
-	protoFile := file.resolve(leadingFile, remaining)
-	if protoFile == "" {
+	protoFiles := file.resolveAll(leadingFile, remaining)
+	if len(protoFiles) == 0 {
 		return fmt.Errorf("%w: proto file is required", errUsage)
 	}
 	if *timeout <= 0 {
@@ -106,7 +106,7 @@ func rpcProtocCommand(args []string) error {
 		extraArgs = append(extraArgs, "--go-grpc_opt="+*goGRPCOptUnderscore)
 	}
 	if *verbose || *v {
-		errorf("[gofly] rpc protoc: proto=%s go_out=%s go-grpc_out=%s proto_path=%s\n", protoFile, *goOut, *goGRPCOut, strings.Join(includePaths, ","))
+		errorf("[gofly] rpc protoc: proto=%s go_out=%s go-grpc_out=%s proto_path=%s\n", strings.Join(protoFiles, ","), *goOut, *goGRPCOut, strings.Join(includePaths, ","))
 	}
 	goflyPluginOptions := buildGoflyProtocPluginOptions(useGoflyPlugin, goflyProtocPluginConfig{
 		Dir:              *dir,
@@ -122,7 +122,7 @@ func rpcProtocCommand(args []string) error {
 	}
 	sp.Start("running protoc...")
 	err = generator.GenerateStandardProto(context.Background(), generator.ProtocOptions{
-		ProtoFile:       protoFile,
+		ProtoFiles:      protoFiles,
 		ProtoPath:       includePaths,
 		GoOut:           *goOut,
 		GoGRPCOut:       *goGRPCOut,

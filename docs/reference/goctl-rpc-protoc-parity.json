@@ -31,9 +31,11 @@
       "goctlSurface": "goctl rpc protoc --proto_path / -I",
       "goflySurface": "gofly rpc protoc --proto_path / -I",
       "status": "implemented",
-      "behavior": "passes each include path to protoc as -I argv entries",
+      "behavior": "passes each include path to protoc as -I argv entries and accepts multiple proto input files for imported proto projects",
       "evidence": [
         "TestExecuteRPCProtocAcceptsGoctlPositionalAndSrcAlias",
+        "TestExecuteRPCProtocAcceptsMultipleProtoInputs",
+        "TestExecuteRPCProtocMultipleProtoInputsCompile",
         "TestProtocArgs"
       ],
       "coveredFlags": ["proto_path", "proto-path", "I"]

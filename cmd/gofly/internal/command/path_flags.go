@@ -80,9 +80,30 @@ func (f idlFileFlags) resolve(leading string, remaining []string) string {
 	return firstRemainingArg(remaining)
 }
 
+func (f idlFileFlags) resolveAll(leading string, remaining []string) []string {
+	out := make([]string, 0, 1+len(remaining))
+	out = append(out, splitCSV(valueFromStringFlag(f.File))...)
+	out = append(out, splitCSV(valueFromStringFlag(f.Src))...)
+	if leading != "" {
+		out = append(out, leading)
+	}
+	out = append(out, remaining...)
+	return compactStrings(out)
+}
+
 func firstRemainingArg(args []string) string {
 	if len(args) == 0 {
 		return ""
 	}
 	return args[0]
+}
+
+func compactStrings(values []string) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if value != "" {
+			out = append(out, value)
+		}
+	}
+	return out
 }

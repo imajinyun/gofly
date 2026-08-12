@@ -14,6 +14,7 @@ import (
 
 type ProtocOptions struct {
 	ProtoFile       string
+	ProtoFiles      []string
 	ProtoPath       []string
 	GoOut           string
 	GoGRPCOut       string
@@ -67,7 +68,8 @@ func protocContext(ctx context.Context, timeout time.Duration) (context.Context,
 }
 
 func ProtocArgs(opts ProtocOptions) ([]string, error) {
-	if opts.ProtoFile == "" {
+	protoFiles := protocInputFiles(opts)
+	if len(protoFiles) == 0 {
 		return nil, errors.New("proto file is required")
 	}
 	goOut := opts.GoOut
@@ -109,8 +111,21 @@ func ProtocArgs(opts ProtocOptions) ([]string, error) {
 		}
 	}
 	args = append(args, opts.ExtraArgs...)
-	args = append(args, opts.ProtoFile)
+	args = append(args, protoFiles...)
 	return args, nil
+}
+
+func protocInputFiles(opts ProtocOptions) []string {
+	files := make([]string, 0, 1+len(opts.ProtoFiles))
+	if strings.TrimSpace(opts.ProtoFile) != "" {
+		files = append(files, strings.TrimSpace(opts.ProtoFile))
+	}
+	for _, file := range opts.ProtoFiles {
+		if strings.TrimSpace(file) != "" {
+			files = append(files, strings.TrimSpace(file))
+		}
+	}
+	return files
 }
 
 func hasProtocOptionOverride(args []string, flagName string) bool {

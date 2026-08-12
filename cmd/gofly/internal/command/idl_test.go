@@ -1180,17 +1180,7 @@ require (
 			t.Fatalf("expected generated %s: %v", rel, err)
 		}
 	}
-	tidy := exec.Command("go", "mod", "tidy")
-	tidy.Dir = dir
-	if out, err := tidy.CombinedOutput(); err != nil {
-		t.Fatalf("go mod tidy generated proto module: %v\n%s", err, out)
-	}
-	cmd := exec.Command("go", "test", "./...")
-	cmd.Dir = dir
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("go test generated proto module: %v\n%s", err, out)
-	}
+	assertGeneratedProtoModuleCompiles(t, dir)
 }
 
 func TestExecuteRPCProtocImportMappingOptionsCompile(t *testing.T) {
@@ -1266,16 +1256,261 @@ require (
 			t.Fatalf("expected generated %s: %v", rel, err)
 		}
 	}
+	assertGeneratedProtoModuleCompiles(t, dir)
+}
+
+func TestExecuteRPCProtocNestedSourceRelativeOutputCompile(t *testing.T) {
+	for _, tool := range []string{"protoc", "protoc-gen-go", "protoc-gen-go-grpc"} {
+		if _, err := exec.LookPath(tool); err != nil {
+			t.Skipf("%s is not available: %v", tool, err)
+		}
+	}
+	dir := t.TempDir()
+	protoRoot := filepath.Join(dir, "proto")
+	commonDir := filepath.Join(protoRoot, "common", "v1")
+	orderDir := filepath.Join(protoRoot, "order", "v1")
+	for _, path := range []string{commonDir, orderDir} {
+		if err := os.MkdirAll(path, 0o750); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(commonDir, "common.proto"), []byte(`syntax = "proto3";
+package common.v1;
+option go_package = "example.com/nested/gen/common/v1;commonv1";
+message Trace {
+  string id = 1;
+}
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(orderDir, "order.proto"), []byte(`syntax = "proto3";
+package order.v1;
+option go_package = "example.com/nested/gen/order/v1;orderv1";
+import "common/v1/common.proto";
+message CreateOrderRequest {
+  common.v1.Trace trace = 1;
+}
+message CreateOrderResponse {
+  string id = 1;
+}
+service Order {
+  rpc Create(CreateOrderRequest) returns (CreateOrderResponse);
+}
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(`module example.com/nested
+
+go 1.26
+
+require (
+	google.golang.org/grpc v1.80.0
+	google.golang.org/protobuf v1.36.11
+)
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outDir := filepath.Join(dir, "gen")
+	if err := os.MkdirAll(outDir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := Execute([]string{
+		"rpc", "protoc",
+		"common/v1/common.proto",
+		"order/v1/order.proto",
+		"--proto_path", protoRoot,
+		"--go_out", outDir,
+		"--go-grpc_out", outDir,
+		"--go_opt", "paths=source_relative",
+		"--go-grpc_opt", "paths=source_relative",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, rel := range []string{
+		"common/v1/common.pb.go",
+		"order/v1/order.pb.go",
+		"order/v1/order_grpc.pb.go",
+	} {
+		if _, err := os.Stat(filepath.Join(outDir, rel)); err != nil {
+			t.Fatalf("expected generated %s: %v", rel, err)
+		}
+	}
+	assertGeneratedProtoModuleCompiles(t, dir)
+}
+
+func TestExecuteRPCProtocAbsoluteNestedInputUsesIncludeRoot(t *testing.T) {
+	for _, tool := range []string{"protoc", "protoc-gen-go", "protoc-gen-go-grpc"} {
+		if _, err := exec.LookPath(tool); err != nil {
+			t.Skipf("%s is not available: %v", tool, err)
+		}
+	}
+	dir := t.TempDir()
+	protoRoot := filepath.Join(dir, "proto")
+	orderDir := filepath.Join(protoRoot, "order", "v1")
+	if err := os.MkdirAll(orderDir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	orderProto := filepath.Join(orderDir, "order.proto")
+	if err := os.WriteFile(orderProto, []byte(`syntax = "proto3";
+package order.v1;
+option go_package = "example.com/absnested/gen/order/v1;orderv1";
+message CreateOrderRequest {
+  string id = 1;
+}
+message CreateOrderResponse {
+  string id = 1;
+}
+service Order {
+  rpc Create(CreateOrderRequest) returns (CreateOrderResponse);
+}
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(`module example.com/absnested
+
+go 1.26
+
+require (
+	google.golang.org/grpc v1.80.0
+	google.golang.org/protobuf v1.36.11
+)
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outDir := filepath.Join(dir, "gen")
+	if err := os.MkdirAll(outDir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := Execute([]string{
+		"rpc", "protoc",
+		orderProto,
+		"--proto_path", protoRoot,
+		"--go_out", outDir,
+		"--go-grpc_out", outDir,
+		"--go_opt", "paths=source_relative",
+		"--go-grpc_opt", "paths=source_relative",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, rel := range []string{
+		"order/v1/order.pb.go",
+		"order/v1/order_grpc.pb.go",
+	} {
+		if _, err := os.Stat(filepath.Join(outDir, rel)); err != nil {
+			t.Fatalf("expected generated %s: %v", rel, err)
+		}
+	}
+	assertGeneratedProtoModuleCompiles(t, dir)
+}
+
+func TestExecuteRPCProtocNestedImportMappingCompile(t *testing.T) {
+	for _, tool := range []string{"protoc", "protoc-gen-go", "protoc-gen-go-grpc"} {
+		if _, err := exec.LookPath(tool); err != nil {
+			t.Skipf("%s is not available: %v", tool, err)
+		}
+	}
+	dir := t.TempDir()
+	protoRoot := filepath.Join(dir, "proto")
+	commonDir := filepath.Join(protoRoot, "common", "v1")
+	accountDir := filepath.Join(protoRoot, "account", "v1")
+	orderDir := filepath.Join(protoRoot, "order", "v1")
+	for _, path := range []string{commonDir, accountDir, orderDir} {
+		if err := os.MkdirAll(path, 0o750); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(commonDir, "common.proto"), []byte(`syntax = "proto3";
+package common.v1;
+message Trace {
+  string id = 1;
+}
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(accountDir, "account.proto"), []byte(`syntax = "proto3";
+package account.v1;
+message AccountRef {
+  string id = 1;
+}
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(orderDir, "order.proto"), []byte(`syntax = "proto3";
+package order.v1;
+option go_package = "example.com/nestedmapping/gen/order/v1;orderv1";
+import "common/v1/common.proto";
+import "account/v1/account.proto";
+message CreateOrderRequest {
+  common.v1.Trace trace = 1;
+  account.v1.AccountRef account = 2;
+}
+message CreateOrderResponse {
+  string id = 1;
+}
+service Order {
+  rpc Create(CreateOrderRequest) returns (CreateOrderResponse);
+}
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(`module example.com/nestedmapping
+
+go 1.26
+
+require (
+	google.golang.org/grpc v1.80.0
+	google.golang.org/protobuf v1.36.11
+)
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outDir := filepath.Join(dir, "gen")
+	if err := os.MkdirAll(outDir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := Execute([]string{
+		"rpc", "protoc",
+		"common/v1/common.proto",
+		"account/v1/account.proto",
+		"order/v1/order.proto",
+		"--proto_path", protoRoot,
+		"--go_out", outDir,
+		"--go-grpc_out", outDir,
+		"--go_opt", "paths=source_relative",
+		"--go_opt", "Mcommon/v1/common.proto=example.com/nestedmapping/gen/common/v1",
+		"--go_opt", "Maccount/v1/account.proto=example.com/nestedmapping/gen/account/v1",
+		"--go-grpc_opt", "paths=source_relative",
+		"--go-grpc_opt", "Mcommon/v1/common.proto=example.com/nestedmapping/gen/common/v1",
+		"--go_grpc_opt", "Maccount/v1/account.proto=example.com/nestedmapping/gen/account/v1",
+		"--go_grpc_opt", "require_unimplemented_servers=false",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, rel := range []string{
+		"common/v1/common.pb.go",
+		"account/v1/account.pb.go",
+		"order/v1/order.pb.go",
+		"order/v1/order_grpc.pb.go",
+	} {
+		if _, err := os.Stat(filepath.Join(outDir, rel)); err != nil {
+			t.Fatalf("expected generated %s: %v", rel, err)
+		}
+	}
+	assertGeneratedProtoModuleCompiles(t, dir)
+}
+
+func assertGeneratedProtoModuleCompiles(t *testing.T, dir string) {
+	t.Helper()
 	tidy := exec.Command("go", "mod", "tidy")
 	tidy.Dir = dir
 	if out, err := tidy.CombinedOutput(); err != nil {
-		t.Fatalf("go mod tidy generated mapping module: %v\n%s", err, out)
+		t.Fatalf("go mod tidy generated proto module: %v\n%s", err, out)
 	}
 	cmd := exec.Command("go", "test", "./...")
 	cmd.Dir = dir
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		t.Fatalf("go test generated mapping module: %v\n%s", err, out)
+		t.Fatalf("go test generated proto module: %v\n%s", err, out)
 	}
 }
 

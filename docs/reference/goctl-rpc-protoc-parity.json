@@ -36,6 +36,8 @@
         "TestExecuteRPCProtocAcceptsGoctlPositionalAndSrcAlias",
         "TestExecuteRPCProtocAcceptsMultipleProtoInputs",
         "TestExecuteRPCProtocMultipleProtoInputsCompile",
+        "TestExecuteRPCProtocNestedSourceRelativeOutputCompile",
+        "TestExecuteRPCProtocAbsoluteNestedInputUsesIncludeRoot",
         "TestProtocArgs"
       ],
       "coveredFlags": ["proto_path", "proto-path", "I"]
@@ -49,6 +51,7 @@
       "evidence": [
         "TestExecuteRPCProtocAcceptsGoctlReservedFlags",
         "TestExecuteRPCProtocImportMappingOptionsCompile",
+        "TestExecuteRPCProtocNestedImportMappingCompile",
         "TestProtocArgsUserPathOptionsOverrideDefaults"
       ],
       "coveredFlags": ["go_opt", "go-grpc_opt", "go_grpc_opt"]

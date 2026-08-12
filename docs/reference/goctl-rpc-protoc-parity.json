@@ -65,7 +65,8 @@
       "evidence": [
         "TestExecuteRPCProtocGoflyPluginNoClientMultipleArgs",
         "TestExecuteRPCProtocAcceptsGoctlReservedFlags",
-        "TestExecuteRPCGenGoflyNoClientAndMultiple"
+        "TestExecuteRPCGenGoflyNoClientAndMultiple",
+        "TestGenerateProtocPluginResponseSkipsImportOnlyFiles"
       ],
       "coveredFlags": ["multiple", "m"]
     },
@@ -78,7 +79,8 @@
       "evidence": [
         "TestExecuteRPCProtocGoflyPluginNoClientMultipleArgs",
         "TestExecuteRPCProtocAcceptsGoctlReservedFlags",
-        "TestExecuteRPCGenGoflyNoClientAndMultiple"
+        "TestExecuteRPCGenGoflyNoClientAndMultiple",
+        "TestGenerateProtocPluginResponseSkipsImportOnlyFiles"
       ],
       "coveredFlags": ["client", "c"]
     },

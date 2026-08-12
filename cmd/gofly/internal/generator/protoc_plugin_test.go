@@ -498,3 +498,87 @@ func TestGenerateProtocPluginResponseNoClientMultiple(t *testing.T) {
 		t.Fatalf("split service output missing registration helpers: %+v", resp.File)
 	}
 }
+
+func TestGenerateProtocPluginResponseSkipsImportOnlyFiles(t *testing.T) {
+	req := &pluginpb.CodeGeneratorRequest{
+		FileToGenerate: []string{
+			"common/v1/common.proto",
+			"account/v1/account.proto",
+			"order/v1/order.proto",
+			"user/v1/user.proto",
+		},
+		Parameter: proto.String("no_client=true,multiple=true"),
+		ProtoFile: []*descriptorpb.FileDescriptorProto{
+			{
+				Name:    proto.String("common/v1/common.proto"),
+				Package: proto.String("demo.common.v1"),
+				MessageType: []*descriptorpb.DescriptorProto{
+					{Name: proto.String("Trace")},
+				},
+			},
+			{
+				Name:    proto.String("account/v1/account.proto"),
+				Package: proto.String("demo.account.v1"),
+				MessageType: []*descriptorpb.DescriptorProto{
+					{Name: proto.String("AccountRef")},
+				},
+			},
+			{
+				Name:    proto.String("order/v1/order.proto"),
+				Package: proto.String("demo.order.v1"),
+				MessageType: []*descriptorpb.DescriptorProto{
+					{Name: proto.String("CreateOrderRequest")},
+					{Name: proto.String("CreateOrderResponse")},
+				},
+				Service: []*descriptorpb.ServiceDescriptorProto{{
+					Name: proto.String("Order"),
+					Method: []*descriptorpb.MethodDescriptorProto{{
+						Name:       proto.String("Create"),
+						InputType:  proto.String(".demo.order.v1.CreateOrderRequest"),
+						OutputType: proto.String(".demo.order.v1.CreateOrderResponse"),
+					}},
+				}},
+			},
+			{
+				Name:    proto.String("user/v1/user.proto"),
+				Package: proto.String("demo.user.v1"),
+				MessageType: []*descriptorpb.DescriptorProto{
+					{Name: proto.String("GetUserRequest")},
+					{Name: proto.String("GetUserResponse")},
+				},
+				Service: []*descriptorpb.ServiceDescriptorProto{{
+					Name: proto.String("User"),
+					Method: []*descriptorpb.MethodDescriptorProto{{
+						Name:       proto.String("Get"),
+						InputType:  proto.String(".demo.user.v1.GetUserRequest"),
+						OutputType: proto.String(".demo.user.v1.GetUserResponse"),
+					}},
+				}},
+			},
+		},
+	}
+	resp, err := GenerateProtocPluginResponse(req, ProtocPluginOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := make([]string, 0, len(resp.File))
+	for _, file := range resp.File {
+		got = append(got, file.GetName())
+	}
+	want := []string{"order/order/v1/order.gofly.go", "user/user/v1/user.gofly.go"}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("generated files = %#v, want only service-bearing files %#v", got, want)
+	}
+	for _, file := range resp.File {
+		content := file.GetContent()
+		if strings.Contains(content, "GoflyClient interface") || strings.Contains(content, "GoflyRPCClient") || strings.Contains(content, "GoflyGenericClient") {
+			t.Fatalf("no_client output should omit client wrappers in %s:\n%s", file.GetName(), content)
+		}
+	}
+	joined := strings.Join(got, "\n")
+	for _, unexpected := range []string{"common", "account"} {
+		if strings.Contains(joined, unexpected) {
+			t.Fatalf("import-only proto %q generated wrapper files: %#v", unexpected, got)
+		}
+	}
+}

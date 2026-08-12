@@ -79,6 +79,7 @@ protoc_go = read_text(root / "cmd" / "gofly" / "internal" / "generator" / "proto
 protoc_plugin_go = read_text(root / "cmd" / "gofly" / "internal" / "generator" / "protoc_plugin.go")
 command_tests = read_text(root / "cmd" / "gofly" / "internal" / "command" / "idl_test.go")
 generator_tests = read_text(root / "cmd" / "gofly" / "internal" / "generator" / "idl_test.go")
+protoc_plugin_tests = read_text(root / "cmd" / "gofly" / "internal" / "generator" / "protoc_plugin_test.go")
 
 targets = make_target_names(makefile)
 docs_check_line = next((line for line in makefile.splitlines() if line.startswith("docs-check:")), "")
@@ -113,7 +114,7 @@ surface_map = {item.get("id"): item for item in surfaces}
 require(set(surface_map) == set(required_surfaces), f"rpcSurfaces drifted: missing={sorted(set(required_surfaces) - set(surface_map))} extra={sorted(set(surface_map) - set(required_surfaces))}")
 
 all_flags = set()
-test_haystack = command_tests + "\n" + generator_tests
+test_haystack = command_tests + "\n" + generator_tests + "\n" + protoc_plugin_tests
 for surface_id, status in required_surfaces.items():
     item = surface_map.get(surface_id) or {}
     require(item.get("status") == status, f"{surface_id}: status must be {status}")
@@ -235,6 +236,7 @@ for needle in (
     "TestExecuteRPCProtocAbsoluteNestedInputUsesIncludeRoot",
     "TestExecuteRPCProtocNestedImportMappingCompile",
     "TestProtocArgsMultipleProtoFiles",
+    "TestGenerateProtocPluginResponseSkipsImportOnlyFiles",
     "unsafe external protoc plugin",
     '"--gofly_out="',
     '"--gofly_opt=multiple=true"',

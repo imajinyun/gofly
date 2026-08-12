@@ -111,6 +111,22 @@ func splitCSV(value string) []string {
 	return out
 }
 
+type csvListFlag struct {
+	values []string
+}
+
+func (f *csvListFlag) String() string {
+	if f == nil {
+		return ""
+	}
+	return strings.Join(f.values, ",")
+}
+
+func (f *csvListFlag) Set(value string) error {
+	f.values = append(f.values, splitCSV(value)...)
+	return nil
+}
+
 func joinCSV(values ...string) string {
 	parts := []string{}
 	for _, value := range values {

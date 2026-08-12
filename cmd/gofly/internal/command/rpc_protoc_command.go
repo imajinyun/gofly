@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"strings"
 
 	"github.com/imajinyun/gofly/cmd/gofly/internal/generator"
 	"github.com/imajinyun/gofly/cmd/gofly/internal/spinner"
@@ -14,9 +15,10 @@ func rpcProtocCommand(args []string) error {
 	fs := flag.NewFlagSet("rpc protoc", flag.ContinueOnError)
 	file := registerIDLFileFlags(fs, "proto file")
 	dir := fs.String("dir", ".", "output directory")
-	protoPath := fs.String("proto_path", ".", "comma-separated proto include paths")
-	protoPathAlias := fs.String("proto-path", "", "comma-separated proto include paths")
-	include := fs.String("I", "", "comma-separated proto include paths")
+	protoPath := csvListFlag{}
+	fs.Var(&protoPath, "proto_path", "comma-separated proto include paths; may be repeated")
+	fs.Var(&protoPath, "proto-path", "comma-separated proto include paths; may be repeated")
+	fs.Var(&protoPath, "I", "comma-separated proto include paths; may be repeated")
 	goOut := fs.String("go_out", "", "protoc go output directory")
 	goGRPCOut := fs.String("go-grpc_out", "", "protoc go-grpc output directory")
 	zrpcOut := fs.String("zrpc_out", "", "service output directory")
@@ -80,11 +82,9 @@ func rpcProtocCommand(args []string) error {
 	if *timeout <= 0 {
 		return fmt.Errorf("%w: --timeout must be greater than zero", errUsage)
 	}
-	if *protoPathAlias != "" {
-		*protoPath = *protoPathAlias
-	}
-	if *include != "" {
-		*protoPath = *include
+	includePaths := []string{"."}
+	if flagProvided(fs, "proto_path") || flagProvided(fs, "proto-path") || flagProvided(fs, "I") {
+		includePaths = protoPath.values
 	}
 	if *zrpcOut != "" {
 		*dir = *zrpcOut
@@ -106,7 +106,7 @@ func rpcProtocCommand(args []string) error {
 		extraArgs = append(extraArgs, "--go-grpc_opt="+*goGRPCOptUnderscore)
 	}
 	if *verbose || *v {
-		errorf("[gofly] rpc protoc: proto=%s go_out=%s go-grpc_out=%s proto_path=%s\n", protoFile, *goOut, *goGRPCOut, *protoPath)
+		errorf("[gofly] rpc protoc: proto=%s go_out=%s go-grpc_out=%s proto_path=%s\n", protoFile, *goOut, *goGRPCOut, strings.Join(includePaths, ","))
 	}
 	goflyPluginOptions := buildGoflyProtocPluginOptions(useGoflyPlugin, goflyProtocPluginConfig{
 		Dir:              *dir,
@@ -123,7 +123,7 @@ func rpcProtocCommand(args []string) error {
 	sp.Start("running protoc...")
 	err = generator.GenerateStandardProto(context.Background(), generator.ProtocOptions{
 		ProtoFile:       protoFile,
-		ProtoPath:       splitCSV(*protoPath),
+		ProtoPath:       includePaths,
 		GoOut:           *goOut,
 		GoGRPCOut:       *goGRPCOut,
 		GoflyOut:        goflyPluginOptions.Out,

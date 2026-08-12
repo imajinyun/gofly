@@ -74,6 +74,7 @@ generator_text = read_text(root / "docs" / "reference" / "goctl-generator-compat
 zrpc_text = read_text(root / "docs" / "reference" / "zrpc-proto-compatibility.json")
 from_gozero_text = read_text(root / "docs" / "reference" / "from-go-zero-migration.md")
 rpc_protoc_command = read_text(root / "cmd" / "gofly" / "internal" / "command" / "rpc_protoc_command.go")
+command_args_go = read_text(root / "cmd" / "gofly" / "internal" / "command" / "command_args.go")
 protoc_go = read_text(root / "cmd" / "gofly" / "internal" / "generator" / "protoc.go")
 protoc_plugin_go = read_text(root / "cmd" / "gofly" / "internal" / "generator" / "protoc_plugin.go")
 command_tests = read_text(root / "cmd" / "gofly" / "internal" / "command" / "idl_test.go")
@@ -154,9 +155,10 @@ for needle in (
     require(needle in generator_text or needle in from_gozero_text or needle in makefile or needle in json.dumps(manifest), f"RPC protoc parity evidence missing {needle!r}")
 
 for needle in (
-    'fs.String("proto_path"',
-    'fs.String("proto-path"',
-    'fs.String("I"',
+    "csvListFlag",
+    'fs.Var(&protoPath, "proto_path"',
+    'fs.Var(&protoPath, "proto-path"',
+    'fs.Var(&protoPath, "I"',
     'fs.Bool("multiple"',
     'fs.Bool("m"',
     'fs.Bool("client"',
@@ -169,6 +171,13 @@ for needle in (
     "externalProtocPluginsForOptions",
 ):
     require(needle in rpc_protoc_command, f"rpc protoc command missing {needle!r}")
+
+for needle in (
+    "type csvListFlag struct",
+    "append(f.values, splitCSV(value)...",
+    "strings.Join(f.values",
+):
+    require(needle in command_args_go, f"command args missing {needle!r}")
 
 for needle in (
     "exec.CommandContext(ctx, bin, args...)",

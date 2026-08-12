@@ -243,6 +243,19 @@ func TestNewServicePlanAndFlagParsingBoundaries(t *testing.T) {
 	if got := flagName("--name=value"); got != "name" {
 		t.Fatalf("flagName = %q, want name", got)
 	}
+	var csvValue csvListFlag
+	if err := csvValue.Set("api,third_party"); err != nil {
+		t.Fatal(err)
+	}
+	if err := csvValue.Set("vendor"); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := csvValue.values, []string{"api", "third_party", "vendor"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("csvListFlag values = %#v, want %#v", got, want)
+	}
+	if got, want := csvValue.String(), "api,third_party,vendor"; got != want {
+		t.Fatalf("csvListFlag String() = %q, want %q", got, want)
+	}
 	if name, rest := splitLeadingName([]string{"svc", "--flag"}); name != "svc" || len(rest) != 1 || rest[0] != "--flag" {
 		t.Fatalf("splitLeadingName = %q %v, want svc and flag", name, rest)
 	}

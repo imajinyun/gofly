@@ -1018,9 +1018,15 @@ func TestExecuteRPCProtocAcceptsGoctlPositionalAndSrcAlias(t *testing.T) {
 
 	goOut := filepath.Join(dir, "pb")
 	grpcOut := filepath.Join(dir, "grpc")
+	includeA := filepath.Join(dir, "include-a")
+	includeB := filepath.Join(dir, "include-b")
+	includeC := filepath.Join(dir, "include-c")
+	includeD := filepath.Join(dir, "include-d")
 	if err := Execute([]string{
 		"rpc", "protoc", protoPath,
-		"--I", dir,
+		"--proto_path", includeA + "," + includeB,
+		"-I", includeC,
+		"--proto-path", includeD,
 		"--go_out", goOut,
 		"--go-grpc_out", grpcOut,
 		"--protoc", fakeProtoc,
@@ -1033,7 +1039,7 @@ func TestExecuteRPCProtocAcceptsGoctlPositionalAndSrcAlias(t *testing.T) {
 	}
 	argsText := string(data)
 	for _, want := range []string{
-		"-I\n" + dir,
+		"-I\n" + includeA + "\n-I\n" + includeB + "\n-I\n" + includeC + "\n-I\n" + includeD,
 		"--go_out=" + goOut,
 		"--go-grpc_out=" + grpcOut,
 		protoPath,

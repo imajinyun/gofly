@@ -12,6 +12,7 @@
     "docs/reference/goctl-generator-compatibility.json",
     "docs/reference/zrpc-proto-compatibility.json",
     "cmd/gofly/internal/command/rpc_protoc_command.go",
+    "cmd/gofly/internal/command/command_args.go",
     "cmd/gofly/internal/generator/protoc.go",
     "cmd/gofly/internal/generator/protoc_plugin.go",
     "cmd/gofly/internal/command/idl_test.go",

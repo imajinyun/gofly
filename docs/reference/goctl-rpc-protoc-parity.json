@@ -45,9 +45,10 @@
       "goctlSurface": "goctl rpc protoc --go_opt / --go-grpc_opt",
       "goflySurface": "gofly rpc protoc --go_opt / --go-grpc_opt",
       "status": "implemented",
-      "behavior": "forwards explicit Go and Go gRPC plugin options while suppressing conflicting default path options",
+      "behavior": "forwards repeated Go and Go gRPC plugin options while suppressing conflicting default path options",
       "evidence": [
         "TestExecuteRPCProtocAcceptsGoctlReservedFlags",
+        "TestExecuteRPCProtocImportMappingOptionsCompile",
         "TestProtocArgsUserPathOptionsOverrideDefaults"
       ],
       "coveredFlags": ["go_opt", "go-grpc_opt", "go_grpc_opt"]

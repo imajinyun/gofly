@@ -22,9 +22,12 @@ func rpcProtocCommand(args []string) error {
 	goOut := fs.String("go_out", "", "protoc go output directory")
 	goGRPCOut := fs.String("go-grpc_out", "", "protoc go-grpc output directory")
 	zrpcOut := fs.String("zrpc_out", "", "service output directory")
-	goOpt := fs.String("go_opt", "", "extra protoc-gen-go option")
-	goGRPCOpt := fs.String("go-grpc_opt", "", "extra protoc-gen-go-grpc option")
-	goGRPCOptUnderscore := fs.String("go_grpc_opt", "", "extra protoc-gen-go-grpc option")
+	goOpt := csvListFlag{}
+	goGRPCOpt := csvListFlag{}
+	goGRPCOptUnderscore := csvListFlag{}
+	fs.Var(&goOpt, "go_opt", "extra protoc-gen-go option; may be repeated")
+	fs.Var(&goGRPCOpt, "go-grpc_opt", "extra protoc-gen-go-grpc option; may be repeated")
+	fs.Var(&goGRPCOptUnderscore, "go_grpc_opt", "extra protoc-gen-go-grpc option; may be repeated")
 	extra := fs.String("extra", "", "comma-separated extra protoc arguments")
 	protoc := fs.String("protoc", "", "protoc binary path")
 	multiple := fs.Bool("multiple", false, "generate multiple service packages")
@@ -96,14 +99,14 @@ func rpcProtocCommand(args []string) error {
 		*goGRPCOut = *dir
 	}
 	extraArgs := splitCSV(*extra)
-	if *goOpt != "" {
-		extraArgs = append(extraArgs, "--go_opt="+*goOpt)
+	for _, opt := range goOpt.values {
+		extraArgs = append(extraArgs, "--go_opt="+opt)
 	}
-	if *goGRPCOpt != "" {
-		extraArgs = append(extraArgs, "--go-grpc_opt="+*goGRPCOpt)
+	for _, opt := range goGRPCOpt.values {
+		extraArgs = append(extraArgs, "--go-grpc_opt="+opt)
 	}
-	if *goGRPCOptUnderscore != "" {
-		extraArgs = append(extraArgs, "--go-grpc_opt="+*goGRPCOptUnderscore)
+	for _, opt := range goGRPCOptUnderscore.values {
+		extraArgs = append(extraArgs, "--go-grpc_opt="+opt)
 	}
 	if *verbose || *v {
 		errorf("[gofly] rpc protoc: proto=%s go_out=%s go-grpc_out=%s proto_path=%s\n", strings.Join(protoFiles, ","), *goOut, *goGRPCOut, strings.Join(includePaths, ","))

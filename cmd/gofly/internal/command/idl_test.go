@@ -1193,6 +1193,92 @@ require (
 	}
 }
 
+func TestExecuteRPCProtocImportMappingOptionsCompile(t *testing.T) {
+	for _, tool := range []string{"protoc", "protoc-gen-go", "protoc-gen-go-grpc"} {
+		if _, err := exec.LookPath(tool); err != nil {
+			t.Skipf("%s is not available: %v", tool, err)
+		}
+	}
+	dir := t.TempDir()
+	sharedDir := filepath.Join(dir, "shared")
+	if err := os.MkdirAll(sharedDir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	commonProto := filepath.Join(sharedDir, "common.proto")
+	greeterProto := filepath.Join(dir, "greeter.proto")
+	if err := os.WriteFile(commonProto, []byte(`syntax = "proto3";
+package demo.shared.v1;
+message Trace {
+  string id = 1;
+}
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(greeterProto, []byte(`syntax = "proto3";
+package demo.greeter.v1;
+option go_package = "example.com/mapping/pb;pb";
+import "shared/common.proto";
+message HelloRequest {
+  demo.shared.v1.Trace trace = 1;
+}
+message HelloResponse {
+  string message = 1;
+}
+service Greeter {
+  rpc Hello(HelloRequest) returns (HelloResponse);
+}
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outDir := filepath.Join(dir, "pb")
+	if err := os.MkdirAll(outDir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(`module example.com/mapping
+
+go 1.26
+
+require (
+	google.golang.org/grpc v1.80.0
+	google.golang.org/protobuf v1.36.11
+)
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Execute([]string{
+		"rpc", "protoc",
+		commonProto,
+		greeterProto,
+		"--proto_path", dir,
+		"--go_out", outDir,
+		"--go-grpc_out", outDir,
+		"--go_opt", "paths=source_relative",
+		"--go_opt", "Mshared/common.proto=example.com/mapping/pb/shared",
+		"--go-grpc_opt", "paths=source_relative",
+		"--go-grpc_opt", "Mshared/common.proto=example.com/mapping/pb/shared",
+		"--go_grpc_opt", "require_unimplemented_servers=false",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, rel := range []string{"shared/common.pb.go", "greeter.pb.go", "greeter_grpc.pb.go"} {
+		if _, err := os.Stat(filepath.Join(outDir, rel)); err != nil {
+			t.Fatalf("expected generated %s: %v", rel, err)
+		}
+	}
+	tidy := exec.Command("go", "mod", "tidy")
+	tidy.Dir = dir
+	if out, err := tidy.CombinedOutput(); err != nil {
+		t.Fatalf("go mod tidy generated mapping module: %v\n%s", err, out)
+	}
+	cmd := exec.Command("go", "test", "./...")
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("go test generated mapping module: %v\n%s", err, out)
+	}
+}
+
 func TestExecuteRPCProtocTimesOutHungProtoc(t *testing.T) {
 	dir := t.TempDir()
 	protoPath := filepath.Join(dir, "greeter.proto")
@@ -1258,7 +1344,10 @@ func TestExecuteRPCProtocAcceptsGoctlReservedFlags(t *testing.T) {
 		"-src", protoPath,
 		"-zrpc_out", zrpcOut,
 		"-go_opt", "Mgoogle/protobuf/empty.proto=empty",
+		"--go_opt", "Mgoogle/protobuf/timestamp.proto=timestamp",
 		"-go-grpc_opt", "require_unimplemented_servers=false",
+		"--go-grpc_opt", "paths=source_relative",
+		"--go_grpc_opt", "module=example.com/greeter",
 		"-multiple",
 		"-c=false",
 		"-v",
@@ -1282,7 +1371,10 @@ func TestExecuteRPCProtocAcceptsGoctlReservedFlags(t *testing.T) {
 		"--go_out=" + zrpcOut,
 		"--go-grpc_out=" + zrpcOut,
 		"--go_opt=Mgoogle/protobuf/empty.proto=empty",
+		"--go_opt=Mgoogle/protobuf/timestamp.proto=timestamp",
 		"--go-grpc_opt=require_unimplemented_servers=false",
+		"--go-grpc_opt=paths=source_relative",
+		"--go-grpc_opt=module=example.com/greeter",
 		protoPath,
 	} {
 		if !strings.Contains(argsText, want) {

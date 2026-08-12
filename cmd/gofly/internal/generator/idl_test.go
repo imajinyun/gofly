@@ -4659,7 +4659,9 @@ func TestProtocArgsUserPathOptionsOverrideDefaults(t *testing.T) {
 		GoGRPCOut: "grpcgen",
 		ExtraArgs: []string{
 			"--go_opt=module=example.com/app",
+			"--go_opt=Mshared/common.proto=example.com/app/shared",
 			"--go-grpc_opt=paths=import",
+			"--go-grpc_opt=Mshared/common.proto=example.com/app/shared",
 		},
 	})
 	if err != nil {
@@ -4676,7 +4678,9 @@ func TestProtocArgsUserPathOptionsOverrideDefaults(t *testing.T) {
 	}
 	for _, want := range []string{
 		"--go_opt=module=example.com/app",
+		"--go_opt=Mshared/common.proto=example.com/app/shared",
 		"--go-grpc_opt=paths=import",
+		"--go-grpc_opt=Mshared/common.proto=example.com/app/shared",
 	} {
 		if !strings.Contains(argsText, want) {
 			t.Fatalf("args missing %q:\n%s", want, argsText)

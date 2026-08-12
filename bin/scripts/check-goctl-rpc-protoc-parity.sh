@@ -169,6 +169,9 @@ for needle in (
     "validateExternalProtocPlugins",
     "external protoc plugins require --allow-external-plugin",
     "externalProtocPluginsForOptions",
+    'fs.Var(&goOpt, "go_opt"',
+    'fs.Var(&goGRPCOpt, "go-grpc_opt"',
+    'fs.Var(&goGRPCOptUnderscore, "go_grpc_opt"',
 ):
     require(needle in rpc_protoc_command, f"rpc protoc command missing {needle!r}")
 
@@ -227,6 +230,7 @@ for needle in (
     "TestExecuteRPCProtocRejectsUnsafeExternalPluginOptIn",
     "TestExecuteRPCProtocAcceptsMultipleProtoInputs",
     "TestExecuteRPCProtocMultipleProtoInputsCompile",
+    "TestExecuteRPCProtocImportMappingOptionsCompile",
     "TestProtocArgsMultipleProtoFiles",
     "unsafe external protoc plugin",
     '"--gofly_out="',

@@ -49,6 +49,7 @@
         "TestExecuteModelGoctlCompatibleInputAliases",
         "TestExecuteModelAcceptsGoctlShortAndSingleDashFlags",
         "TestGenerateModelFromDatasourceMultiTableReplayCompiles",
+        "TestGenerateModelFromReplaySchemaIRCompiles",
         "testdata/goctl-datasource-replay/mysql-multi-table/replay.json"
       ],
       "coveredOptions": ["datasource", "table", "tables", "cache", "ignore-columns", "prefix", "database"]
@@ -62,6 +63,7 @@
         "TestExecuteModelGoctlCompatibleInputAliases",
         "TestExecuteModelAcceptsGoctlShortAndSingleDashFlags",
         "TestGenerateModelFromPostgresDatasourceMultiSchemaReplayCompiles",
+        "TestGenerateModelFromReplaySchemaIRCompiles",
         "testdata/goctl-datasource-replay/postgres-multi-schema/replay.json"
       ],
       "coveredOptions": ["dsn", "datasource", "table", "tables", "schema", "cache", "ignore-columns", "prefix"]

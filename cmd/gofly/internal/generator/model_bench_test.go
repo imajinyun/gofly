@@ -168,6 +168,39 @@ func assertGoctlDatasourceReplayFixture(t *testing.T, dir string, fixture goctlD
 	}
 }
 
+func snapshotRootModuleFiles(t *testing.T) ([]byte, []byte) {
+	t.Helper()
+	root := repositoryRoot(t)
+	goMod, err := os.ReadFile(filepath.Join(root, "go.mod"))
+	if err != nil {
+		t.Fatalf("read root go.mod: %v", err)
+	}
+	goSum, err := os.ReadFile(filepath.Join(root, "go.sum"))
+	if err != nil {
+		t.Fatalf("read root go.sum: %v", err)
+	}
+	return goMod, goSum
+}
+
+func assertRootModuleFilesUnchanged(t *testing.T, wantGoMod []byte, wantGoSum []byte) {
+	t.Helper()
+	root := repositoryRoot(t)
+	goMod, err := os.ReadFile(filepath.Join(root, "go.mod"))
+	if err != nil {
+		t.Fatalf("read root go.mod after generated project smoke: %v", err)
+	}
+	goSum, err := os.ReadFile(filepath.Join(root, "go.sum"))
+	if err != nil {
+		t.Fatalf("read root go.sum after generated project smoke: %v", err)
+	}
+	if !bytes.Equal(goMod, wantGoMod) {
+		t.Fatalf("root go.mod changed during generated project smoke")
+	}
+	if !bytes.Equal(goSum, wantGoSum) {
+		t.Fatalf("root go.sum changed during generated project smoke")
+	}
+}
+
 func modelSchemaIRFromReplayFixture(t *testing.T, fixture goctlDatasourceReplayFixture) ModelSchemaIR {
 	t.Helper()
 	ir := rawModelSchemaIRFromReplayFixture(t, fixture)
@@ -1000,6 +1033,9 @@ func TestGenerateModelFromSchemaIRBoundaries(t *testing.T) {
 func TestGenerateModelFromReplaySchemaIRCompiles(t *testing.T) {
 	for _, fixtureName := range []string{"mysql-multi-table", "postgres-multi-schema"} {
 		t.Run(fixtureName, func(t *testing.T) {
+			rootGoMod, rootGoSum := snapshotRootModuleFiles(t)
+			defer assertRootModuleFilesUnchanged(t, rootGoMod, rootGoSum)
+
 			fixture := readGoctlDatasourceReplayFixture(t, fixtureName)
 			ir := rawModelSchemaIRFromReplayFixture(t, fixture)
 			dir := t.TempDir()
@@ -1015,38 +1051,15 @@ func TestGenerateModelFromReplaySchemaIRCompiles(t *testing.T) {
 					Module:       fixture.Module,
 					Style:        fixture.Style,
 					Cache:        fixture.Cache,
-					GoZeroLayout: isGoZeroModelStyle(fixture.Style),
+					GoZeroLayout: false,
 				},
 			}); err != nil {
 				t.Fatalf("generateModelFromSchemaIR replay %s: %v", fixture.ID, err)
 			}
-			for _, rel := range replayIRGeneratedArtifacts(fixtureName) {
-				if _, err := os.Stat(filepath.Join(dir, rel)); err != nil {
-					t.Fatalf("replay IR generated artifact %s: %v", rel, err)
-				}
-			}
+			assertGoctlDatasourceReplayFixture(t, dir, fixture)
 			runGoCommand(t, dir, 3*time.Minute, "mod", "tidy")
 			runGoCommand(t, dir, 3*time.Minute, "test", "./...")
 		})
-	}
-}
-
-func replayIRGeneratedArtifacts(name string) []string {
-	switch name {
-	case "postgres-multi-schema":
-		return []string{
-			"model/account_gen.go",
-			"model/event_gen.go",
-			"repo/account.go",
-			"repo/event.go",
-		}
-	default:
-		return []string{
-			"model/customer_gen.go",
-			"model/order_gen.go",
-			"repo/customer.go",
-			"repo/order.go",
-		}
 	}
 }
 

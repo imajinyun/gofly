@@ -126,6 +126,15 @@ type modelSchemaEmitOptions struct {
 	GoZeroLayout bool
 }
 
+type modelSchemaGenerationOptions struct {
+	Tables        []string
+	IgnoreColumns []string
+	Prefix        string
+	Strict        bool
+	TypesMap      map[string]string
+	Emit          modelSchemaEmitOptions
+}
+
 type modelUniqueIndex struct {
 	Columns []SQLColumn
 }
@@ -156,22 +165,20 @@ func GenerateModelFromDDL(opts ModelOptions) error {
 		return err
 	}
 	ir := newModelSchemaIR(ModelSchemaSourceDDL, storage.DialectQuestion, "", opts.Database, opts.Schema, tables)
-	ir, err = prepareModelSchemaIR(ir, modelGenerationOptions{
+	return generateModelFromSchemaIR(ir, modelSchemaGenerationOptions{
 		Tables:        opts.Tables,
 		IgnoreColumns: opts.IgnoreColumns,
 		Prefix:        opts.Prefix,
 		Strict:        opts.Strict,
-	}, opts.TypesMap)
-	if err != nil {
-		return err
-	}
-	return emitModelSchemaIR(ir, modelSchemaEmitOptions{
-		Dir:          opts.Dir,
-		Package:      opts.Package,
-		Module:       opts.Module,
-		Style:        opts.Style,
-		Cache:        opts.Cache,
-		GoZeroLayout: isGoZeroModelStyle(opts.Style),
+		TypesMap:      opts.TypesMap,
+		Emit: modelSchemaEmitOptions{
+			Dir:          opts.Dir,
+			Package:      opts.Package,
+			Module:       opts.Module,
+			Style:        opts.Style,
+			Cache:        opts.Cache,
+			GoZeroLayout: isGoZeroModelStyle(opts.Style),
+		},
 	})
 }
 
@@ -209,22 +216,20 @@ func GenerateModelFromDatasource(opts ModelDatasourceOptions) error {
 	}
 	dialect := modelDefaultDialect(opts.Driver)
 	ir := newModelSchemaIR(ModelSchemaSourceDatasource, dialect, opts.Driver, opts.Database, opts.Schema, tables)
-	ir, err = prepareModelSchemaIR(ir, modelGenerationOptions{
+	return generateModelFromSchemaIR(ir, modelSchemaGenerationOptions{
 		Tables:        opts.Tables,
 		IgnoreColumns: opts.IgnoreColumns,
 		Prefix:        opts.Prefix,
 		Strict:        opts.Strict,
-	}, opts.TypesMap)
-	if err != nil {
-		return err
-	}
-	return emitModelSchemaIR(ir, modelSchemaEmitOptions{
-		Dir:          opts.Dir,
-		Package:      opts.Package,
-		Module:       opts.Module,
-		Style:        opts.Style,
-		Cache:        opts.Cache,
-		GoZeroLayout: isGoZeroModelStyle(opts.Style),
+		TypesMap:      opts.TypesMap,
+		Emit: modelSchemaEmitOptions{
+			Dir:          opts.Dir,
+			Package:      opts.Package,
+			Module:       opts.Module,
+			Style:        opts.Style,
+			Cache:        opts.Cache,
+			GoZeroLayout: isGoZeroModelStyle(opts.Style),
+		},
 	})
 }
 
@@ -451,13 +456,6 @@ type datasourceIntrospectionOptions struct {
 	Schema   string
 }
 
-type modelGenerationOptions struct {
-	Tables        []string
-	IgnoreColumns []string
-	Prefix        string
-	Strict        bool
-}
-
 func newModelSchemaIR(source ModelSchemaSource, dialect storage.Dialect, driver string, database string, schema string, tables []SQLTable) ModelSchemaIR {
 	return ModelSchemaIR{
 		Source:   source,
@@ -482,6 +480,19 @@ func prepareModelSchemaIR(ir ModelSchemaIR, opts modelGenerationOptions, typesMa
 	}
 	ir.Tables = tables
 	return ir, nil
+}
+
+func generateModelFromSchemaIR(ir ModelSchemaIR, opts modelSchemaGenerationOptions) error {
+	prepared, err := prepareModelSchemaIR(ir, modelGenerationOptions{
+		Tables:        opts.Tables,
+		IgnoreColumns: opts.IgnoreColumns,
+		Prefix:        opts.Prefix,
+		Strict:        opts.Strict,
+	}, opts.TypesMap)
+	if err != nil {
+		return err
+	}
+	return emitModelSchemaIR(prepared, opts.Emit)
 }
 
 func emitModelSchemaIR(ir ModelSchemaIR, opts modelSchemaEmitOptions) error {

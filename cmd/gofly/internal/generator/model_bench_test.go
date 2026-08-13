@@ -147,6 +147,21 @@ func assertGoctlDatasourceReplayFixture(t *testing.T, dir string, fixture goctlD
 
 func modelSchemaIRFromReplayFixture(t *testing.T, fixture goctlDatasourceReplayFixture) ModelSchemaIR {
 	t.Helper()
+	ir := rawModelSchemaIRFromReplayFixture(t, fixture)
+	ir, err := prepareModelSchemaIR(ir, modelGenerationOptions{
+		Tables:        fixture.Tables,
+		IgnoreColumns: fixture.IgnoreColumns,
+		Prefix:        fixture.Prefix,
+		Strict:        fixture.Strict,
+	}, nil)
+	if err != nil {
+		t.Fatalf("prepare replay fixture IR %s: %v", fixture.ID, err)
+	}
+	return ir
+}
+
+func rawModelSchemaIRFromReplayFixture(t *testing.T, fixture goctlDatasourceReplayFixture) ModelSchemaIR {
+	t.Helper()
 	db, err := sql.Open(fakeModelDatasourceDriver, fixture.DSN)
 	if err != nil {
 		t.Fatal(err)
@@ -161,17 +176,7 @@ func modelSchemaIRFromReplayFixture(t *testing.T, fixture goctlDatasourceReplayF
 	if err != nil {
 		t.Fatalf("introspect replay fixture %s: %v", fixture.ID, err)
 	}
-	ir := newModelSchemaIR(ModelSchemaSourceReplay, modelDefaultDialect(fixture.Driver), fixture.Driver, fixture.Database, fixture.SchemaName, tables)
-	ir, err = prepareModelSchemaIR(ir, modelGenerationOptions{
-		Tables:        fixture.Tables,
-		IgnoreColumns: fixture.IgnoreColumns,
-		Prefix:        fixture.Prefix,
-		Strict:        fixture.Strict,
-	}, nil)
-	if err != nil {
-		t.Fatalf("prepare replay fixture IR %s: %v", fixture.ID, err)
-	}
-	return ir
+	return newModelSchemaIR(ModelSchemaSourceReplay, modelDefaultDialect(fixture.Driver), fixture.Driver, fixture.Database, fixture.SchemaName, tables)
 }
 
 func (r *fakeDatasourceRows) Columns() []string {
@@ -843,6 +848,171 @@ func TestEmitModelSchemaIRWritesGoZeroLayout(t *testing.T) {
 	}
 	if !strings.Contains(string(repo), "d := storage.DialectMySQL") {
 		t.Fatalf("emitted repo does not use IR dialect:\n%s", repo)
+	}
+}
+
+func TestGenerateModelFromSchemaIRPreparesAndWritesGoZeroLayout(t *testing.T) {
+	ir := newModelSchemaIR(ModelSchemaSourceReplay, storage.DialectMySQL, "mysql", "shop", "", []SQLTable{{
+		Name:       "app_customers",
+		PrimaryKey: "id",
+		Columns: []SQLColumn{
+			{Name: "id", Type: "bigint", PrimaryKey: true},
+			{Name: "tenant_id", Type: "bigint"},
+			{Name: "email", Type: "varchar", Unique: true, Nullable: true},
+			{Name: "updated_by", Type: "varchar", Nullable: true},
+		},
+		Indexes: []SQLIndex{{Columns: []string{"tenant_id"}}},
+	}})
+	dir := t.TempDir()
+	writeGeneratedModule(t, dir, "example.com/schemair")
+	if err := generateModelFromSchemaIR(ir, modelSchemaGenerationOptions{
+		Prefix:        "app_",
+		IgnoreColumns: []string{"updated_by"},
+		Strict:        true,
+		Emit: modelSchemaEmitOptions{
+			Dir:          dir,
+			Package:      "model",
+			Module:       "example.com/schemair",
+			Style:        "go_zero",
+			Cache:        true,
+			GoZeroLayout: true,
+		},
+	}); err != nil {
+		t.Fatalf("generateModelFromSchemaIR: %v", err)
+	}
+	entity, err := os.ReadFile(filepath.Join(dir, "model", "customer_gen.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(entity), "type Customer struct") || strings.Contains(string(entity), "UpdatedBy") {
+		t.Fatalf("generated entity did not apply prefix/ignore options:\n%s", entity)
+	}
+	repo, err := os.ReadFile(filepath.Join(dir, "repo", "customer.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(repo), "d := storage.DialectMySQL") {
+		t.Fatalf("generated repo does not use IR dialect:\n%s", repo)
+	}
+}
+
+func TestGenerateModelFromSchemaIRBoundaries(t *testing.T) {
+	base := []SQLTable{{
+		Name:       "app_users",
+		PrimaryKey: "id",
+		Columns: []SQLColumn{
+			{Name: "id", Type: "bigint", PrimaryKey: true},
+			{Name: "email", Type: "varchar"},
+		},
+	}}
+	newIR := func(tables []SQLTable) ModelSchemaIR {
+		return newModelSchemaIR(ModelSchemaSourceReplay, storage.DialectMySQL, "mysql", "shop", "", tables)
+	}
+	assertNothingWritten := func(t *testing.T, dir string) {
+		t.Helper()
+		for _, rel := range []string{"model", "repo"} {
+			if _, err := os.Stat(filepath.Join(dir, rel)); !os.IsNotExist(err) {
+				t.Fatalf("expected no %s written on error, stat err = %v", rel, err)
+			}
+		}
+	}
+
+	t.Run("empty tables", func(t *testing.T) {
+		dir := t.TempDir()
+		writeGeneratedModule(t, dir, "example.com/ir-empty")
+		err := generateModelFromSchemaIR(newIR(nil), modelSchemaGenerationOptions{
+			Emit: modelSchemaEmitOptions{Dir: dir, Module: "example.com/ir-empty"},
+		})
+		if err == nil || !strings.Contains(err.Error(), "model table is required") {
+			t.Fatalf("empty tables error = %v, want model table is required", err)
+		}
+		assertNothingWritten(t, dir)
+	})
+
+	t.Run("strict missing table", func(t *testing.T) {
+		dir := t.TempDir()
+		err := generateModelFromSchemaIR(newIR(base), modelSchemaGenerationOptions{
+			Tables: []string{"missing"},
+			Strict: true,
+			Emit:   modelSchemaEmitOptions{Dir: dir, Module: "example.com/ir-missing"},
+		})
+		if err == nil || !strings.Contains(err.Error(), "requested table not found") {
+			t.Fatalf("strict missing table error = %v, want requested table not found", err)
+		}
+		assertNothingWritten(t, dir)
+	})
+
+	t.Run("strict unsupported type", func(t *testing.T) {
+		tables := []SQLTable{{
+			Name:       "geo_shapes",
+			PrimaryKey: "id",
+			Columns: []SQLColumn{
+				{Name: "id", Type: "bigint", PrimaryKey: true},
+				{Name: "shape", Type: "geometry"},
+			},
+		}}
+		dir := t.TempDir()
+		err := generateModelFromSchemaIR(newIR(tables), modelSchemaGenerationOptions{
+			Strict: true,
+			Emit:   modelSchemaEmitOptions{Dir: dir, Module: "example.com/ir-type"},
+		})
+		if err == nil || !strings.Contains(err.Error(), `unknown column type "geometry" for geo_shapes.shape`) {
+			t.Fatalf("strict unsupported type error = %v, want unknown column type", err)
+		}
+		assertNothingWritten(t, dir)
+	})
+}
+
+func TestGenerateModelFromReplaySchemaIRCompiles(t *testing.T) {
+	for _, fixtureName := range []string{"mysql-multi-table", "postgres-multi-schema"} {
+		t.Run(fixtureName, func(t *testing.T) {
+			fixture := readGoctlDatasourceReplayFixture(t, fixtureName)
+			ir := rawModelSchemaIRFromReplayFixture(t, fixture)
+			dir := t.TempDir()
+			writeGeneratedModule(t, dir, fixture.Module)
+			if err := generateModelFromSchemaIR(ir, modelSchemaGenerationOptions{
+				Tables:        fixture.Tables,
+				IgnoreColumns: fixture.IgnoreColumns,
+				Prefix:        fixture.Prefix,
+				Strict:        fixture.Strict,
+				Emit: modelSchemaEmitOptions{
+					Dir:          dir,
+					Package:      fixture.Package,
+					Module:       fixture.Module,
+					Style:        fixture.Style,
+					Cache:        fixture.Cache,
+					GoZeroLayout: isGoZeroModelStyle(fixture.Style),
+				},
+			}); err != nil {
+				t.Fatalf("generateModelFromSchemaIR replay %s: %v", fixture.ID, err)
+			}
+			for _, rel := range replayIRGeneratedArtifacts(fixtureName) {
+				if _, err := os.Stat(filepath.Join(dir, rel)); err != nil {
+					t.Fatalf("replay IR generated artifact %s: %v", rel, err)
+				}
+			}
+			runGoCommand(t, dir, 3*time.Minute, "mod", "tidy")
+			runGoCommand(t, dir, 3*time.Minute, "test", "./...")
+		})
+	}
+}
+
+func replayIRGeneratedArtifacts(name string) []string {
+	switch name {
+	case "postgres-multi-schema":
+		return []string{
+			"model/account_gen.go",
+			"model/event_gen.go",
+			"repo/account.go",
+			"repo/event.go",
+		}
+	default:
+		return []string{
+			"model/customer_gen.go",
+			"model/order_gen.go",
+			"repo/customer.go",
+			"repo/order.go",
+		}
 	}
 }
 

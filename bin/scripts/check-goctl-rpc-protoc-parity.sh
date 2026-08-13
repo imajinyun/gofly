@@ -211,6 +211,7 @@ for needle in (
     "if !opts.NoClient",
     "if !opts.Multiple",
 	"externalProtocPluginsForOptions",
+    "duplicate gofly protoc output",
 ):
 	require(needle in protoc_plugin_go or needle in rpc_protoc_command, f"protoc plugin missing {needle!r}")
 
@@ -238,6 +239,7 @@ for needle in (
     "TestExecuteRPCProtocNestedImportMappingCompile",
     "TestProtocArgsMultipleProtoFiles",
     "TestGenerateProtocPluginResponseSkipsImportOnlyFiles",
+    "TestGenerateProtocPluginResponseRejectsDuplicateOutputFiles",
     "unsafe external protoc plugin",
     '"--gofly_out="',
     '"--gofly_opt=multiple=true"',

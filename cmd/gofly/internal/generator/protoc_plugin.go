@@ -35,6 +35,7 @@ func GenerateProtocPluginResponse(req *pluginpb.CodeGeneratorRequest, opts Proto
 		}
 	}
 	resp := &pluginpb.CodeGeneratorResponse{}
+	seenOutputs := map[string]string{}
 	for _, name := range targets {
 		file := files[name]
 		if file == nil {
@@ -48,6 +49,10 @@ func GenerateProtocPluginResponse(req *pluginpb.CodeGeneratorRequest, opts Proto
 			return nil, err
 		}
 		for _, generated := range generatedFiles {
+			if previous, ok := seenOutputs[generated.Name]; ok {
+				return nil, fmt.Errorf("duplicate gofly protoc output %q from %s and %s", generated.Name, previous, name)
+			}
+			seenOutputs[generated.Name] = name
 			resp.File = append(resp.File, &pluginpb.CodeGeneratorResponse_File{
 				Name:    proto.String(generated.Name),
 				Content: proto.String(generated.Content),

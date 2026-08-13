@@ -67,7 +67,8 @@
         "TestExecuteRPCProtocGoflyPluginMultiProtoCLI",
         "TestExecuteRPCProtocAcceptsGoctlReservedFlags",
         "TestExecuteRPCGenGoflyNoClientAndMultiple",
-        "TestGenerateProtocPluginResponseSkipsImportOnlyFiles"
+        "TestGenerateProtocPluginResponseSkipsImportOnlyFiles",
+        "TestGenerateProtocPluginResponseRejectsDuplicateOutputFiles"
       ],
       "coveredFlags": ["multiple", "m"]
     },

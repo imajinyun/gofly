@@ -582,3 +582,40 @@ func TestGenerateProtocPluginResponseSkipsImportOnlyFiles(t *testing.T) {
 		}
 	}
 }
+
+func TestGenerateProtocPluginResponseRejectsDuplicateOutputFiles(t *testing.T) {
+	req := &pluginpb.CodeGeneratorRequest{
+		FileToGenerate: []string{"order.proto"},
+		Parameter:      proto.String("multiple=true"),
+		ProtoFile: []*descriptorpb.FileDescriptorProto{{
+			Name:    proto.String("order.proto"),
+			Package: proto.String("demo.order"),
+			MessageType: []*descriptorpb.DescriptorProto{
+				{Name: proto.String("CreateOrderRequest")},
+				{Name: proto.String("CreateOrderResponse")},
+			},
+			Service: []*descriptorpb.ServiceDescriptorProto{
+				{
+					Name: proto.String("Order"),
+					Method: []*descriptorpb.MethodDescriptorProto{{
+						Name:       proto.String("Create"),
+						InputType:  proto.String(".demo.order.CreateOrderRequest"),
+						OutputType: proto.String(".demo.order.CreateOrderResponse"),
+					}},
+				},
+				{
+					Name: proto.String("Order"),
+					Method: []*descriptorpb.MethodDescriptorProto{{
+						Name:       proto.String("CreateAgain"),
+						InputType:  proto.String(".demo.order.CreateOrderRequest"),
+						OutputType: proto.String(".demo.order.CreateOrderResponse"),
+					}},
+				},
+			},
+		}},
+	}
+	_, err := GenerateProtocPluginResponse(req, ProtocPluginOptions{})
+	if err == nil || !strings.Contains(err.Error(), `duplicate gofly protoc output "order/order.gofly.go"`) {
+		t.Fatalf("duplicate output error = %v, want duplicate gofly protoc output", err)
+	}
+}

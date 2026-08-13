@@ -100,6 +100,32 @@ type SQLIndex struct {
 	Columns []string
 }
 
+type ModelSchemaSource string
+
+const (
+	ModelSchemaSourceDDL        ModelSchemaSource = "ddl"
+	ModelSchemaSourceDatasource ModelSchemaSource = "datasource"
+	ModelSchemaSourceReplay     ModelSchemaSource = "replay"
+)
+
+type ModelSchemaIR struct {
+	Source   ModelSchemaSource
+	Dialect  storage.Dialect
+	Driver   string
+	Database string
+	Schema   string
+	Tables   []SQLTable
+}
+
+type modelSchemaEmitOptions struct {
+	Dir          string
+	Package      string
+	Module       string
+	Style        string
+	Cache        bool
+	GoZeroLayout bool
+}
+
 type modelUniqueIndex struct {
 	Columns []SQLColumn
 }
@@ -129,48 +155,24 @@ func GenerateModelFromDDL(opts ModelOptions) error {
 	if err != nil {
 		return err
 	}
-	tables, err = prepareModelTables(tables, modelGenerationOptions{
+	ir := newModelSchemaIR(ModelSchemaSourceDDL, storage.DialectQuestion, "", opts.Database, opts.Schema, tables)
+	ir, err = prepareModelSchemaIR(ir, modelGenerationOptions{
 		Tables:        opts.Tables,
 		IgnoreColumns: opts.IgnoreColumns,
 		Prefix:        opts.Prefix,
 		Strict:        opts.Strict,
-	})
+	}, opts.TypesMap)
 	if err != nil {
 		return err
 	}
-	applyModelTypesMap(tables, opts.TypesMap)
-	if opts.Strict {
-		if err := validateKnownModelColumnTypes(tables); err != nil {
-			return err
-		}
-	}
-	pkg := opts.Package
-	if pkg == "" {
-		pkg = "model"
-	}
-	module := strings.TrimSpace(opts.Module)
-	explicitModule := module != ""
-	if module == "" {
-		var inferErr error
-		module, inferErr = inferModelModule(opts.Dir)
-		if inferErr != nil {
-			module = "github.com/imajinyun/gofly"
-		}
-	}
-	importModule := module
-	if explicitModule {
-		importModule = modelImportModule(module, opts.Dir)
-	}
-	style := normalizeModelStyle(opts.Style)
-	if err := writeModelFilesWithLayout(tables, opts.Dir, pkg, importModule, style, opts.Cache, storage.DialectQuestion, isGoZeroModelStyle(opts.Style)); err != nil {
-		return err
-	}
-	if isGoZeroModelStyle(opts.Style) {
-		if err := writeGoZeroModelFacadeFiles(tables, opts.Dir, importModule, storage.DialectQuestion); err != nil {
-			return err
-		}
-	}
-	return ensureModelGoModDependencies(opts.Dir, style)
+	return emitModelSchemaIR(ir, modelSchemaEmitOptions{
+		Dir:          opts.Dir,
+		Package:      opts.Package,
+		Module:       opts.Module,
+		Style:        opts.Style,
+		Cache:        opts.Cache,
+		GoZeroLayout: isGoZeroModelStyle(opts.Style),
+	})
 }
 
 func GenerateModelFromDatasource(opts ModelDatasourceOptions) error {
@@ -205,48 +207,25 @@ func GenerateModelFromDatasource(opts ModelDatasourceOptions) error {
 	if err != nil {
 		return err
 	}
-	tables, err = prepareModelTables(tables, modelGenerationOptions{
+	dialect := modelDefaultDialect(opts.Driver)
+	ir := newModelSchemaIR(ModelSchemaSourceDatasource, dialect, opts.Driver, opts.Database, opts.Schema, tables)
+	ir, err = prepareModelSchemaIR(ir, modelGenerationOptions{
 		Tables:        opts.Tables,
 		IgnoreColumns: opts.IgnoreColumns,
 		Prefix:        opts.Prefix,
 		Strict:        opts.Strict,
-	})
+	}, opts.TypesMap)
 	if err != nil {
 		return err
 	}
-	applyModelTypesMap(tables, opts.TypesMap)
-	if opts.Strict {
-		if err := validateKnownModelColumnTypes(tables); err != nil {
-			return err
-		}
-	}
-	pkg := opts.Package
-	if pkg == "" {
-		pkg = "model"
-	}
-	module := strings.TrimSpace(opts.Module)
-	explicitModule := module != ""
-	if module == "" {
-		var inferErr error
-		module, inferErr = inferModelModule(opts.Dir)
-		if inferErr != nil {
-			module = "github.com/imajinyun/gofly"
-		}
-	}
-	importModule := module
-	if explicitModule {
-		importModule = modelImportModule(module, opts.Dir)
-	}
-	style := normalizeModelStyle(opts.Style)
-	if err := writeModelFilesWithLayout(tables, opts.Dir, pkg, importModule, style, opts.Cache, modelDefaultDialect(opts.Driver), isGoZeroModelStyle(opts.Style)); err != nil {
-		return err
-	}
-	if isGoZeroModelStyle(opts.Style) {
-		if err := writeGoZeroModelFacadeFiles(tables, opts.Dir, importModule, modelDefaultDialect(opts.Driver)); err != nil {
-			return err
-		}
-	}
-	return ensureModelGoModDependencies(opts.Dir, style)
+	return emitModelSchemaIR(ir, modelSchemaEmitOptions{
+		Dir:          opts.Dir,
+		Package:      opts.Package,
+		Module:       opts.Module,
+		Style:        opts.Style,
+		Cache:        opts.Cache,
+		GoZeroLayout: isGoZeroModelStyle(opts.Style),
+	})
 }
 
 func modelDefaultDialect(driver string) storage.Dialect {
@@ -477,6 +456,66 @@ type modelGenerationOptions struct {
 	IgnoreColumns []string
 	Prefix        string
 	Strict        bool
+}
+
+func newModelSchemaIR(source ModelSchemaSource, dialect storage.Dialect, driver string, database string, schema string, tables []SQLTable) ModelSchemaIR {
+	return ModelSchemaIR{
+		Source:   source,
+		Dialect:  storage.NormalizeDialect(dialect),
+		Driver:   strings.TrimSpace(driver),
+		Database: strings.TrimSpace(database),
+		Schema:   strings.TrimSpace(schema),
+		Tables:   tables,
+	}
+}
+
+func prepareModelSchemaIR(ir ModelSchemaIR, opts modelGenerationOptions, typesMap map[string]string) (ModelSchemaIR, error) {
+	tables, err := prepareModelTables(ir.Tables, opts)
+	if err != nil {
+		return ModelSchemaIR{}, err
+	}
+	applyModelTypesMap(tables, typesMap)
+	if opts.Strict {
+		if err := validateKnownModelColumnTypes(tables); err != nil {
+			return ModelSchemaIR{}, err
+		}
+	}
+	ir.Tables = tables
+	return ir, nil
+}
+
+func emitModelSchemaIR(ir ModelSchemaIR, opts modelSchemaEmitOptions) error {
+	dir := opts.Dir
+	if dir == "" {
+		dir = "."
+	}
+	pkg := opts.Package
+	if pkg == "" {
+		pkg = "model"
+	}
+	module := strings.TrimSpace(opts.Module)
+	explicitModule := module != ""
+	if module == "" {
+		var inferErr error
+		module, inferErr = inferModelModule(dir)
+		if inferErr != nil {
+			module = "github.com/imajinyun/gofly"
+		}
+	}
+	importModule := module
+	if explicitModule {
+		importModule = modelImportModule(module, dir)
+	}
+	style := normalizeModelStyle(opts.Style)
+	if err := writeModelFilesWithLayout(ir.Tables, dir, pkg, importModule, style, opts.Cache, ir.Dialect, opts.GoZeroLayout); err != nil {
+		return err
+	}
+	if opts.GoZeroLayout {
+		if err := writeGoZeroModelFacadeFiles(ir.Tables, dir, importModule, ir.Dialect); err != nil {
+			return err
+		}
+	}
+	return ensureModelGoModDependencies(dir, style)
 }
 
 func introspectSQLTables(ctx context.Context, db *sql.DB, opts datasourceIntrospectionOptions) ([]SQLTable, error) {

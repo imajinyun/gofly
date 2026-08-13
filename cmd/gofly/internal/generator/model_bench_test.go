@@ -145,6 +145,35 @@ func assertGoctlDatasourceReplayFixture(t *testing.T, dir string, fixture goctlD
 	}
 }
 
+func modelSchemaIRFromReplayFixture(t *testing.T, fixture goctlDatasourceReplayFixture) ModelSchemaIR {
+	t.Helper()
+	db, err := sql.Open(fakeModelDatasourceDriver, fixture.DSN)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	tables, err := introspectSQLTables(context.Background(), db, datasourceIntrospectionOptions{
+		Driver:   fixture.Driver,
+		Tables:   fixture.Tables,
+		Database: fixture.Database,
+		Schema:   fixture.SchemaName,
+	})
+	if err != nil {
+		t.Fatalf("introspect replay fixture %s: %v", fixture.ID, err)
+	}
+	ir := newModelSchemaIR(ModelSchemaSourceReplay, modelDefaultDialect(fixture.Driver), fixture.Driver, fixture.Database, fixture.SchemaName, tables)
+	ir, err = prepareModelSchemaIR(ir, modelGenerationOptions{
+		Tables:        fixture.Tables,
+		IgnoreColumns: fixture.IgnoreColumns,
+		Prefix:        fixture.Prefix,
+		Strict:        fixture.Strict,
+	}, nil)
+	if err != nil {
+		t.Fatalf("prepare replay fixture IR %s: %v", fixture.ID, err)
+	}
+	return ir
+}
+
 func (r *fakeDatasourceRows) Columns() []string {
 	return append([]string(nil), r.columns...)
 }
@@ -642,6 +671,178 @@ func TestModelDatasourceGenerationBoundaries(t *testing.T) {
 	}
 	if err := GenerateModelFromDatasource(ModelDatasourceOptions{Driver: fakeModelDatasourceDriver, DSN: "ok", Dir: t.TempDir()}); err == nil || !strings.Contains(err.Error(), "unsupported datasource driver") {
 		t.Fatalf("GenerateModelFromDatasource unsupported driver error = %v, want introspection driver error", err)
+	}
+}
+
+func TestModelSchemaIRPrepareMetadataAndTables(t *testing.T) {
+	tables := []SQLTable{{
+		Name:       "app_users",
+		PrimaryKey: "id",
+		Columns: []SQLColumn{
+			{Name: "id", Type: "bigint", PrimaryKey: true},
+			{Name: "email", Type: "varchar", Unique: true},
+			{Name: "deleted_at", Type: "timestamp", Nullable: true},
+		},
+		Indexes: []SQLIndex{{Columns: []string{"email"}}},
+	}}
+	ir := newModelSchemaIR(ModelSchemaSourceDDL, storage.DialectQuestion, "", "shop", "public", tables)
+	prepared, err := prepareModelSchemaIR(ir, modelGenerationOptions{
+		Prefix:        "app_",
+		IgnoreColumns: []string{"deleted_at"},
+		Strict:        true,
+	}, map[string]string{"varchar": "string"})
+	if err != nil {
+		t.Fatalf("prepareModelSchemaIR: %v", err)
+	}
+	if prepared.Source != ModelSchemaSourceDDL || prepared.Dialect != storage.DialectQuestion || prepared.Database != "shop" || prepared.Schema != "public" {
+		t.Fatalf("prepared metadata = %+v, want ddl/question/shop/public", prepared)
+	}
+	if len(prepared.Tables) != 1 || prepared.Tables[0].Name != "users" {
+		t.Fatalf("prepared tables = %+v, want trimmed users table", prepared.Tables)
+	}
+	users := prepared.Tables[0]
+	if len(users.Columns) != 2 || users.Columns[1].GoType != "string" {
+		t.Fatalf("prepared columns = %+v, want ignored deleted_at and type map", users.Columns)
+	}
+}
+
+func TestModelSchemaIRDatasourceMetadata(t *testing.T) {
+	db, err := sql.Open(fakeModelDatasourceDriver, "postgres-multi-schema")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	tables, err := introspectSQLTables(context.Background(), db, datasourceIntrospectionOptions{
+		Driver: "postgres",
+		Schema: "billing",
+		Tables: []string{"billing_accounts"},
+	})
+	if err != nil {
+		t.Fatalf("introspectSQLTables postgres: %v", err)
+	}
+	ir := newModelSchemaIR(ModelSchemaSourceDatasource, modelDefaultDialect("postgres"), "postgres", "billingdb", "billing", tables)
+	prepared, err := prepareModelSchemaIR(ir, modelGenerationOptions{Tables: []string{"billing_accounts"}}, nil)
+	if err != nil {
+		t.Fatalf("prepareModelSchemaIR datasource: %v", err)
+	}
+	if prepared.Source != ModelSchemaSourceDatasource || prepared.Dialect != storage.DialectPostgres || prepared.Driver != "postgres" || prepared.Database != "billingdb" || prepared.Schema != "billing" {
+		t.Fatalf("prepared datasource metadata = %+v, want datasource/postgres/billingdb/billing", prepared)
+	}
+	if len(prepared.Tables) != 1 || prepared.Tables[0].Name != "billing_accounts" {
+		t.Fatalf("prepared datasource tables = %+v, want billing_accounts", prepared.Tables)
+	}
+}
+
+func TestGoctlDatasourceReplayFixtureModelSchemaIR(t *testing.T) {
+	t.Run("mysql multi table", func(t *testing.T) {
+		fixture := readGoctlDatasourceReplayFixture(t, "mysql-multi-table")
+		ir := modelSchemaIRFromReplayFixture(t, fixture)
+		if ir.Source != ModelSchemaSourceReplay || ir.Dialect != storage.DialectMySQL || ir.Driver != "mysql" {
+			t.Fatalf("mysql replay IR metadata = %+v, want replay/mysql", ir)
+		}
+		if len(ir.Tables) != 2 || ir.Tables[0].Name != "customers" || ir.Tables[1].Name != "orders" {
+			t.Fatalf("mysql replay tables = %+v, want customers/orders after prefix trim", ir.Tables)
+		}
+		customer := ir.Tables[0]
+		if customer.PrimaryKey != "id" || len(customer.Columns) != 7 || hasSQLColumn(customer, "created_by") || hasSQLColumn(customer, "updated_by") {
+			t.Fatalf("customer IR = %+v, want pk id and ignored audit columns removed", customer)
+		}
+		if !hasSQLUniqueIndex(customer, "tenant_id", "external_id") || !hasSQLIndex(customer, "tenant_id", "email") {
+			t.Fatalf("customer IR indexes = unique:%+v nonUnique:%+v", customer.UniqueIndexes, customer.Indexes)
+		}
+		order := ir.Tables[1]
+		if order.PrimaryKey != "id" || !hasSQLUniqueIndex(order, "tenant_id", "order_no") || !hasSQLIndex(order, "tenant_id", "status", "id") {
+			t.Fatalf("order IR = %+v, want composite unique and tenant/status/id index", order)
+		}
+	})
+
+	t.Run("postgres multi schema", func(t *testing.T) {
+		fixture := readGoctlDatasourceReplayFixture(t, "postgres-multi-schema")
+		ir := modelSchemaIRFromReplayFixture(t, fixture)
+		if ir.Source != ModelSchemaSourceReplay || ir.Dialect != storage.DialectPostgres || ir.Driver != "postgres" || ir.Schema != "billing" {
+			t.Fatalf("postgres replay IR metadata = %+v, want replay/postgres/billing", ir)
+		}
+		if len(ir.Tables) != 2 || ir.Tables[0].Name != "accounts" || ir.Tables[1].Name != "events" {
+			t.Fatalf("postgres replay tables = %+v, want accounts/events after prefix trim", ir.Tables)
+		}
+		account := ir.Tables[0]
+		if account.PrimaryKey != "id" || !hasSQLUniqueIndex(account, "tenant_id", "external_ref") || !hasSQLIndex(account, "tenant_id", "email") {
+			t.Fatalf("account IR = %+v, want tenant/external unique and tenant/email index", account)
+		}
+		event := ir.Tables[1]
+		if event.PrimaryKey != "id" || !hasSQLUniqueIndex(event, "tenant_id", "event_no") || !hasSQLIndex(event, "tenant_id", "status", "occurred_at") {
+			t.Fatalf("event IR = %+v, want tenant/event unique and tenant/status/occurred index", event)
+		}
+	})
+}
+
+func hasSQLColumn(table SQLTable, name string) bool {
+	for _, column := range table.Columns {
+		if column.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func hasSQLUniqueIndex(table SQLTable, columns ...string) bool {
+	want := strings.Join(columns, ",")
+	for _, index := range table.UniqueIndexes {
+		if strings.Join(index.Columns, ",") == want {
+			return true
+		}
+	}
+	return false
+}
+
+func hasSQLIndex(table SQLTable, columns ...string) bool {
+	want := strings.Join(columns, ",")
+	for _, index := range table.Indexes {
+		if strings.Join(index.Columns, ",") == want {
+			return true
+		}
+	}
+	return false
+}
+
+func TestEmitModelSchemaIRWritesGoZeroLayout(t *testing.T) {
+	ir := newModelSchemaIR(ModelSchemaSourceReplay, storage.DialectMySQL, "mysql", "shop", "", []SQLTable{{
+		Name:       "customers",
+		PrimaryKey: "id",
+		Columns: []SQLColumn{
+			{Name: "id", Type: "bigint", PrimaryKey: true},
+			{Name: "tenant_id", Type: "bigint"},
+			{Name: "email", Type: "varchar", Unique: true, Nullable: true},
+		},
+		Indexes: []SQLIndex{{Columns: []string{"tenant_id"}}},
+	}})
+	dir := t.TempDir()
+	writeGeneratedModule(t, dir, "example.com/emit")
+	if err := emitModelSchemaIR(ir, modelSchemaEmitOptions{
+		Dir:          dir,
+		Package:      "model",
+		Module:       "example.com/emit",
+		Style:        "go_zero",
+		Cache:        true,
+		GoZeroLayout: true,
+	}); err != nil {
+		t.Fatalf("emitModelSchemaIR: %v", err)
+	}
+	for _, rel := range []string{
+		"model/customer_gen.go",
+		"repo/customer.go",
+	} {
+		if _, err := os.Stat(filepath.Join(dir, rel)); err != nil {
+			t.Fatalf("emitModelSchemaIR missing %s: %v", rel, err)
+		}
+	}
+	repo, err := os.ReadFile(filepath.Join(dir, "repo", "customer.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(repo), "d := storage.DialectMySQL") {
+		t.Fatalf("emitted repo does not use IR dialect:\n%s", repo)
 	}
 }
 

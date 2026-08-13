@@ -227,6 +227,7 @@ for needle in (
     "TestExecuteRPCProtocAcceptsGoctlReservedFlags",
     "TestExecuteRPCProtocGoflyPluginArgs",
     "TestExecuteRPCProtocGoflyPluginNoClientMultipleArgs",
+    "TestExecuteRPCProtocGoflyPluginMultiProtoCLI",
     "TestExecuteRPCProtocAllowsExternalPluginOptIn",
     "TestExecuteRPCProtocRejectsUnsafeExternalPluginOptIn",
     "TestExecuteRPCProtocAcceptsMultipleProtoInputs",

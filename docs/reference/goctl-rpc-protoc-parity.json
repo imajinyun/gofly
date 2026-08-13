@@ -64,6 +64,7 @@
       "behavior": "emits multiple=true to the built-in gofly protoc plugin and leaves standard protoc output style unchanged",
       "evidence": [
         "TestExecuteRPCProtocGoflyPluginNoClientMultipleArgs",
+        "TestExecuteRPCProtocGoflyPluginMultiProtoCLI",
         "TestExecuteRPCProtocAcceptsGoctlReservedFlags",
         "TestExecuteRPCGenGoflyNoClientAndMultiple",
         "TestGenerateProtocPluginResponseSkipsImportOnlyFiles"
@@ -78,6 +79,7 @@
       "behavior": "maps --client=false or -c=false to no_client=true for the built-in gofly protoc plugin",
       "evidence": [
         "TestExecuteRPCProtocGoflyPluginNoClientMultipleArgs",
+        "TestExecuteRPCProtocGoflyPluginMultiProtoCLI",
         "TestExecuteRPCProtocAcceptsGoctlReservedFlags",
         "TestExecuteRPCGenGoflyNoClientAndMultiple",
         "TestGenerateProtocPluginResponseSkipsImportOnlyFiles"

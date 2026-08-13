@@ -1499,6 +1499,156 @@ require (
 	assertGeneratedProtoModuleCompiles(t, dir)
 }
 
+func TestExecuteRPCProtocGoflyPluginMultiProtoCLI(t *testing.T) {
+	if _, err := exec.LookPath("protoc"); err != nil {
+		t.Skipf("protoc is not available: %v", err)
+	}
+	goflyBin := buildTestGoflyBinary(t)
+	dir := t.TempDir()
+	protoRoot := filepath.Join(dir, "proto")
+	commonDir := filepath.Join(protoRoot, "common", "v1")
+	accountDir := filepath.Join(protoRoot, "account", "v1")
+	orderDir := filepath.Join(protoRoot, "order", "v1")
+	userDir := filepath.Join(protoRoot, "user", "v1")
+	for _, path := range []string{commonDir, accountDir, orderDir, userDir} {
+		if err := os.MkdirAll(path, 0o750); err != nil {
+			t.Fatal(err)
+		}
+	}
+	files := map[string]string{
+		filepath.Join(commonDir, "common.proto"): `syntax = "proto3";
+package common.v1;
+option go_package = "example.com/goflyplugin/pb/common/v1;commonv1";
+message Trace {
+  string id = 1;
+}
+`,
+		filepath.Join(accountDir, "account.proto"): `syntax = "proto3";
+package account.v1;
+option go_package = "example.com/goflyplugin/pb/account/v1;accountv1";
+message AccountRef {
+  string id = 1;
+}
+`,
+		filepath.Join(orderDir, "order.proto"): `syntax = "proto3";
+package order.v1;
+option go_package = "example.com/goflyplugin/pb/order/v1;orderv1";
+message CreateOrderRequest {
+  string id = 1;
+}
+message CreateOrderResponse {
+  string id = 1;
+}
+service Order {
+  rpc Create(CreateOrderRequest) returns (CreateOrderResponse);
+}
+`,
+		filepath.Join(userDir, "user.proto"): `syntax = "proto3";
+package user.v1;
+option go_package = "example.com/goflyplugin/pb/user/v1;userv1";
+message GetUserRequest {
+  string id = 1;
+}
+message GetUserResponse {
+  string id = 1;
+}
+service User {
+  rpc Get(GetUserRequest) returns (GetUserResponse);
+}
+`,
+	}
+	for path, body := range files {
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	outDir := filepath.Join(dir, "gofly")
+	if err := os.MkdirAll(outDir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := Execute([]string{
+		"rpc", "protoc",
+		"common/v1/common.proto",
+		"account/v1/account.proto",
+		"order/v1/order.proto",
+		"user/v1/user.proto",
+		"--proto_path", protoRoot,
+		"--zrpc_out", outDir,
+		"--plugin", goflyBin,
+		"--multiple",
+		"--client=false",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	expected := []string{
+		filepath.Join("order", "order", "v1", "order.gofly.go"),
+		filepath.Join("user", "user", "v1", "user.gofly.go"),
+	}
+	for _, rel := range expected {
+		if _, err := os.Stat(filepath.Join(outDir, rel)); err != nil {
+			t.Fatalf("expected gofly plugin output %s: %v", rel, err)
+		}
+	}
+	for _, rel := range []string{
+		filepath.Join("common", "v1", "common.gofly.go"),
+		filepath.Join("account", "v1", "account.gofly.go"),
+	} {
+		if _, err := os.Stat(filepath.Join(outDir, rel)); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("import-only proto generated wrapper %s or stat failed: %v", rel, err)
+		}
+	}
+	for _, rel := range expected {
+		data, err := os.ReadFile(filepath.Join(outDir, rel))
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(data)
+		if strings.Contains(text, "GoflyClient interface") || strings.Contains(text, "GoflyRPCClient") || strings.Contains(text, "GoflyGenericClient") {
+			t.Fatalf("no-client gofly plugin output should omit client wrappers in %s:\n%s", rel, text)
+		}
+	}
+}
+
+func buildTestGoflyBinary(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "gofly")
+	cmd := exec.Command("go", "build", "-o", bin, "./cmd/gofly")
+	cmd.Dir = repositoryRootFromCommandTest(t)
+	cmd.Env = append(os.Environ(),
+		"GOCACHE="+filepath.Join(dir, "gocache"),
+		"GOTMPDIR="+filepath.Join(dir, "gotmp"),
+	)
+	if err := os.MkdirAll(filepath.Join(dir, "gocache"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "gotmp"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("build gofly plugin binary: %v\n%s", err, out)
+	}
+	return bin
+}
+
+func repositoryRootFromCommandTest(t *testing.T) string {
+	t.Helper()
+	dir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			t.Fatal("repository root with go.mod not found")
+		}
+		dir = parent
+	}
+}
+
 func assertGeneratedProtoModuleCompiles(t *testing.T, dir string) {
 	t.Helper()
 	tidy := exec.Command("go", "mod", "tidy")

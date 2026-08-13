@@ -88,23 +88,46 @@ type fakeDatasourceRows struct {
 }
 
 type goctlDatasourceReplayFixture struct {
-	Schema            string              `json:"schema"`
-	ID                string              `json:"id"`
-	Driver            string              `json:"driver"`
-	DSN               string              `json:"dsn"`
-	Module            string              `json:"module"`
-	Package           string              `json:"package"`
-	Style             string              `json:"style"`
-	Database          string              `json:"database"`
-	SchemaName        string              `json:"schemaName"`
-	Tables            []string            `json:"tables"`
-	Prefix            string              `json:"prefix"`
-	IgnoreColumns     []string            `json:"ignoreColumns"`
-	Strict            bool                `json:"strict"`
-	Cache             bool                `json:"cache"`
-	Capabilities      []string            `json:"capabilities"`
-	ExpectedArtifacts []string            `json:"expectedArtifacts"`
-	Assertions        map[string][]string `json:"assertions"`
+	Schema            string                               `json:"schema"`
+	ID                string                               `json:"id"`
+	Driver            string                               `json:"driver"`
+	DSN               string                               `json:"dsn"`
+	Module            string                               `json:"module"`
+	Package           string                               `json:"package"`
+	Style             string                               `json:"style"`
+	Database          string                               `json:"database"`
+	SchemaName        string                               `json:"schemaName"`
+	Tables            []string                             `json:"tables"`
+	Prefix            string                               `json:"prefix"`
+	IgnoreColumns     []string                             `json:"ignoreColumns"`
+	Strict            bool                                 `json:"strict"`
+	Cache             bool                                 `json:"cache"`
+	Capabilities      []string                             `json:"capabilities"`
+	ExpectedArtifacts []string                             `json:"expectedArtifacts"`
+	Assertions        map[string][]string                  `json:"assertions"`
+	SchemaContract    *goctlDatasourceReplaySchemaContract `json:"schemaContract,omitempty"`
+}
+
+// goctlDatasourceReplaySchemaContract pins the prepared ModelSchemaIR semantics
+// a replay fixture must produce: IR metadata plus per-table shape after
+// prepare (prefix trim, ignore columns, type map, strict validation).
+// Empty fields are treated as "not asserted".
+type goctlDatasourceReplaySchemaContract struct {
+	Source     string                               `json:"source"`
+	Dialect    string                               `json:"dialect"`
+	Driver     string                               `json:"driver"`
+	Database   string                               `json:"database"`
+	SchemaName string                               `json:"schemaName"`
+	Tables     []goctlDatasourceReplayTableContract `json:"tables"`
+}
+
+type goctlDatasourceReplayTableContract struct {
+	Name          string     `json:"name"`
+	PrimaryKey    string     `json:"primaryKey,omitempty"`
+	ColumnCount   int        `json:"columnCount,omitempty"`
+	AbsentColumns []string   `json:"absentColumns,omitempty"`
+	UniqueIndexes [][]string `json:"uniqueIndexes,omitempty"`
+	Indexes       [][]string `json:"indexes,omitempty"`
 }
 
 func readGoctlDatasourceReplayFixture(t *testing.T, name string) goctlDatasourceReplayFixture {
@@ -148,12 +171,12 @@ func assertGoctlDatasourceReplayFixture(t *testing.T, dir string, fixture goctlD
 func modelSchemaIRFromReplayFixture(t *testing.T, fixture goctlDatasourceReplayFixture) ModelSchemaIR {
 	t.Helper()
 	ir := rawModelSchemaIRFromReplayFixture(t, fixture)
-	ir, err := prepareModelSchemaIR(ir, modelGenerationOptions{
+	ir, err := prepareModelSchemaIR(ir, modelSchemaGenerationOptions{
 		Tables:        fixture.Tables,
 		IgnoreColumns: fixture.IgnoreColumns,
 		Prefix:        fixture.Prefix,
 		Strict:        fixture.Strict,
-	}, nil)
+	})
 	if err != nil {
 		t.Fatalf("prepare replay fixture IR %s: %v", fixture.ID, err)
 	}
@@ -691,11 +714,12 @@ func TestModelSchemaIRPrepareMetadataAndTables(t *testing.T) {
 		Indexes: []SQLIndex{{Columns: []string{"email"}}},
 	}}
 	ir := newModelSchemaIR(ModelSchemaSourceDDL, storage.DialectQuestion, "", "shop", "public", tables)
-	prepared, err := prepareModelSchemaIR(ir, modelGenerationOptions{
+	prepared, err := prepareModelSchemaIR(ir, modelSchemaGenerationOptions{
 		Prefix:        "app_",
 		IgnoreColumns: []string{"deleted_at"},
 		Strict:        true,
-	}, map[string]string{"varchar": "string"})
+		TypesMap:      map[string]string{"varchar": "string"},
+	})
 	if err != nil {
 		t.Fatalf("prepareModelSchemaIR: %v", err)
 	}
@@ -727,7 +751,7 @@ func TestModelSchemaIRDatasourceMetadata(t *testing.T) {
 		t.Fatalf("introspectSQLTables postgres: %v", err)
 	}
 	ir := newModelSchemaIR(ModelSchemaSourceDatasource, modelDefaultDialect("postgres"), "postgres", "billingdb", "billing", tables)
-	prepared, err := prepareModelSchemaIR(ir, modelGenerationOptions{Tables: []string{"billing_accounts"}}, nil)
+	prepared, err := prepareModelSchemaIR(ir, modelSchemaGenerationOptions{Tables: []string{"billing_accounts"}})
 	if err != nil {
 		t.Fatalf("prepareModelSchemaIR datasource: %v", err)
 	}
@@ -740,46 +764,56 @@ func TestModelSchemaIRDatasourceMetadata(t *testing.T) {
 }
 
 func TestGoctlDatasourceReplayFixtureModelSchemaIR(t *testing.T) {
-	t.Run("mysql multi table", func(t *testing.T) {
-		fixture := readGoctlDatasourceReplayFixture(t, "mysql-multi-table")
-		ir := modelSchemaIRFromReplayFixture(t, fixture)
-		if ir.Source != ModelSchemaSourceReplay || ir.Dialect != storage.DialectMySQL || ir.Driver != "mysql" {
-			t.Fatalf("mysql replay IR metadata = %+v, want replay/mysql", ir)
-		}
-		if len(ir.Tables) != 2 || ir.Tables[0].Name != "customers" || ir.Tables[1].Name != "orders" {
-			t.Fatalf("mysql replay tables = %+v, want customers/orders after prefix trim", ir.Tables)
-		}
-		customer := ir.Tables[0]
-		if customer.PrimaryKey != "id" || len(customer.Columns) != 7 || hasSQLColumn(customer, "created_by") || hasSQLColumn(customer, "updated_by") {
-			t.Fatalf("customer IR = %+v, want pk id and ignored audit columns removed", customer)
-		}
-		if !hasSQLUniqueIndex(customer, "tenant_id", "external_id") || !hasSQLIndex(customer, "tenant_id", "email") {
-			t.Fatalf("customer IR indexes = unique:%+v nonUnique:%+v", customer.UniqueIndexes, customer.Indexes)
-		}
-		order := ir.Tables[1]
-		if order.PrimaryKey != "id" || !hasSQLUniqueIndex(order, "tenant_id", "order_no") || !hasSQLIndex(order, "tenant_id", "status", "id") {
-			t.Fatalf("order IR = %+v, want composite unique and tenant/status/id index", order)
-		}
-	})
+	for _, name := range []string{"mysql-multi-table", "postgres-multi-schema"} {
+		t.Run(name, func(t *testing.T) {
+			fixture := readGoctlDatasourceReplayFixture(t, name)
+			ir := modelSchemaIRFromReplayFixture(t, fixture)
+			assertModelSchemaIRContract(t, ir, fixture.SchemaContract)
+		})
+	}
+}
 
-	t.Run("postgres multi schema", func(t *testing.T) {
-		fixture := readGoctlDatasourceReplayFixture(t, "postgres-multi-schema")
-		ir := modelSchemaIRFromReplayFixture(t, fixture)
-		if ir.Source != ModelSchemaSourceReplay || ir.Dialect != storage.DialectPostgres || ir.Driver != "postgres" || ir.Schema != "billing" {
-			t.Fatalf("postgres replay IR metadata = %+v, want replay/postgres/billing", ir)
+func assertModelSchemaIRContract(t *testing.T, ir ModelSchemaIR, contract *goctlDatasourceReplaySchemaContract) {
+	t.Helper()
+	if contract == nil {
+		t.Fatal("replay fixture missing schemaContract section")
+	}
+	if string(ir.Source) != contract.Source || string(ir.Dialect) != contract.Dialect ||
+		ir.Driver != contract.Driver || ir.Database != contract.Database || ir.Schema != contract.SchemaName {
+		t.Fatalf("IR metadata = %s/%s/%s/%s/%s, want %s/%s/%s/%s/%s",
+			ir.Source, ir.Dialect, ir.Driver, ir.Database, ir.Schema,
+			contract.Source, contract.Dialect, contract.Driver, contract.Database, contract.SchemaName)
+	}
+	if len(ir.Tables) != len(contract.Tables) {
+		t.Fatalf("IR table count = %d, want %d (%+v)", len(ir.Tables), len(contract.Tables), ir.Tables)
+	}
+	for i, want := range contract.Tables {
+		table := ir.Tables[i]
+		if table.Name != want.Name {
+			t.Fatalf("IR table %d name = %q, want %q after prefix trim", i, table.Name, want.Name)
 		}
-		if len(ir.Tables) != 2 || ir.Tables[0].Name != "accounts" || ir.Tables[1].Name != "events" {
-			t.Fatalf("postgres replay tables = %+v, want accounts/events after prefix trim", ir.Tables)
+		if want.PrimaryKey != "" && table.PrimaryKey != want.PrimaryKey {
+			t.Fatalf("IR table %s primary key = %q, want %q", want.Name, table.PrimaryKey, want.PrimaryKey)
 		}
-		account := ir.Tables[0]
-		if account.PrimaryKey != "id" || !hasSQLUniqueIndex(account, "tenant_id", "external_ref") || !hasSQLIndex(account, "tenant_id", "email") {
-			t.Fatalf("account IR = %+v, want tenant/external unique and tenant/email index", account)
+		if want.ColumnCount > 0 && len(table.Columns) != want.ColumnCount {
+			t.Fatalf("IR table %s column count = %d, want %d", want.Name, len(table.Columns), want.ColumnCount)
 		}
-		event := ir.Tables[1]
-		if event.PrimaryKey != "id" || !hasSQLUniqueIndex(event, "tenant_id", "event_no") || !hasSQLIndex(event, "tenant_id", "status", "occurred_at") {
-			t.Fatalf("event IR = %+v, want tenant/event unique and tenant/status/occurred index", event)
+		for _, column := range want.AbsentColumns {
+			if hasSQLColumn(table, column) {
+				t.Fatalf("IR table %s still has ignored column %q", want.Name, column)
+			}
 		}
-	})
+		for _, index := range want.UniqueIndexes {
+			if !hasSQLUniqueIndex(table, index...) {
+				t.Fatalf("IR table %s missing unique index %v (have %+v)", want.Name, index, table.UniqueIndexes)
+			}
+		}
+		for _, index := range want.Indexes {
+			if !hasSQLIndex(table, index...) {
+				t.Fatalf("IR table %s missing index %v (have %+v)", want.Name, index, table.Indexes)
+			}
+		}
+	}
 }
 
 func hasSQLColumn(table SQLTable, name string) bool {
@@ -1083,7 +1117,7 @@ func TestDatasourceIntrospectionGeneratesIndexAndCacheTemplates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("introspectSQLTables: %v", err)
 	}
-	tables, err = prepareModelTables(tables, modelGenerationOptions{Tables: []string{"users"}})
+	tables, err = prepareModelTables(tables, modelSchemaGenerationOptions{Tables: []string{"users"}})
 	if err != nil {
 		t.Fatalf("prepareModelTables: %v", err)
 	}
@@ -1189,7 +1223,7 @@ func TestDatasourceIntrospectionMultiTableGoctlCacheReplay(t *testing.T) {
 		t.Fatalf("orders indexes = %#v, want two non-unique indexes", orders.Indexes)
 	}
 
-	tables, err = prepareModelTables(tables, modelGenerationOptions{
+	tables, err = prepareModelTables(tables, modelSchemaGenerationOptions{
 		Tables:        []string{"app_customers", "app_orders"},
 		Prefix:        "app_",
 		IgnoreColumns: []string{"created_by", "updated_by"},
@@ -1445,7 +1479,7 @@ func TestPostgresDatasourceIntrospectionMultiSchemaCacheReplay(t *testing.T) {
 		t.Fatalf("events indexes = %#v, want two non-unique indexes", events.Indexes)
 	}
 
-	tables, err = prepareModelTables(tables, modelGenerationOptions{
+	tables, err = prepareModelTables(tables, modelSchemaGenerationOptions{
 		Tables:        []string{"billing_accounts", "billing_events"},
 		Prefix:        "billing_",
 		IgnoreColumns: []string{"created_by", "updated_by"},
@@ -1630,7 +1664,7 @@ func TestPostgresDatasourceIntrospectionSkipsExpressionAndPartialIndexes(t *test
 		t.Fatalf("indexes = %#v, want only tenant_id,status ordinary index", table.Indexes)
 	}
 
-	tables, err = prepareModelTables(tables, modelGenerationOptions{
+	tables, err = prepareModelTables(tables, modelSchemaGenerationOptions{
 		Tables: []string{"billing_jobs"},
 		Prefix: "billing_",
 		Strict: true,
@@ -1718,20 +1752,20 @@ func TestPrepareModelTablesFilterStrictBoundaries(t *testing.T) {
 		},
 	}}
 
-	if _, err := prepareModelTables(base, modelGenerationOptions{Tables: []string{"missing"}, Strict: true}); err == nil || !strings.Contains(err.Error(), "requested table not found") {
+	if _, err := prepareModelTables(base, modelSchemaGenerationOptions{Tables: []string{"missing"}, Strict: true}); err == nil || !strings.Contains(err.Error(), "requested table not found") {
 		t.Fatalf("prepareModelTables missing strict error = %v, want requested table not found", err)
 	}
-	if _, err := prepareModelTables([]SQLTable{{Name: "app_", Columns: []SQLColumn{{Name: "id"}}}}, modelGenerationOptions{Prefix: "app_", Strict: true}); err == nil || !strings.Contains(err.Error(), "becomes empty") {
+	if _, err := prepareModelTables([]SQLTable{{Name: "app_", Columns: []SQLColumn{{Name: "id"}}}}, modelSchemaGenerationOptions{Prefix: "app_", Strict: true}); err == nil || !strings.Contains(err.Error(), "becomes empty") {
 		t.Fatalf("prepareModelTables empty prefix error = %v, want becomes empty", err)
 	}
-	if _, err := prepareModelTables(base, modelGenerationOptions{IgnoreColumns: []string{"id"}, Strict: true}); err == nil || !strings.Contains(err.Error(), "primary key column") {
+	if _, err := prepareModelTables(base, modelSchemaGenerationOptions{IgnoreColumns: []string{"id"}, Strict: true}); err == nil || !strings.Contains(err.Error(), "primary key column") {
 		t.Fatalf("prepareModelTables ignore pk strict error = %v, want primary key rejection", err)
 	}
-	if _, err := prepareModelTables(base, modelGenerationOptions{IgnoreColumns: []string{"id", "email", "deleted_at"}}); err == nil || !strings.Contains(err.Error(), "no columns") {
+	if _, err := prepareModelTables(base, modelSchemaGenerationOptions{IgnoreColumns: []string{"id", "email", "deleted_at"}}); err == nil || !strings.Contains(err.Error(), "no columns") {
 		t.Fatalf("prepareModelTables all ignored error = %v, want no columns", err)
 	}
 
-	prepared, err := prepareModelTables(base, modelGenerationOptions{Prefix: "app_", IgnoreColumns: []string{"id"}})
+	prepared, err := prepareModelTables(base, modelSchemaGenerationOptions{Prefix: "app_", IgnoreColumns: []string{"id"}})
 	if err != nil {
 		t.Fatalf("prepareModelTables non-strict ignore pk: %v", err)
 	}

@@ -467,12 +467,12 @@ func newModelSchemaIR(source ModelSchemaSource, dialect storage.Dialect, driver 
 	}
 }
 
-func prepareModelSchemaIR(ir ModelSchemaIR, opts modelGenerationOptions, typesMap map[string]string) (ModelSchemaIR, error) {
+func prepareModelSchemaIR(ir ModelSchemaIR, opts modelSchemaGenerationOptions) (ModelSchemaIR, error) {
 	tables, err := prepareModelTables(ir.Tables, opts)
 	if err != nil {
 		return ModelSchemaIR{}, err
 	}
-	applyModelTypesMap(tables, typesMap)
+	applyModelTypesMap(tables, opts.TypesMap)
 	if opts.Strict {
 		if err := validateKnownModelColumnTypes(tables); err != nil {
 			return ModelSchemaIR{}, err
@@ -483,12 +483,7 @@ func prepareModelSchemaIR(ir ModelSchemaIR, opts modelGenerationOptions, typesMa
 }
 
 func generateModelFromSchemaIR(ir ModelSchemaIR, opts modelSchemaGenerationOptions) error {
-	prepared, err := prepareModelSchemaIR(ir, modelGenerationOptions{
-		Tables:        opts.Tables,
-		IgnoreColumns: opts.IgnoreColumns,
-		Prefix:        opts.Prefix,
-		Strict:        opts.Strict,
-	}, opts.TypesMap)
+	prepared, err := prepareModelSchemaIR(ir, opts)
 	if err != nil {
 		return err
 	}
@@ -845,7 +840,7 @@ func filterSQLTables(tables []SQLTable, names []string) []SQLTable {
 	return out
 }
 
-func prepareModelTables(tables []SQLTable, opts modelGenerationOptions) ([]SQLTable, error) {
+func prepareModelTables(tables []SQLTable, opts modelSchemaGenerationOptions) ([]SQLTable, error) {
 	tables = filterSQLTables(tables, opts.Tables)
 	if opts.Strict && len(cleanTableNames(opts.Tables)) > 0 && len(tables) != len(cleanTableNames(opts.Tables)) {
 		return nil, fmt.Errorf("strict model generation: requested table not found")

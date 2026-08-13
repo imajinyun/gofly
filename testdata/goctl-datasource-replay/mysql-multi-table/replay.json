@@ -40,5 +40,28 @@
       "func (c *RedisCachedOrderRepo) ClaimByTenantIDAndStatusSkipLocked(ctx context.Context, tenantID int64, status string, nextStatus string, limit int) ([]entity.Order, error)",
       "key := redisOrderIndexListCacheKey(version, indexListKeyByTenantIDAndStatus(tenantID, status, limit, offset))"
     ]
+  },
+  "schemaContract": {
+    "source": "replay",
+    "dialect": "mysql",
+    "driver": "mysql",
+    "database": "",
+    "schemaName": "",
+    "tables": [
+      {
+        "name": "customers",
+        "primaryKey": "id",
+        "columnCount": 7,
+        "absentColumns": ["created_by", "updated_by"],
+        "uniqueIndexes": [["tenant_id", "external_id"]],
+        "indexes": [["tenant_id", "email"]]
+      },
+      {
+        "name": "orders",
+        "primaryKey": "id",
+        "uniqueIndexes": [["tenant_id", "order_no"]],
+        "indexes": [["tenant_id", "status", "id"]]
+      }
+    ]
   }
 }

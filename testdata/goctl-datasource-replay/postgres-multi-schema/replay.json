@@ -44,5 +44,26 @@
       "func (c *RedisCachedEventRepo) ClaimByTenantIDAndStatusSkipLocked(ctx context.Context, tenantID int64, status string, nextStatus string, limit int) ([]entity.Event, error)",
       "key := redisEventIndexListCacheKey(version, indexListKeyByTenantIDAndStatus(tenantID, status, limit, offset))"
     ]
+  },
+  "schemaContract": {
+    "source": "replay",
+    "dialect": "postgres",
+    "driver": "postgres",
+    "database": "",
+    "schemaName": "billing",
+    "tables": [
+      {
+        "name": "accounts",
+        "primaryKey": "id",
+        "uniqueIndexes": [["tenant_id", "external_ref"]],
+        "indexes": [["tenant_id", "email"]]
+      },
+      {
+        "name": "events",
+        "primaryKey": "id",
+        "uniqueIndexes": [["tenant_id", "event_no"]],
+        "indexes": [["tenant_id", "status", "occurred_at"]]
+      }
+    ]
   }
 }

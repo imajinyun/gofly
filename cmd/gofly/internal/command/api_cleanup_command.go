@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/imajinyun/gofly/cmd/gofly/internal/generator"
 )
 
 type apiCleanupStaleReport struct {
@@ -60,7 +62,7 @@ func apiCleanupStaleCommand(args []string) error {
 
 func buildAPIStaleCleanupResult(dir string, execute bool) (apiCleanupStaleResult, error) {
 	reportPath := filepath.Join(dir, ".gofly", "stale-api-files.json")
-	data, err := os.ReadFile(reportPath)
+	data, err := generator.ReadFileUnderRoot(dir, filepath.Join(".gofly", "stale-api-files.json"), "stale api report")
 	if err != nil {
 		return apiCleanupStaleResult{}, fmt.Errorf("read stale api report: %w", err)
 	}

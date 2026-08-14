@@ -15,8 +15,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imajinyun/gofly/core/observability/metrics"
 	"google.golang.org/protobuf/types/known/wrapperspb"
+
+	"github.com/imajinyun/gofly/core/observability/metrics"
 
 	"github.com/imajinyun/gofly/core/auth"
 	"github.com/imajinyun/gofly/core/breaker"

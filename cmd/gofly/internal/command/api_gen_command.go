@@ -3,7 +3,6 @@ package command
 import (
 	"encoding/json"
 	"flag"
-	"os"
 	"path/filepath"
 	"strconv"
 
@@ -72,7 +71,7 @@ type apiStaleReportSummary struct {
 
 func addAPIStaleReportInputs(inputs map[string]string, dir string) {
 	path := filepath.Join(dir, ".gofly", "stale-api-files.json")
-	data, err := os.ReadFile(path)
+	data, err := generator.ReadFileUnderRoot(dir, filepath.Join(".gofly", "stale-api-files.json"), "stale api report")
 	if err != nil {
 		return
 	}

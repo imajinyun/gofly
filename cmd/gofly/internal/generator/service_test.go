@@ -17,12 +17,13 @@ import (
 	"testing"
 	"time"
 
+	"go.yaml.in/yaml/v2"
+
 	"github.com/imajinyun/gofly/app"
 	"github.com/imajinyun/gofly/core/governance"
 	coreruntime "github.com/imajinyun/gofly/core/runtime"
 	"github.com/imajinyun/gofly/rest"
 	"github.com/imajinyun/gofly/rpc"
-	"go.yaml.in/yaml/v2"
 )
 
 func TestGenerateService(t *testing.T) {

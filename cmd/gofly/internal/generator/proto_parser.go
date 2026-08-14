@@ -174,7 +174,7 @@ func parseProtoFileSeen(path string, includeDirs []string, seen map[string]struc
 		return IDLDocument{Kind: "proto"}, nil
 	}
 	seen[path] = struct{}{}
-	content, err := os.ReadFile(path)
+	content, err := ReadFileUnderRoot(filepath.Dir(path), filepath.Base(path), "proto file")
 	if err != nil {
 		return IDLDocument{}, fmt.Errorf("read proto file: %w", err)
 	}

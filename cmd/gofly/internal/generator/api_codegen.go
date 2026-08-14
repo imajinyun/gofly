@@ -3058,8 +3058,7 @@ func writeGoZeroCompatibleRESTFiles(doc IDLDocument, opts APIOptions) error {
 
 func writeGoZeroAPITypesFile(root string, doc IDLDocument) error {
 	var b bytes.Buffer
-	path := filepath.Join(root, "internal", "types", "types.go")
-	existing, err := os.ReadFile(path)
+	existing, err := ReadFileUnderRoot(root, filepath.Join("internal", "types", "types.go"), "gozero-compatible api types")
 	if err == nil && !bytes.Contains(existing, []byte(goZeroAPIGeneratedTypesMarker)) {
 		return appendGoZeroAPITypesFile(root, existing, doc)
 	}

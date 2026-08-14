@@ -1028,6 +1028,66 @@ func TestGenerateModelFromSchemaIRBoundaries(t *testing.T) {
 		}
 		assertNothingWritten(t, dir)
 	})
+
+	t.Run("prefix output conflict", func(t *testing.T) {
+		dir := t.TempDir()
+		tables := []SQLTable{
+			{
+				Name:       "app_users",
+				PrimaryKey: "id",
+				Columns: []SQLColumn{
+					{Name: "id", Type: "bigint", PrimaryKey: true},
+				},
+			},
+			{
+				Name:       "users",
+				PrimaryKey: "id",
+				Columns: []SQLColumn{
+					{Name: "id", Type: "bigint", PrimaryKey: true},
+				},
+			},
+		}
+		err := generateModelFromSchemaIR(newIR(tables), modelSchemaGenerationOptions{
+			Prefix: "app_",
+			Emit:   modelSchemaEmitOptions{Dir: dir, Module: "example.com/ir-conflict"},
+		})
+		if err == nil || !strings.Contains(err.Error(), "model schema output conflict") || !strings.Contains(err.Error(), "table name") {
+			t.Fatalf("prefix output conflict error = %v, want table-name conflict", err)
+		}
+		assertNothingWritten(t, dir)
+	})
+
+	t.Run("normalized generated file conflict", func(t *testing.T) {
+		dir := t.TempDir()
+		tables := []SQLTable{
+			{
+				Name:       "line_items",
+				PrimaryKey: "id",
+				Columns: []SQLColumn{
+					{Name: "id", Type: "bigint", PrimaryKey: true},
+				},
+			},
+			{
+				Name:       "line-items",
+				PrimaryKey: "id",
+				Columns: []SQLColumn{
+					{Name: "id", Type: "bigint", PrimaryKey: true},
+				},
+			},
+		}
+		err := generateModelFromSchemaIR(newIR(tables), modelSchemaGenerationOptions{
+			Emit: modelSchemaEmitOptions{
+				Dir:          dir,
+				Module:       "example.com/ir-file-conflict",
+				Style:        "go_zero",
+				GoZeroLayout: true,
+			},
+		})
+		if err == nil || !strings.Contains(err.Error(), "model schema output conflict") || !strings.Contains(err.Error(), "model type") {
+			t.Fatalf("normalized generated file conflict error = %v, want model-type conflict", err)
+		}
+		assertNothingWritten(t, dir)
+	})
 }
 
 func TestGenerateModelFromReplaySchemaIRCompiles(t *testing.T) {

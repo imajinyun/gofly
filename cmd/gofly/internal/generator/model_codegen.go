@@ -472,6 +472,9 @@ func prepareModelSchemaIR(ir ModelSchemaIR, opts modelSchemaGenerationOptions) (
 	if err != nil {
 		return ModelSchemaIR{}, err
 	}
+	if err := validateModelSchemaIROutputs(tables, opts.Emit); err != nil {
+		return ModelSchemaIR{}, err
+	}
 	applyModelTypesMap(tables, opts.TypesMap)
 	if opts.Strict {
 		if err := validateKnownModelColumnTypes(tables); err != nil {
@@ -889,6 +892,59 @@ func prepareModelTables(tables []SQLTable, opts modelSchemaGenerationOptions) ([
 		out = append(out, prepared)
 	}
 	return out, nil
+}
+
+func validateModelSchemaIROutputs(tables []SQLTable, opts modelSchemaEmitOptions) error {
+	if len(tables) == 0 {
+		return nil
+	}
+	entityDir := filepath.ToSlash(filepath.Join("model", "entity"))
+	repoDir := filepath.ToSlash(filepath.Join("model", "repo"))
+	if opts.GoZeroLayout {
+		entityDir = "model"
+		repoDir = "repo"
+	}
+	claims := map[string]string{}
+	claim := func(kind string, name string, table string) error {
+		key := kind + "\x00" + name
+		if previous, ok := claims[key]; ok {
+			return fmt.Errorf("model schema output conflict: tables %q and %q both map to %s %q", previous, table, kind, name)
+		}
+		claims[key] = table
+		return nil
+	}
+	for _, table := range tables {
+		name := strings.TrimSpace(table.Name)
+		if name == "" {
+			return errors.New("model schema output conflict: table name is required")
+		}
+		singularName := singularize(name)
+		typeName := exportName(singularName)
+		if err := claim("table name", name, name); err != nil {
+			return err
+		}
+		if err := claim("model type", typeName, name); err != nil {
+			return err
+		}
+		entityFile := filepath.ToSlash(filepath.Join(entityDir, lowerSnake(singularName)+"_gen.go"))
+		if err := claim("generated file", entityFile, name); err != nil {
+			return err
+		}
+		repoFile := filepath.ToSlash(filepath.Join(repoDir, lowerSnake(singularName)+".go"))
+		if err := claim("generated file", repoFile, name); err != nil {
+			return err
+		}
+		if opts.GoZeroLayout {
+			facadeBase := lowerName(typeName) + "model"
+			if err := claim("generated file", filepath.ToSlash(filepath.Join(repoDir, facadeBase+".go")), name); err != nil {
+				return err
+			}
+			if err := claim("generated file", filepath.ToSlash(filepath.Join(repoDir, facadeBase+"_gen.go")), name); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func filterUniqueIndexes(indexes []SQLUniqueIndex, columns []SQLColumn) []SQLUniqueIndex {

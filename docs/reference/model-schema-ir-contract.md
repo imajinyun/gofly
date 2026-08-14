@@ -30,8 +30,8 @@ Replay fixture  -> rawModelSchemaIRFromReplayFixture -> raw ModelSchemaIR (sourc
 two stages with a single options struct (`modelSchemaGenerationOptions`):
 
 1. `prepareModelSchemaIR` — table filter, prefix trim, ignore columns,
-   `TypesMap` application, strict type validation. Mutates only `ir.Tables`;
-   metadata fields are preserved.
+   output conflict validation, `TypesMap` application, strict type validation.
+   Mutates only `ir.Tables`; metadata fields are preserved.
 2. `emitModelSchemaIR` — package default (`model`), module inference,
    import-module computation, style normalization, go_zero layout writes,
    gorm dependency handling.
@@ -43,6 +43,7 @@ two stages with a single options struct (`modelSchemaGenerationOptions`):
 | No tables after prepare | emit | `model table is required` |
 | `Strict` and a requested table is missing | prepare | `strict model generation: requested table not found` |
 | `Strict` and a column type is unknown | prepare | `strict model generation: unknown column type "<type>" for <table>.<column>; configure types_map or disable --strict` |
+| Prepared tables map to the same table name, Go type, generated entity/repo file, or go_zero facade file | prepare | `model schema output conflict: tables "<a>" and "<b>" both map to <kind> "<name>"` |
 
 On any error the entrypoint writes nothing: no `model/` or `repo/` directory
 is created.

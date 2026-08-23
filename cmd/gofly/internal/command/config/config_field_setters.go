@@ -1,4 +1,4 @@
-package command
+package config
 
 import (
 	"fmt"
@@ -8,7 +8,7 @@ import (
 	"github.com/imajinyun/gofly/cmd/gofly/internal/generator"
 )
 
-func setConfigField(cfg *generator.Config, key, value string) error {
+func SetField(cfg *generator.Config, key, value string, usage error) error {
 	switch strings.ToLower(strings.TrimSpace(key)) {
 	case "servicename", "service-name", "service":
 		cfg.ServiceName = value
@@ -66,31 +66,31 @@ func setConfigField(cfg *generator.Config, key, value string) error {
 	case "llm.model", "llm-model":
 		ensureLLMConfig(cfg).Model = value
 	case "llm.maxinputtokens", "llm.max-input-tokens", "llm-max-input-tokens":
-		v, err := parseNonNegativeIntConfigValue("llm.maxInputTokens", value)
+		v, err := parseNonNegativeIntConfigValue("llm.maxInputTokens", value, usage)
 		if err != nil {
 			return err
 		}
 		ensureLLMConfig(cfg).MaxInputTokens = v
 	case "llm.maxoutputtokens", "llm.max-output-tokens", "llm-max-output-tokens":
-		v, err := parseNonNegativeIntConfigValue("llm.maxOutputTokens", value)
+		v, err := parseNonNegativeIntConfigValue("llm.maxOutputTokens", value, usage)
 		if err != nil {
 			return err
 		}
 		ensureLLMConfig(cfg).MaxOutputTokens = v
 	case "llm.maxtotaltokens", "llm.max-total-tokens", "llm-max-total-tokens":
-		v, err := parseNonNegativeIntConfigValue("llm.maxTotalTokens", value)
+		v, err := parseNonNegativeIntConfigValue("llm.maxTotalTokens", value, usage)
 		if err != nil {
 			return err
 		}
 		ensureLLMConfig(cfg).MaxTotalTokens = v
 	case "llm.ratelimit", "llm.rate-limit", "llm-rate-limit":
-		v, err := parseNonNegativeIntConfigValue("llm.rateLimitPerSecond", value)
+		v, err := parseNonNegativeIntConfigValue("llm.rateLimitPerSecond", value, usage)
 		if err != nil {
 			return err
 		}
 		ensureLLMConfig(cfg).RateLimitPerSecond = v
 	case "llm.rateburst", "llm.rate-burst", "llm-rate-burst":
-		v, err := parseNonNegativeIntConfigValue("llm.rateLimitBurst", value)
+		v, err := parseNonNegativeIntConfigValue("llm.rateLimitBurst", value, usage)
 		if err != nil {
 			return err
 		}
@@ -98,7 +98,7 @@ func setConfigField(cfg *generator.Config, key, value string) error {
 	case "llm.timeout", "llm-timeout":
 		if value != "" {
 			if _, err := time.ParseDuration(value); err != nil {
-				return fmt.Errorf("%w: invalid llm.timeout %q: %v", errUsage, value, err)
+				return fmt.Errorf("%w: invalid llm.timeout %q: %v", usage, value, err)
 			}
 		}
 		ensureLLMConfig(cfg).Timeout = value

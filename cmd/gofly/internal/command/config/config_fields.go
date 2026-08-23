@@ -1,4 +1,4 @@
-package command
+package config
 
 import (
 	"fmt"
@@ -7,7 +7,7 @@ import (
 	"github.com/imajinyun/gofly/cmd/gofly/internal/generator"
 )
 
-func getConfigField(cfg *generator.Config, key string) string {
+func GetField(cfg *generator.Config, key string) string {
 	switch strings.ToLower(strings.TrimSpace(key)) {
 	case "servicename", "service-name", "service":
 		return cfg.ServiceName
@@ -121,6 +121,6 @@ func getConfigField(cfg *generator.Config, key string) string {
 	}
 }
 
-func isConfigFeaturesKey(key string) bool {
+func IsFeaturesKey(key string) bool {
 	return strings.EqualFold(strings.TrimSpace(key), "features")
 }

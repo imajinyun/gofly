@@ -1,12 +1,16 @@
-package command
+package config
 
 import (
 	"fmt"
 	"strconv"
-	"strings"
 
 	"github.com/imajinyun/gofly/cmd/gofly/internal/generator"
 )
+
+// EnsureModelConfig returns cfg.Model, allocating it when missing.
+func EnsureModelConfig(cfg *generator.Config) *generator.ModelConfig {
+	return ensureModelConfig(cfg)
+}
 
 func ensureModelConfig(cfg *generator.Config) *generator.ModelConfig {
 	if cfg.Model == nil {
@@ -25,19 +29,10 @@ func ensureLLMConfig(cfg *generator.Config) *generator.LLMConfig {
 	return cfg.LLM
 }
 
-func parseNonNegativeIntConfigValue(name, value string) (int, error) {
+func parseNonNegativeIntConfigValue(name, value string, usage error) (int, error) {
 	parsed, err := strconv.Atoi(value)
 	if err != nil || parsed < 0 {
-		return 0, fmt.Errorf("%w: %s must be a non-negative integer", errUsage, name)
+		return 0, fmt.Errorf("%w: %s must be a non-negative integer", usage, name)
 	}
 	return parsed, nil
-}
-
-func parseBoolString(value string) bool {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "1", "t", "true", "y", "yes", "on":
-		return true
-	default:
-		return false
-	}
 }

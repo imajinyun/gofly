@@ -41,7 +41,8 @@ require(manifest.get("surfaceGate") == "make cli-command-surface-check", "CLI co
 require(manifest.get("jsonGoldenGate") == "make cli-json-contract-goldens-check", "CLI configuration governance jsonGoldenGate mismatch")
 
 makefile = read_text(root / "Makefile")
-config_command = read_text(root / "cmd" / "gofly" / "internal" / "command" / "config_command.go")
+config_command = read_text(root / "cmd" / "gofly" / "internal" / "command" / "config" / "config_command.go")
+config_adapter = read_text(root / "cmd" / "gofly" / "internal" / "command" / "config_adapter.go")
 root_command = read_text(root / "cmd" / "gofly" / "internal" / "command" / "root.go")
 registry = read_text(root / "cmd" / "gofly" / "internal" / "command" / "registry.go")
 idl_tests = read_text(root / "cmd" / "gofly" / "internal" / "command" / "idl_test.go")
@@ -67,8 +68,8 @@ for child in ("init", "show", "get", "set", "clean"):
 
 require('Name: "config"' in registry, "root registry must include config command")
 require('generator.DefaultConfigFile' in config_command, "config command must use generator.DefaultConfigFile")
-require('registerDryRunPlanFlags' in config_command, "config command must support dry-run/plan flags")
-require('errUsage' in config_command, "config command must classify usage errors with errUsage")
+require('registerDryRunPlanFlags' in config_adapter, "config adapter must register dry-run/plan flags")
+require('errUsage' in config_adapter, "config adapter must classify usage errors with errUsage")
 require('parseGlobalControls' in root_command or 'parseGlobalOutput' in idl_tests, "global output parsing evidence is missing")
 
 policy = manifest.get("policy") or {}

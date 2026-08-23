@@ -2,6 +2,15 @@ package command
 
 import "strings"
 
+func parseBoolString(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "1", "t", "true", "y", "yes", "on":
+		return true
+	default:
+		return false
+	}
+}
+
 func parseKeyValueCSV(value string) map[string]string {
 	parts := strings.Split(value, ",")
 	out := map[string]string{}

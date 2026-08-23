@@ -1,4 +1,4 @@
-package command
+package config
 
 import (
 	"errors"
@@ -10,13 +10,14 @@ import (
 	"github.com/imajinyun/gofly/cmd/gofly/internal/generator"
 )
 
-// configCommand 处理 `gofly config init|show|get|set|clean`。
-func configCommand(args []string) error {
-	if printCommandHelp("config", args) {
+// Command 处理 `gofly config init|show|get|set|clean`。
+func Command(args []string, hooks Hooks) error {
+	hooks = normalizeHooks(hooks)
+	if hooks.PrintHelp("config", args) {
 		return nil
 	}
 	if len(args) == 0 {
-		return fmt.Errorf("%w: expected `gofly config init|show|get|set|clean`", errUsage)
+		return fmt.Errorf("%w: expected `gofly config init|show|get|set|clean`", hooks.Usage)
 	}
 	sub := args[0]
 	rest := args[1:]
@@ -27,12 +28,12 @@ func configCommand(args []string) error {
 	style := fs.String("style", "", "style override: minimal|basic|production")
 	key := fs.String("key", "", "config key (for get/set)")
 	value := fs.String("value", "", "config value (for set)")
-	preview := registerDryRunPlanFlags(fs, "print the planned filesystem changes without writing files")
-	remaining, err := parseInterspersedFlags(fs, rest)
+	previewEnabled := hooks.RegisterDryRunFlags(fs, "print the planned filesystem changes without writing files")
+	remaining, err := hooks.ParseFlags(fs, rest)
 	if err != nil {
 		return err
 	}
-	previewOnly := preview.enabled()
+	previewOnly := previewEnabled()
 	if *key == "" && len(remaining) > 0 {
 		*key = remaining[0]
 	}
@@ -61,72 +62,72 @@ func configCommand(args []string) error {
 			cfg.Style = *style
 		}
 		if previewOnly {
-			return printCLIPlan("config.init", configPlan("config init", path, true, map[string]string{"dir": base, "name": *name, "module": *module, "style": cfg.Style}, []cliPlanAction{{Operation: "write-config", Target: path, Description: "create or overwrite gofly config", RiskLevel: "low"}}))
+			return hooks.PrintPlan("config.init", configPlan("config init", path, true, map[string]string{"dir": base, "name": *name, "module": *module, "style": cfg.Style}, []PlanAction{{Operation: "write-config", Target: path, Description: "create or overwrite gofly config", RiskLevel: "low"}}))
 		}
 		if err := generator.SaveConfig(path, cfg); err != nil {
 			return err
 		}
-		cliOutputf("wrote gofly config: %s\n", path)
+		hooks.PrintTextf("wrote gofly config: %s\n", path)
 		return nil
 	case "show":
 		cfg, err := generator.LoadConfig(path)
 		if err != nil {
 			return err
 		}
-		cliOutputln(cfg.String())
+		hooks.PrintTextln(cfg.String())
 		return nil
 	case "get":
 		if *key == "" {
-			return fmt.Errorf("%w: --key is required for `gofly config get`", errUsage)
+			return fmt.Errorf("%w: --key is required for `gofly config get`", hooks.Usage)
 		}
 		cfg, err := generator.LoadConfig(path)
 		if err != nil {
 			return err
 		}
-		cliOutputln(getConfigField(cfg, *key))
+		hooks.PrintTextln(GetField(cfg, *key))
 		return nil
 	case "set":
 		if *key == "" {
-			return fmt.Errorf("%w: --key is required for `gofly config set`", errUsage)
+			return fmt.Errorf("%w: --key is required for `gofly config set`", hooks.Usage)
 		}
-		if *value == "" && (!valueExplicit || !isConfigFeaturesKey(*key)) {
-			return fmt.Errorf("%w: --key and --value are required for `gofly config set`", errUsage)
+		if *value == "" && (!valueExplicit || !IsFeaturesKey(*key)) {
+			return fmt.Errorf("%w: --key and --value are required for `gofly config set`", hooks.Usage)
 		}
 		cfg, err := generator.LoadConfig(path)
 		if err != nil {
 			return err
 		}
-		if err := setConfigField(cfg, *key, *value); err != nil {
+		if err := SetField(cfg, *key, *value, hooks.Usage); err != nil {
 			return err
 		}
 		if previewOnly {
-			return printCLIPlan("config.set", configPlan("config set", path, true, map[string]string{"dir": base, "key": *key, "value": *value}, []cliPlanAction{{Operation: "update-config", Target: path, Description: "update one gofly config value", RiskLevel: "low"}}))
+			return hooks.PrintPlan("config.set", configPlan("config set", path, true, map[string]string{"dir": base, "key": *key, "value": *value}, []PlanAction{{Operation: "update-config", Target: path, Description: "update one gofly config value", RiskLevel: "low"}}))
 		}
 		if err := generator.SaveConfig(path, cfg); err != nil {
 			return err
 		}
-		cliOutputf("updated gofly config: %s\n", path)
+		hooks.PrintTextf("updated gofly config: %s\n", path)
 		return nil
 	case "clean":
 		if previewOnly {
-			return printCLIPlan("config.clean", configPlan("config clean", path, true, map[string]string{"dir": base}, []cliPlanAction{{Operation: "remove-config", Target: path, Description: "remove gofly config if it exists", RiskLevel: "medium"}}))
+			return hooks.PrintPlan("config.clean", configPlan("config clean", path, true, map[string]string{"dir": base}, []PlanAction{{Operation: "remove-config", Target: path, Description: "remove gofly config if it exists", RiskLevel: "medium"}}))
 		}
 		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("clean gofly config: %w", err)
 		}
-		cliOutputf("removed gofly config: %s\n", path)
+		hooks.PrintTextf("removed gofly config: %s\n", path)
 		return nil
 	default:
-		return fmt.Errorf("%w: expected `gofly config init|show|get|set|clean`", errUsage)
+		return fmt.Errorf("%w: expected `gofly config init|show|get|set|clean`", hooks.Usage)
 	}
 }
 
-func configPlan(command, path string, dryRun bool, inputs map[string]string, actions []cliPlanAction) cliPlan {
+func configPlan(command, path string, dryRun bool, inputs map[string]string, actions []PlanAction) Plan {
 	if inputs == nil {
 		inputs = map[string]string{}
 	}
 	inputs["path"] = path
-	return cliPlan{
+	return Plan{
 		Command:           command,
 		DryRun:            dryRun,
 		MutatesFilesystem: true,

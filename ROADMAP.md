@@ -26,9 +26,9 @@ Current preview surfaces, still faster-moving than Tier 0:
 - HTTP middleware catalog and RPC IDL matrix examples
 - Benchmark trend artifacts under `bench/` (`make bench-evidence-check`)
 
-CLI package splits stay preflight-gated. Help, doctor, and release already live
-behind adapters. The `config` family preflight is complete; this roadmap does
-not authorize moving those files until `P22-19-command-config-family-split`
+CLI package splits stay preflight-gated. Help, doctor, release, and config already live
+behind adapters. The next candidate is the `feature` family; this roadmap does
+not authorize moving those files until `P22-20-command-feature-family-preflight`
 runs as its own change.
 
 ## v1.0 Compatibility

@@ -102,17 +102,17 @@ func TestCommandConfigFamilyPreflightEvidence(t *testing.T) {
 	if evidence.Schema != "gofly.command_config_family_preflight.v1" {
 		t.Fatalf("schema = %q, want gofly.command_config_family_preflight.v1", evidence.Schema)
 	}
-	if evidence.Status != "completed-config-family-preflight" {
-		t.Fatalf("status = %q, want completed-config-family-preflight", evidence.Status)
+	if evidence.Status != "completed-config-family-split" {
+		t.Fatalf("status = %q, want completed-config-family-split", evidence.Status)
 	}
-	if evidence.Package != "cmd/gofly/internal/command" {
-		t.Fatalf("package = %q, want command package", evidence.Package)
+	if evidence.Package != "cmd/gofly/internal/command/config" {
+		t.Fatalf("package = %q, want command/config package", evidence.Package)
 	}
 	if evidence.AcceptanceGate != "make command-config-family-preflight-check" {
 		t.Fatalf("acceptanceGate = %q, want make command-config-family-preflight-check", evidence.AcceptanceGate)
 	}
-	if !evidence.PreflightOnly || !evidence.NoPhysicalMove {
-		t.Fatalf("config preflight must stay planning-only: preflightOnly=%t noPhysicalMove=%t", evidence.PreflightOnly, evidence.NoPhysicalMove)
+	if evidence.PreflightOnly || evidence.NoPhysicalMove {
+		t.Fatalf("config split must record the physical move: preflightOnly=%t noPhysicalMove=%t", evidence.PreflightOnly, evidence.NoPhysicalMove)
 	}
 	assertConfigPreflightSet(t, "golden tests", evidence.GoldenTests, []string{
 		"TestCommandConfigFamilyPreflightEvidence",
@@ -130,24 +130,24 @@ func TestCommandConfigFamilyPreflightEvidence(t *testing.T) {
 			t.Fatalf("requiredGates missing %q: %v", want, evidence.RequiredGates)
 		}
 	}
-	if evidence.PhysicalSplitAdmission.Status != "preflight-complete-physical-split-not-authorized" {
-		t.Fatalf("physicalSplitAdmission.status = %q, want preflight-complete-physical-split-not-authorized", evidence.PhysicalSplitAdmission.Status)
+	if evidence.PhysicalSplitAdmission.Status != "completed-single-family-split" {
+		t.Fatalf("physicalSplitAdmission.status = %q, want completed-single-family-split", evidence.PhysicalSplitAdmission.Status)
 	}
-	if evidence.NextStep.ID != "P22-19-command-config-family-split" {
-		t.Fatalf("nextStep.id = %q, want P22-19-command-config-family-split", evidence.NextStep.ID)
+	if evidence.NextStep.ID != "P22-20-command-feature-family-preflight" {
+		t.Fatalf("nextStep.id = %q, want P22-20-command-feature-family-preflight", evidence.NextStep.ID)
 	}
-	if !strings.Contains(evidence.NextStep.Action, "until a dedicated physical-split change is authorized") {
-		t.Fatalf("nextStep.action = %q, want unauthorized physical split hold", evidence.NextStep.Action)
+	if !strings.Contains(evidence.NextStep.Action, "before moving any feature command files") {
+		t.Fatalf("nextStep.action = %q, want no move before feature preflight", evidence.NextStep.Action)
 	}
 }
 
 func TestCommandConfigFamilyPreflightContracts(t *testing.T) {
 	evidence := loadCommandConfigFamilyPreflightEvidence(t)
 	family := evidence.SelectedFamily
-	if family.ID != "config" || family.Status != "completed-config-family-preflight" {
-		t.Fatalf("selected family = %q/%q, want config/completed-config-family-preflight", family.ID, family.Status)
+	if family.ID != "config" || family.Status != "completed-config-single-family-split" {
+		t.Fatalf("selected family = %q/%q, want config/completed-config-single-family-split", family.ID, family.Status)
 	}
-	if family.CurrentPackage != "cmd/gofly/internal/command" || family.FuturePackage != "cmd/gofly/internal/command/config" {
+	if family.CurrentPackage != "cmd/gofly/internal/command/config" || family.FuturePackage != "cmd/gofly/internal/command/config" {
 		t.Fatalf("selected family packages = %q -> %q", family.CurrentPackage, family.FuturePackage)
 	}
 	assertConfigPreflightSet(t, "config files", family.Files, []string{
@@ -157,12 +157,19 @@ func TestCommandConfigFamilyPreflightContracts(t *testing.T) {
 		"config_field_helpers.go",
 	})
 	commandDir := filepath.Join("..", "..", "..", "..", "cmd", "gofly", "internal", "command")
-	if _, err := os.Stat(filepath.Join(commandDir, "config")); !os.IsNotExist(err) {
-		t.Fatalf("config subpackage must not exist during P22-18 preflight, stat err=%v", err)
+	configDir := filepath.Join(commandDir, "config")
+	if _, err := os.Stat(configDir); err != nil {
+		t.Fatalf("config subpackage must exist after P22-19: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(commandDir, "config_adapter.go")); err != nil {
+		t.Fatalf("config adapter must remain in command package: %v", err)
 	}
 	for _, filename := range family.Files {
-		if _, err := os.Stat(filepath.Join(commandDir, filename)); err != nil {
-			t.Fatalf("config family file %s must remain in command package: %v", filename, err)
+		if _, err := os.Stat(filepath.Join(configDir, filename)); err != nil {
+			t.Fatalf("config split file %s must live in command/config: %v", filename, err)
+		}
+		if _, err := os.Stat(filepath.Join(commandDir, filename)); !os.IsNotExist(err) {
+			t.Fatalf("config split file %s must not remain in command package, stat err=%v", filename, err)
 		}
 	}
 	for _, want := range []string{
@@ -175,8 +182,8 @@ func TestCommandConfigFamilyPreflightContracts(t *testing.T) {
 			t.Fatalf("blockedMoves missing %q: %v", want, family.BlockedMoves)
 		}
 	}
-	if !strings.Contains(family.RollbackRequirement, "Keep config files") {
-		t.Fatalf("rollbackRequirement = %q, want keep-in-place guidance", family.RollbackRequirement)
+	if !strings.Contains(family.RollbackRequirement, "Restore config files") {
+		t.Fatalf("rollbackRequirement = %q, want config file restore guidance", family.RollbackRequirement)
 	}
 
 	contracts := evidence.Contracts
@@ -223,16 +230,14 @@ func TestCommandConfigFamilyPreflightContracts(t *testing.T) {
 	if contracts.PathBoundary.ConfigFileConstant != generator.DefaultConfigFile || !contracts.PathBoundary.UsesGeneratorPath {
 		t.Fatalf("path boundary = %+v, want generator.DefaultConfigFile", contracts.PathBoundary)
 	}
-	if contracts.LocalExecutionBoundary.Status != "preflight-complete-files-remain-in-command" {
+	if contracts.LocalExecutionBoundary.Status != "package-split-complete" {
 		t.Fatalf("localExecutionBoundary.status = %q", contracts.LocalExecutionBoundary.Status)
 	}
 	assertConfigPreflightSet(t, "runner files", contracts.LocalExecutionBoundary.RunnerFiles, []string{"config_command.go"})
 	assertConfigPreflightSet(t, "field files", contracts.LocalExecutionBoundary.FieldFiles, []string{
 		"config_fields.go", "config_field_setters.go", "config_field_helpers.go",
 	})
-	if len(contracts.LocalExecutionBoundary.RenderingFiles) != 0 {
-		t.Fatalf("rendering files = %v, want empty until an authorized adapter split", contracts.LocalExecutionBoundary.RenderingFiles)
-	}
+	assertConfigPreflightSet(t, "rendering files", contracts.LocalExecutionBoundary.RenderingFiles, []string{"hooks.go"})
 	if !contracts.OutputDiscipline.JSONStdoutOnly || !contracts.OutputDiscipline.ErrorsDoNotEmitDuplicateJSON || !contracts.OutputDiscipline.TextOutputUsesCommandIO || !contracts.OutputDiscipline.NoImplicitJSON {
 		t.Fatalf("output discipline = %+v, want all true", contracts.OutputDiscipline)
 	}
@@ -296,15 +301,15 @@ func loadCommandConfigFamilyPreflightEvidence(t *testing.T) commandConfigFamilyP
 	t.Helper()
 	return commandConfigFamilyPreflightEvidence{
 		Schema:         "gofly.command_config_family_preflight.v1",
-		Status:         "completed-config-family-preflight",
-		Package:        "cmd/gofly/internal/command",
+		Status:         "completed-config-family-split",
+		Package:        "cmd/gofly/internal/command/config",
 		AcceptanceGate: "make command-config-family-preflight-check",
-		PreflightOnly:  true,
-		NoPhysicalMove: true,
+		PreflightOnly:  false,
+		NoPhysicalMove: false,
 		SelectedFamily: commandConfigFamilyPreflightFamily{
 			ID:             "config",
-			Status:         "completed-config-family-preflight",
-			CurrentPackage: "cmd/gofly/internal/command",
+			Status:         "completed-config-single-family-split",
+			CurrentPackage: "cmd/gofly/internal/command/config",
 			FuturePackage:  "cmd/gofly/internal/command/config",
 			Files: []string{
 				"config_command.go",
@@ -318,7 +323,7 @@ func loadCommandConfigFamilyPreflightEvidence(t *testing.T) commandConfigFamilyP
 				"do not move generator config helpers",
 				"do not move any non-config command family",
 			},
-			RollbackRequirement: "Keep config files in cmd/gofly/internal/command if registration, help, or JSON behavior drifts",
+			RollbackRequirement: "Restore config files to cmd/gofly/internal/command/config and keep config_adapter.go if registration, help, or JSON behavior drifts",
 		},
 		Contracts: commandConfigFamilyPreflightContract{
 			CommandRegistration: commandConfigFamilyCommandRegistration{
@@ -343,9 +348,10 @@ func loadCommandConfigFamilyPreflightEvidence(t *testing.T) commandConfigFamilyP
 				UsesGeneratorPath:  true,
 			},
 			LocalExecutionBoundary: commandConfigFamilyLocalBoundary{
-				Status:      "preflight-complete-files-remain-in-command",
-				RunnerFiles: []string{"config_command.go"},
-				FieldFiles:  []string{"config_fields.go", "config_field_setters.go", "config_field_helpers.go"},
+				Status:         "package-split-complete",
+				RunnerFiles:    []string{"config_command.go"},
+				FieldFiles:     []string{"config_fields.go", "config_field_setters.go", "config_field_helpers.go"},
+				RenderingFiles: []string{"hooks.go"},
 			},
 			OutputDiscipline: commandConfigFamilyOutputDiscipline{
 				JSONStdoutOnly:               true,
@@ -355,14 +361,14 @@ func loadCommandConfigFamilyPreflightEvidence(t *testing.T) commandConfigFamilyP
 			},
 		},
 		PhysicalSplitAdmission: commandConfigFamilyPhysicalAdmission{
-			Status:   "preflight-complete-physical-split-not-authorized",
-			NextStep: "copy help/doctor/release adapter pattern only after an authorized P22-19 change",
+			Status:   "completed-single-family-split",
+			NextStep: "keep config routed through config_adapter.go and preflight the next bounded family",
 			RequiredSignals: []string{
 				"config command remains registered",
 				"config dry-run JSON remains stdout-only",
 				"config text commands stay non-JSON by default",
 			},
-			RequiredGates: []string{"go test ./cmd/gofly/internal/command -run TestCommandConfigFamilyPreflight"},
+			RequiredGates: []string{"go test ./cmd/gofly/internal/command ./cmd/gofly/internal/command/config"},
 		},
 		GoldenTests: []string{
 			"TestCommandConfigFamilyPreflightEvidence",
@@ -377,8 +383,8 @@ func loadCommandConfigFamilyPreflightEvidence(t *testing.T) commandConfigFamilyP
 			"make required-checks-drift-check",
 		},
 		NextStep: commandConfigFamilyNextStep{
-			ID:     "P22-19-command-config-family-split",
-			Action: "do not move config command files until a dedicated physical-split change is authorized",
+			ID:     "P22-20-command-feature-family-preflight",
+			Action: "run feature family preflight before moving any feature command files",
 		},
 	}
 }

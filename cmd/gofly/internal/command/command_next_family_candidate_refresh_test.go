@@ -68,6 +68,7 @@ func TestCommandNextFamilyCandidateRefreshEvidence(t *testing.T) {
 		"help physical split is complete and still routed through help_adapter.go",
 		"doctor physical split is complete and still routed through doctor_adapter.go",
 		"release physical split is complete and still routed through release_adapter.go",
+		"config family preflight is complete and still forbids a physical move",
 		"shared helper movement remains blocked after help, doctor and release extraction",
 		"command family dependency map accounts for every command file exactly once",
 	})
@@ -77,6 +78,7 @@ func TestCommandNextFamilyCandidateRefreshEvidence(t *testing.T) {
 	})
 	for _, want := range []string{
 		"make command-next-family-candidate-refresh-check",
+		"make command-config-family-preflight-check",
 		"make command-family-dependency-map-check",
 		"make command-split-readiness-check",
 		"make command-help-doctor-split-preflight-check",
@@ -87,19 +89,19 @@ func TestCommandNextFamilyCandidateRefreshEvidence(t *testing.T) {
 			t.Fatalf("requiredGates missing %q: %v", want, evidence.RequiredGates)
 		}
 	}
-	if evidence.NextStep.ID != "P22-18-command-config-family-preflight" {
-		t.Fatalf("nextStep.id = %q, want P22-18-command-config-family-preflight", evidence.NextStep.ID)
+	if evidence.NextStep.ID != "P22-19-command-config-family-split" {
+		t.Fatalf("nextStep.id = %q, want P22-19-command-config-family-split", evidence.NextStep.ID)
 	}
-	if !strings.Contains(evidence.NextStep.Action, "before moving any config command files") {
-		t.Fatalf("nextStep.action = %q, want no move before config preflight", evidence.NextStep.Action)
+	if !strings.Contains(evidence.NextStep.Action, "until a dedicated physical-split change is authorized") {
+		t.Fatalf("nextStep.action = %q, want unauthorized physical split hold", evidence.NextStep.Action)
 	}
 }
 
 func TestCommandNextFamilyCandidateRefreshContracts(t *testing.T) {
 	evidence := loadCommandNextFamilyCandidateRefreshEvidence(t)
 	candidate := evidence.SelectedCandidate
-	if candidate.ID != "config" || candidate.Status != "candidate-after-release-split" {
-		t.Fatalf("selected candidate = %q/%q, want config/candidate-after-release-split", candidate.ID, candidate.Status)
+	if candidate.ID != "config" || candidate.Status != "preflight-complete-awaiting-authorized-split" {
+		t.Fatalf("selected candidate = %q/%q, want config/preflight-complete-awaiting-authorized-split", candidate.ID, candidate.Status)
 	}
 	if candidate.Package != "cmd/gofly/internal/command" {
 		t.Fatalf("selected candidate package = %q, want command package", candidate.Package)
@@ -113,11 +115,11 @@ func TestCommandNextFamilyCandidateRefreshContracts(t *testing.T) {
 	commandDir := filepath.Join("..", "..", "..", "..", "cmd", "gofly", "internal", "command")
 	for _, filename := range candidate.Files {
 		if _, err := os.Stat(filepath.Join(commandDir, filename)); err != nil {
-			t.Fatalf("config candidate file %s must remain in command package during P22-18 planning: %v", filename, err)
+			t.Fatalf("config candidate file %s must remain in command package until an authorized P22-19 split: %v", filename, err)
 		}
 	}
 	if _, err := os.Stat(filepath.Join(commandDir, "config")); !os.IsNotExist(err) {
-		t.Fatalf("config subpackage must not exist during P22-18 candidate refresh, stat err=%v", err)
+		t.Fatalf("config subpackage must not exist until an authorized P22-19 split, stat err=%v", err)
 	}
 	for _, want := range []string{
 		"bounded file family",
@@ -129,14 +131,15 @@ func TestCommandNextFamilyCandidateRefreshContracts(t *testing.T) {
 		}
 	}
 	for _, want := range []string{
-		"pin config JSON output, help topics, and path-helper contracts before any package move",
-		"keep generator and shared IO helpers in the command package during config preflight",
+		"keep config JSON, help, and path-helper contracts pinned until an authorized physical split",
+		"copy help/doctor/release adapter pattern; do not create command/config until P22-19",
 	} {
 		if !containsNextFamilyCandidateString(candidate.RequiredPreSplitActions, want) {
 			t.Fatalf("candidate requiredPreSplitActions missing %q: %v", want, candidate.RequiredPreSplitActions)
 		}
 	}
 	for _, want := range []string{
+		"make command-config-family-preflight-check",
 		"make command-next-family-candidate-refresh-check",
 		"make cli-json-contract-goldens-check",
 		"make required-checks-drift-check",
@@ -215,12 +218,13 @@ func loadCommandNextFamilyCandidateRefreshEvidence(t *testing.T) commandNextFami
 			"help physical split is complete and still routed through help_adapter.go",
 			"doctor physical split is complete and still routed through doctor_adapter.go",
 			"release physical split is complete and still routed through release_adapter.go",
+			"config family preflight is complete and still forbids a physical move",
 			"shared helper movement remains blocked after help, doctor and release extraction",
 			"command family dependency map accounts for every command file exactly once",
 		},
 		SelectedCandidate: commandNextFamilyCandidate{
 			ID:      "config",
-			Status:  "candidate-after-release-split",
+			Status:  "preflight-complete-awaiting-authorized-split",
 			Package: "cmd/gofly/internal/command",
 			Files: []string{
 				"config_command.go",
@@ -230,10 +234,11 @@ func loadCommandNextFamilyCandidateRefreshEvidence(t *testing.T) commandNextFami
 			},
 			Reason: "bounded file family that still shares path helpers with generator surfaces",
 			RequiredPreSplitActions: []string{
-				"pin config JSON output, help topics, and path-helper contracts before any package move",
-				"keep generator and shared IO helpers in the command package during config preflight",
+				"keep config JSON, help, and path-helper contracts pinned until an authorized physical split",
+				"copy help/doctor/release adapter pattern; do not create command/config until P22-19",
 			},
 			RequiredGates: []string{
+				"make command-config-family-preflight-check",
 				"make command-next-family-candidate-refresh-check",
 				"make cli-json-contract-goldens-check",
 				"make required-checks-drift-check",
@@ -257,6 +262,7 @@ func loadCommandNextFamilyCandidateRefreshEvidence(t *testing.T) commandNextFami
 		},
 		RequiredGates: []string{
 			"make command-next-family-candidate-refresh-check",
+			"make command-config-family-preflight-check",
 			"make command-family-dependency-map-check",
 			"make command-split-readiness-check",
 			"make command-help-doctor-split-preflight-check",
@@ -264,8 +270,8 @@ func loadCommandNextFamilyCandidateRefreshEvidence(t *testing.T) commandNextFami
 			"make cli-json-contract-goldens-check",
 		},
 		NextStep: commandNextFamilyCandidateNextStep{
-			ID:     "P22-18-command-config-family-preflight",
-			Action: "run config family preflight before moving any config command files",
+			ID:     "P22-19-command-config-family-split",
+			Action: "do not move config command files until a dedicated physical-split change is authorized",
 		},
 	}
 }

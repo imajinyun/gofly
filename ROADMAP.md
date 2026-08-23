@@ -27,8 +27,8 @@ Current preview surfaces, still faster-moving than Tier 0:
 - Benchmark trend artifacts under `bench/` (`make bench-evidence-check`)
 
 CLI package splits stay preflight-gated. Help, doctor, and release already live
-behind adapters. The next candidate is the `config` family; this roadmap does
-not authorize moving those files until `P22-18-command-config-family-preflight`
+behind adapters. The `config` family preflight is complete; this roadmap does
+not authorize moving those files until `P22-19-command-config-family-split`
 runs as its own change.
 
 ## v1.0 Compatibility

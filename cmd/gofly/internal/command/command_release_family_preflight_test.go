@@ -123,8 +123,8 @@ func TestCommandReleaseFamilyPreflightEvidence(t *testing.T) {
 	if evidence.PhysicalSplitAdmission.Status != "completed-single-family-split" {
 		t.Fatalf("physicalSplitAdmission.status = %q, want completed-single-family-split", evidence.PhysicalSplitAdmission.Status)
 	}
-	if evidence.NextStep.ID != "P22-18-command-config-family-preflight" {
-		t.Fatalf("nextStep.id = %q, want P22-18-command-config-family-preflight", evidence.NextStep.ID)
+	if evidence.NextStep.ID != "P22-19-command-config-family-split" {
+		t.Fatalf("nextStep.id = %q, want P22-19-command-config-family-split", evidence.NextStep.ID)
 	}
 }
 
@@ -349,8 +349,8 @@ func loadCommandReleaseFamilyPreflightEvidence(t *testing.T) commandReleaseFamil
 			"make required-checks-drift-check",
 		},
 		NextStep: commandReleaseFamilyNextStep{
-			ID:     "P22-18-command-config-family-preflight",
-			Action: "run config family preflight before moving any config command files",
+			ID:     "P22-19-command-config-family-split",
+			Action: "do not move config command files until a dedicated physical-split change is authorized",
 		},
 	}
 }

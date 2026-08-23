@@ -93,17 +93,17 @@ func TestCommandReleaseFamilyPreflightEvidence(t *testing.T) {
 	if evidence.Schema != "gofly.command_release_family_preflight.v1" {
 		t.Fatalf("schema = %q, want gofly.command_release_family_preflight.v1", evidence.Schema)
 	}
-	if evidence.Status != "completed-release-family-preflight" {
-		t.Fatalf("status = %q, want completed-release-family-preflight", evidence.Status)
+	if evidence.Status != "completed-release-family-split" {
+		t.Fatalf("status = %q, want completed-release-family-split", evidence.Status)
 	}
-	if evidence.Package != "cmd/gofly/internal/command" {
-		t.Fatalf("package = %q, want command package", evidence.Package)
+	if evidence.Package != "cmd/gofly/internal/command/release" {
+		t.Fatalf("package = %q, want command/release package", evidence.Package)
 	}
 	if evidence.AcceptanceGate != "make command-release-family-preflight-check" {
 		t.Fatalf("acceptanceGate = %q, want make command-release-family-preflight-check", evidence.AcceptanceGate)
 	}
-	if !evidence.PreflightOnly || !evidence.NoPhysicalMove {
-		t.Fatalf("release preflight must not move files: preflightOnly=%t noPhysicalMove=%t", evidence.PreflightOnly, evidence.NoPhysicalMove)
+	if evidence.PreflightOnly || evidence.NoPhysicalMove {
+		t.Fatalf("release split must record the physical move: preflightOnly=%t noPhysicalMove=%t", evidence.PreflightOnly, evidence.NoPhysicalMove)
 	}
 	assertReleasePreflightSet(t, "golden tests", evidence.GoldenTests, []string{
 		"TestCommandReleaseFamilyPreflightEvidence",
@@ -120,21 +120,21 @@ func TestCommandReleaseFamilyPreflightEvidence(t *testing.T) {
 			t.Fatalf("requiredGates missing %q: %v", want, evidence.RequiredGates)
 		}
 	}
-	if evidence.PhysicalSplitAdmission.Status != "ready-for-single-family-split" {
-		t.Fatalf("physicalSplitAdmission.status = %q, want ready-for-single-family-split", evidence.PhysicalSplitAdmission.Status)
+	if evidence.PhysicalSplitAdmission.Status != "completed-single-family-split" {
+		t.Fatalf("physicalSplitAdmission.status = %q, want completed-single-family-split", evidence.PhysicalSplitAdmission.Status)
 	}
-	if evidence.NextStep.ID != "P22-17-command-release-single-family-split" {
-		t.Fatalf("nextStep.id = %q, want P22-17-command-release-single-family-split", evidence.NextStep.ID)
+	if evidence.NextStep.ID != "P22-18-command-config-family-preflight" {
+		t.Fatalf("nextStep.id = %q, want P22-18-command-config-family-preflight", evidence.NextStep.ID)
 	}
 }
 
 func TestCommandReleaseFamilyPreflightContracts(t *testing.T) {
 	evidence := loadCommandReleaseFamilyPreflightEvidence(t)
 	family := evidence.SelectedFamily
-	if family.ID != "release" || family.Status != "ready-for-release-single-family-split" {
-		t.Fatalf("selected family = %q/%q, want release/ready-for-release-single-family-split", family.ID, family.Status)
+	if family.ID != "release" || family.Status != "completed-release-single-family-split" {
+		t.Fatalf("selected family = %q/%q, want release/completed-release-single-family-split", family.ID, family.Status)
 	}
-	if family.CurrentPackage != "cmd/gofly/internal/command" || family.FuturePackage != "cmd/gofly/internal/command/release" {
+	if family.CurrentPackage != "cmd/gofly/internal/command/release" || family.FuturePackage != "cmd/gofly/internal/command/release" {
 		t.Fatalf("selected family packages = %q -> %q", family.CurrentPackage, family.FuturePackage)
 	}
 	assertReleasePreflightSet(t, "release files", family.Files, []string{
@@ -147,13 +147,20 @@ func TestCommandReleaseFamilyPreflightContracts(t *testing.T) {
 		"release_types.go",
 	})
 	commandDir := filepath.Join("..", "..", "..", "..", "cmd", "gofly", "internal", "command")
-	for _, filename := range family.Files {
-		if _, err := os.Stat(filepath.Join(commandDir, filename)); err != nil {
-			t.Fatalf("release preflight file %s must remain in command package during P22-16: %v", filename, err)
-		}
+	releaseDir := filepath.Join(commandDir, "release")
+	if _, err := os.Stat(releaseDir); err != nil {
+		t.Fatalf("release subpackage must exist after P22-17: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(commandDir, "release")); !os.IsNotExist(err) {
-		t.Fatalf("release subpackage must not exist during P22-16 preflight, stat err=%v", err)
+	if _, err := os.Stat(filepath.Join(commandDir, "release_adapter.go")); err != nil {
+		t.Fatalf("release adapter must remain in command package: %v", err)
+	}
+	for _, filename := range family.Files {
+		if _, err := os.Stat(filepath.Join(releaseDir, filename)); err != nil {
+			t.Fatalf("release split file %s must live in command/release: %v", filename, err)
+		}
+		if _, err := os.Stat(filepath.Join(commandDir, filename)); !os.IsNotExist(err) {
+			t.Fatalf("release split file %s must not remain in command package, stat err=%v", filename, err)
+		}
 	}
 	for _, want := range []string{
 		"do not move JSON error helpers",
@@ -212,7 +219,7 @@ func TestCommandReleaseFamilyPreflightContracts(t *testing.T) {
 		"rpc-mux-adapter-evidence",
 		"generated-rpc-mux-retry-smoke",
 	})
-	if contracts.LocalExecutionBoundary.Status != "file-separated-before-package-split" {
+	if contracts.LocalExecutionBoundary.Status != "package-split-complete" {
 		t.Fatalf("localExecutionBoundary.status = %q", contracts.LocalExecutionBoundary.Status)
 	}
 	assertReleasePreflightSet(t, "runner files", contracts.LocalExecutionBoundary.RunnerFiles, []string{"release_helpers.go", "release_local_checks.go"})
@@ -255,15 +262,15 @@ func loadCommandReleaseFamilyPreflightEvidence(t *testing.T) commandReleaseFamil
 	t.Helper()
 	return commandReleaseFamilyPreflightEvidence{
 		Schema:         "gofly.command_release_family_preflight.v1",
-		Status:         "completed-release-family-preflight",
-		Package:        "cmd/gofly/internal/command",
+		Status:         "completed-release-family-split",
+		Package:        "cmd/gofly/internal/command/release",
 		AcceptanceGate: "make command-release-family-preflight-check",
-		PreflightOnly:  true,
-		NoPhysicalMove: true,
+		PreflightOnly:  false,
+		NoPhysicalMove: false,
 		SelectedFamily: commandReleaseFamilyPreflightFamily{
 			ID:             "release",
-			Status:         "ready-for-release-single-family-split",
-			CurrentPackage: "cmd/gofly/internal/command",
+			Status:         "completed-release-single-family-split",
+			CurrentPackage: "cmd/gofly/internal/command/release",
 			FuturePackage:  "cmd/gofly/internal/command/release",
 			Files: []string{
 				"release.go",
@@ -279,7 +286,7 @@ func loadCommandReleaseFamilyPreflightEvidence(t *testing.T) commandReleaseFamil
 				"do not move global output or IO helpers",
 				"do not move any non-release command family",
 			},
-			RollbackRequirement: "Restore release files to cmd/gofly/internal/command if registration, help, or JSON behavior drifts",
+			RollbackRequirement: "Restore release files to cmd/gofly/internal/command/release and keep release_adapter.go if registration, help, or JSON behavior drifts",
 		},
 		Contracts: commandReleaseFamilyPreflightContract{
 			CommandRegistration: commandReleaseFamilyCommandRegistration{
@@ -311,7 +318,7 @@ func loadCommandReleaseFamilyPreflightEvidence(t *testing.T) commandReleaseFamil
 				"generated-rpc-mux-retry-smoke",
 			},
 			LocalExecutionBoundary: commandReleaseFamilyLocalBoundary{
-				Status:         "file-separated-before-package-split",
+				Status:         "package-split-complete",
 				RunnerFiles:    []string{"release_helpers.go", "release_local_checks.go"},
 				RenderingFiles: []string{"release_output.go"},
 			},
@@ -322,13 +329,13 @@ func loadCommandReleaseFamilyPreflightEvidence(t *testing.T) commandReleaseFamil
 			},
 		},
 		PhysicalSplitAdmission: commandReleaseFamilyPhysicalAdmission{
-			Status:   "ready-for-single-family-split",
-			NextStep: "move only release files after this preflight remains green",
+			Status:   "completed-single-family-split",
+			NextStep: "keep release routed through release_adapter.go and preflight the next bounded family",
 			RequiredSignals: []string{
 				"release command remains registered",
 				"release check JSON remains stdout-only",
 			},
-			RequiredGates: []string{"go test ./cmd/gofly/internal/command"},
+			RequiredGates: []string{"go test ./cmd/gofly/internal/command ./cmd/gofly/internal/command/release"},
 		},
 		GoldenTests: []string{
 			"TestCommandReleaseFamilyPreflightEvidence",
@@ -342,8 +349,8 @@ func loadCommandReleaseFamilyPreflightEvidence(t *testing.T) commandReleaseFamil
 			"make required-checks-drift-check",
 		},
 		NextStep: commandReleaseFamilyNextStep{
-			ID:     "P22-17-command-release-single-family-split",
-			Action: "move release command files only after registration, help, JSON and local execution boundaries stay green",
+			ID:     "P22-18-command-config-family-preflight",
+			Action: "run config family preflight before moving any config command files",
 		},
 	}
 }

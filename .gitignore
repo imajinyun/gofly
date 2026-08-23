@@ -38,10 +38,25 @@ governance-report.*
 
 # Local agent planning docs. Do not commit this tree.
 docs/*
+!docs/index.md
 !docs/reference/
 !docs/reference/*
 !docs/operations/
 !docs/operations/*
+!docs/tutorials/
+!docs/tutorials/*
+!docs/how-to/
+!docs/how-to/*
+!docs/explanation/
+!docs/explanation/*
+!docs/guides/
+!docs/guides/*
+!docs/comparisons/
+!docs/comparisons/*
+!docs/releases/
+!docs/releases/*
+!docs/getting-started/
+!docs/getting-started/*
 
 # Dependency directories (remove the comment below to include it)
 vendor/

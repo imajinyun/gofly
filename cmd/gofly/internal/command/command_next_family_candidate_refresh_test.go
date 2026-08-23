@@ -67,7 +67,8 @@ func TestCommandNextFamilyCandidateRefreshEvidence(t *testing.T) {
 	assertNextFamilyCandidateSet(t, "completed prerequisites", evidence.CompletedPrerequisites, []string{
 		"help physical split is complete and still routed through help_adapter.go",
 		"doctor physical split is complete and still routed through doctor_adapter.go",
-		"shared helper movement remains blocked after help and doctor extraction",
+		"release physical split is complete and still routed through release_adapter.go",
+		"shared helper movement remains blocked after help, doctor and release extraction",
 		"command family dependency map accounts for every command file exactly once",
 	})
 	assertNextFamilyCandidateSet(t, "golden tests", evidence.GoldenTests, []string{
@@ -86,53 +87,50 @@ func TestCommandNextFamilyCandidateRefreshEvidence(t *testing.T) {
 			t.Fatalf("requiredGates missing %q: %v", want, evidence.RequiredGates)
 		}
 	}
-	if evidence.NextStep.ID != "P22-16-command-release-family-preflight" {
-		t.Fatalf("nextStep.id = %q, want P22-16-command-release-family-preflight", evidence.NextStep.ID)
+	if evidence.NextStep.ID != "P22-18-command-config-family-preflight" {
+		t.Fatalf("nextStep.id = %q, want P22-18-command-config-family-preflight", evidence.NextStep.ID)
 	}
-	if !strings.Contains(evidence.NextStep.Action, "before moving any release command files") {
-		t.Fatalf("nextStep.action = %q, want no move before release preflight", evidence.NextStep.Action)
+	if !strings.Contains(evidence.NextStep.Action, "before moving any config command files") {
+		t.Fatalf("nextStep.action = %q, want no move before config preflight", evidence.NextStep.Action)
 	}
 }
 
 func TestCommandNextFamilyCandidateRefreshContracts(t *testing.T) {
 	evidence := loadCommandNextFamilyCandidateRefreshEvidence(t)
 	candidate := evidence.SelectedCandidate
-	if candidate.ID != "release" || candidate.Status != "candidate-after-json-golden" {
-		t.Fatalf("selected candidate = %q/%q, want release/candidate-after-json-golden", candidate.ID, candidate.Status)
+	if candidate.ID != "config" || candidate.Status != "candidate-after-release-split" {
+		t.Fatalf("selected candidate = %q/%q, want config/candidate-after-release-split", candidate.ID, candidate.Status)
 	}
 	if candidate.Package != "cmd/gofly/internal/command" {
 		t.Fatalf("selected candidate package = %q, want command package", candidate.Package)
 	}
-	assertNextFamilyCandidateSet(t, "release files", candidate.Files, []string{
-		"release.go",
-		"release_contract_checks.go",
-		"release_helpers.go",
-		"release_local_checks.go",
-		"release_output.go",
-		"release_test.go",
-		"release_types.go",
+	assertNextFamilyCandidateSet(t, "config files", candidate.Files, []string{
+		"config_command.go",
+		"config_fields.go",
+		"config_field_setters.go",
+		"config_field_helpers.go",
 	})
 	commandDir := filepath.Join("..", "..", "..", "..", "cmd", "gofly", "internal", "command")
 	for _, filename := range candidate.Files {
 		if _, err := os.Stat(filepath.Join(commandDir, filename)); err != nil {
-			t.Fatalf("release candidate file %s must remain in command package during P22-15: %v", filename, err)
+			t.Fatalf("config candidate file %s must remain in command package during P22-18 planning: %v", filename, err)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(commandDir, "release")); !os.IsNotExist(err) {
-		t.Fatalf("release subpackage must not exist during P22-15 candidate refresh, stat err=%v", err)
+	if _, err := os.Stat(filepath.Join(commandDir, "config")); !os.IsNotExist(err) {
+		t.Fatalf("config subpackage must not exist during P22-18 candidate refresh, stat err=%v", err)
 	}
 	for _, want := range []string{
 		"bounded file family",
-		"JSON golden coverage",
-		"release contract tests",
+		"path helpers",
+		"generator surfaces",
 	} {
 		if !strings.Contains(candidate.Reason, want) {
 			t.Fatalf("candidate reason missing %q: %s", want, candidate.Reason)
 		}
 	}
 	for _, want := range []string{
-		"pin release check JSON output, error envelope, artifact evidence, and skip-gate behavior",
-		"isolate local shell command execution from release output rendering through a small adapter",
+		"pin config JSON output, help topics, and path-helper contracts before any package move",
+		"keep generator and shared IO helpers in the command package during config preflight",
 	} {
 		if !containsNextFamilyCandidateString(candidate.RequiredPreSplitActions, want) {
 			t.Fatalf("candidate requiredPreSplitActions missing %q: %v", want, candidate.RequiredPreSplitActions)
@@ -147,7 +145,7 @@ func TestCommandNextFamilyCandidateRefreshContracts(t *testing.T) {
 			t.Fatalf("candidate requiredGates missing %q: %v", want, candidate.RequiredGates)
 		}
 	}
-	if !strings.Contains(candidate.RollbackRequirement, "Restore release to deferred status") {
+	if !strings.Contains(candidate.RollbackRequirement, "Restore config to deferred status") {
 		t.Fatalf("candidate rollbackRequirement = %q, want restore guidance", candidate.RollbackRequirement)
 	}
 
@@ -155,10 +153,13 @@ func TestCommandNextFamilyCandidateRefreshContracts(t *testing.T) {
 	for _, item := range evidence.DeferredCandidates {
 		deferred[item.ID] = item.Reason
 	}
-	for _, id := range []string{"config", "plugin", "api", "rpc", "model", "new"} {
+	for _, id := range []string{"plugin", "api", "rpc", "model", "new"} {
 		if deferred[id] == "" {
 			t.Fatalf("deferred candidate %q must explain why it is not next: %#v", id, deferred)
 		}
+	}
+	if deferred["config"] != "" {
+		t.Fatalf("config must be the selected candidate, not deferred: %#v", deferred)
 	}
 	blocked := map[string]string{}
 	for _, item := range evidence.BlockedFamilies {
@@ -213,36 +214,33 @@ func loadCommandNextFamilyCandidateRefreshEvidence(t *testing.T) commandNextFami
 		CompletedPrerequisites: []string{
 			"help physical split is complete and still routed through help_adapter.go",
 			"doctor physical split is complete and still routed through doctor_adapter.go",
-			"shared helper movement remains blocked after help and doctor extraction",
+			"release physical split is complete and still routed through release_adapter.go",
+			"shared helper movement remains blocked after help, doctor and release extraction",
 			"command family dependency map accounts for every command file exactly once",
 		},
 		SelectedCandidate: commandNextFamilyCandidate{
-			ID:      "release",
-			Status:  "candidate-after-json-golden",
+			ID:      "config",
+			Status:  "candidate-after-release-split",
 			Package: "cmd/gofly/internal/command",
 			Files: []string{
-				"release.go",
-				"release_contract_checks.go",
-				"release_helpers.go",
-				"release_local_checks.go",
-				"release_output.go",
-				"release_test.go",
-				"release_types.go",
+				"config_command.go",
+				"config_fields.go",
+				"config_field_setters.go",
+				"config_field_helpers.go",
 			},
-			Reason: "bounded file family with JSON golden coverage and release contract tests",
+			Reason: "bounded file family that still shares path helpers with generator surfaces",
 			RequiredPreSplitActions: []string{
-				"pin release check JSON output, error envelope, artifact evidence, and skip-gate behavior",
-				"isolate local shell command execution from release output rendering through a small adapter",
+				"pin config JSON output, help topics, and path-helper contracts before any package move",
+				"keep generator and shared IO helpers in the command package during config preflight",
 			},
 			RequiredGates: []string{
 				"make command-next-family-candidate-refresh-check",
 				"make cli-json-contract-goldens-check",
 				"make required-checks-drift-check",
 			},
-			RollbackRequirement: "Restore release to deferred status if JSON, help, or registration behavior drifts",
+			RollbackRequirement: "Restore config to deferred status if JSON, help, or registration behavior drifts",
 		},
 		DeferredCandidates: []commandNextFamilyCandidateReason{
-			{ID: "config", Reason: "config still shares path and output helpers with generator surfaces"},
 			{ID: "plugin", Reason: "plugin touches external process and cache safety boundaries"},
 			{ID: "api", Reason: "api remains high-coupling with generator and compatibility aliases"},
 			{ID: "rpc", Reason: "rpc remains high-coupling with protobuf, descriptor and template paths"},
@@ -266,8 +264,8 @@ func loadCommandNextFamilyCandidateRefreshEvidence(t *testing.T) commandNextFami
 			"make cli-json-contract-goldens-check",
 		},
 		NextStep: commandNextFamilyCandidateNextStep{
-			ID:     "P22-16-command-release-family-preflight",
-			Action: "run release family preflight before moving any release command files",
+			ID:     "P22-18-command-config-family-preflight",
+			Action: "run config family preflight before moving any config command files",
 		},
 	}
 }

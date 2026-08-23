@@ -1,4 +1,10 @@
-package command
+package release
+
+// CheckReport is the exported release check report used by the command adapter.
+type CheckReport = releaseCheckReport
+
+// CheckItem is a single named check in a release report.
+type CheckItem = releaseCheckItem
 
 // releaseCheckReport aggregates all release-governance signals into a single
 // structured report that can be consumed by CI or release automation.

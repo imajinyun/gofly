@@ -57,8 +57,8 @@ def classify(file_path, rules, rationale):
         coverage.append("cmd/gofly/internal/command/ai_helpers_test.go")
     elif "cmd/gofly/internal/command/idl.go" in file_path:
         coverage.append("cmd/gofly/internal/command/idl_test.go")
-    elif "cmd/gofly/internal/command/release.go" in file_path:
-        coverage.append("cmd/gofly/internal/command/release_test.go")
+    elif "cmd/gofly/internal/command/release/" in file_path:
+        coverage.append("cmd/gofly/internal/command/release/release_test.go")
     else:
         coverage.append("package-local *_test.go or governance scan")
 

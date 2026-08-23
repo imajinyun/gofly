@@ -3,7 +3,8 @@
   "sourceOfTruth": [
     "docs/reference/goctl-generator-compatibility.json",
     "docs/reference/goctl-real-project-replay.json",
-    "docs/reference/generated-upgrade-dry-run.json"
+    "docs/reference/generated-upgrade-dry-run.json",
+    "docs/reference/db-cache-productization.json"
   ],
   "goctlCompatibility": {
     "evidence": "docs/reference/goctl-generator-compatibility.json",

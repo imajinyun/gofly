@@ -1,0 +1,368 @@
+{
+  "schema": "gofly.reference_app_topology.v1",
+  "status": "blocking",
+  "referenceApp": "examples/production/production-orders",
+  "blockingGate": "make reference-app-smoke",
+  "modes": [
+    {
+      "id": "memory",
+      "gate": "REFERENCE_APP_MODE=memory make reference-app-smoke",
+      "components": ["REST", "RPC", "MQ", "outbox", "saga", "config", "discovery", "cache", "observability", "K8s", "rollback"],
+      "evidenceRefs": [
+        {
+          "path": "examples/production/production-orders/main.go",
+          "contains": ["REST API accepts order creation requests", "RPC service reserves inventory", "profile config and memory discovery"]
+        },
+        {
+          "path": "examples/production/production-orders/README.md",
+          "contains": ["gofly.reference_app.v1", "REFERENCE_APP_MODE=memory make reference-app-smoke"]
+        }
+      ]
+    },
+    {
+      "id": "docker",
+      "gate": "REFERENCE_APP_MODE=docker make reference-app-smoke",
+      "components": ["SQL outbox", "Redis cache", "Kafka", "RabbitMQ", "Redis Stream", "Consul", "etcd", "Nacos", "OpenTelemetry collector"],
+      "evidenceRefs": [
+        {
+          "path": "examples/production/production-orders/compose.yaml",
+          "contains": ["postgres", "redis", "kafka", "otel-collector"]
+        },
+        {
+          "path": "examples/production/production-orders/README.md",
+          "contains": ["SQL outbox", "OpenTelemetry collector", "REFERENCE_APP_MODE=docker make reference-app-smoke"]
+        }
+      ]
+    }
+  ],
+  "surfaces": [
+    {
+      "id": "rest",
+      "name": "Orders REST API",
+      "route": "POST /orders",
+      "gate": "make reference-app-smoke",
+      "evidenceRefs": [
+        {
+          "path": "examples/production/production-orders/main.go",
+          "contains": ["REST API accepts order creation requests", "/orders"]
+        }
+      ]
+    },
+    {
+      "id": "rpc",
+      "name": "Inventory RPC",
+      "route": "Reserve",
+      "gate": "make reference-app-smoke",
+      "evidenceRefs": [
+        {
+          "path": "examples/production/production-orders/main.go",
+          "contains": ["RPC service reserves inventory"]
+        }
+      ]
+    },
+    {
+      "id": "mq-outbox",
+      "name": "Outbox MQ relay",
+      "route": "orders.created",
+      "gate": "make reference-app-smoke",
+      "evidenceRefs": [
+        {
+          "path": "examples/production/production-orders/main.go",
+          "contains": ["outbox relays committed events"]
+        }
+      ]
+    },
+    {
+      "id": "saga",
+      "name": "Order saga",
+      "route": "createOrder",
+      "gate": "make reference-app-smoke",
+      "evidenceRefs": [
+        {
+          "path": "examples/production/production-orders/main.go",
+          "contains": ["saga compensates partially completed business steps"]
+        }
+      ]
+    },
+    {
+      "id": "topology",
+      "name": "Topology contract",
+      "route": "GET /topology",
+      "gate": "make reference-app-smoke",
+      "evidenceRefs": [
+        {
+          "path": "examples/production/production-orders/main.go",
+          "contains": ["/topology", "topologyEvidence"]
+        }
+      ]
+    },
+    {
+      "id": "cloud-native",
+      "name": "Cloud-native assets",
+      "route": "deploy/k8s",
+      "gate": "make cloud-native-render-check",
+      "evidenceRefs": [
+        {
+          "path": "examples/deploy/k8s/main.go",
+          "contains": ["package main"]
+        },
+        {
+          "path": "examples/production/production-orders/README.md",
+          "contains": ["K8s", "rollback"]
+        }
+      ]
+    }
+  ],
+  "r8ProductionDrillMatrix": {
+    "schema": "gofly.reference_app_r8_production_drill.v1",
+    "aiflowTask": "GOFLY-GOV-10R8-06",
+    "status": "blocking-contract",
+    "acceptanceGate": "make reference-app-smoke",
+    "rows": [
+      {
+        "id": "memory-mode-drill",
+        "surface": "memory topology",
+        "mode": "memory",
+        "components": ["REST", "RPC", "memory MQ", "memory outbox", "memory discovery", "memory cache", "local-admin observability"],
+        "gate": "REFERENCE_APP_MODE=memory make reference-app-smoke",
+        "runnableEvidence": ["examples/production/production-orders/main.go", "examples/production/production-orders/main_test.go"],
+        "failureEvidence": "If memory mode tests fail, keep Docker compose offline and rollback to the last passing unit smoke.",
+        "rollbackOrEscalation": "Rollback by pinning REFERENCE_APP_MODE=memory and disabling Docker-backed adapters until tests pass."
+      },
+      {
+        "id": "docker-backed-drill",
+        "surface": "docker topology",
+        "mode": "docker",
+        "components": ["Postgres SQL outbox", "Redis cache", "Kafka", "RabbitMQ", "Redis Stream", "Consul", "etcd", "Nacos", "OpenTelemetry collector"],
+        "gate": "REFERENCE_APP_MODE=docker make reference-app-smoke",
+        "runnableEvidence": ["examples/production/production-orders/compose.yaml", "examples/production/production-orders/otel-collector.yaml"],
+        "failureEvidence": "If compose dependencies fail to pull, skip live compose and record an explicit fallback reason.",
+        "rollbackOrEscalation": "Fallback to memory mode and keep the static topology contract until Docker is available."
+      },
+      {
+        "id": "sql-outbox-drill",
+        "surface": "sql outbox",
+        "mode": "memory-and-docker",
+        "components": ["memory outbox", "Postgres SQL outbox", "orders.created"],
+        "gate": "make reference-app-smoke",
+        "runnableEvidence": ["examples/production/production-orders/main.go", "examples/production/production-orders/main_test.go"],
+        "failureEvidence": "If outbox relay failure happens, keep the order write local and skip MQ publish until retry succeeds.",
+        "rollbackOrEscalation": "Rollback by disabling the outbox relay and pinning the memory store."
+      },
+      {
+        "id": "mq-cache-discovery-drill",
+        "surface": "mq cache discovery",
+        "mode": "memory-and-docker",
+        "components": ["memory MQ", "Kafka", "RabbitMQ", "Redis Stream", "memory cache", "Redis cache", "memory discovery", "Consul", "etcd", "Nacos"],
+        "gate": "make required-checks-drift-check",
+        "runnableEvidence": ["examples/production/production-orders/compose.yaml", "examples/production/production-orders/main.go"],
+        "failureEvidence": "If a broker or registry is unreachable, keep memory adapters as the fallback path.",
+        "rollbackOrEscalation": "Keep in-memory MQ, cache, and discovery enabled and pin Docker endpoints off."
+      },
+      {
+        "id": "observability-drill",
+        "surface": "observability",
+        "mode": "memory-and-docker",
+        "components": ["local-admin observability", "OpenTelemetry collector", "metrics", "health", "trace propagation"],
+        "gate": "make runtime-slo-check",
+        "runnableEvidence": ["examples/production/production-orders/main.go", "examples/production/production-orders/otel-collector.yaml"],
+        "failureEvidence": "If the collector is down, keep local admin metrics and health endpoints as the fallback.",
+        "rollbackOrEscalation": "Disable the OTLP exporter and keep local admin observability until the collector returns."
+      },
+      {
+        "id": "k8s-rollback-drill",
+        "surface": "cloud native",
+        "mode": "production-assets",
+        "components": ["Helm", "Kustomize", "ServiceMonitor", "HPA", "PDB", "NetworkPolicy", "rollback"],
+        "gate": "make cloud-native-render-check",
+        "runnableEvidence": ["examples/deploy/k8s/main.go", "docs/operations/production-checklist.md"],
+        "failureEvidence": "If Helm render failure happens, keep the checked-in Kubernetes starter and do not apply broken manifests.",
+        "rollbackOrEscalation": "Rollback by applying the previous Helm revision and keeping NetworkPolicy and PDB in place."
+      },
+      {
+        "id": "failure-evidence-drill",
+        "surface": "resilience",
+        "mode": "memory-and-production",
+        "components": ["saga compensation", "outbox retry", "rate limit", "circuit breaker", "rollback trigger"],
+        "gate": "make runtime-slo-check",
+        "runnableEvidence": ["examples/production/production-orders/main.go", "examples/production/production-orders/main_test.go"],
+        "failureEvidence": "If inventory RPC fails, saga compensation records the failure and skips outbox publish.",
+        "rollbackOrEscalation": "Keep the circuit breaker closed path and rollback later saga steps without dropping the REST error envelope."
+      }
+    ]
+  },
+  "p9DockerLiveProof": {
+    "schema": "gofly.reference_app_docker_live_proof.v1",
+    "aiflowTask": "GOFLY-GOV-10P9-03",
+    "status": "blocking",
+    "acceptanceGate": "make reference-app-smoke",
+    "runtimeEvidencePath": ".aiflow/reference-app-smoke-report.json",
+    "components": [
+      "Postgres SQL outbox",
+      "Redis cache",
+      "Kafka",
+      "RabbitMQ",
+      "Redis Stream",
+      "Consul",
+      "etcd",
+      "Nacos",
+      "OpenTelemetry collector"
+    ],
+    "requiredReportFields": [
+      "schema",
+      "aiflowTask",
+      "mode",
+      "status",
+      "liveCompose",
+      "fallbackReason",
+      "gate",
+      "components"
+    ],
+    "liveSuccessPolicy": "Docker mode may pass only when compose comes up and /topology reports the docker contract.",
+    "fallbackPolicy": "If Docker CLI, daemon, or image pulls fail, skip live compose and keep memory adapters.",
+    "rollbackOrEscalation": "Rollback by pinning REFERENCE_APP_MODE=memory and disabling compose until the next live proof.",
+    "allowedFallbackReasons": [
+      "memory-mode",
+      "docker-cli-missing",
+      "docker-daemon-unavailable",
+      "compose-dependency-pull-failed"
+    ]
+  },
+  "p13ReferenceAppLiveProof": {
+    "schema": "gofly.reference_app_p13_live_proof.v1",
+    "aiflowTask": "GOFLY-P13-08-REFERENCE-APP-LIVE-PROOF",
+    "status": "blocking",
+    "acceptanceGates": [
+      "REFERENCE_APP_MODE=memory make reference-app-smoke",
+      "REFERENCE_APP_MODE=docker make reference-app-smoke"
+    ],
+    "runtimeEvidencePath": ".aiflow/reference-app-smoke-report.json",
+    "requiredRuntimeReportFields": [
+      "schema",
+      "aiflowTask",
+      "p13AiflowTask",
+      "mode",
+      "status",
+      "liveCompose",
+      "liveProofState",
+      "fallbackReason",
+      "gate",
+      "components",
+      "dependencyFamilies",
+      "validatedModes"
+    ],
+    "dependencyFamilies": [
+      "SQL outbox",
+      "Redis cache",
+      "Kafka",
+      "RabbitMQ",
+      "Redis Stream",
+      "Consul",
+      "etcd",
+      "Nacos",
+      "OpenTelemetry collector"
+    ],
+    "validatedModes": ["memory", "docker"],
+    "allowedFallbackReasons": [
+      "memory-mode",
+      "docker-cli-missing",
+      "docker-daemon-unavailable",
+      "compose-dependency-pull-failed"
+    ],
+    "liveSuccessPolicy": "Memory mode must pass locally; docker mode may pass live or skip with an allowed fallback reason.",
+    "fallbackPolicy": "Record fallbackReason in the ignored .aiflow smoke report and keep static topology evidence.",
+    "rollbackOrEscalation": "Rollback by keeping memory mode green and pinning docker live proof as skipped until compose works.",
+    "proofRows": [
+      {
+        "id": "memory-live-proof",
+        "mode": "memory",
+        "expectedStatus": "passed",
+        "liveProofState": "memory-fallback",
+        "fallbackReason": "memory-mode",
+        "gate": "REFERENCE_APP_MODE=memory make reference-app-smoke",
+        "evidence": ["examples/production/production-orders/main.go", "examples/production/production-orders/main_test.go"],
+        "rollbackOrEscalation": "Keep memory adapters and rollback docker promotion if unit smoke fails."
+      },
+      {
+        "id": "docker-compose-live-proof",
+        "mode": "docker",
+        "expectedStatus": "passed",
+        "liveProofState": "live-compose",
+        "fallbackReason": "",
+        "gate": "REFERENCE_APP_MODE=docker make reference-app-smoke",
+        "evidence": ["examples/production/production-orders/compose.yaml", "examples/production/production-orders/scripts/smoke.sh"],
+        "rollbackOrEscalation": "If live compose fails after start, tear it down and fallback to memory mode."
+      },
+      {
+        "id": "docker-explicit-skip-proof",
+        "mode": "docker",
+        "expectedStatus": "skipped",
+        "liveProofState": "explicit-fallback",
+        "fallbackReason": "docker-cli-missing|docker-daemon-unavailable|compose-dependency-pull-failed",
+        "gate": "REFERENCE_APP_MODE=docker make reference-app-smoke",
+        "evidence": ["examples/production/production-orders/README.md", "examples/production/production-orders/compose.yaml"],
+        "rollbackOrEscalation": "Keep the skip report under .aiflow and pin docker claims out of release notes."
+      }
+    ]
+  },
+  "adopterProof": {
+    "schema": "gofly.reference_app_adopter_proof.v1",
+    "status": "blocking",
+    "blockingGate": "make reference-app-smoke",
+    "sourceEvidence": [
+      "examples/production/production-orders/README.md",
+      "examples/production/production-orders/main.go",
+      "docs/operations/production-checklist.md"
+    ],
+    "proofChains": [
+      {
+        "id": "mode-proof",
+        "surface": "memory and docker modes",
+        "gate": "make reference-app-smoke",
+        "evidence": ["examples/production/production-orders/main.go", "examples/production/production-orders/main_test.go"],
+        "adopterAction": "Run memory mode first, then optionally docker, before copying the example into a real cluster.",
+        "rollbackOrEscalation": "Keep the original process on memory adapters if docker mode is skipped."
+      },
+      {
+        "id": "dependency-topology-proof",
+        "surface": "topology_evidence",
+        "gate": "make reference-app-smoke",
+        "evidence": ["examples/production/production-orders/main.go", "examples/production/production-orders/compose.yaml"],
+        "adopterAction": "Inspect GET /topology and compare topology_evidence with the compose file before enabling brokers.",
+        "rollbackOrEscalation": "Fallback to in-memory MQ, cache, and discovery when a named dependency is missing."
+      },
+      {
+        "id": "runtime-slo-proof",
+        "surface": "runtime SLO",
+        "gate": "make runtime-slo-check",
+        "evidence": ["examples/production/production-orders/main.go", "docs/operations/production-checklist.md"],
+        "adopterAction": "Confirm health, metrics, and limiter settings before exposing the admin port.",
+        "rollbackOrEscalation": "Disable the public admin port and keep local observability until SLO checks pass."
+      },
+      {
+        "id": "cloud-native-rollout-proof",
+        "surface": "Helm and Kubernetes",
+        "gate": "make cloud-native-render-check",
+        "evidence": ["examples/deploy/k8s/main.go", "docs/operations/production-checklist.md"],
+        "adopterAction": "Render Helm and review NetworkPolicy, HPA, and PDB before apply.",
+        "rollbackOrEscalation": "Rollback the Helm revision and keep the previous Kubernetes starter."
+      },
+      {
+        "id": "incident-drill-proof",
+        "surface": "saga and breaker",
+        "gate": "make runtime-slo-check",
+        "evidence": ["examples/production/production-orders/main.go", "examples/production/production-orders/main_test.go"],
+        "adopterAction": "Reproduce inventory resolution failure and confirm the REST error envelope stays stable.",
+        "rollbackOrEscalation": "Keep the circuit breaker and skip outbox publish until inventory RPC recovers."
+      },
+      {
+        "id": "rollback-proof",
+        "surface": "rollback path",
+        "gate": "make reference-app-smoke",
+        "evidence": ["examples/production/production-orders/README.md", "docs/operations/production-checklist.md"],
+        "adopterAction": "Keep the previous process routable and discard generated runtime state if a drill fails.",
+        "rollbackOrEscalation": "Pin REFERENCE_APP_MODE=memory, disable Docker promotion, and keep rollback notes out of the current release."
+      }
+    ]
+  }
+}

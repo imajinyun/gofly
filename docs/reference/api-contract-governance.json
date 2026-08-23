@@ -18,7 +18,7 @@
     "cmd/gofly/internal/generator/templates.go",
     "cmd/gofly/internal/generator/idl_test.go",
     "cmd/gofly/internal/command/rpc_descriptor_command.go",
-    "cmd/gofly/internal/command/release.go"
+    "cmd/gofly/internal/command/release/release.go"
   ],
   "policy": {
     "openapiRuntimeBindingMustMatchSchema": true,

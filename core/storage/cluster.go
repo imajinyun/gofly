@@ -127,7 +127,7 @@ func (c *Cluster) Exec(ctx context.Context, query string, args ...any) (sql.Resu
 	return c.primary.Exec(ctx, query, args...)
 }
 
-// Transact runs a transaction against the primary.
+// Transact runs a Cluster.Transact transaction against the primary.
 func (c *Cluster) Transact(ctx context.Context, opts *sql.TxOptions, fn TxFunc) error {
 	if c == nil {
 		return errors.New("cluster is nil")

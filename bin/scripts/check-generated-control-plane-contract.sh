@@ -23,8 +23,8 @@ def require(condition, message):
 
 template = read_text("cmd/gofly/internal/generator/templates.go")
 service_test = read_text("cmd/gofly/internal/generator/service_test.go")
-release = read_text("cmd/gofly/internal/command/release_local_checks.go")
-release_test = read_text("cmd/gofly/internal/command/release_test.go")
+release = read_text("cmd/gofly/internal/command/release/release_local_checks.go")
+release_test = read_text("cmd/gofly/internal/command/release/release_test.go")
 evidence_script = read_text("bin/scripts/check-generated-rpc-mux-mtls-evidence.sh")
 ai_manifest = read_text("cmd/gofly/internal/command/ai_control_plane_manifest.go")
 bug = read_text("cmd/gofly/internal/command/bug.go")

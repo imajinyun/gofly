@@ -82,7 +82,7 @@
       "goctl": ["mongo", "mysql ddl", "mysql datasource", "pg datasource"],
       "gofly": ["gen", "mongo", "mysql", "pg"],
       "classification": "partial-parity",
-      "nextParityFocus": ["mysql ddl", "mysql datasource", "postgres datasource", "mongo type/cache/easy flags", "ignore-columns", "cache prefix"]
+      "nextParityFocus": ["byte-for-byte goctl model directory layout remains an intentional gap"]
     },
     "governance": {
       "goctl": [],
@@ -110,9 +110,9 @@
     {
       "id": "model-parity-replay",
       "priority": "P0",
-      "status": "planned",
-      "gate": "make goctl-real-project-replay-check",
-      "description": "Expand replay evidence around MySQL DDL, MySQL datasource, PostgreSQL datasource, Mongo generation, cache prefix, strict mode, and ignored columns."
+      "status": "implemented",
+      "gate": "make goctl-model-parity-replay-check",
+      "description": "Migration-critical MySQL DDL, MySQL datasource, PostgreSQL datasource, Mongo, cache prefix, strict mode, and ignored-column replay is covered by a blocking gate. Layout differences stay classified as model-layout-difference."
     },
     {
       "id": "cli-behavior-drift-report",

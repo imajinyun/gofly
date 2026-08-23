@@ -36,8 +36,8 @@ type RedisModelCache[T any, K comparable] struct {
 	notFoundErr error
 }
 
-// NewRedisModel creates a Redis-backed model cache. Redis misses are detected
-// with notFoundErr; generated repositories pass core/kv/redis.ErrNil.
+// NewRedisModel creates a Redis-backed model cache. Redis miss semantics
+// detect misses with notFoundErr; generated repositories pass core/kv/redis.ErrNil.
 func NewRedisModel[T any, K comparable](loader ModelLoader[T, K], client RedisModelClient, opts ...RedisModelOption[T, K]) *RedisModelCache[T, K] {
 	m := &RedisModelCache[T, K]{
 		client:      client,

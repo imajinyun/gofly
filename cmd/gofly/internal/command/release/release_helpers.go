@@ -1,4 +1,4 @@
-package command
+package release
 
 import (
 	"errors"
@@ -9,16 +9,16 @@ import (
 	"strings"
 )
 
-func printReleaseCheckJSON(report releaseCheckReport, failed bool) error {
-	envelope := jsonEnvelope{OK: !failed, Command: "release.check", Version: Version, Data: report}
+func printReleaseCheckJSON(hooks Hooks, report releaseCheckReport, failed bool) error {
+	envelope := jsonEnvelope{OK: !failed, Command: "release.check", Version: hooks.Version, Data: report}
 	if failed {
 		envelope.Error = &jsonError{Code: "RELEASE_CHECK_FAILED", Message: report.Summary, Retryable: false, Remediation: "Resolve blocking release checks before publishing.", Details: map[string]any{"blocking": report.Blocking}}
 	}
-	if err := printJSON(envelope); err != nil {
+	if err := hooks.PrintJSON(envelope); err != nil {
 		return err
 	}
 	if failed {
-		return fmt.Errorf("release check failed: %w", errJSONAlreadyReported)
+		return fmt.Errorf("release check failed: %w", hooks.AlreadyReported)
 	}
 	return nil
 }
@@ -135,4 +135,16 @@ func recommendSemver(blockers, warnings []string) string {
 		return "minor"
 	}
 	return "patch"
+}
+
+func ParseChangelogVersion(path string) (string, error) {
+	return parseChangelogVersion(path)
+}
+
+func RecommendSemver(blockers, warnings []string) string {
+	return recommendSemver(blockers, warnings)
+}
+
+func APIDiffCommand(tool string, args ...string) *exec.Cmd {
+	return apidiffCommand(tool, args...)
 }

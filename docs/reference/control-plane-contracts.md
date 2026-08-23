@@ -11,10 +11,13 @@ Generated production services expose the runtime snapshot at:
 GET /admin/control-plane
 ```
 
+## Snapshot object
+
 The response is a `gofly-control-plane.v1` snapshot with stable `version`,
-`checksum`, `services`, `configs`, `policies`, and `metadata` fields. Secret
-values must not be copied into this endpoint; callers should use it for runtime
-state, schema discovery, and drift detection only.
+`checksum`, `services`, `configs`, `policies`, `metadata`, and `secretBoundary`
+fields. Secret values must not be copied into this endpoint; callers should use
+it for runtime state, schema discovery, and drift detection only. The snapshot
+`secretBoundary` is the source of truth for which fields must stay redacted.
 
 ## Generated RPC Mux Warning Contract
 
@@ -77,14 +80,14 @@ configs.generated.rpcMuxConfigWarnings
 configs.generated.controlPlaneSchemaChecksums
 ```
 
-## Diff Object
+## Diff object
 
 Diffs produced by `gofly ai control-plane --from-snapshot` compare stable
 checksums and report changed fields. A schema-only change should appear as a
 config change naming `configs.generated.controlPlaneSchemaChecksums` or the
 specific schema config key.
 
-## Consumer Action Object
+## Consumer action object
 
 Consumers should treat a warning-schema checksum change as a reason to refresh
 their parser or generated support-bundle adapter. They should not infer secret

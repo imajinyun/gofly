@@ -261,7 +261,8 @@ discovery-adapter-matrix-check: ## Validate gateway, RPC, and core discovery ada
 	$(GO) test $(TESTFLAGS) ./gateway -run 'TestGatewayDiscovery'
 
 .PHONY: db-cache-productization-check
-db-cache-productization-check: ## Validate DB/cache packages
+db-cache-productization-check: ## Validate DB/cache productization contract and packages
+	sh $(SCRIPTS_DIR)/check-db-cache-productization.sh
 	$(GO) test $(TESTFLAGS) ./core/storage/... ./cache/...
 
 .PHONY: goctl-surface-drift-check
@@ -353,8 +354,8 @@ command-next-family-candidate-refresh-check: ## Validate the next cmd/gofly comm
 	$(GO) test $(TESTFLAGS) ./cmd/gofly/internal/command -run 'TestCommandNextFamilyCandidateRefresh'
 
 .PHONY: command-release-family-preflight-check
-command-release-family-preflight-check: ## Validate cmd/gofly release family preflight before moving release command files
-	$(GO) test $(TESTFLAGS) ./cmd/gofly/internal/command -run 'TestCommandReleaseFamilyPreflight'
+command-release-family-preflight-check: ## Validate cmd/gofly release family split contracts after the physical move
+	$(GO) test $(TESTFLAGS) ./cmd/gofly/internal/command ./cmd/gofly/internal/command/release -run 'TestCommandReleaseFamilyPreflight|TestRelease'
 
 .PHONY: project-layout-governance-check
 project-layout-governance-check: ## Compatibility no-op; docs-backed layout inventory was removed
@@ -384,19 +385,19 @@ examples-smoke: ## Run runnable example smoke tests and machine-readable output 
 	sh $(SCRIPTS_DIR)/examples-smoke.sh
 
 .PHONY: docs-check
-docs-check: reference-contracts-check api-contract-governance-check doc-manifest-sync-check goctl-surface-drift-check goctl-api-flag-parity-check goctl-rpc-protoc-parity-check goctl-model-parity-replay-check goctl-oracle-replay-check goctl-generator-compat-check goctl-real-project-replay-check goctl-compatibility-report-check ## Validate tracked documentation-backed governance contracts
+docs-check: reference-contracts-check api-contract-governance-check doc-manifest-sync-check goctl-surface-drift-check goctl-api-flag-parity-check goctl-rpc-protoc-parity-check goctl-model-parity-replay-check goctl-oracle-replay-check goctl-generator-compat-check goctl-real-project-replay-check goctl-compatibility-report-check community-growth-check docs-taxonomy-check migration-docs-check docs-link-check db-cache-productization-check ## Validate tracked documentation-backed governance contracts
 
 .PHONY: reference-contracts-check
 reference-contracts-check: ## Validate docs/reference is the tracked governance contract root
 	sh $(SCRIPTS_DIR)/check-reference-contracts.sh
 
 .PHONY: docs-taxonomy-check
-docs-taxonomy-check: ## Compatibility no-op; tracked docs taxonomy has been removed
-	$(GO) env GOMOD >/dev/null
+docs-taxonomy-check: ## Validate Diataxis docs navigation, tutorial, and README entry points
+	sh $(SCRIPTS_DIR)/check-doc-taxonomy.sh
 
 .PHONY: migration-docs-check
-migration-docs-check: ## Compatibility no-op; go-zero migration guidance is exposed through examples/migration/gozero-basic
-	$(GO) env GOMOD >/dev/null
+migration-docs-check: ## Validate the go-zero 30-minute migration path and replay gates
+	sh $(SCRIPTS_DIR)/check-migration-docs.sh
 
 .PHONY: p1-growth-check
 p1-growth-check: helm-template-smoke plugin-conformance-check reference-app-smoke runtime-slo-check openapi-validation-check ## Validate growth assets through runnable gates
@@ -435,12 +436,12 @@ api-contract-check: openapi-validation-check rpc-boundary-check ## Validate REST
 api-contract-governance-check: api-contract-check ## Compatibility gate backed by REST/RPC tests
 
 .PHONY: community-growth-check
-community-growth-check: ## Compatibility no-op; project focus is framework capability over community prose
-	$(GO) env GOMOD >/dev/null
+community-growth-check: ## Validate contributor, roadmap, security, and issue/PR templates
+	sh $(SCRIPTS_DIR)/check-community-growth.sh
 
 .PHONY: contract-docs-check
-contract-docs-check: stable-surface-check generated-version-compat-check generated-upgrade-dry-run-check generated-tier-compatibility-check cli-json-contract-goldens-check cli-configuration-governance-check api-contract-governance-check generated-control-plane-contract-check ## Validate stable CLI JSON and generated contract engineering gates
-	$(GO) env GOMOD >/dev/null
+contract-docs-check: stable-surface-check generated-version-compat-check generated-upgrade-dry-run-check generated-tier-compatibility-check cli-json-contract-goldens-check cli-configuration-governance-check api-contract-governance-check generated-control-plane-contract-check ## Validate stable CLI JSON, generated contracts, and human contract docs
+	sh $(SCRIPTS_DIR)/check-contract-docs.sh
 
 .PHONY: generated-control-plane-contract-check
 generated-control-plane-contract-check: ## Validate generated control-plane warning schema docs, support bundle, and release evidence
@@ -500,8 +501,8 @@ required-checks-drift-check: ## Validate hosted CI keeps gateway profile contrac
 	sh $(SCRIPTS_DIR)/check-required-checks-drift.sh
 
 .PHONY: docs-link-check
-docs-link-check: ## Compatibility no-op; long-form documentation links are no longer a release gate
-	$(GO) env GOMOD >/dev/null
+docs-link-check: ## Validate markdown links in README, docs, and examples
+	sh $(SCRIPTS_DIR)/check-doc-links.sh
 
 .PHONY: version
 version: ## Print build metadata that would be embedded

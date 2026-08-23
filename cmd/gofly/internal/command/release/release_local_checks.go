@@ -1,4 +1,4 @@
-package command
+package release
 
 import (
 	"bytes"
@@ -30,15 +30,15 @@ func releaseGoAPICompatCheck() (releaseCheckItem, []string) {
 	return item, nil
 }
 
-func releaseChangelogVersionCheck(path string) (releaseCheckItem, []string) {
+func releaseChangelogVersionCheck(path, version string) (releaseCheckItem, []string) {
 	item := releaseCheckItem{Name: "changelog-version", Status: "pass"}
 	changelogVersion, err := parseChangelogVersion(path)
 	if err != nil {
 		item.Status = "skip"
 		item.Detail = "changelog not found or unparsable"
-	} else if changelogVersion != "" && changelogVersion != Version {
+	} else if changelogVersion != "" && changelogVersion != version {
 		item.Status = "fail"
-		item.Detail = fmt.Sprintf("CHANGELOG version %q != gofly version %q", changelogVersion, Version)
+		item.Detail = fmt.Sprintf("CHANGELOG version %q != gofly version %q", changelogVersion, version)
 		item.Blocker = true
 		return item, []string{item.Detail}
 	} else {
@@ -701,4 +701,44 @@ func readReleaseGatewayProfileCandidate(path string) (gateway.TranscodeProfile, 
 		return gateway.TranscodeProfile{}, fmt.Errorf("decode candidate profile: %w", err)
 	}
 	return candidate, nil
+}
+
+func GatewayProfileContractCheck() (CheckItem, []string) {
+	return releaseGatewayProfileContractCheck()
+}
+
+func GatewayAggregationContractCheck() (CheckItem, []string) {
+	return releaseGatewayAggregationContractCheck()
+}
+
+func RPCMuxAdapterEvidenceCheck() (CheckItem, []string) {
+	return releaseRPCMuxAdapterEvidenceCheck()
+}
+
+func GeneratedRPCMuxRetrySmokeCheck() (CheckItem, []string) {
+	return releaseGeneratedRPCMuxRetrySmokeCheck()
+}
+
+func ResolveEvidencePath(path string) (string, error) {
+	return resolveReleaseEvidencePath(path)
+}
+
+func ReadJSONFile(path, label string) (map[string]any, error) {
+	return readReleaseJSONFile(path, label)
+}
+
+func ReadGatewayConfig(path string) (gateway.Config, error) {
+	return readReleaseGatewayConfig(path)
+}
+
+func ReadGatewayAggregationCandidate(path string) (gateway.AggregationConfig, error) {
+	return readReleaseGatewayAggregationCandidate(path)
+}
+
+func ReadGatewayProfiles(path string) ([]gateway.TranscodeProfile, error) {
+	return readReleaseGatewayProfiles(path)
+}
+
+func ReadGatewayProfileCandidate(path string) (gateway.TranscodeProfile, error) {
+	return readReleaseGatewayProfileCandidate(path)
 }

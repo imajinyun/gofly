@@ -282,6 +282,7 @@ func (s *SQLStore) QueryAll(ctx context.Context, query string, scan func(*sql.Ro
 	return nil
 }
 
+// Transact runs fn inside a SQLStore.Transact database transaction on this store.
 func (s *SQLStore) Transact(ctx context.Context, opts *sql.TxOptions, fn TxFunc) error {
 	if s == nil || s.db == nil {
 		return errors.New("sql store is nil")

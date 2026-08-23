@@ -43,7 +43,7 @@ type ModelKeyFunc[K comparable] func(K) string
 // ModelOption configures a ModelCache.
 type ModelOption[T any, K comparable] func(*ModelCache[T, K])
 
-// Stats holds cache statistics.
+// Stats holds Cache stats for operators and WritePrometheus export.
 type Stats struct {
 	Name       string `json:"name,omitempty"`
 	Entries    int    `json:"entries"`

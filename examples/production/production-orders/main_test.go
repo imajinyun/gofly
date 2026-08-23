@@ -248,7 +248,7 @@ func TestCreateOrderNoInventoryCompensates(t *testing.T) {
 		t.Fatalf("createOrder error = %v, want inventory resolution error", err)
 	}
 	if len(orders.orders) != 1 || orders.orders["order-001"] != "coffee" {
-		t.Fatalf("orders after first-step failure = %#v, want current pre-saga create behavior recorded", orders.orders)
+		t.Fatalf("orders after first-step failure = %#v, want current pre-saga create behavior recorded before later-step rollback", orders.orders)
 	}
 }
 

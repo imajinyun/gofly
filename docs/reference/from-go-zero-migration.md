@@ -3,9 +3,9 @@
 schema: gofly.go_zero_migration_guide.v1
 
 This guide maps existing go-zero and `goctl` projects to gofly generation
-surfaces. It is not a claim of full go-zero replacement. The supported path is
-an evidence-backed migration workflow that keeps go-zero-compatible generation,
-fixture replay, and rollback gates runnable while teams move selected surfaces.
+surfaces. gofly provides a goctl-compatible migration path, not a full goctl replacement. The supported path is an evidence-backed migration workflow that
+keeps go-zero-compatible generation, fixture replay, and rollback gates
+runnable while teams move selected surfaces.
 
 ## Migration Map
 
@@ -20,6 +20,60 @@ fixture replay, and rollback gates runnable while teams move selected surfaces.
 | multi-language API clients | `gofly api client --language <language>` | `docs/reference/api-client-generation.md` |
 | production service scaffold | `gofly new service --style production` | `docs/reference/generated-service-layout.md` |
 | generated upgrade proof | repeat generation, diff classification, and rollback evidence | `docs/reference/generated-upgrade-dry-run.json` |
+
+## 30-minute migration path
+
+This is the shortest evidence-backed path from an existing go-zero service to a
+gofly-compatible generated surface. It is not a full goctl replacement.
+
+1. Install gofly and keep the original go-zero service running.
+
+   ```sh
+   go install github.com/imajinyun/gofly/cmd/gofly@latest
+   gofly version
+   ```
+
+2. Copy `examples/migration/gozero-basic` and read its JSON report:
+
+   ```sh
+   go test -C examples/migration/gozero-basic ./...
+   go -C examples/migration/gozero-basic run .
+   ```
+
+3. Replay the REST contract with the go-zero-compatible profile:
+
+   ```sh
+   gofly api gen --file service.api --dir ./migrated --profile gozero-compatible
+   ```
+
+4. Replay models with the go_zero style:
+
+   ```sh
+   gofly model mysql ddl --src schema.sql --dir ./internal --style go_zero
+   ```
+
+5. For zRPC, inspect `docs/reference/zrpc-proto-compatibility.json` first, then:
+
+   ```sh
+   gofly rpc protoc service.proto --dir ./migrated
+   ```
+
+6. Run the migration gates before switching traffic:
+
+   ```sh
+   make goctl-api-flag-parity-check
+   make goctl-model-parity-replay-check
+   make goctl-generator-compat-check
+   make goctl-real-project-replay-check
+   ```
+
+7. Keep the original go-zero process routable until those gates and the
+   generated module `go test ./...` pass. Rollback by discarding the generated
+   directory and pinning the previous gozero-compatible generator behavior.
+
+Time-box: steps 1-2 should take a few minutes; steps 3-6 depend on contract
+size but should complete inside thirty minutes for a single API plus one
+model package.
 
 ## Recommended Path
 

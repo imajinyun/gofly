@@ -1,4 +1,4 @@
-package command
+package release
 
 import (
 	"errors"
@@ -7,21 +7,20 @@ import (
 	"strings"
 )
 
-func releaseCommand(args []string) error {
-	if printCommandHelp("release", args) {
+// Command implements `gofly release` and routes `--help` through hooks.
+func Command(args []string, hooks Hooks) error {
+	hooks = normalizeHooks(hooks)
+	if hooks.PrintHelp("release", args) {
 		return nil
 	}
-	return releaseCommands.dispatch(args, "gofly release check")
+	return CheckCommand(args, hooks)
 }
 
-var releaseCommands = newCommandRegistry(
-	commandSpec{Name: "check", Run: releaseCheckCommand},
-)
-
-// releaseCheckCommand implements `gofly release check`.
+// CheckCommand implements `gofly release check`.
 // It aggregates API breaking, RPC breaking, Go public API compatibility,
 // CHANGELOG version consistency, and go mod tidiness into a single report.
-func releaseCheckCommand(args []string) error {
+func CheckCommand(args []string, hooks Hooks) error {
+	hooks = normalizeHooks(hooks)
 	fs := flag.NewFlagSet("release check", flag.ContinueOnError)
 	apiBase := fs.String("api-base", "", "base .api file for breaking detection")
 	apiTarget := fs.String("api-target", "", "target .api file for breaking detection")
@@ -31,12 +30,12 @@ func releaseCheckCommand(args []string) error {
 	evidence := fs.String("evidence", "", "emit only one release check evidence by check name")
 	jsonOut := fs.Bool("json", false, "emit report as JSON")
 	strict := fs.Bool("strict", false, "treat warnings as blockers")
-	_, err := parseInterspersedFlags(fs, args)
+	_, err := hooks.ParseFlags(fs, args)
 	if err != nil {
 		return err
 	}
 
-	report := releaseCheckReport{Version: Version}
+	report := releaseCheckReport{Version: hooks.Version}
 	var blockers, warnings []string
 	selectedEvidence := strings.TrimSpace(*evidence)
 	shouldRun := func(name string) bool {
@@ -68,7 +67,7 @@ func releaseCheckCommand(args []string) error {
 
 	// 4. CHANGELOG version consistency.
 	if shouldRun("changelog-version") {
-		changelogItem, checkBlockers := releaseChangelogVersionCheck(*changelog)
+		changelogItem, checkBlockers := releaseChangelogVersionCheck(*changelog, hooks.Version)
 		blockers = append(blockers, checkBlockers...)
 		report.Checks = append(report.Checks, changelogItem)
 	}
@@ -130,10 +129,10 @@ func releaseCheckCommand(args []string) error {
 		report = filterReleaseCheckEvidence(report, selectedEvidence)
 	}
 	failed := len(report.Blocking) > 0 || (*strict && len(warnings) > 0)
-	if *jsonOut || outputMode() == outputJSON {
-		return printReleaseCheckJSON(report, failed)
+	if *jsonOut || hooks.OutputJSON() {
+		return printReleaseCheckJSON(hooks, report, failed)
 	}
-	printReleaseCheckText(report)
+	printReleaseCheckText(hooks, report)
 
 	if failed {
 		return errors.New("release check failed")

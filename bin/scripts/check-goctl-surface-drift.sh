@@ -155,7 +155,7 @@ for needle in ("goctl api go --test", "goctl api format --stdin", "goctl api go 
     require(needle in api_entry.get("nextParityFocus", []), f"api nextParityFocus missing {needle!r}")
 for needle in ("goctl rpc protoc --multiple", "goctl rpc protoc --proto_path", "goctl rpc new --name-from-filename"):
     require(needle in rpc_entry.get("nextParityFocus", []), f"rpc nextParityFocus missing {needle!r}")
-for needle in ("mysql ddl", "mysql datasource", "postgres datasource", "mongo type/cache/easy flags", "ignore-columns", "cache prefix"):
+for needle in ("byte-for-byte goctl model directory layout remains an intentional gap",):
     require(needle in model_entry.get("nextParityFocus", []), f"model nextParityFocus missing {needle!r}")
 
 idl_specs = command_specs(idl_registry_text)

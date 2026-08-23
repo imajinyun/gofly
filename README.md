@@ -195,6 +195,23 @@ Run `gofly help` for the full command list.
 
 ---
 
+## 📚 Documentation
+
+Start at [docs/index.md](docs/index.md).
+
+- Tutorial: [docs/tutorials/zero-to-production.md](docs/tutorials/zero-to-production.md)
+- Examples: [examples/README.md](examples/README.md)
+- Adoption model: [docs/explanation/adoption-model.md](docs/explanation/adoption-model.md)
+- Benchmark claims: [docs/reference/benchmark-matrix.md](docs/reference/benchmark-matrix.md)
+- go-zero migration: [docs/reference/from-go-zero-migration.md](docs/reference/from-go-zero-migration.md)
+- CLI JSON: [docs/reference/cli-json-contracts.md](docs/reference/cli-json-contracts.md)
+- Control-plane: [docs/reference/control-plane-contracts.md](docs/reference/control-plane-contracts.md)
+- Contributing: [CONTRIBUTING.md](CONTRIBUTING.md)
+- Roadmap: [ROADMAP.md](ROADMAP.md)
+- Security: [SECURITY.md](SECURITY.md)
+
+---
+
 ## 🆚 How gofly compares
 
 | Compared with | gofly position |
@@ -258,6 +275,10 @@ make governance-10-rounds
 ## 📄 License
 
 gofly is released under the [MIT License](./LICENSE).
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for local setup and pull-request
+checks, [ROADMAP.md](ROADMAP.md) for the public milestone view, and
+[SECURITY.md](SECURITY.md) to report vulnerabilities.
 
 Third-party framework names such as go-zero and Kitex, when mentioned in docs, tests, or generated compatibility adapters, are used only for ecosystem compatibility and migration context. gofly does not include or depend on their source code and is not endorsed by or affiliated with those projects.
 

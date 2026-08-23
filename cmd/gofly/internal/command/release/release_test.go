@@ -1,10 +1,10 @@
-package command
+package release
 
 import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"io"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -78,29 +78,18 @@ service UserService { @handler getUser POST /users/{id} (User) returns (User) }`
 		t.Fatal(err)
 	}
 
-	// Capture output by redirecting stdout.
-	old := os.Stdout
-	r, w, _ := os.Pipe()
-	os.Stdout = w
-
-	err := releaseCheckCommand([]string{
+	var outBuf bytes.Buffer
+	err := CheckCommand([]string{
 		"--api-base", baseAPI,
 		"--api-target", targetAPI,
 		"--changelog", filepath.Join(dir, "no-changelog"),
-	})
-
-	w.Close()
-	os.Stdout = old
+	}, testHooks(&outBuf))
 
 	if err == nil {
 		t.Fatal("expected release check to fail with breaking API changes")
 	}
 
-	data, err := io.ReadAll(r)
-	if err != nil {
-		t.Fatal(err)
-	}
-	out := string(data)
+	out := outBuf.String()
 	if !strings.Contains(out, "BLOCKED") {
 		t.Fatalf("expected BLOCKED in output, got:\n%s", out)
 	}
@@ -118,9 +107,7 @@ func TestReleaseCheckCommandJSONAndChangelogBlocker(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	if err := withCommandIO(IOStreams{Out: &out}, outputText, verbosityNormal, func() error {
-		return releaseCheckCommand([]string{"--changelog", changelog, "--json"})
-	}); err != nil {
+	if err := CheckCommand([]string{"--changelog", changelog, "--json"}, testHooks(&out)); err != nil {
 		t.Fatalf("releaseCheckCommand json pass: %v", err)
 	}
 	var passEnvelope struct {
@@ -135,9 +122,7 @@ func TestReleaseCheckCommandJSONAndChangelogBlocker(t *testing.T) {
 		t.Fatalf("releaseCheckCommand json pass envelope = %+v, want ok release.check report", passEnvelope)
 	}
 	out.Reset()
-	if err := withCommandIO(IOStreams{Out: &out}, outputText, verbosityNormal, func() error {
-		return releaseCheckCommand([]string{"--changelog", changelog, "--json", "--evidence", "gateway-aggregation-contract"})
-	}); err != nil {
+	if err := CheckCommand([]string{"--changelog", changelog, "--json", "--evidence", "gateway-aggregation-contract"}, testHooks(&out)); err != nil {
 		t.Fatalf("releaseCheckCommand evidence json: %v", err)
 	}
 	var evidenceEnvelope struct {
@@ -152,9 +137,7 @@ func TestReleaseCheckCommandJSONAndChangelogBlocker(t *testing.T) {
 		t.Fatalf("releaseCheckCommand evidence envelope = %+v, want aggregation evidence only", evidenceEnvelope)
 	}
 	out.Reset()
-	if err := withCommandIO(IOStreams{Out: &out}, outputText, verbosityNormal, func() error {
-		return releaseCheckCommand([]string{"--changelog", changelog, "--json", "--evidence", "rpc-mux-adapter-evidence"})
-	}); err != nil {
+	if err := CheckCommand([]string{"--changelog", changelog, "--json", "--evidence", "rpc-mux-adapter-evidence"}, testHooks(&out)); err != nil {
 		t.Fatalf("releaseCheckCommand rpc mux evidence json: %v", err)
 	}
 	if err := json.Unmarshal(out.Bytes(), &evidenceEnvelope); err != nil {
@@ -167,9 +150,7 @@ func TestReleaseCheckCommandJSONAndChangelogBlocker(t *testing.T) {
 		t.Fatalf("releaseCheckCommand rpc mux evidence envelope = %+v, want rpc mux evidence only", evidenceEnvelope)
 	}
 	out.Reset()
-	if err := withCommandIO(IOStreams{Out: &out}, outputText, verbosityNormal, func() error {
-		return releaseCheckCommand([]string{"--changelog", changelog, "--json", "--evidence", "generated-rpc-mux-retry-smoke"})
-	}); err != nil {
+	if err := CheckCommand([]string{"--changelog", changelog, "--json", "--evidence", "generated-rpc-mux-retry-smoke"}, testHooks(&out)); err != nil {
 		t.Fatalf("releaseCheckCommand generated rpc mux retry evidence json: %v", err)
 	}
 	if err := json.Unmarshal(out.Bytes(), &evidenceEnvelope); err != nil {
@@ -185,9 +166,7 @@ func TestReleaseCheckCommandJSONAndChangelogBlocker(t *testing.T) {
 		t.Fatal(err)
 	}
 	out.Reset()
-	err := withCommandIO(IOStreams{Out: &out}, outputText, verbosityNormal, func() error {
-		return releaseCheckCommand([]string{"--changelog", changelog, "--json", "--evidence", "changelog-version"})
-	})
+	err := CheckCommand([]string{"--changelog", changelog, "--json", "--evidence", "changelog-version"}, testHooks(&out))
 	if err == nil || !strings.Contains(err.Error(), "release check failed") {
 		t.Fatalf("releaseCheckCommand changelog blocker error = %v, want release check failed", err)
 	}
@@ -391,7 +370,7 @@ func TestReleaseGeneratedRPCMuxRetrySmokeCheckFailureContracts(t *testing.T) {
 		}
 		evidence, ok := item.Evidence["generated-rpc-mux-retry-smoke"].(map[string]any)
 		missing, _ := evidence["missing"].([]string)
-		if !ok || !commandContainsString(missing, `snapshot.Configs["generated.rpcMuxConfigWarnings"]`) {
+		if !ok || !containsReleaseString(missing, `snapshot.Configs["generated.rpcMuxConfigWarnings"]`) {
 			t.Fatalf("missing warning marker evidence = %#v", item.Evidence)
 		}
 	})
@@ -443,36 +422,6 @@ func writeReleaseGoShim(t *testing.T, content string) string {
 		t.Fatal(err)
 	}
 	return path
-}
-
-func TestReleaseCheckGlobalJSONDoesNotDuplicateError(t *testing.T) {
-	t.Setenv("API_BASE_REF", "definitely-missing-release-base-ref")
-	dir := t.TempDir()
-	changelog := filepath.Join(dir, "CHANGELOG.md")
-	if err := os.WriteFile(changelog, []byte("# Changelog\n\n## v9.9.9\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	var out bytes.Buffer
-	err := ExecuteWithIO([]string{"--output=json", "release", "check", "--changelog", changelog}, IOStreams{Out: &out})
-	if err == nil || !strings.Contains(err.Error(), "release check failed") || !errors.Is(err, errJSONAlreadyReported) {
-		t.Fatalf("ExecuteWithIO release check error = %v, want reported release check failure", err)
-	}
-	var envelope struct {
-		OK      bool               `json:"ok"`
-		Command string             `json:"command"`
-		Data    releaseCheckReport `json:"data"`
-		Error   *jsonError         `json:"error"`
-	}
-	if err := json.Unmarshal(out.Bytes(), &envelope); err != nil {
-		t.Fatalf("ExecuteWithIO release check json decode: %v\n%s", err, out.String())
-	}
-	if envelope.OK || envelope.Command != "release.check" || envelope.Error == nil || envelope.Error.Code != "RELEASE_CHECK_FAILED" {
-		t.Fatalf("ExecuteWithIO release check envelope = %+v, want one structured release failure", envelope)
-	}
-	if strings.Count(out.String(), `"command"`) != 1 {
-		t.Fatalf("ExecuteWithIO release check emitted duplicate JSON envelopes:\n%s", out.String())
-	}
 }
 
 func TestReleaseCheckCommandAPIAndRPCPassAndErrorBranches(t *testing.T) {
@@ -532,9 +481,7 @@ service Greeter {
 	}
 
 	var out bytes.Buffer
-	if err := withCommandIO(IOStreams{Out: &out}, outputText, verbosityNormal, func() error {
-		return releaseCheckCommand([]string{"--api-base", baseAPI, "--api-target", targetAPI, "--rpc-base", baseProto, "--rpc-target", targetProto, "--changelog", changelog})
-	}); err != nil {
+	if err := CheckCommand([]string{"--api-base", baseAPI, "--api-target", targetAPI, "--rpc-base", baseProto, "--rpc-target", targetProto, "--changelog", changelog}, testHooks(&out)); err != nil {
 		t.Fatalf("releaseCheckCommand added API/RPC pass: %v\n%s", err, out.String())
 	}
 	if !strings.Contains(out.String(), "PASS") || !strings.Contains(out.String(), "api-breaking") || !strings.Contains(out.String(), "rpc-breaking") || !strings.Contains(out.String(), "go-mod-tidy") {
@@ -550,9 +497,7 @@ message PingResponse { string message = 1; }
 		t.Fatal(err)
 	}
 	out.Reset()
-	err := withCommandIO(IOStreams{Out: &out}, outputText, verbosityNormal, func() error {
-		return releaseCheckCommand([]string{"--rpc-base", baseProto, "--rpc-target", removedProto, "--changelog", changelog})
-	})
+	err := CheckCommand([]string{"--rpc-base", baseProto, "--rpc-target", removedProto, "--changelog", changelog}, testHooks(&out))
 	if err == nil || !strings.Contains(err.Error(), "release check failed") {
 		t.Fatalf("releaseCheckCommand rpc breaking error = %v, want release check failed", err)
 	}
@@ -565,9 +510,7 @@ message PingResponse { string message = 1; }
 		t.Fatal(err)
 	}
 	out.Reset()
-	err = withCommandIO(IOStreams{Out: &out}, outputText, verbosityNormal, func() error {
-		return releaseCheckCommand([]string{"--rpc-base", baseProto, "--rpc-target", badProto, "--changelog", changelog})
-	})
+	err = CheckCommand([]string{"--rpc-base", baseProto, "--rpc-target", badProto, "--changelog", changelog}, testHooks(&out))
 	if err == nil || !strings.Contains(err.Error(), "release check failed") {
 		t.Fatalf("releaseCheckCommand bad rpc error = %v, want release check failed", err)
 	}
@@ -577,7 +520,7 @@ message PingResponse { string message = 1; }
 }
 
 func TestGoReleaserUsesCurrentScriptPath(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join("..", "..", "..", "..", ".goreleaser.yml"))
+	data, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "..", ".goreleaser.yml"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -589,3 +532,45 @@ func TestGoReleaserUsesCurrentScriptPath(t *testing.T) {
 		t.Fatalf("goreleaser config still uses stale script path:\n%s", content)
 	}
 }
+
+func containsReleaseString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
+func testHooks(out *bytes.Buffer) Hooks {
+	if out == nil {
+		out = &bytes.Buffer{}
+	}
+	return Hooks{
+		PrintHelp: func(string, []string) bool { return false },
+		PrintJSON: func(value any) error {
+			data, err := json.MarshalIndent(value, "", "  ")
+			if err != nil {
+				return err
+			}
+			out.Write(data)
+			out.WriteByte('\n')
+			return nil
+		},
+		PrintText: func(args ...any) {
+			for _, arg := range args {
+				_, _ = out.WriteString(fmt.Sprint(arg))
+			}
+		},
+		PrintTextf: func(format string, args ...any) {
+			_, _ = fmt.Fprintf(out, format, args...)
+		},
+		PrintTextln: func(args ...any) {
+			_, _ = fmt.Fprintln(out, args...)
+		},
+		Version:         "0.0.0-test",
+		AlreadyReported: errJSONAlreadyReported,
+	}
+}
+
+var errJSONAlreadyReported = errors.New("json error already reported")

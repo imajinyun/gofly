@@ -362,8 +362,8 @@ command-config-family-preflight-check: ## Validate cmd/gofly config family split
 	$(GO) test $(TESTFLAGS) ./cmd/gofly/internal/command ./cmd/gofly/internal/command/config -run 'TestCommandConfigFamilyPreflight|TestConfig'
 
 .PHONY: command-feature-family-preflight-check
-command-feature-family-preflight-check: ## Validate cmd/gofly feature family split preflight before moving any command files
-	$(GO) test $(TESTFLAGS) ./cmd/gofly/internal/command -run 'TestCommandFeatureFamilyPreflight'
+command-feature-family-preflight-check: ## Validate cmd/gofly feature family split contracts after the physical move
+	$(GO) test $(TESTFLAGS) ./cmd/gofly/internal/command ./cmd/gofly/internal/command/feature -run 'TestCommandFeatureFamilyPreflight|TestFeature'
 
 .PHONY: project-layout-governance-check
 project-layout-governance-check: ## Compatibility no-op; docs-backed layout inventory was removed

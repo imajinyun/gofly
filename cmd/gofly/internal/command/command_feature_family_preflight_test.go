@@ -97,8 +97,8 @@ func TestCommandFeatureFamilyPreflightEvidence(t *testing.T) {
 	if evidence.Schema != "gofly.command_feature_family_preflight.v1" {
 		t.Fatalf("schema = %q, want gofly.command_feature_family_preflight.v1", evidence.Schema)
 	}
-	if evidence.Status != "completed-feature-family-preflight" {
-		t.Fatalf("status = %q, want completed-feature-family-preflight", evidence.Status)
+	if evidence.Status != "completed-feature-family-split" {
+		t.Fatalf("status = %q, want completed-feature-family-split", evidence.Status)
 	}
 	if evidence.Package != "cmd/gofly/internal/command" {
 		t.Fatalf("package = %q, want command package", evidence.Package)
@@ -106,8 +106,8 @@ func TestCommandFeatureFamilyPreflightEvidence(t *testing.T) {
 	if evidence.AcceptanceGate != "make command-feature-family-preflight-check" {
 		t.Fatalf("acceptanceGate = %q, want make command-feature-family-preflight-check", evidence.AcceptanceGate)
 	}
-	if !evidence.PreflightOnly || !evidence.NoPhysicalMove {
-		t.Fatalf("feature preflight must stay planning-only: preflightOnly=%t noPhysicalMove=%t", evidence.PreflightOnly, evidence.NoPhysicalMove)
+	if evidence.PreflightOnly || evidence.NoPhysicalMove {
+		t.Fatalf("feature split must record the physical move: preflightOnly=%t noPhysicalMove=%t", evidence.PreflightOnly, evidence.NoPhysicalMove)
 	}
 	assertFeaturePreflightSet(t, "golden tests", evidence.GoldenTests, []string{
 		"TestCommandFeatureFamilyPreflightEvidence",
@@ -124,22 +124,22 @@ func TestCommandFeatureFamilyPreflightEvidence(t *testing.T) {
 			t.Fatalf("requiredGates missing %q: %v", want, evidence.RequiredGates)
 		}
 	}
-	if evidence.PhysicalSplitAdmission.Status != "preflight-complete-physical-split-not-authorized" {
-		t.Fatalf("physicalSplitAdmission.status = %q, want preflight-complete-physical-split-not-authorized", evidence.PhysicalSplitAdmission.Status)
+	if evidence.PhysicalSplitAdmission.Status != "completed-single-family-split" {
+		t.Fatalf("physicalSplitAdmission.status = %q, want completed-single-family-split", evidence.PhysicalSplitAdmission.Status)
 	}
 	if evidence.NextStep.ID != "P22-21-command-feature-family-split" {
 		t.Fatalf("nextStep.id = %q, want P22-21-command-feature-family-split", evidence.NextStep.ID)
 	}
-	if !strings.Contains(evidence.NextStep.Action, "until a dedicated physical-split change is authorized") {
-		t.Fatalf("nextStep.action = %q, want unauthorized physical split hold", evidence.NextStep.Action)
+	if !strings.Contains(evidence.NextStep.Action, "next command family") {
+		t.Fatalf("nextStep.action = %q, want next command family guidance", evidence.NextStep.Action)
 	}
 }
 
 func TestCommandFeatureFamilyPreflightContracts(t *testing.T) {
 	evidence := loadCommandFeatureFamilyPreflightEvidence(t)
 	family := evidence.SelectedFamily
-	if family.ID != "feature" || family.Status != "completed-feature-family-preflight" {
-		t.Fatalf("selected family = %q/%q, want feature/completed-feature-family-preflight", family.ID, family.Status)
+	if family.ID != "feature" || family.Status != "completed-feature-family-split" {
+		t.Fatalf("selected family = %q/%q, want feature/completed-feature-family-split", family.ID, family.Status)
 	}
 	if family.CurrentPackage != "cmd/gofly/internal/command" || family.FuturePackage != "cmd/gofly/internal/command/feature" {
 		t.Fatalf("selected family packages = %q -> %q", family.CurrentPackage, family.FuturePackage)
@@ -149,13 +149,20 @@ func TestCommandFeatureFamilyPreflightContracts(t *testing.T) {
 		"feature_preview.go",
 	})
 	commandDir := filepath.Join("..", "..", "..", "..", "cmd", "gofly", "internal", "command")
-	if _, err := os.Stat(filepath.Join(commandDir, "feature")); !os.IsNotExist(err) {
-		t.Fatalf("feature subpackage must not exist during P22-20 preflight, stat err=%v", err)
+	featureDir := filepath.Join(commandDir, "feature")
+	if _, err := os.Stat(featureDir); err != nil {
+		t.Fatalf("feature subpackage must exist after P22-21: %v", err)
 	}
 	for _, filename := range family.Files {
-		if _, err := os.Stat(filepath.Join(commandDir, filename)); err != nil {
-			t.Fatalf("feature family file %s must remain in command package: %v", filename, err)
+		if _, err := os.Stat(filepath.Join(featureDir, filename)); err != nil {
+			t.Fatalf("feature split file %s must live in command/feature: %v", filename, err)
 		}
+		if _, err := os.Stat(filepath.Join(commandDir, filename)); !os.IsNotExist(err) {
+			t.Fatalf("feature split file %s must not remain in command package, stat err=%v", filename, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(commandDir, "feature_adapter.go")); err != nil {
+		t.Fatalf("feature adapter must remain in command package: %v", err)
 	}
 	for _, want := range []string{
 		"do not move JSON error helpers",
@@ -167,8 +174,8 @@ func TestCommandFeatureFamilyPreflightContracts(t *testing.T) {
 			t.Fatalf("blockedMoves missing %q: %v", want, family.BlockedMoves)
 		}
 	}
-	if !strings.Contains(family.RollbackRequirement, "Keep feature files") {
-		t.Fatalf("rollbackRequirement = %q, want keep-in-place guidance", family.RollbackRequirement)
+	if !strings.Contains(family.RollbackRequirement, "Restore feature files") {
+		t.Fatalf("rollbackRequirement = %q, want restore guidance", family.RollbackRequirement)
 	}
 
 	contracts := evidence.Contracts
@@ -217,7 +224,7 @@ func TestCommandFeatureFamilyPreflightContracts(t *testing.T) {
 	assertFeaturePreflightSet(t, "envelope fields", jsonContract.RequiredEnvelopeFields, []string{"ok", "command", "version", "data", "error"})
 	assertFeaturePreflightSet(t, "list data fields", jsonContract.RequiredListDataFields, []string{"features"})
 	assertFeaturePreflightSet(t, "run data fields", jsonContract.RequiredRunDataFields, []string{"features", "files"})
-	if contracts.LocalExecutionBoundary.Status != "preflight-complete-files-remain-in-command" {
+	if contracts.LocalExecutionBoundary.Status != "completed-files-live-in-feature-package" {
 		t.Fatalf("localExecutionBoundary.status = %q", contracts.LocalExecutionBoundary.Status)
 	}
 	assertFeaturePreflightSet(t, "runner files", contracts.LocalExecutionBoundary.RunnerFiles, []string{"feature_command.go"})
@@ -336,14 +343,14 @@ func loadCommandFeatureFamilyPreflightEvidence(t *testing.T) commandFeatureFamil
 	t.Helper()
 	return commandFeatureFamilyPreflightEvidence{
 		Schema:         "gofly.command_feature_family_preflight.v1",
-		Status:         "completed-feature-family-preflight",
+		Status:         "completed-feature-family-split",
 		Package:        "cmd/gofly/internal/command",
 		AcceptanceGate: "make command-feature-family-preflight-check",
-		PreflightOnly:  true,
-		NoPhysicalMove: true,
+		PreflightOnly:  false,
+		NoPhysicalMove: false,
 		SelectedFamily: commandFeatureFamilyPreflightFamily{
 			ID:             "feature",
-			Status:         "completed-feature-family-preflight",
+			Status:         "completed-feature-family-split",
 			CurrentPackage: "cmd/gofly/internal/command",
 			FuturePackage:  "cmd/gofly/internal/command/feature",
 			Files: []string{
@@ -356,7 +363,7 @@ func loadCommandFeatureFamilyPreflightEvidence(t *testing.T) commandFeatureFamil
 				"do not move generator feature helpers",
 				"do not move any non-feature command family",
 			},
-			RollbackRequirement: "Keep feature files in cmd/gofly/internal/command if registration, help, or JSON behavior drifts",
+			RollbackRequirement: "Restore feature files to cmd/gofly/internal/command if registration, help, or JSON behavior drifts",
 		},
 		Contracts: commandFeatureFamilyPreflightContract{
 			CommandRegistration: commandFeatureFamilyCommandRegistration{
@@ -382,7 +389,7 @@ func loadCommandFeatureFamilyPreflightEvidence(t *testing.T) commandFeatureFamil
 				PreviewDoesNotWrite:    true,
 			},
 			LocalExecutionBoundary: commandFeatureFamilyLocalBoundary{
-				Status:         "preflight-complete-files-remain-in-command",
+				Status:         "completed-files-live-in-feature-package",
 				RunnerFiles:    []string{"feature_command.go"},
 				RenderingFiles: []string{"feature_preview.go"},
 			},
@@ -394,8 +401,8 @@ func loadCommandFeatureFamilyPreflightEvidence(t *testing.T) commandFeatureFamil
 			},
 		},
 		PhysicalSplitAdmission: commandFeatureFamilyPhysicalAdmission{
-			Status:   "preflight-complete-physical-split-not-authorized",
-			NextStep: "copy help/doctor/release/config adapter pattern only after an authorized P22-21 change",
+			Status:   "completed-single-family-split",
+			NextStep: "select the next command family after feature",
 			RequiredSignals: []string{
 				"feature command remains registered",
 				"feature list JSON remains stdout-only",
@@ -416,7 +423,7 @@ func loadCommandFeatureFamilyPreflightEvidence(t *testing.T) commandFeatureFamil
 		},
 		NextStep: commandFeatureFamilyNextStep{
 			ID:     "P22-21-command-feature-family-split",
-			Action: "do not move feature command files until a dedicated physical-split change is authorized",
+			Action: "select the next command family after the completed feature physical split",
 		},
 	}
 }

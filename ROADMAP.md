@@ -26,10 +26,10 @@ Current preview surfaces, still faster-moving than Tier 0:
 - HTTP middleware catalog and RPC IDL matrix examples
 - Benchmark trend artifacts under `bench/` (`make bench-evidence-check`)
 
-CLI package splits stay preflight-gated. Help, doctor, release, and config already live
-behind adapters. The next candidate is the `feature` family; this roadmap does
-not authorize moving those files until `P22-20-command-feature-family-preflight`
-runs as its own change.
+CLI package splits stay preflight-gated. Help, doctor, release, config, and feature
+now live behind adapters. The feature family implementation is in
+`cmd/gofly/internal/command/feature`; the parent command package retains only
+`feature_adapter.go` for shared CLI output and JSON integration.
 
 ## v1.0 Compatibility
 

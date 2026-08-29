@@ -1,33 +1,29 @@
-package command
+package feature
 
-import "sort"
+import (
+	"sort"
+	"strings"
+)
 
 type featureListPreview struct {
 	Features []string `json:"features"`
 }
-
 type featureRunPreview struct {
 	Features []string             `json:"features"`
 	Files    []featureFilePreview `json:"files"`
 	Data     []featureDataPreview `json:"data,omitempty"`
 }
-
 type featureFilePreview struct {
 	Path  string `json:"path"`
 	Bytes int    `json:"bytes"`
 }
-
 type featureDataPreview struct {
 	Key   string `json:"key"`
 	Value string `json:"value"`
 }
 
 func buildFeatureRunPreview(names []string, files map[string]string, data map[string]string) featureRunPreview {
-	preview := featureRunPreview{
-		Features: append([]string(nil), names...),
-		Files:    make([]featureFilePreview, 0, len(files)),
-		Data:     make([]featureDataPreview, 0, len(data)),
-	}
+	preview := featureRunPreview{Features: append([]string(nil), names...), Files: make([]featureFilePreview, 0, len(files)), Data: make([]featureDataPreview, 0, len(data))}
 	filePaths := make([]string, 0, len(files))
 	for path := range files {
 		filePaths = append(filePaths, path)
@@ -46,3 +42,15 @@ func buildFeatureRunPreview(names []string, files map[string]string, data map[st
 	}
 	return preview
 }
+
+func splitCSV(value string) []string {
+	var result []string
+	for _, item := range strings.Split(value, ",") {
+		item = strings.TrimSpace(item)
+		if item != "" {
+			result = append(result, item)
+		}
+	}
+	return result
+}
+func joinCSV(values ...string) string { return strings.Join(values, ",") }

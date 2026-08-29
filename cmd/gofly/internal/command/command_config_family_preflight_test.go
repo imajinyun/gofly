@@ -133,11 +133,11 @@ func TestCommandConfigFamilyPreflightEvidence(t *testing.T) {
 	if evidence.PhysicalSplitAdmission.Status != "completed-single-family-split" {
 		t.Fatalf("physicalSplitAdmission.status = %q, want completed-single-family-split", evidence.PhysicalSplitAdmission.Status)
 	}
-	if evidence.NextStep.ID != "P22-20-command-feature-family-preflight" {
-		t.Fatalf("nextStep.id = %q, want P22-20-command-feature-family-preflight", evidence.NextStep.ID)
+	if evidence.NextStep.ID != "P22-21-command-feature-family-split" {
+		t.Fatalf("nextStep.id = %q, want P22-21-command-feature-family-split", evidence.NextStep.ID)
 	}
-	if !strings.Contains(evidence.NextStep.Action, "before moving any feature command files") {
-		t.Fatalf("nextStep.action = %q, want no move before feature preflight", evidence.NextStep.Action)
+	if !strings.Contains(evidence.NextStep.Action, "until a dedicated physical-split change is authorized") {
+		t.Fatalf("nextStep.action = %q, want unauthorized physical split hold", evidence.NextStep.Action)
 	}
 }
 
@@ -383,8 +383,8 @@ func loadCommandConfigFamilyPreflightEvidence(t *testing.T) commandConfigFamilyP
 			"make required-checks-drift-check",
 		},
 		NextStep: commandConfigFamilyNextStep{
-			ID:     "P22-20-command-feature-family-preflight",
-			Action: "run feature family preflight before moving any feature command files",
+			ID:     "P22-21-command-feature-family-split",
+			Action: "do not move feature command files until a dedicated physical-split change is authorized",
 		},
 	}
 }

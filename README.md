@@ -4,6 +4,8 @@
 
 It is designed for platform, backend, and AI-agent-assisted engineering teams who need to generate services quickly, run them with production defaults, and keep runtime behavior observable and governable after deployment.
 
+![gofly — AI-native Go microservice framework](docs/assets/gofly-promo.svg)
+
 - 📦 **Module:** `github.com/imajinyun/gofly`
 - 🧭 **Go:** 1.26+
 - 🚀 **CLI:** `gofly`

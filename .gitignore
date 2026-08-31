@@ -38,6 +38,8 @@ governance-report.*
 
 # Local agent planning docs. Do not commit this tree.
 docs/*
+!docs/assets/
+!docs/assets/gofly-promo.svg
 !docs/index.md
 !docs/reference/
 !docs/reference/*

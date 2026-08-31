@@ -1,0 +1,154 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
+  <title id="title">gofly — AI-native Go microservice framework</title>
+  <desc id="desc">A dark blue technical poster showing contract-first code generation, generated services, and an independent runtime control plane.</desc>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#07182f"/>
+      <stop offset="0.52" stop-color="#0a2544"/>
+      <stop offset="1" stop-color="#061426"/>
+    </linearGradient>
+    <radialGradient id="aura" cx="64%" cy="43%" r="54%">
+      <stop offset="0" stop-color="#23d9d4" stop-opacity="0.24"/>
+      <stop offset="0.48" stop-color="#2198dd" stop-opacity="0.09"/>
+      <stop offset="1" stop-color="#061426" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="wing" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#d8ffff"/>
+      <stop offset="0.42" stop-color="#53e9e1"/>
+      <stop offset="1" stop-color="#1c8bcc"/>
+    </linearGradient>
+    <linearGradient id="card" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#123e63" stop-opacity="0.86"/>
+      <stop offset="1" stop-color="#0b2341" stop-opacity="0.68"/>
+    </linearGradient>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="softGlow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <pattern id="grid" width="44" height="44" patternUnits="userSpaceOnUse">
+      <path d="M 44 0 L 0 0 0 44" fill="none" stroke="#83d8eb" stroke-opacity="0.08" stroke-width="1"/>
+    </pattern>
+    <style>
+      .ui { font-family: Inter, Avenir Next, Helvetica Neue, Arial, sans-serif; }
+      .mono { font-family: SFMono-Regular, Consolas, Liberation Mono, monospace; }
+      .caps { letter-spacing: 2.6px; }
+      .label { fill: #bde7f0; font-size: 16px; font-weight: 600; letter-spacing: 0.7px; }
+      .micro { fill: #79a9bd; font-size: 12px; letter-spacing: 1.2px; }
+      .line { fill: none; stroke: #5bd9dd; stroke-opacity: 0.72; stroke-width: 1.5; }
+      .dash { fill: none; stroke: #55b8dc; stroke-opacity: 0.58; stroke-width: 1.3; stroke-dasharray: 5 7; }
+    </style>
+  </defs>
+
+  <rect width="1600" height="900" fill="url(#background)"/>
+  <rect width="1600" height="900" fill="url(#grid)"/>
+  <rect width="1600" height="900" fill="url(#aura)"/>
+  <path d="M0 700 C390 580 520 850 850 730 C1120 632 1310 670 1600 508 L1600 900 L0 900Z" fill="#06182c" opacity="0.52"/>
+
+  <g class="ui">
+    <text x="104" y="118" fill="#57e8df" font-size="15" font-weight="700" class="caps">OPEN SOURCE · GO MICROSERVICES</text>
+    <text x="100" y="246" fill="#f0ffff" font-size="116" font-weight="800" letter-spacing="-6">gofly</text>
+    <rect x="105" y="274" width="290" height="3" rx="1.5" fill="#52e5df"/>
+    <text x="104" y="335" fill="#d6f7fb" font-size="32" font-weight="500">AI-native Go microservice framework</text>
+    <text x="104" y="383" fill="#8fb9c9" font-size="19" font-weight="400">Generate services quickly. Govern runtime behavior.</text>
+    <text x="104" y="411" fill="#8fb9c9" font-size="19" font-weight="400">Expose a machine-readable control plane.</text>
+
+    <g transform="translate(104 473)">
+      <rect width="487" height="72" rx="12" fill="#0d2b4b" fill-opacity="0.8" stroke="#4cd4dc" stroke-opacity="0.38"/>
+      <circle cx="32" cy="36" r="8" fill="#5be8df" filter="url(#softGlow)"/>
+      <text x="58" y="43" fill="#e7ffff" font-size="20" font-weight="700">CODEGEN</text>
+      <path d="M181 35H205" stroke="#4fcae1" stroke-width="2"/>
+      <circle cx="215" cy="35" r="4" fill="#54dce0"/>
+      <text x="237" y="43" fill="#e7ffff" font-size="20" font-weight="700">GOVERNANCE</text>
+      <path d="M392 35H416" stroke="#4fcae1" stroke-width="2"/>
+      <circle cx="426" cy="35" r="4" fill="#54dce0"/>
+      <text x="448" y="43" fill="#e7ffff" font-size="20" font-weight="700">OPS</text>
+    </g>
+    <text x="104" y="776" fill="#8fb9c9" font-size="20" font-weight="500">Build services. Govern behavior. Ship with confidence.</text>
+    <text x="104" y="826" fill="#6e9bad" font-size="13" class="caps">REST · RPC · OPENAPI · CACHE · MQ · OBSERVABILITY</text>
+  </g>
+
+  <g transform="translate(782 108)">
+    <text x="0" y="0" class="ui micro">FROM CONTRACTS AND INTENT</text>
+    <g transform="translate(0 26)">
+      <rect width="212" height="116" rx="14" fill="url(#card)" stroke="#59d7e0" stroke-opacity="0.6"/>
+      <text x="22" y="34" class="ui label">AI OPERATOR</text>
+      <text x="22" y="63" class="mono micro">plan · manifest</text>
+      <text x="22" y="86" class="mono micro">doctor · JSON</text>
+      <circle cx="182" cy="34" r="8" fill="#58e9df"/>
+    </g>
+    <g transform="translate(259 26)">
+      <rect width="212" height="116" rx="14" fill="url(#card)" stroke="#59d7e0" stroke-opacity="0.6"/>
+      <text x="22" y="34" class="ui label">CONTRACTS</text>
+      <text x="22" y="63" class="mono micro">.api · .proto</text>
+      <text x="22" y="86" class="mono micro">SQL · manifests</text>
+      <path d="M172 28l12 12-12 12-12-12z" fill="none" stroke="#59e0e1" stroke-width="2"/>
+    </g>
+
+    <path d="M105 163 C140 198 230 208 286 234" class="line"/>
+    <path d="M365 163 C350 198 318 208 286 234" class="line"/>
+    <circle cx="286" cy="234" r="7" fill="#8afff2" filter="url(#softGlow)"/>
+
+    <g transform="translate(74 258)">
+      <circle cx="213" cy="117" r="137" fill="#27d9d2" opacity="0.08" filter="url(#glow)"/>
+      <path d="M210 4 C257 29 297 73 315 125 C279 111 240 111 205 126 C222 91 225 49 210 4Z" fill="url(#wing)" opacity="0.95"/>
+      <path d="M202 4 C151 29 111 73 93 125 C129 111 168 111 203 126 C186 91 183 49 202 4Z" fill="url(#wing)" opacity="0.95"/>
+      <path d="M207 55 C225 74 232 102 210 151 C188 102 195 74 207 55Z" fill="#e9ffff"/>
+      <circle cx="207" cy="153" r="27" fill="#0e6c9f" stroke="#7cfff1" stroke-width="2"/>
+      <path d="M195 154h24M207 142v24" stroke="#eaffff" stroke-width="2"/>
+      <text x="207" y="205" text-anchor="middle" class="ui" fill="#eaffff" font-size="26" font-weight="800" letter-spacing="2">GOFLY</text>
+      <text x="207" y="232" text-anchor="middle" class="mono" fill="#8ccfdb" font-size="13">CLI + CODEGEN</text>
+    </g>
+
+    <path d="M286 499V539" class="line"/>
+    <path d="M286 539 C256 554 219 554 187 570" class="line"/>
+    <path d="M286 539 C326 554 365 554 404 570" class="line"/>
+    <circle cx="286" cy="539" r="5" fill="#87fff0"/>
+
+    <g transform="translate(-12 582)">
+      <rect width="398" height="170" rx="16" fill="#0c2948" fill-opacity="0.88" stroke="#4bd3e0" stroke-opacity="0.7"/>
+      <text x="26" y="36" class="ui label" fill="#e9ffff">GENERATED SERVICE</text>
+      <path d="M26 52H372" stroke="#59dce0" stroke-opacity="0.36"/>
+      <rect x="26" y="73" width="102" height="55" rx="8" fill="#15466d"/>
+      <rect x="148" y="73" width="102" height="55" rx="8" fill="#15466d"/>
+      <rect x="270" y="73" width="102" height="55" rx="8" fill="#15466d"/>
+      <text x="77" y="97" text-anchor="middle" class="mono" fill="#d8ffff" font-size="13">REST</text>
+      <text x="77" y="116" text-anchor="middle" class="mono" fill="#8fc7d6" font-size="11">gateway</text>
+      <text x="199" y="97" text-anchor="middle" class="mono" fill="#d8ffff" font-size="13">RPC</text>
+      <text x="199" y="116" text-anchor="middle" class="mono" fill="#8fc7d6" font-size="11">gRPC</text>
+      <text x="321" y="97" text-anchor="middle" class="mono" fill="#d8ffff" font-size="13">APP</text>
+      <text x="321" y="116" text-anchor="middle" class="mono" fill="#8fc7d6" font-size="11">lifecycle</text>
+      <text x="26" y="151" class="mono" fill="#73adbf" font-size="12">config · discovery · cache · MQ · DB</text>
+    </g>
+
+    <g transform="translate(445 582)">
+      <rect width="276" height="170" rx="16" fill="#102f50" fill-opacity="0.9" stroke="#5ce8dc" stroke-opacity="0.9"/>
+      <text x="24" y="36" class="ui label">CONTROL PLANE</text>
+      <path d="M24 52H252" stroke="#59dce0" stroke-opacity="0.36"/>
+      <text x="24" y="83" class="mono" fill="#d9ffff" font-size="13">admin · health</text>
+      <text x="24" y="108" class="mono" fill="#d9ffff" font-size="13">metrics · tracing</text>
+      <text x="24" y="133" class="mono" fill="#d9ffff" font-size="13">policy · diagnostics</text>
+      <circle cx="231" cy="111" r="23" fill="none" stroke="#62eee3" stroke-width="2"/>
+      <path d="M231 96v15l10 7" fill="none" stroke="#62eee3" stroke-width="2"/>
+    </g>
+
+    <path d="M386 664H445" class="dash"/>
+    <text x="415" y="650" text-anchor="middle" class="ui" fill="#6baabb" font-size="11">OBSERVE + ACT</text>
+
+    <g transform="translate(512 26)">
+      <rect width="210" height="116" rx="14" fill="#09233f" fill-opacity="0.72" stroke="#3b91bb" stroke-opacity="0.55"/>
+      <text x="20" y="34" class="ui label">GOVERNANCE</text>
+      <text x="20" y="63" class="mono micro">retry · limit</text>
+      <text x="20" y="86" class="mono micro">breaker · auth</text>
+      <path d="M174 27l16 10v20l-16 10-16-10V37z" fill="none" stroke="#58dce0" stroke-width="2"/>
+    </g>
+  </g>
+
+  <g class="ui">
+    <circle cx="1458" cy="812" r="5" fill="#55e6de"/>
+    <text x="1473" y="817" fill="#93c7d5" font-size="13" letter-spacing="1.5">GO 1.26+</text>
+  </g>
+</svg>

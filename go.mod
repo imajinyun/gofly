@@ -8,7 +8,7 @@ require (
 	github.com/cloudwego/hertz v0.10.6
 	github.com/gin-gonic/gin v1.12.0
 	github.com/go-chi/chi/v5 v5.3.2
-	github.com/go-sql-driver/mysql v1.10.0
+	github.com/go-sql-driver/mysql v1.10.1
 	github.com/gofiber/fiber/v2 v2.52.15
 	github.com/hashicorp/consul/api v1.34.4
 	github.com/jackc/pgx/v5 v5.10.0
@@ -33,7 +33,7 @@ require (
 	go.opentelemetry.io/otel/trace v1.46.0
 	go.uber.org/goleak v1.3.0
 	go.yaml.in/yaml/v2 v2.4.4
-	google.golang.org/grpc v1.83.1
+	google.golang.org/grpc v1.83.2
 	google.golang.org/protobuf v1.36.12
 )
 

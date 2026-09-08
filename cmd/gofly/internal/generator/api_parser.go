@@ -13,6 +13,7 @@ var (
 	apiFieldRE       = regexp.MustCompile("^([A-Za-z_][A-Za-z0-9_]*)\\s+((?:\\[\\])?[A-Za-z_][A-Za-z0-9_]*)(?:\\s+(`[^`]*`))?$")
 	apiInlineFieldRE = regexp.MustCompile("^(\\*?[A-Za-z_][A-Za-z0-9_]*)(?:\\s+(`[^`]*`))?$")
 	apiRouteRE       = regexp.MustCompile(`^(get|post|put|patch|delete)\s+([^\s]+)\s*(?:\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\))?\s*returns\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)$`)
+	apiDocValueRE    = regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_]*)\s*[:=]\s*(?:"([^"]*)"|'([^']*)'|([^\s)]+))`)
 )
 
 func ParseAPI(content string) (IDLDocument, error) {
@@ -21,13 +22,24 @@ func ParseAPI(content string) (IDLDocument, error) {
 	var currentMessage *IDLMessage
 	var currentService *IDLService
 	var handler string
+	var methodDoc map[string]string
 	var pendingServer IDLServerAnnotation
 	var serverAnnotation strings.Builder
+	var docAnnotation strings.Builder
 	lineNo := 0
 	for scanner.Scan() {
 		lineNo++
 		line := strings.TrimSpace(stripLineComment(scanner.Text()))
 		if line == "" {
+			continue
+		}
+		if docAnnotation.Len() > 0 {
+			docAnnotation.WriteByte(' ')
+			docAnnotation.WriteString(line)
+			if strings.Contains(line, ")") {
+				methodDoc = parseAPIDocAnnotation(docAnnotation.String())
+				docAnnotation.Reset()
+			}
 			continue
 		}
 		if serverAnnotation.Len() > 0 {
@@ -76,6 +88,14 @@ func ParseAPI(content string) (IDLDocument, error) {
 				handler = strings.TrimSpace(strings.TrimPrefix(line, "@handler"))
 				continue
 			}
+			if strings.HasPrefix(line, "@doc") {
+				if strings.Contains(line, "(") && !strings.Contains(line, ")") {
+					docAnnotation.WriteString(line)
+					continue
+				}
+				methodDoc = parseAPIDocAnnotation(line)
+				continue
+			}
 			if strings.HasPrefix(line, "@server") {
 				if strings.Contains(line, "(") && !strings.Contains(line, ")") {
 					serverAnnotation.WriteString(line)
@@ -95,8 +115,10 @@ func ParseAPI(content string) (IDLDocument, error) {
 				HTTPMethod: strings.ToUpper(match[1]),
 				HTTPPath:   match[2],
 				Handler:    handler,
+				Doc:        methodDoc,
 			})
 			handler = ""
+			methodDoc = nil
 			continue
 		}
 		if strings.HasPrefix(line, "syntax") || strings.HasPrefix(line, "import") {
@@ -126,6 +148,9 @@ func ParseAPI(content string) (IDLDocument, error) {
 	if serverAnnotation.Len() > 0 {
 		return IDLDocument{}, fmt.Errorf("parse api: server annotation is not closed")
 	}
+	if docAnnotation.Len() > 0 {
+		return IDLDocument{}, fmt.Errorf("parse api: doc annotation is not closed")
+	}
 	if currentMessage != nil {
 		return IDLDocument{}, fmt.Errorf("parse api: type %s is not closed", currentMessage.Name)
 	}
@@ -153,6 +178,22 @@ func parseAPIServerAnnotation(line string) IDLServerAnnotation {
 		Middleware: splitAPIAnnotationList(middleware),
 		Values:     values,
 	}
+}
+
+func parseAPIDocAnnotation(line string) map[string]string {
+	line = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "@doc"))
+	values := map[string]string{}
+	for _, match := range apiDocValueRE.FindAllStringSubmatch(strings.Trim(line, "()"), -1) {
+		value := match[2]
+		if value == "" {
+			value = match[3]
+		}
+		if value == "" {
+			value = match[4]
+		}
+		values[strings.ToLower(match[1])] = strings.TrimSpace(value)
+	}
+	return values
 }
 
 func parseAPIAnnotationValues(line string) map[string]string {

@@ -105,6 +105,10 @@ func GenerateRPCCodeWithOptions(doc IDLDocument, packageName string, opts RPCCod
 	if packageName == "" {
 		packageName = inferGoPackageName(doc)
 	}
+	imports, err := protoTypeImports(doc)
+	if err != nil {
+		return nil, err
+	}
 	var b bytes.Buffer
 	fprintf(&b, "package %s\n\n", packageName)
 	fprintf(&b, "import (\n")
@@ -116,6 +120,9 @@ func GenerateRPCCodeWithOptions(doc IDLDocument, packageName string, opts RPCCod
 		fprintf(&b, "\n\t\"github.com/imajinyun/gofly/rpc/endpoint\"\n")
 	}
 	fprintf(&b, "\t\"github.com/imajinyun/gofly/rpc\"\n")
+	for _, item := range imports {
+		fprintf(&b, "\t%s %q\n", lowerCamel(item.Alias), item.GoPackage)
+	}
 	fprintf(&b, ")\n\n")
 	for _, enum := range doc.Enums {
 		writeEnum(&b, enum)
@@ -175,17 +182,18 @@ func writeMessage(b *bytes.Buffer, msg IDLMessage) {
 
 func writeService(b *bytes.Buffer, doc IDLDocument, svc IDLService, opts RPCCodeOptions) {
 	serviceName := exportName(svc.Name)
+	resolver := newProtoTypeResolver(doc)
 	fprintf(b, "type %s interface {\n", serviceName)
 	for _, method := range svc.Methods {
 		if method.ClientStream || method.ServerStream {
 			fprintf(b, "\t%s(ctx context.Context, stream *rpc.Stream) error\n", exportName(method.Name))
 			continue
 		}
-		fprintf(b, "\t%s(ctx context.Context, req *%s) (*%s, error)\n", exportName(method.Name), exportName(method.Request), exportName(method.Response))
+		fprintf(b, "\t%s(ctx context.Context, req *%s) (*%s, error)\n", exportName(method.Name), resolver.methodRequest(method).GoType, resolver.methodResponse(method).GoType)
 	}
 	fprintf(b, "}\n\n")
 	if opts.WithValidator {
-		writeRPCValidatorScaffold(b, svc)
+		writeRPCValidatorScaffold(b, doc, svc)
 	}
 	if opts.WithMiddleware || opts.WithRecovery || opts.WithValidator {
 		writeRPCServerOptionScaffold(b, svc, opts)
@@ -202,8 +210,8 @@ func writeService(b *bytes.Buffer, doc IDLDocument, svc IDLService, opts RPCCode
 			continue
 		}
 		methodName := exportName(method.Name)
-		requestName := exportName(method.Request)
-		responseName := exportName(method.Response)
+		requestName := resolver.methodRequest(method).GoType
+		responseName := resolver.methodResponse(method).GoType
 		fprintf(b, "\t\t{Name: %q, NewRequest: func() any { return new(%s) }, Request: %q, Response: %q", methodName, requestName, requestName, responseName)
 		if strings.TrimSpace(method.HTTPMethod) != "" || strings.TrimSpace(method.HTTPPath) != "" {
 			fprintf(b, ", HTTP: rpc.HTTPBinding{Method: %q, Path: %q}", strings.ToUpper(strings.TrimSpace(method.HTTPMethod)), strings.TrimSpace(method.HTTPPath))
@@ -240,7 +248,7 @@ func writeService(b *bytes.Buffer, doc IDLDocument, svc IDLService, opts RPCCode
 			continue
 		}
 		methodName := exportName(method.Name)
-		requestName := exportName(method.Request)
+		requestName := resolver.methodRequest(method).GoType
 		writeDefensiveHandlerBinding(b, i, methodName, requestName)
 	}
 	for i, method := range svc.Methods {
@@ -255,7 +263,7 @@ func writeService(b *bytes.Buffer, doc IDLDocument, svc IDLService, opts RPCCode
 	fprintf(b, "\treturn desc\n")
 	fprintf(b, "}\n\n")
 	if opts.WithValidator {
-		writeRPCServiceDescWithOptions(b, svc)
+		writeRPCServiceDescWithOptions(b, doc, svc)
 	}
 	fprintf(b, "func Bind%sGenericHandlers(handlers map[string]rpc.GenericHandler) (rpc.ServiceDesc, error) {\n", serviceName)
 	fprintf(b, "\treturn rpc.BindGenericHandlers(%sDescriptor(), handlers)\n", serviceName)
@@ -296,8 +304,8 @@ func writeService(b *bytes.Buffer, doc IDLDocument, svc IDLService, opts RPCCode
 			fprintf(b, "\treturn c.cc.Stream(ctx, method)\n}\n\n")
 			continue
 		}
-		requestName := exportName(method.Request)
-		responseName := exportName(method.Response)
+		requestName := resolver.methodRequest(method).GoType
+		responseName := resolver.methodResponse(method).GoType
 		fprintf(b, "func (c *%sClient) %s(ctx context.Context, req *%s) (*%s, error) {\n", serviceName, methodName, requestName, responseName)
 		fprintf(b, "\tvar resp %s\n", responseName)
 		fprintf(b, "\tmethod, err := c.desc.MethodPath(%q)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n", methodName)
@@ -324,7 +332,7 @@ func writeService(b *bytes.Buffer, doc IDLDocument, svc IDLService, opts RPCCode
 			fprintf(b, "\t%sFunc func(ctx context.Context, stream *rpc.Stream) error\n", exportName(method.Name))
 			continue
 		}
-		fprintf(b, "\t%sFunc func(ctx context.Context, req *%s) (*%s, error)\n", exportName(method.Name), exportName(method.Request), exportName(method.Response))
+		fprintf(b, "\t%sFunc func(ctx context.Context, req *%s) (*%s, error)\n", exportName(method.Name), resolver.methodRequest(method).GoType, resolver.methodResponse(method).GoType)
 	}
 	fprintf(b, "}\n\n")
 	for _, method := range svc.Methods {
@@ -335,22 +343,23 @@ func writeService(b *bytes.Buffer, doc IDLDocument, svc IDLService, opts RPCCode
 			fprintf(b, "\treturn m.%sFunc(ctx, stream)\n}\n\n", methodName)
 			continue
 		}
-		requestName := exportName(method.Request)
-		responseName := exportName(method.Response)
+		requestName := resolver.methodRequest(method).GoType
+		responseName := resolver.methodResponse(method).GoType
 		fprintf(b, "func (m *Mock%s) %s(ctx context.Context, req *%s) (*%s, error) {\n", serviceName, methodName, requestName, responseName)
 		fprintf(b, "\tif m.%sFunc == nil {\n\t\treturn nil, rpc.NewError(rpc.CodeInternal, %q)\n\t}\n", methodName, "mock method "+methodName+" is not implemented")
 		fprintf(b, "\treturn m.%sFunc(ctx, req)\n}\n\n", methodName)
 	}
 }
 
-func writeRPCValidatorScaffold(b *bytes.Buffer, svc IDLService) {
+func writeRPCValidatorScaffold(b *bytes.Buffer, doc IDLDocument, svc IDLService) {
 	serviceName := exportName(svc.Name)
+	resolver := newProtoTypeResolver(doc)
 	fprintf(b, "type %sValidator interface {\n", serviceName)
 	for _, method := range svc.Methods {
 		if method.ClientStream || method.ServerStream {
 			continue
 		}
-		fprintf(b, "\tValidate%s(ctx context.Context, req *%s) error\n", exportName(method.Name), exportName(method.Request))
+		fprintf(b, "\tValidate%s(ctx context.Context, req *%s) error\n", exportName(method.Name), resolver.methodRequest(method).GoType)
 	}
 	fprintf(b, "}\n\n")
 	fprintf(b, "func New%sBizError(code rpc.Code, message string) error {\n\treturn rpc.NewError(code, message)\n}\n\n", serviceName)
@@ -423,8 +432,9 @@ func writeRPCServerOptionScaffold(b *bytes.Buffer, svc IDLService, opts RPCCodeO
 	fprintf(b, "}\n\n")
 }
 
-func writeRPCServiceDescWithOptions(b *bytes.Buffer, svc IDLService) {
+func writeRPCServiceDescWithOptions(b *bytes.Buffer, doc IDLDocument, svc IDLService) {
 	serviceName := exportName(svc.Name)
+	resolver := newProtoTypeResolver(doc)
 	fprintf(b, "func %sServiceDescWithOptions(impl %s, options ...%sServerOption) rpc.ServiceDesc {\n", serviceName, serviceName, serviceName)
 	fprintf(b, "\tvar cfg %sServerOptions\n", serviceName)
 	fprintf(b, "\tfor _, option := range options {\n\t\tif option != nil {\n\t\t\toption(&cfg)\n\t\t}\n\t}\n")
@@ -434,7 +444,7 @@ func writeRPCServiceDescWithOptions(b *bytes.Buffer, svc IDLService) {
 			continue
 		}
 		methodName := exportName(method.Name)
-		requestName := exportName(method.Request)
+		requestName := resolver.methodRequest(method).GoType
 		fprintf(b, "\tdesc.Methods[%d].Handler = func(ctx context.Context, req any) (any, error) {\n", i)
 		fprintf(b, "\t\ttyped, ok := req.(*%s)\n", requestName)
 		fprintf(b, "\t\tif !ok || typed == nil {\n")

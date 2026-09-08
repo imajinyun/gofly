@@ -16,9 +16,9 @@
       "id": "external-proto-imports",
       "status": "supported",
       "surface": "proto imports",
-      "evidence": ["import \"common.proto\"", "Money", "TraceMeta", "recursive-local-import-merge", "proto_path include directory"],
+      "evidence": ["import \"common.proto\"", "Money", "TraceMeta", "QuoteRequest", "shop.common.v1.QuoteRequest", "commonv1", "recursive-local-import-merge", "proto_path include directory"],
       "gate": "make zrpc-proto-compatibility-check",
-      "reason": "GenerateRPCFromProto recursively parses local proto imports and merges imported message and enum definitions into generated DTOs.",
+      "reason": "GenerateRPCFromProto recursively parses local proto imports, preserves qualified RPC method references, and resolves imported go_package aliases for generated method signatures.",
       "rollbackOrEscalation": "Rollback by preserving local import merge evidence and treating lost imported DTO generation as a supported-row regression."
     },
     {

@@ -93,11 +93,13 @@ func ParseProto(content string) (IDLDocument, error) {
 				return IDLDocument{}, fmt.Errorf("parse proto line %d: invalid rpc method", lineNo)
 			}
 			method := IDLMethod{
-				Name:         match[1],
-				ClientStream: strings.TrimSpace(match[2]) == "stream",
-				Request:      lastIdent(match[3]),
-				ServerStream: strings.TrimSpace(match[4]) == "stream",
-				Response:     lastIdent(match[5]),
+				Name:          match[1],
+				ClientStream:  strings.TrimSpace(match[2]) == "stream",
+				Request:       lastIdent(match[3]),
+				Response:      lastIdent(match[5]),
+				ProtoRequest:  strings.TrimSpace(match[3]),
+				ProtoResponse: strings.TrimSpace(match[5]),
+				ServerStream:  strings.TrimSpace(match[4]) == "stream",
 			}
 			if !strings.HasSuffix(line, ";") {
 				if err := readProtoRPCOptions(scanner, &lineNo, &method, strings.HasSuffix(line, "{")); err != nil {
@@ -184,6 +186,7 @@ func parseProtoFileSeen(path string, includeDirs []string, seen map[string]struc
 	}
 	importedMessages := make([]IDLMessage, 0)
 	importedEnums := make([]IDLEnum, 0)
+	importedProtos := make([]IDLImportedProto, 0)
 	for _, imp := range doc.Imports {
 		if isStandardProtoImport(imp) {
 			continue
@@ -201,10 +204,50 @@ func parseProtoFileSeen(path string, includeDirs []string, seen map[string]struc
 		}
 		importedMessages = append(importedMessages, imported.Messages...)
 		importedEnums = append(importedEnums, imported.Enums...)
+		importedProtos = append(importedProtos, imported.ImportedProtos...)
+		if imported.Package != "" {
+			importedProtos = append(importedProtos, IDLImportedProto{
+				ProtoPackage: imported.Package,
+				GoPackage:    protoGoImportPath(imported.GoPackage),
+				Alias:        protoGoPackageAlias(imported.GoPackage),
+			})
+		}
 	}
 	doc.Messages = mergeProtoMessages(importedMessages, doc.Messages)
 	doc.Enums = mergeProtoEnums(importedEnums, doc.Enums)
+	doc.ImportedProtos = mergeImportedProtos(importedProtos)
 	return doc, nil
+}
+
+func mergeImportedProtos(items []IDLImportedProto) []IDLImportedProto {
+	seen := make(map[string]struct{}, len(items))
+	out := make([]IDLImportedProto, 0, len(items))
+	for _, item := range items {
+		if item.ProtoPackage == "" || item.GoPackage == "" {
+			continue
+		}
+		key := item.ProtoPackage + "\x00" + item.GoPackage
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, item)
+	}
+	return out
+}
+
+func protoGoImportPath(goPackage string) string {
+	if index := strings.LastIndex(goPackage, ";"); index >= 0 {
+		return goPackage[:index]
+	}
+	return goPackage
+}
+
+func protoGoPackageAlias(goPackage string) string {
+	if index := strings.LastIndex(goPackage, ";"); index >= 0 {
+		return exportName(goPackage[index+1:])
+	}
+	return exportName(filepath.Base(goPackage))
 }
 
 func isStandardProtoImport(path string) bool {

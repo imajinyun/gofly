@@ -12,3 +12,11 @@ message Money {
 message TraceMeta {
   string request_id = 1;
 }
+
+message QuoteRequest {
+  string sku = 1;
+}
+
+message QuoteResponse {
+  string currency = 1;
+}

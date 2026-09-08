@@ -74,12 +74,16 @@ for marker in (
     'import "common.proto"',
     'import "google/protobuf/timestamp.proto"',
     "service OrderService",
+    "rpc GetQuote(shop.common.v1.QuoteRequest) returns (shop.common.v1.QuoteResponse)",
     "service OrderEventService",
     "returns (stream WatchOrdersResponse)",
     "rpc UploadEvents(stream UploadOrderEvent)",
     "rpc Chat(stream ChatMessage) returns (stream ChatMessage)",
 ):
     require(marker in shop, f"shop.proto missing {marker!r}")
+common = read(root / "testdata/zrpc-proto-matrix/common.proto")
+for marker in ("message QuoteRequest", "message QuoteResponse"):
+    require(marker in common, f"common.proto missing {marker!r}")
 
 rules = manifest.get("releaseRules") or {}
 for field in ("supportedRegression", "degradedClaim", "unsupportedPromotion"):

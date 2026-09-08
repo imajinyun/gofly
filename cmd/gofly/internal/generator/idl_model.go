@@ -1,13 +1,22 @@
 package generator
 
 type IDLDocument struct {
-	Kind      string
-	Package   string
-	GoPackage string
-	Imports   []string
-	Messages  []IDLMessage
-	Enums     []IDLEnum
-	Services  []IDLService
+	Kind           string
+	Package        string
+	GoPackage      string
+	Imports        []string
+	ImportedProtos []IDLImportedProto
+	Messages       []IDLMessage
+	Enums          []IDLEnum
+	Services       []IDLService
+}
+
+// IDLImportedProto describes a locally resolved imported Proto package used by
+// generated RPC method signatures.
+type IDLImportedProto struct {
+	ProtoPackage string
+	GoPackage    string
+	Alias        string
 }
 
 type IDLEnum struct {
@@ -51,12 +60,15 @@ type IDLServerAnnotation struct {
 }
 
 type IDLMethod struct {
-	Name         string
-	Request      string
-	Response     string
-	ClientStream bool
-	ServerStream bool
-	HTTPMethod   string
-	HTTPPath     string
-	Handler      string
+	Name          string
+	Request       string
+	Response      string
+	ProtoRequest  string
+	ProtoResponse string
+	ClientStream  bool
+	ServerStream  bool
+	HTTPMethod    string
+	HTTPPath      string
+	Handler       string
+	Doc           map[string]string
 }

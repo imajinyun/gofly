@@ -142,6 +142,13 @@ func replayGoctlFixture(t *testing.T, fixtureDir string, fixture goctlReplayFixt
 	}); err != nil {
 		t.Fatalf("generate replay api: %v", err)
 	}
+	if fixture.ID == "billingservice-transitive-import-replay" {
+		openAPIPath := filepath.Join(outDir, "billing.openapi.json")
+		if err := GenerateAPIDoc(APIDocOptions{APIFile: apiFile, Output: openAPIPath, Format: "openapi"}); err != nil {
+			t.Fatalf("generate billing OpenAPI replay: %v", err)
+		}
+		assertBillingOpenAPIResponseStatus(t, openAPIPath)
+	}
 	if err := GenerateModelFromDDL(ModelOptions{
 		DDLFile: ddlFile,
 		Dir:     outDir,
@@ -434,6 +441,7 @@ func assertBillingGoctlReplayArtifacts(t *testing.T, outDir string, fixture goct
 		"api-comments-tags",
 		"nested-type-composition",
 		"inline-type-composition",
+		"openapi-response-status",
 		"request-response-naming",
 		"complex-model",
 		"soft-delete",
@@ -589,6 +597,30 @@ func assertBillingGoctlReplayArtifacts(t *testing.T, outDir string, fixture goct
 	} {
 		if !strings.Contains(entity, want) {
 			t.Fatalf("generated billing entity missing %q:\n%s", want, entity)
+		}
+	}
+}
+
+func assertBillingOpenAPIResponseStatus(t *testing.T, path string) {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var spec map[string]any
+	if err := json.Unmarshal(data, &spec); err != nil {
+		t.Fatal(err)
+	}
+	post := spec["paths"].(map[string]any)["/api/v1/invoices"].(map[string]any)["post"].(map[string]any)
+	responses := post["responses"].(map[string]any)
+	created := responses["201"].(map[string]any)
+	if created["description"] != "Created" || created["content"] == nil {
+		t.Fatalf("billing 201 response = %#v, want documented schema response", created)
+	}
+	for code, description := range map[string]string{"400": "Invalid invoice", "409": "Invoice already exists"} {
+		response := responses[code].(map[string]any)
+		if response["description"] != description || response["content"] != nil {
+			t.Fatalf("billing response %s = %#v, want description-only %q", code, response, description)
 		}
 	}
 }

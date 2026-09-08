@@ -49,6 +49,7 @@ type CaptureInvoiceResponse {
 
 @server(group: billing prefix: /api/v1 jwt: Auth middlewares: auth,trace,audit)
 service billing-api {
+  @doc(respCode: 201 responses: "201-Created<br>400-Invalid invoice<br>409-Invoice already exists")
   @handler createInvoice
   post /invoices (CreateInvoiceRequest) returns (CreateInvoiceResponse)
 

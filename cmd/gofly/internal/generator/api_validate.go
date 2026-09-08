@@ -3,7 +3,9 @@ package generator
 import (
 	"errors"
 	"fmt"
+	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -139,7 +141,43 @@ func validateAPIMethod(
 	} else if !apiMessageExists(method.Response, types) {
 		issues = append(issues, fmt.Sprintf("route %s references unknown response type %s", methodName, method.Response))
 	}
+	issues = append(issues, validateAPIDocResponses(method)...)
 	return issues
+}
+
+func validateAPIDocResponses(method IDLMethod) []string {
+	if len(method.Doc) == 0 {
+		return nil
+	}
+	issues := []string{}
+	if raw := strings.TrimSpace(method.Doc["respcode"]); raw != "" {
+		if _, ok := apiResponseStatusCode(raw); !ok {
+			issues = append(issues, fmt.Sprintf("route %s has invalid response status code %q", exportName(method.Name), raw))
+		}
+	}
+	for _, item := range strings.Split(method.Doc["responses"], "<br>") {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		codeText, _, ok := strings.Cut(item, "-")
+		if !ok {
+			issues = append(issues, fmt.Sprintf("route %s has invalid response description %q", exportName(method.Name), item))
+			continue
+		}
+		if _, ok := apiResponseStatusCode(strings.TrimSpace(codeText)); !ok {
+			issues = append(issues, fmt.Sprintf("route %s has invalid response status code %q", exportName(method.Name), strings.TrimSpace(codeText)))
+		}
+	}
+	return issues
+}
+
+func apiResponseStatusCode(raw string) (int, bool) {
+	statusCode, err := strconv.Atoi(strings.Trim(strings.TrimSpace(raw), "\"'"))
+	if err != nil || statusCode < http.StatusContinue || statusCode > 599 {
+		return 0, false
+	}
+	return statusCode, true
 }
 
 func validateAPIPathParams(methodName, path string) []string {

@@ -43,6 +43,7 @@ message ChatMessage {
 }
 
 service OrderService {
+  rpc GetQuote(shop.common.v1.QuoteRequest) returns (shop.common.v1.QuoteResponse);
   rpc CreateOrder(CreateOrderRequest) returns (CreateOrderResponse);
   rpc WatchOrders(WatchOrdersRequest) returns (stream WatchOrdersResponse);
 }

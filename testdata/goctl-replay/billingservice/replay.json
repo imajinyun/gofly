@@ -17,6 +17,7 @@
     "api-comments-tags",
     "nested-type-composition",
     "inline-type-composition",
+    "openapi-response-status",
     "request-response-naming",
     "complex-model",
     "soft-delete",

@@ -1255,6 +1255,9 @@ func TestZRPCProtoCompatibilityMatrix(t *testing.T) {
 	if !hasProtoMessage(doc.Messages, "Money") || !hasProtoMessage(doc.Messages, "TraceMeta") {
 		t.Fatalf("imported common.proto messages should be recursively parsed: %#v", doc.Messages)
 	}
+	if len(doc.ImportedProtos) != 1 || doc.ImportedProtos[0].ProtoPackage != "shop.common.v1" || doc.ImportedProtos[0].GoPackage != "example.com/shop/common" || doc.ImportedProtos[0].Alias != "Commonv1" {
+		t.Fatalf("imported proto metadata = %#v, want shop.common.v1/example.com/shop/common/Commonv1", doc.ImportedProtos)
+	}
 
 	manifestData, err := os.ReadFile(manifestPath)
 	if err != nil {
@@ -1285,6 +1288,9 @@ func TestZRPCProtoCompatibilityMatrix(t *testing.T) {
 	order := string(orderData)
 	for _, want := range []string{
 		"func OrderServiceDescriptor() rpc.ServiceDesc",
+		"commonv1 \"example.com/shop/common\"",
+		"GetQuote(ctx context.Context, req *commonv1.QuoteRequest) (*commonv1.QuoteResponse, error)",
+		"NewRequest: func() any { return new(commonv1.QuoteRequest) }",
 		"func NewOrderServiceClient",
 		"func (c *OrderServiceClient) RuntimeDescriptor() rpc.Descriptor",
 		`Name: "WatchOrders"`,
@@ -1314,6 +1320,124 @@ func TestZRPCProtoCompatibilityMatrix(t *testing.T) {
 		if !strings.Contains(event, want) {
 			t.Fatalf("generated event zrpc compatibility output missing %q:\n%s", want, event)
 		}
+	}
+}
+
+func TestGenerateRPCCodeResolvesCrossGoPackageMethodTypes(t *testing.T) {
+	doc := IDLDocument{
+		Kind:      "proto",
+		Package:   "orders.v1",
+		GoPackage: "example.com/orders/rpc;ordersv1",
+		ImportedProtos: []IDLImportedProto{{
+			ProtoPackage: "common.v1",
+			GoPackage:    "example.com/orders/common",
+			Alias:        "Commonv1",
+		}},
+		Services: []IDLService{{
+			Name: "OrderService",
+			Methods: []IDLMethod{{
+				Name:          "Create",
+				Request:       "CreateOrderRequest",
+				Response:      "CreateOrderResponse",
+				ProtoRequest:  "common.v1.CreateOrderRequest",
+				ProtoResponse: "common.v1.CreateOrderResponse",
+			}},
+		}},
+	}
+	code, err := GenerateRPCCode(doc, "ordersv1")
+	if err != nil {
+		t.Fatalf("GenerateRPCCode: %v", err)
+	}
+	out := string(code)
+	for _, want := range []string{
+		"commonv1 \"example.com/orders/common\"",
+		"Create(ctx context.Context, req *commonv1.CreateOrderRequest) (*commonv1.CreateOrderResponse, error)",
+		"NewRequest: func() any { return new(commonv1.CreateOrderRequest) }",
+		"func (c *OrderServiceClient) Create(ctx context.Context, req *commonv1.CreateOrderRequest) (*commonv1.CreateOrderResponse, error)",
+		"CreateFunc func(ctx context.Context, req *commonv1.CreateOrderRequest) (*commonv1.CreateOrderResponse, error)",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("cross-package rpc code missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestGenerateRPCCodeCrossGoPackageOutputCompiles(t *testing.T) {
+	dir := t.TempDir()
+	commonDir := filepath.Join(dir, "common")
+	if err := os.MkdirAll(commonDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(commonDir, "go.mod"), []byte("module example.com/orders/common\n\ngo 1.26\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(commonDir, "common.go"), []byte("package commonv1\n\ntype QuoteRequest struct{}\ntype QuoteResponse struct{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	doc := IDLDocument{
+		Kind:      "proto",
+		Package:   "orders.v1",
+		GoPackage: "example.com/orders/rpc;ordersv1",
+		ImportedProtos: []IDLImportedProto{{
+			ProtoPackage: "common.v1",
+			GoPackage:    "example.com/orders/common",
+			Alias:        "Commonv1",
+		}},
+		Services: []IDLService{{
+			Name: "OrderService",
+			Methods: []IDLMethod{{
+				Name:          "Create",
+				Request:       "QuoteRequest",
+				Response:      "QuoteResponse",
+				ProtoRequest:  "common.v1.QuoteRequest",
+				ProtoResponse: "common.v1.QuoteResponse",
+			}},
+		}},
+	}
+	code, err := GenerateRPCCode(doc, "ordersv1")
+	if err != nil {
+		t.Fatalf("GenerateRPCCode: %v", err)
+	}
+	mainDir := filepath.Join(dir, "main")
+	if err := os.MkdirAll(mainDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeGeneratedModule(t, mainDir, "example.com/orders/rpc")
+	goModPath := filepath.Join(mainDir, "go.mod")
+	goMod, err := os.ReadFile(goModPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	goMod = append(goMod, []byte("\nrequire example.com/orders/common v0.0.0\nreplace example.com/orders/common => "+filepath.ToSlash(commonDir)+"\n")...)
+	if err := os.WriteFile(goModPath, goMod, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(mainDir, "orders.gofly.go"), code, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGoCommand(t, mainDir, 2*time.Minute, "mod", "tidy")
+	runGoCommand(t, mainDir, 2*time.Minute, "test", "./...")
+}
+
+func TestGenerateRPCCodeRejectsCrossPackageAliasCollision(t *testing.T) {
+	doc := IDLDocument{
+		Kind:    "proto",
+		Package: "orders.v1",
+		ImportedProtos: []IDLImportedProto{
+			{ProtoPackage: "common.one", GoPackage: "example.com/one/common", Alias: "Common"},
+			{ProtoPackage: "common.two", GoPackage: "example.com/two/common", Alias: "Common"},
+		},
+		Services: []IDLService{{
+			Name: "OrderService",
+			Methods: []IDLMethod{
+				{Name: "One", Request: "Request", Response: "Response", ProtoRequest: "common.one.Request", ProtoResponse: "common.one.Response"},
+				{Name: "Two", Request: "Request", Response: "Response", ProtoRequest: "common.two.Request", ProtoResponse: "common.two.Response"},
+			},
+		}},
+	}
+	if _, err := GenerateRPCCode(doc, "ordersv1"); err == nil || !strings.Contains(err.Error(), "use Go alias") {
+		t.Fatalf("GenerateRPCCode alias collision error = %v, want import alias error", err)
 	}
 }
 
@@ -1655,6 +1779,90 @@ service user-api {
 	props := user["properties"].(map[string]any)
 	if props["age"].(map[string]any)["format"] != "int64" {
 		t.Fatalf("UserResponse schema = %#v, want int64 age", user)
+	}
+}
+
+func TestGenerateAPIDocOpenAPIResponseStatusMetadata(t *testing.T) {
+	dir := t.TempDir()
+	apiPath := filepath.Join(dir, "orders.api")
+	api := `type CreateOrderRequest {
+  Name string
+}
+type CreateOrderResponse {
+  Id string
+}
+service orders-api {
+  @doc(respCode: 201 responses: "201-Created<br>400-Invalid request<br>409-Already exists")
+  @handler createOrder
+  post /orders (CreateOrderRequest) returns (CreateOrderResponse)
+
+  @doc(respCode: 700 responses: "600-Ignored")
+  @handler fallbackOrder
+  get /orders/{id} returns (CreateOrderResponse)
+}`
+	if err := os.WriteFile(apiPath, []byte(api), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	output := filepath.Join(dir, "openapi.json")
+	if err := GenerateAPIDoc(APIDocOptions{APIFile: apiPath, Output: output, Format: "openapi"}); err != nil {
+		t.Fatalf("GenerateAPIDoc: %v", err)
+	}
+	data, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var spec map[string]any
+	if err := json.Unmarshal(data, &spec); err != nil {
+		t.Fatal(err)
+	}
+	paths := spec["paths"].(map[string]any)
+	create := paths["/orders"].(map[string]any)["post"].(map[string]any)
+	responses := create["responses"].(map[string]any)
+	created := responses["201"].(map[string]any)
+	if created["description"] != "Created" || created["content"] == nil {
+		t.Fatalf("created response = %#v, want documented schema response", created)
+	}
+	for code, description := range map[string]string{"400": "Invalid request", "409": "Already exists"} {
+		response := responses[code].(map[string]any)
+		if response["description"] != description || response["content"] != nil {
+			t.Fatalf("response %s = %#v, want description-only %q", code, response, description)
+		}
+	}
+	fallback := paths["/orders/{id}"].(map[string]any)["get"].(map[string]any)["responses"].(map[string]any)
+	if _, ok := fallback["200"]; !ok || len(fallback) != 1 {
+		t.Fatalf("invalid response metadata must fall back to 200: %#v", fallback)
+	}
+}
+
+func TestParseAPIResponseStatusMetadataAndValidation(t *testing.T) {
+	doc, err := ParseAPI(`type Result {
+  Id string
+}
+service orders-api {
+  @doc(
+    respCode: 202
+    responses: "202-Accepted response<br>400-Invalid request body"
+  )
+  @handler submitOrder
+  post /orders returns (Result)
+}`)
+	if err != nil {
+		t.Fatalf("ParseAPI: %v", err)
+	}
+	method := doc.Services[0].Methods[0]
+	if method.Doc["respcode"] != "202" || method.Doc["responses"] != "202-Accepted response<br>400-Invalid request body" {
+		t.Fatalf("method doc = %#v, want parsed response metadata", method.Doc)
+	}
+	if err := ValidateAPI(doc); err != nil {
+		t.Fatalf("ValidateAPI: %v", err)
+	}
+	invalid := doc
+	invalid.Services[0].Methods[0].Doc = map[string]string{"respcode": "700", "responses": "600-Ignored<br>oops"}
+	err = ValidateAPI(invalid)
+	for _, want := range []string{"invalid response status code \"700\"", "invalid response status code \"600\"", "invalid response description \"oops\""} {
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Fatalf("ValidateAPI error = %v, want %q", err, want)
+		}
 	}
 }
 

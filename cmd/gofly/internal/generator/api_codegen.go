@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"go.yaml.in/yaml/v2"
@@ -2380,12 +2381,7 @@ func buildAPIOpenAPISpec(doc IDLDocument) map[string]any {
 			operation := map[string]any{
 				"operationId": exportName(method.Name),
 				"tags":        []string{tag},
-				"responses": map[string]any{
-					"200": map[string]any{
-						"description": "OK",
-						"content":     jsonContentRef(method.Response, messageByName(doc, method.Response), messageNames),
-					},
-				},
+				"responses":   openAPIResponsesForMethod(method, doc, messageNames),
 			}
 			if security := openAPIOperationSecurity(svc); len(security) > 0 {
 				operation["security"] = security
@@ -2416,6 +2412,43 @@ func buildAPIOpenAPISpec(doc IDLDocument) map[string]any {
 		schemas[exportName(msg.Name)] = openAPIMessageSchema(msg, messageNames)
 	}
 	return spec
+}
+
+func openAPIResponsesForMethod(method IDLMethod, doc IDLDocument, messageNames map[string]struct{}) map[string]any {
+	statusCode := http.StatusOK
+	if raw := strings.TrimSpace(method.Doc["respcode"]); raw != "" {
+		if parsed, ok := apiResponseStatusCode(raw); ok {
+			statusCode = parsed
+		}
+	}
+	response := map[string]any{
+		"description": http.StatusText(statusCode),
+		"content":     jsonContentRef(method.Response, messageByName(doc, method.Response), messageNames),
+	}
+	if response["description"] == "" {
+		response["description"] = "OK"
+	}
+	responses := map[string]any{strconv.Itoa(statusCode): response}
+	for _, item := range strings.Split(method.Doc["responses"], "<br>") {
+		codeText, description, ok := strings.Cut(strings.TrimSpace(item), "-")
+		if !ok {
+			continue
+		}
+		code, ok := apiResponseStatusCode(strings.TrimSpace(codeText))
+		if !ok {
+			continue
+		}
+		description = strings.TrimSpace(description)
+		key := strconv.Itoa(code)
+		if code == statusCode {
+			if description != "" {
+				response["description"] = description
+			}
+			continue
+		}
+		responses[key] = map[string]any{"description": description}
+	}
+	return responses
 }
 
 func openAPITags(doc IDLDocument) []map[string]any {

@@ -17,8 +17,8 @@ type CreateInvoiceResponse {
 }
 
 type GetInvoiceRequest {
+  RequestMeta
   ID int64 `path:"id"`
-  RequestID string `header:"X-Request-ID"`
 }
 
 type GetInvoiceResponse {

@@ -8,10 +8,11 @@ import (
 )
 
 var (
-	apiTypeRE    = regexp.MustCompile(`^type\s+([A-Za-z_][A-Za-z0-9_]*)\s*\{`)
-	apiServiceRE = regexp.MustCompile(`^service\s+([A-Za-z_][A-Za-z0-9_-]*)\s*\{`)
-	apiFieldRE   = regexp.MustCompile("^([A-Za-z_][A-Za-z0-9_]*)\\s+((?:\\[\\])?[A-Za-z_][A-Za-z0-9_]*)(?:\\s+(`[^`]*`))?$")
-	apiRouteRE   = regexp.MustCompile(`^(get|post|put|patch|delete)\s+([^\s]+)\s*(?:\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\))?\s*returns\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)$`)
+	apiTypeRE        = regexp.MustCompile(`^type\s+([A-Za-z_][A-Za-z0-9_]*)\s*\{`)
+	apiServiceRE     = regexp.MustCompile(`^service\s+([A-Za-z_][A-Za-z0-9_-]*)\s*\{`)
+	apiFieldRE       = regexp.MustCompile("^([A-Za-z_][A-Za-z0-9_]*)\\s+((?:\\[\\])?[A-Za-z_][A-Za-z0-9_]*)(?:\\s+(`[^`]*`))?$")
+	apiInlineFieldRE = regexp.MustCompile("^(\\*?[A-Za-z_][A-Za-z0-9_]*)(?:\\s+(`[^`]*`))?$")
+	apiRouteRE       = regexp.MustCompile(`^(get|post|put|patch|delete)\s+([^\s]+)\s*(?:\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\))?\s*returns\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)$`)
 )
 
 func ParseAPI(content string) (IDLDocument, error) {
@@ -49,12 +50,21 @@ func ParseAPI(content string) (IDLDocument, error) {
 				currentMessage = nil
 				continue
 			}
-			match := apiFieldRE.FindStringSubmatch(line)
-			if match == nil {
-				return IDLDocument{}, fmt.Errorf("parse api line %d: invalid field", lineNo)
+			if match := apiFieldRE.FindStringSubmatch(line); match != nil {
+				currentMessage.Fields = append(currentMessage.Fields, IDLField{Name: match[1], Type: strings.TrimSpace(match[2]), Tag: strings.Trim(match[3], "`")})
+				continue
 			}
-			currentMessage.Fields = append(currentMessage.Fields, IDLField{Name: match[1], Type: strings.TrimSpace(match[2]), Tag: strings.Trim(match[3], "`")})
-			continue
+			if match := apiInlineFieldRE.FindStringSubmatch(line); match != nil {
+				typeName := strings.TrimSpace(match[1])
+				currentMessage.Fields = append(currentMessage.Fields, IDLField{
+					Name:   strings.TrimPrefix(typeName, "*"),
+					Type:   typeName,
+					Tag:    strings.Trim(match[2], "`"),
+					Inline: true,
+				})
+				continue
+			}
+			return IDLDocument{}, fmt.Errorf("parse api line %d: invalid field", lineNo)
 		}
 		if currentService != nil {
 			if line == "}" || line == "};" {

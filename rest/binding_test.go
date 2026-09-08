@@ -164,7 +164,7 @@ func TestBindValuesEmbeddedPointerSliceAndParseBranches(t *testing.T) {
 		Trace string `query:"trace"`
 	}
 	type request struct {
-		Embedded
+		*Embedded
 		Ignored       string    `query:"-"`
 		EmptyName     string    `query:",omitempty"`
 		FormFallback  string    `form:"fallback"`
@@ -179,7 +179,7 @@ func TestBindValuesEmbeddedPointerSliceAndParseBranches(t *testing.T) {
 	if err := BindQuery(req, &got); err != nil {
 		t.Fatalf("BindQuery embedded request returned error: %v", err)
 	}
-	if got.Trace != "abc" || got.FormFallback != "form" || got.Flag == nil || *got.Flag != true || len(got.Scores) != 2 || got.Scores[1] != 8 || len(got.Ratios) != 2 || got.Ratios[0] != 1.25 {
+	if got.Embedded == nil || got.Trace != "abc" || got.FormFallback != "form" || got.Flag == nil || *got.Flag != true || len(got.Scores) != 2 || got.Scores[1] != 8 || len(got.Ratios) != 2 || got.Ratios[0] != 1.25 {
 		t.Fatalf("BindQuery embedded request = %+v, want embedded/form/pointer/slices bound", got)
 	}
 	if got.Ignored != "" || got.EmptyName != "" {

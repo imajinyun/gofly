@@ -30,6 +30,10 @@ type IDLField struct {
 	Type   string
 	Tag    string
 	Number int
+	// Inline reports that the field is an anonymous embedded API type. Inline
+	// fields are preserved as Go embeddings and flattened only by consumers
+	// whose schema formats do not support Go field promotion.
+	Inline bool
 }
 
 type IDLService struct {

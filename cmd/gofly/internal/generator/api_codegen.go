@@ -294,6 +294,10 @@ func FormatAPI(doc IDLDocument) []byte {
 		}
 		fprintf(&b, "type %s {\n", exportName(msg.Name))
 		for _, field := range msg.Fields {
+			if field.Inline {
+				fprintf(&b, "  %s\n", field.Type)
+				continue
+			}
 			fprintf(&b, "  %s %s\n", exportName(field.Name), field.Type)
 		}
 		fprintf(&b, "}\n")
@@ -936,6 +940,7 @@ func GenerateAPIClient(opts APIClientOptions) error {
 	if err != nil {
 		return err
 	}
+	doc = apiDocumentWithResolvedInlineFields(doc)
 	language := strings.ToLower(strings.TrimSpace(opts.Language))
 	if language == "" {
 		language = "typescript"
@@ -2340,6 +2345,7 @@ func generateAPIOpenAPIYAML(doc IDLDocument) ([]byte, error) {
 }
 
 func buildAPIOpenAPISpec(doc IDLDocument) map[string]any {
+	doc = apiDocumentWithResolvedInlineFields(doc)
 	title := "API"
 	if len(doc.Services) > 0 {
 		title = exportName(doc.Services[0].Name) + " API"
@@ -3746,6 +3752,10 @@ func writeRESTGatewayConverters(b *bytes.Buffer, msg IDLMessage, rpcAlias string
 func writeAPIMessage(b *bytes.Buffer, msg IDLMessage) {
 	fprintf(b, "type %s struct {\n", exportName(msg.Name))
 	for _, field := range msg.Fields {
+		if field.Inline {
+			fprintf(b, "\t%s\n", apiGoType(field.Type))
+			continue
+		}
 		fprintf(b, "\t%s %s `%s`\n", exportName(field.Name), apiGoType(field.Type), apiFieldStructTag(field))
 	}
 	fprintf(b, "}\n\n")
@@ -3804,6 +3814,9 @@ func writeRESTRoute(b *bytes.Buffer, method IDLMethod) {
 }
 
 func apiGoType(apiType string) string {
+	if strings.HasPrefix(apiType, "*") {
+		return "*" + apiGoType(strings.TrimPrefix(apiType, "*"))
+	}
 	switch apiType {
 	case "string":
 		return "string"

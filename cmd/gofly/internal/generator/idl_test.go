@@ -1439,6 +1439,132 @@ func TestGenerateRESTCode(t *testing.T) {
 	}
 }
 
+func TestAPIInlineEmbedding(t *testing.T) {
+	api := `type RequestMeta {
+  TraceID string
+}
+type RouteParams {
+  Id string
+}
+type GetRequest {
+  *RequestMeta
+  RouteParams
+  TraceID int64
+  Filter string
+}
+type GetResponse {
+  Value string
+}
+service catalog-api {
+  @handler getItem
+  get /items/{id} (GetRequest) returns (GetResponse)
+}`
+	doc, err := ParseAPI(api)
+	if err != nil {
+		t.Fatalf("ParseAPI: %v", err)
+	}
+	if err := ValidateAPI(doc); err != nil {
+		t.Fatalf("ValidateAPI: %v", err)
+	}
+	request := messageByName(doc, "GetRequest")
+	if len(request.Fields) != 4 || !request.Fields[0].Inline || request.Fields[0].Type != "*RequestMeta" || !request.Fields[1].Inline {
+		t.Fatalf("inline fields = %#v, want pointer and value embeds", request.Fields)
+	}
+
+	code, err := GenerateRESTCode(doc, "api")
+	if err != nil {
+		t.Fatalf("GenerateRESTCode: %v", err)
+	}
+	if out := string(code); !strings.Contains(out, "\t*RequestMeta\n") || !strings.Contains(out, "\tRouteParams\n") {
+		t.Fatalf("generated Go DTO must preserve embedded fields:\n%s", out)
+	}
+
+	spec := buildAPIOpenAPISpec(doc)
+	components := spec["components"].(map[string]any)
+	schemas := components["schemas"].(map[string]any)
+	requestSchema := schemas["GetRequest"].(map[string]any)
+	props := requestSchema["properties"].(map[string]any)
+	for _, name := range []string{"traceID", "id", "filter"} {
+		if _, ok := props[name]; !ok {
+			t.Fatalf("OpenAPI GetRequest properties = %#v, missing %q", props, name)
+		}
+	}
+	if trace := props["traceID"].(map[string]any); trace["format"] != "int64" {
+		t.Fatalf("OpenAPI inline field override = %#v, want explicit int64 traceID", trace)
+	}
+	if _, ok := props["requestMeta"]; ok {
+		t.Fatalf("OpenAPI properties unexpectedly expose inline wrapper: %#v", props)
+	}
+	paths := spec["paths"].(map[string]any)
+	params := paths["/items/{id}"].(map[string]any)["get"].(map[string]any)["parameters"].([]map[string]any)
+	if len(params) == 0 || params[0]["name"] != "id" {
+		t.Fatalf("OpenAPI path parameters = %#v, want promoted id", params)
+	}
+}
+
+func TestAPIInlineEmbeddingValidationAndCycles(t *testing.T) {
+	tests := []struct {
+		name    string
+		api     string
+		wantErr string
+		want    []string
+	}{
+		{
+			name: "rejects inline builtin",
+			api: `type Bad {
+  string
+}`,
+			wantErr: "inline field Bad must reference a struct",
+		},
+		{
+			name: "rejects inline unknown type",
+			api: `type Bad {
+  *Missing
+}`,
+			wantErr: "unknown inline field type Bad Missing",
+		},
+		{
+			name: "terminates cyclic embedding",
+			api: `type CycleA {
+  CycleB
+}
+type CycleB {
+  CycleA
+  Value string
+}`,
+			want: []string{"Value"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			doc, err := ParseAPI(tt.api)
+			if err != nil {
+				t.Fatalf("ParseAPI: %v", err)
+			}
+			err = ValidateAPI(doc)
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("ValidateAPI error = %v, want %q", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("ValidateAPI: %v", err)
+			}
+			resolved := apiDocumentWithResolvedInlineFields(doc)
+			fields := messageByName(resolved, "CycleA").Fields
+			if len(fields) != len(tt.want) {
+				t.Fatalf("resolved fields = %#v, want %v", fields, tt.want)
+			}
+			for index, want := range tt.want {
+				if fields[index].Name != want || fields[index].Inline {
+					t.Fatalf("resolved fields = %#v, want non-inline %q at %d", fields, want, index)
+				}
+			}
+		})
+	}
+}
+
 func TestGenerateAPIPhysicalRoutesAttachOpenAPIContracts(t *testing.T) {
 	dir := t.TempDir()
 	apiPath := filepath.Join(dir, "orders.api")

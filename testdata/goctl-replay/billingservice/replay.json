@@ -16,6 +16,7 @@
     "multi-middleware",
     "api-comments-tags",
     "nested-type-composition",
+    "inline-type-composition",
     "request-response-naming",
     "complex-model",
     "soft-delete",

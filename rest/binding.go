@@ -249,7 +249,16 @@ func bindStruct(value reflect.Value, source BindSource, lookup func(key string) 
 		if structField.PkgPath != "" {
 			continue
 		}
-		if field.Kind() == reflect.Struct && structField.Anonymous {
+		if structField.Anonymous && indirectType(structField.Type).Kind() == reflect.Struct {
+			if field.Kind() == reflect.Pointer && field.IsNil() && field.CanSet() {
+				if !hasBindingValue(structField.Type, source, lookup, map[reflect.Type]bool{}) {
+					continue
+				}
+				field.Set(reflect.New(field.Type().Elem()))
+			}
+			if field.Kind() == reflect.Pointer {
+				field = field.Elem()
+			}
 			if err := bindStruct(field, source, lookup); err != nil {
 				return err
 			}
@@ -268,6 +277,32 @@ func bindStruct(value reflect.Value, source BindSource, lookup func(key string) 
 		}
 	}
 	return nil
+}
+
+func hasBindingValue(typeOf reflect.Type, source BindSource, lookup func(key string) []string, visiting map[reflect.Type]bool) bool {
+	typeOf = indirectType(typeOf)
+	if typeOf.Kind() != reflect.Struct || visiting[typeOf] {
+		return false
+	}
+	visiting[typeOf] = true
+	defer delete(visiting, typeOf)
+	for index := 0; index < typeOf.NumField(); index++ {
+		field := typeOf.Field(index)
+		if field.PkgPath != "" {
+			continue
+		}
+		if field.Anonymous && indirectType(field.Type).Kind() == reflect.Struct {
+			if hasBindingValue(field.Type, source, lookup, visiting) {
+				return true
+			}
+			continue
+		}
+		name, ok := bindingName(field, source)
+		if ok && len(lookup(name)) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func bindingName(field reflect.StructField, source BindSource) (string, bool) {
@@ -352,7 +387,13 @@ func validateStruct(value reflect.Value) error {
 		if structField.PkgPath != "" {
 			continue
 		}
-		if field.Kind() == reflect.Struct && structField.Anonymous {
+		if structField.Anonymous && indirectType(structField.Type).Kind() == reflect.Struct {
+			if field.Kind() == reflect.Pointer {
+				if field.IsNil() {
+					continue
+				}
+				field = field.Elem()
+			}
 			if err := validateStruct(field); err != nil {
 				return err
 			}

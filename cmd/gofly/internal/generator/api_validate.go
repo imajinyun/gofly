@@ -83,6 +83,16 @@ func validateAPIMessage(msg IDLMessage, types map[string]IDLMessage) []string {
 		}
 		fields[fieldName] = struct{}{}
 		fieldType := apiBaseType(field.Type)
+		if field.Inline {
+			if isAPIBuiltinType(fieldType) || strings.HasPrefix(strings.TrimSpace(field.Type), "[]") {
+				issues = append(issues, fmt.Sprintf("inline field %s must reference a struct", messageName))
+				continue
+			}
+			if _, ok := types[exportName(fieldType)]; !ok {
+				issues = append(issues, fmt.Sprintf("unknown inline field type %s %s", messageName, fieldType))
+			}
+			continue
+		}
 		if !isAPIBuiltinType(fieldType) {
 			if _, ok := types[exportName(fieldType)]; !ok {
 				issues = append(issues, fmt.Sprintf("unknown field type %s.%s %s", messageName, fieldName, field.Type))
@@ -176,6 +186,7 @@ func apiBaseType(name string) string {
 	for strings.HasPrefix(name, "[]") {
 		name = strings.TrimSpace(strings.TrimPrefix(name, "[]"))
 	}
+	name = strings.TrimPrefix(name, "*")
 	return name
 }
 

@@ -47,7 +47,7 @@
       {
         "id": "redis-model-cache-proof",
         "status": "runnable",
-        "adapter": "Redis model cache uses NewRedisModel cache-aside with go-redis/v9 behind core/kv/redis, a go-zero-aligned breaker hook that accepts redis.ErrNil misses, isolated blocking stream clients, normalized Cluster seeds, explicit Sentinel failover and replica routing, explicit RESP3 maintenance notifications, sanitized diagnostics, low-cardinality Redis telemetry, and strict write-back errors after a successful loader result.",
+        "adapter": "Redis model cache uses NewRedisModel cache-aside with go-redis/v9 behind core/kv/redis, an opt-in go-zero-aligned Google SRE breaker hook that accepts redis.ErrNil misses, isolated blocking stream clients, normalized Cluster seeds, explicit Sentinel failover and replica routing, explicit RESP3 maintenance notifications, sanitized diagnostics, low-cardinality Redis command and pool telemetry, safe slow-command signals, and strict write-back errors after a successful loader result.",
         "runnableGate": "go test -shuffle=on ./cache ./core/kv/...",
         "dependencyBoundary": "Generated RedisCachedOrderRepo depends on cache and core/kv/redis written into the generated project go.mod.",
         "observabilityEvidence": "Cache stats and WritePrometheus export hit, miss, and load counts for operators.",
@@ -114,7 +114,7 @@
       "gate": "go test -shuffle=on ./cache ./core/kv/...",
       "implementation": ["cache/redis_model.go", "core/kv/redis/client.go", "core/kv/redis/controlplane.go"],
       "tests": ["cache/redis_model_test.go", "core/kv/redis/client_test.go", "core/kv/redis/breaker_hook_test.go", "core/kv/redis/observability_hook_test.go", "core/kv/redis/controlplane_test.go", "core/mq/redisstream/redisstream_test.go"],
-      "evidence": ["cache-aside", "NewRedisModel", "redis.ErrNil", "go-redis/v9", "redisBreakerHook", "redisObservabilityHook", "NewBlockingClient", "DiagnosticsSnapshot", "ControlPlaneContributor", "MaintNotifications", "MasterName", "TestRedisBreakerHookCommandPolicy", "TestConfigNormalizesClusterAddressesAndMaintenanceMode", "TestConfigMapsHAOptionsToV9", "TestDiagnosticsSnapshotSanitizesRedisConfiguration", "TestControlPlaneContributorAddsSanitizedDiagnostics", "TestRedisObservabilityHookAvoidsCommandArguments", "TestRedisModelCacheReturnsWriteFailureAfterLoad"],
+      "evidence": ["cache-aside", "NewRedisModel", "redis.ErrNil", "go-redis/v9", "redisBreakerHook", "GoogleBreaker", "redisObservabilityHook", "gofly_redis_pool_connections", "gofly_redis_slow_commands_total", "NewBlockingClient", "DiagnosticsSnapshot", "ControlPlaneContributor", "MaintNotifications", "MasterName", "TestRedisBreakerHookCommandPolicy", "TestRedisBreakerHookSupportsGoogleSREBreaker", "TestConfigNormalizesClusterAddressesAndMaintenanceMode", "TestConfigMapsHAOptionsToV9", "TestDiagnosticsSnapshotSanitizesRedisConfiguration", "TestControlPlaneContributorAddsSanitizedDiagnostics", "TestRedisObservabilityHookAvoidsCommandArguments", "TestRedisObservabilityHookRecordsSafeSlowSignal", "TestRedisPoolMetricsAreExportedWithoutEndpointLabels", "TestRedisModelCacheReturnsWriteFailureAfterLoad"],
       "rollbackNote": "Drop the Redis client and call the SQL repository FindOne path until Redis miss tests pass."
     },
     {

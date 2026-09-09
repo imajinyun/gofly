@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -96,10 +97,18 @@ type Config struct {
 	MinIdleConns       int           `json:"minIdleConns,omitempty"`
 	PoolTimeout        time.Duration `json:"poolTimeout,omitempty"`
 	MaxRetries         int           `json:"maxRetries,omitempty"`
+	// SlowThreshold controls safe slow-command logging and metrics. Zero uses
+	// 100ms, matching go-zero. A negative value disables the slow signal.
+	SlowThreshold time.Duration `json:"slowThreshold,omitempty"`
 	// DisableBreaker opts out of the default Redis command breaker.
 	DisableBreaker bool `json:"disableBreaker,omitempty"`
+	// BreakerAdaptive selects the Google SRE adaptive breaker used by go-zero
+	// instead of the default consecutive-failure breaker. Adaptive mode
+	// probabilistically sheds calls after sustained backend failures.
+	BreakerAdaptive bool `json:"breakerAdaptive,omitempty"`
 	// BreakerFailureThreshold is the number of consecutive failed Redis
-	// commands before the adapter rejects further calls.
+	// commands before the adapter rejects further calls. It applies only to the
+	// default (non-adaptive) breaker.
 	BreakerFailureThreshold int `json:"breakerFailureThreshold,omitempty"`
 	// BreakerOpenTimeout is the cool-down before a half-open Redis probe.
 	BreakerOpenTimeout time.Duration `json:"breakerOpenTimeout,omitempty"`
@@ -149,8 +158,14 @@ func (c Config) withDefaults() Config {
 	if c.PoolTimeout <= 0 {
 		c.PoolTimeout = c.Timeout
 	}
+	// Deliberately differs from go-zero's default of three client retries.
+	// gofly owns retry at the caller/RPC layer; disabling v9 retries avoids
+	// multiplying attempts and preserves one breaker sample per logical call.
 	if c.MaxRetries == 0 {
 		c.MaxRetries = -1
+	}
+	if c.SlowThreshold == 0 {
+		c.SlowThreshold = 100 * time.Millisecond
 	}
 	if !c.DisableBreaker {
 		if c.BreakerFailureThreshold <= 0 {
@@ -249,7 +264,9 @@ type DiagnosticsSnapshot struct {
 	IdentityEnabled    bool                    `json:"identityEnabled"`
 	EagerConnect       bool                    `json:"eagerConnect"`
 	Closed             bool                    `json:"closed"`
+	BreakerMode        string                  `json:"breakerMode"`
 	Breaker            breaker.BreakerSnapshot `json:"breaker"`
+	GoogleBreaker      *breaker.GoogleSnapshot `json:"googleBreaker,omitempty"`
 	Pool               Stats                   `json:"pool"`
 }
 
@@ -257,17 +274,23 @@ type DiagnosticsSnapshot struct {
 // The public adapter deliberately keeps callers insulated from v9 command
 // types, connection-pool internals, and Redis protocol negotiation details.
 type Client struct {
-	cfg      Config
-	client   redisv9.UniversalClient
-	breaker  *breaker.Breaker
-	commands atomic.Int64
-	errors   atomic.Int64
-	closed   atomic.Bool
+	cfg           Config
+	client        redisv9.UniversalClient
+	breaker       *breaker.Breaker
+	googleBreaker *breaker.GoogleBreaker
+	commands      atomic.Int64
+	errors        atomic.Int64
+	closed        atomic.Bool
+	poolMetricsMu sync.Mutex
+	poolMetrics   Stats
 }
 
-// New creates a Redis client without connecting eagerly; use Ping to verify
-// connectivity. Existing Addr configurations create a single-node client.
-// Multiple Addrs or Cluster create a Redis Cluster client.
+// New creates an independently owned Redis client without connecting eagerly;
+// use Ping to verify connectivity. Unlike go-zero's address-keyed global
+// resource manager, each call owns a distinct pool and Close lifecycle. Share
+// the returned Client explicitly when multiple consumers should use one pool.
+// Existing Addr configurations create a single-node client. Multiple Addrs or
+// Cluster create a Redis Cluster client.
 func New(cfg Config) *Client {
 	cfg = cfg.withDefaults()
 	client, err := newClient(cfg)
@@ -313,13 +336,22 @@ func newClient(cfg Config) (*Client, error) {
 		cfg:    cfg,
 		client: redisv9.NewUniversalClient(redisOptions(cfg, tlsConfig)),
 	}
-	client.client.AddHook(redisObservabilityHook{})
+	client.registerPoolMetrics()
+	client.client.AddHook(redisObservabilityHook{
+		slowThreshold: cfg.SlowThreshold,
+		after:         client.refreshPoolMetrics,
+	})
 	if !cfg.DisableBreaker {
-		client.breaker = breaker.New(
-			breaker.WithFailureThreshold(cfg.BreakerFailureThreshold),
-			breaker.WithOpenTimeout(cfg.BreakerOpenTimeout),
-		)
-		client.client.AddHook(redisBreakerHook{breaker: client.breaker})
+		if cfg.BreakerAdaptive {
+			client.googleBreaker = breaker.NewGoogle()
+			client.client.AddHook(redisBreakerHook{breaker: client.googleBreaker})
+		} else {
+			client.breaker = breaker.New(
+				breaker.WithFailureThreshold(cfg.BreakerFailureThreshold),
+				breaker.WithOpenTimeout(cfg.BreakerOpenTimeout),
+			)
+			client.client.AddHook(redisBreakerHook{breaker: client.breaker})
+		}
 	}
 	return client, nil
 }
@@ -501,6 +533,8 @@ func (c *Client) Close() error {
 	if c == nil || c.client == nil || !c.closed.CompareAndSwap(false, true) {
 		return nil
 	}
+	c.refreshPoolMetrics()
+	c.unregisterPoolMetrics()
 	err := c.client.Close()
 	if errors.Is(err, redisv9.ErrClosed) {
 		return nil
@@ -757,12 +791,28 @@ func (c *Client) DiagnosticsSnapshot() DiagnosticsSnapshot {
 		IdentityEnabled:    !c.cfg.DisableIdentity,
 		EagerConnect:       c.cfg.EagerConnect,
 		Closed:             c.closed.Load(),
+		BreakerMode:        redisBreakerMode(c),
 		Pool:               c.Snapshot(),
 	}
 	if c.breaker != nil {
 		snapshot.Breaker = c.breaker.Snapshot()
 	}
+	if c.googleBreaker != nil {
+		google := c.googleBreaker.Snapshot()
+		snapshot.GoogleBreaker = &google
+	}
 	return snapshot
+}
+
+func redisBreakerMode(c *Client) string {
+	switch {
+	case c == nil || c.cfg.DisableBreaker:
+		return "disabled"
+	case c.googleBreaker != nil:
+		return "adaptive"
+	default:
+		return "consecutive"
+	}
 }
 
 func redisTopology(cfg Config) string {

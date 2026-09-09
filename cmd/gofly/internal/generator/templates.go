@@ -2316,7 +2316,9 @@ type RedisConfig struct {
 	MinIdleConns int ` + "`json:\"minIdleConns,omitempty\"`" + `
 	PoolTimeout time.Duration ` + "`json:\"poolTimeout,omitempty\"`" + `
 	MaxRetries int ` + "`json:\"maxRetries,omitempty\"`" + `
+	SlowThreshold time.Duration ` + "`json:\"slowThreshold,omitempty\"`" + `
 	DisableBreaker bool ` + "`json:\"disableBreaker,omitempty\"`" + `
+	BreakerAdaptive bool ` + "`json:\"breakerAdaptive,omitempty\"`" + `
 	BreakerFailureThreshold int ` + "`json:\"breakerFailureThreshold,omitempty\"`" + `
 	BreakerOpenTimeout time.Duration ` + "`json:\"breakerOpenTimeout,omitempty\"`" + `
 }
@@ -4167,7 +4169,9 @@ func newDriverBroker(cfg config.MQConfig) (coremq.Broker, error) {
 			MinIdleConns:    cfg.RedisStream.Redis.MinIdleConns,
 			PoolTimeout:     cfg.RedisStream.Redis.PoolTimeout,
 			MaxRetries:      cfg.RedisStream.Redis.MaxRetries,
+			SlowThreshold:   cfg.RedisStream.Redis.SlowThreshold,
 			DisableBreaker:  cfg.RedisStream.Redis.DisableBreaker,
+			BreakerAdaptive: cfg.RedisStream.Redis.BreakerAdaptive,
 			BreakerFailureThreshold: cfg.RedisStream.Redis.BreakerFailureThreshold,
 			BreakerOpenTimeout: cfg.RedisStream.Redis.BreakerOpenTimeout,
 		})

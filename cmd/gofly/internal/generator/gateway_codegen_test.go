@@ -207,7 +207,13 @@ func TestGenerateGatewayWiresGovernanceManager(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"case \"kafka\":", "case \"rabbitmq\":", "case \"redisstream\":"} {
+	for _, want := range []string{
+		"case \"kafka\":",
+		"case \"rabbitmq\":",
+		"case \"redisstream\":",
+		"SlowThreshold:           cfg.RedisStream.Redis.SlowThreshold",
+		"BreakerAdaptive:         cfg.RedisStream.Redis.BreakerAdaptive",
+	} {
 		if !strings.Contains(string(brokerData), want) {
 			t.Fatalf("gateway broker.go missing %q:\n%s", want, brokerData)
 		}

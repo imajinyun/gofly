@@ -600,6 +600,8 @@ func TestGenerateService(t *testing.T) {
 		`case "rabbitmq":`,
 		`case "redisstream":`,
 		"MaintNotifications:      cfg.RedisStream.Redis.MaintNotifications",
+		"SlowThreshold:           cfg.RedisStream.Redis.SlowThreshold",
+		"BreakerAdaptive:         cfg.RedisStream.Redis.BreakerAdaptive",
 		"BreakerFailureThreshold: cfg.RedisStream.Redis.BreakerFailureThreshold",
 		"redis.NewChecked(context.Background(), redis.Config{",
 		"coremq.NewGovernanceBroker",

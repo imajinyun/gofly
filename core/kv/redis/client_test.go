@@ -439,8 +439,11 @@ func TestClientConfigurationAndPoolSnapshot(t *testing.T) {
 	if options.Protocol != 2 || !options.ContextTimeoutEnabled || !options.DisableIdentity || !options.IsClusterMode {
 		t.Fatalf("v9 options must preserve RESP2, context deadline, identity, cluster settings: %#v", options)
 	}
-	if config.DisableBreaker || config.BreakerFailureThreshold != 3 || config.BreakerOpenTimeout != time.Second {
+	if config.DisableBreaker || config.BreakerAdaptive || config.BreakerFailureThreshold != 3 || config.BreakerOpenTimeout != time.Second {
 		t.Fatalf("breaker defaults = %#v; want enabled threshold 3 and 1s cooldown", config)
+	}
+	if config.SlowThreshold != 100*time.Millisecond {
+		t.Fatalf("slow threshold default = %v, want 100ms", config.SlowThreshold)
 	}
 	cluster := New(Config{Addrs: []string{"a:6379", "b:6379"}})
 	defer cluster.Close()
@@ -454,6 +457,14 @@ func TestClientConfigurationAndPoolSnapshot(t *testing.T) {
 	defer withoutBreaker.Close()
 	if withoutBreaker.breaker != nil {
 		t.Fatal("DisableBreaker client must not install a breaker")
+	}
+	adaptive := New(Config{BreakerAdaptive: true})
+	defer adaptive.Close()
+	if adaptive.googleBreaker == nil || adaptive.breaker != nil {
+		t.Fatalf("adaptive Redis breaker = google:%v consecutive:%v, want Google SRE only", adaptive.googleBreaker != nil, adaptive.breaker != nil)
+	}
+	if mode := adaptive.DiagnosticsSnapshot().BreakerMode; mode != "adaptive" {
+		t.Fatalf("adaptive diagnostics breaker mode = %q, want adaptive", mode)
 	}
 	client, _ := newTestClient(t)
 	if err := client.Ping(context.Background()); err != nil {
@@ -595,6 +606,24 @@ func TestConfigDefaultsTLSAndEagerConnect(t *testing.T) {
 
 	if _, err := NewChecked(context.Background(), Config{Addr: server.addr(), TLS: security.TLSConfig{CAFile: "missing.pem"}}); err == nil {
 		t.Fatal("NewChecked invalid TLS: want error")
+	}
+}
+
+func TestNewOwnsIndependentClientPools(t *testing.T) {
+	first := New(Config{Addr: "redis.internal:6379", DisableBreaker: true, SlowThreshold: -1})
+	second := New(Config{Addr: "redis.internal:6379", DisableBreaker: true, SlowThreshold: -1})
+	t.Cleanup(func() {
+		_ = first.Close()
+		_ = second.Close()
+	})
+	if first == second || first.client == second.client {
+		t.Fatal("New clients with the same address must retain independent ownership and pools")
+	}
+	if err := first.Close(); err != nil {
+		t.Fatalf("Close first: %v", err)
+	}
+	if second.closed.Load() {
+		t.Fatal("closing one independently owned client closed its peer")
 	}
 }
 

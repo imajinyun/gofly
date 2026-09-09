@@ -46,7 +46,10 @@ are accepted outcomes, while repeated backend failures open the breaker. The
 connection handshake (`HELLO`) and `BLPOP` are excluded: a proxy capability
 mismatch or intentional blocking wait must not poison cache availability. Set
 `disableBreaker` only when an application provides equivalent external Redis
-resilience controls.
+resilience controls. Set `breakerAdaptive: true` to select the same Google SRE
+adaptive throttling model used by go-zero: the breaker uses a rolling request
+and accept ratio and probabilistically sheds calls during sustained Redis
+failures. The consecutive-failure breaker remains the compatibility default.
 
 For stream consumers, `redisstream.Broker` detects the v9 gofly client and
 creates one dedicated one-connection client per blocking reader. `XREADGROUP`
@@ -57,10 +60,25 @@ therefore cannot exhaust the pool used by cache reads and writes. Use
 local-development TLS opt-out is supplied.
 
 The Redis hook emits low-cardinality command/pipeline latency and error-class
-metrics and OTel client spans. It intentionally never records Redis keys,
-values, or Lua arguments. `Snapshot` exposes v9 pool hits, misses, wait count,
-timeouts, stale connections, active connections, and idle connections for
-control-plane diagnostics.
+metrics and OTel client spans. Commands slower than `slowThreshold` (100ms by
+default, matching go-zero; set a negative duration to disable) emit a warning
+and increment `gofly_redis_slow_commands_total`. Slow logs intentionally record
+only operation, duration, and threshold: Redis keys, values, and Lua arguments
+are never logged. Pool saturation is exported through
+`gofly_redis_pool_connections` (`active`, `idle`, and `max`) plus monotonic
+hit, miss, wait, timeout, and stale-connection counters. Pool metrics use only
+the bounded topology label (`node`, `cluster`, `sentinel`, or
+`sentinel-cluster`) and never expose endpoints. `Snapshot` retains the same
+statistics for control-plane diagnostics.
+
+Two go-zero behaviors are intentionally not copied. gofly keeps `maxRetries`
+at `-1` by default because retry is governed at the application/RPC layer; an
+additional default of three Redis retries would multiply attempts and delay
+breaker feedback. Applications can opt in with an explicit positive value.
+gofly also creates one client pool per `New`/`NewChecked` call rather than
+sharing a process-global client by address. This preserves explicit ownership
+and deterministic `Close` semantics; applications that want one pool should
+construct one client and inject it into all consumers.
 
 `DiagnosticsSnapshot` adds a safe operational view: topology class, seed count,
 RESP protocol, maintenance-notification policy, replica routing, TLS presence,

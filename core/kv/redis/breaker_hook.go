@@ -5,15 +5,21 @@ import (
 	"errors"
 
 	redisv9 "github.com/redis/go-redis/v9"
-
-	"github.com/imajinyun/gofly/core/breaker"
 )
+
+// redisCommandBreaker is the subset of the gofly breakers the hook depends on.
+// Both *breaker.Breaker (consecutive-failure) and *breaker.GoogleBreaker
+// (Google SRE adaptive throttling) satisfy it, so the Redis adapter can pick
+// either strategy without changing the hook.
+type redisCommandBreaker interface {
+	DoWithAcceptable(ctx context.Context, fn func() error, acceptable func(error) bool) error
+}
 
 // redisBreakerHook applies gofly's circuit breaker to v9 command execution.
 // HELLO is a connection handshake and BLPOP intentionally blocks, so neither
 // participates in availability accounting, matching go-zero's hook policy.
 type redisBreakerHook struct {
-	breaker *breaker.Breaker
+	breaker redisCommandBreaker
 }
 
 func (h redisBreakerHook) DialHook(next redisv9.DialHook) redisv9.DialHook {

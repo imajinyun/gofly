@@ -123,6 +123,24 @@ func TestGoogleBreakerDoCallsMarkFailure(t *testing.T) {
 	}
 }
 
+func TestGoogleBreakerDoWithAcceptableRecordsExpectedErrorAsAccept(t *testing.T) {
+	now := time.Unix(0, 0)
+	b := NewGoogle()
+	b.now = func() time.Time { return now }
+	cacheMiss := errors.New("cache miss")
+
+	err := b.DoWithAcceptable(context.Background(), func() error { return cacheMiss }, func(err error) bool {
+		return errors.Is(err, cacheMiss)
+	})
+	if !errors.Is(err, cacheMiss) {
+		t.Fatalf("DoWithAcceptable error = %v, want cache miss", err)
+	}
+	snapshot := b.Snapshot()
+	if snapshot.Requests != 1 || snapshot.Accepts != 1 || snapshot.RejectProbability != 0 {
+		t.Fatalf("snapshot after acceptable error = %+v, want one accepted request", snapshot)
+	}
+}
+
 func TestGoogleBreakerMarkFailureIsCompatibilityNoop(t *testing.T) {
 	now := time.Unix(0, 0)
 	b := NewGoogle(WithGoogleK(2))

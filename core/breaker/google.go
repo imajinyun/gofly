@@ -115,6 +115,14 @@ func (b *GoogleBreaker) Allow() error {
 
 // Do admits the call through Allow, executes fn, and records the outcome.
 func (b *GoogleBreaker) Do(ctx context.Context, fn func() error) error {
+	return b.DoWithAcceptable(ctx, fn, nil)
+}
+
+// DoWithAcceptable runs fn when the Google SRE breaker permits it and records
+// errors accepted by acceptable as successful outcomes. Cache misses and
+// caller cancellations can therefore remain visible to callers without
+// degrading the backend accept ratio.
+func (b *GoogleBreaker) DoWithAcceptable(ctx context.Context, fn func() error, acceptable func(error) bool) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -122,12 +130,12 @@ func (b *GoogleBreaker) Do(ctx context.Context, fn func() error) error {
 		return err
 	}
 	err := fn()
-	if err != nil {
-		b.MarkFailure()
+	if err == nil || acceptable != nil && acceptable(err) {
+		b.MarkSuccess()
 		return err
 	}
-	b.MarkSuccess()
-	return nil
+	b.MarkFailure()
+	return err
 }
 
 // MarkSuccess records an accepted response.
@@ -146,6 +154,34 @@ func (b *GoogleBreaker) RejectProbability() float64 {
 	defer b.mu.Unlock()
 	requests, accepts := b.snapshotLocked(b.now())
 	return b.rejectProbabilityLocked(requests, accepts)
+}
+
+// GoogleSnapshot is a point-in-time view of a Google SRE breaker.
+type GoogleSnapshot struct {
+	Requests          int64         `json:"requests"`
+	Accepts           int64         `json:"accepts"`
+	RejectProbability float64       `json:"rejectProbability"`
+	K                 float64       `json:"k"`
+	Window            time.Duration `json:"window"`
+	Buckets           int           `json:"buckets"`
+}
+
+// Snapshot returns the current rolling-window counters and rejection ratio.
+func (b *GoogleBreaker) Snapshot() GoogleSnapshot {
+	if b == nil {
+		return GoogleSnapshot{}
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	requests, accepts := b.snapshotLocked(b.now())
+	return GoogleSnapshot{
+		Requests:          requests,
+		Accepts:           accepts,
+		RejectProbability: b.rejectProbabilityLocked(requests, accepts),
+		K:                 b.k,
+		Window:            b.window,
+		Buckets:           len(b.buckets),
+	}
 }
 
 func (b *GoogleBreaker) acceptedLocked(requests, accepts int64) bool {

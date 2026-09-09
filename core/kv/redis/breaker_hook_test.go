@@ -98,3 +98,18 @@ func TestRedisBreakerHookPipelinePolicy(t *testing.T) {
 		t.Fatalf("pipeline after open error = %v, want ErrOpen", err)
 	}
 }
+
+func TestRedisBreakerHookSupportsGoogleSREBreaker(t *testing.T) {
+	brk := breaker.NewGoogle()
+	hook := redisBreakerHook{breaker: brk}
+	ctx := context.Background()
+	process := hook.ProcessHook(func(context.Context, redisv9.Cmder) error { return redisv9.Nil })
+
+	if err := process(ctx, redisv9.NewCmd(ctx, "get", "key")); !errors.Is(err, redisv9.Nil) {
+		t.Fatalf("acceptable miss error = %v, want redis.Nil", err)
+	}
+	snapshot := brk.Snapshot()
+	if snapshot.Requests != 1 || snapshot.Accepts != 1 {
+		t.Fatalf("Google breaker snapshot = %+v, want one accepted request", snapshot)
+	}
+}

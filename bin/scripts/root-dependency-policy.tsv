@@ -14,6 +14,7 @@ github.com/jackc/pgx/v5|generator-datasource|cmd/gofly/internal/generator/model_
 github.com/hashicorp/consul/api|runtime|core/config core/discovery|Consul-backed config and discovery adapters are root runtime capabilities.
 github.com/nacos-group/nacos-sdk-go/v2|runtime|core/config/nacossource|Nacos-backed config adapter is a root runtime capability.
 github.com/rabbitmq/amqp091-go|runtime|core/mq/rabbitmq|RabbitMQ MQ adapter is a root runtime capability.
+github.com/redis/go-redis/v9|runtime|core/kv/redis|Redis key-value and stream adapter delegates protocol, pools, and cluster routing to the maintained v9 client.
 github.com/segmentio/kafka-go|runtime|core/mq/kafka|Kafka MQ adapter is a root runtime capability.
 go.etcd.io/etcd/api/v3|runtime|core/config core/discovery|etcd config and discovery adapters need the public etcd API types.
 go.etcd.io/etcd/client/v3|runtime|core/config core/discovery|etcd config and discovery adapters are root runtime capabilities.

@@ -29,6 +29,20 @@ func TestNewValidationAndDefaults(t *testing.T) {
 	}
 }
 
+func TestNewRecognizesBlockingClientFactory(t *testing.T) {
+	client := &redis.Client{}
+	broker, err := New(client, Options{})
+	if err != nil {
+		t.Fatalf("New Redis client: %v", err)
+	}
+	if broker.blockingFactory == nil {
+		t.Fatal("Redis client must provide a blocking reader factory")
+	}
+	if err := client.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+}
+
 func TestEncodeDecodeRoundTrip(t *testing.T) {
 	published := time.Unix(123, 456)
 	msg := mq.Message{ID: "id-1", Key: "user-1", Body: []byte("hello"), Attempts: 2, PublishedAt: published, Headers: map[string]string{"trace": "abc"}}

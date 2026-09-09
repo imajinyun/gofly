@@ -1,5 +1,5 @@
 // Package redisstream provides a core/mq Broker backed by Redis Streams using
-// the dependency-free core/redis client. It maps consumer groups to Redis
+// the core/kv/redis compatibility adapter. It maps consumer groups to Redis
 // stream consumer groups and preserves the retry/dead-letter semantics of the
 // in-memory broker.
 package redisstream
@@ -23,6 +23,13 @@ type Client interface {
 	XGroupCreate(ctx context.Context, stream, group, start string, mkStream bool) error
 	XReadGroup(ctx context.Context, group, consumer, stream string, count int, block time.Duration) ([]redis.StreamEntry, error)
 	XAck(ctx context.Context, stream, group string, ids ...string) (int64, error)
+}
+
+// BlockingClientFactory creates clients dedicated to blocking stream reads.
+// Redis Stream workers use it when available so XREADGROUP calls do not occupy
+// connections needed by publishing and cache traffic.
+type BlockingClientFactory interface {
+	NewBlockingClient(context.Context, time.Duration, int) (*redis.Client, error)
 }
 
 // Options tunes the Redis Stream broker.
@@ -51,8 +58,9 @@ func (o Options) withDefaults() Options {
 
 // Broker is a core/mq.Broker backed by Redis Streams.
 type Broker struct {
-	client Client
-	opts   Options
+	client          Client
+	opts            Options
+	blockingFactory BlockingClientFactory
 
 	mu     sync.Mutex
 	subs   []*subscription
@@ -66,7 +74,11 @@ func New(client Client, opts Options) (*Broker, error) {
 	if client == nil {
 		return nil, errors.New("redisstream: client is nil")
 	}
-	return &Broker{client: client, opts: opts.withDefaults()}, nil
+	broker := &Broker{client: client, opts: opts.withDefaults()}
+	if factory, ok := client.(BlockingClientFactory); ok {
+		broker.blockingFactory = factory
+	}
+	return broker, nil
 }
 
 // Publish appends a message to the topic's stream.
@@ -131,18 +143,38 @@ func (b *Broker) Subscribe(ctx context.Context, topic, group string, handler mq.
 		cancel:   cancel,
 		done:     make(chan struct{}),
 	}
-	b.mu.Lock()
-	b.subs = append(b.subs, sub)
-	b.mu.Unlock()
-
 	workers := cfg.Concurrency()
 	if workers < 1 {
 		workers = 1
 	}
-	sub.wg.Add(workers)
 	for range workers {
-		go sub.poll()
+		if b.blockingFactory != nil {
+			blockingClient, err := b.blockingFactory.NewBlockingClient(ctx, b.opts.BlockInterval+time.Second, 1)
+			if err != nil {
+				sub.cancel()
+				for _, existing := range sub.blockingClients {
+					_ = existing.Close()
+				}
+				return nil, fmt.Errorf("redisstream: create blocking client: %w", err)
+			}
+			sub.blockingClients = append(sub.blockingClients, blockingClient)
+			sub.readers = append(sub.readers, blockingClient)
+		} else {
+			sub.readers = append(sub.readers, b.client)
+		}
 	}
+	sub.wg.Add(len(sub.readers))
+	for _, reader := range sub.readers {
+		go sub.poll(reader)
+	}
+	b.mu.Lock()
+	if b.closed {
+		b.mu.Unlock()
+		_ = sub.Stop(context.Background())
+		return nil, mq.ErrClosed
+	}
+	b.subs = append(b.subs, sub)
+	b.mu.Unlock()
 	return sub, nil
 }
 
@@ -169,20 +201,22 @@ func (b *Broker) Close(ctx context.Context) error {
 }
 
 type subscription struct {
-	broker   *Broker
-	topic    string
-	group    string
-	consumer string
-	handler  mq.Handler
-	cfg      mq.SubscriptionConfig
-	ctx      context.Context
-	cancel   context.CancelFunc
-	wg       sync.WaitGroup
-	once     sync.Once
-	done     chan struct{}
+	broker          *Broker
+	topic           string
+	group           string
+	consumer        string
+	handler         mq.Handler
+	cfg             mq.SubscriptionConfig
+	ctx             context.Context
+	cancel          context.CancelFunc
+	wg              sync.WaitGroup
+	once            sync.Once
+	done            chan struct{}
+	readers         []Client
+	blockingClients []*redis.Client
 }
 
-func (s *subscription) poll() {
+func (s *subscription) poll(reader Client) {
 	defer s.wg.Done()
 	for {
 		select {
@@ -190,7 +224,7 @@ func (s *subscription) poll() {
 			return
 		default:
 		}
-		entries, err := s.broker.client.XReadGroup(s.ctx, s.group, s.consumer, s.topic, s.broker.opts.ReadCount, s.broker.opts.BlockInterval)
+		entries, err := reader.XReadGroup(s.ctx, s.group, s.consumer, s.topic, s.broker.opts.ReadCount, s.broker.opts.BlockInterval)
 		if err != nil {
 			if s.ctx.Err() != nil {
 				return
@@ -267,6 +301,9 @@ func (s *subscription) Stop(ctx context.Context) error {
 		s.cancel()
 		go func() {
 			s.wg.Wait()
+			for _, client := range s.blockingClients {
+				_ = client.Close()
+			}
 			close(s.done)
 		}()
 	})

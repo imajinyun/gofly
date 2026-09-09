@@ -42,6 +42,7 @@ type Breaker struct {
 	failureThreshold int
 	openTimeout      time.Duration
 	openedAt         time.Time
+	halfOpenProbe    bool
 }
 
 // Option configures a Breaker.
@@ -92,19 +93,67 @@ func (b *Breaker) Allow() error {
 }
 
 func (b *Breaker) Do(ctx context.Context, fn func() error) error {
+	return b.DoWithAcceptable(ctx, fn, nil)
+}
+
+// DoWithAcceptable runs fn when the breaker permits it and records errors
+// accepted by acceptable as successful outcomes. It is intended for adapters
+// such as caches where a not-found result is an expected response, not an
+// availability failure. A nil acceptable function treats only nil as success.
+func (b *Breaker) DoWithAcceptable(ctx context.Context, fn func() error, acceptable func(error) bool) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := b.Allow(); err != nil {
+	if err := b.allowProbe(); err != nil {
 		return err
 	}
+	// If fn panics, control unwinds past accept/reject and the reserved
+	// half-open probe would otherwise stay held forever, wedging the breaker
+	// in a permanent reject state. Release the reservation on any non-terminal
+	// exit so a later call can probe again.
+	settled := false
+	defer func() {
+		if !settled {
+			b.releaseProbe()
+		}
+	}()
 	err := fn()
-	if err != nil {
-		b.reject()
+	settled = true
+	if err == nil || acceptable != nil && acceptable(err) {
+		b.accept()
 		return err
 	}
-	b.accept()
+	b.reject()
+	return err
+}
+
+// allowProbe reserves the single half-open probe for call paths that will
+// report a terminal result through accept or reject. Allow intentionally does
+// not reserve a probe to preserve its historic check-only contract.
+func (b *Breaker) allowProbe() error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.refreshLocked(time.Now())
+	if b.state == Open {
+		return ErrOpen
+	}
+	if b.state == HalfOpen {
+		if b.halfOpenProbe {
+			return ErrOpen
+		}
+		b.halfOpenProbe = true
+	}
 	return nil
+}
+
+// releaseProbe returns the half-open probe reservation without changing the
+// breaker state, so a probe abandoned by a panic does not block recovery.
+func (b *Breaker) releaseProbe() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.state == HalfOpen {
+		b.halfOpenProbe = false
+	}
 }
 
 func (b *Breaker) accept() {
@@ -112,12 +161,14 @@ func (b *Breaker) accept() {
 	defer b.mu.Unlock()
 	b.failures = 0
 	b.state = Closed
+	b.halfOpenProbe = false
 }
 
 func (b *Breaker) reject() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.state == HalfOpen {
+		b.halfOpenProbe = false
 		b.openLocked(time.Now())
 		return
 	}
@@ -125,6 +176,19 @@ func (b *Breaker) reject() {
 	if b.failures >= b.failureThreshold {
 		b.openLocked(time.Now())
 	}
+}
+
+// MarkSuccess records a successful outcome for callers that gate with Allow and
+// report the result out of band. It mirrors the success path of Do so the
+// breaker closes after a half-open probe succeeds.
+func (b *Breaker) MarkSuccess() {
+	b.accept()
+}
+
+// MarkFailure records a failed outcome for callers that gate with Allow and
+// report the result out of band. It mirrors the failure path of Do.
+func (b *Breaker) MarkFailure() {
+	b.reject()
 }
 
 func (b *Breaker) refreshLocked(now time.Time) {
@@ -136,6 +200,7 @@ func (b *Breaker) refreshLocked(now time.Time) {
 func (b *Breaker) openLocked(now time.Time) {
 	b.state = Open
 	b.openedAt = now
+	b.halfOpenProbe = false
 }
 
 type bucket struct {

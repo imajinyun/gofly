@@ -11,6 +11,73 @@ can wrap those stores with a **Redis-backed model cache** (`NewRedisModel`,
 `RedisCachedOrderRepo`, `UpdateWithInvalidate`) while `GOFLY_CACHE_DISABLED`
 keeps local and tests deterministic.
 
+## Redis failure semantics
+
+`core/kv/redis` is a compatibility adapter over
+[`github.com/redis/go-redis/v9`](https://github.com/redis/go-redis). It keeps
+the stable gofly `kv.RedisClient` surface while delegating connection pooling,
+Redis Cluster routing, authentication, context deadlines, and stream protocol
+handling to the maintained v9 client. Existing `Addr` configuration remains a
+single-node client; `Addrs` or `Cluster` selects v9 cluster routing. The adapter
+uses RESP2 negotiation and disables v9 identity writes, retaining compatibility
+with legacy Redis servers and RESP2-only proxies.
+
+Cluster seed addresses are trimmed, deduplicated, and retained in configuration
+order. Redis Cluster rejects logical database selection, so `NewChecked` rejects
+any non-zero DB configuration before dialing. `maintNotifications` defaults to
+`disabled`; it may be set to `auto` or `enabled` only with `protocol: 3`, making
+the additional connection handshake an explicit production choice.
+
+`masterName` enables Sentinel failover, with `Addrs` treated as Sentinel seeds
+and optional sentinel-specific ACL credentials. `readOnly`, `routeByLatency`,
+and `routeRandomly` are explicit replica-routing choices for Cluster or Sentinel
+deployments; the latter two are mutually exclusive. gofly keeps them disabled
+by default because replica reads can be stale. Sentinel failover currently does
+not support v9 maintenance notifications, so that combination is rejected at
+configuration validation time.
+
+`redis.ErrNil` remains gofly's public cache-miss signal. A missing key or TTL
+maps to it; a persistent key returns a zero TTL. The adapter keeps command and
+error counters and translates v9 pool totals into active/idle snapshot values.
+
+Following go-zero's v9 integration, normal Redis commands and pipelines pass
+through a circuit-breaker hook. Redis misses (`redis.Nil`) and canceled calls
+are accepted outcomes, while repeated backend failures open the breaker. The
+connection handshake (`HELLO`) and `BLPOP` are excluded: a proxy capability
+mismatch or intentional blocking wait must not poison cache availability. Set
+`disableBreaker` only when an application provides equivalent external Redis
+resilience controls.
+
+For stream consumers, `redisstream.Broker` detects the v9 gofly client and
+creates one dedicated one-connection client per blocking reader. `XREADGROUP`
+therefore cannot exhaust the pool used by cache reads and writes. Use
+`NewChecked` when configuration must be validated at startup or when an eager
+`PING` is required; it validates Cluster database use, builds TLS through
+`security.TLSConfig`, and preserves certificate verification unless an explicit
+local-development TLS opt-out is supplied.
+
+The Redis hook emits low-cardinality command/pipeline latency and error-class
+metrics and OTel client spans. It intentionally never records Redis keys,
+values, or Lua arguments. `Snapshot` exposes v9 pool hits, misses, wait count,
+timeouts, stale connections, active connections, and idle connections for
+control-plane diagnostics.
+
+`DiagnosticsSnapshot` adds a safe operational view: topology class, seed count,
+RESP protocol, maintenance-notification policy, replica routing, TLS presence,
+breaker state, and pool statistics. It intentionally omits endpoints, Redis and
+Sentinel credentials, TLS file paths, server names, keys, values, and scripts.
+Applications that expose a control-plane snapshot can opt in with
+`redis.ControlPlaneContributor{Client: client, Name: "cache"}`; it writes
+the same sanitized view under `runtime.redis.cache` without taking ownership of
+the client or changing its close lifecycle.
+
+TieredCache is availability-oriented: an L2 read failure is treated as a miss,
+the loader still runs, and a failed L2 write does not discard the loaded L1
+value. RedisModelCache is intentionally stricter: after a repository load, a
+Redis write-back failure is returned so generated cache-aside repositories do
+not silently claim a successful cache update. Disable either cache path with
+GOFLY_CACHE_DISABLED when direct source-of-truth reads are required.
+
 The `p10StorageCacheProductization` closeout records **SQL outbox**, cache stats,
 and `WritePrometheus` evidence. Rows still marked **planned**
 (`migration-runner`, `production-redis-integration`) stay out of release notes

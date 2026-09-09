@@ -309,9 +309,12 @@ func TestTieredCacheGetL2Error(t *testing.T) {
 	if _, ok := c.Get(ctx, "k"); ok {
 		t.Fatal("Get with failing L2 should miss")
 	}
-	_, err = c.GetOrLoad(ctx, "k", func(_ context.Context, _ string) (int, error) { return 7, nil })
-	if err != nil {
-		t.Fatalf("GetOrLoad loader fallback: %v", err)
+	value, err := c.GetOrLoad(ctx, "k", func(_ context.Context, _ string) (int, error) { return 7, nil })
+	if err != nil || value != 7 {
+		t.Fatalf("GetOrLoad loader fallback = %d, %v; want 7, nil", value, err)
+	}
+	if value, ok := c.L1().Get("k"); !ok || value != 7 {
+		t.Fatalf("L1 must keep loader value after L2 write failure = %d, %v", value, ok)
 	}
 }
 

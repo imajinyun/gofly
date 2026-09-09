@@ -110,9 +110,9 @@ func (p *CircuitBreakerProvider) Embed(ctx context.Context, req EmbedRequest) (E
 
 func (p *CircuitBreakerProvider) recordOutcome(err error) {
 	if err == nil {
-		_ = p.breaker.Do(context.Background(), func() error { return nil }) // side-effect: calls accept
+		p.breaker.MarkSuccess()
 	} else {
-		_ = p.breaker.Do(context.Background(), func() error { return err }) // side-effect: calls reject
+		p.breaker.MarkFailure()
 	}
 }
 

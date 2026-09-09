@@ -504,6 +504,7 @@ func TestGenerateService(t *testing.T) {
 		"OpenAPI     OpenAPIConfig",
 		`"github.com/imajinyun/gofly/core/controlplane"`,
 		`"github.com/imajinyun/gofly/core/discovery"`,
+		`"github.com/imajinyun/gofly/core/security"`,
 		"func ConfigPaths(name string) []string",
 		"func ResolveConfigPath(name string) string",
 		`paths := []string{"config.yaml", "config.yml", "config.toml", "config.json"}`,
@@ -598,6 +599,9 @@ func TestGenerateService(t *testing.T) {
 		`case "kafka":`,
 		`case "rabbitmq":`,
 		`case "redisstream":`,
+		"MaintNotifications:      cfg.RedisStream.Redis.MaintNotifications",
+		"BreakerFailureThreshold: cfg.RedisStream.Redis.BreakerFailureThreshold",
+		"redis.NewChecked(context.Background(), redis.Config{",
 		"coremq.NewGovernanceBroker",
 	} {
 		if !strings.Contains(string(brokerData), want) {

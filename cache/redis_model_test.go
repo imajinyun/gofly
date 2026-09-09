@@ -13,6 +13,7 @@ type fakeRedisModelClient struct {
 	values  map[string][]byte
 	deleted []string
 	ttl     time.Duration
+	setErr  error
 }
 
 func newFakeRedisModelClient() *fakeRedisModelClient {
@@ -27,6 +28,9 @@ func (f *fakeRedisModelClient) Get(ctx context.Context, key string) ([]byte, err
 }
 
 func (f *fakeRedisModelClient) Set(ctx context.Context, key string, value []byte, ttl time.Duration) error {
+	if f.setErr != nil {
+		return f.setErr
+	}
 	f.ttl = ttl
 	f.values[key] = append([]byte(nil), value...)
 	return nil
@@ -81,6 +85,25 @@ func TestRedisModelCacheLoadsAndStoresOnMiss(t *testing.T) {
 	}
 	if loads != 1 {
 		t.Fatalf("loader calls after cache hit = %d, want 1", loads)
+	}
+}
+
+func TestRedisModelCacheReturnsWriteFailureAfterLoad(t *testing.T) {
+	writeErr := errors.New("redis unavailable")
+	client := newFakeRedisModelClient()
+	client.setErr = writeErr
+	loads := 0
+	c := NewRedisModel(func(context.Context, int64) (string, error) {
+		loads++
+		return "loaded", nil
+	}, client, WithRedisModelNotFound[string, int64](errRedisMiss))
+
+	value, err := c.Get(context.Background(), 42)
+	if value != "" || !errors.Is(err, writeErr) {
+		t.Fatalf("Get after Redis write failure = %q, %v; want zero and wrapped write error", value, err)
+	}
+	if loads != 1 {
+		t.Fatalf("loader calls = %d, want 1", loads)
 	}
 }
 

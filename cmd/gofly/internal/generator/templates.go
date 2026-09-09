@@ -2290,7 +2290,22 @@ func ResolveConfigPath(name string) string {
 
 type RedisConfig struct {
 	Addr string ` + "`json:\"addr\"`" + `
+	Addrs []string ` + "`json:\"addrs,omitempty\"`" + `
+	Cluster bool ` + "`json:\"cluster,omitempty\"`" + `
+	MasterName string ` + "`json:\"masterName,omitempty\"`" + `
+	SentinelUsername string ` + "`json:\"sentinelUsername,omitempty\"`" + `
+	SentinelPassword string ` + "`json:\"sentinelPassword,omitempty\"`" + `
+	ReadOnly bool ` + "`json:\"readOnly,omitempty\"`" + `
+	RouteByLatency bool ` + "`json:\"routeByLatency,omitempty\"`" + `
+	RouteRandomly bool ` + "`json:\"routeRandomly,omitempty\"`" + `
+	Username string ` + "`json:\"username,omitempty\"`" + `
 	Password string ` + "`json:\"password\"`" + `
+	TLS security.TLSConfig ` + "`json:\"tls,omitempty\"`" + `
+	Protocol int ` + "`json:\"protocol,omitempty\"`" + `
+	EnableIdentity bool ` + "`json:\"enableIdentity,omitempty\"`" + `
+	MaintNotifications string ` + "`json:\"maintNotifications,omitempty\"`" + `
+	EagerConnect bool ` + "`json:\"eagerConnect,omitempty\"`" + `
+	PingTimeout time.Duration ` + "`json:\"pingTimeout,omitempty\"`" + `
 	DB int ` + "`json:\"db\"`" + `
 	DialTimeout time.Duration ` + "`json:\"dialTimeout\"`" + `
 	Timeout time.Duration ` + "`json:\"timeout\"`" + `
@@ -2298,6 +2313,12 @@ type RedisConfig struct {
 	MaxIdleConns int ` + "`json:\"maxIdleConns\"`" + `
 	ConnMaxIdleTime time.Duration ` + "`json:\"connMaxIdleTime\"`" + `
 	ConnMaxLifetime time.Duration ` + "`json:\"connMaxLifetime\"`" + `
+	MinIdleConns int ` + "`json:\"minIdleConns,omitempty\"`" + `
+	PoolTimeout time.Duration ` + "`json:\"poolTimeout,omitempty\"`" + `
+	MaxRetries int ` + "`json:\"maxRetries,omitempty\"`" + `
+	DisableBreaker bool ` + "`json:\"disableBreaker,omitempty\"`" + `
+	BreakerFailureThreshold int ` + "`json:\"breakerFailureThreshold,omitempty\"`" + `
+	BreakerOpenTimeout time.Duration ` + "`json:\"breakerOpenTimeout,omitempty\"`" + `
 }
 
 func (c Config) ServiceConf() app.ServiceConf {
@@ -4118,9 +4139,24 @@ func newDriverBroker(cfg config.MQConfig) (coremq.Broker, error) {
 			Prefetch:       cfg.RabbitMQ.Prefetch,
 		})
 	case "redisstream":
-		client := redis.New(redis.Config{
+		client, err := redis.NewChecked(context.Background(), redis.Config{
 			Addr:            cfg.RedisStream.Redis.Addr,
+			Addrs:           cfg.RedisStream.Redis.Addrs,
+			Cluster:         cfg.RedisStream.Redis.Cluster,
+			MasterName:       cfg.RedisStream.Redis.MasterName,
+			SentinelUsername: cfg.RedisStream.Redis.SentinelUsername,
+			SentinelPassword: cfg.RedisStream.Redis.SentinelPassword,
+			ReadOnly:         cfg.RedisStream.Redis.ReadOnly,
+			RouteByLatency:   cfg.RedisStream.Redis.RouteByLatency,
+			RouteRandomly:    cfg.RedisStream.Redis.RouteRandomly,
+			Username:        cfg.RedisStream.Redis.Username,
 			Password:        cfg.RedisStream.Redis.Password,
+			TLS:             cfg.RedisStream.Redis.TLS,
+			Protocol:        cfg.RedisStream.Redis.Protocol,
+			EnableIdentity:  cfg.RedisStream.Redis.EnableIdentity,
+			MaintNotifications: cfg.RedisStream.Redis.MaintNotifications,
+			EagerConnect:    cfg.RedisStream.Redis.EagerConnect,
+			PingTimeout:     cfg.RedisStream.Redis.PingTimeout,
 			DB:              cfg.RedisStream.Redis.DB,
 			DialTimeout:     cfg.RedisStream.Redis.DialTimeout,
 			Timeout:         cfg.RedisStream.Redis.Timeout,
@@ -4128,7 +4164,16 @@ func newDriverBroker(cfg config.MQConfig) (coremq.Broker, error) {
 			MaxIdleConns:    cfg.RedisStream.Redis.MaxIdleConns,
 			ConnMaxIdleTime: cfg.RedisStream.Redis.ConnMaxIdleTime,
 			ConnMaxLifetime: cfg.RedisStream.Redis.ConnMaxLifetime,
+			MinIdleConns:    cfg.RedisStream.Redis.MinIdleConns,
+			PoolTimeout:     cfg.RedisStream.Redis.PoolTimeout,
+			MaxRetries:      cfg.RedisStream.Redis.MaxRetries,
+			DisableBreaker:  cfg.RedisStream.Redis.DisableBreaker,
+			BreakerFailureThreshold: cfg.RedisStream.Redis.BreakerFailureThreshold,
+			BreakerOpenTimeout: cfg.RedisStream.Redis.BreakerOpenTimeout,
 		})
+		if err != nil {
+			return nil, fmt.Errorf("create Redis client: %w", err)
+		}
 		broker, err := redisstream.New(client, redisstream.Options{
 			MaxLen:        cfg.RedisStream.MaxLen,
 			Consumer:      cfg.RedisStream.Consumer,

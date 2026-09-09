@@ -198,6 +198,7 @@ import (
 
 	"github.com/imajinyun/gofly/app"
 	"github.com/imajinyun/gofly/core/governance"
+	"github.com/imajinyun/gofly/core/security"
 	"github.com/imajinyun/gofly/gateway"
 	"github.com/imajinyun/gofly/rest"
 	"github.com/imajinyun/gofly/rpc"
@@ -543,7 +544,22 @@ type MQRedisStreamConfig struct {
 
 type RedisConfig struct {
 	Addr string ` + "`json:\"addr\"`" + `
+	Addrs []string ` + "`json:\"addrs,omitempty\"`" + `
+	Cluster bool ` + "`json:\"cluster,omitempty\"`" + `
+	MasterName string ` + "`json:\"masterName,omitempty\"`" + `
+	SentinelUsername string ` + "`json:\"sentinelUsername,omitempty\"`" + `
+	SentinelPassword string ` + "`json:\"sentinelPassword,omitempty\"`" + `
+	ReadOnly bool ` + "`json:\"readOnly,omitempty\"`" + `
+	RouteByLatency bool ` + "`json:\"routeByLatency,omitempty\"`" + `
+	RouteRandomly bool ` + "`json:\"routeRandomly,omitempty\"`" + `
+	Username string ` + "`json:\"username,omitempty\"`" + `
 	Password string ` + "`json:\"password\"`" + `
+	TLS security.TLSConfig ` + "`json:\"tls,omitempty\"`" + `
+	Protocol int ` + "`json:\"protocol,omitempty\"`" + `
+	EnableIdentity bool ` + "`json:\"enableIdentity,omitempty\"`" + `
+	MaintNotifications string ` + "`json:\"maintNotifications,omitempty\"`" + `
+	EagerConnect bool ` + "`json:\"eagerConnect,omitempty\"`" + `
+	PingTimeout time.Duration ` + "`json:\"pingTimeout,omitempty\"`" + `
 	DB int ` + "`json:\"db\"`" + `
 	DialTimeout time.Duration ` + "`json:\"dialTimeout\"`" + `
 	Timeout time.Duration ` + "`json:\"timeout\"`" + `
@@ -551,6 +567,12 @@ type RedisConfig struct {
 	MaxIdleConns int ` + "`json:\"maxIdleConns\"`" + `
 	ConnMaxIdleTime time.Duration ` + "`json:\"connMaxIdleTime\"`" + `
 	ConnMaxLifetime time.Duration ` + "`json:\"connMaxLifetime\"`" + `
+	MinIdleConns int ` + "`json:\"minIdleConns,omitempty\"`" + `
+	PoolTimeout time.Duration ` + "`json:\"poolTimeout,omitempty\"`" + `
+	MaxRetries int ` + "`json:\"maxRetries,omitempty\"`" + `
+	DisableBreaker bool ` + "`json:\"disableBreaker,omitempty\"`" + `
+	BreakerFailureThreshold int ` + "`json:\"breakerFailureThreshold,omitempty\"`" + `
+	BreakerOpenTimeout time.Duration ` + "`json:\"breakerOpenTimeout,omitempty\"`" + `
 }
 `
 

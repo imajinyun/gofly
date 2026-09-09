@@ -67,7 +67,9 @@ def gate_is_known(gate, targets):
 
 manifest = json.loads(read_text(manifest_path)) if manifest_path.is_file() else {}
 makefile = read_text(root / "Makefile")
-surface_text = read_text(root / "docs" / "reference" / "goctl-surface-drift.json")
+surface_path = root / "docs" / "reference" / "goctl-surface-drift.json"
+surface_text = read_text(surface_path)
+surface_manifest = json.loads(surface_text) if surface_path.is_file() else {}
 generator_text = read_text(root / "docs" / "reference" / "goctl-generator-compatibility.json")
 real_replay_text = read_text(root / "docs" / "reference" / "goctl-real-project-replay.json")
 from_gozero_text = read_text(root / "docs" / "reference" / "from-go-zero-migration.md")
@@ -158,15 +160,32 @@ for item in offline_fixtures:
     actual_caps = set(fixture.get("capabilities") or [])
     require(required_caps <= actual_caps, f"{item.get('id')}: capabilities missing {sorted(required_caps - actual_caps)}")
 
-for needle in (
-    "mysql ddl",
-    "mysql datasource",
-    "postgres datasource",
-    "mongo type/cache/easy flags",
-    "ignore-columns",
-    "cache prefix",
-):
-    require(needle in surface_text, f"goctl surface drift contract missing {needle!r}")
+surface_model = (surface_manifest.get("families") or {}).get("model") or {}
+require(
+    {"mongo", "mysql ddl", "mysql datasource", "pg datasource"}
+    <= set(surface_model.get("goctl") or []),
+    "goctl surface drift model.goctl is incomplete",
+)
+require(
+    {"gen", "mongo", "mysql", "pg"}
+    <= set(surface_model.get("gofly") or []),
+    "goctl surface drift model.gofly is incomplete",
+)
+require(
+    surface_model.get("classification") == "partial-parity",
+    "goctl surface drift model classification must be partial-parity",
+)
+surface_actions = {
+    item.get("id"): item
+    for item in surface_manifest.get("nextActions") or []
+    if isinstance(item, dict)
+}
+model_action = surface_actions.get("model-parity-replay") or {}
+require(model_action.get("status") == "implemented", "surface drift model-parity-replay must be implemented")
+require(
+    model_action.get("gate") == "make goctl-model-parity-replay-check",
+    "surface drift model-parity-replay gate mismatch",
+)
 
 for needle in (
     "goctl-model-parity-replay-check",

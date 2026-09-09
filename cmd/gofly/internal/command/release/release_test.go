@@ -559,7 +559,7 @@ func testHooks(out *bytes.Buffer) Hooks {
 		},
 		PrintText: func(args ...any) {
 			for _, arg := range args {
-				_, _ = out.WriteString(fmt.Sprint(arg))
+				_, _ = fmt.Fprint(out, arg)
 			}
 		},
 		PrintTextf: func(format string, args ...any) {

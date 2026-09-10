@@ -66,6 +66,10 @@ func GenerateRPCNew(opts RPCNewOptions) error {
 	if opts.Dir == "" {
 		opts.Dir = filepath.Join(".", opts.Name)
 	}
+	profile, err := normalizeGenerationProfile(opts.Profile)
+	if err != nil {
+		return err
+	}
 	if strings.TrimSpace(opts.Profile) != "" {
 		if err := GenerateServiceScaffold(ServiceScaffoldOptions{
 			Name:          opts.Name,
@@ -77,6 +81,9 @@ func GenerateRPCNew(opts RPCNewOptions) error {
 			Kind:          "rpc",
 		}); err != nil {
 			return err
+		}
+		if profile == ProfileGoZeroCompatible {
+			return nil
 		}
 	} else {
 		if err := GenerateService(ServiceOptions{
@@ -96,9 +103,16 @@ func GenerateRPCNew(opts RPCNewOptions) error {
 			return err
 		}
 	}
-	return writeRenderedFile(
+	protoTemplate := rpcNewTemplate
+	if profile == ProfileGoZeroCompatible {
+		protoTemplate = goZeroRPCNewTemplate
+	}
+	if err := writeRenderedFile(
 		filepath.Join(opts.Dir, opts.Name+".proto"),
-		strings.Replace(rpcNewTemplate, "package {{.Name}}.v1;", "package {{.Name}};", 1),
-		map[string]string{"Name": lowerName(opts.Name)},
-	)
+		strings.Replace(protoTemplate, "package {{.Name}}.v1;", "package {{.Name}};", 1),
+		map[string]string{"Name": lowerName(opts.Name), "Module": opts.Module},
+	); err != nil {
+		return err
+	}
+	return nil
 }

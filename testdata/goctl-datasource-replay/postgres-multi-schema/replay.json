@@ -15,7 +15,7 @@
   "capabilities": [
     "postgres-datasource",
     "multi-schema",
-    "table-prefix",
+    "cache-prefix",
     "ignore-columns",
     "strict",
     "cache-template",
@@ -24,25 +24,25 @@
     "skip-locked-claim"
   ],
   "expectedArtifacts": [
-    "model/entity/account_gen.go",
-    "model/entity/event_gen.go",
-    "model/repo/account.go",
-    "model/repo/event.go"
+    "model/entity/billing_account_gen.go",
+    "model/entity/billing_event_gen.go",
+    "model/repo/billing_account.go",
+    "model/repo/billing_event.go"
   ],
   "assertions": {
-    "model/repo/account.go": [
+    "model/repo/billing_account.go": [
       "d := storage.DialectPostgres",
-      "func (r *AccountRepo) UpsertByTenantIDAndExternalRef(ctx context.Context, in *entity.Account) error",
-      "storage.Upsert(entity.AccountTable, entity.AccountColumns, []string{\"tenant_id\", \"external_ref\"}",
-      "func (c *RedisCachedAccountRepo) PageByTenantIDCached(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.Account, int64, error)",
-      "key := redisAccountIndexListCacheKey(version, indexListKeyByTenantID(tenantID, limit, offset))"
+      "func (r *BillingAccountRepo) UpsertByTenantIDAndExternalRef(ctx context.Context, in *entity.BillingAccount) error",
+      "storage.Upsert(entity.BillingAccountTable, []string{\"id\", \"tenant_id\", \"external_ref\", \"email\", \"metadata\", \"version\", \"deleted_at\"}",
+      "func (c *RedisCachedBillingAccountRepo) PageByTenantIDCached(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.BillingAccount, int64, error)",
+      "key := redisBillingAccountIndexListCacheKey(version, indexListKeyByTenantID(tenantID, limit, offset))"
     ],
-    "model/repo/event.go": [
+    "model/repo/billing_event.go": [
       "d := storage.DialectPostgres",
-      "func (r *EventRepo) UpsertByTenantIDAndEventNo(ctx context.Context, in *entity.Event) error",
-      "func (r *EventRepo) ClaimByTenantIDAndStatusSkipLocked(ctx context.Context, tenantID int64, status string, nextStatus string, limit int) ([]entity.Event, error)",
-      "func (c *RedisCachedEventRepo) ClaimByTenantIDAndStatusSkipLocked(ctx context.Context, tenantID int64, status string, nextStatus string, limit int) ([]entity.Event, error)",
-      "key := redisEventIndexListCacheKey(version, indexListKeyByTenantIDAndStatus(tenantID, status, limit, offset))"
+      "func (r *BillingEventRepo) UpsertByTenantIDAndEventNo(ctx context.Context, in *entity.BillingEvent) error",
+      "func (r *BillingEventRepo) ClaimByTenantIDAndStatusSkipLocked(ctx context.Context, tenantID int64, status string, nextStatus string, limit int) ([]entity.BillingEvent, error)",
+      "func (c *RedisCachedBillingEventRepo) ClaimByTenantIDAndStatusSkipLocked(ctx context.Context, tenantID int64, status string, nextStatus string, limit int) ([]entity.BillingEvent, error)",
+      "key := redisBillingEventIndexListCacheKey(version, indexListKeyByTenantIDAndStatus(tenantID, status, limit, offset))"
     ]
   },
   "schemaContract": {
@@ -53,13 +53,13 @@
     "schemaName": "billing",
     "tables": [
       {
-        "name": "accounts",
+        "name": "billing_accounts",
         "primaryKey": "id",
         "uniqueIndexes": [["tenant_id", "external_ref"]],
         "indexes": [["tenant_id", "email"]]
       },
       {
-        "name": "events",
+        "name": "billing_events",
         "primaryKey": "id",
         "uniqueIndexes": [["tenant_id", "event_no"]],
         "indexes": [["tenant_id", "status", "occurred_at"]]

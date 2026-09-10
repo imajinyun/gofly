@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/imajinyun/gofly/core/discovery"
 	"github.com/imajinyun/gofly/rpc"
 
 	"google.golang.org/grpc/resolver"
@@ -182,6 +183,16 @@ func TestWithRegistryResolver(t *testing.T) {
 	opt(&o)
 	if len(o.dialOptions) != 1 {
 		t.Fatalf("expected 1 dial option, got %d", len(o.dialOptions))
+	}
+}
+
+func TestWithDiscoveryResolver(t *testing.T) {
+	registry := discovery.NewMemoryRegistry()
+	opt := WithDiscoveryResolver(registry, "greeter")
+	o := clientOptions{timeout: 5 * time.Second}
+	opt(&o)
+	if len(o.dialOptions) != 1 {
+		t.Fatalf("expected one discovery resolver option, got %d", len(o.dialOptions))
 	}
 }
 

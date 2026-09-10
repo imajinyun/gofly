@@ -104,7 +104,11 @@ func bearerFromIncoming(ctx context.Context) string {
 	}
 	values := md.Get(auth.MetadataKey)
 	if len(values) == 0 {
-		return ""
+		legacy := md.Get("token")
+		if len(legacy) == 0 {
+			return ""
+		}
+		return legacy[0]
 	}
 	token, ok := auth.ExtractBearer(values[0])
 	if !ok {

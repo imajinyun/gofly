@@ -51,15 +51,15 @@ func (flags modelMongoFlags) normalize() {
 	if valueFromBoolFlag(flags.CacheAlias) {
 		setBoolFlag(flags.Cache, true)
 	}
+	if valueFromBoolFlag(flags.EasyAlias) {
+		setBoolFlag(flags.Easy, true)
+	}
 }
 
 func modelMongoCommand(args []string) error {
 	fs := flag.NewFlagSet("model mongo", flag.ContinueOnError)
 	flags := registerModelMongoFlags(fs)
 	registerGoctlModelTemplateFlags(fs)
-	_ = flags.Easy
-	_ = flags.EasyAlias
-	_ = flags.Style
 	remaining, err := parseInterspersedFlags(fs, args)
 	if err != nil {
 		return err
@@ -72,6 +72,7 @@ func modelMongoCommand(args []string) error {
 		Package: *flags.Package,
 		Prefix:  *flags.Prefix,
 		Cache:   *flags.Cache,
+		Easy:    *flags.Easy,
 		Style:   *flags.Style,
 	})
 }

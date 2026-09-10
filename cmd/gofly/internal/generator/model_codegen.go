@@ -43,6 +43,7 @@ type MongoModelOptions struct {
 	Package string
 	Prefix  string
 	Cache   bool
+	Easy    bool
 	Style   string
 }
 
@@ -76,6 +77,7 @@ const (
 
 type SQLTable struct {
 	Name             string
+	CachePrefix      string
 	Columns          []SQLColumn
 	PrimaryKey       string
 	SoftDeleteColumn string
@@ -84,12 +86,15 @@ type SQLTable struct {
 }
 
 type SQLColumn struct {
-	Name       string
-	Type       string
-	PrimaryKey bool
-	Nullable   bool
-	Unique     bool
-	GoType     string
+	Name          string
+	Type          string
+	PrimaryKey    bool
+	Nullable      bool
+	AutoIncrement bool
+	Unsigned      bool
+	WriteIgnored  bool
+	Unique        bool
+	GoType        string
 }
 
 type SQLUniqueIndex struct {
@@ -853,34 +858,19 @@ func prepareModelTables(tables []SQLTable, opts modelSchemaGenerationOptions) ([
 	out := make([]SQLTable, 0, len(tables))
 	for _, table := range tables {
 		prepared := table
-		if prefix != "" && strings.HasPrefix(prepared.Name, prefix) {
-			prepared.Name = strings.TrimPrefix(prepared.Name, prefix)
-			if opts.Strict && prepared.Name == "" {
-				return nil, fmt.Errorf("strict model generation: table %q becomes empty after trimming prefix %q", table.Name, prefix)
+		prepared.CachePrefix = prefix
+		prepared.Columns = append([]SQLColumn(nil), table.Columns...)
+		for i := range prepared.Columns {
+			column := &prepared.Columns[i]
+			if _, ok := ignored[strings.ToLower(column.Name)]; ok {
+				column.WriteIgnored = true
 			}
-		}
-		if len(ignored) > 0 {
-			columns := make([]SQLColumn, 0, len(prepared.Columns))
-			primaryIgnored := false
-			for _, column := range prepared.Columns {
-				if _, ok := ignored[strings.ToLower(column.Name)]; ok {
-					if column.Name == prepared.PrimaryKey || column.PrimaryKey {
-						primaryIgnored = true
-					}
-					continue
-				}
-				columns = append(columns, column)
-			}
-			if opts.Strict && primaryIgnored {
-				return nil, fmt.Errorf("strict model generation: primary key column %q cannot be ignored", prepared.PrimaryKey)
-			}
-			prepared.Columns = columns
-			if primaryIgnored {
-				prepared.PrimaryKey = ""
+			if opts.Strict && column.Unsigned && strings.TrimSpace(column.GoType) == "" {
+				column.GoType = unsignedGoType(sqlGoType(column.Type))
 			}
 		}
 		if len(prepared.Columns) == 0 {
-			return nil, fmt.Errorf("model table %q has no columns after applying filters", table.Name)
+			return nil, fmt.Errorf("model table %q has no columns", table.Name)
 		}
 		if prepared.PrimaryKey == "" {
 			prepared.PrimaryKey = prepared.Columns[0].Name
@@ -1058,7 +1048,8 @@ func cleanNameSet(names []string) map[string]struct{} {
 }
 
 func GenerateMongoModel(opts MongoModelOptions) error {
-	if opts.Type == "" {
+	types := splitModelTypes(opts.Type)
+	if len(types) == 0 {
 		return errors.New("mongo model type is required")
 	}
 	if opts.Dir == "" {
@@ -1068,10 +1059,24 @@ func GenerateMongoModel(opts MongoModelOptions) error {
 	if pkg == "" {
 		pkg = "model"
 	}
-	if strings.EqualFold(strings.TrimSpace(opts.Style), modelStyleMongoDriver) {
-		return generateMongoDriverModel(opts, pkg)
+	for _, modelType := range types {
+		modelOpts := opts
+		modelOpts.Type = modelType
+		if strings.EqualFold(strings.TrimSpace(modelOpts.Style), modelStyleMongoDriver) {
+			if err := generateMongoDriverModel(modelOpts, pkg); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := generateMongoModel(modelOpts, pkg); err != nil {
+			return err
+		}
 	}
-	typeName := exportName(strings.TrimPrefix(opts.Type, opts.Prefix))
+	return nil
+}
+
+func generateMongoModel(opts MongoModelOptions, pkg string) error {
+	typeName := exportName(opts.Type)
 	var b bytes.Buffer
 	fprintf(&b, "package %s\n\n", lowerName(pkg))
 	fprintf(&b, "import (\n")
@@ -1082,8 +1087,14 @@ func GenerateMongoModel(opts MongoModelOptions) error {
 	}
 	fprintf(&b, ")\n\n")
 	fprintf(&b, "var Err%sNotFound = errors.New(%q)\n\n", typeName, strings.ToLower(typeName)+" not found")
+	if opts.Easy {
+		fprintf(&b, "const %sCollectionName = %q\n\n", typeName, lowerSnake(typeName))
+	}
 	fprintf(&b, "type %s struct {\n", typeName)
 	fprintf(&b, "\tID string `bson:%q json:%q`\n", "_id,omitempty", "id,omitempty")
+	if opts.Easy {
+		fprintf(&b, "\tCollectionName string `bson:%q json:%q`\n", "-", "collectionName,omitempty")
+	}
 	fprintf(&b, "}\n\n")
 	fprintf(&b, "type %sRepo struct {\n\tcollection MongoCollection[%s]\n}\n\n", typeName, typeName)
 	fprintf(&b, "type MongoCollection[T any] interface {\n")
@@ -1099,7 +1110,9 @@ func GenerateMongoModel(opts MongoModelOptions) error {
 	fprintf(&b, "}\n\n")
 	if opts.Cache {
 		fprintf(&b, "func NewCached%sRepo(repo *%sRepo, opts ...cache.ModelOption[%s, string]) *cache.ModelCache[%s, string] {\n", typeName, typeName, typeName, typeName)
-		fprintf(&b, "\treturn cache.NewModel(repo.FindOne, opts...)\n}\n\n")
+		cachePrefix := mongoCachePrefix(opts.Prefix, typeName)
+		fprintf(&b, "\toptions := append([]cache.ModelOption[%s, string]{cache.WithModelKeyPrefix[%s, string](%q)}, opts...)\n", typeName, typeName, cachePrefix)
+		fprintf(&b, "\treturn cache.NewModel(repo.FindOne, options...)\n}\n\n")
 	}
 	fprintf(&b, "func (r *%sRepo) Insert(ctx context.Context, value %s) error {\n", typeName, typeName)
 	fprintf(&b, "\treturn r.collection.Insert(ctx, value)\n")
@@ -1130,8 +1143,34 @@ func GenerateMongoModel(opts MongoModelOptions) error {
 	return nil
 }
 
+func splitModelTypes(value string) []string {
+	seen := make(map[string]struct{})
+	out := make([]string, 0)
+	for _, item := range strings.Split(value, ",") {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		if _, ok := seen[item]; ok {
+			continue
+		}
+		seen[item] = struct{}{}
+		out = append(out, item)
+	}
+	return out
+}
+
+func mongoCachePrefix(prefix, typeName string) string {
+	prefix = strings.Trim(strings.TrimSpace(prefix), ":")
+	parts := []string{"cache", lowerSnake(typeName)}
+	if prefix != "" {
+		parts = append([]string{prefix}, parts...)
+	}
+	return strings.Join(parts, ":")
+}
+
 func generateMongoDriverModel(opts MongoModelOptions, pkg string) error {
-	typeName := exportName(strings.TrimPrefix(opts.Type, opts.Prefix))
+	typeName := exportName(opts.Type)
 	var b bytes.Buffer
 	fprintf(&b, "package %s\n\n", lowerName(pkg))
 	fprintf(&b, "import (\n")
@@ -1147,6 +1186,9 @@ func generateMongoDriverModel(opts MongoModelOptions, pkg string) error {
 	fprintf(&b, "\t\"go.mongodb.org/mongo-driver/mongo/options\"\n")
 	fprintf(&b, ")\n\n")
 	fprintf(&b, "var Err%sNotFound = mongo.ErrNoDocuments\n\n", typeName)
+	if opts.Easy {
+		fprintf(&b, "const %sCollectionName = %q\n\n", typeName, lowerSnake(typeName))
+	}
 	fprintf(&b, "type %s struct {\n", typeName)
 	fprintf(&b, "\tID primitive.ObjectID `bson:%q json:%q`\n", "_id,omitempty", "id,omitempty")
 	fprintf(&b, "}\n\n")
@@ -1156,7 +1198,9 @@ func generateMongoDriverModel(opts MongoModelOptions, pkg string) error {
 	fprintf(&b, "}\n\n")
 	if opts.Cache {
 		fprintf(&b, "func NewCached%sRepo(repo *%sRepo, opts ...cache.ModelOption[*%s, string]) *cache.ModelCache[*%s, string] {\n", typeName, typeName, typeName, typeName)
-		fprintf(&b, "\treturn cache.NewModel(repo.FindByHexID, opts...)\n}\n\n")
+		cachePrefix := mongoCachePrefix(opts.Prefix, typeName)
+		fprintf(&b, "\toptions := append([]cache.ModelOption[*%s, string]{cache.WithModelKeyPrefix[*%s, string](%q)}, opts...)\n", typeName, typeName, cachePrefix)
+		fprintf(&b, "\treturn cache.NewModel(repo.FindByHexID, options...)\n}\n\n")
 	}
 	fprintf(&b, "func (r *%sRepo) Collection() *mongo.Collection {\n", typeName)
 	fprintf(&b, "\tif r == nil {\n\t\treturn nil\n\t}\n\treturn r.collection\n}\n\n")
@@ -1271,7 +1315,7 @@ func writeGoZeroModelVarsFile(dir string) error {
 	if err != nil {
 		return fmt.Errorf("format gozero model vars facade: %w", err)
 	}
-	return writeGeneratedFile(filepath.Join(dir, "model", "vars.go"), formatted)
+	return writeGeneratedExtensionFile(dir, filepath.Join("model", "vars.go"), formatted)
 }
 
 func writeGoZeroModelFacadeFile(dir string, table SQLTable, module string, defaultDialect storage.Dialect, generated bool) error {
@@ -1344,9 +1388,9 @@ func writeGoZeroModelFacadeFile(dir string, table SQLTable, module string, defau
 	}
 	name := lowerName(typeName) + "model"
 	if generated {
-		name += "_gen"
+		return writeGeneratedFile(filepath.Join(dir, "repo", name+"_gen.go"), formatted)
 	}
-	return writeGeneratedFile(filepath.Join(dir, "repo", name+".go"), formatted)
+	return writeGeneratedExtensionFile(dir, filepath.Join("repo", name+".go"), formatted)
 }
 
 func writeEntityTablerFile(dir string, packageName string) error {
@@ -1376,6 +1420,9 @@ func writeEntityFile(dir string, table SQLTable, pkg string, style string, packa
 		fprintf(&b, "import \"time\"\n\n")
 	}
 	fprintf(&b, "const %sTable = %q\n\n", typeName, table.Name)
+	if table.CachePrefix != "" {
+		fprintf(&b, "const %sCacheKeyPrefix = %q\n\n", typeName, table.CachePrefix+":"+table.Name)
+	}
 	fprintf(&b, "var %sColumns = []string{%s}\n\n", typeName, quotedColumnList(table.Columns))
 	fprintf(&b, "type %s struct {\n", typeName)
 	for _, column := range table.Columns {
@@ -1618,11 +1665,13 @@ func writeAdvancedSQLRepoMethods(b *bytes.Buffer, table SQLTable, typeName, rece
 	fprintf(b, "\trows := 0\n")
 	fprintf(b, "\tfor _, item := range items {\n")
 	fprintf(b, "\t\tif item == nil {\n\t\t\tcontinue\n\t\t}\n")
-	fprintf(b, "\t\targs = append(args, %s)\n", valueArgs("item", table.Columns))
+	if columns := insertColumns(table); len(columns) > 0 {
+		fprintf(b, "\t\targs = append(args, %s)\n", valueArgs("item", columns))
+	}
 	fprintf(b, "\t\trows++\n")
 	fprintf(b, "\t}\n")
 	fprintf(b, "\tif rows == 0 {\n\t\treturn nil\n\t}\n")
-	fprintf(b, "\tquery, err := storage.BatchInsert(entity.%sTable, entity.%sColumns, rows, r.dialect)\n", typeName, typeName)
+	fprintf(b, "\tquery, err := storage.BatchInsert(entity.%sTable, %s, rows, r.dialect)\n", typeName, insertColumnsExpression(table, typeName))
 	fprintf(b, "\tif err != nil {\n\t\treturn err\n\t}\n")
 	fprintf(b, "\t_, err = r.exec(ctx, query, args...)\n\treturn err\n}\n\n")
 	fprintf(b, "func (r *%s) UpdateMany(ctx context.Context, items []*entity.%s) error {\n", receiverName, typeName)
@@ -1665,9 +1714,9 @@ func writeSQLUpsertMethods(b *bytes.Buffer, table SQLTable, typeName, receiverNa
 		name := uniqueFinderName(index.Columns)
 		fprintf(b, "func (r *%s) UpsertBy%s(ctx context.Context, in *entity.%s) error {\n", receiverName, name, typeName)
 		fprintf(b, "\tif in == nil {\n\t\treturn errors.New(\"%s is nil\")\n\t}\n", lowerCamel(typeName))
-		fprintf(b, "\tquery, err := storage.Upsert(entity.%sTable, entity.%sColumns, []string{%s}, []string{%s}, r.dialect)\n", typeName, typeName, quotedColumnList(index.Columns), quotedColumnList(updateColumns))
+		fprintf(b, "\tquery, err := storage.Upsert(entity.%sTable, %s, []string{%s}, []string{%s}, r.dialect)\n", typeName, insertColumnsExpression(table, typeName), quotedColumnList(index.Columns), quotedColumnList(updateColumns))
 		fprintf(b, "\tif err != nil {\n\t\treturn err\n\t}\n")
-		fprintf(b, "\t_, err = r.exec(ctx, query, %s)\n\treturn err\n}\n\n", valueArgs("in", table.Columns))
+		fprintf(b, "\t_, err = r.exec(ctx, query, %s)\n\treturn err\n}\n\n", valueArgs("in", insertColumns(table)))
 	}
 }
 
@@ -1914,6 +1963,9 @@ func writeSQLIndexWhereFilters(b *bytes.Buffer, columns []SQLColumn) {
 
 func claimableStatusColumn(columns []SQLColumn) (SQLColumn, bool) {
 	for _, column := range columns {
+		if column.WriteIgnored {
+			continue
+		}
 		switch strings.ToLower(column.Name) {
 		case "status", "state":
 			return column, true
@@ -2057,9 +2109,13 @@ func writeRedisCachedRepo(b *bytes.Buffer, table SQLTable, typeName, repoName st
 	fprintf(b, "}\n\n")
 	fprintf(b, "func NewRedisCached%s(repo *%s, client *redis.Client, opts ...cache.RedisModelOption[*entity.%s, %s]) *%s {\n", repoName, repoName, typeName, pkType, cachedName)
 	fprintf(b, "\tloader := func(ctx context.Context, id %s) (*entity.%s, error) {\n\t\tif repo == nil {\n\t\t\treturn nil, errors.New(%q)\n\t\t}\n\t\treturn repo.FindOne(ctx, id)\n\t}\n", pkType, typeName, lowerCamel(typeName)+" repo is nil")
-	fprintf(b, "\toptions := append([]cache.RedisModelOption[*entity.%s, %s]{cache.WithRedisModelNotFound[*entity.%s, %s](redis.ErrNil), cache.WithRedisModelKeyPrefix[*entity.%s, %s](entity.%sTable)}, opts...)\n", typeName, pkType, typeName, pkType, typeName, pkType, typeName)
+	keyPrefix := "entity." + typeName + "Table"
+	if table.CachePrefix != "" {
+		keyPrefix = "entity." + typeName + "CacheKeyPrefix"
+	}
+	fprintf(b, "\toptions := append([]cache.RedisModelOption[*entity.%s, %s]{cache.WithRedisModelNotFound[*entity.%s, %s](redis.ErrNil), cache.WithRedisModelKeyPrefix[*entity.%s, %s](%s)}, opts...)\n", typeName, pkType, typeName, pkType, typeName, pkType, keyPrefix)
 	fprintf(b, "\tout := &%s{repo: repo, cache: cache.NewRedisModel(loader, client, options...)}\n", cachedName)
-	writeRedisIndexListCacheInitializers(b, indexPrefixes, typeName, "repo")
+	writeRedisIndexListCacheInitializers(b, indexPrefixes, typeName, "repo", strings.Trim(table.CachePrefix+":"+table.Name, ":"))
 	fprintf(b, "\treturn out\n}\n\n")
 	writeRedisCachedTxHelpers(b, typeName, repoName, cachedName, style)
 	fprintf(b, "func (c *%s) FindOne(ctx context.Context, %s %s) (*entity.%s, error) {\n", cachedName, pkArg, pkType, typeName)
@@ -2593,14 +2649,14 @@ func writeIndexListCacheInitializers(b *bytes.Buffer, indexes []modelIndexPrefix
 	}
 }
 
-func writeRedisIndexListCacheInitializers(b *bytes.Buffer, indexes []modelIndexPrefix, typeName, repoValue string) {
+func writeRedisIndexListCacheInitializers(b *bytes.Buffer, indexes []modelIndexPrefix, typeName, repoValue, namespace string) {
 	versionFunc := redisIndexListVersionValueFuncName(typeName)
 	for _, index := range indexes {
 		fieldName := indexListCacheFieldName(index.Columns)
 		countFieldName := indexCountCacheFieldName(index.Columns)
 		versionFieldName := indexListVersionFieldName(index.Columns)
 		finderName := uniqueFinderName(index.Columns)
-		cachePrefix := indexListCachePrefix(index.Columns)
+		cachePrefix := namespace + ":" + indexListCachePrefix(index.Columns)
 		fprintf(b, "\tout.%s = cache.NewRedisModel(func(ctx context.Context, key string) ([]entity.%s, error) {\n", fieldName, typeName)
 		fprintf(b, "\t\treturn nil, cache.ErrNotFound\n")
 		fprintf(b, "\t}, client, cache.WithRedisModelNotFound[[]entity.%s, string](redis.ErrNil), cache.WithRedisModelKeyPrefix[[]entity.%s, string](%q))\n", typeName, typeName, "list:"+cachePrefix)
@@ -2935,11 +2991,13 @@ func parseSQLColumn(def string) SQLColumn {
 	typeName := strings.ToLower(fields[1])
 	lower := strings.ToLower(def)
 	return SQLColumn{
-		Name:       name,
-		Type:       typeName,
-		PrimaryKey: strings.Contains(lower, "primary key"),
-		Nullable:   !strings.Contains(lower, "not null") && !strings.Contains(lower, "primary key"),
-		Unique:     strings.Contains(lower, " unique"),
+		Name:          name,
+		Type:          typeName,
+		PrimaryKey:    strings.Contains(lower, "primary key"),
+		Nullable:      !strings.Contains(lower, "not null") && !strings.Contains(lower, "primary key"),
+		AutoIncrement: strings.Contains(lower, "auto_increment"),
+		Unsigned:      strings.Contains(lower, " unsigned"),
+		Unique:        strings.Contains(lower, " unique"),
 	}
 }
 
@@ -3075,9 +3133,13 @@ func writeLegacyFindOne(b *bytes.Buffer, table SQLTable, typeName, modelName str
 func writeLegacyInsert(b *bytes.Buffer, table SQLTable, typeName, modelName string) {
 	fprintf(b, "func (m *%s) Insert(ctx context.Context, in *%s) error {\n", modelName, typeName)
 	fprintf(b, "\tif in == nil {\n\t\treturn errors.New(%q)\n\t}\n", lowerCamel(typeName)+" is nil")
-	fprintf(b, "\tquery, err := storage.Insert(%sTable, %sColumns, m.dialect)\n", lowerCamel(typeName), lowerCamel(typeName))
+	if len(insertColumns(table)) == 0 {
+		fprintf(b, "\treturn errors.New(\"insert columns are required\")\n}\n\n")
+		return
+	}
+	fprintf(b, "\tquery, err := storage.Insert(%sTable, []string{%s}, m.dialect)\n", lowerCamel(typeName), quotedColumnList(insertColumns(table)))
 	fprintf(b, "\tif err != nil {\n\t\treturn err\n\t}\n")
-	fprintf(b, "\tif _, err := m.store.Exec(ctx, query, %s); err != nil {\n\t\treturn err\n\t}\n", valueArgs("in", table.Columns))
+	fprintf(b, "\tif _, err := m.store.Exec(ctx, query, %s); err != nil {\n\t\treturn err\n\t}\n", valueArgs("in", insertColumns(table)))
 	fprintf(b, "\treturn nil\n}\n\n")
 }
 
@@ -3086,6 +3148,10 @@ func writeLegacyUpdate(b *bytes.Buffer, table SQLTable, typeName, modelName stri
 	columns := updateColumns(table)
 	fprintf(b, "func (m *%s) Update(ctx context.Context, in *%s) error {\n", modelName, typeName)
 	fprintf(b, "\tif in == nil {\n\t\treturn errors.New(%q)\n\t}\n", lowerCamel(typeName)+" is nil")
+	if len(columns) == 0 {
+		fprintf(b, "\treturn errors.New(\"update columns are required\")\n}\n\n")
+		return
+	}
 	fprintf(b, "\tquery, err := storage.UpdateByID(%sTable, []string{%s}, %q, m.dialect)\n", lowerCamel(typeName), quotedColumnList(columns), pk.Name)
 	fprintf(b, "\tif err != nil {\n\t\treturn err\n\t}\n")
 	if hasSoftDelete(table) {
@@ -3159,9 +3225,13 @@ func writeFindOne(b *bytes.Buffer, table SQLTable, typeName, receiverName string
 func writeInsert(b *bytes.Buffer, table SQLTable, typeName, receiverName string) {
 	fprintf(b, "func (r *%s) Insert(ctx context.Context, in *entity.%s) error {\n", receiverName, typeName)
 	fprintf(b, "\tif in == nil {\n\t\treturn errors.New(\"%s is nil\")\n\t}\n", lowerCamel(typeName))
-	fprintf(b, "\tquery, err := storage.Insert(entity.%sTable, entity.%sColumns, r.dialect)\n", typeName, typeName)
+	if len(insertColumns(table)) == 0 {
+		fprintf(b, "\treturn errors.New(\"insert columns are required\")\n}\n\n")
+		return
+	}
+	fprintf(b, "\tquery, err := storage.Insert(entity.%sTable, %s, r.dialect)\n", typeName, insertColumnsExpression(table, typeName))
 	fprintf(b, "\tif err != nil {\n\t\treturn err\n\t}\n")
-	fprintf(b, "\tif _, err := r.exec(ctx, query, %s); err != nil {\n\t\treturn err\n\t}\n", valueArgs("in", table.Columns))
+	fprintf(b, "\tif _, err := r.exec(ctx, query, %s); err != nil {\n\t\treturn err\n\t}\n", valueArgs("in", insertColumns(table)))
 	fprintf(b, "\treturn nil\n}\n\n")
 }
 
@@ -3170,6 +3240,10 @@ func writeUpdate(b *bytes.Buffer, table SQLTable, typeName, receiverName string)
 	columns := updateColumns(table)
 	fprintf(b, "func (r *%s) Update(ctx context.Context, in *entity.%s) error {\n", receiverName, typeName)
 	fprintf(b, "\tif in == nil {\n\t\treturn errors.New(\"%s is nil\")\n\t}\n", lowerCamel(typeName))
+	if len(columns) == 0 {
+		fprintf(b, "\treturn errors.New(\"update columns are required\")\n}\n\n")
+		return
+	}
 	fprintf(b, "\tquery, err := storage.UpdateByID(entity.%sTable, []string{%s}, %q, r.dialect)\n", typeName, quotedColumnList(columns), pk.Name)
 	fprintf(b, "\tif err != nil {\n\t\treturn err\n\t}\n")
 	if hasSoftDelete(table) {
@@ -3478,10 +3552,28 @@ func nonPrimaryColumns(table SQLTable) []SQLColumn {
 	return columns
 }
 
+func insertColumns(table SQLTable) []SQLColumn {
+	columns := make([]SQLColumn, 0, len(table.Columns))
+	for _, column := range table.Columns {
+		if !column.WriteIgnored && !column.AutoIncrement {
+			columns = append(columns, column)
+		}
+	}
+	return columns
+}
+
+func insertColumnsExpression(table SQLTable, typeName string) string {
+	columns := insertColumns(table)
+	if len(columns) == len(table.Columns) {
+		return "entity." + typeName + "Columns"
+	}
+	return "[]string{" + quotedColumnList(columns) + "}"
+}
+
 func updateColumns(table SQLTable) []SQLColumn {
 	columns := make([]SQLColumn, 0, len(table.Columns))
 	for _, column := range table.Columns {
-		if column.Name == table.PrimaryKey || column.Name == table.SoftDeleteColumn {
+		if column.Name == table.PrimaryKey || column.Name == table.SoftDeleteColumn || column.WriteIgnored {
 			continue
 		}
 		columns = append(columns, column)
@@ -3840,7 +3932,7 @@ func gormUniqueWhere(columns []SQLColumn) string {
 
 func versionColumn(table SQLTable) (SQLColumn, bool) {
 	for _, column := range table.Columns {
-		if strings.EqualFold(column.Name, "version") {
+		if strings.EqualFold(column.Name, "version") && !column.WriteIgnored {
 			return column, true
 		}
 	}
@@ -3881,6 +3973,9 @@ func gormUpdateMap(receiver string, columns []SQLColumn) string {
 
 func gormColumnTag(column SQLColumn) string {
 	tag := "column:" + column.Name
+	if column.WriteIgnored {
+		tag += ";->"
+	}
 	if column.PrimaryKey {
 		tag += ";primaryKey"
 	}
@@ -4016,6 +4111,19 @@ func sqlGoType(sqlType string) string {
 		return goType
 	}
 	return "string"
+}
+
+func unsignedGoType(typeName string) string {
+	switch typeName {
+	case "int":
+		return "uint"
+	case "int64":
+		return "uint64"
+	case "int32":
+		return "uint32"
+	default:
+		return typeName
+	}
 }
 
 func sqlGoTypeKnown(sqlType string) (string, bool) {

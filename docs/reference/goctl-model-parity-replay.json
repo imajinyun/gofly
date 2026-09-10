@@ -25,7 +25,10 @@
     "layout": "gofly may keep generated table structs and repositories split across model and repo directories when the contract compiles and facade methods remain stable.",
     "oracleDiff": "goctl layout differences remain classified as model-layout-difference until the generated API contract, facade methods, cache methods, and smoke tests are equivalent for migration.",
     "rootModuleHygiene": "Generated-project-only dependencies stay in generated modules and must not be added to the root module.",
-    "offlineDatasourceFixtures": "offline-datasource-fixtures cover MySQL multi-table and PostgreSQL multi-schema datasource replay without requiring live database services."
+    "offlineDatasourceFixtures": "offline-datasource-fixtures cover MySQL multi-table and PostgreSQL multi-schema datasource replay without requiring live database services.",
+    "regeneration": "Existing model facade extensions and vars.go are preserved; generated entities and repository implementations remain replaceable.",
+    "sqlOptions": "SQL prefix selects a Redis cache namespace without changing physical table names; ignored columns remain readable and are excluded from insert/update assignments.",
+    "remainingGaps": ["datasource auto-increment and unsigned metadata", "database default-value metadata", "custom type map unsigned and nullable variants", "Model facade signatures and cache construction", "Mongo constructor and driver-v2 contracts", "template flag execution", "byte-for-byte goctl cache key format"]
   },
   "modelSurfaces": [
     {
@@ -36,7 +39,9 @@
       "evidence": [
         "TestExecuteModelMySQLDDLGoZeroLayoutUsesModelAndRepoDirs",
         "TestGenerateModelFromDDLGoZeroStyleWritesGoctlFacade",
-        "TestGenerateModelFromDDLMultiTableGoctlOptionsCacheReplay"
+        "TestGenerateModelFromDDLMultiTableGoctlOptionsCacheReplay",
+        "TestGenerateModelFromDDLGoZeroPreservesExtensions",
+        "TestGenerateModelSQLWriteIgnoreRuntime"
       ],
       "coveredOptions": ["cache", "strict", "ignore-columns", "prefix", "table-filter", "module"]
     },
@@ -76,9 +81,11 @@
       "evidence": [
         "TestExecuteModelMongo",
         "TestExecuteModelMongoCacheAndPrefix",
+        "TestExecuteModelMongoMultipleTypesAndEasy",
+        "TestGenerateMongoModelMultipleTypesAndEasy",
         "TestExecuteModelAcceptsGoctlShortAndSingleDashFlags"
       ],
-      "coveredOptions": ["type", "cache", "prefix", "easy", "style"]
+      "coveredOptions": ["type", "cache", "prefix", "easy", "style", "multi-type"]
     }
   ],
   "requiredOptions": [
@@ -97,13 +104,13 @@
       "id": "mysql-multi-table-datasource-replay",
       "path": "testdata/goctl-datasource-replay/mysql-multi-table/replay.json",
       "driver": "mysql",
-      "capabilities": ["mysql-datasource", "multi-table", "table-prefix", "ignore-columns", "strict", "cache-template"]
+      "capabilities": ["mysql-datasource", "multi-table", "cache-prefix", "ignore-columns", "strict", "cache-template"]
     },
     {
       "id": "postgres-multi-schema-datasource-replay",
       "path": "testdata/goctl-datasource-replay/postgres-multi-schema/replay.json",
       "driver": "postgres",
-      "capabilities": ["postgres-datasource", "multi-schema", "table-prefix", "ignore-columns", "strict", "cache-template"]
+      "capabilities": ["postgres-datasource", "multi-schema", "cache-prefix", "ignore-columns", "strict", "cache-template"]
     }
   ],
   "diffCategories": [

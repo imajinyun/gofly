@@ -29,9 +29,10 @@ Replay fixture  -> rawModelSchemaIRFromReplayFixture -> raw ModelSchemaIR (sourc
 `generateModelFromSchemaIR(ir, opts)` is the only internal entrypoint and runs
 two stages with a single options struct (`modelSchemaGenerationOptions`):
 
-1. `prepareModelSchemaIR` — table filter, prefix trim, ignore columns,
-   output conflict validation, `TypesMap` application, strict type validation.
-   Mutates only `ir.Tables`; metadata fields are preserved.
+1. `prepareModelSchemaIR` — table filter, separate cache namespace, write-ignored
+   column markers, output conflict validation, `TypesMap` application, and strict
+   type validation. Physical table names and readable columns are preserved;
+   prepared column slices do not alias the input schema.
 2. `emitModelSchemaIR` — package default (`model`), module inference,
    import-module computation, style normalization, go_zero layout writes,
    gorm dependency handling.
@@ -58,10 +59,10 @@ by `TestGoctlDatasourceReplayFixtureModelSchemaIR`. Empty fields mean
 | Field | Asserted against |
 | --- | --- |
 | `source`, `dialect`, `driver`, `database`, `schemaName` | IR metadata after prepare |
-| `tables[].name` | table name after prefix trim (order matters) |
+| `tables[].name` | physical table name, unchanged by cache prefix (order matters) |
 | `tables[].primaryKey` | `SQLTable.PrimaryKey` |
-| `tables[].columnCount` | surviving column count (omit or `0` to skip) |
-| `tables[].absentColumns` | columns removed by `ignoreColumns` |
+| `tables[].columnCount` | readable column count (omit or `0` to skip) |
+| `tables[].writeIgnoredColumns` | retained columns marked `WriteIgnored` for insert/update exclusion |
 | `tables[].uniqueIndexes` | composite unique indexes that must exist |
 | `tables[].indexes` | non-unique indexes that must exist |
 

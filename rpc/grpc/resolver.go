@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/imajinyun/gofly/core/discovery"
 	"github.com/imajinyun/gofly/rpc"
 
 	stdgrpc "google.golang.org/grpc"
@@ -89,12 +90,28 @@ func WithRoundRobinResolver() ResolverOption {
 	return WithResolverServiceConfig(roundRobinServiceConfig)
 }
 
+// WithP2CEWMAResolver selects gofly's latency-aware P2C gRPC balancer.
+func WithP2CEWMAResolver() ResolverOption {
+	return WithResolverServiceConfig(serviceConfigForBalancer(P2CEWMABalancerName))
+}
+
+// WithConsistentHashResolver selects gofly's consistent-hash gRPC balancer.
+func WithConsistentHashResolver() ResolverOption {
+	return WithResolverServiceConfig(serviceConfigForBalancer(ConsistentHashBalancerName))
+}
+
 func WithServiceResolver(service string, source rpc.WatchResolver, opts ...ResolverOption) ClientOption {
-	return WithDialOptions(stdgrpc.WithResolvers(NewResolverBuilder(map[string]rpc.WatchResolver{service: source}, opts...)))
+	return withClientDialOptions(stdgrpc.WithResolvers(NewResolverBuilder(map[string]rpc.WatchResolver{service: source}, opts...)))
 }
 
 func WithRegistryResolver(registry *rpc.Registry, opts ...ResolverOption) ClientOption {
-	return WithDialOptions(stdgrpc.WithResolvers(NewRegistryResolverBuilder(registry, opts...)))
+	return withClientDialOptions(stdgrpc.WithResolvers(NewRegistryResolverBuilder(registry, opts...)))
+}
+
+// WithDiscoveryResolver bridges any core discovery resolver into gRPC name
+// resolution for the given service.
+func WithDiscoveryResolver(source discovery.Resolver, service string, resolveOpts ...discovery.ResolveOption) ClientOption {
+	return WithServiceResolver(service, rpc.NewDiscoveryResolver(source, service, resolveOpts...))
 }
 
 func (b *ResolverBuilder) Scheme() string {

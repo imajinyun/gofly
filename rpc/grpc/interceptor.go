@@ -5,12 +5,15 @@ package grpc
 import (
 	"context"
 	"errors"
+	"io"
 	"log/slog"
 	"runtime/debug"
+	"sync"
 	"time"
 
 	"github.com/imajinyun/gofly/core/breaker"
 	coreerrors "github.com/imajinyun/gofly/core/errors"
+	"github.com/imajinyun/gofly/core/limit"
 	"github.com/imajinyun/gofly/core/observability"
 	"github.com/imajinyun/gofly/core/observability/metrics"
 	coretrace "github.com/imajinyun/gofly/core/observability/trace"
@@ -36,6 +39,30 @@ func RecoveryUnaryServerInterceptor(logger *slog.Logger) stdgrpc.UnaryServerInte
 			}
 		}()
 		return handler(ctx, req)
+	}
+}
+
+// AdaptiveLimitUnaryServerInterceptor rejects work when the shared adaptive
+// limiter detects saturation and feeds completion latency/status back into the
+// limiter. A nil limiter is a no-op.
+func AdaptiveLimitUnaryServerInterceptor(limiter *limit.AdaptiveLimiter) stdgrpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req any, info *stdgrpc.UnaryServerInfo, handler stdgrpc.UnaryHandler) (any, error) {
+		token, err := limiter.Allow()
+		if err != nil {
+			return nil, coreerrors.GRPCError(coreerrors.New(coreerrors.CodeResourceExhausted, err.Error()))
+		}
+		resp, handlerErr := handler(ctx, req)
+		token.Done(grpcOutcomeAcceptable(handlerErr))
+		return resp, handlerErr
+	}
+}
+
+func grpcOutcomeAcceptable(err error) bool {
+	switch status.Code(err) {
+	case codes.OK, codes.Canceled, codes.InvalidArgument, codes.NotFound, codes.AlreadyExists, codes.PermissionDenied, codes.Unauthenticated, codes.FailedPrecondition:
+		return true
+	default:
+		return false
 	}
 }
 
@@ -74,6 +101,79 @@ func ObservabilityStreamServerInterceptor(service string, registry *metrics.Regi
 		op.End(stream.Context(), grpcStatusCode(code), err, "grpc server stream", "code", code.String())
 		return err
 	}
+}
+
+// ObservabilityUnaryClientInterceptor records latency, status and structured logs for unary calls.
+func ObservabilityUnaryClientInterceptor(service string, registry *metrics.Registry, logger *slog.Logger) stdgrpc.UnaryClientInterceptor {
+	if registry == nil {
+		registry = metrics.Default
+	}
+	if logger == nil {
+		logger = slog.Default()
+	}
+	observer := observability.New(observability.Config{Service: service, Registry: registry, Logger: logger})
+	return func(ctx context.Context, method string, req any, reply any, cc *stdgrpc.ClientConn, invoker stdgrpc.UnaryInvoker, opts ...stdgrpc.CallOption) error {
+		op := observer.Start("grpc_client:"+method, "method", method)
+		err := invoker(ctx, method, req, reply, cc, opts...)
+		code := status.Code(err)
+		op.End(ctx, grpcStatusCode(code), err, "grpc client call", "code", code.String())
+		return err
+	}
+}
+
+// ObservabilityStreamClientInterceptor records the lifecycle of client streams.
+func ObservabilityStreamClientInterceptor(service string, registry *metrics.Registry, logger *slog.Logger) stdgrpc.StreamClientInterceptor {
+	if registry == nil {
+		registry = metrics.Default
+	}
+	if logger == nil {
+		logger = slog.Default()
+	}
+	observer := observability.New(observability.Config{Service: service, Registry: registry, Logger: logger})
+	return func(ctx context.Context, desc *stdgrpc.StreamDesc, cc *stdgrpc.ClientConn, method string, streamer stdgrpc.Streamer, opts ...stdgrpc.CallOption) (stdgrpc.ClientStream, error) {
+		op := observer.Start("grpc_client_stream:"+method, "method", method)
+		stream, err := streamer(ctx, desc, cc, method, opts...)
+		if err != nil {
+			code := status.Code(err)
+			op.End(ctx, grpcStatusCode(code), err, "grpc client stream", "code", code.String())
+			return nil, err
+		}
+		return &observabilityClientStream{ClientStream: stream, ctx: ctx, operation: op}, nil
+	}
+}
+
+type observabilityClientStream struct {
+	stdgrpc.ClientStream
+	ctx       context.Context
+	operation *observability.Operation
+	once      sync.Once
+}
+
+func (s *observabilityClientStream) RecvMsg(message any) error {
+	err := s.ClientStream.RecvMsg(message)
+	if err != nil {
+		s.finish(err)
+	}
+	return err
+}
+
+func (s *observabilityClientStream) CloseSend() error {
+	err := s.ClientStream.CloseSend()
+	if err != nil {
+		s.finish(err)
+	}
+	return err
+}
+
+func (s *observabilityClientStream) finish(err error) {
+	s.once.Do(func() {
+		recordedErr := err
+		if errors.Is(err, io.EOF) {
+			recordedErr = nil
+		}
+		code := status.Code(recordedErr)
+		s.operation.End(s.ctx, grpcStatusCode(code), recordedErr, "grpc client stream", "code", code.String())
+	})
 }
 
 func RetryUnaryClientInterceptor(policy coreretry.Policy) stdgrpc.UnaryClientInterceptor {

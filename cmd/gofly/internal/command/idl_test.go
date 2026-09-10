@@ -5168,6 +5168,40 @@ func TestExecuteModelPostgresDDL(t *testing.T) {
 	}
 }
 
+func TestModelSQLFlagDefaultsAndAliases(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		args   []string
+		prefix string
+		ignore string
+	}{
+		{name: "defaults", prefix: "cache", ignore: "create_at,created_at,create_time,update_at,updated_at,update_time"},
+		{name: "empty aliases", args: []string{"-p=", "-i="}},
+		{name: "last long flag wins", args: []string{"-p=first", "--prefix=second", "-i=id", "--ignore-columns=created_at"}, prefix: "second", ignore: "created_at"},
+		{name: "last short flag wins", args: []string{"--prefix=first", "-p=second", "--ignore-columns=id", "-i=created_at"}, prefix: "second", ignore: "created_at"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fs, flags := newModelGenFlagSet()
+			if _, err := parseInterspersedFlags(fs, tc.args); err != nil {
+				t.Fatal(err)
+			}
+			flags.normalize("", nil)
+			if *flags.Prefix != tc.prefix || *flags.IgnoreColumns != tc.ignore {
+				t.Fatalf("DDL prefix/ignore = %q/%q; want %q/%q", *flags.Prefix, *flags.IgnoreColumns, tc.prefix, tc.ignore)
+			}
+			fs = flag.NewFlagSet("datasource", flag.ContinueOnError)
+			datasource := registerModelDatasourceFlags(fs, true)
+			if _, err := parseInterspersedFlags(fs, tc.args); err != nil {
+				t.Fatal(err)
+			}
+			datasource.normalize("")
+			if *datasource.Prefix != tc.prefix || *datasource.IgnoreColumns != tc.ignore {
+				t.Fatalf("datasource prefix/ignore = %q/%q; want %q/%q", *datasource.Prefix, *datasource.IgnoreColumns, tc.prefix, tc.ignore)
+			}
+		})
+	}
+}
+
 func TestExecuteModelDatasourceUsesRunner(t *testing.T) {
 	old := runModelDatasource
 	defer func() { runModelDatasource = old }()
@@ -5484,12 +5518,28 @@ func TestExecuteModelMongoCacheAndPrefix(t *testing.T) {
 	if err := Execute([]string{"model", "mongo", "--type", "PreUserProfile", "--prefix", "Pre", "--cache", "--dir", dir}); err != nil {
 		t.Fatal(err)
 	}
-	data, err := os.ReadFile(filepath.Join(dir, "user_profile.go"))
+	data, err := os.ReadFile(filepath.Join(dir, "pre_user_profile.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), "type UserProfile struct") || !strings.Contains(string(data), "func NewCachedUserProfileRepo") {
+	if !strings.Contains(string(data), "type PreUserProfile struct") || !strings.Contains(string(data), "func NewCachedPreUserProfileRepo") || !strings.Contains(string(data), "cache.WithModelKeyPrefix[PreUserProfile, string](\"Pre:cache:pre_user_profile\")") {
 		t.Fatalf("generated mongo model = %s", data)
+	}
+}
+
+func TestExecuteModelMongoMultipleTypesAndEasy(t *testing.T) {
+	dir := t.TempDir()
+	if err := Execute([]string{"model", "mongo", "--type", "User, Order, User", "-e", "--dir", dir}); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"user.go", "order.go"} {
+		data, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(data), "const ") || !strings.Contains(string(data), "CollectionName =") {
+			t.Fatalf("easy mongo output %s = %s", name, data)
+		}
 	}
 }
 

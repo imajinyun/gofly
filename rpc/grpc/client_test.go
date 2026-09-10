@@ -2,12 +2,15 @@ package grpc
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/imajinyun/gofly/core/security"
+	"github.com/imajinyun/gofly/rpc"
 
 	stdgrpc "google.golang.org/grpc"
+	"google.golang.org/grpc/keepalive"
 )
 
 func TestDialValidation(t *testing.T) {
@@ -39,6 +42,11 @@ func TestClientOptions(t *testing.T) {
 		t.Fatalf("timeout = %v, want 3s", o.timeout)
 	}
 
+	WithClientKeepalive(keepalive.ClientParameters{Time: time.Minute})(&o)
+	if len(o.dialOptions) != 3 {
+		t.Fatalf("WithClientKeepalive did not append")
+	}
+
 	// nil option is silently ignored
 	before := len(o.dialOptions)
 	var nilOpt ClientOption
@@ -48,6 +56,27 @@ func TestClientOptions(t *testing.T) {
 	if len(o.dialOptions) != before {
 		t.Fatal("nil option should not mutate options")
 	}
+}
+
+func TestDialKeepsDefaultCredentialsWithResolverOption(t *testing.T) {
+	resolver := &fakeWatchResolver{endpoints: []string{"127.0.0.1:1"}}
+	conn, err := Dial(context.Background(), Target("greeter"), WithServiceResolver("greeter", resolver))
+	if err != nil {
+		t.Fatalf("Dial with resolver: %v", err)
+	}
+	defer conn.Close()
+}
+
+func TestDialKeepsDefaultCredentialsWithRegistryResolverOption(t *testing.T) {
+	registry := rpc.NewRegistry()
+	if err := registry.RegisterService(context.Background(), "greeter", "127.0.0.1:1"); err != nil {
+		t.Fatal(err)
+	}
+	conn, err := Dial(context.Background(), Target("greeter"), WithRegistryResolver(registry))
+	if err != nil {
+		t.Fatalf("Dial with registry resolver: %v", err)
+	}
+	defer conn.Close()
 }
 
 func TestServerInterceptorOptionsTrackCustomLayers(t *testing.T) {
@@ -95,6 +124,17 @@ func TestDialAppliesInsecureDefault(t *testing.T) {
 		t.Fatal("expected non-nil conn")
 	}
 	_ = conn.Close()
+}
+
+func TestDialWaitForReadyHonorsTimeout(t *testing.T) {
+	start := time.Now()
+	_, err := Dial(context.Background(), "127.0.0.1:1", WithWaitForReady(), WithDialTimeout(20*time.Millisecond))
+	if err == nil || !strings.Contains(err.Error(), "connect grpc client") {
+		t.Fatalf("Dial wait error = %v, want bounded connect error", err)
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("Dial waited %s, want bounded timeout", elapsed)
+	}
 }
 
 func TestWithClientTLS(t *testing.T) {

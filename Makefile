@@ -295,8 +295,12 @@ api-client-generation-check: ## Validate multi-language API client generation fi
 	sh $(SCRIPTS_DIR)/check-api-client-generation.sh
 
 .PHONY: zrpc-proto-compatibility-check
-zrpc-proto-compatibility-check: ## Validate zRPC/proto compatibility support matrix
+zrpc-proto-compatibility-check: native-grpc-golden-path-check ## Validate zRPC/proto compatibility support matrix
 	sh $(SCRIPTS_DIR)/check-zrpc-proto-compatibility.sh
+
+.PHONY: native-grpc-golden-path-check
+native-grpc-golden-path-check: ## Validate the native gRPC runtime and runnable scaffold contract
+	sh $(SCRIPTS_DIR)/check-native-grpc-golden-path.sh
 
 .PHONY: goctl-real-project-replay-check
 goctl-real-project-replay-check: goctl-oracle-replay-check test-generated-matrix ## Validate goctl replay through generated project smoke

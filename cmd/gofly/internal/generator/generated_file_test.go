@@ -7,6 +7,40 @@ import (
 	"testing"
 )
 
+func TestGeneratedExtensionFileSafety(t *testing.T) {
+	root := t.TempDir()
+	name := filepath.Join("repo", "usermodel.go")
+	if err := writeGeneratedExtensionFile(root, name, []byte("original")); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeGeneratedExtensionFile(root, name, []byte("replacement")); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(root, name))
+	if err != nil || string(data) != "original" {
+		t.Fatalf("existing extension = %q, %v; want original", data, err)
+	}
+	if err := writeGeneratedExtensionFile(root, "../escape.go", nil); err == nil {
+		t.Fatal("parent escape was accepted")
+	}
+	if err := writeGeneratedExtensionFile(root, "repo", nil); err == nil {
+		t.Fatal("directory target was accepted")
+	}
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(root, "linked")); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeGeneratedExtensionFile(root, "linked/escape.go", nil); err == nil {
+		t.Fatal("symlink parent was accepted")
+	}
+	if err := os.Symlink(filepath.Join(root, name), filepath.Join(root, "leaf.go")); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeGeneratedExtensionFile(root, "leaf.go", nil); err == nil {
+		t.Fatal("symlink target was accepted")
+	}
+}
+
 func TestGeneratedFileSafeTargetValidation(t *testing.T) {
 	t.Run("rejects missing root or target", func(t *testing.T) {
 		if _, err := SafeTarget("", "service.go", "generated file"); err == nil || !strings.Contains(err.Error(), "root is required") {

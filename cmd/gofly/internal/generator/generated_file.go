@@ -1,6 +1,7 @@
 package generator
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -39,6 +40,45 @@ func writeGeneratedFile(path string, data []byte) error {
 		return fmt.Errorf("write generated file %s: %w", path, err)
 	}
 	return nil
+}
+
+func writeGeneratedExtensionFile(root, name string, data []byte) error {
+	target, err := safeRelativeTarget(root, name, "model extension")
+	if err != nil {
+		return err
+	}
+	if err := EnsureDirectoryUnderRoot(root, filepath.Dir(target), generatedDirMode, "model extension"); err != nil {
+		return err
+	}
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return err
+	}
+	rel, err := filepath.Rel(absRoot, target)
+	if err != nil {
+		return err
+	}
+	dir, err := os.OpenRoot(absRoot)
+	if err != nil {
+		return err
+	}
+	defer dir.Close()
+	file, err := dir.OpenFile(rel, os.O_WRONLY|os.O_CREATE|os.O_EXCL, generatedPublicFileMode)
+	if errors.Is(err, os.ErrExist) {
+		info, statErr := dir.Lstat(rel)
+		if statErr != nil {
+			return statErr
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("model extension %q must be a regular file", name)
+		}
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	_, writeErr := file.Write(data)
+	return errors.Join(writeErr, file.Close())
 }
 
 func writeGeneratedFileUnder(root string, name string, data []byte) error {

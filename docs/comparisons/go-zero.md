@@ -16,3 +16,20 @@ existing go-zero datastore, pin `REFERENCE_APP_MODE=memory`, and rerun
 Copy the production orders example at `examples/production/production-orders`.
 It proves REST, RPC, SQL outbox, and cache topology without claiming go-zero
 sqlx parity.
+
+## RPC alignment
+
+go-zero zrpc provides one integrated native gRPC path: configuration, etcd
+registration and resolution, default interceptors, balancing, and a runnable
+goctl scaffold. gofly keeps two explicit RPC transports:
+
+- the default production scaffold uses gofly HTTP-RPC with dynamic governance,
+  descriptors, mux diagnostics, and control-plane visibility;
+- `gofly new rpc <name> --profile gozero-compatible` generates a runnable
+  native gRPC service with standard protobuf stubs, discovery lifecycle, health
+  transitions, default observability, and a typed client.
+
+`gofly rpc gen` defaults to native gRPC bindings. Use `--transport gofly` for
+the HTTP-RPC descriptor/client/server output, or `--transport both` when an
+explicit dual-transport migration is required. These surfaces are compatible
+migration tools; they do not claim byte-for-byte zrpc implementation parity.

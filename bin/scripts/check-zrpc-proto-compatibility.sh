@@ -17,7 +17,8 @@ run_go_test() {
 	)
 }
 
-run_go_test ./cmd/gofly/internal/generator 'TestZRPCProtoCompatibilityMatrix|TestGenerateRPCFromProtoMultipleAndStreamVariants'
+run_go_test ./cmd/gofly/internal/generator 'TestZRPCProtoCompatibilityMatrix|TestGenerateRPCFromProtoMultipleAndStreamVariants|TestGenerateRPCNewGoZeroCompatibleProducesRunnableGRPCProject'
+run_go_test ./rpc/grpc 'TestGRPCServerDiscoveryAndHealthLifecycle|TestDialKeepsDefaultCredentialsWithResolverOption|TestGoflyGRPCBalancersRegistered'
 
 python3 - "$root" <<'PY'
 import json
@@ -59,6 +60,8 @@ expected = {
     "streaming-rpc": "supported",
     "google-well-known-types": "supported",
     "client-wrapper": "supported",
+    "runnable-grpc-layout": "supported",
+    "grpc-runtime-golden-path": "supported",
 }
 require(set(rows) == set(expected), f"matrix ids mismatch: {sorted(rows)!r}")
 for row_id, status in expected.items():

@@ -3747,7 +3747,7 @@ CREATE TABLE ` + "`auditlogs`" + ` (
 		t.Fatal(err)
 	}
 	outDir := filepath.Join(dir, "out")
-	if err := GenerateModelFromDDL(ModelOptions{DDLFile: ddlPath, Dir: outDir, Package: "model", Module: "example.com/audit", Cache: true}); err != nil {
+	if err := GenerateModelFromDDL(ModelOptions{DDLFile: ddlPath, Dir: outDir, Package: "model", Module: "example.com/audit", Cache: true, Strict: true}); err != nil {
 		t.Fatal(err)
 	}
 	repo, err := os.ReadFile(filepath.Join(outDir, "model", "repo", "auditlog.go"))
@@ -3762,6 +3762,10 @@ CREATE TABLE ` + "`auditlogs`" + ` (
 		"func indexListKeyByType(typeValue string, limit int, offset int) string",
 		"func (c *CachedAuditlogRepo) FindByTypeAndCodeCached(ctx context.Context, typeValue string, code string) (*entity.Auditlog, error)",
 		"func (c *CachedAuditlogRepo) FindByTypeCached(ctx context.Context, typeValue string, limit int, offset int) ([]entity.Auditlog, error)",
+		"func (r *AuditlogRepo) Insert(ctx context.Context, in *entity.Auditlog) error",
+		"storage.Insert(entity.AuditlogTable, []string{\"type\", \"code\", \"status\", \"is_deleted\"}, r.dialect)",
+		"func (r *AuditlogRepo) InsertMany(ctx context.Context, items []*entity.Auditlog) error",
+		"storage.BatchInsert(entity.AuditlogTable, []string{\"type\", \"code\", \"status\", \"is_deleted\"}, rows, r.dialect)",
 	} {
 		if !strings.Contains(repoOut, want) {
 			t.Fatalf("generated repo missing %q:\n%s", want, repoOut)
@@ -3775,6 +3779,13 @@ CREATE TABLE ` + "`auditlogs`" + ` (
 		if strings.Contains(repoOut, bad) {
 			t.Fatalf("generated repo still contains invalid keyword arg %q:\n%s", bad, repoOut)
 		}
+	}
+	entity, err := os.ReadFile(filepath.Join(outDir, "model", "entity", "auditlog_gen.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(entity), "AuditlogID uint64") {
+		t.Fatalf("generated unsigned primary key = %s", entity)
 	}
 }
 
@@ -3833,9 +3844,9 @@ func TestGenerateModelFromDDLCacheOptionCachesIndexListFinders(t *testing.T) {
 		"*cache.RedisModelCache[[]entity.Invoice, string]",
 		"*cache.RedisModelCache[int64, string]",
 		"*cache.RedisModelCache[string, string]",
-		`cache.WithRedisModelKeyPrefix[[]entity.Invoice, string]("list:by:customer_id")`,
-		`cache.WithRedisModelKeyPrefix[int64, string]("count:by:customer_id")`,
-		`cache.WithRedisModelKeyPrefix[string, string]("list-version:by:customer_id")`,
+		`cache.WithRedisModelKeyPrefix[[]entity.Invoice, string]("list:invoices:by:customer_id")`,
+		`cache.WithRedisModelKeyPrefix[int64, string]("count:invoices:by:customer_id")`,
+		`cache.WithRedisModelKeyPrefix[string, string]("list-version:invoices:by:customer_id")`,
 		"func (c *RedisCachedInvoiceRepo) FindByCustomerIDCached(ctx context.Context, customerID int64, limit int, offset int) ([]entity.Invoice, error)",
 		"func (c *RedisCachedInvoiceRepo) InsertMany(ctx context.Context, items []*entity.Invoice) error",
 		"func (c *RedisCachedInvoiceRepo) UpdateManyWithInvalidate(ctx context.Context, items []*entity.Invoice) error",
@@ -4076,19 +4087,19 @@ func TestGenerateModelFromDDLGoctlOptions(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	entityData, err := os.ReadFile(filepath.Join(outDir, "model", "entity", "user_gen.go"))
+	entityData, err := os.ReadFile(filepath.Join(outDir, "model", "entity", "pre_user_gen.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	entityOut := string(entityData)
-	if !strings.Contains(entityOut, `const UserTable = "users"`) || strings.Contains(entityOut, "DeletedAt") || strings.Contains(entityOut, `"deleted_at"`) {
-		t.Fatalf("generated entity should trim table prefix and ignore deleted_at:\n%s", entityOut)
+	if !strings.Contains(entityOut, `const PreUserTable = "pre_users"`) || !strings.Contains(entityOut, "DeletedAt") || !strings.Contains(entityOut, `const PreUserCacheKeyPrefix = "pre_:pre_users"`) {
+		t.Fatalf("generated entity must retain physical table and readable ignored columns:\n%s", entityOut)
 	}
 	if err := GenerateModelFromDDL(ModelOptions{DDLFile: ddlPath, Dir: filepath.Join(dir, "strict"), Tables: []string{"missing"}, Strict: true}); err == nil || !strings.Contains(err.Error(), "requested table not found") {
 		t.Fatalf("strict missing table error = %v", err)
 	}
-	if err := GenerateModelFromDDL(ModelOptions{DDLFile: ddlPath, Dir: filepath.Join(dir, "pk"), IgnoreColumns: []string{"id"}, Strict: true}); err == nil || !strings.Contains(err.Error(), "primary key column") {
-		t.Fatalf("strict ignored primary key error = %v", err)
+	if err := GenerateModelFromDDL(ModelOptions{DDLFile: ddlPath, Dir: filepath.Join(dir, "pk"), IgnoreColumns: []string{"id"}, Strict: true}); err != nil {
+		t.Fatalf("write-ignored primary key must remain readable: %v", err)
 	}
 }
 
@@ -4161,6 +4172,166 @@ func TestGenerateModelFromDDLGoZeroStyleWritesGoctlFacade(t *testing.T) {
 	runGoCommand(t, dir, 3*time.Minute, "test", "./...")
 }
 
+func TestGenerateModelAllWriteIgnoredColumnsCompile(t *testing.T) {
+	dir := t.TempDir()
+	writeGeneratedModule(t, dir, "example.com/readonlymodel")
+	ddlPath := filepath.Join(dir, "schema.sql")
+	if err := os.WriteFile(ddlPath, []byte("CREATE TABLE users (id bigint primary key, name varchar(64));"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := GenerateModelFromDDL(ModelOptions{
+		DDLFile: ddlPath, Dir: dir, Module: "example.com/readonlymodel", Style: "go_zero",
+		IgnoreColumns: []string{"id", "name"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	runGoCommand(t, dir, 3*time.Minute, "mod", "tidy")
+	runGoCommand(t, dir, 3*time.Minute, "test", "./...")
+}
+
+func TestGenerateModelSQLWriteIgnoreRuntime(t *testing.T) {
+	dir := t.TempDir()
+	writeGeneratedModule(t, dir, "example.com/writeignore")
+	ddlPath := filepath.Join(dir, "schema.sql")
+	ddl := "CREATE TABLE biz_users (id bigint primary key, email varchar(128) unique not null, created_at timestamp);"
+	if err := os.WriteFile(ddlPath, []byte(ddl), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := GenerateModelFromDDL(ModelOptions{
+		DDLFile: ddlPath, Dir: dir, Module: "example.com/writeignore", Style: "go_zero",
+		Prefix: "tenant", IgnoreColumns: []string{"created_at"}, Cache: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	const testSource = `package repo
+import (
+ "context"
+ "database/sql"
+ "database/sql/driver"
+ "errors"
+ "io"
+ "reflect"
+ "strings"
+ "testing"
+ "time"
+ "example.com/writeignore/model"
+ "github.com/imajinyun/gofly/core/storage"
+)
+type captureConnector struct { conn *captureConn }
+func (c captureConnector) Connect(context.Context) (driver.Conn, error) { return c.conn, nil }
+func (c captureConnector) Driver() driver.Driver { return captureDriver{} }
+type captureDriver struct{}
+func (captureDriver) Open(string) (driver.Conn, error) { return nil, errors.New("use connector") }
+type captureConn struct { query string; args []driver.NamedValue }
+func (*captureConn) Prepare(string) (driver.Stmt, error) { return nil, errors.New("unexpected prepare") }
+func (*captureConn) Close() error { return nil }
+func (*captureConn) Begin() (driver.Tx, error) { return nil, errors.New("unexpected begin") }
+func (c *captureConn) ExecContext(_ context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
+ c.query, c.args = query, append([]driver.NamedValue(nil), args...)
+ return driver.RowsAffected(1), nil
+}
+func (c *captureConn) QueryContext(_ context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
+ c.query, c.args = query, args
+ return &captureRows{}, nil
+}
+type captureRows struct { done bool }
+func (*captureRows) Columns() []string { return []string{"id", "email", "created_at"} }
+func (*captureRows) Close() error { return nil }
+func (r *captureRows) Next(values []driver.Value) error {
+ if r.done { return io.EOF }; r.done = true
+ values[0], values[1], values[2] = int64(7), "a@example.test", time.Unix(123, 0)
+ return nil
+}
+func TestGeneratedWriteIgnore(t *testing.T) {
+ conn := &captureConn{}
+ db := sql.OpenDB(captureConnector{conn: conn})
+ defer db.Close()
+ repo := NewBizUserRepo(storage.NewSQLStore(db))
+ item := &model.BizUser{ID: 7, Email: "a@example.test"}
+ cases := []struct { name string; run func() error; args []any }{
+  {name: "insert", run: func() error { return repo.Insert(context.Background(), item) }, args: []any{int64(7), item.Email}},
+  {name: "batch", run: func() error { return repo.InsertMany(context.Background(), []*model.BizUser{item, item}) }, args: []any{int64(7), item.Email, int64(7), item.Email}},
+  {name: "update", run: func() error { return repo.Update(context.Background(), item) }, args: []any{item.Email, int64(7)}},
+ }
+ for _, tc := range cases { t.Run(tc.name, func(t *testing.T) {
+  if err := tc.run(); err != nil { t.Fatal(err) }
+  if !strings.Contains(conn.query, "biz_users") || strings.Contains(conn.query, "created_at") { t.Fatalf("write query = %s", conn.query) }
+  actual := make([]any, len(conn.args)); for i, arg := range conn.args { actual[i] = arg.Value }
+  if !reflect.DeepEqual(actual, tc.args) { t.Fatalf("args = %#v, want %#v", actual, tc.args) }
+ }) }
+ got, err := repo.FindOne(context.Background(), 7)
+ if err != nil { t.Fatal(err) }
+ if got.CreatedAt == nil || got.CreatedAt.Unix() != 123 || !strings.Contains(conn.query, "created_at") { t.Fatalf("read lost ignored field: %+v; %s", got, conn.query) }
+ if model.BizUserTable != "biz_users" || model.BizUserCacheKeyPrefix != "tenant:biz_users" { t.Fatal("cache prefix changed physical table") }
+ if err := repo.UpdateFields(context.Background(), 7, map[string]any{"created_at": time.Now()}); err == nil { t.Fatal("ignored field accepted in UpdateFields") }
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "repo", "write_ignore_test.go"), []byte(testSource), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runGoCommand(t, dir, 3*time.Minute, "mod", "tidy")
+	runGoCommand(t, dir, 3*time.Minute, "test", "./...")
+}
+
+func TestGenerateModelFromDDLGoZeroPreservesExtensions(t *testing.T) {
+	dir := t.TempDir()
+	writeGeneratedModule(t, dir, "example.com/preserved")
+	ddlPath := filepath.Join(dir, "schema.sql")
+	ddl := "CREATE TABLE users (id bigint primary key, name varchar(64) not null);"
+	if err := os.WriteFile(ddlPath, []byte(ddl), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	opts := ModelOptions{DDLFile: ddlPath, Dir: dir, Module: "example.com/preserved", Style: "go_zero"}
+	if err := GenerateModelFromDDL(opts); err != nil {
+		t.Fatal(err)
+	}
+	customPath := filepath.Join(dir, "repo", "usermodel.go")
+	custom, err := os.ReadFile(customPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	custom = append(custom, []byte("\nfunc (m *defaultUserModel) CustomValue() string { return \"retained\" }\n")...)
+	if err := os.WriteFile(customPath, custom, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	varsPath := filepath.Join(dir, "model", "vars.go")
+	vars, err := os.ReadFile(varsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	vars = append(vars, []byte("\nvar CustomError = ErrNotFound\n")...)
+	if err := os.WriteFile(varsPath, vars, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ddl = "CREATE TABLE users (id bigint primary key, name varchar(64) not null, email varchar(128));"
+	if err := os.WriteFile(ddlPath, []byte(ddl), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if err := GenerateModelFromDDL(opts); err != nil {
+			t.Fatal(err)
+		}
+		for path, want := range map[string][]byte{customPath: custom, varsPath: vars} {
+			got, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(got, want) {
+				t.Errorf("regeneration changed extension %s", path)
+			}
+		}
+	}
+	entity, err := os.ReadFile(filepath.Join(dir, "model", "user_gen.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(entity, []byte("Email")) {
+		t.Fatal("regeneration did not refresh generated entity with added column")
+	}
+	runGoCommand(t, dir, 3*time.Minute, "mod", "tidy")
+	runGoCommand(t, dir, 3*time.Minute, "test", "./...")
+}
+
 func TestGenerateModelFromDDLMultiTableGoctlOptionsCacheReplay(t *testing.T) {
 	dir := t.TempDir()
 	ddlPath := filepath.Join(dir, "schema.sql")
@@ -4215,13 +4386,13 @@ CREATE TABLE app_orders (
 		t.Fatal(err)
 	}
 
-	customerEntity, err := os.ReadFile(filepath.Join(outDir, "model", "entity", "customer_gen.go"))
+	customerEntity, err := os.ReadFile(filepath.Join(outDir, "model", "entity", "app_customer_gen.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	customerEntityOut := string(customerEntity)
 	for _, want := range []string{
-		`const CustomerTable = "customers"`,
+		`const AppCustomerTable = "app_customers"`,
 		`db:"email" json:"email"`,
 		`db:"version" json:"version"`,
 	} {
@@ -4230,26 +4401,26 @@ CREATE TABLE app_orders (
 		}
 	}
 	for _, unexpected := range []string{"CreatedBy", "UpdatedBy"} {
-		if strings.Contains(customerEntityOut, unexpected) {
-			t.Fatalf("generated customer entity should ignore audit column %q:\n%s", unexpected, customerEntityOut)
+		if !strings.Contains(customerEntityOut, unexpected) {
+			t.Fatalf("generated customer entity must retain audit column %q:\n%s", unexpected, customerEntityOut)
 		}
 	}
 
-	customerRepo, err := os.ReadFile(filepath.Join(outDir, "model", "repo", "customer.go"))
+	customerRepo, err := os.ReadFile(filepath.Join(outDir, "model", "repo", "app_customer.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	customerRepoOut := string(customerRepo)
 	for _, want := range []string{
-		"func (r *CustomerRepo) FindByTenantIDAndExternalID(ctx context.Context, tenantID int64, externalID string) (*entity.Customer, error)",
-		"func (r *CustomerRepo) FindByTenantID(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.Customer, error)",
-		"func (r *CustomerRepo) CountByTenantID(ctx context.Context, tenantID int64) (int64, error)",
-		"func (r *CustomerRepo) UpdateWithVersion(ctx context.Context, in *entity.Customer, expectedVersion int64) error",
-		"func (c *CachedCustomerRepo) FindByTenantIDAndExternalIDCached(ctx context.Context, tenantID int64, externalID string) (*entity.Customer, error)",
-		"func (c *CachedCustomerRepo) PageByTenantIDCached(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.Customer, int64, error)",
-		"func (c *CachedCustomerRepo) UpdateManyWithInvalidate(ctx context.Context, items []*entity.Customer) error",
-		"func (c *RedisCachedCustomerRepo) PageByTenantIDCached(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.Customer, int64, error)",
-		"c.listVersionByTenantID.Set(ctx, \"current\", redisCustomerIndexListVersionValue())",
+		"func (r *AppCustomerRepo) FindByTenantIDAndExternalID(ctx context.Context, tenantID int64, externalID string) (*entity.AppCustomer, error)",
+		"func (r *AppCustomerRepo) FindByTenantID(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.AppCustomer, error)",
+		"func (r *AppCustomerRepo) CountByTenantID(ctx context.Context, tenantID int64) (int64, error)",
+		"func (r *AppCustomerRepo) UpdateWithVersion(ctx context.Context, in *entity.AppCustomer, expectedVersion int64) error",
+		"func (c *CachedAppCustomerRepo) FindByTenantIDAndExternalIDCached(ctx context.Context, tenantID int64, externalID string) (*entity.AppCustomer, error)",
+		"func (c *CachedAppCustomerRepo) PageByTenantIDCached(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.AppCustomer, int64, error)",
+		"func (c *CachedAppCustomerRepo) UpdateManyWithInvalidate(ctx context.Context, items []*entity.AppCustomer) error",
+		"func (c *RedisCachedAppCustomerRepo) PageByTenantIDCached(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.AppCustomer, int64, error)",
+		"c.listVersionByTenantID.Set(ctx, \"current\", redisAppCustomerIndexListVersionValue())",
 		`query += " AND deleted_at IS NULL"`,
 	} {
 		if !strings.Contains(customerRepoOut, want) {
@@ -4257,13 +4428,13 @@ CREATE TABLE app_orders (
 		}
 	}
 
-	orderEntity, err := os.ReadFile(filepath.Join(outDir, "model", "entity", "order_gen.go"))
+	orderEntity, err := os.ReadFile(filepath.Join(outDir, "model", "entity", "app_order_gen.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	orderEntityOut := string(orderEntity)
 	for _, want := range []string{
-		`const OrderTable = "orders"`,
+		`const AppOrderTable = "app_orders"`,
 		`db:"customer_id" json:"customerId"`,
 		`db:"total_amount" json:"totalAmount"`,
 	} {
@@ -4272,29 +4443,29 @@ CREATE TABLE app_orders (
 		}
 	}
 	for _, unexpected := range []string{"CreatedBy", "UpdatedBy"} {
-		if strings.Contains(orderEntityOut, unexpected) {
-			t.Fatalf("generated order entity should ignore audit column %q:\n%s", unexpected, orderEntityOut)
+		if !strings.Contains(orderEntityOut, unexpected) {
+			t.Fatalf("generated order entity must retain audit column %q:\n%s", unexpected, orderEntityOut)
 		}
 	}
 
-	orderRepo, err := os.ReadFile(filepath.Join(outDir, "model", "repo", "order.go"))
+	orderRepo, err := os.ReadFile(filepath.Join(outDir, "model", "repo", "app_order.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	orderRepoOut := string(orderRepo)
 	for _, want := range []string{
-		"func (r *OrderRepo) FindByTenantIDAndOrderNo(ctx context.Context, tenantID int64, orderNo string) (*entity.Order, error)",
-		"func (r *OrderRepo) FindByCustomerID(ctx context.Context, customerID int64, limit int, offset int) ([]entity.Order, error)",
-		"func (r *OrderRepo) CountByCustomerID(ctx context.Context, customerID int64) (int64, error)",
-		"func (r *OrderRepo) FindByTenantIDAndStatus(ctx context.Context, tenantID int64, status string, limit int, offset int) ([]entity.Order, error)",
-		"func (r *OrderRepo) CountByTenantIDAndStatus(ctx context.Context, tenantID int64, status string) (int64, error)",
-		"func (c *CachedOrderRepo) FindByTenantIDAndOrderNoCached(ctx context.Context, tenantID int64, orderNo string) (*entity.Order, error)",
-		"func (c *CachedOrderRepo) PageByCustomerIDCached(ctx context.Context, customerID int64, limit int, offset int) ([]entity.Order, int64, error)",
-		"func (c *CachedOrderRepo) PageByTenantIDAndStatusCached(ctx context.Context, tenantID int64, status string, limit int, offset int) ([]entity.Order, int64, error)",
-		"func (c *CachedOrderRepo) DeleteMany(ctx context.Context, ids ...int64) error",
-		"func (c *RedisCachedOrderRepo) PageByTenantIDAndStatusCached(ctx context.Context, tenantID int64, status string, limit int, offset int) ([]entity.Order, int64, error)",
-		"c.listVersionByCustomerID.Set(ctx, \"current\", redisOrderIndexListVersionValue())",
-		"c.listVersionByTenantIDAndStatus.Set(ctx, \"current\", redisOrderIndexListVersionValue())",
+		"func (r *AppOrderRepo) FindByTenantIDAndOrderNo(ctx context.Context, tenantID int64, orderNo string) (*entity.AppOrder, error)",
+		"func (r *AppOrderRepo) FindByCustomerID(ctx context.Context, customerID int64, limit int, offset int) ([]entity.AppOrder, error)",
+		"func (r *AppOrderRepo) CountByCustomerID(ctx context.Context, customerID int64) (int64, error)",
+		"func (r *AppOrderRepo) FindByTenantIDAndStatus(ctx context.Context, tenantID int64, status string, limit int, offset int) ([]entity.AppOrder, error)",
+		"func (r *AppOrderRepo) CountByTenantIDAndStatus(ctx context.Context, tenantID int64, status string) (int64, error)",
+		"func (c *CachedAppOrderRepo) FindByTenantIDAndOrderNoCached(ctx context.Context, tenantID int64, orderNo string) (*entity.AppOrder, error)",
+		"func (c *CachedAppOrderRepo) PageByCustomerIDCached(ctx context.Context, customerID int64, limit int, offset int) ([]entity.AppOrder, int64, error)",
+		"func (c *CachedAppOrderRepo) PageByTenantIDAndStatusCached(ctx context.Context, tenantID int64, status string, limit int, offset int) ([]entity.AppOrder, int64, error)",
+		"func (c *CachedAppOrderRepo) DeleteMany(ctx context.Context, ids ...int64) error",
+		"func (c *RedisCachedAppOrderRepo) PageByTenantIDAndStatusCached(ctx context.Context, tenantID int64, status string, limit int, offset int) ([]entity.AppOrder, int64, error)",
+		"c.listVersionByCustomerID.Set(ctx, \"current\", redisAppOrderIndexListVersionValue())",
+		"c.listVersionByTenantIDAndStatus.Set(ctx, \"current\", redisAppOrderIndexListVersionValue())",
 	} {
 		if !strings.Contains(orderRepoOut, want) {
 			t.Fatalf("generated order repo missing %q:\n%s", want, orderRepoOut)
@@ -4610,6 +4781,7 @@ func TestGenerateMongoModelDriverStyle(t *testing.T) {
 		"type UserProfileRepo struct",
 		"collection *mongo.Collection",
 		"func NewCachedUserProfileRepo(repo *UserProfileRepo, opts ...cache.ModelOption[*UserProfile, string]) *cache.ModelCache[*UserProfile, string]",
+		"cache.WithModelKeyPrefix[*UserProfile, string](\"cache:user_profile\")",
 		"func (r *UserProfileRepo) FindByHexID(ctx context.Context, id string) (*UserProfile, error)",
 		"primitive.ObjectIDFromHex(id)",
 		"collection.Find(ctx, filter, findOpts)",
@@ -4625,6 +4797,22 @@ func TestGenerateMongoModelDriverStyle(t *testing.T) {
 	}
 	if !strings.Contains(string(goModData), "require go.mongodb.org/mongo-driver ") {
 		t.Fatalf("mongo driver go.mod should include mongo dependency:\n%s", goModData)
+	}
+}
+
+func TestGenerateMongoModelMultipleTypesAndEasy(t *testing.T) {
+	dir := t.TempDir()
+	if err := GenerateMongoModel(MongoModelOptions{Type: "User,Order,User", Dir: dir, Package: "model", Easy: true}); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"user.go", "order.go"} {
+		data, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(data), "CollectionName =") {
+			t.Fatalf("easy mongo output %s = %s", name, data)
+		}
 	}
 }
 

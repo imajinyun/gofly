@@ -5,14 +5,17 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/imajinyun/gofly/core/breaker"
+	"github.com/imajinyun/gofly/core/discovery"
 	coreerrors "github.com/imajinyun/gofly/core/errors"
 	"github.com/imajinyun/gofly/core/governance"
+	"github.com/imajinyun/gofly/core/limit"
 	coretrace "github.com/imajinyun/gofly/core/observability/trace"
 	coreretry "github.com/imajinyun/gofly/core/retry"
 	coreruntime "github.com/imajinyun/gofly/core/runtime"
@@ -55,6 +58,39 @@ func TestGovernanceUnaryClientInterceptorAppliesMetadataAndRetry(t *testing.T) {
 	}
 	if attempts != 2 {
 		t.Fatalf("attempts = %d, want 2", attempts)
+	}
+}
+
+func TestAdaptiveLimitUnaryServerInterceptor(t *testing.T) {
+	cpu := 950
+	limiter := limit.NewAdaptiveLimiter(
+		limit.WithAdaptiveLimits(1, 1),
+		limit.WithAdaptiveInitialLimit(1),
+		limit.WithAdaptiveCPUThreshold(900),
+		limit.WithAdaptiveCPUReader(func() int { return cpu }),
+	)
+	interceptor := AdaptiveLimitUnaryServerInterceptor(limiter)
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		_, err := interceptor(context.Background(), &struct{}{}, &stdgrpc.UnaryServerInfo{FullMethod: "/greeter.Greeter/SayHello"}, func(context.Context, any) (any, error) {
+			close(entered)
+			<-release
+			return nil, nil
+		})
+		done <- err
+	}()
+	<-entered
+	_, err := interceptor(context.Background(), &struct{}{}, &stdgrpc.UnaryServerInfo{FullMethod: "/greeter.Greeter/SayHello"}, func(context.Context, any) (any, error) {
+		return nil, nil
+	})
+	if status.Code(err) != codes.ResourceExhausted {
+		t.Fatalf("adaptive rejection code = %s, want ResourceExhausted", status.Code(err))
+	}
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatalf("first call: %v", err)
 	}
 }
 
@@ -587,6 +623,65 @@ func TestNewDefaultServerWiresAdminAndInterceptors(t *testing.T) {
 	}
 }
 
+func TestGRPCServerDiscoveryAndHealthLifecycle(t *testing.T) {
+	registry := discovery.NewMemoryRegistry()
+	server := NewDefaultServer("127.0.0.1:0", "greeter.Greeter", nil, nil,
+		WithDiscovery(registry, discovery.Instance{Service: "greeter.Greeter"}),
+	)
+	before, err := server.Health().Check(context.Background(), &healthpb.HealthCheckRequest{Service: "greeter.Greeter"})
+	if err != nil || before.Status != healthpb.HealthCheckResponse_NOT_SERVING {
+		t.Fatalf("health before start = %v, %v; want NOT_SERVING", before, err)
+	}
+
+	started := make(chan error, 1)
+	go func() { started <- server.Start() }()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		instances, resolveErr := registry.Resolve(context.Background(), "greeter.Greeter")
+		if resolveErr == nil && len(instances) == 1 {
+			host, port, splitErr := net.SplitHostPort(instances[0].Endpoint)
+			if splitErr != nil || host != "127.0.0.1" || port == "0" {
+				t.Fatalf("registered endpoint = %q, want loopback with allocated port", instances[0].Endpoint)
+			}
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	after, err := server.Health().Check(context.Background(), &healthpb.HealthCheckRequest{Service: "greeter.Greeter"})
+	if err != nil || after.Status != healthpb.HealthCheckResponse_SERVING {
+		t.Fatalf("health after start = %v, %v; want SERVING", after, err)
+	}
+	if err := server.Shutdown(context.Background()); err != nil {
+		t.Fatalf("shutdown: %v", err)
+	}
+	select {
+	case err := <-started:
+		if err != nil {
+			t.Fatalf("start returned error: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for grpc server to stop")
+	}
+	stopped, err := server.Health().Check(context.Background(), &healthpb.HealthCheckRequest{Service: "greeter.Greeter"})
+	if err != nil || stopped.Status != healthpb.HealthCheckResponse_NOT_SERVING {
+		t.Fatalf("health after shutdown = %v, %v; want NOT_SERVING", stopped, err)
+	}
+	if _, err := registry.Resolve(context.Background(), "greeter.Greeter"); !errors.Is(err, discovery.ErrNoInstances) {
+		t.Fatalf("resolve after shutdown = %v, want ErrNoInstances", err)
+	}
+}
+
+func TestGRPCServerDiscoveryRequiresService(t *testing.T) {
+	server := NewServer(
+		WithAddress("127.0.0.1:0"),
+		WithDiscovery(discovery.NewMemoryRegistry(), discovery.Instance{}),
+	)
+	err := server.Start()
+	if err == nil || !strings.Contains(err.Error(), "grpc discovery service is required") {
+		t.Fatalf("Start error = %v, want missing service error", err)
+	}
+}
+
 func TestGRPCAdminServerExposesHealthMetricsAndGovernance(t *testing.T) {
 	rules := governance.NewRuleSet(governance.Rule{
 		Name:      "admin visible rule",
@@ -746,6 +841,13 @@ func TestContextWithIncomingTrace(t *testing.T) {
 	next := contextWithIncomingTrace(ctx)
 	if next == ctx {
 		t.Fatal("expected new context with trace")
+	}
+}
+
+func TestBearerFromIncomingAcceptsLegacyTokenMetadata(t *testing.T) {
+	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("app", "orders", "token", "secret"))
+	if got := bearerFromIncoming(ctx); got != "secret" {
+		t.Fatalf("bearerFromIncoming = %q, want legacy token", got)
 	}
 }
 

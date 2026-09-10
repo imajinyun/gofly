@@ -7,6 +7,12 @@
     "testdata/zrpc-proto-matrix/common.proto",
     "cmd/gofly/internal/generator/proto_parser.go",
     "cmd/gofly/internal/generator/proto_codegen.go",
+    "cmd/gofly/internal/generator/grpc_scaffold_templates.go",
+    "docs/reference/native-grpc-golden-path.json",
+    "rpc/grpc/client.go",
+    "rpc/grpc/server.go",
+    "rpc/grpc/resolver.go",
+    "rpc/grpc/balancer.go",
     "cmd/gofly/internal/command/rpc_gen_command.go",
     "cmd/gofly/internal/command/rpc_protoc_command.go"
   ],
@@ -56,6 +62,24 @@
       "gate": "make zrpc-proto-compatibility-check",
       "reason": "Generated clients include unary wrappers and stream-opening helpers when client generation is enabled.",
       "rollbackOrEscalation": "Rollback by preserving generated client wrappers or documenting NoClient as an explicit compatibility downgrade."
+    },
+    {
+      "id": "runnable-grpc-layout",
+      "status": "supported",
+      "surface": "gozero-compatible native gRPC service scaffold",
+      "evidence": ["TestGenerateRPCNewGoZeroCompatibleProducesRunnableGRPCProject", "goZeroRPCMainTemplate", "goZeroRPCServerTemplate", "goZeroRPCClientTemplate"],
+      "gate": "make zrpc-proto-compatibility-check",
+      "reason": "The gozero-compatible new rpc profile generates protobuf stubs, config, service context, logic, server, typed client, discovery wiring, and a runnable main package.",
+      "rollbackOrEscalation": "Rollback by retaining the previous scaffold profile and blocking release when the generated module or unary smoke test no longer passes."
+    },
+    {
+      "id": "grpc-runtime-golden-path",
+      "status": "supported",
+      "surface": "native gRPC discovery, lifecycle, client defaults, and balancing",
+      "evidence": ["TestGRPCServerDiscoveryAndHealthLifecycle", "TestDialKeepsDefaultCredentialsWithResolverOption", "TestGoflyGRPCBalancersRegistered"],
+      "gate": "make zrpc-proto-compatibility-check",
+      "reason": "The native gRPC runtime now provides safe client credentials, default observability, backend-neutral discovery registration and resolution, health transitions, and selectable balancers.",
+      "rollbackOrEscalation": "Rollback by keeping direct gRPC targets available and treating any discovery, health, credentials, or balancing regression as a release blocker."
     }
   ],
   "releaseRules": {

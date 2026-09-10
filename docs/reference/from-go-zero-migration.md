@@ -15,7 +15,7 @@ runnable while teams move selected surfaces.
 | `api/http/app/svc/types` layout | `gofly new api <name> --profile gozero-compatible` | `docs/reference/goctl-generator-compatibility.json` |
 | `etc/<service>-api.yaml` | generated `etc/<service>.json` plus explicit REST profile | `docs/reference/rest-middleware-profiles.md` |
 | REST middleware and auth | generated REST routes plus route/middleware compatibility evidence | `docs/reference/rest-middleware-profiles.md`, `docs/reference/goctl-real-project-replay.json` |
-| zRPC `.proto` | `gofly rpc gen` / `gofly rpc protoc` with compatibility matrix review | `docs/reference/zrpc-proto-compatibility.json`, `docs/reference/goctl-rpc-protoc-parity.json` |
+| zRPC `.proto` and runnable service | `gofly new rpc <name> --module <module> --profile gozero-compatible` for a native gRPC service; `gofly rpc gen` for bindings; `gofly rpc protoc` for standard protobuf stubs | `docs/reference/zrpc-proto-compatibility.json`, `docs/reference/goctl-rpc-protoc-parity.json` |
 | model/cache generation | `gofly model gen --style go_zero` and replay fixtures | `docs/reference/goctl-real-project-replay.json`, `docs/reference/goctl-model-parity-replay.json` |
 | multi-language API clients | `gofly api client --language <language>` | `docs/reference/api-client-generation.md` |
 | production service scaffold | `gofly new service --style production` | `docs/reference/generated-service-layout.md` |
@@ -52,11 +52,19 @@ gofly-compatible generated surface. It is not a full goctl replacement.
    gofly model mysql ddl --src schema.sql --dir ./internal --style go_zero
    ```
 
-5. For zRPC, inspect `docs/reference/zrpc-proto-compatibility.json` first, then:
+5. For a runnable native gRPC service, inspect
+   `docs/reference/zrpc-proto-compatibility.json`, then generate the
+   gozero-compatible profile:
 
    ```sh
-   gofly rpc protoc service.proto --dir ./migrated
+   gofly new rpc service --module example.com/service --profile gozero-compatible
    ```
+
+   Use `gofly rpc gen --transport grpc` when only gofly gRPC bindings are
+   needed, or `gofly rpc protoc` when only standard protobuf/gRPC stubs are
+   needed. The default production `gofly new rpc` profile remains the gofly
+   HTTP-RPC runtime; the profile flag is therefore an explicit transport
+   contract during migration.
 
 6. Run the migration gates before switching traffic:
 
@@ -144,17 +152,37 @@ gofly model mysql ddl \
 ```
 
 This layout intentionally avoids putting every go-zero-style model artifact in
-one `model` directory and keeps repeated DDL-driven generation focused on the
-generated model and repository files.
+one `model` directory. Existing `repo/<table>model.go` and `model/vars.go` are
+create-only extension files: regeneration preserves their contents and permissions.
+Entity files, `repo/<table>.go`, and `repo/<table>model_gen.go` remain generator-owned;
+place custom repository methods in a separate file rather than editing them.
+
+For SQL model commands, `--prefix` is a cache namespace prefix (default `cache`),
+not a table-name transformation. Physical table names, entity names, and filenames
+retain the source table prefix. `--ignore-columns` excludes columns from inserts
+and updates but retains them in entities, reads, and index metadata. The CLI
+excludes `create_at,created_at,create_time,update_at,updated_at,update_time` by
+default; pass `--ignore-columns=""` to disable that default. SQL batches and upserts
+use the same write-column selection; GORM marks ignored fields read-only.
+
+Migration from older gofly output requires reviewing renamed prefixed model files
+and updating imports/type references. Old generated files are not deleted
+automatically; merge custom changes before removing stale output. Redis cache
+namespaces change, including table-scoped list/count/version keys, so expect cold
+caches and avoid mixed-version writers sharing old and new namespaces.
+This does not establish byte-for-byte goctl cache-key or Model API compatibility.
 
 Model migration parity is tracked by
 `docs/reference/goctl-model-parity-replay.json` and validated by
-`make goctl-model-parity-replay-check`. The contract covers migration-critical
-options such as cache generation, strict validation, ignored columns, table
-prefix trimming, table filters, database/schema selection, datasource aliases,
-and Mongo type/cache/prefix inputs. It does not claim byte-for-byte goctl model
-layout parity while `model-layout-difference` remains an accepted oracle
-category.
+`make goctl-model-parity-replay-check`. This gate executes extension-preservation,
+generated SQL read/write, and datasource schema tests rather than only checking
+that flags exist. Remaining gaps include auto-increment/default metadata, unsigned
+type mapping, facade return types, template flags, and Mongo multi-type/easy/cache
+semantics. Mongo accepts comma-separated types, `--easy` emits a deterministic
+`<Type>CollectionName` constant, and `--prefix` contributes to generated cache
+namespaces without changing the type name. Constructor/runtime contracts and
+driver-v2 output remain distinct. Full goctl replacement is not claimed; structural
+`model-layout-difference` remains an accepted oracle category.
 
 ## zRPC Compatibility Boundaries
 
@@ -166,6 +194,13 @@ Before migrating zRPC code, check the matrix in
 - `client-wrapper`: supported
 - `external-proto-imports`: supported for local imports
 - `google-well-known-types`: supported for common WKT mappings
+- `runnable-grpc-layout`: supported for `new rpc --profile gozero-compatible`
+- `grpc-runtime-golden-path`: supported for discovery lifecycle, health, safe client defaults, and selectable P2C-EWMA or consistent-hash balancing
+
+The generic bearer/RBAC interceptor remains the default authentication model.
+Projects migrating go-zero app/token credentials can opt into
+`NewRedisTokenValidator` and `WithAppTokenCredentials`; transport security is
+required unless the client explicitly enables development-only insecure mode.
 
 `docs/reference/goctl-rpc-protoc-parity.json` separately tracks goctl-style
 `rpc protoc` flags. Standard protoc mode forwards include paths, `go_out`,

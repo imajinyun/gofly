@@ -114,6 +114,26 @@ func goZeroServiceFiles(style, name string) map[string]string {
 	return files
 }
 
+func goZeroRPCServiceFiles(style, name string) map[string]string {
+	files := map[string]string{
+		"go.mod":                                                     goModTemplate,
+		filepath.Join("cmd", name, "main.go"):                        goZeroRPCMainTemplate,
+		filepath.Join("etc", name+".json"):                           goZeroRPCConfigTemplate,
+		filepath.Join("internal", "config", "config.go"):             goZeroRPCConfigGoTemplate,
+		filepath.Join("internal", "discovery", "registry.go"):        goZeroRPCDiscoveryTemplate,
+		filepath.Join("internal", "svc", "servicecontext.go"):        goZeroRPCSvcTemplate,
+		filepath.Join("internal", "logic", "sayhellologic.go"):       goZeroRPCLogicTemplate,
+		filepath.Join("internal", "server", "greeterserver.go"):      goZeroRPCServerTemplate,
+		filepath.Join("internal", "server", "greeterserver_test.go"): goZeroRPCServerTestTemplate,
+		filepath.Join("pkg", "client", "greeter.go"):                 goZeroRPCClientTemplate,
+	}
+	if style == ServiceStyleBasic || style == ServiceStyleProduction {
+		files["Dockerfile"] = dockerfileTemplate
+		files["Makefile"] = makefileTemplate
+	}
+	return files
+}
+
 func cleanupLegacyServiceFiles(dir string) error {
 	return cleanupLegacyServiceFilesForProfile(dir, ProfileGoflyAI)
 }

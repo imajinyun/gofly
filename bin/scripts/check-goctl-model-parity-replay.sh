@@ -257,5 +257,14 @@ if missing:
         print(f"- {item}", file=sys.stderr)
     sys.exit(1)
 
-print("goctl model parity replay OK")
+print("goctl model parity replay contract OK")
 PY
+
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT INT TERM
+export GOCACHE="${GOCACHE:-$work/gocache}"
+export GOTMPDIR="${GOTMPDIR:-$work/gotmp}"
+export GOPROXY="${GOPROXY:-direct}"
+mkdir -p "$GOCACHE" "$GOTMPDIR"
+"${GO:-go}" test -count=1 -shuffle=on ./cmd/gofly/internal/generator \
+    -run '^(TestGenerateModelFromDDLGoZeroPreservesExtensions|TestGenerateModelAllWriteIgnoredColumnsCompile|TestGenerateModelSQLWriteIgnoreRuntime|TestGenerateMongoModelMultipleTypesAndEasy|TestGeneratedExtensionFileSafety|TestGoctlDatasourceReplayFixtureModelSchemaIR)$'

@@ -16,9 +16,7 @@ type modelGenFlags struct {
 	Database      *string
 	Strict        *bool
 	IgnoreColumns *string
-	ShortIgnore   *string
 	Prefix        *string
-	ShortPrefix   *string
 	Style         *string
 	Cache         *bool
 	ShortCache    *bool
@@ -41,16 +39,16 @@ func newModelGenFlagSet() (*flag.FlagSet, modelGenFlags) {
 		ShortTable:    fs.String("t", "", "comma-separated table names to generate"),
 		Database:      fs.String("database", "", "database name"),
 		Strict:        fs.Bool("strict", false, "enable strict generation checks"),
-		IgnoreColumns: fs.String("ignore-columns", "", "columns to ignore during generation"),
-		ShortIgnore:   fs.String("i", "", "columns to ignore during generation"),
-		Prefix:        fs.String("prefix", "", "table prefix to trim"),
-		ShortPrefix:   fs.String("p", "", "table prefix to trim"),
+		IgnoreColumns: fs.String("ignore-columns", "create_at,created_at,create_time,update_at,updated_at,update_time", "columns excluded from inserts and updates, retained for reads"),
+		Prefix:        fs.String("prefix", "cache", "cache key namespace prefix"),
 		Style:         fs.String("style", "go_zero", "model style"),
 		Cache:         fs.Bool("cache", false, "generate cache helpers"),
 		ShortCache:    fs.Bool("c", false, "generate cache helpers"),
 		JSON:          fs.Bool("json", false, "emit generation result as JSON"),
 		ConfigPath:    fs.String("config", "", "gofly config file path"),
 	}
+	fs.StringVar(flags.IgnoreColumns, "i", *flags.IgnoreColumns, "columns excluded from inserts and updates, retained for reads")
+	fs.StringVar(flags.Prefix, "p", *flags.Prefix, "cache key namespace prefix")
 	registerGoctlModelTemplateFlags(fs)
 	return fs, flags
 }
@@ -59,8 +57,6 @@ func (flags modelGenFlags) normalize(leadingDDL string, remaining []string) []st
 	remaining = flags.normalizeDDL(leadingDDL, remaining)
 	flags.normalizeDir(remaining)
 	flags.normalizeTable()
-	flags.normalizeIgnoreColumns()
-	flags.normalizePrefix()
 	flags.normalizeCache()
 	return remaining
 }
@@ -97,18 +93,6 @@ func (flags modelGenFlags) normalizeTable() {
 	}
 	if valueFromStringFlag(flags.Table) == "" {
 		setStringFlag(flags.Table, valueFromStringFlag(flags.ShortTable))
-	}
-}
-
-func (flags modelGenFlags) normalizeIgnoreColumns() {
-	if valueFromStringFlag(flags.IgnoreColumns) == "" {
-		setStringFlag(flags.IgnoreColumns, valueFromStringFlag(flags.ShortIgnore))
-	}
-}
-
-func (flags modelGenFlags) normalizePrefix() {
-	if valueFromStringFlag(flags.Prefix) == "" {
-		setStringFlag(flags.Prefix, valueFromStringFlag(flags.ShortPrefix))
 	}
 }
 

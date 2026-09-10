@@ -108,10 +108,7 @@ type goctlDatasourceReplayFixture struct {
 	SchemaContract    *goctlDatasourceReplaySchemaContract `json:"schemaContract,omitempty"`
 }
 
-// goctlDatasourceReplaySchemaContract pins the prepared ModelSchemaIR semantics
-// a replay fixture must produce: IR metadata plus per-table shape after
-// prepare (prefix trim, ignore columns, type map, strict validation).
-// Empty fields are treated as "not asserted".
+// Empty contract fields are treated as not asserted.
 type goctlDatasourceReplaySchemaContract struct {
 	Source     string                               `json:"source"`
 	Dialect    string                               `json:"dialect"`
@@ -122,12 +119,12 @@ type goctlDatasourceReplaySchemaContract struct {
 }
 
 type goctlDatasourceReplayTableContract struct {
-	Name          string     `json:"name"`
-	PrimaryKey    string     `json:"primaryKey,omitempty"`
-	ColumnCount   int        `json:"columnCount,omitempty"`
-	AbsentColumns []string   `json:"absentColumns,omitempty"`
-	UniqueIndexes [][]string `json:"uniqueIndexes,omitempty"`
-	Indexes       [][]string `json:"indexes,omitempty"`
+	Name                string     `json:"name"`
+	PrimaryKey          string     `json:"primaryKey,omitempty"`
+	ColumnCount         int        `json:"columnCount,omitempty"`
+	WriteIgnoredColumns []string   `json:"writeIgnoredColumns,omitempty"`
+	UniqueIndexes       [][]string `json:"uniqueIndexes,omitempty"`
+	Indexes             [][]string `json:"indexes,omitempty"`
 }
 
 func readGoctlDatasourceReplayFixture(t *testing.T, name string) goctlDatasourceReplayFixture {
@@ -759,12 +756,15 @@ func TestModelSchemaIRPrepareMetadataAndTables(t *testing.T) {
 	if prepared.Source != ModelSchemaSourceDDL || prepared.Dialect != storage.DialectQuestion || prepared.Database != "shop" || prepared.Schema != "public" {
 		t.Fatalf("prepared metadata = %+v, want ddl/question/shop/public", prepared)
 	}
-	if len(prepared.Tables) != 1 || prepared.Tables[0].Name != "users" {
-		t.Fatalf("prepared tables = %+v, want trimmed users table", prepared.Tables)
+	if len(prepared.Tables) != 1 || prepared.Tables[0].Name != "app_users" || prepared.Tables[0].CachePrefix != "app_" {
+		t.Fatalf("prepared tables = %+v, want physical table name and separate cache prefix", prepared.Tables)
 	}
 	users := prepared.Tables[0]
-	if len(users.Columns) != 2 || users.Columns[1].GoType != "string" {
-		t.Fatalf("prepared columns = %+v, want ignored deleted_at and type map", users.Columns)
+	if len(users.Columns) != 3 || users.Columns[1].GoType != "string" || !users.Columns[2].WriteIgnored {
+		t.Fatalf("prepared columns = %+v, want readable deleted_at excluded from writes", users.Columns)
+	}
+	if tables[0].Columns[2].WriteIgnored || tables[0].Columns[1].GoType != "" {
+		t.Fatal("prepare mutated source schema columns")
 	}
 }
 
@@ -831,9 +831,15 @@ func assertModelSchemaIRContract(t *testing.T, ir ModelSchemaIR, contract *goctl
 		if want.ColumnCount > 0 && len(table.Columns) != want.ColumnCount {
 			t.Fatalf("IR table %s column count = %d, want %d", want.Name, len(table.Columns), want.ColumnCount)
 		}
-		for _, column := range want.AbsentColumns {
-			if hasSQLColumn(table, column) {
-				t.Fatalf("IR table %s still has ignored column %q", want.Name, column)
+		for _, name := range want.WriteIgnoredColumns {
+			found := false
+			for _, column := range table.Columns {
+				if column.Name == name && column.WriteIgnored {
+					found = true
+				}
+			}
+			if !found {
+				t.Fatalf("IR table %s must retain write-ignored column %q", want.Name, name)
 			}
 		}
 		for _, index := range want.UniqueIndexes {
@@ -847,15 +853,6 @@ func assertModelSchemaIRContract(t *testing.T, ir ModelSchemaIR, contract *goctl
 			}
 		}
 	}
-}
-
-func hasSQLColumn(table SQLTable, name string) bool {
-	for _, column := range table.Columns {
-		if column.Name == name {
-			return true
-		}
-	}
-	return false
 }
 
 func hasSQLUniqueIndex(table SQLTable, columns ...string) bool {
@@ -947,14 +944,14 @@ func TestGenerateModelFromSchemaIRPreparesAndWritesGoZeroLayout(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("generateModelFromSchemaIR: %v", err)
 	}
-	entity, err := os.ReadFile(filepath.Join(dir, "model", "customer_gen.go"))
+	entity, err := os.ReadFile(filepath.Join(dir, "model", "app_customer_gen.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(entity), "type Customer struct") || strings.Contains(string(entity), "UpdatedBy") {
+	if !strings.Contains(string(entity), "type AppCustomer struct") || !strings.Contains(string(entity), "UpdatedBy") {
 		t.Fatalf("generated entity did not apply prefix/ignore options:\n%s", entity)
 	}
-	repo, err := os.ReadFile(filepath.Join(dir, "repo", "customer.go"))
+	repo, err := os.ReadFile(filepath.Join(dir, "repo", "app_customer.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1051,10 +1048,14 @@ func TestGenerateModelFromSchemaIRBoundaries(t *testing.T) {
 			Prefix: "app_",
 			Emit:   modelSchemaEmitOptions{Dir: dir, Module: "example.com/ir-conflict"},
 		})
-		if err == nil || !strings.Contains(err.Error(), "model schema output conflict") || !strings.Contains(err.Error(), "table name") {
-			t.Fatalf("prefix output conflict error = %v, want table-name conflict", err)
+		if err != nil {
+			t.Fatalf("cache prefix must not collapse distinct table names: %v", err)
 		}
-		assertNothingWritten(t, dir)
+		for _, name := range []string{"app_user_gen.go", "user_gen.go"} {
+			if _, err := os.Stat(filepath.Join(dir, "model", "entity", name)); err != nil {
+				t.Fatal(err)
+			}
+		}
 	})
 
 	t.Run("normalized generated file conflict", func(t *testing.T) {
@@ -1311,13 +1312,13 @@ func TestDatasourceIntrospectionMultiTableGoctlCacheReplay(t *testing.T) {
 		t.Fatalf("writeModelFiles: %v", err)
 	}
 
-	customerEntity, err := os.ReadFile(filepath.Join(dir, "model", "entity", "customer_gen.go"))
+	customerEntity, err := os.ReadFile(filepath.Join(dir, "model", "entity", "app_customer_gen.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	customerEntityOut := string(customerEntity)
 	for _, want := range []string{
-		`const CustomerTable = "customers"`,
+		`const AppCustomerTable = "app_customers"`,
 		`db:"email" json:"email"`,
 		`db:"version" json:"version"`,
 	} {
@@ -1326,54 +1327,54 @@ func TestDatasourceIntrospectionMultiTableGoctlCacheReplay(t *testing.T) {
 		}
 	}
 	for _, unexpected := range []string{"CreatedBy", "UpdatedBy"} {
-		if strings.Contains(customerEntityOut, unexpected) {
-			t.Fatalf("generated datasource customer entity should ignore %q:\n%s", unexpected, customerEntityOut)
+		if !strings.Contains(customerEntityOut, unexpected) {
+			t.Fatalf("generated datasource customer entity must retain %q:\n%s", unexpected, customerEntityOut)
 		}
 	}
 
-	customerRepo, err := os.ReadFile(filepath.Join(dir, "model", "repo", "customer.go"))
+	customerRepo, err := os.ReadFile(filepath.Join(dir, "model", "repo", "app_customer.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	customerRepoOut := string(customerRepo)
 	for _, want := range []string{
 		"d := storage.DialectMySQL",
-		"func (r *CustomerRepo) FindByTenantIDAndExternalID(ctx context.Context, tenantID int64, externalID string) (*entity.Customer, error)",
-		"func (r *CustomerRepo) FindByTenantID(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.Customer, error)",
-		"func (r *CustomerRepo) CountByTenantID(ctx context.Context, tenantID int64) (int64, error)",
-		"func (r *CustomerRepo) UpsertByTenantIDAndExternalID(ctx context.Context, in *entity.Customer) error",
-		"storage.Upsert(entity.CustomerTable, entity.CustomerColumns, []string{\"tenant_id\", \"external_id\"}",
-		"func (r *CustomerRepo) FindOneForUpdate(ctx context.Context, id int64) (*entity.Customer, error)",
-		"storage.SelectForUpdate(entity.CustomerTable, entity.CustomerColumns, \"id\", r.dialect, false)",
-		"func (r *CustomerRepo) FindOneForUpdateSkipLocked(ctx context.Context, id int64) (*entity.Customer, error)",
-		"storage.SelectForUpdate(entity.CustomerTable, entity.CustomerColumns, \"id\", r.dialect, true)",
-		"func (r *CustomerRepo) FindByTenantIDAndExternalIDForUpdate(ctx context.Context, tenantID int64, externalID string) (*entity.Customer, error)",
-		"query, args, err := storage.SelectWhere(entity.CustomerTable, entity.CustomerColumns, where, r.dialect)",
+		"func (r *AppCustomerRepo) FindByTenantIDAndExternalID(ctx context.Context, tenantID int64, externalID string) (*entity.AppCustomer, error)",
+		"func (r *AppCustomerRepo) FindByTenantID(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.AppCustomer, error)",
+		"func (r *AppCustomerRepo) CountByTenantID(ctx context.Context, tenantID int64) (int64, error)",
+		"func (r *AppCustomerRepo) UpsertByTenantIDAndExternalID(ctx context.Context, in *entity.AppCustomer) error",
+		"storage.Upsert(entity.AppCustomerTable, []string{\"id\", \"tenant_id\", \"external_id\", \"email\", \"name\", \"version\", \"deleted_at\"}, []string{\"tenant_id\", \"external_id\"}",
+		"func (r *AppCustomerRepo) FindOneForUpdate(ctx context.Context, id int64) (*entity.AppCustomer, error)",
+		"storage.SelectForUpdate(entity.AppCustomerTable, entity.AppCustomerColumns, \"id\", r.dialect, false)",
+		"func (r *AppCustomerRepo) FindOneForUpdateSkipLocked(ctx context.Context, id int64) (*entity.AppCustomer, error)",
+		"storage.SelectForUpdate(entity.AppCustomerTable, entity.AppCustomerColumns, \"id\", r.dialect, true)",
+		"func (r *AppCustomerRepo) FindByTenantIDAndExternalIDForUpdate(ctx context.Context, tenantID int64, externalID string) (*entity.AppCustomer, error)",
+		"query, args, err := storage.SelectWhere(entity.AppCustomerTable, entity.AppCustomerColumns, where, r.dialect)",
 		"where = where.Limit(1)",
 		`where = where.IsNull("deleted_at")`,
 		"args...); err != nil",
-		"func (r *CustomerRepo) FindByTenantIDAndExternalIDForUpdateSkipLocked(ctx context.Context, tenantID int64, externalID string) (*entity.Customer, error)",
+		"func (r *AppCustomerRepo) FindByTenantIDAndExternalIDForUpdateSkipLocked(ctx context.Context, tenantID int64, externalID string) (*entity.AppCustomer, error)",
 		`query += " SKIP LOCKED"`,
-		"args := make([]any, 0, len(items)*len(entity.CustomerColumns))",
-		"query, err := storage.BatchInsert(entity.CustomerTable, entity.CustomerColumns, rows, r.dialect)",
-		"func (r *CustomerRepo) FindByTenantIDForUpdate(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.Customer, error)",
-		"func (r *CustomerRepo) FindByTenantIDForUpdateSkipLocked(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.Customer, error)",
+		"args := make([]any, 0, len(items)*len(entity.AppCustomerColumns))",
+		"query, err := storage.BatchInsert(entity.AppCustomerTable, []string{\"id\", \"tenant_id\", \"external_id\", \"email\", \"name\", \"version\", \"deleted_at\"}, rows, r.dialect)",
+		"func (r *AppCustomerRepo) FindByTenantIDForUpdate(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.AppCustomer, error)",
+		"func (r *AppCustomerRepo) FindByTenantIDForUpdateSkipLocked(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.AppCustomer, error)",
 		`query += " FOR UPDATE"`,
 		`query += " SKIP LOCKED"`,
-		"func (c *CachedCustomerRepo) FindByTenantIDAndExternalIDCached(ctx context.Context, tenantID int64, externalID string) (*entity.Customer, error)",
-		"func (c *CachedCustomerRepo) FindOneForUpdate(ctx context.Context, id int64) (*entity.Customer, error)",
-		"func (c *CachedCustomerRepo) FindByTenantIDAndExternalIDForUpdate(ctx context.Context, tenantID int64, externalID string) (*entity.Customer, error)",
-		"func (c *CachedCustomerRepo) FindByTenantIDForUpdate(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.Customer, error)",
+		"func (c *CachedAppCustomerRepo) FindByTenantIDAndExternalIDCached(ctx context.Context, tenantID int64, externalID string) (*entity.AppCustomer, error)",
+		"func (c *CachedAppCustomerRepo) FindOneForUpdate(ctx context.Context, id int64) (*entity.AppCustomer, error)",
+		"func (c *CachedAppCustomerRepo) FindByTenantIDAndExternalIDForUpdate(ctx context.Context, tenantID int64, externalID string) (*entity.AppCustomer, error)",
+		"func (c *CachedAppCustomerRepo) FindByTenantIDForUpdate(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.AppCustomer, error)",
 		"return c.repo.FindByTenantIDForUpdate(ctx, tenantID, limit, offset)",
-		"func (c *CachedCustomerRepo) FindByTenantIDForUpdateSkipLocked(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.Customer, error)",
-		"func (c *CachedCustomerRepo) UpsertByTenantIDAndExternalID(ctx context.Context, in *entity.Customer) error",
-		"func (c *CachedCustomerRepo) PageByTenantIDCached(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.Customer, int64, error)",
-		"func (c *RedisCachedCustomerRepo) FindByTenantIDAndExternalIDForUpdateSkipLocked(ctx context.Context, tenantID int64, externalID string) (*entity.Customer, error)",
-		"func (c *RedisCachedCustomerRepo) FindByTenantIDForUpdateSkipLocked(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.Customer, error)",
-		"func (c *RedisCachedCustomerRepo) UpsertByTenantIDAndExternalID(ctx context.Context, in *entity.Customer) error",
-		"func (c *RedisCachedCustomerRepo) PageByTenantIDCached(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.Customer, int64, error)",
-		"key := redisCustomerIndexListCacheKey(version, indexListKeyByTenantID(tenantID, limit, offset))",
-		"c.listVersionByTenantID.Set(ctx, \"current\", redisCustomerIndexListVersionValue())",
+		"func (c *CachedAppCustomerRepo) FindByTenantIDForUpdateSkipLocked(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.AppCustomer, error)",
+		"func (c *CachedAppCustomerRepo) UpsertByTenantIDAndExternalID(ctx context.Context, in *entity.AppCustomer) error",
+		"func (c *CachedAppCustomerRepo) PageByTenantIDCached(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.AppCustomer, int64, error)",
+		"func (c *RedisCachedAppCustomerRepo) FindByTenantIDAndExternalIDForUpdateSkipLocked(ctx context.Context, tenantID int64, externalID string) (*entity.AppCustomer, error)",
+		"func (c *RedisCachedAppCustomerRepo) FindByTenantIDForUpdateSkipLocked(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.AppCustomer, error)",
+		"func (c *RedisCachedAppCustomerRepo) UpsertByTenantIDAndExternalID(ctx context.Context, in *entity.AppCustomer) error",
+		"func (c *RedisCachedAppCustomerRepo) PageByTenantIDCached(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.AppCustomer, int64, error)",
+		"key := redisAppCustomerIndexListCacheKey(version, indexListKeyByTenantID(tenantID, limit, offset))",
+		"c.listVersionByTenantID.Set(ctx, \"current\", redisAppCustomerIndexListVersionValue())",
 		`query += " AND deleted_at IS NULL"`,
 	} {
 		if !strings.Contains(customerRepoOut, want) {
@@ -1381,57 +1382,57 @@ func TestDatasourceIntrospectionMultiTableGoctlCacheReplay(t *testing.T) {
 		}
 	}
 
-	orderRepo, err := os.ReadFile(filepath.Join(dir, "model", "repo", "order.go"))
+	orderRepo, err := os.ReadFile(filepath.Join(dir, "model", "repo", "app_order.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	orderRepoOut := string(orderRepo)
 	for _, want := range []string{
 		"d := storage.DialectMySQL",
-		"func (r *OrderRepo) FindByTenantIDAndOrderNo(ctx context.Context, tenantID int64, orderNo string) (*entity.Order, error)",
-		"func (r *OrderRepo) FindByCustomerID(ctx context.Context, customerID int64, limit int, offset int) ([]entity.Order, error)",
-		"func (r *OrderRepo) CountByCustomerID(ctx context.Context, customerID int64) (int64, error)",
-		"func (r *OrderRepo) UpsertByTenantIDAndOrderNo(ctx context.Context, in *entity.Order) error",
-		"storage.Upsert(entity.OrderTable, entity.OrderColumns, []string{\"tenant_id\", \"order_no\"}",
-		"func (r *OrderRepo) FindOneForUpdate(ctx context.Context, id int64) (*entity.Order, error)",
-		"storage.SelectForUpdate(entity.OrderTable, entity.OrderColumns, \"id\", r.dialect, false)",
-		"func (r *OrderRepo) FindOneForUpdateSkipLocked(ctx context.Context, id int64) (*entity.Order, error)",
-		"storage.SelectForUpdate(entity.OrderTable, entity.OrderColumns, \"id\", r.dialect, true)",
-		"func (r *OrderRepo) FindByTenantIDAndOrderNoForUpdate(ctx context.Context, tenantID int64, orderNo string) (*entity.Order, error)",
-		"func (r *OrderRepo) FindByTenantIDAndOrderNoForUpdateSkipLocked(ctx context.Context, tenantID int64, orderNo string) (*entity.Order, error)",
-		"args := make([]any, 0, len(items)*len(entity.OrderColumns))",
-		"query, err := storage.BatchInsert(entity.OrderTable, entity.OrderColumns, rows, r.dialect)",
-		"func (r *OrderRepo) FindByTenantIDAndStatus(ctx context.Context, tenantID int64, status string, limit int, offset int) ([]entity.Order, error)",
-		"func (r *OrderRepo) FindByTenantIDAndStatusForUpdate(ctx context.Context, tenantID int64, status string, limit int, offset int) ([]entity.Order, error)",
-		"func (r *OrderRepo) FindByTenantIDAndStatusForUpdateSkipLocked(ctx context.Context, tenantID int64, status string, limit int, offset int) ([]entity.Order, error)",
-		"func (r *OrderRepo) ClaimByTenantIDAndStatusSkipLocked(ctx context.Context, tenantID int64, status string, nextStatus string, limit int) ([]entity.Order, error)",
+		"func (r *AppOrderRepo) FindByTenantIDAndOrderNo(ctx context.Context, tenantID int64, orderNo string) (*entity.AppOrder, error)",
+		"func (r *AppOrderRepo) FindByCustomerID(ctx context.Context, customerID int64, limit int, offset int) ([]entity.AppOrder, error)",
+		"func (r *AppOrderRepo) CountByCustomerID(ctx context.Context, customerID int64) (int64, error)",
+		"func (r *AppOrderRepo) UpsertByTenantIDAndOrderNo(ctx context.Context, in *entity.AppOrder) error",
+		"storage.Upsert(entity.AppOrderTable, []string{\"id\", \"tenant_id\", \"customer_id\", \"order_no\", \"status\", \"total_amount\", \"version\", \"deleted_at\"}, []string{\"tenant_id\", \"order_no\"}",
+		"func (r *AppOrderRepo) FindOneForUpdate(ctx context.Context, id int64) (*entity.AppOrder, error)",
+		"storage.SelectForUpdate(entity.AppOrderTable, entity.AppOrderColumns, \"id\", r.dialect, false)",
+		"func (r *AppOrderRepo) FindOneForUpdateSkipLocked(ctx context.Context, id int64) (*entity.AppOrder, error)",
+		"storage.SelectForUpdate(entity.AppOrderTable, entity.AppOrderColumns, \"id\", r.dialect, true)",
+		"func (r *AppOrderRepo) FindByTenantIDAndOrderNoForUpdate(ctx context.Context, tenantID int64, orderNo string) (*entity.AppOrder, error)",
+		"func (r *AppOrderRepo) FindByTenantIDAndOrderNoForUpdateSkipLocked(ctx context.Context, tenantID int64, orderNo string) (*entity.AppOrder, error)",
+		"args := make([]any, 0, len(items)*len(entity.AppOrderColumns))",
+		"query, err := storage.BatchInsert(entity.AppOrderTable, []string{\"id\", \"tenant_id\", \"customer_id\", \"order_no\", \"status\", \"total_amount\", \"version\", \"deleted_at\"}, rows, r.dialect)",
+		"func (r *AppOrderRepo) FindByTenantIDAndStatus(ctx context.Context, tenantID int64, status string, limit int, offset int) ([]entity.AppOrder, error)",
+		"func (r *AppOrderRepo) FindByTenantIDAndStatusForUpdate(ctx context.Context, tenantID int64, status string, limit int, offset int) ([]entity.AppOrder, error)",
+		"func (r *AppOrderRepo) FindByTenantIDAndStatusForUpdateSkipLocked(ctx context.Context, tenantID int64, status string, limit int, offset int) ([]entity.AppOrder, error)",
+		"func (r *AppOrderRepo) ClaimByTenantIDAndStatusSkipLocked(ctx context.Context, tenantID int64, status string, nextStatus string, limit int) ([]entity.AppOrder, error)",
 		"items, err := txRepo.FindByTenantIDAndStatusForUpdateSkipLocked(ctx, tenantID, status, limit, 0)",
-		"func (r *OrderRepo) updateClaimedStatusByID(ctx context.Context, ids []int64, nextStatus string) error",
-		`query := "UPDATE " + entity.OrderTable + " SET status = " + storage.Placeholder(r.dialect, 1) + " WHERE id IN (" + strings.Join(placeholders, ", ") + ")"`,
+		"func (r *AppOrderRepo) updateClaimedStatusByID(ctx context.Context, ids []int64, nextStatus string) error",
+		`query := "UPDATE " + entity.AppOrderTable + " SET status = " + storage.Placeholder(r.dialect, 1) + " WHERE id IN (" + strings.Join(placeholders, ", ") + ")"`,
 		"if err := txRepo.updateClaimedStatusByID(ctx, ids, nextStatus); err != nil",
 		"items[i].Status = nextStatus",
-		"func (c *CachedOrderRepo) ClaimByTenantIDAndStatusSkipLocked(ctx context.Context, tenantID int64, status string, nextStatus string, limit int) ([]entity.Order, error)",
+		"func (c *CachedAppOrderRepo) ClaimByTenantIDAndStatusSkipLocked(ctx context.Context, tenantID int64, status string, nextStatus string, limit int) ([]entity.AppOrder, error)",
 		"items, err := txRepo.claimByTenantIDAndStatusSkipLocked(ctx, tenantID, status, nextStatus, limit)",
-		"func (c *CachedOrderRepo) claimByTenantIDAndStatusSkipLocked(ctx context.Context, tenantID int64, status string, nextStatus string, limit int) ([]entity.Order, error)",
+		"func (c *CachedAppOrderRepo) claimByTenantIDAndStatusSkipLocked(ctx context.Context, tenantID int64, status string, nextStatus string, limit int) ([]entity.AppOrder, error)",
 		"if err := c.repo.updateClaimedStatusByID(ctx, ids, nextStatus); err != nil",
 		"if err := c.afterUpdateCommit(ctx, &updatedItems[i], &oldItems[i]); err != nil",
-		"func (c *CachedOrderRepo) FindByTenantIDAndOrderNoForUpdate(ctx context.Context, tenantID int64, orderNo string) (*entity.Order, error)",
-		"func (c *CachedOrderRepo) FindByTenantIDAndStatusForUpdate(ctx context.Context, tenantID int64, status string, limit int, offset int) ([]entity.Order, error)",
+		"func (c *CachedAppOrderRepo) FindByTenantIDAndOrderNoForUpdate(ctx context.Context, tenantID int64, orderNo string) (*entity.AppOrder, error)",
+		"func (c *CachedAppOrderRepo) FindByTenantIDAndStatusForUpdate(ctx context.Context, tenantID int64, status string, limit int, offset int) ([]entity.AppOrder, error)",
 		"return c.repo.FindByTenantIDAndStatusForUpdate(ctx, tenantID, status, limit, offset)",
-		"func (c *CachedOrderRepo) UpsertByTenantIDAndOrderNo(ctx context.Context, in *entity.Order) error",
-		"func (c *CachedOrderRepo) PageByCustomerIDCached(ctx context.Context, customerID int64, limit int, offset int) ([]entity.Order, int64, error)",
-		"func (c *CachedOrderRepo) PageByTenantIDAndStatusCached(ctx context.Context, tenantID int64, status string, limit int, offset int) ([]entity.Order, int64, error)",
-		"func (c *RedisCachedOrderRepo) ClaimByTenantIDAndStatusSkipLocked(ctx context.Context, tenantID int64, status string, nextStatus string, limit int) ([]entity.Order, error)",
-		"func (c *RedisCachedOrderRepo) claimByTenantIDAndStatusSkipLocked(ctx context.Context, tenantID int64, status string, nextStatus string, limit int) ([]entity.Order, error)",
+		"func (c *CachedAppOrderRepo) UpsertByTenantIDAndOrderNo(ctx context.Context, in *entity.AppOrder) error",
+		"func (c *CachedAppOrderRepo) PageByCustomerIDCached(ctx context.Context, customerID int64, limit int, offset int) ([]entity.AppOrder, int64, error)",
+		"func (c *CachedAppOrderRepo) PageByTenantIDAndStatusCached(ctx context.Context, tenantID int64, status string, limit int, offset int) ([]entity.AppOrder, int64, error)",
+		"func (c *RedisCachedAppOrderRepo) ClaimByTenantIDAndStatusSkipLocked(ctx context.Context, tenantID int64, status string, nextStatus string, limit int) ([]entity.AppOrder, error)",
+		"func (c *RedisCachedAppOrderRepo) claimByTenantIDAndStatusSkipLocked(ctx context.Context, tenantID int64, status string, nextStatus string, limit int) ([]entity.AppOrder, error)",
 		"if err := c.afterUpdateCommit(ctx, &updatedItems[i]); err != nil",
-		"func (c *RedisCachedOrderRepo) FindByTenantIDAndOrderNoForUpdateSkipLocked(ctx context.Context, tenantID int64, orderNo string) (*entity.Order, error)",
-		"func (c *RedisCachedOrderRepo) FindByTenantIDAndStatusForUpdateSkipLocked(ctx context.Context, tenantID int64, status string, limit int, offset int) ([]entity.Order, error)",
-		"func (c *RedisCachedOrderRepo) UpsertByTenantIDAndOrderNo(ctx context.Context, in *entity.Order) error",
-		"func (c *RedisCachedOrderRepo) PageByTenantIDAndStatusCached(ctx context.Context, tenantID int64, status string, limit int, offset int) ([]entity.Order, int64, error)",
-		"key := redisOrderIndexListCacheKey(version, indexListKeyByCustomerID(customerID, limit, offset))",
-		"key := redisOrderIndexListCacheKey(version, indexListKeyByTenantIDAndStatus(tenantID, status, limit, offset))",
-		"c.listVersionByCustomerID.Set(ctx, \"current\", redisOrderIndexListVersionValue())",
-		"c.listVersionByTenantIDAndStatus.Set(ctx, \"current\", redisOrderIndexListVersionValue())",
+		"func (c *RedisCachedAppOrderRepo) FindByTenantIDAndOrderNoForUpdateSkipLocked(ctx context.Context, tenantID int64, orderNo string) (*entity.AppOrder, error)",
+		"func (c *RedisCachedAppOrderRepo) FindByTenantIDAndStatusForUpdateSkipLocked(ctx context.Context, tenantID int64, status string, limit int, offset int) ([]entity.AppOrder, error)",
+		"func (c *RedisCachedAppOrderRepo) UpsertByTenantIDAndOrderNo(ctx context.Context, in *entity.AppOrder) error",
+		"func (c *RedisCachedAppOrderRepo) PageByTenantIDAndStatusCached(ctx context.Context, tenantID int64, status string, limit int, offset int) ([]entity.AppOrder, int64, error)",
+		"key := redisAppOrderIndexListCacheKey(version, indexListKeyByCustomerID(customerID, limit, offset))",
+		"key := redisAppOrderIndexListCacheKey(version, indexListKeyByTenantIDAndStatus(tenantID, status, limit, offset))",
+		"c.listVersionByCustomerID.Set(ctx, \"current\", redisAppOrderIndexListVersionValue())",
+		"c.listVersionByTenantIDAndStatus.Set(ctx, \"current\", redisAppOrderIndexListVersionValue())",
 	} {
 		if !strings.Contains(orderRepoOut, want) {
 			t.Fatalf("generated datasource order repo missing %q:\n%s", want, orderRepoOut)
@@ -1567,13 +1568,13 @@ func TestPostgresDatasourceIntrospectionMultiSchemaCacheReplay(t *testing.T) {
 		t.Fatalf("writeModelFiles postgres: %v", err)
 	}
 
-	accountEntity, err := os.ReadFile(filepath.Join(dir, "model", "entity", "account_gen.go"))
+	accountEntity, err := os.ReadFile(filepath.Join(dir, "model", "entity", "billing_account_gen.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	accountEntityOut := string(accountEntity)
 	for _, want := range []string{
-		`const AccountTable = "accounts"`,
+		`const BillingAccountTable = "billing_accounts"`,
 		`ExternalRef string`,
 		`db:"email" json:"email"`,
 		`db:"metadata" json:"metadata"`,
@@ -1584,50 +1585,50 @@ func TestPostgresDatasourceIntrospectionMultiSchemaCacheReplay(t *testing.T) {
 		}
 	}
 	for _, unexpected := range []string{"CreatedBy", "UpdatedBy"} {
-		if strings.Contains(accountEntityOut, unexpected) {
-			t.Fatalf("generated postgres account entity should ignore %q:\n%s", unexpected, accountEntityOut)
+		if !strings.Contains(accountEntityOut, unexpected) {
+			t.Fatalf("generated postgres account entity must retain %q:\n%s", unexpected, accountEntityOut)
 		}
 	}
 
-	accountRepo, err := os.ReadFile(filepath.Join(dir, "model", "repo", "account.go"))
+	accountRepo, err := os.ReadFile(filepath.Join(dir, "model", "repo", "billing_account.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	accountRepoOut := string(accountRepo)
 	for _, want := range []string{
 		"d := storage.DialectPostgres",
-		"func (r *AccountRepo) FindByTenantIDAndExternalRef(ctx context.Context, tenantID int64, externalRef string) (*entity.Account, error)",
-		"func (r *AccountRepo) FindByTenantID(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.Account, error)",
-		"func (r *AccountRepo) UpsertByTenantIDAndExternalRef(ctx context.Context, in *entity.Account) error",
-		"storage.Upsert(entity.AccountTable, entity.AccountColumns, []string{\"tenant_id\", \"external_ref\"}",
-		"func (r *AccountRepo) FindOneForUpdate(ctx context.Context, id int64) (*entity.Account, error)",
-		"storage.SelectForUpdate(entity.AccountTable, entity.AccountColumns, \"id\", r.dialect, false)",
-		"func (r *AccountRepo) FindOneForUpdateSkipLocked(ctx context.Context, id int64) (*entity.Account, error)",
-		"storage.SelectForUpdate(entity.AccountTable, entity.AccountColumns, \"id\", r.dialect, true)",
-		"func (r *AccountRepo) FindByTenantIDAndExternalRefForUpdate(ctx context.Context, tenantID int64, externalRef string) (*entity.Account, error)",
-		"query, args, err := storage.SelectWhere(entity.AccountTable, entity.AccountColumns, where, r.dialect)",
+		"func (r *BillingAccountRepo) FindByTenantIDAndExternalRef(ctx context.Context, tenantID int64, externalRef string) (*entity.BillingAccount, error)",
+		"func (r *BillingAccountRepo) FindByTenantID(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.BillingAccount, error)",
+		"func (r *BillingAccountRepo) UpsertByTenantIDAndExternalRef(ctx context.Context, in *entity.BillingAccount) error",
+		"storage.Upsert(entity.BillingAccountTable, []string{\"id\", \"tenant_id\", \"external_ref\", \"email\", \"metadata\", \"version\", \"deleted_at\"}, []string{\"tenant_id\", \"external_ref\"}",
+		"func (r *BillingAccountRepo) FindOneForUpdate(ctx context.Context, id int64) (*entity.BillingAccount, error)",
+		"storage.SelectForUpdate(entity.BillingAccountTable, entity.BillingAccountColumns, \"id\", r.dialect, false)",
+		"func (r *BillingAccountRepo) FindOneForUpdateSkipLocked(ctx context.Context, id int64) (*entity.BillingAccount, error)",
+		"storage.SelectForUpdate(entity.BillingAccountTable, entity.BillingAccountColumns, \"id\", r.dialect, true)",
+		"func (r *BillingAccountRepo) FindByTenantIDAndExternalRefForUpdate(ctx context.Context, tenantID int64, externalRef string) (*entity.BillingAccount, error)",
+		"query, args, err := storage.SelectWhere(entity.BillingAccountTable, entity.BillingAccountColumns, where, r.dialect)",
 		"where = where.Limit(1)",
 		`where = where.IsNull("deleted_at")`,
 		"args...); err != nil",
-		"func (r *AccountRepo) FindByTenantIDAndExternalRefForUpdateSkipLocked(ctx context.Context, tenantID int64, externalRef string) (*entity.Account, error)",
-		"args := make([]any, 0, len(items)*len(entity.AccountColumns))",
-		"query, err := storage.BatchInsert(entity.AccountTable, entity.AccountColumns, rows, r.dialect)",
-		"func (r *AccountRepo) FindByTenantIDForUpdate(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.Account, error)",
-		"func (r *AccountRepo) FindByTenantIDForUpdateSkipLocked(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.Account, error)",
-		"func (c *CachedAccountRepo) FindByTenantIDAndExternalRefCached(ctx context.Context, tenantID int64, externalRef string) (*entity.Account, error)",
-		"func (c *CachedAccountRepo) FindOneForUpdate(ctx context.Context, id int64) (*entity.Account, error)",
-		"func (c *CachedAccountRepo) FindByTenantIDAndExternalRefForUpdate(ctx context.Context, tenantID int64, externalRef string) (*entity.Account, error)",
-		"func (c *CachedAccountRepo) FindByTenantIDForUpdate(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.Account, error)",
+		"func (r *BillingAccountRepo) FindByTenantIDAndExternalRefForUpdateSkipLocked(ctx context.Context, tenantID int64, externalRef string) (*entity.BillingAccount, error)",
+		"args := make([]any, 0, len(items)*len(entity.BillingAccountColumns))",
+		"query, err := storage.BatchInsert(entity.BillingAccountTable, []string{\"id\", \"tenant_id\", \"external_ref\", \"email\", \"metadata\", \"version\", \"deleted_at\"}, rows, r.dialect)",
+		"func (r *BillingAccountRepo) FindByTenantIDForUpdate(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.BillingAccount, error)",
+		"func (r *BillingAccountRepo) FindByTenantIDForUpdateSkipLocked(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.BillingAccount, error)",
+		"func (c *CachedBillingAccountRepo) FindByTenantIDAndExternalRefCached(ctx context.Context, tenantID int64, externalRef string) (*entity.BillingAccount, error)",
+		"func (c *CachedBillingAccountRepo) FindOneForUpdate(ctx context.Context, id int64) (*entity.BillingAccount, error)",
+		"func (c *CachedBillingAccountRepo) FindByTenantIDAndExternalRefForUpdate(ctx context.Context, tenantID int64, externalRef string) (*entity.BillingAccount, error)",
+		"func (c *CachedBillingAccountRepo) FindByTenantIDForUpdate(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.BillingAccount, error)",
 		"return c.repo.FindByTenantIDForUpdate(ctx, tenantID, limit, offset)",
-		"func (c *CachedAccountRepo) FindByTenantIDForUpdateSkipLocked(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.Account, error)",
-		"func (c *CachedAccountRepo) UpsertByTenantIDAndExternalRef(ctx context.Context, in *entity.Account) error",
-		"func (c *CachedAccountRepo) PageByTenantIDCached(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.Account, int64, error)",
-		"func (c *RedisCachedAccountRepo) FindByTenantIDAndExternalRefForUpdateSkipLocked(ctx context.Context, tenantID int64, externalRef string) (*entity.Account, error)",
-		"func (c *RedisCachedAccountRepo) FindByTenantIDForUpdateSkipLocked(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.Account, error)",
-		"func (c *RedisCachedAccountRepo) UpsertByTenantIDAndExternalRef(ctx context.Context, in *entity.Account) error",
-		"func (c *RedisCachedAccountRepo) PageByTenantIDCached(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.Account, int64, error)",
-		"key := redisAccountIndexListCacheKey(version, indexListKeyByTenantID(tenantID, limit, offset))",
-		"c.listVersionByTenantID.Set(ctx, \"current\", redisAccountIndexListVersionValue())",
+		"func (c *CachedBillingAccountRepo) FindByTenantIDForUpdateSkipLocked(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.BillingAccount, error)",
+		"func (c *CachedBillingAccountRepo) UpsertByTenantIDAndExternalRef(ctx context.Context, in *entity.BillingAccount) error",
+		"func (c *CachedBillingAccountRepo) PageByTenantIDCached(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.BillingAccount, int64, error)",
+		"func (c *RedisCachedBillingAccountRepo) FindByTenantIDAndExternalRefForUpdateSkipLocked(ctx context.Context, tenantID int64, externalRef string) (*entity.BillingAccount, error)",
+		"func (c *RedisCachedBillingAccountRepo) FindByTenantIDForUpdateSkipLocked(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.BillingAccount, error)",
+		"func (c *RedisCachedBillingAccountRepo) UpsertByTenantIDAndExternalRef(ctx context.Context, in *entity.BillingAccount) error",
+		"func (c *RedisCachedBillingAccountRepo) PageByTenantIDCached(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.BillingAccount, int64, error)",
+		"key := redisBillingAccountIndexListCacheKey(version, indexListKeyByTenantID(tenantID, limit, offset))",
+		"c.listVersionByTenantID.Set(ctx, \"current\", redisBillingAccountIndexListVersionValue())",
 		`query += " AND deleted_at IS NULL"`,
 	} {
 		if !strings.Contains(accountRepoOut, want) {
@@ -1635,13 +1636,13 @@ func TestPostgresDatasourceIntrospectionMultiSchemaCacheReplay(t *testing.T) {
 		}
 	}
 
-	eventEntity, err := os.ReadFile(filepath.Join(dir, "model", "entity", "event_gen.go"))
+	eventEntity, err := os.ReadFile(filepath.Join(dir, "model", "entity", "billing_event_gen.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	eventEntityOut := string(eventEntity)
 	for _, want := range []string{
-		`const EventTable = "events"`,
+		`const BillingEventTable = "billing_events"`,
 		`db:"amount" json:"amount"`,
 		`db:"occurred_at" json:"occurredAt"`,
 		`db:"deleted_at" json:"deletedAt"`,
@@ -1651,56 +1652,56 @@ func TestPostgresDatasourceIntrospectionMultiSchemaCacheReplay(t *testing.T) {
 		}
 	}
 
-	eventRepo, err := os.ReadFile(filepath.Join(dir, "model", "repo", "event.go"))
+	eventRepo, err := os.ReadFile(filepath.Join(dir, "model", "repo", "billing_event.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	eventRepoOut := string(eventRepo)
 	for _, want := range []string{
 		"d := storage.DialectPostgres",
-		"func (r *EventRepo) FindByTenantIDAndEventNo(ctx context.Context, tenantID int64, eventNo string) (*entity.Event, error)",
-		"func (r *EventRepo) FindByAccountID(ctx context.Context, accountID int64, limit int, offset int) ([]entity.Event, error)",
-		"func (r *EventRepo) FindByTenantIDAndStatus(ctx context.Context, tenantID int64, status string, limit int, offset int) ([]entity.Event, error)",
-		"func (r *EventRepo) UpsertByTenantIDAndEventNo(ctx context.Context, in *entity.Event) error",
-		"storage.Upsert(entity.EventTable, entity.EventColumns, []string{\"tenant_id\", \"event_no\"}",
-		"func (r *EventRepo) FindOneForUpdate(ctx context.Context, id int64) (*entity.Event, error)",
-		"storage.SelectForUpdate(entity.EventTable, entity.EventColumns, \"id\", r.dialect, false)",
-		"func (r *EventRepo) FindOneForUpdateSkipLocked(ctx context.Context, id int64) (*entity.Event, error)",
-		"storage.SelectForUpdate(entity.EventTable, entity.EventColumns, \"id\", r.dialect, true)",
-		"func (r *EventRepo) FindByTenantIDAndEventNoForUpdate(ctx context.Context, tenantID int64, eventNo string) (*entity.Event, error)",
-		"func (r *EventRepo) FindByTenantIDAndEventNoForUpdateSkipLocked(ctx context.Context, tenantID int64, eventNo string) (*entity.Event, error)",
-		"args := make([]any, 0, len(items)*len(entity.EventColumns))",
-		"query, err := storage.BatchInsert(entity.EventTable, entity.EventColumns, rows, r.dialect)",
-		"func (r *EventRepo) FindByTenantIDAndStatusForUpdate(ctx context.Context, tenantID int64, status string, limit int, offset int) ([]entity.Event, error)",
-		"func (r *EventRepo) FindByTenantIDAndStatusForUpdateSkipLocked(ctx context.Context, tenantID int64, status string, limit int, offset int) ([]entity.Event, error)",
-		"func (r *EventRepo) ClaimByTenantIDAndStatusSkipLocked(ctx context.Context, tenantID int64, status string, nextStatus string, limit int) ([]entity.Event, error)",
+		"func (r *BillingEventRepo) FindByTenantIDAndEventNo(ctx context.Context, tenantID int64, eventNo string) (*entity.BillingEvent, error)",
+		"func (r *BillingEventRepo) FindByAccountID(ctx context.Context, accountID int64, limit int, offset int) ([]entity.BillingEvent, error)",
+		"func (r *BillingEventRepo) FindByTenantIDAndStatus(ctx context.Context, tenantID int64, status string, limit int, offset int) ([]entity.BillingEvent, error)",
+		"func (r *BillingEventRepo) UpsertByTenantIDAndEventNo(ctx context.Context, in *entity.BillingEvent) error",
+		"storage.Upsert(entity.BillingEventTable, []string{\"id\", \"tenant_id\", \"account_id\", \"event_no\", \"status\", \"amount\", \"occurred_at\", \"deleted_at\"}, []string{\"tenant_id\", \"event_no\"}",
+		"func (r *BillingEventRepo) FindOneForUpdate(ctx context.Context, id int64) (*entity.BillingEvent, error)",
+		"storage.SelectForUpdate(entity.BillingEventTable, entity.BillingEventColumns, \"id\", r.dialect, false)",
+		"func (r *BillingEventRepo) FindOneForUpdateSkipLocked(ctx context.Context, id int64) (*entity.BillingEvent, error)",
+		"storage.SelectForUpdate(entity.BillingEventTable, entity.BillingEventColumns, \"id\", r.dialect, true)",
+		"func (r *BillingEventRepo) FindByTenantIDAndEventNoForUpdate(ctx context.Context, tenantID int64, eventNo string) (*entity.BillingEvent, error)",
+		"func (r *BillingEventRepo) FindByTenantIDAndEventNoForUpdateSkipLocked(ctx context.Context, tenantID int64, eventNo string) (*entity.BillingEvent, error)",
+		"args := make([]any, 0, len(items)*len(entity.BillingEventColumns))",
+		"query, err := storage.BatchInsert(entity.BillingEventTable, []string{\"id\", \"tenant_id\", \"account_id\", \"event_no\", \"status\", \"amount\", \"occurred_at\", \"deleted_at\"}, rows, r.dialect)",
+		"func (r *BillingEventRepo) FindByTenantIDAndStatusForUpdate(ctx context.Context, tenantID int64, status string, limit int, offset int) ([]entity.BillingEvent, error)",
+		"func (r *BillingEventRepo) FindByTenantIDAndStatusForUpdateSkipLocked(ctx context.Context, tenantID int64, status string, limit int, offset int) ([]entity.BillingEvent, error)",
+		"func (r *BillingEventRepo) ClaimByTenantIDAndStatusSkipLocked(ctx context.Context, tenantID int64, status string, nextStatus string, limit int) ([]entity.BillingEvent, error)",
 		"items, err := txRepo.FindByTenantIDAndStatusForUpdateSkipLocked(ctx, tenantID, status, limit, 0)",
-		"func (r *EventRepo) updateClaimedStatusByID(ctx context.Context, ids []int64, nextStatus string) error",
-		`query := "UPDATE " + entity.EventTable + " SET status = " + storage.Placeholder(r.dialect, 1) + " WHERE id IN (" + strings.Join(placeholders, ", ") + ")"`,
+		"func (r *BillingEventRepo) updateClaimedStatusByID(ctx context.Context, ids []int64, nextStatus string) error",
+		`query := "UPDATE " + entity.BillingEventTable + " SET status = " + storage.Placeholder(r.dialect, 1) + " WHERE id IN (" + strings.Join(placeholders, ", ") + ")"`,
 		"if err := txRepo.updateClaimedStatusByID(ctx, ids, nextStatus); err != nil",
 		"items[i].Status = nextStatus",
-		"func (c *CachedEventRepo) ClaimByTenantIDAndStatusSkipLocked(ctx context.Context, tenantID int64, status string, nextStatus string, limit int) ([]entity.Event, error)",
+		"func (c *CachedBillingEventRepo) ClaimByTenantIDAndStatusSkipLocked(ctx context.Context, tenantID int64, status string, nextStatus string, limit int) ([]entity.BillingEvent, error)",
 		"items, err := txRepo.claimByTenantIDAndStatusSkipLocked(ctx, tenantID, status, nextStatus, limit)",
-		"func (c *CachedEventRepo) claimByTenantIDAndStatusSkipLocked(ctx context.Context, tenantID int64, status string, nextStatus string, limit int) ([]entity.Event, error)",
+		"func (c *CachedBillingEventRepo) claimByTenantIDAndStatusSkipLocked(ctx context.Context, tenantID int64, status string, nextStatus string, limit int) ([]entity.BillingEvent, error)",
 		"if err := c.repo.updateClaimedStatusByID(ctx, ids, nextStatus); err != nil",
 		"if err := c.afterUpdateCommit(ctx, &updatedItems[i], &oldItems[i]); err != nil",
-		"func (c *CachedEventRepo) FindByTenantIDAndEventNoForUpdate(ctx context.Context, tenantID int64, eventNo string) (*entity.Event, error)",
-		"func (c *CachedEventRepo) FindByTenantIDAndStatusForUpdate(ctx context.Context, tenantID int64, status string, limit int, offset int) ([]entity.Event, error)",
+		"func (c *CachedBillingEventRepo) FindByTenantIDAndEventNoForUpdate(ctx context.Context, tenantID int64, eventNo string) (*entity.BillingEvent, error)",
+		"func (c *CachedBillingEventRepo) FindByTenantIDAndStatusForUpdate(ctx context.Context, tenantID int64, status string, limit int, offset int) ([]entity.BillingEvent, error)",
 		"return c.repo.FindByTenantIDAndStatusForUpdate(ctx, tenantID, status, limit, offset)",
-		"func (c *CachedEventRepo) UpsertByTenantIDAndEventNo(ctx context.Context, in *entity.Event) error",
-		"func (c *CachedEventRepo) PageByAccountIDCached(ctx context.Context, accountID int64, limit int, offset int) ([]entity.Event, int64, error)",
-		"func (c *CachedEventRepo) PageByTenantIDAndStatusCached(ctx context.Context, tenantID int64, status string, limit int, offset int) ([]entity.Event, int64, error)",
-		"func (c *RedisCachedEventRepo) ClaimByTenantIDAndStatusSkipLocked(ctx context.Context, tenantID int64, status string, nextStatus string, limit int) ([]entity.Event, error)",
-		"func (c *RedisCachedEventRepo) claimByTenantIDAndStatusSkipLocked(ctx context.Context, tenantID int64, status string, nextStatus string, limit int) ([]entity.Event, error)",
+		"func (c *CachedBillingEventRepo) UpsertByTenantIDAndEventNo(ctx context.Context, in *entity.BillingEvent) error",
+		"func (c *CachedBillingEventRepo) PageByAccountIDCached(ctx context.Context, accountID int64, limit int, offset int) ([]entity.BillingEvent, int64, error)",
+		"func (c *CachedBillingEventRepo) PageByTenantIDAndStatusCached(ctx context.Context, tenantID int64, status string, limit int, offset int) ([]entity.BillingEvent, int64, error)",
+		"func (c *RedisCachedBillingEventRepo) ClaimByTenantIDAndStatusSkipLocked(ctx context.Context, tenantID int64, status string, nextStatus string, limit int) ([]entity.BillingEvent, error)",
+		"func (c *RedisCachedBillingEventRepo) claimByTenantIDAndStatusSkipLocked(ctx context.Context, tenantID int64, status string, nextStatus string, limit int) ([]entity.BillingEvent, error)",
 		"if err := c.afterUpdateCommit(ctx, &updatedItems[i]); err != nil",
-		"func (c *RedisCachedEventRepo) FindByTenantIDAndEventNoForUpdateSkipLocked(ctx context.Context, tenantID int64, eventNo string) (*entity.Event, error)",
-		"func (c *RedisCachedEventRepo) FindByTenantIDAndStatusForUpdateSkipLocked(ctx context.Context, tenantID int64, status string, limit int, offset int) ([]entity.Event, error)",
-		"func (c *RedisCachedEventRepo) UpsertByTenantIDAndEventNo(ctx context.Context, in *entity.Event) error",
-		"func (c *RedisCachedEventRepo) PageByTenantIDAndStatusCached(ctx context.Context, tenantID int64, status string, limit int, offset int) ([]entity.Event, int64, error)",
-		"key := redisEventIndexListCacheKey(version, indexListKeyByAccountID(accountID, limit, offset))",
-		"key := redisEventIndexListCacheKey(version, indexListKeyByTenantIDAndStatus(tenantID, status, limit, offset))",
-		"c.listVersionByAccountID.Set(ctx, \"current\", redisEventIndexListVersionValue())",
-		"c.listVersionByTenantIDAndStatus.Set(ctx, \"current\", redisEventIndexListVersionValue())",
+		"func (c *RedisCachedBillingEventRepo) FindByTenantIDAndEventNoForUpdateSkipLocked(ctx context.Context, tenantID int64, eventNo string) (*entity.BillingEvent, error)",
+		"func (c *RedisCachedBillingEventRepo) FindByTenantIDAndStatusForUpdateSkipLocked(ctx context.Context, tenantID int64, status string, limit int, offset int) ([]entity.BillingEvent, error)",
+		"func (c *RedisCachedBillingEventRepo) UpsertByTenantIDAndEventNo(ctx context.Context, in *entity.BillingEvent) error",
+		"func (c *RedisCachedBillingEventRepo) PageByTenantIDAndStatusCached(ctx context.Context, tenantID int64, status string, limit int, offset int) ([]entity.BillingEvent, int64, error)",
+		"key := redisBillingEventIndexListCacheKey(version, indexListKeyByAccountID(accountID, limit, offset))",
+		"key := redisBillingEventIndexListCacheKey(version, indexListKeyByTenantIDAndStatus(tenantID, status, limit, offset))",
+		"c.listVersionByAccountID.Set(ctx, \"current\", redisBillingEventIndexListVersionValue())",
+		"c.listVersionByTenantIDAndStatus.Set(ctx, \"current\", redisBillingEventIndexListVersionValue())",
 	} {
 		if !strings.Contains(eventRepoOut, want) {
 			t.Fatalf("generated postgres event repo missing %q:\n%s", want, eventRepoOut)
@@ -1750,16 +1751,16 @@ func TestPostgresDatasourceIntrospectionSkipsExpressionAndPartialIndexes(t *test
 	if err := writeModelFiles(tables, dir, "model", "example.com/postgres-expression", modelStyleSQL, true, storage.DialectPostgres); err != nil {
 		t.Fatalf("writeModelFiles postgres expression indexes: %v", err)
 	}
-	repo, err := os.ReadFile(filepath.Join(dir, "model", "repo", "job.go"))
+	repo, err := os.ReadFile(filepath.Join(dir, "model", "repo", "billing_job.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	repoOut := string(repo)
 	for _, want := range []string{
-		"func (r *JobRepo) FindByTenantID(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.Job, error)",
+		"func (r *BillingJobRepo) FindByTenantID(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.BillingJob, error)",
 		`where = where.OrderBy("status")`,
-		"func (c *CachedJobRepo) PageByTenantIDCached(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.Job, int64, error)",
-		"key := redisJobIndexListCacheKey(version, indexListKeyByTenantID(tenantID, limit, offset))",
+		"func (c *CachedBillingJobRepo) PageByTenantIDCached(ctx context.Context, tenantID int64, limit int, offset int) ([]entity.BillingJob, int64, error)",
+		"key := redisBillingJobIndexListCacheKey(version, indexListKeyByTenantID(tenantID, limit, offset))",
 	} {
 		if !strings.Contains(repoOut, want) {
 			t.Fatalf("generated postgres expression repo missing %q:\n%s", want, repoOut)
@@ -1828,22 +1829,20 @@ func TestPrepareModelTablesFilterStrictBoundaries(t *testing.T) {
 	if _, err := prepareModelTables(base, modelSchemaGenerationOptions{Tables: []string{"missing"}, Strict: true}); err == nil || !strings.Contains(err.Error(), "requested table not found") {
 		t.Fatalf("prepareModelTables missing strict error = %v, want requested table not found", err)
 	}
-	if _, err := prepareModelTables([]SQLTable{{Name: "app_", Columns: []SQLColumn{{Name: "id"}}}}, modelSchemaGenerationOptions{Prefix: "app_", Strict: true}); err == nil || !strings.Contains(err.Error(), "becomes empty") {
-		t.Fatalf("prepareModelTables empty prefix error = %v, want becomes empty", err)
-	}
-	if _, err := prepareModelTables(base, modelSchemaGenerationOptions{IgnoreColumns: []string{"id"}, Strict: true}); err == nil || !strings.Contains(err.Error(), "primary key column") {
-		t.Fatalf("prepareModelTables ignore pk strict error = %v, want primary key rejection", err)
-	}
-	if _, err := prepareModelTables(base, modelSchemaGenerationOptions{IgnoreColumns: []string{"id", "email", "deleted_at"}}); err == nil || !strings.Contains(err.Error(), "no columns") {
-		t.Fatalf("prepareModelTables all ignored error = %v, want no columns", err)
-	}
-
-	prepared, err := prepareModelTables(base, modelSchemaGenerationOptions{Prefix: "app_", IgnoreColumns: []string{"id"}})
+	prepared, err := prepareModelTables(base, modelSchemaGenerationOptions{
+		Prefix: "app_", IgnoreColumns: []string{"id", "email", "deleted_at"}, Strict: true,
+	})
 	if err != nil {
-		t.Fatalf("prepareModelTables non-strict ignore pk: %v", err)
+		t.Fatal(err)
 	}
-	if len(prepared) != 1 || prepared[0].Name != "users" || prepared[0].PrimaryKey != "email" || !prepared[0].Columns[0].PrimaryKey || prepared[0].SoftDeleteColumn != "deleted_at" {
-		t.Fatalf("prepared tables = %#v, want trimmed users with fallback email primary key and soft delete", prepared)
+	if len(prepared) != 1 || prepared[0].Name != "app_users" || prepared[0].PrimaryKey != "id" || len(prepared[0].Columns) != 3 || prepared[0].SoftDeleteColumn != "deleted_at" {
+		t.Fatalf("prepared tables = %#v, want original readable schema", prepared)
+	}
+	if len(insertColumns(prepared[0])) != 0 || len(updateColumns(prepared[0])) != 0 {
+		t.Fatal("write-ignored columns must not enter insert or update lists")
+	}
+	if _, err := prepareModelTables([]SQLTable{{Name: "empty"}}, modelSchemaGenerationOptions{}); err == nil {
+		t.Fatal("empty table columns must be rejected")
 	}
 }
 

@@ -1,0 +1,56 @@
+{
+  "schema": "gofly.native_grpc_golden_path.v1",
+  "status": "blocking-contract",
+  "acceptanceGate": "make native-grpc-golden-path-check",
+  "profileContract": {
+    "defaultNewRPC": "gofly-http-rpc",
+    "gozeroCompatibleNewRPC": "native-grpc",
+    "rpcGenDefaultTransport": "grpc",
+    "rpcProtoc": "standard-protobuf-and-grpc-stubs"
+  },
+  "capabilities": [
+    {
+      "id": "safe-client-defaults",
+      "status": "implemented",
+      "evidence": ["TestDialKeepsDefaultCredentialsWithResolverOption", "TestDialKeepsDefaultCredentialsWithRegistryResolverOption", "TestDialWaitForReadyHonorsTimeout"]
+    },
+    {
+      "id": "default-client-observability",
+      "status": "implemented",
+      "evidence": ["NewDefaultClient", "ObservabilityUnaryClientInterceptor", "ObservabilityStreamClientInterceptor"]
+    },
+    {
+      "id": "discovery-health-lifecycle",
+      "status": "implemented",
+      "evidence": ["WithDiscovery", "WithDiscoveryResolver", "TestGRPCServerDiscoveryAndHealthLifecycle"]
+    },
+    {
+      "id": "grpc-balancers",
+      "status": "implemented",
+      "evidence": ["P2CEWMABalancerName", "ConsistentHashBalancerName", "TestGoflyGRPCBalancersRegistered"]
+    },
+    {
+      "id": "runnable-gozero-compatible-scaffold",
+      "status": "implemented",
+      "evidence": ["TestGenerateRPCNewGoZeroCompatibleProducesRunnableGRPCProject", "goZeroRPCServerTestTemplate"]
+    },
+    {
+      "id": "keepalive-and-adaptive-shedding",
+      "status": "implemented",
+      "evidence": ["WithClientKeepalive", "WithServerKeepalive", "AdaptiveLimitUnaryServerInterceptor", "TestAdaptiveLimitUnaryServerInterceptor"]
+    },
+    {
+      "id": "gozero-app-token-compatibility",
+      "status": "implemented-opt-in",
+      "evidence": ["NewRedisTokenValidator", "AppTokenCredentials", "TestRedisTokenValidator"]
+    },
+    {
+      "id": "bounded-credential-proxy",
+      "status": "implemented-opt-in",
+      "evidence": ["NewAppTokenProxy", "AppTokenProxySnapshot", "TestAppTokenProxyCachesAndBoundsConnections"]
+    }
+  ],
+  "deferred": [
+    "adaptive-shedding-default-policy"
+  ]
+}

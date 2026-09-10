@@ -176,8 +176,14 @@ Model migration parity is tracked by
 `docs/reference/goctl-model-parity-replay.json` and validated by
 `make goctl-model-parity-replay-check`. This gate executes extension-preservation,
 generated SQL read/write, and datasource schema tests rather than only checking
-that flags exist. Remaining gaps include auto-increment/default metadata, unsigned
-type mapping, facade return types, template flags, and Mongo multi-type/easy/cache
+that flags exist. DDL and datasource metadata preserve auto-increment and strict
+unsigned primary-key mapping; the go_zero `Insert` facade returns `sql.Result`.
+For cache-enabled model generation, `NewCached<Type>Model(conn, opts...)` returns
+the same Model interface, caches reads, invalidates after writes, and declines to
+reuse the cache across a transaction session. Normal repository convenience methods
+remain error-only. Remaining gaps include database default metadata, custom type-map
+nullable/unsigned variants, update/delete result contracts, template flags, and Mongo
+driver/runtime
 semantics. Mongo accepts comma-separated types, `--easy` emits a deterministic
 `<Type>CollectionName` constant, and `--prefix` contributes to generated cache
 namespaces without changing the type name. Constructor/runtime contracts and

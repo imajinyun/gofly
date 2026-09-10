@@ -525,7 +525,7 @@ func emitModelSchemaIR(ir ModelSchemaIR, opts modelSchemaEmitOptions) error {
 		return err
 	}
 	if opts.GoZeroLayout {
-		if err := writeGoZeroModelFacadeFiles(ir.Tables, dir, importModule, ir.Dialect); err != nil {
+		if err := writeGoZeroModelFacadeFiles(ir.Tables, dir, importModule, ir.Dialect, opts.Cache); err != nil {
 			return err
 		}
 	}
@@ -545,9 +545,9 @@ func introspectSQLTables(ctx context.Context, db *sql.DB, opts datasourceIntrosp
 	byName := map[string]*SQLTable{}
 	var order []string
 	for rows.Next() {
-		var tableName, columnName, dataType, columnKey, nullable string
+		var tableName, columnName, dataType, columnType, columnDefault, columnExtra, columnKey, nullable string
 		var ordinal int
-		if err := rows.Scan(&tableName, &columnName, &dataType, &columnKey, &nullable, &ordinal); err != nil {
+		if err := rows.Scan(&tableName, &columnName, &dataType, &columnType, &columnDefault, &columnExtra, &columnKey, &nullable, &ordinal); err != nil {
 			return nil, fmt.Errorf("scan datasource column: %w", err)
 		}
 		table := byName[tableName]
@@ -557,10 +557,12 @@ func introspectSQLTables(ctx context.Context, db *sql.DB, opts datasourceIntrosp
 			order = append(order, tableName)
 		}
 		column := SQLColumn{
-			Name:       columnName,
-			Type:       normalizeDatasourceType(dataType),
-			PrimaryKey: strings.EqualFold(columnKey, "PRI"),
-			Nullable:   strings.EqualFold(nullable, "YES"),
+			Name:          columnName,
+			Type:          normalizeDatasourceType(dataType),
+			PrimaryKey:    strings.EqualFold(columnKey, "PRI"),
+			Nullable:      strings.EqualFold(nullable, "YES"),
+			AutoIncrement: strings.Contains(strings.ToLower(columnExtra), "auto_increment") || isPostgresGeneratedColumn(columnDefault),
+			Unsigned:      strings.Contains(strings.ToLower(columnType), "unsigned"),
 		}
 		if column.PrimaryKey && table.PrimaryKey == "" {
 			table.PrimaryKey = column.Name
@@ -680,7 +682,7 @@ func datasourceColumnsQueryWithScope(opts datasourceIntrospectionOptions) (strin
 	schema := strings.TrimSpace(opts.Schema)
 	switch strings.ToLower(strings.TrimSpace(opts.Driver)) {
 	case "mysql":
-		query := `SELECT table_name, column_name, data_type, column_key, is_nullable, ordinal_position
+		query := `SELECT table_name, column_name, data_type, column_type, COALESCE(column_default, ''), extra, column_key, is_nullable, ordinal_position
 FROM information_schema.columns
 WHERE table_schema = DATABASE()`
 		args := make([]any, 0, len(tables)+1)
@@ -697,7 +699,7 @@ WHERE table_schema = DATABASE()`
 		query += " ORDER BY table_name, ordinal_position"
 		return query, args, nil
 	case "pg", "postgres", "postgresql":
-		query := `SELECT c.table_name, c.column_name, c.data_type,
+		query := `SELECT c.table_name, c.column_name, c.data_type, c.udt_name, COALESCE(c.column_default, ''), COALESCE(c.is_identity, ''),
        CASE WHEN tc.constraint_type = 'PRIMARY KEY' THEN 'PRI' ELSE '' END AS column_key,
        c.is_nullable, c.ordinal_position
 FROM information_schema.columns c
@@ -823,6 +825,11 @@ func normalizeDatasourceType(value string) string {
 	default:
 		return strings.ToLower(strings.TrimSpace(value))
 	}
+}
+
+func isPostgresGeneratedColumn(defaultValue string) bool {
+	defaultValue = strings.ToLower(strings.TrimSpace(defaultValue))
+	return strings.HasPrefix(defaultValue, "nextval(") || defaultValue == "yes"
 }
 
 func filterSQLTables(tables []SQLTable, names []string) []SQLTable {
@@ -1288,7 +1295,7 @@ func writeModelFilesWithLayout(tables []SQLTable, dir string, pkg string, module
 	return nil
 }
 
-func writeGoZeroModelFacadeFiles(tables []SQLTable, dir string, module string, defaultDialect storage.Dialect) error {
+func writeGoZeroModelFacadeFiles(tables []SQLTable, dir string, module string, defaultDialect storage.Dialect, cacheEnabled bool) error {
 	if len(tables) == 0 {
 		return errors.New("model table is required")
 	}
@@ -1296,10 +1303,10 @@ func writeGoZeroModelFacadeFiles(tables []SQLTable, dir string, module string, d
 		return err
 	}
 	for _, table := range tables {
-		if err := writeGoZeroModelFacadeFile(dir, table, module, defaultDialect, false); err != nil {
+		if err := writeGoZeroModelFacadeFile(dir, table, module, defaultDialect, cacheEnabled, false); err != nil {
 			return err
 		}
-		if err := writeGoZeroModelFacadeFile(dir, table, module, defaultDialect, true); err != nil {
+		if err := writeGoZeroModelFacadeFile(dir, table, module, defaultDialect, cacheEnabled, true); err != nil {
 			return err
 		}
 	}
@@ -1318,7 +1325,7 @@ func writeGoZeroModelVarsFile(dir string) error {
 	return writeGeneratedExtensionFile(dir, filepath.Join("model", "vars.go"), formatted)
 }
 
-func writeGoZeroModelFacadeFile(dir string, table SQLTable, module string, defaultDialect storage.Dialect, generated bool) error {
+func writeGoZeroModelFacadeFile(dir string, table SQLTable, module string, defaultDialect storage.Dialect, cacheEnabled bool, generated bool) error {
 	typeName := exportName(singularize(table.Name))
 	modelName := typeName + "Model"
 	defaultName := "default" + typeName + "Model"
@@ -1332,27 +1339,33 @@ func writeGoZeroModelFacadeFile(dir string, table SQLTable, module string, defau
 		fprintf(&b, "import (\n")
 		fprintf(&b, "\t\"context\"\n")
 		fprintf(&b, "\t\"database/sql\"\n\n")
+		if cacheEnabled {
+			fprintf(&b, "\t\"github.com/imajinyun/gofly/cache\"\n")
+		}
 		fprintf(&b, "\t\"github.com/imajinyun/gofly/core/storage\"\n")
 		fprintf(&b, "\tentity %q\n", entityImport)
 		fprintf(&b, ")\n\n")
 		fprintf(&b, "type %s = entity.%s\n\n", typeName, typeName)
 		fprintf(&b, "type %s interface {\n", lowerCamel(typeName)+"Model")
 		fprintf(&b, "\tFindOne(ctx context.Context, %s %s) (*%s, error)\n", pkArg, pkType, typeName)
-		fprintf(&b, "\tInsert(ctx context.Context, in *%s) error\n", typeName)
+		fprintf(&b, "\tInsert(ctx context.Context, in *%s) (sql.Result, error)\n", typeName)
 		fprintf(&b, "\tUpdate(ctx context.Context, in *%s) error\n", typeName)
 		fprintf(&b, "\tDelete(ctx context.Context, %s %s) error\n", pkArg, pkType)
 		fprintf(&b, "}\n\n")
 		fprintf(&b, "type %s struct {\n", defaultName)
 		fprintf(&b, "\trepo *%sRepo\n", typeName)
 		fprintf(&b, "}\n\n")
+		if cacheEnabled {
+			fprintf(&b, "type cached%s struct {\n\t*%s\n\tcache *cache.ModelCache[*%s, %s]\n}\n\n", modelName, defaultName, typeName, pkType)
+		}
 		fprintf(&b, "func new%s(conn *storage.SQLStore, dialect ...storage.Dialect) *%s {\n", typeName+"Model", defaultName)
 		fprintf(&b, "\treturn &%s{repo: New%sRepo(conn, dialect...)}\n", defaultName, typeName)
 		fprintf(&b, "}\n\n")
 		fprintf(&b, "func (m *%s) FindOne(ctx context.Context, %s %s) (*%s, error) {\n", defaultName, pkArg, pkType, typeName)
 		fprintf(&b, "\treturn m.repo.FindOne(ctx, %s)\n", pkArg)
 		fprintf(&b, "}\n\n")
-		fprintf(&b, "func (m *%s) Insert(ctx context.Context, in *%s) error {\n", defaultName, typeName)
-		fprintf(&b, "\treturn m.repo.Insert(ctx, in)\n")
+		fprintf(&b, "func (m *%s) Insert(ctx context.Context, in *%s) (sql.Result, error) {\n", defaultName, typeName)
+		fprintf(&b, "\treturn m.repo.InsertResult(ctx, in)\n")
 		fprintf(&b, "}\n\n")
 		fprintf(&b, "func (m *%s) Update(ctx context.Context, in *%s) error {\n", defaultName, typeName)
 		fprintf(&b, "\treturn m.repo.Update(ctx, in)\n")
@@ -1366,6 +1379,25 @@ func writeGoZeroModelFacadeFile(dir string, table SQLTable, module string, defau
 		fprintf(&b, "\tclone.repo = m.repo.WithTx(session)\n")
 		fprintf(&b, "\treturn &clone\n")
 		fprintf(&b, "}\n")
+		if cacheEnabled {
+			cachePrefix := "entity." + typeName + "Table"
+			if table.CachePrefix != "" {
+				cachePrefix = "entity." + typeName + "CacheKeyPrefix"
+			}
+			fprintf(&b, "\nfunc NewCached%s(conn *storage.SQLStore, opts ...cache.ModelOption[*%s, %s]) %s {\n", modelName, typeName, pkType, modelName)
+			fprintf(&b, "\tmodel := new%s(conn)\n", typeName+"Model")
+			fprintf(&b, "\toptions := append([]cache.ModelOption[*%s, %s]{cache.WithModelKeyPrefix[*%s, %s](%s)}, opts...)\n", typeName, pkType, typeName, pkType, cachePrefix)
+			fprintf(&b, "\treturn &cached%s{default%s: model, cache: cache.NewModel(model.FindOne, options...)}\n}\n\n", modelName, modelName)
+			fprintf(&b, "func (m *cached%s) FindOne(ctx context.Context, %s %s) (*%s, error) {\n\treturn m.cache.Get(ctx, %s)\n}\n\n", modelName, pkArg, pkType, typeName, pkArg)
+			fprintf(&b, "func (m *cached%s) Insert(ctx context.Context, in *%s) (sql.Result, error) {\n", modelName, typeName)
+			fprintf(&b, "\tresult, err := m.default%s.Insert(ctx, in)\n\tif err == nil && in != nil {\n\t\tm.cache.Set(in.%s, in)\n\t}\n\treturn result, err\n}\n\n", modelName, modelFieldName(pk.Name))
+			fprintf(&b, "func (m *cached%s) Update(ctx context.Context, in *%s) error {\n", modelName, typeName)
+			fprintf(&b, "\terr := m.default%s.Update(ctx, in)\n\tif err == nil && in != nil {\n\t\tm.cache.Invalidate(in.%s)\n\t}\n\treturn err\n}\n\n", modelName, modelFieldName(pk.Name))
+			fprintf(&b, "func (m *cached%s) Delete(ctx context.Context, %s %s) error {\n", modelName, pkArg, pkType)
+			fprintf(&b, "\terr := m.default%s.Delete(ctx, %s)\n\tif err == nil {\n\t\tm.cache.Invalidate(%s)\n\t}\n\treturn err\n}\n\n", modelName, pkArg, pkArg)
+			fprintf(&b, "func (m *cached%s) withSession(session *sql.Tx) %s {\n", modelName, modelName)
+			fprintf(&b, "\tif m == nil || m.default%s == nil {\n\t\treturn m\n\t}\n\treturn m.default%s.withSession(session)\n}\n", modelName, modelName)
+		}
 	} else {
 		fprintf(&b, "import (\n")
 		fprintf(&b, "\t\"database/sql\"\n\n")
@@ -3223,16 +3255,17 @@ func writeFindOne(b *bytes.Buffer, table SQLTable, typeName, receiverName string
 }
 
 func writeInsert(b *bytes.Buffer, table SQLTable, typeName, receiverName string) {
-	fprintf(b, "func (r *%s) Insert(ctx context.Context, in *entity.%s) error {\n", receiverName, typeName)
-	fprintf(b, "\tif in == nil {\n\t\treturn errors.New(\"%s is nil\")\n\t}\n", lowerCamel(typeName))
+	fprintf(b, "func (r *%s) InsertResult(ctx context.Context, in *entity.%s) (sql.Result, error) {\n", receiverName, typeName)
+	fprintf(b, "\tif in == nil {\n\t\treturn nil, errors.New(\"%s is nil\")\n\t}\n", lowerCamel(typeName))
 	if len(insertColumns(table)) == 0 {
-		fprintf(b, "\treturn errors.New(\"insert columns are required\")\n}\n\n")
+		fprintf(b, "\treturn nil, errors.New(\"insert columns are required\")\n}\n\n")
 		return
 	}
 	fprintf(b, "\tquery, err := storage.Insert(entity.%sTable, %s, r.dialect)\n", typeName, insertColumnsExpression(table, typeName))
-	fprintf(b, "\tif err != nil {\n\t\treturn err\n\t}\n")
-	fprintf(b, "\tif _, err := r.exec(ctx, query, %s); err != nil {\n\t\treturn err\n\t}\n", valueArgs("in", insertColumns(table)))
-	fprintf(b, "\treturn nil\n}\n\n")
+	fprintf(b, "\tif err != nil {\n\t\treturn nil, err\n\t}\n")
+	fprintf(b, "\treturn r.exec(ctx, query, %s)\n}\n\n", valueArgs("in", insertColumns(table)))
+	fprintf(b, "func (r *%s) Insert(ctx context.Context, in *entity.%s) error {\n", receiverName, typeName)
+	fprintf(b, "\t_, err := r.InsertResult(ctx, in)\n\treturn err\n}\n\n")
 }
 
 func writeUpdate(b *bytes.Buffer, table SQLTable, typeName, receiverName string) {

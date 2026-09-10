@@ -28,7 +28,7 @@
     "offlineDatasourceFixtures": "offline-datasource-fixtures cover MySQL multi-table and PostgreSQL multi-schema datasource replay without requiring live database services.",
     "regeneration": "Existing model facade extensions and vars.go are preserved; generated entities and repository implementations remain replaceable.",
     "sqlOptions": "SQL prefix selects a Redis cache namespace without changing physical table names; ignored columns remain readable and are excluded from insert/update assignments.",
-    "remainingGaps": ["datasource auto-increment and unsigned metadata", "database default-value metadata", "custom type map unsigned and nullable variants", "Model facade signatures and cache construction", "Mongo constructor and driver-v2 contracts", "template flag execution", "byte-for-byte goctl cache key format"]
+    "remainingGaps": ["database default-value metadata", "custom type map unsigned and nullable variants", "Model update and delete result contracts", "Mongo constructor and driver-v2 contracts", "template flag execution", "byte-for-byte goctl cache key format"]
   },
   "modelSurfaces": [
     {
@@ -41,7 +41,8 @@
         "TestGenerateModelFromDDLGoZeroStyleWritesGoctlFacade",
         "TestGenerateModelFromDDLMultiTableGoctlOptionsCacheReplay",
         "TestGenerateModelFromDDLGoZeroPreservesExtensions",
-        "TestGenerateModelSQLWriteIgnoreRuntime"
+        "TestGenerateModelSQLWriteIgnoreRuntime",
+        "TestDatasourceAutoIncrementAndUnsignedReachGeneratedModel"
       ],
       "coveredOptions": ["cache", "strict", "ignore-columns", "prefix", "table-filter", "module"]
     },

@@ -242,13 +242,17 @@ func (r *fakeDatasourceRows) Next(dest []driver.Value) error {
 	if r.idx >= len(r.values) {
 		return io.EOF
 	}
-	copy(dest, r.values[r.idx])
+	value := r.values[r.idx]
+	if len(dest) == 9 && len(value) == 6 {
+		value = []driver.Value{value[0], value[1], value[2], value[2], "", "", value[3], value[4], value[5]}
+	}
+	copy(dest, value)
 	r.idx++
 	return nil
 }
 
 func fakeDatasourceColumnNames() []string {
-	return []string{"table_name", "column_name", "data_type", "column_key", "is_nullable", "ordinal_position"}
+	return []string{"table_name", "column_name", "data_type", "column_type", "column_default", "extra", "column_key", "is_nullable", "ordinal_position"}
 }
 
 func fakeDatasourceIndexColumnNames() []string {
@@ -264,11 +268,11 @@ func fakeDatasourceColumnRows() driver.Rows {
 	return &fakeDatasourceRows{
 		columns: fakeDatasourceColumnNames(),
 		values: [][]driver.Value{
-			{"users", "id", "BIGINT", "PRI", "NO", int64(1)},
-			{"users", "email", "character varying", "", "YES", int64(2)},
-			{"users", "name", "varchar", "", "NO", int64(3)},
-			{"users", "created_at", "timestamp", "", "NO", int64(4)},
-			{"audit_logs", "created_at", "timestamp with time zone", "", "NO", int64(1)},
+			{"users", "id", "BIGINT", "bigint unsigned", "", "auto_increment", "PRI", "NO", int64(1)},
+			{"users", "email", "character varying", "varchar", "", "", "", "YES", int64(2)},
+			{"users", "name", "varchar", "varchar", "", "", "", "NO", int64(3)},
+			{"users", "created_at", "timestamp", "timestamp", "", "", "", "NO", int64(4)},
+			{"audit_logs", "created_at", "timestamp with time zone", "timestamptz", "", "", "", "NO", int64(1)},
 		},
 	}
 }
@@ -1142,6 +1146,9 @@ func TestIntrospectSQLTablesWithFakeDatasource(t *testing.T) {
 		t.Fatalf("users table = %#v, want id primary key and four columns", tables[0])
 	}
 	users := tables[0]
+	if !users.Columns[0].AutoIncrement || !users.Columns[0].Unsigned {
+		t.Fatalf("id metadata = %#v, want auto-increment unsigned", users.Columns[0])
+	}
 	if users.Columns[1].Name != "email" || users.Columns[1].Type != "varchar" || !users.Columns[1].Nullable || !users.Columns[1].Unique {
 		t.Fatalf("email column = %#v, want normalized nullable varchar", tables[0].Columns[1])
 	}
@@ -1178,6 +1185,49 @@ func TestIntrospectSQLTablesWithFakeDatasource(t *testing.T) {
 	if _, err := introspectSQLTables(context.Background(), indexQueryErrDB, datasourceIntrospectionOptions{Driver: "mysql"}); err == nil || !strings.Contains(err.Error(), "query datasource indexes") {
 		t.Fatalf("introspectSQLTables index query error = %v, want query datasource indexes", err)
 	}
+}
+
+func TestDatasourceAutoIncrementAndUnsignedReachGeneratedModel(t *testing.T) {
+	db, err := sql.Open(fakeModelDatasourceDriver, "ok")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	tables, err := introspectSQLTables(context.Background(), db, datasourceIntrospectionOptions{Driver: "mysql", Tables: []string{"users"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	writeGeneratedModule(t, dir, "example.com/datasourcemetadata")
+	ir := newModelSchemaIR(ModelSchemaSourceDatasource, storage.DialectMySQL, "mysql", "", "", tables)
+	if err := generateModelFromSchemaIR(ir, modelSchemaGenerationOptions{
+		Tables: []string{"users"},
+		Strict: true,
+		Emit:   modelSchemaEmitOptions{Dir: dir, Module: "example.com/datasourcemetadata", Style: "go_zero", GoZeroLayout: true},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	entity, err := os.ReadFile(filepath.Join(dir, "model", "user_gen.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(entity), "uint64    `db:\"id\"") {
+		t.Fatalf("generated datasource entity = %s", entity)
+	}
+	repo, err := os.ReadFile(filepath.Join(dir, "repo", "user.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"func (r *UserRepo) InsertResult(ctx context.Context, in *entity.User) (sql.Result, error)",
+		"storage.Insert(entity.UserTable, []string{\"email\", \"name\", \"created_at\"}, r.dialect)",
+	} {
+		if !strings.Contains(string(repo), want) {
+			t.Fatalf("generated datasource repo missing %q: %s", want, repo)
+		}
+	}
+	runGoCommand(t, dir, 3*time.Minute, "mod", "tidy")
+	runGoCommand(t, dir, 3*time.Minute, "test", "./...")
 }
 
 func TestDatasourceIntrospectionGeneratesIndexAndCacheTemplates(t *testing.T) {

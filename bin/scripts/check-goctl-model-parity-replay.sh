@@ -267,4 +267,4 @@ export GOTMPDIR="${GOTMPDIR:-$work/gotmp}"
 export GOPROXY="${GOPROXY:-direct}"
 mkdir -p "$GOCACHE" "$GOTMPDIR"
 "${GO:-go}" test -count=1 -shuffle=on ./cmd/gofly/internal/generator \
-    -run '^(TestGenerateModelFromDDLGoZeroPreservesExtensions|TestGenerateModelAllWriteIgnoredColumnsCompile|TestGenerateModelSQLWriteIgnoreRuntime|TestGenerateMongoModelMultipleTypesAndEasy|TestGeneratedExtensionFileSafety|TestGoctlDatasourceReplayFixtureModelSchemaIR)$'
+    -run '^(TestGenerateModelFromDDLGoZeroPreservesExtensions|TestGenerateModelAllWriteIgnoredColumnsCompile|TestGenerateModelSQLWriteIgnoreRuntime|TestGenerateMongoModelMultipleTypesAndEasy|TestDatasourceAutoIncrementAndUnsignedReachGeneratedModel|TestGeneratedExtensionFileSafety|TestGoctlDatasourceReplayFixtureModelSchemaIR)$'

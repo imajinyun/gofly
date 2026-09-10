@@ -4161,12 +4161,81 @@ func TestGenerateModelFromDDLGoZeroStyleWritesGoctlFacade(t *testing.T) {
 		"NewNativeOrderRepo(conn, dialect...)",
 		"func (m *defaultNativeOrderModel) FindOne(ctx context.Context, id int64) (*NativeOrder, error)",
 		"return m.repo.FindOne(ctx, id)",
+		"Insert(ctx context.Context, in *NativeOrder) (sql.Result, error)",
+		"return m.repo.InsertResult(ctx, in)",
+		"type cachedNativeOrderModel struct",
+		"func NewCachedNativeOrderModel(conn *storage.SQLStore, opts ...cache.ModelOption[*NativeOrder, int64]) NativeOrderModel",
+		"func (m *cachedNativeOrderModel) FindOne(ctx context.Context, id int64) (*NativeOrder, error)",
+		"return m.cache.Get(ctx, id)",
+		"func (m *cachedNativeOrderModel) withSession(session *sql.Tx) NativeOrderModel",
 		"func (m *defaultNativeOrderModel) withSession(session *sql.Tx) NativeOrderModel",
 		"clone.repo = m.repo.WithTx(session)",
 	} {
 		if !strings.Contains(genOut, want) {
 			t.Fatalf("gozero generated model facade missing %q:\n%s", want, genOut)
 		}
+	}
+	const facadeTest = `package repo
+
+import (
+    "context"
+    "database/sql"
+    "database/sql/driver"
+    "errors"
+    "io"
+    "sync"
+    "testing"
+
+    "github.com/imajinyun/gofly/core/storage"
+)
+
+type facadeConnector struct{ conn *facadeConn }
+func (c facadeConnector) Connect(context.Context) (driver.Conn, error) { return c.conn, nil }
+func (c facadeConnector) Driver() driver.Driver { return facadeDriver{} }
+type facadeDriver struct{}
+func (facadeDriver) Open(string) (driver.Conn, error) { return nil, errors.New("use connector") }
+type facadeConn struct { mu sync.Mutex; queries int }
+func (*facadeConn) Prepare(string) (driver.Stmt, error) { return nil, errors.New("unexpected prepare") }
+func (*facadeConn) Close() error { return nil }
+func (*facadeConn) Begin() (driver.Tx, error) { return nil, errors.New("unexpected begin") }
+func (c *facadeConn) QueryContext(_ context.Context, _ string, _ []driver.NamedValue) (driver.Rows, error) {
+    c.mu.Lock(); c.queries++; c.mu.Unlock()
+    return &facadeRows{}, nil
+}
+func (*facadeConn) ExecContext(context.Context, string, []driver.NamedValue) (driver.Result, error) { return driver.RowsAffected(1), nil }
+type facadeRows struct{ done bool }
+func (*facadeRows) Columns() []string { return []string{"id", "buyer_name", "amount_cents", "status", "created_at", "updated_at"} }
+func (*facadeRows) Close() error { return nil }
+func (r *facadeRows) Next(dest []driver.Value) error {
+    if r.done { return io.EOF }; r.done = true
+    dest[0], dest[1], dest[2], dest[3], dest[4], dest[5] = int64(1), "buyer", int64(2), "new", nil, nil
+    return nil
+}
+func TestCachedFacadeBehavior(t *testing.T) {
+    conn := &facadeConn{}
+    db := sql.OpenDB(facadeConnector{conn: conn})
+    defer db.Close()
+    model := NewCachedNativeOrderModel(storage.NewSQLStore(db))
+    if _, err := model.FindOne(context.Background(), 1); err != nil { t.Fatal(err) }
+    if _, err := model.FindOne(context.Background(), 1); err != nil { t.Fatal(err) }
+    conn.mu.Lock(); queries := conn.queries; conn.mu.Unlock()
+    if queries != 1 { t.Fatalf("queries after cache hit = %d, want 1", queries) }
+    if err := model.Update(context.Background(), &NativeOrder{ID: 1}); err != nil { t.Fatal(err) }
+    if _, err := model.FindOne(context.Background(), 1); err != nil { t.Fatal(err) }
+    conn.mu.Lock(); queries = conn.queries; conn.mu.Unlock()
+    if queries != 2 { t.Fatalf("queries after invalidation = %d, want 2", queries) }
+    if _, ok := model.withSession(nil).(*cachedNativeOrderModel); ok { t.Fatal("transaction model must not retain cache") }
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "repo", "cached_facade_test.go"), []byte(facadeTest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	repoData, err := os.ReadFile(filepath.Join(dir, "repo", "native_order.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(repoData), "func (r *NativeOrderRepo) InsertResult(ctx context.Context, in *entity.NativeOrder) (sql.Result, error)") {
+		t.Fatalf("gozero repo must expose result-returning insert: %s", repoData)
 	}
 	runGoCommand(t, dir, 3*time.Minute, "mod", "tidy")
 	runGoCommand(t, dir, 3*time.Minute, "test", "./...")

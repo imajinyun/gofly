@@ -4,6 +4,9 @@ package grpc
 
 import (
 	"context"
+	"errors"
+	"io"
+	"sync"
 
 	coretrace "github.com/imajinyun/gofly/core/observability/trace"
 
@@ -11,6 +14,7 @@ import (
 	oteltrace "go.opentelemetry.io/otel/trace"
 	stdgrpc "google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 )
 
 const otelTracerName = "gofly"
@@ -93,12 +97,15 @@ func OTelStreamClientInterceptor() stdgrpc.StreamClientInterceptor {
 			ctx, method, oteltrace.WithSpanKind(oteltrace.SpanKindClient),
 		)
 		ctx = injectTraceOutgoing(ctx)
+		ctx, cancel := context.WithCancel(ctx)
 		cs, err := streamer(ctx, desc, cc, method, opts...)
+		stream := &otelClientStream{ClientStream: cs, span: span, cancel: cancel, serverStreams: desc.ServerStreams}
 		if err != nil {
-			span.End()
+			stream.finish(err)
 			return nil, err
 		}
-		return otelClientStream{ClientStream: cs, span: span}, nil
+		context.AfterFunc(ctx, func() { stream.finish(status.FromContextError(ctx.Err()).Err()) })
+		return stream, nil
 	}
 }
 
@@ -162,49 +169,55 @@ func (s otelServerStream) Context() context.Context { return s.ctx }
 type otelClientStream struct {
 	stdgrpc.ClientStream
 	span oteltrace.Span
+	cancel context.CancelFunc
+	once sync.Once
+	serverStreams bool
 }
 
-func (s otelClientStream) Context() context.Context { return s.ClientStream.Context() }
+func (s *otelClientStream) finish(err error) {
+	s.once.Do(func() {
+		if err != nil && !errors.Is(err, io.EOF) {
+			s.span.RecordError(err)
+			s.span.SetStatus(otelcodes.Error, err.Error())
+		}
+		s.span.End()
+		s.cancel()
+	})
+}
 
-func (s otelClientStream) SendMsg(m any) error {
-	if err := s.ClientStream.SendMsg(m); err != nil {
-		s.span.RecordError(err)
-		s.span.SetStatus(otelcodes.Error, err.Error())
-		return err
+func (s *otelClientStream) Context() context.Context { return s.ClientStream.Context() }
+
+func (s *otelClientStream) SendMsg(m any) error {
+	err := s.ClientStream.SendMsg(m)
+	if err != nil && !errors.Is(err, io.EOF) {
+		s.finish(err)
 	}
-	return nil
+	return err
 }
 
-func (s otelClientStream) RecvMsg(m any) error {
-	if err := s.ClientStream.RecvMsg(m); err != nil {
-		s.span.RecordError(err)
-		s.span.SetStatus(otelcodes.Error, err.Error())
-		return err
+func (s *otelClientStream) RecvMsg(m any) error {
+	err := s.ClientStream.RecvMsg(m)
+	if err != nil || !s.serverStreams {
+		s.finish(err)
 	}
-	return nil
+	return err
 }
 
-func (s otelClientStream) CloseSend() error {
-	if err := s.ClientStream.CloseSend(); err != nil {
-		s.span.RecordError(err)
-		s.span.SetStatus(otelcodes.Error, err.Error())
-		return err
-	}
-	return nil
+func (s *otelClientStream) CloseSend() error {
+	return s.ClientStream.CloseSend()
 }
 
-func (s otelClientStream) Header() (metadata.MD, error) {
+func (s *otelClientStream) Header() (metadata.MD, error) {
 	md, err := s.ClientStream.Header()
 	if err != nil {
-		s.span.RecordError(err)
-		s.span.SetStatus(otelcodes.Error, err.Error())
+		s.finish(err)
 	}
 	return md, err
 }
 
-func (s otelClientStream) Trailer() metadata.MD { return s.ClientStream.Trailer() }
+func (s *otelClientStream) Trailer() metadata.MD { return s.ClientStream.Trailer() }
 
-func (s otelClientStream) Close() error {
-	defer s.span.End()
+func (s *otelClientStream) Close() error {
+	s.finish(nil)
 	return nil
 }

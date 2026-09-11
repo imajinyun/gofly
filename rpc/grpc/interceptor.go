@@ -42,6 +42,21 @@ func RecoveryUnaryServerInterceptor(logger *slog.Logger) stdgrpc.UnaryServerInte
 	}
 }
 
+func RecoveryStreamServerInterceptor(logger *slog.Logger) stdgrpc.StreamServerInterceptor {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return func(srv any, stream stdgrpc.ServerStream, info *stdgrpc.StreamServerInfo, handler stdgrpc.StreamHandler) (err error) {
+		defer func() {
+			if v := recover(); v != nil {
+				logger.ErrorContext(stream.Context(), "grpc panic recovered", "method", info.FullMethod, "panic", v, "stack", string(debug.Stack()))
+				err = coreerrors.GRPCError(coreerrors.New(coreerrors.CodeInternal, "internal server error"))
+			}
+		}()
+		return handler(srv, stream)
+	}
+}
+
 // AdaptiveLimitUnaryServerInterceptor rejects work when the shared adaptive
 // limiter detects saturation and feeds completion latency/status back into the
 // limiter. A nil limiter is a no-op.
@@ -132,13 +147,15 @@ func ObservabilityStreamClientInterceptor(service string, registry *metrics.Regi
 	observer := observability.New(observability.Config{Service: service, Registry: registry, Logger: logger})
 	return func(ctx context.Context, desc *stdgrpc.StreamDesc, cc *stdgrpc.ClientConn, method string, streamer stdgrpc.Streamer, opts ...stdgrpc.CallOption) (stdgrpc.ClientStream, error) {
 		op := observer.Start("grpc_client_stream:"+method, "method", method)
+		ctx, cancel := context.WithCancel(ctx)
 		stream, err := streamer(ctx, desc, cc, method, opts...)
+		wrapped := &observabilityClientStream{ClientStream: stream, ctx: ctx, cancel: cancel, operation: op, serverStreams: desc.ServerStreams}
 		if err != nil {
-			code := status.Code(err)
-			op.End(ctx, grpcStatusCode(code), err, "grpc client stream", "code", code.String())
+			wrapped.finish(err)
 			return nil, err
 		}
-		return &observabilityClientStream{ClientStream: stream, ctx: ctx, operation: op}, nil
+		context.AfterFunc(ctx, func() { wrapped.finish(status.FromContextError(ctx.Err()).Err()) })
+		return wrapped, nil
 	}
 }
 
@@ -147,22 +164,36 @@ type observabilityClientStream struct {
 	ctx       context.Context
 	operation *observability.Operation
 	once      sync.Once
+	cancel context.CancelFunc
+	serverStreams bool
 }
 
 func (s *observabilityClientStream) RecvMsg(message any) error {
 	err := s.ClientStream.RecvMsg(message)
-	if err != nil {
+	if err != nil || !s.serverStreams {
 		s.finish(err)
 	}
 	return err
 }
 
 func (s *observabilityClientStream) CloseSend() error {
-	err := s.ClientStream.CloseSend()
-	if err != nil {
+	return s.ClientStream.CloseSend()
+}
+
+func (s *observabilityClientStream) SendMsg(message any) error {
+	err := s.ClientStream.SendMsg(message)
+	if err != nil && !errors.Is(err, io.EOF) {
 		s.finish(err)
 	}
 	return err
+}
+
+func (s *observabilityClientStream) Header() (metadata.MD, error) {
+	md, err := s.ClientStream.Header()
+	if err != nil {
+		s.finish(err)
+	}
+	return md, err
 }
 
 func (s *observabilityClientStream) finish(err error) {
@@ -173,6 +204,7 @@ func (s *observabilityClientStream) finish(err error) {
 		}
 		code := status.Code(recordedErr)
 		s.operation.End(s.ctx, grpcStatusCode(code), recordedErr, "grpc client stream", "code", code.String())
+		s.cancel()
 	})
 }
 

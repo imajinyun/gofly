@@ -140,10 +140,11 @@ func NewDefaultServer(addr, serviceName string, rules *governance.RuleSet, regis
 	}
 	unaryNames := []string{"recover", "observability", "otel_trace"}
 	stream := []stdgrpc.StreamServerInterceptor{
+		RecoveryStreamServerInterceptor(nil),
 		ObservabilityStreamServerInterceptor(serviceName, registry, nil),
 		OTelStreamServerInterceptor(),
 	}
-	streamNames := []string{"observability", "otel_trace"}
+	streamNames := []string{"recover", "observability", "otel_trace"}
 	if rules != nil {
 		unary = append(unary, GovernanceUnaryServerInterceptor(rules))
 		stream = append(stream, GovernanceStreamServerInterceptor(rules))

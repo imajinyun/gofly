@@ -4,6 +4,8 @@ package grpc
 
 import (
 	"context"
+	"errors"
+	"io"
 	"net/http"
 	"strings"
 	"sync"
@@ -74,7 +76,7 @@ func GovernanceUnaryServerInterceptor(rules *governance.RuleSet, opts ...Governa
 		ctx, cancel := withPolicyTimeout(ctx, decision.Policy.Timeout)
 		defer cancel()
 		if decision.Policy.Breaker.Enabled {
-			cb := o.breaker(decision.RuleKey, decision.Policy.Breaker)
+			cb := o.breaker(runtimeKey, decision.Policy.Breaker)
 			var resp any
 			err := cb.Do(ctx, func() error {
 				var err error
@@ -204,7 +206,9 @@ func GovernanceStreamClientInterceptor(rules *governance.RuleSet, opts ...Govern
 			releaseConcurrency()
 			return nil, grpcGovernanceError(err)
 		}
-		return &governanceClientStream{ClientStream: stream, cancel: cancel, release: releaseConcurrency}, nil
+		wrapped := &governanceClientStream{ClientStream: stream, cancel: cancel, release: releaseConcurrency, serverStreams: desc.ServerStreams}
+		context.AfterFunc(ctx, wrapped.finish)
+		return wrapped, nil
 	}
 }
 
@@ -217,9 +221,10 @@ func (s *governanceServerStream) Context() context.Context { return s.ctx }
 
 type governanceClientStream struct {
 	stdgrpc.ClientStream
-	cancel  context.CancelFunc
-	release func()
-	once    sync.Once
+	cancel        context.CancelFunc
+	release       func()
+	once          sync.Once
+	serverStreams bool
 }
 
 func (s *governanceClientStream) finish() {
@@ -232,14 +237,20 @@ func (s *governanceClientStream) finish() {
 }
 
 func (s *governanceClientStream) CloseSend() error {
-	err := s.ClientStream.CloseSend()
-	s.finish()
-	return err
+	return s.ClientStream.CloseSend()
+}
+
+func (s *governanceClientStream) Header() (metadata.MD, error) {
+	md, err := s.ClientStream.Header()
+	if err != nil {
+		s.finish()
+	}
+	return md, err
 }
 
 func (s *governanceClientStream) RecvMsg(m any) error {
 	err := s.ClientStream.RecvMsg(m)
-	if err != nil {
+	if err != nil || !s.serverStreams {
 		s.finish()
 	}
 	return err
@@ -247,7 +258,8 @@ func (s *governanceClientStream) RecvMsg(m any) error {
 
 func (s *governanceClientStream) SendMsg(m any) error {
 	err := s.ClientStream.SendMsg(m)
-	if err != nil {
+	// Send EOF requires RecvMsg to obtain the final response and status.
+	if err != nil && !errors.Is(err, io.EOF) {
 		s.finish()
 	}
 	return err
@@ -293,12 +305,60 @@ func splitFullMethod(fullMethod string) (string, string) {
 	return parts[len(parts)-2], parts[len(parts)-1]
 }
 
-func (o *governanceOptions) breaker(key string, policy governance.BreakerPolicy) *breaker.Breaker {
+type governanceBreaker struct {
+	policy   governance.BreakerPolicy
+	simple   *breaker.Breaker
+	adaptive *breaker.AdaptiveBreaker
+}
+
+func (b *governanceBreaker) Do(ctx context.Context, fn func() error) error {
+	if b.simple != nil {
+		return b.simple.DoWithAcceptable(ctx, fn, grpcOutcomeAcceptable)
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := b.adaptive.Allow(); err != nil {
+		return err
+	}
+	err := fn()
+	if grpcOutcomeAcceptable(err) {
+		b.adaptive.MarkSuccess()
+	} else {
+		b.adaptive.MarkFailure()
+	}
+	return err
+}
+
+func (o *governanceOptions) breaker(key string, policy governance.BreakerPolicy) *governanceBreaker {
 	if key == "" {
 		key = "default"
 	}
-	value, _ := o.breakers.LoadOrStore(key, breaker.New(breaker.WithOpenTimeout(policy.OpenTimeout)))
-	return value.(*breaker.Breaker)
+	for {
+		previous, exists := o.breakers.Load(key)
+		if exists && previous.(*governanceBreaker).policy == policy {
+			return previous.(*governanceBreaker)
+		}
+		entry := &governanceBreaker{policy: policy}
+		if policy.Window > 0 || policy.Buckets > 0 || policy.MinRequests > 0 || policy.FailureRatio > 0 {
+			entry.adaptive = breaker.NewAdaptive(
+				breaker.WithAdaptiveOpenTimeout(policy.OpenTimeout),
+				breaker.WithAdaptiveWindow(policy.Window),
+				breaker.WithAdaptiveBuckets(policy.Buckets),
+				breaker.WithAdaptiveMinRequests(policy.MinRequests),
+				breaker.WithAdaptiveFailureRatio(policy.FailureRatio),
+			)
+		} else {
+			entry.simple = breaker.New(breaker.WithOpenTimeout(policy.OpenTimeout))
+		}
+		if exists {
+			if o.breakers.CompareAndSwap(key, previous, entry) {
+				return entry
+			}
+		} else if _, loaded := o.breakers.LoadOrStore(key, entry); !loaded {
+			return entry
+		}
+	}
 }
 
 func (o *governanceOptions) rateLimiter(key string, policy governance.RateLimitPolicy) *limit.Limiter {
@@ -354,7 +414,7 @@ func (o *governanceOptions) concurrencyLimiter(key string, policy governance.Con
 
 func withPolicyTimeout(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
 	if timeout <= 0 {
-		return ctx, func() {}
+		return context.WithCancel(ctx)
 	}
 	return context.WithTimeout(ctx, timeout)
 }

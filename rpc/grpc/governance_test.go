@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +17,10 @@ import (
 	coreerrors "github.com/imajinyun/gofly/core/errors"
 	"github.com/imajinyun/gofly/core/governance"
 	"github.com/imajinyun/gofly/core/limit"
+	"github.com/imajinyun/gofly/core/observability/metrics"
+	otelcodes "go.opentelemetry.io/otel/codes"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	coretrace "github.com/imajinyun/gofly/core/observability/trace"
 	coreretry "github.com/imajinyun/gofly/core/retry"
 	coreruntime "github.com/imajinyun/gofly/core/runtime"
@@ -388,11 +393,16 @@ func TestGovernanceStreamClientInterceptorEnforcesConcurrency(t *testing.T) {
 	if err := first.CloseSend(); err != nil {
 		t.Fatalf("close first stream: %v", err)
 	}
-	if _, err := interceptor(context.Background(), &stdgrpc.StreamDesc{ServerStreams: true}, nil, "/greeter.Greeter/Subscribe", func(ctx context.Context, desc *stdgrpc.StreamDesc, cc *stdgrpc.ClientConn, method string, opts ...stdgrpc.CallOption) (stdgrpc.ClientStream, error) {
-		return &testClientStream{}, nil
-	}); err != nil {
-		t.Fatalf("third stream after release: %v", err)
+	streamer := func(ctx context.Context, desc *stdgrpc.StreamDesc, cc *stdgrpc.ClientConn, method string, opts ...stdgrpc.CallOption) (stdgrpc.ClientStream, error) {
+		return &fakeClientStream{ctx: ctx, recvErr: io.EOF}, nil
 	}
+	if _, err := interceptor(context.Background(), &stdgrpc.StreamDesc{ServerStreams: true}, nil, "/greeter.Greeter/Subscribe", streamer); status.Code(err) != codes.Unavailable {
+		t.Fatalf("half-closed stream released concurrency: %v", err)
+	}
+	first.(*governanceClientStream).finish()
+	third, err := interceptor(context.Background(), &stdgrpc.StreamDesc{ServerStreams: true}, nil, "/greeter.Greeter/Subscribe", streamer)
+	if err != nil { t.Fatalf("third stream after release: %v", err) }
+	if err := third.RecvMsg(nil); err != io.EOF { t.Fatalf("third receive = %v", err) }
 }
 
 func TestGovernanceStreamServerInterceptorMapsOpenBreaker(t *testing.T) {
@@ -864,6 +874,165 @@ type testClientStream struct {
 
 func (s *testClientStream) CloseSend() error { return nil }
 
+func TestGovernanceClientStreamLifecycle(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		sendErr error
+	}{
+		{name: "half close"},
+		{name: "send EOF", sendErr: io.EOF},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			inner := &fakeClientStream{ctx: ctx, sendErr: tc.sendErr}
+			released := 0
+			stream := &governanceClientStream{ClientStream: inner, cancel: cancel, release: func() { released++ }, serverStreams: true}
+			if err := stream.CloseSend(); err != nil {
+				t.Fatal(err)
+			}
+			if err := stream.SendMsg(nil); !errors.Is(err, tc.sendErr) {
+				t.Fatalf("send = %v", err)
+			}
+			if ctx.Err() != nil || released != 0 {
+				t.Fatalf("half-closed stream canceled=%v released=%d", ctx.Err(), released)
+			}
+			if err := stream.RecvMsg(nil); err != nil {
+				t.Fatal(err)
+			}
+			inner.recvErr = io.EOF
+			if err := stream.RecvMsg(nil); err != io.EOF {
+				t.Fatalf("receive = %v", err)
+			}
+			_ = stream.RecvMsg(nil)
+			if released != 1 {
+				t.Fatalf("released = %d, want 1", released)
+			}
+		})
+	}
+	t.Run("cancellation without receive", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		rules := governance.NewRuleSet(governance.Rule{Policy: governance.Policy{Concurrency: governance.ConcurrencyPolicy{Limit: 1}}})
+		interceptor := GovernanceStreamClientInterceptor(rules)
+		streamer := func(ctx context.Context, _ *stdgrpc.StreamDesc, _ *stdgrpc.ClientConn, _ string, _ ...stdgrpc.CallOption) (stdgrpc.ClientStream, error) {
+			return &fakeClientStream{ctx: ctx}, nil
+		}
+		if _, err := interceptor(ctx, &stdgrpc.StreamDesc{ServerStreams: true}, nil, "/svc/Watch", streamer); err != nil {
+			t.Fatal(err)
+		}
+		cancel()
+		deadline := time.Now().Add(time.Second)
+		for {
+			stream, err := interceptor(context.Background(), &stdgrpc.StreamDesc{ServerStreams: true}, nil, "/svc/Watch", streamer)
+			if err == nil {
+				stream.(*governanceClientStream).finish()
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("canceled stream still holds concurrency: %v", err)
+			}
+			time.Sleep(time.Millisecond)
+		}
+	})
+}
+
+func TestGovernanceBreakerPolicy(t *testing.T) {
+	t.Run("configured threshold", func(t *testing.T) {
+		o := newGovernanceOptions()
+		cb := o.breaker("rule", governance.BreakerPolicy{Enabled: true, Window: time.Minute, Buckets: 6, MinRequests: 5, FailureRatio: 0.8, OpenTimeout: time.Hour})
+		for i := 0; i < 5; i++ {
+			if err := cb.Do(context.Background(), func() error { return errors.New("down") }); errors.Is(err, breaker.ErrOpen) {
+				t.Fatalf("breaker opened after %d failures, want 5", i)
+			}
+		}
+		if err := cb.Do(context.Background(), func() error { return nil }); !errors.Is(err, breaker.ErrOpen) {
+			t.Fatalf("breaker = %v, want open", err)
+		}
+	})
+	t.Run("policy update", func(t *testing.T) {
+		o := newGovernanceOptions()
+		policy := governance.BreakerPolicy{Enabled: true, OpenTimeout: time.Hour}
+		cb := o.breaker("rule", policy)
+		for i := 0; i < 3; i++ {
+			_ = cb.Do(context.Background(), func() error { return errors.New("down") })
+		}
+		policy.MinRequests = 10
+		if err := o.breaker("rule", policy).Do(context.Background(), func() error { return nil }); err != nil {
+			t.Fatalf("updated policy reused open breaker: %v", err)
+		}
+	})
+}
+
+func TestClientStreamObservabilityLifecycle(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		serverStreams bool
+		err error
+		cancel bool
+	}{
+		{name: "server stream EOF", serverStreams: true, err: io.EOF},
+		{name: "client stream response"},
+		{name: "server failure", serverStreams: true, err: status.Error(codes.Unavailable, "down")},
+		{name: "caller cancellation", serverStreams: true, cancel: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			recorder := tracetest.NewSpanRecorder()
+			provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+			t.Cleanup(func() { if err := provider.Shutdown(context.Background()); err != nil { t.Error(err) } })
+			ctx, parent := provider.Tracer("test").Start(context.Background(), "parent")
+			defer parent.End()
+			ctx, cancel := context.WithCancel(ctx)
+			defer cancel()
+			registry := metrics.NewRegistry()
+			observation := ObservabilityStreamClientInterceptor("svc", registry, nil)
+			trace := OTelStreamClientInterceptor()
+			inner := &fakeClientStream{recvErr: tc.err}
+			stream, err := observation(ctx, &stdgrpc.StreamDesc{ServerStreams: tc.serverStreams}, nil, "/svc/Stream", func(ctx context.Context, desc *stdgrpc.StreamDesc, cc *stdgrpc.ClientConn, method string, opts ...stdgrpc.CallOption) (stdgrpc.ClientStream, error) {
+				return trace(ctx, desc, cc, method, func(ctx context.Context, _ *stdgrpc.StreamDesc, _ *stdgrpc.ClientConn, _ string, _ ...stdgrpc.CallOption) (stdgrpc.ClientStream, error) { inner.ctx = ctx; return inner, nil }, opts...)
+			})
+			if err != nil { t.Fatal(err) }
+			if err := stream.CloseSend(); err != nil { t.Fatal(err) }
+			if len(recorder.Ended()) != 0 || registry.Snapshot().InFlight != 1 { t.Fatal("half-close completed observation") }
+			if tc.cancel {
+				cancel()
+				deadline := time.Now().Add(time.Second)
+				for len(recorder.Ended()) == 0 || registry.Snapshot().InFlight != 0 {
+					if time.Now().After(deadline) { t.Fatal("cancellation did not complete observation") }
+					time.Sleep(time.Millisecond)
+				}
+			} else {
+				if err := stream.RecvMsg(nil); !errors.Is(err, tc.err) { t.Fatalf("receive = %v, want %v", err, tc.err) }
+				_ = stream.RecvMsg(nil)
+			}
+			ended := recorder.Ended()
+			if len(ended) != 1 || registry.Snapshot().InFlight != 0 { t.Fatalf("ended spans=%d metrics=%+v", len(ended), registry.Snapshot()) }
+			wantError := tc.cancel || tc.err != nil && tc.err != io.EOF
+			if (ended[0].Status().Code == otelcodes.Error) != wantError { t.Fatalf("span status = %v", ended[0].Status()) }
+		})
+	}
+}
+
+func TestRecoveryStreamServerInterceptor(t *testing.T) {
+	for _, tc := range []struct { name string; panics bool; err error }{
+		{name: "success"},
+		{name: "handler error", err: status.Error(codes.InvalidArgument, "bad input")},
+		{name: "panic", panics: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := RecoveryStreamServerInterceptor(nil)(nil, testServerStream{ctx: context.Background()}, &stdgrpc.StreamServerInfo{FullMethod: "/svc/Stream"}, func(any, stdgrpc.ServerStream) error {
+				if tc.panics { panic("private diagnostic") }
+				return tc.err
+			})
+			if tc.panics {
+				if status.Code(err) != codes.Internal || strings.Contains(err.Error(), "private diagnostic") { t.Fatalf("panic result = %v", err) }
+			} else if !errors.Is(err, tc.err) { t.Fatalf("result = %v, want %v", err, tc.err) }
+		})
+	}
+	server := NewDefaultServer("127.0.0.1:0", "svc", nil, nil)
+	if !slices.Contains(server.streamNames, "recover") { t.Fatalf("stream chain = %v", server.streamNames) }
+}
+
 func TestGovernanceOptions(t *testing.T) {
 	o := &governanceOptions{}
 	WithGovernanceService("greeter")(o)
@@ -1040,7 +1209,7 @@ func TestOTelStreamClientInterceptorAndStreamMethods(t *testing.T) {
 	}
 
 	// Exercise otelClientStream methods
-	ocs := stream.(otelClientStream)
+	ocs := stream.(*otelClientStream)
 	if ocs.Context() == nil {
 		t.Fatal("expected non-nil context")
 	}

@@ -10,17 +10,18 @@ func modelCommand(args []string) error {
 func modelGenCommand(args []string) error {
 	leadingDDL, args := splitLeadingName(args)
 	fs, flags := newModelGenFlagSet()
+	templateSource := registerGoctlModelTemplateFlags(fs)
 	remaining, err := parseInterspersedFlags(fs, args)
 	if err != nil {
 		return err
 	}
 	remaining = flags.normalize(leadingDDL, remaining)
-	typesMap, err := modelTypesMapFromConfig(*flags.ConfigPath, *flags.Dir)
+	typesMap, typeOverrides, err := modelTypeConfigFromConfig(*flags.ConfigPath, *flags.Dir)
 	if err != nil {
 		return err
 	}
 	fillNameFromArgs(flags.DDL, remaining)
-	if err := generateModelFromFlags(flags, typesMap); err != nil {
+	if err := generateModelFromFlags(flags, typesMap, typeOverrides, templateSource); err != nil {
 		return err
 	}
 	if *flags.JSON || outputMode() == outputJSON {

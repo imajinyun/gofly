@@ -49,7 +49,6 @@ func newModelGenFlagSet() (*flag.FlagSet, modelGenFlags) {
 	}
 	fs.StringVar(flags.IgnoreColumns, "i", *flags.IgnoreColumns, "columns excluded from inserts and updates, retained for reads")
 	fs.StringVar(flags.Prefix, "p", *flags.Prefix, "cache key namespace prefix")
-	registerGoctlModelTemplateFlags(fs)
 	return fs, flags
 }
 

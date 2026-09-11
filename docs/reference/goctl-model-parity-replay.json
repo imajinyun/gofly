@@ -28,7 +28,13 @@
     "offlineDatasourceFixtures": "offline-datasource-fixtures cover MySQL multi-table and PostgreSQL multi-schema datasource replay without requiring live database services.",
     "regeneration": "Existing model facade extensions and vars.go are preserved; generated entities and repository implementations remain replaceable.",
     "sqlOptions": "SQL prefix selects a Redis cache namespace without changing physical table names; ignored columns remain readable and are excluded from insert/update assignments.",
-    "remainingGaps": ["database default-value metadata", "custom type map unsigned and nullable variants", "Model update and delete result contracts", "Mongo constructor and driver-v2 contracts", "template flag execution", "byte-for-byte goctl cache key format"]
+    "defaultMetadata": "SQLColumn preserves DDL and datasource default expressions for analysis and generated-model evidence; generated Go code leaves database expressions database-owned.",
+    "structuredTypeOverrides": "model.typeOverrides selects nullable, unsigned, then base Go types while retaining legacy model.typesMap; import paths are validated and emitted deterministically.",
+    "facadeMutations": "go_zero SQL facade matches goctl mutation contracts: Insert returns sql.Result, while Update and Delete return error after write and cache invalidation.",
+    "mongoGoZeroV2": "The opt-in go_zero_mongo style emits goctl-shaped constructors, ObjectID types, v2 Mongo method results, cache-aware monc calls, and create-only extension files without changing legacy driver output.",
+    "localTemplateExecution": "SQL model --home executes a local model-entity.tpl with a fixed placeholder contract; source roots and symlinks are checked, while --remote and --branch remain accepted compatibility inputs with no remote execution.",
+    "primaryCacheKey": "Cache-enabled go_zero SQL facades emit the goctl primary key namespace prefix: prefix:table:primary_column:value; advanced unique/list/version cache protocols remain gofly-specific.",
+    "remainingGaps": ["remote model template execution", "byte-for-byte advanced unique/list/version cache key format"]
   },
   "modelSurfaces": [
     {
@@ -42,7 +48,13 @@
         "TestGenerateModelFromDDLMultiTableGoctlOptionsCacheReplay",
         "TestGenerateModelFromDDLGoZeroPreservesExtensions",
         "TestGenerateModelSQLWriteIgnoreRuntime",
-        "TestDatasourceAutoIncrementAndUnsignedReachGeneratedModel"
+        "TestDatasourceAutoIncrementAndUnsignedReachGeneratedModel",
+        "TestParseSQLModelsDefaultMetadata",
+        "TestGenerateModelTypeOverridesCompile",
+        "TestModelGenUsesConfigTypeOverrides",
+        "TestModelGenUsesLocalEntityTemplateSource",
+        "TestModelGenAcceptsRemoteTemplateSourceWithoutRemoteExecution",
+        "TestModelEntityTemplateRejectsSymlinkSource"
       ],
       "coveredOptions": ["cache", "strict", "ignore-columns", "prefix", "table-filter", "module"]
     },
@@ -84,6 +96,9 @@
         "TestExecuteModelMongoCacheAndPrefix",
         "TestExecuteModelMongoMultipleTypesAndEasy",
         "TestGenerateMongoModelMultipleTypesAndEasy",
+        "TestGenerateMongoModelGoZeroV2Style",
+        "TestGenerateMongoModelGoZeroV2StylePreservesExtensions",
+        "TestExecuteModelMongoGoZeroV2Style",
         "TestExecuteModelAcceptsGoctlShortAndSingleDashFlags"
       ],
       "coveredOptions": ["type", "cache", "prefix", "easy", "style", "multi-type"]
@@ -128,7 +143,8 @@
   ],
   "nextPromotionCriteria": [
     "Promote model-layout-difference rows only after datasource-backed fixture replay covers MySQL and PostgreSQL without live database dependencies.",
-    "Keep Mongo parity scoped to type/cache/prefix/easy command behavior until a real goctl Mongo output oracle is pinned.",
-    "Do not describe model support as full goctl parity unless all requiredOptions are covered by runnable tests and release gates."
+    "Keep Mongo parity scoped to the go_zero_mongo v2 constructor and mutation surface; byte-for-byte templates and cache-key encoding remain explicitly unclaimed.",
+    "Do not describe model support as full goctl parity unless all requiredOptions are covered by runnable tests and release gates.",
+    "Keep remote model template execution unsupported until source pinning, size limits, and a safe local replay oracle are implemented."
   ]
 }

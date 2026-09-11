@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -22,19 +23,23 @@ import (
 )
 
 type ModelOptions struct {
-	DDLFile       string
-	Dir           string
-	Package       string
-	Module        string
-	Tables        []string
-	Style         string
-	Database      string
-	Schema        string
-	IgnoreColumns []string
-	Prefix        string
-	Strict        bool
-	Cache         bool
-	TypesMap      map[string]string
+	DDLFile        string
+	Dir            string
+	Package        string
+	Module         string
+	Tables         []string
+	Style          string
+	Database       string
+	Schema         string
+	IgnoreColumns  []string
+	Prefix         string
+	Strict         bool
+	Cache          bool
+	TypesMap       map[string]string
+	TypeOverrides  map[string]ModelTypeOverride
+	TemplateDir    string
+	TemplateRemote string
+	TemplateBranch string
 }
 
 type MongoModelOptions struct {
@@ -48,29 +53,36 @@ type MongoModelOptions struct {
 }
 
 type ModelDatasourceOptions struct {
-	Driver        string
-	DSN           string
-	Dir           string
-	Package       string
-	Module        string
-	Tables        []string
-	Timeout       time.Duration
-	Style         string
-	Database      string
-	Schema        string
-	IgnoreColumns []string
-	Prefix        string
-	Strict        bool
-	Cache         bool
-	TypesMap      map[string]string
+	Driver         string
+	DSN            string
+	Dir            string
+	Package        string
+	Module         string
+	Tables         []string
+	Timeout        time.Duration
+	Style          string
+	Database       string
+	Schema         string
+	IgnoreColumns  []string
+	Prefix         string
+	Strict         bool
+	Cache          bool
+	TypesMap       map[string]string
+	TypeOverrides  map[string]ModelTypeOverride
+	TemplateDir    string
+	TemplateRemote string
+	TemplateBranch string
 }
 
 const (
 	modelStyleSQL         = "sql"
 	modelStyleGORM        = "gorm"
 	modelStyleMongoDriver = "driver"
+	modelStyleMongoGoZero = "go_zero_mongo"
 	gormModulePath        = "gorm.io/gorm"
 	gormModuleVersion     = "v1.31.1"
+	goZeroModulePath      = "github.com/zeromicro/go-zero"
+	goZeroModuleVersion   = "v1.10.3"
 	mongoModulePath       = "go.mongodb.org/mongo-driver"
 	mongoModuleVersion    = "v1.17.4"
 )
@@ -88,6 +100,7 @@ type SQLTable struct {
 type SQLColumn struct {
 	Name          string
 	Type          string
+	DefaultExpr   string
 	PrimaryKey    bool
 	Nullable      bool
 	AutoIncrement bool
@@ -95,6 +108,8 @@ type SQLColumn struct {
 	WriteIgnored  bool
 	Unique        bool
 	GoType        string
+	GoImport      string
+	NullableType  bool
 }
 
 type SQLUniqueIndex struct {
@@ -123,12 +138,15 @@ type ModelSchemaIR struct {
 }
 
 type modelSchemaEmitOptions struct {
-	Dir          string
-	Package      string
-	Module       string
-	Style        string
-	Cache        bool
-	GoZeroLayout bool
+	Dir            string
+	Package        string
+	Module         string
+	Style          string
+	Cache          bool
+	GoZeroLayout   bool
+	TemplateDir    string
+	TemplateRemote string
+	TemplateBranch string
 }
 
 type modelSchemaGenerationOptions struct {
@@ -137,6 +155,7 @@ type modelSchemaGenerationOptions struct {
 	Prefix        string
 	Strict        bool
 	TypesMap      map[string]string
+	TypeOverrides map[string]ModelTypeOverride
 	Emit          modelSchemaEmitOptions
 }
 
@@ -176,13 +195,17 @@ func GenerateModelFromDDL(opts ModelOptions) error {
 		Prefix:        opts.Prefix,
 		Strict:        opts.Strict,
 		TypesMap:      opts.TypesMap,
+		TypeOverrides: opts.TypeOverrides,
 		Emit: modelSchemaEmitOptions{
-			Dir:          opts.Dir,
-			Package:      opts.Package,
-			Module:       opts.Module,
-			Style:        opts.Style,
-			Cache:        opts.Cache,
-			GoZeroLayout: isGoZeroModelStyle(opts.Style),
+			Dir:            opts.Dir,
+			Package:        opts.Package,
+			Module:         opts.Module,
+			Style:          opts.Style,
+			Cache:          opts.Cache,
+			GoZeroLayout:   isGoZeroModelStyle(opts.Style),
+			TemplateDir:    opts.TemplateDir,
+			TemplateRemote: opts.TemplateRemote,
+			TemplateBranch: opts.TemplateBranch,
 		},
 	})
 }
@@ -227,13 +250,17 @@ func GenerateModelFromDatasource(opts ModelDatasourceOptions) error {
 		Prefix:        opts.Prefix,
 		Strict:        opts.Strict,
 		TypesMap:      opts.TypesMap,
+		TypeOverrides: opts.TypeOverrides,
 		Emit: modelSchemaEmitOptions{
-			Dir:          opts.Dir,
-			Package:      opts.Package,
-			Module:       opts.Module,
-			Style:        opts.Style,
-			Cache:        opts.Cache,
-			GoZeroLayout: isGoZeroModelStyle(opts.Style),
+			Dir:            opts.Dir,
+			Package:        opts.Package,
+			Module:         opts.Module,
+			Style:          opts.Style,
+			Cache:          opts.Cache,
+			GoZeroLayout:   isGoZeroModelStyle(opts.Style),
+			TemplateDir:    opts.TemplateDir,
+			TemplateRemote: opts.TemplateRemote,
+			TemplateBranch: opts.TemplateBranch,
 		},
 	})
 }
@@ -481,6 +508,9 @@ func prepareModelSchemaIR(ir ModelSchemaIR, opts modelSchemaGenerationOptions) (
 		return ModelSchemaIR{}, err
 	}
 	applyModelTypesMap(tables, opts.TypesMap)
+	if err := applyModelTypeOverrides(tables, opts.TypeOverrides); err != nil {
+		return ModelSchemaIR{}, err
+	}
 	if opts.Strict {
 		if err := validateKnownModelColumnTypes(tables); err != nil {
 			return ModelSchemaIR{}, err
@@ -521,7 +551,11 @@ func emitModelSchemaIR(ir ModelSchemaIR, opts modelSchemaEmitOptions) error {
 		importModule = modelImportModule(module, dir)
 	}
 	style := normalizeModelStyle(opts.Style)
-	if err := writeModelFilesWithLayout(ir.Tables, dir, pkg, importModule, style, opts.Cache, ir.Dialect, opts.GoZeroLayout); err != nil {
+	entityTemplate, err := resolveModelEntityTemplate(opts.TemplateDir, opts.TemplateRemote, opts.TemplateBranch)
+	if err != nil {
+		return err
+	}
+	if err := writeModelFilesWithLayout(ir.Tables, dir, pkg, importModule, style, opts.Cache, ir.Dialect, opts.GoZeroLayout, entityTemplate); err != nil {
 		return err
 	}
 	if opts.GoZeroLayout {
@@ -559,6 +593,7 @@ func introspectSQLTables(ctx context.Context, db *sql.DB, opts datasourceIntrosp
 		column := SQLColumn{
 			Name:          columnName,
 			Type:          normalizeDatasourceType(dataType),
+			DefaultExpr:   strings.TrimSpace(columnDefault),
 			PrimaryKey:    strings.EqualFold(columnKey, "PRI"),
 			Nullable:      strings.EqualFold(nullable, "YES"),
 			AutoIncrement: strings.Contains(strings.ToLower(columnExtra), "auto_increment") || isPostgresGeneratedColumn(columnDefault),
@@ -1069,6 +1104,12 @@ func GenerateMongoModel(opts MongoModelOptions) error {
 	for _, modelType := range types {
 		modelOpts := opts
 		modelOpts.Type = modelType
+		if strings.EqualFold(strings.TrimSpace(modelOpts.Style), modelStyleMongoGoZero) {
+			if err := generateMongoGoZeroModel(modelOpts, pkg); err != nil {
+				return err
+			}
+			continue
+		}
 		if strings.EqualFold(strings.TrimSpace(modelOpts.Style), modelStyleMongoDriver) {
 			if err := generateMongoDriverModel(modelOpts, pkg); err != nil {
 				return err
@@ -1176,6 +1217,146 @@ func mongoCachePrefix(prefix, typeName string) string {
 	return strings.Join(parts, ":")
 }
 
+func generateMongoGoZeroModel(opts MongoModelOptions, pkg string) error {
+	typeName := exportName(opts.Type)
+	if err := writeMongoGoZeroTypesFile(opts.Dir, pkg, typeName); err != nil {
+		return err
+	}
+	if err := writeMongoGoZeroErrorFile(opts.Dir, pkg); err != nil {
+		return err
+	}
+	if err := writeMongoGoZeroGeneratedModelFile(opts.Dir, pkg, typeName, opts); err != nil {
+		return err
+	}
+	if err := writeMongoGoZeroCustomModelFile(opts.Dir, pkg, typeName, opts); err != nil {
+		return err
+	}
+	return ensureGoModDependencyIfPresent(opts.Dir, goZeroModulePath, goZeroModuleVersion)
+}
+
+func writeMongoGoZeroTypesFile(dir, pkg, typeName string) error {
+	var b bytes.Buffer
+	fprintf(&b, "package %s\n\n", lowerName(pkg))
+	fprintf(&b, "import (\n\t\"time\"\n\n\t\"go.mongodb.org/mongo-driver/v2/bson\"\n)\n\n")
+	fprintf(&b, "type %s struct {\n", typeName)
+	fprintf(&b, "\tID bson.ObjectID `bson:%q json:%q`\n", "_id,omitempty", "id,omitempty")
+	fprintf(&b, "\tUpdateAt time.Time `bson:%q json:%q`\n", "updateAt,omitempty", "updateAt,omitempty")
+	fprintf(&b, "\tCreateAt time.Time `bson:%q json:%q`\n", "createAt,omitempty", "createAt,omitempty")
+	fprintf(&b, "}\n")
+	formatted, err := format.Source(b.Bytes())
+	if err != nil {
+		return fmt.Errorf("format gozero mongo types: %w", err)
+	}
+	return writeGeneratedExtensionFile(dir, lowerSnake(typeName)+"_types.go", formatted)
+}
+
+func writeMongoGoZeroErrorFile(dir, pkg string) error {
+	var b bytes.Buffer
+	fprintf(&b, "package %s\n\n", lowerName(pkg))
+	fprintf(&b, "import (\n\t\"errors\"\n\n\t\"github.com/zeromicro/go-zero/core/stores/mon\"\n)\n\n")
+	fprintf(&b, "var (\n\tErrNotFound = mon.ErrNotFound\n\tErrInvalidObjectId = errors.New(\"invalid objectId\")\n)\n")
+	formatted, err := format.Source(b.Bytes())
+	if err != nil {
+		return fmt.Errorf("format gozero mongo errors: %w", err)
+	}
+	return writeGeneratedExtensionFile(dir, "error.go", formatted)
+}
+
+func writeMongoGoZeroGeneratedModelFile(dir, pkg, typeName string, opts MongoModelOptions) error {
+	lowerType := lowerCamel(typeName)
+	var b bytes.Buffer
+	fprintf(&b, "package %s\n\n", lowerName(pkg))
+	fprintf(&b, "import (\n\t\"context\"\n\t\"time\"\n\n")
+	if opts.Cache {
+		fprintf(&b, "\t\"github.com/zeromicro/go-zero/core/stores/monc\"\n")
+	} else {
+		fprintf(&b, "\t\"github.com/zeromicro/go-zero/core/stores/mon\"\n")
+	}
+	fprintf(&b, "\t\"go.mongodb.org/mongo-driver/v2/bson\"\n\t\"go.mongodb.org/mongo-driver/v2/mongo\"\n)\n\n")
+	if opts.Cache {
+		fprintf(&b, "var prefix%sCacheKey = %q\n\n", typeName, mongoCachePrefix(opts.Prefix, typeName)+":")
+	}
+	fprintf(&b, "type %sModel interface {\n", lowerType)
+	fprintf(&b, "\tInsert(ctx context.Context, data *%s) error\n", typeName)
+	fprintf(&b, "\tFindOne(ctx context.Context, id string) (*%s, error)\n", typeName)
+	fprintf(&b, "\tUpdate(ctx context.Context, data *%s) (*mongo.UpdateResult, error)\n", typeName)
+	fprintf(&b, "\tDelete(ctx context.Context, id string) (int64, error)\n")
+	fprintf(&b, "}\n\n")
+	if opts.Cache {
+		fprintf(&b, "type default%sModel struct { conn *monc.Model }\n\n", typeName)
+		fprintf(&b, "func newDefault%sModel(conn *monc.Model) *default%sModel { return &default%sModel{conn: conn} }\n\n", typeName, typeName, typeName)
+	} else {
+		fprintf(&b, "type default%sModel struct { conn *mon.Model }\n\n", typeName)
+		fprintf(&b, "func newDefault%sModel(conn *mon.Model) *default%sModel { return &default%sModel{conn: conn} }\n\n", typeName, typeName, typeName)
+	}
+	fprintf(&b, "func (m *default%sModel) Insert(ctx context.Context, data *%s) error {\n", typeName, typeName)
+	fprintf(&b, "\tif data.ID.IsZero() { data.ID = bson.NewObjectID(); data.CreateAt = time.Now(); data.UpdateAt = time.Now() }\n")
+	if opts.Cache {
+		fprintf(&b, "\t_, err := m.conn.InsertOne(ctx, prefix%sCacheKey+data.ID.Hex(), data)\n\treturn err\n}\n\n", typeName)
+	} else {
+		fprintf(&b, "\t_, err := m.conn.InsertOne(ctx, data)\n\treturn err\n}\n\n")
+	}
+	fprintf(&b, "func (m *default%sModel) FindOne(ctx context.Context, id string) (*%s, error) {\n", typeName, typeName)
+	fprintf(&b, "\toid, err := bson.ObjectIDFromHex(id); if err != nil { return nil, ErrInvalidObjectId }\n\tvar data %s\n", typeName)
+	if opts.Cache {
+		fprintf(&b, "\terr = m.conn.FindOne(ctx, prefix%sCacheKey+id, &data, bson.M{\"_id\": oid})\n\tif err == monc.ErrNotFound { return nil, ErrNotFound }\n", typeName)
+	} else {
+		fprintf(&b, "\terr = m.conn.FindOne(ctx, &data, bson.M{\"_id\": oid})\n\tif err == mon.ErrNotFound { return nil, ErrNotFound }\n")
+	}
+	fprintf(&b, "\tif err != nil { return nil, err }\n\treturn &data, nil\n}\n\n")
+	fprintf(&b, "func (m *default%sModel) Update(ctx context.Context, data *%s) (*mongo.UpdateResult, error) {\n", typeName, typeName)
+	fprintf(&b, "\tdata.UpdateAt = time.Now()\n")
+	if opts.Cache {
+		fprintf(&b, "\treturn m.conn.UpdateOne(ctx, prefix%sCacheKey+data.ID.Hex(), bson.M{\"_id\": data.ID}, bson.M{\"$set\": data})\n}\n\n", typeName)
+	} else {
+		fprintf(&b, "\treturn m.conn.UpdateOne(ctx, bson.M{\"_id\": data.ID}, bson.M{\"$set\": data})\n}\n\n")
+	}
+	fprintf(&b, "func (m *default%sModel) Delete(ctx context.Context, id string) (int64, error) {\n", typeName)
+	fprintf(&b, "\toid, err := bson.ObjectIDFromHex(id); if err != nil { return 0, ErrInvalidObjectId }\n")
+	if opts.Cache {
+		fprintf(&b, "\treturn m.conn.DeleteOne(ctx, prefix%sCacheKey+id, bson.M{\"_id\": oid})\n}\n", typeName)
+	} else {
+		fprintf(&b, "\treturn m.conn.DeleteOne(ctx, bson.M{\"_id\": oid})\n}\n")
+	}
+	formatted, err := format.Source(b.Bytes())
+	if err != nil {
+		return fmt.Errorf("format gozero mongo model: %w", err)
+	}
+	return writeGeneratedFile(filepath.Join(dir, lowerSnake(typeName)+"model_gen.go"), formatted)
+}
+
+func writeMongoGoZeroCustomModelFile(dir, pkg, typeName string, opts MongoModelOptions) error {
+	lowerType := lowerCamel(typeName)
+	var b bytes.Buffer
+	fprintf(&b, "package %s\n\n", lowerName(pkg))
+	if opts.Cache {
+		fprintf(&b, "import (\n\t\"github.com/zeromicro/go-zero/core/stores/cache\"\n\t\"github.com/zeromicro/go-zero/core/stores/monc\"\n)\n\n")
+	} else {
+		fprintf(&b, "import \"github.com/zeromicro/go-zero/core/stores/mon\"\n\n")
+	}
+	if opts.Easy {
+		fprintf(&b, "const %sCollectionName = %q\n\n", typeName, lowerSnake(typeName))
+	}
+	fprintf(&b, "type %sModel interface { %sModel }\n\n", typeName, lowerType)
+	fprintf(&b, "type custom%sModel struct { *default%sModel }\n\n", typeName, typeName)
+	if opts.Easy {
+		if opts.Cache {
+			fprintf(&b, "func New%sModel(url, db string, c cache.CacheConf) %sModel { return &custom%sModel{default%sModel: newDefault%sModel(monc.MustNewModel(url, db, %sCollectionName, c))} }\n", typeName, typeName, typeName, typeName, typeName, typeName)
+		} else {
+			fprintf(&b, "func New%sModel(url, db string) %sModel { return &custom%sModel{default%sModel: newDefault%sModel(mon.MustNewModel(url, db, %sCollectionName))} }\n", typeName, typeName, typeName, typeName, typeName, typeName)
+		}
+	} else if opts.Cache {
+		fprintf(&b, "func New%sModel(url, db, collection string, c cache.CacheConf) %sModel { return &custom%sModel{default%sModel: newDefault%sModel(monc.MustNewModel(url, db, collection, c))} }\n", typeName, typeName, typeName, typeName, typeName)
+	} else {
+		fprintf(&b, "func New%sModel(url, db, collection string) %sModel { return &custom%sModel{default%sModel: newDefault%sModel(mon.MustNewModel(url, db, collection))} }\n", typeName, typeName, typeName, typeName, typeName)
+	}
+	formatted, err := format.Source(b.Bytes())
+	if err != nil {
+		return fmt.Errorf("format gozero mongo custom model: %w", err)
+	}
+	return writeGeneratedExtensionFile(dir, lowerSnake(typeName)+"model.go", formatted)
+}
+
 func generateMongoDriverModel(opts MongoModelOptions, pkg string) error {
 	typeName := exportName(opts.Type)
 	var b bytes.Buffer
@@ -1254,10 +1435,10 @@ func generateMongoDriverModel(opts MongoModelOptions, pkg string) error {
 }
 
 func writeModelFiles(tables []SQLTable, dir string, pkg string, module string, style string, cacheEnabled bool, defaultDialect storage.Dialect) error {
-	return writeModelFilesWithLayout(tables, dir, pkg, module, style, cacheEnabled, defaultDialect, false)
+	return writeModelFilesWithLayout(tables, dir, pkg, module, style, cacheEnabled, defaultDialect, false, "")
 }
 
-func writeModelFilesWithLayout(tables []SQLTable, dir string, pkg string, module string, style string, cacheEnabled bool, defaultDialect storage.Dialect, goZeroLayout bool) error {
+func writeModelFilesWithLayout(tables []SQLTable, dir string, pkg string, module string, style string, cacheEnabled bool, defaultDialect storage.Dialect, goZeroLayout bool, entityTemplate string) error {
 	if len(tables) == 0 {
 		return errors.New("model table is required")
 	}
@@ -1281,7 +1462,7 @@ func writeModelFilesWithLayout(tables []SQLTable, dir string, pkg string, module
 		return err
 	}
 	for _, table := range tables {
-		if err := writeEntityFile(entityDir, table, pkg, style, entityPackage); err != nil {
+		if err := writeEntityFile(entityDir, table, pkg, style, entityPackage, entityTemplate); err != nil {
 			return err
 		}
 		entityImport := modelEntityImport(module)
@@ -1384,6 +1565,7 @@ func writeGoZeroModelFacadeFile(dir string, table SQLTable, module string, defau
 			if table.CachePrefix != "" {
 				cachePrefix = "entity." + typeName + "CacheKeyPrefix"
 			}
+			cachePrefix += " + \":\" + " + strconv.Quote(pk.Name)
 			fprintf(&b, "\nfunc NewCached%s(conn *storage.SQLStore, opts ...cache.ModelOption[*%s, %s]) %s {\n", modelName, typeName, pkType, modelName)
 			fprintf(&b, "\tmodel := new%s(conn)\n", typeName+"Model")
 			fprintf(&b, "\toptions := append([]cache.ModelOption[*%s, %s]{cache.WithModelKeyPrefix[*%s, %s](%s)}, opts...)\n", typeName, pkType, typeName, pkType, cachePrefix)
@@ -1441,15 +1623,34 @@ func writeEntityTablerFile(dir string, packageName string) error {
 	return writeGeneratedFile(filepath.Join(dir, "tabler_gen.go"), formatted)
 }
 
-func writeEntityFile(dir string, table SQLTable, pkg string, style string, packageName string) error {
+func writeEntityFile(dir string, table SQLTable, pkg string, style string, packageName string, entityTemplate string) error {
 	typeName := exportName(singularize(table.Name))
 	var b bytes.Buffer
 	if strings.TrimSpace(packageName) == "" {
 		packageName = "entity"
 	}
+	if strings.TrimSpace(entityTemplate) != "" {
+		data, err := renderModelEntityTemplate(entityTemplate, table, typeName, style, packageName)
+		if err != nil {
+			return err
+		}
+		formatted, err := format.Source(data)
+		if err != nil {
+			return fmt.Errorf("format model entity template: %w", err)
+		}
+		filename := lowerSnake(singularize(table.Name)) + "_gen.go"
+		return writeGeneratedFile(filepath.Join(dir, filename), formatted)
+	}
 	fprintf(&b, "package %s\n\n", lowerName(packageName))
-	if modelsNeedTime([]SQLTable{table}) {
-		fprintf(&b, "import \"time\"\n\n")
+	imports := entityImports(table)
+	if len(imports) == 1 {
+		fprintf(&b, "import %q\n\n", imports[0])
+	} else if len(imports) > 1 {
+		fprintf(&b, "import (\n")
+		for _, path := range imports {
+			fprintf(&b, "\t%q\n", path)
+		}
+		fprintf(&b, ")\n\n")
 	}
 	fprintf(&b, "const %sTable = %q\n\n", typeName, table.Name)
 	if table.CachePrefix != "" {
@@ -1474,6 +1675,86 @@ func writeEntityFile(dir string, table SQLTable, pkg string, style string, packa
 	}
 	filename := lowerSnake(singularize(table.Name)) + "_gen.go"
 	return writeGeneratedFile(filepath.Join(dir, filename), formatted)
+}
+
+func resolveModelEntityTemplate(dir, remote, branch string) (string, error) {
+	// Keep goctl-compatible --remote/--branch inputs accepted while model
+	// generation remains intentionally local-only. A future remote contract must
+	// add pinning and size limits before these flags affect output.
+	_ = remote
+	_ = branch
+	if strings.TrimSpace(dir) == "" {
+		return "", nil
+	}
+	data, err := ReadFileUnderRoot(dir, "model-entity.tpl", "model entity template")
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return "", nil
+		}
+		return "", fmt.Errorf("read model entity template: %w", err)
+	}
+	return string(data), nil
+}
+
+func renderModelEntityTemplate(tmpl string, table SQLTable, typeName, style, packageName string) ([]byte, error) {
+	imports := entityImports(table)
+	importText := ""
+	if len(imports) == 1 {
+		importText = fmt.Sprintf("import %q\n", imports[0])
+	} else if len(imports) > 1 {
+		importText = "import (\n"
+		for _, path := range imports {
+			importText += fmt.Sprintf("\t%q\n", path)
+		}
+		importText += ")\n"
+	}
+	var fields bytes.Buffer
+	for _, column := range table.Columns {
+		fieldName := modelFieldName(column.Name)
+		if style == modelStyleGORM {
+			fprintf(&fields, "\t%s %s `db:%q json:%q gorm:%q`\n", fieldName, columnGoType(column), column.Name, lowerCamel(column.Name), gormColumnTag(column))
+			continue
+		}
+		fprintf(&fields, "\t%s %s `db:%q json:%q`\n", fieldName, columnGoType(column), column.Name, lowerCamel(column.Name))
+	}
+	cachePrefix := ""
+	if table.CachePrefix != "" {
+		cachePrefix = fmt.Sprintf("const %sCacheKeyPrefix = %q\n", typeName, table.CachePrefix+":"+table.Name)
+	}
+	replacements := map[string]string{
+		"{{.Package}}":     lowerName(packageName),
+		"{{.Imports}}":     importText,
+		"{{.Type}}":        typeName,
+		"{{.Table}}":       table.Name,
+		"{{.CachePrefix}}": cachePrefix,
+		"{{.Columns}}":     quotedColumnList(table.Columns),
+		"{{.Fields}}":      fields.String(),
+	}
+	for key, value := range replacements {
+		tmpl = strings.ReplaceAll(tmpl, key, value)
+	}
+	if strings.Contains(tmpl, "{{.") {
+		return nil, errors.New("model entity template contains unsupported placeholder")
+	}
+	return []byte(tmpl), nil
+}
+
+func entityImports(table SQLTable) []string {
+	imports := make(map[string]struct{})
+	if modelsNeedTime([]SQLTable{table}) {
+		imports["time"] = struct{}{}
+	}
+	for _, column := range table.Columns {
+		if column.GoImport != "" {
+			imports[column.GoImport] = struct{}{}
+		}
+	}
+	out := make([]string, 0, len(imports))
+	for path := range imports {
+		out = append(out, path)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func writeRepoFile(dir string, table SQLTable, pkg string, module string, style string, cacheEnabled bool, defaultDialect storage.Dialect) error {
@@ -3025,12 +3306,22 @@ func parseSQLColumn(def string) SQLColumn {
 	return SQLColumn{
 		Name:          name,
 		Type:          typeName,
+		DefaultExpr:   sqlDefaultExpr(fields),
 		PrimaryKey:    strings.Contains(lower, "primary key"),
 		Nullable:      !strings.Contains(lower, "not null") && !strings.Contains(lower, "primary key"),
 		AutoIncrement: strings.Contains(lower, "auto_increment"),
 		Unsigned:      strings.Contains(lower, " unsigned"),
 		Unique:        strings.Contains(lower, " unique"),
 	}
+}
+
+func sqlDefaultExpr(fields []string) string {
+	for index, field := range fields {
+		if strings.EqualFold(field, "default") && index+1 < len(fields) {
+			return strings.TrimSpace(fields[index+1])
+		}
+	}
+	return ""
 }
 
 func parseUniqueIndexColumns(def string) []string {
@@ -4102,7 +4393,7 @@ func columnGoType(column SQLColumn) string {
 	if typeName == "" {
 		typeName = sqlGoType(column.Type)
 	}
-	if column.Nullable && !column.PrimaryKey && typeName != "[]byte" {
+	if column.Nullable && !column.PrimaryKey && !column.NullableType && typeName != "[]byte" {
 		return "*" + typeName
 	}
 	return typeName
@@ -4131,6 +4422,65 @@ func applyModelTypesMap(tables []SQLTable, typesMap map[string]string) {
 			}
 		}
 	}
+}
+
+func applyModelTypeOverrides(tables []SQLTable, overrides map[string]ModelTypeOverride) error {
+	if len(overrides) == 0 {
+		return nil
+	}
+	normalized := make(map[string]ModelTypeOverride, len(overrides))
+	for key, override := range overrides {
+		key = normalizeSQLTypeKey(key)
+		if key == "" {
+			continue
+		}
+		override.Type = strings.TrimSpace(override.Type)
+		override.UnsignedType = strings.TrimSpace(override.UnsignedType)
+		override.NullableType = strings.TrimSpace(override.NullableType)
+		override.ImportPath = strings.TrimSpace(override.ImportPath)
+		if override.ImportPath != "" && !validModelImportPath(override.ImportPath) {
+			return fmt.Errorf("invalid model type override import path %q", override.ImportPath)
+		}
+		normalized[key] = override
+	}
+	for tableIndex := range tables {
+		for columnIndex := range tables[tableIndex].Columns {
+			column := &tables[tableIndex].Columns[columnIndex]
+			override, ok := normalized[normalizeSQLTypeKey(column.Type)]
+			if !ok {
+				continue
+			}
+			selected := ""
+			column.NullableType = false
+			switch {
+			case column.Nullable && override.NullableType != "":
+				selected = override.NullableType
+				column.NullableType = true
+			case column.Unsigned && override.UnsignedType != "":
+				selected = override.UnsignedType
+			case override.Type != "":
+				selected = override.Type
+			}
+			if selected == "" {
+				continue
+			}
+			column.GoType = selected
+			column.GoImport = override.ImportPath
+		}
+	}
+	return nil
+}
+
+func validModelImportPath(path string) bool {
+	if path == "" || strings.HasPrefix(path, ".") || strings.HasPrefix(path, "/") || strings.Contains(path, "//") {
+		return false
+	}
+	for _, r := range path {
+		if r != '/' && r != '.' && r != '-' && r != '_' && r != '~' && (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') {
+			return false
+		}
+	}
+	return true
 }
 
 func normalizeSQLTypeKey(sqlType string) string {

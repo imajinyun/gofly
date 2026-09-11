@@ -22,7 +22,7 @@ Replay fixture  -> rawModelSchemaIRFromReplayFixture -> raw ModelSchemaIR (sourc
 | `Dialect` | normalized `storage.Dialect` (`question`, `mysql`, `postgres`) |
 | `Driver` | original datasource driver name (empty for DDL) |
 | `Database` / `Schema` | introspection scope, trimmed; empty when unset |
-| `Tables` | `[]SQLTable` with columns, primary key, unique and non-unique indexes |
+| `Tables` | `[]SQLTable` with columns, default expressions, primary key, unique and non-unique indexes |
 
 ## Pipeline stages
 
@@ -30,8 +30,8 @@ Replay fixture  -> rawModelSchemaIRFromReplayFixture -> raw ModelSchemaIR (sourc
 two stages with a single options struct (`modelSchemaGenerationOptions`):
 
 1. `prepareModelSchemaIR` — table filter, separate cache namespace, write-ignored
-   column markers, output conflict validation, `TypesMap` application, and strict
-   type validation. Physical table names and readable columns are preserved;
+   column markers, output conflict validation, legacy `TypesMap` application,
+   structured `TypeOverrides` application, and strict type validation. Physical table names and readable columns are preserved;
    prepared column slices do not alias the input schema.
 2. `emitModelSchemaIR` — package default (`model`), module inference,
    import-module computation, style normalization, go_zero layout writes,
@@ -65,6 +65,30 @@ by `TestGoctlDatasourceReplayFixtureModelSchemaIR`. Empty fields mean
 | `tables[].writeIgnoredColumns` | retained columns marked `WriteIgnored` for insert/update exclusion |
 | `tables[].uniqueIndexes` | composite unique indexes that must exist |
 | `tables[].indexes` | non-unique indexes that must exist |
+
+`SQLColumn.DefaultExpr` is metadata collected from DDL or information schema. It is never used to synthesize Go values or interpolate generated SQL; database defaults remain authoritative.
+
+`ModelConfig.TypeOverrides` is applied after the legacy `TypesMap` for the same
+normalized SQL type. The selected value is `nullableType`, `unsignedType`, then
+`type`; an explicitly selected nullable type is not pointer-wrapped. `importPath`
+is optional, but when present must be a canonical import-path-like value and is
+emitted once with the entity imports.
+
+For the go_zero SQL facade, `Insert` returns `sql.Result`, while `Update` and
+`Delete` remain error-only. The cache facade preserves those signatures and
+invalidates a successfully updated or deleted primary-key entry.
+
+SQL model `--home` optionally supplies `model-entity.tpl`; it is resolved under
+the local root through the same symlink-rejecting file boundary as generated
+output. Only the fixed entity placeholder set is accepted, and the rendered Go
+source must pass gofmt. Model `--remote` and `--branch` are accepted compatibility
+inputs but do not download or execute templates until a pinned remote-template
+contract exists.
+
+With cache-enabled `go_zero` SQL output, the facade primary-key cache prefix is
+`<prefix>:<physical-table>:<primary-column>`, so the final model cache key matches
+goctl's `<prefix>:<table>:<primary-column>:<value>` form. This contract does not
+extend to gofly's advanced unique/list/count/version caches.
 
 The same fixture also drives generation directly
 (`TestGenerateModelFromReplaySchemaIRCompiles`): fixture -> raw IR ->

@@ -5567,6 +5567,35 @@ func TestExecuteModelMongoDriverStyle(t *testing.T) {
 	}
 }
 
+func TestExecuteModelMongoGoZeroV2Style(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/shop\n\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := Execute([]string{"model", "mongo", "--type", "UserProfile", "--cache", "--easy", "--style", "go_zero_mongo", "--dir", dir}); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"user_profile_types.go", "user_profilemodel.go", "user_profilemodel_gen.go", "error.go"} {
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			t.Fatalf("generated go_zero mongo file %s: %v", name, err)
+		}
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "user_profilemodel.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "func NewUserProfileModel(url, db string, c cache.CacheConf) UserProfileModel") {
+		t.Fatalf("generated go_zero mongo constructor = %s", data)
+	}
+	goModData, err := os.ReadFile(filepath.Join(dir, "go.mod"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(goModData), "github.com/zeromicro/go-zero") {
+		t.Fatalf("go_zero mongo style should update generated go.mod:\n%s", goModData)
+	}
+}
+
 func TestExecuteAPIFormatAndDoc(t *testing.T) {
 	dir := t.TempDir()
 	apiPath := filepath.Join(dir, "user.api")
@@ -8042,5 +8071,116 @@ func TestModelGenUsesConfigTypesMap(t *testing.T) {
 		if !strings.Contains(string(data), want) {
 			t.Fatalf("generated model should use config typesMap %q:\n%s", want, data)
 		}
+	}
+}
+
+func TestModelGenUsesConfigTypeOverrides(t *testing.T) {
+	dir := t.TempDir()
+	if err := Execute([]string{"config", "init", "--dir", dir}); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(dir, generator.DefaultConfigFile)
+	cfg, err := generator.LoadConfig(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Model.TypeOverrides = map[string]generator.ModelTypeOverride{
+		"bigint": {
+			Type:         "int64",
+			UnsignedType: "uint64",
+			NullableType: "sql.NullInt64",
+			ImportPath:   "database/sql",
+		},
+	}
+	if err := generator.SaveConfig(configPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+	ddlPath := filepath.Join(dir, "schema.sql")
+	ddl := `CREATE TABLE events (
+  id bigint unsigned primary key,
+  parent_id bigint null,
+  legacy_id bigint not null
+);`
+	if err := os.WriteFile(ddlPath, []byte(ddl), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := Execute([]string{"model", "gen", "--ddl", ddlPath, "--dir", dir}); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "model", "event_gen.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`"database/sql"`,
+		"uint64",
+		"sql.NullInt64",
+		"int64",
+		`db:"id"`,
+		`db:"parent_id"`,
+		`db:"legacy_id"`,
+	} {
+		if !strings.Contains(string(data), want) {
+			t.Fatalf("generated model should use config typeOverrides %q:\n%s", want, data)
+		}
+	}
+}
+
+func TestModelGenUsesLocalEntityTemplateSource(t *testing.T) {
+	dir := t.TempDir()
+	templates := filepath.Join(dir, "templates")
+	if err := os.MkdirAll(templates, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	template := `package {{.Package}}
+
+{{.Imports}}
+
+// local entity template marker
+const {{.Type}}Table = "{{.Table}}"
+{{.CachePrefix}}
+var {{.Type}}Columns = []string{ {{.Columns}} }
+
+type {{.Type}} struct {
+{{.Fields}}}
+
+var _ Tabler = (*{{.Type}})(nil)
+
+func ({{.Type}}) TableName() string { return {{.Type}}Table }
+`
+	if err := os.WriteFile(filepath.Join(templates, "model-entity.tpl"), []byte(template), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ddlPath := filepath.Join(dir, "schema.sql")
+	if err := os.WriteFile(ddlPath, []byte("CREATE TABLE users (id bigint primary key, name varchar(64) not null);"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := Execute([]string{"model", "gen", "--ddl", ddlPath, "--dir", dir, "--home", templates}); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "model", "user_gen.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "local entity template marker") || !strings.Contains(string(data), "Name string") {
+		t.Fatalf("local model entity template was not rendered:\n%s", data)
+	}
+}
+
+func TestModelGenAcceptsRemoteTemplateSourceWithoutRemoteExecution(t *testing.T) {
+	dir := t.TempDir()
+	ddlPath := filepath.Join(dir, "schema.sql")
+	if err := os.WriteFile(ddlPath, []byte("CREATE TABLE users (id bigint primary key);"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := Execute([]string{"model", "gen", "--ddl", ddlPath, "--dir", dir, "--remote", "https://example.com/templates.git", "--branch", "main"}); err != nil {
+		t.Fatalf("remote model template compatibility flags = %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "model", "user_gen.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "local entity template marker") {
+		t.Fatalf("remote template unexpectedly affected output:\n%s", data)
 	}
 }

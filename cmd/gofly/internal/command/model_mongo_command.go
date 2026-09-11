@@ -30,11 +30,11 @@ func registerModelMongoFlags(fs *flag.FlagSet) modelMongoFlags {
 		Package:     fs.String("package", "model", "generated Go package name"),
 		Cache:       fs.Bool("cache", false, "generate cache helpers"),
 		CacheAlias:  fs.Bool("c", false, "generate cache helpers"),
-		Prefix:      fs.String("prefix", "", "model prefix to trim"),
-		PrefixAlias: fs.String("p", "", "model prefix to trim"),
+		Prefix:      fs.String("prefix", "", "cache key namespace prefix"),
+		PrefixAlias: fs.String("p", "", "cache key namespace prefix"),
 		Easy:        fs.Bool("easy", false, "use simplified mongo output"),
 		EasyAlias:   fs.Bool("e", false, "use simplified mongo output"),
-		Style:       fs.String("style", "go_zero", "model style"),
+		Style:       fs.String("style", "go_zero", "model style: go_zero|driver|go_zero_mongo"),
 	}
 }
 

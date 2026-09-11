@@ -35,6 +35,27 @@ func TestCopySortedMapHandlesNilInput(t *testing.T) {
 	}
 }
 
+func TestModelTypeOverridesRoundTrip(t *testing.T) {
+	cfg := DefaultConfig("orders", "example.com/orders")
+	cfg.Model.TypeOverrides = map[string]ModelTypeOverride{
+		"bigint": {Type: "int64", UnsignedType: "uint64", NullableType: "sql.NullInt64", ImportPath: "database/sql"},
+	}
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded Config
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if got := decoded.Model.TypeOverrides["bigint"].UnsignedType; got != "uint64" {
+		t.Fatalf("unsigned type = %q", got)
+	}
+	if got := decoded.Model.TypeOverrides["bigint"].ImportPath; got != "database/sql" {
+		t.Fatalf("import path = %q", got)
+	}
+}
+
 func TestConfigSaveOverlayAndStableStringBoundaries(t *testing.T) {
 	if err := SaveConfig("", DefaultConfig("orders", "example.com/orders")); err == nil || !strings.Contains(err.Error(), "config path is required") {
 		t.Fatalf("SaveConfig blank path error = %v, want required path", err)

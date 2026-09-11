@@ -10,7 +10,7 @@ import (
 	"github.com/imajinyun/gofly/cmd/gofly/internal/generator"
 )
 
-func modelTypesMapFromConfig(configPath, dir string) (map[string]string, error) {
+func modelTypeConfigFromConfig(configPath, dir string) (map[string]string, map[string]generator.ModelTypeOverride, error) {
 	path := strings.TrimSpace(configPath)
 	explicitPath := path != ""
 	if path == "" {
@@ -18,25 +18,35 @@ func modelTypesMapFromConfig(configPath, dir string) (map[string]string, error) 
 	}
 	if _, err := os.Stat(path); err != nil {
 		if errors.Is(err, os.ErrNotExist) && !explicitPath {
-			return nil, nil
+			return nil, nil, nil
 		}
-		return nil, err
+		return nil, nil, err
 	}
 	cfg, err := generator.LoadConfig(path)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	if cfg.Model == nil || len(cfg.Model.TypesMap) == 0 {
-		return nil, nil
+	if cfg.Model == nil {
+		return nil, nil, nil
 	}
 	out := make(map[string]string, len(cfg.Model.TypesMap))
 	for key, value := range cfg.Model.TypesMap {
 		out[key] = value
 	}
-	return out, nil
+	overrides := make(map[string]generator.ModelTypeOverride, len(cfg.Model.TypeOverrides))
+	for key, value := range cfg.Model.TypeOverrides {
+		overrides[key] = value
+	}
+	return out, overrides, nil
 }
 
-func registerGoctlModelTemplateFlags(fs *flag.FlagSet) {
-	registerTemplateSourceFlags(fs, "", "", "")
+func modelTypesMapFromConfig(configPath, dir string) (map[string]string, error) {
+	typesMap, _, err := modelTypeConfigFromConfig(configPath, dir)
+	return typesMap, err
+}
+
+func registerGoctlModelTemplateFlags(fs *flag.FlagSet) templateSourceFlags {
+	flags := registerTemplateSourceFlags(fs, "local model template directory containing model-entity.tpl", "unsupported for model generation", "unsupported for model generation")
 	fs.Bool("idea", false, "open generated project in IDE")
+	return flags
 }

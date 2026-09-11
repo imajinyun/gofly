@@ -176,19 +176,56 @@ Model migration parity is tracked by
 `docs/reference/goctl-model-parity-replay.json` and validated by
 `make goctl-model-parity-replay-check`. This gate executes extension-preservation,
 generated SQL read/write, and datasource schema tests rather than only checking
-that flags exist. DDL and datasource metadata preserve auto-increment and strict
-unsigned primary-key mapping; the go_zero `Insert` facade returns `sql.Result`.
+that flags exist. DDL and datasource metadata preserve auto-increment, strict
+unsigned primary-key mapping, and database default expressions; generated SQL leaves
+database defaults authoritative. The go_zero `Insert` facade returns `sql.Result`.
+The matching SQL facade keeps `Update` and `Delete` error-only, consistent with
+goctl; cache-enabled facades invalidate the affected primary-key entry after a
+successful mutation.
+For a database type whose Go representation varies by shape, preserve the legacy
+`model.typesMap` and add `model.typeOverrides` in `.gofly/config.json`; override
+selection is nullable first, then unsigned, then base type. An optional `importPath`
+is validated before it is emitted into entity imports, for example:
+
+```json
+{
+  "model": {
+    "typeOverrides": {
+      "bigint": {
+        "type": "int64",
+        "unsignedType": "uint64",
+        "nullableType": "sql.NullInt64",
+        "importPath": "database/sql"
+      }
+    }
+  }
+}
+```
+
 For cache-enabled model generation, `NewCached<Type>Model(conn, opts...)` returns
 the same Model interface, caches reads, invalidates after writes, and declines to
 reuse the cache across a transaction session. Normal repository convenience methods
-remain error-only. Remaining gaps include database default metadata, custom type-map
-nullable/unsigned variants, update/delete result contracts, template flags, and Mongo
-driver/runtime
-semantics. Mongo accepts comma-separated types, `--easy` emits a deterministic
+remain error-only. For Mongo migration, use `--style go_zero_mongo`: it is an
+opt-in v2 profile that emits goctl-shaped `New<Type>Model` constructors, BSON
+ObjectIDs, `Update` result and `Delete` count contracts, and go-zero `mon`/`monc`
+runtime wiring. Mongo accepts comma-separated types, `--easy` emits a deterministic
 `<Type>CollectionName` constant, and `--prefix` contributes to generated cache
-namespaces without changing the type name. Constructor/runtime contracts and
-driver-v2 output remain distinct. Full goctl replacement is not claimed; structural
+namespaces without changing the type name. Existing `driver` output remains a
+separate direct-collection style. Full goctl replacement is not claimed; structural
 `model-layout-difference` remains an accepted oracle category.
+
+For cache-enabled SQL `go_zero` facades, primary-key entries use the goctl-shaped
+namespace `prefix:table:primary_column:value`. The richer gofly unique/list/count/
+version caches keep their own encoding and must not share a Redis namespace with
+a goctl writer until a dedicated advanced-key oracle is introduced.
+
+For SQL model customization, `--home <dir>` executes a local
+`model-entity.tpl` for generated entity files. The supported placeholders are
+`{{.Package}}`, `{{.Imports}}`, `{{.Type}}`, `{{.Table}}`,
+`{{.CachePrefix}}`, `{{.Columns}}`, and `{{.Fields}}`; output is gofmt-checked.
+The template root and target file must not traverse symlinks. `--remote` and
+`--branch` remain accepted goctl-compatible inputs but do not trigger remote model
+template execution pending a pinned and size-bounded remote-template contract.
 
 ## zRPC Compatibility Boundaries
 

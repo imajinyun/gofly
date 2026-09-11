@@ -57,11 +57,20 @@ type APIConfig struct {
 
 // ModelConfig 为 model 生成保存默认参数，包含 goctl config 的类型映射能力。
 type ModelConfig struct {
-	Style         string            `json:"style,omitempty"`
-	Cache         bool              `json:"cache,omitempty"`
-	Strict        bool              `json:"strict,omitempty"`
-	IgnoreColumns []string          `json:"ignoreColumns,omitempty"`
-	TypesMap      map[string]string `json:"typesMap,omitempty"`
+	Style         string                       `json:"style,omitempty"`
+	Cache         bool                         `json:"cache,omitempty"`
+	Strict        bool                         `json:"strict,omitempty"`
+	IgnoreColumns []string                     `json:"ignoreColumns,omitempty"`
+	TypesMap      map[string]string            `json:"typesMap,omitempty"`
+	TypeOverrides map[string]ModelTypeOverride `json:"typeOverrides,omitempty"`
+}
+
+// ModelTypeOverride selects a Go type for a database column shape.
+type ModelTypeOverride struct {
+	Type         string `json:"type,omitempty"`
+	UnsignedType string `json:"unsignedType,omitempty"`
+	NullableType string `json:"nullableType,omitempty"`
+	ImportPath   string `json:"importPath,omitempty"`
 }
 
 // DiscoveryConfig stores service discovery defaults for generated services.
@@ -104,7 +113,7 @@ func DefaultConfig(service, module string) *Config {
 		Extra:        map[string]string{},
 		RPC:          &RPCConfig{Transport: "grpc", Profile: string(ProfileGoflyAI)},
 		API:          &APIConfig{},
-		Model:        &ModelConfig{TypesMap: map[string]string{}},
+		Model:        &ModelConfig{TypesMap: map[string]string{}, TypeOverrides: map[string]ModelTypeOverride{}},
 		LLM:          &LLMConfig{Provider: "noop", Model: "noop"},
 		GoVersion:    strings.TrimPrefix(runtime.Version(), "go"),
 	}
@@ -247,10 +256,13 @@ func LoadConfig(path string) (*Config, error) {
 		cfg.API = &APIConfig{}
 	}
 	if cfg.Model == nil {
-		cfg.Model = &ModelConfig{TypesMap: map[string]string{}}
+		cfg.Model = &ModelConfig{TypesMap: map[string]string{}, TypeOverrides: map[string]ModelTypeOverride{}}
 	}
 	if cfg.Model.TypesMap == nil {
 		cfg.Model.TypesMap = map[string]string{}
+	}
+	if cfg.Model.TypeOverrides == nil {
+		cfg.Model.TypeOverrides = map[string]ModelTypeOverride{}
 	}
 	if cfg.LLM == nil {
 		cfg.LLM = &LLMConfig{Provider: "noop", Model: "noop"}
@@ -306,6 +318,12 @@ func (c *Config) ApplyOverlayWithTemplateSource(name, module, style, templateDir
 	if c.LLM != nil {
 		llm := *c.LLM
 		out.LLM = &llm
+	}
+	if c.Model != nil {
+		model := *c.Model
+		model.TypesMap = copySortedMap(c.Model.TypesMap)
+		model.TypeOverrides = copyModelTypeOverrides(c.Model.TypeOverrides)
+		out.Model = &model
 	}
 	if c.Discovery != nil {
 		discovery := *c.Discovery
@@ -435,6 +453,9 @@ func (c *Config) String() string {
 		if len(model.TypesMap) > 0 {
 			model.TypesMap = copySortedMap(model.TypesMap)
 		}
+		if len(model.TypeOverrides) > 0 {
+			model.TypeOverrides = copyModelTypeOverrides(model.TypeOverrides)
+		}
 		sorted.Model = &model
 	}
 	if c.Discovery != nil {
@@ -461,6 +482,14 @@ func copySortedMap(in map[string]string) map[string]string {
 	out := make(map[string]string, len(in))
 	for k, v := range in {
 		out[k] = v
+	}
+	return out
+}
+
+func copyModelTypeOverrides(in map[string]ModelTypeOverride) map[string]ModelTypeOverride {
+	out := make(map[string]ModelTypeOverride, len(in))
+	for key, value := range in {
+		out[key] = value
 	}
 	return out
 }

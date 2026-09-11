@@ -101,7 +101,7 @@ for source in manifest.get("sourceOfTruth") or []:
     require((root / source).exists(), f"sourceOfTruth path missing: {source}")
 
 policy = manifest.get("compatibilityPolicy") or {}
-for key in ("layout", "oracleDiff", "rootModuleHygiene", "offlineDatasourceFixtures"):
+for key in ("layout", "oracleDiff", "rootModuleHygiene", "offlineDatasourceFixtures", "defaultMetadata", "structuredTypeOverrides", "facadeMutations", "mongoGoZeroV2", "localTemplateExecution", "primaryCacheKey"):
     require(len(str(policy.get(key) or "").split()) >= 8, f"compatibilityPolicy.{key} must be actionable")
 require("model-layout-difference" in policy.get("oracleDiff", ""), "oracleDiff must mention model-layout-difference")
 require("root module" in policy.get("rootModuleHygiene", "").lower(), "rootModuleHygiene must mention root module")
@@ -234,6 +234,8 @@ for needle in (
     "TestGenerateModelFromDDLGoctlOptions",
     "TestGenerateModelFromDDLMultiTableGoctlOptionsCacheReplay",
     "TestGenerateModelFromDDLGoZeroStyleWritesGoctlFacade",
+    "Update(ctx context.Context, in *NativeOrder) error",
+    "Delete(ctx context.Context, id int64) error",
     "TestGenerateModelFromDatasourceMultiTableReplayCompiles",
     "TestGenerateModelFromPostgresDatasourceMultiSchemaReplayCompiles",
     "TestGenerateModelFromReplaySchemaIRCompiles",
@@ -266,5 +268,5 @@ export GOCACHE="${GOCACHE:-$work/gocache}"
 export GOTMPDIR="${GOTMPDIR:-$work/gotmp}"
 export GOPROXY="${GOPROXY:-direct}"
 mkdir -p "$GOCACHE" "$GOTMPDIR"
-"${GO:-go}" test -count=1 -shuffle=on ./cmd/gofly/internal/generator \
-    -run '^(TestGenerateModelFromDDLGoZeroPreservesExtensions|TestGenerateModelAllWriteIgnoredColumnsCompile|TestGenerateModelSQLWriteIgnoreRuntime|TestGenerateMongoModelMultipleTypesAndEasy|TestDatasourceAutoIncrementAndUnsignedReachGeneratedModel|TestGeneratedExtensionFileSafety|TestGoctlDatasourceReplayFixtureModelSchemaIR)$'
+"${GO:-go}" test -count=1 -shuffle=on ./cmd/gofly/internal/generator ./cmd/gofly/internal/command \
+    -run '^(TestParseSQLModelsDefaultMetadata|TestGenerateModelFromDDLGoZeroPreservesExtensions|TestGenerateModelAllWriteIgnoredColumnsCompile|TestGenerateModelSQLWriteIgnoreRuntime|TestGenerateMongoModelMultipleTypesAndEasy|TestGenerateMongoModelGoZeroV2Style|TestGenerateMongoModelGoZeroV2StylePreservesExtensions|TestExecuteModelMongoGoZeroV2Style|TestDatasourceAutoIncrementAndUnsignedReachGeneratedModel|TestGenerateModelTypeOverridesCompile|TestModelGenUsesConfigTypesMap|TestModelGenUsesConfigTypeOverrides|TestModelGenUsesLocalEntityTemplateSource|TestModelGenAcceptsRemoteTemplateSourceWithoutRemoteExecution|TestModelEntityTemplateRejectsSymlinkSource|TestGeneratedExtensionFileSafety|TestGoctlDatasourceReplayFixtureModelSchemaIR)$'

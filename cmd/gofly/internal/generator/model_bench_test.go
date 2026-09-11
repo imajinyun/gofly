@@ -271,7 +271,7 @@ func fakeDatasourceColumnRows() driver.Rows {
 			{"users", "id", "BIGINT", "bigint unsigned", "", "auto_increment", "PRI", "NO", int64(1)},
 			{"users", "email", "character varying", "varchar", "", "", "", "YES", int64(2)},
 			{"users", "name", "varchar", "varchar", "", "", "", "NO", int64(3)},
-			{"users", "created_at", "timestamp", "timestamp", "", "", "", "NO", int64(4)},
+			{"users", "created_at", "timestamp", "timestamp", "CURRENT_TIMESTAMP", "", "", "NO", int64(4)},
 			{"audit_logs", "created_at", "timestamp with time zone", "timestamptz", "", "", "", "NO", int64(1)},
 		},
 	}
@@ -714,6 +714,77 @@ func TestParseSQLModelsKeepsNonUniqueIndexes(t *testing.T) {
 	}
 }
 
+func TestParseSQLModelsDefaultMetadata(t *testing.T) {
+	tables, err := ParseSQLModels(`CREATE TABLE events (
+  id bigint unsigned NOT NULL AUTO_INCREMENT,
+  status varchar(16) NOT NULL DEFAULT 'new',
+  created_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP
+);`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tables) != 1 || len(tables[0].Columns) != 3 {
+		t.Fatalf("tables = %#v", tables)
+	}
+	columns := tables[0].Columns
+	if columns[0].DefaultExpr != "" || !columns[0].AutoIncrement || !columns[0].Unsigned {
+		t.Fatalf("id metadata = %#v", columns[0])
+	}
+	if columns[1].DefaultExpr != "'new'" {
+		t.Fatalf("status default = %q, want 'new'", columns[1].DefaultExpr)
+	}
+	if columns[2].DefaultExpr != "CURRENT_TIMESTAMP" {
+		t.Fatalf("created_at default = %q, want CURRENT_TIMESTAMP", columns[2].DefaultExpr)
+	}
+}
+
+func TestModelTypeOverridesSelectNullableAndUnsigned(t *testing.T) {
+	tables := []SQLTable{{
+		Name: "events",
+		Columns: []SQLColumn{
+			{Name: "id", Type: "bigint", Unsigned: true},
+			{Name: "parent_id", Type: "bigint", Nullable: true},
+			{Name: "legacy_id", Type: "bigint"},
+		},
+	}}
+	if err := applyModelTypeOverrides(tables, map[string]ModelTypeOverride{
+		"bigint": {Type: "int64", UnsignedType: "uint64", NullableType: "sql.NullInt64", ImportPath: "database/sql"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	columns := tables[0].Columns
+	if columns[0].GoType != "uint64" || columns[0].NullableType || columns[0].GoImport != "database/sql" {
+		t.Fatalf("unsigned override = %#v", columns[0])
+	}
+	if columns[1].GoType != "sql.NullInt64" || !columns[1].NullableType || columns[1].GoImport != "database/sql" {
+		t.Fatalf("nullable override = %#v", columns[1])
+	}
+	if columns[2].GoType != "int64" || columns[2].NullableType {
+		t.Fatalf("normal override = %#v", columns[2])
+	}
+	if err := applyModelTypeOverrides(tables, map[string]ModelTypeOverride{"bigint": {ImportPath: "https://invalid"}}); err == nil {
+		t.Fatal("unsafe import path was accepted")
+	}
+}
+
+func TestModelEntityTemplateRejectsSymlinkSource(t *testing.T) {
+	root := t.TempDir()
+	templates := filepath.Join(root, "templates")
+	if err := os.MkdirAll(templates, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(templates, "model-entity.tpl"), []byte("package model"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "templates-link")
+	if err := os.Symlink(templates, link); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+	if _, err := resolveModelEntityTemplate(link, "", ""); err == nil || !strings.Contains(err.Error(), "must not be a symlink") {
+		t.Fatalf("symlink template source error = %v", err)
+	}
+}
+
 func TestWriteModelFilesEmptyTablesBoundary(t *testing.T) {
 	err := writeModelFiles(nil, t.TempDir(), "model", "example.com/orders", ServiceStyleBasic, false, storage.DialectQuestion)
 	if err == nil || !strings.Contains(err.Error(), "model table is required") {
@@ -1151,6 +1222,9 @@ func TestIntrospectSQLTablesWithFakeDatasource(t *testing.T) {
 	}
 	if users.Columns[1].Name != "email" || users.Columns[1].Type != "varchar" || !users.Columns[1].Nullable || !users.Columns[1].Unique {
 		t.Fatalf("email column = %#v, want normalized nullable varchar", tables[0].Columns[1])
+	}
+	if users.Columns[3].DefaultExpr != "CURRENT_TIMESTAMP" {
+		t.Fatalf("created_at default = %q, want CURRENT_TIMESTAMP", users.Columns[3].DefaultExpr)
 	}
 	if len(users.Indexes) != 1 || strings.Join(users.Indexes[0].Columns, ",") != "name,created_at" {
 		t.Fatalf("users indexes = %#v, want name,created_at index", users.Indexes)

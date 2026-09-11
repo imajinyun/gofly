@@ -4114,6 +4114,7 @@ func TestGenerateModelFromDDLGoZeroStyleWritesGoctlFacade(t *testing.T) {
 		Module:  "example.com/nativeorderservice",
 		Style:   "go_zero",
 		Cache:   true,
+		Prefix:  "cache",
 	}); err != nil {
 		t.Fatalf("GenerateModelFromDDL go_zero facade: %v", err)
 	}
@@ -4163,8 +4164,13 @@ func TestGenerateModelFromDDLGoZeroStyleWritesGoctlFacade(t *testing.T) {
 		"return m.repo.FindOne(ctx, id)",
 		"Insert(ctx context.Context, in *NativeOrder) (sql.Result, error)",
 		"return m.repo.InsertResult(ctx, in)",
+		"Update(ctx context.Context, in *NativeOrder) error",
+		"return m.repo.Update(ctx, in)",
+		"Delete(ctx context.Context, id int64) error",
+		"return m.repo.Delete(ctx, id)",
 		"type cachedNativeOrderModel struct",
 		"func NewCachedNativeOrderModel(conn *storage.SQLStore, opts ...cache.ModelOption[*NativeOrder, int64]) NativeOrderModel",
+		"cache.WithModelKeyPrefix[*NativeOrder, int64](entity.NativeOrderCacheKeyPrefix + \":\" + \"id\")",
 		"func (m *cachedNativeOrderModel) FindOne(ctx context.Context, id int64) (*NativeOrder, error)",
 		"return m.cache.Get(ctx, id)",
 		"func (m *cachedNativeOrderModel) withSession(session *sql.Tx) NativeOrderModel",
@@ -4217,6 +4223,8 @@ func TestCachedFacadeBehavior(t *testing.T) {
     defer db.Close()
     model := NewCachedNativeOrderModel(storage.NewSQLStore(db))
     if _, err := model.FindOne(context.Background(), 1); err != nil { t.Fatal(err) }
+    cached := model.(*cachedNativeOrderModel)
+    if _, ok := cached.cache.Peek(1); !ok { t.Fatal("goctl primary cache key was not populated") }
     if _, err := model.FindOne(context.Background(), 1); err != nil { t.Fatal(err) }
     conn.mu.Lock(); queries := conn.queries; conn.mu.Unlock()
     if queries != 1 { t.Fatalf("queries after cache hit = %d, want 1", queries) }
@@ -4253,6 +4261,39 @@ func TestGenerateModelAllWriteIgnoredColumnsCompile(t *testing.T) {
 		IgnoreColumns: []string{"id", "name"},
 	}); err != nil {
 		t.Fatal(err)
+	}
+	runGoCommand(t, dir, 3*time.Minute, "mod", "tidy")
+	runGoCommand(t, dir, 3*time.Minute, "test", "./...")
+}
+
+func TestGenerateModelTypeOverridesCompile(t *testing.T) {
+	dir := t.TempDir()
+	writeGeneratedModule(t, dir, "example.com/typeoverrides")
+	ddlPath := filepath.Join(dir, "schema.sql")
+	ddl := "CREATE TABLE events (id bigint unsigned primary key, parent_id bigint null, legacy_id bigint not null);"
+	if err := os.WriteFile(ddlPath, []byte(ddl), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := GenerateModelFromDDL(ModelOptions{
+		DDLFile: ddlPath,
+		Dir:     dir,
+		Module:  "example.com/typeoverrides",
+		Style:   "go_zero",
+		Strict:  true,
+		TypeOverrides: map[string]ModelTypeOverride{
+			"bigint": {Type: "int64", UnsignedType: "uint64", NullableType: "sql.NullInt64", ImportPath: "database/sql"},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	entity, err := os.ReadFile(filepath.Join(dir, "model", "event_gen.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"\"database/sql\"", "uint64        `db:\"id\"", "sql.NullInt64 `db:\"parent_id\"", "int64         `db:\"legacy_id\""} {
+		if !strings.Contains(string(entity), want) {
+			t.Fatalf("type override entity missing %q: %s", want, entity)
+		}
 	}
 	runGoCommand(t, dir, 3*time.Minute, "mod", "tidy")
 	runGoCommand(t, dir, 3*time.Minute, "test", "./...")
@@ -4866,6 +4907,91 @@ func TestGenerateMongoModelDriverStyle(t *testing.T) {
 	}
 	if !strings.Contains(string(goModData), "require go.mongodb.org/mongo-driver ") {
 		t.Fatalf("mongo driver go.mod should include mongo dependency:\n%s", goModData)
+	}
+}
+
+func TestGenerateMongoModelGoZeroV2Style(t *testing.T) {
+	dir := t.TempDir()
+	rootGoMod, rootGoSum := snapshotRootModuleFiles(t)
+	defer assertRootModuleFilesUnchanged(t, rootGoMod, rootGoSum)
+	writeGeneratedModule(t, dir, "example.com/gozeromongo")
+	if err := GenerateMongoModel(MongoModelOptions{Type: "UserProfile", Dir: dir, Package: "model", Cache: true, Easy: true, Style: "go_zero_mongo"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"user_profile_types.go", "user_profilemodel.go", "user_profilemodel_gen.go", "error.go"} {
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			t.Fatalf("generated go_zero mongo file %s: %v", name, err)
+		}
+	}
+	generated, err := os.ReadFile(filepath.Join(dir, "user_profilemodel_gen.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`"github.com/zeromicro/go-zero/core/stores/monc"`,
+		`"go.mongodb.org/mongo-driver/v2/bson"`,
+		"Update(ctx context.Context, data *UserProfile) (*mongo.UpdateResult, error)",
+		"Delete(ctx context.Context, id string) (int64, error)",
+		"monc.ErrNotFound",
+	} {
+		if !strings.Contains(string(generated), want) {
+			t.Fatalf("generated go_zero mongo model missing %q:\n%s", want, generated)
+		}
+	}
+	custom, err := os.ReadFile(filepath.Join(dir, "user_profilemodel.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"const UserProfileCollectionName = \"user_profile\"",
+		"func NewUserProfileModel(url, db string, c cache.CacheConf) UserProfileModel",
+		"monc.MustNewModel(url, db, UserProfileCollectionName, c)",
+	} {
+		if !strings.Contains(string(custom), want) {
+			t.Fatalf("generated go_zero mongo custom facade missing %q:\n%s", want, custom)
+		}
+	}
+	goMod, err := os.ReadFile(filepath.Join(dir, "go.mod"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(goMod), "github.com/zeromicro/go-zero") {
+		t.Fatalf("generated go_zero mongo module missing go-zero dependency:\n%s", goMod)
+	}
+	runGoCommand(t, dir, 3*time.Minute, "mod", "tidy")
+	runGoCommand(t, dir, 3*time.Minute, "test", "./...")
+}
+
+func TestGenerateMongoModelGoZeroV2StylePreservesExtensions(t *testing.T) {
+	dir := t.TempDir()
+	if err := GenerateMongoModel(MongoModelOptions{Type: "UserProfile", Dir: dir, Package: "model", Style: "go_zero_mongo"}); err != nil {
+		t.Fatal(err)
+	}
+	customPath := filepath.Join(dir, "user_profilemodel.go")
+	custom, err := os.ReadFile(customPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	custom = append(custom, []byte("\nfunc customUserProfileExtension() {}\n")...)
+	if err := os.WriteFile(customPath, custom, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := GenerateMongoModel(MongoModelOptions{Type: "UserProfile", Dir: dir, Package: "model", Cache: true, Style: "go_zero_mongo"}); err != nil {
+		t.Fatal(err)
+	}
+	regeneratedCustom, err := os.ReadFile(customPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(regeneratedCustom), "customUserProfileExtension") {
+		t.Fatalf("go_zero mongo custom facade was overwritten:\n%s", regeneratedCustom)
+	}
+	generated, err := os.ReadFile(filepath.Join(dir, "user_profilemodel_gen.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(generated), `"github.com/zeromicro/go-zero/core/stores/monc"`) {
+		t.Fatalf("go_zero mongo generated file was not refreshed for cache mode:\n%s", generated)
 	}
 }
 

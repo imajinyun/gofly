@@ -82,8 +82,8 @@ SQL model `--home` optionally supplies `model-entity.tpl`; it is resolved under
 the local root through the same symlink-rejecting file boundary as generated
 output. Only the fixed entity placeholder set is accepted, and the rendered Go
 source must pass gofmt. Model `--remote` and `--branch` are accepted compatibility
-inputs but do not download or execute templates until a pinned remote-template
-contract exists.
+inputs; remote execution additionally requires a SHA-256 digest and reads only
+`model-entity.tpl` from a temporary root before output emission.
 
 With cache-enabled `go_zero` SQL output, the facade primary-key cache prefix is
 `<prefix>:<physical-table>:<primary-column>`, so the final model cache key matches

@@ -3,6 +3,8 @@ package command
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -5283,11 +5285,11 @@ func TestExecuteModelGoctlCompatibleInputAliases(t *testing.T) {
 		"--remote", "https://example.invalid/model.git",
 		"--branch", "main",
 		"--idea",
-	}); err != nil {
-		t.Fatal(err)
+	}); err == nil || !strings.Contains(err.Error(), "template-sha256") {
+		t.Fatalf("unpinned DDL remote template error = %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(outDir, "model", "book_gen.go")); err != nil {
-		t.Fatalf("expected generated model from positional ddl: %v", err)
+	if _, err := os.Stat(filepath.Join(outDir, "model")); !os.IsNotExist(err) {
+		t.Fatalf("unpinned DDL remote template wrote output: %v", err)
 	}
 
 	old := runModelDatasource
@@ -8167,20 +8169,72 @@ func ({{.Type}}) TableName() string { return {{.Type}}Table }
 	}
 }
 
-func TestModelGenAcceptsRemoteTemplateSourceWithoutRemoteExecution(t *testing.T) {
+func TestModelGenRejectsUnpinnedRemoteTemplateSource(t *testing.T) {
 	dir := t.TempDir()
 	ddlPath := filepath.Join(dir, "schema.sql")
 	if err := os.WriteFile(ddlPath, []byte("CREATE TABLE users (id bigint primary key);"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := Execute([]string{"model", "gen", "--ddl", ddlPath, "--dir", dir, "--remote", "https://example.com/templates.git", "--branch", "main"}); err != nil {
-		t.Fatalf("remote model template compatibility flags = %v", err)
+	err := Execute([]string{"model", "gen", "--ddl", ddlPath, "--dir", dir, "--remote", "https://example.com/templates.git", "--branch", "main"})
+	if err == nil || !strings.Contains(err.Error(), "template-sha256") {
+		t.Fatalf("unpinned remote template error = %v", err)
 	}
-	data, err := os.ReadFile(filepath.Join(dir, "model", "user_gen.go"))
+	if _, statErr := os.Stat(filepath.Join(dir, "model")); !os.IsNotExist(statErr) {
+		t.Fatalf("unpinned remote template wrote output: %v", statErr)
+	}
+}
+
+func TestModelGenRejectsRemoteTemplateWithoutDigest(t *testing.T) {
+	dir := t.TempDir()
+	remote := filepath.Join(dir, "remote")
+	if err := os.MkdirAll(remote, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(remote, "model-entity.tpl"), []byte("package {{.Package}}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ddlPath := filepath.Join(dir, "schema.sql")
+	if err := os.WriteFile(ddlPath, []byte("CREATE TABLE users (id bigint primary key);"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(dir, "out")
+	err := Execute([]string{"model", "gen", "--ddl", ddlPath, "--dir", out, "--remote", "file://" + remote})
+	if err == nil || !strings.Contains(err.Error(), "template-sha256") {
+		t.Fatalf("missing remote digest error = %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(out, "model")); !os.IsNotExist(statErr) {
+		t.Fatalf("remote digest failure wrote model output: %v", statErr)
+	}
+}
+
+func TestModelGenUsesDigestPinnedRemoteEntityTemplate(t *testing.T) {
+	dir := t.TempDir()
+	remote := filepath.Join(dir, "remote")
+	if err := os.MkdirAll(remote, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	template := []byte("package {{.Package}}\n\n{{.Imports}}\n\n// pinned remote entity template\nconst {{.Type}}Table = \"{{.Table}}\"\n{{.CachePrefix}}\nvar {{.Type}}Columns = []string{ {{.Columns}} }\n\ntype {{.Type}} struct {\n{{.Fields}}}\n\nvar _ Tabler = (*{{.Type}})(nil)\n\nfunc ({{.Type}}) TableName() string { return {{.Type}}Table }\n")
+	if err := os.WriteFile(filepath.Join(remote, "model-entity.tpl"), template, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(template)
+	ddlPath := filepath.Join(dir, "schema.sql")
+	if err := os.WriteFile(ddlPath, []byte("CREATE TABLE users (id bigint primary key, name varchar(64) not null);"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(dir, "out")
+	if err := Execute([]string{
+		"model", "gen", "--ddl", ddlPath, "--dir", out,
+		"--remote", "file://" + remote,
+		"--template-sha256", hex.EncodeToString(digest[:]),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(out, "model", "user_gen.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(data), "local entity template marker") {
-		t.Fatalf("remote template unexpectedly affected output:\n%s", data)
+	if !strings.Contains(string(data), "pinned remote entity template") || !strings.Contains(string(data), "type User struct") {
+		t.Fatalf("pinned remote model entity template was not rendered:\n%s", data)
 	}
 }

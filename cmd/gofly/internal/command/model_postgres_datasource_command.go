@@ -44,5 +44,6 @@ func modelPostgresDatasourceCommand(args []string) error {
 		TemplateDir:    *templateSource.Home,
 		TemplateRemote: *templateSource.Remote,
 		TemplateBranch: *templateSource.Branch,
+		TemplateSHA256: *templateSource.SHA256,
 	})
 }

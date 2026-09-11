@@ -3,8 +3,10 @@ package generator
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"database/sql/driver"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -780,8 +782,50 @@ func TestModelEntityTemplateRejectsSymlinkSource(t *testing.T) {
 	if err := os.Symlink(templates, link); err != nil {
 		t.Skipf("symlink unsupported: %v", err)
 	}
-	if _, err := resolveModelEntityTemplate(link, "", ""); err == nil || !strings.Contains(err.Error(), "must not be a symlink") {
+	if _, err := resolveModelEntityTemplate(link, "", "", ""); err == nil || !strings.Contains(err.Error(), "must not be a symlink") {
 		t.Fatalf("symlink template source error = %v", err)
+	}
+}
+
+func TestResolveModelEntityTemplateRemote(t *testing.T) {
+	remote := t.TempDir()
+	content := []byte("package {{.Package}}\n// remote marker\n")
+	if err := os.WriteFile(filepath.Join(remote, "model-entity.tpl"), content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(content)
+	got, err := resolveModelEntityTemplate("", "file://"+remote, "", hex.EncodeToString(digest[:]))
+	if err != nil || !strings.Contains(got, "remote marker") {
+		t.Fatalf("remote template = %q, err = %v", got, err)
+	}
+
+	for _, test := range []struct {
+		name   string
+		digest string
+	}{
+		{name: "missing digest"},
+		{name: "malformed digest", digest: "bad"},
+		{name: "digest mismatch", digest: strings.Repeat("0", 64)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := resolveModelEntityTemplate("", "file://"+remote, "", test.digest); err == nil {
+				t.Fatal("unsafe remote template input succeeded")
+			}
+		})
+	}
+
+	link := filepath.Join(remote, "linked.tpl")
+	if err := os.Symlink(filepath.Join(remote, "model-entity.tpl"), link); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+	if err := os.Remove(filepath.Join(remote, "model-entity.tpl")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(link, filepath.Join(remote, "model-entity.tpl")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := resolveModelEntityTemplate("", "file://"+remote, "", hex.EncodeToString(digest[:])); err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("symlink remote template error = %v", err)
 	}
 }
 

@@ -45,8 +45,16 @@ func modelTypesMapFromConfig(configPath, dir string) (map[string]string, error) 
 	return typesMap, err
 }
 
-func registerGoctlModelTemplateFlags(fs *flag.FlagSet) templateSourceFlags {
-	flags := registerTemplateSourceFlags(fs, "local model template directory containing model-entity.tpl", "unsupported for model generation", "unsupported for model generation")
+type modelTemplateSourceFlags struct {
+	templateSourceFlags
+	SHA256 *string
+}
+
+func registerGoctlModelTemplateFlags(fs *flag.FlagSet) modelTemplateSourceFlags {
+	flags := registerTemplateSourceFlags(fs, "local model template directory containing model-entity.tpl", "remote model template repository (requires --template-sha256)", "remote model template branch")
 	fs.Bool("idea", false, "open generated project in IDE")
-	return flags
+	return modelTemplateSourceFlags{
+		templateSourceFlags: flags,
+		SHA256:              fs.String("template-sha256", "", "SHA-256 digest of remote model-entity.tpl"),
+	}
 }

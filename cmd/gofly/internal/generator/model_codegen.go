@@ -3,7 +3,9 @@ package generator
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"go/format"
@@ -40,6 +42,7 @@ type ModelOptions struct {
 	TemplateDir    string
 	TemplateRemote string
 	TemplateBranch string
+	TemplateSHA256 string
 }
 
 type MongoModelOptions struct {
@@ -72,6 +75,7 @@ type ModelDatasourceOptions struct {
 	TemplateDir    string
 	TemplateRemote string
 	TemplateBranch string
+	TemplateSHA256 string
 }
 
 const (
@@ -147,6 +151,7 @@ type modelSchemaEmitOptions struct {
 	TemplateDir    string
 	TemplateRemote string
 	TemplateBranch string
+	TemplateSHA256 string
 }
 
 type modelSchemaGenerationOptions struct {
@@ -206,6 +211,7 @@ func GenerateModelFromDDL(opts ModelOptions) error {
 			TemplateDir:    opts.TemplateDir,
 			TemplateRemote: opts.TemplateRemote,
 			TemplateBranch: opts.TemplateBranch,
+			TemplateSHA256: opts.TemplateSHA256,
 		},
 	})
 }
@@ -261,6 +267,7 @@ func GenerateModelFromDatasource(opts ModelDatasourceOptions) error {
 			TemplateDir:    opts.TemplateDir,
 			TemplateRemote: opts.TemplateRemote,
 			TemplateBranch: opts.TemplateBranch,
+			TemplateSHA256: opts.TemplateSHA256,
 		},
 	})
 }
@@ -551,7 +558,7 @@ func emitModelSchemaIR(ir ModelSchemaIR, opts modelSchemaEmitOptions) error {
 		importModule = modelImportModule(module, dir)
 	}
 	style := normalizeModelStyle(opts.Style)
-	entityTemplate, err := resolveModelEntityTemplate(opts.TemplateDir, opts.TemplateRemote, opts.TemplateBranch)
+	entityTemplate, err := resolveModelEntityTemplate(opts.TemplateDir, opts.TemplateRemote, opts.TemplateBranch, opts.TemplateSHA256)
 	if err != nil {
 		return err
 	}
@@ -1677,12 +1684,36 @@ func writeEntityFile(dir string, table SQLTable, pkg string, style string, packa
 	return writeGeneratedFile(filepath.Join(dir, filename), formatted)
 }
 
-func resolveModelEntityTemplate(dir, remote, branch string) (string, error) {
-	// Keep goctl-compatible --remote/--branch inputs accepted while model
-	// generation remains intentionally local-only. A future remote contract must
-	// add pinning and size limits before these flags affect output.
-	_ = remote
-	_ = branch
+func resolveModelEntityTemplate(dir, remote, branch, sha256sum string) (string, error) {
+	remote = strings.TrimSpace(remote)
+	if remote != "" {
+		if strings.TrimSpace(sha256sum) == "" {
+			return "", errors.New("remote model template requires --template-sha256")
+		}
+		if !strings.HasPrefix(remote, "file://") && !strings.HasPrefix(remote, "https://") {
+			return "", errors.New("remote model template must use https:// or file://")
+		}
+		tmp, err := os.MkdirTemp("", "gofly-model-template-*")
+		if err != nil {
+			return "", fmt.Errorf("create model template temp dir: %w", err)
+		}
+		defer func() { _ = os.RemoveAll(tmp) }()
+		if local, ok := localTemplateRemote(remote); ok {
+			if err := copyDir(local, tmp); err != nil {
+				return "", fmt.Errorf("copy remote model template %s: %w", remote, err)
+			}
+		} else if err := cloneTemplateRemote(remote, strings.TrimSpace(branch), tmp); err != nil {
+			return "", err
+		}
+		data, err := ReadFileUnderRoot(templatePayloadDir(tmp), "model-entity.tpl", "remote model entity template")
+		if err != nil {
+			return "", fmt.Errorf("read remote model entity template: %w", err)
+		}
+		if err := verifyModelEntityTemplateSHA256(data, sha256sum); err != nil {
+			return "", err
+		}
+		return string(data), nil
+	}
 	if strings.TrimSpace(dir) == "" {
 		return "", nil
 	}
@@ -1694,6 +1725,23 @@ func resolveModelEntityTemplate(dir, remote, branch string) (string, error) {
 		return "", fmt.Errorf("read model entity template: %w", err)
 	}
 	return string(data), nil
+}
+
+func verifyModelEntityTemplateSHA256(data []byte, expected string) error {
+	expected = strings.ToLower(strings.TrimSpace(expected))
+	if len(expected) != sha256.Size*2 {
+		return errors.New("model template sha256 must be 64 lowercase hexadecimal characters")
+	}
+	for _, r := range expected {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'f') {
+			return errors.New("model template sha256 must be 64 lowercase hexadecimal characters")
+		}
+	}
+	actual := sha256.Sum256(data)
+	if hex.EncodeToString(actual[:]) != expected {
+		return errors.New("model template sha256 mismatch")
+	}
+	return nil
 }
 
 func renderModelEntityTemplate(tmpl string, table SQLTable, typeName, style, packageName string) ([]byte, error) {

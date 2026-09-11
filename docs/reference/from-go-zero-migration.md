@@ -225,7 +225,10 @@ For SQL model customization, `--home <dir>` executes a local
 `{{.CachePrefix}}`, `{{.Columns}}`, and `{{.Fields}}`; output is gofmt-checked.
 The template root and target file must not traverse symlinks. `--remote` and
 `--branch` remain accepted goctl-compatible inputs but do not trigger remote model
-template execution pending a pinned and size-bounded remote-template contract.
+template execution unless `--template-sha256` supplies the exact 64-character
+lowercase digest of the remote `model-entity.tpl`. The remote path reads only that
+fixed file inside a temporary root; a missing or mismatched digest writes no model
+output.
 
 ## zRPC Compatibility Boundaries
 

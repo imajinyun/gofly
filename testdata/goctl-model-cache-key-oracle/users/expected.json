@@ -1,0 +1,9 @@
+{
+  "schema": "gofly.goctl_model_cache_key_oracle.v1",
+  "goctlVersion": "v1.10.3",
+  "primary": "cache:users:id:%v",
+  "unique": [
+    "cache:users:email:%v",
+    "cache:users:tenantId:email:%v:%v"
+  ]
+}

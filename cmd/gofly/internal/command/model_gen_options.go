@@ -2,7 +2,7 @@ package command
 
 import "github.com/imajinyun/gofly/cmd/gofly/internal/generator"
 
-func generateModelFromFlags(flags modelGenFlags, typesMap map[string]string, typeOverrides map[string]generator.ModelTypeOverride, templateSource templateSourceFlags) error {
+func generateModelFromFlags(flags modelGenFlags, typesMap map[string]string, typeOverrides map[string]generator.ModelTypeOverride, templateSource modelTemplateSourceFlags) error {
 	return generator.GenerateModelFromDDL(generator.ModelOptions{
 		DDLFile:        *flags.DDL,
 		Dir:            *flags.Dir,
@@ -20,5 +20,6 @@ func generateModelFromFlags(flags modelGenFlags, typesMap map[string]string, typ
 		TemplateDir:    *templateSource.Home,
 		TemplateRemote: *templateSource.Remote,
 		TemplateBranch: *templateSource.Branch,
+		TemplateSHA256: *templateSource.SHA256,
 	})
 }

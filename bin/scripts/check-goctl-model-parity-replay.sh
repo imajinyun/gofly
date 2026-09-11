@@ -76,6 +76,7 @@ from_gozero_text = read_text(root / "docs" / "reference" / "from-go-zero-migrati
 command_tests = read_text(root / "cmd" / "gofly" / "internal" / "command" / "idl_test.go")
 generator_tests = read_text(root / "cmd" / "gofly" / "internal" / "generator" / "idl_test.go")
 model_bench_tests = read_text(root / "cmd" / "gofly" / "internal" / "generator" / "model_bench_test.go")
+cache_key_oracle_tests = read_text(root / "cmd" / "gofly" / "internal" / "generator" / "goctl_cache_key_oracle_test.go")
 model_gen_flags = read_text(root / "cmd" / "gofly" / "internal" / "command" / "model_gen_flags.go")
 model_datasource_flags = read_text(root / "cmd" / "gofly" / "internal" / "command" / "model_datasource_command.go")
 model_mongo_flags = read_text(root / "cmd" / "gofly" / "internal" / "command" / "model_mongo_command.go")
@@ -101,7 +102,7 @@ for source in manifest.get("sourceOfTruth") or []:
     require((root / source).exists(), f"sourceOfTruth path missing: {source}")
 
 policy = manifest.get("compatibilityPolicy") or {}
-for key in ("layout", "oracleDiff", "rootModuleHygiene", "offlineDatasourceFixtures", "defaultMetadata", "structuredTypeOverrides", "facadeMutations", "mongoGoZeroV2", "localTemplateExecution", "primaryCacheKey"):
+for key in ("layout", "oracleDiff", "rootModuleHygiene", "offlineDatasourceFixtures", "defaultMetadata", "structuredTypeOverrides", "facadeMutations", "mongoGoZeroV2", "localTemplateExecution", "remoteTemplateDigest", "primaryCacheKey", "advancedCacheKeyOracle"):
     require(len(str(policy.get(key) or "").split()) >= 8, f"compatibilityPolicy.{key} must be actionable")
 require("model-layout-difference" in policy.get("oracleDiff", ""), "oracleDiff must mention model-layout-difference")
 require("root module" in policy.get("rootModuleHygiene", "").lower(), "rootModuleHygiene must mention root module")
@@ -112,7 +113,7 @@ surface_ids = {item.get("id") for item in surfaces}
 require(surface_ids == required_surfaces, f"modelSurfaces drifted: missing={sorted(required_surfaces - surface_ids)} extra={sorted(surface_ids - required_surfaces)}")
 
 all_covered_options = set()
-test_haystack = command_tests + "\n" + generator_tests + "\n" + model_bench_tests
+test_haystack = command_tests + "\n" + generator_tests + "\n" + model_bench_tests + "\n" + cache_key_oracle_tests
 for item in surfaces:
     surface_id = item.get("id")
     require(item.get("status") == "implemented", f"{surface_id}: status must be implemented")
@@ -269,4 +270,4 @@ export GOTMPDIR="${GOTMPDIR:-$work/gotmp}"
 export GOPROXY="${GOPROXY:-direct}"
 mkdir -p "$GOCACHE" "$GOTMPDIR"
 "${GO:-go}" test -count=1 -shuffle=on ./cmd/gofly/internal/generator ./cmd/gofly/internal/command \
-    -run '^(TestParseSQLModelsDefaultMetadata|TestGenerateModelFromDDLGoZeroPreservesExtensions|TestGenerateModelAllWriteIgnoredColumnsCompile|TestGenerateModelSQLWriteIgnoreRuntime|TestGenerateMongoModelMultipleTypesAndEasy|TestGenerateMongoModelGoZeroV2Style|TestGenerateMongoModelGoZeroV2StylePreservesExtensions|TestExecuteModelMongoGoZeroV2Style|TestDatasourceAutoIncrementAndUnsignedReachGeneratedModel|TestGenerateModelTypeOverridesCompile|TestModelGenUsesConfigTypesMap|TestModelGenUsesConfigTypeOverrides|TestModelGenUsesLocalEntityTemplateSource|TestModelGenAcceptsRemoteTemplateSourceWithoutRemoteExecution|TestModelEntityTemplateRejectsSymlinkSource|TestGeneratedExtensionFileSafety|TestGoctlDatasourceReplayFixtureModelSchemaIR)$'
+    -run '^(TestParseSQLModelsDefaultMetadata|TestGenerateModelFromDDLGoZeroPreservesExtensions|TestGenerateModelFromDDLGoZeroStyleWritesGoctlFacade|TestGenerateModelAllWriteIgnoredColumnsCompile|TestGenerateModelSQLWriteIgnoreRuntime|TestGenerateMongoModelMultipleTypesAndEasy|TestGenerateMongoModelGoZeroV2Style|TestGenerateMongoModelGoZeroV2StylePreservesExtensions|TestExecuteModelMongoGoZeroV2Style|TestDatasourceAutoIncrementAndUnsignedReachGeneratedModel|TestGenerateModelTypeOverridesCompile|TestModelGenUsesConfigTypesMap|TestModelGenUsesConfigTypeOverrides|TestModelGenUsesLocalEntityTemplateSource|TestModelGenRejectsUnpinnedRemoteTemplateSource|TestModelGenRejectsRemoteTemplateWithoutDigest|TestModelGenUsesDigestPinnedRemoteEntityTemplate|TestResolveModelEntityTemplateRemote|TestModelEntityTemplateRejectsSymlinkSource|TestGoctlCacheKeyOracleFixture|TestGeneratedExtensionFileSafety|TestGoctlDatasourceReplayFixtureModelSchemaIR)$'

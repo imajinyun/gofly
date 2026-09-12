@@ -668,6 +668,43 @@ func TestExecuteVersionJSON(t *testing.T) {
 	}
 }
 
+func TestExecuteRPCGenScaffold(t *testing.T) {
+	inputDir, outputDir := t.TempDir(), t.TempDir()
+	input := filepath.Join(inputDir, "greeter.proto")
+	content := strings.Replace(commandTestProto, "package greeter.v1;", `package greeter.v1; option go_package = "example.com/greeter/internal/pb;pb";`, 1)
+	if err := os.WriteFile(input, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	args := []string{"rpc", "gen", input, "--scaffold", "--module", "example.com/greeter", "--dir", outputDir, "--json"}
+	output := captureStdout(t, func() {
+		if err := Execute(args); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if !strings.Contains(output, `"scaffold": "true"`) {
+		t.Fatalf("missing scaffold result: %s", output)
+	}
+	for _, path := range []string{"cmd/greeter/main.go", "internal/pb/greeter_grpc.pb.go", "internal/logic/greeter/hellologic.go"} {
+		if _, err := os.Stat(filepath.Join(outputDir, path)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, tc := range []struct {
+		name  string
+		flags []string
+	}{
+		{name: "HTTP transport", flags: []string{"--transport", "gofly"}},
+		{name: "template", flags: []string{"--home", inputDir}},
+		{name: "profile", flags: []string{"--profile", "gozero-compatible"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := Execute(append(append([]string(nil), args...), tc.flags...)); !errors.Is(err, errUsage) {
+				t.Fatalf("got %v, want usage error", err)
+			}
+		})
+	}
+}
+
 func TestExecuteRPCGen(t *testing.T) {
 	dir := t.TempDir()
 	protoPath := filepath.Join(dir, "greeter.proto")

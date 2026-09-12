@@ -43,6 +43,8 @@ type Server struct {
 	adminActualAddr string
 	adminServer     *http.Server
 	rules           *governance.RuleSet
+	manager         *governance.Manager
+	adminAuthorize  func(*http.Request) bool
 	registry        *metrics.Registry
 	tlsErr          error
 	runtime         *coreruntime.Registry
@@ -69,6 +71,8 @@ type serverOptions struct {
 
 	adminAddr      string
 	rules          *governance.RuleSet
+	manager        *governance.Manager
+	adminAuthorize func(*http.Request) bool
 	registry       *metrics.Registry
 	tls            security.TLSConfig
 	unaryNames     []string
@@ -85,6 +89,9 @@ func NewServer(opts ...ServerOption) *Server {
 		if opt != nil {
 			opt(&o)
 		}
+	}
+	if o.manager != nil {
+		o.rules = o.manager.RuleSet()
 	}
 	serverOptions := append([]stdgrpc.ServerOption(nil), o.serverOptions...)
 	var tlsErr error
@@ -108,6 +115,8 @@ func NewServer(opts ...ServerOption) *Server {
 		stopTimeout:      o.stopTimeout,
 		adminAddr:        o.adminAddr,
 		rules:            o.rules,
+		manager:          o.manager,
+		adminAuthorize:   o.adminAuthorize,
 		registry:         o.registry,
 		tlsErr:           tlsErr,
 		runtime:          coreruntime.NewRegistry(),
@@ -130,6 +139,19 @@ func NewServer(opts ...ServerOption) *Server {
 }
 
 func NewDefaultServer(addr, serviceName string, rules *governance.RuleSet, registry *metrics.Registry, opts ...ServerOption) *Server {
+	configured := serverOptions{addr: ":8082", enableHealth: true, stopTimeout: 15 * time.Second, rules: rules, registry: registry}
+	WithAddress(addr)(&configured)
+	WithHealthServices(serviceName)(&configured)
+	for _, opt := range opts {
+		if opt != nil {
+			opt(&configured)
+		}
+	}
+	if configured.manager != nil {
+		configured.rules = configured.manager.RuleSet()
+	}
+	rules = configured.rules
+	registry = configured.registry
 	if registry == nil {
 		registry = metrics.Default
 	}
@@ -151,15 +173,12 @@ func NewDefaultServer(addr, serviceName string, rules *governance.RuleSet, regis
 		unaryNames = append(unaryNames, "governance")
 		streamNames = append(streamNames, "governance")
 	}
-	defaults := []ServerOption{
-		WithAddress(addr),
-		WithHealthServices(serviceName),
-		WithRules(rules),
-		WithMetricsRegistry(registry),
-		withNamedUnaryServerInterceptors(unaryNames, unary...),
-		withNamedStreamServerInterceptors(streamNames, stream...),
-	}
-	return NewServer(append(defaults, opts...)...)
+	configured.registry = registry
+	configured.unaryInterceptors = append(unary, configured.unaryInterceptors...)
+	configured.streamInterceptors = append(stream, configured.streamInterceptors...)
+	configured.unaryNames = append(unaryNames, configured.unaryNames...)
+	configured.streamNames = append(streamNames, configured.streamNames...)
+	return NewServer(func(o *serverOptions) { *o = configured })
 }
 
 func WithAddress(addr string) ServerOption {
@@ -241,6 +260,15 @@ func WithRules(rules *governance.RuleSet) ServerOption {
 			o.rules = rules
 		}
 	}
+}
+
+// WithGovernanceManager shares the manager's rules with interceptors and admin; the caller owns its lifecycle.
+func WithGovernanceManager(manager *governance.Manager) ServerOption {
+	return func(o *serverOptions) { o.manager = manager }
+}
+
+func WithAdminAuthorization(authorize func(*http.Request) bool) ServerOption {
+	return func(o *serverOptions) { o.adminAuthorize = authorize }
 }
 
 func WithMetricsRegistry(registry *metrics.Registry) ServerOption {
@@ -343,6 +371,12 @@ func (s *Server) RuntimeSnapshot(ctx context.Context) coreruntime.Snapshot {
 func (s *Server) Start() error {
 	if s.tlsErr != nil {
 		return fmt.Errorf("configure grpc tls: %w", s.tlsErr)
+	}
+	if s.adminAddr != "" && s.adminAuthorize == nil {
+		host, _, err := net.SplitHostPort(s.adminAddr)
+		if err != nil || net.ParseIP(host) == nil || !net.ParseIP(host).IsLoopback() {
+			return errors.New("non-loopback grpc admin requires authorization")
+		}
 	}
 	listener, err := net.Listen("tcp", s.addr)
 	if err != nil {
@@ -669,13 +703,28 @@ func newAdminServer(addr string, rules *governance.RuleSet, registry *metrics.Re
 		}
 		_ = json.NewEncoder(w).Encode(runtimeSource.RuntimeSnapshot(r.Context()))
 	})
-	if rules != nil {
-		admin := governance.NewAdmin(rules, nil)
+	var manager *governance.Manager
+	var authorize func(*http.Request) bool
+	if server, ok := runtimeSource.(*Server); ok {
+		manager, authorize = server.manager, server.adminAuthorize
+	}
+	if rules != nil || manager != nil {
+		admin := governance.NewAdmin(rules, nil, governance.WithAdminManager(manager))
 		mux.Handle("/governance/", http.StripPrefix("/governance", admin))
+	}
+	var handler http.Handler = mux
+	if authorize != nil {
+		handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/healthz" && r.URL.Path != "/readyz" && r.URL.Path != "/startupz" && !authorize(r) {
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+			mux.ServeHTTP(w, r)
+		})
 	}
 	return &http.Server{
 		Addr:         addr,
-		Handler:      mux,
+		Handler:      handler,
 		ReadTimeout:  5 * time.Second,
 		WriteTimeout: 10 * time.Second,
 	}

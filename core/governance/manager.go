@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	core "github.com/imajinyun/gofly/core"
@@ -34,6 +35,7 @@ type ManagerOption func(*Manager)
 
 // Manager loads, watches and applies governance rules to incoming requests.
 type Manager struct {
+	mu       sync.RWMutex
 	conf     Config
 	rules    *RuleSet
 	provider RuleProvider
@@ -205,8 +207,11 @@ func (m *Manager) traceDecision(ctx context.Context, name string, req Request, d
 	req = normalizeRequestForMatch(req)
 	_, span := tracer.Start(ctx, name, oteltrace.WithSpanKind(oteltrace.SpanKindInternal))
 	defer span.End()
+	m.mu.RLock()
+	source := m.source
+	m.mu.RUnlock()
 	span.SetAttributes(
-		attribute.String("governance.source", m.source),
+		attribute.String("governance.source", source),
 		attribute.String("governance.transport", req.Transport),
 		attribute.String("governance.service", req.Service),
 		attribute.String("governance.method", req.Method),
@@ -272,8 +277,10 @@ func (m *Manager) ReplaceRules(rules ...Rule) error {
 	if err := m.rules.ReplaceValidated(merged...); err != nil {
 		return err
 	}
+	m.mu.Lock()
 	m.conf.Rules = cloneRules(rules)
 	m.source = "static"
+	m.mu.Unlock()
 	return nil
 }
 
@@ -302,8 +309,10 @@ func (m *Manager) SaveRules(ctx context.Context, rules []Rule, ttl time.Duration
 	if err := m.rules.ReplaceValidated(merged...); err != nil {
 		return err
 	}
+	m.mu.Lock()
 	m.conf.Rules = nil
 	m.source = providerSource(m.provider)
+	m.mu.Unlock()
 	return nil
 }
 
@@ -322,9 +331,12 @@ func (m *Manager) Snapshot() ManagerSnapshot {
 	if m == nil || m.rules == nil {
 		return ManagerSnapshot{}
 	}
+	m.mu.RLock()
+	conf, source := cloneConfig(m.conf), m.source
+	m.mu.RUnlock()
 	return ManagerSnapshot{
-		Config:      cloneConfig(m.conf),
-		Source:      m.source,
+		Config:      conf,
+		Source:      source,
 		Status:      m.rules.Status(),
 		Rules:       m.rules.Snapshot(),
 		Stats:       m.rules.Stats(),
@@ -348,13 +360,16 @@ func (m *Manager) registerRuntime() {
 		return
 	}
 	m.runtime.Register("governance.manager", "governance", func(context.Context) coreruntime.ComponentSnapshot {
+		m.mu.RLock()
+		source := m.source
+		m.mu.RUnlock()
 		snapshot := coreruntime.ComponentSnapshot{
 			Name:   "governance.manager",
 			Kind:   "governance",
 			Owner:  "governance",
 			Status: "ok",
 			Details: map[string]any{
-				"source":        m.source,
+				"source":        source,
 				"watch":         m.conf.Watch,
 				"watchInterval": m.watchInterval(),
 			},

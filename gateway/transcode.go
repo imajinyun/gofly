@@ -129,10 +129,14 @@ func (g *Gateway) recordTranscodeMappingError(route Route, stage string, err err
 func (g *Gateway) transcoderFor(endpoint string, route Route) (rpc.GenericClient, error) {
 	g.transcoderMu.Lock()
 	defer g.transcoderMu.Unlock()
+	if g.transcodersClosed {
+		return nil, errors.New("gateway transcoders are closed")
+	}
 	if g.transcoders == nil {
 		g.transcoders = make(map[string]rpc.GenericClient)
 	}
-	if client, ok := g.transcoders[endpoint]; ok {
+	key := fmt.Sprintf("%q|%q|%q", routeKey(route), route.Transcode.Protocol, endpoint)
+	if client, ok := g.transcoders[key]; ok {
 		return client, nil
 	}
 	factory := g.transcoderFactory
@@ -143,11 +147,14 @@ func (g *Gateway) transcoderFor(endpoint string, route Route) (rpc.GenericClient
 	if err != nil {
 		return nil, err
 	}
-	g.transcoders[endpoint] = client
+	g.transcoders[key] = client
 	return client, nil
 }
 
 func defaultTranscoderFactory(endpoint string, route Route) (rpc.GenericClient, error) {
+	if route.Transcode.Protocol == "grpc" {
+		return nil, errors.New("native grpc transcoding requires NewGRPCTranscoderFactory")
+	}
 	target := endpoint
 	if !strings.Contains(target, "://") {
 		target = "http://" + target

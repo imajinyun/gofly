@@ -50,7 +50,7 @@ func GenerateGRPCBindingCode(doc IDLDocument, packageName string) ([]byte, error
 	fprintf(&b, "\tflygrpc \"github.com/imajinyun/gofly/rpc/grpc\"\n")
 	fprintf(&b, ")\n\n")
 	for _, svc := range doc.Services {
-		writeGRPCServiceBinding(&b, svc)
+		writeGRPCServiceBinding(&b, svc, doc.Package)
 	}
 	out, err := format.Source(b.Bytes())
 	if err != nil {
@@ -59,19 +59,19 @@ func GenerateGRPCBindingCode(doc IDLDocument, packageName string) ([]byte, error
 	return out, nil
 }
 
-func writeGRPCServiceBinding(b *bytes.Buffer, svc IDLService) {
+func writeGRPCServiceBinding(b *bytes.Buffer, svc IDLService, protoPackage string) {
 	serviceName := exportName(svc.Name)
+	fullName := svc.Name
+	if protoPackage != "" {
+		fullName = protoPackage + "." + svc.Name
+	}
 	fprintf(b, "func New%sGRPCServer(impl %sServer, opts ...flygrpc.ServerOption) *flygrpc.Server {\n", serviceName, serviceName)
-	fprintf(b, "\tbase := []flygrpc.ServerOption{\n")
-	fprintf(b, "\t\tflygrpc.WithUnaryServerInterceptors(flygrpc.RecoveryUnaryServerInterceptor(nil), flygrpc.ObservabilityUnaryServerInterceptor(%q, nil, nil)),\n", svc.Name)
-	fprintf(b, "\t\tflygrpc.WithStreamServerInterceptors(flygrpc.ObservabilityStreamServerInterceptor(%q, nil, nil)),\n", svc.Name)
-	fprintf(b, "\t}\n")
-	fprintf(b, "\tserver := flygrpc.NewServer(append(base, opts...)...)\n")
+	fprintf(b, "\tserver := flygrpc.NewDefaultServer(\"\", %q, nil, nil, opts...)\n", fullName)
 	fprintf(b, "\tRegister%sServer(server.GRPCServer(), impl)\n", serviceName)
 	fprintf(b, "\treturn server\n")
 	fprintf(b, "}\n\n")
 	fprintf(b, "func Dial%s(ctx context.Context, target string, opts ...flygrpc.ClientOption) (%sClient, *flygrpc.ClientConn, error) {\n", serviceName, serviceName)
-	fprintf(b, "\tconn, err := flygrpc.Dial(ctx, target, opts...)\n")
+	fprintf(b, "\tconn, err := flygrpc.NewDefaultClient(ctx, target, %q, nil, nil, opts...)\n", fullName)
 	fprintf(b, "\tif err != nil {\n\t\treturn nil, nil, err\n\t}\n")
 	fprintf(b, "\treturn New%sClient(conn.Conn()), conn, nil\n", serviceName)
 	fprintf(b, "}\n\n")

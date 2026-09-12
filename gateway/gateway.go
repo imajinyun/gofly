@@ -375,6 +375,7 @@ type Gateway struct {
 	transcoders         map[string]rpc.GenericClient
 	transcoderMu        sync.Mutex
 	transcoderFactory   TranscoderFactory
+	transcodersClosed   bool
 	descriptors         map[string]rpc.Descriptor
 	transcodeProfiles   map[string]TranscodeProfile
 	activeHealth        ActiveHealthConfig
@@ -926,10 +927,23 @@ func (g *Gateway) Handler() http.Handler { return g }
 
 // Shutdown gracefully stops the gateway, waiting for shadow traffic to drain.
 func (g *Gateway) Shutdown(ctx context.Context) error {
-	if g == nil || g.shadowPool == nil {
+	if g == nil {
 		return nil
 	}
-	return g.shadowPool.Shutdown(ctx)
+	var err error
+	if g.shadowPool != nil {
+		err = g.shadowPool.Shutdown(ctx)
+	}
+	g.transcoderMu.Lock()
+	defer g.transcoderMu.Unlock()
+	g.transcodersClosed = true
+	for key, client := range g.transcoders {
+		if closer, ok := client.(io.Closer); ok {
+			err = errors.Join(err, closer.Close())
+		}
+		delete(g.transcoders, key)
+	}
+	return err
 }
 
 // Close shuts down the gateway immediately.

@@ -24,7 +24,16 @@ const goZeroRPCConfigTemplate = `{
   "listenOn": "0.0.0.0:8081",
   "advertise": "",
   "adminListenOn": "127.0.0.1:9090",
-  "reflection": true,
+  "environment": "development",
+  "reflection": false,
+  "ruleFile": "",
+  "ruleWatch": false,
+  "adminTokenEnv": "",
+  "authTokenEnv": "",
+  "tls": {},
+  "telemetry": {"enabled": false},
+  "logJSON": true,
+  "rules": [{"name": "greeter-timeout", "transport": "rpc", "method": "SayHello", "policy": {"timeout": 2000000000}}],
   "discovery": {
     "provider": "memory",
     "ttl": "15s",
@@ -38,10 +47,15 @@ const goZeroRPCConfigGoTemplate = `package config
 
 import (
 	"errors"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/imajinyun/gofly/core/governance"
+	"github.com/imajinyun/gofly/core/observability/trace"
+	"github.com/imajinyun/gofly/core/security"
 )
 
 type Config struct {
@@ -51,6 +65,15 @@ type Config struct {
 	AdminListenOn string          ` + "`json:\"adminListenOn,omitempty\"`" + `
 	Reflection    bool            ` + "`json:\"reflection,omitempty\"`" + `
 	Discovery     DiscoveryConfig ` + "`json:\"discovery\"`" + `
+	Rules         []governance.Rule ` + "`json:\"rules,omitempty\"`" + `
+	Environment   string ` + "`json:\"environment,omitempty\"`" + `
+	RuleFile      string ` + "`json:\"ruleFile,omitempty\"`" + `
+	RuleWatch     bool ` + "`json:\"ruleWatch,omitempty\"`" + `
+	AdminTokenEnv string ` + "`json:\"adminTokenEnv,omitempty\"`" + `
+	AuthTokenEnv  string ` + "`json:\"authTokenEnv,omitempty\"`" + `
+	TLS           security.TLSConfig ` + "`json:\"tls,omitempty\"`" + `
+	Telemetry     trace.AgentConfig ` + "`json:\"telemetry,omitempty\"`" + `
+	LogJSON       bool ` + "`json:\"logJSON,omitempty\"`" + `
 }
 
 type DiscoveryConfig struct {
@@ -78,7 +101,28 @@ func Validate(c Config) error {
 	if c.Discovery.ProviderName() != "memory" && strings.TrimSpace(c.Advertise) == "" {
 		return errors.New("rpc advertise address is required for external discovery")
 	}
-	return nil
+	if c.Environment != "" && c.Environment != "development" && c.Environment != "production" {
+		return errors.New("environment must be development or production")
+	}
+	if (c.TLS.CertFile == "") != (c.TLS.KeyFile == "") || (c.TLS.ClientCAFile != "" && !c.TLS.Enabled()) {
+		return errors.New("TLS requires both certFile and keyFile")
+	}
+	if c.Environment == "production" && (!c.TLS.Enabled() || c.Reflection) {
+		return errors.New("production requires TLS and disabled reflection")
+	}
+	if c.RuleWatch && c.RuleFile == "" { return errors.New("ruleWatch requires ruleFile") }
+	for _, name := range []string{c.AdminTokenEnv, c.AuthTokenEnv} {
+		if name != "" && strings.TrimSpace(os.Getenv(name)) == "" { return errors.New("configured token environment variable is empty") }
+	}
+	if c.AuthTokenEnv != "" && !c.TLS.Enabled() { return errors.New("RPC token authentication requires TLS") }
+	if c.AdminListenOn != "" {
+		host, _, err := net.SplitHostPort(c.AdminListenOn)
+		if err != nil { return errors.New("invalid admin listen address") }
+		if (net.ParseIP(host) == nil || !net.ParseIP(host).IsLoopback()) && c.AdminTokenEnv == "" {
+			return errors.New("non-loopback admin requires adminTokenEnv and a protected network")
+		}
+	}
+	return governance.ValidateRules(c.Rules...)
 }
 
 func ResolveConfigPath(name string) string {
@@ -140,19 +184,37 @@ func TestValidate(t *testing.T) {
 	if got := cfg.Discovery.RegistryTTL().String(); got != "15s" {
 		t.Fatalf("registry TTL = %s, want 15s", got)
 	}
+	for _, name := range []string{"production plaintext", "partial TLS", "public admin", "missing token", "watch without file", "unknown environment"} {
+		t.Run(name, func(t *testing.T) {
+			invalid := cfg
+			switch name {
+			case "production plaintext": invalid.Environment = "production"
+			case "partial TLS": invalid.TLS.CertFile = "cert.pem"
+			case "public admin": invalid.AdminListenOn = "0.0.0.0:9090"
+			case "missing token": invalid.AuthTokenEnv = "GOFLY_TEST_MISSING_TOKEN"; t.Setenv(invalid.AuthTokenEnv, "")
+			case "watch without file": invalid.RuleWatch = true
+			case "unknown environment": invalid.Environment = "prod"
+			}
+			if err := Validate(invalid); err == nil { t.Fatal("unsafe config accepted") }
+		})
+	}
 }
 `
 
 const goZeroRPCSvcTemplate = `package svc
 
-import "{{.Module}}/internal/config"
+import (
+	"github.com/imajinyun/gofly/core/governance"
+	"{{.Module}}/internal/config"
+)
 
 type ServiceContext struct {
 	Config config.Config
+	Rules *governance.RuleSet
 }
 
 func NewServiceContext(c config.Config) *ServiceContext {
-	return &ServiceContext{Config: c}
+	return &ServiceContext{Config: c, Rules: governance.NewRuleSet(c.Rules...)}
 }
 `
 
@@ -217,6 +279,9 @@ import (
 	"time"
 
 	"github.com/imajinyun/gofly/core/discovery"
+	"github.com/imajinyun/gofly/core/governance"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	flygrpc "github.com/imajinyun/gofly/rpc/grpc"
 	"{{.Module}}/internal/config"
 	"{{.Module}}/internal/pb"
@@ -225,10 +290,11 @@ import (
 
 func TestGreeterUnarySmoke(t *testing.T) {
 	registry := discovery.NewMemoryRegistry()
-	grpcServer := flygrpc.NewDefaultServer("127.0.0.1:0", "{{.RPCService}}", nil, nil,
+	stx := svc.NewServiceContext(config.Config{})
+	grpcServer := flygrpc.NewDefaultServer("127.0.0.1:0", "{{.RPCService}}", stx.Rules, nil,
 		flygrpc.WithDiscovery(registry, discovery.Instance{ID: "test", Service: "{{.RPCService}}"}),
 	)
-	pb.RegisterGreeterServer(grpcServer.GRPCServer(), NewGreeterServer(svc.NewServiceContext(config.Config{})))
+	pb.RegisterGreeterServer(grpcServer.GRPCServer(), NewGreeterServer(stx))
 	started := make(chan error, 1)
 	go func() { started <- grpcServer.Start() }()
 	t.Cleanup(func() {
@@ -270,6 +336,13 @@ func TestGreeterUnarySmoke(t *testing.T) {
 	if response.GetMessage() != "hello gofly" {
 		t.Fatalf("message = %q, want hello gofly", response.GetMessage())
 	}
+	stx.Rules.Replace(governance.Rule{Method: "SayHello", Policy: governance.Policy{RateLimit: governance.RateLimitPolicy{Rate: 1, Burst: 1}}})
+	if _, err := pb.NewGreeterClient(conn.Conn()).SayHello(ctx, &pb.SayHelloRequest{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pb.NewGreeterClient(conn.Conn()).SayHello(ctx, &pb.SayHelloRequest{}); status.Code(err) != codes.ResourceExhausted {
+		t.Fatalf("updated governance rule = %v, want ResourceExhausted", err)
+	}
 }
 `
 
@@ -303,9 +376,15 @@ const goZeroRPCMainTemplate = `package main
 import (
 	"context"
 	"log/slog"
+	"net/http"
+	"os"
 
 	"github.com/imajinyun/gofly/app"
+	"github.com/imajinyun/gofly/core/auth"
 	"github.com/imajinyun/gofly/core/config"
+	"github.com/imajinyun/gofly/core/governance"
+	"github.com/imajinyun/gofly/core/observability/trace"
+	"github.com/imajinyun/gofly/core/security"
 	corediscovery "github.com/imajinyun/gofly/core/discovery"
 	"github.com/imajinyun/gofly/core/proc"
 	flygrpc "github.com/imajinyun/gofly/rpc/grpc"
@@ -324,15 +403,46 @@ func main() {
 		slog.Error("load config", "error", err)
 		return
 	}
+	if c.LogJSON { slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, nil))) }
 	ctx, stop := proc.SignalContext(context.Background())
 	defer stop()
+	c.Telemetry.ServiceName = c.Name
+	traceAgent, err := trace.StartAgent(ctx, c.Telemetry)
+	if err != nil { slog.Error("setup telemetry", "error", err); return }
+	defer func() { _ = traceAgent.Shutdown(context.Background()) }()
 	registry, closeRegistry, err := appdiscovery.NewRegistry(ctx, c.Discovery)
 	if err != nil {
 		slog.Error("setup discovery", "error", err)
 		return
 	}
 	defer func() { _ = closeRegistry(context.Background()) }()
-	grpcServer := flygrpc.NewDefaultServer(c.ListenOn, c.Name, nil, nil,
+	stx := svc.NewServiceContext(c)
+	manager, err := governance.NewManager(governance.Config{RuleFile: c.RuleFile, Watch: c.RuleWatch}, governance.WithRuleSet(stx.Rules))
+	if err != nil { slog.Error("setup governance", "error", err); return }
+	if c.RuleFile != "" {
+		if err := manager.Reload(ctx); err != nil { slog.Error("load governance", "error", err); return }
+	}
+	if c.RuleWatch {
+		watchCtx, cancelWatch := context.WithCancel(ctx)
+		watchDone := make(chan struct{})
+		go func() {
+			defer close(watchDone)
+			if err := manager.Start(watchCtx); err != nil && watchCtx.Err() == nil { slog.Error("watch governance", "error", err); stop() }
+		}()
+		defer func() { cancelWatch(); <-watchDone }()
+	}
+	var authOptions []flygrpc.ServerOption
+	if c.AuthTokenEnv != "" {
+		authConfig := flygrpc.AuthConfig{Validator: auth.StaticTokenValidator(os.Getenv(c.AuthTokenEnv), c.Name), RequireAuthentication: true}
+		authOptions = append(authOptions, flygrpc.WithUnaryServerInterceptors(flygrpc.AuthUnaryServerInterceptor(authConfig)), flygrpc.WithStreamServerInterceptors(flygrpc.AuthStreamServerInterceptor(authConfig)))
+	}
+	if c.AdminTokenEnv != "" {
+		token := os.Getenv(c.AdminTokenEnv)
+		authOptions = append(authOptions, flygrpc.WithAdminAuthorization(func(r *http.Request) bool { return security.AuthorizeBearerOrLocal(r, token) }))
+	}
+	serverOptions := append(authOptions,
+		flygrpc.WithGovernanceManager(manager),
+		flygrpc.WithServerTLS(c.TLS),
 		flygrpc.WithAdminAddr(c.AdminListenOn),
 		flygrpc.WithReflection(c.Reflection),
 		flygrpc.WithDiscovery(registry, corediscovery.Instance{
@@ -340,7 +450,7 @@ func main() {
 			Metadata: map[string]string{"transport": "grpc"},
 		}, corediscovery.WithTTL(c.Discovery.RegistryTTL())),
 	)
-	stx := svc.NewServiceContext(c)
+	grpcServer := flygrpc.NewDefaultServer(c.ListenOn, c.Name, stx.Rules, nil, serverOptions...)
 	pb.RegisterGreeterServer(grpcServer.GRPCServer(), appserver.NewGreeterServer(stx))
 	slog.Info("{{.Name}} gRPC starting", "listen_on", c.ListenOn, "admin_listen_on", c.AdminListenOn)
 	if err := app.Run(ctx, []app.Server{grpcServer}); err != nil {

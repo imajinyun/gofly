@@ -4001,7 +4001,7 @@ func TestGatewayPureProxyAndTranscodeBranches(t *testing.T) {
 
 	retryable := rpc.NewError(rpc.CodeUnavailable, "unavailable")
 	fake := &fakeGenericClient{err: retryable}
-	g = &Gateway{transcoders: map[string]rpc.GenericClient{"http://upstream": fake}}
+	g = &Gateway{transcoderFactory: func(string, Route) (rpc.GenericClient, error) { return fake, nil }}
 	result, err = g.transcodeOnce(httptest.NewRequest(http.MethodPost, "/api/Get", nil), Route{PathPrefix: "/api", Transcode: TranscodeConfig{Enabled: true, Service: "svc"}}, "http://upstream", nil, nil)
 	if !errors.Is(err, retryable) || !errors.Is(result.Err, retryable) || result.Status != http.StatusServiceUnavailable {
 		t.Fatalf("transcode retryable result=%+v err=%v, want propagated unavailable", result, err)

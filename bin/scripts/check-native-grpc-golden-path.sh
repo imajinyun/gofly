@@ -9,8 +9,8 @@ mkdir -p "$tmp_root/gocache" "$tmp_root/gotmp"
 
 (
   cd "$root"
-  GOCACHE="${GOCACHE:-$tmp_root/gocache}" GOTMPDIR="${GOTMPDIR:-$tmp_root/gotmp}" "$go_cmd" test -count=1 -shuffle=on -race ./rpc/grpc
-  GOCACHE="${GOCACHE:-$tmp_root/gocache}" GOTMPDIR="${GOTMPDIR:-$tmp_root/gotmp}" "$go_cmd" test -count=1 -shuffle=on ./cmd/gofly/internal/generator -run 'TestGenerateRPCNewGoZeroCompatibleProducesRunnableGRPCProject|TestGenerateGRPCBindingCodeSupportsStreaming'
+  GOCACHE="${GOCACHE:-$tmp_root/gocache}" GOTMPDIR="${GOTMPDIR:-$tmp_root/gotmp}" "$go_cmd" test -count=1 -shuffle=on -race ./rpc/grpc ./core/governance ./gateway
+  GOCACHE="${GOCACHE:-$tmp_root/gocache}" GOTMPDIR="${GOTMPDIR:-$tmp_root/gotmp}" "$go_cmd" test -count=1 -shuffle=on ./cmd/gofly/internal/generator -run 'TestGenerateRPCNewGoZeroCompatibleProducesRunnableGRPCProject|TestGenerateGRPCBindingCodeSupportsStreaming|TestGenerateGRPCScaffold'
 )
 
 python3 - "$root" <<'PY'
@@ -29,6 +29,7 @@ expected = {
     "keepalive-and-adaptive-shedding",
     "gozero-app-token-compatibility",
     "bounded-credential-proxy",
+    "native-grpc-gateway",
 }
 actual = {item.get("id") for item in manifest.get("capabilities") or []}
 assert manifest.get("schema") == "gofly.native_grpc_golden_path.v1"

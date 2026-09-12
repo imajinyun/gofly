@@ -17,7 +17,9 @@
     {
       "id": "default-client-observability",
       "status": "implemented",
-      "evidence": ["NewDefaultClient", "ObservabilityUnaryClientInterceptor", "ObservabilityStreamClientInterceptor"]
+      "evidence": ["NewDefaultClient", "ObservabilityUnaryClientInterceptor", "ObservabilityStreamClientInterceptor", "TestClientStreamObservabilityLifecycle", "TestDefaultGRPCStreamingLifecycle", "TestGovernanceBreakerPolicy", "TestDefaultGRPCOptionsApplyOnce"],
+      "streamLifecycle": "CloseSend and send-side EOF preserve receive-side operation; receive completion and caller cancellation release resources once",
+      "breakerPolicy": "Explicit adaptive fields select the existing adaptive breaker; policy changes replace cached breakers; otherwise the three-failure threshold is preserved"
     },
     {
       "id": "discovery-health-lifecycle",
@@ -32,7 +34,20 @@
     {
       "id": "runnable-gozero-compatible-scaffold",
       "status": "implemented",
-      "evidence": ["TestGenerateRPCNewGoZeroCompatibleProducesRunnableGRPCProject", "goZeroRPCServerTestTemplate"]
+      "evidence": ["TestGenerateRPCNewGoZeroCompatibleProducesRunnableGRPCProject", "goZeroRPCServerTestTemplate"],
+      "defaultWiring": "Bindings use NewDefaultServer and NewDefaultClient; WithRules and WithClientRules attach live rules without changing generated function signatures",
+      "scaffoldGovernance": "Config rules are validated and shared through ServiceContext and the admin Manager; generated smoke tests verify rule updates affect real calls",
+      "productionWiring": "Production requires TLS and disabled reflection; token secrets are environment references; rule files load before serving; watchers and telemetry shut down with the application",
+      "adminSecurity": "Non-loopback admin listeners require authorization; probes remain public; external admin HTTP must be protected by a trusted network or TLS reverse proxy",
+      "adminEvidence": ["TestGRPCAdminManagerLifecycle", "TestManagerConcurrentUpdateAndSnapshot"],
+      "incrementalScaffold": {
+        "command": "gofly rpc gen service.proto --scaffold --module example.com/service --dir service",
+        "evidence": ["TestGenerateGRPCScaffold", "TestExecuteRPCGenScaffold"],
+        "supported": "Multiple services in one proto, nested and imported messages, unary and all streaming modes, additive method regeneration",
+        "ownership": "Business logic, config, service context, main and go.mod are create-only; protoc stubs and adapters are regenerated after complete path and ownership preflight",
+        "dependencies": "New modules require GOFLY_FRAMEWORK_PATH or an explicitly selected gofly module version; existing go.mod is preserved",
+        "limitations": "Incompatible method signature changes require manual business-code migration; separate proto scaffold applications must use separate output roots"
+      }
     },
     {
       "id": "keepalive-and-adaptive-shedding",
@@ -43,6 +58,14 @@
       "id": "gozero-app-token-compatibility",
       "status": "implemented-opt-in",
       "evidence": ["NewRedisTokenValidator", "AppTokenCredentials", "TestRedisTokenValidator"]
+    },
+    {
+      "id": "native-grpc-gateway",
+      "status": "implemented-opt-in",
+      "evidence": ["NewGRPCTranscoderFactory", "TestGatewayNativeGRPCTranscoding", "TestGRPCTranscoderFactoryBoundaries"],
+      "wiring": "Load an include-imports FileDescriptorSet into NewGRPCTranscoderFactory, pass it to WithTranscoderFactory, and set route transcode.protocol to grpc",
+      "contract": "Uses dynamic protobuf messages and protojson, propagates allowed request metadata and deadlines, maps gRPC errors to HTTP status, and closes cached connections on Gateway shutdown",
+      "limitations": "Unary only; streaming methods return Unimplemented. TLS is explicit via client options. HTTP-RPC routes retain their existing transport. Drain HTTP requests before closing the gateway."
     },
     {
       "id": "bounded-credential-proxy",

@@ -168,9 +168,9 @@ func (s otelServerStream) Context() context.Context { return s.ctx }
 // sends/receives. It ends the overall client span when the stream closes.
 type otelClientStream struct {
 	stdgrpc.ClientStream
-	span oteltrace.Span
-	cancel context.CancelFunc
-	once sync.Once
+	span          oteltrace.Span
+	cancel        context.CancelFunc
+	once          sync.Once
 	serverStreams bool
 }
 

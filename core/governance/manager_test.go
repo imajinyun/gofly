@@ -15,6 +15,26 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
 
+func TestManagerConcurrentUpdateAndSnapshot(t *testing.T) {
+	manager, err := NewManager(Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var workers sync.WaitGroup
+	for range 4 {
+		workers.Go(func() {
+			for range 50 {
+				if err := manager.ReplaceRules(Rule{Name: "live", Policy: Policy{Timeout: time.Second}}); err != nil {
+					t.Error(err)
+				}
+				_ = manager.Snapshot()
+				_ = manager.MatchContext(t.Context(), Request{Transport: TransportRPC})
+			}
+		})
+	}
+	workers.Wait()
+}
+
 func TestManagerInitializesStaticRulesAndSnapshot(t *testing.T) {
 	m, err := NewManager(Config{Rules: []Rule{{Name: "rest", Transport: TransportREST, Service: "orders", Policy: Policy{Timeout: time.Second}}}})
 	if err != nil {

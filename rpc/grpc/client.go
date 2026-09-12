@@ -38,6 +38,7 @@ type clientOptions struct {
 	tls                 *security.TLSConfig
 	waitForReady        bool
 	credentialsProvided bool
+	rules               *governance.RuleSet
 }
 
 func Dial(ctx context.Context, target string, opts ...ClientOption) (*ClientConn, error) {
@@ -98,6 +99,13 @@ func Dial(ctx context.Context, target string, opts ...ClientOption) (*ClientConn
 // servers is evaluated for client-side timeout, retry, breaker, rate-limit and
 // concurrency policies. Additional options are applied after these defaults.
 func NewDefaultClient(ctx context.Context, target, service string, rules *governance.RuleSet, registry *metrics.Registry, opts ...ClientOption) (*ClientConn, error) {
+	configured := clientOptions{timeout: 5 * time.Second, rules: rules}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(&configured)
+		}
+	}
+	rules = configured.rules
 	if registry == nil {
 		registry = metrics.Default
 	}
@@ -113,11 +121,15 @@ func NewDefaultClient(ctx context.Context, target, service string, rules *govern
 		unary = append(unary, GovernanceUnaryClientInterceptor(rules))
 		stream = append(stream, GovernanceStreamClientInterceptor(rules))
 	}
-	defaults := []ClientOption{
-		WithUnaryClientInterceptors(unary...),
-		WithStreamClientInterceptors(stream...),
-	}
-	return Dial(ctx, target, append(defaults, opts...)...)
+	configured.dialOptions = append([]stdgrpc.DialOption{
+		stdgrpc.WithChainUnaryInterceptor(unary...),
+		stdgrpc.WithChainStreamInterceptor(stream...),
+	}, configured.dialOptions...)
+	return Dial(ctx, target, func(o *clientOptions) { *o = configured })
+}
+
+func WithClientRules(rules *governance.RuleSet) ClientOption {
+	return func(o *clientOptions) { o.rules = rules }
 }
 
 // WithDialOptions appends raw gRPC options. Because grpc.DialOption is opaque,

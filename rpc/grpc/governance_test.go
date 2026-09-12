@@ -7,10 +7,17 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	otelcodes "go.opentelemetry.io/otel/codes"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 
 	"github.com/imajinyun/gofly/core/breaker"
 	"github.com/imajinyun/gofly/core/discovery"
@@ -18,9 +25,6 @@ import (
 	"github.com/imajinyun/gofly/core/governance"
 	"github.com/imajinyun/gofly/core/limit"
 	"github.com/imajinyun/gofly/core/observability/metrics"
-	otelcodes "go.opentelemetry.io/otel/codes"
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	coretrace "github.com/imajinyun/gofly/core/observability/trace"
 	coreretry "github.com/imajinyun/gofly/core/retry"
 	coreruntime "github.com/imajinyun/gofly/core/runtime"
@@ -28,10 +32,13 @@ import (
 	oteltrace "go.opentelemetry.io/otel/trace"
 	stdgrpc "google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
+	"google.golang.org/grpc/test/bufconn"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 func TestGovernanceUnaryClientInterceptorAppliesMetadataAndRetry(t *testing.T) {
@@ -401,8 +408,12 @@ func TestGovernanceStreamClientInterceptorEnforcesConcurrency(t *testing.T) {
 	}
 	first.(*governanceClientStream).finish()
 	third, err := interceptor(context.Background(), &stdgrpc.StreamDesc{ServerStreams: true}, nil, "/greeter.Greeter/Subscribe", streamer)
-	if err != nil { t.Fatalf("third stream after release: %v", err) }
-	if err := third.RecvMsg(nil); err != io.EOF { t.Fatalf("third receive = %v", err) }
+	if err != nil {
+		t.Fatalf("third stream after release: %v", err)
+	}
+	if err := third.RecvMsg(nil); err != io.EOF {
+		t.Fatalf("third receive = %v", err)
+	}
 }
 
 func TestGovernanceStreamServerInterceptorMapsOpenBreaker(t *testing.T) {
@@ -610,6 +621,90 @@ func TestOTelUnaryClientInjectsTraceparent(t *testing.T) {
 	}
 }
 
+func TestGRPCAdminManagerLifecycle(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rules.json")
+	if err := os.WriteFile(path, []byte(`{"rules":[]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manager, err := governance.NewManager(governance.Config{RuleFile: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	server := NewDefaultServer("127.0.0.1:0", "health", governance.NewRuleSet(), nil,
+		WithGovernanceManager(manager), WithRules(governance.NewRuleSet()),
+		WithAdminAuthorization(func(r *http.Request) bool { return r.Header.Get("Authorization") == "Bearer test" }),
+	)
+	listener := bufconn.Listen(1024 * 1024)
+	done := make(chan error, 1)
+	go func() { done <- server.GRPCServer().Serve(listener) }()
+	t.Cleanup(func() {
+		server.GRPCServer().Stop()
+		if err := <-done; err != nil {
+			t.Error(err)
+		}
+	})
+	conn, err := stdgrpc.NewClient("passthrough:///bufnet", stdgrpc.WithTransportCredentials(insecure.NewCredentials()), stdgrpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return listener.Dial() }))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	client := healthpb.NewHealthClient(conn)
+	admin := newAdminServer("", server.rules, nil, server).Handler
+	for _, path := range []string{"/healthz", "/readyz", "/startupz"} {
+		rec := httptest.NewRecorder()
+		admin.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		if rec.Code == http.StatusUnauthorized {
+			t.Fatalf("public probe %s required credentials", path)
+		}
+	}
+	for _, path := range []string{"/runtime", "/metrics", "/governance/rules", "/governance/reload"} {
+		rec := httptest.NewRecorder()
+		admin.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("%s status=%d", path, rec.Code)
+		}
+	}
+	if _, err := client.Check(ctx, &healthpb.HealthCheckRequest{}); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPut, "/governance/rules", strings.NewReader(`{"persist":true,"rules":[{"name":"live","method":"Check","policy":{"rateLimit":{"rate":1,"burst":1}}}]}`))
+	req.Header.Set("Authorization", "Bearer test")
+	rec := httptest.NewRecorder()
+	admin.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("update=%d %s", rec.Code, rec.Body.String())
+	}
+	if _, err := client.Check(ctx, &healthpb.HealthCheckRequest{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Check(ctx, &healthpb.HealthCheckRequest{}); status.Code(err) != codes.ResourceExhausted {
+		t.Fatalf("live rule not applied: %v", err)
+	}
+	if data, err := os.ReadFile(path); err != nil || !strings.Contains(string(data), "live") {
+		t.Fatalf("rules not persisted: %s %v", data, err)
+	}
+	if err := manager.RuleSet().ReplaceValidated(); err != nil {
+		t.Fatal(err)
+	}
+	req = httptest.NewRequest(http.MethodPost, "/governance/reload", nil)
+	req.Header.Set("Authorization", "Bearer test")
+	rec = httptest.NewRecorder()
+	admin.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || len(manager.RuleSet().Snapshot()) != 1 {
+		t.Fatalf("reload=%d %s", rec.Code, rec.Body.String())
+	}
+	unsafe := NewDefaultServer("127.0.0.1:0", "unsafe", nil, nil, WithAdminAddr("0.0.0.0:0"))
+	defer unsafe.GRPCServer().Stop()
+	if err := unsafe.Start(); err == nil {
+		t.Fatal("unprotected external admin accepted")
+	}
+}
+
 func TestNewDefaultServerWiresAdminAndInterceptors(t *testing.T) {
 	rules := governance.NewRuleSet(governance.Rule{
 		Name:      "default rate limit",
@@ -782,8 +877,8 @@ func TestGRPCAdminRuntimeExplainsDefaultInterceptorChain(t *testing.T) {
 	if len(unary) != 4 || unary[0].Name != "recover" || unary[3].Name != "governance" {
 		t.Fatalf("unary chain = %#v, want recover/observability/otel/governance", unary)
 	}
-	if len(stream) != 3 || stream[0].Name != "observability" || stream[2].Name != "governance" {
-		t.Fatalf("stream chain = %#v, want observability/otel/governance", stream)
+	if len(stream) != 4 || stream[0].Name != "recover" || stream[3].Name != "governance" {
+		t.Fatalf("stream chain = %#v, want recover/observability/otel/governance", stream)
 	}
 
 	if err := server.Shutdown(context.Background()); err != nil {
@@ -966,10 +1061,10 @@ func TestGovernanceBreakerPolicy(t *testing.T) {
 
 func TestClientStreamObservabilityLifecycle(t *testing.T) {
 	for _, tc := range []struct {
-		name string
+		name          string
 		serverStreams bool
-		err error
-		cancel bool
+		err           error
+		cancel        bool
 	}{
 		{name: "server stream EOF", serverStreams: true, err: io.EOF},
 		{name: "client stream response"},
@@ -979,7 +1074,11 @@ func TestClientStreamObservabilityLifecycle(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			recorder := tracetest.NewSpanRecorder()
 			provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
-			t.Cleanup(func() { if err := provider.Shutdown(context.Background()); err != nil { t.Error(err) } })
+			t.Cleanup(func() {
+				if err := provider.Shutdown(context.Background()); err != nil {
+					t.Error(err)
+				}
+			})
 			ctx, parent := provider.Tracer("test").Start(context.Background(), "parent")
 			defer parent.End()
 			ctx, cancel := context.WithCancel(ctx)
@@ -989,48 +1088,187 @@ func TestClientStreamObservabilityLifecycle(t *testing.T) {
 			trace := OTelStreamClientInterceptor()
 			inner := &fakeClientStream{recvErr: tc.err}
 			stream, err := observation(ctx, &stdgrpc.StreamDesc{ServerStreams: tc.serverStreams}, nil, "/svc/Stream", func(ctx context.Context, desc *stdgrpc.StreamDesc, cc *stdgrpc.ClientConn, method string, opts ...stdgrpc.CallOption) (stdgrpc.ClientStream, error) {
-				return trace(ctx, desc, cc, method, func(ctx context.Context, _ *stdgrpc.StreamDesc, _ *stdgrpc.ClientConn, _ string, _ ...stdgrpc.CallOption) (stdgrpc.ClientStream, error) { inner.ctx = ctx; return inner, nil }, opts...)
+				return trace(ctx, desc, cc, method, func(ctx context.Context, _ *stdgrpc.StreamDesc, _ *stdgrpc.ClientConn, _ string, _ ...stdgrpc.CallOption) (stdgrpc.ClientStream, error) {
+					inner.ctx = ctx
+					return inner, nil
+				}, opts...)
 			})
-			if err != nil { t.Fatal(err) }
-			if err := stream.CloseSend(); err != nil { t.Fatal(err) }
-			if len(recorder.Ended()) != 0 || registry.Snapshot().InFlight != 1 { t.Fatal("half-close completed observation") }
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := stream.CloseSend(); err != nil {
+				t.Fatal(err)
+			}
+			if len(recorder.Ended()) != 0 || registry.Snapshot().InFlight != 1 {
+				t.Fatal("half-close completed observation")
+			}
 			if tc.cancel {
 				cancel()
 				deadline := time.Now().Add(time.Second)
 				for len(recorder.Ended()) == 0 || registry.Snapshot().InFlight != 0 {
-					if time.Now().After(deadline) { t.Fatal("cancellation did not complete observation") }
+					if time.Now().After(deadline) {
+						t.Fatal("cancellation did not complete observation")
+					}
 					time.Sleep(time.Millisecond)
 				}
 			} else {
-				if err := stream.RecvMsg(nil); !errors.Is(err, tc.err) { t.Fatalf("receive = %v, want %v", err, tc.err) }
+				if err := stream.RecvMsg(nil); !errors.Is(err, tc.err) {
+					t.Fatalf("receive = %v, want %v", err, tc.err)
+				}
 				_ = stream.RecvMsg(nil)
 			}
 			ended := recorder.Ended()
-			if len(ended) != 1 || registry.Snapshot().InFlight != 0 { t.Fatalf("ended spans=%d metrics=%+v", len(ended), registry.Snapshot()) }
+			if len(ended) != 1 || registry.Snapshot().InFlight != 0 {
+				t.Fatalf("ended spans=%d metrics=%+v", len(ended), registry.Snapshot())
+			}
 			wantError := tc.cancel || tc.err != nil && tc.err != io.EOF
-			if (ended[0].Status().Code == otelcodes.Error) != wantError { t.Fatalf("span status = %v", ended[0].Status()) }
+			if (ended[0].Status().Code == otelcodes.Error) != wantError {
+				t.Fatalf("span status = %v", ended[0].Status())
+			}
 		})
 	}
 }
 
 func TestRecoveryStreamServerInterceptor(t *testing.T) {
-	for _, tc := range []struct { name string; panics bool; err error }{
+	for _, tc := range []struct {
+		name   string
+		panics bool
+		err    error
+	}{
 		{name: "success"},
 		{name: "handler error", err: status.Error(codes.InvalidArgument, "bad input")},
 		{name: "panic", panics: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			err := RecoveryStreamServerInterceptor(nil)(nil, testServerStream{ctx: context.Background()}, &stdgrpc.StreamServerInfo{FullMethod: "/svc/Stream"}, func(any, stdgrpc.ServerStream) error {
-				if tc.panics { panic("private diagnostic") }
+				if tc.panics {
+					panic("private diagnostic")
+				}
 				return tc.err
 			})
 			if tc.panics {
-				if status.Code(err) != codes.Internal || strings.Contains(err.Error(), "private diagnostic") { t.Fatalf("panic result = %v", err) }
-			} else if !errors.Is(err, tc.err) { t.Fatalf("result = %v, want %v", err, tc.err) }
+				if status.Code(err) != codes.Internal || strings.Contains(err.Error(), "private diagnostic") {
+					t.Fatalf("panic result = %v", err)
+				}
+			} else if !errors.Is(err, tc.err) {
+				t.Fatalf("result = %v, want %v", err, tc.err)
+			}
 		})
 	}
 	server := NewDefaultServer("127.0.0.1:0", "svc", nil, nil)
-	if !slices.Contains(server.streamNames, "recover") { t.Fatalf("stream chain = %v", server.streamNames) }
+	if !slices.Contains(server.streamNames, "recover") {
+		t.Fatalf("stream chain = %v", server.streamNames)
+	}
+}
+
+func TestDefaultGRPCStreamingLifecycle(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		clientStreams bool
+		serverStreams bool
+		panics        bool
+	}{
+		{name: "server streaming", serverStreams: true},
+		{name: "client streaming", clientStreams: true},
+		{name: "bidirectional", clientStreams: true, serverStreams: true},
+		{name: "panic recovery", clientStreams: true, serverStreams: true, panics: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			listener := bufconn.Listen(1024 * 1024)
+			rules := governance.NewRuleSet(governance.Rule{Policy: governance.Policy{Concurrency: governance.ConcurrencyPolicy{Limit: 1}, Timeout: time.Second}})
+			server := NewDefaultServer("", "test.Streams", rules, nil, WithHealth(false))
+			desc := stdgrpc.StreamDesc{StreamName: "Exchange", ClientStreams: tc.clientStreams, ServerStreams: tc.serverStreams}
+			desc.Handler = func(_ any, stream stdgrpc.ServerStream) error {
+				for {
+					err := stream.RecvMsg(&emptypb.Empty{})
+					if errors.Is(err, io.EOF) {
+						break
+					}
+					if err != nil {
+						return err
+					}
+				}
+				if tc.panics {
+					panic("private diagnostic")
+				}
+				if err := stream.SendMsg(&emptypb.Empty{}); err != nil {
+					return err
+				}
+				if tc.serverStreams {
+					return stream.SendMsg(&emptypb.Empty{})
+				}
+				return nil
+			}
+			server.RegisterService(&stdgrpc.ServiceDesc{ServiceName: "test.Streams", HandlerType: (*interface{})(nil), Streams: []stdgrpc.StreamDesc{desc}}, struct{}{})
+			done := make(chan error, 1)
+			go func() { done <- server.GRPCServer().Serve(listener) }()
+			t.Cleanup(func() {
+				server.GRPCServer().Stop()
+				if err := <-done; err != nil {
+					t.Error(err)
+				}
+			})
+			conn, err := NewDefaultClient(t.Context(), "passthrough:///bufnet", "test.Streams", rules, nil,
+				WithDialOptions(stdgrpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return listener.Dial() }), stdgrpc.WithTransportCredentials(insecure.NewCredentials())),
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer conn.Close()
+			for range 2 {
+				ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+				defer cancel()
+				stream, err := conn.Conn().NewStream(ctx, &desc, "/test.Streams/Exchange")
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := stream.SendMsg(&emptypb.Empty{}); err != nil {
+					t.Fatal(err)
+				}
+				if err := stream.CloseSend(); err != nil {
+					t.Fatal(err)
+				}
+				err = stream.RecvMsg(&emptypb.Empty{})
+				if tc.panics {
+					if status.Code(err) != codes.Internal {
+						t.Fatalf("panic status = %v", err)
+					}
+					continue
+				}
+				if err != nil {
+					t.Fatalf("receive after half-close: %v", err)
+				}
+				if tc.serverStreams {
+					if err := stream.RecvMsg(&emptypb.Empty{}); err != nil {
+						t.Fatal(err)
+					}
+					if err := stream.RecvMsg(&emptypb.Empty{}); err != io.EOF {
+						t.Fatalf("terminal receive = %v", err)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestDefaultGRPCOptionsApplyOnce(t *testing.T) {
+	rules := governance.NewRuleSet()
+	registry := metrics.NewRegistry()
+	serverCalls := 0
+	server := NewDefaultServer("", "svc", nil, nil, nil, WithRules(rules), WithMetricsRegistry(registry), func(*serverOptions) { serverCalls++ })
+	defer server.GRPCServer().Stop()
+	if serverCalls != 1 || server.rules != rules || server.registry != registry || !slices.Contains(server.unaryNames, "governance") || !slices.Contains(server.streamNames, "governance") {
+		t.Fatalf("server options calls=%d rules=%p chain=%v", serverCalls, server.rules, server.unaryNames)
+	}
+	clientCalls := 0
+	conn, err := NewDefaultClient(t.Context(), "127.0.0.1:1", "svc", nil, registry, nil, WithClientRules(rules), func(*clientOptions) { clientCalls++ })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if clientCalls != 1 {
+		t.Fatalf("client option called %d times", clientCalls)
+	}
 }
 
 func TestGovernanceOptions(t *testing.T) {

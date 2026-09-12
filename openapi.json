@@ -1,0 +1,469 @@
+{
+  "components": {
+    "schemas": {
+      "ActivateLicenseRequest": {
+        "properties": {
+          "appVersion": {
+            "type": "string"
+          },
+          "deviceName": {
+            "type": "string"
+          },
+          "installationPublicKey": {
+            "type": "string"
+          },
+          "licenseKey": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "licenseKey",
+          "installationPublicKey",
+          "platform",
+          "appVersion",
+          "deviceName"
+        ],
+        "type": "object"
+      },
+      "ActivateLicenseResponse": {
+        "properties": {
+          "lease": {
+            "$ref": "#/components/schemas/Lease"
+          },
+          "license": {
+            "$ref": "#/components/schemas/LicenseStatus"
+          }
+        },
+        "required": [
+          "license",
+          "lease"
+        ],
+        "type": "object"
+      },
+      "CreateRenewalChallengeRequest": {
+        "properties": {
+          "leaseToken": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "leaseToken"
+        ],
+        "type": "object"
+      },
+      "CreateRenewalChallengeResponse": {
+        "properties": {
+          "challengeID": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "nonce": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "challengeID",
+          "nonce",
+          "expiresAt"
+        ],
+        "type": "object"
+      },
+      "DeactivateLicenseRequest": {
+        "properties": {
+          "challengeID": {
+            "type": "string"
+          },
+          "challengeSignature": {
+            "type": "string"
+          },
+          "leaseToken": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "leaseToken",
+          "challengeID",
+          "challengeSignature"
+        ],
+        "type": "object"
+      },
+      "DeactivateLicenseResponse": {
+        "properties": {
+          "deactivated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "deactivated"
+        ],
+        "type": "object"
+      },
+      "ErrorResponse": {
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "requestID": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "requestID"
+        ],
+        "type": "object"
+      },
+      "Lease": {
+        "properties": {
+          "expiresAt": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "issuedAt": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "keyID": {
+            "type": "string"
+          },
+          "offlineGraceEndsAt": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "token": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "token",
+          "keyID",
+          "issuedAt",
+          "expiresAt",
+          "offlineGraceEndsAt"
+        ],
+        "type": "object"
+      },
+      "LicenseStatus": {
+        "properties": {
+          "features": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "installationID": {
+            "type": "string"
+          },
+          "licenseID": {
+            "type": "string"
+          },
+          "maxInstallations": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "plan": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "subscriptionExpiresAt": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "licenseID",
+          "installationID",
+          "plan",
+          "state",
+          "features",
+          "subscriptionExpiresAt",
+          "maxInstallations"
+        ],
+        "type": "object"
+      },
+      "LicenseStatusRequest": {
+        "properties": {
+          "leaseToken": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "leaseToken"
+        ],
+        "type": "object"
+      },
+      "LicenseStatusResponse": {
+        "properties": {
+          "lease": {
+            "$ref": "#/components/schemas/Lease"
+          },
+          "license": {
+            "$ref": "#/components/schemas/LicenseStatus"
+          }
+        },
+        "required": [
+          "license",
+          "lease"
+        ],
+        "type": "object"
+      },
+      "RenewLicenseRequest": {
+        "properties": {
+          "appVersion": {
+            "type": "string"
+          },
+          "challengeID": {
+            "type": "string"
+          },
+          "challengeSignature": {
+            "type": "string"
+          },
+          "leaseToken": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "leaseToken",
+          "challengeID",
+          "challengeSignature",
+          "appVersion"
+        ],
+        "type": "object"
+      },
+      "RenewLicenseResponse": {
+        "properties": {
+          "lease": {
+            "$ref": "#/components/schemas/Lease"
+          },
+          "license": {
+            "$ref": "#/components/schemas/LicenseStatus"
+          }
+        },
+        "required": [
+          "license",
+          "lease"
+        ],
+        "type": "object"
+      }
+    },
+    "securitySchemes": {}
+  },
+  "info": {
+    "title": "AibarLicenseApi API",
+    "version": "1.0.0"
+  },
+  "openapi": "3.0.3",
+  "paths": {
+    "/api/v1/licenses/activate": {
+      "post": {
+        "operationId": "ActivateLicense",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "example": {
+                "appVersion": "string",
+                "deviceName": "string",
+                "installationPublicKey": "string",
+                "licenseKey": "string",
+                "platform": "string"
+              },
+              "schema": {
+                "$ref": "#/components/schemas/ActivateLicenseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "lease": {},
+                  "license": {}
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ActivateLicenseResponse"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "tags": [
+          "AibarLicenseApi"
+        ]
+      }
+    },
+    "/api/v1/licenses/deactivate": {
+      "post": {
+        "operationId": "DeactivateLicense",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "example": {
+                "challengeID": "string",
+                "challengeSignature": "string",
+                "leaseToken": "string"
+              },
+              "schema": {
+                "$ref": "#/components/schemas/DeactivateLicenseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "deactivated": true
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/DeactivateLicenseResponse"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "tags": [
+          "AibarLicenseApi"
+        ]
+      }
+    },
+    "/api/v1/licenses/renew": {
+      "post": {
+        "operationId": "RenewLicense",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "example": {
+                "appVersion": "string",
+                "challengeID": "string",
+                "challengeSignature": "string",
+                "leaseToken": "string"
+              },
+              "schema": {
+                "$ref": "#/components/schemas/RenewLicenseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "lease": {},
+                  "license": {}
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/RenewLicenseResponse"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "tags": [
+          "AibarLicenseApi"
+        ]
+      }
+    },
+    "/api/v1/licenses/renew/challenge": {
+      "post": {
+        "operationId": "CreateRenewalChallenge",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "example": {
+                "leaseToken": "string"
+              },
+              "schema": {
+                "$ref": "#/components/schemas/CreateRenewalChallengeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "challengeID": "string",
+                  "expiresAt": 1,
+                  "nonce": "string"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/CreateRenewalChallengeResponse"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "tags": [
+          "AibarLicenseApi"
+        ]
+      }
+    },
+    "/api/v1/licenses/status": {
+      "post": {
+        "operationId": "GetLicenseStatus",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "example": {
+                "leaseToken": "string"
+              },
+              "schema": {
+                "$ref": "#/components/schemas/LicenseStatusRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "lease": {},
+                  "license": {}
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/LicenseStatusResponse"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "tags": [
+          "AibarLicenseApi"
+        ]
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "AibarLicenseApi"
+    }
+  ]
+}

@@ -835,7 +835,8 @@ service Greeter { rpc Ping(PingRequest) returns (PingResponse); }
 	for _, want := range []string{
 		"package demov1",
 		"func NewGreeterGRPCServer",
-		"flygrpc.RecoveryUnaryServerInterceptor(nil)",
+		`flygrpc.NewDefaultServer("", "demo.v1.Greeter", nil, nil, opts...)`,
+		`flygrpc.NewDefaultClient(ctx, target, "demo.v1.Greeter", nil, nil, opts...)`,
 		"RegisterGreeterServer(server.GRPCServer(), impl)",
 		"func DialGreeter(ctx context.Context, target string",
 		"return NewGreeterClient(conn.Conn()), conn, nil",

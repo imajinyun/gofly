@@ -161,10 +161,10 @@ func ObservabilityStreamClientInterceptor(service string, registry *metrics.Regi
 
 type observabilityClientStream struct {
 	stdgrpc.ClientStream
-	ctx       context.Context
-	operation *observability.Operation
-	once      sync.Once
-	cancel context.CancelFunc
+	ctx           context.Context
+	operation     *observability.Operation
+	once          sync.Once
+	cancel        context.CancelFunc
 	serverStreams bool
 }
 

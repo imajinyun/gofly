@@ -87,6 +87,7 @@
     "rpc/balancer.go|G115|modulo bounds the uint64 counter to len(candidates), so the int conversion cannot overflow.",
     "rpc/balancer.go|G115|modulo bounds the uint64 counter to len(candidates), so the int conversion cannot overflow.",
     "rpc/balancer.go|G115|modulo bounds the uint64 counter to len(healthy), so the int conversion cannot overflow.",
+    "rpc/grpc/balancer.go|G404|load balancing sampling is not security-sensitive.",
     "rpc/kubernetes.go|G101|this is the standard in-cluster Kubernetes serviceaccount token path, not a credential literal.",
     "rpc/mux_operator.go|G304,G703|path is the constructor-validated local store path or a bounded backup sibling.",
     "rpc/mux_operator.go|G304,G703|path is the constructor-validated local store path or a bounded backup sibling.",

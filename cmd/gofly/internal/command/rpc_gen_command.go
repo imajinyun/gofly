@@ -22,6 +22,9 @@ func rpcGenCommand(args []string) error {
 	profileAlias := fs.String("generation-profile", "", "alias for --profile")
 	transport := fs.String("transport", "grpc", "RPC transport to generate: grpc, gofly, or both")
 	standard := fs.Bool("standard", false, "also run standard protoc Go and gRPC plugins")
+	scaffold := fs.Bool("scaffold", false, "generate an incremental native gRPC project; preserve business files")
+	module := fs.String("module", "", "scaffold Go module path (defaults to existing go.mod)")
+	name := fs.String("name", "", "scaffold application name (defaults to proto filename)")
 	pluginArg := fs.String("plugin", "", "additional plugin executable (comma-separated) to run after generation")
 	client := fs.Bool("client", true, "generate gofly RPC client code")
 	c := fs.Bool("c", true, "generate gofly RPC client code")
@@ -65,23 +68,35 @@ func rpcGenCommand(args []string) error {
 	var genErr error
 	includePaths := splitCSV(*protoPath)
 	rpcOpts := generator.RPCOptions{ProtoFile: protoFile, Dir: *dir, Package: *pkg, ProtoPath: includePaths, Profile: *profile, NoClient: !*client, Multiple: multiple, WithMiddleware: *withMiddleware, WithRecovery: *withRecovery, WithValidator: *withValidator}
-	switch *transport {
-	case "", "grpc", "standard":
-		genErr = generator.GenerateGRPCFromProto(generator.GRPCOptions{ProtoFile: protoFile, Dir: *dir, Package: *pkg, ProtoPath: includePaths})
-	case "gofly":
-		genErr = generator.GenerateRPCFromProto(rpcOpts)
-	case "both":
-		if err := generator.GenerateRPCFromProto(rpcOpts); err != nil {
-			return err
+	if *scaffold {
+		if *transport != "grpc" && *transport != "standard" {
+			return fmt.Errorf("%w: --scaffold requires --transport grpc", errUsage)
 		}
-		genErr = generator.GenerateGRPCFromProto(generator.GRPCOptions{ProtoFile: protoFile, Dir: *dir, Package: *pkg, ProtoPath: includePaths})
-	default:
-		return fmt.Errorf("%w: unsupported rpc transport %q", errUsage, *transport)
+		for _, flagName := range []string{"package", "profile", "generation-profile", "home", "remote", "branch", "style", "client", "c", "m", "multiple", "with-middleware", "with-recovery", "with-validator"} {
+			if flagProvided(fs, flagName) {
+				return fmt.Errorf("%w: --%s is not supported with --scaffold", errUsage, flagName)
+			}
+		}
+		genErr = generator.GenerateGRPCScaffold(context.Background(), generator.GRPCScaffoldOptions{ProtoFile: protoFile, ProtoPath: includePaths, Dir: *dir, Module: *module, Name: *name, Timeout: *timeout})
+	} else {
+		switch *transport {
+		case "", "grpc", "standard":
+			genErr = generator.GenerateGRPCFromProto(generator.GRPCOptions{ProtoFile: protoFile, Dir: *dir, Package: *pkg, ProtoPath: includePaths})
+		case "gofly":
+			genErr = generator.GenerateRPCFromProto(rpcOpts)
+		case "both":
+			if err := generator.GenerateRPCFromProto(rpcOpts); err != nil {
+				return err
+			}
+			genErr = generator.GenerateGRPCFromProto(generator.GRPCOptions{ProtoFile: protoFile, Dir: *dir, Package: *pkg, ProtoPath: includePaths})
+		default:
+			return fmt.Errorf("%w: unsupported rpc transport %q", errUsage, *transport)
+		}
 	}
 	if genErr != nil {
 		return genErr
 	}
-	if *standard {
+	if *standard && !*scaffold {
 		if err := generator.GenerateStandardProto(context.Background(), generator.ProtocOptions{
 			ProtoFile: protoFile,
 			ProtoPath: includePaths,
@@ -107,8 +122,13 @@ func rpcGenCommand(args []string) error {
 		if *profile != "" {
 			inputs["profile"] = *profile
 		}
-		if *standard {
+		if *standard || *scaffold {
 			inputs["standard"] = "true"
+		}
+		if *scaffold {
+			inputs["scaffold"] = "true"
+			inputs["module"] = *module
+			inputs["name"] = *name
 		}
 		return printJSONEnvelope("rpc.gen", buildIDLGeneratePlan("rpc gen", inputs, splitCSV(*pluginArg)))
 	}

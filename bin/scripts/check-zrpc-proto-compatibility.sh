@@ -19,6 +19,11 @@ run_go_test() {
 
 run_go_test ./cmd/gofly/internal/generator 'TestZRPCProtoCompatibilityMatrix|TestGenerateRPCFromProtoMultipleAndStreamVariants|TestGenerateRPCNewGoZeroCompatibleProducesRunnableGRPCProject'
 run_go_test ./rpc/grpc 'TestGRPCServerDiscoveryAndHealthLifecycle|TestDialKeepsDefaultCredentialsWithResolverOption|TestGoflyGRPCBalancersRegistered'
+printf 'zrpc-proto-compatibility: real bidirectional zRPC runtime matrix\n'
+(
+	cd "$root/testdata/zrpc-runtime-interop"
+	GOCACHE="${GOCACHE:-$tmp_root/gocache}" GOTMPDIR="${GOTMPDIR:-$tmp_root/gotmp}" "$go_cmd" test -count=1 -shuffle=on -race -tags=integration ./...
+)
 
 python3 - "$root" <<'PY'
 import json
@@ -62,6 +67,7 @@ expected = {
     "client-wrapper": "supported",
     "runnable-grpc-layout": "supported",
     "grpc-runtime-golden-path": "supported",
+    "zrpc-runtime-bidirectional": "supported",
 }
 require(set(rows) == set(expected), f"matrix ids mismatch: {sorted(rows)!r}")
 for row_id, status in expected.items():
@@ -87,6 +93,13 @@ for marker in (
 common = read(root / "testdata/zrpc-proto-matrix/common.proto")
 for marker in ("message QuoteRequest", "message QuoteResponse"):
     require(marker in common, f"common.proto missing {marker!r}")
+interop = read(root / "testdata/zrpc-runtime-interop/interop_test.go")
+for marker in ("zrpc.NewServer", "flygrpc.NewDefaultClient", "flygrpc.NewDefaultServer", "zrpc.NewClientWithTarget"):
+    require(marker in interop, f"zRPC runtime interoperability fixture missing {marker!r}")
+interop_mod = read(root / "testdata/zrpc-runtime-interop/go.mod")
+root_mod = read(root / "go.mod")
+require("github.com/zeromicro/go-zero v1.10.3" in interop_mod, "zRPC runtime fixture must pin go-zero v1.10.3")
+require("github.com/zeromicro/go-zero" not in root_mod, "root module must not depend on go-zero for interoperability tests")
 
 rules = manifest.get("releaseRules") or {}
 for field in ("supportedRegression", "degradedClaim", "unsupportedPromotion"):

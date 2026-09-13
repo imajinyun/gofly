@@ -1271,6 +1271,105 @@ func TestDefaultGRPCOptionsApplyOnce(t *testing.T) {
 	}
 }
 
+func TestGovernanceStreamClientOpenFailure(t *testing.T) {
+	rules := governance.NewRuleSet(governance.Rule{
+		Name: "stream", Method: "Watch", Policy: governance.Policy{
+			Concurrency: governance.ConcurrencyPolicy{Limit: 1},
+			Breaker:     governance.BreakerPolicy{Enabled: true, OpenTimeout: time.Hour},
+		},
+	})
+	interceptor := GovernanceStreamClientInterceptor(rules)
+	var attemptContext context.Context
+	stream, err := interceptor(t.Context(), &stdgrpc.StreamDesc{ServerStreams: true}, nil, "/service/Watch",
+		func(ctx context.Context, _ *stdgrpc.StreamDesc, _ *stdgrpc.ClientConn, _ string, _ ...stdgrpc.CallOption) (stdgrpc.ClientStream, error) {
+			attemptContext = ctx
+			return nil, status.Error(codes.Unavailable, "open failed")
+		})
+	if stream != nil || status.Code(err) != codes.Unavailable || attemptContext.Err() != context.Canceled {
+		t.Fatalf("stream=%v err=%v context=%v", stream, err, attemptContext.Err())
+	}
+	called := false
+	stream, err = interceptor(t.Context(), &stdgrpc.StreamDesc{ServerStreams: true}, nil, "/service/Watch",
+		func(ctx context.Context, _ *stdgrpc.StreamDesc, _ *stdgrpc.ClientConn, _ string, _ ...stdgrpc.CallOption) (stdgrpc.ClientStream, error) {
+			called = true
+			return &fakeClientStream{ctx: ctx, headerErr: status.Error(codes.Unavailable, "header failed")}, nil
+		})
+	if err != nil || !called {
+		t.Fatalf("failed open retained concurrency permit: called=%v err=%v", called, err)
+	}
+	if _, err := stream.Header(); status.Code(err) != codes.Unavailable || stream.Context().Err() != context.Canceled {
+		t.Fatalf("header err=%v context=%v", err, stream.Context().Err())
+	}
+}
+
+func TestGovernanceLimiterPolicyUpdates(t *testing.T) {
+	o := newGovernanceOptions()
+	policy := governance.RateLimitPolicy{Rate: 1}
+	first := o.rateLimiter("", policy)
+	if first != o.rateLimiter("", policy) || !first.Allow() || first.Allow() {
+		t.Fatal("default key did not preserve token bucket state")
+	}
+	second := o.rateLimiter("", governance.RateLimitPolicy{Rate: 1, Burst: 2})
+	if second == first || !second.Allow() || !second.Allow() || second.Allow() {
+		t.Fatal("updated rate policy did not replace the exhausted bucket")
+	}
+	limitOne := o.concurrencyLimiter("", governance.ConcurrencyPolicy{Limit: 1})
+	if !limitOne.TryAcquire() || limitOne.TryAcquire() || limitOne != o.concurrencyLimiter("", governance.ConcurrencyPolicy{Limit: 1}) {
+		t.Fatal("default concurrency key did not retain its active permit")
+	}
+	defer limitOne.Release()
+	limitTwo := o.concurrencyLimiter("", governance.ConcurrencyPolicy{Limit: 2})
+	if limitTwo == limitOne || !limitTwo.TryAcquire() || !limitTwo.TryAcquire() || limitTwo.TryAcquire() {
+		t.Fatal("updated concurrency policy did not install two permits")
+	}
+	limitTwo.Release()
+	limitTwo.Release()
+	cb := o.breaker("", governance.BreakerPolicy{Enabled: true, MinRequests: 2})
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if err := cb.Do(ctx, func() error { t.Fatal("canceled call executed"); return nil }); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled breaker call=%v", err)
+	}
+}
+
+func TestGovernanceRequestAndRetryPolicy(t *testing.T) {
+	for _, tc := range []struct{ name, fullMethod, service, method string }{
+		{"empty", "", "", ""}, {"method only", "Call", "", "Call"}, {"qualified", "/service/Call", "service", "Call"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			request := governanceRequest(tc.fullMethod, newGovernanceOptions())
+			if request.Service != tc.service || request.Method != tc.method || request.Transport != governance.TransportRPC {
+				t.Fatalf("request=%+v", request)
+			}
+		})
+	}
+	request := governanceRequest("/original/Call", newGovernanceOptions(WithGovernanceService("override")))
+	if request.Service != "override" || request.Method != "Call" || request.Path != "/original/Call" {
+		t.Fatalf("overridden request=%+v", request)
+	}
+	for _, tc := range []struct {
+		name     string
+		statuses []int
+		code     codes.Code
+		want     bool
+	}{
+		{"default transient", nil, codes.Unavailable, true},
+		{"default permanent", nil, codes.InvalidArgument, false},
+		{"configured match", []int{int(codes.Aborted)}, codes.Aborted, true},
+		{"configured mismatch", []int{int(codes.Aborted)}, codes.Unavailable, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			policy := retryPolicy(governance.RetryPolicy{Attempts: 2, Backoff: time.Millisecond, Statuses: tc.statuses})
+			if policy.Attempts != 2 || policy.Backoff != time.Millisecond || policy.ShouldRetry(status.Error(tc.code, "test")) != tc.want {
+				t.Fatalf("retry policy=%+v code=%v want=%v", policy, tc.code, tc.want)
+			}
+		})
+	}
+	if got := metadataMap(metadata.MD{}); got != nil {
+		t.Fatalf("empty metadata=%v", got)
+	}
+}
+
 func TestGovernanceOptions(t *testing.T) {
 	o := &governanceOptions{}
 	WithGovernanceService("greeter")(o)
@@ -1399,6 +1498,161 @@ func TestInterceptorClientInterceptors(t *testing.T) {
 	if err != nil {
 		t.Fatalf("noop timeout interceptor error: %v", err)
 	}
+}
+
+type grpcTestRegistrar struct {
+	discovery.Registrar
+	register func(context.Context, discovery.Instance, ...discovery.RegisterOption) (discovery.Lease, error)
+}
+
+func (r grpcTestRegistrar) Register(ctx context.Context, instance discovery.Instance, opts ...discovery.RegisterOption) (discovery.Lease, error) {
+	return r.register(ctx, instance, opts...)
+}
+
+type grpcTestLease struct {
+	discovery.Lease
+	instance discovery.Instance
+	close    func(context.Context) error
+}
+
+func (l grpcTestLease) Instance() discovery.Instance    { return l.instance }
+func (l grpcTestLease) Close(ctx context.Context) error { return l.close(ctx) }
+
+func TestGRPCServerRegisterDiscovery(t *testing.T) {
+	failure := errors.New("registry unavailable")
+	for _, tc := range []struct {
+		name string
+		err  error
+		want string
+	}{
+		{"register error", failure, "registry unavailable"},
+		{"nil lease", nil, "nil lease"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			registrar := grpcTestRegistrar{register: func(context.Context, discovery.Instance, ...discovery.RegisterOption) (discovery.Lease, error) {
+				return nil, tc.err
+			}}
+			server := NewServer(WithDiscovery(registrar, discovery.Instance{Service: "service"}))
+			defer server.GRPCServer().Stop()
+			err := server.registerDiscovery(t.Context(), &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 8082})
+			if err == nil || !strings.Contains(err.Error(), tc.want) || server.discoveryLease != nil || server.Ready() {
+				t.Fatalf("err=%v lease=%v ready=%v", err, server.discoveryLease, server.Ready())
+			}
+			if tc.err != nil && !errors.Is(err, tc.err) {
+				t.Fatalf("registration lost original error: %v", err)
+			}
+		})
+	}
+	t.Run("instance isolation and shutdown error", func(t *testing.T) {
+		instance := discovery.Instance{Service: " service ", Endpoint: "endpoint:8082", Tags: map[string]string{"zone": "original"}, Metadata: map[string]string{"version": "v1"}}
+		closes := 0
+		lease := grpcTestLease{instance: instance, close: func(ctx context.Context) error {
+			closes++
+			if _, ok := ctx.Deadline(); !ok {
+				t.Error("shutdown did not supply its default deadline")
+			}
+			return failure
+		}}
+		registrar := grpcTestRegistrar{register: func(_ context.Context, got discovery.Instance, _ ...discovery.RegisterOption) (discovery.Lease, error) {
+			if got.Service != "service" || got.Endpoint != "endpoint:8082" || got.Tags["zone"] != "original" {
+				t.Fatalf("instance=%+v", got)
+			}
+			got.Tags["zone"] = "registrar"
+			return lease, nil
+		}}
+		server := NewServer(WithDiscovery(registrar, instance))
+		defer server.GRPCServer().Stop()
+		instance.Tags["zone"] = "caller"
+		if err := server.registerDiscovery(t.Context(), nil); err != nil {
+			t.Fatal(err)
+		}
+		lease.instance.Metadata["version"] = "v2"
+		if server.discoveryEntry.Metadata["version"] != "v1" {
+			t.Fatal("server retained the lease metadata map")
+		}
+		if err := server.Shutdown(context.Background()); !errors.Is(err, failure) || !strings.Contains(err.Error(), "deregister grpc service") {
+			t.Fatalf("shutdown=%v", err)
+		}
+		if err := server.Shutdown(context.Background()); err != nil || closes != 1 {
+			t.Fatalf("repeated shutdown=%v closes=%d", err, closes)
+		}
+	})
+}
+
+func TestGRPCServerStartListenerFailures(t *testing.T) {
+	t.Run("invalid grpc address", func(t *testing.T) {
+		server := NewServer(WithAddress("invalid-address"))
+		defer server.GRPCServer().Stop()
+		if err := server.Start(); err == nil || !strings.Contains(err.Error(), "listen grpc:") || server.Ready() {
+			t.Fatalf("start=%v ready=%v", err, server.Ready())
+		}
+	})
+	t.Run("admin failure deregisters", func(t *testing.T) {
+		registry := discovery.NewMemoryRegistry()
+		server := NewServer(WithAddress("127.0.0.1:0"), WithAdminAddr("invalid-address"),
+			WithAdminAuthorization(func(*http.Request) bool { return true }),
+			WithDiscovery(registry, discovery.Instance{Service: "service"}))
+		defer server.GRPCServer().Stop()
+		if err := server.Start(); err == nil || !strings.Contains(err.Error(), "listen grpc admin:") || server.Ready() {
+			t.Fatalf("start=%v ready=%v", err, server.Ready())
+		}
+		if _, err := registry.Resolve(t.Context(), "service"); !errors.Is(err, discovery.ErrNoInstances) {
+			t.Fatalf("failed startup left registration: %v", err)
+		}
+	})
+}
+
+func TestGRPCAdvertiseAddress(t *testing.T) {
+	for _, tc := range []struct{ name, host, podIP, want string }{
+		{"ipv4 wildcard", "0.0.0.0", " 10.0.0.2 ", "10.0.0.2:8082"},
+		{"ipv6 wildcard", "::", "::1", "[::1]:8082"},
+		{"fallback", "0.0.0.0", "", "127.0.0.1:8082"},
+		{"explicit", "127.0.0.2", "10.0.0.2", "127.0.0.2:8082"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("POD_IP", tc.podIP)
+			if got := grpcAdvertiseAddress(&net.TCPAddr{IP: net.ParseIP(tc.host), Port: 8082}); got != tc.want {
+				t.Fatalf("address=%q want=%q", got, tc.want)
+			}
+		})
+	}
+	if got := grpcAdvertiseAddress(nil); got != "" {
+		t.Fatalf("nil address=%q", got)
+	}
+	if got := grpcAdvertiseAddress(&net.UnixAddr{Name: "local.sock", Net: "unix"}); got != "local.sock" {
+		t.Fatalf("non-TCP address=%q", got)
+	}
+}
+
+func TestGRPCServerHealthRegistration(t *testing.T) {
+	for _, ready := range []bool{false, true} {
+		t.Run(map[bool]string{false: "not ready", true: "ready"}[ready], func(t *testing.T) {
+			server := NewServer(WithHealthServices(" custom ", "", "custom"))
+			defer server.GRPCServer().Stop()
+			server.setReady(ready)
+			desc := healthpb.Health_ServiceDesc
+			desc.ServiceName = "custom.Health"
+			server.RegisterService(&desc, health.NewServer())
+			want := healthpb.HealthCheckResponse_NOT_SERVING
+			if ready {
+				want = healthpb.HealthCheckResponse_SERVING
+			}
+			for _, name := range []string{"", "custom", "custom.Health"} {
+				got, err := server.Health().Check(t.Context(), &healthpb.HealthCheckRequest{Service: name})
+				if err != nil || got.Status != want {
+					t.Fatalf("service=%s status=%v err=%v want=%v", name, got, err, want)
+				}
+			}
+		})
+	}
+	t.Run("health disabled", func(t *testing.T) {
+		server := NewServer(WithHealth(false))
+		defer server.GRPCServer().Stop()
+		server.setReady(true)
+		if !server.Ready() {
+			t.Fatal("disabled health prevented readiness")
+		}
+	})
 }
 
 func TestServerOptionsAndHealth(t *testing.T) {

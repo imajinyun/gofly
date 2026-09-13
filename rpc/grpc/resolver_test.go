@@ -196,6 +196,16 @@ func TestWithDiscoveryResolver(t *testing.T) {
 	}
 }
 
+func TestWithDiscoveryResolverOptions(t *testing.T) {
+	registry := discovery.NewMemoryRegistry()
+	opt := WithDiscoveryResolverOptions(registry, "greeter", []ResolverOption{WithP2CEWMAResolver()})
+	o := clientOptions{timeout: 5 * time.Second}
+	opt(&o)
+	if len(o.dialOptions) != 1 {
+		t.Fatalf("expected one configured discovery resolver option, got %d", len(o.dialOptions))
+	}
+}
+
 func waitResolverState(t *testing.T, cc *fakeResolverClientConn, count int) resolver.State {
 	t.Helper()
 	deadline := time.After(time.Second)

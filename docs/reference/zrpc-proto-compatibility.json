@@ -14,7 +14,10 @@
     "rpc/grpc/resolver.go",
     "rpc/grpc/balancer.go",
     "cmd/gofly/internal/command/rpc_gen_command.go",
-    "cmd/gofly/internal/command/rpc_protoc_command.go"
+    "cmd/gofly/internal/command/rpc_protoc_command.go",
+    "testdata/zrpc-runtime-interop/go.mod",
+    "testdata/zrpc-runtime-interop/go.sum",
+    "testdata/zrpc-runtime-interop/interop_test.go"
   ],
   "referenceFramework": "goctl rpc protoc / go-zero zRPC",
   "matrix": [
@@ -71,6 +74,15 @@
       "gate": "make zrpc-proto-compatibility-check",
       "reason": "The gozero-compatible new rpc profile generates protobuf stubs, config, service context, logic, server, typed client, discovery wiring, and a runnable main package.",
       "rollbackOrEscalation": "Rollback by retaining the previous scaffold profile and blocking release when the generated module or unary smoke test no longer passes."
+    },
+    {
+      "id": "zrpc-runtime-bidirectional",
+      "status": "supported",
+      "surface": "real go-zero zRPC and gofly runtime interoperability",
+      "evidence": ["TestZRPCServerWithGoflyClient", "TestGoflyServerWithZRPCClient", "interop.Echo/Call", "github.com/zeromicro/go-zero/zrpc"],
+      "gate": "make zrpc-proto-compatibility-check",
+      "reason": "An isolated nested module starts each framework server and calls an explicit unary Echo data-plane method through the other framework client, while also checking the standard health contract.",
+      "rollbackOrEscalation": "Rollback interoperability claims and keep both framework endpoints routable if either real cross-framework direction stops passing."
     },
     {
       "id": "grpc-runtime-golden-path",

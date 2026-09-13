@@ -6,9 +6,11 @@ import (
 	"io/fs"
 	"maps"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestGenerateGRPCScaffold(t *testing.T) {
@@ -66,6 +68,30 @@ service Admin { rpc Ping(common.Request) returns (google.protobuf.Empty); }
 	}
 	if _, err := os.Stat(filepath.Join(outputDir, "internal/logic/chat/addedlogic.go")); err != nil {
 		t.Fatal(err)
+	}
+	for _, rel := range []string{
+		filepath.Join("etc", "governance.json"),
+		filepath.Join("bin", "production-check.sh"),
+		filepath.Join("internal", "config", "production_check.go"),
+		filepath.Join("internal", "config", "governance_recovery_test.go"),
+	} {
+		if _, err := os.Stat(filepath.Join(outputDir, rel)); err != nil {
+			t.Fatalf("generated descriptor scaffold file %s: %v", rel, err)
+		}
+	}
+	configData, err := os.ReadFile(filepath.Join(outputDir, "etc", "chat.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(configData), `"policy": "gofly_p2c_ewma"`) {
+		t.Fatalf("descriptor scaffold config missing load-balancing default: %s", configData)
+	}
+	clientData, err := os.ReadFile(filepath.Join(outputDir, "pkg", "client", "chat_grpc.gen.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(clientData), "NewConfiguredChat") || !strings.Contains(string(clientData), "NewConfiguredAdmin") {
+		t.Fatalf("descriptor scaffold client missing configured constructors: %s", clientData)
 	}
 	snapshot := func(dir string) map[string]string {
 		t.Helper()
@@ -241,7 +267,11 @@ func TestGenerateRPCNewGoZeroCompatibleProducesRunnableGRPCProject(t *testing.T)
 	for _, rel := range []string{
 		filepath.Join("cmd", "Greeter", "main.go"),
 		filepath.Join("etc", "Greeter.json"),
+		filepath.Join("etc", "governance.json"),
+		filepath.Join("bin", "production-check.sh"),
 		filepath.Join("internal", "config", "config.go"),
+		filepath.Join("internal", "config", "production_check.go"),
+		filepath.Join("internal", "config", "governance_recovery_test.go"),
 		filepath.Join("internal", "discovery", "registry.go"),
 		filepath.Join("internal", "logic", "sayhellologic.go"),
 		filepath.Join("internal", "server", "greeterserver.go"),
@@ -262,6 +292,46 @@ func TestGenerateRPCNewGoZeroCompatibleProducesRunnableGRPCProject(t *testing.T)
 		if !strings.Contains(string(mainData), want) {
 			t.Fatalf("generated main missing %q: %s", want, mainData)
 		}
+	}
+	configData, err := os.ReadFile(filepath.Join(dir, "etc", "Greeter.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"loadBalancing"`, `"policy": "gofly_p2c_ewma"`} {
+		if !strings.Contains(string(configData), want) {
+			t.Fatalf("generated config missing %q: %s", want, configData)
+		}
+	}
+	clientData, err := os.ReadFile(filepath.Join(dir, "pkg", "client", "greeter.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"NewDiscoveredGreeter", "flygrpc.WithP2CEWMAResolver()", "NewConfiguredGreeter", "c.LoadBalancing.ResolverOption()"} {
+		if !strings.Contains(string(clientData), want) {
+			t.Fatalf("generated client missing %q: %s", want, clientData)
+		}
+	}
+	checkInfo, err := os.Stat(filepath.Join(dir, "bin", "production-check.sh"))
+	if err != nil || checkInfo.Mode()&0o111 == 0 {
+		t.Fatalf("production check mode=%v err=%v", checkInfo.Mode(), err)
+	}
+	unsafeCheck := exec.Command("sh", filepath.Join("bin", "production-check.sh"))
+	unsafeCheck.Dir = dir
+	if output, err := unsafeCheck.CombinedOutput(); err == nil || !strings.Contains(string(output), "environment must be production") {
+		t.Fatalf("development production check err=%v output=%s", err, output)
+	}
+	productionConfig := strings.Replace(string(configData), `"environment": "development"`, `"environment": "production"`, 1)
+	productionConfig = strings.Replace(productionConfig, `"tls": {}`, `"tls": {"certFile":"server.crt","keyFile":"server.key"}`, 1)
+	if err := os.WriteFile(filepath.Join(dir, "etc", "Greeter.json"), []byte(productionConfig), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runGoCommand(t, dir, 2*time.Minute, "mod", "edit", "-replace", "github.com/imajinyun/gofly="+repositoryRoot(t))
+	runGoCommand(t, dir, 2*time.Minute, "mod", "tidy")
+	check := exec.Command("sh", filepath.Join("bin", "production-check.sh"))
+	check.Dir = dir
+	check.Env = append(os.Environ(), "GOFLAGS=-count=1")
+	if output, err := check.CombinedOutput(); err != nil {
+		t.Fatalf("production check: %v\n%s", err, output)
 	}
 	if err := GenerateGRPCFromProto(GRPCOptions{ProtoFile: filepath.Join(dir, "Greeter.proto"), Dir: filepath.Join(dir, "internal", "pb"), Package: "pb"}); err != nil {
 		t.Fatal(err)

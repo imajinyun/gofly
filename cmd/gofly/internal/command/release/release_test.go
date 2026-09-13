@@ -7,8 +7,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/imajinyun/gofly/gateway"
+	"github.com/imajinyun/gofly/rest"
 )
 
 func TestParseChangelogVersion(t *testing.T) {
@@ -540,6 +544,326 @@ func containsReleaseString(values []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func TestReleaseEvidenceReaders(t *testing.T) {
+	readers := []struct {
+		name string
+		read func(string) error
+	}{
+		{"gateway config", func(p string) error { _, err := ReadGatewayConfig(p); return err }},
+		{"aggregation", func(p string) error { _, err := ReadGatewayAggregationCandidate(p); return err }},
+		{"profiles", func(p string) error { _, err := ReadGatewayProfiles(p); return err }},
+		{"profile", func(p string) error { _, err := ReadGatewayProfileCandidate(p); return err }},
+		{"openapi", func(p string) error { _, err := readGatewayOpenAPIDocument(p); return err }},
+	}
+	for _, reader := range readers {
+		t.Run(reader.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "input.json")
+			if err := reader.read(path); err == nil || !strings.Contains(err.Error(), "read") {
+				t.Fatalf("missing err=%v", err)
+			}
+			if err := os.WriteFile(path, []byte("{"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := reader.read(path); err == nil || !strings.Contains(err.Error(), "decode") {
+				t.Fatalf("malformed err=%v", err)
+			}
+			if err := os.WriteFile(path, []byte("{}"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := reader.read(path); err != nil {
+				t.Fatalf("empty object err=%v", err)
+			}
+		})
+	}
+	t.Run("ancestor evidence resolution", func(t *testing.T) {
+		root := t.TempDir()
+		child := filepath.Join(root, "nested")
+		if err := os.Mkdir(child, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		path := filepath.Join(root, "proof.json")
+		if err := os.WriteFile(path, []byte(`{"schema":"test"}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		t.Chdir(child)
+		resolved, err := ResolveEvidencePath(" proof.json ")
+		if err != nil || filepath.Base(resolved) != "proof.json" {
+			t.Fatalf("resolved=%s err=%v", resolved, err)
+		}
+		data, err := ReadJSONFile("proof.json", "proof")
+		if err != nil || data["schema"] != "test" {
+			t.Fatalf("data=%v err=%v", data, err)
+		}
+		for _, name := range []string{"", path, "missing-unique-proof.json"} {
+			if _, err := ReadJSONFile(name, "proof"); err == nil {
+				t.Fatalf("invalid path %q accepted", name)
+			}
+		}
+		if err := os.WriteFile(path, []byte("{"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := ReadJSONFile("proof.json", "proof"); err == nil || !strings.Contains(err.Error(), "decode proof") {
+			t.Fatalf("decode err=%v", err)
+		}
+		if _, err := ReadJSONFile(".", "directory"); err == nil || !strings.Contains(err.Error(), "read directory") {
+			t.Fatalf("directory err=%v", err)
+		}
+	})
+}
+
+func TestReleaseLocalFailures(t *testing.T) {
+	t.Run("temporary directory unavailable", func(t *testing.T) {
+		root, err := releaseRepoRoot()
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Chdir(root)
+		t.Setenv("TMPDIR", filepath.Join(t.TempDir(), "missing"))
+		for _, check := range []func() (CheckItem, []string){GatewayProfileContractCheck, GatewayAggregationContractCheck} {
+			item, blockers := check()
+			if item.Status != "fail" || !item.Blocker || len(blockers) != 1 {
+				t.Fatalf("item=%+v blockers=%v", item, blockers)
+			}
+		}
+		if _, _, err := runGeneratedRPCMuxAdminSmokeReleaseProof(); err == nil {
+			t.Fatal("missing temp accepted")
+		}
+	})
+	t.Run("outside repository", func(t *testing.T) {
+		t.Chdir(t.TempDir())
+		if _, err := releaseRepoRoot(); err == nil {
+			t.Fatal("outside directory accepted")
+		}
+		if _, err := runReleaseGoCommand("version"); err == nil {
+			t.Fatal("go command ran outside repository")
+		}
+		if _, _, err := runGeneratedRPCMuxAdminSmokeReleaseProof(); err == nil {
+			t.Fatal("generated proof ran outside repository")
+		}
+		for _, check := range []func() (CheckItem, []string){RPCMuxAdapterEvidenceCheck, GeneratedRPCMuxRetrySmokeCheck} {
+			item, blockers := check()
+			if item.Status != "fail" || !item.Blocker || len(blockers) != 1 {
+				t.Fatalf("item=%+v blockers=%v", item, blockers)
+			}
+		}
+	})
+	t.Run("invalid adapter evidence", func(t *testing.T) {
+		dir := t.TempDir()
+		t.Chdir(dir)
+		if err := os.Mkdir("bench", 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join("bench", "rpc_mux_adapter_evidence.json"), []byte(`{"status":"promoted"}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		item, blockers := RPCMuxAdapterEvidenceCheck()
+		if item.Status != "fail" || item.Detail != "rpc mux adapter evidence contract drifted" || len(blockers) != 1 {
+			t.Fatalf("item=%+v blockers=%v", item, blockers)
+		}
+	})
+	t.Run("unreadable retry source", func(t *testing.T) {
+		dir := t.TempDir()
+		t.Chdir(dir)
+		if err := os.MkdirAll(filepath.Join("cmd", "gofly", "internal", "generator", "templates.go"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		item, blockers := GeneratedRPCMuxRetrySmokeCheck()
+		if item.Status != "fail" || !item.Blocker || len(blockers) != 1 {
+			t.Fatalf("item=%+v blockers=%v", item, blockers)
+		}
+	})
+	t.Run("missing retry markers", func(t *testing.T) {
+		dir := t.TempDir()
+		t.Chdir(dir)
+		path := filepath.Join("cmd", "gofly", "internal", "generator", "templates.go")
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("package generator"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		item, blockers := GeneratedRPCMuxRetrySmokeCheck()
+		if item.Detail != "generated RPC mux retry smoke markers missing" || !item.Blocker || len(blockers) != 1 {
+			t.Fatalf("item=%+v blockers=%v", item, blockers)
+		}
+	})
+	t.Run("tidy diff blocks", func(t *testing.T) {
+		shim := writeReleaseGoShim(t, "#!/bin/sh\nprintf 'module diff\\n'\nexit 1\n")
+		t.Setenv("PATH", filepath.Dir(shim))
+		item, blockers := releaseGoModTidyCheck()
+		if item.Status != "fail" || item.Detail != "module diff" || len(blockers) != 1 {
+			t.Fatalf("item=%+v blockers=%v", item, blockers)
+		}
+	})
+}
+
+func TestReleaseReportBoundaries(t *testing.T) {
+	t.Run("changelog matches", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "changelog.txt")
+		if err := os.WriteFile(path, []byte("## 1.2.3\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if version, err := ParseChangelogVersion(path); err != nil || version != "1.2.3" {
+			t.Fatalf("version=%s err=%v", version, err)
+		}
+		item, blockers := releaseChangelogVersionCheck(path, "1.2.3")
+		if item.Status != "pass" || len(blockers) != 0 || item.Detail != `version "1.2.3"` {
+			t.Fatalf("item=%+v blockers=%v", item, blockers)
+		}
+	})
+	t.Run("json output error", func(t *testing.T) {
+		want := errors.New("writer failed")
+		if err := printReleaseCheckJSON(Hooks{PrintJSON: func(any) error { return want }}, releaseCheckReport{}, false); !errors.Is(err, want) {
+			t.Fatalf("err=%v", err)
+		}
+	})
+	t.Run("default hooks", func(t *testing.T) {
+		h := normalizeHooks(Hooks{})
+		if err := h.PrintJSON(make(chan int)); err == nil {
+			t.Fatal("unsupported JSON accepted")
+		}
+		if err := h.PrintJSON(map[string]string{"status": "pass"}); err != nil {
+			t.Fatal(err)
+		}
+		h.PrintText("")
+		h.PrintTextf("%s", "")
+		h.PrintTextln()
+		if err := Command(nil, Hooks{PrintHelp: func(string, []string) bool { return true }}); err != nil {
+			t.Fatal(err)
+		}
+		if err := Command([]string{"--unknown"}, Hooks{}); err == nil {
+			t.Fatal("unknown flag accepted")
+		}
+		if err := CheckCommand([]string{"--evidence", "unknown", "--json"}, Hooks{}); err == nil {
+			t.Fatal("unknown evidence accepted")
+		}
+	})
+	t.Run("semver and argv", func(t *testing.T) {
+		if got := RecommendSemver([]string{"incompatible RPC"}, nil); got != "major" {
+			t.Fatalf("semver=%s", got)
+		}
+		cmd := APIDiffCommand("", "-m", "example.com/a;not-a-shell")
+		if !reflect.DeepEqual(cmd.Args, []string{"go", "tool", "apidiff", "-m", "example.com/a;not-a-shell"}) {
+			t.Fatalf("argv=%v", cmd.Args)
+		}
+	})
+}
+
+func TestReleaseAggregationLocations(t *testing.T) {
+	for _, tc := range []struct{ name, source, target, want string }{
+		{"both", " x ", " y ", "x -> y"}, {"source", "x", "", "x"}, {"target", "", "y", "y"}, {"empty", "", "", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := gatewayAggregationMappingID(tc.source, tc.target); got != tc.want {
+				t.Fatalf("mapping=%q want=%q", got, tc.want)
+			}
+		})
+	}
+	if got := gatewayAggregationChangeStep(gateway.TranscodeProfileChange{Scope: "aggregation_step", Source: " step "}); got != "step" {
+		t.Fatalf("step=%s", got)
+	}
+	for _, scope := range []string{"aggregation_request_header/a", "aggregation_request_query/a", "aggregation_request_body/a", "aggregation_request_required/a", "aggregation_request_body_template/a"} {
+		if got := aggregationStepFromScope(scope); got != "a" {
+			t.Fatalf("%s=%s", scope, got)
+		}
+	}
+	if got := gatewayAggregationCleanPrefix("api/"); got != "/api" {
+		t.Fatalf("prefix=%s", got)
+	}
+	if got := gatewayAggregationCleanPrefix(""); got != "/" {
+		t.Fatalf("empty prefix=%s", got)
+	}
+	if _, err := gatewayAggregationFromRoutes([]gateway.RouteConfig{{Name: "plain"}}, "plain"); err == nil {
+		t.Fatal("nonaggregation route accepted")
+	}
+	if got := gatewayOpenAPIAggregationSARIFContext(rest.OpenAPIDocument{}, "missing"); got.Route != "missing" {
+		t.Fatalf("context=%+v", got)
+	}
+}
+
+func TestReleaseUnchangedContracts(t *testing.T) {
+	for _, tc := range []struct {
+		name, content string
+		check         func(string, string) (releaseCheckItem, []string, []string)
+	}{
+		{"api", "type Ping {\n Message string\n}\nservice ping {\n @handler ping\n get /ping returns (Ping)\n}", releaseAPIBreakingCheck},
+		{"proto", `syntax = "proto3"; package demo; message Ping {} service Greeter { rpc Call(Ping) returns (Ping); }`, releaseRPCBreakingCheck},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "contract."+tc.name)
+			if err := os.WriteFile(path, []byte(tc.content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			item, blockers, warnings := tc.check(path, path)
+			if item.Status != "pass" || item.Detail != "no changes" || item.Blocker || len(blockers) != 0 || len(warnings) != 0 {
+				t.Fatalf("unchanged contract: item=%+v blockers=%v warnings=%v", item, blockers, warnings)
+			}
+		})
+	}
+	report := filterReleaseCheckEvidence(releaseCheckReport{Checks: []releaseCheckItem{
+		{Name: "other", Status: "fail", Blocker: true}, {Name: "selected", Status: "pass"},
+	}}, " selected ")
+	if len(report.Checks) != 1 || report.Checks[0].Name != "selected" || len(report.Blocking) != 0 {
+		t.Fatalf("filtered report=%+v", report)
+	}
+}
+
+func TestReleaseSmokeFailureWithoutOutput(t *testing.T) {
+	for _, tc := range []struct{ name, script, blocker, outputKey string }{
+		{"runtime", "#!/bin/sh\nexit 23\n", "generated RPC mux retry runtime proof failed", "runtimeOutput"},
+		{"generated project", "#!/bin/sh\nif [ \"$1\" = \"test\" ]; then exit 0; fi\nexit 23\n", "generated RPC mux admin smoke proof failed", "generatedProjectOutput"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("GO", writeReleaseGoShim(t, tc.script))
+			item, blockers := releaseGeneratedRPCMuxRetrySmokeCheck()
+			if item.Status != "fail" || !item.Blocker || item.Detail != "exit status 23" || !reflect.DeepEqual(blockers, []string{tc.blocker}) {
+				t.Fatalf("item=%+v blockers=%v", item, blockers)
+			}
+			evidence, ok := item.Evidence["generated-rpc-mux-retry-smoke"].(map[string]any)
+			if !ok || evidence[tc.outputKey] != "" {
+				t.Fatalf("evidence=%#v", item.Evidence)
+			}
+		})
+	}
+}
+
+func TestReleaseOpenAPIAggregationFailures(t *testing.T) {
+	const valid = `{"paths":{"/":{"get":{"operationId":"home"}}}}`
+	for _, tc := range []struct{ name, base, candidate, want string }{
+		{"missing base", "", "", "read openapi document"},
+		{"invalid base JSON", "{", "", "decode openapi document"},
+		{"missing candidate", valid, "", "read openapi document"},
+		{"invalid candidate JSON", valid, "{", "decode openapi document"},
+		{"base without paths", "{}", valid, "import base openapi aggregation routes"},
+		{"candidate without paths", valid, "{}", "import candidate openapi aggregation routes"},
+		{"candidate without aggregation", valid, valid, `openapi aggregation route "home" not found`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			if err := os.Mkdir(filepath.Join(root, "etc"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			for name, content := range map[string]string{"base": tc.base, "candidate": tc.candidate} {
+				if content != "" {
+					if err := os.WriteFile(filepath.Join(root, "etc", "edge-openapi-"+name+".json"), []byte(content), 0o600); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			_, _, err := releaseGatewayOpenAPIAggregationReport(root)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("err=%v want=%q", err, tc.want)
+			}
+		})
+	}
+	location := buildGatewayAggregationChangeLocation(gatewayAggregationSARIFContext{Route: "home"}, gateway.TranscodeProfileChange{
+		Scope: "aggregation_request_header/profile", Source: "user", Target: "X-User",
+	})
+	if location.Route != "home" || location.Step != "profile" || location.Mapping != "user -> X-User" {
+		t.Fatalf("location=%+v", location)
+	}
 }
 
 func testHooks(out *bytes.Buffer) Hooks {

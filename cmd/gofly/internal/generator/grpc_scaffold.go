@@ -218,12 +218,17 @@ func renderGRPCScaffold(plugin *protogen.Plugin, file *protogen.File, opts GRPCS
 	config := strings.ReplaceAll(goZeroRPCConfigTemplate, "\"greeter-timeout\"", "\"default-timeout\"")
 	config = strings.ReplaceAll(config, ", \"method\": \"SayHello\"", "")
 	for path, template := range map[string]string{
-		"go.mod": goModTemplate,
-		filepath.Join("cmd", opts.Name, "main.go"): main,
-		filepath.Join("etc", opts.Name+".json"):    config,
-		"internal/config/config.go":                goZeroRPCConfigGoTemplate,
-		"internal/discovery/registry.go":           goZeroRPCDiscoveryTemplate,
-		"internal/svc/servicecontext.go":           goZeroRPCSvcTemplate,
+		"go.mod":   goModTemplate,
+		"Makefile": makefileTemplate,
+		filepath.Join("cmd", opts.Name, "main.go"):    main,
+		filepath.Join("etc", opts.Name+".json"):       config,
+		filepath.Join("etc", "governance.json"):       governanceTemplate,
+		"bin/production-check.sh":                     goZeroRPCProductionCheckScriptTemplate,
+		"internal/config/config.go":                   goZeroRPCConfigGoTemplate,
+		"internal/config/production_check.go":         goZeroRPCProductionCheckGoTemplate,
+		"internal/config/governance_recovery_test.go": goZeroRPCGovernanceRecoveryTestTemplate,
+		"internal/discovery/registry.go":              goZeroRPCDiscoveryTemplate,
+		"internal/svc/servicecontext.go":              goZeroRPCSvcTemplate,
 	} {
 		files[path] = []byte(render(template, data))
 		owned[path] = true
@@ -298,6 +303,13 @@ func renderGRPCScaffold(plugin *protogen.Plugin, file *protogen.File, opts GRPCS
 		client.P("func New", service.GoName, "(ctx ", ident("context", "Context"), ", target string, rules *", ident("github.com/imajinyun/gofly/core/governance", "RuleSet"), ", opts ...", ident("github.com/imajinyun/gofly/rpc/grpc", "ClientOption"), ") (", ident(string(file.GoImportPath), service.GoName+"Client"), ", *", ident("github.com/imajinyun/gofly/rpc/grpc", "ClientConn"), ", error) {")
 		client.P("conn, err := ", ident("github.com/imajinyun/gofly/rpc/grpc", "NewDefaultClient"), "(ctx, target, ", fmt.Sprintf("%q", service.Desc.FullName()), ", rules, nil, opts...)")
 		client.P("if err != nil {return nil,nil,err}; return ", ident(string(file.GoImportPath), "New"+service.GoName+"Client"), "(conn.Conn()),conn,nil }")
+		client.P("func NewDiscovered", service.GoName, "(ctx ", ident("context", "Context"), ", resolver ", ident("github.com/imajinyun/gofly/core/discovery", "Resolver"), ", rules *", ident("github.com/imajinyun/gofly/core/governance", "RuleSet"), ", opts ...", ident("github.com/imajinyun/gofly/rpc/grpc", "ClientOption"), ") (", ident(string(file.GoImportPath), service.GoName+"Client"), ", *", ident("github.com/imajinyun/gofly/rpc/grpc", "ClientConn"), ", error) {")
+		client.P("opts = append([]", ident("github.com/imajinyun/gofly/rpc/grpc", "ClientOption"), "{", ident("github.com/imajinyun/gofly/rpc/grpc", "WithDiscoveryResolverOptions"), "(resolver, ", fmt.Sprintf("%q", service.Desc.FullName()), ", []", ident("github.com/imajinyun/gofly/rpc/grpc", "ResolverOption"), "{", ident("github.com/imajinyun/gofly/rpc/grpc", "WithP2CEWMAResolver"), "()})}, opts...)")
+		client.P("return New", service.GoName, "(ctx, ", ident("github.com/imajinyun/gofly/rpc/grpc", "Target"), "(", fmt.Sprintf("%q", service.Desc.FullName()), "), rules, opts...) }")
+		client.P("func NewConfigured", service.GoName, "(ctx ", ident("context", "Context"), ", resolver ", ident("github.com/imajinyun/gofly/core/discovery", "Resolver"), ", cfg ", ident(opts.Module+"/internal/config", "Config"), ", rules *", ident("github.com/imajinyun/gofly/core/governance", "RuleSet"), ", opts ...", ident("github.com/imajinyun/gofly/rpc/grpc", "ClientOption"), ") (", ident(string(file.GoImportPath), service.GoName+"Client"), ", *", ident("github.com/imajinyun/gofly/rpc/grpc", "ClientConn"), ", error) {")
+		client.P("resolverOption, err := cfg.LoadBalancing.ResolverOption(); if err != nil {return nil,nil,err}")
+		client.P("opts = append([]", ident("github.com/imajinyun/gofly/rpc/grpc", "ClientOption"), "{", ident("github.com/imajinyun/gofly/rpc/grpc", "WithDiscoveryResolverOptions"), "(resolver, ", fmt.Sprintf("%q", service.Desc.FullName()), ", []", ident("github.com/imajinyun/gofly/rpc/grpc", "ResolverOption"), "{resolverOption})}, opts...)")
+		client.P("return New", service.GoName, "(ctx, ", ident("github.com/imajinyun/gofly/rpc/grpc", "Target"), "(", fmt.Sprintf("%q", service.Desc.FullName()), "), rules, opts...) }")
 	}
 	content, err = client.Content()
 	if err != nil {

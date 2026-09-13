@@ -3,7 +3,13 @@ package doctor
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"go/build"
+	"os"
+	"path/filepath"
+	"reflect"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -201,6 +207,90 @@ func containsDoctorAction(values []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func TestDoctorIsolatedEnvironment(t *testing.T) {
+	for _, tc := range []struct {
+		name                         string
+		installed, executable        bool
+		modules                      string
+		wantGit, wantProtoc, summary string
+	}{
+		{"missing tools", false, false, "off", "fail", "warn", "3 check(s) failed, 1 warning(s)"},
+		{"broken tools", true, false, "on", "warn", "warn", "2 warning(s)"},
+		{"healthy", true, true, "on", "ok", "ok", "all checks passed"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			t.Setenv("PATH", dir)
+			t.Setenv("GO111MODULE", tc.modules)
+			t.Setenv("GOPATH", dir)
+			t.Setenv("TMPDIR", dir)
+			if tc.installed {
+				for _, name := range []string{"go", "git", "protoc"} {
+					body := "#!/bin/sh\nexit 1\n"
+					if tc.executable {
+						body = "#!/bin/sh\nprintf 'test-version\\n'\n"
+					}
+					if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o700); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			report := Run("test", nil)
+			if report.Summary != tc.summary {
+				t.Fatalf("summary=%q want=%q checks=%+v", report.Summary, tc.summary, report.Checks)
+			}
+			if got := CheckGit(); got.Status != tc.wantGit {
+				t.Fatalf("git=%+v", got)
+			}
+			if got := CheckProtoc(); got.Status != tc.wantProtoc {
+				t.Fatalf("protoc=%+v", got)
+			}
+			if err := Command(nil, Hooks{}); err != nil {
+				t.Fatal(err)
+			}
+			if err := Command([]string{"--json"}, Hooks{}); err != nil {
+				t.Fatal(err)
+			}
+			want := errors.New("json output failure")
+			if err := Command([]string{"--json"}, Hooks{PrintJSON: func(any) error { return want }}); !errors.Is(err, want) {
+				t.Fatalf("output err=%v", err)
+			}
+		})
+	}
+	t.Run("unwritable temp root", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "file")
+		if err := os.WriteFile(path, nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("TMPDIR", path)
+		if got := CheckWritePermission(); got.Status != "fail" || !strings.Contains(got.Message, "cannot write") {
+			t.Fatalf("write check=%+v", got)
+		}
+	})
+	t.Run("missing gopath default", func(t *testing.T) {
+		previous := build.Default.GOPATH
+		t.Cleanup(func() { build.Default.GOPATH = previous })
+		build.Default.GOPATH = ""
+		t.Setenv("GOPATH", "")
+		if got := CheckGOPATH(); got.Status != "warn" {
+			t.Fatalf("gopath=%+v", got)
+		}
+	})
+	t.Run("invalid flag", func(t *testing.T) {
+		if err := Command([]string{"--unknown"}, Hooks{}); err == nil {
+			t.Fatal("unknown flag accepted")
+		}
+	})
+	t.Run("nil printers", func(t *testing.T) { PrintReport(Report{Summary: "empty"}, nil, nil) })
+	t.Run("deduplicated actions", func(t *testing.T) {
+		got := appendMissingStrings([]string{"a"}, "", "a", "b")
+		if !reflect.DeepEqual(got, []string{"a", "b"}) {
+			t.Fatalf("actions=%v", got)
+		}
+	})
 }
 
 func testHooks(out *bytes.Buffer) Hooks {

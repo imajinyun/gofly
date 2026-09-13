@@ -116,20 +116,24 @@ func goZeroServiceFiles(style, name string) map[string]string {
 
 func goZeroRPCServiceFiles(style, name string) map[string]string {
 	files := map[string]string{
-		"go.mod":                                                     goModTemplate,
-		filepath.Join("cmd", name, "main.go"):                        goZeroRPCMainTemplate,
-		filepath.Join("etc", name+".json"):                           goZeroRPCConfigTemplate,
-		filepath.Join("internal", "config", "config.go"):             goZeroRPCConfigGoTemplate,
-		filepath.Join("internal", "discovery", "registry.go"):        goZeroRPCDiscoveryTemplate,
-		filepath.Join("internal", "svc", "servicecontext.go"):        goZeroRPCSvcTemplate,
-		filepath.Join("internal", "logic", "sayhellologic.go"):       goZeroRPCLogicTemplate,
-		filepath.Join("internal", "server", "greeterserver.go"):      goZeroRPCServerTemplate,
-		filepath.Join("internal", "server", "greeterserver_test.go"): goZeroRPCServerTestTemplate,
-		filepath.Join("pkg", "client", "greeter.go"):                 goZeroRPCClientTemplate,
+		"go.mod":                                                           goModTemplate,
+		filepath.Join("cmd", name, "main.go"):                              goZeroRPCMainTemplate,
+		filepath.Join("etc", name+".json"):                                 goZeroRPCConfigTemplate,
+		filepath.Join("etc", "governance.json"):                            governanceTemplate,
+		filepath.Join("internal", "config", "config.go"):                   goZeroRPCConfigGoTemplate,
+		filepath.Join("internal", "config", "production_check.go"):         goZeroRPCProductionCheckGoTemplate,
+		filepath.Join("internal", "config", "governance_recovery_test.go"): goZeroRPCGovernanceRecoveryTestTemplate,
+		filepath.Join("internal", "discovery", "registry.go"):              goZeroRPCDiscoveryTemplate,
+		filepath.Join("internal", "svc", "servicecontext.go"):              goZeroRPCSvcTemplate,
+		filepath.Join("internal", "logic", "sayhellologic.go"):             goZeroRPCLogicTemplate,
+		filepath.Join("internal", "server", "greeterserver.go"):            goZeroRPCServerTemplate,
+		filepath.Join("internal", "server", "greeterserver_test.go"):       goZeroRPCServerTestTemplate,
+		filepath.Join("pkg", "client", "greeter.go"):                       goZeroRPCClientTemplate,
 	}
 	if style == ServiceStyleBasic || style == ServiceStyleProduction {
 		files["Dockerfile"] = dockerfileTemplate
 		files["Makefile"] = makefileTemplate
+		files[filepath.Join("bin", "production-check.sh")] = goZeroRPCProductionCheckScriptTemplate
 	}
 	return files
 }

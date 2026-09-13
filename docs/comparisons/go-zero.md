@@ -27,7 +27,10 @@ goctl scaffold. gofly keeps two explicit RPC transports:
   descriptors, mux diagnostics, and control-plane visibility;
 - `gofly new rpc <name> --profile gozero-compatible` generates a runnable
   native gRPC service with standard protobuf stubs, discovery lifecycle, health
-  transitions, default observability, and a typed client.
+  transitions, default observability, a typed client, generated P2C/EWMA
+  balancing configuration, and a production check with rule restart/rollback
+  evidence. The compatibility gate also runs real bidirectional calls between
+  go-zero zRPC and gofly servers and clients.
 
 `gofly rpc gen` defaults to native gRPC bindings. Use `--transport gofly` for
 the HTTP-RPC descriptor/client/server output, or `--transport both` when an

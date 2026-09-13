@@ -29,7 +29,10 @@
     {
       "id": "grpc-balancers",
       "status": "implemented",
-      "evidence": ["P2CEWMABalancerName", "ConsistentHashBalancerName", "TestGoflyGRPCBalancersRegistered"]
+      "evidence": ["P2CEWMABalancerName", "ConsistentHashBalancerName", "LoadBalancingConfig", "NewConfiguredGreeter", "TestGoflyGRPCBalancersRegistered", "TestWithDiscoveryResolverOptions"],
+      "generatedDefault": "gofly_p2c_ewma",
+      "configuredPolicies": ["round_robin", "gofly_p2c_ewma", "gofly_consistent_hash"],
+      "compatibilityBoundary": "The reusable resolver keeps round_robin as its API default; generated native gRPC projects explicitly select P2C/EWMA from configuration."
     },
     {
       "id": "runnable-gozero-compatible-scaffold",
@@ -38,6 +41,8 @@
       "defaultWiring": "Bindings use NewDefaultServer and NewDefaultClient; WithRules and WithClientRules attach live rules without changing generated function signatures",
       "scaffoldGovernance": "Config rules are validated and shared through ServiceContext and the admin Manager; generated smoke tests verify rule updates affect real calls",
       "productionWiring": "Production requires TLS and disabled reflection; token secrets are environment references; rule files load before serving; watchers and telemetry shut down with the application",
+      "productionEvidence": ["bin/production-check.sh", "internal/config/production_check.go", "TestGovernanceRuleRestartRecovery"],
+      "recoveryDrill": "The generated check persists a candidate rule set, constructs a fresh manager to prove restart recovery, restores the original file, and constructs another manager to prove rollback.",
       "adminSecurity": "Non-loopback admin listeners require authorization; probes remain public; external admin HTTP must be protected by a trusted network or TLS reverse proxy",
       "adminEvidence": ["TestGRPCAdminManagerLifecycle", "TestManagerConcurrentUpdateAndSnapshot"],
       "incrementalScaffold": {

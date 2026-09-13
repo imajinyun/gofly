@@ -111,7 +111,13 @@ func WithRegistryResolver(registry *rpc.Registry, opts ...ResolverOption) Client
 // WithDiscoveryResolver bridges any core discovery resolver into gRPC name
 // resolution for the given service.
 func WithDiscoveryResolver(source discovery.Resolver, service string, resolveOpts ...discovery.ResolveOption) ClientOption {
-	return WithServiceResolver(service, rpc.NewDiscoveryResolver(source, service, resolveOpts...))
+	return WithDiscoveryResolverOptions(source, service, nil, resolveOpts...)
+}
+
+// WithDiscoveryResolverOptions combines backend discovery options with native
+// gRPC resolver options such as a generated load-balancing policy.
+func WithDiscoveryResolverOptions(source discovery.Resolver, service string, resolverOpts []ResolverOption, resolveOpts ...discovery.ResolveOption) ClientOption {
+	return WithServiceResolver(service, rpc.NewDiscoveryResolver(source, service, resolveOpts...), resolverOpts...)
 }
 
 func (b *ResolverBuilder) Scheme() string {

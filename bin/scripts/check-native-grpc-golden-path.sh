@@ -39,5 +39,10 @@ allowed_statuses = {"implemented", "implemented-opt-in"}
 for item in manifest["capabilities"]:
     assert item.get("status") in allowed_statuses, item
     assert item.get("evidence"), item
+balancers = next(item for item in manifest["capabilities"] if item.get("id") == "grpc-balancers")
+assert balancers.get("generatedDefault") == "gofly_p2c_ewma", balancers
+assert set(balancers.get("configuredPolicies") or []) == {"round_robin", "gofly_p2c_ewma", "gofly_consistent_hash"}, balancers
+scaffold = next(item for item in manifest["capabilities"] if item.get("id") == "runnable-gozero-compatible-scaffold")
+assert "TestGovernanceRuleRestartRecovery" in (scaffold.get("productionEvidence") or []), scaffold
 print("native gRPC golden path OK")
 PY

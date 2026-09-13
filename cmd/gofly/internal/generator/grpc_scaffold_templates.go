@@ -26,13 +26,14 @@ const goZeroRPCConfigTemplate = `{
   "adminListenOn": "127.0.0.1:9090",
   "environment": "development",
   "reflection": false,
-  "ruleFile": "",
+  "ruleFile": "etc/governance.json",
   "ruleWatch": false,
   "adminTokenEnv": "",
   "authTokenEnv": "",
   "tls": {},
   "telemetry": {"enabled": false},
   "logJSON": true,
+  "loadBalancing": {"policy": "gofly_p2c_ewma"},
   "rules": [{"name": "greeter-timeout", "transport": "rpc", "method": "SayHello", "policy": {"timeout": 2000000000}}],
   "discovery": {
     "provider": "memory",
@@ -56,6 +57,7 @@ import (
 	"github.com/imajinyun/gofly/core/governance"
 	"github.com/imajinyun/gofly/core/observability/trace"
 	"github.com/imajinyun/gofly/core/security"
+	flygrpc "github.com/imajinyun/gofly/rpc/grpc"
 )
 
 type Config struct {
@@ -64,7 +66,8 @@ type Config struct {
 	Advertise     string          ` + "`json:\"advertise,omitempty\"`" + `
 	AdminListenOn string          ` + "`json:\"adminListenOn,omitempty\"`" + `
 	Reflection    bool            ` + "`json:\"reflection,omitempty\"`" + `
-	Discovery     DiscoveryConfig ` + "`json:\"discovery\"`" + `
+	Discovery      DiscoveryConfig      ` + "`json:\"discovery\"`" + `
+	LoadBalancing  LoadBalancingConfig  ` + "`json:\"loadBalancing,omitempty\"`" + `
 	Rules         []governance.Rule ` + "`json:\"rules,omitempty\"`" + `
 	Environment   string ` + "`json:\"environment,omitempty\"`" + `
 	RuleFile      string ` + "`json:\"ruleFile,omitempty\"`" + `
@@ -86,6 +89,10 @@ type DiscoveryConfig struct {
 	TokenEnv    string   ` + "`json:\"tokenEnv,omitempty\"`" + `
 	UsernameEnv string   ` + "`json:\"usernameEnv,omitempty\"`" + `
 	PasswordEnv string   ` + "`json:\"passwordEnv,omitempty\"`" + `
+}
+
+type LoadBalancingConfig struct {
+	Policy string ` + "`json:\"policy,omitempty\"`" + `
 }
 
 func Validate(c Config) error {
@@ -111,6 +118,7 @@ func Validate(c Config) error {
 		return errors.New("production requires TLS and disabled reflection")
 	}
 	if c.RuleWatch && c.RuleFile == "" { return errors.New("ruleWatch requires ruleFile") }
+	if _, err := c.LoadBalancing.ResolverOption(); err != nil { return err }
 	for _, name := range []string{c.AdminTokenEnv, c.AuthTokenEnv} {
 		if name != "" && strings.TrimSpace(os.Getenv(name)) == "" { return errors.New("configured token environment variable is empty") }
 	}
@@ -123,6 +131,25 @@ func Validate(c Config) error {
 		}
 	}
 	return governance.ValidateRules(c.Rules...)
+}
+
+func (c LoadBalancingConfig) PolicyName() string {
+	policy := strings.ToLower(strings.TrimSpace(c.Policy))
+	if policy == "" { return flygrpc.P2CEWMABalancerName }
+	return policy
+}
+
+func (c LoadBalancingConfig) ResolverOption() (flygrpc.ResolverOption, error) {
+	switch policy := c.PolicyName(); policy {
+	case "round_robin":
+		return flygrpc.WithRoundRobinResolver(), nil
+	case flygrpc.P2CEWMABalancerName:
+		return flygrpc.WithP2CEWMAResolver(), nil
+	case flygrpc.ConsistentHashBalancerName:
+		return flygrpc.WithConsistentHashResolver(), nil
+	default:
+		return nil, errors.New("unsupported gRPC load-balancing policy " + policy)
+	}
 }
 
 func ResolveConfigPath(name string) string {
@@ -184,6 +211,17 @@ func TestValidate(t *testing.T) {
 	if got := cfg.Discovery.RegistryTTL().String(); got != "15s" {
 		t.Fatalf("registry TTL = %s, want 15s", got)
 	}
+	if got := cfg.LoadBalancing.PolicyName(); got != "gofly_p2c_ewma" {
+		t.Fatalf("default load-balancing policy = %q, want gofly_p2c_ewma", got)
+	}
+	for _, policy := range []string{"round_robin", "gofly_p2c_ewma", "gofly_consistent_hash"} {
+		t.Run("load balancing "+policy, func(t *testing.T) {
+			configured := cfg
+			configured.LoadBalancing.Policy = policy
+			if err := Validate(configured); err != nil { t.Fatalf("Validate: %v", err) }
+			if option, err := configured.LoadBalancing.ResolverOption(); err != nil || option == nil { t.Fatalf("ResolverOption = %v, %v", option, err) }
+		})
+	}
 	for _, name := range []string{"production plaintext", "partial TLS", "public admin", "missing token", "watch without file", "unknown environment"} {
 		t.Run(name, func(t *testing.T) {
 			invalid := cfg
@@ -197,6 +235,123 @@ func TestValidate(t *testing.T) {
 			}
 			if err := Validate(invalid); err == nil { t.Fatal("unsafe config accepted") }
 		})
+	}
+	invalid := cfg
+	invalid.LoadBalancing.Policy = "least_request"
+	if err := Validate(invalid); err == nil { t.Fatal("unsupported load-balancing policy accepted") }
+}
+`
+
+const goZeroRPCProductionCheckGoTemplate = `//go:build ignore
+
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"net"
+	"os"
+	"path/filepath"
+	"strings"
+)
+
+type productionConfig struct {
+	Environment string ` + "`json:\"environment\"`" + `
+	Reflection bool ` + "`json:\"reflection\"`" + `
+	RuleFile string ` + "`json:\"ruleFile\"`" + `
+	AdminListenOn string ` + "`json:\"adminListenOn\"`" + `
+	AdminTokenEnv string ` + "`json:\"adminTokenEnv\"`" + `
+	TLS struct { CertFile string ` + "`json:\"certFile\"`" + `; KeyFile string ` + "`json:\"keyFile\"`" + ` } ` + "`json:\"tls\"`" + `
+}
+
+func main() {
+	if len(os.Args) != 2 { fail("usage: go run ./internal/config/production_check.go <config>") }
+	data, err := os.ReadFile(os.Args[1])
+	if err != nil { fail("read config: %v", err) }
+	var cfg productionConfig
+	if err := json.Unmarshal(data, &cfg); err != nil { fail("decode config json: %v", err) }
+	if cfg.Environment != "production" { fail("environment must be production") }
+	if cfg.Reflection { fail("reflection must be disabled in production") }
+	if strings.TrimSpace(cfg.TLS.CertFile) == "" || strings.TrimSpace(cfg.TLS.KeyFile) == "" { fail("TLS certFile and keyFile are required") }
+	if strings.TrimSpace(cfg.RuleFile) == "" { fail("ruleFile is required for restart recovery") }
+	ruleFile := filepath.Clean(cfg.RuleFile)
+	if filepath.IsAbs(ruleFile) || ruleFile == ".." || strings.HasPrefix(ruleFile, ".."+string(filepath.Separator)) { fail("ruleFile must stay inside the project") }
+	ruleInfo, err := os.Lstat(ruleFile)
+	if err != nil { fail("ruleFile: %v", err) }
+	if !ruleInfo.Mode().IsRegular() { fail("ruleFile must be a regular file") }
+	for current := ruleFile; current != "."; current = filepath.Dir(current) {
+		info, err := os.Lstat(current)
+		if err != nil { fail("ruleFile: %v", err) }
+		if info.Mode()&os.ModeSymlink != 0 { fail("ruleFile path must not contain symlinks") }
+	}
+	host, _, err := net.SplitHostPort(cfg.AdminListenOn)
+	if err != nil { fail("invalid admin listen address") }
+	if ip := net.ParseIP(host); (ip == nil || !ip.IsLoopback()) && strings.TrimSpace(cfg.AdminTokenEnv) == "" { fail("non-loopback admin requires adminTokenEnv") }
+}
+
+func fail(format string, args ...any) {
+	fmt.Fprintf(os.Stderr, "production-check failed: "+format+"\n", args...)
+	os.Exit(1)
+}
+`
+
+const goZeroRPCProductionCheckScriptTemplate = `#!/usr/bin/env sh
+set -eu
+
+service_name="{{.Name}}"
+config_file="${1:-etc/{{.Name}}.json}"
+
+[ -f "$config_file" ] || { printf 'production-check failed: missing config file: %s\n' "$config_file" >&2; exit 1; }
+[ -f etc/governance.json ] || { printf 'production-check failed: missing governance rule file\n' >&2; exit 1; }
+go run ./internal/config/production_check.go "$config_file"
+go test ./internal/config -run '^TestGovernanceRuleRestartRecovery$' -count=1
+printf '%s gRPC production checklist passed\n' "$service_name"
+`
+
+const goZeroRPCGovernanceRecoveryTestTemplate = `package config
+
+import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/imajinyun/gofly/core/governance"
+)
+
+func TestGovernanceRuleRestartRecovery(t *testing.T) {
+	source := filepath.Join("..", "..", "etc", "governance.json")
+	baseline, err := os.ReadFile(source)
+	if err != nil { t.Fatal(err) }
+	ruleFile := filepath.Join(t.TempDir(), "governance.json")
+	if err := os.WriteFile(ruleFile, baseline, 0o600); err != nil { t.Fatal(err) }
+	load := func() *governance.Manager {
+		manager, err := governance.NewManager(governance.Config{RuleFile: ruleFile})
+		if err != nil { t.Fatal(err) }
+		if err := manager.Reload(t.Context()); err != nil { t.Fatal(err) }
+		return manager
+	}
+	original := load().RuleSet().Snapshot()
+	changed := []governance.Rule{{Name: "restart-proof", Transport: governance.TransportRPC, Method: "SayHello", Policy: governance.Policy{Timeout: 123}}}
+	writer := load()
+	persist := func(manager *governance.Manager, rules []governance.Rule) {
+		body, err := json.Marshal(map[string]any{"persist": true, "rules": rules})
+		if err != nil { t.Fatal(err) }
+		recorder := httptest.NewRecorder()
+		governance.NewAdmin(nil, nil, governance.WithAdminManager(manager)).ServeHTTP(recorder, httptest.NewRequest(http.MethodPut, "/rules", bytes.NewReader(body)))
+		if recorder.Code != http.StatusOK { t.Fatalf("persist status=%d body=%s", recorder.Code, recorder.Body.String()) }
+	}
+	persist(writer, changed)
+	restarted := load().RuleSet().Snapshot()
+	if len(restarted) != 1 || restarted[0].Name != "restart-proof" { t.Fatalf("restart rules = %+v", restarted) }
+	persist(load(), original)
+	rolledBack := load().RuleSet().Snapshot()
+	if len(rolledBack) != len(original) { t.Fatalf("rollback rules = %+v, want %+v", rolledBack, original) }
+	for index := range original {
+		if rolledBack[index].Name != original[index].Name { t.Fatalf("rollback rule %d = %+v, want %+v", index, rolledBack[index], original[index]) }
 	}
 }
 `
@@ -354,6 +509,7 @@ import (
 	"github.com/imajinyun/gofly/core/discovery"
 	"github.com/imajinyun/gofly/core/governance"
 	flygrpc "github.com/imajinyun/gofly/rpc/grpc"
+	"{{.Module}}/internal/config"
 	"{{.Module}}/internal/pb"
 )
 
@@ -366,7 +522,16 @@ func NewGreeter(ctx context.Context, target string, rules *governance.RuleSet, o
 }
 
 func NewDiscoveredGreeter(ctx context.Context, resolver discovery.Resolver, rules *governance.RuleSet, opts ...flygrpc.ClientOption) (pb.GreeterClient, *flygrpc.ClientConn, error) {
-	opts = append([]flygrpc.ClientOption{flygrpc.WithDiscoveryResolver(resolver, "{{.RPCService}}")}, opts...)
+	opts = append([]flygrpc.ClientOption{flygrpc.WithDiscoveryResolverOptions(resolver, "{{.RPCService}}", []flygrpc.ResolverOption{flygrpc.WithP2CEWMAResolver()})}, opts...)
+	return NewGreeter(ctx, flygrpc.Target("{{.RPCService}}"), rules, opts...)
+}
+
+func NewConfiguredGreeter(ctx context.Context, resolver discovery.Resolver, c config.Config, rules *governance.RuleSet, opts ...flygrpc.ClientOption) (pb.GreeterClient, *flygrpc.ClientConn, error) {
+	resolverOption, err := c.LoadBalancing.ResolverOption()
+	if err != nil {
+		return nil, nil, err
+	}
+	opts = append([]flygrpc.ClientOption{flygrpc.WithDiscoveryResolverOptions(resolver, "{{.RPCService}}", []flygrpc.ResolverOption{resolverOption})}, opts...)
 	return NewGreeter(ctx, flygrpc.Target("{{.RPCService}}"), rules, opts...)
 }
 `

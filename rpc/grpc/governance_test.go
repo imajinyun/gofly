@@ -104,6 +104,14 @@ func TestAdaptiveLimitUnaryServerInterceptor(t *testing.T) {
 	if err := <-done; err != nil {
 		t.Fatalf("first call: %v", err)
 	}
+	panicking := limit.NewAdaptiveLimiter(limit.WithAdaptiveLimits(1, 1), limit.WithAdaptiveInitialLimit(1))
+	func() {
+		defer func() { _ = recover() }()
+		_, _ = AdaptiveLimitUnaryServerInterceptor(panicking)(t.Context(), nil, &stdgrpc.UnaryServerInfo{FullMethod: "/greeter.Greeter/SayHello"}, func(context.Context, any) (any, error) { panic("test") })
+	}()
+	if panicking.Snapshot().InFlight != 0 {
+		t.Fatal("panic leaked unary permit")
+	}
 }
 
 func TestGovernanceUnaryClientInterceptorAppliesCanaryMetadata(t *testing.T) {

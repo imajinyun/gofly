@@ -20,11 +20,13 @@ import sys
 
 root = pathlib.Path(sys.argv[1])
 manifest = json.loads((root / "docs/reference/native-grpc-golden-path.json").read_text(encoding="utf-8"))
+benchmark = json.loads((root / "bench/grpc_adaptive_admission_evidence.json").read_text(encoding="utf-8"))
 expected = {
     "safe-client-defaults",
     "default-client-observability",
     "discovery-health-lifecycle",
     "grpc-balancers",
+    "adaptive-shedding-default-policy",
     "runnable-gozero-compatible-scaffold",
     "keepalive-and-adaptive-shedding",
     "gozero-app-token-compatibility",
@@ -44,5 +46,15 @@ assert balancers.get("generatedDefault") == "gofly_p2c_ewma", balancers
 assert set(balancers.get("configuredPolicies") or []) == {"round_robin", "gofly_p2c_ewma", "gofly_consistent_hash"}, balancers
 scaffold = next(item for item in manifest["capabilities"] if item.get("id") == "runnable-gozero-compatible-scaffold")
 assert "TestGovernanceRuleRestartRecovery" in (scaffold.get("productionEvidence") or []), scaffold
+adaptive = next(item for item in manifest["capabilities"] if item.get("id") == "adaptive-shedding-default-policy")
+assert adaptive.get("generatedDefault", {}).get("enabled") is True, adaptive
+assert adaptive.get("generatedDefault", {}).get("cpuThresholdPermille") == 800, adaptive
+assert {"AdaptiveLimitUnaryServerInterceptor", "AdaptiveLimitStreamServerInterceptor", "TestDefaultServerAdaptiveLimiterAcrossUnaryAndBidiStream", "TestGenerateRPCNewGoZeroCompatibleProducesRunnableGRPCProject", "TestDefaultServerAdaptiveLimiterSnapshot", "bench/grpc_adaptive_admission_evidence.json"} <= set(adaptive.get("evidence") or []), adaptive
+assert {"passes", "drops", "inFlight", "cpuLoad"} <= set(adaptive.get("runtimeFields") or []), adaptive
+assert "adaptive-shedding-default-policy" not in (manifest.get("deferred") or []), manifest.get("deferred")
+assert benchmark.get("schema") == "gofly.benchmark_grpc_adaptive_admission_evidence.v1", benchmark
+assert benchmark.get("status") == "report-only", benchmark
+for row in (benchmark.get("results") or {}).values():
+    assert len(row.get("nsPerOp") or []) >= 5, row
 print("native gRPC golden path OK")
 PY

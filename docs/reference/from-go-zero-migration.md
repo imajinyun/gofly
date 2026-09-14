@@ -250,6 +250,10 @@ Generated native gRPC projects select `gofly_p2c_ewma` by default through the
 historical round-robin default for callers that do not use generated config.
 Production scaffolds also generate `bin/production-check.sh` and a rule-file
 restart/recovery/rollback drill under `internal/config`.
+They enable one process-local adaptive limiter for unary and streaming RPCs by
+default. Direct `NewDefaultServer` users remain opt-in through
+`WithAdaptiveLimiter`; CPU sampling fails open until a valid runtime delta is
+available, and distributed/global admission quotas are outside this contract.
 
 The generic bearer/RBAC interceptor remains the default authentication model.
 Projects migrating go-zero app/token credentials can opt into

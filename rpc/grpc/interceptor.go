@@ -66,9 +66,27 @@ func AdaptiveLimitUnaryServerInterceptor(limiter *limit.AdaptiveLimiter) stdgrpc
 		if err != nil {
 			return nil, coreerrors.GRPCError(coreerrors.New(coreerrors.CodeResourceExhausted, err.Error()))
 		}
+		success := false
+		defer func() { token.Done(success) }()
 		resp, handlerErr := handler(ctx, req)
-		token.Done(grpcOutcomeAcceptable(handlerErr))
+		success = grpcOutcomeAcceptable(handlerErr)
 		return resp, handlerErr
+	}
+}
+
+// AdaptiveLimitStreamServerInterceptor applies one admission token to the full
+// lifetime of a server-side stream handler.
+func AdaptiveLimitStreamServerInterceptor(limiter *limit.AdaptiveLimiter) stdgrpc.StreamServerInterceptor {
+	return func(srv any, stream stdgrpc.ServerStream, info *stdgrpc.StreamServerInfo, handler stdgrpc.StreamHandler) error {
+		token, err := limiter.Allow()
+		if err != nil {
+			return coreerrors.GRPCError(coreerrors.New(coreerrors.CodeResourceExhausted, err.Error()))
+		}
+		success := false
+		defer func() { token.Done(success) }()
+		handlerErr := handler(srv, stream)
+		success = grpcOutcomeAcceptable(handlerErr)
+		return handlerErr
 	}
 }
 

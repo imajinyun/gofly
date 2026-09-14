@@ -199,14 +199,15 @@ func (l *AdaptiveLimiter) Snapshot() AdaptiveSnapshot {
 	defer l.mu.Unlock()
 	now := l.now()
 	l.refreshLocked(now)
+	cpuLoad := l.cpuLoadLocked()
 	return AdaptiveSnapshot{
 		Limit:            l.limit,
 		MinLimit:         l.minLimit,
 		MaxLimit:         l.maxLimit,
 		InFlight:         l.inFlight,
 		CPUThreshold:     l.cpuThreshold,
-		CPULoad:          l.cpuLoadLocked(),
-		Overloaded:       l.shouldShedLocked(),
+		CPULoad:          cpuLoad,
+		Overloaded:       l.shouldShedForLoadLocked(cpuLoad),
 		Window:           l.window,
 		TargetLatency:    l.targetLatency,
 		TargetErrorRatio: l.targetErrorRatio,
@@ -225,7 +226,11 @@ func (l *AdaptiveLimiter) shouldShedLocked() bool {
 	if l.cpu == nil || l.cpuThreshold <= 0 {
 		return false
 	}
-	return l.cpuLoadLocked() >= l.cpuThreshold && l.inFlight >= l.overloadFlightLocked()
+	return l.shouldShedForLoadLocked(l.cpuLoadLocked())
+}
+
+func (l *AdaptiveLimiter) shouldShedForLoadLocked(cpuLoad int) bool {
+	return cpuLoad >= l.cpuThreshold && l.inFlight >= l.overloadFlightLocked()
 }
 
 func (l *AdaptiveLimiter) cpuLoadLocked() int {

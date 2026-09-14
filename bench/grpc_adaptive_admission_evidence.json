@@ -1,0 +1,23 @@
+{
+  "schema": "gofly.benchmark_grpc_adaptive_admission_evidence.v1",
+  "benchmark": "BenchmarkGRPCAdaptiveAdmission",
+  "status": "report-only",
+  "capture": {
+    "command": "go test ./bench -run '^$' -bench '^BenchmarkGRPCAdaptiveAdmission$' -benchmem -benchtime=200ms -count=5",
+    "goos": "darwin",
+    "goarch": "arm64",
+    "cpu": "Apple M4 Pro"
+  },
+  "results": {
+    "disabled": {"nsPerOp": [1.926, 1.830, 1.813, 1.818, 1.810], "bytesPerOp": 0, "allocsPerOp": 0},
+    "enabledUncontended": {"nsPerOp": [100.5, 98.85, 100.1, 98.40, 96.95], "bytesPerOp": 48, "allocsPerOp": 1},
+    "enabledParallel": {"nsPerOp": [343.8, 333.3, 334.0, 329.2, 351.7], "bytesPerOp": 48, "allocsPerOp": 1}
+  },
+  "decision": {
+    "result": "measured",
+    "latencyMode": "report-only",
+    "allocationMode": "report-only",
+    "reason": "The enabled path has bounded local overhead, but this first machine sample is not promoted to a release-blocking budget.",
+    "rollbackAction": "Set adaptiveLimit.enabled to false in generated configuration if production telemetry shows unacceptable admission overhead."
+  }
+}

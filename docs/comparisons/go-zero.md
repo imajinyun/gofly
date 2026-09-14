@@ -31,6 +31,8 @@ goctl scaffold. gofly keeps two explicit RPC transports:
   balancing configuration, and a production check with rule restart/rollback
   evidence. The compatibility gate also runs real bidirectional calls between
   go-zero zRPC and gofly servers and clients.
+  Generated production services also share one adaptive admission limiter across
+  unary and streaming calls; direct library users opt in explicitly.
 
 `gofly rpc gen` defaults to native gRPC bindings. Use `--transport gofly` for
 the HTTP-RPC descriptor/client/server output, or `--transport both` when an

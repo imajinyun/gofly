@@ -60,6 +60,14 @@
       "evidence": ["WithClientKeepalive", "WithServerKeepalive", "AdaptiveLimitUnaryServerInterceptor", "TestAdaptiveLimitUnaryServerInterceptor"]
     },
     {
+      "id": "adaptive-shedding-default-policy",
+      "status": "implemented",
+      "evidence": ["AdaptiveLimitConfig", "RuntimeCPUReader", "WithAdaptiveLimiter", "AdaptiveLimitUnaryServerInterceptor", "AdaptiveLimitStreamServerInterceptor", "TestAdaptiveLimitConfig", "TestAdaptiveLimitStreamServerInterceptor", "TestDefaultServerAdaptiveLimiterSnapshot", "TestDefaultServerAdaptiveLimiterAcrossUnaryAndBidiStream", "TestGenerateRPCNewGoZeroCompatibleProducesRunnableGRPCProject", "BenchmarkGRPCAdaptiveAdmission", "bench/grpc_adaptive_admission_evidence.json"],
+      "generatedDefault": {"enabled": true, "minLimit": 16, "maxLimit": 256, "initialLimit": 64, "cpuThresholdPermille": 800, "windowNanos": 10000000000, "targetLatencyNanos": 100000000, "targetErrorRatio": 0.05, "minSamples": 20},
+      "runtimeFields": ["limit", "minLimit", "maxLimit", "inFlight", "passes", "drops", "cpuLoad", "averageLatency", "errorRatio"],
+      "compatibilityBoundary": "Generated production-native gRPC projects enable adaptive admission; direct NewDefaultServer callers remain unchanged unless WithAdaptiveLimiter is supplied. Runtime CPU sampling is process-local and fails open until a valid delta exists; distributed quotas remain out of scope."
+    },
+    {
       "id": "gozero-app-token-compatibility",
       "status": "implemented-opt-in",
       "evidence": ["NewRedisTokenValidator", "AppTokenCredentials", "TestRedisTokenValidator"]
@@ -78,7 +86,5 @@
       "evidence": ["NewAppTokenProxy", "AppTokenProxySnapshot", "TestAppTokenProxyCachesAndBoundsConnections"]
     }
   ],
-  "deferred": [
-    "adaptive-shedding-default-policy"
-  ]
+  "deferred": []
 }

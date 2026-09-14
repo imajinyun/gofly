@@ -34,6 +34,7 @@ const goZeroRPCConfigTemplate = `{
   "telemetry": {"enabled": false},
   "logJSON": true,
   "loadBalancing": {"policy": "gofly_p2c_ewma"},
+  "adaptiveLimit": {"enabled": true, "minLimit": 16, "maxLimit": 256, "initialLimit": 64, "cpuThresholdPermille": 800, "window": 10000000000, "targetLatency": 100000000, "targetErrorRatio": 0.05, "minSamples": 20},
   "rules": [{"name": "greeter-timeout", "transport": "rpc", "method": "SayHello", "policy": {"timeout": 2000000000}}],
   "discovery": {
     "provider": "memory",
@@ -67,7 +68,8 @@ type Config struct {
 	AdminListenOn string          ` + "`json:\"adminListenOn,omitempty\"`" + `
 	Reflection    bool            ` + "`json:\"reflection,omitempty\"`" + `
 	Discovery      DiscoveryConfig      ` + "`json:\"discovery\"`" + `
-	LoadBalancing  LoadBalancingConfig  ` + "`json:\"loadBalancing,omitempty\"`" + `
+	LoadBalancing  LoadBalancingConfig       ` + "`json:\"loadBalancing,omitempty\"`" + `
+	AdaptiveLimit  flygrpc.AdaptiveLimitConfig ` + "`json:\"adaptiveLimit,omitempty\"`" + `
 	Rules         []governance.Rule ` + "`json:\"rules,omitempty\"`" + `
 	Environment   string ` + "`json:\"environment,omitempty\"`" + `
 	RuleFile      string ` + "`json:\"ruleFile,omitempty\"`" + `
@@ -119,6 +121,7 @@ func Validate(c Config) error {
 	}
 	if c.RuleWatch && c.RuleFile == "" { return errors.New("ruleWatch requires ruleFile") }
 	if _, err := c.LoadBalancing.ResolverOption(); err != nil { return err }
+	if err := c.AdaptiveLimit.Validate(); err != nil { return err }
 	for _, name := range []string{c.AdminTokenEnv, c.AuthTokenEnv} {
 		if name != "" && strings.TrimSpace(os.Getenv(name)) == "" { return errors.New("configured token environment variable is empty") }
 	}
@@ -201,7 +204,11 @@ const goZeroRPCDiscoveryTemplate = discoveryRegistryTemplate
 
 const goZeroRPCConfigTestTemplate = `package config
 
-import "testing"
+import (
+	"testing"
+
+	flygrpc "github.com/imajinyun/gofly/rpc/grpc"
+)
 
 func TestValidate(t *testing.T) {
 	cfg := Config{Name: "{{.RPCService}}", ListenOn: "127.0.0.1:8081", Discovery: DiscoveryConfig{Provider: "memory"}}
@@ -213,6 +220,13 @@ func TestValidate(t *testing.T) {
 	}
 	if got := cfg.LoadBalancing.PolicyName(); got != "gofly_p2c_ewma" {
 		t.Fatalf("default load-balancing policy = %q, want gofly_p2c_ewma", got)
+	}
+	if limiter, err := cfg.AdaptiveLimit.NewLimiter(nil); err != nil || limiter != nil {
+		t.Fatalf("absent adaptive config limiter=%v err=%v", limiter, err)
+	}
+	cfg.AdaptiveLimit = flygrpc.DefaultAdaptiveLimitConfig()
+	if limiter, err := cfg.AdaptiveLimit.NewLimiter(func() int { return 0 }); err != nil || limiter == nil {
+		t.Fatalf("generated adaptive limiter=%v err=%v", limiter, err)
 	}
 	for _, policy := range []string{"round_robin", "gofly_p2c_ewma", "gofly_consistent_hash"} {
 		t.Run("load balancing "+policy, func(t *testing.T) {
@@ -239,6 +253,9 @@ func TestValidate(t *testing.T) {
 	invalid := cfg
 	invalid.LoadBalancing.Policy = "least_request"
 	if err := Validate(invalid); err == nil { t.Fatal("unsupported load-balancing policy accepted") }
+	invalid = cfg
+	invalid.AdaptiveLimit.InitialLimit = invalid.AdaptiveLimit.MaxLimit + 1
+	if err := Validate(invalid); err == nil { t.Fatal("invalid adaptive limit accepted") }
 }
 `
 
@@ -261,6 +278,17 @@ type productionConfig struct {
 	RuleFile string ` + "`json:\"ruleFile\"`" + `
 	AdminListenOn string ` + "`json:\"adminListenOn\"`" + `
 	AdminTokenEnv string ` + "`json:\"adminTokenEnv\"`" + `
+	AdaptiveLimit struct {
+		Enabled bool ` + "`json:\"enabled\"`" + `
+		MinLimit int ` + "`json:\"minLimit\"`" + `
+		MaxLimit int ` + "`json:\"maxLimit\"`" + `
+		InitialLimit int ` + "`json:\"initialLimit\"`" + `
+		CPUThresholdPermille int ` + "`json:\"cpuThresholdPermille\"`" + `
+		Window int64 ` + "`json:\"window\"`" + `
+		TargetLatency int64 ` + "`json:\"targetLatency\"`" + `
+		TargetErrorRatio float64 ` + "`json:\"targetErrorRatio\"`" + `
+		MinSamples int64 ` + "`json:\"minSamples\"`" + `
+	} ` + "`json:\"adaptiveLimit\"`" + `
 	TLS struct { CertFile string ` + "`json:\"certFile\"`" + `; KeyFile string ` + "`json:\"keyFile\"`" + ` } ` + "`json:\"tls\"`" + `
 }
 
@@ -272,6 +300,11 @@ func main() {
 	if err := json.Unmarshal(data, &cfg); err != nil { fail("decode config json: %v", err) }
 	if cfg.Environment != "production" { fail("environment must be production") }
 	if cfg.Reflection { fail("reflection must be disabled in production") }
+	if !cfg.AdaptiveLimit.Enabled { fail("adaptiveLimit must be enabled in production") }
+	adaptive := cfg.AdaptiveLimit
+	if adaptive.MinLimit < 1 || adaptive.InitialLimit < adaptive.MinLimit || adaptive.MaxLimit < adaptive.InitialLimit { fail("adaptiveLimit requires 1 <= minLimit <= initialLimit <= maxLimit") }
+	if adaptive.CPUThresholdPermille < 1 || adaptive.CPUThresholdPermille > 1000 { fail("adaptiveLimit cpuThresholdPermille must be between 1 and 1000") }
+	if adaptive.Window <= 0 || adaptive.TargetLatency <= 0 || adaptive.MinSamples <= 0 || adaptive.TargetErrorRatio < 0 || adaptive.TargetErrorRatio > 1 { fail("adaptiveLimit thresholds must be valid") }
 	if strings.TrimSpace(cfg.TLS.CertFile) == "" || strings.TrimSpace(cfg.TLS.KeyFile) == "" { fail("TLS certFile and keyFile are required") }
 	if strings.TrimSpace(cfg.RuleFile) == "" { fail("ruleFile is required for restart recovery") }
 	ruleFile := filepath.Clean(cfg.RuleFile)
@@ -548,6 +581,7 @@ import (
 	"github.com/imajinyun/gofly/core/auth"
 	"github.com/imajinyun/gofly/core/config"
 	"github.com/imajinyun/gofly/core/governance"
+	"github.com/imajinyun/gofly/core/limit"
 	"github.com/imajinyun/gofly/core/observability/trace"
 	"github.com/imajinyun/gofly/core/security"
 	corediscovery "github.com/imajinyun/gofly/core/discovery"
@@ -605,6 +639,9 @@ func main() {
 		token := os.Getenv(c.AdminTokenEnv)
 		authOptions = append(authOptions, flygrpc.WithAdminAuthorization(func(r *http.Request) bool { return security.AuthorizeBearerOrLocal(r, token) }))
 	}
+	cpuReader := limit.NewRuntimeCPUReader()
+	adaptiveLimiter, err := c.AdaptiveLimit.NewLimiter(cpuReader.Permille)
+	if err != nil { slog.Error("configure adaptive admission", "error", err); return }
 	serverOptions := append(authOptions,
 		flygrpc.WithGovernanceManager(manager),
 		flygrpc.WithServerTLS(c.TLS),
@@ -615,6 +652,7 @@ func main() {
 			Metadata: map[string]string{"transport": "grpc"},
 		}, corediscovery.WithTTL(c.Discovery.RegistryTTL())),
 	)
+	if adaptiveLimiter != nil { serverOptions = append(serverOptions, flygrpc.WithAdaptiveLimiter(adaptiveLimiter)) }
 	grpcServer := flygrpc.NewDefaultServer(c.ListenOn, c.Name, stx.Rules, nil, serverOptions...)
 	pb.RegisterGreeterServer(grpcServer.GRPCServer(), appserver.NewGreeterServer(stx))
 	slog.Info("{{.Name}} gRPC starting", "listen_on", c.ListenOn, "admin_listen_on", c.AdminListenOn)

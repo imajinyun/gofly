@@ -288,7 +288,7 @@ func TestGenerateRPCNewGoZeroCompatibleProducesRunnableGRPCProject(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"flygrpc.NewDefaultServer", "flygrpc.WithDiscovery", "pb.RegisterGreeterServer", "app.Run"} {
+	for _, want := range []string{"flygrpc.NewDefaultServer", "flygrpc.WithDiscovery", "flygrpc.WithAdaptiveLimiter", "limit.NewRuntimeCPUReader", "pb.RegisterGreeterServer", "app.Run"} {
 		if !strings.Contains(string(mainData), want) {
 			t.Fatalf("generated main missing %q: %s", want, mainData)
 		}
@@ -297,7 +297,7 @@ func TestGenerateRPCNewGoZeroCompatibleProducesRunnableGRPCProject(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`"loadBalancing"`, `"policy": "gofly_p2c_ewma"`} {
+	for _, want := range []string{`"loadBalancing"`, `"policy": "gofly_p2c_ewma"`, `"adaptiveLimit"`, `"enabled": true`, `"cpuThresholdPermille": 800`} {
 		if !strings.Contains(string(configData), want) {
 			t.Fatalf("generated config missing %q: %s", want, configData)
 		}

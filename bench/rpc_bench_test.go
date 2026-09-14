@@ -12,7 +12,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/imajinyun/gofly/core/limit"
 	flyrpc "github.com/imajinyun/gofly/rpc"
+	flygrpc "github.com/imajinyun/gofly/rpc/grpc"
 
 	stdgrpc "google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -27,6 +29,48 @@ type rpcBenchRequest struct {
 
 type rpcBenchResponse struct {
 	Message string `json:"message"`
+}
+
+func BenchmarkGRPCAdaptiveAdmission(b *testing.B) {
+	info := &stdgrpc.UnaryServerInfo{FullMethod: "/bench.Service/Call"}
+	handler := func(context.Context, any) (any, error) { return nil, nil }
+	b.Run("disabled", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			if _, err := handler(context.Background(), nil); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+	newInterceptor := func() stdgrpc.UnaryServerInterceptor {
+		limiter := limit.NewAdaptiveLimiter(
+			limit.WithAdaptiveLimits(1, 1024),
+			limit.WithAdaptiveInitialLimit(1024),
+			limit.WithAdaptiveCPUThreshold(800),
+			limit.WithAdaptiveCPUReader(func() int { return 0 }),
+		)
+		return flygrpc.AdaptiveLimitUnaryServerInterceptor(limiter)
+	}
+	b.Run("enabled-uncontended", func(b *testing.B) {
+		interceptor := newInterceptor()
+		b.ReportAllocs()
+		for b.Loop() {
+			if _, err := interceptor(context.Background(), nil, info, handler); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+	b.Run("enabled-parallel", func(b *testing.B) {
+		interceptor := newInterceptor()
+		b.ReportAllocs()
+		b.RunParallel(func(pb *testing.PB) {
+			for pb.Next() {
+				if _, err := interceptor(context.Background(), nil, info, handler); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	})
 }
 
 func BenchmarkRPCUnary(b *testing.B) {

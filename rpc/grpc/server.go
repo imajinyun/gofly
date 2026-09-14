@@ -17,6 +17,7 @@ import (
 
 	"github.com/imajinyun/gofly/core/discovery"
 	"github.com/imajinyun/gofly/core/governance"
+	"github.com/imajinyun/gofly/core/limit"
 	"github.com/imajinyun/gofly/core/observability/metrics"
 	coreruntime "github.com/imajinyun/gofly/core/runtime"
 	"github.com/imajinyun/gofly/core/security"
@@ -55,6 +56,7 @@ type Server struct {
 	discoveryOpts   []discovery.RegisterOption
 	discoveryEntry  discovery.Instance
 	healthServices  []string
+	adaptiveLimiter *limit.AdaptiveLimiter
 	ready           bool
 }
 
@@ -69,18 +71,19 @@ type serverOptions struct {
 	enableReflection   bool
 	stopTimeout        time.Duration
 
-	adminAddr      string
-	rules          *governance.RuleSet
-	manager        *governance.Manager
-	adminAuthorize func(*http.Request) bool
-	registry       *metrics.Registry
-	tls            security.TLSConfig
-	unaryNames     []string
-	streamNames    []string
-	discovery      discovery.Registrar
-	discoveryOpts  []discovery.RegisterOption
-	discoveryEntry discovery.Instance
-	healthServices []string
+	adminAddr       string
+	rules           *governance.RuleSet
+	manager         *governance.Manager
+	adminAuthorize  func(*http.Request) bool
+	registry        *metrics.Registry
+	tls             security.TLSConfig
+	unaryNames      []string
+	streamNames     []string
+	discovery       discovery.Registrar
+	discoveryOpts   []discovery.RegisterOption
+	discoveryEntry  discovery.Instance
+	healthServices  []string
+	adaptiveLimiter *limit.AdaptiveLimiter
 }
 
 func NewServer(opts ...ServerOption) *Server {
@@ -126,6 +129,7 @@ func NewServer(opts ...ServerOption) *Server {
 		discoveryOpts:    append([]discovery.RegisterOption(nil), o.discoveryOpts...),
 		discoveryEntry:   cloneDiscoveryInstance(o.discoveryEntry),
 		healthServices:   normalizedHealthServices(o.healthServices),
+		adaptiveLimiter:  o.adaptiveLimiter,
 	}
 	s.registerRuntime()
 	if s.enableHealth {
@@ -276,6 +280,22 @@ func WithMetricsRegistry(registry *metrics.Registry) ServerOption {
 		if registry != nil {
 			o.registry = registry
 		}
+	}
+}
+
+// WithAdaptiveLimiter applies one shared limiter to unary and streaming RPCs.
+// Repeated options are ignored so generated and caller-provided defaults cannot
+// accidentally install duplicate admission layers.
+func WithAdaptiveLimiter(limiter *limit.AdaptiveLimiter) ServerOption {
+	return func(o *serverOptions) {
+		if limiter == nil || o.adaptiveLimiter != nil {
+			return
+		}
+		o.adaptiveLimiter = limiter
+		o.unaryInterceptors = append(o.unaryInterceptors, AdaptiveLimitUnaryServerInterceptor(limiter))
+		o.streamInterceptors = append(o.streamInterceptors, AdaptiveLimitStreamServerInterceptor(limiter))
+		o.unaryNames = append(o.unaryNames, "adaptive_limit")
+		o.streamNames = append(o.streamNames, "adaptive_limit")
 	}
 }
 
@@ -621,6 +641,10 @@ func (s *Server) registerRuntime() {
 		if s.Address() != "" && s.Address() != s.addr {
 			status = "running"
 		}
+		governanceSnapshot := map[string]any{"rules": s.ruleCount()}
+		if s.adaptiveLimiter != nil {
+			governanceSnapshot["adaptiveLimit"] = s.adaptiveLimiter.Snapshot()
+		}
 		return coreruntime.ComponentSnapshot{
 			Name:   "rpc.grpc.server",
 			Kind:   "server",
@@ -631,9 +655,7 @@ func (s *Server) registerRuntime() {
 				Unary:  grpcRuntimeMiddlewareLayers(s.unaryNames, "unary"),
 				Stream: grpcRuntimeMiddlewareLayers(s.streamNames, "stream"),
 			},
-			Governance: map[string]any{
-				"rules": s.ruleCount(),
-			},
+			Governance: governanceSnapshot,
 			Details: map[string]any{
 				"health":     s.enableHealth,
 				"reflection": s.enableReflection,

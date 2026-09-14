@@ -17,7 +17,8 @@
     "cmd/gofly/internal/command/rpc_protoc_command.go",
     "testdata/zrpc-runtime-interop/go.mod",
     "testdata/zrpc-runtime-interop/go.sum",
-    "testdata/zrpc-runtime-interop/interop_test.go"
+    "testdata/zrpc-runtime-interop/interop_test.go",
+    "testdata/zrpc-runtime-interop/streaming_test.go"
   ],
   "referenceFramework": "goctl rpc protoc / go-zero zRPC",
   "matrix": [
@@ -83,6 +84,15 @@
       "gate": "make zrpc-proto-compatibility-check",
       "reason": "An isolated nested module starts each framework server and calls an explicit unary Echo data-plane method through the other framework client, while also checking the standard health contract.",
       "rollbackOrEscalation": "Rollback interoperability claims and keep both framework endpoints routable if either real cross-framework direction stops passing."
+    },
+    {
+      "id": "zrpc-streaming-runtime-bidirectional",
+      "status": "supported",
+      "surface": "real go-zero zRPC and gofly streaming runtime interoperability",
+      "evidence": ["TestZRPCServerStreamsWithGoflyClient", "TestGoflyServerStreamsWithZRPCClient", "server-stream", "client-stream", "bidirectional-stream", "metadata", "deadline", "cancellation"],
+      "gate": "make zrpc-proto-compatibility-check",
+      "reason": "The isolated interoperability module executes all three standard gRPC streaming modes through real zRPC and gofly server and client wrappers in both directions.",
+      "rollbackOrEscalation": "Keep streaming traffic on the previously validated RPC runtime and remove streaming interoperability claims if any direction or lifecycle scenario regresses."
     },
     {
       "id": "grpc-runtime-golden-path",

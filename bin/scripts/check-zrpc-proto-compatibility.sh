@@ -68,6 +68,7 @@ expected = {
     "runnable-grpc-layout": "supported",
     "grpc-runtime-golden-path": "supported",
     "zrpc-runtime-bidirectional": "supported",
+    "zrpc-streaming-runtime-bidirectional": "supported",
 }
 require(set(rows) == set(expected), f"matrix ids mismatch: {sorted(rows)!r}")
 for row_id, status in expected.items():
@@ -100,6 +101,17 @@ interop_mod = read(root / "testdata/zrpc-runtime-interop/go.mod")
 root_mod = read(root / "go.mod")
 require("github.com/zeromicro/go-zero v1.10.3" in interop_mod, "zRPC runtime fixture must pin go-zero v1.10.3")
 require("github.com/zeromicro/go-zero" not in root_mod, "root module must not depend on go-zero for interoperability tests")
+streaming = read(root / "testdata/zrpc-runtime-interop/streaming_test.go")
+for marker in (
+    "TestZRPCServerStreamsWithGoflyClient",
+    "TestGoflyServerStreamsWithZRPCClient",
+    "ServerStreams: true",
+    "ClientStreams: true",
+    "CloseSend()",
+    "x-interop-origin",
+):
+    require(marker in streaming, f"zRPC streaming fixture missing {marker!r}")
+require("stdgrpc.NewServer(" not in streaming, "streaming fixture must use real zRPC/gofly server wrappers")
 
 rules = manifest.get("releaseRules") or {}
 for field in ("supportedRegression", "degradedClaim", "unsupportedPromotion"):

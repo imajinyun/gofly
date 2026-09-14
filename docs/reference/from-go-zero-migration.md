@@ -243,6 +243,7 @@ Before migrating zRPC code, check the matrix in
 - `runnable-grpc-layout`: supported for `new rpc --profile gozero-compatible`
 - `grpc-runtime-golden-path`: supported for discovery lifecycle, health, safe client defaults, and selectable P2C-EWMA or consistent-hash balancing
 - `zrpc-runtime-bidirectional`: supported for real go-zero zRPC server to gofly client and gofly server to zRPC client calls
+- `zrpc-streaming-runtime-bidirectional`: supported for server-streaming, client-streaming, and bidirectional streaming through real wrappers in both directions
 
 Generated native gRPC projects select `gofly_p2c_ewma` by default through the
 `loadBalancing.policy` configuration field. They can explicitly select
@@ -250,6 +251,11 @@ Generated native gRPC projects select `gofly_p2c_ewma` by default through the
 historical round-robin default for callers that do not use generated config.
 Production scaffolds also generate `bin/production-check.sh` and a rule-file
 restart/recovery/rollback drill under `internal/config`.
+
+The streaming runtime matrix proves standard gRPC stream transport and
+lifecycle compatibility. It does not make the HTTP gateway streaming-capable,
+reproduce every zRPC middleware default, or claim byte-for-byte zRPC/goctl
+parity.
 They enable one process-local adaptive limiter for unary and streaming RPCs by
 default. Direct `NewDefaultServer` users remain opt-in through
 `WithAdaptiveLimiter`; CPU sampling fails open until a valid runtime delta is

@@ -24,8 +24,9 @@ import (
 	"google.golang.org/protobuf/types/dynamicpb"
 )
 
-// NewGRPCTranscoderFactory enables unary protobuf JSON and server-streaming SSE
-// calls for protocol grpc; callers configure TLS through client options.
+// NewGRPCTranscoderFactory enables unary protobuf JSON, client-streaming NDJSON,
+// and server-streaming SSE calls for protocol grpc; callers configure TLS
+// through client options.
 func NewGRPCTranscoderFactory(descriptors *descriptorpb.FileDescriptorSet, opts ...flygrpc.ClientOption) (TranscoderFactory, error) {
 	if descriptors == nil {
 		return nil, errors.New("grpc descriptor set is required")
@@ -103,7 +104,7 @@ func (c *grpcTranscoder) OpenServerStreamRaw(ctx context.Context, method string,
 		return nil, nil, false, err
 	}
 	if descriptor.IsStreamingClient() {
-		return nil, nil, true, status.Error(codes.Unimplemented, "HTTP SSE transcoding does not support client or bidirectional streaming RPCs")
+		return nil, nil, true, status.Error(codes.Unimplemented, "HTTP SSE transcoding does not support bidirectional streaming RPCs")
 	}
 	if !descriptor.IsStreamingServer() {
 		return nil, nil, false, nil
@@ -132,6 +133,79 @@ func (c *grpcTranscoder) OpenServerStreamRaw(ctx context.Context, method string,
 		return nil, nil, true, err
 	}
 	return &grpcRawServerStream{stream: stream, descriptor: descriptor.Output(), types: c.types, cancel: cancel}, grpcTranscodeMetadata(headers), true, nil
+}
+
+func (c *grpcTranscoder) CallClientStreamRaw(ctx context.Context, method string, messages <-chan clientStreamFrame) (json.RawMessage, coremetadata.MD, bool, error) {
+	descriptor, err := c.methodDescriptor(method)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	if descriptor.IsStreamingServer() {
+		return nil, nil, true, status.Error(codes.Unimplemented, "HTTP NDJSON transcoding does not support bidirectional streaming RPCs")
+	}
+	if !descriptor.IsStreamingClient() {
+		return nil, nil, false, nil
+	}
+	streamCtx, cancel := context.WithCancel(grpcTranscodeOutgoingContext(ctx))
+	defer cancel()
+	stream, err := c.conn.NewStream(streamCtx, &stdgrpc.StreamDesc{ClientStreams: true}, "/"+strings.TrimPrefix(method, "/"))
+	if err != nil {
+		return nil, nil, true, err
+	}
+	type receiveResult struct {
+		output *dynamicpb.Message
+		err    error
+	}
+	received := make(chan receiveResult, 1)
+	go func() {
+		output := dynamicpb.NewMessage(descriptor.Output())
+		received <- receiveResult{output: output, err: stream.RecvMsg(output)}
+	}()
+	var response receiveResult
+	for {
+		select {
+		case response = <-received:
+			if response.err != nil {
+				return nil, nil, true, response.err
+			}
+			goto encode
+		case frame, ok := <-messages:
+			if !ok {
+				if err := ctx.Err(); err != nil {
+					return nil, nil, true, status.FromContextError(err).Err()
+				}
+				if err := stream.CloseSend(); err != nil {
+					return nil, nil, true, err
+				}
+				response = <-received
+				if response.err != nil {
+					return nil, nil, true, response.err
+				}
+				goto encode
+			}
+			if frame.err != nil {
+				return nil, nil, true, frame.err
+			}
+			input, inputErr := c.inputMessage(descriptor, frame.payload)
+			if inputErr != nil {
+				return nil, nil, true, &clientStreamInputError{err: inputErr}
+			}
+			if sendErr := stream.SendMsg(input); sendErr != nil {
+				return nil, nil, true, sendErr
+			}
+		}
+	}
+
+encode:
+	headers, err := stream.Header()
+	if err != nil {
+		return nil, nil, true, err
+	}
+	data, err := (protojson.MarshalOptions{Resolver: c.types}).Marshal(response.output)
+	if err != nil {
+		return nil, nil, true, status.Error(codes.Internal, "encode protobuf JSON client-stream response")
+	}
+	return data, grpcTranscodeMetadata(metadata.Join(headers, stream.Trailer())), true, nil
 }
 
 func (c *grpcTranscoder) methodDescriptor(method string) (protoreflect.MethodDescriptor, error) {

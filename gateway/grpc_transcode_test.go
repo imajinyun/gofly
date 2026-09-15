@@ -3,10 +3,16 @@ package gateway
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -31,6 +37,72 @@ type transcodeHealthServer struct {
 	healthpb.UnimplementedHealthServer
 	watchStarted  chan struct{}
 	watchCanceled chan struct{}
+}
+
+type transcodeUploadService interface {
+	UploadMarker()
+}
+
+type transcodeUploadServer struct {
+	received chan string
+	canceled chan struct{}
+	once     sync.Once
+	failures atomic.Int64
+}
+
+func (*transcodeUploadServer) UploadMarker() {}
+
+func (s *transcodeUploadServer) upload(stream stdgrpc.ServerStream) error {
+	md, _ := grpcmetadata.FromIncomingContext(stream.Context())
+	if values := md.Get("x-tenant"); len(values) != 1 || values[0] != "tenant" {
+		return status.Error(codes.PermissionDenied, "tenant missing")
+	}
+	count := 0
+	for {
+		request := new(healthpb.HealthCheckRequest)
+		err := stream.RecvMsg(request)
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			if errors.Is(stream.Context().Err(), context.Canceled) && s.canceled != nil {
+				s.once.Do(func() { close(s.canceled) })
+			}
+			return err
+		}
+		count++
+		if request.Service == "fail" {
+			s.failures.Add(1)
+			return status.Error(codes.DataLoss, "upload failed")
+		}
+		if request.Service == "deadline" {
+			<-stream.Context().Done()
+			return status.FromContextError(stream.Context().Err()).Err()
+		}
+		if s.received != nil {
+			s.received <- request.Service
+		}
+	}
+	if count == 0 {
+		return status.Error(codes.InvalidArgument, "upload requires messages")
+	}
+	if err := stream.SetHeader(grpcmetadata.Pairs("x-result", "uploaded", "secret-bin", "private")); err != nil {
+		return err
+	}
+	stream.SetTrailer(grpcmetadata.Pairs("x-count", fmt.Sprint(count), "secret-bin", "private"))
+	return stream.SendMsg(&healthpb.HealthCheckResponse{Status: healthpb.HealthCheckResponse_SERVING})
+}
+
+func transcodeUploadHandler(server any, stream stdgrpc.ServerStream) error {
+	return server.(*transcodeUploadServer).upload(stream)
+}
+
+var transcodeUploadServiceDesc = stdgrpc.ServiceDesc{
+	ServiceName: "gateway.test.Streams",
+	HandlerType: (*transcodeUploadService)(nil),
+	Streams: []stdgrpc.StreamDesc{
+		{StreamName: "Upload", Handler: transcodeUploadHandler, ClientStreams: true},
+	},
 }
 
 func (transcodeHealthServer) Check(ctx context.Context, req *healthpb.HealthCheckRequest) (*healthpb.HealthCheckResponse, error) {
@@ -94,6 +166,10 @@ func TestGatewayNativeGRPCTranscoding(t *testing.T) {
 	watchStarted := make(chan struct{})
 	watchCanceled := make(chan struct{})
 	healthpb.RegisterHealthServer(server, transcodeHealthServer{watchStarted: watchStarted, watchCanceled: watchCanceled})
+	uploadReceived := make(chan string, 8)
+	uploadCanceled := make(chan struct{})
+	uploadService := &transcodeUploadServer{received: uploadReceived, canceled: uploadCanceled}
+	server.RegisterService(&transcodeUploadServiceDesc, uploadService)
 	done := make(chan error, 1)
 	go func() { done <- server.Serve(listener) }()
 	t.Cleanup(func() {
@@ -105,10 +181,21 @@ func TestGatewayNativeGRPCTranscoding(t *testing.T) {
 	healthFile := protodesc.ToFileDescriptorProto(healthpb.File_grpc_health_v1_health_proto)
 	healthService := healthFile.Service[0]
 	healthService.Method = append(healthService.Method,
-		&descriptorpb.MethodDescriptorProto{Name: proto.String("Upload"), InputType: proto.String(".grpc.health.v1.HealthCheckRequest"), OutputType: proto.String(".grpc.health.v1.HealthCheckResponse"), ClientStreaming: proto.Bool(true)},
 		&descriptorpb.MethodDescriptorProto{Name: proto.String("Chat"), InputType: proto.String(".grpc.health.v1.HealthCheckRequest"), OutputType: proto.String(".grpc.health.v1.HealthCheckResponse"), ClientStreaming: proto.Bool(true), ServerStreaming: proto.Bool(true)},
 	)
-	set := &descriptorpb.FileDescriptorSet{File: []*descriptorpb.FileDescriptorProto{healthFile}}
+	streamFile := &descriptorpb.FileDescriptorProto{
+		Name:       proto.String("gateway_test_streams.proto"),
+		Package:    proto.String("gateway.test"),
+		Syntax:     proto.String("proto3"),
+		Dependency: []string{healthFile.GetName()},
+		Service: []*descriptorpb.ServiceDescriptorProto{{
+			Name: proto.String("Streams"),
+			Method: []*descriptorpb.MethodDescriptorProto{{
+				Name: proto.String("Upload"), InputType: proto.String(".grpc.health.v1.HealthCheckRequest"), OutputType: proto.String(".grpc.health.v1.HealthCheckResponse"), ClientStreaming: proto.Bool(true),
+			}},
+		}},
+	}
+	set := &descriptorpb.FileDescriptorSet{File: []*descriptorpb.FileDescriptorProto{healthFile, streamFile}}
 	factory, err := NewGRPCTranscoderFactory(set, flygrpc.WithDialOptions(stdgrpc.WithTransportCredentials(insecure.NewCredentials()), stdgrpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return listener.Dial() })))
 	if err != nil {
 		t.Fatal(err)
@@ -118,10 +205,10 @@ func TestGatewayNativeGRPCTranscoding(t *testing.T) {
 		Methods: []rpc.MethodDescriptor{{Name: "Check"}, {Name: "List"}},
 		Streams: []rpc.StreamDescriptor{
 			{Name: "Watch", Mode: rpc.StreamModeServerStream},
-			{Name: "Upload", Mode: rpc.StreamModeClientStream},
 			{Name: "Chat", Mode: rpc.StreamModeBidiStream},
 		},
 	}
+	uploadDescriptor := rpc.Descriptor{Name: "gateway.test.Streams", Streams: []rpc.StreamDescriptor{{Name: "Upload", Mode: rpc.StreamModeClientStream}}}
 	route := Route{
 		Name:       "native",
 		Method:     http.MethodPost,
@@ -133,7 +220,7 @@ func TestGatewayNativeGRPCTranscoding(t *testing.T) {
 	}
 	g, err := New(
 		[]Route{route},
-		WithDescriptors(descriptor),
+		WithDescriptors(descriptor, uploadDescriptor),
 		WithTranscoderFactory(factory),
 		WithPassiveHealth(PassiveHealthConfig{Enabled: true, FailureThreshold: 1}),
 	)
@@ -148,7 +235,6 @@ func TestGatewayNativeGRPCTranscoding(t *testing.T) {
 		{name: "success", path: "Check", body: `{"service":"ok"}`, want: http.StatusOK},
 		{name: "not found", path: "Check", body: `{"service":"missing"}`, want: http.StatusNotFound},
 		{name: "invalid JSON", path: "Check", body: `{"unknown":true}`, want: http.StatusBadRequest},
-		{name: "client stream rejected", path: "Upload", body: `{}`, want: http.StatusNotImplemented},
 		{name: "bidirectional stream rejected", path: "Chat", body: `{}`, want: http.StatusNotImplemented},
 		{name: "unknown descriptor method", path: "Unknown", body: `{}`, want: http.StatusBadGateway},
 	} {
@@ -174,6 +260,212 @@ func TestGatewayNativeGRPCTranscoding(t *testing.T) {
 			}
 		})
 	}
+	uploadRoute := route
+	uploadRoute.Name = "native-upload"
+	uploadRoute.PathPrefix = "/native-upload"
+	uploadRoute.Transcode.Descriptor = uploadDescriptor.Name
+	uploadRoute.Retry = RetryPolicy{Attempts: 3, Methods: []string{http.MethodPost}, Statuses: []int{http.StatusInternalServerError}}
+	uploadGateway, err := New(
+		[]Route{uploadRoute},
+		WithDescriptors(uploadDescriptor),
+		WithTranscoderFactory(factory),
+		WithPassiveHealth(PassiveHealthConfig{Enabled: true, FailureThreshold: 1}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = uploadGateway.Close() })
+	t.Run("client stream incrementally consumes NDJSON", func(t *testing.T) {
+		ts := httptest.NewServer(uploadGateway)
+		t.Cleanup(ts.Close)
+		reader, writer := io.Pipe()
+		request, err := http.NewRequestWithContext(t.Context(), http.MethodPost, ts.URL+"/native-upload/Upload", reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		request.Header.Set("Content-Type", "application/x-ndjson")
+		request.Header.Set("X-Tenant", "tenant")
+		responseCh := make(chan *http.Response, 1)
+		errorCh := make(chan error, 1)
+		go func() {
+			response, requestErr := http.DefaultClient.Do(request)
+			if requestErr != nil {
+				errorCh <- requestErr
+				return
+			}
+			responseCh <- response
+		}()
+		if _, err := io.WriteString(writer, "{\"service\":\"first\"}\n"); err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case got := <-uploadReceived:
+			if got != "first" {
+				t.Fatalf("first streamed message = %q", got)
+			}
+		case err := <-errorCh:
+			t.Fatal(err)
+		case <-time.After(time.Second):
+			t.Fatal("first NDJSON message was buffered until request EOF")
+		}
+		if _, err := io.WriteString(writer, "{\"service\":\"second\"}\n"); err != nil {
+			t.Fatal(err)
+		}
+		if err := writer.Close(); err != nil {
+			t.Fatal(err)
+		}
+		var response *http.Response
+		select {
+		case response = <-responseCh:
+		case err := <-errorCh:
+			t.Fatal(err)
+		case <-time.After(time.Second):
+			t.Fatal("client-streaming response timed out")
+		}
+		defer response.Body.Close()
+		body, err := io.ReadAll(response.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if response.StatusCode != http.StatusOK || !strings.Contains(string(body), "SERVING") {
+			t.Fatalf("status=%d body=%s", response.StatusCode, body)
+		}
+		if response.Header.Get("X-Gofly-Md-X-Result") != "uploaded" || response.Header.Get("X-Gofly-Md-X-Count") != "2" {
+			t.Fatalf("metadata headers = %v", response.Header)
+		}
+	})
+	t.Run("client stream propagates cancellation", func(t *testing.T) {
+		ts := httptest.NewServer(uploadGateway)
+		t.Cleanup(ts.Close)
+		reader, writer := io.Pipe()
+		ctx, cancel := context.WithCancel(t.Context())
+		request, err := http.NewRequestWithContext(ctx, http.MethodPost, ts.URL+"/native-upload/Upload", reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		request.Header.Set("Content-Type", "application/x-ndjson")
+		request.Header.Set("X-Tenant", "tenant")
+		done := make(chan error, 1)
+		go func() {
+			response, requestErr := http.DefaultClient.Do(request)
+			if response != nil {
+				_ = response.Body.Close()
+			}
+			done <- requestErr
+		}()
+		if _, err := io.WriteString(writer, "{\"service\":\"cancel\"}\n"); err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case <-uploadReceived:
+		case <-time.After(time.Second):
+			t.Fatal("client stream did not receive message before cancellation")
+		}
+		before := uploadGateway.breakerFor(uploadRoute).Snapshot()
+		cancel()
+		_ = writer.Close()
+		select {
+		case <-uploadCanceled:
+		case <-time.After(time.Second):
+			t.Fatal("HTTP cancellation did not cancel client stream")
+		}
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Fatal("HTTP client did not return after cancellation")
+		}
+		deadline := time.Now().Add(time.Second)
+		for {
+			after := uploadGateway.breakerFor(uploadRoute).Snapshot()
+			if after.Requests == before.Requests+1 {
+				if after.Success != before.Success+1 {
+					t.Fatalf("breaker after upload cancellation = %+v, before = %+v", after, before)
+				}
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("upload cancellation settlement missing: %+v", after)
+			}
+			time.Sleep(time.Millisecond)
+		}
+	})
+	for _, tc := range []struct {
+		name        string
+		contentType string
+		body        string
+		want        int
+	}{
+		{name: "content type required", contentType: "application/json", body: `{"service":"one"}`, want: http.StatusUnsupportedMediaType},
+		{name: "malformed frame", contentType: "application/x-ndjson", body: "{\"service\":\"one\"}\n{bad}\n", want: http.StatusBadRequest},
+		{name: "empty stream", contentType: "application/x-ndjson", body: " \n\n", want: http.StatusBadRequest},
+		{name: "frame too large", contentType: "application/x-ndjson", body: "{\"service\":\"" + strings.Repeat("a", grpcClientStreamMaxFrameBytes) + "\"}\n", want: http.StatusRequestEntityTooLarge},
+	} {
+		t.Run("client stream "+tc.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodPost, "/native-upload/Upload", strings.NewReader(tc.body))
+			request.Header.Set("Content-Type", tc.contentType)
+			request.Header.Set("X-Tenant", "tenant")
+			recorder := httptest.NewRecorder()
+			uploadGateway.ServeHTTP(recorder, request)
+			if recorder.Code != tc.want {
+				t.Fatalf("status=%d body=%s want=%d", recorder.Code, recorder.Body.String(), tc.want)
+			}
+		})
+	}
+	t.Run("client stream protobuf mapping error is local", func(t *testing.T) {
+		beforeBreaker := uploadGateway.breakerFor(uploadRoute).Snapshot()
+		beforePassive := uploadGateway.passive.Snapshot()
+		request := httptest.NewRequest(http.MethodPost, "/native-upload/Upload", strings.NewReader("{\"unknown\":true}\n"))
+		request.Header.Set("Content-Type", "application/x-ndjson")
+		recorder := httptest.NewRecorder()
+		uploadGateway.ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusBadRequest {
+			t.Fatalf("status=%d body=%s, want 400", recorder.Code, recorder.Body.String())
+		}
+		if after := uploadGateway.breakerFor(uploadRoute).Snapshot(); after.Requests != beforeBreaker.Requests {
+			t.Fatalf("local mapping error changed breaker: before=%+v after=%+v", beforeBreaker, after)
+		}
+		if after := uploadGateway.passive.Snapshot(); !reflect.DeepEqual(after, beforePassive) {
+			t.Fatalf("local mapping error changed passive health: before=%+v after=%+v", beforePassive, after)
+		}
+	})
+	t.Run("client stream upstream failure is not retried", func(t *testing.T) {
+		beforeFailures := uploadService.failures.Load()
+		beforeBreaker := uploadGateway.breakerFor(uploadRoute).Snapshot()
+		request := httptest.NewRequest(http.MethodPost, "/native-upload/Upload", strings.NewReader("{\"service\":\"fail\"}\n"))
+		request.Header.Set("Content-Type", "application/x-ndjson")
+		request.Header.Set("X-Tenant", "tenant")
+		recorder := httptest.NewRecorder()
+		uploadGateway.ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusInternalServerError || !strings.Contains(recorder.Body.String(), "upload failed") {
+			t.Fatalf("status=%d body=%s, want mapped DataLoss", recorder.Code, recorder.Body.String())
+		}
+		if failures := uploadService.failures.Load() - beforeFailures; failures != 1 {
+			t.Fatalf("client stream failed calls = %d, want exactly one without replay", failures)
+		}
+		if after := uploadGateway.breakerFor(uploadRoute).Snapshot(); after.Failures != beforeBreaker.Failures+1 {
+			t.Fatalf("upstream failure did not update breaker: before=%+v after=%+v", beforeBreaker, after)
+		}
+		if !hasEjectedEndpoint(uploadGateway.passive.Snapshot(), uploadRoute.Targets[0]) {
+			t.Fatalf("passive health did not record client stream failure: %+v", uploadGateway.passive.Snapshot())
+		}
+	})
+	t.Run("client stream route deadline", func(t *testing.T) {
+		deadlineRoute := uploadRoute
+		deadlineRoute.Timeout = 10 * time.Millisecond
+		deadlineGateway, err := New([]Route{deadlineRoute}, WithDescriptors(uploadDescriptor), WithTranscoderFactory(factory))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = deadlineGateway.Close() })
+		request := httptest.NewRequest(http.MethodPost, "/native-upload/Upload", strings.NewReader("{\"service\":\"deadline\"}\n"))
+		request.Header.Set("Content-Type", "application/x-ndjson")
+		request.Header.Set("X-Tenant", "tenant")
+		recorder := httptest.NewRecorder()
+		deadlineGateway.ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusGatewayTimeout || !strings.Contains(recorder.Body.String(), "deadline_exceeded") {
+			t.Fatalf("status=%d body=%s, want route deadline", recorder.Code, recorder.Body.String())
+		}
+	})
 	t.Run("server stream uses SSE", func(t *testing.T) {
 		before := g.breakerFor(route).Snapshot()
 		req := httptest.NewRequest(http.MethodPost, "/native/Watch", strings.NewReader(`{"service":"ok"}`))
@@ -314,6 +606,39 @@ func TestGatewayNativeGRPCTranscoding(t *testing.T) {
 	if _, err := g.transcoderFor(route.Targets[0], route); err == nil {
 		t.Fatal("closed gateway reconnected")
 	}
+}
+
+func TestDecodeNDJSONStreamLimits(t *testing.T) {
+	assertLimit := func(t *testing.T, body string, capacity int, wantCode rpc.Code) {
+		t.Helper()
+		frames := make(chan clientStreamFrame, capacity)
+		decodeNDJSONStream(t.Context(), strings.NewReader(body), nil, frames)
+		var terminal error
+		for frame := range frames {
+			if frame.err != nil {
+				terminal = frame.err
+			}
+		}
+		if terminal == nil || rpc.CodeOf(terminal) != wantCode {
+			t.Fatalf("terminal error = %v, want %s", terminal, wantCode)
+		}
+	}
+
+	t.Run("message count", func(t *testing.T) {
+		var body strings.Builder
+		body.Grow((grpcClientStreamMaxMessages + 1) * 3)
+		for range grpcClientStreamMaxMessages + 1 {
+			body.WriteString("{}\n")
+		}
+		assertLimit(t, body.String(), grpcClientStreamMaxMessages+1, rpc.CodeResourceExhausted)
+	})
+
+	t.Run("total payload bytes", func(t *testing.T) {
+		frame := "{\"service\":\"" + strings.Repeat("a", grpcClientStreamMaxFrameBytes/2) + "\"}"
+		frameCount := grpcClientStreamMaxBodyBytes/len(frame) + 1
+		body := strings.Repeat(frame+"\n", frameCount)
+		assertLimit(t, body, frameCount+1, rpc.CodeResourceExhausted)
+	})
 }
 
 func TestGRPCTranscoderFactoryBoundaries(t *testing.T) {

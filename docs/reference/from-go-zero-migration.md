@@ -254,14 +254,23 @@ restart/recovery/rollback drill under `internal/config`.
 
 The streaming runtime matrix proves standard gRPC stream transport and
 lifecycle compatibility. The descriptor-driven HTTP gateway additionally
-supports server-streaming RPCs as `text/event-stream`: protobuf JSON responses
-use `message` events, safe initial metadata uses `X-Gofly-Md-*` headers, and
+supports client-streaming requests as `application/x-ndjson`. Each non-empty
+line is one protobuf JSON message and is sent upstream as it arrives; HTTP EOF
+maps to gRPC `CloseSend`, followed by one `application/json` response. Safe
+initial metadata and trailers use filtered `X-Gofly-Md-*` response headers.
+Client streams are not replayed after request consumption begins, and the
+gateway limits each frame to 1 MiB, aggregate payload to 16 MiB, and each
+request to 10,000 messages. Invalid media type returns HTTP 415, malformed or
+empty input returns HTTP 400, and a size/count violation returns HTTP 413.
+
+Server-streaming RPCs use `text/event-stream`: protobuf JSON responses use
+`message` events, safe initial metadata uses `X-Gofly-Md-*` headers, and
 trailers or post-commit failures use terminal `trailers` or `error` events. The
 gateway waits for the first message before committing HTTP 200, so a failure
 before that point retains normal gRPC-to-HTTP status mapping. HTTP cancellation
-propagates to the upstream stream, and the existing route timeout bounds the
-stream lifetime. Client-streaming and bidirectional HTTP transcoding remain
-unsupported with HTTP 501 until a separate duplex protocol contract is chosen.
+propagates to upstream streams, and the existing route timeout bounds their
+lifetime. Bidirectional HTTP transcoding remains unsupported with HTTP 501
+until a full-duplex protocol contract is chosen.
 This does not reproduce every zRPC middleware default or claim byte-for-byte
 zRPC/goctl parity.
 They enable one process-local adaptive limiter for unary and streaming RPCs by

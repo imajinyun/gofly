@@ -38,10 +38,14 @@ goctl scaffold. gofly keeps two explicit RPC transports:
 The streaming matrix proves standard gRPC transport compatibility. The native
 gateway can expose server-streaming methods as SSE with ordered protobuf JSON
 `message` events, filtered initial metadata headers, terminal trailer/error
-events, request cancellation, and the existing route timeout. Client-streaming
-and bidirectional HTTP transcoding remain HTTP 501 until a separate duplex
-protocol contract is chosen. This does not reproduce every zRPC middleware
-default or claim byte-for-byte zRPC/goctl parity.
+events, request cancellation, and the existing route timeout. It exposes
+client-streaming methods through incremental `application/x-ndjson` requests:
+one protobuf JSON message per non-empty line, HTTP EOF as gRPC `CloseSend`,
+then one JSON response. Consumed request streams are never retried and have
+bounded frame, aggregate-payload, and message counts. Bidirectional HTTP
+transcoding remains HTTP 501 until a full-duplex protocol contract is chosen.
+This does not reproduce every zRPC middleware default or claim byte-for-byte
+zRPC/goctl parity.
 
 `gofly rpc gen` defaults to native gRPC bindings. Use `--transport gofly` for
 the HTTP-RPC descriptor/client/server output, or `--transport both` when an

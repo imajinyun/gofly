@@ -3,6 +3,7 @@
 package gateway
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -10,16 +11,27 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"mime"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
 	"sync"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
 	"github.com/imajinyun/gofly/core/breaker"
 	coreerrors "github.com/imajinyun/gofly/core/errors"
 	"github.com/imajinyun/gofly/core/metadata"
 	"github.com/imajinyun/gofly/rpc"
+)
+
+const (
+	grpcClientStreamMediaType     = "application/x-ndjson"
+	grpcClientStreamMaxBodyBytes  = 16 * 1024 * 1024
+	grpcClientStreamMaxMessages   = 10_000
+	grpcClientStreamMaxFrameBytes = 1024 * 1024
 )
 
 // TranscoderFactory builds a generic RPC client for a resolved upstream
@@ -41,6 +53,197 @@ type rawServerStream interface {
 // method, keeping existing GenericClient implementations source-compatible.
 type serverStreamingTranscoder interface {
 	OpenServerStreamRaw(ctx context.Context, method string, request any) (rawServerStream, metadata.MD, bool, error)
+}
+
+type clientStreamingTranscoder interface {
+	CallClientStreamRaw(ctx context.Context, method string, messages <-chan clientStreamFrame) (json.RawMessage, metadata.MD, bool, error)
+}
+
+type clientStreamFrame struct {
+	payload json.RawMessage
+	err     error
+}
+
+type clientStreamInputError struct {
+	err error
+}
+
+func (e *clientStreamInputError) Error() string { return e.err.Error() }
+func (e *clientStreamInputError) Unwrap() error { return e.err }
+
+func (g *Gateway) isClientStreamingTranscode(r *http.Request, route Route) bool {
+	if g == nil || r == nil || !route.Transcode.Enabled || !strings.EqualFold(route.Transcode.Protocol, "grpc") {
+		return false
+	}
+	target, err := g.transcodeTarget(r, route)
+	if err != nil || strings.TrimSpace(route.Transcode.Descriptor) == "" {
+		return false
+	}
+	desc, ok := g.descriptor(route.Transcode.Descriptor)
+	if !ok {
+		return false
+	}
+	for _, stream := range desc.Streams {
+		if strings.Trim(strings.TrimSpace(stream.Name), "/") == target.method {
+			return stream.Mode == rpc.StreamModeClientStream
+		}
+	}
+	return false
+}
+
+func (g *Gateway) proxyClientStream(r *http.Request, route Route) (proxyResult, error) {
+	mediaType, _, mediaErr := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if mediaErr != nil || !strings.EqualFold(mediaType, grpcClientStreamMediaType) {
+		return proxyResult{
+			Status: http.StatusUnsupportedMediaType,
+			Header: transcodeResponseHeader(nil),
+			Body:   transcodeErrorBody(rpc.NewError(rpc.CodeInvalidArgument, "client-streaming grpc transcoding requires application/x-ndjson")),
+		}, nil
+	}
+	brk := g.breakerFor(route)
+	if brk != nil {
+		if err := brk.Allow(); err != nil {
+			return proxyResult{Err: err}, err
+		}
+	}
+	endpoint, err := g.pickEndpoint(r.Context(), route)
+	if err != nil {
+		if brk != nil {
+			brk.MarkFailure()
+		}
+		return proxyResult{Err: err}, err
+	}
+	return g.transcodeClientStreamOnce(r, route, endpoint, brk)
+}
+
+func (g *Gateway) transcodeClientStreamOnce(r *http.Request, route Route, endpoint string, brk *breaker.AdaptiveBreaker) (proxyResult, error) {
+	target, err := g.transcodeTarget(r, route)
+	if err != nil {
+		return proxyResult{Endpoint: endpoint, Err: err}, err
+	}
+	client, err := g.transcoderFor(endpoint, route)
+	if err != nil {
+		return proxyResult{Endpoint: endpoint, Err: err}, err
+	}
+	streaming, ok := client.(clientStreamingTranscoder)
+	if !ok {
+		return g.transcodeCallError(route, endpoint, target.profile, brk, status.Error(codes.Unimplemented, "transcoder does not support client-streaming RPCs"))
+	}
+	methodPath, err := rpc.MethodPath(target.service, target.method)
+	if err != nil {
+		return proxyResult{Endpoint: endpoint, Err: err}, err
+	}
+	decodeCtx, cancelDecode := context.WithCancel(r.Context())
+	defer func() {
+		cancelDecode()
+		_ = r.Body.Close()
+	}()
+	messages := make(chan clientStreamFrame)
+	go decodeNDJSONStream(decodeCtx, r.Body, func(frame json.RawMessage) (json.RawMessage, error) {
+		return transcodeRequestPayload(r, route, frame, target.profile)
+	}, messages)
+	raw, md, handled, callErr := streaming.CallClientStreamRaw(transcodeContext(r.Context(), r, route), methodPath, messages)
+	if !handled {
+		callErr = status.Error(codes.Unimplemented, "transcoder did not handle client-streaming RPC")
+	}
+	if callErr != nil {
+		cancelDecode()
+		_ = r.Body.Close() // close unblocks an in-flight HTTP body read before waiting for decoder exit
+	}
+	if errors.Is(r.Context().Err(), context.Canceled) {
+		g.reportEndpoint(route, endpoint, true)
+		if brk != nil {
+			brk.MarkSuccess()
+		}
+		return proxyResult{Endpoint: endpoint, Err: r.Context().Err()}, r.Context().Err()
+	}
+	var inputErr *clientStreamInputError
+	if errors.As(callErr, &inputErr) {
+		httpStatus := coreerrors.HTTPStatus(rpc.CodeOf(inputErr.err))
+		if rpc.CodeOf(inputErr.err) == rpc.CodeResourceExhausted {
+			httpStatus = http.StatusRequestEntityTooLarge
+		}
+		return proxyResult{
+			Endpoint: endpoint,
+			Status:   httpStatus,
+			Header:   transcodeResponseHeader(nil),
+			Body:     transcodeErrorBody(inputErr.err),
+		}, nil
+	}
+	if callErr != nil {
+		result, _ := g.transcodeCallError(route, endpoint, target.profile, brk, callErr)
+		result.Err = nil // client streams are never replayed after request consumption starts
+		return result, nil
+	}
+	responseBody, mapErr := transcodeResponsePayload(raw, target.profile)
+	if mapErr != nil {
+		g.recordTranscodeMappingError(route, "response", mapErr)
+		return proxyResult{Endpoint: endpoint, Status: http.StatusBadRequest, Header: transcodeResponseHeader(nil), Body: transcodeErrorBody(rpc.NewError(rpc.CodeInvalidArgument, mapErr.Error()))}, nil
+	}
+	g.reportEndpoint(route, endpoint, true)
+	if brk != nil {
+		brk.MarkSuccess()
+	}
+	return proxyResult{Endpoint: endpoint, Status: http.StatusOK, Header: transcodeResponseHeader(md), Body: responseBody}, nil
+}
+
+func decodeNDJSONStream(ctx context.Context, body io.Reader, mapFrame func(json.RawMessage) (json.RawMessage, error), messages chan<- clientStreamFrame) {
+	defer close(messages)
+	sendError := func(err error) {
+		select {
+		case messages <- clientStreamFrame{err: &clientStreamInputError{err: err}}:
+		case <-ctx.Done():
+		}
+	}
+	scanner := bufio.NewScanner(body)
+	scanner.Buffer(make([]byte, 64*1024), grpcClientStreamMaxFrameBytes)
+	count := 0
+	totalBytes := 0
+	for scanner.Scan() {
+		frame := bytes.TrimSpace(scanner.Bytes())
+		if len(frame) == 0 {
+			continue
+		}
+		count++
+		if count > grpcClientStreamMaxMessages {
+			sendError(status.Error(codes.ResourceExhausted, "client stream exceeds message limit"))
+			return
+		}
+		totalBytes += len(frame)
+		if totalBytes > grpcClientStreamMaxBodyBytes {
+			sendError(status.Error(codes.ResourceExhausted, "client stream exceeds body size limit"))
+			return
+		}
+		message := append(json.RawMessage(nil), frame...)
+		if !json.Valid(message) {
+			sendError(status.Error(codes.InvalidArgument, "client stream frame must be valid JSON"))
+			return
+		}
+		if mapFrame != nil {
+			var err error
+			message, err = mapFrame(message)
+			if err != nil {
+				sendError(status.Error(codes.InvalidArgument, err.Error()))
+				return
+			}
+		}
+		select {
+		case messages <- clientStreamFrame{payload: message}:
+		case <-ctx.Done():
+			return
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		if ctx.Err() != nil {
+			return
+		}
+		sendError(status.Error(codes.ResourceExhausted, "client stream frame exceeds size limit"))
+		return
+	}
+	if count == 0 {
+		sendError(status.Error(codes.InvalidArgument, "client stream requires at least one NDJSON message"))
+		return
+	}
 }
 
 // transcodeOnce converts an inbound HTTP/JSON request into a generic RPC call

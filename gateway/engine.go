@@ -117,14 +117,20 @@ func (g *Gateway) serveRoute(w http.ResponseWriter, r *http.Request, match route
 			return
 		}
 	}
-	body, err := reusableBody(r)
-	if err != nil {
-		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
-		return
-	}
 	effectiveRoute := g.canaryRoute(r, route)
-	g.shadow(ctx, r, effectiveRoute, body)
-	result, err := g.proxyWithRetry(r, effectiveRoute, body)
+	var result proxyResult
+	var err error
+	if g.isClientStreamingTranscode(r, effectiveRoute) {
+		result, err = g.proxyClientStream(r, effectiveRoute)
+	} else {
+		body, readErr := reusableBody(r)
+		if readErr != nil {
+			http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+			return
+		}
+		g.shadow(ctx, r, effectiveRoute, body)
+		result, err = g.proxyWithRetry(r, effectiveRoute, body)
+	}
 	if err != nil {
 		status := http.StatusBadGateway
 		if errors.Is(err, breaker.ErrOpen) || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {

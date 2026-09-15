@@ -8,11 +8,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/imajinyun/gofly/core/breaker"
 	coreerrors "github.com/imajinyun/gofly/core/errors"
@@ -25,6 +27,21 @@ import (
 // backend (codec, TLS, protocol). When unset the gateway uses a default
 // JSON-over-HTTP generic client.
 type TranscoderFactory func(endpoint string, route Route) (rpc.GenericClient, error)
+
+// rawServerStream is the gateway-internal response side of a server-streaming
+// RPC. Implementations must make Close cancel any blocked receive operation.
+type rawServerStream interface {
+	RecvRaw() (json.RawMessage, error)
+	Trailer() metadata.MD
+	Close() error
+}
+
+// serverStreamingTranscoder is an optional capability implemented by native
+// transports. The bool reports whether the descriptor identifies a streaming
+// method, keeping existing GenericClient implementations source-compatible.
+type serverStreamingTranscoder interface {
+	OpenServerStreamRaw(ctx context.Context, method string, request any) (rawServerStream, metadata.MD, bool, error)
+}
 
 // transcodeOnce converts an inbound HTTP/JSON request into a generic RPC call
 // against the resolved upstream endpoint and maps the RPC response back to an
@@ -63,30 +80,38 @@ func (g *Gateway) transcodeOnce(r *http.Request, route Route, endpoint string, b
 		}
 		return proxyResult{Endpoint: endpoint, Err: err}, err
 	}
+	if streaming, ok := client.(serverStreamingTranscoder); ok {
+		stream, md, handled, streamErr := streaming.OpenServerStreamRaw(ctx, methodPath, payload)
+		if handled {
+			if streamErr != nil {
+				return g.transcodeCallError(route, endpoint, target.profile, brk, streamErr)
+			}
+			first, recvErr := stream.RecvRaw()
+			if recvErr != nil && !errors.Is(recvErr, io.EOF) {
+				_ = stream.Close()
+				return g.transcodeCallError(route, endpoint, target.profile, brk, recvErr)
+			}
+			return proxyResult{
+				Endpoint: endpoint,
+				Status:   http.StatusOK,
+				Header:   transcodeStreamResponseHeader(md),
+				BodyStream: newTranscodeSSEBody(ctx, stream, target.profile, first, recvErr, func(success bool) {
+					g.reportEndpoint(route, endpoint, success)
+					if brk == nil {
+						return
+					}
+					if success {
+						brk.MarkSuccess()
+						return
+					}
+					brk.MarkFailure()
+				}),
+			}, nil
+		}
+	}
 	raw, md, callErr := client.CallRaw(ctx, methodPath, payload)
 	if callErr != nil {
-		g.reportEndpoint(route, endpoint, false)
-		if brk != nil {
-			brk.MarkFailure()
-		}
-		status := coreerrors.HTTPStatus(rpc.CodeOf(callErr))
-		result := proxyResult{
-			Endpoint: endpoint,
-			Status:   status,
-			Header:   transcodeResponseHeader(nil),
-		}
-		errorBody, mapErr := transcodeMappedErrorBody(callErr, status, target.profile)
-		if mapErr != nil {
-			g.recordTranscodeMappingError(route, "error", mapErr)
-		}
-		result.Body = errorBody
-		// Surface non-retryable failures as a completed response so callers see
-		// the mapped status, while retryable errors propagate for retry.
-		if rpc.CodeOf(callErr) == rpc.CodeUnavailable || rpc.CodeOf(callErr) == rpc.CodeDeadlineExceeded {
-			result.Err = callErr
-			return result, callErr
-		}
-		return result, nil
+		return g.transcodeCallError(route, endpoint, target.profile, brk, callErr)
 	}
 	g.reportEndpoint(route, endpoint, true)
 	if brk != nil {
@@ -109,6 +134,115 @@ func (g *Gateway) transcodeOnce(r *http.Request, route Route, endpoint string, b
 		Header:   transcodeResponseHeader(md),
 		Body:     responseBody,
 	}, nil
+}
+
+func (g *Gateway) transcodeCallError(route Route, endpoint string, profile *TranscodeProfile, brk *breaker.AdaptiveBreaker, callErr error) (proxyResult, error) {
+	g.reportEndpoint(route, endpoint, false)
+	if brk != nil {
+		brk.MarkFailure()
+	}
+	httpStatus := coreerrors.HTTPStatus(rpc.CodeOf(callErr))
+	result := proxyResult{
+		Endpoint: endpoint,
+		Status:   httpStatus,
+		Header:   transcodeResponseHeader(nil),
+	}
+	errorBody, mapErr := transcodeMappedErrorBody(callErr, httpStatus, profile)
+	if mapErr != nil {
+		g.recordTranscodeMappingError(route, "error", mapErr)
+	}
+	result.Body = errorBody
+	// Surface non-retryable failures as a completed response so callers see
+	// the mapped status, while retryable errors propagate for retry.
+	if rpc.CodeOf(callErr) == rpc.CodeUnavailable || rpc.CodeOf(callErr) == rpc.CodeDeadlineExceeded {
+		result.Err = callErr
+		return result, callErr
+	}
+	return result, nil
+}
+
+type transcodeSSEBody struct {
+	*io.PipeReader
+	stream     rawServerStream
+	settlement *transcodeStreamSettlement
+}
+
+func (b *transcodeSSEBody) Close() error {
+	// The downstream ending the response is not evidence that the selected
+	// upstream is unhealthy. A terminal upstream error wins this race because
+	// it settles before closing the pipe writer.
+	b.settlement.done(true)
+	return errors.Join(b.PipeReader.Close(), b.stream.Close())
+}
+
+type transcodeStreamSettlement struct {
+	once sync.Once
+	fn   func(bool)
+}
+
+func (s *transcodeStreamSettlement) done(success bool) {
+	if s == nil {
+		return
+	}
+	s.once.Do(func() {
+		if s.fn != nil {
+			s.fn(success)
+		}
+	})
+}
+
+func newTranscodeSSEBody(ctx context.Context, stream rawServerStream, profile *TranscodeProfile, first json.RawMessage, firstErr error, settle func(bool)) io.ReadCloser {
+	reader, writer := io.Pipe()
+	settlement := &transcodeStreamSettlement{fn: settle}
+	body := &transcodeSSEBody{PipeReader: reader, stream: stream, settlement: settlement}
+	go func() {
+		defer stream.Close()
+		defer writer.Close()
+		raw, err := first, firstErr
+		for {
+			if err != nil {
+				if errors.Is(err, io.EOF) {
+					trailers, marshalErr := json.Marshal(stream.Trailer())
+					if marshalErr == nil && string(trailers) != "{}" {
+						_ = writeSSEEvent(writer, "trailers", trailers)
+					}
+					settlement.done(true)
+					return
+				}
+				// A downstream cancellation terminates a healthy upstream stream and
+				// must not poison passive health or the circuit breaker. Deadlines and
+				// all other terminal RPC errors remain endpoint failures.
+				settlement.done(errors.Is(ctx.Err(), context.Canceled))
+				_ = writeSSEEvent(writer, "error", transcodeErrorBody(err))
+				return
+			}
+			payload, mapErr := transcodeResponsePayload(raw, profile)
+			if mapErr != nil {
+				// Response mapping is local gateway work; the upstream completed its
+				// part successfully and should not be marked unhealthy.
+				settlement.done(true)
+				_ = writeSSEEvent(writer, "error", transcodeErrorBody(rpc.NewError(rpc.CodeInvalidArgument, mapErr.Error())))
+				return
+			}
+			if err := writeSSEEvent(writer, "message", payload); err != nil {
+				settlement.done(true)
+				return
+			}
+			raw, err = stream.RecvRaw()
+		}
+	}()
+	return body
+}
+
+func writeSSEEvent(writer io.Writer, event string, data []byte) error {
+	if _, err := fmt.Fprintf(writer, "event: %s\ndata: ", event); err != nil {
+		return err
+	}
+	if _, err := writer.Write(data); err != nil {
+		return err
+	}
+	_, err := io.WriteString(writer, "\n\n")
+	return err
 }
 
 func (g *Gateway) recordTranscodeMappingError(route Route, stage string, err error) {
@@ -221,6 +355,11 @@ func descriptorHasMethod(desc rpc.Descriptor, name string) bool {
 	name = strings.Trim(strings.TrimSpace(name), "/")
 	for _, method := range desc.Methods {
 		if strings.Trim(strings.TrimSpace(method.Name), "/") == name {
+			return true
+		}
+	}
+	for _, stream := range desc.Streams {
+		if strings.Trim(strings.TrimSpace(stream.Name), "/") == name {
 			return true
 		}
 	}
@@ -870,6 +1009,14 @@ func transcodeResponseHeader(md metadata.MD) http.Header {
 	for key, value := range md {
 		header.Set("X-Gofly-Md-"+key, value)
 	}
+	return header
+}
+
+func transcodeStreamResponseHeader(md metadata.MD) http.Header {
+	header := transcodeResponseHeader(md)
+	header.Set("Content-Type", "text/event-stream; charset=utf-8")
+	header.Set("Cache-Control", "no-cache")
+	header.Set("X-Accel-Buffering", "no")
 	return header
 }
 

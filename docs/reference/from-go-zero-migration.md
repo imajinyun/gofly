@@ -253,9 +253,17 @@ Production scaffolds also generate `bin/production-check.sh` and a rule-file
 restart/recovery/rollback drill under `internal/config`.
 
 The streaming runtime matrix proves standard gRPC stream transport and
-lifecycle compatibility. It does not make the HTTP gateway streaming-capable,
-reproduce every zRPC middleware default, or claim byte-for-byte zRPC/goctl
-parity.
+lifecycle compatibility. The descriptor-driven HTTP gateway additionally
+supports server-streaming RPCs as `text/event-stream`: protobuf JSON responses
+use `message` events, safe initial metadata uses `X-Gofly-Md-*` headers, and
+trailers or post-commit failures use terminal `trailers` or `error` events. The
+gateway waits for the first message before committing HTTP 200, so a failure
+before that point retains normal gRPC-to-HTTP status mapping. HTTP cancellation
+propagates to the upstream stream, and the existing route timeout bounds the
+stream lifetime. Client-streaming and bidirectional HTTP transcoding remain
+unsupported with HTTP 501 until a separate duplex protocol contract is chosen.
+This does not reproduce every zRPC middleware default or claim byte-for-byte
+zRPC/goctl parity.
 They enable one process-local adaptive limiter for unary and streaming RPCs by
 default. Direct `NewDefaultServer` users remain opt-in through
 `WithAdaptiveLimiter`; CPU sampling fails open until a valid runtime delta is

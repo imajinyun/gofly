@@ -75,10 +75,10 @@
     {
       "id": "native-grpc-gateway",
       "status": "implemented-opt-in",
-      "evidence": ["NewGRPCTranscoderFactory", "TestGatewayNativeGRPCTranscoding", "TestGRPCTranscoderFactoryBoundaries"],
+      "evidence": ["NewGRPCTranscoderFactory", "OpenServerStreamRaw", "TestGatewayNativeGRPCTranscoding", "server stream uses SSE", "HTTP cancellation cancels gRPC stream", "TestGRPCTranscoderFactoryBoundaries"],
       "wiring": "Load an include-imports FileDescriptorSet into NewGRPCTranscoderFactory, pass it to WithTranscoderFactory, and set route transcode.protocol to grpc",
-      "contract": "Uses dynamic protobuf messages and protojson, propagates allowed request metadata and deadlines, maps gRPC errors to HTTP status, and closes cached connections on Gateway shutdown",
-      "limitations": "Unary only; streaming methods return Unimplemented. TLS is explicit via client options. HTTP-RPC routes retain their existing transport. Drain HTTP requests before closing the gateway."
+      "contract": "Uses dynamic protobuf messages and protojson for unary and server-streaming calls. Server streams emit ordered text/event-stream message events, initial metadata through filtered X-Gofly-Md headers, trailers through a terminal trailers event, and post-commit failures through an error event. Request cancellation closes the gRPC stream.",
+      "limitations": "Client-streaming and bidirectional-streaming methods return Unimplemented pending a separate duplex protocol decision. A server stream is bounded by the existing route or gateway timeout and waits for its first message before committing HTTP 200 so pre-stream gRPC failures retain HTTP status mapping. TLS is explicit via client options. HTTP-RPC routes retain their existing transport. Drain HTTP requests before closing the gateway."
     },
     {
       "id": "bounded-credential-proxy",

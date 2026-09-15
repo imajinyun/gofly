@@ -22,12 +22,15 @@ import (
 	grpcmetadata "google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protodesc"
 	"google.golang.org/protobuf/types/descriptorpb"
 )
 
 type transcodeHealthServer struct {
 	healthpb.UnimplementedHealthServer
+	watchStarted  chan struct{}
+	watchCanceled chan struct{}
 }
 
 func (transcodeHealthServer) Check(ctx context.Context, req *healthpb.HealthCheckRequest) (*healthpb.HealthCheckResponse, error) {
@@ -49,10 +52,48 @@ func (transcodeHealthServer) Check(ctx context.Context, req *healthpb.HealthChec
 	return &healthpb.HealthCheckResponse{Status: healthpb.HealthCheckResponse_SERVING}, nil
 }
 
+func (s transcodeHealthServer) Watch(req *healthpb.HealthCheckRequest, stream healthpb.Health_WatchServer) error {
+	switch req.Service {
+	case "missing":
+		return status.Error(codes.NotFound, "service not found")
+	case "cancel", "deadline":
+		if err := stream.SendHeader(grpcmetadata.Pairs("x-result", "watching")); err != nil {
+			return err
+		}
+		if err := stream.Send(&healthpb.HealthCheckResponse{Status: healthpb.HealthCheckResponse_SERVING}); err != nil {
+			return err
+		}
+		if req.Service == "cancel" && s.watchStarted != nil {
+			close(s.watchStarted)
+		}
+		<-stream.Context().Done()
+		if req.Service == "cancel" && s.watchCanceled != nil {
+			close(s.watchCanceled)
+		}
+		return status.FromContextError(stream.Context().Err()).Err()
+	}
+	if err := stream.SendHeader(grpcmetadata.Pairs("x-result", "watching", "secret-bin", "private")); err != nil {
+		return err
+	}
+	if err := stream.Send(&healthpb.HealthCheckResponse{Status: healthpb.HealthCheckResponse_SERVING}); err != nil {
+		return err
+	}
+	if req.Service == "fail-after-message" {
+		return status.Error(codes.DataLoss, "watch failed")
+	}
+	if err := stream.Send(&healthpb.HealthCheckResponse{Status: healthpb.HealthCheckResponse_NOT_SERVING}); err != nil {
+		return err
+	}
+	stream.SetTrailer(grpcmetadata.Pairs("x-trailer", "complete", "secret-bin", "private"))
+	return nil
+}
+
 func TestGatewayNativeGRPCTranscoding(t *testing.T) {
 	listener := bufconn.Listen(1024 * 1024)
 	server := stdgrpc.NewServer()
-	healthpb.RegisterHealthServer(server, transcodeHealthServer{})
+	watchStarted := make(chan struct{})
+	watchCanceled := make(chan struct{})
+	healthpb.RegisterHealthServer(server, transcodeHealthServer{watchStarted: watchStarted, watchCanceled: watchCanceled})
 	done := make(chan error, 1)
 	go func() { done <- server.Serve(listener) }()
 	t.Cleanup(func() {
@@ -61,13 +102,41 @@ func TestGatewayNativeGRPCTranscoding(t *testing.T) {
 			t.Error(err)
 		}
 	})
-	set := &descriptorpb.FileDescriptorSet{File: []*descriptorpb.FileDescriptorProto{protodesc.ToFileDescriptorProto(healthpb.File_grpc_health_v1_health_proto)}}
+	healthFile := protodesc.ToFileDescriptorProto(healthpb.File_grpc_health_v1_health_proto)
+	healthService := healthFile.Service[0]
+	healthService.Method = append(healthService.Method,
+		&descriptorpb.MethodDescriptorProto{Name: proto.String("Upload"), InputType: proto.String(".grpc.health.v1.HealthCheckRequest"), OutputType: proto.String(".grpc.health.v1.HealthCheckResponse"), ClientStreaming: proto.Bool(true)},
+		&descriptorpb.MethodDescriptorProto{Name: proto.String("Chat"), InputType: proto.String(".grpc.health.v1.HealthCheckRequest"), OutputType: proto.String(".grpc.health.v1.HealthCheckResponse"), ClientStreaming: proto.Bool(true), ServerStreaming: proto.Bool(true)},
+	)
+	set := &descriptorpb.FileDescriptorSet{File: []*descriptorpb.FileDescriptorProto{healthFile}}
 	factory, err := NewGRPCTranscoderFactory(set, flygrpc.WithDialOptions(stdgrpc.WithTransportCredentials(insecure.NewCredentials()), stdgrpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return listener.Dial() })))
 	if err != nil {
 		t.Fatal(err)
 	}
-	route := Route{Name: "native", Method: http.MethodPost, PathPrefix: "/native", Targets: []string{"passthrough:///bufnet"}, Header: HeaderPolicy{AllowRequest: []string{"X-Tenant"}}, Transcode: TranscodeConfig{Enabled: true, Protocol: "grpc", Service: "grpc.health.v1.Health"}}
-	g, err := New([]Route{route}, WithTranscoderFactory(factory))
+	descriptor := rpc.Descriptor{
+		Name:    "grpc.health.v1.Health",
+		Methods: []rpc.MethodDescriptor{{Name: "Check"}, {Name: "List"}},
+		Streams: []rpc.StreamDescriptor{
+			{Name: "Watch", Mode: rpc.StreamModeServerStream},
+			{Name: "Upload", Mode: rpc.StreamModeClientStream},
+			{Name: "Chat", Mode: rpc.StreamModeBidiStream},
+		},
+	}
+	route := Route{
+		Name:       "native",
+		Method:     http.MethodPost,
+		PathPrefix: "/native",
+		Targets:    []string{"passthrough:///bufnet"},
+		Header:     HeaderPolicy{AllowRequest: []string{"X-Tenant"}},
+		Breaker:    BreakerConfig{Enabled: true, MinRequests: 100},
+		Transcode:  TranscodeConfig{Enabled: true, Protocol: "grpc", Descriptor: descriptor.Name},
+	}
+	g, err := New(
+		[]Route{route},
+		WithDescriptors(descriptor),
+		WithTranscoderFactory(factory),
+		WithPassiveHealth(PassiveHealthConfig{Enabled: true, FailureThreshold: 1}),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,8 +148,9 @@ func TestGatewayNativeGRPCTranscoding(t *testing.T) {
 		{name: "success", path: "Check", body: `{"service":"ok"}`, want: http.StatusOK},
 		{name: "not found", path: "Check", body: `{"service":"missing"}`, want: http.StatusNotFound},
 		{name: "invalid JSON", path: "Check", body: `{"unknown":true}`, want: http.StatusBadRequest},
-		{name: "stream rejected", path: "Watch", body: `{}`, want: http.StatusNotImplemented},
-		{name: "unknown method", path: "Unknown", body: `{}`, want: http.StatusNotImplemented},
+		{name: "client stream rejected", path: "Upload", body: `{}`, want: http.StatusNotImplemented},
+		{name: "bidirectional stream rejected", path: "Chat", body: `{}`, want: http.StatusNotImplemented},
+		{name: "unknown descriptor method", path: "Unknown", body: `{}`, want: http.StatusBadGateway},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodPost, "/native/"+tc.path, strings.NewReader(tc.body))
@@ -104,6 +174,114 @@ func TestGatewayNativeGRPCTranscoding(t *testing.T) {
 			}
 		})
 	}
+	t.Run("server stream uses SSE", func(t *testing.T) {
+		before := g.breakerFor(route).Snapshot()
+		req := httptest.NewRequest(http.MethodPost, "/native/Watch", strings.NewReader(`{"service":"ok"}`))
+		req.Header.Set("X-Tenant", "tenant")
+		rec := httptest.NewRecorder()
+		g.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status=%d body=%s, want 200", rec.Code, rec.Body.String())
+		}
+		if got := rec.Header().Get("Content-Type"); got != "text/event-stream; charset=utf-8" {
+			t.Fatalf("content type = %q", got)
+		}
+		if got := rec.Header().Get("X-Gofly-Md-X-Result"); got != "watching" {
+			t.Fatalf("initial metadata = %q", got)
+		}
+		if got := rec.Header().Get("X-Gofly-Md-Secret-Bin"); got != "" {
+			t.Fatalf("binary initial metadata forwarded: %q", got)
+		}
+		want := "event: message\ndata: {\"status\":\"SERVING\"}\n\nevent: message\ndata: {\"status\":\"NOT_SERVING\"}\n\nevent: trailers\ndata: {\"x-trailer\":\"complete\"}\n\n"
+		if got := rec.Body.String(); got != want {
+			t.Fatalf("SSE body = %q, want %q", got, want)
+		}
+		after := g.breakerFor(route).Snapshot()
+		if after.Requests != before.Requests+1 || after.Success != before.Success+1 {
+			t.Fatalf("breaker after completed stream = %+v, before = %+v", after, before)
+		}
+	})
+	t.Run("server stream errors before headers", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/native/Watch", strings.NewReader(`{"service":"missing"}`))
+		rec := httptest.NewRecorder()
+		g.ServeHTTP(rec, req)
+		if rec.Code != http.StatusNotFound || !strings.Contains(rec.Body.String(), "service not found") {
+			t.Fatalf("status=%d body=%s, want mapped NotFound", rec.Code, rec.Body.String())
+		}
+	})
+	t.Run("server stream errors after a message", func(t *testing.T) {
+		before := g.breakerFor(route).Snapshot()
+		req := httptest.NewRequest(http.MethodPost, "/native/Watch", strings.NewReader(`{"service":"fail-after-message"}`))
+		rec := httptest.NewRecorder()
+		g.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "event: message") ||
+			!strings.Contains(rec.Body.String(), "event: error\ndata: {\"code\":\"data_loss\",\"error\":\"rpc error: code = DataLoss desc = watch failed\"}") {
+			t.Fatalf("status=%d body=%s, want message then error event", rec.Code, rec.Body.String())
+		}
+		after := g.breakerFor(route).Snapshot()
+		if after.Requests != before.Requests+1 || after.Failures != before.Failures+1 {
+			t.Fatalf("breaker after failed stream = %+v, before = %+v", after, before)
+		}
+		if !hasEjectedEndpoint(g.passive.Snapshot(), route.Targets[0]) {
+			t.Fatalf("passive health did not record failed stream: %+v", g.passive.Snapshot())
+		}
+	})
+	t.Run("HTTP cancellation cancels gRPC stream", func(t *testing.T) {
+		before := g.breakerFor(route).Snapshot()
+		ts := httptest.NewServer(g)
+		t.Cleanup(ts.Close)
+		ctx, cancel := context.WithCancel(t.Context())
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, ts.URL+"/native/Watch", strings.NewReader(`{"service":"cancel"}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case <-watchStarted:
+		case <-time.After(time.Second):
+			t.Fatal("gRPC watch did not start")
+		}
+		cancel()
+		_ = resp.Body.Close()
+		select {
+		case <-watchCanceled:
+		case <-time.After(time.Second):
+			t.Fatal("HTTP cancellation did not cancel gRPC watch")
+		}
+		deadline := time.Now().Add(time.Second)
+		for {
+			after := g.breakerFor(route).Snapshot()
+			if after.Requests == before.Requests+1 {
+				if after.Success != before.Success+1 {
+					t.Fatalf("breaker after downstream cancellation = %+v, before = %+v", after, before)
+				}
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("stream settlement was not recorded: %+v", after)
+			}
+			time.Sleep(time.Millisecond)
+		}
+	})
+	t.Run("route deadline bounds gRPC stream", func(t *testing.T) {
+		deadlineRoute := route
+		deadlineRoute.Timeout = 10 * time.Millisecond
+		deadlineGateway, err := New([]Route{deadlineRoute}, WithDescriptors(descriptor), WithTranscoderFactory(factory))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = deadlineGateway.Close() })
+		req := httptest.NewRequest(http.MethodPost, "/native/Watch", strings.NewReader(`{"service":"deadline"}`))
+		rec := httptest.NewRecorder()
+		deadlineGateway.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "event: message") ||
+			!strings.Contains(rec.Body.String(), `"code":"deadline_exceeded"`) {
+			t.Fatalf("status=%d body=%s, want message then deadline error event", rec.Code, rec.Body.String())
+		}
+	})
 	generic, err := g.transcoderFor(route.Targets[0], route)
 	if err != nil {
 		t.Fatal(err)

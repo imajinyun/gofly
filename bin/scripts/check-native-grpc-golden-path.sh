@@ -51,6 +51,17 @@ assert adaptive.get("generatedDefault", {}).get("enabled") is True, adaptive
 assert adaptive.get("generatedDefault", {}).get("cpuThresholdPermille") == 800, adaptive
 assert {"AdaptiveLimitUnaryServerInterceptor", "AdaptiveLimitStreamServerInterceptor", "TestDefaultServerAdaptiveLimiterAcrossUnaryAndBidiStream", "TestGenerateRPCNewGoZeroCompatibleProducesRunnableGRPCProject", "TestDefaultServerAdaptiveLimiterSnapshot", "bench/grpc_adaptive_admission_evidence.json"} <= set(adaptive.get("evidence") or []), adaptive
 assert {"passes", "drops", "inFlight", "cpuLoad"} <= set(adaptive.get("runtimeFields") or []), adaptive
+gateway = next(item for item in manifest["capabilities"] if item.get("id") == "native-grpc-gateway")
+assert {"OpenServerStreamRaw", "server stream uses SSE", "HTTP cancellation cancels gRPC stream"} <= set(gateway.get("evidence") or []), gateway
+assert "text/event-stream" in gateway.get("contract", ""), gateway
+assert "Client-streaming and bidirectional-streaming methods return Unimplemented" in gateway.get("limitations", ""), gateway
+gateway_source = (root / "gateway" / "grpc_transcode.go").read_text(encoding="utf-8")
+gateway_test = (root / "gateway" / "grpc_transcode_test.go").read_text(encoding="utf-8")
+for marker in ("OpenServerStreamRaw", "ServerStreams: true", "CloseSend()", "grpcTranscodeMetadata"):
+    assert marker in gateway_source, marker
+assert "for _, stream := range desc.Streams" in (root / "gateway" / "transcode.go").read_text(encoding="utf-8")
+for marker in ("server stream uses SSE", "HTTP cancellation cancels gRPC stream", "client stream rejected", "bidirectional stream rejected"):
+    assert marker in gateway_test, marker
 assert "adaptive-shedding-default-policy" not in (manifest.get("deferred") or []), manifest.get("deferred")
 assert benchmark.get("schema") == "gofly.benchmark_grpc_adaptive_admission_evidence.v1", benchmark
 assert benchmark.get("status") == "report-only", benchmark

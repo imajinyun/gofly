@@ -142,7 +142,10 @@ func (g *Gateway) serveRoute(w http.ResponseWriter, r *http.Request, match route
 	w.WriteHeader(result.Status)
 	if result.BodyStream != nil {
 		defer result.BodyStream.Close()
-		if err := copyStreamingResponse(w, result.BodyStream); err != nil && g.logger != nil {
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		if err := copyStreamingResponse(w, result.BodyStream); err != nil && r.Context().Err() == nil && g.logger != nil {
 			g.logger.ErrorContext(r.Context(), "gateway stream proxy response failed", "error", err)
 		}
 		return

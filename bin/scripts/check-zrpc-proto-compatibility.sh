@@ -101,6 +101,15 @@ interop_mod = read(root / "testdata/zrpc-runtime-interop/go.mod")
 root_mod = read(root / "go.mod")
 require("github.com/zeromicro/go-zero v1.10.3" in interop_mod, "zRPC runtime fixture must pin go-zero v1.10.3")
 require("github.com/zeromicro/go-zero" not in root_mod, "root module must not depend on go-zero for interoperability tests")
+root_go = re.search(r"^go ([^\s]+)$", root_mod, re.M)
+interop_go = re.search(r"^go ([^\s]+)$", interop_mod, re.M)
+require(root_go is not None, "root go.mod must declare a Go version")
+require(interop_go is not None, "zRPC runtime fixture must declare a Go version")
+if root_go is not None and interop_go is not None:
+    require(
+        interop_go.group(1) == root_go.group(1),
+        "zRPC runtime fixture Go version must match the root module",
+    )
 streaming = read(root / "testdata/zrpc-runtime-interop/streaming_test.go")
 for marker in (
     "TestZRPCServerStreamsWithGoflyClient",

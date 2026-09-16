@@ -29,7 +29,9 @@ goctl scaffold. gofly keeps two explicit RPC transports:
   native gRPC service with standard protobuf stubs, discovery lifecycle, health
   transitions, default observability, a typed client, generated P2C/EWMA
   balancing configuration, and a production check with rule restart/rollback
-  evidence. The compatibility gate also runs real bidirectional calls between
+  evidence. Generated-project tests exercise the default, round-robin,
+  P2C/EWMA, and consistent-hash policies through real discovery-backed calls;
+  unsupported policies fail before dialing. The compatibility gate also runs real bidirectional calls between
   go-zero zRPC and gofly servers and clients, including server-streaming,
   client-streaming, and bidirectional streaming data-plane lifecycles.
   Generated production services also share one adaptive admission limiter across

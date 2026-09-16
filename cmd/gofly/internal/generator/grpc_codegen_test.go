@@ -137,6 +137,66 @@ service Admin { rpc Ping(common.Request) returns (google.protobuf.Empty); }
 			t.Fatal("inferred options changed existing output")
 		}
 	})
+	configuredClientTest := `package client
+
+import (
+ "context"
+ "testing"
+ "time"
+
+ "github.com/imajinyun/gofly/core/discovery"
+ flygrpc "github.com/imajinyun/gofly/rpc/grpc"
+ "google.golang.org/protobuf/types/known/emptypb"
+ "example.com/chat/internal/config"
+ "example.com/chat/internal/pb"
+)
+
+type configuredChatServer struct { pb.UnimplementedChatServer }
+
+func (configuredChatServer) Send(context.Context, *pb.Envelope_Payload) (*emptypb.Empty, error) {
+ return &emptypb.Empty{}, nil
+}
+
+func TestConfiguredLoadBalancing(t *testing.T) {
+ registry := discovery.NewMemoryRegistry()
+ server := flygrpc.NewDefaultServer("127.0.0.1:0", "chat.v1.Chat", nil, nil,
+  flygrpc.WithDiscovery(registry, discovery.Instance{ID: "configured-client-test", Service: "chat.v1.Chat"}),
+ )
+ pb.RegisterChatServer(server.GRPCServer(), configuredChatServer{})
+ started := make(chan error, 1)
+ go func() { started <- server.Start() }()
+ t.Cleanup(func() {
+  _ = server.Shutdown(context.Background())
+  select { case <-started: case <-time.After(time.Second): t.Error("timed out waiting for server shutdown") }
+ })
+ deadline := time.Now().Add(time.Second)
+ for {
+  if instances, err := registry.Resolve(t.Context(), "chat.v1.Chat"); err == nil && len(instances) == 1 { break }
+  if time.Now().After(deadline) { t.Fatal("service was not registered") }
+  time.Sleep(time.Millisecond)
+ }
+ for _, policy := range []string{"", "round_robin", flygrpc.P2CEWMABalancerName, flygrpc.ConsistentHashBalancerName} {
+  t.Run("policy "+policy, func(t *testing.T) {
+   cfg := config.Config{LoadBalancing: config.LoadBalancingConfig{Policy: policy}}
+   client, conn, err := NewConfiguredChat(t.Context(), registry, cfg, nil, flygrpc.WithWaitForReady())
+   if err != nil { t.Fatalf("NewConfiguredChat policy %q: %v", policy, err) }
+   defer conn.Close()
+   callCtx := t.Context()
+   if policy == flygrpc.ConsistentHashBalancerName { callCtx = flygrpc.WithHashKey(callCtx, "tenant-42") }
+   if _, err := client.Send(callCtx, &pb.Envelope_Payload{Text: "ready"}); err != nil {
+    t.Fatalf("Send policy %q: %v", policy, err)
+   }
+  })
+ }
+ invalid := config.Config{LoadBalancing: config.LoadBalancingConfig{Policy: "least_request"}}
+ if _, _, err := NewConfiguredChat(t.Context(), registry, invalid, nil); err == nil {
+  t.Fatal("unsupported configured load-balancing policy was accepted")
+ }
+}
+`
+	if err := os.WriteFile(filepath.Join(outputDir, "pkg", "client", "configured_balancing_test.go"), []byte(configuredClientTest), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	assertGeneratedProjectCompiles(t, outputDir)
 	for _, name := range []string{"missing proto", "missing module", "invalid module", "malformed module", "module mismatch", "invalid name", "missing toolchain", "canceled context", "another application", "no service", "root go package", "logic collision", "symlink root", "symlink parent", "symlink target", "symlink module", "user output", "foreign generator", "foreign proto", "directory target"} {
 		t.Run(name, func(t *testing.T) {

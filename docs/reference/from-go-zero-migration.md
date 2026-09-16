@@ -249,6 +249,10 @@ Generated native gRPC projects select `gofly_p2c_ewma` by default through the
 `loadBalancing.policy` configuration field. They can explicitly select
 `round_robin` or `gofly_consistent_hash`; the reusable resolver API retains its
 historical round-robin default for callers that do not use generated config.
+Generated-project verification exercises the absent/default value and all three
+explicit policies through `NewConfigured*` with a real discovery-backed RPC.
+Unsupported policies fail before dialing, and consistent-hash calls require a
+key supplied with `flygrpc.WithHashKey`.
 Production scaffolds also generate `bin/production-check.sh` and a rule-file
 restart/recovery/rollback drill under `internal/config`.
 

@@ -44,6 +44,8 @@ for item in manifest["capabilities"]:
 balancers = next(item for item in manifest["capabilities"] if item.get("id") == "grpc-balancers")
 assert balancers.get("generatedDefault") == "gofly_p2c_ewma", balancers
 assert set(balancers.get("configuredPolicies") or []) == {"round_robin", "gofly_p2c_ewma", "gofly_consistent_hash"}, balancers
+assert {"TestConfiguredLoadBalancing", "configured load balancing"} <= set(balancers.get("evidence") or []), balancers
+assert "real discovery-backed clients" in balancers.get("runtimeVerification", ""), balancers
 scaffold = next(item for item in manifest["capabilities"] if item.get("id") == "runnable-gozero-compatible-scaffold")
 assert "TestGovernanceRuleRestartRecovery" in (scaffold.get("productionEvidence") or []), scaffold
 adaptive = next(item for item in manifest["capabilities"] if item.get("id") == "adaptive-shedding-default-policy")
@@ -66,6 +68,12 @@ for marker in ("for _, stream := range desc.Streams", 'grpcClientStreamMediaType
     assert marker in transcode_source, marker
 for marker in ("client stream incrementally consumes NDJSON", "client stream upstream failure is not retried", "client stream propagates cancellation", "client stream protobuf mapping error is local", "frame too large", "server stream uses SSE", "HTTP cancellation cancels gRPC stream", "bidirectional stream rejected", "bidirectional stream interleaves messages and half closes", "bidirectional stream maps local and upstream errors", "bidirectional stream disconnect cancels upstream", "bidirectional stream half close still observes disconnect"):
     assert marker in gateway_test, marker
+grpc_scaffold = (root / "cmd" / "gofly" / "internal" / "generator" / "grpc_scaffold_templates.go").read_text(encoding="utf-8")
+grpc_codegen_test = (root / "cmd" / "gofly" / "internal" / "generator" / "grpc_codegen_test.go").read_text(encoding="utf-8")
+for marker in ("NewConfiguredGreeter", "configured load balancing ", "WithHashKey", "unsupported configured load-balancing policy was accepted"):
+    assert marker in grpc_scaffold, marker
+for marker in ("TestConfiguredLoadBalancing", "NewConfiguredChat", "WithWaitForReady", "least_request"):
+    assert marker in grpc_codegen_test, marker
 assert "adaptive-shedding-default-policy" not in (manifest.get("deferred") or []), manifest.get("deferred")
 assert benchmark.get("schema") == "gofly.benchmark_grpc_adaptive_admission_evidence.v1", benchmark
 assert benchmark.get("status") == "report-only", benchmark

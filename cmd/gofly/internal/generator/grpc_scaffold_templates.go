@@ -463,6 +463,7 @@ const goZeroRPCServerTestTemplate = `package server
 import (
 	"context"
 	"net"
+	"strings"
 	"testing"
 	"time"
 
@@ -471,6 +472,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	flygrpc "github.com/imajinyun/gofly/rpc/grpc"
+	appclient "{{.Module}}/pkg/client"
 	"{{.Module}}/internal/config"
 	"{{.Module}}/internal/pb"
 	"{{.Module}}/internal/svc"
@@ -510,25 +512,65 @@ func TestGreeterUnarySmoke(t *testing.T) {
 	if _, _, err := net.SplitHostPort(endpoint); err != nil {
 		t.Fatalf("registered endpoint = %q: %v", endpoint, err)
 	}
-	conn, err := flygrpc.NewDefaultClient(context.Background(), endpoint, "{{.RPCService}}", nil, nil)
+	client, conn, err := appclient.NewConfiguredGreeter(
+		context.Background(),
+		registry,
+		config.Config{},
+		nil,
+		flygrpc.WithWaitForReady(),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer conn.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	response, err := pb.NewGreeterClient(conn.Conn()).SayHello(ctx, &pb.SayHelloRequest{Name: "gofly"})
+	response, err := client.SayHello(ctx, &pb.SayHelloRequest{Name: "gofly"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if response.GetMessage() != "hello gofly" {
 		t.Fatalf("message = %q, want hello gofly", response.GetMessage())
 	}
+	for _, policy := range []string{"round_robin", flygrpc.P2CEWMABalancerName, flygrpc.ConsistentHashBalancerName} {
+		t.Run("configured load balancing "+policy, func(t *testing.T) {
+			configured := config.Config{LoadBalancing: config.LoadBalancingConfig{Policy: policy}}
+			configuredClient, configuredConn, err := appclient.NewConfiguredGreeter(
+				t.Context(),
+				registry,
+				configured,
+				nil,
+				flygrpc.WithWaitForReady(),
+			)
+			if err != nil {
+				t.Fatalf("NewConfiguredGreeter policy %q: %v", policy, err)
+			}
+			defer configuredConn.Close()
+			callCtx := t.Context()
+			if policy == flygrpc.ConsistentHashBalancerName {
+				if _, err := configuredClient.SayHello(callCtx, &pb.SayHelloRequest{Name: policy}); err == nil || !strings.Contains(err.Error(), "consistent hash key is required") {
+					t.Fatalf("consistent-hash call without key = %v, want missing-key failure", err)
+				}
+				callCtx = flygrpc.WithHashKey(callCtx, "tenant-42")
+			}
+			response, err := configuredClient.SayHello(callCtx, &pb.SayHelloRequest{Name: policy})
+			if err != nil {
+				t.Fatalf("SayHello policy %q: %v", policy, err)
+			}
+			if response.GetMessage() != "hello "+policy {
+				t.Fatalf("policy %q message = %q", policy, response.GetMessage())
+			}
+		})
+	}
+	invalid := config.Config{LoadBalancing: config.LoadBalancingConfig{Policy: "least_request"}}
+	if _, _, err := appclient.NewConfiguredGreeter(t.Context(), registry, invalid, nil); err == nil {
+		t.Fatal("unsupported configured load-balancing policy was accepted")
+	}
 	stx.Rules.Replace(governance.Rule{Method: "SayHello", Policy: governance.Policy{RateLimit: governance.RateLimitPolicy{Rate: 1, Burst: 1}}})
-	if _, err := pb.NewGreeterClient(conn.Conn()).SayHello(ctx, &pb.SayHelloRequest{}); err != nil {
+	if _, err := client.SayHello(ctx, &pb.SayHelloRequest{}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pb.NewGreeterClient(conn.Conn()).SayHello(ctx, &pb.SayHelloRequest{}); status.Code(err) != codes.ResourceExhausted {
+	if _, err := client.SayHello(ctx, &pb.SayHelloRequest{}); status.Code(err) != codes.ResourceExhausted {
 		t.Fatalf("updated governance rule = %v, want ResourceExhausted", err)
 	}
 }

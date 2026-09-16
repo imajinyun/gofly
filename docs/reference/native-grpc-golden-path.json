@@ -29,9 +29,10 @@
     {
       "id": "grpc-balancers",
       "status": "implemented",
-      "evidence": ["P2CEWMABalancerName", "ConsistentHashBalancerName", "LoadBalancingConfig", "NewConfiguredGreeter", "TestGoflyGRPCBalancersRegistered", "TestWithDiscoveryResolverOptions"],
+      "evidence": ["P2CEWMABalancerName", "ConsistentHashBalancerName", "LoadBalancingConfig", "NewConfiguredGreeter", "TestGoflyGRPCBalancersRegistered", "TestWithDiscoveryResolverOptions", "TestConfiguredLoadBalancing", "configured load balancing"],
       "generatedDefault": "gofly_p2c_ewma",
       "configuredPolicies": ["round_robin", "gofly_p2c_ewma", "gofly_consistent_hash"],
+      "runtimeVerification": "Generated-project tests create real discovery-backed clients through NewConfiguredGreeter and complete RPCs with the absent/default policy, round_robin, gofly_p2c_ewma, and gofly_consistent_hash. They also reject unsupported policies before dialing and require a request hash key for consistent-hash calls.",
       "compatibilityBoundary": "The reusable resolver keeps round_robin as its API default; generated native gRPC projects explicitly select P2C/EWMA from configuration."
     },
     {

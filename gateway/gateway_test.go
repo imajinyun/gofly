@@ -4889,7 +4889,7 @@ func TestSetForwardHeadersNoTraceContext(t *testing.T) {
 	}
 }
 
-func dialGatewayWebSocket(t *testing.T, serverURL, path string) (net.Conn, *bufio.ReadWriter) {
+func dialGatewayWebSocket(t *testing.T, serverURL, path string, extraHeaders ...string) (net.Conn, *bufio.ReadWriter) {
 	t.Helper()
 	u, err := url.Parse(serverURL)
 	if err != nil {
@@ -4901,14 +4901,24 @@ func dialGatewayWebSocket(t *testing.T, serverURL, path string) (net.Conn, *bufi
 	}
 	rw := bufio.NewReadWriter(bufio.NewReader(conn), bufio.NewWriter(conn))
 	key := base64.StdEncoding.EncodeToString([]byte("gofly-gateway-ws"))
-	for _, line := range []string{
+	lines := []string{
 		"GET " + path + " HTTP/1.1\r\n",
 		"Host: " + u.Host + "\r\n",
 		"Upgrade: websocket\r\n",
 		"Connection: Upgrade\r\n",
 		"Sec-WebSocket-Version: 13\r\n",
-		"Sec-WebSocket-Key: " + key + "\r\n\r\n",
-	} {
+		"Sec-WebSocket-Key: " + key + "\r\n",
+	}
+	expectedProtocol := ""
+	for _, header := range extraHeaders {
+		header = strings.TrimSpace(header)
+		lines = append(lines, header+"\r\n")
+		if name, value, ok := strings.Cut(header, ":"); ok && strings.EqualFold(strings.TrimSpace(name), "Sec-WebSocket-Protocol") {
+			expectedProtocol = strings.TrimSpace(value)
+		}
+	}
+	lines = append(lines, "\r\n")
+	for _, line := range lines {
 		if _, err := rw.WriteString(line); err != nil {
 			t.Fatal(err)
 		}
@@ -4925,6 +4935,7 @@ func dialGatewayWebSocket(t *testing.T, serverURL, path string) (net.Conn, *bufi
 	}
 	wantAccept := gatewayWebSocketAccept(key)
 	foundAccept := false
+	foundProtocol := expectedProtocol == ""
 	for {
 		line, err := rw.ReadString('\n')
 		if err != nil {
@@ -4936,9 +4947,15 @@ func dialGatewayWebSocket(t *testing.T, serverURL, path string) (net.Conn, *bufi
 		if strings.EqualFold(strings.TrimSpace(line), "Sec-WebSocket-Accept: "+wantAccept) {
 			foundAccept = true
 		}
+		if expectedProtocol != "" && strings.EqualFold(strings.TrimSpace(line), "Sec-WebSocket-Protocol: "+expectedProtocol) {
+			foundProtocol = true
+		}
 	}
 	if !foundAccept {
 		t.Fatal("missing websocket accept header")
+	}
+	if !foundProtocol {
+		t.Fatalf("missing websocket subprotocol %q", expectedProtocol)
 	}
 	return conn, rw
 }

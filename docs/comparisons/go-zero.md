@@ -42,8 +42,14 @@ events, request cancellation, and the existing route timeout. It exposes
 client-streaming methods through incremental `application/x-ndjson` requests:
 one protobuf JSON message per non-empty line, HTTP EOF as gRPC `CloseSend`,
 then one JSON response. Consumed request streams are never retried and have
-bounded frame, aggregate-payload, and message counts. Bidirectional HTTP
-transcoding remains HTTP 501 until a full-duplex protocol contract is chosen.
+bounded frame, aggregate-payload, and message counts. Bidirectional methods use
+WebSocket with the required `gofly.grpc.bidi.v1` subprotocol and text JSON
+envelopes for messages, half-close, metadata, errors, and completion. Half-close
+ends only the gRPC send side; downstream disconnects still cancel the upstream
+stream. Both directions have bounded frame, aggregate-payload, and message
+counts, and calls are not replayed. Non-upgraded HTTP calls remain HTTP 501.
+This protocol is gofly-specific rather than gRPC-Web or transparent WebSocket
+compatibility across every browser and proxy.
 This does not reproduce every zRPC middleware default or claim byte-for-byte
 zRPC/goctl parity.
 

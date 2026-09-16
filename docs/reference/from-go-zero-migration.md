@@ -269,8 +269,17 @@ trailers or post-commit failures use terminal `trailers` or `error` events. The
 gateway waits for the first message before committing HTTP 200, so a failure
 before that point retains normal gRPC-to-HTTP status mapping. HTTP cancellation
 propagates to upstream streams, and the existing route timeout bounds their
-lifetime. Bidirectional HTTP transcoding remains unsupported with HTTP 501
-until a full-duplex protocol contract is chosen.
+lifetime. Bidirectional RPCs use WebSocket with the required
+`gofly.grpc.bidi.v1` subprotocol. Clients send text JSON `message` envelopes
+whose `data` field is protobuf JSON, then may send `half_close` to map to gRPC
+`CloseSend` without ending the receive side. The gateway returns text JSON
+`headers`, `message`, `trailers`, `error`, and `complete` envelopes. Both
+directions enforce the same 1 MiB per-message, 16 MiB aggregate-payload, and
+10,000-message limits. Disconnects and request cancellation cancel the upstream
+stream, including after half-close; consumed streams are never retried. A
+non-upgraded HTTP request to a bidirectional method still returns HTTP 501.
+This is a gofly-specific WebSocket protocol, not gRPC-Web or transparent
+browser/proxy compatibility.
 This does not reproduce every zRPC middleware default or claim byte-for-byte
 zRPC/goctl parity.
 They enable one process-local adaptive limiter for unary and streaming RPCs by

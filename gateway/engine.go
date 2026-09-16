@@ -101,8 +101,15 @@ func (g *Gateway) serveRoute(w http.ResponseWriter, r *http.Request, match route
 		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
 		return
 	}
+	effectiveRoute := g.canaryRoute(r, route)
 	if isWebSocketUpgrade(r) {
-		result, err := g.proxyWebSocket(w, r, route)
+		var result proxyResult
+		var err error
+		if g.isBidirectionalStreamingTranscode(r, effectiveRoute) {
+			result, err = g.proxyBidirectionalStream(w, r, effectiveRoute)
+		} else {
+			result, err = g.proxyWebSocket(w, r, route)
+		}
 		if err != nil {
 			if !result.Hijacked {
 				http.Error(w, http.StatusText(http.StatusBadGateway), http.StatusBadGateway)
@@ -116,8 +123,11 @@ func (g *Gateway) serveRoute(w http.ResponseWriter, r *http.Request, match route
 			}
 			return
 		}
+		if result.Status > 0 {
+			http.Error(w, http.StatusText(result.Status), result.Status)
+			return
+		}
 	}
-	effectiveRoute := g.canaryRoute(r, route)
 	var result proxyResult
 	var err error
 	if g.isClientStreamingTranscode(r, effectiveRoute) {

@@ -208,6 +208,29 @@ encode:
 	return data, grpcTranscodeMetadata(metadata.Join(headers, stream.Trailer())), true, nil
 }
 
+func (c *grpcTranscoder) OpenBidirectionalStreamRaw(ctx context.Context, method string) (rawBidirectionalStream, bool, error) {
+	descriptor, err := c.methodDescriptor(method)
+	if err != nil {
+		return nil, false, err
+	}
+	if !descriptor.IsStreamingClient() || !descriptor.IsStreamingServer() {
+		return nil, false, nil
+	}
+	streamCtx, cancel := context.WithCancel(grpcTranscodeOutgoingContext(ctx))
+	stream, err := c.conn.NewStream(streamCtx, &stdgrpc.StreamDesc{ClientStreams: true, ServerStreams: true}, "/"+strings.TrimPrefix(method, "/"))
+	if err != nil {
+		cancel()
+		return nil, true, err
+	}
+	return &grpcRawBidirectionalStream{
+		stream:           stream,
+		inputDescriptor:  descriptor.Input(),
+		outputDescriptor: descriptor.Output(),
+		types:            c.types,
+		cancel:           cancel,
+	}, true, nil
+}
+
 func (c *grpcTranscoder) methodDescriptor(method string) (protoreflect.MethodDescriptor, error) {
 	method = strings.TrimPrefix(method, "/")
 	descriptor, ok := c.methods[method]
@@ -238,6 +261,53 @@ type grpcRawServerStream struct {
 	types      *dynamicpb.Types
 	cancel     context.CancelFunc
 	closeOnce  sync.Once
+}
+
+type grpcRawBidirectionalStream struct {
+	stream           stdgrpc.ClientStream
+	inputDescriptor  protoreflect.MessageDescriptor
+	outputDescriptor protoreflect.MessageDescriptor
+	types            *dynamicpb.Types
+	cancel           context.CancelFunc
+	closeOnce        sync.Once
+}
+
+func (s *grpcRawBidirectionalStream) SendRaw(payload json.RawMessage) error {
+	input := dynamicpb.NewMessage(s.inputDescriptor)
+	if err := (protojson.UnmarshalOptions{Resolver: s.types}).Unmarshal(payload, input); err != nil {
+		return &clientStreamInputError{err: status.Error(codes.InvalidArgument, "invalid protobuf JSON request")}
+	}
+	return s.stream.SendMsg(input)
+}
+
+func (s *grpcRawBidirectionalStream) RecvRaw() (json.RawMessage, error) {
+	output := dynamicpb.NewMessage(s.outputDescriptor)
+	if err := s.stream.RecvMsg(output); err != nil {
+		return nil, err
+	}
+	data, err := (protojson.MarshalOptions{Resolver: s.types}).Marshal(output)
+	if err != nil {
+		return nil, status.Error(codes.Internal, "encode protobuf JSON bidirectional-stream response")
+	}
+	return data, nil
+}
+
+func (s *grpcRawBidirectionalStream) Header() (coremetadata.MD, error) {
+	headers, err := s.stream.Header()
+	return grpcTranscodeMetadata(headers), err
+}
+
+func (s *grpcRawBidirectionalStream) Trailer() coremetadata.MD {
+	return grpcTranscodeMetadata(s.stream.Trailer())
+}
+
+func (s *grpcRawBidirectionalStream) CloseSend() error {
+	return s.stream.CloseSend()
+}
+
+func (s *grpcRawBidirectionalStream) Close() error {
+	s.closeOnce.Do(s.cancel)
+	return nil
 }
 
 func (s *grpcRawServerStream) RecvRaw() (json.RawMessage, error) {

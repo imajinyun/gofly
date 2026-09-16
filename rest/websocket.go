@@ -53,6 +53,7 @@ type webSocketOptions struct {
 	readTimeout     time.Duration
 	writeTimeout    time.Duration
 	manager         *WebSocketManager
+	subprotocol     string
 }
 
 type WebSocketStats struct {
@@ -122,6 +123,14 @@ func WithWebSocketManager(manager *WebSocketManager) WebSocketOption {
 	}
 }
 
+// WithWebSocketSubprotocol selects one RFC 6455 subprotocol. The upgrade is
+// rejected unless the client offered the exact token.
+func WithWebSocketSubprotocol(protocol string) WebSocketOption {
+	return func(opts *webSocketOptions) {
+		opts.subprotocol = strings.TrimSpace(protocol)
+	}
+}
+
 func (m *WebSocketManager) Snapshot() WebSocketStats {
 	if m == nil {
 		return WebSocketStats{}
@@ -149,7 +158,7 @@ func (c *Context) WebSocket(handler WebSocketHandler, opts ...WebSocketOption) e
 			opt(&options)
 		}
 	}
-	conn, rw, err := upgradeWebSocket(c.Response, c.Request)
+	conn, rw, err := upgradeWebSocket(c.Response, c.Request, options.subprotocol)
 	if err != nil {
 		writeError(c.Response, http.StatusBadRequest, coreerrors.CodeInvalidArgument, err.Error())
 		return err
@@ -228,13 +237,16 @@ func (c *WebSocketConn) Close() error {
 	return err
 }
 
-func upgradeWebSocket(w http.ResponseWriter, r *http.Request) (net.Conn, *bufio.ReadWriter, error) {
+func upgradeWebSocket(w http.ResponseWriter, r *http.Request, subprotocol string) (net.Conn, *bufio.ReadWriter, error) {
 	if r.Method != http.MethodGet || !headerContains(r.Header.Get("Connection"), "upgrade") || !strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
 		return nil, nil, fmt.Errorf("%w: invalid upgrade headers", ErrWebSocketUpgrade)
 	}
 	key := strings.TrimSpace(r.Header.Get("Sec-WebSocket-Key"))
 	if key == "" || r.Header.Get("Sec-WebSocket-Version") != "13" {
 		return nil, nil, fmt.Errorf("%w: invalid websocket version or key", ErrWebSocketUpgrade)
+	}
+	if subprotocol != "" && (!validWebSocketSubprotocol(subprotocol) || !webSocketProtocolOffered(r.Header.Values("Sec-WebSocket-Protocol"), subprotocol)) {
+		return nil, nil, fmt.Errorf("%w: websocket subprotocol %q was not offered", ErrWebSocketUpgrade, subprotocol)
 	}
 	hijacker, ok := w.(http.Hijacker)
 	if !ok {
@@ -245,7 +257,11 @@ func upgradeWebSocket(w http.ResponseWriter, r *http.Request) (net.Conn, *bufio.
 		return nil, nil, errors.Join(ErrWebSocketUpgrade, fmt.Errorf("hijack websocket connection: %w", err))
 	}
 	accept := webSocketAccept(key)
-	if _, err := fmt.Fprintf(rw, "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: %s\r\n\r\n", accept); err != nil {
+	response := fmt.Sprintf("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: %s\r\n", accept)
+	if subprotocol != "" {
+		response += "Sec-WebSocket-Protocol: " + subprotocol + "\r\n"
+	}
+	if _, err := rw.WriteString(response + "\r\n"); err != nil {
 		_ = conn.Close() // best-effort cleanup after upgrade failure
 		return nil, nil, fmt.Errorf("write websocket upgrade response: %w", err)
 	}
@@ -254,6 +270,30 @@ func upgradeWebSocket(w http.ResponseWriter, r *http.Request) (net.Conn, *bufio.
 		return nil, nil, fmt.Errorf("flush websocket upgrade response: %w", err)
 	}
 	return conn, rw, nil
+}
+
+func webSocketProtocolOffered(values []string, protocol string) bool {
+	for _, value := range values {
+		for _, offered := range strings.Split(value, ",") {
+			if strings.TrimSpace(offered) == protocol {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func validWebSocketSubprotocol(protocol string) bool {
+	if protocol == "" {
+		return false
+	}
+	for i := range len(protocol) {
+		c := protocol[i]
+		if c <= 0x20 || c >= 0x7f || strings.ContainsRune("()<>@,;:\\\"/[]?={}", rune(c)) {
+			return false
+		}
+	}
+	return true
 }
 
 func (c *WebSocketConn) readFrame() (int, []byte, error) {

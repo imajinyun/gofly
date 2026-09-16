@@ -52,18 +52,19 @@ assert adaptive.get("generatedDefault", {}).get("cpuThresholdPermille") == 800, 
 assert {"AdaptiveLimitUnaryServerInterceptor", "AdaptiveLimitStreamServerInterceptor", "TestDefaultServerAdaptiveLimiterAcrossUnaryAndBidiStream", "TestGenerateRPCNewGoZeroCompatibleProducesRunnableGRPCProject", "TestDefaultServerAdaptiveLimiterSnapshot", "bench/grpc_adaptive_admission_evidence.json"} <= set(adaptive.get("evidence") or []), adaptive
 assert {"passes", "drops", "inFlight", "cpuLoad"} <= set(adaptive.get("runtimeFields") or []), adaptive
 gateway = next(item for item in manifest["capabilities"] if item.get("id") == "native-grpc-gateway")
-assert {"CallClientStreamRaw", "OpenServerStreamRaw", "client stream incrementally consumes NDJSON", "client stream upstream failure is not retried", "TestDecodeNDJSONStreamLimits", "server stream uses SSE", "HTTP cancellation cancels gRPC stream"} <= set(gateway.get("evidence") or []), gateway
+assert {"CallClientStreamRaw", "OpenServerStreamRaw", "OpenBidirectionalStreamRaw", "client stream incrementally consumes NDJSON", "client stream upstream failure is not retried", "TestDecodeNDJSONStreamLimits", "server stream uses SSE", "HTTP cancellation cancels gRPC stream", "bidirectional stream interleaves messages and half closes", "bidirectional stream maps local and upstream errors", "bidirectional stream disconnect cancels upstream", "bidirectional stream half close still observes disconnect"} <= set(gateway.get("evidence") or []), gateway
 assert "application/x-ndjson" in gateway.get("contract", ""), gateway
 assert "text/event-stream" in gateway.get("contract", ""), gateway
-assert "Bidirectional-streaming methods return Unimplemented with HTTP 501" in gateway.get("limitations", ""), gateway
+assert "gofly.grpc.bidi.v1" in gateway.get("contract", ""), gateway
+assert "non-upgraded HTTP call remains Unimplemented with HTTP 501" in gateway.get("limitations", ""), gateway
 gateway_source = (root / "gateway" / "grpc_transcode.go").read_text(encoding="utf-8")
 gateway_test = (root / "gateway" / "grpc_transcode_test.go").read_text(encoding="utf-8")
-for marker in ("CallClientStreamRaw", "OpenServerStreamRaw", "ClientStreams: true", "ServerStreams: true", "CloseSend()", "grpcTranscodeMetadata"):
+for marker in ("CallClientStreamRaw", "OpenServerStreamRaw", "OpenBidirectionalStreamRaw", "ClientStreams: true", "ServerStreams: true", "CloseSend()", "grpcTranscodeMetadata"):
     assert marker in gateway_source, marker
 transcode_source = (root / "gateway" / "transcode.go").read_text(encoding="utf-8")
-for marker in ("for _, stream := range desc.Streams", 'grpcClientStreamMediaType     = "application/x-ndjson"', "grpcClientStreamMaxFrameBytes", "grpcClientStreamMaxBodyBytes", "grpcClientStreamMaxMessages"):
+for marker in ("for _, stream := range desc.Streams", 'grpcClientStreamMediaType     = "application/x-ndjson"', 'grpcBidiWebSocketSubprotocol  = "gofly.grpc.bidi.v1"', "grpcClientStreamMaxFrameBytes", "grpcClientStreamMaxBodyBytes", "grpcClientStreamMaxMessages", "halfClosed"):
     assert marker in transcode_source, marker
-for marker in ("client stream incrementally consumes NDJSON", "client stream upstream failure is not retried", "client stream propagates cancellation", "client stream protobuf mapping error is local", "frame too large", "server stream uses SSE", "HTTP cancellation cancels gRPC stream", "bidirectional stream rejected"):
+for marker in ("client stream incrementally consumes NDJSON", "client stream upstream failure is not retried", "client stream propagates cancellation", "client stream protobuf mapping error is local", "frame too large", "server stream uses SSE", "HTTP cancellation cancels gRPC stream", "bidirectional stream rejected", "bidirectional stream interleaves messages and half closes", "bidirectional stream maps local and upstream errors", "bidirectional stream disconnect cancels upstream", "bidirectional stream half close still observes disconnect"):
     assert marker in gateway_test, marker
 assert "adaptive-shedding-default-policy" not in (manifest.get("deferred") or []), manifest.get("deferred")
 assert benchmark.get("schema") == "gofly.benchmark_grpc_adaptive_admission_evidence.v1", benchmark

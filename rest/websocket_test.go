@@ -64,6 +64,30 @@ func TestWebSocketRejectsInvalidHandshake(t *testing.T) {
 	}
 }
 
+func TestWebSocketSubprotocolNegotiation(t *testing.T) {
+	if !validWebSocketSubprotocol("gofly.grpc.bidi.v1") || validWebSocketSubprotocol("bad protocol") || validWebSocketSubprotocol("bad,protocol") {
+		t.Fatal("websocket subprotocol token validation mismatch")
+	}
+	if !webSocketProtocolOffered([]string{"chat, gofly.grpc.bidi.v1", "other"}, "gofly.grpc.bidi.v1") || webSocketProtocolOffered([]string{"chat"}, "gofly.grpc.bidi.v1") {
+		t.Fatal("websocket offered subprotocol matching mismatch")
+	}
+
+	s := MustNewServer(Config{})
+	s.AddRoute(Route{Method: http.MethodGet, Path: "/ws", Handler: func(ctx *Context) {
+		_ = ctx.WebSocket(func(_ context.Context, conn *WebSocketConn) {}, WithWebSocketSubprotocol("gofly.grpc.bidi.v1"))
+	}})
+	req := httptest.NewRequest(http.MethodGet, "/ws", nil)
+	req.Header.Set("Connection", "Upgrade")
+	req.Header.Set("Upgrade", "websocket")
+	req.Header.Set("Sec-WebSocket-Version", "13")
+	req.Header.Set("Sec-WebSocket-Key", "Z29mbHk=")
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "was not offered") {
+		t.Fatalf("missing subprotocol response = %d %q, want 400", rec.Code, rec.Body.String())
+	}
+}
+
 func TestWebSocketMaxMessageBytesClosesConnection(t *testing.T) {
 	manager := NewWebSocketManager()
 	done := make(chan struct{})

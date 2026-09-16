@@ -90,6 +90,12 @@ func runAIProjectVerificationCommand(dir, command string, timeout time.Duration)
 	// #nosec G204 -- verification commands are selected from aiProjectVerificationCommandArgs allow-list and never executed through a shell.
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
+	if command == "gofmt" {
+		// Fresh generated modules may not have go.sum entries yet. Permit this
+		// first verification step to resolve them before the explicit tidy
+		// check, even when the parent governance process uses readonly flags.
+		cmd.Env = append(os.Environ(), "GOFLAGS="+goFlagsWithModuleUpdates(os.Getenv("GOFLAGS")))
+	}
 	if command == "gofly ai doctor --json" ||
 		strings.HasPrefix(command, "gofly gateway profile validate ") ||
 		strings.HasPrefix(command, "gofly gateway aggregation validate ") {
@@ -111,6 +117,18 @@ func runAIProjectVerificationCommand(dir, command string, timeout time.Duration)
 		result.NextActions = aiProjectVerificationNextActions(command, result.Status)
 	}
 	return result
+}
+
+func goFlagsWithModuleUpdates(flags string) string {
+	fields := strings.Fields(flags)
+	filtered := fields[:0]
+	for _, field := range fields {
+		if strings.HasPrefix(field, "-mod=") {
+			continue
+		}
+		filtered = append(filtered, field)
+	}
+	return strings.Join(append(filtered, "-mod=mod"), " ")
 }
 
 func aiProjectVerificationCommandArgs(command string) (string, []string, bool) {

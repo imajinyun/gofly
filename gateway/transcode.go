@@ -24,6 +24,7 @@ import (
 	"github.com/imajinyun/gofly/core/breaker"
 	coreerrors "github.com/imajinyun/gofly/core/errors"
 	"github.com/imajinyun/gofly/core/metadata"
+	"github.com/imajinyun/gofly/rest"
 	"github.com/imajinyun/gofly/rpc"
 )
 
@@ -32,6 +33,7 @@ const (
 	grpcClientStreamMaxBodyBytes  = 16 * 1024 * 1024
 	grpcClientStreamMaxMessages   = 10_000
 	grpcClientStreamMaxFrameBytes = 1024 * 1024
+	grpcBidiWebSocketSubprotocol  = "gofly.grpc.bidi.v1"
 )
 
 // TranscoderFactory builds a generic RPC client for a resolved upstream
@@ -59,6 +61,25 @@ type clientStreamingTranscoder interface {
 	CallClientStreamRaw(ctx context.Context, method string, messages <-chan clientStreamFrame) (json.RawMessage, metadata.MD, bool, error)
 }
 
+type rawBidirectionalStream interface {
+	SendRaw(json.RawMessage) error
+	RecvRaw() (json.RawMessage, error)
+	Header() (metadata.MD, error)
+	Trailer() metadata.MD
+	CloseSend() error
+	Close() error
+}
+
+type bidirectionalStreamingTranscoder interface {
+	OpenBidirectionalStreamRaw(ctx context.Context, method string) (rawBidirectionalStream, bool, error)
+}
+
+type bidiWebSocketEnvelope struct {
+	Type     string          `json:"type"`
+	Data     json.RawMessage `json:"data,omitempty"`
+	Metadata metadata.MD     `json:"metadata,omitempty"`
+}
+
 type clientStreamFrame struct {
 	payload json.RawMessage
 	err     error
@@ -70,6 +91,285 @@ type clientStreamInputError struct {
 
 func (e *clientStreamInputError) Error() string { return e.err.Error() }
 func (e *clientStreamInputError) Unwrap() error { return e.err }
+
+func (g *Gateway) isBidirectionalStreamingTranscode(r *http.Request, route Route) bool {
+	if g == nil || r == nil || !route.Transcode.Enabled || !strings.EqualFold(route.Transcode.Protocol, "grpc") {
+		return false
+	}
+	target, err := g.transcodeTarget(r, route)
+	if err != nil || strings.TrimSpace(route.Transcode.Descriptor) == "" {
+		return false
+	}
+	desc, ok := g.descriptor(route.Transcode.Descriptor)
+	if !ok {
+		return false
+	}
+	for _, stream := range desc.Streams {
+		if strings.Trim(strings.TrimSpace(stream.Name), "/") == target.method {
+			return stream.Mode == rpc.StreamModeBidiStream
+		}
+	}
+	return false
+}
+
+func (g *Gateway) proxyBidirectionalStream(w http.ResponseWriter, r *http.Request, route Route) (proxyResult, error) {
+	if !webSocketSubprotocolOffered(r.Header.Values("Sec-WebSocket-Protocol"), grpcBidiWebSocketSubprotocol) {
+		return proxyResult{Status: http.StatusBadRequest}, nil
+	}
+	brk := g.breakerFor(route)
+	if brk != nil {
+		if err := brk.Allow(); err != nil {
+			return proxyResult{Err: err}, err
+		}
+	}
+	endpoint, err := g.pickEndpoint(r.Context(), route)
+	if err != nil {
+		if brk != nil {
+			brk.MarkFailure()
+		}
+		return proxyResult{Err: err}, err
+	}
+	target, err := g.transcodeTarget(r, route)
+	if err != nil {
+		return proxyResult{Endpoint: endpoint, Err: err}, err
+	}
+	client, err := g.transcoderFor(endpoint, route)
+	if err != nil {
+		return proxyResult{Endpoint: endpoint, Err: err}, err
+	}
+	streaming, ok := client.(bidirectionalStreamingTranscoder)
+	if !ok {
+		return g.transcodeCallError(route, endpoint, target.profile, brk, status.Error(codes.Unimplemented, "transcoder does not support bidirectional-streaming RPCs"))
+	}
+	methodPath, err := rpc.MethodPath(target.service, target.method)
+	if err != nil {
+		return proxyResult{Endpoint: endpoint, Err: err}, err
+	}
+	stream, handled, err := streaming.OpenBidirectionalStreamRaw(transcodeContext(r.Context(), r, route), methodPath)
+	if err != nil {
+		return g.transcodeCallError(route, endpoint, target.profile, brk, err)
+	}
+	if !handled {
+		return g.transcodeCallError(route, endpoint, target.profile, brk, status.Error(codes.Unimplemented, "transcoder did not handle bidirectional-streaming RPC"))
+	}
+	settlement := &transcodeStreamSettlement{fn: func(success bool) {
+		g.reportEndpoint(route, endpoint, success)
+		if brk != nil {
+			if success {
+				brk.MarkSuccess()
+			} else {
+				brk.MarkFailure()
+			}
+		}
+	}}
+	done := make(chan struct{})
+	ctx := &rest.Context{Response: w, Request: r}
+	err = ctx.WebSocket(func(streamCtx context.Context, conn *rest.WebSocketConn) {
+		defer close(done)
+		g.bridgeBidirectionalStream(streamCtx, r, conn, stream, route, target.profile, settlement)
+	}, rest.WithWebSocketSubprotocol(grpcBidiWebSocketSubprotocol), rest.WithWebSocketMaxMessageBytes(grpcClientStreamMaxFrameBytes))
+	if err != nil {
+		_ = stream.Close()
+		settlement.done(true)
+		return proxyResult{Endpoint: endpoint, Err: err}, err
+	}
+	<-done
+	return proxyResult{Endpoint: endpoint, Status: http.StatusSwitchingProtocols, Hijacked: true}, nil
+}
+
+func webSocketSubprotocolOffered(values []string, protocol string) bool {
+	for _, value := range values {
+		for _, offered := range strings.Split(value, ",") {
+			if strings.TrimSpace(offered) == protocol {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (g *Gateway) bridgeBidirectionalStream(ctx context.Context, request *http.Request, conn *rest.WebSocketConn, stream rawBidirectionalStream, route Route, profile *TranscodeProfile, settlement *transcodeStreamSettlement) {
+	receiveDone := make(chan struct{})
+	bridgeDone := make(chan struct{})
+	go func() {
+		defer close(receiveDone)
+		count := 0
+		totalBytes := 0
+		headers, err := stream.Header()
+		if err != nil {
+			if channelClosed(bridgeDone) {
+				return
+			}
+			settlement.done(false)
+			_ = writeBidiEnvelope(conn, bidiWebSocketEnvelope{Type: "error", Data: transcodeErrorBody(err)})
+			return
+		}
+		if len(headers) > 0 {
+			if err := writeBidiEnvelope(conn, bidiWebSocketEnvelope{Type: "headers", Metadata: headers}); err != nil {
+				settlement.done(true)
+				return
+			}
+		}
+		for {
+			raw, err := stream.RecvRaw()
+			if errors.Is(err, io.EOF) {
+				trailers := stream.Trailer()
+				if len(trailers) > 0 {
+					_ = writeBidiEnvelope(conn, bidiWebSocketEnvelope{Type: "trailers", Metadata: trailers})
+				}
+				_ = writeBidiEnvelope(conn, bidiWebSocketEnvelope{Type: "complete"})
+				settlement.done(true)
+				return
+			}
+			if err != nil {
+				if channelClosed(bridgeDone) {
+					return
+				}
+				settlement.done(errors.Is(ctx.Err(), context.Canceled))
+				_ = writeBidiEnvelope(conn, bidiWebSocketEnvelope{Type: "error", Data: transcodeErrorBody(err)})
+				return
+			}
+			payload, mapErr := transcodeResponsePayload(raw, profile)
+			if mapErr != nil {
+				g.recordTranscodeMappingError(route, "response", mapErr)
+				settlement.done(true)
+				_ = writeBidiEnvelope(conn, bidiWebSocketEnvelope{Type: "error", Data: transcodeErrorBody(rpc.NewError(rpc.CodeInvalidArgument, mapErr.Error()))})
+				return
+			}
+			count++
+			totalBytes += len(payload)
+			if bidirectionalStreamLimitExceeded(count, totalBytes, len(payload)) {
+				settlement.done(false)
+				_ = writeBidiEnvelope(conn, bidiWebSocketEnvelope{Type: "error", Data: transcodeErrorBody(rpc.NewError(rpc.CodeResourceExhausted, "bidirectional stream response exceeds limits"))})
+				return
+			}
+			if err := writeBidiEnvelope(conn, bidiWebSocketEnvelope{Type: "message", Data: payload}); err != nil {
+				settlement.done(true)
+				return
+			}
+		}
+	}()
+	defer func() {
+		close(bridgeDone)
+		_ = stream.Close()
+		<-receiveDone
+	}()
+
+	count := 0
+	totalBytes := 0
+	halfClosed := false
+	for {
+		type readResult struct {
+			messageType int
+			payload     []byte
+			err         error
+		}
+		read := make(chan readResult, 1)
+		go func() {
+			messageType, payload, err := conn.ReadMessage()
+			read <- readResult{messageType: messageType, payload: payload, err: err}
+		}()
+		var inbound readResult
+		select {
+		case <-receiveDone:
+			_ = conn.Close()
+			return
+		case <-ctx.Done():
+			settlement.done(true)
+			_ = conn.Close()
+			return
+		case inbound = <-read:
+		}
+		if inbound.err != nil {
+			settlement.done(true)
+			return
+		}
+		if inbound.messageType == rest.WebSocketPingMessage {
+			_ = conn.WriteMessage(rest.WebSocketPongMessage, inbound.payload)
+			continue
+		}
+		if inbound.messageType == rest.WebSocketPongMessage {
+			continue
+		}
+		if inbound.messageType != rest.WebSocketTextMessage {
+			settlement.done(true)
+			_ = writeBidiEnvelope(conn, bidiWebSocketEnvelope{Type: "error", Data: transcodeErrorBody(rpc.NewError(rpc.CodeInvalidArgument, "bidirectional stream requires text JSON envelopes"))})
+			return
+		}
+		count++
+		totalBytes += len(inbound.payload)
+		if bidirectionalStreamLimitExceeded(count, totalBytes, len(inbound.payload)) {
+			settlement.done(true)
+			_ = writeBidiEnvelope(conn, bidiWebSocketEnvelope{Type: "error", Data: transcodeErrorBody(rpc.NewError(rpc.CodeResourceExhausted, "bidirectional stream exceeds request limits"))})
+			return
+		}
+		var envelope bidiWebSocketEnvelope
+		if err := json.Unmarshal(inbound.payload, &envelope); err != nil {
+			settlement.done(true)
+			_ = writeBidiEnvelope(conn, bidiWebSocketEnvelope{Type: "error", Data: transcodeErrorBody(rpc.NewError(rpc.CodeInvalidArgument, "invalid bidirectional stream envelope"))})
+			return
+		}
+		switch envelope.Type {
+		case "message":
+			if halfClosed {
+				settlement.done(true)
+				_ = writeBidiEnvelope(conn, bidiWebSocketEnvelope{Type: "error", Data: transcodeErrorBody(rpc.NewError(rpc.CodeInvalidArgument, "bidirectional stream send side is closed"))})
+				return
+			}
+			mapped, err := transcodeRequestPayload(request, route, envelope.Data, profile)
+			if err != nil {
+				settlement.done(true)
+				_ = writeBidiEnvelope(conn, bidiWebSocketEnvelope{Type: "error", Data: transcodeErrorBody(rpc.NewError(rpc.CodeInvalidArgument, err.Error()))})
+				return
+			}
+			if err := stream.SendRaw(mapped); err != nil {
+				var inputErr *clientStreamInputError
+				settlement.done(errors.As(err, &inputErr))
+				_ = writeBidiEnvelope(conn, bidiWebSocketEnvelope{Type: "error", Data: transcodeErrorBody(err)})
+				return
+			}
+		case "half_close":
+			if halfClosed {
+				settlement.done(true)
+				_ = writeBidiEnvelope(conn, bidiWebSocketEnvelope{Type: "error", Data: transcodeErrorBody(rpc.NewError(rpc.CodeInvalidArgument, "bidirectional stream send side is already closed"))})
+				return
+			}
+			if err := stream.CloseSend(); err != nil {
+				settlement.done(false)
+				_ = writeBidiEnvelope(conn, bidiWebSocketEnvelope{Type: "error", Data: transcodeErrorBody(err)})
+				return
+			}
+			halfClosed = true
+		default:
+			settlement.done(true)
+			_ = writeBidiEnvelope(conn, bidiWebSocketEnvelope{Type: "error", Data: transcodeErrorBody(rpc.NewError(rpc.CodeInvalidArgument, "unsupported bidirectional stream envelope type"))})
+			return
+		}
+	}
+}
+
+func channelClosed(ch <-chan struct{}) bool {
+	select {
+	case <-ch:
+		return true
+	default:
+		return false
+	}
+}
+
+func writeBidiEnvelope(conn *rest.WebSocketConn, envelope bidiWebSocketEnvelope) error {
+	payload, err := json.Marshal(envelope)
+	if err != nil {
+		return err
+	}
+	return conn.WriteMessage(rest.WebSocketTextMessage, payload)
+}
+
+func bidirectionalStreamLimitExceeded(count, totalBytes, frameBytes int) bool {
+	return count > grpcClientStreamMaxMessages ||
+		frameBytes > grpcClientStreamMaxFrameBytes ||
+		totalBytes > grpcClientStreamMaxBodyBytes
+}
 
 func (g *Gateway) isClientStreamingTranscode(r *http.Request, route Route) bool {
 	if g == nil || r == nil || !route.Transcode.Enabled || !strings.EqualFold(route.Transcode.Protocol, "grpc") {

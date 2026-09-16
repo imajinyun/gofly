@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -9,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"reflect"
 	"strings"
 	"sync"
@@ -44,10 +46,14 @@ type transcodeUploadService interface {
 }
 
 type transcodeUploadServer struct {
-	received chan string
-	canceled chan struct{}
-	once     sync.Once
-	failures atomic.Int64
+	received     chan string
+	canceled     chan struct{}
+	chatCanceled chan struct{}
+	once         sync.Once
+	chatOnce     sync.Once
+	failures     atomic.Int64
+	chatFailures atomic.Int64
+	chatCancels  atomic.Int64
 }
 
 func (*transcodeUploadServer) UploadMarker() {}
@@ -93,8 +99,53 @@ func (s *transcodeUploadServer) upload(stream stdgrpc.ServerStream) error {
 	return stream.SendMsg(&healthpb.HealthCheckResponse{Status: healthpb.HealthCheckResponse_SERVING})
 }
 
+func (s *transcodeUploadServer) chat(stream stdgrpc.ServerStream) error {
+	if err := stream.SendHeader(grpcmetadata.Pairs("x-result", "chatting", "secret-bin", "private")); err != nil {
+		return err
+	}
+	holdAfterHalfClose := false
+	for {
+		request := new(healthpb.HealthCheckRequest)
+		err := stream.RecvMsg(request)
+		if errors.Is(err, io.EOF) {
+			if holdAfterHalfClose {
+				<-stream.Context().Done()
+				s.chatCancels.Add(1)
+				return status.FromContextError(stream.Context().Err()).Err()
+			}
+			stream.SetTrailer(grpcmetadata.Pairs("x-chat", "complete", "secret-bin", "private"))
+			return nil
+		}
+		if err != nil {
+			if errors.Is(stream.Context().Err(), context.Canceled) && s.chatCanceled != nil {
+				s.chatCancels.Add(1)
+				s.chatOnce.Do(func() { close(s.chatCanceled) })
+			}
+			return err
+		}
+		if request.Service == "fail" {
+			s.chatFailures.Add(1)
+			return status.Error(codes.DataLoss, "chat failed")
+		}
+		if request.Service == "hold" {
+			holdAfterHalfClose = true
+		}
+		responseStatus := healthpb.HealthCheckResponse_SERVING
+		if request.Service == "second" {
+			responseStatus = healthpb.HealthCheckResponse_NOT_SERVING
+		}
+		if err := stream.SendMsg(&healthpb.HealthCheckResponse{Status: responseStatus}); err != nil {
+			return err
+		}
+	}
+}
+
 func transcodeUploadHandler(server any, stream stdgrpc.ServerStream) error {
 	return server.(*transcodeUploadServer).upload(stream)
+}
+
+func transcodeChatHandler(server any, stream stdgrpc.ServerStream) error {
+	return server.(*transcodeUploadServer).chat(stream)
 }
 
 var transcodeUploadServiceDesc = stdgrpc.ServiceDesc{
@@ -102,6 +153,7 @@ var transcodeUploadServiceDesc = stdgrpc.ServiceDesc{
 	HandlerType: (*transcodeUploadService)(nil),
 	Streams: []stdgrpc.StreamDesc{
 		{StreamName: "Upload", Handler: transcodeUploadHandler, ClientStreams: true},
+		{StreamName: "Chat", Handler: transcodeChatHandler, ClientStreams: true, ServerStreams: true},
 	},
 }
 
@@ -168,7 +220,8 @@ func TestGatewayNativeGRPCTranscoding(t *testing.T) {
 	healthpb.RegisterHealthServer(server, transcodeHealthServer{watchStarted: watchStarted, watchCanceled: watchCanceled})
 	uploadReceived := make(chan string, 8)
 	uploadCanceled := make(chan struct{})
-	uploadService := &transcodeUploadServer{received: uploadReceived, canceled: uploadCanceled}
+	chatCanceled := make(chan struct{})
+	uploadService := &transcodeUploadServer{received: uploadReceived, canceled: uploadCanceled, chatCanceled: chatCanceled}
 	server.RegisterService(&transcodeUploadServiceDesc, uploadService)
 	done := make(chan error, 1)
 	go func() { done <- server.Serve(listener) }()
@@ -190,9 +243,10 @@ func TestGatewayNativeGRPCTranscoding(t *testing.T) {
 		Dependency: []string{healthFile.GetName()},
 		Service: []*descriptorpb.ServiceDescriptorProto{{
 			Name: proto.String("Streams"),
-			Method: []*descriptorpb.MethodDescriptorProto{{
-				Name: proto.String("Upload"), InputType: proto.String(".grpc.health.v1.HealthCheckRequest"), OutputType: proto.String(".grpc.health.v1.HealthCheckResponse"), ClientStreaming: proto.Bool(true),
-			}},
+			Method: []*descriptorpb.MethodDescriptorProto{
+				{Name: proto.String("Upload"), InputType: proto.String(".grpc.health.v1.HealthCheckRequest"), OutputType: proto.String(".grpc.health.v1.HealthCheckResponse"), ClientStreaming: proto.Bool(true)},
+				{Name: proto.String("Chat"), InputType: proto.String(".grpc.health.v1.HealthCheckRequest"), OutputType: proto.String(".grpc.health.v1.HealthCheckResponse"), ClientStreaming: proto.Bool(true), ServerStreaming: proto.Bool(true)},
+			},
 		}},
 	}
 	set := &descriptorpb.FileDescriptorSet{File: []*descriptorpb.FileDescriptorProto{healthFile, streamFile}}
@@ -208,7 +262,7 @@ func TestGatewayNativeGRPCTranscoding(t *testing.T) {
 			{Name: "Chat", Mode: rpc.StreamModeBidiStream},
 		},
 	}
-	uploadDescriptor := rpc.Descriptor{Name: "gateway.test.Streams", Streams: []rpc.StreamDescriptor{{Name: "Upload", Mode: rpc.StreamModeClientStream}}}
+	uploadDescriptor := rpc.Descriptor{Name: "gateway.test.Streams", Streams: []rpc.StreamDescriptor{{Name: "Upload", Mode: rpc.StreamModeClientStream}, {Name: "Chat", Mode: rpc.StreamModeBidiStream}}}
 	route := Route{
 		Name:       "native",
 		Method:     http.MethodPost,
@@ -279,6 +333,7 @@ func TestGatewayNativeGRPCTranscoding(t *testing.T) {
 		ts := httptest.NewServer(uploadGateway)
 		t.Cleanup(ts.Close)
 		reader, writer := io.Pipe()
+		t.Cleanup(func() { _ = writer.Close() })
 		request, err := http.NewRequestWithContext(t.Context(), http.MethodPost, ts.URL+"/native-upload/Upload", reader)
 		if err != nil {
 			t.Fatal(err)
@@ -358,23 +413,25 @@ func TestGatewayNativeGRPCTranscoding(t *testing.T) {
 		}
 		select {
 		case <-uploadReceived:
-		case <-time.After(time.Second):
+		case <-time.After(5 * time.Second):
 			t.Fatal("client stream did not receive message before cancellation")
 		}
 		before := uploadGateway.breakerFor(uploadRoute).Snapshot()
 		cancel()
-		_ = writer.Close()
 		select {
 		case <-uploadCanceled:
-		case <-time.After(time.Second):
+		case <-time.After(5 * time.Second):
 			t.Fatal("HTTP cancellation did not cancel client stream")
+		}
+		if err := writer.Close(); err != nil {
+			t.Fatal(err)
 		}
 		select {
 		case <-done:
-		case <-time.After(time.Second):
+		case <-time.After(5 * time.Second):
 			t.Fatal("HTTP client did not return after cancellation")
 		}
-		deadline := time.Now().Add(time.Second)
+		deadline := time.Now().Add(5 * time.Second)
 		for {
 			after := uploadGateway.breakerFor(uploadRoute).Snapshot()
 			if after.Requests == before.Requests+1 {
@@ -464,6 +521,209 @@ func TestGatewayNativeGRPCTranscoding(t *testing.T) {
 		deadlineGateway.ServeHTTP(recorder, request)
 		if recorder.Code != http.StatusGatewayTimeout || !strings.Contains(recorder.Body.String(), "deadline_exceeded") {
 			t.Fatalf("status=%d body=%s, want route deadline", recorder.Code, recorder.Body.String())
+		}
+	})
+	t.Run("bidirectional stream interleaves messages and half closes", func(t *testing.T) {
+		bidiRoute := uploadRoute
+		bidiRoute.Name = "native-chat"
+		bidiRoute.Method = http.MethodGet
+		bidiRoute.PathPrefix = "/native-chat"
+		bidiGateway, err := New([]Route{bidiRoute}, WithDescriptors(uploadDescriptor), WithTranscoderFactory(factory))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = bidiGateway.Close() })
+		server := httptest.NewServer(bidiGateway)
+		t.Cleanup(server.Close)
+
+		conn, rw := dialGatewayWebSocket(t, server.URL, "/native-chat/Chat", "Sec-WebSocket-Protocol: gofly.grpc.bidi.v1")
+		defer conn.Close()
+		writeGatewayClientFrame(t, rw, 1, []byte("{\"type\":\"message\",\"data\":{\"service\":\"first\"}}"))
+		messageType, payload := readGatewayServerFrame(t, rw)
+		if messageType != 1 || !strings.Contains(string(payload), "\"type\":\"headers\"") || !strings.Contains(string(payload), "\"x-result\":\"chatting\"") {
+			t.Fatalf("first websocket envelope type=%d payload=%s, want headers", messageType, payload)
+		}
+		messageType, payload = readGatewayServerFrame(t, rw)
+		if messageType != 1 || string(payload) != "{\"type\":\"message\",\"data\":{\"status\":\"SERVING\"}}" {
+			t.Fatalf("first response type=%d payload=%s", messageType, payload)
+		}
+		writeGatewayClientFrame(t, rw, 1, []byte("{\"type\":\"message\",\"data\":{\"service\":\"second\"}}"))
+		messageType, payload = readGatewayServerFrame(t, rw)
+		if messageType != 1 || string(payload) != "{\"type\":\"message\",\"data\":{\"status\":\"NOT_SERVING\"}}" {
+			t.Fatalf("second response type=%d payload=%s", messageType, payload)
+		}
+		writeGatewayClientFrame(t, rw, 1, []byte("{\"type\":\"half_close\"}"))
+		messageType, payload = readGatewayServerFrame(t, rw)
+		if messageType != 1 || !strings.Contains(string(payload), "\"type\":\"trailers\"") || !strings.Contains(string(payload), "\"x-chat\":\"complete\"") {
+			t.Fatalf("trailers type=%d payload=%s", messageType, payload)
+		}
+		messageType, payload = readGatewayServerFrame(t, rw)
+		if messageType != 1 || string(payload) != "{\"type\":\"complete\"}" {
+			t.Fatalf("complete type=%d payload=%s", messageType, payload)
+		}
+	})
+	t.Run("bidirectional stream requires subprotocol", func(t *testing.T) {
+		bidiRoute := uploadRoute
+		bidiRoute.Name = "native-chat-subprotocol"
+		bidiRoute.Method = http.MethodGet
+		bidiRoute.PathPrefix = "/native-chat-subprotocol"
+		bidiGateway, err := New([]Route{bidiRoute}, WithDescriptors(uploadDescriptor), WithTranscoderFactory(factory))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = bidiGateway.Close() })
+		server := httptest.NewServer(bidiGateway)
+		t.Cleanup(server.Close)
+		u, err := url.Parse(server.URL)
+		if err != nil {
+			t.Fatal(err)
+		}
+		conn, err := net.Dial("tcp", u.Host)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer conn.Close()
+		if _, err := fmt.Fprintf(conn, "GET /native-chat-subprotocol/Chat HTTP/1.1\r\nHost: %s\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: Z29mbHk=\r\n\r\n", u.Host); err != nil {
+			t.Fatal(err)
+		}
+		response, err := http.ReadResponse(bufio.NewReader(conn), &http.Request{Method: http.MethodGet})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer response.Body.Close()
+		if response.StatusCode != http.StatusBadRequest {
+			t.Fatalf("status=%d, want 400 without bidi subprotocol", response.StatusCode)
+		}
+	})
+	t.Run("bidirectional stream maps local and upstream errors", func(t *testing.T) {
+		bidiRoute := uploadRoute
+		bidiRoute.Name = "native-chat-errors"
+		bidiRoute.Method = http.MethodGet
+		bidiRoute.PathPrefix = "/native-chat-errors"
+		bidiRoute.Breaker.MinRequests = 100
+		bidiGateway, err := New([]Route{bidiRoute}, WithDescriptors(uploadDescriptor), WithTranscoderFactory(factory), WithPassiveHealth(PassiveHealthConfig{Enabled: true, FailureThreshold: 1}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = bidiGateway.Close() })
+		server := httptest.NewServer(bidiGateway)
+		t.Cleanup(server.Close)
+
+		before := bidiGateway.breakerFor(bidiRoute).Snapshot()
+		conn, rw := dialGatewayWebSocket(t, server.URL, "/native-chat-errors/Chat", "Sec-WebSocket-Protocol: gofly.grpc.bidi.v1")
+		writeGatewayClientFrame(t, rw, 1, []byte("{\"type\":\"message\",\"data\":{\"unknown\":true}}"))
+		_, payload := readGatewayServerFrame(t, rw)
+		if strings.Contains(string(payload), "\"type\":\"headers\"") {
+			_, payload = readGatewayServerFrame(t, rw)
+		}
+		if !strings.Contains(string(payload), "\"type\":\"error\"") || !strings.Contains(string(payload), "invalid protobuf JSON request") {
+			t.Fatalf("local error envelope=%s", payload)
+		}
+		_ = conn.Close()
+		if after := bidiGateway.breakerFor(bidiRoute).Snapshot(); after.Requests != before.Requests+1 || after.Success != before.Success+1 {
+			t.Fatalf("local error changed breaker as upstream failure: before=%+v after=%+v", before, after)
+		}
+
+		before = bidiGateway.breakerFor(bidiRoute).Snapshot()
+		beforeFailures := uploadService.chatFailures.Load()
+		conn, rw = dialGatewayWebSocket(t, server.URL, "/native-chat-errors/Chat", "Sec-WebSocket-Protocol: gofly.grpc.bidi.v1")
+		writeGatewayClientFrame(t, rw, 1, []byte("{\"type\":\"message\",\"data\":{\"service\":\"fail\"}}"))
+		_, payload = readGatewayServerFrame(t, rw)
+		if strings.Contains(string(payload), "\"type\":\"headers\"") {
+			_, payload = readGatewayServerFrame(t, rw)
+		}
+		if !strings.Contains(string(payload), "\"type\":\"error\"") || !strings.Contains(string(payload), "chat failed") {
+			t.Fatalf("upstream error envelope=%s", payload)
+		}
+		_ = conn.Close()
+		if failures := uploadService.chatFailures.Load() - beforeFailures; failures != 1 {
+			t.Fatalf("bidirectional failed calls = %d, want exactly one without replay", failures)
+		}
+		deadline := time.Now().Add(time.Second)
+		for {
+			after := bidiGateway.breakerFor(bidiRoute).Snapshot()
+			if after.Requests == before.Requests+1 {
+				if after.Failures != before.Failures+1 {
+					t.Fatalf("upstream failure breaker: before=%+v after=%+v", before, after)
+				}
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("upstream failure was not settled: %+v", after)
+			}
+			time.Sleep(time.Millisecond)
+		}
+		if !hasEjectedEndpoint(bidiGateway.passive.Snapshot(), bidiRoute.Targets[0]) {
+			t.Fatalf("passive health did not record bidirectional failure: %+v", bidiGateway.passive.Snapshot())
+		}
+	})
+	t.Run("bidirectional stream disconnect cancels upstream", func(t *testing.T) {
+		bidiRoute := uploadRoute
+		bidiRoute.Name = "native-chat-cancel"
+		bidiRoute.Method = http.MethodGet
+		bidiRoute.PathPrefix = "/native-chat-cancel"
+		bidiGateway, err := New([]Route{bidiRoute}, WithDescriptors(uploadDescriptor), WithTranscoderFactory(factory))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = bidiGateway.Close() })
+		server := httptest.NewServer(bidiGateway)
+		t.Cleanup(server.Close)
+		before := bidiGateway.breakerFor(bidiRoute).Snapshot()
+		conn, rw := dialGatewayWebSocket(t, server.URL, "/native-chat-cancel/Chat", "Sec-WebSocket-Protocol: gofly.grpc.bidi.v1")
+		writeGatewayClientFrame(t, rw, 1, []byte("{\"type\":\"message\",\"data\":{\"service\":\"first\"}}"))
+		_, _ = readGatewayServerFrame(t, rw)
+		_, _ = readGatewayServerFrame(t, rw)
+		if err := conn.Close(); err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case <-chatCanceled:
+		case <-time.After(time.Second):
+			t.Fatal("websocket disconnect did not cancel upstream bidirectional stream")
+		}
+		deadline := time.Now().Add(time.Second)
+		for {
+			after := bidiGateway.breakerFor(bidiRoute).Snapshot()
+			if after.Requests == before.Requests+1 {
+				if after.Success != before.Success+1 {
+					t.Fatalf("disconnect poisoned breaker: before=%+v after=%+v", before, after)
+				}
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("disconnect settlement missing: %+v", after)
+			}
+			time.Sleep(time.Millisecond)
+		}
+	})
+	t.Run("bidirectional stream half close still observes disconnect", func(t *testing.T) {
+		bidiRoute := uploadRoute
+		bidiRoute.Name = "native-chat-half-close-cancel"
+		bidiRoute.Method = http.MethodGet
+		bidiRoute.PathPrefix = "/native-chat-half-close-cancel"
+		bidiGateway, err := New([]Route{bidiRoute}, WithDescriptors(uploadDescriptor), WithTranscoderFactory(factory))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = bidiGateway.Close() })
+		server := httptest.NewServer(bidiGateway)
+		t.Cleanup(server.Close)
+		before := uploadService.chatCancels.Load()
+		conn, rw := dialGatewayWebSocket(t, server.URL, "/native-chat-half-close-cancel/Chat", "Sec-WebSocket-Protocol: gofly.grpc.bidi.v1")
+		writeGatewayClientFrame(t, rw, 1, []byte("{\"type\":\"message\",\"data\":{\"service\":\"hold\"}}"))
+		_, _ = readGatewayServerFrame(t, rw)
+		_, _ = readGatewayServerFrame(t, rw)
+		writeGatewayClientFrame(t, rw, 1, []byte("{\"type\":\"half_close\"}"))
+		if err := conn.Close(); err != nil {
+			t.Fatal(err)
+		}
+		deadline := time.Now().Add(time.Second)
+		for uploadService.chatCancels.Load() == before {
+			if time.Now().After(deadline) {
+				t.Fatal("websocket disconnect after half close did not cancel upstream stream")
+			}
+			time.Sleep(time.Millisecond)
 		}
 	})
 	t.Run("server stream uses SSE", func(t *testing.T) {
@@ -700,5 +960,27 @@ func TestGRPCTranscoderFactoryBoundaries(t *testing.T) {
 	}
 	if first == second {
 		t.Fatal("route-sensitive clients shared")
+	}
+}
+
+func TestBidirectionalStreamLimits(t *testing.T) {
+	tests := []struct {
+		name       string
+		count      int
+		totalBytes int
+		frameBytes int
+		want       bool
+	}{
+		{name: "within all limits", count: grpcClientStreamMaxMessages, totalBytes: grpcClientStreamMaxBodyBytes, frameBytes: grpcClientStreamMaxFrameBytes},
+		{name: "message count exceeded", count: grpcClientStreamMaxMessages + 1, want: true},
+		{name: "aggregate payload exceeded", totalBytes: grpcClientStreamMaxBodyBytes + 1, want: true},
+		{name: "frame exceeded", frameBytes: grpcClientStreamMaxFrameBytes + 1, want: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := bidirectionalStreamLimitExceeded(tc.count, tc.totalBytes, tc.frameBytes); got != tc.want {
+				t.Fatalf("bidirectionalStreamLimitExceeded(%d, %d, %d) = %t, want %t", tc.count, tc.totalBytes, tc.frameBytes, got, tc.want)
+			}
+		})
 	}
 }

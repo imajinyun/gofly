@@ -2909,6 +2909,13 @@ func TestAIProjectVerificationHelpers(t *testing.T) {
 		}
 	})
 
+	t.Run("gofmt verification permits fresh module sums", func(t *testing.T) {
+		got := goFlagsWithModuleUpdates("-count=1 -mod=readonly -shuffle=on")
+		if got != "-count=1 -shuffle=on -mod=mod" {
+			t.Fatalf("goFlagsWithModuleUpdates = %q, want preserved flags with mod updates", got)
+		}
+	})
+
 	t.Run("truncates large verification output", func(t *testing.T) {
 		got := truncateVerificationOutput(strings.Repeat("x", 5000))
 		if len(got) >= 5000 || !strings.Contains(got, "truncated") {
